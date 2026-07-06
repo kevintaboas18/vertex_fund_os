@@ -9,6 +9,7 @@ import requests
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 import yfinance as yf
 from pydantic import BaseModel, Field
 from google import genai
@@ -25,8 +26,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-API_KEY = os.environ.get("GEMINI_API_KEY", "")
-client_gemini = genai.Client(api_key=API_KEY)
+@app.get("/", response_class=HTMLResponse)
+def serve_frontend():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    html_path = os.path.join(base_dir, "vertex_fund_os_platform.html")
+    if os.path.exists(html_path):
+        with open(html_path, "r", encoding="utf-8") as file:
+            return file.read()
+    return "<h1>Vertex OS Error: Frontend no encontrado en el servidor.</h1>", 404
 
 
 # ─────────────────────────────────────────────────────────────────────────────
