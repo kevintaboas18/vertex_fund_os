@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+numpy
+requests
+yfinance
+pydantic
+google-genai
