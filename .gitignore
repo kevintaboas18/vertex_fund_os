@@ -1,0 +1,6 @@
+start_vertex.bat
+vertex.env
+vertex.db
+__pycache__/
+.venv/
+venv/
