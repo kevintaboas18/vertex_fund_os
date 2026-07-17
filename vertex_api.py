@@ -6318,6 +6318,55 @@ def _wbj_explain(context_text, temp=0.3):
     return None, None
 
 
+# ── ENGINE DETERMINISTA DE VICTOR (sin LLM) para los scores de las 6 categorías ──
+_WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine")
+
+def _engine_scorecard(ticker, info, price):
+    """Calcula el scorecard de 6 categorías con el ENGINE de Victor (código
+    determinista, sin LLM): Business/Financial/Risk desde EDGAR (su quick_scorecard)
+    + Market/Technical/Valuation desde los scorers deterministas. Devuelve el dict
+    del engine o None si el engine/red/datos no están disponibles (→ fallback LLM)."""
+    try:
+        import sys
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.cli import _build_packet          # paquete EDGAR de Victor (gratis, sin key)
+        from wbj.full import full_scorecard
+    except Exception as e:
+        print(f"[engine] no disponible (deps/import): {str(e)[:160]}")
+        return None
+    try:
+        packet = _build_packet(ticker)
+    except Exception as e:
+        print(f"[engine] packet EDGAR falló para {ticker}: {str(e)[:160]}")
+        return None
+    ohlcv = {}
+    try:
+        h = _resilient_history(yf.Ticker(ticker), ticker, "1y")   # OHLCV 1 año para Technical
+        if h is not None and not h.empty:
+            ohlcv = {"closes":  [float(x) for x in h["Close"].tolist()],
+                     "highs":   [float(x) for x in h["High"].tolist()],
+                     "lows":    [float(x) for x in h["Low"].tolist()],
+                     "volumes": [float(x) for x in h["Volume"].tolist()]}
+    except Exception:
+        ohlcv = {}
+    est = {}
+    try:
+        if info.get("earningsGrowth") is not None:
+            est["eps_growth"] = float(info["earningsGrowth"])
+        _tmp = info.get("targetMeanPrice")
+        if _tmp and price:
+            est["analyst_upside"] = float(_tmp) / float(price) - 1.0
+    except Exception:
+        pass
+    try:
+        return full_scorecard(packet, ohlcv=ohlcv, price=price,
+                              market_cap=info.get("marketCap"), estimates=est or None)
+    except Exception as e:
+        print(f"[engine] full_scorecard falló: {str(e)[:160]}")
+        return None
+
+
 @app.get("/api/analyze")
 def analyze_ticker(ticker: str):
     ticker = ticker.upper().strip()
@@ -6559,9 +6608,21 @@ REFERENCIAS DE PRECIO YA CALCULADAS (motor σ/DCF de Vertex — evidencia técni
 
         analisis_json, _analysis_src = _wbj_analyze_structured(prompt, temp=0.2)
 
-        # ── AGENTE PRINCIPAL: recalcula puntos, cobertura y confianza; aplica gates + overrides ──
-        _sc = analisis_json.get("scorecard", {}) or {}
-        comp = _wbj_compute(_sc)
+        # ── SCORES: PRIMERO el ENGINE DETERMINISTA de Victor (sin LLM). El LLM NO
+        #    puntúa — solo aporta narrativa y, en el 2º pase, explica. Si el engine
+        #    no está disponible (deps/red/EDGAR), se cae al scorecard del LLM. ──
+        _eng = _engine_scorecard(ticker, info, precio_actual)
+        if _eng and _eng.get("categories"):
+            comp = {"categories": _eng["categories"], "raw_total": _eng["raw_total"],
+                    "total_confidence": _eng["total_confidence"], "incomplete": _eng.get("incomplete", []),
+                    "coverage_min": min((c.get("coverage", 0.0) for c in _eng["categories"].values()), default=0.0)}
+            scores_source = "engine determinista (metodología de Victor · sin LLM)"
+            evidence_pts = _eng.get("evidence_points_covered")
+        else:
+            _sc = analisis_json.get("scorecard", {}) or {}
+            comp = _wbj_compute(_sc)
+            scores_source = "estimación LLM (engine no disponible — fallback)"
+            evidence_pts = None
         gates = _wbj_gates(comp)
 
         # Override de valor/solvencia best-effort desde 'info' (además de lo que refleje el LLM en risk/valuation)
@@ -6605,7 +6666,9 @@ REFERENCIAS DE PRECIO YA CALCULADAS (motor σ/DCF de Vertex — evidencia técni
             "profile": gates["profile"], "classification": gates["classification"],
             "passed_gates": gates["passed_gates"], "failed_gates": gates["failed_gates"],
             "overrides": gates["overrides"], "incomplete_categories": comp["incomplete"],
-            "computed_levels": computed_levels}
+            "computed_levels": computed_levels,
+            "scores_source": scores_source, "evidence_points_covered": evidence_pts}
+        analisis_json["scores_source"] = scores_source
         # ── Capas aditivas deterministas (NO mutan scores): coherencia + confluencia ──
         analisis_json["wbj"]["coherence_flags"] = _wbj_coherence(comp, gates)
         _all_levels = list(computed_levels) + list(analisis_json.get("important_levels", []) or [])

@@ -6,3 +6,7 @@ yfinance
 pydantic
 google-genai
 python-dotenv
+scipy
+httpx
+typer
+pandas

@@ -158,7 +158,8 @@
                 </h3>
                 <span id="wScoreEvidence" class="text-[10px] text-gray-500 font-mono"></span>
             </div>
-            <p class="text-[11px] text-gray-500 italic mb-4">1–10 por categoría con su cobertura de evidencia. NOT_SCORABLE = sin datos (no se inventa).</p>
+            <p class="text-[11px] text-gray-500 italic mb-1">1–10 por categoría con su cobertura de evidencia. NOT_SCORABLE = sin datos (no se inventa).</p>
+            <p id="wScoreSource" class="text-[10px] text-blue-400/80 mb-4"></p>
             <div id="wScorecard" class="space-y-3"></div>
         </div>
 
@@ -438,6 +439,8 @@
                 <i data-lucide="shield-alert" class="w-3.5 h-3.5 mt-0.5 flex-shrink-0"></i><span>${o}</span></div>`).join('');
 
         renderExplicacion(a, w);
+        const srcNode = document.getElementById('wScoreSource');
+        if (srcNode) srcNode.innerText = w.scores_source ? `Fuente de los scores: ${w.scores_source}` : '';
         renderScorecard(w.categories || {});
         renderThesis(a);
         renderValuation(a, data);
