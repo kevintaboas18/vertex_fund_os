@@ -1,0 +1,16 @@
+[
+  {
+    "holder": "Vanguard Group Inc",
+    "shares": 1580000000,
+    "dateReported": "2026-03-31",
+    "change": 12500000,
+    "symbol": "NVDA"
+  },
+  {
+    "holder": "BlackRock Inc",
+    "shares": 1340000000,
+    "dateReported": "2026-03-31",
+    "change": -3200000,
+    "symbol": "NVDA"
+  }
+]

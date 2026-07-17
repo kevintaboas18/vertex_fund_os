@@ -16,6 +16,28 @@ from google import genai
 from google.genai import types
 from urllib.parse import urlparse
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CARGA DE CREDENCIALES
+# Lee vertex.env (gitignored) hacia el entorno para que TODAS las API keys
+# (GEMINI/OPENAI/FINNHUB/QUANTDATA/XAI/PLAID/SNAPTRADE…) queden disponibles
+# vía os.environ. Nunca se imprime ni se commitea su contenido.
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    from dotenv import load_dotenv
+    _ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vertex.env")
+    load_dotenv(_ENV_PATH)                 # no falla si el archivo no existe
+except Exception:
+    pass  # sin python-dotenv: se usan las variables ya presentes en el entorno
+
+# Cliente Gemini (modelo principal de la IA). GEMINI_API_KEY vive en vertex.env.
+# Si no hay key, client_gemini queda en None y los endpoints de IA degradan a
+# sus respaldos (OpenAI/Grok) o devuelven un error limpio en vez de romper.
+API_KEY = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
+try:
+    client_gemini = genai.Client(api_key=API_KEY) if API_KEY else None
+except Exception:
+    client_gemini = None
+
 app = FastAPI(title="Vertex Fund OS Core")
 
 app.add_middleware(
@@ -28,12 +50,25 @@ app.add_middleware(
 
 @app.get("/", response_class=HTMLResponse)
 def serve_frontend():
+    """Sirve el terminal WBJ (framework Ruta 2030 v2.0.0). Respaldo: el HTML anterior."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    for fname in ("vertex_wbj_terminal.html", "vertex_fund_os_platform.html"):
+        html_path = os.path.join(base_dir, fname)
+        if os.path.exists(html_path):
+            with open(html_path, "r", encoding="utf-8") as file:
+                return file.read()
+    return "<h1>Vertex OS Error: Frontend no encontrado en el servidor.</h1>", 404
+
+
+@app.get("/legacy", response_class=HTMLResponse)
+def serve_frontend_legacy():
+    """Interfaz anterior (framework de 7 señales) por si se necesita comparar."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     html_path = os.path.join(base_dir, "vertex_fund_os_platform.html")
     if os.path.exists(html_path):
         with open(html_path, "r", encoding="utf-8") as file:
             return file.read()
-    return "<h1>Vertex OS Error: Frontend no encontrado en el servidor.</h1>", 404
+    return "<h1>Legacy frontend no encontrado.</h1>", 404
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +141,7 @@ def _stooq_series(ticker, period="1y"):
         r = requests.get(url, timeout=8)
         if r.status_code != 200 or not r.text or "Date" not in r.text[:64]:
             return []
-        days = {"2y": 730, "1y": 365, "6mo": 183, "3mo": 92, "2mo": 62, "1mo": 31}.get(period, 365)
+        days = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92, "2mo": 62, "1mo": 31}.get(period, 365)
         cutoff = time.time() - days * 86400
         out = []
         for line in r.text.strip().splitlines()[1:]:
@@ -141,7 +176,7 @@ def _resilient_history(stock, ticker, period):
         r = requests.get(f"https://stooq.com/q/d/l/?s={sym}.us&i=d", timeout=8)
         if r.status_code != 200 or not r.text or "Date" not in r.text[:64]:
             return None
-        days = {"2y": 730, "1y": 365, "6mo": 183, "3mo": 92, "2mo": 62, "1mo": 31}.get(period, 365)
+        days = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92, "2mo": 62, "1mo": 31}.get(period, 365)
         cutoff = time.time() - days * 86400
         rows = []
         for line in r.text.strip().splitlines()[1:]:
@@ -5760,6 +5795,711 @@ def _agent_coherence_checks(aj, spot):
     return flags
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# FRAMEWORK WBJ — "Warren Buffett Jr" / Ruta 2030 Wall Street Agent System v2.0.0
+# 6 especialistas independientes, 100 puntos, evidencia obligatoria.
+# Regla innegociable: sin evidencia no hay número; sin número no hay score;
+# sin fórmula no hay conclusión. Sin datos → NOT_SCORABLE (nunca 5/10 de relleno).
+# Score y confianza son cosas separadas. Fuente: /Cerebro (base de conocimiento).
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Cada dimensión ya está expresada en PUNTOS DE CATEGORÍA (suman el máximo de la
+# categoría), así: category_points = Σ dim_max * score/10 sobre dims con evidencia.
+WBJ_CATEGORIES = {
+    "business":  {"max": 20, "label": "Business", "dims": [
+        ("moat_pricing_power",            "Moat y pricing power", 5),
+        ("competitive_position",          "Posición competitiva", 4),
+        ("management_capital_allocation", "Management y asignación de capital", 4),
+        ("business_durability",           "Durabilidad del negocio", 4),
+        ("customer_economics",            "Economía del cliente", 3)]},
+    "financial": {"max": 15, "label": "Financial", "dims": [
+        ("revenue_quality_growth",           "Calidad y crecimiento de ingresos", 3),
+        ("eps_fcf",                          "EPS y free cash flow", 3),
+        ("margins",                          "Márgenes", 3),
+        ("balance_liquidity",                "Balance y liquidez", 3),
+        ("cash_conversion_capital_efficiency","Conversión de caja y eficiencia de capital", 3)]},
+    "market":    {"max": 20, "label": "Market & Growth", "dims": [
+        ("tam_tailwind",       "TAM y viento de cola de la industria", 5),
+        ("revisions",          "Revisiones de earnings/ingresos", 4),
+        ("catalysts",          "Catalizadores de producto/negocio", 4),
+        ("growth_runway",      "Pista de crecimiento y captura de share", 4),
+        ("operating_leverage", "Apalancamiento operativo y confirmación de mercado", 3)]},
+    "technical": {"max": 20, "label": "Technical & Momentum", "dims": [
+        ("primary_trend",       "Tendencia primaria de precio", 4),
+        ("relative_strength",   "Fuerza relativa", 4),
+        ("volume_demand",       "Volumen y demanda institucional", 3),
+        ("earnings_gap",        "Comportamiento en gaps de earnings", 3),
+        ("breakout_base",       "Calidad de base y breakout", 3),
+        ("breadth_volatility",  "Amplitud sectorial y calidad de volatilidad", 3)]},
+    "risk":      {"max": 15, "label": "Risk & Resilience", "dims": [
+        ("financing_balance_sheet",   "Riesgo de financiamiento y balance", 3),
+        ("concentration",             "Riesgo de competencia y concentración", 3),
+        ("execution_earnings_quality","Riesgo de ejecución y calidad de earnings", 3),
+        ("regulatory_legal_macro",    "Riesgo regulatorio, legal y macro", 2),
+        ("valuation_compression",     "Riesgo de compresión de múltiplo", 2),
+        ("volatility_drawdown",       "Riesgo de volatilidad y drawdown", 2)]},
+    "valuation": {"max": 10, "label": "Valuation", "dims": [
+        ("growth_adjusted_multiples","Múltiplos ajustados por crecimiento", 3),
+        ("historical_peer",          "Comparación histórica y con pares", 2),
+        ("cashflow_earnings_yield",  "Yield de caja y earnings", 2),
+        ("fair_value_scenarios",     "Valor justo por escenarios", 2),
+        ("margin_of_safety",         "Margen de seguridad", 1)]},
+}
+WBJ_ORDER = ["business", "financial", "market", "technical", "risk", "valuation"]
+
+
+class WBJDim(BaseModel):
+    score: float = Field(..., description="Score económico 0-10 (10 = máximamente favorable). Usa -1 SOLO si NOT_SCORABLE: no hay evidencia/número para puntuar (jamás rellenes con 5).")
+    confidence: int = Field(..., description="Confianza 0-100 en la EVIDENCIA de esta dimensión (cobertura, calidad de fuente, frescura). Separada del score: score alto con evidencia vieja/escasa lleva confianza baja.")
+    nota: str = Field(..., description="Una línea citando el dato/número concreto que sustenta el score (p.ej. 'ROIC 18% vs WACC 9% en 5/5 años'). Sin número → declara NOT_SCORABLE.")
+
+class WBJBusiness(BaseModel):
+    moat_pricing_power: WBJDim; competitive_position: WBJDim
+    management_capital_allocation: WBJDim; business_durability: WBJDim; customer_economics: WBJDim
+class WBJFinancial(BaseModel):
+    revenue_quality_growth: WBJDim; eps_fcf: WBJDim; margins: WBJDim
+    balance_liquidity: WBJDim; cash_conversion_capital_efficiency: WBJDim
+class WBJMarket(BaseModel):
+    tam_tailwind: WBJDim; revisions: WBJDim; catalysts: WBJDim
+    growth_runway: WBJDim; operating_leverage: WBJDim
+class WBJTechnical(BaseModel):
+    primary_trend: WBJDim; relative_strength: WBJDim; volume_demand: WBJDim
+    earnings_gap: WBJDim; breakout_base: WBJDim; breadth_volatility: WBJDim
+class WBJRisk(BaseModel):
+    financing_balance_sheet: WBJDim; concentration: WBJDim; execution_earnings_quality: WBJDim
+    regulatory_legal_macro: WBJDim; valuation_compression: WBJDim; volatility_drawdown: WBJDim
+class WBJValuation(BaseModel):
+    growth_adjusted_multiples: WBJDim; historical_peer: WBJDim; cashflow_earnings_yield: WBJDim
+    fair_value_scenarios: WBJDim; margin_of_safety: WBJDim
+
+class WBJScorecard(BaseModel):
+    business: WBJBusiness; financial: WBJFinancial; market: WBJMarket
+    technical: WBJTechnical; risk: WBJRisk; valuation: WBJValuation
+
+class WBJScenario(BaseModel):
+    scenario: str = Field(..., description="'Bear', 'Base' o 'Bull'.")
+    value: float = Field(..., description="Valor intrínseco por acción del escenario (número, no un rango).")
+    assumptions: str = Field(..., description="Supuestos declarados: crecimiento y margen asumidos, método (DCF/múltiplo). Sin supuestos, el número no significa nada.")
+
+class WBJLevel(BaseModel):
+    tipo: str = Field(..., description="Clase de nivel (p.ej. 'Soporte confirmado', 'Resistencia', 'SMA200', 'Bull intrínseco', 'Reverse-DCF implícito').")
+    lente: str = Field(..., description="'Técnico' o 'Valuación'. Nunca se promedian entre sí.")
+    valor: float = Field(..., description="Precio del nivel/zona.")
+    nota: str = Field(..., description="Confirmación/invalidación o supuesto. Lenguaje de referencia, nunca 'target garantizado'.")
+
+class WBJReport(BaseModel):
+    scorecard: WBJScorecard = Field(..., description="Los 6 especialistas puntuados de forma independiente. Cada dimensión 0-10 (o -1 NOT_SCORABLE) + confianza + nota con número.")
+    # Resumen ejecutivo (las 7 frases obligatorias del FINAL_REPORT_SCHEMA)
+    what_company_does: str = Field(..., description="Qué hace económicamente la compañía, en simple.")
+    value_creation_durability: str = Field(..., description="Por qué la creación de valor es o no durable (ROIC vs WACC, moat).")
+    growth_funding: str = Field(..., description="Qué está financiando el crecimiento (FCF propio vs capital externo/dilución/deuda).")
+    market_validation: str = Field(..., description="Si el mercado valida hoy la tesis (revisiones, técnicos, breadth).")
+    price_implied_assumptions: str = Field(..., description="Qué supuestos parece exigir el precio actual (reverse-DCF: crecimiento/margen implícitos).")
+    nearest_key_levels: str = Field(..., description="Los soportes/resistencias y referencias de valor intrínseco más cercanos y relevantes.")
+    top_invalidation_risk: str = Field(..., description="El único riesgo de invalidación más importante de la tesis.")
+    executive_summary: str = Field(..., description="Síntesis ejecutiva de una página, en prosa. La narrativa sigue a los números: cada adjetivo material apunta a una métrica, gate o regla.")
+    company_summary_simple: str = Field(..., description="Qué hace la empresa y cómo gana dinero, para cualquier inversor.")
+    valuation_scenarios: list[WBJScenario] = Field(..., description="Bear/Base/Bull de valor intrínseco con supuestos declarados. Nunca un único punto.")
+    reverse_dcf: str = Field(..., description="Qué crecimiento/retornos implica el precio actual (reverse DCF) y si son plausibles frente a la capacidad evidenciada.")
+    thesis_killers: list[str] = Field(..., description="Exactamente 3 'thesis killers': los eventos concretos que romperían la tesis.")
+    monitoring_triggers: list[str] = Field(..., description="Disparadores concretos y verificables que obligarían a recalcular (earnings, nivel técnico, revisión de estimados, financiamiento).")
+    important_levels: list[WBJLevel] = Field(..., description="Niveles de valuación (intrínsecos) y zonas técnicas por separado. Marca lente Técnico/Valuación en cada uno.")
+    revisit_when: str = Field(..., description="Si la clasificación es 'evitar', fecha o evento concreto para revisitar el análisis. Si no aplica, ''.")
+    fair_value: float = Field(..., description="Valor justo base (número). Debe ser el escenario Base de valuation_scenarios.")
+    fair_value_low: float = Field(..., description="Extremo bajo del rango (escenario Bear de valor intrínseco).")
+    fair_value_high: float = Field(..., description="Extremo alto del rango (escenario Bull de valor intrínseco).")
+    probabilities: TradeProbabilities = Field(..., description="Probabilidades calibradas ancladas en base-rates (no optimismo). Se usan para dimensionar la posición con Kelly fraccional.")
+
+
+def _wbj_num(x, default=0.0):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
+
+def _wbj_compute(scorecard: dict) -> dict:
+    """Recalcula puntos por categoría desde los scores 0-10 de las dimensiones.
+    NOT_SCORABLE (score < 0) NO puntúa y baja la cobertura (nunca aporta 5/10).
+    Devuelve por categoría: points, max, score10, coverage, confidence (0-100)."""
+    out = {"categories": {}, "raw_total": 0.0, "total_confidence": 0.0,
+           "coverage_min": 1.0, "incomplete": []}
+    for cat_key in WBJ_ORDER:
+        spec = WBJ_CATEGORIES[cat_key]
+        cat_obj = scorecard.get(cat_key, {}) or {}
+        cat_max = float(spec["max"])
+        points = 0.0
+        scorable_max = 0.0
+        conf_num = 0.0
+        for dim_key, _label, dim_max in spec["dims"]:
+            dim = cat_obj.get(dim_key, {}) if isinstance(cat_obj.get(dim_key), dict) else {}
+            sc = _wbj_num(dim.get("score"), -1.0)
+            if sc is None or sc < 0:                      # NOT_SCORABLE → no puntúa
+                continue
+            sc = max(0.0, min(10.0, sc))
+            points += dim_max * (sc / 10.0)
+            scorable_max += dim_max
+            conf_num += dim_max * max(0.0, min(100.0, _wbj_num(dim.get("confidence"), 0.0)))
+        coverage = (scorable_max / cat_max) if cat_max > 0 else 0.0
+        cat_conf = (conf_num / scorable_max) if scorable_max > 0 else 0.0
+        score10 = (10.0 * points / cat_max) if cat_max > 0 else 0.0
+        out["categories"][cat_key] = {
+            "label": spec["label"], "points": round(points, 2), "max": cat_max,
+            "score10": round(score10, 1), "coverage": round(coverage, 2),
+            "confidence": round(cat_conf, 0)}
+        out["raw_total"] += points
+        out["total_confidence"] += cat_max * cat_conf
+        out["coverage_min"] = min(out["coverage_min"], coverage)
+        if coverage < 0.70:
+            out["incomplete"].append(cat_key)
+    out["raw_total"] = round(out["raw_total"], 1)
+    out["total_confidence"] = round(out["total_confidence"] / 100.0, 0)   # Σ(max*conf)/100
+    return out
+
+
+def _wbj_band(raw: float) -> str:
+    if raw >= 90:   return "Elite raw score"
+    if raw >= 80:   return "Strong raw score"
+    if raw >= 70:   return "Conditional raw score"
+    if raw >= 60:   return "Mixed / wait"
+    if raw >= 50:   return "Weak"
+    return "Avoid on raw score"
+
+
+def _wbj_gates(comp: dict) -> dict:
+    """Aplica overrides obligatorios y gates de perfil (Cerebro/00_main_agent/SCORING_AND_GATES).
+    Devuelve el perfil final + gates pasados/fallidos + overrides activados."""
+    c = comp["categories"]
+    def P(k):  return c.get(k, {}).get("points", 0.0)
+    def CV(k): return c.get(k, {}).get("coverage", 0.0)
+    def CF(k): return c.get(k, {}).get("confidence", 0.0)
+    raw = comp["raw_total"]; tconf = comp["total_confidence"]
+    biz, fin, mkt, tec, rsk, val = P("business"), P("financial"), P("market"), P("technical"), P("risk"), P("valuation")
+    tech_conf = CF("technical")
+
+    overrides = []
+    if rsk <= 4:
+        overrides.append("Risk override: Risk ≤4/15 limita el perfil a Speculative.")
+    if val <= 4 and tec <= 8:
+        overrides.append("Premium breakdown override: Valuation ≤4/10 y Technical ≤8/20 → Wait/Avoid.")
+    core_incomplete = [k for k in WBJ_ORDER if CV(k) < 0.70]
+    if core_incomplete:
+        overrides.append("Coverage override: categoría(s) con cobertura <70% no pueden pasar un gate de perfil: "
+                         + ", ".join(WBJ_CATEGORIES[k]["label"] for k in core_incomplete) + ".")
+
+    # Gates de perfil (todas las condiciones deben cumplirse) — se registran numéricamente
+    gates = {}
+    gates["Momentum Candidate"] = [
+        ("Raw ≥ 78", raw >= 78), ("Technical ≥ 17/20", tec >= 17),
+        ("Market ≥ 16/20", mkt >= 16), ("Business+Financial ≥ 28/35", (biz + fin) >= 28),
+        ("Risk ≥ 8/15", rsk >= 8), ("Confianza técnica ≥ 70", tech_conf >= 70)]
+    gates["Quality Opportunity"] = [
+        ("Raw ≥ 80", raw >= 80), ("Business ≥ 16/20", biz >= 16), ("Financial ≥ 11/15", fin >= 11),
+        ("Risk ≥ 10/15", rsk >= 10), ("Valuation ≥ 5/10", val >= 5), ("Technical ≥ 12/20", tec >= 12)]
+    gates["Value Opportunity"] = [
+        ("Raw ≥ 75", raw >= 75), ("Valuation ≥ 8/10", val >= 8), ("Business ≥ 13/20", biz >= 13),
+        ("Risk ≥ 10/15", rsk >= 10), ("Technical ≥ 9/20", tec >= 9)]
+
+    gate_eligible = not core_incomplete            # coverage override bloquea gates mayores
+    passed, failed = [], []
+    profile = None
+    for name in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity"):
+        conds = gates[name]
+        ok = all(v for _, v in conds)
+        (passed if ok else failed).append({"gate": name, "conditions": [
+            {"cond": lbl, "pass": bool(v)} for lbl, v in conds]})
+        if ok and gate_eligible and profile is None:
+            profile = name
+
+    # Speculative / Avoid / Conditional
+    spec_reasons = []
+    if rsk <= 4: spec_reasons.append("Risk ≤4/15")
+    if tconf < 60: spec_reasons.append("confianza total <60")
+    if core_incomplete: spec_reasons.append("categoría crítica incompleta")
+
+    if raw < 50 or (val <= 4 and tec <= 8):
+        profile = "Avoid / Wait"
+    elif profile is None and spec_reasons:
+        profile = "Speculative"
+    elif profile is None and raw >= 60:
+        profile = "Conditional / Watch"
+    elif profile is None:
+        profile = "Avoid / Wait"
+
+    # Override de riesgo: cap a Speculative si Risk ≤4 (nunca perfil de calidad)
+    if rsk <= 4 and profile in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity"):
+        profile = "Speculative"
+
+    # Clasificación de research + recomendación de compatibilidad (persistencia/histórico)
+    if profile in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity"):
+        classification, rec = "Favorable a invertir", "BUY"
+    elif profile == "Conditional / Watch":
+        classification, rec = "Condicional — esperar confirmación", "HOLD"
+    elif profile == "Speculative":
+        classification, rec = "Especulativa — solo tamaño de riesgo", "SPECULATIVE"
+    else:
+        classification, rec = "Evitar / esperar", "AVOID"
+
+    return {"profile": profile, "band": _wbj_band(raw), "classification": classification,
+            "recommendation": rec, "passed_gates": passed, "failed_gates": failed,
+            "overrides": overrides, "spec_reasons": spec_reasons,
+            "gate_eligible": gate_eligible}
+
+
+# Metodología WBJ resumida que se inyecta en el prompt (fuente: /Cerebro).
+_WBJ_METHODOLOGY = """
+FRAMEWORK DE ANÁLISIS WBJ (Ruta 2030 Wall Street Agent System v2.0.0 — base de conocimiento en /Cerebro).
+Actúas como 6 especialistas INDEPENDIENTES; ninguno ve el score del otro. Rellena 'scorecard' puntuando
+cada dimensión de 0 a 10 (10 = máximamente favorable) con su 'confidence' (0-100, calidad de la EVIDENCIA)
+y una 'nota' que CITE EL NÚMERO concreto.
+
+REGLA INNEGOCIABLE: sin evidencia no hay número; sin número no hay score. Si NO tienes datos suficientes
+para una dimensión, pon score = -1 (NOT_SCORABLE) y explica por qué en la nota. NUNCA rellenes con 5/10.
+Score y confianza son SEPARADOS: un score alto con evidencia vieja/escasa debe llevar confianza baja.
+
+Máximos por categoría y dimensiones (cada dimensión ya está en puntos de categoría):
+1) BUSINESS (20): Moat y pricing power (5) · Posición competitiva (4) · Management y asignación de capital (4)
+   · Durabilidad del negocio (4) · Economía del cliente (3). No declares moat por marca; exige efectos medibles
+   (ROIC-WACC persistente, estabilidad de márgenes, retención/pricing). No uses el precio de la acción aquí.
+2) FINANCIAL (15): Calidad y crecimiento de ingresos (3) · EPS y FCF (3) · Márgenes (3) · Balance y liquidez (3)
+   · Conversión de caja y eficiencia de capital (3). Usa números reportados; guidance es solo contexto.
+   Interest coverage <1.5x = alerta de solvencia. ROIC<WACC impide veredicto 'excelente'.
+3) MARKET & GROWTH (20): TAM y viento de cola (5) · Revisiones de earnings/ingresos (4) · Catalizadores (4)
+   · Pista de crecimiento y captura de share (4) · Apalancamiento operativo y confirmación (3). No confundas TAM
+   con ingresos; catalizador solo narrativo se limita a 3.
+4) TECHNICAL & MOMENTUM (20): Tendencia primaria (4) · Fuerza relativa (4) · Volumen y demanda institucional (3)
+   · Comportamiento en gaps de earnings (3) · Base y breakout (3) · Amplitud y volatilidad (3). Un chart fuerte
+   NO compensa un negocio o solvencia débiles.
+5) RISK & RESILIENCE (15): Financiamiento/balance (3) · Competencia/concentración (3) · Ejecución/calidad de
+   earnings (3) · Regulatorio/legal/macro (2) · Compresión de múltiplo (2) · Volatilidad/drawdown (2).
+   MÁS PUNTOS = MENOR RIESGO. No infieras bajo riesgo por un precio alto. No ocultes coverage <1.5x.
+6) VALUATION (10): Múltiplos ajustados por crecimiento (3) · Histórico y pares (2) · Yield de caja/earnings (2)
+   · Valor justo por escenarios (2) · Margen de seguridad (1). Nunca un único punto: da Bear/Base/Bull con
+   supuestos. Terminal growth < tasa de descuento. Un múltiplo bajo NO es barato sin controlar calidad/riesgo.
+
+Además: escribe las 7 frases del resumen ejecutivo, escenarios de valuación (Bear/Base/Bull con supuestos),
+reverse DCF (qué exige el precio hoy), exactamente 3 thesis killers, disparadores de monitoreo, niveles
+importantes (marca lente Técnico/Valuación; NUNCA promedies un nivel técnico con un valor intrínseco), y las
+probabilidades calibradas. El fair_value debe ser el escenario Base. Lenguaje de referencia: 'zona',
+'confirmación', 'invalidación', 'escenario' — nunca 'target garantizado' ni órdenes de compra/venta.
+"""
+
+
+def _wbj_analyze_structured(prompt, temp=0.2):
+    """Genera el reporte WBJ estructurado con respaldo de proveedor: Gemini (schema) → OpenAI → Grok."""
+    last = None
+    for attempt in range(2):
+        try:
+            r = client_gemini.models.generate_content(
+                model="gemini-2.5-flash", contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json", response_schema=WBJReport, temperature=temp))
+            return json.loads(r.text), "gemini"
+        except Exception as e:
+            last = e
+            if _is_quota_error(e) and attempt == 0:
+                time.sleep(_retry_delay_secs(e))
+                continue
+            break
+    try:
+        keys = list(getattr(WBJReport, "model_fields", None) or getattr(WBJReport, "__fields__", {}) or [])
+    except Exception:
+        keys = []
+    for fn, src in ((_openai_json, "openai (ChatGPT)"), (_grok_json, "grok")):
+        try:
+            return fn(prompt, keys, temp), src
+        except Exception as e2:
+            last = e2
+    raise last if last else RuntimeError("Generación WBJ falló en todos los proveedores")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CAPAS ADITIVAS WBJ — NO alteran ningún número. Calculan datos deterministas
+# (con la matemática de Victor) y el LLM SOLO los explica en un 2º pase.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _load_investor_profile():
+    """Lee el perfil del inversionista (el mío). Prioriza 'Mi Perfil.md'.
+    Devuelve (nombre, texto) o (None, '') si no existe. Solo contexto para la
+    explicación; nunca cambia el scoring."""
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Perfil Inversionista")
+    for fn in ("Kevin.md", "Mi Perfil.md", "MiPerfil.md", "Perfil.md"):
+        p = os.path.join(base, fn)
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return fn.replace(".md", ""), f.read().strip()
+            except Exception:
+                pass
+    return None, ""
+
+
+def _industry_adapter_hint(info):
+    """Mapea sector/industria (yfinance) a un adaptador del Cerebro
+    (shared/INDUSTRY_ADAPTERS.md). Solo es una PISTA para que la explicación use
+    el lente correcto; no cambia la agregación ni los pesos."""
+    sec = (info.get("sector") or "").lower()
+    ind = (info.get("industry") or "").lower()
+    blob = f"{sec} {ind}"
+    if any(k in blob for k in ("bank", "banco")):                 return "Banco"
+    if any(k in blob for k in ("insurance", "seguro")):           return "Aseguradora"
+    if "reit" in blob or "real estate" in blob:                   return "REIT / inmobiliaria"
+    if any(k in blob for k in ("software", "saas", "internet")):  return "Software / SaaS"
+    if any(k in blob for k in ("biotech", "pharma", "drug")):     return "Biotech / farma"
+    if any(k in blob for k in ("oil", "gas", "mining", "metal", "energy")): return "Commodities / energía"
+    if any(k in blob for k in ("auto", "industrial", "materials", "semiconductor")): return "Cíclica"
+    return "Empresa estándar (industrial/servicios)"
+
+
+def _wbj_coherence(comp, gates):
+    """Flags de contradicción (Cerebro/00_main_agent/CONTRADICTION_RESOLUTION.md).
+    SON INFORMATIVOS: no cambian ni un punto. Solo señalan tensiones para explicar."""
+    c = comp["categories"]
+    def P(k): return c.get(k, {}).get("points", 0.0)
+    flags = []
+    raw, tconf = comp["raw_total"], comp["total_confidence"]
+    prof = gates["profile"]
+    if P("business") >= 16 and P("technical") <= 8:
+        flags.append({"tipo": "Negocio fuerte, técnico débil",
+                      "detalle": "La calidad puede estar intacta pero el timing no está confirmado (esperar confirmación)."})
+    if P("business") <= 8 and P("technical") >= 15:
+        flags.append({"tipo": "Negocio débil, técnico fuerte",
+                      "detalle": "Liderazgo de precio sin economía durable — momentum especulativo."})
+    if P("valuation") >= 8 and P("technical") <= 8:
+        flags.append({"tipo": "Valuación atractiva, técnico débil",
+                      "detalle": "Posible value trap: barata pero sin confirmación del mercado."})
+    if raw >= 75 and tconf < 60:
+        flags.append({"tipo": "Score alto, confianza baja",
+                      "detalle": "El agregado luce fuerte pero la evidencia es escasa/vieja — trata el número con cautela."})
+    if prof in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity") and P("risk") <= 6:
+        flags.append({"tipo": "Perfil favorable con riesgo elevado",
+                      "detalle": "El agregado puede esconder riesgo de supervivencia; revisa el override de riesgo."})
+    if comp.get("incomplete"):
+        labs = ", ".join(WBJ_CATEGORIES[k]["label"] for k in comp["incomplete"])
+        flags.append({"tipo": "Cobertura incompleta",
+                      "detalle": f"Categoría(s) con <70% de evidencia: {labs}. No pueden pasar un gate de perfil."})
+    return flags
+
+
+def _wbj_confluence_zones(levels, atr, price):
+    """Zonas de confluencia (Cerebro/00_main_agent/PRICE_LEVEL_SYNTHESIS.md):
+    existe confluencia cuando un nivel TÉCNICO y uno de VALUACIÓN se solapan
+    dentro de max(0.50*ATR14, 0.75% del precio). NUNCA promedia — solo reporta
+    el solape. Fórmula exacta de Victor; no cambia scores."""
+    try:
+        atr_f = float(atr) if atr not in (None, "N/A", "") else None
+    except (TypeError, ValueError):
+        atr_f = None
+    tol = max((0.5 * atr_f) if atr_f else 0.0, 0.0075 * float(price)) if price else 0.0
+    if tol <= 0:
+        return []
+    tech = [l for l in levels if "técn" in (l.get("lente", "").lower()) or "tecn" in (l.get("lente", "").lower())]
+    val = [l for l in levels if "valu" in (l.get("lente", "").lower())]
+    zones = []
+    for t in tech:
+        for v in val:
+            try:
+                tv, vv = float(t["valor"]), float(v["valor"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if abs(tv - vv) <= tol:
+                mid = round((tv + vv) / 2, 2)
+                zones.append({
+                    "zona": mid, "tolerancia": round(tol, 2),
+                    "tecnico": {"tipo": t.get("tipo"), "valor": tv},
+                    "valuacion": {"tipo": v.get("tipo"), "valor": vv},
+                    "dist_pct": round((mid - float(price)) / float(price) * 100, 1) if price else None})
+    zones.sort(key=lambda z: abs(z.get("dist_pct") or 999))
+    return zones
+
+
+def _wbj_read_thesis_md(ticker):
+    """Lee Memoria/tesis/<TICKER>.md (tesis previa) para el prompt. '' si no hay."""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "tesis", f"{ticker.upper()}.md")
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception:
+            return ""
+    return ""
+
+
+def _wbj_write_thesis_md(ticker, price, profile, raw, fair_value, targets, thesis, invalidation):
+    """Escribe/actualiza Memoria/tesis/<TICKER>.md (protocolo de memoria del CLAUDE.md).
+    Corrige encima; no borra la tesis vieja (la apila como historial). Best-effort."""
+    try:
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "tesis")
+        os.makedirs(base, exist_ok=True)
+        p = os.path.join(base, f"{ticker.upper()}.md")
+        fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
+        t12 = (targets or {}).get("12m", {}) or {}
+        prev = ""
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                prev = f.read()
+        entry = (f"## {fecha} — perfil {profile} · raw {raw}/100\n"
+                 f"- Precio al análisis: ${price} · Fair value (base): ${fair_value}\n"
+                 f"- Targets 12M: Bull ${t12.get('bull')} / Base ${t12.get('base')} / Bear ${t12.get('bear')}\n"
+                 f"- Tesis: {(thesis or '').strip()[:600]}\n"
+                 f"- Invalidación: {invalidation}\n\n")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(f"# Tesis — {ticker.upper()}\n\n{entry}{prev}")
+        # índice
+        idx = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "MEMORIA.md")
+        line = f"- {ticker.upper()} · {fecha} · {profile} · raw {raw}/100 · FV ${fair_value}\n"
+        with open(idx, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception as e:
+        print(f"[Memoria] no se pudo escribir tesis {ticker}: {e}")
+
+
+def _wbj_write_prediccion(ticker, report_id, price, fair_value, profile, raw, targets, recommendation):
+    """Guarda Reportes/<TICKER>/<fecha>/prediccion.json (para el track record).
+    Nunca se edita luego. Best-effort."""
+    try:
+        fecha = datetime.now().strftime("%Y-%m-%d")
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Reportes", ticker.upper(), fecha)
+        os.makedirs(base, exist_ok=True)
+        payload = {"report_id": report_id, "ticker": ticker.upper(), "fecha": fecha,
+                   "price_at_analysis": price, "fair_value": fair_value, "profile": profile,
+                   "raw_total": raw, "recommendation": recommendation,
+                   "targets_12m": (targets or {}).get("12m", {}), "framework": "WBJ v2.0.0"}
+        with open(os.path.join(base, "prediccion.json"), "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[Predicción] no se pudo escribir {ticker}: {e}")
+
+
+class WBJExplanation(BaseModel):
+    resumen_simple: str = Field(..., description="En 3-5 frases y en español MUY simple: qué es esta empresa como inversión y qué dice el veredicto. Para alguien sin conocimientos financieros.")
+    por_categoria: str = Field(..., description="Explica en palabras qué significa el puntaje de CADA una de las 6 categorías (business, financial, market, technical, risk, valuation) y por qué está alto o bajo, citando las notas. Detallado pero simple.")
+    gates_y_perfil: str = Field(..., description="Explica qué significa el perfil asignado (Momentum/Quality/Value/Conditional/Speculative/Avoid), qué gates pasaron o fallaron y qué implican, en palabras llanas.")
+    overrides_y_coherencia: str = Field(..., description="Explica qué significan los overrides activados y los flags de coherencia (contradicciones) listados, y qué debería vigilar el inversionista.")
+    niveles_y_confluencia: str = Field(..., description="Explica los niveles importantes (técnicos vs valuación) y las zonas de confluencia detectadas: qué son, por qué importan y cómo leerlas. Recuerda que no se promedian.")
+    ajuste_a_mi_perfil: str = Field(..., description="Explica cómo encaja (o no) esta inversión con MI perfil (horizonte 1-3a + opciones corto plazo + ingresos, agresivo/especulativo, acciones/ETF/opciones, ~$1,000), incluido el riesgo de sizing con capital pequeño.")
+    calibracion: str = Field(..., description="Explica en palabras qué dice mi track record/calibración histórica (si hay) y cómo tomar la confianza del veredicto. Si no hay historial, dilo.")
+    conclusion: str = Field(..., description="La conclusión final en 1-2 frases, honesta y sin promesas de retorno.")
+
+
+def _wbj_explain(context_text, temp=0.3):
+    """2º PASE: el LLM SOLO explica el paquete ya calculado en palabras simples.
+    Recibe los números FINALES (matemática de Victor) y NO los cambia. Respaldo de
+    proveedor igual que el análisis. Devuelve (dict, fuente) o (None, None) si falla."""
+    prompt = (
+        "Eres un divulgador financiero. Abajo tienes un análisis WBJ YA CALCULADO con la "
+        "metodología de Victor (los números son FINALES y correctos). Tu ÚNICO trabajo es "
+        "EXPLICARLO en español simple, claro y detallado para el inversionista de 'MI PERFIL'. "
+        "NO recalcules, NO cambies, NO reduzcas ni 'corrijas' ningún número, score, gate ni nivel. "
+        "Si algo no tiene datos (NOT_SCORABLE), explícalo con honestidad. No prometas retornos ni "
+        "des órdenes de compra/venta.\n\n" + context_text)
+    last = None
+    for attempt in range(2):
+        try:
+            r = client_gemini.models.generate_content(
+                model="gemini-2.5-flash", contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json", response_schema=WBJExplanation, temperature=temp))
+            return json.loads(r.text), "gemini"
+        except Exception as e:
+            last = e
+            if _is_quota_error(e) and attempt == 0:
+                time.sleep(_retry_delay_secs(e)); continue
+            break
+    try:
+        keys = list(getattr(WBJExplanation, "model_fields", None) or getattr(WBJExplanation, "__fields__", {}) or [])
+    except Exception:
+        keys = []
+    for fn, src in ((_openai_json, "openai (ChatGPT)"), (_grok_json, "grok")):
+        try:
+            return fn(prompt, keys, temp), src
+        except Exception as e2:
+            last = e2
+    return None, None
+
+
+# ── ENGINE DETERMINISTA DE VICTOR (sin LLM) para los scores de las 6 categorías ──
+_WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine")
+
+
+def _compute_earnings_gaps(cal, dates, opens, closes):
+    """TECH-GAP-020 / TECH-GHOLD-021: gap de earnings y hold a 5 sesiones, mapeando
+    las fechas de release de FMP a las sesiones OHLCV. 'amc' = gap en la sesión
+    siguiente; 'bmo' = gap en la sesión del día. Best-effort."""
+    if not cal or not dates:
+        return []
+    out = []
+    for ev in cal:
+        d = ev.get("date"); t = (ev.get("time") or "").lower()
+        if not d:
+            continue
+        pos = next((i for i, ds in enumerate(dates) if ds >= d), None)
+        if pos is None:
+            continue
+        if t == "amc":
+            base = pos if (pos < len(dates) and dates[pos] == d) else pos - 1
+            if base < 0 or base + 1 >= len(dates):
+                continue
+            prior_close = closes[base]; gap_open = opens[base + 1]; k = base + 1
+        else:  # bmo / desconocido
+            if pos - 1 < 0:
+                continue
+            prior_close = closes[pos - 1]; gap_open = opens[pos]; k = pos
+        if not prior_close or prior_close <= 0 or (gap_open - prior_close) == 0:
+            continue
+        gap = (gap_open - prior_close) / prior_close
+        hold5 = None
+        if k + 5 < len(closes):
+            hold5 = (closes[k + 5] - prior_close) / (gap_open - prior_close)
+        out.append({"gap": round(gap, 4), "hold5": round(hold5, 3) if hold5 is not None else None})
+    return out
+
+
+def _fmp_earnings_surprise(cal):
+    """MKT-SURP-014: sorpresa media de EPS de los últimos ~4 trimestres reportados."""
+    sur = []
+    for ev in (cal or []):
+        a = ev.get("eps"); e = ev.get("epsEstimated")
+        if a is not None and e not in (None, 0):
+            sur.append((a - e) / abs(e))
+        if len(sur) >= 4:
+            break
+    return (sum(sur) / len(sur)) if sur else None
+
+
+def _fmp_forward_estimates(rows):
+    """De FMP analyst_estimates: crecimiento forward de EPS + dispersión + # analistas."""
+    rows = [r for r in (rows or []) if r.get("estimatedEpsAvg") is not None]
+    rows = sorted(rows, key=lambda r: r.get("date", ""))
+    eps_growth = dispersion = analysts = None
+    if len(rows) >= 2 and rows[0]["estimatedEpsAvg"] and rows[0]["estimatedEpsAvg"] > 0:
+        eps_growth = rows[1]["estimatedEpsAvg"] / rows[0]["estimatedEpsAvg"] - 1.0
+    if rows:
+        r0 = rows[0]
+        lo, hi, av = r0.get("estimatedRevenueLow"), r0.get("estimatedRevenueHigh"), r0.get("estimatedRevenueAvg")
+        if lo and hi and av:
+            dispersion = (hi - lo) / abs(av)
+        analysts = r0.get("numberAnalystEstimatedRevenue")
+    return eps_growth, dispersion, analysts
+
+def _engine_scorecard(ticker, info, price):
+    """Calcula el scorecard de 6 categorías con el ENGINE de Victor (código
+    determinista, sin LLM): Business/Financial/Risk desde EDGAR (su quick_scorecard)
+    + Market/Technical/Valuation desde los scorers deterministas. Devuelve el dict
+    del engine o None si el engine/red/datos no están disponibles (→ fallback LLM)."""
+    try:
+        import sys
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.cli import _build_packet          # paquete EDGAR de Victor (gratis, sin key)
+        from wbj.full import full_scorecard
+    except Exception as e:
+        print(f"[engine] no disponible (deps/import): {str(e)[:160]}")
+        return None
+    try:
+        packet = _build_packet(ticker)
+    except Exception as e:
+        print(f"[engine] packet EDGAR falló para {ticker}: {str(e)[:160]}")
+        return None
+    ohlcv = {}; _dates = []; _opens = []
+    try:
+        h = _resilient_history(yf.Ticker(ticker), ticker, "5y")   # OHLCV ~5 años → ≥756 sesiones (DATASET de Victor: 756 preferido)
+        if h is not None and not h.empty:
+            ohlcv = {"closes":  [float(x) for x in h["Close"].tolist()],
+                     "highs":   [float(x) for x in h["High"].tolist()],
+                     "lows":    [float(x) for x in h["Low"].tolist()],
+                     "volumes": [float(x) for x in h["Volume"].tolist()]}
+            _opens = [float(x) for x in h["Open"].tolist()]
+            _dates = [idx.strftime("%Y-%m-%d") for idx in h.index.tolist()]
+    except Exception:
+        ohlcv = {}
+    # Benchmark (SPY) para la fuerza relativa técnica (TECH-RS-011)
+    benchmark = None
+    try:
+        _spy = _resilient_history(yf.Ticker("SPY"), "SPY", "1y")
+        if _spy is not None and not _spy.empty:
+            benchmark = [float(x) for x in _spy["Close"].tolist()]
+    except Exception:
+        benchmark = None
+    # Insumos de Valuation/Market desde yfinance info (beta, crecimiento, target)
+    beta = None; eps_growth = None
+    try:
+        beta = float(info["beta"]) if info.get("beta") is not None else None
+        eps_growth = float(info["earningsGrowth"]) if info.get("earningsGrowth") is not None else None
+    except Exception:
+        pass
+    est = {}
+    if eps_growth is not None:
+        est["eps_growth"] = eps_growth
+    try:
+        _tmp = info.get("targetMeanPrice")
+        if _tmp and price:
+            est["analyst_upside"] = float(_tmp) / float(price) - 1.0
+        if info.get("returnOnEquity") is not None:
+            est["roic"] = float(info["returnOnEquity"])            # proxy ROIC≈ROE cuando no hay FMP
+            est["reinvestment"] = 0.5                              # supuesto declarado (sin desglose)
+    except Exception:
+        pass
+    # FMP opcional (si hay key): pares (Valuation) + calendario de earnings (gaps/sorpresa) +
+    # estimados forward (revisiones de Market). Cierra NOT_SCORABLE con datos reales.
+    peer_pe = None; earnings_gaps = None
+    _fmp_key = os.environ.get("FMP_API_KEY", "")
+    if _fmp_key:
+        try:
+            from wbj.config import load_settings
+            from wbj.providers.cache import Cache
+            from wbj.providers.fmp import FMPProvider
+            _settings = load_settings()
+            if not _settings.fmp_api_key:
+                _settings.fmp_api_key = _fmp_key
+            _fmp = FMPProvider(_settings, Cache(_settings.cache_dir))
+            # 1) P/E mediano de pares → 'histórico y pares' de Valuation
+            try:
+                _peers = _fmp.peers(ticker) or []
+                _plist = (_peers[0].get("peersList") if isinstance(_peers, list) and _peers and isinstance(_peers[0], dict) else _peers) or []
+                _pes = []
+                for _p in list(_plist)[:6]:
+                    _pr = _fmp.profile(_p)
+                    _prow = _pr[0] if isinstance(_pr, list) and _pr else _pr
+                    _pe = _prow.get("pe") if isinstance(_prow, dict) else None
+                    if _pe and float(_pe) > 0:
+                        _pes.append(float(_pe))
+                if len(_pes) >= 3:
+                    _pes.sort(); peer_pe = _pes[len(_pes) // 2]
+            except Exception as e:
+                print(f"[engine] FMP pares omitido: {str(e)[:120]}")
+            # 2) Calendario de earnings → gaps (Technical) + sorpresa (Market)
+            try:
+                _cal = _fmp.earnings_calendar(ticker) or []
+                if _cal and _dates and _opens:
+                    earnings_gaps = _compute_earnings_gaps(_cal, _dates, _opens, ohlcv.get("closes", []))
+                _surp = _fmp_earnings_surprise(_cal)
+                if _surp is not None:
+                    est["surprise"] = _surp
+            except Exception as e:
+                print(f"[engine] FMP earnings omitido: {str(e)[:120]}")
+            # 3) Estimados forward → revisiones (Market) y crecimiento de Valuation
+            try:
+                _ae = _fmp.analyst_estimates(ticker) or []
+                _epsg, _disp, _na = _fmp_forward_estimates(_ae)
+                if _epsg is not None:
+                    est["eps_growth"] = _epsg
+                    eps_growth = _epsg
+                if _disp is not None:
+                    est["dispersion"] = _disp
+            except Exception as e:
+                print(f"[engine] FMP estimados omitido: {str(e)[:120]}")
+        except Exception as e:
+            print(f"[engine] FMP no disponible: {str(e)[:120]}")
+    try:
+        return full_scorecard(packet, ohlcv=ohlcv, price=price, market_cap=info.get("marketCap"),
+                              estimates=est or None, benchmark_closes=benchmark, beta=beta,
+                              peer_pe=peer_pe, eps_growth=eps_growth, earnings_gaps=earnings_gaps)
+    except Exception as e:
+        print(f"[engine] full_scorecard falló: {str(e)[:160]}")
+        return None
+
+
 @app.get("/api/analyze")
 def analyze_ticker(ticker: str):
     ticker = ticker.upper().strip()
@@ -5958,139 +6698,135 @@ def analyze_ticker(ticker: str):
             except Exception as _eht:
                 print(f"[QuantData] prompt horizon-targets skip: {_eht}")
 
-        # ── PROMPT GEMINI (AI narrative sobre targets ya calculados) ─────────
+        # ── PROMPT WBJ (6 especialistas · 100 puntos · evidencia obligatoria) ──
         _key_sig = _key_signals_summary(_qd_conv, _qd_confl, _regime_now, _qd_np)
         _earn_block = _earnings_depth_block(earnings_hist, earnings_info)
-        prompt = f"""
-Analiza en profundidad la compañía {ticker} ({info.get('longName', ticker)}) con un enfoque institucional para Vertex Holding Group.
+        _next_earn = (('en ' + str(earnings_info['days_until']) + ' días (' + earnings_info['label'] + ')')
+                      if earnings_info.get('days_until') is not None else 'N/A')
+        # ── Contexto aditivo (perfil / adaptador de industria / tesis previa) — NO cambia el scoring ──
+        _prof_name, _prof_text = _load_investor_profile()
+        profile_block = (f"\n\nMI PERFIL DE INVERSIONISTA (para contextualizar el fit, NUNCA para cambiar el scoring):\n{_prof_text}"
+                         if _prof_text else "")
+        _adapter = _industry_adapter_hint(info)
+        adapter_block = (f"\nADAPTADOR DE INDUSTRIA sugerido (usa el lente correcto al puntuar/explicar): {_adapter} "
+                         f"— sector {info.get('sector', 'N/A')} / industria {info.get('industry', 'N/A')}.")
+        _prior_thesis = _wbj_read_thesis_md(ticker)
+        prior_thesis_block = (f"\nTESIS PREVIA REGISTRADA (Memoria/tesis/{ticker}.md — qué se dijo antes):\n{_prior_thesis[:1200]}"
+                              if _prior_thesis else "")
+        prompt = f"""Analiza en profundidad {ticker} ({info.get('longName', ticker)}) para Vertex Holding Group aplicando el framework WBJ.
 
 {_key_sig}
 
-DATOS DE MERCADO (ya calculados por el motor cuantitativo de Vertex):
+DATOS DE MERCADO (calculados por el motor cuantitativo de Vertex — son tu EVIDENCIA para puntuar):
 - Precio Spot: ${precio_actual} {info.get('currency', 'USD')}
-- P/E actual: {info.get('trailingPE', 'N/A')} | Forward P/E: {info.get('forwardPE', 'N/A')}
-- Market Cap: {info.get('marketCap', 'N/A')}
-- Revenue Growth YoY: {info.get('revenueGrowth', 'N/A')}
-- Gross Margins: {info.get('grossMargins', 'N/A')} | EBITDA Margins: {info.get('ebitdaMargins', 'N/A')}
-- Free Cash Flow: {info.get('freeCashflow', 'N/A')}
-- Beta: {info.get('beta', 'N/A')}
-- Analyst Mean Target (Wall Street): ${methodology.get('analyst_mean', 'N/A')}
-- DCF Fair Value (Vertex Engine): ${methodology.get('dcf_fair_value', 'N/A')}
-- Annual Volatility: {methodology.get('annual_volatility_pct', 'N/A')}% | ATR-14: ${methodology.get('atr_14', 'N/A')}
+- P/E actual: {info.get('trailingPE', 'N/A')} | Forward P/E: {info.get('forwardPE', 'N/A')} | Market Cap: {info.get('marketCap', 'N/A')}
+- Revenue Growth YoY: {info.get('revenueGrowth', 'N/A')} | Gross Margins: {info.get('grossMargins', 'N/A')} | EBITDA Margins: {info.get('ebitdaMargins', 'N/A')}
+- Free Cash Flow: {info.get('freeCashflow', 'N/A')} | Beta: {info.get('beta', 'N/A')} | ROE: {info.get('returnOnEquity', 'N/A')} | Debt/Equity: {info.get('debtToEquity', 'N/A')}
+- Analyst Mean Target (Wall Street): ${methodology.get('analyst_mean', 'N/A')} | DCF Fair Value (Vertex Engine): ${methodology.get('dcf_fair_value', 'N/A')}
+- Volatilidad anual: {methodology.get('annual_volatility_pct', 'N/A')}% | ATR-14: ${methodology.get('atr_14', 'N/A')}
 - Noticias recientes: {titulares_contexto}
-- Proximo Earnings: {('en ' + str(earnings_info['days_until']) + ' dias (' + earnings_info['label'] + ')') if earnings_info.get('days_until') is not None else 'N/A'}{(' | EPS estimado: $' + str(earnings_info['eps_estimate'])) if earnings_info.get('eps_estimate') else ''}
-- Actividad de Insiders y Flujo Institucional (SEC/13F): {insiders_context if insiders_context else 'N/A'}
-- Contexto Finnhub (15-min | fundamentales/news/sentiment/insiders/congreso): {finnhub_context if finnhub_context else 'N/A'}
-- Ajuste con TU portafolio actual (consciencia de cartera): {format_portfolio_fit(portfolio_fit)}
-- Riesgo de factores y contribucion marginal al riesgo (estilo BlackRock/Aladdin): {format_factor_risk(portfolio_fit)}
-{memory_block}{_deep_mem_block}{_opt_block}{calibration_block}{regime_block}{gex_block}{_earn_block}{_8k_block}
+- Próximo Earnings: {_next_earn}{(' | EPS estimado: $' + str(earnings_info['eps_estimate'])) if earnings_info.get('eps_estimate') else ''}
+- Actividad de Insiders y 13F (SEC): {insiders_context if insiders_context else 'N/A'}
+- Contexto Finnhub (fundamentales/news/sentiment/insiders/congreso): {finnhub_context if finnhub_context else 'N/A'}
+- Ajuste con tu portafolio actual: {format_portfolio_fit(portfolio_fit)}
+{adapter_block}{prior_thesis_block}{memory_block}{_deep_mem_block}{_opt_block}{calibration_block}{regime_block}{gex_block}{_earn_block}{_8k_block}{profile_block}
 
-PRICE TARGETS YA CALCULADOS (usa estos en tu narrativa; NO los modifiques):
+REFERENCIAS DE PRECIO YA CALCULADAS (motor σ/DCF de Vertex — evidencia técnica; nunca las llames "target garantizado"):
 - 7D:  Bull ${targets['7d']['bull']} | Base ${targets['7d']['base']} | Bear ${targets['7d']['bear']}
 - 30D: Bull ${targets['30d']['bull']} | Base ${targets['30d']['base']} | Bear ${targets['30d']['bear']}
 - 3M:  Bull ${targets['3m']['bull']} | Base ${targets['3m']['base']} | Bear ${targets['3m']['bear']}
 - 6M:  Bull ${targets['6m']['bull']} | Base ${targets['6m']['base']} | Bear ${targets['6m']['bear']}
 - 12M: Bull ${targets['12m']['bull']} | Base ${targets['12m']['base']} | Bear ${targets['12m']['bear']}
+{_WBJ_METHODOLOGY}"""
 
-INSTRUCCIÓN CRÍTICA:
-Basa tu recomendación final, el Fair Value y tu tesis estrictamente en los **targets a futuro de 1 año** calculados y los **targets de Wall Street (Analyst Mean Target)**. NO bases tu recomendación ni tu Fair Value en el valor intrínseco actual histórico o descontado. Tu decisión e indicador de valor justo deben responder puramente a la proyección futura a 1 año.
+        analisis_json, _analysis_src = _wbj_analyze_structured(prompt, temp=0.2)
 
-FRAMEWORK DE CONVICCIÓN VERTEX (rellena 'signal_scores' con honestidad y especificidad):
-Puntúa de 0 a 100 cada señal (100 = máximamente favorable/alcista). Estas se ponderan así para la convicción final de la firma:
-- Flujo institucional de opciones — 25% (LA señal de mayor peso, tu edge): busca barridos/bloques, Tipo A ($5M+ en una transacción) y Tipo B (múltiples $1M+ en mismo contrato/strike/exp); delta de convicción institucional 0.60-0.90. Usa el contexto de insiders/13F y Finnhub disponible.
-- Fundamentales — 20% | Earnings — 20% | Técnicos — 15% | News/SEC — 10% | Macro — 5% | Riesgo — 5% (100 = riesgo bien controlado).
-Cada señal lleva una 'nota' de una línea citando el dato concreto. No infles puntuaciones sin evidencia; si no hay datos de flujo, dilo en la nota y puntúa con cautela.
+        # ── SCORES: PRIMERO el ENGINE DETERMINISTA de Victor (sin LLM). El LLM NO
+        #    puntúa — solo aporta narrativa y, en el 2º pase, explica. Si el engine
+        #    no está disponible (deps/red/EDGAR), se cae al scorecard del LLM. ──
+        _eng = _engine_scorecard(ticker, info, precio_actual)
+        if _eng and _eng.get("categories"):
+            comp = {"categories": _eng["categories"], "raw_total": _eng["raw_total"],
+                    "total_confidence": _eng["total_confidence"], "incomplete": _eng.get("incomplete", []),
+                    "coverage_min": min((c.get("coverage", 0.0) for c in _eng["categories"].values()), default=0.0)}
+            scores_source = "engine determinista (metodología de Victor · sin LLM)"
+            evidence_pts = _eng.get("evidence_points_covered")
+        else:
+            _sc = analisis_json.get("scorecard", {}) or {}
+            comp = _wbj_compute(_sc)
+            scores_source = "estimación LLM (engine no disponible — fallback)"
+            evidence_pts = None
+        gates = _wbj_gates(comp)
 
-PROBABILIDADES CALIBRADAS (rellena 'probabilities'):
-Da probabilidades 0-100 ANCLADAS EN BASE-RATES, no en optimismo. Pregúntate: ¿con qué frecuencia históricamente una acción con esta volatilidad/perfil logra este movimiento? Evita sobreconfianza: si dices 90%, debe haber evidencia fuerte. En 'rationale' ancla explícitamente en frecuencias base. Estas probabilidades se usan para dimensionar la posición con Kelly fraccional, así que la calibración importa más que el optimismo.
+        # Override de valor/solvencia best-effort desde 'info' (además de lo que refleje el LLM en risk/valuation)
+        try:
+            _roe = _wbj_num(info.get("returnOnEquity"), None) if info.get("returnOnEquity") is not None else None
+            _fcf = info.get("freeCashflow")
+            if isinstance(_fcf, (int, float)) and _fcf < 0:
+                gates["overrides"].append("Alerta FCF: free cash flow reportado negativo (revisar dependencia de capital externo).")
+        except Exception:
+            pass
 
-Genera el reporte financiero estructurado con análisis narrativo, fundamentales, tesis y riesgos.
-En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el promedio de los targets a 12 meses y Wall Street justifican los valores.
-"""
+        # Fair value = escenario Base del LLM; upside vs spot
+        fair_value = _wbj_num(analisis_json.get("fair_value"), precio_actual)
+        if fair_value <= 0:
+            fair_value = precio_actual
+        upside_pct = round(((fair_value - precio_actual) / precio_actual) * 100, 2) if precio_actual else 0.0
 
-        analisis_json, _analysis_src = _analyze_structured(prompt, temp=0.2)
+        # ── Niveles técnicos computados (SMA + walls/flip) para la síntesis de precio ──
+        computed_levels = []
+        try:
+            _closes = [float(x) for x in hist['Close'].tolist() if x == x]
+            for _n, _lbl in ((20, "SMA20"), (50, "SMA50"), (100, "SMA100"), (200, "SMA200")):
+                if len(_closes) >= _n:
+                    _sma = round(sum(_closes[-_n:]) / _n, 2)
+                    computed_levels.append({"tipo": _lbl, "lente": "Técnico", "valor": _sma,
+                                            "nota": ("sobre el precio" if _sma > precio_actual else "bajo el precio")})
+            _gw = _gex_now if isinstance(_gex_now, dict) else {}
+            for _k, _lbl in (("put_wall", "Put wall (gamma)"), ("call_wall", "Call wall (gamma)"),
+                             ("gamma_flip", "Gamma flip")):
+                if _gw.get(_k):
+                    computed_levels.append({"tipo": _lbl, "lente": "Técnico", "valor": round(float(_gw[_k]), 2),
+                                            "nota": "nivel de posicionamiento de opciones"})
+        except Exception:
+            pass
 
-        # ── OVERRIDE MATEMÁTICO: Fair Value = Promedio de mis targets 12M y Wall Street Mean Target ──
-        avg_my_12m = (targets['12m']['bull'] + targets['12m']['base'] + targets['12m']['bear']) / 3
-        wall_street_mean = methodology.get('analyst_mean', precio_actual)
-        
-        combined_fair_value = (avg_my_12m + float(wall_street_mean)) / 2
-        
-        analisis_json['fair_value'] = round(combined_fair_value, 2)
-        analisis_json['upside_pct'] = round(((combined_fair_value - precio_actual) / precio_actual) * 100, 2)
+        # ── Ensamblar el objeto de análisis (WBJ + campos de compatibilidad) ──
+        analisis_json["wbj"] = {
+            "framework": "Ruta 2030 Wall Street Agent System v2.0.0",
+            "categories": comp["categories"], "raw_total": comp["raw_total"],
+            "total_confidence": comp["total_confidence"], "band": gates["band"],
+            "profile": gates["profile"], "classification": gates["classification"],
+            "passed_gates": gates["passed_gates"], "failed_gates": gates["failed_gates"],
+            "overrides": gates["overrides"], "incomplete_categories": comp["incomplete"],
+            "computed_levels": computed_levels,
+            "scores_source": scores_source, "evidence_points_covered": evidence_pts}
+        analisis_json["scores_source"] = scores_source
+        # ── Capas aditivas deterministas (NO mutan scores): coherencia + confluencia ──
+        analisis_json["wbj"]["coherence_flags"] = _wbj_coherence(comp, gates)
+        _all_levels = list(computed_levels) + list(analisis_json.get("important_levels", []) or [])
+        analisis_json["wbj"]["confluence_zones"] = _wbj_confluence_zones(
+            _all_levels, methodology.get("atr_14"), precio_actual)
+        analisis_json["wbj"]["industry_adapter"] = _adapter
+        analisis_json["wbj"]["profile_name"] = _prof_name
+        analisis_json["framework"] = "WBJ v2.0.0"
+        analisis_json["recommendation"] = gates["recommendation"]
+        analisis_json["classification"] = gates["classification"]
+        analisis_json["conviccion_score"] = int(round(comp["raw_total"]))
+        analisis_json["conviction_weighted"] = comp["raw_total"]
+        analisis_json["calibrated_conviction"] = comp["raw_total"]
+        analisis_json["fair_value"] = round(fair_value, 2)
+        analisis_json["upside_pct"] = upside_pct
+        analisis_json["model_source"] = _analysis_src
+        analisis_json["earnings_history"] = earnings_hist
+        analisis_json["news_catalysts"] = news_catalysts
+        analisis_json["sec_8k"] = sec_8k
+        try:
+            analisis_json["ai_concentration"] = _ai_concentration(ticker)
+        except Exception:
+            analisis_json["ai_concentration"] = None
 
-        # ── MOTOR DE CONVICCIÓN PONDERADO (framework Vertex 25/20/20/15/10/5/5) ──
-        # #4: los pesos base se ajustan al régimen de mercado actual (vol/tendencia/amplitud/tasas).
-        SIGNAL_WEIGHTS = {"flujo_institucional_opciones": 0.25, "fundamentales": 0.20,
-                          "earnings": 0.20, "tecnicos": 0.15, "news_sec": 0.10,
-                          "macro": 0.05, "riesgo": 0.05}
-        regime = get_regime_cached()
-        adj_weights, regime_notes = regime_signal_weights(SIGNAL_WEIGHTS, regime)
-        # ── #2 (loop de aprendizaje): inclina los pesos por el IC realizado de cada señal ──
-        _ic_data = get_signal_ic_cached(horizon_days=30)
-        adj_weights, _ic_tilt = _apply_ic_tilt(adj_weights, _ic_data)
-        analisis_json["adaptive_weights"] = {
-            "by_signal_pct": {d: round(w * 100, 1) for d, w in adj_weights.items()},
-            "ic_tilt": _ic_tilt}
-        ss = analisis_json.get("signal_scores", {}) or {}
-        # ── #1 — ANCLA la señal de flujo (25%) al cómputo de convicción, no a la estimación del LLM ──
-        _fa = _flow_anchor_score(_qd_conv)
-        if _fa is not None:
-            _fl = ss.get("flujo_institucional_opciones", {}) if isinstance(ss.get("flujo_institucional_opciones"), dict) else {}
-            try:
-                _llm_fl = float(_fl.get("score", _fa) or _fa)
-            except (TypeError, ValueError):
-                _llm_fl = _fa
-            _anchored = max(_fa - 12.0, min(_fa + 12.0, _llm_fl))   # el LLM solo ajusta ±12 con justificación
-            _fl["score"] = round(_anchored, 0)
-            _fl["nota"] = ((_fl.get("nota", "") or "") +
-                           f" [anclado al cómputo de convicción {_fa:.0f} · sesgo {_qd_conv.get('bias')} · n={_qd_conv.get('qualifying')}]").strip()
-            ss["flujo_institucional_opciones"] = _fl
-            analisis_json["signal_scores"] = ss
-            analisis_json["flow_anchor"] = {"computed": round(_fa, 0), "llm": round(_llm_fl, 0),
-                                            "used": round(_anchored, 0), "bias": _qd_conv.get("bias"),
-                                            "qualifying": _qd_conv.get("qualifying")}
-        breakdown = []
-        composite = 0.0
-        for k, w in adj_weights.items():
-            dim = ss.get(k, {}) if isinstance(ss.get(k), dict) else {}
-            try:
-                sc = float(dim.get("score", 0) or 0)
-            except (TypeError, ValueError):
-                sc = 0.0
-            sc = max(0.0, min(100.0, sc))
-            contrib = w * sc
-            composite += contrib
-            breakdown.append({"signal": k, "score": round(sc, 0), "weight_pct": round(w * 100, 1),
-                              "base_weight_pct": int(SIGNAL_WEIGHTS[k] * 100),
-                              "contribution": round(contrib, 1), "nota": dim.get("nota", "")})
-        breakdown.sort(key=lambda x: x["contribution"], reverse=True)
-        analisis_json["conviction_weighted"] = round(composite, 1)
-        analisis_json["conviction_breakdown"] = breakdown
-        analisis_json["regime"] = regime
-        analisis_json["regime_adjustments"] = regime_notes
-
-        # ── #5: la CONFLUENCIA formal (convicción+GEX+dark pool) ajusta la CONVICCIÓN, no solo el prompt ──
-        if _qd_confl:
-            _cv_adj, _cv_info, _cv_flag = _confluence_conviction_adj(
-                composite, _qd_confl, analisis_json.get("recommendation"))
-            if _cv_info:
-                composite = _cv_adj
-                analisis_json["conviction_weighted"] = round(composite, 1)
-                analisis_json["confluence_adjustment"] = _cv_info
-                if _cv_flag:
-                    _cfl = analisis_json.get("coherence_flags") or []
-                    _cfl.append(_cv_flag)
-                    analisis_json["coherence_flags"] = _cfl
-
-        # ── #3 CONVICCIÓN CALIBRADA (shrinkage empírico-bayesiano hacia el hit-rate real) ──
-        cal_val, cal_info = calibrate_conviction(
-            analisis_json["conviction_weighted"], analisis_json.get("recommendation"), calib_stats)
-        analisis_json["calibrated_conviction"] = cal_val
-        analisis_json["calibration"] = cal_info
-
-        # ── #2 PROBABILIDADES CALIBRADAS + SIZING (Kelly fraccional, acotado por guardrails) ──
-        # ── #5 PLAN DE RIESGO (stops según reglas Vertex) ──
+        # ── PROBABILIDADES + SIZING (Kelly fraccional; anclado a base-rate y acotado por guardrails) ──
         probs = analisis_json.get("probabilities", {}) or {}
         def _pi(k, d=0):
             try:
@@ -6098,74 +6834,45 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             except (TypeError, ValueError):
                 return d
         p_pos = _pi("p_positive_12m", 50)
-        # ── #4/#1 — ANCLA la probabilidad al base-rate empírico ANTES del Kelly (el sizing es muy sensible a p).
-        # Kelly ADAPTATIVO: usa el edge realizado MÁS ESPECÍFICO con muestra suficiente
-        # (ticker → tipo de setup → recomendación → global), con shrinkage por n. Dimensiona por TU edge medido.
-        _rec = analisis_json.get("recommendation")
-        _cur_ss = analisis_json.get("signal_scores") or {}
-        _cur_setup, _bv = None, None
-        for _k, _w in _SETUP_W.items():
-            _d = _cur_ss.get(_k)
-            if not isinstance(_d, dict):
-                continue
-            try:
-                _sc = float(_d.get("score", 0) or 0)
-            except (TypeError, ValueError):
-                _sc = 0.0
-            if _bv is None or _sc * _w > _bv:
-                _bv, _cur_setup = _sc * _w, _k
-        _cur_setup_lbl = _SETUP_LBL.get(_cur_setup, "n/d") if _cur_setup else "n/d"
-        _cand = []
+        _rec = gates["recommendation"]
+        # Ancla la probabilidad al hit-rate realizado (por recomendación → global) con shrinkage por n
+        prob_anchor = None
+        _br = None
         if calib_stats:
-            _bt = (calib_stats.get("by_ticker") or {}).get(ticker)
-            if _bt and _bt.get("hit_rate") is not None and _bt.get("n"):
-                _cand.append(("ticker " + ticker, float(_bt["hit_rate"]), int(_bt["n"])))
-            _bsu = (calib_stats.get("by_setup") or {}).get(_cur_setup_lbl)
-            if _bsu and _bsu.get("hit_rate") is not None and _bsu.get("n"):
-                _cand.append(("setup " + _cur_setup_lbl, float(_bsu["hit_rate"]), int(_bsu["n"])))
             _brd = (calib_stats.get("by_recommendation") or {}).get(_rec) or {}
             if _brd.get("hit_rate") is not None and _brd.get("n"):
-                _cand.append(("recomendación " + str(_rec), float(_brd["hit_rate"]), int(_brd["n"])))
-        _br = None                                  # el más específico con n≥5; si no, el más específico con n>0
-        for _c in _cand:
-            if _c[2] >= 5:
-                _br = _c; break
-        if _br is None and _cand:
-            _br = _cand[0]
-        if _br is None and calib_stats and calib_stats.get("overall_hit_rate") is not None and calib_stats.get("n"):
-            _br = ("global", float(calib_stats["overall_hit_rate"]), int(calib_stats["n"]))
-        prob_anchor = None
+                _br = ("recomendación " + str(_rec), float(_brd["hit_rate"]), int(_brd["n"]))
+            elif calib_stats.get("overall_hit_rate") is not None and calib_stats.get("n"):
+                _br = ("global", float(calib_stats["overall_hit_rate"]), int(calib_stats["n"]))
         if _br is not None and _br[2] > 0:
             _scope, _brp, _brn = _br
-            _Kp = 10.0
-            _wb = _brn / (_brn + _Kp)                       # n alto → confía en el base-rate; n bajo → en el LLM
+            _wb = _brn / (_brn + 10.0)
             _p_used = _wb * _brp + (1 - _wb) * p_pos
             prob_anchor = {"llm_p": p_pos, "base_rate": round(_brp, 1), "n": _brn,
                            "weight_base": round(_wb, 2), "p_used": round(_p_used, 1), "scope": _scope}
             p_pos = int(round(max(1, min(99, _p_used))))
         analisis_json["prob_anchoring"] = prob_anchor
+
         bull12 = float(targets['12m']['bull']); bear12 = float(targets['12m']['bear'])
+        _base12 = float(targets['12m'].get('base', precio_actual))
         reward = max(0.0, (bull12 - precio_actual) / precio_actual)
         risk_dn = max(1e-6, (precio_actual - bear12) / precio_actual)
         rr = reward / risk_dn if risk_dn > 0 else 0.0
         p = p_pos / 100.0; q = 1.0 - p
-        kelly_full = max(0.0, (rr * p - q) / rr) if rr > 0 else 0.0   # f* = p - q/b
-        kelly_half = kelly_full * 0.5                                  # half-Kelly por seguridad
+        kelly_full = max(0.0, (rr * p - q) / rr) if rr > 0 else 0.0
+        kelly_half = kelly_full * 0.5
         held_w = 0.0
         if portfolio_fit and portfolio_fit.get("already_held"):
             try:
                 held_w = float(portfolio_fit.get("current_weight_pct", 0) or 0)
             except (TypeError, ValueError):
                 held_w = 0.0
-        room = max(0.0, 25.0 - held_w)                                # tope de concentración 25%
+        room = max(0.0, 25.0 - held_w)
         suggested = max(0.0, min(kelly_half * 100.0, room))
         cap_reason = ""
         if kelly_half * 100.0 > room:
             cap_reason = (f"Limitado por tope de concentración 25% (ya tienes {held_w:.1f}% en {ticker})."
                           if held_w > 0 else "Limitado por tope de concentración 25%.")
-
-        # #2 — haircut por concentración de factor: si la idea apila sobre el factor ya
-        # dominante del book (o es muy redundante), recorta el tamaño sugerido 30%.
         factor_haircut = 1.0
         _rc = (portfolio_fit or {}).get("risk_contribution") or {}
         _fc = (portfolio_fit or {}).get("factors") or {}
@@ -6173,21 +6880,15 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             factor_haircut = 0.70
             if suggested > 0:
                 suggested = suggested * factor_haircut
-                _lab = _fc.get("factor_labels", {})
-                _dom = _lab.get(_fc.get("book_dominant"), _fc.get("book_dominant"))
-                cap_reason = (cap_reason + f" Haircut −30% por concentración de factor"
-                              + (f" ({_dom})." if _dom else ".")).strip()
-
-        # #7 — recalcula el MCR/Δvol/VaR al PESO REALMENTE RECOMENDADO (no al 5% fijo)
+                cap_reason = (cap_reason + " Haircut −30% por concentración de factor.").strip()
         if portfolio_fit and suggested and suggested > 0:
             try:
                 portfolio_fit["risk_contribution"] = _recompute_risk_contribution(portfolio_fit, suggested / 100.0)
             except Exception:
                 pass
 
-        ss_fund = float((ss.get("fundamentales", {}) or {}).get("score", 0) or 0)
-        ss_flow = float((ss.get("flujo_institucional_opciones", {}) or {}).get("score", 0) or 0)
-        is_a_grade = (ss_fund >= 70 and analisis_json["conviction_weighted"] >= 65)
+        # A-grade = perfil de calidad y raw fuerte → gestión por tesis en vez de stop fijo
+        is_a_grade = gates["profile"] in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity") and comp["raw_total"] >= 80
         atr = methodology.get("atr_14")
         try:
             atr_f = float(atr) if atr not in (None, "N/A", "") else None
@@ -6195,14 +6896,13 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             atr_f = None
         if is_a_grade:
             equity_stop = None
-            equity_stop_note = f"Equity A-grade: sin stop fijo. Gestiona por tesis; quiebre de tesis ≈ ${round(bear12, 2)}."
+            equity_stop_note = f"Perfil {gates['profile']}: gestiona por tesis; quiebre de tesis ≈ ${round(bear12, 2)}."
         elif atr_f:
             equity_stop = round(precio_actual - 2 * atr_f, 2)
-            equity_stop_note = f"No A-grade: stop sugerido en ${equity_stop} (2×ATR-14 bajo el spot)."
+            equity_stop_note = f"Stop sugerido en ${equity_stop} (2×ATR-14 bajo el spot)."
         else:
             equity_stop = round(precio_actual * 0.85, 2)
-            equity_stop_note = f"No A-grade: stop sugerido en ${equity_stop} (-15% del spot)."
-        flow_override = ss_flow >= 80
+            equity_stop_note = f"Stop sugerido en ${equity_stop} (-15% del spot)."
 
         analisis_json["trade_plan"] = {
             "probabilities": {
@@ -6218,96 +6918,102 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             "risk_plan": {
                 "is_a_grade": is_a_grade, "equity_stop": equity_stop,
                 "equity_stop_note": equity_stop_note, "thesis_break_level": round(bear12, 2),
-                "options_stop_rule": ("Opciones: stop −20% a −30% de la prima pagada."
-                                      + (" ⚠️ Override: flujo Tipo A ($5M+) fuerte — puede justificar mantener pese al stop." if flow_override else "")),
-                "flow_override": flow_override,
-            },
+                "options_stop_rule": "Opciones: stop −20% a −30% de la prima pagada."},
         }
-
-        # ── Batch R · targets en R (1R = entry→bear) + lista FALSABLE de invalidación de tesis ──
         _R_unit = max(1e-9, abs(precio_actual - bear12))
-        _base12 = float(targets['12m'].get('base', precio_actual))
         analisis_json["trade_plan"]["targets_r"] = {
             "entry": round(precio_actual, 2), "stop": round(bear12, 2), "r_unit": round(_R_unit, 2),
             "bull_r": round((bull12 - precio_actual) / _R_unit, 2),
-            "base_r": round((_base12 - precio_actual) / _R_unit, 2), "bear_r": -1.0,
-        }
-        # "Qué me haría cambiar de opinión": checkpoints concretos y verificables construidos desde las señales
-        # reales del análisis (precio, walls, gamma flip, flujo, earnings). No depende del LLM → siempre presente.
+            "base_r": round((_base12 - precio_actual) / _R_unit, 2), "bear_r": -1.0}
+
+        # "Qué me haría cambiar de opinión" — checkpoints falsables desde señales reales
         _inval = []
-        _is_bull = (_rec or "").upper() == "BUY"
+        _is_bull = _rec in ("BUY", "SPECULATIVE")
         _inval.append({"factor": "Precio", "kind": "price",
                        "trigger": f"Cierre {'bajo' if _is_bull else 'sobre'} ${round(bear12, 2)} (quiebre de tesis = −1R)"})
         try:
             _gw = _gex_now or {}
             _pw, _cw, _fl = _gw.get("put_wall"), _gw.get("call_wall"), _gw.get("gamma_flip")
             if _is_bull and _pw:
-                _inval.append({"factor": "Put wall", "kind": "level",
-                               "trigger": f"Pérdida del put wall ${_pw} (el soporte gamma cede)"})
+                _inval.append({"factor": "Put wall", "kind": "level", "trigger": f"Pérdida del put wall ${_pw}"})
             if (not _is_bull) and _cw:
-                _inval.append({"factor": "Call wall", "kind": "level",
-                               "trigger": f"Ruptura del call wall ${_cw} (la resistencia gamma cede)"})
+                _inval.append({"factor": "Call wall", "kind": "level", "trigger": f"Ruptura del call wall ${_cw}"})
             if _fl:
-                _inval.append({"factor": "Gamma flip", "kind": "regime",
-                               "trigger": f"{'Pérdida' if _is_bull else 'Recuperación'} del flip ${_fl} → dealers en régimen {'vendedor' if _is_bull else 'comprador'}"})
+                _inval.append({"factor": "Gamma flip", "kind": "regime", "trigger": f"Cruce del flip ${_fl}"})
         except Exception:
             pass
-        if (_qd_conv or {}).get("bias") or (_qd_np or {}).get("bias"):
-            _inval.append({"factor": "Flujo institucional", "kind": "flow",
-                           "trigger": f"El flujo/premium neto se voltea {'bajista' if _is_bull else 'alcista'} de forma sostenida"})
         _ed = (earnings_info or {}).get("days_until")
         if isinstance(_ed, (int, float)) and 0 <= _ed <= 45:
             _inval.append({"factor": "Earnings", "kind": "catalyst",
-                           "trigger": f"Sorpresa o guía {'a la baja' if _is_bull else 'al alza'} en earnings (en {int(_ed)}d)"})
+                           "trigger": f"Sorpresa/guía {'a la baja' if _is_bull else 'al alza'} en earnings (en {int(_ed)}d)"})
         analisis_json["trade_plan"]["thesis_invalidation"] = _inval
 
-        # ── #5 — RECONCILIACIÓN de los dos motores de targets (σ/DCF vs gamma/flujo) ──
-        try:
-            _ht_data = get_horizon_targets_cached(ticker, net_premium=_qd_np, flow=_qd_fl, ai_12m=None)
-            analisis_json["target_reconciliation"] = _reconcile_targets(targets, _ht_data, precio_actual)
-        except Exception:
-            analisis_json["target_reconciliation"] = None
+        # ── #9 — AUTO-DEBATE: estresar convicción alta con el debate adversarial ──
+        analisis_json["should_debate"] = bool(comp["raw_total"] >= 78)
+        analisis_json["debate_reason"] = ("Raw score alto (≥78) — conviene estresarlo con el debate Toro/Oso/Árbitro."
+                                          if comp["raw_total"] >= 78 else None)
 
-        # ── #8 — GATE DE COHERENCIA sobre la salida del LLM (contradicciones internas) ──
+        # ── 2º PASE: el LLM SOLO explica en palabras el paquete YA CALCULADO ──
+        # No cambia ningún número: recibe los valores finales (matemática de Victor)
+        # y produce explicaciones en español simple/detallado para MI perfil.
         try:
-            _cf = _agent_coherence_checks(analisis_json, precio_actual)
-            analisis_json["coherence_flags"] = _cf
-            analisis_json["coherence_ok"] = (len(_cf) == 0)
-        except Exception:
-            analisis_json["coherence_flags"] = []
-            analisis_json["coherence_ok"] = True
-        analisis_json["model_source"] = _analysis_src
-        analisis_json["earnings_history"] = earnings_hist          # #2
-        # ── INTEGRIDAD: cedazo visible sobre los números del reporte (flip/walls/FV/targets/fuente) ──
-        try:
-            _tgt_lvls = [_safe_num(t.get("level")) for t in (targets or []) if isinstance(t, dict) and t.get("level")]
-            analisis_json["integrity"] = _integrity_checks(
-                _gex_now if isinstance(_gex_now, dict) else {},
-                fair_value=analisis_json.get("fair_value"), targets=_tgt_lvls)
-        except Exception:
-            analisis_json["integrity"] = None
-        try:
-            analisis_json["ai_concentration"] = _ai_concentration(ticker)
-        except Exception:
-            analisis_json["ai_concentration"] = None
-        analisis_json["news_catalysts"] = news_catalysts            # #3
-        analisis_json["sec_8k"] = sec_8k                            # #3 — 8-K reales
-        # ── #9 — AUTO-DEBATE: marca para disparar el debate adversarial en convicción alta ──
-        _cc = _safe_num(analisis_json.get("calibrated_conviction"))
-        analisis_json["should_debate"] = bool(_cc >= 75)
-        analisis_json["debate_reason"] = ("Convicción calibrada alta (≥75) — conviene estresarla con el "
-                                          "debate adversarial Toro/Oso/Árbitro antes de dimensionar."
-                                          if _cc >= 75 else None)
+            _w = analisis_json["wbj"]
+            _cats_txt = "\n".join(
+                f"  - {v['label']}: {v['points']}/{v['max']} pts (score {v['score10']}/10, "
+                f"cobertura {int(v['coverage']*100)}%, confianza {int(v['confidence'])})"
+                for v in _w["categories"].values())
+            _passed = ", ".join(g["gate"] for g in _w["passed_gates"]) or "ninguno"
+            _failed = ", ".join(g["gate"] for g in _w["failed_gates"]) or "ninguno"
+            _ovr = "; ".join(_w["overrides"]) or "ninguno"
+            _coh = "; ".join(f"{f['tipo']}: {f['detalle']}" for f in _w["coherence_flags"]) or "sin contradicciones"
+            _conf = "; ".join(
+                f"zona ${z['zona']} ({z['tecnico']['tipo']} téc. vs {z['valuacion']['tipo']} val.)"
+                for z in _w["confluence_zones"]) or "ninguna"
+            _scen = "; ".join(f"{s.get('scenario')} ${s.get('value')} [{s.get('assumptions','')}]"
+                              for s in (analisis_json.get("valuation_scenarios") or []))
+            _calib_txt = (f"global {calib_stats['overall_hit_rate']}% en {calib_stats['n']} evaluaciones"
+                          if calib_stats and calib_stats.get("n") else "sin historial suficiente todavía")
+            _explain_ctx = (
+                f"ACCIÓN: {ticker} ({info.get('longName', ticker)}) · Precio ${precio_actual} · Adaptador: {_adapter}\n"
+                f"PERFIL/VEREDICTO (research, no orden): {_w['profile']} · banda {_w['band']} · "
+                f"clasificación {_w['classification']}\n"
+                f"RAW SCORE: {_w['raw_total']}/100 · CONFIANZA TOTAL: {_w['total_confidence']}/100\n"
+                f"CATEGORÍAS (6 especialistas):\n{_cats_txt}\n"
+                f"GATES pasados: {_passed} | fallidos: {_failed}\n"
+                f"OVERRIDES: {_ovr}\n"
+                f"FLAGS DE COHERENCIA: {_coh}\n"
+                f"FAIR VALUE (base): ${analisis_json.get('fair_value')} · upside {analisis_json.get('upside_pct')}%\n"
+                f"ESCENARIOS DE VALUACIÓN: {_scen}\n"
+                f"ZONAS DE CONFLUENCIA (técnico∩valuación): {_conf}\n"
+                f"CALIBRACIÓN/TRACK RECORD: {_calib_txt}\n"
+                f"SIZING SUGERIDO: {analisis_json.get('trade_plan',{}).get('suggested_pct')}% "
+                f"(Kelly ½ {analisis_json.get('trade_plan',{}).get('kelly_half_pct')}%)\n\n"
+                f"MI PERFIL:\n{_prof_text or 'No disponible.'}")
+            _expl, _expl_src = _wbj_explain(_explain_ctx)
+            if _expl:
+                analisis_json["explicacion"] = _expl
+                analisis_json["explicacion_source"] = _expl_src
+        except Exception as _eex:
+            print(f"[WBJ] explicación (2º pase) omitida: {_eex}")
+            analisis_json["explicacion"] = None
 
-        # ── MEMORY: compare with prior report + persist this one ─────────────
+        # ── PROTOCOLO DE MEMORIA (.md) + PREDICCIÓN para track record ──
+        try:
+            _inval_txt = "; ".join(i["trigger"] for i in _inval) if _inval else ""
+            _wbj_write_thesis_md(ticker, precio_actual, gates["profile"], comp["raw_total"],
+                                 round(fair_value, 2), targets,
+                                 analisis_json.get("executive_summary"), _inval_txt)
+            _wbj_write_prediccion(ticker, report_id, precio_actual, round(fair_value, 2),
+                                  gates["profile"], comp["raw_total"], targets, gates["recommendation"])
+        except Exception as _emem:
+            print(f"[WBJ] memoria/predicción omitida: {_emem}")
+
+        # ── MEMORIA: comparar con el reporte previo + persistir este ──
         memory_comparison = compute_memory_comparison(
-            prior_report, precio_actual, analisis_json['fair_value'],
-            analisis_json.get('recommendation'), analisis_json.get('conviccion_score'))
-        save_report(report_id, ticker, precio_actual, analisis_json['fair_value'],
-                    analisis_json['upside_pct'], analisis_json.get('recommendation'),
-                    analisis_json.get('conviccion_score'), targets,
-                    analisis_json.get('tesis_inversion_completa'),
-                    signal_scores=analisis_json.get('signal_scores'))
+            prior_report, precio_actual, fair_value, gates["recommendation"], analisis_json["conviccion_score"])
+        save_report(report_id, ticker, precio_actual, fair_value, upside_pct,
+                    gates["recommendation"], analisis_json["conviccion_score"], targets,
+                    analisis_json.get("executive_summary"), signal_scores=comp["categories"])
 
         _analyze_resp = {
             "report_id": report_id,
@@ -6335,7 +7041,7 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             "analisis": analisis_json
         }
         try:
-            save_report_payload(report_id, _analyze_resp)   # #4 — archivo durable en el servidor
+            save_report_payload(report_id, _analyze_resp)
         except Exception:
             pass
         return _analyze_resp

@@ -1,0 +1,54 @@
+# Render Blueprint para Vertex Fund OS (Warren Buffett Jr).
+# Las claves NO van aquí: se configuran en el dashboard (sync: false pide el valor).
+services:
+  - type: web
+    name: vertex-fund-os
+    runtime: python
+    plan: starter            # sube a standard si necesitas más RAM/CPU
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn vertex_api:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /
+    # Disco persistente: conserva la memoria del agente (base SQLite) entre deploys.
+    disk:
+      name: vertex-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: EDGAR_USER_AGENT
+        value: "Vertex Fund OS - Kevin Taboas kevintaboas02@gmail.com"
+      - key: VERTEX_DB
+        value: /var/data/vertex.db      # la base vive en el disco persistente
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: XAI_API_KEY
+        sync: false
+      - key: FMP_API_KEY
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: FRED_API_KEY
+        sync: false
+      - key: QUANTDATA_API_KEY
+        sync: false
+      - key: PLAID_CLIENT_ID
+        sync: false
+      - key: PLAID_SECRET
+        sync: false
+      - key: PLAID_ENV
+        sync: false
+      - key: SCHWAB_APP_KEY
+        sync: false
+      - key: SCHWAB_APP_SECRET
+        sync: false
+      - key: SNAPTRADE_CLIENT_ID
+        sync: false
+      - key: SNAPTRADE_CONSUMER_KEY
+        sync: false
+      - key: SNAPTRADE_USER_ID
+        sync: false
+      - key: SNAPTRADE_USER_SECRET
+        sync: false
