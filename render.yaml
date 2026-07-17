@@ -8,11 +8,18 @@ services:
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn vertex_api:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: /
+    # Disco persistente: conserva la memoria del agente (base SQLite) entre deploys.
+    disk:
+      name: vertex-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: EDGAR_USER_AGENT
         value: "Vertex Fund OS - Kevin Taboas kevintaboas02@gmail.com"
+      - key: VERTEX_DB
+        value: /var/data/vertex.db      # la base vive en el disco persistente
       - key: GEMINI_API_KEY
         sync: false
       - key: OPENAI_API_KEY
