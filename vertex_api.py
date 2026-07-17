@@ -141,7 +141,7 @@ def _stooq_series(ticker, period="1y"):
         r = requests.get(url, timeout=8)
         if r.status_code != 200 or not r.text or "Date" not in r.text[:64]:
             return []
-        days = {"2y": 730, "1y": 365, "6mo": 183, "3mo": 92, "2mo": 62, "1mo": 31}.get(period, 365)
+        days = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92, "2mo": 62, "1mo": 31}.get(period, 365)
         cutoff = time.time() - days * 86400
         out = []
         for line in r.text.strip().splitlines()[1:]:
@@ -176,7 +176,7 @@ def _resilient_history(stock, ticker, period):
         r = requests.get(f"https://stooq.com/q/d/l/?s={sym}.us&i=d", timeout=8)
         if r.status_code != 200 or not r.text or "Date" not in r.text[:64]:
             return None
-        days = {"2y": 730, "1y": 365, "6mo": 183, "3mo": 92, "2mo": 62, "1mo": 31}.get(period, 365)
+        days = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92, "2mo": 62, "1mo": 31}.get(period, 365)
         cutoff = time.time() - days * 86400
         rows = []
         for line in r.text.strip().splitlines()[1:]:
@@ -6403,7 +6403,7 @@ def _engine_scorecard(ticker, info, price):
         return None
     ohlcv = {}; _dates = []; _opens = []
     try:
-        h = _resilient_history(yf.Ticker(ticker), ticker, "2y")   # OHLCV 2 años (indicadores + gaps de earnings)
+        h = _resilient_history(yf.Ticker(ticker), ticker, "5y")   # OHLCV ~5 años → ≥756 sesiones (DATASET de Victor: 756 preferido)
         if h is not None and not h.empty:
             ohlcv = {"closes":  [float(x) for x in h["Close"].tolist()],
                      "highs":   [float(x) for x in h["High"].tolist()],
