@@ -76,14 +76,19 @@ def market_category(packet: dict, estimates: dict | None = None) -> Category:
     magnitude = None
     if est.get("consensus_prior"):
         magnitude = (est.get("consensus_now", 0) - est["consensus_prior"]) / abs(est["consensus_prior"])
+    # Puntúa con los metrics DISPONIBLES (breadth/magnitud/EPS estimado/sorpresa).
+    # Solo N/S si no hay ninguno — así 2 metrics reales no se pierden por el 70%.
     rev_scores = []
-    rev_scores.append(_sv(breadth, _A_BREADTH) if breadth is not None else _ns("breadth requiere conteo de revisiones (>=5)"))
-    rev_scores.append(_sv(magnitude, _A_REVMAG) if magnitude is not None else
-                      (_sv(est["eps_growth"], _A_EGROWTH) if est.get("eps_growth") is not None
-                       else _ns("magnitud requiere consenso timestamped")))
+    if breadth is not None:
+        rev_scores.append(_sv(breadth, _A_BREADTH))
+    if magnitude is not None:
+        rev_scores.append(_sv(magnitude, _A_REVMAG))
+    elif est.get("eps_growth") is not None:
+        rev_scores.append(_sv(est["eps_growth"], _A_EGROWTH))
     if est.get("surprise") is not None:
         rev_scores.append(_sv(est["surprise"], _A_SURP))
-    revisions = _dim("Revisiones de earnings/ingresos", 4.0, rev_scores)
+    revisions = _dim("Revisiones de earnings/ingresos", 4.0,
+                     rev_scores if rev_scores else [_ns("requiere consenso/revisiones/sorpresa (>=5 estimados)")])
 
     # 3) Catalizadores (4) — narrativos/evento
     catalysts = _dim("Catalizadores", 4.0, [_ns("catalizadores requieren evidencia de eventos (MKT-CAT-019)")])

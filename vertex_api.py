@@ -6321,6 +6321,67 @@ def _wbj_explain(context_text, temp=0.3):
 # ── ENGINE DETERMINISTA DE VICTOR (sin LLM) para los scores de las 6 categorías ──
 _WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine")
 
+
+def _compute_earnings_gaps(cal, dates, opens, closes):
+    """TECH-GAP-020 / TECH-GHOLD-021: gap de earnings y hold a 5 sesiones, mapeando
+    las fechas de release de FMP a las sesiones OHLCV. 'amc' = gap en la sesión
+    siguiente; 'bmo' = gap en la sesión del día. Best-effort."""
+    if not cal or not dates:
+        return []
+    out = []
+    for ev in cal:
+        d = ev.get("date"); t = (ev.get("time") or "").lower()
+        if not d:
+            continue
+        pos = next((i for i, ds in enumerate(dates) if ds >= d), None)
+        if pos is None:
+            continue
+        if t == "amc":
+            base = pos if (pos < len(dates) and dates[pos] == d) else pos - 1
+            if base < 0 or base + 1 >= len(dates):
+                continue
+            prior_close = closes[base]; gap_open = opens[base + 1]; k = base + 1
+        else:  # bmo / desconocido
+            if pos - 1 < 0:
+                continue
+            prior_close = closes[pos - 1]; gap_open = opens[pos]; k = pos
+        if not prior_close or prior_close <= 0 or (gap_open - prior_close) == 0:
+            continue
+        gap = (gap_open - prior_close) / prior_close
+        hold5 = None
+        if k + 5 < len(closes):
+            hold5 = (closes[k + 5] - prior_close) / (gap_open - prior_close)
+        out.append({"gap": round(gap, 4), "hold5": round(hold5, 3) if hold5 is not None else None})
+    return out
+
+
+def _fmp_earnings_surprise(cal):
+    """MKT-SURP-014: sorpresa media de EPS de los últimos ~4 trimestres reportados."""
+    sur = []
+    for ev in (cal or []):
+        a = ev.get("eps"); e = ev.get("epsEstimated")
+        if a is not None and e not in (None, 0):
+            sur.append((a - e) / abs(e))
+        if len(sur) >= 4:
+            break
+    return (sum(sur) / len(sur)) if sur else None
+
+
+def _fmp_forward_estimates(rows):
+    """De FMP analyst_estimates: crecimiento forward de EPS + dispersión + # analistas."""
+    rows = [r for r in (rows or []) if r.get("estimatedEpsAvg") is not None]
+    rows = sorted(rows, key=lambda r: r.get("date", ""))
+    eps_growth = dispersion = analysts = None
+    if len(rows) >= 2 and rows[0]["estimatedEpsAvg"] and rows[0]["estimatedEpsAvg"] > 0:
+        eps_growth = rows[1]["estimatedEpsAvg"] / rows[0]["estimatedEpsAvg"] - 1.0
+    if rows:
+        r0 = rows[0]
+        lo, hi, av = r0.get("estimatedRevenueLow"), r0.get("estimatedRevenueHigh"), r0.get("estimatedRevenueAvg")
+        if lo and hi and av:
+            dispersion = (hi - lo) / abs(av)
+        analysts = r0.get("numberAnalystEstimatedRevenue")
+    return eps_growth, dispersion, analysts
+
 def _engine_scorecard(ticker, info, price):
     """Calcula el scorecard de 6 categorías con el ENGINE de Victor (código
     determinista, sin LLM): Business/Financial/Risk desde EDGAR (su quick_scorecard)
@@ -6340,14 +6401,16 @@ def _engine_scorecard(ticker, info, price):
     except Exception as e:
         print(f"[engine] packet EDGAR falló para {ticker}: {str(e)[:160]}")
         return None
-    ohlcv = {}
+    ohlcv = {}; _dates = []; _opens = []
     try:
-        h = _resilient_history(yf.Ticker(ticker), ticker, "1y")   # OHLCV 1 año para Technical
+        h = _resilient_history(yf.Ticker(ticker), ticker, "2y")   # OHLCV 2 años (indicadores + gaps de earnings)
         if h is not None and not h.empty:
             ohlcv = {"closes":  [float(x) for x in h["Close"].tolist()],
                      "highs":   [float(x) for x in h["High"].tolist()],
                      "lows":    [float(x) for x in h["Low"].tolist()],
                      "volumes": [float(x) for x in h["Volume"].tolist()]}
+            _opens = [float(x) for x in h["Open"].tolist()]
+            _dates = [idx.strftime("%Y-%m-%d") for idx in h.index.tolist()]
     except Exception:
         ohlcv = {}
     # Benchmark (SPY) para la fuerza relativa técnica (TECH-RS-011)
@@ -6377,8 +6440,9 @@ def _engine_scorecard(ticker, info, price):
             est["reinvestment"] = 0.5                              # supuesto declarado (sin desglose)
     except Exception:
         pass
-    # FMP opcional (si hay key): P/E mediano de pares para 'histórico y pares' de Valuation
-    peer_pe = None
+    # FMP opcional (si hay key): pares (Valuation) + calendario de earnings (gaps/sorpresa) +
+    # estimados forward (revisiones de Market). Cierra NOT_SCORABLE con datos reales.
+    peer_pe = None; earnings_gaps = None
     _fmp_key = os.environ.get("FMP_API_KEY", "")
     if _fmp_key:
         try:
@@ -6389,26 +6453,48 @@ def _engine_scorecard(ticker, info, price):
             if not _settings.fmp_api_key:
                 _settings.fmp_api_key = _fmp_key
             _fmp = FMPProvider(_settings, Cache(_settings.cache_dir))
-            _peers = _fmp.peers(ticker) or []
-            _plist = (_peers[0].get("peersList") if isinstance(_peers, list) and _peers and isinstance(_peers[0], dict) else _peers) or []
-            _pes = []
-            for _p in list(_plist)[:6]:
-                try:
+            # 1) P/E mediano de pares → 'histórico y pares' de Valuation
+            try:
+                _peers = _fmp.peers(ticker) or []
+                _plist = (_peers[0].get("peersList") if isinstance(_peers, list) and _peers and isinstance(_peers[0], dict) else _peers) or []
+                _pes = []
+                for _p in list(_plist)[:6]:
                     _pr = _fmp.profile(_p)
                     _prow = _pr[0] if isinstance(_pr, list) and _pr else _pr
                     _pe = _prow.get("pe") if isinstance(_prow, dict) else None
                     if _pe and float(_pe) > 0:
                         _pes.append(float(_pe))
-                except Exception:
-                    continue
-            if len(_pes) >= 3:
-                _pes.sort(); peer_pe = _pes[len(_pes) // 2]
+                if len(_pes) >= 3:
+                    _pes.sort(); peer_pe = _pes[len(_pes) // 2]
+            except Exception as e:
+                print(f"[engine] FMP pares omitido: {str(e)[:120]}")
+            # 2) Calendario de earnings → gaps (Technical) + sorpresa (Market)
+            try:
+                _cal = _fmp.earnings_calendar(ticker) or []
+                if _cal and _dates and _opens:
+                    earnings_gaps = _compute_earnings_gaps(_cal, _dates, _opens, ohlcv.get("closes", []))
+                _surp = _fmp_earnings_surprise(_cal)
+                if _surp is not None:
+                    est["surprise"] = _surp
+            except Exception as e:
+                print(f"[engine] FMP earnings omitido: {str(e)[:120]}")
+            # 3) Estimados forward → revisiones (Market) y crecimiento de Valuation
+            try:
+                _ae = _fmp.analyst_estimates(ticker) or []
+                _epsg, _disp, _na = _fmp_forward_estimates(_ae)
+                if _epsg is not None:
+                    est["eps_growth"] = _epsg
+                    eps_growth = _epsg
+                if _disp is not None:
+                    est["dispersion"] = _disp
+            except Exception as e:
+                print(f"[engine] FMP estimados omitido: {str(e)[:120]}")
         except Exception as e:
-            print(f"[engine] FMP pares omitido: {str(e)[:120]}")
+            print(f"[engine] FMP no disponible: {str(e)[:120]}")
     try:
         return full_scorecard(packet, ohlcv=ohlcv, price=price, market_cap=info.get("marketCap"),
                               estimates=est or None, benchmark_closes=benchmark, beta=beta,
-                              peer_pe=peer_pe, eps_growth=eps_growth)
+                              peer_pe=peer_pe, eps_growth=eps_growth, earnings_gaps=earnings_gaps)
     except Exception as e:
         print(f"[engine] full_scorecard falló: {str(e)[:160]}")
         return None

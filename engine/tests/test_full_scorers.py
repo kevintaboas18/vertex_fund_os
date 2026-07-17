@@ -104,3 +104,21 @@ def test_full_scorecard_six_categories_and_deterministic():
 def test_full_scorecard_max_points_sum_to_100():
     sc = full_scorecard(_packet(), ohlcv=_uptrend(), price=90.0)
     assert sum(c["max"] for c in sc["categories"].values()) == 100.0
+
+
+def test_market_revisions_score_with_surprise_and_growth():
+    # con eps_growth + sorpresa (FMP) la dimensión de revisiones puntúa (ya no N/S)
+    cat = market_category(_packet(), estimates={"eps_growth": 0.18, "surprise": 0.06,
+                                                "roic": 0.19, "reinvestment": 0.5})
+    rev = [d for d in cat.dimensions if "Revisiones" in d.name][0]
+    assert rev.score10_value().is_valid
+    # TAM y catalizadores siguen NOT_SCORABLE (sin fuente) → cobertura tope ~0.55
+    assert 0.45 <= cat.coverage() <= 0.60
+
+
+def test_technical_gaps_score_when_events_present():
+    egaps = [{"gap": 0.05, "hold5": 0.8}, {"gap": 0.03, "hold5": 0.9},
+             {"gap": -0.02, "hold5": 0.4}, {"gap": 0.04, "hold5": 0.7}]
+    cat = technical_category(**_uptrend(), earnings_gaps=egaps)
+    gaps = [d for d in cat.dimensions if "Gaps" in d.name][0]
+    assert gaps.score10_value().is_valid            # ya no NOT_SCORABLE
