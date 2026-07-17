@@ -1,0 +1,6 @@
+[
+  {
+    "symbol": "NVDA",
+    "peersList": ["AMD", "INTC", "QCOM"]
+  }
+]

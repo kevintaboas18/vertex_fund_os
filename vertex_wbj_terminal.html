@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Warren Buffett Jr · Vertex Terminal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #0B0E14; color: #e5e7eb; font-family: 'Inter', sans-serif; }
+        .bg-panel { background-color: #11141D; }
+        .border-panel { border-color: #1F2532; }
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #1F2532; border-radius: 4px; }
+        .cat-bar-track { background: #1a1f2e; border-radius: 6px; height: 8px; overflow: hidden; }
+        .cat-bar-fill { height: 100%; border-radius: 6px; transition: width 0.9s ease; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .wbj-tab { padding: 8px 18px; font-size: 12px; font-weight: 700; letter-spacing: .06em;
+            text-transform: uppercase; border-bottom: 2px solid transparent; color: #6b7280;
+            cursor: pointer; background: transparent; }
+        .wbj-tab:hover { color: #e5e7eb; }
+        .wbj-tab.active { color: #3b82f6; border-bottom-color: #3b82f6; }
+        .chip { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 9999px; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col custom-scroll">
+
+    <!-- Loading -->
+    <div id="loadingScreen" class="fixed inset-0 bg-[#0B0E14] z-50 flex-col items-center justify-center p-6 hidden flex">
+        <div class="max-w-md w-full text-center space-y-6">
+            <h1 class="text-3xl font-extrabold text-white tracking-widest uppercase">WARREN BUFFETT JR</h1>
+            <p class="text-blue-500 text-sm font-medium" id="loadingText">Congelando el reloj de análisis…</p>
+            <div class="w-full bg-gray-900 rounded-full h-1"><div class="bg-blue-600 h-full w-2/3 animate-pulse"></div></div>
+            <p class="text-gray-600 text-xs">6 especialistas · 100 puntos · sin evidencia no hay número</p>
+        </div>
+    </div>
+
+    <!-- NAV -->
+    <nav class="flex items-center justify-between px-6 py-3 border-b border-panel bg-[#0B0E14] sticky top-0 z-40">
+        <div class="flex items-center gap-8">
+            <div onclick="switchView('homeView')" class="flex items-center gap-2 text-white font-bold text-lg cursor-pointer">
+                <div class="w-3 h-3 bg-blue-500 rounded-full"></div> WARREN BUFFETT JR
+                <span class="text-[10px] text-gray-500 font-mono ml-1">Ruta 2030 · v2.0.0</span>
+            </div>
+            <div class="hidden md:flex gap-6 text-sm text-gray-400 font-medium">
+                <button onclick="switchView('homeView')" class="hover:text-white">Dashboard</button>
+                <button onclick="switchView('reportsView')" class="hover:text-white">Historial</button>
+            </div>
+        </div>
+        <div class="text-xs bg-panel border border-panel px-3 py-1.5 rounded-full flex items-center gap-2">
+            <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+            <span class="text-gray-400">Core:</span><strong class="text-white">ONLINE</strong>
+        </div>
+    </nav>
+
+    <!-- HOME -->
+    <main id="homeView" class="view-section flex-grow flex flex-col items-center pt-16 px-4 w-full max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold text-white mb-2 text-center">¿Qué compañía quieres analizar?</h1>
+        <p class="text-gray-400 text-sm mb-8 text-center">Research auditable de 100 puntos — clasificación, no orden de compra/venta.</p>
+        <div class="w-full relative mb-6">
+            <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500"></i>
+            <input type="text" id="tickerInput" onkeyup="debounceQuoteFetch()" placeholder="Ticker o compañía…"
+                class="w-full bg-[#11141D] border border-gray-800 focus:border-blue-500 text-white font-medium px-5 py-4 pl-12 rounded-xl outline-none uppercase text-base">
+        </div>
+        <div id="previewCard" class="w-full bg-[#11141D] border border-panel rounded-2xl p-6 mb-8 hidden">
+            <div class="flex justify-between items-start mb-6">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-xl bg-gray-800 border border-gray-700 flex items-center justify-center overflow-hidden">
+                        <img id="previewLogo" src="" alt="logo" class="w-full h-full object-contain"
+                             onerror="this.src='https://ui-avatars.com/api/?name='+document.getElementById('previewTicker').innerText+'&background=0B0E14&color=3b82f6&bold=true'">
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 id="previewTicker" class="text-xl font-bold text-white"></h3>
+                            <span id="previewPct" class="text-xs font-bold px-2 py-0.5 rounded-md"></span>
+                        </div>
+                        <p id="previewName" class="text-sm text-gray-400 mt-0.5"></p>
+                    </div>
+                </div>
+                <p id="previewPrice" class="text-2xl font-mono font-black text-white"></p>
+            </div>
+            <button onclick="ejecutarAnalisisAPI()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 text-sm">
+                <i data-lucide="brain-circuit" class="w-4 h-4"></i> Correr análisis WBJ (6 especialistas)
+            </button>
+        </div>
+        <div class="w-full bg-panel border border-panel rounded-2xl p-6 mb-12">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-white font-semibold flex items-center gap-2 text-sm"><i data-lucide="clock" class="w-4 h-4 text-blue-500"></i> Reportes recientes</h3>
+                <button onclick="switchView('reportsView')" class="text-blue-500 text-xs hover:text-blue-400">Ver historial ></button>
+            </div>
+            <div id="homeRecentList" class="space-y-3"></div>
+        </div>
+    </main>
+
+    <!-- REPORTS -->
+    <main id="reportsView" class="view-section hidden flex-grow w-full max-w-4xl mx-auto p-4">
+        <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-bold text-white">Historial de reportes</h2>
+            <button onclick="switchView('homeView')" class="text-sm text-gray-400 hover:text-white flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button>
+        </div>
+        <div id="fullReportsList" class="space-y-3"></div>
+    </main>
+
+    <!-- DASHBOARD -->
+    <main id="dashboardView" class="view-section hidden flex-grow w-full max-w-5xl mx-auto p-4 flex flex-col gap-4">
+        <!-- Header -->
+        <div class="bg-panel border border-panel p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div class="flex items-center gap-4">
+                <div class="w-14 h-14 rounded-xl bg-[#0B0E14] border border-panel flex items-center justify-center overflow-hidden">
+                    <img id="dashLogo" src="" alt="logo" class="w-full h-full object-contain">
+                </div>
+                <div>
+                    <h2 class="text-2xl font-black text-white uppercase tracking-wider" id="dashHeaderTitle"></h2>
+                    <p class="text-xs font-mono text-gray-400 mt-1" id="dashAnalysisTime"></p>
+                </div>
+            </div>
+            <div class="text-right">
+                <p class="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-0.5">Precio actual</p>
+                <span class="text-3xl font-mono font-bold text-white" id="dashPrice"></span>
+            </div>
+        </div>
+
+        <!-- Perfil / Veredicto -->
+        <div class="bg-panel border border-panel rounded-2xl p-5">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 items-center">
+                <div class="md:col-span-2">
+                    <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Perfil (research)</span>
+                    <span id="wProfile" class="text-lg font-extrabold px-3 py-1 rounded uppercase border"></span>
+                    <p id="wClassification" class="text-xs text-gray-400 mt-2"></p>
+                </div>
+                <div class="text-center">
+                    <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Raw score</span>
+                    <span id="wRaw" class="text-2xl font-mono font-black text-white"></span>
+                    <span class="text-gray-600 text-sm font-mono">/100</span>
+                    <p id="wBand" class="text-[10px] text-gray-500 mt-0.5"></p>
+                </div>
+                <div class="text-center">
+                    <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Confianza total</span>
+                    <span id="wConf" class="text-2xl font-mono font-black text-blue-400"></span>
+                    <p id="wConfLabel" class="text-[10px] text-gray-500 mt-0.5"></p>
+                </div>
+                <div class="text-center">
+                    <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Fair value (Base)</span>
+                    <span id="wFair" class="text-2xl font-mono font-black text-emerald-400"></span>
+                    <p id="wUpside" class="text-[10px] mt-0.5"></p>
+                </div>
+            </div>
+            <div id="wOverrides" class="mt-4 space-y-1"></div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="bg-panel border border-panel rounded-2xl overflow-hidden">
+            <div class="flex border-b border-panel px-2 pt-1 flex-wrap">
+                <button class="wbj-tab active" onclick="switchTab('scorecardTab', this)">🧮 Scorecard</button>
+                <button class="wbj-tab" onclick="switchTab('thesisTab', this)">📋 Tesis</button>
+                <button class="wbj-tab" onclick="switchTab('valuationTab', this)">📈 Valuación & Niveles</button>
+                <button class="wbj-tab" onclick="switchTab('planTab', this)">🎯 Plan & Riesgo</button>
+                <button class="wbj-tab" onclick="switchTab('gatesTab', this)">🚦 Gates</button>
+            </div>
+
+            <!-- SCORECARD -->
+            <div id="scorecardTab" class="tab-content active p-6 space-y-4">
+                <p class="text-xs text-gray-500 italic">6 especialistas independientes. Cada categoría muestra puntos, cobertura de evidencia y confianza. NOT_SCORABLE = sin datos (no se rellena).</p>
+                <div id="wScorecard" class="space-y-3"></div>
+            </div>
+
+            <!-- THESIS -->
+            <div id="thesisTab" class="tab-content p-6 space-y-4">
+                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
+                    <span class="text-[10px] font-bold text-blue-400 uppercase block mb-2">Resumen ejecutivo</span>
+                    <p id="wExecSummary" class="text-xs text-gray-300 leading-relaxed"></p>
+                </div>
+                <div id="wExecSentences" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
+                    <span class="text-[10px] font-bold text-amber-400 uppercase block mb-2">Reverse DCF — qué exige el precio hoy</span>
+                    <p id="wReverseDcf" class="text-xs text-gray-300 leading-relaxed"></p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-red-500/20">
+                        <span class="text-[10px] font-bold text-red-400 uppercase block mb-2">☠️ Thesis killers</span>
+                        <ul id="wThesisKillers" class="text-xs text-gray-300 leading-relaxed list-disc list-inside space-y-1"></ul>
+                    </div>
+                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
+                        <span class="text-[10px] font-bold text-amber-400 uppercase block mb-2">👀 Disparadores de monitoreo</span>
+                        <ul id="wMonitoring" class="text-xs text-gray-300 leading-relaxed list-disc list-inside space-y-1"></ul>
+                    </div>
+                </div>
+                <div id="wRevisitBox" class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 hidden">
+                    <span class="text-[10px] font-bold text-gray-400 uppercase block mb-1">Revisitar cuando</span>
+                    <p id="wRevisit" class="text-xs text-gray-300"></p>
+                </div>
+            </div>
+
+            <!-- VALUATION & LEVELS -->
+            <div id="valuationTab" class="tab-content p-6 space-y-5">
+                <div>
+                    <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-3">Escenarios de valor intrínseco</h3>
+                    <div id="wScenarios" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <h3 class="text-xs font-bold text-white">Precio (1 año) + referencias σ/DCF</h3>
+                    </div>
+                    <div class="relative w-full h-56 mb-2"><canvas id="wChart"></canvas></div>
+                </div>
+                <div>
+                    <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-3">Síntesis de niveles importantes</h3>
+                    <p class="text-[11px] text-gray-500 italic mb-2">Los niveles técnicos y de valuación se muestran por separado — nunca se promedian.</p>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs">
+                            <thead><tr class="text-gray-500 border-b border-gray-800">
+                                <th class="text-left py-2 font-bold">Tipo</th><th class="text-left font-bold">Lente</th>
+                                <th class="text-right font-bold">Valor</th><th class="text-right font-bold">Dist.%</th>
+                                <th class="text-left font-bold pl-3">Nota</th></tr></thead>
+                            <tbody id="wLevels"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PLAN -->
+            <div id="planTab" class="tab-content p-6 space-y-4">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="bg-[#0B0E14] p-3 rounded-xl border border-gray-900 text-center">
+                        <span class="text-[10px] text-emerald-400 font-bold block uppercase">Reward 12M</span>
+                        <span id="pReward" class="text-base font-mono font-bold text-emerald-400"></span></div>
+                    <div class="bg-[#0B0E14] p-3 rounded-xl border border-gray-900 text-center">
+                        <span class="text-[10px] text-red-400 font-bold block uppercase">Risk (a Bear)</span>
+                        <span id="pRisk" class="text-base font-mono font-bold text-red-400"></span></div>
+                    <div class="bg-[#0B0E14] p-3 rounded-xl border border-gray-900 text-center">
+                        <span class="text-[10px] text-gray-400 font-bold block uppercase">Reward/Risk</span>
+                        <span id="pRR" class="text-base font-mono font-bold text-white"></span></div>
+                    <div class="bg-[#0B0E14] p-3 rounded-xl border border-blue-500/30 text-center">
+                        <span class="text-[10px] text-blue-400 font-bold block uppercase">Tamaño sugerido</span>
+                        <span id="pSize" class="text-base font-mono font-bold text-blue-400"></span></div>
+                </div>
+                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
+                    <span class="text-[10px] font-bold text-gray-400 uppercase block mb-1">Sizing (Kelly fraccional acotado)</span>
+                    <p id="pSizingNote" class="text-xs text-gray-300"></p>
+                </div>
+                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
+                    <span class="text-[10px] font-bold text-gray-400 uppercase block mb-1">Plan de riesgo</span>
+                    <p id="pRiskPlan" class="text-xs text-gray-300"></p>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="pProbs"></div>
+                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
+                    <span class="text-[10px] font-bold text-amber-400 uppercase block mb-2">¿Qué me haría cambiar de opinión?</span>
+                    <ul id="pInvalidation" class="text-xs text-gray-300 leading-relaxed list-disc list-inside space-y-1"></ul>
+                </div>
+            </div>
+
+            <!-- GATES -->
+            <div id="gatesTab" class="tab-content p-6 space-y-4">
+                <p class="text-xs text-gray-500 italic">Cada gate de perfil evalúa condiciones numéricas. Todas deben cumplirse para pasar.</p>
+                <div id="wGates" class="space-y-3"></div>
+            </div>
+        </div>
+
+        <p class="text-[10px] text-gray-600 text-center px-4 pb-4">Clasificación de research con supuestos declarados — no es asesoría de inversión ni recomendación de compra/venta. Toda ejecución es del inversionista.</p>
+    </main>
+
+    <script>
+    // ============================ STATE ============================
+    let currentAnalysis = null, currentTicker = null, currentPrice = null;
+    let wChartInstance = null, debounceTimer = null;
+    const API_BASE = window.location.origin.startsWith("http") ? "" : "http://localhost:8000";
+
+    const num = (v, d = 2) => (v === null || v === undefined || isNaN(v)) ? "—" : Number(v).toFixed(d);
+    const money = (v) => (v === null || v === undefined || isNaN(v)) ? "—" : "$" + Number(v).toFixed(2);
+    const pctDiff = (cur, tgt) => (!cur || tgt === undefined || tgt === null) ? "" :
+        `${((tgt - cur) / cur * 100) >= 0 ? '+' : ''}${((tgt - cur) / cur * 100).toFixed(1)}%`;
+
+    const PROFILE_STYLE = {
+        "Momentum Candidate": "text-blue-400 bg-blue-500/10 border-blue-500/30",
+        "Quality Opportunity": "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
+        "Value Opportunity": "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
+        "Conditional / Watch": "text-amber-400 bg-amber-500/10 border-amber-500/30",
+        "Speculative": "text-orange-400 bg-orange-500/10 border-orange-500/30",
+        "Avoid / Wait": "text-red-400 bg-red-500/10 border-red-500/30",
+    };
+    const catColor = (s10) => s10 >= 7 ? "#10b981" : s10 >= 4 ? "#f59e0b" : "#ef4444";
+
+    // ============================ NAV ============================
+    function switchView(id) {
+        document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
+        document.getElementById(id)?.classList.remove('hidden');
+        lucide.createIcons();
+        if (id === 'reportsView') renderFullReportsList();
+        if (id === 'homeView') renderRecentReports();
+    }
+    function switchTab(id, btn) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.wbj-tab').forEach(el => el.classList.remove('active'));
+        document.getElementById(id)?.classList.add('active');
+        btn.classList.add('active');
+        lucide.createIcons();
+        if (id === 'valuationTab' && currentAnalysis) renderChart();
+    }
+
+    // ============================ QUOTE ============================
+    function debounceQuoteFetch() {
+        clearTimeout(debounceTimer);
+        const val = document.getElementById('tickerInput').value.trim();
+        if (val.length < 1) { document.getElementById('previewCard').classList.add('hidden'); return; }
+        debounceTimer = setTimeout(() => fetchQuote(val), 500);
+    }
+    async function fetchQuote(ticker) {
+        try {
+            const res = await fetch(`${API_BASE}/api/quote?ticker=${ticker}`);
+            if (!res.ok) { document.getElementById('previewCard').classList.add('hidden'); return; }
+            const d = await res.json();
+            document.getElementById('previewLogo').src = d.logo_url || '';
+            document.getElementById('previewTicker').innerText = d.ticker;
+            document.getElementById('previewName').innerText = d.nombre_completo || '';
+            document.getElementById('previewPrice').innerText = money(d.precio);
+            const pctEl = document.getElementById('previewPct');
+            pctEl.innerText = `${d.cambio_pct > 0 ? '+' : ''}${d.cambio_pct}%`;
+            pctEl.className = `text-xs font-bold px-2 py-0.5 rounded-md ${d.cambio_pct >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`;
+            document.getElementById('previewCard').classList.remove('hidden');
+            lucide.createIcons();
+        } catch (e) { document.getElementById('previewCard').classList.add('hidden'); }
+    }
+
+    // ============================ ANALYZE ============================
+    async function ejecutarAnalisisAPI() {
+        const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
+        if (!ticker) return;
+        const loading = document.getElementById('loadingScreen');
+        const texts = ["Congelando el reloj de análisis…", "Validando el packet de datos…",
+            "Corriendo los 6 especialistas…", "Aplicando gates y overrides…",
+            "Sintetizando niveles importantes…"];
+        let ti = 0; loading.classList.remove('hidden');
+        const interval = setInterval(() => { document.getElementById('loadingText').innerText = texts[ti % texts.length]; ti++; }, 1600);
+        try {
+            const res = await fetch(`${API_BASE}/api/analyze?ticker=${ticker}`);
+            if (!res.ok) throw new Error("API error");
+            const data = await res.json();
+            clearInterval(interval); loading.classList.add('hidden');
+            currentAnalysis = data; currentTicker = data.ticker; currentPrice = data.precio_actual;
+            renderDashboard(data); saveToHistory(data); switchView('dashboardView');
+            switchTab('scorecardTab', document.querySelector('.wbj-tab'));
+        } catch (err) {
+            clearInterval(interval); loading.classList.add('hidden');
+            alert("Error al analizar. Verifica que el backend esté corriendo.");
+        }
+    }
+
+    // ============================ RENDER ============================
+    function renderDashboard(data) {
+        const a = data.analisis || {}, w = a.wbj || {};
+        document.getElementById('dashLogo').src = data.logo_url || '';
+        document.getElementById('dashHeaderTitle').innerText = `${data.ticker} — ${data.nombre_completo || ''}`;
+        document.getElementById('dashAnalysisTime').innerText = `${a.framework || 'WBJ v2.0.0'} · ${data.fecha_analisis || ''}`;
+        document.getElementById('dashPrice').innerText = money(data.precio_actual);
+
+        // Perfil / veredicto
+        const prof = w.profile || '—';
+        const profEl = document.getElementById('wProfile');
+        profEl.innerText = prof;
+        profEl.className = `text-lg font-extrabold px-3 py-1 rounded uppercase border ${PROFILE_STYLE[prof] || 'text-gray-300 bg-gray-500/10 border-gray-600'}`;
+        document.getElementById('wClassification').innerText = w.classification || a.classification || '';
+        document.getElementById('wRaw').innerText = num(w.raw_total, 0);
+        document.getElementById('wBand').innerText = w.band || '';
+        document.getElementById('wConf').innerText = num(w.total_confidence, 0);
+        document.getElementById('wConfLabel').innerText = confLabel(w.total_confidence);
+        document.getElementById('wFair').innerText = money(a.fair_value);
+        const up = document.getElementById('wUpside');
+        up.innerText = `${a.upside_pct >= 0 ? '+' : ''}${num(a.upside_pct, 1)}% vs spot`;
+        up.className = `text-[10px] mt-0.5 ${a.upside_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`;
+
+        // Overrides
+        const ov = document.getElementById('wOverrides');
+        ov.innerHTML = (w.overrides || []).map(o =>
+            `<div class="flex items-start gap-2 text-[11px] text-amber-300 bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-1.5">
+                <i data-lucide="shield-alert" class="w-3.5 h-3.5 mt-0.5 flex-shrink-0"></i><span>${o}</span></div>`).join('');
+
+        renderScorecard(w.categories || {});
+        renderThesis(a);
+        renderValuation(a, data);
+        renderPlan(a);
+        renderGates(w);
+        lucide.createIcons();
+    }
+
+    function confLabel(c) {
+        if (c === null || c === undefined) return '';
+        if (c >= 85) return 'Alta'; if (c >= 70) return 'Media'; if (c >= 50) return 'Baja'; return 'Insuficiente';
+    }
+
+    function renderScorecard(cats) {
+        const order = ["business", "financial", "market", "technical", "risk", "valuation"];
+        const el = document.getElementById('wScorecard');
+        el.innerHTML = order.filter(k => cats[k]).map(k => {
+            const c = cats[k], s10 = c.score10, cov = Math.round((c.coverage || 0) * 100);
+            const scorable = cov >= 70;
+            return `<div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm font-bold text-white">${c.label}</span>
+                        <span class="text-[10px] text-gray-500 font-mono">${num(c.points, 1)}/${c.max} pts</span>
+                        ${scorable ? '' : '<span class="chip bg-gray-500/10 text-gray-400 border border-gray-700">cobertura baja</span>'}
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="text-[10px] text-gray-500">conf ${num(c.confidence, 0)}</span>
+                        <span class="font-mono font-black text-sm" style="color:${catColor(s10)}">${num(s10, 1)}/10</span>
+                    </div>
+                </div>
+                <div class="cat-bar-track"><div class="cat-bar-fill" style="width:${Math.max(0, Math.min(100, s10 * 10))}%;background:${catColor(s10)}"></div></div>
+                <div class="flex justify-between mt-1"><span class="text-[9px] text-gray-600">Evidencia: ${cov}% cobertura</span></div>
+            </div>`;
+        }).join('');
+    }
+
+    function renderThesis(a) {
+        document.getElementById('wExecSummary').innerText = a.executive_summary || a.company_summary_simple || '';
+        const sentences = [
+            ["Qué hace la compañía", a.what_company_does],
+            ["Durabilidad de la creación de valor", a.value_creation_durability],
+            ["Qué financia el crecimiento", a.growth_funding],
+            ["Validación del mercado", a.market_validation],
+            ["Supuestos implícitos en el precio", a.price_implied_assumptions],
+            ["Niveles clave cercanos", a.nearest_key_levels],
+            ["Riesgo de invalidación #1", a.top_invalidation_risk],
+        ];
+        document.getElementById('wExecSentences').innerHTML = sentences.filter(s => s[1]).map(s =>
+            `<div class="bg-[#0B0E14] p-3 rounded-xl border border-gray-900">
+                <span class="text-[10px] font-bold text-blue-400 uppercase block mb-1">${s[0]}</span>
+                <p class="text-xs text-gray-300 leading-relaxed">${s[1]}</p></div>`).join('');
+        document.getElementById('wReverseDcf').innerText = a.reverse_dcf || '';
+        document.getElementById('wThesisKillers').innerHTML = (a.thesis_killers || []).map(t => `<li>${t}</li>`).join('');
+        document.getElementById('wMonitoring').innerHTML = (a.monitoring_triggers || []).map(t => `<li>${t}</li>`).join('');
+        const rb = document.getElementById('wRevisitBox');
+        if (a.revisit_when && a.revisit_when.trim()) { rb.classList.remove('hidden'); document.getElementById('wRevisit').innerText = a.revisit_when; }
+        else rb.classList.add('hidden');
+    }
+
+    function renderValuation(a, data) {
+        const sc = a.valuation_scenarios || [];
+        const map = { "bear": "text-red-400", "base": "text-amber-400", "bull": "text-emerald-400" };
+        document.getElementById('wScenarios').innerHTML = sc.map(s => {
+            const key = (s.scenario || '').toLowerCase();
+            const color = key.includes('bull') ? map.bull : key.includes('bear') ? map.bear : map.base;
+            return `<div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
+                <span class="text-[10px] font-bold uppercase block mb-1 ${color}">${s.scenario}</span>
+                <span class="text-lg font-mono font-black ${color}">${money(s.value)}</span>
+                <span class="text-[10px] text-gray-500 block">${pctDiff(data.precio_actual, s.value)} vs spot</span>
+                <p class="text-[10px] text-gray-400 mt-2 leading-relaxed">${s.assumptions || ''}</p></div>`;
+        }).join('');
+
+        // Levels: LLM important_levels + computed technical levels, técnicos vs valuación separados
+        const levels = [].concat(a.important_levels || [], (a.wbj && a.wbj.computed_levels) || []);
+        const cur = data.precio_actual;
+        levels.sort((x, y) => Math.abs((x.valor - cur)) - Math.abs((y.valor - cur)));
+        document.getElementById('wLevels').innerHTML = levels.map(l => {
+            const lensColor = (l.lente || '').toLowerCase().includes('valu') ? 'text-emerald-400' : 'text-blue-400';
+            return `<tr class="border-b border-gray-900">
+                <td class="py-1.5 text-gray-200">${l.tipo || ''}</td>
+                <td class="${lensColor}">${l.lente || ''}</td>
+                <td class="text-right font-mono text-white">${money(l.valor)}</td>
+                <td class="text-right font-mono text-gray-400">${pctDiff(cur, l.valor)}</td>
+                <td class="pl-3 text-gray-500 text-[10px]">${l.nota || ''}</td></tr>`;
+        }).join('');
+        renderChart();
+    }
+
+    function renderChart() {
+        if (!currentAnalysis) return;
+        const data = currentAnalysis, a = data.analisis || {};
+        const ctx = document.getElementById('wChart')?.getContext('2d');
+        if (!ctx) return;
+        if (wChartInstance) wChartInstance.destroy();
+        const labels = data.historial_fechas || [], prices = data.historial_precios || [];
+        const t12 = (data.targets && data.targets['12m']) || {};
+        const grad = ctx.createLinearGradient(0, 0, 0, 224);
+        grad.addColorStop(0, '#3b82f633'); grad.addColorStop(1, '#3b82f600');
+        const flat = (v) => labels.map(() => v);
+        wChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    { data: prices, borderColor: '#3b82f6', borderWidth: 2, backgroundColor: grad, fill: true, tension: 0.35, pointRadius: 0, label: 'Precio' },
+                    { data: flat(t12.bull), borderColor: '#10b981', borderWidth: 1, borderDash: [4, 4], pointRadius: 0, fill: false, label: 'Bull 12M' },
+                    { data: flat(t12.base), borderColor: '#f59e0b', borderWidth: 1, borderDash: [4, 4], pointRadius: 0, fill: false, label: 'Base 12M' },
+                    { data: flat(t12.bear), borderColor: '#ef4444', borderWidth: 1, borderDash: [4, 4], pointRadius: 0, fill: false, label: 'Bear 12M' },
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: true, labels: { color: '#6b7280', font: { size: 9 }, boxWidth: 10 } } },
+                scales: {
+                    x: { grid: { color: '#1F2532' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } },
+                    y: { grid: { color: '#1F2532' }, ticks: { color: '#6b7280', font: { size: 9 }, callback: v => '$' + v } }
+                }
+            }
+        });
+    }
+
+    function renderPlan(a) {
+        const tp = a.trade_plan || {};
+        document.getElementById('pReward').innerText = `+${num(tp.reward_pct, 1)}%`;
+        document.getElementById('pRisk').innerText = `-${num(tp.risk_pct, 1)}%`;
+        document.getElementById('pRR').innerText = num(tp.reward_risk, 2);
+        document.getElementById('pSize').innerText = `${num(tp.suggested_pct, 1)}%`;
+        document.getElementById('pSizingNote').innerText =
+            `Kelly ½: ${num(tp.kelly_half_pct, 1)}% · sugerido ${num(tp.suggested_pct, 1)}% del capital. ${tp.cap_reason || ''}`;
+        const rp = tp.risk_plan || {};
+        document.getElementById('pRiskPlan').innerText =
+            `${rp.equity_stop_note || ''} ${rp.options_stop_rule || ''}`;
+        const pr = tp.probabilities || {};
+        document.getElementById('pProbs').innerHTML = [
+            ["Positivo 12M", pr.p_positive_12m], ["Toca Bull 12M", pr.p_touch_bull_12m],
+            ["Toca Bear 12M", pr.p_touch_bear_12m], [">+10% en 3M", pr.p_up_10pct_3m]
+        ].map(p => `<div class="bg-[#0B0E14] p-3 rounded-xl border border-gray-900 text-center">
+            <span class="text-[10px] text-gray-500 font-bold block uppercase">${p[0]}</span>
+            <span class="text-base font-mono font-bold text-white">${p[1] == null ? '—' : p[1] + '%'}</span></div>`).join('');
+        document.getElementById('pInvalidation').innerHTML = (tp.thesis_invalidation || []).map(i =>
+            `<li><strong class="text-gray-200">${i.factor}:</strong> ${i.trigger}</li>`).join('');
+    }
+
+    function renderGates(w) {
+        const all = [].concat(
+            (w.passed_gates || []).map(g => ({ ...g, ok: true })),
+            (w.failed_gates || []).map(g => ({ ...g, ok: false })));
+        document.getElementById('wGates').innerHTML = all.map(g => `
+            <div class="bg-[#0B0E14] p-4 rounded-xl border ${g.ok ? 'border-emerald-500/30' : 'border-gray-900'}">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="chip ${g.ok ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}">${g.ok ? 'PASA' : 'NO PASA'}</span>
+                    <span class="text-sm font-bold text-white">${g.gate}</span>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-1">
+                    ${(g.conditions || []).map(c => `<div class="flex items-center gap-1.5 text-[11px] ${c.pass ? 'text-gray-300' : 'text-red-400'}">
+                        <i data-lucide="${c.pass ? 'check' : 'x'}" class="w-3 h-3"></i>${c.cond}</div>`).join('')}
+                </div>
+            </div>`).join('');
+        lucide.createIcons();
+    }
+
+    // ============================ HISTORY ============================
+    function saveToHistory(data) {
+        const a = data.analisis || {}, w = a.wbj || {};
+        let h = JSON.parse(localStorage.getItem('wbj_history') || '[]');
+        h = h.filter(x => x.ticker !== data.ticker);
+        h.unshift({
+            ticker: data.ticker, nombre: data.nombre_completo, precio: data.precio_actual,
+            logo: data.logo_url, profile: w.profile, raw: w.raw_total,
+            fecha: data.fecha_analisis, upside: a.upside_pct
+        });
+        if (h.length > 20) h = h.slice(0, 20);
+        localStorage.setItem('wbj_history', JSON.stringify(h));
+        renderRecentReports();
+    }
+    function reportCard(h) {
+        const st = PROFILE_STYLE[h.profile] || 'text-gray-300 bg-gray-500/10 border-gray-600';
+        return `<div class="bg-[#0B0E14] border border-gray-900 rounded-xl p-4 flex items-center justify-between hover:border-blue-500/30 transition">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-lg bg-[#11141D] border border-gray-800 overflow-hidden flex-shrink-0">
+                    <img src="${h.logo || ''}" class="w-full h-full object-contain" onerror="this.src='https://ui-avatars.com/api/?name=${h.ticker}&background=0B0E14&color=3b82f6&bold=true'"></div>
+                <div><div class="flex items-center gap-2">
+                    <span class="text-sm font-bold text-white">${h.ticker}</span>
+                    <span class="chip border ${st}">${h.profile || '—'}</span></div>
+                    <p class="text-[10px] text-gray-500">${h.nombre || ''} · ${h.fecha || ''}</p></div>
+            </div>
+            <div class="text-right"><p class="text-sm font-mono font-bold text-white">${money(h.precio)}</p>
+                <p class="text-[10px] text-gray-500">raw ${num(h.raw, 0)}/100</p></div></div>`;
+    }
+    function renderRecentReports() {
+        const h = JSON.parse(localStorage.getItem('wbj_history') || '[]');
+        const el = document.getElementById('homeRecentList'); if (!el) return;
+        el.innerHTML = h.length ? h.slice(0, 4).map(reportCard).join('')
+            : `<p class="text-gray-600 text-xs text-center py-4">Aún no hay reportes. Corre tu primer análisis.</p>`;
+        lucide.createIcons();
+    }
+    function renderFullReportsList() {
+        const h = JSON.parse(localStorage.getItem('wbj_history') || '[]');
+        const el = document.getElementById('fullReportsList'); if (!el) return;
+        el.innerHTML = h.length ? h.map(reportCard).join('') : `<p class="text-gray-600 text-xs text-center py-8">Aún no hay reportes.</p>`;
+        lucide.createIcons();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => { lucide.createIcons(); renderRecentReports(); });
+    </script>
+</body>
+</html>
