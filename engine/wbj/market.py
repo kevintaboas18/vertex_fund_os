@@ -1,14 +1,15 @@
-"""Market & Growth category scorer (20 pts) — deterministic.
+"""Market & Growth category scorer (20 pts) — DETERMINISTA, fórmulas exactas de Victor.
 
-Completa el engine de Victor para Market siguiendo
-Cerebro/03_market_analysis/SCORING.md. Sin LLM. Lo que requiere evidencia
-externa que no tenemos (tamaño de mercado/TAM, catalizadores narrativos) se
-deja NOT_SCORABLE con honestidad; lo que sale de los fundamentales de EDGAR
-(pista de crecimiento, apalancamiento operativo) y de estimados de consenso
-opcionales (revisiones) se puntúa con anclajes.
+Implementa Cerebro/03_market_analysis (FORMULAS.md + DECISION_RULES.md):
+crecimiento de ingresos (MKT-CAGR), penetración/runway (MKT-RUN-010),
+capacidad fundamental de crecimiento (MKT-GCAP-009 = reinvestment*ROIC),
+apalancamiento/margen incremental (MKT-OPLEV-017/INCM-018), y revisiones de
+consenso (MKT-REVBR-011 breadth, MKT-REVMAG-012 magnitud, MKT-SURP-014 sorpresa)
+cuando hay estimados FMP. TAM (MKT-TAM-001, tiers de fuente) y catalizadores
+(MKT-CAT-019) quedan NOT_SCORABLE sin evidencia — política de Victor. Sin LLM.
 
-Dimensiones: TAM y viento de cola (5) · Revisiones (4) · Catalizadores (4)
-· Pista de crecimiento y captura de share (4) · Apalancamiento operativo (3).
+Dimensiones: TAM y viento de cola (5) · Revisiones (4) · Catalizadores (4) ·
+Pista de crecimiento y captura de share (4) · Apalancamiento operativo (3).
 """
 
 from __future__ import annotations
@@ -18,9 +19,12 @@ from wbj.core.scoring import Category, Dimension, anchor_score
 
 _A_CAGR = [(-0.10, 0.0), (0.0, 3.0), (0.10, 6.0), (0.25, 9.0), (0.40, 10.0)]
 _A_YOY = [(-0.10, 0.0), (0.0, 3.0), (0.10, 6.0), (0.25, 9.0), (0.45, 10.0)]
-_A_OPLEV = [(-2.0, 0.0), (0.0, 3.0), (1.0, 5.0), (1.5, 8.0), (2.5, 10.0)]      # margen incremental / margen actual
-_A_EGROWTH = [(-0.15, 0.0), (0.0, 3.0), (0.12, 6.5), (0.30, 10.0)]            # crecimiento de EPS estimado
-_A_ANALYST = [(0.0, 2.0), (0.05, 5.0), (0.15, 8.0), (0.30, 10.0)]            # upside vs target medio de analistas
+_A_OPLEV = [(-2.0, 0.0), (0.0, 3.0), (1.0, 5.0), (1.5, 8.0), (2.5, 10.0)]
+_A_GCAP = [(0.0, 0.0), (0.05, 4.0), (0.10, 6.5), (0.18, 8.5), (0.30, 10.0)]        # reinvestment*ROIC
+_A_EGROWTH = [(-0.15, 0.0), (0.0, 3.0), (0.12, 6.5), (0.30, 10.0)]
+_A_REVMAG = [(-0.10, 0.0), (-0.02, 3.0), (0.0, 5.0), (0.03, 7.5), (0.10, 10.0)]    # magnitud de revisión
+_A_BREADTH = [(0.0, 0.0), (0.4, 3.0), (0.5, 5.0), (0.7, 8.0), (0.9, 10.0)]         # % revisiones al alza
+_A_SURP = [(-0.10, 0.0), (0.0, 5.0), (0.05, 8.0), (0.15, 10.0)]                    # sorpresa de earnings
 
 
 def _sv(x, anchors):
@@ -38,7 +42,7 @@ def _dim(name, max_points, scores):
     return Dimension(name=name, max_points=max_points, metric_scores=[(w, s) for s in scores])
 
 
-def _series_cagr(series, years=5):
+def _cagr(series, years=5):
     rows = [r["val"] for r in series[-years:] if r.get("val") is not None]
     if len(rows) < 3 or rows[0] <= 0 or rows[-1] <= 0:
         return None
@@ -54,44 +58,55 @@ def _latest_yoy(series):
 
 def market_category(packet: dict, estimates: dict | None = None) -> Category:
     """Category 'Market & Growth' (max 20).
-    packet: paquete EDGAR de Victor (annual.revenue, annual.operating_income...).
-    estimates (opcional): {'eps_growth', 'analyst_upside'} de consenso — E-class."""
+    estimates (FMP/consenso, todos opcionales): eps_growth, analyst_upside,
+    revision_up, revision_total, consensus_now, consensus_prior, surprise,
+    roic, reinvestment."""
     a = (packet or {}).get("annual", {}) if packet else {}
     rev = a.get("revenue", []) or []
     op = a.get("operating_income", []) or []
     est = estimates or {}
 
-    # TAM y viento de cola (5) — requiere evidencia de tamaño de mercado
-    tam = _dim("TAM y viento de cola", 5.0, [_ns("requiere evidencia de tamaño de mercado (no inyectada)")])
+    # 1) TAM y viento de cola (5) — requiere fuente de tamaño de mercado (tiers)
+    tam = _dim("TAM y viento de cola", 5.0, [_ns("TAM requiere fuente de tamaño de mercado (MKT-TAM-001, tiers 1-5)")])
 
-    # Revisiones (4) — desde estimados de consenso si están disponibles
-    eps_g = est.get("eps_growth")
-    upside = est.get("analyst_upside")
-    if eps_g is not None or upside is not None:
-        revisions = _dim("Revisiones de earnings/ingresos", 4.0, [
-            _sv(eps_g, _A_EGROWTH) if eps_g is not None else _ns("sin crecimiento de EPS estimado"),
-            _sv(upside, _A_ANALYST) if upside is not None else _ns("sin target de analistas")])
-    else:
-        revisions = _dim("Revisiones de earnings/ingresos", 4.0, [_ns("requiere consenso timestamped (>=5 estimados)")])
+    # 2) Revisiones (4): breadth (MKT-REVBR-011) + magnitud (MKT-REVMAG-012) + EPS estimado + sorpresa
+    breadth = None
+    if est.get("revision_total"):
+        breadth = est["revision_up"] / est["revision_total"] if est.get("revision_up") is not None else None
+    magnitude = None
+    if est.get("consensus_prior"):
+        magnitude = (est.get("consensus_now", 0) - est["consensus_prior"]) / abs(est["consensus_prior"])
+    rev_scores = []
+    rev_scores.append(_sv(breadth, _A_BREADTH) if breadth is not None else _ns("breadth requiere conteo de revisiones (>=5)"))
+    rev_scores.append(_sv(magnitude, _A_REVMAG) if magnitude is not None else
+                      (_sv(est["eps_growth"], _A_EGROWTH) if est.get("eps_growth") is not None
+                       else _ns("magnitud requiere consenso timestamped")))
+    if est.get("surprise") is not None:
+        rev_scores.append(_sv(est["surprise"], _A_SURP))
+    revisions = _dim("Revisiones de earnings/ingresos", 4.0, rev_scores)
 
-    # Catalizadores (4) — narrativos/evento; no puntuables deterministamente
-    catalysts = _dim("Catalizadores", 4.0, [_ns("catalizadores requieren evidencia de eventos (no puntuable sin datos)")])
+    # 3) Catalizadores (4) — narrativos/evento
+    catalysts = _dim("Catalizadores", 4.0, [_ns("catalizadores requieren evidencia de eventos (MKT-CAT-019)")])
 
-    # Pista de crecimiento y captura de share (4) — desde EDGAR
-    rev_cagr = _series_cagr(rev, 5)
+    # 4) Pista de crecimiento y captura de share (4): CAGR + YoY + capacidad fundamental
+    rev_cagr = _cagr(rev, 5)
     rev_yoy = _latest_yoy(rev)
+    gcap = None
+    if est.get("roic") is not None and est.get("reinvestment") is not None:
+        gcap = est["roic"] * est["reinvestment"]                 # MKT-GCAP-009
     runway = _dim("Pista de crecimiento", 4.0, [
-        _sv(rev_cagr, _A_CAGR) if rev_cagr is not None else _ns("CAGR de ingresos requiere >=3 años"),
-        _sv(rev_yoy, _A_YOY) if rev_yoy is not None else _ns("YoY de ingresos requiere 2 años")])
+        _sv(rev_cagr, _A_CAGR) if rev_cagr is not None else _ns("CAGR ingresos requiere >=3 años"),
+        _sv(rev_yoy, _A_YOY) if rev_yoy is not None else _ns("YoY ingresos requiere 2 años"),
+        _sv(gcap, _A_GCAP) if gcap is not None else _ns("capacidad de crecimiento requiere ROIC y reinversión")])
 
-    # Apalancamiento operativo (3) — margen incremental desde EDGAR
+    # 5) Apalancamiento operativo (3): margen incremental (MKT-INCM-018)
     oplev = None
     rv = [r["val"] for r in rev if r.get("val") is not None]
     ov = [r["val"] for r in op if r.get("val") is not None]
     if len(rv) >= 2 and len(ov) >= 2 and (rv[-1] - rv[-2]) != 0:
-        incr_margin = (ov[-1] - ov[-2]) / (rv[-1] - rv[-2])       # Δ margen operativo incremental
-        cur_margin = (ov[-1] / rv[-1]) if rv[-1] else None
-        oplev = (incr_margin / cur_margin) if (cur_margin and cur_margin != 0) else incr_margin
+        incr = (ov[-1] - ov[-2]) / (rv[-1] - rv[-2])
+        cur = (ov[-1] / rv[-1]) if rv[-1] else None
+        oplev = (incr / cur) if (cur and cur != 0) else incr
     opleverage = _dim("Apalancamiento operativo", 3.0, [
         _sv(oplev, _A_OPLEV) if oplev is not None else _ns("requiere 2 años de ingresos y op. income")])
 

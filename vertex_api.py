@@ -6350,18 +6350,65 @@ def _engine_scorecard(ticker, info, price):
                      "volumes": [float(x) for x in h["Volume"].tolist()]}
     except Exception:
         ohlcv = {}
-    est = {}
+    # Benchmark (SPY) para la fuerza relativa técnica (TECH-RS-011)
+    benchmark = None
     try:
-        if info.get("earningsGrowth") is not None:
-            est["eps_growth"] = float(info["earningsGrowth"])
+        _spy = _resilient_history(yf.Ticker("SPY"), "SPY", "1y")
+        if _spy is not None and not _spy.empty:
+            benchmark = [float(x) for x in _spy["Close"].tolist()]
+    except Exception:
+        benchmark = None
+    # Insumos de Valuation/Market desde yfinance info (beta, crecimiento, target)
+    beta = None; eps_growth = None
+    try:
+        beta = float(info["beta"]) if info.get("beta") is not None else None
+        eps_growth = float(info["earningsGrowth"]) if info.get("earningsGrowth") is not None else None
+    except Exception:
+        pass
+    est = {}
+    if eps_growth is not None:
+        est["eps_growth"] = eps_growth
+    try:
         _tmp = info.get("targetMeanPrice")
         if _tmp and price:
             est["analyst_upside"] = float(_tmp) / float(price) - 1.0
+        if info.get("returnOnEquity") is not None:
+            est["roic"] = float(info["returnOnEquity"])            # proxy ROIC≈ROE cuando no hay FMP
+            est["reinvestment"] = 0.5                              # supuesto declarado (sin desglose)
     except Exception:
         pass
+    # FMP opcional (si hay key): P/E mediano de pares para 'histórico y pares' de Valuation
+    peer_pe = None
+    _fmp_key = os.environ.get("FMP_API_KEY", "")
+    if _fmp_key:
+        try:
+            from wbj.config import load_settings
+            from wbj.providers.cache import Cache
+            from wbj.providers.fmp import FMPProvider
+            _settings = load_settings()
+            if not _settings.fmp_api_key:
+                _settings.fmp_api_key = _fmp_key
+            _fmp = FMPProvider(_settings, Cache(_settings.cache_dir))
+            _peers = _fmp.peers(ticker) or []
+            _plist = (_peers[0].get("peersList") if isinstance(_peers, list) and _peers and isinstance(_peers[0], dict) else _peers) or []
+            _pes = []
+            for _p in list(_plist)[:6]:
+                try:
+                    _pr = _fmp.profile(_p)
+                    _prow = _pr[0] if isinstance(_pr, list) and _pr else _pr
+                    _pe = _prow.get("pe") if isinstance(_prow, dict) else None
+                    if _pe and float(_pe) > 0:
+                        _pes.append(float(_pe))
+                except Exception:
+                    continue
+            if len(_pes) >= 3:
+                _pes.sort(); peer_pe = _pes[len(_pes) // 2]
+        except Exception as e:
+            print(f"[engine] FMP pares omitido: {str(e)[:120]}")
     try:
-        return full_scorecard(packet, ohlcv=ohlcv, price=price,
-                              market_cap=info.get("marketCap"), estimates=est or None)
+        return full_scorecard(packet, ohlcv=ohlcv, price=price, market_cap=info.get("marketCap"),
+                              estimates=est or None, benchmark_closes=benchmark, beta=beta,
+                              peer_pe=peer_pe, eps_growth=eps_growth)
     except Exception as e:
         print(f"[engine] full_scorecard falló: {str(e)[:160]}")
         return None

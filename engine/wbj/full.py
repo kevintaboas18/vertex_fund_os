@@ -74,12 +74,16 @@ def _row_to_dict(row: dict) -> dict:
 
 def full_scorecard(packet: dict, ohlcv: dict | None = None, price: float | None = None,
                    market_cap: float | None = None, estimates: dict | None = None,
-                   benchmark_closes=None) -> dict:
-    """Scorecard determinista de las 6 categorías.
+                   benchmark_closes=None, beta: float | None = None,
+                   peer_pe: float | None = None, eps_growth: float | None = None,
+                   earnings_gaps=None) -> dict:
+    """Scorecard determinista de las 6 categorías (fórmulas exactas de Victor).
 
     packet: paquete EDGAR de Victor (_build_packet).
     ohlcv: {'closes','highs','lows','volumes'} ajustado (para Technical).
-    price / market_cap / estimates: para Valuation y Market.
+    benchmark_closes: cierres del índice (SPY) para fuerza relativa.
+    beta / peer_pe / eps_growth / market_cap: insumos FMP para Valuation.
+    estimates: consenso FMP para Market (revisiones, ROIC, reinversión).
     """
     quick = quick_scorecard(packet)                      # business/financial/risk EXACTOS de Victor
     quick_rows = {r["key"]: r for r in quick["categories"]}
@@ -90,10 +94,13 @@ def full_scorecard(packet: dict, ohlcv: dict | None = None, price: float | None 
 
     ohlcv = ohlcv or {}
     tech = technical_category(ohlcv.get("closes", []), ohlcv.get("highs"),
-                              ohlcv.get("lows"), ohlcv.get("volumes"), benchmark_closes)
+                              ohlcv.get("lows"), ohlcv.get("volumes"),
+                              benchmark_closes, earnings_gaps)
     cats["technical"] = _cat_dict("technical", tech)
     cats["market"] = _cat_dict("market", market_category(packet, estimates))
-    cats["valuation"] = _cat_dict("valuation", valuation_category(packet, price, market_cap))
+    _eps_g = eps_growth if eps_growth is not None else (estimates or {}).get("eps_growth")
+    cats["valuation"] = _cat_dict("valuation",
+                                  valuation_category(packet, price, market_cap, beta, _eps_g, peer_pe))
 
     order = ["business", "financial", "market", "technical", "risk", "valuation"]
     raw_total = round(sum(cats[k]["points"] for k in order), 1)

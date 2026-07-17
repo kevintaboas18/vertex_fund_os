@@ -57,10 +57,17 @@ def test_technical_no_data_is_not_scorable():
 
 
 def test_valuation_scores_from_price_and_fundamentals():
-    cat = valuation_category(_packet(), price=40.0, market_cap=400.0)
+    # con P/E de pares (FMP) la dimensión histórico/pares también puntúa
+    cat = valuation_category(_packet(), price=40.0, market_cap=400.0, beta=1.1, peer_pe=15.0)
     assert cat.name == "valuation" and cat.max_points == 10.0
-    assert cat.coverage() >= 0.70            # PEG + yields + escenarios + MOS
+    assert cat.coverage() >= 0.70            # PEG + pares + yields + escenarios + MOS
     assert 0.0 <= cat.points() <= 10.0
+
+
+def test_valuation_justified_pe_respects_g_below_ke():
+    # regla VAL-JPE-032: no aplica si g >= Ke; sin pares, la categoría queda "usable con caveat"
+    cat = valuation_category(_packet(), price=40.0, market_cap=400.0)
+    assert 0.55 <= cat.coverage() < 0.85
 
 
 def test_valuation_no_price_degrades():

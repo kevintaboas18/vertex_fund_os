@@ -4,3 +4,6 @@ vertex.db
 __pycache__/
 .venv/
 venv/
+API/.env
+engine/cache/
+engine/.venv/
