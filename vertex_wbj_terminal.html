@@ -150,11 +150,22 @@
             <div id="wOverrides" class="mt-4 space-y-1"></div>
         </div>
 
+        <!-- SCORECARD (siempre visible — 6 especialistas, 1-10 por categoría, como el de Victor) -->
+        <div class="bg-panel border border-panel rounded-2xl p-5">
+            <div class="flex items-center justify-between mb-1">
+                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2">
+                    <i data-lucide="layout-grid" class="w-4 h-4"></i> Scorecard — 6 especialistas · 100 puntos
+                </h3>
+                <span id="wScoreEvidence" class="text-[10px] text-gray-500 font-mono"></span>
+            </div>
+            <p class="text-[11px] text-gray-500 italic mb-4">1–10 por categoría con su cobertura de evidencia. NOT_SCORABLE = sin datos (no se inventa).</p>
+            <div id="wScorecard" class="space-y-3"></div>
+        </div>
+
         <!-- Tabs -->
         <div class="bg-panel border border-panel rounded-2xl overflow-hidden">
             <div class="flex border-b border-panel px-2 pt-1 flex-wrap">
                 <button class="wbj-tab active" onclick="switchTab('explicacionTab', this)">📖 Explicación</button>
-                <button class="wbj-tab" onclick="switchTab('scorecardTab', this)">🧮 Scorecard</button>
                 <button class="wbj-tab" onclick="switchTab('thesisTab', this)">📋 Tesis</button>
                 <button class="wbj-tab" onclick="switchTab('valuationTab', this)">📈 Valuación & Niveles</button>
                 <button class="wbj-tab" onclick="switchTab('planTab', this)">🎯 Plan & Riesgo</button>
@@ -209,12 +220,6 @@
                     <span class="text-[10px] font-bold text-white uppercase block mb-1">🏁 Conclusión</span>
                     <p id="exConclusion" class="text-sm text-white leading-relaxed font-medium"></p>
                 </div>
-            </div>
-
-            <!-- SCORECARD -->
-            <div id="scorecardTab" class="tab-content p-6 space-y-4">
-                <p class="text-xs text-gray-500 italic">6 especialistas independientes. Cada categoría muestra puntos, cobertura de evidencia y confianza. NOT_SCORABLE = sin datos (no se rellena).</p>
-                <div id="wScorecard" class="space-y-3"></div>
             </div>
 
             <!-- THESIS -->
@@ -486,6 +491,11 @@
 
     function renderScorecard(cats) {
         const order = ["business", "financial", "market", "technical", "risk", "valuation"];
+        const evNode = document.getElementById('wScoreEvidence');
+        if (evNode) {
+            const ev = order.filter(k => cats[k]).reduce((s, k) => s + (cats[k].max * (cats[k].coverage || 0)), 0);
+            evNode.innerText = `${Math.round(ev)}/100 pts de evidencia`;
+        }
         const el = document.getElementById('wScorecard');
         el.innerHTML = order.filter(k => cats[k]).map(k => {
             const c = cats[k], s10 = c.score10, cov = Math.round((c.coverage || 0) * 100);

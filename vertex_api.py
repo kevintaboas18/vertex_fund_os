@@ -6123,7 +6123,7 @@ def _load_investor_profile():
     Devuelve (nombre, texto) o (None, '') si no existe. Solo contexto para la
     explicación; nunca cambia el scoring."""
     base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Perfil Inversionista")
-    for fn in ("Mi Perfil.md", "MiPerfil.md", "Perfil.md"):
+    for fn in ("Kevin.md", "Mi Perfil.md", "MiPerfil.md", "Perfil.md"):
         p = os.path.join(base, fn)
         if os.path.exists(p):
             try:

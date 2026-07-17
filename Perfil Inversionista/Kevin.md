@@ -1,9 +1,12 @@
-# Perfil del Inversionista
+# Perfil del Inversionista — Kevin
 
-> Este es el perfil que el sistema debe usar SIEMPRE para el filtro de "fit"
-> (reemplaza al perfil de referencia de Victor Gonzalez). El agente lo lee antes
-> de explicar cualquier recomendación. No cambia la matemática del scoring —
-> solo contextualiza la explicación al perfil de este inversionista.
+> Este es el perfil que el sistema usa SIEMPRE para el filtro de "fit" (reemplaza
+> al de Victor Gonzalez). El agente lo lee antes de explicar cualquier
+> recomendación. No cambia la matemática del scoring — solo contextualiza la
+> explicación al perfil de Kevin.
+>
+> NOTA: este contenido es un borrador armado a partir de respuestas rápidas.
+> Reemplázalo con tu perfil detallado cuando lo tengas (mismo archivo).
 
 ## Objetivos
 - **Crecimiento de capital** con horizonte principal de **1 a 3 años**.
