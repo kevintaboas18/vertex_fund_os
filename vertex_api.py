@@ -6113,6 +6113,211 @@ def _wbj_analyze_structured(prompt, temp=0.2):
     raise last if last else RuntimeError("Generación WBJ falló en todos los proveedores")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CAPAS ADITIVAS WBJ — NO alteran ningún número. Calculan datos deterministas
+# (con la matemática de Victor) y el LLM SOLO los explica en un 2º pase.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _load_investor_profile():
+    """Lee el perfil del inversionista (el mío). Prioriza 'Mi Perfil.md'.
+    Devuelve (nombre, texto) o (None, '') si no existe. Solo contexto para la
+    explicación; nunca cambia el scoring."""
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Perfil Inversionista")
+    for fn in ("Mi Perfil.md", "MiPerfil.md", "Perfil.md"):
+        p = os.path.join(base, fn)
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return fn.replace(".md", ""), f.read().strip()
+            except Exception:
+                pass
+    return None, ""
+
+
+def _industry_adapter_hint(info):
+    """Mapea sector/industria (yfinance) a un adaptador del Cerebro
+    (shared/INDUSTRY_ADAPTERS.md). Solo es una PISTA para que la explicación use
+    el lente correcto; no cambia la agregación ni los pesos."""
+    sec = (info.get("sector") or "").lower()
+    ind = (info.get("industry") or "").lower()
+    blob = f"{sec} {ind}"
+    if any(k in blob for k in ("bank", "banco")):                 return "Banco"
+    if any(k in blob for k in ("insurance", "seguro")):           return "Aseguradora"
+    if "reit" in blob or "real estate" in blob:                   return "REIT / inmobiliaria"
+    if any(k in blob for k in ("software", "saas", "internet")):  return "Software / SaaS"
+    if any(k in blob for k in ("biotech", "pharma", "drug")):     return "Biotech / farma"
+    if any(k in blob for k in ("oil", "gas", "mining", "metal", "energy")): return "Commodities / energía"
+    if any(k in blob for k in ("auto", "industrial", "materials", "semiconductor")): return "Cíclica"
+    return "Empresa estándar (industrial/servicios)"
+
+
+def _wbj_coherence(comp, gates):
+    """Flags de contradicción (Cerebro/00_main_agent/CONTRADICTION_RESOLUTION.md).
+    SON INFORMATIVOS: no cambian ni un punto. Solo señalan tensiones para explicar."""
+    c = comp["categories"]
+    def P(k): return c.get(k, {}).get("points", 0.0)
+    flags = []
+    raw, tconf = comp["raw_total"], comp["total_confidence"]
+    prof = gates["profile"]
+    if P("business") >= 16 and P("technical") <= 8:
+        flags.append({"tipo": "Negocio fuerte, técnico débil",
+                      "detalle": "La calidad puede estar intacta pero el timing no está confirmado (esperar confirmación)."})
+    if P("business") <= 8 and P("technical") >= 15:
+        flags.append({"tipo": "Negocio débil, técnico fuerte",
+                      "detalle": "Liderazgo de precio sin economía durable — momentum especulativo."})
+    if P("valuation") >= 8 and P("technical") <= 8:
+        flags.append({"tipo": "Valuación atractiva, técnico débil",
+                      "detalle": "Posible value trap: barata pero sin confirmación del mercado."})
+    if raw >= 75 and tconf < 60:
+        flags.append({"tipo": "Score alto, confianza baja",
+                      "detalle": "El agregado luce fuerte pero la evidencia es escasa/vieja — trata el número con cautela."})
+    if prof in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity") and P("risk") <= 6:
+        flags.append({"tipo": "Perfil favorable con riesgo elevado",
+                      "detalle": "El agregado puede esconder riesgo de supervivencia; revisa el override de riesgo."})
+    if comp.get("incomplete"):
+        labs = ", ".join(WBJ_CATEGORIES[k]["label"] for k in comp["incomplete"])
+        flags.append({"tipo": "Cobertura incompleta",
+                      "detalle": f"Categoría(s) con <70% de evidencia: {labs}. No pueden pasar un gate de perfil."})
+    return flags
+
+
+def _wbj_confluence_zones(levels, atr, price):
+    """Zonas de confluencia (Cerebro/00_main_agent/PRICE_LEVEL_SYNTHESIS.md):
+    existe confluencia cuando un nivel TÉCNICO y uno de VALUACIÓN se solapan
+    dentro de max(0.50*ATR14, 0.75% del precio). NUNCA promedia — solo reporta
+    el solape. Fórmula exacta de Victor; no cambia scores."""
+    try:
+        atr_f = float(atr) if atr not in (None, "N/A", "") else None
+    except (TypeError, ValueError):
+        atr_f = None
+    tol = max((0.5 * atr_f) if atr_f else 0.0, 0.0075 * float(price)) if price else 0.0
+    if tol <= 0:
+        return []
+    tech = [l for l in levels if "técn" in (l.get("lente", "").lower()) or "tecn" in (l.get("lente", "").lower())]
+    val = [l for l in levels if "valu" in (l.get("lente", "").lower())]
+    zones = []
+    for t in tech:
+        for v in val:
+            try:
+                tv, vv = float(t["valor"]), float(v["valor"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if abs(tv - vv) <= tol:
+                mid = round((tv + vv) / 2, 2)
+                zones.append({
+                    "zona": mid, "tolerancia": round(tol, 2),
+                    "tecnico": {"tipo": t.get("tipo"), "valor": tv},
+                    "valuacion": {"tipo": v.get("tipo"), "valor": vv},
+                    "dist_pct": round((mid - float(price)) / float(price) * 100, 1) if price else None})
+    zones.sort(key=lambda z: abs(z.get("dist_pct") or 999))
+    return zones
+
+
+def _wbj_read_thesis_md(ticker):
+    """Lee Memoria/tesis/<TICKER>.md (tesis previa) para el prompt. '' si no hay."""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "tesis", f"{ticker.upper()}.md")
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception:
+            return ""
+    return ""
+
+
+def _wbj_write_thesis_md(ticker, price, profile, raw, fair_value, targets, thesis, invalidation):
+    """Escribe/actualiza Memoria/tesis/<TICKER>.md (protocolo de memoria del CLAUDE.md).
+    Corrige encima; no borra la tesis vieja (la apila como historial). Best-effort."""
+    try:
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "tesis")
+        os.makedirs(base, exist_ok=True)
+        p = os.path.join(base, f"{ticker.upper()}.md")
+        fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
+        t12 = (targets or {}).get("12m", {}) or {}
+        prev = ""
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                prev = f.read()
+        entry = (f"## {fecha} — perfil {profile} · raw {raw}/100\n"
+                 f"- Precio al análisis: ${price} · Fair value (base): ${fair_value}\n"
+                 f"- Targets 12M: Bull ${t12.get('bull')} / Base ${t12.get('base')} / Bear ${t12.get('bear')}\n"
+                 f"- Tesis: {(thesis or '').strip()[:600]}\n"
+                 f"- Invalidación: {invalidation}\n\n")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(f"# Tesis — {ticker.upper()}\n\n{entry}{prev}")
+        # índice
+        idx = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "MEMORIA.md")
+        line = f"- {ticker.upper()} · {fecha} · {profile} · raw {raw}/100 · FV ${fair_value}\n"
+        with open(idx, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception as e:
+        print(f"[Memoria] no se pudo escribir tesis {ticker}: {e}")
+
+
+def _wbj_write_prediccion(ticker, report_id, price, fair_value, profile, raw, targets, recommendation):
+    """Guarda Reportes/<TICKER>/<fecha>/prediccion.json (para el track record).
+    Nunca se edita luego. Best-effort."""
+    try:
+        fecha = datetime.now().strftime("%Y-%m-%d")
+        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Reportes", ticker.upper(), fecha)
+        os.makedirs(base, exist_ok=True)
+        payload = {"report_id": report_id, "ticker": ticker.upper(), "fecha": fecha,
+                   "price_at_analysis": price, "fair_value": fair_value, "profile": profile,
+                   "raw_total": raw, "recommendation": recommendation,
+                   "targets_12m": (targets or {}).get("12m", {}), "framework": "WBJ v2.0.0"}
+        with open(os.path.join(base, "prediccion.json"), "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[Predicción] no se pudo escribir {ticker}: {e}")
+
+
+class WBJExplanation(BaseModel):
+    resumen_simple: str = Field(..., description="En 3-5 frases y en español MUY simple: qué es esta empresa como inversión y qué dice el veredicto. Para alguien sin conocimientos financieros.")
+    por_categoria: str = Field(..., description="Explica en palabras qué significa el puntaje de CADA una de las 6 categorías (business, financial, market, technical, risk, valuation) y por qué está alto o bajo, citando las notas. Detallado pero simple.")
+    gates_y_perfil: str = Field(..., description="Explica qué significa el perfil asignado (Momentum/Quality/Value/Conditional/Speculative/Avoid), qué gates pasaron o fallaron y qué implican, en palabras llanas.")
+    overrides_y_coherencia: str = Field(..., description="Explica qué significan los overrides activados y los flags de coherencia (contradicciones) listados, y qué debería vigilar el inversionista.")
+    niveles_y_confluencia: str = Field(..., description="Explica los niveles importantes (técnicos vs valuación) y las zonas de confluencia detectadas: qué son, por qué importan y cómo leerlas. Recuerda que no se promedian.")
+    ajuste_a_mi_perfil: str = Field(..., description="Explica cómo encaja (o no) esta inversión con MI perfil (horizonte 1-3a + opciones corto plazo + ingresos, agresivo/especulativo, acciones/ETF/opciones, ~$1,000), incluido el riesgo de sizing con capital pequeño.")
+    calibracion: str = Field(..., description="Explica en palabras qué dice mi track record/calibración histórica (si hay) y cómo tomar la confianza del veredicto. Si no hay historial, dilo.")
+    conclusion: str = Field(..., description="La conclusión final en 1-2 frases, honesta y sin promesas de retorno.")
+
+
+def _wbj_explain(context_text, temp=0.3):
+    """2º PASE: el LLM SOLO explica el paquete ya calculado en palabras simples.
+    Recibe los números FINALES (matemática de Victor) y NO los cambia. Respaldo de
+    proveedor igual que el análisis. Devuelve (dict, fuente) o (None, None) si falla."""
+    prompt = (
+        "Eres un divulgador financiero. Abajo tienes un análisis WBJ YA CALCULADO con la "
+        "metodología de Victor (los números son FINALES y correctos). Tu ÚNICO trabajo es "
+        "EXPLICARLO en español simple, claro y detallado para el inversionista de 'MI PERFIL'. "
+        "NO recalcules, NO cambies, NO reduzcas ni 'corrijas' ningún número, score, gate ni nivel. "
+        "Si algo no tiene datos (NOT_SCORABLE), explícalo con honestidad. No prometas retornos ni "
+        "des órdenes de compra/venta.\n\n" + context_text)
+    last = None
+    for attempt in range(2):
+        try:
+            r = client_gemini.models.generate_content(
+                model="gemini-2.5-flash", contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json", response_schema=WBJExplanation, temperature=temp))
+            return json.loads(r.text), "gemini"
+        except Exception as e:
+            last = e
+            if _is_quota_error(e) and attempt == 0:
+                time.sleep(_retry_delay_secs(e)); continue
+            break
+    try:
+        keys = list(getattr(WBJExplanation, "model_fields", None) or getattr(WBJExplanation, "__fields__", {}) or [])
+    except Exception:
+        keys = []
+    for fn, src in ((_openai_json, "openai (ChatGPT)"), (_grok_json, "grok")):
+        try:
+            return fn(prompt, keys, temp), src
+        except Exception as e2:
+            last = e2
+    return None, None
+
+
 @app.get("/api/analyze")
 def analyze_ticker(ticker: str):
     ticker = ticker.upper().strip()
@@ -6316,6 +6521,16 @@ def analyze_ticker(ticker: str):
         _earn_block = _earnings_depth_block(earnings_hist, earnings_info)
         _next_earn = (('en ' + str(earnings_info['days_until']) + ' días (' + earnings_info['label'] + ')')
                       if earnings_info.get('days_until') is not None else 'N/A')
+        # ── Contexto aditivo (perfil / adaptador de industria / tesis previa) — NO cambia el scoring ──
+        _prof_name, _prof_text = _load_investor_profile()
+        profile_block = (f"\n\nMI PERFIL DE INVERSIONISTA (para contextualizar el fit, NUNCA para cambiar el scoring):\n{_prof_text}"
+                         if _prof_text else "")
+        _adapter = _industry_adapter_hint(info)
+        adapter_block = (f"\nADAPTADOR DE INDUSTRIA sugerido (usa el lente correcto al puntuar/explicar): {_adapter} "
+                         f"— sector {info.get('sector', 'N/A')} / industria {info.get('industry', 'N/A')}.")
+        _prior_thesis = _wbj_read_thesis_md(ticker)
+        prior_thesis_block = (f"\nTESIS PREVIA REGISTRADA (Memoria/tesis/{ticker}.md — qué se dijo antes):\n{_prior_thesis[:1200]}"
+                              if _prior_thesis else "")
         prompt = f"""Analiza en profundidad {ticker} ({info.get('longName', ticker)}) para Vertex Holding Group aplicando el framework WBJ.
 
 {_key_sig}
@@ -6332,7 +6547,7 @@ DATOS DE MERCADO (calculados por el motor cuantitativo de Vertex — son tu EVID
 - Actividad de Insiders y 13F (SEC): {insiders_context if insiders_context else 'N/A'}
 - Contexto Finnhub (fundamentales/news/sentiment/insiders/congreso): {finnhub_context if finnhub_context else 'N/A'}
 - Ajuste con tu portafolio actual: {format_portfolio_fit(portfolio_fit)}
-{memory_block}{_deep_mem_block}{_opt_block}{calibration_block}{regime_block}{gex_block}{_earn_block}{_8k_block}
+{adapter_block}{prior_thesis_block}{memory_block}{_deep_mem_block}{_opt_block}{calibration_block}{regime_block}{gex_block}{_earn_block}{_8k_block}{profile_block}
 
 REFERENCIAS DE PRECIO YA CALCULADAS (motor σ/DCF de Vertex — evidencia técnica; nunca las llames "target garantizado"):
 - 7D:  Bull ${targets['7d']['bull']} | Base ${targets['7d']['base']} | Bear ${targets['7d']['bear']}
@@ -6391,6 +6606,13 @@ REFERENCIAS DE PRECIO YA CALCULADAS (motor σ/DCF de Vertex — evidencia técni
             "passed_gates": gates["passed_gates"], "failed_gates": gates["failed_gates"],
             "overrides": gates["overrides"], "incomplete_categories": comp["incomplete"],
             "computed_levels": computed_levels}
+        # ── Capas aditivas deterministas (NO mutan scores): coherencia + confluencia ──
+        analisis_json["wbj"]["coherence_flags"] = _wbj_coherence(comp, gates)
+        _all_levels = list(computed_levels) + list(analisis_json.get("important_levels", []) or [])
+        analisis_json["wbj"]["confluence_zones"] = _wbj_confluence_zones(
+            _all_levels, methodology.get("atr_14"), precio_actual)
+        analisis_json["wbj"]["industry_adapter"] = _adapter
+        analisis_json["wbj"]["profile_name"] = _prof_name
         analisis_json["framework"] = "WBJ v2.0.0"
         analisis_json["recommendation"] = gates["recommendation"]
         analisis_json["classification"] = gates["classification"]
@@ -6534,6 +6756,61 @@ REFERENCIAS DE PRECIO YA CALCULADAS (motor σ/DCF de Vertex — evidencia técni
         analisis_json["should_debate"] = bool(comp["raw_total"] >= 78)
         analisis_json["debate_reason"] = ("Raw score alto (≥78) — conviene estresarlo con el debate Toro/Oso/Árbitro."
                                           if comp["raw_total"] >= 78 else None)
+
+        # ── 2º PASE: el LLM SOLO explica en palabras el paquete YA CALCULADO ──
+        # No cambia ningún número: recibe los valores finales (matemática de Victor)
+        # y produce explicaciones en español simple/detallado para MI perfil.
+        try:
+            _w = analisis_json["wbj"]
+            _cats_txt = "\n".join(
+                f"  - {v['label']}: {v['points']}/{v['max']} pts (score {v['score10']}/10, "
+                f"cobertura {int(v['coverage']*100)}%, confianza {int(v['confidence'])})"
+                for v in _w["categories"].values())
+            _passed = ", ".join(g["gate"] for g in _w["passed_gates"]) or "ninguno"
+            _failed = ", ".join(g["gate"] for g in _w["failed_gates"]) or "ninguno"
+            _ovr = "; ".join(_w["overrides"]) or "ninguno"
+            _coh = "; ".join(f"{f['tipo']}: {f['detalle']}" for f in _w["coherence_flags"]) or "sin contradicciones"
+            _conf = "; ".join(
+                f"zona ${z['zona']} ({z['tecnico']['tipo']} téc. vs {z['valuacion']['tipo']} val.)"
+                for z in _w["confluence_zones"]) or "ninguna"
+            _scen = "; ".join(f"{s.get('scenario')} ${s.get('value')} [{s.get('assumptions','')}]"
+                              for s in (analisis_json.get("valuation_scenarios") or []))
+            _calib_txt = (f"global {calib_stats['overall_hit_rate']}% en {calib_stats['n']} evaluaciones"
+                          if calib_stats and calib_stats.get("n") else "sin historial suficiente todavía")
+            _explain_ctx = (
+                f"ACCIÓN: {ticker} ({info.get('longName', ticker)}) · Precio ${precio_actual} · Adaptador: {_adapter}\n"
+                f"PERFIL/VEREDICTO (research, no orden): {_w['profile']} · banda {_w['band']} · "
+                f"clasificación {_w['classification']}\n"
+                f"RAW SCORE: {_w['raw_total']}/100 · CONFIANZA TOTAL: {_w['total_confidence']}/100\n"
+                f"CATEGORÍAS (6 especialistas):\n{_cats_txt}\n"
+                f"GATES pasados: {_passed} | fallidos: {_failed}\n"
+                f"OVERRIDES: {_ovr}\n"
+                f"FLAGS DE COHERENCIA: {_coh}\n"
+                f"FAIR VALUE (base): ${analisis_json.get('fair_value')} · upside {analisis_json.get('upside_pct')}%\n"
+                f"ESCENARIOS DE VALUACIÓN: {_scen}\n"
+                f"ZONAS DE CONFLUENCIA (técnico∩valuación): {_conf}\n"
+                f"CALIBRACIÓN/TRACK RECORD: {_calib_txt}\n"
+                f"SIZING SUGERIDO: {analisis_json.get('trade_plan',{}).get('suggested_pct')}% "
+                f"(Kelly ½ {analisis_json.get('trade_plan',{}).get('kelly_half_pct')}%)\n\n"
+                f"MI PERFIL:\n{_prof_text or 'No disponible.'}")
+            _expl, _expl_src = _wbj_explain(_explain_ctx)
+            if _expl:
+                analisis_json["explicacion"] = _expl
+                analisis_json["explicacion_source"] = _expl_src
+        except Exception as _eex:
+            print(f"[WBJ] explicación (2º pase) omitida: {_eex}")
+            analisis_json["explicacion"] = None
+
+        # ── PROTOCOLO DE MEMORIA (.md) + PREDICCIÓN para track record ──
+        try:
+            _inval_txt = "; ".join(i["trigger"] for i in _inval) if _inval else ""
+            _wbj_write_thesis_md(ticker, precio_actual, gates["profile"], comp["raw_total"],
+                                 round(fair_value, 2), targets,
+                                 analisis_json.get("executive_summary"), _inval_txt)
+            _wbj_write_prediccion(ticker, report_id, precio_actual, round(fair_value, 2),
+                                  gates["profile"], comp["raw_total"], targets, gates["recommendation"])
+        except Exception as _emem:
+            print(f"[WBJ] memoria/predicción omitida: {_emem}")
 
         # ── MEMORIA: comparar con el reporte previo + persistir este ──
         memory_comparison = compute_memory_comparison(
