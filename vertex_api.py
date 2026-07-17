@@ -16,6 +16,28 @@ from google import genai
 from google.genai import types
 from urllib.parse import urlparse
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CARGA DE CREDENCIALES
+# Lee vertex.env (gitignored) hacia el entorno para que TODAS las API keys
+# (GEMINI/OPENAI/FINNHUB/QUANTDATA/XAI/PLAID/SNAPTRADE…) queden disponibles
+# vía os.environ. Nunca se imprime ni se commitea su contenido.
+# ─────────────────────────────────────────────────────────────────────────────
+try:
+    from dotenv import load_dotenv
+    _ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vertex.env")
+    load_dotenv(_ENV_PATH)                 # no falla si el archivo no existe
+except Exception:
+    pass  # sin python-dotenv: se usan las variables ya presentes en el entorno
+
+# Cliente Gemini (modelo principal de la IA). GEMINI_API_KEY vive en vertex.env.
+# Si no hay key, client_gemini queda en None y los endpoints de IA degradan a
+# sus respaldos (OpenAI/Grok) o devuelven un error limpio en vez de romper.
+API_KEY = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
+try:
+    client_gemini = genai.Client(api_key=API_KEY) if API_KEY else None
+except Exception:
+    client_gemini = None
+
 app = FastAPI(title="Vertex Fund OS Core")
 
 app.add_middleware(
