@@ -6521,6 +6521,30 @@ def _engine_scorecard(ticker, info, price):
             sc["victor_targets_detail"] = pt
     except Exception as e:
         print(f"[engine] targets de Victor omitidos: {str(e)[:140]}")
+    # ── VENTAS ANUALES + CRECIMIENTO (desde el packet EDGAR de Victor) para las gráficas ──
+    try:
+        _a = (packet or {}).get("annual", {}) or {}
+        def _ser(key):
+            return [(str(r.get("end", ""))[:4], r.get("val")) for r in _a.get(key, []) if r.get("val") is not None][-6:]
+        rev = _ser("revenue"); ni = _ser("net_income"); op = _ser("operating_income"); gp = _ser("gross_profit")
+        years = [y for y, _ in rev]
+        revenue = [v for _, v in rev]
+        ni_by = dict(ni); op_by = dict(op); gp_by = dict(gp)
+        rev_growth = [None] + [round((revenue[i] / revenue[i - 1] - 1) * 100, 1) if revenue[i - 1] else None
+                               for i in range(1, len(revenue))]
+        cagr = None
+        if len(revenue) >= 3 and revenue[0] > 0 and revenue[-1] > 0:
+            cagr = round(((revenue[-1] / revenue[0]) ** (1 / (len(revenue) - 1)) - 1) * 100, 1)
+        net_margin = [round(ni_by[y] / v * 100, 1) if (y in ni_by and v) else None for y, v in rev]
+        op_margin = [round(op_by[y] / v * 100, 1) if (y in op_by and v) else None for y, v in rev]
+        gross_margin = [round(gp_by[y] / v * 100, 1) if (y in gp_by and v) else None for y, v in rev]
+        sc["financials_annual"] = {
+            "years": years, "revenue": revenue,
+            "net_income": [ni_by.get(y) for y in years],
+            "revenue_growth_yoy": rev_growth, "revenue_cagr": cagr,
+            "net_margin": net_margin, "operating_margin": op_margin, "gross_margin": gross_margin}
+    except Exception as e:
+        print(f"[engine] financials anuales omitidos: {str(e)[:140]}")
     return sc
 
 
@@ -7091,6 +7115,7 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 "passed_gates": _gates["passed_gates"], "failed_gates": _gates["failed_gates"],
                 "overrides": _gates["overrides"], "scores_source": "engine determinista (metodología de Victor)"}
             analisis_json["victor_targets_detail"] = _eng.get("victor_targets_detail")
+            analisis_json["financials_annual"] = _eng.get("financials_annual")
             analisis_json["scores_source"] = "victor"
 
         # ── MEMORY: compare with prior report + persist this one ─────────────

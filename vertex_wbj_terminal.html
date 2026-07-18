@@ -174,6 +174,29 @@
             </div>
         </div>
 
+        <!-- Ventas anuales + crecimiento -->
+        <div id="finCard" class="card p-6 mb-5 hidden">
+            <div class="flex items-center justify-between mb-1">
+                <h3 class="font-semibold text-gray-800 flex items-center gap-2"><i data-lucide="bar-chart-3" class="w-4 h-4 text-blue-600"></i> Ventas anuales y crecimiento</h3>
+                <span id="finCagr" class="chip" style="background:#eff6ff;color:#2563eb"></span>
+            </div>
+            <p class="text-[11px] text-gray-400 mb-3">Ingresos por año (barras) y crecimiento YoY (línea) — desde SEC EDGAR.</p>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                <div class="lg:col-span-2 relative w-full" style="height:260px"><canvas id="finChart"></canvas></div>
+                <div class="space-y-3">
+                    <div class="rounded-xl p-3.5" style="background:#f4f6fa">
+                        <span class="text-[11px] text-gray-500 font-semibold uppercase block">Ingresos último año</span>
+                        <span id="finRevLast" class="text-lg font-bold text-gray-900"></span></div>
+                    <div class="rounded-xl p-3.5" style="background:#f4f6fa">
+                        <span class="text-[11px] text-gray-500 font-semibold uppercase block">Crecimiento (CAGR 5a)</span>
+                        <span id="finCagr2" class="text-lg font-bold text-emerald-600"></span></div>
+                    <div class="rounded-xl p-3.5" style="background:#f4f6fa">
+                        <span class="text-[11px] text-gray-500 font-semibold uppercase block">Margen neto / operativo</span>
+                        <span id="finMargins" class="text-sm font-bold text-gray-900"></span></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Tabs -->
         <div class="card overflow-hidden">
             <div class="flex gap-6 px-6 border-b border-[var(--line)]">
@@ -276,6 +299,7 @@
         renderScorecard(w);
         renderProjection(d,a);
         renderTargets(d,a);
+        renderFinancials(a);
         renderExpl(a,w);
         renderVal(a,d);
         renderGates(w);
@@ -336,6 +360,32 @@
         document.getElementById('tBase').innerText=money(t.base); document.getElementById('tBaseP').innerText=pct(cur,t.base);
         document.getElementById('tBear').innerText=money(t.bear); document.getElementById('tBearP').innerText=pct(cur,t.bear); }
 
+    let finC=null;
+    const bn=(v)=>{ if(v==null||isNaN(v)) return "—"; const a=Math.abs(v);
+        if(a>=1e12) return "$"+(v/1e12).toFixed(2)+"T"; if(a>=1e9) return "$"+(v/1e9).toFixed(1)+"B";
+        if(a>=1e6) return "$"+(v/1e6).toFixed(0)+"M"; return "$"+v.toFixed(0); };
+    function renderFinancials(a){ const f=a.financials_annual; const card=document.getElementById('finCard');
+        if(!f || !(f.years||[]).length){ card.classList.add('hidden'); return; } card.classList.remove('hidden');
+        const cg = f.revenue_cagr; document.getElementById('finCagr').innerText = cg!=null?`CAGR ${cg>=0?'+':''}${cg}%`:'CAGR —';
+        document.getElementById('finCagr2').innerText = cg!=null?`${cg>=0?'+':''}${cg}%`:'—';
+        document.getElementById('finRevLast').innerText = bn(f.revenue[f.revenue.length-1]);
+        const nm=f.net_margin&&f.net_margin[f.net_margin.length-1], om=f.operating_margin&&f.operating_margin[f.operating_margin.length-1];
+        document.getElementById('finMargins').innerText = `${nm!=null?nm+'%':'—'} · ${om!=null?om+'%':'—'}`;
+        const ctx=document.getElementById('finChart').getContext('2d'); if(finC) finC.destroy();
+        // Un solo eje (ingresos en $). El crecimiento YoY se muestra como etiqueta sobre cada barra.
+        const growthLbl={ id:'growthLbl', afterDatasetsDraw(ch){ const g=(ch.data.datasets[0]._growth)||[]; const m=ch.getDatasetMeta(0);
+            const cx=ch.ctx; m.data.forEach((bar,i)=>{ const v=g[i]; if(v==null) return; cx.save();
+                cx.font='700 10px system-ui'; cx.fillStyle=v>=0?'#16a34a':'#dc2626'; cx.textAlign='center';
+                cx.fillText((v>=0?'+':'')+v+'%', bar.x, bar.y-6); cx.restore(); }); } };
+        finC=new Chart(ctx,{type:'bar',data:{labels:f.years,datasets:[
+            {label:'Ingresos anuales',data:f.revenue,backgroundColor:'#93b4f5',borderRadius:6,_growth:f.revenue_growth_yoy}]},
+            plugins:[growthLbl],
+            options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:18}},
+                plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`Ingresos: ${bn(c.parsed.y)}`,
+                    afterLabel:c=>{ const g=f.revenue_growth_yoy[c.dataIndex]; return g!=null?`Crecimiento YoY: ${g>=0?'+':''}${g}%`:''; }}}},
+                scales:{y:{grid:{color:'#f1f3f7'},ticks:{color:'#9aa1ad',font:{size:10},callback:v=>bn(v)}},
+                    x:{grid:{display:false},ticks:{color:'#5b6270',font:{size:11,weight:'600'}}}}}}); }
+
     function renderExpl(a,w){ const ex=a.explicacion; document.getElementById('explNo').classList.toggle('hidden',!!ex);
         const S=(id,v)=>document.getElementById(id).innerText=v||'—';
         S('eResumen',ex&&ex.resumen_simple); S('ePerfil',ex&&ex.ajuste_a_mi_perfil); S('eCat',ex&&ex.por_categoria);
@@ -386,7 +436,9 @@
     function renderReports(){ const h=JSON.parse(localStorage.getItem('wbj_h')||'[]'); const el=document.getElementById('fullReports'); if(!el)return;
         el.innerHTML=h.length?h.map(hCard).join(''):`<p class="text-sm text-gray-400 text-center py-8">Aún no hay reportes.</p>`; }
 
-    document.addEventListener('DOMContentLoaded',()=>{ lucide.createIcons(); renderRecent(); });
+    document.addEventListener('DOMContentLoaded',()=>{ lucide.createIcons(); renderRecent();
+        const qt=new URLSearchParams(location.search).get('ticker');
+        if(qt){ document.getElementById('tickerInput').value=qt.toUpperCase(); runAnalysis(); } });
     </script>
 </body>
 </html>
