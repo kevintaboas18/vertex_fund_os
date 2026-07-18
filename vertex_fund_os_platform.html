@@ -22,6 +22,25 @@
         .font-mono, code, pre { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1, "zero" 1; }
         .bg-panel { background-color: #11141D; }
         .border-panel { border-color: #1F2532; }
+
+        /* ── TEMA CLARO (toggle) — override de las superficies principales ── */
+        html.light body { background-color: #eef1f6 !important; color: #16181d !important; }
+        html.light nav { background-color: #ffffff !important; }
+        html.light [class*="bg-[#0B0E14]"] { background-color: #eef1f6 !important; }
+        html.light .bg-panel,
+        html.light [class*="bg-[#11141D]"],
+        html.light [class*="bg-[#0e1220]"],
+        html.light [class*="bg-[#1a1f2e]"] { background-color: #ffffff !important; }
+        html.light .border-panel,
+        html.light [class*="border-[#1F2532]"] { border-color: #e5e8ee !important; }
+        html.light .text-white { color: #16181d !important; }
+        html.light .text-gray-400, html.light .text-gray-500, html.light .text-gray-600 { color: #5b6270 !important; }
+        html.light .text-gray-300, html.light .text-gray-200 { color: #2a2f3a !important; }
+        html.light .custom-scroll::-webkit-scrollbar-thumb { background: #d7dbe4; }
+        #themeToggle { position: fixed; right: 18px; bottom: 18px; z-index: 60; width: 44px; height: 44px;
+            border-radius: 9999px; border: 1px solid #1F2532; background: #11141D; color: #e5e7eb;
+            display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+        html.light #themeToggle { background: #ffffff; border-color: #e5e8ee; color: #16181d; box-shadow: 0 4px 14px rgba(16,24,40,.12); }
         .custom-scroll::-webkit-scrollbar { width: 6px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #1F2532; border-radius: 4px; }
         .analysis-tab { padding: 8px 20px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 2px solid transparent; color: #6b7280; cursor: pointer; transition: all 0.2s; background: transparent; border-top: none; border-left: none; border-right: none; }
@@ -7523,6 +7542,19 @@ function renderSignalIC(d) {
         if (viewId === 'trackRecordView') { loadTrackRecord(); loadRegime(); loadSignalIC(30); loadSchedulerStatus(); loadCalibration(); }
     };
 })();
+</script>
+
+<!-- Toggle de tema claro/oscuro -->
+<button id="themeToggle" onclick="toggleTheme()" title="Cambiar tema claro/oscuro">
+    <i data-lucide="sun-moon" class="w-5 h-5"></i>
+</button>
+<script>
+    function applyTheme(t){ document.documentElement.classList.toggle('light', t === 'light');
+        try{ localStorage.setItem('vertex_theme', t); }catch(e){} if(window.lucide) lucide.createIcons(); }
+    function toggleTheme(){ const cur = document.documentElement.classList.contains('light') ? 'light' : 'dark';
+        applyTheme(cur === 'light' ? 'dark' : 'light'); }
+    (function(){ let t='dark'; try{ t = localStorage.getItem('vertex_theme') || 'dark'; }catch(e){}
+        applyTheme(t); })();
 </script>
 
 </body>
