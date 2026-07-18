@@ -1102,7 +1102,9 @@
 </main>
 
 <script>
-const API_BASE = "http://localhost:8000";
+// Mismo origen que sirve la página (funciona en Render, local, cualquier dominio).
+// Respaldo a localhost:8000 solo si se abre el archivo por file:// en desarrollo.
+const API_BASE = (window.location.protocol === "file:") ? "http://localhost:8000" : "";
 const STORAGE_KEY = "vertex_reports_v2";
 let currentAnalysis = null, currentTicker = null, currentPrice = null;
 let currentReportId = null, currentTimeframe = '7d';
