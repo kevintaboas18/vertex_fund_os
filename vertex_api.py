@@ -6756,7 +6756,14 @@ TARGETS 12M DE VICTOR (ya calculados por su motor targets.py — nunca los llame
 - 12M: Bull ${targets['12m']['bull']} | Base ${targets['12m']['base']} | Bear ${targets['12m']['bear']}  (fuente: {targets_source})
 {_WBJ_METHODOLOGY}"""
 
-        analisis_json, _analysis_src = _wbj_analyze_structured(prompt, temp=0.2)
+        # El LLM solo aporta NARRATIVA. Si no está disponible (sin GEMINI_API_KEY, sin
+        # respaldos, o cuota agotada), NO se cae el análisis: los NÚMEROS de Victor
+        # (engine + targets + fair value + gates) igual se calculan y se devuelven.
+        try:
+            analisis_json, _analysis_src = _wbj_analyze_structured(prompt, temp=0.2)
+        except Exception as _ellm:
+            print(f"[analyze] narrativa LLM no disponible ({str(_ellm)[:120]}) — sigo con los números de Victor")
+            analisis_json, _analysis_src = {}, None
 
         # ── SCORES: el ENGINE DETERMINISTA de Victor (sin LLM), ya calculado arriba.
         #    El LLM NO puntúa — solo aporta narrativa y, en el 2º pase, explica. Si el
