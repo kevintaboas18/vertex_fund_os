@@ -6492,12 +6492,24 @@ def _engine_scorecard(ticker, info, price):
         except Exception as e:
             print(f"[engine] FMP no disponible: {str(e)[:120]}")
     try:
-        return full_scorecard(packet, ohlcv=ohlcv, price=price, market_cap=info.get("marketCap"),
-                              estimates=est or None, benchmark_closes=benchmark, beta=beta,
-                              peer_pe=peer_pe, eps_growth=eps_growth, earnings_gaps=earnings_gaps)
+        sc = full_scorecard(packet, ohlcv=ohlcv, price=price, market_cap=info.get("marketCap"),
+                            estimates=est or None, benchmark_closes=benchmark, beta=beta,
+                            peer_pe=peer_pe, eps_growth=eps_growth, earnings_gaps=earnings_gaps)
     except Exception as e:
         print(f"[engine] full_scorecard falló: {str(e)[:160]}")
         return None
+    # ── TARGETS + FAIR VALUE de Victor (su targets.py) — deterministas, no del LLM ──
+    try:
+        from wbj.targets import price_targets
+        pt = price_targets(packet, price)
+        if isinstance(pt, dict) and pt.get("status") == "ok":
+            sm = {s["key"]: s.get("target") for s in pt.get("scenarios", [])}
+            sc["victor_targets_12m"] = {"bull": sm.get("bull"), "base": sm.get("base"), "bear": sm.get("bear")}
+            sc["victor_fair_value"] = sm.get("base")          # el target "Medio" ES el fair value de Victor
+            sc["victor_targets_detail"] = pt
+    except Exception as e:
+        print(f"[engine] targets de Victor omitidos: {str(e)[:140]}")
+    return sc
 
 
 @app.get("/api/analyze")
@@ -6548,10 +6560,19 @@ def analyze_ticker(ticker: str):
 
         logo_url = obtener_logo(ticker, info.get("website", ""))
 
-        # ── INSTITUTIONAL TARGETS ───────────────────────────────────────────
+        # ── ENGINE DE VICTOR: 6 sub-agentes (scores) + SUS targets + SU fair value ──
+        # Todo el cálculo del analyze es de Victor. calculate_institutional_targets solo
+        # se conserva para el ATR / contexto (indicador técnico neutral) y como respaldo.
         institutional = calculate_institutional_targets(ticker, info, hist)
-        targets = institutional["targets"]
         methodology = institutional["methodology"]
+        _eng = _engine_scorecard(ticker, info, precio_actual)
+        _vt = (_eng or {}).get("victor_targets_12m") or {}
+        if _eng and all(_vt.get(k) is not None for k in ("bull", "base", "bear")):
+            targets = {"12m": {k: round(float(_vt[k]), 2) for k in ("bull", "base", "bear")}}
+            targets_source = "victor (targets.py: EPS×crecimiento×P/E)"
+        else:
+            targets = institutional["targets"]           # respaldo si el engine no está disponible
+            targets_source = "vertex (respaldo — engine de Victor no disponible)"
 
         # ── NOTICIAS ────────────────────────────────────────────────────────
         raw_news = stock.news if stock.news else []
@@ -6731,20 +6752,15 @@ DATOS DE MERCADO (calculados por el motor cuantitativo de Vertex — son tu EVID
 - Ajuste con tu portafolio actual: {format_portfolio_fit(portfolio_fit)}
 {adapter_block}{prior_thesis_block}{memory_block}{_deep_mem_block}{_opt_block}{calibration_block}{regime_block}{gex_block}{_earn_block}{_8k_block}{profile_block}
 
-REFERENCIAS DE PRECIO YA CALCULADAS (motor σ/DCF de Vertex — evidencia técnica; nunca las llames "target garantizado"):
-- 7D:  Bull ${targets['7d']['bull']} | Base ${targets['7d']['base']} | Bear ${targets['7d']['bear']}
-- 30D: Bull ${targets['30d']['bull']} | Base ${targets['30d']['base']} | Bear ${targets['30d']['bear']}
-- 3M:  Bull ${targets['3m']['bull']} | Base ${targets['3m']['base']} | Bear ${targets['3m']['bear']}
-- 6M:  Bull ${targets['6m']['bull']} | Base ${targets['6m']['base']} | Bear ${targets['6m']['bear']}
-- 12M: Bull ${targets['12m']['bull']} | Base ${targets['12m']['base']} | Bear ${targets['12m']['bear']}
+TARGETS 12M DE VICTOR (ya calculados por su motor targets.py — nunca los llames "target garantizado"):
+- 12M: Bull ${targets['12m']['bull']} | Base ${targets['12m']['base']} | Bear ${targets['12m']['bear']}  (fuente: {targets_source})
 {_WBJ_METHODOLOGY}"""
 
         analisis_json, _analysis_src = _wbj_analyze_structured(prompt, temp=0.2)
 
-        # ── SCORES: PRIMERO el ENGINE DETERMINISTA de Victor (sin LLM). El LLM NO
-        #    puntúa — solo aporta narrativa y, en el 2º pase, explica. Si el engine
-        #    no está disponible (deps/red/EDGAR), se cae al scorecard del LLM. ──
-        _eng = _engine_scorecard(ticker, info, precio_actual)
+        # ── SCORES: el ENGINE DETERMINISTA de Victor (sin LLM), ya calculado arriba.
+        #    El LLM NO puntúa — solo aporta narrativa y, en el 2º pase, explica. Si el
+        #    engine no está disponible (deps/red/EDGAR), se cae al scorecard del LLM. ──
         if _eng and _eng.get("categories"):
             comp = {"categories": _eng["categories"], "raw_total": _eng["raw_total"],
                     "total_confidence": _eng["total_confidence"], "incomplete": _eng.get("incomplete", []),
@@ -6767,10 +6783,17 @@ REFERENCIAS DE PRECIO YA CALCULADAS (motor σ/DCF de Vertex — evidencia técni
         except Exception:
             pass
 
-        # Fair value = escenario Base del LLM; upside vs spot
-        fair_value = _wbj_num(analisis_json.get("fair_value"), precio_actual)
+        # Fair value = TARGET "MEDIO" DE VICTOR (determinista, su targets.py) — NO el del LLM.
+        _vfv = (_eng or {}).get("victor_fair_value")
+        if _vfv:
+            fair_value = float(_vfv)
+        elif targets.get("12m", {}).get("base"):
+            fair_value = float(targets["12m"]["base"])
+        else:
+            fair_value = precio_actual
         if fair_value <= 0:
             fair_value = precio_actual
+        fair_value_source = "victor (target Medio)" if _vfv else "respaldo"
         upside_pct = round(((fair_value - precio_actual) / precio_actual) * 100, 2) if precio_actual else 0.0
 
         # ── Niveles técnicos computados (SMA + walls/flip) para la síntesis de precio ──
@@ -6817,6 +6840,15 @@ REFERENCIAS DE PRECIO YA CALCULADAS (motor σ/DCF de Vertex — evidencia técni
         analisis_json["calibrated_conviction"] = comp["raw_total"]
         analisis_json["fair_value"] = round(fair_value, 2)
         analisis_json["upside_pct"] = upside_pct
+        analisis_json["targets_source"] = targets_source
+        analisis_json["fair_value_source"] = fair_value_source
+        _vd = (_eng or {}).get("victor_targets_detail")
+        analisis_json["victor_targets_detail"] = _vd
+        # Escenarios de valuación = los de Victor (targets.py con supuestos), no los del LLM
+        if _vd and _vd.get("scenarios"):
+            analisis_json["valuation_scenarios"] = [
+                {"scenario": s.get("label"), "value": s.get("target"), "assumptions": s.get("assumptions", "")}
+                for s in _vd["scenarios"]]
         analisis_json["model_source"] = _analysis_src
         analisis_json["earnings_history"] = earnings_hist
         analisis_json["news_catalysts"] = news_catalysts
@@ -6826,127 +6858,8 @@ REFERENCIAS DE PRECIO YA CALCULADAS (motor σ/DCF de Vertex — evidencia técni
         except Exception:
             analisis_json["ai_concentration"] = None
 
-        # ── PROBABILIDADES + SIZING (Kelly fraccional; anclado a base-rate y acotado por guardrails) ──
-        probs = analisis_json.get("probabilities", {}) or {}
-        def _pi(k, d=0):
-            try:
-                return max(0, min(100, int(probs.get(k, d) or d)))
-            except (TypeError, ValueError):
-                return d
-        p_pos = _pi("p_positive_12m", 50)
-        _rec = gates["recommendation"]
-        # Ancla la probabilidad al hit-rate realizado (por recomendación → global) con shrinkage por n
-        prob_anchor = None
-        _br = None
-        if calib_stats:
-            _brd = (calib_stats.get("by_recommendation") or {}).get(_rec) or {}
-            if _brd.get("hit_rate") is not None and _brd.get("n"):
-                _br = ("recomendación " + str(_rec), float(_brd["hit_rate"]), int(_brd["n"]))
-            elif calib_stats.get("overall_hit_rate") is not None and calib_stats.get("n"):
-                _br = ("global", float(calib_stats["overall_hit_rate"]), int(calib_stats["n"]))
-        if _br is not None and _br[2] > 0:
-            _scope, _brp, _brn = _br
-            _wb = _brn / (_brn + 10.0)
-            _p_used = _wb * _brp + (1 - _wb) * p_pos
-            prob_anchor = {"llm_p": p_pos, "base_rate": round(_brp, 1), "n": _brn,
-                           "weight_base": round(_wb, 2), "p_used": round(_p_used, 1), "scope": _scope}
-            p_pos = int(round(max(1, min(99, _p_used))))
-        analisis_json["prob_anchoring"] = prob_anchor
-
-        bull12 = float(targets['12m']['bull']); bear12 = float(targets['12m']['bear'])
-        _base12 = float(targets['12m'].get('base', precio_actual))
-        reward = max(0.0, (bull12 - precio_actual) / precio_actual)
-        risk_dn = max(1e-6, (precio_actual - bear12) / precio_actual)
-        rr = reward / risk_dn if risk_dn > 0 else 0.0
-        p = p_pos / 100.0; q = 1.0 - p
-        kelly_full = max(0.0, (rr * p - q) / rr) if rr > 0 else 0.0
-        kelly_half = kelly_full * 0.5
-        held_w = 0.0
-        if portfolio_fit and portfolio_fit.get("already_held"):
-            try:
-                held_w = float(portfolio_fit.get("current_weight_pct", 0) or 0)
-            except (TypeError, ValueError):
-                held_w = 0.0
-        room = max(0.0, 25.0 - held_w)
-        suggested = max(0.0, min(kelly_half * 100.0, room))
-        cap_reason = ""
-        if kelly_half * 100.0 > room:
-            cap_reason = (f"Limitado por tope de concentración 25% (ya tienes {held_w:.1f}% en {ticker})."
-                          if held_w > 0 else "Limitado por tope de concentración 25%.")
-        factor_haircut = 1.0
-        _rc = (portfolio_fit or {}).get("risk_contribution") or {}
-        _fc = (portfolio_fit or {}).get("factors") or {}
-        if _fc.get("concentrates_dominant") or _rc.get("verdict") == "concentra":
-            factor_haircut = 0.70
-            if suggested > 0:
-                suggested = suggested * factor_haircut
-                cap_reason = (cap_reason + " Haircut −30% por concentración de factor.").strip()
-        if portfolio_fit and suggested and suggested > 0:
-            try:
-                portfolio_fit["risk_contribution"] = _recompute_risk_contribution(portfolio_fit, suggested / 100.0)
-            except Exception:
-                pass
-
-        # A-grade = perfil de calidad y raw fuerte → gestión por tesis en vez de stop fijo
-        is_a_grade = gates["profile"] in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity") and comp["raw_total"] >= 80
-        atr = methodology.get("atr_14")
-        try:
-            atr_f = float(atr) if atr not in (None, "N/A", "") else None
-        except (TypeError, ValueError):
-            atr_f = None
-        if is_a_grade:
-            equity_stop = None
-            equity_stop_note = f"Perfil {gates['profile']}: gestiona por tesis; quiebre de tesis ≈ ${round(bear12, 2)}."
-        elif atr_f:
-            equity_stop = round(precio_actual - 2 * atr_f, 2)
-            equity_stop_note = f"Stop sugerido en ${equity_stop} (2×ATR-14 bajo el spot)."
-        else:
-            equity_stop = round(precio_actual * 0.85, 2)
-            equity_stop_note = f"Stop sugerido en ${equity_stop} (-15% del spot)."
-
-        analisis_json["trade_plan"] = {
-            "probabilities": {
-                "p_positive_12m": p_pos, "p_touch_bull_12m": _pi("p_touch_bull_12m"),
-                "p_touch_bear_12m": _pi("p_touch_bear_12m"), "p_up_10pct_3m": _pi("p_up_10pct_3m"),
-                "rationale": probs.get("rationale", "")},
-            "reward_pct": round(reward * 100, 1), "risk_pct": round(risk_dn * 100, 1),
-            "reward_risk": round(rr, 2),
-            "kelly_full_pct": round(kelly_full * 100, 1), "kelly_half_pct": round(kelly_half * 100, 1),
-            "suggested_pct": round(suggested, 1), "cap_reason": cap_reason,
-            "factor_haircut_pct": round((1 - factor_haircut) * 100, 0),
-            "already_held_pct": round(held_w, 1),
-            "risk_plan": {
-                "is_a_grade": is_a_grade, "equity_stop": equity_stop,
-                "equity_stop_note": equity_stop_note, "thesis_break_level": round(bear12, 2),
-                "options_stop_rule": "Opciones: stop −20% a −30% de la prima pagada."},
-        }
-        _R_unit = max(1e-9, abs(precio_actual - bear12))
-        analisis_json["trade_plan"]["targets_r"] = {
-            "entry": round(precio_actual, 2), "stop": round(bear12, 2), "r_unit": round(_R_unit, 2),
-            "bull_r": round((bull12 - precio_actual) / _R_unit, 2),
-            "base_r": round((_base12 - precio_actual) / _R_unit, 2), "bear_r": -1.0}
-
-        # "Qué me haría cambiar de opinión" — checkpoints falsables desde señales reales
-        _inval = []
-        _is_bull = _rec in ("BUY", "SPECULATIVE")
-        _inval.append({"factor": "Precio", "kind": "price",
-                       "trigger": f"Cierre {'bajo' if _is_bull else 'sobre'} ${round(bear12, 2)} (quiebre de tesis = −1R)"})
-        try:
-            _gw = _gex_now or {}
-            _pw, _cw, _fl = _gw.get("put_wall"), _gw.get("call_wall"), _gw.get("gamma_flip")
-            if _is_bull and _pw:
-                _inval.append({"factor": "Put wall", "kind": "level", "trigger": f"Pérdida del put wall ${_pw}"})
-            if (not _is_bull) and _cw:
-                _inval.append({"factor": "Call wall", "kind": "level", "trigger": f"Ruptura del call wall ${_cw}"})
-            if _fl:
-                _inval.append({"factor": "Gamma flip", "kind": "regime", "trigger": f"Cruce del flip ${_fl}"})
-        except Exception:
-            pass
-        _ed = (earnings_info or {}).get("days_until")
-        if isinstance(_ed, (int, float)) and 0 <= _ed <= 45:
-            _inval.append({"factor": "Earnings", "kind": "catalyst",
-                           "trigger": f"Sorpresa/guía {'a la baja' if _is_bull else 'al alza'} en earnings (en {int(_ed)}d)"})
-        analisis_json["trade_plan"]["thesis_invalidation"] = _inval
+        # (Los extras propios de Vertex — Kelly/sizing/plan de riesgo — se quitaron: el
+        #  analyze usa solo lo de Victor. Invalidación = thesis_killers/monitoring del método.)
 
         # ── #9 — AUTO-DEBATE: estresar convicción alta con el debate adversarial ──
         analisis_json["should_debate"] = bool(comp["raw_total"] >= 78)
@@ -6986,8 +6899,7 @@ REFERENCIAS DE PRECIO YA CALCULADAS (motor σ/DCF de Vertex — evidencia técni
                 f"ESCENARIOS DE VALUACIÓN: {_scen}\n"
                 f"ZONAS DE CONFLUENCIA (técnico∩valuación): {_conf}\n"
                 f"CALIBRACIÓN/TRACK RECORD: {_calib_txt}\n"
-                f"SIZING SUGERIDO: {analisis_json.get('trade_plan',{}).get('suggested_pct')}% "
-                f"(Kelly ½ {analisis_json.get('trade_plan',{}).get('kelly_half_pct')}%)\n\n"
+                f"TARGETS 12M (Victor): {targets.get('12m')}\n\n"
                 f"MI PERFIL:\n{_prof_text or 'No disponible.'}")
             _expl, _expl_src = _wbj_explain(_explain_ctx)
             if _expl:
@@ -6999,7 +6911,9 @@ REFERENCIAS DE PRECIO YA CALCULADAS (motor σ/DCF de Vertex — evidencia técni
 
         # ── PROTOCOLO DE MEMORIA (.md) + PREDICCIÓN para track record ──
         try:
-            _inval_txt = "; ".join(i["trigger"] for i in _inval) if _inval else ""
+            # Invalidación = disparadores de monitoreo / riesgo #1 del método (LLM narra, no calcula)
+            _mt = analisis_json.get("monitoring_triggers") or []
+            _inval_txt = "; ".join(_mt) if _mt else (analisis_json.get("top_invalidation_risk") or "")
             _wbj_write_thesis_md(ticker, precio_actual, gates["profile"], comp["raw_total"],
                                  round(fair_value, 2), targets,
                                  analisis_json.get("executive_summary"), _inval_txt)
