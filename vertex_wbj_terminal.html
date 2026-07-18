@@ -3,660 +3,390 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Warren Buffett Jr · Vertex Terminal</title>
+    <title>Warren Buffett Jr · Vertex</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { background-color: #0B0E14; color: #e5e7eb; font-family: 'Inter', sans-serif; }
-        .bg-panel { background-color: #11141D; }
-        .border-panel { border-color: #1F2532; }
-        .custom-scroll::-webkit-scrollbar { width: 6px; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #1F2532; border-radius: 4px; }
-        .cat-bar-track { background: #1a1f2e; border-radius: 6px; height: 8px; overflow: hidden; }
-        .cat-bar-fill { height: 100%; border-radius: 6px; transition: width 0.9s ease; }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        .wbj-tab { padding: 8px 18px; font-size: 12px; font-weight: 700; letter-spacing: .06em;
-            text-transform: uppercase; border-bottom: 2px solid transparent; color: #6b7280;
-            cursor: pointer; background: transparent; }
-        .wbj-tab:hover { color: #e5e7eb; }
-        .wbj-tab.active { color: #3b82f6; border-bottom-color: #3b82f6; }
-        .chip { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 9999px; }
+        :root{
+            --page:#eef1f6; --card:#ffffff; --ink:#16181d; --ink2:#5b6270; --muted:#9aa1ad;
+            --line:#e7eaf0; --blue:#2563eb; --green:#16a34a; --red:#dc2626; --amber:#d97706;
+            --violet:#7c6cf0; --soft:#f4f6fa;
+        }
+        body{ background:var(--page); color:var(--ink); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+        .card{ background:var(--card); border-radius:18px; box-shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04); }
+        .chip{ font-size:11px; font-weight:700; padding:3px 10px; border-radius:9999px; }
+        .bar-track{ background:#eef1f6; border-radius:9999px; height:9px; overflow:hidden; }
+        .bar-fill{ height:100%; border-radius:9999px; transition:width .9s ease; }
+        .tab{ padding:9px 6px; font-size:13px; font-weight:600; color:var(--ink2); cursor:pointer; border-bottom:2px solid transparent; }
+        .tab:hover{ color:var(--ink); }
+        .tab.active{ color:var(--blue); border-bottom-color:var(--blue); }
+        .tabc{ display:none; } .tabc.active{ display:block; }
+        .rbtn{ font-size:12px; font-weight:700; padding:5px 12px; border-radius:9999px; border:1px solid var(--line); color:var(--ink2); background:#fff; cursor:pointer; }
+        .rbtn:hover{ border-color:var(--blue); color:var(--blue); }
+        input:focus{ outline:none; }
+        .scroll::-webkit-scrollbar{height:6px;width:6px} .scroll::-webkit-scrollbar-thumb{background:#d7dbe4;border-radius:4px}
     </style>
 </head>
-<body class="min-h-screen flex flex-col custom-scroll">
+<body class="min-h-screen">
 
     <!-- Loading -->
-    <div id="loadingScreen" class="fixed inset-0 bg-[#0B0E14] z-50 flex-col items-center justify-center p-6 hidden flex">
-        <div class="max-w-md w-full text-center space-y-6">
-            <h1 class="text-3xl font-extrabold text-white tracking-widest uppercase">WARREN BUFFETT JR</h1>
-            <p class="text-blue-500 text-sm font-medium" id="loadingText">Congelando el reloj de análisis…</p>
-            <div class="w-full bg-gray-900 rounded-full h-1"><div class="bg-blue-600 h-full w-2/3 animate-pulse"></div></div>
-            <p class="text-gray-600 text-xs">6 especialistas · 100 puntos · sin evidencia no hay número</p>
+    <div id="loadingScreen" class="fixed inset-0 bg-white/85 backdrop-blur-sm z-50 hidden flex-col items-center justify-center">
+        <div class="text-center">
+            <div class="w-12 h-12 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin mx-auto mb-5"></div>
+            <p class="text-lg font-bold text-gray-800">Warren Buffett Jr</p>
+            <p id="loadingText" class="text-sm text-gray-500 mt-1">Corriendo los 6 especialistas…</p>
         </div>
     </div>
 
     <!-- NAV -->
-    <nav class="flex items-center justify-between px-6 py-3 border-b border-panel bg-[#0B0E14] sticky top-0 z-40">
-        <div class="flex items-center gap-8">
-            <div onclick="switchView('homeView')" class="flex items-center gap-2 text-white font-bold text-lg cursor-pointer">
-                <div class="w-3 h-3 bg-blue-500 rounded-full"></div> WARREN BUFFETT JR
-                <span class="text-[10px] text-gray-500 font-mono ml-1">Ruta 2030 · v2.0.0</span>
+    <nav class="bg-white border-b border-[var(--line)] sticky top-0 z-40">
+        <div class="max-w-6xl mx-auto px-5 py-3 flex items-center justify-between">
+            <div onclick="switchView('homeView')" class="flex items-center gap-2.5 cursor-pointer">
+                <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-black text-sm">W</div>
+                <div><span class="font-bold text-gray-900">Warren Buffett Jr</span>
+                    <span class="text-[10px] text-gray-400 block leading-none">Ruta 2030 · v2.0.0</span></div>
             </div>
-            <div class="hidden md:flex gap-6 text-sm text-gray-400 font-medium">
-                <button onclick="switchView('homeView')" class="hover:text-white">Dashboard</button>
-                <button onclick="switchView('reportsView')" class="hover:text-white">Historial</button>
+            <div class="flex items-center gap-5 text-sm text-gray-500 font-medium">
+                <button onclick="switchView('homeView')" class="hover:text-gray-900">Inicio</button>
+                <button onclick="switchView('reportsView')" class="hover:text-gray-900">Historial</button>
             </div>
-        </div>
-        <div class="text-xs bg-panel border border-panel px-3 py-1.5 rounded-full flex items-center gap-2">
-            <span class="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-            <span class="text-gray-400">Core:</span><strong class="text-white">ONLINE</strong>
         </div>
     </nav>
 
     <!-- HOME -->
-    <main id="homeView" class="view-section flex-grow flex flex-col items-center pt-16 px-4 w-full max-w-4xl mx-auto">
-        <h1 class="text-3xl font-bold text-white mb-2 text-center">¿Qué compañía quieres analizar?</h1>
-        <p class="text-gray-400 text-sm mb-8 text-center">Research auditable de 100 puntos — clasificación, no orden de compra/venta.</p>
-        <div class="w-full relative mb-6">
-            <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500"></i>
-            <input type="text" id="tickerInput" onkeyup="debounceQuoteFetch()" placeholder="Ticker o compañía…"
-                class="w-full bg-[#11141D] border border-gray-800 focus:border-blue-500 text-white font-medium px-5 py-4 pl-12 rounded-xl outline-none uppercase text-base">
+    <main id="homeView" class="view max-w-3xl mx-auto px-5 pt-14">
+        <h1 class="text-3xl font-bold text-gray-900 text-center mb-2">¿Qué empresa analizamos?</h1>
+        <p class="text-gray-500 text-center mb-8">Research auditable de 100 puntos — clasificación, no orden de compra/venta.</p>
+        <div class="relative mb-5">
+            <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"></i>
+            <input type="text" id="tickerInput" onkeyup="debounceQuote()" placeholder="Ticker o compañía (ej. AAPL)…"
+                class="w-full bg-white border border-[var(--line)] focus:border-blue-500 px-5 py-4 pl-12 rounded-2xl uppercase text-gray-900 font-medium shadow-sm">
         </div>
-        <div id="previewCard" class="w-full bg-[#11141D] border border-panel rounded-2xl p-6 mb-8 hidden">
-            <div class="flex justify-between items-start mb-6">
-                <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-xl bg-gray-800 border border-gray-700 flex items-center justify-center overflow-hidden">
-                        <img id="previewLogo" src="" alt="logo" class="w-full h-full object-contain"
-                             onerror="this.src='https://ui-avatars.com/api/?name='+document.getElementById('previewTicker').innerText+'&background=0B0E14&color=3b82f6&bold=true'">
-                    </div>
+        <div id="previewCard" class="card p-6 mb-8 hidden">
+            <div class="flex justify-between items-center mb-5">
+                <div class="flex items-center gap-3">
+                    <img id="pvLogo" src="" class="w-11 h-11 rounded-xl object-contain bg-gray-50 border border-[var(--line)]"
+                         onerror="this.src='https://ui-avatars.com/api/?name='+document.getElementById('pvTicker').innerText+'&background=eef1f6&color=2563eb&bold=true'">
                     <div>
-                        <div class="flex items-center gap-2">
-                            <h3 id="previewTicker" class="text-xl font-bold text-white"></h3>
-                            <span id="previewPct" class="text-xs font-bold px-2 py-0.5 rounded-md"></span>
-                        </div>
-                        <p id="previewName" class="text-sm text-gray-400 mt-0.5"></p>
+                        <div class="flex items-center gap-2"><h3 id="pvTicker" class="text-lg font-bold text-gray-900"></h3>
+                            <span id="pvPct" class="chip"></span></div>
+                        <p id="pvName" class="text-sm text-gray-500"></p>
                     </div>
                 </div>
-                <p id="previewPrice" class="text-2xl font-mono font-black text-white"></p>
+                <p id="pvPrice" class="text-2xl font-bold text-gray-900"></p>
             </div>
-            <button onclick="ejecutarAnalisisAPI()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 text-sm">
-                <i data-lucide="brain-circuit" class="w-4 h-4"></i> Correr análisis WBJ (6 especialistas)
+            <button onclick="runAnalysis()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2">
+                <i data-lucide="sparkles" class="w-4 h-4"></i> Correr análisis WBJ
             </button>
         </div>
-        <div class="w-full bg-panel border border-panel rounded-2xl p-6 mb-12">
+        <div class="card p-6 mb-12">
             <div class="flex justify-between items-center mb-4">
-                <h3 class="text-white font-semibold flex items-center gap-2 text-sm"><i data-lucide="clock" class="w-4 h-4 text-blue-500"></i> Reportes recientes</h3>
-                <button onclick="switchView('reportsView')" class="text-blue-500 text-xs hover:text-blue-400">Ver historial ></button>
+                <h3 class="font-semibold text-gray-800 flex items-center gap-2"><i data-lucide="history" class="w-4 h-4 text-blue-600"></i> Recientes</h3>
+                <button onclick="switchView('reportsView')" class="text-blue-600 text-sm font-medium">Ver todo →</button>
             </div>
-            <div id="homeRecentList" class="space-y-3"></div>
+            <div id="homeRecent" class="space-y-2.5"></div>
         </div>
     </main>
 
     <!-- REPORTS -->
-    <main id="reportsView" class="view-section hidden flex-grow w-full max-w-4xl mx-auto p-4">
+    <main id="reportsView" class="view max-w-3xl mx-auto px-5 pt-8 hidden">
         <div class="flex items-center justify-between mb-6">
-            <h2 class="text-xl font-bold text-white">Historial de reportes</h2>
-            <button onclick="switchView('homeView')" class="text-sm text-gray-400 hover:text-white flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button>
+            <h2 class="text-xl font-bold text-gray-900">Historial</h2>
+            <button onclick="switchView('homeView')" class="text-sm text-gray-500 flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i> Volver</button>
         </div>
-        <div id="fullReportsList" class="space-y-3"></div>
+        <div id="fullReports" class="space-y-2.5"></div>
     </main>
 
     <!-- DASHBOARD -->
-    <main id="dashboardView" class="view-section hidden flex-grow w-full max-w-5xl mx-auto p-4 flex flex-col gap-4">
-        <!-- Header -->
-        <div class="bg-panel border border-panel p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div class="flex items-center gap-4">
-                <div class="w-14 h-14 rounded-xl bg-[#0B0E14] border border-panel flex items-center justify-center overflow-hidden">
-                    <img id="dashLogo" src="" alt="logo" class="w-full h-full object-contain">
+    <main id="dashboardView" class="view max-w-6xl mx-auto px-5 pt-6 pb-16 hidden">
+
+        <!-- Header + veredicto -->
+        <div class="card p-6 mb-5">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-5">
+                <div class="flex items-center gap-4">
+                    <img id="dLogo" src="" class="w-14 h-14 rounded-2xl object-contain bg-gray-50 border border-[var(--line)]">
+                    <div>
+                        <h2 id="dTitle" class="text-2xl font-bold text-gray-900"></h2>
+                        <p id="dTime" class="text-xs text-gray-400 mt-0.5"></p>
+                    </div>
                 </div>
-                <div>
-                    <h2 class="text-2xl font-black text-white uppercase tracking-wider" id="dashHeaderTitle"></h2>
-                    <p class="text-xs font-mono text-gray-400 mt-1" id="dashAnalysisTime"></p>
+                <div class="flex items-center gap-6">
+                    <div class="text-right"><span class="text-[11px] text-gray-400 font-semibold uppercase block">Precio</span>
+                        <span id="dPrice" class="text-2xl font-bold text-gray-900"></span></div>
+                    <div class="text-right"><span class="text-[11px] text-gray-400 font-semibold uppercase block">Fair Value (Victor)</span>
+                        <span id="dFair" class="text-2xl font-bold text-emerald-600"></span>
+                        <span id="dUpside" class="text-xs block font-semibold"></span></div>
+                    <div class="text-center"><span class="text-[11px] text-gray-400 font-semibold uppercase block mb-1">Perfil</span>
+                        <span id="dProfile" class="chip border"></span></div>
                 </div>
             </div>
-            <div class="text-right">
-                <p class="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-0.5">Precio actual</p>
-                <span class="text-3xl font-mono font-bold text-white" id="dashPrice"></span>
+            <div id="dOverrides" class="mt-4 space-y-1.5"></div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+            <!-- Gauge score -->
+            <div class="card p-6 flex flex-col items-center justify-center">
+                <span class="text-[11px] text-gray-400 font-semibold uppercase mb-1 self-start">Raw Score</span>
+                <div class="relative w-full" style="max-width:230px"><canvas id="gauge"></canvas>
+                    <div class="absolute inset-0 flex flex-col items-center justify-end pb-2">
+                        <span id="gScore" class="text-4xl font-bold text-gray-900"></span>
+                        <span class="text-xs text-gray-400">/ 100</span>
+                        <span id="gBand" class="text-[11px] font-semibold mt-1"></span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 mt-2 text-xs text-gray-500">
+                    <span>Confianza total:</span><span id="gConf" class="font-bold text-gray-800"></span>
+                </div>
+            </div>
+            <!-- Scorecard 6 categorías -->
+            <div class="card p-6 lg:col-span-2">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="font-semibold text-gray-800 flex items-center gap-2"><i data-lucide="layout-grid" class="w-4 h-4 text-blue-600"></i> Scorecard — 6 especialistas</h3>
+                    <span id="scEvidence" class="text-xs text-gray-400"></span>
+                </div>
+                <p id="scSource" class="text-[11px] text-blue-500 mb-4"></p>
+                <div id="scorecard" class="space-y-3.5"></div>
             </div>
         </div>
 
-        <!-- Perfil / Veredicto -->
-        <div class="bg-panel border border-panel rounded-2xl p-5">
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 items-center">
-                <div class="md:col-span-2">
-                    <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Perfil (research)</span>
-                    <span id="wProfile" class="text-lg font-extrabold px-3 py-1 rounded uppercase border"></span>
-                    <p id="wClassification" class="text-xs text-gray-400 mt-2"></p>
-                </div>
-                <div class="text-center">
-                    <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Raw score</span>
-                    <span id="wRaw" class="text-2xl font-mono font-black text-white"></span>
-                    <span class="text-gray-600 text-sm font-mono">/100</span>
-                    <p id="wBand" class="text-[10px] text-gray-500 mt-0.5"></p>
-                </div>
-                <div class="text-center">
-                    <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Confianza total</span>
-                    <span id="wConf" class="text-2xl font-mono font-black text-blue-400"></span>
-                    <p id="wConfLabel" class="text-[10px] text-gray-500 mt-0.5"></p>
-                </div>
-                <div class="text-center">
-                    <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Fair value (Base)</span>
-                    <span id="wFair" class="text-2xl font-mono font-black text-emerald-400"></span>
-                    <p id="wUpside" class="text-[10px] mt-0.5"></p>
-                </div>
-            </div>
-            <div id="wOverrides" class="mt-4 space-y-1"></div>
-        </div>
-
-        <!-- SCORECARD (siempre visible — 6 especialistas, 1-10 por categoría, como el de Victor) -->
-        <div class="bg-panel border border-panel rounded-2xl p-5">
+        <!-- Proyección con targets de Victor -->
+        <div class="card p-6 mb-5">
             <div class="flex items-center justify-between mb-1">
-                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2">
-                    <i data-lucide="layout-grid" class="w-4 h-4"></i> Scorecard — 6 especialistas · 100 puntos
-                </h3>
-                <span id="wScoreEvidence" class="text-[10px] text-gray-500 font-mono"></span>
+                <h3 class="font-semibold text-gray-800 flex items-center gap-2"><i data-lucide="trending-up" class="w-4 h-4 text-blue-600"></i> Proyección de precio + Targets 12M (Victor)</h3>
+                <span class="text-[11px] text-gray-400">histórico sólido · futuro punteado</span>
             </div>
-            <p class="text-[11px] text-gray-500 italic mb-1">1–10 por categoría con su cobertura de evidencia. NOT_SCORABLE = sin datos (no se inventa).</p>
-            <p id="wScoreSource" class="text-[10px] text-blue-400/80 mb-4"></p>
-            <div id="wScorecard" class="space-y-3"></div>
+            <p id="projAssump" class="text-[11px] text-gray-400 mb-3"></p>
+            <div class="relative w-full" style="height:300px"><canvas id="projChart"></canvas></div>
+            <div class="grid grid-cols-3 gap-3 mt-4">
+                <div class="rounded-xl p-3 text-center" style="background:#f0fdf4">
+                    <span class="text-[11px] font-bold uppercase" style="color:var(--green)">🟢 Bull 12M</span>
+                    <span id="tBull" class="block text-lg font-bold text-gray-900"></span>
+                    <span id="tBullP" class="text-xs font-semibold" style="color:var(--green)"></span></div>
+                <div class="rounded-xl p-3 text-center" style="background:#eff6ff">
+                    <span class="text-[11px] font-bold uppercase" style="color:var(--blue)">🔵 Medio 12M</span>
+                    <span id="tBase" class="block text-lg font-bold text-gray-900"></span>
+                    <span id="tBaseP" class="text-xs font-semibold" style="color:var(--blue)"></span></div>
+                <div class="rounded-xl p-3 text-center" style="background:#fef2f2">
+                    <span class="text-[11px] font-bold uppercase" style="color:var(--red)">🔴 Bear 12M</span>
+                    <span id="tBear" class="block text-lg font-bold text-gray-900"></span>
+                    <span id="tBearP" class="text-xs font-semibold" style="color:var(--red)"></span></div>
+            </div>
         </div>
 
         <!-- Tabs -->
-        <div class="bg-panel border border-panel rounded-2xl overflow-hidden">
-            <div class="flex border-b border-panel px-2 pt-1 flex-wrap">
-                <button class="wbj-tab active" onclick="switchTab('explicacionTab', this)">📖 Explicación</button>
-                <button class="wbj-tab" onclick="switchTab('thesisTab', this)">📋 Tesis</button>
-                <button class="wbj-tab" onclick="switchTab('valuationTab', this)">📈 Valuación & Niveles</button>
-                <button class="wbj-tab" onclick="switchTab('gatesTab', this)">🚦 Gates</button>
+        <div class="card overflow-hidden">
+            <div class="flex gap-6 px-6 border-b border-[var(--line)]">
+                <button class="tab active" onclick="tab('tExpl',this)">📖 Explicación</button>
+                <button class="tab" onclick="tab('tVal',this)">📈 Valuación</button>
+                <button class="tab" onclick="tab('tGates',this)">🚦 Gates</button>
             </div>
-
-            <!-- EXPLICACIÓN (2º pase del LLM — solo explica, no cambia números) -->
-            <div id="explicacionTab" class="tab-content active p-6 space-y-4">
-                <div class="flex items-center gap-2 text-[11px] text-gray-500 italic">
-                    <i data-lucide="info" class="w-3.5 h-3.5"></i>
-                    La matemática la calcula el motor de Victor (framework WBJ). El LLM solo la explica en palabras — no cambia ningún número.
-                </div>
-                <div id="explNotConfigured" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-amber-500/20 text-xs text-amber-300">
-                    No se generó la explicación (falta GEMINI_API_KEY o el proveedor no respondió). Los números del análisis siguen siendo válidos.
-                </div>
-                <div class="bg-[#0B0E14] p-4 rounded-xl border border-blue-500/20">
-                    <span class="text-[10px] font-bold text-blue-400 uppercase block mb-2">En simple</span>
-                    <p id="exResumen" class="text-sm text-gray-200 leading-relaxed"></p>
-                </div>
-                <div class="bg-[#0B0E14] p-4 rounded-xl border border-emerald-500/20">
-                    <span class="text-[10px] font-bold text-emerald-400 uppercase block mb-2">🎯 Ajuste con MI perfil</span>
-                    <p id="exPerfil" class="text-xs text-gray-300 leading-relaxed"></p>
-                </div>
-                <div id="exCoherenceBox" class="bg-[#0B0E14] p-4 rounded-xl border border-amber-500/20 hidden">
-                    <span class="text-[10px] font-bold text-amber-400 uppercase block mb-2">⚖️ Contradicciones a vigilar (coherencia)</span>
-                    <ul id="exCoherenceList" class="text-xs text-gray-300 leading-relaxed space-y-1 list-disc list-inside mb-2"></ul>
-                    <p id="exCoherenceExpl" class="text-xs text-gray-400 leading-relaxed border-t border-gray-800 pt-2"></p>
-                </div>
+            <!-- Explicación -->
+            <div id="tExpl" class="tabc active p-6 space-y-3">
+                <div id="explNo" class="hidden rounded-xl p-3 text-sm text-amber-700" style="background:#fffbeb">
+                    No se generó la explicación (falta GEMINI_API_KEY o el proveedor no respondió). Los números de Victor siguen válidos.</div>
+                <div class="rounded-xl p-4" style="background:#eff6ff">
+                    <span class="text-[11px] font-bold uppercase text-blue-600 block mb-1.5">En simple</span>
+                    <p id="eResumen" class="text-sm text-gray-700 leading-relaxed"></p></div>
+                <div class="rounded-xl p-4" style="background:#f0fdf4">
+                    <span class="text-[11px] font-bold uppercase text-emerald-600 block mb-1.5">🎯 Ajuste con mi perfil</span>
+                    <p id="ePerfil" class="text-sm text-gray-700 leading-relaxed"></p></div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                        <span class="text-[10px] font-bold text-blue-400 uppercase block mb-2">Por categoría</span>
-                        <p id="exCategorias" class="text-xs text-gray-300 leading-relaxed"></p>
-                    </div>
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                        <span class="text-[10px] font-bold text-blue-400 uppercase block mb-2">Perfil y gates</span>
-                        <p id="exGates" class="text-xs text-gray-300 leading-relaxed"></p>
-                    </div>
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                        <span class="text-[10px] font-bold text-blue-400 uppercase block mb-2">Overrides y coherencia</span>
-                        <p id="exOverrides" class="text-xs text-gray-300 leading-relaxed"></p>
-                    </div>
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                        <span class="text-[10px] font-bold text-blue-400 uppercase block mb-2">Niveles y confluencia</span>
-                        <p id="exNiveles" class="text-xs text-gray-300 leading-relaxed"></p>
-                    </div>
+                    <div class="rounded-xl p-4 bg-gray-50"><span class="text-[11px] font-bold uppercase text-gray-500 block mb-1">Por categoría</span><p id="eCat" class="text-sm text-gray-700 leading-relaxed"></p></div>
+                    <div class="rounded-xl p-4 bg-gray-50"><span class="text-[11px] font-bold uppercase text-gray-500 block mb-1">Perfil y gates</span><p id="eGates" class="text-sm text-gray-700 leading-relaxed"></p></div>
+                    <div class="rounded-xl p-4 bg-gray-50"><span class="text-[11px] font-bold uppercase text-gray-500 block mb-1">Niveles y confluencia</span><p id="eNiv" class="text-sm text-gray-700 leading-relaxed"></p></div>
+                    <div class="rounded-xl p-4 bg-gray-50"><span class="text-[11px] font-bold uppercase text-gray-500 block mb-1">Calibración</span><p id="eCalib" class="text-sm text-gray-700 leading-relaxed"></p></div>
                 </div>
-                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                    <span class="text-[10px] font-bold text-gray-400 uppercase block mb-2">Calibración / track record</span>
-                    <p id="exCalibracion" class="text-xs text-gray-300 leading-relaxed"></p>
-                </div>
-                <div class="bg-[#0B0E14] p-4 rounded-xl border border-l-2 border-l-blue-500 border-gray-900">
-                    <span class="text-[10px] font-bold text-white uppercase block mb-1">🏁 Conclusión</span>
-                    <p id="exConclusion" class="text-sm text-white leading-relaxed font-medium"></p>
-                </div>
+                <div class="rounded-xl p-4 border-l-4 border-blue-500 bg-blue-50/40">
+                    <span class="text-[11px] font-bold uppercase text-gray-500 block mb-1">🏁 Conclusión</span>
+                    <p id="eConcl" class="text-base font-medium text-gray-900 leading-relaxed"></p></div>
             </div>
-
-            <!-- THESIS -->
-            <div id="thesisTab" class="tab-content p-6 space-y-4">
-                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                    <span class="text-[10px] font-bold text-blue-400 uppercase block mb-2">Resumen ejecutivo</span>
-                    <p id="wExecSummary" class="text-xs text-gray-300 leading-relaxed"></p>
-                </div>
-                <div id="wExecSentences" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
-                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                    <span class="text-[10px] font-bold text-amber-400 uppercase block mb-2">Reverse DCF — qué exige el precio hoy</span>
-                    <p id="wReverseDcf" class="text-xs text-gray-300 leading-relaxed"></p>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-red-500/20">
-                        <span class="text-[10px] font-bold text-red-400 uppercase block mb-2">☠️ Thesis killers</span>
-                        <ul id="wThesisKillers" class="text-xs text-gray-300 leading-relaxed list-disc list-inside space-y-1"></ul>
-                    </div>
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                        <span class="text-[10px] font-bold text-amber-400 uppercase block mb-2">👀 Disparadores de monitoreo</span>
-                        <ul id="wMonitoring" class="text-xs text-gray-300 leading-relaxed list-disc list-inside space-y-1"></ul>
-                    </div>
-                </div>
-                <div id="wRevisitBox" class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 hidden">
-                    <span class="text-[10px] font-bold text-gray-400 uppercase block mb-1">Revisitar cuando</span>
-                    <p id="wRevisit" class="text-xs text-gray-300"></p>
-                </div>
+            <!-- Valuación -->
+            <div id="tVal" class="tabc p-6 space-y-4">
+                <h3 class="text-sm font-semibold text-gray-800">Escenarios de valor (Victor · targets.py)</h3>
+                <div id="valScenarios" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+                <h3 class="text-sm font-semibold text-gray-800 pt-2">Niveles importantes (técnico vs valuación — no se promedian)</h3>
+                <div class="overflow-x-auto scroll"><table class="w-full text-sm"><thead>
+                    <tr class="text-gray-400 border-b border-[var(--line)] text-left">
+                        <th class="py-2 font-semibold">Tipo</th><th class="font-semibold">Lente</th>
+                        <th class="text-right font-semibold">Valor</th><th class="text-right font-semibold">Dist.%</th></tr>
+                    </thead><tbody id="valLevels"></tbody></table></div>
             </div>
-
-            <!-- VALUATION & LEVELS -->
-            <div id="valuationTab" class="tab-content p-6 space-y-5">
-                <div>
-                    <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-3">Escenarios de valor intrínseco</h3>
-                    <div id="wScenarios" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
-                </div>
-                <div>
-                    <div class="flex items-center justify-between mb-2">
-                        <h3 class="text-xs font-bold text-white">Precio (1 año) + referencias σ/DCF</h3>
-                    </div>
-                    <div class="relative w-full h-56 mb-2"><canvas id="wChart"></canvas></div>
-                </div>
-                <div>
-                    <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-3">Síntesis de niveles importantes</h3>
-                    <p class="text-[11px] text-gray-500 italic mb-2">Los niveles técnicos y de valuación se muestran por separado — nunca se promedian.</p>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-xs">
-                            <thead><tr class="text-gray-500 border-b border-gray-800">
-                                <th class="text-left py-2 font-bold">Tipo</th><th class="text-left font-bold">Lente</th>
-                                <th class="text-right font-bold">Valor</th><th class="text-right font-bold">Dist.%</th>
-                                <th class="text-left font-bold pl-3">Nota</th></tr></thead>
-                            <tbody id="wLevels"></tbody>
-                        </table>
-                    </div>
-                    <div id="wConfluenceBox" class="mt-4 hidden">
-                        <span class="text-[10px] font-bold text-blue-400 uppercase block mb-2">🎯 Zonas de confluencia (técnico ∩ valuación)</span>
-                        <p class="text-[10px] text-gray-500 italic mb-2">Solape dentro de max(0.5×ATR, 0.75%) — no se promedian, se reporta el cruce.</p>
-                        <div id="wConfluenceList" class="space-y-2"></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- GATES -->
-            <div id="gatesTab" class="tab-content p-6 space-y-4">
-                <p class="text-xs text-gray-500 italic">Cada gate de perfil evalúa condiciones numéricas. Todas deben cumplirse para pasar.</p>
-                <div id="wGates" class="space-y-3"></div>
+            <!-- Gates -->
+            <div id="tGates" class="tabc p-6 space-y-3">
+                <p class="text-sm text-gray-500">Cada gate evalúa condiciones numéricas. Todas deben cumplirse para pasar.</p>
+                <div id="gatesList" class="space-y-3"></div>
             </div>
         </div>
 
-        <p class="text-[10px] text-gray-600 text-center px-4 pb-4">Clasificación de research con supuestos declarados — no es asesoría de inversión ni recomendación de compra/venta. Toda ejecución es del inversionista.</p>
+        <p class="text-[11px] text-gray-400 text-center mt-6">Clasificación de research con supuestos declarados — no es asesoría de inversión ni orden de compra/venta. Ejecución manual del inversionista.</p>
     </main>
 
     <script>
-    // ============================ STATE ============================
-    let currentAnalysis = null, currentTicker = null, currentPrice = null;
-    let wChartInstance = null, debounceTimer = null;
-    const API_BASE = window.location.origin.startsWith("http") ? "" : "http://localhost:8000";
+    let A=null, T=null, P=null, gaugeC=null, projC=null, debTimer=null;
+    const API = window.location.origin.startsWith("http") ? "" : "http://localhost:8000";
+    const num=(v,d=2)=>(v==null||isNaN(v))?"—":Number(v).toFixed(d);
+    const money=(v)=>(v==null||isNaN(v))?"—":"$"+Number(v).toFixed(2);
+    const pct=(cur,t)=>(!cur||t==null)?"":`${((t-cur)/cur*100)>=0?'+':''}${((t-cur)/cur*100).toFixed(1)}%`;
+    const catColor=(s)=> s>=7?'#16a34a': s>=4?'#d97706':'#dc2626';
+    const PROF={ "Momentum Candidate":["#eff6ff","#2563eb"], "Quality Opportunity":["#f0fdf4","#16a34a"],
+        "Value Opportunity":["#f0fdf4","#16a34a"], "Conditional / Watch":["#fffbeb","#d97706"],
+        "Speculative":["#fff7ed","#ea580c"], "Avoid / Wait":["#fef2f2","#dc2626"] };
 
-    const num = (v, d = 2) => (v === null || v === undefined || isNaN(v)) ? "—" : Number(v).toFixed(d);
-    const money = (v) => (v === null || v === undefined || isNaN(v)) ? "—" : "$" + Number(v).toFixed(2);
-    const pctDiff = (cur, tgt) => (!cur || tgt === undefined || tgt === null) ? "" :
-        `${((tgt - cur) / cur * 100) >= 0 ? '+' : ''}${((tgt - cur) / cur * 100).toFixed(1)}%`;
+    function switchView(id){ document.querySelectorAll('.view').forEach(e=>e.classList.add('hidden'));
+        document.getElementById(id)?.classList.remove('hidden'); lucide.createIcons();
+        if(id==='reportsView') renderReports(); if(id==='homeView') renderRecent(); }
+    function tab(id,b){ document.querySelectorAll('.tabc').forEach(e=>e.classList.remove('active'));
+        document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));
+        document.getElementById(id).classList.add('active'); b.classList.add('active'); lucide.createIcons(); }
 
-    const PROFILE_STYLE = {
-        "Momentum Candidate": "text-blue-400 bg-blue-500/10 border-blue-500/30",
-        "Quality Opportunity": "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
-        "Value Opportunity": "text-emerald-400 bg-emerald-500/10 border-emerald-500/30",
-        "Conditional / Watch": "text-amber-400 bg-amber-500/10 border-amber-500/30",
-        "Speculative": "text-orange-400 bg-orange-500/10 border-orange-500/30",
-        "Avoid / Wait": "text-red-400 bg-red-500/10 border-red-500/30",
-    };
-    const catColor = (s10) => s10 >= 7 ? "#10b981" : s10 >= 4 ? "#f59e0b" : "#ef4444";
+    function debounceQuote(){ clearTimeout(debTimer); const v=document.getElementById('tickerInput').value.trim();
+        if(v.length<1){ document.getElementById('previewCard').classList.add('hidden'); return; }
+        debTimer=setTimeout(()=>fetchQuote(v),450); }
+    async function fetchQuote(t){ try{ const r=await fetch(`${API}/api/quote?ticker=${t}`); if(!r.ok){document.getElementById('previewCard').classList.add('hidden');return;}
+        const d=await r.json(); document.getElementById('pvLogo').src=d.logo_url||''; document.getElementById('pvTicker').innerText=d.ticker;
+        document.getElementById('pvName').innerText=d.nombre_completo||''; document.getElementById('pvPrice').innerText=money(d.precio);
+        const e=document.getElementById('pvPct'); e.innerText=`${d.cambio_pct>0?'+':''}${d.cambio_pct}%`;
+        e.style.background=d.cambio_pct>=0?'#f0fdf4':'#fef2f2'; e.style.color=d.cambio_pct>=0?'#16a34a':'#dc2626';
+        document.getElementById('previewCard').classList.remove('hidden'); lucide.createIcons();
+    }catch(e){ document.getElementById('previewCard').classList.add('hidden'); } }
 
-    // ============================ NAV ============================
-    function switchView(id) {
-        document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
-        document.getElementById(id)?.classList.remove('hidden');
-        lucide.createIcons();
-        if (id === 'reportsView') renderFullReportsList();
-        if (id === 'homeView') renderRecentReports();
-    }
-    function switchTab(id, btn) {
-        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.wbj-tab').forEach(el => el.classList.remove('active'));
-        document.getElementById(id)?.classList.add('active');
-        btn.classList.add('active');
-        lucide.createIcons();
-        if (id === 'valuationTab' && currentAnalysis) renderChart();
-    }
+    async function runAnalysis(){ const t=document.getElementById('tickerInput').value.trim().toUpperCase(); if(!t) return;
+        const ld=document.getElementById('loadingScreen'); ld.classList.remove('hidden'); ld.classList.add('flex');
+        const txt=["Congelando el reloj…","Corriendo los 6 especialistas de Victor…","Calculando targets y fair value…","Aplicando gates…","Generando la explicación…"];
+        let i=0; const iv=setInterval(()=>{document.getElementById('loadingText').innerText=txt[i++%txt.length];},1500);
+        try{ const r=await fetch(`${API}/api/analyze?ticker=${t}`); if(!r.ok) throw 0; const d=await r.json();
+            clearInterval(iv); ld.classList.add('hidden'); ld.classList.remove('flex');
+            A=d.analisis||{}; T=d; P=d.precio_actual; render(d); saveHist(d); switchView('dashboardView'); tab('tExpl',document.querySelector('.tab'));
+        }catch(e){ clearInterval(iv); ld.classList.add('hidden'); ld.classList.remove('flex'); alert("Error al analizar. Revisa que el backend y las claves estén configurados."); } }
 
-    // ============================ QUOTE ============================
-    function debounceQuoteFetch() {
-        clearTimeout(debounceTimer);
-        const val = document.getElementById('tickerInput').value.trim();
-        if (val.length < 1) { document.getElementById('previewCard').classList.add('hidden'); return; }
-        debounceTimer = setTimeout(() => fetchQuote(val), 500);
-    }
-    async function fetchQuote(ticker) {
-        try {
-            const res = await fetch(`${API_BASE}/api/quote?ticker=${ticker}`);
-            if (!res.ok) { document.getElementById('previewCard').classList.add('hidden'); return; }
-            const d = await res.json();
-            document.getElementById('previewLogo').src = d.logo_url || '';
-            document.getElementById('previewTicker').innerText = d.ticker;
-            document.getElementById('previewName').innerText = d.nombre_completo || '';
-            document.getElementById('previewPrice').innerText = money(d.precio);
-            const pctEl = document.getElementById('previewPct');
-            pctEl.innerText = `${d.cambio_pct > 0 ? '+' : ''}${d.cambio_pct}%`;
-            pctEl.className = `text-xs font-bold px-2 py-0.5 rounded-md ${d.cambio_pct >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`;
-            document.getElementById('previewCard').classList.remove('hidden');
-            lucide.createIcons();
-        } catch (e) { document.getElementById('previewCard').classList.add('hidden'); }
-    }
-
-    // ============================ ANALYZE ============================
-    async function ejecutarAnalisisAPI() {
-        const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
-        if (!ticker) return;
-        const loading = document.getElementById('loadingScreen');
-        const texts = ["Congelando el reloj de análisis…", "Validando el packet de datos…",
-            "Corriendo los 6 especialistas…", "Aplicando gates y overrides…",
-            "Sintetizando niveles importantes…"];
-        let ti = 0; loading.classList.remove('hidden');
-        const interval = setInterval(() => { document.getElementById('loadingText').innerText = texts[ti % texts.length]; ti++; }, 1600);
-        try {
-            const res = await fetch(`${API_BASE}/api/analyze?ticker=${ticker}`);
-            if (!res.ok) throw new Error("API error");
-            const data = await res.json();
-            clearInterval(interval); loading.classList.add('hidden');
-            currentAnalysis = data; currentTicker = data.ticker; currentPrice = data.precio_actual;
-            renderDashboard(data); saveToHistory(data); switchView('dashboardView');
-            switchTab('explicacionTab', document.querySelector('.wbj-tab'));
-        } catch (err) {
-            clearInterval(interval); loading.classList.add('hidden');
-            alert("Error al analizar. Verifica que el backend esté corriendo.");
-        }
-    }
-
-    // ============================ RENDER ============================
-    function renderDashboard(data) {
-        const a = data.analisis || {}, w = a.wbj || {};
-        document.getElementById('dashLogo').src = data.logo_url || '';
-        document.getElementById('dashHeaderTitle').innerText = `${data.ticker} — ${data.nombre_completo || ''}`;
-        document.getElementById('dashAnalysisTime').innerText = `${a.framework || 'WBJ v2.0.0'} · ${data.fecha_analisis || ''}`;
-        document.getElementById('dashPrice').innerText = money(data.precio_actual);
-
-        // Perfil / veredicto
-        const prof = w.profile || '—';
-        const profEl = document.getElementById('wProfile');
-        profEl.innerText = prof;
-        profEl.className = `text-lg font-extrabold px-3 py-1 rounded uppercase border ${PROFILE_STYLE[prof] || 'text-gray-300 bg-gray-500/10 border-gray-600'}`;
-        document.getElementById('wClassification').innerText = w.classification || a.classification || '';
-        document.getElementById('wRaw').innerText = num(w.raw_total, 0);
-        document.getElementById('wBand').innerText = w.band || '';
-        document.getElementById('wConf').innerText = num(w.total_confidence, 0);
-        document.getElementById('wConfLabel').innerText = confLabel(w.total_confidence);
-        document.getElementById('wFair').innerText = money(a.fair_value);
-        const up = document.getElementById('wUpside');
-        up.innerText = `${a.upside_pct >= 0 ? '+' : ''}${num(a.upside_pct, 1)}% vs spot`;
-        up.className = `text-[10px] mt-0.5 ${a.upside_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`;
-
-        // Overrides
-        const ov = document.getElementById('wOverrides');
-        ov.innerHTML = (w.overrides || []).map(o =>
-            `<div class="flex items-start gap-2 text-[11px] text-amber-300 bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-1.5">
-                <i data-lucide="shield-alert" class="w-3.5 h-3.5 mt-0.5 flex-shrink-0"></i><span>${o}</span></div>`).join('');
-
-        renderExplicacion(a, w);
-        const srcNode = document.getElementById('wScoreSource');
-        if (srcNode) srcNode.innerText = w.scores_source ? `Fuente de los scores: ${w.scores_source}` : '';
-        renderScorecard(w.categories || {});
-        renderThesis(a);
-        renderValuation(a, data);
+    function render(d){ const a=d.analisis||{}, w=a.wbj||{};
+        document.getElementById('dLogo').src=d.logo_url||'';
+        document.getElementById('dTitle').innerText=`${d.ticker} — ${d.nombre_completo||''}`;
+        document.getElementById('dTime').innerText=`${a.framework||'WBJ'} · ${d.fecha_analisis||''}`;
+        document.getElementById('dPrice').innerText=money(d.precio_actual);
+        document.getElementById('dFair').innerText=money(a.fair_value);
+        const up=document.getElementById('dUpside'); up.innerText=`${a.upside_pct>=0?'+':''}${num(a.upside_pct,1)}% vs precio`;
+        up.style.color=a.upside_pct>=0?'#16a34a':'#dc2626';
+        const pr=w.profile||'—', st=PROF[pr]||['#f4f6fa','#5b6270']; const pe=document.getElementById('dProfile');
+        pe.innerText=pr; pe.style.background=st[0]; pe.style.color=st[1]; pe.style.borderColor=st[1]+'33';
+        document.getElementById('dOverrides').innerHTML=(w.overrides||[]).map(o=>
+            `<div class="flex items-start gap-2 text-[12px] rounded-lg px-3 py-2" style="background:#fffbeb;color:#b45309"><i data-lucide="shield-alert" class="w-4 h-4 mt-0.5 flex-shrink-0"></i><span>${o}</span></div>`).join('');
+        drawGauge(w.raw_total||0, w.band||'', w.total_confidence);
+        renderScorecard(w);
+        renderProjection(d,a);
+        renderTargets(d,a);
+        renderExpl(a,w);
+        renderVal(a,d);
         renderGates(w);
         lucide.createIcons();
     }
 
-    function renderExplicacion(a, w) {
-        const ex = a.explicacion || null;
-        document.getElementById('explNotConfigured').classList.toggle('hidden', !!ex);
-        const set = (id, v) => { document.getElementById(id).innerText = v || '—'; };
-        set('exResumen', ex && ex.resumen_simple);
-        set('exPerfil', ex && ex.ajuste_a_mi_perfil);
-        set('exCategorias', ex && ex.por_categoria);
-        set('exGates', ex && ex.gates_y_perfil);
-        set('exOverrides', ex && ex.overrides_y_coherencia);
-        set('exNiveles', ex && ex.niveles_y_confluencia);
-        set('exCalibracion', ex && ex.calibracion);
-        set('exConclusion', ex && ex.conclusion);
-        // Flags de coherencia (datos deterministas)
-        const flags = (w && w.coherence_flags) || [];
-        const box = document.getElementById('exCoherenceBox');
-        if (flags.length) {
-            box.classList.remove('hidden');
-            document.getElementById('exCoherenceList').innerHTML =
-                flags.map(f => `<li><strong class="text-amber-300">${f.tipo}:</strong> ${f.detalle}</li>`).join('');
-            document.getElementById('exCoherenceExpl').innerText = (ex && ex.overrides_y_coherencia) || '';
-        } else box.classList.add('hidden');
+    function drawGauge(score,band,conf){ document.getElementById('gScore').innerText=Math.round(score);
+        document.getElementById('gBand').innerText=band; document.getElementById('gBand').style.color=catColor(score/10);
+        document.getElementById('gConf').innerText=conf!=null?Math.round(conf):'—';
+        const col= score>=70?'#16a34a': score>=50?'#d97706':'#dc2626';
+        const ctx=document.getElementById('gauge').getContext('2d'); if(gaugeC) gaugeC.destroy();
+        gaugeC=new Chart(ctx,{type:'doughnut',data:{datasets:[{data:[score,100-score],backgroundColor:[col,'#eef1f6'],borderWidth:0,circumference:180,rotation:270}]},
+            options:{cutout:'75%',plugins:{legend:{display:false},tooltip:{enabled:false}},responsive:true,maintainAspectRatio:true,aspectRatio:1.9}});
     }
 
-    function renderConfluence(w) {
-        const zones = (w && w.confluence_zones) || [];
-        const box = document.getElementById('wConfluenceBox');
-        if (!zones.length) { box.classList.add('hidden'); return; }
-        box.classList.remove('hidden');
-        document.getElementById('wConfluenceList').innerHTML = zones.map(z => `
-            <div class="bg-[#11141D] border border-blue-500/20 rounded-lg p-3 flex items-center justify-between">
-                <div><span class="text-sm font-mono font-bold text-blue-400">${money(z.zona)}</span>
-                    <span class="text-[10px] text-gray-500 ml-2">${z.dist_pct >= 0 ? '+' : ''}${z.dist_pct}% vs spot</span></div>
-                <div class="text-[10px] text-gray-400 text-right">
-                    <div>📊 ${z.tecnico.tipo} (${money(z.tecnico.valor)})</div>
-                    <div>💰 ${z.valuacion.tipo} (${money(z.valuacion.valor)})</div></div>
-            </div>`).join('');
-    }
-
-    function confLabel(c) {
-        if (c === null || c === undefined) return '';
-        if (c >= 85) return 'Alta'; if (c >= 70) return 'Media'; if (c >= 50) return 'Baja'; return 'Insuficiente';
-    }
-
-    function renderScorecard(cats) {
-        const order = ["business", "financial", "market", "technical", "risk", "valuation"];
-        const evNode = document.getElementById('wScoreEvidence');
-        if (evNode) {
-            const ev = order.filter(k => cats[k]).reduce((s, k) => s + (cats[k].max * (cats[k].coverage || 0)), 0);
-            evNode.innerText = `${Math.round(ev)}/100 pts de evidencia`;
-        }
-        const el = document.getElementById('wScorecard');
-        el.innerHTML = order.filter(k => cats[k]).map(k => {
-            const c = cats[k], s10 = c.score10, cov = Math.round((c.coverage || 0) * 100);
-            const scorable = cov >= 70;
-            return `<div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                <div class="flex items-center justify-between mb-2">
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm font-bold text-white">${c.label}</span>
-                        <span class="text-[10px] text-gray-500 font-mono">${num(c.points, 1)}/${c.max} pts</span>
-                        ${scorable ? '' : '<span class="chip bg-gray-500/10 text-gray-400 border border-gray-700">cobertura baja</span>'}
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <span class="text-[10px] text-gray-500">conf ${num(c.confidence, 0)}</span>
-                        <span class="font-mono font-black text-sm" style="color:${catColor(s10)}">${num(s10, 1)}/10</span>
-                    </div>
+    function renderScorecard(w){ const cats=w.categories||{}; const order=["business","financial","market","technical","risk","valuation"];
+        const ev=order.filter(k=>cats[k]).reduce((s,k)=>s+(cats[k].max*(cats[k].coverage||0)),0);
+        document.getElementById('scEvidence').innerText=`${Math.round(ev)}/100 pts de evidencia`;
+        document.getElementById('scSource').innerText=w.scores_source?`Fuente: ${w.scores_source}`:'';
+        document.getElementById('scorecard').innerHTML=order.filter(k=>cats[k]).map(k=>{ const c=cats[k], s=c.score10, cov=Math.round((c.coverage||0)*100), col=catColor(s);
+            return `<div>
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-sm font-semibold text-gray-800">${c.label}</span>
+                    <div class="flex items-center gap-2 text-xs"><span class="text-gray-400">${num(c.points,1)}/${c.max}pts · cob ${cov}%</span>
+                        <span class="font-bold" style="color:${col}">${num(s,1)}/10</span></div>
                 </div>
-                <div class="cat-bar-track"><div class="cat-bar-fill" style="width:${Math.max(0, Math.min(100, s10 * 10))}%;background:${catColor(s10)}"></div></div>
-                <div class="flex justify-between mt-1"><span class="text-[9px] text-gray-600">Evidencia: ${cov}% cobertura</span></div>
-            </div>`;
-        }).join('');
+                <div class="bar-track"><div class="bar-fill" style="width:${Math.max(0,Math.min(100,s*10))}%;background:${col}"></div></div>
+            </div>`; }).join('');
     }
 
-    function renderThesis(a) {
-        document.getElementById('wExecSummary').innerText = a.executive_summary || a.company_summary_simple || '';
-        const sentences = [
-            ["Qué hace la compañía", a.what_company_does],
-            ["Durabilidad de la creación de valor", a.value_creation_durability],
-            ["Qué financia el crecimiento", a.growth_funding],
-            ["Validación del mercado", a.market_validation],
-            ["Supuestos implícitos en el precio", a.price_implied_assumptions],
-            ["Niveles clave cercanos", a.nearest_key_levels],
-            ["Riesgo de invalidación #1", a.top_invalidation_risk],
-        ];
-        document.getElementById('wExecSentences').innerHTML = sentences.filter(s => s[1]).map(s =>
-            `<div class="bg-[#0B0E14] p-3 rounded-xl border border-gray-900">
-                <span class="text-[10px] font-bold text-blue-400 uppercase block mb-1">${s[0]}</span>
-                <p class="text-xs text-gray-300 leading-relaxed">${s[1]}</p></div>`).join('');
-        document.getElementById('wReverseDcf').innerText = a.reverse_dcf || '';
-        document.getElementById('wThesisKillers').innerHTML = (a.thesis_killers || []).map(t => `<li>${t}</li>`).join('');
-        document.getElementById('wMonitoring').innerHTML = (a.monitoring_triggers || []).map(t => `<li>${t}</li>`).join('');
-        const rb = document.getElementById('wRevisitBox');
-        if (a.revisit_when && a.revisit_when.trim()) { rb.classList.remove('hidden'); document.getElementById('wRevisit').innerText = a.revisit_when; }
-        else rb.classList.add('hidden');
+    function renderProjection(d,a){ const hp=d.historial_precios||[], hf=d.historial_fechas||[];
+        const t12=(d.targets&&d.targets['12m'])||{}; const cur=d.precio_actual;
+        const vd=a.victor_targets_detail; if(vd) document.getElementById('projAssump').innerText=
+            `EPS $${vd.eps} · P/E ${vd.pe_now}x · crecimiento base ${(vd.growth_base*100).toFixed(0)}% · horizonte 12 meses`;
+        // eje: histórico (~1 mes) + 4 puntos futuros hasta 12M
+        const fut=['+3M','+6M','+9M','12M']; const labels=[...hf, ...fut];
+        const n=hp.length, L=labels.length;
+        const pad=(arr)=>arr.concat(Array(L-arr.length).fill(null));
+        const hist=pad(hp.slice());
+        const line=(end)=>{ const a2=Array(L).fill(null); if(!n) return a2; a2[n-1]=hp[n-1];
+            for(let j=0;j<fut.length;j++){ a2[n+j]=hp[n-1]+(end-hp[n-1])*((j+1)/fut.length); } return a2; };
+        const ctx=document.getElementById('projChart').getContext('2d'); if(projC) projC.destroy();
+        const g=ctx.createLinearGradient(0,0,0,300); g.addColorStop(0,'#2563eb22'); g.addColorStop(1,'#2563eb00');
+        projC=new Chart(ctx,{type:'line',data:{labels,datasets:[
+            {label:'Histórico',data:hist,borderColor:'#2563eb',backgroundColor:g,borderWidth:2.5,fill:true,tension:.35,pointRadius:0},
+            {label:'Bull 12M',data:line(t12.bull),borderColor:'#16a34a',borderWidth:2,borderDash:[5,4],pointRadius:0,tension:0},
+            {label:'Medio 12M',data:line(t12.base),borderColor:'#2563eb',borderWidth:2,borderDash:[5,4],pointRadius:0,tension:0},
+            {label:'Bear 12M',data:line(t12.bear),borderColor:'#dc2626',borderWidth:2,borderDash:[5,4],pointRadius:0,tension:0}]},
+            options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+                plugins:{legend:{display:true,position:'top',align:'end',labels:{boxWidth:12,font:{size:11},color:'#5b6270'}},
+                    tooltip:{callbacks:{label:c=>c.parsed.y==null?null:`${c.dataset.label}: $${c.parsed.y.toFixed(2)}`}}},
+                scales:{x:{grid:{color:'#f1f3f7'},ticks:{color:'#9aa1ad',font:{size:10},maxTicksLimit:10}},
+                    y:{grid:{color:'#f1f3f7'},ticks:{color:'#9aa1ad',font:{size:10},callback:v=>'$'+v}}}}});
     }
 
-    function renderValuation(a, data) {
-        const sc = a.valuation_scenarios || [];
-        const map = { "bear": "text-red-400", "base": "text-amber-400", "bull": "text-emerald-400" };
-        document.getElementById('wScenarios').innerHTML = sc.map(s => {
-            const key = (s.scenario || '').toLowerCase();
-            const color = key.includes('bull') ? map.bull : key.includes('bear') ? map.bear : map.base;
-            return `<div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                <span class="text-[10px] font-bold uppercase block mb-1 ${color}">${s.scenario}</span>
-                <span class="text-lg font-mono font-black ${color}">${money(s.value)}</span>
-                <span class="text-[10px] text-gray-500 block">${pctDiff(data.precio_actual, s.value)} vs spot</span>
-                <p class="text-[10px] text-gray-400 mt-2 leading-relaxed">${s.assumptions || ''}</p></div>`;
-        }).join('');
+    function renderTargets(d,a){ const t=(d.targets&&d.targets['12m'])||{}, cur=d.precio_actual;
+        document.getElementById('tBull').innerText=money(t.bull); document.getElementById('tBullP').innerText=pct(cur,t.bull);
+        document.getElementById('tBase').innerText=money(t.base); document.getElementById('tBaseP').innerText=pct(cur,t.base);
+        document.getElementById('tBear').innerText=money(t.bear); document.getElementById('tBearP').innerText=pct(cur,t.bear); }
 
-        // Levels: LLM important_levels + computed technical levels, técnicos vs valuación separados
-        const levels = [].concat(a.important_levels || [], (a.wbj && a.wbj.computed_levels) || []);
-        const cur = data.precio_actual;
-        levels.sort((x, y) => Math.abs((x.valor - cur)) - Math.abs((y.valor - cur)));
-        document.getElementById('wLevels').innerHTML = levels.map(l => {
-            const lensColor = (l.lente || '').toLowerCase().includes('valu') ? 'text-emerald-400' : 'text-blue-400';
-            return `<tr class="border-b border-gray-900">
-                <td class="py-1.5 text-gray-200">${l.tipo || ''}</td>
-                <td class="${lensColor}">${l.lente || ''}</td>
-                <td class="text-right font-mono text-white">${money(l.valor)}</td>
-                <td class="text-right font-mono text-gray-400">${pctDiff(cur, l.valor)}</td>
-                <td class="pl-3 text-gray-500 text-[10px]">${l.nota || ''}</td></tr>`;
-        }).join('');
-        renderConfluence(a.wbj || {});
-        renderChart();
-    }
+    function renderExpl(a,w){ const ex=a.explicacion; document.getElementById('explNo').classList.toggle('hidden',!!ex);
+        const S=(id,v)=>document.getElementById(id).innerText=v||'—';
+        S('eResumen',ex&&ex.resumen_simple); S('ePerfil',ex&&ex.ajuste_a_mi_perfil); S('eCat',ex&&ex.por_categoria);
+        S('eGates',ex&&ex.gates_y_perfil); S('eNiv',ex&&ex.niveles_y_confluencia); S('eCalib',ex&&ex.calibracion); S('eConcl',ex&&ex.conclusion); }
 
-    function renderChart() {
-        if (!currentAnalysis) return;
-        const data = currentAnalysis, a = data.analisis || {};
-        const ctx = document.getElementById('wChart')?.getContext('2d');
-        if (!ctx) return;
-        if (wChartInstance) wChartInstance.destroy();
-        const labels = data.historial_fechas || [], prices = data.historial_precios || [];
-        const t12 = (data.targets && data.targets['12m']) || {};
-        const grad = ctx.createLinearGradient(0, 0, 0, 224);
-        grad.addColorStop(0, '#3b82f633'); grad.addColorStop(1, '#3b82f600');
-        const flat = (v) => labels.map(() => v);
-        wChartInstance = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels,
-                datasets: [
-                    { data: prices, borderColor: '#3b82f6', borderWidth: 2, backgroundColor: grad, fill: true, tension: 0.35, pointRadius: 0, label: 'Precio' },
-                    { data: flat(t12.bull), borderColor: '#10b981', borderWidth: 1, borderDash: [4, 4], pointRadius: 0, fill: false, label: 'Bull 12M' },
-                    { data: flat(t12.base), borderColor: '#f59e0b', borderWidth: 1, borderDash: [4, 4], pointRadius: 0, fill: false, label: 'Base 12M' },
-                    { data: flat(t12.bear), borderColor: '#ef4444', borderWidth: 1, borderDash: [4, 4], pointRadius: 0, fill: false, label: 'Bear 12M' },
-                ]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: true, labels: { color: '#6b7280', font: { size: 9 }, boxWidth: 10 } } },
-                scales: {
-                    x: { grid: { color: '#1F2532' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } },
-                    y: { grid: { color: '#1F2532' }, ticks: { color: '#6b7280', font: { size: 9 }, callback: v => '$' + v } }
-                }
-            }
-        });
-    }
+    function renderVal(a,d){ const sc=a.valuation_scenarios||[]; const cur=d.precio_actual;
+        const col={bull:'#16a34a',bear:'#dc2626'};
+        document.getElementById('valScenarios').innerHTML=sc.map(s=>{ const k=(s.scenario||'').toLowerCase();
+            const c= k.includes('bull')?col.bull : k.includes('bear')?col.bear : '#2563eb';
+            return `<div class="rounded-xl p-4 border border-[var(--line)]">
+                <span class="text-[11px] font-bold uppercase" style="color:${c}">${s.scenario}</span>
+                <span class="block text-xl font-bold text-gray-900">${money(s.value)}</span>
+                <span class="text-[11px] text-gray-400">${pct(cur,s.value)} vs precio</span>
+                <p class="text-[11px] text-gray-500 mt-2 leading-relaxed">${s.assumptions||''}</p></div>`; }).join('')
+            || `<p class="text-sm text-gray-400">Sin escenarios disponibles.</p>`;
+        const lv=[].concat(a.important_levels||[], (a.wbj&&a.wbj.computed_levels)||[]).sort((x,y)=>Math.abs(x.valor-cur)-Math.abs(y.valor-cur));
+        document.getElementById('valLevels').innerHTML=lv.map(l=>{ const isv=(l.lente||'').toLowerCase().includes('valu');
+            return `<tr class="border-b border-[var(--line)]"><td class="py-2 text-gray-700">${l.tipo||''}</td>
+                <td style="color:${isv?'#16a34a':'#2563eb'}">${l.lente||''}</td>
+                <td class="text-right font-medium text-gray-900">${money(l.valor)}</td>
+                <td class="text-right text-gray-400">${pct(cur,l.valor)}</td></tr>`; }).join('')
+            || `<tr><td colspan="4" class="py-3 text-gray-400 text-center">Sin niveles.</td></tr>`; }
 
-    function renderPlan(a) {
-        const tp = a.trade_plan || {};
-        document.getElementById('pReward').innerText = `+${num(tp.reward_pct, 1)}%`;
-        document.getElementById('pRisk').innerText = `-${num(tp.risk_pct, 1)}%`;
-        document.getElementById('pRR').innerText = num(tp.reward_risk, 2);
-        document.getElementById('pSize').innerText = `${num(tp.suggested_pct, 1)}%`;
-        document.getElementById('pSizingNote').innerText =
-            `Kelly ½: ${num(tp.kelly_half_pct, 1)}% · sugerido ${num(tp.suggested_pct, 1)}% del capital. ${tp.cap_reason || ''}`;
-        const rp = tp.risk_plan || {};
-        document.getElementById('pRiskPlan').innerText =
-            `${rp.equity_stop_note || ''} ${rp.options_stop_rule || ''}`;
-        const pr = tp.probabilities || {};
-        document.getElementById('pProbs').innerHTML = [
-            ["Positivo 12M", pr.p_positive_12m], ["Toca Bull 12M", pr.p_touch_bull_12m],
-            ["Toca Bear 12M", pr.p_touch_bear_12m], [">+10% en 3M", pr.p_up_10pct_3m]
-        ].map(p => `<div class="bg-[#0B0E14] p-3 rounded-xl border border-gray-900 text-center">
-            <span class="text-[10px] text-gray-500 font-bold block uppercase">${p[0]}</span>
-            <span class="text-base font-mono font-bold text-white">${p[1] == null ? '—' : p[1] + '%'}</span></div>`).join('');
-        document.getElementById('pInvalidation').innerHTML = (tp.thesis_invalidation || []).map(i =>
-            `<li><strong class="text-gray-200">${i.factor}:</strong> ${i.trigger}</li>`).join('');
-    }
+    function renderGates(w){ const all=[].concat((w.passed_gates||[]).map(g=>({...g,ok:true})),(w.failed_gates||[]).map(g=>({...g,ok:false})));
+        document.getElementById('gatesList').innerHTML=all.map(g=>`
+            <div class="rounded-xl p-4 border" style="border-color:${g.ok?'#bbf7d0':'var(--line)'}">
+                <div class="flex items-center gap-2 mb-2"><span class="chip" style="background:${g.ok?'#f0fdf4':'#f4f6fa'};color:${g.ok?'#16a34a':'#9aa1ad'}">${g.ok?'PASA':'NO PASA'}</span>
+                    <span class="font-semibold text-gray-800">${g.gate}</span></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-1">${(g.conditions||[]).map(c=>
+                    `<div class="flex items-center gap-1.5 text-xs" style="color:${c.pass?'#5b6270':'#dc2626'}"><i data-lucide="${c.pass?'check':'x'}" class="w-3.5 h-3.5"></i>${c.cond}</div>`).join('')}</div>
+            </div>`).join(''); lucide.createIcons(); }
 
-    function renderGates(w) {
-        const all = [].concat(
-            (w.passed_gates || []).map(g => ({ ...g, ok: true })),
-            (w.failed_gates || []).map(g => ({ ...g, ok: false })));
-        document.getElementById('wGates').innerHTML = all.map(g => `
-            <div class="bg-[#0B0E14] p-4 rounded-xl border ${g.ok ? 'border-emerald-500/30' : 'border-gray-900'}">
-                <div class="flex items-center gap-2 mb-2">
-                    <span class="chip ${g.ok ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}">${g.ok ? 'PASA' : 'NO PASA'}</span>
-                    <span class="text-sm font-bold text-white">${g.gate}</span>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-1">
-                    ${(g.conditions || []).map(c => `<div class="flex items-center gap-1.5 text-[11px] ${c.pass ? 'text-gray-300' : 'text-red-400'}">
-                        <i data-lucide="${c.pass ? 'check' : 'x'}" class="w-3 h-3"></i>${c.cond}</div>`).join('')}
-                </div>
-            </div>`).join('');
-        lucide.createIcons();
-    }
+    // Historial local
+    function saveHist(d){ const a=d.analisis||{},w=a.wbj||{}; let h=JSON.parse(localStorage.getItem('wbj_h')||'[]');
+        h=h.filter(x=>x.ticker!==d.ticker); h.unshift({ticker:d.ticker,nombre:d.nombre_completo,precio:d.precio_actual,logo:d.logo_url,
+            profile:w.profile,raw:w.raw_total,fecha:d.fecha_analisis,upside:a.upside_pct}); if(h.length>20)h=h.slice(0,20);
+        localStorage.setItem('wbj_h',JSON.stringify(h)); renderRecent(); }
+    function hCard(h){ const st=PROF[h.profile]||['#f4f6fa','#5b6270'];
+        return `<div class="flex items-center justify-between rounded-xl border border-[var(--line)] p-3 hover:border-blue-300 transition">
+            <div class="flex items-center gap-3"><img src="${h.logo||''}" class="w-9 h-9 rounded-lg object-contain bg-gray-50 border border-[var(--line)]"
+                onerror="this.src='https://ui-avatars.com/api/?name=${h.ticker}&background=eef1f6&color=2563eb&bold=true'">
+                <div><div class="flex items-center gap-2"><span class="font-bold text-gray-900">${h.ticker}</span>
+                    <span class="chip" style="background:${st[0]};color:${st[1]}">${h.profile||'—'}</span></div>
+                    <p class="text-[11px] text-gray-400">${h.nombre||''} · ${h.fecha||''}</p></div></div>
+            <div class="text-right"><p class="font-bold text-gray-900">${money(h.precio)}</p><p class="text-[11px] text-gray-400">raw ${num(h.raw,0)}/100</p></div></div>`; }
+    function renderRecent(){ const h=JSON.parse(localStorage.getItem('wbj_h')||'[]'); const el=document.getElementById('homeRecent'); if(!el)return;
+        el.innerHTML=h.length?h.slice(0,4).map(hCard).join(''):`<p class="text-sm text-gray-400 text-center py-4">Aún no hay reportes.</p>`; }
+    function renderReports(){ const h=JSON.parse(localStorage.getItem('wbj_h')||'[]'); const el=document.getElementById('fullReports'); if(!el)return;
+        el.innerHTML=h.length?h.map(hCard).join(''):`<p class="text-sm text-gray-400 text-center py-8">Aún no hay reportes.</p>`; }
 
-    // ============================ HISTORY ============================
-    function saveToHistory(data) {
-        const a = data.analisis || {}, w = a.wbj || {};
-        let h = JSON.parse(localStorage.getItem('wbj_history') || '[]');
-        h = h.filter(x => x.ticker !== data.ticker);
-        h.unshift({
-            ticker: data.ticker, nombre: data.nombre_completo, precio: data.precio_actual,
-            logo: data.logo_url, profile: w.profile, raw: w.raw_total,
-            fecha: data.fecha_analisis, upside: a.upside_pct
-        });
-        if (h.length > 20) h = h.slice(0, 20);
-        localStorage.setItem('wbj_history', JSON.stringify(h));
-        renderRecentReports();
-    }
-    function reportCard(h) {
-        const st = PROFILE_STYLE[h.profile] || 'text-gray-300 bg-gray-500/10 border-gray-600';
-        return `<div class="bg-[#0B0E14] border border-gray-900 rounded-xl p-4 flex items-center justify-between hover:border-blue-500/30 transition">
-            <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-lg bg-[#11141D] border border-gray-800 overflow-hidden flex-shrink-0">
-                    <img src="${h.logo || ''}" class="w-full h-full object-contain" onerror="this.src='https://ui-avatars.com/api/?name=${h.ticker}&background=0B0E14&color=3b82f6&bold=true'"></div>
-                <div><div class="flex items-center gap-2">
-                    <span class="text-sm font-bold text-white">${h.ticker}</span>
-                    <span class="chip border ${st}">${h.profile || '—'}</span></div>
-                    <p class="text-[10px] text-gray-500">${h.nombre || ''} · ${h.fecha || ''}</p></div>
-            </div>
-            <div class="text-right"><p class="text-sm font-mono font-bold text-white">${money(h.precio)}</p>
-                <p class="text-[10px] text-gray-500">raw ${num(h.raw, 0)}/100</p></div></div>`;
-    }
-    function renderRecentReports() {
-        const h = JSON.parse(localStorage.getItem('wbj_history') || '[]');
-        const el = document.getElementById('homeRecentList'); if (!el) return;
-        el.innerHTML = h.length ? h.slice(0, 4).map(reportCard).join('')
-            : `<p class="text-gray-600 text-xs text-center py-4">Aún no hay reportes. Corre tu primer análisis.</p>`;
-        lucide.createIcons();
-    }
-    function renderFullReportsList() {
-        const h = JSON.parse(localStorage.getItem('wbj_history') || '[]');
-        const el = document.getElementById('fullReportsList'); if (!el) return;
-        el.innerHTML = h.length ? h.map(reportCard).join('') : `<p class="text-gray-600 text-xs text-center py-8">Aún no hay reportes.</p>`;
-        lucide.createIcons();
-    }
-
-    document.addEventListener('DOMContentLoaded', () => { lucide.createIcons(); renderRecentReports(); });
+    document.addEventListener('DOMContentLoaded',()=>{ lucide.createIcons(); renderRecent(); });
     </script>
 </body>
 </html>
