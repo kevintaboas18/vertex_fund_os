@@ -169,7 +169,6 @@
                 <button class="wbj-tab active" onclick="switchTab('explicacionTab', this)">📖 Explicación</button>
                 <button class="wbj-tab" onclick="switchTab('thesisTab', this)">📋 Tesis</button>
                 <button class="wbj-tab" onclick="switchTab('valuationTab', this)">📈 Valuación & Niveles</button>
-                <button class="wbj-tab" onclick="switchTab('planTab', this)">🎯 Plan & Riesgo</button>
                 <button class="wbj-tab" onclick="switchTab('gatesTab', this)">🚦 Gates</button>
             </div>
 
@@ -279,37 +278,6 @@
                         <p class="text-[10px] text-gray-500 italic mb-2">Solape dentro de max(0.5×ATR, 0.75%) — no se promedian, se reporta el cruce.</p>
                         <div id="wConfluenceList" class="space-y-2"></div>
                     </div>
-                </div>
-            </div>
-
-            <!-- PLAN -->
-            <div id="planTab" class="tab-content p-6 space-y-4">
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div class="bg-[#0B0E14] p-3 rounded-xl border border-gray-900 text-center">
-                        <span class="text-[10px] text-emerald-400 font-bold block uppercase">Reward 12M</span>
-                        <span id="pReward" class="text-base font-mono font-bold text-emerald-400"></span></div>
-                    <div class="bg-[#0B0E14] p-3 rounded-xl border border-gray-900 text-center">
-                        <span class="text-[10px] text-red-400 font-bold block uppercase">Risk (a Bear)</span>
-                        <span id="pRisk" class="text-base font-mono font-bold text-red-400"></span></div>
-                    <div class="bg-[#0B0E14] p-3 rounded-xl border border-gray-900 text-center">
-                        <span class="text-[10px] text-gray-400 font-bold block uppercase">Reward/Risk</span>
-                        <span id="pRR" class="text-base font-mono font-bold text-white"></span></div>
-                    <div class="bg-[#0B0E14] p-3 rounded-xl border border-blue-500/30 text-center">
-                        <span class="text-[10px] text-blue-400 font-bold block uppercase">Tamaño sugerido</span>
-                        <span id="pSize" class="text-base font-mono font-bold text-blue-400"></span></div>
-                </div>
-                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                    <span class="text-[10px] font-bold text-gray-400 uppercase block mb-1">Sizing (Kelly fraccional acotado)</span>
-                    <p id="pSizingNote" class="text-xs text-gray-300"></p>
-                </div>
-                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                    <span class="text-[10px] font-bold text-gray-400 uppercase block mb-1">Plan de riesgo</span>
-                    <p id="pRiskPlan" class="text-xs text-gray-300"></p>
-                </div>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="pProbs"></div>
-                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                    <span class="text-[10px] font-bold text-amber-400 uppercase block mb-2">¿Qué me haría cambiar de opinión?</span>
-                    <ul id="pInvalidation" class="text-xs text-gray-300 leading-relaxed list-disc list-inside space-y-1"></ul>
                 </div>
             </div>
 
@@ -444,7 +412,6 @@
         renderScorecard(w.categories || {});
         renderThesis(a);
         renderValuation(a, data);
-        renderPlan(a);
         renderGates(w);
         lucide.createIcons();
     }
