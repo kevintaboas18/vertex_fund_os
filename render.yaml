@@ -4,22 +4,23 @@ services:
   - type: web
     name: vertex-fund-os
     runtime: python
-    plan: starter            # sube a standard si necesitas más RAM/CPU
+    # 'free' funciona sin tarjeta (se duerme tras inactividad). Para "siempre
+    # encendido" + disco persistente, sube a 'starter' y descomenta el bloque disk.
+    plan: free
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn vertex_api:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: /
-    # Disco persistente: conserva la memoria del agente (base SQLite) entre deploys.
-    disk:
-      name: vertex-data
-      mountPath: /var/data
-      sizeGB: 1
+    # --- Disco persistente (SOLO en planes de pago: starter+). Descomenta si subes de plan ---
+    # disk:
+    #   name: vertex-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: EDGAR_USER_AGENT
         value: "Vertex Fund OS - Kevin Taboas kevintaboas02@gmail.com"
-      - key: VERTEX_DB
-        value: /var/data/vertex.db      # la base vive en el disco persistente
+      # Con disco (plan pago) añade: VERTEX_DB=/var/data/vertex.db para conservar la memoria.
       - key: GEMINI_API_KEY
         sync: false
       - key: OPENAI_API_KEY
