@@ -6408,7 +6408,7 @@ def _fmp_forward_estimates(rows):
     return eps_growth, dispersion, analysts
 
 
-def _wbj_extract_business_qual(ticker, cik, settings):
+def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
     """Extrae del 10-K real (SEC EDGAR) los inputs CUALITATIVOS que el especialista
     Business de Victor lee por `overlay` y que NO están en FMP ni son slots del judge:
     recurring_revenue, largest_customer_share, customer_shares, retention (NRR/GRR),
@@ -6449,7 +6449,8 @@ def _wbj_extract_business_qual(ticker, cik, settings):
                 "Muchas empresas (no-suscripción) no reportan NRR/churn/LTV/CAC: en ese caso null. "
                 "Responde ÚNICAMENTE con un objeto JSON válido, sin texto alrededor.")
         _schema = (
-            '{"recurring_revenue_usd": number|null,  // ingreso recurrente/suscripción anual en USD absolutos\n'
+            '{"recurring_revenue_pct": number|null,  // fracción 0-1 del ingreso total que es recurrente/suscripción (PREFERIDO, inequívoco)\n'
+            ' "recurring_revenue_usd": number|null,  // ingreso recurrente/suscripción anual en USD absolutos (respeta la escala: dólares, no millones)\n'
             ' "largest_customer_share": number|null, // 0-1; fracción de ingresos del mayor cliente (o "no >10%" -> 0.10)\n'
             ' "customer_shares": [number]|null,      // 0-1 por cliente si divulga varios\n'
             ' "segment_shares": [number]|null,       // 0-1 fracción de ingresos por segmento de negocio\n'
@@ -6492,9 +6493,21 @@ def _wbj_extract_business_qual(ticker, cik, settings):
             return float(x) if x is not None else None
         except (TypeError, ValueError):
             return None
+    # recurring_revenue: preferir el PORCENTAJE (inequívoco) → absoluto = pct × ingreso.
+    # El absoluto directo se acepta solo si pasa una cota anti-error-de-unidad (millones vs dólares).
+    _rrp = _num(_d.get("recurring_revenue_pct"))
     _rr = _num(_d.get("recurring_revenue_usd"))
-    if _rr is not None and _rr > 0:
-        _ov["recurring_revenue"] = _rr
+    _rev_h = _num(revenue_hint)
+    if _rrp is not None and 0.0 < _rrp <= 1.0 and _rev_h and _rev_h > 0:
+        _ov["recurring_revenue"] = _rrp * _rev_h
+    elif _rr is not None and _rr > 0:
+        # banda de sanidad de dos lados: recurrente entre 0.1% y 120% del ingreso. Fuera de eso
+        # es casi seguro un error de escala del LLM (millones/miles) → N/S (más honesto que un ~0 falso).
+        if (not _rev_h) or (_rev_h * 0.001 <= _rr <= _rev_h * 1.2):
+            _ov["recurring_revenue"] = _rr
+        else:
+            print(f"[engine] {ticker}: recurring_revenue absoluto descartado por escala improbable "
+                  f"({_rr:.3g} vs ingreso ~{_rev_h:.3g}) → N/S")
     _lcs = _num(_d.get("largest_customer_share"))
     if _lcs is not None and 0.0 <= _lcs <= 1.0:
         _ov["largest_customer_share"] = _lcs
@@ -6713,7 +6726,14 @@ def _engine_scorecard(ticker, info, price):
         _qual = {}
         try:
             _cik_biz = prov.edgar.cik_for(ticker)
-            _qual = _wbj_extract_business_qual(ticker, _cik_biz, settings) or {}
+            # ingreso anual del packet como cota de sanidad para el recurring_revenue del 10-K
+            _rev_hint = None
+            try:
+                _rv = pk.facts_table.get("revenue")
+                _rev_hint = float(_rv.value) if _rv is not None and getattr(_rv, "value", None) else None
+            except Exception:
+                _rev_hint = None
+            _qual = _wbj_extract_business_qual(ticker, _cik_biz, settings, revenue_hint=_rev_hint) or {}
         except Exception as _qe:
             print(f"[engine] extracción cualitativa omitida: {str(_qe)[:120]}")
         for _qk in ("recurring_revenue", "largest_customer_share", "customer_shares", "segment_shares",
