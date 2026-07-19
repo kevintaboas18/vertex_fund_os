@@ -6390,6 +6390,119 @@ def _fmp_forward_estimates(rows):
         analysts = r0.get("numberAnalystEstimatedRevenue")
     return eps_growth, dispersion, analysts
 
+
+def _wbj_extract_business_qual(ticker, cik, settings):
+    """Extrae del 10-K real (SEC EDGAR) los inputs CUALITATIVOS que el especialista
+    Business de Victor lee por `overlay` y que NO están en FMP ni son slots del judge:
+    recurring_revenue, largest_customer_share, customer_shares, retention (NRR/GRR),
+    churn, customer_economics (arpu/ltv/cac/payback) y guidance_history.
+
+    Fiel al sub-agente `business-analysis` de Victor: Claude LEE el filing y devuelve
+    SOLO lo que la empresa divulga explícitamente; si no está, null → la métrica queda
+    N/S ('sin evidencia, no hay número'). Nunca inventa. Cualquier fallo → {} (el
+    análisis sigue igual). Devuelve el dict de overlay ya en la forma que espera Victor."""
+    key = getattr(settings, "anthropic_api_key", None)
+    if not key or not cik:
+        return {}
+    try:
+        import httpx, json as _json, re as _re
+        from wbj.providers.edgar import EDGAR_USER_AGENT
+        _hdr = {"User-Agent": EDGAR_USER_AGENT}
+        # 1) localizar el último 10-K (accession + documento primario) en submissions
+        _sub = httpx.get(f"https://data.sec.gov/submissions/CIK{int(cik):010d}.json",
+                         headers=_hdr, timeout=20.0)
+        _sub.raise_for_status()
+        _rec = (_sub.json().get("filings", {}) or {}).get("recent", {}) or {}
+        _forms = _rec.get("form", []); _accs = _rec.get("accessionNumber", []); _docs = _rec.get("primaryDocument", [])
+        _idx = next((i for i, f in enumerate(_forms) if f == "10-K"), None)
+        if _idx is None:
+            return {}
+        _acc = _accs[_idx].replace("-", ""); _doc = _docs[_idx]
+        # 2) bajar el documento y limpiarlo a texto plano
+        _u = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{_acc}/{_doc}"
+        _r = httpx.get(_u, headers=_hdr, timeout=30.0); _r.raise_for_status()
+        _txt = _re.sub(r"<[^>]+>", " ", _r.text)
+        _txt = _re.sub(r"&#\d+;|&[a-z]+;", " ", _txt)
+        _txt = _re.sub(r"\s+", " ", _txt).strip()[:180000]   # cap de contexto
+        # 3) extracción con Claude — SOLO lo divulgado, si no null
+        import anthropic
+        _client = anthropic.Anthropic(api_key=key)
+        _sys = ("Eres un analista que extrae SOLO datos DIVULGADOS explícitamente en un 10-K. "
+                "Si un dato no aparece divulgado, devuelve null. NUNCA estimes ni inventes. "
+                "Muchas empresas (no-suscripción) no reportan NRR/churn/LTV/CAC: en ese caso null. "
+                "Responde ÚNICAMENTE con un objeto JSON válido, sin texto alrededor.")
+        _schema = (
+            '{"recurring_revenue_usd": number|null,  // ingreso recurrente/suscripción anual en USD absolutos\n'
+            ' "largest_customer_share": number|null, // 0-1; fracción de ingresos del mayor cliente (o "no >10%" -> 0.10)\n'
+            ' "customer_shares": [number]|null,      // 0-1 por cliente si divulga varios\n'
+            ' "nrr": number|null,                    // net revenue retention (1.10 = 110%)\n'
+            ' "grr": number|null,                    // gross revenue retention\n'
+            ' "churn_rate": number|null,             // churn anual de logos/clientes (0-1)\n'
+            ' "arpu": number|null, "ltv": number|null, "cac": number|null, "payback_months": number|null,\n'
+            ' "gross_margin": number|null,           // margen bruto por cliente (0-1) si lo divulga\n'
+            ' "guidance_history": [{"actual": number, "guidance_midpoint": number}]|null}'
+        )
+        _msg = _client.messages.create(
+            model=getattr(settings, "judge_model", "claude-opus-4-8"),
+            max_tokens=1024, system=_sys,
+            messages=[{"role": "user", "content":
+                       f"Empresa {ticker}. Del siguiente 10-K, extrae este JSON (null si no está divulgado):\n"
+                       f"{_schema}\n\n=== 10-K ===\n{_txt}"}],
+        )
+        _raw = "".join(getattr(b, "text", "") for b in _msg.content)
+        _m = _re.search(r"\{.*\}", _raw, _re.DOTALL)
+        if not _m:
+            return {}
+        _d = _json.loads(_m.group(0))
+    except Exception as _e:
+        print(f"[engine] extracción cualitativa del 10-K omitida: {str(_e)[:140]}")
+        return {}
+    # 4) mapear a la forma EXACTA que Victor espera por overlay (solo lo no-null)
+    _ov = {}
+    def _num(x):
+        try:
+            return float(x) if x is not None else None
+        except (TypeError, ValueError):
+            return None
+    _rr = _num(_d.get("recurring_revenue_usd"))
+    if _rr is not None and _rr > 0:
+        _ov["recurring_revenue"] = _rr
+    _lcs = _num(_d.get("largest_customer_share"))
+    if _lcs is not None and 0.0 <= _lcs <= 1.0:
+        _ov["largest_customer_share"] = _lcs
+    _cs = _d.get("customer_shares")
+    if isinstance(_cs, list):
+        _csv = [c for c in (_num(x) for x in _cs) if c is not None and 0.0 <= c <= 1.0]
+        if _csv:
+            _ov["customer_shares"] = _csv
+    _nrr, _grr = _num(_d.get("nrr")), _num(_d.get("grr"))
+    _ret = {}
+    if _nrr is not None: _ret["nrr"] = _nrr
+    if _grr is not None: _ret["grr"] = _grr
+    if _ret:
+        _ov["retention"] = _ret
+    _ch = _num(_d.get("churn_rate"))
+    if _ch is not None and 0.0 <= _ch <= 1.0:
+        _ov["churn"] = {"rate": _ch}
+    _ce = {}
+    for _k in ("arpu", "ltv", "cac", "payback_months", "gross_margin"):
+        _val = _num(_d.get(_k))
+        if _val is not None:
+            _ce[_k] = _val
+    if _ce:
+        _ov["customer_economics"] = _ce
+    _gh = _d.get("guidance_history")
+    if isinstance(_gh, list):
+        _ghv = [{"actual": _num(g.get("actual")), "guidance_midpoint": _num(g.get("guidance_midpoint"))}
+                for g in _gh if isinstance(g, dict) and _num(g.get("actual")) is not None
+                and _num(g.get("guidance_midpoint")) not in (None, 0)]
+        if _ghv:
+            _ov["guidance_history"] = _ghv
+    if _ov:
+        print(f"[engine] {ticker}: 10-K → inputs cualitativos divulgados: {sorted(_ov.keys())}")
+    return _ov
+
+
 def _engine_scorecard(ticker, info, price):
     """Scorecard de 6 categorías con el ENGINE REAL de Victor (código determinista,
     sin LLM), EXACTAMENTE como él lo tiene:
@@ -6531,6 +6644,19 @@ def _engine_scorecard(ticker, info, price):
                       f"Competitive cae a reglas absolutas (peer_score N/S, como define Victor)")
         except Exception as _pe:
             print(f"[engine] peer_roic omitido: {str(_pe)[:120]}")
+
+        # ── Inputs CUALITATIVOS del 10-K (fiel al sub-agente business de Victor): una sola
+        #    extracción con Claude que devuelve TODO lo divulgado. Se consumen por dimensión.
+        #    DURABILITY: recurring_revenue + largest_customer_share (+ customer_shares). ──
+        _qual = {}
+        try:
+            _cik_biz = prov.edgar.cik_for(ticker)
+            _qual = _wbj_extract_business_qual(ticker, _cik_biz, settings) or {}
+        except Exception as _qe:
+            print(f"[engine] extracción cualitativa omitida: {str(_qe)[:120]}")
+        for _qk in ("recurring_revenue", "largest_customer_share", "customer_shares"):
+            if _qual.get(_qk) is not None:
+                _overlay[_qk] = _qual[_qk]
 
         # ── Fase A: correr los 6 especialistas (con overlay wacc/peer_roic) y recoger sus outputs ──
         _outputs = []                       # [(key, output)] en orden, para el judge y el merge
