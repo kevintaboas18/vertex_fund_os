@@ -6440,7 +6440,10 @@ def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
         _r = httpx.get(_u, headers=_hdr, timeout=30.0); _r.raise_for_status()
         _txt = _re.sub(r"<[^>]+>", " ", _r.text)
         _txt = _re.sub(r"&#\d+;|&[a-z]+;", " ", _txt)
-        _txt = _re.sub(r"\s+", " ", _txt).strip()[:180000]   # cap de contexto
+        # cap de contexto: 10-K reales miden 200k-500k caracteres. 180k truncaba MD&A/notas
+        # (donde viven segmentos, ingreso recurrente, unit economics) → datos omitidos. Subimos
+        # a 500k (~125k tokens, dentro del contexto de Claude) para NO omitir esas secciones.
+        _txt = _re.sub(r"\s+", " ", _txt).strip()[:500000]
         # 3) extracción con Claude — SOLO lo divulgado, si no null
         import anthropic
         _client = anthropic.Anthropic(api_key=key)
