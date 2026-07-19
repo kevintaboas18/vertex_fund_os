@@ -6620,18 +6620,22 @@ def _engine_scorecard(ticker, info, price):
         #    default, Business puntúa con confianza ALTA (model_fit 90) y SIN la advertencia de
         #    Victor. Fijamos el adaptador según el sector real (dato, no lógica): así se dispara
         #    su propia advertencia (business.py L975) y baja la confianza a 40 (L1215). ──
+        #    IMPORTANTE: usar la INDUSTRIA granular, no el sector. El sector 'Financial Services'
+        #    incluye a Visa/Mastercard/Moody's/exchanges (modelos NO-financieros SÍ aplican); solo
+        #    los negocios de balance (bancos/aseguradoras/REITs/hipotecas) rompen los modelos y
+        #    Victor los marca como adaptador no soportado (Valuation → N/S, sin WACC).
         try:
-            _sector = (info.get("sector") or "").strip().lower()
+            _industry = (info.get("industry") or "").strip().lower()
             _adapter = None
-            if _sector == "financial services":
+            if ("bank" in _industry) or ("insurance" in _industry) or ("mortgage" in _industry):
                 _adapter = "financials"
-            elif _sector == "real estate":
+            elif "reit" in _industry:
                 _adapter = "reits"
             if _adapter:
                 pk = pk.model_copy(update={
                     "analysis": pk.analysis.model_copy(update={"industry_adapter": _adapter})})
-                print(f"[engine] {ticker}: sector '{info.get('sector')}' → industry_adapter='{_adapter}' "
-                      f"(Business marcará la advertencia y bajará la confianza, como define Victor)")
+                print(f"[engine] {ticker}: industria '{info.get('industry')}' → industry_adapter='{_adapter}' "
+                      f"(negocio de balance: Valuation N/S y Business con advertencia, como define Victor)")
         except Exception as _ae:
             print(f"[engine] ajuste de adaptador de industria omitido: {str(_ae)[:120]}")
 
