@@ -6602,6 +6602,26 @@ def _engine_scorecard(ticker, info, price):
                          finnhub=FinnhubProvider(settings, cache), fred=FredProvider(settings, cache))
         pk = build_packet(ticker, prov, datetime.now(timezone.utc))
 
+        # ── ADAPTADOR DE INDUSTRIA: el builder de Victor fija 'default_nonfinancial' para TODO.
+        #    Para bancos/aseguradoras/REITs las fórmulas de ROIC/moat no aplican; si se deja el
+        #    default, Business puntúa con confianza ALTA (model_fit 90) y SIN la advertencia de
+        #    Victor. Fijamos el adaptador según el sector real (dato, no lógica): así se dispara
+        #    su propia advertencia (business.py L975) y baja la confianza a 40 (L1215). ──
+        try:
+            _sector = (info.get("sector") or "").strip().lower()
+            _adapter = None
+            if _sector == "financial services":
+                _adapter = "financials"
+            elif _sector == "real estate":
+                _adapter = "reits"
+            if _adapter:
+                pk = pk.model_copy(update={
+                    "analysis": pk.analysis.model_copy(update={"industry_adapter": _adapter})})
+                print(f"[engine] {ticker}: sector '{info.get('sector')}' → industry_adapter='{_adapter}' "
+                      f"(Business marcará la advertencia y bajará la confianza, como define Victor)")
+        except Exception as _ae:
+            print(f"[engine] ajuste de adaptador de industria omitido: {str(_ae)[:120]}")
+
         # ── HANDOFF de Victor: Valuation computa el WACC (VAL-WACC-007) y Business/Financial
         #    lo CONSUMEN vía overlay["wacc"]. Sin este traspaso, todo ROIC/spread/EVA/moat de
         #    Business degrada a MISSING (business ≈ 0). Es el mecanismo que su metodología define
