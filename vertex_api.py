@@ -6720,6 +6720,9 @@ def _engine_scorecard(ticker, info, price):
                 "points": round(cat.awarded_points, 2) if cat.awarded_points is not None else None,
                 "coverage": round(cov, 2), "status": "scored" if s10 is not None else "not_scorable",
                 "confidence": round(cat.confidence) if cat.confidence is not None else None,
+                # banderas obligatorias que emite el especialista (p.ej. VALUE_DESTRUCTION,
+                # CONCENTRATION_RED_FLAG, DILUTION_RED_FLAG) — insumo de los overrides del principal
+                "mandatory_flags": list(getattr(out, "mandatory_flags", []) or []),
                 "reason": None if s10 is not None else "cobertura insuficiente (sin evidencia, no hay número)"}
             if s10 is not None:
                 raw_total += cat.awarded_points or 0.0
