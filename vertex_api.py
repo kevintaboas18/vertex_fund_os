@@ -6642,6 +6642,7 @@ def _engine_scorecard(ticker, info, price):
 
     categories = {}; raw_total = 0.0; conf_num = 0.0; conf_den = 0.0; incomplete = []
     used_specialists = False
+    _victor_gates = None; _victor_contradictions = None    # aggregate REAL de Victor (principal)
 
     # ── CAMINO PRINCIPAL: los 6 especialistas REALES de Victor sobre el Packet completo ──
     try:
@@ -6840,6 +6841,58 @@ def _engine_scorecard(ticker, info, price):
         if used_specialists:
             print(f"[engine] {ticker}: 6 especialistas reales de Victor OK "
                   f"({sum(1 for c in categories.values() if c['status']=='scored')}/6 con datos)")
+
+        # ── AGREGACIÓN REAL de Victor (agente principal): apply_overrides (8 overrides
+        #    obligatorios) + apply_gates + contradictions, alimentados con los 6 OUTPUT
+        #    OBJECTS reales (no mi _wbj_gates). Solo si los 6 especialistas corrieron. ──
+        try:
+            _obk = {k: o for k, o in _outputs}
+            if all(k in _obk for k in WBJ_ORDER):
+                from wbj.aggregate import (AggregateInputs, apply_overrides, CategoryPoints,
+                    CategoryConfidences, apply_gates, raw_total as _v_rawtot, contradictions,
+                    CategoryScore10s)
+                _ai = AggregateInputs(
+                    business=_obk["business"], financial=_obk["financial"], market=_obk["market"],
+                    technical=_obk["technical"], risk=_obk["risk"], valuation=_obk["valuation"],
+                    facts_table=(getattr(pk, "facts_table", {}) or {}))
+                _ovr = apply_overrides(_ai)                       # ← 8 overrides reales de Victor
+                def _P(k):
+                    _p = _obk[k].category.awarded_points
+                    return float(_p) if _p is not None else 0.0
+                def _Cf(k):
+                    _c = _obk[k].category.confidence
+                    return float(_c) if _c is not None else 0.0
+                _cp = CategoryPoints(**{k: _P(k) for k in WBJ_ORDER})
+                _cc = CategoryConfidences(**{k: _Cf(k) for k in WBJ_ORDER})
+                _valflags = list(getattr(_obk["valuation"], "mandatory_flags", []) or [])
+                # pre_profit: pérdida neta del último año fiscal (del packet), si está disponible
+                _preprofit = False
+                try:
+                    _niv = (getattr(pk, "facts_table", {}) or {}).get("net_income")
+                    if _niv is not None and getattr(_niv, "value", None) is not None:
+                        _preprofit = float(_niv.value) < 0
+                except Exception:
+                    pass
+                _pr = apply_gates(_v_rawtot(_cp), _cp, _cc, _ovr,
+                                  pre_profit=_preprofit, valuation_mandatory_flags=_valflags)
+                _victor_gates = {
+                    "profile": _pr.label, "band": _pr.descriptive_band,
+                    "raw_score": round(_pr.raw_score, 1), "total_confidence": round(_pr.total_confidence),
+                    "passed_gates": list(_pr.passed_gates), "failed_gates": list(_pr.failed_gates),
+                    "overrides": list(_pr.overrides), "warnings": list(_pr.warnings)}
+                # contradicciones reales (score_10 por categoría)
+                def _S10(k):
+                    _s = _obk[k].category.score_10
+                    return float(_s) if _s is not None else 0.0
+                _cs10 = CategoryScore10s(**{k: _S10(k) for k in WBJ_ORDER})
+                _victor_contradictions = [
+                    {"combination": _c.combination, "label": getattr(_c, "label", None),
+                     "guidance": getattr(_c, "guidance", None)}
+                    for _c in contradictions(_cs10, _v_rawtot(_cp))]
+                print(f"[engine] {ticker}: aggregate REAL de Victor → perfil '{_pr.label}', "
+                      f"{len(_ovr)} overrides, {len(_victor_contradictions)} contradicciones")
+        except Exception as _age:
+            print(f"[engine] aggregate real de Victor omitido (usa _wbj_gates): {str(_age)[:150]}")
     except Exception as e:
         print(f"[engine] pipeline de especialistas no disponible: {str(e)[:160]}")
 
@@ -6892,6 +6945,10 @@ def _engine_scorecard(ticker, info, price):
     total_confidence = round(conf_num / 100.0) if conf_num > 0 else 50
     sc = {"categories": categories, "raw_total": round(raw_total, 1),
           "total_confidence": total_confidence, "incomplete": sorted(set(incomplete))}
+    if _victor_gates:
+        sc["victor_gates"] = _victor_gates                 # perfil/banda/overrides reales de Victor
+    if _victor_contradictions is not None:
+        sc["victor_contradictions"] = _victor_contradictions
 
     # ── TARGETS + FAIR VALUE de Victor (su targets.py) — deterministas, no del LLM ──
     if dict_packet:
@@ -7479,6 +7536,24 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             _comp = {"categories": _eng["categories"], "raw_total": _eng["raw_total"],
                      "total_confidence": _eng["total_confidence"], "incomplete": _eng.get("incomplete", [])}
             _gates = _wbj_gates(_comp)
+            # ── PRINCIPAL: si el aggregate REAL de Victor corrió (apply_overrides+apply_gates
+            #    sobre los 6 outputs), su perfil/banda/overrides MANDAN sobre mi _wbj_gates. ──
+            _vg = _eng.get("victor_gates")
+            if _vg:
+                _prof = _vg["profile"]
+                if _prof in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity"):
+                    _gates["recommendation"], _gates["classification"] = "BUY", "Favorable a invertir"
+                elif _prof == "Conditional / Watch":
+                    _gates["recommendation"], _gates["classification"] = "HOLD", "Condicional — esperar confirmación"
+                elif _prof == "Speculative":
+                    _gates["recommendation"], _gates["classification"] = "SPECULATIVE", "Especulativa — solo tamaño de riesgo"
+                else:  # Avoid / Wait, Weak / Wait
+                    _gates["recommendation"], _gates["classification"] = "AVOID", "Evitar / esperar"
+                _gates["profile"] = _prof
+                _gates["band"] = _vg["band"]
+                _gates["overrides"] = _vg["overrides"]        # los 8 overrides REALES de Victor
+                _gates["warnings"] = _vg.get("warnings", [])
+                _gates["_source"] = "aggregate real de Victor"
             _vt = _eng.get("victor_targets_12m") or {}
             if all(_vt.get(k) is not None for k in ("bull", "base", "bear")):
                 targets["12m"] = {k: round(float(_vt[k]), 2) for k in ("bull", "base", "bear")}
@@ -7496,7 +7571,10 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 "total_confidence": _eng["total_confidence"], "band": _gates["band"],
                 "profile": _gates["profile"], "classification": _gates["classification"],
                 "passed_gates": _gates["passed_gates"], "failed_gates": _gates["failed_gates"],
-                "overrides": _gates["overrides"], "scores_source": "engine determinista (metodología de Victor)"}
+                "overrides": _gates["overrides"], "warnings": _gates.get("warnings", []),
+                "contradictions": _eng.get("victor_contradictions") or [],
+                "gates_source": _gates.get("_source", "gates de compatibilidad"),
+                "scores_source": "engine determinista (metodología de Victor)"}
             analisis_json["victor_targets_detail"] = _eng.get("victor_targets_detail")
             analisis_json["financials_annual"] = _eng.get("financials_annual")
             analisis_json["scores_source"] = "victor"
