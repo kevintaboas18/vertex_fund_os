@@ -505,6 +505,42 @@
         </div>
     </div>
 
+    <!-- ══ ANÁLISIS WBJ (VICTOR) — visual: gauge + puntajes de agentes + ventas + márgenes ══ -->
+    <div id="wbjVisual" class="bg-panel border border-panel rounded-2xl p-5 hidden">
+        <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <h3 class="text-sm font-extrabold text-blue-400 uppercase tracking-widest flex items-center gap-2"><i data-lucide="award" class="w-4 h-4"></i> Análisis WBJ — Warren Buffett Jr (Victor)</h3>
+            <span id="wbjProfile" class="text-xs font-extrabold px-3 py-1 rounded uppercase border"></span>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 flex flex-col items-center justify-center">
+                <span class="text-[10px] text-gray-500 uppercase font-bold self-start mb-1">Raw Score (Victor)</span>
+                <div class="relative w-full" style="max-width:200px"><canvas id="wbjGauge"></canvas>
+                    <div class="absolute inset-0 flex flex-col items-center justify-end pb-1">
+                        <span id="wbjScore" class="text-3xl font-mono font-black text-white"></span>
+                        <span class="text-[10px] text-gray-500">/100</span>
+                        <span id="wbjBand" class="text-[10px] font-bold mt-0.5"></span></div></div>
+                <span class="text-[10px] text-gray-500 mt-1">Confianza: <b id="wbjConf" class="text-gray-300"></b></span>
+            </div>
+            <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 lg:col-span-2">
+                <div class="flex justify-between items-center mb-2"><span class="text-[10px] text-gray-500 uppercase font-bold">Puntajes de los 6 agentes</span>
+                    <span id="wbjEvidence" class="text-[10px] text-gray-500"></span></div>
+                <div id="wbjScorecard" class="space-y-2.5"></div>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+            <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 lg:col-span-2">
+                <div class="flex justify-between items-center mb-2"><span class="text-[10px] text-gray-500 uppercase font-bold">Ventas anuales + crecimiento</span>
+                    <span id="wbjCagr" class="text-[10px] font-bold text-emerald-400"></span></div>
+                <div class="relative w-full" style="height:210px"><canvas id="wbjFinChart"></canvas></div>
+            </div>
+            <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 flex flex-col">
+                <span class="text-[10px] text-gray-500 uppercase font-bold mb-1">Márgenes (último año)</span>
+                <div class="relative w-full flex-grow flex items-center justify-center" style="min-height:170px"><canvas id="wbjMarginsDonut"></canvas></div>
+                <div id="wbjMarginsLegend" class="text-[10px] text-gray-400 space-y-0.5 mt-1"></div>
+            </div>
+        </div>
+    </div>
+
     <div class="bg-panel border border-panel rounded-2xl overflow-hidden">
         <div class="flex border-b border-panel px-2 pt-1 overflow-x-auto">
             <button class="analysis-tab active" onclick="switchAnalysisTab('quickTakeTab', this)">&#9889; Quick Take</button>
@@ -1329,8 +1365,71 @@ async function fetchLivePriceComparison(ticker, reportPrice) {
 }
 
 // ── RENDER DASHBOARD ─────────────────────────────────────
+// ══ ANÁLISIS WBJ (VICTOR) — visualizaciones dentro del dashboard principal ══
+let _wbjGaugeC=null, _wbjFinC=null, _wbjMargC=null;
+const _wbjBn=(v)=>{ if(v==null||isNaN(v)) return "—"; const x=Math.abs(v);
+    if(x>=1e12) return "$"+(v/1e12).toFixed(2)+"T"; if(x>=1e9) return "$"+(v/1e9).toFixed(1)+"B";
+    if(x>=1e6) return "$"+(v/1e6).toFixed(0)+"M"; return "$"+Number(v).toFixed(0); };
+const _wbjCatCol=(s)=> s>=7?'#10b981': s>=4?'#f59e0b':'#ef4444';
+function renderWBJVisual(data){
+    const a=data.analisis||{}, w=a.wbj||{}; const card=document.getElementById('wbjVisual');
+    if(!card) return;
+    if(!w.categories){ card.classList.add('hidden'); return; } card.classList.remove('hidden');
+    // Perfil
+    const PS={ "Momentum Candidate":["#1e3a5f","#60a5fa"],"Quality Opportunity":["#064e3b","#34d399"],
+        "Value Opportunity":["#064e3b","#34d399"],"Conditional / Watch":["#4a3b0a","#fbbf24"],
+        "Speculative":["#4a2c0a","#fb923c"],"Avoid / Wait":["#4a1010","#f87171"] };
+    const pr=w.profile||'—', st=PS[pr]||['#1a1f2e','#9ca3af']; const pe=document.getElementById('wbjProfile');
+    pe.innerText=pr; pe.style.background=st[0]; pe.style.color=st[1]; pe.style.borderColor=st[1]+'55';
+    // Gauge
+    const score=w.raw_total||0;
+    document.getElementById('wbjScore').innerText=Math.round(score);
+    document.getElementById('wbjBand').innerText=w.band||''; document.getElementById('wbjBand').style.color=_wbjCatCol(score/10);
+    document.getElementById('wbjConf').innerText=w.total_confidence!=null?Math.round(w.total_confidence):'—';
+    const gc=score>=70?'#10b981':score>=50?'#f59e0b':'#ef4444';
+    const gx=document.getElementById('wbjGauge').getContext('2d'); if(_wbjGaugeC)_wbjGaugeC.destroy();
+    _wbjGaugeC=new Chart(gx,{type:'doughnut',data:{datasets:[{data:[score,100-score],backgroundColor:[gc,'rgba(128,128,128,.15)'],borderWidth:0,circumference:180,rotation:270}]},
+        options:{cutout:'74%',plugins:{legend:{display:false},tooltip:{enabled:false}},responsive:true,maintainAspectRatio:true,aspectRatio:1.9}});
+    // Scorecard 6 categorías
+    const order=["business","financial","market","technical","risk","valuation"]; const cats=w.categories;
+    const ev=order.filter(k=>cats[k]).reduce((s,k)=>s+(cats[k].max*(cats[k].coverage||0)),0);
+    document.getElementById('wbjEvidence').innerText=`${Math.round(ev)}/100 evidencia`;
+    document.getElementById('wbjScorecard').innerHTML=order.filter(k=>cats[k]).map(k=>{ const c=cats[k],s=c.score10,col=_wbjCatCol(s);
+        return `<div><div class="flex justify-between items-center mb-0.5"><span class="text-xs font-semibold text-white">${c.label}</span>
+            <span class="text-[10px]"><span class="text-gray-500">${(c.points||0).toFixed(1)}/${c.max} · cob ${Math.round((c.coverage||0)*100)}%</span>
+            <span class="font-bold ml-1" style="color:${col}">${(s||0).toFixed(1)}/10</span></span></div>
+            <div class="h-1.5 rounded-full" style="background:rgba(128,128,128,.15)"><div class="h-full rounded-full" style="width:${Math.max(0,Math.min(100,s*10))}%;background:${col};transition:width .8s"></div></div></div>`; }).join('');
+    // Ventas anuales + crecimiento
+    const f=a.financials_annual;
+    if(f&&(f.years||[]).length){
+        document.getElementById('wbjCagr').innerText=f.revenue_cagr!=null?`CAGR ${f.revenue_cagr>=0?'+':''}${f.revenue_cagr}%`:'';
+        const fx=document.getElementById('wbjFinChart').getContext('2d'); if(_wbjFinC)_wbjFinC.destroy();
+        const gl={id:'wgl',afterDatasetsDraw(ch){ const g=ch.data.datasets[0]._g||[],m=ch.getDatasetMeta(0),cx=ch.ctx;
+            m.data.forEach((b,i)=>{ const v=g[i]; if(v==null)return; cx.save(); cx.font='700 9px system-ui'; cx.fillStyle=v>=0?'#34d399':'#f87171'; cx.textAlign='center'; cx.fillText((v>=0?'+':'')+v+'%',b.x,b.y-5); cx.restore(); }); }};
+        _wbjFinC=new Chart(fx,{type:'bar',data:{labels:f.years,datasets:[{label:'Ingresos',data:f.revenue,backgroundColor:'#3b82f6',borderRadius:5,_g:f.revenue_growth_yoy}]},
+            plugins:[gl],options:{responsive:true,maintainAspectRatio:false,layout:{padding:{top:16}},
+                plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`Ingresos: ${_wbjBn(c.parsed.y)}`,afterLabel:c=>{const g=f.revenue_growth_yoy[c.dataIndex];return g!=null?`YoY: ${g>=0?'+':''}${g}%`:'';}}}},
+                scales:{y:{grid:{color:'rgba(128,128,128,.12)'},ticks:{color:'#9ca3af',font:{size:9},callback:v=>_wbjBn(v)}},x:{grid:{display:false},ticks:{color:'#9ca3af',font:{size:10}}}}}});
+    }
+    // Márgenes donut (último año)
+    const last=(arr)=>arr&&arr.length?arr[arr.length-1]:null;
+    const nm=f?last(f.net_margin):null, om=f?last(f.operating_margin):null, gm=f?last(f.gross_margin):null;
+    const mx=document.getElementById('wbjMarginsDonut').getContext('2d'); if(_wbjMargC)_wbjMargC.destroy();
+    if(gm!=null||om!=null||nm!=null){
+        _wbjMargC=new Chart(mx,{type:'doughnut',data:{labels:['Margen neto','Margen operativo','Margen bruto'],
+            datasets:[{data:[nm||0,om||0,gm||0],backgroundColor:['#34d399','#60a5fa','#a78bfa'],borderWidth:2,borderColor:'transparent'}]},
+            options:{cutout:'62%',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.label}: ${c.parsed}%`}}},responsive:true,maintainAspectRatio:true}});
+        document.getElementById('wbjMarginsLegend').innerHTML=
+            `<div><span style="color:#34d399">●</span> Neto: <b class="text-white">${nm!=null?nm+'%':'—'}</b></div>
+             <div><span style="color:#60a5fa">●</span> Operativo: <b class="text-white">${om!=null?om+'%':'—'}</b></div>
+             <div><span style="color:#a78bfa">●</span> Bruto: <b class="text-white">${gm!=null?gm+'%':'—'}</b></div>`;
+    } else { document.getElementById('wbjMarginsLegend').innerHTML='<span class="text-gray-500">Sin datos de márgenes.</span>'; }
+    if(window.lucide) lucide.createIcons();
+}
+
 function renderDashboard(data) {
     const a = data.analisis || {};
+    try { renderWBJVisual(data); } catch(e){ console.error('WBJ visual:', e); }
     const targets = data.targets || {};
     const meth = data.methodology || {};
     const price = data.precio_actual;
