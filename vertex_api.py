@@ -6514,14 +6514,25 @@ def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
     _lcs = _num(_d.get("largest_customer_share"))
     if _lcs is not None and 0.0 <= _lcs <= 1.0:
         _ov["largest_customer_share"] = _lcs
+    # customer/segment shares: mismo riesgo de escala que gross_margin. Si el 10-K dice
+    # "cliente A = 40%", el LLM puede devolver 40 en vez de 0.40. Si algún valor >1 (y ≤100),
+    # se interpreta como porcentaje y se divide toda la lista entre 100 (antes se descartaban).
+    def _norm_shares(_lst):
+        _vals = [v for v in (_num(x) for x in _lst) if v is not None and v >= 0]
+        if not _vals:
+            return None
+        if max(_vals) > 1.0 and max(_vals) <= 100.0:
+            _vals = [v / 100.0 for v in _vals]
+        _vals = [v for v in _vals if 0.0 <= v <= 1.0]
+        return _vals or None
     _cs = _d.get("customer_shares")
     if isinstance(_cs, list):
-        _csv = [c for c in (_num(x) for x in _cs) if c is not None and 0.0 <= c <= 1.0]
+        _csv = _norm_shares(_cs)
         if _csv:
             _ov["customer_shares"] = _csv
     _ss = _d.get("segment_shares")
     if isinstance(_ss, list):
-        _ssv = [s for s in (_num(x) for x in _ss) if s is not None and 0.0 <= s <= 1.0]
+        _ssv = _norm_shares(_ss)
         if _ssv:
             _ov["segment_shares"] = _ssv
     # retention: Victor exige la cohorte cruda {begin, expansion, contraction, churn}
