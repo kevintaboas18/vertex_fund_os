@@ -6474,6 +6474,46 @@ def _engine_scorecard(ticker, info, price):
         if _overlay.get("wacc"):
             print(f"[engine] {ticker}: WACC del handoff = {_overlay['wacc']:.4f} → Business/Financial")
 
+        # ── peer_roic para BUSINESS (dimensión Competitive, BUS): ROIC de los pares con
+        #    la fórmula EXACTA de Victor (valuation_engine.nopat / invested_capital) sobre
+        #    los estados FMP de cada par. Sin esto, media dimensión Competitive queda N/S. ──
+        try:
+            from wbj.engines import valuation_engine as _ve_roic
+            _peers_raw = prov.fmp.peers(ticker) or []
+            _plist = (_peers_raw[0].get("peersList") if isinstance(_peers_raw, list) and _peers_raw
+                      and isinstance(_peers_raw[0], dict) else _peers_raw) or []
+            _proics = []
+            # Victor's peer_score exige ≥8 pares válidos (SCORING_ENGINE.md); con menos
+            # devuelve N/S. Por eso pedimos hasta 15 para asegurar ≥8 tras posibles fallos.
+            for _pt in list(_plist)[:15]:
+                try:
+                    _inc = prov.fmp.income_annual(_pt, limit=1) or []
+                    _bal = prov.fmp.balance_annual(_pt, limit=1) or []
+                    _ir = _inc[0] if isinstance(_inc, list) and _inc else None
+                    _br = _bal[0] if isinstance(_bal, list) and _bal else None
+                    if not isinstance(_ir, dict) or not isinstance(_br, dict):
+                        continue
+                    _ebit = _ir.get("operatingIncome"); _ibt = _ir.get("incomeBeforeTax"); _tax = _ir.get("incomeTaxExpense")
+                    _debt = _br.get("totalDebt"); _eq = _br.get("totalStockholdersEquity"); _cash = _br.get("cashAndCashEquivalents")
+                    if _ebit is None or _debt is None or _eq is None or _cash is None:
+                        continue
+                    _trate = (float(_tax) / float(_ibt)) if _ibt not in (None, 0) else 0.21
+                    _trate = min(max(_trate, 0.0), 0.5)     # tasa efectiva acotada [0,50%]
+                    _np = _ve_roic.nopat(float(_ebit), _trate).value
+                    _ic = _ve_roic.invested_capital(float(_debt), float(_eq), float(_cash)).financing_view.value
+                    if _ic and _ic > 0:
+                        _proics.append(_np / _ic)
+                except Exception:
+                    continue
+            if len(_proics) >= 8:                            # umbral de Victor: ≥8 pares o N/S
+                _overlay["peer_roic"] = _proics
+                print(f"[engine] {ticker}: peer_roic de {len(_proics)} pares → Business (Competitive)")
+            elif _proics:
+                print(f"[engine] {ticker}: solo {len(_proics)} pares con ROIC (<8) → "
+                      f"Competitive cae a reglas absolutas (peer_score N/S, como define Victor)")
+        except Exception as _pe:
+            print(f"[engine] peer_roic omitido: {str(_pe)[:120]}")
+
         for key, mod in _MODS:
             try:
                 # reutiliza el output de valuation ya calculado; los demás reciben el overlay (WACC)
