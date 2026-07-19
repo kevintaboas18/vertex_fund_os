@@ -6542,11 +6542,22 @@ def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
     if None not in (_rb, _rx, _rcn, _rch) and _rb > 0:
         # La fórmula NRR RESTA contraction y churn → son MAGNITUDES. abs() por si el LLM
         # las devuelve con signo (un contraction=-40 inflaría el NRR).
-        _ov["retention"] = {"begin": _rb, "expansion": abs(_rx), "contraction": abs(_rcn), "churn": abs(_rch)}
-    # churn de logos: Victor exige {lost, begin_customers} (conteo de clientes)
+        _ex, _ct, _cn = abs(_rx), abs(_rcn), abs(_rch)
+        _grr = (_rb - _ct - _cn) / _rb          # retención bruta
+        _nrr = (_rb + _ex - _ct - _cn) / _rb    # retención neta
+        # rechaza cohortes IMPOSIBLES: no se puede perder más que la base (GRR<0) ni retener
+        # >250% (NRR>2.5). Un dato así es error de extracción → N/S (no un score real).
+        if _grr >= 0.0 and _nrr <= 2.5:
+            _ov["retention"] = {"begin": _rb, "expansion": _ex, "contraction": _ct, "churn": _cn}
+        else:
+            print(f"[engine] {ticker}: cohorte de retención implausible (NRR={_nrr:.2f}, GRR={_grr:.2f}) → N/S")
+    # churn de logos: Victor exige {lost, begin_customers} (conteo de clientes).
+    # No se pueden perder más clientes que los del inicio (churn>100% es imposible) → N/S.
     _cl, _cb = _num(_d.get("customers_lost")), _num(_d.get("customers_begin"))
-    if None not in (_cl, _cb) and _cb > 0:
+    if None not in (_cl, _cb) and _cb > 0 and 0.0 <= abs(_cl) <= _cb:
         _ov["churn"] = {"lost": abs(_cl), "begin_customers": _cb}
+    elif None not in (_cl, _cb) and _cb > 0 and abs(_cl) > _cb:
+        print(f"[engine] {ticker}: churn de logos implausible (lost {abs(_cl):.0f} > base {_cb:.0f}) → N/S")
     # customer_economics: claves EXACTAS que Victor consume para LTV/CAC/payback
     _ce = {}
     for _src, _dst in (("arpu", "arpu"), ("monthly_arpu", "monthly_arpu"), ("gross_margin", "gross_margin"),
