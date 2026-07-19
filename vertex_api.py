@@ -6514,30 +6514,56 @@ def _engine_scorecard(ticker, info, price):
         except Exception as _pe:
             print(f"[engine] peer_roic omitido: {str(_pe)[:120]}")
 
+        # ── Fase A: correr los 6 especialistas (con overlay wacc/peer_roic) y recoger sus outputs ──
+        _outputs = []                       # [(key, output)] en orden, para el judge y el merge
         for key, mod in _MODS:
             try:
-                # reutiliza el output de valuation ya calculado; los demás reciben el overlay (WACC)
                 out = _vo if (key == "valuation" and _vo is not None) else mod.run(pk, overlay=(_overlay or None))
-                cat = out.category
-                cov = out.coverage if out.coverage is not None else 0.0
-                s10 = round(cat.score_10, 1) if cat.score_10 is not None else None
-                categories[key] = {
-                    "key": key, "label": _LABEL[key], "max": cat.max_points,
-                    "score10": s10,
-                    "points": round(cat.awarded_points, 2) if cat.awarded_points is not None else None,
-                    "coverage": round(cov, 2), "status": "scored" if s10 is not None else "not_scorable",
-                    "confidence": round(cat.confidence) if cat.confidence is not None else None,
-                    "reason": None if s10 is not None else "cobertura insuficiente (sin evidencia, no hay número)"}
-                if s10 is not None:
-                    raw_total += cat.awarded_points or 0.0
-                    if cat.confidence is not None:
-                        conf_num += cat.max_points * cat.confidence; conf_den += cat.max_points
-                else:
-                    incomplete.append(key)
+                _outputs.append((key, out))
             except Exception as _es:
                 categories[key] = {"key": key, "label": _LABEL[key], "max": WBJ_CATEGORIES[key]["max"],
                     "score10": None, "points": None, "coverage": 0.0, "status": "not_scorable",
                     "confidence": None, "reason": f"no se pudo analizar ({type(_es).__name__})"}
+                incomplete.append(key)
+
+        # ── Fase B: JUDGE de Victor — Claude responde lo CUALITATIVO que el código no puede
+        #    puntuar (moat, catalizadores, concentración, thesis-killers, tier de TAM) y lo
+        #    FUSIONA a los outputs (sube awarded_points/coverage de Business/Market/Risk).
+        #    Necesita ANTHROPIC_API_KEY; si falla o no hay key, el análisis determinista sigue. ──
+        if getattr(settings, "anthropic_api_key", None) and _outputs:
+            try:
+                from wbj.overlay.merge import collect_requests, merge_overlay
+                from wbj.judge import answer_judgments
+                _outs = [o for _, o in _outputs]
+                _reqs = collect_requests(_outs)
+                _judgments = answer_judgments(pk, _reqs, settings)
+                if _judgments:
+                    _merged = merge_overlay(_outs, _judgments)
+                    _outputs = [(_outputs[i][0], _merged[i]) for i in range(len(_outputs))]
+                    print(f"[engine] {ticker}: judge respondió {len(_judgments)}/{len(_reqs)} preguntas "
+                          f"cualitativas → coberturas de Business/Market/Risk actualizadas")
+                else:
+                    print(f"[engine] {ticker}: judge sin respuestas (sin SDK/key válida o sin preguntas)")
+            except Exception as _je:
+                print(f"[engine] judge omitido (sigue el análisis determinista): {str(_je)[:140]}")
+
+        # ── Fase C: construir el scorecard desde los outputs (ya fusionados si corrió el judge) ──
+        for key, out in _outputs:
+            cat = out.category
+            cov = out.coverage if out.coverage is not None else 0.0
+            s10 = round(cat.score_10, 1) if cat.score_10 is not None else None
+            categories[key] = {
+                "key": key, "label": _LABEL[key], "max": cat.max_points,
+                "score10": s10,
+                "points": round(cat.awarded_points, 2) if cat.awarded_points is not None else None,
+                "coverage": round(cov, 2), "status": "scored" if s10 is not None else "not_scorable",
+                "confidence": round(cat.confidence) if cat.confidence is not None else None,
+                "reason": None if s10 is not None else "cobertura insuficiente (sin evidencia, no hay número)"}
+            if s10 is not None:
+                raw_total += cat.awarded_points or 0.0
+                if cat.confidence is not None:
+                    conf_num += cat.max_points * cat.confidence; conf_den += cat.max_points
+            else:
                 incomplete.append(key)
         used_specialists = any(c["status"] == "scored" for c in categories.values())
         if used_specialists:
