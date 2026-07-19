@@ -6482,27 +6482,45 @@ def _engine_scorecard(ticker, info, price):
             _peers_raw = prov.fmp.peers(ticker) or []
             _plist = (_peers_raw[0].get("peersList") if isinstance(_peers_raw, list) and _peers_raw
                       and isinstance(_peers_raw[0], dict) else _peers_raw) or []
+            # Usa las funciones EXACTAS de Victor para que el ROIC de los pares sea
+            # IDÉNTICO al que él computa para la empresa (misma tasa efectiva _tax_rate,
+            # mismo capital invertido PROMEDIO inicio+fin, misma fórmula roic). Si no,
+            # el percentil peer_score compararía cosas distintas.
+            from wbj.specialists.business import _tax_rate as _biz_tax_rate, average_invested_capital as _biz_avg_ic
+            def _fmp_num(_row, _k):
+                _v = _row.get(_k) if isinstance(_row, dict) else None
+                try:
+                    return float(_v) if _v is not None else None
+                except (TypeError, ValueError):
+                    return None
             _proics = []
             # Victor's peer_score exige ≥8 pares válidos (SCORING_ENGINE.md); con menos
             # devuelve N/S. Por eso pedimos hasta 15 para asegurar ≥8 tras posibles fallos.
             for _pt in list(_plist)[:15]:
                 try:
                     _inc = prov.fmp.income_annual(_pt, limit=1) or []
-                    _bal = prov.fmp.balance_annual(_pt, limit=1) or []
+                    _bal = prov.fmp.balance_annual(_pt, limit=2) or []   # año actual + previo (IC promedio)
                     _ir = _inc[0] if isinstance(_inc, list) and _inc else None
-                    _br = _bal[0] if isinstance(_bal, list) and _bal else None
-                    if not isinstance(_ir, dict) or not isinstance(_br, dict):
+                    _cur = _bal[0] if isinstance(_bal, list) and len(_bal) >= 1 else None
+                    _prev = _bal[1] if isinstance(_bal, list) and len(_bal) >= 2 else None
+                    if not isinstance(_ir, dict) or not isinstance(_cur, dict) or not isinstance(_prev, dict):
                         continue
-                    _ebit = _ir.get("operatingIncome"); _ibt = _ir.get("incomeBeforeTax"); _tax = _ir.get("incomeTaxExpense")
-                    _debt = _br.get("totalDebt"); _eq = _br.get("totalStockholdersEquity"); _cash = _br.get("cashAndCashEquivalents")
-                    if _ebit is None or _debt is None or _eq is None or _cash is None:
+                    _ebit = _fmp_num(_ir, "operatingIncome")
+                    _dc = _fmp_num(_cur, "totalDebt"); _ec = _fmp_num(_cur, "totalStockholdersEquity"); _cc = _fmp_num(_cur, "cashAndCashEquivalents")
+                    _dp = _fmp_num(_prev, "totalDebt"); _ep = _fmp_num(_prev, "totalStockholdersEquity"); _cp = _fmp_num(_prev, "cashAndCashEquivalents")
+                    if None in (_ebit, _dc, _ec, _dp, _ep):
                         continue
-                    _trate = (float(_tax) / float(_ibt)) if _ibt not in (None, 0) else 0.21
-                    _trate = min(max(_trate, 0.0), 0.5)     # tasa efectiva acotada [0,50%]
-                    _np = _ve_roic.nopat(float(_ebit), _trate).value
-                    _ic = _ve_roic.invested_capital(float(_debt), float(_eq), float(_cash)).financing_view.value
-                    if _ic and _ic > 0:
-                        _proics.append(_np / _ic)
+                    # tasa efectiva con el helper de Victor (income_before_tax/income_tax_expense, fallback 0.21)
+                    _row_can = {"income_before_tax": _fmp_num(_ir, "incomeBeforeTax"),
+                                "income_tax_expense": _fmp_num(_ir, "incomeTaxExpense")}
+                    _trate = _biz_tax_rate(_row_can, 0.21)
+                    _np = _ve_roic.nopat(_ebit, _trate).value
+                    _avg_ic = _biz_avg_ic(_dp, _ep, (_cp or 0.0), _dc, _ec, (_cc or 0.0))   # promedio inicio+fin
+                    if _avg_ic.is_null:
+                        continue
+                    _roic_v = _ve_roic.roic(_np, _avg_ic.value)
+                    if _roic_v.is_valid:
+                        _proics.append(_roic_v.value)
                 except Exception:
                     continue
             if len(_proics) >= 8:                            # umbral de Victor: ≥8 pares o N/S
