@@ -6642,7 +6642,7 @@ def _engine_scorecard(ticker, info, price):
 
     categories = {}; raw_total = 0.0; conf_num = 0.0; conf_den = 0.0; incomplete = []
     used_specialists = False
-    _victor_gates = None; _victor_contradictions = None    # aggregate REAL de Victor (principal)
+    _victor_gates = None; _victor_contradictions = None; _victor_levels = None   # aggregate REAL de Victor (principal)
 
     # ── CAMINO PRINCIPAL: los 6 especialistas REALES de Victor sobre el Packet completo ──
     try:
@@ -6889,8 +6889,20 @@ def _engine_scorecard(ticker, info, price):
                     {"combination": _c.combination, "label": getattr(_c, "label", None),
                      "guidance": getattr(_c, "guidance", None)}
                     for _c in contradictions(_cs10, _v_rawtot(_cp))]
+                # ── SÍNTESIS DE NIVELES DE PRECIO real de Victor (PRICE_LEVEL_SYNTHESIS.md):
+                #    12 clases de nivel (soporte/resistencia/MAs/aVWAP/gaps/bandas de valor) +
+                #    zonas de confluencia, desde technical.important_levels + valuation.reference_bands. ──
+                try:
+                    from wbj.aggregate import synthesize_levels
+                    _atr = getattr(getattr(_obk["technical"], "indicators", None), "atr14", None)
+                    if _atr and _atr > 0 and price:
+                        _ls = synthesize_levels(_obk["technical"], _obk["valuation"], float(price), float(_atr))
+                        _victor_levels = _ls.model_dump()
+                except Exception as _le:
+                    print(f"[engine] synthesize_levels omitido: {str(_le)[:120]}")
                 print(f"[engine] {ticker}: aggregate REAL de Victor → perfil '{_pr.label}', "
-                      f"{len(_ovr)} overrides, {len(_victor_contradictions)} contradicciones")
+                      f"{len(_ovr)} overrides, {len(_victor_contradictions)} contradicciones, "
+                      f"{len((_victor_levels or {}).get('levels', []))} niveles de precio")
         except Exception as _age:
             print(f"[engine] aggregate real de Victor omitido (usa _wbj_gates): {str(_age)[:150]}")
     except Exception as e:
@@ -6949,6 +6961,8 @@ def _engine_scorecard(ticker, info, price):
         sc["victor_gates"] = _victor_gates                 # perfil/banda/overrides reales de Victor
     if _victor_contradictions is not None:
         sc["victor_contradictions"] = _victor_contradictions
+    if _victor_levels:
+        sc["victor_levels"] = _victor_levels               # síntesis de niveles de precio real
 
     # ── TARGETS + FAIR VALUE de Victor (su targets.py) — deterministas, no del LLM ──
     if dict_packet:
@@ -7577,6 +7591,7 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 "scores_source": "engine determinista (metodología de Victor)"}
             analisis_json["victor_targets_detail"] = _eng.get("victor_targets_detail")
             analisis_json["financials_annual"] = _eng.get("financials_annual")
+            analisis_json["victor_levels"] = _eng.get("victor_levels")   # niveles de precio (synthesize_levels)
             analisis_json["scores_source"] = "victor"
 
         # ── MEMORY: compare with prior report + persist this one ─────────────
