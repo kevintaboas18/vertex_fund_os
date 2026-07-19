@@ -107,9 +107,18 @@ class FakeFMPProvider:
     fixture JSON (or a per-test `overrides` payload) instead of the network.
     """
 
-    def __init__(self, ohlcv: list[dict] | None = None, overrides: dict | None = None):
+    def __init__(
+        self,
+        ohlcv: list[dict] | None = None,
+        overrides: dict | None = None,
+        benchmark_ohlcv: list[dict] | None = None,
+    ):
         self._ohlcv = ohlcv if ohlcv is not None else []
         self._overrides = overrides or {}
+        # Defaults to the same series as `ohlcv` so tests that don't care
+        # about the benchmark keep working unchanged (benchmark ends up
+        # trivially "aligned" -- same dates as the stock -- and non-empty).
+        self._benchmark_ohlcv = benchmark_ohlcv if benchmark_ohlcv is not None else self._ohlcv
 
     def _get(self, name: str):
         if name in self._overrides:
@@ -138,6 +147,10 @@ class FakeFMPProvider:
         return self._get("cashflow_quarterly")
 
     def ohlcv_daily(self, t, years=3, today=None):
+        # Mirrors `build_packet`'s two callers: the security's own ticker,
+        # and `_BENCHMARK_TICKER` ("SPY") for the benchmark/sector series.
+        if t == "SPY":
+            return self._overrides.get("benchmark_ohlcv", self._benchmark_ohlcv)
         return self._overrides.get("ohlcv_daily", self._ohlcv)
 
     def peers(self, t):
@@ -220,8 +233,15 @@ def make_default_providers(now: datetime = FIXED_NOW) -> Providers:
     """The full, coherent NVDA scenario used for the golden fixture and for
     the packet-builder happy-path tests."""
     ohlcv = generate_ohlcv_sessions(end=(now - timedelta(days=1)).date())
+    # Synthetic SPY-like benchmark series: same session calendar as the
+    # stock (same `end`/`sessions`, so the builder's date inner-join keeps
+    # every bar) but a different start price and drift so it's genuinely
+    # distinguishable from the stock series in tests/fixture data.
+    benchmark_ohlcv = generate_ohlcv_sessions(
+        end=(now - timedelta(days=1)).date(), start_price=400.0
+    )
     return Providers(
-        fmp=FakeFMPProvider(ohlcv=ohlcv),
+        fmp=FakeFMPProvider(ohlcv=ohlcv, benchmark_ohlcv=benchmark_ohlcv),
         edgar=FakeEdgarProvider(),
         finnhub=FakeFinnhubProvider(),
         fred=FakeFredProvider(),

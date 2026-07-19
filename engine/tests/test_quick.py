@@ -63,3 +63,104 @@ def test_missing_everything_gives_no_overall():
     sc = quick_scorecard(empty)
     assert sc["overall_10"] is None
     assert sc["evidence_points_covered"] == 0
+
+
+# --- Phase 1: quick FMP scoring (market / technical / valuation) ---
+
+
+def _ohlcv_rising(n: int = 220) -> list[dict]:
+    """Newest-first daily bars with a steadily rising close (FMP order)."""
+    rows = [{"date": f"D{i:05d}", "close": 100.0 + i} for i in range(n)]
+    return list(reversed(rows))
+
+
+def _by_key(sc: dict) -> dict:
+    return {r["key"]: r for r in sc["categories"]}
+
+
+def test_market_scores_with_forward_estimates():
+    p = _packet()
+    p["as_of"] = "2026-01-01"
+    p["market_data"] = {
+        "estimates": [
+            {"date": "2025-01-25", "estimatedRevenueAvg": 120e9,
+             "numberAnalystEstimatedRevenue": 30},   # past — ignored
+            {"date": "2026-12-31", "estimatedRevenueAvg": 150e9,
+             "numberAnalystEstimatedRevenue": 40},   # future — used
+        ],
+    }
+    m = _by_key(quick_scorecard(p))["market"]
+    assert m["status"] == "scored"
+    assert 0 <= m["score10"] <= 10
+
+
+def test_market_scores_with_stable_api_field_names():
+    # Live FMP /stable/ uses revenueAvg / numAnalystsRevenue (not the legacy
+    # estimatedRevenueAvg / numberAnalystEstimatedRevenue of /api/v3/).
+    p = _packet()
+    p["as_of"] = "2026-01-01"
+    p["market_data"] = {
+        "estimates": [
+            {"date": "2026-12-31", "revenueAvg": 150e9, "numAnalystsRevenue": 40},
+        ],
+    }
+    m = _by_key(quick_scorecard(p))["market"]
+    assert m["status"] == "scored"
+    assert 0 <= m["score10"] <= 10
+
+
+def test_technical_scores_with_price_history():
+    p = _packet()
+    p["market_data"] = {"ohlcv": _ohlcv_rising(220)}
+    t = _by_key(quick_scorecard(p))["technical"]
+    assert t["status"] == "scored"
+    assert 0 <= t["score10"] <= 10
+
+
+def test_valuation_scores_with_price_and_shares():
+    p = _packet()
+    p["annual"]["diluted_shares"] = _series([("2025-12-31", 10e9)])
+    p["market_data"] = {"price": 100.0, "market_cap": 1000e9}
+    v = _by_key(quick_scorecard(p))["valuation"]
+    assert v["status"] == "scored"
+    assert 0 <= v["score10"] <= 10
+
+
+def test_fmp_categories_ns_without_market_data():
+    ns = {r["key"]: r for r in quick_scorecard(_packet())["categories"]
+          if r["status"] == "not_scorable"}
+    assert set(ns) == {"market", "technical", "valuation"}
+    assert ns["market"]["reason"] == "sin cobertura de analistas (FMP)"
+    assert ns["technical"]["reason"] == "historial de precio insuficiente (FMP)"
+    assert ns["valuation"]["reason"] == "sin precio de mercado (FMP)"
+
+
+def test_technical_ns_with_too_little_history():
+    p = _packet()
+    p["market_data"] = {"ohlcv": _ohlcv_rising(30)}  # < 200 sessions
+    t = _by_key(quick_scorecard(p))["technical"]
+    assert t["status"] == "not_scorable"
+
+
+def test_valuation_ns_without_price():
+    p = _packet()
+    p["annual"]["diluted_shares"] = _series([("2025-12-31", 10e9)])
+    p["market_data"] = {"market_cap": 1000e9}  # no price
+    v = _by_key(quick_scorecard(p))["valuation"]
+    assert v["status"] == "not_scorable"
+
+
+def test_business_financial_risk_unchanged_by_market_data():
+    def core(sc):
+        return {r["key"]: r["score10"] for r in sc["categories"]
+                if r["key"] in ("business", "financial", "risk")}
+
+    base = core(quick_scorecard(_packet()))
+    p = _packet()
+    p["annual"]["diluted_shares"] = _series([("2025-12-31", 10e9)])
+    p["market_data"] = {
+        "ohlcv": _ohlcv_rising(220), "price": 100.0, "market_cap": 1000e9,
+        "estimates": [{"date": "2099-12-31", "estimatedRevenueAvg": 150e9,
+                       "numberAnalystEstimatedRevenue": 40}],
+    }
+    assert core(quick_scorecard(p)) == base

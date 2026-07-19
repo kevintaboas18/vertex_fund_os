@@ -53,23 +53,19 @@ def serve_frontend():
     """Sirve el agente Vertex COMPLETO (Dashboard, Reports, Portfolio, Proyecciones,
     Watchlist, Track Record). El análisis muestra los números de Victor (overlay)."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    for fname in ("vertex_fund_os_platform.html", "vertex_wbj_terminal.html"):
-        html_path = os.path.join(base_dir, fname)
-        if os.path.exists(html_path):
-            with open(html_path, "r", encoding="utf-8") as file:
-                return file.read()
-    return "<h1>Vertex OS Error: Frontend no encontrado en el servidor.</h1>", 404
-
-
-@app.get("/wbj", response_class=HTMLResponse)
-def serve_wbj_terminal():
-    """Terminal WBJ (vista alterna, tema claro con scorecard de Victor)."""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    html_path = os.path.join(base_dir, "vertex_wbj_terminal.html")
+    html_path = os.path.join(base_dir, "vertex_fund_os_platform.html")
     if os.path.exists(html_path):
         with open(html_path, "r", encoding="utf-8") as file:
             return file.read()
-    return "<h1>WBJ terminal no encontrado.</h1>", 404
+    return "<h1>Vertex OS Error: Frontend no encontrado en el servidor.</h1>", 404
+
+
+@app.get("/wbj")
+def serve_wbj_terminal():
+    """El análisis WBJ de Victor ya vive DENTRO del dashboard principal (sección
+    'Análisis WBJ'); ya no hay vista aparte. Redirige a la raíz para no duplicar."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/")
 
 
 @app.get("/legacy", response_class=HTMLResponse)
@@ -6395,135 +6391,159 @@ def _fmp_forward_estimates(rows):
     return eps_growth, dispersion, analysts
 
 def _engine_scorecard(ticker, info, price):
-    """Calcula el scorecard de 6 categorías con el ENGINE de Victor (código
-    determinista, sin LLM): Business/Financial/Risk desde EDGAR (su quick_scorecard)
-    + Market/Technical/Valuation desde los scorers deterministas. Devuelve el dict
-    del engine o None si el engine/red/datos no están disponibles (→ fallback LLM)."""
+    """Scorecard de 6 categorías con el ENGINE REAL de Victor (código determinista,
+    sin LLM), EXACTAMENTE como él lo tiene:
+
+      build_packet(ticker, Providers(fmp,edgar,finnhub,fred), now) → Packet
+        → los 6 especialistas reales de Victor (wbj/specialists/*.run(packet))
+        → aggregate (raw_total, confianza) + targets.price_targets
+
+    Si el paquete completo (FMP) no está disponible, cae al camino RÁPIDO de Victor
+    (wbj.quick.quick_scorecard sobre el packet EDGAR: Business/Financial/Risk reales,
+    las demás N/S — 'sin evidencia no hay número'). Devuelve el dict del engine o
+    None si nada pudo calcularse (→ fallback LLM)."""
+    import sys
+    if _WBJ_ENGINE_PATH not in sys.path:
+        sys.path.insert(0, _WBJ_ENGINE_PATH)
     try:
-        import sys
-        if _WBJ_ENGINE_PATH not in sys.path:
-            sys.path.insert(0, _WBJ_ENGINE_PATH)
-        from wbj.cli import _build_packet          # paquete EDGAR de Victor (gratis, sin key)
-        from wbj.full import full_scorecard
+        from datetime import datetime, timezone
+        from wbj.config import load_settings
+        from wbj.providers.cache import Cache
+        from wbj.providers.edgar import EdgarProvider
+        from wbj.providers.fmp import FMPProvider
+        from wbj.providers.finnhub import FinnhubProvider
+        from wbj.providers.fred import FredProvider
+        from wbj.packet.builder import Providers, build_packet
+        import wbj.specialists.business as _biz
+        import wbj.specialists.financial as _fin
+        import wbj.specialists.market as _mkt
+        import wbj.specialists.risk as _rsk
+        import wbj.specialists.technical as _tec
+        import wbj.specialists.valuation as _val
+        from wbj.cli import _build_packet
+        from wbj.targets import price_targets
     except Exception as e:
         print(f"[engine] no disponible (deps/import): {str(e)[:160]}")
         return None
+
+    # settings + inyección de claves desde el entorno (Render) si el .env no las tomó
     try:
-        packet = _build_packet(ticker)
+        settings = load_settings()
     except Exception as e:
-        print(f"[engine] packet EDGAR falló para {ticker}: {str(e)[:160]}")
-        return None
-    ohlcv = {}; _dates = []; _opens = []
+        print(f"[engine] load_settings falló: {str(e)[:120]}"); return None
+    for _env, _attr in (("FMP_API_KEY", "fmp_api_key"), ("FINNHUB_API_KEY", "finnhub_api_key"),
+                        ("FRED_API_KEY", "fred_api_key")):
+        _v = os.environ.get(_env)
+        if _v and not getattr(settings, _attr, None):
+            try: setattr(settings, _attr, _v)
+            except Exception: pass
+    cache = Cache(settings.cache_dir)
+
+    _LABEL = {k: WBJ_CATEGORIES[k]["label"] for k in WBJ_ORDER}
+    _MODS = [("business", _biz), ("financial", _fin), ("market", _mkt),
+             ("technical", _tec), ("risk", _rsk), ("valuation", _val)]
+
+    categories = {}; raw_total = 0.0; conf_num = 0.0; conf_den = 0.0; incomplete = []
+    used_specialists = False
+
+    # ── CAMINO PRINCIPAL: los 6 especialistas REALES de Victor sobre el Packet completo ──
     try:
-        h = _resilient_history(yf.Ticker(ticker), ticker, "5y")   # OHLCV ~5 años → ≥756 sesiones (DATASET de Victor: 756 preferido)
-        if h is not None and not h.empty:
-            ohlcv = {"closes":  [float(x) for x in h["Close"].tolist()],
-                     "highs":   [float(x) for x in h["High"].tolist()],
-                     "lows":    [float(x) for x in h["Low"].tolist()],
-                     "volumes": [float(x) for x in h["Volume"].tolist()]}
-            _opens = [float(x) for x in h["Open"].tolist()]
-            _dates = [idx.strftime("%Y-%m-%d") for idx in h.index.tolist()]
-    except Exception:
-        ohlcv = {}
-    # Benchmark (SPY) para la fuerza relativa técnica (TECH-RS-011)
-    benchmark = None
+        prov = Providers(fmp=FMPProvider(settings, cache), edgar=EdgarProvider(settings, cache),
+                         finnhub=FinnhubProvider(settings, cache), fred=FredProvider(settings, cache))
+        pk = build_packet(ticker, prov, datetime.now(timezone.utc))
+        for key, mod in _MODS:
+            try:
+                out = mod.run(pk)                    # ← especialista real de Victor
+                cat = out.category
+                cov = out.coverage if out.coverage is not None else 0.0
+                s10 = round(cat.score_10, 1) if cat.score_10 is not None else None
+                categories[key] = {
+                    "key": key, "label": _LABEL[key], "max": cat.max_points,
+                    "score10": s10,
+                    "points": round(cat.awarded_points, 2) if cat.awarded_points is not None else None,
+                    "coverage": round(cov, 2), "status": "scored" if s10 is not None else "not_scorable",
+                    "confidence": round(cat.confidence) if cat.confidence is not None else None,
+                    "reason": None if s10 is not None else "cobertura insuficiente (sin evidencia, no hay número)"}
+                if s10 is not None:
+                    raw_total += cat.awarded_points or 0.0
+                    if cat.confidence is not None:
+                        conf_num += cat.max_points * cat.confidence; conf_den += cat.max_points
+                else:
+                    incomplete.append(key)
+            except Exception as _es:
+                categories[key] = {"key": key, "label": _LABEL[key], "max": WBJ_CATEGORIES[key]["max"],
+                    "score10": None, "points": None, "coverage": 0.0, "status": "not_scorable",
+                    "confidence": None, "reason": f"no se pudo analizar ({type(_es).__name__})"}
+                incomplete.append(key)
+        used_specialists = any(c["status"] == "scored" for c in categories.values())
+        if used_specialists:
+            print(f"[engine] {ticker}: 6 especialistas reales de Victor OK "
+                  f"({sum(1 for c in categories.values() if c['status']=='scored')}/6 con datos)")
+    except Exception as e:
+        print(f"[engine] pipeline de especialistas no disponible: {str(e)[:160]}")
+
+    # ── packet EDGAR (dict) para targets + ventas anuales (y fallback rápido) ──
+    dict_packet = None
     try:
-        _spy = _resilient_history(yf.Ticker("SPY"), "SPY", "1y")
-        if _spy is not None and not _spy.empty:
-            benchmark = [float(x) for x in _spy["Close"].tolist()]
-    except Exception:
-        benchmark = None
-    # Insumos de Valuation/Market desde yfinance info (beta, crecimiento, target)
-    beta = None; eps_growth = None
-    try:
-        beta = float(info["beta"]) if info.get("beta") is not None else None
-        eps_growth = float(info["earningsGrowth"]) if info.get("earningsGrowth") is not None else None
-    except Exception:
-        pass
-    est = {}
-    if eps_growth is not None:
-        est["eps_growth"] = eps_growth
-    try:
-        _tmp = info.get("targetMeanPrice")
-        if _tmp and price:
-            est["analyst_upside"] = float(_tmp) / float(price) - 1.0
-        if info.get("returnOnEquity") is not None:
-            est["roic"] = float(info["returnOnEquity"])            # proxy ROIC≈ROE cuando no hay FMP
-            est["reinvestment"] = 0.5                              # supuesto declarado (sin desglose)
-    except Exception:
-        pass
-    # FMP opcional (si hay key): pares (Valuation) + calendario de earnings (gaps/sorpresa) +
-    # estimados forward (revisiones de Market). Cierra NOT_SCORABLE con datos reales.
-    peer_pe = None; earnings_gaps = None
-    _fmp_key = os.environ.get("FMP_API_KEY", "")
-    if _fmp_key:
+        dict_packet = _build_packet(ticker)
+    except Exception as e:
+        print(f"[engine] packet EDGAR (dict) falló: {str(e)[:140]}")
+
+    # ── FALLBACK: camino RÁPIDO de Victor (EDGAR) si los especialistas no dieron nada ──
+    if not used_specialists:
+        if not dict_packet:
+            return None
         try:
-            from wbj.config import load_settings
-            from wbj.providers.cache import Cache
-            from wbj.providers.fmp import FMPProvider
-            _settings = load_settings()
-            if not _settings.fmp_api_key:
-                _settings.fmp_api_key = _fmp_key
-            _fmp = FMPProvider(_settings, Cache(_settings.cache_dir))
-            # 1) P/E mediano de pares → 'histórico y pares' de Valuation
-            try:
-                _peers = _fmp.peers(ticker) or []
-                _plist = (_peers[0].get("peersList") if isinstance(_peers, list) and _peers and isinstance(_peers[0], dict) else _peers) or []
-                _pes = []
-                for _p in list(_plist)[:6]:
-                    _pr = _fmp.profile(_p)
-                    _prow = _pr[0] if isinstance(_pr, list) and _pr else _pr
-                    _pe = _prow.get("pe") if isinstance(_prow, dict) else None
-                    if _pe and float(_pe) > 0:
-                        _pes.append(float(_pe))
-                if len(_pes) >= 3:
-                    _pes.sort(); peer_pe = _pes[len(_pes) // 2]
-            except Exception as e:
-                print(f"[engine] FMP pares omitido: {str(e)[:120]}")
-            # 2) Calendario de earnings → gaps (Technical) + sorpresa (Market)
-            try:
-                _cal = _fmp.earnings_calendar(ticker) or []
-                if _cal and _dates and _opens:
-                    earnings_gaps = _compute_earnings_gaps(_cal, _dates, _opens, ohlcv.get("closes", []))
-                _surp = _fmp_earnings_surprise(_cal)
-                if _surp is not None:
-                    est["surprise"] = _surp
-            except Exception as e:
-                print(f"[engine] FMP earnings omitido: {str(e)[:120]}")
-            # 3) Estimados forward → revisiones (Market) y crecimiento de Valuation
-            try:
-                _ae = _fmp.analyst_estimates(ticker) or []
-                _epsg, _disp, _na = _fmp_forward_estimates(_ae)
-                if _epsg is not None:
-                    est["eps_growth"] = _epsg
-                    eps_growth = _epsg
-                if _disp is not None:
-                    est["dispersion"] = _disp
-            except Exception as e:
-                print(f"[engine] FMP estimados omitido: {str(e)[:120]}")
+            from wbj.quick import quick_scorecard
+            qs = quick_scorecard(dict_packet)
+            categories = {}; raw_total = 0.0; conf_num = 0.0; conf_den = 0.0; incomplete = []
+            for row in qs.get("categories", []):
+                k = row.get("key")
+                if k not in WBJ_ORDER:
+                    continue
+                categories[k] = {
+                    "key": k, "label": _LABEL.get(k, row.get("label")), "max": row.get("max_points"),
+                    "score10": row.get("score10"), "points": row.get("points"),
+                    "coverage": row.get("coverage", 0.0), "confidence": None,
+                    "status": row.get("status"), "reason": row.get("reason")}
+                if row.get("status") == "scored":
+                    raw_total += row.get("points") or 0.0
+                else:
+                    incomplete.append(k)
+            # rellena cualquier categoría faltante como N/S (contrato de 6)
+            for k in WBJ_ORDER:
+                if k not in categories:
+                    categories[k] = {"key": k, "label": _LABEL[k], "max": WBJ_CATEGORIES[k]["max"],
+                        "score10": None, "points": None, "coverage": 0.0, "status": "not_scorable",
+                        "confidence": None, "reason": "motor pendiente sin FMP (N/S)"}
+                    incomplete.append(k)
+            print(f"[engine] {ticker}: camino RÁPIDO de Victor (EDGAR) — "
+                  f"{sum(1 for c in categories.values() if c['status']=='scored')}/6 con datos")
         except Exception as e:
-            print(f"[engine] FMP no disponible: {str(e)[:120]}")
-    try:
-        sc = full_scorecard(packet, ohlcv=ohlcv, price=price, market_cap=info.get("marketCap"),
-                            estimates=est or None, benchmark_closes=benchmark, beta=beta,
-                            peer_pe=peer_pe, eps_growth=eps_growth, earnings_gaps=earnings_gaps)
-    except Exception as e:
-        print(f"[engine] full_scorecard falló: {str(e)[:160]}")
+            print(f"[engine] quick_scorecard falló: {str(e)[:160]}")
+            return None
+
+    if not categories:
         return None
+
+    total_confidence = round(conf_num / conf_den) if conf_den else 50
+    sc = {"categories": categories, "raw_total": round(raw_total, 1),
+          "total_confidence": total_confidence, "incomplete": sorted(set(incomplete))}
+
     # ── TARGETS + FAIR VALUE de Victor (su targets.py) — deterministas, no del LLM ──
-    try:
-        from wbj.targets import price_targets
-        pt = price_targets(packet, price)
-        if isinstance(pt, dict) and pt.get("status") == "ok":
-            sm = {s["key"]: s.get("target") for s in pt.get("scenarios", [])}
-            sc["victor_targets_12m"] = {"bull": sm.get("bull"), "base": sm.get("base"), "bear": sm.get("bear")}
-            sc["victor_fair_value"] = sm.get("base")          # el target "Medio" ES el fair value de Victor
-            sc["victor_targets_detail"] = pt
-    except Exception as e:
-        print(f"[engine] targets de Victor omitidos: {str(e)[:140]}")
+    if dict_packet:
+        try:
+            pt = price_targets(dict_packet, price)
+            if isinstance(pt, dict) and pt.get("status") == "ok":
+                sm = {s["key"]: s.get("target") for s in pt.get("scenarios", [])}
+                sc["victor_targets_12m"] = {"bull": sm.get("bull"), "base": sm.get("base"), "bear": sm.get("bear")}
+                sc["victor_fair_value"] = sm.get("base")      # el target "Medio" ES el fair value de Victor
+                sc["victor_targets_detail"] = pt
+        except Exception as e:
+            print(f"[engine] targets de Victor omitidos: {str(e)[:140]}")
     # ── VENTAS ANUALES + CRECIMIENTO (desde el packet EDGAR de Victor) para las gráficas ──
     try:
-        _a = (packet or {}).get("annual", {}) or {}
+        _a = (dict_packet or {}).get("annual", {}) or {}
         def _ser(key):
             return [(str(r.get("end", ""))[:4], r.get("val")) for r in _a.get(key, []) if r.get("val") is not None][-6:]
         rev = _ser("revenue"); ni = _ser("net_income"); op = _ser("operating_income"); gp = _ser("gross_profit")

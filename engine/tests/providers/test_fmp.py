@@ -79,7 +79,8 @@ def test_profile_url_params_and_payload(tmp_path):
     result = p.profile("NVDA")
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/profile/NVDA"
+    assert req.url.path == "/stable/profile"
+    assert req.url.params.get("symbol") == "NVDA"
     assert req.url.params.get("apikey") is not None
     assert result == _load_fixture("profile")
 
@@ -94,7 +95,8 @@ def test_income_annual_url_and_params(tmp_path):
     result = p.income_annual("NVDA")
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/income-statement/NVDA"
+    assert req.url.path == "/stable/income-statement"
+    assert req.url.params.get("symbol") == "NVDA"
     assert req.url.params.get("period") == "annual"
     assert req.url.params.get("limit") == "6"
     assert req.url.params.get("apikey") is not None
@@ -117,7 +119,8 @@ def test_income_quarterly_url_and_params(tmp_path):
     result = p.income_quarterly("NVDA")
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/income-statement/NVDA"
+    assert req.url.path == "/stable/income-statement"
+    assert req.url.params.get("symbol") == "NVDA"
     assert req.url.params.get("period") == "quarter"
     assert req.url.params.get("limit") == "21"
     assert result == _load_fixture("income_quarterly")
@@ -133,7 +136,8 @@ def test_balance_annual_url_and_params(tmp_path):
     result = p.balance_annual("NVDA")
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/balance-sheet-statement/NVDA"
+    assert req.url.path == "/stable/balance-sheet-statement"
+    assert req.url.params.get("symbol") == "NVDA"
     assert req.url.params.get("period") == "annual"
     assert req.url.params.get("limit") == "6"
     assert result == _load_fixture("balance_annual")
@@ -146,7 +150,8 @@ def test_balance_quarterly_url_and_params(tmp_path):
     result = p.balance_quarterly("NVDA")
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/balance-sheet-statement/NVDA"
+    assert req.url.path == "/stable/balance-sheet-statement"
+    assert req.url.params.get("symbol") == "NVDA"
     assert req.url.params.get("period") == "quarter"
     assert req.url.params.get("limit") == "21"
     assert result == _load_fixture("balance_quarterly")
@@ -162,7 +167,8 @@ def test_cashflow_annual_url_and_params(tmp_path):
     result = p.cashflow_annual("NVDA")
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/cash-flow-statement/NVDA"
+    assert req.url.path == "/stable/cash-flow-statement"
+    assert req.url.params.get("symbol") == "NVDA"
     assert req.url.params.get("period") == "annual"
     assert req.url.params.get("limit") == "6"
     assert result == _load_fixture("cashflow_annual")
@@ -175,7 +181,8 @@ def test_cashflow_quarterly_url_and_params(tmp_path):
     result = p.cashflow_quarterly("NVDA")
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/cash-flow-statement/NVDA"
+    assert req.url.path == "/stable/cash-flow-statement"
+    assert req.url.params.get("symbol") == "NVDA"
     assert req.url.params.get("period") == "quarter"
     assert req.url.params.get("limit") == "21"
     assert result == _load_fixture("cashflow_quarterly")
@@ -184,17 +191,20 @@ def test_cashflow_quarterly_url_and_params(tmp_path):
 # --- OHLCV -------------------------------------------------------------------
 
 
-def test_ohlcv_daily_url_params_and_returns_historical_list(tmp_path):
+def test_ohlcv_daily_url_params_and_returns_flat_list(tmp_path):
     captured = {}
     p = _make_provider(tmp_path, _capturing_handler("ohlcv_daily", captured))
 
     result = p.ohlcv_daily("NVDA", years=3, today=date(2026, 7, 16))
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/historical-price-full/NVDA"
+    assert req.url.path == "/stable/historical-price-eod/full"
+    assert req.url.params.get("symbol") == "NVDA"
     assert req.url.params.get("from") == "2023-07-16"
     assert req.url.params.get("to") == "2026-07-16"
-    assert result == _load_fixture("ohlcv_daily")["historical"]
+    # /stable/historical-price-eod/full returns a top-level JSON array (not
+    # a {"historical": [...]} wrapper); the provider returns it as-is.
+    assert result == _load_fixture("ohlcv_daily")
 
 
 def test_ohlcv_daily_default_years_is_3(tmp_path):
@@ -215,6 +225,20 @@ def test_ohlcv_daily_missing_historical_key_returns_none(tmp_path):
     assert p.ohlcv_daily("NVDA", today=date(2026, 7, 16)) is None
 
 
+def test_ohlcv_daily_tolerates_dict_wrapped_historical_shape(tmp_path):
+    """Some plans may still wrap the series in {"historical": [...]}; the
+    provider falls back to that shape when the payload isn't a flat list."""
+
+    def handler(request):
+        return httpx.Response(200, json={"symbol": "NVDA", "historical": _load_fixture("ohlcv_daily")})
+
+    p = _make_provider(tmp_path, handler)
+
+    result = p.ohlcv_daily("NVDA", today=date(2026, 7, 16))
+
+    assert result == _load_fixture("ohlcv_daily")
+
+
 # --- peers ---------------------------------------------------------------
 
 
@@ -225,7 +249,7 @@ def test_peers_url_and_params(tmp_path):
     result = p.peers("NVDA")
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/stock_peers"
+    assert req.url.path == "/stable/stock-peers"
     assert req.url.params.get("symbol") == "NVDA"
     assert result == _load_fixture("peers")
 
@@ -240,7 +264,10 @@ def test_analyst_estimates_url_and_params(tmp_path):
     result = p.analyst_estimates("NVDA")
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/analyst-estimates/NVDA"
+    assert req.url.path == "/stable/analyst-estimates"
+    assert req.url.params.get("symbol") == "NVDA"
+    assert req.url.params.get("period") == "annual"
+    assert req.url.params.get("limit") == "10"
     assert result == _load_fixture("analyst_estimates")
 
 
@@ -254,7 +281,7 @@ def test_insider_trades_url_and_params(tmp_path):
     result = p.insider_trades("NVDA")
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/insider-trading"
+    assert req.url.path == "/stable/insider-trading/search"
     assert req.url.params.get("symbol") == "NVDA"
     assert req.url.params.get("limit") == "200"
     assert result == _load_fixture("insider_trades")
@@ -270,7 +297,8 @@ def test_institutional_holders_url_and_params(tmp_path):
     result = p.institutional_holders("NVDA")
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/institutional-holder/NVDA"
+    assert req.url.path == "/stable/institutional-ownership/extract-analytics/holder"
+    assert req.url.params.get("symbol") == "NVDA"
     assert result == _load_fixture("institutional_holders")
 
 
@@ -284,7 +312,9 @@ def test_earnings_calendar_url_and_params(tmp_path):
     result = p.earnings_calendar("NVDA")
 
     req = captured["request"]
-    assert req.url.path == "/api/v3/historical/earning_calendar/NVDA"
+    assert req.url.path == "/stable/earnings"
+    assert req.url.params.get("symbol") == "NVDA"
+    assert req.url.params.get("limit") == "40"
     assert result == _load_fixture("earnings_calendar")
 
 

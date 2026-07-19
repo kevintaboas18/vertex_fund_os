@@ -205,11 +205,14 @@ def narrative(packet: dict, scorecard: dict, targets: dict) -> list[str]:
         out.append(f"Debe ${de:,.2f} por cada $1 de capital propio — {adj}.")
 
     if scorecard.get("overall_10") is not None:
+        covered = scorecard["evidence_points_covered"]
+        tail = (
+            "cobertura completa de las 6 categorias." if covered >= 100 else
+            f"las categorias sin datos de FMP quedan en N/S (no se inventan)."
+        )
         out.append(
             f"Puntaje rapido: {scorecard['overall_10']}/10, calculado con "
-            f"{scorecard['evidence_points_covered']} de 100 puntos de evidencia "
-            "(las categorias de mercado, tecnico y valuacion se activan cuando "
-            "sus motores esten listos)."
+            f"{covered} de 100 puntos de evidencia — {tail}"
         )
 
     if targets.get("status") == "ok":

@@ -2,19 +2,21 @@
   {
     "symbol": "NVDA",
     "date": "2026-01-25",
-    "estimatedRevenueLow": 132000000000,
-    "estimatedRevenueHigh": 148000000000,
-    "estimatedRevenueAvg": 140000000000,
-    "estimatedEpsAvg": 3.15,
-    "numberAnalystEstimatedRevenue": 42
+    "revenueLow": 132000000000,
+    "revenueHigh": 148000000000,
+    "revenueAvg": 140000000000,
+    "epsAvg": 3.15,
+    "numAnalystsRevenue": 42,
+    "numAnalystsEps": 40
   },
   {
     "symbol": "NVDA",
     "date": "2027-01-24",
-    "estimatedRevenueLow": 150000000000,
-    "estimatedRevenueHigh": 175000000000,
-    "estimatedRevenueAvg": 162000000000,
-    "estimatedEpsAvg": 3.72,
-    "numberAnalystEstimatedRevenue": 38
+    "revenueLow": 150000000000,
+    "revenueHigh": 175000000000,
+    "revenueAvg": 162000000000,
+    "epsAvg": 3.72,
+    "numAnalystsRevenue": 38,
+    "numAnalystsEps": 36
   }
 ]
