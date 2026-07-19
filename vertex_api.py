@@ -6647,14 +6647,15 @@ def _engine_scorecard(ticker, info, price):
 
         # ── Inputs CUALITATIVOS del 10-K (fiel al sub-agente business de Victor): una sola
         #    extracción con Claude que devuelve TODO lo divulgado. Se consumen por dimensión.
-        #    DURABILITY: recurring_revenue + largest_customer_share (+ customer_shares). ──
+        #    DURABILITY: recurring_revenue + largest_customer_share (+ customer_shares).
+        #    MANAGEMENT: guidance_history (precisión de guía = actual vs punto medio guiado). ──
         _qual = {}
         try:
             _cik_biz = prov.edgar.cik_for(ticker)
             _qual = _wbj_extract_business_qual(ticker, _cik_biz, settings) or {}
         except Exception as _qe:
             print(f"[engine] extracción cualitativa omitida: {str(_qe)[:120]}")
-        for _qk in ("recurring_revenue", "largest_customer_share", "customer_shares"):
+        for _qk in ("recurring_revenue", "largest_customer_share", "customer_shares", "guidance_history"):
             if _qual.get(_qk) is not None:
                 _overlay[_qk] = _qual[_qk]
 
