@@ -6850,7 +6850,16 @@ def _engine_scorecard(ticker, info, price):
             if all(k in _obk for k in WBJ_ORDER):
                 from wbj.aggregate import (AggregateInputs, apply_overrides, CategoryPoints,
                     CategoryConfidences, apply_gates, raw_total as _v_rawtot, contradictions,
-                    CategoryScore10s)
+                    CategoryScore10s, validate_handoff)
+                # HANDOFF_CONTRACT.md: el agente principal valida el traspaso de cada especialista
+                # (puntos reproducibles, timestamp, confianza/cobertura, flags, niveles, escenarios).
+                _handoff_issues = {}
+                for _hk in WBJ_ORDER:
+                    _hr = validate_handoff(_obk[_hk])
+                    if _hr:
+                        _handoff_issues[_hk] = _hr
+                if _handoff_issues:
+                    print(f"[engine] {ticker}: handoff con observaciones: {_handoff_issues}")
                 _ai = AggregateInputs(
                     business=_obk["business"], financial=_obk["financial"], market=_obk["market"],
                     technical=_obk["technical"], risk=_obk["risk"], valuation=_obk["valuation"],
@@ -6879,7 +6888,8 @@ def _engine_scorecard(ticker, info, price):
                     "profile": _pr.label, "band": _pr.descriptive_band,
                     "raw_score": round(_pr.raw_score, 1), "total_confidence": round(_pr.total_confidence),
                     "passed_gates": list(_pr.passed_gates), "failed_gates": list(_pr.failed_gates),
-                    "overrides": list(_pr.overrides), "warnings": list(_pr.warnings)}
+                    "overrides": list(_pr.overrides), "warnings": list(_pr.warnings),
+                    "handoff_issues": _handoff_issues}      # validación del traspaso (HANDOFF_CONTRACT)
                 # contradicciones reales (score_10 por categoría)
                 def _S10(k):
                     _s = _obk[k].category.score_10
