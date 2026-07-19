@@ -5985,11 +5985,25 @@ def _wbj_gates(comp: dict) -> dict:
     biz, fin, mkt, tec, rsk, val = P("business"), P("financial"), P("market"), P("technical"), P("risk"), P("valuation")
     tech_conf = CF("technical")
 
+    def F(k):  return c.get(k, {}).get("mandatory_flags", []) or []
+    biz_flags, fin_flags = F("business"), F("financial")
+    # Override 2 de Victor (aggregate/overrides.py): ROIC<WACC (business VALUE_DESTRUCTION
+    # y/o financial OVERRIDE_2_ROIC_BELOW_WACC) → NO_ELITE_QUALITY (no Quality Opportunity).
+    value_destruction = ("VALUE_DESTRUCTION" in biz_flags) or ("OVERRIDE_2_ROIC_BELOW_WACC" in fin_flags)
+
     overrides = []
     if rsk <= 4:
         overrides.append("Risk override: Risk ≤4/15 limita el perfil a Speculative.")
     if val <= 4 and tec <= 8:
         overrides.append("Premium breakdown override: Valuation ≤4/10 y Technical ≤8/20 → Wait/Avoid.")
+    if value_destruction:
+        overrides.append("Override 2 (ROIC<WACC / VALUE_DESTRUCTION): no puede clasificar como "
+                         "Quality Opportunity ni Elite (destrucción de valor).")
+    if "CONCENTRATION_RED_FLAG" in biz_flags:
+        overrides.append("Concentration red flag: un cliente concentra demasiado ingreso "
+                         "(Business ya capó la dimensión Durability).")
+    if "DILUTION_RED_FLAG" in biz_flags:
+        overrides.append("Dilution red flag: dilución material de acciones en circulación.")
     core_incomplete = [k for k in WBJ_ORDER if CV(k) < 0.70]
     if core_incomplete:
         overrides.append("Coverage override: categoría(s) con cobertura <70% no pueden pasar un gate de perfil: "
@@ -6014,9 +6028,12 @@ def _wbj_gates(comp: dict) -> dict:
     for name in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity"):
         conds = gates[name]
         ok = all(v for _, v in conds)
-        (passed if ok else failed).append({"gate": name, "conditions": [
-            {"cond": lbl, "pass": bool(v)} for lbl, v in conds]})
-        if ok and gate_eligible and profile is None:
+        # Override 2: la destrucción de valor bloquea específicamente Quality Opportunity.
+        _blocked = (name == "Quality Opportunity" and value_destruction)
+        (passed if (ok and not _blocked) else failed).append({"gate": name, "conditions": (
+            [{"cond": lbl, "pass": bool(v)} for lbl, v in conds]
+            + ([{"cond": "Sin destrucción de valor (Override 2)", "pass": False}] if _blocked else []))})
+        if ok and not _blocked and gate_eligible and profile is None:
             profile = name
 
     # Speculative / Avoid / Conditional
@@ -6435,6 +6452,7 @@ def _wbj_extract_business_qual(ticker, cik, settings):
             '{"recurring_revenue_usd": number|null,  // ingreso recurrente/suscripción anual en USD absolutos\n'
             ' "largest_customer_share": number|null, // 0-1; fracción de ingresos del mayor cliente (o "no >10%" -> 0.10)\n'
             ' "customer_shares": [number]|null,      // 0-1 por cliente si divulga varios\n'
+            ' "segment_shares": [number]|null,       // 0-1 fracción de ingresos por segmento de negocio\n'
             ' // Cohorte de retención de ingresos (ARR bridge), en USD del MISMO periodo:\n'
             ' "retention_begin": number|null,        // ARR/ingreso recurrente al inicio\n'
             ' "retention_expansion": number|null,    // expansión/upsell del periodo\n'
@@ -6485,6 +6503,11 @@ def _wbj_extract_business_qual(ticker, cik, settings):
         _csv = [c for c in (_num(x) for x in _cs) if c is not None and 0.0 <= c <= 1.0]
         if _csv:
             _ov["customer_shares"] = _csv
+    _ss = _d.get("segment_shares")
+    if isinstance(_ss, list):
+        _ssv = [s for s in (_num(x) for x in _ss) if s is not None and 0.0 <= s <= 1.0]
+        if _ssv:
+            _ov["segment_shares"] = _ssv
     # retention: Victor exige la cohorte cruda {begin, expansion, contraction, churn}
     # (NO nrr/grr; él los calcula). Solo se pasa si los 4 componentes están divulgados.
     _rb, _rx = _num(_d.get("retention_begin")), _num(_d.get("retention_expansion"))
@@ -6671,8 +6694,8 @@ def _engine_scorecard(ticker, info, price):
             _qual = _wbj_extract_business_qual(ticker, _cik_biz, settings) or {}
         except Exception as _qe:
             print(f"[engine] extracción cualitativa omitida: {str(_qe)[:120]}")
-        for _qk in ("recurring_revenue", "largest_customer_share", "customer_shares", "guidance_history",
-                    "retention", "churn", "customer_economics"):
+        for _qk in ("recurring_revenue", "largest_customer_share", "customer_shares", "segment_shares",
+                    "guidance_history", "retention", "churn", "customer_economics"):
             if _qual.get(_qk) is not None:
                 _overlay[_qk] = _qual[_qk]
 
