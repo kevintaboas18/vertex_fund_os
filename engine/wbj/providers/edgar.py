@@ -22,17 +22,16 @@ Endpoints:
 
 from __future__ import annotations
 
-import os
-
 from wbj.providers.base import Provider
 
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 
+import os as _os_edgar
 # SEC exige un User-Agent que identifique al solicitante real. Configurable por
 # entorno (EDGAR_USER_AGENT en vertex.env); default = contacto de este despliegue.
-EDGAR_USER_AGENT = os.environ.get("EDGAR_USER_AGENT") or "Vertex Fund OS - Kevin Taboas kevintaboas02@gmail.com"
+EDGAR_USER_AGENT = _os_edgar.environ.get("EDGAR_USER_AGENT") or "Vertex Fund OS - Kevin Taboas kevintaboas02@gmail.com"
 _EDGAR_HEADERS = {"User-Agent": EDGAR_USER_AGENT}
 
 # The tickers map is one global, ticker-independent payload, so it is

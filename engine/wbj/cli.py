@@ -105,7 +105,21 @@ def _build_packet(ticker: str) -> dict:
         },
     }
     if fmp.available:
-        packet["fmp_profile"] = fmp.profile(ticker)
+        profile = fmp.profile(ticker)
+        packet["fmp_profile"] = profile
+        prof0 = (profile[0] if isinstance(profile, list) and profile
+                 else profile if isinstance(profile, dict) else {})
+        # Phase 1 quick FMP scoring: raw price/estimates only — every
+        # indicator (SMA/momentum, multiples) is derived downstream in
+        # quick.py. Missing sub-keys keep the dependent category N/S.
+        packet["market_data"] = {
+            "price": prof0.get("price"),
+            "market_cap": prof0.get("mktCap"),
+            "ohlcv": fmp.ohlcv_daily(ticker, years=1, today=date.today()),
+            "estimates": fmp.analyst_estimates(ticker),
+            "earnings": fmp.earnings_calendar(ticker),
+            "insiders": fmp.insider_trades(ticker),
+        }
     return packet
 
 

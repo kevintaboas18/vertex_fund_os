@@ -52,6 +52,41 @@ def test_quarterly_fundamentals_use_canonical_field_names(fake_providers, fixed_
     assert latest_q["operating_cash_flow"] == 27414000000
 
 
+def test_annual_fundamentals_maps_additional_statement_fields(fake_providers, fixed_now):
+    """Task: fuller FMP statement mapping -- interest expense, D&A, SG&A,
+    accounts payable, retained earnings, and net PP&E should all appear
+    under their canonical names once FMP's raw statement rows carry them,
+    even though today's specialist formulas for RSK-ICOV-011/AQI-023/etc.
+    read these from `overlay` rather than `Packet.fundamentals` (see
+    CANONICAL_FIELD_MAP's docstring)."""
+    income = copy.deepcopy(FakeFMPProvider()._get("income_annual"))
+    income[0]["interestExpense"] = 257000000
+    income[0]["sellingGeneralAndAdministrativeExpenses"] = 3200000000
+    balance = copy.deepcopy(FakeFMPProvider()._get("balance_annual"))
+    balance[0]["accountPayables"] = 6300000000
+    balance[0]["retainedEarnings"] = 55000000000
+    balance[0]["propertyPlantEquipmentNet"] = 6200000000
+    fmp = FakeFMPProvider(
+        ohlcv=fake_providers.fmp._ohlcv,
+        benchmark_ohlcv=fake_providers.fmp._benchmark_ohlcv,
+        overrides={"income_annual": income, "balance_annual": balance},
+    )
+    providers = Providers(fmp=fmp, edgar=fake_providers.edgar, finnhub=fake_providers.finnhub, fred=fake_providers.fred)
+
+    packet = build_packet("NVDA", providers, fixed_now)
+
+    latest = packet.fundamentals["annual"][0]
+    assert latest["interest_expense"] == 257000000
+    assert latest["sga"] == 3200000000
+    assert latest["accounts_payable"] == 6300000000
+    assert latest["retained_earnings"] == 55000000000
+    assert latest["ppe_net"] == 6200000000
+    # raw FMP keys must not leak through
+    assert "interestExpense" not in latest
+    assert "accountPayables" not in latest
+    assert "propertyPlantEquipmentNet" not in latest
+
+
 # --- >=252 daily sessions enforced ------------------------------------------
 
 
@@ -86,6 +121,57 @@ def test_exactly_252_sessions_accepted(fixed_now):
     packet = build_packet("NVDA", providers, fixed_now)
 
     assert len(packet.market_data.daily) == 252
+
+
+# --- benchmark/sector series --------------------------------------------
+
+
+def test_benchmark_and_sector_populated_from_spy(fake_providers, fixed_now):
+    packet = build_packet("NVDA", fake_providers, fixed_now)
+
+    assert len(packet.market_data.benchmark) > 0
+    assert packet.market_data.benchmark == packet.market_data.sector
+    # Genuinely different data from the stock's own series (fixture uses a
+    # different synthetic start price for the SPY-like benchmark).
+    assert packet.market_data.benchmark[0].close != packet.market_data.daily[0].close
+
+
+def test_benchmark_aligned_to_stock_trading_dates(fixed_now):
+    """Inner-join alignment: a benchmark bar on a date the stock didn't
+    trade must be dropped; a stock date missing from the raw benchmark
+    series must not appear in the aligned output either."""
+    stock_ohlcv = generate_ohlcv_sessions(end=(fixed_now - timedelta(days=1)).date(), sessions=260)
+    stock_dates = {bar["date"] for bar in stock_ohlcv}
+    benchmark_ohlcv = generate_ohlcv_sessions(
+        end=(fixed_now - timedelta(days=1)).date(), sessions=260, start_price=400.0
+    )
+    # Inject one extra benchmark bar on a date the stock never traded.
+    benchmark_ohlcv = [{**benchmark_ohlcv[0], "date": "1999-01-01"}, *benchmark_ohlcv]
+
+    providers = Providers(
+        fmp=FakeFMPProvider(ohlcv=stock_ohlcv, benchmark_ohlcv=benchmark_ohlcv),
+        edgar=FakeEdgarProvider(),
+        finnhub=FakeFinnhubProvider(),
+        fred=FakeFredProvider(),
+    )
+
+    packet = build_packet("NVDA", providers, fixed_now)
+
+    benchmark_dates = {row.date for row in packet.market_data.benchmark}
+    assert "1999-01-01" not in benchmark_dates
+    assert benchmark_dates <= stock_dates
+
+
+def test_benchmark_empty_when_provider_returns_no_data(fake_providers, fixed_now):
+    fmp = FakeFMPProvider(
+        ohlcv=fake_providers.fmp._ohlcv, overrides={"benchmark_ohlcv": []}
+    )
+    providers = Providers(fmp=fmp, edgar=fake_providers.edgar, finnhub=fake_providers.finnhub, fred=fake_providers.fred)
+
+    packet = build_packet("NVDA", providers, fixed_now)
+
+    assert packet.market_data.benchmark == []
+    assert packet.market_data.sector == []
 
 
 # --- hash stability -----------------------------------------------------

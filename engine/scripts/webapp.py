@@ -24,6 +24,7 @@ from wbj.providers.edgar import (
     EdgarProvider,
 )
 from wbj.screener import screen as run_screen
+from wbj.brief import company_brief
 from wbj.targets import live_price, narrative, price_history, price_targets
 
 PORT = 8765
@@ -89,6 +90,7 @@ def analyze(ticker: str) -> dict:
                     result["scorecard"], targets)
     result["targets"] = targets
     result["narrative"] = narrative(packet, result["scorecard"], targets)
+    result["brief"] = company_brief(packet, result["scorecard"], targets)
     result["history"] = _history(packet)
     result["chart"] = price_history(ticker)
     return result
@@ -149,7 +151,65 @@ PAGE = """<!doctype html>
   .c-hero { grid-column:span 7; } .c-words { grid-column:span 5; }
   .c-chart { grid-column:span 12; background:#0e1113; color:#e8eaed; }
   .c-score { grid-column:span 5; } .c-target { grid-column:span 7; }
+  .c-brief { grid-column:span 12; }
   @media (max-width:860px) { .c-hero,.c-words,.c-chart,.c-score,.c-target { grid-column:span 12; } }
+  /* --- company brief panel --- */
+  .brief-grid { display:grid; grid-template-columns:repeat(12,1fr); gap:18px; margin-top:6px; }
+  .brief-col { grid-column:span 6; } .brief-col.full { grid-column:span 12; }
+  @media (max-width:860px) { .brief-col { grid-column:span 12; } }
+  .bh { font-size:13px; font-weight:800; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--ink2); margin:2px 0 12px; }
+  .classpill { display:inline-flex; align-items:center; gap:8px; padding:8px 14px;
+    border-radius:999px; font-weight:800; font-size:15px; margin-bottom:6px; }
+  .classpill.favorece { background:var(--green-bg); color:var(--green); }
+  .classpill.neutral { background:var(--orange-bg); color:var(--orange); }
+  .classpill.evitar { background:var(--red-bg); color:var(--red); }
+  .revisit { font-size:13px; color:var(--ink2); margin:4px 0 14px; }
+  .cat-row { display:grid; grid-template-columns:1fr auto; gap:10px; padding:7px 0;
+    border-top:1px solid var(--grid); font-size:14px; }
+  .cat-row .mn { font-weight:700; }
+  .cat-row .mn.ns { color:var(--muted); font-weight:600; }
+  .probbar { display:flex; height:26px; border-radius:8px; overflow:hidden; margin:4px 0 12px;
+    border:1px solid var(--grid); }
+  .probbar i { display:block; }
+  .prow { display:grid; grid-template-columns:70px 1fr 54px; gap:10px; align-items:center;
+    font-size:14px; padding:5px 0; }
+  .prow .tag { font-weight:800; } .prow .tag.bull { color:var(--green); }
+  .prow .tag.base { color:var(--blue); } .prow .tag.bear { color:var(--red); }
+  .prow .pv { text-align:right; font-weight:800; }
+  .prow .pt { color:var(--ink2); }
+  .modal { font-size:14px; margin:8px 0 4px; }
+  .modal b { color:var(--ink); }
+  .levels { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:6px 0 10px; }
+  .lvl { background:var(--page); border-radius:12px; padding:12px 14px; }
+  .lvl .k { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink2); }
+  .lvl .v { font-size:20px; font-weight:800; margin-top:2px; }
+  .lvl.entrada .v { color:var(--ink); } .lvl.inval .v { color:var(--red); }
+  .lvl.salida .v { color:var(--green); }
+  .wl { list-style:none; margin:2px 0 10px; padding:0; }
+  .wl li { padding:7px 0; border-top:1px solid var(--grid); font-size:14px; display:flex;
+    justify-content:space-between; gap:10px; }
+  .ins-buy { color:var(--green); font-weight:800; } .ins-sell { color:var(--red); font-weight:800; }
+  .risk li::before { content:"⚠ "; color:var(--orange); }
+  .brief-note { font-size:12px; color:var(--muted); margin-top:6px; }
+  .bh.sm { font-size:12px; margin-bottom:8px; }
+  .info { cursor:help; color:var(--muted); font-weight:700; margin-left:4px; }
+  /* health strip */
+  .hstrip { display:flex; flex-wrap:wrap; gap:8px 16px; margin:12px 0 4px; }
+  .hdot { display:flex; align-items:center; gap:8px; cursor:help; }
+  .hdot .dot { width:14px; height:14px; border-radius:50%; flex:0 0 auto; }
+  .hdot .hl { font-size:14px; font-weight:600; }
+  /* bell curve */
+  svg.bell { display:block; margin:6px 0 2px; overflow:visible; }
+  /* catalyst */
+  .cat-big { font-size:26px; font-weight:800; letter-spacing:-.02em; margin:2px 0; }
+  /* insider net bar */
+  .netbar { display:flex; height:24px; border-radius:8px; overflow:hidden;
+    border:1px solid var(--grid); margin:4px 0 8px; }
+  .netbar i { display:block; } .netbar .buy { background:var(--green); } .netbar .sell { background:var(--red); }
+  .netlegend { display:flex; justify-content:space-between; font-size:13px; font-weight:700; }
+  .okflag { color:var(--green); font-weight:700; font-size:14px; margin-top:6px;
+    background:var(--green-bg); padding:8px 12px; border-radius:10px; display:inline-block; }
   .c-chart h2 { color:#fff; } .c-chart .sub { color:#8b929c; }
   .chart-head { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin:8px 0 4px; }
   .chart-head .px { font-size:34px; font-weight:800; letter-spacing:-.02em; }
@@ -224,35 +284,142 @@ PAGE = """<!doctype html>
     border-top-color:var(--purple); border-radius:50%; animation:r .7s linear infinite;
     vertical-align:-2px; margin-right:7px; }
   @keyframes r { to { transform:rotate(360deg); } }
-</style></head><body><div class="wrap">
-  <div class="kicker">Warren Buffett Jr · Motor de Análisis · SEC EDGAR en vivo</div>
-  <h1>Busca una empresa</h1>
-  <div class="topbar">
-    <div class="searchbox">
-      <input id="q" placeholder="Escribe un ticker o nombre — ej. NFLX, Disney, Coca-Cola…"
-        autocomplete="off" autofocus>
-      <div class="sugg" id="sugg"></div>
+  /* --- Estados de la app: landing (bienvenida centrada) vs results --- */
+  .hero { transition: all .38s cubic-bezier(.4,0,.2,1); }
+  .subtitle { font-size:17px; color:var(--ink2); margin:2px 0 0; letter-spacing:-.01em; }
+  #brand { cursor:default; }
+  /* Landing: bloque de bienvenida centrado en la ventana */
+  .app.landing { min-height:calc(100vh - 96px); display:flex; flex-direction:column;
+    justify-content:center; }
+  .app.landing .hero { text-align:center; }
+  .app.landing .kicker { text-align:center; margin-bottom:10px; }
+  .app.landing #brand { font-size:44px; margin-bottom:2px; letter-spacing:-.03em; }
+  .app.landing .subtitle { font-size:19px; margin-bottom:8px; }
+  .app.landing .topbar { margin:26px auto 0; justify-content:center; }
+  .app.landing .foot { display:none; }
+  /* Results: encabezado colapsado a una barra superior compacta */
+  .app.results .kicker, .app.results .subtitle { display:none; }
+  .app.results .hero { display:flex; align-items:center; gap:20px; margin-bottom:6px; }
+  .app.results #brand { font-size:20px; margin-bottom:0; white-space:nowrap; cursor:pointer;
+    color:var(--purple); }
+  .app.results #brand:hover { filter:brightness(1.1); }
+  .app.results .topbar { flex:1; margin:0; }
+  /* --- Tarjeta de loading: checklist de etapas del análisis --- */
+  .loadcard h2 { font-size:18px; }
+  ul.stages { list-style:none; margin:18px 0 6px; }
+  ul.stages li { display:flex; align-items:center; gap:12px; padding:9px 0;
+    font-size:14.5px; color:var(--muted); transition:color .3s; }
+  ul.stages li .ic { flex:none; width:20px; height:20px; border-radius:50%;
+    border:2px solid var(--grid); display:inline-flex; align-items:center;
+    justify-content:center; transition:background .3s,border-color .3s; }
+  ul.stages li.active { color:var(--ink); font-weight:600; }
+  ul.stages li.active .ic { border-color:var(--purple); border-top-color:transparent;
+    animation:r .7s linear infinite; }
+  ul.stages li.done { color:var(--ink2); }
+  ul.stages li.done .ic { background:var(--green); border-color:var(--green); }
+  ul.stages li.done .ic::after { content:'✓'; color:#fff; font-size:12px; font-weight:800; }
+  .loadbar { height:10px; background:var(--grid); border-radius:6px; overflow:hidden; margin-top:14px; }
+  .loadbar i { display:block; height:100%; width:0%; border-radius:6px;
+    background:linear-gradient(90deg,var(--purple),var(--green)); transition:width .6s ease; }
+  .loadpct { text-align:right; font-size:12.5px; color:var(--muted); margin-top:6px;
+    font-variant-numeric:tabular-nums; font-weight:600; }
+</style></head><body><div class="app landing" id="app"><div class="wrap">
+  <header class="hero">
+    <div class="kicker">Warren Buffett Jr · Motor de Análisis · SEC EDGAR en vivo</div>
+    <h1 id="brand">Bienvenido a Warren Buffett Jr</h1>
+    <p class="subtitle">Tu Especialista Financiero</p>
+    <div class="topbar">
+      <div class="searchbox">
+        <input id="q" placeholder="Escribe un ticker o nombre — ej. NFLX, Disney, Coca-Cola…"
+          autocomplete="off" autofocus>
+        <div class="sugg" id="sugg"></div>
+      </div>
+      <button class="discover" id="discoverBtn">✨ Descubrir empresas</button>
     </div>
-    <button class="discover" id="discoverBtn">✨ Descubrir empresas</button>
-  </div>
+  </header>
   <div id="status"></div>
   <div class="card" id="screenCard" style="display:none;margin-top:22px"></div>
+  <div class="card loadcard" id="loadCard" style="display:none;margin-top:22px"></div>
   <div class="grid" id="grid">
     <div class="card c-hero" id="heroCard"></div>
     <div class="card c-words" id="wordsCard"></div>
     <div class="card c-chart" id="chartCard"></div>
     <div class="card c-score" id="scoreCard"></div>
     <div class="card c-target" id="targetCard"></div>
+    <div class="card c-brief" id="briefCard"></div>
   </div>
   <div class="foot" id="foot"><b>Nota:</b> Puntaje rápido con datos oficiales de la SEC (EDGAR).
   Sin evidencia no hay número: las categorías pendientes se muestran como N/S, nunca se inventan.
   Los targets son rangos de referencia con supuestos declarados — clasificación de research,
   no es asesoría de inversión.</div>
-</div>
+</div></div>
 <script>
 const q = document.getElementById('q'), sugg = document.getElementById('sugg'),
-      status = document.getElementById('status'), grid = document.getElementById('grid');
+      status = document.getElementById('status'), grid = document.getElementById('grid'),
+      app = document.getElementById('app'), brand = document.getElementById('brand');
 let timer = null;
+
+function setMode(mode) {
+  const landing = mode === 'landing';
+  app.classList.toggle('landing', landing);
+  app.classList.toggle('results', !landing);
+  brand.textContent = landing ? 'Bienvenido a Warren Buffett Jr' : 'Warren Buffett Jr';
+}
+
+// Clic en el título (en modo resultados) regresa a la bienvenida centrada.
+brand.addEventListener('click', () => {
+  if (!app.classList.contains('results')) return;
+  grid.style.display = 'none'; screenCard.style.display = 'none';
+  status.textContent = ''; q.value = ''; sugg.style.display = 'none';
+  setMode('landing'); q.focus();
+});
+
+// --- Loading: checklist de etapas mientras corre /api/analyze -------------
+const LOAD_STAGES = [
+  'Leyendo reportes SEC EDGAR',
+  'Analizando negocio y finanzas',
+  'Evaluando riesgo y valuación',
+  'Calculando precio objetivo',
+  'Sintetizando puntaje',
+];
+const LOAD_PCTS = [16, 38, 58, 78, 92];  // el último se sostiene hasta que llega la respuesta
+let loadTimer = null;
+
+function startLoading(t) {
+  const el = document.getElementById('loadCard');
+  el.style.display = 'block';
+  el.innerHTML = `<h2>Analizando ${t}…</h2>
+    <div class="sub">Leyendo datos oficiales de la SEC y calculando el puntaje</div>
+    <ul class="stages">${LOAD_STAGES.map((s, i) =>
+      `<li id="st${i}" class="pending"><span class="ic"></span><span>${s}</span></li>`).join('')}</ul>
+    <div class="loadbar"><i id="loadfill"></i></div>
+    <div class="loadpct" id="loadpct">0%</div>`;
+  const fill = document.getElementById('loadfill'), pct = document.getElementById('loadpct');
+  function setStage(n) {
+    for (let i = 0; i < LOAD_STAGES.length; i++) {
+      document.getElementById('st' + i).className = i < n ? 'done' : (i === n ? 'active' : 'pending');
+    }
+    fill.style.width = LOAD_PCTS[n] + '%'; pct.textContent = LOAD_PCTS[n] + '%';
+  }
+  let cur = 0; setStage(0);
+  clearInterval(loadTimer);
+  loadTimer = setInterval(() => {
+    if (cur < LOAD_STAGES.length - 1) setStage(++cur);
+    else clearInterval(loadTimer);  // se queda en la última etapa (~92%) hasta finishLoading
+  }, 850);
+}
+
+function finishLoading(ok, cb) {
+  clearInterval(loadTimer);
+  const el = document.getElementById('loadCard');
+  if (!ok) { el.style.display = 'none'; if (cb) cb(); return; }
+  for (let i = 0; i < LOAD_STAGES.length; i++) {
+    const li = document.getElementById('st' + i); if (li) li.className = 'done';
+  }
+  const fill = document.getElementById('loadfill'), pct = document.getElementById('loadpct');
+  if (fill) fill.style.width = '100%'; if (pct) pct.textContent = '100%';
+  setTimeout(() => { el.style.display = 'none'; if (cb) cb(); }, 320);
+}
 
 q.addEventListener('input', () => {
   clearTimeout(timer);
@@ -375,6 +542,160 @@ function targetHtml(d) {
     <div class="sub" style="margin-top:12px">${t.disclaimer}</div>`;
 }
 
+function money(x, dec) {
+  return '$' + Number(x).toLocaleString('en-US', {minimumFractionDigits: dec || 0, maximumFractionDigits: dec || 0});
+}
+
+const fmtUSD = x => {
+  const a = Math.abs(x);
+  if (a >= 1e9) return '$' + (x / 1e9).toFixed(1) + 'B';
+  if (a >= 1e6) return '$' + (x / 1e6).toFixed(1) + 'M';
+  if (a >= 1e3) return '$' + (x / 1e3).toFixed(0) + 'K';
+  return '$' + x.toFixed(0);
+};
+const scoreColor = s => s == null ? 'var(--muted)' :
+  s >= 6.5 ? 'var(--green)' : s >= 3.5 ? 'var(--orange)' : 'var(--red)';
+const shortLabel = l => l.replace(' (quick)', '');
+
+// Lognormal "bell" of where the price could land in 12 months (dashed = it's
+// a projection, not observed history — Cerebro rule 3). Neutral single-hue
+// fill; today + each target as labelled status-colored ticks.
+function bellSvg(price, sigma, targets) {
+  const W = 620, H = 200, PADX = 16, PADT = 22, PADB = 50, N = 140;
+  const lo = price * Math.exp(-3 * sigma), hi = price * Math.exp(3 * sigma);
+  const X = x => PADX + (Math.log(x / lo) / Math.log(hi / lo)) * (W - 2 * PADX);
+  const clamp = x => Math.max(lo, Math.min(hi, x));
+  let ymax = 0; const pts = [];
+  for (let i = 0; i <= N; i++) {
+    const x = lo * Math.pow(hi / lo, i / N);
+    const z = Math.log(x / price) / sigma;
+    const dens = Math.exp(-z * z / 2) / x;
+    pts.push([x, dens]); if (dens > ymax) ymax = dens;
+  }
+  const Y = dRatio => PADT + (1 - dRatio) * (H - PADT - PADB);
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1] / ymax).toFixed(1)}`).join(' ');
+  const area = `M${X(lo).toFixed(1)},${H - PADB} ` +
+    pts.map(p => `L${X(p[0]).toFixed(1)},${Y(p[1] / ymax).toFixed(1)}`).join(' ') +
+    ` L${X(hi).toFixed(1)},${H - PADB} Z`;
+
+  // "Hoy" label above the chart; target labels below, de-cluttered into
+  // stacked rows so near-equal targets never overlap (Cerebro rule: look at it).
+  const col = {bull: 'var(--green)', base: 'var(--blue)', bear: 'var(--red)'};
+  const by = {}; targets.forEach(t => by[t.key] = t);
+  const vlines = ['bear', 'base', 'bull'].filter(k => by[k]).map(k => {
+    const px = X(clamp(by[k].target));
+    return `<line x1="${px}" y1="${PADT}" x2="${px}" y2="${H - PADB}" stroke="${col[k]}"
+      stroke-width="1.5" stroke-dasharray="3 3" />`;
+  }).join('');
+  const bottom = ['bear', 'base', 'bull'].filter(k => by[k])
+    .map(k => ({x: X(clamp(by[k].target)), color: col[k],
+                text: `${by[k].label} ${(by[k].prob_reach * 100).toFixed(0)}%`}))
+    .sort((a, b) => a.x - b.x);
+  const rowLastX = [];
+  bottom.forEach(it => {
+    let r = 0;
+    while (r < rowLastX.length && it.x - rowLastX[r] < 60) r++;
+    it.row = r; rowLastX[r] = it.x;
+  });
+  const bottomLabels = bottom.map(it =>
+    `<text x="${it.x.toFixed(1)}" y="${(H - PADB + 16 + it.row * 15).toFixed(1)}"
+      text-anchor="middle" font-size="12" font-weight="800" fill="${it.color}">${it.text}</text>`).join('');
+  const hx = X(clamp(price));
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" class="bell">
+    <path d="${area}" fill="var(--purple-bg)" />
+    <path d="${line}" fill="none" stroke="var(--purple)" stroke-width="2.5" stroke-dasharray="6 4" />
+    <line x1="${hx}" y1="${PADT - 8}" x2="${hx}" y2="${H - PADB}" stroke="var(--ink)" stroke-width="2.5" />
+    <text x="${hx.toFixed(1)}" y="${PADT - 11}" text-anchor="middle" font-size="12"
+      font-weight="800" fill="var(--ink)">Hoy ${fmtUSD(price)}</text>
+    ${vlines}${bottomLabels}
+  </svg>`;
+}
+
+function briefHtml(d) {
+  const b = d.brief;
+  if (!b) return '';
+  const it = b.interpretation, pr = b.probability, w = b.watch;
+
+  // 1) Veredicto + tira de salud (color por categoría; /10 en hover)
+  const cls = it.classification || 'neutral';
+  const revisit = it.revisit ? `<div class="revisit">↻ ${it.revisit}</div>` : '';
+  const dots = (it.categories || []).map(c => {
+    const tip = c.score10 == null ? `${shortLabel(c.label)}: sin datos` :
+      `${shortLabel(c.label)}: ${c.score10}/10 · ${c.meaning}`;
+    return `<div class="hdot" title="${tip}">
+      <span class="dot" style="background:${scoreColor(c.score10)}"></span>
+      <span class="hl">${shortLabel(c.label)}</span></div>`;
+  }).join('');
+  const interpCol = `<div class="brief-col">
+    <div class="bh">El veredicto</div>
+    <span class="classpill ${cls}">${(cls || 'sin dato').toUpperCase()}</span>
+    <div class="revisit">${it.classification_label}</div>${revisit}
+    <div class="hstrip">${dots}</div>
+    <div class="brief-note">Pasa el mouse por cada punto para ver su nota.</div></div>`;
+
+  // 2) Probabilidad → campana
+  let probCol;
+  if (pr.status === 'ok') {
+    probCol = `<div class="brief-col">
+      <div class="bh">Dónde podría estar el precio en 12 meses
+        <span class="info" title="${pr.assumptions}">ⓘ</span></div>
+      <div class="modal">Lo más probable: <b>${pr.modal_zone}</b> (${(pr.modal_prob * 100).toFixed(0)}%)</div>
+      ${bellSvg(pr.price, pr.volatility, pr.targets)}
+      <div class="brief-note">Curva punteada = estimación a futuro, no historia. Área = qué tan probable es cada precio.</div></div>`;
+  } else {
+    probCol = `<div class="brief-col"><div class="bh">Dónde podría estar el precio</div>
+      <p style="color:var(--ink2);font-size:14px">No calculable: ${pr.reason}.</p></div>`;
+  }
+
+  // 3) Puntos clave a vigilar
+  const lv = w.levels;
+  const levelsBlock = lv.status === 'ok' ? `<div class="levels">
+      <div class="lvl entrada"><div class="k">Entrada</div><div class="v">${money(lv.entrada, 0)}</div></div>
+      <div class="lvl inval"><div class="k">Se rompe</div><div class="v">${lv.invalidacion != null ? money(lv.invalidacion, 0) : '—'}</div></div>
+      <div class="lvl salida"><div class="k">Objetivo</div><div class="v">${lv.salida_base != null ? money(lv.salida_base, 0) : '—'}</div></div>
+    </div><div class="brief-note">Referencia (research), no una orden.</div>` :
+    `<p style="color:var(--ink2);font-size:14px">Niveles no disponibles.</p>`;
+
+  const ne = w.catalysts && w.catalysts.next_earnings;
+  const catBlock = ne ? `<div class="cat-big">${ne.date}</div>
+      <div class="brief-note">Próximo reporte de resultados${ne.eps_est != null ? ` · EPS est. $${ne.eps_est}` : ''}</div>` :
+    `<div class="brief-note">Sin fecha de earnings próxima.</div>`;
+
+  // Insiders → barra neta compra vs venta
+  const fl = w.insiders_flow || {buy_usd: 0, sell_usd: 0, net_usd: 0};
+  const tot = fl.buy_usd + fl.sell_usd;
+  let insBlock;
+  if (tot > 0) {
+    const bw = (fl.buy_usd / tot * 100).toFixed(1), sw = (fl.sell_usd / tot * 100).toFixed(1);
+    const netSide = fl.net_usd >= 0 ? 'compra' : 'venta';
+    insBlock = `<div class="netbar">
+        <i class="buy" style="width:${bw}%" title="Compras ${fmtUSD(fl.buy_usd)}"></i>
+        <i class="sell" style="width:${sw}%" title="Ventas ${fmtUSD(fl.sell_usd)}"></i></div>
+      <div class="netlegend"><span class="ins-buy">▲ compras ${fmtUSD(fl.buy_usd)}</span>
+        <span class="ins-sell">ventas ${fmtUSD(fl.sell_usd)} ▼</span></div>
+      <div class="brief-note">Neto: <b class="${fl.net_usd >= 0 ? 'ins-buy' : 'ins-sell'}">${netSide} ${fmtUSD(Math.abs(fl.net_usd))}</b> (Forms 4)</div>`;
+  } else {
+    insBlock = `<div class="brief-note">Sin compras/ventas de insiders en el mercado abierto.</div>`;
+  }
+
+  const risks = w.risks || [];
+  const riskBlock = risks.length ? `<ul class="wl risk">${risks.map(r => `<li><span>${r}</span></li>`).join('')}</ul>` :
+    `<div class="okflag">✓ Sin banderas de riesgo materiales</div>`;
+
+  const watchCol = `<div class="brief-col full">
+    <div class="bh">Puntos clave a vigilar</div>
+    <div class="brief-grid">
+      <div class="brief-col"><div class="bh sm">Niveles de precio</div>${levelsBlock}</div>
+      <div class="brief-col"><div class="bh sm">Próximo catalizador</div>${catBlock}</div>
+      <div class="brief-col"><div class="bh sm">Insiders (Forms 4)</div>${insBlock}</div>
+      <div class="brief-col"><div class="bh sm">Riesgos / rompe-tesis</div>${riskBlock}</div>
+    </div></div>`;
+
+  return `<h2>Lectura para el inversionista</h2>
+    <div class="sub">De un vistazo: el veredicto, dónde podría ir el precio y qué observar</div>
+    <div class="brief-grid" style="margin-top:16px">${interpCol}${probCol}${watchCol}</div>`;
+}
+
 // --- Gráfica SVG propia (cero dependencias externas) ---------------------
 let tvData = [], tvTargets = null;
 const PERIODS = { '1M': 21, '3M': 63, '6M': 126, '1A': 9999 };
@@ -474,6 +795,7 @@ function setPeriod(p) {
 
 const screenCard = document.getElementById('screenCard');
 document.getElementById('discoverBtn').addEventListener('click', async () => {
+  setMode('results');
   grid.style.display = 'none'; screenCard.style.display = 'none';
   status.innerHTML = `<span class="spin"></span>Escaneando todo el universo de la SEC:
     empresas medianas ($0.8B–$30B), rentables y creciendo… la primera vez tarda 1–2 min.`;
@@ -512,9 +834,11 @@ document.getElementById('discoverBtn').addEventListener('click', async () => {
 
 async function run(t) {
   if (!t) return;
+  setMode('results');
   sugg.style.display = 'none'; grid.style.display = 'none';
+  screenCard.style.display = 'none'; status.textContent = '';
   q.value = t;
-  status.innerHTML = `<span class="spin"></span>Leyendo reportes de la SEC y calculando <b>${t}</b>…`;
+  startLoading(t);
   try {
     const r = await fetch('/api/analyze?ticker=' + encodeURIComponent(t));
     if (!r.ok) throw new Error((await r.json()).error || r.status);
@@ -523,14 +847,17 @@ async function run(t) {
     document.getElementById('wordsCard').innerHTML = wordsHtml(d);
     document.getElementById('scoreCard').innerHTML = scoreHtml(d);
     document.getElementById('targetCard').innerHTML = targetHtml(d);
-    grid.style.display = 'grid';
-    renderChart(d);
-    status.textContent = '';
-    requestAnimationFrame(() => {
-      document.querySelectorAll('.stick[data-h]').forEach(b => b.style.height = b.dataset.h + '%');
-      document.querySelectorAll('.fill2[data-w]').forEach(f => f.style.width = f.dataset.w + '%');
+    document.getElementById('briefCard').innerHTML = briefHtml(d);
+    finishLoading(true, () => {
+      grid.style.display = 'grid';
+      renderChart(d);
+      requestAnimationFrame(() => {
+        document.querySelectorAll('.stick[data-h]').forEach(b => b.style.height = b.dataset.h + '%');
+        document.querySelectorAll('.fill2[data-w]').forEach(f => f.style.width = f.dataset.w + '%');
+      });
     });
   } catch (err) {
+    finishLoading(false);
     status.innerHTML = `No pude analizar <b>${t}</b>: ${err.message}`;
   }
 }
