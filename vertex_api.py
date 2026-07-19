@@ -6451,9 +6451,33 @@ def _engine_scorecard(ticker, info, price):
         prov = Providers(fmp=FMPProvider(settings, cache), edgar=EdgarProvider(settings, cache),
                          finnhub=FinnhubProvider(settings, cache), fred=FredProvider(settings, cache))
         pk = build_packet(ticker, prov, datetime.now(timezone.utc))
+
+        # ── HANDOFF de Victor: Valuation computa el WACC (VAL-WACC-007) y Business/Financial
+        #    lo CONSUMEN vía overlay["wacc"]. Sin este traspaso, todo ROIC/spread/EVA/moat de
+        #    Business degrada a MISSING (business ≈ 0). Es el mecanismo que su metodología define
+        #    ("mirroring financial.py's overlay['wacc'] precedent" + HANDOFF_CONTRACT). ──
+        _overlay = {}
+        # respaldo de beta desde yfinance si el packet no lo trae (Ke = RF + β·ERP)
+        try:
+            if info.get("beta") is not None:
+                _overlay["beta"] = float(info["beta"])
+        except Exception:
+            pass
+        _vo = None
+        try:
+            _vo = _val.run(pk, overlay=(_overlay or None))   # valuation primero → su WACC
+            _w = getattr(getattr(_vo, "wacc", None), "value", None)
+            if _w is not None and float(_w) > 0:
+                _overlay["wacc"] = float(_w)
+        except Exception as _ve:
+            print(f"[engine] handoff de WACC no disponible: {str(_ve)[:120]}")
+        if _overlay.get("wacc"):
+            print(f"[engine] {ticker}: WACC del handoff = {_overlay['wacc']:.4f} → Business/Financial")
+
         for key, mod in _MODS:
             try:
-                out = mod.run(pk)                    # ← especialista real de Victor
+                # reutiliza el output de valuation ya calculado; los demás reciben el overlay (WACC)
+                out = _vo if (key == "valuation" and _vo is not None) else mod.run(pk, overlay=(_overlay or None))
                 cat = out.category
                 cov = out.coverage if out.coverage is not None else 0.0
                 s10 = round(cat.score_10, 1) if cat.score_10 is not None else None
