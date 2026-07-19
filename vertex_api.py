@@ -6668,6 +6668,8 @@ def _engine_scorecard(ticker, info, price):
             # devuelve N/S. Por eso pedimos hasta 15 para asegurar ≥8 tras posibles fallos.
             for _pt in list(_plist)[:15]:
                 try:
+                    if not _pt or str(_pt).upper() == ticker.upper():
+                        continue                      # nunca comparar la empresa contra sí misma
                     _inc = prov.fmp.income_annual(_pt, limit=1) or []
                     _bal = prov.fmp.balance_annual(_pt, limit=2) or []   # año actual + previo (IC promedio)
                     _ir = _inc[0] if isinstance(_inc, list) and _inc else None
@@ -6769,10 +6771,13 @@ def _engine_scorecard(ticker, info, price):
                 "reason": None if s10 is not None else "cobertura insuficiente (sin evidencia, no hay número)"}
             if s10 is not None:
                 raw_total += cat.awarded_points or 0.0
-                if cat.confidence is not None:
-                    conf_num += cat.max_points * cat.confidence; conf_den += cat.max_points
             else:
                 incomplete.append(key)
+            # confianza total (Victor, core.confidence.total_confidence): Σ(max_i × conf_i)/100,
+            # acumulando TODA categoría con confianza (no solo las puntuadas) — así una categoría
+            # N/S penaliza la confianza total en vez de ignorarse.
+            if cat.confidence is not None:
+                conf_num += cat.max_points * cat.confidence
         used_specialists = any(c["status"] == "scored" for c in categories.values())
         if used_specialists:
             print(f"[engine] {ticker}: 6 especialistas reales de Victor OK "
@@ -6824,7 +6829,9 @@ def _engine_scorecard(ticker, info, price):
     if not categories:
         return None
 
-    total_confidence = round(conf_num / conf_den) if conf_den else 50
+    # Victor: Σ(category_max_points × confidence) / 100 (÷ el 100 fijo, NO por la suma de
+    # máximos puntuados). Una categoría N/S baja la confianza total, como en su metodología.
+    total_confidence = round(conf_num / 100.0) if conf_num > 0 else 50
     sc = {"categories": categories, "raw_total": round(raw_total, 1),
           "total_confidence": total_confidence, "incomplete": sorted(set(incomplete))}
 
