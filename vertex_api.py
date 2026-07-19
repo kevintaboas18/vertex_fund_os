@@ -6451,7 +6451,7 @@ def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
         _schema = (
             '{"recurring_revenue_pct": number|null,  // fracción 0-1 del ingreso total que es recurrente/suscripción (PREFERIDO, inequívoco)\n'
             ' "recurring_revenue_usd": number|null,  // ingreso recurrente/suscripción anual en USD absolutos (respeta la escala: dólares, no millones)\n'
-            ' "largest_customer_share": number|null, // 0-1; fracción de ingresos del mayor cliente (o "no >10%" -> 0.10)\n'
+            ' "largest_customer_share": number|null, // 0-1; SOLO si divulga un % ESPECÍFICO del mayor cliente. Si solo dice "ningún cliente supera X%" sin dar el número exacto -> null (PROHIBIDO imputar)\n'
             ' "customer_shares": [number]|null,      // 0-1 por cliente si divulga varios\n'
             ' "segment_shares": [number]|null,       // 0-1 fracción de ingresos por segmento de negocio\n'
             ' // Cohorte de retención de ingresos (ARR bridge), en USD del MISMO periodo:\n'
