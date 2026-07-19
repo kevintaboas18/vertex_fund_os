@@ -6529,19 +6529,28 @@ def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
     _rb, _rx = _num(_d.get("retention_begin")), _num(_d.get("retention_expansion"))
     _rcn, _rch = _num(_d.get("retention_contraction")), _num(_d.get("retention_churn"))
     if None not in (_rb, _rx, _rcn, _rch) and _rb > 0:
-        _ov["retention"] = {"begin": _rb, "expansion": _rx, "contraction": _rcn, "churn": _rch}
+        # La fórmula NRR RESTA contraction y churn → son MAGNITUDES. abs() por si el LLM
+        # las devuelve con signo (un contraction=-40 inflaría el NRR).
+        _ov["retention"] = {"begin": _rb, "expansion": abs(_rx), "contraction": abs(_rcn), "churn": abs(_rch)}
     # churn de logos: Victor exige {lost, begin_customers} (conteo de clientes)
     _cl, _cb = _num(_d.get("customers_lost")), _num(_d.get("customers_begin"))
     if None not in (_cl, _cb) and _cb > 0:
-        _ov["churn"] = {"lost": _cl, "begin_customers": _cb}
+        _ov["churn"] = {"lost": abs(_cl), "begin_customers": _cb}
     # customer_economics: claves EXACTAS que Victor consume para LTV/CAC/payback
     _ce = {}
     for _src, _dst in (("arpu", "arpu"), ("monthly_arpu", "monthly_arpu"), ("gross_margin", "gross_margin"),
                        ("customer_life_years", "customer_life_years"), ("cac_spend", "cac_spend"),
                        ("new_customers", "new_customers")):
         _val = _num(_d.get(_src))
-        if _val is not None:
-            _ce[_dst] = _val
+        if _val is None:
+            continue
+        if _dst == "gross_margin":
+            # Victor multiplica gross_margin como FRACCIÓN 0-1 (LTV=arpu·gm·vida). Si el 10-K lo
+            # divulga como "80%" y el LLM devuelve 80 → normalizamos a 0.80 y acotamos [0,1].
+            if _val > 1.0:
+                _val = _val / 100.0
+            _val = min(max(_val, 0.0), 1.0)
+        _ce[_dst] = _val
     if _ce:
         _ov["customer_economics"] = _ce
     _gh = _d.get("guidance_history")
