@@ -6435,11 +6435,21 @@ def _wbj_extract_business_qual(ticker, cik, settings):
             '{"recurring_revenue_usd": number|null,  // ingreso recurrente/suscripción anual en USD absolutos\n'
             ' "largest_customer_share": number|null, // 0-1; fracción de ingresos del mayor cliente (o "no >10%" -> 0.10)\n'
             ' "customer_shares": [number]|null,      // 0-1 por cliente si divulga varios\n'
-            ' "nrr": number|null,                    // net revenue retention (1.10 = 110%)\n'
-            ' "grr": number|null,                    // gross revenue retention\n'
-            ' "churn_rate": number|null,             // churn anual de logos/clientes (0-1)\n'
-            ' "arpu": number|null, "ltv": number|null, "cac": number|null, "payback_months": number|null,\n'
-            ' "gross_margin": number|null,           // margen bruto por cliente (0-1) si lo divulga\n'
+            ' // Cohorte de retención de ingresos (ARR bridge), en USD del MISMO periodo:\n'
+            ' "retention_begin": number|null,        // ARR/ingreso recurrente al inicio\n'
+            ' "retention_expansion": number|null,    // expansión/upsell del periodo\n'
+            ' "retention_contraction": number|null,  // contracción/downgrade del periodo\n'
+            ' "retention_churn": number|null,        // ingreso perdido por bajas del periodo\n'
+            ' // Churn de logos (CONTEO de clientes):\n'
+            ' "customers_lost": number|null,         // clientes perdidos en el periodo\n'
+            ' "customers_begin": number|null,        // clientes al inicio del periodo\n'
+            ' // Unit economics (si los divulga):\n'
+            ' "arpu": number|null,                   // ingreso anual promedio por cliente (USD)\n'
+            ' "monthly_arpu": number|null,           // ingreso MENSUAL promedio por cliente (USD)\n'
+            ' "gross_margin": number|null,           // margen bruto por cliente 0-1\n'
+            ' "customer_life_years": number|null,    // vida media del cliente en años\n'
+            ' "cac_spend": number|null,              // gasto total de adquisición (S&M) USD\n'
+            ' "new_customers": number|null,          // clientes nuevos adquiridos en el periodo\n'
             ' "guidance_history": [{"actual": number, "guidance_midpoint": number}]|null}'
         )
         _msg = _client.messages.create(
@@ -6475,20 +6485,24 @@ def _wbj_extract_business_qual(ticker, cik, settings):
         _csv = [c for c in (_num(x) for x in _cs) if c is not None and 0.0 <= c <= 1.0]
         if _csv:
             _ov["customer_shares"] = _csv
-    _nrr, _grr = _num(_d.get("nrr")), _num(_d.get("grr"))
-    _ret = {}
-    if _nrr is not None: _ret["nrr"] = _nrr
-    if _grr is not None: _ret["grr"] = _grr
-    if _ret:
-        _ov["retention"] = _ret
-    _ch = _num(_d.get("churn_rate"))
-    if _ch is not None and 0.0 <= _ch <= 1.0:
-        _ov["churn"] = {"rate": _ch}
+    # retention: Victor exige la cohorte cruda {begin, expansion, contraction, churn}
+    # (NO nrr/grr; él los calcula). Solo se pasa si los 4 componentes están divulgados.
+    _rb, _rx = _num(_d.get("retention_begin")), _num(_d.get("retention_expansion"))
+    _rcn, _rch = _num(_d.get("retention_contraction")), _num(_d.get("retention_churn"))
+    if None not in (_rb, _rx, _rcn, _rch) and _rb > 0:
+        _ov["retention"] = {"begin": _rb, "expansion": _rx, "contraction": _rcn, "churn": _rch}
+    # churn de logos: Victor exige {lost, begin_customers} (conteo de clientes)
+    _cl, _cb = _num(_d.get("customers_lost")), _num(_d.get("customers_begin"))
+    if None not in (_cl, _cb) and _cb > 0:
+        _ov["churn"] = {"lost": _cl, "begin_customers": _cb}
+    # customer_economics: claves EXACTAS que Victor consume para LTV/CAC/payback
     _ce = {}
-    for _k in ("arpu", "ltv", "cac", "payback_months", "gross_margin"):
-        _val = _num(_d.get(_k))
+    for _src, _dst in (("arpu", "arpu"), ("monthly_arpu", "monthly_arpu"), ("gross_margin", "gross_margin"),
+                       ("customer_life_years", "customer_life_years"), ("cac_spend", "cac_spend"),
+                       ("new_customers", "new_customers")):
+        _val = _num(_d.get(_src))
         if _val is not None:
-            _ce[_k] = _val
+            _ce[_dst] = _val
     if _ce:
         _ov["customer_economics"] = _ce
     _gh = _d.get("guidance_history")
@@ -6648,14 +6662,17 @@ def _engine_scorecard(ticker, info, price):
         # ── Inputs CUALITATIVOS del 10-K (fiel al sub-agente business de Victor): una sola
         #    extracción con Claude que devuelve TODO lo divulgado. Se consumen por dimensión.
         #    DURABILITY: recurring_revenue + largest_customer_share (+ customer_shares).
-        #    MANAGEMENT: guidance_history (precisión de guía = actual vs punto medio guiado). ──
+        #    MANAGEMENT: guidance_history (precisión de guía = actual vs punto medio guiado).
+        #    CUSTOMER ECONOMICS: retention (cohorte NRR/GRR) + churn (logos) + customer_economics
+        #    (LTV/CAC/payback) — solo empresas de suscripción los divulgan; si no, N/S correcto. ──
         _qual = {}
         try:
             _cik_biz = prov.edgar.cik_for(ticker)
             _qual = _wbj_extract_business_qual(ticker, _cik_biz, settings) or {}
         except Exception as _qe:
             print(f"[engine] extracción cualitativa omitida: {str(_qe)[:120]}")
-        for _qk in ("recurring_revenue", "largest_customer_share", "customer_shares", "guidance_history"):
+        for _qk in ("recurring_revenue", "largest_customer_share", "customer_shares", "guidance_history",
+                    "retention", "churn", "customer_economics"):
             if _qual.get(_qk) is not None:
                 _overlay[_qk] = _qual[_qk]
 
