@@ -10,3 +10,4 @@ scipy
 httpx
 typer
 pandas
+anthropic>=0.40
