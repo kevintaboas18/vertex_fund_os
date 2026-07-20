@@ -6913,6 +6913,7 @@ def _engine_scorecard(ticker, info, price):
     categories = {}; raw_total = 0.0; conf_num = 0.0; conf_den = 0.0; incomplete = []
     used_specialists = False
     _victor_gates = None; _victor_contradictions = None; _victor_levels = None   # aggregate REAL de Victor (principal)
+    _victor_final_objs = None   # objetos crudos para el reporte final conforme a schema (apéndice de auditoría)
 
     # ── CAMINO PRINCIPAL: los 6 especialistas REALES de Victor sobre el Packet completo ──
     try:
@@ -7165,10 +7166,11 @@ def _engine_scorecard(ticker, info, price):
                     _s = _obk[k].category.score_10
                     return float(_s) if _s is not None else 0.0
                 _cs10 = CategoryScore10s(**{k: _S10(k) for k in WBJ_ORDER})
+                _contras = contradictions(_cs10, _v_rawtot(_cp))
                 _victor_contradictions = [
                     {"combination": _c.combination, "label": getattr(_c, "label", None),
                      "guidance": getattr(_c, "guidance", None)}
-                    for _c in contradictions(_cs10, _v_rawtot(_cp))]
+                    for _c in _contras]
                 # ── SÍNTESIS DE NIVELES DE PRECIO real de Victor (PRICE_LEVEL_SYNTHESIS.md):
                 #    12 clases de nivel (soporte/resistencia/MAs/aVWAP/gaps/bandas de valor) +
                 #    zonas de confluencia, desde technical.important_levels + valuation.reference_bands. ──
@@ -7178,6 +7180,18 @@ def _engine_scorecard(ticker, info, price):
                     if _atr and _atr > 0 and price:
                         _ls = synthesize_levels(_obk["technical"], _obk["valuation"], float(price), float(_atr))
                         _victor_levels = _ls.model_dump()
+                        # Objetos crudos para el reporte final conforme a schema. formula_versions
+                        # se recogen de las filas de métrica REALES de los 6 outputs (no inventadas).
+                        _fv_formulas = sorted({f"{getattr(m, 'formula_id', '')}@{getattr(m, 'formula_version', '')}"
+                                               for _o in (_obk[k] for k in WBJ_ORDER)
+                                               for m in (getattr(_o, "metrics", []) or [])
+                                               if getattr(m, "formula_id", None)})
+                        _victor_final_objs = {
+                            "inputs": _ai, "profile": _pr, "contradictions": _contras, "levels": _ls,
+                            "packet_hash": getattr(pk, "packet_hash", "") or "",
+                            "exchange": getattr(getattr(pk, "security", None), "exchange", "") or "",
+                            "currency": getattr(getattr(pk, "security", None), "reporting_currency", "") or "",
+                            "formula_versions": _fv_formulas}
                 except Exception as _le:
                     print(f"[engine] synthesize_levels omitido: {str(_le)[:120]}")
                 print(f"[engine] {ticker}: aggregate REAL de Victor → perfil '{_pr.label}', "
@@ -7243,6 +7257,8 @@ def _engine_scorecard(ticker, info, price):
         sc["victor_contradictions"] = _victor_contradictions
     if _victor_levels:
         sc["victor_levels"] = _victor_levels               # síntesis de niveles de precio real
+    if _victor_final_objs:
+        sc["_victor_final"] = _victor_final_objs            # objetos crudos para el reporte final (uso interno)
 
     # ── TARGETS + FAIR VALUE de Victor (su targets.py) — deterministas, no del LLM ──
     if dict_packet:
@@ -7899,6 +7915,49 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 analisis_json["re_execution"] = _wbj_reexecution_triggers(ticker, prior_report)
             except Exception as _rxe:
                 print(f"[analyze] disparadores de re-ejecución omitidos: {str(_rxe)[:120]}")
+            # ── REPORTE FINAL conforme a FINAL_REPORT_SCHEMA.md (con APÉNDICE DE AUDITORÍA) ──
+            #    Ensamblado por el `build_final_report` REAL de Victor con sus objetos crudos
+            #    (AggregateInputs, ProfileResult, contradictions, LevelSynthesis) + hash del packet,
+            #    versiones de fórmula reales y validation_summary. La narrativa (executive_thesis,
+            #    7 frases) la suministra el renderer desde la narrativa ya generada. No cambia números.
+            try:
+                _vf = (_eng or {}).get("_victor_final")
+                if _vf:
+                    import datetime as _dtmod
+                    from wbj.schemas.final_report import build_final_report, ExecutiveThesis
+                    def _lvl_px(_l):
+                        if getattr(_l, "zone_low", None) is not None and getattr(_l, "zone_high", None) is not None:
+                            return f"${_l.zone_low}-{_l.zone_high}"
+                        return f"${getattr(_l, 'value', '')}"
+                    _lvls_sum = "; ".join(f"{getattr(_l, 'label', '')} {_lvl_px(_l)}"
+                                          for _l in list(_vf["levels"].levels)[:4]) or "sin niveles sintetizados"
+                    def _nar(*keys):
+                        for _k in keys:
+                            _v = analisis_json.get(_k)
+                            if _v:
+                                return str(_v)[:600]
+                        return ""
+                    _et = ExecutiveThesis(
+                        business_quality=_nar("company_summary_simple", "in_simple_terms"),
+                        value_creation_durability=_nar("posicion_competitiva", "porque_mejor_peor_inversion"),
+                        growth_engine=_nar("calculos_y_crecimiento_ai", "crecimiento_proyectado"),
+                        market_validation=_nar("analistas_consenso"),
+                        valuation_message=_nar("analisis_numeros_actuales", "the_bottom_line"),
+                        key_levels_summary=_lvls_sum[:600],
+                        primary_risk=_nar("biggest_risk", "tesis_riesgos"))
+                    _fr = build_final_report(
+                        inputs=_vf["inputs"], profile=_vf["profile"],
+                        contradictions=_vf["contradictions"], levels=_vf["levels"],
+                        executive_thesis=_et, exchange=_vf["exchange"], currency=_vf["currency"],
+                        analysis_timestamp=_dtmod.datetime.now(_dtmod.timezone.utc).isoformat(),
+                        packet_hashes=({"packet": _vf["packet_hash"]} if _vf["packet_hash"] else {}),
+                        formula_versions=_vf["formula_versions"])
+                    analisis_json["final_report"] = _fr.model_dump(mode="json")
+            except Exception as _fre:
+                print(f"[analyze] reporte final (schema) omitido: {str(_fre)[:150]}")
+            finally:
+                if isinstance(_eng, dict):
+                    _eng.pop("_victor_final", None)   # objeto interno: nunca al cliente
             # ── EXPLICACIÓN EN PALABRAS (2º pase LLM): SOLO explica los números YA congelados
             #    de Victor + su ajuste a tu perfil. NO cambia ningún cálculo (Kevin.md). ──
             try:
