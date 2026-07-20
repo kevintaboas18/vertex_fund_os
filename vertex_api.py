@@ -5965,6 +5965,22 @@ def _wbj_compute(scorecard: dict) -> dict:
     return out
 
 
+# Mapeo único perfil (gate de Victor) → recomendación/clasificación. Centralizado para que
+# el veredicto que ve la narrativa y el que se publica sean SIEMPRE el mismo.
+_WBJ_PROFILE_TO_RECO = {
+    "Momentum Candidate":  ("BUY", "Favorable a invertir"),
+    "Quality Opportunity": ("BUY", "Favorable a invertir"),
+    "Value Opportunity":   ("BUY", "Favorable a invertir"),
+    "Conditional / Watch": ("HOLD", "Condicional — esperar confirmación"),
+    "Speculative":         ("SPECULATIVE", "Especulativa — solo tamaño de riesgo"),
+}
+
+
+def _wbj_reco_from_profile(profile):
+    """Perfil de Victor → (recomendación, clasificación). Avoid/Wait y Weak/Wait → AVOID."""
+    return _WBJ_PROFILE_TO_RECO.get(profile, ("AVOID", "Evitar / esperar"))
+
+
 def _wbj_band(raw: float) -> str:
     if raw >= 90:   return "Elite raw score"
     if raw >= 80:   return "Strong raw score"
@@ -6916,6 +6932,7 @@ def _engine_scorecard(ticker, info, price):
     used_specialists = False
     _victor_gates = None; _victor_contradictions = None; _victor_levels = None   # aggregate REAL de Victor (principal)
     _victor_final_objs = None   # objetos crudos para el reporte final conforme a schema (apéndice de auditoría)
+    _quick_evidence = None      # cobertura de evidencia (0-100) del camino rápido de Victor, si se usa
 
     # ── CAMINO PRINCIPAL: los 6 especialistas REALES de Victor sobre el Packet completo ──
     try:
@@ -7249,6 +7266,10 @@ def _engine_scorecard(ticker, info, price):
         try:
             from wbj.quick import quick_scorecard
             qs = quick_scorecard(dict_packet)
+            # Victor no computa confianza por categoría en quick; SÍ reporta evidence_points_covered
+            # (/100). Ese es su número honesto de "cuánto sabemos" → lo usamos como confianza total
+            # en vez de un 50 fijo (que no es de Victor). Baja evidencia → confianza baja → cap a Speculative.
+            _quick_evidence = qs.get("evidence_points_covered")
             categories = {}; raw_total = 0.0; conf_num = 0.0; conf_den = 0.0; incomplete = []
             for row in qs.get("categories", []):
                 k = row.get("key")
@@ -7281,7 +7302,13 @@ def _engine_scorecard(ticker, info, price):
 
     # Victor: Σ(category_max_points × confidence) / 100 (÷ el 100 fijo, NO por la suma de
     # máximos puntuados). Una categoría N/S baja la confianza total, como en su metodología.
-    total_confidence = round(conf_num / 100.0) if conf_num > 0 else 50
+    # En modo rápido (sin confianza por categoría) usamos evidence_points_covered de Victor.
+    if conf_num > 0:
+        total_confidence = round(conf_num / 100.0)
+    elif _quick_evidence is not None:
+        total_confidence = int(round(float(_quick_evidence)))
+    else:
+        total_confidence = 50
     sc = {"categories": categories, "raw_total": round(raw_total, 1),
           "total_confidence": total_confidence, "incomplete": sorted(set(incomplete))}
     if _victor_gates:
@@ -7529,6 +7556,36 @@ def analyze_ticker(ticker: str):
             except Exception as _eht:
                 print(f"[QuantData] prompt horizon-targets skip: {_eht}")
 
+        # ── ENGINE DE VICTOR PRIMERO: los NÚMEROS mandan y la narrativa los SIGUE
+        #    (FINAL_REPORT_SCHEMA.md: "narrative follows the numbers"). Calculamos el veredicto
+        #    determinista ANTES del prompt para que la prosa del LLM no pueda contradecir el gate. ──
+        try:
+            _eng = _engine_scorecard(ticker, info, precio_actual)
+        except Exception as _eov:
+            print(f"[analyze] overlay Victor omitido: {_eov}"); _eng = None
+        _victor_prompt_block = ""
+        if _eng and _eng.get("categories"):
+            _vg0 = _eng.get("victor_gates") or {}
+            _prof0 = _vg0.get("profile")
+            if not _prof0:                                   # respaldo: gate sobre las categorías
+                try:
+                    _prof0 = _wbj_gates({"categories": _eng["categories"], "raw_total": _eng["raw_total"],
+                                         "total_confidence": _eng["total_confidence"],
+                                         "incomplete": _eng.get("incomplete", [])}).get("profile")
+                except Exception:
+                    _prof0 = None
+            if _prof0:
+                _reco0, _clasif0 = _wbj_reco_from_profile(_prof0)
+                _victor_prompt_block = (
+                    "\nVEREDICTO DETERMINISTA WBJ (motor de Victor — MANDA sobre tu narrativa):\n"
+                    f"- Perfil/gate: {_prof0} | Recomendación FINAL: {_reco0} ({_clasif0})\n"
+                    f"- Raw score: {_eng.get('raw_total')}/100 | Confianza total: {_eng.get('total_confidence')}/100\n"
+                    "Tu prosa (tesis_inversion_completa, should_you_buy_now, the_bottom_line, "
+                    "recomendacion_porque, conviccion_porque) DEBE ser COHERENTE con esta recomendación "
+                    "FINAL: explícala en palabras simples; NUNCA la contradigas ni propongas la acción "
+                    "opuesta. Los targets y el Fair Value son referencia; la clasificación de research la "
+                    "fija el gate determinista de Victor, no tú.\n")
+
         # ── PROMPT GEMINI (AI narrative sobre targets ya calculados) ─────────
         _key_sig = _key_signals_summary(_qd_conv, _qd_confl, _regime_now, _qd_np)
         _earn_block = _earnings_depth_block(earnings_hist, earnings_info)
@@ -7565,7 +7622,7 @@ PRICE TARGETS YA CALCULADOS (usa estos en tu narrativa; NO los modifiques):
 
 INSTRUCCIÓN CRÍTICA:
 Basa tu recomendación final, el Fair Value y tu tesis estrictamente en los **targets a futuro de 1 año** calculados y los **targets de Wall Street (Analyst Mean Target)**. NO bases tu recomendación ni tu Fair Value en el valor intrínseco actual histórico o descontado. Tu decisión e indicador de valor justo deben responder puramente a la proyección futura a 1 año.
-
+{_victor_prompt_block}
 FRAMEWORK DE CONVICCIÓN VERTEX (rellena 'signal_scores' con honestidad y especificidad):
 Puntúa de 0 a 100 cada señal (100 = máximamente favorable/alcista). Estas se ponderan así para la convicción final de la firma:
 - Flujo institucional de opciones — 25% (LA señal de mayor peso, tu edge): busca barridos/bloques, Tipo A ($5M+ en una transacción) y Tipo B (múltiples $1M+ en mismo contrato/strike/exp); delta de convicción institucional 0.60-0.90. Usa el contexto de insiders/13F y Finnhub disponible.
@@ -7870,11 +7927,9 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                                           "debate adversarial Toro/Oso/Árbitro antes de dimensionar."
                                           if _cc >= 75 else None)
 
-        # ── OVERLAY WBJ: sobrescribe los NÚMEROS con los de Victor (engine determinista) ──
-        try:
-            _eng = _engine_scorecard(ticker, info, precio_actual)
-        except Exception as _eov:
-            print(f"[analyze] overlay Victor omitido: {_eov}"); _eng = None
+        # ── OVERLAY WBJ: sobrescribe los NÚMEROS con los de Victor (engine determinista).
+        #    _eng YA se calculó ANTES del prompt (los números mandan, la narrativa los sigue);
+        #    aquí solo se consume — no se recalcula (evita correr los 6 especialistas dos veces). ──
         if _eng and _eng.get("categories"):
             _comp = {"categories": _eng["categories"], "raw_total": _eng["raw_total"],
                      "total_confidence": _eng["total_confidence"], "incomplete": _eng.get("incomplete", [])}
@@ -7884,14 +7939,7 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             _vg = _eng.get("victor_gates")
             if _vg:
                 _prof = _vg["profile"]
-                if _prof in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity"):
-                    _gates["recommendation"], _gates["classification"] = "BUY", "Favorable a invertir"
-                elif _prof == "Conditional / Watch":
-                    _gates["recommendation"], _gates["classification"] = "HOLD", "Condicional — esperar confirmación"
-                elif _prof == "Speculative":
-                    _gates["recommendation"], _gates["classification"] = "SPECULATIVE", "Especulativa — solo tamaño de riesgo"
-                else:  # Avoid / Wait, Weak / Wait
-                    _gates["recommendation"], _gates["classification"] = "AVOID", "Evitar / esperar"
+                _gates["recommendation"], _gates["classification"] = _wbj_reco_from_profile(_prof)
                 _gates["profile"] = _prof
                 _gates["band"] = _vg["band"]
                 _gates["overrides"] = _vg["overrides"]        # los 8 overrides REALES de Victor
