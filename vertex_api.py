@@ -6407,6 +6407,72 @@ def _industry_adapter_hint(info):
     return "Empresa estándar (industrial/servicios)"
 
 
+def _wbj_reexecution_triggers(ticker, prior_report, cik=None):
+    """Disparadores de RE-EJECUCIÓN (CLAUDE.md, sección "Re-ejecución"): decide si la
+    tesis PREVIA guardada quedó obsoleta y este análisis la reemplaza. Determinista, sin
+    LLM, sin inventar. Dos fuentes de evidencia:
+      1) Data vencida — usa la función EXACTA de Victor `staleness_state` (umbrales de
+         DATA_POLICY.md: market 3d, consenso 7d, fundamentales 120d) sobre la EDAD del
+         reporte previo.
+      2) Filings SEC nuevos desde el reporte previo (EDGAR): 10-K/10-Q (nuevo periodo,
+         earnings) y 8-K (evento material: financiamiento/adquisición/legal).
+    Sin reporte previo → nada que revisitar. Si EDGAR no responde, igual devuelve los
+    disparadores por antigüedad (no dependen de red). No cambia ningún número."""
+    if not prior_report:
+        return {"status": "sin_analisis_previo", "recalc_required": False, "triggers": [],
+                "note": "Primer análisis de este ticker; no hay tesis previa que revisitar."}
+    _pdate = (prior_report.get("created_at") or "")[:10]
+    try:
+        _age = (datetime.now() - datetime.strptime(_pdate, "%Y-%m-%d")).days
+    except Exception:
+        return {"status": "fecha_previa_invalida", "recalc_required": False, "triggers": [],
+                "prior_report_date": _pdate or None}
+    triggers = []
+    # 1) DATA VENCIDA — umbrales exactos de Victor (staleness_state).
+    try:
+        import sys
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.packet.staleness import staleness_state, THRESHOLDS_DAYS
+        for _dt, _lbl in (("quarterly_fundamentals", "fundamentales trimestrales"),
+                          ("consensus", "consenso de estimados"),
+                          ("daily_market", "data de mercado diaria")):
+            if staleness_state(_dt, _age) == "STALE":
+                triggers.append({"tipo": "DATA_VENCIDA",
+                                 "detalle": f"El análisis previo tiene {_age}d; {_lbl} vence a los "
+                                            f"{THRESHOLDS_DAYS[_dt]}d (DATA_POLICY.md) → recalcular.",
+                                 "fecha": _pdate})
+    except Exception as _se:
+        print(f"[analyze] staleness omitido: {str(_se)[:100]}")
+    # 2) FILINGS SEC NUEVOS desde el reporte previo (10-K/10-Q/8-K).
+    try:
+        cik = cik or _get_sec_cik(ticker)
+        if cik:
+            import httpx
+            from wbj.providers.edgar import EDGAR_USER_AGENT
+            _r = httpx.get(f"https://data.sec.gov/submissions/CIK{int(cik):010d}.json",
+                           headers={"User-Agent": EDGAR_USER_AGENT}, timeout=20.0)
+            _r.raise_for_status()
+            _rec = (_r.json().get("filings", {}) or {}).get("recent", {}) or {}
+            _forms = _rec.get("form", []); _fdates = _rec.get("filingDate", [])
+            _relevant = {"10-K": "nuevo reporte anual (10-K)",
+                         "10-Q": "nuevo reporte trimestral (10-Q / earnings)",
+                         "8-K": "evento material (8-K): financiamiento / adquisición / legal"}
+            _seen = set()
+            for _f, _fd in zip(_forms, _fdates):
+                if _f in _relevant and _fd > _pdate and _f not in _seen:
+                    _seen.add(_f)
+                    triggers.append({"tipo": "FILING_SEC", "detalle": _relevant[_f], "fecha": _fd})
+    except Exception as _fe:
+        print(f"[analyze] filings SEC para re-ejecución omitidos: {str(_fe)[:100]}")
+    return {"status": "evaluado", "recalc_required": len(triggers) > 0,
+            "prior_report_date": _pdate, "prior_report_age_days": _age,
+            "triggers": triggers,
+            "note": ("La tesis previa quedó obsoleta; este análisis la reemplaza."
+                     if triggers else
+                     "Sin disparadores desde el análisis previo: la tesis anterior sigue vigente.")}
+
+
 def _wbj_levels_ctx(victor_levels):
     """Formatea los niveles Y las confluencias REALES de Victor (synthesize_levels →
     _find_confluences, tolerancia exacta confluence_tolerance) para el prompt de la
@@ -7827,6 +7893,12 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 analisis_json["mandatory_report"]["management"] = _wbj_management_track_record(info)
             except Exception as _mre:
                 print(f"[analyze] contenido obligatorio omitido: {str(_mre)[:120]}")
+            # ── RE-EJECUCIÓN (CLAUDE.md): ¿la tesis previa quedó obsoleta? Disparadores
+            #    deterministas (staleness exacto de Victor + filings SEC nuevos). No cambia números. ──
+            try:
+                analisis_json["re_execution"] = _wbj_reexecution_triggers(ticker, prior_report)
+            except Exception as _rxe:
+                print(f"[analyze] disparadores de re-ejecución omitidos: {str(_rxe)[:120]}")
             # ── EXPLICACIÓN EN PALABRAS (2º pase LLM): SOLO explica los números YA congelados
             #    de Victor + su ajuste a tu perfil. NO cambia ningún cálculo (Kevin.md). ──
             try:
@@ -7845,6 +7917,11 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 _prior_ctx = (f"\n=== TESIS PREVIA (Memoria) ===\n{_prior_thesis[:900]}\n"
                               "Si esta llamada contradice la tesis previa, la explicación debe señalarlo.\n"
                               if _prior_thesis else "")
+                # Re-ejecución: dile al LLM qué disparó reemplazar la tesis previa (si algo).
+                _rex = analisis_json.get("re_execution") or {}
+                if _rex.get("triggers"):
+                    _prior_ctx += ("RE-EJECUCIÓN: la tesis previa quedó obsoleta por: "
+                                   + "; ".join(t.get("detalle", "") for t in _rex["triggers"]) + "\n")
                 _ctx = (
                     f"TICKER: {ticker} — {info.get('longName', ticker)} | precio ${precio_actual}\n"
                     f"PERFIL/BANDA: {_wj.get('profile')} — {_wj.get('band')}\n"
