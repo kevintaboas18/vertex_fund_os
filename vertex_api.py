@@ -7153,7 +7153,18 @@ def _engine_scorecard(ticker, info, price):
                         _preprofit = float(_niv.value) < 0
                 except Exception:
                     pass
+                # runway_unfunded: bullet de Speculative "financing runway <12 meses sin fondeo
+                # comprometido". La señal REAL de Victor es risk.cash_runway_months (RSK-RUN-015,
+                # ya incluye la liquidez comprometida); <12 → dispara Speculative. Antes iba en
+                # False por defecto y el bullet nunca se evaluaba.
+                _runway_unfunded = False
+                try:
+                    _rmths = (getattr(_obk["risk"], "liquidity_and_solvency", {}) or {}).get("cash_runway_months")
+                    _runway_unfunded = (_rmths is not None and float(_rmths) < 12.0)
+                except Exception:
+                    pass
                 _pr = apply_gates(_v_rawtot(_cp), _cp, _cc, _ovr,
+                                  runway_unfunded=_runway_unfunded,
                                   pre_profit=_preprofit, valuation_mandatory_flags=_valflags)
                 _victor_gates = {
                     "profile": _pr.label, "band": _pr.descriptive_band,
@@ -7166,10 +7177,30 @@ def _engine_scorecard(ticker, info, price):
                     _s = _obk[k].category.score_10
                     return float(_s) if _s is not None else 0.0
                 _cs10 = CategoryScore10s(**{k: _S10(k) for k in WBJ_ORDER})
-                _contras = contradictions(_cs10, _v_rawtot(_cp))
+                # Row 6 (CONTRADICTION_RESOLUTION.md "DCF high, reverse DCF demanding") solo se
+                # evalúa si se pasa el contexto reverse-DCF. Se arma con los números YA congelados
+                # de valuación: upside del escenario Base + crecimiento implícito (reverse DCF) vs
+                # el crecimiento de referencia (supuesto del escenario Base, fallback documentado).
+                _rdcf_ctx = None
+                try:
+                    from wbj.aggregate.contradiction import ReverseDCFContext
+                    _base_ps = _base_growth = None
+                    for _s in (getattr(_obk["valuation"], "scenarios", None) or []):
+                        if getattr(_s, "name", "") == "Base":
+                            _base_ps = _s.per_share_value
+                            _base_growth = (_s.assumptions or {}).get("growth")
+                    _implied = getattr(getattr(_obk["valuation"], "reverse_dcf", None), "implied_revenue_cagr", None)
+                    if _base_ps and price and _implied is not None and _base_growth is not None:
+                        _rdcf_ctx = ReverseDCFContext(
+                            base_case_upside_pct=(float(_base_ps) - float(price)) / float(price),
+                            reverse_dcf_implied_growth=float(_implied),
+                            reference_growth=float(_base_growth))
+                except Exception as _rce:
+                    print(f"[engine] contexto reverse-DCF (row 6) omitido: {str(_rce)[:100]}")
+                _contras = contradictions(_cs10, _v_rawtot(_cp), reverse_dcf=_rdcf_ctx)
                 _victor_contradictions = [
                     {"combination": _c.combination, "label": getattr(_c, "label", None),
-                     "guidance": getattr(_c, "guidance", None)}
+                     "interpretation": getattr(_c, "interpretation", None)}
                     for _c in _contras]
                 # ── SÍNTESIS DE NIVELES DE PRECIO real de Victor (PRICE_LEVEL_SYNTHESIS.md):
                 #    12 clases de nivel (soporte/resistencia/MAs/aVWAP/gaps/bandas de valor) +
