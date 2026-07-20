@@ -6407,6 +6407,41 @@ def _industry_adapter_hint(info):
     return "Empresa estándar (industrial/servicios)"
 
 
+def _wbj_levels_ctx(victor_levels):
+    """Formatea los niveles Y las confluencias REALES de Victor (synthesize_levels →
+    _find_confluences, tolerancia exacta confluence_tolerance) para el prompt de la
+    explicación. Así el campo 'niveles_y_confluencia' se explica sobre el cálculo
+    determinista de Victor y NO sobre una adivinanza del LLM. No cambia ningún número."""
+    vl = victor_levels or {}
+    levels = vl.get("levels") or []
+    confs = vl.get("confluences") or []
+    lines = []
+    for lv in levels[:12]:
+        if not isinstance(lv, dict):
+            continue
+        _lo, _hi, _v = lv.get("zone_low"), lv.get("zone_high"), lv.get("value")
+        if _lo is not None and _hi is not None:
+            _px = f"${_lo}–${_hi}"
+        elif _v is not None:
+            _px = f"${_v}"
+        else:
+            _px = "s/precio"
+        _d = lv.get("distance_percent")
+        _dtxt = f", {_d:+.1f}% del spot" if isinstance(_d, (int, float)) else ""
+        lines.append(f"  · [{lv.get('level_class', '?')}] {lv.get('label', '')}: {_px}"
+                     f"{_dtxt}{(' — ' + lv['status']) if lv.get('status') else ''}")
+    ltxt = "\n".join(lines) if lines else "  (sin niveles)"
+    if confs:
+        ctxt = "\n".join(
+            f"  · CONFLUENCIA {'+'.join(c.get('level_labels') or [])} en ${c.get('low')}–${c.get('high')}"
+            f" — {c.get('note', '')}"
+            for c in confs if isinstance(c, dict))
+    else:
+        ctxt = ("  (sin confluencias: ningún nivel técnico y de valuación se solapan dentro de la "
+                "tolerancia de Victor — NO se promedian)")
+    return f"{ltxt}\nZONAS DE CONFLUENCIA (técnico∩valuación, NUNCA promediar):\n{ctxt}"
+
+
 def _wbj_read_thesis_md(ticker):
     """Lee Memoria/tesis/<TICKER>.md (tesis previa) para el prompt. '' si no hay."""
     p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "tesis", f"{ticker.upper()}.md")
@@ -7823,7 +7858,7 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                     f"TARGETS 12m: bull ${analisis_json.get('target_bull_12m')} / base "
                     f"${analisis_json.get('target_base_12m')} / bear ${analisis_json.get('target_bear_12m')} "
                     f"| fair value ${analisis_json.get('fair_value')}\n"
-                    f"NIVELES: {len((_eng.get('victor_levels') or {}).get('levels', []))} niveles de precio sintetizados\n"
+                    f"NIVELES (synthesize_levels de Victor):\n{_wbj_levels_ctx(_eng.get('victor_levels'))}\n"
                     f"FIT DE PERFIL (determinista): {_pf.get('fit')} — {_pf.get('fit_reason')}\n"
                     + _prior_ctx +
                     f"\n=== MI PERFIL ({_pname or 'Kevin'}) ===\n{_ptext}")
