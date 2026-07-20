@@ -6051,8 +6051,10 @@ def _wbj_gates(comp: dict) -> dict:
     elif profile is None:
         profile = "Avoid / Wait"
 
-    # Override de riesgo: cap a Speculative si Risk ≤4 (nunca perfil de calidad)
-    if rsk <= 4 and profile in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity"):
+    # Cap a Speculative aunque un gate haya pasado, igual que apply_gates de Victor: además de
+    # Risk ≤4/15, la confianza total <60 FUERZA Speculative (apply_gates devuelve Speculative
+    # antes de resolver los gates cuando conf_total<60). Antes el backup solo capaba por Risk.
+    if profile in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity") and (rsk <= 4 or tconf < 60):
         profile = "Speculative"
 
     # Clasificación de research + recomendación de compatibilidad (persistencia/histórico)
