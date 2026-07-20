@@ -7951,8 +7951,21 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 analisis_json["target_bull_12m"] = targets["12m"]["bull"]
                 analisis_json["target_base_12m"] = targets["12m"]["base"]
                 analisis_json["target_bear_12m"] = targets["12m"]["bear"]
+            # Override 7 (SCORING_AND_GATES.md / MAIN-009 / MAIN-010): un conflicto o ausencia de
+            # share-count/debt/cash/price NO RESUELTO prohíbe publicar la valuación POR ACCIÓN.
+            # Si el override disparó, se SUPRIME fair_value/upside (per-share) en vez de publicarlo.
+            _ps_suppress = [_o for _o in (_gates.get("overrides") or [])
+                            if _o in ("OVERRIDE_7_MISSING_SHARE_COUNT", "OVERRIDE_7_DATA_CONFLICT_SUPPRESS_PER_SHARE")]
             _vfv = _eng.get("victor_fair_value")
-            if _vfv:
+            if _ps_suppress:
+                analisis_json["fair_value"] = None
+                analisis_json["upside_pct"] = None
+                analisis_json["valuation_per_share_suppressed"] = {
+                    "active": True, "overrides": _ps_suppress,
+                    "reason": ("Valuación por acción suprimida: conflicto/ausencia material NO resuelto "
+                               "de share-count/deuda/caja/precio (Override 7, MAIN-009/010). Sin un "
+                               "conteo de acciones confiable no se publica un valor por acción.")}
+            elif _vfv:
                 analisis_json["fair_value"] = round(float(_vfv), 2)
                 analisis_json["upside_pct"] = round(((float(_vfv) - precio_actual) / precio_actual) * 100, 2) if precio_actual else 0.0
             analisis_json["recommendation"] = _gates["recommendation"]
