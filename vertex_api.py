@@ -6933,12 +6933,19 @@ def _engine_scorecard(ticker, info, price):
     _victor_gates = None; _victor_contradictions = None; _victor_levels = None   # aggregate REAL de Victor (principal)
     _victor_final_objs = None   # objetos crudos para el reporte final conforme a schema (apéndice de auditoría)
     _quick_evidence = None      # cobertura de evidencia (0-100) del camino rápido de Victor, si se usa
+    _pk_staleness = None        # frescura por tipo de dato del packet ACTUAL (DATA_POLICY.md)
 
     # ── CAMINO PRINCIPAL: los 6 especialistas REALES de Victor sobre el Packet completo ──
     try:
         prov = Providers(fmp=FMPProvider(settings, cache), edgar=EdgarProvider(settings, cache),
                          finnhub=FinnhubProvider(settings, cache), fred=FredProvider(settings, cache))
         pk = build_packet(ticker, prov, datetime.now(timezone.utc))
+        # DATA_POLICY.md: la frescura del packet ACTUAL (FRESH/STALE por tipo de dato) afecta la
+        # confianza y puede pedir RECALC. Victor ya la computa en pk.staleness; la surfaceamos.
+        try:
+            _pk_staleness = {str(k): str(v) for k, v in (getattr(pk, "staleness", {}) or {}).items()}
+        except Exception:
+            _pk_staleness = None
 
         # ── ADAPTADOR DE INDUSTRIA: el builder de Victor fija 'default_nonfinancial' para TODO.
         #    Para bancos/aseguradoras/REITs las fórmulas de ROIC/moat no aplican; si se deja el
@@ -7345,6 +7352,8 @@ def _engine_scorecard(ticker, info, price):
         sc["victor_levels"] = _victor_levels               # síntesis de niveles de precio real
     if _victor_final_objs:
         sc["_victor_final"] = _victor_final_objs            # objetos crudos para el reporte final (uso interno)
+    if _pk_staleness:
+        sc["packet_staleness"] = _pk_staleness             # frescura por tipo de dato (DATA_POLICY.md)
 
     # ── TARGETS + FAIR VALUE de Victor (su targets.py) — deterministas, no del LLM ──
     if dict_packet:
@@ -8006,6 +8015,11 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 # HANDOFF_CONTRACT.md (AGENT.md #5 "preserve warnings" / PROMPT.md #2): la validación
                 # del traspaso de los 6 packets se SURFACEA (antes solo iba a logs). {} = todo válido.
                 "handoff_validation": (_vg or {}).get("handoff_issues") or {},
+                # DATA_POLICY.md: frescura del packet ACTUAL por tipo de dato (afecta confianza y
+                # puede pedir RECALC). recalc_recommended = hay ≥1 tipo de dato STALE.
+                "data_staleness": _eng.get("packet_staleness") or {},
+                "recalc_recommended": bool(_eng.get("packet_staleness") and
+                                           any(v == "STALE" for v in (_eng.get("packet_staleness") or {}).values())),
                 "gates_source": _gates.get("_source", "gates de compatibilidad"),
                 "scores_source": "engine determinista (metodología de Victor)"}
             analisis_json["victor_targets_detail"] = _eng.get("victor_targets_detail")
@@ -8080,6 +8094,7 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                     # añade la validación del traspaso HANDOFF_CONTRACT a validation_summary.
                     _hi = (_eng.get("victor_gates") or {}).get("handoff_issues") or {}
                     _frd.setdefault("audit", {}).setdefault("validation_summary", {})["handoff_issues"] = _hi
+                    _frd["audit"]["validation_summary"]["data_staleness"] = _eng.get("packet_staleness") or {}
                     analisis_json["final_report"] = _frd
             except Exception as _fre:
                 print(f"[analyze] reporte final (schema) omitido: {str(_fre)[:150]}")
