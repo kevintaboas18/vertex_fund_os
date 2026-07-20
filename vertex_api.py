@@ -6407,68 +6407,6 @@ def _industry_adapter_hint(info):
     return "Empresa estándar (industrial/servicios)"
 
 
-def _wbj_coherence(comp, gates):
-    """Flags de contradicción (Cerebro/00_main_agent/CONTRADICTION_RESOLUTION.md).
-    SON INFORMATIVOS: no cambian ni un punto. Solo señalan tensiones para explicar."""
-    c = comp["categories"]
-    def P(k): return c.get(k, {}).get("points", 0.0)
-    flags = []
-    raw, tconf = comp["raw_total"], comp["total_confidence"]
-    prof = gates["profile"]
-    if P("business") >= 16 and P("technical") <= 8:
-        flags.append({"tipo": "Negocio fuerte, técnico débil",
-                      "detalle": "La calidad puede estar intacta pero el timing no está confirmado (esperar confirmación)."})
-    if P("business") <= 8 and P("technical") >= 15:
-        flags.append({"tipo": "Negocio débil, técnico fuerte",
-                      "detalle": "Liderazgo de precio sin economía durable — momentum especulativo."})
-    if P("valuation") >= 8 and P("technical") <= 8:
-        flags.append({"tipo": "Valuación atractiva, técnico débil",
-                      "detalle": "Posible value trap: barata pero sin confirmación del mercado."})
-    if raw >= 75 and tconf < 60:
-        flags.append({"tipo": "Score alto, confianza baja",
-                      "detalle": "El agregado luce fuerte pero la evidencia es escasa/vieja — trata el número con cautela."})
-    if prof in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity") and P("risk") <= 6:
-        flags.append({"tipo": "Perfil favorable con riesgo elevado",
-                      "detalle": "El agregado puede esconder riesgo de supervivencia; revisa el override de riesgo."})
-    if comp.get("incomplete"):
-        labs = ", ".join(WBJ_CATEGORIES[k]["label"] for k in comp["incomplete"])
-        flags.append({"tipo": "Cobertura incompleta",
-                      "detalle": f"Categoría(s) con <70% de evidencia: {labs}. No pueden pasar un gate de perfil."})
-    return flags
-
-
-def _wbj_confluence_zones(levels, atr, price):
-    """Zonas de confluencia (Cerebro/00_main_agent/PRICE_LEVEL_SYNTHESIS.md):
-    existe confluencia cuando un nivel TÉCNICO y uno de VALUACIÓN se solapan
-    dentro de max(0.50*ATR14, 0.75% del precio). NUNCA promedia — solo reporta
-    el solape. Fórmula exacta de Victor; no cambia scores."""
-    try:
-        atr_f = float(atr) if atr not in (None, "N/A", "") else None
-    except (TypeError, ValueError):
-        atr_f = None
-    tol = max((0.5 * atr_f) if atr_f else 0.0, 0.0075 * float(price)) if price else 0.0
-    if tol <= 0:
-        return []
-    tech = [l for l in levels if "técn" in (l.get("lente", "").lower()) or "tecn" in (l.get("lente", "").lower())]
-    val = [l for l in levels if "valu" in (l.get("lente", "").lower())]
-    zones = []
-    for t in tech:
-        for v in val:
-            try:
-                tv, vv = float(t["valor"]), float(v["valor"])
-            except (TypeError, ValueError, KeyError):
-                continue
-            if abs(tv - vv) <= tol:
-                mid = round((tv + vv) / 2, 2)
-                zones.append({
-                    "zona": mid, "tolerancia": round(tol, 2),
-                    "tecnico": {"tipo": t.get("tipo"), "valor": tv},
-                    "valuacion": {"tipo": v.get("tipo"), "valor": vv},
-                    "dist_pct": round((mid - float(price)) / float(price) * 100, 1) if price else None})
-    zones.sort(key=lambda z: abs(z.get("dist_pct") or 999))
-    return zones
-
-
 def _wbj_read_thesis_md(ticker):
     """Lee Memoria/tesis/<TICKER>.md (tesis previa) para el prompt. '' si no hay."""
     p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "tesis", f"{ticker.upper()}.md")
