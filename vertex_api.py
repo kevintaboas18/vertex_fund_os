@@ -6159,6 +6159,47 @@ def _load_investor_profile():
     return None, ""
 
 
+_US_EXCHANGES = {"NMS", "NGM", "NCM", "NIM", "NYQ", "NYS", "ASE", "PCX", "BATS",
+                 "AMEX", "NASDAQ", "NYSE", "NASDAQGS", "NASDAQGM", "NASDAQCM"}
+
+
+def _wbj_profile_fit(info, recommendation):
+    """Filtro por perfil del ORQUESTADOR (CLAUDE.md paso 6): cruza la recomendación de
+    research con el perfil de Kevin (Perfil Inversionista/Kevin.md). NO cambia el scoring
+    (Kevin.md lo dice explícitamente); es una CLASIFICACIÓN de fit con evidencia del perfil.
+    Anclado SOLO en hechos del perfil: universo EE.UU., tolerancia agresiva/especulativa,
+    capital ~$1,000. Devuelve None si no hay perfil."""
+    name, text = _load_investor_profile()
+    if not text:
+        return None
+    # Universo: Kevin invierte SOLO en EE.UU. → chequeo determinista del listado.
+    _exch = (info.get("exchange") or "").upper()
+    _country = info.get("country") or ""
+    universe_ok = (_exch in _US_EXCHANGES) or (_country == "United States")
+    rec = (recommendation or "").upper()
+    if not universe_ok:
+        fit, reason = "fuera-de-universo", "Kevin invierte solo en EE.UU.; este valor no cotiza en EE.UU."
+    elif rec == "BUY":
+        fit, reason = "apto", "Clasificación favorable, dentro de tu universo y tolerancia."
+    elif rec == "SPECULATIVE":
+        fit, reason = "apto-especulativo", ("Especulativa, pero dentro de tu tolerancia agresiva/especulativa "
+                                            "— cuida el sizing (riesgo de ruina con ~$1,000 + opciones).")
+    elif rec == "HOLD":
+        fit, reason = "condicional", "Condicional — esperar confirmación antes de dimensionar."
+    else:
+        fit, reason = "evitar", "El research no favorece invertir ahora."
+    return {
+        "profile_name": name, "universe_ok": bool(universe_ok),
+        "universo": "Estados Unidos", "tolerancia": "agresivo / especulativo",
+        "horizonte": "1-3 años (+ opciones semanas-meses; ingresos 5+ años)",
+        "instrumentos": "acciones / ETF / opciones (EE.UU.); sin forex ni cripto",
+        "capital": "~$1,000 USD",
+        "sizing_note": ("Capital pequeño + opciones → cuida el riesgo de ruina; prioriza "
+                        "probabilidad de éxito y puntos de entrada/salida (timing)."),
+        "fit": fit, "fit_reason": reason,
+        "disclaimer": "Clasificación de research; nunca una orden automática. La ejecución es manual y tuya."}
+
+
 def _industry_adapter_hint(info):
     """Mapea sector/industria (yfinance) a un adaptador del Cerebro
     (shared/INDUSTRY_ADAPTERS.md). Solo es una PISTA para que la explicación use
@@ -7602,6 +7643,12 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             analisis_json["victor_targets_detail"] = _eng.get("victor_targets_detail")
             analisis_json["financials_annual"] = _eng.get("financials_annual")
             analisis_json["victor_levels"] = _eng.get("victor_levels")   # niveles de precio (synthesize_levels)
+            # ── FILTRO POR PERFIL (orquestador, CLAUDE.md paso 6): cruza la recomendación con
+            #    el perfil de Kevin. No cambia el scoring; clasifica el fit con evidencia. ──
+            try:
+                analisis_json["profile_fit"] = _wbj_profile_fit(info, _gates.get("recommendation"))
+            except Exception as _pfe:
+                print(f"[analyze] filtro por perfil omitido: {str(_pfe)[:120]}")
             analisis_json["scores_source"] = "victor"
 
         # ── MEMORY: compare with prior report + persist this one ─────────────
