@@ -6979,6 +6979,28 @@ def _engine_scorecard(ticker, info, price):
                 _overlay["beta"] = float(info["beta"])
         except Exception:
             pass
+        # Risk-free rate: respaldo si el packet (FRED) no lo trae. FRED es OPCIONAL; sin rf,
+        # Victor no computa Ke → sin WACC → business/financial colapsan. Victor lee
+        # overlay.get("risk_free_rate", packet.estimates["risk_free_rate"]) — mismo punto de
+        # inyección que el WACC/beta. Fuente REAL (no inventada): rendimiento del Treasury 10Y
+        # (yfinance ^TNX), con normalización de escala y banda de sanidad.
+        try:
+            _pkt_rf = (getattr(pk, "estimates", {}) or {}).get("risk_free_rate")
+            if _pkt_rf is None:
+                _rfv = None
+                try:
+                    _rfv = float(yf.Ticker("^TNX").fast_info.get("lastPrice"))
+                except Exception:
+                    _htnx = yf.Ticker("^TNX").history(period="5d")
+                    if _htnx is not None and not _htnx.empty:
+                        _rfv = float(_htnx["Close"].dropna().iloc[-1])
+                if _rfv is not None:
+                    _rf_dec = _rfv / 100.0 if _rfv > 1.0 else _rfv   # ^TNX cotiza en % (4.25 → 0.0425)
+                    if 0.005 <= _rf_dec <= 0.10:                     # banda de sanidad; fuera → no inyectar
+                        _overlay["risk_free_rate"] = _rf_dec
+                        print(f"[engine] {ticker}: risk_free_rate de respaldo (^TNX 10Y) = {_rf_dec:.4f}")
+        except Exception:
+            pass
         _vo = None
         try:
             _vo = _val.run(pk, overlay=(_overlay or None))   # valuation primero → su WACC
