@@ -7649,6 +7649,42 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 analisis_json["profile_fit"] = _wbj_profile_fit(info, _gates.get("recommendation"))
             except Exception as _pfe:
                 print(f"[analyze] filtro por perfil omitido: {str(_pfe)[:120]}")
+            # ── EXPLICACIÓN EN PALABRAS (2º pase LLM): SOLO explica los números YA congelados
+            #    de Victor + su ajuste a tu perfil. NO cambia ningún cálculo (Kevin.md). ──
+            try:
+                _pname, _ptext = _load_investor_profile()
+                _wj = analisis_json.get("wbj") or {}
+                _cts = _wj.get("categories") or {}
+                _catl = []
+                for _ck in WBJ_ORDER:
+                    _cc2 = _cts.get(_ck) or {}
+                    _catl.append(f"- {_cc2.get('label', _ck)}: {_cc2.get('score10')}/10 "
+                                 f"({_cc2.get('points')}/{_cc2.get('max')} pts, "
+                                 f"cob {int((_cc2.get('coverage') or 0) * 100)}%, {_cc2.get('status')})")
+                _pf = analisis_json.get("profile_fit") or {}
+                _ctx = (
+                    f"TICKER: {ticker} — {info.get('longName', ticker)} | precio ${precio_actual}\n"
+                    f"PERFIL/BANDA: {_wj.get('profile')} — {_wj.get('band')}\n"
+                    f"RAW TOTAL: {_wj.get('raw_total')}/100 | CONFIANZA TOTAL: {_wj.get('total_confidence')}\n"
+                    "CATEGORÍAS (score de Victor, no cambiar):\n" + "\n".join(_catl) + "\n"
+                    f"GATES PASADOS: {[g.get('gate') for g in _wj.get('passed_gates', []) if isinstance(g, dict)]}\n"
+                    f"GATES FALLIDOS: {[g.get('gate') for g in _wj.get('failed_gates', []) if isinstance(g, dict)]}\n"
+                    f"OVERRIDES ACTIVOS: {_wj.get('overrides')}\n"
+                    f"WARNINGS: {_wj.get('warnings')}\n"
+                    f"CONTRADICCIONES: {[c.get('combination') for c in (_wj.get('contradictions') or [])]}\n"
+                    f"TARGETS 12m: bull ${analisis_json.get('target_bull_12m')} / base "
+                    f"${analisis_json.get('target_base_12m')} / bear ${analisis_json.get('target_bear_12m')} "
+                    f"| fair value ${analisis_json.get('fair_value')}\n"
+                    f"NIVELES: {len((_eng.get('victor_levels') or {}).get('levels', []))} niveles de precio sintetizados\n"
+                    f"FIT DE PERFIL (determinista): {_pf.get('fit')} — {_pf.get('fit_reason')}\n\n"
+                    f"=== MI PERFIL ({_pname or 'Kevin'}) ===\n{_ptext}")
+                _expl, _expl_src = _wbj_explain(_ctx)
+                if _expl:
+                    analisis_json["wbj_explanation"] = _expl
+                    analisis_json["wbj_explanation_source"] = _expl_src
+                    print(f"[analyze] {ticker}: explicación WBJ en palabras generada ({_expl_src})")
+            except Exception as _ee:
+                print(f"[analyze] explicación WBJ omitida: {str(_ee)[:120]}")
             analisis_json["scores_source"] = "victor"
 
         # ── MEMORY: compare with prior report + persist this one ─────────────
