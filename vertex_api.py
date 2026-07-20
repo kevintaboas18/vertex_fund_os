@@ -6287,6 +6287,109 @@ def _wbj_mandatory_report(insiders, recommendation, next_earnings_date=None, fmp
     return out
 
 
+# Roles clave del management (para el historial obligatorio del reporte, CLAUDE.md #4).
+_WBJ_KEY_ROLES = ("chief executive", "ceo", "founder", "co-founder", "cofounder",
+                  "chairman", "chief financial", "cfo", "president", "chief operating", "coo")
+
+
+def _wbj_management_roster(info):
+    """Roster FACTUAL del management desde yfinance `companyOfficers` (FMP no expone
+    ejecutivos → se usa yfinance, que siempre trae este campo). Determinista, sin LLM:
+    nombre, cargo, edad, año de nacimiento, compensación total. Marca los roles CLAVE
+    (CEO/CFO/fundador/chairman/presidente/COO). NO cambia el scoring."""
+    officers = info.get("companyOfficers") or []
+    roster = []
+    for o in officers:
+        if not isinstance(o, dict):
+            continue
+        name = (o.get("name") or "").strip()
+        title = (o.get("title") or "").strip()
+        if not name:
+            continue
+        tl = title.lower()
+        roster.append({
+            "name": name, "title": title,
+            "is_key": any(k in tl for k in _WBJ_KEY_ROLES),
+            "age": o.get("age"), "year_born": o.get("yearBorn"),
+            "total_pay": o.get("totalPay"), "fiscal_year": o.get("fiscalYear"),
+        })
+    # Los roles clave primero (más relevantes para el historial), luego por compensación.
+    roster.sort(key=lambda r: (not r["is_key"], -(r.get("total_pay") or 0)))
+    return roster
+
+
+def _wbj_management_track_record(info, settings=None):
+    """Contenido OBLIGATORIO del reporte (CLAUDE.md #4): "si el management tiene historial
+    en otras empresas exitosas". Dos capas SEPARADAS:
+      (a) roster FACTUAL (yfinance companyOfficers) — determinista, siempre disponible.
+      (b) historial en otras empresas — evaluación cualitativa OPCIONAL vía Claude, GROUNDED:
+          solo trayectorias VERIFICABLES y conocidas; si no hay certeza -> 'no_verificable'.
+          Respeta 'No inventes nada': el default es no_verificable, nunca fabrica.
+    Nunca cambia el scoring."""
+    roster = _wbj_management_roster(info)
+    out = {"roster": roster, "source": "yfinance companyOfficers",
+           "note": "Roster factual. FMP no expone ejecutivos; yfinance sí (companyOfficers)."}
+    if not roster:
+        out["track_record"] = {"status": "sin_datos",
+                               "note": "yfinance no devolvió ejecutivos para este ticker."}
+        return out
+    # (b) Historial en otras empresas — SOLO si hay key de Claude; grounded y conservador.
+    try:
+        if settings is None:
+            import sys
+            if _WBJ_ENGINE_PATH not in sys.path:
+                sys.path.insert(0, _WBJ_ENGINE_PATH)
+            from wbj.config import load_settings
+            settings = load_settings()
+            if not getattr(settings, "anthropic_api_key", None):
+                settings.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
+        key = getattr(settings, "anthropic_api_key", None)
+    except Exception:
+        key = os.environ.get("ANTHROPIC_API_KEY")
+        settings = None
+    if not key:
+        out["track_record"] = {"status": "no_evaluado",
+                               "note": "Sin ANTHROPIC_API_KEY: el historial cualitativo queda sin evaluar (el roster factual sí está)."}
+        return out
+    keyexecs = [r for r in roster if r["is_key"]][:6] or roster[:6]
+    company = info.get("longName") or info.get("shortName") or ""
+    try:
+        import anthropic, json as _json, re as _re
+        _client = anthropic.Anthropic(api_key=key)
+        _sys = ("Eres un analista de research. Evalúas SOLO trayectorias PÚBLICAS y VERIFICABLES "
+                "de ejecutivos: cargos previos de alto nivel (CEO/CFO/fundador) en OTRAS empresas "
+                "reconocidas y su resultado (éxito/fracaso). Regla dura: si NO estás seguro de un "
+                "dato, usa 'no_verificable' y deja prior_companies vacío. NUNCA inventes empresas, "
+                "cargos ni resultados. Responde ÚNICAMENTE con JSON válido, sin texto alrededor.")
+        _roster_txt = "\n".join(f"- {r['name']} — {r['title']}" for r in keyexecs)
+        _schema = ('{"executives": [{"name": string, "current_title": string, '
+                   '"prior_companies": [{"company": string, "role": string, "outcome": string}], '
+                   '"assessment": "verificable"|"no_verificable", "note": string}], '
+                   '"overall": string}')
+        _msg = _client.messages.create(
+            model=getattr(settings, "judge_model", "claude-opus-4-8") if settings else "claude-opus-4-8",
+            max_tokens=1024, system=_sys,
+            messages=[{"role": "user", "content":
+                       f"Empresa: {company}. Ejecutivos clave:\n{_roster_txt}\n\n"
+                       "¿Alguno tiene historial de alto nivel en OTRAS empresas exitosas? "
+                       "Devuelve este JSON (usa 'no_verificable' si no estás seguro):\n" + _schema}],
+        )
+        _raw = "".join(getattr(b, "text", "") for b in _msg.content)
+        _m = _re.search(r"\{.*\}", _raw, _re.DOTALL)
+        if _m:
+            _d = _json.loads(_m.group(0))
+            out["track_record"] = {"status": "evaluado", "source": "Claude (grounded)",
+                                   "executives": _d.get("executives") or [],
+                                   "overall": _d.get("overall") or "",
+                                   "note": "Evaluación cualitativa asistida por LLM; solo cuenta lo marcado 'verificable'."}
+        else:
+            out["track_record"] = {"status": "no_evaluado", "note": "Respuesta del LLM no parseable."}
+    except Exception as _e:
+        print(f"[analyze] historial del management omitido: {str(_e)[:120]}")
+        out["track_record"] = {"status": "no_evaluado", "note": "El historial cualitativo no se pudo evaluar (el roster factual sí está)."}
+    return out
+
+
 def _industry_adapter_hint(info):
     """Mapea sector/industria (yfinance) a un adaptador del Cerebro
     (shared/INDUSTRY_ADAPTERS.md). Solo es una PISTA para que la explicación use
@@ -7746,6 +7849,9 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 _fmp_imp = _wbj_fmp_important_insiders(ticker)   # FMP si hay key; None → yfinance
                 analisis_json["mandatory_report"] = _wbj_mandatory_report(
                     insiders_snapshot, _gates.get("recommendation"), _nxt, fmp_important=_fmp_imp)
+                # CLAUDE.md #4: historial del management (roster factual + trayectoria en otras
+                # empresas exitosas). Roster siempre; la parte cualitativa es grounded/opcional.
+                analisis_json["mandatory_report"]["management"] = _wbj_management_track_record(info)
             except Exception as _mre:
                 print(f"[analyze] contenido obligatorio omitido: {str(_mre)[:120]}")
             # ── EXPLICACIÓN EN PALABRAS (2º pase LLM): SOLO explica los números YA congelados
