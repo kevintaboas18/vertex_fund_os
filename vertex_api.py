@@ -7964,6 +7964,9 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 "passed_gates": _gates["passed_gates"], "failed_gates": _gates["failed_gates"],
                 "overrides": _gates["overrides"], "warnings": _gates.get("warnings", []),
                 "contradictions": _eng.get("victor_contradictions") or [],
+                # HANDOFF_CONTRACT.md (AGENT.md #5 "preserve warnings" / PROMPT.md #2): la validación
+                # del traspaso de los 6 packets se SURFACEA (antes solo iba a logs). {} = todo válido.
+                "handoff_validation": (_vg or {}).get("handoff_issues") or {},
                 "gates_source": _gates.get("_source", "gates de compatibilidad"),
                 "scores_source": "engine determinista (metodología de Victor)"}
             analisis_json["victor_targets_detail"] = _eng.get("victor_targets_detail")
@@ -8033,7 +8036,12 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                         analysis_timestamp=_dtmod.datetime.now(_dtmod.timezone.utc).isoformat(),
                         packet_hashes=({"packet": _vf["packet_hash"]} if _vf["packet_hash"] else {}),
                         formula_versions=_vf["formula_versions"])
-                    analisis_json["final_report"] = _fr.model_dump(mode="json")
+                    _frd = _fr.model_dump(mode="json")
+                    # Apéndice de auditoría (FINAL_REPORT_SCHEMA Fase 8 "formula and source audit"):
+                    # añade la validación del traspaso HANDOFF_CONTRACT a validation_summary.
+                    _hi = (_eng.get("victor_gates") or {}).get("handoff_issues") or {}
+                    _frd.setdefault("audit", {}).setdefault("validation_summary", {})["handoff_issues"] = _hi
+                    analisis_json["final_report"] = _frd
             except Exception as _fre:
                 print(f"[analyze] reporte final (schema) omitido: {str(_fre)[:150]}")
             finally:
