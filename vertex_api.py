@@ -6200,6 +6200,93 @@ def _wbj_profile_fit(info, recommendation):
         "disclaimer": "Clasificación de research; nunca una orden automática. La ejecución es manual y tuya."}
 
 
+def _wbj_fmp_important_insiders(ticker):
+    """Insiders con transacciones >$1M desde FMP (Form 4: securitiesTransacted × price).
+    Se usa SOLO si hay FMP_API_KEY; si no, el reporte cae a los datos de yfinance.
+    Devuelve lista de transacciones importantes o None si no hay FMP/datos."""
+    if not os.environ.get("FMP_API_KEY"):
+        return None
+    try:
+        import sys
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.config import load_settings
+        from wbj.providers.cache import Cache
+        from wbj.providers.fmp import FMPProvider
+        _s = load_settings()
+        if not getattr(_s, "fmp_api_key", None):
+            _s.fmp_api_key = os.environ.get("FMP_API_KEY")
+        _fmp = FMPProvider(_s, Cache(_s.cache_dir))
+        rows = _fmp.insider_trades(ticker) or []
+        if not isinstance(rows, list):
+            return None
+        important = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            try:
+                _sh = float(r.get("securitiesTransacted") or 0)
+                _px = float(r.get("price") or 0)
+            except (TypeError, ValueError):
+                continue
+            _val = _sh * _px
+            if _val <= 1_000_000:
+                continue
+            _tt = str(r.get("transactionType") or "")
+            _is_buy = _tt.upper().startswith("P")     # P-Purchase
+            _is_sell = _tt.upper().startswith("S")    # S-Sale
+            important.append({
+                "insider": r.get("reportingName", ""), "transaction": _tt,
+                "shares": int(_sh), "price": round(_px, 2), "value": round(_val, 2),
+                "date": str(r.get("transactionDate") or r.get("filingDate") or "")[:10],
+                "is_buy": _is_buy, "is_sell": _is_sell, "source": "FMP Form 4"})
+        return important
+    except Exception as _e:
+        print(f"[analyze] insiders FMP omitidos (fallback yfinance): {str(_e)[:120]}")
+        return None
+
+
+def _wbj_mandatory_report(insiders, recommendation, next_earnings_date=None, fmp_important=None):
+    """Contenido OBLIGATORIO del reporte final (CLAUDE.md): insiders con transacciones que
+    EXCEDEN $1M USD (Forms 4), inversionistas institucionales (13F) y —si la clasificación es
+    'evitar'— cuándo revisitar. Determinista; NO cambia el scoring."""
+    out = {}
+    insiders = insiders if isinstance(insiders, dict) else {}
+    # Fuente PRIMARIA: FMP (Form 4 con valores confiables) si hay key; si no, yfinance.
+    if fmp_important is not None:
+        important = fmp_important
+        _src = "FMP (Form 4)"
+        _net = round(sum((t.get("value") or 0) * (1 if t.get("is_buy") else -1 if t.get("is_sell") else 0)
+                         for t in important), 2) if important else 0.0
+        _signal = "BULLISH" if _net > 0 else ("BEARISH" if _net < 0 else "NEUTRAL")
+    else:
+        txns = insiders.get("transactions") or []
+        important = []
+        for t in txns:
+            if isinstance(t, dict) and t.get("value") is not None:
+                try:
+                    if abs(float(t["value"])) > 1_000_000:
+                        important.append(t)
+                except (TypeError, ValueError):
+                    pass
+        _sum = insiders.get("summary") or {}
+        _net = _sum.get("net_value")
+        _signal = _sum.get("signal")
+        _src = "yfinance"
+    out["insiders_over_1m"] = {
+        "threshold_usd": 1_000_000, "count": len(important),
+        "transactions": important, "net_value": _net,
+        "net_exceeds_1m": bool(_net is not None and abs(float(_net)) > 1_000_000),
+        "signal": _signal, "source": _src,
+        "note": "Solo se listan insiders con transacciones que exceden $1M USD (Forms 4, SEC)."}
+    out["institutional_13f"] = (insiders.get("institutional") or [])[:10]  # inversionistas reconocidos (13F)
+    if (recommendation or "").upper() == "AVOID":
+        out["revisit"] = {   # CLAUDE.md: si 'evitar', fecha/evento concreto para revisitar
+            "trigger": "Próximo reporte de resultados (10-Q/10-K) o cambio material en la tesis.",
+            "date": next_earnings_date}
+    return out
+
+
 def _industry_adapter_hint(info):
     """Mapea sector/industria (yfinance) a un adaptador del Cerebro
     (shared/INDUSTRY_ADAPTERS.md). Solo es una PISTA para que la explicación use
@@ -7649,6 +7736,18 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 analisis_json["profile_fit"] = _wbj_profile_fit(info, _gates.get("recommendation"))
             except Exception as _pfe:
                 print(f"[analyze] filtro por perfil omitido: {str(_pfe)[:120]}")
+            # ── CONTENIDO OBLIGATORIO del reporte (CLAUDE.md): insiders >$1M + 13F + revisitar ──
+            try:
+                _nxt = None
+                try:
+                    _nxt = _next_earnings_date(ticker)
+                except Exception:
+                    _nxt = None
+                _fmp_imp = _wbj_fmp_important_insiders(ticker)   # FMP si hay key; None → yfinance
+                analisis_json["mandatory_report"] = _wbj_mandatory_report(
+                    insiders_snapshot, _gates.get("recommendation"), _nxt, fmp_important=_fmp_imp)
+            except Exception as _mre:
+                print(f"[analyze] contenido obligatorio omitido: {str(_mre)[:120]}")
             # ── EXPLICACIÓN EN PALABRAS (2º pase LLM): SOLO explica los números YA congelados
             #    de Victor + su ajuste a tu perfil. NO cambia ningún cálculo (Kevin.md). ──
             try:
