@@ -7761,6 +7761,11 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                                  f"({_cc2.get('points')}/{_cc2.get('max')} pts, "
                                  f"cob {int((_cc2.get('coverage') or 0) * 100)}%, {_cc2.get('status')})")
                 _pf = analisis_json.get("profile_fit") or {}
+                # MEMORIA (CLAUDE.md): lee la tesis PREVIA para dar coherencia entre sesiones.
+                _prior_thesis = _wbj_read_thesis_md(ticker)
+                _prior_ctx = (f"\n=== TESIS PREVIA (Memoria) ===\n{_prior_thesis[:900]}\n"
+                              "Si esta llamada contradice la tesis previa, la explicación debe señalarlo.\n"
+                              if _prior_thesis else "")
                 _ctx = (
                     f"TICKER: {ticker} — {info.get('longName', ticker)} | precio ${precio_actual}\n"
                     f"PERFIL/BANDA: {_wj.get('profile')} — {_wj.get('band')}\n"
@@ -7775,8 +7780,9 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                     f"${analisis_json.get('target_base_12m')} / bear ${analisis_json.get('target_bear_12m')} "
                     f"| fair value ${analisis_json.get('fair_value')}\n"
                     f"NIVELES: {len((_eng.get('victor_levels') or {}).get('levels', []))} niveles de precio sintetizados\n"
-                    f"FIT DE PERFIL (determinista): {_pf.get('fit')} — {_pf.get('fit_reason')}\n\n"
-                    f"=== MI PERFIL ({_pname or 'Kevin'}) ===\n{_ptext}")
+                    f"FIT DE PERFIL (determinista): {_pf.get('fit')} — {_pf.get('fit_reason')}\n"
+                    + _prior_ctx +
+                    f"\n=== MI PERFIL ({_pname or 'Kevin'}) ===\n{_ptext}")
                 _expl, _expl_src = _wbj_explain(_ctx)
                 if _expl:
                     analisis_json["wbj_explanation"] = _expl
@@ -7784,6 +7790,25 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                     print(f"[analyze] {ticker}: explicación WBJ en palabras generada ({_expl_src})")
             except Exception as _ee:
                 print(f"[analyze] explicación WBJ omitida: {str(_ee)[:120]}")
+            # ── MEMORIA (protocolo CLAUDE.md): escribe la tesis + predicción con los números
+            #    YA CONGELADOS de Victor. Corrige encima (apila historial); nunca borra. ──
+            try:
+                _prof_m = (analisis_json.get("wbj") or {}).get("profile")
+                _raw_m = (analisis_json.get("wbj") or {}).get("raw_total")
+                _fv_m = analisis_json.get("fair_value")
+                _thesis_m = (analisis_json.get("tesis_inversion_completa")
+                             or f"{_gates.get('classification')} — perfil {_prof_m}; fair value base ${_fv_m}.")
+                _inval_m = None
+                for _lv in ((_eng.get("victor_levels") or {}).get("levels", []) or []):
+                    if isinstance(_lv, dict) and _lv.get("invalidation") is not None:
+                        _inval_m = _lv["invalidation"]; break
+                if _inval_m is None:
+                    _inval_m = analisis_json.get("target_bear_12m")
+                _wbj_write_thesis_md(ticker, precio_actual, _prof_m, _raw_m, _fv_m, targets, _thesis_m, _inval_m)
+                _wbj_write_prediccion(ticker, report_id, precio_actual, _fv_m, _prof_m, _raw_m,
+                                      targets, _gates.get("recommendation"))
+            except Exception as _wme:
+                print(f"[analyze] memoria (tesis/predicción) omitida: {str(_wme)[:120]}")
             analisis_json["scores_source"] = "victor"
 
         # ── MEMORY: compare with prior report + persist this one ─────────────
