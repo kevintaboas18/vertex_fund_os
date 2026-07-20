@@ -6969,9 +6969,13 @@ def _engine_scorecard(ticker, info, price):
         #    Business degrada a MISSING (business ≈ 0). Es el mecanismo que su metodología define
         #    ("mirroring financial.py's overlay['wacc'] precedent" + HANDOFF_CONTRACT). ──
         _overlay = {}
-        # respaldo de beta desde yfinance si el packet no lo trae (Ke = RF + β·ERP)
+        # Beta SOLO como respaldo si el packet (FMP profile) no lo trae. Victor resuelve
+        # beta = overlay.get("beta", packet.capital_structure["beta"]): si inyectáramos SIEMPRE
+        # el de yfinance pisaríamos el beta del packet (fuente congelada del análisis) — una
+        # inversión de la jerarquía de fuentes. Solo lo aportamos cuando el packet no tiene beta.
         try:
-            if info.get("beta") is not None:
+            _pkt_beta = (getattr(pk, "capital_structure", {}) or {}).get("beta")
+            if _pkt_beta is None and info.get("beta") is not None:
                 _overlay["beta"] = float(info["beta"])
         except Exception:
             pass
