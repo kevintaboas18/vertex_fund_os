@@ -7132,6 +7132,19 @@ def _engine_scorecard(ticker, info, price):
             print(f"[engine] handoff de WACC no disponible: {str(_ve)[:120]}")
         if _overlay.get("wacc"):
             print(f"[engine] {ticker}: WACC del handoff = {_overlay['wacc']:.4f} → Business/Financial")
+        # margin_of_safety para RISK (RSK-VCOMP): SCORING.md dice "use the valuation-agent
+        # packet; do not duplicate valuation score". Tomamos el MISMO VAL-MOS-040 que ya
+        # computó valuación (_vo) — no lo recomputamos — para que el componente de valuación
+        # dentro de riesgo sea CONSISTENTE con el score de valuación (mismo base_per_share,
+        # mismo precio, misma fórmula (value-price)/value). Sin esto RSK-VCOMP queda MISSING.
+        try:
+            if _vo is not None:
+                for _m in (getattr(_vo, "metrics", []) or []):
+                    if getattr(_m, "metric_id", "") == "VAL-MOS-040" and getattr(_m, "value", None) is not None:
+                        _overlay["margin_of_safety"] = float(_m.value)
+                        break
+        except Exception:
+            pass
 
         # ── peer_roic para BUSINESS (dimensión Competitive, BUS): ROIC de los pares con
         #    la fórmula EXACTA de Victor (valuation_engine.nopat / invested_capital) sobre
