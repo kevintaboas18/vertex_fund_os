@@ -6934,12 +6934,17 @@ def _engine_scorecard(ticker, info, price):
     _victor_final_objs = None   # objetos crudos para el reporte final conforme a schema (apéndice de auditoría)
     _quick_evidence = None      # cobertura de evidencia (0-100) del camino rápido de Victor, si se usa
     _pk_staleness = None        # frescura por tipo de dato del packet ACTUAL (DATA_POLICY.md)
+    _fmp_annual = None          # fundamentales anuales FMP (los MISMOS que usan los especialistas) para el gráfico de ventas
 
     # ── CAMINO PRINCIPAL: los 6 especialistas REALES de Victor sobre el Packet completo ──
     try:
         prov = Providers(fmp=FMPProvider(settings, cache), edgar=EdgarProvider(settings, cache),
                          finnhub=FinnhubProvider(settings, cache), fred=FredProvider(settings, cache))
         pk = build_packet(ticker, prov, datetime.now(timezone.utc))
+        try:
+            _fmp_annual = (getattr(pk, "fundamentals", {}) or {}).get("annual") or None
+        except Exception:
+            _fmp_annual = None
         # DATA_POLICY.md: la frescura del packet ACTUAL (FRESH/STALE por tipo de dato) afecta la
         # confianza y puede pedir RECALC. Victor ya la computa en pk.staleness; la surfaceamos.
         try:
@@ -7613,38 +7618,74 @@ def _engine_scorecard(ticker, info, price):
         pass
 
     # ── TARGETS + FAIR VALUE de Victor (su targets.py) — deterministas, no del LLM ──
-    if dict_packet:
+    # TARGETS + FAIR VALUE: preferimos data FMP (actual, consistente con los scores) sobre el EDGAR
+    # quick. Construimos el shape que price_targets espera —annual.{net_income,revenue,diluted_shares}
+    # como listas {val} ascendentes— desde el MISMO packet FMP de los especialistas. Es crítico tras
+    # un split (p.ej. NVDA 10:1 en 2024): el EDGAR quick puede traer utilidades/acciones de otra base
+    # y dar un fair value incoherente o no-puntuable. price_targets (targets.py) sigue siendo el de Victor.
+    _pt_packet = dict_packet
+    if _fmp_annual:
+        def _sv(rows, k):
+            out = []
+            for r in reversed(rows):   # packet newest-first → ascendente
+                v = r.get(k) if isinstance(r, dict) else None
+                try:
+                    if v is not None: out.append({"val": float(v)})
+                except (TypeError, ValueError): pass
+            return out
+        _pt_packet = {"annual": {"net_income": _sv(_fmp_annual, "net_income"),
+                                 "revenue": _sv(_fmp_annual, "revenue"),
+                                 "diluted_shares": _sv(_fmp_annual, "diluted_shares")}}
+    if _pt_packet:
         try:
-            pt = price_targets(dict_packet, price)
+            pt = price_targets(_pt_packet, price)
             if isinstance(pt, dict) and pt.get("status") == "ok":
                 sm = {s["key"]: s.get("target") for s in pt.get("scenarios", [])}
                 sc["victor_targets_12m"] = {"bull": sm.get("bull"), "base": sm.get("base"), "bear": sm.get("bear")}
                 sc["victor_fair_value"] = sm.get("base")      # el target "Medio" ES el fair value de Victor
                 sc["victor_targets_detail"] = pt
+            elif isinstance(pt, dict):
+                sc["victor_targets_reason"] = pt.get("reason")   # por qué no hay target (se surfacea honesto)
         except Exception as e:
             print(f"[engine] targets de Victor omitidos: {str(e)[:140]}")
-    # ── VENTAS ANUALES + CRECIMIENTO (desde el packet EDGAR de Victor) para las gráficas ──
+    # ── VENTAS ANUALES + CRECIMIENTO para las gráficas ──
+    # PREFERIMOS los fundamentales FMP del MISMO packet que usan los 6 especialistas (data actual,
+    # años correctos y consistentes con los scores). El packet EDGAR quick (_build_packet) queda solo
+    # como RESPALDO: para algunas empresas (p.ej. tras un split, o por drift de tags us-gaap) devuelve
+    # años duplicados/truncados o valores mezclados con trimestrales — que es lo que rompía el gráfico.
     try:
-        _a = (dict_packet or {}).get("annual", {}) or {}
-        def _ser(key):
-            return [(str(r.get("end", ""))[:4], r.get("val")) for r in _a.get(key, []) if r.get("val") is not None][-6:]
-        rev = _ser("revenue"); ni = _ser("net_income"); op = _ser("operating_income"); gp = _ser("gross_profit")
-        years = [y for y, _ in rev]
-        revenue = [v for _, v in rev]
-        ni_by = dict(ni); op_by = dict(op); gp_by = dict(gp)
-        rev_growth = [None] + [round((revenue[i] / revenue[i - 1] - 1) * 100, 1) if revenue[i - 1] else None
+        years = []; revenue = []; ni_list = []; op_list = []; gp_list = []
+        if _fmp_annual:
+            def _num(r, k):
+                v = r.get(k) if isinstance(r, dict) else None
+                try: return float(v) if v is not None else None
+                except (TypeError, ValueError): return None
+            _rows = list(reversed(_fmp_annual))[-6:]   # packet newest-first → ascendente, últimos 6 años
+            for r in _rows:
+                years.append(str(r.get("calendarYear") or str(r.get("date", ""))[:4] or ""))
+                revenue.append(_num(r, "revenue"))
+                ni_list.append(_num(r, "net_income")); op_list.append(_num(r, "ebit")); gp_list.append(_num(r, "gross_profit"))
+        else:
+            _a = (dict_packet or {}).get("annual", {}) or {}
+            def _ser(key):
+                return [(str(r.get("end", ""))[:4], r.get("val")) for r in _a.get(key, []) if r.get("val") is not None][-6:]
+            rev = _ser("revenue"); ni = _ser("net_income"); op = _ser("operating_income"); gp = _ser("gross_profit")
+            years = [y for y, _ in rev]; revenue = [v for _, v in rev]
+            _nib = dict(ni); _opb = dict(op); _gpb = dict(gp)
+            ni_list = [_nib.get(y) for y in years]; op_list = [_opb.get(y) for y in years]; gp_list = [_gpb.get(y) for y in years]
+        rev_growth = [None] + [round((revenue[i] / revenue[i - 1] - 1) * 100, 1)
+                               if (revenue[i] is not None and revenue[i - 1]) else None
                                for i in range(1, len(revenue))]
         cagr = None
-        if len(revenue) >= 3 and revenue[0] > 0 and revenue[-1] > 0:
+        if len(revenue) >= 3 and revenue[0] and revenue[-1] and revenue[0] > 0 and revenue[-1] > 0:
             cagr = round(((revenue[-1] / revenue[0]) ** (1 / (len(revenue) - 1)) - 1) * 100, 1)
-        net_margin = [round(ni_by[y] / v * 100, 1) if (y in ni_by and v) else None for y, v in rev]
-        op_margin = [round(op_by[y] / v * 100, 1) if (y in op_by and v) else None for y, v in rev]
-        gross_margin = [round(gp_by[y] / v * 100, 1) if (y in gp_by and v) else None for y, v in rev]
+        def _mgn(num, den):
+            return [round(num[i] / den[i] * 100, 1) if (num[i] is not None and den[i]) else None for i in range(len(den))]
         sc["financials_annual"] = {
-            "years": years, "revenue": revenue,
-            "net_income": [ni_by.get(y) for y in years],
+            "years": years, "revenue": revenue, "net_income": ni_list,
             "revenue_growth_yoy": rev_growth, "revenue_cagr": cagr,
-            "net_margin": net_margin, "operating_margin": op_margin, "gross_margin": gross_margin}
+            "net_margin": _mgn(ni_list, revenue), "operating_margin": _mgn(op_list, revenue),
+            "gross_margin": _mgn(gp_list, revenue)}
     except Exception as e:
         print(f"[engine] financials anuales omitidos: {str(e)[:140]}")
     return sc
@@ -8289,6 +8330,7 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 "gates_source": _gates.get("_source", "gates de compatibilidad"),
                 "scores_source": "engine determinista (metodología de Victor)"}
             analisis_json["victor_targets_detail"] = _eng.get("victor_targets_detail")
+            analisis_json["victor_targets_reason"] = _eng.get("victor_targets_reason")   # razón si no hay target
             analisis_json["financials_annual"] = _eng.get("financials_annual")
             analisis_json["victor_levels"] = _eng.get("victor_levels")   # niveles de precio (synthesize_levels)
             # ── FILTRO POR PERFIL (orquestador, CLAUDE.md paso 6): cruza la recomendación con

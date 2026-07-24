@@ -1569,9 +1569,20 @@ function renderDashboard(data) {
     document.getElementById('qt_base_12m_pct').innerText = pctDiff(price, t12.base);
     document.getElementById('qt_bear_12m_pct').innerText = pctDiff(price, t12.bear);
 
-    // Verdict
-    document.getElementById('vFairValue').innerText = `$${(a.fair_value||0).toFixed(2)}`;
-    document.getElementById('vUpside').innerText = `${(a.upside_pct||0).toFixed(1)}%`;
+    // Verdict — fair value: si es null (Override 7 suprime la valuación por-acción, o no hay EPS
+    // positivo para el target), NO mostrar "$0.00" (engañoso) sino "N/D" + la razón real.
+    const _fv = a.fair_value, _sup = a.valuation_per_share_suppressed;
+    const _fvEl = document.getElementById('vFairValue'), _upEl = document.getElementById('vUpside');
+    if (_fv != null && !(_sup && _sup.active)) {
+        _fvEl.innerText = `$${Number(_fv).toFixed(2)}`;
+        _upEl.innerText = `${(a.upside_pct||0).toFixed(1)}%`;
+        _fvEl.removeAttribute('title');
+    } else {
+        _fvEl.innerText = 'N/D'; _upEl.innerText = '—';
+        _fvEl.title = (_sup && _sup.active)
+            ? (_sup.reason || 'Valuación por acción suprimida (Override 7: conflicto no resuelto de acciones/deuda/caja/precio).')
+            : (a.victor_targets_reason || 'Sin datos suficientes para un fair value (p.ej. sin EPS positivo).');
+    }
     document.getElementById('vCurrentPrice').innerText = `$${price}`;
     const vr = document.getElementById('vRecommendation');
     vr.innerText = a.recommendation || '—'; vr.className = `text-sm font-extrabold px-3 py-1 rounded uppercase border ${rc}`;
