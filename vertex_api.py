@@ -7083,6 +7083,73 @@ def _engine_scorecard(ticker, info, price):
                         _overlay["eps_growth_pct"] = _g_eps
         except Exception:
             pass
+        # historical_multiples para VALUATION (VAL-ZHIST-035 → dimensión Historical/peer, 2 pts):
+        # serie de P/E trailing histórico. "Igual que Victor": P/E = price/eps (la MISMA definición
+        # que usa valuation.py para el trailing_pe actual, L589). Tomamos el cierre de FMP en cada
+        # cierre fiscal (fundamentals.annual[i].date) sobre el eps de ese año (>0, mismo guard que el
+        # P/E actual). hist_zscore compara el P/E de hoy contra la MEDIANA robusta de esta historia.
+        # Sin esto la dimensión Historical/peer queda NOT_SCORABLE. DEBE construirse antes de _vo.
+        try:
+            _px_hist = prov.fmp.ohlcv_daily(ticker, years=6, today=datetime.now(timezone.utc).date()) or []
+            # cierres en orden ASCENDENTE por fecha (FMP los da newest-first)
+            _closes = sorted(((str(_b.get("date"))[:10], _b.get("close")) for _b in _px_hist
+                              if isinstance(_b, dict) and _b.get("date") and _b.get("close") is not None),
+                             key=lambda _x: _x[0])
+            _pe_hist = []
+            for _yr in ((getattr(pk, "fundamentals", {}) or {}).get("annual") or []):
+                if not isinstance(_yr, dict):
+                    continue
+                _fd = str(_yr.get("date") or "")[:10]
+                _epsy = _yr.get("eps")
+                if not _fd or _epsy is None:
+                    continue
+                try:
+                    _epsy = float(_epsy)
+                except (TypeError, ValueError):
+                    continue
+                if _epsy <= 0:                 # P/E no significativo con EPS<=0 (igual que el trailing_pe actual)
+                    continue
+                # último cierre EN o ANTES del cierre fiscal = el precio "as-of" ese fin de año
+                _cl = next((_c for (_d, _c) in reversed(_closes) if _d <= _fd), None)
+                if _cl is not None and float(_cl) > 0:
+                    _pe_hist.append(float(_cl) / _epsy)
+            if len(_pe_hist) >= 3:             # mediana/MAD robustos requieren varios puntos
+                _overlay["historical_multiples"] = _pe_hist
+        except Exception:
+            pass
+        # peer_multiples para VALUATION (VAL-REL-034 → ensemble VAL-ENSEMBLE-044): lista de P/S
+        # (Price/Sales) de los pares. "Igual que Victor": su valuation.py hace
+        #   relative_value = median(peer_multiples) * revenue0 / diluted_shares
+        # → peer_multiples = mktCap_par / revenue_par (P/S en base equity). Fuente: FMP profile
+        # (mktCap) + income_annual (revenue) del MISMO stock-peers que usa el bridge peer_roic
+        # (income queda cacheado y lo reusa peer_roic → sin doble llamada de red). Alimenta el
+        # modelo RELATIVE del ensemble (peso 0.5) → dispersión/confianza. DEBE ir antes de _vo.
+        try:
+            _pm_raw = prov.fmp.peers(ticker) or []
+            _pm_list = (_pm_raw[0].get("peersList") if isinstance(_pm_raw, list) and _pm_raw
+                        and isinstance(_pm_raw[0], dict) else _pm_raw) or []
+            _pmults = []
+            for _ppt in list(_pm_list)[:15]:
+                try:
+                    if not _ppt or str(_ppt).upper() == ticker.upper():
+                        continue
+                    _prof = prov.fmp.profile(_ppt)
+                    _p0 = (_prof[0] if isinstance(_prof, list) and _prof
+                           else _prof if isinstance(_prof, dict) else {}) or {}
+                    _mc = _p0.get("mktCap") or _p0.get("marketCap")
+                    _pinc = prov.fmp.income_annual(_ppt, limit=1) or []
+                    _prev = (_pinc[0].get("revenue") if isinstance(_pinc, list) and _pinc
+                             and isinstance(_pinc[0], dict) else None)
+                    if _mc is not None and _prev not in (None, 0):
+                        _ps = float(_mc) / float(_prev)
+                        if _ps > 0:
+                            _pmults.append(_ps)
+                except Exception:
+                    continue
+            if len(_pmults) >= 8:              # umbral MIN_PEERS de Victor
+                _overlay["peer_multiples"] = _pmults
+        except Exception:
+            pass
         # TECH-GAP-020/GHOLD-021 (dimensión earnings-gap) + anchors de AVWAP del agente TECHNICAL:
         # leen overlay["earnings_dates"] = fechas de la SESIÓN del gap, que deben EXISTIR en el OHLCV
         # del packet. El engine NO infiere amc/bmo; espera la sesión ya resuelta. Resolución
