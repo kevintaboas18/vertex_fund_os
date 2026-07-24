@@ -8236,6 +8236,13 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 _gates["band"] = _vg["band"]
                 _gates["overrides"] = _vg["overrides"]        # los 8 overrides REALES de Victor
                 _gates["warnings"] = _vg.get("warnings", [])
+                # Las razones de gate también son las de apply_gates de Victor (ProfileResult),
+                # para que passed/failed_gates sean CONSISTENTES con el perfil que MANDA. Sin
+                # esto se mostraba el perfil de Victor pero las razones aproximadas del backup.
+                if "passed_gates" in _vg:
+                    _gates["passed_gates"] = _vg["passed_gates"]
+                if "failed_gates" in _vg:
+                    _gates["failed_gates"] = _vg["failed_gates"]
                 _gates["_source"] = "aggregate real de Victor"
             _vt = _eng.get("victor_targets_12m") or {}
             if all(_vt.get(k) is not None for k in ("bull", "base", "bear")):
