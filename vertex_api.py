@@ -7028,6 +7028,20 @@ def _engine_scorecard(ticker, info, price):
                     _overlay["interest_expense"] = abs(float(_ie))   # magnitud del gasto (la fórmula usa EBIT/|int|)
         except Exception:
             pass
+        # equity_issuance → overlay (FIN-CF-016 → Override 1 capital-dependence). DATASET.md lo lista
+        # como campo requerido del cash flow ("debt/equity issuance"), pero el builder NO mapea
+        # commonStockIssued a packet.fundamentals. Lo tomamos de FMP (fila anual más reciente). SEGURO:
+        # externally_dependent solo alimenta el Override 1, que exige net_income<0 Y fcf<0 — la emisión
+        # por opciones de una empresa rentable NO puede causar un falso positivo.
+        try:
+            _cf = prov.fmp.cashflow_annual(ticker, limit=1) or []
+            _cfr = _cf[0] if isinstance(_cf, list) and _cf else None
+            if isinstance(_cfr, dict):
+                _eq = _cfr.get("commonStockIssued")
+                if _eq is not None:
+                    _overlay["equity_issuance"] = max(0.0, float(_eq))   # solo el lado de emisión (>0)
+        except Exception:
+            pass
         _vo = None
         try:
             _vo = _val.run(pk, overlay=(_overlay or None))   # valuation primero → su WACC
