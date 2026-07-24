@@ -528,6 +528,32 @@
                 <div id="wbjScorecard" class="space-y-2.5"></div>
             </div>
         </div>
+        <!-- PANEL "JUICIO AI": scorecard PARALELO con lo que respondió el judge (Claude). NO es el
+             score principal de arriba (ese es 100% determinista). Se muestra solo si corrió el judge. -->
+        <div id="wbjAiPanel" class="mt-4 bg-[#0B0E14] rounded-xl border border-blue-500/30 p-4 hidden">
+            <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+                <span class="text-[10px] uppercase font-bold text-blue-300 flex items-center gap-1.5">&#129504; Juicio AI — con judge (paralelo, no oficial)</span>
+                <span id="wbjAiProfile" class="text-[10px] font-extrabold px-2 py-0.5 rounded uppercase border"></span>
+            </div>
+            <p class="text-[10px] text-gray-500 italic mb-3">El score <b class="text-gray-400">oficial</b> es el determinista de arriba (regla de Victor: sin evidencia, no hay número). Este panel muestra el mismo tablero <b class="text-blue-300">con lo cualitativo que respondió Claude</b> (moat, catalizadores, concentración, thesis-killers) para comparar.</p>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div class="flex flex-col items-center justify-center">
+                    <span class="text-[10px] text-gray-500 uppercase font-bold self-start mb-1">Raw Score (con judge)</span>
+                    <div class="flex items-baseline gap-2">
+                        <span id="wbjAiScore" class="text-3xl font-mono font-black text-white"></span>
+                        <span class="text-[10px] text-gray-500">/100</span></div>
+                    <span id="wbjAiBand" class="text-[10px] font-bold mt-0.5"></span>
+                    <span id="wbjAiDelta" class="text-[10px] mt-1"></span>
+                    <span class="text-[10px] text-gray-500 mt-1">Confianza: <b id="wbjAiConf" class="text-gray-300"></b></span>
+                    <span id="wbjAiReco" class="text-[10px] font-bold mt-1"></span>
+                </div>
+                <div class="lg:col-span-2">
+                    <div class="flex justify-between items-center mb-2"><span class="text-[10px] text-gray-500 uppercase font-bold">Puntajes de los 6 agentes (con judge)</span>
+                        <span id="wbjAiEvidence" class="text-[10px] text-gray-500"></span></div>
+                    <div id="wbjAiScorecard" class="space-y-2.5"></div>
+                </div>
+            </div>
+        </div>
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
             <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 lg:col-span-2">
                 <div class="flex justify-between items-center mb-2"><span class="text-[10px] text-gray-500 uppercase font-bold">Ventas anuales + crecimiento</span>
@@ -1410,6 +1436,35 @@ function renderWBJVisual(data){
             <span class="text-[10px]"><span class="text-gray-500">${(c.points||0).toFixed(1)}/${c.max} · cob ${Math.round((c.coverage||0)*100)}%</span>
             <span class="font-bold ml-1" style="color:${col}">${(s||0).toFixed(1)}/10</span></span></div>
             <div class="h-1.5 rounded-full" style="background:rgba(128,128,128,.15)"><div class="h-full rounded-full" style="width:${Math.max(0,Math.min(100,s*10))}%;background:${col};transition:width .8s"></div></div></div>`; }).join('');
+    // ── PANEL "JUICIO AI" (con judge) — paralelo, NO oficial. Solo si corrió el judge. ──
+    const aj=w.ai_judgment, aiPanel=document.getElementById('wbjAiPanel');
+    if(aiPanel){
+        if(aj && aj.categories){
+            aiPanel.classList.remove('hidden');
+            const aiRaw=aj.raw_total||0, det=w.raw_total||0, delta=Math.round((aiRaw-det)*10)/10;
+            document.getElementById('wbjAiScore').innerText=Math.round(aiRaw);
+            const aiBand=document.getElementById('wbjAiBand'); aiBand.innerText=aj.band||''; aiBand.style.color=_wbjCatCol(aiRaw/10);
+            document.getElementById('wbjAiConf').innerText=aj.total_confidence!=null?Math.round(aj.total_confidence):'—';
+            const dEl=document.getElementById('wbjAiDelta');
+            dEl.innerText=`${delta>=0?'+':''}${delta} vs determinista (${Math.round(det)})`;
+            dEl.style.color=delta>0?'#34d399':delta<0?'#f87171':'#9ca3af';
+            const aiPr=aj.profile||'—', ps=PS[aiPr]||['#1a1f2e','#9ca3af'], apEl=document.getElementById('wbjAiProfile');
+            apEl.innerText=aiPr; apEl.style.background=ps[0]; apEl.style.color=ps[1]; apEl.style.borderColor=ps[1]+'55';
+            const recEl=document.getElementById('wbjAiReco');
+            recEl.innerText=aj.recommendation?`Reco (con judge): ${aj.recommendation}`:'';
+            recEl.style.color=_wbjCatCol(aiRaw/10);
+            const acats=aj.categories, aev=order.filter(k=>acats[k]).reduce((sm,k)=>sm+(acats[k].max*(acats[k].coverage||0)),0);
+            document.getElementById('wbjAiEvidence').innerText=`${Math.round(aev)}/100 evidencia`;
+            document.getElementById('wbjAiScorecard').innerHTML=order.filter(k=>acats[k]).map(k=>{ const c=acats[k],s=c.score10,col=_wbjCatCol(s);
+                const dc=cats[k]?cats[k].score10:null, up=(s!=null&&dc!=null&&s>dc);
+                return `<div><div class="flex justify-between items-center mb-0.5"><span class="text-xs font-semibold text-white">${c.label}${up?' <span class="text-[8px] text-blue-300">▲ judge</span>':''}</span>
+                    <span class="text-[10px]"><span class="text-gray-500">${(c.points||0).toFixed(1)}/${c.max} · cob ${Math.round((c.coverage||0)*100)}%</span>
+                    <span class="font-bold ml-1" style="color:${col}">${s!=null?s.toFixed(1):'N/S'}${s!=null?'/10':''}</span></span></div>
+                    <div class="h-1.5 rounded-full" style="background:rgba(128,128,128,.15)"><div class="h-full rounded-full" style="width:${Math.max(0,Math.min(100,(s||0)*10))}%;background:${col};transition:width .8s"></div></div></div>`; }).join('');
+        } else {
+            aiPanel.classList.add('hidden');
+        }
+    }
     // Ventas anuales + crecimiento
     const f=a.financials_annual;
     if(f&&(f.years||[]).length){
