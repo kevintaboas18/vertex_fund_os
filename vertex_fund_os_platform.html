@@ -506,77 +506,13 @@
         </div>
     </div>
 
-    <!-- ══ ANÁLISIS WBJ (VICTOR) — visual: gauge + puntajes de agentes + ventas + márgenes ══ -->
-    <div id="wbjVisual" class="bg-panel border border-panel rounded-2xl p-5 hidden">
-        <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-            <h3 class="text-sm font-extrabold text-blue-400 uppercase tracking-widest flex items-center gap-2"><i data-lucide="award" class="w-4 h-4"></i> Análisis WBJ — Warren Buffett Jr (Victor)</h3>
-            <span id="wbjProfile" class="text-xs font-extrabold px-3 py-1 rounded uppercase border"></span>
-        </div>
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 flex flex-col items-center justify-center">
-                <span class="text-[10px] text-gray-500 uppercase font-bold self-start mb-1">Raw Score (Victor)</span>
-                <div class="relative w-full" style="max-width:200px"><canvas id="wbjGauge"></canvas>
-                    <div class="absolute inset-0 flex flex-col items-center justify-end pb-1">
-                        <span id="wbjScore" class="text-3xl font-mono font-black text-white"></span>
-                        <span class="text-[10px] text-gray-500">/100</span>
-                        <span id="wbjBand" class="text-[10px] font-bold mt-0.5"></span></div></div>
-                <span class="text-[10px] text-gray-500 mt-1">Confianza: <b id="wbjConf" class="text-gray-300"></b></span>
-            </div>
-            <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 lg:col-span-2">
-                <div class="flex justify-between items-center mb-2"><span class="text-[10px] text-gray-500 uppercase font-bold">Puntajes de los 6 agentes</span>
-                    <span id="wbjEvidence" class="text-[10px] text-gray-500"></span></div>
-                <div id="wbjScorecard" class="space-y-2.5"></div>
-            </div>
-        </div>
-        <!-- PANEL "JUICIO AI": scorecard PARALELO con lo que respondió el judge (Claude). NO es el
-             score principal de arriba (ese es 100% determinista). Se muestra solo si corrió el judge. -->
-        <div id="wbjAiPanel" class="mt-4 bg-[#0B0E14] rounded-xl border border-blue-500/30 p-4 hidden">
-            <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
-                <span class="text-[10px] uppercase font-bold text-blue-300 flex items-center gap-1.5">&#129504; Juicio AI — con judge (paralelo, no oficial)</span>
-                <span id="wbjAiProfile" class="text-[10px] font-extrabold px-2 py-0.5 rounded uppercase border"></span>
-            </div>
-            <p class="text-[10px] text-gray-500 italic mb-3">El score <b class="text-gray-400">oficial</b> es el determinista de arriba (regla de Victor: sin evidencia, no hay número). Este panel muestra el mismo tablero <b class="text-blue-300">con lo cualitativo que respondió Claude</b> (moat, catalizadores, concentración, thesis-killers) para comparar.</p>
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div class="flex flex-col items-center justify-center">
-                    <span class="text-[10px] text-gray-500 uppercase font-bold self-start mb-1">Raw Score (con judge)</span>
-                    <div class="flex items-baseline gap-2">
-                        <span id="wbjAiScore" class="text-3xl font-mono font-black text-white"></span>
-                        <span class="text-[10px] text-gray-500">/100</span></div>
-                    <span id="wbjAiBand" class="text-[10px] font-bold mt-0.5"></span>
-                    <span id="wbjAiDelta" class="text-[10px] mt-1"></span>
-                    <span class="text-[10px] text-gray-500 mt-1">Confianza: <b id="wbjAiConf" class="text-gray-300"></b></span>
-                    <span id="wbjAiReco" class="text-[10px] font-bold mt-1"></span>
-                </div>
-                <div class="lg:col-span-2">
-                    <div class="flex justify-between items-center mb-2"><span class="text-[10px] text-gray-500 uppercase font-bold">Puntajes de los 6 agentes (con judge)</span>
-                        <span id="wbjAiEvidence" class="text-[10px] text-gray-500"></span></div>
-                    <div id="wbjAiScorecard" class="space-y-2.5"></div>
-                </div>
-            </div>
-        </div>
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-            <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 lg:col-span-2">
-                <div class="flex justify-between items-center mb-2"><span class="text-[10px] text-gray-500 uppercase font-bold">Ventas anuales + crecimiento</span>
-                    <span id="wbjCagr" class="text-[10px] font-bold text-emerald-400"></span></div>
-                <div class="relative w-full" style="height:210px"><canvas id="wbjFinChart"></canvas></div>
-                <!-- Regla visual de Victor: "todo gráfico lleva título, unidades, fuente y timestamp". -->
-                <p id="wbjFinSrc" class="chart-cite"></p>
-            </div>
-            <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 flex flex-col">
-                <span class="text-[10px] text-gray-500 uppercase font-bold mb-1">Márgenes (último año)</span>
-                <div class="relative w-full flex-grow flex items-center justify-center" style="min-height:170px"><canvas id="wbjMarginsDonut"></canvas></div>
-                <div id="wbjMarginsLegend" class="text-[10px] text-gray-400 space-y-0.5 mt-1"></div>
-                <p id="wbjMarginsSrc" class="chart-cite"></p>
-            </div>
-        </div>
-    </div>
-
     <div class="bg-panel border border-panel rounded-2xl overflow-hidden">
         <div class="flex border-b border-panel px-2 pt-1 overflow-x-auto">
             <button class="analysis-tab active" onclick="switchAnalysisTab('quickTakeTab', this)">&#9889; Quick Take</button>
             <button class="analysis-tab" onclick="switchAnalysisTab('noticesTab', this)">&#128240; Notices</button>
             <button class="analysis-tab" onclick="switchAnalysisTab('fullResearchTab', this)">&#128300; Full Research</button>
             <button class="analysis-tab" onclick="switchAnalysisTab('insidersTab', this)">&#128081; Insiders &amp; 13F</button>
+            <button id="tabBtnAiJudge" class="analysis-tab" onclick="switchAnalysisTab('aiJudgmentTab', this)">&#129504; Juicio AI</button>
             <button class="analysis-tab" onclick="switchAnalysisTab('sentimentTab', this)">&#129504; Sentiment AI</button>
             <button class="analysis-tab" onclick="switchAnalysisTab('cascadeTab', this)">&#9878;&#65039; Consenso AI</button>
             <button id="tabBtnDebate" class="analysis-tab" onclick="switchAnalysisTab('debateTab', this)">&#9876;&#65039; Debate AI</button>
@@ -724,6 +660,46 @@
         </div>
 
         <div id="fullResearchTab" class="tab-content p-6 space-y-8">
+
+            <!-- ══ ANÁLISIS WBJ (VICTOR) — agente completo: gauge + puntajes de los 6 agentes + ventas + márgenes.
+                 Vive en el ÁREA DE RESEARCH (todo el agente de Victor, con sus gráficas). ══ -->
+            <div id="wbjVisual" class="bg-panel border border-panel rounded-2xl p-5 hidden">
+                <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+                    <h3 class="text-sm font-extrabold text-blue-400 uppercase tracking-widest flex items-center gap-2"><i data-lucide="award" class="w-4 h-4"></i> Análisis WBJ — Warren Buffett Jr (Victor)</h3>
+                    <span id="wbjProfile" class="text-xs font-extrabold px-3 py-1 rounded uppercase border"></span>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 flex flex-col items-center justify-center">
+                        <span class="text-[10px] text-gray-500 uppercase font-bold self-start mb-1">Raw Score (Victor)</span>
+                        <div class="relative w-full" style="max-width:200px"><canvas id="wbjGauge"></canvas>
+                            <div class="absolute inset-0 flex flex-col items-center justify-end pb-1">
+                                <span id="wbjScore" class="text-3xl font-mono font-black text-white"></span>
+                                <span class="text-[10px] text-gray-500">/100</span>
+                                <span id="wbjBand" class="text-[10px] font-bold mt-0.5"></span></div></div>
+                        <span class="text-[10px] text-gray-500 mt-1">Confianza: <b id="wbjConf" class="text-gray-300"></b></span>
+                    </div>
+                    <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 lg:col-span-2">
+                        <div class="flex justify-between items-center mb-2"><span class="text-[10px] text-gray-500 uppercase font-bold">Puntajes de los 6 agentes</span>
+                            <span id="wbjEvidence" class="text-[10px] text-gray-500"></span></div>
+                        <div id="wbjScorecard" class="space-y-2.5"></div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+                    <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 lg:col-span-2">
+                        <div class="flex justify-between items-center mb-2"><span class="text-[10px] text-gray-500 uppercase font-bold">Ventas anuales + crecimiento</span>
+                            <span id="wbjCagr" class="text-[10px] font-bold text-emerald-400"></span></div>
+                        <div class="relative w-full" style="height:210px"><canvas id="wbjFinChart"></canvas></div>
+                        <!-- Regla visual de Victor: "todo gráfico lleva título, unidades, fuente y timestamp". -->
+                        <p id="wbjFinSrc" class="chart-cite"></p>
+                    </div>
+                    <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 flex flex-col">
+                        <span class="text-[10px] text-gray-500 uppercase font-bold mb-1">Márgenes (último año)</span>
+                        <div class="relative w-full flex-grow flex items-center justify-center" style="min-height:170px"><canvas id="wbjMarginsDonut"></canvas></div>
+                        <div id="wbjMarginsLegend" class="text-[10px] text-gray-400 space-y-0.5 mt-1"></div>
+                        <p id="wbjMarginsSrc" class="chart-cite"></p>
+                    </div>
+                </div>
+            </div>
 
             <div>
                 <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-4 flex items-center gap-2"><i data-lucide="scale" class="w-4 h-4"></i> Verdict</h3>
@@ -905,6 +881,41 @@
             </div>
 
 
+        </div>
+        <div id="aiJudgmentTab" class="tab-content p-6">
+            <div class="flex items-center gap-2 mb-1">
+                <i data-lucide="brain-circuit" class="w-4 h-4 text-blue-400"></i>
+                <h3 class="text-sm font-extrabold text-blue-300 uppercase tracking-widest">Juicio AI — scorecard con judge</h3>
+            </div>
+            <p class="text-[11px] text-gray-500 leading-relaxed mb-4">El score <b class="text-gray-300">oficial</b> es el <b class="text-gray-300">determinista</b> de Victor (pestaña Full Research — regla "sin evidencia, no hay número"). Aquí el <b class="text-blue-300">judge de Claude</b> responde lo cualitativo que el código no puede medir (moat, catalizadores, concentración, thesis-killers) y se re-corre la MISMA agregación de Victor, para comparar el mismo tablero <b class="text-blue-300">con juicio AI</b> contra el determinista.</p>
+            <!-- PANEL "JUICIO AI": mismo scorecard pero CON judge. Solo si corrió (ANTHROPIC_API_KEY con crédito). -->
+            <div id="wbjAiPanel" class="bg-[#0B0E14] rounded-xl border border-blue-500/30 p-4 hidden">
+                <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <span class="text-[10px] uppercase font-bold text-blue-300 flex items-center gap-1.5">&#129504; Tablero con judge (paralelo, no oficial)</span>
+                    <span id="wbjAiProfile" class="text-[10px] font-extrabold px-2 py-0.5 rounded uppercase border"></span>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div class="flex flex-col items-center justify-center bg-[#070A10] rounded-lg border border-gray-900 p-4">
+                        <span class="text-[10px] text-gray-500 uppercase font-bold self-start mb-1">Raw Score (con judge)</span>
+                        <div class="flex items-baseline gap-2">
+                            <span id="wbjAiScore" class="text-3xl font-mono font-black text-white"></span>
+                            <span class="text-[10px] text-gray-500">/100</span></div>
+                        <span id="wbjAiBand" class="text-[10px] font-bold mt-0.5"></span>
+                        <span id="wbjAiDelta" class="text-[10px] mt-1"></span>
+                        <span class="text-[10px] text-gray-500 mt-1">Confianza: <b id="wbjAiConf" class="text-gray-300"></b></span>
+                        <span id="wbjAiReco" class="text-[10px] font-bold mt-1"></span>
+                    </div>
+                    <div class="lg:col-span-2">
+                        <div class="flex justify-between items-center mb-2"><span class="text-[10px] text-gray-500 uppercase font-bold">Puntajes de los 6 agentes (con judge)</span>
+                            <span id="wbjAiEvidence" class="text-[10px] text-gray-500"></span></div>
+                        <div id="wbjAiScorecard" class="space-y-2.5"></div>
+                    </div>
+                </div>
+            </div>
+            <!-- Placeholder cuando el judge NO corrió -->
+            <div id="wbjAiEmpty" class="bg-[#0B0E14] rounded-xl border border-gray-900 p-6 text-center">
+                <p class="text-[11px] text-gray-400 leading-relaxed">El <b class="text-blue-300">Juicio AI</b> no corrió para este análisis.<br>Requiere <b class="text-gray-300">ANTHROPIC_API_KEY</b> con crédito disponible. El score determinista de Victor (Full Research) no depende de esto y se muestra siempre.</p>
+            </div>
         </div>
         <div id="sentimentTab" class="tab-content p-6">
 
@@ -1229,6 +1240,9 @@ function switchAnalysisTab(tabId, btn) {
     if (tabId === 'noticesTab' && currentTicker) loadNotices(currentTicker);
     if (tabId === 'quickTakeTab' && qtTV && qtTV.chart) { setTimeout(() => { try { const c = document.getElementById('qtChart'); qtTV.chart.applyOptions({ width: c.clientWidth, height: c.clientHeight }); qtTV.chart.timeScale().fitContent(); } catch(e){} }, 60); }
     if (tabId === 'fullResearchTab' && currentAnalysis) fetchAndRenderFrChart(currentTimeframe);
+    // El card WBJ de Victor está en esta pestaña: re-renderiza sus charts ahora que es visible
+    // (Chart.js las dibuja a 0px si el contenedor estaba oculto al primer render).
+    if (tabId === 'fullResearchTab' && window._wbjRenderData) { setTimeout(() => { try { renderWBJVisual(window._wbjRenderData); } catch(e){} }, 60); }
     if (tabId === 'sentimentTab' && currentTicker) { if (!sentimentLoaded) loadSentiment(currentTicker); }
     if (tabId === 'insidersTab' && currentTicker) { if (!insidersLoaded) loadInsiders(currentTicker); }
     if (tabId === 'cascadeTab' && currentTicker) { if (!cascadeLoaded) loadCascade(currentTicker); }
@@ -1437,10 +1451,10 @@ function renderWBJVisual(data){
             <span class="font-bold ml-1" style="color:${col}">${(s||0).toFixed(1)}/10</span></span></div>
             <div class="h-1.5 rounded-full" style="background:rgba(128,128,128,.15)"><div class="h-full rounded-full" style="width:${Math.max(0,Math.min(100,s*10))}%;background:${col};transition:width .8s"></div></div></div>`; }).join('');
     // ── PANEL "JUICIO AI" (con judge) — paralelo, NO oficial. Solo si corrió el judge. ──
-    const aj=w.ai_judgment, aiPanel=document.getElementById('wbjAiPanel');
+    const aj=w.ai_judgment, aiPanel=document.getElementById('wbjAiPanel'), aiEmpty=document.getElementById('wbjAiEmpty');
     if(aiPanel){
         if(aj && aj.categories){
-            aiPanel.classList.remove('hidden');
+            aiPanel.classList.remove('hidden'); if(aiEmpty)aiEmpty.classList.add('hidden');
             const aiRaw=aj.raw_total||0, det=w.raw_total||0, delta=Math.round((aiRaw-det)*10)/10;
             document.getElementById('wbjAiScore').innerText=Math.round(aiRaw);
             const aiBand=document.getElementById('wbjAiBand'); aiBand.innerText=aj.band||''; aiBand.style.color=_wbjCatCol(aiRaw/10);
@@ -1462,7 +1476,7 @@ function renderWBJVisual(data){
                     <span class="font-bold ml-1" style="color:${col}">${s!=null?s.toFixed(1):'N/S'}${s!=null?'/10':''}</span></span></div>
                     <div class="h-1.5 rounded-full" style="background:rgba(128,128,128,.15)"><div class="h-full rounded-full" style="width:${Math.max(0,Math.min(100,(s||0)*10))}%;background:${col};transition:width .8s"></div></div></div>`; }).join('');
         } else {
-            aiPanel.classList.add('hidden');
+            aiPanel.classList.add('hidden'); if(aiEmpty)aiEmpty.classList.remove('hidden');
         }
     }
     // Ventas anuales + crecimiento
@@ -1497,6 +1511,10 @@ function renderWBJVisual(data){
 
 function renderDashboard(data) {
     const a = data.analisis || {};
+    // El card WBJ de Victor vive ahora en la pestaña Full Research (oculta por defecto). Guardamos
+    // los datos para re-renderizar sus charts cuando la pestaña se muestre (Chart.js dibuja en 0px
+    // si el contenedor está oculto). Ver switchAnalysisTab → 'fullResearchTab'.
+    window._wbjRenderData = data;
     try { renderWBJVisual(data); } catch(e){ console.error('WBJ visual:', e); }
     const targets = data.targets || {};
     const meth = data.methodology || {};
