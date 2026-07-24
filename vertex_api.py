@@ -7045,6 +7045,25 @@ def _engine_scorecard(ticker, info, price):
                     _overlay["equity_issuance"] = max(0.0, float(_eq))   # solo el lado de emisión (>0)
         except Exception:
             pass
+        # MKT-SURP-014 (earnings surprise) del agente MARKET: lee estimates.actual/
+        # pre_release_consensus por overlay. FMP earnings_calendar trae eps (actual) y epsEstimated
+        # (consenso pre-release, congelado antes del reporte → snapshot_before_release=True honesto).
+        # Puenteamos SOLO la sorpresa; las otras revisiones (breadth/magnitude/dispersion) necesitan
+        # datos que ninguna API gratuita da → quedan N/S (dict parcial, lectura .get() segura).
+        try:
+            _ecal = prov.fmp.earnings_calendar(ticker) or []
+            _todayd = datetime.now(timezone.utc).date().isoformat()
+            _reported = [e for e in _ecal if isinstance(e, dict)
+                         and e.get("eps") is not None and e.get("epsEstimated") is not None
+                         and str(e.get("date", ""))[:10] <= _todayd]      # solo trimestres YA reportados
+            if _reported:
+                _le = max(_reported, key=lambda e: str(e.get("date", "")))   # el reportado más reciente
+                _overlay["estimates"] = {
+                    "actual": float(_le["eps"]),
+                    "pre_release_consensus": float(_le["epsEstimated"]),
+                    "snapshot_before_release": True}
+        except Exception:
+            pass
         _vo = None
         try:
             _vo = _val.run(pk, overlay=(_overlay or None))   # valuation primero → su WACC
