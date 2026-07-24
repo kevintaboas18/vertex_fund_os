@@ -639,7 +639,10 @@
                 <div id="qtConeWrap" class="hidden mb-4 bg-[#0B0E14] rounded-xl border border-gray-900 p-3">
                     <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="git-commit-horizontal" class="w-3.5 h-3.5 text-blue-400"></i> Cono de movimiento esperado (Bull / Base / Bear · 7d → 12M)</p>
                     <div style="height:180px"><canvas id="qtConeChart"></canvas></div>
-                    <p class="text-[9px] text-gray-600 italic mt-1.5">La banda sombreada se ensancha con el horizonte: refleja la incertidumbre creciente entre los targets bull y bear del agente. La línea central es el caso base.</p>
+                    <p class="text-[9px] text-gray-600 italic mt-1.5">La banda sombreada se ensancha con el horizonte: refleja la incertidumbre creciente entre los targets bull y bear del agente. La línea central es el caso base. Líneas punteadas = proyección (nunca dato real).</p>
+                    <!-- Regla visual de Victor "etiqueta los supuestos": de dónde sale cada escenario (crecimiento + múltiplo). -->
+                    <p id="qtConeAssumptions" class="text-[9px] text-gray-500 mt-1 leading-relaxed"></p>
+                    <p id="qtConeSource" class="text-[9px] text-gray-700 mt-1"></p>
                 </div>
                 <div class="grid grid-cols-3 gap-3">
                     <div class="bg-[#0B0E14] p-3 rounded-xl border border-emerald-500/20 text-center">
@@ -1908,8 +1911,10 @@ function renderExpectedMoveCone() {
     window._qtConeChart = new Chart(ctx, {
         type:'line',
         data:{ labels, datasets:[
-            { label:'Bull', data:bull, borderColor:'rgba(52,211,153,0.9)', borderWidth:1.5, pointRadius:0, tension:0.3, fill:false },
-            { label:'Bear', data:bear, borderColor:'rgba(248,113,113,0.9)', borderWidth:1.5, pointRadius:0, tension:0.3,
+            // Regla visual de Victor: "el pasado no se proyecta" — todo el cono es FUTURO
+            // proyectado, así que las 3 líneas van PUNTEADAS (nunca sólidas, que es para lo real).
+            { label:'Bull', data:bull, borderColor:'rgba(52,211,153,0.9)', borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:0.3, fill:false },
+            { label:'Bear', data:bear, borderColor:'rgba(248,113,113,0.9)', borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:0.3,
               fill:'-1', backgroundColor:'rgba(59,130,246,0.10)' },
             { label:'Base', data:base, borderColor:'#e5e7eb', borderWidth:2, borderDash:[5,4], pointRadius:0, tension:0.3, fill:false },
         ]},
@@ -1920,6 +1925,27 @@ function renderExpectedMoveCone() {
             scales:{ x:{ ticks:{color:'#6b7280',font:{size:9}}, grid:{display:false} },
                      y:{ ticks:{color:'#6b7280',font:{size:9},callback:v=>'$'+v}, grid:{color:'rgba(255,255,255,0.04)'} } } }
     });
+    // Regla visual de Victor: "etiqueta los supuestos" + "título, unidades, fuente y timestamp".
+    // Los supuestos (crecimiento + múltiplo por escenario) salen de targets.py (victor_targets_detail).
+    const det = currentAnalysis?.victor_targets_detail || {};
+    const asEl = document.getElementById('qtConeAssumptions');
+    const scEl = document.getElementById('qtConeSource');
+    if (asEl) {
+        const scn = Array.isArray(det.scenarios) ? det.scenarios : [];
+        if (scn.length) {
+            asEl.innerHTML = 'Supuestos (12M): ' + scn.map(s =>
+                `<b class="text-gray-400">${s.label}</b> ${s.assumptions || ''}`).join(' &nbsp;·&nbsp; ');
+        } else {
+            asEl.innerHTML = (det.growth_base != null)
+                ? `Supuesto base: crecimiento ${(det.growth_base*100).toFixed(0)}% · P/E actual ${det.pe_now ?? '—'}x · EPS $${det.eps ?? '—'}`
+                : '';
+        }
+    }
+    if (scEl) {
+        const ts = currentAnalysis?.precio_as_of || currentAnalysis?.fecha_analisis || '';
+        const src = currentAnalysis?.precio_fuente || 'targets.py (EPS·(1+g)·P/E)';
+        scEl.innerText = `Unidades: US$/acción · Fuente: ${src}${ts ? ' · ' + ts : ''}`;
+    }
 }
 async function fetchAndRenderFrChart(period) {
     if (!currentTicker) return;
