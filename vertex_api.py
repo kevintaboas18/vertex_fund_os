@@ -7015,6 +7015,19 @@ def _engine_scorecard(ticker, info, price):
                         print(f"[engine] {ticker}: risk_free_rate de respaldo (^TNX 10Y) = {_rf_dec:.4f}")
         except Exception:
             pass
+        # Interest expense → overlay. FIN-BS-020 (financial) y RSK-ICOV-011/RSK-FCC-012 (risk)
+        # leen interest_expense SOLO por overlay ("overlay-only… pending a future code change"),
+        # pero el builder de Victor YA lo mapea a packet.fundamentals como "the natural source for a
+        # future overlay-from-packet default". Sin este puente la cobertura de intereses NUNCA se
+        # computa y el Override 3 (advertencia de solvencia, MAIN-006) jamás dispara. Lo puenteamos.
+        try:
+            _annual_f = (getattr(pk, "fundamentals", {}) or {}).get("annual") or []
+            if _annual_f:
+                _ie = _annual_f[-1].get("interest_expense")   # annual[-1] = fila más reciente (igual que el especialista)
+                if _ie is not None and abs(float(_ie)) > 0:
+                    _overlay["interest_expense"] = abs(float(_ie))   # magnitud del gasto (la fórmula usa EBIT/|int|)
+        except Exception:
+            pass
         _vo = None
         try:
             _vo = _val.run(pk, overlay=(_overlay or None))   # valuation primero → su WACC
