@@ -7064,6 +7064,25 @@ def _engine_scorecard(ticker, info, price):
                     "snapshot_before_release": True}
         except Exception:
             pass
+        # eps_growth_pct para VALUATION (VAL-PEG-028): crecimiento de EPS de consenso.
+        # ESPEJO EXACTO de cómo Victor computa consensus_growth de revenue dentro de
+        # valuation.py (fmp_est[0].estimatedRevenueAvg / revenue0 - 1), aplicado a EPS
+        # (estimatedEpsAvg / eps0 - 1) con la MISMA fuente (packet.estimates.fmp_analyst_estimates)
+        # y el MISMO índice [0]=próximo año. Solo se puentea si el crecimiento es POSITIVO:
+        # FORMULAS.md dice que PEG "not meaningful for negative earnings or unstable growth", y un
+        # eps_growth<0 produciría un PEG negativo que el anchor puntuaría erróneamente como "barato".
+        try:
+            _fest = (getattr(pk, "estimates", {}) or {}).get("fmp_analyst_estimates") or []
+            _af_pk = (getattr(pk, "fundamentals", {}) or {}).get("annual") or []
+            _eps0 = _af_pk[0].get("eps") if _af_pk and isinstance(_af_pk[0], dict) else None
+            if _fest and isinstance(_fest[0], dict) and _eps0 not in (None, 0):
+                _eps_next = _fest[0].get("estimatedEpsAvg")
+                if _eps_next is not None:
+                    _g_eps = float(_eps_next) / float(_eps0) - 1.0
+                    if _g_eps > 0:
+                        _overlay["eps_growth_pct"] = _g_eps
+        except Exception:
+            pass
         # TECH-GAP-020/GHOLD-021 (dimensión earnings-gap) + anchors de AVWAP del agente TECHNICAL:
         # leen overlay["earnings_dates"] = fechas de la SESIÓN del gap, que deben EXISTIR en el OHLCV
         # del packet. El engine NO infiere amc/bmo; espera la sesión ya resuelta. Resolución
