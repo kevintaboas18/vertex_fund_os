@@ -7094,6 +7094,34 @@ def _engine_scorecard(ticker, info, price):
                 _overlay["earnings_dates"] = _gap_sessions      # el engine exige >=4 para puntuar el gap
         except Exception:
             pass
+        # Forense de RISK (AQI-023, DEPI-025, SGAI-026, Beneish M-score RSK-MSCR-029, Altman Z
+        # RSK-ALT-030): leen ppe/depreciation/sga (+prior) y retained_earnings por overlay (como
+        # interest_expense). El builder de Victor YA los mapea a packet.fundamentals; los leemos de
+        # la fila reciente [0] y previa [1] (packet newest-first) — los MISMOS años que usa risk para
+        # revenue/assets → ratios de Beneish consistentes. ppe_net es proxy documentado (net vs gross).
+        try:
+            _af = (getattr(pk, "fundamentals", {}) or {}).get("annual") or []
+            _r0 = _af[0] if len(_af) >= 1 else {}
+            _r1 = _af[1] if len(_af) >= 2 else {}
+            def _fnum(_row, _key):
+                _v = _row.get(_key) if isinstance(_row, dict) else None
+                try:
+                    return float(_v) if _v is not None else None
+                except (TypeError, ValueError):
+                    return None
+            for _okey, _fk, _row in (("ppe", "ppe_net", _r0), ("ppe_prior", "ppe_net", _r1),
+                                     ("depreciation", "depreciation_and_amortization", _r0),
+                                     ("depreciation_prior", "depreciation_and_amortization", _r1),
+                                     ("sga", "sga", _r0), ("sga_prior", "sga", _r1),
+                                     ("retained_earnings", "retained_earnings", _r0)):
+                _fv = _fnum(_row, _fk)
+                if _fv is not None:
+                    _overlay[_okey] = _fv
+            if "ppe" in _overlay:
+                _proxy_inputs["ppe"] = ("PP&E NETO de FMP como proxy del PP&E bruto que piden Beneish "
+                                        "AQI/DEPI (proxy documentado de Victor: ppe_net)")
+        except Exception:
+            pass
         _vo = None
         try:
             _vo = _val.run(pk, overlay=(_overlay or None))   # valuation primero → su WACC
