@@ -6976,6 +6976,11 @@ def _engine_scorecard(ticker, info, price):
         #    Business degrada a MISSING (business ≈ 0). Es el mecanismo que su metodología define
         #    ("mirroring financial.py's overlay['wacc'] precedent" + HANDOFF_CONTRACT). ──
         _overlay = {}
+        # MISSING_DATA_POLICY.md paso 4: un input de FUENTE PROXY (respaldo) se usa "con un proxy
+        # flag y menor confianza". Registramos aquí cada respaldo inyectado para SURFACEARLO
+        # (beta y WACC están en la lista de imputación prohibida: nunca se INVENTAN, pero sí se
+        # pueden tomar de una fuente secundaria real DECLARÁNDOLO).
+        _proxy_inputs = {}
         # Beta SOLO como respaldo si el packet (FMP profile) no lo trae. Victor resuelve
         # beta = overlay.get("beta", packet.capital_structure["beta"]): si inyectáramos SIEMPRE
         # el de yfinance pisaríamos el beta del packet (fuente congelada del análisis) — una
@@ -6984,6 +6989,7 @@ def _engine_scorecard(ticker, info, price):
             _pkt_beta = (getattr(pk, "capital_structure", {}) or {}).get("beta")
             if _pkt_beta is None and info.get("beta") is not None:
                 _overlay["beta"] = float(info["beta"])
+                _proxy_inputs["beta"] = "yfinance (packet sin beta de FMP) — fuente secundaria, menor confianza"
         except Exception:
             pass
         # Risk-free rate: respaldo si el packet (FRED) no lo trae. FRED es OPCIONAL; sin rf,
@@ -7005,6 +7011,7 @@ def _engine_scorecard(ticker, info, price):
                     _rf_dec = _rfv / 100.0 if _rfv > 1.0 else _rfv   # ^TNX cotiza en % (4.25 → 0.0425)
                     if 0.005 <= _rf_dec <= 0.10:                     # banda de sanidad; fuera → no inyectar
                         _overlay["risk_free_rate"] = _rf_dec
+                        _proxy_inputs["risk_free_rate"] = f"^TNX 10Y (packet sin FRED) = {_rf_dec:.4f} — fuente secundaria"
                         print(f"[engine] {ticker}: risk_free_rate de respaldo (^TNX 10Y) = {_rf_dec:.4f}")
         except Exception:
             pass
@@ -7354,6 +7361,11 @@ def _engine_scorecard(ticker, info, price):
         sc["_victor_final"] = _victor_final_objs            # objetos crudos para el reporte final (uso interno)
     if _pk_staleness:
         sc["packet_staleness"] = _pk_staleness             # frescura por tipo de dato (DATA_POLICY.md)
+    try:
+        if _proxy_inputs:
+            sc["proxy_inputs"] = _proxy_inputs             # respaldos de fuente secundaria (MISSING_DATA_POLICY paso 4)
+    except NameError:
+        pass
 
     # ── TARGETS + FAIR VALUE de Victor (su targets.py) — deterministas, no del LLM ──
     if dict_packet:
@@ -8020,6 +8032,8 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 "data_staleness": _eng.get("packet_staleness") or {},
                 "recalc_recommended": bool(_eng.get("packet_staleness") and
                                            any(v == "STALE" for v in (_eng.get("packet_staleness") or {}).values())),
+                # MISSING_DATA_POLICY paso 4: inputs tomados de una FUENTE PROXY (respaldo), declarados.
+                "proxy_inputs": _eng.get("proxy_inputs") or {},
                 "gates_source": _gates.get("_source", "gates de compatibilidad"),
                 "scores_source": "engine determinista (metodología de Victor)"}
             analisis_json["victor_targets_detail"] = _eng.get("victor_targets_detail")
@@ -8095,6 +8109,7 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                     _hi = (_eng.get("victor_gates") or {}).get("handoff_issues") or {}
                     _frd.setdefault("audit", {}).setdefault("validation_summary", {})["handoff_issues"] = _hi
                     _frd["audit"]["validation_summary"]["data_staleness"] = _eng.get("packet_staleness") or {}
+                    _frd["audit"]["validation_summary"]["proxy_inputs"] = _eng.get("proxy_inputs") or {}
                     analisis_json["final_report"] = _frd
             except Exception as _fre:
                 print(f"[analyze] reporte final (schema) omitido: {str(_fre)[:150]}")
