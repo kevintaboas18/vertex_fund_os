@@ -637,7 +637,7 @@
                 </div>
                 <div id="qtChart" class="tv-chart h-72 mb-4 bg-[#0B0E14] rounded-xl border border-gray-900"></div>
                 <div id="qtConeWrap" class="hidden mb-4 bg-[#0B0E14] rounded-xl border border-gray-900 p-3">
-                    <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="git-commit-horizontal" class="w-3.5 h-3.5 text-blue-400"></i> Cono de movimiento esperado (Bull / Base / Bear · 7d → 12M)</p>
+                    <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="git-commit-horizontal" class="w-3.5 h-3.5 text-blue-400"></i> Evolución histórica vs proyección — histórico (sólido) → Bull / Base / Bear (punteado, 7d → 12M)</p>
                     <div style="height:180px"><canvas id="qtConeChart"></canvas></div>
                     <p class="text-[9px] text-gray-600 italic mt-1.5">La banda sombreada se ensancha con el horizonte: refleja la incertidumbre creciente entre los targets bull y bear del agente. La línea central es el caso base. Líneas punteadas = proyección (nunca dato real).</p>
                     <!-- Regla visual de Victor "etiqueta los supuestos": de dónde sale cada escenario (crecimiento + múltiplo). -->
@@ -1902,26 +1902,49 @@ function renderExpectedMoveCone() {
     const have = order.filter(([k]) => tg[k] && tg[k].base != null);
     if (!spot || have.length < 2 || !window.Chart) { if (wrap) wrap.classList.add('hidden'); return; }
     wrap.classList.remove('hidden');
-    const labels = ['Hoy', ...have.map(([,l]) => l)];
-    const bull = [spot, ...have.map(([k]) => Number(tg[k].bull))];
-    const base = [spot, ...have.map(([k]) => Number(tg[k].base))];
-    const bear = [spot, ...have.map(([k]) => Number(tg[k].bear))];
+
+    // ── Regla visual de Victor "evolución histórica vs proyección": el pasado va en línea
+    //    SÓLIDA (precio real), el futuro en línea PUNTEADA. Tomamos hasta ~8 cierres reales
+    //    recientes del OHLC del análisis para el tramo histórico, que empalma con "Hoy".
+    const ohlc = currentAnalysis?.historial_ohlc || [];
+    const fmtT = (t) => (t && typeof t === 'object') ? `${t.month}/${t.day}`
+                        : (typeof t === 'string' ? t.slice(5) : (t != null ? String(t) : ''));
+    const histPts = [];
+    if (ohlc.length) {
+        const N = ohlc.length, want = Math.min(8, N), step = Math.max(1, Math.floor(N / want));
+        for (let i = N - 1 - (want - 1) * step; i < N; i += step) {
+            const c = ohlc[i]; const cl = c && (c.close != null ? c.close : c.value);
+            if (cl != null) histPts.push({ label: fmtT(c.time), v: Number(cl) });
+        }
+    }
+    const nHist = histPts.length;
+    const futLabels = have.map(([,l]) => l);
+    const labels = [...histPts.map(p => p.label), 'Hoy', ...futLabels];
+    const nFut = futLabels.length;
+    // histórico + "Hoy" en sólido; null en el futuro (spanGaps=false corta la línea)
+    const histSeries = [...histPts.map(p => p.v), spot, ...Array(nFut).fill(null)];
+    // proyección desde "Hoy" en punteado; null en el histórico (empalman en "Hoy"=spot)
+    const nullHist = Array(nHist).fill(null);
+    const bull = [...nullHist, spot, ...have.map(([k]) => Number(tg[k].bull))];
+    const base = [...nullHist, spot, ...have.map(([k]) => Number(tg[k].base))];
+    const bear = [...nullHist, spot, ...have.map(([k]) => Number(tg[k].bear))];
     const ctx = document.getElementById('qtConeChart').getContext('2d');
     if (window._qtConeChart) { try { window._qtConeChart.destroy(); } catch(e){} }
     window._qtConeChart = new Chart(ctx, {
         type:'line',
         data:{ labels, datasets:[
-            // Regla visual de Victor: "el pasado no se proyecta" — todo el cono es FUTURO
-            // proyectado, así que las 3 líneas van PUNTEADAS (nunca sólidas, que es para lo real).
-            { label:'Bull', data:bull, borderColor:'rgba(52,211,153,0.9)', borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:0.3, fill:false },
+            // Histórico = REAL → línea SÓLIDA. El futuro proyectado (bull/base/bear) → PUNTEADO.
+            { label:'Histórico', data:histSeries, borderColor:'#93c5fd', borderWidth:2, pointRadius:0, tension:0.15, fill:false, spanGaps:false },
+            { label:'Bull', data:bull, borderColor:'rgba(52,211,153,0.9)', borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:0.3, fill:false, spanGaps:false },
             { label:'Bear', data:bear, borderColor:'rgba(248,113,113,0.9)', borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:0.3,
-              fill:'-1', backgroundColor:'rgba(59,130,246,0.10)' },
-            { label:'Base', data:base, borderColor:'#e5e7eb', borderWidth:2, borderDash:[5,4], pointRadius:0, tension:0.3, fill:false },
+              fill:'-1', backgroundColor:'rgba(59,130,246,0.10)', spanGaps:false },
+            { label:'Base', data:base, borderColor:'#e5e7eb', borderWidth:2, borderDash:[5,4], pointRadius:0, tension:0.3, fill:false, spanGaps:false },
         ]},
         options:{ responsive:true, maintainAspectRatio:false,
             interaction:{ mode:'index', intersect:false },
             plugins:{ legend:{ labels:{ color:'#9ca3af', font:{size:9}, boxWidth:10 } },
-                tooltip:{ callbacks:{ label:(c)=>` ${c.dataset.label}: $${Number(c.raw).toFixed(2)} (${spot?((c.raw-spot)/spot*100>=0?'+':'')+((c.raw-spot)/spot*100).toFixed(1)+'%':''})` } } },
+                tooltip:{ filter:(item)=> item.raw != null,
+                    callbacks:{ label:(c)=> ` ${c.dataset.label}: $${Number(c.raw).toFixed(2)} (${spot?((c.raw-spot)/spot*100>=0?'+':'')+((c.raw-spot)/spot*100).toFixed(1)+'%':''})` } } },
             scales:{ x:{ ticks:{color:'#6b7280',font:{size:9}}, grid:{display:false} },
                      y:{ ticks:{color:'#6b7280',font:{size:9},callback:v=>'$'+v}, grid:{color:'rgba(255,255,255,0.04)'} } } }
     });
