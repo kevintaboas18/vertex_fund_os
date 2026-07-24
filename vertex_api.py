@@ -7023,7 +7023,10 @@ def _engine_scorecard(ticker, info, price):
         try:
             _annual_f = (getattr(pk, "fundamentals", {}) or {}).get("annual") or []
             if _annual_f:
-                _ie = _annual_f[-1].get("interest_expense")   # annual[-1] = fila más reciente (igual que el especialista)
+                # OJO: packet.fundamentals["annual"] se guarda NEWEST-FIRST (convención FMP); el
+                # especialista lo invierte (_annual_rows) y usa annual[-1]=reciente. Aquí leemos el
+                # packet CRUDO, así que el reciente es [0] (NO [-1], que sería el año más viejo).
+                _ie = _annual_f[0].get("interest_expense")
                 if _ie is not None and abs(float(_ie)) > 0:
                     _overlay["interest_expense"] = abs(float(_ie))   # magnitud del gasto (la fórmula usa EBIT/|int|)
         except Exception:
