@@ -6971,6 +6971,45 @@ def _engine_scorecard(ticker, info, price):
         except Exception as _ae:
             print(f"[engine] ajuste de adaptador de industria omitido: {str(_ae)[:120]}")
 
+        # ── SERIE SECTORIAL REAL (ETF SPDR por sector GICS): el builder de Victor fija
+        #    market_data.sector = benchmark (SPY) como PROXY documentado, y comenta que el mapa
+        #    per-sector ETF (XLK/XLF/XLE…) es la mejora pendiente. Con SPY==sector, MKT-RSG-024
+        #    compara SPY vs SPY = 0 (score neutro degenerado) y TECH-RSS-012 (stock vs sector) queda
+        #    IDÉNTICO a TECH-RS-011 (stock vs mercado). Inyectamos el ETF sectorial real del sector
+        #    de la empresa, construido EXACTAMENTE como Victor arma benchmark_rows (FMP newest-first,
+        #    filtrado a las fechas del stock, mismo _ohlcv_row) → RSG/RSS pasan a ser sector-vs-mercado
+        #    y stock-vs-sector REALES. Solo cambia el instrumento (SPY→ETF); no se toca su engine. ──
+        _SECTOR_ETF = {
+            "technology": "XLK", "information technology": "XLK",
+            "financial services": "XLF", "financials": "XLF", "financial": "XLF",
+            "energy": "XLE", "healthcare": "XLV", "health care": "XLV",
+            "industrials": "XLI", "industrial": "XLI",
+            "consumer defensive": "XLP", "consumer staples": "XLP",
+            "consumer cyclical": "XLY", "consumer discretionary": "XLY",
+            "utilities": "XLU", "basic materials": "XLB", "materials": "XLB",
+            "real estate": "XLRE", "communication services": "XLC", "communications": "XLC",
+        }
+        try:
+            _sec_name = (info.get("sector") or "").strip().lower()
+            _etf = _SECTOR_ETF.get(_sec_name)
+            if _etf:                                   # solo si mapea a un ETF sectorial real (≠ SPY)
+                from wbj.schemas.packet import OHLCVRow as _OHLCVRow
+                _stock_dates = {r.date for r in (pk.market_data.daily or [])}
+                _raw_etf = prov.fmp.ohlcv_daily(_etf, today=datetime.now(timezone.utc).date()) or []
+                _sec_rows = [_OHLCVRow(date=_b["date"], open=_b["open"], high=_b["high"], low=_b["low"],
+                                       close=_b["close"], adj_close=_b.get("adjClose", _b["close"]),
+                                       volume=_b["volume"])
+                             for _b in _raw_etf
+                             if isinstance(_b, dict) and _b.get("date") in _stock_dates
+                             and _b.get("close") is not None]
+                if len(_sec_rows) >= 64:               # RSG/RSS exigen >63 sesiones de solape
+                    pk = pk.model_copy(update={
+                        "market_data": pk.market_data.model_copy(update={"sector": _sec_rows})})
+                    print(f"[engine] {ticker}: sector '{info.get('sector')}' → ETF {_etf} inyectado como "
+                          f"serie sectorial REAL ({len(_sec_rows)} sesiones); RSG/RSS ya no comparan SPY vs SPY")
+        except Exception as _se:
+            print(f"[engine] inyección de ETF sectorial omitida: {str(_se)[:120]}")
+
         # ── HANDOFF de Victor: Valuation computa el WACC (VAL-WACC-007) y Business/Financial
         #    lo CONSUMEN vía overlay["wacc"]. Sin este traspaso, todo ROIC/spread/EVA/moat de
         #    Business degrada a MISSING (business ≈ 0). Es el mecanismo que su metodología define

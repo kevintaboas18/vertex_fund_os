@@ -824,8 +824,11 @@ def _compute_all(
 
     sector_rows, benchmark_rows = packet.market_data.sector, packet.market_data.benchmark
     if sector_rows and benchmark_rows:
-        sector_close = pd.Series([r.close for r in sector_rows])
-        benchmark_close = pd.Series([r.close for r in benchmark_rows])
+        # Packet series are newest-first (same convention as fundamentals/technical `_to_df`);
+        # reverse to ascending so `roc(63)` measures the MOST RECENT 63-day return, not the oldest.
+        # Without this, sector relative strength is computed on reversed time and its sign inverts.
+        sector_close = pd.Series([r.close for r in reversed(sector_rows)])
+        benchmark_close = pd.Series([r.close for r in reversed(benchmark_rows)])
         v_rsg = sector_relative_strength(sector_close, benchmark_close, 63)
     else:
         v_rsg = _null(NullState.MISSING, "pp", "SECTOR_RELATIVE_STRENGTH_UNAVAILABLE_EMPTY_MARKET_DATA")
