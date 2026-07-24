@@ -593,6 +593,26 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> TechnicalOutpu
     v_base = base_depth(df)
     add("TECH-BASE-037", v_base, _score_from_anchor(v_base, [(0.05, 10), (0.15, 6), (0.30, 3), (0.50, 0)]))
 
+    # ---- TECH-DATR-029: distance to nearest level in ATR (diagnostic, unscored) ----
+    # FORMULAS.md: (ReferencePrice - CurrentClose) / ATR14; "use nearest zone boundary for
+    # approach status". Reference = the support/resistance zone boundary closest to the current
+    # close (reuses the zones `compute_levels` already produced). Positive => nearest level is
+    # above (approaching resistance); negative => below (approaching support). Not a member of any
+    # scored dimension, so it emits with score10=None (NOT_SCORABLE row) — context, not a score.
+    close_now = _last_valid(close)
+    zone_boundaries = [
+        float(b)
+        for z in (levels_output.nearest_support + levels_output.nearest_resistance)
+        for b in (getattr(z, "lower", None), getattr(z, "upper", None))
+        if b is not None
+    ]
+    if close_now is not None and atr_latest and atr_latest > 0 and zone_boundaries:
+        ref_price = min(zone_boundaries, key=lambda b: abs(b - close_now))
+        v_datr = _ok((ref_price - close_now) / atr_latest, unit="atr_units")
+    else:
+        v_datr = _null(NullState.MISSING, "atr_units", "DATR_NO_ZONES_OR_ATR_UNAVAILABLE")
+    add("TECH-DATR-029", v_datr, None)
+
     # ---- TECH-BREAD-039 / TECH-LIQ-040 ----
     breadth_overlay = overlay.get("sector_breadth")
     if breadth_overlay and breadth_overlay.get("valid_members", 0) > 0:
