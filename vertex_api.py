@@ -7064,6 +7064,36 @@ def _engine_scorecard(ticker, info, price):
                     "snapshot_before_release": True}
         except Exception:
             pass
+        # TECH-GAP-020/GHOLD-021 (dimensión earnings-gap) + anchors de AVWAP del agente TECHNICAL:
+        # leen overlay["earnings_dates"] = fechas de la SESIÓN del gap, que deben EXISTIR en el OHLCV
+        # del packet. El engine NO infiere amc/bmo; espera la sesión ya resuelta. Resolución
+        # CONSERVADORA contra las fechas del packet: bmo→misma sesión, amc→sesión siguiente,
+        # tiempo desconocido→se OMITE (nunca adivinar → jamás un gap mal mapeado).
+        try:
+            _pk_days = sorted(str(getattr(r, "date", ""))[:10]
+                              for r in (getattr(getattr(pk, "market_data", None), "daily", None) or []))
+            _pk_dayset = set(_pk_days)
+            _gap_sessions = []
+            for e in (_ecal or []):
+                if not (isinstance(e, dict) and e.get("eps") is not None):
+                    continue                                   # solo eventos YA reportados
+                _d = str(e.get("date", ""))[:10]
+                if not _d or _d > _todayd:
+                    continue
+                _t = str(e.get("time") or "").lower()
+                if _t == "bmo":
+                    _gs = _d if _d in _pk_dayset else None      # gap en la misma sesión
+                elif _t == "amc":
+                    _gs = next((x for x in _pk_days if x > _d), None)   # gap en la sesión siguiente
+                else:
+                    _gs = None                                  # tiempo desconocido → omitir
+                if _gs and _gs in _pk_dayset:
+                    _gap_sessions.append(_gs)
+            _gap_sessions = sorted(set(_gap_sessions))
+            if _gap_sessions:
+                _overlay["earnings_dates"] = _gap_sessions      # el engine exige >=4 para puntuar el gap
+        except Exception:
+            pass
         _vo = None
         try:
             _vo = _val.run(pk, overlay=(_overlay or None))   # valuation primero → su WACC
