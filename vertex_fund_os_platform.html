@@ -814,6 +814,11 @@
                     <p class="text-[10px] text-gray-500 mb-3">Contrato concreto (strike anclado al flujo institucional, prima Black-Scholes, R:R, stop &minus;20/&minus;30% con excepción Tipo&nbsp;A) dimensionado a tu capital. Énfasis en flujo+gamma del horizonte corto.</p>
                     <div id="qtOptionPlayBody"></div>
                 </div>
+
+                <!-- ══ POR QUÉ ESTE VEREDICTO: los gates, overrides y contradicciones REALES de
+                     Victor (apply_gates / apply_overrides / contradictions). Convierte la etiqueta
+                     del perfil en un argumento auditable. ══ -->
+                <div id="frWhyVerdict" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
             </div>
 
             <div>
@@ -868,6 +873,12 @@
                         <div><span class="text-[9px] text-gray-400 font-bold block uppercase">Vertex DCF</span><span id="wsDCF" class="font-mono font-bold text-blue-400 text-sm"></span></div>
                     </div>
                 </div>
+
+                <!-- ══ NIVELES DE PRECIO — ENTRADA Y SALIDA. Síntesis real de Victor
+                     (synthesize_levels / PRICE_LEVEL_SYNTHESIS.md): soportes, resistencias, medias,
+                     VWAP anclado, gaps de earnings, bandas de valor y zonas de confluencia.
+                     Estructura de precio pura: ninguna de estas líneas la pone una IA. ══ -->
+                <div id="frLevels" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
             </div>
 
             <div>
@@ -1551,7 +1562,7 @@ function renderDashboard(data) {
     // Adapta el panel de targets al origen (Victor = solo 12M) desde el primer render.
     try { applyTargetsSourceUI(); } catch(e){}
     // Paneles de Victor (palabras simples · puntaje · qué significa) del área de research.
-    try { renderVictorWords(); renderVictorScore(); renderVictorMeaning(); } catch(e){ console.error('paneles Victor:', e); }
+    try { renderVictorWords(); renderVictorScore(); renderVictorMeaning(); renderVictorLevels(); renderVictorWhy(); } catch(e){ console.error('paneles Victor:', e); }
     const targets = data.targets || {};
     const meth = data.methodology || {};
     const price = data.precio_actual;
@@ -2031,6 +2042,93 @@ function renderVictorScore() {
       <div class="gauge-num">${overall}</div><div class="gauge-of">de 10</div></div>${rows}`;
 }
 
+// ── NIVELES DE PRECIO — ENTRADA Y SALIDA (synthesize_levels de Victor) ──────────
+// OJO con las unidades: `distance_percent` ya viene EN PORCENTAJE (-2.15 = -2.15%),
+// no como fracción — formatearlo con % lo multiplicaría por 100 otra vez.
+const _LVL_LBL = { current_adjusted_close:'Precio actual', moving_average:'Media móvil',
+  anchored_vwap:'VWAP anclado', earnings_gap_boundary:'Gap de earnings',
+  intrinsic_value_scenario:'Valor intrínseco', margin_of_safety_band:'Margen de seguridad',
+  reverse_dcf_implied_assumptions:'DCF inverso' };
+
+function renderVictorLevels() {
+  const el = document.getElementById('frLevels'); if (!el) return;
+  const L = currentAnalysis?.analisis?.victor_levels;
+  const rows = (L && Array.isArray(L.levels)) ? L.levels : [];
+  if (!rows.length) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const px = Number(L.current_price), atr = Number(L.atr14);
+  const fmt$ = v => '$' + Number(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  const cell = r => {
+    const zone = (r.zone_low != null && r.zone_high != null)
+      ? `${fmt$(r.zone_low)} – ${fmt$(r.zone_high)}`
+      : (r.value != null ? fmt$(r.value) : '—');
+    const dp = r.distance_percent != null
+      ? `${r.distance_percent >= 0 ? '+' : ''}${r.distance_percent.toFixed(1)}%` : '';
+    const da = r.distance_atr != null
+      ? `${r.distance_atr >= 0 ? '+' : ''}${r.distance_atr.toFixed(1)} ATR` : '';
+    return `<div class="flex items-baseline justify-between gap-2 py-1.5 border-b border-gray-900/60">
+      <div class="min-w-0">
+        <div class="text-[11px] text-gray-200 truncate">${r.label || ''}</div>
+        <div class="text-[9px] text-gray-600">${_LVL_LBL[r.level_class] || r.level_class}</div>
+      </div>
+      <div class="text-right flex-shrink-0">
+        <div class="text-[11px] font-mono text-white">${zone}</div>
+        <div class="text-[9px] font-mono text-gray-500">${dp}${dp && da ? ' · ' : ''}${da}</div>
+      </div></div>`;
+  };
+  // Sobre el precio = zonas de SALIDA; bajo el precio = zonas de COMPRA. El propio precio se omite.
+  const ref = r => (r.zone_low != null ? (r.zone_low + r.zone_high) / 2 : r.value);
+  const body = rows.filter(r => r.level_class !== 'current_adjusted_close' && ref(r) != null);
+  const above = body.filter(r => ref(r) > px).sort((a,b) => ref(a) - ref(b));
+  const below = body.filter(r => ref(r) <= px).sort((a,b) => ref(b) - ref(a));
+  const conf = (L.confluences || []).map(c =>
+    `<div class="text-[10px] text-blue-300 bg-blue-500/10 border border-blue-500/20 rounded px-2 py-1 mb-1">
+       <b>${fmt$(c.low)} – ${fmt$(c.high)}</b> · ${(c.level_labels || []).join(' + ')}
+       ${c.note ? `<span class="text-blue-200/70"> — ${c.note}</span>` : ''}</div>`).join('');
+  el.innerHTML = `
+    <span class="text-[11px] font-bold text-white uppercase tracking-wider block border-b border-gray-800 pb-2 mb-1">
+      &#128207; Niveles de precio — entrada y salida</span>
+    <p class="text-[10px] text-gray-500 italic mb-3">Soportes y resistencias reales de la acción del precio, medias móviles, VWAP anclado y bandas de valor. <b class="text-gray-400">Sin IA — estructura de precio pura.</b> Precio actual ${fmt$(px)} · ATR14 ${fmt$(atr)}.</p>
+    ${conf ? `<div class="mb-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Zonas de confluencia</p>${conf}</div>` : ''}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-5">
+      <div><p class="text-[9px] text-red-400 uppercase font-bold mb-1">Resistencia — zonas de salida</p>
+        ${above.length ? above.map(cell).join('') : '<p class="text-[10px] text-gray-600 italic py-2">Ningún nivel por encima del precio.</p>'}</div>
+      <div><p class="text-[9px] text-emerald-400 uppercase font-bold mb-1">Soporte — zonas de compra</p>
+        ${below.length ? below.map(cell).join('') : '<p class="text-[10px] text-gray-600 italic py-2">Ningún nivel por debajo del precio.</p>'}</div>
+    </div>
+    <p class="text-[9px] text-gray-700 mt-2">Fuente: síntesis de niveles de Victor (technical + valuation) · distancias en % y en múltiplos de ATR.</p>`;
+}
+
+// ── POR QUÉ ESTE VEREDICTO: gates, overrides y contradicciones reales ───────────
+function renderVictorWhy() {
+  const el = document.getElementById('frWhyVerdict'); if (!el) return;
+  const w = currentAnalysis?.analisis?.wbj;
+  if (!w) { el.classList.add('hidden'); return; }
+  const passed = w.passed_gates || [], failed = w.failed_gates || [],
+        ovr = w.overrides || [], warn = w.warnings || [], contra = w.contradictions || [];
+  if (!passed.length && !failed.length && !ovr.length && !contra.length) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const chip = (t, cls) => `<div class="text-[10px] ${cls} rounded px-2 py-1 mb-1 leading-snug">${t}</div>`;
+  const sec = (title, items, cls) => items.length
+    ? `<div class="mb-2"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">${title}</p>${items.map(i => chip(i, cls)).join('')}</div>` : '';
+  const contraHtml = contra.length
+    ? `<div class="mb-2"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Contradicciones detectadas</p>` +
+      contra.map(c => `<div class="text-[10px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1 mb-1 leading-snug">
+        <b>${c.label || c.combination || ''}</b>${c.interpretation ? ` — ${c.interpretation}` : ''}</div>`).join('') + `</div>` : '';
+  el.innerHTML = `
+    <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+      <span class="text-xs font-bold text-white uppercase tracking-wider">&#9878;&#65039; Por qué este veredicto</span>
+      <span class="text-[10px] font-extrabold px-2 py-0.5 rounded uppercase border" style="border-color:#3b82f655;color:#93c5fd">${w.profile || '—'}</span>
+    </div>
+    <p class="text-[10px] text-gray-500 italic mb-3">Los gates y overrides que produjeron la clasificación — no una opinión, las reglas que se evaluaron. Banda: <b class="text-gray-400">${w.band || '—'}</b>.</p>
+    ${sec('Gates superados', passed, 'text-emerald-300 bg-emerald-500/10 border border-emerald-500/20')}
+    ${sec('Gates fallados', failed, 'text-red-300 bg-red-500/10 border border-red-500/20')}
+    ${sec('Overrides aplicados', ovr, 'text-amber-300 bg-amber-500/10 border border-amber-500/20')}
+    ${contraHtml}
+    ${sec('Advertencias', warn, 'text-gray-300 bg-gray-500/10 border border-gray-700')}
+    <p class="text-[9px] text-gray-700 mt-1">Origen: ${w.gates_source || 'gates de Victor'}.</p>`;
+}
+
 // "Qué significa el puntaje" — clasificación (favorece/neutral/evitar) + qué significa
 // cada categoría en palabras (muy fuerte / sólido / mixto / débil / problemático).
 function renderVictorMeaning() {
@@ -2178,7 +2276,7 @@ async function fetchAndRenderFrChart(period) {
 function buildFrChart(period) {
     renderVictorChart('frVictorChart');
     // Paneles de Victor del área de research
-    try { renderVictorWords(); renderVictorScore(); renderVictorMeaning(); } catch(e){ console.error('paneles Victor:', e); }
+    try { renderVictorWords(); renderVictorScore(); renderVictorMeaning(); renderVictorLevels(); renderVictorWhy(); } catch(e){ console.error('paneles Victor:', e); }
     _chartCite('frChartSrc', 'US$/acción · cierres diarios (sólido) + targets 12M (punteado)', (currentAnalysis?.precio_fuente || 'FMP') + ' + targets.py');
 }
 function updateFrTargets(period) {
