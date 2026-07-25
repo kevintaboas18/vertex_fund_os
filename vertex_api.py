@@ -24,10 +24,37 @@ from urllib.parse import urlparse
 # ─────────────────────────────────────────────────────────────────────────────
 try:
     from dotenv import load_dotenv
-    _ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vertex.env")
+    _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    _ENV_PATH = os.path.join(_BASE_DIR, "vertex.env")
     load_dotenv(_ENV_PATH)                 # no falla si el archivo no existe
+    # API/.env es el que lee el engine de Victor (wbj.config). Lo cargamos también para que
+    # ajustes como JUDGE_MODEL / EXTRACTION_MODEL lleguen a os.environ: wbj.config usa
+    # dotenv_values(), que devuelve un dict y NO puebla el entorno. Sin override para que
+    # vertex.env siga mandando si ambos definen la misma variable.
+    load_dotenv(os.path.join(_BASE_DIR, "API", ".env"), override=False)
 except Exception:
     pass  # sin python-dotenv: se usan las variables ya presentes en el entorno
+
+
+def _extraction_model(settings=None):
+    """Modelo para EXTRAER texto largo (10-K), separado del que EMITE JUICIO.
+
+    Las dos llamadas al LLM tienen perfiles opuestos: la extracción manda ~125k tokens de
+    10-K pero solo busca números (volumen, poco criterio), mientras el judge manda ~3k
+    tokens pero clasifica el moat y los thesis-killers (poco volumen, mucho criterio) —
+    y su respuesta SÍ mueve puntos (moat_classification alimenta un slot de dimensión).
+    Poner el modelo caro en la extracción es pagar 5x donde menos rinde, así que aquí se
+    usa uno barato por defecto y el judge conserva el suyo (wbj.config.judge_model).
+    """
+    m = os.environ.get("EXTRACTION_MODEL")
+    if m:
+        return m.strip()
+    # Sin EXTRACTION_MODEL: el default barato. Si alguien fijó JUDGE_MODEL a un modelo
+    # barato, se respeta esa intención en vez de imponer otro.
+    jm = (getattr(settings, "judge_model", "") or os.environ.get("JUDGE_MODEL") or "").strip()
+    if "haiku" in jm.lower():
+        return jm
+    return "claude-haiku-4-5"
 
 # Cliente Gemini (modelo principal de la IA). GEMINI_API_KEY vive en vertex.env.
 # Si no hay key, client_gemini queda en None y los endpoints de IA degradan a
@@ -6604,7 +6631,7 @@ def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
             ' "guidance_history": [{"actual": number, "guidance_midpoint": number}]|null}'
         )
         _msg = _client.messages.create(
-            model=getattr(settings, "judge_model", "claude-opus-4-8"),
+            model=_extraction_model(settings),      # modelo BARATO: aquí manda el volumen, no el criterio
             max_tokens=1024, system=_sys,
             messages=[{"role": "user", "content":
                        f"Empresa {ticker}. Del siguiente 10-K, extrae este JSON (null si no está divulgado):\n"
@@ -8518,7 +8545,17 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                     insiders_snapshot, _gates.get("recommendation"), _nxt, fmp_important=_fmp_imp)
                 # CLAUDE.md #4: historial del management (roster factual + trayectoria en otras
                 # empresas exitosas). Roster siempre; la parte cualitativa es grounded/opcional.
-                analisis_json["mandatory_report"]["management"] = _wbj_management_track_record(info)
+                # Se le PASAN los settings: sin ellos la función caía siempre a la rama sin-key y
+                # la mitad cualitativa de este punto obligatorio nunca se producía. Es una tarea de
+                # JUICIO con riesgo de alucinación (y poco texto), así que usa el judge_model.
+                _mgmt_settings = None
+                try:
+                    from wbj.config import load_settings as _ls_mgmt
+                    _mgmt_settings = _ls_mgmt()
+                except Exception:
+                    _mgmt_settings = None
+                analisis_json["mandatory_report"]["management"] = _wbj_management_track_record(
+                    info, settings=_mgmt_settings)
             except Exception as _mre:
                 print(f"[analyze] contenido obligatorio omitido: {str(_mre)[:120]}")
             # ── RE-EJECUCIÓN (CLAUDE.md): ¿la tesis previa quedó obsoleta? Disparadores
