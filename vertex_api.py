@@ -8433,17 +8433,33 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             _ps_suppress = [_o for _o in (_gates.get("overrides") or [])
                             if _o in ("OVERRIDE_7_MISSING_SHARE_COUNT", "OVERRIDE_7_DATA_CONFLICT_SUPPRESS_PER_SHARE")]
             _vfv = _eng.get("victor_fair_value")
-            if _ps_suppress:
-                analisis_json["fair_value"] = None
-                analisis_json["upside_pct"] = None
-                analisis_json["valuation_per_share_suppressed"] = {
-                    "active": True, "overrides": _ps_suppress,
-                    "reason": ("Valuación por acción suprimida: conflicto/ausencia material NO resuelto "
-                               "de share-count/deuda/caja/precio (Override 7, MAIN-009/010). Sin un "
-                               "conteo de acciones confiable no se publica un valor por acción.")}
-            elif _vfv:
+            # EL FAIR VALUE ES EL TARGET BASE de Victor (su targets.py). El Override 7 NO lo borra:
+            #  · MAIN-009 ("missing share count" → suprimir per-share) ya está cubierto DENTRO de
+            #    price_targets, que devuelve not_scorable si falta diluted_shares o el EPS no es
+            #    positivo. Si los targets salieron OK, hubo un conteo de acciones real.
+            #  · MAIN-010 en VALIDATION_TESTS.md pide "mark conflicted and rerun affected agents",
+            #    NO suprimir el valor. Por eso el conflicto se MARCA (warning visible) en vez de
+            #    dejar el Fair Value en blanco.
+            # La supresión sigue aplicando al valor por acción del especialista de VALUACIÓN (DCF),
+            # que es otro número y se marca aparte.
+            if _vfv:
                 analisis_json["fair_value"] = round(float(_vfv), 2)
                 analisis_json["upside_pct"] = round(((float(_vfv) - precio_actual) / precio_actual) * 100, 2) if precio_actual else 0.0
+            elif _ps_suppress:
+                # Sin target base publicable Y con Override 7 activo → sí se suprime, y se dice por qué.
+                analisis_json["fair_value"] = None
+                analisis_json["upside_pct"] = None
+            if _ps_suppress:
+                analisis_json["valuation_per_share_suppressed"] = {
+                    "active": True, "overrides": _ps_suppress,
+                    "fair_value_published": bool(_vfv),
+                    "reason": ("Conflicto/ausencia material de share-count/deuda/caja/precio marcado por el "
+                               "Override 7 (MAIN-009/010): el valor por acción del DCF del especialista de "
+                               "valuación queda suprimido y los agentes afectados deberían re-correrse. "
+                               + ("El Fair Value mostrado es el TARGET BASE de targets.py, que se calcula "
+                                  "con su propio conteo de acciones validado y por eso sí se publica."
+                                  if _vfv else
+                                  "Tampoco hay target base publicable, así que no se muestra Fair Value."))}
             analisis_json["recommendation"] = _gates["recommendation"]
             analisis_json["conviccion_score"] = int(round(_eng["raw_total"]))
             analisis_json["wbj"] = {"framework": "Ruta 2030 Wall Street Agent System v2.0.0",

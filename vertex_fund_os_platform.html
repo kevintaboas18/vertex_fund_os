@@ -1644,14 +1644,18 @@ function renderDashboard(data) {
     document.getElementById('qt_base_12m_pct').innerText = pctDiff(price, t12.base);
     document.getElementById('qt_bear_12m_pct').innerText = pctDiff(price, t12.bear);
 
-    // Verdict — fair value: si es null (Override 7 suprime la valuación por-acción, o no hay EPS
-    // positivo para el target), NO mostrar "$0.00" (engañoso) sino "N/D" + la razón real.
+    // Verdict — fair value: ES EL TARGET BASE de Victor. Se muestra siempre que exista.
+    // El Override 7 (conflicto de acciones/deuda/caja) ya NO lo borra: solo MARCA el conflicto
+    // (MAIN-010 pide "mark + rerun", no suprimir) y el aviso queda en el tooltip. Solo se pone
+    // "N/D" cuando de verdad no hay número (p.ej. sin EPS positivo → targets not_scorable),
+    // porque mostrar "$0.00" sería engañoso.
     const _fv = a.fair_value, _sup = a.valuation_per_share_suppressed;
     const _fvEl = document.getElementById('vFairValue'), _upEl = document.getElementById('vUpside');
-    if (_fv != null && !(_sup && _sup.active)) {
+    if (_fv != null) {
         _fvEl.innerText = `$${Number(_fv).toFixed(2)}`;
         _upEl.innerText = `${(a.upside_pct||0).toFixed(1)}%`;
-        _fvEl.removeAttribute('title');
+        if (_sup && _sup.active) { _fvEl.title = _sup.reason || ''; }   // conflicto marcado, no oculto
+        else { _fvEl.removeAttribute('title'); }
     } else {
         _fvEl.innerText = 'N/D'; _upEl.innerText = '—';
         _fvEl.title = (_sup && _sup.active)
@@ -2005,13 +2009,16 @@ function _chartCite(elId, unidades, fuente) {
 // declarados, y el futuro (targets) va punteado mientras el pasado va sólido.
 const PERIODS = { '1M': 21, '3M': 63, '6M': 126, '1A': 9999 };
 const _vChartState = {};   // por host: {data, targets, period}
+// El detalle de targets de Victor (targets.py) viaja dentro de `analisis`, no en la raíz.
+function _victorTargetsDetail() { return (currentAnalysis?.analisis?.victor_targets_detail) || null; }
 
 function renderVictorChart(hostId) {
   const el = document.getElementById(hostId);
   if (!el) return;
   const d = currentAnalysis || {};
   const data = d.chart_history || [];
-  const det = d.victor_targets_detail || null;
+  // OJO: victor_targets_detail viaja DENTRO de `analisis` (no en la raíz del response).
+  const det = _victorTargetsDetail();
   const targets = (det && det.status === 'ok') ? det : null;
   _vChartState[hostId] = { data, targets, period: '1A' };
   if (!data.length) {
@@ -2113,7 +2120,7 @@ function setVictorPeriod(hostId, p) {
 // tomados de su targets.py (victor_targets_detail).
 function renderVictorAssumptions(elId) {
   const el = document.getElementById(elId); if (!el) return;
-  const det = currentAnalysis?.victor_targets_detail || {};
+  const det = _victorTargetsDetail() || {};
   const scn = Array.isArray(det.scenarios) ? det.scenarios : [];
   if (scn.length) {
     el.innerHTML = 'Supuestos (12M): ' + scn.map(s =>
@@ -2121,8 +2128,8 @@ function renderVictorAssumptions(elId) {
   } else if (det.growth_base != null) {
     el.innerHTML = `Supuesto base: crecimiento ${(det.growth_base*100).toFixed(0)}% · P/E actual ${det.pe_now ?? '—'}x · EPS $${det.eps ?? '—'}`;
   } else {
-    el.innerHTML = currentAnalysis?.victor_targets_reason
-      ? `Sin targets de Victor: ${currentAnalysis.victor_targets_reason}` : '';
+    const rz = currentAnalysis?.analisis?.victor_targets_reason;
+    el.innerHTML = rz ? `Sin targets de Victor: ${rz}` : '';
   }
 }
 async function fetchAndRenderFrChart(period) {
