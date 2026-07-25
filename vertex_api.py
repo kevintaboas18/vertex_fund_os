@@ -130,6 +130,19 @@ def init_db():
             conn.execute("ALTER TABLE reports ADD COLUMN payload TEXT")
         except Exception:
             pass
+        # MKT-REVMAG-012 (magnitud de revisión de consenso): guarda un SNAPSHOT del consenso en
+        # cada análisis. La revisión es un cambio ENTRE DOS MOMENTOS, y ninguna API nos da el
+        # consenso de hace N días — así que lo construimos nosotros con el histórico propio.
+        conn.execute("""CREATE TABLE IF NOT EXISTS consensus_snapshots (
+            ticker      TEXT NOT NULL,
+            taken_ts    REAL NOT NULL,
+            fiscal_date TEXT,
+            eps_avg     REAL,
+            revenue_avg REAL,
+            n_analysts  INTEGER,
+            PRIMARY KEY (ticker, taken_ts)
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_cons_ticker ON consensus_snapshots(ticker, taken_ts)")
         conn.commit()
         conn.close()
     except Exception as e:
@@ -263,6 +276,38 @@ def save_report(report_id, ticker, price, fair_value, upside_pct, recommendation
         conn.close()
     except Exception as e:
         print(f"[DB] save error: {e}")
+
+def consensus_snapshot(ticker, fiscal_date, eps_avg, revenue_avg, n_analysts, min_gap_days=7):
+    """Guarda el consenso de analistas de HOY y devuelve el snapshot ANTERIOR (o None).
+
+    MKT-REVMAG-012 mide `(consenso actual - consenso previo)/|previo|`. Ninguna API entrega el
+    consenso de hace N días, así que lo acumulamos nosotros: cada análisis deja su marca y la
+    revisión se calcula contra la marca previa. `min_gap_days` evita comparar contra un snapshot
+    de hace un rato (dos análisis el mismo día no son una "revisión"). El primer análisis de un
+    ticker devuelve None — honesto: aún no hay contra qué comparar.
+    """
+    prior = None
+    try:
+        now = datetime.now().timestamp()
+        conn = _db()
+        row = conn.execute(
+            "SELECT fiscal_date,eps_avg,revenue_avg,n_analysts,taken_ts FROM consensus_snapshots "
+            "WHERE ticker=? AND taken_ts <= ? ORDER BY taken_ts DESC LIMIT 1",
+            (ticker, now - min_gap_days * 86400.0)).fetchone()
+        if row:
+            prior = {"fiscal_date": row[0], "eps_avg": row[1], "revenue_avg": row[2],
+                     "n_analysts": row[3], "taken_ts": row[4]}
+        if eps_avg is not None or revenue_avg is not None:
+            conn.execute(
+                "INSERT OR REPLACE INTO consensus_snapshots "
+                "(ticker,taken_ts,fiscal_date,eps_avg,revenue_avg,n_analysts) VALUES (?,?,?,?,?,?)",
+                (ticker, now, fiscal_date, eps_avg, revenue_avg, n_analysts))
+            conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] consensus snapshot error: {e}")
+    return prior
+
 
 def save_report_payload(report_id, payload):
     """#4 — guarda el JSON COMPLETO del reporte en el servidor para un archivo durable y multi-dispositivo.
@@ -6898,12 +6943,39 @@ def _engine_scorecard(ticker, info, price):
             _reported = [e for e in _ecal if isinstance(e, dict)
                          and e.get("eps") is not None and e.get("epsEstimated") is not None
                          and str(e.get("date", ""))[:10] <= _todayd]      # solo trimestres YA reportados
+            _est_ov = {}
             if _reported:
                 _le = max(_reported, key=lambda e: str(e.get("date", "")))   # el reportado más reciente
-                _overlay["estimates"] = {
+                _est_ov.update({
                     "actual": float(_le["eps"]),
                     "pre_release_consensus": float(_le["epsEstimated"]),
-                    "snapshot_before_release": True}
+                    "snapshot_before_release": True})
+            # MKT-REVMAG-012: magnitud de revisión = consenso de HOY vs el de nuestro snapshot
+            # anterior. Ninguna API da el consenso histórico, así que lo acumulamos nosotros
+            # (tabla consensus_snapshots). El primer análisis de un ticker no tiene contra qué
+            # comparar → no se inyecta y la métrica queda N/S, que es lo honesto.
+            try:
+                _est_rows = (getattr(pk, "estimates", {}) or {}).get("fmp_analyst_estimates") or []
+                _e0 = _est_rows[0] if _est_rows and isinstance(_est_rows[0], dict) else {}
+                _eps_now = _e0.get("estimatedEpsAvg")
+                _rev_now = _e0.get("estimatedRevenueAvg")
+                _n_an = _e0.get("numberAnalystEstimatedRevenue")
+                _prior_c = consensus_snapshot(
+                    ticker, str(_e0.get("date", ""))[:10] or None,
+                    float(_eps_now) if _eps_now is not None else None,
+                    float(_rev_now) if _rev_now is not None else None,
+                    int(_n_an) if _n_an is not None else None)
+                # Solo comparable si es el MISMO año fiscal (si no, el cambio sería de periodo, no revisión)
+                if (_prior_c and _eps_now is not None and _prior_c.get("eps_avg")
+                        and _prior_c.get("fiscal_date") == (str(_e0.get("date", ""))[:10] or None)):
+                    _est_ov["current_consensus"] = float(_eps_now)
+                    _est_ov["prior_consensus"] = float(_prior_c["eps_avg"])
+                    print(f"[engine] {ticker}: revisión de consenso EPS "
+                          f"{_prior_c['eps_avg']:.2f} → {float(_eps_now):.2f}")
+            except Exception as _ce:
+                print(f"[engine] snapshot de consenso omitido: {str(_ce)[:110]}")
+            if _est_ov:
+                _overlay["estimates"] = _est_ov
         except Exception:
             pass
         # eps_growth_pct para VALUATION (VAL-PEG-028): crecimiento de EPS de consenso.
@@ -6990,6 +7062,43 @@ def _engine_scorecard(ticker, info, price):
                     continue
             if len(_pmults) >= 8:              # umbral MIN_PEERS de Victor
                 _overlay["peer_multiples"] = _pmults
+            # ── MKT-SECB-023 (market) + TECH-BREAD-039 (technical): PANEL DE CONSTITUYENTES.
+            # El Packet solo trae el ÍNDICE del sector, no sus miembros, así que Victor dice
+            # explícitamente que esto solo puede venir del overlay. Usamos los stock-peers de FMP
+            # como panel del sector (proxy DECLARADO: son los comparables del mismo sector, no la
+            # lista completa del índice) y contamos cuántos cotizan sobre su SMA50/SMA200 con el
+            # mismo ohlcv_daily del packet. Sin miembros válidos → no se inyecta (queda N/S).
+            try:
+                _b50 = _b200 = _bval = 0
+                for _bpt in list(_pm_list)[:20]:
+                    if not _bpt or str(_bpt).upper() == ticker.upper():
+                        continue
+                    _bars = prov.fmp.ohlcv_daily(_bpt, years=2, today=datetime.now(timezone.utc).date()) or []
+                    # FMP entrega newest-first → ordenar ASCENDENTE por fecha antes de las medias
+                    _cl = [float(_c) for _, _c in
+                           sorted(((str(b.get("date"))[:10], b.get("close")) for b in _bars
+                                   if isinstance(b, dict) and b.get("date") and b.get("close") is not None),
+                                  key=lambda _x: _x[0])]
+                    if len(_cl) < 200:
+                        continue                      # sin 200 sesiones no se puede decidir la SMA200
+                    _last = _cl[-1]
+                    _sma50 = sum(_cl[-50:]) / 50.0
+                    _sma200 = sum(_cl[-200:]) / 200.0
+                    _bval += 1
+                    if _last > _sma50:
+                        _b50 += 1
+                    if _last > _sma200:
+                        _b200 += 1
+                if _bval > 0:
+                    _overlay["sector_breadth"] = {"above_50dma": _b50, "above_200dma": _b200,
+                                                  "valid_members": _bval}
+                    _proxy_inputs["sector_breadth"] = (
+                        f"Panel del sector = {_bval} stock-peers de FMP (proxy declarado: comparables "
+                        "del mismo sector, no la lista completa del índice sectorial)")
+                    print(f"[engine] {ticker}: breadth del sector = {_b50}/{_bval} sobre SMA50, "
+                          f"{_b200}/{_bval} sobre SMA200")
+            except Exception as _be:
+                print(f"[engine] sector breadth omitido: {str(_be)[:120]}")
         except Exception:
             pass
         # TECH-GAP-020/GHOLD-021 (dimensión earnings-gap) + anchors de AVWAP del agente TECHNICAL:
@@ -7022,6 +7131,58 @@ def _engine_scorecard(ticker, info, price):
                 _overlay["earnings_dates"] = _gap_sessions      # el engine exige >=4 para puntuar el gap
         except Exception:
             pass
+
+        # ── RSK-CYC-034 (sensibilidad macro): beta OLS del cambio de una métrica de la EMPRESA
+        # contra el cambio de un FACTOR MACRO. Victor exige series ALINEADAS y >=6 observaciones.
+        # Empresa: crecimiento YoY de ingresos TRIMESTRALES del packet (el builder trae ~21 tri).
+        # Macro: producción industrial (FRED INDPRO), el factor cíclico estándar, en su variación
+        # YoY tomada en el trimestre MÁS CERCANO ANTERIOR a cada cierre fiscal — nunca posterior,
+        # para no mirar al futuro. Si no se alinean >=6 pares, no se inyecta nada (queda N/S).
+        try:
+            _q = (getattr(pk, "fundamentals", {}) or {}).get("quarterly") or []
+            _qrows = sorted(({"d": str(r.get("date"))[:10], "rev": r.get("revenue")}
+                             for r in _q if isinstance(r, dict) and r.get("date") and r.get("revenue")),
+                            key=lambda _x: _x["d"])
+            _co_growth = []           # (fecha, crecimiento YoY) — 4 trimestres atrás
+            for _i in range(4, len(_qrows)):
+                _prev = float(_qrows[_i - 4]["rev"]); _cur = float(_qrows[_i]["rev"])
+                if _prev > 0:
+                    _co_growth.append((_qrows[_i]["d"], _cur / _prev - 1.0))
+            if len(_co_growth) >= 6:
+                _obs = ((prov.fred.series("INDPRO", limit=180) or {}) or {}).get("observations") or []
+                _macro = sorted(((str(o.get("date"))[:10], float(o["value"]))
+                                 for o in _obs
+                                 if isinstance(o, dict) and o.get("date")
+                                 and str(o.get("value", ".")) not in (".", "", "None")),
+                                key=lambda _x: _x[0])
+                _mdates = [d for d, _ in _macro]
+                _mvals = {d: v for d, v in _macro}
+                def _macro_yoy(_asof):
+                    """INDPRO YoY en la última observación NO POSTERIOR a _asof."""
+                    _c = [d for d in _mdates if d <= _asof]
+                    if not _c:
+                        return None
+                    _now_d = _c[-1]
+                    _yr_ago = f"{int(_now_d[:4]) - 1}{_now_d[4:]}"
+                    _p = [d for d in _mdates if d <= _yr_ago]
+                    if not _p or _mvals[_p[-1]] <= 0:
+                        return None
+                    return _mvals[_now_d] / _mvals[_p[-1]] - 1.0
+                _cs, _ms = [], []
+                for _d, _g in _co_growth:
+                    _mg = _macro_yoy(_d)
+                    if _mg is not None:
+                        _cs.append(_g); _ms.append(_mg)
+                if len(_cs) >= 6:
+                    _overlay["company_series"] = _cs
+                    _overlay["macro_series"] = _ms
+                    _proxy_inputs["macro_series"] = (
+                        "Factor macro = producción industrial FRED (INDPRO) en variación YoY, "
+                        "alineada al último dato NO POSTERIOR a cada cierre trimestral")
+                    print(f"[engine] {ticker}: sensibilidad macro con {len(_cs)} pares "
+                          f"(ingresos trimestrales YoY vs INDPRO YoY)")
+        except Exception as _mce:
+            print(f"[engine] series macro omitidas: {str(_mce)[:120]}")
         # Forense de RISK (AQI-023, DEPI-025, SGAI-026, Beneish M-score RSK-MSCR-029, Altman Z
         # RSK-ALT-030): leen ppe/depreciation/sga (+prior) y retained_earnings por overlay (como
         # interest_expense). El builder de Victor YA los mapea a packet.fundamentals; los leemos de
