@@ -7069,7 +7069,19 @@ def _engine_scorecard(ticker, info, price):
             # lista completa del índice) y contamos cuántos cotizan sobre su SMA50/SMA200 con el
             # mismo ohlcv_daily del packet. Sin miembros válidos → no se inyecta (queda N/S).
             try:
+                # Cierres del BENCHMARK del packet (ascendente) — base de la fuerza relativa:
+                # RS_n = ROC_n(acción) − ROC_n(benchmark), la misma definición de indicators.py.
+                _bench_cl = [float(getattr(_r, "close")) for _r in
+                             sorted((getattr(getattr(pk, "market_data", None), "benchmark", None) or []),
+                                    key=lambda _r: str(getattr(_r, "date", "")))
+                             if getattr(_r, "close", None) is not None]
+                def _roc(_series, _n):
+                    if len(_series) <= _n or _series[-1 - _n] <= 0:
+                        return None
+                    return _series[-1] / _series[-1 - _n] - 1.0
+                _RSW = {"RS21": 21, "RS63": 63, "RS126": 126, "RS252": 252}
                 _b50 = _b200 = _bval = 0
+                _rs_rows = []
                 for _bpt in list(_pm_list)[:20]:
                     if not _bpt or str(_bpt).upper() == ticker.upper():
                         continue
@@ -7089,6 +7101,26 @@ def _engine_scorecard(ticker, info, price):
                         _b50 += 1
                     if _last > _sma200:
                         _b200 += 1
+                    # TECH-RSC-013: fila del universo con la RS del par en las 4 ventanas.
+                    # Solo se incluye si TODAS son computables — una fila a medias sesgaría el percentil.
+                    if _bench_cl:
+                        _row = {}
+                        for _k, _n in _RSW.items():
+                            _rp, _rb = _roc(_cl, _n), _roc(_bench_cl, _n)
+                            if _rp is None or _rb is None:
+                                _row = None
+                                break
+                            _row[_k] = _rp - _rb
+                        if _row:
+                            _rs_rows.append(_row)
+                # TECH-RSC-013 (percentil compuesto de fuerza relativa): el engine necesita el
+                # universo PUNTO-EN-EL-TIEMPO, que el Packet no trae. Se arma con los mismos peers.
+                if len(_rs_rows) >= 5:               # con menos de 5, el percentil no dice nada
+                    _overlay["rs_universe"] = _rs_rows
+                    _proxy_inputs["rs_universe"] = (
+                        f"Universo de fuerza relativa = {len(_rs_rows)} stock-peers de FMP "
+                        "(proxy declarado: comparables del sector, no el universo completo del mercado)")
+                    print(f"[engine] {ticker}: universo RS con {len(_rs_rows)} pares (21/63/126/252d)")
                 if _bval > 0:
                     _overlay["sector_breadth"] = {"above_50dma": _b50, "above_200dma": _b200,
                                                   "valid_members": _bval}
