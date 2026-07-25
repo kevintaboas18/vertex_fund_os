@@ -7815,6 +7815,25 @@ def analyze_ticker(ticker: str):
                 "up":    bool(row['Close'] >= row['Open']),
             })
 
+        # ── HISTORIAL 1 AÑO para la gráfica de Victor (su price_history: [{time,value}]) ──
+        # La gráfica de precio+targets es la SUYA (engine/scripts/webapp.py) y necesita el último
+        # año de cierres diarios. Se usa su función tal cual; si Yahoo falla, respaldo resiliente.
+        chart_history = []
+        try:
+            from wbj.targets import price_history as _victor_price_history
+            chart_history = _victor_price_history(ticker) or []
+        except Exception as _phe:
+            print(f"[analyze] price_history de Victor falló: {str(_phe)[:120]}")
+        if not chart_history:
+            try:
+                _h1y = _resilient_history(stock, ticker, "1y")
+                if _h1y is not None and not _h1y.empty:
+                    chart_history = [{"time": _i.strftime("%Y-%m-%d"), "value": round(float(_c), 2)}
+                                     for _i, _c in zip(_h1y.index, _h1y['Close'].tolist())
+                                     if _c == _c]          # descarta NaN
+            except Exception as _h1e:
+                print(f"[analyze] respaldo de historial 1a falló: {str(_h1e)[:120]}")
+
         # ── Earnings date / EPS estimate ─────────────────────────────────────
         earnings_info = fetch_earnings_info(stock, info)
         earnings_hist = fetch_earnings_history(stock)          # #2 — sorpresas + reacción post-earnings
@@ -8622,6 +8641,9 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             "historial_precios": precios_hist,
             "historial_fechas": fechas_hist,
             "historial_ohlc": ohlc_hist,
+            # Último año de cierres diarios [{time:"YYYY-MM-DD", value}] — insumo de la gráfica
+            # de precio+targets de Victor (su renderer SVG, periodos 1M/3M/6M/1A).
+            "chart_history": chart_history,
             "historial_volumen": volumen_hist,
             "earnings_info": earnings_info,
             "insiders_snapshot": insiders_snapshot,

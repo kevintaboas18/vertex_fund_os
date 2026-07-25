@@ -51,6 +51,20 @@
         .tf-pill { padding: 4px 12px; font-size: 11px; font-weight: 700; border-radius: 20px; cursor: pointer; border: 1px solid #1F2532; background: transparent; color: #6b7280; transition: all 0.2s; }
         /* Regla visual de Victor: cita al pie de cada gráfica (unidades · fuente · timestamp). */
         .chart-cite { font-size: 9px; color: #4b5563; margin-top: 6px; line-height: 1.4; }
+        /* ══ Gráfica de Victor (precio y targets) — CSS portado de engine/scripts/webapp.py ══ */
+        .c-chart { background:#0e1113; color:#e8eaed; border-radius:14px; padding:16px; border:1px solid #1F2532; }
+        .c-chart h2 { color:#fff; font-size:16px; font-weight:700; }
+        .c-chart .sub { color:#8b929c; font-size:12.5px; margin-top:3px; }
+        .chart-head { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin:8px 0 4px; }
+        .chart-head .px { font-size:34px; font-weight:800; letter-spacing:-.02em; }
+        .chart-head .chg { font-size:14px; font-weight:700; }
+        .chart-head .chg.up { color:#26d07c; } .chart-head .chg.down { color:#ff5a5f; }
+        .chart-head .rng { color:#8b929c; font-size:13px; }
+        .c-chart .tvchart { height:340px; margin-top:10px; }
+        .periods { display:flex; gap:8px; margin-top:12px; }
+        .periods button { font:inherit; font-size:13px; font-weight:700; padding:6px 16px;
+            border:0; border-radius:99px; background:transparent; color:#8b929c; cursor:pointer; }
+        .periods button.on { background:#1d2b22; color:#26d07c; }
         .tf-pill:hover { color: #e5e7eb; border-color: #3b82f6; }
         .tf-pill.active { background: #1e3a5f; color: #3b82f6; border-color: #3b82f6; }
         .news-card { background: #0B0E14; border: 1px solid #1F2532; border-radius: 12px; padding: 14px 16px; transition: border-color 0.2s; }
@@ -598,21 +612,13 @@
                         <span id="qtEarningsEps" class="text-[10px] text-gray-300 bg-[#11141D] px-2 py-0.5 rounded-full border border-gray-800"></span>
                     </div>
                 </div>
-                <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
-                    <h3 class="text-xs font-bold text-white flex items-center gap-2"><i data-lucide="candlestick-chart" class="w-4 h-4 text-blue-500"></i> Candlestick + Volume + 12M Target Zone</h3>
-                    <button onclick="toggleQtEMA(this)" class="ema-toggle">EMA 20 / 50</button>
-                </div>
-                <div id="qtChart" class="tv-chart h-72 mb-1 bg-[#0B0E14] rounded-xl border border-gray-900"></div>
+                <!-- ══ GRÁFICA DE VICTOR (precio y targets) — SVG propio, cero dependencias.
+                     Portada tal cual de engine/scripts/webapp.py de su repo. ══ -->
+                <div class="c-chart" id="qtVictorChart"></div>
                 <!-- Regla visual de Victor: título, unidades, fuente y timestamp. -->
                 <p id="qtChartSrc" class="chart-cite mb-3"></p>
-                <div id="qtConeWrap" class="hidden mb-4 bg-[#0B0E14] rounded-xl border border-gray-900 p-3">
-                    <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="git-commit-horizontal" class="w-3.5 h-3.5 text-blue-400"></i> <span id="qtConeHead">Evolución histórica vs proyección — histórico (sólido) → Bull / Base / Bear (punteado, 7d → 12M)</span></p>
-                    <div style="height:180px"><canvas id="qtConeChart"></canvas></div>
-                    <p class="text-[9px] text-gray-600 italic mt-1.5">La banda sombreada se ensancha con el horizonte: refleja la incertidumbre creciente entre los targets bull y bear del agente. La línea central es el caso base. Líneas punteadas = proyección (nunca dato real).</p>
-                    <!-- Regla visual de Victor "etiqueta los supuestos": de dónde sale cada escenario (crecimiento + múltiplo). -->
-                    <p id="qtConeAssumptions" class="text-[9px] text-gray-500 mt-1 leading-relaxed"></p>
-                    <p id="qtConeSource" class="text-[9px] text-gray-700 mt-1"></p>
-                </div>
+                <!-- Regla visual de Victor "etiqueta los supuestos": crecimiento + múltiplo por escenario. -->
+                <p id="qtConeAssumptions" class="text-[9px] text-gray-500 mb-3 leading-relaxed"></p>
                 <div class="grid grid-cols-3 gap-3">
                     <div class="bg-[#0B0E14] p-3 rounded-xl border border-emerald-500/20 text-center">
                         <span class="text-[10px] text-emerald-400 font-bold block uppercase mb-1">&#128994; Bull 12M</span>
@@ -784,16 +790,10 @@
                         <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="target" class="w-4 h-4"></i> Institutional Price Targets</h3>
                         <p id="frTargetsMethod" class="text-[10px] text-gray-500 mt-0.5">DCF &middot; ATR &middot; Historical Volatility &middot; Analyst Consensus</p>
                     </div>
-                    <div class="flex items-center gap-2 flex-wrap">
-                        <button class="tf-pill active" data-frtf="7d" onclick="changeTimeframe('7d', this)">7D</button>
-                        <button class="tf-pill" data-frtf="1mo" onclick="changeTimeframe('1mo', this)">30D</button>
-                        <button class="tf-pill" data-frtf="3mo" onclick="changeTimeframe('3mo', this)">3M</button>
-                        <button class="tf-pill" data-frtf="6mo" onclick="changeTimeframe('6mo', this)">6M</button>
-                        <button class="tf-pill" data-frtf="1y" onclick="changeTimeframe('1y', this)">12M</button>
-                        <button onclick="toggleFrEMA(this)" class="ema-toggle ml-1">EMA 20 / 50</button>
-                    </div>
                 </div>
-                <div id="frChart" class="tv-chart h-80 mb-1 bg-[#0B0E14] rounded-xl border border-gray-900"></div>
+                <!-- ══ GRÁFICA DE VICTOR (precio y targets) — su SVG propio, con sus propios
+                     periodos 1M/3M/6M/1A. Portada tal cual de engine/scripts/webapp.py. ══ -->
+                <div class="c-chart" id="frVictorChart"></div>
                 <!-- Regla visual de Victor: título, unidades, fuente y timestamp. -->
                 <p id="frChartSrc" class="chart-cite mb-4"></p>
                 <div class="grid grid-cols-3 gap-3 mb-4">
@@ -1238,7 +1238,7 @@ function switchAnalysisTab(tabId, btn) {
     btn.classList.add('active');
     lucide.createIcons();
     if (tabId === 'noticesTab' && currentTicker) loadNotices(currentTicker);
-    if (tabId === 'quickTakeTab' && qtTV && qtTV.chart) { setTimeout(() => { try { const c = document.getElementById('qtChart'); qtTV.chart.applyOptions({ width: c.clientWidth, height: c.clientHeight }); qtTV.chart.timeScale().fitContent(); } catch(e){} }, 60); }
+    // La gráfica de Victor es SVG responsivo (viewBox): no necesita re-dimensionado manual.
     if (tabId === 'fullResearchTab' && currentAnalysis) fetchAndRenderFrChart(currentTimeframe);
     // El card WBJ de Victor está en esta pestaña: re-renderiza sus charts ahora que es visible
     // (Chart.js las dibuja a 0px si el contenedor estaba oculto al primer render).
@@ -1982,13 +1982,9 @@ async function renderReportOptionPlay(ticker, kellyPct) {
 }
 
 function renderQtChart() {
-    const ohlc = currentAnalysis?.historial_ohlc || [];
-    const vol  = currentAnalysis?.historial_volumen || [];
-    const t    = currentAnalysis?.targets?.['12m'] || {};
-    if (qtTV && qtTV.chart) { try { qtTV.chart.remove(); } catch(e){} qtTV = null; }
-    qtTV = buildTVChart('qtChart', ohlc, vol, { bull:t.bull, base:t.base, bear:t.bear }, qtShowEMA);
-    _chartCite('qtChartSrc', 'US$/acción · velas históricas (sólido) + targets 12M (dashed)', (currentAnalysis?.precio_fuente || 'FMP') + ' + targets.py');
-    renderExpectedMoveCone();
+    renderVictorChart('qtVictorChart');
+    _chartCite('qtChartSrc', 'US$/acción · cierres diarios (sólido) + targets 12M (punteado)', (currentAnalysis?.precio_fuente || 'FMP') + ' + targets.py');
+    renderVictorAssumptions('qtConeAssumptions');
 }
 
 // Regla visual de Victor "todo gráfico lleva título, unidades, fuente y timestamp":
@@ -2001,104 +1997,144 @@ function _chartCite(elId, unidades, fuente) {
     el.innerText = (unidades ? `Unidades: ${unidades} · ` : '') + `Fuente: ${src}` + (ts ? ` · ${ts}` : '');
 }
 
-// #7 — cono de movimiento esperado: banda bull/bear que se ensancha 7d→12M
-function renderExpectedMoveCone() {
-    const tg = currentAnalysis?.targets || {};
-    const spot = Number(currentPrice || currentAnalysis?.precio_actual || 0);
-    const wrap = document.getElementById('qtConeWrap');
-    const order = [['7d','7d'],['30d','30d'],['3m','3M'],['6m','6M'],['12m','12M']];
-    const have = order.filter(([k]) => tg[k] && tg[k].base != null);
-    // Con targets de Victor solo existe el horizonte 12M: el cono se dibuja igual (histórico
-    // sólido → proyección punteada), por eso basta con 1 horizonte, no 2.
-    if (!spot || !have.length || !window.Chart) { if (wrap) wrap.classList.add('hidden'); return; }
-    wrap.classList.remove('hidden');
-    const _coneHead = document.getElementById('qtConeHead');
-    if (_coneHead) _coneHead.innerText = _victorTargets()
-        ? 'Evolución histórica vs proyección — histórico (sólido) → Bull / Base / Bear a 12M (punteado)'
-        : 'Evolución histórica vs proyección — histórico (sólido) → Bull / Base / Bear (punteado, 7d → 12M)';
+// ══ GRÁFICA DE VICTOR — "precio y targets" ═══════════════════════════════════
+// Portada TAL CUAL de su repo (engine/scripts/webapp.py, renderChart/setPeriod):
+// SVG propio, cero dependencias externas. Área verde + línea de precio, líneas de
+// target punteadas con etiqueta tipo píldora, grid, eje de fechas y periodos 1M/3M/6M/1A.
+// Cumple sus reglas visuales: nunca una sola línea (bull/medio/bear), supuestos
+// declarados, y el futuro (targets) va punteado mientras el pasado va sólido.
+const PERIODS = { '1M': 21, '3M': 63, '6M': 126, '1A': 9999 };
+const _vChartState = {};   // por host: {data, targets, period}
 
-    // ── Regla visual de Victor "evolución histórica vs proyección": el pasado va en línea
-    //    SÓLIDA (precio real), el futuro en línea PUNTEADA. Tomamos hasta ~8 cierres reales
-    //    recientes del OHLC del análisis para el tramo histórico, que empalma con "Hoy".
-    const ohlc = currentAnalysis?.historial_ohlc || [];
-    const fmtT = (t) => (t && typeof t === 'object') ? `${t.month}/${t.day}`
-                        : (typeof t === 'string' ? t.slice(5) : (t != null ? String(t) : ''));
-    const histPts = [];
-    if (ohlc.length) {
-        const N = ohlc.length, want = Math.min(8, N), step = Math.max(1, Math.floor(N / want));
-        for (let i = N - 1 - (want - 1) * step; i < N; i += step) {
-            const c = ohlc[i]; const cl = c && (c.close != null ? c.close : c.value);
-            if (cl != null) histPts.push({ label: fmtT(c.time), v: Number(cl) });
-        }
-    }
-    const nHist = histPts.length;
-    const futLabels = have.map(([,l]) => l);
-    const labels = [...histPts.map(p => p.label), 'Hoy', ...futLabels];
-    const nFut = futLabels.length;
-    // histórico + "Hoy" en sólido; null en el futuro (spanGaps=false corta la línea)
-    const histSeries = [...histPts.map(p => p.v), spot, ...Array(nFut).fill(null)];
-    // proyección desde "Hoy" en punteado; null en el histórico (empalman en "Hoy"=spot)
-    const nullHist = Array(nHist).fill(null);
-    const bull = [...nullHist, spot, ...have.map(([k]) => Number(tg[k].bull))];
-    const base = [...nullHist, spot, ...have.map(([k]) => Number(tg[k].base))];
-    const bear = [...nullHist, spot, ...have.map(([k]) => Number(tg[k].bear))];
-    const ctx = document.getElementById('qtConeChart').getContext('2d');
-    if (window._qtConeChart) { try { window._qtConeChart.destroy(); } catch(e){} }
-    window._qtConeChart = new Chart(ctx, {
-        type:'line',
-        data:{ labels, datasets:[
-            // Histórico = REAL → línea SÓLIDA. El futuro proyectado (bull/base/bear) → PUNTEADO.
-            { label:'Histórico', data:histSeries, borderColor:'#93c5fd', borderWidth:2, pointRadius:0, tension:0.15, fill:false, spanGaps:false },
-            { label:'Bull', data:bull, borderColor:'rgba(52,211,153,0.9)', borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:0.3, fill:false, spanGaps:false },
-            { label:'Bear', data:bear, borderColor:'rgba(248,113,113,0.9)', borderWidth:1.5, borderDash:[5,4], pointRadius:0, tension:0.3,
-              fill:'-1', backgroundColor:'rgba(59,130,246,0.10)', spanGaps:false },
-            { label:'Base', data:base, borderColor:'#e5e7eb', borderWidth:2, borderDash:[5,4], pointRadius:0, tension:0.3, fill:false, spanGaps:false },
-        ]},
-        options:{ responsive:true, maintainAspectRatio:false,
-            interaction:{ mode:'index', intersect:false },
-            plugins:{ legend:{ labels:{ color:'#9ca3af', font:{size:9}, boxWidth:10 } },
-                tooltip:{ filter:(item)=> item.raw != null,
-                    callbacks:{ label:(c)=> ` ${c.dataset.label}: $${Number(c.raw).toFixed(2)} (${spot?((c.raw-spot)/spot*100>=0?'+':'')+((c.raw-spot)/spot*100).toFixed(1)+'%':''})` } } },
-            scales:{ x:{ ticks:{color:'#6b7280',font:{size:9}}, grid:{display:false} },
-                     y:{ ticks:{color:'#6b7280',font:{size:9},callback:v=>'$'+v}, grid:{color:'rgba(255,255,255,0.04)'} } } }
-    });
-    // Regla visual de Victor: "etiqueta los supuestos" + "título, unidades, fuente y timestamp".
-    // Los supuestos (crecimiento + múltiplo por escenario) salen de targets.py (victor_targets_detail).
-    const det = currentAnalysis?.victor_targets_detail || {};
-    const asEl = document.getElementById('qtConeAssumptions');
-    const scEl = document.getElementById('qtConeSource');
-    if (asEl) {
-        const scn = Array.isArray(det.scenarios) ? det.scenarios : [];
-        if (scn.length) {
-            asEl.innerHTML = 'Supuestos (12M): ' + scn.map(s =>
-                `<b class="text-gray-400">${s.label}</b> ${s.assumptions || ''}`).join(' &nbsp;·&nbsp; ');
-        } else {
-            asEl.innerHTML = (det.growth_base != null)
-                ? `Supuesto base: crecimiento ${(det.growth_base*100).toFixed(0)}% · P/E actual ${det.pe_now ?? '—'}x · EPS $${det.eps ?? '—'}`
-                : '';
-        }
-    }
-    if (scEl) {
-        const ts = currentAnalysis?.precio_as_of || currentAnalysis?.fecha_analisis || '';
-        const src = currentAnalysis?.precio_fuente || 'targets.py (EPS·(1+g)·P/E)';
-        scEl.innerText = `Unidades: US$/acción · Fuente: ${src}${ts ? ' · ' + ts : ''}`;
-    }
+function renderVictorChart(hostId) {
+  const el = document.getElementById(hostId);
+  if (!el) return;
+  const d = currentAnalysis || {};
+  const data = d.chart_history || [];
+  const det = d.victor_targets_detail || null;
+  const targets = (det && det.status === 'ok') ? det : null;
+  _vChartState[hostId] = { data, targets, period: '1A' };
+  if (!data.length) {
+    el.innerHTML = `<h2>Gráfica y targets</h2>
+      <div class="sub">Sin historial de precio disponible para ${d.ticker || ''}.</div>`;
+    return;
+  }
+  el.innerHTML = `<h2>${d.ticker || ''} — precio y targets</h2>
+    <div class="sub">Último año · targets a 12 meses con supuestos declarados</div>
+    <div class="chart-head" id="${hostId}-head"></div>
+    <div class="tvchart" id="${hostId}-svg"></div>
+    <div class="periods" id="${hostId}-periods">
+      ${Object.keys(PERIODS).map(p =>
+        `<button data-p="${p}" class="${p === '1A' ? 'on' : ''}">${p}</button>`).join('')}
+    </div>`;
+  document.getElementById(`${hostId}-periods`).addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    document.querySelectorAll(`#${hostId}-periods button`).forEach(x => x.classList.toggle('on', x === b));
+    setVictorPeriod(hostId, b.dataset.p);
+  });
+  setVictorPeriod(hostId, '1A');
+}
+
+function setVictorPeriod(hostId, p) {
+  const st = _vChartState[hostId]; if (!st || !st.data.length) return;
+  st.period = p;
+  const tvData = st.data, tvTargets = st.targets;
+  const slice = tvData.slice(-PERIODS[p]);
+  if (slice.length < 2) return;
+  const W = 1000, H = 340, PADL = 14, PADR = 150, PADT = 18, PADB = 30;
+  const vals = slice.map(r => r.value);
+  const tg = tvTargets ? tvTargets.scenarios.map(s => s.target) : [];
+  let lo = Math.min(...vals, ...(tg.length ? tg : vals));
+  let hi = Math.max(...vals, ...(tg.length ? tg : vals));
+  const pad = (hi - lo) * 0.07 || 1; lo -= pad; hi += pad;
+  const X = i => PADL + i / (slice.length - 1) * (W - PADL - PADR);
+  const Y = v => PADT + (1 - (v - lo) / (hi - lo)) * (H - PADT - PADB);
+
+  const pts = slice.map((r, i) => `${X(i).toFixed(1)},${Y(r.value).toFixed(1)}`).join(' ');
+  const area = `M ${X(0).toFixed(1)},${(H - PADB)} L ${pts.replaceAll(' ', ' L ')} L ${X(slice.length - 1).toFixed(1)},${H - PADB} Z`;
+
+  // grid + eje de fechas
+  const grid = [0.25, 0.5, 0.75].map(f => {
+    const y = PADT + f * (H - PADT - PADB);
+    return `<line x1="${PADL}" x2="${W - PADR + 60}" y1="${y}" y2="${y}"
+      stroke="rgba(139,146,156,.14)" stroke-width="1"/>`;
+  }).join('');
+  const dates = [0, Math.floor(slice.length / 2), slice.length - 1].map(i =>
+    `<text x="${X(i)}" y="${H - 8}" fill="#8b929c" font-size="11.5"
+      text-anchor="${i === 0 ? 'start' : i === slice.length - 1 ? 'end' : 'middle'}">${slice[i].time}</text>`).join('');
+
+  // líneas de target punteadas con etiqueta tipo píldora (como la referencia)
+  let tlines = '';
+  if (tvTargets) {
+    const by = {}; tvTargets.scenarios.forEach(s => by[s.key] = s);
+    const defs = [
+      ['bull', '#26d07c', 'rgba(38,208,124,.14)', 'Bull'],
+      ['base', '#f5a623', 'rgba(245,166,35,.14)', 'Medio'],
+      ['bear', '#ff5a5f', 'rgba(255,90,95,.14)', 'Bear'],
+    ];
+    tlines = defs.map(([k, c, bg, lb]) => {
+      const s = by[k]; if (!s) return '';
+      const y = Y(s.target);
+      const label = `${lb} $${s.target.toFixed(0)} (${s.upside >= 0 ? '+' : ''}${(s.upside * 100).toFixed(0)}%)`;
+      return `<line x1="${PADL}" x2="${W - PADR + 4}" y1="${y}" y2="${y}"
+          stroke="${c}" stroke-width="1.3" stroke-dasharray="7 6" opacity=".9"/>
+        <rect x="${W - PADR + 8}" y="${y - 12}" width="${PADR - 16}" height="24" rx="7"
+          fill="${bg}" stroke="${c}" stroke-width="1"/>
+        <text x="${W - PADR / 2}" y="${y + 4}" fill="${c}" font-size="12.5"
+          font-weight="700" text-anchor="middle">${label}</text>`;
+    }).join('');
+  }
+
+  const gid = `ga-${hostId}`;
+  document.getElementById(`${hostId}-svg`).innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block"
+        font-family="system-ui,-apple-system,sans-serif">
+      <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="rgba(38,208,124,.28)"/>
+        <stop offset="1" stop-color="rgba(38,208,124,.02)"/>
+      </linearGradient></defs>
+      ${grid}
+      <path d="${area}" fill="url(#${gid})"/>
+      <polyline points="${pts}" fill="none" stroke="#26d07c" stroke-width="2.2"
+        stroke-linejoin="round" stroke-linecap="round"/>
+      ${tlines}${dates}
+    </svg>`;
+
+  const first = slice[0].value, last = slice[slice.length - 1].value;
+  const chg = last - first, pct = chg / first * 100;
+  document.getElementById(`${hostId}-head`).innerHTML = `
+    <span class="px">$${last.toLocaleString('en-US', {minimumFractionDigits: 2})}</span>
+    <span class="chg ${chg >= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}$${Math.abs(chg).toFixed(2)}
+      (${chg >= 0 ? '+' : ''}${pct.toFixed(2)}%)</span>
+    <span class="rng">${p}</span>`;
+}
+
+// Regla visual de Victor "etiqueta los supuestos": crecimiento + múltiplo por escenario,
+// tomados de su targets.py (victor_targets_detail).
+function renderVictorAssumptions(elId) {
+  const el = document.getElementById(elId); if (!el) return;
+  const det = currentAnalysis?.victor_targets_detail || {};
+  const scn = Array.isArray(det.scenarios) ? det.scenarios : [];
+  if (scn.length) {
+    el.innerHTML = 'Supuestos (12M): ' + scn.map(s =>
+      `<b class="text-gray-400">${s.label}</b> ${s.assumptions || ''}`).join(' &nbsp;·&nbsp; ');
+  } else if (det.growth_base != null) {
+    el.innerHTML = `Supuesto base: crecimiento ${(det.growth_base*100).toFixed(0)}% · P/E actual ${det.pe_now ?? '—'}x · EPS $${det.eps ?? '—'}`;
+  } else {
+    el.innerHTML = currentAnalysis?.victor_targets_reason
+      ? `Sin targets de Victor: ${currentAnalysis.victor_targets_reason}` : '';
+  }
 }
 async function fetchAndRenderFrChart(period) {
     if (!currentTicker) return;
-    try {
-        const res = await fetch(`${API_BASE}/api/history?ticker=${currentTicker}&period=${period}`);
-        if (!res.ok) return;
-        const d = await res.json();
-        buildFrChart(d.ohlc || [], d.volumen || [], period);
-    } catch(e) { buildFrChart([], [], period); }
+    // La gráfica de precio+targets es la de VICTOR (SVG propio, con sus periodos 1M/3M/6M/1A):
+    // se dibuja desde chart_history + victor_targets_detail, sin llamar /api/history.
+    buildFrChart(period);
     updateFrTargets(period);
 }
-function buildFrChart(ohlc, volume, period) {
-    const t = getTargetsForPeriod(period);
-    if (frTV && frTV.chart) { try { frTV.chart.remove(); } catch(e){} frTV = null; }
-    frTV = buildTVChart('frChart', ohlc, volume, { bull:t.bull, base:t.base, bear:t.bear }, frShowEMA);
-    _chartCite('frChartSrc', 'US$/acción · velas históricas (sólido) + targets (dashed)', (currentAnalysis?.precio_fuente || 'FMP') + ' + targets.py');
+function buildFrChart(period) {
+    renderVictorChart('frVictorChart');
+    _chartCite('frChartSrc', 'US$/acción · cierres diarios (sólido) + targets 12M (punteado)', (currentAnalysis?.precio_fuente || 'FMP') + ' + targets.py');
 }
 function updateFrTargets(period) {
     if (!currentAnalysis) return;
@@ -2135,19 +2171,9 @@ function applyTargetsSourceUI() {
     if (meth) meth.innerText = victor
         ? 'Victor (targets.py): EPS × (1+crecimiento) × (P/E actual × factor) · horizonte único 12M · Fair Value = target Base'
         : 'DCF · ATR · Historical Volatility · Analyst Consensus';
-    document.querySelectorAll('[data-frtf]').forEach(el => {
-        const is12 = el.getAttribute('data-frtf') === '1y';
-        // Con Victor: se ocultan los horizontes que él no define y 12M queda fijo/activo.
-        el.classList.toggle('hidden', victor && !is12);
-        if (victor && is12) el.classList.add('active');
-    });
+    // Los selectores de horizonte del panel se eliminaron: la gráfica de Victor trae los suyos
+    // (1M/3M/6M/1A, que recortan el HISTÓRICO) y sus targets son siempre a 12 meses.
     if (victor && currentTimeframe !== '1y') { currentTimeframe = '1y'; }
-}
-function changeTimeframe(period, btn) {
-    document.querySelectorAll('.tf-pill').forEach(el => el.classList.remove('active'));
-    btn.classList.add('active');
-    currentTimeframe = period;
-    fetchAndRenderFrChart(period);
 }
 // ── TRADINGVIEW LIGHTWEIGHT CHARTS ───────────────────────
 function computeEMA(data, period) {
@@ -2247,16 +2273,8 @@ function buildTVChart(containerId, ohlc, volume, levels, showEMA) {
     return { chart, candle, volSeries, ema20, ema50 };
 }
 
-function toggleQtEMA(btn) {
-    qtShowEMA = !qtShowEMA;
-    if (btn) btn.classList.toggle('active', qtShowEMA);
-    if (qtTV) { qtTV.ema20 && qtTV.ema20.applyOptions({ visible: qtShowEMA }); qtTV.ema50 && qtTV.ema50.applyOptions({ visible: qtShowEMA }); }
-}
-function toggleFrEMA(btn) {
-    frShowEMA = !frShowEMA;
-    if (btn) btn.classList.toggle('active', frShowEMA);
-    if (frTV) { frTV.ema20 && frTV.ema20.applyOptions({ visible: frShowEMA }); frTV.ema50 && frTV.ema50.applyOptions({ visible: frShowEMA }); }
-}
+// (toggleQtEMA / toggleFrEMA eliminados: la gráfica de Victor no lleva EMAs — su renderer
+//  es precio + targets, tal cual su webapp. Las EMAs siguen en la vista de Proyecciones.)
 
 // ── PROYECCIONES GEX (vista de nivel superior) ───────────────────────────────
 let projTV = null, projGexChartObj = null, projData = null, projTf = '1d';
@@ -3647,7 +3665,7 @@ function renderAnalysisGex(d) {
     if (window.lucide) lucide.createIcons();
 }
 
-function exportReportPDF() {
+async function exportReportPDF() {   // async: el snapshot SVG→PNG de la gráfica de Victor espera al Image.onload
     if (!currentAnalysis) { alert('No hay reporte para exportar.'); return; }
     if (!window.jspdf || !window.jspdf.jsPDF) { alert('Librería PDF no disponible.'); return; }
     const { jsPDF } = window.jspdf;
@@ -3691,13 +3709,23 @@ function exportReportPDF() {
     doc.setTextColor(220,50,50);  doc.text(`Bear  $${(t12.bear||0).toFixed(2)}`, M+300, y);
     y += 26; doc.setTextColor(20,20,20);
 
-    // Chart snapshot
+    // Chart snapshot — la gráfica de Victor es un SVG: se serializa a PNG para el PDF.
     try {
-        if (qtTV && qtTV.chart && qtTV.chart.takeScreenshot) {
-            const canvas = qtTV.chart.takeScreenshot();
-            const img = canvas.toDataURL('image/png');
+        const svgEl = document.querySelector('#qtVictorChart svg');
+        if (svgEl) {
+            const xml = new XMLSerializer().serializeToString(svgEl);
+            const cv = document.createElement('canvas');
+            cv.width = 1000; cv.height = 340;
+            const cx = cv.getContext('2d');
+            cx.fillStyle = '#0e1113'; cx.fillRect(0, 0, cv.width, cv.height);
+            await new Promise((resolve) => {
+                const im = new Image();
+                im.onload = () => { try { cx.drawImage(im, 0, 0, cv.width, cv.height); } catch(e){} resolve(); };
+                im.onerror = () => resolve();
+                im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+            });
             const imgW = W - M*2, imgH = 170;
-            doc.addImage(img, 'PNG', M, y, imgW, imgH);
+            doc.addImage(cv.toDataURL('image/png'), 'PNG', M, y, imgW, imgH);
             y += imgH + 22;
         }
     } catch(err) {}
