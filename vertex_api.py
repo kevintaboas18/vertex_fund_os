@@ -111,11 +111,14 @@ def init_db():
             signal_scores     TEXT
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_reports_ticker ON reports(ticker, created_ts)")
-        # Migration: add signal_scores to pre-existing DBs (no-op if it already exists).
-        try:
-            conn.execute("ALTER TABLE reports ADD COLUMN signal_scores TEXT")
-        except Exception:
-            pass
+        # Migration: signal_scores queda SOLO por compatibilidad histórica (las 7 señales del LLM
+        # se eliminaron). Lo que se guarda ahora es victor_categories: el score 0-10 de cada uno de
+        # los 6 agentes de Victor, que es lo que define el tipo de setup del reporte.
+        for _col in ("signal_scores", "victor_categories"):
+            try:
+                conn.execute(f"ALTER TABLE reports ADD COLUMN {_col} TEXT")
+            except Exception:
+                pass
         # #3 — per-horizon target (base) so we can score short-horizon targets, not just 12M.
         for _col in ("target_7d", "target_30d", "target_3m", "target_6m"):
             try:
@@ -235,25 +238,26 @@ def _price_at(series, target_ts):
             return c
     return series[-1][1]
 
-def save_report(report_id, ticker, price, fair_value, upside_pct, recommendation, conviction, targets, thesis, signal_scores=None):
+def save_report(report_id, ticker, price, fair_value, upside_pct, recommendation, conviction, targets, thesis, victor_categories=None):
     """Persist a report so the agent can remember it and we can score accuracy later.
-    signal_scores: dict of the 7 Vertex signal dims -> {score, nota}; stored as JSON so
-    we can later measure each signal's Information Coefficient (#3)."""
+    victor_categories: {categoría: score_0_10} de los 6 agentes de Victor. Se guarda como JSON
+    para poder derivar el tipo de setup del reporte (el agente que domina la tesis) y medir el
+    track record por área. Sustituye a las 7 señales del LLM, que se eliminaron."""
     try:
         t12 = (targets or {}).get("12m", {}) or {}
         def _hb(k):
             return ((targets or {}).get(k, {}) or {}).get("base")
-        ss_json = json.dumps(signal_scores) if signal_scores else None
+        vc_json = json.dumps(victor_categories) if victor_categories else None
         conn = _db()
         conn.execute("""INSERT OR REPLACE INTO reports
             (report_id,ticker,created_at,created_ts,price_at_analysis,fair_value,upside_pct,
-             recommendation,conviction,target_bull,target_base,target_bear,thesis,signal_scores,
+             recommendation,conviction,target_bull,target_base,target_bear,thesis,victor_categories,
              target_7d,target_30d,target_3m,target_6m)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (report_id, ticker,
              datetime.now().strftime("%Y-%m-%d %H:%M:%S"), datetime.now().timestamp(),
              price, fair_value, upside_pct, recommendation, conviction,
-             t12.get("bull"), t12.get("base"), t12.get("bear"), (thesis or "")[:4000], ss_json,
+             t12.get("bull"), t12.get("base"), t12.get("bear"), (thesis or "")[:4000], vc_json,
              _hb("7d"), _hb("30d"), _hb("3m"), _hb("6m")))
         conn.commit()
         conn.close()
@@ -712,18 +716,8 @@ def calculate_institutional_targets(ticker: str, info: dict, hist) -> dict:
 # SCHEMA
 # ─────────────────────────────────────────────────────────────────────────────
 
-class SignalDim(BaseModel):
-    score: int = Field(..., description="Puntuación 0-100 donde 100 = máximamente favorable/alcista para esta señal y 0 = máximamente desfavorable/bajista.")
-    nota: str = Field(..., description="Justificación de UNA línea de la puntuación, citando el dato concreto que la sustenta.")
-
-class SignalScores(BaseModel):
-    flujo_institucional_opciones: SignalDim = Field(..., description="Flujo institucional de opciones: barridos/bloques grandes, Tipo A (transacción única $5M+), Tipo B (múltiples $1M+ en mismo contrato/strike/exp), delta de convicción 0.60-0.90. La señal de mayor peso.")
-    fundamentales: SignalDim = Field(..., description="Calidad fundamental: crecimiento de ingresos, márgenes, FCF, balance, retornos de capital.")
-    earnings: SignalDim = Field(..., description="Trayectoria de earnings: sorpresas, revisiones de EPS, guidance, proximidad del próximo reporte.")
-    tecnicos: SignalDim = Field(..., description="Técnicos: tendencia, momentum, niveles clave, volumen, posición vs medias.")
-    news_sec: SignalDim = Field(..., description="Noticias y filings SEC (8-K/10-Q/10-K) materiales recientes.")
-    macro: SignalDim = Field(..., description="Macro: tasas, liquidez, ciclo, viento de cola/cara del sector.")
-    riesgo: SignalDim = Field(..., description="Perfil de riesgo (100 = riesgo bien controlado/favorable, 0 = riesgo severo): valuación, concentración, fragilidad de la tesis.")
+# (SignalDim/SignalScores eliminadas: las 7 señales del LLM se retiraron — quien puntúa
+#  es el scorecard de los 6 agentes de Victor.)
 
 class TradeProbabilities(BaseModel):
     p_positive_12m: int = Field(..., description="Probabilidad 0-100 de un retorno positivo (>0%) a 12 meses, anclada en base-rates y la evidencia, no en optimismo.")
@@ -759,7 +753,6 @@ class VertexDeepAnalysis(BaseModel):
     in_simple_terms: str = Field(..., description="Analogía simplificada del negocio para cualquier tipo de inversor.")
     should_you_buy_now: str = Field(..., description="Resumen definitivo de prudencia o compra agresiva en los niveles de cotización actuales.")
     the_bottom_line: str = Field(..., description="Conclusión ejecutiva final en una sola oración.")
-    signal_scores: SignalScores = Field(..., description="Puntuación 0-100 de cada una de las 7 señales del framework Vertex (flujo de opciones, fundamentales, earnings, técnicos, news/SEC, macro, riesgo), cada una con su nota de una línea. Sé honesto y específico; estas puntuaciones se ponderan para la convicción final.")
     probabilities: TradeProbabilities = Field(..., description="Probabilidades calibradas del trade (positivo 12m, toca bull/bear, +10% en 3m) ancladas en base-rates. Se usan para dimensionar la posición vía Kelly fraccional.")
 
 class BullCase(BaseModel):
@@ -2749,40 +2742,6 @@ def _qd_confluence_prompt_block(confl):
         f"posicionamiento de dealers/bloques en desacuerdo suele preceder volatilidad o un head-fake).")
 
 
-def _confluence_conviction_adj(composite, confl, recommendation):
-    """#5: la CONFLUENCIA formal (convicción + GEX + dark pool) ajusta la CONVICCIÓN final del agente, no
-    solo el prompt. Confirmación ALINEADA con la recomendación → boost modesto (×1.03, ×1.06 si las 3
-    coinciden); divergencia (pilares se contradicen) o confirmación en dirección OPUESTA → haircut. Tope
-    [0,100]. Devuelve (conviccion_ajustada, info, coherence_flag|None)."""
-    if not isinstance(confl, dict) or composite is None:
-        return composite, None, None
-    verdict = confl.get("verdict"); cdir = confl.get("direction")
-    rec = (recommendation or "").lower()
-    adir = ("alcista" if ("compra" in rec or "buy" in rec)
-            else ("bajista" if ("venta" in rec or "sell" in rec) else "neutral"))
-    factor, reason, flag = 1.0, None, None
-    aligned = (cdir in ("alcista", "bajista") and cdir == adir)
-    opposed = (cdir in ("alcista", "bajista") and adir in ("alcista", "bajista") and cdir != adir)
-    if verdict == "confirmacion":
-        if aligned:
-            factor = 1.06 if confl.get("badge") == "ALTA CONVICCIÓN" else 1.03
-            reason = f"confluencia confirma {cdir} (alineada con la recomendación)"
-        elif opposed:
-            factor = 0.88
-            reason = f"confluencia confirma {cdir}, OPUESTA a la recomendación ({adir})"
-            flag = {"type": "confluencia_opuesta",
-                    "detail": f"Las 3 señales de opciones confluyen {cdir}, pero la recomendación es {adir}."}
-        else:
-            factor, reason = 1.02, f"confluencia {cdir} (recomendación neutral)"
-    elif verdict == "divergencia":
-        factor, reason = 0.90, "divergencia: los pilares de opciones se contradicen entre sí"
-    elif verdict == "mixto":
-        factor, reason = 0.96, "confluencia mixta (sin consenso entre pilares)"
-    adjusted = max(0.0, min(100.0, composite * factor))
-    info = {"verdict": verdict, "direction": cdir, "badge": confl.get("badge"),
-            "factor": round(factor, 3), "before": round(composite, 1), "after": round(adjusted, 1),
-            "reason": reason}
-    return adjusted, info, flag
 
 
 def _qd_darkpool_prompt_block(darkpool, spot, dp_flow=None):
@@ -3000,28 +2959,6 @@ def _chain_metrics(tk, exp, spot):
     return {"iv": iv, "max_pain": mp, "max_pain_source": mp_src}
 
 
-def _atm_iv(tk, exp, spot):
-    """At-the-money implied vol for an expiry from the option chain (forward-looking).
-    Returns annualized IV as a fraction, or None. Used so the expected-move band reflects what
-    the market is PRICING (esp. around earnings), not just trailing realized vol."""
-    try:
-        ch = tk.option_chain(exp)
-        ivs = []
-        for df in (ch.calls, ch.puts):
-            if df is None or df.empty:
-                continue
-            d2 = df.dropna(subset=["impliedVolatility"])
-            if d2.empty:
-                continue
-            idx = (d2["strike"] - spot).abs().idxmin()
-            iv = float(d2.loc[idx, "impliedVolatility"])
-            if 0.01 < iv < 5.0:
-                ivs.append(iv)
-        if ivs:
-            return sum(ivs) / len(ivs)
-    except Exception:
-        return None
-    return None
 
 
 def _next_earnings_date(tk):
@@ -4895,8 +4832,6 @@ def _quantdata_request(path, payload=None, method="POST", timeout=12):
     except Exception as e:
         return {"_error": str(e)}
 
-def _qd_session_date():
-    return datetime.now().strftime("%Y-%m-%d")
 
 # NOTE: sessionDate is intentionally OMITTED on the time-series tools. Per the Quant
 # Data docs, when omitted the API uses "the most recent completed trading session" —
@@ -5787,11 +5722,13 @@ def _agent_coherence_checks(aj, spot):
     if sellish and fa.get("bias") == "alcista":
         flags.append({"check": "Recomendación vs flujo", "status": "warn",
                       "detail": "Venta con flujo institucional COMPUTADO alcista"})
-    ss = aj.get("signal_scores") or {}
-    scores = [_safe_num((v or {}).get("score")) for v in ss.values() if isinstance(v, dict)]
-    if buyish and scores and max(scores) < 45:
-        flags.append({"check": "Señales vs recomendación", "status": "warn",
-                      "detail": "Compra pero ninguna señal supera 45/100"})
+    # Coherencia contra los AGENTES DE VICTOR (antes contra las 7 señales del LLM, eliminadas):
+    # una compra sin ningún agente por encima de 4.5/10 es una contradicción interna.
+    cats = ((aj.get("wbj") or {}).get("categories_10")) or {}
+    scores = [_safe_num(v) for v in cats.values() if v is not None]
+    if buyish and scores and max(scores) < 4.5:
+        flags.append({"check": "Agentes vs recomendación", "status": "warn",
+                      "detail": "Compra pero ningún agente de Victor supera 4.5/10"})
     return flags
 
 
@@ -5918,43 +5855,6 @@ def _wbj_num(x, default=0.0):
         return default
 
 
-def _wbj_compute(scorecard: dict) -> dict:
-    """Recalcula puntos por categoría desde los scores 0-10 de las dimensiones.
-    NOT_SCORABLE (score < 0) NO puntúa y baja la cobertura (nunca aporta 5/10).
-    Devuelve por categoría: points, max, score10, coverage, confidence (0-100)."""
-    out = {"categories": {}, "raw_total": 0.0, "total_confidence": 0.0,
-           "coverage_min": 1.0, "incomplete": []}
-    for cat_key in WBJ_ORDER:
-        spec = WBJ_CATEGORIES[cat_key]
-        cat_obj = scorecard.get(cat_key, {}) or {}
-        cat_max = float(spec["max"])
-        points = 0.0
-        scorable_max = 0.0
-        conf_num = 0.0
-        for dim_key, _label, dim_max in spec["dims"]:
-            dim = cat_obj.get(dim_key, {}) if isinstance(cat_obj.get(dim_key), dict) else {}
-            sc = _wbj_num(dim.get("score"), -1.0)
-            if sc is None or sc < 0:                      # NOT_SCORABLE → no puntúa
-                continue
-            sc = max(0.0, min(10.0, sc))
-            points += dim_max * (sc / 10.0)
-            scorable_max += dim_max
-            conf_num += dim_max * max(0.0, min(100.0, _wbj_num(dim.get("confidence"), 0.0)))
-        coverage = (scorable_max / cat_max) if cat_max > 0 else 0.0
-        cat_conf = (conf_num / scorable_max) if scorable_max > 0 else 0.0
-        score10 = (10.0 * points / cat_max) if cat_max > 0 else 0.0
-        out["categories"][cat_key] = {
-            "label": spec["label"], "points": round(points, 2), "max": cat_max,
-            "score10": round(score10, 1), "coverage": round(coverage, 2),
-            "confidence": round(cat_conf, 0)}
-        out["raw_total"] += points
-        out["total_confidence"] += cat_max * cat_conf
-        out["coverage_min"] = min(out["coverage_min"], coverage)
-        if coverage < 0.70:
-            out["incomplete"].append(cat_key)
-    out["raw_total"] = round(out["raw_total"], 1)
-    out["total_confidence"] = round(out["total_confidence"] / 100.0, 0)   # Σ(max*conf)/100
-    return out
 
 
 # Mapeo único perfil (gate de Victor) → recomendación/clasificación. Centralizado para que
@@ -6120,32 +6020,6 @@ probabilidades calibradas. El fair_value debe ser el escenario Base. Lenguaje de
 """
 
 
-def _wbj_analyze_structured(prompt, temp=0.2):
-    """Genera el reporte WBJ estructurado con respaldo de proveedor: Gemini (schema) → OpenAI → Grok."""
-    last = None
-    for attempt in range(2):
-        try:
-            r = client_gemini.models.generate_content(
-                model="gemini-2.5-flash", contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json", response_schema=WBJReport, temperature=temp))
-            return json.loads(r.text), "gemini"
-        except Exception as e:
-            last = e
-            if _is_quota_error(e) and attempt == 0:
-                time.sleep(_retry_delay_secs(e))
-                continue
-            break
-    try:
-        keys = list(getattr(WBJReport, "model_fields", None) or getattr(WBJReport, "__fields__", {}) or [])
-    except Exception:
-        keys = []
-    for fn, src in ((_openai_json, "openai (ChatGPT)"), (_grok_json, "grok")):
-        try:
-            return fn(prompt, keys, temp), src
-        except Exception as e2:
-            last = e2
-    raise last if last else RuntimeError("Generación WBJ falló en todos los proveedores")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -6400,21 +6274,6 @@ def _wbj_management_track_record(info, settings=None):
     return out
 
 
-def _industry_adapter_hint(info):
-    """Mapea sector/industria (yfinance) a un adaptador del Cerebro
-    (shared/INDUSTRY_ADAPTERS.md). Solo es una PISTA para que la explicación use
-    el lente correcto; no cambia la agregación ni los pesos."""
-    sec = (info.get("sector") or "").lower()
-    ind = (info.get("industry") or "").lower()
-    blob = f"{sec} {ind}"
-    if any(k in blob for k in ("bank", "banco")):                 return "Banco"
-    if any(k in blob for k in ("insurance", "seguro")):           return "Aseguradora"
-    if "reit" in blob or "real estate" in blob:                   return "REIT / inmobiliaria"
-    if any(k in blob for k in ("software", "saas", "internet")):  return "Software / SaaS"
-    if any(k in blob for k in ("biotech", "pharma", "drug")):     return "Biotech / farma"
-    if any(k in blob for k in ("oil", "gas", "mining", "metal", "energy")): return "Commodities / energía"
-    if any(k in blob for k in ("auto", "industrial", "materials", "semiconductor")): return "Cíclica"
-    return "Empresa estándar (industrial/servicios)"
 
 
 def _wbj_reexecution_triggers(ticker, prior_report, cik=None):
@@ -6627,65 +6486,10 @@ def _wbj_explain(context_text, temp=0.3):
 _WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine")
 
 
-def _compute_earnings_gaps(cal, dates, opens, closes):
-    """TECH-GAP-020 / TECH-GHOLD-021: gap de earnings y hold a 5 sesiones, mapeando
-    las fechas de release de FMP a las sesiones OHLCV. 'amc' = gap en la sesión
-    siguiente; 'bmo' = gap en la sesión del día. Best-effort."""
-    if not cal or not dates:
-        return []
-    out = []
-    for ev in cal:
-        d = ev.get("date"); t = (ev.get("time") or "").lower()
-        if not d:
-            continue
-        pos = next((i for i, ds in enumerate(dates) if ds >= d), None)
-        if pos is None:
-            continue
-        if t == "amc":
-            base = pos if (pos < len(dates) and dates[pos] == d) else pos - 1
-            if base < 0 or base + 1 >= len(dates):
-                continue
-            prior_close = closes[base]; gap_open = opens[base + 1]; k = base + 1
-        else:  # bmo / desconocido
-            if pos - 1 < 0:
-                continue
-            prior_close = closes[pos - 1]; gap_open = opens[pos]; k = pos
-        if not prior_close or prior_close <= 0 or (gap_open - prior_close) == 0:
-            continue
-        gap = (gap_open - prior_close) / prior_close
-        hold5 = None
-        if k + 5 < len(closes):
-            hold5 = (closes[k + 5] - prior_close) / (gap_open - prior_close)
-        out.append({"gap": round(gap, 4), "hold5": round(hold5, 3) if hold5 is not None else None})
-    return out
 
 
-def _fmp_earnings_surprise(cal):
-    """MKT-SURP-014: sorpresa media de EPS de los últimos ~4 trimestres reportados."""
-    sur = []
-    for ev in (cal or []):
-        a = ev.get("eps"); e = ev.get("epsEstimated")
-        if a is not None and e not in (None, 0):
-            sur.append((a - e) / abs(e))
-        if len(sur) >= 4:
-            break
-    return (sum(sur) / len(sur)) if sur else None
 
 
-def _fmp_forward_estimates(rows):
-    """De FMP analyst_estimates: crecimiento forward de EPS + dispersión + # analistas."""
-    rows = [r for r in (rows or []) if r.get("estimatedEpsAvg") is not None]
-    rows = sorted(rows, key=lambda r: r.get("date", ""))
-    eps_growth = dispersion = analysts = None
-    if len(rows) >= 2 and rows[0]["estimatedEpsAvg"] and rows[0]["estimatedEpsAvg"] > 0:
-        eps_growth = rows[1]["estimatedEpsAvg"] / rows[0]["estimatedEpsAvg"] - 1.0
-    if rows:
-        r0 = rows[0]
-        lo, hi, av = r0.get("estimatedRevenueLow"), r0.get("estimatedRevenueHigh"), r0.get("estimatedRevenueAvg")
-        if lo and hi and av:
-            dispersion = (hi - lo) / abs(av)
-        analysts = r0.get("numberAnalystEstimatedRevenue")
-    return eps_growth, dispersion, analysts
 
 
 def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
@@ -7951,7 +7755,7 @@ def analyze_ticker(ticker: str):
                 f"{(' · VIX ' + str(_regime_now.get('vix'))) if _regime_now.get('vix') is not None else ''}"
                 f"{(' · SPY vs 200d ' + str(_regime_now.get('spy_vs_200d_pct')) + '%') if _regime_now.get('spy_vs_200d_pct') is not None else ''}. "
                 f"Ajusta tu lectura al régimen: en estrés/bajista prioriza riesgo, macro y fundamentales y sé escéptico con el momentum; "
-                f"en tendencia alcista/calma el flujo institucional y los técnicos pesan más. Refleja esto en tus signal_scores y en la tesis.")
+                f"en tendencia alcista/calma el flujo institucional y los técnicos pesan más. Refléjalo en la tesis.")
 
         # ── INTELIGENCIA DE OPCIONES: GEX / walls / posicionamiento (gratis, calculado) ──
         try:
@@ -7987,7 +7791,7 @@ def analyze_ticker(ticker: str):
                         f"premium neto de puts ${_qd_np.get('net_put_premium', 0):,.0f}, "
                         f"premium neto total ${_qd_np.get('net_premium', 0):,.0f} → sesgo {_qd_np.get('bias', 'neutral')}. "
                         f"Esta es tu señal de flujo institucional (peso 25%): un premium neto fuertemente positivo confirma "
-                        f"acumulación alcista; negativo, distribución/cobertura bajista. Pondéralo en tus signal_scores.")
+                        f"acumulación alcista; negativo, distribución/cobertura bajista. Tenlo en cuenta en la tesis.")
             except Exception as _eqd:
                 print(f"[QuantData] prompt flow skip: {_eqd}")
             # ── CONVICCIÓN confirmada por ΔOI → el bloque más fuerte de tu señal de flujo ──
@@ -8142,14 +7946,6 @@ DATOS DE MERCADO (ya calculados por el motor cuantitativo de Vertex):
 INSTRUCCIÓN CRÍTICA:
 Basa tu recomendación final, el Fair Value y tu tesis estrictamente en los **targets a futuro de 1 año** calculados y los **targets de Wall Street (Analyst Mean Target)**. NO bases tu recomendación ni tu Fair Value en el valor intrínseco actual histórico o descontado. Tu decisión e indicador de valor justo deben responder puramente a la proyección futura a 1 año.
 {_victor_prompt_block}
-LECTURA DE SEÑALES (rellena 'signal_scores' con honestidad y especificidad):
-Puntúa de 0 a 100 cada señal (100 = máximamente favorable/alcista). IMPORTANTE: estas señales
-NO producen la convicción ni la recomendación — esas salen del puntaje de los 6 agentes de
-Victor. Sirven solo como lectura cualitativa (tipo de setup, estructura de opciones, coherencia):
-- Flujo institucional de opciones: barridos/bloques, Tipo A ($5M+ en una transacción) y Tipo B (múltiples $1M+ en mismo contrato/strike/exp); delta de convicción institucional 0.60-0.90. Usa el contexto de insiders/13F y Finnhub disponible.
-- Fundamentales · Earnings · Técnicos · News/SEC · Macro · Riesgo (100 = riesgo bien controlado).
-Cada señal lleva una 'nota' de una línea citando el dato concreto. No infles puntuaciones sin evidencia; si no hay datos de flujo, dilo en la nota y puntúa con cautela.
-
 PROBABILIDADES CALIBRADAS (rellena 'probabilities'):
 Da probabilidades 0-100 ANCLADAS EN BASE-RATES, no en optimismo. Pregúntate: ¿con qué frecuencia históricamente una acción con esta volatilidad/perfil logra este movimiento? Evita sobreconfianza: si dices 90%, debe haber evidencia fuerte. En 'rationale' ancla explícitamente en frecuencias base. Estas probabilidades se usan para dimensionar la posición con Kelly fraccional, así que la calibración importa más que el optimismo.
 
@@ -8190,10 +7986,8 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
         analisis_json["conviction_source"] = ("puntaje de los 6 agentes de Victor (raw_total 0-100)"
                                               if _victor_conv is not None
                                               else "engine de Victor no disponible")
-        # Las 7 señales del LLM se conservan SOLO como lectura cualitativa: alimentan el tipo de
-        # setup (sizing de Kelly), la estructura de opciones y los chequeos de coherencia. Ya NO
-        # se ponderan para producir un puntaje de convicción.
-        ss = analisis_json.get("signal_scores", {}) or {}
+        # Las 7 señales del LLM fueron ELIMINADAS: el tipo de setup, la calidad fundamental y
+        # el override de flujo ahora salen de los agentes de Victor y del flujo computado.
 
         # ── #2 PROBABILIDADES CALIBRADAS + SIZING (Kelly fraccional, acotado por guardrails) ──
         # ── #5 PLAN DE RIESGO (stops según reglas Vertex) ──
@@ -8208,18 +8002,16 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
         # Kelly ADAPTATIVO: usa el edge realizado MÁS ESPECÍFICO con muestra suficiente
         # (ticker → tipo de setup → recomendación → global), con shrinkage por n. Dimensiona por TU edge medido.
         _rec = analisis_json.get("recommendation")
-        _cur_ss = analisis_json.get("signal_scores") or {}
-        _cur_setup, _bv = None, None
-        for _k, _w in _SETUP_W.items():
-            _d = _cur_ss.get(_k)
-            if not isinstance(_d, dict):
-                continue
-            try:
-                _sc = float(_d.get("score", 0) or 0)
-            except (TypeError, ValueError):
-                _sc = 0.0
-            if _bv is None or _sc * _w > _bv:
-                _bv, _cur_setup = _sc * _w, _k
+        # Tipo de setup = el AGENTE DE VICTOR que domina el puntaje (score10 × peso de categoría),
+        # no una autoevaluación del LLM. Se guarda con el reporte para medir el track record por área.
+        _victor_cats = {}
+        try:
+            for _k, _c in ((_eng or {}).get("categories") or {}).items():
+                if _c.get("score10") is not None:
+                    _victor_cats[_k] = float(_c["score10"])
+        except Exception:
+            _victor_cats = {}
+        _cur_setup = _dominant_victor_setup(_victor_cats)
         _cur_setup_lbl = _SETUP_LBL.get(_cur_setup, "n/d") if _cur_setup else "n/d"
         _cand = []
         if calib_stats:
@@ -8291,10 +8083,11 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             except Exception:
                 pass
 
-        ss_fund = float((ss.get("fundamentales", {}) or {}).get("score", 0) or 0)
-        ss_flow = float((ss.get("flujo_institucional_opciones", {}) or {}).get("score", 0) or 0)
-        # Grado A: fundamentales fuertes + puntaje ALTO DE LOS AGENTES de Victor (antes usaba
-        # la convicción ponderada de Vertex, que ya no existe).
+        # Grado A: calidad fundamental fuerte + puntaje alto — TODO medido por los agentes de
+        # Victor. La "calidad fundamental" es el promedio de sus agentes Financial y Business
+        # (0-10 → 0-100), en vez de la autoevaluación 'fundamentales' del LLM, que se eliminó.
+        _fq = [_victor_cats[k] for k in ("financial", "business") if k in _victor_cats]
+        ss_fund = (sum(_fq) / len(_fq)) * 10.0 if _fq else 0.0
         is_a_grade = (ss_fund >= 70 and (_victor_conv or 0) >= 65)
         atr = methodology.get("atr_14")
         try:
@@ -8310,7 +8103,12 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
         else:
             equity_stop = round(precio_actual * 0.85, 2)
             equity_stop_note = f"No A-grade: stop sugerido en ${equity_stop} (-15% del spot)."
-        flow_override = ss_flow >= 80
+        # Override de flujo: ahora usa el flujo institucional COMPUTADO (Quant Data: sesgo alcista
+        # con convicción ≥80% sobre trades calificados), no la autoevaluación del LLM que se eliminó.
+        # Es dato medido en vez de opinión, que era el punto débil de la señal anterior.
+        flow_override = bool(_qd_conv and _qd_conv.get("qualifying")
+                             and str(_qd_conv.get("bias")) == "alcista"
+                             and _safe_num(_qd_conv.get("strength_pct")) >= 80)
 
         analisis_json["trade_plan"] = {
             "probabilities": {
@@ -8491,6 +8289,10 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                                            any(v == "STALE" for v in (_eng.get("packet_staleness") or {}).values())),
                 # MISSING_DATA_POLICY paso 4: inputs tomados de una FUENTE PROXY (respaldo), declarados.
                 "proxy_inputs": _eng.get("proxy_inputs") or {},
+                # {categoría: score10} plano — se guarda con el reporte para derivar el tipo de
+                # setup (agente dominante) y medir el track record por área de Victor.
+                "categories_10": {_k: _c.get("score10") for _k, _c in (_eng["categories"] or {}).items()
+                                  if _c.get("score10") is not None},
                 "gates_source": _gates.get("_source", "gates de compatibilidad"),
                 "scores_source": "engine determinista (metodología de Victor)",
                 # PANEL "JUICIO AI" (opcional): scorecard PARALELO con lo que respondió el judge.
@@ -8658,7 +8460,7 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                     analisis_json['upside_pct'], analisis_json.get('recommendation'),
                     analisis_json.get('conviccion_score'), targets,
                     analisis_json.get('tesis_inversion_completa'),
-                    signal_scores=analisis_json.get('signal_scores'))
+                    victor_categories=(analisis_json.get('wbj') or {}).get('categories_10'))
 
         _analyze_resp = {
             "report_id": report_id,
@@ -9220,30 +9022,41 @@ def _dir_hit(rec, ret, flat=5.0):
         return ret < 0
     return abs(ret) < flat
 
-_SETUP_LBL = {"flujo_institucional_opciones": "Flujo", "fundamentales": "Fundamental", "earnings": "Earnings",
-              "tecnicos": "Técnico", "news_sec": "News/SEC", "macro": "Macro", "riesgo": "Riesgo"}
-_SETUP_W = {"flujo_institucional_opciones": 0.25, "fundamentales": 0.20, "earnings": 0.20,
-            "tecnicos": 0.15, "news_sec": 0.10, "macro": 0.05, "riesgo": 0.05}
+# ── TIPO DE SETUP = EL AGENTE DE VICTOR QUE DOMINA LA TESIS ──────────────────────
+# Antes salía de las 7 señales del LLM (score×peso). Ahora sale de los 6 agentes reales:
+# el que MÁS puntos aporta al raw_total, es decir score10 × peso de categoría. Eso dice qué
+# CLASE de tesis fue la llamada (de valuación, de momentum, de calidad de negocio, …) con
+# evidencia medida en vez de una autoevaluación del modelo.
+_SETUP_LBL = {"business": "Negocio", "financial": "Financiero", "market": "Mercado",
+              "technical": "Técnico", "risk": "Riesgo", "valuation": "Valuación"}
+_SETUP_W = {"business": 20, "financial": 15, "market": 20, "technical": 20,
+            "risk": 15, "valuation": 10}          # pesos de categoría de Victor (suman 100)
+
+
+def _dominant_victor_setup(cats):
+    """Clave del agente que más puntos aporta (score10 × peso). `cats` = {categoría: score10}."""
+    best, bv = None, None
+    for k, w in _SETUP_W.items():
+        v = (cats or {}).get(k)
+        try:
+            sc = float(v) if v is not None else None
+        except (TypeError, ValueError):
+            sc = None
+        if sc is None:
+            continue
+        contrib = sc * w
+        if bv is None or contrib > bv:
+            bv, best = contrib, k
+    return best
 
 
 def _report_setup(r):
-    """Tipo de setup dominante de un reporte = la dimensión de mayor contribución (score×peso) en signal_scores.
-    Dice qué CLASE de señal manejó la llamada (Flujo / Fundamental / Earnings / Técnico / News·SEC / ...)."""
+    """Tipo de setup de un reporte guardado = el agente de Victor que domina su puntaje."""
     try:
-        ss = json.loads(r.get("signal_scores") or "{}")
+        cats = json.loads(r.get("victor_categories") or "{}")
     except Exception:
         return "n/d"
-    best, bv = None, None
-    for k, w in _SETUP_W.items():
-        d = ss.get(k)
-        if not isinstance(d, dict):
-            continue
-        try:
-            sc = float(d.get("score", 0) or 0)
-        except Exception:
-            sc = 0.0
-        if bv is None or sc * w > bv:
-            bv, best = sc * w, k
+    best = _dominant_victor_setup(cats)
     return _SETUP_LBL.get(best, "n/d") if best else "n/d"
 
 
@@ -9357,159 +9170,9 @@ def get_calibration_cached(ttl=600):
 _IC_CACHE = {"ts": 0.0, "data": None, "horizon": None}
 _IC_DIMS = ["flujo_institucional_opciones", "fundamentales", "earnings",
             "tecnicos", "news_sec", "macro", "riesgo"]
-_IC_LABELS = {"flujo_institucional_opciones": "Flujo opciones", "fundamentales": "Fundamentales",
-              "earnings": "Earnings", "tecnicos": "Técnicos", "news_sec": "News/SEC",
-              "macro": "Macro", "riesgo": "Riesgo"}
-_IC_STATIC_W = {"flujo_institucional_opciones": 0.25, "fundamentales": 0.20, "earnings": 0.20,
-                "tecnicos": 0.15, "news_sec": 0.10, "macro": 0.05, "riesgo": 0.05}
-
-
-def _rankdata(a):
-    """Average ranks (1-based), ties averaged — for Spearman without scipy."""
-    a = np.asarray(a, dtype=float)
-    order = a.argsort()
-    ranks = np.empty(len(a), dtype=float)
-    ranks[order] = np.arange(1, len(a) + 1)
-    sa = a[order]
-    i = 0
-    while i < len(a):
-        j = i
-        while j + 1 < len(a) and sa[j + 1] == sa[i]:
-            j += 1
-        if j > i:
-            ranks[order[i:j + 1]] = (i + 1 + j + 1) / 2.0
-        i = j + 1
-    return ranks
-
-
-def _spearman(x, y):
-    if len(x) < 3:
-        return None
-    rx, ry = _rankdata(x), _rankdata(y)
-    if np.std(rx) == 0 or np.std(ry) == 0:
-        return None
-    return float(np.corrcoef(rx, ry)[0, 1])
-
-
-def compute_signal_ic(horizon_days=30, min_samples=6):
-    """Information Coefficient per signal: rank-correlation between each signal's score
-    at analysis time and the realized forward return over `horizon_days`. Validates
-    whether a signal actually predicts — and suggests IC-implied weights vs the static ones."""
-    try:
-        conn = _db()
-        rows = [dict(r) for r in conn.execute(
-            "SELECT ticker,created_ts,price_at_analysis,signal_scores FROM reports "
-            "WHERE signal_scores IS NOT NULL ORDER BY created_ts DESC").fetchall()]
-        conn.close()
-    except Exception:
-        return None
-    base = {"ok": True, "horizon_days": horizon_days, "min_samples": min_samples,
-            "n_reports_with_scores": len(rows), "n_matured": 0, "signals": [],
-            "ic_weights_available": False}
-    if not rows:
-        base["note"] = ("Aún no hay reportes con puntuaciones por señal. El IC se llena a medida "
-                        "que analizas tickers y los reportes maduran (necesitan ≥" + str(horizon_days) + "d).")
-        return base
-
-    tickers = list({r["ticker"] for r in rows})
-    series_map = {tk: _cached_price_series(tk) for tk in tickers}   # #5 caché compartido
-
-    price_at = _price_at
-
-    now = datetime.now().timestamp()
-    pairs = {d: {"s": [], "r": []} for d in _IC_DIMS}
-    n_matured = 0
-    for r in rows:
-        base_p = r.get("price_at_analysis")
-        created = r.get("created_ts", 0)
-        if not base_p:
-            continue
-        hts = created + horizon_days * 86400
-        if hts > now:
-            continue
-        p = price_at(series_map.get(r["ticker"], []), hts)
-        if not p:
-            continue
-        fwd = (p - base_p) / base_p * 100.0
-        try:
-            ss = json.loads(r["signal_scores"]) if r.get("signal_scores") else {}
-        except Exception:
-            ss = {}
-        if not ss:
-            continue
-        used = False
-        for d in _IC_DIMS:
-            node = ss.get(d)
-            score = node.get("score") if isinstance(node, dict) else node if isinstance(node, (int, float)) else None
-            if score is None:
-                continue
-            try:
-                score = float(score)
-            except (TypeError, ValueError):
-                continue
-            pairs[d]["s"].append(score)
-            pairs[d]["r"].append(fwd)
-            used = True
-        if used:
-            n_matured += 1
-
-    sigs = []
-    ic_pos = {}
-    for d in _IC_DIMS:
-        s, rr = pairs[d]["s"], pairs[d]["r"]
-        n = len(s)
-        ic = _spearman(s, rr) if n >= min_samples else None
-        tstat = round(ic * math.sqrt(n - 1), 2) if (ic is not None and n > 1) else None
-        verdict = None
-        if ic is not None:
-            if abs(tstat or 0) < 1.5:
-                verdict = "ruido"
-            elif ic > 0:
-                verdict = "predictivo"
-            else:
-                verdict = "contrario"
-        sigs.append({"signal": d, "label": _IC_LABELS[d],
-                     "ic": round(ic, 3) if ic is not None else None, "n": n,
-                     "t_stat": tstat, "verdict": verdict,
-                     "static_weight_pct": round(_IC_STATIC_W[d] * 100)})
-        ic_pos[d] = max(0.0, ic) if (ic is not None and (tstat or 0) >= 1.5) else 0.0
-
-    tot = sum(ic_pos.values())
-    for sg in sigs:
-        sg["ic_weight_pct"] = round(ic_pos[sg["signal"]] / tot * 100) if tot > 0 else None
-    base["n_matured"] = n_matured
-    base["signals"] = sigs
-    base["ic_weights_available"] = tot > 0
-    base["note"] = ("IC = correlación de rango (Spearman) entre la puntuación de la señal y el "
-                    "retorno realizado a " + str(horizon_days) + "d. |t|≥1.5 ≈ señal con poder predictivo; "
-                    "<1.5 = indistinguible de ruido con esta muestra. Los pesos por IC solo usan señales "
-                    "significativas y positivas.")
-    return base
-
-
-def get_signal_ic_cached(horizon_days=30, ttl=900):
-    now = datetime.now().timestamp()
-    if (_IC_CACHE["data"] is not None and _IC_CACHE["horizon"] == horizon_days
-            and (now - _IC_CACHE["ts"]) < ttl):
-        return _IC_CACHE["data"]
-    data = compute_signal_ic(horizon_days=horizon_days)
-    _IC_CACHE["ts"] = now
-    _IC_CACHE["data"] = data
-    _IC_CACHE["horizon"] = horizon_days
-    return data
-
-
-# (Función _apply_ic_tilt eliminada junto con el motor de convicción ponderado.)
-
-
-@app.get("/api/signal-ic")
-def get_signal_ic(horizon_days: int = 30):
-    """Per-signal Information Coefficient on the user's own track record (#3)."""
-    hd = horizon_days if horizon_days in (30, 90, 180) else 30
-    data = get_signal_ic_cached(horizon_days=hd)
-    if data is None:
-        return {"ok": False, "error": "No se pudo computar el IC."}
-    return data
+# (Information Coefficient por señal ELIMINADO: medía el poder predictivo de las 7 señales
+#  del LLM, que se retiraron. El track record real vive en compute_calibration_stats y ahora
+#  se desglosa por AGENTE de Victor, no por señal.)
 
 
 # ── #4 RÉGIMEN DE MERCADO — pesos de señales condicionados al régimen ─────────
@@ -9818,7 +9481,7 @@ def get_track_record():
                     pass
                 _cv = r.get("conviction")
                 conv_tier = "n/d" if _cv is None else ("alta" if _cv >= 70 else "media" if _cv >= 45 else "baja")
-                setup = _report_setup(r)   # #2 — tipo de setup = dimensión dominante (score×peso) de signal_scores
+                setup = _report_setup(r)   # #2 — tipo de setup = agente de Victor dominante (score10 × peso)
                 _rval = _r_outcome(r, series, now)
                 tr_recs.append({"ticker": r["ticker"], "regime": regime, "conv": conv_tier, "setup": setup,
                                 "dret": pnl, "r": _rval})
