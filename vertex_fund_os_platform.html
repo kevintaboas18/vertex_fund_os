@@ -783,18 +783,9 @@
                     </div>
                     <p id="convictionReason" class="text-xs text-gray-300 leading-relaxed"></p>
                 </div>
-                <div id="qtConvictionEngine" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3">
-                    <div class="flex items-center justify-between mb-3">
-                        <div class="flex items-center gap-2">
-                            <i data-lucide="sliders-horizontal" class="w-4 h-4 text-emerald-500"></i>
-                            <span class="text-xs font-bold text-white uppercase tracking-wider">Motor de Convicci&oacute;n Ponderado</span>
-                        </div>
-                        <span id="qtConvWeighted" class="font-mono font-black text-lg text-emerald-400"></span>
-                    </div>
-                    <div id="qtConvBody" class="space-y-1.5"></div>
-                    <div id="qtConvCalib" class="hidden mt-2.5 pt-2.5 border-t border-gray-900"></div>
-                    <p class="text-[9px] text-gray-600 mt-2 italic">Pesos Vertex: flujo opciones 25% &middot; fundamentales 20% &middot; earnings 20% &middot; t&eacute;cnicos 15% &middot; news/SEC 10% &middot; macro 5% &middot; riesgo 5%. Pasa el cursor sobre cada barra para ver la nota.</p>
-                </div>
+                <!-- El "Motor de Convicción Ponderado" de Vertex (composite 25/20/20/15/10/5/5 con
+                     pesos por régimen y calibración) fue ELIMINADO: la convicción es el puntaje de
+                     los 6 agentes de Victor y la recomendación sale de sus gates. -->
                 <div id="qtValidation" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3">
                     <div class="flex items-center justify-between mb-3">
                         <div class="flex items-center gap-2">
@@ -1713,61 +1704,17 @@ function renderDashboard(data) {
     document.getElementById('convictionBar').style.width = `${cs}%`;
     document.getElementById('convictionReason').innerText = a.conviccion_porque || '';
 
-    // Motor de Convicción Ponderado (framework Vertex 25/20/20/15/10/5/5)
-    const ce = document.getElementById('qtConvictionEngine');
-    if (ce) {
-        const bd = a.conviction_breakdown || [];
-        const cw = a.conviction_weighted;
-        if (bd.length && cw != null) {
-            document.getElementById('qtConvWeighted').innerText = `${cw}/100`;
-            const labels = {flujo_institucional_opciones:'Flujo opciones', fundamentales:'Fundamentales', earnings:'Earnings', tecnicos:'Técnicos', news_sec:'News/SEC', macro:'Macro', riesgo:'Riesgo'};
-            const maxc = Math.max(...bd.map(x => x.contribution), 0.1);
-            const reg = a.regime || {};
-            const regAdj = a.regime_adjustments || [];
-            const regimeBanner = reg.label ? `<div class="mb-2.5 bg-[#0B0E14] border border-gray-800 rounded-lg px-3 py-2">
-                <span class="text-[10px] font-bold text-blue-300 flex items-center gap-1"><i data-lucide="activity" class="w-3 h-3"></i> Régimen: ${reg.label}${reg.vix != null ? ` · VIX ${reg.vix}` : ''}</span>
-                ${regAdj.length ? `<p class="text-[9px] text-gray-500 mt-1">Pesos ajustados al régimen: ${regAdj.join(' · ')}</p>` : '<p class="text-[9px] text-gray-600 mt-1">Pesos base (régimen neutral).</p>'}
-            </div>` : '';
-            document.getElementById('qtConvBody').innerHTML = regimeBanner + bd.map(x => {
-                const w = Math.max(3, x.contribution / maxc * 100);
-                const col = x.score >= 67 ? '#10b981' : x.score >= 40 ? '#f59e0b' : '#ef4444';
-                const nota = (x.nota || '').replace(/"/g, '&quot;');
-                const dlt = (x.base_weight_pct != null) ? (x.weight_pct - x.base_weight_pct) : 0;
-                const dtag = Math.abs(dlt) >= 0.5 ? ` <span style="color:${dlt > 0 ? '#10b981' : '#ef4444'}">${dlt > 0 ? '▲' : '▼'}</span>` : '';
-                return `<div class="flex items-center gap-2" title="${nota}">
-                    <span class="text-[10px] text-gray-400 w-24 flex-shrink-0">${labels[x.signal]||x.signal} <span class="text-gray-600">${x.weight_pct}%${dtag}</span></span>
-                    <div class="flex-grow h-2 bg-gray-900 rounded-full overflow-hidden border border-gray-800"><div class="h-full rounded-full" style="width:${w}%;background:${col}"></div></div>
-                    <span class="text-[10px] font-mono font-bold w-7 text-right" style="color:${col}">${x.score}</span>
-                    <span class="text-[9px] font-mono text-gray-500 w-9 text-right">+${x.contribution}</span>
-                </div>`;
-            }).join('');
-            ce.classList.remove('hidden');
-        } else { ce.classList.add('hidden'); }
-    }
-
-    // #3 Convicción calibrada por track-record
-    const calib = a.calibration;
-    const calEl = document.getElementById('qtConvCalib');
-    if (calEl) {
-        if (calib) {
-            const col = calib.calibrated_conviction < calib.raw_conviction ? '#f59e0b' : '#10b981';
-            const errTxt = calib.avg_upside_error_pct != null ? ` · error upside 180d ${calib.avg_upside_error_pct > 0 ? '+' : ''}${calib.avg_upside_error_pct}%` : '';
-            calEl.innerHTML = `<div class="flex items-center justify-between">
-                    <span class="text-[10px] text-gray-400">Convicción calibrada <span class="text-gray-600">(hist. ${calib.recommendation} ${calib.empirical_hit_rate}%, n=${calib.sample_n})</span></span>
-                    <span class="text-sm font-mono font-black" style="color:${col}">${calib.calibrated_conviction}/100</span></div>
-                <p class="text-[9px] text-gray-600 mt-0.5">Ajustada por tu hit-rate real (peso empírico ${calib.shrinkage_w})${errTxt}.</p>`;
-            calEl.classList.remove('hidden');
-        } else { calEl.classList.add('hidden'); }
-    }
+    // El "Motor de Convicción Ponderado" (composite ponderado + convicción calibrada) fue
+    // ELIMINADO: la convicción mostrada arriba ES el puntaje de los 6 agentes de Victor.
 
     // ── Validación del Análisis (#1 flujo · #4 prob · #5 targets · #7 fuente · #8 coherencia) ──
     const valEl = document.getElementById('qtValidation');
     if (valEl) {
-        const hasVal = a.model_source != null || a.flow_anchor || a.prob_anchoring || a.target_reconciliation || a.coherence_flags != null || a.should_debate || (a.deep_memory && a.deep_memory.n_prior) || (a.open_options && a.open_options.length) || (a.adaptive_weights && a.adaptive_weights.ic_tilt && a.adaptive_weights.ic_tilt.applied) || a.confluence_adjustment;
+        const hasVal = a.model_source != null || a.prob_anchoring || a.target_reconciliation || a.coherence_flags != null || a.should_debate || (a.deep_memory && a.deep_memory.n_prior) || (a.open_options && a.open_options.length);
         if (!hasVal) { valEl.classList.add('hidden'); }
         else {
         const rows = [];
-        const fa = a.flow_anchor, pa = a.prob_anchoring, tr = a.target_reconciliation, cf = a.coherence_flags || [];
+        const pa = a.prob_anchoring, tr = a.target_reconciliation, cf = a.coherence_flags || [];
         // #9 auto-debate (convicción ≥ umbral)
         if (a.should_debate) {
             rows.push(`<div class="bg-blue-500/10 border border-blue-600/40 rounded-lg px-2.5 py-1.5 flex items-center justify-between">
@@ -1787,32 +1734,9 @@ function renderDashboard(data) {
             rows.push(`<div class="flex items-center gap-1.5 text-[10px] text-emerald-400"><i data-lucide="check-circle-2" class="w-3 h-3"></i> An&aacute;lisis coherente (sin contradicciones internas)</div>`);
         }
         // #1 flujo anclado
-        if (fa && fa.computed != null) {
-            const bcol = fa.bias==='alcista' ? '#10b981' : fa.bias==='bajista' ? '#ef4444' : '#9ca3af';
-            rows.push(`<div class="flex items-center justify-between text-[10px]">
-                <span class="text-gray-400">Flujo anclado al c&oacute;mputo <span style="color:${bcol}">(${fa.bias||'—'}, n=${fa.qualifying ?? '—'})</span></span>
-                <span class="font-mono text-gray-300">cómputo ${fa.computed} · LLM ${fa.llm} → <b class="text-white">${fa.used}</b></span></div>`);
-        }
-        // #2 pesos adaptados por IC (loop de aprendizaje)
-        const aw = a.adaptive_weights, awt = aw && aw.ic_tilt;
-        if (awt && awt.applied && awt.tilts) {
-            const lbl = {flujo_institucional_opciones:'Flujo', fundamentales:'Fund.', earnings:'Earnings', tecnicos:'Técnicos', news_sec:'News/SEC', macro:'Macro', riesgo:'Riesgo'};
-            const parts = Object.entries(awt.tilts).map(([k,v]) => {
-                const up = v.tilt_pct > 0;
-                return `<span style="color:${up?'#10b981':'#ef4444'}">${lbl[k]||k} ${up?'+':''}${v.tilt_pct}%</span>`;
-            }).join(' · ');
-            rows.push(`<div class="flex items-start justify-between text-[10px] gap-2">
-                <span class="text-gray-400 whitespace-nowrap">Pesos adaptados por IC <span class="text-gray-600">(n=${awt.n_matured ?? '—'} madurados, ${awt.horizon_days}d)</span></span>
-                <span class="font-mono text-right">${parts}</span></div>`);
-        }
-        // #5 confluencia ajusta la convicción
-        const ca = a.confluence_adjustment;
-        if (ca && ca.factor != null && Math.abs(ca.factor - 1) > 1e-6) {
-            const boost = ca.factor > 1;
-            rows.push(`<div class="flex items-center justify-between text-[10px] gap-2">
-                <span class="text-gray-400">Confluencia (${ca.verdict || '—'}${ca.direction ? ' ' + ca.direction : ''}) <span class="text-gray-600">ajusta convicción</span></span>
-                <span class="font-mono"><span class="text-gray-500">${ca.before}</span> → <b style="color:${boost ? '#10b981' : '#ef4444'}">${ca.after}</b> <span class="text-gray-600">(×${ca.factor})</span></span></div>`);
-        }
+        // (El 'flujo anclado al cómputo' alimentaba la señal 25% del motor ponderado — eliminado.)
+        // (Los 'pesos adaptados por IC' pertenecían al motor de convicción ponderado — eliminado.)
+        // (El ajuste de convicción por confluencia pertenecía al motor ponderado — eliminado.)
         // #4 probabilidad anclada
         if (pa && pa.p_used != null) {
             const pcol = pa.p_used < pa.llm_p ? '#f59e0b' : '#10b981';
@@ -7898,26 +7822,9 @@ function renderRegime(d) {
         ${chip('Tasas', r.rates || '—', '#9ca3af')}
         ${r.spy_vs_200d_pct != null ? chip('SPY vs 200d', (r.spy_vs_200d_pct >= 0 ? '+' : '') + r.spy_vs_200d_pct + '%', r.spy_vs_200d_pct >= 0 ? '#10b981' : '#ef4444') : ''}
     </div>`;
-    const adj = d.adjustments || [];
-    const notes = adj.length
-        ? `<div class="mb-3 space-y-1">${adj.map(a => `<p class="text-[10px] text-gray-400">• ${a}</p>`).join('')}</div>`
-        : `<p class="text-[10px] text-gray-600 italic mb-3">Pesos base (régimen neutral, sin ajustes).</p>`;
-    const rows = (d.weights || []).map(w => {
-        const dcol = w.delta_pct > 0 ? '#10b981' : w.delta_pct < 0 ? '#ef4444' : '#6b7280';
-        return `<tr class="border-b border-gray-900/60">
-            <td class="py-1.5 pr-3 font-bold text-white">${w.label}</td>
-            <td class="py-1.5 pr-3 text-right font-mono text-gray-500">${w.base_weight_pct}%</td>
-            <td class="py-1.5 pr-3 text-right font-mono text-white">${w.weight_pct}%</td>
-            <td class="py-1.5 text-right font-mono" style="color:${dcol}">${w.delta_pct > 0 ? '+' : ''}${w.delta_pct}%</td>
-        </tr>`;
-    }).join('');
-    body.innerHTML = chips + notes + `<div class="overflow-x-auto"><table class="w-full text-xs min-w-[360px]">
-        <thead><tr class="border-b border-gray-800 text-gray-500 text-[10px] uppercase">
-            <th class="text-left py-1.5 font-bold pr-3">Señal</th>
-            <th class="text-right py-1.5 font-bold pr-3">Base</th>
-            <th class="text-right py-1.5 font-bold pr-3">Ajustado</th>
-            <th class="text-right py-1.5 font-bold">Δ</th>
-        </tr></thead><tbody>${rows}</tbody></table></div>`;
+    // La tabla de pesos por señal era del motor de convicción ponderado (eliminado):
+    // este panel ahora solo clasifica el régimen de mercado.
+    body.innerHTML = chips;
     if (window.lucide) lucide.createIcons();
 }
 

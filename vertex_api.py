@@ -745,9 +745,9 @@ class VertexDeepAnalysis(BaseModel):
     sec_filing_8k: str = Field(..., description="Resumen de eventos materiales o comunicados urgentes reportados recientemente en el 8-K.")
     fair_value: float = Field(..., description="Valor justo esperado calculado matemáticamente en base al promedio ponderado de los targets a 1 año de Vertex y el precio objetivo medio de Wall Street.")
     upside_pct: float = Field(..., description="Porcentaje de crecimiento proyectado a 1 año desde el precio spot actual hasta el Fair Value futuro.")
-    recommendation: str = Field(..., description="Recomendación final explícita (BUY, HOLD, SELL o AVOID) basada ESTRICTAMENTE en los targets a futuro a 1 año y el Fair Value futuro. NO bases tu decisión en el valor intrínseco actual.")
-    conviccion_score: int = Field(..., description="Puntuación numérica estricta de convicción de la firma del 0 al 100.")
-    conviccion_porque: str = Field(..., description="Justificación detallada y exhaustiva del porqué de esa puntuación numérica.")
+    recommendation: str = Field(..., description="Recomendación (BUY, HOLD, SELL o AVOID). NOTA: la recomendación FINAL la fija el gate determinista de los 6 agentes de Victor y sobrescribe este campo; escríbela coherente con el veredicto que se te dio, nunca lo contradigas.")
+    conviccion_score: int = Field(..., description="Puntuación de convicción 0-100. NOTA: se sobrescribe con el raw score de los 6 agentes de Victor. No existe un motor de convicción ponderado; repite el puntaje que se te dio.")
+    conviccion_porque: str = Field(..., description="Justificación del puntaje de convicción, explicando de qué agentes de Victor sale (business, financial, market, technical, risk, valuation) y qué lo sube o lo baja.")
     recomendacion_porque: str = Field(..., description="Explicación detallada de la acción sugerida y la lógica financiera basada en proyecciones futuras.")
     tesis_inversion_completa: str = Field(..., description="Tesis completa de inversión de la AI explicando detalladamente por qué es o no una buena asignación de capital.")
     tesis_riesgos: str = Field(..., description="Explicación y desglose analítico de los riesgos inherentes que podrían destruir la tesis.")
@@ -2583,17 +2583,7 @@ def _qd_conviction(flow, oi_change_map=None):
             "oi_confirmed": use_oi}
 
 
-def _flow_anchor_score(conv):
-    """Convierte la convicción institucional COMPUTADA (dominancia + sesgo + nº de confirmaciones) en
-    un score alcista 0-100 para anclar la señal de flujo (25%), en vez de dejar que el LLM la adivine.
-    alcista→strength_pct · bajista→100-strength_pct · neutral→50; con pocas confirmaciones tira hacia 50."""
-    if not conv or conv.get("strength_pct") is None:
-        return None
-    sp = float(conv["strength_pct"])
-    bias = conv.get("bias")
-    raw = sp if bias == "alcista" else ((100.0 - sp) if bias == "bajista" else 50.0)
-    w = min(int(conv.get("qualifying") or 0) / 3.0, 1.0)   # 1 trade → medio jala; 3+ → jala completo
-    return 50.0 + (raw - 50.0) * w
+# (Función _flow_anchor_score eliminada junto con el motor de convicción ponderado.)
 
 
 def _qd_conviction_prompt_block(conv):
@@ -5771,14 +5761,16 @@ def _agent_coherence_checks(aj, spot):
     reporte): marca contradicciones internas para que no operes sobre un análisis inconsistente."""
     flags = []
     rec = (aj.get("recommendation") or "").upper()
-    cw = _safe_num(aj.get("conviction_weighted"))
+    # Convicción = el puntaje de los agentes de Victor (0-100). El motor ponderado de Vertex
+    # (conviction_weighted) fue eliminado, así que la coherencia se chequea contra su score.
+    cw = _safe_num(aj.get("conviccion_score"))
     up = aj.get("upside_pct")
     up = _safe_num(up) if up is not None else None
     buyish = any(w in rec for w in ("BUY", "COMPR", "ACUMUL"))
     sellish = any(w in rec for w in ("SELL", "VEND", "REDUC"))
     if buyish and cw and cw < 45:
         flags.append({"check": "Recomendación vs convicción", "status": "warn",
-                      "detail": f"{rec} con convicción ponderada baja ({cw:.0f}/100)"})
+                      "detail": f"{rec} con puntaje de los agentes bajo ({cw:.0f}/100)"})
     if sellish and cw and cw > 60:
         flags.append({"check": "Recomendación vs convicción", "status": "warn",
                       "detail": f"{rec} con convicción alta ({cw:.0f}/100)"})
@@ -8112,7 +8104,11 @@ def analyze_ticker(ticker: str):
                     "recomendacion_porque, conviccion_porque) DEBE ser COHERENTE con esta recomendación "
                     "FINAL: explícala en palabras simples; NUNCA la contradigas ni propongas la acción "
                     "opuesta. Los targets y el Fair Value son referencia; la clasificación de research la "
-                    "fija el gate determinista de Victor, no tú.\n")
+                    "fija el gate determinista de Victor, no tú.\n"
+                    "La CONVICCIÓN también es la suya: el raw score de arriba ES el puntaje de convicción "
+                    "(0-100). No existe ningún motor de convicción ponderado — no inventes ni cites otro "
+                    "número de convicción, y en 'conviccion_porque' explica ESE puntaje y de qué agentes "
+                    "sale.\n")
 
         # ── PROMPT GEMINI (AI narrative sobre targets ya calculados) ─────────
         _key_sig = _key_signals_summary(_qd_conv, _qd_confl, _regime_now, _qd_np)
@@ -8146,10 +8142,12 @@ DATOS DE MERCADO (ya calculados por el motor cuantitativo de Vertex):
 INSTRUCCIÓN CRÍTICA:
 Basa tu recomendación final, el Fair Value y tu tesis estrictamente en los **targets a futuro de 1 año** calculados y los **targets de Wall Street (Analyst Mean Target)**. NO bases tu recomendación ni tu Fair Value en el valor intrínseco actual histórico o descontado. Tu decisión e indicador de valor justo deben responder puramente a la proyección futura a 1 año.
 {_victor_prompt_block}
-FRAMEWORK DE CONVICCIÓN VERTEX (rellena 'signal_scores' con honestidad y especificidad):
-Puntúa de 0 a 100 cada señal (100 = máximamente favorable/alcista). Estas se ponderan así para la convicción final de la firma:
-- Flujo institucional de opciones — 25% (LA señal de mayor peso, tu edge): busca barridos/bloques, Tipo A ($5M+ en una transacción) y Tipo B (múltiples $1M+ en mismo contrato/strike/exp); delta de convicción institucional 0.60-0.90. Usa el contexto de insiders/13F y Finnhub disponible.
-- Fundamentales — 20% | Earnings — 20% | Técnicos — 15% | News/SEC — 10% | Macro — 5% | Riesgo — 5% (100 = riesgo bien controlado).
+LECTURA DE SEÑALES (rellena 'signal_scores' con honestidad y especificidad):
+Puntúa de 0 a 100 cada señal (100 = máximamente favorable/alcista). IMPORTANTE: estas señales
+NO producen la convicción ni la recomendación — esas salen del puntaje de los 6 agentes de
+Victor. Sirven solo como lectura cualitativa (tipo de setup, estructura de opciones, coherencia):
+- Flujo institucional de opciones: barridos/bloques, Tipo A ($5M+ en una transacción) y Tipo B (múltiples $1M+ en mismo contrato/strike/exp); delta de convicción institucional 0.60-0.90. Usa el contexto de insiders/13F y Finnhub disponible.
+- Fundamentales · Earnings · Técnicos · News/SEC · Macro · Riesgo (100 = riesgo bien controlado).
 Cada señal lleva una 'nota' de una línea citando el dato concreto. No infles puntuaciones sin evidencia; si no hay datos de flujo, dilo en la nota y puntúa con cautela.
 
 PROBABILIDADES CALIBRADAS (rellena 'probabilities'):
@@ -8175,75 +8173,27 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             analisis_json['fair_value'] = round(combined_fair_value, 2)
             analisis_json['upside_pct'] = round(((combined_fair_value - precio_actual) / precio_actual) * 100, 2)
 
-        # ── MOTOR DE CONVICCIÓN PONDERADO (framework Vertex 25/20/20/15/10/5/5) ──
-        # #4: los pesos base se ajustan al régimen de mercado actual (vol/tendencia/amplitud/tasas).
-        SIGNAL_WEIGHTS = {"flujo_institucional_opciones": 0.25, "fundamentales": 0.20,
-                          "earnings": 0.20, "tecnicos": 0.15, "news_sec": 0.10,
-                          "macro": 0.05, "riesgo": 0.05}
-        regime = get_regime_cached()
-        adj_weights, regime_notes = regime_signal_weights(SIGNAL_WEIGHTS, regime)
-        # ── #2 (loop de aprendizaje): inclina los pesos por el IC realizado de cada señal ──
-        _ic_data = get_signal_ic_cached(horizon_days=30)
-        adj_weights, _ic_tilt = _apply_ic_tilt(adj_weights, _ic_data)
-        analisis_json["adaptive_weights"] = {
-            "by_signal_pct": {d: round(w * 100, 1) for d, w in adj_weights.items()},
-            "ic_tilt": _ic_tilt}
-        ss = analisis_json.get("signal_scores", {}) or {}
-        # ── #1 — ANCLA la señal de flujo (25%) al cómputo de convicción, no a la estimación del LLM ──
-        _fa = _flow_anchor_score(_qd_conv)
-        if _fa is not None:
-            _fl = ss.get("flujo_institucional_opciones", {}) if isinstance(ss.get("flujo_institucional_opciones"), dict) else {}
-            try:
-                _llm_fl = float(_fl.get("score", _fa) or _fa)
-            except (TypeError, ValueError):
-                _llm_fl = _fa
-            _anchored = max(_fa - 12.0, min(_fa + 12.0, _llm_fl))   # el LLM solo ajusta ±12 con justificación
-            _fl["score"] = round(_anchored, 0)
-            _fl["nota"] = ((_fl.get("nota", "") or "") +
-                           f" [anclado al cómputo de convicción {_fa:.0f} · sesgo {_qd_conv.get('bias')} · n={_qd_conv.get('qualifying')}]").strip()
-            ss["flujo_institucional_opciones"] = _fl
-            analisis_json["signal_scores"] = ss
-            analisis_json["flow_anchor"] = {"computed": round(_fa, 0), "llm": round(_llm_fl, 0),
-                                            "used": round(_anchored, 0), "bias": _qd_conv.get("bias"),
-                                            "qualifying": _qd_conv.get("qualifying")}
-        breakdown = []
-        composite = 0.0
-        for k, w in adj_weights.items():
-            dim = ss.get(k, {}) if isinstance(ss.get(k), dict) else {}
-            try:
-                sc = float(dim.get("score", 0) or 0)
-            except (TypeError, ValueError):
-                sc = 0.0
-            sc = max(0.0, min(100.0, sc))
-            contrib = w * sc
-            composite += contrib
-            breakdown.append({"signal": k, "score": round(sc, 0), "weight_pct": round(w * 100, 1),
-                              "base_weight_pct": int(SIGNAL_WEIGHTS[k] * 100),
-                              "contribution": round(contrib, 1), "nota": dim.get("nota", "")})
-        breakdown.sort(key=lambda x: x["contribution"], reverse=True)
-        analisis_json["conviction_weighted"] = round(composite, 1)
-        analisis_json["conviction_breakdown"] = breakdown
+        # ── CONVICCIÓN = EL PUNTAJE DE LOS AGENTES DE VICTOR ─────────────────────────
+        # El "Motor de Convicción Ponderado" de Vertex queda ELIMINADO por completo: era un
+        # composite propio (25/20/20/15/10/5/5 sobre 7 señales, con pesos por régimen, tilt por
+        # IC realizado, ancla de flujo y calibración bayesiana) que competía con el scorecard.
+        # Ahora la convicción ES el raw_total (0-100) de los 6 especialistas y la recomendación
+        # sale de sus gates — un solo motor, el de Victor, sin ponderaciones paralelas.
+        regime = get_regime_cached()          # se conserva: el track record agrupa por régimen
         analisis_json["regime"] = regime
-        analisis_json["regime_adjustments"] = regime_notes
-
-        # ── #5: la CONFLUENCIA formal (convicción+GEX+dark pool) ajusta la CONVICCIÓN, no solo el prompt ──
-        if _qd_confl:
-            _cv_adj, _cv_info, _cv_flag = _confluence_conviction_adj(
-                composite, _qd_confl, analisis_json.get("recommendation"))
-            if _cv_info:
-                composite = _cv_adj
-                analisis_json["conviction_weighted"] = round(composite, 1)
-                analisis_json["confluence_adjustment"] = _cv_info
-                if _cv_flag:
-                    _cfl = analisis_json.get("coherence_flags") or []
-                    _cfl.append(_cv_flag)
-                    analisis_json["coherence_flags"] = _cfl
-
-        # ── #3 CONVICCIÓN CALIBRADA (shrinkage empírico-bayesiano hacia el hit-rate real) ──
-        cal_val, cal_info = calibrate_conviction(
-            analisis_json["conviction_weighted"], analisis_json.get("recommendation"), calib_stats)
-        analisis_json["calibrated_conviction"] = cal_val
-        analisis_json["calibration"] = cal_info
+        _victor_conv = None
+        try:
+            if _eng and _eng.get("raw_total") is not None:
+                _victor_conv = float(_eng["raw_total"])
+        except Exception:
+            _victor_conv = None
+        analisis_json["conviction_source"] = ("puntaje de los 6 agentes de Victor (raw_total 0-100)"
+                                              if _victor_conv is not None
+                                              else "engine de Victor no disponible")
+        # Las 7 señales del LLM se conservan SOLO como lectura cualitativa: alimentan el tipo de
+        # setup (sizing de Kelly), la estructura de opciones y los chequeos de coherencia. Ya NO
+        # se ponderan para producir un puntaje de convicción.
+        ss = analisis_json.get("signal_scores", {}) or {}
 
         # ── #2 PROBABILIDADES CALIBRADAS + SIZING (Kelly fraccional, acotado por guardrails) ──
         # ── #5 PLAN DE RIESGO (stops según reglas Vertex) ──
@@ -8343,7 +8293,9 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
 
         ss_fund = float((ss.get("fundamentales", {}) or {}).get("score", 0) or 0)
         ss_flow = float((ss.get("flujo_institucional_opciones", {}) or {}).get("score", 0) or 0)
-        is_a_grade = (ss_fund >= 70 and analisis_json["conviction_weighted"] >= 65)
+        # Grado A: fundamentales fuertes + puntaje ALTO DE LOS AGENTES de Victor (antes usaba
+        # la convicción ponderada de Vertex, que ya no existe).
+        is_a_grade = (ss_fund >= 70 and (_victor_conv or 0) >= 65)
         atr = methodology.get("atr_14")
         try:
             atr_f = float(atr) if atr not in (None, "N/A", "") else None
@@ -8448,10 +8400,11 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             analisis_json["ai_concentration"] = None
         analisis_json["news_catalysts"] = news_catalysts            # #3
         analisis_json["sec_8k"] = sec_8k                            # #3 — 8-K reales
-        # ── #9 — AUTO-DEBATE: marca para disparar el debate adversarial en convicción alta ──
-        _cc = _safe_num(analisis_json.get("calibrated_conviction"))
+        # ── #9 — AUTO-DEBATE: se dispara con PUNTAJE ALTO DE LOS AGENTES de Victor
+        #    (antes usaba la convicción calibrada del motor ponderado, ya eliminado). ──
+        _cc = _safe_num(_victor_conv)
         analisis_json["should_debate"] = bool(_cc >= 75)
-        analisis_json["debate_reason"] = ("Convicción calibrada alta (≥75) — conviene estresarla con el "
+        analisis_json["debate_reason"] = ("Puntaje de los agentes alto (≥75/100) — conviene estresarlo con el "
                                           "debate adversarial Toro/Oso/Árbitro antes de dimensionar."
                                           if _cc >= 75 else None)
 
@@ -9397,23 +9350,7 @@ def get_calibration_cached(ttl=600):
     return data
 
 
-def calibrate_conviction(raw_conviction, recommendation, calib, K=10):
-    """Empirical-Bayes shrinkage of model conviction toward the realized hit-rate
-    for that recommendation type. Returns (calibrated_value, info_dict_or_None)."""
-    if not calib or not calib.get("by_recommendation"):
-        return raw_conviction, None
-    rec = (recommendation or "").upper()
-    rr = calib["by_recommendation"].get(rec)
-    if not rr or rr.get("hit_rate") is None or not rr.get("n"):
-        return raw_conviction, None
-    emp = float(rr["hit_rate"]); n = int(rr["n"])
-    w_emp = n / (n + K)                       # more history -> trust empirical more
-    calibrated = round(raw_conviction * (1 - w_emp) + emp * w_emp, 1)
-    return calibrated, {
-        "raw_conviction": raw_conviction, "calibrated_conviction": calibrated,
-        "empirical_hit_rate": emp, "sample_n": n, "shrinkage_w": round(w_emp, 2),
-        "recommendation": rec, "overall_hit_rate": calib.get("overall_hit_rate"),
-        "avg_upside_error_pct": calib.get("avg_upside_error_pct")}
+# (Función calibrate_conviction eliminada junto con el motor de convicción ponderado.)
 
 
 # ── #3 INFORMATION COEFFICIENT — ¿cada señal realmente predice? ───────────────
@@ -9562,34 +9499,7 @@ def get_signal_ic_cached(horizon_days=30, ttl=900):
     return data
 
 
-def _apply_ic_tilt(weights, ic_data, k=1.5, cap=0.40, n0=20.0):
-    """CIERRA EL LOOP DE APRENDIZAJE: inclina los pesos (ya ajustados por régimen) hacia las señales con
-    IC significativo y positivo ('predictivo') y los reduce para las 'contrarias', con SHRINKAGE por nº de
-    muestras (lam = n/(n+n0)) y TOPE de ±cap por señal, luego renormaliza a 1. Las señales 'ruido' o con
-    pocas muestras quedan en su peso de régimen (no se mueven). Toggle: VERTEX_ADAPTIVE_WEIGHTS=0 lo apaga.
-    Devuelve (pesos_inclinados, info)."""
-    if os.environ.get("VERTEX_ADAPTIVE_WEIGHTS", "1") == "0":
-        return weights, {"applied": False, "reason": "desactivado (VERTEX_ADAPTIVE_WEIGHTS=0)"}
-    if not isinstance(ic_data, dict) or not ic_data.get("ic_weights_available"):
-        return weights, {"applied": False, "reason": "sin IC significativo aún (las señales todavía maduran)"}
-    by = {s["signal"]: s for s in ic_data.get("signals", [])}
-    min_n = ic_data.get("min_samples", 6)
-    tilts, out = {}, {}
-    for d, w in weights.items():
-        s = by.get(d)
-        tilt = 0.0
-        if s and s.get("ic") is not None and s.get("n", 0) >= min_n and abs(s.get("t_stat") or 0) >= 1.5:
-            lam = s["n"] / (s["n"] + n0)                       # shrinkage por muestra
-            tilt = max(-cap, min(cap, k * float(s["ic"]) * lam))
-        out[d] = w * (1.0 + tilt)
-        if abs(tilt) > 1e-9:
-            tilts[d] = {"tilt_pct": round(tilt * 100, 1), "ic": s.get("ic"), "n": s.get("n"),
-                        "verdict": s.get("verdict")}
-    tot = sum(out.values()) or 1.0
-    out = {d: v / tot for d, v in out.items()}
-    return out, {"applied": bool(tilts), "tilts": tilts, "horizon_days": ic_data.get("horizon_days"),
-                 "n_matured": ic_data.get("n_matured"),
-                 "note": "Pesos inclinados hacia señales con IC significativo (|t|≥1.5), shrinkage por muestra, tope ±40%."}
+# (Función _apply_ic_tilt eliminada junto con el motor de convicción ponderado.)
 
 
 @app.get("/api/signal-ic")
@@ -9667,76 +9577,18 @@ def get_regime_cached(ttl=2700):
     return data
 
 
-def regime_signal_weights(base, regime):
-    """Tilt the static framework weights by the active regime, then floor+renormalize.
-    Returns (adjusted_weights dict summing to 1, list of human-readable adjustment notes)."""
-    if not regime:
-        return dict(base), []
-    w = dict(base)
-    notes = []
-
-    def bump(k, d):
-        w[k] = w.get(k, 0.0) + d
-
-    vol, trend = regime.get("vol"), regime.get("trend")
-    breadth, rates = regime.get("breadth"), regime.get("rates")
-
-    if vol == "estrés":
-        bump("riesgo", +0.06); bump("macro", +0.04); bump("fundamentales", +0.03)
-        bump("tecnicos", -0.05); bump("flujo_institucional_opciones", -0.04); bump("earnings", -0.04)
-        notes.append("Vol en estrés → ↑ riesgo y macro, ↓ técnicos y flujo")
-    elif vol == "calmo":
-        bump("flujo_institucional_opciones", +0.03); bump("tecnicos", +0.02)
-        bump("riesgo", -0.03); bump("macro", -0.02)
-        notes.append("Vol calma → ↑ flujo y técnicos")
-
-    if trend == "alcista":
-        bump("flujo_institucional_opciones", +0.05); bump("tecnicos", +0.04)
-        bump("riesgo", -0.03); bump("macro", -0.03); bump("news_sec", -0.03)
-        notes.append("Tendencia alcista → ↑ flujo y técnicos (momentum)")
-    elif trend == "bajista":
-        bump("riesgo", +0.05); bump("fundamentales", +0.04); bump("macro", +0.03)
-        bump("tecnicos", -0.06); bump("flujo_institucional_opciones", -0.03); bump("earnings", -0.03)
-        notes.append("Tendencia bajista → ↑ riesgo y fundamentales, ↓ técnicos")
-    elif trend == "lateral":
-        bump("fundamentales", +0.04); bump("earnings", +0.03)
-        bump("tecnicos", -0.05); bump("flujo_institucional_opciones", -0.02)
-        notes.append("Mercado lateral → ↑ fundamentales y earnings, ↓ técnicos")
-
-    if breadth == "estrecho":
-        bump("riesgo", +0.03); bump("flujo_institucional_opciones", +0.02)
-        bump("macro", -0.02); bump("tecnicos", -0.03)
-        notes.append("Amplitud estrecha → ↑ riesgo (fragilidad de mega-caps)")
-
-    if rates == "subiendo":
-        bump("macro", +0.04); bump("fundamentales", +0.03); bump("tecnicos", -0.03)
-        bump("flujo_institucional_opciones", -0.02); bump("earnings", -0.02)
-        notes.append("Tasas subiendo → ↑ macro y fundamentales (sensibilidad a duración)")
-    elif rates == "bajando":
-        bump("flujo_institucional_opciones", +0.02); bump("tecnicos", +0.02)
-        bump("macro", -0.02); bump("riesgo", -0.02)
-        notes.append("Tasas bajando → ↑ flujo y técnicos")
-
-    for k in w:
-        w[k] = max(0.02, w[k])
-    tot = sum(w.values()) or 1.0
-    return {k: v / tot for k, v in w.items()}, notes
+# (Función regime_signal_weights eliminada junto con el motor de convicción ponderado.)
 
 
 @app.get("/api/regime")
 def get_regime():
-    """Current market regime + the regime-adjusted signal weights (#4)."""
-    regime = get_regime_cached()
-    base = {"flujo_institucional_opciones": 0.25, "fundamentales": 0.20, "earnings": 0.20,
-            "tecnicos": 0.15, "news_sec": 0.10, "macro": 0.05, "riesgo": 0.05}
-    adj, notes = regime_signal_weights(base, regime)
-    labels = _IC_LABELS
-    weights = [{"signal": k, "label": labels.get(k, k),
-                "base_weight_pct": round(base[k] * 100, 1),
-                "weight_pct": round(adj[k] * 100, 1),
-                "delta_pct": round((adj[k] - base[k]) * 100, 1)} for k in base]
-    weights.sort(key=lambda x: x["weight_pct"], reverse=True)
-    return {"ok": True, "regime": regime, "adjustments": notes, "weights": weights}
+    """Régimen de mercado actual (volatilidad, tendencia, amplitud, tasas).
+
+    Ya NO devuelve la tabla de pesos por señal: esos pesos (25/20/20/15/10/5/5 ajustados
+    por régimen) eran del motor de convicción ponderado, que fue eliminado. El régimen se
+    mantiene porque es una clasificación de mercado independiente y el track record agrupa por él.
+    """
+    return {"ok": True, "regime": get_regime_cached()}
 
 
 @app.get("/api/reports/list")
