@@ -6932,6 +6932,8 @@ def _engine_scorecard(ticker, info, price):
     used_specialists = False
     _victor_gates = None; _victor_contradictions = None; _victor_levels = None   # aggregate REAL de Victor (principal)
     _victor_final_objs = None   # objetos crudos para el reporte final conforme a schema (apéndice de auditoría)
+    _outputs_ai = None          # outputs fusionados CON judge (versión del panel "Juicio AI", NO el score principal)
+    _ai_judgment = None         # scorecard con judge ya armado (categories/raw_total/perfil/recomendación) para el panel
     _quick_evidence = None      # cobertura de evidencia (0-100) del camino rápido de Victor, si se usa
     _pk_staleness = None        # frescura por tipo de dato del packet ACTUAL (DATA_POLICY.md)
     _fmp_annual = None          # fundamentales anuales FMP (los MISMOS que usan los especialistas) para el gráfico de ventas
@@ -7373,9 +7375,12 @@ def _engine_scorecard(ticker, info, price):
                 incomplete.append(key)
 
         # ── Fase B: JUDGE de Victor — Claude responde lo CUALITATIVO que el código no puede
-        #    puntuar (moat, catalizadores, concentración, thesis-killers, tier de TAM) y lo
-        #    FUSIONA a los outputs (sube awarded_points/coverage de Business/Market/Risk).
-        #    Necesita ANTHROPIC_API_KEY; si falla o no hay key, el análisis determinista sigue. ──
+        #    puntuar (moat, catalizadores, concentración, thesis-killers, tier de TAM).
+        #    IMPORTANTE (decisión de producto): el judge NO toca el score PRINCIPAL. El score
+        #    principal es 100% determinista ("sin evidencia, no hay número" — regla de Victor):
+        #    sale SOLO de los outputs deterministas de los 6 especialistas. La versión CON judge
+        #    se calcula APARTE (_outputs_ai) y vive en el panel "Juicio AI" (sc["ai_judgment"]).
+        #    Necesita ANTHROPIC_API_KEY; si falla o no hay key, no hay panel Juicio AI (nada más). ──
         if getattr(settings, "anthropic_api_key", None) and _outputs:
             try:
                 from wbj.overlay.merge import collect_requests, merge_overlay
@@ -7385,15 +7390,15 @@ def _engine_scorecard(ticker, info, price):
                 _judgments = answer_judgments(pk, _reqs, settings)
                 if _judgments:
                     _merged = merge_overlay(_outs, _judgments)
-                    _outputs = [(_outputs[i][0], _merged[i]) for i in range(len(_outputs))]
+                    _outputs_ai = [(_outputs[i][0], _merged[i]) for i in range(len(_outputs))]
                     print(f"[engine] {ticker}: judge respondió {len(_judgments)}/{len(_reqs)} preguntas "
-                          f"cualitativas → coberturas de Business/Market/Risk actualizadas")
+                          f"cualitativas → panel 'Juicio AI' (el score PRINCIPAL sigue determinista)")
                 else:
                     print(f"[engine] {ticker}: judge sin respuestas (sin SDK/key válida o sin preguntas)")
             except Exception as _je:
-                print(f"[engine] judge omitido (sigue el análisis determinista): {str(_je)[:140]}")
+                print(f"[engine] judge omitido (el análisis determinista es el principal): {str(_je)[:140]}")
 
-        # ── Fase C: construir el scorecard desde los outputs (ya fusionados si corrió el judge) ──
+        # ── Fase C: construir el scorecard PRINCIPAL desde los outputs DETERMINISTAS (sin judge) ──
         for key, out in _outputs:
             cat = out.category
             cov = out.coverage if out.coverage is not None else 0.0
@@ -7601,6 +7606,87 @@ def _engine_scorecard(ticker, info, price):
         total_confidence = 50
     sc = {"categories": categories, "raw_total": round(raw_total, 1),
           "total_confidence": total_confidence, "incomplete": sorted(set(incomplete))}
+
+    # ── PANEL "JUICIO AI": scorecard CON judge (NO es el principal). Mismas 6 áreas pero con
+    #    la cobertura/score elevados por lo que Claude respondió, más su propio perfil/banda/
+    #    recomendación para comparar lado a lado contra el determinista. Solo si el judge corrió.
+    #    Reusa la MISMA agregación de Victor (apply_overrides + apply_gates) sobre _outputs_ai. ──
+    if _outputs_ai:
+        try:
+            _ai_cats = {}; _ai_raw = 0.0; _ai_confnum = 0.0; _ai_incomplete = []
+            for _k, _o in _outputs_ai:
+                _cat = _o.category
+                _cov = _o.coverage if _o.coverage is not None else 0.0
+                _s10 = round(_cat.score_10, 1) if _cat.score_10 is not None else None
+                _ai_cats[_k] = {
+                    "key": _k, "label": _LABEL[_k], "max": _cat.max_points, "score10": _s10,
+                    "points": round(_cat.awarded_points, 2) if _cat.awarded_points is not None else None,
+                    "coverage": round(_cov, 2), "status": "scored" if _s10 is not None else "not_scorable",
+                    "confidence": round(_cat.confidence) if _cat.confidence is not None else None,
+                    "mandatory_flags": list(getattr(_o, "mandatory_flags", []) or []),
+                    "reason": None if _s10 is not None else "cobertura insuficiente (sin evidencia, no hay número)"}
+                if _s10 is not None:
+                    _ai_raw += _cat.awarded_points or 0.0
+                else:
+                    _ai_incomplete.append(_k)
+                if _cat.confidence is not None:
+                    _ai_confnum += _cat.max_points * _cat.confidence
+            _ai_conf = round(_ai_confnum / 100.0) if _ai_confnum > 0 else None
+            _ai_judgment = {"categories": _ai_cats, "raw_total": round(_ai_raw, 1),
+                            "total_confidence": _ai_conf, "incomplete": sorted(set(_ai_incomplete)),
+                            "judge_model": getattr(settings, "judge_model", None)}
+            # agregación REAL de Victor sobre los outputs CON judge → perfil/banda/recomendación del panel
+            try:
+                _aibk = {k: o for k, o in _outputs_ai}
+                if all(k in _aibk for k in WBJ_ORDER):
+                    from wbj.aggregate import (AggregateInputs, apply_overrides, CategoryPoints,
+                        CategoryConfidences, apply_gates, raw_total as _v_rawtot2)
+                    _aii = AggregateInputs(
+                        business=_aibk["business"], financial=_aibk["financial"], market=_aibk["market"],
+                        technical=_aibk["technical"], risk=_aibk["risk"], valuation=_aibk["valuation"],
+                        facts_table=(getattr(pk, "facts_table", {}) or {}))
+                    _aiovr = apply_overrides(_aii)
+                    def _aiP(k):
+                        _p = _aibk[k].category.awarded_points
+                        return float(_p) if _p is not None else 0.0
+                    def _aiCf(k):
+                        _c = _aibk[k].category.confidence
+                        return float(_c) if _c is not None else 0.0
+                    _aicp = CategoryPoints(**{k: _aiP(k) for k in WBJ_ORDER})
+                    _aicc = CategoryConfidences(**{k: _aiCf(k) for k in WBJ_ORDER})
+                    _aivalflags = list(getattr(_aibk["valuation"], "mandatory_flags", []) or [])
+                    _aipreprofit = False
+                    try:
+                        _niv2 = (getattr(pk, "facts_table", {}) or {}).get("net_income")
+                        if _niv2 is not None and getattr(_niv2, "value", None) is not None:
+                            _aipreprofit = float(_niv2.value) < 0
+                    except Exception:
+                        pass
+                    _airunway = False
+                    try:
+                        _rm2 = (getattr(_aibk["risk"], "liquidity_and_solvency", {}) or {}).get("cash_runway_months")
+                        _airunway = (_rm2 is not None and float(_rm2) < 12.0)
+                    except Exception:
+                        pass
+                    _aipr = apply_gates(_v_rawtot2(_aicp), _aicp, _aicc, _aiovr,
+                                        runway_unfunded=_airunway, pre_profit=_aipreprofit,
+                                        valuation_mandatory_flags=_aivalflags)
+                    _airec, _aiclass = _wbj_reco_from_profile(_aipr.label)
+                    _ai_judgment.update({
+                        "profile": _aipr.label, "band": _aipr.descriptive_band,
+                        "recommendation": _airec, "classification": _aiclass,
+                        "raw_total": round(_aipr.raw_score, 1),
+                        "total_confidence": round(_aipr.total_confidence),
+                        "passed_gates": list(_aipr.passed_gates), "failed_gates": list(_aipr.failed_gates),
+                        "overrides": list(_aipr.overrides), "warnings": list(_aipr.warnings)})
+            except Exception as _aiae:
+                print(f"[engine] {ticker}: agregación del panel Juicio AI omitida: {str(_aiae)[:130]}")
+            sc["ai_judgment"] = _ai_judgment
+            print(f"[engine] {ticker}: panel 'Juicio AI' listo — determinista {round(raw_total,1)} vs "
+                  f"con-judge {_ai_judgment['raw_total']} (perfil {_ai_judgment.get('profile','—')})")
+        except Exception as _aje:
+            print(f"[engine] panel Juicio AI omitido: {str(_aje)[:140]}")
+
     if _victor_gates:
         sc["victor_gates"] = _victor_gates                 # perfil/banda/overrides reales de Victor
     if _victor_contradictions is not None:
@@ -7728,6 +7814,25 @@ def analyze_ticker(ticker: str):
                 "value": int(row['Volume']) if not math.isnan(row['Volume']) else 0,
                 "up":    bool(row['Close'] >= row['Open']),
             })
+
+        # ── HISTORIAL 1 AÑO para la gráfica de Victor (su price_history: [{time,value}]) ──
+        # La gráfica de precio+targets es la SUYA (engine/scripts/webapp.py) y necesita el último
+        # año de cierres diarios. Se usa su función tal cual; si Yahoo falla, respaldo resiliente.
+        chart_history = []
+        try:
+            from wbj.targets import price_history as _victor_price_history
+            chart_history = _victor_price_history(ticker) or []
+        except Exception as _phe:
+            print(f"[analyze] price_history de Victor falló: {str(_phe)[:120]}")
+        if not chart_history:
+            try:
+                _h1y = _resilient_history(stock, ticker, "1y")
+                if _h1y is not None and not _h1y.empty:
+                    chart_history = [{"time": _i.strftime("%Y-%m-%d"), "value": round(float(_c), 2)}
+                                     for _i, _c in zip(_h1y.index, _h1y['Close'].tolist())
+                                     if _c == _c]          # descarta NaN
+            except Exception as _h1e:
+                print(f"[analyze] respaldo de historial 1a falló: {str(_h1e)[:120]}")
 
         # ── Earnings date / EPS estimate ─────────────────────────────────────
         earnings_info = fetch_earnings_info(stock, info)
@@ -7896,6 +8001,37 @@ def analyze_ticker(ticker: str):
             _eng = _engine_scorecard(ticker, info, precio_actual)
         except Exception as _eov:
             print(f"[analyze] overlay Victor omitido: {_eov}"); _eng = None
+
+        # ── TARGETS = LOS DE VICTOR (su targets.py: EPS × (1+g) × P/E_actual×factor), NO el modelo
+        #    de volatilidad/ATR/consenso de Vertex (calculate_institutional_targets). Victor define
+        #    UN horizonte: 12 meses. Los cortos (7d/30d/3m/6m) NO existen en su metodología → no se
+        #    inventan, se eliminan ("sin evidencia, no hay número"). El Fair Value es su target base.
+        #    Se aplica ANTES del prompt para que la narrativa SIGA los números de Victor. ──
+        _victor_only_targets = False
+        try:
+            _vt0 = (_eng or {}).get("victor_targets_12m") or {}
+            if all(_vt0.get(k) is not None for k in ("bull", "base", "bear")):
+                targets = {"12m": {k: round(float(_vt0[k]), 2) for k in ("bull", "base", "bear")}}
+                _victor_only_targets = True
+                print(f"[analyze] {ticker}: targets = Victor 12m puro (bull {targets['12m']['bull']} / "
+                      f"base {targets['12m']['base']} / bear {targets['12m']['bear']})")
+            else:
+                print(f"[analyze] {ticker}: sin targets de Victor "
+                      f"({(_eng or {}).get('victor_targets_reason') or 'no disponibles'}) → se mantienen los de Vertex")
+        except Exception as _vte:
+            print(f"[analyze] targets de Victor no aplicados: {str(_vte)[:120]}")
+        # Bloque de targets para el prompt: solo los horizontes que REALMENTE existen.
+        if _victor_only_targets:
+            _targets_block = (
+                "PRICE TARGETS YA CALCULADOS (metodología de Victor — usa estos en tu narrativa; NO los modifiques):\n"
+                f"- 12M: Bull ${targets['12m']['bull']} | Base ${targets['12m']['base']} | Bear ${targets['12m']['bear']}\n"
+                "  (Victor define UN solo horizonte: 12 meses. NO inventes ni cites targets a 7D/30D/3M/6M — "
+                "no existen en su metodología.)")
+        else:
+            _targets_block = ("PRICE TARGETS YA CALCULADOS (usa estos en tu narrativa; NO los modifiques):\n" +
+                "\n".join(f"- {_lab}: Bull ${targets[_k]['bull']} | Base ${targets[_k]['base']} | Bear ${targets[_k]['bear']}"
+                          for _k, _lab in (("7d", "7D"), ("30d", "30D"), ("3m", "3M"), ("6m", "6M"), ("12m", "12M"))
+                          if targets.get(_k)))
         _victor_prompt_block = ""
         if _eng and _eng.get("categories"):
             _vg0 = _eng.get("victor_gates") or {}
@@ -7946,12 +8082,7 @@ DATOS DE MERCADO (ya calculados por el motor cuantitativo de Vertex):
 - Riesgo de factores y contribucion marginal al riesgo (estilo BlackRock/Aladdin): {format_factor_risk(portfolio_fit)}
 {memory_block}{_deep_mem_block}{_opt_block}{calibration_block}{regime_block}{gex_block}{_earn_block}{_8k_block}
 
-PRICE TARGETS YA CALCULADOS (usa estos en tu narrativa; NO los modifiques):
-- 7D:  Bull ${targets['7d']['bull']} | Base ${targets['7d']['base']} | Bear ${targets['7d']['bear']}
-- 30D: Bull ${targets['30d']['bull']} | Base ${targets['30d']['base']} | Bear ${targets['30d']['bear']}
-- 3M:  Bull ${targets['3m']['bull']} | Base ${targets['3m']['base']} | Bear ${targets['3m']['bear']}
-- 6M:  Bull ${targets['6m']['bull']} | Base ${targets['6m']['base']} | Bear ${targets['6m']['bear']}
-- 12M: Bull ${targets['12m']['bull']} | Base ${targets['12m']['base']} | Bear ${targets['12m']['bear']}
+{_targets_block}
 
 INSTRUCCIÓN CRÍTICA:
 Basa tu recomendación final, el Fair Value y tu tesis estrictamente en los **targets a futuro de 1 año** calculados y los **targets de Wall Street (Analyst Mean Target)**. NO bases tu recomendación ni tu Fair Value en el valor intrínseco actual histórico o descontado. Tu decisión e indicador de valor justo deben responder puramente a la proyección futura a 1 año.
@@ -7971,14 +8102,19 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
 
         analisis_json, _analysis_src = _analyze_structured(prompt, temp=0.2)
 
-        # ── OVERRIDE MATEMÁTICO: Fair Value = Promedio de mis targets 12M y Wall Street Mean Target ──
-        avg_my_12m = (targets['12m']['bull'] + targets['12m']['base'] + targets['12m']['bear']) / 3
-        wall_street_mean = methodology.get('analyst_mean', precio_actual)
-        
-        combined_fair_value = (avg_my_12m + float(wall_street_mean)) / 2
-        
-        analisis_json['fair_value'] = round(combined_fair_value, 2)
-        analisis_json['upside_pct'] = round(((combined_fair_value - precio_actual) / precio_actual) * 100, 2)
+        # ── FAIR VALUE ──
+        # Con targets de Victor: el Fair Value ES su target BASE (no un promedio con Wall Street).
+        # Sin ellos: se mantiene el respaldo de Vertex (promedio de targets 12M + Analyst Mean).
+        if _victor_only_targets:
+            _fv_v = float(targets['12m']['base'])
+            analisis_json['fair_value'] = round(_fv_v, 2)
+            analisis_json['upside_pct'] = round(((_fv_v - precio_actual) / precio_actual) * 100, 2) if precio_actual else 0.0
+        else:
+            avg_my_12m = (targets['12m']['bull'] + targets['12m']['base'] + targets['12m']['bear']) / 3
+            wall_street_mean = methodology.get('analyst_mean', precio_actual)
+            combined_fair_value = (avg_my_12m + float(wall_street_mean)) / 2
+            analisis_json['fair_value'] = round(combined_fair_value, 2)
+            analisis_json['upside_pct'] = round(((combined_fair_value - precio_actual) / precio_actual) * 100, 2)
 
         # ── MOTOR DE CONVICCIÓN PONDERADO (framework Vertex 25/20/20/15/10/5/5) ──
         # #4: los pesos base se ajustan al régimen de mercado actual (vol/tendencia/amplitud/tasas).
@@ -8328,7 +8464,11 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 # MISSING_DATA_POLICY paso 4: inputs tomados de una FUENTE PROXY (respaldo), declarados.
                 "proxy_inputs": _eng.get("proxy_inputs") or {},
                 "gates_source": _gates.get("_source", "gates de compatibilidad"),
-                "scores_source": "engine determinista (metodología de Victor)"}
+                "scores_source": "engine determinista (metodología de Victor)",
+                # PANEL "JUICIO AI" (opcional): scorecard PARALELO con lo que respondió el judge.
+                # NO afecta el score principal de arriba; se muestra aparte para comparar. Solo
+                # existe si corrió el judge (ANTHROPIC_API_KEY con crédito). None → no hay panel.
+                "ai_judgment": _eng.get("ai_judgment")}
             analisis_json["victor_targets_detail"] = _eng.get("victor_targets_detail")
             analisis_json["victor_targets_reason"] = _eng.get("victor_targets_reason")   # razón si no hay target
             analisis_json["financials_annual"] = _eng.get("financials_annual")
@@ -8501,6 +8641,9 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             "historial_precios": precios_hist,
             "historial_fechas": fechas_hist,
             "historial_ohlc": ohlc_hist,
+            # Último año de cierres diarios [{time:"YYYY-MM-DD", value}] — insumo de la gráfica
+            # de precio+targets de Victor (su renderer SVG, periodos 1M/3M/6M/1A).
+            "chart_history": chart_history,
             "historial_volumen": volumen_hist,
             "earnings_info": earnings_info,
             "insiders_snapshot": insiders_snapshot,
@@ -8510,6 +8653,14 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             "portfolio_fit": portfolio_fit,
             "noticias_reales": noticias_formateadas,
             "targets": targets,
+            # Origen de los targets: "victor" = su targets.py, UN horizonte (12 meses) y el Fair
+            # Value es el target base. "vertex" = respaldo (volatilidad/ATR/consenso, 5 horizontes).
+            # El frontend usa esto para mostrar SOLO 12M cuando mandan los de Victor.
+            "targets_source": ("victor" if _victor_only_targets else "vertex"),
+            "targets_horizon_note": ("Metodología de Victor: EPS × (1+crecimiento) × (P/E actual × factor). "
+                                     "Un solo horizonte: 12 meses. Fair Value = target Base."
+                                     if _victor_only_targets else
+                                     "Respaldo Vertex: volatilidad histórica / ATR / DCF simplificado / consenso."),
             "methodology": methodology,
             "analisis": analisis_json
         }
