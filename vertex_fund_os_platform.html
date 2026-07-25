@@ -5918,7 +5918,10 @@ function pfIdeaAnalyze(tk) {
 
 let pfOptionsLoaded = false;
 async function loadOptions(force) {
-    const body = document.getElementById('pfOptionsBody');
+    // OJO: este panel es el de GRIEGAS del libro. Antes usaba el id 'pfOptionsBody', que ya
+    // existía en el panel "Contratos de Opciones" — getElementById devolvía ese otro y el de
+    // griegas quedaba SIEMPRE vacío. Ahora tiene su propio id.
+    const body = document.getElementById('pfGreeksBody');
     if (!body) return;
     if (pfOptionsLoaded && !force) return;
     body.innerHTML = `<p class="text-xs text-gray-500 italic p-4 flex items-center gap-2"><i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Calculando griegas (spot + IV en vivo)…</p>`;
@@ -5934,7 +5937,7 @@ async function loadOptions(force) {
 }
 
 function renderOptions(d) {
-    const body = document.getElementById('pfOptionsBody');
+    const body = document.getElementById('pfGreeksBody');
     if (d.n_options === 0) {
         body.innerHTML = `<div class="text-center py-8 px-4">
             <i data-lucide="inbox" class="w-8 h-8 text-gray-600 mx-auto mb-2"></i>
@@ -7086,7 +7089,7 @@ function analyzeTickerNow(tk) {
                     </button>
                 </div>
                 <p class="text-xs text-gray-500 italic mb-4">Delta · Gamma · Theta · Vega netos del libro · Escalera de vencimientos · Exposición direccional total (opciones + acciones) · Black-Scholes con IV de yfinance.</p>
-                <div id="pfOptionsBody"></div>
+                <div id="pfGreeksBody"></div>
             </div>
         </div>
 
@@ -7502,30 +7505,27 @@ function wlToggleAutoRefresh() {
             </h3>
             <span id="regimeVix" class="text-[10px] font-mono text-gray-500"></span>
         </div>
-        <p class="text-[10px] text-gray-500 italic mb-3">Clasifica el entorno (VIX, SPY vs medias 50/200, amplitud RSP, tasas TLT) y re-pondera tus 7 se&ntilde;ales. El agente aplica estos pesos en cada an&aacute;lisis.</p>
+        <p class="text-[10px] text-gray-500 italic mb-3">Clasifica el entorno de mercado (VIX, SPY vs medias 50/200, amplitud RSP, tasas TLT). El track record agrupa los resultados por r&eacute;gimen.</p>
         <div id="regimeBody"><p class="text-xs text-gray-500 italic p-3 text-center">Cargando&hellip;</p></div>
     </div>
 
-    <div id="icCard" class="bg-panel border border-panel rounded-2xl p-5 mt-6">
-        <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
-            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2">
-                <i data-lucide="git-compare" class="w-4 h-4"></i> Information Coefficient &mdash; &iquest;qu&eacute; se&ntilde;ales predicen?
-            </h3>
-            <div class="flex gap-1">
-                <button onclick="loadSignalIC(30)"  class="ic-h px-2.5 py-1 rounded text-[10px] font-bold bg-blue-600 text-white">30d</button>
-                <button onclick="loadSignalIC(90)"  class="ic-h px-2.5 py-1 rounded text-[10px] font-bold bg-[#0B0E14] text-gray-400 border border-gray-800">90d</button>
-                <button onclick="loadSignalIC(180)" class="ic-h px-2.5 py-1 rounded text-[10px] font-bold bg-[#0B0E14] text-gray-400 border border-gray-800">180d</button>
-            </div>
-        </div>
-        <p class="text-[10px] text-gray-500 italic mb-3">Mide, con tus propios reportes, si la puntuaci&oacute;n de cada se&ntilde;al correlaciona con el retorno realizado. Valida (o desmiente) los pesos de tu framework.</p>
-        <div id="icBody"><p class="text-xs text-gray-500 italic p-3 text-center">Cargando&hellip;</p></div>
-    </div>
+    <!-- El panel "Information Coefficient" fue eliminado: medía el poder predictivo de las 7
+         señales del LLM, que se retiraron. El track record se desglosa por agente de Victor. -->
 
     <p class="text-[10px] text-gray-600 mt-5 text-center">
-        Acierto = la dirección del precio coincidió con la recomendación (BUY→subió, SELL→bajó, HOLD→±5%) en el horizonte indicado.
-        Solo se evalúan reportes con suficiente antigüedad.
+        Las alertas se calculan en el navegador: movimientos fuertes del día (±5%) y earnings dentro de 7 días.
+        Tu watchlist se guarda localmente en este dispositivo.
     </p>
 </main>
+
+<!-- (Bloque JS de watchlist DUPLICADO eliminado: era byte-idéntico al anterior y
+     redefinía wlGet/loadWatchlist/renderWatchlist y seis funciones más.) -->
+
+<!-- ═══════════════════════════════════════════════════════════
+     TRACK RECORD VIEW — historical accuracy of the agent's calls
+═══════════════════════════════════════════════════════════ -->
+<!-- (Copia DUPLICADA de trackRecordView eliminada: el archivo tenía la vista dos veces,
+     con IDs repetidos, lo que la renderizaba dos veces y rompía getElementById.) -->
 
 <script>
 // ══════════════════════════════════════════════════════════════════════════════
@@ -7829,68 +7829,14 @@ function renderRegime(d) {
 }
 
 // ── #3 INFORMATION COEFFICIENT ────────────────────────────────────────────────
-async function loadSignalIC(h) {
-    h = h || 30;
-    document.querySelectorAll('.ic-h').forEach(b => {
-        const on = b.textContent.trim() === (h + 'd');
-        b.className = 'ic-h px-2.5 py-1 rounded text-[10px] font-bold ' + (on ? 'bg-blue-600 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800');
-    });
-    const body = document.getElementById('icBody');
-    if (!body) return;
-    body.innerHTML = '<p class="text-xs text-gray-500 italic p-3 text-center">Evaluando IC contra precios reales…</p>';
-    try {
-        const d = await fetch(`${API_BASE}/api/signal-ic?horizon_days=${h}`).then(r => r.json());
-        renderSignalIC(d);
-    } catch (e) {
-        body.innerHTML = `<p class="text-xs text-red-400 italic p-3 text-center">Error: ${e.message}</p>`;
-    }
-}
-
-function renderSignalIC(d) {
-    const body = document.getElementById('icBody');
-    if (!body) return;
-    if (!d || !d.ok) { body.innerHTML = '<p class="text-xs text-gray-500 italic p-3 text-center">IC no disponible.</p>'; return; }
-    if (!d.n_matured) { body.innerHTML = `<p class="text-xs text-gray-500 italic p-3 text-center">${d.note || 'Sin reportes maduros aún.'}</p>`; return; }
-    const vcol = v => v === 'predictivo' ? '#10b981' : v === 'contrario' ? '#ef4444' : '#6b7280';
-    const rows = (d.signals || []).map(s => {
-        const ic = s.ic != null ? (s.ic >= 0 ? '+' : '') + s.ic.toFixed(3) : '—';
-        const icCol = s.ic == null ? '#9ca3af' : s.ic > 0 ? '#10b981' : s.ic < 0 ? '#ef4444' : '#9ca3af';
-        const t = s.t_stat != null ? s.t_stat.toFixed(2) : '—';
-        const icw = s.ic_weight_pct != null ? s.ic_weight_pct + '%' : '—';
-        const delta = (s.ic_weight_pct != null) ? (s.ic_weight_pct - s.static_weight_pct) : null;
-        const dtxt = delta == null ? '' : ` <span class="text-[9px]" style="color:${delta > 0 ? '#10b981' : delta < 0 ? '#ef4444' : '#6b7280'}">(${delta > 0 ? '+' : ''}${delta})</span>`;
-        const col = s.verdict ? vcol(s.verdict) : '#6b7280';
-        return `<tr class="border-b border-gray-900/60">
-            <td class="py-2 pr-3 font-bold text-white">${s.label}</td>
-            <td class="py-2 pr-3 text-right font-mono" style="color:${icCol}">${ic}</td>
-            <td class="py-2 pr-3 text-right font-mono text-gray-500">${s.n}</td>
-            <td class="py-2 pr-3 text-right font-mono text-gray-400">${t}</td>
-            <td class="py-2 pr-3 text-center"><span class="text-[9px] font-bold px-2 py-0.5 rounded uppercase" style="background:${col}22;color:${col}">${s.verdict || '—'}</span></td>
-            <td class="py-2 pr-3 text-right font-mono text-gray-500">${s.static_weight_pct}%</td>
-            <td class="py-2 text-right font-mono text-white">${icw}${dtxt}</td>
-        </tr>`;
-    }).join('');
-    body.innerHTML = `<div class="overflow-x-auto"><table class="w-full text-xs min-w-[560px]">
-        <thead><tr class="border-b border-gray-800 text-gray-500 text-[10px] uppercase">
-            <th class="text-left py-1.5 font-bold pr-3">Señal</th>
-            <th class="text-right py-1.5 font-bold pr-3">IC</th>
-            <th class="text-right py-1.5 font-bold pr-3">N</th>
-            <th class="text-right py-1.5 font-bold pr-3">t</th>
-            <th class="text-center py-1.5 font-bold pr-3">Veredicto</th>
-            <th class="text-right py-1.5 font-bold pr-3">Peso actual</th>
-            <th class="text-right py-1.5 font-bold">Peso por IC</th>
-        </tr></thead><tbody>${rows}</tbody></table></div>
-        <p class="text-[9px] text-gray-600 mt-3 italic">${d.note || ''} · ${d.n_matured} reportes maduros a ${d.horizon_days}d.</p>
-        ${d.ic_weights_available ? '' : '<p class="text-[9px] text-amber-500/80 mt-1 italic">Aún no hay señales estadísticamente significativas (|t|≥1.5). Los "pesos por IC" aparecen cuando una señal supera ese umbral — sigue analizando para acumular muestra.</p>'}`;
-    if (window.lucide) lucide.createIcons();
-}
+// (loadSignalIC / renderSignalIC eliminados junto con el panel de Information Coefficient.)
 
 // Load track record when entering the view
 (function() {
     const _prevSwitch2 = window.switchView;
     window.switchView = function(viewId) {
         _prevSwitch2(viewId);
-        if (viewId === 'trackRecordView') { loadTrackRecord(); loadRegime(); loadSignalIC(30); loadSchedulerStatus(); loadCalibration(); }
+        if (viewId === 'trackRecordView') { loadTrackRecord(); loadRegime(); loadSchedulerStatus(); loadCalibration(); }
     };
 })();
 </script>
