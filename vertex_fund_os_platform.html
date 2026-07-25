@@ -606,7 +606,7 @@
                 <!-- Regla visual de Victor: título, unidades, fuente y timestamp. -->
                 <p id="qtChartSrc" class="chart-cite mb-3"></p>
                 <div id="qtConeWrap" class="hidden mb-4 bg-[#0B0E14] rounded-xl border border-gray-900 p-3">
-                    <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="git-commit-horizontal" class="w-3.5 h-3.5 text-blue-400"></i> Evolución histórica vs proyección — histórico (sólido) → Bull / Base / Bear (punteado, 7d → 12M)</p>
+                    <p class="text-[10px] text-gray-500 uppercase font-bold tracking-widest mb-2 flex items-center gap-1.5"><i data-lucide="git-commit-horizontal" class="w-3.5 h-3.5 text-blue-400"></i> <span id="qtConeHead">Evolución histórica vs proyección — histórico (sólido) → Bull / Base / Bear (punteado, 7d → 12M)</span></p>
                     <div style="height:180px"><canvas id="qtConeChart"></canvas></div>
                     <p class="text-[9px] text-gray-600 italic mt-1.5">La banda sombreada se ensancha con el horizonte: refleja la incertidumbre creciente entre los targets bull y bear del agente. La línea central es el caso base. Líneas punteadas = proyección (nunca dato real).</p>
                     <!-- Regla visual de Victor "etiqueta los supuestos": de dónde sale cada escenario (crecimiento + múltiplo). -->
@@ -782,14 +782,14 @@
                 <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
                     <div>
                         <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="target" class="w-4 h-4"></i> Institutional Price Targets</h3>
-                        <p class="text-[10px] text-gray-500 mt-0.5">DCF &middot; ATR &middot; Historical Volatility &middot; Analyst Consensus</p>
+                        <p id="frTargetsMethod" class="text-[10px] text-gray-500 mt-0.5">DCF &middot; ATR &middot; Historical Volatility &middot; Analyst Consensus</p>
                     </div>
                     <div class="flex items-center gap-2 flex-wrap">
-                        <button class="tf-pill active" onclick="changeTimeframe('7d', this)">7D</button>
-                        <button class="tf-pill" onclick="changeTimeframe('1mo', this)">30D</button>
-                        <button class="tf-pill" onclick="changeTimeframe('3mo', this)">3M</button>
-                        <button class="tf-pill" onclick="changeTimeframe('6mo', this)">6M</button>
-                        <button class="tf-pill" onclick="changeTimeframe('1y', this)">12M</button>
+                        <button class="tf-pill active" data-frtf="7d" onclick="changeTimeframe('7d', this)">7D</button>
+                        <button class="tf-pill" data-frtf="1mo" onclick="changeTimeframe('1mo', this)">30D</button>
+                        <button class="tf-pill" data-frtf="3mo" onclick="changeTimeframe('3mo', this)">3M</button>
+                        <button class="tf-pill" data-frtf="6mo" onclick="changeTimeframe('6mo', this)">6M</button>
+                        <button class="tf-pill" data-frtf="1y" onclick="changeTimeframe('1y', this)">12M</button>
                         <button onclick="toggleFrEMA(this)" class="ema-toggle ml-1">EMA 20 / 50</button>
                     </div>
                 </div>
@@ -1516,6 +1516,8 @@ function renderDashboard(data) {
     // si el contenedor está oculto). Ver switchAnalysisTab → 'fullResearchTab'.
     window._wbjRenderData = data;
     try { renderWBJVisual(data); } catch(e){ console.error('WBJ visual:', e); }
+    // Adapta el panel de targets al origen (Victor = solo 12M) desde el primer render.
+    try { applyTargetsSourceUI(); } catch(e){}
     const targets = data.targets || {};
     const meth = data.methodology || {};
     const price = data.precio_actual;
@@ -2006,8 +2008,14 @@ function renderExpectedMoveCone() {
     const wrap = document.getElementById('qtConeWrap');
     const order = [['7d','7d'],['30d','30d'],['3m','3M'],['6m','6M'],['12m','12M']];
     const have = order.filter(([k]) => tg[k] && tg[k].base != null);
-    if (!spot || have.length < 2 || !window.Chart) { if (wrap) wrap.classList.add('hidden'); return; }
+    // Con targets de Victor solo existe el horizonte 12M: el cono se dibuja igual (histórico
+    // sólido → proyección punteada), por eso basta con 1 horizonte, no 2.
+    if (!spot || !have.length || !window.Chart) { if (wrap) wrap.classList.add('hidden'); return; }
     wrap.classList.remove('hidden');
+    const _coneHead = document.getElementById('qtConeHead');
+    if (_coneHead) _coneHead.innerText = _victorTargets()
+        ? 'Evolución histórica vs proyección — histórico (sólido) → Bull / Base / Bear a 12M (punteado)'
+        : 'Evolución histórica vs proyección — histórico (sólido) → Bull / Base / Bear (punteado, 7d → 12M)';
 
     // ── Regla visual de Victor "evolución histórica vs proyección": el pasado va en línea
     //    SÓLIDA (precio real), el futuro en línea PUNTEADA. Tomamos hasta ~8 cierres reales
@@ -2094,10 +2102,12 @@ function buildFrChart(ohlc, volume, period) {
 }
 function updateFrTargets(period) {
     if (!currentAnalysis) return;
+    applyTargetsSourceUI();      // con Victor: solo 12M (sus otros horizontes no existen)
     const t = getTargetsForPeriod(period);
     const price = currentPrice;
     const lm = {'7d':'7 Days','1mo':'30 Days','3mo':'3 Months','6mo':'6 Months','1y':'12 Months'};
-    const lbl = lm[period] || period;
+    // Con targets de Victor el horizonte es SIEMPRE 12 meses (no existe otro en su metodología).
+    const lbl = _victorTargets() ? '12 Months' : (lm[period] || period);
     document.getElementById('frBullLabel').innerText = `Bull ${lbl}`;
     document.getElementById('frBaseLabel').innerText = `Base ${lbl}`;
     document.getElementById('frBearLabel').innerText = `Bear ${lbl}`;
@@ -2110,8 +2120,28 @@ function updateFrTargets(period) {
 }
 function getTargetsForPeriod(period) {
     const targets = currentAnalysis?.targets || {};
+    // Targets de Victor: UN solo horizonte (12 meses). No hay 7d/30d/3m/6m — no se inventan.
+    if (_victorTargets()) return targets['12m'] || {};
     const map = {'7d':'7d','1mo':'30d','3mo':'3m','6mo':'6m','1y':'12m'};
     return targets[map[period]] || targets['12m'] || {};
+}
+// ¿Los targets vienen de la metodología de Victor (targets.py)? Entonces solo existe el de 12M.
+function _victorTargets() { return (currentAnalysis?.targets_source === 'victor'); }
+// Adapta el panel de targets al origen: con Victor solo se ofrece 12M (sus otros horizontes NO
+// existen en su metodología, y mostrar el número de 12M bajo la etiqueta "7 Days" mentiría).
+function applyTargetsSourceUI() {
+    const victor = _victorTargets();
+    const meth = document.getElementById('frTargetsMethod');
+    if (meth) meth.innerText = victor
+        ? 'Victor (targets.py): EPS × (1+crecimiento) × (P/E actual × factor) · horizonte único 12M · Fair Value = target Base'
+        : 'DCF · ATR · Historical Volatility · Analyst Consensus';
+    document.querySelectorAll('[data-frtf]').forEach(el => {
+        const is12 = el.getAttribute('data-frtf') === '1y';
+        // Con Victor: se ocultan los horizontes que él no define y 12M queda fijo/activo.
+        el.classList.toggle('hidden', victor && !is12);
+        if (victor && is12) el.classList.add('active');
+    });
+    if (victor && currentTimeframe !== '1y') { currentTimeframe = '1y'; }
 }
 function changeTimeframe(period, btn) {
     document.querySelectorAll('.tf-pill').forEach(el => el.classList.remove('active'));

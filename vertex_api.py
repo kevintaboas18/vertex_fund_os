@@ -7982,6 +7982,37 @@ def analyze_ticker(ticker: str):
             _eng = _engine_scorecard(ticker, info, precio_actual)
         except Exception as _eov:
             print(f"[analyze] overlay Victor omitido: {_eov}"); _eng = None
+
+        # ── TARGETS = LOS DE VICTOR (su targets.py: EPS × (1+g) × P/E_actual×factor), NO el modelo
+        #    de volatilidad/ATR/consenso de Vertex (calculate_institutional_targets). Victor define
+        #    UN horizonte: 12 meses. Los cortos (7d/30d/3m/6m) NO existen en su metodología → no se
+        #    inventan, se eliminan ("sin evidencia, no hay número"). El Fair Value es su target base.
+        #    Se aplica ANTES del prompt para que la narrativa SIGA los números de Victor. ──
+        _victor_only_targets = False
+        try:
+            _vt0 = (_eng or {}).get("victor_targets_12m") or {}
+            if all(_vt0.get(k) is not None for k in ("bull", "base", "bear")):
+                targets = {"12m": {k: round(float(_vt0[k]), 2) for k in ("bull", "base", "bear")}}
+                _victor_only_targets = True
+                print(f"[analyze] {ticker}: targets = Victor 12m puro (bull {targets['12m']['bull']} / "
+                      f"base {targets['12m']['base']} / bear {targets['12m']['bear']})")
+            else:
+                print(f"[analyze] {ticker}: sin targets de Victor "
+                      f"({(_eng or {}).get('victor_targets_reason') or 'no disponibles'}) → se mantienen los de Vertex")
+        except Exception as _vte:
+            print(f"[analyze] targets de Victor no aplicados: {str(_vte)[:120]}")
+        # Bloque de targets para el prompt: solo los horizontes que REALMENTE existen.
+        if _victor_only_targets:
+            _targets_block = (
+                "PRICE TARGETS YA CALCULADOS (metodología de Victor — usa estos en tu narrativa; NO los modifiques):\n"
+                f"- 12M: Bull ${targets['12m']['bull']} | Base ${targets['12m']['base']} | Bear ${targets['12m']['bear']}\n"
+                "  (Victor define UN solo horizonte: 12 meses. NO inventes ni cites targets a 7D/30D/3M/6M — "
+                "no existen en su metodología.)")
+        else:
+            _targets_block = ("PRICE TARGETS YA CALCULADOS (usa estos en tu narrativa; NO los modifiques):\n" +
+                "\n".join(f"- {_lab}: Bull ${targets[_k]['bull']} | Base ${targets[_k]['base']} | Bear ${targets[_k]['bear']}"
+                          for _k, _lab in (("7d", "7D"), ("30d", "30D"), ("3m", "3M"), ("6m", "6M"), ("12m", "12M"))
+                          if targets.get(_k)))
         _victor_prompt_block = ""
         if _eng and _eng.get("categories"):
             _vg0 = _eng.get("victor_gates") or {}
@@ -8032,12 +8063,7 @@ DATOS DE MERCADO (ya calculados por el motor cuantitativo de Vertex):
 - Riesgo de factores y contribucion marginal al riesgo (estilo BlackRock/Aladdin): {format_factor_risk(portfolio_fit)}
 {memory_block}{_deep_mem_block}{_opt_block}{calibration_block}{regime_block}{gex_block}{_earn_block}{_8k_block}
 
-PRICE TARGETS YA CALCULADOS (usa estos en tu narrativa; NO los modifiques):
-- 7D:  Bull ${targets['7d']['bull']} | Base ${targets['7d']['base']} | Bear ${targets['7d']['bear']}
-- 30D: Bull ${targets['30d']['bull']} | Base ${targets['30d']['base']} | Bear ${targets['30d']['bear']}
-- 3M:  Bull ${targets['3m']['bull']} | Base ${targets['3m']['base']} | Bear ${targets['3m']['bear']}
-- 6M:  Bull ${targets['6m']['bull']} | Base ${targets['6m']['base']} | Bear ${targets['6m']['bear']}
-- 12M: Bull ${targets['12m']['bull']} | Base ${targets['12m']['base']} | Bear ${targets['12m']['bear']}
+{_targets_block}
 
 INSTRUCCIÓN CRÍTICA:
 Basa tu recomendación final, el Fair Value y tu tesis estrictamente en los **targets a futuro de 1 año** calculados y los **targets de Wall Street (Analyst Mean Target)**. NO bases tu recomendación ni tu Fair Value en el valor intrínseco actual histórico o descontado. Tu decisión e indicador de valor justo deben responder puramente a la proyección futura a 1 año.
@@ -8057,14 +8083,19 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
 
         analisis_json, _analysis_src = _analyze_structured(prompt, temp=0.2)
 
-        # ── OVERRIDE MATEMÁTICO: Fair Value = Promedio de mis targets 12M y Wall Street Mean Target ──
-        avg_my_12m = (targets['12m']['bull'] + targets['12m']['base'] + targets['12m']['bear']) / 3
-        wall_street_mean = methodology.get('analyst_mean', precio_actual)
-        
-        combined_fair_value = (avg_my_12m + float(wall_street_mean)) / 2
-        
-        analisis_json['fair_value'] = round(combined_fair_value, 2)
-        analisis_json['upside_pct'] = round(((combined_fair_value - precio_actual) / precio_actual) * 100, 2)
+        # ── FAIR VALUE ──
+        # Con targets de Victor: el Fair Value ES su target BASE (no un promedio con Wall Street).
+        # Sin ellos: se mantiene el respaldo de Vertex (promedio de targets 12M + Analyst Mean).
+        if _victor_only_targets:
+            _fv_v = float(targets['12m']['base'])
+            analisis_json['fair_value'] = round(_fv_v, 2)
+            analisis_json['upside_pct'] = round(((_fv_v - precio_actual) / precio_actual) * 100, 2) if precio_actual else 0.0
+        else:
+            avg_my_12m = (targets['12m']['bull'] + targets['12m']['base'] + targets['12m']['bear']) / 3
+            wall_street_mean = methodology.get('analyst_mean', precio_actual)
+            combined_fair_value = (avg_my_12m + float(wall_street_mean)) / 2
+            analisis_json['fair_value'] = round(combined_fair_value, 2)
+            analisis_json['upside_pct'] = round(((combined_fair_value - precio_actual) / precio_actual) * 100, 2)
 
         # ── MOTOR DE CONVICCIÓN PONDERADO (framework Vertex 25/20/20/15/10/5/5) ──
         # #4: los pesos base se ajustan al régimen de mercado actual (vol/tendencia/amplitud/tasas).
@@ -8600,6 +8631,14 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             "portfolio_fit": portfolio_fit,
             "noticias_reales": noticias_formateadas,
             "targets": targets,
+            # Origen de los targets: "victor" = su targets.py, UN horizonte (12 meses) y el Fair
+            # Value es el target base. "vertex" = respaldo (volatilidad/ATR/consenso, 5 horizontes).
+            # El frontend usa esto para mostrar SOLO 12M cuando mandan los de Victor.
+            "targets_source": ("victor" if _victor_only_targets else "vertex"),
+            "targets_horizon_note": ("Metodología de Victor: EPS × (1+crecimiento) × (P/E actual × factor). "
+                                     "Un solo horizonte: 12 meses. Fair Value = target Base."
+                                     if _victor_only_targets else
+                                     "Respaldo Vertex: volatilidad histórica / ATR / DCF simplificado / consenso."),
             "methodology": methodology,
             "analisis": analisis_json
         }
