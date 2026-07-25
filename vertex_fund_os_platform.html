@@ -65,6 +65,39 @@
         .periods button { font:inherit; font-size:13px; font-weight:700; padding:6px 16px;
             border:0; border-radius:99px; background:transparent; color:#8b929c; cursor:pointer; }
         .periods button.on { background:#1d2b22; color:#26d07c; }
+        /* ══ Paneles de Victor (En palabras simples · Puntaje · Qué significa) — CSS suyo,
+           con sus mismos colores semánticos, sobre el fondo oscuro del dashboard. ══ */
+        .v-card { background:#0B0E14; border:1px solid #1F2532; border-radius:14px; padding:16px; }
+        .v-card h2 { font-size:15px; font-weight:700; color:#fff; }
+        .v-card .sub { color:#8b929c; font-size:12px; margin-top:3px; }
+        ul.words { list-style:none; margin-top:14px; padding:0; }
+        ul.words li { display:flex; gap:10px; padding:9px 0; font-size:13px; line-height:1.5;
+            color:#d1d5db; border-bottom:1px solid #1a1f2b; }
+        ul.words li:last-child { border-bottom:none; }
+        ul.words .dot { flex:none; width:8px; height:8px; border-radius:50%; margin-top:6px; }
+        .gaugebox { display:flex; align-items:center; gap:6px; flex-direction:column; margin:6px 0 12px; }
+        .gauge { width:190px; height:110px; }
+        .gauge .track { stroke:#1F2532; } .gauge .arc { stroke:#22a06b; }
+        .gauge-num { font-size:34px; font-weight:800; margin-top:-58px; color:#fff; }
+        .gauge-of { font-size:12px; color:#8b929c; margin-bottom:16px; }
+        .srow { display:grid; grid-template-columns:150px 1fr 52px; gap:10px;
+            align-items:center; margin-bottom:10px; font-size:12.5px; }
+        .srow .nm { color:#9ca3af; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .srow .v { text-align:right; font-weight:700; font-variant-numeric:tabular-nums; color:#e5e7eb; }
+        .track2 { height:9px; background:#1F2532; border-radius:6px; overflow:hidden; }
+        .fill2 { height:100%; border-radius:6px; transition:width .5s ease; }
+        .srow.ns .nm, .srow.ns .v { color:#6b7280; font-weight:500; }
+        .classpill { display:inline-flex; align-items:center; gap:8px; padding:8px 14px;
+            border-radius:99px; font-weight:800; font-size:13px; letter-spacing:.02em; }
+        .classpill.favorece { background:rgba(34,160,107,.15); color:#22a06b; }
+        .classpill.neutral  { background:rgba(245,166,35,.15); color:#f5a623; }
+        .classpill.evitar   { background:rgba(229,72,77,.15);  color:#e5484d; }
+        .mrow { display:flex; justify-content:space-between; align-items:baseline; gap:12px;
+            padding:10px 0; border-bottom:1px solid #1a1f2b; font-size:12.5px; }
+        .mrow:last-child { border-bottom:none; }
+        .mrow .nm { color:#e5e7eb; font-weight:700; }
+        .mrow .mv { font-variant-numeric:tabular-nums; }
+        .revisit { color:#8b929c; font-size:12px; margin-top:8px; }
         .tf-pill:hover { color: #e5e7eb; border-color: #3b82f6; }
         .tf-pill.active { background: #1e3a5f; color: #3b82f6; border-color: #3b82f6; }
         .news-card { background: #0B0E14; border: 1px solid #1F2532; border-radius: 12px; padding: 14px 16px; transition: border-color 0.2s; }
@@ -666,6 +699,14 @@
         </div>
 
         <div id="fullResearchTab" class="tab-content p-6 space-y-8">
+
+            <!-- ══ PANELES DE VICTOR: "En palabras simples" · "Puntaje de los agentes" ·
+                 "Qué significa el puntaje". Deterministas, de su targets.py/brief.py. ══ -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div class="v-card" id="vWordsCard"></div>
+                <div class="v-card" id="vScoreCard"></div>
+            </div>
+            <div class="v-card" id="vMeaningCard"></div>
 
             <!-- ══ ANÁLISIS WBJ (VICTOR) — agente completo: gauge + puntajes de los 6 agentes + ventas + márgenes.
                  Vive en el ÁREA DE RESEARCH (todo el agente de Victor, con sus gráficas). ══ -->
@@ -1518,6 +1559,8 @@ function renderDashboard(data) {
     try { renderWBJVisual(data); } catch(e){ console.error('WBJ visual:', e); }
     // Adapta el panel de targets al origen (Victor = solo 12M) desde el primer render.
     try { applyTargetsSourceUI(); } catch(e){}
+    // Paneles de Victor (palabras simples · puntaje · qué significa) del área de research.
+    try { renderVictorWords(); renderVictorScore(); renderVictorMeaning(); } catch(e){ console.error('paneles Victor:', e); }
     const targets = data.targets || {};
     const meth = data.methodology || {};
     const price = data.precio_actual;
@@ -2012,6 +2055,75 @@ const _vChartState = {};   // por host: {data, targets, period}
 // El detalle de targets de Victor (targets.py) viaja dentro de `analisis`, no en la raíz.
 function _victorTargetsDetail() { return (currentAnalysis?.analisis?.victor_targets_detail) || null; }
 
+// ══ PANELES DE VICTOR (portados de engine/scripts/webapp.py) ══════════════════
+// Sus mismas constantes de color y su misma estructura: viñetas de la narrativa,
+// gauge semicircular con el puntaje 1-10, barras por categoría y el veredicto.
+const CAT_COLORS = { business:'#7c5cfc', financial:'#22a06b', risk:'#3b82f6',
+  market:'#f5a623', technical:'#f5a623', valuation:'#f5a623' };
+const WORD_COLORS = ['#7c5cfc','#22a06b','#3b82f6','#f5a623','#e5484d','#7c5cfc'];
+const _scoreColor = s => s == null ? '#8b929c' : s >= 6.5 ? '#22a06b' : s >= 3.5 ? '#f5a623' : '#e5484d';
+
+function _gaugeSvg(score) {
+  const frac = Math.max(0, Math.min(1, score / 10));
+  const R = 80, C = Math.PI * R;
+  return `<svg class="gauge" viewBox="0 0 200 110">
+    <path class="track" d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke-width="14" stroke-linecap="round"/>
+    <path class="arc" d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke-width="14"
+      stroke-linecap="round" stroke-dasharray="${(frac * C).toFixed(1)} ${C.toFixed(1)}"/>
+  </svg>`;
+}
+
+// "En palabras simples" — las frases que arma su narrative() desde los números.
+function renderVictorWords() {
+  const el = document.getElementById('vWordsCard'); if (!el) return;
+  const n = currentAnalysis?.analisis?.victor_narrative;
+  if (!Array.isArray(n) || !n.length) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const lis = n.map((s, i) =>
+    `<li><span class="dot" style="background:${WORD_COLORS[i % WORD_COLORS.length]}"></span><span>${s}</span></li>`).join('');
+  el.innerHTML = `<h2>En palabras simples</h2>
+    <div class="sub">Qué dicen los números, sin jerga</div><ul class="words">${lis}</ul>`;
+}
+
+// "Puntaje de los agentes" — promedio 1-10 en gauge + barra por categoría.
+function renderVictorScore() {
+  const el = document.getElementById('vScoreCard'); if (!el) return;
+  const sc = currentAnalysis?.analisis?.victor_scorecard;
+  if (!sc || !Array.isArray(sc.categories) || !sc.categories.length) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const rows = sc.categories.map(r => {
+    if (r.status === 'scored' && r.score10 != null) {
+      return `<div class="srow"><span class="nm">${r.label}</span>
+        <div class="track2"><div class="fill2" style="width:${Math.max(0,Math.min(100,r.score10*10))}%;background:${CAT_COLORS[r.key]||'#8b929c'}"></div></div>
+        <span class="v">${r.score10.toFixed(1)}/10</span></div>`;
+    }
+    return `<div class="srow ns"><span class="nm" title="${r.reason||''}">${r.label}</span>
+      <div class="track2"></div><span class="v">N/S</span></div>`;
+  }).join('');
+  const overall = sc.overall_10 == null ? '—' : sc.overall_10.toFixed(1);
+  el.innerHTML = `<h2>Puntaje de los agentes</h2>
+    <div class="sub">1–10 por categoría · ${sc.evidence_points_covered}/100 puntos de evidencia</div>
+    <div class="gaugebox">${_gaugeSvg(sc.overall_10 ?? 0)}
+      <div class="gauge-num">${overall}</div><div class="gauge-of">de 10</div></div>${rows}`;
+}
+
+// "Qué significa el puntaje" — clasificación (favorece/neutral/evitar) + qué significa
+// cada categoría en palabras (muy fuerte / sólido / mixto / débil / problemático).
+function renderVictorMeaning() {
+  const el = document.getElementById('vMeaningCard'); if (!el) return;
+  const it = currentAnalysis?.analisis?.victor_interpretation;
+  if (!it || !Array.isArray(it.categories) || !it.categories.length) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const cls = it.classification || 'neutral';
+  const rows = it.categories.map(c => `<div class="mrow"><span class="nm">${c.label}</span>
+    <span class="mv" style="color:${_scoreColor(c.score10)}">${c.score10 == null ? 'N/S' : c.score10.toFixed(1)+'/10'} · ${c.meaning}</span></div>`).join('');
+  el.innerHTML = `<h2>Qué significa el puntaje</h2>
+    <div style="margin:12px 0 6px"><span class="classpill ${cls}">${cls.toUpperCase()}</span></div>
+    <div class="revisit">${it.classification_label || ''}</div>
+    ${it.revisit ? `<div class="revisit">↻ ${it.revisit}</div>` : ''}
+    <div style="margin-top:14px">${rows}</div>`;
+}
+
 function renderVictorChart(hostId) {
   const el = document.getElementById(hostId);
   if (!el) return;
@@ -2141,6 +2253,8 @@ async function fetchAndRenderFrChart(period) {
 }
 function buildFrChart(period) {
     renderVictorChart('frVictorChart');
+    // Paneles de Victor del área de research
+    try { renderVictorWords(); renderVictorScore(); renderVictorMeaning(); } catch(e){ console.error('paneles Victor:', e); }
     _chartCite('frChartSrc', 'US$/acción · cierres diarios (sólido) + targets 12M (punteado)', (currentAnalysis?.precio_fuente || 'FMP') + ' + targets.py');
 }
 function updateFrTargets(period) {

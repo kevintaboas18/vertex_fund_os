@@ -7774,6 +7774,65 @@ def _engine_scorecard(ticker, info, price):
             "gross_margin": _mgn(gp_list, revenue)}
     except Exception as e:
         print(f"[engine] financials anuales omitidos: {str(e)[:140]}")
+
+    # ── PANELES DE VICTOR para Full Research: "En palabras simples" (su narrative()),
+    #    puntaje promedio 1-10 de los agentes, y "Qué significa el puntaje" (su brief.py,
+    #    byte-idéntico al suyo: _classification + _category_meaning). Todo determinista. ──
+    try:
+        # overall 1-10 = raw_total(0-100)/10 · evidencia = Σ(max_i × cobertura_i), como el card
+        _overall10 = round(float(sc["raw_total"]) / 10.0, 1) if sc.get("raw_total") is not None else None
+        _evid = 0.0
+        _cat_rows = []
+        for _k in WBJ_ORDER:
+            _c = (sc.get("categories") or {}).get(_k)
+            if not _c:
+                continue
+            _evid += float(_c.get("max") or 0) * float(_c.get("coverage") or 0)
+            _cat_rows.append({"key": _k, "label": _c.get("label"), "score10": _c.get("score10"),
+                              "status": _c.get("status"), "reason": _c.get("reason")})
+        _evid = int(round(_evid))
+        _victor_sc = {"overall_10": _overall10, "evidence_points_covered": _evid,
+                      "categories": _cat_rows}
+        sc["victor_scorecard"] = _victor_sc
+
+        # "Qué significa el puntaje" — clasificación (favorece/neutral/evitar) + significado por
+        # categoría. _interpretation NO usa el packet (solo el scorecard), por eso va {}.
+        try:
+            from wbj.brief import _interpretation as _victor_interp
+            _nxt_e = None
+            try:
+                _nd = _next_earnings_date(ticker)
+                if _nd:
+                    _nxt_e = {"date": _nd.strftime("%Y-%m-%d") if hasattr(_nd, "strftime") else str(_nd)}
+            except Exception:
+                _nxt_e = None
+            sc["victor_interpretation"] = _victor_interp({}, _victor_sc, _nxt_e)
+        except Exception as _ie:
+            print(f"[engine] interpretación de Victor omitida: {str(_ie)[:120]}")
+
+        # "En palabras simples" — su narrative() tal cual. Necesita el packet anual en su shape
+        # {annual: {campo: [{val}, ...] ascendente}}. total_equity del packet → 'equity' que él pide.
+        try:
+            from wbj.targets import narrative as _victor_narrative
+            if _fmp_annual:
+                def _sv2(k):
+                    out = []
+                    for r in reversed(_fmp_annual):        # newest-first → ascendente
+                        v = r.get(k) if isinstance(r, dict) else None
+                        try:
+                            if v is not None: out.append({"val": float(v)})
+                        except (TypeError, ValueError): pass
+                    return out
+                _narr_pk = {"annual": {
+                    "revenue": _sv2("revenue"), "net_income": _sv2("net_income"),
+                    "operating_cash_flow": _sv2("operating_cash_flow"), "capex": _sv2("capex"),
+                    "long_term_debt": _sv2("long_term_debt"), "equity": _sv2("total_equity")}}
+                _tg = sc.get("victor_targets_detail") or {"status": "not_scorable"}
+                sc["victor_narrative"] = _victor_narrative(_narr_pk, _victor_sc, _tg)
+        except Exception as _ne:
+            print(f"[engine] narrativa de Victor omitida: {str(_ne)[:120]}")
+    except Exception as _pe:
+        print(f"[engine] paneles de Victor omitidos: {str(_pe)[:140]}")
     return sc
 
 
@@ -8486,6 +8545,10 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 # existe si corrió el judge (ANTHROPIC_API_KEY con crédito). None → no hay panel.
                 "ai_judgment": _eng.get("ai_judgment")}
             analisis_json["victor_targets_detail"] = _eng.get("victor_targets_detail")
+            # Paneles de Victor para Full Research (deterministas, de su brief.py/targets.py)
+            analisis_json["victor_narrative"] = _eng.get("victor_narrative")           # "En palabras simples"
+            analisis_json["victor_scorecard"] = _eng.get("victor_scorecard")           # puntaje 1-10 + evidencia
+            analisis_json["victor_interpretation"] = _eng.get("victor_interpretation") # "Qué significa el puntaje"
             analisis_json["victor_targets_reason"] = _eng.get("victor_targets_reason")   # razón si no hay target
             analisis_json["financials_annual"] = _eng.get("financials_annual")
             analisis_json["victor_levels"] = _eng.get("victor_levels")   # niveles de precio (synthesize_levels)
