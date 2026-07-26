@@ -5881,30 +5881,6 @@ class WBJLevel(BaseModel):
     valor: float = Field(..., description="Precio del nivel/zona.")
     nota: str = Field(..., description="Confirmación/invalidación o supuesto. Lenguaje de referencia, nunca 'target garantizado'.")
 
-class WBJReport(BaseModel):
-    scorecard: WBJScorecard = Field(..., description="Los 6 especialistas puntuados de forma independiente. Cada dimensión 0-10 (o -1 NOT_SCORABLE) + confianza + nota con número.")
-    # Resumen ejecutivo (las 7 frases obligatorias del FINAL_REPORT_SCHEMA)
-    what_company_does: str = Field(..., description="Qué hace económicamente la compañía, en simple.")
-    value_creation_durability: str = Field(..., description="Por qué la creación de valor es o no durable (ROIC vs WACC, moat).")
-    growth_funding: str = Field(..., description="Qué está financiando el crecimiento (FCF propio vs capital externo/dilución/deuda).")
-    market_validation: str = Field(..., description="Si el mercado valida hoy la tesis (revisiones, técnicos, breadth).")
-    price_implied_assumptions: str = Field(..., description="Qué supuestos parece exigir el precio actual (reverse-DCF: crecimiento/margen implícitos).")
-    nearest_key_levels: str = Field(..., description="Los soportes/resistencias y referencias de valor intrínseco más cercanos y relevantes.")
-    top_invalidation_risk: str = Field(..., description="El único riesgo de invalidación más importante de la tesis.")
-    executive_summary: str = Field(..., description="Síntesis ejecutiva de una página, en prosa. La narrativa sigue a los números: cada adjetivo material apunta a una métrica, gate o regla.")
-    company_summary_simple: str = Field(..., description="Qué hace la empresa y cómo gana dinero, para cualquier inversor.")
-    valuation_scenarios: list[WBJScenario] = Field(..., description="Bear/Base/Bull de valor intrínseco con supuestos declarados. Nunca un único punto.")
-    reverse_dcf: str = Field(..., description="Qué crecimiento/retornos implica el precio actual (reverse DCF) y si son plausibles frente a la capacidad evidenciada.")
-    thesis_killers: list[str] = Field(..., description="Exactamente 3 'thesis killers': los eventos concretos que romperían la tesis.")
-    monitoring_triggers: list[str] = Field(..., description="Disparadores concretos y verificables que obligarían a recalcular (earnings, nivel técnico, revisión de estimados, financiamiento).")
-    important_levels: list[WBJLevel] = Field(..., description="Niveles de valuación (intrínsecos) y zonas técnicas por separado. Marca lente Técnico/Valuación en cada uno.")
-    revisit_when: str = Field(..., description="Si la clasificación es 'evitar', fecha o evento concreto para revisitar el análisis. Si no aplica, ''.")
-    fair_value: float = Field(..., description="Valor justo base (número). Debe ser el escenario Base de valuation_scenarios.")
-    fair_value_low: float = Field(..., description="Extremo bajo del rango (escenario Bear de valor intrínseco).")
-    fair_value_high: float = Field(..., description="Extremo alto del rango (escenario Bull de valor intrínseco).")
-    probabilities: TradeProbabilities = Field(..., description="Probabilidades calibradas ancladas en base-rates (no optimismo). Se usan para dimensionar la posición con Kelly fraccional.")
-
-
 # Perfiles de los gates de Victor → (recomendación, clasificación en español).
 # Cualquier perfil fuera de este mapa (Avoid / Wait, Weak / Wait, o uno nuevo que
 # él agregue) cae al default AVOID: ante la duda no se recomienda comprar.
@@ -7976,6 +7952,35 @@ def _engine_scorecard(ticker, info, price):
         except Exception as _aje:
             print(f"[engine] panel Juicio AI omitido: {str(_aje)[:140]}")
 
+    # ── THESIS KILLERS (CLAUDE.md + 05_risk_analysis/DECISION_RULES.md: "Always list at
+    #    least three risks that could invalidate the thesis"). Son CONTENIDO, no puntaje:
+    #    salen del juez cualitativo, así que viven en los outputs con-judge, pero se
+    #    publican en el reporte principal porque el Cerebro los exige ahí. No mueven ni
+    #    un punto — el score sigue siendo el determinista. ──
+    try:
+        _tk = {"risk": [], "business": [], "market": [], "source": None}
+        for _k, _o in (_outputs_ai or []):
+            if _k == "risk":
+                _tk["risk"] = list(getattr(_o, "thesis_killers", None) or [])
+            elif _k == "business":
+                _tk["business"] = list(getattr(_o, "three_thesis_killers", None) or [])
+            elif _k == "market":
+                _tk["market"] = list(getattr(_o, "three_growth_thesis_killers", None) or [])
+        _n = len(_tk["risk"]) + len(_tk["business"]) + len(_tk["market"])
+        if _n:
+            _tk["source"] = "juez cualitativo de Victor (clase Q) sobre los packets de los especialistas"
+            sc["thesis_killers"] = _tk
+            print(f"[engine] {ticker}: thesis killers → riesgo {len(_tk['risk'])}, "
+                  f"negocio {len(_tk['business'])}, mercado {len(_tk['market'])}")
+        else:
+            # Vacío honesto: el motor determinista NUNCA inventa riesgos. Se dice por qué.
+            sc["thesis_killers"] = {"risk": [], "business": [], "market": [], "source": None,
+                "unavailable_reason": ("Los thesis killers son judgment-only por diseño: el motor "
+                    "determinista no inventa riesgos. Requieren el juez cualitativo (ANTHROPIC_API_KEY "
+                    "con saldo). Sin él quedan NOT_SCORABLE, no vacíos por error.")}
+    except Exception as _tke:
+        print(f"[engine] thesis killers omitidos: {str(_tke)[:120]}")
+
     if _victor_gates:
         sc["victor_gates"] = _victor_gates                 # perfil/banda/overrides reales de Victor
     if _qual_prov:
@@ -8825,6 +8830,7 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
             # DCF REAL de Victor (FCFF del especialista). Sustituye al "Vertex DCF" viejo,
             # que era eps × P/E_objetivo y contradecía al fair value mostrado arriba.
             analisis_json["victor_valuation"] = _eng.get("victor_valuation")
+            analisis_json["thesis_killers"] = _eng.get("thesis_killers")
             # ── FILTRO POR PERFIL (orquestador, CLAUDE.md paso 6): cruza la recomendación con
             #    el perfil de Kevin. No cambia el scoring; clasifica el fit con evidencia. ──
             try:
