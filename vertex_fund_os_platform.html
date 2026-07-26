@@ -819,6 +819,11 @@
                      Victor (apply_gates / apply_overrides / contradictions). Convierte la etiqueta
                      del perfil en un argumento auditable. ══ -->
                 <div id="frWhyVerdict" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
+
+                <!-- ══ CONTENIDO OBLIGATORIO (CLAUDE.md): insiders >$1M (Forms 4) + barra de flujo
+                     neto de Victor, inversionistas 13F, historial del management y cuándo
+                     revisitar si la clasificación es 'evitar'. ══ -->
+                <div id="frMandatory" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
             </div>
 
             <div>
@@ -1562,7 +1567,7 @@ function renderDashboard(data) {
     // Adapta el panel de targets al origen (Victor = solo 12M) desde el primer render.
     try { applyTargetsSourceUI(); } catch(e){}
     // Paneles de Victor (palabras simples · puntaje · qué significa) del área de research.
-    try { renderVictorWords(); renderVictorScore(); renderVictorMeaning(); renderVictorLevels(); renderVictorWhy(); } catch(e){ console.error('paneles Victor:', e); }
+    try { renderVictorWords(); renderVictorScore(); renderVictorMeaning(); renderVictorLevels(); renderVictorWhy(); renderVictorMandatory(); } catch(e){ console.error('paneles Victor:', e); }
     const targets = data.targets || {};
     const meth = data.methodology || {};
     const price = data.precio_actual;
@@ -2129,6 +2134,88 @@ function renderVictorWhy() {
     <p class="text-[9px] text-gray-700 mt-1">Origen: ${w.gates_source || 'gates de Victor'}.</p>`;
 }
 
+// ── CONTENIDO OBLIGATORIO DEL REPORTE (CLAUDE.md) ──────────────────────────────
+// Insiders que EXCEDEN $1M (Forms 4) + la barra de flujo neto de Victor sobre todo el
+// feed, inversionistas 13F, historial del management y cuándo revisitar si es 'evitar'.
+function renderVictorMandatory() {
+  const el = document.getElementById('frMandatory'); if (!el) return;
+  const m = currentAnalysis?.analisis?.mandatory_report;
+  if (!m) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const usd = v => {
+    const a = Math.abs(Number(v) || 0);
+    if (a >= 1e9) return '$' + (a/1e9).toFixed(1) + 'B';
+    if (a >= 1e6) return '$' + (a/1e6).toFixed(1) + 'M';
+    if (a >= 1e3) return '$' + (a/1e3).toFixed(0) + 'K';
+    return '$' + a.toFixed(0);
+  };
+  // 1) Barra neta compra vs venta (vista completa de Victor: todo el feed, no solo >$1M)
+  const fl = m.insiders_flow;
+  let flowHtml = '';
+  if (fl && (fl.buy_usd || fl.sell_usd)) {
+    const tot = fl.buy_usd + fl.sell_usd;
+    const bw = tot ? (fl.buy_usd / tot * 100) : 0, sw = tot ? (fl.sell_usd / tot * 100) : 0;
+    const up = fl.net_usd >= 0;
+    flowHtml = `<div class="mb-3">
+      <div class="flex h-2 rounded-full overflow-hidden bg-gray-900 border border-gray-800">
+        <div style="width:${bw.toFixed(1)}%;background:#10b981"></div>
+        <div style="width:${sw.toFixed(1)}%;background:#ef4444"></div></div>
+      <div class="flex justify-between text-[10px] font-bold mt-1">
+        <span class="text-emerald-400">▲ compras ${usd(fl.buy_usd)} <span class="text-gray-600 font-normal">(${fl.buy_count})</span></span>
+        <span class="text-red-400">ventas ${usd(fl.sell_usd)} <span class="text-gray-600 font-normal">(${fl.sell_count})</span> ▼</span></div>
+      <p class="text-[10px] text-gray-500 mt-1">Neto: <b style="color:${up?'#10b981':'#ef4444'}">${up?'compra':'venta'} ${usd(fl.net_usd)}</b> — todo el feed de Forms 4 (los awards a precio 0 no cuentan).</p></div>`;
+  }
+  // 2) Insiders que EXCEDEN $1M — el requisito explícito del CLAUDE.md
+  const io = m.insiders_over_1m || {};
+  const txs = io.transactions || [];
+  const txHtml = txs.length
+    ? `<div class="space-y-1">${txs.slice(0, 8).map(t => {
+        const buy = t.is_buy, sell = t.is_sell;
+        const col = buy ? '#10b981' : sell ? '#ef4444' : '#9ca3af';
+        const lbl = buy ? 'COMPRA' : sell ? 'VENTA' : (t.transaction || '—');
+        return `<div class="flex items-baseline justify-between gap-2 text-[10px] py-1 border-b border-gray-900/60">
+          <span class="text-gray-300 truncate">${t.insider || '—'} <span class="text-gray-600">· ${t.date || ''}</span></span>
+          <span class="font-mono font-bold flex-shrink-0" style="color:${col}">${lbl} ${usd(t.value)}</span></div>`;
+      }).join('')}${txs.length > 8 ? `<p class="text-[9px] text-gray-600 pt-1">+${txs.length - 8} más</p>` : ''}</div>`
+    : `<p class="text-[10px] text-gray-500 italic">Ningún insider con transacciones que excedan $1M en el periodo.</p>`;
+  // 3) 13F, 4) management, 5) revisitar
+  const inst = m.institutional_13f || [];
+  const instHtml = inst.length
+    ? `<div class="space-y-0.5">${inst.slice(0, 8).map(h => {
+        const nm = h.holder || h.Holder || h.name || '—';
+        const val = h.value ?? h.Value; const pct = h.pctHeld ?? h['% Out'];
+        return `<div class="flex justify-between text-[10px] gap-2">
+          <span class="text-gray-300 truncate">${nm}</span>
+          <span class="font-mono text-gray-400 flex-shrink-0">${val != null ? usd(val) : ''}${pct != null ? ` · ${(Number(pct)*100).toFixed(1)}%` : ''}</span></div>`;
+      }).join('')}</div>`
+    : `<p class="text-[10px] text-gray-500 italic">Sin posiciones 13F disponibles.</p>`;
+  const mg = m.management || {};
+  const roster = mg.roster || [];
+  const tr = mg.track_record || {};
+  const mgHtml = roster.length
+    ? `<div class="space-y-0.5">${roster.slice(0, 6).map(r =>
+        `<div class="flex justify-between text-[10px] gap-2">
+           <span class="text-gray-300 truncate">${r.name || '—'}${r.is_key ? ' <span class="text-[8px] text-blue-400">clave</span>' : ''}</span>
+           <span class="text-gray-500 truncate flex-shrink-0" style="max-width:52%">${r.title || ''}</span></div>`).join('')}
+       ${tr.status ? `<p class="text-[9px] text-gray-600 mt-1.5 italic">Historial: ${tr.status === 'no_evaluado' ? (tr.note || 'no evaluado') : (tr.overall || tr.note || tr.status)}</p>` : ''}</div>`
+    : `<p class="text-[10px] text-gray-500 italic">Sin roster de ejecutivos disponible.</p>`;
+  const rv = m.revisit;
+  const rvHtml = rv
+    ? `<div class="mt-3 text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1.5">
+         ↻ <b>Cuándo revisitar:</b> ${rv.trigger || ''}${rv.date ? ` <span class="text-amber-200/80">(próx. earnings ${rv.date})</span>` : ''}</div>` : '';
+  el.innerHTML = `
+    <span class="text-[11px] font-bold text-white uppercase tracking-wider block border-b border-gray-800 pb-2 mb-3">
+      &#128081; Contenido obligatorio — insiders, 13F y management</span>
+    ${flowHtml}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-x-5 gap-y-3">
+      <div><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Insiders &gt; $1M (Forms 4)${io.count ? ` · ${io.count}` : ''}</p>${txHtml}</div>
+      <div><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Inversionistas 13F</p>${instHtml}</div>
+      <div><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Management</p>${mgHtml}</div>
+    </div>
+    ${rvHtml}
+    <p class="text-[9px] text-gray-700 mt-2">Fuente: ${io.source || 'SEC EDGAR'} · umbral $1M según CLAUDE.md${mg.source ? ` · roster: ${mg.source}` : ''}.</p>`;
+}
+
 // "Qué significa el puntaje" — clasificación (favorece/neutral/evitar) + qué significa
 // cada categoría en palabras (muy fuerte / sólido / mixto / débil / problemático).
 function renderVictorMeaning() {
@@ -2276,7 +2363,7 @@ async function fetchAndRenderFrChart(period) {
 function buildFrChart(period) {
     renderVictorChart('frVictorChart');
     // Paneles de Victor del área de research
-    try { renderVictorWords(); renderVictorScore(); renderVictorMeaning(); renderVictorLevels(); renderVictorWhy(); } catch(e){ console.error('paneles Victor:', e); }
+    try { renderVictorWords(); renderVictorScore(); renderVictorMeaning(); renderVictorLevels(); renderVictorWhy(); renderVictorMandatory(); } catch(e){ console.error('paneles Victor:', e); }
     _chartCite('frChartSrc', 'US$/acción · cierres diarios (sólido) + targets 12M (punteado)', (currentAnalysis?.precio_fuente || 'FMP') + ' + targets.py');
 }
 function updateFrTargets(period) {
