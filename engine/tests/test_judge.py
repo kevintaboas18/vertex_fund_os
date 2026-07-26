@@ -116,3 +116,94 @@ def test_bad_evidence_class_becomes_none():
     from wbj.judge import _to_evidence
     assert _to_evidence("R") == EvidenceClass.R
     assert _to_evidence("nonsense") is None
+
+
+# ── Contexto del juez: el packet dict y las métricas ya calculadas ────────────
+# El request del moat de business_analysis afirma que la persistencia del spread,
+# la estabilidad de margen y la concentración "are computed mechanically above".
+# Antes no había ningún "above": _company_context recibía el packet y esos números
+# viven en los outputs de los especialistas. Además, con un packet dict el getattr
+# devolvía None y se perdían hasta el ticker y la tabla de hechos.
+
+class _FakeValue:
+    def __init__(self, value, unit=None):
+        self.value = value
+        self.unit = unit
+
+
+class _FakeMetric:
+    def __init__(self, metric_id, value=None, unit=None, score10=None):
+        self.metric_id = metric_id
+        self.value = _FakeValue(value, unit) if value is not None else None
+        self.score10 = score10
+
+
+class _FakeOutput:
+    def __init__(self, agent_id, metrics):
+        self.agent_id = agent_id
+        self.metrics = metrics
+
+
+def _ctx_of(client):
+    """El bloque de contexto que realmente viajó al modelo."""
+    return client.last_call["messages"][0]["content"]
+
+
+def test_dict_packet_keeps_ticker_and_facts():
+    """Ruta rápida (packet dict): getattr devolvía None y el juez se quedaba
+    solo con la descripción de marketing de FMP."""
+    s = Settings(anthropic_api_key="k")
+    packet = {
+        "security": {"ticker": "AAPL", "exchange": "NASDAQ"},
+        "facts_table": {"revenue": _FakeValue(416_161_000_000), "price": _FakeValue(334)},
+        "fmp_profile": [{"companyName": "Apple Inc.", "sector": "Technology"}],
+    }
+    client = _FakeClient([_FakeAnswerModel("a:0", "Wide")])
+    answer_judgments(packet, [_req("a:0", "one of Wide|Narrow|None")], s, client=client)
+    ctx = _ctx_of(client)
+    assert "Ticker: AAPL (NASDAQ)" in ctx
+    assert "revenue" in ctx and "416,161,000,000" in ctx
+    assert "Apple Inc." in ctx
+
+
+def test_facts_table_is_not_truncated():
+    """Nada de cortes arbitrarios: truncar la tabla de hechos es descartar
+    evidencia en silencio."""
+    s = Settings(anthropic_api_key="k")
+    packet = {"facts_table": {f"f{i}": _FakeValue(float(i)) for i in range(12)}}
+    client = _FakeClient([_FakeAnswerModel("a:0", "Wide")])
+    answer_judgments(packet, [_req("a:0", "one of Wide|Narrow|None")], s, client=client)
+    ctx = _ctx_of(client)
+    for i in range(12):
+        assert f"f{i}:" in ctx
+
+
+def test_specialist_metrics_reach_the_judge():
+    """Las entradas del gate de wide-moat tienen que llegar al juez."""
+    s = Settings(anthropic_api_key="k")
+    outputs = [
+        ("business", _FakeOutput("business_analysis", [
+            _FakeMetric("BUS-SPREAD-014", 0.087, "ratio", 8.0),
+            _FakeMetric("BUS-RANGE-010", 0.031, "ratio", 9.0),
+            _FakeMetric("BUS-CONC-003"),          # sin dato → N/S
+        ])),
+    ]
+    client = _FakeClient([_FakeAnswerModel("a:0", "Wide")])
+    answer_judgments({}, [_req("a:0", "one of Wide|Narrow|None")], s,
+                     client=client, outputs=outputs)
+    ctx = _ctx_of(client)
+    assert "business_analysis" in ctx
+    assert "BUS-SPREAD-014" in ctx and "score 8/10" in ctx
+    assert "BUS-RANGE-010" in ctx
+    # N/S visible: el juez tiene que poder responder INSUFFICIENT con fundamento
+    assert "BUS-CONC-003: N/S" in ctx
+
+
+def test_outputs_optional_keeps_old_behaviour():
+    """Sin outputs el contexto sigue armándose (compatibilidad hacia atrás)."""
+    s = Settings(anthropic_api_key="k")
+    client = _FakeClient([_FakeAnswerModel("a:0", "None")])
+    out = answer_judgments({"facts_table": {"revenue": _FakeValue(1_000.0)}},
+                           [_req("a:0", "one of Wide|Narrow|None")], s, client=client)
+    assert len(out) == 1
+    assert "Métricas YA calculadas" not in _ctx_of(client)

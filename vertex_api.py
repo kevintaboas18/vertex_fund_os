@@ -30,33 +30,13 @@ try:
     _ENV_PATH = os.path.join(_BASE_DIR, "vertex.env")
     load_dotenv(_ENV_PATH)                 # no falla si el archivo no existe
     # API/.env es el que lee el engine de Victor (wbj.config). Lo cargamos también para que
-    # ajustes como JUDGE_MODEL / EXTRACTION_MODEL lleguen a os.environ: wbj.config usa
-    # dotenv_values(), que devuelve un dict y NO puebla el entorno. Sin override para que
-    # vertex.env siga mandando si ambos definen la misma variable.
+    # ajustes como JUDGE_MODEL lleguen a os.environ: wbj.config usa dotenv_values(), que
+    # devuelve un dict y NO puebla el entorno. Sin override para que vertex.env siga
+    # mandando si ambos definen la misma variable.
     load_dotenv(os.path.join(_BASE_DIR, "API", ".env"), override=False)
 except Exception:
     pass  # sin python-dotenv: se usan las variables ya presentes en el entorno
 
-
-def _extraction_model(settings=None):
-    """Modelo para EXTRAER texto largo (10-K), separado del que EMITE JUICIO.
-
-    Las dos llamadas al LLM tienen perfiles opuestos: la extracción manda ~125k tokens de
-    10-K pero solo busca números (volumen, poco criterio), mientras el judge manda ~3k
-    tokens pero clasifica el moat y los thesis-killers (poco volumen, mucho criterio) —
-    y su respuesta SÍ mueve puntos (moat_classification alimenta un slot de dimensión).
-    Poner el modelo caro en la extracción es pagar 5x donde menos rinde, así que aquí se
-    usa uno barato por defecto y el judge conserva el suyo (wbj.config.judge_model).
-    """
-    m = os.environ.get("EXTRACTION_MODEL")
-    if m:
-        return m.strip()
-    # Sin EXTRACTION_MODEL: el default barato. Si alguien fijó JUDGE_MODEL a un modelo
-    # barato, se respeta esa intención en vez de imponer otro.
-    jm = (getattr(settings, "judge_model", "") or os.environ.get("JUDGE_MODEL") or "").strip()
-    if "haiku" in jm.lower():
-        return jm
-    return "claude-haiku-4-5"
 
 # Cliente Gemini (modelo principal de la IA). GEMINI_API_KEY vive en vertex.env.
 # Si no hay key, client_gemini queda en None y los endpoints de IA degradan a
@@ -6609,183 +6589,108 @@ _WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "eng
 
 
 
-def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
-    """Extrae del 10-K real (SEC EDGAR) los inputs CUALITATIVOS que el especialista
-    Business de Victor lee por `overlay` y que NO están en FMP ni son slots del judge:
-    recurring_revenue, largest_customer_share, customer_shares, retention (NRR/GRR),
-    churn, customer_economics (arpu/ltv/cac/payback) y guidance_history.
+def _norm_shares(vals, ticker=""):
+    """Normaliza una lista de participaciones a fracciones 0-1.
 
-    Fiel al sub-agente `business-analysis` de Victor: Claude LEE el filing y devuelve
-    SOLO lo que la empresa divulga explícitamente; si no está, null → la métrica queda
-    N/S ('sin evidencia, no hay número'). Nunca inventa. Cualquier fallo → {} (el
-    análisis sigue igual). Devuelve el dict de overlay ya en la forma que espera Victor."""
-    key = getattr(settings, "anthropic_api_key", None)
-    if not key or not cik:
-        return {}
-    try:
-        import httpx, json as _json, re as _re
-        from wbj.providers.edgar import EDGAR_USER_AGENT
-        _hdr = {"User-Agent": EDGAR_USER_AGENT}
-        # 1) localizar el último 10-K (accession + documento primario) en submissions
-        _sub = httpx.get(f"https://data.sec.gov/submissions/CIK{int(cik):010d}.json",
-                         headers=_hdr, timeout=20.0)
-        _sub.raise_for_status()
-        _rec = (_sub.json().get("filings", {}) or {}).get("recent", {}) or {}
-        _forms = _rec.get("form", []); _accs = _rec.get("accessionNumber", []); _docs = _rec.get("primaryDocument", [])
-        _idx = next((i for i, f in enumerate(_forms) if f == "10-K"), None)
-        if _idx is None:
-            return {}
-        _acc = _accs[_idx].replace("-", ""); _doc = _docs[_idx]
-        # 2) bajar el documento y limpiarlo a texto plano
-        _u = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{_acc}/{_doc}"
-        _r = httpx.get(_u, headers=_hdr, timeout=30.0); _r.raise_for_status()
-        _txt = _re.sub(r"<[^>]+>", " ", _r.text)
-        _txt = _re.sub(r"&#\d+;|&[a-z]+;", " ", _txt)
-        # cap de contexto: 10-K reales miden 200k-500k caracteres. 180k truncaba MD&A/notas
-        # (donde viven segmentos, ingreso recurrente, unit economics) → datos omitidos. Subimos
-        # a 500k (~125k tokens, dentro del contexto de Claude) para NO omitir esas secciones.
-        _txt = _re.sub(r"\s+", " ", _txt).strip()[:500000]
-        # 3) extracción con Claude — SOLO lo divulgado, si no null
-        import anthropic
-        _client = anthropic.Anthropic(api_key=key)
-        _sys = ("Eres un analista que extrae SOLO datos DIVULGADOS explícitamente en un 10-K. "
-                "Si un dato no aparece divulgado, devuelve null. NUNCA estimes ni inventes. "
-                "Muchas empresas (no-suscripción) no reportan NRR/churn/LTV/CAC: en ese caso null. "
-                "Responde ÚNICAMENTE con un objeto JSON válido, sin texto alrededor.")
-        _schema = (
-            '{"recurring_revenue_pct": number|null,  // fracción 0-1 del ingreso total que es recurrente/suscripción (PREFERIDO, inequívoco)\n'
-            ' "recurring_revenue_usd": number|null,  // ingreso recurrente/suscripción anual en USD absolutos (respeta la escala: dólares, no millones)\n'
-            ' "largest_customer_share": number|null, // 0-1; SOLO si divulga un % ESPECÍFICO del mayor cliente. Si solo dice "ningún cliente supera X%" sin dar el número exacto -> null (PROHIBIDO imputar)\n'
-            ' "customer_shares": [number]|null,      // 0-1 por cliente si divulga varios\n'
-            ' "segment_shares": [number]|null,       // 0-1 fracción de ingresos por segmento de negocio\n'
-            ' // Cohorte de retención de ingresos (ARR bridge), en USD del MISMO periodo:\n'
-            ' "retention_begin": number|null,        // ARR/ingreso recurrente al inicio\n'
-            ' "retention_expansion": number|null,    // expansión/upsell del periodo\n'
-            ' "retention_contraction": number|null,  // contracción/downgrade del periodo\n'
-            ' "retention_churn": number|null,        // ingreso perdido por bajas del periodo\n'
-            ' // Churn de logos (CONTEO de clientes):\n'
-            ' "customers_lost": number|null,         // clientes perdidos en el periodo\n'
-            ' "customers_begin": number|null,        // clientes al inicio del periodo\n'
-            ' // Unit economics (si los divulga):\n'
-            ' "arpu": number|null,                   // ingreso anual promedio por cliente (USD)\n'
-            ' "monthly_arpu": number|null,           // ingreso MENSUAL promedio por cliente (USD)\n'
-            ' "gross_margin": number|null,           // margen bruto por cliente 0-1\n'
-            ' "customer_life_years": number|null,    // vida media del cliente en años\n'
-            ' "cac_spend": number|null,              // gasto total de adquisición (S&M) USD\n'
-            ' "new_customers": number|null,          // clientes nuevos adquiridos en el periodo\n'
-            ' "guidance_history": [{"actual": number, "guidance_midpoint": number}]|null}'
-        )
-        _msg = _client.messages.create(
-            model=_extraction_model(settings),      # modelo BARATO: aquí manda el volumen, no el criterio
-            max_tokens=1024, system=_sys,
-            messages=[{"role": "user", "content":
-                       f"Empresa {ticker}. Del siguiente 10-K, extrae este JSON (null si no está divulgado):\n"
-                       f"{_schema}\n\n=== 10-K ===\n{_txt}"}],
-        )
-        _raw = "".join(getattr(b, "text", "") for b in _msg.content)
-        _m = _re.search(r"\{.*\}", _raw, _re.DOTALL)
-        if not _m:
-            return {}
-        _d = _json.loads(_m.group(0))
-    except Exception as _e:
-        print(f"[engine] extracción cualitativa del 10-K omitida: {str(_e)[:140]}")
-        return {}
-    # 4) mapear a la forma EXACTA que Victor espera por overlay (solo lo no-null)
-    _ov = {}
-    def _num(x):
+    Si algún valor viene >1 (y ≤100) la fuente reportó porcentajes: se divide
+    toda la lista entre 100. Los que queden fuera de [0,1] se descartan — nunca
+    se recortan a la fuerza, porque un valor imposible es un error de la fuente,
+    no un dato que valga la pena salvar.
+    """
+    out = []
+    for x in (vals or []):
         try:
-            return float(x) if x is not None else None
+            v = float(x)
         except (TypeError, ValueError):
-            return None
-    # recurring_revenue: preferir el PORCENTAJE (inequívoco) → absoluto = pct × ingreso.
-    # El absoluto directo se acepta solo si pasa una cota anti-error-de-unidad (millones vs dólares).
-    _rrp = _num(_d.get("recurring_revenue_pct"))
-    _rr = _num(_d.get("recurring_revenue_usd"))
-    _rev_h = _num(revenue_hint)
-    if _rrp is not None and 0.0 < _rrp <= 1.0 and _rev_h and _rev_h > 0:
-        _ov["recurring_revenue"] = _rrp * _rev_h
-    elif _rr is not None and _rr > 0:
-        # banda de sanidad de dos lados: recurrente entre 0.1% y 120% del ingreso. Fuera de eso
-        # es casi seguro un error de escala del LLM (millones/miles) → N/S (más honesto que un ~0 falso).
-        if (not _rev_h) or (_rev_h * 0.001 <= _rr <= _rev_h * 1.2):
-            _ov["recurring_revenue"] = _rr
-        else:
-            print(f"[engine] {ticker}: recurring_revenue absoluto descartado por escala improbable "
-                  f"({_rr:.3g} vs ingreso ~{_rev_h:.3g}) → N/S")
-    _lcs = _num(_d.get("largest_customer_share"))
-    if _lcs is not None and 0.0 <= _lcs <= 1.0:
-        _ov["largest_customer_share"] = _lcs
-    # customer/segment shares: mismo riesgo de escala que gross_margin. Si el 10-K dice
-    # "cliente A = 40%", el LLM puede devolver 40 en vez de 0.40. Si algún valor >1 (y ≤100),
-    # se interpreta como porcentaje y se divide toda la lista entre 100 (antes se descartaban).
-    def _norm_shares(_lst):
-        _vals = [v for v in (_num(x) for x in _lst) if v is not None and v >= 0]
-        if not _vals:
-            return None
-        if max(_vals) > 1.0 and max(_vals) <= 100.0:
-            _vals = [v / 100.0 for v in _vals]
-        _vals = [v for v in _vals if 0.0 <= v <= 1.0]
-        return _vals or None
-    _cs = _d.get("customer_shares")
-    if isinstance(_cs, list):
-        _csv = _norm_shares(_cs)
-        if _csv:
-            _ov["customer_shares"] = _csv
-    _ss = _d.get("segment_shares")
-    if isinstance(_ss, list):
-        _ssv = _norm_shares(_ss)
-        if _ssv:
-            _ov["segment_shares"] = _ssv
-    # retention: Victor exige la cohorte cruda {begin, expansion, contraction, churn}
-    # (NO nrr/grr; él los calcula). Solo se pasa si los 4 componentes están divulgados.
-    _rb, _rx = _num(_d.get("retention_begin")), _num(_d.get("retention_expansion"))
-    _rcn, _rch = _num(_d.get("retention_contraction")), _num(_d.get("retention_churn"))
-    if None not in (_rb, _rx, _rcn, _rch) and _rb > 0:
-        # La fórmula NRR RESTA contraction y churn → son MAGNITUDES. abs() por si el LLM
-        # las devuelve con signo (un contraction=-40 inflaría el NRR).
-        _ex, _ct, _cn = abs(_rx), abs(_rcn), abs(_rch)
-        _grr = (_rb - _ct - _cn) / _rb          # retención bruta
-        _nrr = (_rb + _ex - _ct - _cn) / _rb    # retención neta
-        # rechaza cohortes IMPOSIBLES: no se puede perder más que la base (GRR<0) ni retener
-        # >250% (NRR>2.5). Un dato así es error de extracción → N/S (no un score real).
-        if _grr >= 0.0 and _nrr <= 2.5:
-            _ov["retention"] = {"begin": _rb, "expansion": _ex, "contraction": _ct, "churn": _cn}
-        else:
-            print(f"[engine] {ticker}: cohorte de retención implausible (NRR={_nrr:.2f}, GRR={_grr:.2f}) → N/S")
-    # churn de logos: Victor exige {lost, begin_customers} (conteo de clientes).
-    # No se pueden perder más clientes que los del inicio (churn>100% es imposible) → N/S.
-    _cl, _cb = _num(_d.get("customers_lost")), _num(_d.get("customers_begin"))
-    if None not in (_cl, _cb) and _cb > 0 and 0.0 <= abs(_cl) <= _cb:
-        _ov["churn"] = {"lost": abs(_cl), "begin_customers": _cb}
-    elif None not in (_cl, _cb) and _cb > 0 and abs(_cl) > _cb:
-        print(f"[engine] {ticker}: churn de logos implausible (lost {abs(_cl):.0f} > base {_cb:.0f}) → N/S")
-    # customer_economics: claves EXACTAS que Victor consume para LTV/CAC/payback
-    _ce = {}
-    for _src, _dst in (("arpu", "arpu"), ("monthly_arpu", "monthly_arpu"), ("gross_margin", "gross_margin"),
-                       ("customer_life_years", "customer_life_years"), ("cac_spend", "cac_spend"),
-                       ("new_customers", "new_customers")):
-        _val = _num(_d.get(_src))
-        if _val is None:
             continue
-        if _dst == "gross_margin":
-            # Victor multiplica gross_margin como FRACCIÓN 0-1 (LTV=arpu·gm·vida). Si el 10-K lo
-            # divulga como "80%" y el LLM devuelve 80 → normalizamos a 0.80 y acotamos [0,1].
-            if _val > 1.0:
-                _val = _val / 100.0
-            _val = min(max(_val, 0.0), 1.0)
-        _ce[_dst] = _val
-    if _ce:
-        _ov["customer_economics"] = _ce
-    _gh = _d.get("guidance_history")
-    if isinstance(_gh, list):
-        _ghv = [{"actual": _num(g.get("actual")), "guidance_midpoint": _num(g.get("guidance_midpoint"))}
-                for g in _gh if isinstance(g, dict) and _num(g.get("actual")) is not None
-                and _num(g.get("guidance_midpoint")) not in (None, 0)]
-        if _ghv:
-            _ov["guidance_history"] = _ghv
-    if _ov:
-        print(f"[engine] {ticker}: 10-K → inputs cualitativos divulgados: {sorted(_ov.keys())}")
-    return _ov
+        if v >= 0:
+            out.append(v)
+    if not out:
+        return None
+    if max(out) > 1.0 and max(out) <= 100.0:
+        out = [v / 100.0 for v in out]
+    out = [v for v in out if 0.0 <= v <= 1.0]
+    return out or None
+
+
+def _fmp_segment_shares(ticker, settings=None):
+    """`segment_shares` desde la segmentación de ingresos por producto de FMP.
+
+    Fuente REPORTADA (clase R): FMP publica el desglose por segmento tal como la
+    empresa lo divulga en el filing. Es determinista y auditable — nada que ver
+    con pedirle a un LLM que lea prosa.
+
+    Cualquier fallo (sin key, endpoint fuera del plan → 402/403, forma
+    inesperada) devuelve None: la métrica queda N/S. Jamás se estima.
+    """
+    key = (os.environ.get("FMP_API_KEY") or getattr(settings, "fmp_api_key", None) or "").strip()
+    if not key:
+        return None
+    try:
+        import httpx
+        r = httpx.get("https://financialmodelingprep.com/stable/revenue-product-segmentation",
+                      params={"symbol": ticker.upper(), "apikey": key}, timeout=20.0)
+        if r.status_code != 200:
+            # 402/403 = el endpoint no está en el plan. Es información útil, no un error.
+            print(f"[engine] {ticker}: segmentación de ingresos no disponible en tu plan FMP "
+                  f"(HTTP {r.status_code}) → segment_shares N/S")
+            return None
+        rows = r.json()
+    except Exception as e:
+        print(f"[engine] {ticker}: segmentación de ingresos falló: {str(e)[:110]} → N/S")
+        return None
+    if not isinstance(rows, list) or not rows:
+        return None
+    # El periodo más reciente. FMP devuelve {date, symbol, data:{segmento: monto}}
+    # o el mapa plano según versión; se aceptan ambos sin inventar.
+    latest = rows[0] if isinstance(rows[0], dict) else None
+    if not isinstance(latest, dict):
+        return None
+    data = latest.get("data") if isinstance(latest.get("data"), dict) else {
+        k: v for k, v in latest.items()
+        if k not in ("date", "symbol", "fiscalYear", "period", "reportedCurrency")
+        and isinstance(v, (int, float))
+    }
+    amounts = [float(v) for v in (data or {}).values() if isinstance(v, (int, float)) and v >= 0]
+    total = sum(amounts)
+    if not amounts or total <= 0:
+        return None
+    shares = _norm_shares([v / total for v in amounts], ticker)
+    if shares:
+        print(f"[engine] {ticker}: segment_shares desde FMP (reportado) — {len(shares)} segmentos")
+    return shares
+
+
+def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
+    """Inputs cualitativos del negocio que Victor lee por `overlay`, SOLO de
+    fuentes deterministas.
+
+    Antes esto le mandaba el 10-K entero a Claude para que sacara ~20 campos.
+    Victor no hace eso: su `EdgarProvider` lee XBRL (`companyfacts`), la versión
+    legible por máquina del propio filing — Python puro, sin key y sin LLM. Esta
+    función se alinea con eso.
+
+    Lo que se puede obtener de forma determinista se obtiene; lo demás queda
+    NOT_SCORABLE, que es lo que manda `Cerebro/shared/MISSING_DATA_POLICY.md`
+    ("sin evidencia, no hay número").
+
+    Por qué NO se derivan aquí los demás campos:
+    - `largest_customer_share` / `customer_shares`: el tag XBRL que los llevaría
+      (`us-gaap:ConcentrationRiskPercentage1`) es DIMENSIONAL — sin el eje de
+      cliente no se sabe si el porcentaje es de un cliente, un proveedor o una
+      geografía. Usarlo igual sería inferir concentración no divulgada, que es
+      justo lo que `MISSING_DATA_POLICY.md:13-15` y `BUS-CONC-003` prohíben.
+    - `recurring_revenue`, retención, churn de logos, ARPU/CAC/vida del cliente:
+      no existen como tags XBRL estándar. Viven en la prosa del MD&A. Sin fuente
+      determinista → N/S.
+    """
+    ov = {}
+    seg = _fmp_segment_shares(ticker, settings)
+    if seg:
+        ov["segment_shares"] = seg
+    if ov:
+        print(f"[engine] {ticker}: inputs cualitativos deterministas: {sorted(ov.keys())}")
+    return ov
 
 
 def _engine_scorecard(ticker, info, price):
@@ -7448,7 +7353,10 @@ def _engine_scorecard(ticker, info, price):
                 from wbj.judge import answer_judgments
                 _outs = [o for _, o in _outputs]
                 _reqs = collect_requests(_outs)
-                _judgments = answer_judgments(pk, _reqs, settings)
+                # `outputs` va explícito: sin él el juez solo veía 5 números crudos del
+                # packet, y las preguntas del gate cuantitativo (moat) afirman que sus
+                # entradas están "computadas arriba" — viven en estos outputs.
+                _judgments = answer_judgments(pk, _reqs, settings, outputs=_outs)
                 if _judgments:
                     _merged = merge_overlay(_outs, _judgments)
                     _outputs_ai = [(_outputs[i][0], _merged[i]) for i in range(len(_outputs))]
