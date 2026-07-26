@@ -1559,7 +1559,13 @@ async function ejecutarAnalisisAPI() {
     const interval = setInterval(() => { document.getElementById('loadingText').innerText = texts[ti++ % texts.length]; }, 1800);
     try {
         const res = await fetch(`${API_BASE}/api/analyze?ticker=${ticker}`);
-        if (!res.ok) throw new Error("API error");
+        // El servidor manda el motivo real en `detail`. Sin esto el usuario solo veía
+        // "verifica que el backend este corriendo", que casi nunca era el problema.
+        if (!res.ok) {
+            let detail = `HTTP ${res.status}`;
+            try { const j = await res.json(); if (j && j.detail) detail = j.detail; } catch(e) {}
+            throw new Error(detail);
+        }
         const data = await res.json();
         clearInterval(interval); loading.classList.add('hidden');
         saveNewReport(data);
@@ -1572,7 +1578,11 @@ async function ejecutarAnalisisAPI() {
         switchAnalysisTab('quickTakeTab', document.querySelector('.analysis-tab'));
     } catch(err) {
         clearInterval(interval); loading.classList.add('hidden');
-        alert("Error al analizar el ticker. Verifica que el backend este corriendo.");
+        const msg = (err && err.message) ? String(err.message) : 'error desconocido';
+        const red = /Failed to fetch|NetworkError|load failed/i.test(msg)
+            ? '\n\nNo se pudo contactar al servidor. Revisa que el backend este corriendo y accesible.'
+            : '';
+        alert(`No se pudo analizar ${ticker}.\n\nMotivo: ${msg}${red}`);
     }
 }
 
@@ -1727,7 +1737,21 @@ function renderDashboard(data) {
 
     // Quick Take
     const _repIE = document.getElementById('reportIntegrity');
-    if (_repIE) _repIE.innerHTML = integrityStripHTML(a.integrity);
+    if (_repIE) {
+        // Aviso cuando la capa de prosa no respondió: los números de Victor siguen
+        // siendo válidos, y el usuario tiene que ver claramente QUE falta y POR QUÉ
+        // en vez de encontrarse campos de texto vacíos sin explicación.
+        const _na = a.narrative_unavailable
+            ? `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-3">
+                 <p class="text-[11px] font-bold text-amber-300 uppercase tracking-wider mb-1">
+                   Explicacion en palabras no disponible</p>
+                 <p class="text-[11px] text-gray-300 leading-relaxed">
+                   El analisis de Victor (6 especialistas, gates, targets y niveles) esta completo
+                   y es valido. Lo unico que falta es la narrativa del LLM.</p>
+                 <p class="text-[10px] text-gray-500 mt-1.5 font-mono">${(a.narrative_error || '').replace(/</g,'&lt;')}</p>
+               </div>` : '';
+        _repIE.innerHTML = _na + integrityStripHTML(a.integrity);
+    }
     document.getElementById('qtBiggestPro').innerText = a.biggest_pro || '';
     document.getElementById('qtBiggestRisk').innerText = a.biggest_risk || '';
     document.getElementById('qtWatchFor').innerText = a.watch_for || '';
