@@ -9,13 +9,18 @@ coverage both increase (the metric_id -> `judgment_slots` -> dimension-slot
 wiring, not just the flat metrics row): financial's `FIN-GR-004`/`FIN-GR-005`,
 business's `moat_classification`, and market's `tam_source_tier_assignment`.
 
-`risk_analysis` is deliberately NOT covered by an end-to-end test here:
-both of its JudgmentRequests (`thesis_killers`, `regulatory_legal_exposure`)
-use "array of ..." schema_hints, whose answers are `{"items": [...]}` dicts
--- `merge.py`'s own documented rule 3 never reduces a dict answer to a
-score, so neither request can ever move a dimension slot regardless of how
-`risk.py` registers its `judgment_slots`. Forcing a slot for either would be
-the "fake slot" the wiring brief says to avoid.
+`risk_analysis`'s two JudgmentRequests (`thesis_killers`,
+`regulatory_legal_exposure`) use "array of ..." schema_hints, whose answers
+are `{"items": [...]}` dicts -- `merge.py`'s own documented rule 3 never
+reduces a dict answer to a score, so neither can move a dimension SLOT, and
+forcing one would be the "fake slot" the wiring brief says to avoid. That
+still holds.
+
+What those array answers DO reach is the OUTPUT_SCHEMA extension field named
+by their `metric_id` (`_extension_updates`), because DECISION_RULES.md makes
+the thesis-killer list mandatory content of the report. The tests at the
+bottom cover that path and assert explicitly that writing it leaves every
+dimension score untouched -- content, not scoring.
 """
 
 from __future__ import annotations
@@ -547,3 +552,60 @@ def test_end_to_end_market_run_answer_tam_source_tier_judgment_moves_points_and_
         name=after.agent_id, max_points=after.category.max_points, dimensions=after.dimensions
     ).points()
     assert after.category.awarded_points == pytest.approx(recomputed)
+
+
+# ── Campos de extension: los thesis killers del juez tienen que LLEGAR al reporte ──
+# DECISION_RULES.md (risk): "Always list at least three risks that could invalidate
+# the thesis". Antes la respuesta del juez se convertia en fila de metrica y linea de
+# assumption, pero el campo de extension que lee el reporte final se quedaba vacio.
+
+def _tk(n=3):
+    return [{"risk": f"R{i}", "probability_assumption": 0.2, "impact": "high",
+             "early_warning_metric": "m", "trigger_level": "t", "time_horizon": "12m",
+             "mitigant": "mit"} for i in range(n)]
+
+
+def test_thesis_killers_reach_the_risk_output():
+    from wbj.judge import _coerce_answer
+    out = _risk_output_with_thesis_killer_request()
+    req = next(r for r in out.judgment_requests if r.metric_id == "thesis_killers")
+    j = Judgment(request_id=req.request_id,
+                 answer=_coerce_answer(json.dumps(_tk()), req.schema_hint),
+                 evidence_class=EvidenceClass.Q, source="judge")
+    merged = merge_overlay([out], [j])[0]
+    assert len(merged.thesis_killers) == 3
+    assert set(merged.thesis_killers[0]) == {
+        "risk", "probability_assumption", "impact", "early_warning_metric",
+        "trigger_level", "time_horizon", "mitigant"}
+
+
+def test_insufficient_never_becomes_thesis_killer_content():
+    out = _risk_output_with_thesis_killer_request()
+    req = next(r for r in out.judgment_requests if r.metric_id == "thesis_killers")
+    j = Judgment(request_id=req.request_id, answer="INSUFFICIENT",
+                 evidence_class=EvidenceClass.Q, source="judge")
+    merged = merge_overlay([out], [j])[0]
+    assert merged.thesis_killers == [], "INSUFFICIENT no es contenido"
+
+
+def test_extension_write_does_not_disturb_scoring():
+    from wbj.judge import _coerce_answer
+    out = _risk_output_with_thesis_killer_request()
+    req = next(r for r in out.judgment_requests if r.metric_id == "thesis_killers")
+    before = [d.score10_value().value for d in out.dimensions]
+    j = Judgment(request_id=req.request_id,
+                 answer=_coerce_answer(json.dumps(_tk()), req.schema_hint),
+                 evidence_class=EvidenceClass.Q, source="judge")
+    merged = merge_overlay([out], [j])[0]
+    after = [d.score10_value().value for d in merged.dimensions]
+    assert before == after, "escribir un campo de extension no puede mover el puntaje"
+
+
+def _risk_output_with_thesis_killer_request():
+    import json as _json
+    from wbj.packet.builder import Packet
+    import wbj.specialists.risk as rsk
+    import pathlib
+    fx = pathlib.Path(__file__).resolve().parents[1] / "fixtures/packet/NVDA_packet.json"
+    pk = Packet.model_validate(_json.load(open(fx)))
+    return rsk.run(pk, overlay={"wacc": 0.1193})
