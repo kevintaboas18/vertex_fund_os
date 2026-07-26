@@ -5946,6 +5946,18 @@ class WBJReport(BaseModel):
     probabilities: TradeProbabilities = Field(..., description="Probabilidades calibradas ancladas en base-rates (no optimismo). Se usan para dimensionar la posición con Kelly fraccional.")
 
 
+# Perfiles de los gates de Victor → (recomendación, clasificación en español).
+# Cualquier perfil fuera de este mapa (Avoid / Wait, Weak / Wait, o uno nuevo que
+# él agregue) cae al default AVOID: ante la duda no se recomienda comprar.
+_WBJ_PROFILE_TO_RECO = {
+    "Momentum Candidate":  ("BUY", "Favorable a invertir"),
+    "Quality Opportunity": ("BUY", "Favorable a invertir"),
+    "Value Opportunity":   ("BUY", "Favorable a invertir"),
+    "Conditional / Watch": ("HOLD", "Condicional — esperar confirmación"),
+    "Speculative":         ("SPECULATIVE", "Especulativa — solo tamaño de riesgo"),
+}
+
+
 def _wbj_reco_from_profile(profile):
     """Perfil de Victor → (recomendación, clasificación). Avoid/Wait y Weak/Wait → AVOID."""
     return _WBJ_PROFILE_TO_RECO.get(profile, ("AVOID", "Evitar / esperar"))
@@ -10194,6 +10206,22 @@ def get_portfolio(access_token: str, account_id: str = ""):
         # ── Filter accounts by account_id if provided ──────────────────────
         acct_filter = [a for a in accounts if a.get("account_id") == account_id] if account_id else accounts
 
+        # ── helpers a prueba de nan ────────────────────────────────────────
+        # Se definen ANTES del primer uso: estaban declarados ~30 lineas mas
+        # abajo, dentro de la misma funcion, asi que el bucle de efectivo de
+        # aqui reventaba con UnboundLocalError en cuanto habia una cuenta.
+        def safe_float(v, default=0.0):
+            try:
+                f = float(v)
+                if math.isnan(f) or math.isinf(f):
+                    return default
+                return f
+            except (TypeError, ValueError):
+                return default
+
+        def safe_round(v, decimals=2, default=0.0):
+            return round(safe_float(v, default), decimals)
+
         # ── Extract cash from ALL account types (Robinhood reports cash
         #    inside brokerage accounts, not as a separate depository) ──────
         cash_balance = 0.0
@@ -10236,19 +10264,6 @@ def get_portfolio(access_token: str, account_id: str = ""):
 
         total_cost_basis = safe_float(sum(safe_float(h.get("cost_basis", 0)) for h in holdings))
 
-        # ── nan-safe helpers ───────────────────────────────────────────────
-        def safe_float(v, default=0.0):
-            try:
-                f = float(v)
-                if math.isnan(f) or math.isinf(f):
-                    return default
-                return f
-            except (TypeError, ValueError):
-                return default
-
-        def safe_round(v, decimals=2, default=0.0):
-            return round(safe_float(v, default), decimals)
-
         stocks  = []
         options = []
         other   = []
@@ -10261,10 +10276,10 @@ def get_portfolio(access_token: str, account_id: str = ""):
 
             # Skip cash currency holdings (CUR:USD etc.) — already in cash_balance
             if sec_type == "cash" or ticker.startswith("CUR:") or name.upper() in ("USD", "CASH"):
-                cash_from_holding = safe_float(h.get("institution_value", 0))
-                if cash_from_holding > 0:
-                    # Add to cash if not already counted via account balance
-                    cash_balance  # already set above; don't double-count
+                # El efectivo ya se sumo desde el saldo de la cuenta mas arriba;
+                # sumarlo otra vez desde el holding lo contaria doble. Antes aqui
+                # habia una expresion sin efecto (`cash_balance`) que leia como si
+                # hiciera algo. Se salta y punto.
                 continue
 
             qty        = safe_float(h.get("quantity", 0))
