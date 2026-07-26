@@ -651,45 +651,7 @@ def compute_memory_comparison(prior, current_price, current_fair, current_rec, c
 # ─────────────────────────────────────────────────────────────────────────────
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")  # optional independent tiebreaker
 
-def _extract_verdict(text):
-    """Pull a BUY/HOLD/SELL verdict out of a model's free text."""
-    if not text:
-        return None
-    up = text.upper()
-    # Prefer an explicit 'VEREDICTO: X'
-    import re as _re
-    m = _re.search(r"VEREDICTO[^A-Z]*([A-Z]+)", up)
-    if m:
-        v = m.group(1)
-        if v in ("BUY", "HOLD", "SELL", "AVOID", "COMPRAR", "MANTENER", "VENDER"):
-            return {"COMPRAR": "BUY", "MANTENER": "HOLD", "VENDER": "SELL"}.get(v, v)
-    for v in ("BUY", "SELL", "AVOID", "HOLD"):
-        if v in up:
-            return v
-    if "BULLISH" in up or "ALCISTA" in up: return "BUY"
-    if "BEARISH" in up or "BAJISTA" in up: return "SELL"
-    return None
 
-def _arbiter_call(prompt):
-    """Independent 3rd model. OpenAI GPT-4o if OPENAI_API_KEY set, otherwise Gemini 2.5 Pro."""
-    if OPENAI_API_KEY:
-        try:
-            r = requests.post("https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "gpt-4o", "messages": [{"role": "user", "content": prompt}],
-                      "temperature": 0.2, "max_tokens": 900},
-                timeout=60)
-            if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"].strip(), "OpenAI GPT-4o"
-        except Exception:
-            pass
-    try:
-        resp = client_gemini.models.generate_content(
-            model="gemini-2.5-pro", contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=1000))
-        return (resp.text or "").strip(), "Gemini 2.5 Pro"
-    except Exception as e:
-        return f"[Arbitro no disponible: {e}]", "N/A"
 
 
 
@@ -8747,13 +8709,8 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             analisis_json["ai_concentration"] = None
         analisis_json["news_catalysts"] = news_catalysts            # #3
         analisis_json["sec_8k"] = sec_8k                            # #3 — 8-K reales
-        # ── #9 — AUTO-DEBATE: se dispara con PUNTAJE ALTO DE LOS AGENTES de Victor
-        #    (antes usaba la convicción calibrada del motor ponderado, ya eliminado). ──
-        _cc = _safe_num(_victor_conv)
-        analisis_json["should_debate"] = bool(_cc >= 75)
-        analisis_json["debate_reason"] = ("Puntaje de los agentes alto (≥75/100) — conviene estresarlo con el "
-                                          "debate adversarial Toro/Oso/Árbitro antes de dimensionar."
-                                          if _cc >= 75 else None)
+        # El auto-debate se eliminó junto con la pestaña Debate AI: should_debate y
+        # debate_reason ya no tienen consumidor.
 
         # ── OVERLAY WBJ: sobrescribe los NÚMEROS con los de Victor (engine determinista).
         #    _eng YA se calculó ANTES del prompt (los números mandan, la narrativa los sigue);
@@ -9141,34 +9098,6 @@ def _grok_json(prompt, keys, temp=0.4):
     return json.loads(txt)
 
 
-def _debate_gen(prompt, schema, temp, keys, model="gemini-2.5-flash", force_grok=False):
-    """Gemini structured generation with transient-429 retry; on quota exhaustion,
-    fall back to Grok JSON so the debate still completes. If force_grok=True, skip
-    Gemini entirely (lets the user bypass Gemini's free-tier 20/day limit)."""
-    if force_grok:
-        return _grok_json(prompt, keys, temp), "grok"
-    last = None
-    for attempt in range(2):
-        try:
-            r = client_gemini.models.generate_content(
-                model=model, contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json", response_schema=schema, temperature=temp))
-            return json.loads(r.text), "gemini"
-        except Exception as e:
-            last = e
-            if _is_quota_error(e):
-                if attempt == 0:
-                    time.sleep(_retry_delay_secs(e))
-                    continue
-                # cuota de Gemini agotada → ChatGPT (OpenAI), y si falla → Grok
-                try:
-                    return _openai_json(prompt, keys, temp), "openai"
-                except Exception:
-                    return _grok_json(prompt, keys, temp), "grok"
-            raise
-    if last:
-        raise last
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -9228,124 +9157,6 @@ def _narrative_unavailable(reason: str) -> dict:
         "the_bottom_line": aviso,
         "company_summary_simple": aviso,
     }
-
-
-@app.get("/api/analyze-debate")
-def analyze_debate(ticker: str, engine: str = "auto"):
-    """Cascada adversarial: un agente TORO y un agente OSO construyen el mejor caso
-    de cada lado, y un ÁRBITRO (gemini-2.5-pro) reconcilia sin sesgo de confirmación.
-    engine='auto' (Gemini con respaldo Grok) o 'grok' (forzar Grok, evita el límite
-    free-tier de Gemini). Aditivo y separado de /api/analyze."""
-    ticker = ticker.upper().strip()
-    force_grok = (engine or "").lower() == "grok"
-    try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        hist = stock.history(period="6mo")
-        if hist.empty:
-            raise HTTPException(status_code=404, detail="Sin datos")
-        precio_actual = round(float(hist['Close'].iloc[-1]), 2)
-        inst = calculate_institutional_targets(ticker, info, hist)
-        targets = inst["targets"]; meth = inst["methodology"]
-        finnhub_ctx = format_finnhub_context(ticker)
-        try:
-            ins_ctx = format_insiders_context(fetch_insiders_data(stock, ticker))
-        except Exception:
-            ins_ctx = ""
-        raw_news = stock.news if stock.news else []
-        headlines = " | ".join([n.get("title", "") for n in raw_news[:5]])
-        # DCF de Victor (FCFF) para el contexto; el "Vertex DCF" viejo era un múltiplo de P/E.
-        # Se LEE del último reporte guardado en vez de recomputar: correr los 6 especialistas
-        # aquí costaría toda su red por un solo número, y el debate es un endpoint aparte.
-        _victor_dcf_txt2 = "no disponible (corre el análisis primero)"
-        _targets_src2 = "Vertex — volatilidad/consenso"
-        try:
-            _pr2 = get_prior_report(ticker) or {}
-            _pl2 = json.loads(_pr2.get("payload") or "{}")
-            _an2 = (_pl2.get("analisis") or {})
-            _vv2 = (_an2.get("victor_valuation")) or {}
-            if _vv2.get("dcf_per_share") is not None:
-                _victor_dcf_txt2 = f"${_vv2['dcf_per_share']}/acción (FCFF)"
-            # Targets: los de Victor si el último reporte los tiene; si no, los de Vertex.
-            _vt2 = ((_pl2.get("targets") or {}).get("12m")) or {}
-            if all(isinstance(_vt2.get(_k), (int, float)) for _k in ("bull", "base", "bear")) and _an2.get("victor_targets_detail"):
-                targets = {**targets, "12m": {_k: round(float(_vt2[_k]), 2) for _k in ("bull", "base", "bear")}}
-                _targets_src2 = "Victor — EPS × (1+g) × P/E"
-        except Exception:
-            pass
-
-        context = f"""ACCIÓN: {ticker} ({info.get('longName', ticker)})
-Precio spot: ${precio_actual} | P/E: {info.get('trailingPE', 'N/A')} | Fwd P/E: {info.get('forwardPE', 'N/A')}
-Market Cap: {info.get('marketCap', 'N/A')} | Rev growth YoY: {info.get('revenueGrowth', 'N/A')}
-Márgenes: gross {info.get('grossMargins', 'N/A')} / EBITDA {info.get('ebitdaMargins', 'N/A')} | FCF: {info.get('freeCashflow', 'N/A')} | Beta: {info.get('beta', 'N/A')}
-Target 12M ({_targets_src2}): Bull ${targets['12m']['bull']} / Base ${targets['12m']['base']} / Bear ${targets['12m']['bear']} | Analyst mean: ${meth.get('analyst_mean', 'N/A')} | DCF Victor (FCFF): {_victor_dcf_txt2}
-Vol anual: {meth.get('annual_volatility_pct', 'N/A')}% | ATR-14: ${meth.get('atr_14', 'N/A')}
-Insiders/13F: {ins_ctx or 'N/A'}
-Finnhub (fundamentales/news/sentiment/insiders/congreso): {finnhub_ctx or 'N/A'}
-Noticias: {headlines or 'N/A'}"""
-
-        BULL_KEYS = ["thesis", "catalysts", "why_underappreciated", "strongest_point"]
-        BEAR_KEYS = ["thesis", "risks", "what_breaks_it", "strongest_point"]
-        VERDICT_KEYS = ["winner", "lean", "confidence", "key_disagreement",
-                        "what_would_flip", "synthesis", "p_bull_correct"]
-        used = []
-
-        def gem(prompt, schema, temp, keys, model="gemini-2.5-flash"):
-            out, src = _debate_gen(prompt, schema, temp, keys, model=model, force_grok=force_grok)
-            used.append(src)
-            return out
-
-        bull = gem(f"""Eres el analista TORO más brillante y agresivo de Vertex Holding Group. Construye el caso ALCISTA más fuerte y convincente posible para {ticker} — el steelman del comprador. Usa los datos, sé específico. NO seas equilibrado: tu único rol es el mejor caso alcista.
-
-{context}
-
-Entrega la tesis alcista más fuerte, 3-5 catalizadores concretos, por qué el mercado lo subestima ahora, y tu punto más fuerte e irrefutable.""", BullCase, 0.45, BULL_KEYS)
-
-        bear = gem(f"""Eres el analista OSO más implacable y escéptico de Vertex Holding Group. DESTRUYE la tesis alcista de {ticker} con el caso BAJISTA más fuerte posible — el steelman del vendedor. Usa los datos, sé específico. NO seas equilibrado: tu único rol es el mejor caso bajista.
-
-{context}
-
-El TORO argumentó: "{bull.get('thesis', '')}" (su punto más fuerte: "{bull.get('strongest_point', '')}").
-Rebátelo. Entrega la tesis bajista más fuerte, 3-5 riesgos concretos, el escenario que rompe la tesis y cuánto downside implica, y tu punto más fuerte e irrefutable.""", BearCase, 0.45, BEAR_KEYS)
-
-        verdict_json = gem(f"""Eres el CIO árbitro de Vertex Holding Group. Dos analistas debatieron {ticker}. Reconcilia SIN sesgo de confirmación, con disciplina y honestidad calibrada.
-
-{context}
-
-CASO TORO:
-- Tesis: {bull.get('thesis', '')}
-- Catalizadores: {bull.get('catalysts', '')}
-- Punto más fuerte: {bull.get('strongest_point', '')}
-
-CASO OSO:
-- Tesis: {bear.get('thesis', '')}
-- Riesgos: {bear.get('risks', '')}
-- Qué lo rompe: {bear.get('what_breaks_it', '')}
-- Punto más fuerte: {bear.get('strongest_point', '')}
-
-Determina quién tiene el caso más fuerte (TORO/OSO/EMPATE), el punto central de desacuerdo, qué evidencia específica y observable cambiaría tu recomendación, una síntesis equilibrada, la recomendación reconciliada (BUY/HOLD/SELL/AVOID), la confianza calibrada 0-100, y la probabilidad 0-100 de que el toro tenga razón a 12 meses.""",
-            DebateVerdict, 0.2, VERDICT_KEYS, model="gemini-2.5-pro")
-
-        return {"ticker": ticker, "nombre_completo": info.get("longName", ticker),
-                "precio_actual": precio_actual, "target_12m": targets['12m'],
-                "analyst_mean": meth.get('analyst_mean'), "bull": bull, "bear": bear,
-                "verdict": verdict_json,
-                "engine": ("grok-3 (forzado)" if force_grok else "grok-3 (respaldo)" if "grok" in used else "gemini"),
-                "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}
-    except HTTPException:
-        raise
-    except Exception as e:
-        if _is_quota_error(e):
-            raise HTTPException(status_code=429, detail=(
-                "Cuota de Gemini agotada (free tier: ~20 req/día en gemini-2.5-flash) y el "
-                "respaldo Grok no estuvo disponible. Reintenta en ~20s, o activa facturación en "
-                "Google AI Studio / usa otra API key. Configura XAI_API_KEY para tener respaldo automático."))
-        raise HTTPException(status_code=500, detail=f"Debate error: {str(e)}")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# INSIDERS + 13F (SEC EDGAR) + WATCHLIST
-# ─────────────────────────────────────────────────────────────────────────────
 @app.get("/api/watchlist-radar")
 def get_watchlist_radar(ticker: str):
     """#4 — Fila de watchlist como RADAR DE SEÑALES (no solo quote): convicción institucional QD,
@@ -9490,100 +9301,6 @@ def get_watchlist_quote(ticker: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# MULTI-MODEL CASCADE ENDPOINT — Gemini (analyst) vs Grok (sentiment) + arbiter
-# ─────────────────────────────────────────────────────────────────────────────
-@app.get("/api/cascade")
-def get_cascade(ticker: str):
-    """Runs a fast analyst view (Gemini) and a fast sentiment view (Grok). If they
-    conflict, an independent 3rd model arbitrates and issues the final verdict."""
-    ticker_clean = ticker.upper().strip()
-    try:
-        stock = yf.Ticker(ticker_clean)
-        try: info = stock.info
-        except Exception: info = {}
-        company = info.get("longName", ticker_clean)
-        price   = info.get("currentPrice") or info.get("regularMarketPrice") or "N/A"
-        ctx = (f"{company} ({ticker_clean}) | Precio ${price} | P/E {info.get('trailingPE','N/A')} | "
-               f"Fwd P/E {info.get('forwardPE','N/A')} | Target WS ${info.get('targetMeanPrice','N/A')} | "
-               f"Rev growth {info.get('revenueGrowth','N/A')} | Margenes {info.get('grossMargins','N/A')}")
-
-        # ── Model 1: Gemini analyst (fundamental/valuation) ──────────────────
-        gemini_view, gemini_verdict = "", None
-        try:
-            gp = (f"Eres analista cuantitativo institucional. Da tu recomendacion para {ctx}. "
-                  "En 3-4 frases justifica con valoracion y fundamentales. "
-                  "Termina OBLIGATORIamente con una linea: 'VEREDICTO: BUY' o 'VEREDICTO: HOLD' o 'VEREDICTO: SELL'. Responde en espanol.")
-            gr = client_gemini.models.generate_content(
-                model="gemini-2.5-flash", contents=gp,
-                config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=500))
-            gemini_view = (gr.text or "").strip()
-            gemini_verdict = _extract_verdict(gemini_view)
-        except Exception as e:
-            gemini_view = f"[Gemini no disponible: {e}]"
-
-        # ── Model 2: Grok sentiment (market psychology) ──────────────────────
-        grok_view, grok_verdict = "", None
-        try:
-            sp = (f"Eres experto en sentimiento de mercado con acceso en tiempo real a X/Twitter y Reddit. "
-                  f"Cual es el sentimiento actual sobre {ticker_clean} ({company})? En 3-4 frases. "
-                  "Termina OBLIGATORIamente con: 'VEREDICTO: BUY' (sentimiento alcista), 'VEREDICTO: HOLD' (neutral) o 'VEREDICTO: SELL' (bajista). Responde en espanol.")
-            r = requests.post("https://api.x.ai/v1/chat/completions",
-                headers={"Content-Type": "application/json", "Authorization": f"Bearer {XAI_API_KEY}"},
-                json={"model": "grok-3", "messages": [{"role": "user", "content": sp}],
-                      "max_tokens": 500, "temperature": 0.3},
-                timeout=90)
-            if r.status_code == 200:
-                grok_view = r.json()["choices"][0]["message"]["content"].strip()
-                grok_verdict = _extract_verdict(grok_view)
-            else:
-                grok_view = f"[Grok error {r.status_code}]"
-        except Exception as e:
-            grok_view = f"[Grok no disponible: {e}]"
-
-        # ── Conflict detection + arbiter ─────────────────────────────────────
-        def _bucket(v):
-            if v in ("BUY",): return "bull"
-            if v in ("SELL", "AVOID"): return "bear"
-            if v in ("HOLD",): return "neutral"
-            return None
-        gb, sb = _bucket(gemini_verdict), _bucket(grok_verdict)
-        conflict = bool(gb and sb and {gb, sb} == {"bull", "bear"})
-
-        arbiter_text, arbiter_model, final_verdict = "", None, None
-        if conflict:
-            ap = (f"Dos modelos de IA analizaron {company} ({ticker_clean}) y LLEGARON A CONCLUSIONES OPUESTAS.\n\n"
-                  f"MODELO 1 — Analista cuantitativo (Gemini):\n{gemini_view}\n\n"
-                  f"MODELO 2 — Sentimiento de mercado (Grok):\n{grok_view}\n\n"
-                  "Como ARBITRO experto e independiente, resuelve el conflicto: explica que modelo tiene el argumento "
-                  "mas solido y por que, pondera fundamentales vs sentimiento, y emite el VEREDICTO FINAL definitivo. "
-                  "Termina con: 'VEREDICTO: BUY' o 'VEREDICTO: HOLD' o 'VEREDICTO: SELL'. Responde en espanol.")
-            arbiter_text, arbiter_model = _arbiter_call(ap)
-            final_verdict = _extract_verdict(arbiter_text)
-        else:
-            final_verdict = gemini_verdict or grok_verdict
-
-        return {
-            "ticker": ticker_clean, "company_name": company, "price": price,
-            "gemini_view": gemini_view, "gemini_verdict": gemini_verdict,
-            "grok_view": grok_view, "grok_verdict": grok_verdict,
-            "conflict": conflict, "arbiter_used": conflict,
-            "arbiter_model": arbiter_model, "arbiter_text": arbiter_text,
-            "final_verdict": final_verdict,
-            "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p'),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ACCURACY TRACKER — scores past reports against actual price action
-# ─────────────────────────────────────────────────────────────────────────────
-_CALIB_CACHE = {"ts": 0.0, "data": None}
-
-
 def _dir_hit(rec, ret, flat=5.0):
     """Acierto direccional crudo (se usa para todos los buckets)."""
     if rec == "BUY":
@@ -9722,6 +9439,10 @@ def compute_calibration_stats():
             "n_reports": len(rows)}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ACCURACY TRACKER — scores past reports against actual price action
+# ─────────────────────────────────────────────────────────────────────────────
+_CALIB_CACHE = {"ts": 0.0, "data": None}
 def get_calibration_cached(ttl=600):
     """Cached calibration stats (TTL seconds) to avoid recomputing yfinance history on every analysis."""
     now = datetime.now().timestamp()

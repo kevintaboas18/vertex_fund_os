@@ -721,8 +721,6 @@
             <button class="analysis-tab" onclick="switchAnalysisTab('fullResearchTab', this)">&#128300; Full Research</button>
             <button id="tabBtnAiJudge" class="analysis-tab" onclick="switchAnalysisTab('aiJudgmentTab', this)">&#129504; Juicio AI</button>
             <button class="analysis-tab" onclick="switchAnalysisTab('sentimentTab', this)">&#129504; Sentiment AI</button>
-            <button class="analysis-tab" onclick="switchAnalysisTab('cascadeTab', this)">&#9878;&#65039; Consenso AI</button>
-            <button id="tabBtnDebate" class="analysis-tab" onclick="switchAnalysisTab('debateTab', this)">&#9876;&#65039; Debate AI</button>
         </div>
         </div>
 
@@ -1161,90 +1159,7 @@
         <!-- ══ INSIDERS & 13F TAB ══ -->
 
         <!-- ══ MULTI-MODEL CASCADE TAB ══ -->
-        <div id="cascadeTab" class="tab-content p-6">
-            <div class="flex items-start justify-between gap-3 mb-5 flex-wrap">
-                <div>
-                    <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2 mb-1">
-                        <i data-lucide="scale" class="w-4 h-4"></i> Consenso Multi-Modelo
-                    </h3>
-                    <p class="text-xs text-gray-500 italic">Gemini (analista cuantitativo) vs Grok (sentimiento). Si discrepan, un tercer modelo arbitra y da el veredicto final.</p>
-                </div>
-                <span id="cascGeneratedAt" class="text-[9px] text-gray-600 font-mono mt-0.5 shrink-0"></span>
-            </div>
 
-            <div id="cascLoading" class="hidden bg-[#0B0E14] border border-gray-800 rounded-2xl p-8 text-center space-y-3">
-                <div class="flex items-center justify-center gap-2">
-                    <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay:0ms"></div>
-                    <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay:150ms"></div>
-                    <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay:300ms"></div>
-                </div>
-                <p class="text-gray-400 text-sm font-medium">Consultando los 3 modelos en cascada...</p>
-                <p class="text-[10px] text-gray-600">Gemini + Grok, y el árbitro si hay conflicto. Puede tomar 20–50s.</p>
-            </div>
-
-            <div id="cascError" class="hidden bg-red-500/5 border border-red-500/20 rounded-xl p-4 mb-5">
-                <p id="cascErrorText" class="text-xs text-red-300 leading-relaxed"></p>
-            </div>
-
-            <div id="cascContent" class="hidden space-y-4">
-                <!-- Final verdict banner -->
-                <div id="cascFinalBanner" class="rounded-2xl p-5 border text-center">
-                    <p class="text-[10px] uppercase font-bold tracking-widest mb-1 text-gray-400">Veredicto Final del Consenso</p>
-                    <p id="cascFinalVerdict" class="text-3xl font-black">—</p>
-                    <p id="cascConflictNote" class="text-[11px] mt-1"></p>
-                </div>
-
-                <!-- The two base models -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div class="bg-[#0B0E14] border border-gray-900 rounded-xl p-4">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-[10px] font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5"><i data-lucide="cpu" class="w-3.5 h-3.5"></i> Gemini · Analista</span>
-                            <span id="cascGemBadge" class="text-[10px] font-black px-2 py-0.5 rounded border">—</span>
-                        </div>
-                        <p id="cascGemView" class="text-xs text-gray-300 leading-relaxed"></p>
-                    </div>
-                    <div class="bg-[#0B0E14] border border-gray-900 rounded-xl p-4">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-[10px] font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1.5"><i data-lucide="message-circle" class="w-3.5 h-3.5"></i> Grok · Sentimiento</span>
-                            <span id="cascGrokBadge" class="text-[10px] font-black px-2 py-0.5 rounded border">—</span>
-                        </div>
-                        <p id="cascGrokView" class="text-xs text-gray-300 leading-relaxed"></p>
-                    </div>
-                </div>
-
-                <!-- Arbiter (only when conflict) -->
-                <div id="cascArbiterCard" class="hidden bg-gradient-to-br from-amber-500/10 to-red-500/5 border border-amber-500/25 rounded-xl p-4">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5"><i data-lucide="gavel" class="w-3.5 h-3.5"></i> Árbitro · <span id="cascArbiterModel">—</span></span>
-                        <span class="text-[9px] text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">Conflicto detectado</span>
-                    </div>
-                    <div id="cascArbiterText" class="text-xs text-gray-300 leading-relaxed"></div>
-                </div>
-            </div>
-
-            <button id="cascRefreshBtn" onclick="loadCascade(currentTicker)"
-                class="w-full bg-[#0B0E14] hover:bg-[#0e1220] border border-gray-800 hover:border-blue-500/40 text-gray-400 hover:text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-all text-xs uppercase tracking-wider mt-4">
-                &#128260;&#160; Ejecutar Consenso Multi-Modelo
-            </button>
-        </div>
-
-        <div id="debateTab" class="tab-content p-6">
-            <div class="flex items-start justify-between gap-3 mb-5 flex-wrap">
-                <div>
-                    <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-2"><i data-lucide="swords" class="w-4 h-4"></i> Debate AI &mdash; Toro vs Oso</h3>
-                    <p class="text-xs text-gray-500 italic">Un agente construye el mejor caso alcista, otro el mejor bajista, y un &aacute;rbitro (gemini-2.5-pro) reconcilia sin sesgo de confirmaci&oacute;n.</p>
-                </div>
-                <span id="debateGeneratedAt" class="text-[9px] text-gray-600 font-mono mt-0.5 shrink-0"></span>
-            </div>
-            <div id="debateBody"><p class="text-xs text-gray-500 italic p-6 text-center">Pulsa &laquo;Ejecutar Debate Adversarial&raquo; para enfrentar el caso toro y el caso oso.</p></div>
-            <label class="flex items-center justify-center gap-1.5 text-[10px] text-gray-500 cursor-pointer select-none mt-3">
-                <input type="checkbox" id="debateForceGrok" class="accent-blue-500 w-3 h-3"> Forzar Grok (evita el l&iacute;mite diario de Gemini free-tier)
-            </label>
-            <button id="debateRefreshBtn" onclick="loadDebate(currentTicker, true)"
-                class="w-full bg-[#0B0E14] hover:bg-[#0e1220] border border-gray-800 hover:border-blue-500/40 text-gray-400 hover:text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-all text-xs uppercase tracking-wider mt-4">
-                &#9876;&#65039;&#160; Ejecutar Debate Adversarial
-            </button>
-        </div>
 
         </div>
 </main>
@@ -1259,8 +1174,6 @@ let currentReportId = null, currentTimeframe = '7d';
 let qtChartInstance = null, frChartInstance = null, debounceTimer = null;
 let qtTV = null, frTV = null, qtShowEMA = false, frShowEMA = false;
 let sentimentLoaded = false;
-let cascadeLoaded = false;
-let debateLoaded = false;
 
 // PLUGIN CHART.JS PARA ESCRIBIR TEXTO SOBRE LÍNEAS DE TARGETS
 const targetLineLabelsPlugin = {
@@ -1306,76 +1219,8 @@ function switchAnalysisTab(tabId, btn) {
     // (Chart.js las dibuja a 0px si el contenedor estaba oculto al primer render).
     if (tabId === 'fullResearchTab' && window._wbjRenderData) { setTimeout(() => { try { renderWBJVisual(window._wbjRenderData); } catch(e){} }, 60); }
     if (tabId === 'sentimentTab' && currentTicker) { if (!sentimentLoaded) loadSentiment(currentTicker); }
-    if (tabId === 'cascadeTab' && currentTicker) { if (!cascadeLoaded) loadCascade(currentTicker); }
-    if (tabId === 'debateTab' && currentTicker) { if (!debateLoaded) loadDebate(currentTicker); }
 }
 
-
-// ── #4 DEBATE AI (Toro vs Oso vs Árbitro) ─────────────────────────────────────
-async function loadDebate(ticker, force) {
-    if (!ticker) return;
-    if (debateLoaded && !force) return;
-    const body = document.getElementById('debateBody');
-    if (!body) return;
-    body.innerHTML = `<div class="flex items-center gap-3 text-gray-400 text-xs p-8 justify-center">
-        <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-        Orquestando el debate (Toro &rarr; Oso &rarr; &Aacute;rbitro)&hellip; toma unos segundos.</div>`;
-    try {
-        const eng = document.getElementById('debateForceGrok')?.checked ? '&engine=grok' : '';
-        const res = await fetch(`${API_BASE}/api/analyze-debate?ticker=${encodeURIComponent(ticker)}${eng}`);
-        if (!res.ok) { const e = await res.json().catch(()=>({detail:`HTTP ${res.status}`})); throw new Error(e.detail); }
-        const d = await res.json();
-        renderDebate(d); debateLoaded = true;
-    } catch(e) { body.innerHTML = `<p class="text-xs text-red-400 italic p-4">Error: ${e.message}</p>`; }
-}
-
-function renderDebate(d) {
-    const body = document.getElementById('debateBody');
-    if (!body) return;
-    const b = d.bull || {}, be = d.bear || {}, v = d.verdict || {};
-    const ga = document.getElementById('debateGeneratedAt'); if (ga) ga.innerText = d.generated_at || '';
-    const winner = (v.winner || '').toUpperCase();
-    const wcol = winner.includes('TORO') ? '#10b981' : winner.includes('OSO') ? '#ef4444' : '#f59e0b';
-    const lean = (v.lean || '').toUpperCase();
-    const leanCol = lean === 'BUY' ? '#10b981' : (lean === 'SELL' || lean === 'AVOID') ? '#ef4444' : '#f59e0b';
-
-    const banner = `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-4 mb-5">
-        <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
-            <div class="flex items-center gap-2"><i data-lucide="gavel" class="w-4 h-4 text-amber-400"></i><span class="text-xs font-bold text-white uppercase tracking-wider">Veredicto del Árbitro</span></div>
-            <div class="flex items-center gap-2">
-                <span class="text-[10px] font-bold px-2.5 py-1 rounded uppercase" style="background:${wcol}22;color:${wcol}">Gana: ${v.winner || '—'}</span>
-                <span class="text-sm font-extrabold px-3 py-1 rounded uppercase border" style="color:${leanCol};border-color:${leanCol}55">${v.lean || '—'}</span>
-            </div>
-        </div>
-        <div class="grid grid-cols-2 gap-3 mb-3">
-            <div class="bg-gray-900/50 rounded-lg p-2.5"><p class="text-[8px] text-gray-500 uppercase font-bold">Confianza</p><p class="text-base font-mono font-black text-white">${v.confidence != null ? v.confidence : '—'}/100</p></div>
-            <div class="bg-gray-900/50 rounded-lg p-2.5"><p class="text-[8px] text-gray-500 uppercase font-bold">P(Toro acierta) 12m</p><p class="text-base font-mono font-black" style="color:#10b981">${v.p_bull_correct != null ? v.p_bull_correct : '—'}%</p></div>
-        </div>
-        <p class="text-xs text-gray-300 leading-relaxed mb-2">${v.synthesis || ''}</p>
-        <div class="space-y-1.5 text-[11px]">
-            <p><span class="text-amber-400 font-bold">Desacuerdo clave:</span> <span class="text-gray-400">${v.key_disagreement || ''}</span></p>
-            <p><span class="text-blue-400 font-bold">Qué cambiaría la decisión:</span> <span class="text-gray-400">${v.what_would_flip || ''}</span></p>
-        </div>
-    </div>`;
-
-    const colCard = (title, c, icon, data, listLabel, listVal) => `<div class="bg-[#0B0E14] border rounded-xl p-4" style="border-color:${c}33">
-        <div class="flex items-center gap-2 mb-2"><i data-lucide="${icon}" class="w-4 h-4" style="color:${c}"></i><span class="text-xs font-bold uppercase tracking-wider" style="color:${c}">${title}</span></div>
-        <p class="text-[11px] text-gray-300 leading-relaxed mb-2">${data.thesis || ''}</p>
-        <p class="text-[10px] font-bold text-gray-500 uppercase mb-1">${listLabel}</p>
-        <p class="text-[11px] text-gray-400 leading-relaxed mb-2 whitespace-pre-line">${listVal || ''}</p>
-        <div class="border-t border-gray-900 pt-2"><p class="text-[9px] text-gray-500 uppercase font-bold mb-0.5">Punto más fuerte</p><p class="text-[11px] font-semibold" style="color:${c}">${data.strongest_point || ''}</p></div>
-    </div>`;
-    const cols = `<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            ${colCard('Caso Toro', '#10b981', 'trending-up', b, 'Catalizadores', b.catalysts)}
-            ${colCard('Caso Oso', '#ef4444', 'trending-down', be, 'Riesgos', be.risks)}
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
-            <div class="bg-emerald-500/5 border border-emerald-500/15 rounded-xl p-3"><p class="text-[9px] text-emerald-400 uppercase font-bold mb-1">Por qué el mercado lo subestima</p><p class="text-[11px] text-gray-400 leading-relaxed">${b.why_underappreciated || ''}</p></div>
-            <div class="bg-red-500/5 border border-red-500/15 rounded-xl p-3"><p class="text-[9px] text-red-400 uppercase font-bold mb-1">Qué rompe la tesis</p><p class="text-[11px] text-gray-400 leading-relaxed">${be.what_breaks_it || ''}</p></div>
-        </div>`;
-    body.innerHTML = banner + cols;
-    if (window.lucide) lucide.createIcons();
-}
 
 // ── QUOTE ────────────────────────────────────────────────
 function debounceQuoteFetch() {
@@ -1443,9 +1288,8 @@ async function ejecutarAnalisisAPI() {
         saveNewReport(data);
         currentAnalysis = data; currentTicker = data.ticker;
         currentPrice = data.precio_actual; currentReportId = data.report_id;
-        currentTimeframe = '7d'; sentimentLoaded = false; cascadeLoaded = false; debateLoaded = false;
+        currentTimeframe = '7d'; sentimentLoaded = false;
         renderDashboard(data);
-        if (data.should_debate && data.ticker) { try { loadDebate(data.ticker); } catch(e){} }   // #9 auto-debate (convicción ≥75)
         switchView('dashboardView');
         switchAnalysisTab('quickTakeTab', document.querySelector('.analysis-tab'));
     } catch(err) {
@@ -1464,7 +1308,7 @@ function openReport(reportId) {
     if (!data) return;
     currentAnalysis = data; currentTicker = data.ticker;
     currentPrice = data.precio_actual; currentReportId = data.report_id;
-    currentTimeframe = '7d'; sentimentLoaded = false; cascadeLoaded = false; debateLoaded = false;
+    currentTimeframe = '7d'; sentimentLoaded = false;
     renderDashboard(data);
     switchView('dashboardView');
     switchAnalysisTab('quickTakeTab', document.querySelector('.analysis-tab'));
@@ -4431,81 +4275,6 @@ function fmtUSDshort(v) {
     if (Math.abs(n) >= 1e3) return '$' + (n/1e3).toFixed(1) + 'K';
     return '$' + n.toFixed(0);
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-// MULTI-MODEL CASCADE (Gemini vs Grok + arbiter)
-// ══════════════════════════════════════════════════════════════════════════════
-const CASC_VERDICT_CLS = {
-    BUY:  'text-emerald-400 border-emerald-500/40 bg-emerald-500/10',
-    HOLD: 'text-amber-400 border-amber-500/40 bg-amber-500/10',
-    SELL: 'text-red-400 border-red-500/40 bg-red-500/10',
-    AVOID:'text-red-400 border-red-500/40 bg-red-500/10',
-};
-function cascVerdictColor(v) { return CASC_VERDICT_CLS[v] || 'text-gray-400 border-gray-700 bg-gray-700/10'; }
-
-async function loadCascade(ticker) {
-    if (!ticker) return;
-    cascadeLoaded = true;
-    document.getElementById('cascLoading').classList.remove('hidden');
-    document.getElementById('cascContent').classList.add('hidden');
-    document.getElementById('cascError').classList.add('hidden');
-    try {
-        const res = await fetch(`${API_BASE}/api/cascade?ticker=${ticker}`);
-        if (!res.ok) { const e = await res.json().catch(()=>({detail:`HTTP ${res.status}`})); throw new Error(e.detail); }
-        const d = await res.json();
-        renderCascade(d);
-        document.getElementById('cascContent').classList.remove('hidden');
-        document.getElementById('cascGeneratedAt').innerText = d.generated_at || '';
-    } catch(e) {
-        document.getElementById('cascError').classList.remove('hidden');
-        document.getElementById('cascErrorText').innerText = 'Error en el consenso: ' + e.message;
-        cascadeLoaded = false;
-    } finally {
-        document.getElementById('cascLoading').classList.add('hidden');
-    }
-}
-
-function renderCascade(d) {
-    // Final verdict banner
-    const fv = d.final_verdict || '—';
-    const banner = document.getElementById('cascFinalBanner');
-    const fvEl = document.getElementById('cascFinalVerdict');
-    fvEl.innerText = fv;
-    banner.className = 'rounded-2xl p-5 border text-center ' + cascVerdictColor(fv);
-    const note = document.getElementById('cascConflictNote');
-    if (d.conflict) {
-        note.innerHTML = `⚖️ Los modelos discreparon — resuelto por <strong>${d.arbiter_model || 'árbitro'}</strong>`;
-        note.className = 'text-[11px] mt-1 text-gray-300';
-    } else {
-        note.innerHTML = '✓ Gemini y Grok coincidieron — sin necesidad de árbitro';
-        note.className = 'text-[11px] mt-1 text-gray-400';
-    }
-
-    // Gemini
-    const gBadge = document.getElementById('cascGemBadge');
-    gBadge.innerText = d.gemini_verdict || '—';
-    gBadge.className = 'text-[10px] font-black px-2 py-0.5 rounded border ' + cascVerdictColor(d.gemini_verdict);
-    document.getElementById('cascGemView').innerText = d.gemini_view || '';
-
-    // Grok
-    const kBadge = document.getElementById('cascGrokBadge');
-    kBadge.innerText = d.grok_verdict || '—';
-    kBadge.className = 'text-[10px] font-black px-2 py-0.5 rounded border ' + cascVerdictColor(d.grok_verdict);
-    document.getElementById('cascGrokView').innerText = d.grok_view || '';
-
-    // Arbiter
-    const arb = document.getElementById('cascArbiterCard');
-    if (d.conflict && d.arbiter_text) {
-        document.getElementById('cascArbiterModel').innerText = d.arbiter_model || '—';
-        document.getElementById('cascArbiterText').innerHTML = htmlEscBold(d.arbiter_text);
-        arb.classList.remove('hidden');
-    } else {
-        arb.classList.add('hidden');
-    }
-    lucide.createIcons();
-}
-
-
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PORTFOLIO — Plaid + Gemini AI
