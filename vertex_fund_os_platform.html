@@ -858,24 +858,24 @@
 
                 <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
                     <span class="text-[11px] font-bold text-white uppercase tracking-wider block border-b border-gray-800 pb-2 mb-3">
-                        &#128208; Volatility &amp; Valuation &mdash; ATR &middot; Volatility &middot; DCF
+                        &#128208; Volatilidad y valuaci&oacute;n &mdash; ATR &middot; Volatilidad &middot; DCF de Victor
                     </span>
                     <div class="grid grid-cols-3 gap-3 mb-3">
                         <div class="text-center"><span class="text-[9px] text-blue-400 font-bold block uppercase">ATR (14)</span><span id="instATR" class="text-xs font-mono font-bold text-blue-300"></span></div>
                         <div class="text-center"><span class="text-[9px] text-blue-400 font-bold block uppercase">Ann. Volatility</span><span id="instAnnVol" class="text-xs font-mono font-bold text-blue-300"></span></div>
-                        <div class="text-center"><span class="text-[9px] text-amber-400 font-bold block uppercase">DCF Fair Value</span><span id="instDCF" class="text-xs font-mono font-bold text-amber-300"></span></div>
+                        <div class="text-center"><span class="text-[9px] text-amber-400 font-bold block uppercase" title="Valor intrínseco por acción del FCFF DCF de Victor. Distinto del target a 12 meses.">DCF Victor (FCFF)</span><span id="instDCF" class="text-xs font-mono font-bold text-amber-300"></span></div>
                     </div>
                 </div>
 
                 <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3">
                     <span class="text-[11px] font-bold text-white uppercase tracking-wider block border-b border-gray-800 pb-2 mb-3">
-                        &#127974; Wall Street Consensus vs Vertex Engine
+                        &#127974; Consenso de Wall Street vs el DCF de Victor
                     </span>
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
                         <div><span class="text-[9px] text-gray-400 font-bold block uppercase">Analyst High</span><span id="wsHigh" class="font-mono font-bold text-emerald-400 text-sm"></span></div>
                         <div><span class="text-[9px] text-gray-400 font-bold block uppercase">Analyst Mean</span><span id="wsMean" class="font-mono font-bold text-amber-400 text-sm"></span></div>
                         <div><span class="text-[9px] text-gray-400 font-bold block uppercase">Analyst Low</span><span id="wsLow" class="font-mono font-bold text-red-400 text-sm"></span></div>
-                        <div><span class="text-[9px] text-gray-400 font-bold block uppercase">Vertex DCF</span><span id="wsDCF" class="font-mono font-bold text-blue-400 text-sm"></span></div>
+                        <div><span class="text-[9px] text-gray-400 font-bold block uppercase" title="Valor intrínseco por acción del FCFF DCF de Victor.">DCF Victor</span><span id="wsDCF" class="font-mono font-bold text-blue-400 text-sm"></span></div>
                     </div>
                 </div>
 
@@ -1865,11 +1865,21 @@ function renderDashboard(data) {
     const fmtM = (v, prefix='$') => v ? `${prefix}${v}` : 'N/A';
     document.getElementById('instATR').innerText      = fmtM(meth.atr_14);
     document.getElementById('instAnnVol').innerText   = meth.annual_volatility_pct ? `${meth.annual_volatility_pct}%` : 'N/A';
-    document.getElementById('instDCF').innerText      = fmtM(meth.dcf_fair_value);
+    // DCF = el FCFF del especialista de valuación de Victor. El "Vertex DCF" que iba aquí era
+    // eps × P/E_objetivo (un múltiplo, no un DCF) y contradecía al fair value del veredicto.
+    // Si Victor no publica DCF, se muestra N/D en vez de un número de otro modelo.
+    const _vv = a.victor_valuation || {};
+    const _dcf = _vv.dcf_per_share != null ? `$${Number(_vv.dcf_per_share).toFixed(2)}` : 'N/D';
+    const _dcfTitle = _vv.dcf_per_share != null
+        ? `${_vv.model || 'FCFF DCF de Victor'}${_vv.wacc != null ? ` · WACC ${(_vv.wacc*100).toFixed(1)}%` : ''}. ${_vv.note || ''}`
+        : 'El especialista de valuación de Victor no produjo un DCF publicable para este ticker.';
+    const _dcfEl = document.getElementById('instDCF');
+    _dcfEl.innerText = _dcf; _dcfEl.title = _dcfTitle;
     document.getElementById('wsHigh').innerText  = fmtM(meth.analyst_high);
     document.getElementById('wsMean').innerText  = fmtM(meth.analyst_mean);
     document.getElementById('wsLow').innerText   = fmtM(meth.analyst_low);
-    document.getElementById('wsDCF').innerText   = fmtM(meth.dcf_fair_value);
+    const _wsDcfEl = document.getElementById('wsDCF');
+    _wsDcfEl.innerText = _dcf; _wsDcfEl.title = _dcfTitle;
 
     // Full Research
     document.getElementById('frFinancialSummary').innerText = a.analisis_numeros_actuales || '';
