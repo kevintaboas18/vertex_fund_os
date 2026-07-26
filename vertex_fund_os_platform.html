@@ -2239,6 +2239,46 @@ function renderVictorLevels() {
 }
 
 // ── POR QUÉ ESTE VEREDICTO: gates, overrides y contradicciones reales ───────────
+// Traductor de las reglas del Cerebro a español llano. Los ids en MAYÚSCULAS y las
+// condiciones ("raw_total<50") son el lenguaje interno del engine de Victor: precisos
+// para auditar, ilegibles para decidir. Aquí se explica QUÉ midió cada regla y QUÉ
+// implica, sin cambiar ni un número — el id técnico queda visible como referencia.
+const _RULE_ES = {
+  OVERRIDE_1_CAPITAL_DEPENDENCE:  ['Depende de levantar capital', 'La empresa necesita financiarse para operar. Techo: no puede pasar de especulativa.'],
+  OVERRIDE_2_ROIC_BELOW_WACC:     ['Destruye valor', 'Lo que gana sobre el capital invertido (ROIC) es menor que lo que ese capital le cuesta (WACC). Cada dólar reinvertido vale menos. No puede calificar como calidad élite.'],
+  OVERRIDE_3_SOLVENCY_WARNING:    ['Aviso de solvencia', 'La estructura de deuda pide vigilancia. Se marca de forma prominente.'],
+  OVERRIDE_4_RISK_FLOOR:          ['Riesgo en el suelo', 'El agente de Riesgo puntuó 4 o menos sobre 15. Piso de riesgo activado.'],
+  OVERRIDE_5_PREMIUM_BREAKDOWN:   ['Cara y sin soporte técnico', 'Valuación ≤4/10 Y técnico ≤8/20 a la vez: el precio no lo justifica ni el valor ni la estructura de precio. Fuerza AVOID.'],
+  OVERRIDE_6_COVERAGE_GATE_INELIGIBLE: ['Datos insuficientes en un área crítica', 'Una categoría quedó por debajo del 70% de cobertura, así que no se puede evaluar de verdad. Techo: especulativa. No es que la empresa esté mal — es que falta información.'],
+  OVERRIDE_7_MISSING_SHARE_COUNT: ['Falta el conteo de acciones', 'Sin acciones diluidas no hay valor por acción posible. El DCF por acción se suprime.'],
+  OVERRIDE_7_DATA_CONFLICT_SUPPRESS_PER_SHARE: ['Las fuentes no concuerdan', 'Un dato material (acciones, deuda, caja o precio) difiere entre EDGAR y FMP. El valor por acción se suprime hasta resolverlo — mejor sin número que con uno dudoso.'],
+};
+/** Convierte "raw_total<50 (got 33.79318587872199)" en algo legible. */
+function _explainGate(txt) {
+  const raw = String(txt || '');
+  const id = (raw.match(/^([A-Z0-9_]+)/) || [])[1];
+  if (id && _RULE_ES[id]) return { title: _RULE_ES[id][0], detail: _RULE_ES[id][1], code: raw };
+  const CAT = { raw_total: 'el puntaje total', technical: 'el agente Técnico', market: 'el agente de Mercado',
+                business: 'el agente de Negocio', financial: 'el agente Financiero', risk: 'el agente de Riesgo',
+                valuation: 'el agente de Valuación', 'business+financial': 'Negocio + Financiero',
+                technical_confidence: 'la confianza del análisis técnico' };
+  // "campo<umbral (got valor)" — se redondea el valor: 33.79318587872199 no aporta nada.
+  const m = raw.match(/^([a-z_+]+)\s*<\s*([\d.]+)\s*(?:\(got\s*([\d.]+)\))?/);
+  if (m) {
+    const [, campo, umbral, got] = m;
+    const nombre = CAT[campo] || campo;
+    const val = got != null ? Number(got).toFixed(1) : null;
+    return {
+      title: `${nombre.charAt(0).toUpperCase()}${nombre.slice(1)} por debajo del mínimo`,
+      detail: val != null
+        ? `Sacó ${val} y el mínimo para pasar este gate es ${umbral}.`
+        : `El mínimo para pasar este gate es ${umbral}.`,
+      code: raw,
+    };
+  }
+  return { title: raw, detail: '', code: '' };
+}
+
 function renderVictorWhy() {
   const el = document.getElementById('frWhyVerdict'); if (!el) return;
   const w = currentAnalysis?.analisis?.wbj;
@@ -2247,25 +2287,39 @@ function renderVictorWhy() {
         ovr = w.overrides || [], warn = w.warnings || [], contra = w.contradictions || [];
   if (!passed.length && !failed.length && !ovr.length && !contra.length) { el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
-  const chip = (t, cls) => `<div class="text-[10px] ${cls} rounded px-2 py-1 mb-1 leading-snug">${t}</div>`;
+
+  const row = (txt, cls) => {
+    const e = _explainGate(txt);
+    return `<div class="${cls} rounded-lg px-2.5 py-2 mb-1.5 leading-snug">
+      <p class="text-[11px] font-bold">${e.title}</p>
+      ${e.detail ? `<p class="text-[10px] opacity-80 mt-0.5">${e.detail}</p>` : ''}
+      ${e.code ? `<p class="text-[8px] font-mono opacity-40 mt-1">${e.code}</p>` : ''}</div>`;
+  };
   const sec = (title, items, cls) => items.length
-    ? `<div class="mb-2"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">${title}</p>${items.map(i => chip(i, cls)).join('')}</div>` : '';
+    ? `<div class="mb-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">${title}</p>${items.map(i => row(i, cls)).join('')}</div>` : '';
   const contraHtml = contra.length
-    ? `<div class="mb-2"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Contradicciones detectadas</p>` +
-      contra.map(c => `<div class="text-[10px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1 mb-1 leading-snug">
+    ? `<div class="mb-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Contradicciones detectadas</p>` +
+      contra.map(c => `<div class="text-[10px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-2 mb-1.5 leading-snug">
         <b>${c.label || c.combination || ''}</b>${c.interpretation ? ` — ${c.interpretation}` : ''}</div>`).join('') + `</div>` : '';
+
+  // Resumen en una frase: qué mandó sobre el veredicto.
+  const nOv = ovr.length, nFail = failed.length;
+  const resumen = nOv
+    ? `El veredicto lo fijó ${nOv === 1 ? 'una regla obligatoria' : `${nOv} reglas obligatorias`} del Cerebro${nFail ? ` y ${nFail} gate${nFail > 1 ? 's' : ''} no superado${nFail > 1 ? 's' : ''}` : ''}. Las reglas mandan sobre el puntaje: aunque el total fuera alto, cualquiera de estas lo topa.`
+    : (nFail ? `No se superaron ${nFail} gate${nFail > 1 ? 's' : ''} de los umbrales de Victor.` : `Se superaron todos los gates aplicables.`);
+
   el.innerHTML = `
     <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
       <span class="text-xs font-bold text-white uppercase tracking-wider">&#9878;&#65039; Por qué este veredicto</span>
       <span class="text-[10px] font-extrabold px-2 py-0.5 rounded uppercase border" style="border-color:#3b82f655;color:#93c5fd">${w.profile || '—'}</span>
     </div>
-    <p class="text-[10px] text-gray-500 italic mb-3">Los gates y overrides que produjeron la clasificación — no una opinión, las reglas que se evaluaron. Banda: <b class="text-gray-400">${w.band || '—'}</b>.</p>
+    <p class="text-[11px] text-gray-400 leading-relaxed mb-3">${resumen}</p>
     ${sec('Gates superados', passed, 'text-emerald-300 bg-emerald-500/10 border border-emerald-500/20')}
-    ${sec('Gates fallados', failed, 'text-red-300 bg-red-500/10 border border-red-500/20')}
-    ${sec('Overrides aplicados', ovr, 'text-amber-300 bg-amber-500/10 border border-amber-500/20')}
+    ${sec('Gates no superados', failed, 'text-red-300 bg-red-500/10 border border-red-500/20')}
+    ${sec('Reglas obligatorias aplicadas', ovr, 'text-amber-300 bg-amber-500/10 border border-amber-500/20')}
     ${contraHtml}
     ${sec('Advertencias', warn, 'text-gray-300 bg-gray-500/10 border border-gray-700')}
-    <p class="text-[9px] text-gray-700 mt-1">Origen: ${w.gates_source || 'gates de Victor'}.</p>`;
+    <p class="text-[9px] text-gray-700 mt-1">Origen: ${w.gates_source || 'gates de Victor'} · el código en gris es el identificador interno de cada regla, para auditar.</p>`;
 }
 
 // ── CONTENIDO OBLIGATORIO DEL REPORTE (CLAUDE.md) ──────────────────────────────
