@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 def verificar_e_ingestar_ecosistema_total():
@@ -55,7 +54,7 @@ def verificar_e_ingestar_ecosistema_total():
             print(f"    [⚠️] Directorio ausente: se esperaba '{fase}/'")
 
     print("\n====================================================================")
-    print(f"[+] AUDITORÍA DE INGESTA CONCLUIDA")
+    print("[+] AUDITORÍA DE INGESTA CONCLUIDA")
     print(f"[+] Total de documentos de la base de conocimiento integrados: {total_archivos_cargados}")
     print("====================================================================")
 
@@ -80,7 +79,7 @@ if __name__ == "__main__":
     faltantes = [e for e in especialistas
                  if f"Cerebro/{e}/SCORING.md" not in base_conocimiento_ia]
     if not faltantes:
-        print(f"[✔] Los 6 especialistas tienen su metodología de scoring cargada.")
+        print("[✔] Los 6 especialistas tienen su metodología de scoring cargada.")
     else:
         print(f"[🚨 ALERTA CRÍTICA]: Especialistas sin SCORING.md: {faltantes}")
 
