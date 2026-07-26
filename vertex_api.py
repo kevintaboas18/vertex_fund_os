@@ -6953,6 +6953,46 @@ def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
     return ov
 
 
+def _wbj_durability_sentence(moat):
+    """Frase obligatoria #2 del FINAL_REPORT_SCHEMA: "Why value creation is or
+    is not durable" — o sea, el foso.
+
+    El Cerebro NO tiene un campo `moat` en el reporte final: la etiqueta vive en
+    el envelope del sub-agente (01_business_analysis/OUTPUT_SCHEMA.md) y llega al
+    reporte como esta frase. Antes se llenaba con prosa del LLM
+    (`posicion_competitiva`), lo que dejaba la conclusión de durabilidad sin un
+    solo número aunque el motor ya tenía todos: ROIC, WACC, spread, persistencia
+    y rango de margen. Esto la arma con esa evidencia y cita las condiciones del
+    wide-moat gate (DECISION_RULES.md). Devuelve "" cuando no hay evidencia, para
+    que el llamador caiga a la narrativa en vez de publicar una frase vacía.
+    """
+    if not isinstance(moat, dict):
+        return ""
+    parts = []
+    roic, spread = moat.get("roic"), moat.get("spread")
+    if isinstance(roic, (int, float)) and isinstance(spread, (int, float)):
+        parts.append(f"ROIC {roic:.1%} vs WACC {roic - spread:.1%} "
+                     f"(spread {spread * 100:+.1f} pp)")
+    pers = moat.get("persistence") or {}
+    hit, measured = pers.get("years_at_or_above_threshold"), pers.get("years_measured")
+    if isinstance(hit, int) and isinstance(measured, int) and measured:
+        parts.append(f"spread ≥5 pp en {hit} de {measured} años medidos "
+                     f"(el gate exige ≥4 de 5)")
+    rng = moat.get("margin_range")
+    if isinstance(rng, (int, float)):
+        parts.append(f"rango de margen operativo 5a de {rng * 100:.1f} pp "
+                     f"(el gate exige ≤5 pp)")
+    ev = moat.get("quantitative_evidence") or []
+    if ev:
+        parts.append("efectos de foso medibles: " + ", ".join(str(e) for e in ev))
+    if not parts:
+        return ""
+    label = moat.get("classification") or "NotScorable"
+    head = ("Foso sin clasificar (requiere el juez cualitativo)"
+            if label == "NotScorable" else f"Foso: {label}")
+    return f"{head}. " + "; ".join(parts) + "."
+
+
 def _engine_scorecard(ticker, info, price):
     """Scorecard de 6 categorías con el ENGINE REAL de Victor (código determinista,
     sin LLM), EXACTAMENTE como él lo tiene:
@@ -7981,6 +8021,34 @@ def _engine_scorecard(ticker, info, price):
     except Exception as _tke:
         print(f"[engine] thesis killers omitidos: {str(_tke)[:120]}")
 
+    # ── MOAT (01_business_analysis/OUTPUT_SCHEMA.md: `moat: {classification, quantitative_evidence}`).
+    #    Victor NO tiene un panel de foso: el envelope del sub-agente lleva la etiqueta, y en el
+    #    reporte final el foso sale como la frase obligatoria #2 ("Why value creation is or is not
+    #    durable"). Aquí se publican la etiqueta y la EVIDENCIA MECÁNICA que la sustenta para que
+    #    esa frase se arme con números y no con prosa. La clasificación es judgment-only (igual que
+    #    los thesis killers): es CONTENIDO, no puntaje — el score determinista deja su slot en N/S. ──
+    try:
+        _bus_det = next((_o for _k, _o in (_outputs or []) if _k == "business"), None)
+        _bus_ai = next((_o for _k, _o in (_outputs_ai or []) if _k == "business"), None)
+        if _bus_det is not None:
+            def _m(_o, _mid):
+                _r = next((_x for _x in (getattr(_o, "metrics", None) or [])
+                           if getattr(_x, "metric_id", None) == _mid), None)
+                return getattr(_r, "value", None) if _r is not None else None
+            _mo = getattr(_bus_ai, "moat", None) or getattr(_bus_det, "moat", None)
+            _pers = dict(getattr(_bus_det, "moat_persistence", None) or {})
+            sc["moat"] = {
+                "classification": getattr(_mo, "classification", "NotScorable"),
+                "quantitative_evidence": list(getattr(_mo, "quantitative_evidence", None) or []),
+                "roic": _m(_bus_det, "BUS-ROIC-013"),
+                "spread": _m(_bus_det, "BUS-SPREAD-014"),
+                "margin_range": _m(_bus_det, "BUS-RANGE-010"),
+                "persistence": _pers,
+                "spread_history": list(getattr(_bus_det, "roic_wacc_spread_history", None) or []),
+            }
+    except Exception as _me:
+        print(f"[engine] resumen de moat omitido: {str(_me)[:120]}")
+
     if _victor_gates:
         sc["victor_gates"] = _victor_gates                 # perfil/banda/overrides reales de Victor
     if _qual_prov:
@@ -8900,7 +8968,9 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
                         return ""
                     _et = ExecutiveThesis(
                         business_quality=_nar("company_summary_simple", "in_simple_terms"),
-                        value_creation_durability=_nar("posicion_competitiva", "porque_mejor_peor_inversion"),
+                        value_creation_durability=(
+                            _wbj_durability_sentence(_eng.get("moat"))
+                            or _nar("posicion_competitiva", "porque_mejor_peor_inversion")),
                         growth_engine=_nar("calculos_y_crecimiento_ai", "crecimiento_proyectado"),
                         market_validation=_nar("analistas_consenso"),
                         valuation_message=_nar("analisis_numeros_actuales", "the_bottom_line"),
