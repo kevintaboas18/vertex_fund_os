@@ -6673,35 +6673,350 @@ def _fmp_segment_shares(ticker, settings=None):
     return shares
 
 
-def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
-    """Inputs cualitativos del negocio que Victor lee por `overlay`, SOLO de
-    fuentes deterministas.
+def _extraction_model(settings=None):
+    """Modelo para EXTRAER texto largo (10-K), separado del que EMITE JUICIO.
 
-    Antes esto le mandaba el 10-K entero a Claude para que sacara ~20 campos.
-    Victor no hace eso: su `EdgarProvider` lee XBRL (`companyfacts`), la versión
-    legible por máquina del propio filing — Python puro, sin key y sin LLM. Esta
-    función se alinea con eso.
-
-    Lo que se puede obtener de forma determinista se obtiene; lo demás queda
-    NOT_SCORABLE, que es lo que manda `Cerebro/shared/MISSING_DATA_POLICY.md`
-    ("sin evidencia, no hay número").
-
-    Por qué NO se derivan aquí los demás campos:
-    - `largest_customer_share` / `customer_shares`: el tag XBRL que los llevaría
-      (`us-gaap:ConcentrationRiskPercentage1`) es DIMENSIONAL — sin el eje de
-      cliente no se sabe si el porcentaje es de un cliente, un proveedor o una
-      geografía. Usarlo igual sería inferir concentración no divulgada, que es
-      justo lo que `MISSING_DATA_POLICY.md:13-15` y `BUS-CONC-003` prohíben.
-    - `recurring_revenue`, retención, churn de logos, ARPU/CAC/vida del cliente:
-      no existen como tags XBRL estándar. Viven en la prosa del MD&A. Sin fuente
-      determinista → N/S.
+    Las dos llamadas al LLM tienen perfiles opuestos: la extracción manda ~125k tokens
+    de 10-K pero solo busca números (volumen, poco criterio), mientras el judge manda
+    ~3k tokens pero clasifica el moat y los thesis-killers (poco volumen, mucho
+    criterio) — y su respuesta SÍ mueve puntos. Poner el modelo caro en la extracción
+    es pagar 5x donde menos rinde, así que aquí se usa uno barato por defecto y el
+    judge conserva el suyo (wbj.config.judge_model).
     """
-    ov = {}
+    m = os.environ.get("EXTRACTION_MODEL")
+    if m:
+        return m.strip()
+    # Si alguien fijó JUDGE_MODEL a un modelo barato, se respeta esa intención.
+    jm = (getattr(settings, "judge_model", "") or os.environ.get("JUDGE_MODEL") or "").strip()
+    if "haiku" in jm.lower():
+        return jm
+    return "claude-haiku-4-5"
+
+
+def _wbj_qual_from_10k_llm(ticker, cik, settings, revenue_hint=None, skip=()):
+    """Extrae del 10-K real (SEC EDGAR) los inputs CUALITATIVOS que el especialista
+    Business de Victor lee por `overlay` y que NO están en FMP ni son slots del judge:
+    recurring_revenue, largest_customer_share, customer_shares, retention (NRR/GRR),
+    churn, customer_economics (arpu/ltv/cac/payback) y guidance_history.
+
+    Fiel al sub-agente `business-analysis` de Victor: Claude LEE el filing y devuelve
+    SOLO lo que la empresa divulga explícitamente; si no está, null → la métrica queda
+    N/S ('sin evidencia, no hay número'). Nunca inventa. Cualquier fallo → {} (el
+    análisis sigue igual). Devuelve el dict de overlay ya en la forma que espera Victor."""
+    key = getattr(settings, "anthropic_api_key", None)
+    if not key or not cik:
+        return {}
+    try:
+        import httpx, json as _json, re as _re
+        from wbj.providers.edgar import EDGAR_USER_AGENT
+        _hdr = {"User-Agent": EDGAR_USER_AGENT}
+        # 1) localizar el último 10-K (accession + documento primario) en submissions
+        _sub = httpx.get(f"https://data.sec.gov/submissions/CIK{int(cik):010d}.json",
+                         headers=_hdr, timeout=20.0)
+        _sub.raise_for_status()
+        _rec = (_sub.json().get("filings", {}) or {}).get("recent", {}) or {}
+        _forms = _rec.get("form", []); _accs = _rec.get("accessionNumber", []); _docs = _rec.get("primaryDocument", [])
+        _idx = next((i for i, f in enumerate(_forms) if f == "10-K"), None)
+        if _idx is None:
+            return {}
+        _acc = _accs[_idx].replace("-", ""); _doc = _docs[_idx]
+        # 2) bajar el documento y limpiarlo a texto plano
+        _u = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{_acc}/{_doc}"
+        _r = httpx.get(_u, headers=_hdr, timeout=30.0); _r.raise_for_status()
+        _txt = _re.sub(r"<[^>]+>", " ", _r.text)
+        _txt = _re.sub(r"&#\d+;|&[a-z]+;", " ", _txt)
+        # cap de contexto: 10-K reales miden 200k-500k caracteres. 180k truncaba MD&A/notas
+        # (donde viven segmentos, ingreso recurrente, unit economics) → datos omitidos. Subimos
+        # a 500k (~125k tokens, dentro del contexto de Claude) para NO omitir esas secciones.
+        _txt = _re.sub(r"\s+", " ", _txt).strip()[:500000]
+        # 3) extracción con Claude — SOLO lo divulgado, si no null
+        import anthropic
+        _client = anthropic.Anthropic(api_key=key)
+        _sys = ("Eres un analista que extrae SOLO datos DIVULGADOS explícitamente en un 10-K. "
+                "Si un dato no aparece divulgado, devuelve null. NUNCA estimes ni inventes. "
+                "Muchas empresas (no-suscripción) no reportan NRR/churn/LTV/CAC: en ese caso null. "
+                "Responde ÚNICAMENTE con un objeto JSON válido, sin texto alrededor.")
+        _schema = (
+            '{"recurring_revenue_pct": number|null,  // fracción 0-1 del ingreso total que es recurrente/suscripción (PREFERIDO, inequívoco)\n'
+            ' "recurring_revenue_usd": number|null,  // ingreso recurrente/suscripción anual en USD absolutos (respeta la escala: dólares, no millones)\n'
+            ' "largest_customer_share": number|null, // 0-1; SOLO si divulga un % ESPECÍFICO del mayor cliente. Si solo dice "ningún cliente supera X%" sin dar el número exacto -> null (PROHIBIDO imputar)\n'
+            ' "customer_shares": [number]|null,      // 0-1 por cliente si divulga varios\n'
+            ' "segment_shares": [number]|null,       // 0-1 fracción de ingresos por segmento de negocio\n'
+            ' // Cohorte de retención de ingresos (ARR bridge), en USD del MISMO periodo:\n'
+            ' "retention_begin": number|null,        // ARR/ingreso recurrente al inicio\n'
+            ' "retention_expansion": number|null,    // expansión/upsell del periodo\n'
+            ' "retention_contraction": number|null,  // contracción/downgrade del periodo\n'
+            ' "retention_churn": number|null,        // ingreso perdido por bajas del periodo\n'
+            ' // Churn de logos (CONTEO de clientes):\n'
+            ' "customers_lost": number|null,         // clientes perdidos en el periodo\n'
+            ' "customers_begin": number|null,        // clientes al inicio del periodo\n'
+            ' // Unit economics (si los divulga):\n'
+            ' "arpu": number|null,                   // ingreso anual promedio por cliente (USD)\n'
+            ' "monthly_arpu": number|null,           // ingreso MENSUAL promedio por cliente (USD)\n'
+            ' "gross_margin": number|null,           // margen bruto por cliente 0-1\n'
+            ' "customer_life_years": number|null,    // vida media del cliente en años\n'
+            ' "cac_spend": number|null,              // gasto total de adquisición (S&M) USD\n'
+            ' "new_customers": number|null,          // clientes nuevos adquiridos en el periodo\n'
+            ' "guidance_history": [{"actual": number, "guidance_midpoint": number}]|null}'
+        )
+        _msg = _client.messages.create(
+            model=_extraction_model(settings),      # modelo BARATO: aquí manda el volumen, no el criterio
+            max_tokens=1024, system=_sys,
+            messages=[{"role": "user", "content":
+                       f"Empresa {ticker}. Del siguiente 10-K, extrae este JSON (null si no está divulgado):\n"
+                       f"{_schema}\n\n=== 10-K ===\n{_txt}"}],
+        )
+        _raw = "".join(getattr(b, "text", "") for b in _msg.content)
+        _m = _re.search(r"\{.*\}", _raw, _re.DOTALL)
+        if not _m:
+            return {}
+        _d = _json.loads(_m.group(0))
+    except Exception as _e:
+        print(f"[engine] extracción cualitativa del 10-K omitida: {str(_e)[:140]}")
+        return {}
+    # 4) mapear a la forma EXACTA que Victor espera por overlay (solo lo no-null)
+    _ov = {}
+    def _num(x):
+        try:
+            return float(x) if x is not None else None
+        except (TypeError, ValueError):
+            return None
+    # recurring_revenue: preferir el PORCENTAJE (inequívoco) → absoluto = pct × ingreso.
+    # El absoluto directo se acepta solo si pasa una cota anti-error-de-unidad (millones vs dólares).
+    _rrp = _num(_d.get("recurring_revenue_pct"))
+    _rr = _num(_d.get("recurring_revenue_usd"))
+    _rev_h = _num(revenue_hint)
+    if _rrp is not None and 0.0 < _rrp <= 1.0 and _rev_h and _rev_h > 0:
+        _ov["recurring_revenue"] = _rrp * _rev_h
+    elif _rr is not None and _rr > 0:
+        # banda de sanidad de dos lados: recurrente entre 0.1% y 120% del ingreso. Fuera de eso
+        # es casi seguro un error de escala del LLM (millones/miles) → N/S (más honesto que un ~0 falso).
+        if (not _rev_h) or (_rev_h * 0.001 <= _rr <= _rev_h * 1.2):
+            _ov["recurring_revenue"] = _rr
+        else:
+            print(f"[engine] {ticker}: recurring_revenue absoluto descartado por escala improbable "
+                  f"({_rr:.3g} vs ingreso ~{_rev_h:.3g}) → N/S")
+    _lcs = _num(_d.get("largest_customer_share"))
+    if _lcs is not None and 0.0 <= _lcs <= 1.0:
+        _ov["largest_customer_share"] = _lcs
+    # customer/segment shares: mismo riesgo de escala que gross_margin. Si el 10-K dice
+    # "cliente A = 40%", el LLM puede devolver 40 en vez de 0.40. Si algún valor >1 (y ≤100),
+    # se interpreta como porcentaje y se divide toda la lista entre 100 (antes se descartaban).
+    def _norm_shares(_lst):
+        _vals = [v for v in (_num(x) for x in _lst) if v is not None and v >= 0]
+        if not _vals:
+            return None
+        if max(_vals) > 1.0 and max(_vals) <= 100.0:
+            _vals = [v / 100.0 for v in _vals]
+        _vals = [v for v in _vals if 0.0 <= v <= 1.0]
+        return _vals or None
+    _cs = _d.get("customer_shares")
+    if isinstance(_cs, list):
+        _csv = _norm_shares(_cs)
+        if _csv:
+            _ov["customer_shares"] = _csv
+    _ss = _d.get("segment_shares")
+    if isinstance(_ss, list):
+        _ssv = _norm_shares(_ss)
+        if _ssv:
+            _ov["segment_shares"] = _ssv
+    # retention: Victor exige la cohorte cruda {begin, expansion, contraction, churn}
+    # (NO nrr/grr; él los calcula). Solo se pasa si los 4 componentes están divulgados.
+    _rb, _rx = _num(_d.get("retention_begin")), _num(_d.get("retention_expansion"))
+    _rcn, _rch = _num(_d.get("retention_contraction")), _num(_d.get("retention_churn"))
+    if None not in (_rb, _rx, _rcn, _rch) and _rb > 0:
+        # La fórmula NRR RESTA contraction y churn → son MAGNITUDES. abs() por si el LLM
+        # las devuelve con signo (un contraction=-40 inflaría el NRR).
+        _ex, _ct, _cn = abs(_rx), abs(_rcn), abs(_rch)
+        _grr = (_rb - _ct - _cn) / _rb          # retención bruta
+        _nrr = (_rb + _ex - _ct - _cn) / _rb    # retención neta
+        # rechaza cohortes IMPOSIBLES: no se puede perder más que la base (GRR<0) ni retener
+        # >250% (NRR>2.5). Un dato así es error de extracción → N/S (no un score real).
+        if _grr >= 0.0 and _nrr <= 2.5:
+            _ov["retention"] = {"begin": _rb, "expansion": _ex, "contraction": _ct, "churn": _cn}
+        else:
+            print(f"[engine] {ticker}: cohorte de retención implausible (NRR={_nrr:.2f}, GRR={_grr:.2f}) → N/S")
+    # churn de logos: Victor exige {lost, begin_customers} (conteo de clientes).
+    # No se pueden perder más clientes que los del inicio (churn>100% es imposible) → N/S.
+    _cl, _cb = _num(_d.get("customers_lost")), _num(_d.get("customers_begin"))
+    if None not in (_cl, _cb) and _cb > 0 and 0.0 <= abs(_cl) <= _cb:
+        _ov["churn"] = {"lost": abs(_cl), "begin_customers": _cb}
+    elif None not in (_cl, _cb) and _cb > 0 and abs(_cl) > _cb:
+        print(f"[engine] {ticker}: churn de logos implausible (lost {abs(_cl):.0f} > base {_cb:.0f}) → N/S")
+    # customer_economics: claves EXACTAS que Victor consume para LTV/CAC/payback
+    _ce = {}
+    for _src, _dst in (("arpu", "arpu"), ("monthly_arpu", "monthly_arpu"), ("gross_margin", "gross_margin"),
+                       ("customer_life_years", "customer_life_years"), ("cac_spend", "cac_spend"),
+                       ("new_customers", "new_customers")):
+        _val = _num(_d.get(_src))
+        if _val is None:
+            continue
+        if _dst == "gross_margin":
+            # Victor multiplica gross_margin como FRACCIÓN 0-1 (LTV=arpu·gm·vida). Si el 10-K lo
+            # divulga como "80%" y el LLM devuelve 80 → normalizamos a 0.80 y acotamos [0,1].
+            if _val > 1.0:
+                _val = _val / 100.0
+            _val = min(max(_val, 0.0), 1.0)
+        _ce[_dst] = _val
+    if _ce:
+        _ov["customer_economics"] = _ce
+    _gh = _d.get("guidance_history")
+    if isinstance(_gh, list):
+        _ghv = [{"actual": _num(g.get("actual")), "guidance_midpoint": _num(g.get("guidance_midpoint"))}
+                for g in _gh if isinstance(g, dict) and _num(g.get("actual")) is not None
+                and _num(g.get("guidance_midpoint")) not in (None, 0)]
+        if _ghv:
+            _ov["guidance_history"] = _ghv
+    # `skip`: lo que la capa determinista ya resolvio no se devuelve. Un numero
+    # sacado del filing por codigo no puede ser pisado por uno sacado por un LLM.
+    for _k in (skip or ()):
+        _ov.pop(_k, None)
+    if _ov:
+        print(f"[engine] {ticker}: 10-K → inputs cualitativos divulgados: {sorted(_ov.keys())}")
+    return _ov
+
+
+def _edgar_companyfacts_for(cik, settings=None):
+    """XBRL companyfacts via el EdgarProvider de Victor (cacheado, sin API key).
+
+    Punto unico de entrada a SEC para la capa determinista: aisla la red para que
+    los tests puedan inyectar un payload y ejercitar la logica de verdad.
+    Cualquier fallo devuelve None — el analisis sigue sin este input.
+    """
+    try:
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.config import load_settings
+        from wbj.providers.cache import Cache
+        from wbj.providers.edgar import EdgarProvider
+        st = settings or load_settings()
+        return EdgarProvider(st, Cache(st.cache_dir)).companyfacts(int(cik))
+    except Exception as e:
+        print(f"[engine] companyfacts no disponible: {str(e)[:110]}")
+        return None
+
+
+def _xbrl_recurring_revenue(cik, revenue_hint, settings=None):
+    """`recurring_revenue` desde XBRL — PROXY REGISTRADO, no un dato reportado.
+
+    MISSING_DATA_POLICY.md paso 4: "Is a proxy explicitly registered? If yes, use
+    it with a proxy flag and lower model-fit confidence." Este es ese caso, y se
+    declara como tal en la procedencia del reporte.
+
+    El proxy: pasivo por contrato con clientes (ASC 606) —
+    `ContractWithCustomerLiabilityCurrent` + `...Noncurrent`, con respaldo en los
+    tags `DeferredRevenue*` anteriores a ASC 606. Solo existe cuando el cliente
+    pago por adelantado un servicio que se entrega a lo largo del tiempo, que es
+    justo la forma economica del ingreso por suscripcion.
+
+    Limite honesto: mide el saldo diferido, NO el ingreso recurrente anual. Por eso
+    es proxy y no clase R. Si el saldo supera al ingreso total, el supuesto no se
+    sostiene y se devuelve None en vez de un numero que parezca bueno.
+    """
+    if not cik or not revenue_hint or revenue_hint <= 0:
+        return None
+    facts = _edgar_companyfacts_for(cik, settings)
+    if not isinstance(facts, dict):
+        return None
+
+    def _latest(tag):
+        """Ultimo valor anual (form 10-K) del tag, en USD."""
+        units = (((facts.get("facts") or {}).get("us-gaap") or {}).get(tag) or {}).get("units") or {}
+        rows = [r for r in (units.get("USD") or [])
+                if isinstance(r.get("val"), (int, float)) and r.get("form") == "10-K" and r.get("end")]
+        if not rows:
+            return None
+        return float(max(rows, key=lambda r: r["end"])["val"])
+
+    for pair in (("ContractWithCustomerLiabilityCurrent", "ContractWithCustomerLiabilityNoncurrent"),
+                 ("DeferredRevenueCurrent", "DeferredRevenueNoncurrent")):
+        cur, non = _latest(pair[0]), _latest(pair[1])
+        if cur is None and non is None:
+            continue
+        total = (cur or 0.0) + (non or 0.0)
+        if total <= 0:
+            continue
+        if total > revenue_hint:
+            # Saldo diferido > ingreso anual: el proxy deja de tener sentido economico.
+            print(f"[engine] proxy de ingreso recurrente descartado: diferido {total:,.0f} "
+                  f"> ingreso {revenue_hint:,.0f} → N/S")
+            return None
+        return total, pair[0].replace("Current", "")
+    return None
+
+
+
+def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
+    """Inputs cualitativos del negocio que Victor lee por `overlay`.
+
+    Sigue el arbol de MISSING_DATA_POLICY.md en orden, sin saltarse escalones:
+
+      capa 1 (reportado / calculado / proxy registrado) — Python puro, gratis,
+              siempre corre. Es lo que Victor hace: leer el filing con codigo.
+      capa 2 (residuo) — el 10-K por LLM, SOLO para los campos que ninguna fuente
+              estructurada puede dar, y solo si hay key/credito.
+      capa 3 — lo que sigue faltando queda NOT_SCORABLE.
+
+    La capa 1 SIEMPRE gana: si el proxy de XBRL resolvio `recurring_revenue`, a la
+    capa 2 ni se le pregunta por el, para que un LLM no pueda pisar un numero que
+    salio del filing.
+
+    Por que cada campo cae donde cae:
+    - `segment_shares`   -> capa 1: FMP publica el desglose reportado (clase R).
+    - `recurring_revenue`-> capa 1: proxy registrado sobre el pasivo por contrato
+                            (ASC 606). Declarado como proxy en la procedencia.
+    - `largest_customer_share` / `customer_shares` -> capa 2. En XBRL viven detras
+                            del eje MajorCustomersAxis, y `companyfacts` devuelve
+                            los hechos SIN ejes: un ConcentrationRiskPercentage1
+                            suelto no dice si es de un cliente, un proveedor o una
+                            geografia. Tomarlo igual seria inferir concentracion no
+                            divulgada, prohibido por MISSING_DATA_POLICY.md:13-15 y
+                            BUS-CONC-003. El LLM si lee el eje en la prosa, y solo
+                            devuelve el dato si la empresa da un % especifico.
+    - retencion (NRR/GRR), churn de logos, ARPU, CAC, vida del cliente, guidance
+                         -> capa 2: no existen como tags XBRL, viven en el MD&A.
+                            LTV/CAC ademas exige CONTEOS de clientes que ninguna
+                            taxonomia etiqueta.
+    """
+    ov, prov = {}, {}
+
+    # ── capa 1: determinista ──────────────────────────────────────────────────
     seg = _fmp_segment_shares(ticker, settings)
     if seg:
         ov["segment_shares"] = seg
+        prov["segment_shares"] = {"source": "FMP revenue-product-segmentation",
+                                  "evidence_class": "R", "proxy": False}
+
+    rec = _xbrl_recurring_revenue(cik, revenue_hint, settings)
+    if rec:
+        ov["recurring_revenue"], _tag = rec
+        prov["recurring_revenue"] = {"source": f"XBRL us-gaap:{_tag}(Current+Noncurrent)",
+                                     "evidence_class": "A", "proxy": True,
+                                     "note": "Saldo diferido como proxy del ingreso recurrente; "
+                                             "confianza reducida (MISSING_DATA_POLICY paso 4)."}
+
     if ov:
-        print(f"[engine] {ticker}: inputs cualitativos deterministas: {sorted(ov.keys())}")
+        print(f"[engine] {ticker}: capa determinista → {sorted(ov.keys())}")
+
+    # ── capa 2: el residuo, por LLM ───────────────────────────────────────────
+    try:
+        llm = _wbj_qual_from_10k_llm(ticker, cik, settings, revenue_hint=revenue_hint,
+                                     skip=tuple(ov.keys())) or {}
+    except Exception as e:
+        print(f"[engine] {ticker}: capa LLM del 10-K omitida: {str(e)[:120]}")
+        llm = {}
+    for k, v in llm.items():
+        if k in ov:
+            continue                      # la capa determinista manda, siempre
+        ov[k] = v
+        prov[k] = {"source": "10-K (extraccion por LLM)", "evidence_class": "R", "proxy": False,
+                   "note": "Solo lo divulgado explicitamente en el filing; si no aparece, null."}
+    if llm:
+        print(f"[engine] {ticker}: capa LLM → {sorted(k for k in llm if k not in ('__prov__',))}")
+
+    if not ov:
+        print(f"[engine] {ticker}: sin inputs cualitativos disponibles → todos N/S")
+    ov["__provenance__"] = prov
     return ov
 
 
@@ -6761,6 +7076,7 @@ def _engine_scorecard(ticker, info, price):
     categories = {}; raw_total = 0.0; conf_num = 0.0; conf_den = 0.0; incomplete = []
     used_specialists = False
     _victor_gates = None; _victor_contradictions = None; _victor_levels = None   # aggregate REAL de Victor (principal)
+    _qual_prov = {}                 # linaje de los inputs cualitativos (fuente/clase/proxy)
     _victor_final_objs = None   # objetos crudos para el reporte final conforme a schema (apéndice de auditoría)
     _outputs_ai = None          # outputs fusionados CON judge (versión del panel "Juicio AI", NO el score principal)
     _ai_judgment = None         # scorecard con judge ya armado (categories/raw_total/perfil/recomendación) para el panel
@@ -7339,6 +7655,10 @@ def _engine_scorecard(ticker, info, price):
                     "guidance_history", "retention", "churn", "customer_economics"):
             if _qual.get(_qk) is not None:
                 _overlay[_qk] = _qual[_qk]
+        # Procedencia de cada input cualitativo (fuente, clase de evidencia, si es
+        # proxy). DATA_POLICY.md exige linaje: sin esto un proxy registrado se leeria
+        # igual que un dato reportado. No entra al overlay — es solo para el reporte.
+        _qual_prov = _qual.get("__provenance__") or {}
 
         # ── Fase A: correr los 6 especialistas (con overlay wacc/peer_roic) y recoger sus outputs ──
         _outputs = []                       # [(key, output)] en orden, para el judge y el merge
@@ -7697,6 +8017,11 @@ def _engine_scorecard(ticker, info, price):
 
     if _victor_gates:
         sc["victor_gates"] = _victor_gates                 # perfil/banda/overrides reales de Victor
+    if _qual_prov:
+        # DATA_POLICY.md exige linaje: de dónde salió cada input cualitativo, su clase
+        # de evidencia y si es un proxy registrado. Sin esto, un proxy se lee igual que
+        # un dato reportado en el filing.
+        sc["qual_provenance"] = _qual_prov
     if _victor_contradictions is not None:
         sc["victor_contradictions"] = _victor_contradictions
     if _victor_levels:
