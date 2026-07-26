@@ -804,8 +804,8 @@ class VertexDeepAnalysis(BaseModel):
     recomendacion_porque: str = Field(..., description="Explicación detallada de la acción sugerida y la lógica financiera basada en proyecciones futuras.")
     tesis_inversion_completa: str = Field(..., description="Tesis completa de inversión de la AI explicando detalladamente por qué es o no una buena asignación de capital.")
     tesis_riesgos: str = Field(..., description="Explicación y desglose analítico de los riesgos inherentes que podrían destruir la tesis.")
-    analistas_consenso: str = Field(..., description="Visión general, targets promedio y qué dice el consenso actual de los analistas de Wall Street.")
-    calculos_y_crecimiento_ai: str = Field(..., description="Detalle explícito de las proyecciones aritméticas, modelos aplicados y tasas de crecimiento estimadas.")
+    analistas_consenso: str = Field(..., description="Qué dice el consenso de Wall Street, CONTRASTADO con el veredicto de Victor: dónde coinciden, dónde divergen y qué explicaría la diferencia. Contexto, no conclusión.")
+    calculos_y_crecimiento_ai: str = Field(..., description="Aritmética REAL del reporte paso a paso: fórmula de los targets de Victor (EPS, crecimiento, múltiplo), el Fair Value como su target base, el DCF FCFF con su WACC, y qué agente empuja el puntaje. Nunca un cálculo inventado.")
     posicion_competitiva: str = Field(..., description="Evaluación cualitativa del Moat o ventaja competitiva frente a rivales.")
     principales_competidores: str = Field(..., description="Lista de los principales competidores de la industria.")
     porque_mejor_peor_inversion: str = Field(..., description="Justificación exacta comparando márgenes, retornos de capital y múltiplos.")
@@ -8456,7 +8456,18 @@ PROBABILIDADES CALIBRADAS (rellena 'probabilities'):
 Da probabilidades 0-100 ANCLADAS EN BASE-RATES, no en optimismo. Pregúntate: ¿con qué frecuencia históricamente una acción con esta volatilidad/perfil logra este movimiento? Evita sobreconfianza: si dices 90%, debe haber evidencia fuerte. En 'rationale' ancla explícitamente en frecuencias base. Estas probabilidades se usan para dimensionar la posición con Kelly fraccional, así que la calibración importa más que el optimismo.
 
 Genera el reporte financiero estructurado con análisis narrativo, fundamentales, tesis y riesgos.
-En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el promedio de los targets a 12 meses y Wall Street justifican los valores.
+En 'calculos_y_crecimiento_ai' explica la ARITMÉTICA REAL de este reporte, paso a paso, para que se
+entienda de dónde sale cada número. Usa SOLO lo que aparece arriba:
+- Los targets a 12 meses de Victor y su fórmula: EPS × (1+crecimiento) × (P/E actual × factor del escenario),
+  con el crecimiento anclado al CAGR de utilidades a 5 años. Di qué EPS, qué crecimiento y qué múltiplo se usaron.
+- El Fair Value, que ES el target base de Victor. NO lo promedies con Wall Street ni con nada más:
+  si citas el consenso de analistas es como CONTRASTE, nunca como parte del cálculo.
+- El DCF (FCFF) del especialista de valuación, si está disponible, con su WACC y sus supuestos.
+- El puntaje de los 6 agentes: qué categoría empuja hacia arriba, cuál hacia abajo, y por qué.
+Si un dato no está arriba, di que no está — nunca inventes un cálculo intermedio.
+
+En 'analistas_consenso' resume qué dice Wall Street y CONTRÁSTALO con el veredicto de Victor: dónde
+coinciden, dónde divergen y qué explicaría la diferencia. El consenso es contexto, no es la conclusión.
 """
 
         analisis_json, _analysis_src = _analyze_structured(prompt, temp=0.2)

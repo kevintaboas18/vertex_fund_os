@@ -1030,11 +1030,14 @@
                     <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900"><span class="text-xs font-bold text-white block mb-2">&#128203; Recommendation &amp; Reasoning</span><p id="recAndReasoningText" class="text-xs text-gray-300 leading-relaxed"></p></div>
                     <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900"><span class="text-xs font-bold text-blue-400 block mb-2">&#129504; Full AI Investment Thesis</span><p id="thesisCore" class="text-xs text-gray-400 leading-relaxed"></p></div>
                     <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900"><span class="text-xs font-bold text-red-400 block mb-2">&#9888; Risks &amp; Threats</span><p id="thesisRisks" class="text-xs text-gray-400 leading-relaxed"></p></div>
-                    <!-- "Wall Street Analysts Consensus" y "AI Numeric Calculations & Growth"
-                         se eliminaron. El primero es prosa del LLM sobre el consenso, que ya está
-                         en cifras arriba. El segundo describía un Fair Value calculado como promedio
-                         de Vertex y Wall Street — un número que el sistema NO usa: el Fair Value
-                         publicado es el target base de Victor. Contradecía al propio reporte. -->
+                    <!-- Explicación en detalle del LLM sobre los números REALES del reporte.
+                         Antes "AI Numeric Calculations" describía un Fair Value promediado con Wall
+                         Street que el sistema no calcula; la causa era el propio prompt, que pedía
+                         ese promedio. Corregido el prompt, ahora explica la aritmética de Victor
+                         (fórmula de sus targets, su DCF FCFF, sus 6 agentes) y el consenso queda
+                         como CONTRASTE, nunca como parte del cálculo. -->
+                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900"><span class="text-xs font-bold text-blue-400 block mb-2">&#128290; Cómo salen los números — aritmética del reporte</span><p id="thesisCalculations" class="text-xs text-gray-400 leading-relaxed font-mono text-[11px]"></p></div>
+                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900"><span class="text-xs font-bold text-amber-400 block mb-2">&#128202; Wall Street vs Victor — contraste del consenso</span><p id="thesisWS" class="text-xs text-gray-400 leading-relaxed"></p></div>
                     <div class="bg-[#0B0E14] p-4 rounded-xl border border-l-4 border-l-blue-500 border-gray-900"><span class="text-xs font-bold text-white block mb-1">&#127937; The Bottom Line</span><p id="theBottomLine" class="text-sm text-white leading-relaxed font-medium"></p></div>
                 </div>
             </div>
@@ -1697,7 +1700,8 @@ function renderDashboard(data) {
     document.getElementById('recAndReasoningText').innerText = a.recomendacion_porque || '';
     document.getElementById('thesisCore').innerText         = a.tesis_inversion_completa || '';
     document.getElementById('thesisRisks').innerText        = a.tesis_riesgos || '';
-    // thesisWS / thesisCalculations eliminados (ver comentario en el HTML).
+    document.getElementById('thesisCalculations').innerText = a.calculos_y_crecimiento_ai || '';
+    document.getElementById('thesisWS').innerText           = a.analistas_consenso || '';
     document.getElementById('theBottomLine').innerText      = a.the_bottom_line || '';
     lucide.createIcons();
     try { const _gc = document.getElementById('qtGexCard'); if (_gc) _gc.classList.add('hidden'); loadAnalysisGex(data.ticker); } catch(e) {}
