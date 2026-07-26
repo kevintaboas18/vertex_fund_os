@@ -902,26 +902,12 @@
                 <!-- El "Motor de Convicción Ponderado" de Vertex (composite 25/20/20/15/10/5/5 con
                      pesos por régimen y calibración) fue ELIMINADO: la convicción es el puntaje de
                      los 6 agentes de Victor y la recomendación sale de sus gates. -->
-                <div id="qtValidation" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3">
-                    <div class="flex items-center justify-between mb-3">
-                        <div class="flex items-center gap-2">
-                            <i data-lucide="shield-check" class="w-4 h-4 text-blue-400"></i>
-                            <span class="text-xs font-bold text-white uppercase tracking-wider">Validaci&oacute;n del An&aacute;lisis</span>
-                        </div>
-                        <span id="qtValModel" class="text-[9px] font-mono text-gray-500"></span>
-                    </div>
-                    <div id="qtValBody" class="space-y-2"></div>
-                </div>
 
                 <!-- ══ POR QUÉ ESTE VEREDICTO: los gates, overrides y contradicciones REALES de
                      Victor (apply_gates / apply_overrides / contradictions). Convierte la etiqueta
                      del perfil en un argumento auditable. ══ -->
                 <div id="frWhyVerdict" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
 
-                <!-- ══ CONTENIDO OBLIGATORIO (CLAUDE.md): insiders >$1M (Forms 4) + barra de flujo
-                     neto de Victor, inversionistas 13F, historial del management y cuándo
-                     revisitar si la clasificación es 'evitar'. ══ -->
-                <div id="frMandatory" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
             </div>
 
 
@@ -986,23 +972,9 @@
                 <div class="c-chart" id="frVictorChart"></div>
                 <!-- Regla visual de Victor: título, unidades, fuente y timestamp. -->
                 <p id="frChartSrc" class="chart-cite mb-4"></p>
-                <div class="grid grid-cols-3 gap-3 mb-4">
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-emerald-500/20 text-center">
-                        <span class="text-[10px] text-emerald-400 font-bold block uppercase mb-1" id="frBullLabel">&#128994; Bull</span>
-                        <span id="fr_bull" class="text-lg font-mono font-black text-emerald-400"></span>
-                        <span id="fr_bull_pct" class="text-[10px] text-emerald-600 block font-mono"></span>
-                    </div>
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-amber-500/20 text-center">
-                        <span class="text-[10px] text-amber-400 font-bold block uppercase mb-1" id="frBaseLabel">&#128993; Base</span>
-                        <span id="fr_base" class="text-lg font-mono font-black text-amber-400"></span>
-                        <span id="fr_base_pct" class="text-[10px] text-amber-600 block font-mono"></span>
-                    </div>
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-red-500/20 text-center">
-                        <span class="text-[10px] text-red-400 font-bold block uppercase mb-1" id="frBearLabel">&#128308; Bear</span>
-                        <span id="fr_bear" class="text-lg font-mono font-black text-red-400"></span>
-                        <span id="fr_bear_pct" class="text-[10px] text-red-600 block font-mono"></span>
-                    </div>
-                </div>
+                <!-- Las tarjetas Bull/Base/Bear 12M se eliminaron: la gráfica de Victor de
+                     arriba ya dibuja los tres targets con sus líneas. Repetirlos como cifras
+                     sueltas era decir dos veces lo mismo. -->
 
 
                 <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3">
@@ -1022,6 +994,11 @@
                      VWAP anclado, gaps de earnings, bandas de valor y zonas de confluencia.
                      Estructura de precio pura: ninguna de estas líneas la pone una IA. ══ -->
                 <div id="frLevels" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
+
+                <!-- ══ CONTENIDO OBLIGATORIO (CLAUDE.md): insiders >$1M (Forms 4) + barra de flujo
+                     neto de Victor, inversionistas 13F, historial del management y cuándo
+                     revisitar si la clasificación es 'evitar'. ══ -->
+                <div id="frMandatory" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
             </div>
 
             <div>
@@ -1060,8 +1037,11 @@
                     <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900"><span class="text-xs font-bold text-white block mb-2">&#128203; Recommendation &amp; Reasoning</span><p id="recAndReasoningText" class="text-xs text-gray-300 leading-relaxed"></p></div>
                     <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900"><span class="text-xs font-bold text-blue-400 block mb-2">&#129504; Full AI Investment Thesis</span><p id="thesisCore" class="text-xs text-gray-400 leading-relaxed"></p></div>
                     <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900"><span class="text-xs font-bold text-red-400 block mb-2">&#9888; Risks &amp; Threats</span><p id="thesisRisks" class="text-xs text-gray-400 leading-relaxed"></p></div>
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900"><span class="text-xs font-bold text-amber-400 block mb-2">&#128202; Wall Street Analysts Consensus</span><p id="thesisWS" class="text-xs text-gray-400 leading-relaxed"></p></div>
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900"><span class="text-xs font-bold text-blue-400 block mb-2">&#128290; AI Numeric Calculations &amp; Growth</span><p id="thesisCalculations" class="text-xs text-gray-400 leading-relaxed font-mono text-[11px]"></p></div>
+                    <!-- "Wall Street Analysts Consensus" y "AI Numeric Calculations & Growth"
+                         se eliminaron. El primero es prosa del LLM sobre el consenso, que ya está
+                         en cifras arriba. El segundo describía un Fair Value calculado como promedio
+                         de Vertex y Wall Street — un número que el sistema NO usa: el Fair Value
+                         publicado es el target base de Victor. Contradecía al propio reporte. -->
                     <div class="bg-[#0B0E14] p-4 rounded-xl border border-l-4 border-l-blue-500 border-gray-900"><span class="text-xs font-bold text-white block mb-1">&#127937; The Bottom Line</span><p id="theBottomLine" class="text-sm text-white leading-relaxed font-medium"></p></div>
                 </div>
             </div>
@@ -1747,7 +1727,19 @@ function renderDashboard(data) {
                    y es valido. Lo unico que falta es la narrativa del LLM.</p>
                  <p class="text-[10px] text-gray-500 mt-1.5 font-mono">${(a.narrative_error || '').replace(/</g,'&lt;')}</p>
                </div>` : '';
-        _repIE.innerHTML = _na + integrityStripHTML(a.integrity);
+        // La coherencia (contradicciones internas del reporte) vivía en el panel
+        // "Validación del análisis", ya eliminado. Es lo único de ahí que no tenía
+        // otro hogar, así que se pliega aquí: responde la misma pregunta que la
+        // integridad de datos — ¿puedo confiar en estos números?
+        const _cf = a.coherence_flags || [];
+        const _coh = _cf.length
+            ? `<div class="bg-amber-500/10 border border-amber-600/40 rounded-xl px-3 py-2 mt-2">
+                 <p class="text-[11px] font-bold text-amber-300 flex items-center gap-1.5">
+                   <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>
+                   ${_cf.length} contradicción${_cf.length > 1 ? 'es' : ''} interna${_cf.length > 1 ? 's' : ''}</p>
+                 ${_cf.map(f => `<p class="text-[10px] text-amber-200/80 mt-1">• ${f.detail}</p>`).join('')}</div>`
+            : '';
+        _repIE.innerHTML = _na + integrityStripHTML(a.integrity) + _coh;
     }
     document.getElementById('qtBiggestPro').innerText = a.biggest_pro || '';
     document.getElementById('qtBiggestRisk').innerText = a.biggest_risk || '';
@@ -1886,97 +1878,11 @@ function renderDashboard(data) {
     // ELIMINADO: la convicción mostrada arriba ES el puntaje de los 6 agentes de Victor.
 
     // ── Validación del Análisis (#1 flujo · #4 prob · #5 targets · #7 fuente · #8 coherencia) ──
-    const valEl = document.getElementById('qtValidation');
-    if (valEl) {
-        const hasVal = a.model_source != null || a.prob_anchoring || a.target_reconciliation || a.coherence_flags != null || a.should_debate || (a.deep_memory && a.deep_memory.n_prior) || (a.open_options && a.open_options.length);
-        if (!hasVal) { valEl.classList.add('hidden'); }
-        else {
-        const rows = [];
-        const pa = a.prob_anchoring, tr = a.target_reconciliation, cf = a.coherence_flags || [];
-        // #9 auto-debate (convicción ≥ umbral)
-        if (a.should_debate) {
-            rows.push(`<div class="bg-blue-500/10 border border-blue-600/40 rounded-lg px-2.5 py-1.5 flex items-center justify-between">
-                <span class="text-[10px] font-bold text-blue-300 flex items-center gap-1"><i data-lucide="scale" class="w-3 h-3"></i> Debate auto-disparado ${a.debate_reason?`<span class="font-normal text-blue-200/70">(${a.debate_reason})</span>`:''}</span>
-                <button onclick="switchAnalysisTab('debateTab', document.getElementById('tabBtnDebate'))" class="text-[9px] font-bold text-blue-300 underline">ver debate</button></div>`);
-        }
-        // #7 fuente del modelo
-        const ms = a.model_source;
-        const msEl = document.getElementById('qtValModel');
-        if (msEl) msEl.innerText = ms ? `motor: ${ms}` : '';
-        // #8 coherencia
-        if (cf.length) {
-            rows.push(`<div class="bg-amber-500/10 border border-amber-600/40 rounded-lg px-2.5 py-1.5">
-                <p class="text-[10px] font-bold text-amber-300 flex items-center gap-1"><i data-lucide="alert-triangle" class="w-3 h-3"></i> ${cf.length} contradicci&oacute;n${cf.length>1?'es':''} interna${cf.length>1?'s':''}</p>
-                ${cf.map(f=>`<p class="text-[9px] text-amber-200/80 mt-0.5">• ${f.detail}</p>`).join('')}</div>`);
-        } else {
-            rows.push(`<div class="flex items-center gap-1.5 text-[10px] text-emerald-400"><i data-lucide="check-circle-2" class="w-3 h-3"></i> An&aacute;lisis coherente (sin contradicciones internas)</div>`);
-        }
-        // #1 flujo anclado
-        // (El 'flujo anclado al cómputo' alimentaba la señal 25% del motor ponderado — eliminado.)
-        // (Los 'pesos adaptados por IC' pertenecían al motor de convicción ponderado — eliminado.)
-        // (El ajuste de convicción por confluencia pertenecía al motor ponderado — eliminado.)
-        // #4 probabilidad anclada
-        if (pa && pa.p_used != null) {
-            const pcol = pa.p_used < pa.llm_p ? '#f59e0b' : '#10b981';
-            rows.push(`<div class="flex items-center justify-between text-[10px]">
-                <span class="text-gray-400">Prob. anclada a base-rate <span class="text-gray-600">(${pa.base_rate}% n=${pa.n})</span></span>
-                <span class="font-mono">LLM ${pa.llm_p}% → <b style="color:${pcol}">${pa.p_used}%</b></span></div>`);
-        }
-        // #5 reconciliación de targets
-        if (tr && tr.length) {
-            const hl = {'7d':'7d','30d':'30d','3m':'3m','6m':'6m','12m':'12m'};
-            rows.push(`<div class="pt-1.5 border-t border-gray-900">
-                <p class="text-[9px] text-gray-500 mb-1">Reconciliaci&oacute;n de targets (agente &sigma;/DCF vs gamma/flujo):</p>
-                ${tr.map(r=>{
-                    const dcol = r.agree ? '#10b981' : '#f59e0b';
-                    return `<div class="flex items-center justify-between text-[9px] font-mono">
-                        <span class="text-gray-500 w-8">${hl[r.horizon]||r.horizon}</span>
-                        <span class="text-gray-400">$${r.agent_base} vs $${r.gamma_level}</span>
-                        <span style="color:${dcol}">${r.divergence_pct>0?'+':''}${r.divergence_pct}% ${r.agree?'✓':'⚠'}</span>
-                        <span class="text-gray-300">cons. $${r.consensus}</span></div>`;
-                }).join('')}</div>`);
-        }
-        // #2 earnings depth + #3 catalizadores / 8-K reales (SEC EDGAR)
-        const cats = a.news_catalysts || [], k8 = a.sec_8k || [], eh = a.earnings_history;
-        if (cats.length || k8.length || (eh && eh.n)) {
-            const chips = cats.slice(0,8).map(c=>`<span class="inline-block bg-gray-800 text-gray-300 rounded px-1.5 py-0.5 text-[8px] mr-1 mb-1">${c}</span>`).join('');
-            const k8html = k8.slice(0,4).map(f=>`<a href="${f.url}" target="_blank" class="block text-[9px] text-blue-300 hover:underline">&#128196; ${f.date}: ${(f.items_desc||[]).join(', ')||'8-K'}</a>`).join('');
-            const ehtxt = (eh && eh.n) ? `<p class="text-[9px] text-gray-400 mt-1">Earnings: <b>${eh.beats}/${eh.n}</b> beats${eh.avg_surprise_pct!=null?` &middot; sorpresa ${eh.avg_surprise_pct>0?'+':''}${eh.avg_surprise_pct}%`:''}${eh.avg_abs_move_pct!=null?` &middot; &plusmn;${eh.avg_abs_move_pct}% post`:''}</p>` : '';
-            rows.push(`<div class="pt-1.5 border-t border-gray-900">
-                <p class="text-[9px] text-gray-500 mb-1">Catalizadores &amp; 8-K (SEC EDGAR):</p>
-                ${chips?`<div class="mb-1">${chips}</div>`:''}
-                ${k8html||'<p class="text-[9px] text-gray-600">Sin 8-K recientes (45d).</p>'}
-                ${ehtxt}</div>`);
-        }
-        // #3 memoria profunda (aciertos históricos del agente en este ticker)
-        const dm = a.deep_memory;
-        if (dm && dm.n_prior) {
-            const hr = dm.hist_hit_rate;
-            const hcol = hr==null?'#9ca3af':hr>=60?'#10b981':hr>=40?'#f59e0b':'#ef4444';
-            rows.push(`<div class="flex items-center justify-between text-[10px] pt-1.5 border-t border-gray-900">
-                <span class="text-gray-400 flex items-center gap-1"><i data-lucide="brain" class="w-3 h-3"></i> Memoria: ${dm.n_prior} llamada${dm.n_prior>1?'s':''} previa${dm.n_prior>1?'s':''} en este ticker</span>
-                ${hr!=null?`<span class="font-mono">acierto hist. <b style="color:${hcol}">${hr}%</b> <span class="text-gray-600">(n=${dm.n_scored})</span></span>`:'<span class="text-gray-600 text-[9px]">aún sin madurar</span>'}</div>`);
-        }
-        // #3 posiciones de opciones abiertas que el agente consideró
-        const oo = a.open_options;
-        if (oo && oo.length) {
-            const li = oo.slice(0,6).map(p=>{
-                const typ=(p.option_type||'?').toUpperCase(); const avg=p.avg_price||p.price; const cur=p.price;
-                const pnl=(avg&&cur&&avg>0)?((cur-avg)/avg*100):null;
-                const pc=pnl==null?'text-gray-400':pnl>=0?'text-emerald-400':'text-red-400';
-                return `<div class="flex items-center justify-between text-[9px] font-mono">
-                    <span class="text-gray-400">${typ} $${p.strike} ${(p.expiry||'').slice(0,10)} ×${p.contracts}</span>
-                    <span class="${pc}">${pnl!=null?(pnl>=0?'+':'')+pnl.toFixed(0)+'%':'—'}</span></div>`;
-            }).join('');
-            rows.push(`<div class="pt-1.5 border-t border-gray-900">
-                <p class="text-[9px] text-amber-400 mb-1 flex items-center gap-1"><i data-lucide="layers" class="w-3 h-3"></i> El agente vio tus ${oo.length} posición${oo.length>1?'es':''} de opciones abiertas aquí:</p>
-                ${li}</div>`);
-        }
-        document.getElementById('qtValBody').innerHTML = rows.join('');
-        valEl.classList.remove('hidden');
-        }
-    }
-
+    // El panel "Validación del análisis" fue eliminado: el 8-K estaba duplicado en
+    // "8-K Material Events", la reconciliación de targets comparaba horizontes
+    // 7d/30d/3m/6m que ya no existen (los targets son los de Victor, solo 12M), el
+    // debate y la memoria tienen su propia pestaña y su propia tarjeta. Lo único sin
+    // otro hogar era la coherencia, que ahora va en el strip de integridad de arriba.
     // #2 + #5 Plan de Trade (probabilidades calibradas + Kelly sizing + stops)
     const tp = a.trade_plan;
     const tpc = document.getElementById('qtTradePlan');
@@ -2056,8 +1962,7 @@ function renderDashboard(data) {
     document.getElementById('recAndReasoningText').innerText = a.recomendacion_porque || '';
     document.getElementById('thesisCore').innerText         = a.tesis_inversion_completa || '';
     document.getElementById('thesisRisks').innerText        = a.tesis_riesgos || '';
-    document.getElementById('thesisWS').innerText           = a.analistas_consenso || '';
-    document.getElementById('thesisCalculations').innerText = a.calculos_y_crecimiento_ai || '';
+    // thesisWS / thesisCalculations eliminados (ver comentario en el HTML).
     document.getElementById('theBottomLine').innerText      = a.the_bottom_line || '';
     lucide.createIcons();
     try { const _gc = document.getElementById('qtGexCard'); if (_gc) _gc.classList.add('hidden'); loadAnalysisGex(data.ticker); } catch(e) {}
@@ -2625,15 +2530,7 @@ function updateFrTargets(period) {
     const lm = {'7d':'7 Days','1mo':'30 Days','3mo':'3 Months','6mo':'6 Months','1y':'12 Months'};
     // Con targets de Victor el horizonte es SIEMPRE 12 meses (no existe otro en su metodología).
     const lbl = _victorTargets() ? '12 Months' : (lm[period] || period);
-    document.getElementById('frBullLabel').innerText = `Bull ${lbl}`;
-    document.getElementById('frBaseLabel').innerText = `Base ${lbl}`;
-    document.getElementById('frBearLabel').innerText = `Bear ${lbl}`;
-    document.getElementById('fr_bull').innerText = `$${(t.bull||0).toFixed(2)}`;
-    document.getElementById('fr_base').innerText = `$${(t.base||0).toFixed(2)}`;
-    document.getElementById('fr_bear').innerText = `$${(t.bear||0).toFixed(2)}`;
-    document.getElementById('fr_bull_pct').innerText = pctDiff(price, t.bull);
-    document.getElementById('fr_base_pct').innerText = pctDiff(price, t.base);
-    document.getElementById('fr_bear_pct').innerText = pctDiff(price, t.bear);
+    // Las tarjetas Bull/Base/Bear ya no existen: la gráfica de Victor las dibuja.
 }
 function getTargetsForPeriod(period) {
     const targets = currentAnalysis?.targets || {};
