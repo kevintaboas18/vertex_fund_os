@@ -5920,26 +5920,6 @@ class WBJReport(BaseModel):
     probabilities: TradeProbabilities = Field(..., description="Probabilidades calibradas ancladas en base-rates (no optimismo). Se usan para dimensionar la posición con Kelly fraccional.")
 
 
-def _wbj_num(x, default=0.0):
-    try:
-        return float(x)
-    except (TypeError, ValueError):
-        return default
-
-
-
-
-# Mapeo único perfil (gate de Victor) → recomendación/clasificación. Centralizado para que
-# el veredicto que ve la narrativa y el que se publica sean SIEMPRE el mismo.
-_WBJ_PROFILE_TO_RECO = {
-    "Momentum Candidate":  ("BUY", "Favorable a invertir"),
-    "Quality Opportunity": ("BUY", "Favorable a invertir"),
-    "Value Opportunity":   ("BUY", "Favorable a invertir"),
-    "Conditional / Watch": ("HOLD", "Condicional — esperar confirmación"),
-    "Speculative":         ("SPECULATIVE", "Especulativa — solo tamaño de riesgo"),
-}
-
-
 def _wbj_reco_from_profile(profile):
     """Perfil de Victor → (recomendación, clasificación). Avoid/Wait y Weak/Wait → AVOID."""
     return _WBJ_PROFILE_TO_RECO.get(profile, ("AVOID", "Evitar / esperar"))
@@ -6196,7 +6176,16 @@ def _wbj_fmp_important_insiders(ticker):
                 "shares": int(_sh), "price": round(_px, 2), "value": round(_val, 2),
                 "date": str(r.get("transactionDate") or r.get("filingDate") or "")[:10],
                 "is_buy": _is_buy, "is_sell": _is_sell, "source": "FMP Form 4"})
-        return important
+        # Flujo NETO de insiders con la función de Victor (brief.py `_insiders_flow`): compras vs
+        # ventas en dólares sobre TODO el feed, no solo lo que excede $1M. Él la describe como
+        # "a coarser, fuller-picture lens than the >$1M highlights" — las dos vistas conviven.
+        _flow = None
+        try:
+            from wbj.brief import _insiders_flow as _victor_flow
+            _flow = _victor_flow(rows)
+        except Exception:
+            _flow = None
+        return {"important": important, "flow": _flow}
     except Exception as _e:
         print(f"[analyze] insiders FMP omitidos (fallback yfinance): {str(_e)[:120]}")
         return None
@@ -6208,6 +6197,12 @@ def _wbj_mandatory_report(insiders, recommendation, next_earnings_date=None, fmp
     'evitar'— cuándo revisitar. Determinista; NO cambia el scoring."""
     out = {}
     insiders = insiders if isinstance(insiders, dict) else {}
+    # `fmp_important` llega como {"important": [...], "flow": {...}} (o una lista, por
+    # compatibilidad con reportes viejos guardados antes de que se añadiera el flujo).
+    _flow = None
+    if isinstance(fmp_important, dict):
+        _flow = fmp_important.get("flow")
+        fmp_important = fmp_important.get("important")
     # Fuente PRIMARIA: FMP (Form 4 con valores confiables) si hay key; si no, yfinance.
     if fmp_important is not None:
         important = fmp_important
@@ -6235,6 +6230,10 @@ def _wbj_mandatory_report(insiders, recommendation, next_earnings_date=None, fmp
         "net_exceeds_1m": bool(_net is not None and abs(float(_net)) > 1_000_000),
         "signal": _signal, "source": _src,
         "note": "Solo se listan insiders con transacciones que exceden $1M USD (Forms 4, SEC)."}
+    if _flow:
+        # Vista COMPLEMENTARIA de Victor: compras vs ventas en dólares sobre TODO el feed
+        # (los regalos/adjudicaciones a precio 0 no suman). Más gruesa pero más completa.
+        out["insiders_flow"] = _flow
     out["institutional_13f"] = (insiders.get("institutional") or [])[:10]  # inversionistas reconocidos (13F)
     if (recommendation or "").upper() == "AVOID":
         out["revisit"] = {   # CLAUDE.md: si 'evitar', fecha/evento concreto para revisitar
