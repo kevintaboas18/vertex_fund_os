@@ -2,8 +2,21 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- viewport-fit=cover: deja que el contenido use el area del notch; el padding
+         seguro lo pone el CSS con env(safe-area-inset-*). maximum-scale NO se fija:
+         bloquear el zoom rompe la accesibilidad. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Vertex Fund OS | Terminal</title>
+    <!-- Instalable como app (Android/Chrome: "Instalar"; iOS/Safari: "Añadir a inicio") -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/icon-180.png">
+    <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#eef1f6" media="(prefers-color-scheme: light)">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Vertex AI">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -43,7 +56,74 @@
         html.light #themeToggle { background: #ffffff; border-color: #e5e8ee; color: #16181d; box-shadow: 0 4px 14px rgba(16,24,40,.12); }
         .custom-scroll::-webkit-scrollbar { width: 6px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #1F2532; border-radius: 4px; }
-        .analysis-tab { padding: 8px 20px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 2px solid transparent; color: #6b7280; cursor: pointer; transition: all 0.2s; background: transparent; border-top: none; border-left: none; border-right: none; }
+
+        /* ══════════════ RESPONSIVE — telefono / tablet / escritorio ══════════════
+           La app es una sola pagina que tiene que servir en las tres. Reglas base:
+           1) la pagina NUNCA hace scroll horizontal — lo ancho scrollea dentro de su caja
+           2) los tap targets miden >= 44px en pantallas tactiles
+           3) las tablas y barras de pestañas scrollean solas, sin barra visible
+           4) los inputs miden >= 16px en movil (por debajo, iOS hace zoom al enfocar)  */
+        html { -webkit-text-size-adjust: 100%; }
+        body { overflow-x: hidden; }
+        /* El notch/isla del iPhone y la barra de gestos */
+        nav { padding-left: max(0.75rem, env(safe-area-inset-left)); padding-right: max(0.75rem, env(safe-area-inset-right)); }
+        .view-section { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+        /* Cualquier caja marcada como scroll horizontal: con inercia y sin barra visible */
+        .xscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+        .xscroll::-webkit-scrollbar { display: none; }
+        /* Las tablas anchas ya declaran min-w-[...]; su contenedor debe poder scrollear */
+        table { max-width: none; }
+        /* Degradado al borde derecho de la barra de pestañas: avisa que hay mas a la
+           derecha. Se apaga cuando la fila ya llego al final (clase .at-end). */
+        .tabbar-wrap { position: relative; }
+        .tabbar-wrap::after { content: ""; position: absolute; top: 0; right: 0; bottom: 2px; width: 32px;
+            pointer-events: none; opacity: 1; transition: opacity .2s;
+            background: linear-gradient(to right, rgba(17,20,29,0), #11141D 85%); }
+        .tabbar-wrap.at-end::after { opacity: 0; }
+        html.light .tabbar-wrap::after { background: linear-gradient(to right, rgba(255,255,255,0), #ffffff 85%); }
+        @media (min-width: 1024px) { .tabbar-wrap::after { display: none; } }
+
+        @media (max-width: 767px) {
+            /* iOS hace zoom al enfocar un input con font-size < 16px */
+            input[type="text"], input[type="number"], input[type="search"], input[type="email"],
+            input[type="password"], input:not([type]), select, textarea { font-size: 16px !important; }
+            /* Titulares mas contenidos en pantalla chica */
+            .text-3xl { font-size: 1.5rem !important; line-height: 2rem !important; }
+            .text-2xl { font-size: 1.35rem !important; line-height: 1.85rem !important; }
+            /* Menos aire interior: en 360px de ancho, p-6 se come la mitad de la pantalla */
+            .tab-content.p-6 { padding: 1rem !important; }
+            /* El boton flotante de tema no debe tapar el contenido ni la barra de gestos */
+            #themeToggle { right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); }
+        }
+        /* Pantallas tactiles: superficie de toque comoda en la navegacion */
+        @media (hover: none) and (pointer: coarse) {
+            .analysis-tab, .mnav-item, .tf-pill { min-height: 44px; }
+        }
+
+        /* ── Menu movil (se abre tocando "VERTEX AI") ── */
+        #mobileNav { position: fixed; inset: 0; z-index: 120; display: none; }
+        #mobileNav.open { display: block; }
+        #mobileNavBackdrop { position: absolute; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(2px); }
+        #mobileNavPanel {
+            position: absolute; top: 0; left: 0; bottom: 0; width: min(86vw, 340px);
+            background: #0B0E14; border-right: 1px solid #1F2532; display: flex; flex-direction: column;
+            padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom);
+            transform: translateX(-100%); transition: transform .22s cubic-bezier(.4,0,.2,1);
+            overflow-y: auto; -webkit-overflow-scrolling: touch;
+        }
+        #mobileNav.open #mobileNavPanel { transform: translateX(0); }
+        html.light #mobileNavPanel { background: #ffffff; border-right-color: #e5e8ee; }
+        .mnav-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 16px;
+            border-radius: 12px; color: #9ca3af; font-size: 14px; font-weight: 600; text-align: left;
+            background: transparent; border: none; cursor: pointer; transition: background .15s, color .15s; }
+        .mnav-item:active { background: #151a25; }
+        .mnav-item.active { background: rgba(59,130,246,.12); color: #60a5fa; }
+        html.light .mnav-item { color: #5b6270; }
+        html.light .mnav-item.active { background: rgba(59,130,246,.1); color: #2563eb; }
+        .mnav-item[disabled] { opacity: .45; cursor: default; }
+
+        .analysis-tab { white-space: nowrap; flex: 0 0 auto; padding: 8px 20px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; border-bottom: 2px solid transparent; color: #6b7280; cursor: pointer; transition: all 0.2s; background: transparent; border-top: none; border-left: none; border-right: none; }
+        @media (max-width: 767px) { .analysis-tab { padding: 10px 12px; font-size: 11px; letter-spacing: 0.04em; } }
         .analysis-tab:hover { color: #e5e7eb; }
         .analysis-tab.active { color: #3b82f6; border-bottom-color: #3b82f6; }
         .tab-content { display: none; }
@@ -231,21 +311,26 @@
 </div>
 
 <nav class="flex items-center justify-between px-3 md:px-6 py-3 border-b border-panel bg-[#0B0E14] sticky top-0 z-40">
-    <div class="flex items-center gap-3 md:gap-8">
-        <div onclick="switchView('homeView')" class="flex items-center gap-2 text-white font-bold text-lg tracking-wide cursor-pointer">
-            <div class="w-3 h-3 bg-blue-500 rounded-full"></div> VERTEX AI
-        </div>
-        <div class="hidden md:flex gap-6 text-sm text-gray-400 font-medium">
+    <div class="flex items-center gap-3 lg:gap-4 xl:gap-8 min-w-0">
+        <!-- En escritorio la marca lleva al home. En movil/tablet abre el menu: es el
+             unico punto de entrada a las secciones cuando la barra de links esta oculta. -->
+        <button onclick="navBrandClick()" id="navBrand" aria-label="Menu de secciones"
+                aria-controls="mobileNav" aria-expanded="false"
+                class="flex items-center gap-2 text-white font-bold text-base lg:text-lg tracking-wide cursor-pointer bg-transparent border-none p-0 shrink-0 whitespace-nowrap">
+            <div class="w-3 h-3 bg-blue-500 rounded-full shrink-0"></div> VERTEX AI
+            <i data-lucide="chevron-down" class="w-4 h-4 text-gray-500 lg:hidden"></i>
+        </button>
+        <div class="hidden lg:flex gap-4 xl:gap-6 text-[13px] xl:text-sm text-gray-400 font-medium whitespace-nowrap">
             <button onclick="switchView('homeView')" class="hover:text-white transition">Dashboard</button>
             <button onclick="switchView('reportsView')" class="hover:text-white transition">Reports</button>
-            <button class="hover:text-white transition">Vertex Credit Division</button>
+            <button class="hidden xl:block hover:text-white transition">Vertex Credit Division</button>
             <button onclick="switchView('portfolioView')" class="hover:text-white transition">Portfolio</button>
             <button onclick="switchView('projectionsView')" class="hover:text-white transition">Proyecciones</button>
             <button onclick="switchView('watchlistView')" class="hover:text-white transition">Watchlist</button>
             <button onclick="switchView('trackRecordView')" class="hover:text-white transition">Track Record</button>
         </div>
     </div>
-    <div class="flex items-center gap-2 md:gap-3">
+    <div class="flex items-center gap-2 md:gap-3 shrink-0">
         <div class="relative">
             <button id="dataHealthPill" onclick="toggleDataHealth(event)"
                 class="text-xs bg-panel border border-panel px-3 py-1.5 rounded-full flex items-center gap-2 hover:border-gray-600 transition">
@@ -282,16 +367,68 @@
             </div>
             <div class="flex items-center gap-2 bg-panel border border-panel px-3 py-1.5 rounded-full">
                 <div class="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-[10px] font-black text-white" id="navUserAvatar">—</div>
-                <span class="text-xs text-gray-300 font-medium hidden sm:block" id="navUserName"></span>
+                <span class="text-xs text-gray-300 font-medium hidden xl:block" id="navUserName"></span>
             </div>
             <button onclick="authSignOut()" title="Sign Out"
-                class="text-xs text-gray-500 hover:text-red-400 border border-[#1F2532] hover:border-red-500/30 px-2.5 py-1.5 rounded-full flex items-center gap-1.5 transition-all">
+                class="hidden lg:flex text-xs text-gray-500 hover:text-red-400 border border-[#1F2532] hover:border-red-500/30 px-2.5 py-1.5 rounded-full items-center gap-1.5 transition-all">
                 <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
-                <span class="hidden sm:inline">Sign Out</span>
+                <span class="hidden xl:inline">Sign Out</span>
             </button>
         </div>
     </div>
 </nav>
+
+<!-- ══ MENU MOVIL — se abre tocando "VERTEX AI" en telefono/tablet ══════════════
+     Da acceso a TODAS las secciones y deja correr el agente completo desde el
+     telefono: analizar un ticker, proyecciones GEX, portafolio, watchlist. -->
+<div id="mobileNav" role="dialog" aria-modal="true" aria-label="Menu de navegacion">
+    <div id="mobileNavBackdrop" onclick="closeMobileNav()"></div>
+    <div id="mobileNavPanel">
+        <div class="flex items-center justify-between px-4 py-4 border-b border-panel">
+            <div class="flex items-center gap-2 text-white font-bold text-base tracking-wide">
+                <div class="w-2.5 h-2.5 bg-blue-500 rounded-full"></div> VERTEX AI
+            </div>
+            <button onclick="closeMobileNav()" aria-label="Cerrar menu"
+                    class="w-9 h-9 rounded-full border border-panel flex items-center justify-center text-gray-400">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+        </div>
+
+        <div class="px-3 pt-3">
+            <p class="text-[10px] font-bold text-gray-600 uppercase tracking-wider px-2 mb-1.5">Correr el agente</p>
+            <button class="mnav-item" onclick="mobileQuickAnalyze()">
+                <i data-lucide="zap" class="w-4 h-4 text-blue-400"></i>
+                <span class="flex-1">Analizar un ticker<span class="block text-[10px] font-normal text-gray-600">Analisis completo de los 6 especialistas</span></span>
+            </button>
+            <button class="mnav-item" onclick="mobileGo('projectionsView')">
+                <i data-lucide="activity" class="w-4 h-4 text-amber-400"></i>
+                <span class="flex-1">Proyecciones GEX<span class="block text-[10px] font-normal text-gray-600">Muros de gamma y niveles de opciones</span></span>
+            </button>
+        </div>
+
+        <div class="px-3 pt-4">
+            <p class="text-[10px] font-bold text-gray-600 uppercase tracking-wider px-2 mb-1.5">Secciones</p>
+            <button class="mnav-item" data-view="homeView"        onclick="mobileGo('homeView')"><i data-lucide="layout-dashboard" class="w-4 h-4"></i> Dashboard</button>
+            <button class="mnav-item" data-view="reportsView"     onclick="mobileGo('reportsView')"><i data-lucide="file-text" class="w-4 h-4"></i> Reports</button>
+            <button class="mnav-item" data-view="portfolioView"   onclick="mobileGo('portfolioView')"><i data-lucide="briefcase" class="w-4 h-4"></i> Portfolio</button>
+            <button class="mnav-item" data-view="projectionsView" onclick="mobileGo('projectionsView')"><i data-lucide="trending-up" class="w-4 h-4"></i> Proyecciones</button>
+            <button class="mnav-item" data-view="watchlistView"   onclick="mobileGo('watchlistView')"><i data-lucide="eye" class="w-4 h-4"></i> Watchlist</button>
+            <button class="mnav-item" data-view="trackRecordView" onclick="mobileGo('trackRecordView')"><i data-lucide="target" class="w-4 h-4"></i> Track Record</button>
+            <button class="mnav-item" disabled><i data-lucide="landmark" class="w-4 h-4"></i>
+                <span class="flex-1">Vertex Credit Division<span class="block text-[10px] font-normal text-gray-600">Proximamente</span></span>
+            </button>
+        </div>
+
+        <div class="px-3 pt-4 pb-6 mt-auto">
+            <button class="mnav-item" onclick="toggleTheme(); closeMobileNav();">
+                <i data-lucide="sun-moon" class="w-4 h-4"></i> Cambiar tema
+            </button>
+            <button class="mnav-item text-gray-500" onclick="closeMobileNav(); authSignOut();">
+                <i data-lucide="log-out" class="w-4 h-4"></i> Cerrar sesion
+            </button>
+        </div>
+    </div>
+</div>
 
 <!-- Batch Polish · Command bar (Cmd/Ctrl+K o "/") -->
 <div id="cmdBar" class="hidden fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-start justify-center pt-32 px-4" onclick="if(event.target===this)closeCmdBar()">
@@ -554,7 +691,10 @@
     </div>
 
     <div class="bg-panel border border-panel rounded-2xl overflow-hidden">
-        <div class="flex border-b border-panel px-2 pt-1 overflow-x-auto">
+        <!-- 8 pestañas no caben en un telefono: la fila scrollea y el degradado de la
+             derecha avisa que hay mas (sin el, el usuario no sabe que puede desplazar). -->
+        <div class="tabbar-wrap">
+        <div class="flex border-b border-panel px-2 pt-1 xscroll" id="analysisTabBar">
             <button class="analysis-tab active" onclick="switchAnalysisTab('quickTakeTab', this)">&#9889; Quick Take</button>
             <button class="analysis-tab" onclick="switchAnalysisTab('noticesTab', this)">&#128240; Notices</button>
             <button class="analysis-tab" onclick="switchAnalysisTab('fullResearchTab', this)">&#128300; Full Research</button>
@@ -563,6 +703,7 @@
             <button class="analysis-tab" onclick="switchAnalysisTab('sentimentTab', this)">&#129504; Sentiment AI</button>
             <button class="analysis-tab" onclick="switchAnalysisTab('cascadeTab', this)">&#9878;&#65039; Consenso AI</button>
             <button id="tabBtnDebate" class="analysis-tab" onclick="switchAnalysisTab('debateTab', this)">&#9876;&#65039; Debate AI</button>
+        </div>
         </div>
 
         <div id="quickTakeTab" class="tab-content active p-6 space-y-6">
@@ -1828,7 +1969,7 @@ function renderDashboard(data) {
                 ? `<span class="text-emerald-400 font-bold">Sin stop fijo (A-grade)</span> · ${rp.equity_stop_note || ''}`
                 : `<span class="text-amber-400 font-bold">Stop $${rp.equity_stop}</span> · ${rp.equity_stop_note || ''}`;
             document.getElementById('qtTradePlanBody').innerHTML = `
-                <div class="grid grid-cols-4 gap-2 mb-3">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
                     ${chip('Pos 12m', pr.p_positive_12m)}${chip('Bull 12m', pr.p_touch_bull_12m)}
                     ${chip('Bear 12m', pr.p_touch_bear_12m)}${chip('+10% 3m', pr.p_up_10pct_3m)}
                 </div>
@@ -1953,7 +2094,7 @@ async function renderReportOptionPlay(ticker, kellyPct) {
                     <span class="text-[11px] font-bold text-white">${p.label} · <span class="${call?'text-emerald-400':'text-red-400'}">${p.opt_type} $${p.strike}</span> <span class="text-gray-500 text-[9px]">(${p.long_moneyness})</span></span>
                     <span class="text-[9px] text-gray-500 font-mono">${p.dte}d · exp ${p.expiry||'—'} · IV ${p.iv_pct}%</span>
                 </div>
-                <div class="grid grid-cols-4 gap-2 text-center text-[9px] mb-1.5">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-[9px] mb-1.5">
                     <div><p class="text-gray-600">Entrada</p><p class="font-mono text-gray-200">${px(p.entry_price)}</p><p class="text-gray-600 text-[8px]">${money(p.entry_cost_contract)}/ct</p></div>
                     <div><p class="text-gray-600">R:R rápido</p><p class="font-mono font-bold ${rrColor}">${p.rr_fast!=null?p.rr_fast:'—'}</p></div>
                     <div><p class="text-gray-600">Target / BE</p><p class="font-mono text-gray-200">${px(p.target_underlying)}</p><p class="text-gray-600 text-[8px]">BE ${px(p.breakeven)}</p></div>
@@ -3133,7 +3274,7 @@ async function loadFlowLedger(ticker) {
         const bar = `<div class="flex h-2 rounded-full overflow-hidden mb-3">
             <div style="width:${(bull / tot * 100).toFixed(1)}%" class="bg-emerald-500"></div>
             <div style="width:${(bear / tot * 100).toFixed(1)}%" class="bg-red-500"></div></div>
-            <div class="grid grid-cols-4 gap-2 mb-3 text-center text-[9px]">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-center text-[9px]">
               <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-1.5"><p class="text-gray-500 uppercase">Compra calls</p><p class="text-emerald-400 font-bold text-[11px]">${fmt(s.call_buy)}</p></div>
               <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-1.5"><p class="text-gray-500 uppercase">Venta puts</p><p class="text-emerald-400 font-bold text-[11px]">${fmt(s.put_sell)}</p></div>
               <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-1.5"><p class="text-gray-500 uppercase">Compra puts</p><p class="text-red-400 font-bold text-[11px]">${fmt(s.put_buy)}</p></div>
@@ -3253,7 +3394,7 @@ function renderIncomeStrategies(d) {
             <span class="text-[10px] text-gray-500">${s.exp} · ${s.dte}d</span>
           </div>
           <div class="text-[11px] text-gray-300 mb-1.5">${legStr(s.legs)}</div>
-          <div class="grid grid-cols-4 gap-2 text-center mb-1.5">
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mb-1.5">
             <div><div class="text-[9px] text-gray-500 uppercase">Crédito</div><div class="text-[12px] font-bold text-emerald-400">${usd0(s.credit_usd)}</div></div>
             <div><div class="text-[9px] text-gray-500 uppercase">Máx pérdida</div><div class="text-[12px] font-bold text-red-400">${usd0(s.max_loss_usd)}</div></div>
             <div><div class="text-[9px] text-gray-500 uppercase">POP</div><div class="text-[12px] font-bold text-gray-100">${s.pop_pct != null ? s.pop_pct + '%' : '—'}</div></div>
@@ -8034,6 +8175,84 @@ function renderRegime(d) {
         if (viewId === 'trackRecordView') { loadTrackRecord(); loadRegime(); loadSchedulerStatus(); loadCalibration(); }
     };
 })();
+</script>
+
+<!-- ══ Menu movil — logica ══════════════════════════════════════════════════════
+     En escritorio la barra de links vive en el nav (hidden md:flex). Por debajo de
+     768px esa barra desaparece, asi que la marca "VERTEX AI" pasa a ser el boton
+     que abre el menu: sin el, en telefono no habia forma de cambiar de seccion. -->
+<script>
+// 1024px: por debajo de eso la barra de links del nav esta oculta y la marca
+// "VERTEX AI" es el unico acceso a las secciones (telefono y tablet vertical).
+const _MQ_DESKTOP = '(min-width: 1024px)';
+function _isDesktop(){ return window.matchMedia(_MQ_DESKTOP).matches; }
+
+function navBrandClick(){
+    if (_isDesktop()) { switchView('homeView'); return; }
+    const el = document.getElementById('mobileNav');
+    if (el && el.classList.contains('open')) closeMobileNav(); else openMobileNav();
+}
+
+function _currentViewId(){
+    const v = document.querySelector('.view-section:not(.hidden)');
+    return v ? v.id : 'homeView';
+}
+
+function openMobileNav(){
+    const el = document.getElementById('mobileNav');
+    if (!el) return;
+    // Marca la seccion en la que estas para no perder el hilo al navegar
+    const cur = _currentViewId();
+    el.querySelectorAll('.mnav-item[data-view]').forEach(b =>
+        b.classList.toggle('active', b.dataset.view === cur));
+    el.classList.add('open');
+    document.getElementById('navBrand')?.setAttribute('aria-expanded', 'true');
+    // Congela el scroll del fondo mientras el panel esta abierto
+    document.body.style.overflow = 'hidden';
+    if (window.lucide) lucide.createIcons();
+}
+
+function closeMobileNav(){
+    document.getElementById('mobileNav')?.classList.remove('open');
+    document.getElementById('navBrand')?.setAttribute('aria-expanded', 'false');
+    document.body.style.overflow = '';
+}
+
+function mobileGo(viewId){
+    closeMobileNav();
+    switchView(viewId);
+    window.scrollTo({ top: 0, behavior: 'auto' });
+}
+
+/** Atajo del menu: ir al buscador y dejar el cursor listo para teclear el ticker.
+ *  El focus va dentro del gesto de toque para que iOS abra el teclado. */
+function mobileQuickAnalyze(){
+    closeMobileNav();
+    switchView('homeView');
+    try { switchHomeTab('analyze'); } catch(e) {}
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    const inp = document.getElementById('tickerInput');
+    if (inp) { inp.focus({ preventScroll: true }); inp.select(); }
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeMobileNav();
+});
+
+/* El degradado de la barra de pestañas se apaga al llegar al final del scroll,
+   para no sugerir contenido que ya no existe. */
+(function(){
+    const bar = document.getElementById('analysisTabBar');
+    if (!bar || !bar.parentElement) return;
+    const sync = () => bar.parentElement.classList.toggle(
+        'at-end', bar.scrollLeft + bar.clientWidth >= bar.scrollWidth - 2);
+    bar.addEventListener('scroll', sync, { passive: true });
+    window.addEventListener('resize', sync);
+    sync();
+})();
+// Si el usuario rota la tablet a horizontal y aparece la barra de escritorio,
+// el panel deja de tener sentido: se cierra solo.
+window.matchMedia(_MQ_DESKTOP).addEventListener('change', e => { if (e.matches) closeMobileNav(); });
 </script>
 
 <!-- Toggle de tema claro/oscuro -->
