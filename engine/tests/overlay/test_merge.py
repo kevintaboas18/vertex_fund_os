@@ -609,3 +609,50 @@ def _risk_output_with_thesis_killer_request():
     fx = pathlib.Path(__file__).resolve().parents[1] / "fixtures/packet/NVDA_packet.json"
     pk = Packet.model_validate(_json.load(open(fx)))
     return rsk.run(pk, overlay={"wacc": 0.1193})
+
+
+# ---------------------------------------------------------------------------
+# `envelope.moat` es un modelo anidado: `metric_id` nombra la pregunta, no el
+# campo. El juicio "Wide" movia el score de la dimension (via judgment_slots)
+# pero `moat.classification` se quedaba en "NotScorable" — el reporte mostraba
+# un score de foso subido bajo una etiqueta que decia "no evaluable". Y
+# `moat_quantitative_effects_count`, del que depende la condicion 3 del
+# wide-moat gate, no tenia destino: se preguntaba, se pagaba y se tiraba.
+# ---------------------------------------------------------------------------
+
+def _moat_judgment(request_id: str, answer):
+    return Judgment(
+        request_id=request_id, answer=answer,
+        evidence_class=EvidenceClass.Q, source="10-K FY2025", rationale="test",
+    )
+
+
+@pytest.mark.parametrize("answer,expected", [("Wide", "Wide"), ("Narrow", "Narrow"), ("None", "None")])
+def test_moat_classification_reaches_the_envelope_label(nvda_packet, answer, expected):
+    out = bus.run(nvda_packet, overlay={"wacc": 0.1193})
+    merged = merge_overlay([out], [_moat_judgment("business_analysis:moat_classification", answer)])[0]
+    assert merged.moat.classification == expected
+
+
+def test_moat_label_and_score_move_together(nvda_packet):
+    out = bus.run(nvda_packet, overlay={"wacc": 0.1193})
+    before = next(d for d in out.dimensions if d.name == bus.DIM_MOAT).score10_value().value
+    merged = merge_overlay([out], [_moat_judgment("business_analysis:moat_classification", "Wide")])[0]
+    after = next(d for d in merged.dimensions if d.name == bus.DIM_MOAT).score10_value().value
+    assert after > before
+    assert merged.moat.classification == "Wide"
+
+
+def test_moat_quantitative_effects_reach_the_envelope(nvda_packet):
+    out = bus.run(nvda_packet, overlay={"wacc": 0.1193})
+    merged = merge_overlay([out], [_moat_judgment(
+        "business_analysis:moat_quantitative_effects_count",
+        {"items": ["cost advantage", "network scale"]},
+    )])[0]
+    assert merged.moat.quantitative_evidence == ["cost advantage", "network scale"]
+
+
+def test_insufficient_moat_answer_leaves_the_label_untouched(nvda_packet):
+    out = bus.run(nvda_packet, overlay={"wacc": 0.1193})
+    merged = merge_overlay([out], [_moat_judgment("business_analysis:moat_classification", "INSUFFICIENT")])[0]
+    assert merged.moat.classification == "NotScorable"

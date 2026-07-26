@@ -323,6 +323,24 @@ def _apply_updates(
     return merged.model_copy(update=update)
 
 
+# Judgment answers whose home is a *nested* envelope field. `metric_id` names
+# the question, not the field, so the exact-name match in `_extension_updates`
+# cannot reach them: business's moat label lives at
+# `BusinessOutput.moat.classification` and its evidence list at
+# `BusinessOutput.moat.quantitative_evidence`.
+#
+# Without this map the judge's "Wide" moved the moat dimension score (that path
+# goes through `judgment_slots`, which did work) while `envelope.moat.
+# classification` stayed "NotScorable" -- the report showed a raised moat score
+# under a NotScorable label -- and `moat_quantitative_effects_count`, the answer
+# DECISION_RULES.md's wide-moat gate condition 3 depends on, had no destination
+# at all and was dropped after being asked, paid for and answered.
+_NESTED_EXTENSION_FIELDS: dict[str, tuple[str, str]] = {
+    "moat_classification": ("moat", "classification"),
+    "moat_quantitative_effects_count": ("moat", "quantitative_evidence"),
+}
+
+
 def _extension_updates(
     output: SpecialistOutput, updates: list[tuple[JudgmentRequest, Judgment]]
 ) -> dict[str, Any]:
@@ -349,24 +367,56 @@ def _extension_updates(
     """
     fields = type(output).model_fields
     out: dict[str, Any] = {}
+    # Sub-field writes are accumulated per container so two answers landing in
+    # the same nested model (moat classification + quantitative effects) don't
+    # overwrite each other's `model_copy`.
+    nested: dict[str, dict[str, Any]] = {}
     for req, judgment in updates:
         name = req.metric_id
-        if name not in fields:
+        nested_target = _NESTED_EXTENSION_FIELDS.get(name)
+        if name not in fields and nested_target is None:
             continue
         answer = judgment.answer
         if isinstance(answer, str) and answer.strip().upper() == "INSUFFICIENT":
             continue
         if isinstance(answer, dict) and "items" in answer:
             answer = answer["items"]
-        annotation = str(fields[name].annotation)
-        if annotation.startswith("list"):
-            if not isinstance(answer, list):
-                answer = [answer]
-            answer = [a for a in answer if a not in (None, "")]
-            if not answer:
+
+        if nested_target is not None:
+            container_name, sub_name = nested_target
+            container = getattr(output, container_name, None)
+            sub_fields = getattr(type(container), "model_fields", {})
+            if container is None or sub_name not in sub_fields:
                 continue
+            answer = _coerce_to_annotation(answer, str(sub_fields[sub_name].annotation))
+            if answer is None:
+                continue
+            nested.setdefault(container_name, {})[sub_name] = answer
+            continue
+
+        answer = _coerce_to_annotation(answer, str(fields[name].annotation))
+        if answer is None:
+            continue
         out[name] = answer
+
+    for container_name, sub_updates in nested.items():
+        out[container_name] = getattr(output, container_name).model_copy(update=sub_updates)
     return out
+
+
+def _coerce_to_annotation(answer: Any, annotation: str) -> Any:
+    """Shape a judgment answer for its destination field, or None to skip it.
+
+    List-typed fields take the `{"items": [...]}` payload `judge._coerce_answer`
+    produces (already unwrapped by the caller), wrap a scalar, and drop empties;
+    scalar fields take the answer as-is.
+    """
+    if annotation.startswith("list"):
+        if not isinstance(answer, list):
+            answer = [answer]
+        answer = [a for a in answer if a not in (None, "")]
+        return answer or None
+    return answer
 
 
 def _replace_slot(dimension: Dimension, slot_index: int, score: float, judgment: Judgment) -> Dimension:

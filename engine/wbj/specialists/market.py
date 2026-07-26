@@ -102,12 +102,13 @@ from wbj.engines import indicators as ind
 from wbj.schemas.packet import Packet
 from wbj.specialists.common import (
     CategoryStats,
-    apply_dimension_cap,
     JudgmentRequest,
     MetricRow,
     SecurityRef,
     SpecialistOutput,
     ValidationTestsSummary,
+    apply_dimension_cap,
+    excess_cash,
     status_from_coverage,
 )
 
@@ -590,8 +591,8 @@ def _reinvestment_rate_and_roic(annual: list[dict]) -> tuple[float | None, float
     pretax = _num(annual[-1], "income_before_tax")
     tax_expense = _num(annual[-1], "income_tax_expense")
     tax_rate = min(max(tax_expense / pretax, 0.0), 1.0) if pretax and pretax > 0 and tax_expense is not None else 0.21
-    cash_latest = _num(annual[-1], "cash") or 0.0
-    cash_begin = _num(annual[-2], "cash") or 0.0
+    cash_latest = excess_cash(annual[-1])[0]
+    cash_begin = excess_cash(annual[-2])[0]
     nopat_value = ebit_latest * (1 - tax_rate)
     ic_end = debt_latest + equity_latest - cash_latest
     ic_begin = debt_begin + equity_begin - cash_begin

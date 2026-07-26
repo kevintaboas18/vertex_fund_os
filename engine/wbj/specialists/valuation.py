@@ -96,12 +96,13 @@ from wbj.schemas.valuation import (
 )
 from wbj.specialists.common import (
     CategoryStats,
-    apply_dimension_cap,
     JudgmentRequest,
     MetricRow,
     SecurityRef,
     SpecialistOutput,
     ValidationTestsSummary,
+    apply_dimension_cap,
+    excess_cash,
     status_from_coverage,
 )
 
@@ -369,7 +370,7 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     ic_result = None
     if debt_t is not None and equity_t is not None and debt_t1 is not None and equity_t1 is not None:
         ic_end = ve.invested_capital(debt_t, equity_t, cash).financing_view
-        ic_begin = ve.invested_capital(debt_t1, equity_t1, _num(prior, "cash") or 0.0).financing_view
+        ic_begin = ve.invested_capital(debt_t1, equity_t1, excess_cash(prior)[0]).financing_view
         if ic_end.is_valid and ic_begin.is_valid:
             avg_ic = (ic_end.value + ic_begin.value) / 2
             ic_result = avg_ic

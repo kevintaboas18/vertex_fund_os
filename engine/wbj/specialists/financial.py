@@ -86,6 +86,7 @@ from wbj.specialists.common import (
     SecurityRef,
     SpecialistOutput,
     ValidationTestsSummary,
+    excess_cash,
     status_from_coverage,
 )
 
@@ -1184,7 +1185,7 @@ def _compute_all(
     dividends = abs(_num(latest, "dividends_paid") or 0.0)
     cash_uses_total = cash_uses + buybacks + dividends
     cash_begin_row = annual[-2] if len(annual) >= 2 else {}
-    cash_begin = _num(cash_begin_row, "cash") or 0.0
+    cash_begin = excess_cash(cash_begin_row)[0]
     # `debt_repayment` follows FMP's net convention: negative = net debt
     # repaid (cash outflow), positive = net new debt raised. Only the
     # positive (issuance) side counts as "external dependence" here; a
@@ -1303,10 +1304,10 @@ def _compute_all(
 
     if ebit_latest is not None and debt_latest is not None and equity_latest is not None:
         nopat_value = ebit_latest * (1 - tax_rate)
-        cash_latest = _num(annual[-1], "cash") or 0.0
+        cash_latest = excess_cash(annual[-1])[0]
         ic_end = debt_latest + equity_latest - cash_latest
         if len(debt_hist) >= 2 and debt_hist[-2] is not None and equity_hist[-2] is not None:
-            cash_begin_ic = _num(annual[-2], "cash") or 0.0
+            cash_begin_ic = excess_cash(annual[-2])[0]
             ic_begin = debt_hist[-2] + equity_hist[-2] - cash_begin_ic
             avg_ic = (ic_begin + ic_end) / 2
         else:
@@ -1350,7 +1351,7 @@ def _compute_all(
     for i in range(1, len(annual)):
         ebit_i = ebit_hist[i]
         debt_i, equity_i, debt_im1, equity_im1 = debt_hist[i], equity_hist[i], debt_hist[i - 1], equity_hist[i - 1]
-        cash_i, cash_im1 = _num(annual[i], "cash"), _num(annual[i - 1], "cash")
+        cash_i, cash_im1 = excess_cash(annual[i])[0], excess_cash(annual[i - 1])[0]
         if None in (ebit_i, debt_i, equity_i, debt_im1, equity_im1, cash_i, cash_im1):
             continue
         pretax_i, tax_i = _num(annual[i], "income_before_tax"), _num(annual[i], "income_tax_expense")
@@ -1366,7 +1367,7 @@ def _compute_all(
     add("FIN-EF-027", v, _band_or_none(v, band_return_trend), (DIM_RETURNS,))
 
     # ---- Diagnostics (not part of core-27) ----
-    net_debt_latest = (debt_latest or 0.0) - (_num(annual[-1], "cash") or 0.0) if annual else None
+    net_debt_latest = (debt_latest or 0.0) - excess_cash(annual[-1])[0] if annual else None
     v = _null(NullState.MISSING, "ratio", "EBITDA_UNAVAILABLE_NO_DA_FIELD")
     add("FIN-DX-028", v, None, (), core27=False)
 

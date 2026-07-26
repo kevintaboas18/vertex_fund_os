@@ -92,12 +92,13 @@ from wbj.engines import valuation_engine as ve
 from wbj.schemas.packet import Packet
 from wbj.specialists.common import (
     CategoryStats,
-    apply_dimension_cap,
     JudgmentRequest,
     MetricRow,
     SecurityRef,
     SpecialistOutput,
     ValidationTestsSummary,
+    apply_dimension_cap,
+    excess_cash,
     status_from_coverage,
 )
 
@@ -615,7 +616,7 @@ def _roic_and_spread_history(annual: list[dict], wacc_value: float | None) -> tu
         ebit_i = _num(annual[i], "ebit")
         debt_i, equity_i = _num(annual[i], "total_debt"), _num(annual[i], "total_equity")
         debt_im1, equity_im1 = _num(annual[i - 1], "total_debt"), _num(annual[i - 1], "total_equity")
-        cash_i, cash_im1 = _num(annual[i], "cash") or 0.0, _num(annual[i - 1], "cash") or 0.0
+        cash_i, cash_im1 = excess_cash(annual[i])[0], excess_cash(annual[i - 1])[0]
         if None in (ebit_i, debt_i, equity_i, debt_im1, equity_im1):
             continue
         tax_rate = _tax_rate(annual[i], 0.21)
@@ -773,8 +774,14 @@ def _compute_all(
     nopat_latest = v_nopat.value if v_nopat.is_valid else None
 
     if len(debt_hist) >= 2 and debt_latest is not None and equity_latest is not None and debt_hist[-2] is not None and equity_hist[-2] is not None:
-        cash_latest = _num(annual[-1], "cash") or 0.0
-        cash_begin = _num(annual[-2], "cash") or 0.0
+        cash_latest, cash_latest_complete = excess_cash(annual[-1])
+        cash_begin, cash_begin_complete = excess_cash(annual[-2])
+        if not (cash_latest_complete and cash_begin_complete):
+            assumptions.append(
+                "BUS-IC-012: short-term investments unavailable; excess cash was taken as "
+                "cash and equivalents only, which overstates invested capital and understates "
+                "ROIC, the ROIC-WACC spread and the moat dimension for a cash-rich balance sheet."
+            )
         v_ic = average_invested_capital(debt_hist[-2], equity_hist[-2], cash_begin, debt_latest, equity_latest, cash_latest)
     else:
         v_ic = _null(NullState.MISSING, "usd", "AVERAGE_INVESTED_CAPITAL_INPUTS_UNAVAILABLE")
@@ -798,7 +805,7 @@ def _compute_all(
     ctx["spread_latest"] = spread_latest
 
     if nopat_latest is not None and wacc_value is not None and len(debt_hist) >= 2 and debt_hist[-2] is not None and equity_hist[-2] is not None:
-        beginning_ic = ve.invested_capital(debt_hist[-2], equity_hist[-2], _num(annual[-2], "cash") or 0.0).financing_view
+        beginning_ic = ve.invested_capital(debt_hist[-2], equity_hist[-2], excess_cash(annual[-2])[0]).financing_view
         v_eva = eva(nopat_latest, wacc_value, beginning_ic.value) if beginning_ic.is_valid else _null(NullState.MISSING, "usd", "EVA_BEGINNING_IC_UNAVAILABLE")
     else:
         v_eva = _null(NullState.MISSING, "usd", "EVA_INPUTS_UNAVAILABLE")
@@ -832,8 +839,8 @@ def _compute_all(
         and debt_latest is not None
         and equity_latest is not None
     ):
-        ic_first = ve.invested_capital(debt_hist[0], equity_hist[0], _num(annual[0], "cash") or 0.0).financing_view
-        ic_last = ve.invested_capital(debt_latest, equity_latest, _num(annual[-1], "cash") or 0.0).financing_view
+        ic_first = ve.invested_capital(debt_hist[0], equity_hist[0], excess_cash(annual[0])[0]).financing_view
+        ic_last = ve.invested_capital(debt_latest, equity_latest, excess_cash(annual[-1])[0]).financing_view
         if ic_first.is_valid and ic_last.is_valid:
             delta_ic = ic_last.value - ic_first.value
         else:

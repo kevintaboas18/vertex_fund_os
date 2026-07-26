@@ -89,6 +89,12 @@ CANONICAL_FIELD_MAP: dict[str, str] = {
     "weightedAverageShsOutDil": "diluted_shares",
     "weightedAverageShsOut": "basic_shares",
     "cashAndCashEquivalents": "cash",
+    # Excess cash (BUS-IC-012, RSK-ND-013, FIN-DX-028) is cash *plus* marketable
+    # securities; without these two keys the specialists could only see
+    # cash-and-equivalents and had to treat short-term investments as operating
+    # assets. See `wbj.specialists.common.excess_cash`.
+    "shortTermInvestments": "short_term_investments",
+    "cashAndShortTermInvestments": "cash_and_short_term_investments",
     "netReceivables": "net_receivables",
     "inventory": "inventory",
     "totalCurrentAssets": "total_current_assets",

@@ -493,3 +493,66 @@ def test_spread_persistence_shortfall_is_declared_as_an_assumption(nvda_packet):
     """El fixture solo alcanza cuatro spread-years; la ventana corta se declara."""
     out = bus.run(nvda_packet, overlay={"wacc": 0.1193})
     assert any("moat persistence" in a for a in out.assumptions)
+
+
+# ---------------------------------------------------------------------------
+# Excess cash (BUS-IC-012).
+#
+# El Cerebro escribe el capital invertido sobre "Debt + Equity - EXCESS cash" y
+# lo reconcilia contra "Operating assets - Operating liabilities". El codigo
+# pasaba `cashAndCashEquivalents`, lo que clasifica las inversiones de corto
+# plazo como activos OPERATIVOS: ninguna convencion hace eso. Para un balance
+# con miles de millones en T-bills eso infla el capital invertido, hunde el
+# ROIC y el spread, y castiga la dimension de moat por un artefacto contable.
+# ---------------------------------------------------------------------------
+
+def _ic_row(year: int, **over) -> dict:
+    base = dict(
+        revenue=1000.0, ebit=300.0, operating_income=300.0,
+        total_debt=100.0, total_equity=900.0, cash=50.0,
+    )
+    base.update(over)
+    return _row(year, **base)
+
+
+def _roic_of(rows: list[dict]) -> float:
+    out = bus.run(_minimal_packet(rows), overlay={"wacc": 0.05})
+    return next(m for m in out.metrics if m.metric_id == "BUS-ROIC-013").value
+
+
+def test_excess_cash_nets_short_term_investments():
+    """IC = 100 + 900 - (50 + 400) = 550, no 950."""
+    rows = [_ic_row(2025 - i, short_term_investments=400.0) for i in range(5)]
+    ic = next(m for m in bus.run(_minimal_packet(rows), overlay={"wacc": 0.05}).metrics
+              if m.metric_id == "BUS-IC-012")
+    assert ic.value == pytest.approx(550.0)
+
+
+def test_excess_cash_prefers_the_combined_fmp_field():
+    rows = [_ic_row(2025 - i, cash_and_short_term_investments=450.0,
+                    short_term_investments=999.0) for i in range(5)]
+    ic = next(m for m in bus.run(_minimal_packet(rows), overlay={"wacc": 0.05}).metrics
+              if m.metric_id == "BUS-IC-012")
+    assert ic.value == pytest.approx(550.0), "el campo combinado de FMP manda"
+
+
+def test_ignoring_short_term_investments_understated_roic():
+    """El bug: tratar las inversiones de corto plazo como capital operativo."""
+    sin_sti = _roic_of([_ic_row(2025 - i) for i in range(5)])
+    con_sti = _roic_of([_ic_row(2025 - i, short_term_investments=400.0) for i in range(5)])
+    assert con_sti > sin_sti
+    nopat = sin_sti * 950.0                            # IC sin netear = 100+900-50
+    assert con_sti == pytest.approx(nopat / 550.0)      # IC neteado = 100+900-(50+400)
+    assert con_sti / sin_sti == pytest.approx(950.0 / 550.0)
+
+
+def test_excess_cash_falls_back_to_cash_and_declares_it(nvda_packet):
+    """Sin el dato, se usa caja y equivalentes — pero se declara, no se esconde."""
+    out = bus.run(nvda_packet, overlay={"wacc": 0.1193})
+    assert any("BUS-IC-012: short-term investments unavailable" in a for a in out.assumptions)
+
+
+def test_excess_cash_shortfall_is_not_declared_when_the_data_is_there():
+    rows = [_ic_row(2025 - i, short_term_investments=400.0) for i in range(5)]
+    out = bus.run(_minimal_packet(rows), overlay={"wacc": 0.05})
+    assert not any("short-term investments unavailable" in a for a in out.assumptions)

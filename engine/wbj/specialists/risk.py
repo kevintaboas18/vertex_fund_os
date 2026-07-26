@@ -74,6 +74,7 @@ from wbj.specialists.common import (
     SecurityRef,
     SpecialistOutput,
     ValidationTestsSummary,
+    excess_cash,
     status_from_coverage,
 )
 
@@ -788,7 +789,10 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
 
     add("RSK-ND-013", _null(NullState.MISSING, "ratio", "EBITDA_UNAVAILABLE_NO_DA_FIELD"), None)
 
-    net_debt = (debt_t or 0.0) - (cash_t or 0.0) if debt_t is not None else None
+    # RSK-ND-013 is written on *excess* cash (cash + marketable securities);
+    # RSK-RUN-015/RSK-MAT-016 above stay on cash-and-equivalents because the
+    # Cerebro writes those two on "Cash" and says to exclude restricted cash.
+    net_debt = (debt_t or 0.0) - excess_cash(latest)[0] if debt_t is not None else None
     if net_debt is not None and fcf_t is not None:
         v_dfc = net_debt_to_fcf(net_debt, fcf_t)
     else:

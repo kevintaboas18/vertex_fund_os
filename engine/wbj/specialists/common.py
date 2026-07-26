@@ -243,6 +243,49 @@ class SpecialistOutput(BaseModel):
     validation_tests: ValidationTestsSummary = Field(default_factory=ValidationTestsSummary)
 
 
+def excess_cash(row: dict) -> tuple[float, bool]:
+    """`(excess_cash, is_complete)` for one annual/quarterly statement row.
+
+    Every invested-capital and net-debt formula in the Cerebro is written on
+    *excess* cash, not on cash-and-equivalents:
+
+        BUS-IC-012  average((Debt + Equity - Excess cash)_begin, ..._end)
+        RSK-ND-013  (Debt + lease debt - excess cash) / Normalized EBITDA
+        FIN-DX-028  same
+        INSTITUTIONAL_VALUATION_ENGINE 4.2
+                    Invested capital = Debt + Equity - Excess cash
+                                     = Operating assets - Operating liabilities
+
+    Every call site used to pass `row["cash"]` -- FMP's
+    `cashAndCashEquivalents` -- which silently classifies marketable
+    securities as *operating* assets. No convention does that: short-term
+    investments are financial assets, and the Cerebro's own reconciliation
+    line ("Operating assets - Operating liabilities") excludes them. For a
+    company that parks billions in T-bills this overstates invested capital,
+    understates ROIC and the ROIC-WACC spread, and drags the moat dimension
+    down for a balance-sheet artifact rather than for the business.
+
+    So excess cash is cash + short-term investments, preferring FMP's own
+    `cashAndShortTermInvestments` when the packet carries it. No operating-cash
+    haircut is applied: the Cerebro never publishes one, and inventing a
+    "2% of revenue stays operating" rule would be exactly the imputation
+    MISSING_DATA_POLICY forbids -- treating all cash as excess is the
+    documented, conservative-in-the-other-direction convention.
+
+    `is_complete` is False when only cash-and-equivalents was available, so
+    the caller can declare the shortfall as an assumption instead of hiding it.
+    """
+    combined = row.get("cash_and_short_term_investments")
+    if isinstance(combined, (int, float)):
+        return float(combined), True
+    cash = row.get("cash")
+    cash_f = float(cash) if isinstance(cash, (int, float)) else 0.0
+    sti = row.get("short_term_investments")
+    if isinstance(sti, (int, float)):
+        return cash_f + float(sti), True
+    return cash_f, False
+
+
 def apply_dimension_cap(
     metric_scores: list[tuple[float, Value]], *, cap: float
 ) -> list[tuple[float, Value]]:
