@@ -7881,8 +7881,12 @@ def _engine_scorecard(ticker, info, price):
             if _scn:
                 _base = next((s["per_share_value"] for s in _scn if s["name"] == "Base"), None)
                 _wv = getattr(getattr(_vo, "wacc", None), "value", None)
+                # VAL-SCEN-036: sum(prob x valor). DECISION_RULES.md exige que el reporte
+                # muestre CADA escenario Y el ponderado — "it does not show only the average".
+                _wgt = getattr(_vo, "scenario_weighted_value", None)
                 sc["victor_valuation"] = {
                     "dcf_per_share": _base,          # el FCFF base = el DCF de Victor
+                    "weighted_per_share": round(float(_wgt), 2) if _wgt is not None else None,
                     "scenarios": _scn,
                     "wacc": round(float(_wv), 4) if _wv is not None else None,
                     "model": "FCFF DCF (especialista de valuación de Victor)",

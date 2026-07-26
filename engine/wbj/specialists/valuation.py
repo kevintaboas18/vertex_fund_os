@@ -246,6 +246,12 @@ class ValuationOutput(SpecialistOutput):
     normalization_reconciliation: list[str] = Field(default_factory=list)
     wacc: WaccSummary = Field(default_factory=WaccSummary)
     scenarios: list[ScenarioSummary] = Field(default_factory=list)
+    # VAL-SCEN-036 (`sum(Probability_i * Value_i)`). DECISION_RULES.md is explicit:
+    # "The main report shows each value AND the weighted value; it does not show only
+    # the average." The engine already computed it inside `scenarios()`; without a
+    # field here it was extracted into a local and dropped, so the main report could
+    # never show what the Cerebro requires. None when the scenarios are not computable.
+    scenario_weighted_value: float | None = None
     reverse_dcf: ReverseDCFSummary = Field(default_factory=ReverseDCFSummary)
     model_cross_checks: ModelCrossChecks = Field(default_factory=ModelCrossChecks)
     fair_value_distribution: FairValueDistribution = Field(default_factory=FairValueDistribution)
@@ -739,6 +745,7 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
             ),
         ),
         scenarios=scenario_summaries,
+        scenario_weighted_value=weighted_value,   # VAL-SCEN-036, requerido por DECISION_RULES.md
         reverse_dcf=reverse_dcf_summary,
         model_cross_checks=ModelCrossChecks(fcff=fcff_per_share, economic_profit=econ_profit_per_share, residual_income=None, relative=relative_value, dispersion=dispersion),
         fair_value_distribution=fv_dist,
