@@ -1,9 +1,11 @@
 import os
+import sys
 import json
 import math
 import re
 import time
 import threading
+import traceback
 import numpy as np
 import requests
 from datetime import datetime, timedelta, timezone
@@ -7965,6 +7967,12 @@ def analyze_ticker(ticker: str):
         # año de cierres diarios. Se usa su función tal cual; si Yahoo falla, respaldo resiliente.
         chart_history = []
         try:
+            # El engine vive en engine/ y no está instalado como paquete: hay que meterlo
+            # en sys.path ANTES de importarlo. Sin esto el import solo funcionaba si
+            # _engine_scorecard ya había corrido, y ese corre DESPUÉS — así que en el
+            # primer análisis del proceso la gráfica se quedaba sin historial.
+            if _WBJ_ENGINE_PATH not in sys.path:
+                sys.path.insert(0, _WBJ_ENGINE_PATH)
             from wbj.targets import price_history as _victor_price_history
             chart_history = _victor_price_history(ticker) or []
         except Exception as _phe:
@@ -8812,8 +8820,13 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
         except Exception:
             pass
         return _analyze_resp
+    except HTTPException:
+        # Los códigos que ya elegimos a propósito (404 "Sin datos") se dejan pasar:
+        # antes el except de abajo los reenvolvía como 500 "404: Sin datos".
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        traceback.print_exc()   # el detail se recorta; el traceback completo va al log del servidor
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)[:300]}")
 
 
 
@@ -8934,7 +8947,34 @@ def _analyze_structured(prompt, temp=0.2):
             return fn(prompt, keys, temp), src
         except Exception as e2:
             last = e2
-    raise last if last else RuntimeError("Generación estructurada falló en todos los proveedores")
+    # Ningún proveedor de narrativa respondió. NO se tumba el endpoint: para cuando
+    # llegamos aquí, los 6 especialistas de Victor, sus gates, targets y niveles YA
+    # están calculados y son el producto. La prosa es decoración — la regla del
+    # proyecto es "los números mandan y la narrativa los sigue", así que devolvemos
+    # el análisis determinista con la narrativa marcada como no disponible.
+    reason = (f"{type(last).__name__}: {str(last)[:180]}" if last
+              else "ningún proveedor de narrativa configurado (falta GEMINI_API_KEY / OPENAI_API_KEY / XAI_API_KEY)")
+    print(f"[analyze] narrativa no disponible ({reason}) → se entrega el análisis determinista de Victor")
+    return _narrative_unavailable(reason), "no disponible"
+
+
+def _narrative_unavailable(reason: str) -> dict:
+    """Esqueleto honesto cuando la capa de prosa no está disponible.
+
+    NO inventa nada: recommendation, conviccion_score, fair_value, probabilities y
+    demás campos de juicio quedan ausentes para que el downstream aplique sus
+    defaults y los overrides de Victor rellenen lo que él sí calcula. Solo los
+    campos de texto llevan el aviso, para que en pantalla se vea el motivo."""
+    aviso = ("Explicación en palabras no disponible: la capa de narrativa (LLM) no respondió — "
+             f"{reason}. Los números de este reporte (los 6 especialistas de Victor, sus gates, "
+             "targets y niveles de precio) SÍ son válidos y completos; lo único que falta es la prosa.")
+    return {
+        "narrative_unavailable": True,
+        "narrative_error": reason,
+        "in_simple_terms": aviso,
+        "the_bottom_line": aviso,
+        "company_summary_simple": aviso,
+    }
 
 
 @app.get("/api/analyze-debate")
