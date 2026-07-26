@@ -19,15 +19,10 @@ from typing import Any
 
 import pytest
 
-from wbj.core.nullstates import EvidenceClass, NullState, Value
+from wbj.core.nullstates import EvidenceClass, Value
 from wbj.core.scoring import Dimension
 from wbj.schemas.levels import (
-    AVWAPLevel,
-    EarningsGap,
     LevelsOutput,
-    MovingAverageLevel,
-    Touch,
-    Zone,
 )
 from wbj.specialists import business, financial, market, risk, technical, valuation
 from wbj.specialists.common import CategoryStats, MetricRow, SecurityRef

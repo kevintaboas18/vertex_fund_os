@@ -15,7 +15,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from wbj.core.nullstates import NullState
 from wbj.core.scoring import Category
 from wbj.engines import levels_engine as lv
 from wbj.schemas.packet import AnalysisMeta, MarketData, OHLCVRow, Packet, Security

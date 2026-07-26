@@ -95,6 +95,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from typing import Any
 
 from wbj.core.nullstates import EvidenceClass, NullState, Value
 from wbj.core.scoring import Dimension
@@ -317,7 +318,55 @@ def _apply_updates(
                 dimensions[di] = _replace_slot(dimensions[di], slot_index, score, judgment)
 
     merged = rescore(output, dimensions=dimensions, metrics=list(metrics_by_id.values()))
-    return merged.model_copy(update={"assumptions": new_assumptions})
+    update: dict[str, Any] = {"assumptions": new_assumptions}
+    update.update(_extension_updates(output, updates))
+    return merged.model_copy(update=update)
+
+
+def _extension_updates(
+    output: SpecialistOutput, updates: list[tuple[JudgmentRequest, Judgment]]
+) -> dict[str, Any]:
+    """Judgment answers whose `metric_id` names an OUTPUT_SCHEMA extension field.
+
+    Three requests ask for content that lives in an extension field rather than
+    in a metric row or a dimension slot — all three are thesis killers, which
+    DECISION_RULES.md makes mandatory ("Always list at least three risks that
+    could invalidate the thesis"):
+
+        business_analysis  three_thesis_killers
+        market_analysis    three_growth_thesis_killers
+        risk_analysis      thesis_killers
+
+    Without this, the sub-agent's answer reached `_apply_updates`, became a
+    metric row and an assumption line, and the extension field the final report
+    reads stayed empty — so the mandatory section was silently absent even with
+    a working judge.
+
+    Conservative by construction: only fields that actually exist on the model
+    are written, INSUFFICIENT is never treated as content, and the `{"items":
+    [...]}` wrapper that `judge._coerce_answer` puts around array answers is
+    unwrapped only for list-typed fields.
+    """
+    fields = type(output).model_fields
+    out: dict[str, Any] = {}
+    for req, judgment in updates:
+        name = req.metric_id
+        if name not in fields:
+            continue
+        answer = judgment.answer
+        if isinstance(answer, str) and answer.strip().upper() == "INSUFFICIENT":
+            continue
+        if isinstance(answer, dict) and "items" in answer:
+            answer = answer["items"]
+        annotation = str(fields[name].annotation)
+        if annotation.startswith("list"):
+            if not isinstance(answer, list):
+                answer = [answer]
+            answer = [a for a in answer if a not in (None, "")]
+            if not answer:
+                continue
+        out[name] = answer
+    return out
 
 
 def _replace_slot(dimension: Dimension, slot_index: int, score: float, judgment: Judgment) -> Dimension:

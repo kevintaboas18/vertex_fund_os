@@ -208,7 +208,7 @@ def narrative(packet: dict, scorecard: dict, targets: dict) -> list[str]:
         covered = scorecard["evidence_points_covered"]
         tail = (
             "cobertura completa de las 6 categorias." if covered >= 100 else
-            f"las categorias sin datos de FMP quedan en N/S (no se inventan)."
+            "las categorias sin datos de FMP quedan en N/S (no se inventan)."
         )
         out.append(
             f"Puntaje rapido: {scorecard['overall_10']}/10, calculado con "

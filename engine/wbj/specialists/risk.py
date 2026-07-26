@@ -60,7 +60,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from wbj.core.confidence import confidence as _confidence_formula
 from wbj.core.formulas import cagr as _cagr

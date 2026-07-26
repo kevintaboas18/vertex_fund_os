@@ -1,6 +1,5 @@
 """Tests for the prediction-tracking memory loop."""
 
-import json
 from datetime import date
 
 from wbj.memoria import evaluate, load_predictions, save_prediction, track

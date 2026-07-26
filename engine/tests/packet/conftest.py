@@ -28,7 +28,6 @@ from make_packet_fixture import (  # noqa: E402
     generate_ohlcv_sessions,
     make_default_providers,
 )
-from wbj.packet.builder import Providers  # noqa: E402
 
 __all__ = [
     "FIXED_NOW",

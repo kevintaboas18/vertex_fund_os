@@ -78,7 +78,6 @@ from wbj.schemas.packet import OHLCVRow, Packet
 from wbj.specialists.common import (
     CategoryStats,
     apply_dimension_cap,
-    JudgmentRequest,
     MetricRow,
     SecurityRef,
     SpecialistOutput,
