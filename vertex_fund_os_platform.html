@@ -378,6 +378,27 @@
     </div>
 </nav>
 
+<!-- ══ VISOR DE LISTA COMPLETA — se abre desde los "+N más" de contenido obligatorio.
+     Las listas se recortan para que el panel sea legible; esto da acceso al resto sin
+     salir del análisis. ══ -->
+<div id="listModal" class="hidden fixed inset-0 z-[150] flex items-center justify-center p-4"
+     onclick="if(event.target===this)closeListModal()">
+    <div class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-2xl max-h-[82vh] flex flex-col bg-[#0B0E14] border border-gray-700 rounded-2xl shadow-2xl">
+        <div class="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-800">
+            <div>
+                <h3 id="listModalTitle" class="text-sm font-extrabold text-white uppercase tracking-wider"></h3>
+                <p id="listModalSub" class="text-[10px] text-gray-500 mt-0.5"></p>
+            </div>
+            <button onclick="closeListModal()" aria-label="Cerrar"
+                    class="shrink-0 w-8 h-8 rounded-full border border-gray-700 flex items-center justify-center text-gray-400 hover:text-white hover:border-gray-500 transition">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+        </div>
+        <div id="listModalBody" class="overflow-y-auto custom-scroll px-5 py-4 space-y-1"></div>
+    </div>
+</div>
+
 <!-- ══ MENU MOVIL — se abre tocando "VERTEX AI" en telefono/tablet ══════════════
      Da acceso a TODAS las secciones y deja correr el agente completo desde el
      telefono: analizar un ticker, proyecciones GEX, portafolio, watchlist. -->
@@ -840,6 +861,69 @@
         </div>
 
         <div id="fullResearchTab" class="tab-content p-6 space-y-8">
+            <!-- ══ VERDICT PRIMERO: es la conclusión, y es lo que se busca al abrir
+                 Full Research. Todo lo demás (paneles de Victor, targets, niveles) es el
+                 sustento que viene DESPUÉS. ══ -->
+            <div>
+                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-4 flex items-center gap-2"><i data-lucide="scale" class="w-4 h-4"></i> Verdict</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 text-center">
+                        <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Fair Value</span>
+                        <span id="vFairValue" class="text-xl font-mono font-black text-emerald-400"></span>
+                    </div>
+                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 text-center">
+                        <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Upside PCT</span>
+                        <span id="vUpside" class="text-xl font-mono font-black text-blue-400"></span>
+                    </div>
+                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 text-center">
+                        <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Price at Analysis</span>
+                        <span id="vCurrentPrice" class="text-xl font-mono font-black text-white"></span>
+                    </div>
+                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 text-center flex flex-col justify-center items-center">
+                        <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Recommendation</span>
+                        <span id="vRecommendation" class="text-sm font-extrabold px-3 py-1 rounded uppercase border"></span>
+                    </div>
+                </div>
+                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="shield-check" class="w-4 h-4 text-blue-500"></i>
+                            <span class="text-xs font-bold text-white uppercase tracking-wider">Conviction Score</span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="w-28 h-2 bg-gray-900 rounded-full overflow-hidden border border-gray-800">
+                                <div id="convictionBar" class="h-full bg-gradient-to-r from-blue-600 to-emerald-500 transition-all duration-1000"></div>
+                            </div>
+                            <span id="convictionScoreBadge" class="font-mono font-black text-lg text-white"></span>
+                        </div>
+                    </div>
+                    <p id="convictionReason" class="text-xs text-gray-300 leading-relaxed"></p>
+                </div>
+                <!-- El "Motor de Convicción Ponderado" de Vertex (composite 25/20/20/15/10/5/5 con
+                     pesos por régimen y calibración) fue ELIMINADO: la convicción es el puntaje de
+                     los 6 agentes de Victor y la recomendación sale de sus gates. -->
+                <div id="qtValidation" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="shield-check" class="w-4 h-4 text-blue-400"></i>
+                            <span class="text-xs font-bold text-white uppercase tracking-wider">Validaci&oacute;n del An&aacute;lisis</span>
+                        </div>
+                        <span id="qtValModel" class="text-[9px] font-mono text-gray-500"></span>
+                    </div>
+                    <div id="qtValBody" class="space-y-2"></div>
+                </div>
+
+                <!-- ══ POR QUÉ ESTE VEREDICTO: los gates, overrides y contradicciones REALES de
+                     Victor (apply_gates / apply_overrides / contradictions). Convierte la etiqueta
+                     del perfil en un argumento auditable. ══ -->
+                <div id="frWhyVerdict" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
+
+                <!-- ══ CONTENIDO OBLIGATORIO (CLAUDE.md): insiders >$1M (Forms 4) + barra de flujo
+                     neto de Victor, inversionistas 13F, historial del management y cuándo
+                     revisitar si la clasificación es 'evitar'. ══ -->
+                <div id="frMandatory" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
+            </div>
+
 
             <!-- ══ PANELES DE VICTOR: "En palabras simples" · "Puntaje de los agentes" ·
                  "Qué significa el puntaje". Deterministas, de su targets.py/brief.py. ══ -->
@@ -889,83 +973,6 @@
                 </div>
             </div>
 
-            <div>
-                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-4 flex items-center gap-2"><i data-lucide="scale" class="w-4 h-4"></i> Verdict</h3>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 text-center">
-                        <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Fair Value</span>
-                        <span id="vFairValue" class="text-xl font-mono font-black text-emerald-400"></span>
-                    </div>
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 text-center">
-                        <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Upside PCT</span>
-                        <span id="vUpside" class="text-xl font-mono font-black text-blue-400"></span>
-                    </div>
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 text-center">
-                        <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Price at Analysis</span>
-                        <span id="vCurrentPrice" class="text-xl font-mono font-black text-white"></span>
-                    </div>
-                    <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 text-center flex flex-col justify-center items-center">
-                        <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Recommendation</span>
-                        <span id="vRecommendation" class="text-sm font-extrabold px-3 py-1 rounded uppercase border"></span>
-                    </div>
-                </div>
-                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                    <div class="flex items-center justify-between mb-3">
-                        <div class="flex items-center gap-2">
-                            <i data-lucide="shield-check" class="w-4 h-4 text-blue-500"></i>
-                            <span class="text-xs font-bold text-white uppercase tracking-wider">Conviction Score</span>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <div class="w-28 h-2 bg-gray-900 rounded-full overflow-hidden border border-gray-800">
-                                <div id="convictionBar" class="h-full bg-gradient-to-r from-blue-600 to-emerald-500 transition-all duration-1000"></div>
-                            </div>
-                            <span id="convictionScoreBadge" class="font-mono font-black text-lg text-white"></span>
-                        </div>
-                    </div>
-                    <p id="convictionReason" class="text-xs text-gray-300 leading-relaxed"></p>
-                </div>
-                <!-- El "Motor de Convicción Ponderado" de Vertex (composite 25/20/20/15/10/5/5 con
-                     pesos por régimen y calibración) fue ELIMINADO: la convicción es el puntaje de
-                     los 6 agentes de Victor y la recomendación sale de sus gates. -->
-                <div id="qtValidation" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3">
-                    <div class="flex items-center justify-between mb-3">
-                        <div class="flex items-center gap-2">
-                            <i data-lucide="shield-check" class="w-4 h-4 text-blue-400"></i>
-                            <span class="text-xs font-bold text-white uppercase tracking-wider">Validaci&oacute;n del An&aacute;lisis</span>
-                        </div>
-                        <span id="qtValModel" class="text-[9px] font-mono text-gray-500"></span>
-                    </div>
-                    <div id="qtValBody" class="space-y-2"></div>
-                </div>
-                <div id="qtTradePlan" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3">
-                    <div class="flex items-center gap-2 mb-3">
-                        <i data-lucide="target" class="w-4 h-4 text-blue-400"></i>
-                        <span class="text-xs font-bold text-white uppercase tracking-wider">Plan de Trade &mdash; Probabilidades, Sizing &amp; Stops</span>
-                    </div>
-                    <div id="qtTradePlanBody"></div>
-                </div>
-                <div id="qtOptionPlay" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-blue-900/40 mt-3">
-                    <div class="flex items-center justify-between gap-2 mb-1 flex-wrap">
-                        <div class="flex items-center gap-2">
-                            <i data-lucide="crosshair" class="w-4 h-4 text-blue-400"></i>
-                            <span class="text-xs font-bold text-white uppercase tracking-wider">Estructura de Opciones &mdash; Señal &rarr; Contrato</span>
-                        </div>
-                        <span id="qtOptionPlayHead" class="text-[10px] text-gray-500"></span>
-                    </div>
-                    <p class="text-[10px] text-gray-500 mb-3">Contrato concreto (strike anclado al flujo institucional, prima Black-Scholes, R:R, stop &minus;20/&minus;30% con excepción Tipo&nbsp;A) dimensionado a tu capital. Énfasis en flujo+gamma del horizonte corto.</p>
-                    <div id="qtOptionPlayBody"></div>
-                </div>
-
-                <!-- ══ POR QUÉ ESTE VEREDICTO: los gates, overrides y contradicciones REALES de
-                     Victor (apply_gates / apply_overrides / contradictions). Convierte la etiqueta
-                     del perfil en un argumento auditable. ══ -->
-                <div id="frWhyVerdict" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
-
-                <!-- ══ CONTENIDO OBLIGATORIO (CLAUDE.md): insiders >$1M (Forms 4) + barra de flujo
-                     neto de Victor, inversionistas 13F, historial del management y cuándo
-                     revisitar si la clasificación es 'evitar'. ══ -->
-                <div id="frMandatory" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
-            </div>
 
             <div>
                 <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -997,16 +1004,6 @@
                     </div>
                 </div>
 
-                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
-                    <span class="text-[11px] font-bold text-white uppercase tracking-wider block border-b border-gray-800 pb-2 mb-3">
-                        &#128208; Volatilidad y valuaci&oacute;n &mdash; ATR &middot; Volatilidad &middot; DCF de Victor
-                    </span>
-                    <div class="grid grid-cols-3 gap-3 mb-3">
-                        <div class="text-center"><span class="text-[9px] text-blue-400 font-bold block uppercase">ATR (14)</span><span id="instATR" class="text-xs font-mono font-bold text-blue-300"></span></div>
-                        <div class="text-center"><span class="text-[9px] text-blue-400 font-bold block uppercase">Ann. Volatility</span><span id="instAnnVol" class="text-xs font-mono font-bold text-blue-300"></span></div>
-                        <div class="text-center"><span class="text-[9px] text-amber-400 font-bold block uppercase" title="Valor intrínseco por acción del FCFF DCF de Victor. Distinto del target a 12 meses.">DCF Victor (FCFF)</span><span id="instDCF" class="text-xs font-mono font-bold text-amber-300"></span></div>
-                    </div>
-                </div>
 
                 <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3">
                     <span class="text-[11px] font-bold text-white uppercase tracking-wider block border-b border-gray-800 pb-2 mb-3">
@@ -2028,8 +2025,7 @@ function renderDashboard(data) {
 
     // Institutional Levels
     const fmtM = (v, prefix='$') => v ? `${prefix}${v}` : 'N/A';
-    document.getElementById('instATR').innerText      = fmtM(meth.atr_14);
-    document.getElementById('instAnnVol').innerText   = meth.annual_volatility_pct ? `${meth.annual_volatility_pct}%` : 'N/A';
+    // El panel 'Volatilidad y valuación' (ATR/vol/DCF) fue eliminado del reporte.
     // DCF = el FCFF del especialista de valuación de Victor. El "Vertex DCF" que iba aquí era
     // eps × P/E_objetivo (un múltiplo, no un DCF) y contradecía al fair value del veredicto.
     // Si Victor no publica DCF, se muestra N/D en vez de un número de otro modelo.
@@ -2038,8 +2034,7 @@ function renderDashboard(data) {
     const _dcfTitle = _vv.dcf_per_share != null
         ? `${_vv.model || 'FCFF DCF de Victor'}${_vv.wacc != null ? ` · WACC ${(_vv.wacc*100).toFixed(1)}%` : ''}. ${_vv.note || ''}`
         : 'El especialista de valuación de Victor no produjo un DCF publicable para este ticker.';
-    const _dcfEl = document.getElementById('instDCF');
-    _dcfEl.innerText = _dcf; _dcfEl.title = _dcfTitle;
+
     document.getElementById('wsHigh').innerText  = fmtM(meth.analyst_high);
     document.getElementById('wsMean').innerText  = fmtM(meth.analyst_mean);
     document.getElementById('wsLow').innerText   = fmtM(meth.analyst_low);
@@ -2238,17 +2233,21 @@ function renderVictorLevels() {
   el.classList.remove('hidden');
   const px = Number(L.current_price), atr = Number(L.atr14);
   const fmt$ = v => '$' + Number(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-  const cell = r => {
+  const ref = r => (r.zone_low != null ? (r.zone_low + r.zone_high) / 2 : r.value);
+  const dATR = r => (r.distance_atr != null ? Math.abs(r.distance_atr) : null);
+
+  const cell = (r, highlight) => {
     const zone = (r.zone_low != null && r.zone_high != null)
       ? `${fmt$(r.zone_low)} – ${fmt$(r.zone_high)}`
       : (r.value != null ? fmt$(r.value) : '—');
+    // distance_percent YA viene en unidades de porcentaje (-2.15 = -2.15%), no es fracción.
     const dp = r.distance_percent != null
       ? `${r.distance_percent >= 0 ? '+' : ''}${r.distance_percent.toFixed(1)}%` : '';
     const da = r.distance_atr != null
       ? `${r.distance_atr >= 0 ? '+' : ''}${r.distance_atr.toFixed(1)} ATR` : '';
-    return `<div class="flex items-baseline justify-between gap-2 py-1.5 border-b border-gray-900/60">
+    return `<div class="flex items-baseline justify-between gap-2 py-1.5 border-b border-gray-900/60 ${highlight ? 'bg-blue-500/5 -mx-2 px-2 rounded' : ''}">
       <div class="min-w-0">
-        <div class="text-[11px] text-gray-200 truncate">${r.label || ''}</div>
+        <div class="text-[11px] ${highlight ? 'text-white font-bold' : 'text-gray-200'} truncate">${r.label || ''}</div>
         <div class="text-[9px] text-gray-600">${_LVL_LBL[r.level_class] || r.level_class}</div>
       </div>
       <div class="text-right flex-shrink-0">
@@ -2256,27 +2255,82 @@ function renderVictorLevels() {
         <div class="text-[9px] font-mono text-gray-500">${dp}${dp && da ? ' · ' : ''}${da}</div>
       </div></div>`;
   };
-  // Sobre el precio = zonas de SALIDA; bajo el precio = zonas de COMPRA. El propio precio se omite.
-  const ref = r => (r.zone_low != null ? (r.zone_low + r.zone_high) / 2 : r.value);
+
   const body = rows.filter(r => r.level_class !== 'current_adjusted_close' && ref(r) != null);
   const above = body.filter(r => ref(r) > px).sort((a,b) => ref(a) - ref(b));
   const below = body.filter(r => ref(r) <= px).sort((a,b) => ref(b) - ref(a));
-  const conf = (L.confluences || []).map(c =>
-    `<div class="text-[10px] text-blue-300 bg-blue-500/10 border border-blue-500/20 rounded px-2 py-1 mb-1">
-       <b>${fmt$(c.low)} – ${fmt$(c.high)}</b> · ${(c.level_labels || []).join(' + ')}
-       ${c.note ? `<span class="text-blue-200/70"> — ${c.note}</span>` : ''}</div>`).join('');
+  const nextUp = above[0], nextDown = below[0];
+
+  // ── LECTURA DEL PRECIO — dónde está parado, en múltiplos de ATR ──
+  // Es una descripción de la estructura de precio, NO una orden de compra/venta:
+  // se declara qué confirmaría y qué invalidaría, que es lo que dice el Cerebro.
+  const upA = nextUp ? dATR(nextUp) : null, dnA = nextDown ? dATR(nextDown) : null;
+  const NEAR = 0.5;                       // "pegado" = menos de medio ATR
+  let read, readCls;
+  if (upA != null && upA <= NEAR) {
+    read = `El precio está <b>pegado a resistencia</b> (${nextUp.label} a ${upA.toFixed(1)} ATR). Aquí es donde la subida se frena o se confirma: sin ruptura sostenida, es zona de rechazo.`;
+    readCls = 'text-red-300 border-red-500/25 bg-red-500/5';
+  } else if (dnA != null && dnA <= NEAR) {
+    read = `El precio está <b>apoyado en soporte</b> (${nextDown.label} a ${dnA.toFixed(1)} ATR). Es donde el riesgo se define mejor: perder el nivel invalida la lectura alcista de corto plazo.`;
+    readCls = 'text-emerald-300 border-emerald-500/25 bg-emerald-500/5';
+  } else if (nextUp && nextDown) {
+    const lo = ref(nextDown), hi = ref(nextUp);
+    const pos = hi > lo ? ((px - lo) / (hi - lo)) * 100 : 50;
+    const donde = pos >= 66 ? 'en el tercio alto' : (pos <= 33 ? 'en el tercio bajo' : 'en el medio');
+    read = `El precio está <b>${donde}</b> de su rango operativo (${fmt$(lo)} – ${fmt$(hi)}), a ${dnA.toFixed(1)} ATR del soporte y ${upA.toFixed(1)} ATR de la resistencia. Tierra de nadie: los bordes son las referencias, no el precio actual.`;
+    readCls = 'text-amber-300 border-amber-500/25 bg-amber-500/5';
+  } else {
+    read = nextUp
+      ? `Sin soporte confirmado por debajo. La referencia más cercana es resistencia: ${nextUp.label} a ${upA.toFixed(1)} ATR.`
+      : `Sin resistencia confirmada por encima. La referencia más cercana es soporte: ${nextDown ? nextDown.label : '—'}.`;
+    readCls = 'text-gray-300 border-gray-700 bg-gray-800/30';
+  }
+
+  // Confirmación / invalidación de los DOS niveles que mandan ahora. Texto del
+  // engine de Victor, no una interpretación nuestra.
+  const trig = [];
+  if (nextUp && (nextUp.confirmation || nextUp.invalidation))
+    trig.push(`<li><b class="text-red-300">Arriba (${nextUp.label}):</b> ${nextUp.confirmation || nextUp.invalidation}</li>`);
+  if (nextDown && (nextDown.confirmation || nextDown.invalidation))
+    trig.push(`<li><b class="text-emerald-300">Abajo (${nextDown.label}):</b> ${nextDown.invalidation || nextDown.confirmation}</li>`);
+
+  // ── SOLO LO OPERABLE: niveles dentro de ±3 ATR. Un valor intrínseco a −80%
+  //    no es una zona de compra, es contexto de valuación — y llenaba el panel. ──
+  const BAND = 3.0;
+  const near = r => dATR(r) != null && dATR(r) <= BAND;
+  const aboveN = above.filter(near), belowN = below.filter(near);
+  const hidden = body.length - aboveN.length - belowN.length;
+
+  // Confluencias: solo las que tocan la banda operable, máximo 3.
+  const confAll = L.confluences || [];
+  const confNear = confAll.filter(c => {
+    const mid = (Number(c.low) + Number(c.high)) / 2;
+    return atr > 0 && Math.abs(mid - px) / atr <= BAND;
+  }).slice(0, 3);
+  const confRow = c => `<div class="text-[10px] text-blue-300 bg-blue-500/10 border border-blue-500/20 rounded px-2 py-1 mb-1">
+       <b>${fmt$(c.low)} – ${fmt$(c.high)}</b> · ${(c.level_labels || []).join(' + ')}</div>`;
+
+  const allRowsHtml =
+    `<p class="text-[10px] text-red-400 uppercase font-bold mb-1">Por encima del precio</p>${above.map(r => cell(r, false)).join('')}
+     <p class="text-[10px] text-emerald-400 uppercase font-bold mt-4 mb-1">Por debajo del precio</p>${below.map(r => cell(r, false)).join('')}
+     ${confAll.length ? `<p class="text-[10px] text-blue-400 uppercase font-bold mt-4 mb-1">Zonas de confluencia (${confAll.length})</p>${confAll.map(confRow).join('')}` : ''}`;
+
   el.innerHTML = `
-    <span class="text-[11px] font-bold text-white uppercase tracking-wider block border-b border-gray-800 pb-2 mb-1">
-      &#128207; Niveles de precio — entrada y salida</span>
-    <p class="text-[10px] text-gray-500 italic mb-3">Soportes y resistencias reales de la acción del precio, medias móviles, VWAP anclado y bandas de valor. <b class="text-gray-400">Sin IA — estructura de precio pura.</b> Precio actual ${fmt$(px)} · ATR14 ${fmt$(atr)}.</p>
-    ${conf ? `<div class="mb-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Zonas de confluencia</p>${conf}</div>` : ''}
+    <span class="text-[11px] font-bold text-white uppercase tracking-wider block border-b border-gray-800 pb-2 mb-3">
+      &#128207; Niveles de precio — dónde está parado</span>
+    <div class="text-[11px] leading-relaxed border rounded-lg px-3 py-2 mb-3 ${readCls}">${read}</div>
+    ${trig.length ? `<ul class="text-[10px] text-gray-400 space-y-1 mb-3 list-none">${trig.join('')}</ul>` : ''}
+    ${confNear.length ? `<div class="mb-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Confluencia cerca del precio</p>${confNear.map(confRow).join('')}</div>` : ''}
     <div class="grid grid-cols-1 md:grid-cols-2 gap-x-5">
-      <div><p class="text-[9px] text-red-400 uppercase font-bold mb-1">Resistencia — zonas de salida</p>
-        ${above.length ? above.map(cell).join('') : '<p class="text-[10px] text-gray-600 italic py-2">Ningún nivel por encima del precio.</p>'}</div>
-      <div><p class="text-[9px] text-emerald-400 uppercase font-bold mb-1">Soporte — zonas de compra</p>
-        ${below.length ? below.map(cell).join('') : '<p class="text-[10px] text-gray-600 italic py-2">Ningún nivel por debajo del precio.</p>'}</div>
+      <div><p class="text-[9px] text-red-400 uppercase font-bold mb-1">Resistencia — hasta 3 ATR</p>
+        ${aboveN.length ? aboveN.map((r,i) => cell(r, i === 0)).join('') : '<p class="text-[10px] text-gray-600 italic py-2">Nada cerca por encima.</p>'}</div>
+      <div><p class="text-[9px] text-emerald-400 uppercase font-bold mb-1">Soporte — hasta 3 ATR</p>
+        ${belowN.length ? belowN.map((r,i) => cell(r, i === 0)).join('') : '<p class="text-[10px] text-gray-600 italic py-2">Nada cerca por debajo.</p>'}</div>
     </div>
-    <p class="text-[9px] text-gray-700 mt-2">Fuente: síntesis de niveles de Victor (technical + valuation) · distancias en % y en múltiplos de ATR.</p>`;
+    ${moreRowsButton('levels', 'Todos los niveles de precio',
+        `${body.length} niveles · ${confAll.length} zonas de confluencia · ATR-14 ${fmt$(atr)}`,
+        allRowsHtml, hidden + confAll.length - confNear.length)}
+    <p class="text-[9px] text-gray-700 mt-2">Se muestran los niveles dentro de ±3 ATR — los que están en juego al precio actual. Los demás (incluidos los valores intrínsecos) están en la lista completa. Fuente: síntesis de niveles de Victor.</p>`;
 }
 
 // ── POR QUÉ ESTE VEREDICTO: gates, overrides y contradicciones reales ───────────
@@ -2351,7 +2405,16 @@ function renderVictorMandatory() {
         return `<div class="flex items-baseline justify-between gap-2 text-[10px] py-1 border-b border-gray-900/60">
           <span class="text-gray-300 truncate">${t.insider || '—'} <span class="text-gray-600">· ${t.date || ''}</span></span>
           <span class="font-mono font-bold flex-shrink-0" style="color:${col}">${lbl} ${usd(t.value)}</span></div>`;
-      }).join('')}${txs.length > 8 ? `<p class="text-[9px] text-gray-600 pt-1">+${txs.length - 8} más</p>` : ''}</div>`
+      }).join('')}${moreRowsButton('insiders',
+          `Insiders > $1M — Forms 4`,
+          `${txs.length} transacciones · fuente ${io.source || 'SEC EDGAR'}`,
+          txs.map(t => {
+            const col = t.type === 'BUY' ? '#26d07c' : (t.type === 'SELL' ? '#ff5a5f' : '#8b929c');
+            const lbl = t.type === 'BUY' ? 'COMPRA' : (t.type === 'SELL' ? 'VENTA' : (t.code || ''));
+            return `<div class="flex justify-between text-[11px] gap-3 py-1.5 border-b border-gray-900">
+              <span class="text-gray-300 truncate">${t.insider || '—'} <span class="text-gray-600">· ${t.date || ''}</span></span>
+              <span class="font-mono font-bold flex-shrink-0" style="color:${col}">${lbl} ${usd(t.value)}</span></div>`;
+          }).join(''), txs.length - 8)}</div>`
     : `<p class="text-[10px] text-gray-500 italic">Ningún insider con transacciones que excedan $1M en el periodo.</p>`;
   // 3) 13F, 4) management, 5) revisitar
   const inst = m.institutional_13f || [];
@@ -2362,7 +2425,15 @@ function renderVictorMandatory() {
         return `<div class="flex justify-between text-[10px] gap-2">
           <span class="text-gray-300 truncate">${nm}</span>
           <span class="font-mono text-gray-400 flex-shrink-0">${val != null ? usd(val) : ''}${pct != null ? ` · ${(Number(pct)*100).toFixed(1)}%` : ''}</span></div>`;
-      }).join('')}</div>`
+      }).join('')}${moreRowsButton('inst13f', 'Inversionistas 13F',
+          `${inst.length} posiciones institucionales`,
+          inst.map(h => {
+            const nm = h.holder || h.Holder || h.name || '—';
+            const val = h.value ?? h.Value; const pct = h.pctHeld ?? h['% Out'];
+            return `<div class="flex justify-between text-[11px] gap-3 py-1.5 border-b border-gray-900">
+              <span class="text-gray-300 truncate">${nm}</span>
+              <span class="font-mono text-gray-400 flex-shrink-0">${val != null ? usd(val) : ''}${pct != null ? ` · ${(Number(pct)*100).toFixed(1)}%` : ''}</span></div>`;
+          }).join(''), inst.length - 8)}</div>`
     : `<p class="text-[10px] text-gray-500 italic">Sin posiciones 13F disponibles.</p>`;
   const mg = m.management || {};
   const roster = mg.roster || [];
@@ -2372,6 +2443,11 @@ function renderVictorMandatory() {
         `<div class="flex justify-between text-[10px] gap-2">
            <span class="text-gray-300 truncate">${r.name || '—'}${r.is_key ? ' <span class="text-[8px] text-blue-400">clave</span>' : ''}</span>
            <span class="text-gray-500 truncate flex-shrink-0" style="max-width:52%">${r.title || ''}</span></div>`).join('')}
+       ${moreRowsButton('mgmt', 'Management', `${roster.length} ejecutivos · ${mg.source || 'yfinance'}`,
+           roster.map(r => `<div class="flex justify-between text-[11px] gap-3 py-1.5 border-b border-gray-900">
+             <span class="text-gray-300 truncate">${r.name || '—'}${r.is_key ? ' <span class="text-[9px] text-blue-400">clave</span>' : ''}</span>
+             <span class="text-gray-500 truncate flex-shrink-0" style="max-width:52%">${r.title || ''}</span></div>`).join(''),
+           roster.length - 6)}
        ${tr.status ? `<p class="text-[9px] text-gray-600 mt-1.5 italic">Historial: ${tr.status === 'no_evaluado' ? (tr.note || 'no evaluado') : (tr.overall || tr.note || tr.status)}</p>` : ''}</div>`
     : `<p class="text-[10px] text-gray-500 italic">Sin roster de ejecutivos disponible.</p>`;
   const rv = m.revisit;
@@ -2980,8 +3056,25 @@ function integrityStripHTML(intg){
       </div>`;
 }
 
+/** El Plan de operación se llena desde /api/analyze, pero vive en Proyecciones.
+ *  Solo se muestra si hay un análisis cargado, y si es de OTRO ticker se dice
+ *  explícitamente — un plan de NVDA junto a un GEX de AMD sería engañoso. */
+function syncOpPlanVisibility(projTicker) {
+    const box = document.getElementById('projOpPlan');
+    const tag = document.getElementById('projOpPlanFor');
+    if (!box) return;
+    const has = !!(currentAnalysis && currentTicker);
+    box.classList.toggle('hidden', !has);
+    if (!has || !tag) return;
+    const mismatch = projTicker && currentTicker && projTicker.toUpperCase() !== currentTicker.toUpperCase();
+    tag.innerHTML = mismatch
+        ? `<span class="text-amber-400">⚠ plan de <b>${currentTicker}</b> — no de ${projTicker.toUpperCase()}</span>`
+        : `del análisis de <b class="text-gray-300">${currentTicker}</b>`;
+}
+
 function renderProjections(d) {
     document.getElementById('projChartTitle').innerText = `${d.ticker} · $${d.spot}`;
+    syncOpPlanVisibility(d.ticker);
     const pos = (d.net_gex >= 0);
     const badge = document.getElementById('projRegimeBadge');
     badge.className = `text-[9px] font-bold px-2 py-0.5 rounded-full ${pos ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`;
@@ -7097,6 +7190,38 @@ function analyzeTickerNow(tk) {
         </div>
     </div>
 
+
+    <!-- ══ PLAN DE OPERACIÓN — movido desde Full Research. Aquí es donde vive:
+         Full Research responde "¿cuánto vale y por qué?"; esto responde "¿cómo se
+         opera?", que es justo lo que hace el área de Proyecciones. ══ -->
+    <div id="projOpPlan" class="hidden space-y-4">
+        <div class="flex items-center justify-between gap-3 flex-wrap border-b border-panel pb-2">
+            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2">
+                <i data-lucide="clipboard-list" class="w-4 h-4"></i> Plan de operación
+            </h3>
+            <!-- De qué ticker es este plan. Sin esto verías el plan de NVDA mientras
+                 proyectas AMD, sin ninguna señal de que no corresponden. -->
+            <span id="projOpPlanFor" class="text-[10px] font-mono text-gray-500"></span>
+        </div>
+                    <div id="qtTradePlan" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3">
+                        <div class="flex items-center gap-2 mb-3">
+                            <i data-lucide="target" class="w-4 h-4 text-blue-400"></i>
+                            <span class="text-xs font-bold text-white uppercase tracking-wider">Plan de Trade &mdash; Probabilidades, Sizing &amp; Stops</span>
+                        </div>
+                        <div id="qtTradePlanBody"></div>
+                    </div>
+                    <div id="qtOptionPlay" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-blue-900/40 mt-3">
+                        <div class="flex items-center justify-between gap-2 mb-1 flex-wrap">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="crosshair" class="w-4 h-4 text-blue-400"></i>
+                                <span class="text-xs font-bold text-white uppercase tracking-wider">Estructura de Opciones &mdash; Señal &rarr; Contrato</span>
+                            </div>
+                            <span id="qtOptionPlayHead" class="text-[10px] text-gray-500"></span>
+                        </div>
+                        <p class="text-[10px] text-gray-500 mb-3">Contrato concreto (strike anclado al flujo institucional, prima Black-Scholes, R:R, stop &minus;20/&minus;30% con excepción Tipo&nbsp;A) dimensionado a tu capital. Énfasis en flujo+gamma del horizonte corto.</p>
+                        <div id="qtOptionPlayBody"></div>
+                    </div>
+    </div>
 </main>
 
 <main id="portfolioView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4">
@@ -8208,6 +8333,36 @@ function renderRegime(d) {
 <script>
 // 1024px: por debajo de eso la barra de links del nav esta oculta y la marca
 // "VERTEX AI" es el unico acceso a las secciones (telefono y tablet vertical).
+/** Visor de lista completa (los "+N más" de insiders / 13F / management).
+ *  El HTML de cada fila lo arma quien llama, para que el modal se vea igual que
+ *  el panel del que salió. `rowsHtml` ya viene escapado por el renderizador. */
+function openListModal(title, sub, rowsHtml) {
+    const el = document.getElementById('listModal');
+    if (!el) return;
+    document.getElementById('listModalTitle').innerText = title || '';
+    document.getElementById('listModalSub').innerText = sub || '';
+    document.getElementById('listModalBody').innerHTML = rowsHtml || '';
+    el.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';   // congela el fondo
+    if (window.lucide) lucide.createIcons();
+}
+
+function closeListModal() {
+    document.getElementById('listModal')?.classList.add('hidden');
+    document.body.style.overflow = '';
+}
+
+/** Guarda las filas completas y devuelve el botón "+N más" que las abre.
+ *  Se guardan en memoria en vez de inyectarlas en el onclick: los nombres de
+ *  insiders traen comillas y apóstrofes que romperían el atributo. */
+const _listModalStore = {};
+function moreRowsButton(key, title, sub, rowsHtml, hiddenCount) {
+    if (!hiddenCount || hiddenCount <= 0) return '';
+    _listModalStore[key] = { title, sub, rowsHtml };
+    return `<button onclick="const d=_listModalStore['${key}'];openListModal(d.title,d.sub,d.rowsHtml)"
+        class="text-[9px] text-blue-400 hover:text-blue-300 hover:underline pt-1 font-bold">+${hiddenCount} más</button>`;
+}
+
 const _MQ_DESKTOP = '(min-width: 1024px)';
 function _isDesktop(){ return window.matchMedia(_MQ_DESKTOP).matches; }
 
