@@ -253,9 +253,24 @@ def eva(nopat_value: float, wacc_value: float, beginning_ic: float) -> Value:
 
 def incremental_roic(delta_nopat: float, delta_ic: float) -> Value:
     """Incremental ROIC (Cerebro 4.5): `change in NOPAT / change in invested
-    capital`, over a 3-5 year window per Cerebro's guidance."""
+    capital`, over a 3-5 year window per Cerebro's guidance.
+
+    FORMULAS.md's caveat for BUS-IROIC-016 is explicit: "not meaningful for
+    negative denominator change". A shrinking invested-capital base inverts the
+    sign and makes the ratio say the opposite of what happened:
+
+    - NOPAT +20 with IC -100 (more profit on less capital, an excellent outcome)
+      would read as -20%, i.e. value destruction.
+    - NOPAT -20 with IC -100 (the business is shrinking) would read as +20%,
+      i.e. high-quality reinvestment.
+
+    Since BUS-ALLOC-029 (`Incremental ROIC - WACC`) is a SCORED dimension, that
+    inverted sign moves points in the wrong direction. Both non-positive cases
+    are refused as NOT_MEANINGFUL instead."""
     if delta_ic == 0:
         return _null(NullState.NOT_MEANINGFUL, "pct", "DELTA_IC_ZERO")
+    if delta_ic < 0:
+        return _null(NullState.NOT_MEANINGFUL, "pct", "DELTA_IC_NEGATIVE")
     return _ok(delta_nopat / delta_ic, unit="pct")
 
 

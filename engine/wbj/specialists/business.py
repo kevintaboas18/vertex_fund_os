@@ -78,7 +78,7 @@ band (moat gate, ROIC>=20%, FCF conversion>=0.9x) and the
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Sequence
 
 import numpy as np
@@ -656,7 +656,6 @@ def _compute_all(
     rev_first = revenues[0] if revenues else None
     gp_latest = gp_hist[-1] if gp_hist else None
     ebit_latest = ebit_hist[-1] if ebit_hist else None
-    ni_latest = ni_hist[-1] if ni_hist else None
     debt_latest = debt_hist[-1] if debt_hist else None
     equity_latest = equity_hist[-1] if equity_hist else None
     n_years = len(annual)
@@ -790,15 +789,15 @@ def _compute_all(
         ebit_first = ebit_hist[0]
         if ebit_first is not None:
             nopat_first = nopat(ebit_first, _tax_rate(annual[0], tax_rate)).value
-            ic_first_v = v_ic  # fallback if history too short for a distinct first-period IC
             delta_nopat = nopat_latest - nopat_first
-            delta_ic = (v_ic.value - 0.0) if v_ic.is_valid else None  # placeholder; real delta below
         else:
             delta_nopat = None
-            delta_ic = None
     else:
         delta_nopat = None
-        delta_ic = None
+    # delta_ic se calcula ENTERO en el bloque de abajo (IC financing-view del primer
+    # año vs el último). Aquí ya no se pre-asigna: el `ic_first_v` que había era un
+    # fallback que nadie leía, y el `delta_ic` inicial valía el IC total, no un delta
+    # — se sobrescribía siempre, pero se leía como si fuese lógica real.
     # Proper delta-IC: financing-view IC at the first vs. latest annual row.
     if (
         delta_nopat is not None
