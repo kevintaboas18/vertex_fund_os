@@ -98,25 +98,43 @@ def test_segment_shares_network_error_is_not_scorable(api, monkeypatch):
 
 # ── el overlay completo ───────────────────────────────────────────────────────
 
-def test_overlay_never_calls_an_llm(api, monkeypatch):
-    """Blindaje: la funcion no debe tocar Anthropic aunque haya key."""
+def test_deterministic_layer_never_calls_an_llm(api, monkeypatch):
+    """La CAPA 1 sale de FMP/XBRL por codigo. Que exista una capa LLM aparte no
+    la autoriza a llamar a Anthropic para resolver `segment_shares`."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-never-be-used")
     anthropic = pytest.importorskip("anthropic")
     def _boom(*a, **k):
-        raise AssertionError("la ruta determinista llamo a Anthropic")
+        raise AssertionError("la capa determinista llamo a Anthropic")
     monkeypatch.setattr(anthropic, "Anthropic", _boom)
     _patch_fmp(api, monkeypatch, _Resp(200, [{"date": "2026-01-25", "data": {"A": 60.0, "B": 40.0}}]))
+    assert api._fmp_segment_shares("NVDA") == [0.6, 0.4]
+
+
+def test_orchestrator_returns_deterministic_result(api, monkeypatch):
+    """Con la capa LLM apagada, queda exactamente lo que saco el codigo."""
+    _patch_fmp(api, monkeypatch, _Resp(200, [{"date": "2026-01-25", "data": {"A": 60.0, "B": 40.0}}]))
+    monkeypatch.setattr(api, "_xbrl_recurring_revenue", lambda *a, **k: None)
+    monkeypatch.setattr(api, "_wbj_qual_from_10k_llm", lambda *a, **k: {})
     ov = api._wbj_extract_business_qual("NVDA", 1045810, None, revenue_hint=1e9)
+    ov.pop("__provenance__", None)
     assert ov == {"segment_shares": [0.6, 0.4]}
 
 def test_overlay_is_empty_when_nothing_is_disclosed(api, monkeypatch):
-    """Sin fuente determinista → {} (todo N/S). No se inventa un solo campo."""
+    """Sin NINGUNA fuente (ni codigo ni LLM) → cero metricas. No se inventa nada."""
     _patch_fmp(api, monkeypatch, _Resp(403))
-    assert api._wbj_extract_business_qual("NVDA", 1045810, None) == {}
+    monkeypatch.setattr(api, "_xbrl_recurring_revenue", lambda *a, **k: None)
+    monkeypatch.setattr(api, "_wbj_qual_from_10k_llm", lambda *a, **k: {})
+    ov = api._wbj_extract_business_qual("NVDA", 1045810, None)
+    ov.pop("__provenance__", None)          # metadato de linaje, no una metrica
+    assert ov == {}
 
 def test_overlay_never_emits_customer_concentration(api, monkeypatch):
     """BUS-CONC-003 / MISSING_DATA_POLICY: prohibido inferir concentracion."""
     _patch_fmp(api, monkeypatch, _Resp(200, [{"date": "2026-01-25", "data": {"A": 90.0, "B": 10.0}}]))
+    monkeypatch.setattr(api, "_xbrl_recurring_revenue", lambda *a, **k: None)
+    monkeypatch.setattr(api, "_wbj_qual_from_10k_llm", lambda *a, **k: {})
     ov = api._wbj_extract_business_qual("NVDA", 1045810, None)
+    # La CAPA DETERMINISTA nunca la deriva: companyfacts no trae el eje de cliente.
+    # Solo el LLM puede traerla, y unicamente si el filing da un % especifico.
     assert "largest_customer_share" not in ov
     assert "customer_shares" not in ov
