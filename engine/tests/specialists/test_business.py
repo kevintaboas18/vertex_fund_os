@@ -404,3 +404,28 @@ def test_run_category_reproduces_from_dimensions_even_with_cap():
     recomputed = Category(name=bus.AGENT_ID, max_points=bus.MAX_POINTS, dimensions=out.dimensions)
     assert out.category.awarded_points == pytest.approx(recomputed.points(), abs=1e-6)
     assert out.category.score_10 == pytest.approx(recomputed.score10(), abs=1e-6)
+
+
+# BUS-MIX-001 leia overlay["segment_shares"] y lo IGNORABA: el valor estaba fijado a
+# MISSING, asi que el reporte decia SEGMENT_REVENUE_UNAVAILABLE mientras BUS-HHI-005,
+# tres lineas mas abajo, calculaba su HHI con esos mismos datos.
+
+def test_bus_mix_001_uses_segment_shares_from_overlay(nvda_packet):
+    out = bus.run(nvda_packet, overlay={"segment_shares": [0.75, 0.20, 0.05]})
+    row = next(m for m in out.metrics if m.metric_id == "BUS-MIX-001")
+    assert row.value == pytest.approx(0.75), "debe reportar la share del segmento dominante"
+
+
+def test_bus_mix_001_missing_without_overlay(nvda_packet):
+    out = bus.run(nvda_packet, overlay={})
+    row = next(m for m in out.metrics if m.metric_id == "BUS-MIX-001")
+    assert row.value is None
+    assert "SEGMENT_REVENUE_UNAVAILABLE" in (row.warnings or [])
+
+
+def test_bus_mix_001_and_hhi_005_agree_on_availability(nvda_packet):
+    """No puede decir 'no disponible' y calcular el HHI con lo mismo a la vez."""
+    out = bus.run(nvda_packet, overlay={"segment_shares": [0.75, 0.20, 0.05]})
+    mix = next(m for m in out.metrics if m.metric_id == "BUS-MIX-001")
+    hhi = next(m for m in out.metrics if m.metric_id == "BUS-HHI-005")
+    assert (mix.value is None) == (hhi.value is None)

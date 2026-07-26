@@ -661,8 +661,20 @@ def _compute_all(
     n_years = len(annual)
 
     # ---- BUS-MIX-001: segment revenue share (overlay only) ----
+    # FORMULAS.md: `Revenue_i / Total revenue`. El overlay ya entrega las shares como
+    # fracciones, asi que se reporta la del segmento DOMINANTE — el unico escalar con
+    # sentido para "segment revenue share" y el que hace legible la concentracion de mix.
+    # Antes esta linea leia el overlay y lo IGNORABA: el valor estaba fijado a MISSING,
+    # asi que el reporte decia SEGMENT_REVENUE_UNAVAILABLE mientras BUS-HHI-005, tres
+    # lineas mas abajo, calculaba su HHI con esos mismos datos. Sigue sin puntuar
+    # (score=None, como estaba): esto solo arregla el rastro de auditoria.
     segment_shares_overlay = overlay.get("segment_shares")
-    v = _null(NullState.MISSING, "pct", "SEGMENT_REVENUE_UNAVAILABLE")
+    _seg_vals = [float(x) for x in (segment_shares_overlay or [])
+                 if isinstance(x, (int, float)) and 0.0 <= float(x) <= 1.0]
+    if _seg_vals:
+        v = segment_revenue_share(max(_seg_vals), 1.0)   # shares ya normalizadas a 1.0
+    else:
+        v = _null(NullState.MISSING, "pct", "SEGMENT_REVENUE_UNAVAILABLE")
     add("BUS-MIX-001", v, None)
 
     # ---- BUS-REC-002: recurring revenue % (overlay only) ----
