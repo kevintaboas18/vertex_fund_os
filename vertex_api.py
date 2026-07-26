@@ -87,6 +87,46 @@ def serve_frontend():
     return "<h1>Vertex OS Error: Frontend no encontrado en el servidor.</h1>", 404
 
 
+@app.get("/manifest.webmanifest")
+def serve_manifest():
+    """Manifest de la PWA: permite instalar Vertex en el telefono/tablet
+    ("Instalar" en Chrome, "Añadir a inicio" en Safari) y abrirla a pantalla
+    completa, sin barra del navegador — se comporta como una app nativa."""
+    from fastapi.responses import JSONResponse
+    return JSONResponse({
+        "name": "Vertex Fund OS",
+        "short_name": "Vertex AI",
+        "description": "Terminal de analisis de inversiones — metodologia Warren Buffett Jr.",
+        "start_url": "/",
+        "scope": "/",
+        "display": "standalone",
+        "orientation": "any",
+        "background_color": "#0B0E14",
+        "theme_color": "#0B0E14",
+        "lang": "es",
+        "icons": [
+            {"src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ],
+    }, media_type="application/manifest+json")
+
+
+@app.get("/assets/icon-{size}.png")
+def serve_icon(size: str):
+    """Iconos de la app. Lista blanca de tamaños — el nombre viene de la URL y no
+    debe poder salir de assets/."""
+    from fastapi.responses import FileResponse
+    if size not in {"180", "192", "512"}:
+        raise HTTPException(status_code=404, detail="icono no encontrado")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_dir, "assets", f"icon-{size}.png")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="icono no encontrado")
+    return FileResponse(path, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=604800"})
+
+
 @app.get("/wbj")
 def serve_wbj_terminal():
     """El análisis WBJ de Victor ya vive DENTRO del dashboard principal (sección
