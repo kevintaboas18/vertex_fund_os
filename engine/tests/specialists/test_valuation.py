@@ -225,6 +225,41 @@ def test_run_scenarios_sum_to_one_and_ordered_bear_base_bull():
     assert total_p == pytest.approx(1.0, abs=1e-6)
 
 
+# DECISION_RULES.md: "The main report shows each value AND the weighted value; it does
+# not show only the average." El engine ya calculaba VAL-SCEN-036 dentro de scenarios(),
+# pero el especialista lo extraia a una local y lo tiraba: sin campo en ValuationOutput,
+# el reporte principal nunca podia mostrarlo.
+
+def test_run_publishes_scenario_weighted_value():
+    rows = [_row(2025), _row(2024)]
+    out = val.run(_minimal_packet(rows))
+    assert out.scenario_weighted_value is not None, "VAL-SCEN-036 no llega al output"
+
+
+def test_scenario_weighted_value_equals_sum_of_prob_times_value():
+    """Es sum(Probability_i * Value_i), no el promedio simple ni el escenario base."""
+    rows = [_row(2025), _row(2024)]
+    out = val.run(_minimal_packet(rows))
+    manual = sum(s.probability * s.per_share_value for s in out.scenarios
+                 if s.probability is not None and s.per_share_value is not None)
+    assert out.scenario_weighted_value == pytest.approx(manual, rel=1e-9)
+
+
+def test_weighted_value_is_distinct_from_base_scenario():
+    """Publicar solo el base es justo lo que DECISION_RULES.md prohibe."""
+    rows = [_row(2025), _row(2024)]
+    out = val.run(_minimal_packet(rows))
+    base = next(s.per_share_value for s in out.scenarios if s.name == "Base")
+    assert out.scenario_weighted_value != base or base is None
+
+
+def test_weighted_value_is_none_when_scenarios_not_computable():
+    """Sin escenarios no se inventa un ponderado."""
+    out = val.run(_minimal_packet([_row(2025)]))
+    if not out.scenarios:
+        assert out.scenario_weighted_value is None
+
+
 def test_run_reverse_dcf_present_when_inputs_available():
     rows = [_row(2025), _row(2024)]
     packet = _minimal_packet(rows)

@@ -974,11 +974,12 @@
                     <span class="text-[11px] font-bold text-white uppercase tracking-wider block border-b border-gray-800 pb-2 mb-3">
                         &#127974; Consenso de Wall Street vs el DCF de Victor
                     </span>
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
                         <div><span class="text-[9px] text-gray-400 font-bold block uppercase">Analyst High</span><span id="wsHigh" class="font-mono font-bold text-emerald-400 text-sm"></span></div>
                         <div><span class="text-[9px] text-gray-400 font-bold block uppercase">Analyst Mean</span><span id="wsMean" class="font-mono font-bold text-amber-400 text-sm"></span></div>
                         <div><span class="text-[9px] text-gray-400 font-bold block uppercase">Analyst Low</span><span id="wsLow" class="font-mono font-bold text-red-400 text-sm"></span></div>
                         <div><span class="text-[9px] text-gray-400 font-bold block uppercase" title="Valor intrínseco por acción del FCFF DCF de Victor.">DCF Victor</span><span id="wsDCF" class="font-mono font-bold text-blue-400 text-sm"></span></div>
+                        <div><span class="text-[9px] text-gray-400 font-bold block uppercase" title="VAL-SCEN-036: suma de probabilidad x valor de los tres escenarios. El Cerebro exige mostrarlo junto a cada escenario, no solo el base.">DCF ponderado</span><span id="wsDCFW" class="font-mono font-bold text-blue-400 text-sm"></span></div>
                     </div>
                 </div>
 
@@ -1682,6 +1683,15 @@ function renderDashboard(data) {
     document.getElementById('wsHigh').innerText  = fmtM(meth.analyst_high);
     document.getElementById('wsMean').innerText  = fmtM(meth.analyst_mean);
     document.getElementById('wsLow').innerText   = fmtM(meth.analyst_low);
+    // VAL-SCEN-036 — el ponderado por probabilidad, junto al base.
+    const _wgt = _vv.weighted_per_share;
+    const _wgtEl = document.getElementById('wsDCFW');
+    if (_wgtEl) {
+        _wgtEl.innerText = _wgt != null ? `$${Number(_wgt).toFixed(2)}` : 'N/D';
+        _wgtEl.title = _wgt != null
+            ? `Suma de probabilidad x valor de los tres escenarios (VAL-SCEN-036). El base solo es $${Number(_vv.dcf_per_share).toFixed(2)}.`
+            : 'Los escenarios no fueron computables, así que no hay valor ponderado.';
+    }
     const _wsDcfEl = document.getElementById('wsDCF');
     _wsDcfEl.innerText = _dcf; _wsDcfEl.title = _dcfTitle;
 
