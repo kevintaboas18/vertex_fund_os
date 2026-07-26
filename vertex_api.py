@@ -701,12 +701,17 @@ def calculate_institutional_targets(ticker: str, info: dict, hist) -> dict:
         else:
             atr = price * 0.02
 
-        # ── 3. DCF SIMPLIFICADO ──────────────────────────────────────────────
+        # ── 3. ANCLA POR MÚLTIPLO (NO es un DCF) ─────────────────────────────
+        # eps × P/E objetivo. Antes se publicaba como "Vertex DCF"/"DCF Fair Value" y
+        # contradecía al valor intrínseco del reporte. El ÚNICO DCF del sistema es el
+        # FCFF del especialista de valuación de Victor (sc["victor_valuation"]).
+        # Esto sobrevive solo como ancla interna de los targets de respaldo, para cuando
+        # el modelo de Victor devuelve not_scorable. Nunca se muestra ni se llama DCF.
         eps          = info.get("trailingEps") or info.get("forwardEps") or (price / 25)
         fwd_pe       = info.get("forwardPE") or info.get("trailingPE") or 22
         revenue_growth = info.get("revenueGrowth") or 0.12
         target_pe_base = min(max(float(fwd_pe) * (1 + revenue_growth * 0.5), 15), 80)
-        dcf_fair_value = float(eps) * target_pe_base
+        pe_anchor = float(eps) * target_pe_base
 
         # ── 4. ANALYST CONSENSUS ANCHOR ─────────────────────────────────────
         analyst_high   = info.get("targetHighPrice")  or (price * 1.35)
@@ -738,14 +743,14 @@ def calculate_institutional_targets(ticker: str, info: dict, hist) -> dict:
         sigma_6m = annual_vol * math.sqrt(126/252)
         bull_6m  = min(price * (1 + 1.8 * sigma_6m), float(analyst_high) * 1.05)
         bear_6m  = max(price * (1 - 1.8 * sigma_6m), float(analyst_low) * 0.95)
-        base_6m  = (dcf_fair_value * 0.5 + float(analyst_mean) * 0.5)
+        base_6m  = (pe_anchor * 0.5 + float(analyst_mean) * 0.5)
         base_6m  = (base_6m + price * (1 + 0.5 * sigma_6m)) / 2
 
         # 12M
         sigma_12m = annual_vol
         bull_12m  = (price * (1 + 2.0 * sigma_12m) * 0.5 + float(analyst_high) * 0.5)
         bear_12m  = (price * (1 - 1.5 * sigma_12m) * 0.5 + float(analyst_low)  * 0.5)
-        base_12m  = (dcf_fair_value * 0.5 + float(analyst_median) * 0.5)
+        base_12m  = (pe_anchor * 0.5 + float(analyst_median) * 0.5)
         bull_12m  = max(bull_12m, base_12m * 1.10)
         bear_12m  = min(bear_12m, base_12m * 0.88)
 
@@ -756,7 +761,6 @@ def calculate_institutional_targets(ticker: str, info: dict, hist) -> dict:
                 "annual_volatility_pct": round(annual_vol * 100, 2),
                 "daily_vol_pct": round(daily_vol * 100, 3),
                 "atr_14": rnd(atr),
-                "dcf_fair_value": rnd(dcf_fair_value),
                 "analyst_high": rnd(analyst_high),
                 "analyst_low": rnd(analyst_low),
                 "analyst_mean": rnd(analyst_mean),
@@ -7622,6 +7626,33 @@ def _engine_scorecard(ticker, info, price):
     sc = {"categories": categories, "raw_total": round(raw_total, 1),
           "total_confidence": total_confidence, "incomplete": sorted(set(incomplete))}
 
+    # ── DCF REAL DE VICTOR (su especialista de valuación) ────────────────────────────
+    # El "Vertex DCF" que se mostraba era eps × P/E_objetivo — un múltiplo, no un DCF.
+    # El DCF de verdad es el FCFF del especialista: valuation.py documenta que
+    # "scenarios() IS the FCFF DCF model for the base case", así que el valor por acción
+    # del escenario Base ES el DCF, y Bear/Bull son sus bandas con supuestos declarados.
+    try:
+        if _vo is not None:
+            _scn = []
+            for _s in (getattr(_vo, "scenarios", None) or []):
+                _psv = getattr(_s, "per_share_value", None)
+                if _psv is not None:
+                    _scn.append({"name": getattr(_s, "name", ""), "per_share_value": round(float(_psv), 2),
+                                 "assumptions": dict(getattr(_s, "assumptions", None) or {})})
+            if _scn:
+                _base = next((s["per_share_value"] for s in _scn if s["name"] == "Base"), None)
+                _wv = getattr(getattr(_vo, "wacc", None), "value", None)
+                sc["victor_valuation"] = {
+                    "dcf_per_share": _base,          # el FCFF base = el DCF de Victor
+                    "scenarios": _scn,
+                    "wacc": round(float(_wv), 4) if _wv is not None else None,
+                    "model": "FCFF DCF (especialista de valuación de Victor)",
+                    "note": ("Valor intrínseco por acción. Es OTRA cosa que el target a 12 meses: "
+                             "el DCF dice cuánto vale el negocio hoy; el target, a cuánto podría "
+                             "cotizar en un año si el mercado paga el mismo múltiplo.")}
+    except Exception as _dcfe:
+        print(f"[engine] DCF de Victor no expuesto: {str(_dcfe)[:120]}")
+
     # ── PANEL "JUICIO AI": scorecard CON judge (NO es el principal). Mismas 6 áreas pero con
     #    la cobertura/score elevados por lo que Claude respondió, más su propio perfil/banda/
     #    recomendación para comparar lado a lado contra el determinista. Solo si el judge corrió.
@@ -8106,6 +8137,12 @@ def analyze_ticker(ticker: str):
                 "\n".join(f"- {_lab}: Bull ${targets[_k]['bull']} | Base ${targets[_k]['base']} | Bear ${targets[_k]['bear']}"
                           for _k, _lab in (("7d", "7D"), ("30d", "30D"), ("3m", "3M"), ("6m", "6M"), ("12m", "12M"))
                           if targets.get(_k)))
+        # DCF que ve el LLM: el FCFF del especialista de Victor. El "Vertex DCF" anterior era
+        # eps × P/E_objetivo (un múltiplo, no un DCF) y contradecía al fair value del reporte.
+        _vval0 = (_eng or {}).get("victor_valuation") or {}
+        _victor_dcf_txt = (f"${_vval0['dcf_per_share']} por acción (FCFF base)"
+                           if _vval0.get("dcf_per_share") is not None
+                           else "no puntuable (sin DCF publicable)")
         _victor_prompt_block = ""
         if _eng and _eng.get("categories"):
             _vg0 = _eng.get("victor_gates") or {}
@@ -8150,7 +8187,7 @@ DATOS DE MERCADO (ya calculados por el motor cuantitativo de Vertex):
 - Free Cash Flow: {info.get('freeCashflow', 'N/A')}
 - Beta: {info.get('beta', 'N/A')}
 - Analyst Mean Target (Wall Street): ${methodology.get('analyst_mean', 'N/A')}
-- DCF Fair Value (Vertex Engine): ${methodology.get('dcf_fair_value', 'N/A')}
+- DCF (FCFF, especialista de valuación de Victor): {_victor_dcf_txt}
 - Annual Volatility: {methodology.get('annual_volatility_pct', 'N/A')}% | ATR-14: ${methodology.get('atr_14', 'N/A')}
 - Noticias recientes: {titulares_contexto}
 - Proximo Earnings: {('en ' + str(earnings_info['days_until']) + ' dias (' + earnings_info['label'] + ')') if earnings_info.get('days_until') is not None else 'N/A'}{(' | EPS estimado: $' + str(earnings_info['eps_estimate'])) if earnings_info.get('eps_estimate') else ''}
@@ -8526,6 +8563,9 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             analisis_json["victor_targets_reason"] = _eng.get("victor_targets_reason")   # razón si no hay target
             analisis_json["financials_annual"] = _eng.get("financials_annual")
             analisis_json["victor_levels"] = _eng.get("victor_levels")   # niveles de precio (synthesize_levels)
+            # DCF REAL de Victor (FCFF del especialista). Sustituye al "Vertex DCF" viejo,
+            # que era eps × P/E_objetivo y contradecía al fair value mostrado arriba.
+            analisis_json["victor_valuation"] = _eng.get("victor_valuation")
             # ── FILTRO POR PERFIL (orquestador, CLAUDE.md paso 6): cruza la recomendación con
             #    el perfil de Kevin. No cambia el scoring; clasifica el fit con evidencia. ──
             try:
@@ -8881,12 +8921,31 @@ def analyze_debate(ticker: str, engine: str = "auto"):
             ins_ctx = ""
         raw_news = stock.news if stock.news else []
         headlines = " | ".join([n.get("title", "") for n in raw_news[:5]])
+        # DCF de Victor (FCFF) para el contexto; el "Vertex DCF" viejo era un múltiplo de P/E.
+        # Se LEE del último reporte guardado en vez de recomputar: correr los 6 especialistas
+        # aquí costaría toda su red por un solo número, y el debate es un endpoint aparte.
+        _victor_dcf_txt2 = "no disponible (corre el análisis primero)"
+        _targets_src2 = "Vertex — volatilidad/consenso"
+        try:
+            _pr2 = get_prior_report(ticker) or {}
+            _pl2 = json.loads(_pr2.get("payload") or "{}")
+            _an2 = (_pl2.get("analisis") or {})
+            _vv2 = (_an2.get("victor_valuation")) or {}
+            if _vv2.get("dcf_per_share") is not None:
+                _victor_dcf_txt2 = f"${_vv2['dcf_per_share']}/acción (FCFF)"
+            # Targets: los de Victor si el último reporte los tiene; si no, los de Vertex.
+            _vt2 = ((_pl2.get("targets") or {}).get("12m")) or {}
+            if all(isinstance(_vt2.get(_k), (int, float)) for _k in ("bull", "base", "bear")) and _an2.get("victor_targets_detail"):
+                targets = {**targets, "12m": {_k: round(float(_vt2[_k]), 2) for _k in ("bull", "base", "bear")}}
+                _targets_src2 = "Victor — EPS × (1+g) × P/E"
+        except Exception:
+            pass
 
         context = f"""ACCIÓN: {ticker} ({info.get('longName', ticker)})
 Precio spot: ${precio_actual} | P/E: {info.get('trailingPE', 'N/A')} | Fwd P/E: {info.get('forwardPE', 'N/A')}
 Market Cap: {info.get('marketCap', 'N/A')} | Rev growth YoY: {info.get('revenueGrowth', 'N/A')}
 Márgenes: gross {info.get('grossMargins', 'N/A')} / EBITDA {info.get('ebitdaMargins', 'N/A')} | FCF: {info.get('freeCashflow', 'N/A')} | Beta: {info.get('beta', 'N/A')}
-Target 12M (Vertex): Bull ${targets['12m']['bull']} / Base ${targets['12m']['base']} / Bear ${targets['12m']['bear']} | Analyst mean: ${meth.get('analyst_mean', 'N/A')} | DCF: ${meth.get('dcf_fair_value', 'N/A')}
+Target 12M ({_targets_src2}): Bull ${targets['12m']['bull']} / Base ${targets['12m']['base']} / Bear ${targets['12m']['bear']} | Analyst mean: ${meth.get('analyst_mean', 'N/A')} | DCF Victor (FCFF): {_victor_dcf_txt2}
 Vol anual: {meth.get('annual_volatility_pct', 'N/A')}% | ATR-14: ${meth.get('atr_14', 'N/A')}
 Insiders/13F: {ins_ctx or 'N/A'}
 Finnhub (fundamentales/news/sentiment/insiders/congreso): {finnhub_ctx or 'N/A'}
