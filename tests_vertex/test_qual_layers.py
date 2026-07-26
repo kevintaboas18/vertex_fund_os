@@ -11,7 +11,6 @@ import importlib.util
 import pathlib
 import sys
 
-import httpx
 import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]

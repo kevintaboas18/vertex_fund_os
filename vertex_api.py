@@ -156,14 +156,13 @@ def init_db():
             target_bull       REAL,
             target_base       REAL,
             target_bear       REAL,
-            thesis            TEXT,
-            signal_scores     TEXT
+            thesis            TEXT
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_reports_ticker ON reports(ticker, created_ts)")
-        # Migration: signal_scores queda SOLO por compatibilidad histórica (las 7 señales del LLM
-        # se eliminaron). Lo que se guarda ahora es victor_categories: el score 0-10 de cada uno de
-        # los 6 agentes de Victor, que es lo que define el tipo de setup del reporte.
-        for _col in ("signal_scores", "victor_categories"):
+        # victor_categories: el score 0-10 de cada uno de los 6 agentes de Victor, que es lo
+        # que define el tipo de setup del reporte. ALTER TABLE para bases ya creadas.
+        # (signal_scores, de las 7 señales del LLM ya eliminadas, se dejó de crear y de leer.)
+        for _col in ("victor_categories",):
             try:
                 conn.execute(f"ALTER TABLE reports ADD COLUMN {_col} TEXT")
             except Exception:
@@ -1575,8 +1574,6 @@ def get_explore_deep(ticker: str):
         sector   = info.get("sector",   "N/A")
         industry = info.get("industry", "N/A")
         price    = info.get("currentPrice") or info.get("regularMarketPrice") or "N/A"
-        prev     = info.get("previousClose")
-        pct_chg  = round(((float(price) - float(prev)) / float(prev)) * 100, 2) if (price and prev and price != "N/A") else None
         mktcap   = info.get("marketCap")
         pe       = info.get("trailingPE") or "N/A"
         tgt      = info.get("targetMeanPrice")
@@ -6528,7 +6525,6 @@ def _wbj_explain(context_text, temp=0.3):
         "NO recalcules, NO cambies, NO reduzcas ni 'corrijas' ningún número, score, gate ni nivel. "
         "Si algo no tiene datos (NOT_SCORABLE), explícalo con honestidad. No prometas retornos ni "
         "des órdenes de compra/venta.\n\n" + context_text)
-    last = None
     for attempt in range(2):
         try:
             r = client_gemini.models.generate_content(
@@ -6537,7 +6533,6 @@ def _wbj_explain(context_text, temp=0.3):
                     response_mime_type="application/json", response_schema=WBJExplanation, temperature=temp))
             return json.loads(r.text), "gemini"
         except Exception as e:
-            last = e
             if _is_quota_error(e) and attempt == 0:
                 time.sleep(_retry_delay_secs(e)); continue
             break
@@ -6548,8 +6543,8 @@ def _wbj_explain(context_text, temp=0.3):
     for fn, src in ((_openai_json, "openai (ChatGPT)"), (_grok_json, "grok")):
         try:
             return fn(prompt, keys, temp), src
-        except Exception as e2:
-            last = e2
+        except Exception:
+            pass
     return None, None
 
 
@@ -7035,7 +7030,7 @@ def _engine_scorecard(ticker, info, price):
     _MODS = [("business", _biz), ("financial", _fin), ("market", _mkt),
              ("technical", _tec), ("risk", _rsk), ("valuation", _val)]
 
-    categories = {}; raw_total = 0.0; conf_num = 0.0; conf_den = 0.0; incomplete = []
+    categories = {}; raw_total = 0.0; conf_num = 0.0; incomplete = []
     used_specialists = False
     _victor_gates = None; _victor_contradictions = None; _victor_levels = None   # aggregate REAL de Victor (principal)
     _qual_prov = {}                 # linaje de los inputs cualitativos (fuente/clase/proxy)
@@ -7828,7 +7823,7 @@ def _engine_scorecard(ticker, info, price):
             # (/100). Ese es su número honesto de "cuánto sabemos" → lo usamos como confianza total
             # en vez de un 50 fijo (que no es de Victor). Baja evidencia → confianza baja → cap a Speculative.
             _quick_evidence = qs.get("evidence_points_covered")
-            categories = {}; raw_total = 0.0; conf_num = 0.0; conf_den = 0.0; incomplete = []
+            categories = {}; raw_total = 0.0; conf_num = 0.0; incomplete = []
             for row in qs.get("categories", []):
                 k = row.get("key")
                 if k not in WBJ_ORDER:
@@ -8584,7 +8579,7 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                 suggested = suggested * factor_haircut
                 _lab = _fc.get("factor_labels", {})
                 _dom = _lab.get(_fc.get("book_dominant"), _fc.get("book_dominant"))
-                cap_reason = (cap_reason + f" Haircut −30% por concentración de factor"
+                cap_reason = (cap_reason + " Haircut −30% por concentración de factor"
                               + (f" ({_dom})." if _dom else ".")).strip()
 
         # #7 — recalcula el MCR/Δvol/VaR al PESO REALMENTE RECOMENDADO (no al 5% fijo)
@@ -8709,8 +8704,6 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
             analisis_json["ai_concentration"] = None
         analisis_json["news_catalysts"] = news_catalysts            # #3
         analisis_json["sec_8k"] = sec_8k                            # #3 — 8-K reales
-        # El auto-debate se eliminó junto con la pestaña Debate AI: should_debate y
-        # debate_reason ya no tienen consumidor.
 
         # ── OVERLAY WBJ: sobrescribe los NÚMEROS con los de Victor (engine determinista).
         #    _eng YA se calculó ANTES del prompt (los números mandan, la narrativa los sigue);
@@ -9353,7 +9346,9 @@ def compute_calibration_stats():
         muestras INDEPENDIENTES (antes mezclaba 30/90/180 del mismo reporte e inflaba n ~3x);
     (b) hit-rate RELATIVO a SPY (alpha) además del absoluto — en mercado alcista el absoluto engaña;
     (c) granularidad `by_recommendation_horizon` por 30/90/180d.
-    Mantiene la forma {hit_rate,n} que consumen calibrate_conviction y el anclaje #4."""
+    Todo sale del agente de Victor: la recomendación viene de sus gates, la convicción de su
+    raw_total y el tipo de setup del agente que domina sus 6 categorías. Nada de esto pasa por
+    un LLM — el acierto se mide contra el precio real."""
     try:
         conn = _db()
         rows = [dict(r) for r in conn.execute("SELECT * FROM reports ORDER BY created_ts DESC").fetchall()]
@@ -9454,7 +9449,6 @@ def get_calibration_cached(ttl=600):
     return data
 
 
-# (Función calibrate_conviction eliminada junto con el motor de convicción ponderado.)
 
 
 # ── #3 INFORMATION COEFFICIENT — ¿cada señal realmente predice? ───────────────
@@ -10931,7 +10925,6 @@ def compute_portfolio_stress(positions, lookback_days=504):
 
     total_val = sum(float(p["value"]) for p in eq)
     weights_all = {p["ticker"]: float(p["value"]) / total_val for p in eq}
-    name_map = {p["ticker"]: p.get("name", p["ticker"]) for p in eq}
     tickers = list(weights_all.keys())
 
     factor_syms = ["SPY", "QQQ", "SMH", "IWM", "TLT"]
@@ -12019,7 +12012,7 @@ def compute_portfolio_optimizer(positions, lookback="2y", max_weight=0.25, n_sim
         mu_bl, pi_eq = black_litterman_returns(cov, cw, view_idx, vq, vc)
         er_source = "black_litterman"
     else:
-        mu_bl, pi_eq = mu.copy(), mu.copy()
+        mu_bl = mu.copy()
         er_source = "historical"
 
     def stats(w):
