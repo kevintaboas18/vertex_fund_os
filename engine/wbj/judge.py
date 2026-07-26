@@ -64,30 +64,107 @@ class _Answers(BaseModel):
     answers: list[_Answer]
 
 
-def _company_context(packet: Any) -> str:
-    """Compact, factual snapshot of the company for the judge to reason over.
+def _attr(obj: Any, name: str, default: Any = None) -> Any:
+    """Read `name` off a pydantic model OR a plain dict.
 
-    Accepts the full Packet (pydantic) or the MVP dict; pulls whatever is
-    present without assuming a rich schema.
+    The judge is called with the full Packet on the normal route and with the
+    MVP dict on the fast route. `getattr` alone silently returns None for a
+    dict, which used to strip the ticker and the whole facts table out of the
+    fast-route context — the judge then saw only FMP's marketing blurb.
+    """
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
+
+
+def _fmt_value(val: Any) -> str | None:
+    """Render a scalar for the context block; None when there is nothing to show."""
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        return "sí" if val else "no"
+    if isinstance(val, (int, float)):
+        return f"{val:,.4g}" if abs(val) < 1000 else f"{val:,.0f}"
+    text = str(val).strip()
+    return text or None
+
+
+def _computed_metrics(outputs: Any) -> list[str]:
+    """The numbers the specialists ALREADY computed, so the judge can apply the
+    Cerebro's quantitative gates instead of guessing.
+
+    `business_analysis`'s moat request literally says spread persistence, margin
+    stability and concentration "are computed mechanically above" — but nothing
+    put them above. They live on the specialist outputs, not on the packet, so
+    without this the judge was asked to apply a gate it could not see the inputs
+    of. `01_business_analysis/AGENT.md` forbids declaring a moat from language
+    alone; feeding the measured effects is what makes that rule enforceable.
     """
     lines: list[str] = []
-    sec = getattr(packet, "security", None)
+    for out in (outputs or []):
+        # `outputs` may be [(key, output)] pairs or bare outputs.
+        if isinstance(out, tuple) and len(out) == 2:
+            out = out[1]
+        agent = _attr(out, "agent_id") or "?"
+        rows: list[str] = []
+        for metric in (_attr(out, "metrics") or []):
+            mid = _attr(metric, "metric_id") or _attr(metric, "id")
+            if not mid:
+                continue
+            value = _attr(metric, "value")
+            shown = _fmt_value(_attr(value, "value") if value is not None else None)
+            score = _attr(metric, "score10")
+            unit = _attr(value, "unit") if value is not None else None
+            if shown is None and score is None:
+                # NOT_SCORABLE stays visible: the judge must know what is missing,
+                # otherwise it cannot honestly answer INSUFFICIENT.
+                rows.append(f"    {mid}: N/S")
+                continue
+            parts = []
+            if shown is not None:
+                parts.append(f"{shown}{f' {unit}' if unit else ''}")
+            if score is not None:
+                parts.append(f"score {_fmt_value(score)}/10")
+            rows.append(f"    {mid}: {' · '.join(parts)}")
+        if rows:
+            lines.append(f"  [{agent}]")
+            lines.extend(rows)
+    return lines
+
+
+def _company_context(packet: Any, outputs: Any = None) -> str:
+    """Compact, factual snapshot of the company for the judge to reason over.
+
+    Accepts the full Packet (pydantic) or the MVP dict, plus — when available —
+    the specialist outputs, so the metrics the engine already computed reach the
+    judge instead of only five raw balance-sheet figures.
+    """
+    lines: list[str] = []
+    sec = _attr(packet, "security")
     if sec is not None:
-        lines.append(f"Ticker: {getattr(sec, 'ticker', '?')} ({getattr(sec, 'exchange', '?')})")
-    facts = getattr(packet, "facts_table", None)
+        lines.append(f"Ticker: {_attr(sec, 'ticker', '?')} ({_attr(sec, 'exchange', '?')})")
+    facts = _attr(packet, "facts_table")
     if isinstance(facts, dict):
-        for k, v in list(facts.items())[:8]:
-            val = getattr(v, "value", None)
-            if val is not None:
-                lines.append(f"  {k}: {val:,.0f}" if isinstance(val, (int, float)) else f"  {k}: {val}")
+        # No arbitrary cap: facts_table is a short curated table (revenue,
+        # diluted_shares, cash, total_debt, price). Truncating it would drop
+        # evidence silently, which is exactly what the Cerebro forbids.
+        for k, v in facts.items():
+            shown = _fmt_value(_attr(v, "value") if not isinstance(v, (int, float, str)) else v)
+            if shown is not None:
+                lines.append(f"  {k}: {shown}")
     # FMP profile (sector/industry/description) if present on the packet dict.
-    prof = getattr(packet, "fmp_profile", None) or (packet.get("fmp_profile") if isinstance(packet, dict) else None)
-    if isinstance(prof, list) and prof:
+    prof = _attr(packet, "fmp_profile")
+    if isinstance(prof, list) and prof and isinstance(prof[0], dict):
         p = prof[0]
         for key in ("companyName", "sector", "industry", "country", "description"):
             if p.get(key):
-                text = str(p[key])
-                lines.append(f"  {key}: {text[:400]}")
+                lines.append(f"  {key}: {str(p[key])[:400]}")
+    metric_lines = _computed_metrics(outputs)
+    if metric_lines:
+        lines.append("")
+        lines.append("Métricas YA calculadas por los especialistas "
+                     "(úsalas para los gates cuantitativos; N/S = sin dato, no la estimes):")
+        lines.extend(metric_lines)
     return "\n".join(lines) or "(sin contexto estructurado disponible)"
 
 
@@ -133,11 +210,15 @@ def answer_judgments(
     requests: list[JudgmentRequest],
     settings: Settings,
     client: Any = None,
+    outputs: Any = None,
 ) -> list[Judgment]:
     """Ask Claude to answer every open judgment request for one ticker.
 
     Returns [] (no crash) when there are no requests, no API key, or the
     `anthropic` SDK isn't installed. `client` is injectable for tests.
+    `outputs` are the specialist outputs the requests came from; passing them
+    puts the already-computed metrics in the judge's context, which the
+    quantitative gates (e.g. business_analysis's wide-moat gate) depend on.
     """
     if not requests:
         return []
@@ -150,7 +231,7 @@ def answer_judgments(
             return []
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-    ctx = _company_context(packet)
+    ctx = _company_context(packet, outputs)
     q_lines = [
         f"- request_id={r.request_id} | metric={r.metric_id} | schema_hint={r.schema_hint}\n"
         f"    pregunta: {r.question}"
