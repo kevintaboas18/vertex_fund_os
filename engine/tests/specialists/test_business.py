@@ -429,3 +429,67 @@ def test_bus_mix_001_and_hhi_005_agree_on_availability(nvda_packet):
     mix = next(m for m in out.metrics if m.metric_id == "BUS-MIX-001")
     hhi = next(m for m in out.metrics if m.metric_id == "BUS-HHI-005")
     assert (mix.value is None) == (hhi.value is None)
+
+
+# ---------------------------------------------------------------------------
+# Persistencia del spread (slot 3 de moat_and_pricing_power).
+#
+# DECISION_RULES.md condicion 1 del wide-moat gate es una ventana de CINCO anos
+# ("at least four of the last five fiscal years"). El calculo promediaba TODO el
+# historial disponible y no exigia un minimo de observaciones, asi que:
+#   - diez anos reportados diluian cinco anos recientes perfectos a 5/9 = 0.56,
+#     lo que ademas tumbaba `moat_gate_mechanical` (>=0.8) y con el la banda
+#     Excellent; y
+#   - una sola observacion medible puntuaba 10/10 de "persistencia".
+# ---------------------------------------------------------------------------
+
+def _spread_row(year: int, ebit: float) -> dict:
+    return _row(
+        year, revenue=1000.0, ebit=ebit, operating_income=ebit,
+        total_debt=100.0, total_equity=900.0, cash=50.0,
+    )
+
+
+def _moat_slots(rows_newest_first: list[dict]) -> list:
+    out = bus.run(_minimal_packet(rows_newest_first), overlay={"wacc": 0.05})
+    dim = next(d for d in out.dimensions if d.name == bus.DIM_MOAT)
+    return dim.metric_scores
+
+
+_EBIT_GOOD, _EBIT_BAD = 300.0, 20.0
+
+
+def test_spread_persistence_uses_a_five_year_window():
+    """Cinco anos recientes con spread >=5pp valen 5/5, no 5/9."""
+    rows = (
+        [_spread_row(2025 - i, _EBIT_GOOD) for i in range(5)]
+        + [_spread_row(2020 - i, _EBIT_BAD) for i in range(5)]
+    )
+    _, persistence = _moat_slots(rows)[2]
+    assert persistence.is_valid
+    assert persistence.value == pytest.approx(10.0)
+
+
+def test_spread_persistence_ignores_history_older_than_the_window():
+    """Y al reves: un buen pasado remoto no rescata cinco anos recientes malos."""
+    rows = (
+        [_spread_row(2025 - i, _EBIT_BAD) for i in range(5)]
+        + [_spread_row(2020 - i, _EBIT_GOOD) for i in range(5)]
+    )
+    _, persistence = _moat_slots(rows)[2]
+    assert persistence.is_valid
+    assert persistence.value == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize("ebit", [_EBIT_GOOD, _EBIT_BAD])
+def test_spread_persistence_needs_four_observations(ebit):
+    """Con un solo ano medible no hay persistencia que declarar, en ninguna
+    direccion: ni 10/10 ni 0/10."""
+    _, persistence = _moat_slots([_spread_row(2025, ebit), _spread_row(2024, ebit)])[2]
+    assert not persistence.is_valid
+
+
+def test_spread_persistence_shortfall_is_declared_as_an_assumption(nvda_packet):
+    """El fixture solo alcanza cuatro spread-years; la ventana corta se declara."""
+    out = bus.run(nvda_packet, overlay={"wacc": 0.1193})
+    assert any("moat persistence" in a for a in out.assumptions)

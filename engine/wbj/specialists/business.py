@@ -298,6 +298,13 @@ def margin_range(margins: Sequence[float]) -> Value:
     return _ok(max(margins) - min(margins), unit="pct")
 
 
+# DECISION_RULES.md wide-moat gate condition 1: "at least four of the last
+# five fiscal years". The window is five years; four observations is the
+# minimum that can evidence a "4 of 5" claim.
+_PERSISTENCE_WINDOW_YEARS = 5
+_PERSISTENCE_MIN_YEARS = 4
+
+
 def margin_range_is_stable(range_pct: float) -> bool:
     """FORMULAS.md, verbatim: "A range <=3 percentage points is a positive
     moat signal" (BUS-RANGE-010). Distinct from the wide-moat *gate*'s own,
@@ -542,6 +549,12 @@ class BusinessOutput(SpecialistOutput):
     moat: MoatSummary = Field(default_factory=MoatSummary)
     roic_history: list[float] = Field(default_factory=list)
     roic_wacc_spread_history: list[float] = Field(default_factory=list)
+    # Slot 3 of `moat_and_pricing_power` (a quarter of a 5-point dimension) is
+    # the only one with no BUS-xxx metric row behind it -- Victor's FORMULAS.md
+    # has no ID for spread persistence -- so the number and the window it was
+    # measured over are published here, or the report shows a score whose input
+    # cannot be audited.
+    moat_persistence: dict[str, Any] = Field(default_factory=dict)
     margin_stability: dict[str, Any] = Field(default_factory=dict)
     customer_economics: dict[str, Any] = Field(default_factory=dict)
     capital_allocation: dict[str, Any] = Field(default_factory=dict)
@@ -1001,10 +1014,26 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> BusinessOutput
         )
 
     # ---- MOAT (5 pts): spread level, spread persistence, margin range, quantitative-effects (judgment) ----
-    spread_years = ctx["spread_hist"]
+    # DECISION_RULES.md's wide-moat gate condition 1 is explicitly a FIVE-year
+    # window ("at least four of the last five fiscal years"), so persistence is
+    # measured over the last five spread-years only, and needs at least four
+    # observations to be a persistence claim at all.
+    # Without the window, a longer history diluted the rule: five perfect recent
+    # years inside ten reported ones scored 5/9 = 0.56, which both cut the slot
+    # to 5.56/10 and failed `moat_gate_mechanical`'s >=0.8 -- i.e. denied the
+    # Excellent band on ancient history. Without the floor, a company with a
+    # single measurable year scored 10/10 "persistence" from one observation,
+    # which is exactly the "sin evidencia, no hay numero" case.
+    spread_years = ctx["spread_hist"][-_PERSISTENCE_WINDOW_YEARS:]
     persistence_frac = (
-        sum(1 for s in spread_years if s >= 0.05) / len(spread_years) if spread_years else None
+        sum(1 for s in spread_years if s >= 0.05) / len(spread_years)
+        if len(spread_years) >= _PERSISTENCE_MIN_YEARS else None
     )
+    if persistence_frac is not None and len(spread_years) < _PERSISTENCE_WINDOW_YEARS:
+        assumptions.append(
+            f"moat persistence: only {len(spread_years)} spread-years available; the wide-moat "
+            f"gate's five-year window was evaluated over that shorter window."
+        )
     v_persistence = (
         _ok(persistence_frac, unit="ratio") if persistence_frac is not None
         else _null(NullState.MISSING, "ratio", "SPREAD_PERSISTENCE_INSUFFICIENT_HISTORY")
@@ -1207,6 +1236,16 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> BusinessOutput
         moat=MoatSummary(classification="NotScorable", quantitative_evidence=[]),
         roic_history=ctx["roic_hist"],
         roic_wacc_spread_history=ctx["spread_hist"],
+        moat_persistence={
+            "fraction": persistence_frac,
+            "years_at_or_above_threshold": (
+                sum(1 for s in spread_years if s >= 0.05) if persistence_frac is not None else None
+            ),
+            "years_measured": len(spread_years),
+            "window_years": _PERSISTENCE_WINDOW_YEARS,
+            "threshold_pp": 0.05,
+            "spreads": spread_years,
+        },
         margin_stability={"range": ctx.get("margin_range"), "window": ctx.get("op_margins_window", [])},
         customer_economics={},
         capital_allocation={"diluted_share_cagr": diluted_cagr, "returns_cash": ctx.get("returns_cash")},
