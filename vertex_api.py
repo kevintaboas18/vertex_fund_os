@@ -8888,6 +8888,14 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
                     _mgmt_settings = None
                 analisis_json["mandatory_report"]["management"] = _wbj_management_track_record(
                     info, settings=_mgmt_settings)
+                # Enlaces directos a EDGAR (Forms 4 y 13F). Vivían en la pestaña
+                # "Insiders & 13F", ya eliminada; son la fuente primaria de este
+                # bloque obligatorio, así que se sirven junto a él. Cualquier fallo
+                # deja el bloque sin enlaces, no rompe el reporte.
+                try:
+                    analisis_json["mandatory_report"]["edgar"] = fetch_edgar_filings(ticker, limit=8)
+                except Exception as _ede:
+                    print(f"[analyze] enlaces EDGAR omitidos: {str(_ede)[:100]}")
             except Exception as _mre:
                 print(f"[analyze] contenido obligatorio omitido: {str(_mre)[:120]}")
             # ── RE-EJECUCIÓN (CLAUDE.md): ¿la tesis previa quedó obsoleta? Disparadores
@@ -9338,57 +9346,6 @@ Determina quién tiene el caso más fuerte (TORO/OSO/EMPATE), el punto central d
 # ─────────────────────────────────────────────────────────────────────────────
 # INSIDERS + 13F (SEC EDGAR) + WATCHLIST
 # ─────────────────────────────────────────────────────────────────────────────
-@app.get("/api/insiders")
-def get_insiders(ticker: str):
-    """Insider transactions (Form 4) + institutional holders (13F) + EDGAR links,
-    enriched with a short AI interpretation of what the smart money is doing."""
-    ticker_clean = ticker.upper().strip()
-    try:
-        stock = yf.Ticker(ticker_clean)
-        try:
-            info = stock.info
-        except Exception:
-            info = {}
-        company_name = info.get("longName", ticker_clean)
-        ins = fetch_insiders_data(stock, ticker_clean)
-
-        # ── AI interpretation (Gemini) ───────────────────────────────────────
-        ai_text = ""
-        try:
-            ctx = format_insiders_context(ins)
-            if ctx:
-                prompt = (
-                    f"Eres analista institucional de Vertex AI. Interpreta la actividad de insiders y fondos "
-                    f"institucionales (13F) de {company_name} ({ticker_clean}).\n\nDATOS:\n{ctx}\n\n"
-                    "Responde en espanol, conciso y accionable, en 3 secciones:\n"
-                    "**1. QUE ESTAN HACIENDO LOS INSIDERS** — compras/ventas netas y que señala.\n"
-                    "**2. FLUJO INSTITUCIONAL (13F)** — quien acumula o reduce y que implica.\n"
-                    "**3. VEREDICTO SMART MONEY** — el dinero inteligente esta entrando o saliendo, y que deberia hacer el inversor."
-                )
-                resp = client_gemini.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=prompt,
-                    config=types.GenerateContentConfig(temperature=0.3, max_output_tokens=1500)
-                )
-                ai_text = resp.text
-        except Exception as ex:
-            ai_text = f"[AI no disponible: {str(ex)}]"
-
-        return {
-            "ticker": ticker_clean,
-            "company_name": company_name,
-            "transactions": ins.get("transactions", []),
-            "summary": ins.get("summary", {}),
-            "institutional": ins.get("institutional", []),
-            "major_holders": ins.get("major_holders", {}),
-            "edgar": ins.get("edgar", {}),
-            "ai_analysis": ai_text,
-            "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p'),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.get("/api/watchlist-radar")
 def get_watchlist_radar(ticker: str):
     """#4 — Fila de watchlist como RADAR DE SEÑALES (no solo quote): convicción institucional QD,
