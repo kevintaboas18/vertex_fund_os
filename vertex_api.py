@@ -8460,6 +8460,7 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
 """
 
         analisis_json, _analysis_src = _analyze_structured(prompt, temp=0.2)
+        analisis_json = _coerce_analysis_shapes(analisis_json)
 
         # ── FAIR VALUE ──
         # Con targets de Victor: el Fair Value ES su target BASE (no un promedio con Wall Street).
@@ -8501,7 +8502,7 @@ En 'calculos_y_crecimiento_ai' explica la metodología enfocada en cómo el prom
         def _pi(k, d=0):
             try:
                 return max(0, min(100, int(probs.get(k, d) or d)))
-            except (TypeError, ValueError):
+            except (AttributeError, TypeError, ValueError):
                 return d
         p_pos = _pi("p_positive_12m", 50)
         # ── #4/#1 — ANCLA la probabilidad al base-rate empírico ANTES del Kelly (el sizing es muy sensible a p).
@@ -9131,6 +9132,36 @@ def _analyze_structured(prompt, temp=0.2):
               else "ningún proveedor de narrativa configurado (falta GEMINI_API_KEY / OPENAI_API_KEY / XAI_API_KEY)")
     print(f"[analyze] narrativa no disponible ({reason}) → se entrega el análisis determinista de Victor")
     return _narrative_unavailable(reason), "no disponible"
+
+
+def _coerce_analysis_shapes(a: dict) -> dict:
+    """Normaliza los campos ANIDADOS que devuelve el LLM antes de usarlos.
+
+    Gemini responde validado contra el schema, pero los proveedores de respaldo
+    (ChatGPT/Grok en modo json_object) solo garantizan "JSON valido" — no el tipo
+    de cada campo. Un `probabilities` que llego como string tumbo /api/analyze con
+    AttributeError: 'str' object has no attribute 'get', despues de que los 6
+    especialistas de Victor ya habian terminado.
+
+    Si el valor es un string con JSON dentro se parsea; si no, se descarta a {} y
+    el downstream aplica sus defaults. No se inventa ninguna probabilidad.
+    """
+    if not isinstance(a, dict):
+        return {}
+    raw = a.get("probabilities")
+    if not isinstance(raw, dict):
+        fixed = None
+        if isinstance(raw, str) and raw.strip().startswith("{"):
+            try:
+                parsed = json.loads(raw)
+                fixed = parsed if isinstance(parsed, dict) else None
+            except (ValueError, TypeError):
+                fixed = None
+        if raw is not None:
+            print(f"[analyze] 'probabilities' llego como {type(raw).__name__}; "
+                  f"{'parseado desde JSON' if fixed else 'descartado -> se usan los defaults'}")
+        a["probabilities"] = fixed or {}
+    return a
 
 
 def _narrative_unavailable(reason: str) -> dict:
