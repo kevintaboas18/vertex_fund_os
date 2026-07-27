@@ -902,9 +902,24 @@ def _compute_all(
     add("MKT-ARPU-022", v_arpu, _score_from_anchor(v_arpu, [(-0.10, 0), (0.0, 5), (0.05, 8), (0.15, 10)]))
 
     # ---- MKT-SECB-023 / MKT-RSG-024: sector breadth / relative strength ----
+    # MKT-SECB-023 esperaba la sub-llave `above_50dma_count`, pero el contrato
+    # documentado de `overlay["sector_breadth"]` —el que usa technical.py y el que
+    # construye el llamador— es `{"above_50dma", "above_200dma", "valid_members"}`.
+    # Con los nombres desalineados la amplitud del sector NUNCA se computaba, aunque
+    # el panel llegara completo. Se acepta el contrato real y `_count` como alias.
+    # El `.keys()` directo además reventaba con AttributeError si alguien pasaba un
+    # escalar: un overlay mal formado no puede tumbar el análisis entero.
     breadth_overlay = overlay.get("sector_breadth")
-    if breadth_overlay and {"above_50dma_count", "valid_members"} <= breadth_overlay.keys():
-        v_secb = sector_breadth(breadth_overlay["above_50dma_count"], breadth_overlay["valid_members"])
+    breadth_above = breadth_below = None
+    if isinstance(breadth_overlay, dict):
+        for _k in ("above_50dma", "above_50dma_count"):
+            if isinstance(breadth_overlay.get(_k), (int, float)):
+                breadth_above = breadth_overlay[_k]
+                break
+        if isinstance(breadth_overlay.get("valid_members"), (int, float)):
+            breadth_below = breadth_overlay["valid_members"]
+    if breadth_above is not None and breadth_below:
+        v_secb = sector_breadth(breadth_above, breadth_below)
     else:
         v_secb = _null(NullState.MISSING, "pct", "SECTOR_BREADTH_UNAVAILABLE_NO_CONSTITUENT_PANEL")
     add("MKT-SECB-023", v_secb, _score_from_anchor(v_secb, [(0.20, 0), (0.50, 5), (0.70, 8), (0.90, 10)]))

@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 
 from wbj.core.scoring import Category
+from wbj.engines import indicators as ind
 from wbj.engines import levels_engine as lv
 from wbj.schemas.packet import AnalysisMeta, MarketData, OHLCVRow, Packet, Security
 import wbj.specialists.technical as tech
@@ -475,3 +476,69 @@ def test_verdict_bands_use_awarded_points_not_score10():
     assert tech.verdict(14.0) == "Healthy uptrend"
     assert tech.verdict(10.0) == "Neutral / transition"
     assert tech.verdict(5.0) == "Weak or broken"
+
+
+# ---------------------------------------------------------------------------
+# TECH-RSC-013: `composite_rs_percentile` pondera CUATRO ventanas
+# (0.35*RS21 + 0.25*RS63 + 0.25*RS126 + 0.15*RS252) y su docstring dice que
+# `rs_by_window` lleva "this security's own RS value for each window". El codigo
+# pasaba el RS de 63 dias en las cuatro llaves, asi que el numero de 63 dias de la
+# empresa se rankeaba contra las distribuciones de 21, 126 y 252 del universo.
+# Ademas `universe[window]` reventaba con KeyError si el universo venia mal
+# formado, matando al especialista entero (20 puntos).
+# ---------------------------------------------------------------------------
+
+def _rs_universe(n: int = 10) -> list[dict]:
+    return [{"RS21": 0.01 * i, "RS63": 0.02 * i, "RS126": 0.03 * i, "RS252": 0.04 * i}
+            for i in range(1, n + 1)]
+
+
+def _tech_row(out, mid):
+    return next(m for m in out.metrics if m.metric_id == mid)
+
+
+def test_composite_rs_uses_a_different_value_per_window(nvda_packet, monkeypatch):
+    """Cada ventana debe llevar el RS de ESA ventana, no el de 63 dias repetido."""
+    seen: list[dict] = []
+    real = ind.composite_rs_percentile
+
+    def _spy(rs_by_window, universe):
+        seen.append(dict(rs_by_window))
+        return real(rs_by_window, universe)
+
+    monkeypatch.setattr(ind, "composite_rs_percentile", _spy)
+    tech.run(nvda_packet, overlay={"rs_universe": _rs_universe()})
+    assert seen, "TECH-RSC-013 no llego a computar el composite"
+    windows = seen[0]
+    assert set(windows) == {"RS21", "RS63", "RS126", "RS252"}
+    assert len(set(windows.values())) > 1, "las cuatro ventanas traian el MISMO numero"
+
+
+def test_composite_rs_is_computed_with_a_well_formed_universe(nvda_packet):
+    out = tech.run(nvda_packet, overlay={"rs_universe": _rs_universe()})
+    assert _tech_row(out, "TECH-RSC-013").value is not None
+
+
+@pytest.mark.parametrize("universe", [
+    [0.1, 0.2, 0.3],                                  # lista de escalares
+    [{"RS21": 0.1}],                                  # faltan ventanas
+    [{"foo": 1.0, "bar": 2.0}],                       # columnas ajenas
+])
+def test_malformed_rs_universe_is_not_scorable_not_a_crash(nvda_packet, universe):
+    out = tech.run(nvda_packet, overlay={"rs_universe": universe})
+    assert _tech_row(out, "TECH-RSC-013").value is None
+
+
+# --- amplitud del sector: el overlay real vs. lo que el codigo esperaba --------
+
+def test_breadth_accepts_the_documented_overlay_contract(nvda_packet):
+    """`{"above_50dma", "above_200dma", "valid_members"}` es lo que arma el llamador."""
+    out = tech.run(nvda_packet, overlay={
+        "sector_breadth": {"above_50dma": 6, "above_200dma": 5, "valid_members": 10}})
+    assert _tech_row(out, "TECH-BREAD-039").value == pytest.approx(0.6)
+
+
+@pytest.mark.parametrize("breadth", [0.62, "alta", {"valid_members": 0}, {"above_50dma": 6}])
+def test_malformed_breadth_is_not_scorable_not_a_crash(nvda_packet, breadth):
+    out = tech.run(nvda_packet, overlay={"sector_breadth": breadth})
+    assert _tech_row(out, "TECH-BREAD-039").value is None

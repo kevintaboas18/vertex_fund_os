@@ -478,8 +478,9 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> TechnicalOutpu
     bench_rows, sector_rows = packet.market_data.benchmark, packet.market_data.sector
     if bench_rows and len(bench_rows) >= 64:
         bench_df = _to_df(bench_rows)
-        n_common = min(len(df), len(bench_df))
-        rs_series = ind.relative_strength(close.tail(n_common).reset_index(drop=True), bench_df["close"].tail(n_common).reset_index(drop=True), 63)
+        n_common = n_common_bench = min(len(df), len(bench_df))
+        bench_close = bench_df["close"]
+        rs_series = ind.relative_strength(close.tail(n_common).reset_index(drop=True), bench_close.tail(n_common).reset_index(drop=True), 63)
         rs63 = _last_valid(rs_series)
         v_rs = _ok(rs63, unit="pp") if rs63 is not None else _null(NullState.MISSING, "pp", "RS_INSUFFICIENT_OVERLAP")
     else:
@@ -496,10 +497,30 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> TechnicalOutpu
         v_rss = _null(NullState.MISSING, "pp", "SECTOR_DATA_UNAVAILABLE_EMPTY_MARKET_DATA")
     add("TECH-RSS-012", v_rss, _score_from_anchor(v_rss, [(-0.10, 0), (0.0, 4), (0.05, 7), (0.15, 10)]))
 
+    # TECH-RSC-013: `composite_rs_percentile` pondera CUATRO ventanas
+    # (0.35*RS21 + 0.25*RS63 + 0.25*RS126 + 0.15*RS252) y su docstring dice que
+    # `rs_by_window` lleva "this security's own RS value for each window". Aquí se
+    # pasaba el RS de 63 días en las cuatro llaves, así que el número de 63 días de
+    # la empresa se rankeaba contra las distribuciones de 21, 126 y 252 del
+    # universo: tres de los cuatro percentiles comparaban horizontes distintos.
     universe = overlay.get("rs_universe")
-    if universe and v_rs.is_valid:
-        rs_by_window = {"RS21": v_rs.value, "RS63": v_rs.value, "RS126": v_rs.value, "RS252": v_rs.value}
-        percentile = ind.composite_rs_percentile(rs_by_window, pd.DataFrame(universe))
+    rs_by_window: dict[str, float] = {}
+    if bench_rows and len(bench_rows) >= 64:
+        for _win in (21, 63, 126, 252):
+            _s = ind.relative_strength(
+                close.tail(n_common_bench).reset_index(drop=True),
+                bench_close.tail(n_common_bench).reset_index(drop=True), _win)
+            _v = _last_valid(_s)
+            if _v is not None:
+                rs_by_window[f"RS{_win}"] = _v
+    universe_df = pd.DataFrame(universe) if universe else None
+    # Solo se computa con las CUATRO ventanas presentes en la empresa y en el
+    # universo: un composite parcial tendría pesos que no suman 1 y se leería como
+    # un percentil completo. Un universo mal formado deja la métrica N/S, no
+    # revienta el especialista entero (antes: KeyError -> 20 puntos perdidos).
+    if (universe_df is not None and len(rs_by_window) == 4
+            and all(w in universe_df.columns for w in ("RS21", "RS63", "RS126", "RS252"))):
+        percentile = ind.composite_rs_percentile(rs_by_window, universe_df)
         v_rsc = _ok(percentile, unit="percentile")
     else:
         v_rsc = _null(NullState.NOT_SCORABLE, "percentile", "RSC_UNIVERSE_UNAVAILABLE_POINT_IN_TIME_REQUIRED")
@@ -613,9 +634,18 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> TechnicalOutpu
     add("TECH-DATR-029", v_datr, None)
 
     # ---- TECH-BREAD-039 / TECH-LIQ-040 ----
+    # Mismo endurecimiento que market.py: `.get()` sobre un escalar revienta con
+    # AttributeError y `["above_50dma"]` con KeyError. Un overlay mal formado deja
+    # la métrica N/S; no tumba el análisis.
     breadth_overlay = overlay.get("sector_breadth")
-    if breadth_overlay and breadth_overlay.get("valid_members", 0) > 0:
-        breadth_pct = breadth_overlay["above_50dma"] / breadth_overlay["valid_members"]
+    breadth_pct = None
+    if isinstance(breadth_overlay, dict):
+        _above = next((breadth_overlay[k] for k in ("above_50dma", "above_50dma_count")
+                       if isinstance(breadth_overlay.get(k), (int, float))), None)
+        _members = breadth_overlay.get("valid_members")
+        if _above is not None and isinstance(_members, (int, float)) and _members > 0:
+            breadth_pct = _above / _members
+    if breadth_pct is not None:
         v_bread = _ok(breadth_pct, unit="pct")
     else:
         v_bread = _null(NullState.NOT_SCORABLE, "pct", "BREADTH_UNAVAILABLE_NO_CONSTITUENT_PANEL")

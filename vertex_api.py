@@ -7598,8 +7598,19 @@ def _engine_scorecard(ticker, info, price):
                     if not isinstance(_ir, dict) or not isinstance(_cur, dict) or not isinstance(_prev, dict):
                         continue
                     _ebit = _fmp_num(_ir, "operatingIncome")
-                    _dc = _fmp_num(_cur, "totalDebt"); _ec = _fmp_num(_cur, "totalStockholdersEquity"); _cc = _fmp_num(_cur, "cashAndCashEquivalents")
-                    _dp = _fmp_num(_prev, "totalDebt"); _ep = _fmp_num(_prev, "totalStockholdersEquity"); _cp = _fmp_num(_prev, "cashAndCashEquivalents")
+                    # Excess cash = caja + inversiones de corto plazo, IGUAL que
+                    # `wbj.specialists.common.excess_cash` usa para la empresa. Si los pares
+                    # se netearan solo con cashAndCashEquivalents, el percentil de peer_score
+                    # compararía un ROIC calculado de una forma contra otros calculados de otra.
+                    def _excess(_r):
+                        _combined = _fmp_num(_r, "cashAndShortTermInvestments")
+                        if _combined is not None:
+                            return _combined
+                        _c = _fmp_num(_r, "cashAndCashEquivalents") or 0.0
+                        _sti = _fmp_num(_r, "shortTermInvestments")
+                        return _c + _sti if _sti is not None else _c
+                    _dc = _fmp_num(_cur, "totalDebt"); _ec = _fmp_num(_cur, "totalStockholdersEquity"); _cc = _excess(_cur)
+                    _dp = _fmp_num(_prev, "totalDebt"); _ep = _fmp_num(_prev, "totalStockholdersEquity"); _cp = _excess(_prev)
                     if None in (_ebit, _dc, _ec, _dp, _ep):
                         continue
                     # tasa efectiva con el helper de Victor (income_before_tax/income_tax_expense, fallback 0.21)

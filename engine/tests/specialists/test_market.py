@@ -464,3 +464,27 @@ def test_dispersion_proxy_needs_the_analyst_count(nvda_packet):
          "epsHigh": 0.98, "epsLow": 0.80}]}}
     out = mkt.run(_with_estimates(nvda_packet, block), overlay={})
     assert _mkt_row(out, "MKT-DISP-013").value is None
+
+
+def test_breadth_accepts_the_contract_the_caller_actually_sends(nvda_packet):
+    """MKT-SECB-023 pedia la sub-llave `above_50dma_count`, pero el contrato
+    documentado de overlay["sector_breadth"] —el que usa technical.py y el que
+    construye el llamador— es `above_50dma`. Con los nombres desalineados la
+    amplitud del sector NUNCA se computaba aunque el panel llegara completo."""
+    out = mkt.run(nvda_packet, overlay={
+        "sector_breadth": {"above_50dma": 6, "above_200dma": 5, "valid_members": 10}})
+    assert _mkt_row(out, "MKT-SECB-023").value == pytest.approx(0.6)
+
+
+def test_breadth_still_accepts_the_count_alias(nvda_packet):
+    out = mkt.run(nvda_packet, overlay={
+        "sector_breadth": {"above_50dma_count": 7, "valid_members": 10}})
+    assert _mkt_row(out, "MKT-SECB-023").value == pytest.approx(0.7)
+
+
+@pytest.mark.parametrize("breadth", [0.62, "alta", {"valid_members": 0}, {"above_50dma": 6}])
+def test_malformed_breadth_is_not_scorable_not_a_crash(nvda_packet, breadth):
+    """`.keys()` sobre un escalar reventaba con AttributeError: un overlay mal
+    formado no puede tumbar el analisis entero."""
+    out = mkt.run(nvda_packet, overlay={"sector_breadth": breadth})
+    assert _mkt_row(out, "MKT-SECB-023").value is None
