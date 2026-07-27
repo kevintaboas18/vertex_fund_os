@@ -385,25 +385,42 @@ def maturity_wall_coverage(cash: float, expected_fcf_before_maturity: float, com
 # ============================================================================
 
 
+def _numeric_shares(shares: object) -> list[float]:
+    """Solo las entradas numéricas de una lista de shares.
+
+    `customer_shares` viene de la CAPA LLM, así que una lista con `None`, con
+    texto o mezclada es un resultado plausible, no un caso patológico. Las tres
+    funciones HHI hacían `s * s` directo: una sola entrada mala reventaba con
+    TypeError y se llevaba por delante al especialista de riesgo entero (15
+    puntos). Se filtra lo numérico y, si no queda nada, la métrica queda MISSING.
+    """
+    if not isinstance(shares, (list, tuple)):
+        return []
+    return [float(s) for s in shares if isinstance(s, (int, float)) and not isinstance(s, bool)]
+
+
 def customer_hhi(shares: list[float]) -> Value:
     """Customer HHI (RSK-CUST-017): `sum(share_i^2)`."""
-    if not shares:
+    values = _numeric_shares(shares)
+    if not values:
         return _null(NullState.MISSING, "ratio", "CUSTOMER_HHI_EMPTY_SHARES")
-    return _ok(sum(s * s for s in shares), unit="ratio")
+    return _ok(sum(s * s for s in values), unit="ratio")
 
 
 def product_hhi(shares: list[float]) -> Value:
     """Product HHI (RSK-PROD-018): `sum(product_share_i^2)`."""
-    if not shares:
+    values = _numeric_shares(shares)
+    if not values:
         return _null(NullState.MISSING, "ratio", "PRODUCT_HHI_EMPTY_SHARES")
-    return _ok(sum(s * s for s in shares), unit="ratio")
+    return _ok(sum(s * s for s in values), unit="ratio")
 
 
 def geographic_hhi(shares: list[float]) -> Value:
     """Geographic concentration HHI (RSK-GEO-019): `sum(geography_share_i^2)`."""
-    if not shares:
+    values = _numeric_shares(shares)
+    if not values:
         return _null(NullState.MISSING, "ratio", "GEO_HHI_EMPTY_SHARES")
-    return _ok(sum(s * s for s in shares), unit="ratio")
+    return _ok(sum(s * s for s in values), unit="ratio")
 
 
 # ============================================================================
@@ -865,6 +882,20 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     add("RSK-CUST-017", v_cust, None)
     # DECISION_RULES.md's anchor is stated on the *largest single customer
     # share*, not the HHI -- scored separately from the reported HHI row.
+    # El slot de esta dimensión se puntúa con la share del cliente MAYOR (el anclaje
+    # que DECISION_RULES.md publica), no con el HHI. Cuando el filing divulga la
+    # lista de clientes pero el llamador no separa cuál es el mayor, el mayor es el
+    # máximo de esa lista: derivarlo NO es inferir concentración no divulgada —lo
+    # que MISSING_DATA_POLICY prohíbe— es aritmética sobre lo que la empresa ya
+    # divulgó. Sin la lista la métrica sigue MISSING, que es lo honesto.
+    if largest_customer_share is None and customer_shares:
+        _shares = _numeric_shares(customer_shares)
+        if _shares:
+            largest_customer_share = max(_shares)
+            assumptions.append(
+                "RSK-CUST-017: la share del cliente mayor se tomó como el máximo de las shares "
+                "divulgadas en el filing (aritmética sobre lo reportado, no una inferencia)."
+            )
     v_cust_share = _ok(largest_customer_share, unit="pct") if largest_customer_share is not None else _null(NullState.MISSING, "pct", "CUSTOMER_CONCENTRATION_UNAVAILABLE_PROHIBITED_IMPUTATION")
     cust_score = _score_from_anchor(v_cust_share, [(0.50, 0), (0.30, 3), (0.10, 6), (0.0, 10)])
 

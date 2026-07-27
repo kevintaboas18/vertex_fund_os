@@ -556,3 +556,48 @@ def test_excess_cash_shortfall_is_not_declared_when_the_data_is_there():
     rows = [_ic_row(2025 - i, short_term_investments=400.0) for i in range(5)]
     out = bus.run(_minimal_packet(rows), overlay={"wacc": 0.05})
     assert not any("short-term investments unavailable" in a for a in out.assumptions)
+
+
+# ---------------------------------------------------------------------------
+# business_durability (4 pts). SCORING.md nombra sus insumos como "Recurring
+# revenue, concentration, margin/ROIC persistence, cyclicality". El codigo
+# representaba la persistencia SOLO por su mitad de margen (BUS-RANGE-010) y
+# dejaba fuera la de ROIC, que ya se computa arriba para el foso. Con tres
+# miembros, una concentracion de clientes no divulgada —que el Cerebro PROHIBE
+# inferir— tumbaba la dimension entera al 67%, bajo el 70%, donde puntua CERO.
+# ---------------------------------------------------------------------------
+
+def _durability(out):
+    return next(d for d in out.dimensions if d.name == bus.DIM_DURABILITY)
+
+
+def test_durability_has_the_roic_persistence_half(nvda_packet):
+    assert len(_durability(bus.run(nvda_packet, overlay={"wacc": 0.1193})).metric_scores) == 4
+
+
+def test_durability_scores_without_disclosed_concentration(nvda_packet):
+    """3 de 4 = 75%: lo que si se midio puntua, en vez de perderse entero."""
+    d = _durability(bus.run(nvda_packet, overlay={"wacc": 0.1193, "recurring_revenue": 5.5e9}))
+    assert d.valid_weight() == pytest.approx(0.75)
+    assert d.score10_value().is_valid
+
+
+def test_durability_uses_the_same_persistence_as_the_moat(nvda_packet):
+    """Un mismo numero no puede valer distinto en dos dimensiones."""
+    out = bus.run(nvda_packet, overlay={"wacc": 0.1193})
+    moat_slot = next(d for d in out.dimensions if d.name == bus.DIM_MOAT).metric_scores[2][1]
+    dur_slot = _durability(out).metric_scores[3][1]
+    assert moat_slot.value == pytest.approx(dur_slot.value)
+
+
+def test_durability_still_caps_at_6_on_concentration_red_flag(nvda_packet):
+    """SCORING.md: "Largest customer >30% caps at 6"."""
+    out = bus.run(nvda_packet, overlay={"wacc": 0.1193, "largest_customer_share": 0.35,
+                                        "recurring_revenue": 5.5e9})
+    assert "CONCENTRATION_RED_FLAG" in out.mandatory_flags
+    assert _durability(out).score10_value().value <= 6.0 + 1e-9
+
+
+def test_cyclicality_gap_is_declared_not_faked(nvda_packet):
+    out = bus.run(nvda_packet, overlay={"wacc": 0.1193})
+    assert any("cyclicality" in a for a in out.assumptions)

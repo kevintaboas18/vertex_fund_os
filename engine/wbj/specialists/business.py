@@ -1052,10 +1052,17 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> BusinessOutput
     # answer moves `category.awarded_points`/`coverage`, not just the flat
     # `metrics` row -- see `MOAT_CLASSIFICATION_SLOT_INDEX` and
     # `SpecialistOutput.judgment_slots`.
+    # La persistencia del spread es insumo de DOS dimensiones: del foso
+    # ("ROIC-WACC persistence") y de la durabilidad ("margin/ROIC persistence").
+    # Se calcula UNA vez para que las dos lean el mismo número.
+    spread_persistence_slot = (
+        Value.of(anchor_score(persistence_frac, [(0.0, 0), (0.5, 5), (0.8, 8), (1.0, 10)]), unit="score")
+        if v_persistence.is_valid else Value.null(NullState.NOT_SCORABLE, unit="score")
+    )
     moat_scores: list[tuple[float, Value]] = [
         (0.25, Value.of(by_id["BUS-SPREAD-014"].score10, unit="score") if by_id["BUS-SPREAD-014"].score10 is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
         (0.25, Value.of(by_id["BUS-RANGE-010"].score10, unit="score") if by_id["BUS-RANGE-010"].score10 is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
-        (0.25, Value.of(anchor_score(persistence_frac, [(0.0, 0), (0.5, 5), (0.8, 8), (1.0, 10)]), unit="score") if v_persistence.is_valid else Value.null(NullState.NOT_SCORABLE, unit="score")),
+        (0.25, spread_persistence_slot),
         (0.25, Value.null(NullState.NOT_SCORABLE, unit="score")),  # moat_classification judgment slot
     ]
     MOAT_CLASSIFICATION_SLOT_INDEX = 3
@@ -1123,14 +1130,28 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> BusinessOutput
     ]
     management_dim = Dimension(name=DIM_MANAGEMENT, max_points=DIMENSION_MAX_POINTS[DIM_MANAGEMENT], metric_scores=management_scores)
 
-    # ---- DURABILITY (4 pts): recurring revenue, concentration, margin persistence ----
+    # ---- DURABILITY (4 pts) ----
+    # SCORING.md nombra los insumos como "Recurring revenue, concentration,
+    # margin/ROIC persistence, cyclicality". El código representaba la persistencia
+    # SOLO por su mitad de margen (BUS-RANGE-010) y dejaba fuera la de ROIC, que ya
+    # se computa arriba para el foso. Con tres miembros, una concentración de
+    # clientes no divulgada —que el Cerebro prohíbe inferir— tumbaba la dimensión
+    # entera al 67%, por debajo del 70%, donde puntúa CERO en vez de puntuar con lo
+    # que sí se midió. Con la mitad de ROIC en su sitio son 3 de 4 = 75%.
+    # `cyclicality` sigue sin métrica: se declara abajo, no se rellena.
     largest_customer_share = ctx.get("largest_customer_share")
     concentration_flag = largest_customer_share is not None and is_concentration_red_flag(largest_customer_share)
     durability_scores: list[tuple[float, Value]] = [
-        (1 / 3, Value.of(by_id["BUS-REC-002"].score10, unit="score") if by_id["BUS-REC-002"].score10 is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
-        (1 / 3, Value.of(by_id["BUS-CONC-003"].score10, unit="score") if by_id["BUS-CONC-003"].score10 is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
-        (1 / 3, Value.of(by_id["BUS-RANGE-010"].score10, unit="score") if by_id["BUS-RANGE-010"].score10 is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
+        (0.25, Value.of(by_id["BUS-REC-002"].score10, unit="score") if by_id["BUS-REC-002"].score10 is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
+        (0.25, Value.of(by_id["BUS-CONC-003"].score10, unit="score") if by_id["BUS-CONC-003"].score10 is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
+        (0.25, Value.of(by_id["BUS-RANGE-010"].score10, unit="score") if by_id["BUS-RANGE-010"].score10 is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
+        (0.25, spread_persistence_slot),
     ]
+    assumptions.append(
+        "business_durability: SCORING.md lista `cyclicality` como insumo y no hay métrica que la "
+        "mida; la dimensión se puntúa sobre los otros tres insumos (recurrencia, concentración y "
+        "persistencia de margen/ROIC)."
+    )
     if concentration_flag:
         durability_scores = apply_dimension_cap(durability_scores, cap=6.0)
     durability_dim = Dimension(name=DIM_DURABILITY, max_points=DIMENSION_MAX_POINTS[DIM_DURABILITY], metric_scores=durability_scores)

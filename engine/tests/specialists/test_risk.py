@@ -526,3 +526,72 @@ def test_cash_runway_not_applicable_does_not_sink_financing_coverage(nvda_packet
     dim = next(d for d in out.dimensions if d.name == risk.DIM_FINANCING)
     assert dim.applicable_weight() < dim.total_weight()
     assert dim.score10_value().is_valid
+
+
+# ---------------------------------------------------------------------------
+# competition_and_concentration_risk: el slot de cliente se puntua con la share
+# del cliente MAYOR (el anclaje que publica DECISION_RULES.md), no con el HHI.
+# Cuando el filing divulga la LISTA de clientes pero el llamador no separa cual
+# es el mayor, el mayor es el maximo de esa lista: derivarlo no es inferir
+# concentracion no divulgada, es aritmetica sobre lo ya reportado.
+# ---------------------------------------------------------------------------
+
+def _concentration(out):
+    return next(d for d in out.dimensions if d.name == risk.DIM_CONCENTRATION)
+
+
+_SHARES_OV = {"wacc": 0.1193, "product_shares": [0.88, 0.09, 0.03],
+              "geographic_shares": [0.47, 0.29, 0.16, 0.08]}
+
+
+def test_largest_customer_is_derived_from_the_disclosed_list(nvda_packet):
+    out = risk.run(nvda_packet, overlay={**_SHARES_OV, "customer_shares": [0.19, 0.13, 0.11]})
+    d = _concentration(out)
+    assert d.valid_weight() == pytest.approx(1.0)
+    assert d.score10_value().is_valid
+    assert any("máximo de las shares divulgadas" in a for a in out.assumptions)
+
+
+def test_an_explicit_largest_share_wins_over_the_derived_one(nvda_packet):
+    out = risk.run(nvda_packet, overlay={**_SHARES_OV, "customer_shares": [0.19, 0.13],
+                                         "largest_customer_share": 0.44})
+    assert not any("máximo de las shares divulgadas" in a for a in out.assumptions)
+
+
+def test_nothing_disclosed_stays_not_scorable(nvda_packet):
+    """SCORING.md: "do not assume diversification"."""
+    d = _concentration(risk.run(nvda_packet, overlay=_SHARES_OV))
+    assert d.valid_weight() == pytest.approx(2 / 3)
+    assert d.score10_value().is_null
+
+
+def test_a_single_dominant_customer_scores_worse_than_a_spread_book(nvda_packet):
+    one = risk.run(nvda_packet, overlay={**_SHARES_OV, "customer_shares": [0.60]})
+    many = risk.run(nvda_packet, overlay={**_SHARES_OV, "customer_shares": [0.19, 0.13, 0.11]})
+    assert _concentration(one).score10_value().value < _concentration(many).score10_value().value
+
+
+@pytest.mark.parametrize("shares,expect_valid", [
+    ([0.19, 0.13, 0.11], True),
+    ([None, "x", 0.19], True),        # se filtra la basura, sobrevive el numero
+    ([True, 0.19], True),             # bool NO es una share
+    ([], False),
+    ([None, "x"], False),
+    ("0.19", False),                  # ni siquiera es una lista
+])
+def test_malformed_customer_shares_never_crash_the_specialist(nvda_packet, shares, expect_valid):
+    """`customer_shares` viene de la CAPA LLM: una lista con None o texto es un
+    resultado plausible. Las tres funciones HHI hacian `s * s` directo, asi que
+    una sola entrada mala reventaba con TypeError y se llevaba por delante al
+    especialista de riesgo entero (15 puntos)."""
+    out = risk.run(nvda_packet, overlay={
+        "wacc": 0.1193, "product_shares": [0.88, 0.09, 0.03],
+        "geographic_shares": [0.47, 0.29, 0.16, 0.08], "customer_shares": shares})
+    assert _concentration(out).score10_value().is_valid is expect_valid
+
+
+@pytest.mark.parametrize("key", ["product_shares", "geographic_shares"])
+def test_malformed_product_and_geo_shares_are_missing_not_a_crash(nvda_packet, key):
+    out = risk.run(nvda_packet, overlay={"wacc": 0.1193, key: [None, "x"]})
+    mid = {"product_shares": "RSK-PROD-018", "geographic_shares": "RSK-GEO-019"}[key]
+    assert _metric(out, mid).value is None
