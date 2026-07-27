@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from wbj.core.nullstates import NullState
@@ -585,3 +586,106 @@ def test_cash_conversion_cycle_needs_two_years(nvda_packet):
         {**data["fundamentals"]["annual"][0], **_FIN_FIELDS}]
     out = fin.run(type(nvda_packet).model_validate(data), overlay={})
     assert _fin_row(out, "FIN-DX-031").value is None
+
+
+# ---------------------------------------------------------------------------
+# revenue_quality_and_growth (3 pts). SCORING.md le pone un gate propio: "At
+# least 4 of 5 metrics valid". Estaba en 2/5 porque FIN-GR-003 estaba clavada a
+# MISSING —con `growth_vs_peers` y `band_growth_vs_peers` ya escritas y sin
+# llamar, igual que FIN-DX-028/031— y FIN-GR-004 se declaraba judgment-only
+# aunque `acquisitions_net` SI viene en el Packet y acota el ratio organico.
+# ---------------------------------------------------------------------------
+
+_PEER_GROWTH = [0.31, 0.12, -0.04, 0.55, 0.19, 0.08, 0.42]   # mediana 0.19
+
+
+def test_fin_gr_003_is_computed_from_the_peer_overlay(nvda_packet):
+    out = fin.run(nvda_packet, overlay={"peer_revenue_growth": _PEER_GROWTH})
+    row = _fin_row(out, "FIN-GR-003")
+    company = _fin_row(out, "FIN-GR-001").value
+    assert row.value == pytest.approx(company - 0.19)
+
+
+def test_fin_gr_003_stays_missing_without_peers(nvda_packet):
+    assert _fin_row(fin.run(nvda_packet, overlay={}), "FIN-GR-003").value is None
+
+
+def test_fin_gr_003_uses_the_median_not_the_mean(nvda_packet):
+    """Un par con crecimiento absurdo no puede mover la comparacion."""
+    peers = _PEER_GROWTH + [50.0]
+    out = fin.run(nvda_packet, overlay={"peer_revenue_growth": peers})
+    company = _fin_row(out, "FIN-GR-001").value
+    median = float(np.median(peers))
+    mean = sum(peers) / len(peers)
+    assert _fin_row(out, "FIN-GR-003").value == pytest.approx(company - median)
+    assert _fin_row(out, "FIN-GR-003").value != pytest.approx(company - mean)
+
+
+# --- FIN-GR-004: cota inferior del ratio organico -----------------------------
+
+def test_organic_bound_is_computed_from_acquisitions_net(nvda_packet):
+    """1 - gasto_en_adquisiciones / crecimiento_absoluto."""
+    out = fin.run(nvda_packet, overlay={})
+    rows = nvda_packet.fundamentals["annual"]          # newest-first
+    growth_abs = rows[0]["revenue"] - rows[1]["revenue"]
+    spend = abs(rows[0]["acquisitions_net"]) + abs(rows[1]["acquisitions_net"])
+    assert _fin_row(out, "FIN-GR-004").value == pytest.approx(1.0 - spend / growth_abs)
+
+
+def test_organic_bound_is_declared_as_a_bound_not_as_the_bridge(nvda_packet):
+    out = fin.run(nvda_packet, overlay={})
+    assert any("cota INFERIOR" in a for a in out.assumptions)
+
+
+def test_organic_bound_is_skipped_when_it_is_too_loose(nvda_packet):
+    """Adquisiciones grandes: la cota no basta para clasificar -> sigue al juez."""
+    data = nvda_packet.model_dump(mode="json")
+    rows = data["fundamentals"]["annual"]
+    growth_abs = rows[0]["revenue"] - rows[1]["revenue"]
+    rows[0]["acquisitions_net"] = -0.5 * growth_abs        # la mitad del crecimiento
+    heavy = type(nvda_packet).model_validate(data)
+    out = fin.run(heavy, overlay={})
+    assert _fin_row(out, "FIN-GR-004").value is None
+    assert "financial_analysis:FIN-GR-004" in {r.request_id for r in out.judgment_requests}
+
+
+def test_organic_bound_needs_the_field(nvda_packet):
+    data = nvda_packet.model_dump(mode="json")
+    for row in data["fundamentals"]["annual"]:
+        row.pop("acquisitions_net", None)
+    out = fin.run(type(nvda_packet).model_validate(data), overlay={})
+    assert _fin_row(out, "FIN-GR-004").value is None
+
+
+def test_organic_bound_refuses_when_growth_is_not_positive(nvda_packet):
+    """FORMULAS.md: con crecimiento <=0 se clasifica desde el bridge, no del ratio."""
+    data = nvda_packet.model_dump(mode="json")
+    data["fundamentals"]["annual"][0]["revenue"] = \
+        data["fundamentals"]["annual"][1]["revenue"] * 0.9
+    out = fin.run(type(nvda_packet).model_validate(data), overlay={})
+    assert _fin_row(out, "FIN-GR-004").value is None
+
+
+# --- el gate propio de la dimension ------------------------------------------
+
+def test_dimension_unlocks_at_four_of_five(nvda_packet):
+    """SCORING.md: "At least 4 of 5 metrics valid"."""
+    d = next(x for x in fin.run(nvda_packet, overlay={"peer_revenue_growth": _PEER_GROWTH}).dimensions
+             if x.name == fin.DIM_REVENUE)
+    assert d.valid_weight() == pytest.approx(0.80)
+    assert d.score10_value().is_valid
+
+
+def test_dimension_stays_not_scorable_at_three_of_five(nvda_packet):
+    d = next(x for x in fin.run(nvda_packet, overlay={}).dimensions if x.name == fin.DIM_REVENUE)
+    assert d.valid_weight() == pytest.approx(0.60)
+    assert d.score10_value().is_null
+
+
+@pytest.mark.parametrize("n_peers,expected_valid", [(1, False), (2, False), (3, True), (7, True)])
+def test_fin_gr_003_needs_at_least_three_peers_for_a_median(nvda_packet, n_peers, expected_valid):
+    """FORMULAS.md pide la MEDIANA de los competidores; una mediana de una sola
+    observacion no es una mediana, es ese competidor. El piso vive en el motor,
+    no solo en el llamador."""
+    out = fin.run(nvda_packet, overlay={"peer_revenue_growth": _PEER_GROWTH[:n_peers]})
+    assert (_fin_row(out, "FIN-GR-003").value is not None) is expected_valid

@@ -7584,15 +7584,25 @@ def _engine_scorecard(ticker, info, price):
                 except (TypeError, ValueError):
                     return None
             _proics = []
+            _pgrowth = []          # crecimiento YoY de ingresos de los pares (FIN-GR-003)
             # Victor's peer_score exige ≥8 pares válidos (SCORING_ENGINE.md); con menos
             # devuelve N/S. Por eso pedimos hasta 15 para asegurar ≥8 tras posibles fallos.
             for _pt in list(_plist)[:15]:
                 try:
                     if not _pt or str(_pt).upper() == ticker.upper():
                         continue                      # nunca comparar la empresa contra sí misma
-                    _inc = prov.fmp.income_annual(_pt, limit=1) or []
+                    # limit=2: el año actual (ROIC) y el previo (crecimiento YoY de
+                    # ingresos para FIN-GR-003). Es la MISMA llamada, ya cacheada —
+                    # pedir un año más no cuesta red adicional, y sin el segundo año
+                    # FIN-GR-003 se quedaba sin la mediana de los pares.
+                    _inc = prov.fmp.income_annual(_pt, limit=2) or []
                     _bal = prov.fmp.balance_annual(_pt, limit=2) or []   # año actual + previo (IC promedio)
                     _ir = _inc[0] if isinstance(_inc, list) and _inc else None
+                    _ir1 = _inc[1] if isinstance(_inc, list) and len(_inc) >= 2 else None
+                    _rv0 = _fmp_num(_ir, "revenue") if isinstance(_ir, dict) else None
+                    _rv1 = _fmp_num(_ir1, "revenue") if isinstance(_ir1, dict) else None
+                    if _rv0 is not None and _rv1 not in (None, 0):
+                        _pgrowth.append(_rv0 / _rv1 - 1.0)
                     _cur = _bal[0] if isinstance(_bal, list) and len(_bal) >= 1 else None
                     _prev = _bal[1] if isinstance(_bal, list) and len(_bal) >= 2 else None
                     if not isinstance(_ir, dict) or not isinstance(_cur, dict) or not isinstance(_prev, dict):
@@ -7632,6 +7642,11 @@ def _engine_scorecard(ticker, info, price):
             elif _proics:
                 print(f"[engine] {ticker}: solo {len(_proics)} pares con ROIC (<8) → "
                       f"Competitive cae a reglas absolutas (peer_score N/S, como define Victor)")
+            # FIN-GR-003 compara contra la MEDIANA de los pares, no contra un percentil:
+            # no necesita los 8 de `peer_score`, le basta una muestra representativa.
+            if len(_pgrowth) >= 3:
+                _overlay["peer_revenue_growth"] = _pgrowth
+                print(f"[engine] {ticker}: crecimiento de {len(_pgrowth)} pares → Financial (FIN-GR-003)")
         except Exception as _pe:
             print(f"[engine] peer_roic omitido: {str(_pe)[:120]}")
 

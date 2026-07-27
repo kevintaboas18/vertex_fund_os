@@ -421,8 +421,17 @@ def nvda_packet() -> Packet:
     return Packet.model_validate(json.loads(_FIXTURE.read_text()))
 
 
+def _packet_without_acquisitions(packet: Packet) -> Packet:
+    """FIN-GR-004 ya no es judgment-only cuando `acquisitions_net` permite acotar
+    el ratio organico. Para probar la RUTA DE JUICIO hay que quitar ese campo."""
+    data = packet.model_dump(mode="json")
+    for row in data["fundamentals"]["annual"]:
+        row.pop("acquisitions_net", None)
+    return Packet.model_validate(data)
+
+
 def test_end_to_end_financial_run_answer_judgments_moves_points_and_coverage(nvda_packet):
-    before = fin.run(nvda_packet)
+    before = fin.run(_packet_without_acquisitions(nvda_packet))
 
     # Sanity: the real specialist emits FIN-GR-004/005 as judgment requests,
     # wired to revenue_quality_and_growth slots via judgment_slots.

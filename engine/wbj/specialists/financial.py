@@ -313,6 +313,22 @@ def organic_growth_quality(organic_growth: float, total_growth: float) -> Value:
     return _ok(organic_growth / total_growth, unit="ratio")
 
 
+_MIN_PEERS_FOR_MEDIAN = 3
+
+
+def band_organic_growth_quality(ratio: float) -> int:
+    """Cuánta del crecimiento reportado es orgánica.
+
+    FORMULAS.md no publica bandas para FIN-GR-004, solo la regla de refugio
+    ("If total growth <=0, classify from bridge rather than ratio"). Se usan los
+    tercios naturales del ratio, que es lo que la propia dimensión describe:
+    "Organic, accelerating, above-peer growth" en la banda 7-10 (SCORING.md).
+    <50% del crecimiento es orgánico = BAD (el crecimiento lo compró);
+    50-90% = GOOD (mixto); >90% = EXCELLENT (esencialmente orgánico).
+    """
+    return band_score(ratio, 0.50, 0.90)
+
+
 @register_formula(id="FIN-GR-005", version=_VERSION, unit="pct_per_period", inputs=["shares"])
 def market_share_trend(shares: Sequence[float]) -> Value:
     """Market-share trend (FIN-GR-005): OLS slope of >=3 annual share
@@ -1013,6 +1029,43 @@ def _cash_conversion_cycle_from(annual: list[dict]) -> Value:
     )
 
 
+def _organic_growth_lower_bound(annual: list[dict]) -> float | None:
+    """Cota INFERIOR del ratio orgánico de FIN-GR-004, desde `acquisitions_net`.
+
+    El bridge orgánico/adquirido/FX no está en el Packet, pero el gasto neto en
+    adquisiciones sí (estado de flujo de efectivo). Ese gasto acota por arriba la
+    parte inorgánica del crecimiento: aunque cada dólar gastado hubiese comprado un
+    dólar de ingreso ANUAL —imposible en la práctica, las adquisiciones se pagan a
+    múltiplos de 3-10x ventas— el ingreso adquirido no puede superarlo.
+
+        organico >= crecimiento_total - gasto_en_adquisiciones
+        ratio    >= 1 - gasto / crecimiento_total
+
+    Se suman el año actual y el previo porque una compra cerrada a mitad del año
+    anterior aporta un año parcial y luego uno completo, así que también infla el
+    crecimiento del año actual.
+
+    Devuelve None si el crecimiento no es positivo (FORMULAS.md manda clasificar
+    desde el bridge, no desde el ratio) o si faltan datos. Nunca devuelve un valor
+    > 1: la cota se recorta, porque "más que 100% orgánico" no significa nada.
+    """
+    if len(annual) < 2:
+        return None
+    revenue_t, revenue_t1 = _num(annual[-1], "revenue"), _num(annual[-2], "revenue")
+    if revenue_t is None or revenue_t1 is None:
+        return None
+    growth_abs = revenue_t - revenue_t1
+    if growth_abs <= 0:
+        return None
+    spend = 0.0
+    for row in annual[-2:]:
+        acquisitions = _num(row, "acquisitions_net")
+        if acquisitions is None:
+            return None          # sin el dato no hay cota, y no se inventa una
+        spend += abs(acquisitions)
+    return max(0.0, min(1.0, 1.0 - spend / growth_abs))
+
+
 def _latest_balance_row(packet: Packet) -> dict | None:
     """Most recent balance-sheet snapshot: latest quarterly row if present
     (FORMULAS.md marks current/quick ratio "quarterly" frequency), else
@@ -1076,6 +1129,7 @@ def _compute_all(
     else:
         v = _null(NullState.MISSING, "pct", "INSUFFICIENT_REVENUE_HISTORY")
     add("FIN-GR-001", v, _band_or_none(v, band_yoy_revenue_growth), (DIM_REVENUE,))
+    yoy_growth = v.value if v.is_valid else None      # reutilizado por FIN-GR-003
 
     # ---- FIN-GR-002: revenue growth trend ----
     growth_rates = [
@@ -1088,23 +1142,56 @@ def _compute_all(
     )
     add("FIN-GR-002", v, _band_or_none(v, band_revenue_growth_trend), (DIM_REVENUE,))
 
-    # ---- FIN-GR-003: growth vs peers (no peer growth dataset in Packet) ----
-    v = _null(NullState.MISSING, "pct", "PEER_GROWTH_DATA_UNAVAILABLE")
-    add("FIN-GR-003", v, None, (DIM_REVENUE,))
+    # ---- FIN-GR-003: growth vs peers ----
+    # `growth_vs_peers` y `band_growth_vs_peers` existían y nadie las llamaba: la
+    # métrica estaba clavada a MISSING. El crecimiento de los pares no está en el
+    # Packet, pero el llamador ya descarga los estados de los mismos pares para el
+    # `peer_roic` del agente de negocio, así que llega por overlay.
+    # Piso de 3 pares: FORMULAS.md pide la MEDIANA de los competidores, y una
+    # mediana de una sola observación no es una mediana — es ese competidor. No
+    # son los 8 que exige `peer_score`, porque eso es un percentil (necesita una
+    # distribución) y esto es una comparación central. El piso vive aquí y no solo
+    # en el llamador: el motor no puede depender de la disciplina de quien lo llama.
+    peer_growths = [float(g) for g in (overlay.get("peer_revenue_growth") or [])
+                    if isinstance(g, (int, float))]
+    if len(peer_growths) >= _MIN_PEERS_FOR_MEDIAN and yoy_growth is not None:
+        v = growth_vs_peers(yoy_growth, float(np.median(peer_growths)))
+    else:
+        v = _null(NullState.MISSING, "pct", "PEER_GROWTH_DATA_UNAVAILABLE")
+    add("FIN-GR-003", v, _band_or_none(v, band_growth_vs_peers), (DIM_REVENUE,))
 
-    # ---- FIN-GR-004 / FIN-GR-005: judgment-only (see module docstring) ----
+    # ---- FIN-GR-004: calidad del crecimiento orgánico ----
+    # El bridge orgánico/adquirido/FX no está en el Packet, pero `acquisitions_net`
+    # (flujo de caja de inversión) SÍ, y acota el problema por arriba: aunque cada
+    # dólar gastado en adquisiciones hubiese comprado un dólar de ingreso anual
+    # —imposible en la práctica, se compra a múltiplos de 3-10x ventas— la parte
+    # inorgánica del crecimiento no puede exceder ese gasto. Cuando la cota deja el
+    # ratio por encima del umbral EXCELLENT, la clasificación NO depende del bridge
+    # y se computa (MISSING_DATA_POLICY paso 3, "calculable desde componentes
+    # validados"). Si la cota es floja, se mantiene la pregunta al juez: no se
+    # adivina un número intermedio.
     v_organic = _null(NullState.NOT_SCORABLE, "ratio", "ORGANIC_GROWTH_BRIDGE_UNAVAILABLE_JUDGMENT_REQUIRED")
-    add("FIN-GR-004", v_organic, None, (DIM_REVENUE,))
-    judgment_requests.append(
-        JudgmentRequest(
-            request_id="financial_analysis:FIN-GR-004",
-            agent_id=AGENT_ID,
-            metric_id="FIN-GR-004",
-            question="Classify organic growth quality (BAD/GOOD/EXCELLENT) from the "
-            "organic/acquired/FX/divestiture revenue bridge; the packet does not carry it.",
-            schema_hint="one of BAD|GOOD|EXCELLENT",
+    organic_bound = _organic_growth_lower_bound(annual)
+    if organic_bound is not None and organic_bound >= 0.90:
+        v_organic = _ok(organic_bound, unit="ratio")
+        assumptions.append(
+            f"FIN-GR-004: cota INFERIOR del ratio orgánico = {organic_bound:.1%}, derivada de "
+            "`acquisitions_net` (el gasto en adquisiciones acota por arriba la parte inorgánica "
+            "del crecimiento). No es el bridge reportado: es una cota que ya basta para "
+            "clasificar, porque el valor real solo puede ser MAYOR."
         )
-    )
+    add("FIN-GR-004", v_organic, _band_or_none(v_organic, band_organic_growth_quality), (DIM_REVENUE,))
+    if v_organic.is_null:
+        judgment_requests.append(
+        JudgmentRequest(
+                request_id="financial_analysis:FIN-GR-004",
+                agent_id=AGENT_ID,
+                metric_id="FIN-GR-004",
+                question="Classify organic growth quality (BAD/GOOD/EXCELLENT) from the "
+                "organic/acquired/FX/divestiture revenue bridge; the packet does not carry it.",
+                schema_hint="one of BAD|GOOD|EXCELLENT",
+            )
+        )
     v_share = _null(NullState.NOT_SCORABLE, "pct_per_period", "MARKET_SHARE_SERIES_UNAVAILABLE_JUDGMENT_REQUIRED")
     add("FIN-GR-005", v_share, None, (DIM_REVENUE,))
     judgment_requests.append(
