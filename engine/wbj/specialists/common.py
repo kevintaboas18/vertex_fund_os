@@ -243,6 +243,34 @@ class SpecialistOutput(BaseModel):
     validation_tests: ValidationTestsSummary = Field(default_factory=ValidationTestsSummary)
 
 
+def dimension_slot(score10: float | None, value: Value | None = None) -> Value:
+    """One `Dimension.metric_scores` entry, preserving `NOT_APPLICABLE`.
+
+    Every specialist built its slots as
+    `Value.of(s) if s is not None else Value.null(NOT_SCORABLE)`, which
+    collapses two different situations into one: "we could not measure this"
+    and "this question does not exist for this company". The second is
+    MISSING_DATA_POLICY.md step 1, and its coverage formula
+    (`valid / applicable`) deliberately drops those from the denominator --
+    but the state never survived the slot boundary, so
+    `Dimension.applicable_weight()` could not see them.
+
+    Concretely: RSK-RUN-015 (cash runway) is `NOT_APPLICABLE` for any company
+    that is not burning cash, and RSK-MAT-016 for any company with no debt due.
+    A debt-free, profitable company was charged for both, losing half the
+    financing dimension's coverage -- enough to push it under
+    `COVERAGE_USABLE`, where it scores zero points rather than a low score.
+
+    Pass the metric's own `Value` as `value` so its null state is read; without
+    it the behaviour is unchanged (NOT_SCORABLE).
+    """
+    if score10 is not None:
+        return Value.of(score10, unit="score")
+    if value is not None and value.is_null and value.state == NullState.NOT_APPLICABLE:
+        return Value.null(NullState.NOT_APPLICABLE, unit="score", warnings=list(value.warnings))
+    return Value.null(NullState.NOT_SCORABLE, unit="score")
+
+
 def excess_cash(row: dict) -> tuple[float, bool]:
     """`(excess_cash, is_complete)` for one annual/quarterly statement row.
 

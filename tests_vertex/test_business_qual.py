@@ -117,7 +117,13 @@ def test_orchestrator_returns_deterministic_result(api, monkeypatch):
     monkeypatch.setattr(api, "_wbj_qual_from_10k_llm", lambda *a, **k: {})
     ov = api._wbj_extract_business_qual("NVDA", 1045810, None, revenue_hint=1e9)
     ov.pop("__provenance__", None)
-    assert ov == {"segment_shares": [0.6, 0.4]}
+    # El MISMO desglose reportado alimenta tres llaves: `segment_shares`
+    # (BUS-MIX-001/BUS-HHI-005), `product_shares` (RSK-PROD-018) y, por el
+    # endpoint hermano, `geographic_shares` (RSK-GEO-019). Antes solo se
+    # publicaba la primera y las dos metricas de riesgo quedaban N/S con el
+    # dato ya descargado.
+    assert ov == {"segment_shares": [0.6, 0.4], "product_shares": [0.6, 0.4],
+                  "geographic_shares": [0.6, 0.4]}
 
 def test_overlay_is_empty_when_nothing_is_disclosed(api, monkeypatch):
     """Sin NINGUNA fuente (ni codigo ni LLM) → cero metricas. No se inventa nada."""

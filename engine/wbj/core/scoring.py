@@ -144,6 +144,27 @@ class Dimension(BaseModel):
         """Sum of metric weights whose `Value` is valid (non-null)."""
         return sum(w for w, v in self.metric_scores if v.is_valid)
 
+    def applicable_weight(self) -> float:
+        """`total_weight()` minus the weight of metrics that do not apply.
+
+        MISSING_DATA_POLICY.md writes coverage as
+        `valid_metric_weight / applicable_metric_weight` -- *applicable*, not
+        total -- and its decision tree makes step 1 "Is the metric applicable?
+        If no, use `NOT_APPLICABLE`". A `NOT_APPLICABLE` metric is therefore not
+        a hole in the evidence; it is a question that does not exist for this
+        company.
+
+        Counting it in the denominator punished companies for their own shape:
+        RSK-RUN-015 (cash runway) is `NOT_APPLICABLE` for anyone who is not
+        burning cash, so a profitable company lost a quarter of the financing
+        dimension's coverage for being profitable -- and a dimension pushed
+        under `COVERAGE_USABLE` scores zero points, not a low score.
+        """
+        return sum(
+            w for w, v in self.metric_scores
+            if not (v.is_null and v.state == NullState.NOT_APPLICABLE)
+        )
+
     def score10_value(self) -> Value:
         """Weighted mean over valid metrics, as a null-aware `Value`.
 
@@ -151,12 +172,16 @@ class Dimension(BaseModel):
         dimension when at least 70% (`COVERAGE_USABLE`) of its metric
         weight is valid; otherwise the dimension is `NOT_SCORABLE`.
         """
-        total = self.total_weight()
+        total = self.applicable_weight()
         if total <= 0:
             return Value.null(
                 NullState.NOT_SCORABLE,
                 unit="score",
-                warnings=[f"DIMENSION_NO_METRICS: {self.name!r} has no registered metric weight"],
+                warnings=[
+                    f"DIMENSION_NO_APPLICABLE_METRICS: {self.name!r} has no applicable metric weight"
+                    if self.total_weight() > 0
+                    else f"DIMENSION_NO_METRICS: {self.name!r} has no registered metric weight"
+                ],
             )
         valid = self.valid_weight()
         if valid / total < COVERAGE_USABLE:
@@ -224,7 +249,7 @@ class Category(BaseModel):
         by that dimension's `max_points` so a dimension worth more of the
         category counts for more of the category's coverage.
         """
-        applicable = sum(d.max_points * d.total_weight() for d in self.dimensions)
+        applicable = sum(d.max_points * d.applicable_weight() for d in self.dimensions)
         if applicable <= 0:
             return 0.0
         valid = sum(d.max_points * d.valid_weight() for d in self.dimensions)

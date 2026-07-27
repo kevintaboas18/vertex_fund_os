@@ -74,6 +74,7 @@ from wbj.specialists.common import (
     SecurityRef,
     SpecialistOutput,
     ValidationTestsSummary,
+    dimension_slot,
     excess_cash,
     status_from_coverage,
 )
@@ -681,6 +682,25 @@ def _num(row: dict, key: str) -> float | None:
     return float(v) if isinstance(v, (int, float)) else None
 
 
+def _expense_magnitude(value: object) -> float | None:
+    """Magnitude of an expense line. FMP reports `interestExpense` positive on
+    some tickers and negative on others; the coverage ratios divide EBIT by it,
+    so a sign flip would turn healthy coverage into a negative reading."""
+    if not isinstance(value, (int, float)):
+        return None
+    magnitude = abs(float(value))
+    return magnitude or None
+
+
+def _ebitda_of(row: dict) -> float | None:
+    """FMP's reported `ebitda`, else `EBIT + D&A` -- both mapped by `builder.py`."""
+    reported = _num(row, "ebitda")
+    if reported is not None:
+        return reported
+    ebit, dna = _num(row, "ebit"), _num(row, "depreciation_and_amortization")
+    return ebit + dna if ebit is not None and dna is not None else None
+
+
 def _annual_rows(packet: Packet) -> list[dict]:
     rows = packet.fundamentals.get("annual") or []
     return list(reversed(rows))  # ascending, per DATASET.md
@@ -770,24 +790,43 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     v_gap = worst_overnight_gap(opens, prior_closes)
     add("RSK-GAP-010", v_gap, None)
 
-    # ---- Financing (overlay-driven interest expense) ----
-    interest_expense = overlay.get("interest_expense")
+    # ---- Financing ----
+    # `interest_expense` IS part of Packet.fundamentals (builder.py maps FMP's
+    # `interestExpense`); this read was overlay-only, so RSK-ICOV-011 and
+    # RSK-FCC-012 stayed MISSING with the number sitting in the packet. Both are
+    # scored members of DIM_FINANCING_BALANCE, so the unread field cost points
+    # and SOLVENCY_WARNING could never fire. Packet first, overlay as fallback.
+    interest_expense = _expense_magnitude(_num(latest, "interest_expense"))
+    if interest_expense is None:
+        interest_expense = _expense_magnitude(overlay.get("interest_expense"))
     if interest_expense is not None and ebit is not None:
-        v_icov = interest_coverage(ebit, float(interest_expense))
+        v_icov = interest_coverage(ebit, interest_expense)
     else:
         v_icov = _null(NullState.MISSING, "ratio", "INTEREST_EXPENSE_UNAVAILABLE")
-        assumptions.append("RSK-ICOV-011 not computed: interest_expense is not part of Packet.fundamentals and no overlay['interest_expense'] was supplied.")
+        assumptions.append("RSK-ICOV-011 not computed: interest_expense was absent from Packet.fundamentals and from overlay['interest_expense'].")
     add("RSK-ICOV-011", v_icov, _score_from_anchor(v_icov, [(1.5, 0), (3.0, 6), (5.0, 10)]))
     mandatory_warnings: list[str] = [SOLVENCY_WARNING] if SOLVENCY_WARNING in v_icov.warnings else []
 
     lease_charge = float(overlay.get("lease_charge", 0.0))
     if interest_expense is not None and ebit is not None:
-        v_fcc = fixed_charge_coverage(ebit, float(interest_expense), lease_charge)
+        v_fcc = fixed_charge_coverage(ebit, interest_expense, lease_charge)
     else:
         v_fcc = _null(NullState.MISSING, "ratio", "FCC_INPUTS_UNAVAILABLE")
-    add("RSK-FCC-012", v_fcc, None)
+    # RSK-FCC-012 es miembro puntuado de DIM_FINANCING (SCORING.md "RSK-ICOV-011..016");
+    # comparte la banda de la dimensión con la cobertura de intereses ("Coverage<1.5x"
+    # malo, ">5x" bueno), así que usa sus mismos anclajes.
+    add("RSK-FCC-012", v_fcc, _score_from_anchor(v_fcc, [(1.5, 0), (3.0, 6), (5.0, 10)]))
 
-    add("RSK-ND-013", _null(NullState.MISSING, "ratio", "EBITDA_UNAVAILABLE_NO_DA_FIELD"), None)
+    # RSK-ND-013 estaba clavado a MISSING con "NO_DA_FIELD", pero el builder mapea
+    # `ebitda` de FMP y también `depreciation_and_amortization`: el dato existía por
+    # dos caminos. Es miembro puntuado de DIM_FINANCING_BALANCE.
+    _ebitda_t = _ebitda_of(latest)
+    _nd_ebitda = (debt_t or 0.0) - excess_cash(latest)[0] if debt_t is not None else None
+    if _nd_ebitda is not None and _ebitda_t is not None:
+        v_nde = net_debt_to_ebitda(_nd_ebitda, _ebitda_t)
+    else:
+        v_nde = _null(NullState.MISSING, "ratio", "EBITDA_UNAVAILABLE")
+    add("RSK-ND-013", v_nde, _score_from_anchor(v_nde, [(0.0, 10), (2.0, 7), (3.5, 4), (5.0, 0)]))
 
     # RSK-ND-013 is written on *excess* cash (cash + marketable securities);
     # RSK-RUN-015/RSK-MAT-016 above stay on cash-and-equivalents because the
@@ -856,7 +895,15 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     v_gmi = beneish_gmi(gm_t, gm_t1) if gm_t is not None and gm_t1 is not None else _null(NullState.MISSING, "ratio", "GMI_INPUTS_UNAVAILABLE")
     add("RSK-GMI-022", v_gmi, None)
 
-    ppe_t, ppe_t1 = overlay.get("ppe"), overlay.get("ppe_prior")
+    # PP&E: el builder mapea `propertyPlantEquipmentNet` -> `ppe_net`. Beneish AQI/DEPI
+    # clásicos usan PP&E BRUTO; FMP /stable/ solo expone el neto, así que es un proxy
+    # documentado (MISSING_DATA_POLICY paso 4), no un sustituto exacto — por eso se
+    # declara como assumption abajo. El overlay sigue mandando si el llamador trae el bruto.
+    ppe_t = overlay.get("ppe") if overlay.get("ppe") is not None else _num(latest, "ppe_net")
+    ppe_t1 = overlay.get("ppe_prior") if overlay.get("ppe_prior") is not None else _num(prior, "ppe_net")
+    if overlay.get("ppe") is None and ppe_t is not None:
+        assumptions.append("RSK-AQI-023/RSK-DEPI-025: se usó PP&E NETO como proxy del PP&E bruto que piden "
+                           "las formulas de Beneish (FMP no expone el bruto); proxy registrado, no sustituto exacto.")
     if None not in (ca_t, ppe_t, assets_t, ca_t1, ppe_t1, assets_t1):
         v_aqi = beneish_aqi(ca_t, ppe_t, assets_t, ca_t1, ppe_t1, assets_t1)
     else:
@@ -866,14 +913,16 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     v_sgi = beneish_sgi(revenue_t, revenue_t1) if revenue_t is not None and revenue_t1 is not None else _null(NullState.MISSING, "ratio", "SGI_INPUTS_UNAVAILABLE")
     add("RSK-SGI-024", v_sgi, None)
 
-    dep_t, dep_t1 = overlay.get("depreciation"), overlay.get("depreciation_prior")
+    dep_t = overlay.get("depreciation") if overlay.get("depreciation") is not None else _num(latest, "depreciation_and_amortization")
+    dep_t1 = overlay.get("depreciation_prior") if overlay.get("depreciation_prior") is not None else _num(prior, "depreciation_and_amortization")
     if None not in (dep_t, ppe_t, dep_t1, ppe_t1):
         v_depi = beneish_depi(dep_t, ppe_t, dep_t1, ppe_t1)
     else:
         v_depi = _null(NullState.MISSING, "ratio", "DEPI_UNAVAILABLE_NO_DA_FIELD")
     add("RSK-DEPI-025", v_depi, None)
 
-    sga_t, sga_t1 = overlay.get("sga"), overlay.get("sga_prior")
+    sga_t = overlay.get("sga") if overlay.get("sga") is not None else _num(latest, "sga")
+    sga_t1 = overlay.get("sga_prior") if overlay.get("sga_prior") is not None else _num(prior, "sga")
     if None not in (sga_t, revenue_t, sga_t1, revenue_t1):
         v_sgai = beneish_sgai(sga_t, revenue_t, sga_t1, revenue_t1)
     else:
@@ -900,6 +949,8 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     add("RSK-MSCR-029", v_mscr, _score_from_anchor(v_mscr, [(0.0, 0), (-1.78, 5), (-2.5, 8), (-4.0, 10)]))
 
     retained_earnings = overlay.get("retained_earnings")
+    if retained_earnings is None:
+        retained_earnings = _num(latest, "retained_earnings")
     if None not in (ca_t, cl_t, assets_t, retained_earnings, ebit, equity_t, liab_t) and liab_t != 0 and assets_t != 0:
         v_alt = altman_z_double_prime((ca_t - cl_t) / assets_t, retained_earnings / assets_t, ebit / assets_t, equity_t / liab_t)
     else:
@@ -993,24 +1044,32 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
 
     # ---- DIM_FINANCING (3 pts) ----
     financing_scores: list[tuple[float, Value]] = []
-    for mid in ("RSK-ICOV-011", "RSK-RUN-015", "RSK-MAT-016", "RSK-DFC-014"):
-        s = by_id[mid].score10
-        financing_scores.append((0.25, Value.of(s, unit="score") if s is not None else Value.null(NullState.NOT_SCORABLE, unit="score")))
+    # SCORING.md nombra los insumos de esta dimensión como "RSK-ICOV-011..016",
+    # o sea SEIS métricas. Faltaban RSK-FCC-012 (cobertura de cargos fijos) y
+    # RSK-ND-013 (deuda neta/EBITDA): las dos se calculaban —o podían— y ninguna
+    # entraba al puntaje. `dimension_slot` conserva además NOT_APPLICABLE:
+    # RSK-RUN-015 no aplica a quien no quema caja y RSK-MAT-016 a quien no tiene
+    # deuda venciendo. Antes ambos contaban como huecos y hundían la cobertura por
+    # debajo del 70%, donde la dimensión puntúa CERO en vez de puntuar bien.
+    _financing_ids = ("RSK-ICOV-011", "RSK-FCC-012", "RSK-ND-013",
+                      "RSK-DFC-014", "RSK-RUN-015", "RSK-MAT-016")
+    for mid in _financing_ids:
+        financing_scores.append((1 / len(_financing_ids),
+                                 dimension_slot(by_id[mid].score10, by_id[mid].value)))
     financing_dim = Dimension(name=DIM_FINANCING, max_points=DIMENSION_MAX_POINTS[DIM_FINANCING], metric_scores=financing_scores)
 
     # ---- DIM_CONCENTRATION (3 pts) ----
     concentration_scores: list[tuple[float, Value]] = [
         (1 / 3, Value.of(cust_score, unit="score") if cust_score is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
-        (1 / 3, Value.of(by_id["RSK-PROD-018"].score10, unit="score") if by_id["RSK-PROD-018"].score10 is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
-        (1 / 3, Value.of(by_id["RSK-GEO-019"].score10, unit="score") if by_id["RSK-GEO-019"].score10 is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
+        (1 / 3, dimension_slot(by_id["RSK-PROD-018"].score10, by_id["RSK-PROD-018"].value)),
+        (1 / 3, dimension_slot(by_id["RSK-GEO-019"].score10, by_id["RSK-GEO-019"].value)),
     ]
     concentration_dim = Dimension(name=DIM_CONCENTRATION, max_points=DIMENSION_MAX_POINTS[DIM_CONCENTRATION], metric_scores=concentration_scores)
 
     # ---- DIM_EXECUTION_QUALITY (3 pts) ----
     execution_scores: list[tuple[float, Value]] = []
     for mid in ("RSK-ACCR-020", "RSK-MSCR-029", "RSK-ALT-030", "RSK-PIO-031"):
-        s = by_id[mid].score10
-        execution_scores.append((0.25, Value.of(s, unit="score") if s is not None else Value.null(NullState.NOT_SCORABLE, unit="score")))
+        execution_scores.append((0.25, dimension_slot(by_id[mid].score10, by_id[mid].value)))
     execution_dim = Dimension(name=DIM_EXECUTION_QUALITY, max_points=DIMENSION_MAX_POINTS[DIM_EXECUTION_QUALITY], metric_scores=execution_scores)
 
     # ---- DIM_REGULATORY_MACRO (2 pts): only RSK-CYC-034 is mechanically scorable ----

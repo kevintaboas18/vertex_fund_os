@@ -201,3 +201,62 @@ def test_category_weights_constant():
 def test_coverage_constants():
     assert COVERAGE_COMPLETE == 0.85
     assert COVERAGE_USABLE == 0.70
+
+
+# ---------------------------------------------------------------------------
+# NOT_APPLICABLE fuera del denominador de cobertura.
+#
+# MISSING_DATA_POLICY.md escribe la cobertura como
+# `valid_metric_weight / applicable_metric_weight` — APLICABLE, no total — y su
+# arbol de decision hace del paso 1 "Is the metric applicable? If no, use
+# NOT_APPLICABLE". Contarlas en el denominador castigaba a la empresa por su
+# propia forma: RSK-RUN-015 (runway de caja) no aplica a quien no quema caja, asi
+# que una empresa rentable perdia un cuarto de la cobertura de su dimension de
+# financiamiento POR SER RENTABLE — y una dimension bajo COVERAGE_USABLE puntua
+# cero, no poco.
+# ---------------------------------------------------------------------------
+
+def _slot(w: float, score: float | None, state: NullState | None = None):
+    if score is not None:
+        return (w, Value.of(score, unit="score"))
+    return (w, Value.null(state or NullState.NOT_SCORABLE, unit="score"))
+
+
+def test_not_applicable_is_excluded_from_the_denominator():
+    dim = Dimension(name="d", max_points=3.0, metric_scores=[
+        _slot(0.25, 8.0), _slot(0.25, 6.0),
+        _slot(0.25, None, NullState.NOT_APPLICABLE),
+        _slot(0.25, None, NullState.MISSING),
+    ])
+    assert dim.total_weight() == pytest.approx(1.0)
+    assert dim.applicable_weight() == pytest.approx(0.75)
+    assert dim.valid_weight() == pytest.approx(0.50)
+
+
+def test_not_applicable_can_rescue_a_dimension_from_zero_points():
+    """2 de 4 slots validos = 50% del total (N/S) pero 67%... sigue bajo el 70%.
+    Con 3 de 4 validos y 1 no aplicable, la cobertura real es 100%."""
+    dim = Dimension(name="d", max_points=3.0, metric_scores=[
+        _slot(0.25, 9.0), _slot(0.25, 9.0), _slot(0.25, 9.0),
+        _slot(0.25, None, NullState.NOT_APPLICABLE),
+    ])
+    sv = dim.score10_value()
+    assert sv.is_valid, "una metrica que no aplica no es un hueco de evidencia"
+    assert sv.value == pytest.approx(9.0)
+
+
+def test_missing_still_counts_against_coverage():
+    """Lo que NO se pudo medir sigue restando: el arreglo no es una amnistia."""
+    dim = Dimension(name="d", max_points=3.0, metric_scores=[
+        _slot(0.25, 9.0), _slot(0.25, 9.0),
+        _slot(0.25, None, NullState.MISSING), _slot(0.25, None, NullState.MISSING),
+    ])
+    assert dim.score10_value().is_null
+
+
+def test_dimension_with_only_non_applicable_metrics_is_not_scorable():
+    dim = Dimension(name="d", max_points=3.0, metric_scores=[
+        _slot(1.0, None, NullState.NOT_APPLICABLE)])
+    sv = dim.score10_value()
+    assert sv.is_null
+    assert any("NO_APPLICABLE_METRICS" in w for w in sv.warnings)

@@ -6558,8 +6558,15 @@ def _norm_shares(vals, ticker=""):
     return out or None
 
 
-def _fmp_segment_shares(ticker, settings=None):
-    """`segment_shares` desde la segmentación de ingresos por producto de FMP.
+def _fmp_segment_shares(ticker, settings=None, axis="product"):
+    """Fracciones de ingreso por segmento, desde la segmentación de FMP.
+
+    `axis="product"` -> revenue-product-segmentation (alimenta `segment_shares`
+    de BUS-MIX-001/BUS-HHI-005 y `product_shares` de RSK-PROD-018: es el MISMO
+    desglose reportado, con dos nombres de llave distintos).
+    `axis="geographic"` -> revenue-geographic-segmentation, el endpoint hermano
+    que alimenta `geographic_shares` de RSK-GEO-019 y que no se llamaba nunca,
+    así que esa métrica quedaba N/S teniendo la fuente disponible.
 
     Fuente REPORTADA (clase R): FMP publica el desglose por segmento tal como la
     empresa lo divulga en el filing. Es determinista y auditable — nada que ver
@@ -6573,16 +6580,16 @@ def _fmp_segment_shares(ticker, settings=None):
         return None
     try:
         import httpx
-        r = httpx.get("https://financialmodelingprep.com/stable/revenue-product-segmentation",
+        r = httpx.get(f"https://financialmodelingprep.com/stable/revenue-{axis}-segmentation",
                       params={"symbol": ticker.upper(), "apikey": key}, timeout=20.0)
         if r.status_code != 200:
             # 402/403 = el endpoint no está en el plan. Es información útil, no un error.
-            print(f"[engine] {ticker}: segmentación de ingresos no disponible en tu plan FMP "
-                  f"(HTTP {r.status_code}) → segment_shares N/S")
+            print(f"[engine] {ticker}: segmentación {axis} no disponible en tu plan FMP "
+                  f"(HTTP {r.status_code}) → N/S")
             return None
         rows = r.json()
     except Exception as e:
-        print(f"[engine] {ticker}: segmentación de ingresos falló: {str(e)[:110]} → N/S")
+        print(f"[engine] {ticker}: segmentación {axis} falló: {str(e)[:110]} → N/S")
         return None
     if not isinstance(rows, list) or not rows:
         return None
@@ -6602,7 +6609,7 @@ def _fmp_segment_shares(ticker, settings=None):
         return None
     shares = _norm_shares([v / total for v in amounts], ticker)
     if shares:
-        print(f"[engine] {ticker}: segment_shares desde FMP (reportado) — {len(shares)} segmentos")
+        print(f"[engine] {ticker}: segmentación {axis} desde FMP (reportado) — {len(shares)} segmentos")
     return shares
 
 
@@ -6914,11 +6921,23 @@ def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
     ov, prov = {}, {}
 
     # ── capa 1: determinista ──────────────────────────────────────────────────
-    seg = _fmp_segment_shares(ticker, settings)
+    seg = _fmp_segment_shares(ticker, settings, axis="product")
     if seg:
         ov["segment_shares"] = seg
         prov["segment_shares"] = {"source": "FMP revenue-product-segmentation",
                                   "evidence_class": "R", "proxy": False}
+        # RSK-PROD-018 (HHI de producto) pide EXACTAMENTE este desglose bajo otro
+        # nombre de llave. Se descargaba, se normalizaba y se tiraba a medias: la
+        # métrica de riesgo quedaba N/S con el dato ya en memoria.
+        ov["product_shares"] = seg
+        prov["product_shares"] = dict(prov["segment_shares"])
+
+    geo = _fmp_segment_shares(ticker, settings, axis="geographic")
+    if geo:
+        # RSK-GEO-019 (HHI geográfico). El endpoint hermano nunca se llamaba.
+        ov["geographic_shares"] = geo
+        prov["geographic_shares"] = {"source": "FMP revenue-geographic-segmentation",
+                                     "evidence_class": "R", "proxy": False}
 
     rec = _xbrl_recurring_revenue(cik, revenue_hint, settings)
     if rec:
@@ -7625,6 +7644,7 @@ def _engine_scorecard(ticker, info, price):
         except Exception as _qe:
             print(f"[engine] extracción cualitativa omitida: {str(_qe)[:120]}")
         for _qk in ("recurring_revenue", "largest_customer_share", "customer_shares", "segment_shares",
+                    "product_shares", "geographic_shares",
                     "guidance_history", "retention", "churn", "customer_economics"):
             if _qual.get(_qk) is not None:
                 _overlay[_qk] = _qual[_qk]

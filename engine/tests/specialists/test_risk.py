@@ -438,3 +438,91 @@ def test_run_empty_annual_and_market_history_degrades_without_crashing():
     out = risk.run(_minimal_packet([]))
     assert out.coverage == 0.0
     assert out.category.awarded_points == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Campos que el builder SI mapea y risk.py leia solo por overlay.
+#
+# `builder.py`'s CANONICAL_FIELD_MAP mapea interestExpense, ebitda,
+# depreciationAndAmortization, sellingGeneralAndAdministrativeExpenses,
+# retainedEarnings y propertyPlantEquipmentNet desde FMP a
+# Packet.fundamentals. risk.py leia esos seis SOLO de `overlay`, asi que las
+# metricas decian "..._UNAVAILABLE_NO_X_FIELD" con el numero ya en el packet.
+# RSK-ICOV-011 y RSK-ND-013 son miembros PUNTUADOS de la dimension de
+# financiamiento, o sea que el campo sin leer costaba puntos reales.
+# ---------------------------------------------------------------------------
+
+_FUNDAMENTAL_ONLY_FIELDS = {
+    "interest_expense": 400.0,
+    "ebitda": 3300.0,
+    "depreciation_and_amortization": 300.0,
+    "sga": 500.0,
+    "retained_earnings": 4000.0,
+    "ppe_net": 2500.0,
+}
+
+
+def _packet_with_fundamentals(nvda_packet, fields: dict) -> "Packet":
+    data = nvda_packet.model_dump(mode="json")
+    for row in data["fundamentals"]["annual"]:
+        row.update(fields)
+    return type(nvda_packet).model_validate(data)
+
+
+def _metric(out, mid):
+    return next(m for m in out.metrics if m.metric_id == mid)
+
+
+@pytest.mark.parametrize("mid", [
+    "RSK-ICOV-011", "RSK-FCC-012", "RSK-ND-013",
+    "RSK-AQI-023", "RSK-DEPI-025", "RSK-SGAI-026", "RSK-ALT-030",
+])
+def test_metric_reads_the_packet_without_any_overlay(nvda_packet, mid):
+    pk = _packet_with_fundamentals(nvda_packet, _FUNDAMENTAL_ONLY_FIELDS)
+    out = risk.run(pk, overlay={"wacc": 0.1193})
+    assert _metric(out, mid).value is not None, f"{mid} no leyo Packet.fundamentals"
+
+
+def test_the_same_metrics_stay_missing_without_the_fields(nvda_packet):
+    """Control: sin el dato siguen N/S. El arreglo lee, no inventa."""
+    out = risk.run(nvda_packet, overlay={"wacc": 0.1193})
+    for mid in ("RSK-ICOV-011", "RSK-ND-013", "RSK-ALT-030"):
+        assert _metric(out, mid).value is None
+
+
+def test_overlay_still_wins_when_it_carries_the_gross_figure(nvda_packet):
+    """El overlay sigue mandando: PP&E BRUTO real por encima del neto (proxy)."""
+    pk = _packet_with_fundamentals(nvda_packet, _FUNDAMENTAL_ONLY_FIELDS)
+    out = risk.run(pk, overlay={"wacc": 0.1193, "ppe": 9999.0, "ppe_prior": 9000.0})
+    assert not any("PP&E NETO como proxy" in a for a in out.assumptions)
+
+
+def test_net_ppe_proxy_is_declared(nvda_packet):
+    pk = _packet_with_fundamentals(nvda_packet, _FUNDAMENTAL_ONLY_FIELDS)
+    out = risk.run(pk, overlay={"wacc": 0.1193})
+    assert any("PP&E NETO como proxy" in a for a in out.assumptions)
+
+
+def test_interest_expense_sign_does_not_flip_coverage(nvda_packet):
+    """FMP reporta interestExpense positivo en unos tickers y negativo en otros."""
+    pos = risk.run(_packet_with_fundamentals(nvda_packet, {**_FUNDAMENTAL_ONLY_FIELDS, "interest_expense": 400.0}), overlay={"wacc": 0.1193})
+    neg = risk.run(_packet_with_fundamentals(nvda_packet, {**_FUNDAMENTAL_ONLY_FIELDS, "interest_expense": -400.0}), overlay={"wacc": 0.1193})
+    assert _metric(pos, "RSK-ICOV-011").value == pytest.approx(_metric(neg, "RSK-ICOV-011").value)
+    assert _metric(pos, "RSK-ICOV-011").value > 0
+
+
+def test_financing_dimension_has_the_six_members_the_cerebro_names(nvda_packet):
+    """SCORING.md: "Financing and balance-sheet risk | RSK-ICOV-011..016"."""
+    pk = _packet_with_fundamentals(nvda_packet, _FUNDAMENTAL_ONLY_FIELDS)
+    out = risk.run(pk, overlay={"wacc": 0.1193})
+    dim = next(d for d in out.dimensions if d.name == risk.DIM_FINANCING)
+    assert len(dim.metric_scores) == 6
+
+
+def test_cash_runway_not_applicable_does_not_sink_financing_coverage(nvda_packet):
+    """NVDA no quema caja: RSK-RUN-015 NO APLICA, no es un hueco de evidencia."""
+    pk = _packet_with_fundamentals(nvda_packet, _FUNDAMENTAL_ONLY_FIELDS)
+    out = risk.run(pk, overlay={"wacc": 0.1193})
+    dim = next(d for d in out.dimensions if d.name == risk.DIM_FINANCING)
+    assert dim.applicable_weight() < dim.total_weight()
+    assert dim.score10_value().is_valid

@@ -974,6 +974,45 @@ def _num(row: dict, key: str) -> float | None:
     return float(v) if isinstance(v, (int, float)) else None
 
 
+def _abs_or_none(value: object) -> float | None:
+    """Magnitude of an expense line. FMP reports `interestExpense` positive on
+    some tickers and negative on others; `interest_coverage` divides EBIT by it,
+    so a sign flip would turn healthy coverage into a negative reading."""
+    if not isinstance(value, (int, float)):
+        return None
+    magnitude = abs(float(value))
+    return magnitude or None
+
+
+def _ebitda_from(row: dict) -> float | None:
+    """FMP's reported `ebitda`, else `EBIT + D&A` — both mapped by `builder.py`."""
+    reported = _num(row, "ebitda")
+    if reported is not None:
+        return reported
+    ebit, dna = _num(row, "ebit"), _num(row, "depreciation_and_amortization")
+    return ebit + dna if ebit is not None and dna is not None else None
+
+
+def _cash_conversion_cycle_from(annual: list[dict]) -> Value:
+    """FIN-DX-031 `DSO + DIO - DPO` on average balances (FORMULAS.md: "Use
+    average balances"), so it needs the current and prior annual rows."""
+    if len(annual) < 2:
+        return _null(NullState.MISSING, "days", "CASH_CONVERSION_CYCLE_NEEDS_2_YEARS")
+    cur, prior = annual[-1], annual[-2]
+
+    def avg(key: str) -> float | None:
+        a, b = _num(cur, key), _num(prior, key)
+        return (a + b) / 2 if a is not None and b is not None else None
+
+    receivables, inventory_avg, payables = avg("net_receivables"), avg("inventory"), avg("accounts_payable")
+    revenue, cogs = _num(cur, "revenue"), _num(cur, "cogs")
+    if None in (receivables, inventory_avg, payables) or not revenue or not cogs:
+        return _null(NullState.MISSING, "days", "CASH_CONVERSION_CYCLE_INPUTS_UNAVAILABLE")
+    return cash_conversion_cycle(
+        receivables / revenue * 365.0, inventory_avg / cogs * 365.0, payables / cogs * 365.0
+    )
+
+
 def _latest_balance_row(packet: Packet) -> dict | None:
     """Most recent balance-sheet snapshot: latest quarterly row if present
     (FORMULAS.md marks current/quick ratio "quarterly" frequency), else
@@ -1239,15 +1278,23 @@ def _compute_all(
         v = _null(NullState.MISSING, "ratio", "DEBT_TO_EQUITY_INPUTS_UNAVAILABLE")
     add("FIN-BS-019", v, _band_or_none(v, band_debt_to_equity), (DIM_BALANCE,))
 
-    # ---- FIN-BS-020: interest coverage (Packet carries no interest_expense field) ----
-    interest_expense = overlay.get("interest_expense")
+    # ---- FIN-BS-020: interest coverage ----
+    # `interest_expense` IS part of Packet.fundamentals -- `builder.py`'s
+    # CANONICAL_FIELD_MAP maps FMP's `interestExpense` -- but this read was
+    # overlay-only, so the metric stayed MISSING with the number sitting in the
+    # packet. FIN-BS-020 is a scored member of the BALANCE dimension, so the
+    # unread field cost real points, and Override 3 (solvency warning) could
+    # never fire. The packet wins; the overlay stays as the fallback.
+    interest_expense = _abs_or_none(_num(annual[-1], "interest_expense") if annual else None)
+    if interest_expense is None:
+        interest_expense = _abs_or_none(overlay.get("interest_expense"))
     if interest_expense is not None and ebit_latest is not None:
-        v = interest_coverage(ebit_latest, float(interest_expense))
+        v = interest_coverage(ebit_latest, interest_expense)
     else:
         v = _null(NullState.MISSING, "ratio", "INTEREST_EXPENSE_UNAVAILABLE")
         assumptions.append(
-            "FIN-BS-020 (interest coverage) not computed: `interest_expense` is not part of "
-            "Packet.fundamentals and was not supplied via overlay['interest_expense']."
+            "FIN-BS-020 (interest coverage) not computed: `interest_expense` was absent from "
+            "Packet.fundamentals and from overlay['interest_expense']."
         )
     add("FIN-BS-020", v, _band_or_none(v, band_interest_coverage), (DIM_BALANCE,))
 
@@ -1368,7 +1415,14 @@ def _compute_all(
 
     # ---- Diagnostics (not part of core-27) ----
     net_debt_latest = (debt_latest or 0.0) - excess_cash(annual[-1])[0] if annual else None
-    v = _null(NullState.MISSING, "ratio", "EBITDA_UNAVAILABLE_NO_DA_FIELD")
+    # FIN-DX-028 estaba clavado a MISSING con el mensaje "NO_DA_FIELD", pero el
+    # builder mapea tanto `ebitda` (directo de FMP) como
+    # `depreciation_and_amortization`, así que el dato existía por dos caminos.
+    ebitda_latest = _ebitda_from(annual[-1]) if annual else None
+    if net_debt_latest is not None and ebitda_latest is not None:
+        v = net_debt_to_ebitda(net_debt_latest, ebitda_latest)
+    else:
+        v = _null(NullState.MISSING, "ratio", "EBITDA_UNAVAILABLE")
     add("FIN-DX-028", v, None, (), core27=False)
 
     if net_debt_latest is not None and fcf_latest is not None:
@@ -1384,7 +1438,13 @@ def _compute_all(
         v = _null(NullState.MISSING, "ratio", "ACCRUAL_RATIO_INPUTS_UNAVAILABLE")
     add("FIN-DX-030", v, None, (), core27=False)
 
-    v = _null(NullState.MISSING, "days", "PAYABLES_FIELD_UNAVAILABLE")
+    # FIN-DX-031 (ciclo de conversión de caja = DSO + DIO - DPO) también estaba
+    # clavado a MISSING. Sus cuatro insumos —net_receivables, inventory, cogs y
+    # accounts_payable— están todos en Packet.fundamentals; solo faltaba
+    # calcularlo. FORMULAS.md pide balances PROMEDIO, así que se usan los del año
+    # actual y el previo, y sin año previo la métrica queda MISSING en vez de
+    # caer al balance puntual (que sería otra fórmula, no ésta).
+    v = _cash_conversion_cycle_from(annual)
     add("FIN-DX-031", v, None, (), core27=False)
 
     # FIN-DX-032/033 (dilution) ARE scored -- SCORING.md names them a

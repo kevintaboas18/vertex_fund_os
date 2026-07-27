@@ -526,3 +526,62 @@ def test_run_roe_single_year_uses_end_balance_proxy_and_keeps_evidence_class():
     assert roe_row.value == pytest.approx(150.0 / 600.0)
     assert "END_BALANCE_PROXY" in roe_row.warnings
     assert roe_row.evidence_class is not None
+
+
+# ---------------------------------------------------------------------------
+# FIN-BS-020 leia interest_expense SOLO del overlay, y FIN-DX-028/031 estaban
+# clavados a MISSING ("NO_DA_FIELD" / "PAYABLES_FIELD_UNAVAILABLE") cuando el
+# builder ya mapea ebitda, depreciationAndAmortization y accountPayables desde
+# FMP. FIN-BS-020 es miembro puntuado de la dimension de balance.
+# ---------------------------------------------------------------------------
+
+_FIN_FIELDS = {
+    "interest_expense": 400.0, "ebitda": 3300.0,
+    "depreciation_and_amortization": 300.0, "accounts_payable": 900.0,
+}
+
+
+def _with_fields(nvda_packet, fields: dict):
+    data = nvda_packet.model_dump(mode="json")
+    for row in data["fundamentals"]["annual"]:
+        row.update(fields)
+    return type(nvda_packet).model_validate(data)
+
+
+def _fin_row(out, mid):
+    return next(m for m in out.metrics if m.metric_id == mid)
+
+
+@pytest.mark.parametrize("mid", ["FIN-BS-020", "FIN-DX-028", "FIN-DX-031"])
+def test_metric_reads_the_packet_without_overlay(nvda_packet, mid):
+    out = fin.run(_with_fields(nvda_packet, _FIN_FIELDS), overlay={"wacc": 0.1193})
+    assert _fin_row(out, mid).value is not None
+
+
+@pytest.mark.parametrize("mid", ["FIN-BS-020", "FIN-DX-028", "FIN-DX-031"])
+def test_metric_stays_missing_without_the_fields(nvda_packet, mid):
+    out = fin.run(nvda_packet, overlay={"wacc": 0.1193})
+    assert _fin_row(out, mid).value is None
+
+
+def test_ebitda_falls_back_to_ebit_plus_da(nvda_packet):
+    """FMP no siempre publica `ebitda`; EBIT + D&A es el mismo numero."""
+    without = fin.run(_with_fields(nvda_packet, {
+        "depreciation_and_amortization": 300.0}), overlay={"wacc": 0.1193})
+    assert _fin_row(without, "FIN-DX-028").value is not None
+
+
+def test_interest_expense_sign_does_not_flip_coverage(nvda_packet):
+    pos = fin.run(_with_fields(nvda_packet, {"interest_expense": 400.0}), overlay={})
+    neg = fin.run(_with_fields(nvda_packet, {"interest_expense": -400.0}), overlay={})
+    assert _fin_row(pos, "FIN-BS-020").value == pytest.approx(_fin_row(neg, "FIN-BS-020").value)
+    assert _fin_row(pos, "FIN-BS-020").value > 0
+
+
+def test_cash_conversion_cycle_needs_two_years(nvda_packet):
+    """FORMULAS.md pide balances PROMEDIO: sin ano previo no se calcula."""
+    data = nvda_packet.model_dump(mode="json")
+    data["fundamentals"]["annual"] = [
+        {**data["fundamentals"]["annual"][0], **_FIN_FIELDS}]
+    out = fin.run(type(nvda_packet).model_validate(data), overlay={})
+    assert _fin_row(out, "FIN-DX-031").value is None

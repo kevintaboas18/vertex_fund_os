@@ -78,7 +78,7 @@ def test_proxy_needs_cik_and_revenue(api):
 
 def test_deterministic_layer_wins_over_llm(api, monkeypatch):
     """Un numero del filing por codigo NO puede ser pisado por uno de un LLM."""
-    monkeypatch.setattr(api, "_fmp_segment_shares", lambda t, s=None: [0.7, 0.3])
+    monkeypatch.setattr(api, "_fmp_segment_shares", lambda t, s=None, axis="product": ([0.7, 0.3] if axis == "product" else None))
     monkeypatch.setattr(api, "_xbrl_recurring_revenue", lambda c, r, s=None: (40.0, "ContractWithCustomerLiability"))
     monkeypatch.setattr(api, "_wbj_qual_from_10k_llm",
                         lambda t, c, s, revenue_hint=None, skip=(): {
@@ -93,7 +93,7 @@ def test_deterministic_layer_wins_over_llm(api, monkeypatch):
 
 def test_llm_layer_is_told_what_to_skip(api, monkeypatch):
     seen = {}
-    monkeypatch.setattr(api, "_fmp_segment_shares", lambda t, s=None: [1.0])
+    monkeypatch.setattr(api, "_fmp_segment_shares", lambda t, s=None, axis="product": ([1.0] if axis == "product" else None))
     monkeypatch.setattr(api, "_xbrl_recurring_revenue", lambda c, r, s=None: (10.0, "X"))
     def _spy(t, c, s, revenue_hint=None, skip=()):
         seen["skip"] = set(skip)
@@ -105,7 +105,7 @@ def test_llm_layer_is_told_what_to_skip(api, monkeypatch):
 
 def test_llm_failure_keeps_deterministic_results(api, monkeypatch):
     """Sin credito/key el analisis NO pierde lo que ya saco por codigo."""
-    monkeypatch.setattr(api, "_fmp_segment_shares", lambda t, s=None: [0.6, 0.4])
+    monkeypatch.setattr(api, "_fmp_segment_shares", lambda t, s=None, axis="product": ([0.6, 0.4] if axis == "product" else None))
     monkeypatch.setattr(api, "_xbrl_recurring_revenue", lambda c, r, s=None: None)
     def _boom(*a, **k):
         raise RuntimeError("credit balance is too low")
@@ -118,7 +118,7 @@ def test_llm_failure_keeps_deterministic_results(api, monkeypatch):
 
 def test_proxy_is_declared_as_a_proxy(api, monkeypatch):
     """DATA_POLICY: un proxy no puede leerse igual que un dato reportado."""
-    monkeypatch.setattr(api, "_fmp_segment_shares", lambda t, s=None: [1.0])
+    monkeypatch.setattr(api, "_fmp_segment_shares", lambda t, s=None, axis="product": ([1.0] if axis == "product" else None))
     monkeypatch.setattr(api, "_xbrl_recurring_revenue", lambda c, r, s=None: (10.0, "ContractWithCustomerLiability"))
     monkeypatch.setattr(api, "_wbj_qual_from_10k_llm", lambda *a, **k: {})
     prov = api._wbj_extract_business_qual("NVDA", 1, None, revenue_hint=100.0)["__provenance__"]
@@ -130,12 +130,12 @@ def test_proxy_is_declared_as_a_proxy(api, monkeypatch):
 
 def test_provenance_never_leaks_into_the_overlay(api, monkeypatch):
     """__provenance__ es metadato del reporte, no una metrica para Victor."""
-    monkeypatch.setattr(api, "_fmp_segment_shares", lambda t, s=None: [1.0])
+    monkeypatch.setattr(api, "_fmp_segment_shares", lambda t, s=None, axis="product": ([1.0] if axis == "product" else None))
     monkeypatch.setattr(api, "_xbrl_recurring_revenue", lambda c, r, s=None: None)
     monkeypatch.setattr(api, "_wbj_qual_from_10k_llm", lambda *a, **k: {})
     ov = api._wbj_extract_business_qual("NVDA", 1, None, revenue_hint=100.0)
     victor_keys = ("recurring_revenue", "largest_customer_share", "customer_shares",
-                   "segment_shares", "guidance_history", "retention", "churn",
-                   "customer_economics")
+                   "segment_shares", "product_shares", "geographic_shares",
+                   "guidance_history", "retention", "churn", "customer_economics")
     assert "__provenance__" not in victor_keys
     assert set(ov) - {"__provenance__"} <= set(victor_keys)
