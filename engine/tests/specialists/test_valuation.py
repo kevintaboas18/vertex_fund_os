@@ -381,3 +381,51 @@ def test_run_empty_annual_history_degrades_without_crashing():
     assert out.status in ("COMPLETE", "INCOMPLETE", "ERROR")
     assert 0.0 <= out.coverage <= 1.0
     assert any("ROIC" in a or "fallback" in a for a in out.assumptions)
+
+
+# ---------------------------------------------------------------------------
+# El capital invertido es CONTABLE. BUS-IC-012 lo define como
+# `Debt + Equity - Excess cash` y lo reconcilia contra "Operating assets -
+# Operating liabilities". Aqui se tomaba `market_cap` como el equity del ano
+# ACTUAL y el equity contable del ano PREVIO, y se promediaban: un promedio entre
+# valor de mercado y valor en libros no es ninguna magnitud. Con NVDA (market cap
+# ~40x el equity contable) el ROIC caia de 112% a 4.7%, o sea DOS ROIC distintos
+# para la misma empresa en el mismo reporte — y como 4.7% < WACC el crecimiento
+# pasaba a destruir valor, dejando al reverse DCF sin raiz que acotar y muerta la
+# dimension de multiplos ajustados por crecimiento.
+# ---------------------------------------------------------------------------
+
+def test_invested_capital_ignores_market_cap(nvda_packet):
+    """Cambiar el market cap NO puede mover el capital invertido."""
+    data = nvda_packet.model_dump(mode="json")
+    data["capital_structure"]["market_cap"] = 9.9e12
+    inflated = type(nvda_packet).model_validate(data)
+    base = val.run(nvda_packet, overlay={"wacc": 0.1193})
+    high = val.run(inflated, overlay={"wacc": 0.1193})
+    # El market cap SI debe seguir moviendo los pesos de mercado del WACC (eso es
+    # correcto y no se toco), asi que el crecimiento implicito se mueve un poco.
+    # Lo que ya no hace es entrar al capital invertido: triplicar el market cap
+    # movia el ROIC de 112% a 4.7% y tumbaba la convergencia entera.
+    assert high.reverse_dcf.implied_revenue_cagr is not None
+    assert abs(base.reverse_dcf.implied_revenue_cagr
+               - high.reverse_dcf.implied_revenue_cagr) < 0.01
+
+
+def test_valuation_roic_agrees_with_the_business_specialist(nvda_packet):
+    """Un mismo reporte no puede publicar dos ROIC distintos para una empresa."""
+    import wbj.specialists.business as _bus
+    biz = next(m for m in _bus.run(nvda_packet, overlay={"wacc": 0.1193}).metrics
+               if m.metric_id == "BUS-ROIC-013")
+    val_out = val.run(nvda_packet, overlay={"wacc": 0.1193})
+    # El ROIC de valuation no sale como metric row propia; se comprueba por su
+    # efecto: con ROIC >> WACC el crecimiento CREA valor y el reverse DCF acota.
+    assert biz.value > 0.11934
+    assert val_out.reverse_dcf.implied_revenue_cagr is not None, \
+        "con ROIC>WACC el modelo crece con el crecimiento y la raiz existe"
+
+
+def test_reverse_dcf_reports_the_growth_the_price_requires(nvda_packet):
+    out = val.run(nvda_packet, overlay={"wacc": 0.1193})
+    implied = out.reverse_dcf.implied_revenue_cagr
+    assert implied is not None
+    assert -0.5 <= implied <= 1.0, "debe caer dentro de growth_bounds"

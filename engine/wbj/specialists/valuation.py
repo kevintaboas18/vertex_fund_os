@@ -359,7 +359,17 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
         assumptions.append("Normalized cash tax rate unavailable; substituted the 21% statutory rate.")
 
     # ---- ROIC / reinvestment rate / fundamental growth (VAL-NOPAT/ROIC/REINV) ----
-    debt_t, equity_t = total_debt, packet.capital_structure.get("market_cap") or _num(latest, "total_equity")
+    # El capital invertido es CONTABLE: BUS-IC-012 lo define como
+    # `Debt + Equity - Excess cash` y lo reconcilia contra "Operating assets -
+    # Operating liabilities". Aquí se tomaba `market_cap` como el equity del año
+    # ACTUAL y el equity contable del año PREVIO, y se promediaban los dos: un
+    # promedio entre valor de mercado y valor en libros no es ninguna magnitud.
+    # Con NVDA (market cap ~40x el equity contable) el IC promedio se inflaba y el
+    # ROIC caía de 112% a 4.7% — o sea que el mismo reporte publicaba DOS ROIC
+    # distintos para la misma empresa, y como 4.7% < WACC el modelo pasaba a
+    # destruir valor con el crecimiento, dejando al reverse DCF sin raíz que
+    # acotar (NO_SIGN_CHANGE_IN_GROWTH_BOUNDS) y muerta la dimensión de múltiplos.
+    debt_t, equity_t = total_debt, _num(latest, "total_equity")
     debt_t1, equity_t1 = _num(prior, "total_debt"), _num(prior, "total_equity")
     if ebit is not None:
         nopat_v = ve.nopat(ebit, tax_rate)
@@ -369,7 +379,9 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
 
     ic_result = None
     if debt_t is not None and equity_t is not None and debt_t1 is not None and equity_t1 is not None:
-        ic_end = ve.invested_capital(debt_t, equity_t, cash).financing_view
+        # Los dos extremos con la MISMA definición de excess cash; antes el final
+        # usaba la caja del facts_table y el inicial cash+inversiones de corto plazo.
+        ic_end = ve.invested_capital(debt_t, equity_t, excess_cash(latest)[0]).financing_view
         ic_begin = ve.invested_capital(debt_t1, equity_t1, excess_cash(prior)[0]).financing_view
         if ic_end.is_valid and ic_begin.is_valid:
             avg_ic = (ic_end.value + ic_begin.value) / 2
