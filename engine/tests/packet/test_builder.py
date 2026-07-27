@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from wbj.packet import builder
 from wbj.packet.builder import PacketRejected, Providers, build_packet
 from wbj.schemas.packet import Packet
 
@@ -421,3 +422,257 @@ def test_knowledge_timestamp_uses_the_now_parameter_not_wall_clock(fake_provider
     packet = build_packet("NVDA", providers, frozen)
 
     assert packet.analysis.knowledge_timestamp == frozen.isoformat()
+
+
+def test_sector_etf_mapping():
+    from wbj.packet.builder import _sector_etf_for
+    assert _sector_etf_for({"sector": "Technology"}) == "XLK"
+    assert _sector_etf_for({"sector": "Energy"}) == "XLE"
+    assert _sector_etf_for({"sector": "Financial Services"}) == "XLF"
+    # Unknown/blank sector falls back to the broad benchmark.
+    assert _sector_etf_for({"sector": "Nonexistent"}) == "SPY"
+    assert _sector_etf_for({}) == "SPY"
+
+
+# --- industry adapter selection ----------------------------------------------
+
+
+def test_adapter_is_derived_from_the_company_not_hardcoded():
+    """INDUSTRY_ADAPTERS.md opens with "Select an adapter before
+    scoring". Every specialist already read analysis.industry_adapter —
+    valuation refuses to run a FCFF DCF on a non-default one — but the
+    builder hardcoded default_nonfinancial, so a bank, a REIT, a biotech
+    and a SaaS company were all scored as generic operating companies."""
+    from wbj.packet.builder import _industry_adapter_for
+
+    cases = [
+        ({"sector": "Financial Services", "industry": "Banks - Diversified"}, "banks"),
+        ({"sector": "Financial Services",
+          "industry": "Insurance - Property & Casualty"}, "insurers"),
+        ({"sector": "Real Estate", "industry": "REIT - Retail"}, "reits"),
+        ({"sector": "Technology", "industry": "Software - Application"},
+         "saas_subscriptions"),
+        ({"sector": "Healthcare", "industry": "Biotechnology"}, "biotech"),
+        ({"sector": "Energy", "industry": "Oil & Gas Integrated"},
+         "commodities_cyclicals"),
+        ({"sector": "Technology", "industry": "Semiconductors"}, "default_nonfinancial"),
+        ({"sector": "Consumer Defensive", "industry": "Beverages - Non-Alcoholic"},
+         "default_nonfinancial"),
+    ]
+    for profile, expected in cases:
+        assert _industry_adapter_for(profile) == expected, profile["industry"]
+
+
+def test_industry_wins_over_sector():
+    """A REIT sits in the Real Estate sector but so do brokers; the
+    specific classification decides."""
+    from wbj.packet.builder import _industry_adapter_for
+
+    assert _industry_adapter_for(
+        {"sector": "Real Estate", "industry": "Real Estate Services"}) == "reits"
+    assert _industry_adapter_for(
+        {"sector": "Technology", "industry": "Software - Infrastructure"}
+    ) == "saas_subscriptions"
+
+
+def test_unknown_classification_falls_back_to_the_documented_default():
+    from wbj.packet.builder import _industry_adapter_for
+
+    assert _industry_adapter_for({}) == "default_nonfinancial"
+    assert _industry_adapter_for(
+        {"sector": "Industrials", "industry": "Airlines"}) == "default_nonfinancial"
+
+
+# ============================================================================
+# SOURCE_HIERARCHY.md step 2: prefer a later official restatement
+# ============================================================================
+
+
+def _facts(entries: list[dict]) -> dict:
+    return {"facts": {"us-gaap": {"Revenues": {"units": {"USD": entries}}}}}
+
+
+def test_a_later_restatement_supersedes_the_original_filing():
+    """SOURCE_HIERARCHY.md conflict resolution step 2: "Prefer a later
+    official restatement over the original filing" (QA_CHECKLIST.md:
+    "Historical statements use latest valid restatement for current
+    analysis").
+
+    companyfacts lists one period once per filing that reports it, in
+    ascending `filed` order: the 10-K that first stated FY2024, then the
+    FY2025 10-K repeating it in its comparative column with a restated
+    figure. Taking the first entry handed back the superseded original.
+    """
+    entries = [
+        {"end": "2024-12-31", "val": 1000.0, "fp": "FY", "form": "10-K",
+         "filed": "2025-02-20", "accn": "0000-24-000001"},   # original
+        {"end": "2024-12-31", "val": 1100.0, "fp": "FY", "form": "10-K",
+         "filed": "2026-02-19", "accn": "0000-26-000001"},   # restated
+    ]
+    v = builder._edgar_value_at(_facts(entries), "us-gaap", "Revenues", "USD", "2024-12-31")
+    assert v.value == 1100.0, "must take the later restatement, not the original"
+    assert v.source_locator == "0000-26-000001"
+    assert v.as_of == "2026-02-19"
+
+
+def test_the_restatement_preference_survives_payload_order():
+    """Deterministic regardless of how the payload happens to be ordered."""
+    original = {"end": "2024-12-31", "val": 1000.0, "fp": "FY", "form": "10-K",
+                "filed": "2025-02-20", "accn": "0000-24-000001"}
+    restated = {"end": "2024-12-31", "val": 1100.0, "fp": "FY", "form": "10-K",
+                "filed": "2026-02-19", "accn": "0000-26-000001"}
+    for order in ([original, restated], [restated, original]):
+        v = builder._edgar_value_at(_facts(order), "us-gaap", "Revenues", "USD", "2024-12-31")
+        assert v.value == 1100.0
+
+
+def test_the_annual_preference_still_wins_over_a_later_quarterly():
+    """A later-filed *quarterly* fact must not displace the annual one for an
+    annual reconciliation -- the FY filter runs before the restatement sort."""
+    entries = [
+        {"end": "2024-12-31", "val": 1000.0, "fp": "FY", "form": "10-K",
+         "filed": "2025-02-20", "accn": "0000-24-000001"},
+        {"end": "2024-12-31", "val": 250.0, "fp": "Q4", "form": "10-Q",
+         "filed": "2025-05-01", "accn": "0000-25-000009"},
+    ]
+    v = builder._edgar_value_at(_facts(entries), "us-gaap", "Revenues", "USD", "2024-12-31")
+    assert v.value == 1000.0
+
+
+# ============================================================================
+# TECH-GAP-020: earnings events resolved to the session carrying the gap
+# ============================================================================
+
+
+def _bars(spec: list[tuple[str, float, float]]) -> list[dict]:
+    """(date, open, close) ascending -> newest-first raw OHLCV rows."""
+    return [{"date": d, "open": o, "close": c} for d, o, c in reversed(spec)]
+
+
+def test_an_after_hours_reporter_resolves_to_the_next_session():
+    """TECH-GAP-020: "Use first regular session after after-hours release."
+    A company reporting after the close is flat on the announcement date and
+    gaps the next morning -- the pattern AAPL shows on live data (+0.10% on
+    the date, +2.77% the session after)."""
+    bars = _bars([
+        ("2026-01-27", 100.0, 100.0),
+        ("2026-01-28", 100.0, 100.0),   # announcement day: no reaction yet
+        ("2026-01-29", 108.0, 108.0),   # the gap
+    ])
+    cal = [{"date": "2026-01-28", "epsActual": 2.85}]
+    assert builder._resolve_gap_sessions(cal, bars) == ["2026-01-29"]
+
+
+def test_a_before_open_reporter_resolves_to_the_announcement_date():
+    """A company reporting before the open gaps that same morning -- JPM and
+    XOM on live data (-2.25% on the date, +0.86% the session after)."""
+    bars = _bars([
+        ("2026-07-13", 100.0, 100.0),
+        ("2026-07-14", 92.0, 92.0),     # announcement day: the gap
+        ("2026-07-15", 92.5, 92.5),
+    ])
+    cal = [{"date": "2026-07-14", "epsActual": 7.59}]
+    assert builder._resolve_gap_sessions(cal, bars) == ["2026-07-14"]
+
+
+def test_a_scheduled_future_event_contributes_no_session():
+    """A date with no reported actual has no gap to measure."""
+    bars = _bars([("2026-07-13", 100.0, 100.0), ("2026-07-14", 100.0, 100.0)])
+    cal = [{"date": "2026-07-14", "epsActual": None, "epsEstimated": 1.88}]
+    assert builder._resolve_gap_sessions(cal, bars) == []
+
+
+def test_an_announcement_outside_the_price_window_is_skipped():
+    bars = _bars([("2026-07-13", 100.0, 100.0), ("2026-07-14", 100.0, 100.0)])
+    cal = [{"date": "2019-01-01", "epsActual": 1.0}]
+    assert builder._resolve_gap_sessions(cal, bars) == []
+
+
+def test_equal_moves_keep_the_announcement_date():
+    """No evidence of a delayed reaction is no reason to shift the event."""
+    bars = _bars([
+        ("2026-03-02", 100.0, 100.0),
+        ("2026-03-03", 100.0, 100.0),
+        ("2026-03-04", 100.0, 100.0),
+    ])
+    cal = [{"date": "2026-03-03", "epsActual": 1.0}]
+    assert builder._resolve_gap_sessions(cal, bars) == ["2026-03-03"]
+
+
+def test_resolved_sessions_are_sorted_and_deduplicated():
+    bars = _bars([(f"2026-01-{d:02d}", 100.0, 100.0) for d in range(1, 10)])
+    cal = [{"date": "2026-01-05", "epsActual": 1.0},
+           {"date": "2026-01-03", "epsActual": 1.0},
+           {"date": "2026-01-05", "epsActual": 1.0}]
+    out = builder._resolve_gap_sessions(cal, bars)
+    assert out == sorted(out)
+    assert len(out) == len(set(out))
+
+
+# ============================================================================
+# DATASET.md `peer_growth_margin_returns`: the peer panel
+# ============================================================================
+
+
+class _PeerFMP:
+    """Minimal FMP stand-in for `_peer_panel`."""
+
+    def __init__(self, income=None, profile=None, raises=()):
+        self._income = income or {}
+        self._profile = profile or {}
+        self._raises = set(raises)
+
+    def income_annual(self, symbol, limit=2):
+        if symbol in self._raises:
+            raise RuntimeError("unreachable")
+        return self._income.get(symbol)
+
+    def profile(self, symbol):
+        return self._profile.get(symbol)
+
+
+def test_peer_panel_carries_growth_margins_and_a_multiple():
+    fmp = _PeerFMP(
+        income={"MSFT": [
+            {"date": "2025-06-30", "revenue": 1100.0, "grossProfit": 770.0,
+             "operatingIncome": 440.0, "netIncome": 330.0},
+            {"date": "2024-06-30", "revenue": 1000.0},
+        ]},
+        profile={"MSFT": [{"marketCap": 5500.0}]},
+    )
+    panel = builder._peer_panel([{"symbol": "MSFT"}], fmp)
+    assert len(panel) == 1
+    row = panel[0]
+    assert row["revenue_growth"] == pytest.approx(0.10)
+    assert row["gross_margin"] == pytest.approx(0.70)
+    assert row["operating_margin"] == pytest.approx(0.40)
+    assert row["net_margin"] == pytest.approx(0.30)
+    assert row["price_to_sales"] == pytest.approx(5.0)   # 5500 / 1100
+
+
+def test_peer_panel_reads_the_retired_peerslist_shape_too():
+    fmp = _PeerFMP(income={"AMD": [{"date": "2025-12-31", "revenue": 100.0}]})
+    panel = builder._peer_panel([{"peersList": ["AMD"]}], fmp)
+    assert [r["symbol"] for r in panel] == ["AMD"]
+
+
+def test_an_unreachable_peer_is_skipped_not_guessed():
+    """One bad peer must not fail the packet, and must not become a zero."""
+    fmp = _PeerFMP(
+        income={"GOOD": [{"date": "2025-12-31", "revenue": 100.0}]},
+        raises={"BAD"},
+    )
+    panel = builder._peer_panel([{"symbol": "BAD"}, {"symbol": "GOOD"}], fmp)
+    assert [r["symbol"] for r in panel] == ["GOOD"]
+
+
+def test_a_peer_without_revenue_is_skipped():
+    fmp = _PeerFMP(income={"X": [{"date": "2025-12-31", "revenue": 0}]})
+    assert builder._peer_panel([{"symbol": "X"}], fmp) == []
+
+
+def test_peer_panel_is_capped_to_bound_request_count():
+    symbols = [{"symbol": f"P{i}"} for i in range(30)]
+    fmp = _PeerFMP(income={f"P{i}": [{"date": "2025-12-31", "revenue": 100.0}]
+                           for i in range(30)})
+    assert len(builder._peer_panel(symbols, fmp)) == builder._MAX_PEER_PANEL

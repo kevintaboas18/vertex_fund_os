@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
@@ -34,6 +35,8 @@ from wbj.core.nullstates import EvidenceClass, NullState, Value
 from wbj.packet.reconcile import reconcile
 from wbj.packet.staleness import staleness_state
 from wbj.schemas.packet import AnalysisMeta, MarketData, OHLCVRow, Packet, Security
+
+logger = logging.getLogger(__name__)
 
 # Minimum daily OHLCV sessions required to accept a packet (task-10 brief).
 _MIN_DAILY_SESSIONS = 252
@@ -47,6 +50,33 @@ _MIN_DAILY_SESSIONS = 252
 # score: technical.py/risk.py only need *a* liquid, long-history index
 # series aligned to the stock's trading calendar, not a sector-precise one.
 _BENCHMARK_TICKER = "SPY"
+
+# FMP GICS-style sector name -> SPDR sector ETF, used as the sector series for
+# market.py's sector-relative-strength (MKT-RSG-024). Completes the per-sector
+# ETF map the original builder left as a TODO. Unknown/unmapped sectors fall
+# back to the broad benchmark so the metric degrades gracefully.
+_SECTOR_ETF = {
+    "Technology": "XLK",
+    "Financial Services": "XLF", "Financials": "XLF",
+    "Energy": "XLE",
+    "Healthcare": "XLV", "Health Care": "XLV",
+    "Consumer Cyclical": "XLY",
+    "Consumer Defensive": "XLP",
+    "Industrials": "XLI",
+    "Basic Materials": "XLB", "Materials": "XLB",
+    "Communication Services": "XLC",
+    "Utilities": "XLU",
+    "Real Estate": "XLRE",
+}
+
+
+#: Annual history depth. DATASET.md: "5 years; preferred 10".
+_ANNUAL_HISTORY_YEARS = 11
+
+
+def _sector_etf_for(profile: dict) -> str:
+    """SPDR sector ETF for the company's GICS sector, or SPY if unmapped."""
+    return _SECTOR_ETF.get((profile.get("sector") or "").strip(), _BENCHMARK_TICKER)
 
 
 class PacketRejected(Exception):
@@ -89,6 +119,11 @@ CANONICAL_FIELD_MAP: dict[str, str] = {
     "weightedAverageShsOutDil": "diluted_shares",
     "weightedAverageShsOut": "basic_shares",
     "cashAndCashEquivalents": "cash",
+    # VAL-NWC-006 has to strip this from operating current assets:
+    # DATA_DICTIONARY.md defines invested capital against "debt plus equity
+    # minus excess cash", and marketable securities are excess cash parked in
+    # a current account, not working capital. AAPL FY2025 carries 18.8B of it.
+    "shortTermInvestments": "short_term_investments",
     "netReceivables": "net_receivables",
     "inventory": "inventory",
     "totalCurrentAssets": "total_current_assets",
@@ -138,16 +173,126 @@ CANONICAL_FIELD_MAP: dict[str, str] = {
 }
 
 
+# INDUSTRY_ADAPTERS.md opens with "Select an adapter before scoring", and
+# every specialist already reads `analysis.industry_adapter` — business
+# and financial warn and cut model-fit confidence on a non-default one,
+# valuation refuses outright rather than run a FCFF DCF on a bank. The
+# consumers were all wired; the producer was hardcoded to
+# "default_nonfinancial", so a bank, a REIT, a biotech and a SaaS
+# company were every one of them scored as a generic operating company.
+#
+# Matching is on FMP's `industry` first (specific) then `sector`. Where
+# the call is genuinely ambiguous the choice leans toward *applying* an
+# adapter: marking a subscription business as generic would let it skip
+# the customer-economics dimension entirely, which flatters it, while
+# the reverse only costs coverage on a dimension it should be answering.
+_ADAPTER_BY_INDUSTRY: tuple[tuple[str, str], ...] = (
+    ("reit", "reits"),
+    ("insurance", "insurers"),
+    ("bank", "banks"),
+    ("biotechnology", "biotech"),
+    ("software", "saas_subscriptions"),
+    ("information technology services", "saas_subscriptions"),
+    ("oil & gas", "commodities_cyclicals"),
+    ("metals", "commodities_cyclicals"),
+    ("mining", "commodities_cyclicals"),
+    ("coal", "commodities_cyclicals"),
+    ("steel", "commodities_cyclicals"),
+    ("chemicals", "commodities_cyclicals"),
+)
+# No blanket "financial services" -> banks fallback. That sector holds
+# payment networks, exchanges, asset managers and brokers, none of which
+# take deposits or carry a loan book: it mapped Visa to the bank adapter,
+# which would have had valuation refuse to value it and cut business's
+# model-fit confidence to 40. Only an industry that actually says "bank"
+# gets the bank adapter.
+_ADAPTER_BY_SECTOR: tuple[tuple[str, str], ...] = (
+    ("real estate", "reits"),
+    ("basic materials", "commodities_cyclicals"),
+    ("energy", "commodities_cyclicals"),
+)
+
+
+def _industry_adapter_for(profile: dict) -> str:
+    """Victor's adapter for this security, from its reported classification.
+
+    Returns `default_nonfinancial` when nothing matches, which is the
+    documented default for "non-financial operating companies".
+    """
+    industry = (profile.get("industry") or "").lower()
+    sector = (profile.get("sector") or "").lower()
+    for needle, adapter in _ADAPTER_BY_INDUSTRY:
+        if needle in industry:
+            return adapter
+    for needle, adapter in _ADAPTER_BY_SECTOR:
+        if needle in sector:
+            return adapter
+    return "default_nonfinancial"
+
+
 def _map_statement_row(row: dict) -> dict:
     """Apply `CANONICAL_FIELD_MAP` to one raw FMP statement row."""
     return {CANONICAL_FIELD_MAP.get(k, k): v for k, v in row.items()}
 
 
+#: FMP reuses two balance-sheet account names inside the *cash-flow*
+#: statement, where they mean the period's CHANGE in that account rather than
+#: its closing balance. Merging by dict unpacking let the change win on both,
+#: so `inventory` reached every consumer as a working-capital movement wearing
+#: the name of a balance -- for AAPL FY2025, 1,400M (the movement) in place of
+#: 5,718M (the balance), which is what FIN-BS-018's quick ratio and
+#: FIN-DX-031's cash-conversion cycle actually require.
+#:
+#: DATA_POLICY.md forbids exactly this: "Do not silently change sign
+#: conventions, currency, tax treatment, or denominator definitions."
+#: Renaming keeps both figures -- the balance under its own name, the movement
+#: under an explicit one -- rather than picking a winner and losing the other.
+_CASHFLOW_DELTA_RENAMES: dict[str, str] = {
+    "inventory": "inventoryChange",
+    "accountsReceivables": "accountsReceivablesChange",
+}
+
+
+def _unreported_interest_to_absent(row: dict) -> dict:
+    """A zero interest expense on a debt-carrying company is absence, not zero.
+
+    FMP reports `interestExpense: 0` for AAPL FY2025 and FY2024 -- along with
+    every other interest field -- because Apple stopped disclosing the line
+    separately after FY2023; EDGAR's `InterestExpense` series stops in the
+    same year, so no source has it. The figure is unreported, not zero, and
+    Apple carried $112B of debt in that year.
+
+    MISSING_DATA_POLICY.md step 2 decides it: "Is the source expected to
+    report it? If yes but absent, use `MISSING`." A company carrying debt is
+    expected to report its interest cost, so an absent figure is MISSING. A
+    genuinely debt-free company is not expected to report one, and its zero
+    stands.
+
+    Left as zero, the claim propagated as fact: FIN-BS-020, RSK-ICOV-011 and
+    RSK-FCC-012 each returned NOT_MEANINGFUL citing
+    "ZERO_INTEREST_EXPENSE" -- telling the reader Apple has no interest cost
+    rather than that nobody reported one. Under CLAUDE.md's "sin evidencia,
+    no hay numero", the absence has to propagate instead.
+    """
+    if row.get("interest_expense") != 0:
+        return row
+    debt = row.get("total_debt")
+    if debt in (None, 0):
+        return row
+    return {**row, "interest_expense": None}
+
+
 def _merge_statement_period(income_row: dict, balance_row: dict, cashflow_row: dict) -> dict:
     """Merge one fiscal period's income/balance/cashflow rows into a single
-    canonical-name record."""
+    canonical-name record.
+
+    Cash-flow rows are renamed first (see `_CASHFLOW_DELTA_RENAMES`) so a
+    period movement cannot occupy a balance's field name.
+    """
+    cashflow_row = {_CASHFLOW_DELTA_RENAMES.get(k, k): v
+                    for k, v in (cashflow_row or {}).items()}
     merged_raw = {**income_row, **balance_row, **cashflow_row}
-    return _map_statement_row(merged_raw)
+    return _unreported_interest_to_absent(_map_statement_row(merged_raw))
 
 
 def _merge_statements(income: list[dict], balance: list[dict], cashflow: list[dict]) -> list[dict]:
@@ -195,8 +340,20 @@ def _edgar_entries(companyfacts: dict, taxonomy: str, tag: str, unit: str) -> li
     )
 
 
+def _restatement_rank(entry: dict) -> tuple[str, str]:
+    """Sort key that puts the latest official restatement last.
+
+    SOURCE_HIERARCHY.md conflict resolution step 2 prefers "a later official
+    restatement over the original filing". `filed` is the acceptance date of
+    the filing the fact came from; `accn` breaks a same-day tie
+    deterministically so a rebuild from identical inputs picks the same fact.
+    """
+    return (entry.get("filed") or "", entry.get("accn") or "")
+
+
 def _edgar_value_at(
-    companyfacts: dict, taxonomy: str, tag: str, unit: str, target_date: str | None
+    companyfacts: dict, taxonomy: str, tag: str, unit: str, target_date: str | None,
+    *, require_period: bool = False,
 ) -> Value:
     """Latest EDGAR XBRL fact for `tag`, preferring the entry whose `end`
     matches `target_date` (the FMP statement period it's being reconciled
@@ -204,9 +361,44 @@ def _edgar_value_at(
     entries = _edgar_entries(companyfacts, taxonomy, tag, unit)
     if not entries:
         return Value.null(NullState.MISSING, unit=unit, source_name="EDGAR")
-    entry = next((e for e in entries if e.get("end") == target_date), None)
+
+    # A flow fact carries `start` as well as `end`, and several periods
+    # can share one end date: Salesforce files a half-year cumulative and
+    # a standalone quarter both ending 2025-07-31. Matching on `end`
+    # alone therefore picks whichever came first in the payload, which is
+    # a coin flip between an annual figure and a quarterly one — the kind
+    # of mismatch `reconcile` then reports as a 395% source conflict.
+    #
+    # `fp`/`form` say plainly which is which, so an annual reconciliation
+    # takes the annual fact. Balance-sheet facts have no `start` and are
+    # unaffected.
+    candidates = [e for e in entries if e.get("end") == target_date]
+    annual = [e for e in candidates
+              if e.get("fp") == "FY" or (e.get("form") or "").startswith("10-K")]
+    # SOURCE_HIERARCHY.md conflict resolution step 2: "Prefer a later
+    # official restatement over the original filing" (QA_CHECKLIST.md:
+    # "Historical statements use latest valid restatement for current
+    # analysis"). One period appears in companyfacts once per filing that
+    # reports it -- the 10-K that first stated it, then every later filing
+    # that repeats or restates it in a comparative column -- listed in
+    # ascending `filed` order. Taking `[0]` therefore handed back the
+    # superseded original whenever a figure had been restated. Take the most
+    # recently filed entry instead.
+    pool = annual or candidates
+    entry = max(pool, key=_restatement_rank) if pool else None
     if entry is None:
-        entry = max(entries, key=lambda e: e.get("end", ""))
+        if require_period:
+            # The caller is choosing between tags and needs to know this
+            # one does not cover the period, rather than being handed the
+            # newest fact the tag happens to hold. Reading a "some value
+            # is better than none" fallback as a match is how NVIDIA's
+            # reconciliation went from exact agreement to 702% apart: the
+            # ASC 606 tag it does not use for the year returned a stale
+            # quarterly figure instead of deferring to the tag it does.
+            return Value.null(NullState.MISSING, unit=unit, source_name="EDGAR")
+        # Same restatement preference for the no-period-match fallback: the
+        # newest period, and within it the most recently filed statement of it.
+        entry = max(entries, key=lambda e: (e.get("end", ""), *_restatement_rank(e)))
     return Value.of(
         entry["val"],
         unit=unit,
@@ -218,17 +410,90 @@ def _edgar_value_at(
     )
 
 
+#: Lease-liability tags summed into the EDGAR debt figure so it measures
+#: the same concept the provider's `totalDebt` does. Both kinds are
+#: reported: NVIDIA carries its $2.944B under the *operating* tags, and
+#: under ASC 842 an operating lease liability sits on the balance sheet
+#: like any other obligation — which is what DATA_DICTIONARY.md means by
+#: "debt-like obligations". Current and noncurrent halves are listed
+#: separately because a company may report either alone.
+_EDGAR_LEASE_LIABILITY_TAGS = (
+    "FinanceLeaseLiabilityNoncurrent", "FinanceLeaseLiabilityCurrent",
+    "OperatingLeaseLiabilityNoncurrent", "OperatingLeaseLiabilityCurrent",
+    "CapitalLeaseObligationsNoncurrent", "CapitalLeaseObligationsCurrent",
+)
+
+
+#: Revenue tags in preference order. ASC 606 filers report under
+#: `RevenueFromContractWithCustomerExcludingAssessedTax`; `Revenues` is
+#: the older element and, where a filer tags both, often carries a
+#: narrower figure. Reading `Revenues` alone gave Salesforce $8.39B
+#: against the $41.525B it actually reports for the same fiscal year.
+_EDGAR_REVENUE_TAGS = (
+    "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "RevenueFromContractWithCustomerIncludingAssessedTax",
+    "Revenues",
+    "SalesRevenueNet",
+)
+
+
+def _edgar_first_available(
+    companyfacts: dict, taxonomy: str, tags: tuple[str, ...], unit: str,
+    target_date: str | None,
+) -> Value:
+    """The first tag in `tags` that reports a value for the period.
+
+    Filers do not agree on which element to use, so a single hardcoded
+    tag silently mismatches whole industries rather than failing loudly.
+    """
+    # First pass: a tag that actually covers the period being reconciled.
+    for tag in tags:
+        value = _edgar_value_at(companyfacts, taxonomy, tag, unit, target_date,
+                                require_period=True)
+        if not value.is_null:
+            return value
+    # Second pass: no tag covers it, so take the best available and let
+    # `reconcile` judge the result rather than silently reporting nothing.
+    for tag in tags:
+        value = _edgar_value_at(companyfacts, taxonomy, tag, unit, target_date)
+        if not value.is_null:
+            return value
+    return Value.null(NullState.MISSING, unit=unit, source_name="EDGAR")
+
+
 def _edgar_total_debt(companyfacts: dict, target_date: str | None) -> Value:
     """EDGAR has no single "total debt" tag; sum the noncurrent + current
     debt tags for the target period. If either half is unavailable, the
     sum isn't safe to report — return MISSING rather than silently
-    treating a missing half as zero."""
+    treating a missing half as zero.
+
+    Finance leases are added because the comparison target includes them
+    and DATA_DICTIONARY.md defines the concept as "Interest-bearing debt
+    plus debt-like obligations". Omitting them made this an
+    apples-to-oranges difference that `reconcile` then reported as a
+    source conflict: NVIDIA's borrowings tie out to the cent
+    ($8.468B on both sides), and the entire 34.8% "disagreement" was its
+    $2.944B of capitalised leases, counted by the provider and not by
+    these two tags. A conflict flag on that would withhold invested
+    capital, ROIC, spread and EVA over a definitional gap rather than a
+    factual one — which is what SOURCE_HIERARCHY.md's first
+    conflict-resolution step ("Verify period, currency, scale ... and
+    continuing-operations treatment") exists to prevent.
+
+    Leases are treated as optional: a company reporting none is not a
+    company whose debt is unknown.
+    """
     long_term = _edgar_value_at(companyfacts, "us-gaap", "LongTermDebtNoncurrent", "USD", target_date)
     current = _edgar_value_at(companyfacts, "us-gaap", "DebtCurrent", "USD", target_date)
     if long_term.is_null or current.is_null:
         return Value.null(NullState.MISSING, unit="USD", source_name="EDGAR")
+    leases = 0.0
+    for tag in _EDGAR_LEASE_LIABILITY_TAGS:
+        part = _edgar_value_at(companyfacts, "us-gaap", tag, "USD", target_date)
+        if not part.is_null:
+            leases += part.value
     return Value.of(
-        long_term.value + current.value,
+        long_term.value + current.value + leases,
         unit="USD",
         source_name="EDGAR",
         period=target_date,
@@ -283,6 +548,142 @@ def _ohlcv_row(bar: dict) -> OHLCVRow:
 # --- build_packet -----------------------------------------------------------
 
 
+def _resolve_gap_sessions(earnings_calendar: list[dict], ohlcv_raw: list[dict]) -> list[str]:
+    """Each reported earnings event mapped to the session that carries its gap.
+
+    TECH-GAP-020: "Use first regular session after after-hours release."
+    A company reporting after the close gaps on the *next* session; one
+    reporting before the open gaps on the announcement date itself. FMP's
+    earnings calendar carries no before/after-market marker, and
+    DATA_POLICY.md forbids converting an unverified assumption into a
+    number -- so rather than assume a convention per ticker, the price
+    evidence decides: of the two candidate sessions, take whichever opened
+    further from its own prior close. That is the session the market
+    actually repriced on, which is what the formula measures.
+
+    Verified against live data: AAPL (after-hours) resolves to the following
+    session (+2.77% vs +0.10% on the announcement date), JPM and XOM (before
+    the open) resolve to the announcement date itself (-2.25% vs +0.86%).
+
+    Ties and equal moves keep the announcement date, the conservative read:
+    no evidence of a delayed reaction means no reason to shift the event.
+    """
+    if not earnings_calendar or not ohlcv_raw:
+        return []
+    # `ohlcv_raw` is newest-first; index ascending so "next session" is +1.
+    bars = list(reversed(ohlcv_raw))
+    index_of = {str(b.get("date")): i for i, b in enumerate(bars)}
+
+    def _gap_size(i: int) -> float:
+        """|open_i / close_(i-1) - 1|, or -1 when the pair is unusable."""
+        if i <= 0 or i >= len(bars):
+            return -1.0
+        prior_close, open_ = bars[i - 1].get("close"), bars[i].get("open")
+        if not isinstance(prior_close, (int, float)) or not isinstance(open_, (int, float)):
+            return -1.0
+        if prior_close == 0:
+            return -1.0
+        return abs(open_ / prior_close - 1.0)
+
+    sessions: list[str] = []
+    for row in earnings_calendar:
+        # Only events that have actually reported: a scheduled future date
+        # has no gap to measure.
+        if row.get("epsActual") is None and row.get("eps") is None:
+            continue
+        announced = str(row.get("date") or "")
+        i = index_of.get(announced)
+        if i is None:
+            continue
+        same_day, next_day = _gap_size(i), _gap_size(i + 1)
+        chosen = i + 1 if next_day > same_day else i
+        if 0 <= chosen < len(bars):
+            date = str(bars[chosen].get("date") or "")
+            if date and date not in sessions:
+                sessions.append(date)
+    return sorted(sessions)
+
+
+#: How many peers to pull fundamentals for. SCORING_ENGINE.md requires "a
+#: minimum of 8 valid peers" for a peer percentile, and FMP returns 9-14 for
+#: the tickers tested; the cap bounds the per-packet request count.
+_MAX_PEER_PANEL = 12
+
+
+def _peer_panel(peers: list, fmp: Any) -> list[dict]:
+    """`peer_growth_margin_returns` (DATASET.md, financial + valuation).
+
+    DATASET.md marks a peer panel of "Comparable peer growth, margins, and
+    returns" required for the peer rules, and SCORING_ENGINE.md needs "a
+    minimum of 8 valid peers" before a peer percentile may be used. The
+    packet carried only the peer *symbol* list, so FIN-GR-003 was MISSING,
+    VAL-REL-034 dropped out of the valuation ensemble, and the
+    peer-sensitive margin bands fell back to defaults on every company.
+
+    One row per peer, from its own annual income statement and profile:
+    revenue growth (FIN-GR-003's input), gross/operating/net margin (the
+    peer-sensitive band inputs), and EV/Sales (VAL-REL-034's multiple).
+    A peer whose statements do not load is skipped rather than guessed --
+    the panel reports who it could measure, and the consumers apply their
+    own >=8 minimum to what arrives.
+    """
+    symbols: list[str] = []
+    for entry in peers or []:
+        symbol = entry.get("symbol") if isinstance(entry, dict) else entry
+        # The retired /v3 endpoint wrapped the list; /stable returns objects.
+        if isinstance(entry, dict) and "peersList" in entry:
+            symbols.extend(str(s) for s in (entry.get("peersList") or []))
+        elif symbol:
+            symbols.append(str(symbol))
+    panel: list[dict] = []
+    for symbol in symbols[:_MAX_PEER_PANEL]:
+        try:
+            income = fmp.income_annual(symbol, limit=2) or []
+        except Exception:  # one unreachable peer must not fail the packet
+            logger.warning("peer panel: income statement unavailable for %s", symbol)
+            continue
+        if not income:
+            continue
+        latest = income[0]
+        revenue = latest.get("revenue")
+        if not isinstance(revenue, (int, float)) or revenue == 0:
+            continue
+        prior_revenue = income[1].get("revenue") if len(income) > 1 else None
+        growth = (
+            revenue / prior_revenue - 1.0
+            if isinstance(prior_revenue, (int, float)) and prior_revenue else None
+        )
+
+        def _margin(key: str) -> float | None:
+            v = latest.get(key)
+            return v / revenue if isinstance(v, (int, float)) else None
+
+        market_cap = None
+        try:
+            profile_rows = fmp.profile(symbol)
+            profile_row = (profile_rows[0] if isinstance(profile_rows, list) and profile_rows
+                           else profile_rows) or {}
+            market_cap = profile_row.get("marketCap") or profile_row.get("mktCap")
+        except Exception:
+            logger.warning("peer panel: profile unavailable for %s", symbol)
+        panel.append({
+            "symbol": symbol,
+            "period": latest.get("date"),
+            "revenue": revenue,
+            "revenue_growth": growth,
+            "gross_margin": _margin("grossProfit"),
+            "operating_margin": _margin("operatingIncome"),
+            "net_margin": _margin("netIncome"),
+            # EV/Sales needs enterprise value; market cap alone is the
+            # equity-only read, so it is named for what it is.
+            "market_cap": market_cap,
+            "price_to_sales": (
+                market_cap / revenue if isinstance(market_cap, (int, float)) else None
+            ),
+        })
+    return panel
+
+
 def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
     """Build the analysis `Packet` for `ticker` from `providers`, framed at
     the analysis clock `now` (never the wall clock — callers own `now`).
@@ -296,14 +697,22 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
     profile_raw = fmp.profile(ticker)
     profile: dict = (profile_raw[0] if isinstance(profile_raw, list) and profile_raw else profile_raw) or {}
 
-    income_annual = fmp.income_annual(ticker) or []
+    # DATASET.md asks for "5 years; preferred 10" of margins and "5-10
+    # years" of capital-allocation history. The provider default is six,
+    # which clears the minimum and never reaches the preference — and six
+    # years starting in 2020 puts the last recession on the boundary with
+    # no prior year to compare against, so BUS-STAB-009's recession-year
+    # drawdown was uncomputable for every company. Eleven years spans the
+    # preferred decade with one year of run-up.
+    income_annual = fmp.income_annual(ticker, limit=_ANNUAL_HISTORY_YEARS) or []
     income_quarterly = fmp.income_quarterly(ticker) or []
-    balance_annual = fmp.balance_annual(ticker) or []
+    balance_annual = fmp.balance_annual(ticker, limit=_ANNUAL_HISTORY_YEARS) or []
     balance_quarterly = fmp.balance_quarterly(ticker) or []
-    cashflow_annual = fmp.cashflow_annual(ticker) or []
+    cashflow_annual = fmp.cashflow_annual(ticker, limit=_ANNUAL_HISTORY_YEARS) or []
     cashflow_quarterly = fmp.cashflow_quarterly(ticker) or []
     ohlcv_raw = fmp.ohlcv_daily(ticker) or []
     peers = fmp.peers(ticker) or []
+    peer_panel = _peer_panel(peers, fmp)
     analyst_estimates = fmp.analyst_estimates(ticker) or []
     insider_trades = fmp.insider_trades(ticker) or []
     institutional_holders = fmp.institutional_holders(ticker) or []
@@ -346,7 +755,8 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
     latest_annual_date = income_annual[0]["date"] if income_annual else None
 
     fmp_revenue = _fmp_value(income_annual[0] if income_annual else None, "revenue", "USD")
-    edgar_revenue = _edgar_value_at(companyfacts, "us-gaap", "Revenues", "USD", latest_annual_date)
+    edgar_revenue = _edgar_first_available(
+        companyfacts, "us-gaap", _EDGAR_REVENUE_TAGS, "USD", latest_annual_date)
 
     fmp_cash = _fmp_value(balance_annual[0] if balance_annual else None, "cashAndCashEquivalents", "USD")
     edgar_cash = _edgar_value_at(
@@ -381,6 +791,21 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
         "total_debt": reconcile("total_debt", fmp_total_debt, edgar_total_debt),
         "price": price_value,
     }
+    # When a reconciled valuation input conflicts (>5% source gap, reconcile's
+    # materiality proxy), keep both source values under `<field>:fmp` /
+    # `<field>:edgar` so a specialist can measure SOURCE_HIERARCHY.md's own
+    # score-based materiality — a >5% input gap can be a definitional
+    # difference (e.g. leases summed into EDGAR debt) that never moves a
+    # category score. These are alternatives, not facts: the ':' suffix keeps
+    # them out of fact iteration (see business._source_reconciliation_checks).
+    for _field, _fmp_v, _edgar_v in (("cash", fmp_cash, edgar_cash),
+                                     ("total_debt", fmp_total_debt, edgar_total_debt)):
+        _f = facts_table[_field]
+        if _f.is_null and str(_f.state or "").endswith("CONFLICTED"):
+            if _fmp_v.is_valid:
+                facts_table[f"{_field}:fmp"] = _fmp_v
+            if _edgar_v.is_valid:
+                facts_table[f"{_field}:edgar"] = _edgar_v
 
     # --- fundamentals: canonical-name annual + quarterly records --------
 
@@ -403,7 +828,36 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
     benchmark_aligned_raw = [bar for bar in benchmark_raw if bar["date"] in stock_dates]
     benchmark_rows = [_ohlcv_row(bar) for bar in benchmark_aligned_raw]
 
-    market_data = MarketData(daily=daily_rows, benchmark=benchmark_rows, sector=benchmark_rows, adjusted=True)
+    # Sector series from the company's SPDR sector ETF (real per-sector data,
+    # not the broad benchmark) so MKT-RSG-024 measures the actual sector vs the
+    # market. Aligned to the benchmark's exact dates (forward-filling the odd
+    # missing ETF day) so the position-wise sector-vs-benchmark comparison
+    # never mismatches length. Falls back to the benchmark when the sector is
+    # unmapped or its ETF has no overlapping history.
+    sector_ticker = _sector_etf_for(profile)
+    if sector_ticker == _BENCHMARK_TICKER:
+        sector_rows = benchmark_rows
+    else:
+        sector_raw = fmp.ohlcv_daily(sector_ticker, today=now.date()) or []
+        sector_by_date = {bar["date"]: bar for bar in sector_raw}
+        if any(bar["date"] in sector_by_date for bar in benchmark_aligned_raw):
+            sector_rows, prev = [], None
+            for bar in benchmark_aligned_raw:
+                prev = sector_by_date.get(bar["date"], prev)
+                sector_rows.append(_ohlcv_row(prev if prev is not None else bar))
+        else:
+            sector_rows = benchmark_rows
+
+    market_data = MarketData(daily=daily_rows, benchmark=benchmark_rows, sector=sector_rows, adjusted=True)
+
+    # --- earnings gap sessions ----------------------------------------------
+    # TECH-GAP-020 measures the gap on "the first regular session after the
+    # [after-hours] release", and levels_engine.earnings_gaps expects dates
+    # already resolved to that session. The builder was fetching the earnings
+    # calendar for staleness only and throwing it away, so technical's whole
+    # earnings-gap dimension (3 of its 20 points) was NOT_SCORABLE on every
+    # company for want of the dates.
+    gap_sessions = _resolve_gap_sessions(earnings_calendar, ohlcv_raw)
 
     # --- staleness ----------------------------------------------------------
 
@@ -431,28 +885,49 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
         "finnhub_eps_estimate": finnhub_eps_estimate,
         "finnhub_revenue_estimate": finnhub_revenue_estimate,
         "peers": peers,
+        # DATASET.md `peer_growth_margin_returns`: growth, margins and
+        # multiples per peer, required for the peer rules.
+        "peer_panel": peer_panel,
         "risk_free_rate": risk_free_rate.value,
+        # DATASET.md (technical) lists `earnings_event_dates` as required:
+        # "Timestamped earnings release dates and session mapping". These are
+        # already mapped to the gap session (see `_resolve_gap_sessions`).
+        "earnings_dates": gap_sessions,
     }
 
     capital_structure = {
         "diluted_shares": facts_table["diluted_shares"].value,
         "total_debt": facts_table["total_debt"].value,
         "cash": facts_table["cash"].value,
-        "market_cap": profile.get("mktCap"),
+        # Same renamed-field trap as `exchange`: FMP's stable endpoint
+        # returns `marketCap`, not the legacy `mktCap`, so this read
+        # produced None for every company — and market cap is the equity
+        # weight in WACC, which business's ROIC-WACC spread rests on.
+        "market_cap": profile.get("marketCap") or profile.get("mktCap"),
         "beta": profile.get("beta"),
     }
 
     security = Security(
         ticker=ticker,
-        exchange=profile.get("exchangeShortName", ""),
+        # FMP's stable endpoint returns `exchange` ("NASDAQ") and
+        # `exchangeFullName` ("NASDAQ Global Select"). Reading only the
+        # legacy `exchangeShortName` meant this key was never present, so
+        # every packet carried an empty exchange — a field OUTPUT_SCHEMA.md
+        # declares and QA_CHECKLIST.md's first line requires to be correct.
+        exchange=(profile.get("exchange")
+                  or profile.get("exchangeShortName")
+                  or profile.get("exchangeFullName")
+                  or ""),
         security_type="operating_company",
         reporting_currency=currency,
         valuation_currency=currency,
+        sector=profile.get("sector") or "",
+        industry=profile.get("industry") or "",
     )
     analysis = AnalysisMeta(
         knowledge_timestamp=now.isoformat(),
         market_timestamp=market_timestamp,
-        industry_adapter="default_nonfinancial",
+        industry_adapter=_industry_adapter_for(profile),
     )
 
     packet = Packet(

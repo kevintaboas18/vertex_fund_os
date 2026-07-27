@@ -11,3 +11,5 @@ httpx
 typer
 pandas
 anthropic>=0.40
+# Graficos del reporte (report/charts.py). Import diferido, headless (Agg).
+matplotlib>=3.8

@@ -335,3 +335,40 @@ def test_weak_wait_fallback_label_for_raw_in_50_to_60_no_gate():
     result = apply_gates(raw, cats, _FULL_CONF, overrides)
     assert result.label == GATE_WEAK
     assert result.passed_gates == []
+
+
+# ============================================================================
+# Audit fix: the [50,60) fallback label is disclosed in the output
+# ============================================================================
+
+
+def test_the_weak_fallback_label_discloses_that_victor_never_defines_it():
+    """SCORING_AND_GATES.md assigns no profile to a raw total in [50, 60)
+    absent an override or a Speculative condition (Conditional/Watch starts
+    at 60, Avoid/Wait at <50). The GATE_WEAK label that fills the gap is this
+    engine's interpretation, and AGENT.md's "traceable final report, not a
+    black-box opinion" means a reader must see that in the output, not only
+    in a docstring."""
+    from wbj.aggregate.gates import GATE_WEAK_DISCLOSURE
+
+    cats = CategoryPoints(business=12, financial=9, market=11,
+                          technical=10, risk=8, valuation=5)
+    conf = CategoryConfidences(business=80, financial=80, market=80,
+                               technical=80, risk=80, valuation=80)
+    result = apply_gates(55.0, cats, conf, [])
+    assert result.label == GATE_WEAK
+    assert GATE_WEAK_DISCLOSURE in result.warnings
+    assert "not a SCORING_AND_GATES.md label" in GATE_WEAK_DISCLOSURE
+
+
+def test_a_labelled_profile_carries_no_weak_disclosure():
+    """The disclosure must only ride with the invented label."""
+    from wbj.aggregate.gates import GATE_WEAK_DISCLOSURE
+
+    cats = CategoryPoints(business=17, financial=12, market=17,
+                          technical=18, risk=11, valuation=6)
+    conf = CategoryConfidences(business=85, financial=85, market=85,
+                               technical=85, risk=85, valuation=85)
+    result = apply_gates(81.0, cats, conf, [])
+    assert result.label != GATE_WEAK
+    assert GATE_WEAK_DISCLOSURE not in result.warnings

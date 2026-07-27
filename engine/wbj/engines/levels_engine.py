@@ -791,6 +791,14 @@ def compute_levels(
         else:
             zone_type = "resistance" if state.kind == "high" else "support"
 
+        # TECH-DATR-029 (distance to level in ATR): `(ReferencePrice -
+        # CurrentClose) / ATR14`, with FORMULAS.md's "use nearest zone
+        # boundary for approach status" -- hence `lower` for resistance above
+        # and `upper` for support below. Every sibling zone formula in this
+        # module carries its registry id in a section comment; this one did
+        # not, so a registry-coverage audit read the only untagged formula in
+        # the file as unimplemented. QA_CHECKLIST.md ("levels show distance in
+        # both percent and ATR") is what makes both branches mandatory.
         if zone_type == "resistance":
             distance_atr = (state.lower - current_close) / current_atr if current_atr and not math.isnan(current_atr) else None
             distance_percent = (state.lower - current_close) / current_close * 100

@@ -78,6 +78,7 @@ from wbj.schemas.packet import OHLCVRow, Packet
 from wbj.specialists.common import (
     CategoryStats,
     apply_dimension_cap,
+    JudgmentRequest,
     MetricRow,
     SecurityRef,
     SpecialistOutput,
@@ -126,6 +127,86 @@ assert sum(DIMENSION_MAX_POINTS.values()) == MAX_POINTS
 
 MIN_SESSIONS_FOR_TREND = 200
 MIN_EARNINGS_EVENTS = 4
+
+
+# ============================================================================
+# Anchor provenance: every scored metric's 0-10 interpolation scale.
+# ============================================================================
+#
+# Like the market FORMULAS.md, the technical FORMULAS.md registers NO numeric
+# BAD/GOOD/EXCELLENT band for any metric. The scoring *direction* for each
+# comes from SCORING.md's dimension column, a DECISION_RULES.md threshold, or a
+# FORMULAS.md caveat; the 0-10 interpolation points fed to `anchor_score` are
+# this module's dated (2.0.0) calibration. AGENT.md's no-speculation rule
+# allows a scored number that is not Victor's only as an "explicitly disclosed
+# assumption" -- so every scored metric is registered here (MIXED: direction
+# Victor's, magnitude the engine's) and `_anchor_disclosures()` surfaces them
+# on every run, the discipline already carried by business.py and market.py.
+#
+# TECH-TREND-COMPOSITE is deliberately absent: its score is DECISION_RULES.md's
+# six-row primary-trend anchor table implemented verbatim in
+# `primary_trend_score`, i.e. Victor's own numbers, so it is not disclaimed.
+# The unscored context rows (RET/SMA/EMA/TR/ATR/RSI/MACD/DMI/ROC) carry no
+# scale to disclose.
+ANCHOR_PROVENANCE: dict[str, tuple[str, str]] = {
+    # metric_id: (provenance, the Cerebro direction it rests on)
+    "TECH-52W-036": ("MIXED", 'DECISION_RULES.md trend table: "52-week position >= 0.80" for '
+                     "the 9-10 band -- higher range position is better."),
+    "TECH-RS-011": ("MIXED", 'SCORING.md RS dim: "positive 63/126/252d RS" (7-10) vs "negative '
+                    'sector/broad RS" (0-3) -- higher benchmark relative return is better.'),
+    "TECH-RSS-012": ("MIXED", 'SCORING.md RS dim: negative sector RS is a 0-3 signal -- higher '
+                     "sector relative return is better."),
+    "TECH-RSC-013": ("MIXED", 'SCORING.md RS dim: composite percentile "<30" (0-3), "30-70" '
+                     '(4-6), ">70" (7-10) -- the 30/70 boundaries are Victor\'s, the interior '
+                     "interpolation the engine's."),
+    "TECH-VR-014": ("MIXED", 'SCORING.md Volume dim: "Up/down >1.2... breakout volume" (7-10) '
+                    "-- a higher volume ratio is better."),
+    "TECH-UDV-015": ("MIXED", 'SCORING.md Volume dim: "Up/down >1.2" (7-10) vs "Down-volume '
+                     'dominance" (0-3) -- the 1.2 boundary is Victor\'s.'),
+    "TECH-OBV-016": ("MIXED", 'SCORING.md Volume dim: "positive OBV slope" (7-10) vs "weak OBV '
+                     'slope" (0-3); FORMULAS.md: "use slope/divergence" -- positive is better.'),
+    "TECH-CMF-017": ("MIXED", 'SCORING.md Volume dim: "CMF > 0.10" (7-10) vs "CMF < -0.10" '
+                     "(0-3) -- both boundaries are Victor's."),
+    "TECH-VOL-018": ("MIXED", 'SCORING.md Sector/Vol dim: "controlled volatility" (7-10) vs '
+                     '"rising unstable volatility" (0-3) -- lower realized volatility is better.'),
+    "TECH-VCP-019": ("MIXED", 'FORMULAS.md TECH-VCP-019: "Below 1 indicates contraction" -- the '
+                     "1.0 boundary is Victor's; a contraction ratio below 1 is better."),
+    "TECH-TIGHT-038": ("MIXED", 'FORMULAS.md TECH-TIGHT-038: "Lower ratio indicates contraction" '
+                       "-- lower is better; the magnitude is the engine's."),
+    "TECH-GAP-020": ("MIXED", 'SCORING.md Earnings-gap dim: "Positive gaps hold" (7-10) vs '
+                     '"negative gaps persist" (0-3) -- a larger positive average gap is better.'),
+    "TECH-GHOLD-021": ("MIXED", 'SCORING.md Earnings-gap dim: "gaps hold >70% at day 5 and 20" '
+                       "(7-10) -- the 0.70 hold boundary is Victor's."),
+    "TECH-LSTR-028": ("MIXED", "FORMULAS.md TECH-LSTR-028 yields a 0-100 level-strength score "
+                      "(Victor's); the mapping onto this dimension's 0-10 scale is the engine's."),
+    "TECH-BCONF-031": ("MIXED", 'DECISION_RULES.md step 7 / SCORING.md Breakout dim: a "confirmed '
+                       'breakout" (7-10) vs "Repeated failed breakouts" (0-3) -- discrete score.'),
+    "TECH-BASE-037": ("MIXED", 'SCORING.md Breakout dim: "loose/deep base" is a 0-3 signal -- a '
+                      "shallower base depth is better."),
+    "TECH-BREAD-039": ("MIXED", 'SCORING.md Sector dim: "Healthy breadth" (7-10) vs "Weak '
+                       'breadth" (0-3) -- higher sector breadth is better.'),
+    "TECH-LIQ-040": ("MIXED", 'SCORING.md Sector dim: "sufficient liquidity" (7-10) vs "poor '
+                     'liquidity" (0-3); FORMULAS.md: "Low liquidity lowers... reliability" -- '
+                     "higher median dollar volume is better."),
+}
+
+
+def _anchor_disclosures() -> list[str]:
+    """One grouped line naming every metric whose 0-10 scale this module
+    calibrated (AGENT.md: a scored non-reported number must be an explicitly
+    disclosed assumption)."""
+    mixed = sorted(m for m, (s, _) in ANCHOR_PROVENANCE.items() if s == "MIXED")
+    if not mixed:
+        return []
+    return [
+        "Scoring anchors (partly derived): " + ", ".join(mixed) + ". The technical "
+        "FORMULAS.md registers no numeric band, so each metric's scoring direction "
+        "is taken from SCORING.md's dimension description, a DECISION_RULES.md "
+        "threshold, or a FORMULAS.md caveat, and the 0-10 interpolation points "
+        "between are this module's dated 2.0.0 calibration, not a value from "
+        "Cerebro. The primary-trend composite is exempt: it implements "
+        "DECISION_RULES.md's anchor table verbatim."
+    ]
 
 
 def _ok(x: float, unit: str, **lineage: object) -> Value:
@@ -450,6 +531,13 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> TechnicalOutpu
     add("TECH-RSI-007", _ok(rsi_now, unit="score") if rsi_now is not None else _null(NullState.MISSING, "score", "RSI_UNAVAILABLE"), None)
     add("TECH-MACD-008", _ok(macd_now.get("hist"), unit="usd") if macd_now.get("hist") is not None else _null(NullState.MISSING, "usd", "MACD_UNAVAILABLE"), None)
     add("TECH-DMI-009", _ok(adx_now, unit="score") if adx_now is not None else _null(NullState.MISSING, "score", "ADX_UNAVAILABLE"), None)
+    # ---- TECH-ROC-010: 63-session rate of change (context, no scoring dimension) ----
+    # A registered formula that no dimension scores, reported alongside the
+    # other context indicators rather than omitted (AGENT.md step 3: "Calculate
+    # every applicable registered formula"). 63 sessions = one quarter, the mid
+    # window of FORMULAS.md's N=21/63/126/252.
+    roc_now = _last_valid(ind.roc(close, 63))
+    add("TECH-ROC-010", _ok(roc_now, unit="pct") if roc_now is not None else _null(NullState.MISSING, "pct", "ROC_INSUFFICIENT_HISTORY"), None)
 
     # ---- TECH-SLOPE-004: ATR-normalized slope (N=20 SMA50-proxy, N=50 SMA200-proxy) ----
     v_slope50 = atr_normalized_slope(close, 20, atr_latest) if atr_latest else _null(NullState.MISSING, "atr_units", "SLOPE_ATR_UNAVAILABLE")
@@ -496,11 +584,27 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> TechnicalOutpu
         v_rss = _null(NullState.MISSING, "pp", "SECTOR_DATA_UNAVAILABLE_EMPTY_MARKET_DATA")
     add("TECH-RSS-012", v_rss, _score_from_anchor(v_rss, [(-0.10, 0), (0.0, 4), (0.05, 7), (0.15, 10)]))
 
+    # TECH-RSC-013: 0.35*PctRank(RS21)+0.25*PctRank(RS63)+0.25*PctRank(RS126)
+    # +0.15*PctRank(RS252). Each window's RS must be its own N-day excess
+    # return; feeding the 63-day RS into all four windows collapsed the
+    # composite onto a single horizon. Compute all four against the benchmark.
     universe = overlay.get("rs_universe")
-    if universe and v_rs.is_valid:
-        rs_by_window = {"RS21": v_rs.value, "RS63": v_rs.value, "RS126": v_rs.value, "RS252": v_rs.value}
-        percentile = ind.composite_rs_percentile(rs_by_window, pd.DataFrame(universe))
-        v_rsc = _ok(percentile, unit="percentile")
+    if universe and bench_rows and len(bench_rows) >= 64:
+        bench_df = _to_df(bench_rows)
+        n_common = min(len(df), len(bench_df))
+        stock_c = close.tail(n_common).reset_index(drop=True)
+        bench_c = bench_df["close"].tail(n_common).reset_index(drop=True)
+        rs_by_window: dict[str, float] = {}
+        for key, n in (("RS21", 21), ("RS63", 63), ("RS126", 126), ("RS252", 252)):
+            rs_n = _last_valid(ind.relative_strength(stock_c, bench_c, n))
+            if rs_n is not None:
+                rs_by_window[key] = rs_n
+        if len(rs_by_window) == 4:
+            percentile = ind.composite_rs_percentile(rs_by_window, pd.DataFrame(universe))
+            v_rsc = _ok(percentile, unit="percentile")
+        else:
+            v_rsc = _null(NullState.NOT_SCORABLE, "percentile",
+                          "RSC_INSUFFICIENT_HISTORY_FOR_ALL_FOUR_RS_WINDOWS")
     else:
         v_rsc = _null(NullState.NOT_SCORABLE, "percentile", "RSC_UNIVERSE_UNAVAILABLE_POINT_IN_TIME_REQUIRED")
     # Brief's explicit percentile bands: <30 -> 0-3; 30-70 -> 4-6; >70 -> 7-10.
@@ -544,7 +648,11 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> TechnicalOutpu
     add("TECH-TIGHT-038", v_tight, _score_from_anchor(v_tight, [(0.5, 10), (1.0, 6), (1.5, 3), (2.5, 0)]))
 
     # ---- TECH-GAP-020 / TECH-GHOLD-021: earnings gaps ----
-    earnings_dates = overlay.get("earnings_dates") or []
+    # The packet builder resolves each reported earnings event to the session
+    # that carries its gap (DATASET.md's required `earnings_event_dates`,
+    # "release dates and session mapping"). An explicit overlay list still
+    # wins, for an analyst correcting a mapping.
+    earnings_dates = overlay.get("earnings_dates") or (packet.estimates or {}).get("earnings_dates") or []
     gap_records = lv.earnings_gaps(df, earnings_dates, atr) if earnings_dates else []
     valid_gap_records = [g for g in gap_records if g.day5_hold_ratio is not None]
     if len(valid_gap_records) >= MIN_EARNINGS_EVENTS:
@@ -589,36 +697,110 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> TechnicalOutpu
     add("TECH-LSTR-028", v_lstr, _score_from_anchor(v_lstr, [(0.0, 0), (40.0, 4), (70.0, 8), (100.0, 10)]))
     add("TECH-BCONF-031", _ok(1.0 if breakout_confirmed_flag else 0.0, unit="bool"), 10.0 if breakout_confirmed_flag else (5.0 if nearest_resistance is None else 0.0))
 
+    # ---- Formula-result rows for the zone pipeline -----------------------
+    # shared/FORMULA_REGISTRY.md: "Every formula must have: a stable formula
+    # ID ... formula version; at least one validation test", and specifies a
+    # formula-result object with `formula_id`, `result: {value, unit}`,
+    # `status` and `warnings`.
+    #
+    # These twelve are computed by `levels_engine` on the way to the zones in
+    # `important_levels`, and none of them emitted a row. SCORING.md's
+    # breakout dimension names the range `PIV-022..033` and is already scored
+    # through TECH-LSTR-028 (zone strength) and TECH-BCONF-031 (breakout
+    # confirmation); these are the intermediate evidence behind those two, so
+    # they go in with no score of their own. Scoring them again would count
+    # one dimension twice.
+    #
+    # 00_main_agent/AGENT.md asks for "a traceable final report, not a
+    # black-box opinion": a level a reader cannot interrogate is exactly the
+    # black box, and 04's own AGENT.md forbids "subjective support/resistance
+    # lines" in favour of "the registered pivot, ATR-zone, touch, and
+    # breakout algorithms" -- registered means it reports.
+    all_zones = levels_output.nearest_support + levels_output.nearest_resistance
+    nearest_zone = min(
+        (z for z in all_zones if z.distance_atr is not None),
+        key=lambda z: abs(z.distance_atr), default=None,
+    )
+    touches_all = [t for z in all_zones for t in z.touches]
+
+    def _lvl(mid: str, value: float | None, unit: str, why: str) -> None:
+        add(mid, _ok(value, unit=unit) if value is not None
+            else _null(NullState.MISSING, unit, why), None)
+
+    _lvl("TECH-PIV-022", float(len(touches_all)) if all_zones else None,
+         "count", "NO_ZONES_NO_PIVOTS")
+    _lvl("TECH-ZIG-023", float(len({t.date for t in touches_all})) if all_zones else None,
+         "count", "NO_ZONES_NO_SWINGS")
+    _lvl("TECH-ZTOL-024",
+         (nearest_zone.upper - nearest_zone.lower) if nearest_zone is not None else None,
+         "usd_per_share", "NO_ZONE_IN_RANGE")
+    _lvl("TECH-ZONE-025", float(len(all_zones)) if all_zones else None,
+         "count", "NO_ZONES_BUILT")
+    # Independent touches: the count the strength formula saturates on.
+    _lvl("TECH-NEFF-026",
+         float(max((len(z.touches) for z in all_zones), default=0)) if all_zones else None,
+         "count", "NO_ZONES_NO_TOUCHES")
+    _lvl("TECH-REJ-027",
+         max((t.rejection_atr for t in touches_all), default=None) if touches_all else None,
+         "atr", "NO_TOUCHES_NO_REJECTION")
+    _lvl("TECH-DATR-029",
+         nearest_zone.distance_atr if nearest_zone is not None else None,
+         "atr", "NO_ZONE_IN_RANGE")
+    # Break status, read off the zone the engine already classified.
+    _lvl("TECH-BRK-030",
+         (1.0 if nearest_resistance.status == "broken" else 0.0)
+         if nearest_resistance is not None else None,
+         "bool", "NO_RESISTANCE_ZONE")
+    _lvl("TECH-FBRK-032",
+         (1.0 if nearest_resistance.status == "failed_breakout" else 0.0)
+         if nearest_resistance is not None else None,
+         "bool", "NO_RESISTANCE_ZONE")
+    _lvl("TECH-ROLE-033",
+         (1.0 if nearest_resistance.status == "role_reversed" else 0.0)
+         if nearest_resistance is not None else None,
+         "bool", "NO_RESISTANCE_ZONE")
+    _lvl("TECH-AVWAP-034",
+         levels_output.avwaps[0].value if levels_output.avwaps else None,
+         "usd_per_share", "NO_ANCHORED_VWAP")
+    # Volume profile: the point of control, i.e. the price bin that traded the
+    # most volume. `volume_profile` takes the ATR series as well as the frame
+    # (the bin width is `max(0.50*ATR14, 0.005*price)`) and returns a
+    # `VolumeProfile`, not a sequence.
+    vp_value = lv.volume_profile(df, atr).poc if n_sessions >= 40 else None
+    _lvl("TECH-VP-035", vp_value, "usd_per_share", "VOLUME_PROFILE_NEEDS_40_SESSIONS")
+
     v_base = base_depth(df)
     add("TECH-BASE-037", v_base, _score_from_anchor(v_base, [(0.05, 10), (0.15, 6), (0.30, 3), (0.50, 0)]))
 
-    # ---- TECH-DATR-029: distance to nearest level in ATR (diagnostic, unscored) ----
-    # FORMULAS.md: (ReferencePrice - CurrentClose) / ATR14; "use nearest zone boundary for
-    # approach status". Reference = the support/resistance zone boundary closest to the current
-    # close (reuses the zones `compute_levels` already produced). Positive => nearest level is
-    # above (approaching resistance); negative => below (approaching support). Not a member of any
-    # scored dimension, so it emits with score10=None (NOT_SCORABLE row) — context, not a score.
-    close_now = _last_valid(close)
-    zone_boundaries = [
-        float(b)
-        for z in (levels_output.nearest_support + levels_output.nearest_resistance)
-        for b in (getattr(z, "lower", None), getattr(z, "upper", None))
-        if b is not None
-    ]
-    if close_now is not None and atr_latest and atr_latest > 0 and zone_boundaries:
-        ref_price = min(zone_boundaries, key=lambda b: abs(b - close_now))
-        v_datr = _ok((ref_price - close_now) / atr_latest, unit="atr_units")
-    else:
-        v_datr = _null(NullState.MISSING, "atr_units", "DATR_NO_ZONES_OR_ATR_UNAVAILABLE")
-    add("TECH-DATR-029", v_datr, None)
-
     # ---- TECH-BREAD-039 / TECH-LIQ-040 ----
     breadth_overlay = overlay.get("sector_breadth")
-    if breadth_overlay and breadth_overlay.get("valid_members", 0) > 0:
-        breadth_pct = breadth_overlay["above_50dma"] / breadth_overlay["valid_members"]
+    # One overlay key, two spellings of the same count: this module read
+    # `above_50dma` and market.py's MKT-SECB-023 read `above_50dma_count`,
+    # both undocumented. An analyst filling either name satisfied one metric
+    # and left the other MISSING -- and worse, market's spelling passed the
+    # `valid_members` guard here and then KeyError'd on the direct index, so
+    # supplying the wrong one crashed the technical specialist rather than
+    # leaving its metric empty. Both names are accepted; the count is the same
+    # number either way.
+    above = None
+    if isinstance(breadth_overlay, dict):
+        above = breadth_overlay.get("above_50dma", breadth_overlay.get("above_50dma_count"))
+    if above is not None and (breadth_overlay or {}).get("valid_members", 0) > 0:
+        breadth_pct = above / breadth_overlay["valid_members"]
         v_bread = _ok(breadth_pct, unit="pct")
     else:
-        v_bread = _null(NullState.NOT_SCORABLE, "pct", "BREADTH_UNAVAILABLE_NO_CONSTITUENT_PANEL")
+    # Point-in-time constituent membership is a hard requirement here, not a
+    # preference: FORMULAS.md TECH-BREAD-039 says "Sector members above SMA50 / Valid point-in-time members", and SCORING.md repeats
+    # it in the dimension gate. FMP's constituent endpoints (sp500-constituent,
+    # historical-sp500-constituent, nasdaq-constituent) all return HTTP 402 on
+    # this plan; the company-screener endpoint does respond but returns a
+    # snapshot of TODAY's membership with no `date`/`added` field, so applying
+    # it to a 252-session window would measure only the companies that
+    # survived until today -- textbook survivorship bias, and precisely what
+    # the "survivorship controls required" caveat forbids. An overlay-supplied
+    # panel still scores this; absent one it stays unscored rather than
+    # computing a biased number.
+        v_bread = _null(NullState.NOT_SCORABLE, "pct", "BREADTH_UNAVAILABLE_NO_POINT_IN_TIME_CONSTITUENTS")
     add("TECH-BREAD-039", v_bread, _score_from_anchor(v_bread, [(0.20, 0), (0.50, 5), (0.70, 8), (0.90, 10)]))
 
     liq_now = _last_valid(ind.median_dollar_volume(df))
@@ -696,6 +878,26 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> TechnicalOutpu
     awarded_points = cat.points()
     dim_score10 = cat.score10()
     coverage = cat.coverage()
+
+    # AGENT.md's no-speculation rule: every scored metric's 0-10 scale is the
+    # module's calibration (the technical FORMULAS.md states no bands), so it
+    # rides in the output as an explicitly disclosed assumption.
+    assumptions.extend(_anchor_disclosures())
+
+    # A reader has to know WHY these two are unscored: not a sourcing failure
+    # that a retry would fix, but a dataset the methodology requires and this
+    # data plan does not sell.
+    if v_bread.is_null or v_rsc.is_null:
+        assumptions.append(
+            "Point-in-time constituent membership unavailable: FMP's constituent endpoints "
+            "return HTTP 402 on this plan, and its screener returns only today's membership "
+            "with no historical dates. TECH-BREAD-039 (sector breadth) and TECH-RSC-013 "
+            "(composite RS percentile) both require point-in-time membership with survivorship "
+            "controls (FORMULAS.md, SCORING.md), so applying a present-day list to a trailing "
+            "window would introduce exactly the survivorship bias those caveats forbid. Both "
+            "stay unscored; supply overlay['sector_breadth'] / overlay['rs_universe'] to score "
+            "them."
+        )
 
     mandatory_flags: list[str] = []
     if not has_sma200:

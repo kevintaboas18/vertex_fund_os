@@ -120,13 +120,34 @@ def test_RSK_T006_negative_ebitda_not_meaningful():
     assert v.state == NullState.NOT_MEANINGFUL
 
 
-def test_RSK_T007_bank_company_flags_forensic_applicability():
-    """Bank company -> Altman/Beneish applicability reviewed; industrial
-    scoring not automatic."""
-    rows = [_row(2025), _row(2024)]
-    packet = _minimal_packet(rows, industry_adapter="bank_adapter")
-    out = risk.run(packet)
-    assert any("industry_adapter" in a and "bank_adapter" in a for a in out.assumptions)
+def test_RSK_T007_bank_company_excludes_forensic_screens():
+    """Bank company -> Altman/Beneish/Piotroski applicability reviewed;
+    industrial scoring not automatic. DECISION_RULES.md: "Exclude financial
+    companies." The forensic family must come back NOT_APPLICABLE, not scored
+    (a bank posting a 10/10 Altman Z is exactly the failure this guards)."""
+    rows = [_row(2025, retained_earnings=500.0), _row(2024)]
+    packet = _minimal_packet(rows, industry_adapter="banks")
+    out = risk.run(packet, overlay={"retained_earnings": 500.0})
+    assert any("industry_adapter" in a and "banks" in a for a in out.assumptions)
+
+    by_id = {r.metric_id: r for r in out.metrics}
+    for mid in ("RSK-DSRI-021", "RSK-GMI-022", "RSK-AQI-023", "RSK-SGI-024",
+                "RSK-DEPI-025", "RSK-SGAI-026", "RSK-LVGI-027", "RSK-TATA-028",
+                "RSK-MSCR-029", "RSK-ALT-030", "RSK-PIO-031"):
+        assert by_id[mid].state == NullState.NOT_APPLICABLE, mid
+        assert by_id[mid].score == "NOT_SCORABLE", mid
+    # Accrual ratio is a general earnings-quality metric, not a named forensic
+    # screen, so it still scores.
+    assert isinstance(by_id["RSK-ACCR-020"].score, float)
+    assert out.earnings_quality_and_forensics["altman_z_double_prime"] is None
+
+
+def test_a_non_financial_company_still_scores_the_forensic_screens():
+    """The exclusion is scoped to model-replacing adapters."""
+    rows = [_row(2025, retained_earnings=500.0), _row(2024)]
+    out = risk.run(_minimal_packet(rows), overlay={"retained_earnings": 500.0})
+    by_id = {r.metric_id: r for r in out.metrics}
+    assert isinstance(by_id["RSK-ALT-030"].score, float)
 
 
 def test_RSK_T008_risk_category_4_of_15_caps_speculative():
@@ -438,3 +459,99 @@ def test_run_empty_annual_and_market_history_degrades_without_crashing():
     out = risk.run(_minimal_packet([]))
     assert out.coverage == 0.0
     assert out.category.awarded_points == 0.0
+
+
+# ============================================================================
+# Audit fix: anchor disclosure (AGENT.md no-speculation rule)
+# ============================================================================
+
+
+def test_the_decision_rules_anchors_are_victor_not_disclaimed():
+    """The five resilience anchors DECISION_RULES.md states with exact
+    boundaries are Victor's own numbers -- registered VICTOR, never surfaced
+    as this module's calibration."""
+    for mid in ("RSK-ICOV-011", "RSK-RUN-015", "RSK-MDD-006", "RSK-DBETA-004"):
+        assert risk.ANCHOR_PROVENANCE[mid][0] == "VICTOR", mid
+
+
+def test_the_invented_anchors_are_registered_and_disclosed():
+    """Every scored metric whose scale is not a DECISION_RULES.md anchor is
+    MIXED and surfaced in `assumptions`."""
+    rows = [_row(y) for y in range(2025, 2020, -1)]
+    out = risk.run(_minimal_packet(rows, daily_closes=[100.0 + i for i in range(300)],
+                                   benchmark_closes=[100.0 + i * 0.5 for i in range(300)]),
+                   overlay={"interest_expense": 20.0, "margin_of_safety": 0.1})
+    blob = " ".join(out.assumptions)
+    assert "Scoring anchors (partly derived)" in blob
+    for mid, (source, _) in risk.ANCHOR_PROVENANCE.items():
+        if source == "MIXED":
+            assert mid in blob, f"{mid}: MIXED anchor not disclosed"
+        else:  # VICTOR
+            assert mid not in blob, f"{mid}: Victor's anchor must not be disclaimed"
+
+
+def test_each_anchor_provenance_entry_names_its_source():
+    for mid, (source, note) in risk.ANCHOR_PROVENANCE.items():
+        assert source in ("VICTOR", "MIXED"), mid
+        assert ".md" in note, f"{mid}: no document named"
+        assert len(note) > 30, mid
+
+
+def test_diluted_share_cagr_uses_the_registered_5y_window():
+    """FORMULAS.md RSK-DIL-032 frequency is '3y / 5y'. With shares shrinking
+    1%/yr over 6 years the CAGR is ~-1%/yr, measured across the window rather
+    than a single year-over-year step."""
+    def _shares(y):
+        return 100.0 * (0.99 ** (y - 2020))  # 2020=100, later years fewer (buyback)
+    rows = [_row(y, diluted_shares=_shares(y)) for y in range(2025, 2019, -1)]  # 6y newest-first
+    out = risk.run(_minimal_packet(rows))
+    dil = next(r for r in out.metrics if r.metric_id == "RSK-DIL-032")
+    assert dil.value == pytest.approx(-0.01, abs=1e-9)
+
+
+# ============================================================================
+# Data gap: five inputs the packet already carries were read from overlay only
+# ============================================================================
+
+
+def test_the_forensic_and_coverage_inputs_are_read_from_the_packet():
+    """`interest_expense`, `retained_earnings`, `sga`,
+    `depreciation_and_amortization` and `ppe_net` are all mapped into the
+    annual rows by the packet builder, but risk.py read them from `overlay`
+    alone -- so RSK-ICOV-011/FCC-012/AQI-023/DEPI-025/SGAI-026, and with them
+    the whole Beneish M-score and Altman Z'', were MISSING on every real
+    company for want of a wire."""
+    rows = [
+        _row(2025, interest_expense=40.0, retained_earnings=500.0, sga=200.0,
+             depreciation_and_amortization=60.0, ppe_net=900.0),
+        _row(2024, interest_expense=38.0, retained_earnings=450.0, sga=180.0,
+             depreciation_and_amortization=55.0, ppe_net=850.0),
+    ]
+    out = risk.run(_minimal_packet(rows))  # NO overlay
+    by_id = {r.metric_id: r for r in out.metrics}
+    for mid in ("RSK-ICOV-011", "RSK-FCC-012", "RSK-AQI-023", "RSK-DEPI-025",
+                "RSK-SGAI-026", "RSK-MSCR-029", "RSK-ALT-030"):
+        assert by_id[mid].state is None, f"{mid} still MISSING without an overlay"
+
+
+def test_the_net_ppe_and_da_substitutions_are_flagged_as_proxies():
+    """FORMULAS.md execution rule: "Record any proxy in `warnings`". Classic
+    Beneish AQI/DEPI use GROSS PP&E and depreciation alone; the packet
+    carries net PP&E and D&A."""
+    rows = [
+        _row(2025, retained_earnings=500.0, sga=200.0,
+             depreciation_and_amortization=60.0, ppe_net=900.0),
+        _row(2024, retained_earnings=450.0, sga=180.0,
+             depreciation_and_amortization=55.0, ppe_net=850.0),
+    ]
+    out = risk.run(_minimal_packet(rows))
+    by_id = {r.metric_id: r for r in out.metrics}
+    assert "PPE_NET_PROXY_FOR_GROSS_PPE" in by_id["RSK-AQI-023"].warnings
+    assert "DA_PROXY_FOR_DEPRECIATION" in by_id["RSK-DEPI-025"].warnings
+
+
+def test_an_explicit_overlay_value_still_wins_over_the_packet():
+    rows = [_row(2025, interest_expense=40.0), _row(2024, interest_expense=38.0)]
+    out = risk.run(_minimal_packet(rows), overlay={"interest_expense": 100.0})
+    icov = next(r for r in out.metrics if r.metric_id == "RSK-ICOV-011")
+    assert icov.value == pytest.approx(200.0 / 100.0)  # ebit 200 / overlay 100

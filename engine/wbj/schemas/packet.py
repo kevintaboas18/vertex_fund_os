@@ -29,6 +29,12 @@ class Security(BaseModel):
     security_type: str
     reporting_currency: str
     valuation_currency: str
+    # The reported classification. INDUSTRY_ADAPTERS.md's adapter choice
+    # is derived from it, and business.py needs the finer read: the
+    # adapter cannot tell a chip maker from a streaming subscription,
+    # since both fall under the default non-financial one.
+    sector: str = ""
+    industry: str = ""
 
 
 class AnalysisMeta(BaseModel):

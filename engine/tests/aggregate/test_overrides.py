@@ -24,6 +24,7 @@ from wbj.aggregate.overrides import (
 )
 from wbj.specialists.valuation import ScenarioSummary
 from wbj.core.nullstates import NullState, Value
+from wbj.core.scoring import Dimension
 from wbj.schemas.levels import LevelsOutput, Touch, Zone
 from wbj.specialists.common import MetricRow
 

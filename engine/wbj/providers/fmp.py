@@ -134,6 +134,13 @@ class FMPProvider(Provider):
         `{symbol, date, open, high, low, close, volume, ...}` (newest
         first). `today` anchors the window and must be supplied by the
         caller so this stays deterministic under test.
+
+        The cache key carries `years`. It used to be a bare
+        "ohlcv_daily", so the 1-year MVP fetch (`cli.py`) and the 3-year
+        packet fetch (`packet/builder.py`) collided: whichever ran first
+        won, and when the short one won the packet was rejected for
+        "fewer than 252 daily sessions" even though FMP had served the
+        full history.
         """
         if not self.available:
             return None
@@ -143,7 +150,7 @@ class FMPProvider(Provider):
         payload = self.get_json(
             f"{BASE_URL}/historical-price-eod/full",
             self._params(symbol=t, **{"from": from_date.isoformat(), "to": today.isoformat()}),
-            "ohlcv_daily", t, max_age_days=_MAX_AGE_OHLCV,
+            f"ohlcv_daily_{years}y", t, max_age_days=_MAX_AGE_OHLCV,
         )
         if isinstance(payload, list):
             return payload
@@ -190,6 +197,51 @@ class FMPProvider(Provider):
             f"{BASE_URL}/institutional-ownership/extract-analytics/holder",
             self._params(symbol=t),
             "institutional_holders", t, max_age_days=_MAX_AGE_REFERENCE,
+        )
+
+    def key_executives(self, t: str) -> list | dict | None:
+        """Named officers with title and disclosed pay.
+
+        Backs CLAUDE.md's mandatory report item 4 ("does management have a
+        track record at other successful companies") — this supplies the
+        *who*; the track-record judgement itself is qualitative.
+        """
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/key-executives",
+            self._params(symbol=t),
+            "key_executives",
+            t,
+            max_age_days=_MAX_AGE_REFERENCE,
+        )
+
+    def revenue_product_segmentation(self, t: str) -> list | dict | None:
+        """Reported revenue split by product line, per fiscal year.
+
+        Feeds `overlay["segment_shares"]` (BUS-MIX-001). This is the
+        company's own segment disclosure, not an estimate.
+        """
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/revenue-product-segmentation",
+            self._params(symbol=t),
+            "revenue_product_segmentation", t, max_age_days=_MAX_AGE_STATEMENT,
+        )
+
+    def revenue_geographic_segmentation(self, t: str) -> list | dict | None:
+        """Reported revenue split by geography, per fiscal year.
+
+        Feeds `overlay["geographic_shares"]` (risk's concentration
+        checks). Company disclosure, not an estimate.
+        """
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/revenue-geographic-segmentation",
+            self._params(symbol=t),
+            "revenue_geographic_segmentation", t, max_age_days=_MAX_AGE_STATEMENT,
         )
 
     def earnings_calendar(self, t: str) -> list | dict | None:

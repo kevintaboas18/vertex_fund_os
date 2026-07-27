@@ -96,6 +96,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from wbj.core.confidence import confidence as _confidence_formula
 from wbj.core.formulas import cagr as _cagr
+from wbj.core import adapters as _adapters
+from wbj.core import taxes as _taxes
 from wbj.core.nullstates import EvidenceClass, NullState, Value
 from wbj.core.scoring import Category, Dimension, anchor_score
 from wbj.engines import indicators as ind
@@ -185,6 +187,93 @@ assert len(MKT_25_IDS) == 25
 # DECISION_RULES.md: TAM source-quality tiers -> confidence component.
 TAM_TIER_CONFIDENCE: dict[int, float] = {1: 100.0, 2: 85.0, 3: 70.0, 4: 45.0, 5: 0.0}
 
+# FORMULAS.md MKT-CAGR-004 frequency: "3y / 5y". The TAM CAGR is measured over
+# the last 5 years (clamped to what the series carries), never its whole
+# length -- see the call site in `_compute_all`.
+TAM_CAGR_WINDOW_YEARS = 5
+
+
+# ============================================================================
+# Anchor provenance: every scored metric's 0-10 interpolation scale.
+# ============================================================================
+#
+# Unlike financial.py's FORMULAS.md (which spells out BAD/GOOD/EXCELLENT
+# numbers for most rows), the market FORMULAS.md registers NO numeric band
+# for any metric. The scoring direction for each comes from SCORING.md's
+# dimension column ("0-3 / 4-6 / 7-10" qualitative descriptions) or a
+# FORMULAS.md caveat; the actual interpolation points fed to `anchor_score`
+# are this module's dated (2.0.0) calibration. AGENT.md's no-speculation rule
+# allows a scored number that is not Victor's only as an "explicitly
+# disclosed assumption", and asks for a "complete audit trail" -- so every
+# scored metric is registered here (all MIXED: direction Victor's, magnitude
+# the engine's) and `_anchor_disclosures()` surfaces them on every run, the
+# same discipline as business.py's ANCHOR_PROVENANCE.
+#
+# The four diagnostic rows that carry no score (MKT-TAM-001, MKT-SAM-002,
+# MKT-SOM-003, MKT-HHI-008 -- a raw dollar TAM/SAM/SOM or a bare HHI has no
+# defensible directional band) are deliberately absent: a metric that is not
+# scored has no scale to disclaim. MKT-SCEN-025 is likewise a diagnostic.
+ANCHOR_PROVENANCE: dict[str, tuple[str, str]] = {
+    # metric_id: (provenance, the SCORING.md/FORMULAS.md direction it rests on)
+    "MKT-CAGR-004": ("MIXED", 'SCORING.md TAM dim: "Large, expanding" market (7-10) '
+                     'vs "Shrinking/small market" (0-3) -- higher TAM CAGR is better.'),
+    "MKT-PEN-005": ("MIXED", 'SCORING.md TAM dim: "low/moderate penetration" (7-10) vs '
+                    '"high penetration" (0-3) -- lower penetration scores higher (more runway).'),
+    "MKT-SHARE-006": ("MIXED", 'SCORING.md Runway dim: "share gains" (7-10) vs "share loss" '
+                      "(0-3) -- higher market share is better."),
+    "MKT-SHDELTA-007": ("MIXED", 'SCORING.md Runway dim: "share gains" (7-10) vs "share loss" '
+                        "(0-3) -- a positive share change is better."),
+    "MKT-GCAP-009": ("MIXED", 'SCORING.md Runway dim: "growth capacity supports forecast" '
+                     "(7-10) -- higher fundamental growth capacity is better."),
+    "MKT-RUN-010": ("MIXED", 'SCORING.md Runway dim: "Long runway" (7-10) vs "Saturation" '
+                    "(0-3) -- fewer years to reach the target share scores higher (faster growth)."),
+    "MKT-REVBR-011": ("MIXED", 'SCORING.md Revisions dim: "Broad upward revisions" (7-10) vs '
+                      '"Downward breadth" (0-3) -- higher upward breadth is better.'),
+    "MKT-REVMAG-012": ("MIXED", 'SCORING.md Revisions dim: "positive magnitude" (7-10) vs '
+                       '"Downward... magnitude" (0-3) -- a positive net revision is better.'),
+    "MKT-DISP-013": ("MIXED", 'SCORING.md Revisions dim: "controlled dispersion" (7-10); '
+                     'FORMULAS.md: "Higher dispersion lowers forecast confidence" -- lower is better.'),
+    "MKT-SURP-014": ("MIXED", 'SCORING.md Revisions dim: "mixed surprises" (4-6) vs "repeated '
+                     'misses" (0-3) -- a larger positive surprise is better.'),
+    "MKT-BACK-015": ("MIXED", 'SCORING.md Catalysts dim: "deteriorating backlog" (0-3) -- '
+                     "higher backlog/RPO growth is better."),
+    "MKT-COVER-016": ("MIXED", 'SCORING.md Catalysts dim / DATASET.md backlog coverage -- '
+                      "higher next-12m contracted coverage of revenue is better."),
+    "MKT-OPLEV-017": ("MIXED", 'SCORING.md OpLev dim: "Positive incremental margin" (7-10) vs '
+                      '"Negative incremental economics" (0-3) -- higher operating leverage is better.'),
+    "MKT-INCM-018": ("MIXED", 'SCORING.md OpLev dim: "Positive incremental margin" (7-10) vs '
+                     '"Negative incremental economics" (0-3) -- higher is better.'),
+    "MKT-CAT-019": ("MIXED", 'SCORING.md Catalysts dim: "Multiple evidenced catalysts with '
+                    'quantified impact" (7-10) -- larger expected catalyst impact is better; '
+                    'the floor of 3 mirrors "narrative-only catalyst score capped at 3".'),
+    "MKT-TDEC-020": ("MIXED", 'FORMULAS.md MKT-TDEC-020 "12-month half-life... calibration '
+                     'required" -- a near-term catalyst (higher decay factor) is more actionable.'),
+    "MKT-ADOPT-021": ("MIXED", 'SCORING.md TAM dim: "low/moderate penetration" (7-10) -- a '
+                      "lower current share of the eventual adoption market scores higher (more room)."),
+    "MKT-ARPU-022": ("MIXED", 'SCORING.md Runway dim growth signals -- higher ARPU growth is better.'),
+    "MKT-SECB-023": ("MIXED", 'SCORING.md OpLev dim: "healthy sector participation" (7-10) vs '
+                     '"weak sector breadth" (0-3) -- higher breadth is better.'),
+    "MKT-RSG-024": ("MIXED", 'SCORING.md OpLev dim: "healthy sector participation" (7-10); '
+                    'FORMULAS.md: "Context, not company technical score" -- higher relative strength is better.'),
+}
+
+
+def _anchor_disclosures() -> list[str]:
+    """One grouped line naming every metric whose 0-10 scale this module
+    calibrated (AGENT.md: a scored non-reported number must be an explicitly
+    disclosed assumption). All market anchors are MIXED -- the direction is
+    Victor's, the interpolation magnitude the engine's."""
+    mixed = sorted(m for m, (s, _) in ANCHOR_PROVENANCE.items() if s == "MIXED")
+    if not mixed:
+        return []
+    return [
+        "Scoring anchors (partly derived): " + ", ".join(mixed) + ". The market "
+        "FORMULAS.md registers no numeric band, so each metric's scoring direction "
+        "is taken from SCORING.md's 0-3/4-6/7-10 dimension description (or a "
+        "FORMULAS.md caveat) and the 0-10 interpolation points between are this "
+        "module's dated 2.0.0 calibration, not a value from Cerebro."
+    ]
+
 
 def _ok(x: float, unit: str, **lineage: object) -> Value:
     return Value.of(x, unit=unit, evidence_class=lineage.pop("evidence_class", EvidenceClass.C), **lineage)
@@ -243,13 +332,18 @@ def market_share_delta(share_t: float, share_t1: float) -> Value:
     return _ok(share_t - share_t1, unit="pp")
 
 
-def industry_hhi(shares: Sequence[float]) -> Value:
+def industry_hhi(shares: Sequence[float], *, residual_tolerance: float = 0.01) -> Value:
     """Industry HHI (MKT-HHI-008): `sum(competitor_share_i^2)`, decimals.
-    A partial competitor set is a lower bound (FORMULAS.md) -- callers'
-    responsibility to disclose completeness."""
+
+    FORMULAS.md: "residual market must be represented or result is a lower
+    bound." When the supplied shares sum to materially less than 1 (a
+    residual is missing), the result is labelled `HHI_LOWER_BOUND` rather
+    than reported as a complete concentration figure."""
     if not shares:
         return _null(NullState.MISSING, "ratio", "INDUSTRY_HHI_EMPTY_SHARES")
-    return _ok(sum(s * s for s in shares), unit="ratio")
+    hhi = sum(s * s for s in shares)
+    warnings = ["HHI_LOWER_BOUND_RESIDUAL_MARKET_NOT_REPRESENTED"] if sum(shares) < 1.0 - residual_tolerance else []
+    return Value.of(hhi, unit="ratio", evidence_class=EvidenceClass.C, warnings=warnings)
 
 
 # ============================================================================
@@ -274,6 +368,23 @@ def runway_years(target_revenue: float, current_revenue: float, assumed_growth: 
     return _ok(math.log(target_revenue / current_revenue) / math.log(1 + assumed_growth), unit="years")
 
 
+def _is_quantified(catalyst: dict) -> bool:
+    """True when a catalyst carries a non-zero financial impact.
+
+    SCORING.md caps a narrative-only catalyst dimension at 3. An impact
+    of zero (or a probability of zero) is a quantification in form only:
+    it adds nothing to the expected-impact sum, so treating it as
+    evidence of a quantified catalyst would lift that cap on the
+    strength of a number that says nothing happened.
+    """
+    try:
+        impact = float(catalyst.get("impact") or 0.0)
+        probability = float(catalyst.get("probability") or 0.0)
+    except (TypeError, ValueError):
+        return False
+    return impact != 0.0 and probability > 0.0
+
+
 def forecast_consistency_gate(forecast_revenue: float, tam: float) -> bool:
     """`DECISION_RULES.md`'s forecast-consistency gate: "Company revenue <=
     TAM in same definition." Returns `True` (passes) iff
@@ -286,15 +397,32 @@ def forecast_consistency_gate(forecast_revenue: float, tam: float) -> bool:
 # ============================================================================
 
 
-def revision_breadth(upward_count: int, total_count: int, *, min_estimates: int = 5) -> Value:
+def revision_breadth(upward_count: int, total_count: int, *,
+                     active_estimates: int | None = None,
+                     min_estimates: int = 5) -> Value:
     """Positive revision breadth (MKT-REVBR-011): `Upward revisions / Total
-    revisions`. `SCORING.md`: "Requires... >=5 estimates" -- below that,
-    `NOT_SCORABLE` rather than a low-confidence guess (`earnings_revisions`
-    is on `PROHIBITED_IMPUTATION`)."""
-    if total_count < min_estimates:
+    revisions`.
+
+    FORMULAS.md's caveat and SCORING.md's requirement are both "minimum 5
+    **active estimates**" -- the analyst count, not the revision count. Those
+    are different quantities: a stock can be covered by eight analysts of whom
+    four revised inside the window, and AAPL is exactly that (FMP reports
+    `numAnalystsEps` 8 against four revisions).
+
+    The gate used to be applied to `total_count`, which read four revisions as
+    four estimates and refused a metric the rule allows. `active_estimates` is
+    the count the gate belongs on; when the caller cannot supply it the
+    revision total stands in, which is the conservative direction -- it can
+    only withhold a score, never grant one the coverage does not support.
+
+    Below the threshold the answer is `NOT_SCORABLE` rather than a
+    low-confidence guess: `earnings_revisions` is on `PROHIBITED_IMPUTATION`.
+    """
+    coverage = active_estimates if active_estimates is not None else total_count
+    if coverage < min_estimates:
         return _null(
             NullState.NOT_SCORABLE, "pct",
-            f"REVISION_BREADTH_NEEDS_{min_estimates}_ESTIMATES: got {total_count}",
+            f"REVISION_BREADTH_NEEDS_{min_estimates}_ACTIVE_ESTIMATES: got {coverage}",
         )
     return _ok(upward_count / total_count, unit="pct")
 
@@ -494,6 +622,27 @@ def _score_from_anchor(v: Value, anchors: list[tuple[float, float]]) -> float | 
     return anchor_score(v.value, anchors)
 
 
+def _dashboard(by_id: dict, metric_ids: Sequence[str]) -> dict[str, Any]:
+    """A small {metric_id: {value, state, score}} view of the given metrics,
+    for OUTPUT_SCHEMA.md's `penetration_and_share` / `revision_dashboard`
+    fields. DECISION_RULES.md's mandatory output requires penetration/share
+    and revision breadth/magnitude to be listed; leaving these fields empty
+    when the metrics were computed hid them from any reader of the structured
+    output (they survived only in the flat `metrics` array)."""
+    out: dict[str, Any] = {}
+    for mid in metric_ids:
+        r = by_id.get(mid)
+        if r is None:
+            continue
+        v = r.value
+        out[mid] = {
+            "value": v.value if v.is_valid else None,
+            "state": v.state.name if v.is_null else None,
+            "score": r.score10,
+        }
+    return out
+
+
 # ============================================================================
 # Verdict
 # ============================================================================
@@ -589,7 +738,7 @@ def _reinvestment_rate_and_roic(annual: list[dict]) -> tuple[float | None, float
         return None, None
     pretax = _num(annual[-1], "income_before_tax")
     tax_expense = _num(annual[-1], "income_tax_expense")
-    tax_rate = min(max(tax_expense / pretax, 0.0), 1.0) if pretax and pretax > 0 and tax_expense is not None else 0.21
+    tax_rate = _taxes.tax_rate_or_statutory(pretax, tax_expense)
     cash_latest = _num(annual[-1], "cash") or 0.0
     cash_begin = _num(annual[-2], "cash") or 0.0
     nopat_value = ebit_latest * (1 - tax_rate)
@@ -623,23 +772,37 @@ def _compute_all(
     add("MKT-TAM-001", v_tam, None)
     ctx["tam"] = v_tam.value if v_tam.is_valid else None
 
+    # Direct indexing crashed the whole specialist when an analyst supplied a
+    # block with the right name and the wrong inner keys -- and the inner keys
+    # were documented nowhere, so getting them wrong was the default outcome.
+    # A wrong shape now leaves the metric MISSING and names what it needed.
     sam_inputs = overlay.get("sam_inputs")
-    if sam_inputs and v_tam.is_valid:
-        v_sam = sam(v_tam.value, sam_inputs["geography_share"], sam_inputs["product_share"], sam_inputs["reachable_share"])
+    _SAM_KEYS = ("geography_share", "product_share", "reachable_share")
+    if sam_inputs and v_tam.is_valid and all(k in sam_inputs for k in _SAM_KEYS):
+        v_sam = sam(v_tam.value, *(sam_inputs[k] for k in _SAM_KEYS))
+    elif sam_inputs and v_tam.is_valid:
+        v_sam = _null(NullState.MISSING, "usd",
+                      "SAM_INPUTS_INCOMPLETE: needs " + ", ".join(_SAM_KEYS))
     else:
         v_sam = _null(NullState.MISSING, "usd", "SAM_UNAVAILABLE")
     add("MKT-SAM-002", v_sam, None)
 
     som_inputs = overlay.get("som_inputs")
-    if som_inputs and v_sam.is_valid:
+    if som_inputs and v_sam.is_valid and "target_share" not in som_inputs:
+        v_som = _null(NullState.MISSING, "usd", "SOM_INPUTS_INCOMPLETE: needs target_share")
+    elif som_inputs and v_sam.is_valid:
         v_som = som(v_sam.value, som_inputs["target_share"])
     else:
         v_som = _null(NullState.MISSING, "usd", "SOM_UNAVAILABLE")
     add("MKT-SOM-003", v_som, None)
 
+    # FORMULAS.md MKT-CAGR-004 frequency is "3y / 5y" -- a bounded window, not
+    # the whole supplied series. Clamp to the last 5 years (6 points span a
+    # 5-year change), the same discipline as FIN-DX-033 / BUS-DIL-028.
     tam_history = overlay.get("tam_history")
     if tam_history and len(tam_history) >= 2:
-        v_tam_cagr = tam_cagr(tam_history[-1], tam_history[0], float(len(tam_history) - 1))
+        window = tam_history[-(TAM_CAGR_WINDOW_YEARS + 1):]
+        v_tam_cagr = tam_cagr(window[-1], window[0], float(len(window) - 1))
     else:
         v_tam_cagr = _null(NullState.MISSING, "pct", "TAM_CAGR_UNAVAILABLE")
     add("MKT-CAGR-004", v_tam_cagr, _score_from_anchor(v_tam_cagr, [(-0.05, 0), (0.0, 3), (0.10, 7), (0.20, 10)]))
@@ -651,13 +814,26 @@ def _compute_all(
     else:
         v_pen = _null(NullState.MISSING, "pct", "PENETRATION_UNAVAILABLE")
     add("MKT-PEN-005", v_pen, _score_from_anchor(v_pen, [(0.50, 0), (0.20, 4), (0.05, 8), (0.0, 10)]))
+    # DECISION_RULES.md's forecast-consistency gate opens with "Company
+    # revenue <= TAM in same definition". A penetration above 100% means the
+    # revenue passed exceeds its own TAM -- the exact definition mismatch
+    # FORMULAS.md warns against ("Do not divide total company revenue by a
+    # narrow TAM"). Surface it for the run()-level gate.
+    ctx["penetration"] = v_pen.value if v_pen.is_valid else None
 
     # ---- MKT-SHARE-006 / MKT-SHDELTA-007: market share (overlay only; PROHIBITED_IMPUTATION) ----
     share_inputs = overlay.get("share")
     if share_inputs and {"company_sales", "total_market_sales"} <= share_inputs.keys():
         v_share = market_share(share_inputs["company_sales"], share_inputs["total_market_sales"])
     else:
-        v_share = _null(NullState.MISSING, "pct", "MARKET_SHARE_UNAVAILABLE_PROHIBITED_IMPUTATION")
+        # Same dead-end token as the concentration metrics: state the remedy.
+        # Unlike concentration, market share is never in the filing -- it needs
+        # a sized market, so the analyst must supply both halves of the ratio.
+        v_share = _null(NullState.MISSING, "pct",
+                        "MARKET_SHARE_UNAVAILABLE_PROHIBITED_IMPUTATION: set "
+                        "`share` = {company_sales, total_market_sales} in "
+                        "Entradas/<TICKER>.json, both in the same market "
+                        "definition and currency")
     add("MKT-SHARE-006", v_share, _score_from_anchor(v_share, [(0.0, 2), (0.10, 5), (0.25, 8), (0.50, 10)]))
 
     share_history = overlay.get("share_history")
@@ -672,10 +848,35 @@ def _compute_all(
     v_hhi = industry_hhi(competitor_shares) if competitor_shares else _null(NullState.MISSING, "ratio", "INDUSTRY_HHI_UNAVAILABLE")
     add("MKT-HHI-008", v_hhi, None)
 
-    # ---- MKT-GCAP-009: fundamental growth capacity (derived from packet) ----
-    reinvestment_rate, roic_value = _reinvestment_rate_and_roic(annual)
+    # ---- MKT-GCAP-009: fundamental growth capacity ----
+    # DATASET.md sources `roic_reinvestment` "from Business/Financial packets";
+    # prefer those (via overlay) when supplied. Absent them, re-derive a
+    # SIMPLIFIED reinvestment rate (capex / NOPAT) locally. That omits the
+    # D&A, working-capital and R&D terms business.py's BUS-REINV-018 carries,
+    # so it is a PROXY: FORMULAS.md's execution rule ("Record any proxy in
+    # warnings and reduce model-fit confidence") applies -- the warning both
+    # tags the row and drops its confidence via `_confidence_for`.
+    ov_reinv, ov_roic = overlay.get("reinvestment_rate"), overlay.get("roic")
+    proxy_gcap = False
+    if ov_reinv is not None and ov_roic is not None:
+        reinvestment_rate, roic_value = float(ov_reinv), float(ov_roic)
+    else:
+        reinvestment_rate, roic_value = _reinvestment_rate_and_roic(annual)
+        proxy_gcap = reinvestment_rate is not None
     if reinvestment_rate is not None and roic_value is not None:
         v_gcap = growth_capacity(reinvestment_rate, roic_value)
+        if proxy_gcap and v_gcap.is_valid:
+            v_gcap = Value.of(
+                v_gcap.value, unit=v_gcap.unit, evidence_class=v_gcap.evidence_class,
+                warnings=[*v_gcap.warnings, "REINVESTMENT_RATE_PROXY_CAPEX_OVER_NOPAT"],
+            )
+            assumptions.append(
+                "MKT-GCAP-009 (growth capacity): no reinvestment_rate/roic supplied from a "
+                "validated Business/Financial packet (DATASET.md `roic_reinvestment`); "
+                "re-derived a simplified reinvestment rate = capex / NOPAT locally, which "
+                "omits the D&A, working-capital and R&D terms of BUS-REINV-018. Recorded as "
+                "a proxy (FORMULAS.md execution rule)."
+            )
     else:
         v_gcap = _null(NullState.MISSING, "pct", "GROWTH_CAPACITY_INPUTS_UNAVAILABLE")
     add("MKT-GCAP-009", v_gcap, _score_from_anchor(v_gcap, [(0.0, 0), (0.05, 4), (0.10, 7), (0.20, 10)]))
@@ -686,7 +887,16 @@ def _compute_all(
     current_revenue = overlay.get("current_revenue")
     assumed_growth = overlay.get("assumed_growth")
     if None not in (target_revenue, current_revenue, assumed_growth):
-        v_run = runway_years(float(target_revenue), float(current_revenue), float(assumed_growth))
+        target = float(target_revenue)
+        # FORMULAS.md MKT-RUN-010: "cap target by TAM." A target above the TAM
+        # is unreachable, so the runway is measured to 100% of TAM instead.
+        if v_tam.is_valid and target > v_tam.value:
+            target = v_tam.value
+            assumptions.append(
+                "MKT-RUN-010 (runway): target revenue exceeded the TAM and was capped at the "
+                "TAM (FORMULAS.md: \"cap target by TAM\")."
+            )
+        v_run = runway_years(target, float(current_revenue), float(assumed_growth))
     else:
         v_run = _null(NullState.MISSING, "years", "RUNWAY_INPUTS_UNAVAILABLE")
     add("MKT-RUN-010", v_run, _score_from_anchor(v_run, [(15.0, 0), (8.0, 5), (4.0, 8), (1.0, 10)]))
@@ -695,8 +905,13 @@ def _compute_all(
     # ---- MKT-REVBR-011..MKT-SURP-014: estimate revisions (overlay only) ----
     est = overlay.get("estimates") or {}
     upward, total = est.get("upward"), est.get("total")
+    # The >=5 gate belongs on the analyst count, which the revision counts do
+    # not carry -- see `revision_breadth`.
+    active = est.get("active_estimates")
     if upward is not None and total is not None:
-        v_revbr = revision_breadth(int(upward), int(total))
+        v_revbr = revision_breadth(
+            int(upward), int(total),
+            active_estimates=int(active) if active is not None else None)
     else:
         v_revbr = _null(NullState.NOT_SCORABLE, "pct", "REVISION_BREADTH_UNAVAILABLE")
     add("MKT-REVBR-011", v_revbr, _score_from_anchor(v_revbr, [(0.30, 0), (0.50, 5), (0.70, 8), (0.90, 10)]))
@@ -739,9 +954,20 @@ def _compute_all(
     ebit_hist = [_num(r, "ebit") for r in annual]
     rev_hist = [_num(r, "revenue") for r in annual]
     if len(ebit_hist) >= 2 and None not in (ebit_hist[-1], ebit_hist[-2], rev_hist[-1], rev_hist[-2]) and ebit_hist[-2] != 0 and rev_hist[-2] != 0:
-        pct_oi = (ebit_hist[-1] - ebit_hist[-2]) / abs(ebit_hist[-2])
-        pct_rev = (rev_hist[-1] - rev_hist[-2]) / abs(rev_hist[-2])
-        v_oplev = operating_leverage(pct_oi, pct_rev)
+        # FORMULAS.md MKT-OPLEV-017: "Not meaningful across loss sign change;
+        # use incremental margin instead." Taking abs(EBIT) in the %-change
+        # denominator masked a loss->profit (or profit->loss) crossing, so a
+        # company swinging from a loss to a profit scored a spurious 10/10
+        # operating leverage. When EBIT changes sign, OPLEV is NOT_MEANINGFUL
+        # and MKT-INCM-018 (Delta OI / Delta rev, well defined across the
+        # crossing) carries the signal, exactly as the caveat directs.
+        ebit_sign_change = (ebit_hist[-1] > 0) != (ebit_hist[-2] > 0)
+        if ebit_sign_change:
+            v_oplev = _null(NullState.NOT_MEANINGFUL, "ratio", "OPERATING_LEVERAGE_EBIT_SIGN_CHANGE_USE_INCREMENTAL_MARGIN")
+        else:
+            pct_oi = (ebit_hist[-1] - ebit_hist[-2]) / abs(ebit_hist[-2])
+            pct_rev = (rev_hist[-1] - rev_hist[-2]) / abs(rev_hist[-2])
+            v_oplev = operating_leverage(pct_oi, pct_rev)
         v_incm = incremental_operating_margin(ebit_hist[-1] - ebit_hist[-2], rev_hist[-1] - rev_hist[-2])
     else:
         v_oplev = _null(NullState.MISSING, "ratio", "OPERATING_LEVERAGE_INPUTS_UNAVAILABLE")
@@ -757,7 +983,14 @@ def _compute_all(
     for i, c in enumerate(catalysts_overlay):
         months = c.get("months_to_event")
         v_td = time_decay(float(months)) if months is not None else _null(NullState.MISSING, "ratio", "CATALYST_MISSING_TIMING")
-        has_pie = {"probability", "impact", "evidence_quality"} <= c.keys()
+        # A catalyst counts as quantified only if it carries a real
+        # financial impact. Testing for the *presence* of the keys let a
+        # catalyst answered with impact=0 lift SCORING.md's "narrative-only
+        # catalyst score capped at 3" while contributing nothing to the
+        # expected-impact sum — the substance of that catalyst is still
+        # narrative, whatever keys it happens to have.
+        has_pie = ({"probability", "impact", "evidence_quality"} <= c.keys()
+                   and _is_quantified(c))
         if has_pie and v_td.is_valid:
             v_cat = catalyst_expected_impact(c["probability"], c["impact"], c["evidence_quality"], v_td.value)
             any_quantified = True
@@ -816,19 +1049,33 @@ def _compute_all(
 
     # ---- MKT-SECB-023 / MKT-RSG-024: sector breadth / relative strength ----
     breadth_overlay = overlay.get("sector_breadth")
-    if breadth_overlay and {"above_50dma_count", "valid_members"} <= breadth_overlay.keys():
-        v_secb = sector_breadth(breadth_overlay["above_50dma_count"], breadth_overlay["valid_members"])
+    # `above_50dma_count` here, `above_50dma` in technical.py: one overlay key
+    # with two spellings of the same count, neither documented. Accept both so
+    # an analyst cannot satisfy one specialist's metric and silently leave the
+    # other's MISSING.
+    _above = (breadth_overlay or {}).get(
+        "above_50dma_count", (breadth_overlay or {}).get("above_50dma"))
+    if _above is not None and (breadth_overlay or {}).get("valid_members") is not None:
+        v_secb = sector_breadth(_above, breadth_overlay["valid_members"])
     else:
-        v_secb = _null(NullState.MISSING, "pct", "SECTOR_BREADTH_UNAVAILABLE_NO_CONSTITUENT_PANEL")
+    # Point-in-time constituent membership is a hard requirement here, not a
+    # preference: FORMULAS.md MKT-SECB-023 says "point-in-time constituent control required", and SCORING.md repeats
+    # it in the dimension gate. FMP's constituent endpoints (sp500-constituent,
+    # historical-sp500-constituent, nasdaq-constituent) all return HTTP 402 on
+    # this plan; the company-screener endpoint does respond but returns a
+    # snapshot of TODAY's membership with no `date`/`added` field, so applying
+    # it to a 252-session window would measure only the companies that
+    # survived until today -- textbook survivorship bias, and precisely what
+    # the "survivorship controls required" caveat forbids. An overlay-supplied
+    # panel still scores this; absent one it stays unscored rather than
+    # computing a biased number.
+        v_secb = _null(NullState.MISSING, "pct", "SECTOR_BREADTH_UNAVAILABLE_NO_POINT_IN_TIME_CONSTITUENTS")
     add("MKT-SECB-023", v_secb, _score_from_anchor(v_secb, [(0.20, 0), (0.50, 5), (0.70, 8), (0.90, 10)]))
 
     sector_rows, benchmark_rows = packet.market_data.sector, packet.market_data.benchmark
     if sector_rows and benchmark_rows:
-        # Packet series are newest-first (same convention as fundamentals/technical `_to_df`);
-        # reverse to ascending so `roc(63)` measures the MOST RECENT 63-day return, not the oldest.
-        # Without this, sector relative strength is computed on reversed time and its sign inverts.
-        sector_close = pd.Series([r.close for r in reversed(sector_rows)])
-        benchmark_close = pd.Series([r.close for r in reversed(benchmark_rows)])
+        sector_close = pd.Series([r.close for r in sector_rows])
+        benchmark_close = pd.Series([r.close for r in benchmark_rows])
         v_rsg = sector_relative_strength(sector_close, benchmark_close, 63)
     else:
         v_rsg = _null(NullState.MISSING, "pp", "SECTOR_RELATIVE_STRENGTH_UNAVAILABLE_EMPTY_MARKET_DATA")
@@ -838,6 +1085,20 @@ def _compute_all(
     scenarios = overlay.get("scenarios")
     v_scen = scenario_weighted_outcome(scenarios) if scenarios else _null(NullState.MISSING, "usd", "SCENARIOS_UNAVAILABLE")
     add("MKT-SCEN-025", v_scen, None)
+
+    # AGENT.md's no-speculation rule: every scored metric's 0-10 scale is the
+    # module's calibration (the market FORMULAS.md states no bands), so it
+    # rides in the output as an explicitly disclosed assumption.
+    assumptions.extend(_anchor_disclosures())
+
+    if v_secb.is_null:
+        assumptions.append(
+            "MKT-SECB-023 (sector breadth) unscored: FMP's constituent endpoints return "
+            "HTTP 402 on this plan and its screener carries only today's membership. "
+            "FORMULAS.md requires point-in-time constituent control, so a present-day list "
+            "applied to a trailing window would be survivorship-biased. Supply "
+            "overlay['sector_breadth'] to score it."
+        )
 
     return rows, assumptions, judgment_requests, ctx
 
@@ -856,10 +1117,24 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> MarketOutput:
     computed, assumptions, judgment_requests, ctx = _compute_all(packet, overlay)
     by_id = {r.metric_id: r for r in computed}
 
-    if packet.analysis.industry_adapter != "default_nonfinancial":
+    # INDUSTRY_ADAPTERS.md, via the shared `wbj.core.adapters`: only a
+    # model-replacing adapter (bank/insurer/REIT/biotech) or a normalizing one
+    # (commodities) warrants a caveat on the growth-capacity/ROIC figures. An
+    # additive adapter (SaaS) changes nothing about the core formulas, so it
+    # earns no warning -- the blunt `!= default_nonfinancial` test this
+    # replaced mis-warned SaaS and cut its model-fit confidence for nothing.
+    _adapter = packet.analysis.industry_adapter
+    if _adapters.replaces_model(_adapter):
         assumptions.append(
-            f"industry_adapter={packet.analysis.industry_adapter!r}: growth-capacity/ROIC results below "
-            "should not be trusted for this security type without a sector adapter."
+            f"industry_adapter={_adapter!r}: INDUSTRY_ADAPTERS.md names a different primary "
+            "model for this security type -- the growth-capacity/ROIC figures below rest on "
+            "conventional formulas and should not be trusted without the sector adapter."
+        )
+    elif _adapters.normalizes_inputs(_adapter):
+        assumptions.append(
+            f"industry_adapter={_adapter!r}: INDUSTRY_ADAPTERS.md requires margins and prices "
+            "to be normalized through a cycle -- the trailing growth-capacity/ROIC figures "
+            "below are point-in-cycle, not a normalized base case."
         )
 
     rows: list[MetricRow] = []
@@ -899,15 +1174,32 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> MarketOutput:
     # cap below, as before).
     tam_needs_judgment = tam_confidence is None
     tam_members = ("MKT-CAGR-004", "MKT-PEN-005", "MKT-SHARE-006", "MKT-SHDELTA-007", "MKT-ADOPT-021")
-    tam_weight = 1 / (len(tam_members) + 1) if tam_needs_judgment else 1 / len(tam_members)
+    # Equal weight over the mechanical members only: the tier no longer holds
+    # a slot here (see below), so there is no sixth member to divide by.
+    tam_weight = 1 / len(tam_members)
     tam_scores: list[tuple[float, Value]] = []
     for mid in tam_members:
         s = by_id[mid].score10
         tam_scores.append((tam_weight, Value.of(s, unit="score") if s is not None else Value.null(NullState.NOT_SCORABLE, unit="score")))
     tam_source_tier_slot_index: int | None = None
     if tam_needs_judgment:
-        tam_source_tier_slot_index = len(tam_scores)
-        tam_scores.append((tam_weight, Value.null(NullState.NOT_SCORABLE, unit="score")))  # tam_source_tier_assignment judgment slot
+        # A tier is NOT a score. DECISION_RULES.md's table maps it to a
+        # *confidence component* -- tier 1 (government/audited) is 100, tier 4
+        # (issuer estimate) is 45, tier 5 (unattributed) is "0; not scorable"
+        # -- which is exactly `TAM_TIER_CONFIDENCE` above.
+        #
+        # This used to occupy a weighted slot in the TAM dimension, and
+        # `merge_overlay`'s numeric path turned the answer straight into a
+        # 0-10 score. The ladder came out inverted and measuring the wrong
+        # quantity: tier 1, the best source Victor recognises, scored 1.0,
+        # while tier 5 -- the one he calls not scorable -- scored 5.0.
+        #
+        # The tier keeps its judgment request, because the answer is worth
+        # recording and feeds `tam_confidence` on the next run once it reaches
+        # `Entradas/<TICKER>.json`. What it no longer does is score. The enum
+        # hint routes it through merge's "no conversion rule defined" branch
+        # (DATA_POLICY.md: "`Q` ... not scored unless a conversion rule
+        # exists"), so the answer is recorded as context, never as points.
         judgment_requests.append(
             JudgmentRequest(
                 request_id="market_analysis:tam_source_tier_assignment",
@@ -915,7 +1207,7 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> MarketOutput:
                 metric_id="tam_source_tier_assignment",
                 question="Assign the TAM source-quality tier (1-5, DECISION_RULES.md) based on the "
                 "market-size source's methodology and independence.",
-                schema_hint="integer 1-5",
+                schema_hint="one of 1|2|3|4|5",
             )
         )
     elif tam_confidence_caps_dimension(tam_confidence):
@@ -968,7 +1260,15 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> MarketOutput:
 
     mandatory_flags: list[str] = []
 
-    # ---- Forecast-consistency gate: forecast growth vs growth capacity ----
+    # ---- Forecast-consistency gate (DECISION_RULES.md) ----
+    # Part 1: "Company revenue <= TAM in same definition." A penetration
+    # above 100% is a revenue-exceeds-its-own-TAM violation (MKT-T006's
+    # invariant applied to the current period, the only one the packet
+    # carries a revenue and TAM for).
+    penetration_value = ctx.get("penetration")
+    if penetration_value is not None and not forecast_consistency_gate(penetration_value, 1.0):
+        mandatory_flags.append("CONSISTENCY_GATE_FAIL_REVENUE_EXCEEDS_TAM")
+    # Part 2: forecast growth vs fundamental growth capacity.
     growth_cap = ctx.get("growth_capacity")
     assumed_growth = ctx.get("assumed_growth")
     if growth_cap is not None and assumed_growth is not None and (assumed_growth - growth_cap) > 0.05:
@@ -1043,8 +1343,8 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> MarketOutput:
             tam=ctx.get("tam"), sam=by_id["MKT-SAM-002"].value.value if by_id["MKT-SAM-002"].value.is_valid else None,
             som_scenarios=[], source_tier=tam_source_tier,
         ),
-        penetration_and_share={},
-        revision_dashboard={},
+        penetration_and_share=_dashboard(by_id, ("MKT-PEN-005", "MKT-SHARE-006", "MKT-SHDELTA-007")),
+        revision_dashboard=_dashboard(by_id, ("MKT-REVBR-011", "MKT-REVMAG-012", "MKT-DISP-013", "MKT-SURP-014")),
         catalysts=ctx.get("catalyst_rows", []),
         growth_capacity_check={"growth_capacity": growth_cap, "assumed_growth": assumed_growth},
         three_growth_thesis_killers=[],
@@ -1061,7 +1361,7 @@ def _category_confidence(coverage: float, packet: Packet, tam_confidence: float 
     source_quality = tam_confidence if tam_confidence is not None else 60.0
     freshness = 100.0 if packet.staleness.get("consensus", "FRESH") == "FRESH" else 50.0
     consistency = 75.0
-    model_fit = 90.0 if packet.analysis.industry_adapter == "default_nonfinancial" else 40.0
+    model_fit = _adapters.model_fit(packet.analysis.industry_adapter)
     return _confidence_formula(
         coverage=coverage_component, source_quality=source_quality, freshness=freshness,
         consistency=consistency, model_fit=model_fit,

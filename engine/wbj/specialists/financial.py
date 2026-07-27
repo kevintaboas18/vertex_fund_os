@@ -68,12 +68,14 @@ assumption note records the omission.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as _dc_replace
 from typing import Any, Sequence
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
+from wbj.core import adapters as _adapters
+from wbj.core import taxes as _taxes
 from wbj.core.confidence import confidence as _confidence_formula
 from wbj.core.formulas import cagr, register_formula, yoy
 from wbj.core.nullstates import EvidenceClass, NullState, Value
@@ -140,6 +142,118 @@ __all__ = [
 _VERSION = "2.0.0"
 AGENT_ID = "financial_analysis"
 MAX_POINTS = 15.0
+
+# FORMULAS.md FIN-DX-033 frequency: "3y / 5y". The diluted-share CAGR is
+# measured over the last 5 fiscal years (clamped to what the packet carries),
+# never the whole reported history -- see the call site in `_compute_all`.
+DILUTED_CAGR_WINDOW_YEARS = 5
+
+#: SCORING_ENGINE.md: "Use a minimum of 8 valid peers."
+_MIN_PEERS = 8
+
+# DECISION_RULES.md mandatory Override 5: "Banks and insurers must use the
+# financial-sector adapter; conventional FCF/ROIC scoring is not allowed."
+# INDUSTRY_ADAPTERS.md extends the same to REITs and biotech (a different
+# primary model). For a model-replacing adapter these conventional FCF and
+# ROIC formulas are marked NOT_APPLICABLE -- excluded from coverage and
+# rescaled out of the weighted score -- rather than scored. ROE (FIN-EF-023)
+# and ROA (FIN-EF-025) are deliberately absent: the adapters explicitly keep
+# them for financials ("ROIC replaced by ROE/ROTCE"; FIN-EF-025 "useful for
+# financial-sector adapters"). The positive replacement (FFO/AFFO, ROTCE,
+# excess return) needs formulas Victor has not registered in this agent's
+# FORMULAS.md, so it stays a judgment/Victor task; only the prohibition is
+# enforced here.
+_CONVENTIONAL_FCF_ROIC_METRICS: frozenset[str] = frozenset({
+    "FIN-CF-012", "FIN-CF-013", "FIN-CF-014",   # conventional FCF family (scored)
+    "FIN-DX-029",                                # debt / FCF diagnostic
+    "FIN-EF-024", "FIN-EF-026", "FIN-EF-027",   # conventional ROIC family
+})
+
+
+# ============================================================================
+# Calibration registry: the scoring thresholds this module chose because
+# FORMULAS.md fixes only a *direction* for these rows, not a number.
+# ============================================================================
+#
+# AGENT.md's no-speculation rule permits a scored number that is not a
+# reported value only as an "explicitly disclosed assumption", and asks for a
+# "complete audit trail". About a third of the 27 core (plus the two scored
+# dilution diagnostics) have a "Rules / caveats" cell in FORMULAS.md that
+# gives a qualitative three-way split ("Loss, small/volatile, or strong
+# consistent profit") or names no band at all, rather than an explicit
+# `BAD <x; GOOD x-y; EXCELLENT >y`. Victor's text fixes which way is better
+# and, often, the BAD boundary (a loss, a negative FCF, faster-than-revenue
+# debt); the GOOD/EXCELLENT magnitude is this module's dated (2.0.0) reading.
+#
+# Each such threshold is registered here with the FORMULAS.md/SCORING.md
+# sentence that fixes its direction and why no number follows, and
+# `calibration_disclosures()` surfaces all of them on every run (mirrors
+# business.py's CALIBRATION_REGISTRY, the discipline approved there). The
+# rows whose band IS Victor's verbatim -- FIN-GR-001/002/003, PR-007/008/009/
+# 010, CF-014, BS-017/018/019/020, EF-023/024/025/026/027 -- are deliberately
+# absent: disclaiming his own numbers would be as wrong as hiding this
+# module's.
+CALIBRATION_REGISTRY: dict[str, tuple[str, str]] = {
+    # metric_id: (the Cerebro text that fixes the direction, why no number follows)
+    "FIN-PR-006": (
+        'FORMULAS.md FIN-PR-006: "Loss, small/volatile profit, or strong '
+        'consistent profit."',
+        "three qualitative buckets, no number: a loss (<=0) is BAD; this module "
+        "reads 'strong consistent' as positive in each of the last 3 years with a "
+        "coefficient of variation < 15%, else GOOD."),
+    "FIN-PR-011": (
+        'FORMULAS.md FIN-PR-011: "Profit slower / approximately equal / faster."',
+        "no band; borrows FIN-GR-003's registered +/-2 percentage-point band, the "
+        "one number Victor gives for a growth-difference comparison."),
+    "FIN-CF-012": (
+        'SCORING.md EPS/FCF dimension names "negative FCF" a 0-3 (BAD) signal; '
+        "FIN-CF-014's >10% margin band is Victor's.",
+        "FORMULAS.md gives FIN-CF-012 no independent band. The sign is Victor's "
+        "boundary (BAD when FCF<=0); the GOOD-vs-EXCELLENT split reuses FIN-CF-014's "
+        "registered >10% margin."),
+    "FIN-CF-013": (
+        'FORMULAS.md FIN-CF-013: "If sign changes, report transition rather than '
+        'percentage."',
+        "no band; borrows FIN-GR-001's registered 0-10% growth band for a "
+        "same-sign growth rate."),
+    "FIN-CF-015": (
+        'FORMULAS.md FIN-CF-015: "OCF<earnings, approx equal, OCF>earnings."',
+        "'approx equal' is unquantified; this module reads it as OCF within 10% of "
+        "net income (ratio 0.9-1.1)."),
+    "FIN-CF-016": (
+        'FORMULAS.md FIN-CF-016: "external dependence, self-funded, or funds '
+        'growth plus returns cash."',
+        "three qualitative buckets mapped mechanically: an external financing need "
+        "(>0) is BAD; self-funded is GOOD; self-funded *and* returning cash is "
+        "EXCELLENT -- the returns-cash split is this module's reading."),
+    "FIN-BS-021": (
+        'FORMULAS.md FIN-BS-021: "Debt faster / in line / debt flat or declining."',
+        "no band; borrows FIN-GR-003's +/-2 percentage-point band (debt growing "
+        "faster than revenue is worse, so lower is better)."),
+    "FIN-BS-022": (
+        'FORMULAS.md FIN-BS-022: "Deteriorating/stable/improving."',
+        "no number; a 0.05 ratio-point/year band mirrors the small-slope=stable "
+        "idiom FORMULAS.md uses for every other trend row."),
+    "FIN-DX-032": (
+        'SCORING.md RETURNS dimension: "+ dilution", "heavy dilution" -> BAD; '
+        'FORMULAS.md FIN-DX-032: "Report with diluted-share CAGR."',
+        "no number; lower SBC drag is better -- EXCELLENT <2% of revenue, GOOD "
+        "2-10%, BAD >10%."),
+    "FIN-DX-033": (
+        'FORMULAS.md FIN-DX-033: "Positive is dilution."',
+        "direction only; share-count shrinkage is best -- EXCELLENT <0%/yr (net "
+        "buyback), GOOD 0-2%/yr, BAD >2%/yr."),
+}
+
+
+def calibration_disclosures() -> list[str]:
+    """One line per scored threshold this module chose, for the audit trail
+    (AGENT.md: scored non-reported numbers must be "explicitly disclosed")."""
+    return [
+        f"Engine calibration for {metric_id}: Cerebro fixes the direction "
+        f"({basis}) and states no magnitude -- {why}"
+        for metric_id, (basis, why) in sorted(CALIBRATION_REGISTRY.items())
+    ]
 
 DIM_REVENUE = "revenue_quality_and_growth"
 DIM_EPS_FCF = "eps_and_free_cash_flow"
@@ -1049,8 +1163,38 @@ def _compute_all(
     add("FIN-GR-002", v, _band_or_none(v, band_revenue_growth_trend), (DIM_REVENUE,))
 
     # ---- FIN-GR-003: growth vs peers (no peer growth dataset in Packet) ----
-    v = _null(NullState.MISSING, "pct", "PEER_GROWTH_DATA_UNAVAILABLE")
-    add("FIN-GR-003", v, None, (DIM_REVENUE,))
+    # FIN-GR-003: company revenue growth - peer median growth. The packet
+    # builder now assembles `estimates.peer_panel` (DATASET.md's
+    # `peer_growth_margin_returns`); SCORING_ENGINE.md requires "a minimum of
+    # 8 valid peers" before a peer comparison may be used, so below that the
+    # metric stays MISSING rather than comparing against a thin sample.
+    peer_growths = [
+        row.get("revenue_growth") for row in ((packet.estimates or {}).get("peer_panel") or [])
+        if isinstance(row.get("revenue_growth"), (int, float))
+    ]
+    company_growth = (
+        (revenues[-1] - revenues[-2]) / revenues[-2]
+        if len(revenues) >= 2 and revenues[-2] else None
+    )
+    if len(peer_growths) >= _MIN_PEERS and company_growth is not None:
+        peer_median = float(np.median(peer_growths))
+        v = growth_vs_peers(company_growth, peer_median)
+        add("FIN-GR-003", v, _band_or_none(v, band_growth_vs_peers), (DIM_REVENUE,))
+        assumptions.append(
+            f"FIN-GR-003 measured against the median of {len(peer_growths)} peers "
+            f"(median revenue growth {peer_median:.2%}), from the packet's peer panel."
+        )
+    else:
+        reason = (f"PEER_PANEL_BELOW_{_MIN_PEERS}_VALID_PEERS: got {len(peer_growths)}"
+                  if company_growth is not None else "COMPANY_GROWTH_UNAVAILABLE")
+        v = _null(NullState.MISSING, "pct", reason)
+        add("FIN-GR-003", v, None, (DIM_REVENUE,))
+        assumptions.append(
+            f"Peer comparison unavailable ({reason}): SCORING_ENGINE.md requires a minimum "
+            f"of {_MIN_PEERS} valid peers, so FIN-GR-003 is MISSING and the peer-sensitive "
+            "margin bands (FIN-PR-007/008/009) are scored on FORMULAS.md's stated DEFAULT "
+            "bands without the industry comparison DECISION_RULES.md calls for."
+        )
 
     # ---- FIN-GR-004 / FIN-GR-005: judgment-only (see module docstring) ----
     v_organic = _null(NullState.NOT_SCORABLE, "ratio", "ORGANIC_GROWTH_BRIDGE_UNAVAILABLE_JUDGMENT_REQUIRED")
@@ -1238,15 +1382,26 @@ def _compute_all(
         v = _null(NullState.MISSING, "ratio", "DEBT_TO_EQUITY_INPUTS_UNAVAILABLE")
     add("FIN-BS-019", v, _band_or_none(v, band_debt_to_equity), (DIM_BALANCE,))
 
-    # ---- FIN-BS-020: interest coverage (Packet carries no interest_expense field) ----
+    # ---- FIN-BS-020: interest coverage ----
+    # `interest_expense` is the income statement's interest line; the packet
+    # builder maps it from FMP's `interestExpense` (CANONICAL_FIELD_MAP), and
+    # FORMULAS.md registers it as a required input of this metric. Read it
+    # from the latest annual row; an explicit `overlay['interest_expense']`
+    # (e.g. a normalized cash-interest figure from the aggregator) overrides.
+    # Reading only the overlay left this core-27 metric -- and its mandatory
+    # Override 3 (SOLVENCY_WARNING) -- permanently MISSING in production even
+    # though the field is in the packet.
     interest_expense = overlay.get("interest_expense")
+    if interest_expense is None and annual:
+        interest_expense = _num(annual[-1], "interest_expense")
     if interest_expense is not None and ebit_latest is not None:
         v = interest_coverage(ebit_latest, float(interest_expense))
     else:
         v = _null(NullState.MISSING, "ratio", "INTEREST_EXPENSE_UNAVAILABLE")
         assumptions.append(
-            "FIN-BS-020 (interest coverage) not computed: `interest_expense` is not part of "
-            "Packet.fundamentals and was not supplied via overlay['interest_expense']."
+            "FIN-BS-020 (interest coverage) not computed: no `interest_expense` in "
+            "Packet.fundamentals.annual (FMP did not report it) and none supplied via "
+            "overlay['interest_expense']."
         )
     add("FIN-BS-020", v, _band_or_none(v, band_interest_coverage), (DIM_BALANCE,))
 
@@ -1291,15 +1446,29 @@ def _compute_all(
     add("FIN-EF-023", v, _band_or_none(v, band_roe), (DIM_RETURNS,))
 
     # ---- FIN-EF-024: ROIC ----
-    tax_rate = None
+    # `taxes.tax_rate_or_statutory` substitutes the statutory rate whenever
+    # the filing yields no usable normalized rate -- which includes an
+    # effective rate outside 0-100% (a negative tax benefit, a rate above
+    # 100%), not only a missing/non-positive pretax. That substitution must
+    # be disclosed (the taxes module's own contract: "The caller is
+    # responsible for disclosing the substitution"). Gating on `tax_rate is
+    # None` missed the out-of-range case, since the fallback made it non-None;
+    # gate on `has_reported_tax_rate` instead, as FIN-EF-027's loop already
+    # does, so an out-of-range rate is disclosed too.
+    tax_rate = _taxes.STATUTORY_TAX_RATE
+    substituted = True
     if annual:
         pretax = _num(annual[-1], "income_before_tax")
         tax_expense = _num(annual[-1], "income_tax_expense")
-        if pretax and pretax > 0 and tax_expense is not None:
-            tax_rate = min(max(tax_expense / pretax, 0.0), 1.0)
-    if tax_rate is None:
-        tax_rate = 0.21
-        assumptions.append("FIN-EF-024 (ROIC): normalized cash tax rate unavailable; substituted the 21% statutory rate.")
+        if _taxes.has_reported_tax_rate(pretax, tax_expense):
+            tax_rate = _taxes.reported_tax_rate(pretax, tax_expense)
+            substituted = False
+    if substituted:
+        assumptions.append(
+            "FIN-EF-024 (ROIC): no usable normalized cash tax rate in the latest "
+            "filing (missing, non-positive pretax, or an effective rate outside "
+            "0-100%); substituted the 21% statutory rate."
+        )
 
     if ebit_latest is not None and debt_latest is not None and equity_latest is not None:
         nopat_value = ebit_latest * (1 - tax_rate)
@@ -1354,7 +1523,8 @@ def _compute_all(
         if None in (ebit_i, debt_i, equity_i, debt_im1, equity_im1, cash_i, cash_im1):
             continue
         pretax_i, tax_i = _num(annual[i], "income_before_tax"), _num(annual[i], "income_tax_expense")
-        tax_rate_i = min(max(tax_i / pretax_i, 0.0), 1.0) if pretax_i and pretax_i > 0 and tax_i is not None else tax_rate
+        tax_rate_i = (_taxes.reported_tax_rate(pretax_i, tax_i)
+                      if _taxes.has_reported_tax_rate(pretax_i, tax_i) else tax_rate)
         nopat_i = ebit_i * (1 - tax_rate_i)
         avg_ic_i = ((debt_i + equity_i - cash_i) + (debt_im1 + equity_im1 - cash_im1)) / 2
         if avg_ic_i <= 0:
@@ -1366,8 +1536,21 @@ def _compute_all(
     add("FIN-EF-027", v, _band_or_none(v, band_return_trend), (DIM_RETURNS,))
 
     # ---- Diagnostics (not part of core-27) ----
+    # FIN-DX-028 net debt / EBITDA. EBITDA is mapped straight from FMP's
+    # `ebitda`; where a row lacks it but carries `depreciation_and_amortization`
+    # (also mapped now), EBITDA = EBIT + D&A. Previously hardcoded MISSING with
+    # "NO_DA_FIELD", which stopped feeding the risk agent this input even when
+    # the packet carried EBITDA outright.
     net_debt_latest = (debt_latest or 0.0) - (_num(annual[-1], "cash") or 0.0) if annual else None
-    v = _null(NullState.MISSING, "ratio", "EBITDA_UNAVAILABLE_NO_DA_FIELD")
+    ebitda_latest = _num(annual[-1], "ebitda") if annual else None
+    if ebitda_latest is None and annual and ebit_latest is not None:
+        da_latest = _num(annual[-1], "depreciation_and_amortization")
+        if da_latest is not None:
+            ebitda_latest = ebit_latest + da_latest
+    if net_debt_latest is not None and ebitda_latest is not None:
+        v = net_debt_to_ebitda(net_debt_latest, ebitda_latest)
+    else:
+        v = _null(NullState.MISSING, "ratio", "NET_DEBT_TO_EBITDA_INPUTS_UNAVAILABLE")
     add("FIN-DX-028", v, None, (), core27=False)
 
     if net_debt_latest is not None and fcf_latest is not None:
@@ -1383,7 +1566,31 @@ def _compute_all(
         v = _null(NullState.MISSING, "ratio", "ACCRUAL_RATIO_INPUTS_UNAVAILABLE")
     add("FIN-DX-030", v, None, (), core27=False)
 
-    v = _null(NullState.MISSING, "days", "PAYABLES_FIELD_UNAVAILABLE")
+    # FIN-DX-031 cash-conversion cycle: DSO + DIO - DPO. FORMULAS.md: "Use
+    # average balances". Receivables/inventory/payables are balance-sheet
+    # lines the builder now maps (`net_receivables`, `inventory`,
+    # `accounts_payable`); revenue and COGS come from the income statement.
+    # DSO is revenue-based, DIO and DPO COGS-based (the standard convention
+    # FORMULAS.md's input list -- "receivables, inventory, payables, revenue,
+    # COGS" -- names). Previously hardcoded MISSING for a payables field the
+    # packet now carries.
+    def _avg_last2(key: str) -> float | None:
+        vals = [_num(annual[i], key) for i in range(max(0, len(annual) - 2), len(annual))]
+        vals = [x for x in vals if x is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    recv_avg = _avg_last2("net_receivables") if annual else None
+    inv_avg = _avg_last2("inventory") if annual else None
+    pay_avg = _avg_last2("accounts_payable") if annual else None
+    cogs_latest = cogs_hist[-1] if cogs_hist else None
+    if (recv_avg is not None and inv_avg is not None and pay_avg is not None
+            and rev_latest not in (None, 0) and cogs_latest not in (None, 0)):
+        dso = recv_avg / rev_latest * 365.0
+        dio = inv_avg / cogs_latest * 365.0
+        dpo = pay_avg / cogs_latest * 365.0
+        v = cash_conversion_cycle(dso, dio, dpo)
+    else:
+        v = _null(NullState.MISSING, "days", "CASH_CONVERSION_CYCLE_INPUTS_UNAVAILABLE")
     add("FIN-DX-031", v, None, (), core27=False)
 
     # FIN-DX-032/033 (dilution) ARE scored -- SCORING.md names them a
@@ -1397,13 +1604,25 @@ def _compute_all(
         v = _null(NullState.MISSING, "pct", "SBC_TO_REVENUE_INPUTS_UNAVAILABLE")
     add("FIN-DX-032", v, _band_or_none(v, band_sbc_to_revenue), (DIM_RETURNS,), core27=False)
 
+    # FORMULAS.md registers FIN-DX-033's frequency as "3y / 5y" -- a bounded
+    # window, like every other row's frequency cell, not the whole reported
+    # history. Measuring end-vs-first-ever share count turned into a 10-year
+    # CAGR the moment the packet carried 11 years. Clamp to the last 5 fiscal
+    # years (6 points span a 5-year change), matching business.py's
+    # _cagr_over_window and BUS-DIL-028.
     diluted_hist = [_num(r, "diluted_shares") for r in annual]
     valid_diluted = [x for x in diluted_hist if x is not None]
     if len(valid_diluted) >= 2:
-        v = diluted_share_cagr(valid_diluted[-1], valid_diluted[0], len(valid_diluted) - 1)
+        window = valid_diluted[-(DILUTED_CAGR_WINDOW_YEARS + 1):]
+        v = diluted_share_cagr(window[-1], window[0], float(len(window) - 1))
     else:
         v = _null(NullState.MISSING, "pct", "DILUTED_SHARE_CAGR_INSUFFICIENT_HISTORY")
     add("FIN-DX-033", v, _band_or_none(v, band_diluted_share_cagr), (DIM_RETURNS,), core27=False)
+
+    # AGENT.md's no-speculation rule: the scored thresholds this module chose
+    # (where FORMULAS.md fixes only a direction) must ride in the output as
+    # "explicitly disclosed assumptions", not sit silent in code comments.
+    assumptions.extend(calibration_disclosures())
 
     return results, assumptions, judgment_requests, ctx
 
@@ -1429,15 +1648,53 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> FinancialOutpu
     results, assumptions, judgment_requests, ctx = _compute_all(packet, overlay)
     by_id = {r.metric_id: r for r in results}
 
-    if packet.analysis.industry_adapter != "default_nonfinancial":
+    _adapter = packet.analysis.industry_adapter
+    if _adapters.replaces_model(_adapter):
+        # DECISION_RULES.md Override 5: "conventional FCF/ROIC scoring is not
+        # allowed" for a bank/insurer (INDUSTRY_ADAPTERS.md extends it to
+        # REITs and biotech). Mark that family NOT_APPLICABLE so the scoring
+        # engine excludes it from coverage and rescales it out of the
+        # weighted score, rather than scoring a prohibited number with only a
+        # warning. ROE (FIN-EF-023) and ROA (FIN-EF-025) stay -- the adapters
+        # keep them for financials. The positive replacement (FFO/AFFO,
+        # ROTCE, excess return) needs formulas Victor has not registered.
+        na_warn = "NOT_APPLICABLE_UNDER_MODEL_REPLACING_ADAPTER"
+        results = [
+            _dc_replace(
+                r,
+                value=Value.null(r.value.state if r.value.state is NullState.NOT_APPLICABLE
+                                 else NullState.NOT_APPLICABLE, unit=r.value.unit, warnings=[na_warn]),
+                band=None, confidence=0.0,
+            )
+            if r.metric_id in _CONVENTIONAL_FCF_ROIC_METRICS else r
+            for r in results
+        ]
+        by_id = {r.metric_id: r for r in results}
+        # A ROIC the methodology forbids must not feed Override 2 either.
+        ctx["roic_value"] = None
         assumptions.append(
-            f"industry_adapter={packet.analysis.industry_adapter!r}: this module implements only "
-            "conventional (non-financial-sector) formulas -- Cerebro's mandatory override 5 "
-            "(banks/insurers/REITs must use a sector adapter) is not yet implemented, so FCF/ROIC "
-            "results below should not be trusted for this security type."
+            f"industry_adapter={_adapter!r}: DECISION_RULES.md Override 5 -- conventional "
+            "FCF/ROIC scoring is not allowed for this security type. The conventional FCF "
+            "(FIN-CF-012/013/014, FIN-DX-029) and ROIC (FIN-EF-024/026/027) formulas are "
+            "marked NOT_APPLICABLE; the sector-adapter replacements (FFO/AFFO, ROTCE, excess "
+            "return) are not registered in this agent's FORMULAS.md and remain a Victor task. "
+            "ROE and ROA still score (the adapters retain them for financials)."
+        )
+    elif _adapters.normalizes_inputs(_adapter):
+        # The formulas apply; the inputs are point-in-cycle. That is a
+        # narrower warning than the one above, and firing the wrong one
+        # told readers an oil major's FCF was untrustworthy outright.
+        assumptions.append(
+            f"industry_adapter={_adapter!r}: INDUSTRY_ADAPTERS.md requires margins and prices to "
+            "be normalized through a cycle -- the trailing figures below are point-in-cycle and "
+            "are not a normalized base case."
         )
 
     # ---- MetricRow assembly ----
+    # OUTPUT_CONTRACT.md restricts `score` to "0-10 or NOT_SCORABLE"; a
+    # NOT_APPLICABLE metric therefore carries the NOT_SCORABLE score label,
+    # and its NOT_APPLICABLE-ness rides in `state` (the "approved null state"
+    # the contract puts in the value field) -- not in an invented score value.
     rows: list[MetricRow] = []
     for r in results:
         score: float | str = r.band * 5.0 if r.band is not None else "NOT_SCORABLE"
@@ -1449,6 +1706,10 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> FinancialOutpu
         )
 
     # ---- Dimensions: each metric contributes a 0-10 score (band*5) at equal weight ----
+    # A NOT_APPLICABLE metric (e.g. conventional FCF/ROIC under a bank adapter)
+    # feeds the dimension as NOT_APPLICABLE, so `Category` excludes it from the
+    # coverage denominator and rescales it out of the points rather than
+    # counting it as a failed-to-source gap.
     dimensions: list[Dimension] = []
     for dim_name in DIMENSION_NAMES:
         member_ids = _DIMENSION_MEMBERS[dim_name]
@@ -1458,6 +1719,8 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> FinancialOutpu
             r = by_id[mid]
             if r.band is not None:
                 metric_scores.append((weight, Value.of(r.band * 5.0, unit="score")))
+            elif r.value.state is NullState.NOT_APPLICABLE:
+                metric_scores.append((weight, Value.null(NullState.NOT_APPLICABLE, unit="score")))
             else:
                 metric_scores.append((weight, Value.null(NullState.NOT_SCORABLE, unit="score")))
         dimensions.append(Dimension(name=dim_name, max_points=3.0, metric_scores=metric_scores))
@@ -1642,7 +1905,7 @@ def _category_confidence(coverage: float, packet: Packet, *, reconciled: bool) -
     source_quality = 90.0
     freshness = 100.0 if packet.staleness.get("quarterly_fundamentals", "FRESH") == "FRESH" else 50.0
     consistency = 90.0 if reconciled else 60.0
-    model_fit = 90.0 if packet.analysis.industry_adapter == "default_nonfinancial" else 40.0
+    model_fit = _adapters.model_fit(packet.analysis.industry_adapter)
     return _confidence_formula(
         coverage=coverage_component,
         source_quality=source_quality,

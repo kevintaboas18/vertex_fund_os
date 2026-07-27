@@ -331,7 +331,7 @@ def apply_overrides(inputs: AggregateInputs) -> list[Override]:
                 effect="NO_ELITE_QUALITY",
                 reason=(
                     "ROIC below WACC (financial_analysis OVERRIDE_2_ROIC_BELOW_WACC "
-                    "and/or business_analysis VALUE_DESTRUCTION): Elite, Quality Opportunity, "
+                    f"and/or business_analysis VALUE_DESTRUCTION): Elite, Quality Opportunity, "
                     "or Excellent-business classification is unavailable."
                 ),
             )

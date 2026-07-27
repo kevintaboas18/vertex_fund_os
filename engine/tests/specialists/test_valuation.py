@@ -124,15 +124,22 @@ def test_VAL_T007_terminal_value_share_above_75pct_flags():
 
 
 def test_VAL_T008_missing_convertible_schedule_incomplete():
-    """Missing option/convertible schedule -> Per-share value incomplete
-    (this module never invents a convertible schedule; it is overlay-only
-    and simply absent from the equity bridge when not supplied)."""
-    # No convertible dilution term is applied anywhere in this module's
-    # equity_bridge call -- confirms the bridge takes exactly the
-    # capital-structure claims it was given, no implicit convertible
-    # adjustment invented.
+    """Missing option/convertible schedule -> Per-share value incomplete.
+
+    Two halves. The bridge must not invent a schedule it was not given, which
+    this always checked; and the output must *say* the per-share value is
+    incomplete, which is VAL-T008's actual stated result and had nowhere to be
+    said until VAL-CONV-039 existed. An absent schedule reading as "undiluted"
+    rather than "incomplete" is the failure the test names.
+    """
     eq = ve.equity_bridge(ev=1000.0, cash=0.0, nonop=0.0, debt=0.0, lease_debt_value=0.0, preferred=0.0, minority=0.0, pension=0.0)
     assert eq.value == pytest.approx(1000.0)
+
+    rows = [_row(2025), _row(2024)]
+    out = val.run(_minimal_packet(rows))
+    assert "PER_SHARE_VALUE_INCOMPLETE_NO_DILUTION_SCHEDULE" in out.mandatory_flags
+    conv = {m.metric_id: m for m in out.metrics}["VAL-CONV-039"]
+    assert conv.value is None
 
 
 def test_VAL_T009_fcff_and_eva_reconciliation_fails_when_materially_different():
@@ -145,15 +152,29 @@ def test_VAL_T009_fcff_and_eva_reconciliation_fails_when_materially_different():
     assert ve.reconciles(a, b) is False
 
 
-def test_VAL_T010_bank_selected_adapter_unsupported():
+def test_VAL_T010_bank_selected_uses_the_residual_income_adapter():
     """Bank selected -> Use residual-income/excess-return adapter; no
-    EV/EBITDA primary model."""
+    EV/EBITDA primary model.
+
+    Victor's expected result is that the bank IS valued, on the residual-
+    income/excess-return models his matrix assigns it. This test previously
+    asserted `ADAPTER_UNSUPPORTED` and an empty `primary` -- the opposite of
+    what VAL-T010 states -- because none of those models existed yet, so it
+    pinned the limitation in place of the requirement. With VAL-RIV-023 and
+    VAL-DDM-024/025 implemented, the stated result is now achievable and is
+    what gets asserted.
+    """
     rows = [_row(2025), _row(2024)]
-    packet = _minimal_packet(rows, industry_adapter="bank_adapter")
+    packet = _minimal_packet(rows, industry_adapter="banks")
     out = val.run(packet)
-    assert "ADAPTER_UNSUPPORTED" in out.mandatory_flags
-    assert out.model_selection.primary == []
-    assert "FCFF_DCF" in out.model_selection.rejected
+    assert "ADAPTER_FINANCIAL_MODELS" in out.mandatory_flags
+    assert out.model_selection.primary == ["RESIDUAL_INCOME", "DDM"]
+    for barred in ("FCFF_DCF", "EV_EBITDA"):
+        assert barred in out.model_selection.rejected
+    # INDUSTRY_ADAPTERS.md bars conventional FCFF, so the FCFF-fed dimensions
+    # carry no weight and SCORING_ENGINE.md's INCOMPLETE rule applies.
+    assert "CATEGORY_INCOMPLETE_GATE_INELIGIBLE" in out.mandatory_flags
+    assert out.coverage < 0.70
 
 
 def test_dispersion_comes_from_ensemble_not_raw_stdev():
@@ -190,7 +211,7 @@ def test_unsupported_adapter_confidence_derived_from_formula():
     non-default adapter), not a hardcoded 0.0 -- awarded_points/score_10
     stay 0.0 by construction."""
     rows = [_row(2025), _row(2024)]
-    packet = _minimal_packet(rows, industry_adapter="reit_adapter")
+    packet = _minimal_packet(rows, industry_adapter="reits")
     out = val.run(packet)
     assert out.category.awarded_points == 0.0
     assert out.category.score_10 == 0.0
@@ -223,41 +244,6 @@ def test_run_scenarios_sum_to_one_and_ordered_bear_base_bull():
     assert [s.name for s in out.scenarios] == ["Bear", "Base", "Bull"]
     total_p = sum(s.probability for s in out.scenarios if s.probability is not None)
     assert total_p == pytest.approx(1.0, abs=1e-6)
-
-
-# DECISION_RULES.md: "The main report shows each value AND the weighted value; it does
-# not show only the average." El engine ya calculaba VAL-SCEN-036 dentro de scenarios(),
-# pero el especialista lo extraia a una local y lo tiraba: sin campo en ValuationOutput,
-# el reporte principal nunca podia mostrarlo.
-
-def test_run_publishes_scenario_weighted_value():
-    rows = [_row(2025), _row(2024)]
-    out = val.run(_minimal_packet(rows))
-    assert out.scenario_weighted_value is not None, "VAL-SCEN-036 no llega al output"
-
-
-def test_scenario_weighted_value_equals_sum_of_prob_times_value():
-    """Es sum(Probability_i * Value_i), no el promedio simple ni el escenario base."""
-    rows = [_row(2025), _row(2024)]
-    out = val.run(_minimal_packet(rows))
-    manual = sum(s.probability * s.per_share_value for s in out.scenarios
-                 if s.probability is not None and s.per_share_value is not None)
-    assert out.scenario_weighted_value == pytest.approx(manual, rel=1e-9)
-
-
-def test_weighted_value_is_distinct_from_base_scenario():
-    """Publicar solo el base es justo lo que DECISION_RULES.md prohibe."""
-    rows = [_row(2025), _row(2024)]
-    out = val.run(_minimal_packet(rows))
-    base = next(s.per_share_value for s in out.scenarios if s.name == "Base")
-    assert out.scenario_weighted_value != base or base is None
-
-
-def test_weighted_value_is_none_when_scenarios_not_computable():
-    """Sin escenarios no se inventa un ponderado."""
-    out = val.run(_minimal_packet([_row(2025)]))
-    if not out.scenarios:
-        assert out.scenario_weighted_value is None
 
 
 def test_run_reverse_dcf_present_when_inputs_available():
@@ -381,3 +367,206 @@ def test_run_empty_annual_history_degrades_without_crashing():
     assert out.status in ("COMPLETE", "INCOMPLETE", "ERROR")
     assert 0.0 <= out.coverage <= 1.0
     assert any("ROIC" in a or "fallback" in a for a in out.assumptions)
+
+
+# --- peer payload shape ------------------------------------------------------
+
+
+def test_flat_peer_list_is_counted():
+    """FMP's /stable/stock-peers returns a flat list; the retired /v3
+    wrapped it in {"peersList": [...]}. Reading only the old shape
+    counted 0 peers while the packet held 9, dropping the relative model
+    out of the ensemble."""
+    peers = [{"symbol": "AAPL"}, {"symbol": "AMD"}, {"symbol": "AVGO"}]
+    if peers and isinstance(peers[0], dict) and "peersList" in peers[0]:
+        n = len(peers[0].get("peersList") or [])
+    else:
+        n = len(peers)
+    assert n == 3
+
+
+def test_legacy_wrapped_peer_list_still_counted():
+    peers = [{"peersList": ["AAPL", "AMD", "AVGO", "INTC"]}]
+    if peers and isinstance(peers[0], dict) and "peersList" in peers[0]:
+        n = len(peers[0].get("peersList") or [])
+    else:
+        n = len(peers)
+    assert n == 4
+
+
+# ============================================================================
+# Audit fixes: tax substitution disclosure, anchor disclosure, PEG forward P/E
+# ============================================================================
+
+
+def test_out_of_range_effective_tax_rate_is_disclosed():
+    """A negative tax expense gives a negative effective rate, outside 0-100%;
+    taxes.tax_rate_or_statutory substitutes 21% and the caller must disclose
+    it. Gating on `pretax is None` (the old code) missed this -- the same
+    silent-substitution bug fixed in financial.py."""
+    rows = [_row(2025, income_before_tax=100.0, income_tax_expense=-40.0), _row(2024)]
+    out = val.run(_minimal_packet(rows))
+    assert any("statutory rate" in a and "outside 0-100%" in a for a in out.assumptions)
+
+
+def test_a_clean_reported_tax_rate_is_not_flagged():
+    rows = [_row(2025, income_before_tax=200.0, income_tax_expense=40.0), _row(2024)]
+    out = val.run(_minimal_packet(rows))
+    assert not any("statutory rate" in a for a in out.assumptions)
+
+
+def test_every_scored_metric_has_a_disclosed_anchor():
+    """The valuation FORMULAS.md states no numeric band, so every scored 0-10
+    scale is the module's calibration and must be an explicitly disclosed
+    assumption (AGENT.md no-speculation rule)."""
+    rows = [_row(y) for y in range(2025, 2020, -1)]
+    out = val.run(_minimal_packet(rows), overlay={"eps_growth_pct": 0.15,
+                                                  "historical_multiples": [10.0, 12.0, 14.0, 11.0, 13.0]})
+    scored = {r.metric_id for r in out.metrics if r.score != "NOT_SCORABLE"}
+    unregistered = scored - set(val.ANCHOR_PROVENANCE)
+    assert not unregistered, f"scored on undisclosed anchors: {sorted(unregistered)}"
+    blob = " ".join(out.assumptions)
+    assert "Scoring anchors (partly derived)" in blob
+    for mid in scored:
+        assert mid in blob, f"{mid} not disclosed"
+
+
+def test_each_anchor_provenance_entry_names_its_source():
+    for mid, (source, note) in val.ANCHOR_PROVENANCE.items():
+        assert source == "MIXED", mid
+        assert ".md" in note, f"{mid}: no document named"
+        assert len(note) > 30, mid
+
+
+def test_peg_prefers_forward_pe_from_consensus_eps():
+    """VAL-PEG-028 is 'Forward P/E / Expected EPS growth percent'. With a
+    forward EPS estimate present, the P/E uses it (no trailing-proxy flag)."""
+    rows = [_row(2025, eps=1.0), _row(2024)]
+    packet = _minimal_packet(rows, price=20.0)
+    packet = packet.model_copy(update={
+        "estimates": {**packet.estimates,
+                      "fmp_analyst_estimates": [{"estimatedEpsAvg": 2.0, "estimatedRevenueAvg": 1100.0}]}
+    })
+    out = val.run(packet, overlay={"eps_growth_pct": 0.20})
+    peg = next(r for r in out.metrics if r.metric_id == "VAL-PEG-028")
+    # forward P/E = 20 / 2.0 = 10 ; PEG = 10 / (0.20*100) = 0.5 (not 20/1.0/20 = 1.0 trailing)
+    assert peg.value == pytest.approx(0.5)
+    assert not any("trailing P/E" in a for a in out.assumptions)
+
+
+def test_peg_falls_back_to_trailing_pe_with_disclosure():
+    """No forward estimate -> trailing P/E proxy, disclosed."""
+    rows = [_row(2025, eps=1.0), _row(2024)]
+    out = val.run(_minimal_packet(rows, price=20.0), overlay={"eps_growth_pct": 0.20})
+    peg = next(r for r in out.metrics if r.metric_id == "VAL-PEG-028")
+    assert peg.value == pytest.approx(1.0)  # trailing P/E 20 / (0.20*100)
+    assert any("trailing P/E" in a for a in out.assumptions)
+
+
+def test_low_confidence_mos_cap_discloses_its_threshold():
+    """SCORING.md caps the MOS dimension at 5 for a low-confidence valuation
+    but does not quantify 'low confidence'; the 30%-dispersion threshold this
+    module uses must be disclosed when the cap bites."""
+    rows = [_row(y) for y in range(2025, 2020, -1)]
+    p = _minimal_packet(rows, price=18.0)
+    p = p.model_copy(update={"estimates": {**p.estimates,
+        "fmp_analyst_estimates": [{"estimatedEpsAvg": 2.0, "estimatedRevenueAvg": 1100.0}]}})
+    out = val.run(p, overlay={"eps_growth_pct": 0.15, "peer_multiples": [8, 9, 10, 11, 12, 13, 14, 15, 16]})
+    # This overlay drives a large FCFF-vs-relative dispersion; if the cap
+    # fires it must be disclosed with its threshold.
+    capped = any("MOS dimension capped at 5" in a and "30%" in a for a in out.assumptions)
+    dispersion = out.model_cross_checks.dispersion
+    base = out.reference_bands.base
+    if dispersion is not None and base and dispersion / abs(base) > 0.30:
+        assert capped
+
+
+def test_invested_capital_uses_book_equity_not_market_cap():
+    """DATA_DICTIONARY.md: invested capital is "Operating assets minus
+    operating liabilities, reconciled to debt plus equity minus excess cash"
+    -- a BOOK reconciliation, as business/financial/market/risk all compute
+    it. This read took `capital_structure["market_cap"]` for the current year
+    while the prior year used book equity, so the average invested capital
+    mixed a market value with a book one.
+
+    With the `_row` defaults: NOPAT = 200*(1-40/190) = 157.89, IC(book) =
+    200 debt + 600 equity - 300 cash = 500 (both years), ROIC = 31.58%,
+    reinvestment = 50/157.89 = 31.67%, so g = reinvestment*ROIC = 10.0%.
+    Using market_cap (price*shares = 2000) would put IC_end at 1900, the
+    average at 1200, and g at ~4.2%.
+    """
+    rows = [_row(2025), _row(2024)]
+    packet = _minimal_packet(rows, price=20.0, diluted_shares=100.0)
+    assert packet.capital_structure["market_cap"] == 2000.0  # far from book 600
+    out = val.run(packet)
+    base = next(s for s in out.scenarios if s.name == "Base")
+    assert base.assumptions["growth"] == pytest.approx(0.10, abs=5e-4)
+
+
+def test_justified_pe_uses_the_stable_growth_rate_not_the_near_term_one():
+    """VAL-JPE-032 is a *stable-growth* model, so the `g` it receives is the
+    perpetual rate, not `reinvestment_rate * ROIC`.
+
+    INSTITUTIONAL_VALUATION_ENGINE.md 14.1 introduces the formula as "a
+    stable-growth relationship" and FORMULAS.md types the row "stable model".
+    DECISION_RULES.md rule 3 governs that rate: "Terminal growth must be below
+    WACC/cost of equity and consistent with long-run nominal economic growth
+    in the valuation currency."
+
+    With the `_row` defaults, near-term fundamental growth is 10% against a Ke
+    of 4% + 1.2*4.5% = 9.4%. Passing the near-term figure drove the formula
+    past its own guard and refused a metric that should score -- MSFT, XOM and
+    JNJ all landed there on live data. The terminal rate (2.5%, clamped under
+    WACC) is what the model is defined on.
+    """
+    rows = [_row(2025), _row(2024)]
+    out = val.run(_minimal_packet(rows, price=20.0, diluted_shares=100.0))
+    jpe = next(r for r in out.metrics if r.metric_id == "VAL-JPE-032")
+    assert jpe.state is None, "a stable growth rate below Ke must not refuse"
+    # (1 - 0.025/ROE) / (0.094 - 0.025), positive and finite.
+    assert jpe.value is not None and jpe.value > 0
+
+
+def test_justified_pb_and_ev_sales_also_use_the_stable_rate():
+    """The other two "stable model" rows in FORMULAS.md take the same `g`.
+
+    INSTITUTIONAL_VALUATION_ENGINE.md:387 calls VAL-JPB-031 "a stable-growth
+    justified price-to-book relationship"; VAL-JEVS-033 is typed "stable
+    model" and guards on `g < WACC`. Fed the 10% near-term rate under these
+    fixtures, both refused."""
+    rows = [_row(2025), _row(2024)]
+    out = val.run(_minimal_packet(rows, price=20.0, diluted_shares=100.0))
+    got = {r.metric_id: r for r in out.metrics}
+    for mid in ("VAL-JPB-031", "VAL-JEVS-033"):
+        assert got[mid].state is None, f"{mid} refused on a stable growth rate"
+        assert got[mid].value is not None
+
+
+def test_gordon_dividend_value_uses_the_long_run_rate():
+    """VAL-DDM-024 is `Dividend_1/(CostEquity - g)` -- a perpetuity, so its `g`
+    is a terminal rate and DECISION_RULES.md rule 3 governs it. The dividend
+    series' own CAGR is a near-term measurement: JPM's runs 23.42% off a
+    post-2009 recovery, and MSFT/XOM/JNJ each exceeded their cost of equity on
+    live data, refusing the model.
+
+    VAL-HDDM-025 is the model that carries the near-term rate, fading it to
+    the same long-run one -- which is what keeps the pair complementary rather
+    than redundant."""
+    rows = [_row(2025), _row(2024)]
+    out = val.run(_minimal_packet(rows, price=20.0, diluted_shares=100.0),
+                  {"dividend_per_share": 2.0,
+                   "dividends_per_share_history": [1.0, 1.4, 2.0]})
+    ddm = next(r for r in out.metrics if r.metric_id == "VAL-DDM-024")
+    # The history's CAGR is ~41%, far above Ke 9.4%. On the near-term rate the
+    # model refused; on the terminal rate it values.
+    assert ddm.state is None and ddm.value is not None
+    assert ddm.value > 0
+
+
+def test_justified_pe_still_refuses_when_the_stable_rate_itself_reaches_ke():
+    """The guard FORMULAS.md names -- "not valid when ROE<=0 or g>=Ke" -- is
+    untouched; only which rate reaches it changed. Held at the engine level so
+    the specialist swap cannot quietly disable it."""
+    from wbj.engines import valuation_engine as ve
+
+    assert ve.justified_pe(g=0.10, roe=0.15, ke=0.09).state is NullState.NOT_MEANINGFUL

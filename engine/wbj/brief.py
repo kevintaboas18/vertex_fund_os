@@ -22,6 +22,8 @@ is a labeled statistical model, not a promise of return.
 from __future__ import annotations
 
 import math
+
+from wbj.i18n import L
 from statistics import NormalDist, pstdev
 
 _HORIZON_YEARS = 1.0
@@ -34,45 +36,45 @@ _MIN_VOL_SESSIONS = 60
 # ============================================================================
 
 
-def _category_meaning(score10: float | None) -> str:
+def _category_meaning(score10: float | None, lang: str = "en") -> str:
     if score10 is None:
-        return "sin datos suficientes para puntuar"
+        return L(lang, "not enough data to score", "sin datos suficientes para puntuar")
     if score10 >= 8.0:
-        return "muy fuerte"
+        return L(lang, "very strong", "muy fuerte")
     if score10 >= 6.5:
-        return "sólido"
+        return L(lang, "solid", "sólido")
     if score10 >= 5.0:
-        return "mixto"
+        return L(lang, "mixed", "mixto")
     if score10 >= 3.5:
-        return "débil"
-    return "problemático"
+        return L(lang, "weak", "débil")
+    return L(lang, "troubled", "problemático")
 
 
-def _classification(overall_10: float | None) -> tuple[str | None, str]:
+def _classification(overall_10: float | None, lang: str = "en") -> tuple[str | None, str]:
     if overall_10 is None:
-        return None, "sin data suficiente para una conclusión de inversión"
+        return None, L(lang, "not enough data for an investment conclusion", "sin data suficiente para una conclusión de inversión")
     if overall_10 >= 7.0:
-        return "favorece", "el análisis favorece invertir (clasificación de research)"
+        return "favors", L(lang, "the analysis favors investing (research classification)", "el análisis favorece invertir (clasificación de research)")
     if overall_10 >= 5.0:
-        return "neutral", "señal mixta — ni claramente a favor ni en contra"
-    return "evitar", "el análisis favorece evitar por ahora (clasificación de research)"
+        return "neutral", L(lang, "mixed signal — neither clearly for nor against", "señal mixta — ni claramente a favor ni en contra")
+    return "avoid", L(lang, "the analysis favors avoiding for now (research classification)", "el análisis favorece evitar por ahora (clasificación de research)")
 
 
-def _interpretation(packet: dict, scorecard: dict, next_earnings: dict | None) -> dict:
+def _interpretation(packet: dict, scorecard: dict, next_earnings: dict | None, lang: str = "en") -> dict:
     overall = scorecard.get("overall_10")
-    key, label = _classification(overall)
+    key, label = _classification(overall, lang)
     revisit = None
-    if key == "evitar":
+    if key == "avoid":
         if next_earnings and next_earnings.get("date"):
-            revisit = f"revisitar en el próximo earnings ({next_earnings['date']})"
+            revisit = L(lang, f"revisit at the next earnings ({next_earnings['date']})", f"revisitar en el próximo earnings ({next_earnings['date']})")
         else:
-            revisit = "revisitar con el próximo 10-K/10-Q o cambio material de estimados"
+            revisit = L(lang, "revisit at the next 10-K/10-Q or a material change in estimates", "revisitar con el próximo 10-K/10-Q o cambio material de estimados")
     categories = [
         {
             "key": r["key"],
             "label": r["label"],
             "score10": r.get("score10"),
-            "meaning": _category_meaning(r.get("score10")),
+            "meaning": _category_meaning(r.get("score10"), lang),
         }
         for r in scorecard.get("categories", [])
     ]
@@ -125,16 +127,16 @@ def prob_reach(s0: float, k: float, sigma: float, t: float = _HORIZON_YEARS) -> 
     return NormalDist().cdf(math.log(s0 / k) / (sigma * math.sqrt(t)))
 
 
-def _probability(packet: dict, targets: dict) -> dict:
+def _probability(packet: dict, targets: dict, lang: str = "en") -> dict:
     if targets.get("status") != "ok":
         return {"status": "not_scorable",
-                "reason": targets.get("reason", "sin targets de precio")}
+                "reason": targets.get("reason", L(lang, "no price targets", "sin targets de precio"))}
     s0 = targets.get("price")
     closes = _closes_chrono((packet.get("market_data") or {}).get("ohlcv"))
     sigma = annualized_vol(closes)
     if not s0 or sigma is None or sigma == 0:
         return {"status": "not_scorable",
-                "reason": "historial de precio insuficiente para estimar volatilidad"}
+                "reason": L(lang, "insufficient price history to estimate volatility", "historial de precio insuficiente para estimar volatilidad")}
 
     rows = []
     for s in targets["scenarios"]:
@@ -151,22 +153,20 @@ def _probability(packet: dict, targets: dict) -> dict:
     p_mid = prob_reach(s0, mid["target"], sigma)
     p_hi = prob_reach(s0, hi["target"], sigma)
     zones = [
-        (1 - p_lo, f"por debajo de {lo['label']} (${lo['target']:,.0f})"),
-        (p_lo - p_mid, f"entre {lo['label']} y {mid['label']}"),
-        (p_mid - p_hi, f"entre {mid['label']} y {hi['label']}"),
-        (p_hi, f"por encima de {hi['label']} (${hi['target']:,.0f})"),
+        (1 - p_lo, L(lang, f"below {lo['label']} (${lo['target']:,.0f})", f"por debajo de {lo['label']} (${lo['target']:,.0f})")),
+        (p_lo - p_mid, L(lang, f"between {lo['label']} and {mid['label']}", f"entre {lo['label']} y {mid['label']}")),
+        (p_mid - p_hi, L(lang, f"between {mid['label']} and {hi['label']}", f"entre {mid['label']} y {hi['label']}")),
+        (p_hi, L(lang, f"above {hi['label']} (${hi['target']:,.0f})", f"por encima de {hi['label']} (${hi['target']:,.0f})")),
     ]
     modal_prob, modal_zone = max(zones, key=lambda z: z[0])
 
     return {
         "status": "ok",
-        "price": s0,
         "volatility": round(sigma, 4),
-        "horizon": targets.get("horizon", "12 meses"),
-        "assumptions": (
-            f"volatilidad histórica {sigma:.0%} anual · horizonte 12 meses · "
-            "sin sesgo direccional (mediana = precio actual)"
-        ),
+        "horizon": targets.get("horizon", L(lang, "12 months", "12 meses")),
+        "assumptions": L(lang,
+            f"historical volatility {sigma:.0%} annual · 12-month horizon · no directional bias (median = current price)",
+            f"volatilidad histórica {sigma:.0%} anual · horizonte 12 meses · sin sesgo direccional (mediana = precio actual)"),
         "targets": rows,
         "modal_zone": modal_zone,
         "modal_prob": round(modal_prob, 3),
@@ -182,10 +182,10 @@ def _latest(series: list[dict]) -> float | None:
     return series[-1]["val"] if series else None
 
 
-def _levels(targets: dict) -> dict:
+def _levels(targets: dict, lang: str = "en") -> dict:
     if targets.get("status") != "ok":
         return {"status": "not_scorable",
-                "reason": targets.get("reason", "sin precio de mercado")}
+                "reason": targets.get("reason", L(lang, "no market price", "sin precio de mercado"))}
     by = {s["key"]: s for s in targets["scenarios"]}
     return {
         "status": "ok",
@@ -193,7 +193,7 @@ def _levels(targets: dict) -> dict:
         "invalidacion": by["bear"]["target"] if "bear" in by else None,
         "salida_base": by["base"]["target"] if "base" in by else None,
         "salida_bull": by["bull"]["target"] if "bull" in by else None,
-        "nota": "niveles de referencia (research), no una orden de compra/venta",
+        "nota": L(lang, "reference levels (research), not a buy/sell order", "niveles de referencia (research), no una orden de compra/venta"),
     }
 
 
@@ -243,6 +243,73 @@ def _insider_highlights(trades: list[dict] | None,
     return out[:6]
 
 
+def _risks(packet: dict, scorecard: dict, lang: str = "en") -> list[str]:
+    a = packet["annual"]
+    rev, ni = a["revenue"], a["net_income"]
+    ocf, capex = a["operating_cash_flow"], a["capex"]
+    debt, eq = a["long_term_debt"], a["equity"]
+    out: list[str] = []
+
+    debt_l, eq_l = _latest(debt), _latest(eq)
+    if debt_l is not None and eq_l:
+        de = debt_l / eq_l
+        if de >= 2.0:
+            out.append(L(lang, f"High debt: owes ${de:,.1f} for every $1 of equity.", f"Deuda alta: debe ${de:,.1f} por cada $1 de capital propio."))
+
+    ocf_l, capex_l = _latest(ocf), _latest(capex)
+    if ocf_l is not None and capex_l is not None and (ocf_l - capex_l) < 0:
+        out.append(L(lang, "Burning cash: negative free cash flow — watch financing.", "Quema efectivo: flujo de caja libre negativo — vigilar financiamiento."))
+
+    if len(ni) >= 2 and rev and len(rev) >= 2 and rev[-1]["val"] and rev[-2]["val"]:
+        m_now = ni[-1]["val"] / rev[-1]["val"]
+        m_prev = ni[-2]["val"] / rev[-2]["val"]
+        if m_now < m_prev - 0.02:
+            out.append(L(lang, f"Margins falling: net margin dropped from {m_prev:.0%} to {m_now:.0%}.", f"Márgenes cayendo: margen neto bajó de {m_prev:.0%} a {m_now:.0%}."))
+
+    if rev and len(rev) >= 2 and rev[-2]["val"]:
+        g = rev[-1]["val"] / rev[-2]["val"] - 1
+        if g < 0:
+            out.append(L(lang, f"Revenue falling: sales {g:+.0%} in the last fiscal year.", f"Ventas cayendo: ingresos {g:+.0%} en el último año fiscal."))
+
+    risk_row = next((r for r in scorecard.get("categories", []) if r["key"] == "risk"), None)
+    if risk_row and risk_row.get("score10") is not None and risk_row["score10"] < 5.0:
+        out.append(L(lang, f"Low risk score ({risk_row['score10']}/10): fragile resilience.", f"Score de riesgo bajo ({risk_row['score10']}/10): resiliencia frágil."))
+
+    return out[:4]
+
+
+# ============================================================================
+# Public entry point
+# ============================================================================
+
+
+def company_brief(packet: dict, scorecard: dict, targets: dict, lang: str = "en") -> dict:
+    """Assemble the four-section plain-Spanish brief from already-computed
+    scorecard + targets and the packet's market_data feeds."""
+    from wbj.targets import narrative
+
+    md = packet.get("market_data") or {}
+    as_of = packet.get("as_of", "")
+    next_earn = _next_earnings(md.get("earnings"), as_of)
+
+    return {
+        "interpretation": _interpretation(packet, scorecard, next_earn, lang),
+        "probability": _probability(packet, targets, lang),
+        "where": narrative(packet, scorecard, targets, lang),
+        "watch": {
+            "levels": _levels(targets, lang),
+            "catalysts": _catalysts(md.get("earnings"), as_of),
+            "insiders": _insider_highlights(md.get("insiders")),
+            "risks": _risks(packet, scorecard, lang),
+        },
+    }
+
+
+# --- Conservada de vertex_fund_os -------------------------------------
+# `vertex_api.py` importa esta funcion (`from wbj.brief import
+# _insiders_flow as _victor_flow`). Es el unico simbolo que la plataforma
+# usa y que este motor no traia, asi que viaja con el port en vez de
+# romperse en silencio al arrancar la web.
 def _insiders_flow(trades: list[dict] | None) -> dict:
     """Net open-market insider flow across the feed: total purchase vs sale
     dollars (`shares * price`). Gifts/awards (price 0) contribute nothing.
@@ -264,67 +331,4 @@ def _insiders_flow(trades: list[dict] | None) -> dict:
     return {
         "buy_usd": round(buy, 2), "sell_usd": round(sell, 2),
         "net_usd": round(buy - sell, 2), "buy_count": buy_n, "sell_count": sell_n,
-    }
-
-
-def _risks(packet: dict, scorecard: dict) -> list[str]:
-    a = packet["annual"]
-    rev, ni = a["revenue"], a["net_income"]
-    ocf, capex = a["operating_cash_flow"], a["capex"]
-    debt, eq = a["long_term_debt"], a["equity"]
-    out: list[str] = []
-
-    debt_l, eq_l = _latest(debt), _latest(eq)
-    if debt_l is not None and eq_l:
-        de = debt_l / eq_l
-        if de >= 2.0:
-            out.append(f"Deuda alta: debe ${de:,.1f} por cada $1 de capital propio.")
-
-    ocf_l, capex_l = _latest(ocf), _latest(capex)
-    if ocf_l is not None and capex_l is not None and (ocf_l - capex_l) < 0:
-        out.append("Quema efectivo: flujo de caja libre negativo — vigilar financiamiento.")
-
-    if len(ni) >= 2 and rev and len(rev) >= 2 and rev[-1]["val"] and rev[-2]["val"]:
-        m_now = ni[-1]["val"] / rev[-1]["val"]
-        m_prev = ni[-2]["val"] / rev[-2]["val"]
-        if m_now < m_prev - 0.02:
-            out.append(f"Márgenes cayendo: margen neto bajó de {m_prev:.0%} a {m_now:.0%}.")
-
-    if rev and len(rev) >= 2 and rev[-2]["val"]:
-        g = rev[-1]["val"] / rev[-2]["val"] - 1
-        if g < 0:
-            out.append(f"Ventas cayendo: ingresos {g:+.0%} en el último año fiscal.")
-
-    risk_row = next((r for r in scorecard.get("categories", []) if r["key"] == "risk"), None)
-    if risk_row and risk_row.get("score10") is not None and risk_row["score10"] < 5.0:
-        out.append(f"Score de riesgo bajo ({risk_row['score10']}/10): resiliencia frágil.")
-
-    return out[:4]
-
-
-# ============================================================================
-# Public entry point
-# ============================================================================
-
-
-def company_brief(packet: dict, scorecard: dict, targets: dict) -> dict:
-    """Assemble the four-section plain-Spanish brief from already-computed
-    scorecard + targets and the packet's market_data feeds."""
-    from wbj.targets import narrative
-
-    md = packet.get("market_data") or {}
-    as_of = packet.get("as_of", "")
-    next_earn = _next_earnings(md.get("earnings"), as_of)
-
-    return {
-        "interpretation": _interpretation(packet, scorecard, next_earn),
-        "probability": _probability(packet, targets),
-        "where": narrative(packet, scorecard, targets),
-        "watch": {
-            "levels": _levels(targets),
-            "catalysts": _catalysts(md.get("earnings"), as_of),
-            "insiders": _insider_highlights(md.get("insiders")),
-            "insiders_flow": _insiders_flow(md.get("insiders")),
-            "risks": _risks(packet, scorecard),
-        },
     }

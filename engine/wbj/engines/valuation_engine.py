@@ -43,7 +43,7 @@ zero/negative denominators, ...).
 from __future__ import annotations
 
 import statistics
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 from scipy.optimize import brentq
@@ -98,9 +98,19 @@ __all__ = [
     "residual_income",
     "residual_income_value",
     "economic_profit_value",
+    "adjusted_present_value",
+    "real_option_value",
+    "sum_of_the_parts",
+    "gordon_dividend_value",
+    "h_model_dividend_value",
+    "justified_pb",
     "justified_pe",
     "justified_ev_sales",
     "hist_zscore",
+    "implied_investor_irr",
+    "terminal_year_metrics",
+    "exit_multiple_terminal_value",
+    "implied_exit_multiple",
     "reverse_dcf",
     "scenarios",
     "monte_carlo",
@@ -255,22 +265,18 @@ def incremental_roic(delta_nopat: float, delta_ic: float) -> Value:
     """Incremental ROIC (Cerebro 4.5): `change in NOPAT / change in invested
     capital`, over a 3-5 year window per Cerebro's guidance.
 
-    FORMULAS.md's caveat for BUS-IROIC-016 is explicit: "not meaningful for
-    negative denominator change". A shrinking invested-capital base inverts the
-    sign and makes the ratio say the opposite of what happened:
-
-    - NOPAT +20 with IC -100 (more profit on less capital, an excellent outcome)
-      would read as -20%, i.e. value destruction.
-    - NOPAT -20 with IC -100 (the business is shrinking) would read as +20%,
-      i.e. high-quality reinvestment.
-
-    Since BUS-ALLOC-029 (`Incremental ROIC - WACC`) is a SCORED dimension, that
-    inverted sign moves points in the wrong direction. Both non-positive cases
-    are refused as NOT_MEANINGFUL instead."""
-    if delta_ic == 0:
-        return _null(NullState.NOT_MEANINGFUL, "pct", "DELTA_IC_ZERO")
-    if delta_ic < 0:
-        return _null(NullState.NOT_MEANINGFUL, "pct", "DELTA_IC_NEGATIVE")
+    `BUS-IROIC-016`'s caveat is "not meaningful for negative denominator
+    change", and only the zero case was refused. A shrinking capital base
+    inverts the ratio's meaning: a company whose NOPAT fell by 50 while
+    its invested capital fell by 10 scored +500% incremental ROIC, and
+    one that shrank on both sides scored +30%. That number feeds
+    `BUS-ALLOC-029` (incremental ROIC - WACC), which carries the heaviest
+    single weight in the business agent's management dimension, so a
+    contracting business read as an outstanding capital allocator.
+    """
+    if delta_ic <= 0:
+        return _null(NullState.NOT_MEANINGFUL, "pct",
+                     "DELTA_IC_ZERO" if delta_ic == 0 else "DELTA_IC_NEGATIVE")
     return _ok(delta_nopat / delta_ic, unit="pct")
 
 
@@ -393,6 +399,63 @@ def fcff(ebit: float, tax_rate: float, dna: float, capex: float, dnwc: float) ->
     """FCFF (Cerebro 6.1, VAL-FCFF-005): `EBIT*(1-tax) + D&A - Capex -
     change in non-cash NWC`."""
     return _ok(ebit * (1 - tax_rate) + dna - capex - dnwc, unit="usd")
+
+
+@register_formula(
+    id="VAL-NWC-006", version=_VERSION, unit="usd",
+    inputs=["current_assets", "cash", "short_term_investments",
+            "current_liabilities", "short_term_debt"],
+)
+def non_cash_working_capital(current_assets: float | None, cash: float | None,
+                             short_term_investments: float | None,
+                             current_liabilities: float | None,
+                             short_term_debt: float | None) -> Value:
+    """Non-cash working capital (VAL-NWC-006): `Operating current assets
+    excluding cash - Operating current liabilities excluding debt`.
+
+    FORMULAS.md adds "exclude financing items", and three lines qualify:
+
+    - cash, named in the formula itself;
+    - short-term investments, because `DATA_DICTIONARY.md` reconciles
+      invested capital to "debt plus equity minus **excess cash**", and
+      marketable securities are excess cash parked in a current account
+      rather than capital tied up in operations (AAPL FY2025: 18.8B, which
+      left in would overstate the level by that much);
+    - short-term debt, a financing claim on the liability side.
+
+    What stays is operating: receivables, inventory, payables, deferred
+    revenue (a customer prepayment, not borrowing).
+
+    Sign convention: a positive level means cash tied up in operations. Its
+    *change* is what `VAL-FCFF-005` subtracts and what `BUS-REINV-018` counts
+    as a use of cash, so a build is positive on this basis.
+
+    The two current-account totals are required; the three exclusions default
+    to 0.0 when a filer omits the line (an absent line is a zero balance, not
+    an unknown one), but a missing total is `MISSING` rather than an assumed
+    zero -- a working-capital level of "zero" and one that could not be
+    computed are not the same claim.
+    """
+    if current_assets is None or current_liabilities is None:
+        return _null(NullState.MISSING, "usd", "NWC_REQUIRES_BOTH_CURRENT_TOTALS")
+    operating_assets = current_assets - (cash or 0.0) - (short_term_investments or 0.0)
+    operating_liabilities = current_liabilities - (short_term_debt or 0.0)
+    return _ok(operating_assets - operating_liabilities, unit="usd")
+
+
+def non_cash_working_capital_from_row(row: dict) -> float | None:
+    """`VAL-NWC-006` off one canonical statement row, as a plain float.
+
+    Kept so `BUS-REINV-018`'s balance-sheet fallback and this registry entry
+    cannot drift apart: two implementations of one formula is two sign
+    conventions waiting to disagree.
+    """
+    v = non_cash_working_capital(
+        row.get("total_current_assets"), row.get("cash"),
+        row.get("short_term_investments"),
+        row.get("total_current_liabilities"), row.get("short_term_debt"),
+    )
+    return v.value if v.is_valid else None
 
 
 def fcff_via_nopat(nopat_value: float, reinvestment: float) -> Value:
@@ -563,6 +626,309 @@ def residual_income_value(book_equity0: float, ris: Sequence[float], cost_equity
 # --- 14. Fundamental multiples -----------------------------------------------------
 
 
+@register_formula(
+    id="VAL-APV-019", version=_VERSION, unit="usd",
+    inputs=["unlevered_fcf", "unlevered_cost", "debt_schedule", "tax_rate",
+            "pretax_kd", "distress_probability", "distress_cost",
+            "financing_side_effects"],
+)
+def adjusted_present_value(
+    unlevered_fcf: Sequence[float], unlevered_cost: float,
+    debt_schedule: Sequence[float], tax_rate: float, pretax_kd: float,
+    distress_probability: float = 0.0, distress_cost: float = 0.0,
+    financing_side_effects: float = 0.0, terminal_growth: float | None = None,
+) -> dict[str, Any]:
+    """Adjusted present value (VAL-APV-019): `Value of unlevered operations +
+    PV(Tax shields) - PV(Expected distress costs) + Financing side effects`.
+
+    DECISION_RULES.md makes it primary for "changing leverage / LBO-like" and
+    names what it replaces there: "static WACC without debt path". That is the
+    point of separating the pieces -- a WACC folds the tax shield into one
+    discount rate and so assumes a capital structure that holds still, which
+    is exactly the assumption an LBO breaks. Here the shield is valued year by
+    year off the debt schedule, so a deleveraging path prices correctly.
+
+    The shield is discounted at `pretax_kd`, not at `unlevered_cost`: its risk
+    is the risk of the debt that generates it. That choice is a modelling
+    assumption Cerebro does not settle, and the caller is told so rather than
+    it passing silently.
+
+    Distress is `probability * cost`, both caller-supplied: FORMULAS.md calls
+    it "PV(Expected distress costs)" and registers no estimator for either
+    term, so neither is invented here. Both default to zero, which is the
+    honest reading of "not supplied" -- and is disclosed as such, because a
+    zero distress term is an assumption, not an absence.
+
+    Returns the components alongside the total so a reader can see which piece
+    carries the value.
+    """
+    out: dict[str, Any] = {}
+    if unlevered_cost <= 0:
+        out["value"] = _null(NullState.NOT_MEANINGFUL, "usd", "APV_NONPOSITIVE_UNLEVERED_COST")
+        return out
+    if not unlevered_fcf:
+        out["value"] = _null(NullState.MISSING, "usd", "APV_REQUIRES_UNLEVERED_FCF")
+        return out
+    if not 0.0 <= distress_probability <= 1.0:
+        out["value"] = _null(NullState.NOT_MEANINGFUL, "usd", "DISTRESS_PROBABILITY_OUT_OF_RANGE")
+        return out
+
+    n = len(unlevered_fcf)
+    pv_ops = sum(f / (1 + unlevered_cost) ** (t + 1) for t, f in enumerate(unlevered_fcf))
+    if terminal_growth is not None:
+        if terminal_growth >= unlevered_cost:
+            out["value"] = _null(NullState.NOT_MEANINGFUL, "usd", "TERMINAL_GROWTH_GE_UNLEVERED_COST")
+            return out
+        tv = unlevered_fcf[-1] * (1 + terminal_growth) / (unlevered_cost - terminal_growth)
+        pv_ops += tv / (1 + unlevered_cost) ** n
+
+    # Year t's shield is that year's debt balance * tax rate * pre-tax cost of
+    # debt -- the interest deduction the balance actually generates.
+    pv_shield = sum(
+        (d * tax_rate * pretax_kd) / (1 + pretax_kd) ** (t + 1)
+        for t, d in enumerate(debt_schedule or [])
+    )
+    pv_distress = distress_probability * distress_cost
+
+    out["pv_unlevered_operations"] = pv_ops
+    out["pv_tax_shields"] = pv_shield
+    out["pv_distress"] = pv_distress
+    out["financing_side_effects"] = financing_side_effects
+    out["value"] = _ok(pv_ops + pv_shield - pv_distress + financing_side_effects, unit="usd")
+    return out
+
+
+@register_formula(
+    id="VAL-ROPT-038", version=_VERSION, unit="usd",
+    inputs=["project_pv", "investment", "volatility", "years", "risk_free"],
+)
+def real_option_value(project_pv: float, investment: float, volatility: float,
+                      years: float, risk_free: float) -> Value:
+    """Real-option value (VAL-ROPT-038): the option-pricing value of a staged,
+    discretionary project, "after avoiding DCF double count".
+
+    FORMULAS.md offers two methods -- "option-pricing **or** decision-tree" --
+    and this implements the first, as Black-Scholes. That is a choice between
+    alternatives Cerebro leaves open, not a reading of a single stated
+    formula, and it is not neutral: closed-form pricing assumes a single
+    decision point and lognormal project value, where a decision tree can
+    carry staged, path-dependent outcomes (a phase-II readout gating a
+    phase-III spend) that this cannot. A caller whose project is genuinely
+    multi-stage is better served by the decision-tree branch, which is not
+    implemented here.
+
+    Black-Scholes on the project: `S` is the PV of the project's cash flows,
+    `K` the staged investment, `T` the window in which the decision can be
+    taken. What it captures that a DCF cannot is the *right without the
+    obligation* -- a project abandoned when it turns out badly loses only the
+    option premium, and a plain NPV cannot express that asymmetry, which is
+    why an out-of-the-money project still carries value here.
+
+    FORMULAS.md scopes it hard: "only for material, separable, discretionary
+    projects", and "after avoiding DCF double count". Both are the caller's to
+    enforce -- a project already inside the DCF's cash flows must not be added
+    again, and this function cannot see the DCF.
+
+    Refuses on non-positive PV, investment, time or volatility. Zero
+    volatility is not a degenerate option to price at intrinsic value here: a
+    project with no uncertainty has no option premium, and reporting one
+    would be inventing optionality the inputs deny.
+    """
+    import math
+
+    if project_pv <= 0 or investment <= 0:
+        return _null(NullState.NOT_MEANINGFUL, "usd", "REAL_OPTION_REQUIRES_POSITIVE_PV_AND_COST")
+    if years <= 0:
+        return _null(NullState.NOT_MEANINGFUL, "usd", "REAL_OPTION_REQUIRES_POSITIVE_HORIZON")
+    if volatility <= 0:
+        return _null(NullState.NOT_APPLICABLE, "usd", "REAL_OPTION_REQUIRES_UNCERTAINTY")
+
+    sigma_t = volatility * math.sqrt(years)
+    d1 = (math.log(project_pv / investment) + (risk_free + volatility ** 2 / 2) * years) / sigma_t
+    d2 = d1 - sigma_t
+    ncdf = lambda x: 0.5 * (1 + math.erf(x / math.sqrt(2)))  # noqa: E731
+    value = project_pv * ncdf(d1) - investment * math.exp(-risk_free * years) * ncdf(d2)
+    return _ok(max(value, 0.0), unit="usd")
+
+
+@register_formula(
+    id="VAL-CONV-039", version=_VERSION, unit="usd_per_share",
+    inputs=["equity_value", "shares", "price", "convertibles", "options"],
+)
+def convertible_dilution(equity_value: float, shares: float, price: float,
+                         convertibles: Sequence[dict] | None = None,
+                         options: Sequence[dict] | None = None) -> dict[str, Any]:
+    """Convertible and option dilution (VAL-CONV-039): "if-converted shares
+    and debt/interest adjustment under scenario; use treasury method for
+    options", "apply scenario-consistent dilution".
+
+    Two mechanisms, and they are not interchangeable:
+
+    - **If-converted**, for convertible debt. When conversion is in the money
+      the instrument becomes equity: its shares join the count *and* its face
+      value stops being a claim, so equity value rises by the face. Applying
+      only the share half is the common error -- it dilutes without crediting
+      the debt that disappeared.
+    - **Treasury method**, for options. Exercise proceeds buy shares back at
+      the market price, so net new shares are `count * (1 - strike/price)`.
+      Equity value is unchanged: the proceeds are already netted out.
+
+    "Scenario-consistent" is the reason `price` is a parameter rather than a
+    fixed spot: an option out of the money in the bear case is in the money in
+    the bull one, and using one price across all three would dilute scenarios
+    that never triggered the conversion.
+
+    Returns the diluted per-share value with the pieces that produced it, so
+    a caller can disclose which instruments actually converted.
+    """
+    out: dict[str, Any] = {
+        "shares_base": shares, "shares_added": 0.0,
+        "equity_value_added": 0.0, "converted": [], "exercised": [],
+    }
+    if shares <= 0 or price <= 0:
+        out["per_share"] = _null(NullState.NOT_MEANINGFUL, "usd_per_share",
+                                 "DILUTION_REQUIRES_POSITIVE_SHARES_AND_PRICE")
+        return out
+
+    for c in (convertibles or []):
+        conv_price = float(c.get("conversion_price") or 0.0)
+        conv_shares = float(c.get("conversion_shares") or 0.0)
+        face = float(c.get("face") or 0.0)
+        if conv_price <= 0 or conv_shares <= 0:
+            continue
+        if price > conv_price:  # in the money: it converts
+            out["shares_added"] += conv_shares
+            out["equity_value_added"] += face
+            out["converted"].append(c.get("name") or f"conv@{conv_price:g}")
+
+    for o in (options or []):
+        strike = float(o.get("strike") or 0.0)
+        count = float(o.get("count") or 0.0)
+        if strike <= 0 or count <= 0 or price <= strike:
+            continue  # out of the money adds nothing under the treasury method
+        out["shares_added"] += count * (1 - strike / price)
+        out["exercised"].append(o.get("name") or f"opt@{strike:g}")
+
+    diluted_shares = shares + out["shares_added"]
+    out["shares_diluted"] = diluted_shares
+    out["per_share"] = _ok((equity_value + out["equity_value_added"]) / diluted_shares,
+                           unit="usd_per_share")
+    return out
+
+
+@register_formula(
+    id="VAL-SOTP-026", version=_VERSION, unit="usd",
+    inputs=["segment_values", "corporate_assets", "corporate_claims", "holding_discount"],
+)
+def sum_of_the_parts(segment_values: Sequence[float], corporate_assets: float,
+                     corporate_claims: float, holding_discount: float = 0.0) -> Value:
+    """Sum-of-the-parts equity value (VAL-SOTP-026): `sum(Segment
+    enterprise/equity values) + corporate assets - corporate claims -
+    holding discount_if_justified`.
+
+    DECISION_RULES.md's matrix makes it the primary model for a multi-segment
+    conglomerate, and names the failure mode it replaces: "one blended
+    multiple without segment logic". FORMULAS.md states the same caution as
+    "avoid applying a multiple to consolidated metrics twice" -- which is why
+    the caller must value each segment separately and cannot reach this
+    function with a single company-level multiple.
+
+    `holding_discount` is a fraction of the summed value, applied only when
+    the caller can justify it (Victor's own "_if_justified"); it defaults to
+    zero, because an unjustified conglomerate discount is a thumb on the
+    scale rather than a valuation.
+
+    Refuses on fewer than two segments -- a one-segment SOTP is a consolidated
+    valuation wearing a different name, which is the double-count the caution
+    is about -- and on a discount outside 0-1.
+    """
+    values = [v for v in (segment_values or []) if v is not None]
+    if len(values) < 2:
+        return _null(NullState.NOT_APPLICABLE, "usd", "SOTP_REQUIRES_AT_LEAST_TWO_SEGMENTS")
+    if not 0.0 <= holding_discount < 1.0:
+        return _null(NullState.NOT_MEANINGFUL, "usd", "HOLDING_DISCOUNT_OUT_OF_RANGE")
+    gross = sum(values)
+    return _ok(gross * (1 - holding_discount) + corporate_assets - corporate_claims,
+               unit="usd")
+
+
+@register_formula(id="VAL-DDM-024", version=_VERSION, unit="usd_per_share",
+                  inputs=["d0", "g", "ke"])
+def gordon_dividend_value(d0: float, g: float, ke: float) -> Value:
+    """Gordon dividend value (VAL-DDM-024): `Dividend_1 / (CostEquity - g)`,
+    with `Dividend_1 = D0 * (1 + g)`.
+
+    FORMULAS.md conditions it on "stable payout and growth", and
+    DECISION_RULES.md's matrix makes it a *primary* model for banks and
+    insurers -- the company types whose FCFF the same matrix forbids.
+
+    Refuses on `g >= Ke` (the denominator turns zero or negative, and a
+    negative per-share value is arithmetic rather than a valuation) and on a
+    non-positive dividend, where the model has nothing to discount: a
+    non-payer is not worth zero, it is outside this model's scope, so the
+    caller must reach for another rather than read a floor here.
+    """
+    if d0 <= 0:
+        return _null(NullState.NOT_APPLICABLE, "usd_per_share", "DDM_REQUIRES_A_DIVIDEND")
+    if ke <= g:
+        return _null(NullState.NOT_MEANINGFUL, "usd_per_share", "GROWTH_GE_COST_OF_EQUITY")
+    return _ok(d0 * (1 + g) / (ke - g), unit="usd_per_share")
+
+
+@register_formula(id="VAL-HDDM-025", version=_VERSION, unit="usd_per_share",
+                  inputs=["d0", "g_short", "g_long", "half_life", "ke"])
+def h_model_dividend_value(d0: float, g_short: float, g_long: float,
+                           half_life: float, ke: float) -> Value:
+    """H-model dividend value (VAL-HDDM-025):
+    `D0*(1+gL)/(Ke-gL) + D0*H*(gS-gL)/(Ke-gL)`.
+
+    The first term is the Gordon value at the long-run rate; the second is
+    the extra value of fading from `g_short` to `g_long`, where `H` is half
+    the length of the transition. FORMULAS.md scopes it to "mature transition
+    companies only" -- which is the case the plain Gordon model misprices, by
+    assuming today's growth continues unchanged forever.
+
+    Refuses on `g_long >= Ke` for the same reason as VAL-DDM-024 (both terms
+    share that denominator), on a non-positive dividend, and on a negative
+    half-life. A `g_short` below `g_long` is allowed: the second term simply
+    turns negative, which is the correct treatment of a company fading *up*
+    to its long-run rate.
+    """
+    if d0 <= 0:
+        return _null(NullState.NOT_APPLICABLE, "usd_per_share", "HDDM_REQUIRES_A_DIVIDEND")
+    if ke <= g_long:
+        return _null(NullState.NOT_MEANINGFUL, "usd_per_share", "LONG_GROWTH_GE_COST_OF_EQUITY")
+    if half_life < 0:
+        return _null(NullState.NOT_MEANINGFUL, "usd_per_share", "NEGATIVE_HALF_LIFE")
+    steady = d0 * (1 + g_long) / (ke - g_long)
+    transition = d0 * half_life * (g_short - g_long) / (ke - g_long)
+    return _ok(steady + transition, unit="usd_per_share")
+
+
+@register_formula(id="VAL-JPB-031", version=_VERSION, unit="x", inputs=["roe", "g", "ke"])
+def justified_pb(roe: float, g: float, ke: float) -> Value:
+    """Justified price-to-book (VAL-JPB-031): `(ROE - g) / (CostEquity - g)`.
+
+    Reads as: a business earning exactly its cost of equity is worth book
+    (ROE = Ke gives 1.0x); the premium or discount to book is the spread
+    between what it earns on equity and what that equity costs.
+
+    FORMULAS.md conditions it on "stable ROE, payout, and g < Ke". `g >= Ke`
+    refuses -- the denominator turns zero or negative, and a negative
+    "multiple" is arithmetic, not a valuation. A negative ROE also refuses:
+    the formula would return a negative multiple that reads like a cheap one.
+
+    This is the bank-side counterpart of `VAL-JPE-032`. DECISION_RULES.md's
+    model-selection matrix lists "P/B vs ROE" as the secondary check for
+    banks and insurers, which is the same statement in words.
+    """
+    if ke <= g:
+        return _null(NullState.NOT_MEANINGFUL, "x", "GROWTH_GE_COST_OF_EQUITY")
+    if roe < 0:
+        return _null(NullState.NOT_MEANINGFUL, "x", "ROE_NEGATIVE")
+    return _ok((roe - g) / (ke - g), unit="x")
+
+
 @register_formula(id="VAL-JPE-032", version=_VERSION, unit="", inputs=["g", "roe", "ke"])
 def justified_pe(g: float, roe: float, ke: float) -> Value:
     """Justified P/E (Cerebro 14.1, VAL-JPE-032): `(1 - g/ROE) / (Ke - g)`.
@@ -632,16 +998,29 @@ def margin_of_safety(value: float, price: float) -> Value:
 # `dcf_value`, which takes an already-built FCFF path.
 
 
-def _constant_growth_per_share(
+def terminal_year_metrics(
     growth: float, margin: float, wacc_value: float, tv_growth: float,
-    revenue0: float, tax_rate: float, roic_value: float, years: int, shares: float, net_debt: float,
-) -> float:
-    # Single source of truth for the g>=WACC refusal, shared with the
-    # Value-returning `gordon_terminal_value`: this float core raises so any
-    # caller that forgets to guard fails loudly rather than silently pricing
-    # a meaningless negative terminal value; `_constant_growth_value` and the
-    # per-scenario/reverse-DCF guards below convert that condition into a
-    # graceful `NOT_MEANINGFUL` Value at the public boundary.
+    revenue0: float, tax_rate: float, roic_value: float, years: int,
+) -> dict[str, Any]:
+    """The terminal year of the constant-growth path, and the Gordon terminal
+    value built on it.
+
+    Extracted from `_constant_growth_per_share`, which now calls it, so
+    `VAL-TVE-013`'s implied exit multiple divides the same terminal value by
+    the same terminal metric the DCF actually priced. Recomputing either one
+    alongside would be a second model quietly disagreeing with the first.
+
+    Returns terminal-year revenue and EBIT (the two metrics FORMULAS.md names
+    for an exit multiple, "terminal EBITDA/revenue/earnings" -- EBITDA is not
+    among them because no D&A path is forecast), the explicit-period FCFFs,
+    and the undiscounted terminal value.
+
+    Raises on `tv_growth >= wacc_value`, the same refusal
+    `_constant_growth_per_share` makes. The guard belongs here, with the
+    division it protects: extracting the arithmetic without it left the
+    public entry point dividing by zero on an input its private caller had
+    already rejected.
+    """
     if tv_growth >= wacc_value:
         raise ValueError("terminal growth >= wacc: not meaningful")
     revenue = revenue0
@@ -657,7 +1036,68 @@ def _constant_growth_per_share(
     # would apply the reinvestment haircut twice).
     nopat_terminal = nopat_n * (1 + tv_growth)
     fcff_terminal = nopat_terminal * (1 - _terminal_reinvestment_rate(tv_growth, roic_value))
-    tv = fcff_terminal / (wacc_value - tv_growth)
+    return {
+        "revenue": revenue,
+        "ebit": revenue * margin,
+        "explicit_fcffs": fcffs,
+        "terminal_value": fcff_terminal / (wacc_value - tv_growth),
+    }
+
+
+@register_formula(
+    id="VAL-TVE-013", version=_VERSION, unit="usd",
+    inputs=["terminal_metric", "exit_multiple"],
+)
+def exit_multiple_terminal_value(terminal_metric: float, exit_multiple: float) -> Value:
+    """Exit-multiple terminal value (VAL-TVE-013): `Terminal metric *
+    Selected normalized exit multiple`.
+
+    FORMULAS.md and section 6.5 both bound this to one role: "**use only as a
+    cross-check**", and "the multiple must match terminal growth, margins,
+    ROIC, and risk -- a current-cycle multiple cannot be copied blindly into
+    perpetuity". It therefore never replaces `VAL-TVG-012` in the DCF; the
+    caller prices with Gordon and reads this beside it.
+
+    A non-positive terminal metric refuses: a multiple applied to a negative
+    EBIT returns a negative "value" that is arithmetic, not a valuation.
+    """
+    if terminal_metric <= 0:
+        return _null(NullState.NOT_MEANINGFUL, "usd", "EXIT_MULTIPLE_NEEDS_POSITIVE_METRIC")
+    if exit_multiple <= 0:
+        return _null(NullState.NOT_MEANINGFUL, "usd", "EXIT_MULTIPLE_NONPOSITIVE")
+    return _ok(terminal_metric * exit_multiple, unit="usd")
+
+
+def implied_exit_multiple(terminal_value: float, terminal_metric: float) -> Value:
+    """The exit multiple the DCF's own terminal value implies.
+
+    The valuation checklist requires it outright: "terminal-value share and
+    **implied exit multiple** are shown". This is the multiple that *is*
+    justified by terminal fundamentals, because it falls out of the Gordon
+    value that terminal growth, margin, ROIC and WACC already produced -- so
+    it is the reference any supplied multiple has to be defended against.
+    """
+    if terminal_metric <= 0:
+        return _null(NullState.NOT_MEANINGFUL, "x", "IMPLIED_MULTIPLE_NEEDS_POSITIVE_METRIC")
+    return _ok(terminal_value / terminal_metric, unit="x")
+
+
+def _constant_growth_per_share(
+    growth: float, margin: float, wacc_value: float, tv_growth: float,
+    revenue0: float, tax_rate: float, roic_value: float, years: int, shares: float, net_debt: float,
+) -> float:
+    # Single source of truth for the g>=WACC refusal, shared with the
+    # Value-returning `gordon_terminal_value`: this float core raises so any
+    # caller that forgets to guard fails loudly rather than silently pricing
+    # a meaningless negative terminal value; `_constant_growth_value` and the
+    # per-scenario/reverse-DCF guards below convert that condition into a
+    # graceful `NOT_MEANINGFUL` Value at the public boundary.
+    if tv_growth >= wacc_value:
+        raise ValueError("terminal growth >= wacc: not meaningful")
+    terminal = terminal_year_metrics(
+        growth, margin, wacc_value, tv_growth, revenue0, tax_rate, roic_value, years,
+    )
+    fcffs, tv = terminal["explicit_fcffs"], terminal["terminal_value"]
     pv_explicit = sum(f / (1 + wacc_value) ** (t + 1) for t, f in enumerate(fcffs))
     pv_terminal = tv / (1 + wacc_value) ** years
     equity = pv_explicit + pv_terminal - net_debt
@@ -681,6 +1121,59 @@ def _constant_growth_value(
         years=years, shares=shares, net_debt=net_debt,
     )
     return _ok(v, "usd_per_share")
+
+
+@register_formula(
+    id="VAL-IRR-041", version=_VERSION, unit="pct",
+    inputs=["price", "terminal_per_share", "years", "distributions"],
+)
+def implied_investor_irr(price: float, terminal_per_share: float, years: int,
+                         distributions: Sequence[float] | None = None) -> Value:
+    """Implied investor IRR (VAL-IRR-041): the discount rate at which buying
+    one share at `price` today, receiving `distributions` over the holding
+    period, and selling at `terminal_per_share` breaks even.
+
+    FORMULAS.md: "IRR of purchase price, forecast distributions/buybacks *if
+    modeled*, and terminal per-share value". The "if modeled" is load-bearing:
+    with no dividend forecast the series is the two endpoints alone, and the
+    result is a price-appreciation-only IRR that understates total return for
+    any payer. The caller must disclose that -- see the note this method
+    carries: "terminal value and holding period disclosed".
+
+    Sign convention: `price` is the t=0 outflow, distributions arrive at the
+    end of years 1..n, and the terminal value lands with the final one.
+
+    Refuses rather than returning a misleading number when the arithmetic has
+    no economic meaning: a non-positive price or holding period, and a total
+    wipeout (terminal value and distributions both zero), whose IRR is -100%
+    exactly and is better read as a null than as a rate.
+    """
+    if price <= 0:
+        return _null(NullState.NOT_MEANINGFUL, "pct", "IRR_REQUIRES_POSITIVE_PRICE")
+    if years <= 0:
+        return _null(NullState.NOT_MEANINGFUL, "pct", "IRR_REQUIRES_POSITIVE_HOLDING_PERIOD")
+    if terminal_per_share < 0:
+        return _null(NullState.NOT_MEANINGFUL, "pct", "IRR_NEGATIVE_TERMINAL_VALUE")
+
+    flows = list(distributions or [0.0] * years)
+    if len(flows) != years:
+        return _null(NullState.NOT_MEANINGFUL, "pct", "IRR_DISTRIBUTIONS_LENGTH_NE_YEARS")
+    if terminal_per_share == 0 and not any(flows):
+        return _null(NullState.NOT_MEANINGFUL, "pct", "IRR_TOTAL_LOSS")
+
+    flows = list(flows)
+    flows[-1] += terminal_per_share
+
+    def npv(rate: float) -> float:
+        return -price + sum(cf / (1 + rate) ** (t + 1) for t, cf in enumerate(flows))
+
+    # Bracket just above -100% (where the discount factor blows up) to a rate
+    # no equity holding period sustains.
+    lo, hi = -0.9999, 10.0
+    try:
+        return _ok(brentq(npv, lo, hi, xtol=1e-12, rtol=1e-12), unit="pct")
+    except ValueError:
+        return _null(NullState.NOT_MEANINGFUL, "pct", "IRR_NO_SIGN_CHANGE_IN_BOUNDS")
 
 
 @register_formula(id="VAL-RDCF-027", version=_VERSION, unit="pct", inputs=["price", "shares", "base_inputs"])

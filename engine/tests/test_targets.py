@@ -38,7 +38,7 @@ def test_targets_three_scenarios_ordered():
     # base: eps * (1+g) * pe_now, g = NI 5y CAGR = (32/20)^(1/4)-1
     g = (32 / 20) ** 0.25 - 1
     assert abs(by["base"]["target"] - round(8 * (1 + g) * 25, 2)) < 0.02
-    assert "crecimiento" in by["base"]["assumptions"]
+    assert "growth" in by["base"]["assumptions"]
 
 
 def test_targets_not_scorable_without_price_or_eps():
@@ -48,15 +48,15 @@ def test_targets_not_scorable_without_price_or_eps():
     assert price_targets(p, price=200.0)["status"] == "not_scorable"
 
 
-def test_narrative_covers_key_facts_in_spanish():
+def test_narrative_covers_key_facts_in_english():
     p = _packet()
     t = price_targets(p, price=200.0)
     from wbj.quick import quick_scorecard
     sents = narrative(p, quick_scorecard(p), t)
     joined = " ".join(sents)
-    assert "Vendio" in joined and "ganancia neta" in joined
-    assert "flujo de caja libre" in joined
-    assert "12 meses" in joined
+    assert "Sold" in joined and "net profit" in joined
+    assert "free cash flow" in joined
+    assert "12 months" in joined
     assert 4 <= len(sents) <= 7
 
 

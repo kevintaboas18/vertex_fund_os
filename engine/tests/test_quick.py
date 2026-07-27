@@ -130,9 +130,9 @@ def test_fmp_categories_ns_without_market_data():
     ns = {r["key"]: r for r in quick_scorecard(_packet())["categories"]
           if r["status"] == "not_scorable"}
     assert set(ns) == {"market", "technical", "valuation"}
-    assert ns["market"]["reason"] == "sin cobertura de analistas (FMP)"
-    assert ns["technical"]["reason"] == "historial de precio insuficiente (FMP)"
-    assert ns["valuation"]["reason"] == "sin precio de mercado (FMP)"
+    assert ns["market"]["reason"] == "no analyst coverage (FMP)"
+    assert ns["technical"]["reason"] == "insufficient price history (FMP)"
+    assert ns["valuation"]["reason"] == "no market price (FMP)"
 
 
 def test_technical_ns_with_too_little_history():

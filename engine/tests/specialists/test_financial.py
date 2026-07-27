@@ -226,21 +226,48 @@ def test_FIN_T009_negative_equity_debt_to_equity_not_meaningful():
     assert v.state == NullState.NOT_MEANINGFUL
 
 
-def test_FIN_T010_bank_security_type_flags_missing_adapter_support():
-    """Bank security type -> use bank adapter; conventional FCF/ROIC N/A.
-
-    Industry adapters (Cerebro/shared/INDUSTRY_ADAPTERS.md) are out of
-    scope for Task 14 (not listed in the brief's "Key implementation
-    points"); `run()` still computes the conventional formulas but must
-    not pretend the adapter requirement doesn't exist -- it records an
-    assumption flagging the gap instead of silently producing a
-    bank-inappropriate FCF/ROIC score.
-    """
+def test_FIN_T010_bank_security_type_marks_conventional_fcf_roic_not_applicable():
+    """VALIDATION_TESTS.md FIN-T010 + DECISION_RULES.md Override 5: for a
+    bank, "conventional FCF/ROIC scoring is not allowed". The FCF family
+    (FIN-CF-012/013/014, FIN-DX-029) and the ROIC family (FIN-EF-024/026/027)
+    must come back NOT_APPLICABLE, not scored with a warning -- while ROE and
+    ROA still score (the adapters keep them for financials)."""
     packet = _minimal_packet(
-        [_row(2025), _row(2024)], industry_adapter="bank_adapter", security_type="bank",  # newest-first
+        [_row(2025), _row(2024)], industry_adapter="banks", security_type="bank",  # newest-first
     )
     out = fin.run(packet)
-    assert any("industry_adapter" in a and "bank_adapter" in a for a in out.assumptions)
+    assert any("industry_adapter" in a and "banks" in a for a in out.assumptions)
+
+    by_id = {r.metric_id: r for r in out.metrics}
+    for mid in ("FIN-CF-012", "FIN-CF-013", "FIN-CF-014", "FIN-DX-029",
+                "FIN-EF-024", "FIN-EF-026", "FIN-EF-027"):
+        # NOT_APPLICABLE rides in `state` (OUTPUT_CONTRACT.md: score is only
+        # "0-10 or NOT_SCORABLE", the null state lives in the value field).
+        assert by_id[mid].state == NullState.NOT_APPLICABLE, mid
+        assert by_id[mid].score == "NOT_SCORABLE", mid
+    # ROE and ROA are retained for financials -> still scored numerically.
+    assert isinstance(by_id["FIN-EF-023"].score, float)
+    assert isinstance(by_id["FIN-EF-025"].score, float)
+
+
+def test_a_bank_does_not_trigger_override_2_on_a_forbidden_roic():
+    """Override 2 (ROIC < WACC) must not fire on a ROIC the methodology
+    forbids: the conventional ROIC is NOT_APPLICABLE for a bank, so even an
+    absurd WACC cannot cap the verdict through it."""
+    packet = _minimal_packet(
+        [_row(2025), _row(2024)], industry_adapter="banks", security_type="bank",
+    )
+    out = fin.run(packet, overlay={"wacc": 99.0})
+    assert "OVERRIDE_2_ROIC_BELOW_WACC" not in out.mandatory_flags
+
+
+def test_a_non_financial_company_still_scores_conventional_fcf_roic():
+    """The prohibition is scoped to model-replacing adapters; a default
+    operating company is unaffected."""
+    out = fin.run(_minimal_packet([_row(y) for y in range(2025, 2020, -1)]))
+    by_id = {r.metric_id: r for r in out.metrics}
+    assert by_id["FIN-CF-014"].state != NullState.NOT_APPLICABLE
+    assert by_id["FIN-EF-024"].state != NullState.NOT_APPLICABLE
 
 
 # ============================================================================
@@ -526,3 +553,188 @@ def test_run_roe_single_year_uses_end_balance_proxy_and_keeps_evidence_class():
     assert roe_row.value == pytest.approx(150.0 / 600.0)
     assert "END_BALANCE_PROXY" in roe_row.warnings
     assert roe_row.evidence_class is not None
+
+
+# ============================================================================
+# Reading balance/income-statement fields the packet builder maps but the
+# specialist previously ignored (interest_expense, ebitda, accounts_payable).
+# CANONICAL_FIELD_MAP maps all three from FMP; FORMULAS.md registers them as
+# required inputs of FIN-BS-020 / FIN-DX-028 / FIN-DX-031, which were dead
+# (always MISSING) because run() read only an overlay or was hardcoded.
+# ============================================================================
+
+
+def test_interest_coverage_reads_the_packets_interest_expense():
+    """FIN-BS-020's input is on the annual row (mapped from FMP's
+    `interestExpense`). Reading only overlay['interest_expense'] left this
+    core-27 metric -- and Override 3 -- permanently MISSING in production."""
+    rows = [_row(2025, ebit=29.0, interest_expense=20.0), _row(2024, interest_expense=20.0)]
+    out = fin.run(_minimal_packet(rows))  # no overlay
+    cov = next(r for r in out.metrics if r.metric_id == "FIN-BS-020")
+    assert cov.value == pytest.approx(1.45)
+    assert "SOLVENCY_WARNING" in out.mandatory_flags
+
+
+def test_an_overlay_interest_expense_still_overrides_the_row():
+    """The aggregator may supply a normalized cash-interest figure; it wins
+    over the row's reported line."""
+    rows = [_row(2025, ebit=100.0, interest_expense=1.0), _row(2024)]
+    out = fin.run(_minimal_packet(rows), overlay={"interest_expense": 20.0})
+    cov = next(r for r in out.metrics if r.metric_id == "FIN-BS-020")
+    assert cov.value == pytest.approx(5.0)  # 100/20, not 100/1
+
+
+def test_net_debt_to_ebitda_reads_the_packets_ebitda():
+    """FIN-DX-028 was hardcoded MISSING 'NO_DA_FIELD' though the builder
+    maps FMP's `ebitda`. net debt = total_debt - cash = 200 - 300 = -100."""
+    rows = [_row(2025, ebitda=250.0), _row(2024, ebitda=240.0)]
+    out = fin.run(_minimal_packet(rows))
+    nde = next(r for r in out.metrics if r.metric_id == "FIN-DX-028")
+    assert nde.value == pytest.approx((200.0 - 300.0) / 250.0)
+
+
+def test_net_debt_to_ebitda_derives_ebitda_from_ebit_plus_da():
+    """Where a row lacks `ebitda` but carries D&A, EBITDA = EBIT + D&A."""
+    rows = [_row(2025, ebit=200.0, depreciation_and_amortization=50.0), _row(2024)]
+    out = fin.run(_minimal_packet(rows))
+    nde = next(r for r in out.metrics if r.metric_id == "FIN-DX-028")
+    assert nde.value == pytest.approx((200.0 - 300.0) / 250.0)
+
+
+def test_cash_conversion_cycle_reads_the_packets_payables():
+    """FIN-DX-031 was hardcoded MISSING for a payables field the builder now
+    maps. With flat balances across the two years the averages equal the
+    reported levels: DSO=90/1000*365, DIO=80/600*365, DPO=70/600*365."""
+    rows = [_row(2025, accounts_payable=70.0), _row(2024, accounts_payable=70.0)]
+    out = fin.run(_minimal_packet(rows))
+    ccc = next(r for r in out.metrics if r.metric_id == "FIN-DX-031")
+    expected = 90.0 / 1000.0 * 365.0 + 80.0 / 600.0 * 365.0 - 70.0 / 600.0 * 365.0
+    assert ccc.value == pytest.approx(expected)
+
+
+def test_diluted_share_cagr_uses_the_registered_5y_window_not_all_history():
+    """FORMULAS.md FIN-DX-033 frequency is '3y / 5y'. A packet with 11 years
+    of share history must still yield a 5-year CAGR, not a 10-year one --
+    the window is bounded like every other frequency cell. Shares shrink 1%
+    a year, so any correct window reports the same ~-1%/yr figure."""
+    def _shares(year: int) -> float:
+        # 1%/yr net buyback: 2015 highest, 2025 lowest.
+        return 100.0 * (0.99 ** (year - 2015))
+
+    deep = [_row(y, diluted_shares=_shares(y)) for y in range(2025, 2014, -1)]  # 11y, newest-first
+    shallow = [_row(y, diluted_shares=_shares(y)) for y in range(2025, 2019, -1)]  # 6y
+    out_deep = fin.run(_minimal_packet(deep))
+    out_shallow = fin.run(_minimal_packet(shallow))
+    d = next(r for r in out_deep.metrics if r.metric_id == "FIN-DX-033")
+    s = next(r for r in out_shallow.metrics if r.metric_id == "FIN-DX-033")
+    assert d.value == pytest.approx(-0.01, abs=1e-9)
+    assert d.value == pytest.approx(s.value, abs=1e-9)  # depth does not change it
+
+
+# ============================================================================
+# Calibration disclosure (AGENT.md no-speculation rule): every scored band
+# whose threshold is NOT in that row's FORMULAS.md cell must be an explicitly
+# disclosed assumption; Victor's own verbatim bands must NOT be disclaimed.
+# ============================================================================
+
+
+def test_the_invented_scored_thresholds_are_registered_and_disclosed():
+    """The ten rows FORMULAS.md gives a direction but no number for."""
+    expected = {
+        "FIN-PR-006", "FIN-PR-011", "FIN-CF-012", "FIN-CF-013", "FIN-CF-015",
+        "FIN-CF-016", "FIN-BS-021", "FIN-BS-022", "FIN-DX-032", "FIN-DX-033",
+    }
+    assert set(fin.CALIBRATION_REGISTRY) == expected
+    out = fin.run(_minimal_packet([_row(y) for y in range(2025, 2020, -1)]))
+    blob = " ".join(out.assumptions)
+    for metric_id in expected:
+        assert metric_id in blob, f"{metric_id}: scored threshold not disclosed"
+
+
+def test_victors_verbatim_bands_are_not_disclaimed_as_calibration():
+    """FIN-GR-001, the margins, the ratios, ROE/ROIC/ROA and the trend
+    materiality thresholds are Victor's own numbers -- claiming them as this
+    module's would be as wrong as hiding the invented ones."""
+    victor_bands = {
+        "FIN-GR-001", "FIN-GR-002", "FIN-GR-003", "FIN-PR-007", "FIN-PR-008",
+        "FIN-PR-009", "FIN-PR-010", "FIN-CF-014", "FIN-BS-017", "FIN-BS-018",
+        "FIN-BS-019", "FIN-BS-020", "FIN-EF-023", "FIN-EF-024", "FIN-EF-025",
+        "FIN-EF-026", "FIN-EF-027",
+    }
+    assert victor_bands.isdisjoint(set(fin.CALIBRATION_REGISTRY))
+
+
+def test_each_calibration_entry_quotes_its_cerebro_basis():
+    """The entry has to name the sentence that fixes the direction, so a
+    reader can check Cerebro really is silent on the magnitude."""
+    for metric_id, (basis, why) in fin.CALIBRATION_REGISTRY.items():
+        assert ".md" in basis, f"{metric_id}: no document named"
+        assert '"' in basis, f"{metric_id}: does not quote the text"
+        assert len(why) > 40, f"{metric_id}: does not say why no number follows"
+
+
+def test_roic_discloses_a_statutory_substitution_for_an_out_of_range_rate():
+    """A negative tax expense gives a negative effective rate, outside
+    0-100%; taxes.tax_rate_or_statutory substitutes 21% and the caller must
+    disclose it. Gating disclosure on `tax_rate is None` (the old code)
+    missed this because the fallback made the rate non-None -- the same
+    silent-substitution bug fixed in business.py."""
+    rows = [
+        _row(2025, income_before_tax=100.0, income_tax_expense=-40.0),  # -40% effective
+        _row(2024),
+    ]
+    out = fin.run(_minimal_packet(rows))
+    blob = " ".join(out.assumptions)
+    assert "FIN-EF-024 (ROIC)" in blob and "statutory" in blob
+    # ROIC still computes (on NOPAT = EBIT * (1 - 0.21)).
+    roic_row = next(r for r in out.metrics if r.metric_id == "FIN-EF-024")
+    assert roic_row.state != NullState.MISSING
+
+
+def test_roic_does_not_disclose_a_substitution_when_the_rate_is_reported():
+    """A clean 21%-ish reported rate must NOT be flagged as substituted."""
+    rows = [
+        _row(2025, income_before_tax=200.0, income_tax_expense=40.0),  # 20% effective
+        _row(2024),
+    ]
+    out = fin.run(_minimal_packet(rows))
+    assert not any("FIN-EF-024 (ROIC)" in a and "statutory" in a for a in out.assumptions)
+
+
+def test_the_absent_peer_panel_is_disclosed():
+    """DECISION_RULES.md calls for peer comparison on the sector-sensitive
+    margin bands; with no peer panel the default-band fallback must be
+    disclosed, not presented as peer-checked."""
+    out = fin.run(_minimal_packet([_row(y) for y in range(2025, 2020, -1)]))
+    assert any("Peer comparison unavailable" in a and "FIN-PR-007" in a
+               for a in out.assumptions)
+
+
+def test_fin_gr_003_scores_against_the_packet_peer_panel():
+    """FIN-GR-003 = company revenue growth - peer median growth. The builder
+    now assembles `estimates.peer_panel`; this used to be MISSING on every
+    company because the packet carried peer symbols only."""
+    rows = [_row(2025, revenue=1100.0), _row(2024, revenue=1000.0)]  # +10%
+    packet = _minimal_packet(rows)
+    panel = [{"symbol": f"P{i}", "revenue_growth": 0.04} for i in range(8)]
+    packet = packet.model_copy(update={
+        "estimates": {**packet.estimates, "peer_panel": panel}
+    })
+    out = fin.run(packet)
+    row = next(r for r in out.metrics if r.metric_id == "FIN-GR-003")
+    assert row.value == pytest.approx(0.10 - 0.04)  # company - peer median
+    assert any("median of 8 peers" in a for a in out.assumptions)
+
+
+def test_fin_gr_003_refuses_below_the_eight_peer_minimum():
+    """SCORING_ENGINE.md: "Use a minimum of 8 valid peers"."""
+    rows = [_row(2025, revenue=1100.0), _row(2024, revenue=1000.0)]
+    packet = _minimal_packet(rows)
+    panel = [{"symbol": f"P{i}", "revenue_growth": 0.04} for i in range(7)]
+    packet = packet.model_copy(update={
+        "estimates": {**packet.estimates, "peer_panel": panel}
+    })
+    out = fin.run(packet)
+    row = next(r for r in out.metrics if r.metric_id == "FIN-GR-003")
+    assert row.state == NullState.MISSING
+    assert any("PEER_PANEL_BELOW_8_VALID_PEERS" in a for a in out.assumptions)

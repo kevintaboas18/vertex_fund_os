@@ -125,6 +125,36 @@ class MetricRow(BaseModel):
     source: str | None = None
     confidence: float
     warnings: list[str] = Field(default_factory=list)
+    #: DATA_POLICY.md's lineage block carries `calculation_inputs`, and each
+    #: FORMULAS.md registry states them per formula in its "Required inputs"
+    #: column — which is why the execution rules can say plainly "Show
+    #: calculation inputs in the output packet". Empty for a specialist that
+    #: does not yet declare them, so this stays additive.
+    calculation_inputs: list[str] = Field(default_factory=list)
+
+    # --- DATA_POLICY.md "Required lineage fields" -------------------------
+    #
+    # That block opens with `metric_id` and `value` and shares five fields
+    # with OUTPUT_CONTRACT.md's row contract, so the two describe one object:
+    # the contract says what a row publishes, the lineage says what it must
+    # carry to be auditable. `period_start`/`period_end` are the explicit form
+    # of `period`; `source_type`/`source_name`/`source_locator` the explicit
+    # form of `source`. `Value` already records `as_of`, `source_name` and
+    # `source_locator`, and this row was dropping all three.
+    #
+    # Optional so a specialist that has not populated them yet is unaffected.
+    period_start: str | None = None
+    period_end: str | None = None
+    as_of: str | None = None
+    knowledge_timestamp: str | None = None
+    source_type: str | None = None
+    source_name: str | None = None
+    source_locator: str | None = None
+    #: NORMALIZATION_AND_RESTATEMENTS.md: "Use the latest restated historical
+    #: series." None where the packet carries no restatement signal — an
+    #: unknown, not a claim that the figure is original.
+    restated: bool | None = None
+    currency: str | None = None
 
     @model_validator(mode="after")
     def _exactly_one_of_value_or_state(self) -> "MetricRow":
@@ -146,6 +176,13 @@ class MetricRow(BaseModel):
         score: float | Literal["NOT_SCORABLE"],
         confidence: float,
         source: str | None = None,
+        calculation_inputs: list[str] | None = None,
+        period_start: str | None = None,
+        period_end: str | None = None,
+        knowledge_timestamp: str | None = None,
+        source_type: str | None = None,
+        restated: bool | None = None,
+        currency: str | None = None,
     ) -> "MetricRow":
         """Build a `MetricRow` from a computed `Value` plus the score/
         confidence bookkeeping a bare `Value` doesn't carry.
@@ -163,9 +200,23 @@ class MetricRow(BaseModel):
             formula_version=formula_version,
             score=score,
             evidence_class=v.evidence_class,
-            source=source if source is not None else (v.source_name or v.source_locator),
+            # OUTPUT_CONTRACT.md's `source` is a "Stable source locator", so
+            # the locator wins where a Value carries both. A specialist that
+            # records only `source_name` is unaffected.
+            source=source if source is not None else (v.source_locator or v.source_name),
             confidence=confidence,
             warnings=list(v.warnings),
+            calculation_inputs=list(calculation_inputs or []),
+            # Lineage the `Value` already recorded and this row used to drop.
+            as_of=v.as_of if v.as_of else knowledge_timestamp,
+            source_name=v.source_name,
+            source_locator=v.source_locator,
+            period_start=period_start,
+            period_end=period_end,
+            knowledge_timestamp=knowledge_timestamp,
+            source_type=source_type,
+            restated=restated,
+            currency=currency,
         )
 
 

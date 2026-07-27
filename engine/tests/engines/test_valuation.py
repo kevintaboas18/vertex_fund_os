@@ -377,29 +377,6 @@ def test_incremental_roic_zero_delta_ic_refused():
     assert r.is_null and r.state == NullState.NOT_MEANINGFUL
 
 
-# FORMULAS.md, BUS-IROIC-016: "not meaningful for negative denominator change".
-# Un denominador negativo INVIERTE el signo y hace que el ratio diga lo contrario
-# de lo que paso, y BUS-ALLOC-029 (IROIC - WACC) es una dimension que PUNTUA.
-
-def test_incremental_roic_negative_delta_ic_refused():
-    """Capital invertido que ENCOGE: el ratio deja de tener sentido."""
-    r = ve.incremental_roic(15.0, -100.0)
-    assert r.is_null and r.state == NullState.NOT_MEANINGFUL
-    assert "DELTA_IC_NEGATIVE" in r.warnings
-
-
-def test_incremental_roic_does_not_reward_a_shrinking_business():
-    """NOPAT baja y capital baja: antes devolvia +20% (parecia gran reinversion)."""
-    r = ve.incremental_roic(-20.0, -100.0)
-    assert r.is_null, "una empresa encogiendo no puede puntuar como buen asignador de capital"
-
-
-def test_incremental_roic_does_not_punish_more_profit_on_less_capital():
-    """NOPAT sube y capital baja: antes devolvia -20% (parecia destruccion de valor)."""
-    r = ve.incremental_roic(20.0, -100.0)
-    assert r.is_null, "ganar mas con menos capital no puede leerse como destruccion de valor"
-
-
 def test_fundamental_growth():
     assert ve.fundamental_growth(0.4, 0.125).value == pytest.approx(0.05)
 

@@ -1,0 +1,14 @@
+{
+  "_comment_1": "SUCESION DE REGISTRANTE. Cuando una empresa se reorganiza (tipicamente en un holding), el ticker se mueve al registrante nuevo y el historial XBRL se queda bajo el predecesor. El mapa de tickers de la SEC es tier 1 y apunta al nuevo, asi que el motor lo sigue correctamente y se queda sin datos. Este archivo declara el CIK a usar en su lugar.",
+  "_comment_2": "REGLA DURA: una entrada sin `source_locator` se RECHAZA y se ignora. DATA_POLICY.md exige un localizador estable para cualquier valor; un CIK sustituido sin el filing que documenta la sucesion seria una inferencia disfrazada de dato. El motor tambien exige que el CIK declarado tenga tags us-gaap y que el original no, para que un override no pueda tapar un CIK que si funciona.",
+  "_comment_3": "COMO VERIFICARLO: busca el Form 8-K12B del registrante nuevo en EDGAR. Ese formulario es especificamente el de emisor sucesor (Regla 12g-3). Si no existe, NO declares el override: dos CIKs con el mismo ticker pueden ser entidades sin relacion, y unirlos contamina el analisis peor que el hueco que resuelve.",
+  "_comment_4": "El motor NO oculta la sustitucion: cada packet que la usa lleva un aviso EDGAR_CIK_OVERRIDE con el CIK, el filing y la razon.",
+
+  "XOM": {
+    "cik": 34088,
+    "reason": "ExxonMobil se reorganizo en holding. El mapa de tickers de la SEC apunta XOM a ExxonMobil Holdings Corp (CIK 2115436), que radica 0 tags us-gaap y ningun 10-K; los 438 tags y el 10-K del 2026-02-18 estan bajo el predecesor Exxon Mobil Corporation (CIK 34088). Mismo ticker (XOM), mismo exchange (NYSE) y mismo SIC (2911) en ambos registrantes; EIN distintos, consistente con una reorganizacion societaria.",
+    "source_locator": "8-K12B accession 0001193125-26-291990, radicado 2026-07-01 por CIK 2115436, items 1.01/2.01/2.03/3.03/5.02/5.03/9.01",
+    "source_type": "filing",
+    "verified": "2026-07-26"
+  }
+}

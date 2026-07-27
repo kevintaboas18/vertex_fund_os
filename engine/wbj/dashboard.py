@@ -98,7 +98,17 @@ def build_dashboard(packet: Packet, targets: dict | None = None,
         from wbj.judge import answer_judgments
 
         reqs = collect_requests(outputs)
-        judgments = answer_judgments(packet, reqs, settings)
+        # Same EDGAR reader `deep.py` hands the judge: without it the filing
+        # excerpts are never fetched, so concentration/backlog/recurring-revenue
+        # get judged on numbers alone -- the narrative that discloses them lives
+        # only in the 10-K.
+        from wbj.deep import build_providers
+
+        judgments = answer_judgments(
+            packet, reqs, settings,
+            edgar=getattr(build_providers(settings), "edgar", None),
+            outputs=outputs,
+        )
         if judgments:
             overlay = (overlay or []) + judgments
 

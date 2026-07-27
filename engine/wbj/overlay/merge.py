@@ -95,7 +95,6 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from typing import Any
 
 from wbj.core.nullstates import EvidenceClass, NullState, Value
 from wbj.core.scoring import Dimension
@@ -116,14 +115,37 @@ _CONFIDENCE_BY_EVIDENCE_CLASS: dict[EvidenceClass, float] = {
     EvidenceClass.Q: 30.0,
 }
 
-# The ordered qualitative ladders the 6 specialists actually emit as
-# `schema_hint="one of ..."`, each mapped to the 0-10 score its own
-# specialist's methodology implies (documented, not positional guessing --
-# see module docstring point 3). Keyed by the frozenset of options so the
-# lookup is order-insensitive.
+# Qualitative ladders that Cerebro converts to a score, and the rule that
+# does the converting.
+#
+# DATA_POLICY.md defines the evidence class every judgment carries: "`Q` -
+# qualitative evidence that is not scored unless a conversion rule
+# exists." CLAUDE.md says the same in the project's own words: "jamas se
+# convierte en score salvo que una regla del Cerebro lo defina
+# explicitamente."
+#
+# So a ladder earns a place here by citing the document that defines it,
+# not by being a sensible ordering. Only one qualifies:
+#
+#   BAD/GOOD/EXCELLENT — `02_financial_analysis/DECISION_RULES.md`'s core
+#   27-metric diagnostic states it outright: "BAD = 0 points / GOOD = 1
+#   point / EXCELLENT = 2 points", which is 0/5/10 on the 0-10 scale.
+#
+# Business's moat ladder used to sit here too, mapping Wide/Narrow/None
+# to 10/5/0. No document defines that conversion — the mapping existed
+# only in this file, and it scored a quarter of the moat dimension on it.
+# A `Wide` answer still fills OUTPUT_SCHEMA.md's required
+# `moat.classification` field and still feeds DECISION_RULES.md's
+# wide-moat gate, both of which Cerebro does define; what it no longer
+# does is convert a qualitative call into points.
 _ENUM_SCORE_TABLE: dict[frozenset[str], dict[str, float]] = {
     frozenset({"BAD", "GOOD", "EXCELLENT"}): {"BAD": 0.0, "GOOD": 5.0, "EXCELLENT": 10.0},
-    frozenset({"Wide", "Narrow", "None"}): {"Wide": 10.0, "Narrow": 5.0, "None": 0.0},
+}
+
+#: The Cerebro rule authorising each ladder above, for the audit trail.
+_ENUM_SCORE_AUTHORITY: dict[frozenset[str], str] = {
+    frozenset({"BAD", "GOOD", "EXCELLENT"}):
+        "02_financial_analysis/DECISION_RULES.md, core 27-metric diagnostic",
 }
 
 
@@ -318,55 +340,7 @@ def _apply_updates(
                 dimensions[di] = _replace_slot(dimensions[di], slot_index, score, judgment)
 
     merged = rescore(output, dimensions=dimensions, metrics=list(metrics_by_id.values()))
-    update: dict[str, Any] = {"assumptions": new_assumptions}
-    update.update(_extension_updates(output, updates))
-    return merged.model_copy(update=update)
-
-
-def _extension_updates(
-    output: SpecialistOutput, updates: list[tuple[JudgmentRequest, Judgment]]
-) -> dict[str, Any]:
-    """Judgment answers whose `metric_id` names an OUTPUT_SCHEMA extension field.
-
-    Three requests ask for content that lives in an extension field rather than
-    in a metric row or a dimension slot — all three are thesis killers, which
-    DECISION_RULES.md makes mandatory ("Always list at least three risks that
-    could invalidate the thesis"):
-
-        business_analysis  three_thesis_killers
-        market_analysis    three_growth_thesis_killers
-        risk_analysis      thesis_killers
-
-    Without this, the sub-agent's answer reached `_apply_updates`, became a
-    metric row and an assumption line, and the extension field the final report
-    reads stayed empty — so the mandatory section was silently absent even with
-    a working judge.
-
-    Conservative by construction: only fields that actually exist on the model
-    are written, INSUFFICIENT is never treated as content, and the `{"items":
-    [...]}` wrapper that `judge._coerce_answer` puts around array answers is
-    unwrapped only for list-typed fields.
-    """
-    fields = type(output).model_fields
-    out: dict[str, Any] = {}
-    for req, judgment in updates:
-        name = req.metric_id
-        if name not in fields:
-            continue
-        answer = judgment.answer
-        if isinstance(answer, str) and answer.strip().upper() == "INSUFFICIENT":
-            continue
-        if isinstance(answer, dict) and "items" in answer:
-            answer = answer["items"]
-        annotation = str(fields[name].annotation)
-        if annotation.startswith("list"):
-            if not isinstance(answer, list):
-                answer = [answer]
-            answer = [a for a in answer if a not in (None, "")]
-            if not answer:
-                continue
-        out[name] = answer
-    return out
+    return merged.model_copy(update={"assumptions": new_assumptions})
 
 
 def _replace_slot(dimension: Dimension, slot_index: int, score: float, judgment: Judgment) -> Dimension:

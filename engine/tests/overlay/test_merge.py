@@ -9,18 +9,13 @@ coverage both increase (the metric_id -> `judgment_slots` -> dimension-slot
 wiring, not just the flat metrics row): financial's `FIN-GR-004`/`FIN-GR-005`,
 business's `moat_classification`, and market's `tam_source_tier_assignment`.
 
-`risk_analysis`'s two JudgmentRequests (`thesis_killers`,
-`regulatory_legal_exposure`) use "array of ..." schema_hints, whose answers
-are `{"items": [...]}` dicts -- `merge.py`'s own documented rule 3 never
-reduces a dict answer to a score, so neither can move a dimension SLOT, and
-forcing one would be the "fake slot" the wiring brief says to avoid. That
-still holds.
-
-What those array answers DO reach is the OUTPUT_SCHEMA extension field named
-by their `metric_id` (`_extension_updates`), because DECISION_RULES.md makes
-the thesis-killer list mandatory content of the report. The tests at the
-bottom cover that path and assert explicitly that writing it leaves every
-dimension score untouched -- content, not scoring.
+`risk_analysis` is deliberately NOT covered by an end-to-end test here:
+both of its JudgmentRequests (`thesis_killers`, `regulatory_legal_exposure`)
+use "array of ..." schema_hints, whose answers are `{"items": [...]}` dicts
+-- `merge.py`'s own documented rule 3 never reduces a dict answer to a
+score, so neither request can ever move a dimension slot regardless of how
+`risk.py` registers its `judgment_slots`. Forcing a slot for either would be
+the "fake slot" the wiring brief says to avoid.
 """
 
 from __future__ import annotations
@@ -253,17 +248,39 @@ def test_merge_overlay_financial_enum_scores_and_increases_points_and_coverage()
     assert before.metrics[0].state == NullState.NOT_SCORABLE
 
 
-def test_merge_overlay_enum_ladder_direction_business_wide_is_best():
-    """The two real enum ladders point opposite ways; Wide (business) is
-    best=10 even though it is the FIRST option, and EXCELLENT (financial) is
-    best=10 even though it is the LAST -- proving no positional convention."""
+def test_only_a_cerebro_defined_ladder_converts_to_a_score():
+    """DATA_POLICY.md: "`Q` - qualitative evidence that is not scored
+    unless a conversion rule exists." A ladder earns its place in
+    `_ENUM_SCORE_TABLE` by citing the document that defines it.
+
+    Financial's does: `02_financial_analysis/DECISION_RULES.md` states
+    "BAD = 0 points / GOOD = 1 point / EXCELLENT = 2 points", which is
+    0/5/10 on the 0-10 scale. Business's Wide/Narrow/None -> 10/5/0 had
+    no such rule anywhere in Cerebro; it existed only in this file, and
+    it scored a quarter of the moat dimension."""
+    from wbj.overlay.merge import _ENUM_SCORE_AUTHORITY, _ENUM_SCORE_TABLE
+
+    assert frozenset({"BAD", "GOOD", "EXCELLENT"}) in _ENUM_SCORE_TABLE
+    assert frozenset({"Wide", "Narrow", "None"}) not in _ENUM_SCORE_TABLE
+
+    # Every authorised ladder names the rule that authorises it.
+    assert set(_ENUM_SCORE_TABLE) == set(_ENUM_SCORE_AUTHORITY)
+    for options, authority in _ENUM_SCORE_AUTHORITY.items():
+        assert ".md" in authority, sorted(options)
+
+
+def test_a_moat_answer_is_recorded_as_context_and_not_as_points():
+    """The answer is still evidence: it fills OUTPUT_SCHEMA.md's required
+    `moat.classification` and feeds DECISION_RULES.md's wide-moat gate.
+    What it no longer does is become points."""
     before = _business_context_only_output()
     judgment = Judgment(
         request_id=BIZ_REQ, answer="Wide", evidence_class=EvidenceClass.E, source="analyst"
     )
     after = merge_overlay([before], [judgment])[0]
     row = next(r for r in after.metrics if r.metric_id == "moat_classification")
-    assert row.value == pytest.approx(10.0)
+    assert row.score == "NOT_SCORABLE"
+    assert any("Wide" in a for a in after.assumptions), "kept as context"
 
 
 def test_merge_overlay_context_only_when_no_dimension_slot():
@@ -277,8 +294,8 @@ def test_merge_overlay_context_only_when_no_dimension_slot():
     assert after.coverage == pytest.approx(before.coverage)
     assert after.category.awarded_points == pytest.approx(before.category.awarded_points)
     row = next(r for r in after.metrics if r.metric_id == "moat_classification")
-    assert row.value == pytest.approx(10.0)  # flat row still scored/recorded
-    assert row.confidence == pytest.approx(65.0)
+    # Recorded, not scored: Cerebro defines no Wide/Narrow/None conversion.
+    assert row.score == "NOT_SCORABLE"
 
 
 # --- merge_overlay: confidence reflects evidence class ----------------------
@@ -461,24 +478,29 @@ def test_end_to_end_financial_run_answer_judgments_moves_points_and_coverage(nvd
     assert after.category.awarded_points == pytest.approx(recomputed)
 
 
-def test_end_to_end_business_run_answer_moat_judgment_moves_points_and_coverage(nvda_packet):
-    """`business.run()`'s `moat_classification` judgment is wired to a
-    NOT_SCORABLE 4th member of `moat_and_pricing_power` (equal-weighted with
-    the 3 mechanical inputs). `wacc=0.09` is supplied so the 3 mechanical
-    inputs are themselves valid (isolating the judgment-slot wiring from an
-    unrelated MISSING-wacc coverage gate, the same reason
-    `test_moat_capped_at_6_without_positive_spread` supplies a `wacc`)."""
+def test_end_to_end_a_moat_judgment_does_not_move_business_points(nvda_packet):
+    """`moat_classification` holds no dimension slot at all, and the
+    category total is unchanged however the question is answered.
+
+    DATA_POLICY.md scores `Q` evidence "unless a conversion rule exists",
+    and Cerebro defines no conversion from Wide/Narrow/None to a 0-10
+    score. The answer is kept as context — it fills the schema's moat
+    block and feeds the wide-moat gate — but the category total is
+    unchanged, which is CLAUDE.md's own rule: "jamas se convierte en
+    score salvo que una regla del Cerebro lo defina explicitamente".
+    """
     before = bus.run(nvda_packet, overlay={"wacc": 0.09})
 
     reqs = collect_requests([before])
-    req_ids = {r.request_id for r in reqs}
-    assert "business_analysis:moat_classification" in req_ids
-    assert before.judgment_slots["moat_classification"][0] == bus.DIM_MOAT
+    assert "business_analysis:moat_classification" in {r.request_id for r in reqs}
+    # No dimension slot: SCORING.md's moat row lists three inputs and the
+    # classification is not one of them.
+    assert "moat_classification" not in before.judgment_slots
 
     judgments = [
         Judgment(
             request_id=r.request_id,
-            answer="Wide",  # first of Wide|Narrow|None -> best -> 10.0
+            answer="Wide",
             evidence_class=EvidenceClass.E,
             source="claude-sub-agent:business",
             rationale="persistent spread, stable margins, no unresolved concentration",
@@ -488,13 +510,12 @@ def test_end_to_end_business_run_answer_moat_judgment_moves_points_and_coverage(
     ]
     after = merge_overlay([before], judgments)[0]
 
-    assert after.category.awarded_points > before.category.awarded_points
-    assert after.coverage > before.coverage
+    assert after.category.awarded_points == pytest.approx(before.category.awarded_points)
+    assert after.coverage == pytest.approx(before.coverage)
 
     row = next(r for r in after.metrics if r.metric_id == "moat_classification")
-    assert row.state is None
-    assert row.value == pytest.approx(10.0)
-    assert row.confidence == pytest.approx(65.0)
+    assert row.score == "NOT_SCORABLE"
+    assert any("Wide" in a for a in after.assumptions), "the answer is kept as context"
 
     recomputed = Category(
         name=after.agent_id, max_points=after.category.max_points, dimensions=after.dimensions
@@ -502,16 +523,25 @@ def test_end_to_end_business_run_answer_moat_judgment_moves_points_and_coverage(
     assert after.category.awarded_points == pytest.approx(recomputed)
 
 
-def test_end_to_end_market_run_answer_tam_source_tier_judgment_moves_points_and_coverage(nvda_packet):
-    """`market.run()`'s `tam_source_tier_assignment` judgment is wired to a
-    NOT_SCORABLE 6th member of `tam_and_industry_tailwind` (equal-weighted
-    with the 5 mechanical inputs). `merge.py`'s numeric-answer path scores a
-    number directly (clamped to [0, 10], not through `TAM_TIER_CONFIDENCE`'s
-    tier ladder), so the highest-scoring answer this "integer 1-5" schema
-    can carry is 5; the overlay below is chosen so the 5 mechanical members
-    average below that, isolating the wiring (slot moves the score up) from
-    the (separate, real-world) fact that tier 5 is DECISION_RULES.md's
-    *lowest*-confidence source tier."""
+def test_a_tam_source_tier_is_recorded_as_context_and_never_scored(nvda_packet):
+    """A tier is not a score.
+
+    `03_market_analysis/DECISION_RULES.md` maps the tier to a *confidence
+    component* -- tier 1 (government/audited) 100, tier 4 (issuer estimate)
+    45, tier 5 (unattributed) "0; not scorable" -- which is exactly what
+    `TAM_TIER_CONFIDENCE` already holds.
+
+    The judgment used to fill a weighted slot in the TAM dimension, and
+    merge's numeric path turned the answer straight into a 0-10 score. That
+    ladder was inverted and measured the wrong quantity: tier 1, the best
+    source Victor recognises, scored 1.0, while tier 5 -- the one he calls
+    not scorable -- scored 5.0. The test that stood here asserted the answer
+    "moves points and coverage", pinning the defect in place; its own
+    docstring conceded the ladder ran "not through TAM_TIER_CONFIDENCE".
+
+    DATA_POLICY.md settles it: "`Q` - qualitative evidence that is not scored
+    unless a conversion rule exists." No rule converts a tier into points.
+    """
     overlay = {
         "tam": 100_000.0,
         "tam_history": [100_000.0, 100_000.0],
@@ -523,89 +553,28 @@ def test_end_to_end_market_run_answer_tam_source_tier_judgment_moves_points_and_
     before = mkt.run(nvda_packet, overlay=overlay)
 
     reqs = collect_requests([before])
-    req_ids = {r.request_id for r in reqs}
-    assert "market_analysis:tam_source_tier_assignment" in req_ids
-    assert before.judgment_slots["tam_source_tier_assignment"][0] == mkt.DIM_TAM
+    assert "market_analysis:tam_source_tier_assignment" in {r.request_id for r in reqs}, (
+        "the tier is still worth asking for -- it feeds confidence"
+    )
+    assert "tam_source_tier_assignment" not in before.judgment_slots, (
+        "a tier must not hold a scored dimension slot"
+    )
 
     judgments = [
-        Judgment(
-            request_id=r.request_id,
-            answer=5,
-            evidence_class=EvidenceClass.E,
-            source="claude-sub-agent:market",
-            rationale="best score obtainable under the integer 1-5 schema_hint",
-        )
-        for r in reqs
-        if r.metric_id == "tam_source_tier_assignment"
+        Judgment(request_id=r.request_id, answer="5", evidence_class=EvidenceClass.E,
+                 source="claude-sub-agent:market", rationale="unattributed claim")
+        for r in reqs if r.metric_id == "tam_source_tier_assignment"
     ]
     after = merge_overlay([before], judgments)[0]
 
-    assert after.category.awarded_points > before.category.awarded_points
-    assert after.coverage > before.coverage
+    # Victor's worst tier must not raise the score by a single point.
+    assert after.category.awarded_points == pytest.approx(before.category.awarded_points)
 
     row = next(r for r in after.metrics if r.metric_id == "tam_source_tier_assignment")
-    assert row.state is None
-    assert row.value == pytest.approx(5.0)
-    assert row.confidence == pytest.approx(65.0)
-
-    recomputed = Category(
-        name=after.agent_id, max_points=after.category.max_points, dimensions=after.dimensions
-    ).points()
-    assert after.category.awarded_points == pytest.approx(recomputed)
+    assert row.value is None, "a tier reached the score after all"
+    assert any("5" in (w or "") for w in (row.warnings or [])), "the answer must still be recorded"
 
 
-# ── Campos de extension: los thesis killers del juez tienen que LLEGAR al reporte ──
-# DECISION_RULES.md (risk): "Always list at least three risks that could invalidate
-# the thesis". Antes la respuesta del juez se convertia en fila de metrica y linea de
-# assumption, pero el campo de extension que lee el reporte final se quedaba vacio.
-
-def _tk(n=3):
-    return [{"risk": f"R{i}", "probability_assumption": 0.2, "impact": "high",
-             "early_warning_metric": "m", "trigger_level": "t", "time_horizon": "12m",
-             "mitigant": "mit"} for i in range(n)]
-
-
-def test_thesis_killers_reach_the_risk_output():
-    from wbj.judge import _coerce_answer
-    out = _risk_output_with_thesis_killer_request()
-    req = next(r for r in out.judgment_requests if r.metric_id == "thesis_killers")
-    j = Judgment(request_id=req.request_id,
-                 answer=_coerce_answer(json.dumps(_tk()), req.schema_hint),
-                 evidence_class=EvidenceClass.Q, source="judge")
-    merged = merge_overlay([out], [j])[0]
-    assert len(merged.thesis_killers) == 3
-    assert set(merged.thesis_killers[0]) == {
-        "risk", "probability_assumption", "impact", "early_warning_metric",
-        "trigger_level", "time_horizon", "mitigant"}
-
-
-def test_insufficient_never_becomes_thesis_killer_content():
-    out = _risk_output_with_thesis_killer_request()
-    req = next(r for r in out.judgment_requests if r.metric_id == "thesis_killers")
-    j = Judgment(request_id=req.request_id, answer="INSUFFICIENT",
-                 evidence_class=EvidenceClass.Q, source="judge")
-    merged = merge_overlay([out], [j])[0]
-    assert merged.thesis_killers == [], "INSUFFICIENT no es contenido"
-
-
-def test_extension_write_does_not_disturb_scoring():
-    from wbj.judge import _coerce_answer
-    out = _risk_output_with_thesis_killer_request()
-    req = next(r for r in out.judgment_requests if r.metric_id == "thesis_killers")
-    before = [d.score10_value().value for d in out.dimensions]
-    j = Judgment(request_id=req.request_id,
-                 answer=_coerce_answer(json.dumps(_tk()), req.schema_hint),
-                 evidence_class=EvidenceClass.Q, source="judge")
-    merged = merge_overlay([out], [j])[0]
-    after = [d.score10_value().value for d in merged.dimensions]
-    assert before == after, "escribir un campo de extension no puede mover el puntaje"
-
-
-def _risk_output_with_thesis_killer_request():
-    import json as _json
-    from wbj.packet.builder import Packet
-    import wbj.specialists.risk as rsk
-    import pathlib
-    fx = pathlib.Path(__file__).resolve().parents[1] / "fixtures/packet/NVDA_packet.json"
-    pk = Packet.model_validate(_json.load(open(fx)))
-    return rsk.run(pk, overlay={"wacc": 0.1193})
+def test_victors_tier_table_is_the_one_the_engine_holds():
+    """Tier -> confidence, straight out of DECISION_RULES.md's table."""
+    assert mkt.TAM_TIER_CONFIDENCE == {1: 100.0, 2: 85.0, 3: 70.0, 4: 45.0, 5: 0.0}

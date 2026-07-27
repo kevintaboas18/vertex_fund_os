@@ -19,22 +19,22 @@ is the union span of the participating references' own bounds, never a
 computed mean, and every `LevelReference`'s own `value`/`zone_low`/
 `zone_high` is copied straight from its source, untouched.
 
-## Documented discrepancy: `distance_percent` units
+## `distance_percent` units: percentage, per Victor's own worked example
 
-PRICE_LEVEL_SYNTHESIS.md states `Distance_percent = (Level -
-CurrentPrice) / CurrentPrice` (a raw fraction, e.g. `0.05` for 5%). Task
-12's already-implemented `wbj.engines.levels_engine.compute_levels` (which
-this module must not modify) instead computes `Zone.distance_percent` as
-that fraction *times 100* (a percentage number, e.g. `5.0`). Rather than
-mix units within one synthesized table -- unreadable, and silently wrong
-if a caller ever sums/compares two entries -- every `distance_percent`
-this module computes locally (moving averages, AVWAPs, earnings-gap
-boundaries, valuation bands) follows Task 12's already-shipped convention
-(percentage units, not a fraction) for consistency across the whole table.
-Flagged here and in the Task 21 commit message; Cerebro's own formula
-text would otherwise win per the task instructions, but it cannot be
-reconciled with already-frozen Task 12 code without modifying that module,
-which is out of scope.
+PRICE_LEVEL_SYNTHESIS.md writes the formula as `Distance_percent = (Level -
+CurrentPrice) / CurrentPrice`, which reads as a raw fraction. Cerebro's own
+worked example settles the units the other way: `examples/
+SUBAGENT_OUTPUT_EXAMPLE.md` reports `center: 85.00` with
+`distance_percent: 6.25`, i.e. an implied current price of 80.00 --
+`(85 - 80)/80 = 0.0625` expressed as **6.25**, a percentage number, not
+`0.0625`. `wbj.engines.levels_engine.compute_levels` already emits
+`Zone.distance_percent` in those same percentage units.
+
+So every `distance_percent` this module computes locally (moving averages,
+AVWAPs, earnings-gap boundaries, valuation bands) is in percentage units,
+matching both the engine's zones and Victor's example, and the whole
+synthesized table shares one unit. This is agreement with Cerebro, not a
+deviation from it -- do not "correct" it to a fraction.
 """
 
 from __future__ import annotations

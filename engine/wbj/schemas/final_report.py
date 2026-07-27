@@ -39,6 +39,8 @@ is the report-renderer's job (Task 23), not this task's. Every other
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -47,6 +49,7 @@ from wbj.aggregate.contradiction import Contradiction
 from wbj.aggregate.gates import ProfileResult
 from wbj.aggregate.overrides import AggregateInputs
 from wbj.aggregate.synthesis import LevelReference, LevelSynthesis
+from wbj.specialists.common import SpecialistOutput
 from wbj.specialists.valuation import ReverseDCFSummary as _ValuationReverseDCFSummary
 from wbj.specialists.valuation import ScenarioSummary
 
@@ -60,6 +63,9 @@ __all__ = [
     "AuditSummary",
     "FinalReport",
     "build_final_report",
+    "specialist_packet_hash",
+    "specialist_packet_hashes",
+    "collected_formula_versions",
 ]
 
 REPORT_VERSION = "2.0.0"
@@ -191,6 +197,21 @@ class FinalReport(BaseModel):
     executive_thesis: ExecutiveThesis
     important_levels: list[LevelReference] = Field(default_factory=list)
     valuation_scenarios: list[ScenarioSummary] = Field(default_factory=list)
+    #: VAL-SCEN-036, `sum(Probability_i * Value_i)`.
+    #: `06_valuation_analysis/DECISION_RULES.md`: "the main report shows each
+    #: value AND the weighted value; it does not show only the average." Each
+    #: value was here in `valuation_scenarios`; the weighted one existed as a
+    #: metric row and this schema carries no metrics section -- Victor's own,
+    #: deliberately a summary -- so the figure the rule names by name reached
+    #: the specialist output and stopped there.
+    valuation_weighted_value: float | None = None
+    #: INSTITUTIONAL_VALUATION_ENGINE.md's terminal-value checklist:
+    #: "terminal-value share and implied exit multiple are shown". Section 6.6
+    #: makes the share load-bearing -- above 75% it triggers the
+    #: high-sensitivity warning -- and a reader cannot check a threshold
+    #: against a number the report never carried.
+    terminal_value_share: float | None = None
+    implied_exit_multiple: float | None = None
     reverse_dcf: _ValuationReverseDCFSummary = Field(default_factory=_ValuationReverseDCFSummary)
     thesis_killers: list[str] = Field(default_factory=list)
     monitoring_triggers: list[str] = Field(default_factory=list)
@@ -224,6 +245,38 @@ def _collect_thesis_killers(inputs: AggregateInputs) -> list[str]:
         if text and text not in out:
             out.append(text)
     return out
+
+
+def specialist_packet_hash(output: SpecialistOutput) -> str:
+    """sha256 of one frozen specialist packet's canonical JSON.
+
+    ORCHESTRATION.md Phase 3: "Hash each specialist packet. Any later
+    correction creates a new packet version and invalidates the prior
+    main-agent calculation." Canonical = sorted keys, compact separators,
+    matching `wbj.packet.builder._hash_packet`'s convention so the two
+    hashes read the same way in an audit trail.
+    """
+    canonical = json.dumps(output.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def specialist_packet_hashes(inputs: AggregateInputs) -> dict[str, str]:
+    """`{category_name: sha256}` for all six frozen specialist packets."""
+    return {name: specialist_packet_hash(output) for name, output in inputs.by_category().items()}
+
+
+def collected_formula_versions(inputs: AggregateInputs) -> list[str]:
+    """Every distinct formula version in play across the six packets, sorted.
+
+    ORCHESTRATION.md Phase 8 requires a "formula and source audit" and
+    FINAL_REPORT_SCHEMA.md carries `audit.formula_versions` for it. Each
+    `MetricRow` already records the version of the formula that produced it,
+    so the audit line is a fact about the packets, not something a caller
+    should have to remember to pass in.
+    """
+    return sorted(
+        {m.formula_version for output in inputs for m in output.metrics if m.formula_version}
+    )
 
 
 def build_final_report(
@@ -275,13 +328,28 @@ def build_final_report(
         executive_thesis=executive_thesis,
         important_levels=list(levels.levels),
         valuation_scenarios=list(inputs.valuation.scenarios),
+        terminal_value_share=inputs.valuation.terminal_value_share,
+        implied_exit_multiple=inputs.valuation.implied_exit_multiple,
+        valuation_weighted_value=next(
+            (m.value for m in inputs.valuation.metrics
+             if m.metric_id == "VAL-SCEN-036" and m.value is not None), None),
         reverse_dcf=inputs.valuation.reverse_dcf,
         thesis_killers=_collect_thesis_killers(inputs),
         monitoring_triggers=monitoring_triggers,
         missing_or_conflicted_data=missing_or_conflicted,
         audit=AuditSummary(
-            packet_hashes=packet_hashes or {},
-            formula_versions=formula_versions or [],
+            # ORCHESTRATION.md Phase 3 requires each specialist packet to be
+            # hashed; computed here when the caller does not supply hashes, so
+            # the freeze guarantee is never silently absent from the audit
+            # trail.
+            packet_hashes=packet_hashes if packet_hashes is not None else specialist_packet_hashes(inputs),
+            # Same reasoning as packet_hashes: ORCHESTRATION.md Phase 8's
+            # "formula and source audit" is a fact about the frozen packets,
+            # derived here when the caller supplies none.
+            formula_versions=(
+                formula_versions if formula_versions is not None
+                else collected_formula_versions(inputs)
+            ),
             validation_summary={
                 "passed_gates": list(profile.passed_gates),
                 "failed_gates": list(profile.failed_gates),

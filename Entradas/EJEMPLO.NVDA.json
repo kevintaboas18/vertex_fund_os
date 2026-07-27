@@ -1,0 +1,233 @@
+{
+  "_comment_1": "PLANTILLA. Los archivos que empiezan con EJEMPLO NO se cargan nunca, para que unas cifras de muestra no acaben puntuando. Para usarlo: copia a <TICKER>.json, borra lo que no tengas y reemplaza el resto por numeros reales con su fuente.",
+  "_comment_2": "NADA de aqui necesita la API de Anthropic. Claude solo lee el 10-K por ti; cualquier cifra que el extrae la puedes escribir a mano. Lo que NO existe en ninguna fuente gratis es el TAM y el historial de revisiones de analistas.",
+  "_comment_3": "Regla dura: un tam sin tam_source y sin tam_source_tier 1-4 se RECHAZA. DECISION_RULES.md: tier 1=gobierno/auditado (confianza 100), 2=asociacion de industria (85), 3=research independiente (70), 4=estimacion del emisor (45), 5=sin atribuir (0, no puntuable). Confianza bajo 60 capea la dimension TAM en 6.",
+  "tam": 400000000000,
+  "tam_history": [
+    180000000000,
+    250000000000,
+    320000000000,
+    400000000000
+  ],
+  "tam_source": "REEMPLAZAR — estudio o presentacion del emisor, con fecha",
+  "tam_source_tier": 4,
+  "company_relevant_revenue": 356000000000,
+  "share": {
+    "company_sales": 356000000000,
+    "total_market_sales": 400000000000
+  },
+  "share_history": [
+    0.55,
+    0.68,
+    0.82,
+    0.89
+  ],
+  "competitor_shares": [
+    0.89,
+    0.04,
+    0.03,
+    0.02,
+    0.02
+  ],
+  "adoption": {
+    "current_units": 4000000,
+    "eventual_units": 20000000
+  },
+  "_comment_4": "Lo de abajo lo saca Claude del 10-K. Escribirlo a mano da el mismo resultado sin gastar nada. Concentracion de clientes: nota de riesgo de credito o segmentos del 10-K.",
+  "largest_customer_share": 0.22,
+  "customer_shares": [
+    0.22,
+    0.14
+  ],
+  "recurring_revenue": 0.35,
+  "_comment_5": "Catalizadores: el evento y los meses salen del filing (hecho). probability, impact y evidence_quality son SUPUESTOS TUYOS — FORMULAS.md exige que se etiqueten como tales y nunca se presenten como dato reportado. Sin los tres, el catalizador cuenta como narrativo y la dimension queda capeada en 3.",
+  "catalysts": [
+    {
+      "event": "Inicio de produccion en volumen",
+      "months_to_event": 6.0,
+      "probability": 0.8,
+      "impact": 22700000000,
+      "evidence_quality": 0.7
+    }
+  ],
+  "_comment_6": "ntm_contracted = backlog contratado que se reconoce en los proximos 12 meses. El motor lo saca solo de XBRL cuando la empresa etiqueta total Y porcentaje en el mismo periodo; si no, va aqui. NO uses el RPO total: es de contratos a mas de un año.",
+  "ntm_contracted": 966000000,
+  "_comment_7": "Revisiones de estimados. Requiere un proveedor de consenso (FinnHub Premium, Benzinga, I/B/E/S). MKT-REVBR-011 necesita >=5 estimados o queda NOT_SCORABLE. El motor ya calcula prior_consensus solo, guardando snapshots de FMP con fecha: a los 30 dias empieza a funcionar sin que hagas nada.",
+  "estimates": {
+    "upward": 8,
+    "total": 10,
+    "individual_estimates": [
+      8.7,
+      8.9,
+      9.0,
+      9.1,
+      9.4
+    ]
+  },
+  "_comment_8": "VALUACION. Todo lo de abajo es opcional: sin ello cada formula queda MISSING con su remedio escrito en el warning, nunca en cero ni con un promedio inventado. El motor NUNCA sustituye un multiplo de la empresa por uno que falte: FORMULAS.md lo prohibe.",
+  "_comment_9": "VAL-TVE-013 (valor terminal por multiplo de salida). Es SOLO chequeo cruzado: no entra al DCF, jamas cambia un escenario. El motor ya te dice el multiplo IMPLICITO por sus propios fundamentos (sale en assumptions); usa ese como referencia y justifica cualquier desviacion. Seccion 6.5: 'un multiplo del ciclo actual no puede copiarse ciegamente a perpetuidad'.",
+  "exit_multiple": 11.5,
+  "_comment_10": "VAL-SOTP-026 (suma de las partes). segment_revenue lo saca el motor de FMP; TU pones un multiplo POR SEGMENTO, con el nombre exacto que reporta la empresa. Si falta uno solo, la formula se niega entera: prestarle a un segmento el multiplo de otro es el 'blended multiple without segment logic' que la matriz rechaza. holding_discount solo si lo puedes justificar.",
+  "segment_multiples": {
+    "iPhone": 5.0,
+    "Service": 9.0,
+    "Mac": 4.0,
+    "iPad": 4.0,
+    "Wearables, Home and Accessories": 4.0
+  },
+  "holding_discount": 0.0,
+  "_comment_11": "VAL-CONV-039 (dilucion). De las notas de patrimonio y deuda del 10-K. Sin esto el valor por accion queda marcado INCOMPLETO (VAL-T008), no 'sin diluir'. La dilucion es consistente por escenario: un instrumento fuera del dinero en el caso bear no diluye ese caso.",
+  "convertibles": [
+    {
+      "name": "Notas 2029",
+      "face": 5000000000,
+      "conversion_price": 100.0,
+      "conversion_shares": 50000000
+    }
+  ],
+  "options_outstanding": [
+    {
+      "name": "Opciones y RSU",
+      "count": 120000000,
+      "strike": 180.0
+    }
+  ],
+  "_comment_12": "VAL-APV-019 (valor presente ajustado). SOLO para apalancamiento que cambia (LBO). Necesita el CALENDARIO de deuda, no el saldo: un saldo unico es justo el supuesto de WACC estatico que APV existe para reemplazar. distress: probabilidad y costo son supuestos TUYOS; si los dejas en cero el motor lo declara como supuesto, no como ausencia.",
+  "unlevered_fcf": [
+    100000000,
+    110000000,
+    120000000,
+    130000000,
+    140000000
+  ],
+  "debt_schedule": [
+    1000000000,
+    800000000,
+    600000000,
+    400000000,
+    200000000
+  ],
+  "unlevered_cost": 0.095,
+  "pretax_kd": 0.055,
+  "distress_probability": 0.0,
+  "distress_cost": 0.0,
+  "financing_side_effects": 0.0,
+  "_comment_13": "VAL-ROPT-038 (opcion real). SOLO para proyectos materiales, separables y discrecionales, y SOLO si ese proyecto NO esta ya dentro de los flujos del DCF: sumarlo dos veces es el error que FORMULAS.md nombra. volatility es anual (0.45 = 45%). El motor usa Black-Scholes; para un proyecto de varias etapas encadenadas, Victor tambien admite arbol de decision, que NO esta implementado.",
+  "real_option_project": {
+    "project_pv": 1000000000,
+    "investment": 800000000,
+    "volatility": 0.45,
+    "years": 4.0
+  },
+  "_comment_14": "BANCOS Y ASEGURADORAS. El motor los valua con renta residual y DDM (los modelos que la matriz les asigna) y marca la categoria INCOMPLETE: se muestra pero no pasa gate, porque las dimensiones que dependen de FCFF estan prohibidas para ellos. Estos dos afinan esa ruta.",
+  "residual_income_growth": 0.0,
+  "book_growth": 0.03,
+  "_comment_15": "PARAMETROS DEL MODELO. forecast_years es el horizonte explicito y tambien el que usan la TIR implicita (VAL-IRR-041) y la vida media del H-model (H = forecast_years/2). tv_growth es el crecimiento a perpetuidad: DECISION_RULES.md exige que este por DEBAJO del WACC y sea coherente con el crecimiento nominal de largo plazo de la economia.",
+  "forecast_years": 5,
+  "tv_growth": 0.025,
+  "_comment_16": "REITs. FFO y AFFO son medidas NON-GAAP: no estan etiquetadas en XBRL y ningun FORMULAS.md las registra, asi que el motor NO las calcula. Las TRANSCRIBES del comunicado de resultados del emisor, que ya eligio su definicion y la publico: eso las hace evidencia clase R (reportado) en vez de una definicion que el codigo escogio. Por que importa: para Realty Income, FFO va de 3,405M a 3,897M segun si se suman los deterioros de inmuebles y que linea de depreciacion se trate como de inmuebles: 14% de diferencia entre tres lecturas defendibles del mismo filing.",
+  "_comment_17": "REGLA DURA: sin `ffo_source` el motor IGNORA ambas cifras. Un numero non-GAAP sin la definicion declarada no es evidencia reportada. Pon pagina y definicion, no solo el nombre del documento. Con esto el REIT alcanza los DOS chequeos secundarios que su fila de la matriz nombra (P/AFFO y el modelo de dividendos); NAV, AFFO DCF y cap rates siguen sin registrar, asi que la categoria queda INCOMPLETE igual: un chequeo secundario no sustituye a un modelo primario.",
+  "ffo_reported": 3876000000,
+  "affo_reported": 3650000000,
+  "ffo_source": "REEMPLAZAR - ej: Q4 2025 earnings release p.12, definicion NAREIT 2018 (suma deterioros de inmuebles)",
+  "_comment_18": "NAV DE REIT. El motor LOCALIZA y CITA el suplemento trimestral del emisor (sale en assumptions con su 8-K y fecha): ahi el REIT publica FFO, AFFO, NOI y sus cap rates de compra y venta. NO los parsea: ese HTML es un PDF maquetado y una columna mal leida meteria una cap rate equivocada en una valuacion. Los transcribes tu, con la cita.",
+  "_comment_19": "REGLA DURA de cap rate, la MISMA que Victor aplica al TAM: sin `cap_rate_source` y sin `cap_rate_source_tier` 1-4 se RECHAZA. Tier 1=gobierno/auditado, 2=asociacion con metodologia (NCREIF), 3=research independiente con metodologia (CBRE/JLL/Green Street), 4=estimacion del emisor (su propio suplemento), 5=sin atribuir (0, no puntuable).",
+  "_comment_20": "ADVERTENCIA: la cap rate que publica un REIT es de lo que TRANSACCIONO, no de su portafolio. Realty Income cerro compras del Q1 2026 a 6.7% y ventas a 7.2%, y esa segunda va sesgada alto porque de 97 propiedades vendidas 78 estaban VACIAS. Aplicar cualquiera al portafolio completo es juicio tuyo sobre comparabilidad, no un hecho reportado. AUN CON TODO ESTO el motor NO calcula NAV: ningun FORMULAS.md la registra.",
+  "noi_reported": null,
+  "noi_source": "REEMPLAZAR - ej: Q1 2026 supplement p.21, Annualized Pro Forma Cash NOI",
+  "cap_rate": null,
+  "cap_rate_source": "REEMPLAZAR - ej: CBRE US Cap Rate Survey H2 2025, net lease retail",
+  "cap_rate_source_tier": 3,
+  "_comment_21": "MERCADO - RUNWAY Y TAMANOS. MKT-RUN-010 (anios para llegar a la cuota objetivo) necesita los tres: current_revenue, target_revenue y assumed_growth. SAM y SOM NO son cifras sueltas: son FRACCIONES del TAM. sam_inputs = {geography_share, product_share, reachable_share} (que parte del TAM alcanzas por geografia, por linea de producto y por accesibilidad). som_inputs = {target_share} (que parte del SAM aspiras a capturar). Sin TAM valido, ambos quedan MISSING.",
+  "current_revenue": 130000000000,
+  "target_revenue": 300000000000,
+  "assumed_growth": 0.18,
+  "sam_inputs": {
+    "geography_share": 0.65,
+    "product_share": 0.8,
+    "reachable_share": 0.7
+  },
+  "som_inputs": {
+    "target_share": 0.25
+  },
+  "arpu_t": 42000,
+  "_comment_22": "MERCADO - AMPLITUD SECTORIAL (MKT-SECB-023 y TECH-BREAD-039). UN SOLO bloque alimenta ambas. Requiere constituyentes point-in-time del sector: sin eso el motor lo deja MISSING en vez de usar los miembros de hoy sobre precios de ayer, que seria sesgo de supervivencia.",
+  "sector_breadth": {
+    "above_50dma_count": 300,
+    "valid_members": 500
+  },
+  "_comment_23": "MERCADO - CAPACIDAD DE CRECIMIENTO (MKT-GCAP-009): g = reinvestment_rate * roic. Ponlos aqui solo si quieres fijarlos; si no, el motor los deriva de los estados financieros.",
+  "reinvestment_rate": 0.35,
+  "roic": 0.55,
+  "_comment_24": "NEGOCIO - GUIDANCE (BUS-GUIDE-027). Historial de guia vs resultado real, por trimestre. Victor: 'guidance is context, not reported actual' - por eso ningun proveedor la da y va a mano. Sin esto la metrica sale MISSING en TODOS los tickers.",
+  "guidance_history": [
+    {
+      "period": "2025Q4",
+      "guidance_midpoint": 28500000000,
+      "actual": 29100000000
+    }
+  ],
+  "capitalized_rd_adjustment": 0,
+  "_comment_25": "RIESGO - LIQUIDEZ Y DEUDA. RSK-RUN-015 (cash runway) SOLO aplica si la empresa quema caja; el motor calcula la quema del FCF y tu aportas la liquidez comprometida DENTRO del bloque cash_burn: {\"committed_liquidity\": N}, NO como clave suelta. RSK-MAT-016 (muro de vencimientos) usa debt_due, expected_fcf_before_maturity y la misma committed_liquidity. RSK-FCC-012 necesita lease_charge.",
+  "cash_burn": {
+    "committed_liquidity": 0
+  },
+  "debt_due": null,
+  "expected_fcf_before_maturity": null,
+  "lease_charge": null,
+  "_comment_26": "RIESGO - FORENSE Y REGULATORIO. ppe y depreciation alimentan los indices de Beneish (RSK-AQI-023, RSK-DEPI-025); el motor los saca del balance cuando puede. regulatory_events dispara la pregunta cualitativa de exposicion regulatoria al judge. thesis_killers: si los escribes tu, el judge no los necesita (util sin creditos de API).",
+  "ppe": null,
+  "depreciation": null,
+  "regulatory_events": [],
+  "thesis_killers": [],
+  "_comment_27": "RIESGO - PERFIL. position_size_pct es el tamano de posicion que estas considerando, en % del portafolio. Sale del Perfil Inversionista, no de un supuesto: CLAUDE.md exige que maximo por posicion y stop-loss vengan de ese archivo.",
+  "position_size_pct": null,
+  "_comment_28": "FINANZAS. equity_issuance alimenta FIN-CF-016 (financiamiento por emision). Suele estar en el flujo de caja; ponlo solo si el motor no lo encontro.",
+  "equity_issuance": null,
+  "_comment_29": "RESPUESTAS CUALITATIVAS SIN GASTAR API. El bloque `judgments` contesta directamente las preguntas que normalmente van al judge. Se lee ANTES de llamar a la API y esas preguntas se sacan de la cola: si contestas todas, la API no se llama y no cuesta nada. Las claves son el metric_id exacto. Tu respuesta vale lo mismo (clase Q); lo que cambia es el `source`, que queda como 'analyst-input' en el rastro de auditoria en vez del modelo.",
+  "_comment_30": "thesis_killers lleva la estructura de 7 campos que DECISION_RULES.md exige: risk, probability_assumption, impact (low|medium|high|catastrophic), early_warning_metric, trigger_level, time_horizon, mitigant. Minimo 3. moat_classification es Wide, Narrow o None.",
+  "judgments": {
+    "moat_classification": {
+      "answer": "REEMPLAZAR - Wide | Narrow | None",
+      "rationale": "REEMPLAZAR - por que, con la cifra que lo sostiene",
+      "source": "REEMPLAZAR - ej: 10-K FY2025 Item 1"
+    },
+    "three_thesis_killers": [
+      "REEMPLAZAR riesgo 1",
+      "REEMPLAZAR riesgo 2",
+      "REEMPLAZAR riesgo 3"
+    ],
+    "thesis_killers": {
+      "answer": [
+        {
+          "risk": "REEMPLAZAR",
+          "probability_assumption": 0.15,
+          "impact": "high",
+          "early_warning_metric": "BUS-CONC-003",
+          "trigger_level": 0.35,
+          "time_horizon": "12m",
+          "mitigant": "REEMPLAZAR"
+        }
+      ],
+      "rationale": "REEMPLAZAR - criterio de priorizacion",
+      "source": "REEMPLAZAR - ej: revision de portafolio 2026-07"
+    }
+  },
+  "_comment_31": "LA VARA DE VICTOR, no quien contesta. INSTITUTIONAL_VALUATION_ENGINE.md: 'lo mas importante no es el score ni el target, son los supuestos, sensibilidades, condiciones de invalidacion y EVIDENCIA que permiten a OTRO ANALISTA reproducir o refutar el resultado'. Por eso cada respuesta acepta envoltura: {answer, rationale, source}. Un 'Wide' sin razon cumple la mitad (es reproducible) pero no la otra (nadie puede refutarlo). Escribe el rationale.",
+  "_comment_32": "QUE ESCRIBIR TU Y QUE DEJARLE AL JUDGE. La regla es de Victor, textual en 01 y 03 AGENT.md: 'una afirmacion que no se puede atar a un RESULTADO DE FORMULA, EVIDENCIA REPORTADA o SUPUESTO EXPLICITAMENTE DECLARADO es solo contexto y no recibe score'. Formula = el motor. Evidencia reportada = leer el filing (el judge lo hace con los pasajes del 10-K). Supuesto declarado = TUYO: nadie mas puede ser responsable de un supuesto que no hizo.",
+  "_comment_33": "POR ESO: escribe TU las probabilidades e impactos (03 AGENT.md: 'catalyst probabilities and impacts are model assumptions and must be labeled'), los thesis killers (su campo se llama probability_assumption) y la clasificacion de moat. Deja al JUDGE lo que exige LEER el filing: concentracion de clientes, backlog, ingreso recurrente, exposicion regulatoria, el bridge de crecimiento organico. Marca evidence_class 'A' cuando sea supuesto tuyo, no 'Q'.",
+  "arpu_t1": 38000,
+  "_comment_34": "INSUMOS QUE VAN EN PAREJA O DEPENDEN DE OTRO. MKT-ARPU-022 es una TASA DE CRECIMIENTO: necesita arpu_t Y arpu_t1 (periodo actual y anterior); con uno solo queda MISSING. MKT-COVER-016 divide ntm_contracted entre ntm_revenue_estimate, que el motor saca de consenso: si ese proveedor no responde, tu ntm_contracted no alcanza solo. VAL-SOTP-026 multiplica segment_multiples por segment_revenue, que el motor saca de FMP: sin esa segmentacion, tus multiplos no alcanzan solos. En los tres casos el warning te dice cual falta.",
+  "_comment_35": "VAL-RD-002/RDA-003: vida util de I+D en anos. FORMULAS.md dice que es un supuesto de industria; el motor no elige uno.",
+  "rd_useful_life": 5,
+  "_comment_36": "VAL-LEASE-004: pagos de arrendamiento operativo por ano futuro (10-K, nota de arrendamientos). DATASET.md: lease_schedule.",
+  "lease_commitments": [
+    1200000000,
+    1000000000,
+    800000000,
+    600000000,
+    400000000
+  ],
+  "_comment_37": "BUS-REC-002: fraccion 0-1 del ingreso que es recurrente. DATASET.md: recurring_revenue_5y. No el monto absoluto.",
+  "recurring_revenue_share": 0.18
+}

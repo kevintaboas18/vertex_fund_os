@@ -392,3 +392,235 @@ def test_run_external_capital_flag_when_forecast_exceeds_growth_capacity():
         overlay={"target_revenue": 5000.0, "current_revenue": 1000.0, "assumed_growth": 0.50},
     )
     assert "EXTERNAL_CAPITAL_REQUIRED" in out.mandatory_flags
+
+
+# --- narrative-only catalyst cap ---------------------------------------------
+
+
+def test_zero_impact_catalyst_is_not_quantified():
+    """SCORING.md caps a narrative-only catalyst dimension at 3. A
+    catalyst answered with impact=0 is a quantification in form only: it
+    adds nothing to the expected-impact sum, so letting it lift the cap
+    would raise the score on a number that says nothing happened."""
+    from wbj.specialists.market import _is_quantified
+
+    assert _is_quantified({"probability": 0.7, "impact": 0,
+                           "evidence_quality": 0.3}) is False
+
+
+def test_zero_probability_catalyst_is_not_quantified():
+    from wbj.specialists.market import _is_quantified
+
+    assert _is_quantified({"probability": 0.0, "impact": 1e9,
+                           "evidence_quality": 0.5}) is False
+
+
+def test_a_real_impact_counts_as_quantified():
+    from wbj.specialists.market import _is_quantified
+
+    assert _is_quantified({"probability": 0.8, "impact": 22_700_000_000.0,
+                           "evidence_quality": 0.7}) is True
+
+
+def test_a_negative_impact_still_counts():
+    """A catalyst that subtracts value is quantified evidence too — the
+    cap is about narrative vs measured, not good news vs bad."""
+    from wbj.specialists.market import _is_quantified
+
+    assert _is_quantified({"probability": 0.6, "impact": -5e9,
+                           "evidence_quality": 0.6}) is True
+
+
+# ============================================================================
+# Audit fixes: anchor disclosure, reinvestment proxy, TAM CAGR window
+# ============================================================================
+
+
+def test_every_scored_metric_has_a_disclosed_anchor():
+    """The market FORMULAS.md states no numeric band, so every scored 0-10
+    scale is the module's calibration and must be an explicitly disclosed
+    assumption (AGENT.md no-speculation rule). The registry must cover
+    exactly the scored metrics -- the four diagnostic rows (TAM/SAM/SOM/HHI)
+    and MKT-SCEN-025 carry no score and must be absent."""
+    scored = {
+        "MKT-CAGR-004", "MKT-PEN-005", "MKT-SHARE-006", "MKT-SHDELTA-007",
+        "MKT-GCAP-009", "MKT-RUN-010", "MKT-REVBR-011", "MKT-REVMAG-012",
+        "MKT-DISP-013", "MKT-SURP-014", "MKT-BACK-015", "MKT-COVER-016",
+        "MKT-OPLEV-017", "MKT-INCM-018", "MKT-CAT-019", "MKT-TDEC-020",
+        "MKT-ADOPT-021", "MKT-ARPU-022", "MKT-SECB-023", "MKT-RSG-024",
+    }
+    assert set(mkt.ANCHOR_PROVENANCE) == scored
+    for mid in ("MKT-TAM-001", "MKT-SAM-002", "MKT-SOM-003", "MKT-HHI-008", "MKT-SCEN-025"):
+        assert mid not in mkt.ANCHOR_PROVENANCE, mid
+    out = mkt.run(_minimal_packet([_row(y) for y in range(2025, 2020, -1)]))
+    blob = " ".join(out.assumptions)
+    assert "Scoring anchors (partly derived)" in blob
+    for mid in scored:
+        assert mid in blob, f"{mid}: anchor scale not disclosed"
+
+
+def test_each_anchor_provenance_entry_names_its_direction_source():
+    for mid, (source, note) in mkt.ANCHOR_PROVENANCE.items():
+        assert source == "MIXED", mid
+        assert ".md" in note, f"{mid}: no document named for the direction"
+        assert len(note) > 30, mid
+
+
+def test_growth_capacity_prefers_the_validated_packet_reinvestment():
+    """DATASET.md sources roic_reinvestment from a Business/Financial packet;
+    an overlay value wins and carries no proxy warning."""
+    out = mkt.run(
+        _minimal_packet([_row(y) for y in range(2025, 2020, -1)]),
+        overlay={"reinvestment_rate": 0.4, "roic": 0.25},
+    )
+    gcap = next(r for r in out.metrics if r.metric_id == "MKT-GCAP-009")
+    assert gcap.value == pytest.approx(0.4 * 0.25)
+    assert "REINVESTMENT_RATE_PROXY_CAPEX_OVER_NOPAT" not in gcap.warnings
+
+
+def test_growth_capacity_flags_the_local_reinvestment_proxy():
+    """Absent a validated packet, the local capex/NOPAT reinvestment rate is
+    a proxy: FORMULAS.md's execution rule requires a warning, and it is
+    disclosed in assumptions."""
+    out = mkt.run(_minimal_packet([_row(y) for y in range(2025, 2020, -1)]))  # no overlay
+    gcap = next(r for r in out.metrics if r.metric_id == "MKT-GCAP-009")
+    assert "REINVESTMENT_RATE_PROXY_CAPEX_OVER_NOPAT" in gcap.warnings
+    assert any("MKT-GCAP-009" in a and "proxy" in a for a in out.assumptions)
+
+
+def test_tam_cagr_uses_the_registered_5y_window_not_all_history():
+    """FORMULAS.md MKT-CAGR-004 frequency is '3y / 5y'. A 11-point TAM series
+    growing 8%/yr must still yield a ~8% 5-year CAGR, not an 10-year one."""
+    deep = [1000.0 * (1.08 ** i) for i in range(11)]      # 11 points
+    shallow = [1000.0 * (1.08 ** i) for i in range(6)]    # 6 points (5y)
+    out_deep = mkt.run(_minimal_packet([_row(2025)]), overlay={"tam_history": deep})
+    out_shallow = mkt.run(_minimal_packet([_row(2025)]), overlay={"tam_history": shallow})
+    d = next(r for r in out_deep.metrics if r.metric_id == "MKT-CAGR-004")
+    s = next(r for r in out_shallow.metrics if r.metric_id == "MKT-CAGR-004")
+    assert d.value == pytest.approx(0.08, abs=1e-9)
+    assert d.value == pytest.approx(s.value, abs=1e-9)
+
+
+def test_an_additive_saas_adapter_is_not_warned_or_penalised():
+    """INDUSTRY_ADAPTERS.md (via wbj.core.adapters): SaaS is additive -- it
+    changes nothing about the core formulas. The blunt `!= default` test this
+    replaced mis-warned it and cut its model-fit confidence. A SaaS company
+    must draw no adapter caveat and keep the default model-fit."""
+    saas = mkt.run(_minimal_packet([_row(y) for y in range(2025, 2020, -1)],
+                                   industry_adapter="saas_subscriptions"))
+    default = mkt.run(_minimal_packet([_row(y) for y in range(2025, 2020, -1)]))
+    assert not any("industry_adapter" in a for a in saas.assumptions)
+    assert saas.category.confidence == pytest.approx(default.category.confidence)
+
+
+def test_a_model_replacing_adapter_is_warned():
+    """A bank/insurer/REIT draws the growth-capacity/ROIC caveat."""
+    bank = mkt.run(_minimal_packet([_row(y) for y in range(2025, 2020, -1)],
+                                   industry_adapter="banks"))
+    assert any("industry_adapter" in a and "banks" in a for a in bank.assumptions)
+
+
+def test_penetration_and_revision_dashboards_are_populated():
+    """DECISION_RULES.md mandatory output: penetration/share and revision
+    breadth/magnitude must be listed. The dedicated OUTPUT_SCHEMA fields were
+    returned empty even when the metrics were computed."""
+    out = mkt.run(
+        _minimal_packet([_row(y) for y in range(2025, 2020, -1)]),
+        overlay={
+            "company_relevant_revenue": 50.0, "tam": 1000.0,
+            "share": {"company_sales": 50.0, "total_market_sales": 1000.0},
+            "share_history": [0.04, 0.05],
+            "estimates": {"upward": 8, "total": 10, "current_consensus": 110.0,
+                          "prior_consensus": 100.0,
+                          "individual_estimates": [108.0, 110.0, 112.0]},
+        },
+    )
+    assert "MKT-PEN-005" in out.penetration_and_share
+    assert out.penetration_and_share["MKT-PEN-005"]["value"] == pytest.approx(0.05)
+    assert "MKT-SHDELTA-007" in out.penetration_and_share
+    assert "MKT-REVBR-011" in out.revision_dashboard
+    assert out.revision_dashboard["MKT-REVBR-011"]["value"] == pytest.approx(0.80)
+
+
+# ============================================================================
+# Deep re-audit: OPLEV sign change, forecast-consistency gate part 1
+# ============================================================================
+
+
+def test_operating_leverage_is_not_meaningful_across_an_ebit_sign_change():
+    """FORMULAS.md MKT-OPLEV-017: "Not meaningful across loss sign change;
+    use incremental margin instead." A loss->profit swing (EBIT -100 -> 50)
+    used to score a spurious 10/10 leverage because abs(EBIT) masked the
+    crossing. It must be NOT_MEANINGFUL, while MKT-INCM-018 still computes."""
+    rows = [_row(2025, ebit=50.0, revenue=1000.0), _row(2024, ebit=-100.0, revenue=800.0)]
+    out = mkt.run(_minimal_packet(rows))
+    op = next(r for r in out.metrics if r.metric_id == "MKT-OPLEV-017")
+    inc = next(r for r in out.metrics if r.metric_id == "MKT-INCM-018")
+    assert op.state == NullState.NOT_MEANINGFUL
+    assert op.score == "NOT_SCORABLE"
+    assert inc.value == pytest.approx(0.75)  # (50 - -100) / (1000 - 800)
+
+
+def test_operating_leverage_still_computes_when_ebit_keeps_its_sign():
+    """The guard must not fire on an ordinary profit->profit period."""
+    rows = [_row(2025, ebit=300.0, revenue=1200.0), _row(2024, ebit=200.0, revenue=1000.0)]
+    out = mkt.run(_minimal_packet(rows))
+    op = next(r for r in out.metrics if r.metric_id == "MKT-OPLEV-017")
+    # %oi = 100/200 = 0.5 ; %rev = 200/1000 = 0.2 ; leverage = 2.5
+    assert op.value == pytest.approx(2.5)
+
+
+def test_penetration_above_100pct_fails_the_consistency_gate():
+    """DECISION_RULES.md gate part 1: "Company revenue <= TAM." A revenue
+    mapped against a narrower TAM (penetration > 1) is the definition
+    mismatch FORMULAS.md warns against and must raise the flag."""
+    out = mkt.run(
+        _minimal_packet([_row(2025), _row(2024)]),
+        overlay={"company_relevant_revenue": 1500.0, "tam": 1000.0},  # 150% penetration
+    )
+    assert "CONSISTENCY_GATE_FAIL_REVENUE_EXCEEDS_TAM" in out.mandatory_flags
+
+
+def test_penetration_within_tam_does_not_flag():
+    out = mkt.run(
+        _minimal_packet([_row(2025), _row(2024)]),
+        overlay={"company_relevant_revenue": 50.0, "tam": 1000.0},  # 5%
+    )
+    assert "CONSISTENCY_GATE_FAIL_REVENUE_EXCEEDS_TAM" not in out.mandatory_flags
+
+
+def test_runway_caps_the_target_by_tam():
+    """FORMULAS.md MKT-RUN-010: "cap target by TAM." A target above the TAM is
+    unreachable; runway is measured to 100% of TAM. With current=1000,
+    TAM=5000, growth=50%: years = ln(5) / ln(1.5) ~= 3.97."""
+    import math
+    out = mkt.run(
+        _minimal_packet([_row(2025), _row(2024)]),
+        overlay={"tam": 5000.0, "target_revenue": 999999.0,  # absurd, > TAM
+                 "current_revenue": 1000.0, "assumed_growth": 0.50},
+    )
+    run_row = next(r for r in out.metrics if r.metric_id == "MKT-RUN-010")
+    assert run_row.value == pytest.approx(math.log(5.0) / math.log(1.5))
+    assert any("cap target by TAM" in a for a in out.assumptions)
+
+
+def test_runway_leaves_a_within_tam_target_uncapped():
+    import math
+    out = mkt.run(
+        _minimal_packet([_row(2025), _row(2024)]),
+        overlay={"tam": 5000.0, "target_revenue": 2000.0,  # < TAM
+                 "current_revenue": 1000.0, "assumed_growth": 0.50},
+    )
+    run_row = next(r for r in out.metrics if r.metric_id == "MKT-RUN-010")
+    assert run_row.value == pytest.approx(math.log(2.0) / math.log(1.5))
+    assert not any("cap target by TAM" in a for a in out.assumptions)
+
+
+def test_industry_hhi_labels_a_lower_bound_when_residual_missing():
+    """FORMULAS.md MKT-HHI-008: "residual market must be represented or result
+    is a lower bound." Shares summing to <1 leave a residual unrepresented."""
+    partial = mkt.industry_hhi([0.3, 0.2, 0.1])  # sums to 0.6
+    assert partial.value == pytest.approx(0.09 + 0.04 + 0.01)
+    assert "HHI_LOWER_BOUND_RESIDUAL_MARKET_NOT_REPRESENTED" in partial.warnings
+    full = mkt.industry_hhi([0.5, 0.3, 0.2])  # sums to 1.0
+    assert "HHI_LOWER_BOUND_RESIDUAL_MARKET_NOT_REPRESENTED" not in full.warnings

@@ -55,13 +55,14 @@ another security's beta or a sector average.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as _dc_replace
 from typing import Any
 
 import numpy as np
 import pandas as pd
-from pydantic import ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from wbj.core import adapters as _adapters
 from wbj.core.confidence import confidence as _confidence_formula
 from wbj.core.formulas import cagr as _cagr
 from wbj.core.nullstates import EvidenceClass, NullState, Value
@@ -155,6 +156,112 @@ DIMENSION_MAX_POINTS: dict[str, float] = {
 assert sum(DIMENSION_MAX_POINTS.values()) == MAX_POINTS
 
 SOLVENCY_WARNING = "SOLVENCY_WARNING: Operating earnings do not provide a comfortable interest buffer."
+
+# FORMULAS.md RSK-DIL-032 frequency: "3y / 5y". The diluted-share CAGR is
+# measured over the last 5 fiscal years (clamped to what the packet carries),
+# never just the latest year-over-year change.
+DILUTED_CAGR_WINDOW_YEARS = 5
+
+# DECISION_RULES.md forensic-screen rules: "Exclude financial companies and
+# other inapplicable industries." FORMULAS.md marks Altman Z'' "Non-financial
+# companies" and the Beneish M-score "exclusions/adapters required". For a
+# model-replacing adapter (bank/insurer/REIT/biotech -- a different primary
+# model) the Beneish family, Altman Z'', and Piotroski F are NOT_APPLICABLE,
+# not scored. Letting a bank post a 10/10 Altman Z is the "industrial scoring
+# not automatic" failure RSK-T007 guards against.
+_FORENSIC_METRICS: frozenset[str] = frozenset({
+    "RSK-DSRI-021", "RSK-GMI-022", "RSK-AQI-023", "RSK-SGI-024", "RSK-DEPI-025",
+    "RSK-SGAI-026", "RSK-LVGI-027", "RSK-TATA-028",  # Beneish components
+    "RSK-MSCR-029",   # Beneish M-score
+    "RSK-ALT-030",    # Altman Z''
+    "RSK-PIO-031",    # Piotroski F
+})
+
+# ============================================================================
+# Anchor provenance: every scored metric's 0-10 interpolation scale.
+# ============================================================================
+#
+# The risk FORMULAS.md registers NO numeric band, but DECISION_RULES.md's
+# "Quantitative resilience anchors" table DOES give exact boundaries for five
+# measures -- interest coverage (<1.5/1.5-3/>3, strongest >5), cash runway
+# (<12/12-24/>24), 3y max drawdown (worse -60/-30..-60/better -30), downside
+# beta (>1.5/0.8-1.5/<0.8), and customer concentration (largest >30/10-30/<10).
+# Those five metrics carry Victor's own numbers (VICTOR) and are not
+# disclaimed. Every other scored metric's 0-10 scale is this module's
+# calibration -- the direction from a FORMULAS.md caveat or the general
+# "invert raw risk" rule, the magnitude the engine's (MIXED) -- and is
+# surfaced by `_anchor_disclosures()` on every run (AGENT.md no-speculation
+# rule; the discipline already in business.py, market.py, technical.py).
+ANCHOR_PROVENANCE: dict[str, tuple[str, str]] = {
+    # --- VICTOR: DECISION_RULES.md's resilience-anchor table, verbatim ---
+    "RSK-ICOV-011": ("VICTOR", 'DECISION_RULES.md anchors: interest coverage <1.5x (0-3), '
+                     "1.5-3x (4-6), >3x/strongest >5x (7-10)."),
+    "RSK-RUN-015": ("VICTOR", "DECISION_RULES.md anchors: cash runway <12m (0-3), 12-24m "
+                    "(4-6), >24m (7-10)."),
+    "RSK-MDD-006": ("VICTOR", "DECISION_RULES.md anchors: 3y max drawdown worse than -60% "
+                    "(0-3), -30% to -60% (4-6), better than -30% (7-10)."),
+    "RSK-DBETA-004": ("VICTOR", "DECISION_RULES.md anchors: downside beta >1.5 (0-3), 0.8-1.5 "
+                      "(4-6), <0.8 (7-10)."),
+    # --- MIXED: direction Victor's, magnitude the engine's ---
+    "RSK-VOL-001": ("MIXED", 'SCORING.md Volatility dim: "controlled volatility" (7-10) vs '
+                    '"rising unstable volatility" (0-3) -- lower annualized volatility is safer.'),
+    "RSK-VAR-008": ("MIXED", 'DECISION_RULES.md "invert raw risk before scoring" -- a smaller '
+                    "1-day VaR is safer; the magnitude band is the engine's."),
+    "RSK-ND-013": ("MIXED", 'SCORING.md Financing dim: "Low leverage" (7-10) -- a lower net '
+                   "debt / EBITDA is safer; no numeric band in Cerebro."),
+    "RSK-DFC-014": ("MIXED", 'SCORING.md Financing dim: lower net debt / FCF is safer; no '
+                    "numeric band in Cerebro."),
+    "RSK-MAT-016": ("MIXED", 'FORMULAS.md RSK-MAT-016: "Values <1 imply refinancing need" -- '
+                    "the 1.0 boundary is Victor's, the surrounding scale the engine's."),
+    "RSK-PROD-018": ("MIXED", 'FORMULAS.md RSK-PROD-018: "Higher is more concentrated" -- a '
+                     "lower product HHI is safer; magnitude the engine's."),
+    "RSK-GEO-019": ("MIXED", "FORMULAS.md RSK-GEO-019: a lower geographic-concentration HHI is "
+                    "safer; magnitude the engine's."),
+    "RSK-ACCR-020": ("MIXED", 'FORMULAS.md RSK-ACCR-020: "High positive accruals are a warning" '
+                     "-- lower accruals are safer; magnitude the engine's."),
+    "RSK-MSCR-029": ("MIXED", 'FORMULAS.md RSK-MSCR-029: "classic threshold near -1.78" -- the '
+                     "-1.78 screen boundary is Victor's, the surrounding scale the engine's."),
+    "RSK-ALT-030": ("MIXED", "FORMULAS.md RSK-ALT-030 Altman Z'': the ~1.1 distress and ~2.6 "
+                    "safe zones are the classic model's, the interior scale the engine's."),
+    "RSK-PIO-031": ("MIXED", "FORMULAS.md RSK-PIO-031: the 0-9 F-score is Victor's; the linear "
+                    "mapping onto this dimension's 0-10 scale is the engine's."),
+    "RSK-CYC-034": ("MIXED", 'SCORING.md Regulatory/macro dim: lower macro-sensitivity beta is '
+                    "safer; no numeric band in Cerebro."),
+}
+
+#: The two scored inputs that carry no RSK- metric row (a largest-customer
+#: share and a cross-agent margin of safety). Disclosed separately since they
+#: have no `metric_id` to key on.
+_SCORED_WITHOUT_ROW: dict[str, tuple[str, str]] = {
+    "customer_concentration (largest single share)": (
+        "VICTOR", "DECISION_RULES.md anchors: largest customer >30% (0-3), 10-30% "
+        "(4-6), <10%/diversified (7-10)."),
+    "margin_of_safety (valuation-compression dim)": (
+        "MIXED", 'SCORING.md Valuation-compression dim: "Low embedded expectations / '
+        'margin of safety" (7-10) vs "Extreme premium" (0-3) -- a larger margin of '
+        "safety is safer; magnitude the engine's."),
+}
+
+
+def _anchor_disclosures() -> list[str]:
+    """One grouped line naming every metric whose 0-10 scale this module
+    calibrated (AGENT.md: a scored non-reported number must be an explicitly
+    disclosed assumption). The five DECISION_RULES.md resilience anchors are
+    Victor's own numbers and are not disclaimed."""
+    mixed = sorted(m for m, (s, _) in ANCHOR_PROVENANCE.items() if s == "MIXED")
+    mixed += [k for k, (s, _) in _SCORED_WITHOUT_ROW.items() if s == "MIXED"]
+    if not mixed:
+        return []
+    return [
+        "Scoring anchors (partly derived): " + ", ".join(sorted(mixed)) + ". The risk "
+        "FORMULAS.md registers no numeric band; DECISION_RULES.md's resilience-anchor "
+        "table fixes five of them (interest coverage, cash runway, max drawdown, "
+        "downside beta, customer concentration) with Victor's own boundaries, and for "
+        "the rest each metric's scoring direction comes from a FORMULAS.md caveat or "
+        "the 'invert raw risk' rule while the 0-10 interpolation points are this "
+        "module's dated 2.0.0 calibration."
+    ]
+
 
 # `Perfil Inversionista/Victor Gonzalez.md`, transcribed 2026-07 (dated;
 # re-check the source file if the profile changes). Only risk.py reads
@@ -691,6 +798,32 @@ def _to_returns(rows: list) -> pd.Series:
     return np.log(closes / closes.shift(1))
 
 
+_UNSET = object()
+
+
+def _dimension_slot(row: Any, score: float | None = _UNSET) -> Value:
+    """One metric's contribution to a dimension, preserving *why* it is
+    null when it is.
+
+    Collapsing every null into NOT_SCORABLE erased the distinction
+    MISSING_DATA_POLICY.md's decision tree opens with: a metric that does
+    not apply is not a metric we failed to source. Cash runway is the
+    plain case — it is defined only for a company that burns cash, so
+    counting its absence against a cash-generating business penalised it
+    for being profitable. `Dimension.applicable_weight` drops
+    NOT_APPLICABLE from the denominator, but only if the state survives
+    to here.
+    """
+    s = row.score10 if score is _UNSET else score
+    if s is not None:
+        return Value.of(s, unit="score")
+    state = getattr(row.value, "state", None)
+    if state is NullState.NOT_APPLICABLE:
+        return Value.null(NullState.NOT_APPLICABLE, unit="score",
+                          warnings=list(getattr(row.value, "warnings", []) or []))
+    return Value.null(NullState.NOT_SCORABLE, unit="score")
+
+
 def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     """Run the risk specialist against `packet`, producing a `RiskOutput`
     (max 15 pts, higher = safer): the six weighted resilience dimensions,
@@ -770,7 +903,18 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     add("RSK-GAP-010", v_gap, None)
 
     # ---- Financing (overlay-driven interest expense) ----
-    interest_expense = overlay.get("interest_expense")
+    # --- overlay-or-packet reads -------------------------------------------
+    # These five were overlay-only, but the packet builder maps every one of
+    # them from the filings (CANONICAL_FIELD_MAP), so RSK-ICOV-011, FCC-012,
+    # AQI-023, DEPI-025, SGAI-026 -- and with them the whole Beneish M-score
+    # (RSK-MSCR-029) and Altman Z'' (RSK-ALT-030) -- read MISSING on every
+    # real company for want of a wire. An explicit overlay value still wins
+    # (an analyst's normalized figure beats the raw statement line).
+    def _packet_or_overlay(key: str, row: dict, field: str) -> float | None:
+        v = overlay.get(key)
+        return float(v) if v is not None else _num(row, field)
+
+    interest_expense = _packet_or_overlay("interest_expense", latest, "interest_expense")
     if interest_expense is not None and ebit is not None:
         v_icov = interest_coverage(ebit, float(interest_expense))
     else:
@@ -786,7 +930,21 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
         v_fcc = _null(NullState.MISSING, "ratio", "FCC_INPUTS_UNAVAILABLE")
     add("RSK-FCC-012", v_fcc, None)
 
-    add("RSK-ND-013", _null(NullState.MISSING, "ratio", "EBITDA_UNAVAILABLE_NO_DA_FIELD"), None)
+    # Net debt / EBITDA was hardcoded MISSING with "no D&A field" — true
+    # when written, stale since the packet builder began mapping
+    # `ebitda` and `depreciation_and_amortization`. It is a core solvency
+    # measure, so leaving it dark cost the financing dimension a quarter
+    # of its weight over data that was already present.
+    ebitda_t = _num(latest, "ebitda")
+    if ebitda_t is None:
+        da_t = _num(latest, "depreciation_and_amortization")
+        ebitda_t = ebit + da_t if ebit is not None and da_t is not None else None
+    net_debt_nd = (debt_t or 0.0) - (cash_t or 0.0) if debt_t is not None else None
+    if net_debt_nd is not None and ebitda_t is not None:
+        v_nd = net_debt_to_ebitda(net_debt_nd, ebitda_t)
+    else:
+        v_nd = _null(NullState.MISSING, "ratio", "NET_DEBT_TO_EBITDA_INPUTS_UNAVAILABLE")
+    add("RSK-ND-013", v_nd, _score_from_anchor(v_nd, [(0.0, 10), (1.5, 8), (3.0, 5), (4.5, 0)]))
 
     net_debt = (debt_t or 0.0) - (cash_t or 0.0) if debt_t is not None else None
     if net_debt is not None and fcf_t is not None:
@@ -822,7 +980,15 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     add("RSK-CUST-017", v_cust, None)
     # DECISION_RULES.md's anchor is stated on the *largest single customer
     # share*, not the HHI -- scored separately from the reported HHI row.
-    v_cust_share = _ok(largest_customer_share, unit="pct") if largest_customer_share is not None else _null(NullState.MISSING, "pct", "CUSTOMER_CONCENTRATION_UNAVAILABLE_PROHIBITED_IMPUTATION")
+    # Same remedy as business.py's BUS-CONC-003: name the file and the key,
+    # and say that a filing disclosing no threshold customer has nothing to
+    # supply -- otherwise the reader cannot tell a gap from a correct empty.
+    v_cust_share = _ok(largest_customer_share, unit="pct") if largest_customer_share is not None else _null(
+        NullState.MISSING, "pct",
+        "CUSTOMER_CONCENTRATION_UNAVAILABLE_PROHIBITED_IMPUTATION: set "
+        "`largest_customer_share` (0-1, revenue-based) in Entradas/<TICKER>.json "
+        "from the 10-K. A filing that discloses no customer at or above the "
+        "reporting threshold has none to supply and MISSING is correct")
     cust_score = _score_from_anchor(v_cust_share, [(0.50, 0), (0.30, 3), (0.10, 6), (0.0, 10)])
 
     product_shares = overlay.get("product_shares")
@@ -852,28 +1018,46 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     v_gmi = beneish_gmi(gm_t, gm_t1) if gm_t is not None and gm_t1 is not None else _null(NullState.MISSING, "ratio", "GMI_INPUTS_UNAVAILABLE")
     add("RSK-GMI-022", v_gmi, None)
 
-    ppe_t, ppe_t1 = overlay.get("ppe"), overlay.get("ppe_prior")
+    # PP&E: the builder maps FMP's *net* PP&E. Classic Beneish AQI/DEPI use
+    # GROSS PP&E, so this is a documented proxy (the builder says so at the
+    # mapping too) -- FORMULAS.md's execution rule: record it and lower
+    # model-fit confidence.
+    ppe_t = _packet_or_overlay("ppe", latest, "ppe_net")
+    ppe_t1 = _packet_or_overlay("ppe_prior", prior, "ppe_net")
+    ppe_is_proxy = overlay.get("ppe") is None and ppe_t is not None
     if None not in (ca_t, ppe_t, assets_t, ca_t1, ppe_t1, assets_t1):
         v_aqi = beneish_aqi(ca_t, ppe_t, assets_t, ca_t1, ppe_t1, assets_t1)
+        if ppe_is_proxy and v_aqi.is_valid:
+            v_aqi = Value.of(v_aqi.value, unit=v_aqi.unit, evidence_class=v_aqi.evidence_class,
+                             warnings=[*v_aqi.warnings, "PPE_NET_PROXY_FOR_GROSS_PPE"])
     else:
-        v_aqi = _null(NullState.MISSING, "ratio", "AQI_UNAVAILABLE_NO_PPE_FIELD")
+        v_aqi = _null(NullState.MISSING, "ratio", "AQI_INPUTS_UNAVAILABLE")
     add("RSK-AQI-023", v_aqi, None)
 
     v_sgi = beneish_sgi(revenue_t, revenue_t1) if revenue_t is not None and revenue_t1 is not None else _null(NullState.MISSING, "ratio", "SGI_INPUTS_UNAVAILABLE")
     add("RSK-SGI-024", v_sgi, None)
 
-    dep_t, dep_t1 = overlay.get("depreciation"), overlay.get("depreciation_prior")
+    # Depreciation: the packet carries D&A, which includes amortization.
+    # Beneish DEPI is defined on depreciation alone, so this too is a proxy.
+    dep_t = _packet_or_overlay("depreciation", latest, "depreciation_and_amortization")
+    dep_t1 = _packet_or_overlay("depreciation_prior", prior, "depreciation_and_amortization")
+    dep_is_proxy = overlay.get("depreciation") is None and dep_t is not None
     if None not in (dep_t, ppe_t, dep_t1, ppe_t1):
         v_depi = beneish_depi(dep_t, ppe_t, dep_t1, ppe_t1)
+        proxies = ([ "DA_PROXY_FOR_DEPRECIATION" ] if dep_is_proxy else []) +                   ([ "PPE_NET_PROXY_FOR_GROSS_PPE" ] if ppe_is_proxy else [])
+        if proxies and v_depi.is_valid:
+            v_depi = Value.of(v_depi.value, unit=v_depi.unit, evidence_class=v_depi.evidence_class,
+                              warnings=[*v_depi.warnings, *proxies])
     else:
-        v_depi = _null(NullState.MISSING, "ratio", "DEPI_UNAVAILABLE_NO_DA_FIELD")
+        v_depi = _null(NullState.MISSING, "ratio", "DEPI_INPUTS_UNAVAILABLE")
     add("RSK-DEPI-025", v_depi, None)
 
-    sga_t, sga_t1 = overlay.get("sga"), overlay.get("sga_prior")
+    sga_t = _packet_or_overlay("sga", latest, "sga")
+    sga_t1 = _packet_or_overlay("sga_prior", prior, "sga")
     if None not in (sga_t, revenue_t, sga_t1, revenue_t1):
         v_sgai = beneish_sgai(sga_t, revenue_t, sga_t1, revenue_t1)
     else:
-        v_sgai = _null(NullState.MISSING, "ratio", "SGAI_UNAVAILABLE_NO_SGA_FIELD")
+        v_sgai = _null(NullState.MISSING, "ratio", "SGAI_INPUTS_UNAVAILABLE")
     add("RSK-SGAI-026", v_sgai, None)
 
     if None not in (debt_t, assets_t, debt_t1, assets_t1):
@@ -895,11 +1079,11 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
         v_mscr = _null(NullState.MISSING, "score", "MSCR_REQUIRES_ALL_8_COMPONENTS")
     add("RSK-MSCR-029", v_mscr, _score_from_anchor(v_mscr, [(0.0, 0), (-1.78, 5), (-2.5, 8), (-4.0, 10)]))
 
-    retained_earnings = overlay.get("retained_earnings")
+    retained_earnings = _packet_or_overlay("retained_earnings", latest, "retained_earnings")
     if None not in (ca_t, cl_t, assets_t, retained_earnings, ebit, equity_t, liab_t) and liab_t != 0 and assets_t != 0:
         v_alt = altman_z_double_prime((ca_t - cl_t) / assets_t, retained_earnings / assets_t, ebit / assets_t, equity_t / liab_t)
     else:
-        v_alt = _null(NullState.MISSING, "score", "ALTMAN_UNAVAILABLE_NO_RETAINED_EARNINGS_FIELD")
+        v_alt = _null(NullState.MISSING, "score", "ALTMAN_INPUTS_UNAVAILABLE")
     add("RSK-ALT-030", v_alt, _score_from_anchor(v_alt, [(0.0, 0), (1.1, 3), (2.6, 6), (4.0, 10)]))
 
     roa_t = ni_t / assets_t if ni_t is not None and assets_t not in (None, 0) else None
@@ -918,9 +1102,14 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     )
     add("RSK-PIO-031", v_pio, _score_from_anchor(v_pio, [(0.0, 0), (9.0, 10)]))
 
-    valid_diluted = [x for x in (shares_t1, shares_t) if x is not None]
-    if len(valid_diluted) == 2:
-        v_dil = diluted_share_cagr(valid_diluted[1], valid_diluted[0], 1.0)
+    # FORMULAS.md RSK-DIL-032 frequency is "3y / 5y" -- a bounded window, not
+    # the latest year-over-year change. Clamp to the last 5 fiscal years, the
+    # same discipline as FIN-DX-033 / MKT-CAGR-004 / BUS-DIL-028.
+    diluted_hist = [_num(r, "diluted_shares") for r in annual]
+    valid_diluted = [x for x in diluted_hist if x is not None]
+    if len(valid_diluted) >= 2:
+        window = valid_diluted[-(DILUTED_CAGR_WINDOW_YEARS + 1):]
+        v_dil = diluted_share_cagr(window[-1], window[0], float(len(window) - 1))
     else:
         v_dil = _null(NullState.MISSING, "pct", "DILUTED_SHARE_CAGR_INSUFFICIENT_HISTORY")
     add("RSK-DIL-032", v_dil, None)
@@ -976,10 +1165,31 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
 
     by_id = {r.metric_id: r for r in rows}
 
-    if packet.analysis.industry_adapter != "default_nonfinancial":
+    _adapter = packet.analysis.industry_adapter
+    if _adapters.replaces_model(_adapter):
+        # DECISION_RULES.md: "Exclude financial companies and other inapplicable
+        # industries." Mark the Beneish/Altman/Piotroski family NOT_APPLICABLE
+        # so the scoring engine drops it from the coverage denominator and
+        # rescales it out, rather than scoring a prohibited number with a
+        # warning (a bank posting a 10/10 Altman Z, RSK-T007).
+        na = "FORENSIC_SCREEN_NOT_APPLICABLE_FINANCIAL_OR_ADAPTER_INDUSTRY"
+        rows = [
+            _dc_replace(r, value=Value.null(NullState.NOT_APPLICABLE, unit=r.value.unit, warnings=[na]),
+                        score10=None, confidence=0.0)
+            if r.metric_id in _FORENSIC_METRICS else r
+            for r in rows
+        ]
+        by_id = {r.metric_id: r for r in rows}
         assumptions.append(
-            f"industry_adapter={packet.analysis.industry_adapter!r}: forensic screens (Beneish/Altman) "
-            "are excluded for financial companies per DECISION_RULES.md; results above should not be trusted."
+            f"industry_adapter={_adapter!r}: DECISION_RULES.md excludes the Beneish/Altman/"
+            "Piotroski forensic screens for financial companies (and other inapplicable "
+            "industries). RSK-DSRI-021..RSK-PIO-031 are marked NOT_APPLICABLE, not scored."
+        )
+    elif _adapters.normalizes_inputs(_adapter):
+        assumptions.append(
+            f"industry_adapter={_adapter!r}: accrual and margin screens read against a cyclical "
+            "base -- a swing in the commodity cycle can move them without any change in accounting "
+            "quality. Interpret the forensic scores against mid-cycle figures, not trailing ones."
         )
 
     metric_rows: list[MetricRow] = []
@@ -990,8 +1200,7 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     # ---- DIM_FINANCING (3 pts) ----
     financing_scores: list[tuple[float, Value]] = []
     for mid in ("RSK-ICOV-011", "RSK-RUN-015", "RSK-MAT-016", "RSK-DFC-014"):
-        s = by_id[mid].score10
-        financing_scores.append((0.25, Value.of(s, unit="score") if s is not None else Value.null(NullState.NOT_SCORABLE, unit="score")))
+        financing_scores.append((0.25, _dimension_slot(by_id[mid])))
     financing_dim = Dimension(name=DIM_FINANCING, max_points=DIMENSION_MAX_POINTS[DIM_FINANCING], metric_scores=financing_scores)
 
     # ---- DIM_CONCENTRATION (3 pts) ----
@@ -1003,10 +1212,13 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     concentration_dim = Dimension(name=DIM_CONCENTRATION, max_points=DIMENSION_MAX_POINTS[DIM_CONCENTRATION], metric_scores=concentration_scores)
 
     # ---- DIM_EXECUTION_QUALITY (3 pts) ----
-    execution_scores: list[tuple[float, Value]] = []
-    for mid in ("RSK-ACCR-020", "RSK-MSCR-029", "RSK-ALT-030", "RSK-PIO-031"):
-        s = by_id[mid].score10
-        execution_scores.append((0.25, Value.of(s, unit="score") if s is not None else Value.null(NullState.NOT_SCORABLE, unit="score")))
+    # `_dimension_slot` preserves NOT_APPLICABLE (the forensic screens under a
+    # financial adapter), so `Dimension.applicable_weight` drops them from the
+    # coverage denominator and rescales instead of counting them as gaps.
+    execution_scores: list[tuple[float, Value]] = [
+        (0.25, _dimension_slot(by_id[mid]))
+        for mid in ("RSK-ACCR-020", "RSK-MSCR-029", "RSK-ALT-030", "RSK-PIO-031")
+    ]
     execution_dim = Dimension(name=DIM_EXECUTION_QUALITY, max_points=DIMENSION_MAX_POINTS[DIM_EXECUTION_QUALITY], metric_scores=execution_scores)
 
     # ---- DIM_REGULATORY_MACRO (2 pts): only RSK-CYC-034 is mechanically scorable ----
@@ -1041,10 +1253,15 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     ):
         r = by_id[mid]
         s = anchor_score(r.value.value, anchors) if anchors and r.value.is_valid else r.score10
-        volatility_scores.append((0.25, Value.of(s, unit="score") if s is not None else Value.null(NullState.NOT_SCORABLE, unit="score")))
+        volatility_scores.append((0.25, _dimension_slot(r, s)))
     volatility_dim = Dimension(name=DIM_VOLATILITY_DRAWDOWN, max_points=DIMENSION_MAX_POINTS[DIM_VOLATILITY_DRAWDOWN], metric_scores=volatility_scores)
 
     dimensions = [financing_dim, concentration_dim, execution_dim, regulatory_dim, valuation_dim, volatility_dim]
+
+    # AGENT.md's no-speculation rule: every scored metric's 0-10 scale that is
+    # not one of DECISION_RULES.md's five resilience anchors is the module's
+    # calibration, so it rides in the output as a disclosed assumption.
+    assumptions.extend(_anchor_disclosures())
 
     cat = Category(name=AGENT_ID, max_points=MAX_POINTS, dimensions=dimensions)
     awarded_points = cat.points()
@@ -1092,7 +1309,11 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
         market_risk={"volatility": v_vol.value if v_vol.is_valid else None, "max_drawdown": v_mdd.value if v_mdd.is_valid else None, "var_95_1d": v_var95.value if v_var95.is_valid else None},
         liquidity_and_solvency={"interest_coverage": v_icov.value if v_icov.is_valid else None, "cash_runway_months": v_run.value if v_run.is_valid else None},
         concentrations={"largest_customer_share": largest_customer_share},
-        earnings_quality_and_forensics={"beneish_m_score": v_mscr.value if v_mscr.is_valid else None, "altman_z_double_prime": v_alt.value if v_alt.is_valid else None, "piotroski_f_score": v_pio.value if v_pio.is_valid else None},
+        earnings_quality_and_forensics={
+            "beneish_m_score": by_id["RSK-MSCR-029"].value.value if by_id["RSK-MSCR-029"].value.is_valid else None,
+            "altman_z_double_prime": by_id["RSK-ALT-030"].value.value if by_id["RSK-ALT-030"].value.is_valid else None,
+            "piotroski_f_score": by_id["RSK-PIO-031"].value.value if by_id["RSK-PIO-031"].value.is_valid else None,
+        },
         regulatory_legal_macro=[],
         valuation_compression={"margin_of_safety": mos},
         thesis_killers=thesis_killer_rows,
@@ -1106,7 +1327,7 @@ def _category_confidence(coverage: float, packet: Packet) -> float:
     source_quality = 85.0
     freshness = 100.0 if packet.staleness.get("quarterly_fundamentals", "FRESH") == "FRESH" else 50.0
     consistency = 75.0
-    model_fit = 90.0 if packet.analysis.industry_adapter == "default_nonfinancial" else 40.0
+    model_fit = _adapters.model_fit(packet.analysis.industry_adapter)
     return _confidence_formula(
         coverage=coverage_component, source_quality=source_quality, freshness=freshness,
         consistency=consistency, model_fit=model_fit,

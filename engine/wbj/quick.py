@@ -16,6 +16,7 @@ from __future__ import annotations
 from statistics import pstdev
 
 from wbj.core.formulas import yoy
+from wbj.i18n import L
 from wbj.core.nullstates import EvidenceClass, NullState, Value
 from wbj.core.scoring import CATEGORY_WEIGHTS, Category, Dimension, anchor_score
 
@@ -45,17 +46,17 @@ _A_PFCF = [(12.0, 10.0), (22.0, 8.0), (35.0, 5.0), (55.0, 2.0), (90.0, 0.0)]
 _TECHNICAL_MIN_SESSIONS = 200
 
 _QUICK_LABEL = {
-    "business": "Business (quick)",
-    "financial": "Financial (quick)",
-    "market": "Market & Growth (quick)",
-    "technical": "Technical & Momentum (quick)",
-    "risk": "Risk & Resilience (quick)",
-    "valuation": "Valuation (quick)",
+    "business": ("Business (quick)", "Negocio (rápido)"),
+    "financial": ("Financial (quick)", "Finanzas (rápido)"),
+    "market": ("Market & Growth (quick)", "Mercado y Crecimiento (rápido)"),
+    "technical": ("Technical & Momentum (quick)", "Técnico y Momentum (rápido)"),
+    "risk": ("Risk & Resilience (quick)", "Riesgo y Resiliencia (rápido)"),
+    "valuation": ("Valuation (quick)", "Valuación (rápido)"),
 }
 _NS_REASON = {
-    "market": "sin cobertura de analistas (FMP)",
-    "technical": "historial de precio insuficiente (FMP)",
-    "valuation": "sin precio de mercado (FMP)",
+    "market": ("no analyst coverage (FMP)", "sin cobertura de analistas (FMP)"),
+    "technical": ("insufficient price history (FMP)", "historial de precio insuficiente (FMP)"),
+    "valuation": ("no market price (FMP)", "sin precio de mercado (FMP)"),
 }
 
 
@@ -73,6 +74,53 @@ def _scored(v: Value, anchors: list[tuple[float, float]]) -> Value:
 
 def _latest(series: list[dict]) -> float | None:
     return series[-1]["val"] if series else None
+
+
+def _at_period(series: list[dict], end: str | None) -> float | None:
+    """One series' value for a named fiscal period, or None.
+
+    A ratio whose two sides come from different years is not that ratio.
+    AAPL stopped tagging `InterestExpense` after FY2023 while its operating
+    income runs through FY2025, so `_latest` on each side built an interest
+    coverage out of FY2025 EBIT over FY2023 interest -- a number for a year
+    that never happened.
+
+    DATA_POLICY.md forbids it ("Do not mix annual, trailing-twelve-month, and
+    quarterly periods without labeling and reconciliation") and
+    SOURCE_HIERARCHY.md opens conflict resolution with "Verify period". The
+    hazard is already named in `_annual_series`' own docstring, one level up:
+    a stale series "mismatched against a fresher" one. This applies the same
+    check across the two sides of a ratio.
+    """
+    if not end:
+        return None
+    for row in reversed(series or []):
+        if row.get("end") == end:
+            return row.get("val")
+    return None
+
+
+def _interest_coverage(operating_income: float | None,
+                       interest_expense: float | None) -> Value:
+    """EBIT proxy / interest expense, distinguishing absent from zero.
+
+    Both used to return NOT_MEANINGFUL, which states as fact that the company
+    has no interest cost. MISSING_DATA_POLICY.md step 2 separates them: "Is
+    the source expected to report it? If yes but absent, use `MISSING`." A
+    reported zero genuinely leaves the ratio undefined; an unreported figure
+    is simply unknown.
+
+    AAPL is the live case -- it stopped tagging `InterestExpense` after
+    FY2023 while carrying $112B of debt, so from FY2024 on the figure is
+    absent, not zero.
+    """
+    if interest_expense is None:
+        return Value.null(NullState.MISSING, unit="x",
+                          warnings=["interest expense not reported for this period"])
+    if not interest_expense:
+        return Value.null(NullState.NOT_MEANINGFUL, unit="x",
+                          warnings=["zero interest expense reported"])
+    return _val(_ratio(operating_income, interest_expense), "interest_coverage")
 
 
 def _ratio(num: float | None, den: float | None) -> float | None:
@@ -207,7 +255,7 @@ def _valuation_category(md: dict, annual: dict) -> Category | None:
                     dimensions=[_dim("Multiples", 10.0, scores)])
 
 
-def quick_scorecard(packet: dict) -> dict:
+def quick_scorecard(packet: dict, lang: str = "en") -> dict:
     """Compute the quick 6-category scorecard from an MVP packet."""
     a = packet["annual"]
     rev, ni = a["revenue"], a["net_income"]
@@ -220,7 +268,12 @@ def quick_scorecard(packet: dict) -> dict:
     rev_l, ni_l = _latest(rev), _latest(ni)
     ocf_l, capex_l = _latest(ocf), _latest(capex)
     debt_l, eq_l = _latest(debt), _latest(eq)
-    op_l, gp_l, int_l = _latest(op), _latest(gp), _latest(interest)
+    op_l, gp_l = _latest(op), _latest(gp)
+    # Interest is read AT the operating-income period, not at its own latest:
+    # see `_at_period`. Absent there, it is absent -- not borrowed from an
+    # older year.
+    op_end = op[-1].get("end") if op else None
+    int_l = _at_period(interest, op_end)
 
     growth = (
         yoy(rev[-1]["val"], rev[-2]["val"])
@@ -239,12 +292,7 @@ def quick_scorecard(packet: dict) -> dict:
     d_e = _val(_ratio(debt_l, eq_l), "debt_to_equity")
     op_margin = _val(_ratio(op_l, rev_l), "operating_margin")
     gross_margin = _val(_ratio(gp_l, rev_l), "gross_margin")
-    # EBIT proxy / interest expense; interest of 0/missing -> NOT_MEANINGFUL.
-    coverage = (
-        _val(_ratio(op_l, int_l), "interest_coverage")
-        if int_l
-        else Value.null(NullState.NOT_MEANINGFUL, unit="x", warnings=["no interest expense reported"])
-    )
+    coverage = _interest_coverage(op_l, int_l)
     fcf_positive = _val(None if fcf is None else (1.0 if fcf > 0 else 0.0), "fcf_positive")
 
     categories: dict[str, Category] = {
@@ -295,15 +343,15 @@ def quick_scorecard(packet: dict) -> dict:
                 covered_pts += max_pts
                 weighted += max_pts * score10
             rows.append({
-                "key": key, "label": _QUICK_LABEL[key], "max_points": max_pts,
+                "key": key, "label": L(lang, *_QUICK_LABEL[key]), "max_points": max_pts,
                 "score10": score10, "points": round(cat.points(), 2),
                 "coverage": round(cov, 2), "status": "scored",
             })
         else:
             rows.append({
-                "key": key, "label": _QUICK_LABEL[key], "max_points": max_pts,
+                "key": key, "label": L(lang, *_QUICK_LABEL[key]), "max_points": max_pts,
                 "score10": None, "points": None, "coverage": 0.0,
-                "status": "not_scorable", "reason": _NS_REASON[key],
+                "status": "not_scorable", "reason": L(lang, *_NS_REASON[key]),
             })
 
     overall = round(weighted / covered_pts, 1) if covered_pts else None
@@ -312,9 +360,11 @@ def quick_scorecard(packet: dict) -> dict:
         "overall_10": overall,
         "evidence_points_covered": int(covered_pts),
         "evidence_points_total": 100,
-        "disclaimer": (
-            "Quick scorecard from SEC EDGAR fundamentals + FMP market data "
+        "disclaimer": L(lang,
+            f"Quick scorecard from SEC EDGAR fundamentals + FMP market data "
             f"(price/estimates); {int(covered_pts)}/100 evidence points covered. "
-            "Not the full methodology."
-        ),
+            f"Not the full methodology.",
+            f"Puntaje rápido con fundamentales de SEC EDGAR + datos de mercado FMP "
+            f"(precio/estimados); {int(covered_pts)}/100 puntos de evidencia cubiertos. "
+            f"No es la metodología completa."),
     }

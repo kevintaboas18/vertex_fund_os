@@ -60,6 +60,7 @@ __all__ = [
     "GATE_SPECULATIVE",
     "GATE_AVOID",
     "GATE_WEAK",
+    "GATE_WEAK_DISCLOSURE",
     "raw_total",
     "descriptive_band",
     "total_confidence",
@@ -78,6 +79,18 @@ GATE_AVOID = "Avoid / Wait"
 # raw in [50,60) with no override and no Speculative trigger is assigned no
 # profile by any SCORING_AND_GATES.md rule.
 GATE_WEAK = "Weak / Wait (no gate passed)"
+
+#: Rides in `ProfileResult.warnings` whenever GATE_WEAK is the label, so the
+#: interpretation is visible to a reader of the report rather than only to a
+#: reader of this file.
+GATE_WEAK_DISCLOSURE = (
+    "Profile label 'Weak / Wait (no gate passed)' is this engine's "
+    "interpretation, not a SCORING_AND_GATES.md label: that file assigns no "
+    "profile to a raw total in [50, 60) when no mandatory override and no "
+    "Speculative condition applies (Conditional/Watch requires raw>=60, "
+    "Avoid/Wait requires raw<50 or an override). Its descriptive band for this "
+    "range is 'Weak', but 'a raw band is not the final profile'."
+)
 
 _TOTAL_CONFIDENCE_SPECULATIVE_FLOOR = 60.0
 
@@ -385,7 +398,12 @@ def apply_gates(
             warnings=warnings,
         )
 
-    # 50 <= raw_total < 60: see module docstring's documented gap.
+    # 50 <= raw_total < 60: see module docstring's documented gap. The label
+    # is this module's, not Victor's -- SCORING_AND_GATES.md assigns no
+    # profile to this range absent an override or a Speculative trigger
+    # (Conditional/Watch starts at 60, Avoid/Wait at <50). AGENT.md's
+    # "traceable final report, not a black-box opinion" means the reader has
+    # to see that in the output, not only in a docstring.
     return ProfileResult(
         label=GATE_WEAK,
         raw_score=raw_total,
@@ -394,5 +412,5 @@ def apply_gates(
         passed_gates=[],
         failed_gates=failed,
         overrides=override_id_list,
-        warnings=warnings,
+        warnings=warnings + [GATE_WEAK_DISCLOSURE],
     )

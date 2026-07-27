@@ -144,6 +144,21 @@ class Dimension(BaseModel):
         """Sum of metric weights whose `Value` is valid (non-null)."""
         return sum(w for w, v in self.metric_scores if v.is_valid)
 
+    def applicable_weight(self) -> float:
+        """Sum of metric weights excluding metrics that do not apply.
+
+        MISSING_DATA_POLICY.md defines `coverage = valid_metric_weight /
+        applicable_metric_weight`, and its decision tree's first branch
+        is "Is the metric applicable? If no, use NOT_APPLICABLE". A
+        metric that cannot apply to this company therefore does not
+        belong in the denominator: counting it there penalised a
+        business for not reporting something its industry has no reason
+        to report — cash runway for a company that generates cash rather
+        than burning it, for instance.
+        """
+        return sum(w for w, v in self.metric_scores
+                   if v.state is not NullState.NOT_APPLICABLE)
+
     def score10_value(self) -> Value:
         """Weighted mean over valid metrics, as a null-aware `Value`.
 
@@ -151,12 +166,17 @@ class Dimension(BaseModel):
         dimension when at least 70% (`COVERAGE_USABLE`) of its metric
         weight is valid; otherwise the dimension is `NOT_SCORABLE`.
         """
-        total = self.total_weight()
+        total = self.applicable_weight()
         if total <= 0:
+            # Nothing here applies to this security — a subscription
+            # dimension on a chip maker, say. That is NOT_APPLICABLE, not
+            # "we failed to source it", and MISSING_DATA_POLICY.md opens
+            # its decision tree on exactly that distinction.
             return Value.null(
-                NullState.NOT_SCORABLE,
+                NullState.NOT_APPLICABLE,
                 unit="score",
-                warnings=[f"DIMENSION_NO_METRICS: {self.name!r} has no registered metric weight"],
+                warnings=[f"DIMENSION_NOT_APPLICABLE: no metric in {self.name!r} applies "
+                          "to this security"],
             )
         valid = self.valid_weight()
         if valid / total < COVERAGE_USABLE:
@@ -208,10 +228,49 @@ class Category(BaseModel):
             if v.is_null:
                 continue
             total += d.max_points * (v.value / 10.0)
+
+        # A dimension that cannot apply to this security is rescaled away
+        # rather than left as a hole. SCORING.md's customer-economics row
+        # says "If not applicable, use adapter metrics; do not impute" —
+        # the adapter would supply replacements worth those points, and
+        # without them the honest reading is that the category is scored
+        # on the questions its industry actually asks. Leaving the hole
+        # would cap a chip maker at 17/20 for not selling subscriptions.
+        #
+        # This applies only to NOT_APPLICABLE. A dimension we merely
+        # failed to source keeps its hole, because that absence is real.
+        applicable = self.applicable_max_points()
+        if 0 < applicable < self.max_points:
+            total *= self.max_points / applicable
         return total
 
+    def applicable_max_points(self) -> float:
+        """`max_points` less any dimension that does not apply at all.
+
+        SCORING.md's customer-economics row says "If not applicable, use
+        adapter metrics; do not impute", and INDUSTRY_ADAPTERS.md lists
+        NRR/churn/LTV-CAC as metrics to *add* for the SaaS adapter rather
+        than part of the default set. Charging a chip maker three points
+        for not reporting subscription economics imputes a zero for a
+        question its industry never asks.
+
+        Only wholly NOT_APPLICABLE dimensions are removed. A dimension we
+        merely failed to source stays in the denominator — that absence
+        is real and must keep costing.
+        """
+        inapplicable = sum(
+            d.max_points for d in self.dimensions
+            if d.score10_value().state is NullState.NOT_APPLICABLE
+        )
+        return max(0.0, self.max_points - inapplicable)
+
     def score10(self) -> float:
-        """`10 * Category points / Category max points`."""
+        """`10 * Category points / Category max points`.
+
+        `points()` has already rescaled past any inapplicable dimension,
+        so the denominator stays the fixed maximum SCORING_ENGINE.md
+        publishes.
+        """
         if self.max_points <= 0:
             return 0.0
         return 10.0 * self.points() / self.max_points
@@ -224,7 +283,7 @@ class Category(BaseModel):
         by that dimension's `max_points` so a dimension worth more of the
         category counts for more of the category's coverage.
         """
-        applicable = sum(d.max_points * d.total_weight() for d in self.dimensions)
+        applicable = sum(d.max_points * d.applicable_weight() for d in self.dimensions)
         if applicable <= 0:
             return 0.0
         valid = sum(d.max_points * d.valid_weight() for d in self.dimensions)

@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from wbj.core.nullstates import NullState
 from wbj.core.scoring import Category
 from wbj.engines import levels_engine as lv
 from wbj.schemas.packet import AnalysisMeta, MarketData, OHLCVRow, Packet, Security
@@ -475,3 +476,96 @@ def test_verdict_bands_use_awarded_points_not_score10():
     assert tech.verdict(14.0) == "Healthy uptrend"
     assert tech.verdict(10.0) == "Neutral / transition"
     assert tech.verdict(5.0) == "Weak or broken"
+
+
+# ============================================================================
+# Audit fixes: anchor disclosure and the omitted TECH-ROC-010
+# ============================================================================
+
+
+def test_every_scored_metric_has_a_disclosed_anchor():
+    """The technical FORMULAS.md states no numeric band, so every scored
+    metric's 0-10 scale is the module's calibration and must be an explicitly
+    disclosed assumption (AGENT.md no-speculation rule). The primary-trend
+    composite is exempt (it is DECISION_RULES.md's own table)."""
+    out = tech.run(_packet(_uptrend_closes(260), benchmark=_uptrend_closes(260),
+                           sector=_uptrend_closes(260)),
+                   overlay={"sector_breadth": {"above_50dma": 70, "above_200dma": 60, "valid_members": 100}})
+    scored = {r.metric_id for r in out.metrics if r.score != "NOT_SCORABLE"}
+    scored.discard("TECH-TREND-COMPOSITE")
+    unregistered = scored - set(tech.ANCHOR_PROVENANCE)
+    assert not unregistered, f"scored on undisclosed anchors: {sorted(unregistered)}"
+    blob = " ".join(out.assumptions)
+    assert "Scoring anchors (partly derived)" in blob
+    for mid in scored:
+        assert mid in blob, f"{mid} not disclosed"
+
+
+def test_the_trend_composite_is_not_disclaimed():
+    """Its score is DECISION_RULES.md's six-row anchor table verbatim -- it is
+    Victor's, not the engine's calibration."""
+    assert "TECH-TREND-COMPOSITE" not in tech.ANCHOR_PROVENANCE
+
+
+def test_each_anchor_provenance_entry_names_its_direction_source():
+    for mid, (source, note) in tech.ANCHOR_PROVENANCE.items():
+        assert source == "MIXED", mid
+        assert ".md" in note, f"{mid}: no document named"
+        assert len(note) > 30, mid
+
+
+def test_rate_of_change_is_computed_and_reported():
+    """TECH-ROC-010 is a registered formula; AGENT.md step 3 requires every
+    applicable registered formula to be calculated. It was implemented in
+    indicators.py but never called by the specialist. With a steady uptrend
+    over 63 sessions ROC is positive."""
+    out = tech.run(_packet(_uptrend_closes(200)))
+    roc = next((r for r in out.metrics if r.metric_id == "TECH-ROC-010"), None)
+    assert roc is not None, "TECH-ROC-010 missing from output"
+    assert roc.value is not None and roc.value > 0
+
+
+def test_composite_rs_uses_all_four_windows_not_one():
+    """TECH-RSC-013 weights RS21/RS63/RS126/RS252. Feeding the 63-day RS into
+    all four windows collapsed the composite onto one horizon; the call site
+    now computes each window's own RS. With a 260-session uptrend beating a
+    flat benchmark, the composite percentile against a weak universe is high."""
+    import pandas as pd
+    universe = pd.DataFrame({
+        "RS21": [-0.1, -0.05, 0.0, 0.01, -0.02],
+        "RS63": [-0.2, -0.1, 0.0, 0.02, -0.03],
+        "RS126": [-0.3, -0.15, 0.0, 0.03, -0.05],
+        "RS252": [-0.4, -0.2, 0.0, 0.05, -0.08],
+    })
+    out = tech.run(
+        _packet(_uptrend_closes(260), benchmark=[100.0] * 260),
+        overlay={"rs_universe": universe.to_dict(orient="list")},
+    )
+    rsc = next(r for r in out.metrics if r.metric_id == "TECH-RSC-013")
+    assert rsc.state is None  # scored, not NOT_SCORABLE
+    assert rsc.value == pytest.approx(100.0, abs=1e-6)  # beats every universe member in all windows
+
+
+def test_the_point_in_time_data_limit_is_disclosed_not_papered_over():
+    """FORMULAS.md requires point-in-time membership with survivorship
+    controls for TECH-BREAD-039 and TECH-RSC-013. FMP's constituent
+    endpoints are 402 on this plan and its screener carries only today's
+    membership, so both stay unscored -- and the output has to say why, or a
+    reader cannot tell a data-plan limit from a sourcing failure."""
+    out = tech.run(_packet(_uptrend_closes(260)))
+    blob = " ".join(out.assumptions)
+    assert "Point-in-time constituent membership unavailable" in blob
+    assert "survivorship" in blob
+    by_id = {r.metric_id: r for r in out.metrics}
+    assert by_id["TECH-BREAD-039"].score == "NOT_SCORABLE"
+    assert by_id["TECH-RSC-013"].score == "NOT_SCORABLE"
+
+
+def test_an_overlay_panel_still_scores_breadth():
+    """The limit is the data plan, not the code: a supplied panel scores."""
+    out = tech.run(
+        _packet(_uptrend_closes(260)),
+        overlay={"sector_breadth": {"above_50dma": 70, "above_200dma": 60, "valid_members": 100}},
+    )
+    by_id = {r.metric_id: r for r in out.metrics}
+    assert by_id["TECH-BREAD-039"].score != "NOT_SCORABLE"

@@ -8,10 +8,17 @@ the packet when an API key is configured, but is not required.
 from __future__ import annotations
 
 import json
-from datetime import date
+import sys
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import typer
+
+# Reports use box-drawing and typographic characters; the Windows console
+# defaults to cp1252 and raises UnicodeEncodeError on them.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
 
 from wbj.config import load_settings
 from wbj.core.nullstates import EvidenceClass, NullState, Value
@@ -56,20 +63,49 @@ def _providers():
     return settings, EdgarProvider(settings, cache), FMPProvider(settings, cache)
 
 
+def _is_annual_period(r: dict) -> bool:
+    """True for a full-fiscal-year duration, or a fiscal-year-end instant
+    (balance-sheet snapshot). Drops quarterly rows EDGAR mislabels `fp=FY`."""
+    start, end = r.get("start"), r.get("end")
+    if not start or start == end:
+        return True  # instant (balance-sheet item: equity, debt, ...)
+    try:
+        days = (date.fromisoformat(end) - date.fromisoformat(start)).days
+    except (ValueError, TypeError):
+        return False
+    return 350 <= days <= 380
+
+
 def _annual_series(facts: dict, tags: list[str]) -> list[dict]:
-    """Extract annual (10-K FY) datapoints for the first tag that has data."""
+    """Annual (10-K FY) datapoints, from the tag carrying the *freshest* data.
+
+    A company can migrate concepts across years (e.g. NVDA's revenue moved
+    from `RevenueFromContractWithCustomerExcludingAssessedTax`, which stops
+    at FY2022, to `Revenues`, current through FY2026). Picking the first tag
+    with *any* data would return the stale series and mismatch it against a
+    fresher net-income series — so we pick the tag whose latest full-year
+    end is the most recent, breaking ties by preference order.
+    """
     gaap = facts.get("facts", {}).get("us-gaap", {})
+    best: list[dict] = []
+    best_end = ""
     for tag in tags:
         units = gaap.get(tag, {}).get("units", {})
         rows = units.get("USD") or units.get("shares") or []
-        annual = [r for r in rows if r.get("form") == "10-K" and r.get("fp") == "FY"]
-        if annual:
-            # Deduplicate restatements: keep the latest filing per fiscal year end.
-            by_end: dict[str, dict] = {}
-            for r in sorted(annual, key=lambda r: r.get("filed", "")):
-                by_end[r["end"]] = r
-            return sorted(by_end.values(), key=lambda r: r["end"])
-    return []
+        annual = [
+            r for r in rows
+            if r.get("form") == "10-K" and r.get("fp") == "FY" and _is_annual_period(r)
+        ]
+        if not annual:
+            continue
+        # Deduplicate restatements: keep the latest filing per fiscal year end.
+        by_end: dict[str, dict] = {}
+        for r in sorted(annual, key=lambda r: r.get("filed", "")):
+            by_end[r["end"]] = r
+        series = sorted(by_end.values(), key=lambda r: r["end"])
+        if series[-1]["end"] > best_end:  # freshest tag wins; ties keep preference
+            best, best_end = series, series[-1]["end"]
+    return best
 
 
 def _latest(series: list[dict]) -> float | None:
@@ -221,6 +257,55 @@ def _out_dir(settings, ticker: str) -> Path:
     return d
 
 
+def _run_pipeline(fn, *args, **kwargs):
+    """Run a pipeline entry point, reporting a packet rejection cleanly.
+
+    `PacketRejected` is a documented Phase 0/1 outcome -- ORCHESTRATION.md
+    rejects a packet that lacks a currency, a timestamp, a share count or
+    252 sessions -- so it is a data-availability answer, not a crash. Letting
+    it escape printed a full traceback, which reads as a broken tool rather
+    than a guardrail doing its job. The webapp already draws this
+    distinction (`_fail`); the CLI did not.
+    """
+    from wbj.packet.builder import PacketRejected
+
+    try:
+        return fn(*args, **kwargs)
+    except PacketRejected as exc:
+        typer.echo(f"\nNo analysis: {exc}")
+        typer.echo("The Cerebro refuses to score a packet it cannot validate "
+                   "(currency, timestamps, diluted shares, 252 sessions). "
+                   "Nothing was written.")
+        raise typer.Exit(1) from None
+
+
+
+@app.command()
+def entradas(
+    tickers: list[str] = typer.Argument(..., help="Uno o varios tickers."),
+    force: bool = typer.Option(False, "--force", help="Sobrescribe un archivo existente."),
+) -> None:
+    """Escribe el esqueleto de `Entradas/<TICKER>.json` para cada ticker.
+
+    Todos los valores salen en `null`, que se comporta igual que no tener
+    archivo -- el esqueleto documenta las llaves, nunca inventa cifras. Un
+    archivo que ya existe no se toca salvo `--force`: lo que hay ahi es
+    captura hecha a mano que ningun proveedor puede devolver.
+    """
+    from wbj.entradas import write_skeleton
+
+    settings, _, _ = _providers()
+    directory = getattr(settings, "inputs_dir", None) or (
+        Path(settings.reports_dir).parent / "Entradas")
+    wrote = 0
+    for ticker in tickers:
+        ok, message = write_skeleton(directory, ticker, force=force)
+        wrote += 1 if ok else 0
+        typer.echo(("  " if ok else "  - ") + message)
+    typer.echo("")
+    typer.echo(f"{wrote}/{len(tickers)} escritos en {directory}")
+
+
 @app.command()
 def fetch(ticker: str) -> None:
     """Fetch raw EDGAR data for a ticker (cache-first)."""
@@ -240,7 +325,7 @@ def packet(ticker: str) -> None:
     settings, _, _ = _providers()
     p = _build_packet(ticker)
     path = _out_dir(settings, ticker) / "packet.json"
-    path.write_text(json.dumps(p, indent=2))
+    path.write_text(json.dumps(p, indent=2), encoding="utf-8")
     typer.echo(f"packet -> {path}")
 
 
@@ -261,8 +346,8 @@ def analyze(ticker: str) -> None:
     result = _compute(p)
 
     out = _out_dir(settings, ticker)
-    (out / "packet.json").write_text(json.dumps(p, indent=2))
-    (out / "scores.json").write_text(json.dumps(result, indent=2))
+    (out / "packet.json").write_text(json.dumps(p, indent=2), encoding="utf-8")
+    (out / "scores.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     # Seed the agent's memory: persist today's prediction for `wbj track`.
     targets = price_targets(p, live_price(ticker, fmp_api_key=settings.fmp_api_key))
     if save_prediction(settings.reports_dir, ticker, date.today(),
@@ -276,7 +361,11 @@ def analyze(ticker: str) -> None:
     typer.echo(f"Net margin:     {m['net_margin']}")
     typer.echo(f"FCF margin:     {m['fcf_margin']}")
     typer.echo(f"Debt/Equity:    {m['debt_to_equity']}")
-    typer.echo("--- Scores (0-10) ---")
+    # `scorecard` says "quick" and `aggregate` says "Cerebro profile"; this
+    # one said neither, so its numbers read as the strict methodology's. They
+    # are not: this is the MVP pipeline, with no gates, overrides or coverage
+    # rules. Run `wbj report` for the Cerebro profile.
+    typer.echo("--- Scores (0-10, quick MVP — no gates/overrides; see `wbj report`) ---")
     for name, s in result["scores"]["dimensions"].items():
         typer.echo(f"{name}: {s}")
     typer.echo(
@@ -293,7 +382,7 @@ def scorecard(ticker: str) -> None:
     p = _build_packet(ticker)
     sc = quick_scorecard(p)
     out = _out_dir(settings, ticker)
-    (out / "scorecard.json").write_text(json.dumps(sc, indent=2))
+    (out / "scorecard.json").write_text(json.dumps(sc, indent=2), encoding="utf-8")
 
     typer.echo(f"\n=== Quick Scorecard — {p['entity']} ({p['ticker']}) ===")
     for row in sc["categories"]:
@@ -312,11 +401,32 @@ def track() -> None:
     from wbj.memoria import track as run_track
     from wbj.targets import live_price
 
-    settings, _, _ = _providers()
+    settings, providers, _ = _providers()
     memoria_dir = settings.repo_root / "Memoria"
-    s = run_track(settings.reports_dir, memoria_dir,
-                  lambda t: live_price(t, fmp_api_key=settings.fmp_api_key),
-                  today=date.today())
+
+    def price_fn(ticker: str, on: date | None = None) -> float | None:
+        """Today's close, or the adjusted close on `on`.
+
+        A matured prediction has to be judged on the day its horizon closed
+        (`memoria.evaluate`): today's price would be look-ahead, which
+        BACKTESTING_AND_CALIBRATION.md forbids. The daily bars the packet
+        builder already fetches carry that history.
+        """
+        if on is None:
+            return live_price(ticker, fmp_api_key=settings.fmp_api_key)
+        try:
+            bars = providers.fmp.ohlcv_daily(ticker, years=6, today=date.today()) or []
+        except Exception:
+            return None
+        # Bars are newest-first; take the last close on or before `on`.
+        target = on.isoformat()
+        for bar in bars:
+            if str(bar.get("date", ""))[:10] <= target:
+                close = bar.get("adjClose", bar.get("close"))
+                return float(close) if isinstance(close, (int, float)) else None
+        return None
+
+    s = run_track(settings.reports_dir, memoria_dir, price_fn, today=date.today())
     typer.echo(f"\n=== Track record al {s['as_of']} ===")
     typer.echo(f"Predicciones: {s['total']} ({s['maduras']} maduras >=12m)")
     if s["hit_rate"] is not None:
@@ -347,17 +457,111 @@ def screen(limit: int = 15) -> None:
 
 
 @app.command()
-def aggregate(ticker: str) -> None:
-    """Aggregate specialist outputs for a ticker."""
-    typer.echo(f"aggregate {ticker}: not implemented")
-    raise typer.Exit(1)
+def judgments(ticker: str) -> None:
+    """Show which open qualitative slots are yours and which are the judge's.
+
+    Cerebro admits three sources for a scored claim (01/03 AGENT.md: "a claim
+    that cannot be tied to a formula result, reported evidence, or explicitly
+    disclosed assumption is context only"). This splits what is still open by
+    which of them it draws on, so the "write it or pay for it" question is
+    answered from the methodology rather than from a habit.
+    """
+    from wbj.deep import _run_specialists, build_providers, pending_judgments
+    from wbj.overlay.from_packet import build_overlay
+    from wbj.packet.builder import build_packet
+
+    settings = load_settings()
+    packet = _run_pipeline(build_packet, ticker.upper(), build_providers(settings),
+                           now=datetime.now(timezone.utc))
+    overlay = build_overlay(packet, settings)
+    result = _run_specialists(packet, settings)
+    outputs = [o for _, o in result[0]] if isinstance(result, tuple) else []
+    groups = pending_judgments(outputs, overlay)
+
+    headers = {
+        "assumption": ("YOURS — declare it (evidence class A)",
+                       "Nobody can be accountable for an assumption they did not make."),
+        "filing": ("THE JUDGE'S — reported evidence",
+                   "Answering means reading the 10-K; the judge receives its passages."),
+        "external": ("NEITHER — supply as data in Entradas/<TICKER>.json",
+                     "Not in any filing and not an assumption."),
+    }
+    typer.echo(f"\n=== Open qualitative slots — {ticker.upper()} ===")
+    for kind, (title, note) in headers.items():
+        rows = groups.get(kind) or []
+        typer.echo(f"\n{title}  [{len(rows)}]")
+        typer.echo(f"  {note}")
+        for r in rows:
+            typer.echo(f"    • {r['metric_id']:<38} {r['schema_hint'][:44]}")
+            typer.echo(f"      {r['why']}")
+    n_assume = len(groups.get("assumption") or [])
+    if n_assume:
+        typer.echo(f"\nWriting those {n_assume} in Entradas/{ticker.upper()}.json under "
+                   "`judgments` costs nothing and removes them from the API queue.")
 
 
 @app.command()
-def report(ticker: str) -> None:
-    """Generate report for a ticker."""
-    typer.echo(f"report {ticker}: not implemented")
-    raise typer.Exit(1)
+def aggregate(ticker: str) -> None:
+    """Aggregate specialist outputs for a ticker."""
+    from wbj.deep import run_aggregate
+
+    settings = load_settings()
+    typer.echo(f"Aggregating {ticker.upper()} — 6 specialists + gates/overrides...")
+    d = _run_pipeline(run_aggregate, ticker, settings)
+    if d.get("status") != "ok":
+        typer.echo(f"Incomplete: missing {', '.join(d.get('missing', []))}")
+        raise typer.Exit(1)
+
+    out = _out_dir(settings, ticker)
+    (out / "aggregate.json").write_text(json.dumps(d, indent=2), encoding="utf-8")
+
+    typer.echo(f"\n=== Cerebro profile — {d['ticker']} ===")
+    typer.echo(f"{d['label']}  ·  {d['raw_score']}/100 raw  ·  confidence {d['confidence']}")
+    typer.echo(f"Band: {d['band']}\n")
+    for c in d["categories"]:
+        if c.get("unscored"):
+            typer.echo(f"  {c['key']:<11} {'N/S — no evidence':<24} coverage {c['coverage']:.0%}")
+        else:
+            s = f"{c['score10']}/10" if c["score10"] is not None else "N/S"
+            typer.echo(f"  {c['key']:<11} {c['points']:>5}/{c['max_points']:<5} {s:<8} coverage {c['coverage']:.0%}")
+    if d["overrides"]:
+        typer.echo("\nOverrides applied:")
+        for o in d["overrides"]:
+            typer.echo(f"  • {o}")
+    if d["failed_gates"]:
+        typer.echo("\nFailed gates:")
+        for g in d["failed_gates"]:
+            typer.echo(f"  • {g}")
+    for c in d["contradictions"]:
+        typer.echo(f"\nContradiction: {c['combination']} -> {c['label']}")
+    typer.echo("\nStricter than the quick scorecard by design: categories the data "
+               "cannot cover score low and can trip the coverage gate.")
+    typer.echo(f"Saved: {out}/aggregate.json")
+
+
+@app.command()
+def report(ticker: str, lang: str = "en") -> None:
+    """Full auditable research report (FINAL_REPORT_SCHEMA.md): profile,
+    scorecard, executive thesis, levels, scenarios, risks and audit trail."""
+    from wbj.report import run_report
+
+    settings = load_settings()
+    typer.echo(f"Building the full report for {ticker.upper()}...")
+    d = _run_pipeline(run_report, ticker, settings, lang=lang,
+                      charts_dir=_out_dir(settings, ticker))
+    if d.get("status") != "ok":
+        typer.echo(f"Incomplete: missing {', '.join(d.get('missing', []))}")
+        raise typer.Exit(1)
+
+    out = _out_dir(settings, ticker)
+    (out / "report.md").write_text(d["markdown"], encoding="utf-8")
+    (out / "report.json").write_text(json.dumps(d["report"], indent=2), encoding="utf-8")
+    typer.echo(d["markdown"])
+    if d.get("charts"):
+        typer.echo("Charts:")
+        for c in d["charts"]:
+            typer.echo(f"  • {c}")
+    typer.echo(f"\nSaved: {out}/report.md and report.json")
 
 
 if __name__ == "__main__":

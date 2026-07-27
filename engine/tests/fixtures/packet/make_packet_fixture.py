@@ -147,9 +147,13 @@ class FakeFMPProvider:
         return self._get("cashflow_quarterly")
 
     def ohlcv_daily(self, t, years=3, today=None):
-        # Mirrors `build_packet`'s two callers: the security's own ticker,
-        # and `_BENCHMARK_TICKER` ("SPY") for the benchmark/sector series.
-        if t == "SPY":
+        # Mirrors `build_packet`'s callers: the security's own ticker, plus
+        # index/ETF tickers for the benchmark ("SPY") and the per-sector ETF
+        # (XLK, XLF, ...). All index tickers return the shared benchmark
+        # series in tests (no distinct per-sector fixture).
+        _INDEX = {"SPY", "XLK", "XLF", "XLE", "XLV", "XLY", "XLP",
+                  "XLI", "XLB", "XLC", "XLU", "XLRE"}
+        if t in _INDEX:
             return self._overrides.get("benchmark_ohlcv", self._benchmark_ohlcv)
         return self._overrides.get("ohlcv_daily", self._ohlcv)
 

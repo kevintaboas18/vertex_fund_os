@@ -9,7 +9,6 @@ from wbj.brief import (
     _category_meaning,
     _classification,
     _insider_highlights,
-    _insiders_flow,
     _next_earnings,
 )
 from wbj.quick import quick_scorecard
@@ -117,16 +116,16 @@ def test_annualized_vol_matches_formula():
 
 
 def test_category_meaning_bands():
-    assert "muy fuerte" in _category_meaning(8.5).lower()
-    assert "mixto" in _category_meaning(5.5).lower()
-    assert "problem" in _category_meaning(2.0).lower()
+    assert "very strong" in _category_meaning(8.5).lower()
+    assert "mixed" in _category_meaning(5.5).lower()
+    assert "troubled" in _category_meaning(2.0).lower()
     assert _category_meaning(None) is not None  # N/S has a phrase, not a crash
 
 
 def test_classification_bands():
-    assert _classification(8.0)[0] == "favorece"
+    assert _classification(8.0)[0] == "favors"
     assert _classification(6.0)[0] == "neutral"
-    assert _classification(4.0)[0] == "evitar"
+    assert _classification(4.0)[0] == "avoid"
     assert _classification(None)[0] is None
 
 
@@ -139,21 +138,6 @@ def test_insider_highlights_keeps_only_over_1m():
     assert hi[0]["name"] == "Big Boss"
     assert hi[0]["side"] == "compra"
     assert hi[0]["value"] >= 1_000_000
-
-
-def test_insiders_flow_sums_buys_and_sells():
-    flow = _insiders_flow(_packet()["market_data"]["insiders"])
-    assert flow["buy_usd"] == 2_000_000.0   # Big Boss 20000 * 100
-    assert flow["sell_usd"] == 10_000.0     # Small Fry 100 * 100
-    assert flow["net_usd"] == 1_990_000.0
-    assert flow["buy_count"] == 1 and flow["sell_count"] == 1
-
-
-def test_insiders_flow_empty_when_no_open_market_trades():
-    flow = _insiders_flow([{"transactionType": "G-Gift",
-                            "securitiesTransacted": 500000, "price": 0.0}])
-    assert flow["buy_usd"] == 0.0 and flow["sell_usd"] == 0.0
-    assert flow["net_usd"] == 0.0
 
 
 def test_next_earnings_picks_soonest_future():
@@ -175,11 +159,9 @@ def test_company_brief_has_all_sections():
     tg = price_targets(p, p["market_data"]["price"])
     b = company_brief(p, sc, tg)
     assert set(b) >= {"interpretation", "probability", "where", "watch"}
-    assert b["interpretation"]["classification"] in ("favorece", "neutral", "evitar")
+    assert b["interpretation"]["classification"] in ("favors", "neutral", "avoid")
     assert b["probability"]["status"] == "ok"
-    assert b["probability"]["price"] == 100.0
     assert 0 <= b["probability"]["targets"][0]["prob_reach"] <= 1
-    assert b["watch"]["insiders_flow"]["buy_count"] >= 0
     assert isinstance(b["where"], list) and b["where"]
     assert "levels" in b["watch"] and "insiders" in b["watch"]
     assert b["watch"]["catalysts"]["next_earnings"]["date"] == "2026-08-26"

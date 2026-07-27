@@ -115,3 +115,92 @@ def test_final_report_rejects_wrong_report_version():
 def test_executive_thesis_requires_all_seven_sentences():
     with pytest.raises(Exception):
         ExecutiveThesis(business_quality="x")  # missing the other 6 required fields
+
+
+# ============================================================================
+# Audit fix: ORCHESTRATION.md Phase 3 -- hash each specialist packet
+# ============================================================================
+
+
+def _build(inputs, **overrides_kw):
+    """The same assembly the round-trip test does, minus the hash argument."""
+    overrides = apply_overrides(inputs)
+    cats = CategoryPoints(business=16.0, financial=10.5, market=18.0, technical=16.0, risk=9.0, valuation=7.0)
+    confidences = CategoryConfidences(business=90, financial=90, market=90, technical=90, risk=90, valuation=90)
+    raw = raw_total(cats)
+    profile = apply_gates(raw, cats, confidences, overrides)
+    levels = synthesize_levels(inputs.technical, inputs.valuation, price=100.0, atr=2.0)
+    return build_final_report(
+        inputs=inputs, profile=profile, contradictions=[], levels=levels,
+        executive_thesis=_executive_thesis(), exchange="NASDAQ", currency="USD",
+        analysis_timestamp="2026-07-17T12:00:00+00:00", **overrides_kw,
+    )
+
+
+def test_packet_hashes_are_computed_when_the_caller_supplies_none():
+    """ORCHESTRATION.md Phase 3: "Hash each specialist packet. Any later
+    correction creates a new packet version and invalidates the prior
+    main-agent calculation." The audit block came back empty unless a caller
+    happened to pass hashes -- and the report pipeline never did, so the
+    freeze guarantee had no artifact."""
+    from wbj.schemas.final_report import specialist_packet_hashes
+
+    inputs = _aggregate_inputs()
+    report = _build(inputs)
+    assert set(report.audit.packet_hashes) == {
+        "business", "financial", "market", "technical", "risk", "valuation"
+    }
+    for name, digest in report.audit.packet_hashes.items():
+        assert len(digest) == 64, name          # sha256 hex
+        int(digest, 16)                         # valid hex
+    # Deterministic across rebuilds from identical packets.
+    assert specialist_packet_hashes(inputs) == report.audit.packet_hashes
+
+
+def test_a_changed_packet_changes_its_hash():
+    """The point of Phase 3: a corrected packet must not reuse the prior
+    main-agent calculation's hash."""
+    from wbj.schemas.final_report import specialist_packet_hash
+
+    inputs = _aggregate_inputs()
+    before = specialist_packet_hash(inputs.business)
+    mutated = inputs.business.model_copy(update={"verdict": "changed verdict"})
+    assert specialist_packet_hash(mutated) != before
+
+
+def test_an_explicit_packet_hashes_argument_still_wins():
+    report = _build(_aggregate_inputs(), packet_hashes={"business": "deadbeef"})
+    assert report.audit.packet_hashes == {"business": "deadbeef"}
+
+
+def test_formula_versions_are_collected_when_the_caller_supplies_none():
+    """ORCHESTRATION.md Phase 8 requires a "formula and source audit" and
+    FINAL_REPORT_SCHEMA.md carries `audit.formula_versions`. It came back
+    empty for every real report (the renderer printed a bare em-dash), even
+    though every MetricRow already records its formula version."""
+    from wbj.core.nullstates import NullState
+    from wbj.schemas.final_report import collected_formula_versions
+    from wbj.specialists.common import MetricRow
+
+    def _row(metric_id: str, version: str) -> MetricRow:
+        return MetricRow(
+            metric_id=metric_id, state=NullState.MISSING, unit="pct", period="FY2025",
+            source="test", formula_id=metric_id, formula_version=version,
+            score="NOT_SCORABLE", confidence=0.0,
+        )
+
+    base = _aggregate_inputs()
+    inputs = AggregateInputs(
+        business=base.business.model_copy(update={"metrics": [_row("BUS-ROIC-013", "2026.1")]}),
+        financial=base.financial.model_copy(update={"metrics": [_row("FIN-EF-024", "2.0.0")]}),
+        market=base.market, technical=base.technical, risk=base.risk,
+        valuation=base.valuation,
+    )
+    report = _build(inputs)
+    assert report.audit.formula_versions == ["2.0.0", "2026.1"]  # sorted, distinct
+    assert report.audit.formula_versions == collected_formula_versions(inputs)
+
+
+def test_an_explicit_formula_versions_argument_still_wins():
+    report = _build(_aggregate_inputs(), formula_versions=["9.9.9"])
+    assert report.audit.formula_versions == ["9.9.9"]

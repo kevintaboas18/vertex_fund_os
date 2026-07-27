@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import time
 from typing import Any
@@ -31,6 +33,39 @@ def _redact_params(params: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+#: Request parameters that must never reach a cache key: secrets, and the
+#: response-format switches that do not change the data.
+_CACHE_KEY_EXCLUDED_PARAMS = frozenset({"apikey", "api_key", "token", "file_type"})
+
+
+def _qualified_cache_key(cache_key: str, params: dict[str, Any]) -> str:
+    """A cache key that distinguishes requests differing only in params.
+
+    The key used to be the caller's label alone, so every request to the
+    same endpoint shared one entry no matter what it asked for. Raising
+    the annual-history limit from 6 to 11 changed nothing: the six-row
+    response came back from cache while the API served eleven. The same
+    collision had already been patched once at a single call site, where
+    a one-year and a three-year price window shared an `ohlcv_daily`
+    entry -- this is that bug's cause rather than another instance of it.
+
+    Secrets are excluded from the digest, so a rotated API key does not
+    invalidate every cached response and no key material is written to
+    disk in a filename.
+    """
+    material = {
+        k: v for k, v in sorted(params.items())
+        if k.lower() not in _CACHE_KEY_EXCLUDED_PARAMS
+    }
+    if not material:
+        return cache_key
+    digest = hashlib.sha256(
+        json.dumps(material, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:12]
+    return f"{cache_key}_{digest}"
+
+
+
 class Provider:
     """Base class for wbj data providers.
 
@@ -52,6 +87,33 @@ class Provider:
         """Sleep for `seconds`. Isolated so tests can monkeypatch it out."""
         time.sleep(seconds)
 
+    def get_text(
+        self,
+        url: str,
+        params: dict[str, Any],
+        cache_key: str,
+        ticker: str,
+        max_age_days: float | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> str | None:
+        """Fetch a non-JSON document (an EDGAR filing) with the same
+        cache-first, retry/backoff behaviour as `get_json`.
+
+        The cache stores JSON, so the body is wrapped in `{"text": ...}`
+        on the way in and unwrapped on the way out.
+        """
+        payload = self.get_json(
+            url, params, cache_key, ticker,
+            max_age_days=max_age_days, headers=headers, _as_text=True,
+        )
+        if isinstance(payload, dict):
+            return payload.get("text")
+        return None
+
+    @staticmethod
+    def _qualified_cache_key(cache_key: str, params: dict[str, Any]) -> str:
+        return _qualified_cache_key(cache_key, params)
+
     def get_json(
         self,
         url: str,
@@ -60,6 +122,7 @@ class Provider:
         ticker: str,
         max_age_days: float | None = None,
         headers: dict[str, str] | None = None,
+        _as_text: bool = False,
     ) -> dict | None:
         """Fetch JSON, cache-first, with retry/backoff on transient failures.
 
@@ -76,6 +139,7 @@ class Provider:
         (e.g. a required `User-Agent` per SEC EDGAR's fair-access policy).
         Existing callers that don't pass `headers` are unaffected.
         """
+        cache_key = _qualified_cache_key(cache_key, params)
         age = self.cache.age_days(ticker, cache_key)
         if age is not None and (max_age_days is None or age <= max_age_days):
             return self.cache.get(ticker, cache_key)
@@ -101,6 +165,10 @@ class Provider:
                 continue
 
             if response.status_code < 400:
+                if _as_text:
+                    payload = {"text": response.text}
+                    self.cache.put(ticker, cache_key, payload)
+                    return payload
                 try:
                     payload = response.json()
                 except ValueError:

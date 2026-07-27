@@ -7,6 +7,7 @@ import httpx
 
 from wbj.config import Settings
 from wbj.core.nullstates import NullState, Value
+from wbj.providers.base import _qualified_cache_key
 from wbj.providers.cache import Cache
 from wbj.providers.finnhub import FinnhubProvider
 from wbj.providers.fred import FredProvider
@@ -36,6 +37,17 @@ def _make_finnhub(tmp_path, handler, finnhub_api_key="testkey"):
     cache = Cache(tmp_path)
     client = httpx.Client(transport=httpx.MockTransport(handler))
     return FinnhubProvider(settings, cache, client=client)
+
+
+
+def _key(label, **params):
+    """The cache key a provider builds for these request params."""
+    return _qualified_cache_key(label, params)
+
+
+def _fred_key(series_id, limit=120):
+    return _key(f"fred_{series_id}", series_id=series_id,
+                sort_order="desc", limit=limit)
 
 
 def test_finnhub_available_true_when_api_key_set(tmp_path):
@@ -135,13 +147,18 @@ def test_finnhub_methods_use_distinct_cache_keys(tmp_path):
     p.estimates("NVDA")
     p.quote("NVDA")
 
-    assert cache.get("NVDA", "estimates") == _load_fixture("finnhub", "eps_estimate")
-    assert cache.get("NVDA", "quote") == _load_fixture("finnhub", "quote")
+    # Keys carry a digest of the request params, so the same endpoint
+    # asked different questions no longer shares one entry.
+    estimates_key = _key("estimates", symbol="NVDA")
+    quote_key = _key("quote", symbol="NVDA")
+    assert cache.get("NVDA", estimates_key) == _load_fixture("finnhub", "eps_estimate")
+    assert cache.get("NVDA", quote_key) == _load_fixture("finnhub", "quote")
+    assert estimates_key != quote_key
 
 
 def test_finnhub_get_json_serves_from_cache_without_hitting_transport(tmp_path):
     cache = Cache(tmp_path)
-    cache.put("NVDA", "quote", _load_fixture("finnhub", "quote"))
+    cache.put("NVDA", _key("quote", symbol="NVDA"), _load_fixture("finnhub", "quote"))
 
     def handler(request):
         raise AssertionError("transport should not be called on cache hit")
@@ -224,12 +241,12 @@ def test_fred_series_cache_key_is_namespaced_by_series_id(tmp_path):
 
     p.series("DGS10")
 
-    assert cache.get("_macro", "fred_DGS10") == _load_fixture("fred", "dgs10")
+    assert cache.get("_macro", _fred_key("DGS10")) == _load_fixture("fred", "dgs10")
 
 
 def test_fred_series_serves_from_cache_without_hitting_transport(tmp_path):
     cache = Cache(tmp_path)
-    cache.put("_macro", "fred_DGS10", _load_fixture("fred", "dgs10"))
+    cache.put("_macro", _fred_key("DGS10"), _load_fixture("fred", "dgs10"))
 
     def handler(request):
         raise AssertionError("transport should not be called on cache hit")

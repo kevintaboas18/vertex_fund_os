@@ -1,3 +1,4 @@
+import pytest
 
 from wbj.core.formulas import (
     REGISTRY,
