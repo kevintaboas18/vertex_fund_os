@@ -139,3 +139,56 @@ def test_provenance_never_leaks_into_the_overlay(api, monkeypatch):
                    "guidance_history", "retention", "churn", "customer_economics")
     assert "__provenance__" not in victor_keys
     assert set(ov) - {"__provenance__"} <= set(victor_keys)
+
+
+# ── RPO / backlog desde XBRL (MKT-BACK-015) ───────────────────────────────────
+#
+# ASC 606 obliga a divulgar las obligaciones de desempeno pendientes y la
+# taxonomia las etiqueta como `RevenueRemainingPerformanceObligation`. Es
+# exactamente la magnitud que pide la formula, publicada por la empresa: capa 1
+# determinista, no una pregunta para el juez. Sin ella, la dimension de
+# catalizadores seguia NOT_SCORABLE aunque el juez respondiera perfecto.
+
+def _rpo_facts(tag, values):
+    return {"facts": {"us-gaap": {tag: {"units": {"USD": [
+        {"val": v, "form": "10-K", "end": end, "accn": f"a-{end}"}
+        for end, v in values]}}}}}
+
+
+def test_backlog_series_from_asc606_rpo(api, monkeypatch):
+    monkeypatch.setattr(api, "_edgar_companyfacts_for", lambda cik, s: _rpo_facts(
+        "RevenueRemainingPerformanceObligation",
+        [("2024-01-28", 28.0e9), ("2025-01-26", 34.5e9), ("2026-01-25", 41.2e9)]), raising=False)
+    assert api._xbrl_backlog_rpo(1045810, None) == [28.0e9, 34.5e9, 41.2e9]
+
+
+def test_backlog_falls_back_to_the_alternate_tag(api, monkeypatch):
+    monkeypatch.setattr(api, "_edgar_companyfacts_for", lambda cik, s: _rpo_facts(
+        "RevenueFromRemainingPerformanceObligation",
+        [("2025-01-26", 10.0e9), ("2026-01-25", 12.0e9)]), raising=False)
+    assert api._xbrl_backlog_rpo(1045810, None) == [10.0e9, 12.0e9]
+
+
+def test_backlog_needs_two_closes_to_measure_growth(api, monkeypatch):
+    monkeypatch.setattr(api, "_edgar_companyfacts_for", lambda cik, s: _rpo_facts(
+        "RevenueRemainingPerformanceObligation", [("2026-01-25", 41.2e9)]), raising=False)
+    assert api._xbrl_backlog_rpo(1045810, None) is None
+
+
+def test_backlog_is_none_when_the_company_does_not_report_rpo(api, monkeypatch):
+    """Muchas empresas no divulgan RPO. Esa ausencia es un hecho, no un hueco."""
+    monkeypatch.setattr(api, "_edgar_companyfacts_for", lambda cik, s: {"facts": {"us-gaap": {}}},
+                        raising=False)
+    assert api._xbrl_backlog_rpo(1045810, None) is None
+
+
+def test_backlog_deduplicates_repeated_closes(api, monkeypatch):
+    """Un 10-K puede repetir el mismo cierre; se toma la presentacion mas reciente."""
+    monkeypatch.setattr(api, "_edgar_companyfacts_for", lambda cik, s: _rpo_facts(
+        "RevenueRemainingPerformanceObligation",
+        [("2025-01-26", 34.0e9), ("2025-01-26", 34.5e9), ("2026-01-25", 41.2e9)]), raising=False)
+    assert api._xbrl_backlog_rpo(1045810, None) == [34.5e9, 41.2e9]
+
+
+def test_backlog_needs_a_cik(api):
+    assert api._xbrl_backlog_rpo(None, None) is None

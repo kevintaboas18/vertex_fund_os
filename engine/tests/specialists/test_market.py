@@ -488,3 +488,66 @@ def test_malformed_breadth_is_not_scorable_not_a_crash(nvda_packet, breadth):
     formado no puede tumbar el analisis entero."""
     out = mkt.run(nvda_packet, overlay={"sector_breadth": breadth})
     assert _mkt_row(out, "MKT-SECB-023").value is None
+
+
+# ---------------------------------------------------------------------------
+# El registro de catalizadores lo produce el juez, asi que una cadena o una lista
+# de numeros son respuestas plausibles: `c.get(...)` sobre un int reventaba con
+# AttributeError y se llevaba al especialista de mercado ENTERO (20 puntos).
+# Y aunque el juez respondiera PERFECTO, la dimension seguia N/S: sus otros dos
+# miembros (MKT-BACK-015/016) piden backlog, que es una divulgacion OBLIGATORIA
+# de ASC 606 con tag XBRL propio y nadie leia.
+# ---------------------------------------------------------------------------
+
+_CATALYSTS = [
+    {"months_to_event": 6, "probability": 0.7, "impact": 4.0e9, "evidence_quality": 0.8},
+    {"months_to_event": 14, "probability": 0.4, "impact": 2.5e9, "evidence_quality": 0.6},
+    {"months_to_event": 3, "probability": 0.9, "impact": 1.2e9, "evidence_quality": 0.9},
+]
+_RPO = [28.0e9, 34.5e9, 41.2e9]
+
+
+def _catalysts_dim(out):
+    return next(d for d in out.dimensions if d.name == mkt.DIM_CATALYSTS)
+
+
+@pytest.mark.parametrize("bad", ["ninguno", [1, 2], {"a": 1}, 5, [None], [[]]])
+def test_malformed_catalysts_never_crash_the_specialist(nvda_packet, bad):
+    out = mkt.run(nvda_packet, overlay={"catalysts": bad})
+    assert out.category.awarded_points is not None
+
+
+@pytest.mark.parametrize("bad", ["x", [1], 5])
+def test_malformed_estimates_overlay_never_crashes(nvda_packet, bad):
+    assert mkt.run(nvda_packet, overlay={"estimates": bad}).category.awarded_points is not None
+
+
+def test_catalysts_dimension_needs_both_the_judge_and_the_backlog(nvda_packet):
+    solo_judge = _catalysts_dim(mkt.run(nvda_packet, overlay={"catalysts": _CATALYSTS}))
+    solo_rpo = _catalysts_dim(mkt.run(nvda_packet, overlay={"backlog_history": _RPO}))
+    both = _catalysts_dim(mkt.run(nvda_packet, overlay={"catalysts": _CATALYSTS,
+                                                        "backlog_history": _RPO}))
+    assert solo_judge.score10_value().is_null
+    assert solo_rpo.score10_value().is_null
+    assert both.score10_value().is_valid, "3 de 4 = 75%, sobre el umbral"
+
+
+def test_backlog_growth_comes_from_the_rpo_series(nvda_packet):
+    out = mkt.run(nvda_packet, overlay={"backlog_history": _RPO})
+    assert _mkt_row(out, "MKT-BACK-015").value == pytest.approx(41.2 / 34.5 - 1.0)
+
+
+def test_revenue_coverage_stays_missing_without_the_twelve_month_split(nvda_packet):
+    """El RPO TOTAL como numerador inflaria la cobertura: MKT-COVER-016 se queda
+    MISSING a proposito hasta que haya la porcion a 12 meses."""
+    out = mkt.run(nvda_packet, overlay={"backlog_history": _RPO})
+    assert _mkt_row(out, "MKT-COVER-016").value is None
+
+
+def test_narrative_only_catalysts_are_capped_at_3(nvda_packet):
+    """SCORING.md: "Narrative-only catalyst score capped at 3"."""
+    out = mkt.run(nvda_packet, overlay={"backlog_history": _RPO,
+                                        "catalysts": [{"months_to_event": 6}]})
+    d = _catalysts_dim(out)
+    if d.score10_value().is_valid:
+        assert d.score10_value().value <= 3.0 + 1e-9

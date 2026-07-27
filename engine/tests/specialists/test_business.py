@@ -601,3 +601,46 @@ def test_durability_still_caps_at_6_on_concentration_red_flag(nvda_packet):
 def test_cyclicality_gap_is_declared_not_faked(nvda_packet):
     out = bus.run(nvda_packet, overlay={"wacc": 0.1193})
     assert any("cyclicality" in a for a in out.assumptions)
+
+
+# ---------------------------------------------------------------------------
+# Los inputs cualitativos los produce un LLM, asi que recibir una cadena, una
+# lista o un dict con la forma equivocada es un resultado PLAUSIBLE. Los
+# especialistas hacian `overlay.get(k) or {}` y luego `.keys()` sobre eso: con
+# "alta" en vez de un dict, AttributeError y se cae el especialista ENTERO.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("key", ["retention", "churn", "customer_economics"])
+@pytest.mark.parametrize("bad", ["alta", [1, 2], 5, ("a", "b")])
+def test_malformed_qualitative_overlay_never_crashes(nvda_packet, key, bad):
+    out = bus.run(nvda_packet, overlay={"wacc": 0.1193, key: bad})
+    assert out.category.awarded_points is not None
+
+
+_CE_FULL = {
+    "retention": {"begin": 1000.0, "expansion": 180.0, "contraction": 40.0, "churn": 30.0},
+    "churn": {"lost": 40.0, "begin_customers": 1000.0},
+    "customer_economics": {"arpu": 12000.0, "monthly_arpu": 1000.0, "gross_margin": 0.72,
+                           "customer_life_years": 6.0, "cac_spend": 9.0e6, "new_customers": 900.0},
+}
+
+
+def test_customer_economics_scores_when_the_judge_answers(nvda_packet):
+    d = next(x for x in bus.run(nvda_packet, overlay={"wacc": 0.1193, **_CE_FULL}).dimensions
+             if x.name == bus.DIM_CUSTOMER)
+    assert d.valid_weight() == pytest.approx(1.0)
+    assert d.score10_value().is_valid
+
+
+def test_customer_economics_needs_more_than_retention_alone(nvda_packet):
+    """1 de 3 slots = 40% del peso: bajo el umbral, y eso es correcto."""
+    d = next(x for x in bus.run(nvda_packet, overlay={"wacc": 0.1193,
+                                                      "retention": _CE_FULL["retention"]}).dimensions
+             if x.name == bus.DIM_CUSTOMER)
+    assert d.score10_value().is_null
+
+
+def test_customer_economics_stays_not_scorable_without_the_judge(nvda_packet):
+    d = next(x for x in bus.run(nvda_packet, overlay={"wacc": 0.1193}).dimensions
+             if x.name == bus.DIM_CUSTOMER)
+    assert d.valid_weight() == 0.0

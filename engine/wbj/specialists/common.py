@@ -243,6 +243,21 @@ class SpecialistOutput(BaseModel):
     validation_tests: ValidationTestsSummary = Field(default_factory=ValidationTestsSummary)
 
 
+def overlay_mapping(value: object) -> dict:
+    """El valor del overlay como dict, o `{}` si no lo es.
+
+    Los inputs cualitativos (`retention`, `churn`, `customer_economics`,
+    `catalysts`, ...) los produce un LLM, así que recibir una cadena, una lista o
+    un dict con la forma equivocada es un resultado PLAUSIBLE, no un caso
+    patológico. Los especialistas hacían `overlay.get(k) or {}` y luego `.keys()`
+    o `.get()` sobre el resultado: con `"alta"` en vez de un dict, eso es un
+    AttributeError que se lleva por delante al especialista ENTERO — 20 puntos
+    por una respuesta torcida. Un input mal formado debe dejar su métrica en
+    MISSING, que es exactamente lo que este `{}` produce aguas abajo.
+    """
+    return value if isinstance(value, dict) else {}
+
+
 def dimension_slot(score10: float | None, value: Value | None = None) -> Value:
     """One `Dimension.metric_scores` entry, preserving `NOT_APPLICABLE`.
 

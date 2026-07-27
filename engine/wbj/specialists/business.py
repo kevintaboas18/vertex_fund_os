@@ -99,6 +99,7 @@ from wbj.specialists.common import (
     ValidationTestsSummary,
     apply_dimension_cap,
     excess_cash,
+    overlay_mapping,
     status_from_coverage,
 )
 
@@ -890,7 +891,7 @@ def _compute_all(
     add("BUS-SG-019", v_sg, None)
 
     # ---- BUS-NRR-020 / BUS-GRR-021 / BUS-CHURN-022: customer economics (overlay only) ----
-    retention = overlay.get("retention") or {}
+    retention = overlay_mapping(overlay.get("retention"))
     if {"begin", "expansion", "contraction", "churn"} <= retention.keys():
         v_nrr = net_revenue_retention(retention["begin"], retention["expansion"], retention["contraction"], retention["churn"])
         v_grr = gross_revenue_retention(retention["begin"], retention["contraction"], retention["churn"])
@@ -900,15 +901,15 @@ def _compute_all(
     add("BUS-NRR-020", v_nrr, _score_from_anchor(v_nrr, [(0.85, 0), (1.0, 6), (1.1, 8), (1.2, 10)]))
     add("BUS-GRR-021", v_grr, _score_from_anchor(v_grr, [(0.70, 0), (0.85, 5), (0.95, 8), (1.0, 10)]))
 
-    churn_inputs = overlay.get("churn")
-    if churn_inputs and {"lost", "begin_customers"} <= churn_inputs.keys():
+    churn_inputs = overlay_mapping(overlay.get("churn"))
+    if {"lost", "begin_customers"} <= churn_inputs.keys():
         v_churn = logo_churn(churn_inputs["lost"], churn_inputs["begin_customers"])
     else:
         v_churn = _null(NullState.MISSING, "pct", "LOGO_CHURN_UNAVAILABLE")
     add("BUS-CHURN-022", v_churn, _score_from_anchor(v_churn, [(0.20, 0), (0.10, 5), (0.05, 8), (0.0, 10)]))
 
     # ---- BUS-LTV-023 / BUS-CAC-024 / BUS-LTVCAC-025 / BUS-PAYBACK-026 (overlay only) ----
-    ce = overlay.get("customer_economics") or {}
+    ce = overlay_mapping(overlay.get("customer_economics"))
     if {"arpu", "gross_margin", "customer_life_years"} <= ce.keys():
         v_ltv = customer_ltv(ce["arpu"], ce["gross_margin"], ce["customer_life_years"])
     else:

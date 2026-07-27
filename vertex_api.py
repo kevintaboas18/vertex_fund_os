@@ -6836,6 +6836,50 @@ def _edgar_companyfacts_for(cik, settings=None):
         return None
 
 
+def _xbrl_backlog_rpo(cik, settings=None):
+    """`backlog_history` desde XBRL — dato REPORTADO (clase R), no un proxy.
+
+    MKT-BACK-015 pide "Backlog or RPO growth". ASC 606 obliga a divulgar las
+    obligaciones de desempeño pendientes, y la taxonomía las etiqueta como
+    `us-gaap:RevenueRemainingPerformanceObligation`: es exactamente la magnitud
+    que la fórmula nombra, publicada por la propia empresa en su 10-K. No hay
+    nada que estimar.
+
+    Devuelve la serie ANUAL en orden ascendente (el especialista usa los dos
+    últimos), o None si la empresa no reporta RPO — muchas no lo hacen, y esa
+    ausencia es un hecho, no un hueco que rellenar.
+
+    Lo que NO resuelve: MKT-COVER-016 necesita la porción a 12 meses, que vive en
+    una dimensión XBRL (`...ExpectedTimingOfSatisfactionStartDateAxis`) que la API
+    `companyfacts` aplana y descarta. Usar el RPO total como numerador inflaría la
+    cobertura de ingresos, así que esa métrica sigue MISSING a propósito.
+    """
+    if not cik:
+        return None
+    facts = _edgar_companyfacts_for(cik, settings)
+    if not isinstance(facts, dict):
+        return None
+    for tag in ("RevenueRemainingPerformanceObligation",
+                "RevenueFromRemainingPerformanceObligation"):
+        units = (((facts.get("facts") or {}).get("us-gaap") or {}).get(tag) or {}).get("units") or {}
+        rows = [r for r in (units.get("USD") or [])
+                if isinstance(r.get("val"), (int, float)) and r.get("form") == "10-K"
+                and r.get("end") and float(r["val"]) > 0]
+        if not rows:
+            continue
+        # Un 10-K puede repetir el mismo cierre en varias filas (revisiones,
+        # re-presentaciones). Se toma un valor por fecha, el de la presentación más
+        # reciente, y se ordena por fecha ascendente.
+        by_end = {}
+        for r in sorted(rows, key=lambda r: (r["end"], str(r.get("accn", "")))):
+            by_end[r["end"]] = float(r["val"])
+        series = [by_end[k] for k in sorted(by_end)]
+        if len(series) >= 2:
+            print(f"[engine] RPO desde XBRL us-gaap:{tag} — {len(series)} cierres anuales")
+            return series
+    return None
+
+
 def _xbrl_recurring_revenue(cik, revenue_hint, settings=None):
     """`recurring_revenue` desde XBRL — PROXY REGISTRADO, no un dato reportado.
 
@@ -6938,6 +6982,15 @@ def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
         ov["geographic_shares"] = geo
         prov["geographic_shares"] = {"source": "FMP revenue-geographic-segmentation",
                                      "evidence_class": "R", "proxy": False}
+
+    # MKT-BACK-015 ("Backlog or RPO growth"): el RPO es una divulgación OBLIGATORIA
+    # de ASC 606 con su propio tag XBRL, así que es capa 1 determinista igual que la
+    # segmentación — no una pregunta para el juez.
+    rpo = _xbrl_backlog_rpo(cik, settings)
+    if rpo:
+        ov["backlog_history"] = rpo
+        prov["backlog_history"] = {"source": "XBRL us-gaap:RevenueRemainingPerformanceObligation",
+                                   "evidence_class": "R", "proxy": False}
 
     rec = _xbrl_recurring_revenue(cik, revenue_hint, settings)
     if rec:
@@ -7670,7 +7723,7 @@ def _engine_scorecard(ticker, info, price):
         except Exception as _qe:
             print(f"[engine] extracción cualitativa omitida: {str(_qe)[:120]}")
         for _qk in ("recurring_revenue", "largest_customer_share", "customer_shares", "segment_shares",
-                    "product_shares", "geographic_shares",
+                    "product_shares", "geographic_shares", "backlog_history",
                     "guidance_history", "retention", "churn", "customer_economics"):
             if _qual.get(_qk) is not None:
                 _overlay[_qk] = _qual[_qk]

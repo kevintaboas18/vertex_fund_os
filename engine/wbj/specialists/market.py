@@ -109,6 +109,7 @@ from wbj.specialists.common import (
     ValidationTestsSummary,
     apply_dimension_cap,
     excess_cash,
+    overlay_mapping,
     status_from_coverage,
 )
 
@@ -768,7 +769,7 @@ def _compute_all(
     # cuatro métricas de esta dimensión —la mitad de su cobertura— con el dato
     # dentro del packet.
     est = dict(_estimates_from_packet(packet))
-    est.update(overlay.get("estimates") or {})
+    est.update(overlay_mapping(overlay.get("estimates")))
     upward, total = est.get("upward"), est.get("total")
     if upward is not None and total is not None:
         v_revbr = revision_breadth(int(upward), int(total))
@@ -837,7 +838,12 @@ def _compute_all(
     add("MKT-INCM-018", v_incm, _score_from_anchor(v_incm, [(0.0, 0), (0.20, 5), (0.35, 8), (0.50, 10)]))
 
     # ---- MKT-CAT-019 / MKT-TDEC-020: catalysts (overlay only) ----
-    catalysts_overlay = overlay.get("catalysts") or []
+    # El registro de catalizadores lo produce el juez cualitativo, así que una
+    # cadena, una lista de números o un dict suelto son respuestas plausibles. Se
+    # queda solo con las entradas que son dicts: `c.get(...)` sobre un int reventaba
+    # con AttributeError y se llevaba al especialista de mercado ENTERO (20 puntos).
+    _raw_catalysts = overlay.get("catalysts")
+    catalysts_overlay = [c for c in _raw_catalysts if isinstance(c, dict)] if isinstance(_raw_catalysts, list) else []
     catalyst_rows: list[dict[str, Any]] = []
     catalyst_impacts: list[float] = []
     any_quantified = False
