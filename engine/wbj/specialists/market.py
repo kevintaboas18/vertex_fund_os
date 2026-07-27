@@ -308,6 +308,74 @@ def revision_magnitude(current_consensus: float, prior_consensus: float) -> Valu
     return _ok((current_consensus - prior_consensus) / abs(prior_consensus), unit="pct")
 
 
+def _finnhub_rows(block: object) -> list[dict]:
+    """`packet.estimates`'s Finnhub blocks are `{"data": [...]}`."""
+    if isinstance(block, dict) and isinstance(block.get("data"), list):
+        return [r for r in block["data"] if isinstance(r, dict)]
+    return []
+
+
+def _estimates_from_packet(packet: Packet) -> dict:
+    """MKT-SURP-014 / MKT-DISP-013 inputs already carried by `packet.estimates`.
+
+    - Surprise: Finnhub publishes `epsActual` next to `epsAvg` for the same
+      quarter, so the most recent *reported* quarter gives the surprise
+      directly. `snapshot_before_release` is True because `epsAvg` is the
+      consensus Finnhub recorded for that period, not a post-hoc restatement.
+    - Dispersion: FORMULAS.md asks for `stdev(individual estimates)`, and no free
+      source publishes the individual analyst numbers. High/low/avg + the analyst
+      count ARE published, so the range is used as a REGISTERED PROXY
+      (MISSING_DATA_POLICY step 4): for an approximately normal panel of n
+      estimates the range spans about `d2(n)` standard deviations, so
+      `stdev ~ (high - low) / d2(n)`. Declared as a proxy by the caller, never
+      as the reported statistic.
+    """
+    out: dict = {}
+    eps_rows = _finnhub_rows(getattr(packet, "estimates", {}).get("finnhub_eps_estimate"))
+    reported = [r for r in eps_rows
+                if isinstance(r.get("epsActual"), (int, float))
+                and isinstance(r.get("epsAvg"), (int, float))]
+    if reported:
+        latest = max(reported, key=lambda r: str(r.get("period", "")))
+        out["actual"] = float(latest["epsActual"])
+        out["pre_release_consensus"] = float(latest["epsAvg"])
+        out["snapshot_before_release"] = True
+
+    forward = [r for r in eps_rows
+               if r.get("epsActual") is None
+               and isinstance(r.get("epsHigh"), (int, float))
+               and isinstance(r.get("epsLow"), (int, float))
+               and isinstance(r.get("epsAvg"), (int, float))]
+    if forward:
+        nearest = min(forward, key=lambda r: str(r.get("period", "")))
+        n = nearest.get("numberAnalysts")
+        spread = _range_dispersion(
+            float(nearest["epsHigh"]), float(nearest["epsLow"]),
+            float(nearest["epsAvg"]), int(n) if isinstance(n, int) else None,
+        )
+        if spread is not None:
+            out["dispersion_proxy"] = spread
+    return out
+
+
+# Hartley's d2: expected range of n standard normal draws, in standard
+# deviations. Values for n = 2..10; beyond that the curve is flat enough that
+# the n=10 entry is used, which UNDERSTATES dispersion slightly -- the
+# conservative direction for a metric where higher dispersion lowers confidence.
+_D2_BY_N: dict[int, float] = {
+    2: 1.128, 3: 1.693, 4: 2.059, 5: 2.326, 6: 2.534,
+    7: 2.704, 8: 2.847, 9: 2.970, 10: 3.078,
+}
+
+
+def _range_dispersion(high: float, low: float, mean: float, n: int | None) -> float | None:
+    """`(high - low) / d2(n) / |mean|` — the range-based dispersion proxy."""
+    if mean == 0 or high < low or n is None or n < 2:
+        return None
+    d2 = _D2_BY_N.get(min(n, 10), _D2_BY_N[10])
+    return (high - low) / d2 / abs(mean)
+
+
 def estimate_dispersion(estimates: Sequence[float]) -> Value:
     """Estimate dispersion (MKT-DISP-013): `stdev(analyst estimates) /
     abs(consensus mean)`. Higher dispersion lowers forecast confidence
@@ -693,8 +761,14 @@ def _compute_all(
     add("MKT-RUN-010", v_run, _score_from_anchor(v_run, [(15.0, 0), (8.0, 5), (4.0, 8), (1.0, 10)]))
     ctx["assumed_growth"] = float(assumed_growth) if assumed_growth is not None else None
 
-    # ---- MKT-REVBR-011..MKT-SURP-014: estimate revisions (overlay only) ----
-    est = overlay.get("estimates") or {}
+    # ---- MKT-REVBR-011..MKT-SURP-014: estimate revisions ----
+    # El overlay manda, pero `packet.estimates` ya trae de Finnhub el actual y el
+    # consenso del MISMO trimestre (MKT-SURP-014) y los rangos alto/bajo de los
+    # analistas (MKT-DISP-013). Leerlo solo del overlay dejaba N/S dos de las
+    # cuatro métricas de esta dimensión —la mitad de su cobertura— con el dato
+    # dentro del packet.
+    est = dict(_estimates_from_packet(packet))
+    est.update(overlay.get("estimates") or {})
     upward, total = est.get("upward"), est.get("total")
     if upward is not None and total is not None:
         v_revbr = revision_breadth(int(upward), int(total))
@@ -710,7 +784,19 @@ def _compute_all(
     add("MKT-REVMAG-012", v_revmag, _score_from_anchor(v_revmag, [(-0.10, 0), (0.0, 5), (0.05, 8), (0.15, 10)]))
 
     individual = est.get("individual_estimates")
-    v_disp = estimate_dispersion(individual) if individual else _null(NullState.MISSING, "ratio", "DISPERSION_UNAVAILABLE")
+    dispersion_proxy = est.get("dispersion_proxy")
+    if individual:
+        v_disp = estimate_dispersion(individual)
+    elif isinstance(dispersion_proxy, (int, float)):
+        v_disp = _ok(float(dispersion_proxy), unit="ratio")
+        assumptions.append(
+            "MKT-DISP-013: ninguna fuente gratuita publica los estimados INDIVIDUALES que pide "
+            "FORMULAS.md; se usó el rango alto/bajo del panel de analistas convertido a "
+            "desviación estándar (proxy registrado, MISSING_DATA_POLICY paso 4), no el estadístico "
+            "reportado."
+        )
+    else:
+        v_disp = _null(NullState.MISSING, "ratio", "DISPERSION_UNAVAILABLE")
     add("MKT-DISP-013", v_disp, _score_from_anchor(v_disp, [(0.0, 10), (0.05, 8), (0.15, 4), (0.30, 0)]))
 
     actual, pre_release = est.get("actual"), est.get("pre_release_consensus")

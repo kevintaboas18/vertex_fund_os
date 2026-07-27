@@ -392,3 +392,75 @@ def test_run_external_capital_flag_when_forecast_exceeds_growth_capacity():
         overlay={"target_revenue": 5000.0, "current_revenue": 1000.0, "assumed_growth": 0.50},
     )
     assert "EXTERNAL_CAPITAL_REQUIRED" in out.mandatory_flags
+
+
+# ---------------------------------------------------------------------------
+# MKT-SURP-014 / MKT-DISP-013 se leian SOLO de overlay["estimates"], pero
+# `packet.estimates` ya trae de Finnhub el actual junto al consenso del MISMO
+# trimestre y los rangos alto/bajo del panel. Dos de las cuatro metricas de la
+# dimension de revisiones —la mitad de su cobertura— quedaban N/S con el dato
+# dentro del packet.
+# ---------------------------------------------------------------------------
+
+def _mkt_row(out, mid):
+    return next(m for m in out.metrics if m.metric_id == mid)
+
+
+def _with_estimates(nvda_packet, estimates: dict):
+    data = nvda_packet.model_dump(mode="json")
+    data["estimates"] = estimates
+    return type(nvda_packet).model_validate(data)
+
+
+_EPS_BLOCK = {"finnhub_eps_estimate": {"data": [
+    {"period": "2026-04-26", "epsActual": 0.81, "epsAvg": 0.75,
+     "epsHigh": 0.82, "epsLow": 0.68, "numberAnalysts": 42},
+    {"period": "2026-07-26", "epsActual": None, "epsAvg": 0.90,
+     "epsHigh": 0.98, "epsLow": 0.80, "numberAnalysts": 40},
+]}}
+
+
+def test_surprise_comes_from_the_packet_without_any_overlay(nvda_packet):
+    out = mkt.run(_with_estimates(nvda_packet, _EPS_BLOCK), overlay={})
+    assert _mkt_row(out, "MKT-SURP-014").value == pytest.approx((0.81 - 0.75) / 0.75)
+
+
+def test_surprise_uses_the_latest_REPORTED_quarter(nvda_packet):
+    """Un trimestre sin `epsActual` todavia no ocurrio: no es una sorpresa."""
+    out = mkt.run(_with_estimates(nvda_packet, _EPS_BLOCK), overlay={})
+    assert _mkt_row(out, "MKT-SURP-014").value is not None
+
+
+def test_dispersion_proxy_is_computed_and_declared(nvda_packet):
+    out = mkt.run(_with_estimates(nvda_packet, _EPS_BLOCK), overlay={})
+    assert _mkt_row(out, "MKT-DISP-013").value is not None
+    assert any("proxy registrado" in a for a in out.assumptions), \
+        "un proxy no puede leerse igual que el estadistico reportado"
+
+
+def test_individual_estimates_win_over_the_range_proxy(nvda_packet):
+    """Si alguien trae los estimados reales, el proxy no se usa ni se declara."""
+    out = mkt.run(_with_estimates(nvda_packet, _EPS_BLOCK),
+                     overlay={"estimates": {"individual_estimates": [0.80, 0.85, 0.90, 0.95]}})
+    assert not any("MKT-DISP-013" in a and "proxy registrado" in a for a in out.assumptions)
+
+
+def test_overlay_still_overrides_the_packet(nvda_packet):
+    out = mkt.run(_with_estimates(nvda_packet, _EPS_BLOCK),
+                     overlay={"estimates": {"actual": 2.0, "pre_release_consensus": 1.0}})
+    assert _mkt_row(out, "MKT-SURP-014").value == pytest.approx(1.0)
+
+
+def test_metrics_stay_missing_when_the_packet_has_no_estimates(nvda_packet):
+    out = mkt.run(_with_estimates(nvda_packet, {}), overlay={})
+    assert _mkt_row(out, "MKT-SURP-014").value is None
+    assert _mkt_row(out, "MKT-DISP-013").value is None
+
+
+def test_dispersion_proxy_needs_the_analyst_count(nvda_packet):
+    """Sin n no se sabe cuantas desviaciones abarca el rango: no se inventa."""
+    block = {"finnhub_eps_estimate": {"data": [
+        {"period": "2026-07-26", "epsActual": None, "epsAvg": 0.90,
+         "epsHigh": 0.98, "epsLow": 0.80}]}}
+    out = mkt.run(_with_estimates(nvda_packet, block), overlay={})
+    assert _mkt_row(out, "MKT-DISP-013").value is None
