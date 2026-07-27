@@ -47,6 +47,7 @@ from wbj.aggregate.contradiction import Contradiction
 from wbj.aggregate.gates import ProfileResult
 from wbj.aggregate.overrides import AggregateInputs
 from wbj.aggregate.synthesis import LevelReference, LevelSynthesis
+from wbj.core.scoring import COVERAGE_COMPLETE, COVERAGE_USABLE
 from wbj.specialists.valuation import ReverseDCFSummary as _ValuationReverseDCFSummary
 from wbj.specialists.valuation import ScenarioSummary
 
@@ -226,6 +227,90 @@ def _collect_thesis_killers(inputs: AggregateInputs) -> list[str]:
     return out
 
 
+def _collect_missing_or_conflicted(
+    inputs: AggregateInputs, profile: ProfileResult, contradictions: list[Contradiction]
+) -> list[str]:
+    """`report.missing_or_conflicted_data` — the two halves the field names.
+
+    This used to carry only the profile warnings and the mandatory flags, so the
+    *missing* half was absent: a category could hand in three NOT_SCORABLE
+    dimensions and 33% coverage and the report said nothing about it. That is the
+    one thing MISSING_DATA_POLICY.md and `CLAUDE.md` ("no hide an incomplete
+    packet inside a total score" / AGENT.md's own must-not list) will not allow,
+    because a dimension that cannot be scored contributes ZERO points -- it reads
+    in the total exactly like a dimension that scored badly.
+
+    Order: what is missing (unscorable dimensions, then coverage below the
+    MISSING_DATA_POLICY bands), then what is in conflict (contradictions),
+    then the profile's own warnings and the specialists' mandatory flags.
+    """
+    out: list[str] = []
+
+    def add(entry: str) -> None:
+        if entry not in out:
+            out.append(entry)
+
+    for name, output in inputs.by_category().items():
+        unscorable = [d.name for d in output.dimensions if d.score10_value().is_null]
+        if unscorable:
+            add(f"{name}: sin evidencia para puntuar {', '.join(unscorable)} "
+                f"(NOT_SCORABLE aporta 0 puntos, no un puntaje bajo)")
+        cov = output.coverage
+        if isinstance(cov, (int, float)) and cov < COVERAGE_COMPLETE:
+            band = "incompleta y no elegible para gates" if cov < COVERAGE_USABLE else "usable con salvedad"
+            add(f"{name}: cobertura {cov:.0%} — {band}")
+
+    for c in contradictions:
+        add(f"conflicto: {c.label}")
+    for w in _overrides_for_report(profile):
+        add(w)
+    for name, output in inputs.by_category().items():
+        for flag in output.mandatory_flags:
+            add(f"{name}: {flag}")
+    return out
+
+
+def _collect_monitoring_triggers(
+    inputs: AggregateInputs, levels: LevelSynthesis, contradictions: list[Contradiction]
+) -> list[str]:
+    """`report.monitoring_triggers` — what to watch that would change the call.
+
+    FINAL_REPORT_SCHEMA.md publishes the key without defining its contents, so
+    the sources are the ones the rest of the methodology names explicitly:
+
+    - `CLAUDE.md`'s re-run list: new 10-K/10-Q, earnings, material estimate
+      revisions, financing, acquisition, major legal event, a confirmed
+      technical break, or stale data;
+    - PRICE_LEVEL_SYNTHESIS.md #4, "Confirmed breakout trigger and
+      failed-breakout level" -- every `LevelReference` already carries its own
+      `confirmation`/`invalidation` text, which is precisely a trigger;
+    - the contradictions, which are conditions to re-check rather than facts.
+
+    Before this, the list was `[c.label for c in contradictions]` only: a report
+    with no contradictions published an empty monitoring section, which reads as
+    "nothing to watch" for a thesis that always has something to watch.
+    """
+    out: list[str] = []
+
+    def add(entry: str | None) -> None:
+        if entry and entry not in out:
+            out.append(entry)
+
+    for level in levels.levels:
+        if level.confirmation:
+            add(f"{level.label}: confirmación — {level.confirmation}")
+        if level.invalidation:
+            add(f"{level.label}: invalidación — {level.invalidation}")
+    for c in contradictions:
+        add(f"revisar contradicción: {c.label}")
+    # Los mandatory flags NO se repiten aquí: son estado actual, y ya se publican
+    # completos en `missing_or_conflicted_data`. Repetirlos ponía la misma cadena
+    # dos veces en la misma pantalla, que se lee como dos hallazgos y es uno.
+    add("nuevo 10-K/10-Q, earnings, revisión material de estimados, financiamiento, "
+        "adquisición o evento legal mayor: recalcular el análisis completo")
+    return out
+
+
 def build_final_report(
     *,
     inputs: AggregateInputs,
@@ -251,16 +336,8 @@ def build_final_report(
         (o.knowledge_timestamp for o in inputs if o.knowledge_timestamp), default=analysis_timestamp
     )
 
-    missing_or_conflicted: list[str] = []
-    for o in _overrides_for_report(profile):
-        missing_or_conflicted.append(o)
-    for name, output in inputs.by_category().items():
-        for flag in output.mandatory_flags:
-            entry = f"{name}: {flag}"
-            if entry not in missing_or_conflicted:
-                missing_or_conflicted.append(entry)
-
-    monitoring_triggers = [c.label for c in contradictions]
+    missing_or_conflicted = _collect_missing_or_conflicted(inputs, profile, contradictions)
+    monitoring_triggers = _collect_monitoring_triggers(inputs, levels, contradictions)
 
     return FinalReport(
         security=ReportSecurity(

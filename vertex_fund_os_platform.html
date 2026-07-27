@@ -999,6 +999,14 @@
                      cada uno con sus 7 campos. Son CONTENIDO cualitativo (clase Q del juez),
                      no mueven ni un punto del score determinista. ══ -->
                 <div id="frThesisKillers" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
+
+                <!-- ══ REPORTE FINAL (00_main_agent/FINAL_REPORT_SCHEMA.md). Se construía completo
+                     y se guardaba en analisis.final_report, pero no se dibujaba en ninguna parte.
+                     Aquí SOLO van las secciones que no se muestran ya en otro panel: las 7 frases
+                     obligatorias del resumen ejecutivo, qué vigilar, qué falta o está en conflicto,
+                     y el apéndice de auditoría. El scorecard, los niveles, los thesis killers y los
+                     gates ya tienen su propio panel arriba: repetirlos sería ruido. ══ -->
+                <div id="frFinalReport" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
             </div>
 
             <div>
@@ -1440,7 +1448,7 @@ function renderDashboard(data) {
     // Adapta el panel de targets al origen (Victor = solo 12M) desde el primer render.
     try { applyTargetsSourceUI(); } catch(e){}
     // Paneles de Victor (palabras simples · puntaje · qué significa) del área de research.
-    try { renderVictorWords(); renderVictorScore(); renderVictorMeaning(); renderVictorLevels(); renderVictorWhy(); renderVictorThesisKillers(); renderVictorMandatory(); } catch(e){ console.error('paneles Victor:', e); }
+    try { renderVictorWords(); renderVictorScore(); renderVictorMeaning(); renderVictorLevels(); renderVictorWhy(); renderVictorThesisKillers(); renderVictorMandatory(); renderVictorFinalReport(); } catch(e){ console.error('paneles Victor:', e); }
     const targets = data.targets || {};
     const meth = data.methodology || {};
     const price = data.precio_actual;
@@ -2143,6 +2151,85 @@ function renderVictorThesisKillers() {
     ${simple(tk.business, 'Riesgos del negocio', 'text-blue-400')}
     ${simple(tk.market, 'Riesgos de crecimiento y mercado', 'text-purple-400')}
     <p class="text-[9px] text-gray-700 mt-2">Juicio cualitativo (clase Q)${tk.source ? ` · ${esc(tk.source)}` : ''}. No mueve el puntaje determinista.</p>`;
+}
+
+// ── REPORTE FINAL (00_main_agent/FINAL_REPORT_SCHEMA.md) ──────────────────────
+// El reporte se armaba entero y se guardaba, pero no se dibujaba. Este panel
+// muestra SOLO lo que no aparece ya en otro sitio: las 7 frases obligatorias del
+// resumen ejecutivo, monitoring_triggers, missing_or_conflicted_data y el
+// apéndice de auditoría. Scorecard, niveles, thesis killers y gates ya tienen su
+// panel propio arriba — repetirlos sería ruido, no rigor.
+const _FR_SENTENCES = [
+  ['business_quality',          '1. Qué hace la empresa económicamente'],
+  ['value_creation_durability', '2. Por qué la creación de valor es o no durable'],
+  ['growth_engine',             '3. Qué financia el crecimiento'],
+  ['market_validation',         '4. Si el mercado valida la tesis hoy'],
+  ['valuation_message',         '5. Qué supuestos exige el precio actual'],
+  ['key_levels_summary',        '6. Soporte/resistencia más cercano y valor intrínseco'],
+  ['primary_risk',              '7. El riesgo de invalidación más importante'],
+];
+
+function renderVictorFinalReport() {
+  const el = document.getElementById('frFinalReport'); if (!el) return;
+  const fr = currentAnalysis?.analisis?.final_report;
+  if (!fr) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const esc = t => String(t == null ? '' : t).replace(/</g, '&lt;');
+
+  const et = fr.executive_thesis || {};
+  const frases = _FR_SENTENCES.map(([k, titulo]) => {
+    const txt = (et[k] || '').trim();
+    return `<div class="border-l-2 ${txt ? 'border-blue-800' : 'border-gray-800'} pl-2.5 py-1 mb-1.5">
+      <span class="text-[9px] text-gray-600 uppercase font-bold block">${titulo}</span>
+      <span class="text-[11px] ${txt ? 'text-gray-300' : 'text-gray-600 italic'} leading-relaxed">
+        ${txt ? esc(txt) : 'sin contenido — el reporte se publica incompleto en vez de rellenarse'}</span>
+    </div>`;
+  }).join('');
+
+  const lista = (arr, vacio, color) => (arr && arr.length)
+    ? arr.map(x => `<div class="text-[10px] text-gray-300 border-l-2 ${color} pl-2 py-0.5 mb-1">${esc(x)}</div>`).join('')
+    : `<p class="text-[10px] text-gray-600 italic">${vacio}</p>`;
+
+  const a = fr.audit || {};
+  const vs = a.validation_summary || {};
+  const nFormulas = (a.formula_versions || []).length;
+  const nHashes = Object.keys(a.packet_hashes || {}).length;
+  const stale = vs.data_staleness || {};
+  const proxies = vs.proxy_inputs || {};
+  const chip = (t, n, cls) => `<span class="text-[9px] px-2 py-0.5 rounded border ${cls}">${t}: <b>${n}</b></span>`;
+
+  el.innerHTML = `
+    <span class="text-[11px] font-bold text-white uppercase tracking-wider block border-b border-gray-800 pb-2 mb-3">
+      &#128220; Reporte final — schema de Victor
+      <span class="text-[9px] text-gray-600 font-normal normal-case ml-1">v${esc(fr.report_version || '?')}</span></span>
+
+    <p class="text-[9px] text-gray-600 uppercase font-bold mb-1.5">Resumen ejecutivo — las 7 frases obligatorias</p>
+    ${frases}
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+      <div>
+        <p class="text-[9px] text-amber-400 uppercase font-bold mb-1.5">Qué vigilar (monitoring triggers)</p>
+        ${lista(fr.monitoring_triggers, 'sin triggers registrados', 'border-amber-800')}
+      </div>
+      <div>
+        <p class="text-[9px] text-red-400 uppercase font-bold mb-1.5">Qué falta o está en conflicto</p>
+        ${lista(fr.missing_or_conflicted_data, 'sin huecos ni conflictos registrados', 'border-red-900')}
+      </div>
+    </div>
+
+    <p class="text-[9px] text-gray-600 uppercase font-bold mt-4 mb-1.5">Apéndice de auditoría</p>
+    <div class="flex flex-wrap gap-1.5">
+      ${chip('Fórmulas versionadas', nFormulas, 'text-gray-400 border-gray-800')}
+      ${chip('Hashes del packet', nHashes, 'text-gray-400 border-gray-800')}
+      ${chip('Gates pasados', (vs.passed_gates || []).length, 'text-emerald-400/80 border-emerald-900')}
+      ${chip('Gates fallados', (vs.failed_gates || []).length, 'text-red-400/80 border-red-900')}
+      ${chip('Overrides', (vs.overrides || []).length, 'text-amber-400/80 border-amber-900')}
+      ${chip('Inputs proxy', Object.keys(proxies).length, 'text-blue-400/80 border-blue-900')}
+      ${chip('Series vencidas', Object.keys(stale).length, 'text-purple-400/80 border-purple-900')}
+    </div>
+    <p class="text-[9px] text-gray-700 mt-2">
+      Análisis: ${esc((fr.security || {}).analysis_timestamp || '—')} ·
+      Conocimiento: ${esc((fr.security || {}).knowledge_timestamp || '—')}</p>`;
 }
 
 function renderVictorMandatory() {

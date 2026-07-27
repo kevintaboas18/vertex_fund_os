@@ -11,7 +11,9 @@ import pytest
 from wbj.aggregate.contradiction import CategoryScore10s, contradictions
 from wbj.aggregate.gates import CategoryConfidences, CategoryPoints, apply_gates, raw_total
 from wbj.aggregate.overrides import AggregateInputs, apply_overrides
-from wbj.aggregate.synthesis import synthesize_levels
+from wbj.aggregate.synthesis import LevelReference, LevelSynthesis, synthesize_levels
+from wbj.core.nullstates import NullState, Value
+from wbj.core.scoring import Dimension
 from wbj.schemas.final_report import REPORT_VERSION, ExecutiveThesis, FinalReport, build_final_report
 
 from .conftest import (
@@ -115,3 +117,112 @@ def test_final_report_rejects_wrong_report_version():
 def test_executive_thesis_requires_all_seven_sentences():
     with pytest.raises(Exception):
         ExecutiveThesis(business_quality="x")  # missing the other 6 required fields
+
+
+# ---------------------------------------------------------------------------
+# monitoring_triggers / missing_or_conflicted_data
+#
+# `missing_or_conflicted_data` llevaba solo los warnings del perfil y los
+# mandatory flags: la mitad "missing" faltaba entera. Una categoria podia
+# entregar tres dimensiones NOT_SCORABLE y 33% de cobertura y el reporte no
+# decia nada — y una dimension no puntuable aporta CERO puntos, o sea que en el
+# total se lee igual que una que puntuo mal.
+#
+# `monitoring_triggers` era `[c.label for c in contradictions]`: sin
+# contradicciones el reporte publicaba una seccion vacia, que se lee como "nada
+# que vigilar" para una tesis que siempre tiene algo que vigilar.
+# ---------------------------------------------------------------------------
+
+def _report_with(inputs, *, contras=None, levels=None):
+    overrides = apply_overrides(inputs)
+    cats = CategoryPoints(business=16.0, financial=10.5, market=18.0, technical=16.0, risk=9.0, valuation=7.0)
+    confidences = CategoryConfidences(business=90, financial=90, market=90, technical=90, risk=90, valuation=90)
+    profile = apply_gates(raw_total(cats), cats, confidences, overrides)
+    return build_final_report(
+        inputs=inputs, profile=profile, contradictions=contras or [],
+        levels=levels if levels is not None else synthesize_levels(
+            inputs.technical, inputs.valuation, price=100.0, atr=2.0),
+        executive_thesis=_executive_thesis(), exchange="NASDAQ", currency="USD",
+        analysis_timestamp="2026-07-26T00:00:00+00:00",
+    )
+
+
+def _unscorable_dimension(name: str) -> Dimension:
+    return Dimension(
+        name=name, max_points=5.0,
+        metric_scores=[(1.0, Value.null(NullState.NOT_SCORABLE, unit="score"))],
+    )
+
+
+def test_missing_data_names_the_unscorable_dimensions():
+    inputs = AggregateInputs(
+        business=make_business(dimensions=[_unscorable_dimension("customer_economics")], coverage=0.40),
+        financial=make_financial(), market=make_market(), technical=make_technical(),
+        risk=make_risk(), valuation=make_valuation(),
+    )
+    entries = _report_with(inputs).missing_or_conflicted_data
+    assert any("customer_economics" in e for e in entries)
+    assert any("NOT_SCORABLE aporta 0 puntos" in e for e in entries)
+
+
+def test_missing_data_reports_coverage_below_the_policy_bands():
+    inputs = AggregateInputs(
+        business=make_business(coverage=0.40), financial=make_financial(coverage=0.80),
+        market=make_market(), technical=make_technical(), risk=make_risk(), valuation=make_valuation(),
+    )
+    entries = _report_with(inputs).missing_or_conflicted_data
+    assert any("business: cobertura 40%" in e and "no elegible para gates" in e for e in entries)
+    assert any("financial: cobertura 80%" in e and "usable con salvedad" in e for e in entries)
+    # 0.90 esta por encima de COVERAGE_COMPLETE: no se reporta.
+    assert not any(e.startswith("market: cobertura") for e in entries)
+
+
+def test_missing_data_still_carries_the_mandatory_flags():
+    inputs = AggregateInputs(
+        business=make_business(mandatory_flags=["VALUE_DESTRUCTION"]), financial=make_financial(),
+        market=make_market(), technical=make_technical(), risk=make_risk(), valuation=make_valuation(),
+    )
+    entries = _report_with(inputs).missing_or_conflicted_data
+    assert "business: VALUE_DESTRUCTION" in entries
+
+
+def test_monitoring_triggers_are_never_empty():
+    """Siempre hay algo que vigilar: el re-run de CLAUDE.md es el piso."""
+    triggers = _report_with(_aggregate_inputs()).monitoring_triggers
+    assert triggers
+    assert any("10-K/10-Q" in t and "recalcular" in t for t in triggers)
+
+
+def test_monitoring_triggers_carry_the_level_confirmation_and_invalidation():
+    """PRICE_LEVEL_SYNTHESIS.md #4: el trigger de ruptura y el nivel de fallo."""
+    level = LevelReference(
+        level_class="resistance", label="Resistencia cercana", source="technical",
+        zone_low=104.0, zone_high=106.0,
+        confirmation="cierre diario sobre 106.00", invalidation="cierre diario bajo 98.00",
+    )
+    levels = LevelSynthesis(current_price=100.0, atr14=2.0, levels=[level])
+    triggers = _report_with(_aggregate_inputs(), levels=levels).monitoring_triggers
+    assert any("confirmación — cierre diario sobre 106.00" in t for t in triggers)
+    assert any("invalidación — cierre diario bajo 98.00" in t for t in triggers)
+
+
+def test_monitoring_triggers_and_missing_data_do_not_repeat_entries():
+    inputs = AggregateInputs(
+        business=make_business(mandatory_flags=["VALUE_DESTRUCTION", "VALUE_DESTRUCTION"]),
+        financial=make_financial(), market=make_market(), technical=make_technical(),
+        risk=make_risk(), valuation=make_valuation(),
+    )
+    report = _report_with(inputs)
+    assert len(report.missing_or_conflicted_data) == len(set(report.missing_or_conflicted_data))
+    assert len(report.monitoring_triggers) == len(set(report.monitoring_triggers))
+
+
+def test_mandatory_flags_are_not_repeated_across_both_sections():
+    """Un flag es estado, no evento: va en missing_or_conflicted_data y solo ahi."""
+    inputs = AggregateInputs(
+        business=make_business(mandatory_flags=["VALUE_DESTRUCTION"]), financial=make_financial(),
+        market=make_market(), technical=make_technical(), risk=make_risk(), valuation=make_valuation(),
+    )
+    report = _report_with(inputs)
+    assert "business: VALUE_DESTRUCTION" in report.missing_or_conflicted_data
+    assert not any("VALUE_DESTRUCTION" in t for t in report.monitoring_triggers)
