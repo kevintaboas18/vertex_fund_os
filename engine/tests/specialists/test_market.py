@@ -624,3 +624,53 @@ def test_industry_hhi_labels_a_lower_bound_when_residual_missing():
     assert "HHI_LOWER_BOUND_RESIDUAL_MARKET_NOT_REPRESENTED" in partial.warnings
     full = mkt.industry_hhi([0.5, 0.3, 0.2])  # sums to 1.0
     assert "HHI_LOWER_BOUND_RESIDUAL_MARKET_NOT_REPRESENTED" not in full.warnings
+
+
+def test_the_external_capital_flag_stays_quiet_below_the_five_point_gap():
+    """The other half of DECISION_RULES.md's forecast-consistency gate:
+    "Forecast growth > growth capacity by >5 pts requires external-capital
+    explanation". The existing coverage only proved the flag fires; a flag
+    that fires on every company says nothing.
+
+    `_row`'s defaults put growth capacity near 8.6%, so a 10% forecast is
+    inside the gate and must not raise it.
+    """
+    rows = [_row(2025), _row(2024)]
+    out = mkt.run(
+        _minimal_packet(rows),
+        overlay={"target_revenue": 5000.0, "current_revenue": 1000.0,
+                 "assumed_growth": 0.10},
+    )
+    assert "EXTERNAL_CAPITAL_REQUIRED" not in out.mandatory_flags
+
+
+def test_the_gate_compares_against_growth_capacity_not_a_fixed_number():
+    """The threshold is relative: the same forecast passes or fails depending
+    on what the company can finance internally. Supplying a higher
+    reinvestment/ROIC pair lifts capacity and should quiet the flag."""
+    rows = [_row(2025), _row(2024)]
+    base = {"target_revenue": 5000.0, "current_revenue": 1000.0,
+            "assumed_growth": 0.30}
+    loud = mkt.run(_minimal_packet(rows), overlay=base)
+    quiet = mkt.run(_minimal_packet(rows),
+                    overlay={**base, "reinvestment_rate": 0.9, "roic": 0.40})
+    assert "EXTERNAL_CAPITAL_REQUIRED" in loud.mandatory_flags
+    assert "EXTERNAL_CAPITAL_REQUIRED" not in quiet.mandatory_flags
+
+
+def test_supplying_reinvestment_and_roic_removes_the_growth_capacity_proxy():
+    """MKT-GCAP-009 falls back to capex/NOPAT when the validated
+    Business/Financial packet figures are absent, and FORMULAS.md's execution
+    rule makes that a proxy: "Record any proxy in warnings and reduce
+    model-fit confidence". Supplying `reinvestment_rate` and `roic`
+    (DATASET.md `roic_reinvestment`) must clear the warning."""
+    rows = [_row(2025), _row(2024)]
+    proxied = {r.metric_id: r for r in mkt.run(_minimal_packet(rows)).metrics}
+    supplied = {r.metric_id: r for r in mkt.run(
+        _minimal_packet(rows),
+        overlay={"reinvestment_rate": 0.35, "roic": 0.22}).metrics}
+
+    assert "REINVESTMENT_RATE_PROXY_CAPEX_OVER_NOPAT" in " ".join(
+        proxied["MKT-GCAP-009"].warnings or [])
+    assert "REINVESTMENT_RATE_PROXY_CAPEX_OVER_NOPAT" not in " ".join(
+        supplied["MKT-GCAP-009"].warnings or [])
