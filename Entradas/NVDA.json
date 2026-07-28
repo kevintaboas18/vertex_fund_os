@@ -1,0 +1,50 @@
+{
+  "_fuente": "Gartner, Worldwide IT Spending Forecast — segmento Data Center Systems (servers, data center switching, storage, systems software), mundial. Vintage: revision de octubre 2025. Investigado por el sub-agente market-analysis el 2026-07-19.",
+  "_cita_2025": "Gartner expects datacenter systems spending to rise by 46.8 percent this year to $489.5 billion in 2025 — https://www.nextplatform.com/2025/10/27/gartner-radically-raises-datacenter-spending-forecasts/",
+  "_cita_2024": "Gartner's latest numbers put datacenter systems spending at $333.4 billion in 2024 — misma URL",
+  "_tier": "3 = research independiente con metodologia divulgada (confianza 70, sobre el umbral de 60, asi que NO capea la dimension en 6). No es tier 1 (no es gobierno/auditado) ni tier 2 (no es asociacion de industria) ni tier 4 (no es estimacion del emisor).",
+  "_verificacion": "gartner.com devuelve HTTP 403 a WebFetch, asi que la fuente primaria no es legible por maquina. Las cifras estan verificadas textualmente en dos medios independientes que citan el mismo vintage y coinciden exacto. Limitacion de fetch declarada, no un dato sin atribuir.",
+  "_gate_consistencia": "PASA: NVDA Data Center $193.7B <= TAM $489.5B bajo la misma definicion mundial CY2025.",
+  "_advertencia_capa_de_canal": "Gartner mide gasto del USUARIO FINAL; NVDA vende aguas arriba a OEM/ODM/CSP. Una GPU de NVDA dentro de un servidor Dell se cuenta una sola vez en el denominador como gasto del usuario final. Por eso la penetracion aqui es un RATIO DE CAPTURA DE VALOR, no participacion de mercado, y no es aditiva con la de los OEM. share, share_history y competitor_shares quedan NOT_SCORABLE a proposito.",
+  "_2026_excluido": "Gartner tiene dos vintages para 2026 que difieren de forma material: $582.4B (oct-2025) y $788.0B (abr-2026). SOURCE_HIERARCHY.md manda marcar CONFLICTED y no puntuar, asi que 2026 queda fuera del historial.",
+  "_share_no_scorable": "MKT-SHARE-006 y MKT-SHDELTA-007 quedan NOT_SCORABLE tras research (2026-07-19). Verificado y rechazado: TrendForce ~70% (no declara si es ingresos o unidades, denominador solo chips, un solo periodo, sin competidores); TrendForce ene-2026 (participacion por CATEGORIA GPU vs ASIC, no por vendedor, y en unidades); Omdia (publica el TAM pero las participaciones por vendedor son de pago); Dell'Oro 4T2025 (solo un ranking sin porcentajes, y denominador de componentes que mezcla fabricantes de memoria); IDC servidores (capa de canal equivocada: son OEM, NVDA ni aparece); paginas tipo Silicon Analysts con 'NVIDIA ~80%' (sin firma originadora = tier 5, no puntuable). NO se construyo el denominador sumando ingresos de empresas publicas: seria un denominador incompleto y daria una participacion inflada.",
+  "_adopt_no_scorable": "MKT-ADOPT-021 queda NOT_SCORABLE. La unica fuente con ambos numeros (HostZealot: 4.0M GPUs en 2024 a 8.3M en 2028) resulto ser aritmetica del propio autor: su metodologia dice que las unidades salen de revertir el tamano del mercado en dolares asumiendo un precio promedio de $20,000 por GPU. Tier 5. Ademas 8.3M en 2028 es un ano de pronostico, no un denominador de saturacion.",
+  "tam": 489500000000,
+  "tam_history": [
+    333400000000,
+    489500000000
+  ],
+  "tam_source": "Gartner, Worldwide IT Spending Forecast — Data Center Systems, vintage octubre 2025",
+  "tam_source_tier": 3,
+  "company_relevant_revenue": 193700000000,
+  "_judgments_nota": "Respuestas de juicio que aportas tu. moat_classification: Wide | Narrow | None — segun el gate de DECISION_RULES.md (spread ROIC-WACC >=5pp en 4 de 5 años, rango de margen <=5pp, al menos dos efectos de moat visibles, sin amenaza de concentracion).",
+  "judgments": {
+    "moat_classification": "Wide"
+  },
+  "_guidance_nota": "BUS-GUIDE-027: precision del guidance. guidance_midpoint = lo que la EMPRESA guio (punto medio del rango, del comunicado 8-K exhibit 99.1). actual = resultado reportado. NO uses consenso de analistas: eso mide si superan a Wall Street, no si cumplen su propia promesa. DATASET.md pide 8 trimestres; abajo hay 2 verificados. Añade mas conforme los confirmes en investor.nvidia.com.",
+  "guidance_history": [
+    {
+      "period": "FY2026Q1",
+      "guidance_midpoint": 43.0,
+      "actual": 44.06,
+      "unidad": "miles de millones USD",
+      "fuente_guidance": "NVIDIA Q4 FY2025 press release: revenue expected to be $43.0 billion, plus or minus 2% — nvidianews.nvidia.com",
+      "fuente_actual": "FMP income-statement trimestral, periodo 2025-04-27"
+    },
+    {
+      "period": "FY2026Q2",
+      "guidance_midpoint": 45.0,
+      "actual": 46.74,
+      "unidad": "miles de millones USD",
+      "fuente_guidance": "NVIDIA Q1 FY2026 press release: revenue expected to be $45.0 billion, plus or minus 2% — nvidianews.nvidia.com",
+      "fuente_actual": "FMP income-statement trimestral, periodo 2025-07-27"
+    }
+  ],
+  "_concentracion_fuente": "BUS-CONC-003 y BUS-HHI-004. Cita textual del 10-K FY2026 (accession 0001045810-26-000021): \"For fiscal year 2026, sales to one direct customer represented 22% of total revenue and sales to another direct customer represented 14% of total revenue\". Verificado contra el documento en SEC EDGAR.",
+  "_recurring_ausente": "BUS-REC-002 queda NOT_SCORABLE: NVDA NO divulga porcentaje de ingresos recurrentes en su 10-K. Busque \"recurring revenue\", \"subscription revenue\" y \"software and services revenue\" en el filing completo: no hay cifra. No es que no aplique (NVDA si tiene ingresos recurrentes via NVIDIA AI Enterprise) — es que no la reporta.",
+  "largest_customer_share": 0.22,
+  "customer_shares": [
+    0.22,
+    0.14
+  ]
+}
