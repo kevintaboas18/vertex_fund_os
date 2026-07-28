@@ -50,6 +50,12 @@ def _keys_the_engine_asks_for() -> set[str]:
         for match in re.finditer(
                 r"_overlay_(?:mapping|number|numbers)\(\s*overlay,\s*\"([a-z_0-9]+)\"", text):
             found.add(match.group(1))
+        # Third phrasing, and the one that hid the catalyst dimension:
+        # `overlay.get("catalysts")` names no remedy and calls no helper, so
+        # both earlier passes walked past it while four inputs the engine
+        # reads had nowhere to be written down.
+        for match in re.finditer(r"overlay\.get\(\s*\"([a-z_0-9]+)\"", text):
+            found.add(match.group(1))
     return found
 
 
@@ -64,12 +70,29 @@ def test_the_skeleton_covers_every_key_the_engine_names():
     """The drift guard. `share` is excluded: MKT-SHARE-006's own warning says
     market share is PROHIBITED_IMPUTATION, and its remedy names an overlay the
     analyst file does not carry."""
-    # `build_overlay` computes these from the packet; no analyst supplies
-    # them, so the skeleton must NOT offer them as blanks to fill.
-    _AUTO = {"wacc", "cost_of_equity", "segment_shares", "peer_roic",
-             "peer_operating_margin", "peer_recession_drawdown",
-             "recession_years"}
-    asked = _keys_the_engine_asks_for() - {"share"} - _AUTO
+    # Not analyst inputs, so the skeleton must not offer them as blanks:
+    #
+    # - computed by `build_overlay` from the packet;
+    # - read straight off the packet (beta, rates, filed lines);
+    # - documented defaults the analyst overrides only rarely;
+    # - internal bookkeeping the loader itself writes;
+    # - nested inside a template key that IS documented -- `above_50dma_count`
+    #   lives in `sector_breadth`, `committed_liquidity` in `cash_burn`.
+    _COMPUTED = {"wacc", "cost_of_equity", "segment_shares", "peer_roic",
+                 "peer_operating_margin", "peer_recession_drawdown",
+                 "recession_years", "dividend_per_share",
+                 "dividends_per_share_history", "eps_growth_pct",
+                 "geographic_shares", "historical_multiples", "macro_series",
+                 "margin_of_safety", "product_shares", "reit_supplement",
+                 "rs_universe", "segment_revenue"}
+    _FROM_PACKET = {"beta", "risk_free_rate", "interest_expense",
+                    "company_series", "earnings_dates", "depreciation", "ppe"}
+    _DEFAULTS = {"erp", "terminal_growth", "tv_growth", "forecast_years"}
+    _INTERNAL = {"analyst_input_warnings", "period", "estimates", "judgments",
+                 "debt_due"}
+    _NESTED = {"above_50dma", "above_50dma_count", "committed_liquidity"}
+    asked = (_keys_the_engine_asks_for() - {"share"} - _COMPUTED
+             - _FROM_PACKET - _DEFAULTS - _INTERNAL - _NESTED)
     missing = asked - set(SKELETON_KEYS)
     assert not missing, f"el esqueleto no documenta: {sorted(missing)}"
 

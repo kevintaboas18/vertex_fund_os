@@ -75,6 +75,12 @@ _EXTRA_DATASET_FIELD: dict[str, str] = {
     # The share form of `recurring_revenue`; business.py's lineage names only
     # the amount form, so this one is declared here.
     "recurring_revenue_share": "recurring_revenue_5y (01_business_analysis)",
+    "catalysts": "catalyst_registry (03_market_analysis)",
+    "backlog_history": "backlog_rpo_bookings (03_market_analysis)",
+    "ntm_contracted": "backlog_rpo_bookings (03_market_analysis)",
+    "ntm_revenue_estimate": "consensus_estimates_history (03_market_analysis)",
+    "scenarios": "tam_sam_som_sources (03_market_analysis)",
+    "peer_multiples": "peer_multiples_and_fundamentals (06_valuation_analysis)",
     "tam": "tam_sam_som_sources (03_market_analysis)",
     "tam_source": "tam_sam_som_sources (03_market_analysis)",
     "tam_history": "industry_revenue_history (03_market_analysis)",
@@ -170,6 +176,45 @@ _SECTIONS: list[tuple[str, list[str], list[str]]] = [
         ["debt_schedule", "unlevered_fcf"],
     ),
     (
+        "Catalizadores y backlog -- dimension product_and_business_catalysts",
+        ["MKT-BACK-015, COVER-016, CAT-019, TDEC-020 (4 pts).",
+         "",
+         "catalysts: lista. AGENT.md pide 'at least three catalysts with",
+         "  evidence class and date'. CADA uno necesita las seis llaves o",
+         "  MKT-CAT-019 no puntua -- solo con event/months no basta:",
+         "  {event, months_to_event, probability (0-1), impact (usd),",
+         "   evidence_quality (0-1), source}",
+         "  Fuente: 10-K/8-K -- lanzamientos, capacidad, regulatorio,",
+         "  contratos, precios. Solo eventos que el emisor haya declarado.",
+         "",
+         "backlog_history: RPO/backlog por trimestre, 8 trimestres.",
+         "  Si la empresa etiqueta RevenueRemainingPerformanceObligation en",
+         "  XBRL el motor ya lo saca solo; esto es para las que no.",
+         "",
+         "ntm_contracted / ntm_revenue_estimate: backlog que se reconoce en",
+         "  12 meses, y el ingreso estimado de esos 12 meses. Su cociente es",
+         "  MKT-COVER-016. Varios emisores dejaron de etiquetar el porcentaje",
+         "  a 12 meses (NVDA en 2019, Microsoft en 2018), y el motor no toma",
+         "  un par viejo: sin captura, la metrica queda MISSING.",
+         "",
+         "Verificado en AAPL: la dimension pasa de 0% a 100% y Mercado de",
+         "5.10 a 7.81 de 20."],
+        ["catalysts", "backlog_history", "ntm_contracted", "ntm_revenue_estimate"],
+    ),
+    (
+        "Anulaciones opcionales",
+        ["scenarios (MKT-SCEN-025): resultado de mercado ponderado por",
+         "  escenario. Lista de pares [probabilidad, resultado_usd]. Las",
+         "  probabilidades DEBEN sumar 1.0 o la metrica sale CONFLICTED --",
+         "  FORMULAS.md, y el motor no renormaliza en silencio.",
+         "  Ej: [[0.25, 8.0e10], [0.50, 1.0e11], [0.25, 1.3e11]]",
+         "",
+         "peer_multiples (VAL-REL-034): lista de multiplos precio/ventas de",
+         "  los comparables. Si la dejas en null el motor los calcula del",
+         "  panel de peers; ponla solo si tienes un set mejor."],
+        ["scenarios", "peer_multiples"],
+    ),
+    (
         "Economia de clientes -- SOLO negocios de suscripcion",
         ["BUS-NRR-020, GRR-021, CHURN-022, LTV-023, CAC-024, LTVCAC-025,",
          "PAYBACK-026. Es la dimension `customer_economics` (3 pts).",
@@ -240,10 +285,37 @@ _SECTIONS: list[tuple[str, list[str], list[str]]] = [
     ),
 ]
 
+def _template_keys() -> tuple[str, ...]:
+    """Every analyst key `Entradas/EJEMPLO.NVDA.json` documents.
+
+    That file is the reference: it carries an illustrative value and a note
+    for each input, and `tests/test_entradas_template.py` already holds it to
+    covering everything the specialists read. The generated skeleton used to
+    list only the two dozen keys curated in `_SECTIONS`, so analysing a new
+    ticker produced a file missing most of what the engine reads -- an input
+    the analyst never sees is one they cannot supply.
+
+    Deriving the rest from the template keeps one source of truth instead of
+    a third list that drifts from the other two.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    try:
+        root = _Path(__file__).resolve().parents[2] / "Entradas" / "EJEMPLO.NVDA.json"
+        data = _json.loads(root.read_text(encoding="utf-8"))
+    except Exception:  # pragma: no cover - template absent
+        return ()
+    return tuple(k for k in data if not k.startswith("_"))
+
+
+#: Curated sections first, then everything else the template documents.
+_CURATED: tuple[str, ...] = tuple(key for _, _, keys in _SECTIONS for key in keys)
+_REST: tuple[str, ...] = tuple(k for k in _template_keys()
+                               if k not in _CURATED and k != "judgments")
+
 #: Every key the skeleton writes, flattened.
-SKELETON_KEYS: tuple[str, ...] = tuple(
-    key for _, _, keys in _SECTIONS for key in keys
-)
+SKELETON_KEYS: tuple[str, ...] = _CURATED + _REST
 
 _HEADER = [
     "ENTRADAS DEL ANALISTA -- {ticker}",
@@ -288,6 +360,14 @@ def render_skeleton(ticker: str) -> str:
                 alias = next((v for v, k in VICTOR_FIELD_ALIASES.items() if k == key), None)
                 note(f"`{key}` -> {where}"
                      + (f" -- tambien aceptado como `{alias}`" if alias else ""))
+            out[key] = None
+
+    if _REST:
+        note("")
+        note("--- Otras entradas que el motor lee ---")
+        note("Su forma y un ejemplo estan en Entradas/EJEMPLO.NVDA.json.")
+        note("Todas opcionales: en null, su metrica queda MISSING y se dice.")
+        for key in _REST:
             out[key] = None
 
     note("")

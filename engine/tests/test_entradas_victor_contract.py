@@ -26,7 +26,7 @@ import json
 import re
 from pathlib import Path
 
-from wbj.entradas import (SKELETON_KEYS, VICTOR_DATASET_FIELD,
+from wbj.entradas import (_CURATED, SKELETON_KEYS, VICTOR_DATASET_FIELD,
                           VICTOR_FIELD_ALIASES, render_skeleton, write_skeleton)
 from wbj.overlay.from_packet import _manual_overlay
 
@@ -114,7 +114,10 @@ def test_every_alias_target_is_a_key_the_engine_reads():
 
 def test_every_skeleton_key_declares_its_field():
     """No key may sit in the file without saying which contract row it serves."""
-    undeclared = set(SKELETON_KEYS) - set(VICTOR_DATASET_FIELD)
+    # The curated sections are the ones that name a DATASET.md row inline.
+    # The rest are derived from `EJEMPLO.NVDA.json`, which documents each with
+    # its own note and an illustrative value -- that file is their contract.
+    undeclared = set(_CURATED) - set(VICTOR_DATASET_FIELD)
     assert not undeclared, f"sin campo declarado: {sorted(undeclared)}"
 
 
@@ -181,7 +184,7 @@ def test_the_skeleton_names_the_dataset_field_for_each_key():
     # Only the keys the skeleton actually offers. The mapping is wider: it
     # merges business.py's lineage, which also covers overlay keys the engine
     # computes for itself (`wacc`, `peer_roic`, ...) and no analyst fills.
-    for key in SKELETON_KEYS:
+    for key in _CURATED:
         declared = VICTOR_DATASET_FIELD[key]
         where = declared if declared.startswith("FORMULAS.md") else f"DATASET.md {declared}"
         assert f"`{key}` -> {where}" in text
