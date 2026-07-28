@@ -27,7 +27,18 @@ _SPECIALISTS = Path(__file__).parent.parent / "wbj" / "specialists"
 
 
 def _keys_the_engine_asks_for() -> set[str]:
-    """Every key named in a "set `key`" remedy across the specialists.
+    """Every analyst-supplied key the specialists read.
+
+    Two phrasings, because the engine uses both and the first pass only
+    caught one. A metric whose remedy reads "set `key`" names it outright;
+    one that reads its input through `_overlay_mapping(overlay, "key", ...)`
+    or `_overlay_number(overlay, "key", ...)` names it in the call instead.
+
+    The second form is how the seven customer-economics metrics
+    (BUS-NRR-020..BUS-PAYBACK-026) ask for `retention`, `churn` and
+    `customer_economics` -- their warning says "_NO_OVERLAY", never "set
+    `key`", so this guard passed while all three went undocumented and the
+    3-point dimension had no way to be filled.
 
     Static, so it runs without network or an API key.
     """
@@ -35,6 +46,9 @@ def _keys_the_engine_asks_for() -> set[str]:
     for path in _SPECIALISTS.glob("*.py"):
         text = path.read_text(encoding="utf-8")
         for match in re.finditer(r"set `([a-z_0-9]+)`", text):
+            found.add(match.group(1))
+        for match in re.finditer(
+                r"_overlay_(?:mapping|number|numbers)\(\s*overlay,\s*\"([a-z_0-9]+)\"", text):
             found.add(match.group(1))
     return found
 
@@ -50,7 +64,12 @@ def test_the_skeleton_covers_every_key_the_engine_names():
     """The drift guard. `share` is excluded: MKT-SHARE-006's own warning says
     market share is PROHIBITED_IMPUTATION, and its remedy names an overlay the
     analyst file does not carry."""
-    asked = _keys_the_engine_asks_for() - {"share"}
+    # `build_overlay` computes these from the packet; no analyst supplies
+    # them, so the skeleton must NOT offer them as blanks to fill.
+    _AUTO = {"wacc", "cost_of_equity", "segment_shares", "peer_roic",
+             "peer_operating_margin", "peer_recession_drawdown",
+             "recession_years"}
+    asked = _keys_the_engine_asks_for() - {"share"} - _AUTO
     missing = asked - set(SKELETON_KEYS)
     assert not missing, f"el esqueleto no documenta: {sorted(missing)}"
 

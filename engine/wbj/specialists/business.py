@@ -1733,10 +1733,17 @@ _OVERLAY_LINEAGE: dict[str, str] = {
     # The analyst-supplied TAM's source tier. It decides whether SCORING.md's
     # market-definition cap on competitive position holds or lifts — 8 against
     # 10 on a four-point dimension — and was read without ever being declared,
-    # so a score that moved on it could not be traced to it. DATASET.md's
-    # market-definition field is `market_share_company_industry_3y`
-    # ("Company and market sales under one consistent market definition").
-    "tam_source_tier": "market_share_company_industry_3y",
+    # so a score that moved on it could not be traced to it.
+    #
+    # It is filed under the TAM, not under market share. Victor defines the
+    # tiers in `03_market_analysis/DECISION_RULES.md` under the heading
+    # "Source-quality tiers for TAM", and its disclosure rule reads "1. exact
+    # TAM definition and source tier". The field whose preferred source those
+    # tiers grade is `tam_sam_som_sources` ("government / industry primary
+    # source"). This row previously named `market_share_company_industry_3y`,
+    # which is what the tier *affects* here — not where the figure comes from,
+    # and a lineage table records provenance.
+    "tam_source_tier": "tam_sam_som_sources",
     # SCORING.md's durability concentration-cap exception ("unless contract
     # protection is quantified"). Contractual protection around a
     # concentrated customer is the quantified form of `competitive_evidence`

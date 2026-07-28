@@ -36,15 +36,49 @@ from pathlib import Path
 #: and forecast", not one number -- so renaming them 1:1 would either collapse
 #: distinct inputs into one key or invent sub-names Victor never wrote. Those
 #: keep their key and declare their parent field instead.
-VICTOR_DATASET_FIELD: dict[str, str] = {
+#: `specialists/business.py` already keeps `_OVERLAY_LINEAGE`, the same
+#: mapping for every key IT reads -- including a reasoned `tam_source_tier ->
+#: market_share_company_industry_3y` that this table contradicted with a
+#: plainer `tam_sam_som_sources`. Two tables disagreeing about the same key is
+#: worse than either answer, so business's entries win and this one only adds
+#: the keys that table does not cover (valuation, market sizing).
+def _dataset_home(field: str) -> str:
+    """Which specialist's DATASET.md declares `field`.
+
+    Derived, not assumed: a key business.py reads can be declared in another
+    agent's contract. `tam_source_tier`'s field `tam_sam_som_sources` lives in
+    `03_market_analysis`, and labelling it `01_business_analysis` because
+    business is the module that reads it would send the auditor to a table
+    that does not contain the row.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "Cerebro"
+    for path in sorted(root.glob("0[1-6]_*/DATASET.md")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.startswith(f"| {field} "):
+                return path.parent.name
+    return ""
+
+
+_BUSINESS_LINEAGE: dict[str, str] = {}
+try:
+    from wbj.specialists.business import _OVERLAY_LINEAGE as _BL
+
+    _BUSINESS_LINEAGE = {
+        k: (f"{v} ({h})" if (h := _dataset_home(v)) else v) for k, v in _BL.items()
+    }
+except Exception:  # pragma: no cover - import cycle safety
+    pass
+
+_EXTRA_DATASET_FIELD: dict[str, str] = {
+    # The share form of `recurring_revenue`; business.py's lineage names only
+    # the amount form, so this one is declared here.
+    "recurring_revenue_share": "recurring_revenue_5y (01_business_analysis)",
     "tam": "tam_sam_som_sources (03_market_analysis)",
     "tam_source": "tam_sam_som_sources (03_market_analysis)",
-    "tam_source_tier": "tam_sam_som_sources (03_market_analysis)",
     "tam_history": "industry_revenue_history (03_market_analysis)",
     "company_relevant_revenue": "company_relevant_revenue (03_market_analysis)",
-    "largest_customer_share": "customer_revenue_shares (01_business_analysis)",
-    "customer_shares": "customer_revenue_shares (01_business_analysis)",
-    "guidance_history": "management_guidance_history (01_business_analysis)",
     # These four have no DATASET.md row, but Victor names their inputs
     # directly in FORMULAS.md's "inputs" column. Citing a stretched dataset
     # field instead would look authoritative and send the auditor to the wrong
@@ -60,8 +94,10 @@ VICTOR_DATASET_FIELD: dict[str, str] = {
     "convertibles": "share_claims (06_valuation_analysis)",
     "rd_useful_life": "FORMULAS.md VAL-RD-002 (historical R&D, useful life)",
     "lease_commitments": "lease_schedule (02_financial_analysis)",
-    "recurring_revenue_share": "recurring_revenue_5y (01_business_analysis)",
 }
+
+#: business.py's own entries win; this module adds the rest.
+VICTOR_DATASET_FIELD: dict[str, str] = {**_EXTRA_DATASET_FIELD, **_BUSINESS_LINEAGE}
 
 #: Victor's field name -> the overlay key it maps to, for the five where the
 #: correspondence is exact. Writing `management_guidance_history` in the file
@@ -132,6 +168,43 @@ _SECTIONS: list[tuple[str, list[str], list[str]]] = [
          "DECISION_RULES.md limita APV a apalancamiento cambiante; un solo",
          "saldo reportado es justo el supuesto estatico que APV reemplaza."],
         ["debt_schedule", "unlevered_fcf"],
+    ),
+    (
+        "Economia de clientes -- SOLO negocios de suscripcion",
+        ["BUS-NRR-020, GRR-021, CHURN-022, LTV-023, CAC-024, LTVCAC-025,",
+         "PAYBACK-026. Es la dimension `customer_economics` (3 pts).",
+         "",
+         "Si la empresa NO es de suscripcion, deja las tres en null: el",
+         "adaptador industrial las marca NOT_APPLICABLE y la dimension se",
+         "reescala fuera sin costar puntos (MISSING_DATA_POLICY paso 1).",
+         "Si SI lo es y las dejas vacias, la dimension cuesta sus 3 puntos.",
+         "",
+         "retention  = {begin, expansion, contraction, churn}   (en $ de ingreso)",
+         "churn      = {lost, begin_customers}                  (en # de clientes)",
+         "customer_economics = {arpu, monthly_arpu, gross_margin,",
+         "                      customer_life_years, cac_spend, new_customers}",
+         "",
+         "Fuente: 10-K/10-Q, seccion de metricas operativas o carta a",
+         "accionistas. Pocas empresas divulgan todo esto; lo que no este",
+         "divulgado va null."],
+        ["retention", "churn", "customer_economics"],
+    ),
+    (
+        "Ajustes de negocio (opcionales)",
+        ["capitalized_rd_adjustment (BUS-REINV-018 -> BUS-SG-019): I+D",
+         "  capitalizada que se suma a la reinversion. Capitalizar I+D exige",
+         "  una vida de amortizacion que ningun filing declara, asi que es",
+         "  ajuste del analista. Verificado en AAPL: la reinversion pasa de",
+         "  0.34 a 0.60 y el crecimiento sostenible de 0.25 a 0.46.",
+         "  En null no se ajusta (se trata como 0). DATASET.md:",
+         "  capital_allocation_10y.",
+         "contract_protection (BUS-STAB-009 / durabilidad): fraccion 0-1 del",
+         "  ingreso concentrado que esta bajo contrato. SCORING.md levanta el",
+         "  tope por concentracion solo 'unless contract protection is",
+         "  quantified' -- esta llave es esa cuantificacion.",
+         "recurring_revenue: el MONTO absoluto de ingreso recurrente, si lo",
+         "  tienes en vez de la fraccion. El motor lo divide entre el ingreso."],
+        ["capitalized_rd_adjustment", "contract_protection", "recurring_revenue"],
     ),
     (
         "Ingreso recurrente",

@@ -75,6 +75,13 @@ def test_every_declared_field_exists_in_a_dataset_contract():
             assert fid in formulas, f"{key} -> '{fid}' no existe en FORMULAS.md"
             continue
         field = declared.split(" (")[0]
+        if field.startswith("FRED "):
+            # A legitimate third route: business.py records `recession_years`
+            # as "FRED USREC (NBER recession indicator)" because the NBER
+            # recession calendar BUS-STAB-009 needs is not a company field at
+            # all. Naming the provider is more honest than forcing it into a
+            # DATASET.md row it does not belong to.
+            continue
         assert field in victor, f"{key} -> '{field}' no existe en ningun DATASET.md"
 
 
@@ -171,7 +178,11 @@ def test_a_null_under_victors_name_does_not_overwrite_a_real_value(tmp_path):
 
 def test_the_skeleton_names_the_dataset_field_for_each_key():
     text = render_skeleton("TEST")
-    for key, declared in VICTOR_DATASET_FIELD.items():
+    # Only the keys the skeleton actually offers. The mapping is wider: it
+    # merges business.py's lineage, which also covers overlay keys the engine
+    # computes for itself (`wacc`, `peer_roic`, ...) and no analyst fills.
+    for key in SKELETON_KEYS:
+        declared = VICTOR_DATASET_FIELD[key]
         where = declared if declared.startswith("FORMULAS.md") else f"DATASET.md {declared}"
         assert f"`{key}` -> {where}" in text
 
@@ -182,3 +193,67 @@ def test_the_skeleton_still_loads_to_nothing_but_nulls(tmp_path):
     out = _manual_overlay(_S(tmp_path), "TEST")
     assert all(v is None for k, v in out.items() if k != "judgments")
     assert not any(k.startswith("_") for k in out)
+
+
+# --- one table, and it points where Victor puts the figure -----------------
+
+def test_there_is_only_one_lineage_table_and_it_does_not_contradict_itself():
+    """`business.py` keeps `_OVERLAY_LINEAGE` for the keys it reads, and this
+    module once kept a parallel table that disagreed with it on
+    `tam_source_tier`. Two tables disagreeing about one key is worse than
+    either answer: whichever an auditor opens, they cannot tell if it is the
+    one the engine believes."""
+    from wbj.specialists.business import _OVERLAY_LINEAGE
+
+    for key, field in _OVERLAY_LINEAGE.items():
+        assert VICTOR_DATASET_FIELD[key].startswith(field), (
+            f"{key}: business.py dice '{field}', entradas.py dice "
+            f"'{VICTOR_DATASET_FIELD[key]}'"
+        )
+
+
+def test_the_tam_source_tier_is_filed_under_the_tam():
+    """Victor defines the tiers in `03_market_analysis/DECISION_RULES.md`
+    under "Source-quality tiers for TAM", and his disclosure rule reads
+    "1. exact TAM definition and source tier". The graded field is
+    `tam_sam_som_sources`.
+
+    The lineage previously named `market_share_company_industry_3y` — what the
+    tier *affects* in business (SCORING.md: "Cannot score above 8 if market
+    definition is low confidence"), not where the figure comes from. A lineage
+    table records provenance."""
+    assert VICTOR_DATASET_FIELD["tam_source_tier"].startswith("tam_sam_som_sources")
+
+
+def test_each_field_is_labelled_with_the_document_that_declares_it():
+    """The parenthetical must name the DATASET.md that actually holds the row.
+    Tagging every business-read key `01_business_analysis` sent the auditor to
+    a table without the row: `tam_sam_som_sources` is declared in
+    `03_market_analysis`."""
+    victor_by_doc = {}
+    for path in _CEREBRO.glob("0[1-6]_*/DATASET.md"):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            m = re.match(r"\|\s*([a-z][a-z0-9_]+)\s*\|", line)
+            if m:
+                victor_by_doc.setdefault(m.group(1), set()).add(path.parent.name)
+
+    for key, declared in VICTOR_DATASET_FIELD.items():
+        if "(" not in declared or declared.startswith("FORMULAS.md") \
+                or declared.startswith("FRED "):
+            continue
+        field = declared.split(" (")[0]
+        doc = declared[declared.index("(") + 1:declared.rindex(")")]
+        assert doc in victor_by_doc.get(field, set()), (
+            f"{key}: '{field}' no esta declarado en {doc}"
+        )
+
+
+def test_the_three_keys_the_strengthened_guard_found_are_documented():
+    """`capitalized_rd_adjustment`, `contract_protection` and the amount form
+    of `recurring_revenue` are read through `_overlay_number(overlay, "key")`,
+    so their warnings never say "set `key`" and the first drift guard missed
+    all three."""
+    for key in ("capitalized_rd_adjustment", "contract_protection",
+                "recurring_revenue"):
+        assert key in SKELETON_KEYS, f"{key} sigue sin documentarse"
+        assert key in VICTOR_DATASET_FIELD
