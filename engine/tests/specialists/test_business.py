@@ -1027,3 +1027,36 @@ def test_an_additive_adapter_does_not_lift_the_flag():
     for adapter in ("saas_subscriptions", "commodities_cyclicals"):
         out = bus.run(_adapter_packet(adapter), {"wacc": 99.0})
         assert "VALUE_DESTRUCTION" in out.mandatory_flags, adapter
+
+
+def test_the_concentration_flag_is_strictly_above_thirty_percent():
+    """`DECISION_RULES.md`: "CONCENTRATION_RED_FLAG when one customer/product
+    exceeds 30% of revenue". "Exceeds" is strict — exactly 30% is not a flag,
+    and the durability cap that rides on it must not fire there either.
+
+    The boundary is where an off-by-one hides: existing coverage tested 0.35
+    (clearly over) and nothing at the edge.
+    """
+    assert bus.is_concentration_red_flag(0.30) is False
+    assert bus.is_concentration_red_flag(0.3000001) is True
+    assert bus.is_concentration_red_flag(0.29) is False
+
+
+def test_recurring_revenue_is_the_third_durability_slot():
+    """`business_durability` holds BUS-REC-002, BUS-CONC-003 and BUS-STAB-009.
+    Without the recurring share it sits at 2 of 3 — below SCORING_ENGINE.md's
+    70% reweight floor — so the whole 4-point dimension scores nothing.
+
+    Measured on NVDA: supplying it takes the dimension from NOT_SCORABLE to
+    4.80/10 and Business from 11.39 to 13.64 of 20.
+    """
+    rows = [_row(2025), _row(2024), _row(2023)]
+    packet = _minimal_packet(rows)
+    base = {"largest_customer_share": 0.22}
+
+    without = bus.run(packet, overlay=base)
+    with_rec = bus.run(packet, overlay={**base, "recurring_revenue_share": 0.25})
+
+    dim_a = next(d for d in without.dimensions if d.name == "business_durability")
+    dim_b = next(d for d in with_rec.dimensions if d.name == "business_durability")
+    assert dim_b.valid_weight() > dim_a.valid_weight()
