@@ -260,6 +260,38 @@ def _fmp_daily_bars(ticker, period="1y"):
         return []
 
 
+def _fmp_perfil(ticker):
+    """Nombre y web de la empresa desde FMP, para cuando `stock.info` viene vacío.
+
+    Yahoo limita `.info` mucho antes que `fast_info`, así que en produccion se da
+    el caso de tener precio pero no nombre: la tarjeta mostraba "AAPL" como razón
+    social y el logo caía al avatar de iniciales. Reference data, cacheada por el
+    propio FMPProvider.
+
+    Devuelve {"name": str, "website": str} o {} si no hay clave/datos. Nunca lanza.
+    """
+    if not (os.environ.get("FMP_API_KEY") or "").strip():
+        return {}
+    try:
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.config import load_settings
+        from wbj.providers.cache import Cache
+        from wbj.providers.fmp import FMPProvider
+        _s = load_settings()
+        if not getattr(_s, "fmp_api_key", None):
+            _s.fmp_api_key = os.environ.get("FMP_API_KEY")
+        p = FMPProvider(_s, Cache(_s.cache_dir)).profile(str(ticker).upper().strip())
+        if isinstance(p, list):
+            p = p[0] if p else None
+        if not isinstance(p, dict):
+            return {}
+        return {"name": (p.get("companyName") or "").strip(),
+                "website": (p.get("website") or "").strip()}
+    except Exception:
+        return {}
+
+
 def _stooq_series(ticker, period="1y"):
     """RESPALDO HISTÓRICO, HOY INERTE: Stooq dejó de servir este CSV — responde con
     una página que exige resolver un desafío JavaScript anti-bot, así que esta
@@ -1861,7 +1893,12 @@ def get_quick_quote(ticker: str):
         low_dia  = float(info.get("dayLow") or fh.get("low")
                          or (float(hist['Low'].iloc[-1]) if tiene_hist else precio_actual))
         vwap_dia = info.get("vwap")    or ((high_dia + low_dia + precio_actual) / 3)
-        logo_url = obtener_logo(ticker_clean, info.get("website", ""))
+        # Nombre y logo: si Yahoo limito `.info` tenemos precio pero no razon social,
+        # y la tarjeta mostraba el ticker como nombre. FMP la trae (dato de
+        # referencia, cacheado), asi que solo se consulta cuando falta.
+        perfil = _fmp_perfil(ticker_clean) if not info.get("longName") else {}
+        nombre = info.get("longName") or perfil.get("name") or ticker_clean
+        logo_url = obtener_logo(ticker_clean, info.get("website") or perfil.get("website") or "")
 
         # --- Precio extendido (after-hours / pre-market) ---
         mkt_state = (info.get("marketState") or "").upper()
@@ -1881,7 +1918,7 @@ def get_quick_quote(ticker: str):
 
         return {
             "ticker": ticker_clean,
-            "nombre_completo": info.get("longName", ticker_clean),
+            "nombre_completo": nombre,
             "precio": round(precio_actual, 2),
             "cambio_pct": round(cambio_pct, 2),
             "volumen": format_volume(volumen),
