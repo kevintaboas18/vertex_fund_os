@@ -97,6 +97,7 @@ from wbj.schemas.valuation import (
     ScenarioInput,
 )
 from wbj.specialists.common import (
+    overlay_float,
     CategoryStats,
     apply_dimension_cap,
     JudgmentRequest,
@@ -446,7 +447,7 @@ def _reit_adapter_output(packet: Packet, overlay: dict[str, Any]) -> ValuationOu
     shares = _fact(packet, "diluted_shares") or _num(latest, "diluted_shares")
     rf = overlay.get("risk_free_rate", (packet.estimates or {}).get("risk_free_rate"))
     beta = overlay.get("beta", packet.capital_structure.get("beta"))
-    erp = float(overlay.get("erp", 0.045))
+    erp = overlay_float(overlay, "erp", 0.045)
     ke_v = (ve.cost_of_equity(float(rf), float(beta), erp)
             if rf is not None and beta is not None
             else _null(NullState.MISSING, "pct", "COST_OF_EQUITY_INPUTS_UNAVAILABLE"))
@@ -459,7 +460,7 @@ def _reit_adapter_output(packet: Packet, overlay: dict[str, Any]) -> ValuationOu
     hddm_v = _null(NullState.MISSING, "usd_per_share", "HDDM_INPUTS_UNAVAILABLE")
     if isinstance(d0, (int, float)) and ke_v.is_valid:
         g_short = div_growth if div_growth is not None else 0.0
-        tv_growth = float(overlay.get("tv_growth", 0.025))
+        tv_growth = overlay_float(overlay, "tv_growth", 0.025)
         years = int(overlay.get("forecast_years", 5))
         # Gordon's `g` is perpetual, so DECISION_RULES.md rule 3 governs it:
         # terminal growth must sit below the cost of equity and match long-run
@@ -748,7 +749,7 @@ def _financial_adapter_output(packet: Packet, overlay: dict[str, Any]) -> Valuat
     # a bank's liabilities are its raw material, not its financing.
     rf = overlay.get("risk_free_rate", (packet.estimates or {}).get("risk_free_rate"))
     beta = overlay.get("beta", packet.capital_structure.get("beta"))
-    erp = float(overlay.get("erp", 0.045))
+    erp = overlay_float(overlay, "erp", 0.045)
     ke_v = (ve.cost_of_equity(float(rf), float(beta), erp)
             if rf is not None and beta is not None
             else _null(NullState.MISSING, "pct", "COST_OF_EQUITY_INPUTS_UNAVAILABLE"))
@@ -763,7 +764,7 @@ def _financial_adapter_output(packet: Packet, overlay: dict[str, Any]) -> Valuat
     if net_income is not None and equity_begin not in (None, 0) and ke_v.is_valid:
         ri_v = ve.residual_income(net_income, ke_v.value, equity_begin)
         years = int(overlay.get("forecast_years", 5))
-        g = float(overlay.get("residual_income_growth", 0.0))
+        g = overlay_float(overlay, "residual_income_growth", 0.0)
         if ri_v.is_valid and equity_now is not None:
             ris = [ri_v.value * (1 + g) ** (t + 1) for t in range(years)]
             riv_v = ve.residual_income_value(equity_now, ris, ke_v.value)
@@ -783,7 +784,7 @@ def _financial_adapter_output(packet: Packet, overlay: dict[str, Any]) -> Valuat
     # The long-run rate is read once, outside the dividend branch: VAL-JPB-031
     # below is also a stable-growth model and needs it whether or not this
     # company pays a dividend.
-    tv_growth = float(overlay.get("tv_growth", 0.025))
+    tv_growth = overlay_float(overlay, "tv_growth", 0.025)
     d0 = overlay.get("dividend_per_share")
     dps_history = overlay.get("dividends_per_share_history") or []
     div_growth, stability_note = _dividend_growth(dps_history)
@@ -814,7 +815,7 @@ def _financial_adapter_output(packet: Packet, overlay: dict[str, Any]) -> Valuat
     # Stable-growth `g` (INSTITUTIONAL_VALUATION_ENGINE.md:387). An analyst-
     # supplied `book_growth` still wins; absent one the long-run rate is the
     # right default, not a second hardcoded number that can drift from it.
-    jpb_v = (ve.justified_pb(roe, float(overlay.get("book_growth", tv_growth)), ke_v.value)
+    jpb_v = (ve.justified_pb(roe, overlay_float(overlay, "book_growth", tv_growth), ke_v.value)
              if roe is not None and ke_v.is_valid
              else _null(NullState.MISSING, "x", "JUSTIFIED_PB_INPUTS_UNAVAILABLE"))
     add("VAL-JPB-031", jpb_v, None)
@@ -1043,7 +1044,7 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     # ---- WACC (VAL-KE-008 / VAL-KD-011 / VAL-WACC-007) ----
     rf = overlay.get("risk_free_rate", (packet.estimates or {}).get("risk_free_rate"))
     beta = overlay.get("beta", packet.capital_structure.get("beta"))
-    erp = float(overlay.get("erp", 0.045))
+    erp = overlay_float(overlay, "erp", 0.045)
     if rf is None or beta is None:
         ke_v = _null(NullState.MISSING, "pct", "WACC_INPUTS_UNAVAILABLE_NO_RF_OR_BETA")
         assumptions.append("Cost of equity not computed: risk-free rate or beta unavailable from Packet.estimates/capital_structure.")
@@ -1083,7 +1084,7 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     wacc_sens = ve.wacc_sensitivity(wacc_v) if wacc_v.is_valid else None
 
     # ---- Terminal growth (DCF consistency rule 3: must stay below WACC) ----
-    tv_growth_default = float(overlay.get("terminal_growth", 0.025))
+    tv_growth_default = overlay_float(overlay, "terminal_growth", 0.025)
     if wacc_value is not None and tv_growth_default >= wacc_value:
         tv_growth = max(0.0, wacc_value - 0.005)
         assumptions.append(
@@ -1574,10 +1575,10 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
         if ku is not None:
             apv = ve.adjusted_present_value(
                 [float(x) for x in ufcf], float(ku), [float(x) for x in debt_path],
-                tax_rate, float(overlay.get("pretax_kd", kd_v.value if kd_v.is_valid else 0.05)),
-                float(overlay.get("distress_probability", 0.0)),
-                float(overlay.get("distress_cost", 0.0)),
-                float(overlay.get("financing_side_effects", 0.0)),
+                tax_rate, overlay_float(overlay, "pretax_kd", kd_v.value if kd_v.is_valid else 0.05),
+                overlay_float(overlay, "distress_probability", 0.0),
+                overlay_float(overlay, "distress_cost", 0.0),
+                overlay_float(overlay, "financing_side_effects", 0.0),
                 terminal_growth=overlay.get("tv_growth"),
             )
             apv_v = apv["value"]
@@ -1690,7 +1691,7 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
                     [seg_rev[k] * float(seg_multiples[k]) for k in seg_rev],
                     corporate_assets=cash or 0.0,
                     corporate_claims=total_debt or 0.0,
-                    holding_discount=float(overlay.get("holding_discount", 0.0)),
+                    holding_discount=overlay_float(overlay, "holding_discount", 0.0),
                 )
         else:
             sotp_v = _null(

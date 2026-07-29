@@ -294,6 +294,23 @@ class SpecialistOutput(BaseModel):
     validation_tests: ValidationTestsSummary = Field(default_factory=ValidationTestsSummary)
 
 
+def overlay_float(overlay: Mapping[str, Any], key: str, default: float) -> float:
+    """`overlay[key]` as a float, falling back to `default` for absent OR null.
+
+    `float(overlay.get(key, default))` looks equivalent and is not: a `default`
+    only applies when the key is ABSENT. `Entradas/<TICKER>.json` ships every
+    key as `null` so an analyst can fill it in place, and a null that reaches
+    a specialist raises `TypeError: float() argument must be ... not NoneType`
+    -- killing the whole run on an unfilled skeleton.
+
+    The loader now drops nulls at the door, which fixes the file path. This
+    keeps the fifteen call sites safe for any other caller too: an overlay
+    assembled in code, or one a future merge step writes a null into.
+    """
+    value = overlay.get(key)
+    return default if value is None else float(value)
+
+
 def apply_dimension_cap(
     metric_scores: list[tuple[float, Value]], *, cap: float
 ) -> list[tuple[float, Value]]:

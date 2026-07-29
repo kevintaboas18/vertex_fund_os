@@ -78,10 +78,27 @@ def _specialist_overlay_keys() -> set[str]:
     return keys - _INTERNAL
 
 
-def _valuation_overlay_keys() -> set[str]:
+#: Both ways a specialist reads a scalar off the overlay. `overlay_float`
+#: is the null-safe wrapper -- `float(overlay.get(k, d))` applies its default
+#: only when the key is ABSENT, so an unfilled skeleton's `null` reached
+#: `float(None)` and killed the run. Rewriting those sites hid nine keys from
+#: this detector until it learned the second form.
+_READ_PATTERNS = (
+    r'(?<![a-z_])overlay\.get\("([a-z0-9_]+)"',
+    r'overlay_float\(\s*overlay,\s*"([a-z0-9_]+)"',
+)
+
+
+def _overlay_reads(src: str) -> set[str]:
     import re
-    src = _VALUATION.read_text(encoding="utf-8")
-    return set(re.findall(r'(?<![a-z_])overlay\.get\("([a-z0-9_]+)"', src))
+    found: set[str] = set()
+    for pattern in _READ_PATTERNS:
+        found |= set(re.findall(pattern, src))
+    return found
+
+
+def _valuation_overlay_keys() -> set[str]:
+    return _overlay_reads(_VALUATION.read_text(encoding="utf-8"))
 
 
 def test_the_template_parses(template):
@@ -103,7 +120,7 @@ def test_the_template_teaches_no_key_the_engine_ignores(template):
 
     engine_keys = _valuation_overlay_keys()
     import re
-    engine_keys |= set(re.findall(r'(?<![a-z_])overlay\.get\("([a-z0-9_]+)"',
+    engine_keys |= set(re.findall(r'(?<![a-z_])overlay(?:\.get\(|_float\(overlay, )"([a-z0-9_]+)"',
                                   Path(from_packet.__file__).read_text(encoding="utf-8")))
     overlay_src = Path(from_packet.__file__).read_text(encoding="utf-8")
     engine_keys |= set(re.findall(r'overlay\["([a-z0-9_]+)"\]', overlay_src))
@@ -114,7 +131,7 @@ def test_the_template_teaches_no_key_the_engine_ignores(template):
                                   re.search(r'for k in \(("tam".*?)\)', overlay_src, re.S).group(1)))
     for mod in ("business", "financial", "market", "technical", "risk"):
         src = (_ROOT / "engine" / "wbj" / "specialists" / f"{mod}.py").read_text(encoding="utf-8")
-        engine_keys |= set(re.findall(r'(?<![a-z_])overlay\.get\("([a-z0-9_]+)"', src))
+        engine_keys |= set(re.findall(r'(?<![a-z_])overlay(?:\.get\(|_float\(overlay, )"([a-z0-9_]+)"', src))
         engine_keys |= set(re.findall(r'_overlay_numbers?\(overlay, "([a-z0-9_]+)"', src))
 
     # `judgments` is read by deep.py's analyst channel, not by a specialist.

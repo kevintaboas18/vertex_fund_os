@@ -82,6 +82,7 @@ from wbj.core.nullstates import EvidenceClass, NullState, Value
 from wbj.core.scoring import Category, Dimension
 from wbj.schemas.packet import Packet
 from wbj.specialists.common import (
+    overlay_float,
     CategoryStats,
     JudgmentRequest,
     MetricRow,
@@ -1374,7 +1375,7 @@ def _compute_all(
     # positive (issuance) side counts as "external dependence" here; a
     # repayment is the opposite of raising capital.
     debt_issuance = max(0.0, _num(latest, "debt_repayment") or 0.0)
-    equity_issuance = float(overlay.get("equity_issuance", 0.0))
+    equity_issuance = overlay_float(overlay, "equity_issuance", 0.0)
     if ocf_latest is not None:
         v = capital_dependence(cash_uses_total, ocf_latest, cash_begin)
         need = v.value

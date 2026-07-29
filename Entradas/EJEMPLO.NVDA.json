@@ -243,5 +243,7 @@
     4.55,
     4.3,
     4.35
-  ]
+  ],
+  "_comment_40": "MKT-COVER-016 necesita LAS DOS: el backlog que se reconoce en 12 meses y el ingreso estimado de esos 12 meses. Con una sola queda MISSING.",
+  "ntm_revenue_estimate": 210000000000
 }

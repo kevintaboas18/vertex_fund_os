@@ -658,6 +658,18 @@ def _manual_overlay(settings: Any, ticker: str) -> dict[str, Any]:
             continue
         data[engine_key] = data[victor_name]
 
+    # A null is "I have not filled this in", which must behave exactly like no
+    # file at all. Carrying it through breaks the engine outright: the read
+    # pattern all over the specialists is `float(overlay.get(k, default))`, and
+    # a default only applies when the key is ABSENT -- `float(None)` raises.
+    #
+    # The skeleton ships every key null, so once it covered the full set of
+    # inputs a freshly-analysed ticker crashed the financial specialist on
+    # `equity_issuance` alone, with eleven more keys behind it (`lease_charge`,
+    # `tv_growth`, `pretax_kd`, `forecast_years`, ...). Stripping here fixes
+    # every call site at once and is what "inert skeleton" always meant.
+    data = {k: v for k, v in data.items() if v is not None}
+
     for warning in _analyst_block_warnings(data):
         logger.warning("%s: %s", path.name, warning)
         data.setdefault("analyst_input_warnings", []).append(warning)
@@ -1373,7 +1385,20 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         manual = _manual_overlay(settings, ticker)
         for key in sorted(set(manual) & set(overlay)):
             logger.info("analyst input overrides computed %s for %s", key, ticker)
-        overlay.update(manual)
+        for key, value in manual.items():
+            computed = overlay.get(key)
+            # A dict the engine also computes is MERGED, not replaced. The
+            # analyst supplies the sub-keys no provider serves -- `estimates`
+            # carries `individual_estimates` (MKT-DISP-013) and the revision
+            # counts -- while the computed block holds `surprise`, `revision`
+            # and `active_estimates` that MKT-REVMAG-012 and MKT-SURP-014
+            # read. Replacing wholesale traded two working metrics for one:
+            # supplying the template's `estimates` dropped the revisions
+            # dimension from 75% to 50%. Analyst sub-keys still win.
+            if isinstance(value, dict) and isinstance(computed, dict):
+                overlay[key] = {**computed, **value}
+            else:
+                overlay[key] = value
     except Exception:
         logger.warning("analyst inputs unavailable", exc_info=True)
 

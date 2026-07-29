@@ -124,14 +124,32 @@ def test_the_skeleton_is_valid_json_and_names_its_ticker():
     assert any("AAPL" in str(v) for v in data.values())
 
 
-def test_a_written_skeleton_loads_to_nothing_but_nulls(tmp_path):
-    """End to end: what the generator writes, the loader reads — and the
-    comment lines must not survive into the overlay."""
+def test_a_written_skeleton_loads_to_nothing_at_all(tmp_path):
+    """End to end: an unfilled skeleton must reach the specialists as if no
+    file existed.
+
+    This asserted the opposite -- that the nulls were *carried* -- and that is
+    what shipped the crash. The read pattern across the specialists is
+    `float(overlay.get(key, default))`, and a default only applies when the
+    key is ABSENT: `float(None)` raises. Once the skeleton covered the full
+    input set, a freshly-analysed ticker killed the financial specialist on
+    `equity_issuance`, with eleven more keys behind it.
+    """
     write_skeleton(tmp_path, "TEST")
     out = _manual_overlay(_S(tmp_path), "TEST")
     assert not any(k.startswith("_") for k in out), "comentarios filtrados al overlay"
-    assert all(v is None for k, v in out.items() if k != "judgments")
-    assert set(SKELETON_KEYS).issubset(out)
+    assert not any(v is None for v in out.values()), "un null llego al overlay"
+
+
+def test_an_unfilled_skeleton_cannot_crash_a_specialist(tmp_path):
+    """The concrete failure, pinned: every `float(overlay.get(k, d))` site in
+    the engine must survive a skeleton where nothing is filled in."""
+    write_skeleton(tmp_path, "TEST")
+    out = _manual_overlay(_S(tmp_path), "TEST")
+    for key, default in (("equity_issuance", 0.0), ("lease_charge", 0.0),
+                         ("erp", 0.045), ("tv_growth", 0.025),
+                         ("forecast_years", 5), ("pretax_kd", 0.05)):
+        float(out.get(key, default))  # raises TypeError if a null survived
 
 
 # --- non-destructive --------------------------------------------------------

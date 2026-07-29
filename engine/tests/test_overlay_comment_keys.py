@@ -48,12 +48,34 @@ def test_a_file_of_only_comments_yields_nothing(tmp_path):
     assert _manual_overlay(s, "TEST") == {}
 
 
-def test_null_values_are_carried_not_crashed_on(tmp_path):
-    """A skeleton file ships every key as null so an analyst can fill it in
-    place. It must behave exactly like no file at all, never like a supplied
-    zero."""
+def test_null_values_are_dropped_not_carried(tmp_path):
+    """A skeleton ships every key null so an analyst can fill it in place, and
+    "not filled in" has to mean the same thing as "no file".
+
+    Carrying the null through is what broke the engine: the specialists read
+    `float(overlay.get(key, default))`, and a default only applies to an
+    ABSENT key -- a present `None` raises TypeError. This test asserted the
+    nulls survived, which is exactly the behaviour that shipped the crash.
+    """
     s = _write(tmp_path, "TEST", {"_1": "nota", "exit_multiple": None,
                                   "customer_shares": None})
     out = _manual_overlay(s, "TEST")
-    assert out["exit_multiple"] is None
-    assert out["customer_shares"] is None
+    assert "exit_multiple" not in out
+    assert "customer_shares" not in out
+
+
+def test_a_filled_key_still_arrives(tmp_path):
+    """Dropping nulls must not drop real figures alongside them."""
+    s = _write(tmp_path, "TEST", {"exit_multiple": 11.5, "customer_shares": None})
+    out = _manual_overlay(s, "TEST")
+    assert out["exit_multiple"] == 11.5
+    assert "customer_shares" not in out
+
+
+def test_a_legitimate_zero_survives(tmp_path):
+    """Zero is a figure, not an absence. `distress_probability: 0` means the
+    analyst assessed it at zero and must not be confused with unfilled."""
+    s = _write(tmp_path, "TEST", {"distress_probability": 0.0, "holding_discount": 0})
+    out = _manual_overlay(s, "TEST")
+    assert out["distress_probability"] == 0.0
+    assert out["holding_discount"] == 0

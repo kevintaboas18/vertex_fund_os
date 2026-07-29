@@ -69,6 +69,7 @@ from wbj.core.nullstates import EvidenceClass, NullState, Value
 from wbj.core.scoring import Category, Dimension, anchor_score
 from wbj.schemas.packet import Packet
 from wbj.specialists.common import (
+    overlay_float,
     CategoryStats,
     JudgmentRequest,
     MetricRow,
@@ -923,7 +924,7 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     add("RSK-ICOV-011", v_icov, _score_from_anchor(v_icov, [(1.5, 0), (3.0, 6), (5.0, 10)]))
     mandatory_warnings: list[str] = [SOLVENCY_WARNING] if SOLVENCY_WARNING in v_icov.warnings else []
 
-    lease_charge = float(overlay.get("lease_charge", 0.0))
+    lease_charge = overlay_float(overlay, "lease_charge", 0.0)
     if interest_expense is not None and ebit is not None:
         v_fcc = fixed_charge_coverage(ebit, float(interest_expense), lease_charge)
     else:
