@@ -516,6 +516,94 @@ def _edgar_diluted_shares(companyfacts: dict, target_date: str | None) -> Value:
     return Value.null(NullState.MISSING, unit="shares", source_name="EDGAR")
 
 
+# --- analyst inputs that XBRL already reports ------------------------------
+#
+# `Entradas/<TICKER>.json` exists for figures no feed serves. But several of its
+# keys ARE reported, as structured us-gaap tags, in the companyfacts payload
+# this builder already downloads -- so asking a person to retype them was work
+# for nothing, and worse: two of them have a documented proxy that fires when
+# the key is absent, permanently lowering model-fit confidence.
+#
+# Only tags whose DEFINITION matches the key are mapped. Three that look
+# mappable are deliberately absent, because filling them would silently change
+# a definition -- which DATA_POLICY.md prohibits outright:
+#
+#   - `debt_schedule` wants the debt BALANCE per forecast year; XBRL publishes
+#     the maturity ladder, which is REPAYMENTS. Different quantity. Victor's own
+#     remedy says no path is inferred from one balance sheet.
+#   - `options_outstanding` wants `[{name, count, strike}]` per grant; XBRL
+#     carries only an aggregate count and a weighted-average strike.
+#   - `share_history` is the company's MARKET SHARE over time (it feeds
+#     `market_share_trend`), not its share count. No filing tag reports it.
+#
+_XBRL_SCALARS: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    ("equity_issuance", ("ProceedsFromIssuanceOfCommonStock",), "USD"),
+    ("lease_charge", ("OperatingLeaseCost", "OperatingLeaseExpense"), "USD"),
+)
+
+#: Two-year pairs. RSK-AQI-023 and RSK-DEPI-025 are RATIOS of this year over
+#: last, so a gross figure this year against a net one last year would be a
+#: fabricated jump. Either both years come from the true tag or neither does,
+#: leaving risk.py's own net/D&A fallback -- which is consistent across years
+#: and now says so via its proxy warning.
+_XBRL_PAIRS: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
+    # Gross PP&E, not net: what Beneish AQI is defined on.
+    ("ppe", "ppe_prior", ("PropertyPlantAndEquipmentGross",), "USD"),
+    # Depreciation alone, not D&A: what Beneish DEPI is defined on.
+    ("depreciation", "depreciation_prior", ("Depreciation",), "USD"),
+)
+
+#: VAL-LEASE-004 wants "payment per future year" -- exactly what this ladder is.
+_XBRL_LEASE_LADDER: tuple[str, ...] = (
+    "LesseeOperatingLeaseLiabilityPaymentsDueNextTwelveMonths",
+    "LesseeOperatingLeaseLiabilityPaymentsDueYearTwo",
+    "LesseeOperatingLeaseLiabilityPaymentsDueYearThree",
+    "LesseeOperatingLeaseLiabilityPaymentsDueYearFour",
+    "LesseeOperatingLeaseLiabilityPaymentsDueYearFive",
+)
+
+
+def _xbrl_analyst_inputs(companyfacts: dict, target_date: str | None,
+                         prior_date: str | None = None) -> dict[str, Any]:
+    """Analyst-input keys that companyfacts reports outright.
+
+    Returns plain values (the overlay holds plain Python, not `Value`), keyed
+    exactly as `Entradas/<TICKER>.json` names them. A tag the company does not
+    report is simply absent: a REIT files no gross PP&E and a bank no
+    standalone `Depreciation`, and per MISSING_DATA_POLICY.md that is
+    NOT_APPLICABLE, not a hole to paper over. Absent keys leave the existing
+    proxy or MISSING path untouched.
+    """
+    out: dict[str, Any] = {}
+    for key, tags, unit in _XBRL_SCALARS:
+        v = _edgar_first_available(companyfacts, "us-gaap", tags, unit, target_date)
+        if v.is_valid and v.value is not None:
+            out[key] = float(v.value)
+
+    for key, key_prior, tags, unit in _XBRL_PAIRS:
+        ahora = _edgar_first_available(companyfacts, "us-gaap", tags, unit, target_date)
+        antes = _edgar_first_available(companyfacts, "us-gaap", tags, unit, prior_date)
+        if (ahora.is_valid and ahora.value is not None
+                and antes.is_valid and antes.value is not None
+                and prior_date and float(ahora.value) != float(antes.value)):
+            # Equal values across two different period ends mean the lookup fell
+            # back to the same entry for both, so there is no real prior year.
+            out[key] = float(ahora.value)
+            out[key_prior] = float(antes.value)
+
+    # The ladder is only usable as a contiguous run from year one: a gap would
+    # shift every later payment a year closer and overstate the lease debt.
+    escalera: list[float] = []
+    for tag in _XBRL_LEASE_LADDER:
+        v = _edgar_value_at(companyfacts, "us-gaap", tag, "USD", target_date)
+        if not (v.is_valid and v.value is not None):
+            break
+        escalera.append(float(v.value))
+    if len(escalera) >= 2:
+        out["lease_commitments"] = escalera
+    return out
+
+
 # --- staleness age derivation ---------------------------------------------
 
 
@@ -940,6 +1028,9 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
         insiders=insider_trades,
         institutional_holders=institutional_holders,
         facts_table=facts_table,
+        xbrl_inputs=_xbrl_analyst_inputs(
+            companyfacts, latest_annual_date,
+            income_annual[1]["date"] if len(income_annual) > 1 else None),
         staleness=staleness,
         packet_hash="",
     )

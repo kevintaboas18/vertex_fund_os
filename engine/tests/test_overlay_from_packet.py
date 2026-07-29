@@ -83,8 +83,8 @@ def test_missing_segmentation_yields_no_key():
 
 
 def test_income_statement_keys_come_from_the_packet():
-    """risk.py reads interest expense, SG&A and D&A from the overlay, but
-    they are plain income-statement lines the packet already carries."""
+    """risk.py reads interest expense and SG&A from the overlay, but they are
+    plain income-statement lines the packet already carries."""
     from wbj.overlay.from_packet import _income_statement_keys
 
     p = _packet(annual=[
@@ -94,7 +94,43 @@ def test_income_statement_keys_come_from_the_packet():
     out = _income_statement_keys(p)
     assert out["interest_expense"] == 10.0
     assert out["sga"] == 50.0 and out["sga_prior"] == 45.0
-    assert out["depreciation"] == 20.0 and out["depreciation_prior"] == 18.0
+
+
+def test_depreciation_is_not_filled_from_d_and_a():
+    """This asserted the opposite, and that is what hid the substitution.
+
+    Beneish DEPI is defined on depreciation alone. risk.py falls back to the
+    packet's D&A field on its own and raises DA_PROXY_FOR_DEPRECIATION to say it
+    did -- but that flag is `overlay.get("depreciation") is None`, so filling
+    the key here made it permanently False. The proxy then applied to every
+    ticker with nothing said, which is the silent denominator change
+    DATA_POLICY.md prohibits. The true standalone tag arrives via
+    `Packet.xbrl_inputs` when the company files it.
+    """
+    from wbj.overlay.from_packet import _income_statement_keys
+
+    out = _income_statement_keys(_packet(annual=[
+        {"sga": 50.0, "depreciation_and_amortization": 20.0},
+        {"sga": 45.0, "depreciation_and_amortization": 18.0},
+    ]))
+    assert "depreciation" not in out
+    assert "depreciation_prior" not in out
+
+
+def test_ppe_is_not_filled_from_the_net_balance():
+    """Same defect, same reason: Beneish AQI is defined on GROSS PP&E, and
+    filling the key from the net balance kept PPE_NET_PROXY_FOR_GROSS_PPE from
+    ever firing."""
+    from wbj.overlay.from_packet import _balance_sheet_keys
+
+    class _FMP:
+        def balance_annual(self, ticker, limit=2):
+            return [{"propertyPlantEquipmentNet": 100.0, "retainedEarnings": 7.0},
+                    {"propertyPlantEquipmentNet": 90.0}]
+
+    out = _balance_sheet_keys(_FMP(), "TEST")
+    assert "ppe" not in out and "ppe_prior" not in out
+    assert out["retained_earnings"] == 7.0        # esta sí es del balance
 
 
 def test_income_statement_keys_omit_absent_lines():

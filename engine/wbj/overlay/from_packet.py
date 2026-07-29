@@ -323,8 +323,14 @@ def _income_statement_keys(packet: Any) -> dict[str, Any]:
     put("debt_due", latest, "short_term_debt")
     put("sga", latest, "sga")
     put("sga_prior", prior, "sga")
-    put("depreciation", latest, "depreciation_and_amortization")
-    put("depreciation_prior", prior, "depreciation_and_amortization")
+    # `depreciation` is NOT set from D&A here on purpose. Beneish DEPI wants
+    # depreciation alone, and risk.py already falls back to the packet's D&A
+    # field -- while raising DA_PROXY_FOR_DEPRECIATION to say it did. Filling
+    # the key from D&A here made that flag (`overlay.get("depreciation") is
+    # None`) permanently False, so the substitution happened silently on every
+    # ticker and the warning was dead code. DATA_POLICY.md: "Do not silently
+    # change ... denominator definitions." The true standalone tag arrives via
+    # `Packet.xbrl_inputs` when the company files it.
     return out
 
 
@@ -336,10 +342,11 @@ def _balance_sheet_keys(fmp: Any, ticker: str) -> dict[str, Any]:
     latest = rows[0]
     prior = rows[1] if len(rows) > 1 else {}
     out: dict[str, Any] = {}
-    if latest.get("propertyPlantEquipmentNet") is not None:
-        out["ppe"] = float(latest["propertyPlantEquipmentNet"])
-    if prior.get("propertyPlantEquipmentNet") is not None:
-        out["ppe_prior"] = float(prior["propertyPlantEquipmentNet"])
+    # Same reason as `depreciation` above: Beneish AQI wants GROSS PP&E, and
+    # risk.py falls back to the packet's net figure while raising
+    # PPE_NET_PROXY_FOR_GROSS_PPE. Setting the key from the net balance here
+    # kept that flag False forever, so net stood in for gross with nothing
+    # said. The gross tag arrives via `Packet.xbrl_inputs` when filed.
     if latest.get("retainedEarnings") is not None:
         out["retained_earnings"] = float(latest["retainedEarnings"])
     return out
@@ -1376,6 +1383,22 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         overlay.update(_balance_sheet_keys(fmp, ticker))
     except Exception:
         logger.warning("overlay market data unavailable", exc_info=True)
+
+    # Before the analyst file: keys that companyfacts reports outright. These
+    # were being asked of a person even though the number is filed as a us-gaap
+    # tag -- and two of them (`ppe` gross, standalone `depreciation`) have a
+    # documented proxy that fires on absence and permanently lowers model-fit
+    # confidence, so leaving them empty was not neutral.
+    #
+    # Only fills what is ABSENT: nothing computed here gets clobbered, and the
+    # analyst file still runs afterwards and still wins.
+    try:
+        for key, value in (getattr(packet, "xbrl_inputs", None) or {}).items():
+            if overlay.get(key) is None:
+                overlay[key] = value
+                logger.info("XBRL supplied analyst input %s for %s", key, ticker)
+    except Exception:
+        logger.warning("XBRL analyst inputs unavailable", exc_info=True)
 
     # Applied last: an analyst who has read a sourced market study knows
     # something no endpoint here can supply, and TAM is the whole reason

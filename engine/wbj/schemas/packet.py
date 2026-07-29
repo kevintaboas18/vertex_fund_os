@@ -86,5 +86,10 @@ class Packet(BaseModel):
     insiders: list[Any] = Field(default_factory=list)
     institutional_holders: list[Any] = Field(default_factory=list)
     facts_table: dict[str, Value]
+    #: Analyst-input keys that companyfacts reports outright (gross PP&E,
+    #: standalone depreciation, the lease-payment ladder...). Deliberately NOT
+    #: folded into `facts_table`: several call sites iterate that dict to detect
+    #: source conflicts, and widening it would change what they see.
+    xbrl_inputs: dict[str, Any] = Field(default_factory=dict)
     staleness: dict[str, StalenessState]
     packet_hash: str = ""
