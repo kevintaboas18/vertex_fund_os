@@ -1844,6 +1844,160 @@ Especulacion del agente: si todo va como la comunidad espera, donde puede estar 
 
 
 
+_BUSQUEDA_CACHE = {}          # q -> (ts, resultados)
+_INDICE = {"ts": 0.0, "filas": {}, "cargando": False}
+_INDICE_LOCK = threading.Lock()
+_FONDO_MUTUO = re.compile(r"^[A-Z]{4}X$")     # AGTHX, TESIX: 5 letras terminando en X
+# Ruido para quien busca una empresa que analizar: ETFs, fondos, y las series
+# preferentes (se delatan por el "%" en el nombre) que comparten el nombre de la
+# empresa pero no son la acción común.
+_NO_OPERATIVA = re.compile(r"\b(ETF|ETN)s?\b|\bFund\b|\bDaily (Bull|Bear)\b|\b[23]x\b|%", re.I)
+
+
+def _fmp_cargar_indice():
+    """Índice local de las empresas de NASDAQ/NYSE/AMEX: símbolo, nombre y market cap.
+
+    El buscador de FMP no sirve solo para esto por dos razones: devuelve como
+    máximo unas 50 filas por término, así que escribir "A" nunca alcanzaba a
+    AAPL ni AMZN; y no trae ninguna señal de tamaño, así que ordenando por
+    alfabeto salían primero los tickers de dos letras que nadie busca.
+    `company-screener` trae las tres cosas de una vez.
+
+    Son 3 llamadas de ~2500 filas: corre en un hilo y el buscador responde
+    igual mientras no esté listo, complementando con el buscador de FMP.
+    """
+    filas = {}
+    try:
+        clave = (os.environ.get("FMP_API_KEY") or "").strip()
+        if not clave:
+            return
+        for ex in ("NASDAQ", "NYSE", "AMEX"):
+            r = requests.get("https://financialmodelingprep.com/stable/company-screener",
+                             params={"marketCapMoreThan": 300_000_000, "exchange": ex,
+                                     "isActivelyTrading": "true", "limit": 2500, "apikey": clave},
+                             timeout=40)
+            if r.status_code != 200:
+                continue
+            for x in (r.json() or []):
+                s = (x.get("symbol") or "").upper().strip()
+                nombre = (x.get("companyName") or "").strip()
+                if s and nombre:
+                    filas[s] = (nombre, ex, float(x.get("marketCap") or 0))
+    except Exception:
+        pass
+    finally:
+        with _INDICE_LOCK:
+            if filas:
+                _INDICE["filas"] = filas
+                _INDICE["ts"] = time.time()
+            _INDICE["cargando"] = False
+
+
+def _indice_actual(ttl=86400):
+    """El índice, lanzando su recarga en segundo plano cuando toca."""
+    with _INDICE_LOCK:
+        fresco = _INDICE["filas"] and (time.time() - _INDICE["ts"]) < ttl
+        if not fresco and not _INDICE["cargando"]:
+            _INDICE["cargando"] = True
+            threading.Thread(target=_fmp_cargar_indice, daemon=True).start()
+        return _INDICE["filas"]
+
+
+def _rango_coincidencia(termino, simbolo, nombre):
+    """Qué tan bien coincide, de 0 (mejor) a 2. None si no coincide.
+
+    Empezar el nombre y empezar *una palabra* del nombre valen igual a
+    propósito: si fueran distintos, buscar "coca" pondría a Coca-Cola
+    Europacific antes que a The Coca-Cola Company, solo porque la segunda
+    empieza con "The". Empatados, decide el market cap.
+    """
+    n = nombre.upper()
+    if simbolo == termino:
+        return 0
+    if simbolo.startswith(termino):
+        return 1
+    if n.startswith(termino) or any(p.startswith(termino)
+                                    for p in n.replace(",", " ").replace("-", " ").split()):
+        return 2
+    return None
+
+
+@app.get("/api/search")
+def buscar_tickers(q: str, limite: int = 8):
+    """Autocompletado del buscador: escribes siglas y salen empresas con su nombre.
+
+    "A" → AAPL, AMZN, AVGO… ordenado por market cap, que es lo que hace la lista
+    útil en vez de alfabética. También busca por nombre, así que "coca" encuentra
+    KO y "micro" encuentra MSFT/MU.
+
+    Se sirve del índice local (rápido, cubre ~5600 empresas de EE.UU.) y lo
+    complementa con el buscador de FMP para lo que no esté ahí: ADRs, small caps
+    y símbolos recién listados. Los fondos mutuos y los ETF apalancados se
+    hunden al final -- son ruido cuando buscas una empresa que analizar.
+    """
+    termino = (q or "").strip().upper()
+    if not termino:
+        return {"q": termino, "resultados": []}
+    limite = max(1, min(int(limite or 8), 20))
+
+    en_cache = _BUSQUEDA_CACHE.get(termino)
+    if en_cache and time.time() - en_cache[0] < 900:
+        return {"q": termino, "resultados": en_cache[1][:limite]}
+
+    indice = _indice_actual()
+    candidatos = {}
+    for s, (nombre, bolsa, cap) in indice.items():
+        rango = _rango_coincidencia(termino, s, nombre)
+        if rango is not None:
+            candidatos[s] = (rango, nombre, bolsa, cap)
+
+    # El índice cubre lo grande; FMP cubre la cola larga. Se consulta solo cuando
+    # hace falta, para no gastar una llamada por tecla si ya hay de sobra.
+    if len(candidatos) < limite:
+        clave = (os.environ.get("FMP_API_KEY") or "").strip()
+        if not clave and not indice:
+            raise HTTPException(status_code=503,
+                                detail="Búsqueda no disponible: falta FMP_API_KEY.")
+        for ruta in ("search-symbol", "search-name"):
+            if not clave:
+                break
+            try:
+                r = requests.get(f"https://financialmodelingprep.com/stable/{ruta}",
+                                 params={"query": termino, "limit": 50, "apikey": clave},
+                                 timeout=12)
+                filas = r.json() if r.status_code == 200 else []
+            except Exception:
+                filas = []
+            for f in (filas if isinstance(filas, list) else []):
+                if not isinstance(f, dict):
+                    continue
+                s = (f.get("symbol") or "").upper().strip()
+                nombre = (f.get("name") or "").strip()
+                bolsa = (f.get("exchange") or "").upper().strip()
+                if not s or not nombre or s in candidatos:
+                    continue
+                if bolsa not in ("NASDAQ", "NYSE", "AMEX"):
+                    continue
+                rango = _rango_coincidencia(termino, s, nombre)
+                if rango is not None:
+                    candidatos[s] = (rango, nombre, bolsa, indice.get(s, (0, 0, 0.0))[2])
+
+    def orden(par):
+        s, (rango, nombre, bolsa, cap) = par
+        ruido = 1 if (_FONDO_MUTUO.match(s) or _NO_OPERATIVA.search(nombre)) else 0
+        return (ruido, rango, -cap, len(s), s)
+
+    resultados = [{"ticker": s, "nombre": v[1], "bolsa": v[2]}
+                  for s, v in sorted(candidatos.items(), key=orden)]
+    # No cachear lo que se calculó SIN el índice: en un servidor recién
+    # arrancado la primera búsqueda se ordena por alfabeto (A, AA, AB, AC...) y
+    # cachearla dejaba ese orden malo fijo 15 minutos, justo en la primera
+    # impresión. Sin índice se responde igual, pero se recalcula.
+    if indice:
+        _BUSQUEDA_CACHE[termino] = (time.time(), resultados)
+    return {"q": termino, "resultados": resultados[:limite]}
+
+
 @app.get("/api/quote")
 def get_quick_quote(ticker: str):
     ticker_clean = ticker.upper().strip()

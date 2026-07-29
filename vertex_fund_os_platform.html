@@ -481,8 +481,13 @@
         <p class="text-gray-400 text-sm mb-8 text-center">Search a stock, ETF, or crypto for instant data and AI analysis</p>
         <div class="w-full relative mb-6">
             <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500"></i>
-            <input type="text" id="tickerInput" onkeyup="debounceQuoteFetch()" placeholder="Search company or ticker..."
+            <input type="text" id="tickerInput" onkeyup="debounceQuoteFetch()" onkeydown="navSuggest(event)"
+                autocomplete="off" placeholder="Search company or ticker..."
                 class="w-full bg-[#11141D] border border-gray-800 focus:border-blue-500 text-white font-medium px-5 py-4 pl-12 rounded-xl outline-none transition-all uppercase text-base">
+            <!-- Autocompletado: escribir "A" ofrece AAPL, AMZN, AMD con su nombre.
+                 Antes habia que saber el ticker exacto de memoria; si te equivocabas
+                 en una letra la vista previa simplemente no aparecia. -->
+            <div id="tickerSuggest" class="hidden absolute left-0 right-0 top-full mt-2 z-50 bg-[#11141D] border border-gray-800 rounded-xl overflow-hidden shadow-2xl max-h-80 overflow-y-auto"></div>
         </div>
         <!-- Sin esto, un fallo de la vista previa era invisible: la tarjeta se
              escondia y punto, asi que escribir un ticker valido durante un
@@ -1242,12 +1247,85 @@ function setQuoteHint(msg) {
     if (msg) { el.innerText = msg; el.classList.remove('hidden'); }
     else { el.innerText = ''; el.classList.add('hidden'); }
 }
+// ── AUTOCOMPLETADO ───────────────────────────────────────
+// Escribes "A" y salen AAPL, AMZN, AMD con su nombre. El backend ordena por
+// market cap real, no alfabeticamente, porque alfabeticamente lo primero son
+// tickers de dos letras que nadie busca.
+let suggestTimer = null, suggestItems = [], suggestIdx = -1;
+
+function hideSuggest() {
+    document.getElementById('tickerSuggest').classList.add('hidden');
+    suggestItems = []; suggestIdx = -1;
+}
+function renderSuggest() {
+    const box = document.getElementById('tickerSuggest');
+    if (!suggestItems.length) { hideSuggest(); return; }
+    box.innerHTML = suggestItems.map((s, i) => `
+        <div onmousedown="pickSuggest(${i})" data-i="${i}"
+             class="sugg flex items-center justify-between gap-3 px-4 py-3 cursor-pointer border-b border-gray-800/60 last:border-0 ${i === suggestIdx ? 'bg-blue-600/20' : 'hover:bg-gray-800/60'}">
+          <span class="flex items-center gap-3 min-w-0">
+            <span class="text-white font-bold text-sm shrink-0">${s.ticker}</span>
+            <span class="text-gray-400 text-xs truncate">${s.nombre}</span>
+          </span>
+          <span class="text-gray-600 text-[10px] font-semibold shrink-0">${s.bolsa}</span>
+        </div>`).join('');
+    box.classList.remove('hidden');
+}
+function pickSuggest(i) {
+    const s = suggestItems[i];
+    if (!s) return;
+    document.getElementById('tickerInput').value = s.ticker;
+    hideSuggest();
+    setQuoteHint('');
+    fetchQuote(s.ticker);
+}
+// Flechas para recorrer, Enter para elegir. Sin esto habria que usar el mouse
+// justo despues de teclear, que es lo contrario de lo que uno hace en un buscador.
+function navSuggest(e) {
+    const abierto = !document.getElementById('tickerSuggest').classList.contains('hidden');
+    if (e.key === 'Escape') { hideSuggest(); return; }
+    if (e.key === 'Enter') {
+        if (abierto && suggestIdx >= 0) { e.preventDefault(); pickSuggest(suggestIdx); }
+        else { hideSuggest(); ejecutarAnalisisAPI(); }
+        return;
+    }
+    if (!abierto || !suggestItems.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        suggestIdx = e.key === 'ArrowDown'
+            ? (suggestIdx + 1) % suggestItems.length
+            : (suggestIdx <= 0 ? suggestItems.length - 1 : suggestIdx - 1);
+        renderSuggest();
+    }
+}
+async function fetchSuggest(q) {
+    try {
+        const r = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}&limite=8`);
+        if (!r.ok) { hideSuggest(); return; }
+        const d = await r.json();
+        // Descarta respuestas viejas: al teclear rapido llegan desordenadas y
+        // sin esto la lista podia quedarse mostrando lo de dos letras atras.
+        if ((d.q || '') !== q.toUpperCase()) return;
+        suggestItems = d.resultados || []; suggestIdx = -1;
+        renderSuggest();
+    } catch (e) { hideSuggest(); }
+}
+
 function debounceQuoteFetch() {
     clearTimeout(debounceTimer);
+    clearTimeout(suggestTimer);
     const val = document.getElementById('tickerInput').value.trim();
-    if (val.length < 1) { document.getElementById('previewCard').classList.add('hidden'); setQuoteHint(''); return; }
+    if (val.length < 1) {
+        document.getElementById('previewCard').classList.add('hidden');
+        setQuoteHint(''); hideSuggest(); return;
+    }
+    suggestTimer = setTimeout(() => fetchSuggest(val), 160);
     debounceTimer = setTimeout(() => fetchQuote(val), 500);
 }
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('#tickerSuggest') && e.target.id !== 'tickerInput') hideSuggest();
+});
 async function fetchQuote(ticker) {
     try {
         const res = await fetch(`${API_BASE}/api/quote?ticker=${ticker}`);
