@@ -179,7 +179,32 @@
   "ppe": null,
   "depreciation": null,
   "regulatory_events": [],
-  "thesis_killers": [],
+  "thesis_killers": [
+    {
+      "risk": "Perdida de un cliente hiperescalador",
+      "probability": 0.25,
+      "impact": 0.6,
+      "detectability": 0.7,
+      "time_urgency": 0.5,
+      "early_warning_metric": "concentracion de ingresos por cliente"
+    },
+    {
+      "risk": "Restriccion de exportacion adicional",
+      "probability": 0.35,
+      "impact": 0.45,
+      "detectability": 0.5,
+      "time_urgency": 0.7,
+      "early_warning_metric": "ingreso por geografia"
+    },
+    {
+      "risk": "Competencia en silicio propio",
+      "probability": 0.4,
+      "impact": 0.35,
+      "detectability": 0.3,
+      "time_urgency": 0.3,
+      "early_warning_metric": "cuota de mercado"
+    }
+  ],
   "_comment_27": "RIESGO - PERFIL. position_size_pct es el tamano de posicion que estas considerando, en % del portafolio. Sale del Perfil Inversionista, no de un supuesto: CLAUDE.md exige que maximo por posicion y stop-loss vengan de ese archivo.",
   "position_size_pct": null,
   "_comment_28": "FINANZAS. equity_issuance alimenta FIN-CF-016 (financiamiento por emision). Suele estar en el flujo de caja; ponlo solo si el motor no lo encontro.",
@@ -245,5 +270,36 @@
     4.35
   ],
   "_comment_40": "MKT-COVER-016 necesita LAS DOS: el backlog que se reconoce en 12 meses y el ingreso estimado de esos 12 meses. Con una sola queda MISSING.",
-  "ntm_revenue_estimate": 210000000000
+  "ntm_revenue_estimate": 210000000000,
+  "_comment_41": "RSK-THESIS-035: cada thesis killer necesita los cuatro factores 0-1. FORMULAS.md: Probability * Impact * (1-Detectability) * TimeUrgency. DECISION_RULES.md pide al menos tres.",
+  "_comment_42": "MKT-SCEN-025: resultado ponderado por escenario. Pares [probabilidad, resultado_usd]; las probabilidades DEBEN sumar 1.0.",
+  "scenarios": [
+    [
+      0.25,
+      140000000000.0
+    ],
+    [
+      0.5,
+      195000000000.0
+    ],
+    [
+      0.25,
+      260000000000.0
+    ]
+  ],
+  "_comment_43": "scenario_overrides (valuacion): DICT bear/base/bull. NO confundir con `scenarios`, que es la lista de MKT-SCEN-025.",
+  "scenario_overrides": {
+    "bear": {
+      "growth": 0.05,
+      "margin": 0.45
+    },
+    "base": {
+      "growth": 0.18,
+      "margin": 0.55
+    },
+    "bull": {
+      "growth": 0.3,
+      "margin": 0.62
+    }
+  }
 }

@@ -1097,7 +1097,21 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     years = int(overlay.get("forecast_years", 5))
 
     # ---- Scenario construction (bear/base/bull) -- brief's derived defaults ----
-    scenario_overrides = overlay.get("scenarios") or {}
+    # `scenario_overrides`, not `scenarios`. The two are different inputs that
+    # collided on one key: MKT-SCEN-025 reads `scenarios` as a LIST of
+    # [probability, outcome] pairs, while this reads a DICT of bear/base/bull
+    # assumption overrides. Supplying either shape took down the other
+    # specialist -- a list here raised AttributeError on `.get` and killed the
+    # whole valuation run.
+    #
+    # A dict still wins under the old name so any file already written keeps
+    # working; a list under it is market's input and is ignored here.
+    scenario_overrides = overlay.get("scenario_overrides")
+    if scenario_overrides is None:
+        legacy = overlay.get("scenarios")
+        scenario_overrides = legacy if isinstance(legacy, dict) else {}
+    if not isinstance(scenario_overrides, dict):
+        scenario_overrides = {}
 
     def _scenario_input(name: str, default_growth: float, default_margin: float, default_wacc: float | None, default_prob: float) -> ScenarioInput | None:
         ov = scenario_overrides.get(name, {})

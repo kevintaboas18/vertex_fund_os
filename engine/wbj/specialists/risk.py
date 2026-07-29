@@ -1125,14 +1125,37 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     v_cyc = macro_sensitivity_beta(company_series, macro_series) if macro_series and company_series else _null(NullState.MISSING, "ratio", "MACRO_SENSITIVITY_UNAVAILABLE")
     add("RSK-CYC-034", v_cyc, _score_from_anchor(v_cyc, [(2.0, 0), (1.0, 4), (0.5, 7), (0.0, 10)]) if v_cyc.is_valid else None)
 
-    # ---- RSK-THESIS-035: thesis-killer priority (judgment-only) ----
-    # Probability/Impact/Detectability/TimeUrgency are all explicit 0-1
-    # assumptions (FORMULAS.md: "Custom prioritization... no false
-    # precision"), so this metric is never scored mechanically -- it is a
-    # NOT_SCORABLE row paired with the thesis_killers JudgmentRequest below,
-    # the same judgment-only discipline as business.py's moat classification.
-    # Registered as a row so all 35 RSK formulas surface in out.metrics.
-    add("RSK-THESIS-035", _null(NullState.NOT_SCORABLE, "score", "THESIS_KILLER_PRIORITY_JUDGMENT_REQUIRED"), None)
+    # ---- RSK-THESIS-035: thesis-killer priority ---------------------------
+    # `Probability * Impact * (1-Detectability) * TimeUrgency`, and
+    # FORMULAS.md's own inputs column reads "explicit 0-1 assumptions" --
+    # which is what the analyst channel carries. AGENT.md admits exactly that
+    # as an "explicitly disclosed assumption".
+    #
+    # This was hardcoded NOT_SCORABLE regardless of overlay, on the reasoning
+    # that the four factors are judgment. They are -- but a judgment a person
+    # writes down and declares is scoreable evidence here; what the rule
+    # forbids is the engine inventing them. The judgment request stays for
+    # when nobody supplied them.
+    #
+    # The highest-priority killer is the row's value: DECISION_RULES.md asks
+    # for at least three, and the one that most threatens the thesis is what
+    # a reader needs first.
+    _tk = overlay.get("thesis_killers") or []
+    _priorities = [
+        thesis_killer_priority(float(k["probability"]), float(k["impact"]),
+                               float(k["detectability"]), float(k["time_urgency"]))
+        for k in _tk
+        if isinstance(k, dict)
+        and {"probability", "impact", "detectability", "time_urgency"} <= k.keys()
+    ]
+    _valid = [p for p in _priorities if p.is_valid]
+    add("RSK-THESIS-035",
+        max(_valid, key=lambda v: v.value) if _valid
+        else _null(NullState.NOT_SCORABLE, "score",
+                   "THESIS_KILLER_PRIORITY_JUDGMENT_REQUIRED: set `thesis_killers` "
+                   "in Entradas/<TICKER>.json, each with probability, impact, "
+                   "detectability and time_urgency as explicit 0-1 assumptions"),
+        None)
 
     # ---- Thesis killers (judgment requests, per DECISION_RULES.md: always list >=3) ----
     thesis_killers_overlay = overlay.get("thesis_killers") or []

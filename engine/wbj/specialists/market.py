@@ -1098,8 +1098,20 @@ def _compute_all(
     add("MKT-RSG-024", v_rsg, _score_from_anchor(v_rsg, [(-0.10, 0), (0.0, 5), (0.05, 8), (0.15, 10)]))
 
     # ---- MKT-SCEN-025: scenario-weighted outcome (diagnostic, not a dimension member) ----
+    # A list of [probability, outcome] pairs. Valuation reads a DICT of
+    # bear/base/bull overrides from `scenario_overrides`; the two used to
+    # share this key, so a dict arriving here is that other input and must be
+    # refused by name rather than silently mis-summed.
     scenarios = overlay.get("scenarios")
-    v_scen = scenario_weighted_outcome(scenarios) if scenarios else _null(NullState.MISSING, "usd", "SCENARIOS_UNAVAILABLE")
+    if isinstance(scenarios, dict):
+        v_scen = _null(NullState.MISSING, "usd",
+                       "SCENARIOS_WRONG_SHAPE: MKT-SCEN-025 takes a list of "
+                       "[probability, outcome] pairs; a mapping belongs under "
+                       "`scenario_overrides` (valuation's bear/base/bull)")
+    elif scenarios:
+        v_scen = scenario_weighted_outcome([(float(p), float(o)) for p, o in scenarios])
+    else:
+        v_scen = _null(NullState.MISSING, "usd", "SCENARIOS_UNAVAILABLE")
     add("MKT-SCEN-025", v_scen, None)
 
     # AGENT.md's no-speculation rule: every scored metric's 0-10 scale is the
