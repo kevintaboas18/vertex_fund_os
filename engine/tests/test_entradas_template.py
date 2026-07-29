@@ -86,6 +86,11 @@ def _specialist_overlay_keys() -> set[str]:
 _READ_PATTERNS = (
     r'(?<![a-z_])overlay\.get\("([a-z0-9_]+)"',
     r'overlay_float\(\s*overlay,\s*"([a-z0-9_]+)"',
+    # Third form, and the one that hid the customer-economics block:
+    # `_overlay_mapping(overlay, "retention", ...)`. Three ways to read the
+    # same dict is two too many, but a detector that knows only one reports
+    # documented keys as orphans and undocumented ones as covered.
+    r'_overlay_(?:mapping|number|numbers)\(\s*overlay,\s*"([a-z0-9_]+)"',
 )
 
 
@@ -120,7 +125,7 @@ def test_the_template_teaches_no_key_the_engine_ignores(template):
 
     engine_keys = _valuation_overlay_keys()
     import re
-    engine_keys |= set(re.findall(r'(?<![a-z_])overlay(?:\.get\(|_float\(overlay, )"([a-z0-9_]+)"',
+    engine_keys |= set(re.findall(r'(?:(?<![a-z_])overlay\.get\(|overlay_float\(overlay, |_overlay_(?:mapping|number|numbers)\(overlay, )"([a-z0-9_]+)"',
                                   Path(from_packet.__file__).read_text(encoding="utf-8")))
     overlay_src = Path(from_packet.__file__).read_text(encoding="utf-8")
     engine_keys |= set(re.findall(r'overlay\["([a-z0-9_]+)"\]', overlay_src))
@@ -131,7 +136,7 @@ def test_the_template_teaches_no_key_the_engine_ignores(template):
                                   re.search(r'for k in \(("tam".*?)\)', overlay_src, re.S).group(1)))
     for mod in ("business", "financial", "market", "technical", "risk"):
         src = (_ROOT / "engine" / "wbj" / "specialists" / f"{mod}.py").read_text(encoding="utf-8")
-        engine_keys |= set(re.findall(r'(?<![a-z_])overlay(?:\.get\(|_float\(overlay, )"([a-z0-9_]+)"', src))
+        engine_keys |= set(re.findall(r'(?:(?<![a-z_])overlay\.get\(|overlay_float\(overlay, |_overlay_(?:mapping|number|numbers)\(overlay, )"([a-z0-9_]+)"', src))
         engine_keys |= set(re.findall(r'_overlay_numbers?\(overlay, "([a-z0-9_]+)"', src))
 
     # `judgments` is read by deep.py's analyst channel, not by a specialist.
