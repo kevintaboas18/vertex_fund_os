@@ -315,9 +315,34 @@ def _apply_updates(
         )
 
         existing = metrics_by_id.get(req.metric_id)
+
+        # A judgment supplies a CLASSIFICATION, not a measurement. When the
+        # row already carries a computed figure, that figure stays and the
+        # judgment only sets the score.
+        #
+        # This replaced the value unconditionally, which was harmless while
+        # every judgment metric was NOT_SCORABLE by construction. FIN-GR-004
+        # broke that: it now computes `organic growth / total growth` from the
+        # analyst's bridge, and an EXCELLENT answer overwrote 0.80 with 10.0.
+        # The report could then say a model called the growth excellent but no
+        # longer what share of it was organic -- FORMULA_REGISTRY.md's result
+        # object wants `result: {value, unit}`, and AGENT.md wants a report
+        # that can be traced.
+        keeps_value = existing is not None and existing.value is not None
+        row_value = (
+            Value.of(
+                existing.value,
+                unit=existing.unit or "",
+                evidence_class=judgment.evidence_class,
+                source_name=judgment.source,
+                warnings=[*warnings, "JUDGMENT_SUPPLIED_SCORE_ONLY_VALUE_IS_COMPUTED"],
+            )
+            if keeps_value
+            else value
+        )
         metrics_by_id[req.metric_id] = MetricRow.from_value(
             req.metric_id,
-            value,
+            row_value,
             formula_id=existing.formula_id if existing else req.metric_id,
             formula_version=existing.formula_version if existing else "judgment-overlay",
             score=score if score is not None else "NOT_SCORABLE",
