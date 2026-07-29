@@ -234,5 +234,14 @@
   "organic_growth_bridge": {
     "organic_growth": 0.52,
     "total_growth": 0.65
-  }
+  },
+  "_comment_39": "MKT-DISP-013: estimados individuales de cada analista (no low/high/avg). Ningun proveedor configurado los sirve.",
+  "individual_estimates": [
+    4.1,
+    4.25,
+    4.4,
+    4.55,
+    4.3,
+    4.35
+  ]
 }

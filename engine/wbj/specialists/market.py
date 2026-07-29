@@ -923,8 +923,24 @@ def _compute_all(
         v_revmag = _null(NullState.MISSING, "pct", "REVISION_MAGNITUDE_UNAVAILABLE")
     add("MKT-REVMAG-012", v_revmag, _score_from_anchor(v_revmag, [(-0.10, 0), (0.0, 5), (0.05, 8), (0.15, 10)]))
 
-    individual = est.get("individual_estimates")
-    v_disp = estimate_dispersion(individual) if individual else _null(NullState.MISSING, "ratio", "DISPERSION_UNAVAILABLE")
+    # MKT-DISP-013 is "stdev(analyst estimates) / abs(consensus mean)" over
+    # *individual* estimates. No configured provider serves them -- FMP
+    # publishes only low/high/avg, and deriving a standard deviation from a
+    # range means assuming a distribution the data never stated.
+    #
+    # An analyst with terminal access or a compiled set of published notes
+    # does have them, so a top-level `individual_estimates` is read first.
+    # It sits beside `estimates` rather than inside it because the loader
+    # applies analyst input last and would otherwise clobber the whole
+    # computed `estimates` block to deliver one nested list.
+    individual = overlay.get("individual_estimates") or est.get("individual_estimates")
+    v_disp = (estimate_dispersion([float(x) for x in individual])
+              if individual else
+              _null(NullState.MISSING, "ratio",
+                    "DISPERSION_UNAVAILABLE: set `individual_estimates` (the "
+                    "analysts' own EPS or revenue figures, not low/high/avg) in "
+                    "Entradas/<TICKER>.json -- FORMULAS.md needs stdev over the "
+                    "individual estimates and no configured provider serves them"))
     add("MKT-DISP-013", v_disp, _score_from_anchor(v_disp, [(0.0, 10), (0.05, 8), (0.15, 4), (0.30, 0)]))
 
     actual, pre_release = est.get("actual"), est.get("pre_release_consensus")
