@@ -484,6 +484,11 @@
             <input type="text" id="tickerInput" onkeyup="debounceQuoteFetch()" placeholder="Search company or ticker..."
                 class="w-full bg-[#11141D] border border-gray-800 focus:border-blue-500 text-white font-medium px-5 py-4 pl-12 rounded-xl outline-none transition-all uppercase text-base">
         </div>
+        <!-- Sin esto, un fallo de la vista previa era invisible: la tarjeta se
+             escondia y punto, asi que escribir un ticker valido durante un
+             rate-limit de la fuente de precios se veia igual que escribir uno
+             inventado, sin manera de saber cual de los dos era. -->
+        <div id="quoteHint" class="w-full text-center text-xs text-gray-500 mb-6 hidden"></div>
         <div id="previewCard" class="w-full bg-[#11141D] border border-panel rounded-2xl p-6 mb-8 hidden">
             <div class="flex justify-between items-start mb-6">
                 <div class="flex items-center gap-4">
@@ -1229,16 +1234,31 @@ function switchAnalysisTab(tabId, btn) {
 
 
 // ── QUOTE ────────────────────────────────────────────────
+// El servidor distingue 404 (simbolo desconocido) de 503 (ninguna fuente de
+// precio respondio). Antes ambos terminaban en el mismo `hidden` mudo.
+function setQuoteHint(msg) {
+    const el = document.getElementById('quoteHint');
+    if (!el) return;
+    if (msg) { el.innerText = msg; el.classList.remove('hidden'); }
+    else { el.innerText = ''; el.classList.add('hidden'); }
+}
 function debounceQuoteFetch() {
     clearTimeout(debounceTimer);
     const val = document.getElementById('tickerInput').value.trim();
-    if (val.length < 1) { document.getElementById('previewCard').classList.add('hidden'); return; }
+    if (val.length < 1) { document.getElementById('previewCard').classList.add('hidden'); setQuoteHint(''); return; }
     debounceTimer = setTimeout(() => fetchQuote(val), 500);
 }
 async function fetchQuote(ticker) {
     try {
         const res = await fetch(`${API_BASE}/api/quote?ticker=${ticker}`);
-        if (!res.ok) { document.getElementById('previewCard').classList.add('hidden'); return; }
+        if (!res.ok) {
+            document.getElementById('previewCard').classList.add('hidden');
+            setQuoteHint(res.status === 503
+                ? `Vista previa no disponible ahora mismo (fuentes de precio caidas). Igual puedes analizar ${ticker.toUpperCase()}.`
+                : `No se encontro "${ticker.toUpperCase()}".`);
+            return;
+        }
+        setQuoteHint('');
         const d = await res.json();
         document.getElementById('previewLogo').src = d.logo_url;
         document.getElementById('previewTicker').innerText = d.ticker;
@@ -1268,7 +1288,10 @@ async function fetchQuote(ticker) {
         if (srcEl) srcEl.innerText = (d.precio_fuente ? `fuente: ${d.precio_fuente}` : '') + (d.as_of ? ` · ${d.as_of}` : '');
         document.getElementById('previewCard').classList.remove('hidden');
         lucide.createIcons();
-    } catch(e) { document.getElementById('previewCard').classList.add('hidden'); }
+    } catch(e) {
+        document.getElementById('previewCard').classList.add('hidden');
+        setQuoteHint('No se pudo contactar al servidor para la vista previa.');
+    }
 }
 
 // ── ANALYSIS ─────────────────────────────────────────────

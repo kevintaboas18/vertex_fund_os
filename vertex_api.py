@@ -204,8 +204,68 @@ init_db()
 # riesgo de ratelimit de yfinance.
 _PRICE_SERIES_CACHE = {}
 
+_PERIODO_DIAS = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92,
+                 "2mo": 62, "1mo": 31, "5d": 7, "7d": 7}
+
+
+def _fmp_daily_bars(ticker, period="1y"):
+    """#3 RESPALDO de historia diaria: FMP EOD ajustado por splits/dividendos.
+
+    Sustituye a Stooq, que dejó de servir el CSV: ahora responde con una página
+    que exige resolver un desafío JavaScript de detección de bots, así que
+    `_stooq_series` devuelve [] SIEMPRE y el "tercer respaldo" del sistema
+    llevaba tiempo siendo decorativo -- quedaban dos fuentes, no tres.
+
+    FMP ya es una fuente del sistema (la usa el engine de Victor y hay clave
+    configurada), así que esto no añade dependencias nuevas. Se reusa
+    `FMPProvider.ohlcv_daily`, con el mismo patrón de carga que
+    `_wbj_fmp_important_insiders`.
+
+    Devuelve [(epoch, open, high, low, close, volume)] de más viejo a más
+    nuevo, o [] si no hay clave/datos. Best-effort: nunca lanza.
+    """
+    if not (os.environ.get("FMP_API_KEY") or "").strip():
+        return []
+    try:
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.config import load_settings
+        from wbj.providers.cache import Cache
+        from wbj.providers.fmp import FMPProvider
+        _s = load_settings()
+        if not getattr(_s, "fmp_api_key", None):
+            _s.fmp_api_key = os.environ.get("FMP_API_KEY")
+        dias = _PERIODO_DIAS.get(period, 365)
+        anios = 1 if dias <= 300 else (2 if dias <= 700 else 5)
+        filas = FMPProvider(_s, Cache(_s.cache_dir)).ohlcv_daily(str(ticker).upper().strip(),
+                                                                 years=anios) or []
+        if not isinstance(filas, list):
+            return []
+        corte = time.time() - dias * 86400
+        out = []
+        for f in filas:
+            if not isinstance(f, dict):
+                continue
+            try:
+                ts = datetime.strptime(str(f["date"])[:10], "%Y-%m-%d").timestamp()
+                if ts < corte:
+                    continue
+                out.append((ts, float(f["open"]), float(f["high"]), float(f["low"]),
+                            float(f["close"]), int(float(f.get("volume") or 0))))
+            except (KeyError, TypeError, ValueError):
+                continue
+        out.sort(key=lambda x: x[0])          # FMP viene del más nuevo al más viejo
+        return out
+    except Exception:
+        return []
+
+
 def _stooq_series(ticker, period="1y"):
-    """#3 RESPALDO de historia diaria cuando yfinance falla (rate-limit/caída): Stooq CSV, gratis y sin key.
+    """RESPALDO HISTÓRICO, HOY INERTE: Stooq dejó de servir este CSV — responde con
+    una página que exige resolver un desafío JavaScript anti-bot, así que esta
+    función devuelve [] en la práctica. Se conserva por si Stooq vuelve a abrirlo,
+    pero el respaldo real de historia diaria es `_fmp_daily_bars`. No intentar
+    sortear el desafío.
     Devuelve [(epoch, close)] filtrado al periodo. Best-effort: cualquier error → lista vacía."""
     try:
         sym = str(ticker).strip().lower()
@@ -240,6 +300,18 @@ def _resilient_history(stock, ticker, period):
         h = stock.history(period=period)
         if h is not None and not h.empty:
             return h
+    except Exception:
+        pass
+    # #3 respaldo REAL: FMP EOD. Antes aquí solo estaba Stooq, que hoy responde con
+    # un desafío anti-bot: el respaldo existía en el código pero no en los hechos.
+    try:
+        import pandas as pd
+        barras = _fmp_daily_bars(ticker, period)
+        if barras:
+            idx = pd.DatetimeIndex([datetime.fromtimestamp(b[0]) for b in barras])
+            return pd.DataFrame({"Open": [b[1] for b in barras], "High": [b[2] for b in barras],
+                                 "Low": [b[3] for b in barras], "Close": [b[4] for b in barras],
+                                 "Volume": [b[5] for b in barras]}, index=idx)
     except Exception:
         pass
     try:
@@ -285,7 +357,9 @@ def _cached_price_series(ticker, period="1y", ttl=3600):
             series = [(idx.timestamp(), float(c)) for idx, c in h["Close"].items()]
     except Exception:
         series = []
-    if not series:                                  # #3 respaldo: yfinance vacío → Stooq
+    if not series:                                  # #3 respaldo: yfinance vacío → FMP
+        series = [(b[0], b[4]) for b in _fmp_daily_bars(ticker, period)]
+    if not series:                                  # Stooq: inerte hoy, ver _stooq_series
         series = _stooq_series(ticker, period)
     _PRICE_SERIES_CACHE[key] = (nowt, series)
     return series
@@ -1743,18 +1817,49 @@ def get_quick_quote(ticker: str):
     ticker_clean = ticker.upper().strip()
     try:
         stock = yf.Ticker(ticker_clean)
-        info = stock.info
-        hist = stock.history(period="2d")
-        if hist.empty:
-            raise HTTPException(status_code=404, detail="No data")
+        # Este endpoint es lo PRIMERO que toca el usuario: el buscador lo llama al
+        # escribir, y el frontend esconde la tarjeta ante cualquier !res.ok. Era el
+        # unico de la ruta de entrada sin respaldo -- `stock.info` a pelo, y encima
+        # como primera linea -- asi que cuando Yahoo limita la IP del servidor
+        # ("Too Many Requests. Rate limited.") el except de abajo lo convertia en un
+        # 404 y al escribir un ticker no aparecia NADA que analizar. /api/analyze ya
+        # tenia este blindaje y por eso seguia respondiendo; aqui faltaba.
+        try:
+            info = stock.info or {}
+        except Exception:
+            info = {}
+        hist = _resilient_history(stock, ticker_clean, "5d")   # yfinance → respaldo Stooq
+        tiene_hist = hist is not None and not hist.empty
+        fh = None
+        if not info:                                           # solo si Yahoo no respondio
+            try:
+                fh = finnhub_quote(ticker_clean) or {}
+            except Exception:
+                fh = {}
+        fh = fh or {}
 
-        precio_actual   = info.get("currentPrice") or float(hist['Close'].iloc[-1])
-        precio_anterior = float(hist['Close'].iloc[-2]) if len(hist) > 1 else precio_actual
-        cambio_pct = ((precio_actual - precio_anterior) / precio_anterior) * 100
+        spot = _resolve_spot(ticker_clean)                     # yfinance → Finnhub → Stooq
+        precio_actual = (spot.get("price") or info.get("currentPrice") or fh.get("price")
+                         or (float(hist['Close'].iloc[-1]) if tiene_hist else None))
+        if not precio_actual:
+            raise HTTPException(status_code=404,
+                                detail=f"Sin datos de precio para {ticker_clean} en ninguna fuente.")
+        precio_actual = float(precio_actual)
 
-        volumen  = info.get("regularMarketVolume") or (int(hist['Volume'].iloc[-1]) if not hist.empty else 0)
-        high_dia = info.get("dayHigh") or float(hist['High'].iloc[-1])
-        low_dia  = info.get("dayLow")  or float(hist['Low'].iloc[-1])
+        # Cierre anterior explicito antes que deducirlo de la serie: Stooq suele ir un
+        # dia por detras, y ahi `iloc[-2]` compararia contra el dia equivocado.
+        precio_anterior = (info.get("regularMarketPreviousClose") or info.get("previousClose")
+                           or fh.get("prev_close")
+                           or (float(hist['Close'].iloc[-2]) if tiene_hist and len(hist) > 1 else None)
+                           or precio_actual)
+        precio_anterior = float(precio_anterior)
+        cambio_pct = ((precio_actual - precio_anterior) / precio_anterior * 100) if precio_anterior else 0.0
+
+        volumen  = info.get("regularMarketVolume") or (int(hist['Volume'].iloc[-1]) if tiene_hist else 0)
+        high_dia = float(info.get("dayHigh") or fh.get("high")
+                         or (float(hist['High'].iloc[-1]) if tiene_hist else precio_actual))
+        low_dia  = float(info.get("dayLow") or fh.get("low")
+                         or (float(hist['Low'].iloc[-1]) if tiene_hist else precio_actual))
         vwap_dia = info.get("vwap")    or ((high_dia + low_dia + precio_actual) / 3)
         logo_url = obtener_logo(ticker_clean, info.get("website", ""))
 
@@ -1784,12 +1889,20 @@ def get_quick_quote(ticker: str):
             "high": round(high_dia, 2),
             "low": round(low_dia, 2),
             "after_hours": after_hours,
-            "precio_fuente": "yfinance",
-            "as_of": datetime.now().strftime('%I:%M:%S %p'),
+            # La fuente real, no "yfinance" siempre: si el precio vino de Finnhub o
+            # Stooq la tarjeta tiene que decirlo, igual que el resto de los paneles.
+            "precio_fuente": spot.get("source") or "yfinance",
+            "as_of": spot.get("as_of") or datetime.now().strftime('%I:%M:%S %p'),
             "logo_url": logo_url
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        # 503, no 404: que ninguna fuente responda NO significa que el ticker no
+        # exista. Con 404 un simbolo valido durante un rate-limit se veia igual que
+        # uno inventado, y no habia forma de distinguirlos desde el frontend.
+        raise HTTPException(status_code=503,
+                            detail=f"Fuentes de precio no disponibles para {ticker_clean}: {e}")
 
 
 @app.get("/api/news")
@@ -1865,9 +1978,29 @@ def get_price_history(ticker: str, period: str = "1mo", interval: str = "1d"):
             period = "5d"
     try:
         stock = yf.Ticker(ticker_clean)
-        hist = stock.history(period=period, interval=yf_interval)
-        if hist.empty:
-            raise HTTPException(status_code=404, detail="No data")
+        # Mismo caso que /api/quote: esto era `stock.history(...)` a secas y un
+        # rate-limit de Yahoo salia como 500, dejando la grafica de precio en
+        # blanco. El respaldo Stooq SOLO sirve para velas diarias, asi que la ruta
+        # intradia se queda sin red -- pero al menos lo dice con un 503 honesto en
+        # vez de un 500 generico.
+        fallo_fuente = False
+        try:
+            hist = stock.history(period=period, interval=yf_interval)
+        except Exception:
+            hist, fallo_fuente = None, True
+        if (hist is None or hist.empty) and not is_intraday:
+            hist = _resilient_history(stock, ticker_clean, period)
+            if hist is not None and not hist.empty:
+                # _resilient_history no conoce "7d" y su respaldo cae al ano por
+                # defecto: sin recortar, la grafica de 7 dias saldria con 250 velas.
+                filas = {"7d": 5, "1mo": 22, "3mo": 63, "6mo": 126, "1y": 252}.get(period)
+                if filas:
+                    hist = hist.tail(filas)
+        if hist is None or hist.empty:
+            raise HTTPException(
+                status_code=503 if fallo_fuente else 404,
+                detail=(f"Fuentes de precio no disponibles para {ticker_clean}."
+                        if fallo_fuente else "No data"))
 
         # 10m: reagrupa las velas de 5m a 10 minutos (yfinance no tiene 10m nativo)
         if interval == "10m":
