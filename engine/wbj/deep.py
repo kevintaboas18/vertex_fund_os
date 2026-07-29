@@ -44,6 +44,31 @@ def build_providers(settings: Any) -> Providers:
     )
 
 
+#: The two inputs MKT-GCAP-009 needs, and the metric each is registered under.
+#: Read off the specialist row rather than a context dict so the value that
+#: travels is the one that scored.
+_ROIC_REINVESTMENT_METRICS = {
+    "BUS-ROIC-013": "roic",
+    "BUS-REINV-018": "reinvestment_rate",
+}
+
+
+def _roic_reinvestment_from(out: Any) -> dict[str, float]:
+    """ROIC and reinvestment rate off a specialist output, when it carries them.
+
+    Returns only valid numbers: a MISSING or NOT_SCORABLE row must not travel as
+    a figure, or Market would score against a hole. An empty result leaves
+    MKT-GCAP-009 on its documented proxy, which is the honest fallback.
+    """
+    encontradas: dict[str, float] = {}
+    for row in (getattr(out, "metrics", None) or []):
+        clave = _ROIC_REINVESTMENT_METRICS.get(getattr(row, "metric_id", "") or "")
+        valor = getattr(row, "value", None)
+        if clave and isinstance(valor, (int, float)) and not isinstance(valor, bool):
+            encontradas[clave] = float(valor)
+    return encontradas
+
+
 _ABSENT = object()
 
 
@@ -670,15 +695,32 @@ def _run_specialists(full_packet: Any, settings: Any = None,
             logger.warning("overlay build failed; specialists run unassisted", exc_info=True)
 
     labelled: list[tuple[str, Any]] = []
+    # 03_market_analysis/DATASET.md declares `roic_reinvestment` REQUIRED and
+    # sourced from a "validated specialist packet" -- Business/Financial. Nobody
+    # passed it, so MKT-GCAP-009 fell to its own local re-derivation (capex over
+    # NOPAT) and flagged REINVESTMENT_RATE_PROXY_CAPEX_OVER_NOPAT on every
+    # ticker. Business already computes both to Victor's full definition:
+    # BUS-REINV-018's numerator is "net capex + change in non-cash working
+    # capital + capitalized R&D adjustment", with the sign conventions and the
+    # bank/insurer adapter carve-out that the local proxy has none of.
+    #
+    # These are metric VALUES, not scores: `_SPECIALISTS` runs Business before
+    # Market, and no score crosses between them. Feeding one specialist's
+    # measured input to another is the flow the dataset spec asks for.
+    derivadas: dict[str, Any] = {}
     for label, mod in _SPECIALISTS:
         try:
+            # The analyst file is merged into `overlay` and stays last, so a
+            # figure someone entered by hand still wins over the derivation.
+            enriquecido = {**derivadas, **overlay} if overlay else (derivadas or None)
             # Not every specialist takes an overlay; those that do treat
             # it as optional enrichment.
             try:
-                out = mod.run(full_packet, overlay) if overlay else mod.run(full_packet)
+                out = mod.run(full_packet, enriquecido) if enriquecido else mod.run(full_packet)
             except TypeError:
                 out = mod.run(full_packet)
             labelled.append((label, out))
+            derivadas.update(_roic_reinvestment_from(out))
         except Exception:
             logger.warning("specialist %s failed; category omitted", label, exc_info=True)
             continue
@@ -756,8 +798,14 @@ def _run_specialists(full_packet: Any, settings: Any = None,
                 merged = merge_overlay(outs, judgments)
                 labelled = list(zip([lbl for lbl, _ in labelled], merged))
                 judged = len(judgments)
+                # `derivadas` has to travel into the second pass too: without
+                # it the re-run rebuilds Market from `overlay` alone and quietly
+                # reverts MKT-GCAP-009 to its capex/NOPAT proxy, undoing the
+                # roic_reinvestment wiring for exactly the tickers whose
+                # catalysts got priced.
                 labelled = _rerun_market_with_judged_catalysts(
-                    labelled, judgments, full_packet, overlay)
+                    labelled, judgments, full_packet,
+                    {**derivadas, **(overlay or {})})
                 labelled = _apply_judgments_to_output_fields(
                     labelled, judgments, collect_requests(outs))
         except Exception:
