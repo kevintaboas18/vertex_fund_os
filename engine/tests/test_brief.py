@@ -9,6 +9,7 @@ from wbj.brief import (
     _category_meaning,
     _classification,
     _insider_highlights,
+    _insiders_flow,
     _next_earnings,
 )
 from wbj.quick import quick_scorecard
@@ -140,6 +141,21 @@ def test_insider_highlights_keeps_only_over_1m():
     assert hi[0]["value"] >= 1_000_000
 
 
+def test_insiders_flow_sums_buys_and_sells():
+    flow = _insiders_flow(_packet()["market_data"]["insiders"])
+    assert flow["buy_usd"] == 2_000_000.0   # Big Boss 20000 * 100
+    assert flow["sell_usd"] == 10_000.0     # Small Fry 100 * 100
+    assert flow["net_usd"] == 1_990_000.0
+    assert flow["buy_count"] == 1 and flow["sell_count"] == 1
+
+
+def test_insiders_flow_empty_when_no_open_market_trades():
+    flow = _insiders_flow([{"transactionType": "G-Gift",
+                            "securitiesTransacted": 500000, "price": 0.0}])
+    assert flow["buy_usd"] == 0.0 and flow["sell_usd"] == 0.0
+    assert flow["net_usd"] == 0.0
+
+
 def test_next_earnings_picks_soonest_future():
     row = _next_earnings(_packet()["market_data"]["earnings"], "2026-07-17")
     assert row["date"] == "2026-08-26"
@@ -161,7 +177,9 @@ def test_company_brief_has_all_sections():
     assert set(b) >= {"interpretation", "probability", "where", "watch"}
     assert b["interpretation"]["classification"] in ("favors", "neutral", "avoid")
     assert b["probability"]["status"] == "ok"
+    assert b["probability"]["price"] == 100.0
     assert 0 <= b["probability"]["targets"][0]["prob_reach"] <= 1
+    assert b["watch"]["insiders_flow"]["buy_count"] >= 0
     assert isinstance(b["where"], list) and b["where"]
     assert "levels" in b["watch"] and "insiders" in b["watch"]
     assert b["watch"]["catalysts"]["next_earnings"]["date"] == "2026-08-26"
