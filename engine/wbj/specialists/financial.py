@@ -410,6 +410,16 @@ def band_growth_vs_peers(diff: float) -> int:
     return band_score(diff, -0.02, 0.02)
 
 
+def band_market_share_trend(slope: float) -> int:
+    """FIN-GR-005, straight from FORMULAS.md's caveat: "Losing/stable/gaining
+    using +/-0.25 percentage point/year unless market-specific adapter."
+
+    `share_history` is decimal share, so a quarter of a percentage point is
+    0.0025 per year. Losing -> BAD, stable -> GOOD, gaining -> EXCELLENT.
+    """
+    return band_score(slope, -0.0025, 0.0025)
+
+
 @register_formula(
     id="FIN-GR-004", version=_VERSION, unit="ratio", inputs=["organic_growth", "total_growth"],
 )
@@ -1196,8 +1206,31 @@ def _compute_all(
             "bands without the industry comparison DECISION_RULES.md calls for."
         )
 
-    # ---- FIN-GR-004 / FIN-GR-005: judgment-only (see module docstring) ----
-    v_organic = _null(NullState.NOT_SCORABLE, "ratio", "ORGANIC_GROWTH_BRIDGE_UNAVAILABLE_JUDGMENT_REQUIRED")
+    # ---- FIN-GR-004 / FIN-GR-005 ------------------------------------------
+    # Both were hardcoded NOT_SCORABLE with the reasoning that `Packet` never
+    # carries `organic_growth_bridge` / `market_share_series`. True of the
+    # packet -- but DATASET.md marks both fields "conditional", and a
+    # conditional input is exactly what the analyst channel is for. The
+    # overlay carries them now, and `share_history` is already the series
+    # MKT-SHDELTA-007 reads, so refusing it here left the same figure scoring
+    # for market and not for financial.
+    #
+    # This is not the imputation PROHIBITED_IMPUTATION forbids: nothing is
+    # inferred from other reported numbers. It is a figure a person read from
+    # a source and declared, which AGENT.md admits as an "explicitly disclosed
+    # assumption". The judgment request stays for when no one supplied it.
+    organic = overlay.get("organic_growth_bridge")
+    if isinstance(organic, dict) and {"organic_growth", "total_growth"} <= organic.keys():
+        v_organic = organic_growth_quality(float(organic["organic_growth"]),
+                                           float(organic["total_growth"]))
+    else:
+        v_organic = _null(NullState.NOT_SCORABLE, "ratio",
+                          "ORGANIC_GROWTH_BRIDGE_UNAVAILABLE_JUDGMENT_REQUIRED")
+    # Value but no band: FORMULAS.md gives FIN-GR-004 no numeric cutoff, only
+    # "If total growth <=0, classify from bridge rather than ratio". Inventing
+    # one would be calibration Victor never wrote, so the figure is reported
+    # and the score still comes from the judge's BAD/GOOD/EXCELLENT ladder,
+    # which DECISION_RULES.md does define.
     add("FIN-GR-004", v_organic, None, (DIM_REVENUE,))
     judgment_requests.append(
         JudgmentRequest(
@@ -1209,8 +1242,15 @@ def _compute_all(
             schema_hint="one of BAD|GOOD|EXCELLENT",
         )
     )
-    v_share = _null(NullState.NOT_SCORABLE, "pct_per_period", "MARKET_SHARE_SERIES_UNAVAILABLE_JUDGMENT_REQUIRED")
-    add("FIN-GR-005", v_share, None, (DIM_REVENUE,))
+    shares_series = [float(x) for x in (overlay.get("share_history") or [])
+                     if isinstance(x, (int, float))]
+    if len(shares_series) >= 3:
+        v_share = market_share_trend(shares_series)
+    else:
+        v_share = _null(NullState.NOT_SCORABLE, "pct_per_period",
+                        "MARKET_SHARE_SERIES_UNAVAILABLE_JUDGMENT_REQUIRED")
+    add("FIN-GR-005", v_share, _band_or_none(v_share, band_market_share_trend),
+        (DIM_REVENUE,))
     judgment_requests.append(
         JudgmentRequest(
             request_id="financial_analysis:FIN-GR-005",
