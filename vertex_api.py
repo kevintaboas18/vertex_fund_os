@@ -1249,10 +1249,75 @@ def _get_sec_cik(ticker):
         return None
 
 
+def _wbj_insiders_clasificados(ticker):
+    """Compras/ventas de insiders YA CLASIFICADAS, vía el motor de Victor.
+
+    yfinance dejo de poblar las columnas `Transaction` y `Text` de
+    `insider_transactions`: vienen como cadena vacia. El clasificador de
+    `fetch_insiders_data` decide compra o venta buscando "purchase"/"sale" en ese
+    texto, asi que con la columna vacia NADA se clasificaba y el resumen salia
+    0 compras / 0 ventas / senal NEUTRAL en todos los tickers -- aunque las
+    transacciones si estaban ahi, frescas y materiales (una venta de $153M de un
+    director de Apple el 2026-05-27).
+
+    Eso rompia el punto 5 de CLAUDE.md, que pide marcar las operaciones de
+    insiders por encima de $1M. El motor usa el `transactionType` de los Form 4
+    de FMP, que si viene poblado.
+
+    Devuelve {"bought": float, "sold": float, "trades": [...]} o {}.
+    """
+    try:
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.config import load_settings
+        from wbj.report import _insiders
+        d = _insiders(str(ticker).upper().strip(), load_settings()) or {}
+        if not d.get("available"):
+            return {}
+        return {"bought": float(d.get("bought") or 0.0),
+                "sold": float(d.get("sold") or 0.0),
+                "trades": d.get("trades") or []}
+    except Exception:
+        return {}
+
+
+def _wbj_holders_from_edgar(ticker):
+    """Tenedores >5% desde SEC EDGAR, vía el motor de Victor.
+
+    Reemplaza el escaneo de `13F-HR` bajo el CIK de la empresa, que no podia
+    funcionar: un 13F lo presenta el INVERSIONISTA, asi que el historial de
+    presentaciones de Apple no contiene ninguno -- ese `form13f` salia vacio en
+    todos los tickers, siempre, y no por el limite del plan.
+
+    El motor invierte la busqueda como corresponde: resuelve el CUSIP del perfil
+    y consulta las Schedule 13D/13G presentadas sobre ese CUSIP. Un 13D/G se
+    presenta al cruzar el 5% de una clase, asi que su conjunto de presentantes ES
+    el de los tenedores reconocidos por definicion -- que es lo que pide el punto
+    4 de CLAUDE.md -- y cada fila trae el accession que DATA_POLICY.md exige como
+    source_locator.
+
+    Complementa, no reemplaza, la lista de yfinance: esa trae 10 tenedores con
+    conteo de acciones y porcentaje del trimestre mas reciente; esta trae menos
+    nombres y sin conteo, pero es tier 1 y auditable. Devuelve {} si falla.
+    """
+    try:
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.config import load_settings
+        from wbj.report import _ownership
+        o = _ownership(str(ticker).upper().strip(), load_settings()) or {}
+        return {"holders": o.get("holders") or [],
+                "source": o.get("holders_source"),
+                "executives": o.get("executives") or []}
+    except Exception:
+        return {}
+
+
 def fetch_edgar_filings(ticker, limit=8):
-    """Authoritative recent SEC filings for the company: Form 4 (insider) + Form 13F.
+    """Authoritative recent SEC filings for the company: Form 4 (insider) +
+    tenedores >5% por Schedule 13D/13G (ver `_wbj_holders_from_edgar`).
     Returns direct EDGAR links so the user can click through to the source filing."""
-    out = {"cik": None, "form4": [], "form13f": []}
+    out = {"cik": None, "form4": [], "form13f": [], "holders_5pct": [], "holders_source": None}
     try:
         cik = _get_sec_cik(ticker)
         if not cik:
@@ -1276,8 +1341,13 @@ def fetch_edgar_filings(ticker, limit=8):
             entry = {"date": dates[i] if i < len(dates) else "", "form": frm, "url": url}
             if frm == "4" and len(out["form4"]) < limit:
                 out["form4"].append(entry)
-            elif frm in ("13F-HR", "13F-HR/A") and len(out["form13f"]) < limit:
-                out["form13f"].append(entry)
+            # `13F-HR` ya NO se busca aqui: un 13F lo presenta el inversionista,
+            # no la empresa, asi que este bucle nunca encontraba ninguno. Los
+            # tenedores llegan por CUSIP mas abajo.
+        tenedores = _wbj_holders_from_edgar(ticker)
+        if tenedores.get("holders"):
+            out["holders_5pct"] = tenedores["holders"][:limit]
+            out["holders_source"] = tenedores.get("source")
         return out
     except Exception:
         return out
@@ -1404,6 +1474,31 @@ def fetch_insiders_data(stock, ticker):
             }
     except Exception:
         pass
+    # yfinance dejo de poblar la columna `Transaction`, asi que el bloque de
+    # arriba clasifica CERO compras y CERO ventas aunque las operaciones existan.
+    # Los Form 4 de FMP si traen `transactionType`, y el motor ya los clasifica:
+    # se usa como fuente del resumen cuando el conteo por texto no dio nada.
+    try:
+        s = data.get("summary") or {}
+        if not (s.get("buys_value") or s.get("sells_value")):
+            m = _wbj_insiders_clasificados(ticker)
+            if m:
+                comprado, vendido = m["bought"], m["sold"]
+                data["summary"] = {
+                    "buys_count": sum(1 for t in m["trades"] if t.get("side") == "buy"),
+                    "sells_count": sum(1 for t in m["trades"] if t.get("side") == "sell"),
+                    "buys_value": round(comprado, 2), "sells_value": round(vendido, 2),
+                    "net_value": round(comprado - vendido, 2),
+                    "signal": ("BULLISH" if comprado > vendido
+                               else ("BEARISH" if vendido > comprado else "NEUTRAL")),
+                    "source": "SEC Form 4 (FMP) via motor",
+                }
+                # Punto 5 de CLAUDE.md: solo cuentan como importantes las que
+                # excedan $1M USD.
+                data["important_trades"] = [
+                    t for t in m["trades"] if float(t.get("value") or 0) > 1_000_000][:8]
+    except Exception:
+        pass
     # ── Institutional holders (13F-derived) ──────────────────────────────────
     try:
         inst = stock.institutional_holders
@@ -1471,14 +1566,35 @@ def format_insiders_context(ins):
             f"INSIDERS (ultimas operaciones): {s.get('buys_count',0)} compras (${s.get('buys_value',0):,.0f}) "
             f"vs {s.get('sells_count',0)} ventas (${s.get('sells_value',0):,.0f}) | Neto: ${s.get('net_value',0):,.0f} | Señal: {s.get('signal','N/A')}"
         )
+    # Punto 5 de CLAUDE.md: las operaciones que exceden $1M, nombradas.
+    imp = ins.get("important_trades") or []
+    if imp:
+        detalle = "; ".join(
+            f"{t.get('name')} ({t.get('title') or 's/t'}) {t.get('side')} "
+            f"${float(t.get('value') or 0):,.0f} al {t.get('last')}" for t in imp[:5])
+        parts.append(f"Operaciones de insiders sobre $1M (Forms 4): {detalle}")
     mh = ins.get("major_holders") or {}
     if mh.get("pct_institutions") is not None:
         parts.append(f"Propiedad institucional: {mh.get('pct_institutions')}% | Insiders: {mh.get('pct_insiders','N/A')}%")
     inst = ins.get("institutional") or []
     if inst:
+        fechas = {h.get("date") for h in inst[:5] if h.get("date")}
+        # La fecha del trimestre 13F importa: sin ella el modelo no puede saber
+        # si la posicion es del trimestre pasado o de hace un ano.
+        sello = f", al {sorted(fechas)[-1]}" if fechas else ""
         top = ", ".join(f"{h['holder']} ({h.get('pct_held','?')}%)" for h in inst[:5] if h.get('holder'))
         if top:
-            parts.append(f"Top tenedores institucionales (13F): {top}")
+            parts.append(f"Top tenedores institucionales (13F{sello}): {top}")
+    # Tier 1: presentantes de Schedule 13D/13G sobre el CUSIP, que por definicion
+    # cruzaron el 5%. Es la fuente auditable (trae accession) frente a la lista
+    # anterior, que viene de un agregador.
+    edg = ins.get("edgar") or {}
+    cinco = edg.get("holders_5pct") or []
+    if cinco:
+        nombres = ", ".join(
+            f"{h.get('name')} ({h.get('filing_date')})" for h in cinco[:6] if h.get("name"))
+        if nombres:
+            parts.append(f"Tenedores >5% del capital segun SEC EDGAR (Schedule 13D/13G): {nombres}")
     return "\n".join(parts)
 
 
