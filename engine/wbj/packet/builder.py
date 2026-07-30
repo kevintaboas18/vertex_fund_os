@@ -601,6 +601,27 @@ def _xbrl_analyst_inputs(companyfacts: dict, target_date: str | None,
         escalera.append(float(v.value))
     if len(escalera) >= 2:
         out["lease_commitments"] = escalera
+
+    # RSK-RUN-015 is "(Cash + committed undrawn liquidity) / Average monthly cash
+    # burn" and RSK-MAT-016 adds the same term; 05_risk_analysis/DATASET.md
+    # sources it from filings as "available facilities". Read as a nested key
+    # because risk.py reads `overlay["cash_burn"]["committed_liquidity"]`, and it
+    # defaulted to 0.0 -- conservative, but it understated every runway.
+    #
+    # `require_period=True` is not optional here. This tag goes stale silently:
+    # Tesla's newest entry is 2016 and American Airlines' is 2023, and the
+    # no-period-match fallback would hand back a nine-year-old facility balance
+    # as current liquidity. The period must cover the annual close or the term
+    # stays absent.
+    #
+    # companyfacts returns the consolidated figure, not one row per facility
+    # (verified on KO, TSLA and AAL: no period carries two different values), so
+    # this is total undrawn capacity rather than an arbitrary single revolver.
+    facilidad = _edgar_value_at(
+        companyfacts, "us-gaap", "LineOfCreditFacilityRemainingBorrowingCapacity",
+        "USD", target_date, require_period=True)
+    if facilidad.is_valid and facilidad.value is not None and float(facilidad.value) > 0:
+        out["cash_burn"] = {"committed_liquidity": float(facilidad.value)}
     return out
 
 

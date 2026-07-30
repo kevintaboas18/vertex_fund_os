@@ -956,6 +956,21 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
 
     cash_burn_overlay = overlay.get("cash_burn") or {}
     committed_liquidity = float(cash_burn_overlay.get("committed_liquidity", 0.0))
+    if committed_liquidity:
+        # FORMULAS.md names the term "committed undrawn liquidity". The reported
+        # tag that supplies it (`LineOfCreditFacilityRemainingBorrowingCapacity`,
+        # via Packet.xbrl_inputs) is remaining capacity and does not distinguish
+        # committed from uncommitted facilities, so the basis is recorded rather
+        # than assumed away -- FORMULAS.md execution rule on proxies.
+        assumptions.append(
+            "RSK-RUN-015 / RSK-MAT-016: committed undrawn liquidity = "
+            f"{committed_liquidity:,.0f}, from the reported remaining borrowing "
+            "capacity on the company's credit facilities for the annual period "
+            "(DATASET.md `cash_burn_and_commitments`: \"available facilities\", "
+            "sourced from filings), or from the analyst's "
+            "`cash_burn.committed_liquidity` where supplied. The reported figure "
+            "does not separate committed from uncommitted facilities."
+        )
     monthly_burn = -(fcf_t or 0.0) / 12.0 if fcf_t is not None and fcf_t < 0 else 0.0
     if cash_t is not None:
         v_run = cash_runway_months(cash_t, committed_liquidity, monthly_burn)

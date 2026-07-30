@@ -124,6 +124,38 @@ def test_a_single_year_is_not_a_schedule():
     assert "lease_commitments" not in out
 
 
+# --- committed liquidity ---------------------------------------------------
+
+def test_committed_liquidity_arrives_nested_under_cash_burn():
+    """risk.py reads `overlay["cash_burn"]["committed_liquidity"]`, so a flat key
+    would be silently ignored. RSK-RUN-015 is "(Cash + committed undrawn
+    liquidity) / Average monthly cash burn"; the term defaulted to 0.0, which
+    understated every runway."""
+    out = _xbrl_analyst_inputs(_facts(
+        LineOfCreditFacilityRemainingBorrowingCapacity=(FECHA, 7_227_000_000.0)), FECHA)
+    assert out["cash_burn"] == {"committed_liquidity": 7_227_000_000.0}
+
+
+def test_a_stale_facility_figure_is_refused():
+    """The trap this guards, and it is not hypothetical: Tesla's newest entry for
+    this tag is 2016 and American Airlines' is 2023. Without `require_period`,
+    the no-period-match fallback hands back the newest fact the tag happens to
+    hold -- a nine-year-old facility balance presented as current liquidity,
+    inflating the runway with nothing said."""
+    out = _xbrl_analyst_inputs(_facts(
+        LineOfCreditFacilityRemainingBorrowingCapacity=("2016-12-31", 17_900_000.0)),
+        FECHA)
+    assert "cash_burn" not in out
+
+
+def test_a_zero_or_absent_facility_leaves_the_term_alone():
+    """Zero undrawn capacity and no disclosed facility both mean the default
+    stands. Writing an explicit 0.0 would only add noise."""
+    assert "cash_burn" not in _xbrl_analyst_inputs(
+        _facts(LineOfCreditFacilityRemainingBorrowingCapacity=(FECHA, 0.0)), FECHA)
+    assert "cash_burn" not in _xbrl_analyst_inputs(_facts(), FECHA)
+
+
 # --- refuses the near-misses ----------------------------------------------
 
 def test_three_keys_stay_unmapped_because_the_tag_means_something_else():
