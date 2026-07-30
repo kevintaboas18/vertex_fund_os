@@ -157,9 +157,16 @@ El **núcleo metodológico de Victor está intacto y verificado**. Lo que falla 
 - **Por qué falla:** Dice "paused mid-plan (9.5/25 tasks)", "`engine/wbj/packet/builder.py` does not exist yet" (**existe, 1139 líneas**), "160 tests" (**hay 1959**), y manda leer `.superpowers/sdd/progress.md` que **no existe en el proyecto**. También afirma "FMP key returns 403 on `/api/v3/profile`" — el provider ya migró a `/stable/` (`providers/fmp.py:26`), así que ese diagnóstico ya no aplica. Y `:37` dice `git config --global user.email victor@infusioninvestments.com`.
 - **Solución:** Reescribirlo como estado actual, o borrarlo (la información útil ya está en `DEPLOYMENT.md`).
 
-### [ ] M-07 — El proyecto NO es un repositorio git
-- **Por qué falla:** No hay `.git/`. Sin control de versiones: no puedes revertir un cambio que rompa el scoring, no hay historial de por qué se ajustó un umbral, y `.gitignore` no protege nada porque no hay git. Toda la disciplina de "cambio de fórmula requiere version bump + backtest note" (`Cerebro/VERSION.md`) es inauditable.
-- **Solución:** `git init`, primer commit del estado actual, y **antes de tocar nada** de esta lista. Añadir remote privado. Verificar que `vertex.env`, `API/.env` y `vertex.db` quedan ignorados antes del primer `git add`.
+### [x] M-07 — ✅ RESUELTO (2026-07-30) — El proyecto ya es un repositorio git
+- **Era:** sin `.git/`. Nada revertible, ningún historial de por qué se movió un umbral, y la disciplina de `Cerebro/VERSION.md` ("todo cambio de fórmula exige version bump + backtest note") era inauditable.
+- **Ahora:** repo en rama `main`, identidad local al repo (`Kevin Taboas <kevintaboas02@gmail.com>` — no toca la config global de tu máquina). Dos commits:
+  - `85e3b1c` — estado recibido, sin modificar: la línea base de reversión.
+  - `b1c2966` — eliminación de SnapTrade + cableado a Plaid (C-01, A-07).
+- **Control de secretos antes del primer commit:** se escaneó el árbol por claves (`sk-`, `AIza`, `xai-`, `Bearer`, asignaciones `KEY = "..."`). Único match: un dummy de test llamado `"sk-should-never-be-used"`. `vertex.db`, `vertex.env` y `API/.env` verificados como ignorados **antes** de `git add`.
+- **`.gitignore` reescrito.** El anterior no cubría `vertex.db-wal` / `-journal` (temporales que sqlite escribe junto a la DB) ni `.pytest_cache/` en la raíz. Se documenta que `Memoria/` y `Reportes/` **sí** se versionan a propósito: son el track record del que depende la calibración.
+- **`.gitattributes` añadido** (`* text=auto eol=lf`). El repo venía mixto — `render.yaml` y `DEPLOYMENT.md` en CRLF, todo lo demás en LF — y cualquier escritura desde Windows convierte el archivo entero, produciendo diffs de 12.000 líneas para un cambio de 3.
+- **Verificado:** `git checkout 85e3b1c -- vertex_api.py` devuelve las 87 referencias a SnapTrade; `git checkout HEAD --` las vuelve a quitar. La reversión funciona.
+- **Pendiente tuyo:** crear un remoto **privado** y `git push -u origin main`. No lo hago yo: publicar el repo es tu decisión, y este código toca credenciales de broker.
 
 ### [ ] M-08 — `_stooq_series` es código muerto que infla el conteo de fuentes
 - **Dónde:** `vertex_api.py:295-326`
@@ -232,7 +239,7 @@ Tu Python global **no tenía** `pytest`, `scipy`, `typer`, `matplotlib`, `anthro
 | 15 | M-04 | 🟡 Medio | Email pre-market va a Victor | `premarket_email.py:32` |
 | 16 | M-05 | 🟡 Medio | `main.py` no indexa 8 docs del Cerebro | `main.py:20` |
 | 17 | M-06 | 🟡 Medio | `RESUME.md` con datos falsos | `RESUME.md` |
-| 18 | M-07 | 🟡 Medio | No es repositorio git | — |
+| 18 | ~~M-07~~ | ✅ Resuelto | Repo git inicializado, 2 commits | §6 |
 | 19 | M-08 | 🟡 Medio | `_stooq_series` código muerto | `vertex_api.py:295` |
 | 20 | M-09 | 🟡 Medio | Emite `BUY`/`AVOID` (prohibido) | `vertex_api.py:6355` |
 | 21 | M-10 | 🟡 Medio | `judge_model` una generación atrás | `config.py:27` |
@@ -242,7 +249,7 @@ Tu Python global **no tenía** `pytest`, `scipy`, `typer`, `matplotlib`, `anthro
 | 25 | M-14 | 🟡 Medio | Override 2 no bloquea banda "Elite" | `gates.py:162` |
 | 26 | M-15 | 🟡 Medio | `docs/superpowers/` obsoleto | `docs/` |
 
-**Orden de arreglo sugerido:** M-07 (git, para poder revertir) → ~~C-01~~ → C-02 → C-03 → C-04 → A-01 → A-02 → A-03 → A-04 → A-05 → A-06 → ~~A-07~~ → el resto de M.
+**Orden de arreglo sugerido:** ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → C-02 → C-03 → C-04 → A-01 → A-02 → A-03 → A-04 → A-05 → A-06 → ~~A-07~~ → el resto de M.
 
 ---
 
