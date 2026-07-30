@@ -5911,11 +5911,27 @@ def quantdata_status():
     elif err and "404" in str(err):
         hint = "HTTP 404: ruta incorrecta. Revisa QUANTDATA_ENDPOINTS."
     elif err and ("422" in str(err) or "400" in str(err)):
-        hint = "HTTP 422/400: request o sin datos para esa sesión. Hoy (Juneteenth) el mercado de EE.UU. está cerrado; al omitir sessionDate debería usar la última sesión cerrada."
+        hint = ("HTTP 422/400: request mal formado o sin datos para esa sesión. "
+                "Al omitir sessionDate debería usar la última sesión cerrada.")
     elif err and "429" in str(err):
         hint = "HTTP 429: límite de tasa (240 req/min). Espera y reintenta."
     else:
-        hint = "Sin error HTTP pero sin datos: probablemente fin de semana/feriado sin sesión reciente, o respuesta vacía."
+        # Antes esta rama culpaba al "fin de semana/feriado" SIEMPRE, y traía
+        # "Juneteenth" escrito a mano de cuando se redactó. En un jueves de
+        # mercado abierto eso manda a buscar el problema donde no está: la API
+        # respondió sin error y devolvió `data` vacío, que es otra cosa. Se dice
+        # el día real y se separan los dos casos.
+        _hoy = datetime.now()
+        _fin_de_semana = _hoy.weekday() >= 5
+        hint = (
+            f"La API respondió SIN error HTTP pero con `data` vacío "
+            f"(hoy {_hoy.strftime('%A %Y-%m-%d')})."
+            + (" Es fin de semana: sin sesión reciente es lo esperado."
+               if _fin_de_semana else
+               " Es día de semana, así que NO es falta de sesión: revisa que el"
+               " plan API cubra /options/tool/net-drift y que la forma del"
+               " request (filter/sessionDate) siga siendo la que espera la API.")
+        )
     return {"ok": True, "configured": True, "base": QUANTDATA_BASE,
             "endpoints": QUANTDATA_ENDPOINTS, "live_ping": has_data,
             "error": err, "error_body": body, "hint": hint}
@@ -5955,8 +5971,13 @@ def data_health():
          "note": None if (PLAID_CLIENT_ID and PLAID_SECRET) else "Portafolio por SnapTrade snapshot"},
     ]
     n_crit_down = sum(1 for s in sources if s["critical"] and (not s["configured"] or s["live"] is False))
-    out = {"ok": True, "sources": sources, "checked_at": int(now),
+    # `ok` era un True literal, asi que la respuesta se contradecia a si misma:
+    # decia ok=true junto a status="down". El strip lee `status` y por eso siempre
+    # se pinto bien, pero cualquiera que consulte el endpoint directamente lee
+    # `ok` primero y concluye lo contrario -- me paso auditando esto.
+    out = {"ok": not n_crit_down, "sources": sources, "checked_at": int(now),
            "status": ("down" if n_crit_down else "ok"),
+           "critical_down": n_crit_down,
            "qd_live": bool(qd.get("live_ping"))}
     _DH_CACHE.update(ts=now, data=out)
     return out
