@@ -1716,7 +1716,17 @@ def get_explore_deep(ticker: str):
         "tesis de inversion basada en lo que la comunidad esta diciendo. Respondes SIEMPRE en espanol."
     )
 
-    reddit_block = reddit_context if reddit_context else "(No se pudieron extraer posts de Reddit en este momento; usa tu conocimiento general pero respeta la ventana de 90 dias.)"
+    # Antes decia "usa tu conocimiento general". Reddit bloquea las peticiones sin
+    # autenticar (403 "Blocked") desde hace tiempo, asi que esa rama es la UNICA
+    # que corre -- y le pedia al modelo que sustituyera la fuente por lo que
+    # recuerda de su entrenamiento. Sentimiento de hace anos presentado como el
+    # de hoy es exactamente lo que DATA_POLICY.md prohibe: "Do not convert an
+    # unverified web statement into a score". Si no hay posts, se dice que no hay.
+    reddit_block = reddit_context if reddit_context else (
+        "(SIN DATOS de Reddit: la fuente no respondio. NO sustituyas esto con lo "
+        "que recuerdes de tu entrenamiento -- seria sentimiento de otra epoca "
+        "presentado como actual. Declara el sentimiento de foros como NO "
+        "DISPONIBLE y no lo uses para ninguna conclusion.)")
     user_msg = f"""Haz un analisis PROFUNDO, EXHAUSTIVO y COMPLETO de {ticker_clean} ({company_name}).
 Datos del activo: {ctx_str}
 Periodo de analisis: {three_months_ago} a {today_str} (ultimos 3 meses UNICAMENTE).
@@ -10340,7 +10350,13 @@ def get_sentiment(ticker: str):
         "Respondes SIEMPRE en espanol."
     )
 
-    reddit_block = reddit_context if reddit_context else "(No se pudieron extraer posts de Reddit en este momento; usa tu conocimiento general de la comunidad pero respeta la ventana de 90 dias.)"
+    # Misma correccion que en el prompt profundo: sin posts NO se sustituye con
+    # el recuerdo del modelo. Reddit responde 403 sin autenticar, asi que esta es
+    # la rama que siempre corre.
+    reddit_block = reddit_context if reddit_context else (
+        "(SIN DATOS de Reddit: la fuente no respondio. NO sustituyas esto con lo "
+        "que recuerdes de tu entrenamiento. Declara el sentimiento de foros como "
+        "NO DISPONIBLE.)")
     user_msg = f"""Analiza el SENTIMIENTO PSICOLOGICO COMPLETO y ACTUAL de los inversores sobre {ticker_clean} ({company_name}).
 
 Datos del activo: {ctx}
