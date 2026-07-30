@@ -169,6 +169,45 @@ class TestTresEscenarios:
         assert call(horizon_days=10).horizon_days == 10
         assert call(horizon_days=30).horizon_days == 30
 
+    def test_el_orden_aguanta_con_el_iman_lejos_por_debajo_a_plazo_corto(self):
+        # Regresion del bug que traia el TypeScript original: con el iman en 92
+        # y spot 100 a 10 dias, el suelo de 1 sigma cae en ~92.05 -> POR ENCIMA
+        # de la base. `min(lower1, base)` devolvia la base y bear colapsaba con
+        # ella. Ahora baja al suelo de 2 sigma.
+        p = call(
+            horizon_days=10,
+            nodes=[
+                LevelInput(strike=110, concentration=1.0, side="call", net_gex=5e6),
+                LevelInput(strike=92, concentration=0.7, side="put", net_gex=-3e6),
+            ],
+        )
+        assert p.base.target == 92
+        assert p.bear.target < p.base.target
+        assert len({p.bear.target, p.base.target, p.bull.target}) == 3
+
+    def test_el_orden_aguanta_en_todos_los_horizontes_y_configuraciones(self):
+        configs = [
+            [LevelInput(strike=110, concentration=1.0, side="call", net_gex=5e6),
+             LevelInput(strike=92, concentration=0.7, side="put", net_gex=-3e6)],
+            [LevelInput(strike=92, concentration=1.0, side="put", net_gex=-5e6)],
+            [LevelInput(strike=108, concentration=1.0, side="call", net_gex=5e6)],
+            [],
+        ]
+        for nodes in configs:
+            for h in (10, 20, 30, 60, 90, 120):
+                p = call(horizon_days=h, nodes=nodes)
+                assert p.bear.target < p.base.target < p.bull.target, (h, nodes)
+
+    def test_proyecta_a_horizontes_largos_con_el_cono_abriendose_en_raiz_de_t(self):
+        # HORIZONS solo ofrece 10/20/30, pero el motor acepta cualquier plazo.
+        corto = call(horizon_days=30, nodes=[])
+        largo = call(horizon_days=120, nodes=[])
+        assert largo.bull.target > corto.bull.target
+        assert largo.bear.target < corto.bear.target
+        # sigma escala con sqrt(t): 4x el tiempo -> ~2x el movimiento
+        ancho = lambda p: p.bull.target - p.bear.target
+        assert 1.7 < ancho(largo) / ancho(corto) < 2.3
+
 
 class TestDireccionYResumen:
     def test_marca_direccion_al_alza(self):

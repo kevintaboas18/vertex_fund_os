@@ -226,10 +226,23 @@ def predict_pro(
 
     # El bear tiene que ser MÁS bajista que el base y el bull más alcista: si el
     # muro más cercano se queda corto, el escenario lo marca la volatilidad (1σ).
+    #
+    # DIVERGENCIA vs el TypeScript original (deliberada, es un arreglo):
+    # allí esto era `min(em.lower1, base_target)`, que devuelve `base_target`
+    # cuando el suelo de 1σ queda POR ENCIMA de la base — pasa cuando el imán
+    # está lejos por debajo del spot a plazo corto (p.ej. imán en 92 con spot
+    # 100 a 10 días: lower1 ≈ 92.05 > 92). El resultado era bear == base: dos
+    # escenarios en el mismo precio, justo lo que la propia función declara
+    # impedir y lo que su test "ordena SIEMPRE bear < base < bull" exige.
+    #
+    # Cuando 1σ no alcanza, el escenario lo marca la SIGUIENTE banda de
+    # volatilidad (2σ), que está por debajo de la base por construcción y sigue
+    # siendo el límite duro que el motor ya respeta. La volatilidad manda, que
+    # es la regla de oro — solo que aquí hay que bajar un peldaño más.
     if bear_target >= base_target:
-        bear_target = min(em.lower1, base_target)
+        bear_target = em.lower1 if em.lower1 < base_target else em.lower2
     if bull_target <= base_target:
-        bull_target = max(em.upper1, base_target)
+        bull_target = em.upper1 if em.upper1 > base_target else em.upper2
 
     # Y nada puede salirse del cono de 2σ.
     bear_target = max(bear_target, em.lower2)

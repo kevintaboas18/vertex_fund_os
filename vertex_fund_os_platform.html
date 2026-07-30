@@ -3198,6 +3198,7 @@ function renderVictorTargets(d) {
       </div>
       <p class="text-[10px] text-gray-300 mt-2 leading-snug">${_vcEsc(p.summary)}</p>
       ${p.caveat ? `<p class="text-[9px] text-amber-400 mt-1">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
+      ${p.beyond_native_horizon ? `<p class="text-[9px] text-orange-400 mt-1">⚠ ${h}d va más allá de los 10/20/30 que ofrece el motor de Víctor. El cono de 2σ sigue acotando, pero el escenario base se ancla al imán del GEX y a este plazo la cadena que lo produjo ya habrá rotado — léelo como referencia, no con la misma firmeza que el corto.</p>` : ''}
       ${warn ? `<div class="mt-2 space-y-0.5">${warn}</div>` : ''}`;
 }
 

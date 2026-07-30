@@ -3763,7 +3763,8 @@ def get_horizon_targets_cached(ticker, net_premium=None, flow=None, ai_12m=None,
 
 
 @app.get("/api/projection-targets")
-def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,30"):
+def projection_targets(ticker: str, ai_12m: float = 0.0,
+                       horizons: str = "10,20,30,60,90,120"):
     """Targets de Proyecciones — motor de Víctor (Tito Metralleta).
 
     Sustituye al motor de gamma/flujo (`compute_horizon_targets`) SOLO en este
@@ -3777,6 +3778,18 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
 
     `ai_12m` se acepta por compatibilidad con el frontend viejo; el motor de
     Víctor no lo usa (su base sale del imán del GEX, no de un target externo).
+
+    Horizontes: la UI de Víctor ofrece 10/20/30 (`HORIZONS` en prediction.py),
+    pero `predict_pro` acepta cualquier plazo y el panel viejo de Vertex daba
+    hasta 120 días, así que el default los cubre. OJO con leer los largos igual
+    que los cortos: el escenario base se ancla al nodo imán del GEX, y a 90-120
+    días la cadena que produjo ese imán ya habrá rotado casi entera. El cono de
+    2σ se ensancha y sigue acotando, pero el imán pierde vigencia — por eso los
+    horizontes >30d se marcan en la respuesta.
+
+    Los 320/120/90 días de `SCOREDCARD/Inusualidad.md` son otra cosa: son las
+    bandas de DTE del CONTRATO para puntuar Inusualidad (premiar LEAPs sobre
+    lotería semanal), no el plazo de la proyección. Viven en `expiry_score`.
     """
     sc = _tito_mod()
     if sc is None:
@@ -3951,6 +3964,11 @@ def _tito_json(r):
                 "confidence": p.confidence, "direction": p.direction,
                 "summary": p.summary, "caveat": p.caveat,
                 "calibration": p.calibration,
+                # La UI de Víctor solo ofrece 10/20/30. Más allá el cono sigue
+                # siendo válido (σ√t), pero el imán del GEX que fija el base se
+                # apoya en una cadena que a ese plazo ya habrá rotado. Se marca
+                # para que el panel lo pueda decir en vez de igualarlo al corto.
+                "beyond_native_horizon": h > 30,
             }
             for h, p in r.predictions.items()
         },
