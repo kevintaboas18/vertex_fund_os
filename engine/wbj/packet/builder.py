@@ -439,12 +439,20 @@ _EDGAR_REVENUE_TAGS = (
 
 def _edgar_first_available(
     companyfacts: dict, taxonomy: str, tags: tuple[str, ...], unit: str,
-    target_date: str | None,
+    target_date: str | None, *, require_period: bool = False,
 ) -> Value:
     """The first tag in `tags` that reports a value for the period.
 
     Filers do not agree on which element to use, so a single hardcoded
     tag silently mismatches whole industries rather than failing loudly.
+
+    `require_period=True` drops the permissive second pass. Callers that
+    reconcile against another source can absorb an off-period figure -- that is
+    what `reconcile` is for -- but a caller feeding a metric directly cannot:
+    the fallback returns the newest fact the tag happens to hold, which for a
+    tag the filer stopped using is a figure from years ago wearing today's date.
+    Measured on live data: Walmart's `Depreciation` newest entry is 2013-01-31
+    and NVIDIA's `ProceedsFromIssuanceOfCommonStock` is 2016-07-31.
     """
     # First pass: a tag that actually covers the period being reconciled.
     for tag in tags:
@@ -452,6 +460,8 @@ def _edgar_first_available(
                                 require_period=True)
         if not value.is_null:
             return value
+    if require_period:
+        return Value.null(NullState.MISSING, unit=unit, source_name="EDGAR")
     # Second pass: no tag covers it, so take the best available and let
     # `reconcile` judge the result rather than silently reporting nothing.
     for tag in tags:
@@ -575,14 +585,23 @@ def _xbrl_analyst_inputs(companyfacts: dict, target_date: str | None,
     proxy or MISSING path untouched.
     """
     out: dict[str, Any] = {}
+    # `require_period=True` on every read here. These values go straight into a
+    # metric with nothing to reconcile them against, so the permissive fallback
+    # would hand over the newest fact a tag happens to hold: Walmart's
+    # `Depreciation` stops at 2013-01-31 and NVIDIA's
+    # `ProceedsFromIssuanceOfCommonStock` at 2016-07-31, and both were arriving
+    # as if they described the current year.
     for key, tags, unit in _XBRL_SCALARS:
-        v = _edgar_first_available(companyfacts, "us-gaap", tags, unit, target_date)
+        v = _edgar_first_available(companyfacts, "us-gaap", tags, unit, target_date,
+                                  require_period=True)
         if v.is_valid and v.value is not None:
             out[key] = float(v.value)
 
     for key, key_prior, tags, unit in _XBRL_PAIRS:
-        ahora = _edgar_first_available(companyfacts, "us-gaap", tags, unit, target_date)
-        antes = _edgar_first_available(companyfacts, "us-gaap", tags, unit, prior_date)
+        ahora = _edgar_first_available(companyfacts, "us-gaap", tags, unit, target_date,
+                                       require_period=True)
+        antes = _edgar_first_available(companyfacts, "us-gaap", tags, unit, prior_date,
+                                       require_period=True)
         if (ahora.is_valid and ahora.value is not None
                 and antes.is_valid and antes.value is not None
                 and prior_date and float(ahora.value) != float(antes.value)):
@@ -595,7 +614,8 @@ def _xbrl_analyst_inputs(companyfacts: dict, target_date: str | None,
     # shift every later payment a year closer and overstate the lease debt.
     escalera: list[float] = []
     for tag in _XBRL_LEASE_LADDER:
-        v = _edgar_value_at(companyfacts, "us-gaap", tag, "USD", target_date)
+        v = _edgar_value_at(companyfacts, "us-gaap", tag, "USD", target_date,
+                            require_period=True)
         if not (v.is_valid and v.value is not None):
             break
         escalera.append(float(v.value))
@@ -976,7 +996,9 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
     latest_consensus_date = _max_date(consensus_dates)
 
     latest_quarterly_date = income_quarterly[0]["date"] if income_quarterly else None
-    latest_holder_date = _max_date([row.get("dateReported") for row in institutional_holders])
+    # (The 13F holder date used to be read here and passed to `peer_set`
+    # staleness. DATA_POLICY.md has no staleness row for holder data, and using
+    # it for the peer set was the bug fixed below, so nothing reads it now.)
 
     staleness = {
         "daily_market": staleness_state("daily_market", _age_days(now, ohlcv_raw[0]["date"])),
@@ -984,7 +1006,22 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
             "quarterly_fundamentals", _age_days(now, latest_quarterly_date)
         ),
         "consensus": staleness_state("consensus", _age_days(now, latest_consensus_date)),
-        "peer_set": staleness_state("peer_set", _age_days(now, latest_holder_date)),
+        # DATA_POLICY.md's row is "Peer set | 90 days or material corporate
+        # event". This measured `latest_holder_date` -- the 13F institutional
+        # holder filing date -- which is a different quantity, and on a plan
+        # where the institutional endpoint returns 402 the list is empty, so the
+        # date was None, the age infinite, and `peer_set` came back STALE on
+        # EVERY ticker. That is not cosmetic: business.py folds `peer_set` into
+        # its freshness component whenever peers are used, and freshness is 20%
+        # of CONFIDENCE_ENGINE.md's score, so every peer-using analysis carried a
+        # permanent confidence penalty for holder data it never had.
+        #
+        # The peer set's real age is when it was fetched. `FMPProvider.peers`
+        # caches with `max_age_days=_MAX_AGE_REFERENCE` (7), so a peer set that
+        # reached this packet is at most a week old -- inside the 90-day
+        # threshold by construction. Absent peers stay STALE: there is no set to
+        # call fresh.
+        "peer_set": staleness_state("peer_set", 0.0 if peer_panel else float("inf")),
     }
 
     # --- remaining packet blocks --------------------------------------------

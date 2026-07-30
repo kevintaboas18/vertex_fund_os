@@ -248,11 +248,32 @@ def test_consensus_staleness_stale_for_old_earnings_print(fake_providers, fixed_
     assert packet.staleness["consensus"] == "STALE"
 
 
-def test_peer_set_staleness_stale_for_old_13f(fake_providers, fixed_now):
-    # fixture institutional_holders dateReported is 2026-03-31, well past
-    # the 90-day peer_set threshold relative to fixed_now.
+def test_peer_set_staleness_tracks_the_peer_set_not_the_13f_date(fake_providers, fixed_now):
+    """This asserted STALE off the 13F `dateReported`, and its own name said so.
+
+    DATA_POLICY.md's row is "Peer set | 90 days or material corporate event".
+    Holder filings are a different quantity, and on a plan where the
+    institutional endpoint returns 402 the list is empty, the date None and the
+    age infinite -- so `peer_set` was STALE on every ticker. business.py folds
+    it into freshness whenever peers are used, and freshness is 20% of
+    CONFIDENCE_ENGINE.md's score, so that was a standing confidence penalty for
+    data the engine never received.
+
+    `FMPProvider.peers` caches for 7 days, so a peer set that reached the packet
+    is inside the 90-day threshold by construction.
+    """
     packet = build_packet("NVDA", fake_providers, fixed_now)
 
+    assert packet.estimates["peer_panel"], "el fixture debe traer comparables"
+    assert packet.staleness["peer_set"] == "FRESH"
+
+
+def test_peer_set_is_stale_when_there_is_no_peer_set(fake_providers, fixed_now, monkeypatch):
+    """Absent peers stay STALE: there is no set to call fresh."""
+    monkeypatch.setattr(fake_providers.fmp, "peers", lambda ticker: [])
+    packet = build_packet("NVDA", fake_providers, fixed_now)
+
+    assert not packet.estimates["peer_panel"]
     assert packet.staleness["peer_set"] == "STALE"
 
 
