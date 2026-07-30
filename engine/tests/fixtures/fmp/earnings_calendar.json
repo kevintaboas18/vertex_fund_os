@@ -1,0 +1,22 @@
+[
+  {
+    "date": "2026-05-27",
+    "symbol": "NVDA",
+    "eps": 0.81,
+    "epsEstimated": 0.75,
+    "revenue": 44100000000,
+    "revenueEstimated": 43200000000,
+    "fiscalDateEnding": "2026-04-26",
+    "time": "amc"
+  },
+  {
+    "date": "2026-02-25",
+    "symbol": "NVDA",
+    "eps": 0.89,
+    "epsEstimated": 0.85,
+    "revenue": 39331000000,
+    "revenueEstimated": 38500000000,
+    "fiscalDateEnding": "2026-01-25",
+    "time": "amc"
+  }
+]

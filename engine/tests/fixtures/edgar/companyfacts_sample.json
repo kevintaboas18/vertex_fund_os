@@ -1,0 +1,142 @@
+{
+  "cik": 1045810,
+  "entityName": "NVIDIA CORP",
+  "facts": {
+    "dei": {
+      "EntityCommonStockSharesOutstanding": {
+        "label": "Entity Common Stock, Shares Outstanding",
+        "description": "Indicate number of shares or other units outstanding of each of registrant's classes of capital or common stock or other ownership interests.",
+        "units": {
+          "shares": [
+            {
+              "end": "2024-11-01",
+              "val": 24477000000,
+              "accn": "0001045810-24-000123",
+              "fy": 2024,
+              "fp": "Q3",
+              "form": "10-Q",
+              "filed": "2024-11-20"
+            },
+            {
+              "end": "2025-02-14",
+              "val": 24390000000,
+              "accn": "0001045810-25-000023",
+              "fy": 2024,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2025-02-26"
+            }
+          ]
+        }
+      }
+    },
+    "us-gaap": {
+      "Revenues": {
+        "label": "Revenues",
+        "description": "Amount of revenue recognized from goods sold, services rendered, insurance premiums, or other activities that constitute an earning process.",
+        "units": {
+          "USD": [
+            {
+              "start": "2023-01-30",
+              "end": "2024-01-28",
+              "val": 60922000000,
+              "accn": "0001045810-24-000029",
+              "fy": 2024,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2024-02-21"
+            },
+            {
+              "start": "2024-01-29",
+              "end": "2025-01-26",
+              "val": 130497000000,
+              "accn": "0001045810-25-000023",
+              "fy": 2024,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2025-02-26"
+            }
+          ]
+        }
+      },
+      "CashAndCashEquivalentsAtCarryingValue": {
+        "label": "Cash and Cash Equivalents, at Carrying Value",
+        "description": "Amount of currency on hand as well as demand deposits with banks or financial institutions.",
+        "units": {
+          "USD": [
+            {
+              "end": "2024-01-28",
+              "val": 7280000000,
+              "accn": "0001045810-24-000029",
+              "fy": 2024,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2024-02-21"
+            },
+            {
+              "end": "2025-01-26",
+              "val": 8589000000,
+              "accn": "0001045810-25-000023",
+              "fy": 2024,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2025-02-26"
+            }
+          ]
+        }
+      },
+      "LongTermDebtNoncurrent": {
+        "label": "Long-Term Debt, Excluding Current Maturities",
+        "description": "Amount of long-term debt, excluding current portion.",
+        "units": {
+          "USD": [
+            {
+              "end": "2025-01-26",
+              "val": 8460000000,
+              "accn": "0001045810-25-000023",
+              "fy": 2024,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2025-02-26"
+            }
+          ]
+        }
+      },
+      "DebtCurrent": {
+        "label": "Debt, Current",
+        "description": "Amount of debt classified as current, due within one year or the normal operating cycle, if longer.",
+        "units": {
+          "USD": [
+            {
+              "end": "2025-01-26",
+              "val": 1250000000,
+              "accn": "0001045810-25-000023",
+              "fy": 2024,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2025-02-26"
+            }
+          ]
+        }
+      },
+      "WeightedAverageNumberOfDilutedSharesOutstanding": {
+        "label": "Weighted Average Number of Diluted Shares Outstanding",
+        "description": "The average number of shares issued and outstanding that are used in calculating diluted EPS, determined based on the timing of issuance of shares in the period.",
+        "units": {
+          "shares": [
+            {
+              "start": "2024-01-29",
+              "end": "2025-01-26",
+              "val": 24700000000,
+              "accn": "0001045810-25-000023",
+              "fy": 2024,
+              "fp": "FY",
+              "form": "10-K",
+              "filed": "2025-02-26"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

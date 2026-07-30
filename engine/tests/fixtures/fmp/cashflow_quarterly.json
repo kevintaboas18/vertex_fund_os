@@ -1,0 +1,62 @@
+[
+  {
+    "date": "2025-04-27",
+    "symbol": "NVDA",
+    "period": "Q1",
+    "calendarYear": "2025",
+    "acceptedDate": "2025-05-28 16:30:00",
+    "netCashProvidedByOperatingActivities": 27414000000,
+    "capitalExpenditure": -1234000000,
+    "freeCashFlow": 26180000000,
+    "acquisitionsNet": -320000000,
+    "debtRepayment": 0,
+    "commonStockRepurchased": -14086000000,
+    "dividendsPaid": -244000000,
+    "stockBasedCompensation": 1283000000
+  },
+  {
+    "date": "2025-01-26",
+    "symbol": "NVDA",
+    "period": "Q4",
+    "calendarYear": "2024",
+    "acceptedDate": "2025-02-20 16:30:00",
+    "netCashProvidedByOperatingActivities": 16629000000,
+    "capitalExpenditure": -1077000000,
+    "freeCashFlow": 15552000000,
+    "acquisitionsNet": -400000000,
+    "debtRepayment": 0,
+    "commonStockRepurchased": -7808000000,
+    "dividendsPaid": -245000000,
+    "stockBasedCompensation": 1237000000
+  },
+  {
+    "date": "2024-10-27",
+    "symbol": "NVDA",
+    "period": "Q3",
+    "calendarYear": "2024",
+    "acceptedDate": "2024-11-20 16:30:00",
+    "netCashProvidedByOperatingActivities": 13640000000,
+    "capitalExpenditure": -672000000,
+    "freeCashFlow": 12968000000,
+    "acquisitionsNet": -117000000,
+    "debtRepayment": 0,
+    "commonStockRepurchased": -9998000000,
+    "dividendsPaid": -246000000,
+    "stockBasedCompensation": 1145000000
+  },
+  {
+    "date": "2024-07-28",
+    "symbol": "NVDA",
+    "period": "Q2",
+    "calendarYear": "2024",
+    "acceptedDate": "2024-08-28 16:30:00",
+    "netCashProvidedByOperatingActivities": 14489000000,
+    "capitalExpenditure": -558000000,
+    "freeCashFlow": 13931000000,
+    "acquisitionsNet": -47000000,
+    "debtRepayment": 0,
+    "commonStockRepurchased": -7359000000,
+    "dividendsPaid": -246000000,
+    "stockBasedCompensation": 1052000000
+  }
+]
