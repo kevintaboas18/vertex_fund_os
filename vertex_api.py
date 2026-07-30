@@ -3821,13 +3821,20 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
         # devuelve el motivo exacto de Massive en vez de un reporte a medias.
         return {"ok": False, "error": str(e), "source": "massive"}
 
+    now = datetime.now(timezone.utc)
+    mem = _tito_memory(tk, trades, chain, bars, now)
+
     r = sc.run_scorecard(
-        tk, trades, chain or [], bars,
-        now=datetime.now(timezone.utc), spot=spot, horizons=hz,
+        tk, trades, chain or [], bars, now=now, spot=spot, horizons=hz,
+        iv_history=mem["iv_history"],
+        past_flows=mem["past_flows"],
+        calibration=mem["calibration"],
     )
     out = _tito_json(r)
     out["engine"] = "victor/tito"
     out["chain_source"] = "massive"
+    out["memory"] = mem["stats"]
+    _tito_remember(tk, r, now)
     if flow_error:
         out["flow_error"] = flow_error
         out["warnings"] = [f"Sin tape de MarketSnack: {flow_error}"] + out.get("warnings", [])
@@ -3913,6 +3920,84 @@ def _tito_chain_and_bars(ticker):
     # liquidez. Sin barras, en cambio, no hay nada que calcular.
     spot = chain_res.underlying_price or bars[-1].close
     return chain_res.rows, bars, spot
+
+
+def _tito_memory(ticker, trades, chain, bars, now):
+    """Lee la memoria acumulada y guarda la foto de hoy.
+
+    Es lo que enciende las tres piezas que una sola foto del mercado no puede
+    dar: el IV Rank real (sub-agente 5), el backtest de flows (sub-agente 6) y
+    la auto-calibración de los targets.
+
+    Nunca revienta la petición: si el disco no está disponible, el motor corre
+    igual con lo que haya y `stats` lo refleja.
+    """
+    empty = {"iv_history": [], "past_flows": [], "calibration": None,
+             "stats": {"available": False}}
+    try:
+        from wbj.tito import stores as st
+        from wbj.tito.flow import classify_flow
+    except Exception:
+        return empty
+
+    try:
+        # 1. Guardar la foto de hoy ANTES de leer: así el primer día ya cuenta.
+        if chain:
+            st.save_chain_snapshot(ticker, chain, now)
+        notable = classify_flow(trades, now).interesting if trades else []
+        if notable:
+            st.save_trades(ticker, notable, now)
+            ivs = [r.iv * 100 for r in notable if r.iv and r.iv > 0]
+            if ivs:
+                st.save_iv_snapshot(ticker, sum(ivs) / len(ivs), now)
+
+        # 2. Leer lo acumulado.
+        iv_history = st.load_iv_history(ticker)
+        past = st.load_trades(ticker)
+        journal = st.load_journal(ticker)
+        review = st.review_predictions(journal, bars, now)
+        calibration = st.calibration_from_review(review)
+
+        return {
+            "iv_history": iv_history,
+            "past_flows": past,
+            "calibration": calibration,
+            "stats": {
+                "available": True,
+                "iv_days": len(iv_history),
+                "iv_rank_real_en": max(0, 60 - len(iv_history)),
+                "flows_guardados": len(past),
+                "predicciones_vencidas": review.get("matured_count", 0),
+                "sesgo_pct": review.get("bias_pct"),
+                "calibracion_activa": bool(
+                    calibration.get("bias_pct") is not None
+                    and calibration.get("samples", 0) >= 5
+                ),
+                "dir_hit_rate": review.get("direction_hit_rate"),
+            },
+        }
+    except Exception:
+        return empty
+
+
+def _tito_remember(ticker, result, now):
+    """Guarda la predicción del día para que el lazo de calibración cierre.
+
+    Solo se guardan las fiables: archivar una predicción marcada NO FIABLE
+    contaminaría el sesgo histórico con ruido que el agente ya sabía malo.
+    """
+    try:
+        from wbj.tito import stores as st
+        for h, p in (result.predictions or {}).items():
+            if p.caveat and "NO FIABLE" in p.caveat:
+                continue
+            st.save_prediction(ticker, st.PredictionSnapshot(
+                date=st.market_date_str(now), horizon_days=int(h), spot=p.spot,
+                bear=p.bear.target, base=p.base.target, bull=p.bull.target,
+                direction=p.direction,
+            ))
+    except Exception:
+        pass  # la memoria es acumulativa: perder un día no rompe la corrida
 
 
 def _tito_json(r):

@@ -59,6 +59,15 @@ services:
       # consulta.
       - key: MASSIVE_MAX_PAGES
         value: "40"
+      # Dónde acumula el motor sus series diarias. CRÍTICO: en plan `free` no
+      # hay disco, así que este directorio se BORRA en cada reinicio y tres
+      # piezas nunca arrancan — el sub-agente 6 (Confirmación) sale siempre
+      # sin score, el IV Rank se queda para siempre en el proxy, y la
+      # auto-calibración nunca junta las 5 predicciones vencidas que necesita.
+      # Con plan starter+ y el bloque `disk` activo, apúntalo al disco:
+      #     WBJ_TITO_DATA=/var/data/tito
+      - key: WBJ_TITO_DATA
+        value: "/var/data/tito"
       - key: PLAID_CLIENT_ID
         sync: false
       - key: PLAID_SECRET

@@ -91,13 +91,24 @@ def run_scorecard(
     spot: float | None = None,
     horizons: Sequence[int] = (10, 20, 30),
     iv_history: Sequence[dict] | None = None,
+    past_flows: Sequence[dict] | None = None,
     calibration: dict | None = None,
 ) -> ScorecardResult:
     """Corre el pipeline completo y devuelve el scorecard con sus 3 escenarios.
 
     `bars` va del más viejo al más reciente. `spot` se toma del último cierre si
-    no se pasa. `calibration` es la memoria del agente:
-    ``{"bias_pct": float|None, "samples": int}``.
+    no se pasa.
+
+    Los tres argumentos de memoria son los que sacan al motor de su versión
+    mínima; sin ellos tres piezas nunca arrancan:
+
+    - `iv_history` — ``[{date, avg_iv}, …]`` acumulado. A los 60 días el IV Rank
+      real desplaza al proxy de volatilidad realizada (sub-agente 5).
+    - `past_flows` — flows de sesiones anteriores. **Sin esto el sub-agente 6
+      sale `None` aunque haya tape**, porque un flow de hoy todavía no tiene
+      recorrido que juzgar.
+    - `calibration` — ``{"bias_pct": float|None, "samples": int}``. Con ≥5
+      predicciones vencidas corrige el target base por el sesgo histórico.
     """
     closes = [b.close for b in bars]
     if spot is None:
@@ -117,16 +128,26 @@ def run_scorecard(
     # ── Sub-agente 5: contexto de volatilidad ───────────────────────────────
     ivc = iv_context_score(notable, closes, iv_history)
 
-    # ── Sub-agente 6: backtest del propio tape ──────────────────────────────
+    # ── Sub-agente 6: backtest del tape ─────────────────────────────────────
+    # Se juzgan los flows ACUMULADOS, no los de hoy: un flow de esta mañana
+    # todavía no tiene recorrido que medir. Sin `past_flows` esta categoría
+    # sale None por diseño — no hay evidencia, así que no hay score.
     val_bars = [ValBar(time=b.time, high=b.high, low=b.low, close=b.close) for b in bars]
-    val_flows = [
-        FlowLite(
-            id=r.id, timestamp=r.timestamp, type=r.type, strike=r.strike,
-            expiration=r.expiration, asset_price=r.asset_price,
-            premium=r.premium, aggression=r.aggression,
-        )
-        for r in notable
-    ]
+    seen_ids: set[int] = set()
+    val_flows: list[FlowLite] = []
+    for src in (past_flows or [], notable):
+        for r in src:
+            get = (lambda k: r.get(k)) if isinstance(r, dict) else (lambda k: getattr(r, k))
+            fid = get("id")
+            if fid in seen_ids:
+                continue
+            seen_ids.add(fid)
+            val_flows.append(FlowLite(
+                id=fid, timestamp=get("timestamp"), type=get("type"),
+                strike=get("strike"), expiration=get("expiration"),
+                asset_price=get("asset_price"), premium=get("premium"),
+                aggression=get("aggression"),
+            ))
     val = validation_score(val_flows, val_bars, now)
 
     # ── GEX (recibe convicción/estructura SOLO para modular confianza) ──────
