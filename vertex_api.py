@@ -3763,8 +3763,7 @@ def get_horizon_targets_cached(ticker, net_premium=None, flow=None, ai_12m=None,
 
 
 @app.get("/api/projection-targets")
-def projection_targets(ticker: str, ai_12m: float = 0.0,
-                       horizons: str = "10,20,30,60,90,120"):
+def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,30"):
     """Targets de Proyecciones — motor de Víctor (Tito Metralleta).
 
     Sustituye al motor de gamma/flujo (`compute_horizon_targets`) SOLO en este
@@ -3779,15 +3778,14 @@ def projection_targets(ticker: str, ai_12m: float = 0.0,
     `ai_12m` se acepta por compatibilidad con el frontend viejo; el motor de
     Víctor no lo usa (su base sale del imán del GEX, no de un target externo).
 
-    Horizontes: la UI de Víctor ofrece 10/20/30 (`HORIZONS` en prediction.py),
-    pero `predict_pro` acepta cualquier plazo y el panel viejo de Vertex daba
-    hasta 120 días, así que el default los cubre. OJO con leer los largos igual
-    que los cortos: el escenario base se ancla al nodo imán del GEX, y a 90-120
-    días la cadena que produjo ese imán ya habrá rotado casi entera. El cono de
-    2σ se ensancha y sigue acotando, pero el imán pierde vigencia — por eso los
-    horizontes >30d se marcan en la respuesta.
+    Horizontes: **10 / 20 / 30 días**, exactamente los `HORIZONS` de Víctor
+    (`prediction.py`), con default 20. El panel viejo de Vertex daba hasta 120
+    días; eso se descarta a propósito — el escenario base se ancla al nodo imán
+    del GEX, y a 90-120 días la cadena que produjo ese imán ya habrá rotado casi
+    entera, así que el número existiría pero no significaría lo mismo. Víctor
+    corta en 30 y esa es la razón.
 
-    Los 320/120/90 días de `SCOREDCARD/Inusualidad.md` son otra cosa: son las
+    Los 320/120/90 días de `SCOREDCARD/Inusualidad.md` son otro eje: son las
     bandas de DTE del CONTRATO para puntuar Inusualidad (premiar LEAPs sobre
     lotería semanal), no el plazo de la proyección. Viven en `expiry_score`.
     """
@@ -3832,25 +3830,33 @@ def projection_targets(ticker: str, ai_12m: float = 0.0,
     if flow_error:
         out["flow_error"] = flow_error
         out["warnings"] = [f"Sin tape de MarketSnack: {flow_error}"] + out.get("warnings", [])
-    # Serie histórica + cono, para que la gráfica dibuje sin una segunda llamada.
+    # Serie histórica para que la gráfica dibuje sin una segunda llamada.
+    # 70 velas es lo que pide Víctor (`SimpleChart`: bars.slice(-70)): con el
+    # reparto 60/40 del lienzo, más velas encogen el cuerpo por debajo de lo
+    # legible y el recorte lo acabaría haciendo `vcBuildScales` de todos modos.
     out["history"] = [
         {"time": b.time, "open": b.close, "high": b.high, "low": b.low, "close": b.close}
-        for b in bars[-180:]
+        for b in bars[-70:]
     ]
     out["levels_for_chart"] = _tito_chart_levels(r)
     return out
 
 
 def _tito_chart_levels(r, max_per_side=2, min_strength=25):
-    """Niveles para la gráfica: solo los 2 soportes y 2 resistencias más cercanos
-    con fuerza suficiente.
+    """Niveles para la gráfica: los 2 soportes y 2 resistencias más CERCANOS con
+    fuerza real, exactamente el filtro de `SimpleChart` de Víctor.
 
-    El recorte es de Víctor, no un capricho: la lista completa mete tanto ruido
-    que tapa los escenarios, que es lo que la gráfica tiene que comunicar.
+    El recorte no es un capricho: la lista completa mete tanto ruido que tapa
+    los escenarios, que es lo que la gráfica tiene que comunicar. El orden es
+    por distancia absoluta al spot, no por precio — un soporte al 2% importa
+    más que uno al 20% aunque sea más fuerte.
     """
     out = []
     for group in (r.levels.supports, r.levels.resistances):
-        picked = [l for l in group if l.strength >= min_strength][:max_per_side]
+        picked = sorted(
+            (l for l in group if l.strength >= min_strength),
+            key=lambda l: abs(l.distance_pct),
+        )[:max_per_side]
         for l in picked:
             out.append({
                 "price": round(l.price, 2), "kind": l.kind,
@@ -3964,11 +3970,6 @@ def _tito_json(r):
                 "confidence": p.confidence, "direction": p.direction,
                 "summary": p.summary, "caveat": p.caveat,
                 "calibration": p.calibration,
-                # La UI de Víctor solo ofrece 10/20/30. Más allá el cono sigue
-                # siendo válido (σ√t), pero el imán del GEX que fija el base se
-                # apoya en una cadena que a ese plazo ya habrá rotado. Se marca
-                # para que el panel lo pueda decir en vez de igualarlo al corto.
-                "beyond_native_horizon": h > 30,
             }
             for h, p in r.predictions.items()
         },

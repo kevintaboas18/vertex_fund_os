@@ -2988,8 +2988,64 @@ const VC = {
     MIN_CANDLE_SHARE: 0.45,    // las velas nunca ocupan menos de esto del alto
     DOMAIN_PAD: 0.03,
     MIN_CANDLE_W: 3, MAX_CANDLE_W: 18, BODY_RATIO: 0.7, MIN_BODY_H: 1,
-    GUTTER: 132,               // reservado a los chips: sin él pisan el eje
+    // PADDING y CHIP_* son los de PriceChart.tsx. El `right` no es margen: es
+    // el gutter donde viven los chips. Sin él los targets pisan el eje.
+    PADDING: { top: 18, right: 132, bottom: 30, left: 10 },
+    CHIP_GAP: 5,
+    CHIP_H: 34,                // 34 porque los chips llevan sublabel (% + prob)
+    CONE_STEPS: 24,            // conePoints(spot, iv, horizonDays, 24)
+    FUTURE_RATIO: 0.4,         // 60% histórico / 40% futuro
+    // Paleta de Víctor (THEMES.dark + SCEN de SimpleChart).
+    C: {
+        bull: '#12b76a', base: '#2f6bff', bear: '#f04438',
+        up: '#12b76a', down: '#f04438', wick: '#98a2b3',
+        cone1: 'rgba(47,107,255,0.10)', cone2: 'rgba(47,107,255,0.05)',
+        soporte: 'rgba(18,183,106,0.6)', resistencia: 'rgba(240,68,56,0.6)',
+        divider: 'rgba(255,255,255,0.28)', nowText: '#8593ad',
+        axis: '#5c6a85', grid: 'rgba(255,255,255,0.055)', spot: 'rgba(255,255,255,0.32)',
+        guide: 'rgba(255,255,255,0.26)',
+    },
+    // Orden y semilla de cada escenario — la semilla da a cada ruta su forma.
+    SCEN: [
+        { key: 'bull', color: '#12b76a', seed: 1.7, label: 'Alcista' },
+        { key: 'base', color: '#2f6bff', seed: 4.1, label: 'Base' },
+        { key: 'bear', color: '#f04438', seed: 8.3, label: 'Bajista' },
+    ],
 };
+
+/** Marcas "redondas" del eje de precio (niceTicks de PriceChart.tsx). */
+function vcNiceTicks(min, max, count = 5) {
+    const span = max - min;
+    if (!(span > 0)) return [min];
+    const mag = Math.pow(10, Math.floor(Math.log10(span / count)));
+    const norm = span / count / mag;
+    const step = (norm >= 5 ? 10 : norm >= 2 ? 5 : norm >= 1 ? 2 : 1) * mag;
+    const out = [];
+    for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) out.push(v);
+    return out;
+}
+
+/** Ruta al target CON MOVIMIENTO (wigglePath de SimpleChart.tsx).
+ *
+ *  Parte de la ruta suave (√t) y le añade oscilación proporcional a la
+ *  volatilidad de ese instante, con un sobre sin(πf) que vale 0 en ambos
+ *  extremos — así arranca exactamente en el spot y aterriza exactamente en el
+ *  target. El `seed` da a cada escenario una forma distinta. Determinista:
+ *  la misma entrada dibuja siempre lo mismo. */
+function vcWigglePath(spot, target, iv, days, seed, steps = 30) {
+    const pts = [];
+    for (let i = 0; i <= steps; i++) {
+        const f = i / steps;
+        const smooth = spot + (target - spot) * Math.sqrt(f);
+        const sigma = spot * iv * Math.sqrt(Math.max(0, f) * days / 365);
+        const envelope = Math.sin(Math.PI * f);
+        const wob = Math.sin(f * 8 + seed) * 0.6
+                  + Math.sin(f * 19 + seed * 1.7) * 0.28
+                  + Math.sin(f * 37 + seed * 2.6) * 0.12;
+        pts.push({ t: days * f, price: smooth + sigma * 0.5 * envelope * wob });
+    }
+    return pts;
+}
 
 /** Encuadre: cubre velas + spot + 1σ + niveles, y estira al 2σ solo mientras
  *  las velas conserven MIN_CANDLE_SHARE del alto. */
@@ -3080,85 +3136,91 @@ function renderVictorChart(containerId, d, horizon) {
     if (!p || !hist.length) { cont.innerHTML = '<p class="text-[11px] text-gray-500 italic p-3">Sin datos para la gráfica.</p>'; return; }
 
     const width = Math.max(320, cont.clientWidth || 900), height = Math.max(260, cont.clientHeight || 440);
-    const spot = d.spot;
-    const scen = [
-        { key: 'bear', color: '#ef4444', ...p.bear },
-        { key: 'base', color: '#3b82f6', ...p.base },
-        { key: 'bull', color: '#10b981', ...p.bull },
-    ];
-    // Cono de 1σ/2σ derivado de los propios escenarios: bear/bull ya vienen
-    // recortados al 2σ por el motor, así que el sobre nunca miente.
-    const lo2 = Math.min(...scen.map(s => s.target)), hi2 = Math.max(...scen.map(s => s.target));
-    const sigma1 = { lower: spot - (spot - lo2) * 0.5, upper: spot + (hi2 - spot) * 0.5 };
-    const sigma2 = { lower: lo2, upper: hi2 };
+    const spot = d.spot, C = VC.C;
+    const iv = (d.gex && d.gex.iv) || 0.4;
+
+    // El orden es el de Víctor (bull, base, bear) porque define el z-order.
+    const scen = VC.SCEN.map(s => Object.assign({}, s, p[s.key]));
     const lvls = d.levels_for_chart || [];
 
-    const domain = vcSmartDomain({ bars: hist, spot, sigma1, sigma2, levels: lvls, targets: scen.map(s => ({ price: s.target, weight: s.probability })) });
-    const S = vcBuildScales({ bars: hist, domain, horizonDays: horizon, width, height, padding: { top: 14, right: VC.GUTTER, bottom: 22, left: 8 } });
+    // Cono de σ: mismas bandas que expected_move (lognormal, se abre en √t).
+    const sd = iv * Math.sqrt(Math.max(horizon, 0) / 365);
+    const sigma1 = { lower: spot * Math.exp(-sd), upper: spot * Math.exp(sd) };
+    const sigma2 = { lower: spot * Math.exp(-2 * sd), upper: spot * Math.exp(2 * sd) };
+
+    const domain = vcSmartDomain({ bars: hist, spot, sigma1, sigma2, levels: lvls,
+        targets: scen.map(s => ({ price: s.target, weight: 1 })) });
+    const S = vcBuildScales({ bars: hist, domain, horizonDays: horizon, width, height,
+        padding: VC.PADDING, futureRatio: VC.FUTURE_RATIO });
 
     const parts = [];
-    // 1. Cono: la banda va primero para que todo lo demás quede encima.
-    const conePath = (lower, upper, fill) => {
-        const steps = 16; let up = [], dn = [];
-        for (let i = 0; i <= steps; i++) {
-            const f = i / steps, x = S.xOfFuture(horizon * f), k = Math.sqrt(f);
+
+    // 1. Rejilla + eje de precio DENTRO del área (el gutter es de los chips).
+    const ticks = vcNiceTicks(domain.min, domain.max, 5);
+    for (const v of ticks) {
+        const y = S.yOfPrice(v);
+        parts.push(`<line x1="${S.plotLeft}" y1="${y}" x2="${S.plotRight}" y2="${y}" stroke="${C.grid}" stroke-width="1"/>`);
+        parts.push(`<text x="${S.plotRight - 4}" y="${y - 3}" font-size="9" fill="${C.axis}" text-anchor="end">$${v.toFixed(v < 10 ? 2 : 0)}</text>`);
+    }
+
+    // 2. Cono 2σ y luego 1σ encima — la banda va primero, todo lo demás sobre ella.
+    const conePoly = (lower, upper, fill) => {
+        const up = [], dn = [];
+        for (let i = 0; i <= VC.CONE_STEPS; i++) {
+            const f = i / VC.CONE_STEPS, x = S.xOfFuture(horizon * f), k = Math.sqrt(f);
             up.push(`${x},${S.yOfPrice(spot + (upper - spot) * k)}`);
             dn.push(`${x},${S.yOfPrice(spot + (lower - spot) * k)}`);
         }
         return `<polygon points="${up.concat(dn.reverse()).join(' ')}" fill="${fill}" stroke="none"/>`;
     };
-    parts.push(conePath(sigma2.lower, sigma2.upper, 'rgba(59,130,246,0.06)'));
-    parts.push(conePath(sigma1.lower, sigma1.upper, 'rgba(59,130,246,0.10)'));
+    parts.push(conePoly(sigma2.lower, sigma2.upper, C.cone2));
+    parts.push(conePoly(sigma1.lower, sigma1.upper, C.cone1));
 
-    // 2. Velas — histórico SÓLIDO (regla 3).
+    // 3. Velas — histórico SÓLIDO (regla 3). Mecha en color propio, como Víctor.
     for (const c of S.candles) {
-        const col = c.up ? '#10b981' : '#ef4444';
-        parts.push(`<line x1="${c.cx}" y1="${c.yHigh}" x2="${c.cx}" y2="${c.yLow}" stroke="${col}" stroke-width="1"/>`);
+        const col = c.up ? C.up : C.down;
+        parts.push(`<line x1="${c.cx}" y1="${c.yHigh}" x2="${c.cx}" y2="${c.yLow}" stroke="${C.wick}" stroke-width="1"/>`);
         parts.push(`<rect x="${c.x}" y="${Math.min(c.yOpen, c.yClose)}" width="${c.w}" height="${Math.max(1, Math.abs(c.yClose - c.yOpen))}" fill="${col}"/>`);
     }
 
-    // 3. Frontera hoy / proyectado.
-    parts.push(`<line x1="${S.xNow}" y1="${S.plotTop}" x2="${S.xNow}" y2="${S.plotBottom}" stroke="#4b5563" stroke-width="1"/>`);
-    parts.push(`<text x="${S.xNow + 4}" y="${S.plotTop + 10}" font-size="9" fill="#9ca3af">proyectado →</text>`);
+    // 4. Frontera hoy / proyectado.
+    parts.push(`<line x1="${S.xNow}" y1="${S.plotTop}" x2="${S.xNow}" y2="${S.plotBottom}" stroke="${C.divider}" stroke-width="1"/>`);
+    parts.push(`<text x="${S.xNow + 4}" y="${S.plotTop + 10}" font-size="9" fill="${C.nowText}">proyectado →</text>`);
 
-    // 4. Niveles (2 soportes + 2 resistencias más cercanos, fuerza ≥25).
+    // 5. Niveles: 2 soportes + 2 resistencias más cercanos con fuerza ≥25.
     for (const l of lvls) {
-        const y = S.yOfPrice(l.price), col = l.kind === 'soporte' ? '#22c55e' : '#f97316';
-        parts.push(`<line x1="${S.plotLeft}" y1="${y}" x2="${S.plotRight}" y2="${y}" stroke="${col}" stroke-width="1" stroke-dasharray="2 4" opacity="0.45"/>`);
+        const y = S.yOfPrice(l.price);
+        parts.push(`<line x1="${S.plotLeft}" y1="${y}" x2="${S.plotRight}" y2="${y}" stroke="${C[l.kind] || C.guide}" stroke-width="1" stroke-dasharray="2 4"/>`);
     }
 
-    // 5. Escenarios — futuro PUNTEADO (regla 3), avanzando en √t.
+    // 6. Spot.
+    const ys = S.yOfPrice(spot);
+    parts.push(`<line x1="${S.plotLeft}" y1="${ys}" x2="${S.plotRight}" y2="${ys}" stroke="${C.spot}" stroke-width="1" stroke-dasharray="1 3"/>`);
+
+    // 7. Escenarios — rutas que SE MUEVEN dentro del cono, punteadas (regla 3).
     for (const s of scen) {
-        const pts = [];
-        for (let i = 0; i <= 24; i++) {
-            const f = i / 24;
-            pts.push(`${S.xOfFuture(horizon * f)},${S.yOfPrice(spot + (s.target - spot) * Math.sqrt(f))}`);
-        }
-        parts.push(`<polyline points="${pts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="1.8" stroke-dasharray="4 3"/>`);
+        const pts = vcWigglePath(spot, s.target, iv, horizon, s.seed)
+            .map(q => `${S.xOfFuture(q.t)},${S.yOfPrice(q.price)}`);
+        parts.push(`<polyline points="${pts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="2.4" stroke-dasharray="4 3" stroke-linejoin="round"/>`);
     }
 
-    // 6. Chips anti-colisión en el gutter, con guía punteada a su precio real.
+    // 8. Chips anti-colisión en el gutter, con guía punteada a su precio real.
     const chips = vcPackLabels(
-        scen.map(s => ({ ...s, y: S.yOfPrice(s.target) })),
-        { top: S.plotTop, bottom: S.plotBottom, labelH: 30, gap: 6 },
+        scen.map(s => Object.assign({}, s, { y: S.yOfPrice(s.target) })),
+        { top: S.plotTop, bottom: S.plotBottom, labelH: VC.CHIP_H, gap: VC.CHIP_GAP },
     );
     for (const c of chips) {
-        const x = S.plotRight + 6;
+        const x = S.plotRight + 6, h = VC.CHIP_H;
         if (Math.abs(c.y - c.yAnchor) > 1) {
             parts.push(`<line x1="${S.plotRight}" y1="${c.yAnchor}" x2="${x}" y2="${c.y}" stroke="${c.color}" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.6"/>`);
         }
-        const name = { bear: 'Bajista', base: 'Base', bull: 'Alcista' }[c.key];
-        parts.push(`<rect x="${x}" y="${c.y - 14}" width="${VC.GUTTER - 12}" height="28" rx="5" fill="${c.color}" opacity="0.14"/>`);
-        parts.push(`<text x="${x + 6}" y="${c.y - 3}" font-size="10" font-weight="700" fill="${c.color}">${name} $${Number(c.target).toFixed(2)}</text>`);
-        parts.push(`<text x="${x + 6}" y="${c.y + 9}" font-size="8.5" fill="#9ca3af">${(c.change_pct >= 0 ? '+' : '') + Number(c.change_pct).toFixed(1)}% · toque ${Math.round(c.probability * 100)}%</text>`);
+        parts.push(`<rect x="${x}" y="${c.y - h / 2}" width="${VC.PADDING.right - 15}" height="${h}" rx="5" fill="${c.color}" opacity="0.14"/>`);
+        parts.push(`<text x="${x + 6}" y="${c.y - 3}" font-size="10.5" font-weight="700" fill="${c.color}">${c.label} $${Number(c.target).toFixed(2)}</text>`);
+        parts.push(`<text x="${x + 6}" y="${c.y + 9}" font-size="8.5" fill="${C.axis}">${(c.change_pct >= 0 ? '+' : '') + Number(c.change_pct).toFixed(1)}% · toque ${Math.round(c.probability * 100)}%</text>`);
     }
 
-    // 7. Spot.
-    const ys = S.yOfPrice(spot);
-    parts.push(`<line x1="${S.plotLeft}" y1="${ys}" x2="${S.plotRight}" y2="${ys}" stroke="#e5e7eb" stroke-width="0.8" stroke-dasharray="1 3" opacity="0.5"/>`);
-
     cont.innerHTML = `<svg width="100%" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" style="display:block">${parts.join('')}</svg>`
-        + `<p class="chart-cite">US$/acción · histórico sólido · proyección punteada con cono 1σ/2σ · supuestos en cada escenario — motor de Víctor (Tito)</p>`;
+        + `<p class="chart-cite">US$/acción · histórico sólido · proyección punteada dentro del cono 1σ/2σ · simulación ilustrativa, no exacta — motor de Víctor (Tito)</p>`;
 }
 
 /** Panel de targets — tres escenarios por horizonte, no un nivel por horizonte. */
@@ -3170,8 +3232,11 @@ function renderVictorTargets(d) {
     if (!window._vcHz || !hz.includes(window._vcHz)) window._vcHz = hz[Math.min(1, hz.length - 1)];
     const h = window._vcHz, p = d.predictions[String(h)];
 
+    // Etiquetas en lenguaje llano, como la vista Estudiante de Víctor: el
+    // horizonte se elige por lo que significa, no por el número de días.
+    const HZ_LABEL = { 10: 'Esta semana', 20: '2 semanas', 30: '1 mes' };
     const tabs = hz.map(x => `<button onclick="window._vcHz=${x};renderVictorTargets(window._vcData);renderVictorChart('projChart',window._vcData,${x});"
-        class="px-2.5 py-1 rounded-lg text-[10px] font-bold ${x === h ? 'bg-blue-600 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800'}">${x}d</button>`).join(' ');
+        class="px-2.5 py-1 rounded-lg text-[10px] font-bold ${x === h ? 'bg-blue-600 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800'}">${HZ_LABEL[x] || (x + 'd')}</button>`).join(' ');
 
     const card = (s, name, col) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
         <p class="text-[10px] uppercase font-bold mb-1 ${col}">${name}</p>
@@ -3198,7 +3263,6 @@ function renderVictorTargets(d) {
       </div>
       <p class="text-[10px] text-gray-300 mt-2 leading-snug">${_vcEsc(p.summary)}</p>
       ${p.caveat ? `<p class="text-[9px] text-amber-400 mt-1">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
-      ${p.beyond_native_horizon ? `<p class="text-[9px] text-orange-400 mt-1">⚠ ${h}d va más allá de los 10/20/30 que ofrece el motor de Víctor. El cono de 2σ sigue acotando, pero el escenario base se ancla al imán del GEX y a este plazo la cadena que lo produjo ya habrá rotado — léelo como referencia, no con la misma firmeza que el corto.</p>` : ''}
       ${warn ? `<div class="mt-2 space-y-0.5">${warn}</div>` : ''}`;
 }
 
