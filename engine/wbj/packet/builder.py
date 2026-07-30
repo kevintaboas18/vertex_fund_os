@@ -493,13 +493,28 @@ def _edgar_total_debt(companyfacts: dict, target_date: str | None) -> Value:
     Leases are treated as optional: a company reporting none is not a
     company whose debt is unknown.
     """
-    long_term = _edgar_value_at(companyfacts, "us-gaap", "LongTermDebtNoncurrent", "USD", target_date)
-    current = _edgar_value_at(companyfacts, "us-gaap", "DebtCurrent", "USD", target_date)
+    # `require_period=True` on every component. `reconcile`'s contract is
+    # explicit -- "Inputs must already be period/unit/currency-aligned by the
+    # caller ... `reconcile` only adjudicates numeric disagreement between
+    # aligned values" -- and this caller was not honouring it: the permissive
+    # fallback returns the newest fact a tag holds, so Exxon's
+    # `LongTermDebtNoncurrent` came back from 2017-12-31 and Coca-Cola's from a
+    # 2024 quarter, then got summed with current-period components.
+    #
+    # Being strict here does not lose the field: with EDGAR MISSING, `reconcile`
+    # takes FMP's value and warns that the tier-1 source was unavailable, which
+    # is the documented path and a labelled tier-5 current figure rather than an
+    # unlabelled tier-1 stale one.
+    long_term = _edgar_value_at(companyfacts, "us-gaap", "LongTermDebtNoncurrent",
+                                "USD", target_date, require_period=True)
+    current = _edgar_value_at(companyfacts, "us-gaap", "DebtCurrent",
+                              "USD", target_date, require_period=True)
     if long_term.is_null or current.is_null:
         return Value.null(NullState.MISSING, unit="USD", source_name="EDGAR")
     leases = 0.0
     for tag in _EDGAR_LEASE_LIABILITY_TAGS:
-        part = _edgar_value_at(companyfacts, "us-gaap", tag, "USD", target_date)
+        part = _edgar_value_at(companyfacts, "us-gaap", tag, "USD", target_date,
+                               require_period=True)
         if not part.is_null:
             leases += part.value
     return Value.of(
@@ -514,9 +529,18 @@ def _edgar_total_debt(companyfacts: dict, target_date: str | None) -> Value:
 def _edgar_diluted_shares(companyfacts: dict, target_date: str | None) -> Value:
     """Weighted-average diluted shares tag first; falls back to EDGAR's
     basic `dei:EntityCommonStockSharesOutstanding` tag (most recent filing)
-    when the weighted-diluted tag isn't reported."""
+    when the weighted-diluted tag isn't reported.
+
+    The weighted tag is period-bound and read strictly: Exxon's newest entry for
+    it is 2013-12-31, and a 2013 share count passed `reconcile`'s 5% check on
+    pure coincidence -- buybacks took the count down and the Pioneer deal put it
+    back, so twelve-year-old shares looked current. The `dei` fallback keeps
+    `target_date=None` on purpose: it is a point-in-time cover-page count, where
+    "most recent filing" IS the right answer.
+    """
     weighted = _edgar_value_at(
-        companyfacts, "us-gaap", "WeightedAverageNumberOfDilutedSharesOutstanding", "shares", target_date
+        companyfacts, "us-gaap", "WeightedAverageNumberOfDilutedSharesOutstanding",
+        "shares", target_date, require_period=True,
     )
     if weighted.is_valid:
         return weighted
@@ -884,12 +908,21 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
     latest_annual_date = income_annual[0]["date"] if income_annual else None
 
     fmp_revenue = _fmp_value(income_annual[0] if income_annual else None, "revenue", "USD")
+    # Strict on period for both: `reconcile` adjudicates VALUES, not periods, and
+    # its docstring puts alignment on the caller. JPMorgan's
+    # `CashAndCashEquivalentsAtCarryingValue` newest entry is 2018-12-31 -- that
+    # one happened to be caught as a >5% conflict, but a stale figure that lands
+    # within 5% is accepted silently, which is how Exxon's 2013 share count got
+    # through. Period first, per SOURCE_HIERARCHY.md's own step 1 ("Verify
+    # period, currency, scale ...").
     edgar_revenue = _edgar_first_available(
-        companyfacts, "us-gaap", _EDGAR_REVENUE_TAGS, "USD", latest_annual_date)
+        companyfacts, "us-gaap", _EDGAR_REVENUE_TAGS, "USD", latest_annual_date,
+        require_period=True)
 
     fmp_cash = _fmp_value(balance_annual[0] if balance_annual else None, "cashAndCashEquivalents", "USD")
     edgar_cash = _edgar_value_at(
-        companyfacts, "us-gaap", "CashAndCashEquivalentsAtCarryingValue", "USD", latest_annual_date
+        companyfacts, "us-gaap", "CashAndCashEquivalentsAtCarryingValue", "USD",
+        latest_annual_date, require_period=True,
     )
 
     fmp_total_debt = _fmp_value(balance_annual[0] if balance_annual else None, "totalDebt", "USD")
