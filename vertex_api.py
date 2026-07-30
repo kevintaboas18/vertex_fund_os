@@ -3763,23 +3763,87 @@ def get_horizon_targets_cached(ticker, net_premium=None, flow=None, ai_12m=None,
 
 
 @app.get("/api/projection-targets")
-def projection_targets(ticker: str, ai_12m: float = 0.0):
-    """Directional targets by horizon. When Quant Data is configured, levels come from QD
-    GEX (per expiry) and direction from tape conviction (Kevin's tiers)."""
-    ready = _quantdata_ready()
-    np_ = quantdata_net_premium(ticker) if ready else None
-    fl = quantdata_flow(ticker) if ready else None
-    oic = quantdata_oi_change(ticker) if ready else None          # real per-contract ΔOI
-    oic_map = oic.get("map") if isinstance(oic, dict) else None
-    conv = _qd_conviction(fl, oi_change_map=oic_map) if fl else None
-    walls_fn = (lambda e, s: _qd_exposure_walls(ticker, e, s)) if ready else None
-    t = compute_horizon_targets(ticker, np_, fl, (ai_12m or None),
-                                qd_walls_fn=walls_fn, conviction=conv)
-    if not t:
-        return {"ok": False, "error": "No se pudieron proyectar targets (cadena no disponible)."}
-    if isinstance(oic, dict) and oic.get("builds"):
-        t["oi_builds"] = oic["builds"]                            # top OI accumulations for display
-    return t
+def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,30"):
+    """Targets de Proyecciones — motor de Víctor (Tito Metralleta).
+
+    Sustituye al motor de gamma/flujo (`compute_horizon_targets`) SOLO en este
+    panel: devuelve tres escenarios bear/base/bull por horizonte, anclados al
+    nodo imán del GEX y recortados al cono de 2σ, más los niveles por
+    confluencia precio ∩ opciones.
+
+    `compute_horizon_targets` sigue vivo y alimentando el prompt del agente,
+    `_reconcile` y el self-test — ahí no se tocó nada, así que la comparación
+    σ/DCF vs gamma/flujo mantiene su contraparte independiente.
+
+    `ai_12m` se acepta por compatibilidad con el frontend viejo; el motor de
+    Víctor no lo usa (su base sale del imán del GEX, no de un target externo).
+    """
+    sc = _tito_mod()
+    if sc is None:
+        return {"ok": False, "error": "Motor de Víctor no disponible (engine/wbj/tito)."}
+
+    from wbj.tito.marketsnack import MarketSnackError, fetch_flow
+
+    tk = (ticker or "").strip().upper()
+    if not tk:
+        return {"ok": False, "error": "Ticker vacío."}
+
+    try:
+        hz = tuple(int(h) for h in horizons.split(",") if h.strip())[:5] or (10, 20, 30)
+    except ValueError:
+        hz = (10, 20, 30)
+
+    try:
+        flow = fetch_flow(tk, period="5d", min_premium=100_000, max_pages=6)
+        trades = flow.trades
+        flow_error = None
+    except MarketSnackError as e:
+        # Sin tape el motor sigue corriendo con la cadena (GEX + estructura),
+        # pero 4 de las 6 categorías quedan sin dato. Se reporta el motivo en
+        # vez de devolver un número que aparenta estar completo.
+        trades, flow_error = [], str(e)
+
+    try:
+        chain, bars, spot = _tito_chain_and_bars(tk)
+    except Exception as e:
+        return {"ok": False, "error": f"No se pudo bajar la cadena de {tk}: {e}"}
+    if not bars:
+        return {"ok": False, "error": f"Sin barras diarias para {tk}."}
+
+    r = sc.run_scorecard(
+        tk, trades, chain or [], bars,
+        now=datetime.now(timezone.utc), spot=spot, horizons=hz,
+    )
+    out = _tito_json(r)
+    out["engine"] = "victor/tito"
+    if flow_error:
+        out["flow_error"] = flow_error
+        out["warnings"] = [f"Sin tape de MarketSnack: {flow_error}"] + out.get("warnings", [])
+    # Serie histórica + cono, para que la gráfica dibuje sin una segunda llamada.
+    out["history"] = [
+        {"time": b.time, "open": b.close, "high": b.high, "low": b.low, "close": b.close}
+        for b in bars[-180:]
+    ]
+    out["levels_for_chart"] = _tito_chart_levels(r)
+    return out
+
+
+def _tito_chart_levels(r, max_per_side=2, min_strength=25):
+    """Niveles para la gráfica: solo los 2 soportes y 2 resistencias más cercanos
+    con fuerza suficiente.
+
+    El recorte es de Víctor, no un capricho: la lista completa mete tanto ruido
+    que tapa los escenarios, que es lo que la gráfica tiene que comunicar.
+    """
+    out = []
+    for group in (r.levels.supports, r.levels.resistances):
+        picked = [l for l in group if l.strength >= min_strength][:max_per_side]
+        for l in picked:
+            out.append({
+                "price": round(l.price, 2), "kind": l.kind,
+                "strength": l.strength, "why": l.why,
+            })
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -2966,6 +2966,241 @@ function syncOpPlanVisibility(projTicker) {
         : `del análisis de <b class="text-gray-300">${currentTicker}</b>`;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   GRÁFICA DE VÍCTOR (motor SVG de Tito Metralleta)
+
+   Port de web/lib/chartGeometry.ts + app/components/chart/PriceChart.tsx.
+
+   Existe porque antes había DOS sistemas de coordenadas peleándose —el canvas
+   de la librería y un overlay HTML que cazaba píxeles con priceToCoordinate—
+   y de ahí venían el futuro comprimido y los targets encimados. Aquí todo el
+   "dónde va cada píxel" es una sola función pura y el SVG solo pinta.
+
+   Reglas de visualización que la gráfica hace cumplir, no el que la llama:
+     1. Nunca una sola línea: el futuro va como banda (cono 1σ/2σ).
+     2. Los supuestos se etiquetan: cada escenario lleva su driver.
+     3. El pasado no se proyecta: histórico SÓLIDO, futuro PUNTEADO.
+     4. El agente decide, no el gráfico: aquí no se calcula ningún score.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const VC = {
+    MIN_TARGET_WEIGHT: 0.02,   // un target con menos peso no deforma el encuadre
+    MIN_CANDLE_SHARE: 0.45,    // las velas nunca ocupan menos de esto del alto
+    DOMAIN_PAD: 0.03,
+    MIN_CANDLE_W: 3, MAX_CANDLE_W: 18, BODY_RATIO: 0.7, MIN_BODY_H: 1,
+    GUTTER: 132,               // reservado a los chips: sin él pisan el eje
+};
+
+/** Encuadre: cubre velas + spot + 1σ + niveles, y estira al 2σ solo mientras
+ *  las velas conserven MIN_CANDLE_SHARE del alto. */
+function vcSmartDomain({ bars, spot, sigma1, sigma2, targets = [], levels = [] }) {
+    let cMin = Infinity, cMax = -Infinity;
+    for (const b of bars) { if (b.low < cMin) cMin = b.low; if (b.high > cMax) cMax = b.high; }
+    if (!isFinite(cMin) || !isFinite(cMax)) {
+        const s = spot > 0 ? spot : 1; cMin = s * 0.95; cMax = s * 1.05;
+    }
+    const cRange = Math.max(cMax - cMin, 1e-9);
+    let min = cMin, max = cMax;
+    const inc = v => { if (v == null || !isFinite(v) || v <= 0) return; if (v < min) min = v; if (v > max) max = v; };
+    if (spot > 0) inc(spot);
+    if (sigma1) { inc(sigma1.lower); inc(sigma1.upper); }
+    for (const t of targets) if ((t.weight ?? 1) >= VC.MIN_TARGET_WEIGHT) inc(t.price);
+    for (const l of levels) inc(l.price);
+    if (sigma2) {
+        const room = Math.max(0, cRange / VC.MIN_CANDLE_SHARE - (max - min));
+        const wantDown = Math.max(0, min - sigma2.lower), wantUp = Math.max(0, sigma2.upper - max);
+        const want = wantDown + wantUp;
+        if (want > 0) { const f = Math.min(1, room / want); min -= wantDown * f; max += wantUp * f; }
+    }
+    const pad = Math.max((max - min) * VC.DOMAIN_PAD, 1e-9);
+    return { min: min - pad, max: max + pad };
+}
+
+/** Reparte el lienzo: 60% histórico / 40% futuro, con xNow explícito. */
+function vcBuildScales({ bars, domain, horizonDays, width, height, padding, futureRatio = 0.4 }) {
+    const plotLeft = padding.left, plotRight = width - padding.right;
+    const plotTop = padding.top, plotBottom = height - padding.bottom;
+    const usableW = Math.max(1, plotRight - plotLeft), usableH = Math.max(1, plotBottom - plotTop);
+    const xNow = plotLeft + usableW * (1 - Math.min(0.9, Math.max(0, futureRatio)));
+    const span = Math.max(domain.max - domain.min, 1e-9);
+    const yOfPrice = p => Math.min(plotBottom, Math.max(plotTop, plotBottom - ((p - domain.min) / span) * usableH));
+
+    // Solo caben las velas que conserven ancho legible; el resto se recorta.
+    const histW = Math.max(1, xNow - plotLeft);
+    const maxBars = Math.max(1, Math.floor(histW / (VC.MIN_CANDLE_W / VC.BODY_RATIO)));
+    const visibleBars = bars.length > maxBars ? bars.slice(bars.length - maxBars) : bars;
+    const n = Math.max(1, visibleBars.length), slot = histW / n;
+    const w = Math.min(VC.MAX_CANDLE_W, Math.max(VC.MIN_CANDLE_W, slot * VC.BODY_RATIO));
+
+    const candles = visibleBars.map((bar, i) => {
+        const cx = plotLeft + slot * (i + 0.5);
+        let yOpen = yOfPrice(bar.open), yClose = yOfPrice(bar.close);
+        if (Math.abs(yClose - yOpen) < VC.MIN_BODY_H) {   // un doji no puede desaparecer
+            const mid = (yOpen + yClose) / 2;
+            yOpen = mid + VC.MIN_BODY_H / 2; yClose = mid - VC.MIN_BODY_H / 2;
+        }
+        return { x: cx - w / 2, w, cx, yOpen, yClose, yHigh: yOfPrice(bar.high), yLow: yOfPrice(bar.low), up: bar.close >= bar.open };
+    });
+
+    const futureW = Math.max(0, plotRight - xNow), days = horizonDays > 0 ? horizonDays : 1;
+    return {
+        plotLeft, plotRight, plotTop, plotBottom, xNow, yOfPrice, candles, domain,
+        xOfFuture: t => xNow + (Math.min(Math.max(t, 0), days) / days) * futureW,
+    };
+}
+
+/** Anti-colisión de chips en dos barridas; yAnchor guarda el precio real. */
+function vcPackLabels(items, { top, bottom, labelH, gap }) {
+    if (!items.length) return [];
+    const pitch = labelH + gap, minY = top + labelH / 2, maxY = bottom - labelH / 2;
+    const work = items.map((it, idx) => ({ idx, y: it.y, yAnchor: it.y })).sort((a, b) => a.y - b.y);
+    for (let i = 0; i < work.length; i++) {
+        const floor = i === 0 ? minY : work[i - 1].y + pitch;
+        if (work[i].y < floor) work[i].y = floor;
+    }
+    for (let i = work.length - 1; i >= 0; i--) {
+        if (work[i].y > maxY) work[i].y = maxY;
+        if (i > 0 && work[i - 1].y > work[i].y - pitch) work[i - 1].y = work[i].y - pitch;
+    }
+    for (const w of work) w.y = Math.max(minY, w.y);
+    const out = new Array(items.length);
+    for (const w of work) out[w.idx] = Object.assign({}, items[w.idx], { y: w.y, yAnchor: w.yAnchor });
+    return out;
+}
+
+const _vcEsc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/** Dibuja la gráfica de Víctor dentro de `containerId`, desde el payload de
+ *  /api/projection-targets. `horizon` es 10 | 20 | 30. */
+function renderVictorChart(containerId, d, horizon) {
+    const cont = document.getElementById(containerId);
+    if (!cont) return;
+    const p = (d.predictions || {})[String(horizon)];
+    const hist = d.history || [];
+    if (!p || !hist.length) { cont.innerHTML = '<p class="text-[11px] text-gray-500 italic p-3">Sin datos para la gráfica.</p>'; return; }
+
+    const width = Math.max(320, cont.clientWidth || 900), height = Math.max(260, cont.clientHeight || 440);
+    const spot = d.spot;
+    const scen = [
+        { key: 'bear', color: '#ef4444', ...p.bear },
+        { key: 'base', color: '#3b82f6', ...p.base },
+        { key: 'bull', color: '#10b981', ...p.bull },
+    ];
+    // Cono de 1σ/2σ derivado de los propios escenarios: bear/bull ya vienen
+    // recortados al 2σ por el motor, así que el sobre nunca miente.
+    const lo2 = Math.min(...scen.map(s => s.target)), hi2 = Math.max(...scen.map(s => s.target));
+    const sigma1 = { lower: spot - (spot - lo2) * 0.5, upper: spot + (hi2 - spot) * 0.5 };
+    const sigma2 = { lower: lo2, upper: hi2 };
+    const lvls = d.levels_for_chart || [];
+
+    const domain = vcSmartDomain({ bars: hist, spot, sigma1, sigma2, levels: lvls, targets: scen.map(s => ({ price: s.target, weight: s.probability })) });
+    const S = vcBuildScales({ bars: hist, domain, horizonDays: horizon, width, height, padding: { top: 14, right: VC.GUTTER, bottom: 22, left: 8 } });
+
+    const parts = [];
+    // 1. Cono: la banda va primero para que todo lo demás quede encima.
+    const conePath = (lower, upper, fill) => {
+        const steps = 16; let up = [], dn = [];
+        for (let i = 0; i <= steps; i++) {
+            const f = i / steps, x = S.xOfFuture(horizon * f), k = Math.sqrt(f);
+            up.push(`${x},${S.yOfPrice(spot + (upper - spot) * k)}`);
+            dn.push(`${x},${S.yOfPrice(spot + (lower - spot) * k)}`);
+        }
+        return `<polygon points="${up.concat(dn.reverse()).join(' ')}" fill="${fill}" stroke="none"/>`;
+    };
+    parts.push(conePath(sigma2.lower, sigma2.upper, 'rgba(59,130,246,0.06)'));
+    parts.push(conePath(sigma1.lower, sigma1.upper, 'rgba(59,130,246,0.10)'));
+
+    // 2. Velas — histórico SÓLIDO (regla 3).
+    for (const c of S.candles) {
+        const col = c.up ? '#10b981' : '#ef4444';
+        parts.push(`<line x1="${c.cx}" y1="${c.yHigh}" x2="${c.cx}" y2="${c.yLow}" stroke="${col}" stroke-width="1"/>`);
+        parts.push(`<rect x="${c.x}" y="${Math.min(c.yOpen, c.yClose)}" width="${c.w}" height="${Math.max(1, Math.abs(c.yClose - c.yOpen))}" fill="${col}"/>`);
+    }
+
+    // 3. Frontera hoy / proyectado.
+    parts.push(`<line x1="${S.xNow}" y1="${S.plotTop}" x2="${S.xNow}" y2="${S.plotBottom}" stroke="#4b5563" stroke-width="1"/>`);
+    parts.push(`<text x="${S.xNow + 4}" y="${S.plotTop + 10}" font-size="9" fill="#9ca3af">proyectado →</text>`);
+
+    // 4. Niveles (2 soportes + 2 resistencias más cercanos, fuerza ≥25).
+    for (const l of lvls) {
+        const y = S.yOfPrice(l.price), col = l.kind === 'soporte' ? '#22c55e' : '#f97316';
+        parts.push(`<line x1="${S.plotLeft}" y1="${y}" x2="${S.plotRight}" y2="${y}" stroke="${col}" stroke-width="1" stroke-dasharray="2 4" opacity="0.45"/>`);
+    }
+
+    // 5. Escenarios — futuro PUNTEADO (regla 3), avanzando en √t.
+    for (const s of scen) {
+        const pts = [];
+        for (let i = 0; i <= 24; i++) {
+            const f = i / 24;
+            pts.push(`${S.xOfFuture(horizon * f)},${S.yOfPrice(spot + (s.target - spot) * Math.sqrt(f))}`);
+        }
+        parts.push(`<polyline points="${pts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="1.8" stroke-dasharray="4 3"/>`);
+    }
+
+    // 6. Chips anti-colisión en el gutter, con guía punteada a su precio real.
+    const chips = vcPackLabels(
+        scen.map(s => ({ ...s, y: S.yOfPrice(s.target) })),
+        { top: S.plotTop, bottom: S.plotBottom, labelH: 30, gap: 6 },
+    );
+    for (const c of chips) {
+        const x = S.plotRight + 6;
+        if (Math.abs(c.y - c.yAnchor) > 1) {
+            parts.push(`<line x1="${S.plotRight}" y1="${c.yAnchor}" x2="${x}" y2="${c.y}" stroke="${c.color}" stroke-width="0.8" stroke-dasharray="2 2" opacity="0.6"/>`);
+        }
+        const name = { bear: 'Bajista', base: 'Base', bull: 'Alcista' }[c.key];
+        parts.push(`<rect x="${x}" y="${c.y - 14}" width="${VC.GUTTER - 12}" height="28" rx="5" fill="${c.color}" opacity="0.14"/>`);
+        parts.push(`<text x="${x + 6}" y="${c.y - 3}" font-size="10" font-weight="700" fill="${c.color}">${name} $${Number(c.target).toFixed(2)}</text>`);
+        parts.push(`<text x="${x + 6}" y="${c.y + 9}" font-size="8.5" fill="#9ca3af">${(c.change_pct >= 0 ? '+' : '') + Number(c.change_pct).toFixed(1)}% · toque ${Math.round(c.probability * 100)}%</text>`);
+    }
+
+    // 7. Spot.
+    const ys = S.yOfPrice(spot);
+    parts.push(`<line x1="${S.plotLeft}" y1="${ys}" x2="${S.plotRight}" y2="${ys}" stroke="#e5e7eb" stroke-width="0.8" stroke-dasharray="1 3" opacity="0.5"/>`);
+
+    cont.innerHTML = `<svg width="100%" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" style="display:block">${parts.join('')}</svg>`
+        + `<p class="chart-cite">US$/acción · histórico sólido · proyección punteada con cono 1σ/2σ · supuestos en cada escenario — motor de Víctor (Tito)</p>`;
+}
+
+/** Panel de targets — tres escenarios por horizonte, no un nivel por horizonte. */
+function renderVictorTargets(d) {
+    const el = document.getElementById('projTargets');
+    if (!el) return;
+    const hz = Object.keys(d.predictions || {}).map(Number).sort((a, b) => a - b);
+    if (!hz.length) { el.innerHTML = '<p class="text-[11px] text-amber-400 italic">Sin escenarios.</p>'; return; }
+    if (!window._vcHz || !hz.includes(window._vcHz)) window._vcHz = hz[Math.min(1, hz.length - 1)];
+    const h = window._vcHz, p = d.predictions[String(h)];
+
+    const tabs = hz.map(x => `<button onclick="window._vcHz=${x};renderVictorTargets(window._vcData);renderVictorChart('projChart',window._vcData,${x});"
+        class="px-2.5 py-1 rounded-lg text-[10px] font-bold ${x === h ? 'bg-blue-600 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800'}">${x}d</button>`).join(' ');
+
+    const card = (s, name, col) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
+        <p class="text-[10px] uppercase font-bold mb-1 ${col}">${name}</p>
+        <p class="text-lg font-black text-white">$${Number(s.target).toFixed(2)}</p>
+        <p class="text-[9px] ${s.change_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}">${(s.change_pct >= 0 ? '+' : '') + Number(s.change_pct).toFixed(1)}% · toque ${Math.round(s.probability * 100)}%</p>
+        <p class="text-[8px] text-gray-500 mt-1 leading-tight">${_vcEsc(s.driver)}</p></div>`;
+
+    const warn = (d.warnings || []).map(w => `<p class="text-[9px] text-amber-400 leading-tight">⚠ ${_vcEsc(w)}</p>`).join('');
+    const cal = p.calibration && p.calibration.applied
+        ? `<span class="text-[9px] text-purple-300">🧠 ajustado ${p.calibration.shift_pct >= 0 ? '+' : ''}${Number(p.calibration.shift_pct).toFixed(1)}%</span>` : '';
+
+    el.innerHTML = `
+      <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+        <div class="flex gap-1.5">${tabs}</div>
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] text-gray-400">Score <b class="text-white">${d.score}</b>/100 · ${_vcEsc(d.verdict)}</span>
+          <span class="text-[10px] text-gray-500">confianza ${p.confidence}</span>${cal}
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-2">
+        ${card(p.bear, 'Bajista', 'text-red-400')}
+        ${card(p.base, 'Base', 'text-blue-400')}
+        ${card(p.bull, 'Alcista', 'text-emerald-400')}
+      </div>
+      <p class="text-[10px] text-gray-300 mt-2 leading-snug">${_vcEsc(p.summary)}</p>
+      ${p.caveat ? `<p class="text-[9px] text-amber-400 mt-1">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
+      ${warn ? `<div class="mt-2 space-y-0.5">${warn}</div>` : ''}`;
+}
+
 function renderProjections(d) {
     document.getElementById('projChartTitle').innerText = `${d.ticker} · $${d.spot}`;
     syncOpPlanVisibility(d.ticker);
@@ -3699,7 +3934,16 @@ async function loadProjTargets(ticker) {
         const r = await fetch(`${API_BASE}/api/projection-targets?ticker=${encodeURIComponent(ticker)}${ai12 ? `&ai_12m=${ai12}` : ''}`);
         const d = await r.json();
         if (!d.ok) { el.innerHTML = `<p class="text-[11px] text-amber-400 italic">${d.error || 'No disponible.'}</p>`; return; }
-        renderProjTargets(d);
+        // Motor de Víctor (Tito): tres escenarios por horizonte + su propia
+        // gráfica SVG. El renderer viejo (renderProjTargets) queda disponible
+        // por si el endpoint volviera a servir el formato de gamma/flujo.
+        if (d.engine === 'victor/tito' && d.predictions) {
+            window._vcData = d;
+            renderVictorTargets(d);
+            renderVictorChart('projChart', d, window._vcHz || 20);
+        } else {
+            renderProjTargets(d);
+        }
     } catch (e) { el.innerHTML = `<p class="text-[11px] text-red-400 italic">Error: ${e.message}</p>`; }
 }
 
