@@ -3887,12 +3887,28 @@ def _tito_mod():
 
 
 def _tito_chain_and_bars(ticker, max_expiries=8):
-    """Cadena + barras diarias desde yfinance, en las formas que espera el motor.
+    """Cadena + barras diarias, en las formas que espera el motor.
 
-    yfinance es la fuente por defecto porque Vertex ya la usa y no pide una key
-    nueva; el motor no la conoce — recibe listas normalizadas, así que cambiarla
-    por Massive/Quant Data es sustituir esta función y nada más.
+    Fuente: **Massive** cuando `MASSIVE_API_KEY` está en el entorno (es la que
+    usa Víctor), y **yfinance** si no. El motor no conoce ninguna de las dos —
+    recibe `ChainRow`/`LvlBar` normalizados, así que la fuente es intercambiable
+    sin tocar una línea de `wbj/tito/`.
+
+    Si Massive falla (key mala, rate limit, caída) se cae a yfinance en vez de
+    romper: la cadena es el insumo de 2 de los 6 sub-agentes más el GEX, y
+    quedarse sin ella es peor que servirla de la fuente de respaldo.
     """
+    if os.environ.get("MASSIVE_API_KEY", "").strip():
+        try:
+            from wbj.tito.massive import fetch_daily_bars, fetch_option_chain
+            chain_res = fetch_option_chain(ticker)
+            bars = fetch_daily_bars(ticker)
+            if chain_res.rows and bars:
+                spot = chain_res.underlying_price or bars[-1].close
+                return chain_res.rows, bars, spot
+        except Exception:
+            pass  # respaldo silencioso a yfinance; el motor no debe quedarse sin cadena
+
     from wbj.tito.structure import ChainRow
     from wbj.tito.levels import LvlBar
 
