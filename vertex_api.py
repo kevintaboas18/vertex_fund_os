@@ -3782,6 +3782,166 @@ def projection_targets(ticker: str, ai_12m: float = 0.0):
     return t
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# SCORECARD DE FLUJO (motor Tito) — capa PROPIA dentro de Proyecciones
+#
+# NO compite con compute_horizon_targets ni lo reemplaza. Son dos lecturas
+# distintas del mismo mercado y se reportan por separado, igual que ya se hace
+# con σ/DCF vs gamma/flujo: el consumidor las reconcilia, el servidor no las
+# promedia. Toda la matemática vive en engine/wbj/tito/ (puro, 282 tests); aquí
+# solo hay I/O y traducción a JSON.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _tito_mod():
+    """Importa el motor Tito con el engine en el path. None si no está disponible."""
+    try:
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.tito import scorecard as _sc
+        return _sc
+    except Exception:
+        return None
+
+
+def _tito_chain_and_bars(ticker, max_expiries=8):
+    """Cadena + barras diarias desde yfinance, en las formas que espera el motor.
+
+    yfinance es la fuente por defecto porque Vertex ya la usa y no pide una key
+    nueva; el motor no la conoce — recibe listas normalizadas, así que cambiarla
+    por Massive/Quant Data es sustituir esta función y nada más.
+    """
+    from wbj.tito.structure import ChainRow
+    from wbj.tito.levels import LvlBar
+
+    tk = yf.Ticker(ticker)
+    hist = tk.history(period="1y")
+    if hist is None or hist.empty:
+        return None, None, None
+
+    bars = [
+        LvlBar(time=str(idx)[:10], high=float(r["High"]), low=float(r["Low"]),
+               close=float(r["Close"]))
+        for idx, r in hist.iterrows()
+        if float(r.get("Low", 0)) > 0
+    ]
+    spot = bars[-1].close if bars else 0.0
+
+    chain = []
+    for exp in list(tk.options or [])[:max_expiries]:
+        try:
+            ch = tk.option_chain(exp)
+        except Exception:
+            continue
+        for df, ct in ((ch.calls, "call"), (ch.puts, "put")):
+            if df is None or df.empty:
+                continue
+            for _, row in df.iterrows():
+                strike = _safe_num(row.get("strike"))
+                oi = int(_safe_num(row.get("openInterest")))
+                if strike <= 0:
+                    continue
+                chain.append(ChainRow(
+                    contract_type=ct, expiration=exp, strike=strike,
+                    open_interest=oi, volume=int(_safe_num(row.get("volume"))),
+                    notional_value=oi * 100 * strike,
+                ))
+    return chain, bars, spot
+
+
+def _tito_json(r):
+    """Aplana el ScorecardResult a JSON. Solo lo que el panel necesita pintar."""
+    def scen(s):
+        return {"target": round(s.target, 2), "change_pct": round(s.change_pct, 1),
+                "probability": round(s.probability, 3), "driver": s.driver}
+
+    def lvl(l):
+        return {"price": round(l.price, 2), "kind": l.kind, "strength": l.strength,
+                "distance_pct": round(l.distance_pct, 1), "why": l.why,
+                "flipped": l.flipped}
+
+    return {
+        "ok": True,
+        "ticker": r.ticker,
+        "spot": round(r.spot, 2),
+        "score": r.score,
+        "verdict": r.verdict,
+        "verdict_meaning": r.verdict_meaning,
+        "active": r.active,
+        "scores": r.scores,
+        "gex": {
+            "iv": round(r.gex.iv, 4),
+            "regime": r.gex.regime,
+            "king_strike": r.gex.king_strike,
+            "flip_strike": round(r.gex.flip_strike, 2) if r.gex.flip_strike else None,
+            "direction": r.gex.direction,
+            "confidence": r.gex.confidence,
+            "low_liquidity": r.gex.low_liquidity,
+        },
+        "levels": {
+            "supports": [lvl(l) for l in r.levels.supports],
+            "resistances": [lvl(l) for l in r.levels.resistances],
+        },
+        "predictions": {
+            str(h): {
+                "bear": scen(p.bear), "base": scen(p.base), "bull": scen(p.bull),
+                "confidence": p.confidence, "direction": p.direction,
+                "summary": p.summary, "caveat": p.caveat,
+                "calibration": p.calibration,
+            }
+            for h, p in r.predictions.items()
+        },
+        # Las advertencias NO son decorativas: la salvaguarda de liquidez y el
+        # aviso de categorías faltantes deben viajar con el número siempre.
+        "warnings": r.warnings,
+        "notable_trades": len(r.flow.interesting),
+    }
+
+
+@app.get("/api/tito-scorecard")
+def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
+    """Scorecard de flujo 0-100 (6 sub-agentes) + 3 escenarios por horizonte.
+
+    Fuente del tape: MarketSnack (MARKETSNACK_COOKIE). Cadena y barras: yfinance.
+    """
+    sc = _tito_mod()
+    if sc is None:
+        return {"ok": False, "error": "Motor Tito no disponible (engine/wbj/tito)."}
+
+    from wbj.tito.marketsnack import MarketSnackError, fetch_flow
+
+    tk = (ticker or "").strip().upper()
+    if not tk:
+        return {"ok": False, "error": "Ticker vacío."}
+
+    try:
+        hz = tuple(int(h) for h in horizons.split(",") if h.strip())[:5] or (10, 20, 30)
+    except ValueError:
+        hz = (10, 20, 30)
+
+    try:
+        flow = fetch_flow(tk, period="5d", min_premium=100_000, max_pages=6)
+    except MarketSnackError as e:
+        # Sin tape no hay scorecard: 4 de las 6 categorías dependen de él. Se
+        # devuelve el motivo exacto en vez de un reporte a medias sin avisar.
+        return {"ok": False, "error": str(e), "source": "marketsnack"}
+
+    try:
+        chain, bars, spot = _tito_chain_and_bars(tk)
+    except Exception as e:
+        return {"ok": False, "error": f"No se pudo bajar la cadena de {tk}: {e}"}
+    if not bars:
+        return {"ok": False, "error": f"Sin barras diarias para {tk}."}
+
+    r = sc.run_scorecard(
+        tk, flow.trades, chain or [], bars,
+        now=datetime.now(timezone.utc), spot=spot, horizons=hz,
+    )
+    out = _tito_json(r)
+    out["pages_fetched"] = flow.pages
+    out["truncated"] = flow.truncated
+    return out
+
+
 def _moneyness(K, spot, opt):
     """ATM / ITM / OTM para un strike dado. call: ITM=strike<spot · put: ITM=strike>spot."""
     if not K or not spot:
