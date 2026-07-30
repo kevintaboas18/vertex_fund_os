@@ -47,11 +47,18 @@ services:
       # niveles) y lo declara en `warnings`, pero el scorecard va incompleto.
       - key: MARKETSNACK_COOKIE
         sync: false
-      # Opcional. La cadena de opciones entra hoy por yfinance (sin key), que
-      # es lo que Vertex ya usaba. Ponla solo si quieres la cadena desde
-      # Massive como la tiene Víctor — hay que cambiar `_tito_chain_and_bars`.
+      # OBLIGATORIA para Proyecciones. La cadena de opciones y las barras
+      # entran SOLO por Massive, la fuente de Víctor — sin respaldo a yfinance
+      # a propósito: un fallback silencioso cambiaría los datos bajo los pies
+      # del scorecard y dos corridas dejarían de ser comparables. Sin esta key
+      # /api/projection-targets devuelve error, no un reporte a medias.
       - key: MASSIVE_API_KEY
         sync: false
+      # Tope de paginación de la cadena (40 ≈ 10k contratos). Salvaguarda de
+      # cuota: sin él, un subyacente con miles de strikes la agota en una sola
+      # consulta.
+      - key: MASSIVE_MAX_PAGES
+        value: "40"
       - key: PLAID_CLIENT_ID
         sync: false
       - key: PLAID_SECRET

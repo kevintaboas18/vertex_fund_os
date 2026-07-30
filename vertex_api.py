@@ -3817,9 +3817,9 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     try:
         chain, bars, spot = _tito_chain_and_bars(tk)
     except Exception as e:
-        return {"ok": False, "error": f"No se pudo bajar la cadena de {tk}: {e}"}
-    if not bars:
-        return {"ok": False, "error": f"Sin barras diarias para {tk}."}
+        # Sin cadena no hay Estructura, ni GEX, ni niveles, ni escenarios. Se
+        # devuelve el motivo exacto de Massive en vez de un reporte a medias.
+        return {"ok": False, "error": str(e), "source": "massive"}
 
     r = sc.run_scorecard(
         tk, trades, chain or [], bars,
@@ -3827,6 +3827,7 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     )
     out = _tito_json(r)
     out["engine"] = "victor/tito"
+    out["chain_source"] = "massive"
     if flow_error:
         out["flow_error"] = flow_error
         out["warnings"] = [f"Sin tape de MarketSnack: {flow_error}"] + out.get("warnings", [])
@@ -3886,65 +3887,32 @@ def _tito_mod():
         return None
 
 
-def _tito_chain_and_bars(ticker, max_expiries=8):
-    """Cadena + barras diarias, en las formas que espera el motor.
+def _tito_chain_and_bars(ticker):
+    """Cadena + barras diarias desde **Massive**, la fuente que usa Víctor.
 
-    Fuente: **Massive** cuando `MASSIVE_API_KEY` está en el entorno (es la que
-    usa Víctor), y **yfinance** si no. El motor no conoce ninguna de las dos —
-    recibe `ChainRow`/`LvlBar` normalizados, así que la fuente es intercambiable
-    sin tocar una línea de `wbj/tito/`.
+    Fuente única a propósito: **no hay respaldo a yfinance**. Un fallback
+    silencioso a otro proveedor es peor que un error — cambia los datos bajo
+    los pies del scorecard sin que nadie se entere, y dos corridas dejan de
+    ser comparables. Si Massive no responde, el endpoint lo dice y no publica
+    un número.
 
-    Si Massive falla (key mala, rate limit, caída) se cae a yfinance en vez de
-    romper: la cadena es el insumo de 2 de los 6 sub-agentes más el GEX, y
-    quedarse sin ella es peor que servirla de la fuente de respaldo.
+    El motor no conoce a Massive: recibe `ChainRow`/`LvlBar` ya normalizados,
+    así que cambiar de proveedor no toca una línea de `wbj/tito/`.
+
+    Devuelve `(rows, bars, spot)`. Levanta `MassiveError` con el motivo exacto
+    (key ausente, key rechazada, rate limit, ticker sin datos).
     """
-    if os.environ.get("MASSIVE_API_KEY", "").strip():
-        try:
-            from wbj.tito.massive import fetch_daily_bars, fetch_option_chain
-            chain_res = fetch_option_chain(ticker)
-            bars = fetch_daily_bars(ticker)
-            if chain_res.rows and bars:
-                spot = chain_res.underlying_price or bars[-1].close
-                return chain_res.rows, bars, spot
-        except Exception:
-            pass  # respaldo silencioso a yfinance; el motor no debe quedarse sin cadena
+    from wbj.tito.massive import MassiveError, fetch_daily_bars, fetch_option_chain
 
-    from wbj.tito.structure import ChainRow
-    from wbj.tito.levels import LvlBar
-
-    tk = yf.Ticker(ticker)
-    hist = tk.history(period="1y")
-    if hist is None or hist.empty:
-        return None, None, None
-
-    bars = [
-        LvlBar(time=str(idx)[:10], high=float(r["High"]), low=float(r["Low"]),
-               close=float(r["Close"]))
-        for idx, r in hist.iterrows()
-        if float(r.get("Low", 0)) > 0
-    ]
-    spot = bars[-1].close if bars else 0.0
-
-    chain = []
-    for exp in list(tk.options or [])[:max_expiries]:
-        try:
-            ch = tk.option_chain(exp)
-        except Exception:
-            continue
-        for df, ct in ((ch.calls, "call"), (ch.puts, "put")):
-            if df is None or df.empty:
-                continue
-            for _, row in df.iterrows():
-                strike = _safe_num(row.get("strike"))
-                oi = int(_safe_num(row.get("openInterest")))
-                if strike <= 0:
-                    continue
-                chain.append(ChainRow(
-                    contract_type=ct, expiration=exp, strike=strike,
-                    open_interest=oi, volume=int(_safe_num(row.get("volume"))),
-                    notional_value=oi * 100 * strike,
-                ))
-    return chain, bars, spot
+    chain_res = fetch_option_chain(ticker)
+    bars = fetch_daily_bars(ticker)
+    if not bars:
+        raise MassiveError(f"Massive no devolvió barras diarias para {ticker}.")
+    # La cadena puede venir vacía (subyacente sin opciones listadas) y el motor
+    # lo sabe manejar: Estructura sale NOT_SCORABLE y salta la salvaguarda de
+    # liquidez. Sin barras, en cambio, no hay nada que calcular.
+    spot = chain_res.underlying_price or bars[-1].close
+    return chain_res.rows, bars, spot
 
 
 def _tito_json(r):
@@ -4000,7 +3968,8 @@ def _tito_json(r):
 def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
     """Scorecard de flujo 0-100 (6 sub-agentes) + 3 escenarios por horizonte.
 
-    Fuente del tape: MarketSnack (MARKETSNACK_COOKIE). Cadena y barras: yfinance.
+    Fuente del tape: MarketSnack (MARKETSNACK_COOKIE).
+    Cadena y barras: Massive (MASSIVE_API_KEY), sin respaldo.
     """
     sc = _tito_mod()
     if sc is None:
@@ -4027,15 +3996,14 @@ def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
     try:
         chain, bars, spot = _tito_chain_and_bars(tk)
     except Exception as e:
-        return {"ok": False, "error": f"No se pudo bajar la cadena de {tk}: {e}"}
-    if not bars:
-        return {"ok": False, "error": f"Sin barras diarias para {tk}."}
+        return {"ok": False, "error": str(e), "source": "massive"}
 
     r = sc.run_scorecard(
         tk, flow.trades, chain or [], bars,
         now=datetime.now(timezone.utc), spot=spot, horizons=hz,
     )
     out = _tito_json(r)
+    out["chain_source"] = "massive"
     out["pages_fetched"] = flow.pages
     out["truncated"] = flow.truncated
     return out
