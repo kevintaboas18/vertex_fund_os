@@ -38,6 +38,20 @@ services:
         sync: false
       - key: QUANTDATA_API_KEY
         sync: false
+      # ── Motor de Víctor (Tito) — área de Proyecciones ──────────────────
+      # MARKETSNACK_COOKIE sostiene 4 de los 6 sub-agentes (Agresividad,
+      # Convicción, Inusualidad y Contexto IV). OJO: NO es una API key, es una
+      # COOKIE DE SESIÓN y CADUCA. En un servidor no hay navegador que la
+      # refresque, así que hay que re-pegarla a mano cada vez que muera. Sin
+      # ella el motor sigue corriendo con la cadena (Estructura + GEX +
+      # niveles) y lo declara en `warnings`, pero el scorecard va incompleto.
+      - key: MARKETSNACK_COOKIE
+        sync: false
+      # Opcional. La cadena de opciones entra hoy por yfinance (sin key), que
+      # es lo que Vertex ya usaba. Ponla solo si quieres la cadena desde
+      # Massive como la tiene Víctor — hay que cambiar `_tito_chain_and_bars`.
+      - key: MASSIVE_API_KEY
+        sync: false
       - key: PLAID_CLIENT_ID
         sync: false
       - key: PLAID_SECRET
