@@ -94,6 +94,8 @@ La app las lee de `vertex.env` (local) o de las Environment Variables (Render).
 
 | Variable | Para qué | ¿Obligatoria? |
 |---|---|---|
+| `VERTEX_API_TOKEN` | **Clave de acceso a la API.** Sin ella el servidor solo atiende a localhost | **Sí en Render** |
+| `VERTEX_ORIGIN` | URL pública del servicio, para CORS | Sí en Render |
 | `EDGAR_USER_AGENT` | Identidad ante la SEC (tu nombre + email) | Sí (EDGAR la exige) |
 | `GEMINI_API_KEY` | Explicación en palabras (LLM principal) | Sí, para la explicación |
 | `FMP_API_KEY` | Pares, gaps de earnings, revisiones | Recomendada |
@@ -131,8 +133,8 @@ curl -s https://TU-URL/ | grep -o "WARREN BUFFETT JR" | head -1
 # Precio rápido
 curl -s "https://TU-URL/api/quote?ticker=AAPL"
 
-# Salud de las fuentes de datos
-curl -s "https://TU-URL/api/data-health"
+# Salud de las fuentes de datos (requiere el token)
+curl -s -H "X-Vertex-Token: $VERTEX_API_TOKEN" "https://TU-URL/api/data-health"
 
 # Análisis completo (tarda ~20-40s: EDGAR + FMP + Gemini)
 curl -s "https://TU-URL/api/analyze?ticker=AAPL"
@@ -152,12 +154,18 @@ scorecard con **"Fuente de los scores: engine determinista (metodología de Vict
 | FMP `401/403` | Key inválida o plan sin ese endpoint | Verifica `FMP_API_KEY`; pares/gaps requieren plan con esos datos |
 | No aparece la explicación | Falta `GEMINI_API_KEY` o cuota agotada | Configura la key; el análisis numérico sigue válido |
 | "Application failed to respond" en Render | Falta `--host 0.0.0.0 --port $PORT` | Corrige el Start Command |
+| `401 unauthorized` en todo `/api/*` | Falta la sesion o el token | En el navegador: introduce la clave. En scripts: manda `X-Vertex-Token`. |
+| La app no carga y pide clave que no tienes | `VERTEX_API_TOKEN` cambio en Render | Usa el valor actual del dashboard de Render |
 | Timeout / lento | Primer análisis baja 5 años de OHLCV + EDGAR | Normal (~20-40s la 1ª vez); luego cachea |
 
 ---
 
 ## 7. Seguridad (importante)
 - **Nunca** subas `vertex.env` ni `API/.env` a git (ya están en `.gitignore`).
+- **Define `VERTEX_API_TOKEN` antes de exponer el servicio.** Sin esa variable
+  el backend solo responde a `localhost`; con ella, cada peticion a `/api/*`
+  exige la cookie de sesion (navegador) o la cabecera `X-Vertex-Token`
+  (scripts). Generala con `openssl rand -hex 24` y no la reutilices.
 - Trata `SCHWAB_*` y `PLAID_*` como **acceso a dinero real**.
 - No reutilices contraseñas personales como secretos de API.
 - Si una clave se expuso, **rótala** en el portal del proveedor.

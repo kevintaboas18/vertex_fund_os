@@ -21,6 +21,15 @@ services:
       - key: EDGAR_USER_AGENT
         value: "Vertex Fund OS - Kevin Taboas kevintaboas02@gmail.com"
       # Con disco (plan pago) añade: VERTEX_DB=/var/data/vertex.db para conservar la memoria.
+      # C-02: clave de acceso a la API. SIN esta variable el servicio solo
+      # atiende a localhost, asi que en Render quedaria inutilizable: es
+      # obligatoria. Genera una larga y aleatoria (ej. `openssl rand -hex 24`).
+      - key: VERTEX_API_TOKEN
+        sync: false
+      # C-04: origen permitido por CORS. Pon aqui la URL publica de Render
+      # (https://...onrender.com). Sin ella, CORS solo admite localhost.
+      - key: VERTEX_ORIGIN
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       # Claude (Anthropic): capa de judge para lo cualitativo (moat, catalizadores, etc.)

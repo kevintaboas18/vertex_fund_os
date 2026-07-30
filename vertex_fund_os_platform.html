@@ -4778,8 +4778,71 @@ function authSignOut() {
 // END AUTH
 // ══════════════════════════════════════════════════════════════════════════════
 
-document.addEventListener('DOMContentLoaded', () => {
+// ── ACCESO A LA API (C-02) ────────────────────────────────────────────────────
+// El backend protege /api/* con una cookie HttpOnly. Como todas las llamadas van
+// al mismo origen, el navegador la manda sola: no hay que tocar ningún fetch().
+// Aquí sólo se pide la contraseña cuando el servidor dice que hace falta.
+async function vertexGateCheck() {
+    let st;
+    try {
+        st = await fetch(`${API_BASE}/api/auth/status`).then(r => r.json());
+    } catch (e) {
+        return true;   // servidor caído: que la app cargue y falle con su propio aviso
+    }
+    if (!st.auth_required || st.authenticated) return true;
+    vertexShowGate();
+    return false;
+}
+
+function vertexShowGate(msg) {
+    if (document.getElementById('vertexGate')) {
+        if (msg) document.getElementById('vertexGateMsg').textContent = msg;
+        return;
+    }
+    const d = document.createElement('div');
+    d.id = 'vertexGate';
+    d.className = 'fixed inset-0 z-[9999] bg-[#070A0F]/95 backdrop-blur flex items-center justify-center p-6';
+    d.innerHTML = `
+      <div class="bg-panel border border-panel rounded-2xl p-7 w-full max-w-sm">
+        <h2 class="text-white font-extrabold text-base mb-1">Vertex Fund OS</h2>
+        <p class="text-[11px] text-gray-500 mb-5">Esta instancia est&aacute; protegida. Introduce tu clave de acceso.</p>
+        <input id="vertexGateInput" type="password" autocomplete="current-password"
+               class="w-full bg-[#0B0E14] border border-gray-800 text-gray-200 text-sm rounded-lg px-3 py-2.5 mb-3 focus:outline-none focus:border-emerald-600"
+               placeholder="Clave de acceso">
+        <button id="vertexGateBtn"
+                class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-lg text-sm transition">Entrar</button>
+        <p id="vertexGateMsg" class="text-[11px] text-amber-400 mt-3 min-h-[1rem]">${msg || ''}</p>
+      </div>`;
+    document.body.appendChild(d);
+    const go = async () => {
+        const tok = document.getElementById('vertexGateInput').value;
+        if (!tok) return;
+        const btn = document.getElementById('vertexGateBtn');
+        btn.disabled = true; btn.textContent = 'Comprobando…';
+        try {
+            const r = await fetch(`${API_BASE}/api/login`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: tok })
+            });
+            if (r.ok) { location.reload(); return; }
+            document.getElementById('vertexGateMsg').textContent = 'Clave incorrecta.';
+        } catch (e) {
+            document.getElementById('vertexGateMsg').textContent = 'Error de red: ' + e.message;
+        }
+        btn.disabled = false; btn.textContent = 'Entrar';
+    };
+    document.getElementById('vertexGateBtn').onclick = go;
+    document.getElementById('vertexGateInput').addEventListener('keydown', e => {
+        if (e.key === 'Enter') go();
+    });
+    document.getElementById('vertexGateInput').focus();
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
     lucide.createIcons();
+    // Si el servidor exige clave y aún no hay sesión, se pide antes de arrancar
+    // nada: así no se disparan 20 llamadas que sólo devolverían 401.
+    if (!(await vertexGateCheck())) return;
     renderRecentReports();
     syncReportsFromServer();   // #4 — trae reportes durables del servidor (multi-dispositivo)
     loadDataHealth();          // #5 — salud de fuentes de datos

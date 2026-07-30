@@ -3,15 +3,16 @@ import sys
 import json
 import math
 import re
+import secrets
 import time
 import threading
 import traceback
 import numpy as np
 import requests
 from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 import yfinance as yf
 from pydantic import BaseModel, Field
 from google import genai
@@ -49,12 +50,108 @@ except Exception:
 
 app = FastAPI(title="Vertex Fund OS Core")
 
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTENTICACIÓN (C-02)
+#
+# La app se despliega públicamente en Render. Sin esto, los ~60 endpoints son
+# anónimos: cualquiera con la URL puede leer el portafolio, y `/api/analyze`
+# permite vaciar las cuotas de FMP/Gemini/Anthropic desde fuera.
+#
+# Modelo (un solo usuario):
+#   - `VERTEX_API_TOKEN` en el entorno es la contraseña.
+#   - El navegador se autentica una vez (`POST /api/login`) y recibe una cookie
+#     HttpOnly + SameSite=Strict. HttpOnly = JavaScript no puede leerla, así que
+#     un XSS no la roba; SameSite=Strict = el navegador no la manda en peticiones
+#     originadas por otro sitio, que es la defensa contra CSRF.
+#   - Los scripts (curl, cron) usan la cabecera `X-Vertex-Token`.
+#
+# Default seguro: si `VERTEX_API_TOKEN` NO está definido, sólo se atiende a
+# localhost. Así el desarrollo local sigue funcionando sin configurar nada, y
+# un despliegue público al que se le olvidó la variable queda CERRADO en vez de
+# abierto — el fallo por omisión nunca debe ser "todo el mundo entra".
+# ─────────────────────────────────────────────────────────────────────────────
+VERTEX_API_TOKEN = os.environ.get("VERTEX_API_TOKEN", "").strip()
+_AUTH_COOKIE = "vertex_session"
+_LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+#: Rutas sin autenticación: el HTML de la app (que por sí solo no expone datos —
+#: todo lo pinta vía /api/*), los iconos del PWA y el propio login.
+_PUBLIC_PATHS = {"/", "/legacy", "/wbj", "/manifest.webmanifest",
+                 "/api/login", "/api/auth/status", "/favicon.ico"}
+
+
+def _client_host(request) -> str:
+    return (request.client.host if request.client else "") or ""
+
+
+def _auth_ok(request) -> bool:
+    """¿Esta petición puede pasar? Comparación en tiempo constante para no
+    filtrar el token por diferencias de tiempo de respuesta."""
+    if not VERTEX_API_TOKEN:                      # sin token configurado → sólo local
+        return _client_host(request) in _LOCAL_HOSTS
+    cookie = request.cookies.get(_AUTH_COOKIE, "")
+    if cookie and secrets.compare_digest(cookie, VERTEX_API_TOKEN):
+        return True
+    header = request.headers.get("x-vertex-token", "")
+    return bool(header) and secrets.compare_digest(header, VERTEX_API_TOKEN)
+
+
+@app.middleware("http")
+async def _require_auth(request, call_next):
+    path = request.url.path
+    if (path in _PUBLIC_PATHS or path.startswith("/assets/")
+            or request.method == "OPTIONS"          # preflight de CORS
+            or _auth_ok(request)):
+        return await call_next(request)
+    return JSONResponse(status_code=401, content={
+        "ok": False, "error": "unauthorized",
+        "detail": ("Esta API requiere autenticación. En el navegador: inicia sesión. "
+                   "En un script: manda la cabecera X-Vertex-Token.")})
+
+
+@app.post("/api/login")
+def api_login(body: dict = None):
+    """Canjea el token por una cookie de sesión. Nunca devuelve el token."""
+    if not VERTEX_API_TOKEN:
+        return {"ok": True, "auth_required": False,
+                "detail": "No hay VERTEX_API_TOKEN configurado: acceso limitado a localhost."}
+    token = str((body or {}).get("token") or "")
+    if not token or not secrets.compare_digest(token, VERTEX_API_TOKEN):
+        return JSONResponse(status_code=401,
+                            content={"ok": False, "error": "Token incorrecto."})
+    resp = JSONResponse(content={"ok": True, "auth_required": True})
+    resp.set_cookie(_AUTH_COOKIE, VERTEX_API_TOKEN, httponly=True, samesite="strict",
+                    secure=(os.environ.get("VERTEX_ORIGIN", "").startswith("https://")),
+                    max_age=60 * 60 * 24 * 30, path="/")
+    return resp
+
+
+@app.post("/api/logout")
+def api_logout():
+    resp = JSONResponse(content={"ok": True})
+    resp.delete_cookie(_AUTH_COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/auth/status")
+def api_auth_status(request: Request):
+    """Pública a propósito: el frontend la consulta al cargar para saber si debe
+    pedir contraseña. No revela el token, sólo si hace falta y si ya hay sesión."""
+    return {"ok": True, "auth_required": bool(VERTEX_API_TOKEN),
+            "authenticated": _auth_ok(request)}
+
+
+# CORS (C-04): con una cookie de sesión en juego, `allow_origins=["*"]` +
+# credenciales sería un agujero CSRF. Se restringe al origen real; en local, a
+# los puertos de desarrollo habituales.
+_ORIGIN = os.environ.get("VERTEX_ORIGIN", "").strip()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=([_ORIGIN] if _ORIGIN else
+                   ["http://localhost:8000", "http://127.0.0.1:8000"]),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["content-type", "x-vertex-token"],
 )
 
 @app.get("/", response_class=HTMLResponse)

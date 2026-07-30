@@ -49,20 +49,28 @@ El **núcleo metodológico de Victor está intacto y verificado**. Lo que falla 
 - **Solución aplicada:** eliminación total (§6). **Pendiente para ti: rotar/revocar el `SNAPTRADE_USER_SECRET`** en el portal de SnapTrade — si la app estuvo pública, asume que se filtró; borrar la variable de Render no invalida la credencial.
 </details>
 
-### [ ] C-02 — Cero autenticación en toda la API
-- **Dónde:** `vertex_api.py` — ~60 endpoints `@app.get`/`@app.post`, ninguno con `Depends()`, `HTTPBearer` ni verificación de token (grep confirmado: 0 resultados)
-- **Por qué falla:** `render.yaml` publica el servicio en internet. Todos los endpoints —incluidos `/api/portfolio`, `/api/portfolio-risk`, `/api/plaid/link-token`, `/api/analyze`— son anónimos. Además de la exposición de datos, `/api/analyze` quema tus cuotas de FMP/Gemini/Anthropic: cualquiera puede vaciarte el plan.
-- **Solución:** Añadir un middleware de API key simple: una env var `VERTEX_API_TOKEN` y un `Depends` que compare el header `X-Vertex-Token` con `secrets.compare_digest`. Excluir solo `/` y `/manifest.webmanifest`. El frontend lo inyecta desde una cookie `HttpOnly` seteada en un login mínimo.
+### [x] C-02 — ✅ RESUELTO (2026-07-30) — Autenticación en toda la API
+- **Era:** ~60 endpoints anónimos en un servicio público. Además de exponer el portafolio, `/api/analyze` permitía a cualquiera vaciar tus cuotas de FMP/Gemini/Anthropic.
+- **Ahora:** middleware sobre todas las rutas. `VERTEX_API_TOKEN` es la clave.
+  - **Navegador:** `POST /api/login` canjea la clave por una cookie **HttpOnly + SameSite=Strict**. HttpOnly = un XSS no la puede leer; SameSite=Strict = el navegador no la envía desde otro sitio (defensa CSRF). Como las 54 llamadas `fetch()` van al mismo origen, **no hubo que tocar ninguna**.
+  - **Scripts (curl, cron):** cabecera `X-Vertex-Token`.
+  - Comparación con `secrets.compare_digest` (tiempo constante), para no filtrar la clave por diferencias de latencia.
+- **Default seguro:** si `VERTEX_API_TOKEN` **no** está definido, el servidor solo atiende a `localhost`. El desarrollo local sigue sin configuración, y un despliegue al que se le olvidó la variable queda **cerrado**, no abierto.
+- **Públicas a propósito:** `/`, `/legacy`, `/wbj`, `/manifest.webmanifest`, `/assets/*` y `/api/auth/status`. El HTML por sí solo no expone datos — todo lo pinta vía `/api/*`, que sí está protegido.
+- **UI:** pantalla de acceso que aparece solo si el servidor declara `auth_required`. Se comprueba **antes** de arrancar la app, para no disparar 20 llamadas que solo darían 401.
+- **Verificado en navegador real:** anónimo → 401 en `/api/quote`, `/api/analyze`, `/api/portfolio-risk`, `/api/track-record`, `/api/plaid/link-token`, `/api/data-health`. Clave incorrecta → rechazada. Clave correcta → cookie emitida (HttpOnly ✓, SameSite=strict ✓, invisible desde `document.cookie` ✓) y todas las llamadas a 200. Logout → vuelve a 401. `tests_vertex`: 47 pasan.
+- **Pendiente tuyo:** definir `VERTEX_API_TOKEN` en Render (`openssl rand -hex 24`). **Sin esa variable el servicio no responderá a nadie** — es deliberado.
 
 ### [ ] C-03 — `access_token` de Plaid viaja como parámetro de query
 - **Dónde:** `vertex_api.py:10673`, `:10707`, `:11634`, `:11648`, `:11662`, `:11952`, `:11966`
 - **Por qué falla:** `def get_portfolio(access_token: str, ...)` en un `@app.get` significa que el token va en la URL. Las query strings quedan en: logs de acceso de Render, historial del navegador, headers `Referer` hacia terceros, y cualquier proxy intermedio. Un `access_token` de Plaid da lectura de cuentas bancarias/brokerage.
 - **Solución:** Convertir esos 7 endpoints a `@app.post` con el token en el body (`body: dict`), o mejor: guardar el `access_token` server-side (tabla en `vertex.db`, cifrado) tras el `exchange-token`, y que el cliente solo mande un `account_id`. Nunca en la URL.
 
-### [ ] C-04 — CORS abierto con credenciales
-- **Dónde:** `vertex_api.py:52-58` — `allow_origins=["*"]` + `allow_credentials=True` + `allow_methods=["*"]`
-- **Por qué falla:** Cualquier sitio web puede hacer llamadas autenticadas a tu API desde el navegador de la víctima. La combinación `*` + credenciales es rechazada por navegadores modernos pero deja la API abierta a clientes no-navegador, y una vez que implementes C-02 con cookies esto se vuelve un CSRF directo.
-- **Solución:** `allow_origins=[os.environ.get("VERTEX_ORIGIN", "http://localhost:8000")]` con la URL real de Render; `allow_methods=["GET","POST"]`; `allow_headers=["content-type","x-vertex-token"]`.
+### [x] C-04 — ✅ RESUELTO (2026-07-30) — CORS restringido
+- **Era:** `allow_origins=["*"]` + `allow_credentials=True` + `allow_methods=["*"]`.
+- **Por qué se arregló junto con C-02:** no era separable. Introducir una cookie de sesión dejando CORS abierto habría **creado** un agujero CSRF que antes no existía. Arreglar C-02 sin C-04 habría empeorado la seguridad.
+- **Ahora:** `allow_origins` = `VERTEX_ORIGIN` (la URL de Render) o, si no está definida, solo `localhost:8000`. Métodos limitados a `GET`/`POST`/`OPTIONS`; cabeceras a `content-type` y `x-vertex-token`. Junto con `SameSite=Strict` en la cookie, son dos capas independientes contra CSRF.
+- **Pendiente tuyo:** definir `VERTEX_ORIGIN` en Render con la URL pública del servicio.
 
 ---
 
@@ -223,9 +231,9 @@ Tu Python global **no tenía** `pytest`, `scipy`, `typer`, `matplotlib`, `anthro
 | # | ID | Severidad | Título | Archivo principal |
 |---|---|---|---|---|
 | 1 | ~~C-01~~ | ✅ Resuelto | SnapTrade eliminado por completo | §6 |
-| 2 | C-02 | 🔴 Crítico | Cero autenticación en ~60 endpoints | `vertex_api.py` |
+| 2 | ~~C-02~~ | ✅ Resuelto | Auth por cookie HttpOnly + cabecera | §6 |
 | 3 | C-03 | 🔴 Crítico | `access_token` de Plaid en query string | `vertex_api.py:10673+` |
-| 4 | C-04 | 🔴 Crítico | CORS `*` con credenciales | `vertex_api.py:52` |
+| 4 | ~~C-04~~ | ✅ Resuelto | CORS restringido a VERTEX_ORIGIN | §6 |
 | 5 | A-01 | 🟠 Alto | `EDGAR_USER_AGENT` hardcodeado, env var ignorada | `edgar.py:38` |
 | 6 | A-02 | 🟠 Alto | Items obligatorios 4 y 5 vacíos en Render | `vertex_api.py:1274,1308` |
 | 7 | A-03 | 🟠 Alto | Perfil Kevin vs Victor ($1k vs $25k) | `risk.py:270` |
@@ -249,7 +257,7 @@ Tu Python global **no tenía** `pytest`, `scipy`, `typer`, `matplotlib`, `anthro
 | 25 | M-14 | 🟡 Medio | Override 2 no bloquea banda "Elite" | `gates.py:162` |
 | 26 | M-15 | 🟡 Medio | `docs/superpowers/` obsoleto | `docs/` |
 
-**Orden de arreglo sugerido:** ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → C-02 → C-03 → C-04 → A-01 → A-02 → A-03 → A-04 → A-05 → A-06 → ~~A-07~~ → el resto de M.
+**Orden de arreglo sugerido:** ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → ~~C-02~~ → C-03 → ~~C-04~~ → A-01 → A-02 → A-03 → A-04 → A-05 → A-06 → ~~A-07~~ → el resto de M.
 
 ---
 
