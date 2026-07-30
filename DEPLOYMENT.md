@@ -104,7 +104,6 @@ La app las lee de `vertex.env` (local) o de las Environment Variables (Render).
 | `QUANTDATA_API_KEY` | Flujo de opciones / dark pool | Opcional |
 | `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` | Conexión bancaria | Solo si usas Plaid |
 | `SCHWAB_APP_KEY` / `SCHWAB_APP_SECRET` | Conexión con Schwab | Solo si usas Schwab |
-| `SNAPTRADE_*` | Conexión con brokers | Solo si usas SnapTrade |
 
 **Formato de `vertex.env`** (una por línea, sin comillas):
 ```
@@ -159,7 +158,7 @@ scorecard con **"Fuente de los scores: engine determinista (metodología de Vict
 
 ## 7. Seguridad (importante)
 - **Nunca** subas `vertex.env` ni `API/.env` a git (ya están en `.gitignore`).
-- Trata `SCHWAB_*`, `PLAID_*` y `SNAPTRADE_*` como **acceso a dinero real**.
+- Trata `SCHWAB_*` y `PLAID_*` como **acceso a dinero real**.
 - No reutilices contraseñas personales como secretos de API.
 - Si una clave se expuso, **rótala** en el portal del proveedor.
 - El output del sistema es **clasificación de research**, no una orden de

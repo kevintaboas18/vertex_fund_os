@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 # ─────────────────────────────────────────────────────────────────────────────
 # CARGA DE CREDENCIALES
 # Lee vertex.env (gitignored) hacia el entorno para que TODAS las API keys
-# (GEMINI/OPENAI/FINNHUB/QUANTDATA/XAI/PLAID/SNAPTRADE…) queden disponibles
+# (GEMINI/OPENAI/FINNHUB/QUANTDATA/XAI/PLAID…) queden disponibles
 # vía os.environ. Nunca se imprime ni se commitea su contenido.
 # ─────────────────────────────────────────────────────────────────────────────
 try:
@@ -669,8 +669,8 @@ def get_portfolio_snapshot():
         return []
 
 def save_options_snapshot(options):
-    """Replace the stored option-positions snapshot (modular: any source — SnapTrade
-    today, Unusual Whales later — feeds the same Greeks engine)."""
+    """Replace the stored option-positions snapshot (modular: cualquier fuente —
+    Plaid hoy, o `/api/portfolio/import` — alimenta el mismo motor de griegas)."""
     try:
         conn = _db()
         conn.execute("DELETE FROM option_holdings")
@@ -5966,9 +5966,9 @@ def data_health():
          "configured": bool(FINNHUB_API_KEY), "live": None, "note": None if FINNHUB_API_KEY else "Falta FINNHUB_API_KEY"},
         {"key": "openai", "label": "OpenAI", "role": "desempate (opc.)", "critical": False,
          "configured": bool(OPENAI_API_KEY), "live": None, "note": None if OPENAI_API_KEY else "Opcional · sin configurar"},
-        {"key": "plaid", "label": "Plaid/SnapTrade", "role": "portafolio", "critical": False,
+        {"key": "plaid", "label": "Plaid", "role": "portafolio", "critical": False,
          "configured": bool(PLAID_CLIENT_ID and PLAID_SECRET), "live": None,
-         "note": None if (PLAID_CLIENT_ID and PLAID_SECRET) else "Portafolio por SnapTrade snapshot"},
+         "note": None if (PLAID_CLIENT_ID and PLAID_SECRET) else "Sin Plaid: el portafolio usa el snapshot guardado (/api/portfolio/import)"},
     ]
     n_crit_down = sum(1 for s in sources if s["critical"] and (not s["configured"] or s["live"] is False))
     # `ok` era un True literal, asi que la respuesta se contradecia a si misma:
@@ -10719,6 +10719,18 @@ def get_portfolio(access_token: str, account_id: str = ""):
         holdings_resp.raise_for_status()
         plaid_data = holdings_resp.json()
 
+        # Persistimos el libro en el snapshot: es la fuente única del resto del
+        # suite (riesgo, stress, what-if, atribución, guardrails, optimizador,
+        # griegas), y así todas esas rutas funcionan después sin el access_token.
+        # Best-effort — un fallo de DB nunca rompe la carga del portafolio.
+        try:
+            _snap_eq = _extract_equity_positions(plaid_data, account_id, with_cost=True)
+            if _snap_eq:
+                save_portfolio_snapshot(_snap_eq, "PLAID")
+            save_options_snapshot(_plaid_extract_options(plaid_data, account_id))
+        except Exception as _e:
+            print(f"[portfolio] snapshot persist skip: {_e}")
+
         holdings_all = plaid_data.get("holdings", [])
         securities   = plaid_data.get("securities", [])
         accounts     = plaid_data.get("accounts", [])
@@ -11620,23 +11632,37 @@ def compute_portfolio_stress(positions, lookback_days=504):
 
 def _resolve_positions(access_token, account_id="", with_cost=False):
     """Resolve normalized equity positions from Plaid (when an access_token is given)
-    or from the stored SnapTrade snapshot otherwise — so the entire portfolio suite
-    runs on SnapTrade alone, no Plaid required. Returns (positions, source)."""
+    o del snapshot guardado si no lo hay — así todo el suite de portafolio corre
+    con o sin Plaid. Cuando Plaid responde, el resultado se PERSISTE en el snapshot
+    para que las rutas siguientes funcionen sin volver a pedir el token.
+    Devuelve (positions, source)."""
     if access_token:
         resp = requests.post(f"{plaid_base_url()}/investments/holdings/get",
                              headers=plaid_headers(), json={"access_token": access_token}, timeout=20)
         resp.raise_for_status()
-        return _extract_equity_positions(resp.json(), account_id, with_cost=with_cost), "plaid"
-    return get_portfolio_snapshot(), "snaptrade"
+        _data = resp.json()
+        positions = _extract_equity_positions(_data, account_id, with_cost=with_cost)
+        # Persistimos lo que Plaid devolvió: el snapshot es la fuente única del
+        # resto del suite, y así una llamada posterior SIN access_token sigue
+        # encontrando el libro. Best-effort: un fallo de DB no rompe la respuesta.
+        try:
+            if positions:
+                save_portfolio_snapshot(
+                    _extract_equity_positions(_data, account_id, with_cost=True), "PLAID")
+            save_options_snapshot(_plaid_extract_options(_data, account_id))
+        except Exception as _e:
+            print(f"[portfolio] snapshot persist skip: {_e}")
+        return positions, "plaid"
+    return get_portfolio_snapshot(), "snapshot"
 
 
 @app.get("/api/portfolio-risk")
 def get_portfolio_risk(access_token: str = "", account_id: str = ""):
-    """Run the quant risk engine on the user's real holdings (Plaid or SnapTrade snapshot)."""
+    """Run the quant risk engine on the user's real holdings (Plaid o snapshot guardado)."""
     try:
         positions, _src = _resolve_positions(access_token, account_id)
         if not positions:
-            return {"ok": False, "error": "No se encontraron posiciones. Carga tus holdings con SnapTrade (o conecta Plaid)."}
+            return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         return compute_portfolio_risk(positions)
     except HTTPException:
         raise
@@ -11646,11 +11672,11 @@ def get_portfolio_risk(access_token: str = "", account_id: str = ""):
 
 @app.get("/api/portfolio-stress")
 def get_portfolio_stress(access_token: str = "", account_id: str = ""):
-    """Run the stress engine on the user's real holdings (Plaid or SnapTrade snapshot)."""
+    """Run the stress engine on the user's real holdings (Plaid o snapshot guardado)."""
     try:
         positions, _src = _resolve_positions(access_token, account_id)
         if not positions:
-            return {"ok": False, "error": "No se encontraron posiciones. Carga tus holdings con SnapTrade (o conecta Plaid)."}
+            return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         return compute_portfolio_stress(positions)
     except HTTPException:
         raise
@@ -11673,7 +11699,7 @@ def get_portfolio_whatif(access_token: str = "", ticker: str = "", action: str =
 
         positions, _src = _resolve_positions(access_token, account_id)
         if not positions:
-            return {"ok": False, "error": "No se encontraron posiciones. Carga tus holdings con SnapTrade (o conecta Plaid)."}
+            return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
 
         after = [dict(p) for p in positions]
         found = next((p for p in after if p["ticker"] == ticker), None)
@@ -11948,13 +11974,63 @@ def _extract_equity_positions(data, account_id, with_cost=False):
     return positions
 
 
+def _plaid_extract_options(data, account_id=""):
+    """Extractor de posiciones de OPCIONES desde el payload de Plaid, a la misma
+    forma plana que consume el motor de griegas (`compute_options_analytics`).
+
+    `_extract_equity_positions` descarta las opciones a propósito (solo quiere el
+    libro de acciones); esta es su contraparte. Plaid expone el contrato en
+    `security.option_contract` con `contract_type` / `strike_price` /
+    `expiration_date` / `underlying_security_ticker`.
+
+    Devuelve [] si el broker no reporta opciones — que es lo honesto: sin
+    contrato no hay griegas, y no se inventa ninguna.
+    """
+    holdings_all = data.get("holdings", []) or []
+    securities = data.get("securities", []) or []
+    sec_map = {s["security_id"]: s for s in securities if s.get("security_id")}
+    holdings = ([h for h in holdings_all if h.get("account_id") == account_id]
+                if account_id else holdings_all)
+
+    def sf(v, d=0.0):
+        try:
+            f = float(v)
+            return d if (math.isnan(f) or math.isinf(f)) else f
+        except (TypeError, ValueError):
+            return d
+
+    out = []
+    for h in holdings:
+        sec = sec_map.get(h.get("security_id"), {})
+        oc = sec.get("option_contract")
+        if not isinstance(oc, dict):
+            continue
+        und = str(oc.get("underlying_security_ticker") or "").upper().strip()
+        ot = str(oc.get("contract_type") or "").lower().strip()
+        ot = "call" if ot.startswith("c") else "put" if ot.startswith("p") else ""
+        strike = sf(oc.get("strike_price"))
+        expiry = str(oc.get("expiration_date") or "")[:10]
+        contracts = sf(h.get("quantity"))          # con signo: negativo = corto
+        if not (und and ot and strike > 0 and len(expiry) == 10 and contracts != 0):
+            continue
+        # Plaid cotiza la opción por acción; el valor del contrato es ×100.
+        price = sf(h.get("institution_price"))
+        value = sf(h.get("institution_value")) or round(contracts * price * 100, 2)
+        cost = sf(h.get("cost_basis"))
+        avg = round(cost / (abs(contracts) * 100), 4) if cost and contracts else None
+        out.append({"underlying": und, "option_type": ot, "strike": strike,
+                    "expiry": expiry, "contracts": contracts, "price": price,
+                    "avg_price": avg, "value": round(value, 2)})
+    return out
+
+
 @app.get("/api/portfolio-attribution")
 def get_portfolio_attribution(access_token: str = "", account_id: str = "", lookback_days: int = 252):
     """Return + sector attribution over a trailing window on the real book."""
     try:
         positions, _src = _resolve_positions(access_token, account_id)
         if not positions:
-            return {"ok": False, "error": "No se encontraron posiciones. Carga tus holdings con SnapTrade (o conecta Plaid)."}
+            return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         return compute_portfolio_attribution(positions, lookback_days=max(20, min(lookback_days, 504)))
     except HTTPException:
         raise
@@ -11968,7 +12044,7 @@ def get_portfolio_guardrails(access_token: str = "", account_id: str = ""):
     try:
         positions, _src = _resolve_positions(access_token, account_id, with_cost=True)
         if not positions:
-            return {"ok": False, "error": "No se encontraron posiciones. Carga tus holdings con SnapTrade (o conecta Plaid)."}
+            return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         sectors = _fetch_sectors([p["ticker"] for p in positions])
         for p in positions:
             p["sector"] = sectors.get(p["ticker"], "Otros")
@@ -11981,279 +12057,116 @@ def get_portfolio_guardrails(access_token: str = "", account_id: str = ""):
 
 
 
-# ── SNAPTRADE BROKERAGE CONNECTION (near real-time, via official SDK) ──────────
-SNAPTRADE_CLIENT_ID = os.environ.get("SNAPTRADE_CLIENT_ID", "")        # <-- tu Client ID
-SNAPTRADE_CONSUMER_KEY = os.environ.get("SNAPTRADE_CONSUMER_KEY", "")  # <-- tu Consumer Key
-# Llaves PERSONALES de SnapTrade: el usuario viene provisto al registrarte (no se usa registerUser).
-# Pega aquí el userId y userSecret que aparecen en tu dashboard de SnapTrade:
-SNAPTRADE_USER_ID = os.environ.get("SNAPTRADE_USER_ID", "")            # <-- tu userId provisto
-SNAPTRADE_USER_SECRET = os.environ.get("SNAPTRADE_USER_SECRET", "")    # <-- tu userSecret provisto
-_snaptrade_client = None
+# ── IMPORTACIÓN DE PORTAFOLIO (fuente-agnóstica) ──────────────────────────────
+# El snapshot guardado (tablas portfolio_holdings / option_holdings) es la fuente
+# ÚNICA que alimenta todo el suite de portafolio: riesgo, stress, what-if,
+# atribución, guardrails, optimizador, ideas y el panel de griegas. Ninguna de
+# esas rutas conoce al broker: solo leen el snapshot.
+#
+# Hoy lo escriben dos caminos:
+#   1. Plaid  — `/api/portfolio` y `_resolve_positions` lo persisten solos.
+#   2. Manual — `/api/portfolio/import` (abajo). Es el punto de extensión para
+#      cualquier fuente futura: solo tiene que emitir las dos formas de abajo.
+#
+# Formas normalizadas (contrato estable — no cambiar sin migrar la DB):
+#   acción : {"ticker","name","value","cost_basis"?}
+#   opción : {"underlying","option_type"("call"|"put"),"strike",
+#             "expiry"("YYYY-MM-DD"),"contracts","price","avg_price"?,"value"}
 
-
-def _get_snaptrade():
-    global _snaptrade_client
-    if not SNAPTRADE_CLIENT_ID or not SNAPTRADE_CONSUMER_KEY:
-        return None
-    if _snaptrade_client is None:
-        try:
-            from snaptrade_client import SnapTrade
-            _snaptrade_client = SnapTrade(consumer_key=SNAPTRADE_CONSUMER_KEY, client_id=SNAPTRADE_CLIENT_ID)
-        except Exception as e:
-            print(f"[SnapTrade] init error: {e}")
-            return None
-    return _snaptrade_client
-
-
-def _snaptrade_reason():
-    """Precise diagnosis of why SnapTrade isn't ready, so the UI can tell the user
-    exactly what to fix (missing keys vs SDK not installed)."""
-    if not SNAPTRADE_CLIENT_ID or not SNAPTRADE_CONSUMER_KEY:
-        return ("Faltan tus llaves de SnapTrade. Define SNAPTRADE_CLIENT_ID y "
-                "SNAPTRADE_CONSUMER_KEY (pégalas en vertex_api.py ~línea 3960 o expórtalas "
-                "como variables de entorno) y reinicia el backend.")
-    try:
-        from snaptrade_client import SnapTrade  # noqa: F401
-    except Exception:
-        return "SDK de SnapTrade no instalado. Ejecuta en tu terminal: pip install snaptrade-python-sdk  (y reinicia el backend)."
-    return "SnapTrade no disponible: revisa que tus llaves sean correctas y que el backend se haya reiniciado."
-
-
-def _st_body(r):
-    """Normalize SDK response to plain python (body attr or the object itself)."""
-    b = getattr(r, "body", None)
-    return b if b is not None else r
-
-
-def _snaptrade_extract_positions(raw):
-    """Normalize SnapTrade positions to {ticker,name,value}. Symbol nesting varies,
-    so we probe several shapes defensively."""
+def _norm_import_positions(rows):
+    """Valida y normaliza posiciones de acciones de una fuente externa.
+    Descarta filas sin ticker o sin valor positivo en vez de guardar basura."""
     out = []
-    for p in (raw or []):
-        sym = p.get("symbol") if isinstance(p, dict) else None
-        ticker, name = "", ""
-        node = sym
-        # descend through possible nesting: symbol -> symbol -> symbol
-        for _ in range(3):
-            if isinstance(node, dict):
-                if node.get("symbol") and isinstance(node.get("symbol"), str):
-                    ticker = node.get("symbol")
-                    name = node.get("description") or node.get("raw_symbol") or name
-                    break
-                if node.get("raw_symbol") and isinstance(node.get("raw_symbol"), str) and not ticker:
-                    ticker = node.get("raw_symbol")
-                    name = node.get("description") or name
-                node = node.get("symbol")
-            else:
-                break
-        if not ticker and isinstance(sym, dict):
-            ticker = sym.get("raw_symbol") or sym.get("symbol") or ""
-        units = p.get("units") or p.get("fractional_units") or 0
-        price = p.get("price") or 0
-        try:
-            units_f = float(units)
-            value = units_f * float(price)
-        except (TypeError, ValueError):
-            units_f, value = 0.0, 0.0
-        # Cost basis: SnapTrade usually exposes average_purchase_price (per share)
-        avg = p.get("average_purchase_price")
-        try:
-            avg = float(avg) if avg not in (None, "") else None
-        except (TypeError, ValueError):
-            avg = None
-        cost_basis = round(units_f * avg, 2) if (avg is not None and units_f) else None
-        if cost_basis is None:
-            op = p.get("open_pnl")  # fallback: derive cost from open P&L if provided
-            try:
-                cost_basis = round(value - float(op), 2) if op not in (None, "") else None
-            except (TypeError, ValueError):
-                cost_basis = None
-        unreal = round(value - cost_basis, 2) if cost_basis is not None else None
-        unreal_pct = round((value - cost_basis) / cost_basis * 100, 2) if (cost_basis and cost_basis > 0) else None
-        if isinstance(ticker, str) and ticker and value > 0:
-            out.append({"ticker": ticker.upper().strip(), "name": name or ticker,
-                        "value": round(value, 2), "units": round(units_f, 4),
-                        "avg_price": round(avg, 2) if avg is not None else None,
-                        "cost_basis": cost_basis, "unrealized_pnl": unreal,
-                        "unrealized_pct": unreal_pct})
+    for r in (rows or []):
+        if not isinstance(r, dict):
+            continue
+        tk = str(r.get("ticker") or "").upper().strip()
+        if not tk or len(tk) > 6:
+            continue
+        val = _safe_num(r.get("value"), 0.0)
+        if val <= 0:
+            continue
+        pos = {"ticker": tk, "name": str(r.get("name") or tk), "value": round(val, 2)}
+        cb = r.get("cost_basis")
+        if cb not in (None, ""):
+            pos["cost_basis"] = round(_safe_num(cb, 0.0), 2)
+        out.append(pos)
     return out
 
 
-def _snaptrade_extract_options(raw):
-    """Normalize SnapTrade option positions to the flat shape the Greeks engine needs.
-    Symbol nesting varies by brokerage, so we probe defensively. Modular by design:
-    any future source (e.g. Unusual Whales) just needs to emit this same dict shape."""
+def _norm_import_options(rows):
+    """Igual que arriba, para opciones: exige los 5 campos que el motor de griegas
+    necesita (subyacente, tipo, strike, vencimiento, contratos)."""
     out = []
-    for p in (raw or []):
-        if not isinstance(p, dict):
+    for r in (rows or []):
+        if not isinstance(r, dict):
             continue
-        # Locate the option_symbol node (may sit on p, p.symbol, or p.symbol.symbol)
-        sym = p.get("symbol")
-        osym = None
-        for node in (p, sym, sym.get("symbol") if isinstance(sym, dict) else None):
-            if isinstance(node, dict) and isinstance(node.get("option_symbol"), dict):
-                osym = node["option_symbol"]; break
-        if not isinstance(osym, dict):
+        und = str(r.get("underlying") or "").upper().strip()
+        ot = str(r.get("option_type") or "").lower().strip()
+        ot = "call" if ot.startswith("c") else "put" if ot.startswith("p") else ""
+        strike = _safe_num(r.get("strike"), 0.0)
+        expiry = str(r.get("expiry") or "")[:10]
+        contracts = _safe_num(r.get("contracts"), 0.0)
+        if not (und and ot and strike > 0 and len(expiry) == 10 and contracts != 0):
             continue
-        # Underlying ticker
-        us = osym.get("underlying_symbol")
-        underlying = ""
-        if isinstance(us, dict):
-            underlying = us.get("symbol") or us.get("raw_symbol") or ""
-        elif isinstance(us, str):
-            underlying = us
-        if not underlying:  # last resort: parse OCC root from the option ticker
-            tk = (osym.get("ticker") or "").strip()
-            underlying = tk.split(" ")[0][:6] if tk else ""
-        # Option type
-        ot = (osym.get("option_type") or "").upper()
-        otype = "call" if ot.startswith("C") else "put" if ot.startswith("P") else ""
-        # Strike
-        try:
-            strike = float(osym.get("strike_price")) if osym.get("strike_price") not in (None, "") else None
-        except (TypeError, ValueError):
-            strike = None
-        expiry = str(osym.get("expiration_date") or "")[:10]
-        # Contracts (signed: negative = short), per-share price, avg purchase price
-        try:
-            contracts = float(p.get("units") or 0)
-        except (TypeError, ValueError):
-            contracts = 0.0
-        try:
-            price = float(p.get("price") or 0)
-        except (TypeError, ValueError):
-            price = 0.0
-        avg = p.get("average_purchase_price")
-        try:
-            avg = float(avg) if avg not in (None, "") else None
-        except (TypeError, ValueError):
-            avg = None
-        value = round(contracts * price * 100, 2)  # option price is per-share → ×100 per contract
-        if underlying and otype and strike and expiry and contracts != 0:
-            out.append({"underlying": underlying.upper().strip(), "option_type": otype,
-                        "strike": strike, "expiry": expiry, "contracts": contracts,
-                        "price": price, "avg_price": avg, "value": value})
+        price = _safe_num(r.get("price"), 0.0)
+        avg = r.get("avg_price")
+        out.append({
+            "underlying": und, "option_type": ot, "strike": strike, "expiry": expiry,
+            "contracts": contracts, "price": price,
+            "avg_price": (_safe_num(avg, 0.0) if avg not in (None, "") else None),
+            # El precio de una opción es por acción → ×100 por contrato.
+            "value": round(_safe_num(r.get("value"), contracts * price * 100), 2)})
     return out
 
 
-@app.get("/api/snaptrade/status")
-def snaptrade_status():
-    if not SNAPTRADE_CLIENT_ID or not SNAPTRADE_CONSUMER_KEY:
-        return {"ok": False, "configured": False, "error": "SNAPTRADE_CLIENT_ID / CONSUMER_KEY no configuradas."}
-    cli = _get_snaptrade()
-    if not cli:
-        return {"ok": False, "configured": True, "error": "SDK no instalado. Ejecuta: pip install snaptrade-python-sdk"}
-    try:
-        st = cli.api_status.check(); return {"ok": True, "configured": True, "status": str(_st_body(st))}
-    except Exception as e:
-        return {"ok": False, "configured": True, "error": f"{e}"}
+@app.post("/api/portfolio/import")
+def portfolio_import(body: dict = None):
+    """Carga del portafolio desde cualquier fuente (manual, CSV, broker futuro).
+
+    Body: {"positions": [...], "options": [...], "source": "manual"}
+    Ambas listas son opcionales: se manda la que se quiera reemplazar.
+    REEMPLAZA el snapshot (no hace merge) — el snapshot representa "el libro tal
+    como está ahora", igual que hacía el camino de broker.
+    """
+    body = body or {}
+    src = str(body.get("source") or "manual").upper()[:20]
+    positions = _norm_import_positions(body.get("positions"))
+    options = _norm_import_options(body.get("options"))
+    if not positions and not options:
+        return {"ok": False, "error": ("No se recibió ninguna posición válida. Formato esperado: "
+                                       "positions[] con {ticker, value>0}; options[] con "
+                                       "{underlying, option_type, strike, expiry, contracts}.")}
+    if positions:
+        save_portfolio_snapshot(positions, src)
+    if options:
+        save_options_snapshot(options)
+    return {"ok": True, "source": src.lower(), "n_positions": len(positions),
+            "n_options": len(options),
+            "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}
 
 
-@app.get("/api/snaptrade/whoami")
-def snaptrade_whoami():
-    """Personal SnapTrade keys come with a pre-provisioned user. If the userId/userSecret
-    are configured, return them so the frontend skips registerUser (not allowed for
-    personal keys) and goes straight to the OAuth connection portal."""
-    if SNAPTRADE_USER_ID and SNAPTRADE_USER_SECRET:
-        return {"ok": True, "preprovisioned": True,
-                "user_id": SNAPTRADE_USER_ID, "user_secret": SNAPTRADE_USER_SECRET}
-    return {"ok": False, "preprovisioned": False}
+@app.get("/api/portfolio/snapshot")
+def portfolio_snapshot_status():
+    """Qué hay guardado ahora mismo. La UI lo consulta para saber si el suite de
+    análisis puede correr sin conectar Plaid."""
+    eq = get_portfolio_snapshot()
+    op = get_options_snapshot()
+    return {"ok": True, "has_data": bool(eq or op),
+            "n_positions": len(eq), "n_options": len(op),
+            "total_value": round(sum(_safe_num(p.get("value"), 0.0) for p in eq), 2)}
 
 
-@app.post("/api/snaptrade/register")
-def snaptrade_register(user_id: str):
-    cli = _get_snaptrade()
-    if not cli:
-        return {"ok": False, "error": _snaptrade_reason()}
-    # Personal keys: user already provisioned — use configured creds, don't call registerUser.
-    if SNAPTRADE_USER_ID and SNAPTRADE_USER_SECRET:
-        return {"ok": True, "user_id": SNAPTRADE_USER_ID, "user_secret": SNAPTRADE_USER_SECRET,
-                "preprovisioned": True}
-    try:
-        r = _st_body(cli.authentication.register_snap_trade_user(body={"userId": user_id}))
-        return {"ok": True, "user_id": r.get("userId"), "user_secret": r.get("userSecret")}
-    except Exception as e:
-        msg = str(e)
-        if "1012" in msg or "registerUser is not available" in msg or "personal" in msg.lower():
-            return {"ok": False, "personal_keys": True, "error": (
-                "Tus llaves de SnapTrade son PERSONALES: el usuario ya viene provisto al "
-                "registrarte (no se permite registerUser). Copia tu userId y userSecret desde "
-                "tu dashboard de SnapTrade y pégalos en vertex_api.py como SNAPTRADE_USER_ID y "
-                "SNAPTRADE_USER_SECRET, luego reinicia el backend.")}
-        return {"ok": False, "error": msg}
-
-
-@app.get("/api/snaptrade/login-link")
-def snaptrade_login_link(user_id: str, user_secret: str):
-    cli = _get_snaptrade()
-    if not cli:
-        return {"ok": False, "error": _snaptrade_reason()}
-    try:
-        r = _st_body(cli.authentication.login_snap_trade_user(user_id=user_id, user_secret=user_secret))
-        uri = r.get("redirectURI") if isinstance(r, dict) else None
-        return {"ok": True, "redirect_uri": uri}
-    except Exception as e:
-        return {"ok": False, "error": f"{e}"}
-
-
-@app.get("/api/snaptrade/accounts")
-def snaptrade_accounts(user_id: str, user_secret: str):
-    cli = _get_snaptrade()
-    if not cli:
-        return {"ok": False, "error": _snaptrade_reason()}
-    try:
-        r = _st_body(cli.account_information.list_user_accounts(user_id=user_id, user_secret=user_secret))
-        accts = []
-        for a in (r or []):
-            bal = a.get("balance") if isinstance(a, dict) else None
-            tot = None
-            if isinstance(bal, dict):
-                tot = (bal.get("total") or {}).get("amount") if isinstance(bal.get("total"), dict) else bal.get("total")
-            accts.append({"id": a.get("id"), "name": a.get("name") or a.get("number"),
-                          "institution": a.get("institution_name"), "balance": tot})
-        return {"ok": True, "accounts": accts}
-    except Exception as e:
-        return {"ok": False, "error": f"{e}"}
-
-
-@app.get("/api/snaptrade/holdings")
-def snaptrade_holdings(user_id: str, user_secret: str, account_id: str):
-    """Near-real-time positions for one connected account; saves the book snapshot
-    so the agent + risk engine can use SnapTrade data interchangeably with Plaid."""
-    cli = _get_snaptrade()
-    if not cli:
-        return {"ok": False, "error": _snaptrade_reason()}
-    try:
-        r = _st_body(cli.account_information.get_user_account_positions(
-            user_id=user_id, user_secret=user_secret, account_id=account_id))
-        positions = _snaptrade_extract_positions(r)
-        if positions:
-            try:
-                save_portfolio_snapshot(positions, "SNAPTRADE")
-            except Exception as _e:
-                print(f"[SnapTrade] snapshot skip: {_e}")
-        # Options live under a separate SnapTrade endpoint; fetch defensively so a
-        # brokerage that doesn't expose option positions never breaks the equity load.
-        options = []
-        try:
-            ro = _st_body(cli.options.list_option_holdings(
-                user_id=user_id, user_secret=user_secret, account_id=account_id))
-            if isinstance(ro, dict):
-                ro = ro.get("option_positions") or ro.get("positions") or ro.get("data") or []
-            options = _snaptrade_extract_options(ro)
-            save_options_snapshot(options)
-        except Exception as _eo:
-            print(f"[SnapTrade] options skip: {_eo}")
-        return {"ok": True, "account_id": account_id, "positions": positions,
-                "options": options, "n_options": len(options),
-                "source": "snaptrade", "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}
-    except Exception as e:
-        return {"ok": False, "error": f"{e}"}
-
+@app.post("/api/portfolio/clear")
+def portfolio_clear():
+    """Borra el snapshot guardado (el equivalente a 'desconectar')."""
+    save_portfolio_snapshot([])
+    save_options_snapshot([])
+    return {"ok": True}
 
 # ── OPTIONS GREEKS ENGINE (Black-Scholes from positions + yfinance IV) ─────────
-# Modular: positions come from get_options_snapshot() (SnapTrade today). To swap in
-# Unusual Whales later, feed its option list through the same compute function.
+# Modular: las posiciones vienen de get_options_snapshot(), que llenan Plaid o
+# /api/portfolio/import. Cualquier fuente futura solo tiene que emitir esa forma.
 def _norm_cdf(x):
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
@@ -12309,7 +12222,7 @@ def compute_options_analytics(options, equity_positions=None):
     if not options:
         return {"ok": True, "n_options": 0,
                 "note": "No se detectaron posiciones de opciones en la cuenta conectada. "
-                        "(Algunos brokers no exponen opciones vía SnapTrade.)"}
+                        "(Plaid solo expone opciones si el broker las reporta; si no, cárgalas con /api/portfolio/import.)"}
     RF = 0.043
     now = datetime.now()
     spot_cache, iv_cache = {}, {}
@@ -12428,7 +12341,7 @@ def compute_options_analytics(options, equity_positions=None):
 
 @app.get("/api/portfolio-options")
 def portfolio_options():
-    """Book-level options Greeks panel. Reads the stored option snapshot (SnapTrade)
+    """Book-level options Greeks panel. Reads the stored option snapshot (Plaid o import)
     + equity snapshot (for total directional delta) and prices everything with BSM."""
     try:
         opts = get_options_snapshot()
@@ -12703,7 +12616,7 @@ def get_portfolio_optimizer(access_token: str = "", account_id: str = "", max_we
     try:
         positions, _src = _resolve_positions(access_token, account_id)
         if not positions:
-            return {"ok": False, "error": "No se encontraron posiciones. Carga tus holdings con SnapTrade (o conecta Plaid)."}
+            return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         mw = max(0.05, min(float(max_weight), 1.0))
         return compute_portfolio_optimizer(positions, max_weight=mw)
     except HTTPException:

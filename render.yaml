@@ -48,11 +48,3 @@ services:
         sync: false
       - key: SCHWAB_APP_SECRET
         sync: false
-      - key: SNAPTRADE_CLIENT_ID
-        sync: false
-      - key: SNAPTRADE_CONSUMER_KEY
-        sync: false
-      - key: SNAPTRADE_USER_ID
-        sync: false
-      - key: SNAPTRADE_USER_SECRET
-        sync: false

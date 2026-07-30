@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "wbj-webapp",
-      "runtimeExecutable": "/Users/victorgonzalez/Desktop/warren-buffett-jr/engine/.venv/bin/python",
-      "runtimeArgs": ["/Users/victorgonzalez/Desktop/warren-buffett-jr/engine/scripts/webapp.py"],
-      "port": 8765
+      "name": "vertex-fund-os",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "vertex_api:app", "--host", "127.0.0.1", "--port", "8000"],
+      "port": 8000
     }
   ]
 }
