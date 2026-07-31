@@ -305,6 +305,26 @@ with tempfile.TemporaryDirectory() as _td4:
     _ST.save_trades("EST", [])
     chk(_o1 == [t["id"] for t in _ST.load_trades("EST").trades] == [1, 2, 3],
         "orden estable con timestamps idénticos")
+    # 5ª pasada: el reintento de saneado en el PEOR caso (el roto va al final,
+    # o sea máximo contenido escrito antes de que salte el allow_nan=False).
+    _b5 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    _rr = [_fr(i, (_b5 + timedelta(minutes=i)).isoformat().replace("+00:00", "Z"))
+           for i in range(1500)]
+    _rr[0] = _rep(_rr[0], iv=float("nan"))
+    _ST.save_trades("W1", _rr)
+    _c5 = (_ST.data_dir() / "trades" / "W1.json").read_text()
+    try:
+        json.loads(_c5, parse_constant=_boom); _v5 = True
+    except ValueError: _v5 = False
+    chk(_v5 and _c5.count('{"ticker"') == 1 and _c5.endswith("}"),
+        "el reintento de saneado no deja cola del intento fallido")
+    chk(len(_ST.load_trades("W1").trades) == 1500, "y no pierde ni un trade (1500/1500)")
+    # Compatibilidad hacia adelante: campos que hoy no existen.
+    (_ST.data_dir() / "trades" / "FUT.json").write_text(json.dumps(
+        {"ticker": "FUT", "updated_at": "x", "trades": [{"id": 1}],
+         "schema_version": 9, "campo_del_futuro": {"a": 1}}), encoding="utf-8")
+    chk(len(_ST.load_trades("FUT").trades) == 1,
+        "un archivo con campos futuros se lee igual (compat hacia adelante)")
 chk('"motivo"' in API and "_empty(" in API,
     "si la memoria se apaga, el payload dice por qué (nada de degradar mudo)")
 

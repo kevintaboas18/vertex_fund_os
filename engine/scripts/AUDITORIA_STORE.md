@@ -8,6 +8,7 @@ resultó ser un artefacto del contenedor.
 - **2ª pasada** (concurrencia, tickers degenerados, portabilidad) → 5 a 8.
 - **3ª pasada** (los arreglos de las dos anteriores) → sección 9.
 - **4ª pasada** (mapeo exhaustivo + casos límite) → 10 y 11.
+- **5ª pasada** (infraestructura y prueba definitiva) → **cero hallazgos**.
 
 Las 31 sentencias ejecutables de `store.ts` están mapeadas una a una al port
 (tabla al final).
@@ -178,6 +179,37 @@ archivos por un caso que no ocurre no compensa.
 "`save_trades` no falla en disco de solo lectura": el contenedor de auditoría
 corre como **root**, que salta los bits de permiso, así que la prueba con
 `chmod` no prueba nada. No es un resultado.
+
+## La prueba definitiva: el store enciende el sub-agente 6
+
+Todo lo anterior comprueba que el archivo se escribe bien. Esto comprueba para
+qué sirve. De punta a punta —disco → endpoint—, sin inyectar `past_flows` a mano
+en `run_scorecard`:
+
+|  | `scores.validation` | categorías | score |
+|---|---|---|---|
+| Sin memoria | `None` | 5/6 | 74 |
+| Con 30 flows en disco | **9** | **6/6** | 76 |
+
+La siembra va por la misma vía que usa el motor (`save_trades`), no tocando el
+JSON a mano. Es la demostración de que la memoria **no es decorativa**: sin ella
+la Confirmación de Precio no puntúa aunque haya tape, porque un flow de hoy no
+tiene recorrido que juzgar.
+
+## Infraestructura (5ª pasada)
+
+- **El reintento de saneado en el peor caso**: con el trade roto al FINAL del
+  JSON —máximo contenido escrito antes de que salte `allow_nan=False`— el
+  archivo queda íntegro, sin cola del intento fallido, y no se pierde ninguno de
+  los 1500/3000 trades. Cuatro campos rotos en la misma fila tampoco lo tumban.
+- **Memoria**: un guardado incremental sobre 5000 trades pica en **14.1 MB**.
+  Ocho peticiones simultáneas ≈ 113 MB — cabe de sobra en un plan de 512 MB.
+- **Un proceso muerto con el cerrojo tomado lo libera solo**: `SIGKILL` al que
+  lo tiene y otro proceso entra al instante. No hay cerrojos zombis.
+- **Compatibilidad hacia adelante**: un archivo con campos que hoy no existen
+  (`schema_version`, etc.) se lee igual y se reescribe sin romperse.
+- **`WBJ_TITO_DATA` apuntando a un archivo** en vez de a una carpeta: leer
+  devuelve `None`, guardar da `OSError` que el llamador ya captura.
 
 ## Lo que se comprobó y estaba bien
 

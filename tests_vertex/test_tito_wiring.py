@@ -258,6 +258,42 @@ class TestProjectionTargets:
         una = client.get("/api/projection-targets?ticker=DEMO").json()
         assert una["memory"]["flows_guardados"] == len(ids)
 
+    def test_la_memoria_en_disco_enciende_el_subagente_6_de_verdad(self, client):
+        """La prueba definitiva del punto del store: sin él, `validation` sale
+        `None` aunque haya tape, porque un flow de hoy no tiene recorrido que
+        juzgar. Aquí se comprueba de punta a punta —disco → endpoint— y no con
+        `past_flows` inyectado a mano en `run_scorecard`.
+        """
+        import wbj.tito.stores as st
+
+        # Sin memoria previa: el tape de hoy no basta.
+        d0 = client.get("/api/projection-targets?ticker=FRESCO").json()
+        assert d0["scores"]["validation"] is None
+        assert d0["active"] < 6
+
+        # Se siembra el archivo con flows de sesiones pasadas, por la MISMA vía
+        # que usa el motor: save_trades. Nada de tocar el JSON a mano.
+        from wbj.tito.flow import classify_flow
+        import wbj.tito.marketsnack as MS
+
+        viejos = []
+        for dias in (30, 45, 60, 75, 90):
+            for t in MS.fetch_flow("FRESCO").trades:
+                t = dict(t)
+                t["id"] = t["id"] * 1000 + dias
+                t["timestamp"] = (NOW - timedelta(days=dias)).isoformat()
+                viejos.append(t)
+        guardado = st.save_trades("FRESCO", classify_flow(viejos, NOW).interesting)
+        assert guardado.total >= 5, "la siembra no llegó al disco"
+
+        d1 = client.get("/api/projection-targets?ticker=FRESCO").json()
+        assert d1["scores"]["validation"] is not None, \
+            "el sub-agente 6 sigue apagado con memoria acumulada en disco"
+        assert d1["active"] == 6, f"solo {d1['active']}/6 categorías activas"
+        assert d1["memory"]["flows_utilizables"] > 0
+        # Y el score total cambia: la memoria no es decorativa.
+        assert d1["score"] != d0["score"]
+
     def test_arranca_de_disco_vacio(self, client, tmp_path, monkeypatch):
         # Primer despliegue: no hay nada guardado. El motor tiene que responder
         # igual, con las tres piezas de memoria declaradas como apagadas.
