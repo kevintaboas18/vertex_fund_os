@@ -581,13 +581,75 @@ def fcfe_value(fcfes: Sequence[float], cost_equity_value: float, terminal_growth
 # --- 9. Economic-profit valuation -------------------------------------------------
 
 
-@register_formula(id="VAL-EVAEV-021", version=_VERSION, unit="usd", inputs=["ic0", "eps", "wacc_value"])
 def economic_profit_value(ic0: float, eps: Sequence[float], wacc_value: float) -> Value:
-    """Economic-profit enterprise value (Cerebro 9, VAL-EVAEV-021):
-    `InvestedCapital_0 + PV(future economic profits)`. Should reconcile to
-    FCFF DCF under consistent assumptions (see `reconciles`)."""
+    """`InvestedCapital_0 + PV(economic profits)` for an EP series the caller
+    already holds — the arithmetic of Cerebro 9, without the forecast.
+
+    Deliberately NOT registered: `economic_profit_ev` owns VAL-EVAEV-021,
+    because that id has to name the model the report publishes and the
+    reconciliation tests, and that model builds its own EP series from the
+    same forecast the FCFF DCF prices. Two functions claiming one id let the
+    registry silently keep whichever was decorated last.
+
+    `eps` must be ECONOMIC PROFITS (`NOPAT_t - WACC * IC_{t-1}`). Passing free
+    cash flow here is what broke the cross-check: adding `ic0` to a present
+    value of cash flows double-counts the capital base.
+    """
     pv_eps = sum(ep / (1 + wacc_value) ** (t + 1) for t, ep in enumerate(eps))
     return _ok(ic0 + pv_eps, unit="usd")
+
+
+@register_formula(
+    id="VAL-EVAEV-021", version=_VERSION, unit="usd",
+    inputs=["ic0", "growth", "margin", "wacc_value", "tv_growth", "revenue0",
+            "tax_rate", "roic_value", "years"],
+)
+def economic_profit_ev(ic0: float, growth: float, margin: float, wacc_value: float,
+                       tv_growth: float, revenue0: float, tax_rate: float,
+                       roic_value: float, years: int) -> Value:
+    """Economic-profit enterprise value, built on the SAME forecast the FCFF
+    DCF prices (Cerebro 9, VAL-EVAEV-021).
+
+    `EV = IC0 + PV(economic profits) + PV(terminal EP)`, where an economic
+    profit is `NOPAT_t - WACC * IC_{t-1}` and invested capital rolls forward
+    by the reinvestment the FCFF path already implies
+    (`reinvestment_t = NOPAT_t - FCFF_t`).
+
+    Cerebro 9 asks the two models to agree because "a mismatch exposes a
+    modeling error". They could not agree here, and the mismatch exposed one
+    in this file rather than in the assumptions: the caller was passing
+    `NOPAT * (1 - reinvestment_rate) * (1+g)^t` — which is FREE CASH FLOW —
+    into a function whose second argument must be economic profit, and the
+    old formula then added `IC0` on top of a present value of cash flows.
+    That double-counts the capital base: on NVDA-shaped inputs it read 31.6%
+    above the FCFF DCF, so `FCFF_ECONOMIC_PROFIT_RECONCILIATION_FAILED` fired
+    on every company and `VAL-EVAEV-021` published a number that was neither
+    model.
+
+    The terminal term is `TV_fcff - IC_N`: the FCFF terminal value prices
+    everything from N+1 onward, and the economic-profit form states that same
+    continuing value as capital already on the books plus the profits above
+    the cost of that capital. Subtracting `IC_N` is what stops it being
+    counted twice — the same mistake, one horizon later.
+    """
+    if tv_growth >= wacc_value:
+        return _null(NullState.NOT_MEANINGFUL, "usd", "TERMINAL_GROWTH_GE_WACC")
+    terminal = terminal_year_metrics(
+        growth, margin, wacc_value, tv_growth, revenue0, tax_rate, roic_value, years,
+    )
+    fcffs = terminal["explicit_fcffs"]
+
+    revenue, ic = revenue0, ic0
+    pv_ep = 0.0
+    for t, fcff in enumerate(fcffs, start=1):
+        revenue *= 1 + growth
+        nopat = revenue * margin * (1 - tax_rate)
+        # Economic profit is measured on the capital in place at the START of
+        # the year, so charge WACC before this year's reinvestment lands.
+        pv_ep += (nopat - wacc_value * ic) / (1 + wacc_value) ** t
+        ic += nopat - fcff
+    pv_terminal = (terminal["terminal_value"] - ic) / (1 + wacc_value) ** years
+    return _ok(ic0 + pv_ep + pv_terminal, unit="usd")
 
 
 def reconciles(a: Value, b: Value, tol: float = 0.01) -> bool:

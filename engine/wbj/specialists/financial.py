@@ -678,18 +678,57 @@ def override_2_triggered(roic_value: float | None, wacc_value: float | None) -> 
     return roic_value is not None and wacc_value is not None and roic_value < wacc_value
 
 
-def reconciliation_check(dim_score10: float, core27_score10: float, *, tolerance: float = 1.5) -> str | None:
+def _reconciliation_explanation(dimensions: Sequence[Any] | None) -> str:
+    """Which dimensions make the two views of the same category disagree.
+
+    They disagree for one structural reason. A dimension whose valid
+    weight falls under MISSING_DATA_POLICY.md's 0.70 floor is NOT_SCORABLE
+    but stays APPLICABLE, so the weighted category average carries it as a
+    zero. The core-27 diagnostic averages bands, and a metric with no band
+    simply is not in its sample. The same missing evidence therefore costs
+    the weighted score a full slot and costs the diagnostic nothing.
+
+    Naming the dimension turns the flag from "these two numbers differ"
+    into the explanation DECISION_RULES.md actually asks for.
+    """
+    unscored = []
+    for dim in (dimensions or []):
+        try:
+            if dim.score10_value().is_null and dim.applicable_weight() > 0:
+                unscored.append(f"{dim.name} (valid weight "
+                                f"{dim.valid_weight():.2f})")
+        except Exception:      # a dimension shape we cannot read explains nothing
+            continue
+    if not unscored:
+        return ("no dimension is unscored, so the gap comes from the band "
+                "distribution rather than from missing evidence")
+    return (
+        "unscored but still applicable, so the weighted average carries "
+        "them as zero while the core-27 sample simply omits them: "
+        + ", ".join(unscored)
+    )
+
+
+def reconciliation_check(dim_score10: float, core27_score10: float, *,
+                         tolerance: float = 1.5,
+                         dimensions: Sequence[Any] | None = None) -> str | None:
     """DECISION_RULES.md: "The core diagnostic must reconcile
     directionally; a difference greater than 1.5 points between the
     weighted category score and the 27-metric score requires an
     explanation." Returns the explanatory flag string when the two 0-10
-    scores diverge by more than `tolerance`, else `None`."""
+    scores diverge by more than `tolerance`, else `None`.
+
+    The rule asks for an explanation, so the flag carries one. It used to
+    restate the two numbers the reader could already see and stop there,
+    which satisfied the letter of the rule and none of its point.
+    """
     diff = abs(dim_score10 - core27_score10)
     if diff > tolerance:
         return (
             "CORE27_RECONCILIATION_WARNING: weighted dimension score_10="
             f"{dim_score10:.2f} vs core-27 score_10={core27_score10:.2f} "
-            f"(diff={diff:.2f} > {tolerance})"
+            f"(diff={diff:.2f} > {tolerance}) — "
+            + _reconciliation_explanation(dimensions)
         )
     return None
 
@@ -1789,7 +1828,8 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> FinancialOutpu
     mandatory_overrides: list[str] = []
 
     # ---- Reconciliation (DECISION_RULES.md: >1.5-point gap requires an explanation) ----
-    recon_warning = reconciliation_check(dim_score10, core27_score10) if valid else None
+    recon_warning = reconciliation_check(
+        dim_score10, core27_score10, dimensions=dimensions) if valid else None
     if recon_warning is not None:
         mandatory_flags.append(recon_warning)
 

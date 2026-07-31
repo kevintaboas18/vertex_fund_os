@@ -1229,13 +1229,26 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     fcff_per_share = base_per_share  # scenarios() IS the FCFF DCF model for the base case
     econ_profit_per_share = None
     ep_ev = None            # bound outside the branch: VAL-EVA-020 emits either way
-    if wacc_value is not None and ic_result is not None and diluted_shares and nopat_v.is_valid:
-        eps_forecast = [nopat_v.value * (1 - reinvestment_rate) * (1 + base_growth) ** t for t in range(1, years + 1)]
-        ep_ev = ve.economic_profit_value(ic_result, eps_forecast, wacc_value)
+    if (wacc_value is not None and ic_result is not None and diluted_shares
+            and base_input is not None and revenue0):
+        # Built on the SAME base-scenario forecast the FCFF DCF prices, so
+        # Cerebro 9's cross-check compares two routes through one set of
+        # assumptions. It used to be fed `NOPAT*(1-rr)*(1+g)^t` — free cash
+        # flow — where economic profit belongs, and `IC0` was then added on
+        # top of a present value of cash flows, double-counting the capital
+        # base. The check could never pass, so the flag fired on every
+        # company and said nothing about the assumptions it was meant to test.
+        ep_ev = ve.economic_profit_ev(
+            ic0=ic_result, growth=base_input.growth, margin=base_input.margin,
+            wacc_value=base_input.wacc, tv_growth=base_input.tv_growth,
+            revenue0=revenue0, tax_rate=tax_rate, roic_value=roic_value,
+            years=years,
+        )
         if ep_ev.is_valid:
-            eq_v = ve.equity_bridge(ep_ev.value, cash, 0.0, total_debt, 0.0, 0.0, 0.0, 0.0)
-            ps_v = ve.per_share(eq_v.value, diluted_shares) if eq_v.is_valid else None
-            econ_profit_per_share = ps_v.value if ps_v is not None and ps_v.is_valid else None
+            # The same debt bridge the DCF applies (`common.net_debt`), or the
+            # two per-share figures would differ by the bridge alone.
+            ps_v = ve.per_share(ep_ev.value - net_debt, diluted_shares)
+            econ_profit_per_share = ps_v.value if ps_v.is_valid else None
     add("VAL-EVAEV-021", _ok(econ_profit_per_share, unit="usd_per_share") if econ_profit_per_share is not None else _null(NullState.MISSING, "usd_per_share", "ECONOMIC_PROFIT_INPUTS_UNAVAILABLE"), None)
 
     reconciled = None
