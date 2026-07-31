@@ -149,6 +149,33 @@ class TestProjectionTargets:
         assert m["flows_guardados"] > 0
         assert "iv_rank_real_en" in m
 
+    def test_la_memoria_de_trades_se_acumula_entre_llamadas(self, client):
+        # El round-trip por el envoltorio `StoredTrades` de store.ts: la segunda
+        # consulta no puede perder ni duplicar lo de la primera, que es de lo
+        # único que vive el sub-agente 6.
+        import wbj.tito.stores as st
+
+        primera = client.get("/api/projection-targets?ticker=DEMO").json()
+        guardado = st.load_trades("DEMO")
+        assert guardado is not None and guardado.ticker == "DEMO"
+        n1 = len(guardado.trades)
+        assert n1 == primera["memory"]["flows_guardados"]
+
+        segunda = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert segunda["memory"]["flows_guardados"] == n1     # mismo tape → no duplica
+        ids = [t["id"] for t in st.load_trades("DEMO").trades]
+        assert len(ids) == len(set(ids))
+
+    def test_lo_guardado_lleva_el_analisis_completo(self, client):
+        # Víctor guarda el FlowRow entero, no 8 campos: si mañana hace falta
+        # preguntar por el score o los greeks del pasado, ya están.
+        import wbj.tito.stores as st
+
+        client.get("/api/projection-targets?ticker=DEMO")
+        t = st.load_trades("DEMO").trades[0]
+        assert {"id", "timestamp", "asset_price", "aggression",
+                "score", "flags", "scores", "gamma", "expiry_status"} <= set(t)
+
     def test_las_noticias_no_viajan_dentro(self, client):
         # Van en su ruta propia: 4 feeds RSS lentos no pueden retrasar los targets.
         assert "news" not in client.get("/api/projection-targets?ticker=DEMO").json()

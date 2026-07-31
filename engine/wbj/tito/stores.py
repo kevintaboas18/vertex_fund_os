@@ -29,9 +29,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
@@ -42,11 +43,13 @@ __all__ = [
     "CHAIN_DAYS",
     "IV_DAYS",
     "JOURNAL_DAYS",
-    "TRADES_DAYS",
+    "MAX_PER_TICKER",
     "save_chain_snapshot",
     "load_chain_history",
     "save_iv_snapshot",
     "load_iv_history",
+    "StoredTrades",
+    "SaveResult",
     "save_trades",
     "load_trades",
     "PredictionSnapshot",
@@ -57,10 +60,10 @@ __all__ = [
 ]
 
 #: Ventanas que guarda cada serie, en días. Son las de Víctor.
+#: Los trades NO llevan ventana: `store.ts` recorta por cantidad (MAX_PER_TICKER).
 CHAIN_DAYS = 45      # chainStore: el documento pide 45 días de cadena
 IV_DAYS = 365        # ivStore: ventana de 52 semanas para el rank
 JOURNAL_DAYS = 120   # predictionStore
-TRADES_DAYS = 120    # trades por ticker para el backtest del sub-agente 6
 
 
 def data_dir() -> Path:
@@ -168,37 +171,123 @@ def load_iv_history(ticker: str) -> list[dict]:
 
 
 # ─────────────────────────── trades (sub-agente 6) ──────────────────────────
+#
+# Port de `store.ts`. Es el único store de Víctor con forma propia: los otros
+# tres son series por día (una fila diaria, dedupe por fecha) y este es un
+# registro por TRADE (dedupe por id, tope por cantidad). Las diferencias no son
+# de estilo, cada una responde a algo:
+#
+# - **Guarda el análisis completo, no 8 campos.** Víctor persiste el `FlowRow`
+#   entero —scores, flags, greeks, condition_code—. El comentario de su
+#   `saveTrades` lo dice: *"los trades vienen ya clasificados/puntuados, así que
+#   se guarda el análisis completo"*. Un archivo recortado obliga a reclasificar
+#   para responder cualquier pregunta nueva sobre el pasado.
+# - **El análisis más reciente gana.** Al re-ver un id ya guardado lo
+#   sobrescribe en vez de saltárselo, porque hay campos que dependen de HOY
+#   (`expiry_status` pasa de vigente → expirado) y se recalculan cada corrida.
+# - **Tope por cantidad, no por días.** 5000 trades por ticker. Un ticker con
+#   poco flujo conserva meses de historia; uno muy líquido no revienta el disco.
+#   Recortar por ventana temporal le quitaría al sub-agente 6 justo la historia
+#   que necesita en los tickers tranquilos.
+# - **Orden descendente** (lo más nuevo primero), que es también lo que hace que
+#   el recorte a 5000 tire lo más viejo.
 
 
-def save_trades(ticker: str, rows: Sequence[Any], now: datetime) -> int:
-    """Acumula los trades notables. Es lo que hace posible el sub-agente 6.
+#: Tope por ticker para que el archivo no crezca sin control (`MAX_PER_TICKER`).
+MAX_PER_TICKER = 5000
 
-    Dedupe por `id` del trade, no por día: en una misma sesión llegan trades
-    nuevos y re-guardar no debe perder los anteriores ni duplicarlos.
+
+@dataclass(frozen=True)
+class StoredTrades:
+    """`StoredTrades` de Víctor: el archivo no es una lista pelada.
+
+    El envoltorio guarda de quién es el historial y cuándo se tocó por última
+    vez, que es lo que permite responder "¿esta memoria está viva?" sin abrir
+    los 5000 trades.
     """
-    path = _path("trades", ticker)
-    prev = _read(path) or []
-    seen = {r.get("id") for r in prev if isinstance(r, dict)}
-    for r in rows:
-        if r.id in seen:
-            continue
-        seen.add(r.id)
-        prev.append({
-            "id": r.id, "timestamp": r.timestamp, "type": r.type, "strike": r.strike,
-            "expiration": r.expiration, "asset_price": r.asset_price,
-            "premium": r.premium, "aggression": r.aggression,
-        })
-    cutoff = (date.today() - timedelta(days=TRADES_DAYS)).isoformat()
-    prev = sorted(
-        (r for r in prev if str(r.get("timestamp", ""))[:10] >= cutoff),
-        key=lambda r: r["timestamp"],
+
+    ticker: str
+    updated_at: str
+    trades: list[dict]
+
+
+@dataclass(frozen=True)
+class SaveResult:
+    """`SaveResult` de Víctor — lo que su UI muestra tras guardar."""
+
+    total: int          # cuántas quedan guardadas
+    added: int          # cuántas eran nuevas en esta corrida
+    first_seen: str | None  # fecha del trade más antiguo guardado
+
+
+def _file_for(ticker: str) -> Path:
+    """`fileFor`: el ticker es entrada de usuario y aquí acaba siendo una ruta.
+
+    El saneado no es cosmético — sin él un `../` en el ticker escribe fuera del
+    directorio de datos.
+    """
+    safe = re.sub(r"[^A-Z0-9._-]", "", ticker.strip().upper())
+    p = data_dir() / "trades"
+    p.mkdir(parents=True, exist_ok=True)
+    return p / f"{safe}.json"
+
+
+def _ts_key(row: dict) -> float:
+    """`Date.parse(timestamp)`, con los no-parseables al final (como NaN en JS)."""
+    try:
+        return datetime.fromisoformat(str(row.get("timestamp", "")).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return float("-inf")
+
+
+def load_trades(ticker: str) -> StoredTrades | None:
+    """`loadTrades`. Devuelve `None` si aún no hay historial para este ticker.
+
+    `None` y "historial vacío" son cosas distintas y el llamador las distingue:
+    la primera es "nunca se ha guardado nada", la segunda "se guardó y no quedó
+    nada". Por eso no colapsa a lista vacía.
+    """
+    parsed = _read(_file_for(ticker))
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("trades"), list):
+        return None
+    return StoredTrades(
+        ticker=str(parsed.get("ticker", "")),
+        updated_at=str(parsed.get("updated_at", "")),
+        trades=parsed["trades"],
     )
-    _write(path, prev)
-    return len(prev)
 
 
-def load_trades(ticker: str) -> list[dict]:
-    return _read(_path("trades", ticker)) or []
+def save_trades(ticker: str, rows: Sequence[Any]) -> SaveResult:
+    """`saveTrades`: fusiona con lo guardado (dedupe por id) y persiste.
+
+    Es lo que hace posible el sub-agente 6: un flow de hoy no tiene recorrido
+    que juzgar, así que la Confirmación de Precio solo existe sobre lo que este
+    archivo fue acumulando.
+    """
+    clean = ticker.strip().upper()
+    existing = load_trades(clean)
+    by_id: dict[Any, dict] = {}
+
+    for t in (existing.trades if existing else []):
+        if isinstance(t, dict):
+            by_id[t.get("id")] = t
+    added = 0
+    for r in rows:
+        row = r if isinstance(r, dict) else asdict(r)
+        if row.get("id") not in by_id:
+            added += 1
+        by_id[row.get("id")] = row   # el análisis más reciente gana
+
+    merged = sorted(by_id.values(), key=_ts_key, reverse=True)[:MAX_PER_TICKER]
+
+    _write(_file_for(clean), {
+        "ticker": clean,
+        "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "trades": merged,
+    })
+
+    oldest = merged[-1].get("timestamp") if merged else None
+    return SaveResult(total=len(merged), added=added, first_seen=oldest)
 
 
 # ──────────────────── predicciones + calibración (memoria) ──────────────────

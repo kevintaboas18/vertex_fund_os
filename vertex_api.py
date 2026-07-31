@@ -3950,14 +3950,19 @@ def _tito_memory(ticker, trades, chain, bars, now):
             st.save_chain_snapshot(ticker, chain, now)
         notable = classify_flow(trades, now).interesting if trades else []
         if notable:
-            st.save_trades(ticker, notable, now)
+            # Los mismos `convictionRows` que guarda su /api/flow.
+            st.save_trades(ticker, notable)
             ivs = [r.iv * 100 for r in notable if r.iv and r.iv > 0]
             if ivs:
                 st.save_iv_snapshot(ticker, sum(ivs) / len(ivs), now)
 
-        # 2. Leer lo acumulado.
+        # 2. Leer lo acumulado. El filtro por asset_price/timestamp es el de su
+        #    /api/validation: un trade sin precio de subyacente no se puede
+        #    seguir hacia adelante, así que no entra al backtest.
         iv_history = st.load_iv_history(ticker)
-        past = st.load_trades(ticker)
+        stored = st.load_trades(ticker)
+        past = [t for t in (stored.trades if stored else [])
+                if (t.get("asset_price") or 0) > 0 and t.get("timestamp")]
         journal = st.load_journal(ticker)
         review = st.review_predictions(journal, bars, now)
         calibration = st.calibration_from_review(review)
@@ -4064,7 +4069,8 @@ def tito_health(ticker: str = "AAPL"):
         probe.write_text("ok", encoding="utf-8")
         probe.unlink()
         iv_days = len(st.load_iv_history(tk))
-        flows = len(st.load_trades(tk))
+        _stored = st.load_trades(tk)
+        flows = len(_stored.trades) if _stored else 0
         add("memoria.disco", True, f"escribible en {d}", None, None)
         add("memoria.iv", iv_days >= 60,
             f"{iv_days}/60 días de IV acumulados",

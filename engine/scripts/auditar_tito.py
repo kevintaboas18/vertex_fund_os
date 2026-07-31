@@ -45,7 +45,8 @@ MAPA = {
     "massive.ts": "massive.py", "occ.ts": "occ.py", "prediction.ts": "prediction.py",
     "risk.ts": "risk.py", "structure.ts": "structure.py", "validation.ts": "validation.py",
     "chainStore.ts": "stores.py", "ivStore.ts": "stores.py",
-    "predictionStore.ts": "stores.py", "types.ts": "(dataclasses)",
+    "predictionStore.ts": "stores.py", "store.ts": "stores.py",
+    "types.ts": "(dataclasses)",
     "chartGeometry.ts": "(JS en el HTML)", "news.ts": "news.py",
 }
 FUERA = {  # deferidos a propósito, no son del motor de análisis
@@ -169,6 +170,41 @@ with tempfile.TemporaryDirectory() as td:
 chk("WBJ_TITO_DATA" in RENDER and "/var/data/tito" in RENDER, "WBJ_TITO_DATA declarado en Render")
 chk("BORRA en cada reinicio" in RENDER.replace("\n","").replace("#","").replace("      "," "),
     "el blueprint avisa de que el plan free borra la memoria")
+
+# ── store.ts: la forma del almacén de trades es la suya, no una lista pelada ──
+from wbj.tito import stores as _ST
+from wbj.tito.flow import FlowFlags, FlowRow, TradeScores
+from dataclasses import replace as _replace
+chk(_ST.MAX_PER_TICKER == 5000, "tope por CANTIDAD: 5000 por ticker (no por días)")
+chk(not hasattr(_ST, "TRADES_DAYS"), "sin ventana temporal en trades (store.ts no la tiene)")
+chk({f.name for f in _ST.SaveResult.__dataclass_fields__.values()}
+    == {"total", "added", "first_seen"}, "SaveResult { total, added, firstSeen }")
+chk({f.name for f in _ST.StoredTrades.__dataclass_fields__.values()}
+    == {"ticker", "updated_at", "trades"}, "StoredTrades { ticker, updatedAt, trades }")
+with tempfile.TemporaryDirectory() as td:
+    os.environ["WBJ_TITO_DATA"] = td
+    def _fr(i, ts, status="vigente"):
+        return FlowRow(id=i, symbol="X", underlying="X", type="call", strike=100.0,
+                       expiration="2026-12-18", dte=50, price=2.0, size=10, side="AT_ASK",
+                       aggression="ask", asset_price=95.0, bid=1.9, ask=2.1, premium=5e5,
+                       delta=.6, gamma=.03, theta=-.05, vega=.1, theta_pct_daily=2.5,
+                       iv=.45, open_interest=1000, volume=500, score=8, sentiment="bullish",
+                       timestamp=ts, condition_code=None, condition_name=None,
+                       flags=FlowFlags(), scores=TradeScores(), expiry_status=status)
+    chk(_ST.load_trades("NADA") is None, "sin historial → None, no lista vacía")
+    _ST.save_trades("DEMO", [_fr(1, "2026-07-28T15:00:00Z"), _fr(2, "2026-07-30T15:00:00Z")])
+    _r = _ST.save_trades("DEMO", [_fr(1, "2026-07-28T15:00:00Z", "expirado"),
+                                  _fr(3, "2026-07-29T15:00:00Z")])
+    chk(_r.added == 1 and _r.total == 3, "added cuenta solo las nuevas")
+    chk(_r.first_seen == "2026-07-28T15:00:00Z", "firstSeen = el trade más antiguo")
+    _rows = _ST.load_trades("DEMO").trades
+    chk([t["id"] for t in _rows] == [2, 3, 1], "orden descendente por timestamp")
+    chk(next(t for t in _rows if t["id"] == 1)["expiry_status"] == "expirado",
+        "el análisis más reciente gana (expiryStatus se recalcula)")
+    chk({"score", "flags", "scores", "gamma", "open_interest"} <= set(_rows[0]),
+        "guarda el análisis COMPLETO, no un recorte de 8 campos")
+    chk(_ST._file_for("../../ETC/X").resolve().parent
+        == (_ST.data_dir() / "trades").resolve(), "el ticker no se escapa del directorio")
 
 # ─────────────────────────────────────────────────────────────────────
 sec("5-bis. Noticias (Tarea 7) — contra news.ts")

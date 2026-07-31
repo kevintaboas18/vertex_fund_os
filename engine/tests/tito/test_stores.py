@@ -108,22 +108,112 @@ class TestIvStore:
 
 
 class TestTradesStore:
+    """Port de `store.ts`. La forma es la suya: envoltorio `StoredTrades`,
+    `SaveResult` de tres campos, dedupe por id y tope por cantidad."""
+
     def test_acumula_y_deduplica_por_id(self):
         rows = [_flow_row(1, "2026-07-30T15:00:00Z"), _flow_row(2, "2026-07-30T15:01:00Z")]
-        save_trades("DEMO", rows, NOW)
-        save_trades("DEMO", rows, NOW)  # mismo lote otra vez
-        assert len(load_trades("DEMO")) == 2
+        save_trades("DEMO", rows)
+        save_trades("DEMO", rows)  # mismo lote otra vez
+        assert len(load_trades("DEMO").trades) == 2
 
     def test_trades_nuevos_no_pisan_los_viejos(self):
-        save_trades("DEMO", [_flow_row(1, "2026-07-29T15:00:00Z")], NOW)
-        save_trades("DEMO", [_flow_row(2, "2026-07-30T15:00:00Z")], NOW)
-        assert {t["id"] for t in load_trades("DEMO")} == {1, 2}
+        save_trades("DEMO", [_flow_row(1, "2026-07-29T15:00:00Z")])
+        save_trades("DEMO", [_flow_row(2, "2026-07-30T15:00:00Z")])
+        assert {t["id"] for t in load_trades("DEMO").trades} == {1, 2}
 
-    def test_guarda_lo_que_necesita_el_subagente_6(self):
-        save_trades("DEMO", [_flow_row(1, "2026-07-30T15:00:00Z")], NOW)
-        t = load_trades("DEMO")[0]
+    def test_guarda_el_analisis_completo_no_un_recorte(self):
+        # "los trades vienen ya clasificados/puntuados, así que se guarda el
+        # análisis completo" — el archivo no puede perder score/flags/greeks.
+        save_trades("DEMO", [_flow_row(1, "2026-07-30T15:00:00Z")])
+        t = load_trades("DEMO").trades[0]
         assert set(t) >= {"id", "timestamp", "type", "strike", "expiration",
-                          "asset_price", "premium", "aggression"}
+                          "asset_price", "premium", "aggression",
+                          "score", "sentiment", "delta", "gamma", "theta", "vega",
+                          "iv", "open_interest", "volume", "flags", "scores",
+                          "expiry_status", "condition_code", "unusual", "interesting"}
+
+    def test_el_analisis_mas_reciente_gana(self):
+        # expiry_status se recalcula cada corrida: un contrato vigente pasa a
+        # expirado y el archivo tiene que reflejarlo, no conservar la foto vieja.
+        from dataclasses import replace
+        viejo = replace(_flow_row(1, "2026-07-30T15:00:00Z"), expiry_status="vigente")
+        nuevo = replace(_flow_row(1, "2026-07-30T15:00:00Z"), expiry_status="expirado")
+        save_trades("DEMO", [viejo])
+        save_trades("DEMO", [nuevo])
+        assert load_trades("DEMO").trades[0]["expiry_status"] == "expirado"
+
+    def test_el_envoltorio_dice_de_quien_es_y_cuando(self):
+        st = save_trades("demo", [_flow_row(1, "2026-07-30T15:00:00Z")])
+        assert st.total == 1 and st.added == 1
+        stored = load_trades("DEMO")
+        assert stored.ticker == "DEMO"
+        assert stored.updated_at.endswith("Z")
+
+    def test_save_result_cuenta_solo_las_nuevas(self):
+        save_trades("DEMO", [_flow_row(1, "2026-07-30T15:00:00Z")])
+        r = save_trades("DEMO", [_flow_row(1, "2026-07-30T15:00:00Z"),
+                                 _flow_row(2, "2026-07-30T15:01:00Z")])
+        assert r.added == 1
+        assert r.total == 2
+
+    def test_first_seen_es_el_trade_mas_antiguo(self):
+        save_trades("DEMO", [_flow_row(1, "2026-07-28T15:00:00Z"),
+                             _flow_row(2, "2026-07-30T15:00:00Z")])
+        r = save_trades("DEMO", [_flow_row(3, "2026-07-29T15:00:00Z")])
+        assert r.first_seen == "2026-07-28T15:00:00Z"
+
+    def test_ordena_de_lo_mas_nuevo_a_lo_mas_viejo(self):
+        save_trades("DEMO", [_flow_row(1, "2026-07-28T15:00:00Z"),
+                             _flow_row(2, "2026-07-30T15:00:00Z"),
+                             _flow_row(3, "2026-07-29T15:00:00Z")])
+        assert [t["id"] for t in load_trades("DEMO").trades] == [2, 3, 1]
+
+    def test_recorta_a_max_per_ticker_tirando_lo_mas_viejo(self):
+        from wbj.tito.stores import MAX_PER_TICKER
+        base = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        rows = [_flow_row(i, (base + timedelta(minutes=i)).isoformat().replace("+00:00", "Z"))
+                for i in range(MAX_PER_TICKER + 10)]
+        r = save_trades("DEMO", rows)
+        assert r.total == MAX_PER_TICKER
+        assert r.added == MAX_PER_TICKER + 10        # `added` cuenta lo entrante, no lo que sobrevive
+        ids = [t["id"] for t in load_trades("DEMO").trades]
+        assert ids[0] == MAX_PER_TICKER + 9          # lo más nuevo arriba
+        assert min(ids) == 10                        # los 10 más viejos se cayeron
+
+    def test_sin_historial_devuelve_none_no_lista_vacia(self):
+        assert load_trades("NUNCA") is None
+
+    def test_el_ticker_no_puede_escaparse_del_directorio(self):
+        # El ticker es entrada de usuario y acaba siendo una ruta. El saneado de
+        # Víctor conserva el punto (`[^A-Z0-9._-]`), así que "../../ETC/PASSWD"
+        # queda en "....ETCPASSWD": feo, pero sin barras no hay travesía.
+        from wbj.tito.stores import _file_for, data_dir
+        destino = _file_for("../../ETC/PASSWD")
+        assert destino.name == "....ETCPASSWD.json"
+        assert destino.resolve().parent == (data_dir() / "trades").resolve()
+
+        save_trades("../../ETC/PASSWD", [_flow_row(1, "2026-07-30T15:00:00Z")])
+        import os
+        escritos = [os.path.join(r, f) for r, _, fs in os.walk(data_dir()) for f in fs]
+        assert len(escritos) == 1
+        assert os.path.realpath(escritos[0]).startswith(str(data_dir().resolve()))
+
+    def test_un_archivo_corrupto_se_lee_como_sin_historial(self):
+        from wbj.tito.stores import data_dir
+        p = data_dir() / "trades"
+        p.mkdir(parents=True, exist_ok=True)
+        (p / "DEMO.json").write_text("{no soy json", encoding="utf-8")
+        assert load_trades("DEMO") is None
+
+    def test_una_lista_pelada_del_formato_viejo_no_se_lee_como_historial(self):
+        # Antes el archivo era una lista; ahora es {ticker, updated_at, trades}.
+        # Un archivo del formato viejo NO debe colarse como si fuera válido.
+        from wbj.tito.stores import data_dir
+        p = data_dir() / "trades"
+        p.mkdir(parents=True, exist_ok=True)
+        (p / "DEMO.json").write_text('[{"id": 1}]', encoding="utf-8")
+        assert load_trades("DEMO") is None
 
 
 def _snap(d: str, base: float, spot: float = 100.0, direction: str = "up") -> PredictionSnapshot:
