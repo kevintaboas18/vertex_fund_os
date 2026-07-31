@@ -3984,6 +3984,113 @@ def _tito_memory(ticker, trades, chain, bars, now):
         return empty
 
 
+@app.get("/api/tito-health")
+def tito_health(ticker: str = "AAPL"):
+    """Diagnóstico del motor de Víctor: qué fuente está viva y qué falta.
+
+    Responde la pregunta operativa "¿por qué mi scorecard sale incompleto?"
+    tocando cada fuente de verdad, una por una, y diciendo qué hacer con la que
+    falle. Es el equivalente en servidor del preflight local.
+
+    Nunca imprime credenciales: solo si están puestas, su longitud y si sirven.
+    """
+    tk = (ticker or "AAPL").strip().upper()
+    checks = []
+
+    def add(nombre, ok, detalle, arreglo=None, impacto=None):
+        checks.append({"check": nombre, "ok": bool(ok), "detalle": detalle,
+                       "arreglo": arreglo, "impacto": impacto})
+
+    # 1. El motor
+    sc = _tito_mod()
+    add("motor", sc is not None,
+        "wbj.tito cargado" if sc else "no se pudo importar engine/wbj/tito",
+        None if sc else "revisa que engine/ esté en el despliegue",
+        None if sc else "Proyecciones no funciona")
+    if sc is None:
+        return {"ok": False, "ticker": tk, "checks": checks}
+
+    # 2. Massive — cadena y barras (2 de 6 sub-agentes + GEX + niveles)
+    key = os.environ.get("MASSIVE_API_KEY", "").strip()
+    add("MASSIVE_API_KEY", bool(key),
+        f"presente ({len(key)} caracteres)" if key else "no está en el entorno",
+        None if key else "ponla en Environment de Render",
+        None if key else "sin cadena: no hay Estructura, GEX, niveles ni escenarios")
+    if key:
+        try:
+            from wbj.tito.massive import fetch_daily_bars, fetch_option_chain
+            ch = fetch_option_chain(tk)
+            add("massive.cadena", bool(ch.rows),
+                f"{len(ch.rows)} contratos en {ch.pages} página(s)"
+                + (" · TRUNCADA" if ch.truncated else ""),
+                None if ch.rows else f"¿{tk} tiene opciones listadas?",
+                None if ch.rows else "Estructura sin score y salvaguarda de liquidez activa")
+            bars = fetch_daily_bars(tk)
+            add("massive.barras", bool(bars), f"{len(bars)} barras diarias",
+                None if bars else "sin barras el motor corta",
+                None if bars else "Proyecciones devuelve error para este ticker")
+        except Exception as e:
+            add("massive", False, str(e),
+                "revisa la key en el panel de Massive y que api.massive.com sea alcanzable",
+                "sin cadena: Proyecciones devuelve error, no un número parcial")
+
+    # 3. MarketSnack — el tape (5 de los 6 sub-agentes)
+    cookie = os.environ.get("MARKETSNACK_COOKIE", "").strip()
+    add("MARKETSNACK_COOKIE", bool(cookie),
+        f"presente ({len(cookie)} caracteres)" if cookie else "no está en el entorno",
+        None if cookie else "DevTools en app.marketsnack.com → Network → /api/flow_feed → header Cookie",
+        None if cookie else "5 de 6 sub-agentes sin dato; solo queda Estructura")
+    if cookie:
+        try:
+            from wbj.tito.marketsnack import fetch_flow
+            fl = fetch_flow(tk, period="1d", min_premium=100_000, max_pages=1)
+            add("marketsnack.tape", True,
+                f"{len(fl.trades)} trades notables (1d)"
+                + (" · 0 puede ser mercado cerrado" if not fl.trades else ""),
+                None, None)
+        except Exception as e:
+            caducada = "expirada" in str(e) or "caduc" in str(e).lower()
+            add("marketsnack.tape", False, str(e),
+                "la cookie caduca sola: sácala otra vez de DevTools y actualízala en Render"
+                if caducada else "revisa la conectividad con app.marketsnack.com",
+                "5 de 6 sub-agentes sin dato; el scorecard va incompleto y lo declara")
+
+    # 4. Memoria — lo que enciende IV Rank real, sub-agente 6 y calibración
+    try:
+        from wbj.tito import stores as st
+        d = st.data_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        probe = d / ".health"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        iv_days = len(st.load_iv_history(tk))
+        flows = len(st.load_trades(tk))
+        add("memoria.disco", True, f"escribible en {d}", None, None)
+        add("memoria.iv", iv_days >= 60,
+            f"{iv_days}/60 días de IV acumulados",
+            None if iv_days >= 60 else f"faltan {60 - iv_days} sesiones; se acumula solo",
+            None if iv_days >= 60 else "IV Rank usa el proxy de volatilidad realizada")
+        add("memoria.flows", flows > 0,
+            f"{flows} flows guardados",
+            None if flows else "se acumulan con cada consulta",
+            None if flows else "sub-agente 6 (Confirmación) sin score")
+    except Exception as e:
+        add("memoria.disco", False, str(e),
+            "en Render el plan free NO tiene disco: sube a starter y monta el volumen "
+            "en WBJ_TITO_DATA=/var/data/tito",
+            "IV Rank atascado en el proxy, sub-agente 6 apagado y sin auto-calibración")
+
+    faltan = [c for c in checks if not c["ok"]]
+    return {
+        "ok": not faltan,
+        "ticker": tk,
+        "resumen": ("Todo en orden." if not faltan
+                    else f"{len(faltan)} punto(s) por resolver: "
+                         + ", ".join(c["check"] for c in faltan)),
+        "checks": checks,
+    }
+
+
 @app.get("/api/tito-news")
 def tito_news(ticker: str, call_pct: float | None = None, name: str | None = None):
     """Tarea 7 — noticias en dos capas + bandera de contradicción.

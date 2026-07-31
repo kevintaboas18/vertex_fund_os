@@ -218,6 +218,63 @@ class TestNoticias:
         assert client.get("/api/tito-news?ticker=DEMO").json()["afecta_scorecard"] is False
 
 
+class TestHealth:
+    """El diagnóstico responde "¿por qué mi scorecard sale incompleto?"."""
+
+    def test_con_todo_en_orden_no_reporta_pendientes(self, client):
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        por_check = {c["check"]: c for c in d["checks"]}
+        assert por_check["motor"]["ok"] is True
+        assert por_check["MASSIVE_API_KEY"]["ok"] is True
+        assert por_check["massive.cadena"]["ok"] is True
+        assert por_check["marketsnack.tape"]["ok"] is True
+
+    def test_distingue_falta_la_key_de_la_key_no_sirve(self, client, monkeypatch):
+        monkeypatch.delenv("MASSIVE_API_KEY", raising=False)
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        k = next(c for c in d["checks"] if c["check"] == "MASSIVE_API_KEY")
+        assert k["ok"] is False
+        assert "no está en el entorno" in k["detalle"]
+        assert "Render" in k["arreglo"]
+        # Sin key no se intenta la llamada: no tiene sentido preguntar dos veces.
+        assert not any(c["check"] == "massive.cadena" for c in d["checks"])
+
+    def test_cada_fallo_dice_su_impacto_y_su_arreglo(self, client, monkeypatch):
+        monkeypatch.delenv("MARKETSNACK_COOKIE", raising=False)
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        for c in d["checks"]:
+            if not c["ok"]:
+                assert c["impacto"], c["check"]
+                assert c["arreglo"], c["check"]
+
+    def test_reconoce_la_cookie_caducada(self, client, monkeypatch):
+        import wbj.tito.marketsnack as MS
+
+        def caducada(*a, **k):
+            raise MS.MarketSnackError("Sesión de MarketSnack inválida o expirada.")
+
+        monkeypatch.setattr(MS, "fetch_flow", caducada)
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        c = next(x for x in d["checks"] if x["check"] == "marketsnack.tape")
+        assert c["ok"] is False
+        assert "DevTools" in c["arreglo"]  # el arreglo real, no "revisa la red"
+
+    def test_avisa_del_disco_de_render(self, client, monkeypatch):
+        import wbj.tito.stores as ST
+        monkeypatch.setattr(ST, "data_dir", lambda: Path("/proc/imposible/tito"))
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        c = next(x for x in d["checks"] if x["check"] == "memoria.disco")
+        assert c["ok"] is False
+        assert "starter" in c["arreglo"]
+
+    def test_nunca_devuelve_el_valor_de_una_credencial(self, client, monkeypatch):
+        monkeypatch.setenv("MASSIVE_API_KEY", "SECRETO_NO_DEBE_SALIR_JAMAS")
+        monkeypatch.setenv("MARKETSNACK_COOKIE", "COOKIE_SECRETA_TAMPOCO")
+        body = client.get("/api/tito-health?ticker=DEMO").text
+        assert "SECRETO_NO_DEBE_SALIR_JAMAS" not in body
+        assert "COOKIE_SECRETA_TAMPOCO" not in body
+
+
 class TestScorecardCompleto:
     def test_la_ruta_del_scorecard_tambien_responde(self, client):
         d = client.get("/api/tito-scorecard?ticker=DEMO").json()
