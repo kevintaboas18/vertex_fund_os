@@ -101,6 +101,15 @@ except ImportError:   # pragma: no cover — Windows
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
 
+#: Rutas que este hilo ya tiene tomadas. Sin esto, entrar dos veces al mismo
+#: cerrojo desde el mismo hilo cuelga el proceso ENTERO y para siempre: el
+#: `threading.Lock` no es reentrante, y `flock` tampoco lo es entre dos
+#: descriptores del mismo proceso, así que ni cambiándolo por un `RLock` se
+#: arregla. Hoy ningún camino anida, pero es una trampa cara —un worker colgado
+#: no da error ni timeout, simplemente deja de responder— y sale barata de
+#: cerrar aquí.
+_HELD = threading.local()
+
 
 @contextmanager
 def _exclusive(path: Path):
@@ -119,6 +128,13 @@ def _exclusive(path: Path):
     colgado del inodo viejo.
     """
     key = str(path)
+    tomados = getattr(_HELD, "paths", None)
+    if tomados is None:
+        tomados = _HELD.paths = set()
+    if key in tomados:
+        yield          # este hilo ya lo tiene: la exclusividad la da el de fuera
+        return
+
     with _LOCKS_GUARD:
         lk = _LOCKS.setdefault(key, threading.Lock())
     with lk:
@@ -133,9 +149,11 @@ def _exclusive(path: Path):
                 if fh is not None:
                     fh.close()
                 fh = None   # sin flock (Windows, FS raro, disco RO) queda el de hilos
+        tomados.add(key)
         try:
             yield
         finally:
+            tomados.discard(key)
             if fh is not None:
                 try:
                     fcntl.flock(fh.fileno(), fcntl.LOCK_UN)

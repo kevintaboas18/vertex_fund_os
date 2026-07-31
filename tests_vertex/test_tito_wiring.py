@@ -220,6 +220,55 @@ class TestProjectionTargets:
         assert m["available"] is False
         assert "disco de solo lectura" in m["motivo"]
 
+    def test_peticiones_simultaneas_no_se_comen_la_memoria(self, client):
+        """La prueba de que está CONECTADO, no solo de que el store funciona.
+
+        Es el caso real: el panel se auto-refresca mientras el usuario consulta,
+        y FastAPI atiende las rutas síncronas en un pool de hilos. Sin cerrojo
+        cada petición leía el mismo archivo y escribía encima de la anterior.
+        """
+        import threading
+
+        import wbj.tito.stores as st
+
+        errores = []
+
+        def consulta():
+            try:
+                r = client.get("/api/projection-targets?ticker=DEMO")
+                assert r.status_code == 200 and r.json()["ok"] is True
+            except Exception as e:                     # noqa: BLE001
+                errores.append(repr(e))
+
+        hilos = [threading.Thread(target=consulta) for _ in range(8)]
+        for h in hilos:
+            h.start()
+        for h in hilos:
+            h.join(timeout=60)
+
+        assert not [h for h in hilos if h.is_alive()], "alguna petición se colgó"
+        assert not errores, errores
+
+        # El tape del doble es el mismo, así que el total no depende de cuántas
+        # peticiones entraron — pero sí tiene que estar completo, no truncado.
+        stored = st.load_trades("DEMO")
+        assert stored is not None
+        ids = [t["id"] for t in stored.trades]
+        assert len(ids) == len(set(ids)), "la concurrencia duplicó trades"
+        una = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert una["memory"]["flows_guardados"] == len(ids)
+
+    def test_arranca_de_disco_vacio(self, client, tmp_path, monkeypatch):
+        # Primer despliegue: no hay nada guardado. El motor tiene que responder
+        # igual, con las tres piezas de memoria declaradas como apagadas.
+        vacio = tmp_path / "sin-nada"
+        monkeypatch.setenv("WBJ_TITO_DATA", str(vacio))
+        d = client.get("/api/projection-targets?ticker=NUEVO").json()
+        assert d["ok"] is True
+        assert d["memory"]["available"] is True      # el disco va, solo está vacío
+        assert d["memory"]["motivo"] is None
+        assert d["memory"]["iv_rank_real_en"] > 0    # aún faltan sesiones
+
     def test_lo_guardado_lleva_el_analisis_completo(self, client):
         # Víctor guarda el FlowRow entero, no 8 campos: si mañana hace falta
         # preguntar por el score o los greeks del pasado, ya están.

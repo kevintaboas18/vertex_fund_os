@@ -253,6 +253,26 @@ with tempfile.TemporaryDirectory() as td:
 chk("except ImportError" in (TITO_DIR/"stores.py").read_text()
     and "import fcntl" in (TITO_DIR/"stores.py").read_text(),
     "fcntl es opcional: el módulo carga en Windows")
+# 3ª pasada: el cerrojo no puede colgar un worker ni aflojar la exclusividad.
+import threading as _th2, time as _t2
+_p3 = _ST._path("iv", "REENT")
+_ok3 = []
+def _anida():
+    with _ST._exclusive(_p3):
+        with _ST._exclusive(_p3):
+            _ok3.append(True)
+_t3 = _th2.Thread(target=_anida, daemon=True); _t3.start(); _t3.join(timeout=10)
+chk(not _t3.is_alive() and _ok3 == [True], "el cerrojo anidado no cuelga el worker")
+_dentro, _solapes = [], []
+def _entra():
+    with _ST._exclusive(_ST._path("iv", "EXCL")):
+        _dentro.append(1)
+        if len(_dentro) > 1: _solapes.append(1)
+        _t2.sleep(0.02); _dentro.pop()
+_hs3 = [_th2.Thread(target=_entra) for _ in range(6)]
+for _h in _hs3: _h.start()
+for _h in _hs3: _h.join(timeout=10)
+chk(not _solapes, "la reentrada no aflojó la exclusividad entre hilos")
 chk('"motivo"' in API and "_empty(" in API,
     "si la memoria se apaga, el payload dice por qué (nada de degradar mudo)")
 

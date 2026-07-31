@@ -219,6 +219,53 @@ class TestTradesStore:
         assert load_trades("NUNCA") is None
         assert not (data_dir() / "trades").exists()
 
+    def test_el_cerrojo_anidado_no_cuelga_el_proceso(self):
+        # threading.Lock no es reentrante, y flock tampoco entre dos descriptores
+        # del mismo proceso: entrar dos veces colgaba el worker para siempre, sin
+        # error ni timeout. Hoy ningún camino anida, pero la trampa era cara.
+        import threading
+
+        from wbj.tito.stores import _exclusive, _path
+
+        p = _path("iv", "REENT")
+        ok = []
+
+        def anidado():
+            with _exclusive(p):
+                with _exclusive(p):
+                    ok.append(True)
+
+        t = threading.Thread(target=anidado, daemon=True)
+        t.start()
+        t.join(timeout=10)
+        assert not t.is_alive(), "DEADLOCK: el cerrojo anidado colgó el hilo"
+        assert ok == [True]
+
+    def test_el_cerrojo_sigue_siendo_exclusivo_entre_hilos(self):
+        # La reentrada no puede haber aflojado la exclusividad de verdad.
+        import threading
+        import time
+
+        from wbj.tito.stores import _exclusive, _path
+
+        p = _path("iv", "EXCL")
+        dentro, solapes = [], []
+
+        def entra():
+            with _exclusive(p):
+                dentro.append(1)
+                if len(dentro) > 1:
+                    solapes.append(1)
+                time.sleep(0.02)
+                dentro.pop()
+
+        hilos = [threading.Thread(target=entra) for _ in range(6)]
+        for h in hilos:
+            h.start()
+        for h in hilos:
+            h.join(timeout=10)
+        assert not solapes, "dos hilos entraron a la vez"
+
     def test_dos_escrituras_a_la_vez_no_se_pisan(self):
         # Sin cerrojo, 8 hilos × 50 trades dejaban 100 de 400: cada uno leía el
         # mismo archivo y escribía encima de lo que acumuló el anterior.

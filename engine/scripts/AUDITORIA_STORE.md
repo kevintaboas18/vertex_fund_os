@@ -1,11 +1,12 @@
 # Auditoría del port de `store.ts`
 
-Dos pasadas, atacando el port en vez de releer el diff. Ocho hallazgos: seis
+Tres pasadas, atacando el port en vez de releer el diff. Nueve hallazgos: siete
 arreglados, uno compartido con el original que se deja como está, y uno que
 resultó ser un artefacto del contenedor.
 
-**Segunda pasada** (concurrencia, tickers degenerados, portabilidad) →
-secciones 5 a 8.
+- **1ª pasada** (contrato, datos corruptos, degradación) → secciones 1 a 4.
+- **2ª pasada** (concurrencia, tickers degenerados, portabilidad) → 5 a 8.
+- **3ª pasada** (los arreglos de las dos anteriores) → sección 9.
 
 ## 1 · El orden dependía de la zona horaria del servidor — ARREGLADO
 
@@ -117,6 +118,23 @@ se corre el preflight local— habría tumbado el módulo entero y con él
 que cubre el caso de un solo proceso. Verificado simulando el entorno:
 400/400 sin `flock` y sin crear `.lock`.
 
+## 9 · El cerrojo del punto 5 podía colgar un worker — ARREGLADO
+
+Bug **introducido por mi propio arreglo**, que es justo lo que buscaba la 3ª
+pasada. Entrar dos veces a `_exclusive` sobre la misma ruta desde el mismo hilo
+colgaba el proceso **para siempre**: `threading.Lock` no es reentrante, y
+`flock` tampoco lo es entre dos descriptores del mismo proceso, así que ni
+cambiándolo por un `RLock` se arreglaba.
+
+Hoy ningún camino anida, así que era latente — pero el modo de fallo es el peor
+que hay: sin error, sin timeout, el worker simplemente deja de responder. Y la
+trampa quedaba armada para el próximo que llamara a un `save_*` desde dentro de
+otro.
+
+Arreglo: un `threading.local()` con las rutas que este hilo ya tiene tomadas; si
+ya la tiene, se pasa de largo (la exclusividad la da el de fuera). Verificado
+que la reentrada **no** aflojó la exclusividad real: 6 hilos, cero solapes.
+
 ## No arreglado a propósito
 
 `BRK/B` y `BRKB` caen en el mismo archivo, porque el saneado borra la barra.
@@ -151,6 +169,21 @@ corre como **root**, que salta los bits de permiso, así que la prueba con
 - El `.lock` no se lee como historial ni deja `.tmp` huérfanos.
 - Los 4 stores bajo 8 hilos: ivStore 8/8 días, chainStore 8/8, predictionStore
   24/24 (8 días × 3 horizontes).
+- **8 peticiones HTTP simultáneas** al endpoint real: ninguna se cuelga, ninguna
+  falla, cero trades duplicados. Es la prueba de que está conectado, no solo de
+  que el store funciona aislado.
+- Arranque en frío con el disco vacío: el motor responde igual y declara la
+  memoria como disponible-pero-vacía, no como rota.
+- Contención real: 10 escrituras concurrentes sobre un archivo de 4000 trades →
+  1.7 s en total, las 10 aplicadas (4010/4010).
+- El `.lock` convive con el `.json` sin pisarlo en ningún ticker real
+  (`NVDA`, `BRK.B`, `BRK-B`), y no se lee como historial.
+- Ningún ticker legítimo cae en la guarda del punto 6 (`BRK.B`, `BRK-B`, `0DTE`,
+  `A.B_C-D` pasan).
+- Los invariantes de Víctor siguen intactos tras los siete arreglos: orden
+  descendente, `added`, `first_seen`, "el más reciente gana", envoltorio,
+  análisis completo y `None` sin historial.
+- `_LOCKS` acotado: un cerrojo por archivo, 505 entradas tras 500 tickers.
 
 ## Correspondencia con el original
 
