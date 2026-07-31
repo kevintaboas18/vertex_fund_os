@@ -292,43 +292,87 @@ _PROFILE_FALLBACK: dict[str, Any] = {
 }
 
 
+def _parse_money(raw: str) -> float | None:
+    """Importe en dólares desde texto, tolerando ambas convenciones de miles.
+
+    `$1,000` (EE.UU.) y `$1.000` (España) son el MISMO número. Una versión
+    anterior solo quitaba comas, así que `$1.000 USD` se leía como **1 dólar**
+    y el dimensionamiento de posiciones colapsaba en silencio. Regla: si el
+    último separador deja exactamente 3 dígitos detrás, es de miles; si deja
+    1 o 2, es decimal.
+    """
+    s = raw.strip()
+    if not s:
+        return None
+    sep = max(s.rfind(","), s.rfind("."))
+    if sep == -1:
+        limpio = s
+    else:
+        decimales = len(s) - sep - 1
+        limpio = (s.replace(",", "").replace(".", "") if decimales == 3
+                  else s[:sep].replace(",", "").replace(".", "") + "." + s[sep + 1:])
+    try:
+        v = float(limpio)
+    except ValueError:
+        return None
+    return v if v > 0 else None
+
+
 def _load_profile() -> dict[str, Any]:
     """Lee el perfil del inversionista de `Perfil Inversionista/`.
 
-    Extrae capital y horizonte del texto; el resto son constantes del perfil.
-    Cualquier fallo devuelve `_PROFILE_FALLBACK` — nunca revienta un análisis
-    por no poder leer un archivo de contexto.
+    Victor lo tenía TRANSCRITO a mano a propósito ("a literal, dated
+    transcription... not re-parsed from markdown at runtime"). Su objeción es
+    válida: parsear prosa es frágil. Pero transcribir garantiza que se
+    desincronice — que es exactamente lo que pasó (A-03).
+
+    La respuesta a esa objeción no es dejar de leer el archivo, es **declarar
+    qué se leyó y qué no**: `fields_parsed` lista los campos que salieron del
+    documento y `fields_defaulted` los que cayeron a un valor por defecto. Así
+    el reporte puede decir "este tope no viene de tu perfil" en vez de
+    presentar un número inventado como si fuera tuyo.
+
+    Nunca lanza: un análisis no puede caerse por un archivo de contexto.
     """
     import re
     from pathlib import Path
 
+    out = dict(_PROFILE_FALLBACK)
+    out["fields_parsed"], out["fields_defaulted"] = [], []
     try:
         root = Path(__file__).resolve().parents[3] / "Perfil Inversionista"
         path = next((root / n for n in _PROFILE_FILES if (root / n).is_file()), None)
         if path is None:
-            return dict(_PROFILE_FALLBACK)
+            out["fields_defaulted"] = ["capital_usd", "horizon_years", "max_position_pct"]
+            return out
         text = path.read_text(encoding="utf-8")
-        out = dict(_PROFILE_FALLBACK)
         out["source"] = path.name
 
-        # Capital: primer importe en dólares del documento (ej. "$1,000", "$25,000 USD").
+        # Capital: primer importe en dólares ("$1,000", "$1.000 USD", "$25,000").
         m = re.search(r"\$\s?([\d.,]+)", text)
-        if m:
-            try:
-                out["capital_usd"] = float(m.group(1).replace(",", ""))
-            except ValueError:
-                pass
+        valor = _parse_money(m.group(1)) if m else None
+        (out.__setitem__("capital_usd", valor), out["fields_parsed"].append("capital_usd")) \
+            if valor is not None else out["fields_defaulted"].append("capital_usd")
+
         # Horizonte: primer rango "N a M años" / "N-M años".
         m = re.search(r"(\d+)\s*(?:a|-|–|—)\s*(\d+)\s*años", text, re.I)
-        if m:
+        if m and int(m.group(1)) <= int(m.group(2)):
             out["horizon_years"] = (int(m.group(1)), int(m.group(2)))
+            out["fields_parsed"].append("horizon_years")
+        else:
+            out["fields_defaulted"].append("horizon_years")
+
         # Tope por posición: rango en porcentaje ("30%-60%", "máx 30–60%").
         m = re.search(r"(\d{1,3})\s*%\s*(?:a|-|–|—)\s*(\d{1,3})\s*%", text)
-        if m:
+        if m and 0 < int(m.group(1)) <= int(m.group(2)) <= 100:
             out["max_position_pct"] = (int(m.group(1)) / 100.0, int(m.group(2)) / 100.0)
+            out["fields_parsed"].append("max_position_pct")
+        else:
+            out["fields_defaulted"].append("max_position_pct")
         return out
     except Exception:
-        return dict(_PROFILE_FALLBACK)
+        out["fields_defaulted"] = ["capital_usd", "horizon_years", "max_position_pct"]
+        return out
 
 
 PROFILE: dict[str, Any] = _load_profile()
@@ -748,6 +792,16 @@ def profile_fit(position_size_pct: float | None) -> dict[str, Any]:
         "horizon_years_range": list(PROFILE["horizon_years"]),
         "style": PROFILE["style"],
         "capital_usd": PROFILE["capital_usd"],
+        # Procedencia (A-03): de qué archivo salió, qué campos se leyeron de él
+        # y cuáles son valores por defecto. Un tope que no aparece en el perfil
+        # no puede presentarse como si el inversionista lo hubiera fijado.
+        "profile_source": PROFILE.get("source"),
+        "fields_parsed": list(PROFILE.get("fields_parsed", [])),
+        "fields_defaulted": list(PROFILE.get("fields_defaulted", [])),
+        "profile_caveat": (
+            "Campos NO declarados en el perfil, con valor conservador por defecto: "
+            + ", ".join(PROFILE["fields_defaulted"])
+            if PROFILE.get("fields_defaulted") else None),
     }
 
 
