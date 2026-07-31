@@ -30,6 +30,10 @@ services:
       # (https://...onrender.com). Sin ella, CORS solo admite localhost.
       - key: VERTEX_ORIGIN
         sync: false
+      # C-03: cifra el access_token de Plaid guardado en la DB. Opcional pero
+      # recomendado: protege el token si alguien obtiene una copia del .db.
+      - key: VERTEX_DB_KEY
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       # Claude (Anthropic): capa de judge para lo cualitativo (moat, catalizadores, etc.)

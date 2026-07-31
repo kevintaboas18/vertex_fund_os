@@ -10734,6 +10734,107 @@ def plaid_headers():
     return {"Content-Type": "application/json", "PLAID-CLIENT-ID": PLAID_CLIENT_ID, "PLAID-SECRET": PLAID_SECRET}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CUSTODIA DEL access_token DE PLAID (C-03)
+#
+# Antes el token viajaba como parámetro de URL en 9 endpoints y se guardaba en
+# el localStorage del navegador. Las query strings quedan escritas en los logs
+# de acceso de Render, en el historial del navegador y en las cabeceras
+# `Referer` hacia terceros — y ese token da lectura de cuentas bancarias.
+#
+# Ahora vive SOLO en el servidor: `/api/plaid/exchange-token` lo guarda y
+# devuelve únicamente el `item_id`. El navegador nunca lo ve, así que no puede
+# filtrarlo por ninguna de esas vías.
+#
+# Cifrado en reposo: si `VERTEX_DB_KEY` está definida se cifra con Fernet
+# (AES-128-CBC + HMAC). Protege el caso de que alguien obtenga una copia del
+# archivo .db (backup, disco) sin tener el entorno del proceso. No protege
+# contra un compromiso de la app — para eso está la autenticación de C-02.
+# ─────────────────────────────────────────────────────────────────────────────
+def _fernet():
+    """Cifrador, o None si no hay clave configurada o falta la librería."""
+    key = os.environ.get("VERTEX_DB_KEY", "").strip()
+    if not key:
+        return None
+    try:
+        import base64, hashlib
+        from cryptography.fernet import Fernet
+        # Se deriva una clave Fernet válida de cualquier cadena, para no obligar
+        # a generar exactamente 32 bytes en base64url.
+        return Fernet(base64.urlsafe_b64encode(hashlib.sha256(key.encode()).digest()))
+    except Exception as e:
+        print(f"[plaid] cifrado no disponible ({str(e)[:80]}); se guarda en claro")
+        return None
+
+
+def _init_plaid_db():
+    try:
+        conn = _db()
+        conn.execute("""CREATE TABLE IF NOT EXISTS plaid_items (
+            item_id      TEXT PRIMARY KEY,
+            access_token TEXT NOT NULL,
+            encrypted    INTEGER DEFAULT 0,
+            institution  TEXT,
+            created_at   TEXT
+        )""")
+        conn.commit(); conn.close()
+    except Exception as e:
+        print(f"[DB] plaid table init error: {e}")
+
+_init_plaid_db()
+
+
+def _plaid_save_token(item_id, access_token, institution=""):
+    f = _fernet()
+    stored = f.encrypt(access_token.encode()).decode() if f else access_token
+    conn = _db()
+    conn.execute("INSERT OR REPLACE INTO plaid_items "
+                 "(item_id,access_token,encrypted,institution,created_at) VALUES (?,?,?,?,?)",
+                 (item_id, stored, 1 if f else 0, institution,
+                  datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    conn.commit(); conn.close()
+    if not f:
+        print("[plaid] AVISO: token guardado SIN cifrar. Define VERTEX_DB_KEY para cifrarlo.")
+
+
+def _plaid_get_token(item_id=""):
+    """El token del `item_id` pedido, o el más reciente. '' si no hay ninguno."""
+    try:
+        conn = _db()
+        if item_id:
+            row = conn.execute("SELECT access_token,encrypted FROM plaid_items WHERE item_id=?",
+                               (item_id,)).fetchone()
+        else:
+            row = conn.execute("SELECT access_token,encrypted FROM plaid_items "
+                               "ORDER BY created_at DESC LIMIT 1").fetchone()
+        conn.close()
+        if not row:
+            return ""
+        tok = row["access_token"]
+        if not row["encrypted"]:
+            return tok
+        f = _fernet()
+        if not f:
+            print("[plaid] token cifrado pero falta VERTEX_DB_KEY — no se puede leer")
+            return ""
+        return f.decrypt(tok.encode()).decode()
+    except Exception as e:
+        print(f"[plaid] lectura de token falló: {str(e)[:110]}")
+        return ""
+
+
+def _plaid_items():
+    """Conexiones guardadas, sin exponer nunca el token."""
+    try:
+        conn = _db()
+        rows = conn.execute("SELECT item_id,institution,created_at,encrypted "
+                            "FROM plaid_items ORDER BY created_at DESC").fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
 @app.post("/api/plaid/link-token")
 def create_link_token(body: dict = None):
     """Step 1 — Create a Plaid Link token to open the Plaid UI in the browser."""
@@ -10754,21 +10855,71 @@ def create_link_token(body: dict = None):
 
 @app.post("/api/plaid/exchange-token")
 def exchange_public_token(body: dict):
-    """Step 2 — Exchange public_token from Plaid Link for an access_token."""
+    """Paso 2 — canjea el public_token de Plaid Link por el access_token.
+
+    C-03: el access_token se guarda EN EL SERVIDOR y no se devuelve. El
+    navegador solo recibe el `item_id`, que no sirve para llamar a Plaid.
+    """
     public_token = body.get("public_token", "")
     try:
         resp = requests.post(f"{plaid_base_url()}/item/public_token/exchange",
             headers=plaid_headers(), json={"public_token": public_token}, timeout=15)
         resp.raise_for_status()
-        return resp.json()   # contains access_token — store this in the frontend
+        data = resp.json()
+        token, item_id = data.get("access_token", ""), data.get("item_id", "")
+        if not token:
+            raise HTTPException(status_code=502, detail="Plaid no devolvió access_token.")
+        inst = ""
+        try:                    # nombre del banco, solo para mostrarlo en la UI
+            ir = requests.post(f"{plaid_base_url()}/item/get", headers=plaid_headers(),
+                               json={"access_token": token}, timeout=10)
+            inst = (ir.json().get("item", {}) or {}).get("institution_name", "") if ir.ok else ""
+        except Exception:
+            pass
+        _plaid_save_token(item_id, token, inst)
+        return {"ok": True, "item_id": item_id, "institution": inst}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Plaid exchange error: {str(e)}")
 
 
+@app.get("/api/plaid/items")
+def plaid_items():
+    """Conexiones de Plaid guardadas. Nunca incluye el access_token."""
+    items = _plaid_items()
+    return {"ok": True, "connected": bool(items), "items": items}
+
+
+@app.post("/api/plaid/disconnect")
+def plaid_disconnect(body: dict = None):
+    """Borra la conexión guardada (y la invalida en Plaid si se puede)."""
+    item_id = str((body or {}).get("item_id") or "")
+    token = _plaid_get_token(item_id)
+    if token:
+        try:                    # invalida el token del lado de Plaid, no solo el nuestro
+            requests.post(f"{plaid_base_url()}/item/remove", headers=plaid_headers(),
+                          json={"access_token": token}, timeout=10)
+        except Exception as e:
+            print(f"[plaid] item/remove falló: {str(e)[:90]}")
+    try:
+        conn = _db()
+        conn.execute("DELETE FROM plaid_items WHERE item_id=?", (item_id,)) if item_id \
+            else conn.execute("DELETE FROM plaid_items")
+        conn.commit(); conn.close()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True}
+
+
 
 @app.get("/api/accounts")
-def get_accounts(access_token: str):
-    """Return list of investment accounts so the user can choose which one to analyze."""
+def get_accounts(item_id: str = ""):
+    """Cuentas de inversión para que el usuario elija cuál analizar.
+    C-03: el token sale del servidor, ya no lo manda el cliente."""
+    access_token = _plaid_get_token(item_id)
+    if not access_token:
+        raise HTTPException(status_code=409, detail="No hay ninguna cuenta de Plaid conectada.")
     try:
         resp = requests.post(f"{plaid_base_url()}/investments/holdings/get",
             headers=plaid_headers(), json={"access_token": access_token}, timeout=20)
@@ -10801,7 +10952,7 @@ def get_accounts(access_token: str):
         raise HTTPException(status_code=500, detail=f"Accounts error: {str(e)}")
 
 @app.get("/api/portfolio")
-def get_portfolio(access_token: str, account_id: str = ""):
+def get_portfolio(account_id: str = "", item_id: str = ""):
     """
     Fetch full investment holdings + transactions from Plaid and enrich with:
     - Live prices via yfinance
@@ -10809,6 +10960,9 @@ def get_portfolio(access_token: str, account_id: str = ""):
     - Options contracts details
     - AI analysis via Gemini on the full portfolio
     """
+    access_token = _plaid_get_token(item_id)   # C-03: del servidor, nunca del cliente
+    if not access_token:
+        raise HTTPException(status_code=409, detail="No hay ninguna cuenta de Plaid conectada.")
     try:
         # ── Fetch holdings ─────────────────────────────────────────────────
         holdings_resp = requests.post(f"{plaid_base_url()}/investments/holdings/get",
@@ -11727,12 +11881,14 @@ def compute_portfolio_stress(positions, lookback_days=504):
     }
 
 
-def _resolve_positions(access_token, account_id="", with_cost=False):
-    """Resolve normalized equity positions from Plaid (when an access_token is given)
+def _resolve_positions(account_id="", with_cost=False):
+    """Posiciones normalizadas: de Plaid si hay conexión guardada (C-03: el token
+    se lee del servidor)
     o del snapshot guardado si no lo hay — así todo el suite de portafolio corre
     con o sin Plaid. Cuando Plaid responde, el resultado se PERSISTE en el snapshot
     para que las rutas siguientes funcionen sin volver a pedir el token.
     Devuelve (positions, source)."""
+    access_token = _plaid_get_token()          # C-03: del servidor, nunca del cliente
     if access_token:
         resp = requests.post(f"{plaid_base_url()}/investments/holdings/get",
                              headers=plaid_headers(), json={"access_token": access_token}, timeout=20)
@@ -11754,10 +11910,10 @@ def _resolve_positions(access_token, account_id="", with_cost=False):
 
 
 @app.get("/api/portfolio-risk")
-def get_portfolio_risk(access_token: str = "", account_id: str = ""):
+def get_portfolio_risk(account_id: str = ""):
     """Run the quant risk engine on the user's real holdings (Plaid o snapshot guardado)."""
     try:
-        positions, _src = _resolve_positions(access_token, account_id)
+        positions, _src = _resolve_positions(account_id)
         if not positions:
             return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         return compute_portfolio_risk(positions)
@@ -11768,10 +11924,10 @@ def get_portfolio_risk(access_token: str = "", account_id: str = ""):
 
 
 @app.get("/api/portfolio-stress")
-def get_portfolio_stress(access_token: str = "", account_id: str = ""):
+def get_portfolio_stress(account_id: str = ""):
     """Run the stress engine on the user's real holdings (Plaid o snapshot guardado)."""
     try:
-        positions, _src = _resolve_positions(access_token, account_id)
+        positions, _src = _resolve_positions(account_id)
         if not positions:
             return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         return compute_portfolio_stress(positions)
@@ -11782,7 +11938,7 @@ def get_portfolio_stress(access_token: str = "", account_id: str = ""):
 
 
 @app.get("/api/portfolio-whatif")
-def get_portfolio_whatif(access_token: str = "", ticker: str = "", action: str = "add",
+def get_portfolio_whatif(ticker: str = "", action: str = "add",
                          amount: float = 0.0, account_id: str = ""):
     """Recompute portfolio risk BEFORE vs AFTER a hypothetical add/trim of `ticker`."""
     try:
@@ -11794,7 +11950,7 @@ def get_portfolio_whatif(access_token: str = "", ticker: str = "", action: str =
             except (TypeError, ValueError):
                 return d
 
-        positions, _src = _resolve_positions(access_token, account_id)
+        positions, _src = _resolve_positions(account_id)
         if not positions:
             return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
 
@@ -12122,10 +12278,10 @@ def _plaid_extract_options(data, account_id=""):
 
 
 @app.get("/api/portfolio-attribution")
-def get_portfolio_attribution(access_token: str = "", account_id: str = "", lookback_days: int = 252):
+def get_portfolio_attribution(account_id: str = "", lookback_days: int = 252):
     """Return + sector attribution over a trailing window on the real book."""
     try:
-        positions, _src = _resolve_positions(access_token, account_id)
+        positions, _src = _resolve_positions(account_id)
         if not positions:
             return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         return compute_portfolio_attribution(positions, lookback_days=max(20, min(lookback_days, 504)))
@@ -12136,10 +12292,10 @@ def get_portfolio_attribution(access_token: str = "", account_id: str = "", look
 
 
 @app.get("/api/portfolio-guardrails")
-def get_portfolio_guardrails(access_token: str = "", account_id: str = ""):
+def get_portfolio_guardrails(account_id: str = ""):
     """Check the real book against portfolio rules (concentration, 70/30, stops, corr)."""
     try:
-        positions, _src = _resolve_positions(access_token, account_id, with_cost=True)
+        positions, _src = _resolve_positions(account_id, with_cost=True)
         if not positions:
             return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         sectors = _fetch_sectors([p["ticker"] for p in positions])
@@ -12708,10 +12864,10 @@ def compute_portfolio_optimizer(positions, lookback="2y", max_weight=0.25, n_sim
 
 
 @app.get("/api/portfolio-optimizer")
-def get_portfolio_optimizer(access_token: str = "", account_id: str = "", max_weight: float = 0.25):
+def get_portfolio_optimizer(account_id: str = "", max_weight: float = 0.25):
     """Black-Litterman + 70/30 mandate optimization (Monte Carlo frontier) on the real book."""
     try:
-        positions, _src = _resolve_positions(access_token, account_id)
+        positions, _src = _resolve_positions(account_id)
         if not positions:
             return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         mw = max(0.05, min(float(max_weight), 1.0))
@@ -12723,7 +12879,7 @@ def get_portfolio_optimizer(access_token: str = "", account_id: str = "", max_we
 
 
 @app.get("/api/portfolio-ideas")
-def get_portfolio_ideas(access_token: str = "", account_id: str = "", n: int = 5):
+def get_portfolio_ideas(account_id: str = "", n: int = 5):
     """#Ideas — Genera ideas de inversión NUEVAS (tickers que NO tienes ni has analizado) que
     DIVERSIFIQUEN tu book concentrado en IA, con % sugerido y un razonamiento completo
     (a qué se dedica, cuánto crece hoy, cuánto se espera que crezca, deuda/rentabilidad,
@@ -12734,7 +12890,7 @@ def get_portfolio_ideas(access_token: str = "", account_id: str = "", n: int = 5
     try:
         held = []
         try:
-            positions, _src = _resolve_positions(access_token, account_id)
+            positions, _src = _resolve_positions(account_id)
             held = sorted({str(p.get("ticker") or "").upper() for p in (positions or []) if p.get("ticker")})
         except Exception:
             held = []

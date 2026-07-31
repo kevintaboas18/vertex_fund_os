@@ -4452,11 +4452,12 @@ function htmlEscBold(s) {
 // Keys needed in backend:
 //   export PLAID_CLIENT_ID="..."  PLAID_SECRET="..."  PLAID_ENV="sandbox"
 // ══════════════════════════════════════════════════════════════════════════════
-const PLAID_TOKEN_KEY = 'vertex_plaid_access_token';
-localStorage.removeItem(PLAID_TOKEN_KEY); // reset: force reconnect
-let portfolioAccessToken = '';
+// C-03: el access_token de Plaid vive SOLO en el servidor. El navegador ya no
+// lo guarda ni lo manda por URL; solo sabe si hay conexion activa.
+localStorage.removeItem('vertex_plaid_access_token');   // limpia el de versiones previas
+let plaidConnected = false;
 let snapshotReady = false;   // hay un snapshot guardado en el servidor (Plaid o import manual)
-const pfHasData = () => !!(portfolioAccessToken || snapshotReady);
+const pfHasData = () => !!(plaidConnected || snapshotReady);
 
 const PF_AI_CFG = [
     { icon:'🔍', color:'#60a5fa', title:'1. Diagnóstico del Portafolio'                                   },
@@ -4509,10 +4510,9 @@ async function connectPlaid() {
                 try {
                     const exRes = await fetch(`${API_BASE}/api/plaid/exchange-token`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({public_token})});
                     const exData = await exRes.json();
-                    if (!exData.access_token) throw new Error('No se recibió access_token');
-                    portfolioAccessToken = exData.access_token;
-                    localStorage.setItem(PLAID_TOKEN_KEY, portfolioAccessToken);
-                    await loadPortfolio(portfolioAccessToken);
+                    if (!exData.ok) throw new Error(exData.detail || 'El servidor no pudo guardar la conexión');
+                    plaidConnected = true;   // el token queda en el servidor, aqui nunca
+                    await loadPortfolio();
                 } catch(e2) { showPfError('Error al conectar: ' + e2.message); }
             },
             onExit: (err) => {
@@ -4528,12 +4528,12 @@ async function connectPlaid() {
 }
 
 async function refreshPortfolio() {
-    if (!portfolioAccessToken) { connectPlaid(); return; }
+    if (!plaidConnected) { connectPlaid(); return; }
     hidePfError();
-    await loadPortfolio(portfolioAccessToken);
+    await loadPortfolio();
 }
 
-async function loadPortfolio(accessToken) {
+async function loadPortfolio() {
     document.getElementById('portfolioNotConnected').classList.add('hidden');
     document.getElementById('portfolioDashboard').classList.add('hidden');
     document.getElementById('pfAccountSelector').classList.add('hidden');
@@ -4541,7 +4541,7 @@ async function loadPortfolio(accessToken) {
     document.getElementById('portfolioRefreshBtn').classList.remove('hidden');
     hidePfError();
     pfSelectedAcctId = '';
-    await loadAccountSelector(accessToken);
+    await loadAccountSelector();
 }
 
 function renderPortfolio(d) {
@@ -4655,8 +4655,8 @@ function renderPfAiSections(rawText, container) {
 const _origSwitchView = switchView;
 window.switchView = function(viewId) {
     _origSwitchView(viewId);
-    if (viewId === 'portfolioView' && portfolioAccessToken && document.getElementById('portfolioDashboard')?.classList.contains('hidden')) {
-        loadPortfolio(portfolioAccessToken);
+    if (viewId === 'portfolioView' && plaidConnected && document.getElementById('portfolioDashboard')?.classList.contains('hidden')) {
+        loadPortfolio();
     }
 };
 // ══════════════════════════════════════════════════════════════════════════════
@@ -4843,6 +4843,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Si el servidor exige clave y aún no hay sesión, se pide antes de arrancar
     // nada: así no se disparan 20 llamadas que sólo devolverían 401.
     if (!(await vertexGateCheck())) return;
+    // C-03: la conexion de Plaid vive en el servidor, no en este navegador.
+    try {
+        const pi = await fetch(`${API_BASE}/api/plaid/items`).then(r => r.json());
+        plaidConnected = !!pi.connected;
+    } catch (e) { plaidConnected = false; }
     renderRecentReports();
     syncReportsFromServer();   // #4 — trae reportes durables del servidor (multi-dispositivo)
     loadDataHealth();          // #5 — salud de fuentes de datos
@@ -5045,9 +5050,9 @@ document.addEventListener('keydown', (e) => {
 let pfAllAccounts    = [];
 let pfSelectedAcctId = '';
 
-async function loadAccountSelector(accessToken) {
+async function loadAccountSelector() {
     try {
-        const res = await fetch(`${API_BASE}/api/accounts?access_token=${encodeURIComponent(accessToken)}`);
+        const res = await fetch(`${API_BASE}/api/accounts`);
         if (!res.ok) throw new Error('accounts error');
         const d = await res.json();
         pfAllAccounts = d.accounts || [];
@@ -5109,8 +5114,8 @@ async function analyzeSelectedAccount() {
     if (_holdBtn && typeof switchPortfolioTab === 'function') switchPortfolioTab('pfHoldingsTab', _holdBtn);
 
     const url = pfSelectedAcctId
-        ? `${API_BASE}/api/portfolio?access_token=${encodeURIComponent(portfolioAccessToken)}&account_id=${encodeURIComponent(pfSelectedAcctId)}`
-        : `${API_BASE}/api/portfolio?access_token=${encodeURIComponent(portfolioAccessToken)}`;
+        ? `${API_BASE}/api/portfolio?account_id=${encodeURIComponent(pfSelectedAcctId)}`
+        : `${API_BASE}/api/portfolio`;
 
     try {
         const res = await fetch(url);
@@ -5178,8 +5183,8 @@ async function loadPortfolioRisk(force) {
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
         Calculando riesgo cuantitativo sobre tus posiciones reales…</div>`;
     const url = pfSelectedAcctId
-        ? `${API_BASE}/api/portfolio-risk?access_token=${encodeURIComponent(portfolioAccessToken)}&account_id=${encodeURIComponent(pfSelectedAcctId)}`
-        : `${API_BASE}/api/portfolio-risk?access_token=${encodeURIComponent(portfolioAccessToken)}`;
+        ? `${API_BASE}/api/portfolio-risk?account_id=${encodeURIComponent(pfSelectedAcctId)}`
+        : `${API_BASE}/api/portfolio-risk`;
     try {
         const res = await fetch(url);
         if (!res.ok) { const err = await res.json().catch(()=>({detail:`HTTP ${res.status}`})); throw new Error(err.detail); }
@@ -5372,8 +5377,8 @@ async function loadPortfolioStress(force) {
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
         Corriendo stress test, Monte Carlo y replay de crisis sobre tu book… (puede tardar unos segundos)</div>`;
     const url = pfSelectedAcctId
-        ? `${API_BASE}/api/portfolio-stress?access_token=${encodeURIComponent(portfolioAccessToken)}&account_id=${encodeURIComponent(pfSelectedAcctId)}`
-        : `${API_BASE}/api/portfolio-stress?access_token=${encodeURIComponent(portfolioAccessToken)}`;
+        ? `${API_BASE}/api/portfolio-stress?account_id=${encodeURIComponent(pfSelectedAcctId)}`
+        : `${API_BASE}/api/portfolio-stress`;
     try {
         const res = await fetch(url);
         if (!res.ok) { const err = await res.json().catch(()=>({detail:`HTTP ${res.status}`})); throw new Error(err.detail); }
@@ -5529,7 +5534,7 @@ async function runWhatif() {
     body.innerHTML = `<div class="flex items-center gap-3 text-gray-400 text-xs p-6 justify-center">
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
         Recalculando tu riesgo antes vs. después…</div>`;
-    let url = `${API_BASE}/api/portfolio-whatif?access_token=${encodeURIComponent(portfolioAccessToken)}&ticker=${encodeURIComponent(ticker)}&action=${encodeURIComponent(action)}&amount=${encodeURIComponent(amount)}`;
+    let url = `${API_BASE}/api/portfolio-whatif?ticker=${encodeURIComponent(ticker)}&action=${encodeURIComponent(action)}&amount=${encodeURIComponent(amount)}`;
     if (pfSelectedAcctId) url += `&account_id=${encodeURIComponent(pfSelectedAcctId)}`;
     try {
         const res = await fetch(url);
@@ -5615,7 +5620,7 @@ async function loadPortfolioAttribution(force) {
     body.innerHTML = `<div class="flex items-center gap-3 text-gray-400 text-xs p-6 justify-center">
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
         Calculando atribución de retorno por posición y sector…</div>`;
-    let url = `${API_BASE}/api/portfolio-attribution?access_token=${encodeURIComponent(portfolioAccessToken)}`;
+    let url = `${API_BASE}/api/portfolio-attribution`;
     if (pfSelectedAcctId) url += `&account_id=${encodeURIComponent(pfSelectedAcctId)}`;
     try {
         const res = await fetch(url);
@@ -5703,7 +5708,7 @@ async function loadPortfolioGuardrails(force) {
     body.innerHTML = `<div class="flex items-center gap-3 text-gray-400 text-xs p-6 justify-center">
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
         Auditando tu book contra tus reglas…</div>`;
-    let url = `${API_BASE}/api/portfolio-guardrails?access_token=${encodeURIComponent(portfolioAccessToken)}`;
+    let url = `${API_BASE}/api/portfolio-guardrails`;
     if (pfSelectedAcctId) url += `&account_id=${encodeURIComponent(pfSelectedAcctId)}`;
     try {
         const res = await fetch(url);
@@ -5779,7 +5784,7 @@ async function refreshSnapshotStatus() {
                    (d.n_options ? ` · <b>${d.n_options}</b> opciones` : '') +
                    ` · $${Number(d.total_value).toLocaleString()}`, 'text-emerald-400');
             const b = document.getElementById('pfSourceBanner');
-            if (b && !portfolioAccessToken) b.classList.remove('hidden');
+            if (b && !plaidConnected) b.classList.remove('hidden');
         } else {
             impMsg('Sin datos guardados todavía.', 'text-gray-500');
         }
@@ -5888,7 +5893,7 @@ async function loadPortfolioOptimizer(force) {
     body.innerHTML = `<div class="flex items-center gap-3 text-gray-400 text-xs p-6 justify-center">
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
         Corriendo optimización media-varianza (Monte Carlo, ~8k carteras)…</div>`;
-    let url = `${API_BASE}/api/portfolio-optimizer?access_token=${encodeURIComponent(portfolioAccessToken)}&max_weight=${mw}`;
+    let url = `${API_BASE}/api/portfolio-optimizer?max_weight=${mw}`;
     if (pfSelectedAcctId) url += `&account_id=${encodeURIComponent(pfSelectedAcctId)}`;
     try {
         const res = await fetch(url);
@@ -6026,7 +6031,7 @@ async function loadPortfolioIdeas(force) {
     host.innerHTML = `<p class="text-[11px] text-gray-500 italic flex items-center gap-2"><i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Generando ideas con búsqueda en vivo…</p>`;
     if (window.lucide) lucide.createIcons();
     try {
-        const r = await fetch(`${API_BASE}/api/portfolio-ideas?access_token=${encodeURIComponent(portfolioAccessToken || '')}&n=5`);
+        const r = await fetch(`${API_BASE}/api/portfolio-ideas?n=5`);
         const d = await r.json();
         if (!d.ok) { host.innerHTML = `<p class="text-[11px] text-amber-400 italic">${d.error || 'No se pudieron generar ideas.'}</p>`; pfIdeasLoaded = true; return; }
         pfIdeasData = d.ideas || [];

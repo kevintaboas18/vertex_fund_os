@@ -61,10 +61,16 @@ El **núcleo metodológico de Victor está intacto y verificado**. Lo que falla 
 - **Verificado en navegador real:** anónimo → 401 en `/api/quote`, `/api/analyze`, `/api/portfolio-risk`, `/api/track-record`, `/api/plaid/link-token`, `/api/data-health`. Clave incorrecta → rechazada. Clave correcta → cookie emitida (HttpOnly ✓, SameSite=strict ✓, invisible desde `document.cookie` ✓) y todas las llamadas a 200. Logout → vuelve a 401. `tests_vertex`: 47 pasan.
 - **Pendiente tuyo:** definir `VERTEX_API_TOKEN` en Render (`openssl rand -hex 24`). **Sin esa variable el servicio no responderá a nadie** — es deliberado.
 
-### [ ] C-03 — `access_token` de Plaid viaja como parámetro de query
-- **Dónde:** `vertex_api.py:10673`, `:10707`, `:11634`, `:11648`, `:11662`, `:11952`, `:11966`
-- **Por qué falla:** `def get_portfolio(access_token: str, ...)` en un `@app.get` significa que el token va en la URL. Las query strings quedan en: logs de acceso de Render, historial del navegador, headers `Referer` hacia terceros, y cualquier proxy intermedio. Un `access_token` de Plaid da lectura de cuentas bancarias/brokerage.
-- **Solución:** Convertir esos 7 endpoints a `@app.post` con el token en el body (`body: dict`), o mejor: guardar el `access_token` server-side (tabla en `vertex.db`, cifrado) tras el `exchange-token`, y que el cliente solo mande un `account_id`. Nunca en la URL.
+### [x] C-03 — ✅ RESUELTO (2026-07-30) — El `access_token` de Plaid salió de las URLs
+- **Era:** el token viajaba como parámetro de query en **9** endpoints y se guardaba en el `localStorage` del navegador. Las query strings quedan escritas en los logs de acceso de Render, el historial del navegador y las cabeceras `Referer` hacia terceros — y ese token da lectura de cuentas bancarias/brokerage.
+- **Ahora:** el token vive **solo en el servidor**.
+  - `POST /api/plaid/exchange-token` lo guarda en la tabla `plaid_items` y devuelve únicamente `{ok, item_id, institution}`. El navegador **nunca lo ve**, así que no puede filtrarlo por ninguna de esas vías.
+  - Los 9 endpoints dejaron de aceptar `access_token`; lo leen del servidor vía `_plaid_get_token()`.
+  - Endpoints nuevos: `GET /api/plaid/items` (conexiones guardadas, sin token) y `POST /api/plaid/disconnect`, que además llama a `item/remove` de Plaid — invalida el token de verdad, no solo lo borra de tu base.
+- **Cifrado en reposo:** si `VERTEX_DB_KEY` está definida, el token se cifra con Fernet (AES-128-CBC + HMAC) antes de tocar el disco. Protege el caso de que alguien obtenga una copia del `.db` (backup, disco de Render) sin tener el entorno del proceso. **No** protege contra un compromiso de la app — para eso está C-02. Sin la variable se guarda en claro y se avisa por log.
+- **Frontend:** `portfolioAccessToken` eliminado; ahora solo hay un booleano `plaidConnected` que se resuelve preguntando a `/api/plaid/items` al cargar. Se limpia también el token que versiones previas hubieran dejado en `localStorage`.
+- **Verificado:** token cifrado en disco (prefijo Fernet `gAAAAA`, el valor en claro no aparece en el `.db`) y recuperado correctamente; `/api/plaid/items` no lo expone; las 9 firmas sin `access_token`; sin conexión guardada devuelve **409** honesto en vez de romper. En navegador: 0 referencias a `portfolioAccessToken`, 0 `access_token=` en URLs, `localStorage` limpio, y los 7 endpoints del suite (risk, stress, attribution, guardrails, optimizer, options, whatif) responden **200** sobre el snapshot. `tests_vertex`: 47 pasan.
+- **Pendiente tuyo:** definir `VERTEX_DB_KEY` en Render. Si ya habías conectado Plaid, vuelve a conectarlo una vez (el token viejo vivía en el navegador, no en la base).
 
 ### [x] C-04 — ✅ RESUELTO (2026-07-30) — CORS restringido
 - **Era:** `allow_origins=["*"]` + `allow_credentials=True` + `allow_methods=["*"]`.
@@ -232,7 +238,7 @@ Tu Python global **no tenía** `pytest`, `scipy`, `typer`, `matplotlib`, `anthro
 |---|---|---|---|---|
 | 1 | ~~C-01~~ | ✅ Resuelto | SnapTrade eliminado por completo | §6 |
 | 2 | ~~C-02~~ | ✅ Resuelto | Auth por cookie HttpOnly + cabecera | §6 |
-| 3 | C-03 | 🔴 Crítico | `access_token` de Plaid en query string | `vertex_api.py:10673+` |
+| 3 | ~~C-03~~ | ✅ Resuelto | Token custodiado en servidor + cifrado | §6 |
 | 4 | ~~C-04~~ | ✅ Resuelto | CORS restringido a VERTEX_ORIGIN | §6 |
 | 5 | A-01 | 🟠 Alto | `EDGAR_USER_AGENT` hardcodeado, env var ignorada | `edgar.py:38` |
 | 6 | A-02 | 🟠 Alto | Items obligatorios 4 y 5 vacíos en Render | `vertex_api.py:1274,1308` |
@@ -257,7 +263,7 @@ Tu Python global **no tenía** `pytest`, `scipy`, `typer`, `matplotlib`, `anthro
 | 25 | M-14 | 🟡 Medio | Override 2 no bloquea banda "Elite" | `gates.py:162` |
 | 26 | M-15 | 🟡 Medio | `docs/superpowers/` obsoleto | `docs/` |
 
-**Orden de arreglo sugerido:** ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → ~~C-02~~ → C-03 → ~~C-04~~ → A-01 → A-02 → A-03 → A-04 → A-05 → A-06 → ~~A-07~~ → el resto de M.
+**Orden de arreglo sugerido:** ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → ~~C-02~~ → ~~C-03~~ → ~~C-04~~ → A-01 → A-02 → A-03 → A-04 → A-05 → A-06 → ~~A-07~~ → el resto de M.
 
 ---
 

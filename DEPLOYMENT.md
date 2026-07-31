@@ -96,6 +96,7 @@ La app las lee de `vertex.env` (local) o de las Environment Variables (Render).
 |---|---|---|
 | `VERTEX_API_TOKEN` | **Clave de acceso a la API.** Sin ella el servidor solo atiende a localhost | **Sí en Render** |
 | `VERTEX_ORIGIN` | URL pública del servicio, para CORS | Sí en Render |
+| `VERTEX_DB_KEY` | Cifra el `access_token` de Plaid guardado en la DB | Recomendada |
 | `EDGAR_USER_AGENT` | Identidad ante la SEC (tu nombre + email) | Sí (EDGAR la exige) |
 | `GEMINI_API_KEY` | Explicación en palabras (LLM principal) | Sí, para la explicación |
 | `FMP_API_KEY` | Pares, gaps de earnings, revisiones | Recomendada |
@@ -105,6 +106,11 @@ La app las lee de `vertex.env` (local) o de las Environment Variables (Render).
 | `FRED_API_KEY` | Datos macro | Opcional |
 | `QUANTDATA_API_KEY` | Flujo de opciones / dark pool | Opcional |
 | `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` | Conexión bancaria | Solo si usas Plaid |
+
+> **El `access_token` de Plaid nunca sale del servidor** (C-03). Se guarda en
+> `vertex.db` — cifrado si defines `VERTEX_DB_KEY` — y el navegador solo recibe
+> el `item_id`. Para desconectar: `POST /api/plaid/disconnect`, que además
+> invalida el token en Plaid, no solo en tu base.
 | `SCHWAB_APP_KEY` / `SCHWAB_APP_SECRET` | Conexión con Schwab | Solo si usas Schwab |
 
 **Formato de `vertex.env`** (una por línea, sin comillas):

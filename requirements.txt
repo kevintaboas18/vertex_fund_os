@@ -13,3 +13,5 @@ pandas
 anthropic>=0.40
 # Graficos del reporte (report/charts.py). Import diferido, headless (Agg).
 matplotlib>=3.8
+# C-03: cifrado en reposo del access_token de Plaid (opcional, via VERTEX_DB_KEY)
+cryptography>=42
