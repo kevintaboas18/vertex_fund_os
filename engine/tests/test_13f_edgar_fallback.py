@@ -192,12 +192,18 @@ def test_the_issuer_is_excluded_by_its_own_cik():
 
 def test_both_13d_and_13g_are_searched():
     """13D is the activist filing and 13G the passive one; a 5% holder is
-    material either way."""
-    import inspect
+    material either way.
 
-    src = inspect.getsource(EdgarProvider.major_holders_13d_g)
+    Afirma sobre la CONSTANTE, que es la fuente unica de los tipos pedidos: la
+    version anterior leia `inspect.getsource(major_holders_13d_g)` y se rompio
+    al extraerlos a `_SCHEDULE_13DG_FORMS`, sin que cambiara nada de lo que se
+    consulta. La cobertura de las dos familias de nombres esta en
+    `test_13dg_query_asks_for_both_form_name_families`, que mira los params
+    reales de la peticion."""
+    from wbj.providers.edgar import _SCHEDULE_13DG_FORMS
+
     for form in ("SC 13D", "SC 13D/A", "SC 13G", "SC 13G/A"):
-        assert form in src
+        assert form in _SCHEDULE_13DG_FORMS
 
 
 def test_a_holder_that_amended_keeps_its_newest_filing():
@@ -335,3 +341,63 @@ def test_dataset_wins_over_the_two_older_paths(monkeypatch, tmp_path):
     assert out["holders"][0]["basis"] == "13F dataset"
     assert out["holders"][0]["value"] and out["holders"][0]["shares"], "trae cifras reales"
     assert "ORDENADOS POR VALOR" in out["holders_source"]
+
+
+# --- (2) Schedule 13D/G: las DOS familias de nombres de formulario ------------
+
+def test_13dg_query_asks_for_both_form_name_families():
+    """Al exigir el formato estructurado (dic-2024) EDGAR renombro el tipo:
+    `SC 13G/A` pasa a indexarse como `SCHEDULE 13G/A`. Pedir solo los viejos
+    devolvia CERO desde 2025 — para NVDA se perdian las dos presentaciones de
+    Vanguard de 2026 y el reporte mostraba un 13G/A de 2024 como vigente."""
+    from types import SimpleNamespace
+
+    from wbj.providers.edgar import EdgarProvider
+
+    pedidos = []
+
+    class _P(EdgarProvider):
+        def __init__(self):
+            super().__init__(SimpleNamespace(reports_dir="."), _FakeCache())
+
+        def get_json(self, url, params, *a, **k):
+            pedidos.append(params.get("forms", ""))
+            return {"hits": {"hits": []}}
+
+    _P().major_holders_13d_g("67066G104", 1045810, "2021-01-01", "2026-07-31")
+    assert pedidos, "no se consulto el indice"
+    formas = pedidos[0]
+    for f in ("SC 13G/A", "SCHEDULE 13G/A", "SC 13D", "SCHEDULE 13D"):
+        assert f in formas, f"falta el tipo {f!r}: {formas}"
+
+
+def test_13dg_keeps_the_newest_filing_per_holder():
+    """Un tenedor presenta varias veces (enmiendas anuales). Se conserva la mas
+    reciente: mostrar una vieja teniendo la nueva presenta un 5% caducado como
+    si fuera el actual."""
+    from types import SimpleNamespace
+
+    from wbj.providers.edgar import EdgarProvider
+
+    def _h(cik, fecha, forma):
+        return {"_source": {"display_names": [f"VANGUARD GROUP INC  (CIK {cik})",
+                                              "NVIDIA CORP  (CIK 0001045810)"],
+                            "ciks": [cik, "0001045810"],
+                            "file_date": fecha, "adsh": f"x-{fecha}", "form": forma}}
+
+    class _P(EdgarProvider):
+        def __init__(self):
+            super().__init__(SimpleNamespace(reports_dir="."), _FakeCache())
+            self._n = 0
+
+        def get_json(self, url, params, *a, **k):
+            self._n += 1
+            if self._n > 1:
+                return {"hits": {"hits": []}}
+            return {"hits": {"hits": [_h("0000102909", "2024-02-13", "SC 13G/A"),
+                                      _h("0000102909", "2026-03-26", "SCHEDULE 13G/A")]}}
+
+    out = _P().major_holders_13d_g("67066G104", 1045810, "2021-01-01", "2026-07-31")
+    assert len(out) == 1, "un tenedor, una fila"
+    assert out[0]["filing_date"] == "2026-03-26"
+    assert out[0]["form"] == "SCHEDULE 13G/A"

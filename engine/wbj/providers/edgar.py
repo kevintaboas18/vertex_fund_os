@@ -61,6 +61,20 @@ def edgar_headers(settings: Any = None) -> dict[str, str]:
     ua = (getattr(settings, "edgar_user_agent", None) or "").strip() if settings else ""
     return {"User-Agent": ua or EDGAR_USER_AGENT}
 
+#: Nombres de formulario de las Schedule 13D/G, en sus DOS familias.
+#:
+#: Al exigir el formato estructurado (dic-2024) EDGAR renombro el tipo: lo que
+#: se presentaba como `SC 13G/A` pasa a indexarse como `SCHEDULE 13G/A`. Filtrar
+#: solo por los viejos devolvia CERO resultados desde 2025 — para NVDA se
+#: perdian las dos presentaciones de Vanguard de 2026-01-30 y 2026-03-26, y el
+#: reporte mostraba en su lugar un 13G/A de 2024 como si fuera el vigente.
+#: Se piden las dos familias porque el historico anterior a dic-2024 conserva
+#: los nombres antiguos.
+_SCHEDULE_13DG_FORMS = (
+    "SC 13D,SC 13D/A,SC 13G,SC 13G/A,"
+    "SCHEDULE 13D,SCHEDULE 13D/A,SCHEDULE 13G,SCHEDULE 13G/A"
+)
+
 # The tickers map is one global, ticker-independent payload, so it is
 # cached under a fixed pseudo-ticker rather than the caller's ticker —
 # looking up a second ticker must reuse the same cache entry.
@@ -405,7 +419,7 @@ class EdgarProvider(Provider):
         base = "https://efts.sec.gov/LATEST/search-index"
         by_cik: dict[str, dict] = {}
         for page in range(max(1, pages)):
-            params = {"q": f'"{cusip}"', "forms": "SC 13D,SC 13D/A,SC 13G,SC 13G/A",
+            params = {"q": f'"{cusip}"', "forms": _SCHEDULE_13DG_FORMS,
                       "startdt": since, "enddt": until}
             if page:
                 params["from"] = page * 100
