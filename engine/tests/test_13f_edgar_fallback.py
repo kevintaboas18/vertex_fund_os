@@ -62,17 +62,18 @@ def _hit_13f(name, cik="0000046392", date="2026-07-30", adsh="0000046392-26-0000
             "accession": adsh, "form": "13F-HR"}
 
 
-def _run_ownership(monkeypatch, tmp_path, dg, f13, dataset=None):
+def _run_ownership(monkeypatch, tmp_path, dg, f13, dataset=None, fmp_holders=None):
     """`_ownership` con FMP caido (402, el caso real) y EDGAR simulado.
 
     `dataset` es el escalon 1 (conjunto estructurado). Por defecto vacio, para
-    ejercitar los escalones 2 (13D/G) y 3 (indice de texto completo)."""
+    ejercitar los escalones 2 (13D/G) y 3 (indice de texto completo).
+    `fmp_holders` levanta FMP para comprobar que se prefiere cuando responde."""
     from types import SimpleNamespace
     import wbj.report as rep
 
     class _FMP:
         def __init__(self, *a, **k): pass
-        def institutional_holders(self, t): return None      # 402
+        def institutional_holders(self, t): return fmp_holders   # None = 402
         def key_executives(self, t): return []
         def profile(self, t): return [{"cusip": "67066G104"}]
 
@@ -155,14 +156,18 @@ def test_the_report_states_that_the_order_is_not_by_size(monkeypatch, tmp_path):
     assert "recency is not recognition" in src_line
 
 
-def test_fmp_is_still_preferred_when_available():
-    """It carries share counts and values the search index does not."""
-    import inspect
+def test_fmp_is_still_preferred_when_available(monkeypatch, tmp_path):
+    """It carries share counts and values the search index does not, so
+    when it answers, the EDGAR fallbacks must not be what gets reported."""
+    out = _run_ownership(
+        monkeypatch, tmp_path, dg=[_hit_13dg("VANGUARD GROUP INC")],
+        f13=[_hit_13f("Some Manager")],
+        fmp_holders=[{"investorName": "FMP FUND", "shares": 1_000,
+                      "marketValue": 250_000}])
 
-    from wbj import report
-
-    src = inspect.getsource(report._ownership)
-    assert src.index("fmp.institutional_holders") < src.index("institutional_holders_13f")
+    assert [h["name"] for h in out["holders"]] == ["FMP FUND"]
+    assert out["holders"][0]["shares"] == 1_000
+    assert "FMP" in (out["holders_source"] or "")
 
 
 # --- SC 13D/G: the "recognised" half of report item 4 -----------------------
@@ -215,23 +220,27 @@ def test_a_holder_that_amended_keeps_its_newest_filing():
 
 def test_recognition_comes_from_the_filing_threshold_not_a_ranking():
     """The docstring has to say why this answers "recognised" where an
-    ordered 13F list cannot: a 13D/G exists only above 5%."""
-    import inspect
+    ordered 13F list cannot: a 13D/G exists only above 5%.
 
-    src = inspect.getsource(EdgarProvider.major_holders_13d_g)
-    assert "5%" in src
-    assert "Recency is not recognition" in src
+    Reads `__doc__` rather than the source: the claim under test IS the
+    docstring, and this way editing the body cannot fail it."""
+    doc = EdgarProvider.major_holders_13d_g.__doc__ or ""
+    assert "5%" in doc
+    assert "Recency is not recognition" in doc
 
 
-def test_the_report_prefers_the_five_percent_set():
+def test_the_report_prefers_the_five_percent_set(monkeypatch, tmp_path):
     """It answers the requirement by definition; the 13F sweep is the
-    fallback when no 13D/G exists."""
-    import inspect
+    fallback when no 13D/G exists. With both available the >5% names have
+    to lead, and with only the sweep it still reports something."""
+    both = _run_ownership(monkeypatch, tmp_path,
+                          dg=[_hit_13dg("VANGUARD GROUP INC")],
+                          f13=[_hit_13f("Some Manager")])
+    assert both["holders"][0]["name"] == "VANGUARD GROUP INC"
 
-    from wbj import report
-
-    src = inspect.getsource(report._ownership)
-    assert src.index("major_holders_13d_g") < src.index("institutional_holders_13f")
+    sweep_only = _run_ownership(monkeypatch, tmp_path, dg=[],
+                                f13=[_hit_13f("Some Manager")])
+    assert [h["name"] for h in sweep_only["holders"]] == ["Some Manager"]
 
 
 def test_the_13f_source_line_is_not_credited_for_13dg_names(monkeypatch, tmp_path):

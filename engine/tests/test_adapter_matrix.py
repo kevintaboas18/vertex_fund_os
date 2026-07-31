@@ -269,10 +269,29 @@ def test_a_misshapen_analyst_block_announces_itself():
 
 
 def test_analyst_input_warnings_reach_the_report():
-    """A warning only in the log is a warning the reader never sees."""
-    import inspect
+    """A warning only in the log is a warning the reader never sees.
 
+    The overlay carries the warning; business has to surface it in the
+    output the report is built from, so run it and read the output back.
+    """
+    from datetime import datetime, timezone
+
+    from wbj.schemas.packet import AnalysisMeta, Packet, Security
     from wbj.specialists import business
 
-    src = inspect.getsource(business._run_once)
-    assert 'overlay.get("analyst_input_warnings")' in src
+    packet = Packet(
+        security=Security(ticker="T", exchange="X", security_type="operating_company",
+                          reporting_currency="USD", valuation_currency="USD",
+                          sector="Technology", industry="Software"),
+        analysis=AnalysisMeta(
+            knowledge_timestamp=datetime.now(timezone.utc).isoformat(),
+            industry_adapter="default_nonfinancial"),
+        fundamentals={"annual": []}, facts_table={}, market_data={},
+        estimates={}, capital_structure={}, staleness={})
+
+    warning = "retention block: 'nrr' is computed, not read"
+    out = business.run(packet, {"analyst_input_warnings": [warning]})
+    assert warning in out.assumptions
+
+    clean = business.run(packet, {})
+    assert warning not in clean.assumptions

@@ -155,14 +155,28 @@ def _dilutive(cagr_over_three_years=0.08):
     return _packet(rows)
 
 
+def _shares(*ascending):
+    """A packet whose diluted-share counts follow `ascending`, oldest first."""
+    return _packet(list(reversed([_row(2020 + k, diluted=s)
+                                  for k, s in enumerate(ascending)])))
+
+
 def test_the_flag_uses_the_three_year_window_he_names():
     """DECISION_RULES.md: 'diluted shares grow >5% CAGR for three years'.
     The flag reads its own three-year CAGR, separate from the metric's
-    registered 3y/5y."""
-    import inspect
+    registered 3y/5y — so the two windows have to be able to disagree.
 
-    src = inspect.getsource(bus._run_once)
-    assert 'ctx.get("diluted_cagr_3y")' in src
+    Both packets below span six years. The one that dilutes 8%/yr over the
+    last three years averages only 4.7%/yr over five, and the one that
+    diluted hard early and has been flat since averages 7.0%/yr over five
+    but 0% over three. A flag reading the 5y window would get both
+    backwards.
+    """
+    recent = _shares(100.0, 100.0, 100.0, 108.0, 116.64, 125.97)
+    assert "DILUTION_RED_FLAG" in bus.run(recent, {"wacc": 0.09}).mandatory_flags
+
+    old = _shares(100.0, 120.0, 140.0, 140.0, 140.0, 140.0)
+    assert "DILUTION_RED_FLAG" not in bus.run(old, {"wacc": 0.09}).mandatory_flags
 
 
 def test_the_flag_fires_on_more_than_five_percent_over_three_years():

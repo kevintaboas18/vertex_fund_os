@@ -107,32 +107,87 @@ def test_the_secrets_rule_holds_for_the_source_locator():
         assert forbidden not in source.lower()
 
 
+def _emitted_rows():
+    """The rows a real run produces, keyed by metric id.
+
+    Attribution is a property of the emitted row, so read it off the
+    output rather than off the call that wrote it.
+    """
+    from datetime import datetime, timezone
+
+    from wbj.schemas.packet import AnalysisMeta, Packet, Security
+
+    packet = Packet(
+        security=Security(ticker="T", exchange="X",
+                          security_type="operating_company",
+                          reporting_currency="USD", valuation_currency="USD",
+                          sector="Technology", industry="Semiconductors"),
+        analysis=AnalysisMeta(
+            knowledge_timestamp=datetime.now(timezone.utc).isoformat(),
+            industry_adapter="default_nonfinancial"),
+        fundamentals={"annual": list(reversed(ANNUAL))}, facts_table={},
+        market_data={}, estimates={}, capital_structure={}, staleness={})
+    return {r.metric_id: r for r in bus.run(packet, {"wacc": 0.09}).metrics}
+
+
 def test_every_overlay_metric_names_the_analyst_file_not_the_provider():
     """A number an analyst wrote must not be attributed to a data feed."""
-    import inspect
-
-    src = inspect.getsource(bus._compute_all)
+    rows = _emitted_rows()
     # The overlay-only metrics are the ones DATASET.md marks conditional.
     for metric in ("BUS-MIX-001", "BUS-CONC-003", "BUS-HHI-004",
                    "BUS-NRR-020", "BUS-GUIDE-027"):
-        call = src[src.index(f'add("{metric}"'):]
-        call = call[:call.index("\n")]
-        assert "analyst_source" in call, f"{metric} is attributed to the data feed"
+        row = rows[metric]
+        assert row.source_locator == "Entradas/T.json", \
+            f"{metric} is attributed to the data feed: {row.source_locator}"
+        assert row.source_type == "analyst input", metric
 
 
 def test_every_filings_metric_keeps_the_provider_locator():
     """The converse: a number derived from the statements must not be
     attributed to a file the analyst wrote."""
-    import inspect
-
-    src = inspect.getsource(bus._compute_all)
+    rows = _emitted_rows()
     for metric in ("BUS-GM-007", "BUS-OM-008", "BUS-ROIC-013", "BUS-SBC-030"):
-        call = src[src.index(f'add("{metric}"'):]
-        call = call[:call.index("\n")]
-        assert "analyst_source" not in call, metric
+        row = rows[metric]
+        assert not row.source_locator.startswith("Entradas/"), \
+            f"{metric} is attributed to the analyst file"
+        assert row.source_type == "filing", metric
 
 
 # --- QA_CHECKLIST.md line 1: "Security ... currency, and exchange are correct"
+
+
+def _packet_from_profile(**profile_overrides):
+    """A packet built from the shared fake providers, with the profile
+    payload's field names rewritten as the test asks.
+
+    The fixture profile carries FMP's *legacy* spellings, so a test that
+    wants the current ones swaps the keys and rebuilds.
+    """
+    import sys
+    from pathlib import Path
+
+    fixtures = Path(__file__).parent / "fixtures" / "packet"
+    if str(fixtures) not in sys.path:
+        sys.path.insert(0, str(fixtures))
+
+    from make_packet_fixture import (FIXED_NOW, FakeFMPProvider,
+                                     make_default_providers)
+    from wbj.packet.builder import Providers, build_packet
+
+    base = make_default_providers(FIXED_NOW)
+    profile = dict(base.fmp.profile("NVDA")[0])
+    for key, value in profile_overrides.items():
+        if value is None:
+            profile.pop(key, None)
+        else:
+            profile[key] = value
+
+    providers = Providers(
+        fmp=FakeFMPProvider(ohlcv=base.fmp._ohlcv,
+                            benchmark_ohlcv=base.fmp._benchmark_ohlcv,
+                            overrides={"profile": [profile]}),
+        edgar=base.edgar, finnhub=base.finnhub, fred=base.fred)
+    return build_packet("NVDA", providers, FIXED_NOW)
 
 
 def test_the_exchange_is_read_from_the_field_the_provider_returns():
@@ -140,38 +195,32 @@ def test_the_exchange_is_read_from_the_field_the_provider_returns():
     The builder read only the legacy `exchangeShortName`, so the key was
     never present and every packet carried an empty exchange — a field
     OUTPUT_SCHEMA.md declares and QA_CHECKLIST.md's first line requires."""
-    from wbj.packet.builder import build_packet
-    import inspect
-
-    src = inspect.getsource(build_packet)
-    assert 'profile.get("exchange")' in src
-    # The legacy name stays as a fallback rather than being swapped out.
-    assert 'exchangeShortName' in src
+    packet = _packet_from_profile(exchangeShortName=None, exchange="NYSE")
+    assert packet.security.exchange == "NYSE"
 
 
 def test_market_cap_is_read_from_the_field_the_provider_returns():
     """The same renamed-field trap: FMP returns `marketCap`, not the
     legacy `mktCap`. Market cap is the equity weight in WACC, which the
     ROIC-WACC spread — and the wide-moat gate reading it — rests on."""
-    from wbj.packet.builder import build_packet
-    import inspect
-
-    src = inspect.getsource(build_packet)
-    assert 'profile.get("marketCap")' in src
+    packet = _packet_from_profile(mktCap=None, marketCap=1_234_000_000.0)
+    assert packet.capital_structure["market_cap"] == 1_234_000_000.0
 
 
-@pytest.mark.parametrize("legacy,current", [
-    ("exchangeShortName", "exchange"),
-    ("mktCap", "marketCap"),
+@pytest.mark.parametrize("legacy,current,read", [
+    ("exchangeShortName", "exchange", lambda p: p.security.exchange),
+    ("mktCap", "marketCap", lambda p: p.capital_structure["market_cap"]),
 ])
-def test_a_renamed_provider_field_reads_both_names(legacy, current):
+def test_a_renamed_provider_field_reads_both_names(legacy, current, read):
     """Neither read may depend on one spelling: the legacy name is what
-    older cached payloads carry, the current one is what the API serves."""
-    from wbj.packet.builder import build_packet
-    import inspect
+    older cached payloads carry, the current one is what the API serves.
+    Both have to land on the same packet field."""
+    value = "AMEX" if legacy == "exchangeShortName" else 987_000_000.0
 
-    src = inspect.getsource(build_packet)
-    assert legacy in src and current in src
+    old = _packet_from_profile(**{legacy: value, current: None})
+    new = _packet_from_profile(**{legacy: None, current: value})
+    assert read(old) == value, f"the legacy {legacy} stopped being read"
+    assert read(new) == value, f"the current {current} is not read"
 
 
 # --- DATA_POLICY.md "Required lineage fields" ------------------------------

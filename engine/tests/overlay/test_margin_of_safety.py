@@ -81,9 +81,21 @@ def test_missing_inputs_abstain_rather_than_guess():
 
 def test_the_overlay_carries_it_for_risk():
     """risk.py reads `overlay["margin_of_safety"]`; the wiring must put it
-    there under the exact key."""
-    import inspect
-    from wbj.overlay import from_packet
+    there under the exact key.
 
-    src = inspect.getsource(from_packet.build_overlay)
-    assert 'overlay["margin_of_safety"]' in src
+    Producer and consumer have to agree on the spelling, and a rename on
+    either side fails silently: risk's `overlay.get(...)` just returns
+    None, the metric goes MISSING and the valuation-compression dimension
+    stops scoring, with no error raised anywhere. So run the producer and
+    read the key back. (The consumer half is covered by
+    `tests/specialists/test_risk.py`, which feeds risk the same key.)
+    """
+    from wbj.config import Settings
+    from wbj.overlay.from_packet import build_overlay
+
+    packet = _packet()
+    overlay = build_overlay(packet, Settings())
+
+    expected = _margin_of_safety_from_packet(packet)
+    assert expected is not None
+    assert overlay["margin_of_safety"] == pytest.approx(expected)
