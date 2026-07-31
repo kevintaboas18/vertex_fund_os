@@ -166,6 +166,28 @@ chk(_coh.notional_value == _coh.open_interest*100*100,
 chk(all(C.to_row({"details":{"expiration_date":e}}).expiration == "2026-09-18"
         for e in ("2026-09-18","2026-09-18T00:00:00","2026-09-18T00:00:00Z")),
     "el vencimiento queda canónico (es la clave de agrupación del sub-agente 4)")
+# 2ª pasada: el tipo de contrato NO puede depender del case, y una fila mala
+# no puede llevarse la página entera.
+chk(all(C.to_row({"details":{"contract_type":t}}).contract_type == "put"
+        for t in ("put","PUT","Put"," put ")),
+    'un "PUT" sigue siendo put (si no, el GEX cambia de signo)')
+chk(all(C.to_row({"details":{"contract_type":t}}).contract_type == "call"
+        for t in ("call","CALL","P","",None)), "lo que no es put es call")
+_gcad = lambda m: [C.to_row({"details":{"contract_type":ct.upper() if m else ct,
+        "expiration_date":"2026-09-18","strike_price":float(s),"shares_per_contract":100},
+        "day":{"volume":400},"open_interest":9000 if ct=="put" else 3000})
+        for s in range(90,115,5) for ct in ("call","put")]
+from wbj.tito.gex import gex_analysis as _gexa
+_now2 = datetime(2026,7,31,tzinfo=timezone.utc)
+_g1, _g2 = _gexa(_gcad(False),[100.0]*60,100.0,_now2), _gexa(_gcad(True),[100.0]*60,100.0,_now2)
+chk(_g1.total_net_gex == _g2.total_net_gex and _g1.regime == _g2.regime,
+    "el GEX y el régimen no cambian con la cadena en MAYÚSCULAS")
+_raras = 0
+for _c in ({"details":"texto"}, {"details":5}, {"details":[]}, {"open_interest":"NaN"},
+           {"last_trade":"x","day":{"close":2}}, None, [], "x"):
+    try: C.to_row(_c)
+    except Exception: _raras += 1
+chk(_raras == 0, "ninguna fila malformada lanza (tumbaría la página entera)")
 
 # ─────────────────────────────────────────────────────────────────────
 sec("4. Reglas innegociables")

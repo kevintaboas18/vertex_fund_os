@@ -335,6 +335,32 @@ class TestProjectionTargets:
         # Y la fecha con hora no parte el vencimiento en dos.
         assert texto["score"] == normal["score"]
 
+    def test_una_fila_malformada_no_se_lleva_la_cadena_entera(self, client, monkeypatch):
+        """`to_row` corre dentro del bucle de descarga: si lanza con un
+        contrato, se pierden los otros 4999 y el panel dice "sin cadena"."""
+        import wbj.tito.massive as MASS
+        from wbj.tito.compute import to_row
+
+        def con_basura(t, **k):
+            crudos = []
+            for s in range(90, 115, 5):
+                for ct in ("CALL", "PUT"):        # además, en MAYÚSCULAS
+                    crudos.append({"details": {"contract_type": ct, "strike_price": float(s),
+                                               "expiration_date": "2026-09-18",
+                                               "shares_per_contract": 100},
+                                   "day": {"volume": 400, "close": 2.5},
+                                   "open_interest": 9000})
+            crudos += [{"details": "esquema cambiado"}, {"open_interest": "NaN"}, None, "x"]
+            filas = [r for r in map(to_row, crudos) if r.strike > 0 and r.expiration]
+            return MASS.ChainResult(rows=filas, underlying_price=SPOT, pages=1, truncated=False)
+
+        monkeypatch.setattr(MASS, "fetch_option_chain", con_basura)
+        d = client.get("/api/projection-targets?ticker=BASURA").json()
+        assert d["ok"] is True
+        assert d["scores"]["structure"] is not None and d["scores"]["structure"] > 0
+        # Y los PUT en mayúsculas siguen siendo puts: si no, el GEX se invierte.
+        assert d["gex"]["regime"] in ("positive", "negative")
+
     def test_arranca_de_disco_vacio(self, client, tmp_path, monkeypatch):
         # Primer despliegue: no hay nada guardado. El motor tiene que responder
         # igual, con las tres piezas de memoria declaradas como apagadas.

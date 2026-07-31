@@ -12,6 +12,7 @@ contrato.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Sequence
 
 from .structure import ChainRow, PriceSource
@@ -65,11 +66,27 @@ def _coerce(v: Any, fallback: float) -> float:
     if isinstance(v, bool) or v is None:
         return fallback
     if isinstance(v, (int, float)):
-        return float(v)
+        return float(v) if math.isfinite(v) else fallback
     try:
-        return float(str(v).strip())
+        n = float(str(v).strip())
     except (TypeError, ValueError):
         return fallback
+    # `float("NaN")` y `float("inf")` PARSEAN. Sin este filtro un
+    # `open_interest: "NaN"` llegaba entero hasta `int(oi)`, que lanza
+    # ValueError y tumba la cadena completa desde dentro del cliente HTTP.
+    return n if math.isfinite(n) else fallback
+
+
+def _obj(v: Any) -> dict:
+    """El `?.` de Víctor: si no es un objeto, leerle un campo da `undefined`.
+
+    `raw.get("details") or {}` solo cubre `None` y el dict vacío. Si Massive
+    manda `details` como texto o número —la misma clase de cambio de esquema que
+    ya apareció dos veces— el `.get` lanza `AttributeError`, y como esto corre
+    dentro del bucle de `fetch_option_chain`, **una sola fila malformada tumba
+    la página entera** y la cadena sale vacía.
+    """
+    return v if isinstance(v, dict) else {}
 
 
 def contract_price(raw: dict) -> tuple[float | None, PriceSource]:
@@ -83,10 +100,11 @@ def contract_price(raw: dict) -> tuple[float | None, PriceSource]:
     VWAP del día no vale lo mismo que uno sobre el último trade, y quien lo lea
     tiene derecho a saberlo.
     """
-    lt = _num((raw.get("last_trade") or {}).get("price"))
+    raw = _obj(raw)
+    lt = _num(_obj(raw.get("last_trade")).get("price"))
     if lt is not None and lt > 0:
         return lt, "last_trade"
-    day = raw.get("day") or {}
+    day = _obj(raw.get("day"))
     close = _num(day.get("close"))
     if close is not None and close > 0:
         return close, "day_close"
@@ -123,8 +141,20 @@ def notional_value(
 
 
 def _normalize_type(t: Any) -> str:
-    """`normalizeType`: cualquier cosa que no sea "put" es un call."""
-    return "put" if t == "put" else "call"
+    """`normalizeType`: cualquier cosa que no sea "put" es un call.
+
+    DIVERGENCIA declarada: se compara en minúsculas. Víctor hace `t === "put"`
+    exacto, así que un `"PUT"` se convierte en **call** — y ese fallo no avisa,
+    miente. Medido con una cadena entera en mayúsculas:
+
+        "put"  →  GEX total  -13,614,827  ·  régimen negative
+        "PUT"  →  GEX total  +27,229,653  ·  régimen positive
+
+    Todos los puts pasan a contarse como calls: el GEX neto cambia de signo, el
+    put wall desaparece y el régimen se invierte. Es la señal central del motor
+    entero decidida por el `case` de un string de la fuente.
+    """
+    return "put" if str(t or "").strip().lower() == "put" else "call"
 
 
 def to_row(raw: dict) -> ChainRow:
@@ -133,8 +163,9 @@ def to_row(raw: dict) -> ChainRow:
     Los campos ausentes caen a 0 / cadena vacía, como en el original: un
     contrato incompleto no debe tumbar la cadena entera.
     """
-    details = raw.get("details") or {}
-    day = raw.get("day") or {}
+    raw = _obj(raw)
+    details = _obj(raw.get("details"))
+    day = _obj(raw.get("day"))
     oi = _coerce(raw.get("open_interest"), 0)
     strike = _coerce(details.get("strike_price"), 0)
     shares = _coerce(details.get("shares_per_contract"), DEFAULT_SHARES_PER_CONTRACT)

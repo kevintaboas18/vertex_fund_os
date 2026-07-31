@@ -179,6 +179,87 @@ class TestCoherenciaInterna:
         assert count_expirations(filas) == 1
 
 
+class TestElTipoDeContratoNoPuedeDependerDelCase:
+    """El fallo más caro de los encontrados: no avisa, miente.
+
+    Víctor compara `t === "put"` exacto, así que un `"PUT"` de la fuente se
+    convierte en **call**. Con la cadena entera en mayúsculas el GEX neto
+    cambia de signo (-13.6M → +27.2M) y el régimen se invierte.
+    """
+
+    def test_put_en_cualquier_case_sigue_siendo_put(self):
+        for t in ("put", "PUT", "Put", " put "):
+            assert to_row({"details": {"contract_type": t}}).contract_type == "put"
+
+    def test_lo_que_no_es_put_es_call(self):
+        for t in ("call", "CALL", "P", "", None, 5):
+            assert to_row({"details": {"contract_type": t}}).contract_type == "call"
+
+    def test_el_gex_no_cambia_de_signo_con_la_cadena_en_mayusculas(self):
+        from datetime import datetime, timezone
+
+        from wbj.tito.gex import gex_analysis
+
+        now = datetime(2026, 7, 31, tzinfo=timezone.utc)
+
+        def cadena(mayus):
+            return [to_row({"details": {
+                        "contract_type": ct.upper() if mayus else ct,
+                        "expiration_date": "2026-09-18", "strike_price": float(s),
+                        "shares_per_contract": 100},
+                    "day": {"volume": 400},
+                    "open_interest": 9000 if ct == "put" else 3000})
+                    for s in range(90, 115, 5) for ct in ("call", "put")]
+
+        bajo = gex_analysis(cadena(False), [100.0] * 60, 100.0, now)
+        alto = gex_analysis(cadena(True), [100.0] * 60, 100.0, now)
+        assert alto.total_net_gex == bajo.total_net_gex
+        assert alto.regime == bajo.regime
+
+
+class TestUnaFilaMalaNoTumbaLaPagina:
+    """`to_row` corre dentro del bucle de `fetch_option_chain`: si lanza, se
+    pierde la cadena entera, no una fila."""
+
+    def test_details_con_tipo_raro_no_lanza(self):
+        # El `?.` de Víctor devuelve undefined; `or {}` no cubre un string.
+        for d in ([], "texto", 5, None, True):
+            r = to_row({"details": d, "open_interest": 10})
+            assert r.strike == 0 and r.contract_type == "call"
+
+    def test_day_y_last_trade_con_tipo_raro_tampoco(self):
+        assert contract_price({"last_trade": "x", "day": {"close": 2}}) == (2, "day_close")
+        assert contract_price({"day": "x"}) == (None, "none")
+
+    def test_un_contrato_que_no_es_dict_tampoco(self):
+        for raw in (None, [], "x", 5):
+            r = to_row(raw)
+            assert r.strike == 0 and r.open_interest == 0
+
+    def test_un_string_no_finito_no_revienta_la_conversion(self):
+        # float("NaN") PARSEA: sin filtro llegaba a int(oi) y lanzaba ValueError
+        # dentro del cliente HTTP, tumbando la cadena completa.
+        for v in ("NaN", "nan", "inf", "-Infinity"):
+            r = to_row({"open_interest": v, "details": {"strike_price": 100}})
+            assert r.open_interest == 0 and r.notional_value == 0
+        r = to_row({"open_interest": 10, "details": {"strike_price": float("nan")}})
+        assert r.strike == 0 and r.notional_value == 0
+
+    def test_una_fila_mala_en_medio_de_la_pagina_no_se_lleva_el_resto(self):
+        crudos = [
+            {"details": {"contract_type": "call", "strike_price": 100.0,
+                         "expiration_date": "2026-09-18"}, "open_interest": 500},
+            {"details": "esquema cambiado"},          # antes: AttributeError
+            {"open_interest": "NaN"},                  # antes: ValueError
+            {"details": {"contract_type": "put", "strike_price": 95.0,
+                         "expiration_date": "2026-09-18"}, "open_interest": 700},
+        ]
+        filas = [to_row(c) for c in crudos]
+        buenas = [f for f in filas if f.strike > 0 and f.expiration]
+        assert len(buenas) == 2
+        assert {f.contract_type for f in buenas} == {"call", "put"}
+
+
 class TestSortByOpenInterestDesc:
     def test_ordena_de_mayor_a_menor_sin_mutar_el_original(self):
         def fila(oi):
