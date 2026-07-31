@@ -1,6 +1,6 @@
 # Auditoría del port de `compute.ts`
 
-Cinco pasadas, atacando el port contra el original ejecutado en Node. Dieciséis
+Seis pasadas, atacando el port contra el original ejecutado en Node. Diecisiete
 hallazgos, todos arreglados. Las 35 sentencias ejecutables de `compute.ts` están
 mapeadas una a una (tabla al final).
 
@@ -9,6 +9,7 @@ mapeadas una a una (tabla al final).
 - **3ª pasada** (test diferencial de 604 casos) → 9 y 10.
 - **4ª pasada** (serialización, semántica fina y cableado) → 11 a 13.
 - **5ª pasada** (desbordamiento y forma de la respuesta) → 14 a 16.
+- **6ª pasada** (negativos, pureza, rendimiento) → 17.
 
 ## 1 · El nocional daba por hecho 100 acciones por contrato — ARREGLADO
 
@@ -186,6 +187,26 @@ avisar. Ahora los dos salen como `MassiveError` con el tipo que llegó, y
 `results` ausente sigue siendo una cadena vacía —ticker sin contratos— que no es
 lo mismo que una respuesta mal formada.
 
+## 17 · Un nocional NEGATIVO restaba del total — ARREGLADO
+
+El peor de los cuatro últimos, porque **una sola fila tira la cadena entera**.
+Los cuatro campos laxos son cantidades —contratos abiertos, contratos
+negociados, un precio de ejercicio, acciones por contrato— y ninguna puede ser
+negativa. Víctor los arrastra porque JS no distingue.
+
+Medido con una cadena por lo demás sana más una fila con `open_interest`
+de −900.000:
+
+    cadena sana               → nocional  +$900.000.000 · Estructura 3/15 · liquidez OK
+    +1 fila con OI negativo   → nocional −$8.100.000.000 · Estructura 1/15 · BAJA LIQUIDEZ
+
+Se encendía la salvaguarda de baja liquidez sobre una cadena perfectamente
+líquida. Un nocional que **resta** es peor que uno que falta: el que falta deja
+la fila en cero, el que resta contamina a todas las demás.
+
+Los negativos caen ahora al fallback. El precio conserva su propia regla —ya
+caía al siguiente nivel de la cascada, no al fallback— y no cambia.
+
 ## Divergencias declaradas
 
 1. **`_coerce` con basura no numérica** cae al fallback en vez de dar `NaN`. En
@@ -197,7 +218,9 @@ lo mismo que una respuesta mal formada.
 4. **El open interest se trunca a entero.** Es un conteo de contratos; Víctor lo
    arrastra decimal solo porque JS no distingue. Con datos reales no cambia nada.
 5. **El vencimiento se recorta a `YYYY-MM-DD`** (hallazgo 4).
-6. **`fetch_option_chain` descarta strike 0 y vencimiento vacío.** Víctor no
+6. **Los negativos caen al fallback** (hallazgo 17): son cantidades, y un
+   nocional negativo contamina el total de toda la cadena.
+7. **`fetch_option_chain` descarta strike 0 y vencimiento vacío.** Víctor no
    filtra porque su destino es una tabla, donde una fila rara solo se ve fea;
    aquí el destino son GEX, niveles y Estructura, donde un strike 0 mete un nodo
    imán en cero y un vencimiento vacío crea un grupo fantasma.
@@ -231,9 +254,9 @@ declarada se marca como REAL.
 Arrancó en **23 diferencias reales** y las dos causas que las explicaban son los
 hallazgos 9 y 10.
 
-Repetido con **3 semillas × 2000**, una corrida de **3004** y dos más de
-**2500**: sin diferencias reales en ninguna. En total, más de **14.000
-contratos** comparados campo a campo contra el original.
+Repetido con **8 semillas distintas** entre 2000 y 3004 casos cada una: sin
+diferencias reales en ninguna. En total, más de **21.000 contratos** comparados
+campo a campo contra el original.
 
 ## Comprobado contra Node, idéntico
 

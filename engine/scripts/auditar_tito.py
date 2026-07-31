@@ -255,6 +255,23 @@ except Exception: _sin = False
 _MA._get = _orig_get
 chk(_limpios == 6, f"toda respuesta mal formada sale como MassiveError ({_limpios}/6)")
 chk(_sin, "`results` ausente es cadena vacía, no un error")
+# 6ª pasada: un nocional que RESTA es peor que uno que falta.
+chk(all(C.to_row(_c).notional_value >= 0 for _c in (
+        {"open_interest":-500,"details":{"strike_price":100}},
+        {"open_interest":500,"details":{"strike_price":-100}},
+        {"day":{"volume":-9}},
+        {"open_interest":10,"details":{"strike_price":100,"shares_per_contract":-100}})),
+    "ningún negativo produce un nocional negativo")
+_sana = [C.to_row({"details":{"contract_type":ct,"strike_price":float(s),
+         "expiration_date":"2026-09-18","shares_per_contract":100},
+         "day":{"volume":400},"open_interest":9000})
+         for s in range(90,115,5) for ct in ("call","put")]
+_sucia = _sana + [C.to_row({"details":{"contract_type":"call","strike_price":100.0,
+          "expiration_date":"2026-09-18","shares_per_contract":100},
+          "day":{"volume":400},"open_interest":-900_000})]
+chk(S.structure_score(_sana).score == S.structure_score(_sucia).score
+    and not S.structure_score(_sucia).notional["low_liquidity"],
+    "una fila con OI negativo no tira la cadena entera")
 # El diferencial completo vive en engine/scripts/diff_compute.sh (necesita node
 # + el repo de Víctor); aquí solo se avisa de que existe.
 if TITO and TITO.exists():

@@ -39,6 +39,8 @@ for i,(c,v) in enumerate(zip(casos,vic)):
                              ("volume",r.volume,vr["volume"]),
                              ("strike",r.strike,vr["strike"])):
         n=jsnum(suyo)
+        if not math.isnan(n) and n < 0 and mio == 0:
+            cat("DECLARADA · negativo → fallback",i,suyo,mio,c); continue
         if math.isnan(n):
             if mio==0: cat("DECLARADA · basura → fallback",i,suyo,mio,c)
             else: cat(f"REAL · {campo}",i,suyo,mio,c)
@@ -61,6 +63,14 @@ for i,(c,v) in enumerate(zip(casos,vic)):
             if not (s is None and mio is None): cat(f"REAL · {campo} None",i,suyo,mio,c)
         elif abs(s-(mio or 0))>1e-6:
             det = c.get("details") if isinstance(c.get("details"),dict) else {}
+            _neg = any(isinstance(x,(int,float)) and not isinstance(x,bool) and x < 0
+                       for x in (c.get("open_interest"), det.get("strike_price"),
+                                 det.get("shares_per_contract"))) or any(
+                   isinstance(x,str) and x.strip().startswith("-")
+                   for x in (c.get("open_interest"), det.get("strike_price"),
+                             det.get("shares_per_contract")) )
+            if _neg:
+                cat("DECLARADA · negativo → fallback",i,suyo,mio,c); continue
             crudo_oi = c.get("open_interest")
             def _frac(x):
                 if isinstance(x,bool) or x is None: return False

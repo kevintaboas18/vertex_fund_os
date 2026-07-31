@@ -227,6 +227,55 @@ class TestUnPrecioInfinitoNoContaminaElJSON:
         json.loads(crudo, parse_constant=estricto)   # no debe lanzar
 
 
+class TestUnNegativoNoPuedeRestarDelNocional:
+    """Los cuatro campos laxos son CANTIDADES y ninguna puede ser negativa.
+
+    Víctor los arrastra porque JS no distingue, y el resultado es que una sola
+    fila corrupta tira la cadena entera: un nocional que RESTA es peor que uno
+    que falta.
+    """
+
+    @pytest.mark.parametrize("crudo,campo", [
+        ({"open_interest": -500, "details": {"strike_price": 100}}, "open_interest"),
+        ({"open_interest": 500, "details": {"strike_price": -100}}, "strike"),
+        ({"day": {"volume": -9}}, "volume"),
+        ({"open_interest": 10,
+          "details": {"strike_price": 100, "shares_per_contract": -100}}, "shares"),
+    ])
+    def test_ningun_negativo_produce_un_nocional_negativo(self, crudo, campo):
+        r = to_row(crudo)
+        assert r.notional_value >= 0
+        assert r.open_interest >= 0 and r.volume >= 0 and r.strike >= 0
+
+    def test_una_fila_corrupta_no_tira_la_cadena_entera(self):
+        from wbj.tito.structure import structure_score
+
+        def cadena(con_corrupta):
+            filas = [to_row({"details": {"contract_type": ct, "strike_price": float(s),
+                                         "expiration_date": "2026-09-18",
+                                         "shares_per_contract": 100},
+                             "day": {"volume": 400}, "open_interest": 9000})
+                     for s in range(90, 115, 5) for ct in ("call", "put")]
+            if con_corrupta:
+                filas.append(to_row({"details": {"contract_type": "call",
+                                                 "strike_price": 100.0,
+                                                 "expiration_date": "2026-09-18",
+                                                 "shares_per_contract": 100},
+                                     "day": {"volume": 400},
+                                     "open_interest": -900_000}))
+            return filas
+
+        sana, sucia = structure_score(cadena(False)), structure_score(cadena(True))
+        assert sucia.notional["total"] == sana.notional["total"]
+        assert sucia.score == sana.score
+        assert not sucia.notional["low_liquidity"]
+
+    def test_el_precio_negativo_sigue_con_su_propia_regla(self):
+        # La cascada ya lo trataba: cae al siguiente nivel, no al fallback.
+        assert contract_price({"last_trade": {"price": -3}, "day": {"vwap": 1.0}}) \
+            == (1.0, "day_vwap")
+
+
 class TestElProductoTambienPuedeDesbordar:
     """Filtrar solo lo que ENTRA dejaba el agujero abierto por el otro lado:
     `1e200 * 100 * 1e200` es `inf` con las dos entradas finitas."""

@@ -71,15 +71,26 @@ def _coerce(v: Any, fallback: float) -> float:
     if isinstance(v, bool):
         return 1.0 if v else 0.0
     if isinstance(v, (int, float)):
-        return float(v) if math.isfinite(v) else fallback
-    try:
-        n = float(str(v).strip())
-    except (TypeError, ValueError):
-        return fallback
+        n = float(v)
+    else:
+        try:
+            n = float(str(v).strip())
+        except (TypeError, ValueError):
+            return fallback
     # `float("NaN")` y `float("inf")` PARSEAN. Sin este filtro un
     # `open_interest: "NaN"` llegaba entero hasta `int(oi)`, que lanza
     # ValueError y tumba la cadena completa desde dentro del cliente HTTP.
-    return n if math.isfinite(n) else fallback
+    if not math.isfinite(n):
+        return fallback
+    # DIVERGENCIA declarada: los negativos caen al fallback. Estos cuatro campos
+    # son cantidades —contratos abiertos, contratos negociados, un precio de
+    # ejercicio, acciones por contrato— y ninguna puede ser negativa. Víctor los
+    # arrastra porque JS no distingue, y el resultado es que **una sola fila
+    # corrupta tira la cadena entera**: con un OI de -900.000 en una cadena por
+    # lo demás sana, el nocional pasaba de +$900M a -$8.100M, Estructura de 3/15
+    # a 1/15, y se encendía la salvaguarda de baja liquidez sobre una cadena
+    # perfectamente líquida. Un nocional que RESTA es peor que uno que falta.
+    return n if n >= 0 else fallback
 
 
 #: Marca "el campo no venía", distinta de "vino y no se entiende".
@@ -210,9 +221,9 @@ def _finito(v: float | None, fallback: float | None) -> float | None:
     Se recorta aquí y no dentro de `notional_value` / `open_premium` para que
     esas dos sigan siendo el port literal de sus fórmulas.
     """
-    if v is None:
-        return fallback if fallback is None else fallback
-    return v if math.isfinite(v) else fallback
+    if v is None or not math.isfinite(v):
+        return fallback
+    return v
 
 
 def to_row(raw: dict) -> ChainRow:
@@ -256,7 +267,7 @@ def to_row(raw: dict) -> ChainRow:
         price_source=source,
         # Recortados: el producto desborda a `inf` con entradas finitas.
         open_premium=_finito(open_premium(oi_int, price), None),
-        notional_value=_finito(notional_value(oi_int, strike, shares), 0.0) or 0.0,
+        notional_value=_finito(notional_value(oi_int, strike, shares), 0.0),
     )
 
 
