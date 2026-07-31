@@ -515,3 +515,41 @@ También: `_price_and_atr` devolvía el cierre **crudo** mientras
 capa más abajo.
 
 Pendiente: **V-03/V-04** (Anthropic: saldo y `JUDGE_MODEL`).
+
+## 7.5 Re-auditoría — 2026-07-31 (tras V-01/02/05/06/07/08)
+
+**Cerrado en esta pasada:**
+
+- **V-04** — `JUDGE_MODEL = 'claude-opus-5'`, ya no es una clave. Verificado.
+- **V-09 (nuevo)** — Encontrado al probar los arreglos contra otros tickers.
+  Con el crecimiento base ya del consenso, los multiplicadores `bear = base×0.5`
+  y `bull = base×1.5` producían supuestos que nadie hizo: **PLTR bull 109.09% =
+  ingresos ×40 en cinco años**. FMP ya sirve `revenueLow`/`revenueHigh` — la
+  dispersión real de analistas para el mismo horizonte. Commit `6c2457f`.
+
+  | | antes (multiplicador) | ahora (dispersión real) |
+  |---|---|---|
+  | NVDA | 18.00 / 36.01 / 54.01 | **31.20 / 36.01 / 39.73** |
+  | PLTR | 36.36 / 72.73 / 109.09 | **71.21 / 72.73 / 76.52** |
+  | KO | 1.75 / 3.50 / 5.25 | **3.20 / 3.50 / 4.07** |
+
+**Verificado sano (no son bugs):**
+
+- `PER_SHARE_VALUE_INCOMPLETE_NO_DILUTION_SCHEDULE` — correcto por diseño.
+  VAL-T008 exige declarar "incompleto" sin el schedule de convertibles, que vive
+  en las notas del 10-K y ningún endpoint sirve. Es entrada de `Entradas/`.
+- `revenue_quality_and_growth` bajo el piso — `FIN-GR-004/005` esperan el judge
+  o `Entradas/`. Misma causa raíz que Market (V-03), no un defecto aparte.
+- JPM sin escenarios de DCF — correcto: la matriz de selección de modelos veta
+  el DCF empresarial para bancos.
+- APIs: FMP quote/statements/estimates, FinnHub quote, FRED y SEC EDGAR → **200**.
+
+**Estado medido (NVDA, 2026-07-31):** 47.2/100, "Avoid / Wait",
+`OVERRIDE_6_COVERAGE_GATE_INELIGIBLE`, 6 hashes de auditoría, 10 tenedores 13F,
+10 insiders, revisit 2026-08-26. **2054 tests del engine + 49 de la web.**
+
+**Único abierto: V-03** — la cuenta de Anthropic sigue sin saldo
+(`credit balance is too low`). La clave es válida y `JUDGE_MODEL` ya es correcto.
+Sin saldo: 7 preguntas cualitativas sin responder → Market pierde 13 de 20 puntos
+→ cobertura 0.49 → OVERRIDE_6 → la etiqueta refleja datos faltantes, no la
+empresa. No hay nada que arreglar en el código: requiere cargar créditos.
