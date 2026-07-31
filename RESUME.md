@@ -23,4 +23,7 @@ The ledger + `git log` are the source of truth for what's done. Tasks 1–9 are 
 2. **FMP key returns 403** on `/api/v3/profile` (plan limitation?). Check the FMP subscription before Task 25's live smoke test. EDGAR path works without any key.
 3. Speed preference: Victor asked to batch remaining tasks — batch the six specialists (14–19) under one implementer + one review; keep individual review gates on Tasks 10, 12, 13, 21.
 4. Deferred Minor review findings are listed per-task in `.superpowers/sdd/progress.md` — feed them to the final whole-branch review.
-5. Git identity is auto-generated; run `git config --global user.email victor@infusioninvestments.com` before pushing anywhere.
+5. ~~Git identity is auto-generated...~~ **OBSOLETO (2026-07-30):** el repo ya
+   está inicializado con la identidad de Kevin, configurada **local al repo**
+   (`Kevin Taboas <kevintaboas02@gmail.com>`) — no toques `--global`, y no uses
+   el correo de Victor.
