@@ -422,3 +422,48 @@ lo que falta son créditos. El mensaje manda a diagnosticar el lugar equivocado.
   `VERTEX_PRIMARY_TICKERS`
 - **Obligatoria en Render**: `VERTEX_API_TOKEN` (sin ella el servicio sólo
   atiende localhost, o sea inservible en Render)
+
+## 7.3 Resueltos — 2026-07-31
+
+| # | Estado | Commit |
+|---|---|---|
+| V-05 | Cerrado | `057692c` |
+| V-06 | Cerrado | `a48d956` |
+| V-07 | Cerrado | `63b18c9` |
+| V-08 | Cerrado | `1f2c53e` |
+
+**V-05.** Dos causas, no una. (a) FMP sirve la sesión EN CURSO como una barra
+cuyo `close` es el último print; el builder la tomaba como cierre y construía
+`market_timestamp` como un cierre de las 16:00 ET que aún no había pasado —
+dos corridas de la misma mañana daban niveles y ATR distintos, justo lo que
+los `packet_hashes` dicen descartar. (b) `facts_table["price"]` leía
+`profile.price`, que temprano en la sesión devuelve el cierre ANTERIOR.
+Ahora `_settled_sessions()` descarta la sesión sin cerrar y el precio es el
+cierre ajustado de esa misma barra. Verificado: 195.04 == 195.04, 753
+sesiones acción y benchmark. **Bonus:** la serie de la acción no pasaba
+`today=now.date()` pese a que su docstring lo exige — el benchmark sí, así que
+podían quedar ancladas a días distintos.
+
+**V-06.** El flag de valuación no detectaba supuestos inconsistentes: detectaba
+un bug de este repo. `economic_profit_value(ic0, eps, wacc)` exige beneficios
+económicos (`NOPAT_t − WACC×IC_{t−1}`) y recibía `NOPAT×(1−rr)×(1+g)^t`, que es
+flujo de caja libre; sumar `IC0` encima de un valor presente de flujos duplica
+la base de capital (**+31.6 %** con números tipo NVDA). `economic_profit_ev()`
+construye la serie desde el mismo pronóstico que el DCF valora y usa
+`TV_fcff − IC_N` como término terminal. Reconcilia **exacto** (rel 1e-9) e
+invariante a `IC0` entre 0 y 900 k. También: las dos funciones reclamaban el id
+`VAL-EVAEV-021` y el registro se queda con la última decorada.
+El flag del core-27 ahora nombra la causa en vez de repetir los dos números.
+
+**V-07.** `Provider.blocked_endpoints` recuerda los rechazos 401/402/403 y
+`run_report` los declara. Un 404 no cuenta — eso sí significa que la empresa no
+tiene el dato. Los tres endpoints de pago aparecen en el reporte.
+
+**V-08.** `_llm_failure_reason()` distingue saldo agotado / modelo inválido /
+clave rechazada / 429 / SDK ausente. **Bonus:** una corrida con el judge caído
+cacheaba sus respuestas de analista bajo la lista completa de preguntas, así
+que toda corrida posterior dentro del TTL saltaba el judge y reproducía los
+scores degradados en silencio — una caída envenenando días de reportes.
+
+Pendiente: **V-02** (crecimiento base ignora el consenso), **V-01**
+(el reporte se contradice sobre el mismo ticker), **V-03/V-04** (Anthropic).
