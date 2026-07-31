@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 from wbj.providers.base import Provider
@@ -202,6 +203,124 @@ class EdgarProvider(Provider):
             headers=self._headers,
         )
         return payload if isinstance(payload, dict) else None
+
+    #: Ventanas de 3 meses con que la SEC nombra cada dataset trimestral de 13F.
+    _F13_WINDOWS = (("dec", "feb"), ("mar", "may"), ("jun", "aug"), ("sep", "nov"))
+    _F13_LAST_DAY = {"feb": 28, "may": 31, "aug": 31, "nov": 30}
+    _F13_BASE = ("https://www.sec.gov/files/structureddata/data/"
+                 "form-13f-data-sets/{name}")
+
+    def _f13_candidates(self, today) -> list[str]:
+        """Nombres de dataset del trimestre actual hacia atras, mas reciente primero."""
+        out = []
+        year = today.year
+        for back in range(6):                      # ~18 meses de margen
+            for (ini, fin) in reversed(self._F13_WINDOWS):
+                y = year - (1 if (ini == "dec") else 0)
+                out.append(f"01{ini}{y}-{self._F13_LAST_DAY[fin]}{fin}{year}_form13f.zip")
+            year -= 1
+        return out
+
+    def holders_13f_dataset(self, cusip: str, top: int = 12) -> list[dict]:
+        """Tenedores institucionales de `cusip`, ORDENADOS POR VALOR DE POSICION.
+
+        Por que existe, cuando ya hay `institutional_holders_13f`: aquel busca
+        el CUSIP en el indice de texto completo de EDGAR, y ese camino **no
+        puede** devolver a los grandes. Medido sobre NVDA: 10.000+ filings
+        mencionan el CUSIP y el indice sirve 300; los hits mas recientes de
+        Vanguard, BlackRock, State Street y FMR son de 2012, 2009, 2013 y 2016
+        -- sus tablas de posiciones son tan grandes que EDGAR deja de
+        indexarlas a texto completo. Lo que quedaba eran gestoras pequeñas
+        ordenadas por fecha de presentacion, y recencia no es reconocimiento.
+
+        Este metodo usa el conjunto de datos estructurado que la SEC publica
+        cada trimestre: `INFOTABLE.tsv` trae TODAS las posiciones con CUSIP,
+        valor y numero de acciones, y `COVERPAGE.tsv` el nombre del gestor. Es
+        completo por construccion -- 6.334 filings reportan NVDA frente a los
+        160 del indice -- y da el ranking real por tamaño de posicion, que es
+        lo que pide el item 4 de CLAUDE.md.
+
+        Coste: un zip de ~100 MB por trimestre, cacheado y COMPARTIDO por todos
+        los tickers (el dataset cubre el mercado entero); el filtrado son ~2 s
+        sobre 3,8 millones de filas. Devuelve [] si no hay dataset disponible,
+        y el llamador conserva su respaldo.
+        """
+        import csv
+        import io
+        import zipfile
+        from datetime import date
+
+        cusip = str(cusip).strip().upper()
+        if not cusip:
+            return []
+        cache_dir = Path(getattr(self.settings, "cache_dir", ".")) / "form13f"
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return []
+
+        blob = period = None
+        for name in self._f13_candidates(date.today()):
+            local = cache_dir / name
+            if local.is_file() and local.stat().st_size > 1_000_000:
+                blob, period = local.read_bytes(), name
+                break
+            try:
+                blob = self.get_bytes(self._F13_BASE.format(name=name), headers=self._headers)
+            except Exception:
+                blob = None
+            if blob:
+                try:
+                    local.write_bytes(blob)
+                except OSError:
+                    pass
+                period = name
+                break
+        if not blob:
+            logger.info("no 13F structured dataset available for %s", cusip)
+            return []
+
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(blob))
+            por_filing: dict[str, dict] = {}
+            with zf.open("INFOTABLE.tsv") as fh:
+                for row in csv.DictReader(io.TextIOWrapper(fh, "utf-8", "replace"), delimiter="\t"):
+                    if (row.get("CUSIP") or "").strip().upper() != cusip:
+                        continue
+                    acc = row.get("ACCESSION_NUMBER") or ""
+                    agg = por_filing.setdefault(acc, {"value": 0.0, "shares": 0.0})
+                    try:                       # varias filas por filing (clases, opciones)
+                        agg["value"] += float(row.get("VALUE") or 0)
+                        agg["shares"] += float(row.get("SSHPRNAMT") or 0)
+                    except (TypeError, ValueError):
+                        continue
+            if not por_filing:
+                return []
+            nombres: dict[str, str] = {}
+            with zf.open("COVERPAGE.tsv") as fh:
+                for row in csv.DictReader(io.TextIOWrapper(fh, "utf-8", "replace"), delimiter="\t"):
+                    acc = row.get("ACCESSION_NUMBER")
+                    if acc in por_filing:
+                        nombres[acc] = (row.get("FILINGMANAGER_NAME") or "").strip()
+        except Exception:
+            logger.warning("13F dataset unreadable for %s", cusip, exc_info=True)
+            return []
+
+        # Un mismo gestor presenta varios filings (enmiendas, entidades del
+        # grupo). Se queda el mayor por gestor: sumarlos duplicaria la posicion.
+        por_gestor: dict[str, dict] = {}
+        for acc, agg in por_filing.items():
+            nombre = nombres.get(acc) or "(sin nombre en COVERPAGE)"
+            clave = nombre.upper()
+            prev = por_gestor.get(clave)
+            if prev is None or agg["value"] > prev["value"]:
+                por_gestor[clave] = {"name": nombre, "value": agg["value"],
+                                     "shares": agg["shares"], "accession": acc}
+        rank = sorted(por_gestor.values(), key=lambda r: -r["value"])[:max(1, top)]
+        for r in rank:
+            r["period"] = period
+            r["source_locator"] = f"13F-HR accession {r['accession']} (SEC 13F data set {period})"
+        return rank
 
     def institutional_holders_13f(self, cusip: str, since: str, until: str,
                                   pages: int = 3) -> list[dict]:

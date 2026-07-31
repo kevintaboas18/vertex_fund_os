@@ -114,6 +114,26 @@ class Provider:
     def _qualified_cache_key(cache_key: str, params: dict[str, Any]) -> str:
         return _qualified_cache_key(cache_key, params)
 
+    def get_bytes(self, url: str, headers: dict[str, str] | None = None,
+                  timeout: float = 300.0) -> bytes | None:
+        """Descarga un binario grande (p. ej. el zip trimestral de 13F).
+
+        NO usa el cache de `get_json`: ese guarda JSON, y estos archivos pesan
+        ~100 MB. Quien llama decide donde persistirlo. Devuelve None ante
+        cualquier fallo -- nunca lanza, igual que `get_json`.
+        """
+        try:
+            response = self.client.get(url, headers=headers, timeout=timeout,
+                                       follow_redirects=True)
+        except httpx.TransportError as exc:
+            logger.warning("wbj provider byte fetch failed url=%s error=%s", url, exc)
+            return None
+        if response.status_code >= 400:
+            logger.info("wbj provider byte fetch status=%d url=%s",
+                        response.status_code, url)
+            return None
+        return response.content
+
     def get_json(
         self,
         url: str,

@@ -308,10 +308,12 @@ def _ownership(ticker: str, settings: Any) -> dict:
                                 "value": h.get("marketValue") or h.get("value")})
 
     if not holders:
-        # The tier-1 fallback. Share counts stay None: they live inside the
-        # information-table document, and naming the holder with its accession
-        # is what report item 4 asks for -- fetching and parsing hundreds of
-        # tables to rank them is a different feature with its own failure mode.
+        # Respaldo tier 1, en tres escalones de mejor a peor:
+        #   1. Conjunto de datos estructurado 13F de la SEC -> nombres RECONOCIDOS
+        #      con posicion real (acciones y dolares), ordenados por tamaño.
+        #   2. Schedule 13D/G -> los >5% por definicion, pero su CUSIP dejo de
+        #      indexarse a texto completo tras el formato estructurado de 2024.
+        #   3. Busqueda de 13F-HR en el indice -> nombres sin cifras, por fecha.
         try:
             cusip = ((fmp.profile(ticker) or [{}])[0] or {}).get("cusip")
             if cusip:
@@ -319,12 +321,36 @@ def _ownership(ticker: str, settings: Any) -> dict:
                 today = _date.today()
                 company_cik = edgar.cik_for(ticker)
 
-                # Recognised first, and by a definition rather than a ranking.
-                # A Schedule 13D/13G is filed only on crossing 5% of a class,
-                # so its filer set IS the recognised holders -- no ordering
-                # step, nothing parsed. That is what CLAUDE.md's "recognised"
-                # asks for, and a 13F list ordered by filing date cannot give.
-                if company_cik:
+                # (1) El dataset trimestral. Es el unico camino que devuelve a
+                # los grandes: el indice de texto completo sirve 300 hits de los
+                # 10.000+ que mencionan el CUSIP, y las tablas de Vanguard o
+                # BlackRock son tan grandes que EDGAR deja de indexarlas -- sus
+                # hits mas recientes ahi son de 2009-2016. Un zip por trimestre,
+                # cacheado y compartido por todos los tickers.
+                _dataset_ok = False
+                for r in edgar.holders_13f_dataset(str(cusip), top=10):
+                    _dataset_ok = True
+                    holders.append({
+                        "name": r["name"], "shares": r["shares"], "value": r["value"],
+                        "cik": None, "filing_date": None, "basis": "13F dataset",
+                        "stake": None, "stale": False,
+                        "source_locator": r["source_locator"],
+                    })
+                if holders:
+                    _periodo = holders[0]["source_locator"].split("data set ")[-1].rstrip(")")
+                    source = (
+                        f"SEC Form 13F structured data set ({_periodo}): "
+                        f"{len(holders)} mayores tenedores institucionales de CUSIP {cusip}, "
+                        "ORDENADOS POR VALOR DE POSICION reportado, con acciones y dolares. "
+                        "Es el conjunto completo de 13F del trimestre, no una muestra del "
+                        "indice de texto completo."
+                    )
+
+                # (2) Schedule 13D/G: los >5% por definicion, sin ranking ni
+                # parseo. Solo si el dataset no dio nada -- cuando si lo da,
+                # trae los MISMOS nombres con cifras y al dia, y añadir aqui
+                # los de 2024 seria repetirlos peor.
+                if company_cik and not _dataset_ok:
                     major = edgar.major_holders_13d_g(
                         str(cusip), company_cik,
                         (today - timedelta(days=1825)).isoformat(), today.isoformat())
@@ -362,15 +388,17 @@ def _ownership(ticker: str, settings: Any) -> dict:
                                "vigentes." if _viejos else "")
                         )
 
-                # 13F SIEMPRE, no solo cuando 13D/G viene vacio. CLAUDE.md item 4
-                # pide "13F" literalmente, y esos SI se indexan por CUSIP: para
-                # NVDA hay 38 en 2025-2026 frente a cero 13D/G. Dejar que un
-                # 13D/G de 2024 bloqueara el barrido 13F era servir el dato viejo
-                # y descartar el actual.
+                # (3) Ultimo escalon: barrido del indice de texto completo.
+                # Nombres sin cifras y por fecha de presentacion. Se gatilla en
+                # que el DATASET fallara, no en que ya haya nombres: cuando solo
+                # respondio el 13D/G, sus filas son de 2024 y este barrido añade
+                # las presentaciones del trimestre en curso. Bloquearlo por
+                # "ya hay holders" era servir el dato viejo teniendo el actual.
                 _vistos = {h.get("cik") for h in holders}
-                rows = [r for r in edgar.institutional_holders_13f(
-                    str(cusip), (today - timedelta(days=270)).isoformat(),
-                    today.isoformat()) if r.get("cik") not in _vistos]
+                rows = [] if _dataset_ok else [
+                    r for r in edgar.institutional_holders_13f(
+                        str(cusip), (today - timedelta(days=270)).isoformat(),
+                        today.isoformat()) if r.get("cik") not in _vistos]
                 _n_13dg = len(holders)
                 for r in rows[:8]:
                     holders.append({

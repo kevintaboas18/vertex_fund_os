@@ -62,8 +62,11 @@ def _hit_13f(name, cik="0000046392", date="2026-07-30", adsh="0000046392-26-0000
             "accession": adsh, "form": "13F-HR"}
 
 
-def _run_ownership(monkeypatch, tmp_path, dg, f13):
-    """`_ownership` con FMP caido (402, el caso real) y EDGAR simulado."""
+def _run_ownership(monkeypatch, tmp_path, dg, f13, dataset=None):
+    """`_ownership` con FMP caido (402, el caso real) y EDGAR simulado.
+
+    `dataset` es el escalon 1 (conjunto estructurado). Por defecto vacio, para
+    ejercitar los escalones 2 (13D/G) y 3 (indice de texto completo)."""
     from types import SimpleNamespace
     import wbj.report as rep
 
@@ -76,6 +79,7 @@ def _run_ownership(monkeypatch, tmp_path, dg, f13):
     class _EDGAR:
         def __init__(self, *a, **k): pass
         def cik_for(self, t): return 1045810
+        def holders_13f_dataset(self, *a, **k): return list(dataset or [])
         def major_holders_13d_g(self, *a, **k): return list(dg)
         def institutional_holders_13f(self, *a, **k): return list(f13)
 
@@ -239,3 +243,95 @@ def test_the_13f_source_line_is_not_credited_for_13dg_names(monkeypatch, tmp_pat
     bases = {h["name"]: h.get("basis") for h in out["holders"]}
     assert bases["VANGUARD GROUP INC"] == "13D/G"
     assert bases["Some Manager"] == "13F"
+
+
+# --- (1) conjunto de datos estructurado 13F ----------------------------------
+
+def test_dataset_ranks_by_position_value_not_filing_date(monkeypatch, tmp_path):
+    """El escalon 1 del respaldo. El indice de texto completo NO puede devolver
+    a los grandes: sirve 300 de los 10.000+ hits que mencionan el CUSIP, y las
+    tablas de Vanguard o BlackRock son tan voluminosas que EDGAR deja de
+    indexarlas (sus hits mas recientes ahi son de 2009-2016). El dataset
+    trimestral es completo por construccion y trae valor y acciones."""
+    import csv, io, zipfile
+    from types import SimpleNamespace
+
+    from wbj.providers.edgar import EdgarProvider
+
+    def _tsv(cols, filas):
+        b = io.StringIO()
+        w = csv.DictWriter(b, fieldnames=cols, delimiter="\t")
+        w.writeheader()
+        for f in filas:
+            w.writerow(f)
+        return b.getvalue()
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("INFOTABLE.tsv", _tsv(
+            ["ACCESSION_NUMBER", "CUSIP", "VALUE", "SSHPRNAMT"], [
+                {"ACCESSION_NUMBER": "A", "CUSIP": "67066G104", "VALUE": "1000", "SSHPRNAMT": "10"},
+                {"ACCESSION_NUMBER": "B", "CUSIP": "67066G104", "VALUE": "9000", "SSHPRNAMT": "90"},
+                {"ACCESSION_NUMBER": "B", "CUSIP": "67066G104", "VALUE": "1000", "SSHPRNAMT": "10"},
+                {"ACCESSION_NUMBER": "C", "CUSIP": "OTRO12345", "VALUE": "99999", "SSHPRNAMT": "9"},
+            ]))
+        z.writestr("COVERPAGE.tsv", _tsv(
+            ["ACCESSION_NUMBER", "FILINGMANAGER_NAME"], [
+                {"ACCESSION_NUMBER": "A", "FILINGMANAGER_NAME": "Pequena Gestora"},
+                {"ACCESSION_NUMBER": "B", "FILINGMANAGER_NAME": "BlackRock, Inc."},
+            ]))
+
+    class _P(EdgarProvider):
+        def __init__(self):
+            super().__init__(SimpleNamespace(cache_dir=tmp_path, reports_dir=tmp_path),
+                             _FakeCache())
+
+        def get_bytes(self, url, headers=None, timeout=300.0):
+            return buf.getvalue()
+
+    out = _P().holders_13f_dataset("67066G104", top=5)
+    assert [h["name"] for h in out] == ["BlackRock, Inc.", "Pequena Gestora"], \
+        "ordenado por VALOR, no por orden de aparicion"
+    # Varias filas del mismo filing se suman (clases, opciones); filings de otro
+    # CUSIP se ignoran.
+    assert out[0]["value"] == 10000.0 and out[0]["shares"] == 100.0
+    assert all("OTRO12345" not in str(h) for h in out)
+    assert "13F-HR accession" in out[0]["source_locator"], "locator que exige DATA_POLICY"
+
+
+def test_dataset_returns_empty_when_unavailable(monkeypatch, tmp_path):
+    """Sin dataset descargable no revienta: devuelve [] y quien llama conserva
+    sus escalones 2 y 3."""
+    from types import SimpleNamespace
+
+    from wbj.providers.edgar import EdgarProvider
+
+    class _P(EdgarProvider):
+        def __init__(self):
+            super().__init__(SimpleNamespace(cache_dir=tmp_path, reports_dir=tmp_path),
+                             _FakeCache())
+
+        def get_bytes(self, url, headers=None, timeout=300.0):
+            return None
+
+    assert _P().holders_13f_dataset("67066G104") == []
+
+
+def test_dataset_wins_over_the_two_older_paths(monkeypatch, tmp_path):
+    """Cuando el dataset responde, los otros dos NO se usan: traerian los mismos
+    nombres peor -- el 13D/G sin cifras y con dos años de antiguedad, el indice
+    ordenado por fecha de presentacion."""
+    out = _run_ownership(
+        monkeypatch, tmp_path,
+        dg=[_hit_13dg("VANGUARD GROUP INC")],
+        f13=[_hit_13f("Gestora Pequena")],
+        dataset=[{"name": "BlackRock, Inc.", "value": 3.4e11, "shares": 1.9e9,
+                  "accession": "0000000000-26-000001",
+                  "source_locator": "13F-HR accession 0000000000-26-000001 "
+                                    "(SEC 13F data set 01mar2026-31may2026_form13f.zip)"}])
+    nombres = [h["name"] for h in out["holders"]]
+    assert nombres == ["BlackRock, Inc."]
+    assert "Gestora Pequena" not in nombres and "VANGUARD GROUP INC" not in nombres
+    assert out["holders"][0]["basis"] == "13F dataset"
+    assert out["holders"][0]["value"] and out["holders"][0]["shares"], "trae cifras reales"
+    assert "ORDENADOS POR VALOR" in out["holders_source"]
