@@ -27,9 +27,10 @@ class Settings:
     # así que compartirlo con otro proyecto propaga el bloqueo. Se configura con
     # EDGAR_USER_AGENT (API/.env o entorno) — ver providers/edgar.py.
     edgar_user_agent: str | None = None
-    # Model for the qualitative judgment agent; override to cut cost (e.g.
-    # "claude-haiku-4-5"). Default per the Anthropic SDK guidance.
-    judge_model: str = "claude-opus-4-8"
+    # Modelo del agente de juicio cualitativo. Opus 5 cuesta lo mismo que 4.8
+    # ($5/$25 por MTok) y es mejor en lo que hace el judge: clasificar moat,
+    # catalizadores y thesis-killers. Bájalo a "claude-haiku-4-5" para abaratar.
+    judge_model: str = "claude-opus-5"
     repo_root: Path = field(default_factory=_find_repo_root)
     cache_dir: Path = field(default_factory=lambda: _find_repo_root() / "engine" / "cache")
     reports_dir: Path = field(default_factory=lambda: _find_repo_root() / "Reportes")
@@ -75,7 +76,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
     anthropic_api_key = (
         env_vars.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or None
     )
-    judge_model = env_vars.get("JUDGE_MODEL") or "claude-opus-4-8"
+    judge_model = env_vars.get("JUDGE_MODEL") or os.environ.get("JUDGE_MODEL") or "claude-opus-5"
     # Igual que ANTHROPIC_API_KEY: también desde el entorno real, porque en
     # Render no existe API/.env — las variables llegan por el dashboard.
     edgar_user_agent = (

@@ -264,19 +264,74 @@ def _anchor_disclosures() -> list[str]:
     ]
 
 
-# `Perfil Inversionista/Victor Gonzalez.md`, transcribed 2026-07 (dated;
-# re-check the source file if the profile changes). Only risk.py reads
-# this file, per CLAUDE.md's orchestration notes.
-PROFILE: dict[str, Any] = {
+# Perfil del inversionista. `risk.py` es el único especialista que lo lee,
+# según las notas de orquestación de CLAUDE.md.
+#
+# A-03: antes esto era el perfil de Victor TRANSCRITO a mano ($25.000, horizonte
+# 3-5 años). `Perfil Inversionista/Kevin.md` dice explícitamente que lo
+# reemplaza, y son valores muy distintos: $1.000 y 1-3 años. Con los de Victor,
+# `profile_fit` reportaba un rango de posición 25 veces mayor que el capital
+# real — y el propio perfil de Kevin advierte del riesgo de ruina con opciones.
+#
+# Ahora se lee del archivo. Transcribir un perfil a mano garantiza que se
+# desincronice; leerlo es lo único que no puede quedar obsoleto.
+_PROFILE_FILES = ("Kevin.md", "Mi Perfil.md", "Victor Gonzalez.md")
+
+#: Valores por defecto si no se encuentra ningún archivo de perfil. Conservadores
+#: a propósito: sin perfil no se debe sugerir un tamaño de posición grande.
+_PROFILE_FALLBACK: dict[str, Any] = {
     "objective": "capital_growth",
-    "horizon_years": (3, 5),
+    "horizon_years": (1, 3),
     "max_loss_tolerance": "gt_10pct",
     "style": "aggressive_speculative",
-    "capital_usd": 25_000.0,
-    "max_position_pct": (0.30, 0.60),
+    "capital_usd": 1_000.0,
+    "max_position_pct": (0.05, 0.20),
     "geography": "us_only",
-    "excludes": ("forex",),
+    "excludes": ("forex", "crypto"),
+    "source": "(sin archivo de perfil — valores conservadores por defecto)",
 }
+
+
+def _load_profile() -> dict[str, Any]:
+    """Lee el perfil del inversionista de `Perfil Inversionista/`.
+
+    Extrae capital y horizonte del texto; el resto son constantes del perfil.
+    Cualquier fallo devuelve `_PROFILE_FALLBACK` — nunca revienta un análisis
+    por no poder leer un archivo de contexto.
+    """
+    import re
+    from pathlib import Path
+
+    try:
+        root = Path(__file__).resolve().parents[3] / "Perfil Inversionista"
+        path = next((root / n for n in _PROFILE_FILES if (root / n).is_file()), None)
+        if path is None:
+            return dict(_PROFILE_FALLBACK)
+        text = path.read_text(encoding="utf-8")
+        out = dict(_PROFILE_FALLBACK)
+        out["source"] = path.name
+
+        # Capital: primer importe en dólares del documento (ej. "$1,000", "$25,000 USD").
+        m = re.search(r"\$\s?([\d.,]+)", text)
+        if m:
+            try:
+                out["capital_usd"] = float(m.group(1).replace(",", ""))
+            except ValueError:
+                pass
+        # Horizonte: primer rango "N a M años" / "N-M años".
+        m = re.search(r"(\d+)\s*(?:a|-|–|—)\s*(\d+)\s*años", text, re.I)
+        if m:
+            out["horizon_years"] = (int(m.group(1)), int(m.group(2)))
+        # Tope por posición: rango en porcentaje ("30%-60%", "máx 30–60%").
+        m = re.search(r"(\d{1,3})\s*%\s*(?:a|-|–|—)\s*(\d{1,3})\s*%", text)
+        if m:
+            out["max_position_pct"] = (int(m.group(1)) / 100.0, int(m.group(2)) / 100.0)
+        return out
+    except Exception:
+        return dict(_PROFILE_FALLBACK)
+
+
+PROFILE: dict[str, Any] = _load_profile()
 
 
 def _ok(x: float, unit: str, **lineage: object) -> Value:

@@ -114,20 +114,50 @@ async def _require_auth(request, call_next):
                    "En un script: manda la cabecera X-Vertex-Token.")})
 
 
+# N-01: freno a la fuerza bruta sobre /api/login. Un token de 24 bytes no se
+# adivina, pero sin freno el endpoint sirve de oráculo y de vector de carga:
+# cada intento es gratis para quien lo lanza y trabajo para el servidor.
+# Ventana deslizante por IP, en memoria (un solo proceso; suficiente aquí).
+_LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+_LOGIN_MAX_TRIES = 8
+_LOGIN_WINDOW_S = 300.0
+
+
+def _login_rate_limited(host: str) -> bool:
+    now = time.time()
+    tries = [t for t in _LOGIN_ATTEMPTS.get(host, []) if now - t < _LOGIN_WINDOW_S]
+    _LOGIN_ATTEMPTS[host] = tries
+    if len(_LOGIN_ATTEMPTS) > 500:            # cota de memoria: purga lo caducado
+        for k in [k for k, v in _LOGIN_ATTEMPTS.items() if not v]:
+            _LOGIN_ATTEMPTS.pop(k, None)
+    return len(tries) >= _LOGIN_MAX_TRIES
+
+
 @app.post("/api/login")
-def api_login(body: dict = None):
+def api_login(request: Request, body: dict = None):
     """Canjea el token por una cookie de sesión. Nunca devuelve el token."""
     if not VERTEX_API_TOKEN:
         return {"ok": True, "auth_required": False,
                 "detail": "No hay VERTEX_API_TOKEN configurado: acceso limitado a localhost."}
+    host = _client_host(request)
+    if _login_rate_limited(host):
+        return JSONResponse(status_code=429, content={
+            "ok": False, "error": "Demasiados intentos. Espera 5 minutos."})
     token = str((body or {}).get("token") or "")
     if not token or not secrets.compare_digest(token, VERTEX_API_TOKEN):
+        _LOGIN_ATTEMPTS.setdefault(host, []).append(time.time())
         return JSONResponse(status_code=401,
                             content={"ok": False, "error": "Token incorrecto."})
+    _LOGIN_ATTEMPTS.pop(host, None)           # acierto: se limpia el contador
     resp = JSONResponse(content={"ok": True, "auth_required": True})
+    # N-02: el flag Secure sale del esquema REAL de la petición, no de que
+    # alguien se acuerde de definir VERTEX_ORIGIN. Antes, olvidar esa variable
+    # emitía la cookie sin Secure sobre https — viajaría por http en un
+    # downgrade. `x-forwarded-proto` es lo que manda el proxy de Render.
+    is_https = (request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+                or request.url.scheme) == "https"
     resp.set_cookie(_AUTH_COOKIE, VERTEX_API_TOKEN, httponly=True, samesite="strict",
-                    secure=(os.environ.get("VERTEX_ORIGIN", "").startswith("https://")),
-                    max_age=60 * 60 * 24 * 30, path="/")
+                    secure=is_https, max_age=60 * 60 * 24 * 30, path="/")
     return resp
 
 
@@ -300,11 +330,59 @@ def init_db():
 
 init_db()
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# A-02: SETTINGS DEL ENGINE CON LAS CLAVES DEL ENTORNO
+#
+# `wbj.config.load_settings()` lee `API/.env` con `dotenv_values()`, que
+# devuelve un dict y NO mira `os.environ`. En Render ese archivo no existe —
+# las claves llegan por el dashboard — así que `settings.fmp_api_key` sale
+# `None`, `FMPProvider.available` es `False` y el provider devuelve `None`
+# en silencio.
+#
+# Media docena de call-sites inyectaban las claves a mano y dos se olvidaron
+# (`_wbj_insiders_clasificados`, `_wbj_holders_from_edgar`), así que los items
+# obligatorios 4 (13F/13D-G) y 5 (insiders >$1M) de CLAUDE.md salían VACÍOS en
+# producción, sin un solo aviso. En local funcionaban porque sí hay `API/.env`.
+#
+# Este helper es ahora el único camino: usarlo siempre en vez de `load_settings()`.
+# ─────────────────────────────────────────────────────────────────────────────
+def _engine_settings(base=None):
+    """`Settings` del engine con las claves del entorno ya inyectadas."""
+    if _WBJ_ENGINE_PATH not in sys.path:
+        sys.path.insert(0, _WBJ_ENGINE_PATH)
+    from wbj.config import load_settings
+    st = base or load_settings()
+    for env_name, attr in (("FMP_API_KEY", "fmp_api_key"),
+                           ("FINNHUB_API_KEY", "finnhub_api_key"),
+                           ("FRED_API_KEY", "fred_api_key"),
+                           ("ANTHROPIC_API_KEY", "anthropic_api_key"),
+                           ("EDGAR_USER_AGENT", "edgar_user_agent"),
+                           ("JUDGE_MODEL", "judge_model")):
+        val = (os.environ.get(env_name) or "").strip()
+        if val and not (getattr(st, attr, None) or "").strip():
+            try:
+                setattr(st, attr, val)
+            except Exception:
+                pass
+    return st
+
+
 # ── #5 — CACHÉ COMPARTIDO DE SERIES DE PRECIO ────────────────────────────────
 # track-record, calibración, IC y portfolio-fit bajaban 1 año de historia por
 # ticker cada uno, por separado. Este caché (TTL 1h) lo comparte y reduce el
 # riesgo de ratelimit de yfinance.
 _PRICE_SERIES_CACHE = {}
+
+# ── A-06: PRESUPUESTO DE LLAMADAS A FMP ──────────────────────────────────────
+# Un solo /api/analyze disparaba 80-120 peticiones a FMP; el plan free son 250
+# AL DÍA. Los bucles de pares eran el grueso: 15 profile + 15 income (P/S),
+# 20 ohlcv de 2 años (breadth + RS) y otros 15 income + 15 balance (peer ROIC).
+# Se recortan a los mínimos que la propia metodología exige — 8 pares es el
+# MIN_PEERS que ya se comprobaba más abajo, y 5 filas el mínimo del percentil
+# de fuerza relativa. Menos que eso no cambia el número; más solo gasta cuota.
+_FMP_MAX_PEERS = 10       # P/S y peer ROIC (umbral real: 8)
+_FMP_MAX_BREADTH = 12     # breadth sectorial + universo RS (umbral real: 5)
 
 _PERIODO_DIAS = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92,
                  "2mo": 62, "1mo": 31, "5d": 7, "7d": 7}
@@ -313,10 +391,9 @@ _PERIODO_DIAS = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92,
 def _fmp_daily_bars(ticker, period="1y"):
     """#3 RESPALDO de historia diaria: FMP EOD ajustado por splits/dividendos.
 
-    Sustituye a Stooq, que dejó de servir el CSV: ahora responde con una página
-    que exige resolver un desafío JavaScript de detección de bots, así que
-    `_stooq_series` devuelve [] SIEMPRE y el "tercer respaldo" del sistema
-    llevaba tiempo siendo decorativo -- quedaban dos fuentes, no tres.
+Sustituyó a Stooq, que dejó de servir el CSV (responde con un desafío
+    anti-bot). Aquel camino se eliminó en M-08: el sistema decía tener tres
+    fuentes de historia diaria y tenía dos.
 
     FMP ya es una fuente del sistema (la usa el engine de Victor y hay clave
     configurada), así que esto no añade dependencias nuevas. Se reusa
@@ -334,9 +411,7 @@ def _fmp_daily_bars(ticker, period="1y"):
         from wbj.config import load_settings
         from wbj.providers.cache import Cache
         from wbj.providers.fmp import FMPProvider
-        _s = load_settings()
-        if not getattr(_s, "fmp_api_key", None):
-            _s.fmp_api_key = os.environ.get("FMP_API_KEY")
+        _s = _engine_settings()
         dias = _PERIODO_DIAS.get(period, 365)
         anios = 1 if dias <= 300 else (2 if dias <= 700 else 5)
         filas = FMPProvider(_s, Cache(_s.cache_dir)).ohlcv_daily(str(ticker).upper().strip(),
@@ -380,9 +455,7 @@ def _fmp_perfil(ticker):
         from wbj.config import load_settings
         from wbj.providers.cache import Cache
         from wbj.providers.fmp import FMPProvider
-        _s = load_settings()
-        if not getattr(_s, "fmp_api_key", None):
-            _s.fmp_api_key = os.environ.get("FMP_API_KEY")
+        _s = _engine_settings()
         p = FMPProvider(_s, Cache(_s.cache_dir)).profile(str(ticker).upper().strip())
         if isinstance(p, list):
             p = p[0] if p else None
@@ -394,41 +467,9 @@ def _fmp_perfil(ticker):
         return {}
 
 
-def _stooq_series(ticker, period="1y"):
-    """RESPALDO HISTÓRICO, HOY INERTE: Stooq dejó de servir este CSV — responde con
-    una página que exige resolver un desafío JavaScript anti-bot, así que esta
-    función devuelve [] en la práctica. Se conserva por si Stooq vuelve a abrirlo,
-    pero el respaldo real de historia diaria es `_fmp_daily_bars`. No intentar
-    sortear el desafío.
-    Devuelve [(epoch, close)] filtrado al periodo. Best-effort: cualquier error → lista vacía."""
-    try:
-        sym = str(ticker).strip().lower()
-        url = f"https://stooq.com/q/d/l/?s={sym}.us&i=d"
-        r = requests.get(url, timeout=8)
-        if r.status_code != 200 or not r.text or "Date" not in r.text[:64]:
-            return []
-        days = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92, "2mo": 62, "1mo": 31}.get(period, 365)
-        cutoff = time.time() - days * 86400
-        out = []
-        for line in r.text.strip().splitlines()[1:]:
-            parts = line.split(",")
-            if len(parts) < 5:
-                continue
-            try:
-                ts = datetime.strptime(parts[0], "%Y-%m-%d").timestamp()
-                close = float(parts[4])
-            except (ValueError, IndexError):
-                continue
-            if ts >= cutoff and close > 0:
-                out.append((ts, close))
-        return out
-    except Exception:
-        return []
-
-
 def _resilient_history(stock, ticker, period):
-    """Historia diaria OHLCV con respaldo Stooq: si yfinance falla o viene vacío (rate-limit/caída),
-    reconstruye el DataFrame (Open/High/Low/Close/Volume) desde Stooq para que /api/analyze NO se caiga.
+    """Historia diaria OHLCV con respaldo FMP: si yfinance falla o viene vacío (rate-limit/caída),
+    reconstruye el DataFrame (Open/High/Low/Close/Volume) desde FMP para que /api/analyze NO se caiga.
     Devuelve un DataFrame estilo yfinance o None si ninguna fuente respondió."""
     try:
         h = stock.history(period=period)
@@ -436,8 +477,7 @@ def _resilient_history(stock, ticker, period):
             return h
     except Exception:
         pass
-    # #3 respaldo REAL: FMP EOD. Antes aquí solo estaba Stooq, que hoy responde con
-    # un desafío anti-bot: el respaldo existía en el código pero no en los hechos.
+    # #3 respaldo REAL: FMP EOD (el único que queda; Stooq se eliminó en M-08).
     try:
         import pandas as pd
         barras = _fmp_daily_bars(ticker, period)
@@ -448,35 +488,10 @@ def _resilient_history(stock, ticker, period):
                                  "Volume": [b[5] for b in barras]}, index=idx)
     except Exception:
         pass
-    try:
-        import pandas as pd
-        sym = str(ticker).strip().lower()
-        r = requests.get(f"https://stooq.com/q/d/l/?s={sym}.us&i=d", timeout=8)
-        if r.status_code != 200 or not r.text or "Date" not in r.text[:64]:
-            return None
-        days = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92, "2mo": 62, "1mo": 31}.get(period, 365)
-        cutoff = time.time() - days * 86400
-        rows = []
-        for line in r.text.strip().splitlines()[1:]:
-            p = line.split(",")
-            if len(p) < 6:
-                continue
-            try:
-                d = datetime.strptime(p[0], "%Y-%m-%d")
-                if d.timestamp() < cutoff:
-                    continue
-                rows.append((d, float(p[1]), float(p[2]), float(p[3]), float(p[4]), int(float(p[5] or 0))))
-            except (ValueError, IndexError):
-                continue
-        if not rows:
-            return None
-        idx = pd.DatetimeIndex([x[0] for x in rows])
-        return pd.DataFrame({"Open": [x[1] for x in rows], "High": [x[2] for x in rows],
-                             "Low": [x[3] for x in rows], "Close": [x[4] for x in rows],
-                             "Volume": [x[5] for x in rows]}, index=idx)
-    except Exception:
-        return None
-
+    # Tercer respaldo: eliminado. Stooq dejó de servir el CSV (responde con un
+    # desafío anti-bot), así que este camino devolvía None siempre — el sistema
+    # decía tener 3 fuentes de historia diaria y tenía 2: yfinance y FMP.
+    return None
 
 def _cached_price_series(ticker, period="1y", ttl=3600):
     key = f"{str(ticker).upper()}|{period}"
@@ -493,8 +508,6 @@ def _cached_price_series(ticker, period="1y", ttl=3600):
         series = []
     if not series:                                  # #3 respaldo: yfinance vacío → FMP
         series = [(b[0], b[4]) for b in _fmp_daily_bars(ticker, period)]
-    if not series:                                  # Stooq: inerte hoy, ver _stooq_series
-        series = _stooq_series(ticker, period)
     _PRICE_SERIES_CACHE[key] = (nowt, series)
     return series
 
@@ -1346,7 +1359,7 @@ def _sec_user_agent():
             sys.path.insert(0, _WBJ_ENGINE_PATH)
         from wbj.config import load_settings
         from wbj.providers.edgar import edgar_headers
-        return edgar_headers(load_settings())["User-Agent"]
+        return edgar_headers(_engine_settings())["User-Agent"]
     except Exception:
         return "Vertex Fund OS research (configura EDGAR_USER_AGENT)"
 
@@ -1392,7 +1405,7 @@ def _wbj_insiders_clasificados(ticker):
             sys.path.insert(0, _WBJ_ENGINE_PATH)
         from wbj.config import load_settings
         from wbj.report import _insiders
-        d = _insiders(str(ticker).upper().strip(), load_settings()) or {}
+        d = _insiders(str(ticker).upper().strip(), _engine_settings()) or {}
         if not d.get("available"):
             return {}
         return {"bought": float(d.get("bought") or 0.0),
@@ -1426,7 +1439,7 @@ def _wbj_holders_from_edgar(ticker):
             sys.path.insert(0, _WBJ_ENGINE_PATH)
         from wbj.config import load_settings
         from wbj.report import _ownership
-        o = _ownership(str(ticker).upper().strip(), load_settings()) or {}
+        o = _ownership(str(ticker).upper().strip(), _engine_settings()) or {}
         return {"holders": o.get("holders") or [],
                 "source": o.get("holders_source"),
                 "executives": o.get("executives") or []}
@@ -2261,7 +2274,7 @@ def get_quick_quote(ticker: str):
             info = stock.info or {}
         except Exception:
             info = {}
-        hist = _resilient_history(stock, ticker_clean, "5d")   # yfinance → respaldo Stooq
+        hist = _resilient_history(stock, ticker_clean, "5d")   # yfinance → respaldo FMP
         tiene_hist = hist is not None and not hist.empty
         fh = None
         if not info:                                           # solo si Yahoo no respondio
@@ -2271,7 +2284,7 @@ def get_quick_quote(ticker: str):
                 fh = {}
         fh = fh or {}
 
-        spot = _resolve_spot(ticker_clean)                     # yfinance → Finnhub → Stooq
+        spot = _resolve_spot(ticker_clean)                     # yfinance → Finnhub → serie cacheada
         precio_actual = (spot.get("price") or info.get("currentPrice") or fh.get("price")
                          or (float(hist['Close'].iloc[-1]) if tiene_hist else None))
         if not precio_actual:
@@ -2279,7 +2292,7 @@ def get_quick_quote(ticker: str):
                                 detail=f"Sin datos de precio para {ticker_clean} en ninguna fuente.")
         precio_actual = float(precio_actual)
 
-        # Cierre anterior explicito antes que deducirlo de la serie: Stooq suele ir un
+        # Cierre anterior explicito antes que deducirlo de la serie: el respaldo suele ir un
         # dia por detras, y ahi `iloc[-2]` compararia contra el dia equivocado.
         precio_anterior = (info.get("regularMarketPreviousClose") or info.get("previousClose")
                            or fh.get("prev_close")
@@ -2328,7 +2341,7 @@ def get_quick_quote(ticker: str):
             "low": round(low_dia, 2),
             "after_hours": after_hours,
             # La fuente real, no "yfinance" siempre: si el precio vino de Finnhub o
-            # Stooq la tarjeta tiene que decirlo, igual que el resto de los paneles.
+            # un respaldo, la tarjeta tiene que decirlo, igual que el resto de los paneles.
             "precio_fuente": spot.get("source") or "yfinance",
             "as_of": spot.get("as_of") or datetime.now().strftime('%I:%M:%S %p'),
             "logo_url": logo_url
@@ -2418,7 +2431,7 @@ def get_price_history(ticker: str, period: str = "1mo", interval: str = "1d"):
         stock = yf.Ticker(ticker_clean)
         # Mismo caso que /api/quote: esto era `stock.history(...)` a secas y un
         # rate-limit de Yahoo salia como 500, dejando la grafica de precio en
-        # blanco. El respaldo Stooq SOLO sirve para velas diarias, asi que la ruta
+        # blanco. El respaldo FMP SOLO sirve para velas diarias, asi que la ruta
         # intradia se queda sin red -- pero al menos lo dice con un 503 honesto en
         # vez de un 500 generico.
         fallo_fuente = False
@@ -6173,7 +6186,8 @@ def _live_spot(ticker):
 
 _SPOT_RESOLVE_CACHE = {}
 def _resolve_spot(ticker, ttl=20):
-    """Fuente ÚNICA de precio para todo el sistema: yfinance/Finnhub → Stooq, con etiqueta de FUENTE y HORA.
+    """Fuente ÚNICA de precio para todo el sistema: yfinance/Finnhub → serie cacheada,
+    con etiqueta de FUENTE y HORA.
     Devuelve {price, source, as_of}. Cache corto para que todos los paneles vean el MISMO spot y no haya
     discrepancias sutiles (GEX a un precio, gráfica a otro). Degradación limpia si una fuente cae."""
     tk = str(ticker).upper().strip()
@@ -6186,7 +6200,7 @@ def _resolve_spot(ticker, ttl=20):
         try:
             s = _cached_price_series(tk, period="5d") or []
             if s:
-                price, source = round(float(s[-1][1]), 2), "stooq (respaldo)"
+                price, source = round(float(s[-1][1]), 2), "serie diaria (respaldo)"
         except Exception:
             pass
     out = {"price": price, "source": source,
@@ -6714,14 +6728,18 @@ def _wbj_fmp_important_insiders(ticker):
         from wbj.config import load_settings
         from wbj.providers.cache import Cache
         from wbj.providers.fmp import FMPProvider
-        _s = load_settings()
-        if not getattr(_s, "fmp_api_key", None):
-            _s.fmp_api_key = os.environ.get("FMP_API_KEY")
+        _s = _engine_settings()
         _fmp = FMPProvider(_s, Cache(_s.cache_dir))
         rows = _fmp.insider_trades(ticker) or []
         if not isinstance(rows, list):
             return None
-        important = []
+        # A-04: CLAUDE.md item 5 dice "las que EXCEDAN $1M USD **en total**".
+        # Antes se umbralizaba cada Form 4 por separado, así que un insider que
+        # vendía 6 veces $300k ($1.8M) desaparecía del reporte — justo el patrón
+        # de venta escalonada que más importa detectar. Ahora se AGRUPA por
+        # persona y dirección, y se umbraliza el total (igual que hace el engine
+        # en `wbj.report._insiders`, que tiene test propio).
+        _grupos = {}
         for r in rows:
             if not isinstance(r, dict):
                 continue
@@ -6730,17 +6748,35 @@ def _wbj_fmp_important_insiders(ticker):
                 _px = float(r.get("price") or 0)
             except (TypeError, ValueError):
                 continue
-            _val = _sh * _px
-            if _val <= 1_000_000:
-                continue
+            if _sh <= 0 or _px <= 0:          # un Form 3 o una concesión sin precio
+                continue                       # no llevan valor que umbralizar
             _tt = str(r.get("transactionType") or "")
-            _is_buy = _tt.upper().startswith("P")     # P-Purchase
-            _is_sell = _tt.upper().startswith("S")    # S-Sale
+            _dir = "buy" if _tt.upper().startswith("P") else \
+                   "sell" if _tt.upper().startswith("S") else ""
+            if not _dir:
+                continue
+            _nombre = str(r.get("reportingName") or "").strip()
+            _k = (_nombre.upper(), _dir)
+            g = _grupos.setdefault(_k, {"insider": _nombre, "direccion": _dir, "shares": 0.0,
+                                        "value": 0.0, "n": 0, "date": "", "transaction": _tt})
+            g["shares"] += _sh
+            g["value"] += _sh * _px
+            g["n"] += 1
+            _f = str(r.get("transactionDate") or r.get("filingDate") or "")[:10]
+            if _f > g["date"]:                # la más reciente del grupo
+                g["date"] = _f
+        important = []
+        for g in _grupos.values():
+            if g["value"] <= 1_000_000:       # el umbral se aplica al TOTAL
+                continue
             important.append({
-                "insider": r.get("reportingName", ""), "transaction": _tt,
-                "shares": int(_sh), "price": round(_px, 2), "value": round(_val, 2),
-                "date": str(r.get("transactionDate") or r.get("filingDate") or "")[:10],
-                "is_buy": _is_buy, "is_sell": _is_sell, "source": "FMP Form 4"})
+                "insider": g["insider"], "transaction": g["transaction"],
+                "shares": int(g["shares"]), "n_operaciones": g["n"],
+                "price": round(g["value"] / g["shares"], 2) if g["shares"] else 0.0,
+                "value": round(g["value"], 2), "date": g["date"],
+                "is_buy": g["direccion"] == "buy", "is_sell": g["direccion"] == "sell",
+                "source": "FMP Form 4 (agregado por insider)"})
+        important.sort(key=lambda x: x["value"], reverse=True)
         # Flujo NETO de insiders con la función de Victor (brief.py `_insiders_flow`): compras vs
         # ventas en dólares sobre TODO el feed, no solo lo que excede $1M. Él la describe como
         # "a coarser, fuller-picture lens than the >$1M highlights" — las dos vistas conviven.
@@ -6860,9 +6896,7 @@ def _wbj_management_track_record(info, settings=None):
             if _WBJ_ENGINE_PATH not in sys.path:
                 sys.path.insert(0, _WBJ_ENGINE_PATH)
             from wbj.config import load_settings
-            settings = load_settings()
-            if not getattr(settings, "anthropic_api_key", None):
-                settings.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
+            settings = _engine_settings()
         key = getattr(settings, "anthropic_api_key", None)
     except Exception:
         key = os.environ.get("ANTHROPIC_API_KEY")
@@ -6887,7 +6921,7 @@ def _wbj_management_track_record(info, settings=None):
                    '"assessment": "verificable"|"no_verificable", "note": string}], '
                    '"overall": string}')
         _msg = _client.messages.create(
-            model=getattr(settings, "judge_model", "claude-opus-4-8") if settings else "claude-opus-4-8",
+            model=getattr(settings, "judge_model", "claude-opus-5") if settings else "claude-opus-5",
             max_tokens=1024, system=_sys,
             messages=[{"role": "user", "content":
                        f"Empresa: {company}. Ejecutivos clave:\n{_roster_txt}\n\n"
@@ -7413,7 +7447,7 @@ def _edgar_companyfacts_for(cik, settings=None):
         from wbj.config import load_settings
         from wbj.providers.cache import Cache
         from wbj.providers.edgar import EdgarProvider
-        st = settings or load_settings()
+        st = settings or _engine_settings()
         return EdgarProvider(st, Cache(st.cache_dir)).companyfacts(int(cik))
     except Exception as e:
         print(f"[engine] companyfacts no disponible: {str(e)[:110]}")
@@ -7582,15 +7616,9 @@ def _engine_scorecard(ticker, info, price):
 
     # settings + inyección de claves desde el entorno (Render) si el .env no las tomó
     try:
-        settings = load_settings()
+        settings = _engine_settings()
     except Exception as e:
         print(f"[engine] load_settings falló: {str(e)[:120]}"); return None
-    for _env, _attr in (("FMP_API_KEY", "fmp_api_key"), ("FINNHUB_API_KEY", "finnhub_api_key"),
-                        ("FRED_API_KEY", "fred_api_key")):
-        _v = os.environ.get(_env)
-        if _v and not getattr(settings, _attr, None):
-            try: setattr(settings, _attr, _v)
-            except Exception: pass
     cache = Cache(settings.cache_dir)
 
     _LABEL = {k: WBJ_CATEGORIES[k]["label"] for k in WBJ_ORDER}
@@ -7872,7 +7900,7 @@ def _engine_scorecard(ticker, info, price):
             _pm_list = (_pm_raw[0].get("peersList") if isinstance(_pm_raw, list) and _pm_raw
                         and isinstance(_pm_raw[0], dict) else _pm_raw) or []
             _pmults = []
-            for _ppt in list(_pm_list)[:15]:
+            for _ppt in list(_pm_list)[:_FMP_MAX_PEERS]:
                 try:
                     if not _ppt or str(_ppt).upper() == ticker.upper():
                         continue
@@ -7911,10 +7939,10 @@ def _engine_scorecard(ticker, info, price):
                 _RSW = {"RS21": 21, "RS63": 63, "RS126": 126, "RS252": 252}
                 _b50 = _b200 = _bval = 0
                 _rs_rows = []
-                for _bpt in list(_pm_list)[:20]:
+                for _bpt in list(_pm_list)[:_FMP_MAX_BREADTH]:
                     if not _bpt or str(_bpt).upper() == ticker.upper():
                         continue
-                    _bars = prov.fmp.ohlcv_daily(_bpt, years=2, today=datetime.now(timezone.utc).date()) or []
+                    _bars = prov.fmp.ohlcv_daily(_bpt, years=2, today=datetime.now(timezone.utc).date()) or []   # cacheado 1d por el provider
                     # FMP entrega newest-first → ordenar ASCENDENTE por fecha antes de las medias
                     _cl = [float(_c) for _, _c in
                            sorted(((str(b.get("date"))[:10], b.get("close")) for b in _bars
@@ -8118,7 +8146,7 @@ def _engine_scorecard(ticker, info, price):
             _proics = []
             # Victor's peer_score exige ≥8 pares válidos (SCORING_ENGINE.md); con menos
             # devuelve N/S. Por eso pedimos hasta 15 para asegurar ≥8 tras posibles fallos.
-            for _pt in list(_plist)[:15]:
+            for _pt in list(_plist)[:_FMP_MAX_PEERS]:
                 try:
                     if not _pt or str(_pt).upper() == ticker.upper():
                         continue                      # nunca comparar la empresa contra sí misma
@@ -8735,7 +8763,7 @@ def analyze_ticker(ticker: str):
             info = stock.info or {}
         except Exception:
             info = {}
-        hist  = _resilient_history(stock, ticker, "6mo")   # yfinance → respaldo Stooq (no se cae)
+        hist  = _resilient_history(stock, ticker, "6mo")   # yfinance → respaldo FMP (no se cae)
         if hist is None or hist.empty:
             raise HTTPException(status_code=404, detail="Sin datos")
 

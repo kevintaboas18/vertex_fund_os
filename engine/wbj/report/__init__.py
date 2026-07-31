@@ -104,7 +104,7 @@ def _executive_thesis(ticker: str, profile: Any, outs: dict, levels: Any,
             f"Write the 7 executive-thesis sentences in {target}."
         )
         resp = anthropic.Anthropic(api_key=settings.anthropic_api_key).messages.parse(
-            model=settings.judge_model, max_tokens=2048, system=_SYSTEM,
+            model=settings.judge_model, max_tokens=8192, system=_SYSTEM,
             messages=[{"role": "user", "content": user}], output_format=_Thesis,
         )
         if resp.parsed_output is None:
