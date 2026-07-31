@@ -148,6 +148,24 @@ chk(C.count_expirations([ChainRow("call",e,100.0,0,0,0.0)
     for e in ("2026-07-22","2026-07-22","2026-08-21","")]) == 2, "cuenta vencimientos distintos")
 chk("to_row(c)" in (TITO_DIR/"massive.py").read_text(),
     "massive usa compute.to_row (una sola conversión, como el original)")
+# Las DOS reglas de tipo de Víctor: estricta para el precio, laxa (`??` + la
+# aritmética de JS) para OI/strike/volumen/acciones. Aplicar la estricta a los
+# cuatro llenaba la cadena de ceros en silencio si la fuente cambia de tipo.
+_txt = C.to_row({"open_interest":"500","details":{"strike_price":"205","shares_per_contract":"100"},
+                 "day":{"volume":"81"}})
+chk(_txt.open_interest == 500 and _txt.strike == 205 and _txt.volume == 81
+    and _txt.notional_value == 500*100*205,
+    "números en TEXTO siguen contando (regla `??`, no `typeof`)")
+chk(C.to_row({"open_interest":"abc","details":{"strike_price":100}}).notional_value == 0,
+    "la basura no numérica cae al fallback, no a NaN")
+chk(C.to_row({"open_interest":10,"details":{"strike_price":100,"shares_per_contract":0}})
+    .notional_value == 0, "shares=0 se respeta (`??` solo cambia null)")
+_coh = C.to_row({"open_interest":60.5,"details":{"strike_price":100}})
+chk(_coh.notional_value == _coh.open_interest*100*100,
+    "la fila y sus fórmulas usan el MISMO open interest")
+chk(all(C.to_row({"details":{"expiration_date":e}}).expiration == "2026-09-18"
+        for e in ("2026-09-18","2026-09-18T00:00:00","2026-09-18T00:00:00Z")),
+    "el vencimiento queda canónico (es la clave de agrupación del sub-agente 4)")
 
 # ─────────────────────────────────────────────────────────────────────
 sec("4. Reglas innegociables")

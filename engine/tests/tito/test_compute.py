@@ -107,6 +107,78 @@ class TestToRow:
         assert to_row(raw).notional_value != 30_000 * 100 * 250
 
 
+class TestLasDosReglasDeVictor:
+    """`compute.ts` usa DOS reglas de tipo, no una.
+
+    `typeof x === "number"` (estricta) solo para el precio; `?? fallback`
+    (laxa, con la aritmética de JS detrás) para OI, strike, volumen y acciones
+    por contrato. Aplicar la estricta a los cuatro se llenaba de ceros en
+    silencio si la fuente cambiaba a números en texto.
+    """
+
+    def test_un_oi_en_texto_sigue_contando(self):
+        # En JS: "500" * 100 * 100 = 5_000_000. Antes daba 0.
+        r = to_row({"open_interest": "500", "details": {"strike_price": 100}})
+        assert r.open_interest == 500
+        assert r.notional_value == 500 * 100 * 100
+
+    def test_un_strike_en_texto_sigue_contando(self):
+        r = to_row({"open_interest": 10, "details": {"strike_price": "205"}})
+        assert r.strike == 205
+        assert r.notional_value == 10 * 100 * 205
+
+    def test_el_volumen_en_texto_tambien(self):
+        assert to_row({"day": {"volume": "81"}}).volume == 81
+
+    def test_shares_cero_no_cae_al_default(self):
+        # `?? 100` solo cambia null/undefined: un 0 explícito se respeta.
+        r = to_row({"open_interest": 10,
+                    "details": {"strike_price": 100, "shares_per_contract": 0}})
+        assert r.notional_value == 0
+
+    def test_shares_null_si_cae_al_default(self):
+        r = to_row({"open_interest": 10,
+                    "details": {"strike_price": 100, "shares_per_contract": None}})
+        assert r.notional_value == 10 * 100 * 100
+
+    def test_la_basura_no_numerica_cae_al_fallback(self):
+        # En JS daría NaN y envenenaría el nocional en silencio; aquí cae a 0,
+        # que además enciende la salvaguarda de baja liquidez del sub-agente 4.
+        r = to_row({"open_interest": "abc", "details": {"strike_price": 100}})
+        assert r.open_interest == 0
+        assert r.notional_value == 0
+
+    def test_el_precio_conserva_la_regla_estricta(self):
+        # Aquí NO se coacciona: un precio raro cae al siguiente de la cascada.
+        assert to_row({"last_trade": {"price": "1.25"}, "day": {"close": 2}}).price == 2
+
+
+class TestCoherenciaInterna:
+    def test_la_fila_y_sus_formulas_usan_el_mismo_oi(self):
+        # Redondear para el campo y calcular con el crudo dejaba filas que se
+        # contradicen: OI 60 con el nocional de 60.5.
+        r = to_row({"open_interest": 60.5, "details": {"strike_price": 100}})
+        assert r.notional_value == r.open_interest * 100 * 100
+        assert r.open_premium is None or r.open_premium == r.open_interest * (r.price or 0)
+
+    def test_el_vencimiento_queda_canonico(self):
+        # Es la CLAVE con la que agrupan el sub-agente 4 y el heatmap: sin
+        # canonizar, "2026-09-18" y "2026-09-18T00:00:00" serían dos distintos.
+        for crudo in ("2026-09-18", "2026-09-18T00:00:00", "2026-09-18T00:00:00Z"):
+            assert to_row({"details": {"expiration_date": crudo}}).expiration == "2026-09-18"
+
+    def test_dos_formatos_del_mismo_dia_agrupan_juntos(self):
+        from wbj.tito.structure import structure_score
+        filas = [to_row({"details": {"contract_type": "call", "strike_price": 100,
+                                     "expiration_date": e},
+                         "open_interest": 1000, "day": {"volume": 100}})
+                 for e in ("2026-09-18", "2026-09-18T00:00:00")]
+        exps = structure_score(filas).expirations
+        assert len(exps) == 1 and exps[0].expiration == "2026-09-18"
+        assert exps[0].contracts == 2          # los dos cayeron en el mismo grupo
+        assert count_expirations(filas) == 1
+
+
 class TestSortByOpenInterestDesc:
     def test_ordena_de_mayor_a_menor_sin_mutar_el_original(self):
         def fila(oi):

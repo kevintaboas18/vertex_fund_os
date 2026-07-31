@@ -294,6 +294,47 @@ class TestProjectionTargets:
         # Y el score total cambia: la memoria no es decorativa.
         assert d1["score"] != d0["score"]
 
+    def test_sobrevive_un_cambio_de_esquema_en_massive(self, client, monkeypatch):
+        """Si Massive pasa a mandar los números como texto, el motor no puede
+        llenarse de ceros en silencio.
+
+        Es el mismo fallo que apareció en `store.ts`: la fuente cambia de tipo,
+        nada lanza, y el scorecard sale igual de bonito con la cadena a cero.
+        """
+        import wbj.tito.massive as MASS
+        from wbj.tito.compute import to_row
+
+        def crudo(texto: bool):
+            out = []
+            for s in range(90, 115, 5):
+                for ct in ("call", "put"):
+                    oi, strike, vol = 9000, float(s), 400
+                    if texto:
+                        oi, strike, vol = str(oi), str(strike), str(vol)
+                    out.append({
+                        "details": {"contract_type": ct, "strike_price": strike,
+                                    "expiration_date": "2026-09-18T00:00:00Z",
+                                    "shares_per_contract": 100},
+                        "day": {"volume": vol, "close": 2.5},
+                        "open_interest": oi,
+                    })
+            return [to_row(c) for c in out]
+
+        def chain(texto):
+            return lambda t, **k: MASS.ChainResult(
+                rows=crudo(texto), underlying_price=SPOT, pages=1, truncated=False)
+
+        monkeypatch.setattr(MASS, "fetch_option_chain", chain(False))
+        normal = client.get("/api/projection-targets?ticker=ESQ").json()
+        monkeypatch.setattr(MASS, "fetch_option_chain", chain(True))
+        texto = client.get("/api/projection-targets?ticker=ESQ").json()
+
+        assert normal["ok"] is True and texto["ok"] is True
+        assert texto["scores"]["structure"] == normal["scores"]["structure"] is not None
+        assert texto["scores"]["structure"] > 0, "la cadena se fue a cero en silencio"
+        # Y la fecha con hora no parte el vencimiento en dos.
+        assert texto["score"] == normal["score"]
+
     def test_arranca_de_disco_vacio(self, client, tmp_path, monkeypatch):
         # Primer despliegue: no hay nada guardado. El motor tiene que responder
         # igual, con las tres piezas de memoria declaradas como apagadas.
