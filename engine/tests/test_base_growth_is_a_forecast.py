@@ -25,8 +25,11 @@ import pytest
 from wbj.specialists.valuation import _consensus_revenue_cagr, _last_reported_date
 
 
-def _est(date, revenue, analysts=30):
-    return {"date": date, "revenueAvg": revenue, "numAnalystsRevenue": analysts}
+def _est(date, revenue, analysts=30, spread=0.10):
+    """A consensus row with the analysts' own low/high around the mean."""
+    return {"date": date, "revenueAvg": revenue,
+            "revenueLow": revenue * (1 - spread), "revenueHigh": revenue * (1 + spread),
+            "numAnalystsRevenue": analysts}
 
 
 #: NVDA's shape: reported through FY2026, consensus out to FY2031.
@@ -284,3 +287,69 @@ def test_the_range_takes_the_extremes_not_the_positions():
     ordered = _mc_range(0.18, 0.36, 0.54)       # an explicit three-way override
     assert (ordered.low, ordered.mode, ordered.high) == \
         pytest.approx((0.18, 0.36, 0.54))
+
+
+# --- bear and bull are sourced too ----------------------------------------
+
+
+def test_the_scenarios_take_the_analysts_own_low_and_high():
+    """DECISION_RULES.md's scenario framework: each scenario "separately
+    defines" its revenue growth path. Bear and bull were `base*0.5` and
+    `base*1.5` — this module's calibration, tuned when the base was a small
+    trailing ratio."""
+    out = _consensus_revenue_cagr(_ROWS, _REVENUE0, "2026-01-25", 5)
+    assert out["cagr_low"] < out["cagr"] < out["cagr_high"]
+
+    hi = 1_005_000_000_000 * 1.10
+    assert out["cagr_high"] == pytest.approx((hi / _REVENUE0) ** 0.2 - 1)
+
+
+def test_a_row_without_a_low_high_leaves_them_unset():
+    """Then the multipliers are the only thing left, and the assumption
+    line has to say so rather than implying a dispersion nobody published."""
+    bare = [{"date": "2031-01-25", "revenueAvg": 1_005_000_000_000}]
+    out = _consensus_revenue_cagr(bare, _REVENUE0, "2026-01-25", 5)
+    assert out["cagr"] is not None
+    assert out["cagr_low"] is None and out["cagr_high"] is None
+
+
+def test_a_hypergrowth_consensus_no_longer_invents_a_bull_case():
+    """The case that forced this. PLTR's consensus CAGR is ~73%; times the
+    old 1.5 multiplier that is 109% — revenue growing FORTY-FOLD in five
+    years, an assumption no analyst made. The published high was 77%."""
+    from wbj.specialists import valuation as val
+
+    hyper = [_est("2031-01-25", _REVENUE0 * 15.0, 8, spread=0.05),
+             _est("2030-01-25", _REVENUE0 * 9.0, 8, spread=0.05),
+             _est("2029-01-25", _REVENUE0 * 5.5, 9, spread=0.05),
+             _est("2028-01-25", _REVENUE0 * 3.3, 10, spread=0.05),
+             _est("2027-01-25", _REVENUE0 * 1.9, 12, spread=0.05)]
+    out = val.run(_packet_with(hyper, capex=-6.04e9), {"wacc": 0.146})
+
+    growths = {s.name: s.assumptions["growth"] for s in out.scenarios}
+    base = growths["Base"]
+    assert growths["Bear"] < base < growths["Bull"]
+    # The bull is the published high, not half again the base.
+    assert growths["Bull"] < base * 1.5
+    assert growths["Bull"] == pytest.approx((15.0 * 1.05) ** 0.2 - 1, abs=1e-6)
+
+
+def test_the_multipliers_still_cover_a_consensus_with_no_dispersion():
+    from wbj.specialists import valuation as val
+
+    bare = [{"date": f"{y}-01-25", "revenueAvg": _REVENUE0 * m}
+            for y, m in [(2027, 1.2), (2028, 1.4), (2029, 1.6),
+                         (2030, 1.8), (2031, 2.0)]]
+    out = val.run(_packet_with(bare, capex=-6.04e9), {"wacc": 0.146})
+    growths = {s.name: s.assumptions["growth"] for s in out.scenarios}
+    assert growths["Bear"] == pytest.approx(growths["Base"] * 0.5)
+    assert growths["Bull"] == pytest.approx(growths["Base"] * 1.5)
+    assert any("no low/high" in a for a in out.assumptions)
+
+
+def test_the_assumption_says_which_kind_of_range_it_used():
+    from wbj.specialists import valuation as val
+
+    out = val.run(_packet_with(_ROWS, capex=-6.04e9), {"wacc": 0.146})
+    declared = next(a for a in out.assumptions if "Base-case revenue growth" in a)
+    assert "sourced dispersion rather than a multiple of the base" in declared

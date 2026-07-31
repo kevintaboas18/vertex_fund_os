@@ -474,8 +474,23 @@ def _consensus_revenue_cagr(estimates, revenue0: float | None, as_of: str,
     idx = min(len(forward), horizon_years) - 1
     date, revenue, row = forward[idx]
     years = idx + 1
+
+    def _cagr(target: float | None) -> float | None:
+        if target is None or target <= 0:
+            return None
+        return (target / revenue0) ** (1.0 / years) - 1.0
+
+    # The analysts' own low/high, which is a SOURCED dispersion. Bear and
+    # bull used to be `base*0.5` and `base*1.5`: multipliers calibrated for
+    # a small trailing-ratio growth, and nonsense on a large one — PLTR's
+    # bull came out at 109%, or 40x revenue in five years, an assumption
+    # nobody made. DECISION_RULES.md's scenario framework asks each
+    # scenario to "separately define" its revenue growth path; this is the
+    # packet's only sourced way to do that.
     return {
-        "cagr": (revenue / revenue0) ** (1.0 / years) - 1.0,
+        "cagr": _cagr(revenue),
+        "cagr_low": _cagr(_est_field(row, "revenueLow", "estimatedRevenueLow")),
+        "cagr_high": _cagr(_est_field(row, "revenueHigh", "estimatedRevenueHigh")),
         "years": years,
         "to_date": date,
         "to_revenue": revenue,
@@ -1181,17 +1196,34 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
         (packet.estimates or {}).get("fmp_analyst_estimates") or [],
         revenue0, _last_reported_date(packet), years,
     )
+    # Bear and bull default to `base * 0.5` and `base * 1.5` below. Those
+    # multipliers are this module's calibration, and they were tuned when
+    # the base was a small trailing ratio: on a hypergrowth consensus they
+    # produce assumptions nobody made (PLTR's bull reached 109% — 40x
+    # revenue in five years). The analysts' own low/high is a sourced
+    # dispersion for the same horizon, and DECISION_RULES.md's scenario
+    # framework asks each scenario to "separately define" its growth path.
+    bear_growth = bull_growth = None
     if consensus_cagr is not None:
         base_growth = consensus_cagr["cagr"]
+        bear_growth, bull_growth = consensus_cagr["cagr_low"], consensus_cagr["cagr_high"]
+        spread = (
+            f"Bear/bull take the analysts' own low/high for the same horizon "
+            f"({bear_growth:.4f}/{bull_growth:.4f}), a sourced dispersion rather "
+            "than a multiple of the base."
+            if bear_growth is not None and bull_growth is not None
+            else "The estimate carries no low/high, so bear/bull fall back to "
+                 "0.5x/1.5x of the base — this module's calibration, not a forecast."
+        )
         assumptions.append(
             f"Base-case revenue growth ({base_growth:.4f}) is the consensus revenue "
             f"CAGR over the {consensus_cagr['years']}-year explicit period (to "
             f"{consensus_cagr['to_date']}, {consensus_cagr['analysts'] or 'n/a'} "
-            "analysts) — DATASET.md's required `forecast_drivers`. Fundamental "
-            f"growth capacity (capex/NOPAT * ROIC) is {fundamental_growth:.4f} for "
-            "comparison; it measures reinvestment as capex only, so it understates "
-            "any business that grows on expensed R&D. Override via "
-            "overlay['scenarios']['base']['growth']."
+            f"analysts) — DATASET.md's required `forecast_drivers`. {spread} "
+            f"Fundamental growth capacity (capex/NOPAT * ROIC) is "
+            f"{fundamental_growth:.4f} for comparison; it measures reinvestment as "
+            "capex only, so it understates any business that grows on expensed "
+            "R&D. Override via overlay['scenarios']['base']['growth']."
         )
     else:
         base_growth = fundamental_growth
@@ -1290,9 +1322,9 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
             tv_growth=float(ov.get("tv_growth", tv_growth)),
         )
 
-    bear_input = _scenario_input("bear", base_growth * 0.5, op_margin_latest - 0.02, (wacc_value + 0.01) if wacc_value else None, 0.25)
+    bear_input = _scenario_input("bear", bear_growth if bear_growth is not None else base_growth * 0.5, op_margin_latest - 0.02, (wacc_value + 0.01) if wacc_value else None, 0.25)
     base_input = _scenario_input("base", base_growth, op_margin_latest, wacc_value, 0.50)
-    bull_input = _scenario_input("bull", base_growth * 1.5, op_margin_latest + 0.02, (wacc_value - 0.01) if wacc_value else None, 0.25)
+    bull_input = _scenario_input("bull", bull_growth if bull_growth is not None else base_growth * 1.5, op_margin_latest + 0.02, (wacc_value - 0.01) if wacc_value else None, 0.25)
 
     scenario_summaries: list[ScenarioSummary] = []
     # VAL-SCEN-036's number, not just its dimension score. `DECISION_RULES.md`:
