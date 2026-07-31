@@ -277,3 +277,148 @@ Encontrados al re-auditar el estado actual — dos los introduje yo en C-02.
 **Pendiente tuyo:** rotar/revocar el `SNAPTRADE_USER_SECRET` en el portal de SnapTrade y borrar las 4 variables `SNAPTRADE_*` del dashboard de Render.
 
 **Respaldos:** `vertex_api.py.bak` y `platform.html.bak` en el scratchpad de la sesión.
+
+---
+
+# 7. Auditoría del área `analyze` — 2026-07-31
+
+Método: corrida real de `run_report("NVDA")` con las claves de `vertex.env`,
+más prueba directa de cada endpoint externo. Todo lo de abajo está **medido**,
+no inferido.
+
+## 7.1 Lo que funciona (verificado)
+
+| Área | Estado |
+|---|---|
+| Pipeline `wbj report` | `status: ok` en 35 s, 11 secciones, degrada sin crash |
+| Datos de mercado | OHLCV **2026-07-31** (hoy), 754 sesiones, ajustado, orden descendente |
+| Fundamentales | FY2026 completo, 11 años, revenue $215.9 B |
+| SEC EDGAR | submissions 200, 13F dataset Q1-Q2 2026, Form 4 junio 2026 |
+| 13F institucional | BlackRock / Vanguard / State Street con acciones y valor reales |
+| Insiders >$1M | 5 ventas agregadas, la mayor $485.7 M (Stevens, 2026-06-18) |
+| Overrides | los **7** implementados y cableados |
+| Sub-agentes | los **7** definidos (6 que puntúan + visual) |
+| Gráficas | 4 PNG; cumplen las 4 reglas (rango, supuestos, punteado, sello de fecha) |
+| Contenido obligatorio CLAUDE.md | los 6 puntos presentes en el markdown |
+| Hashes de auditoría | 6 packet_hashes SHA-256, uno por especialista |
+
+## 7.2 Hallazgos
+
+### V-01 (CRÍTICO) — El reporte se contradice a sí mismo sobre el mismo ticker
+
+En una sola corrida:
+
+- `football_field.png` → valor razonable **$33–50**, precio $198.70 (−79 %)
+- `scenarios.png` → proyección **$197–320** con "growth +40 % (5y earnings)"
+- `valuation_weighted_value` → **$41.17**
+
+Dos motores distintos alimentan las dos gráficas: la valuación usa el DCF por
+escenarios (`valuation.py`), y los targets de precio usan crecimiento de
+utilidades a 5 años (`targets.py`). Nadie los reconcilia:
+`contradictions()` sólo compara los `score_10` de las categorías, nunca las
+salidas de precio.
+
+**Por qué falla:** falta una regla de contradicción sobre valor por acción.
+**Solución:** extender `CONTRADICTION_RESOLUTION` para comparar
+`valuation_weighted_value` contra la banda de `price_targets` y emitir un
+choque cuando no se solapan.
+
+### V-02 (CRÍTICO) — El crecimiento base ignora el consenso que ya está en el packet
+
+`valuation.py:1061` → `base_growth = reinvestment_rate × ROIC`, con
+`reinvestment_rate = capex / NOPAT`.
+
+Para NVDA: capex $6.04 B / NOPAT ≈ $104 B → 5.8 % × ROIC 87 % ≈ **5.05 %**.
+
+Contra la realidad: NVDA creció **65.5 %** el último año, y el packet ya trae
+`fmp_analyst_estimates` con 10 filas proyectando **$1.005 T de revenue a
+FY2031** (~36 % CAGR). El propio módulo calcula `consensus_growth`
+(línea 1208) pero sólo lo usa para puntuar la plausibilidad del reverse-DCF
+(línea 1866) — **nunca para construir los escenarios**.
+
+**Por qué falla:** medir reinversión sólo con capex subestima estructuralmente
+a las empresas asset-light que crecen vía I+D (gasto, no capex). El reverse-DCF
+lo confirma: el mercado implica 55.3 % de CAGR contra los 5.05 % del motor.
+**Solución:** usar `consensus_growth` como base cuando exista (con el capex×ROIC
+como respaldo declarado), o incorporar I+D y ΔWC a la tasa de reinversión.
+Ya es overridable vía `Entradas/NVDA.json` → `scenarios.base.growth`.
+
+### V-03 (ALTO) — Sin créditos en Anthropic; el judge tumba una categoría entera
+
+La clave `ANTHROPIC_API_KEY` es **válida**, pero la cuenta responde:
+`400 — Your credit balance is too low to access the Anthropic API`.
+
+Cadena de efectos medida:
+
+1. judge caído → `judgments_applied: 1` (sólo la respuesta del archivo de analista)
+2. Market & Growth pierde 3 de 5 dimensiones (**13 de 20 puntos**):
+   `tam_and_industry_tailwind` N/S, `product_and_business_catalysts` N/S,
+   `growth_runway_and_share_capture` N/S
+3. cobertura de Market cae a **48.75 %** (las otras cinco: 91–100 %)
+4. dispara `OVERRIDE_6_COVERAGE_GATE_INELIGIBLE`
+5. `raw_total` 45.33 < 50 → etiqueta **"Avoid / Wait"**
+6. `thesis_killers: []` y `monitoring_triggers: []`, que DECISION_RULES.md
+   exige (mínimo 3 thesis killers)
+
+**Solución:** cargar créditos en la cuenta de Anthropic. Sin eso, ninguna
+corrida puede superar el gate de cobertura, y la etiqueta "Avoid" refleja
+datos faltantes, no la empresa.
+
+### V-04 (ALTO) — `JUDGE_MODEL` contiene una clave, no un nombre de modelo
+
+`vertex.env:32` → `JUDGE_MODEL=sk-ant-api03-...`
+
+`config.py:93` lo toma tal cual (`_key("JUDGE_MODEL") or "claude-opus-5"`), así
+que el judge pediría `model="sk-ant-api03-..."`. Independiente de V-03: aunque
+haya créditos, esto rompe el judge.
+**Solución:** dejarlo vacío (usa `claude-opus-5`) o poner `claude-haiku-4-5`.
+
+### V-05 (MEDIO) — Dos precios distintos en el mismo packet
+
+- `facts_table["price"]` = **195.04** (FinnHub quote, as_of 21:00 UTC)
+- `market_data.daily[0].adj_close` = **198.70** (FMP, 2026-07-31)
+
+Margin of safety, earnings yield, FCF yield y reverse-DCF usan 195.04;
+los niveles técnicos y el marcador "current" del football field usan 198.70.
+Brecha de 1.9 % entre dos números que el reporte presenta como "el precio".
+**Solución:** una sola fuente de precio en el packet, con la otra como respaldo
+declarado.
+
+### V-06 (MEDIO) — Dos reconciliaciones internas fallan
+
+De `missing_or_conflicted_data`:
+
+- `financial: CORE27_RECONCILIATION_WARNING` — dimensión ponderada 6.72 vs
+  core-27 8.80, diferencia **2.08 > 1.5** de tolerancia
+- `valuation: FCFF_ECONOMIC_PROFIT_RECONCILIATION_FAILED` — dos métodos que
+  deben coincidir, no coinciden
+- `valuation: PER_SHARE_VALUE_INCOMPLETE_NO_DILUTION_SCHEDULE`
+
+Se reportan (bien) pero nadie los resuelve. Dos formas de calcular el mismo
+score difieren en 2.08 puntos sobre 10.
+
+### V-07 (MEDIO) — Dos endpoints de pago caídos degradan en silencio
+
+| Endpoint | Código | Efecto |
+|---|---|---|
+| FMP `institutional-ownership` | **402** | cubierto por el dataset 13F de la SEC |
+| FinnHub `eps-estimate` | **403** | menos revisiones de estimados |
+| FinnHub `revenue-estimate` | **403** | contribuye al hueco de Market |
+| QuantData `option/flow` | **403** | flujo de opciones / dark pool / GEX muerto |
+
+FMP quote, statements y analyst-estimates: **200**. FRED: **200**. SEC: **200**.
+
+### V-08 (BAJO) — El mensaje de fallback miente sobre la causa
+
+Los 7 campos de `executive_thesis` dicen
+`"Narrative unavailable (no ANTHROPIC_API_KEY)"`. La clave **sí está puesta**;
+lo que falta son créditos. El mensaje manda a diagnosticar el lugar equivocado.
+
+### V-09 (BAJO) — Variables muertas y faltantes en `render.yaml`
+
+- Declaradas y **leídas por ningún código**: `SCHWAB_APP_KEY`, `SCHWAB_APP_SECRET`
+- Leídas por el código y **no declaradas** (todas con default, opcionales):
+  `JUDGE_MODEL`, `GOOGLE_API_KEY`, `EXTRACTION_MODEL`, `VERTEX_SCHEDULER`,
+  `VERTEX_PRIMARY_TICKERS`
+- **Obligatoria en Render**: `VERTEX_API_TOKEN` (sin ella el servicio sólo
+  atiende localhost, o sea inservible en Render)
