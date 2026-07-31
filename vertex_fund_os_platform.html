@@ -3223,6 +3223,53 @@ function renderVictorChart(containerId, d, horizon) {
         + `<p class="chart-cite">US$/acción · histórico sólido · proyección punteada dentro del cono 1σ/2σ · simulación ilustrativa, no exacta — motor de Víctor (Tito)</p>`;
 }
 
+/** Noticias en dos capas + bandera de contradicción (Tarea 7).
+ *
+ *  La bandera NO altera los 100 pts del scorecard — las 6 categorías ya suman
+ *  100%. Se pinta aparte y lo dice, para que nadie la lea como un séptimo
+ *  sub-agente. */
+function vcNewsHTML(n) {
+    if (!n) return '';
+    const TONO = {
+        conflict: ['border-amber-500/40 bg-amber-500/10', 'text-amber-300', '⚠'],
+        confirm:  ['border-emerald-500/30 bg-emerald-500/10', 'text-emerald-300', '✓'],
+        none:     ['border-gray-800 bg-[#0B0E14]', 'text-gray-400', '·'],
+    };
+    const [box, txt, ico] = TONO[n.flag.kind] || TONO.none;
+    const SENT = { positive: 'text-emerald-400', negative: 'text-red-400', neutral: 'text-gray-500' };
+
+    const lista = (arr, tag) => (arr || []).slice(0, 4).map(x => `
+        <li class="flex items-start gap-1.5 leading-tight">
+          <span class="${SENT[x.sentiment] || 'text-gray-600'} mt-[3px]">●</span>
+          <span class="flex-1">
+            <a href="${_vcEsc(x.url)}" target="_blank" rel="noopener"
+               class="text-gray-300 hover:text-white">${_vcEsc(x.title)}</a>
+            <span class="text-gray-600"> · ${_vcEsc(x.publisher)}</span>
+            ${x.matched_by ? `<span class="text-purple-400"> · RSS · ${_vcEsc(x.matched_by)}</span>` : ''}
+          </span>
+        </li>`).join('');
+
+    const empresa = lista(n.company);
+    const prom = lista(n.promoted);
+
+    return `
+      <div class="mt-3 rounded-xl border ${box} p-3">
+        <div class="flex items-center justify-between flex-wrap gap-1 mb-1.5">
+          <span class="text-[11px] font-extrabold ${txt}">${ico} ${_vcEsc(n.flag.title)}</span>
+          <span class="text-[9px] text-gray-500">
+            flujo ${_vcEsc(n.flow_bias)} · noticias ${_vcEsc(n.bias.bias)} (${n.bias.score})
+            · ${n.feeds_ok}/${n.feeds_total} feeds
+          </span>
+        </div>
+        <p class="text-[10px] text-gray-400 leading-snug">${_vcEsc(n.flag.detail)}</p>
+        <p class="text-[9px] text-gray-600 mt-1 italic">No altera los 100 pts del scorecard.</p>
+        ${empresa ? `<p class="text-[9px] font-bold text-gray-500 uppercase mt-2 mb-1">De la empresa</p>
+          <ul class="space-y-1 text-[10px]">${empresa}</ul>` : ''}
+        ${prom ? `<p class="text-[9px] font-bold text-gray-500 uppercase mt-2 mb-1">Macro que la nombra</p>
+          <ul class="space-y-1 text-[10px]">${prom}</ul>` : ''}
+      </div>`;
+}
+
 /** Panel de targets — tres escenarios por horizonte, no un nivel por horizonte. */
 function renderVictorTargets(d) {
     const el = document.getElementById('projTargets');
@@ -3263,6 +3310,7 @@ function renderVictorTargets(d) {
       </div>
       <p class="text-[10px] text-gray-300 mt-2 leading-snug">${_vcEsc(p.summary)}</p>
       ${p.caveat ? `<p class="text-[9px] text-amber-400 mt-1">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
+      ${vcNewsHTML(d.news)}
       ${warn ? `<div class="mt-2 space-y-0.5">${warn}</div>` : ''}`;
 }
 

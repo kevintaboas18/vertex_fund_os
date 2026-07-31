@@ -161,6 +161,29 @@ def fetch_option_chain(
     return ChainResult(rows=rows, underlying_price=underlying, pages=page, truncated=truncated)
 
 
+def fetch_ticker_name(ticker: str, timeout: float = 12.0) -> str | None:
+    """Nombre de la empresa (`/v3/reference/tickers/{ticker}`).
+
+    Lo usa `news.company_aliases` para reconocer a la empresa en un titular
+    macro: con solo el ticker, "TSLA" en un titular hace match pero "Tesla" no.
+    Devuelve ``None`` si falla — el match degrada al ticker, no revienta.
+    """
+    try:
+        key = _api_key()
+    except MassiveError:
+        return None
+    clean = (ticker or "").strip().upper()
+    if not clean:
+        return None
+    url = f"{BASE_URL}/v3/reference/tickers/{urllib.parse.quote(clean)}"
+    try:
+        data = _get(url, key, clean, timeout)
+    except MassiveError:
+        return None
+    name = (data.get("results") or {}).get("name")
+    return name if isinstance(name, str) and name.strip() else None
+
+
 def fetch_daily_bars(ticker: str, days: int = 365, timeout: float = 25.0) -> list[LvlBar]:
     """Barras diarias del subyacente (`/v2/aggs/...`), de más vieja a más nueva."""
     key = _api_key()

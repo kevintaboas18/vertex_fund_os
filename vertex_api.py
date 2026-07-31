@@ -3834,6 +3834,7 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     out["engine"] = "victor/tito"
     out["chain_source"] = "massive"
     out["memory"] = mem["stats"]
+    out["news"] = _tito_news(tk, r, now)
     _tito_remember(tk, r, now)
     if flow_error:
         out["flow_error"] = flow_error
@@ -3978,6 +3979,56 @@ def _tito_memory(ticker, trades, chain, bars, now):
         }
     except Exception:
         return empty
+
+
+def _tito_news(ticker, result, now):
+    """Tarea 7 — noticias en dos capas + bandera de contradicción.
+
+    NO toca los 100 pts del scorecard: las 6 categorías ya suman 100%. Es
+    contexto que confronta la dirección del dinero contra la de los titulares.
+    Nunca revienta la petición — si los feeds o Massive fallan, el panel se
+    queda sin noticias pero el scorecard sigue.
+    """
+    try:
+        from wbj.tito import news as N
+        from wbj.tito.massive import fetch_ticker_name
+    except Exception:
+        return None
+
+    try:
+        # % del premium notable en calls: la misma dirección que usa el resumen.
+        notable = result.flow.interesting
+        call_p = sum(r.premium for r in notable if r.type == "call")
+        put_p = sum(r.premium for r in notable if r.type == "put")
+        total = call_p + put_p
+        call_pct = (call_p / total * 100) if total > 0 else None
+
+        rep = N.build_news_report(ticker, fetch_ticker_name(ticker), now)
+        flag = (
+            N.contradiction_flag(N.flow_bias(call_pct), rep.bias)
+            if call_pct is not None
+            else N.contradiction_flag("neutral", rep.bias)
+        )
+
+        def it(x):
+            return {"title": x.title, "url": x.url, "publisher": x.publisher,
+                    "published_utc": x.published_utc, "sentiment": x.sentiment,
+                    "reasoning": x.reasoning, "matched_by": x.matched_by}
+
+        return {
+            "company": [it(x) for x in rep.company[:8]],
+            "macro": [it(x) for x in rep.macro],
+            "promoted": [it(x) for x in rep.promoted],
+            "bias": {"bias": rep.bias.bias, "score": round(rep.bias.score, 3),
+                     "positive": rep.bias.positive, "negative": rep.bias.negative,
+                     "neutral": rep.bias.neutral},
+            "flow_bias": N.flow_bias(call_pct) if call_pct is not None else "neutral",
+            "flag": {"kind": flag.kind, "title": flag.title, "detail": flag.detail},
+            "feeds_ok": rep.feeds_ok, "feeds_total": rep.feeds_total,
+            "afecta_scorecard": False,
+        }
+    except Exception:
+        return None
 
 
 def _tito_remember(ticker, result, now):
