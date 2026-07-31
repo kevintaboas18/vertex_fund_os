@@ -291,6 +291,7 @@ def build_final_report(
     analysis_timestamp: str,
     packet_hashes: dict[str, str] | None = None,
     formula_versions: list[str] | None = None,
+    data_gaps: list[str] | None = None,
 ) -> FinalReport:
     """Mechanically assemble a `FinalReport` from the Task 21 building
     blocks (`AggregateInputs`, a `ProfileResult`, `contradictions()`'s
@@ -312,6 +313,12 @@ def build_final_report(
             entry = f"{name}: {flag}"
             if entry not in missing_or_conflicted:
                 missing_or_conflicted.append(entry)
+    # Gaps the caller observed while BUILDING the inputs, which no output
+    # can carry because the step that would have filled them never ran —
+    # an unavailable judge being the one that costs the most points.
+    for gap in (data_gaps or []):
+        if gap not in missing_or_conflicted:
+            missing_or_conflicted.append(gap)
 
     monitoring_triggers = [c.label for c in contradictions]
 

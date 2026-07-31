@@ -204,3 +204,34 @@ def test_formula_versions_are_collected_when_the_caller_supplies_none():
 def test_an_explicit_formula_versions_argument_still_wins():
     report = _build(_aggregate_inputs(), formula_versions=["9.9.9"])
     assert report.audit.formula_versions == ["9.9.9"]
+
+
+# ============================================================================
+# V-08: a gap the CALLER observed, which no specialist output can carry
+# ============================================================================
+
+
+def test_a_caller_supplied_gap_reaches_the_report():
+    """`missing_or_conflicted_data` is assembled from the specialists' own
+    `mandatory_flags`. An unavailable qualitative judge produces no output
+    to carry one — the step that would have filled those dimensions never
+    ran — so the caller that watched it fail has to be able to add the
+    line. Without it the report showed three NOT_SCORABLE dimensions and
+    an "Avoid" verdict with nothing tying them to the cause."""
+    gap = "judge: QUALITATIVE_JUDGE_UNAVAILABLE (out of credit)"
+    inputs = _aggregate_inputs()
+
+    without = _build(inputs)
+    assert gap not in without.missing_or_conflicted_data
+
+    with_gap = _build(inputs, data_gaps=[gap])
+    assert gap in with_gap.missing_or_conflicted_data
+    # Appended, not substituted: the specialists' own flags survive.
+    assert set(without.missing_or_conflicted_data) <= \
+        set(with_gap.missing_or_conflicted_data)
+
+
+def test_the_same_gap_is_not_listed_twice():
+    gap = "judge: QUALITATIVE_JUDGE_UNAVAILABLE (out of credit)"
+    report = _build(_aggregate_inputs(), data_gaps=[gap, gap])
+    assert report.missing_or_conflicted_data.count(gap) == 1

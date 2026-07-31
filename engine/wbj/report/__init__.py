@@ -70,18 +70,55 @@ def _price_and_atr(packet: Any) -> tuple[float | None, float | None]:
     return rows[-1].close, atr
 
 
+def _llm_failure_reason(exc: BaseException) -> tuple[str, str]:
+    """Why the narrative call failed, in Spanish and English.
+
+    Every one of these sends the reader somewhere different: a spent
+    balance is a billing page, a bad model name is a config file, a
+    rejected key is the key itself. Reporting them all as "no API key"
+    pointed at the one thing that was demonstrably fine.
+    """
+    text = str(exc).lower()
+    if "credit balance" in text or "billing" in text or "quota" in text:
+        return ("la cuenta de Anthropic no tiene saldo (la clave si funciona)",
+                "the Anthropic account is out of credit (the key itself works)")
+    if "model" in text and ("not_found" in text or "not found" in text
+                            or "invalid" in text):
+        return ("JUDGE_MODEL no nombra un modelo valido",
+                "JUDGE_MODEL does not name a valid model")
+    if "authentication" in text or "invalid x-api-key" in text or "401" in text:
+        return ("ANTHROPIC_API_KEY fue rechazada",
+                "ANTHROPIC_API_KEY was rejected")
+    if "rate limit" in text or "429" in text:
+        return ("limite de peticiones de Anthropic alcanzado",
+                "Anthropic rate limit reached")
+    if isinstance(exc, ImportError):
+        return ("el SDK de anthropic no esta instalado",
+                "the anthropic SDK is not installed")
+    return (f"la llamada fallo ({type(exc).__name__})",
+            f"the call failed ({type(exc).__name__})")
+
+
 def _executive_thesis(ticker: str, profile: Any, outs: dict, levels: Any,
                       settings: Any, lang: str) -> ExecutiveThesis:
     """Claude writes the 7 narrative sentences; falls back to an honest
-    'not available' thesis when no API key or the call fails."""
+    'not available' thesis when no API key or the call fails.
+
+    The fallback names the ACTUAL reason. It used to say "no
+    ANTHROPIC_API_KEY" for every failure, including the case where the key
+    is present and working and the account simply has no credit balance —
+    which sent the reader to check the one thing that was already right.
+    """
     target = "Spanish" if lang == "es" else "English"
-    fallback = ExecutiveThesis(**{
-        f: ("Narrativa no disponible (falta ANTHROPIC_API_KEY)." if lang == "es"
-            else "Narrative unavailable (no ANTHROPIC_API_KEY).")
-        for f in _Thesis.model_fields
-    })
+
+    def _fallback(reason_es: str, reason_en: str) -> ExecutiveThesis:
+        text = (f"Narrativa no disponible: {reason_es}." if lang == "es"
+                else f"Narrative unavailable: {reason_en}.")
+        return ExecutiveThesis(**{f: text for f in _Thesis.model_fields})
+
     if not getattr(settings, "anthropic_api_key", None):
-        return fallback
+        return _fallback("falta ANTHROPIC_API_KEY",
+                         "ANTHROPIC_API_KEY is not set")
     try:
         import anthropic
 
@@ -108,11 +145,13 @@ def _executive_thesis(ticker: str, profile: Any, outs: dict, levels: Any,
             messages=[{"role": "user", "content": user}], output_format=_Thesis,
         )
         if resp.parsed_output is None:
-            return fallback
+            return _fallback("el modelo no devolvio la estructura pedida",
+                             "the model returned no structured answer")
         return ExecutiveThesis(**resp.parsed_output.model_dump())
-    except Exception:
+    except Exception as exc:
         logger.warning("executive thesis generation failed; using fallback", exc_info=True)
-        return fallback
+        es, en = _llm_failure_reason(exc)
+        return _fallback(es, en)
 
 
 def _charts(packet: Any, outs: dict, price: float | None, charts_dir: Any,
@@ -493,7 +532,8 @@ def run_report(ticker: str, settings: Any, now: datetime | None = None,
     now = now or datetime.now(timezone.utc)
     _ensure_entradas_skeleton(settings, ticker)
     packet = build_packet(ticker, build_providers(settings), now=now)
-    labelled, judged = _run_specialists(packet, settings)
+    data_gaps: list[str] = []
+    labelled, judged = _run_specialists(packet, settings, notes=data_gaps)
     outs = {_KEY_BY_LABEL[lbl]: o for lbl, o in labelled if lbl in _KEY_BY_LABEL}
     missing = [k for k in _KEY_BY_LABEL.values() if k not in outs]
     if missing:
@@ -524,6 +564,7 @@ def run_report(ticker: str, settings: Any, now: datetime | None = None,
         exchange=getattr(sec, "exchange", "") or "",
         currency=getattr(sec, "currency", "") or "",
         analysis_timestamp=now.isoformat(),
+        data_gaps=data_gaps,
     )
     # 12-month price targets: they drive the scenario fan AND seed the
     # agent's memory. Computed unconditionally now -- gating them on
