@@ -635,7 +635,7 @@ def _deep_memory_block(ticker, current_price, exclude_id=None):
     lines, hits, n_scored = [], 0, 0
     for r in reps:
         base = r.get("price_at_analysis")
-        rec = (r.get("recommendation") or "?").upper()
+        rec = _reco_norm(r.get("recommendation")) or "?"
         when = (r.get("created_at") or "")[:10]
         conv = r.get("conviction")
         seg = f"  • {when}: {rec} (conv {conv}) @ ${base}"
@@ -6364,7 +6364,7 @@ def _agent_coherence_checks(aj, spot):
     cw = _safe_num(aj.get("conviccion_score"))
     up = aj.get("upside_pct")
     up = _safe_num(up) if up is not None else None
-    buyish = any(w in rec for w in ("BUY", "COMPR", "ACUMUL"))
+    buyish = any(w in rec for w in ("FAVORABLE", "BUY", "COMPR", "ACUMUL"))
     sellish = any(w in rec for w in ("SELL", "VEND", "REDUC"))
     if buyish and cw and cw < 45:
         flags.append({"check": "Recomendación vs convicción", "status": "warn",
@@ -6487,21 +6487,43 @@ class WBJLevel(BaseModel):
     valor: float = Field(..., description="Precio del nivel/zona.")
     nota: str = Field(..., description="Confirmación/invalidación o supuesto. Lenguaje de referencia, nunca 'target garantizado'.")
 
-# Perfiles de los gates de Victor → (recomendación, clasificación en español).
-# Cualquier perfil fuera de este mapa (Avoid / Wait, Weak / Wait, o uno nuevo que
-# él agregue) cae al default AVOID: ante la duda no se recomienda comprar.
+# M-09: CLAUDE.md ("Límites del sistema") prohíbe convertir el análisis en una
+# instrucción de compra/venta. El campo emitía literalmente BUY / AVOID — una
+# orden, no una clasificación. Ahora emite CLASES DE RESEARCH.
+#
+# `_RECO_LEGACY` traduce los valores viejos al leer `vertex.db`: el track record
+# compara la dirección de reportes anteriores, así que renombrar sin puente
+# habría invalidado todo el histórico acumulado.
+RESEARCH_FAVORABLE   = "FAVORABLE"
+RESEARCH_CONDICIONAL = "CONDICIONAL"
+RESEARCH_ESPECULATIVO = "ESPECULATIVO"
+RESEARCH_DESFAVORABLE = "DESFAVORABLE"
+
+_RECO_LEGACY = {"BUY": RESEARCH_FAVORABLE, "HOLD": RESEARCH_CONDICIONAL,
+                "SPECULATIVE": RESEARCH_ESPECULATIVO, "AVOID": RESEARCH_DESFAVORABLE}
+
+
+def _reco_norm(v):
+    """Clase de research de un valor guardado, sea nuevo o del esquema anterior."""
+    u = (v or "").upper().strip()
+    return _RECO_LEGACY.get(u, u)
+
+
+# Perfiles de los gates de Victor → (clase de research, texto en español).
+# Cualquier perfil fuera de este mapa cae a DESFAVORABLE: ante la duda, el
+# research no favorece entrar.
 _WBJ_PROFILE_TO_RECO = {
-    "Momentum Candidate":  ("BUY", "Favorable a invertir"),
-    "Quality Opportunity": ("BUY", "Favorable a invertir"),
-    "Value Opportunity":   ("BUY", "Favorable a invertir"),
-    "Conditional / Watch": ("HOLD", "Condicional — esperar confirmación"),
-    "Speculative":         ("SPECULATIVE", "Especulativa — solo tamaño de riesgo"),
+    "Momentum Candidate":  (RESEARCH_FAVORABLE, "Favorable a invertir"),
+    "Quality Opportunity": (RESEARCH_FAVORABLE, "Favorable a invertir"),
+    "Value Opportunity":   (RESEARCH_FAVORABLE, "Favorable a invertir"),
+    "Conditional / Watch": (RESEARCH_CONDICIONAL, "Condicional — esperar confirmación"),
+    "Speculative":         (RESEARCH_ESPECULATIVO, "Especulativa — solo tamaño de riesgo"),
 }
 
 
 def _wbj_reco_from_profile(profile):
     """Perfil de Victor → (recomendación, clasificación). Avoid/Wait y Weak/Wait → AVOID."""
-    return _WBJ_PROFILE_TO_RECO.get(profile, ("AVOID", "Evitar / esperar"))
+    return _WBJ_PROFILE_TO_RECO.get(profile, (RESEARCH_DESFAVORABLE, "Evitar / esperar"))
 
 
 def _wbj_band(raw: float) -> str:
@@ -6530,7 +6552,28 @@ def _wbj_gates(comp: dict) -> dict:
     # y/o financial OVERRIDE_2_ROIC_BELOW_WACC) → NO_ELITE_QUALITY (no Quality Opportunity).
     value_destruction = ("VALUE_DESTRUCTION" in biz_flags) or ("OVERRIDE_2_ROIC_BELOW_WACC" in fin_flags)
 
+    # A-05: overrides 1, 3 y 7 faltaban aquí. Estaban implementados en el engine
+    # (`aggregate/overrides.py`) pero en el camino web solo existían como PROSA
+    # en el prompt del LLM — es decir, se le *pedía* al modelo que los mencionara,
+    # sin ningún chequeo determinista. Eso viola la regla innegociable de
+    # CLAUDE.md: "sin fórmula, no hay conclusión". Se leen de los mismos
+    # mandatory_flags que emiten los especialistas, una sola fuente por condición.
+    rsk_flags, val_flags = F("risk"), F("valuation")
+    capital_dependence = "OVERRIDE_1_LOSS_NEGATIVE_FCF_EXTERNAL_DEPENDENCE" in fin_flags
+    solvency_warning = ("SOLVENCY_WARNING" in rsk_flags) or ("SOLVENCY_WARNING" in fin_flags)
+    data_conflict = [f for f in (val_flags + fin_flags) if f.startswith("OVERRIDE_7_")]
+
     overrides = []
+    if capital_dependence:
+        overrides.append("Override 1 (dependencia de capital): pérdida neta + FCF negativo + "
+                         "dependencia de capital externo → el perfil final se limita a "
+                         "Avoid/Speculative.")
+    if solvency_warning:
+        overrides.append("⚠ Override 3 (SOLVENCIA): cobertura de intereses por debajo de 1.5x. "
+                         "Esta advertencia debe aparecer de forma prominente en el reporte.")
+    if data_conflict:
+        overrides.append("Override 7 (conflicto de datos sin resolver): " + ", ".join(data_conflict) +
+                         " → no se publica valor por acción hasta reconciliar la fuente.")
     if rsk <= 4:
         overrides.append("Risk override: Risk ≤4/15 limita el perfil a Speculative.")
     if val <= 4 and tec <= 8:
@@ -6580,6 +6623,10 @@ def _wbj_gates(comp: dict) -> dict:
     if rsk <= 4: spec_reasons.append("Risk ≤4/15")
     if tconf < 60: spec_reasons.append("confianza total <60")
     if core_incomplete: spec_reasons.append("categoría crítica incompleta")
+    # A-05: el override 1 CAPA el perfil, no solo se muestra. `apply_gates` del
+    # engine lo enruta a Speculative (a Avoid solo se llega por raw<50, que ya
+    # se evalúa abajo) — así se reproduce el tope "Avoid/Speculative" del doc.
+    if capital_dependence: spec_reasons.append("dependencia de capital externo (override 1)")
 
     if raw < 50 or (val <= 4 and tec <= 8):
         profile = "Avoid / Wait"
@@ -6593,23 +6640,37 @@ def _wbj_gates(comp: dict) -> dict:
     # Cap a Speculative aunque un gate haya pasado, igual que apply_gates de Victor: además de
     # Risk ≤4/15, la confianza total <60 FUERZA Speculative (apply_gates devuelve Speculative
     # antes de resolver los gates cuando conf_total<60). Antes el backup solo capaba por Risk.
-    if profile in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity") and (rsk <= 4 or tconf < 60):
+    # A-05: la dependencia de capital entra en el mismo cap.
+    if profile in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity") and (
+            rsk <= 4 or tconf < 60 or capital_dependence):
         profile = "Speculative"
 
     # Clasificación de research + recomendación de compatibilidad (persistencia/histórico)
     if profile in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity"):
-        classification, rec = "Favorable a invertir", "BUY"
+        classification, rec = "Favorable a invertir", RESEARCH_FAVORABLE
     elif profile == "Conditional / Watch":
-        classification, rec = "Condicional — esperar confirmación", "HOLD"
+        classification, rec = "Condicional — esperar confirmación", RESEARCH_CONDICIONAL
     elif profile == "Speculative":
-        classification, rec = "Especulativa — solo tamaño de riesgo", "SPECULATIVE"
+        classification, rec = "Especulativa — solo tamaño de riesgo", RESEARCH_ESPECULATIVO
     else:
-        classification, rec = "Evitar / esperar", "AVOID"
+        classification, rec = "Evitar / esperar", RESEARCH_DESFAVORABLE
 
-    return {"profile": profile, "band": _wbj_band(raw), "classification": classification,
+    _band = _wbj_band(raw)
+    if value_destruction and _band == "Elite raw score":
+        _band = "Strong raw score (Elite bloqueado: ROIC<WACC, override 2)"
+    return {"profile": profile, "band": _band, "classification": classification,
             "recommendation": rec, "passed_gates": passed, "failed_gates": failed,
             "overrides": overrides, "spec_reasons": spec_reasons,
-            "gate_eligible": gate_eligible}
+            "gate_eligible": gate_eligible,
+            # A-05: banderas explícitas para que el reporte pueda destacarlas.
+            # El override 3 exige aparecer "de forma prominente", así que el
+            # frontend necesita poder distinguirlo, no solo leer una lista.
+            "solvency_warning": bool(solvency_warning),
+            "capital_dependence": bool(capital_dependence),
+            "data_conflict": data_conflict,
+            # M-14: la banda "Elite" no sobrevive a la destrucción de valor.
+            "band_note": ("Elite bloqueado por override 2 (ROIC<WACC)"
+                          if (value_destruction and raw >= 90) else None)}
 
 
 # Metodología WBJ resumida que se inyecta en el prompt (fuente: /Cerebro).
@@ -6691,15 +6752,15 @@ def _wbj_profile_fit(info, recommendation):
     _exch = (info.get("exchange") or "").upper()
     _country = info.get("country") or ""
     universe_ok = (_exch in _US_EXCHANGES) or (_country == "United States")
-    rec = (recommendation or "").upper()
+    rec = _reco_norm(recommendation)
     if not universe_ok:
         fit, reason = "fuera-de-universo", "Kevin invierte solo en EE.UU.; este valor no cotiza en EE.UU."
-    elif rec == "BUY":
+    elif rec == RESEARCH_FAVORABLE:
         fit, reason = "apto", "Clasificación favorable, dentro de tu universo y tolerancia."
-    elif rec == "SPECULATIVE":
+    elif rec == RESEARCH_ESPECULATIVO:
         fit, reason = "apto-especulativo", ("Especulativa, pero dentro de tu tolerancia agresiva/especulativa "
                                             "— cuida el sizing (riesgo de ruina con ~$1,000 + opciones).")
-    elif rec == "HOLD":
+    elif rec == RESEARCH_CONDICIONAL:
         fit, reason = "condicional", "Condicional — esperar confirmación antes de dimensionar."
     else:
         fit, reason = "evitar", "El research no favorece invertir ahora."
@@ -6836,7 +6897,7 @@ def _wbj_mandatory_report(insiders, recommendation, next_earnings_date=None, fmp
         # (los regalos/adjudicaciones a precio 0 no suman). Más gruesa pero más completa.
         out["insiders_flow"] = _flow
     out["institutional_13f"] = (insiders.get("institutional") or [])[:10]  # inversionistas reconocidos (13F)
-    if (recommendation or "").upper() == "AVOID":
+    if _reco_norm(recommendation) == RESEARCH_DESFAVORABLE:
         out["revisit"] = {   # CLAUDE.md: si 'evitar', fecha/evento concreto para revisitar
             "trigger": "Próximo reporte de resultados (10-Q/10-K) o cambio material en la tesis.",
             "date": next_earnings_date}
@@ -9287,7 +9348,7 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
         # "Qué me haría cambiar de opinión": checkpoints concretos y verificables construidos desde las señales
         # reales del análisis (precio, walls, gamma flip, flujo, earnings). No depende del LLM → siempre presente.
         _inval = []
-        _is_bull = (_rec or "").upper() == "BUY"
+        _is_bull = _reco_norm(_rec) == RESEARCH_FAVORABLE
         _inval.append({"factor": "Precio", "kind": "price",
                        "trigger": f"Cierre {'bajo' if _is_bull else 'sobre'} ${round(bear12, 2)} (quiebre de tesis = −1R)"})
         try:
@@ -9966,10 +10027,13 @@ def get_watchlist_quote(ticker: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 def _dir_hit(rec, ret, flat=5.0):
-    """Acierto direccional crudo (se usa para todos los buckets)."""
-    if rec == "BUY":
+    """Acierto direccional crudo (se usa para todos los buckets).
+    M-09: normaliza primero, para que las filas guardadas con el esquema
+    anterior (BUY/AVOID) sigan puntuando en el track record."""
+    rec = _reco_norm(rec)
+    if rec == RESEARCH_FAVORABLE:
         return ret > 0
-    if rec in ("SELL", "AVOID"):
+    if rec in ("SELL", RESEARCH_DESFAVORABLE):
         return ret < 0
     return abs(ret) < flat
 
@@ -10040,7 +10104,7 @@ def compute_calibration_stats():
         base_p = r.get("price_at_analysis")
         if not base_p:
             continue
-        rec = (r.get("recommendation") or "").upper()
+        rec = _reco_norm(r.get("recommendation"))
         created = r.get("created_ts", 0)
         pred_up = r.get("upside_pct")
         series = _cached_price_series(r["ticker"])
@@ -10063,9 +10127,9 @@ def compute_calibration_stats():
                 if p_spy:
                     spy_ret = (p_spy - base_spy) / base_spy * 100
                     alpha = ret - spy_ret
-                    if rec == "BUY":
+                    if rec == RESEARCH_FAVORABLE:
                         alpha_hit = alpha > 0
-                    elif rec in ("SELL", "AVOID"):
+                    elif rec in ("SELL", RESEARCH_DESFAVORABLE):
                         alpha_hit = alpha < 0
                     else:
                         alpha_hit = abs(alpha) < 5
@@ -10261,8 +10325,8 @@ def get_calibration(horizon: int = 90):
         for r in rows:
             conv = _safe_num(r.get("conviction"))
             base_p = _safe_num(r.get("price_at_analysis"))
-            rec = (r.get("recommendation") or "").upper()
-            if conv <= 0 or base_p <= 0 or rec not in ("BUY", "SELL", "AVOID"):
+            rec = _reco_norm(r.get("recommendation"))
+            if conv <= 0 or base_p <= 0 or rec not in (RESEARCH_FAVORABLE, "SELL", RESEARCH_DESFAVORABLE):
                 continue
             hts = _safe_num(r.get("created_ts")) + horizon * 86400
             if hts > now:
@@ -10308,7 +10372,7 @@ def _r_outcome(r, series, now):
     No necesita tu contrato real: mide la CALIDAD DE LA SEÑAL del agente en unidades de riesgo."""
     entry = _safe_num(r.get("price_at_analysis"))
     bull = _safe_num(r.get("target_bull")); bear = _safe_num(r.get("target_bear"))
-    rec = (r.get("recommendation") or "").upper()
+    rec = _reco_norm(r.get("recommendation"))
     created = _safe_num(r.get("created_ts"))
     if entry <= 0 or not series:
         return None
@@ -10320,9 +10384,10 @@ def _r_outcome(r, series, now):
         return None
     if not (bull and bear and bull > entry > bear):   # bracket sano requerido
         return None
-    if rec == "BUY":
+    rec = _reco_norm(rec)
+    if rec == RESEARCH_FAVORABLE:
         target, stop, up = bull, bear, True
-    elif rec in ("SELL", "AVOID"):
+    elif rec in ("SELL", RESEARCH_DESFAVORABLE):
         target, stop, up = bear, bull, False           # gana si baja al bear; stop si sube al bull
     else:
         return None
@@ -10383,7 +10448,7 @@ def get_track_record():
             base_p = r.get("price_at_analysis")
             if not base_p:
                 continue
-            rec = (r.get("recommendation") or "").upper()
+            rec = _reco_norm(r.get("recommendation"))
             created = r.get("created_ts", 0)
             series = _cached_price_series(r["ticker"])
             base_spy = _price_at(spy, created)
@@ -10405,7 +10470,7 @@ def get_track_record():
                     p_spy = _price_at(spy, hts)
                     if p_spy:
                         alpha = round(ret - (p_spy - base_spy) / base_spy * 100, 1)
-                        a_hit = (alpha > 0) if rec == "BUY" else (alpha < 0) if rec in ("SELL", "AVOID") else (abs(alpha) < 5)
+                        a_hit = (alpha > 0) if rec == RESEARCH_FAVORABLE else (alpha < 0) if rec in ("SELL", RESEARCH_DESFAVORABLE) else (abs(alpha) < 5)
                         alpha_buckets[label].append(a_hit)
                 # magnitud: clasifica el resultado (no solo signo)
                 mag = ("ganancia fuerte" if ret >= 8 else "ganancia" if ret > 1 else
@@ -10417,8 +10482,8 @@ def get_track_record():
             if row_eval["horizons"]:
                 detail.append(row_eval)
             # curva de equity: posición direccional a 90d (BUY=+ret, SELL=-ret, HOLD ignora)
-            if ret90 is not None and rec in ("BUY", "SELL", "AVOID"):
-                pnl = ret90 if rec == "BUY" else -ret90
+            if ret90 is not None and rec in (RESEARCH_FAVORABLE, "SELL", RESEARCH_DESFAVORABLE):
+                pnl = ret90 if rec == RESEARCH_FAVORABLE else -ret90
                 equity *= (1.0 + pnl / 100.0)
                 peak = max(peak, equity)
                 max_dd = min(max_dd, (equity - peak) / peak * 100.0)

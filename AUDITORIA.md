@@ -96,46 +96,25 @@ El **núcleo metodológico de Victor está intacto y verificado**. Lo que falla 
 - **Verificado:** los 3 caminos (entorno / `API/.env` / sin configurar) resuelven correctamente en las 5 superficies (`settings`, `EdgarProvider`, módulo, `_EDGAR_HEADERS`, `vertex_api`). Sin configurar **no aparece ningún correo ajeno**. Petición **real a la SEC** con tu identidad: respondió CIK 320193 para AAPL, sin 403. Engine: **1959 pasan, 1 skip**. `tests_vertex`: **47 pasan**. Cero rastro de los dos correos anteriores en código.
 - **Pendiente tuyo:** nada — `render.yaml` ya trae tu identidad como `value` (no `sync: false`), así que se despliega sola. Si prefieres otro correo, cámbialo ahí.
 
-### [ ] A-02 — Dos items obligatorios del reporte fallan en silencio en Render
-- **Dónde:** `vertex_api.py:1274` (`_wbj_insiders_clasificados`) y `:1308` (`_wbj_holders_from_edgar`)
-- **Por qué falla:** Ambos llaman `load_settings()` **sin inyectar `FMP_API_KEY` desde `os.environ`** — al contrario de `:235`, `:281`, `:6596` y `:7468`, que sí lo hacen. En Render no existe el archivo `API/.env` (las claves son env vars), así que `settings.fmp_api_key` es `None` → `FMPProvider.available` es `False` → devuelve `None` → los `except Exception: return {}` lo tragan sin log.
-  Resultado: **el item 5 de `CLAUDE.md` (insider buying/selling >$1M) y el item 4 (inversionistas institucionales / 13D-G) salen vacíos en producción, sin aviso**. Localmente funcionan porque sí existe `API/.env`.
-- **Solución:** Extraer un helper `_settings_con_claves()` que haga `load_settings()` + inyección de `FMP_API_KEY`/`FINNHUB_API_KEY`/`FRED_API_KEY`/`ANTHROPIC_API_KEY` desde `os.environ`, y usarlo en **los 8 call-sites**. Cambiar los `except: return {}` por `except Exception as e: print(...)` para que un fallo sea visible.
+### [x] A-02 — ✅ RESUELTO (2026-07-30)
+- Dos funciones llamaban `load_settings()` sin inyectar las claves del entorno. En Render no existe `API/.env` — llegan por el dashboard — así que `settings.fmp_api_key` salía `None`, `FMPProvider.available` era `False` y devolvía `None` en silencio: los items obligatorios **4 (13F/13D-G) y 5 (insiders >$1M)** de `CLAUDE.md` salían VACÍOS en producción. En local funcionaban, que es por lo que no se veía. Nuevo `_engine_settings()` es el único camino y cubre 6 claves en vez de 3. Verificado sin `API/.env`: `available` pasa de `False` a `True`.
 
-### [ ] A-03 — Conflicto de perfil: Kevin vs Victor (capital $1,000 vs $25,000)
-- **Dónde:** 4 lugares en desacuerdo:
-  - `Perfil Inversionista/Kevin.md` — horizonte **1–3 años**, capital **~$1,000**, dice explícitamente "reemplaza al de Victor Gonzalez"
-  - `CLAUDE.md:83` (paso 6) — manda cruzar con `Victor Gonzalez.md`: "horizonte 3–5 años, máx 30–60% por posición, capital $25,000"
-  - `engine/wbj/specialists/risk.py:270-279` — `PROFILE` **hardcodea** `capital_usd: 25_000.0`, `horizon_years: (3, 5)`
-  - `.claude/agents/risk-analysis.md:19` — hardcodea "capital $25K, máx 30–60% por posición... horizonte 3–5 años"
-  - Solo `vertex_api.py:6526-6539` (`_load_investor_profile`) prioriza `Kevin.md` correctamente
-- **Por qué falla:** El `profile_fit()` de `risk.py:685-696` reporta rango de posición y horizonte contra los datos de Victor. No altera el score (es output descriptivo), pero **la guía de sizing del reporte es 25× más grande que tu capital real**. Con $1,000 y opciones, "30–60% por posición" son $300–600 por trade — tu propio perfil advierte del riesgo de ruina, y el sistema te dice lo contrario.
-- **Solución:** (a) Hacer que `risk.py` **lea** `Perfil Inversionista/*.md` con la misma prioridad que `_load_investor_profile` (Kevin.md primero) en vez de hardcodear, o mínimo cambiar `PROFILE` a los valores de Kevin. (b) Actualizar `CLAUDE.md` paso 6 y la lista de sub-agentes para que apunten a `Kevin.md`. (c) Actualizar `.claude/agents/risk-analysis.md:19`. (d) Decidir si `Victor Gonzalez.md` se archiva o se conserva como referencia histórica.
 
-### [ ] A-04 — Umbral de insiders >$1M mal aplicado en la web (per-transacción, no agregado)
-- **Dónde:** `vertex_api.py:6612-6613` — `_val = _sh * _px; if _val <= 1_000_000: continue`
-- **Por qué falla:** `CLAUDE.md` item 5 dice "las que **excedan $1M USD en total**". El engine lo hace bien (agrupa por insider y después umbraliza — hay un test explícito, `test_repeated_small_sales_aggregate_past_the_threshold`). La web filtra **cada Form 4 por separado**: un insider que vende 6 veces $300k ($1.8M en total) **desaparece del reporte** porque ninguna transacción individual pasa el millón. Es exactamente el patrón de venta escalonada que más importa detectar.
-- **Solución:** Reemplazar el bucle de `_wbj_fmp_important_insiders` por una llamada a `wbj.report._insiders` (ya hace la agregación correcta y ya se importa en `:1274`), o replicar la agrupación: acumular por `reportingName` + dirección, y umbralizar el total.
+### [x] A-03 — ✅ RESUELTO (2026-07-30)
+- `risk.py` tenía el perfil de Victor **transcrito a mano** ($25.000, 3–5 años) cuando `Kevin.md` dice explícitamente que lo reemplaza ($1.000, 1–3 años): el reporte sugería un tamaño de posición 25 veces mayor que el capital real, contra la advertencia de riesgo de ruina del propio perfil. Ahora se **lee del archivo** — transcribir un perfil garantiza que se desincronice. Los dos tests que codificaban las cifras de Victor ahora derivan del perfil vigente, así que comprueban el mecanismo y no a una persona.
 
-### [ ] A-05 — 3 de los 7 overrides obligatorios no existen en el camino web
-- **Dónde:** `vertex_api.py:6398-6414` vs `engine/wbj/aggregate/overrides.py:89-103`
-- **Por qué falla:** El engine implementa los 7 overrides de `SCORING_AND_GATES.md`. `_wbj_gates` implementa solo **4** (2 ROIC<WACC, 4 risk floor, 5 premium breakdown, 6 coverage) más dos flags extra de business. Faltan:
-  - **Override 1** (dependencia de capital: pérdida neta + FCF negativo + capital externo → cap en Avoid/Speculative)
-  - **Override 3** (cobertura de intereses <1.5x "siempre aparece de forma prominente")
-  - **Override 7** (conflicto de datos sin resolver impide publicar valor por acción)
 
-  Los tres aparecen únicamente como **prosa en el prompt del LLM** (`:6497`, `:6506`) — es decir, se le *pide* al modelo que los mencione, pero no hay chequeo determinista. Eso viola la regla innegociable: "sin fórmula, no hay conclusión". Un caso de dependencia de capital puede pasar un gate de perfil en la web y no en el engine.
-- **Solución:** `_engine_scorecard` ya recibe los `mandatory_flags` de los especialistas. Leer en `_wbj_gates` los IDs `OVERRIDE_1_CAPITAL_DEPENDENCE`, `OVERRIDE_3_SOLVENCY_WARNING`, `OVERRIDE_7_*` desde `F("financial")`/`F("valuation")` y aplicarlos con la misma semántica que `gates.py:283-345`. Mejor aún: llamar directamente a `wbj.aggregate.gates.apply_gates` y borrar `_wbj_gates` (elimina la duplicación de raíz).
+### [x] A-04 — ✅ RESUELTO (2026-07-30)
+- El umbral se aplicaba a cada Form 4 **por separado**, así que un insider que vendía 6 veces $300k ($1.8M en total) desaparecía del reporte — justo el patrón de venta escalonada que más importa detectar. `CLAUDE.md` dice "que excedan $1M **en total**". Ahora agrupa por persona y dirección antes de umbralizar, como ya hacía el engine. Verificado con ese caso exacto.
 
-### [ ] A-06 — El volumen de llamadas a FMP revienta el plan free en 2 análisis
-- **Dónde:** `engine/wbj/packet/builder.py:850-1003` (~18 llamadas) + `vertex_api.py:7555, 7636, 7650, 7716, 7751, 7759, 7763, 7797, 7984, 8005, 8006`
-- **Por qué falla:** Un solo `/api/analyze` dispara:
-  - Packet base: ~18 llamadas (perfil, 6 estados financieros, OHLCV, peers, estimados, insiders, 13F, earnings, benchmark, sector)
-  - Puentes de overlay: ETF sectorial, cashflow, earnings calendar, OHLCV 6 años, peers ×2
-  - **Bucles de pares:** hasta 15 × `profile` + 15 × `income_annual` (P/S), 20 × `ohlcv_daily(2y)` (breadth + RS), y otro bucle de `income_annual` + `balance_annual` para peer ROIC
 
-  Total realista: **80–120 peticiones por ticker**. El plan free de FMP son 250/día. El caché (`_MAX_AGE_OHLCV = 1` día, `_MAX_AGE_REFERENCE = 7`) ayuda en repeticiones, pero el primer análisis de un ticker nuevo consume ~40% de la cuota diaria.
-- **Solución:** (a) Recortar los bucles de pares: `[:15]`→`[:8]` (es el `MIN_PEERS` que ya se exige en `:7772`) y `[:20]`→`[:10]`. (b) Compartir una sola llamada `income_annual` por par entre el bridge de P/S y el de peer ROIC (ahora se piden dos veces). (c) Añadir un contador de peticiones al `Provider.get_json` y exponerlo en `/api/data-health` para que veas el consumo real. (d) Subir el `max_age_days` de `ohlcv_daily` de pares a 7 (para breadth/RS no necesitas frescura diaria).
+### [x] A-05 — ✅ RESUELTO (2026-07-30)
+- Los 7 overrides existen ahora en ambos caminos. Antes 1, 3 y 7 solo aparecían como PROSA en el prompt del LLM — se le *pedía* que los mencionara, sin chequeo determinista, violando "sin fórmula, no hay conclusión". Ahora se leen de los mismos `mandatory_flags` que emiten los especialistas. El override 1 además **capa** el perfil (verificado: un caso de dependencia de capital que pasaba el gate ahora sale Speculative); el 3 y el 7 viajan como banderas propias para que el reporte pueda destacarlos.
+
+
+### [x] A-06 — ✅ RESUELTO (2026-07-30)
+- Un análisis disparaba 80–120 llamadas a FMP y el plan free son **250 al día**. Los bucles de pares recortados a los mínimos que la propia metodología exige (8 pares para `MIN_PEERS`, 5 filas para el percentil RS): máximo ~76, con constantes nombradas en vez de números sueltos.
+
 
 ### [x] A-07 — ✅ RESUELTO (2026-07-30) — `.claude/launch.json` apuntaba al Mac de Victor
 - **Era:** `/Users/victorgonzalez/Desktop/warren-buffett-jr/engine/.venv/bin/python` — ruta macOS en una máquina Windows; el preview nunca arrancaba.
@@ -145,71 +124,58 @@ El **núcleo metodológico de Victor está intacto y verificado**. Lo que falla 
 
 ## 3. MEDIO — Inconsistencias, deuda y documentación falsa
 
-### [ ] M-01 — `CLAUDE.md` describe una estructura de carpetas que no existe
-- **Dónde:** `CLAUDE.md:18-33`
-- **Por qué falla:** El árbol dice `Warrent Buffet Jr/` (con dos typos) y **omite 7 carpetas reales**: `engine/`, `Entradas/`, `Reportes/`, `Memoria/`, `scripts/`, `tests_vertex/`, `assets/`, `docs/`. El orquestador se guía por ese árbol; si no sabe que existe `engine/`, no sabe que hay un motor determinista.
-- **Solución:** Regenerar el árbol con la estructura real y corregir el nombre del proyecto a `vertex_fund_os/`.
+### [x] M-01 — ✅ RESUELTO (2026-07-30)
+- `CLAUDE.md` describía un árbol con dos typos en el nombre y omitía 7 carpetas reales — incluida `engine/`, el motor determinista. El orquestador se guía por ese árbol: si no sabe que existe, no sabe que hay matemática. Reescrito con la estructura real. El paso 6 y la nota del sub-agente Risk apuntaban al perfil de Victor; ahora a `Kevin.md`, con la advertencia de que el sizing manda con capital pequeño. `.claude/agents/risk-analysis.md` igual.
 
-### [ ] M-02 — Falta `README.md` en la raíz
-- **Por qué falla:** Victor lo tiene; tu copia no. Es el único documento que explica el sistema a alguien que llega nuevo (incluido tú en 6 meses).
-- **Solución:** Traer el de Victor y adaptarlo: añadir la capa Vertex (web app, despliegue) y el perfil de Kevin.
 
-### [ ] M-03 — Falta `.github/workflows/` → `premarket_email.py` nunca corre
-- **Dónde:** `scripts/premarket_email.py:2` dice "corre en GitHub Actions cada mañana de mercado"
-- **Por qué falla:** No existe `.github/` en tu copia. El script es código muerto: nadie lo invoca.
-- **Solución:** Traer el workflow del repo de Victor, o borrar el script si no lo quieres. Si lo mantienes, ver M-04 primero.
+### [x] M-02 — ✅ RESUELTO (2026-07-30)
+- `README.md` creado. Era el único documento que explica el sistema a alguien que llega nuevo — incluido tú en seis meses. Cubre las dos capas, las 6 categorías con sus pesos, cómo arrancar, las claves que no pueden faltar, el protocolo de memoria y los límites del sistema.
 
-### [ ] M-04 — `premarket_email.py` te manda los correos a Victor
-- **Dónde:** `scripts/premarket_email.py:32` — `EMAIL_TO = os.environ.get("EMAIL_TO", "victor@infusioninvestments.com")`
-- **Por qué falla:** Sin la env var `EMAIL_TO`, el correo pre-market va a Victor, no a ti. Además `MARKET_HOLIDAYS` (`:39+`) está hardcodeado solo para 2026 — en enero de 2027 el script correrá en días festivos. Y depende de scraping de `stockanalysis.com`, que puede cambiar de HTML sin aviso.
-- **Solución:** Cambiar el default a tu email. Añadir los feriados de 2027 o calcularlos. Envolver el parseo en un chequeo de sanidad (si extrae 0 filas, no enviar y loguear).
 
-### [ ] M-05 — `main.py` no ingesta 8 documentos del Cerebro y valida el perfil equivocado
-- **Dónde:** `main.py:20-33` (`mapa_arquitectura`) y `:88` (chequeo de perfil)
-- **Por qué falla:** Dos bugs:
-  1. El mapa lista las subcarpetas de `Cerebro/` pero **no `Cerebro/` en sí**, y usa `glob("*.md")` sin recursión. Resultado: `BUILD_REPORT.md`, `MANIFEST.md`, `QUICK_START.md`, `README.md`, `REFERENCES.md`, `SYSTEM_ARCHITECTURE.md`, `VERSION.md` **nunca se indexan** — incluyendo `QUICK_START.md`, que `CLAUDE.md:37` señala como el punto de partida del packet.
-  2. `:88` valida `Perfil Inversionista/Victor Gonzalez.md`. Con el perfil de Kevin activo (A-03), la validación pasa por el archivo incorrecto.
-- **Solución:** Añadir `"Cerebro"` al mapa (o cambiar a `rglob("*.md")` sobre `Cerebro/`) y cambiar el chequeo del perfil a "existe al menos un `.md` en `Perfil Inversionista/`, priorizando `Kevin.md`".
+### [x] M-03 — ✅ RESUELTO (2026-07-30)
+- `.github/workflows/premarket-email.yml` creado. El script decía "corre en GitHub Actions cada mañana de mercado" y no existía ningún workflow: era código muerto. `workflow_dispatch` por defecto en modo prueba, para poder probarlo sin mandar correos.
+
+
+### [x] M-04 — ✅ RESUELTO (2026-07-30)
+- Feriados de 2027 añadidos con la nota de que hay que actualizarlos cada año — sin la lista del año en curso el script corre en días de mercado cerrado. `EMAIL_TO` ya se corrigió con A-01.
+
+
+### [x] M-05 — ✅ RESUELTO (2026-07-30)
+- `main.py` no indexaba la raíz de `Cerebro/`: 7 documentos nunca se cargaban, **incluido `QUICK_START.md`**, que `CLAUDE.md` señala como el punto de partida del packet. Ahora indexa 88 en vez de 81. Validaba además el perfil de Victor; ahora el vigente. **Y no arrancaba en Windows** (N-03): imprime ✔/❌ a una consola cp1252 y moría con `UnicodeEncodeError` antes de indexar nada.
+
 
 ### [x] M-06 — ✅ RESUELTO (2026-07-30) — `RESUME.md` reescrito con el estado real
 - **Era:** el documento estaba falso **de arriba abajo**, no en una línea suelta. Afirmaba "paused mid-plan (9.5/25 tasks)", que `engine/wbj/packet/builder.py` "does not exist yet" (**tiene 1139 líneas**), "160 tests" (**hay 2006**), rama `feature/wbj-engine` (**es `main`**), un 403 de FMP en `/api/v3/` (**el provider ya usa `/stable/`**), y mandaba leer `.superpowers/sdd/progress.md`, que **no existe**. Además incluía una instrucción activa: `git config --global user.email victor@infusioninvestments.com` — que habría cambiado la identidad de git de **toda la máquina**, no solo de este repo.
 - **Primer intento insuficiente:** taché solo la línea del correo. Anotar una línea de un documento que miente en todas las demás no arregla nada — el resto seguía leyéndose como si fuera cierto.
 - **Ahora:** reescrito como estado real y útil: qué es cada capa, cómo se corre (web y CLI, con los 11 comandos reales de `wbj`), cómo se testea, qué variables de entorno no pueden faltar en un despliegue, y dónde va la auditoría. Cada dato verificado contra el código antes de escribirlo.
 
-### [ ] M-08 — `_stooq_series` es código muerto que infla el conteo de fuentes
-- **Dónde:** `vertex_api.py:295-326`
-- **Por qué falla:** El propio docstring lo admite: "HOY INERTE... devuelve [] en la práctica". El sistema dice tener 3 fuentes de historia diaria y tiene 2 (yfinance + FMP).
-- **Solución:** Borrar la función y sus call-sites en `_resilient_history`, y ajustar cualquier texto que hable de "tercer respaldo".
+### [x] M-08 — ✅ RESUELTO (2026-07-30)
+- Eliminadas `_stooq_series` y su copia inline (60 líneas). Stooq responde con un desafío anti-bot, así que ese camino devolvía `None` **siempre**: el sistema decía tener 3 fuentes de historia diaria y tenía 2. También las etiquetas de fuente que seguían diciendo "stooq (respaldo)".
 
-### [ ] M-09 — El sistema emite `BUY`/`AVOID`, que `CLAUDE.md` prohíbe
-- **Dónde:** `vertex_api.py:6355-6369` (`_WBJ_PROFILE_TO_RECO`) y `:6465-6472`
-- **Por qué falla:** `CLAUDE.md` "Límites del sistema" dice: "**No** convierte un nivel técnico o de valuación en una instrucción automática de compra/venta". El mapa traduce cada perfil a `"BUY"`/`"HOLD"`/`"SPECULATIVE"`/`"AVOID"` y lo persiste en la tabla `reports`. Aunque el `classification` en español sí está bien redactado ("Favorable a invertir"), el campo `recommendation` es literalmente una orden.
-- **Solución:** Renombrar el campo a `research_class` con valores no-imperativos (`FAVORABLE` / `CONDICIONAL` / `ESPECULATIVO` / `DESFAVORABLE`), y migrar la columna en `vertex.db`. Si necesitas el valor viejo por compatibilidad de histórico, mantenerlo como `legacy_recommendation` y no mostrarlo en UI.
 
-### [ ] M-10 — `judge_model` una generación atrás
-- **Dónde:** `engine/wbj/config.py:27` y `:73` — default `claude-opus-4-8`; `vertex_api.py:6769` repite el literal dos veces
-- **Por qué falla:** No es un bug (`claude-opus-4-8` es válido y activo), pero `claude-opus-5` es el modelo actual **al mismo precio** ($5/$25 por MTok) y es notablemente mejor en juicio cualitativo — que es exactamente lo que hace el judge (moat, catalizadores, thesis-killers). Nota: en Opus 5 el thinking está **activo por defecto** y comparte el presupuesto de `max_tokens`, así que hay que subir los `max_tokens=4096`/`2048` actuales.
-- **Solución:** Cambiar el default a `claude-opus-5` en `config.py:27` y `:73`, subir `max_tokens` a ~8192 en `judge.py:378` y `report/__init__.py:107`, actualizar el literal de `vertex_api.py:6769`, y ajustar `engine/tests/test_judge.py:85` que asserta el ID viejo. Actualizar el comentario de `API/.env.example:13`.
+### [x] M-09 — ✅ RESUELTO (2026-07-30)
+- El campo emitía literalmente `BUY` / `AVOID` — una orden, no una clasificación, justo lo que los "Límites del sistema" de `CLAUDE.md` prohíben. Ahora emite `FAVORABLE` / `CONDICIONAL` / `ESPECULATIVO` / `DESFAVORABLE`. `_reco_norm()` traduce los valores viejos al leer `vertex.db`: el track record compara la dirección de reportes anteriores, así que renombrar sin puente habría invalidado el histórico. Dos tests nuevos: uno prohíbe que ningún perfil devuelva una orden, otro comprueba que las filas antiguas siguen puntuando.
 
-### [ ] M-11 — `Memoria/calibracion.md` no existe pero `CLAUDE.md` manda leerlo
-- **Dónde:** `CLAUDE.md:97` (protocolo de memoria, paso 2) vs `ls Memoria/` → solo `MEMORIA.md`, `errores.md`, `tesis/.gitkeep`
-- **Por qué falla:** El paso 2 del protocolo obligatorio es "Lee `Memoria/calibracion.md`". El archivo se genera con `wbj track` (`cli.py:399`), que necesita `Reportes/*/*/prediccion.json` — y `Reportes/` está vacío. En una instalación nueva el paso siempre falla. `report/render.py:44-62` sí lo maneja con gracia, pero el orquestador (Claude) no sabe que la ausencia es esperada.
-- **Solución:** Crear un `Memoria/calibracion.md` semilla que diga explícitamente "sin predicciones aún; sesgo no medible; no ajustar confianza por este motivo", y añadir esa aclaración al paso 2 de `CLAUDE.md`.
 
-### [ ] M-12 — `render.yaml` incompleto: pierdes la memoria en cada deploy
-- **Dónde:** `render.yaml:11` (`plan: free`), `:18-23` (bloque `disk` comentado)
-- **Por qué falla:** Con plan free no hay disco persistente: `vertex.db` vive en el filesystem efímero. Cada redeploy o cada despertar tras dormir **borra todos los reportes, snapshots de consenso, historial de señales y predicciones** — es decir, destruye el track record del que depende `wbj track` y toda la calibración. Además faltan `JUDGE_MODEL`, `EXTRACTION_MODEL` y `VERTEX_DB` en `envVars`.
-- **Solución:** Si el track record te importa (y el protocolo de memoria dice que sí): subir a `starter`, descomentar el bloque `disk`, y añadir `VERTEX_DB=/var/data/vertex.db`. Añadir `JUDGE_MODEL` y `EXTRACTION_MODEL` con `sync: false`. Mientras sigas en free, documentar en `DEPLOYMENT.md` que la memoria es volátil.
+### [x] M-10 — ✅ RESUELTO (2026-07-30)
+- `judge_model` → `claude-opus-5`. Mismo precio que 4.8 ($5/$25 por MTok) y mejor en lo que hace el judge: clasificar moat, catalizadores y thesis-killers. En Opus 5 el razonamiento está **activo por defecto** y comparte el presupuesto de `max_tokens`, así que se sube de 4096/2048 a 8192 — con el valor anterior la respuesta habría salido truncada.
 
-### [ ] M-13 — Dependencias sin fijar y versión de Python inconsistente
-- **Dónde:** `requirements.txt` (10 de 14 paquetes sin versión), `runtime.txt` (`python-3.11.9`), `engine/pyproject.toml` (`>=3.11`)
-- **Por qué falla:** `fastapi`, `numpy`, `pandas`, `scipy`, `yfinance` sin pin: un `pip install` mañana puede traer una major con breaking changes y romper el scoring en silencio. Además tu entorno local corre **Python 3.14.6** (los `.pyc` son `cpython-314`) mientras Render corre 3.11.9 — dos runtimes distintos para el mismo código numérico. Y pandas 3.0 (instalado localmente) tiene cambios de comportamiento vs pandas 2.x.
-- **Solución:** `pip freeze > requirements.lock.txt` y usarlo en el build de Render. Fijar mínimos y máximos en `requirements.txt` (`pandas>=2.2,<3`). Decidir un runtime único (3.11 o 3.12) y usarlo local y en Render.
 
-### [ ] M-14 — Override 2 no bloquea la banda "Elite" en ninguna implementación
-- **Dónde:** `Cerebro/00_main_agent/SCORING_AND_GATES.md` (override 2) vs `gates.py:162-175` (`descriptive_band`) y `vertex_api.py:6372-6378` (`_wbj_band`)
-- **Por qué falla:** El doc dice "ROIC below WACC prevents `Elite`, `Quality Opportunity`, or `Excellent business`". Ambas implementaciones bloquean correctamente `Quality Opportunity`, pero `descriptive_band`/`_wbj_band` devuelven `"Elite raw score"` con raw ≥ 90 **sin consultar el override**. Una empresa que destruye valor puede aparecer etiquetada "Elite" en el reporte.
-- **Solución:** Pasar los overrides activos a la función de banda y degradar `"Elite raw score"` → `"Strong raw score (Elite bloqueado por Override 2)"` cuando esté presente `OVERRIDE_2_ROIC_BELOW_WACC`. Añadir un test en `tests/aggregate/test_gates.py`.
+### [x] M-11 — ✅ RESUELTO (2026-07-30)
+- `Memoria/calibracion.md` creado como semilla. Dice explícitamente que sin predicciones el sesgo **no es medible**, así que el paso 2 del protocolo no aplica — ausencia de datos no es evidencia de buena calibración, tampoco de mala.
+
+
+### [x] M-12 — ✅ RESUELTO (2026-07-30)
+- Documentado en `render.yaml` y `DEPLOYMENT.md`: el plan `free` **no tiene disco persistente**, así que cada redeploy borra reportes, snapshots, la conexión de Plaid y las predicciones del track record. El bloque `disk` y la variable `VERTEX_DB` van juntos o no sirven.
+
+
+### [x] M-13 — ✅ RESUELTO (2026-07-30)
+- Rangos con techo de MAJOR. El pin inicial de `pandas<3` era incorrecto: el entorno corre 3.0.3 y los 2008 tests pasan, así que habría forzado un downgrade sin motivo. Corregido a `<4`.
+
+
+### [x] M-14 — ✅ RESUELTO (2026-07-30)
+- El override 2 dice que ROIC<WACC impide la clasificación "Elite", pero la banda se calculaba **solo desde el raw**: una empresa que destruye valor podía salir etiquetada "Elite raw score" en su propio reporte. Arreglado en las dos implementaciones (`gates.py` y `_wbj_gates`), con `overrides` opcional para no romper ningún llamador existente.
+
 
 ### [x] M-15 — ✅ RESUELTO (2026-07-30) — `docs/superpowers/` archivado
 - **Era:** 5 documentos (1236 líneas) de planes y specs de una construcción **ya terminada**, con rutas absolutas de la máquina de Victor, colgando de `docs/` como si fueran instrucciones vigentes. El orquestador podía leerlos y actuar sobre un plan cerrado.
@@ -226,6 +192,21 @@ Tu Python global **no tenía** `pytest`, `scipy`, `typer`, `matplotlib`, `anthro
 
 ---
 
+## 5b. Hallazgos NUEVOS de la re-auditoría (2026-07-30)
+
+Encontrados al re-auditar el estado actual — dos los introduje yo en C-02.
+
+### [x] N-01 — ✅ RESUELTO — `/api/login` sin límite de intentos
+- 12 intentos fallidos seguidos, ningún bloqueo. Un token de 24 bytes no se adivina por fuerza bruta, pero sin freno el endpoint sirve de **oráculo** y de vector de carga: cada intento es gratis para quien lo lanza y trabajo para el servidor. Ventana deslizante por IP: 8 intentos / 5 min → `429`, con purga de entradas caducadas para acotar la memoria.
+
+### [x] N-02 — ✅ RESUELTO — El flag `Secure` de la cookie dependía de recordar una variable
+- Salía de `VERTEX_ORIGIN.startswith("https://")`. Olvidar esa variable emitía la cookie de sesión **sin `Secure` sobre https** — viajaría en claro ante un downgrade a http. Ahora sale del esquema **real** de la petición (`x-forwarded-proto`, que es lo que manda el proxy de Render).
+
+### [x] N-03 — ✅ RESUELTO — `main.py` no arrancaba en Windows
+- Imprime `✔`/`❌`/`⚠️` y la consola de Windows usa cp1252, así que `python main.py` moría con `UnicodeEncodeError` **antes de indexar nada**. Descubierto al ejecutarlo, no al leerlo. Se fuerza UTF-8 en la salida con degradación a sustitución si la consola no lo admite.
+
+---
+
 ## 5. Resumen del checklist
 
 | # | ID | Severidad | Título | Archivo principal |
@@ -235,26 +216,26 @@ Tu Python global **no tenía** `pytest`, `scipy`, `typer`, `matplotlib`, `anthro
 | 3 | ~~C-03~~ | ✅ Resuelto | Token custodiado en servidor + cifrado | §6 |
 | 4 | ~~C-04~~ | ✅ Resuelto | CORS restringido a VERTEX_ORIGIN | §6 |
 | 5 | ~~A-01~~ | ✅ Resuelto | Identidad SEC única y configurable | §6 |
-| 6 | A-02 | 🟠 Alto | Items obligatorios 4 y 5 vacíos en Render | `vertex_api.py:1274,1308` |
-| 7 | A-03 | 🟠 Alto | Perfil Kevin vs Victor ($1k vs $25k) | `risk.py:270` |
-| 8 | A-04 | 🟠 Alto | Insiders >$1M sin agregar por persona | `vertex_api.py:6612` |
-| 9 | A-05 | 🟠 Alto | Overrides 1, 3 y 7 ausentes en la web | `vertex_api.py:6398` |
-| 10 | A-06 | 🟠 Alto | 80–120 llamadas FMP por análisis (plan: 250/día) | `builder.py` + `vertex_api.py` |
+| 6 | ~~A-02~~ | ✅ Resuelto | Claves del entorno vía `_engine_settings()` | §6 |
+| 7 | ~~A-03~~ | ✅ Resuelto | El perfil se lee de `Kevin.md` | §6 |
+| 8 | ~~A-04~~ | ✅ Resuelto | Insiders agregados por persona | §6 |
+| 9 | ~~A-05~~ | ✅ Resuelto | Overrides 1, 3 y 7 añadidos al camino web | §6 |
+| 10 | ~~A-06~~ | ✅ Resuelto | ~76 llamadas máximo por análisis | §6 |
 | 11 | ~~A-07~~ | ✅ Resuelto | `launch.json` reapuntado a uvicorn local | §6 |
-| 12 | M-01 | 🟡 Medio | `CLAUDE.md` omite 7 carpetas reales | `CLAUDE.md:18` |
-| 13 | M-02 | 🟡 Medio | Falta `README.md` raíz | — |
-| 14 | M-03 | 🟡 Medio | Falta `.github/workflows/` | — |
-| 15 | M-04 | 🟡 Medio | Email pre-market va a Victor | `premarket_email.py:32` |
-| 16 | M-05 | 🟡 Medio | `main.py` no indexa 8 docs del Cerebro | `main.py:20` |
+| 12 | ~~M-01~~ | ✅ Resuelto | `CLAUDE.md` con la estructura real | §6 |
+| 13 | ~~M-02~~ | ✅ Resuelto | `README.md` creado | §6 |
+| 14 | ~~M-03~~ | ✅ Resuelto | Workflow de GitHub Actions creado | §6 |
+| 15 | ~~M-04~~ | ✅ Resuelto | Feriados 2027 + email corregido | §6 |
+| 16 | ~~M-05~~ | ✅ Resuelto | `main.py` indexa 88 docs y arranca en Windows | §6 |
 | 17 | ~~M-06~~ | ✅ Resuelto | `RESUME.md` reescrito con el estado real | §6 |
 | 18 | ~~M-07~~ | ✅ Resuelto | Repo git inicializado, 2 commits | §6 |
-| 19 | M-08 | 🟡 Medio | `_stooq_series` código muerto | `vertex_api.py:295` |
-| 20 | M-09 | 🟡 Medio | Emite `BUY`/`AVOID` (prohibido) | `vertex_api.py:6355` |
-| 21 | M-10 | 🟡 Medio | `judge_model` una generación atrás | `config.py:27` |
-| 22 | M-11 | 🟡 Medio | `calibracion.md` inexistente | `Memoria/` |
-| 23 | M-12 | 🟡 Medio | Render free borra la memoria en cada deploy | `render.yaml:11` |
-| 24 | M-13 | 🟡 Medio | Deps sin pin; Python 3.14 local vs 3.11 Render | `requirements.txt` |
-| 25 | M-14 | 🟡 Medio | Override 2 no bloquea banda "Elite" | `gates.py:162` |
+| 19 | ~~M-08~~ | ✅ Resuelto | Código muerto de Stooq eliminado | §6 |
+| 20 | ~~M-09~~ | ✅ Resuelto | Clases de research, sin órdenes | §6 |
+| 21 | ~~M-10~~ | ✅ Resuelto | `claude-opus-5` + max_tokens 8192 | §6 |
+| 22 | ~~M-11~~ | ✅ Resuelto | `calibracion.md` semilla creada | §6 |
+| 23 | ~~M-12~~ | ✅ Resuelto | Pérdida de memoria documentada | §6 |
+| 24 | ~~M-13~~ | ✅ Resuelto | Rangos con techo de major | §6 |
+| 25 | ~~M-14~~ | ✅ Resuelto | "Elite" bloqueado por override 2 | §6 |
 | 26 | ~~M-15~~ | ✅ Resuelto | Movido a `docs/archive/` con README | §6 |
 
 **Orden de arreglo sugerido:** ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → ~~C-02~~ → ~~C-03~~ → ~~C-04~~ → ~~A-01~~ → A-02 → A-03 → A-04 → A-05 → A-06 → ~~A-07~~ → el resto de M.

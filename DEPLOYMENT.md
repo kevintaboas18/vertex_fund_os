@@ -62,6 +62,13 @@ El engine lee sus claves de `API/.env` (FMP/FinnHub/FRED + EDGAR_USER_AGENT).
 2. En Render: **New → Blueprint** → conecta tu repo → Render lee `render.yaml`.
 3. Render te pedirá el valor de cada clave marcada `sync: false` (§4). Pégalas
    ahí (Render las guarda cifradas; **nunca** van al código).
+
+> ⚠️ **El plan `free` no conserva nada.** No tiene disco persistente, así que
+> cada redeploy —y cada despertar tras dormirse por inactividad— borra
+> `vertex.db`: reportes, snapshots, historial de señales, la conexión de Plaid
+> y las **predicciones del track record**. Si quieres que el agente aprenda
+> entre sesiones, sube a `starter`, descomenta el bloque `disk` de
+> `render.yaml` **y** la variable `VERTEX_DB` (las dos, o no sirve).
 4. **Create** → Render instala, arranca y te da una URL pública.
 
 ### Opción B — Servicio Web manual
