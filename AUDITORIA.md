@@ -467,3 +467,51 @@ scores degradados en silencio — una caída envenenando días de reportes.
 
 Pendiente: **V-02** (crecimiento base ignora el consenso), **V-01**
 (el reporte se contradice sobre el mismo ticker), **V-03/V-04** (Anthropic).
+
+## 7.4 Resueltos — V-01 y V-02
+
+| # | Estado | Commit |
+|---|---|---|
+| V-02 | Cerrado | `6d52aa3` |
+| V-01 | Cerrado | `2a549e2` |
+
+**V-02.** `base_growth = (capex/NOPAT) × ROIC` invertía la regla que citaba.
+`VAL-REINV-043` es *"Terminal reinvestment consistency"* (`rr = g / TerminalROIC`):
+una restricción sobre el año terminal, y DECISION_RULES.md regla 2 enuncia la
+misma identidad como condición de consistencia **sobre** un pronóstico, no como
+forma de producir uno — el DCF ya la aplica en `terminal_year_metrics`.
+DATASET.md hace de `forecast_drivers` una entrada **requerida**. Ahora el
+crecimiento base es el CAGR de consenso sobre el periodo explícito (NVDA: 36.01%
+a FY2031, 22 analistas), con la capacidad fundamental declarada al lado.
+
+Aislando el cambio: ponderado **$41.16 → $124.19**, `fair_value` 1.0 → 5.0,
+puntos **0.94 → 1.74**.
+
+Dos bugs encontrados al implementarlo:
+
+1. **`AnalysisMeta` no tiene campo `as_of`**, y tres llamadores hacían
+   `getattr(packet.analysis, "as_of", "")` → siempre `""`. Con ese corte toda
+   fila de estimados contaba como futura, así que `_next_year_estimate` devolvía
+   la **más vieja**: el "próximo año" de NVDA era **FY2022** ($26.7 B contra
+   $215.9 B reportados), alimentando el reverse-DCF y el P/E forward.
+2. **Sobrescribir solo `scenarios.base.growth`** — el override que el propio
+   módulo documenta — reventaba la categoría entera: bear/bull siguen derivados
+   del base sin sobrescribir, así que un base de 12% bajo un consenso de 36%
+   daba `low=18% > mode=12%`, numpy lanzaba `left > mode` y la valuación volvía
+   en `ERROR`.
+
+**V-01.** Regla 5 de CONTRADICTION_RESOLUTION.md: "muestra ambas vistas y nombra
+la condición que la resolvería". `_price_view_divergence()` declara juntas la
+vista del DCF (intrínseco a 5 años) y la del target (múltiplo de hoy a 12 meses),
+con sus distancias, y nombra la condición: si el múltiplo persiste.
+
+Y la **sexta fila** de esa tabla (*"DCF high, reverse DCF demanding → Lower
+valuation confidence"*) estaba implementada entera y era **inalcanzable**:
+`run_report` llamaba `contradictions(s10, raw)` sin el contexto que la fila
+necesita. La tabla de seis filas tenía cinco en la práctica.
+
+También: `_price_and_atr` devolvía el cierre **crudo** mientras
+`facts_table["price"]` lleva el ajustado — la misma grieta que V-05 cerró una
+capa más abajo.
+
+Pendiente: **V-03/V-04** (Anthropic: saldo y `JUDGE_MODEL`).
