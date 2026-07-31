@@ -209,7 +209,30 @@ def predict_pro(
 
     cal = calibration or {}
     shift_pct = calibration_shift_pct(cal.get("bias_pct"), int(cal.get("samples") or 0))
-    base_target = in_cone(raw_base + spot * shift_pct / 100) if shift_pct != 0 else raw_base
+    # El recorte al cono es INCONDICIONAL.
+    #
+    # DIVERGENCIA vs el TypeScript original (deliberada, es un arreglo): allí
+    # era `shiftPct !== 0 ? inCone(...) : rawBase`, así que el target base solo
+    # se acotaba CUANDO había calibración. Sin ella el imán salía crudo y podía
+    # escaparse del cono de 2σ mientras bear y bull sí se recortaban — rompiendo
+    # la regla de oro que este mismo módulo declara ("el GEX confirma, no
+    # adivina: la volatilidad manda sobre el posicionamiento") y el orden
+    # bear < base < bull.
+    #
+    # En el pipeline completo no se alcanzaba porque `gex_analysis` ya filtra
+    # los nodos a ±20% del spot, pero `predict_pro` es público y su contrato
+    # dice que NINGÚN escenario sale del cono. Ahora lo cumple siempre.
+    #
+    # El tope del base es el punto medio entre 1σ y 2σ, no el borde de 2σ: ese
+    # borde pertenece a los escenarios EXTREMOS. Si el base pudiera sentarse
+    # justo encima, no quedaría sitio para el bear (o el bull) y los tres
+    # colapsarían en el mismo precio. Con un imán alcanzable —lo normal, porque
+    # `gex_analysis` filtra a ±20% del spot— este tope no toca nada; solo actúa
+    # cuando el imán está tan lejos que la volatilidad no lo alcanza, y ahí
+    # decir "hasta aquí llega lo defendible" es más honesto que fingir el nivel.
+    base_floor = (em.lower1 + em.lower2) / 2
+    base_ceil = (em.upper1 + em.upper2) / 2
+    base_target = min(max(raw_base + spot * shift_pct / 100, base_floor), base_ceil)
 
     # Bull y bear se buscan EXCLUYENDO el nivel base: si no, cuando el imán ya
     # está arriba (o abajo) los tres escenarios colapsan en el mismo precio.

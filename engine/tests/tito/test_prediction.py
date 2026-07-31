@@ -128,6 +128,26 @@ class TestTresEscenarios:
         em2 = 100 * math.exp(2 * 0.5 * math.sqrt(10 / 365))
         assert p.bull.target <= em2 + 1e-6
 
+    def test_el_target_base_tampoco_se_sale_del_cono(self):
+        # Regresion: en el TypeScript original el base solo se recortaba CUANDO
+        # habia calibracion (`shiftPct !== 0 ? inCone(...) : rawBase`). Sin ella
+        # el iman salia crudo y se escapaba del cono mientras bear y bull si se
+        # recortaban, rompiendo el orden y la regla de oro del modulo.
+        for h in (10, 20, 30):
+            p = call(
+                horizon_days=h,
+                nodes=[LevelInput(strike=5000, concentration=1.0, side="call", net_gex=9e9)],
+            )
+            em2 = 100 * math.exp(2 * 0.5 * math.sqrt(h / 365))
+            assert p.base.target <= em2 + 1e-6, h
+            assert p.bear.target < p.base.target < p.bull.target, h
+
+    def test_el_base_se_recorta_tambien_hacia_abajo(self):
+        p = call(nodes=[LevelInput(strike=1, concentration=1.0, side="put", net_gex=-9e9)])
+        em2_low = 100 * math.exp(-2 * 0.5 * math.sqrt(20 / 365))
+        assert p.base.target >= em2_low - 1e-6
+        assert p.bear.target < p.base.target < p.bull.target
+
     def test_sin_muros_usa_las_bandas_de_una_sigma(self):
         p = call(nodes=[])
         assert "1σ" in p.bull.driver
