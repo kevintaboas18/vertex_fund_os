@@ -216,6 +216,24 @@ chk("'Esta semana'" in HTML and "'2 semanas'" in HTML, "etiquetas de horizonte e
 chk("bars[-70:]" in API, "70 velas de histórico")
 chk('horizons: str = "10,20,30"' in API, "endpoint sirve 10/20/30")
 
+# Un solo dueño de #projChart. Mientras convivieron TradingView y el SVG de
+# Víctor, el segundo borraba el primero y sus overlays: el panel dependía del
+# orden de resolución de dos fetch. Estas comprobaciones lo dejan cerrado.
+_owners = re.findall(r"(\w+)\(\s*'projChart'", HTML)
+chk(set(_owners) == {"renderVictorProjChart"},
+    f"un solo renderizador de #projChart ({', '.join(sorted(set(_owners))) or 'ninguno'})")
+for _dead in ("buildTVChart('projChart'", "projLoadChart", "projRedrawOverlays",
+              "projDrawTargets", "projDrawScenario", "projDrawDarkpoolLines",
+              "projToggleTarget", "projChangeTf", "projTargetsData"):
+    chk(_dead not in HTML, f"sin resto de TradingView: {_dead}")
+chk(not re.search(r"<script[^>]+lightweight-charts", HTML),
+    "la librería de TradingView ya no se carga")
+# El área de research tiene su propio renderVictorChart(hostId); la del panel
+# lleva sufijo para no pisarlo (misma global → gana la última declaración).
+chk(len(re.findall(r"^function renderVictorChart\(", HTML, re.M)) == 1
+    and "function renderVictorProjChart(" in HTML,
+    "sin colisión entre el renderer de research y el de Proyecciones")
+
 # ─────────────────────────────────────────────────────────────────────
 sec("7. Seguridad")
 chk("URAc4p9DJi6Z" not in subprocess.run(["git","grep","-I","-l","URAc4p9DJi6Z"],

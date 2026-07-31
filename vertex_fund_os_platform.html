@@ -28,7 +28,8 @@
     </script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <!-- lightweight-charts fuera: su único consumidor era el panel de Proyecciones,
+         que ahora dibuja la gráfica de Víctor en SVG propio. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         body { background-color: #0B0E14; color: #e5e7eb; font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
@@ -2550,126 +2551,26 @@ function applyTargetsSourceUI() {
     // (1M/3M/6M/1A, que recortan el HISTÓRICO) y sus targets son siempre a 12 meses.
     if (victor && currentTimeframe !== '1y') { currentTimeframe = '1y'; }
 }
-// ── TRADINGVIEW LIGHTWEIGHT CHARTS ───────────────────────
-function computeEMA(data, period) {
-    if (!data || !data.length) return [];
-    const k = 2 / (period + 1);
-    let ema = data[0].value;
-    const out = [];
-    for (let i = 0; i < data.length; i++) {
-        ema = (i === 0) ? data[i].value : (data[i].value * k + ema * (1 - k));
-        out.push({ time: data[i].time, value: +ema.toFixed(2) });
-    }
-    return out;
-}
-
-function buildTVChart(containerId, ohlc, volume, levels, showEMA) {
-    const container = document.getElementById(containerId);
-    if (!container || !window.LightweightCharts) return null;
-    container.innerHTML = '';
-
-    const chart = LightweightCharts.createChart(container, {
-        width:  container.clientWidth  || container.offsetWidth  || 600,
-        height: container.clientHeight || container.offsetHeight || 300,
-        layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#6b7280', fontSize: 10 },
-        grid:   { vertLines: { color: '#1F2532' }, horzLines: { color: '#1F2532' } },
-        rightPriceScale: { borderColor: '#1F2532' },
-        timeScale: { borderColor: '#1F2532', timeVisible: false, secondsVisible: false },
-        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    });
-
-    // Candlestick series
-    const candle = chart.addCandlestickSeries({
-        upColor:'#10b981', downColor:'#ef4444',
-        borderUpColor:'#10b981', borderDownColor:'#ef4444',
-        wickUpColor:'#10b981', wickDownColor:'#ef4444',
-    });
-    candle.setData(ohlc || []);
-
-    // Shaded target zone between bull and bear (baseline area)
-    if (levels && levels.bull && levels.bear && ohlc && ohlc.length) {
-        const zone = chart.addBaselineSeries({
-            baseValue: { type:'price', price: levels.bear },
-            topLineColor:'rgba(0,0,0,0)', topFillColor1:'rgba(16,185,129,0.10)', topFillColor2:'rgba(16,185,129,0.10)',
-            bottomLineColor:'rgba(0,0,0,0)', bottomFillColor1:'rgba(0,0,0,0)', bottomFillColor2:'rgba(0,0,0,0)',
-            lastValueVisible:false, priceLineVisible:false, crosshairMarkerVisible:false,
-        });
-        zone.setData(ohlc.map(c => ({ time: c.time, value: levels.bull })));
-    }
-
-    // Target price lines (bull / base / bear)
-    const lvlDefs = [
-        { k:'bull', c:'#10b981', t:'Bull' },
-        { k:'base', c:'#f59e0b', t:'Base' },
-        { k:'bear', c:'#ef4444', t:'Bear' },
-    ];
-    lvlDefs.forEach(d => {
-        if (levels && levels[d.k]) {
-            candle.createPriceLine({
-                price: levels[d.k], color: d.c, lineWidth: 1, lineStyle: 2,
-                axisLabelVisible: true, title: d.t + ' $' + Number(levels[d.k]).toFixed(2)
-            });
-        }
-    });
-
-    // Volume histogram (overlay at bottom)
-    const volSeries = chart.addHistogramSeries({
-        priceFormat: { type: 'volume' }, priceScaleId: 'vol',
-    });
-    volSeries.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-    volSeries.setData((volume || []).map(v => ({
-        time: v.time, value: v.value,
-        color: v.up ? 'rgba(16,185,129,0.45)' : 'rgba(239,68,68,0.45)'
-    })));
-
-    // EMA 20 / 50
-    let ema20 = null, ema50 = null;
-    if (ohlc && ohlc.length) {
-        const closes = ohlc.map(c => ({ time: c.time, value: c.close }));
-        ema20 = chart.addLineSeries({ color:'#3b82f6', lineWidth:1, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
-        ema20.setData(computeEMA(closes, 20));
-        ema50 = chart.addLineSeries({ color:'#a78bfa', lineWidth:1, priceLineVisible:false, lastValueVisible:false, crosshairMarkerVisible:false });
-        ema50.setData(computeEMA(closes, 50));
-        ema20.applyOptions({ visible: !!showEMA });
-        ema50.applyOptions({ visible: !!showEMA });
-    }
-
-    chart.timeScale().fitContent();
-
-    // Responsive resize
-    try {
-        const ro = new ResizeObserver(() => {
-            const w = container.clientWidth, h = container.clientHeight;
-            if (w > 0 && h > 0) { chart.applyOptions({ width: w, height: h }); chart.timeScale().fitContent(); }
-        });
-        ro.observe(container);
-    } catch(e) {}
-
-    return { chart, candle, volSeries, ema20, ema50 };
-}
+// (TradingView Lightweight Charts eliminado: `buildTVChart`/`computeEMA` solo los
+//  usaba el panel de Proyecciones, que ahora dibuja la gráfica de Víctor —velas +
+//  escenarios en un SVG propio, `renderVictorProjChart`. Sin consumidores, la
+//  librería y sus helpers salen: dos renderizadores peleando por #projChart era
+//  justo el bug que esto cierra.)
 
 // (toggleQtEMA / toggleFrEMA eliminados: la gráfica de Victor no lleva EMAs — su renderer
-//  es precio + targets, tal cual su webapp. Las EMAs siguen en la vista de Proyecciones.)
+//  es precio + targets, tal cual su webapp.)
 
 // ── PROYECCIONES GEX (vista de nivel superior) ───────────────────────────────
-let projTV = null, projGexChartObj = null, projData = null, projTf = '1d';
-// Temporalidad de velas → (period, interval) que entiende /api/history. 1d=diario·1y, 1H=horario·1mes, 10m=10min(reagrupado de 5m)·5d
-const PROJ_TF = {
-    '1d':  { period: '1y',  interval: '1d'  },
-    '1h':  { period: '1mo', interval: '1h'  },
-    '10m': { period: '5d',  interval: '10m' },
-};
+// La gráfica del panel es la de Víctor (SVG, `renderVictorProjChart`): precio
+// histórico en línea sólida + los tres escenarios proyectados en punteado
+// dentro del cono de 1σ/2σ. No hay velas ni overlays de TradingView aquí — un
+// solo renderizador dueño de `#projChart`, como lo tiene Víctor.
+let projGexChartObj = null, projData = null;
 let projNetDriftChart = null, projNetDriftWin = 'today', projNetDriftTicker = null, projNetDriftExpTicker = null;
 let projGammaChart = null, projGammaTicker = null, projGammaExpLoaded = false, projBtTicker = null, projLedgerTicker = null;
 let projGammaRows = [], projGammaGreekCur = 'GAMMA', projGammaExpTicker = null;   // filas vivas para el tooltip al actualizar EN SITIO + ticker dueño del dropdown de expiraciones
 let _ledgerTrades = [], _ledgerPage = 0; const LEDGER_PAGE_SIZE = 15;
-let projTargetsData = null, projTargetLines = [];
-let projWallHorizon = 'all';   // 'all' = walls estructurales (todas las exp); 'Hoy'/'7d'/'30d'/... = exp más cercana a ese horizonte
-let projVisibleTargets = new Set(['Hoy', '7d', '30d', '60d', '90d', '120d']);
-let projScenarioSeries = null, projLastBarTime = null;
 let projDpView = '30d';        // 'today' | '30d' — vista activa del dark pool
-let projDpLines = [];          // handles de las price-lines de dark pool en el chart de velas
-let projGexLines = [];         // handles de las price-lines de GEX (call/put wall, flip, max pain)
 let projAutoTimer = null;      // timer de auto-refresh mientras el mercado está abierto
 
 const DP_MIN_VALUE = 500e6;    // solo cruces de dark pool de $500M o más
@@ -2679,16 +2580,6 @@ function projDpLevels() {
     if (!projData) return [];
     const arr = (projDpView === 'today' ? projData.dark_pool_today : projData.dark_pool) || [];
     return arr.filter(p => p && p.price && p.value && p.value >= DP_MIN_VALUE);
-}
-// Para la GRÁFICA: los 3 mayores por $ por encima del spot (resistencia) + los 3 mayores por debajo
-// (soporte) = 6 niveles. Si no hay spot, cae a los 6 mayores globales.
-function projDpChartLevels() {
-    const lv = projDpLevels();
-    const spot = projData ? projData.spot : null;
-    if (!spot) return lv.slice().sort((a, b) => (b.value || 0) - (a.value || 0)).slice(0, 6);
-    const above = lv.filter(p => p.price >= spot).sort((a, b) => (b.value || 0) - (a.value || 0)).slice(0, 3);
-    const below = lv.filter(p => p.price < spot).sort((a, b) => (b.value || 0) - (a.value || 0)).slice(0, 3);
-    return above.concat(below);
 }
 // ¿Mercado de EE.UU. abierto? (lun–vie 9:30–16:00 hora del Este; PR es UTC-4 todo el año)
 function projIsMarketOpen() {
@@ -2739,7 +2630,9 @@ async function loadProjections(tickerArg, opts) {
         loadGammaStrike(ticker, (silent && document.getElementById('projGammaExp') && document.getElementById('projGammaExp').value) ? document.getElementById('projGammaExp').value : 'all');   // gamma por strike — en refresh conserva la exp. elegida
         loadIncomeStrategies(ticker);     // estrategias de venta de prima (condor / spreads / CSP) 7–30 DTE
         loadBacktestStatus(ticker);       // estado del backtest
-        await projLoadChart(ticker, { preserve: silent });    // chart de velas + overlays · silent=auto-refresh → conserva zoom
+        // La gráfica la dibuja loadProjTargets con el payload de Víctor: precio +
+        // escenarios salen de la MISMA llamada, así que no hay un segundo fetch de
+        // historial ni un segundo dueño de #projChart.
     } catch (e) {
         if (!silent) empty.innerHTML = `<p class="text-sm text-red-400">Error: ${e.message}</p>`;
     } finally {
@@ -2755,90 +2648,19 @@ async function loadProjections(tickerArg, opts) {
     }
 }
 
-async function projLoadChart(ticker, opts = {}) {
-    const preserve = !!opts.preserve;                       // refresh silencioso → actualiza sin reconstruir (preserva zoom)
-    const tf = PROJ_TF[projTf] || PROJ_TF['1d'];
-    try {
-        const res = await fetch(`${API_BASE}/api/history?ticker=${ticker}&period=${tf.period}&interval=${tf.interval}`);
-        const d = res.ok ? await res.json() : { ohlc: [], volumen: [] };
-        const intraday = !!d.intraday;
-        const ohlc = d.ohlc || [], vol = d.volumen || [];
 
-        // ── ACTUALIZACIÓN EN SITIO: ya hay chart, misma temporalidad → refresca datos + overlays y CONSERVA zoom/scroll ──
-        if (preserve && projTV && projTV.chart && projTV.candle && ohlc.length) {
-            let range = null;
-            try { range = projTV.chart.timeScale().getVisibleLogicalRange(); } catch(e){}
-            projTV.candle.setData(ohlc);
-            if (projTV.volSeries) projTV.volSeries.setData(vol.map(v => ({ time: v.time, value: v.value, color: v.up ? 'rgba(16,185,129,0.45)' : 'rgba(239,68,68,0.45)' })));
-            if (projTV.ema20 || projTV.ema50) {
-                const closes = ohlc.map(c => ({ time: c.time, value: c.close }));
-                if (projTV.ema20) projTV.ema20.setData(computeEMA(closes, 20));
-                if (projTV.ema50) projTV.ema50.setData(computeEMA(closes, 50));
-            }
-            projLastBarTime = ohlc[ohlc.length - 1].time;
-            projRedrawOverlays();
-            try { if (range) projTV.chart.timeScale().setVisibleLogicalRange(range); } catch(e){}   // restaura el zoom exacto
-            return;
-        }
-
-        // ── RECONSTRUCCIÓN COMPLETA: primer load o cambio de temporalidad (cambia el dominio temporal → fitContent) ──
-        if (projTV && projTV.chart) { try { projTV.chart.remove(); } catch(e){} projTV = null; }
-        projTV = buildTVChart('projChart', ohlc, vol, {}, false);
-        _chartCite('projChartSrc', 'US$/acción · niveles GEX proyectados (dashed) + dark pool real (sólido)', 'Quant Data (opciones + dark pool)');
-        try { projTV.chart.applyOptions({ timeScale: { timeVisible: intraday, secondsVisible: false } }); } catch(e){}
-        projTargetLines = [];
-        projGexLines = [];
-        projScenarioSeries = null;
-        projLastBarTime = ohlc.length ? ohlc[ohlc.length - 1].time : null;
-        projRedrawOverlays();
-        setTimeout(projPlaceDarkpoolLabels, 90);
-        try { projTV.chart.timeScale().subscribeVisibleTimeRangeChange(projPlaceDarkpoolLabels); } catch (e) {}
-    } catch(e) {}
-}
-
-// Redibuja TODOS los overlays sobre la vela (GEX walls + dark pool + targets + escenario) sin reconstruir el chart.
-// Cada grupo se auto-limpia, así que es seguro llamarlo en cada refresh (incluido el silencioso).
-function projRedrawOverlays() {
-    if (!projTV || !projTV.candle) return;
-    projGexLines.forEach(l => { try { projTV.candle.removePriceLine(l); } catch(e){} });
-    projGexLines = [];
-    const _aw = projActiveWalls();
-    if (_aw) {
-        [
-            { p: _aw.call_wall, c: '#f87171', t: 'Call Wall' },
-            { p: _aw.put_wall,  c: '#34d399', t: 'Put Wall' },
-            { p: _aw.gamma_flip,c: '#a78bfa', t: 'Gamma Flip' },
-            { p: _aw.max_pain,  c: '#9ca3af', t: 'Max Pain' },
-        ].forEach(x => { if (x.p) projGexLines.push(projTV.candle.createPriceLine({ price: x.p, color: x.c, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${x.t} $${Number(x.p).toFixed(2)}` })); });
-    }
-    projDrawDarkpoolLines();   // TODOS los niveles de dark pool de la vista activa (hoy / 30d)
-    projDrawTargets();
-    projDrawScenario();
-    projApplyLevelAutoscale();  // asegura que flip/walls/dark-pool entren en el rango de precio visible (clave en intradía)
-}
-
-// Resuelve los walls activos según el horizonte elegido.
-// 'all'  → walls estructurales de TODAS las expiraciones (projData, de /api/options-gex).
-// 'Hoy'/'7d'/'30d'/...  → walls de QD-gamma de la expiración MÁS CERCANA a ese horizonte (del target correspondiente).
+// Walls estructurales de TODAS las expiraciones (projData, de /api/options-gex).
+// Ya no hay variante por horizonte: la selección de horizonte vive en el panel de
+// Víctor (10/20/30 días) y ese motor no expone walls por expiración.
 function projActiveWalls() {
-    const struct = projData ? {
+    return projData ? {
         call_wall: projData.call_wall, put_wall: projData.put_wall,
         gamma_flip: projData.gamma_flip, max_pain: projData.max_pain,
         label: 'Todas', expiry: null, dte: null
     } : null;
-    if (projWallHorizon === 'all') return struct;
-    if (projTargetsData && projTargetsData.targets) {
-        const t = projTargetsData.targets.find(x => x.label === projWallHorizon);
-        if (t && (t.call_wall != null || t.put_wall != null)) {
-            return { call_wall: t.call_wall, put_wall: t.put_wall,
-                     gamma_flip: t.gamma_flip, max_pain: t.max_pain,
-                     label: t.label, expiry: t.expiry, dte: t.dte };
-        }
-    }
-    return struct;   // fallback: si el target aún no cargó o no trae walls, usa los estructurales
 }
 
-// Actualiza en sitio las cards Call Wall / Put Wall / Gamma Flip / Max Pain + la nota del horizonte activo,
+// Actualiza en sitio las cards Call Wall / Put Wall / Gamma Flip / Max Pain,
 // sin re-renderizar todo el bloque (Spot / GEX Neto / P-C se quedan como están).
 function projRenderWallCards() {
     const aw = projActiveWalls();
@@ -2853,79 +2675,6 @@ function projRenderWallCards() {
             cf.textContent = `confianza ${c.level} (${c.score})`;
         } else { cf.className = 'text-[8px] text-gray-600'; cf.textContent = ''; }
     }
-    const note = document.getElementById('pwHorizonNote');
-    if (note) {
-        note.textContent = (!aw || projWallHorizon === 'all' || !aw.expiry)
-            ? 'Walls: todas las expiraciones (estructural)'
-            : `Walls: ${aw.label} · exp ${aw.expiry}${aw.dte != null ? ` · ${aw.dte} DTE` : ''}`;
-    }
-}
-
-// Expande el autoescalado de la vela para que SIEMPRE entren los niveles estructurales (call/put wall, gamma flip,
-// max pain) y los niveles de dark pool visibles. En intradía la ventana de precio es estrecha y, sin esto, el
-// gamma flip (y otros niveles lejos del precio reciente) quedaban fuera de pantalla.
-function projApplyLevelAutoscale() {
-    if (!projTV || !projTV.candle) return;
-    const lvls = [];
-    if (projData) [projData.call_wall, projData.put_wall, projData.gamma_flip, projData.max_pain]
-        .forEach(v => { const n = Number(v); if (v != null && isFinite(n)) lvls.push(n); });
-    try { projDpChartLevels().forEach(p => { const n = Number(p && p.price); if (isFinite(n)) lvls.push(n); }); } catch(e){}
-    try {
-        projTV.candle.applyOptions({
-            autoscaleInfoProvider: (orig) => {
-                const res = orig();
-                if (!res || !res.priceRange) return res;
-                let mn = res.priceRange.minValue, mx = res.priceRange.maxValue;
-                lvls.forEach(v => { if (v < mn) mn = v; if (v > mx) mx = v; });
-                return { priceRange: { minValue: mn, maxValue: mx }, margins: res.margins };
-            }
-        });
-    } catch(e){}
-}
-
-// Dibuja en el chart de velas los 6 niveles de dark pool mayores (3 resistencia + 3 soporte, ≥ $500M),
-// opacidad escalada por tamaño $. Reutilizable en toggle hoy/30d y en auto-refresh sin reconstruir el chart.
-function projDrawDarkpoolLines() {
-    if (!projTV || !projTV.candle) return;
-    projDpLines.forEach(l => { try { projTV.candle.removePriceLine(l); } catch (e) {} });
-    projDpLines = [];
-    const sel = projDpChartLevels();
-    if (!sel.length) { projPlaceDarkpoolLabels(); return; }
-    const maxV = Math.max(...sel.map(p => p.value || 0)) || 1;
-    sel.forEach(p => {
-        const a = 0.45 + 0.5 * Math.min((p.value || 0) / maxV, 1);   // más grande = más opaco (piso visible)
-        const ln = projTV.candle.createPriceLine({ price: p.price, color: `rgba(192,132,252,${a.toFixed(2)})`,
-            lineWidth: 1, lineStyle: 0, axisLabelVisible: false });
-        projDpLines.push(ln);
-    });
-    projPlaceDarkpoolLabels();
-}
-
-// Overlay the abbreviated $ value of each dark-pool line (los mismos 6) at its price level, on the right.
-function projPlaceDarkpoolLabels() {
-    const cont = document.getElementById('projChart');
-    if (!cont) return;
-    cont.querySelectorAll('.dp-ovl').forEach(e => e.remove());
-    if (!projTV || !projTV.candle) return;
-    const sel = projDpChartLevels();
-    if (!sel.length) return;
-    sel.forEach(p => {
-        let y = null;
-        try { y = projTV.candle.priceToCoordinate(p.price); } catch (e) { y = null; }
-        if (y == null) return;
-        const el = document.createElement('div');
-        el.className = 'dp-ovl';
-        el.textContent = fmtAbbr(p.value);
-        el.style.cssText = `position:absolute; right:58px; top:${y}px; transform:translateY(-50%); background:rgba(192,132,252,0.18); color:#e9d5ff; font-size:9px; font-weight:800; padding:0 4px; border-radius:4px; pointer-events:none; z-index:6; white-space:nowrap;`;
-        cont.appendChild(el);
-    });
-}
-
-function projChangeTf(tf, btn) {
-    document.querySelectorAll('.proj-tf').forEach(el => el.classList.remove('active'));
-    if (btn) btn.classList.add('active');
-    projTf = tf;
-    if (projData) projLoadChart(projData.ticker, { preserve: false });   // cambia el dominio temporal → reconstruye y encuadra
 }
 
 function integrityStripHTML(intg){
@@ -3127,8 +2876,12 @@ function vcPackLabels(items, { top, bottom, labelH, gap }) {
 const _vcEsc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /** Dibuja la gráfica de Víctor dentro de `containerId`, desde el payload de
- *  /api/projection-targets. `horizon` es 10 | 20 | 30. */
-function renderVictorChart(containerId, d, horizon) {
+ *  /api/projection-targets. `horizon` es 10 | 20 | 30.
+ *
+ *  El nombre lleva `Proj` porque el área de research ya tiene su propio
+ *  `renderVictorChart(hostId)`; sin el sufijo esta declaración lo pisaba
+ *  (misma global, hoisting) y las gráficas de Quant/Research reventaban. */
+function renderVictorProjChart(containerId, d, horizon) {
     const cont = document.getElementById(containerId);
     if (!cont) return;
     const p = (d.predictions || {})[String(horizon)];
@@ -3307,7 +3060,7 @@ function renderVictorTargets(d) {
     // Etiquetas en lenguaje llano, como la vista Estudiante de Víctor: el
     // horizonte se elige por lo que significa, no por el número de días.
     const HZ_LABEL = { 10: 'Esta semana', 20: '2 semanas', 30: '1 mes' };
-    const tabs = hz.map(x => `<button onclick="window._vcHz=${x};renderVictorTargets(window._vcData);renderVictorChart('projChart',window._vcData,${x});"
+    const tabs = hz.map(x => `<button onclick="window._vcHz=${x};renderVictorTargets(window._vcData);renderVictorProjChart('projChart',window._vcData,${x});"
         class="px-2.5 py-1 rounded-lg text-[10px] font-bold ${x === h ? 'bg-blue-600 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800'}">${HZ_LABEL[x] || (x + 'd')}</button>`).join(' ');
 
     const card = (s, name, col) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
@@ -4080,85 +3833,8 @@ async function loadProjTargets(ticker) {
         // gráfica SVG. Es el único renderizador de este panel.
         window._vcData = d;
         renderVictorTargets(d);
-        renderVictorChart('projChart', d, window._vcHz || 20);
+        renderVictorProjChart('projChart', d, window._vcHz || 20);
     } catch (e) { el.innerHTML = `<p class="text-[11px] text-red-400 italic">Error: ${e.message}</p>`; }
-}
-
-// Draw horizon targets as price lines inside the chart, filtered by the targets the
-// user has toggled on (multi-select). 12m stays in the panel, off-chart.
-function projDrawTargets() {
-    if (!projTV || !projTV.candle) return;
-    projTargetLines.forEach(l => { try { projTV.candle.removePriceLine(l); } catch (e) {} });
-    projTargetLines = [];
-    if (!projTargetsData || !projTargetsData.targets) return;
-    projTargetsData.targets
-        .filter(t => t.level != null && t.horizon_days < 365 && projVisibleTargets.has(t.label))
-        .forEach(t => {
-            const up = t.direction === 'up';
-            const color = up ? '#34d399' : t.direction === 'down' ? '#f87171' : '#9ca3af';
-            const arrow = up ? '▲' : t.direction === 'down' ? '▼' : '•';
-            const ln = projTV.candle.createPriceLine({
-                price: t.level, color: color, lineWidth: 2, lineStyle: 3,
-                axisLabelVisible: true, title: `🎯 ${t.label} ${arrow} $${Number(t.level).toFixed(2)}`
-            });
-            projTargetLines.push(ln);
-        });
-}
-
-// Toggle a target horizon on/off and redraw lines + the scenario path.
-// Además, el target que toques fija el HORIZONTE de los walls: call/put wall, gamma flip y max pain
-// pasan a la expiración más cercana a ese target (Hoy→0DTE, 30d→~30 DTE, etc.), automático.
-function projToggleTarget(h, btn) {
-    if (projVisibleTargets.has(h)) { projVisibleTargets.delete(h); if (btn) btn.classList.remove('active'); }
-    else { projVisibleTargets.add(h); if (btn) btn.classList.add('active'); }
-    projWallHorizon = h;        // los walls siguen al target elegido
-    projRedrawOverlays();       // redibuja walls (al horizonte del target) + targets + escenario
-    projRenderWallCards();      // cards Call/Put Wall/Gamma Flip/Max Pain + nota del horizonte
-}
-
-// Tiempo futuro `days` después de `base`. Diario → string "YYYY-MM-DD" (salta fin de semana). Intradía → epoch(seg)+días.
-function projFutureDate(base, days) {
-    if (typeof base === 'number') return base + days * 86400;   // intradía: epoch en segundos + N días
-    const d = new Date(base + 'T00:00:00');
-    d.setDate(d.getDate() + days);
-    const wd = d.getDay();
-    if (wd === 6) d.setDate(d.getDate() + 2);       // Sat → Mon
-    else if (wd === 0) d.setDate(d.getDate() + 1);  // Sun → Mon
-    return d.toISOString().slice(0, 10);
-}
-
-// Draw a projected price path: spot → first selected target → next → … into the future.
-function projDrawScenario() {
-    if (!projTV || !projTV.chart) return;
-    if (projScenarioSeries) { try { projTV.chart.removeSeries(projScenarioSeries); } catch (e) {} projScenarioSeries = null; }
-    if (!projTargetsData || !projTargetsData.targets || projLastBarTime == null) return;
-    const spot = projTargetsData.spot;
-    if (spot == null) return;
-    const intraday = (typeof projLastBarTime === 'number');
-    const maxHz = intraday ? (projTf === '10m' ? 10 : 45) : 99999;   // intradía: no proyectes tan lejos que aplaste las velas
-    const sel = projTargetsData.targets
-        .filter(t => t.level != null && t.horizon_days < 365 && t.horizon_days <= maxHz && projVisibleTargets.has(t.label))
-        .sort((a, b) => a.horizon_days - b.horizon_days);
-    if (!sel.length) return;
-    const pts = [{ time: projLastBarTime, value: Number(spot) }];
-    sel.forEach(t => {
-        let ft = projFutureDate(projLastBarTime, t.horizon_days);
-        if (t.horizon_days === 0) {
-            // "Hoy"/0DTE coincide con la última vela (la última vela YA es hoy) → proyéctalo al SIGUIENTE slot
-            // para que el segmento de proyección se dibuje en vez de descartarse por el guard de tiempos.
-            ft = intraday ? (projLastBarTime + (projTf === '10m' ? 1800 : 3600))   // +30m (10m) / +1h (1H)
-                          : projFutureDate(projLastBarTime, 1);                      // +1 día hábil (diario)
-        }
-        if (ft > pts[pts.length - 1].time) pts.push({ time: ft, value: Number(t.level) });   // tiempos estrictamente ascendentes
-    });
-    if (pts.length < 2) return;
-    try {
-        projScenarioSeries = projTV.chart.addLineSeries({
-            color: '#eab308', lineWidth: 2, lineStyle: 2, lastValueVisible: false,
-            priceLineVisible: false, crosshairMarkerVisible: true, pointMarkersVisible: true
-        });
-        projScenarioSeries.setData(pts);
-    } catch (e) { projScenarioSeries = null; }
 }
 
 // Abbreviated dollar formatter ($3.4B / $55.7M / $12.0K).
@@ -4232,7 +3908,6 @@ function projSetDpView(v) {
     projDpView = v;
     if (projData) {
         renderProjDarkPool(projData);
-        projDrawDarkpoolLines();
         if (window.lucide) lucide.createIcons();
     }
 }
@@ -7033,33 +6708,21 @@ function analyzeTickerNow(tk) {
             <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
                 <h3 class="text-sm font-extrabold text-white flex items-center gap-2"><span id="projChartTitle">—</span>
                     <span id="projRegimeBadge" class="text-[9px] font-bold px-2 py-0.5 rounded-full"></span></h3>
-                <div class="flex items-center gap-1 flex-wrap">
-                    <span class="text-[9px] text-gray-500 uppercase font-bold mr-0.5">Velas:</span>
-                    <button class="proj-tf tf-pill" data-tf="10m" onclick="projChangeTf('10m',this)">10m</button>
-                    <button class="proj-tf tf-pill" data-tf="1h" onclick="projChangeTf('1h',this)">1H</button>
-                    <button class="proj-tf tf-pill active" data-tf="1d" onclick="projChangeTf('1d',this)">1D</button>
-                    <span class="w-px h-4 bg-gray-700 mx-1.5"></span>
-                    <span class="text-[9px] text-gray-500 uppercase font-bold mr-0.5">Targets:</span>
-                    <button class="proj-tgt tf-pill active" data-h="Hoy" onclick="projToggleTarget('Hoy',this)">Hoy</button>
-                    <button class="proj-tgt tf-pill active" data-h="7d" onclick="projToggleTarget('7d',this)">7d</button>
-                    <button class="proj-tgt tf-pill active" data-h="30d" onclick="projToggleTarget('30d',this)">30d</button>
-                    <button class="proj-tgt tf-pill active" data-h="60d" onclick="projToggleTarget('60d',this)">60d</button>
-                    <button class="proj-tgt tf-pill active" data-h="90d" onclick="projToggleTarget('90d',this)">90d</button>
-                    <button class="proj-tgt tf-pill active" data-h="120d" onclick="projToggleTarget('120d',this)">120d</button>
-                </div>
+                <span class="text-[10px] text-gray-500">El horizonte se elige en el panel de targets, debajo.</span>
             </div>
+            <!-- La gráfica la dibuja renderVictorProjChart (SVG). Un solo dueño de este
+                 contenedor: velas + los tres escenarios salen del mismo payload. -->
             <div id="projChart" style="height:440px;width:100%;position:relative"></div>
             <div class="flex flex-wrap gap-3 mt-2 text-[10px] text-gray-500">
-                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-red-400"></span> Call Wall (resistencia)</span>
-                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-emerald-400"></span> Put Wall (soporte)</span>
-                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-purple-400"></span> Gamma Flip</span>
-                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-gray-400"></span> Max Pain</span>
-                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:#c084fc"></span> Dark Pool $ (Quant Data)</span>
-                <span class="flex items-center gap-1">🎯 Targets <span style="color:#34d399">▲</span>/<span style="color:#f87171">▼</span> (seleccionables)</span>
-                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:#eab308"></span> Escenario proyectado</span>
-                <span id="pwHorizonNote" class="ml-auto text-[10px] font-bold text-blue-300">Walls: todas las expiraciones (estructural)</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:#98a2b3"></span> Precio histórico (sólido)</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:#12b76a"></span> Escenario alcista (punteado)</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:#2f6bff"></span> Escenario base (punteado)</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:#f04438"></span> Escenario bajista (punteado)</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm" style="background:rgba(47,107,255,0.18)"></span> Cono 1σ / 2σ</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:rgba(18,183,106,0.6)"></span> Soporte</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:rgba(240,68,56,0.6)"></span> Resistencia</span>
             </div>
-            <p id="projChartSrc" class="chart-cite"></p>
+            <p id="projChartSrc" class="chart-cite">US$/acción · histórico en sólido, escenarios proyectados en punteado dentro del cono de 1σ/2σ · Fuente: Massive (cadena + barras) + MarketSnack (cinta)</p>
         </div>
 
         <!-- Projection cards -->
