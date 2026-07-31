@@ -1,11 +1,12 @@
 # Auditoría del port de `compute.ts`
 
-Dos pasadas, atacando el port contra el original ejecutado en Node. Ocho
+Tres pasadas, atacando el port contra el original ejecutado en Node. Diez
 hallazgos, todos arreglados. Las 35 sentencias ejecutables de `compute.ts` están
 mapeadas una a una (tabla al final).
 
 - **1ª pasada** (fórmulas y reglas de tipo) → secciones 1 a 5.
 - **2ª pasada** (lo que añadió la 1ª + resiliencia) → 6 a 8.
+- **3ª pasada** (test diferencial de 604 casos) → 9 y 10.
 
 ## 1 · El nocional daba por hecho 100 acciones por contrato — ARREGLADO
 
@@ -101,6 +102,29 @@ vacía** y el panel decía "sin cadena para X".
 `details: "texto"`, `open_interest: "NaN"`, `None` y `"x"`: los buenos pasan,
 los malos se descartan, la cadena sobrevive.
 
+## 9 · `shares_per_contract` ilegible fabricaba el multiplicador — ARREGLADO
+
+Lo encontró el diferencial. `_coerce(shares, 100)` no distinguía **ausente** de
+**presente pero ilegible**: con `shares_per_contract: "abc"`, `[]` o `""` caía al
+100 y calculaba un nocional como si fuera un contrato estándar.
+
+Es el bug del hallazgo 1 reintroducido por la puerta de atrás: **inventar el
+multiplicador justo donde no hay evidencia de cuál es**. Víctor en ese caso
+acaba con `NaN`; el port daba $900.000 de nocional sobre un contrato del que no
+se sabe nada.
+
+Ahora `_shares()` separa los dos casos: ausente o `null` → 100 (el `?? 100` de
+Víctor); presente e ilegible → 0, que además enciende la salvaguarda de baja
+liquidez en vez de fabricar un número.
+
+## 10 · Los booleanos: las dos reglas los tratan al revés — ARREGLADO
+
+Otro que solo sale del diferencial. En JS `typeof true === "boolean"` los
+**rechaza** en la regla estricta del precio, pero `true * 5 === 5` los
+**convierte** en la aritmética. No es un descuido de Víctor: son sus dos reglas
+haciendo cosas distintas con el mismo valor. Mi `_coerce` los rechazaba en las
+dos.
+
 ## Divergencias declaradas
 
 1. **`_coerce` con basura no numérica** cae al fallback en vez de dar `NaN`. En
@@ -116,6 +140,35 @@ los malos se descartan, la cadena sobrevive.
    filtra porque su destino es una tabla, donde una fila rara solo se ve fea;
    aquí el destino son GEX, niveles y Estructura, donde un strike 0 mete un nodo
    imán en cero y un vencimiento vacío crea un grupo fantasma.
+
+## Test diferencial: 604 casos contra el `compute.ts` real
+
+La comprobación más fuerte del port, y reproducible con un comando:
+
+    TITO_ROOT=/ruta/a/agente-tito-metralleta engine/scripts/diff_compute.sh
+
+Traduce `compute.ts` a JS puro quitando **solo** los tipos —la lógica no se
+toca—, genera 604 contratos crudos cubriendo todas las formas raras que puede
+mandar Massive (texto, booleanos, `NaN`, `null`, arrays, objetos anidados con
+tipo cambiado, fechas con y sin hora, MAYÚSCULAS) y compara los **diez campos**
+de la fila más `contractPrice`, campo a campo.
+
+No verifica que el código se parezca: verifica que la **salida** coincida. Cada
+diferencia sale clasificada por causa, y la que no encaja en una divergencia
+declarada se marca como REAL.
+
+    DECLARADA · derivado NaN → 0            133
+    DECLARADA · basura → fallback           116
+    DECLARADA · case del tipo                97
+    DECLARADA · OI/volumen entero            90
+    TIPO      · vencimiento no-string        79
+    DECLARADA · vencimiento canónico         65
+    DECLARADA · OI fraccionario → entero     38
+
+    SIN diferencias reales
+
+Arrancó en **23 diferencias reales** y las dos causas que las explicaban son los
+hallazgos 9 y 10.
 
 ## Comprobado contra Node, idéntico
 
@@ -149,4 +202,5 @@ tres niveles y los cuatro `PriceSource`, `openPremium`, `notionalValue` con
 `sharesPerContract`, `normalizeType`, `toRow` con sus diez campos,
 `sortByOpenInterestDesc` (copia, no muta) y `countExpirations` (sin las vacías).
 
-Tests: los 12 casos de `compute.test.ts` + 25 que el original no cubre.
+Tests: los 12 casos de `compute.test.ts` + 36 que el original no cubre,
+más el diferencial de 604 casos.

@@ -63,8 +63,13 @@ def _coerce(v: Any, fallback: float) -> float:
     `NaN` en JS y envenena el nocional en silencio; aquí cae al `fallback`, que
     además enciende la salvaguarda de baja liquidez del sub-agente 4.
     """
-    if isinstance(v, bool) or v is None:
+    if v is None:
         return fallback
+    # Los booleanos SÍ se convierten aquí (`true * 5 === 5`), al revés que en la
+    # regla estricta, donde `typeof true === "boolean"` los rechaza. Son las dos
+    # reglas de Víctor haciendo cosas distintas con el mismo valor, a propósito.
+    if isinstance(v, bool):
+        return 1.0 if v else 0.0
     if isinstance(v, (int, float)):
         return float(v) if math.isfinite(v) else fallback
     try:
@@ -75,6 +80,30 @@ def _coerce(v: Any, fallback: float) -> float:
     # `open_interest: "NaN"` llegaba entero hasta `int(oi)`, que lanza
     # ValueError y tumba la cadena completa desde dentro del cliente HTTP.
     return n if math.isfinite(n) else fallback
+
+
+#: Marca "el campo no venía", distinta de "vino y no se entiende".
+_AUSENTE = object()
+
+
+def _shares(v: Any) -> float:
+    """Acciones por contrato, distinguiendo AUSENTE de ILEGIBLE.
+
+    `?? 100` de Víctor solo rellena cuando el campo falta. Si viene y no se
+    puede leer (`"abc"`, `[]`, `""`), él acaba con un nocional `NaN`.
+
+    Aquí no se puede caer al 100: sería **inventar** el multiplicador estándar
+    justo cuando no hay evidencia de cuál es — que es exactamente el bug que
+    motivó portar este módulo, reintroducido por la puerta de atrás. Medido:
+    con `shares_per_contract: "abc"` el fallback a 100 daba un nocional de
+    $900.000 sobre un contrato del que no sabemos nada.
+
+    Sin multiplicador fiable el nocional es 0, que además enciende la
+    salvaguarda de baja liquidez del sub-agente 4 en vez de fabricar un número.
+    """
+    if v is None or v is _AUSENTE:
+        return DEFAULT_SHARES_PER_CONTRACT
+    return _coerce(v, 0)
 
 
 def _obj(v: Any) -> dict:
@@ -168,7 +197,7 @@ def to_row(raw: dict) -> ChainRow:
     day = _obj(raw.get("day"))
     oi = _coerce(raw.get("open_interest"), 0)
     strike = _coerce(details.get("strike_price"), 0)
-    shares = _coerce(details.get("shares_per_contract"), DEFAULT_SHARES_PER_CONTRACT)
+    shares = _shares(details.get("shares_per_contract", _AUSENTE))
     price, source = contract_price(raw)
     # El MISMO `oi` alimenta el campo y las dos fórmulas. Redondear para el campo
     # y calcular con el crudo dejaba filas que se contradicen a sí mismas: OI 60

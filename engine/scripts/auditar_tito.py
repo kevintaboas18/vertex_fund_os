@@ -188,6 +188,26 @@ for _c in ({"details":"texto"}, {"details":5}, {"details":[]}, {"open_interest":
     try: C.to_row(_c)
     except Exception: _raras += 1
 chk(_raras == 0, "ninguna fila malformada lanza (tumbaría la página entera)")
+# 3ª pasada: shares ILEGIBLE no es AUSENTE — caer al 100 fabrica el
+# multiplicador estándar justo donde no hay evidencia de cuál es.
+chk(all(C.to_row({"open_interest":100,"details":{"strike_price":9000,
+        "shares_per_contract":b}}).notional_value == 0
+        for b in ("abc","","   ",[],{},"NaN")),
+    "shares_per_contract ilegible NO cae al 100 (no se inventa el multiplicador)")
+chk(C.to_row({"open_interest":100,"details":{"strike_price":9000}}).notional_value
+    == 100*100*9000
+    and C.to_row({"open_interest":100,"details":{"strike_price":9000,
+        "shares_per_contract":None}}).notional_value == 100*100*9000,
+    "shares_per_contract ausente o null SÍ cae al 100 (`?? 100`)")
+chk(C.to_row({"open_interest":True,"details":{"strike_price":100}}).notional_value == 100*100
+    and C.to_row({"open_interest":False,"details":{"strike_price":100}}).notional_value == 0
+    and C.contract_price({"last_trade":{"price":True},"day":{"close":2}}) == (2,"day_close"),
+    "booleanos: la regla laxa los convierte, la estricta los rechaza")
+# El diferencial completo vive en engine/scripts/diff_compute.sh (necesita node
+# + el repo de Víctor); aquí solo se avisa de que existe.
+if TITO and TITO.exists():
+    print("  · diferencial de 604 casos: engine/scripts/diff_compute.sh "
+          "(última corrida: sin diferencias reales)")
 
 # ─────────────────────────────────────────────────────────────────────
 sec("4. Reglas innegociables")

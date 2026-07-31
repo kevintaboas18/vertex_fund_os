@@ -153,6 +153,53 @@ class TestLasDosReglasDeVictor:
         assert to_row({"last_trade": {"price": "1.25"}, "day": {"close": 2}}).price == 2
 
 
+class TestNoInventarElMultiplicador:
+    """`shares_per_contract` ILEGIBLE no es lo mismo que AUSENTE.
+
+    Caer al 100 cuando el campo viene y no se entiende es inventar el
+    multiplicador estándar justo donde no hay evidencia de cuál es — el mismo
+    bug que motivó portar este módulo, por la puerta de atrás.
+    """
+
+    @pytest.mark.parametrize("basura", ["abc", "", "   ", [], {}, "NaN"])
+    def test_shares_ilegible_no_cae_al_100(self, basura):
+        r = to_row({"open_interest": 100,
+                    "details": {"strike_price": 9000, "shares_per_contract": basura}})
+        assert r.notional_value == 0, "se fabricó un multiplicador de la nada"
+
+    def test_shares_ausente_si_cae_al_100(self):
+        r = to_row({"open_interest": 100, "details": {"strike_price": 9000}})
+        assert r.notional_value == 100 * 100 * 9000
+
+    def test_shares_null_tambien_cae_al_100(self):
+        r = to_row({"open_interest": 100,
+                    "details": {"strike_price": 9000, "shares_per_contract": None}})
+        assert r.notional_value == 100 * 100 * 9000
+
+    def test_shares_cero_explicito_sigue_siendo_cero(self):
+        r = to_row({"open_interest": 100,
+                    "details": {"strike_price": 9000, "shares_per_contract": 0}})
+        assert r.notional_value == 0
+
+
+class TestBooleanos:
+    """Las dos reglas de Víctor tratan un booleano al revés, a propósito.
+
+    `typeof true === "boolean"` lo rechaza en el precio; `true * 5 === 5` lo
+    convierte en la aritmética. No es un descuido suyo: son dos reglas.
+    """
+
+    def test_la_regla_laxa_los_convierte(self):
+        assert to_row({"open_interest": True, "details": {"strike_price": 100}}) \
+            .notional_value == 1 * 100 * 100
+        assert to_row({"open_interest": False, "details": {"strike_price": 100}}) \
+            .notional_value == 0
+
+    def test_la_regla_estricta_los_rechaza(self):
+        assert contract_price({"last_trade": {"price": True}, "day": {"close": 2}}) \
+            == (2, "day_close")
+
+
 class TestCoherenciaInterna:
     def test_la_fila_y_sus_formulas_usan_el_mismo_oi(self):
         # Redondear para el campo y calcular con el crudo dejaba filas que se
