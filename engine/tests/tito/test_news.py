@@ -184,36 +184,60 @@ class TestContradictionFlag:
 
 
 class TestBuildNewsReport:
-    """El puente entre las dos capas. Sin red: se inyectan los items."""
+    """El puente entre las dos capas.
 
-    def test_promueve_el_titular_macro_que_nombra_a_la_empresa(self):
-        macro = [
+    La firma es la de Víctor —`(ticker, company_name, now)`— así que las capas
+    se sustituyen a nivel de módulo en vez de inyectarse por argumento: la API
+    pública no debe llevar parámetros que solo existen para probar.
+    """
+
+    @pytest.fixture
+    def capas(self, monkeypatch):
+        def _set(company=(), macro=()):
+            monkeypatch.setattr("wbj.tito.news.fetch_ticker_news",
+                                lambda *a, **k: list(company))
+            monkeypatch.setattr("wbj.tito.news.fetch_macro_feeds",
+                                lambda *a, **k: list(macro))
+        return _set
+
+    def test_promueve_el_titular_macro_que_nombra_a_la_empresa(self, capas):
+        capas(macro=[
             item(id="1", title="Why Tesla stock crashed", url="a", layer="macro"),
             item(id="2", title="Fed holds rates steady", url="b", layer="macro"),
-        ]
-        r = build_news_report("TSLA", "Tesla, Inc.", NOW, company_items=[], macro_items=macro)
+        ])
+        r = build_news_report("TSLA", "Tesla, Inc.", NOW)
         assert len(r.promoted) == 1
         assert r.promoted[0].matched_by == "Tesla"
         assert [m.title for m in r.macro] == ["Fed holds rates steady"]
 
-    def test_el_sesgo_sale_solo_de_la_capa_de_empresa(self):
+    def test_el_sesgo_sale_solo_de_la_capa_de_empresa(self, capas):
         # Un titular macro promovido NO lleva sentimiento por ticker, así que no
         # puede mover el sesgo: solo Massive da sentimiento por subyacente.
-        macro = [item(id="1", title="Tesla soars", url="a", layer="macro",
-                      sentiment="positive")]
-        company = [item(id="9", sentiment="negative")]
-        r = build_news_report("TSLA", "Tesla, Inc.", NOW,
-                              company_items=company, macro_items=macro)
-        assert r.bias.bias == "bearish"
+        capas(company=[item(id="9", sentiment="negative")],
+              macro=[item(id="1", title="Tesla soars", url="a", layer="macro",
+                          sentiment="positive")])
+        assert build_news_report("TSLA", "Tesla, Inc.", NOW).bias.bias == "bearish"
 
-    def test_recorta_las_dos_capas(self):
-        macro = [item(id=str(i), title=f"Macro {i}", url=f"u{i}", layer="macro")
-                 for i in range(20)]
-        r = build_news_report("TSLA", "Tesla, Inc.", NOW, company_items=[], macro_items=macro)
+    def test_recorta_las_dos_capas(self, capas):
+        capas(macro=[item(id=str(i), title=f"Macro {i}", url=f"u{i}", layer="macro")
+                     for i in range(20)])
+        r = build_news_report("TSLA", "Tesla, Inc.", NOW)
         assert len(r.macro) == 6
         assert r.feeds_total == len(MACRO_FEEDS) == 4
 
-    def test_sin_noticias_no_revienta(self):
-        r = build_news_report("TSLA", None, NOW, company_items=[], macro_items=[])
+    def test_sin_noticias_no_revienta(self, capas):
+        capas()
+        r = build_news_report("TSLA", None, NOW)
         assert r.bias.bias == "neutral"
         assert r.company == [] and r.macro == [] and r.promoted == []
+
+    def test_una_capa_caida_no_tumba_la_otra(self, monkeypatch):
+        def boom(*a, **k):
+            raise RuntimeError("Massive caído")
+        monkeypatch.setattr("wbj.tito.news.fetch_ticker_news", boom)
+        monkeypatch.setattr("wbj.tito.news.fetch_macro_feeds",
+                            lambda *a, **k: [item(id="1", title="Fed holds", url="a",
+                                                  layer="macro")])
+        r = build_news_report("TSLA", "Tesla, Inc.", NOW)
+        assert r.company == []
+        assert len(r.macro) == 1

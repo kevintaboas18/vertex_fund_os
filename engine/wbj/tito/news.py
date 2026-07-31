@@ -483,20 +483,24 @@ class NewsReport:
     feeds_total: int
 
 
-def build_news_report(
-    ticker: str,
-    company_name: str | None,
-    now: datetime,
-    company_items: Sequence[NewsItem] | None = None,
-    macro_items: Sequence[NewsItem] | None = None,
-) -> NewsReport:
+def build_news_report(ticker: str, company_name: str | None, now: datetime) -> NewsReport:
     """Junta las dos capas y calcula el sesgo de noticias del ticker.
 
-    `company_items` y `macro_items` permiten inyectar los datos ya descargados
-    (así la función es testeable sin red); si no se pasan, los baja.
+    Firma idéntica a la de Víctor. Los tests sustituyen `fetch_ticker_news` y
+    `fetch_macro_feeds` a nivel de módulo en vez de inyectar por argumento: así
+    la API pública no lleva parámetros que solo existen para probar.
+
+    Ninguna de las dos capas puede tumbar a la otra — si Massive falla, quedan
+    los feeds; si los feeds fallan, queda la capa de empresa.
     """
-    company = list(company_items) if company_items is not None else fetch_ticker_news(ticker)
-    macro_all = list(macro_items) if macro_items is not None else fetch_macro_feeds()
+    try:
+        company = fetch_ticker_news(ticker)
+    except Exception:
+        company = []
+    try:
+        macro_all = fetch_macro_feeds()
+    except Exception:
+        macro_all = []
 
     aliases = company_aliases(ticker, company_name)
     promoted: list[NewsItem] = []
