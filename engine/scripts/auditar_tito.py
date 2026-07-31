@@ -273,6 +273,38 @@ _hs3 = [_th2.Thread(target=_entra) for _ in range(6)]
 for _h in _hs3: _h.start()
 for _h in _hs3: _h.join(timeout=10)
 chk(not _solapes, "la reentrada no aflojó la exclusividad entre hilos")
+# 4ª pasada: el archivo tiene que ser JSON válido para CUALQUIERA, no solo Python.
+with tempfile.TemporaryDirectory() as _td4:
+    os.environ["WBJ_TITO_DATA"] = _td4
+    from dataclasses import replace as _rep
+    _ST.save_trades("NAN", [_rep(_fr(1, "2026-07-30T15:00:00Z"), iv=float("nan"),
+                                 delta=float("inf")),
+                            _fr(2, "2026-07-30T15:01:00Z")])
+    _crudo = (_ST.data_dir() / "trades" / "NAN.json").read_text()
+    def _boom(c): raise ValueError(c)
+    try:
+        json.loads(_crudo, parse_constant=_boom); _val = True
+    except ValueError: _val = False
+    chk(_val and "NaN" not in _crudo,
+        "un NaN no deja el archivo en JSON inválido (como JSON.stringify → null)")
+    _t = {r["id"]: r for r in _ST.load_trades("NAN").trades}
+    chk(len(_t) == 2 and _t[1]["iv"] is None and _t[2]["iv"] == 0.45,
+        "el trade con el campo roto sobrevive; los sanos, intactos")
+    _ST._file_for("A" * _ST.MAX_TICKER_LEN)
+    try:
+        _ST._file_for("A" * (_ST.MAX_TICKER_LEN + 1)); _cap = False
+    except ValueError: _cap = True
+    chk(_cap, f"ticker de más de {_ST.MAX_TICKER_LEN} chars → ValueError, no ENAMETOOLONG")
+    _r = _ST.save_trades("DUP", [_fr(1, "2026-07-30T15:00:00Z"),
+                                 _fr(1, "2026-07-30T15:00:00Z"),
+                                 _fr(2, "2026-07-30T15:01:00Z")])
+    chk((_r.total, _r.added) == (2, 2), "el mismo id dos veces en una llamada cuenta una")
+    _mismo = "2026-07-30T15:00:00Z"
+    _ST.save_trades("EST", [_fr(i, _mismo) for i in (1, 2, 3)])
+    _o1 = [t["id"] for t in _ST.load_trades("EST").trades]
+    _ST.save_trades("EST", [])
+    chk(_o1 == [t["id"] for t in _ST.load_trades("EST").trades] == [1, 2, 3],
+        "orden estable con timestamps idénticos")
 chk('"motivo"' in API and "_empty(" in API,
     "si la memoria se apaga, el payload dice por qué (nada de degradar mudo)")
 

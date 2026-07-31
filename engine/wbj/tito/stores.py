@@ -28,6 +28,7 @@ apúntalo al disco montado, p.ej. `/var/data/tito`).
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import tempfile
@@ -161,6 +162,24 @@ def _exclusive(path: Path):
                     fh.close()
 
 
+def _finite(obj: Any) -> Any:
+    """`NaN`/`Infinity` → `null`, que es lo que hace `JSON.stringify`.
+
+    Sin esto el archivo deja de ser JSON **válido**: Python lo relee porque su
+    `json.loads` acepta esas constantes por defecto, pero cualquier otra cosa
+    que lo abra —`jq`, un backup, un script de migración, otro lenguaje— lo
+    rechaza. Y una IV que llega rota no debe convertir el historial entero en
+    ilegible para el resto del mundo.
+    """
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _finite(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_finite(v) for v in obj]
+    return obj
+
+
 def _write(path: Path, payload: Any) -> None:
     """Escritura atómica: un proceso muerto a media escritura no debe dejar un
     JSON truncado que luego se lea como 'sin historial'."""
@@ -168,7 +187,16 @@ def _write(path: Path, payload: Any) -> None:
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"))
+            try:
+                # allow_nan=False para ENTERARSE de que hay un no-finito; el
+                # camino normal no paga nada por el intento.
+                json.dump(payload, fh, ensure_ascii=False,
+                          separators=(",", ":"), allow_nan=False)
+            except ValueError:
+                fh.seek(0)
+                fh.truncate()
+                json.dump(_finite(payload), fh, ensure_ascii=False,
+                          separators=(",", ":"), allow_nan=False)
         os.replace(tmp, path)
     except Exception:
         try:
@@ -274,6 +302,12 @@ def load_iv_history(ticker: str) -> list[dict]:
 #: Tope por ticker para que el archivo no crezca sin control (`MAX_PER_TICKER`).
 MAX_PER_TICKER = 5000
 
+#: Un ticker más largo que esto no es un ticker. Sin el tope, uno de 300
+#: caracteres llega al sistema de archivos y revienta con ENAMETOOLONG —un error
+#: que depende del FS y del sistema— en vez del mismo `ValueError` determinista
+#: que dan los demás tickers inservibles. El más largo de verdad no pasa de 6.
+MAX_TICKER_LEN = 64
+
 
 @dataclass(frozen=True)
 class StoredTrades:
@@ -315,7 +349,7 @@ def _file_for(ticker: str) -> Path:
       contamina la siguiente. Mejor un error que un archivo que no es de nadie.
     """
     safe = re.sub(r"[^A-Z0-9._-]", "", ticker.strip().upper())
-    if not safe.strip("._-"):
+    if not safe.strip("._-") or len(safe) > MAX_TICKER_LEN:
         raise ValueError(f"ticker inservible como nombre de archivo: {ticker!r}")
     return data_dir() / "trades" / f"{safe}.json"
 

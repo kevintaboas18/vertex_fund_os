@@ -219,6 +219,70 @@ class TestTradesStore:
         assert load_trades("NUNCA") is None
         assert not (data_dir() / "trades").exists()
 
+    def test_un_nan_no_deja_el_archivo_en_json_invalido(self):
+        # `JSON.stringify` convierte NaN/Infinity en null y el archivo sigue
+        # siendo JSON válido. Escribir `NaN` literal lo relee Python —su
+        # json.loads acepta esas constantes— pero lo rechaza cualquier otra
+        # cosa que lo abra: jq, un backup, un script de migración.
+        import json
+        from dataclasses import replace
+        from wbj.tito.stores import data_dir
+
+        save_trades("NAN", [
+            replace(_flow_row(1, "2026-07-30T15:00:00Z"), iv=float("nan"),
+                    delta=float("inf")),
+            _flow_row(2, "2026-07-30T15:01:00Z"),
+        ])
+        crudo = (data_dir() / "trades" / "NAN.json").read_text(encoding="utf-8")
+        assert "NaN" not in crudo and "Infinity" not in crudo
+
+        def estricto(c):
+            raise ValueError(c)
+
+        json.loads(crudo, parse_constant=estricto)   # no debe lanzar
+
+        trades = {t["id"]: t for t in load_trades("NAN").trades}
+        assert len(trades) == 2                       # no se pierde ninguno
+        assert trades[1]["iv"] is None                # el no-finito pasa a null
+        assert trades[1]["delta"] is None
+        assert trades[2]["iv"] == 0.45                # los sanos, intactos
+
+    def test_un_ticker_absurdamente_largo_falla_igual_que_los_demas(self):
+        # Sin tope llega al sistema de archivos y revienta con ENAMETOOLONG,
+        # que depende del FS. Mejor el mismo ValueError determinista.
+        from wbj.tito.stores import MAX_TICKER_LEN, _file_for
+
+        _file_for("A" * MAX_TICKER_LEN)               # el límite justo pasa
+        with pytest.raises(ValueError):
+            _file_for("A" * (MAX_TICKER_LEN + 1))
+        assert load_trades("A" * 300) is None
+
+    def test_el_mismo_id_dos_veces_en_la_misma_llamada(self):
+        r = save_trades("DUP", [_flow_row(1, "2026-07-30T15:00:00Z"),
+                                _flow_row(1, "2026-07-30T15:00:00Z"),
+                                _flow_row(2, "2026-07-30T15:01:00Z")])
+        assert (r.total, r.added) == (2, 2)
+
+    def test_la_frontera_exacta_del_tope(self):
+        from wbj.tito.stores import MAX_PER_TICKER
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+        def lote(n, off=0):
+            return [_flow_row(off + i, (base + timedelta(minutes=off + i))
+                              .isoformat().replace("+00:00", "Z")) for i in range(n)]
+
+        assert save_trades("LIM", lote(MAX_PER_TICKER)).total == MAX_PER_TICKER
+        assert save_trades("LIM", lote(1, off=99_999)).total == MAX_PER_TICKER
+        ids = [t["id"] for t in load_trades("LIM").trades]
+        assert 99_999 in ids and 0 not in ids     # se cae el más viejo
+
+    def test_el_orden_es_estable_con_timestamps_identicos(self):
+        mismo = "2026-07-30T15:00:00Z"
+        save_trades("EST", [_flow_row(i, mismo) for i in (1, 2, 3)])
+        primero = [t["id"] for t in load_trades("EST").trades]
+        save_trades("EST", [])                    # reescribir no baraja
+        assert [t["id"] for t in load_trades("EST").trades] == primero == [1, 2, 3]
+
     def test_el_cerrojo_anidado_no_cuelga_el_proceso(self):
         # threading.Lock no es reentrante, y flock tampoco entre dos descriptores
         # del mismo proceso: entrar dos veces colgaba el worker para siempre, sin

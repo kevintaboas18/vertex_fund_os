@@ -1,12 +1,16 @@
 # Auditoría del port de `store.ts`
 
-Tres pasadas, atacando el port en vez de releer el diff. Nueve hallazgos: siete
+Cuatro pasadas, atacando el port en vez de releer el diff. Once hallazgos: nueve
 arreglados, uno compartido con el original que se deja como está, y uno que
 resultó ser un artefacto del contenedor.
 
 - **1ª pasada** (contrato, datos corruptos, degradación) → secciones 1 a 4.
 - **2ª pasada** (concurrencia, tickers degenerados, portabilidad) → 5 a 8.
 - **3ª pasada** (los arreglos de las dos anteriores) → sección 9.
+- **4ª pasada** (mapeo exhaustivo + casos límite) → 10 y 11.
+
+Las 31 sentencias ejecutables de `store.ts` están mapeadas una a una al port
+(tabla al final).
 
 ## 1 · El orden dependía de la zona horaria del servidor — ARREGLADO
 
@@ -135,6 +139,33 @@ Arreglo: un `threading.local()` con las rutas que este hilo ya tiene tomadas; si
 ya la tiene, se pasa de largo (la exclusividad la da el de fuera). Verificado
 que la reentrada **no** aflojó la exclusividad real: 6 hilos, cero solapes.
 
+## 10 · Un `NaN` dejaba el archivo en JSON inválido — ARREGLADO
+
+**Divergencia con Víctor que se me había escapado en las tres pasadas
+anteriores**, y va en la dirección contraria a las otras: aquí arreglarlo es
+parecerme MÁS a él.
+
+`JSON.stringify({iv: NaN})` produce `{"iv":null}` — el archivo sigue siendo JSON
+válido. `json.dump` escribe `NaN` literal, que **no es JSON**. Python lo relee
+porque su `json.loads` acepta esas constantes por defecto, así que el bug era
+invisible desde dentro; pero cualquier otra cosa que abra el archivo lo rechaza:
+`jq`, un backup, un script de migración, otro lenguaje.
+
+Una sola IV rota convertía en ilegible para el resto del mundo un historial de
+5000 trades.
+
+Arreglo: `_write` intenta con `allow_nan=False` —el camino normal no paga nada—
+y si salta, sanea los no-finitos a `null` y reescribe. Verificado: el trade con
+el campo roto **sobrevive** (con `iv: null`), los sanos quedan intactos, y no se
+pierde ninguno de los 5000. Coste del camino con NaN: 595 ms vs 434 ms.
+
+## 11 · Un ticker absurdamente largo fallaba según el sistema de archivos — ARREGLADO
+
+Un ticker de 300 caracteres llegaba al FS y reventaba con `ENAMETOOLONG`, un
+error que depende del sistema. Ahora da el mismo `ValueError` determinista que
+los demás tickers inservibles (`MAX_TICKER_LEN = 64`; el más largo de verdad no
+pasa de 6).
+
 ## No arreglado a propósito
 
 `BRK/B` y `BRKB` caen en el mismo archivo, porque el saneado borra la barra.
@@ -184,14 +215,36 @@ corre como **root**, que salta los bits de permiso, así que la prueba con
   descendente, `added`, `first_seen`, "el más reciente gana", envoltorio,
   análisis completo y `None` sin historial.
 - `_LOCKS` acotado: un cerrojo por archivo, 505 entradas tras 500 tickers.
+- **Persistencia real entre procesos**: un subproceso escribe, este lee.
+- El mismo id dos veces en la misma llamada cuenta como uno (`added=2` de 3).
+- `rows` vacío conserva lo guardado y refresca `updated_at`.
+- Frontera exacta del tope: 5000 caben, 5001 recorta, y el que se cae es el
+  más viejo.
+- Orden **estable** con timestamps idénticos: reescribir no baraja las filas.
+- Ningún ticker legítimo cae en las guardas (`BRK.B`, `BRK-B`, `0DTE`, `A.B_C-D`).
 
 ## Correspondencia con el original
 
-11/11 con `web/lib/store.ts`: `MAX_PER_TICKER`, saneado del ticker, `trim` +
-`toUpperCase`, dedupe con la última ganando, `added` solo para las nuevas, orden
-descendente, recorte, `firstSeen` = el más viejo, envoltorio
-`{ticker, updatedAt, trades}`, validación de `Array.isArray` y `null` cuando no
-hay historial.
+**31/31 sentencias ejecutables** de `web/lib/store.ts` mapeadas al port:
 
-Las tres divergencias van declaradas en el código, cada una junto a lo que
-protege.
+| `store.ts` | → port |
+|---|---|
+| L9 `DATA_DIR = cwd/data/trades` | `data_dir()/"trades"` |
+| L12 `MAX_PER_TICKER = 5000` | `MAX_PER_TICKER = 5000` |
+| L14 `interface StoredTrades` | `@dataclass StoredTrades` |
+| L20 `interface SaveResult` | `@dataclass SaveResult` |
+| L26-28 `fileFor` + saneado + `.json` | `_file_for` |
+| L31-37 `loadTrades` / `JSON.parse` / `Array.isArray` / `catch → null` | `load_trades` + `_read` |
+| L45-47 `saveTrades` / `trim().toUpperCase()` / `loadTrades` | `save_trades` |
+| L48-54 `Map` / precarga / `added` / la última gana | `by_id` + `_dedupe_key` |
+| L57-59 `[...values()]` / `sort` DESC / `slice` | `sorted(_ts_key, reverse=True)[:MAX]` |
+| L61-64 payload `{ticker, updatedAt, trades}` | mismo dict |
+| L67-68 `mkdir` + `writeFile` | `_write` (atómico) |
+| L70-71 `firstSeen` + `return` | `SaveResult(...)` |
+
+**12/12** comprobaciones de comportamiento, incluida `NaN → null` como
+`JSON.stringify`.
+
+Las **cinco divergencias** van declaradas en el código, cada una junto a lo que
+protege: el cerrojo, el timestamp naive como UTC, la guarda del id ausente, el
+filtrado de filas corruptas al leer, y el ticker que no da nombre de archivo.
