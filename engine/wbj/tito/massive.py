@@ -134,7 +134,21 @@ def fetch_option_chain(
     while url:
         page += 1
         data = _get(url, key, clean, timeout)
-        for c in data.get("results") or []:
+        # La respuesta tiene que ser un objeto con `results` en lista. Si Massive
+        # devuelve otra cosa —un array suelto, un `results` que es texto o un
+        # número— sin esta guarda salía un `AttributeError`/`TypeError` crudo en
+        # vez del `MassiveError` que el resto del módulo produce y que
+        # `_tito_memory` sabe reportar con su motivo.
+        if not isinstance(data, dict):
+            raise MassiveError(
+                f"Massive devolvió {type(data).__name__} donde se esperaba un objeto.")
+        results = data.get("results")
+        if results is None:
+            results = []
+        if not isinstance(results, list):
+            raise MassiveError(
+                f"Massive devolvió `results` como {type(results).__name__}, no una lista.")
+        for c in results:
             # La conversión la hace compute.to_row, como en el original: este
             # módulo trae páginas, las fórmulas viven aparte y se prueban solas.
             row = to_row(c)

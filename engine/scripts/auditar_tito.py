@@ -224,6 +224,37 @@ _msrc = (TITO_DIR/"massive.py").read_text()
 chk("sort_by_open_interest_desc(rows)" in _msrc and "count_expirations(rows)" in _msrc,
     "sortByOpenInterestDesc y countExpirations CABLEADAS (como su /api/chain)")
 chk("expiration_count" in _msrc, "ChainResult lleva expirationCount, como su ChainMeta")
+# 5ª pasada: el PRODUCTO también desborda, y la forma de la respuesta.
+chk(all(C.to_row({"open_interest":a,"details":{"strike_price":b,
+        "shares_per_contract":c}}).notional_value == 0
+        for a,b,c in ((1e200,1e200,100),(1e308,10,100),(1e160,1e160,1e160))),
+    "un nocional desbordado no llega a la fila (entradas finitas, producto inf)")
+chk(C.to_row({"open_interest":1e200,"last_trade":{"price":1e200},
+              "details":{"strike_price":1}}).open_premium is None,
+    "un open premium desbordado tampoco")
+_ov = C.to_row({"open_interest":1e200,"last_trade":{"price":1e200},
+                "details":{"strike_price":1e200}})
+try:
+    json.loads(json.dumps({"a":_ov.open_premium,"b":_ov.notional_value,"c":_ov.price}),
+               parse_constant=_no_constante)
+    _ov_ok = True
+except ValueError: _ov_ok = False
+chk(_ov_ok, "la fila desbordada sigue serializando a JSON estricto")
+import wbj.tito.massive as _MA
+_orig_get = _MA._get
+os.environ.setdefault("MASSIVE_API_KEY", "x"*32)
+_limpios = 0
+for _p in ([{"details":{}}], None, "texto", {"results":"t"}, {"results":{"a":1}}, {"results":5}):
+    _MA._get = (lambda *a, _r=_p, **k: _r)
+    try: _MA.fetch_option_chain("DEMO")
+    except _MA.MassiveError: _limpios += 1
+    except Exception: pass
+_MA._get = (lambda *a, **k: {"status":"OK"})
+try: _sin = _MA.fetch_option_chain("DEMO").rows == []
+except Exception: _sin = False
+_MA._get = _orig_get
+chk(_limpios == 6, f"toda respuesta mal formada sale como MassiveError ({_limpios}/6)")
+chk(_sin, "`results` ausente es cadena vacía, no un error")
 # El diferencial completo vive en engine/scripts/diff_compute.sh (necesita node
 # + el repo de Víctor); aquí solo se avisa de que existe.
 if TITO and TITO.exists():

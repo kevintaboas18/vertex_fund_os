@@ -227,6 +227,37 @@ class TestUnPrecioInfinitoNoContaminaElJSON:
         json.loads(crudo, parse_constant=estricto)   # no debe lanzar
 
 
+class TestElProductoTambienPuedeDesbordar:
+    """Filtrar solo lo que ENTRA dejaba el agujero abierto por el otro lado:
+    `1e200 * 100 * 1e200` es `inf` con las dos entradas finitas."""
+
+    @pytest.mark.parametrize("oi,strike,shares", [
+        (1e200, 1e200, 100), (1e308, 10, 100), (1e160, 1e160, 1e160),
+    ])
+    def test_un_nocional_desbordado_no_llega_a_la_fila(self, oi, strike, shares):
+        r = to_row({"open_interest": oi,
+                    "details": {"strike_price": strike, "shares_per_contract": shares}})
+        assert r.notional_value == 0
+
+    def test_un_open_premium_desbordado_tampoco(self):
+        r = to_row({"open_interest": 1e200, "last_trade": {"price": 1e200},
+                    "details": {"strike_price": 1}})
+        assert r.open_premium is None
+
+    def test_la_fila_desbordada_serializa_a_json_estricto(self):
+        import json
+
+        r = to_row({"open_interest": 1e200, "last_trade": {"price": 1e200},
+                    "details": {"strike_price": 1e200}})
+        crudo = json.dumps({"op": r.open_premium, "nv": r.notional_value,
+                            "p": r.price})
+
+        def estricto(c):
+            raise ValueError(c)
+
+        json.loads(crudo, parse_constant=estricto)
+
+
 class TestElTickerUsaLaSemanticaDeVictor:
     def test_solo_el_ausente_cae_a_vacio(self):
         # `?? ""`, no `or ""`: con `or`, un ticker 0 o False se borraba y

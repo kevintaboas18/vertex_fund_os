@@ -198,6 +198,23 @@ def _normalize_type(t: Any) -> str:
     return "put" if str(t or "").strip().lower() == "put" else "call"
 
 
+def _finito(v: float | None, fallback: float | None) -> float | None:
+    """Recorta un resultado no finito al salir de las fórmulas.
+
+    Las dos multiplicaciones pueden **desbordar aunque las entradas sean
+    finitas**: `1e200 * 100 * 1e200` es `inf`. Filtrar solo lo que ENTRA dejaba
+    el agujero abierto por el otro lado, y un `inf` acaba en `json.dumps` como
+    `Infinity`, que no es JSON. Es el mismo fallo que el `NaN` de `store.ts`, y
+    el arreglo del precio infinito estaba a medias sin esto.
+
+    Se recorta aquí y no dentro de `notional_value` / `open_premium` para que
+    esas dos sigan siendo el port literal de sus fórmulas.
+    """
+    if v is None:
+        return fallback if fallback is None else fallback
+    return v if math.isfinite(v) else fallback
+
+
 def to_row(raw: dict) -> ChainRow:
     """`toRow`: contrato crudo de Massive → fila lista.
 
@@ -237,8 +254,9 @@ def to_row(raw: dict) -> ChainRow:
         volume=int(_coerce(day.get("volume"), 0)),
         price=price,
         price_source=source,
-        open_premium=open_premium(oi_int, price),
-        notional_value=notional_value(oi_int, strike, shares),
+        # Recortados: el producto desborda a `inf` con entradas finitas.
+        open_premium=_finito(open_premium(oi_int, price), None),
+        notional_value=_finito(notional_value(oi_int, strike, shares), 0.0) or 0.0,
     )
 
 

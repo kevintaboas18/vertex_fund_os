@@ -1,6 +1,6 @@
 # Auditoría del port de `compute.ts`
 
-Cuatro pasadas, atacando el port contra el original ejecutado en Node. Trece
+Cinco pasadas, atacando el port contra el original ejecutado en Node. Dieciséis
 hallazgos, todos arreglados. Las 35 sentencias ejecutables de `compute.ts` están
 mapeadas una a una (tabla al final).
 
@@ -8,6 +8,7 @@ mapeadas una a una (tabla al final).
 - **2ª pasada** (lo que añadió la 1ª + resiliencia) → 6 a 8.
 - **3ª pasada** (test diferencial de 604 casos) → 9 y 10.
 - **4ª pasada** (serialización, semántica fina y cableado) → 11 a 13.
+- **5ª pasada** (desbordamiento y forma de la respuesta) → 14 a 16.
 
 ## 1 · El nocional daba por hecho 100 acciones por contrato — ARREGLADO
 
@@ -157,6 +158,34 @@ es el orden de `cells` del heatmap, que sigue el orden de entrada tanto aquí
 como en el original — y como su `page.tsx` le pasa las filas ya ordenadas por su
 ruta, el cambio **acerca** el pipeline al suyo.
 
+## 14 · El PRODUCTO también desborda — ARREGLADO
+
+El arreglo del hallazgo 11 estaba a medias: filtraba lo que **entra**, pero las
+dos multiplicaciones desbordan **con las entradas finitas**.
+
+    oi=1e200 · strike=1e200 · shares=100  →  nocional = inf
+    oi=1e200 · precio=1e200               →  open premium = inf
+
+Y un `inf` sale de `json.dumps` como `Infinity`, que no es JSON — el mismo
+agujero, por el otro lado. Ahora `_finito()` recorta al salir de las fórmulas;
+`notional_value` y `open_premium` se quedan como el port literal de las suyas.
+
+## 15 · Una respuesta con otra forma daba `AttributeError` — ARREGLADO
+
+`fetch_option_chain` hacía `data.get("results")` a secas. Si Massive devuelve un
+**array suelto** en vez de un objeto, eso es un `AttributeError` crudo saliendo
+del cliente HTTP — no el `MassiveError` que produce el resto del módulo y que
+`_tito_memory` sabe reportar con su motivo. El usuario veía un error genérico en
+vez de "Massive devolvió algo que no esperábamos".
+
+## 16 · `results` no-iterable reventaba el bucle — ARREGLADO
+
+Mismo sitio: `for c in 5` es un `TypeError`. Y un `results` que fuera texto se
+iteraba **carácter a carácter**, produciendo 0 filas en silencio en vez de
+avisar. Ahora los dos salen como `MassiveError` con el tipo que llegó, y
+`results` ausente sigue siendo una cadena vacía —ticker sin contratos— que no es
+lo mismo que una respuesta mal formada.
+
 ## Divergencias declaradas
 
 1. **`_coerce` con basura no numérica** cae al fallback en vez de dar `NaN`. En
@@ -202,9 +231,9 @@ declarada se marca como REAL.
 Arrancó en **23 diferencias reales** y las dos causas que las explicaban son los
 hallazgos 9 y 10.
 
-Repetido después con **3 semillas distintas × 2000 casos** y con una corrida de
-**3004**: sin diferencias reales en ninguna. En total, más de **9000 contratos**
-comparados campo a campo contra el original.
+Repetido con **3 semillas × 2000**, una corrida de **3004** y dos más de
+**2500**: sin diferencias reales en ninguna. En total, más de **14.000
+contratos** comparados campo a campo contra el original.
 
 ## Comprobado contra Node, idéntico
 
@@ -238,5 +267,6 @@ tres niveles y los cuatro `PriceSource`, `openPremium`, `notionalValue` con
 `sharesPerContract`, `normalizeType`, `toRow` con sus diez campos,
 `sortByOpenInterestDesc` (copia, no muta) y `countExpirations` (sin las vacías).
 
-Tests: los 12 casos de `compute.test.ts` + 36 que el original no cubre,
-más el diferencial de 604 casos.
+Tests: los 12 casos de `compute.test.ts` + 49 que el original no cubre
+(incluido `test_massive_shape.py`, el bucle donde el port se encuentra con la
+red), más el diferencial.
