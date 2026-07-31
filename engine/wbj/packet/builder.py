@@ -698,6 +698,42 @@ def _ohlcv_row(bar: dict) -> OHLCVRow:
     )
 
 
+#: When a US regular session is settled, in UTC. The builder already stamped
+#: `market_timestamp` as `<date>T21:00:00+00:00`, so this is that same
+#: convention named once instead of assumed twice.
+_SESSION_CLOSE_UTC_HOUR = 21
+
+
+def _settled_sessions(ohlcv_newest_first: list[dict], now: datetime) -> list[dict]:
+    """`ohlcv_newest_first` without the session that has not closed yet.
+
+    FMP serves the CURRENT session as a bar whose `close` is just the last
+    print, and it keeps moving until the bell. Taking it as a close made two
+    things wrong at once:
+
+    - `market_timestamp` is built as `<newest bar date>T21:00:00+00:00`, so a
+      packet built at 09:41 ET claimed a 16:00 ET close that had not happened.
+    - Every technical level, ATR and the "current price" marker moved between
+      runs on the same day. The audit trail records `packet_hashes` to make a
+      report reproducible; an in-progress bar quietly broke that.
+
+    A bar dated today counts only once `now` is at or past the close. Anything
+    dated after `now` is not ours to use at all.
+    """
+    cutoff = now.date()
+    settled_today = now.hour >= _SESSION_CLOSE_UTC_HOUR
+    out = []
+    for bar in ohlcv_newest_first:
+        try:
+            bar_date = date.fromisoformat(str(bar["date"])[:10])
+        except (ValueError, KeyError, TypeError):
+            continue
+        if bar_date > cutoff or (bar_date == cutoff and not settled_today):
+            continue
+        out.append(bar)
+    return out
+
+
 # --- build_packet -----------------------------------------------------------
 
 
@@ -863,7 +899,11 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
     balance_quarterly = fmp.balance_quarterly(ticker) or []
     cashflow_annual = fmp.cashflow_annual(ticker, limit=_ANNUAL_HISTORY_YEARS) or []
     cashflow_quarterly = fmp.cashflow_quarterly(ticker) or []
-    ohlcv_raw = fmp.ohlcv_daily(ticker) or []
+    # `today=now.date()`, like the benchmark fetch below. `ohlcv_daily`'s own
+    # docstring says the caller must supply it "so this stays deterministic";
+    # omitted, it fell back to `date.today()` — the wall clock — so the stock
+    # series and the benchmark series could be anchored to different days.
+    ohlcv_raw = _settled_sessions(fmp.ohlcv_daily(ticker, today=now.date()) or [], now)
     peers = fmp.peers(ticker) or []
     peer_panel = _peer_panel(peers, fmp)
     analyst_estimates = fmp.analyst_estimates(ticker) or []
@@ -936,14 +976,41 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
             f"packet rejected for {ticker}: no diluted share count available from any source"
         )
 
+    # ONE price for the whole packet, and it is the same bar every other
+    # number is framed against.
+    #
+    # This used to read `profile.price`, a live quote, while the technical
+    # levels and the football field's "current" marker read the newest bar of
+    # `market_data.daily`. The two disagreed by ~2% on NVDA (195.04 vs 198.70)
+    # because early in a session FMP's profile price still carries the PRIOR
+    # close. So margin of safety, earnings yield, FCF yield and the reverse-DCF
+    # were computed against yesterday while the levels were drawn against
+    # today, and the report presented both as "the price".
+    #
+    # The settled adjusted close wins: it is the same series, the same
+    # adjustment convention (splits/dividends) and the same timestamp the
+    # packet already declares. The live quote stays as a declared fallback for
+    # when no series is available.
     price_value = Value.null(NullState.MISSING, unit="usd_per_share", source_name="FMP")
-    if profile.get("price") is not None:
+    if ohlcv_raw:
+        _newest = ohlcv_raw[0]
+        price_value = Value.of(
+            _newest.get("adjClose", _newest["close"]),
+            unit="usd_per_share",
+            source_name="FMP",
+            source_locator=f"fmp:historical-price-eod/{ticker.upper()} {_newest['date']} adjusted close",
+            as_of=market_timestamp,
+            evidence_class=EvidenceClass.R,
+        )
+    elif profile.get("price") is not None:
         price_value = Value.of(
             profile["price"],
             unit="usd_per_share",
             source_name="FMP",
+            source_locator=f"fmp:profile/{ticker.upper()} live quote (no settled EOD series)",
             as_of=market_timestamp,
             evidence_class=EvidenceClass.R,
+            warnings=["PRICE_FROM_LIVE_QUOTE_NOT_SETTLED_CLOSE"],
         )
 
     facts_table: dict[str, Value] = {
