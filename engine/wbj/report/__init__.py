@@ -329,42 +329,69 @@ def _ownership(ticker: str, settings: Any) -> dict:
                         str(cusip), company_cik,
                         (today - timedelta(days=1825)).isoformat(), today.isoformat())
                     for r in major[:8]:
+                        # Edad declarada. Desde el formato estructurado que la SEC
+                        # exige a los 13D/G (dic-2024), su CUSIP deja de ser
+                        # buscable a texto completo, así que este barrido devuelve
+                        # las últimas ANTERIORES a ese cambio -- para NVDA, de
+                        # 2024. Un 5% de hace dos años no es un 5% de hoy, y
+                        # presentarlo sin fecha lo haría pasar por vigente.
+                        edad = None
+                        try:
+                            edad = (today - _date.fromisoformat(r["filing_date"])).days
+                        except (ValueError, TypeError):
+                            pass
                         holders.append({
                             "name": r["name"], "shares": None, "value": None,
                             "cik": r["cik"], "filing_date": r["filing_date"],
-                            "stake": ">5% of class",
+                            "stake": ">5% of class", "basis": "13D/G",
+                            "age_days": edad,
+                            "stale": (edad is not None and edad > 400),
                             "source_locator": f"{r['form']} accession {r['accession']}",
                         })
                     if holders:
+                        _viejos = [h for h in holders if h.get("stale")]
                         source = (
                             f"SEC EDGAR: {len(major)} beneficial owners above 5% "
                             f"(Schedule 13D/13G on CUSIP {cusip}). A 13D/G is filed only "
                             "on crossing 5%, so the filer set is the recognised holders "
                             "by definition -- not a ranking of a longer list."
+                            + (f" AVISO: {len(_viejos)} de {len(holders)} tienen mas de "
+                               "400 dias -- desde el formato estructurado de dic-2024 el "
+                               "CUSIP de un 13D/G no es buscable a texto completo, asi que "
+                               "estas son las ultimas indexadas, no necesariamente las "
+                               "vigentes." if _viejos else "")
                         )
 
-                rows = edgar.institutional_holders_13f(
+                # 13F SIEMPRE, no solo cuando 13D/G viene vacio. CLAUDE.md item 4
+                # pide "13F" literalmente, y esos SI se indexan por CUSIP: para
+                # NVDA hay 38 en 2025-2026 frente a cero 13D/G. Dejar que un
+                # 13D/G de 2024 bloqueara el barrido 13F era servir el dato viejo
+                # y descartar el actual.
+                _vistos = {h.get("cik") for h in holders}
+                rows = [r for r in edgar.institutional_holders_13f(
                     str(cusip), (today - timedelta(days=270)).isoformat(),
-                    today.isoformat()) if not holders else []
+                    today.isoformat()) if r.get("cik") not in _vistos]
+                _n_13dg = len(holders)
                 for r in rows[:8]:
                     holders.append({
                         "name": r["name"], "shares": None, "value": None,
                         "cik": r["cik"], "filing_date": r["filing_date"],
+                        "basis": "13F", "stake": None, "stale": False,
                         "source_locator": f"{r['form']} accession {r['accession']}",
                     })
-                # Only when the 13F sweep is what produced them: `holders` may
-                # already hold the 13D/G set, and overwriting the source there
-                # would credit the wrong filing for names it did not supply.
-                if rows and holders:
-                    source = (
+                # La nota del 13F se AÑADE a la del 13D/G en vez de pisarla: cada
+                # bloque de nombres lo produjo un formulario distinto y con una
+                # definicion distinta, y atribuirlos todos a uno solo seria
+                # acreditar al filing equivocado.
+                if rows:
+                    _n13f = (
                         f"SEC EDGAR full-text search of 13F-HR for CUSIP {cusip} "
-                        f"({len(rows)} managers reported a position). Ordered by "
-                        "filing date, NOT by position size: the search index names "
-                        "the filer but the share count lives inside the information "
-                        "table. CLAUDE.md asks for recognised holders, and recency "
-                        "is not recognition -- holders above 5% file SC 13D/G under "
-                        "the company's own CIK and are the ones to check for that."
+                        f"({len(rows)} managers reported a position, ultimos 270 dias). "
+                        "Ordered by filing date, NOT by position size: the search index "
+                        "names the filer but the share count lives inside the information "
+                        "table -- recency is not recognition."
                     )
+                    source = f"{source} | {_n13f}" if source else _n13f
         except Exception:
             logger.warning("13F fallback unavailable for %s", ticker, exc_info=True)
 

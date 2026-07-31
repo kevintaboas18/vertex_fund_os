@@ -47,6 +47,44 @@ def _provider(pages):
     return _P()
 
 
+# --- helpers para probar `_ownership` por COMPORTAMIENTO ---------------------
+# Los tests que afirmaban sobre `inspect.getsource(...)` se rompian al reordenar
+# el modulo aunque el reporte dijera exactamente lo mismo. Estos montan el
+# escenario y comprueban lo que el lector acaba viendo.
+
+def _hit_13dg(name, cik="0001104659", date="2024-02-13", adsh="0001104659-24-021596"):
+    return {"name": name, "cik": cik, "filing_date": date,
+            "accession": adsh, "form": "SC 13G/A"}
+
+
+def _hit_13f(name, cik="0000046392", date="2026-07-30", adsh="0000046392-26-000004"):
+    return {"name": name, "cik": cik, "filing_date": date,
+            "accession": adsh, "form": "13F-HR"}
+
+
+def _run_ownership(monkeypatch, tmp_path, dg, f13):
+    """`_ownership` con FMP caido (402, el caso real) y EDGAR simulado."""
+    from types import SimpleNamespace
+    import wbj.report as rep
+
+    class _FMP:
+        def __init__(self, *a, **k): pass
+        def institutional_holders(self, t): return None      # 402
+        def key_executives(self, t): return []
+        def profile(self, t): return [{"cusip": "67066G104"}]
+
+    class _EDGAR:
+        def __init__(self, *a, **k): pass
+        def cik_for(self, t): return 1045810
+        def major_holders_13d_g(self, *a, **k): return list(dg)
+        def institutional_holders_13f(self, *a, **k): return list(f13)
+
+    monkeypatch.setattr("wbj.providers.fmp.FMPProvider", _FMP)
+    monkeypatch.setattr("wbj.providers.edgar.EdgarProvider", _EDGAR)
+    monkeypatch.setattr("wbj.providers.cache.Cache", lambda *a, **k: _FakeCache())
+    return rep._ownership("NVDA", SimpleNamespace(cache_dir=tmp_path, reports_dir=tmp_path))
+
+
 def test_holders_are_extracted_with_name_cik_and_accession():
     p = _provider([[_hit("BERKSHIRE HATHAWAY INC", "0001067983", "2026-02-17", "acc-1")]])
     rows = p.institutional_holders_13f("037833100", "2026-01-01", "2026-12-31", pages=1)
@@ -99,17 +137,18 @@ def test_no_hits_returns_empty_not_an_error():
 
 # --- how the report uses it -------------------------------------------------
 
-def test_the_report_states_that_the_order_is_not_by_size():
+def test_the_report_states_that_the_order_is_not_by_size(monkeypatch, tmp_path):
     """CLAUDE.md asks for RECOGNISED holders. The search index names the filer
     but not the share count, so the list is by filing recency -- and recency is
-    not recognition. Saying so is what keeps the item honestly met."""
-    import inspect
+    not recognition. Saying so es lo que mantiene el item honestamente cumplido.
 
-    from wbj import report
-
-    src = inspect.getsource(report._ownership)
-    assert "NOT by position size" in src
-    assert "SC 13D/G" in src, "the >5% path a reader should check instead"
+    Comprueba el TEXTO QUE VE EL LECTOR, no el codigo fuente: la version
+    anterior afirmaba `"SC 13D/G" in src` y se rompio al reordenar el modulo
+    sin que cambiara nada de lo que el reporte dice."""
+    out = _run_ownership(monkeypatch, tmp_path, dg=[], f13=[_hit_13f("Some Manager")])
+    src_line = out["holders_source"] or ""
+    assert "NOT by position size" in src_line
+    assert "recency is not recognition" in src_line
 
 
 def test_fmp_is_still_preferred_when_available():
@@ -185,12 +224,18 @@ def test_the_report_prefers_the_five_percent_set():
     assert src.index("major_holders_13d_g") < src.index("institutional_holders_13f")
 
 
-def test_the_13f_source_line_is_not_credited_for_13dg_names():
-    """`holders` may already carry the 13D/G set; overwriting the source there
-    would credit the wrong filing for names it did not supply."""
-    import inspect
-
-    from wbj import report
-
-    src = inspect.getsource(report._ownership)
-    assert "if rows and holders:" in src
+def test_the_13f_source_line_is_not_credited_for_13dg_names(monkeypatch, tmp_path):
+    """Cada bloque de nombres lo produjo un formulario distinto y con una
+    definicion distinta. La nota del 13F se AÑADE a la del 13D/G, nunca la pisa:
+    atribuir los tres nombres de >5% a un barrido de 13F seria acreditar al
+    filing equivocado."""
+    out = _run_ownership(monkeypatch, tmp_path,
+                         dg=[_hit_13dg("VANGUARD GROUP INC")],
+                         f13=[_hit_13f("Some Manager")])
+    fuente = out["holders_source"] or ""
+    assert "above 5%" in fuente, "la nota del 13D/G sigue presente"
+    assert "13F-HR" in fuente, "y la del 13F se añadio"
+    # Cada tenedor declara de que formulario salio.
+    bases = {h["name"]: h.get("basis") for h in out["holders"]}
+    assert bases["VANGUARD GROUP INC"] == "13D/G"
+    assert bases["Some Manager"] == "13F"
