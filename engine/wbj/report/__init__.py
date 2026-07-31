@@ -11,6 +11,7 @@ Claude, grounded strictly in the specialists' own outputs.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -68,6 +69,33 @@ def _price_and_atr(packet: Any) -> tuple[float | None, float | None]:
     atr_series = ind.atr14(df)
     atr = float(atr_series.iloc[-1]) if len(atr_series) and pd.notna(atr_series.iloc[-1]) else None
     return rows[-1].close, atr
+
+
+def _entitlement_gaps(providers: Any) -> list[str]:
+    """One line per endpoint the plan was refused, for the report.
+
+    FMP's institutional-ownership answers 402 and FinnHub's eps- and
+    revenue-estimate answer 403 on the current plans. Each came back as
+    `None`, which is the same thing a company with no data returns, so the
+    analysis quietly lost inputs and the reader had no way to tell a
+    missing figure from an unpaid one.
+    """
+    gaps: list[str] = []
+    seen: set[tuple[str, str, int]] = set()
+    for name in ("fmp", "edgar", "finnhub", "fred"):
+        provider = getattr(providers, name, None)
+        for endpoint, status in sorted(getattr(provider, "blocked_endpoints", {}).items()):
+            # Cache keys carry a parameter hash (`estimates_d07de7c492a6`);
+            # the reader wants the endpoint, not the cache bookkeeping.
+            label = re.sub(r"_[0-9a-f]{8,}$", "", endpoint)
+            if (name, label, status) in seen:
+                continue
+            seen.add((name, label, status))
+            gaps.append(
+                f"{name}: ENDPOINT_NOT_IN_PLAN ({label}, HTTP {status}) — the "
+                "data exists but this plan cannot reach it; inputs that rest on "
+                "it stay unscored rather than being estimated")
+    return gaps
 
 
 def _llm_failure_reason(exc: BaseException) -> tuple[str, str]:
@@ -531,9 +559,11 @@ def run_report(ticker: str, settings: Any, now: datetime | None = None,
     """Build and render the auditable final report for `ticker`."""
     now = now or datetime.now(timezone.utc)
     _ensure_entradas_skeleton(settings, ticker)
-    packet = build_packet(ticker, build_providers(settings), now=now)
+    providers = build_providers(settings)
+    packet = build_packet(ticker, providers, now=now)
     data_gaps: list[str] = []
     labelled, judged = _run_specialists(packet, settings, notes=data_gaps)
+    data_gaps.extend(_entitlement_gaps(providers))
     outs = {_KEY_BY_LABEL[lbl]: o for lbl, o in labelled if lbl in _KEY_BY_LABEL}
     missing = [k for k in _KEY_BY_LABEL.values() if k not in outs]
     if missing:
