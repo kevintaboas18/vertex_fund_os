@@ -4077,81 +4077,11 @@ async function loadProjTargets(ticker) {
         const d = await r.json();
         if (!d.ok) { el.innerHTML = `<p class="text-[11px] text-amber-400 italic">${d.error || 'No disponible.'}</p>`; return; }
         // Motor de Víctor (Tito): tres escenarios por horizonte + su propia
-        // gráfica SVG. El renderer viejo (renderProjTargets) queda disponible
-        // por si el endpoint volviera a servir el formato de gamma/flujo.
-        if (d.engine === 'victor/tito' && d.predictions) {
-            window._vcData = d;
-            renderVictorTargets(d);
-            renderVictorChart('projChart', d, window._vcHz || 20);
-        } else {
-            renderProjTargets(d);
-        }
+        // gráfica SVG. Es el único renderizador de este panel.
+        window._vcData = d;
+        renderVictorTargets(d);
+        renderVictorChart('projChart', d, window._vcHz || 20);
     } catch (e) { el.innerHTML = `<p class="text-[11px] text-red-400 italic">Error: ${e.message}</p>`; }
-}
-
-function renderProjTargets(d) {
-    const el = document.getElementById('projTargets');
-    const biasEl = document.getElementById('projTgtBias');
-    if (biasEl) {
-        const up = d.bias === 'alcista', dn = d.bias === 'bajista';
-        biasEl.className = `text-[10px] font-bold ${up ? 'text-emerald-400' : dn ? 'text-red-400' : 'text-gray-400'}`;
-        const cv = d.conviction;
-        const convTxt = cv ? ` · convicción ${cv.strength_pct}% (${cv.qualifying} trades)` : (d.directional_pct != null ? ` · ${d.directional_pct}% direccional` : '');
-        const src = d.gex_source ? ` · GEX: ${d.gex_source}` : '';
-        biasEl.innerHTML = `Sesgo: ${(d.bias || 'neutral').toUpperCase()}${convTxt}${src}`;
-    }
-    const spot = d.spot;
-    const confColor = c => ({ 'muy alta': 'text-emerald-400', 'alta': 'text-emerald-400', 'media': 'text-yellow-400', 'media-baja': 'text-orange-400', 'fundamental': 'text-blue-400' })[c] || 'text-gray-400';
-    const cards = (d.targets || []).map(t => {
-        const up = t.direction === 'up';
-        const arrow = t.direction === 'up' ? '↑' : t.direction === 'down' ? '↓' : '•';
-        const arrowC = up ? 'text-emerald-400' : t.direction === 'down' ? 'text-red-400' : 'text-gray-500';
-        const pct = (t.level && spot) ? `${(((t.level - spot) / spot) * 100) >= 0 ? '+' : ''}${(((t.level - spot) / spot) * 100).toFixed(1)}%` : '';
-        const band = (t.em_low != null && t.em_high != null) ? `1σ $${t.em_low}–$${t.em_high}${t.vol_source === 'IV' ? ' · IV' : ''}` : '';
-        const capTag = t.capped ? `<span class="text-[8px] text-amber-400 font-bold">· ajustado</span>` : '';
-        return `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3 text-center">
-            <p class="text-[10px] text-gray-500 uppercase font-bold mb-1">${t.label}</p>
-            <p class="text-lg font-black ${arrowC}">${arrow} ${t.level != null ? '$' + t.level : '—'}</p>
-            <p class="text-[9px] text-gray-500">${pct} ${capTag}</p>
-            <p class="text-[8px] text-gray-600">${band}</p>
-            <p class="text-[9px] font-bold mt-1 ${confColor(t.confidence)}">${(t.confidence || '').toUpperCase()}${t.calibrated_pct != null ? ` <span class="text-gray-500 font-normal">· ${t.calibrated_pct}% (piso ${t.calibrated_lo ?? '—'}% · n${t.calibrated_n ?? '?'})</span>` : ''}</p>
-            <p class="text-[8px] text-gray-600 mt-0.5 leading-tight">${t.source || ''}${(t.max_pain && t.max_pain_source) ? ` · MP ${t.max_pain_source === 'quantdata' ? '<span class="text-blue-400 font-bold">QD</span>' : 'yf'}` : ''}</p>
-            ${t.conflict ? `<p class="text-[8px] text-amber-400 font-bold mt-0.5">⚠ flujo vs gamma</p>` : ''}
-            ${t.earnings_soon ? `<p class="text-[8px] text-orange-400 font-bold mt-0.5">📅 earnings en el rango</p>` : ''}
-        </div>`;
-    }).join('');
-    let convHtml = '';
-    const cv = d.conviction;
-    if (cv && cv.strong_trades && cv.strong_trades.length) {
-        const rows = cv.strong_trades.map(t => {
-            const call = t.cp === 'CALL', dirc = t.type === 'direccional';
-            return `<tr class="border-b border-gray-800/50">
-                <td class="py-1.5 pr-3 font-bold ${call ? 'text-emerald-400' : 'text-red-400'}">${t.cp} $${t.strike ?? '—'}</td>
-                <td class="py-1.5 pr-3 text-gray-300">${t.exp ? String(t.exp).slice(5) : '—'}</td>
-                <td class="py-1.5 pr-3 text-right text-gray-400">${t.dte ?? '—'}d</td>
-                <td class="py-1.5 pr-3 text-right text-gray-100 font-bold">${fmtAbbr(t.premium)}</td>
-                <td class="py-1.5 pr-3 text-gray-400">${t.kind || '—'}</td>
-                <td class="py-1.5 pr-3 text-gray-400">${(t.side || '').replace('_', ' ')}</td>
-                <td class="py-1.5 pr-3 text-right font-bold ${t.oi_change != null ? 'text-emerald-300' : 'text-purple-300'}">${t.oi_change != null ? (t.oi_change > 0 ? '+' : '') + Number(t.oi_change).toLocaleString() : (t.vol_oi != null ? t.vol_oi + '×' : 'abre')}</td>
-                <td class="py-1.5 text-right ${dirc ? 'text-emerald-300' : 'text-yellow-400'}">${t.delta ?? '—'} ${dirc ? 'dir' : 'esp'}</td>
-            </tr>`;
-        }).join('');
-        convHtml = `<p class="text-[10px] font-extrabold text-amber-300 uppercase tracking-wider mb-1.5 mt-4">Transacciones institucionales · convicción (${cv.qualifying})</p>
-            <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[520px]">
-            <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
-                <th class="text-left pb-1.5 pr-3">Contrato</th><th class="text-left pb-1.5 pr-3">Vence</th>
-                <th class="text-right pb-1.5 pr-3">DTE</th><th class="text-right pb-1.5 pr-3">Premium</th>
-                <th class="text-left pb-1.5 pr-3">Tipo</th><th class="text-left pb-1.5 pr-3">Lado</th>
-                <th class="text-right pb-1.5 pr-3">ΔOI</th><th class="text-right pb-1.5">Delta</th></tr></thead>
-            <tbody>${rows}</tbody></table></div>
-            <p class="text-[9px] text-gray-600 italic mt-1.5">Solo trades cuyo <b>open interest creció</b> (ΔOI &gt; 0 = se añadieron contratos a ese strike, comparando OI día-después vs día-de) y compras ASK/above-ask que pasan tus umbrales: $1M ≤10d · $5M ≤45d · $10M &gt;45d. <b>ΔOI</b> = contratos netos añadidos a ese strike — capta la acumulación de varios días (ej. +30k sobre 70k ya abiertos), que el proxy vol&gt;OI perdía. Si el endpoint de ΔOI no responde, cae al proxy vol&gt;OI del mismo día. dir = direccional (Δ0.60–0.90), esp = especulativo (Δ0.30–0.59).</p>`;
-    }
-    el.innerHTML = `<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">${cards}</div>${convHtml}
-        <p class="text-[10px] text-gray-600 italic mt-2">${d.note || ''} El nivel es un <b>wall de gamma acotado al movimiento esperado</b> (1.5σ del horizonte): "ajustado" = el wall estaba más lejos de lo que el precio suele recorrer en ese plazo y se recortó al borde de la banda. <b>1σ</b> = rango ~68% del movimiento esperado.</p>`;
-    projTargetsData = d;
-    projDrawTargets();
-    projDrawScenario();
-    if (projWallHorizon !== 'all') { projRedrawOverlays(); projRenderWallCards(); }   // walls atados al horizonte: refresca con los walls por-expiración recién llegados
 }
 
 // Draw horizon targets as price lines inside the chart, filtered by the targets the
