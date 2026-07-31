@@ -203,6 +203,27 @@ chk(C.to_row({"open_interest":True,"details":{"strike_price":100}}).notional_val
     and C.to_row({"open_interest":False,"details":{"strike_price":100}}).notional_value == 0
     and C.contract_price({"last_trade":{"price":True},"day":{"close":2}}) == (2,"day_close"),
     "booleanos: la regla laxa los convierte, la estricta los rechaza")
+# 4ª pasada: un precio infinito no puede acabar en el JSON, y las dos funciones
+# que faltaba cablear.
+chk(C.contract_price({"last_trade":{"price":float("inf")},"day":{"close":2}}) == (2,"day_close")
+    and C.contract_price({"last_trade":{"price":float("inf")}}) == (None,"none"),
+    "un precio infinito cae al siguiente de la cascada (no contamina el JSON)")
+_inf = C.to_row({"last_trade":{"price":float("inf")},"open_interest":100,
+                 "details":{"strike_price":50}})
+def _no_constante(c): raise ValueError(c)
+try:
+    json.loads(json.dumps({"p":_inf.price,"op":_inf.open_premium}),
+               parse_constant=_no_constante)
+    _js_ok = True
+except ValueError: _js_ok = False
+chk(_js_ok, "la fila siempre serializa a JSON estricto")
+chk(C.to_row({"details":{"ticker":0}}).option_ticker == "0"
+    and C.to_row({"details":{}}).option_ticker == "",
+    "el ticker usa `?? \"\"`, no `or \"\"` (solo el ausente cae a vacío)")
+_msrc = (TITO_DIR/"massive.py").read_text()
+chk("sort_by_open_interest_desc(rows)" in _msrc and "count_expirations(rows)" in _msrc,
+    "sortByOpenInterestDesc y countExpirations CABLEADAS (como su /api/chain)")
+chk("expiration_count" in _msrc, "ChainResult lleva expirationCount, como su ChainMeta")
 # El diferencial completo vive en engine/scripts/diff_compute.sh (necesita node
 # + el repo de Víctor); aquí solo se avisa de que existe.
 if TITO and TITO.exists():

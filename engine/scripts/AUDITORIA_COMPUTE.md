@@ -1,12 +1,13 @@
 # Auditoría del port de `compute.ts`
 
-Tres pasadas, atacando el port contra el original ejecutado en Node. Diez
+Cuatro pasadas, atacando el port contra el original ejecutado en Node. Trece
 hallazgos, todos arreglados. Las 35 sentencias ejecutables de `compute.ts` están
 mapeadas una a una (tabla al final).
 
 - **1ª pasada** (fórmulas y reglas de tipo) → secciones 1 a 5.
 - **2ª pasada** (lo que añadió la 1ª + resiliencia) → 6 a 8.
 - **3ª pasada** (test diferencial de 604 casos) → 9 y 10.
+- **4ª pasada** (serialización, semántica fina y cableado) → 11 a 13.
 
 ## 1 · El nocional daba por hecho 100 acciones por contrato — ARREGLADO
 
@@ -125,6 +126,37 @@ Otro que solo sale del diferencial. En JS `typeof true === "boolean"` los
 haciendo cosas distintas con el mismo valor. Mi `_coerce` los rechazaba en las
 dos.
 
+## 11 · Un precio infinito habría roto el JSON — ARREGLADO
+
+`Infinity > 0` es `true` en JS, así que Víctor lo acepta como precio y el Open
+Premium sale `Infinity` — que su `JSON.stringify` convierte a `null`, dejando el
+JSON válido. `json.dumps` escribiría `Infinity`, que **no es JSON**.
+
+Hoy ningún endpoint serializa `price`/`open_premium`, así que era latente — pero
+esos dos campos existen precisamente para servir la tabla de la cadena, y el día
+que se expongan el JSON se rompe. Es el mismo fallo que apareció en `store.ts`
+con el `NaN`. Un precio infinito es basura: cae al siguiente de la cascada, igual
+que ya hacían el 0 y los negativos.
+
+## 12 · `option_ticker` usaba `or` en vez de `??` — ARREGLADO
+
+`str(details.get("ticker") or "")` borra también el `0` y el `False`, dejándolos
+indistinguibles de "no vino". Víctor usa `?? ""`, que solo rellena el ausente.
+Incoherente además con el resto del módulo, donde ya se replicaba `??`.
+
+## 13 · Dos funciones portadas y nunca llamadas — ARREGLADO
+
+`sortByOpenInterestDesc` y `countExpirations` estaban traducidas pero **sin un
+solo llamador**. Su `/api/chain` las usa: ordena las filas por open interest
+antes de puntuarlas y reporta `expirationCount` en la meta.
+
+Ahora `fetch_option_chain` hace las dos cosas en el mismo sitio que él, y
+`ChainResult` gana `expiration_count`. Verificado que ordenar **no cambia
+ningún score** (Estructura, GEX, king, flip son idénticos); lo único que cambia
+es el orden de `cells` del heatmap, que sigue el orden de entrada tanto aquí
+como en el original — y como su `page.tsx` le pasa las filas ya ordenadas por su
+ruta, el cambio **acerca** el pipeline al suyo.
+
 ## Divergencias declaradas
 
 1. **`_coerce` con basura no numérica** cae al fallback en vez de dar `NaN`. En
@@ -169,6 +201,10 @@ declarada se marca como REAL.
 
 Arrancó en **23 diferencias reales** y las dos causas que las explicaban son los
 hallazgos 9 y 10.
+
+Repetido después con **3 semillas distintas × 2000 casos** y con una corrida de
+**3004**: sin diferencias reales en ninguna. En total, más de **9000 contratos**
+comparados campo a campo contra el original.
 
 ## Comprobado contra Node, idéntico
 

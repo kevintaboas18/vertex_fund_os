@@ -7,9 +7,9 @@ import pytest
 from wbj.tito.compute import (
     contract_price,
     count_expirations,
+    sort_by_open_interest_desc,
     notional_value,
     open_premium,
-    sort_by_open_interest_desc,
     to_row,
 )
 from wbj.tito.structure import ChainRow
@@ -198,6 +198,81 @@ class TestBooleanos:
     def test_la_regla_estricta_los_rechaza(self):
         assert contract_price({"last_trade": {"price": True}, "day": {"close": 2}}) \
             == (2, "day_close")
+
+
+class TestUnPrecioInfinitoNoContaminaElJSON:
+    """`Infinity > 0` es `true` en JS, así que Víctor lo acepta como precio y el
+    Open Premium sale `Infinity` — que su `JSON.stringify` convierte a `null`.
+    `json.dumps` escribiría `Infinity`, que no es JSON, y estos dos campos
+    existen precisamente para servir la tabla de la cadena."""
+
+    def test_un_precio_infinito_cae_al_siguiente_de_la_cascada(self):
+        assert contract_price({"last_trade": {"price": float("inf")},
+                               "day": {"close": 2}}) == (2, "day_close")
+        assert contract_price({"day": {"close": float("-inf"), "vwap": 1.5}}) \
+            == (1.5, "day_vwap")
+        assert contract_price({"last_trade": {"price": float("inf")}}) == (None, "none")
+
+    def test_la_fila_siempre_serializa_a_json_estricto(self):
+        import json
+
+        r = to_row({"last_trade": {"price": float("inf")}, "open_interest": 100,
+                    "details": {"strike_price": 50}})
+        crudo = json.dumps({"price": r.price, "open_premium": r.open_premium,
+                            "notional_value": r.notional_value})
+
+        def estricto(c):
+            raise ValueError(c)
+
+        json.loads(crudo, parse_constant=estricto)   # no debe lanzar
+
+
+class TestElTickerUsaLaSemanticaDeVictor:
+    def test_solo_el_ausente_cae_a_vacio(self):
+        # `?? ""`, no `or ""`: con `or`, un ticker 0 o False se borraba y
+        # quedaba indistinguible de "no vino".
+        assert to_row({"details": {"ticker": None}}).option_ticker == ""
+        assert to_row({"details": {}}).option_ticker == ""
+        assert to_row({"details": {"ticker": 0}}).option_ticker == "0"
+        assert to_row({"details": {"ticker": False}}).option_ticker == "False"
+        assert to_row({"details": {"ticker": "O:X"}}).option_ticker == "O:X"
+
+
+class TestLasDosFuncionesQueFaltabaCablear:
+    """`sortByOpenInterestDesc` y `countExpirations` estaban portadas pero sin
+    llamar desde ningún sitio. Su `/api/chain` las usa antes de puntuar."""
+
+    def test_la_cadena_sale_ordenada_por_open_interest(self):
+        import wbj.tito.massive as MASS
+
+        filas = [to_row({"details": {"contract_type": "call", "strike_price": float(s),
+                                     "expiration_date": "2026-09-18"},
+                         "open_interest": oi})
+                 for s, oi in ((100, 5), (105, 900), (110, 27))]
+        res = MASS.ChainResult(rows=sort_by_open_interest_desc(filas),
+                               expiration_count=count_expirations(filas))
+        assert [r.open_interest for r in res.rows] == [900, 27, 5]
+        assert res.expiration_count == 1
+
+    def test_ordenar_no_cambia_ningun_score(self):
+        import random
+        from datetime import datetime, timezone
+
+        from wbj.tito.gex import gex_analysis
+        from wbj.tito.structure import structure_score
+
+        random.seed(7)
+        now = datetime(2026, 7, 31, tzinfo=timezone.utc)
+        filas = [to_row({"details": {"contract_type": ct, "expiration_date": e,
+                                     "strike_price": float(s), "shares_per_contract": 100},
+                         "day": {"volume": random.randint(10, 900)},
+                         "open_interest": random.randint(50, 9000)})
+                 for s in range(80, 125, 5) for ct in ("call", "put")
+                 for e in ("2026-09-18", "2026-12-18")]
+        ordenadas = sort_by_open_interest_desc(filas)
+        assert structure_score(filas).score == structure_score(ordenadas).score
+        a, b = (gex_analysis(f, [100.0] * 60, 100.0, now) for f in (filas, ordenadas))
+        assert (a.regime, a.king_strike, a.flip_strike) == (b.regime, b.king_strike, b.flip_strike)
 
 
 class TestCoherenciaInterna:

@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Callable
 
-from .compute import to_row
+from .compute import count_expirations, sort_by_open_interest_desc, to_row
 from .levels import LvlBar
 from .structure import ChainRow
 
@@ -93,10 +93,14 @@ def _get(url: str, key: str, ticker: str, timeout: float) -> dict[str, Any]:
 
 @dataclass
 class ChainResult:
+    #: Ordenadas por open interest de mayor a menor, como las deja su ruta de
+    #: cadena antes de puntuarlas.
     rows: list[ChainRow] = field(default_factory=list)
     underlying_price: float | None = None
     pages: int = 0
     truncated: bool = False
+    #: `expirationCount` de su `ChainMeta`: cuántos vencimientos distintos trae.
+    expiration_count: int = 0
 
 
 def _num(v: Any) -> float:
@@ -154,7 +158,12 @@ def fetch_option_chain(
             truncated = True
             break
 
-    return ChainResult(rows=rows, underlying_price=underlying, pages=page, truncated=truncated)
+    # Las dos últimas piezas de compute.ts, en el mismo sitio donde las usa su
+    # `/api/chain`: ordenar por OI antes de puntuar, y contar los vencimientos
+    # para la meta. Estaban portadas pero sin llamar desde ningún sitio.
+    rows = sort_by_open_interest_desc(rows)
+    return ChainResult(rows=rows, underlying_price=underlying, pages=page,
+                       truncated=truncated, expiration_count=count_expirations(rows))
 
 
 def fetch_ticker_name(ticker: str, timeout: float = 12.0) -> str | None:

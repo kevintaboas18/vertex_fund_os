@@ -1,6 +1,6 @@
 """Genera contratos crudos cubriendo todo el espacio de formas que puede mandar Massive."""
 import json, random
-random.seed(20260731)
+random.seed(int(__import__("os").environ.get("DIFF_SEED", "20260731")))
 VALORES = [None, 0, 1, -1, 0.5, 60, 60.5, 9000, 205, 250.0, 1e9,
            "0", "500", "205.5", "", "  500  ", "abc", "1e3", True, False, [], {}]
 TIPOS   = [None, "call", "put", "PUT", "CALL", "Put", "", "P", 5]
@@ -24,7 +24,7 @@ def caso(i):
         c["last_trade"] = {"price": campo()} if random.random() < .85 else random.choice(SUBOBJ)
     if random.random() < .9: c["open_interest"] = campo()
     return c
-casos = [caso(i) for i in range(600)]
+casos = [caso(i) for i in range(int(__import__("os").environ.get("DIFF_N", "600")))]
 # más los del test del propio Víctor
 casos += [{}, {"details":{}}, {"day":{}},
           {"details":{"contract_type":"call","expiration_date":"2026-07-22","strike_price":205,

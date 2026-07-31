@@ -130,15 +130,27 @@ def contract_price(raw: dict) -> tuple[float | None, PriceSource]:
     tiene derecho a saberlo.
     """
     raw = _obj(raw)
+
+    def usable(v: float | None) -> bool:
+        # DIVERGENCIA declarada: un precio infinito NO se acepta. En JS
+        # `Infinity > 0` es `true`, así que Víctor lo devuelve como precio y el
+        # Open Premium sale `Infinity` — que su `JSON.stringify` convierte a
+        # `null`, así que su archivo sigue siendo válido. `json.dumps` escribiría
+        # `Infinity`, que NO es JSON, y estos dos campos existen precisamente
+        # para servir la tabla de la cadena. Es el mismo fallo que apareció en
+        # `store.ts`. Un precio infinito es basura: cae al siguiente de la
+        # cascada, que es lo que ya se hace con el 0 y los negativos.
+        return v is not None and v > 0 and math.isfinite(v)
+
     lt = _num(_obj(raw.get("last_trade")).get("price"))
-    if lt is not None and lt > 0:
+    if usable(lt):
         return lt, "last_trade"
     day = _obj(raw.get("day"))
     close = _num(day.get("close"))
-    if close is not None and close > 0:
+    if usable(close):
         return close, "day_close"
     vwap = _num(day.get("vwap"))
-    if vwap is not None and vwap > 0:
+    if usable(vwap):
         return vwap, "day_vwap"
     return None, "none"
 
@@ -209,7 +221,10 @@ def to_row(raw: dict) -> ChainRow:
     # fuente manda un OI fraccionario.
     oi_int = int(oi)
     return ChainRow(
-        option_ticker=str(details.get("ticker") or ""),
+        # `?? ""`, no `or ""`: solo el ausente cae a vacío. Con `or`, un ticker
+        # `0` o `False` —basura, pero basura que la fuente mandó— se borraba y
+        # quedaba indistinguible de "no vino".
+        option_ticker="" if details.get("ticker") is None else str(details["ticker"]),
         contract_type=_normalize_type(details.get("contract_type")),  # type: ignore[arg-type]
         # DIVERGENCIA declarada: se recorta a YYYY-MM-DD. Víctor no lo hace
         # porque su destino es una tabla; aquí la cadena de vencimiento es la
