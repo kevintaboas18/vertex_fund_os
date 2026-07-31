@@ -41,12 +41,25 @@ TOP_STRIKES_CONSIDERED = 5
 Side = Literal["calls", "puts"]
 
 
+#: De dónde salió el precio del contrato. `PriceSource` de Víctor: el plan de
+#: Massive no devuelve quotes, así que no hay `bid`.
+PriceSource = Literal["last_trade", "day_close", "day_vwap", "none"]
+
+
 @dataclass(frozen=True)
 class ChainRow:
-    """Una fila de la cadena de opciones ya normalizada.
+    """La `Row` de Víctor: una fila de la cadena ya normalizada.
 
-    ``notional_value = open_interest * 100 * strike`` — se recibe calculado para
-    que la fuente de la cadena (yfinance, Massive, …) sea intercambiable.
+    ``notional_value`` se recibe calculado para que la fuente de la cadena sea
+    intercambiable. Ojo con el multiplicador: son ``open_interest *
+    shares_per_contract * strike``, y ``shares_per_contract`` **no siempre es
+    100** — los contratos ajustados por split o dividendo especial traen otro.
+    `compute.to_row` lo lee del contrato; darlo por hecho inflaba el nocional
+    hasta 10× y movía el score de Estructura.
+
+    Los cuatro últimos campos son los que Víctor usa en su tabla de la cadena;
+    el sub-agente 4 solo mira los seis primeros. Llevan defaults para que las
+    fuentes que no los tengan sigan construyendo filas válidas.
     """
 
     contract_type: Literal["call", "put"]
@@ -55,6 +68,10 @@ class ChainRow:
     open_interest: int
     volume: int
     notional_value: float
+    option_ticker: str = ""
+    price: float | None = None
+    price_source: PriceSource = "none"
+    open_premium: float | None = None
 
 
 @dataclass

@@ -46,7 +46,7 @@ MAPA = {
     "risk.ts": "risk.py", "structure.ts": "structure.py", "validation.ts": "validation.py",
     "chainStore.ts": "stores.py", "ivStore.ts": "stores.py",
     "predictionStore.ts": "stores.py", "store.ts": "stores.py",
-    "types.ts": "(dataclasses)",
+    "compute.ts": "compute.py", "types.ts": "(dataclasses)",
     "chartGeometry.ts": "(JS en el HTML)", "news.ts": "news.py",
 }
 FUERA = {  # deferidos a propósito, no son del motor de análisis
@@ -117,6 +117,37 @@ srcs = {m for m in re.findall(r'os\.environ\.get\("(\w+)"', "\n".join(
     p.read_text() for p in TITO_DIR.glob("*.py")))}
 chk(srcs == {"MARKETSNACK_COOKIE","MASSIVE_API_KEY","MASSIVE_MAX_PAGES","WBJ_TITO_DATA"},
     f"el motor solo lee 4 variables: {sorted(srcs)}")
+
+# ── compute.ts: las fórmulas de la cadena ────────────────────────────
+from wbj.tito import compute as C
+from wbj.tito.structure import ChainRow
+chk(C.contract_price({"last_trade":{"price":1.25},"day":{"close":1.1,"vwap":1.05}})
+    == (1.25,"last_trade"), "precio: prefiere last_trade")
+chk(C.contract_price({"day":{"close":1.1,"vwap":1.05}}) == (1.1,"day_close")
+    and C.contract_price({"day":{"vwap":1.05}}) == (1.05,"day_vwap")
+    and C.contract_price({}) == (None,"none"), "cascada last_trade → close → vwap → none")
+chk(C.contract_price({"last_trade":{"price":0},"day":{"close":2}}) == (2,"day_close"),
+    "ignora precios no positivos")
+chk(C.contract_price({"last_trade":{"price":"1.25"},"day":{"close":2}}) == (2,"day_close"),
+    'un precio en texto no cuenta (typeof === "number")')
+chk(C.open_premium(60,1.25) == 75 and C.open_premium(60,None) is None,
+    "open premium = OI × precio, None si no hay precio")
+chk(C.notional_value(60,205) == 60*100*205 and C.notional_value(10,50,10) == 10*10*50,
+    "nocional respeta shares_per_contract")
+_aj = C.to_row({"details":{"strike_price":250,"shares_per_contract":10,
+                           "expiration_date":"2026-09-18","contract_type":"call"},
+                "open_interest":30_000})
+chk(_aj.notional_value == 30_000*10*250,
+    "un contrato AJUSTADO no se valora como uno normal (era 10× de más)")
+chk(C.to_row({}).contract_type == "call" and C.to_row({}).open_premium is None,
+    "contract_type ausente → call; campos faltantes → 0/None")
+_rr2 = [ChainRow("call","2026-09-18",100.0,oi,0,0.0) for oi in (5,100,27)]
+chk([r.open_interest for r in C.sort_by_open_interest_desc(_rr2)] == [100,27,5]
+    and _rr2[0].open_interest == 5, "orden por OI desc sin mutar el original")
+chk(C.count_expirations([ChainRow("call",e,100.0,0,0,0.0)
+    for e in ("2026-07-22","2026-07-22","2026-08-21","")]) == 2, "cuenta vencimientos distintos")
+chk("to_row(c)" in (TITO_DIR/"massive.py").read_text(),
+    "massive usa compute.to_row (una sola conversión, como el original)")
 
 # ─────────────────────────────────────────────────────────────────────
 sec("4. Reglas innegociables")

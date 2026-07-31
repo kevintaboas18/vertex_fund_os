@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Callable
 
+from .compute import to_row
 from .levels import LvlBar
 from .structure import ChainRow
 
@@ -130,22 +131,17 @@ def fetch_option_chain(
         page += 1
         data = _get(url, key, clean, timeout)
         for c in data.get("results") or []:
-            details = c.get("details") or {}
-            day = c.get("day") or {}
-            strike = _num(details.get("strike_price"))
-            exp = str(details.get("expiration_date") or "")[:10]
-            ct = str(details.get("contract_type") or "").lower()
-            if strike <= 0 or not exp or ct not in ("call", "put"):
+            # La conversión la hace compute.to_row, como en el original: este
+            # módulo trae páginas, las fórmulas viven aparte y se prueban solas.
+            row = to_row(c)
+            # DIVERGENCIA declarada: Víctor no filtra (su ruta hace
+            # `contracts.map(toRow)` a secas) porque su destino es una tabla,
+            # donde una fila rara solo se ve fea. Aquí el destino son GEX,
+            # niveles y Estructura: un strike 0 mete un nodo imán en cero, y un
+            # vencimiento vacío crea un grupo fantasma en el sub-agente 4.
+            if row.strike <= 0 or not row.expiration:
                 continue
-            oi = int(_num(c.get("open_interest")))
-            rows.append(ChainRow(
-                contract_type=ct,  # type: ignore[arg-type]
-                expiration=exp,
-                strike=strike,
-                open_interest=oi,
-                volume=int(_num(day.get("volume"))),
-                notional_value=oi * 100 * strike,
-            ))
+            rows.append(row)
             if underlying is None:
                 px = _num((c.get("underlying_asset") or {}).get("price"))
                 if px > 0:
