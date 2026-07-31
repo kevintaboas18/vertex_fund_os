@@ -171,21 +171,10 @@ El **núcleo metodológico de Victor está intacto y verificado**. Lo que falla 
   2. `:88` valida `Perfil Inversionista/Victor Gonzalez.md`. Con el perfil de Kevin activo (A-03), la validación pasa por el archivo incorrecto.
 - **Solución:** Añadir `"Cerebro"` al mapa (o cambiar a `rglob("*.md")` sobre `Cerebro/`) y cambiar el chequeo del perfil a "existe al menos un `.md` en `Perfil Inversionista/`, priorizando `Kevin.md`".
 
-### [ ] M-06 — `RESUME.md` está obsoleto y contiene información falsa
-- **Dónde:** `RESUME.md` completo
-- **Por qué falla:** Dice "paused mid-plan (9.5/25 tasks)", "`engine/wbj/packet/builder.py` does not exist yet" (**existe, 1139 líneas**), "160 tests" (**hay 1959**), y manda leer `.superpowers/sdd/progress.md` que **no existe en el proyecto**. También afirma "FMP key returns 403 on `/api/v3/profile`" — el provider ya migró a `/stable/` (`providers/fmp.py:26`), así que ese diagnóstico ya no aplica. Y `:37` dice `git config --global user.email victor@infusioninvestments.com`.
-- **Solución:** Reescribirlo como estado actual, o borrarlo (la información útil ya está en `DEPLOYMENT.md`).
-
-### [x] M-07 — ✅ RESUELTO (2026-07-30) — El proyecto ya es un repositorio git
-- **Era:** sin `.git/`. Nada revertible, ningún historial de por qué se movió un umbral, y la disciplina de `Cerebro/VERSION.md` ("todo cambio de fórmula exige version bump + backtest note") era inauditable.
-- **Ahora:** repo en rama `main`, identidad local al repo (`Kevin Taboas <kevintaboas02@gmail.com>` — no toca la config global de tu máquina). Dos commits:
-  - `85e3b1c` — estado recibido, sin modificar: la línea base de reversión.
-  - `b1c2966` — eliminación de SnapTrade + cableado a Plaid (C-01, A-07).
-- **Control de secretos antes del primer commit:** se escaneó el árbol por claves (`sk-`, `AIza`, `xai-`, `Bearer`, asignaciones `KEY = "..."`). Único match: un dummy de test llamado `"sk-should-never-be-used"`. `vertex.db`, `vertex.env` y `API/.env` verificados como ignorados **antes** de `git add`.
-- **`.gitignore` reescrito.** El anterior no cubría `vertex.db-wal` / `-journal` (temporales que sqlite escribe junto a la DB) ni `.pytest_cache/` en la raíz. Se documenta que `Memoria/` y `Reportes/` **sí** se versionan a propósito: son el track record del que depende la calibración.
-- **`.gitattributes` añadido** (`* text=auto eol=lf`). El repo venía mixto — `render.yaml` y `DEPLOYMENT.md` en CRLF, todo lo demás en LF — y cualquier escritura desde Windows convierte el archivo entero, produciendo diffs de 12.000 líneas para un cambio de 3.
-- **Verificado:** `git checkout 85e3b1c -- vertex_api.py` devuelve las 87 referencias a SnapTrade; `git checkout HEAD --` las vuelve a quitar. La reversión funciona.
-- **Pendiente tuyo:** crear un remoto **privado** y `git push -u origin main`. No lo hago yo: publicar el repo es tu decisión, y este código toca credenciales de broker.
+### [x] M-06 — ✅ RESUELTO (2026-07-30) — `RESUME.md` reescrito con el estado real
+- **Era:** el documento estaba falso **de arriba abajo**, no en una línea suelta. Afirmaba "paused mid-plan (9.5/25 tasks)", que `engine/wbj/packet/builder.py` "does not exist yet" (**tiene 1139 líneas**), "160 tests" (**hay 2006**), rama `feature/wbj-engine` (**es `main`**), un 403 de FMP en `/api/v3/` (**el provider ya usa `/stable/`**), y mandaba leer `.superpowers/sdd/progress.md`, que **no existe**. Además incluía una instrucción activa: `git config --global user.email victor@infusioninvestments.com` — que habría cambiado la identidad de git de **toda la máquina**, no solo de este repo.
+- **Primer intento insuficiente:** taché solo la línea del correo. Anotar una línea de un documento que miente en todas las demás no arregla nada — el resto seguía leyéndose como si fuera cierto.
+- **Ahora:** reescrito como estado real y útil: qué es cada capa, cómo se corre (web y CLI, con los 11 comandos reales de `wbj`), cómo se testea, qué variables de entorno no pueden faltar en un despliegue, y dónde va la auditoría. Cada dato verificado contra el código antes de escribirlo.
 
 ### [ ] M-08 — `_stooq_series` es código muerto que infla el conteo de fuentes
 - **Dónde:** `vertex_api.py:295-326`
@@ -222,10 +211,10 @@ El **núcleo metodológico de Victor está intacto y verificado**. Lo que falla 
 - **Por qué falla:** El doc dice "ROIC below WACC prevents `Elite`, `Quality Opportunity`, or `Excellent business`". Ambas implementaciones bloquean correctamente `Quality Opportunity`, pero `descriptive_band`/`_wbj_band` devuelven `"Elite raw score"` con raw ≥ 90 **sin consultar el override**. Una empresa que destruye valor puede aparecer etiquetada "Elite" en el reporte.
 - **Solución:** Pasar los overrides activos a la función de banda y degradar `"Elite raw score"` → `"Strong raw score (Elite bloqueado por Override 2)"` cuando esté presente `OVERRIDE_2_ROIC_BELOW_WACC`. Añadir un test en `tests/aggregate/test_gates.py`.
 
-### [ ] M-15 — `docs/superpowers/` con rutas de Victor y planes ya ejecutados
-- **Dónde:** `docs/superpowers/plans/2026-07-16-wbj-engine.md:13` — `/Users/victorgonzalez/Desktop/warren-buffett-jr/`
-- **Por qué falla:** 4 documentos de diseño (734 + 3 archivos de specs) que describen trabajo ya terminado, con rutas de otra máquina. Si el orquestador los lee como instrucciones vigentes, actúa sobre un plan cerrado.
-- **Solución:** Mover a `docs/archive/` con un `README` que diga "histórico, ya implementado", o borrar.
+### [x] M-15 — ✅ RESUELTO (2026-07-30) — `docs/superpowers/` archivado
+- **Era:** 5 documentos (1236 líneas) de planes y specs de una construcción **ya terminada**, con rutas absolutas de la máquina de Victor, colgando de `docs/` como si fueran instrucciones vigentes. El orquestador podía leerlos y actuar sobre un plan cerrado.
+- **Ahora:** movidos a `docs/archive/` con `git mv` (conserva el historial) y un `README.md` que dice explícitamente que son históricos, por qué se conservan — explican el *porqué* del diseño — y adónde ir para el estado real. Se retiró la anotación inline que había puesto antes: con el directorio y el README diciendo "archivo", sobraba.
+- **Verificado:** ninguna referencia rota a `docs/superpowers/` en el proyecto.
 
 ---
 
@@ -257,7 +246,7 @@ Tu Python global **no tenía** `pytest`, `scipy`, `typer`, `matplotlib`, `anthro
 | 14 | M-03 | 🟡 Medio | Falta `.github/workflows/` | — |
 | 15 | M-04 | 🟡 Medio | Email pre-market va a Victor | `premarket_email.py:32` |
 | 16 | M-05 | 🟡 Medio | `main.py` no indexa 8 docs del Cerebro | `main.py:20` |
-| 17 | M-06 | 🟡 Medio | `RESUME.md` con datos falsos | `RESUME.md` |
+| 17 | ~~M-06~~ | ✅ Resuelto | `RESUME.md` reescrito con el estado real | §6 |
 | 18 | ~~M-07~~ | ✅ Resuelto | Repo git inicializado, 2 commits | §6 |
 | 19 | M-08 | 🟡 Medio | `_stooq_series` código muerto | `vertex_api.py:295` |
 | 20 | M-09 | 🟡 Medio | Emite `BUY`/`AVOID` (prohibido) | `vertex_api.py:6355` |
@@ -266,7 +255,7 @@ Tu Python global **no tenía** `pytest`, `scipy`, `typer`, `matplotlib`, `anthro
 | 23 | M-12 | 🟡 Medio | Render free borra la memoria en cada deploy | `render.yaml:11` |
 | 24 | M-13 | 🟡 Medio | Deps sin pin; Python 3.14 local vs 3.11 Render | `requirements.txt` |
 | 25 | M-14 | 🟡 Medio | Override 2 no bloquea banda "Elite" | `gates.py:162` |
-| 26 | M-15 | 🟡 Medio | `docs/superpowers/` obsoleto | `docs/` |
+| 26 | ~~M-15~~ | ✅ Resuelto | Movido a `docs/archive/` con README | §6 |
 
 **Orden de arreglo sugerido:** ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → ~~C-02~~ → ~~C-03~~ → ~~C-04~~ → ~~A-01~~ → A-02 → A-03 → A-04 → A-05 → A-06 → ~~A-07~~ → el resto de M.
 

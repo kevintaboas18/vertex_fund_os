@@ -364,7 +364,7 @@ def test_provider_returns_none_after_3_failures(tmp_path):
 **Sources:** `Cerebro/shared/SOURCE_HIERARCHY.md` (8 tiers, materiality: conflict is material if it moves category score ≥0.5/10, valuation midpoint ≥5%, S/R zone ≥0.5 ATR, or a gate/override — for the facts table use the 5% valuation-input proxy: shares/debt/cash differing >2% is escalated, >5% is material).
 
 **Interfaces:**
-- Produces: `EdgarProvider` with `cik_for(ticker)` (via `company_tickers.json`), `companyfacts(cik)` (XBRL facts), `filing_acceptance_times(cik)` — User-Agent header (SEC requirement), no API key needed. **DESACTUALIZADO (A-01, 2026-07-30):** el user-agent ya no está hardcodeado — se configura con `EDGAR_USER_AGENT`. No reintroducir el correo que figuraba aquí.
+- Produces: `EdgarProvider` with `cik_for(ticker)` (via `company_tickers.json`), `companyfacts(cik)` (XBRL facts), `filing_acceptance_times(cik)` — User-Agent header (SEC requirement), no API key needed.
 - Produces: `reconcile(field: str, fmp: Value, edgar: Value) -> Value` — if both valid and relative diff ≤2% → EDGAR value (tier-1), lineage notes both; 2–5% → EDGAR value + warning; >5% → `Value.null(CONFLICTED)` with both values in warnings. Only EDGAR valid → EDGAR; only FMP → FMP with `source_quality` note.
 
 - [ ] **Step 1: Write the failing tests** — companyfacts parsing pulls `dei:EntityCommonStockSharesOutstanding` and `us-gaap` revenue/cash/debt concepts from the fixture; reconcile matrix: agree→EDGAR, 3% diff→EDGAR+warning, 8% diff→CONFLICTED.
