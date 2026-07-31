@@ -1,0 +1,227 @@
+"""Cableado end-to-end del motor de Víctor dentro de Vertex.
+
+La suite de `engine/tests/tito/` prueba la lógica pura. Esto prueba lo otro: que
+los endpoints existen, que llaman al motor, que traducen bien a JSON y que
+degradan con el motivo exacto cuando una fuente falla.
+
+Sin red: Massive, MarketSnack y los feeds se sustituyen por dobles. Lo que se
+verifica es el CABLEADO, no los datos.
+
+    python -m pytest tests_vertex/test_tito_wiring.py -q
+"""
+
+from __future__ import annotations
+
+import math
+import os
+import sys
+import tempfile
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "engine"))
+
+fastapi = pytest.importorskip("fastapi", reason="requiere las deps de vertex_api")
+
+NOW = datetime.now(timezone.utc)
+SPOT = 100.0
+
+
+@pytest.fixture(scope="module")
+def client():
+    from fastapi.testclient import TestClient
+    import vertex_api as V
+
+    return TestClient(V.app)
+
+
+@pytest.fixture(autouse=True)
+def fuentes(monkeypatch, tmp_path):
+    """Sustituye Massive, MarketSnack y los feeds por dobles deterministas."""
+    import wbj.tito.marketsnack as MS
+    import wbj.tito.massive as MASS
+    import wbj.tito.news as N
+    from wbj.tito.levels import LvlBar
+    from wbj.tito.marketsnack import FlowResult
+    from wbj.tito.structure import ChainRow
+
+    def fake_chain(ticker, **k):
+        rows = []
+        for exp in ("2026-09-18", "2027-01-15"):
+            for s in range(70, 135, 5):
+                for ct in ("call", "put"):
+                    wall = (ct == "call" and s in (105, 110)) or (ct == "put" and s == 90)
+                    oi = int(1500 * math.exp(-((s - SPOT) ** 2) / 400) * (8 if wall else 1)) + 60
+                    rows.append(ChainRow(ct, exp, float(s), oi,
+                                         int(oi * (1.4 if wall else 0.25)), oi * 100 * s))
+        return MASS.ChainResult(rows=rows, underlying_price=SPOT, pages=1, truncated=False)
+
+    def fake_bars(ticker, **k):
+        out, seed = [], 7
+        for i in range(200):
+            seed = (seed * 1103515245 + 12345) % 2147483648
+            c = 92 + i * 0.04 + 9 * math.sin(i / 17) + (seed / 2147483648 - 0.5) * 1.5
+            out.append(LvlBar((NOW - timedelta(days=200 - i)).date().isoformat(),
+                              c + 1.5, c - 1.5, c))
+        out[-1] = LvlBar(out[-1].time, SPOT + 1, SPOT - 1, SPOT)
+        return out
+
+    def fake_flow(ticker, **k):
+        tr = []
+        for i, (strike, side, mins) in enumerate(
+            [(105, "AT_ASK", 3), (105, "ABOVE_ASK", 2), (105, "AT_ASK", 1),
+             (110, "ASKSIDE", 6), (90, "AT_BID", 40)]
+        ):
+            cp = "C" if strike >= 100 else "P"
+            tr.append({
+                "id": i + 1, "symbol": f"DEMO270115{cp}{strike * 1000:08d}",
+                "price": 9.2, "size": 800, "side": side,
+                "bid_price": 9.14, "ask_price": 9.26, "premium": 9.2 * 800 * 100,
+                "delta": 0.62 if cp == "C" else -0.28, "gamma": 0.03,
+                "theta": -0.04, "vega": 0.3, "implied_volatility": 0.44,
+                "open_interest": 4000, "volume": 5200, "score": 8,
+                "sentiment": "bullish",
+                "timestamp": (NOW - timedelta(minutes=mins)).isoformat(),
+                "asset_price": SPOT, "trade_condition_id": 231,
+            })
+        return FlowResult(trades=tr, pages=1, truncated=False)
+
+    monkeypatch.setattr(MASS, "fetch_option_chain", fake_chain)
+    monkeypatch.setattr(MASS, "fetch_daily_bars", fake_bars)
+    monkeypatch.setattr(MASS, "fetch_ticker_name", lambda t, **k: "Demo Corporation")
+    monkeypatch.setattr(MS, "fetch_flow", fake_flow)
+    monkeypatch.setattr(N, "fetch_ticker_news", lambda t, **k: [
+        N.NewsItem(id="1", title="Demo misses targets", url="u", publisher="Reuters",
+                   published_utc=NOW.isoformat(), sentiment="negative", layer="company")])
+    monkeypatch.setattr(N, "fetch_macro_feeds", lambda **k: [
+        N.NewsItem(id="2", title="Fed holds rates steady", url="v", publisher="CNBC",
+                   published_utc=NOW.isoformat(), layer="macro"),
+        N.NewsItem(id="3", title="Demo Corporation recalls units", url="w",
+                   publisher="CNBC", published_utc=NOW.isoformat(), layer="macro")])
+    monkeypatch.setenv("WBJ_TITO_DATA", str(tmp_path))
+    monkeypatch.setenv("MASSIVE_API_KEY", "x" * 32)
+    monkeypatch.setenv("MARKETSNACK_COOKIE", "y" * 32)
+
+
+class TestRutas:
+    def test_las_tres_rutas_del_motor_existen(self, client):
+        import vertex_api as V
+        rutas = {r.path for r in V.app.routes}
+        assert {"/api/projection-targets", "/api/tito-scorecard", "/api/tito-news"} <= rutas
+
+    def test_el_motor_carga_desde_vertex_api(self):
+        import vertex_api as V
+        assert V._tito_mod() is not None
+
+
+class TestProjectionTargets:
+    def test_devuelve_el_scorecard_del_motor_de_victor(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["ok"] is True
+        assert d["engine"] == "victor/tito"
+        assert d["chain_source"] == "massive"
+        assert 0 <= d["score"] <= 100
+        assert d["verdict"] in ("Oportunidad Fuerte", "Oportunidad Moderada", "Oportunidad Débil")
+
+    def test_sirve_los_tres_horizontes_de_victor(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert sorted(int(h) for h in d["predictions"]) == [10, 20, 30]
+
+    def test_el_orden_estricto_llega_hasta_el_json(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        for p in d["predictions"].values():
+            assert p["bear"]["target"] < p["base"]["target"] < p["bull"]["target"]
+
+    def test_lleva_lo_que_la_grafica_necesita(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert len(d["history"]) == 70  # las 70 velas de SimpleChart
+        assert d["levels_for_chart"] is not None
+        assert d["call_pct"] is not None
+
+    def test_expone_el_estado_de_la_memoria(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        m = d["memory"]
+        assert m["available"] is True
+        assert m["flows_guardados"] > 0
+        assert "iv_rank_real_en" in m
+
+    def test_las_noticias_no_viajan_dentro(self, client):
+        # Van en su ruta propia: 4 feeds RSS lentos no pueden retrasar los targets.
+        assert "news" not in client.get("/api/projection-targets?ticker=DEMO").json()
+
+    def test_ticker_vacio_no_revienta(self, client):
+        assert client.get("/api/projection-targets?ticker=").json()["ok"] is False
+
+
+class TestFalloDeMassive:
+    def test_reporta_el_motivo_y_no_publica_numero(self, client, monkeypatch):
+        import wbj.tito.massive as MASS
+
+        def boom(*a, **k):
+            raise MASS.MassiveError("Falta MASSIVE_API_KEY en el entorno.")
+
+        monkeypatch.setattr(MASS, "fetch_option_chain", boom)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["ok"] is False
+        assert d["source"] == "massive"
+        assert "MASSIVE_API_KEY" in d["error"]
+        assert "score" not in d  # no se publica un scorecard a medias
+
+    def test_no_cae_a_yfinance(self, client, monkeypatch):
+        import wbj.tito.massive as MASS
+        monkeypatch.setattr(MASS, "fetch_daily_bars", lambda *a, **k: [])
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["ok"] is False  # sin barras corta, no busca otra fuente
+
+
+class TestSinTape:
+    def test_el_motor_sigue_con_la_cadena_y_lo_declara(self, client, monkeypatch):
+        import wbj.tito.marketsnack as MS
+
+        def boom(*a, **k):
+            raise MS.MarketSnackError("Sesión de MarketSnack inválida o expirada.")
+
+        monkeypatch.setattr(MS, "fetch_flow", boom)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["ok"] is True                      # la cadena alcanza para seguir
+        assert "MarketSnack" in d["flow_error"]     # pero se dice
+        assert any("MarketSnack" in w for w in d["warnings"])
+        assert d["scores"]["structure"] is not None  # el único que no depende del tape
+        assert d["scores"]["aggression"] is None
+
+
+class TestNoticias:
+    def test_bandera_de_conflicto_con_flujo_alcista_y_noticias_malas(self, client):
+        n = client.get("/api/tito-news?ticker=DEMO&call_pct=93").json()
+        assert n["ok"] is True
+        assert n["flow_bias"] == "bullish"
+        assert n["bias"]["bias"] == "bearish"
+        assert n["flag"]["kind"] == "conflict"
+
+    def test_bandera_de_confirmacion_con_flujo_bajista(self, client):
+        n = client.get("/api/tito-news?ticker=DEMO&call_pct=7").json()
+        assert n["flag"]["kind"] == "confirm"
+
+    def test_sin_call_pct_no_hay_bandera_inventada(self, client):
+        assert client.get("/api/tito-news?ticker=DEMO").json()["flag"]["kind"] == "none"
+
+    def test_promueve_el_titular_macro_que_nombra_a_la_empresa(self, client):
+        n = client.get("/api/tito-news?ticker=DEMO&call_pct=93").json()
+        assert len(n["promoted"]) == 1
+        assert n["promoted"][0]["matched_by"]
+
+    def test_declara_que_no_toca_los_cien_puntos(self, client):
+        assert client.get("/api/tito-news?ticker=DEMO").json()["afecta_scorecard"] is False
+
+
+class TestScorecardCompleto:
+    def test_la_ruta_del_scorecard_tambien_responde(self, client):
+        d = client.get("/api/tito-scorecard?ticker=DEMO").json()
+        assert d["ok"] is True
+        assert d["chain_source"] == "massive"
+        assert set(d["scores"]) == {"aggression", "conviction", "unusuality",
+                                    "structure", "iv_context", "validation"}
