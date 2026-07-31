@@ -66,22 +66,31 @@ def load_settings(env_file: Path | None = None) -> Settings:
     if env_file.exists():
         env_vars = dotenv_values(env_file)
 
-    # Map empty strings to None
-    fmp_api_key = env_vars.get("FMP_API_KEY") or None
-    finnhub_api_key = env_vars.get("FINNHUB_API_KEY") or None
-    fred_api_key = env_vars.get("FRED_API_KEY") or None
-    # ANTHROPIC_API_KEY may also come from the real environment (SDK convention).
     import os
 
-    anthropic_api_key = (
-        env_vars.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or None
-    )
-    judge_model = env_vars.get("JUDGE_MODEL") or os.environ.get("JUDGE_MODEL") or "claude-opus-5"
-    # Igual que ANTHROPIC_API_KEY: también desde el entorno real, porque en
-    # Render no existe API/.env — las variables llegan por el dashboard.
-    edgar_user_agent = (
-        env_vars.get("EDGAR_USER_AGENT") or os.environ.get("EDGAR_USER_AGENT") or None
-    )
+    def _key(name: str) -> str | None:
+        """Valor de una clave: primero `API/.env`, luego el entorno real.
+
+        El entorno importa en DOS casos que antes quedaban fuera:
+          1. **Render** — no existe `API/.env`; las claves llegan por el dashboard.
+          2. **`vertex.env`** — la app web lo carga a `os.environ` al arrancar.
+
+        Antes solo `ANTHROPIC_API_KEY` miraba el entorno; `FMP`, `FinnHub` y
+        `FRED` leían únicamente el archivo. Con las claves en `vertex.env` eso
+        dejaba `fmp_api_key = None` y `FMPProvider.available = False`, así que
+        `wbj analyze` desde el CLI corría sin FMP — y las tres categorías que
+        dependen de él (Market, Technical, Valuation) salían NOT_SCORABLE con
+        la clave puesta y funcionando. Silencioso, porque el provider devuelve
+        `None` en vez de fallar.
+        """
+        return (env_vars.get(name) or os.environ.get(name) or "").strip() or None
+
+    fmp_api_key = _key("FMP_API_KEY")
+    finnhub_api_key = _key("FINNHUB_API_KEY")
+    fred_api_key = _key("FRED_API_KEY")
+    anthropic_api_key = _key("ANTHROPIC_API_KEY")
+    edgar_user_agent = _key("EDGAR_USER_AGENT")
+    judge_model = _key("JUDGE_MODEL") or "claude-opus-5"
 
     return Settings(
         fmp_api_key=fmp_api_key,
