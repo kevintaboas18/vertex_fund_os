@@ -3935,14 +3935,20 @@ def _tito_memory(ticker, trades, chain, bars, now):
 
     Nunca revienta la petición: si el disco no está disponible, el motor corre
     igual con lo que haya y `stats` lo refleja.
+
+    Pero degradar en silencio es peor que fallar: sin memoria el scorecard sale
+    igual de bonito y con menos evidencia detrás. Por eso `stats.motivo` dice
+    SIEMPRE por qué se apagó, y `/api/tito-health` lo repite.
     """
-    empty = {"iv_history": [], "past_flows": [], "calibration": None,
-             "stats": {"available": False}}
+    def _empty(motivo):
+        return {"iv_history": [], "past_flows": [], "calibration": None,
+                "stats": {"available": False, "motivo": motivo}}
+
     try:
         from wbj.tito import stores as st
         from wbj.tito.flow import classify_flow
-    except Exception:
-        return empty
+    except Exception as e:
+        return _empty(f"el motor no carga: {type(e).__name__}")
 
     try:
         # 1. Guardar la foto de hoy ANTES de leer: así el primer día ya cuenta.
@@ -3961,7 +3967,8 @@ def _tito_memory(ticker, trades, chain, bars, now):
         #    seguir hacia adelante, así que no entra al backtest.
         iv_history = st.load_iv_history(ticker)
         stored = st.load_trades(ticker)
-        past = [t for t in (stored.trades if stored else [])
+        guardados = stored.trades if stored else []
+        past = [t for t in guardados
                 if (t.get("asset_price") or 0) > 0 and t.get("timestamp")]
         journal = st.load_journal(ticker)
         review = st.review_predictions(journal, bars, now)
@@ -3975,7 +3982,13 @@ def _tito_memory(ticker, trades, chain, bars, now):
                 "available": True,
                 "iv_days": len(iv_history),
                 "iv_rank_real_en": max(0, 60 - len(iv_history)),
-                "flows_guardados": len(past),
+                # Dos números, no uno: lo que hay en disco y lo que el backtest
+                # puede usar. Si el tape pierde `asset_price` el archivo sigue
+                # creciendo mientras el sub-agente 6 se queda sin nada — con un
+                # solo contador eso se ve como "no se ha guardado nada".
+                "flows_guardados": len(guardados),
+                "flows_utilizables": len(past),
+                "flows_descartados": len(guardados) - len(past),
                 "predicciones_vencidas": review.get("matured_count", 0),
                 "sesgo_pct": review.get("bias_pct"),
                 "calibracion_activa": bool(
@@ -3983,10 +3996,11 @@ def _tito_memory(ticker, trades, chain, bars, now):
                     and calibration.get("samples", 0) >= 5
                 ),
                 "dir_hit_rate": review.get("direction_hit_rate"),
+                "motivo": None,
             },
         }
-    except Exception:
-        return empty
+    except Exception as e:
+        return _empty(f"{type(e).__name__}: {e}"[:200])
 
 
 @app.get("/api/tito-health")
@@ -4076,10 +4090,21 @@ def tito_health(ticker: str = "AAPL"):
             f"{iv_days}/60 días de IV acumulados",
             None if iv_days >= 60 else f"faltan {60 - iv_days} sesiones; se acumula solo",
             None if iv_days >= 60 else "IV Rank usa el proxy de volatilidad realizada")
-        add("memoria.flows", flows > 0,
-            f"{flows} flows guardados",
+        usables = sum(1 for t in (_stored.trades if _stored else [])
+                      if (t.get("asset_price") or 0) > 0 and t.get("timestamp"))
+        add("memoria.flows", usables > 0,
+            f"{flows} flows guardados"
+            + (f" (tope {st.MAX_PER_TICKER}: ya rota lo más viejo)" if flows >= st.MAX_PER_TICKER else "")
+            + (f", {usables} utilizables" if usables != flows else "")
+            + (f" · última escritura {_stored.updated_at}" if _stored else ""),
             None if flows else "se acumulan con cada consulta",
-            None if flows else "sub-agente 6 (Confirmación) sin score")
+            None if usables else "sub-agente 6 (Confirmación) sin score")
+        if flows and not usables:
+            add("memoria.flows.formato", False,
+                f"los {flows} trades guardados no traen asset_price/timestamp usables",
+                "el tape de MarketSnack cambió de esquema: revisa que cada trade traiga "
+                "`asset_price` y `timestamp`",
+                "el archivo crece pero el sub-agente 6 no puede puntuar nada")
     except Exception as e:
         add("memoria.disco", False, str(e),
             "en Render el plan free NO tiene disco: sube a starter y monta el volumen "

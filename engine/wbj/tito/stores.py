@@ -233,11 +233,41 @@ def _file_for(ticker: str) -> Path:
 
 
 def _ts_key(row: dict) -> float:
-    """`Date.parse(timestamp)`, con los no-parseables al final (como NaN en JS)."""
+    """`Date.parse(timestamp)`, con los no-parseables al final (como NaN en JS).
+
+    DIVERGENCIA deliberada: un timestamp SIN zona se lee como UTC, no como hora
+    local. `Date.parse("2026-07-30T15:00:00")` (y `datetime.timestamp()`) lo
+    interpretan en la zona del servidor, así que el mismo archivo se ordenaba
+    distinto en UTC que en America/New_York — y el orden decide qué se cae por
+    el tope de MAX_PER_TICKER. La persistencia no puede depender de la TZ de la
+    máquina. Es además el criterio que ya usa `flow._epoch`, que directamente
+    rechaza los naive.
+    """
     try:
-        return datetime.fromisoformat(str(row.get("timestamp", "")).replace("Z", "+00:00")).timestamp()
-    except ValueError:
+        dt = datetime.fromisoformat(str(row.get("timestamp", "")).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
         return float("-inf")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
+
+
+def _dedupe_key(row: dict) -> Any:
+    """La clave del `Map` de Víctor es `t.id`, y para datos válidos esto lo es.
+
+    La guarda es para el id AUSENTE. `flow._base_row` hace
+    `int(_num(raw.get("id")))`, así que un tape sin ese campo devuelve **0 para
+    todos** los trades — y un `Map` con la misma clave 5000 veces conserva uno.
+    No es teórico: basta con que MarketSnack renombre el campo para que la
+    memoria del sub-agente 6 se vacíe en silencio, sin un solo error. Con id
+    real el comportamiento es idéntico al suyo; sin él, cada trade conserva su
+    identidad en vez de fundirse con los demás.
+    """
+    rid = row.get("id")
+    if rid:
+        return rid
+    return ("sin-id", row.get("timestamp"), row.get("symbol"),
+            row.get("strike"), row.get("premium"))
 
 
 def load_trades(ticker: str) -> StoredTrades | None:
@@ -253,7 +283,12 @@ def load_trades(ticker: str) -> StoredTrades | None:
     return StoredTrades(
         ticker=str(parsed.get("ticker", "")),
         updated_at=str(parsed.get("updated_at", "")),
-        trades=parsed["trades"],
+        # Simétrico con `save_trades`, que ya descarta lo que no es dict. En TS
+        # una fila corrupta se lee como `undefined` y el pipeline sigue; en
+        # Python cada `.get()` sobre ella revienta, y el `except` del llamador
+        # convierte eso en "no hay memoria" — apagando el IV Rank real, el
+        # sub-agente 6 y la calibración de golpe y sin un solo mensaje.
+        trades=[t for t in parsed["trades"] if isinstance(t, dict)],
     )
 
 
@@ -270,13 +305,14 @@ def save_trades(ticker: str, rows: Sequence[Any]) -> SaveResult:
 
     for t in (existing.trades if existing else []):
         if isinstance(t, dict):
-            by_id[t.get("id")] = t
+            by_id[_dedupe_key(t)] = t
     added = 0
     for r in rows:
         row = r if isinstance(r, dict) else asdict(r)
-        if row.get("id") not in by_id:
+        key = _dedupe_key(row)
+        if key not in by_id:
             added += 1
-        by_id[row.get("id")] = row   # el análisis más reciente gana
+        by_id[key] = row   # el análisis más reciente gana
 
     merged = sorted(by_id.values(), key=_ts_key, reverse=True)[:MAX_PER_TICKER]
 

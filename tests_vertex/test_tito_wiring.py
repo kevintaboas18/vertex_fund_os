@@ -166,6 +166,60 @@ class TestProjectionTargets:
         ids = [t["id"] for t in st.load_trades("DEMO").trades]
         assert len(ids) == len(set(ids))
 
+    def test_distingue_lo_guardado_de_lo_utilizable(self, client, tmp_path):
+        # Un solo contador mentía: si el tape pierde `asset_price`, el archivo
+        # sigue creciendo y el sub-agente 6 se queda sin nada, pero `stats`
+        # decía "0 guardados" — que se lee como "el disco no funciona".
+        import json
+        import wbj.tito.stores as st
+
+        import vertex_api as V
+        from datetime import datetime, timezone
+
+        client.get("/api/projection-targets?ticker=DEMO")
+        p = st.data_dir() / "trades" / "DEMO.json"
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        assert raw["trades"], "el endpoint debería haber guardado algo"
+        for t in raw["trades"]:
+            t["asset_price"] = 0          # el esquema del tape cambió
+        p.write_text(json.dumps(raw), encoding="utf-8")
+
+        # Sin tape nuevo, para que no se auto-repare y se vea el estado degradado.
+        m = V._tito_memory("DEMO", [], [], [], datetime(2026, 7, 30, 16, tzinfo=timezone.utc))["stats"]
+        assert m["flows_guardados"] > 0          # el disco SÍ tiene datos
+        assert m["flows_utilizables"] == 0       # pero ninguno sirve
+        assert m["flows_descartados"] == m["flows_guardados"]
+        assert m["available"] is True            # el disco no es el problema
+
+    def test_el_tape_bueno_repara_los_trades_degradados(self, client):
+        # El "análisis más reciente gana" de Víctor no es solo cosmético: una
+        # corrida con tape sano vuelve a poner en pie lo que se guardó mal.
+        import json
+        import wbj.tito.stores as st
+
+        client.get("/api/projection-targets?ticker=DEMO")
+        p = st.data_dir() / "trades" / "DEMO.json"
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        for t in raw["trades"]:
+            t["asset_price"] = 0
+        p.write_text(json.dumps(raw), encoding="utf-8")
+
+        m = client.get("/api/projection-targets?ticker=DEMO").json()["memory"]
+        assert m["flows_descartados"] == 0
+
+    def test_si_la_memoria_se_apaga_dice_por_que(self, client, monkeypatch):
+        # Degradar en silencio es peor que fallar: sin memoria el scorecard sale
+        # igual de bonito con menos evidencia detrás.
+        import wbj.tito.stores as st
+
+        def boom(*a, **k):
+            raise OSError("disco de solo lectura")
+
+        monkeypatch.setattr(st, "load_iv_history", boom)
+        m = client.get("/api/projection-targets?ticker=DEMO").json()["memory"]
+        assert m["available"] is False
+        assert "disco de solo lectura" in m["motivo"]
+
     def test_lo_guardado_lleva_el_analisis_completo(self, client):
         # Víctor guarda el FlowRow entero, no 8 campos: si mañana hace falta
         # preguntar por el score o los greeks del pasado, ya están.

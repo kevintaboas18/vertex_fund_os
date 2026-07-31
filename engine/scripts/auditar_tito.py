@@ -14,7 +14,7 @@ apúntalo con TITO_ROOT=/ruta/a/agente-tito-metralleta. Sin esa variable se
 salta esa sección y el resto corre igual.
 """
 from __future__ import annotations
-import os, re, subprocess, sys
+import json, os, re, subprocess, sys, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -205,6 +205,28 @@ with tempfile.TemporaryDirectory() as td:
         "guarda el análisis COMPLETO, no un recorte de 8 campos")
     chk(_ST._file_for("../../ETC/X").resolve().parent
         == (_ST.data_dir() / "trades").resolve(), "el ticker no se escapa del directorio")
+    # Los 3 que salieron de la auditoría del port (ver AUDITORIA_STORE.md).
+    _ST.save_trades("SINID", [_fr(0, "2026-07-30T15:00:00Z"), _fr(0, "2026-07-30T15:01:00Z")])
+    chk(len(_ST.load_trades("SINID").trades) == 2, "trades sin id no se funden en uno")
+    _p = _ST.data_dir() / "trades" / "BASURA.json"
+    _p.write_text(json.dumps({"ticker": "BASURA", "updated_at": "x",
+                              "trades": [{"id": 1, "timestamp": "2026-07-30T15:00:00Z"},
+                                         "no soy dict", None, 42]}), encoding="utf-8")
+    chk([t["id"] for t in _ST.load_trades("BASURA").trades] == [1],
+        "una fila corrupta no tumba el historial entero")
+    _naive = [{"timestamp": "2026-07-30T15:00:00", "id": 1},
+              {"timestamp": "2026-07-30T16:00:00Z", "id": 2}]
+    _ordenes = set()
+    _tzprev = os.environ.get("TZ")
+    for _tz in ("UTC", "America/New_York", "Asia/Tokyo"):
+        os.environ["TZ"] = _tz; time.tzset()
+        _ordenes.add(tuple(r["id"] for r in sorted(_naive, key=_ST._ts_key, reverse=True)))
+    if _tzprev is None: os.environ.pop("TZ", None)
+    else: os.environ["TZ"] = _tzprev
+    time.tzset()
+    chk(_ordenes == {(2, 1)}, "el orden no depende de la TZ del servidor")
+chk('"motivo"' in API and "_empty(" in API,
+    "si la memoria se apaga, el payload dice por qué (nada de degradar mudo)")
 
 # ─────────────────────────────────────────────────────────────────────
 sec("5-bis. Noticias (Tarea 7) — contra news.ts")

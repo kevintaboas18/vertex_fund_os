@@ -17,6 +17,7 @@ from wbj.tito.stores import (
     load_chain_history,
     load_iv_history,
     load_journal,
+    _ts_key,
     load_trades,
     review_predictions,
     save_chain_snapshot,
@@ -205,6 +206,55 @@ class TestTradesStore:
         p.mkdir(parents=True, exist_ok=True)
         (p / "DEMO.json").write_text("{no soy json", encoding="utf-8")
         assert load_trades("DEMO") is None
+
+    def test_el_orden_no_depende_de_la_zona_horaria_del_servidor(self):
+        # Un timestamp SIN zona se leía en hora local, así que el mismo archivo
+        # se ordenaba distinto en UTC que en New York — y el orden decide qué se
+        # cae por el tope de MAX_PER_TICKER.
+        import os, time
+        rows = [_flow_row(1, "2026-07-30T15:00:00"),      # naive
+                _flow_row(2, "2026-07-30T16:00:00Z")]     # aware
+        vistos = set()
+        previo = os.environ.get("TZ")
+        try:
+            for tz in ("UTC", "America/New_York", "Asia/Tokyo"):
+                os.environ["TZ"] = tz
+                time.tzset()
+                vistos.add(tuple(t["id"] for t in
+                                 sorted(({"timestamp": r.timestamp, "id": r.id} for r in rows),
+                                        key=_ts_key, reverse=True)))
+        finally:
+            if previo is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = previo
+            time.tzset()
+        assert vistos == {(2, 1)}
+
+    def test_trades_sin_id_no_se_funden_en_uno(self):
+        # `flow._base_row` hace int(_num(raw.get("id"))): sin ese campo TODOS
+        # salen con id 0, y un dedupe por id se quedaría con uno solo.
+        rows = [_flow_row(0, "2026-07-30T15:00:00Z"),
+                _flow_row(0, "2026-07-30T15:01:00Z"),
+                _flow_row(0, "2026-07-30T15:02:00Z")]
+        r = save_trades("DEMO", rows)
+        assert r.total == 3
+
+    def test_una_fila_corrupta_no_tumba_el_resto_del_historial(self):
+        # En TS una fila mala se lee como undefined y el pipeline sigue; en
+        # Python cada .get() sobre ella revienta y el llamador lo convierte en
+        # "no hay memoria", apagando IV Rank, sub-agente 6 y calibración.
+        from wbj.tito.stores import data_dir
+        import json
+        p = data_dir() / "trades"
+        p.mkdir(parents=True, exist_ok=True)
+        bueno = {"id": 1, "timestamp": "2026-07-30T15:00:00Z", "asset_price": 95.0}
+        (p / "DEMO.json").write_text(json.dumps(
+            {"ticker": "DEMO", "updated_at": "x", "trades": [bueno, "basura", None, 42]}),
+            encoding="utf-8")
+        trades = load_trades("DEMO").trades
+        assert trades == [bueno]
+        assert all(t.get("asset_price") for t in trades)   # el consumidor no revienta
 
     def test_una_lista_pelada_del_formato_viejo_no_se_lee_como_historial(self):
         # Antes el archivo era una lista; ahora es {ticker, updated_at, trades}.
