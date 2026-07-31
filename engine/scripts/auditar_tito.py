@@ -225,6 +225,34 @@ with tempfile.TemporaryDirectory() as td:
     else: os.environ["TZ"] = _tzprev
     time.tzset()
     chk(_ordenes == {(2, 1)}, "el orden no depende de la TZ del servidor")
+    # 2ª pasada de auditoría: concurrencia, tickers degenerados y portabilidad.
+    import threading as _th
+    _b = datetime(2026, 7, 30, tzinfo=timezone.utc)
+    def _esc(lote):
+        _ST.save_trades("RACE", [_fr(i, (_b + timedelta(seconds=i)).isoformat().replace("+00:00", "Z"))
+                                 for i in lote])
+    _hs = [_th.Thread(target=_esc, args=(range(k * 50, k * 50 + 50),)) for k in range(8)]
+    for _h in _hs: _h.start()
+    for _h in _hs: _h.join()
+    _n = len(_ST.load_trades("RACE").trades)
+    chk(_n == 400, f"8 escrituras concurrentes no se pisan ({_n}/400)")
+    chk(all("_exclusive(path)" in _s for _s in [
+            (TITO_DIR/"stores.py").read_text()]) and
+        (TITO_DIR/"stores.py").read_text().count("_exclusive(path)") == 4,
+        "los 4 stores escriben bajo cerrojo")
+    _rechaza = 0
+    for _malo in ("!!!", "@@@", "", "   ", "..."):
+        try: _ST._file_for(_malo)
+        except ValueError: _rechaza += 1
+    chk(_rechaza == 5, "el ticker que no da nombre de archivo se rechaza (nada de `.json` compartido)")
+    chk(_ST.load_trades("!!!") is None, "leer con ticker inservible no lanza")
+    _d2 = Path(os.environ["WBJ_TITO_DATA"]) / "no-existe-aun"
+    os.environ["WBJ_TITO_DATA"] = str(_d2)
+    _ST.load_trades("NUNCA"); _ST.load_iv_history("NUNCA")
+    chk(not _d2.exists(), "leer no crea directorios (sin efectos secundarios)")
+chk("except ImportError" in (TITO_DIR/"stores.py").read_text()
+    and "import fcntl" in (TITO_DIR/"stores.py").read_text(),
+    "fcntl es opcional: el módulo carga en Windows")
 chk('"motivo"' in API and "_empty(" in API,
     "si la memoria se apaga, el payload dice por qué (nada de degradar mudo)")
 

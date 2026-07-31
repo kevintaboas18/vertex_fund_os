@@ -7,3 +7,7 @@ venv/
 API/.env
 engine/cache/
 engine/.venv/
+# Memoria del motor de Tito. Sin WBJ_TITO_DATA cae aquí, junto al repo: son
+# datos de mercado acumulados (cadena, IV, trades, diario), no código.
+data/tito/
+*.json.lock

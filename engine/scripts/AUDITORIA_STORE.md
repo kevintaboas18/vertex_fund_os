@@ -1,7 +1,11 @@
 # Auditoría del port de `store.ts`
 
-Cuatro problemas encontrados atacando el port, no releyendo el diff. Tres eran
-míos; uno es compartido con el original y se deja como está.
+Dos pasadas, atacando el port en vez de releer el diff. Ocho hallazgos: seis
+arreglados, uno compartido con el original que se deja como está, y uno que
+resultó ser un artefacto del contenedor.
+
+**Segunda pasada** (concurrencia, tickers degenerados, portabilidad) →
+secciones 5 a 8.
 
 ## 1 · El orden dependía de la zona horaria del servidor — ARREGLADO
 
@@ -65,6 +69,67 @@ del port. Pero la consecuencia es pérdida silenciosa de datos, así que
 `_dedupe_key` cae a una clave compuesta cuando el id es falsy. **Con id real el
 comportamiento es idéntico al suyo.**
 
+## 5 · Dos peticiones a la vez perdían el 75% de la memoria — ARREGLADO
+
+El más grave de los ocho. `save_trades` hace leer-fusionar-escribir sin cerrojo:
+dos peticiones al mismo ticker leen el mismo archivo y la segunda escribe encima
+de lo que acumuló la primera. Medido con 8 hilos × 50 trades:
+
+    antes:  100 / 400        ← se perdía el 75%
+    ahora:  400 / 400
+
+Y es un caso normal, no raro: el panel se auto-refresca mientras el usuario
+consulta, y Render corre varios workers.
+
+Los **otros tres stores tenían la misma carrera** — dejar uno solo arreglado
+habría sido arbitrario. `save_prediction` era el peor de los tres porque se
+llama una vez **por horizonte**, así que dos peticiones simultáneas dejaban el
+diario con huecos y la calibración tardaba más en encenderse.
+
+Arreglo: `_exclusive(path)`, un `threading.Lock` por archivo (peticiones del
+mismo worker) más `flock` sobre un `.lock` aparte (workers hermanos). El cerrojo
+va en un `.lock` y no en el JSON porque la escritura atómica reemplaza el inodo
+del JSON en cada guardado. Coste medido: **0.3 ms por guardado**.
+
+Es **divergencia declarada**: Víctor tiene la misma carrera —sus `await` entre
+`loadTrades` y `writeFile` dejan el mismo hueco— pero perder el 75% de lo que
+este archivo existe para acumular no es aceptable.
+
+## 6 · Tickers basura compartían un archivo sin dueño — ARREGLADO
+
+`"!!!"`, `"@@@"`, `""` y `"   "` sanean todos a la cadena vacía, así que
+`fileFor` los mandaba al **mismo** `.json`: la memoria de una consulta basura
+contaminaba la siguiente. Ahora `_file_for` lanza `ValueError`. Leer nunca
+lanza (un ticker sin nombre tampoco tiene historial); guardar sí, porque ahí hay
+algo que se perdería en silencio. El endpoint lo absorbe y lo reporta en
+`stats.motivo`.
+
+## 7 · Leer dejaba carpetas escritas — ARREGLADO
+
+`_file_for` y `_path` hacían `mkdir` en la ruta de **lectura**: preguntar "¿hay
+historial?" creaba `data/tito/trades/`. El que escribe ya las crea.
+
+## 8 · `fcntl` habría roto el arranque en Windows — ARREGLADO
+
+El cerrojo del punto 5 trajo `import fcntl`, que es solo POSIX. En Windows —donde
+se corre el preflight local— habría tumbado el módulo entero y con él
+`vertex_api`. Ahora el import es opcional; sin `fcntl` queda el cerrojo de hilos,
+que cubre el caso de un solo proceso. Verificado simulando el entorno:
+400/400 sin `flock` y sin crear `.lock`.
+
+## No arreglado a propósito
+
+`BRK/B` y `BRKB` caen en el mismo archivo, porque el saneado borra la barra.
+Es el comportamiento de Víctor, y las formas reales de esos tickers usan punto
+(`BRK.B`) o guion (`BRK-B`), que sobreviven al saneado. Cambiar el nombrado de
+archivos por un caso que no ocurre no compensa.
+
+## Hallazgo inválido
+
+"`save_trades` no falla en disco de solo lectura": el contenedor de auditoría
+corre como **root**, que salta los bits de permiso, así que la prueba con
+`chmod` no prueba nada. No es un resultado.
+
 ## Lo que se comprobó y estaba bien
 
 - Escritura atómica: matar el proceso a media escritura deja el archivo anterior
@@ -81,6 +146,11 @@ comportamiento es idéntico al suyo.**
 - El "análisis más reciente gana" de Víctor repara solo: una corrida con tape
   sano vuelve a poner en pie los trades que se guardaron degradados.
 - `/api/tito-health` no filtra credenciales.
+- Un lector concurrente **nunca** ve el archivo a medias, ni durante 15
+  reescrituras seguidas de un archivo de 2000 trades.
+- El `.lock` no se lee como historial ni deja `.tmp` huérfanos.
+- Los 4 stores bajo 8 hilos: ivStore 8/8 días, chainStore 8/8, predictionStore
+  24/24 (8 días × 3 horizontes).
 
 ## Correspondencia con el original
 

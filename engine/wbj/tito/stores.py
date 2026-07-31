@@ -31,6 +31,8 @@ import json
 import os
 import re
 import tempfile
+import threading
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -73,9 +75,9 @@ def data_dir() -> Path:
 
 
 def _path(kind: str, ticker: str) -> Path:
-    p = data_dir() / kind
-    p.mkdir(parents=True, exist_ok=True)
-    return p / f"{ticker.upper()}.json"
+    """No crea el directorio: leer no debe dejar carpetas escritas. `_write` lo
+    crea cuando de verdad hay algo que guardar."""
+    return data_dir() / kind / f"{ticker.upper()}.json"
 
 
 def _read(path: Path) -> Any:
@@ -83,6 +85,62 @@ def _read(path: Path) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+#: `fcntl` es solo POSIX. En Windows —donde se corre el preflight local— no
+#: existe, y un import directo tumbaría el módulo entero. Sin él queda el
+#: cerrojo de hilos, que cubre el caso de un solo proceso (que es el de Windows).
+try:
+    import fcntl
+except ImportError:   # pragma: no cover — Windows
+    fcntl = None      # type: ignore[assignment]
+
+#: Un cerrojo por archivo dentro del proceso. Se acompaña de `flock` para los
+#: workers hermanos; sin el de hilos, dos peticiones del mismo worker ya se
+#: pisan entre ellas.
+_LOCKS: dict[str, threading.Lock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+@contextmanager
+def _exclusive(path: Path):
+    """Serializa el ciclo leer-fusionar-escribir sobre `path`.
+
+    DIVERGENCIA declarada: Víctor no tiene cerrojo. Su `saveTrades` hace
+    `await loadTrades()` y luego `await fs.writeFile()`, así que dos peticiones
+    al mismo ticker se intercalan en los `await` y la segunda escribe encima de
+    lo que leyó la primera. Medido aquí: 8 escrituras concurrentes de 50 trades
+    dejaban **100 de 400** — se perdía el 75% de la memoria que este archivo
+    existe para acumular. Y es un caso normal, no raro: el panel se auto-refresca
+    mientras el usuario consulta, y Render corre varios workers.
+
+    El cerrojo va sobre un `.lock` aparte y no sobre el JSON, porque la escritura
+    atómica reemplaza el inodo del JSON en cada guardado y el `flock` se quedaría
+    colgado del inodo viejo.
+    """
+    key = str(path)
+    with _LOCKS_GUARD:
+        lk = _LOCKS.setdefault(key, threading.Lock())
+    with lk:
+        lock_path = path.with_suffix(path.suffix + ".lock")
+        fh = None
+        if fcntl is not None:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                fh = open(lock_path, "a+")
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            except OSError:
+                if fh is not None:
+                    fh.close()
+                fh = None   # sin flock (Windows, FS raro, disco RO) queda el de hilos
+        try:
+            yield
+        finally:
+            if fh is not None:
+                try:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                finally:
+                    fh.close()
 
 
 def _write(path: Path, payload: Any) -> None:
@@ -135,10 +193,11 @@ def save_chain_snapshot(ticker: str, rows: Sequence[Any], now: datetime) -> int:
         s["volume"] += r.volume
 
     path = _path("chain", ticker)
-    hist = _read(path) or []
-    hist = _upsert(hist, {"date": market_date_str(now), "strikes": list(by_strike.values())})
-    hist = _prune(hist, CHAIN_DAYS)
-    _write(path, hist)
+    with _exclusive(path):   # mismo motivo que en save_trades: leer-fusionar-escribir
+        hist = _read(path) or []
+        hist = _upsert(hist, {"date": market_date_str(now), "strikes": list(by_strike.values())})
+        hist = _prune(hist, CHAIN_DAYS)
+        _write(path, hist)
     return len(hist)
 
 
@@ -158,10 +217,11 @@ def save_iv_snapshot(ticker: str, avg_iv: float, now: datetime) -> int:
     if not (avg_iv and avg_iv > 0):
         return len(load_iv_history(ticker))
     path = _path("iv", ticker)
-    hist = _read(path) or []
-    hist = _upsert(hist, {"date": market_date_str(now), "avg_iv": round(float(avg_iv), 4)})
-    hist = _prune(hist, IV_DAYS)
-    _write(path, hist)
+    with _exclusive(path):
+        hist = _read(path) or []
+        hist = _upsert(hist, {"date": market_date_str(now), "avg_iv": round(float(avg_iv), 4)})
+        hist = _prune(hist, IV_DAYS)
+        _write(path, hist)
     return len(hist)
 
 
@@ -225,11 +285,21 @@ def _file_for(ticker: str) -> Path:
 
     El saneado no es cosmético — sin él un `../` en el ticker escribe fuera del
     directorio de datos.
+
+    Dos cosas que Víctor no hace:
+
+    - **No crea el directorio.** Era un efecto secundario en la ruta de LECTURA:
+      preguntar "¿hay historial?" dejaba carpetas escritas. El que escribe ya
+      las crea.
+    - **Rechaza el ticker que se queda en nada.** `"!!!"`, `"@@@"` y `""` sanean
+      todos a la cadena vacía, así que `fileFor` los mandaba al MISMO
+      `.json` — un cubo compartido donde la memoria de una consulta basura
+      contamina la siguiente. Mejor un error que un archivo que no es de nadie.
     """
     safe = re.sub(r"[^A-Z0-9._-]", "", ticker.strip().upper())
-    p = data_dir() / "trades"
-    p.mkdir(parents=True, exist_ok=True)
-    return p / f"{safe}.json"
+    if not safe.strip("._-"):
+        raise ValueError(f"ticker inservible como nombre de archivo: {ticker!r}")
+    return data_dir() / "trades" / f"{safe}.json"
 
 
 def _ts_key(row: dict) -> float:
@@ -276,8 +346,15 @@ def load_trades(ticker: str) -> StoredTrades | None:
     `None` y "historial vacío" son cosas distintas y el llamador las distingue:
     la primera es "nunca se ha guardado nada", la segunda "se guardó y no quedó
     nada". Por eso no colapsa a lista vacía.
+
+    Un ticker que no da nombre de archivo tampoco tiene historial: leer nunca
+    lanza. Guardarlo sí, porque ahí sí hay algo que se perdería en silencio.
     """
-    parsed = _read(_file_for(ticker))
+    try:
+        path = _file_for(ticker)
+    except ValueError:
+        return None
+    parsed = _read(path)
     if not isinstance(parsed, dict) or not isinstance(parsed.get("trades"), list):
         return None
     return StoredTrades(
@@ -298,29 +375,36 @@ def save_trades(ticker: str, rows: Sequence[Any]) -> SaveResult:
     Es lo que hace posible el sub-agente 6: un flow de hoy no tiene recorrido
     que juzgar, así que la Confirmación de Precio solo existe sobre lo que este
     archivo fue acumulando.
+
+    Leer-fusionar-escribir va bajo cerrojo: sin él, dos peticiones al mismo
+    ticker leen el mismo archivo y la segunda escribe encima de lo que acumuló
+    la primera.
     """
     clean = ticker.strip().upper()
-    existing = load_trades(clean)
-    by_id: dict[Any, dict] = {}
+    path = _file_for(clean)   # antes del cerrojo: un ticker inservible falla ya
 
-    for t in (existing.trades if existing else []):
-        if isinstance(t, dict):
-            by_id[_dedupe_key(t)] = t
-    added = 0
-    for r in rows:
-        row = r if isinstance(r, dict) else asdict(r)
-        key = _dedupe_key(row)
-        if key not in by_id:
-            added += 1
-        by_id[key] = row   # el análisis más reciente gana
+    with _exclusive(path):
+        existing = load_trades(clean)
+        by_id: dict[Any, dict] = {}
 
-    merged = sorted(by_id.values(), key=_ts_key, reverse=True)[:MAX_PER_TICKER]
+        for t in (existing.trades if existing else []):
+            if isinstance(t, dict):
+                by_id[_dedupe_key(t)] = t
+        added = 0
+        for r in rows:
+            row = r if isinstance(r, dict) else asdict(r)
+            key = _dedupe_key(row)
+            if key not in by_id:
+                added += 1
+            by_id[key] = row   # el análisis más reciente gana
 
-    _write(_file_for(clean), {
-        "ticker": clean,
-        "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "trades": merged,
-    })
+        merged = sorted(by_id.values(), key=_ts_key, reverse=True)[:MAX_PER_TICKER]
+
+        _write(path, {
+            "ticker": clean,
+            "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "trades": merged,
+        })
 
     oldest = merged[-1].get("timestamp") if merged else None
     return SaveResult(total=len(merged), added=added, first_seen=oldest)
@@ -343,14 +427,17 @@ class PredictionSnapshot:
 def save_prediction(ticker: str, snap: PredictionSnapshot) -> int:
     """Guarda la foto del día. Dedupe por (fecha, horizonte)."""
     path = _path("predictions", ticker)
-    rows = _read(path) or []
-    rows = [
-        r for r in rows
-        if not (r.get("date") == snap.date and r.get("horizon_days") == snap.horizon_days)
-    ]
-    rows.append(asdict(snap))
-    rows = _prune(rows, JOURNAL_DAYS)
-    _write(path, rows)
+    with _exclusive(path):
+        # Se llama una vez POR HORIZONTE. Sin cerrojo, dos peticiones a la vez
+        # se pisan el diario y la calibración se queda con huecos.
+        rows = _read(path) or []
+        rows = [
+            r for r in rows
+            if not (r.get("date") == snap.date and r.get("horizon_days") == snap.horizon_days)
+        ]
+        rows.append(asdict(snap))
+        rows = _prune(rows, JOURNAL_DAYS)
+        _write(path, rows)
     return len(rows)
 
 

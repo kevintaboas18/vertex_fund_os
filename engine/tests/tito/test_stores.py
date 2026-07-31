@@ -196,9 +196,48 @@ class TestTradesStore:
 
         save_trades("../../ETC/PASSWD", [_flow_row(1, "2026-07-30T15:00:00Z")])
         import os
-        escritos = [os.path.join(r, f) for r, _, fs in os.walk(data_dir()) for f in fs]
+        escritos = [os.path.join(r, f) for r, _, fs in os.walk(data_dir()) for f in fs
+                    if not f.endswith(".lock")]
         assert len(escritos) == 1
         assert os.path.realpath(escritos[0]).startswith(str(data_dir().resolve()))
+
+    def test_un_ticker_que_no_da_nombre_de_archivo_se_rechaza(self):
+        # "!!!", "@@@" y "" sanean todos a la cadena vacía: sin esta guarda los
+        # tres compartían un `.json` sin dueño, y la memoria de una consulta
+        # basura contaminaba la siguiente.
+        from wbj.tito.stores import _file_for
+        for malo in ("!!!", "@@@", "", "   ", "../..", "..."):
+            with pytest.raises(ValueError):
+                _file_for(malo)
+        assert load_trades("!!!") is None          # leer nunca lanza
+        with pytest.raises(ValueError):            # guardar sí: hay algo que se perdería
+            save_trades("@@@", [_flow_row(1, "2026-07-30T15:00:00Z")])
+
+    def test_leer_no_deja_rastro_en_disco(self):
+        # Preguntar "¿hay historial?" no puede crear carpetas.
+        from wbj.tito.stores import data_dir
+        assert load_trades("NUNCA") is None
+        assert not (data_dir() / "trades").exists()
+
+    def test_dos_escrituras_a_la_vez_no_se_pisan(self):
+        # Sin cerrojo, 8 hilos × 50 trades dejaban 100 de 400: cada uno leía el
+        # mismo archivo y escribía encima de lo que acumuló el anterior.
+        import threading
+        from datetime import datetime as _dt
+        base = _dt(2026, 7, 30, tzinfo=timezone.utc)
+
+        def escribe(lote):
+            save_trades("RACE", [
+                _flow_row(i, (base + timedelta(seconds=i)).isoformat().replace("+00:00", "Z"))
+                for i in lote])
+
+        hilos = [threading.Thread(target=escribe, args=(range(k * 50, k * 50 + 50),))
+                 for k in range(8)]
+        for h in hilos:
+            h.start()
+        for h in hilos:
+            h.join()
+        assert len(load_trades("RACE").trades) == 400
 
     def test_un_archivo_corrupto_se_lee_como_sin_historial(self):
         from wbj.tito.stores import data_dir
