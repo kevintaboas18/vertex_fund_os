@@ -48,6 +48,11 @@ try:
 except Exception:
     client_gemini = None
 
+# Ruta del engine determinista de Victor. Se define aquí arriba porque
+# `_sec_user_agent()` (A-01) la necesita al importar el módulo, mucho antes
+# de que se use para el scoring.
+_WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine")
+
 app = FastAPI(title="Vertex Fund OS Core")
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1327,7 +1332,26 @@ def _news_catalyst_context(noticias):
     return head + " ".join(out_lines), uniq
 
 
-SEC_HEADERS = {"User-Agent": "Vertex Holding Group research contact@vertexholding.com",
+# A-01: identidad ÚNICA ante la SEC, la misma que usa el engine. Antes había dos
+# hardcodeadas y distintas (esta y la de providers/edgar.py, con el correo de
+# Victor), y `EDGAR_USER_AGENT` de render.yaml / API/.env no se leía en ninguna.
+# La política de fair-access de la SEC bloquea POR user-agent: dos identidades
+# significaba dos cuotas separadas, y una de ellas compartida con otro proyecto.
+def _sec_user_agent():
+    ua = (os.environ.get("EDGAR_USER_AGENT") or "").strip()
+    if ua:
+        return ua
+    try:                       # respaldo: lo que el engine haya resuelto (API/.env)
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.config import load_settings
+        from wbj.providers.edgar import edgar_headers
+        return edgar_headers(load_settings())["User-Agent"]
+    except Exception:
+        return "Vertex Fund OS research (configura EDGAR_USER_AGENT)"
+
+
+SEC_HEADERS = {"User-Agent": _sec_user_agent(),
                "Accept-Encoding": "gzip, deflate", "Host": "www.sec.gov"}
 _SEC_TICKER_CACHE = {}
 
@@ -7093,7 +7117,6 @@ def _wbj_explain(context_text, temp=0.3):
 
 
 # ── ENGINE DETERMINISTA DE VICTOR (sin LLM) para los scores de las 6 categorías ──
-_WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine")
 
 
 

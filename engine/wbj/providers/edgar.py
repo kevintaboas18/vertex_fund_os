@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Any
 
@@ -35,8 +36,29 @@ TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 
-EDGAR_USER_AGENT = "warren-buffett-jr victor@infusioninvestments.com"
+#: Último recurso, sólo si nadie configuró `EDGAR_USER_AGENT`. Deliberadamente
+#: genérico: la SEC pide un contacto real, y poner aquí el correo de otra
+#: persona hace que sus límites de fair-access y los tuyos se compartan.
+_EDGAR_UA_FALLBACK = "Vertex Fund OS research (configura EDGAR_USER_AGENT)"
+
+#: Identidad resuelta al importar. `EdgarProvider` prefiere la de `Settings`
+#: (que lee `API/.env`); esto cubre a quien importa `_EDGAR_HEADERS` suelto
+#: — `screener.py`, `scripts/webapp.py` — y el caso Render, donde la variable
+#: llega por entorno y no existe ningún `.env` en disco.
+EDGAR_USER_AGENT = (os.environ.get("EDGAR_USER_AGENT") or "").strip() or _EDGAR_UA_FALLBACK
 _EDGAR_HEADERS = {"User-Agent": EDGAR_USER_AGENT}
+
+
+def edgar_headers(settings: Any = None) -> dict[str, str]:
+    """Cabeceras para la SEC, con la identidad configurada.
+
+    Orden: `Settings.edgar_user_agent` (de `API/.env`) → variable de entorno →
+    fallback genérico. Antes esto era una constante con el correo de Victor
+    codificado, así que `EDGAR_USER_AGENT` en `render.yaml` y en `API/.env`
+    no hacía absolutamente nada.
+    """
+    ua = (getattr(settings, "edgar_user_agent", None) or "").strip() if settings else ""
+    return {"User-Agent": ua or EDGAR_USER_AGENT}
 
 # The tickers map is one global, ticker-independent payload, so it is
 # cached under a fixed pseudo-ticker rather than the caller's ticker —
@@ -72,6 +94,11 @@ class EdgarProvider(Provider):
     def available(self) -> bool:
         """Always True — EDGAR requires no API key, only a User-Agent header."""
         return True
+
+    @property
+    def _headers(self) -> dict[str, str]:
+        """Cabeceras de esta instancia: prefiere la identidad de sus `Settings`."""
+        return edgar_headers(self.settings)
 
     def _declared_overrides(self) -> dict:
         """The `Entradas/cik_overrides.json` map, or `{}`.
@@ -125,7 +152,7 @@ class EdgarProvider(Provider):
             "tickers",
             _GLOBAL_CACHE_TICKER,
             max_age_days=_MAX_AGE_TICKERS,
-            headers=_EDGAR_HEADERS,
+            headers=self._headers,
         )
         if not isinstance(payload, dict):
             return None
@@ -172,7 +199,7 @@ class EdgarProvider(Provider):
             "companyfacts",
             _cik_cache_key(cik),
             max_age_days=_MAX_AGE_COMPANYFACTS,
-            headers=_EDGAR_HEADERS,
+            headers=self._headers,
         )
         return payload if isinstance(payload, dict) else None
 
@@ -209,7 +236,7 @@ class EdgarProvider(Provider):
                 params["from"] = page * 100
             payload = self.get_json(
                 base, params, "efts_13f", f"{cusip}_{since}_{page}",
-                max_age_days=_MAX_AGE_SUBMISSIONS, headers=_EDGAR_HEADERS,
+                max_age_days=_MAX_AGE_SUBMISSIONS, headers=self._headers,
             )
             hits = (((payload or {}).get("hits") or {}).get("hits")) or []
             if not hits:
@@ -265,7 +292,7 @@ class EdgarProvider(Provider):
                 params["from"] = page * 100
             payload = self.get_json(
                 base, params, "efts_13dg", f"{cusip}_{since}_{page}",
-                max_age_days=_MAX_AGE_SUBMISSIONS, headers=_EDGAR_HEADERS,
+                max_age_days=_MAX_AGE_SUBMISSIONS, headers=self._headers,
             )
             hits = (((payload or {}).get("hits") or {}).get("hits")) or []
             if not hits:
@@ -324,7 +351,7 @@ class EdgarProvider(Provider):
         payload = self.get_json(
             SUBMISSIONS_URL.format(cik=cik), {}, "submissions",
             _cik_cache_key(cik), max_age_days=_MAX_AGE_SUBMISSIONS,
-            headers=_EDGAR_HEADERS,
+            headers=self._headers,
         )
         recent = (payload or {}).get("filings", {}).get("recent")
         if not isinstance(recent, dict):
@@ -343,7 +370,7 @@ class EdgarProvider(Provider):
             index = self.get_json(
                 f"https://www.sec.gov/Archives/edgar/data/{cik}/{bare}/index.json",
                 {}, "filing_index", f"{_cik_cache_key(cik)}_{bare}",
-                max_age_days=_MAX_AGE_FILING, headers=_EDGAR_HEADERS,
+                max_age_days=_MAX_AGE_FILING, headers=self._headers,
             )
             items = ((index or {}).get("directory") or {}).get("item") or []
             candidates = []
@@ -393,7 +420,7 @@ class EdgarProvider(Provider):
         payload = self.get_json(
             SUBMISSIONS_URL.format(cik=cik), {}, "submissions",
             _cik_cache_key(cik), max_age_days=_MAX_AGE_SUBMISSIONS,
-            headers=_EDGAR_HEADERS,
+            headers=self._headers,
         )
         recent = (payload or {}).get("filings", {}).get("recent")
         if not isinstance(recent, dict):
@@ -413,7 +440,7 @@ class EdgarProvider(Provider):
         payload = self.get_json(
             SUBMISSIONS_URL.format(cik=cik), {}, "submissions",
             _cik_cache_key(cik), max_age_days=_MAX_AGE_SUBMISSIONS,
-            headers=_EDGAR_HEADERS,
+            headers=self._headers,
         )
         recent = (payload or {}).get("filings", {}).get("recent")
         if not isinstance(recent, dict):
@@ -443,7 +470,7 @@ class EdgarProvider(Provider):
         # Cache per accession: a filing is immutable, and the 10-Q series
         # must not overwrite one another under a single key.
         raw = self.get_text(url, {}, f"filing_{accession}", _cik_cache_key(cik),
-                            max_age_days=_MAX_AGE_FILING, headers=_EDGAR_HEADERS)
+                            max_age_days=_MAX_AGE_FILING, headers=self._headers)
         if not raw:
             return None
 
@@ -474,7 +501,7 @@ class EdgarProvider(Provider):
             "submissions",
             _cik_cache_key(cik),
             max_age_days=_MAX_AGE_SUBMISSIONS,
-            headers=_EDGAR_HEADERS,
+            headers=self._headers,
         )
         if not isinstance(payload, dict):
             return None

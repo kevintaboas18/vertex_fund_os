@@ -82,14 +82,19 @@ El **núcleo metodológico de Victor está intacto y verificado**. Lo que falla 
 
 ## 2. ALTO — Rompe funcionalidad o contradice `CLAUDE.md`
 
-### [ ] A-01 — `EDGAR_USER_AGENT` está hardcodeado con el email de Victor y la env var se ignora
-- **Dónde:** `engine/wbj/providers/edgar.py:38-39` — `EDGAR_USER_AGENT = "warren-buffett-jr victor@infusioninvestments.com"`
-- **Por qué falla:** Es una constante de módulo. `wbj/config.py::Settings` **no tiene campo `edgar_user_agent`**, así que:
-  - `render.yaml:30` define `EDGAR_USER_AGENT` → **ignorado**
-  - `API/.env.example:5` lo define → **ignorado**
-  - `DEPLOYMENT.md §6` dice que la solución al 403 de EDGAR es "define `EDGAR_USER_AGENT` con tu email real" → **esa instrucción no hace nada**
-  - Todas tus peticiones a la SEC se identifican como Victor. Si la SEC limita ese UA por fair-access, te afecta a ti y a él a la vez.
-- **Solución:** Añadir `edgar_user_agent: str | None = None` a `Settings`, leerlo en `load_settings()` desde `env_vars` **y** `os.environ` (como ya se hace con `anthropic_api_key` en `config.py:70-72`), y en `edgar.py` construir los headers desde `self.settings.edgar_user_agent` con el valor actual como último fallback. Actualizar `render.yaml` con tu email.
+### [x] A-01 — ✅ RESUELTO (2026-07-30) — Identidad única y configurable ante la SEC
+- **Era peor de lo que decía el hallazgo: había DOS identidades hardcodeadas y distintas**, y ninguna configurable:
+  - `engine/wbj/providers/edgar.py:38` → `"warren-buffett-jr victor@infusioninvestments.com"`
+  - `vertex_api.py:1330` → `"Vertex Holding Group research contact@vertexholding.com"`
+
+  Mientras tanto `render.yaml` y `API/.env.example` **ya declaraban tu identidad** (`Vertex Fund OS - Kevin Taboas kevintaboas02@gmail.com`) y ambas se ignoraban. La SEC limita **por user-agent**, así que eran dos cuotas separadas y una compartida con el proyecto de Victor: si a él le limitan, a ti también.
+- **Ahora:** una sola identidad, resuelta así — `Settings.edgar_user_agent` (de `API/.env`) → variable de entorno `EDGAR_USER_AGENT` → fallback genérico que **no lleva el correo de nadie**.
+  - `config.py`: campo `edgar_user_agent`, leído del `.env` **y** de `os.environ` (como ya se hacía con `ANTHROPIC_API_KEY`) — necesario porque en Render no existe `API/.env`.
+  - `edgar.py`: nueva `edgar_headers(settings)`; las 10 llamadas del provider usan `self._headers`. Se conserva `_EDGAR_HEADERS` a nivel de módulo porque lo importan sueltos `screener.py` y `scripts/webapp.py`.
+  - `vertex_api.py`: `SEC_HEADERS` pasa a usar la misma identidad. `_WBJ_ENGINE_PATH` se movió al arranque del módulo, porque el respaldo lo necesita al importar.
+- **De paso (parte de M-04):** `scripts/premarket_email.py` mandaba el correo pre-market a `victor@infusioninvestments.com` por defecto. Ahora al tuyo. *(Siguen pendientes en M-04 los feriados fijados a 2026 y la ausencia de workflow.)*
+- **Verificado:** los 3 caminos (entorno / `API/.env` / sin configurar) resuelven correctamente en las 5 superficies (`settings`, `EdgarProvider`, módulo, `_EDGAR_HEADERS`, `vertex_api`). Sin configurar **no aparece ningún correo ajeno**. Petición **real a la SEC** con tu identidad: respondió CIK 320193 para AAPL, sin 403. Engine: **1959 pasan, 1 skip**. `tests_vertex`: **47 pasan**. Cero rastro de los dos correos anteriores en código.
+- **Pendiente tuyo:** nada — `render.yaml` ya trae tu identidad como `value` (no `sync: false`), así que se despliega sola. Si prefieres otro correo, cámbialo ahí.
 
 ### [ ] A-02 — Dos items obligatorios del reporte fallan en silencio en Render
 - **Dónde:** `vertex_api.py:1274` (`_wbj_insiders_clasificados`) y `:1308` (`_wbj_holders_from_edgar`)
@@ -240,7 +245,7 @@ Tu Python global **no tenía** `pytest`, `scipy`, `typer`, `matplotlib`, `anthro
 | 2 | ~~C-02~~ | ✅ Resuelto | Auth por cookie HttpOnly + cabecera | §6 |
 | 3 | ~~C-03~~ | ✅ Resuelto | Token custodiado en servidor + cifrado | §6 |
 | 4 | ~~C-04~~ | ✅ Resuelto | CORS restringido a VERTEX_ORIGIN | §6 |
-| 5 | A-01 | 🟠 Alto | `EDGAR_USER_AGENT` hardcodeado, env var ignorada | `edgar.py:38` |
+| 5 | ~~A-01~~ | ✅ Resuelto | Identidad SEC única y configurable | §6 |
 | 6 | A-02 | 🟠 Alto | Items obligatorios 4 y 5 vacíos en Render | `vertex_api.py:1274,1308` |
 | 7 | A-03 | 🟠 Alto | Perfil Kevin vs Victor ($1k vs $25k) | `risk.py:270` |
 | 8 | A-04 | 🟠 Alto | Insiders >$1M sin agregar por persona | `vertex_api.py:6612` |
@@ -263,7 +268,7 @@ Tu Python global **no tenía** `pytest`, `scipy`, `typer`, `matplotlib`, `anthro
 | 25 | M-14 | 🟡 Medio | Override 2 no bloquea banda "Elite" | `gates.py:162` |
 | 26 | M-15 | 🟡 Medio | `docs/superpowers/` obsoleto | `docs/` |
 
-**Orden de arreglo sugerido:** ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → ~~C-02~~ → ~~C-03~~ → ~~C-04~~ → A-01 → A-02 → A-03 → A-04 → A-05 → A-06 → ~~A-07~~ → el resto de M.
+**Orden de arreglo sugerido:** ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → ~~C-02~~ → ~~C-03~~ → ~~C-04~~ → ~~A-01~~ → A-02 → A-03 → A-04 → A-05 → A-06 → ~~A-07~~ → el resto de M.
 
 ---
 

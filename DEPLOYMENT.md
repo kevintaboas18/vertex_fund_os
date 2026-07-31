@@ -97,7 +97,7 @@ La app las lee de `vertex.env` (local) o de las Environment Variables (Render).
 | `VERTEX_API_TOKEN` | **Clave de acceso a la API.** Sin ella el servidor solo atiende a localhost | **Sí en Render** |
 | `VERTEX_ORIGIN` | URL pública del servicio, para CORS | Sí en Render |
 | `VERTEX_DB_KEY` | Cifra el `access_token` de Plaid guardado en la DB | Recomendada |
-| `EDGAR_USER_AGENT` | Identidad ante la SEC (tu nombre + email) | Sí (EDGAR la exige) |
+| `EDGAR_USER_AGENT` | Identidad ante la SEC (tu nombre + email real) | Sí (EDGAR la exige) |
 | `GEMINI_API_KEY` | Explicación en palabras (LLM principal) | Sí, para la explicación |
 | `FMP_API_KEY` | Pares, gaps de earnings, revisiones | Recomendada |
 | `OPENAI_API_KEY` | Respaldo del LLM | Opcional |
@@ -155,7 +155,7 @@ scorecard con **"Fuente de los scores: engine determinista (metodología de Vict
 
 | Síntoma | Causa | Solución |
 |---|---|---|
-| EDGAR `403 Forbidden` | Falta/incorrecto el User-Agent | Define `EDGAR_USER_AGENT` con tu email real |
+| EDGAR `403 Forbidden` | Falta/incorrecto el User-Agent | Define `EDGAR_USER_AGENT` con tu nombre y email real. La SEC limita POR user-agent, así que usa uno tuyo y no lo compartas |
 | Scores dicen "estimación LLM (fallback)" | El engine no pudo (sin red a EDGAR, o deps faltantes) | Revisa que `scipy/httpx/typer/pandas` estén instalados y haya red a `data.sec.gov` |
 | FMP `401/403` | Key inválida o plan sin ese endpoint | Verifica `FMP_API_KEY`; pares/gaps requieren plan con esos datos |
 | No aparece la explicación | Falta `GEMINI_API_KEY` o cuota agotada | Configura la key; el análisis numérico sigue válido |

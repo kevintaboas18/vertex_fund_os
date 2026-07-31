@@ -22,6 +22,11 @@ class Settings:
     finnhub_api_key: str | None = None
     fred_api_key: str | None = None
     anthropic_api_key: str | None = None
+    # Identidad ante la SEC. Su política de fair-access exige un User-Agent con
+    # un contacto real; si se dispara un límite, la SEC bloquea POR user-agent,
+    # así que compartirlo con otro proyecto propaga el bloqueo. Se configura con
+    # EDGAR_USER_AGENT (API/.env o entorno) — ver providers/edgar.py.
+    edgar_user_agent: str | None = None
     # Model for the qualitative judgment agent; override to cut cost (e.g.
     # "claude-haiku-4-5"). Default per the Anthropic SDK guidance.
     judge_model: str = "claude-opus-4-8"
@@ -71,12 +76,18 @@ def load_settings(env_file: Path | None = None) -> Settings:
         env_vars.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or None
     )
     judge_model = env_vars.get("JUDGE_MODEL") or "claude-opus-4-8"
+    # Igual que ANTHROPIC_API_KEY: también desde el entorno real, porque en
+    # Render no existe API/.env — las variables llegan por el dashboard.
+    edgar_user_agent = (
+        env_vars.get("EDGAR_USER_AGENT") or os.environ.get("EDGAR_USER_AGENT") or None
+    )
 
     return Settings(
         fmp_api_key=fmp_api_key,
         finnhub_api_key=finnhub_api_key,
         fred_api_key=fred_api_key,
         anthropic_api_key=anthropic_api_key,
+        edgar_user_agent=edgar_user_agent,
         judge_model=judge_model,
         repo_root=repo_root,
         cache_dir=repo_root / "engine" / "cache",
