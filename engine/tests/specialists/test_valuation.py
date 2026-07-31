@@ -440,18 +440,56 @@ def test_each_anchor_provenance_entry_names_its_source():
 
 def test_peg_prefers_forward_pe_from_consensus_eps():
     """VAL-PEG-028 is 'Forward P/E / Expected EPS growth percent'. With a
-    forward EPS estimate present, the P/E uses it (no trailing-proxy flag)."""
+    forward EPS estimate present, the P/E uses it (no trailing-proxy flag).
+
+    El fixture lleva FECHA y los nombres de campo de `/stable/`, que es lo que
+    devuelve FMP hoy. Antes traia una sola fila sin fecha y con los nombres de
+    `/api/v3/`, asi que pasaba por accidente: `fmp_est[0]` cogia esa unica fila
+    y `estimatedEpsAvg` existia solo porque el propio test lo inventaba. Contra
+    datos reales ese camino devolvia None."""
     rows = [_row(2025, eps=1.0), _row(2024)]
     packet = _minimal_packet(rows, price=20.0)
     packet = packet.model_copy(update={
         "estimates": {**packet.estimates,
-                      "fmp_analyst_estimates": [{"estimatedEpsAvg": 2.0, "estimatedRevenueAvg": 1100.0}]}
+                      "fmp_analyst_estimates": [{"date": "2027-01-25", "epsAvg": 2.0,
+                                                 "revenueAvg": 1100.0}]}
     })
     out = val.run(packet, overlay={"eps_growth_pct": 0.20})
     peg = next(r for r in out.metrics if r.metric_id == "VAL-PEG-028")
     # forward P/E = 20 / 2.0 = 10 ; PEG = 10 / (0.20*100) = 0.5 (not 20/1.0/20 = 1.0 trailing)
     assert peg.value == pytest.approx(0.5)
     assert not any("trailing P/E" in a for a in out.assumptions)
+
+
+def test_forward_eps_takes_the_next_year_not_the_farthest(monkeypatch):
+    """FMP devuelve los estimados en orden DESCENDENTE: el mas lejano primero.
+    Coger `[0]` comparaba contra un consenso a 5 años vista en vez del proximo
+    ejercicio."""
+    rows = [_row(2025, eps=1.0), _row(2024)]
+    packet = _minimal_packet(rows, price=20.0)
+    packet = packet.model_copy(update={
+        "estimates": {**packet.estimates, "fmp_analyst_estimates": [
+            {"date": "2031-01-25", "epsAvg": 99.0},   # el mas lejano, va primero
+            {"date": "2027-01-25", "epsAvg": 2.0},    # el que corresponde
+        ]},
+    })
+    out = val.run(packet, overlay={"eps_growth_pct": 0.20})
+    peg = next(r for r in out.metrics if r.metric_id == "VAL-PEG-028")
+    assert peg.value == pytest.approx(0.5), "uso el EPS de 2031 en vez del de 2027"
+
+
+def test_legacy_v3_field_names_still_work():
+    """Compatibilidad: si FMP volviera a servir los nombres de `/api/v3/`, o
+    quedan datos cacheados con ellos, se siguen leyendo."""
+    rows = [_row(2025, eps=1.0), _row(2024)]
+    packet = _minimal_packet(rows, price=20.0)
+    packet = packet.model_copy(update={
+        "estimates": {**packet.estimates, "fmp_analyst_estimates": [
+            {"date": "2027-01-25", "estimatedEpsAvg": 2.0}]},
+    })
+    out = val.run(packet, overlay={"eps_growth_pct": 0.20})
+    peg = next(r for r in out.metrics if r.metric_id == "VAL-PEG-028")
+    assert peg.value == pytest.approx(0.5)
 
 
 def test_peg_falls_back_to_trailing_pe_with_disclosure():

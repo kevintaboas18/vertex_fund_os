@@ -368,6 +368,36 @@ def _engine_settings(base=None):
     return st
 
 
+# ── ESTIMADOS DE CONSENSO DE FMP ─────────────────────────────────────────────
+# Dos trampas, ambas silenciosas, ambas encontradas midiendo con la clave real:
+#
+# 1. FMP renombro los campos al retirar `/api/v3/`: `estimatedRevenueAvg` es
+#    ahora `revenueAvg`, `estimatedEpsAvg` es `epsAvg`. Pedir el nombre viejo
+#    devuelve None, no un error.
+# 2. Los devuelve en orden DESCENDENTE — para NVDA, 2031 antes que 2027. Coger
+#    `[0]` no daba "el proximo año" sino el consenso mas lejano disponible.
+#
+# Juntas dejaban en None todo el puente de estimados: crecimiento de consenso,
+# P/E forward, PEG y la magnitud de revision.
+
+def _est_field(row, *keys):
+    """Primer valor no nulo entre `keys` (tolera los dos juegos de nombres)."""
+    for k in keys:
+        v = (row or {}).get(k)
+        if v is not None:
+            return v
+    return None
+
+
+def _next_year_estimate(estimates, as_of=""):
+    """Fila de consenso del PROXIMO periodo posterior a `as_of`."""
+    if not as_of:
+        as_of = datetime.now(timezone.utc).date().isoformat()
+    futuras = [e for e in (estimates or [])
+               if isinstance(e, dict) and str(e.get("date", "")) > str(as_of)]
+    return min(futuras, key=lambda e: str(e["date"])) if futuras else None
+
+
 # ── #5 — CACHÉ COMPARTIDO DE SERIES DE PRECIO ────────────────────────────────
 # track-record, calibración, IC y portfolio-fit bajaban 1 año de historia por
 # ticker cada uno, por separado. Este caché (TTL 1h) lo comparte y reduce el
@@ -7874,10 +7904,10 @@ def _engine_scorecard(ticker, info, price):
             # comparar → no se inyecta y la métrica queda N/S, que es lo honesto.
             try:
                 _est_rows = (getattr(pk, "estimates", {}) or {}).get("fmp_analyst_estimates") or []
-                _e0 = _est_rows[0] if _est_rows and isinstance(_est_rows[0], dict) else {}
-                _eps_now = _e0.get("estimatedEpsAvg")
-                _rev_now = _e0.get("estimatedRevenueAvg")
-                _n_an = _e0.get("numberAnalystEstimatedRevenue")
+                _e0 = _next_year_estimate(_est_rows) or {}
+                _eps_now = _est_field(_e0, "epsAvg", "estimatedEpsAvg")
+                _rev_now = _est_field(_e0, "revenueAvg", "estimatedRevenueAvg")
+                _n_an = _est_field(_e0, "numAnalystsRevenue", "numberAnalystEstimatedRevenue")
                 _prior_c = consensus_snapshot(
                     ticker, str(_e0.get("date", ""))[:10] or None,
                     float(_eps_now) if _eps_now is not None else None,
@@ -7907,8 +7937,9 @@ def _engine_scorecard(ticker, info, price):
             _fest = (getattr(pk, "estimates", {}) or {}).get("fmp_analyst_estimates") or []
             _af_pk = (getattr(pk, "fundamentals", {}) or {}).get("annual") or []
             _eps0 = _af_pk[0].get("eps") if _af_pk and isinstance(_af_pk[0], dict) else None
-            if _fest and isinstance(_fest[0], dict) and _eps0 not in (None, 0):
-                _eps_next = _fest[0].get("estimatedEpsAvg")
+            _ny = _next_year_estimate(_fest)
+            if _ny and _eps0 not in (None, 0):
+                _eps_next = _est_field(_ny, "epsAvg", "estimatedEpsAvg")
                 if _eps_next is not None:
                     _g_eps = float(_eps_next) / float(_eps0) - 1.0
                     if _g_eps > 0:

@@ -369,6 +369,34 @@ def _confidence_for(v: Value) -> float:
     return max(0.0, min(100.0, base))
 
 
+def _est_field(row: dict, *keys: str):
+    """Primer valor no nulo entre `keys`.
+
+    FMP renombro los campos al retirar `/api/v3/` en favor de `/stable/`:
+    `estimatedRevenueAvg` -> `revenueAvg`, `estimatedEpsAvg` -> `epsAvg`. El
+    codigo seguia pidiendo los viejos, asi que **todo estimado forward salia
+    None en silencio** y la valuacion caia al P/E trailing sin decirlo.
+    `quick.py` ya toleraba ambos; esto lo alinea.
+    """
+    for k in keys:
+        v = row.get(k)
+        if v is not None:
+            return v
+    return None
+
+
+def _next_year_estimate(estimates, as_of: str):
+    """Fila de consenso del PROXIMO periodo, no la primera de la lista.
+
+    FMP devuelve los estimados en orden DESCENDENTE (el mas lejano primero:
+    para NVDA, 2031 antes que 2027). `fmp_est[0]` no era "el proximo año" sino
+    el mas lejano disponible, asi que el reverse-DCF y el P/E forward
+    comparaban contra un consenso a 5 años vista.
+    """
+    futuras = [e for e in (estimates or []) if str(e.get("date", "")) > str(as_of)]
+    return min(futuras, key=lambda e: str(e["date"])) if futuras else None
+
+
 def _num(row: dict, key: str) -> float | None:
     x = row.get(key)
     return float(x) if isinstance(x, (int, float)) else None
@@ -1173,8 +1201,9 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     # ---- Reverse DCF (VAL-RDCF-027) ----
     consensus_growth = None
     fmp_est = (packet.estimates or {}).get("fmp_analyst_estimates") or []
-    if len(fmp_est) >= 2 and revenue0:
-        rev_next = fmp_est[0].get("estimatedRevenueAvg")
+    _next_est = _next_year_estimate(fmp_est, getattr(packet.analysis, "as_of", "") or "")
+    if _next_est and revenue0:
+        rev_next = _est_field(_next_est, "revenueAvg", "estimatedRevenueAvg")
         if rev_next is not None:
             consensus_growth = rev_next / revenue0 - 1
 
@@ -1545,7 +1574,8 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     # only fall back to trailing EPS -- a documented proxy, FORMULAS.md's own
     # "definitions vary" caveat -- when no forward estimate is present.
     eps = _num(latest, "eps")
-    fwd_eps = fmp_est[0].get("estimatedEpsAvg") if fmp_est else None
+    _ny = _next_year_estimate(fmp_est, getattr(packet.analysis, "as_of", "") or "")
+    fwd_eps = _est_field(_ny, "epsAvg", "estimatedEpsAvg") if _ny else None
     pe_eps = fwd_eps if (fwd_eps is not None and fwd_eps > 0) else eps
     used_trailing_pe = not (fwd_eps is not None and fwd_eps > 0)
     consensus_eps_growth_pct = overlay.get("eps_growth_pct")
