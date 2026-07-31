@@ -68,7 +68,81 @@ def _price_and_atr(packet: Any) -> tuple[float | None, float | None]:
     })
     atr_series = ind.atr14(df)
     atr = float(atr_series.iloc[-1]) if len(atr_series) and pd.notna(atr_series.iloc[-1]) else None
-    return rows[-1].close, atr
+    # The ADJUSTED close, which is what `facts_table["price"]` carries and
+    # what the valuation measures its margin of safety against. Returning
+    # the raw close put the levels and the football field's "current"
+    # marker on a different number from the valuation the moment a
+    # dividend or split landed — the same split V-05 closed one layer down.
+    return rows[-1].adj_close, atr
+
+
+def _price_view_divergence(valuation: Any, targets: Any,
+                           price: float | None) -> list[str]:
+    """The report's two price answers, stated together when they disagree.
+
+    A report carries both a discounted-cash-flow value (5-year intrinsic
+    worth, `valuation_scenarios` and the football-field chart) and a
+    12-month price target (today's P/E carried forward on earnings growth,
+    the scenario-fan chart). On NVDA those read $124 and $277 in the same
+    document, one below the price and one 40% above it, with nothing saying
+    they answer different questions.
+
+    They are not a data error — CONTRADICTION_RESOLUTION.md rule 5: "If the
+    contradiction is economic rather than data-driven, show both views and
+    name the condition that would resolve it." The condition is whether the
+    current multiple holds: the target assumes it does, the DCF prices the
+    cash flows without it.
+
+    Only fires when the two point OPPOSITE ways across the current price;
+    agreeing views need no reconciliation.
+    """
+    if not price or targets is None or targets.get("status") != "ok":
+        return []
+    base_scn = next((s for s in (valuation.scenarios or []) if s.name == "Base"), None)
+    dcf = getattr(base_scn, "per_share_value", None) if base_scn else None
+    target = next((s.get("target") for s in (targets.get("scenarios") or [])
+                   if s.get("key") == "base"), None)
+    if dcf is None or target is None:
+        return []
+    if (dcf >= price) == (target >= price):
+        return []
+    return [
+        "valuation: PRICE_VIEWS_DIVERGE — the 5-year DCF base case values the "
+        f"business at {dcf:,.2f} ({(dcf / price - 1):+.0%} vs {price:,.2f}) while "
+        f"the 12-month target is {target:,.2f} ({(target / price - 1):+.0%}). They "
+        "answer different questions: the target carries today's multiple forward "
+        "on earnings growth, the DCF discounts the cash flows without assuming "
+        "the multiple holds. The condition that resolves it is whether that "
+        "multiple persists — neither figure is a forecast of the other."
+    ]
+
+
+def _reverse_dcf_context(valuation: Any, price: float | None):
+    """CONTRADICTION_RESOLUTION.md row 6's inputs, off the frozen output.
+
+    "DCF high, reverse DCF demanding | Model assumptions may be optimistic
+    | Lower valuation confidence" — the one row of the table that needs
+    more than category scores. `contradictions()` implements it in full and
+    takes the context as a keyword argument; `run_report` never passed one,
+    so the row could not fire on any company and the table was five rows
+    deep in practice.
+    """
+    from wbj.aggregate.contradiction import ReverseDCFContext
+
+    base = next((s for s in (valuation.scenarios or []) if s.name == "Base"), None)
+    base_per_share = getattr(base, "per_share_value", None) if base else None
+    upside = ((base_per_share - price) / price
+              if base_per_share is not None and price else None)
+    rdcf = getattr(valuation, "reverse_dcf", None)
+    # The reference the implied growth is judged against is the base case's
+    # own revenue-growth assumption — now the consensus forecast, which is
+    # exactly what "demanding" should be measured against.
+    reference = (base.assumptions or {}).get("growth") if base else None
+    return ReverseDCFContext(
+        base_case_upside_pct=upside,
+        reverse_dcf_implied_growth=getattr(rdcf, "implied_revenue_cagr", None),
+        reference_growth=reference,
+    )
 
 
 def _entitlement_gaps(providers: Any) -> list[str]:
@@ -578,14 +652,33 @@ def run_report(ticker: str, settings: Any, now: datetime | None = None,
     raw = raw_total(pts)
     profile = apply_gates(raw, pts, confs, overrides)
     unscored_keys = {k for k, o in outs.items() if is_unscored(o)}
+    price, atr = _price_and_atr(packet)
     clashes = [
-        c for c in contradictions(s10, raw)
+        c for c in contradictions(s10, raw,
+                                  reverse_dcf=_reverse_dcf_context(outs["valuation"], price))
         if not any(k in c.combination.lower() for k in unscored_keys)
     ]
 
-    price, atr = _price_and_atr(packet)
     levels = synthesize_levels(outs["technical"], outs["valuation"], price or 0.0, atr or 0.0)
     thesis = _executive_thesis(ticker, profile, outs, levels, settings, lang)
+
+    # 12-month price targets: they drive the scenario fan AND seed the
+    # agent's memory. Computed unconditionally now -- gating them on
+    # `charts_dir` meant a report run without charts recorded no prediction,
+    # so the strict Cerebro analysis contributed nothing to calibration
+    # while the quick scorecard (which scores the same company very
+    # differently) was the only thing being tracked.
+    #
+    # Built BEFORE the report so the two price views can be compared into
+    # `data_gaps` -- see `_price_view_divergence`.
+    targets = None
+    try:
+        from wbj.cli import _build_packet
+        from wbj.targets import price_targets
+        targets = price_targets(_build_packet(ticker), price)
+    except Exception:
+        logger.warning("price targets unavailable; scenario fan skipped", exc_info=True)
+    data_gaps.extend(_price_view_divergence(outs["valuation"], targets, price))
 
     sec = outs["business"].security
     report = build_final_report(
@@ -596,20 +689,6 @@ def run_report(ticker: str, settings: Any, now: datetime | None = None,
         analysis_timestamp=now.isoformat(),
         data_gaps=data_gaps,
     )
-    # 12-month price targets: they drive the scenario fan AND seed the
-    # agent's memory. Computed unconditionally now -- gating them on
-    # `charts_dir` meant a report run without charts recorded no prediction,
-    # so the strict Cerebro analysis contributed nothing to calibration
-    # while the quick scorecard (which scores the same company very
-    # differently) was the only thing being tracked.
-    targets = None
-    try:
-        from wbj.cli import _build_packet
-        from wbj.targets import price_targets
-        targets = price_targets(_build_packet(ticker), price)
-    except Exception:
-        logger.warning("price targets unavailable; scenario fan skipped", exc_info=True)
-        targets = None
 
     if targets:
         try:
