@@ -3270,6 +3270,31 @@ function vcNewsHTML(n) {
       </div>`;
 }
 
+/** Carga las noticias por separado y las inyecta cuando llegan.
+ *
+ *  `call_pct` viaja al servidor porque la bandera confronta la dirección del
+ *  DINERO contra la de los titulares: sin ese número no hay apuesta dominante
+ *  que contrastar y la bandera sale `none` en vez de inventada. */
+async function vcLoadNews(d) {
+    const box = document.getElementById('vcNews');
+    if (!box) return;
+    let cp = '';
+    try {
+        const s = d.scores || {};
+        // El mismo % de calls que usa el resumen de Prediction Pro.
+        if (d.call_pct != null) cp = `&call_pct=${encodeURIComponent(d.call_pct)}`;
+    } catch (e) {}
+    box.innerHTML = `<p class="text-[10px] text-gray-600 italic mt-3">Leyendo noticias…</p>`;
+    try {
+        const r = await fetch(`${API_BASE}/api/tito-news?ticker=${encodeURIComponent(d.ticker)}${cp}`);
+        const n = await r.json();
+        box.innerHTML = n && n.ok ? vcNewsHTML(n)
+            : `<p class="text-[10px] text-gray-600 italic mt-3">Noticias no disponibles.</p>`;
+    } catch (e) {
+        box.innerHTML = `<p class="text-[10px] text-gray-600 italic mt-3">Noticias no disponibles.</p>`;
+    }
+}
+
 /** Panel de targets — tres escenarios por horizonte, no un nivel por horizonte. */
 function renderVictorTargets(d) {
     const el = document.getElementById('projTargets');
@@ -3310,8 +3335,12 @@ function renderVictorTargets(d) {
       </div>
       <p class="text-[10px] text-gray-300 mt-2 leading-snug">${_vcEsc(p.summary)}</p>
       ${p.caveat ? `<p class="text-[9px] text-amber-400 mt-1">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
-      ${vcNewsHTML(d.news)}
+      <div id="vcNews">${d.news ? vcNewsHTML(d.news) : ''}</div>
       ${warn ? `<div class="mt-2 space-y-0.5">${warn}</div>` : ''}`;
+
+    // Las noticias se cargan APARTE, como en la app de Víctor: 4 feeds RSS
+    // lentos no pueden retrasar los targets, que es lo que de verdad importa.
+    if (!d.news) vcLoadNews(d);
 }
 
 function renderProjections(d) {

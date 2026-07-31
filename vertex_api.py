@@ -3834,7 +3834,10 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     out["engine"] = "victor/tito"
     out["chain_source"] = "massive"
     out["memory"] = mem["stats"]
-    out["news"] = _tito_news(tk, r, now)
+    # Las noticias NO viajan aquí: van en /api/tito-news, igual que Víctor las
+    # tiene en su propia ruta y su propio panel. Acoplarlas al scorecard haría
+    # que 4 feeds RSS lentos retrasaran los targets, que es lo que de verdad
+    # importa — y un feed caído no debe hacer esperar a nadie.
     _tito_remember(tk, r, now)
     if flow_error:
         out["flow_error"] = flow_error
@@ -3981,34 +3984,35 @@ def _tito_memory(ticker, trades, chain, bars, now):
         return empty
 
 
-def _tito_news(ticker, result, now):
+@app.get("/api/tito-news")
+def tito_news(ticker: str, call_pct: float | None = None, name: str | None = None):
     """Tarea 7 — noticias en dos capas + bandera de contradicción.
 
-    NO toca los 100 pts del scorecard: las 6 categorías ya suman 100%. Es
+    Ruta propia, como la tiene Víctor (`/api/news` en su app): el panel de
+    noticias se carga y se refresca por separado del scorecard.
+
+    La bandera **NO toca los 100 pts**: las 6 categorías ya suman 100%. Es
     contexto que confronta la dirección del dinero contra la de los titulares.
-    Nunca revienta la petición — si los feeds o Massive fallan, el panel se
-    queda sin noticias pero el scorecard sigue.
+
+    `call_pct` es el % del premium notable en calls — el mismo número que usa el
+    resumen de Prediction Pro. Sin él la bandera sale `none` (no hay apuesta
+    dominante que contrastar), nunca inventada.
     """
+    sc = _tito_mod()
+    if sc is None:
+        return {"ok": False, "error": "Motor de Víctor no disponible."}
+
+    tk = (ticker or "").strip().upper()
+    if not tk:
+        return {"ok": False, "error": "Falta el ticker."}
+
     try:
         from wbj.tito import news as N
         from wbj.tito.massive import fetch_ticker_name
-    except Exception:
-        return None
 
-    try:
-        # % del premium notable en calls: la misma dirección que usa el resumen.
-        notable = result.flow.interesting
-        call_p = sum(r.premium for r in notable if r.type == "call")
-        put_p = sum(r.premium for r in notable if r.type == "put")
-        total = call_p + put_p
-        call_pct = (call_p / total * 100) if total > 0 else None
-
-        rep = N.build_news_report(ticker, fetch_ticker_name(ticker), now)
-        flag = (
-            N.contradiction_flag(N.flow_bias(call_pct), rep.bias)
-            if call_pct is not None
-            else N.contradiction_flag("neutral", rep.bias)
-        )
+        rep = N.build_news_report(tk, name or fetch_ticker_name(tk), datetime.now(timezone.utc))
+        fbias = N.flow_bias(call_pct) if call_pct is not None else "neutral"
+        flag = N.contradiction_flag(fbias, rep.bias)
 
         def it(x):
             return {"title": x.title, "url": x.url, "publisher": x.publisher,
@@ -4016,19 +4020,21 @@ def _tito_news(ticker, result, now):
                     "reasoning": x.reasoning, "matched_by": x.matched_by}
 
         return {
+            "ok": True,
+            "ticker": tk,
             "company": [it(x) for x in rep.company[:8]],
             "macro": [it(x) for x in rep.macro],
             "promoted": [it(x) for x in rep.promoted],
             "bias": {"bias": rep.bias.bias, "score": round(rep.bias.score, 3),
                      "positive": rep.bias.positive, "negative": rep.bias.negative,
                      "neutral": rep.bias.neutral},
-            "flow_bias": N.flow_bias(call_pct) if call_pct is not None else "neutral",
+            "flow_bias": fbias,
             "flag": {"kind": flag.kind, "title": flag.title, "detail": flag.detail},
             "feeds_ok": rep.feeds_ok, "feeds_total": rep.feeds_total,
             "afecta_scorecard": False,
         }
-    except Exception:
-        return None
+    except Exception as e:
+        return {"ok": False, "error": f"No se pudieron leer las noticias: {e}"}
 
 
 def _tito_remember(ticker, result, now):
@@ -4097,7 +4103,23 @@ def _tito_json(r):
         # aviso de categorías faltantes deben viajar con el número siempre.
         "warnings": r.warnings,
         "notable_trades": len(r.flow.interesting),
+        # % del premium notable en calls. Es el mismo número que usa el resumen
+        # de Prediction Pro, y el que /api/tito-news necesita para confrontar la
+        # dirección del dinero contra la de los titulares.
+        "call_pct": _tito_call_pct(r),
     }
+
+
+def _tito_call_pct(r):
+    """% del premium notable que está en calls, o None si no hay flujo direccional.
+
+    Se calcula sobre el set "interesante" — el mismo `convictionRows` que usa
+    Víctor, que en su código es literalmente `interesting`.
+    """
+    call_p = sum(x.premium for x in r.flow.interesting if x.type == "call")
+    put_p = sum(x.premium for x in r.flow.interesting if x.type == "put")
+    total = call_p + put_p
+    return round(call_p / total * 100) if total > 0 else None
 
 
 @app.get("/api/tito-scorecard")

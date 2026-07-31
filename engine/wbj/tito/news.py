@@ -443,13 +443,17 @@ def fetch_macro_feeds(timeout: float = 8.0) -> list[NewsItem]:
     if cached is not None and time.time() - float(_macro_cache["at"]) < _MACRO_TTL:  # type: ignore[arg-type]
         return cached  # type: ignore[return-value]
 
+    # En PARALELO, como el `Promise.all` del original: en serie, cuatro feeds a
+    # 8s de timeout dan un peor caso de 32s y el panel se queda colgado por el
+    # más lento en vez de por el más lento de todos.
+    from concurrent.futures import ThreadPoolExecutor
+
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; TitoMetralleta/1.0)"}
+    with ThreadPoolExecutor(max_workers=len(MACRO_FEEDS)) as pool:
+        bodies = list(pool.map(lambda f: _http_get(f["url"], headers, timeout), MACRO_FEEDS))
+
     collected: list[NewsItem] = []
-    for f in MACRO_FEEDS:
-        body = _http_get(
-            f["url"],
-            {"User-Agent": "Mozilla/5.0 (compatible; TitoMetralleta/1.0)"},
-            timeout,
-        )
+    for f, body in zip(MACRO_FEEDS, bodies):
         if body:
             collected.extend(parse_rss(body, f["name"]))
 
