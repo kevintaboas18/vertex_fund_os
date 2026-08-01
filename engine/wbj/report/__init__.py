@@ -76,6 +76,67 @@ def _price_and_atr(packet: Any) -> tuple[float | None, float | None]:
     return rows[-1].adj_close, atr
 
 
+#: Warnings that name an analyst input but do not spell out its key. The
+#: ones that already say "set `x` in Entradas/<TICKER>.json" are read
+#: straight out of the warning text instead.
+_ANALYST_INPUT_KEYS = {
+    "RECURRING_REVENUE_UNAVAILABLE": "recurring_revenue_share",
+    "ORGANIC_GROWTH_BRIDGE_UNAVAILABLE_JUDGMENT_REQUIRED": "organic_growth_bridge",
+    "MARKET_SHARE_SERIES_UNAVAILABLE_JUDGMENT_REQUIRED": "share_history",
+    "SAM_UNAVAILABLE": "sam_inputs",
+    "SOM_UNAVAILABLE": "som_inputs",
+    "MARKET_SHARE_DELTA_UNAVAILABLE": "share_history",
+    "INDUSTRY_HHI_UNAVAILABLE": "competitor_shares",
+    "RUNWAY_INPUTS_UNAVAILABLE": "target_revenue",
+    "REVENUE_COVERAGE_UNAVAILABLE": "ntm_contracted",
+    "CATALYST_REGISTRY_UNAVAILABLE": "catalysts",
+    "ADOPTION_UNAVAILABLE": "adoption",
+    "ARPU_GROWTH_UNAVAILABLE": "arpu_t",
+    "SCENARIOS_UNAVAILABLE": "scenarios",
+}
+
+_ENTRADAS_KEY_IN_WARNING = re.compile(r"set `([a-z_]+)`")
+
+
+def _analyst_input_gaps(outs: dict, ticker: str) -> list[str]:
+    """The unscored metrics an analyst input would close, as a work list.
+
+    Six dimensions come back NOT_SCORABLE on a typical run and the report
+    says only that. Most of them are not unknowable — they are inputs
+    `Entradas/<TICKER>.json` is designed to carry, and the metric warnings
+    already name several of them one row at a time. Nobody reads 117 metric
+    rows to find out that eight keys would restore two whole dimensions.
+
+    NOT_APPLICABLE is deliberately excluded: subscription metrics on a chip
+    maker are not a gap to fill, and `Category.points()` already rescales
+    them away rather than charging for them.
+    """
+    from wbj.core.nullstates import NullState
+
+    keys: dict[str, set[str]] = {}
+    for name, out in outs.items():
+        for row in (getattr(out, "metrics", None) or []):
+            if row.state is NullState.NOT_APPLICABLE:
+                continue
+            for warning in (row.warnings or []):
+                found = _ENTRADAS_KEY_IN_WARNING.search(warning)
+                key = found.group(1) if found else _ANALYST_INPUT_KEYS.get(
+                    warning.split(":")[0].strip())
+                if key:
+                    keys.setdefault(key, set()).add(row.metric_id)
+    if not keys:
+        return []
+    listed = ", ".join(
+        f"{k} ({len(v)} metric{'s' if len(v) > 1 else ''})"
+        for k, v in sorted(keys.items(), key=lambda kv: (-len(kv[1]), kv[0])))
+    return [
+        f"analyst inputs: {len(keys)} key(s) in Entradas/{ticker.upper()}.json would "
+        f"score metrics that are NOT_SCORABLE for want of a declared figure, not "
+        f"because they are unknowable — {listed}. These are read from filings and "
+        "named sources by a person; the engine will not impute them."
+    ]
+
+
 def _price_view_divergence(valuation: Any, targets: Any,
                            price: float | None) -> list[str]:
     """The report's two price answers, stated together when they disagree.
@@ -679,6 +740,7 @@ def run_report(ticker: str, settings: Any, now: datetime | None = None,
     except Exception:
         logger.warning("price targets unavailable; scenario fan skipped", exc_info=True)
     data_gaps.extend(_price_view_divergence(outs["valuation"], targets, price))
+    data_gaps.extend(_analyst_input_gaps(outs, ticker))
 
     sec = outs["business"].security
     report = build_final_report(

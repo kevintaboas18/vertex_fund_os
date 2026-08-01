@@ -8732,13 +8732,41 @@ def _engine_scorecard(ticker, info, price):
         _pt_packet = {"annual": {"net_income": _sv(_fmp_annual, "net_income"),
                                  "revenue": _sv(_fmp_annual, "revenue"),
                                  "diluted_shares": _sv(_fmp_annual, "diluted_shares")}}
+    # El MISMO precio contra el que puntuó el engine, no el de yfinance.
+    # `price` llega de `/api/analyze`, que lo toma de yfinance: durante la
+    # sesión ése es el último print y se mueve, mientras el packet lleva el
+    # cierre ajustado ya liquidado (V-05). Con los dos en la misma página, el
+    # upside del target se medía contra un precio distinto del que usó la
+    # valuación — a las 13:41 UTC de hoy eran 198 y 195.04. Se cae a `price`
+    # sólo si el packet no trae precio.
+    _pk_price = None
+    try:
+        _pf = (getattr(pk, "facts_table", None) or {}).get("price")
+        if _pf is not None and getattr(_pf, "is_valid", False):
+            _pk_price = float(_pf.value)
+    except Exception:
+        _pk_price = None
+    _target_price = _pk_price if _pk_price else price
     if _pt_packet:
         try:
-            pt = price_targets(_pt_packet, price)
+            pt = price_targets(_pt_packet, _target_price)
             if isinstance(pt, dict) and pt.get("status") == "ok":
                 sm = {s["key"]: s.get("target") for s in pt.get("scenarios", [])}
                 sc["victor_targets_12m"] = {"bull": sm.get("bull"), "base": sm.get("base"), "bear": sm.get("bear")}
                 sc["victor_fair_value"] = sm.get("base")      # el target "Medio" ES el fair value de Victor
+                # QUÉ es ese número, viajando CON él. La UI lo explica en un
+                # tooltip y el PDF no: exportado, "Fair Value: $277" se lee
+                # como valor intrínseco cuando es un target a 12 meses por
+                # múltiplo — y el DCF del especialista dice otra cosa ($111
+                # en NVDA). Ninguna superficie debe publicar uno sin decir
+                # cuál es (CONTRADICTION_RESOLUTION.md regla 5).
+                sc["victor_fair_value_basis"] = {
+                    "label": "Target Base 12M (múltiplo)",
+                    "method": "EPS x (1+crecimiento) x (P/E actual x factor)",
+                    "horizon": "12 meses",
+                    "not": "No es el valor intrínseco del DCF; ése va en victor_valuation.dcf_per_share",
+                    "priced_against": _target_price,
+                }
                 sc["victor_targets_detail"] = pt
             elif isinstance(pt, dict):
                 sc["victor_targets_reason"] = pt.get("reason")   # por qué no hay target (se surfacea honesto)
