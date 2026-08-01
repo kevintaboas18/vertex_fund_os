@@ -308,15 +308,23 @@ with tempfile.TemporaryDirectory() as _tdb:
     BS.save_bars(" demo ", _bb, _HOY)
     chk(BS.load_bars("DEMO").ticker == " DEMO ",
         "el ticker guardado NO se recorta (`ticker.toUpperCase()`, sin trim)")
-    # Los 2 BUGS de su barsStore.ts: `JSON.parse(raw) as BarsFile` sin validar.
+    # Los 2 BUGS de su barsStore.ts, REPLICADOS a propósito para que el port sea
+    # idéntico. Arreglo propuesto: engine/scripts/upstream-tito-barsstore.patch.
     _bp = BS.data_dir()/"bars"; _bp.mkdir(parents=True, exist_ok=True)
-    (_bp/"A.json").write_text('{"ticker":"A","date":"'+ _HOY.astimezone(_ET).date().isoformat() +'"}')
-    chk(len(BS.cached_daily_bars("A", now=_HOY, fetch=lambda t,d: _bb)) == 1,
-        "un cache sin campo `bars` no tumba la petición (en el suyo: TypeError)")
-    (_bp/"B.json").write_text('{"ticker":"B","date":"'+ _HOY.astimezone(_ET).date().isoformat() +'","bars":"texto"}')
-    _rb = BS.cached_daily_bars("B", now=_HOY, fetch=lambda t,d: _bb)
-    chk(isinstance(_rb, list) and len(_rb) == 1,
-        "un `bars` que no es lista no se devuelve como si lo fuera (él devuelve el string)")
+    _hoy_et = _HOY.astimezone(_ET).date().isoformat()
+    (_bp/"A.json").write_text('{"ticker":"A","date":"'+_hoy_et+'"}')
+    try:
+        BS.cached_daily_bars("A", now=_HOY, fetch=lambda t,d: _bb); _b1 = False
+    except TypeError:
+        _b1 = True
+    chk(_b1, "BUG 1 de Víctor replicado: cache sin `bars` lanza TypeError")
+    (_bp/"B.json").write_text('{"ticker":"B","date":"'+_hoy_et+'","bars":"texto"}')
+    chk(BS.cached_daily_bars("B", now=_HOY, fetch=lambda t,d: _bb) == "texto",
+        "BUG 2 de Víctor replicado: un `bars` de texto se devuelve tal cual")
+    (_bp/"E.json").write_text('[1,2]')
+    _e = BS.load_bars("E")
+    chk(_e is not None and _e.ticker is None and _e.bars is None,
+        "load_bars no valida nada (`JSON.parse(raw) as BarsFile`)")
 _blkb = API[API.index("def _tito_chain_and_bars"):API.index("def _tito_memory")]
 chk("cached_daily_bars" not in _blkb and "fetch_daily_bars(ticker)" in _blkb,
     'no cableado fuera de Wheel ("fetchDailyBars sigue sin cache para el resto de rutas")')

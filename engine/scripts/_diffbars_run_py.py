@@ -22,11 +22,13 @@ for c in casos:
             open(os.path.join(p, c["rawFile"]), "w").write(c["raw"])
         if c["op"] == "load":
             v = BS.load_bars(c["ticker"])
-            r["res"] = None if v is None else {"ticker": v.ticker, "date": v.date, "n": len(v.bars)}
+            r["res"] = None if v is None else {k: x for k, x in
+                (("ticker", v.ticker), ("date", v.date), ("n", len(v.bars or []))) if x is not None}
         elif c["op"] == "save":
             BS.save_bars(c["ticker"], B(c.get("n",3)), dt(c["now"]))
             v = BS.load_bars(c["ticker"])
-            r["res"] = None if v is None else {"ticker": v.ticker, "date": v.date, "n": len(v.bars)}
+            r["res"] = None if v is None else {k: x for k, x in
+                (("ticker", v.ticker), ("date", v.date), ("n", len(v.bars or []))) if x is not None}
             bd = os.path.join(D,"bars")
             r["archivos"] = sorted(f for f in os.listdir(bd) if not f.endswith(".lock")) if os.path.isdir(bd) else []
         elif c["op"] == "cached":

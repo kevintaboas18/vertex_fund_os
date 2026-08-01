@@ -26,7 +26,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from .levels import LvlBar
 from .occ import market_date_str
@@ -42,11 +42,17 @@ __all__ = [
 
 @dataclass(frozen=True)
 class BarsFile:
-    """`BarsFile`: el ticker, el día de mercado (ET) en que se guardó y las barras."""
+    """`BarsFile`: el ticker, el día de mercado (ET) en que se guardó y las barras.
+
+    `bars` va sin tipar a propósito. En TS, `JSON.parse(raw) as BarsFile` no
+    comprueba nada: lo que haya en el disco entra tal cual, y si el archivo
+    trae `bars: "texto"` el campo acaba siendo un string. Tiparlo aquí como
+    `list[LvlBar]` sería mentir sobre lo que puede contener.
+    """
 
     ticker: str
     date: str
-    bars: list[LvlBar]
+    bars: Any
 
 
 def _file_for(ticker: str) -> Path:
@@ -80,32 +86,36 @@ def _a_bar(d: object) -> LvlBar | None:
 
 
 def load_bars(ticker: str) -> BarsFile | None:
-    """`loadBars`: el cache guardado, o `None` si no hay o no se puede leer.
+    """`loadBars`, literal:
 
-    DIVERGENCIA declarada, y la única que queda: aquí se **valida** lo leído.
-    Víctor hace `JSON.parse(raw) as BarsFile` a secas, y ese `as` es una promesa
-    del compilador que el disco no tiene por qué cumplir. Medido contra su
-    archivo, con un cache del día corrupto:
+        const raw = await fs.readFile(fileFor(ticker), "utf8");
+        return JSON.parse(raw) as BarsFile;
 
-        sin campo `bars`      → `cached.bars.length` lanza TypeError
-                                y **tumba la petición entera**
-        `bars` como texto     → `"texto".length > 0` es cierto, así que
-                                **devuelve el string como si fueran barras**
-        `bars` como objeto    → devuelve el objeto igual
+    **No valida nada**, igual que el original: ese `as` es una afirmación para
+    el compilador, no una comprobación, así que lo que haya en el disco pasa tal
+    cual. Un `bars` que sea texto llega como texto y uno ausente llega como
+    `None`.
 
-    Basta una escritura interrumpida o un disco lleno para dejar ese archivo, y
-    entonces el escaneo revienta o corre sobre basura sin avisar. El parche
-    propuesto para el original está en
-    `engine/scripts/upstream-tito-barsstore.patch`.
+    Eso deja vivos los dos bugs de su archivo —ver
+    `engine/scripts/upstream-tito-barsstore.patch`— y es a propósito: se replican
+    para que el port sea idéntico. Los tests `TestBugsDeVictorReplicados` los
+    fijan con su comportamiento exacto, incluido el `TypeError`.
+
+    Lo único que sí se reconstruye es la lista de barras cuando de verdad es una
+    lista: en TS los objetos del JSON ya sirven como `DailyBar` por su forma, y
+    en Python hacen falta `LvlBar` para que `levels`, `validation` y compañía
+    puedan leer `b.time`. Con cualquier otra cosa se pasa el valor crudo.
     """
     parsed = _read(_file_for(ticker))
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("bars"), list):
-        return None
-    return BarsFile(
-        ticker=str(parsed.get("ticker", "")),
-        date=str(parsed.get("date", "")),
-        bars=[b for b in (_a_bar(x) for x in parsed["bars"]) if b is not None],
-    )
+    if not isinstance(parsed, dict):
+        # `JSON.parse` de un array o de un escalar: en TS el `as` lo deja pasar
+        # y los tres campos salen `undefined` — no cadena vacía. `None` solo
+        # cuando de verdad no hay archivo o no se pudo leer, que es el `catch`.
+        return None if parsed is None else BarsFile(ticker=None, date=None, bars=None)
+    crudo = parsed.get("bars")
+    bars: Any = ([b for b in (_a_bar(x) for x in crudo) if b is not None]
+                 if isinstance(crudo, list) else crudo)
+    return BarsFile(ticker=parsed.get("ticker"), date=parsed.get("date"), bars=bars)
 
 
 def save_bars(ticker: str, bars: Sequence[LvlBar], now: datetime | None = None) -> None:
@@ -138,7 +148,10 @@ def cached_daily_bars(
     today = market_date_str(now)
 
     cached = load_bars(ticker)
-    if cached and cached.date == today and cached.bars:
+    # `if (cached && cached.date === today && cached.bars.length > 0)` — con
+    # `len()`, no con la veracidad del objeto: es lo que hace que un `bars`
+    # ausente lance (BUG 1) y que un `bars` de texto pase la guarda (BUG 2).
+    if cached is not None and cached.date == today and len(cached.bars) > 0:
         return cached.bars
 
     if fetch is None:

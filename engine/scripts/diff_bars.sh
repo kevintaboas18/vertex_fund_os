@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Test diferencial de barsStore.ts: ejecuta SU archivo en Node (solo sin tipos,
+# la lógica intacta) y el port en Python sobre los mismos casos, y compara.
+#
+#     TITO_ROOT=/ruta/a/agente-tito-metralleta engine/scripts/diff_bars.sh
+#
+# Verifica que la SALIDA coincida, no que el código se parezca.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+TITO="${TITO_ROOT:-}"
+if [[ -z "$TITO" || ! -f "$TITO/web/lib/barsStore.ts" ]]; then
+  echo "  · saltado: define TITO_ROOT con el repo de Víctor clonado"; exit 0
+fi
+command -v node >/dev/null || { echo "  · saltado: hace falta node"; exit 0; }
+
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+
+python3 - "$TITO/web/lib/barsStore.ts" "$TMP/victor.mjs" <<'PY'
+import pathlib, re, sys
+ts = pathlib.Path(sys.argv[1]).read_text()
+js = re.sub(r'^import .*?;\s*$', '', ts, flags=re.M)
+js = re.sub(r'interface BarsFile \{.*?\n\}\n', '', js, flags=re.S)
+TIPO = r'(?:Promise<BarsFile \| null>|Promise<DailyBar\[\]>|Promise<void>|DailyBar\[\]|BarsFile|string|number)'
+js = re.sub(r'(\w+)\s*:\s*' + TIPO, r'\1', js)
+js = re.sub(r'\)\s*:\s*' + TIPO + r'\s*\{', ') {', js)
+js = js.replace(' as BarsFile', '').replace(' as DailyBar[]', '')
+js = js.replace('export async function', 'async function')
+js = ('import { promises as fs } from "fs";\nimport path from "path";\n'
+      'import { marketDateStr } from "./occ.mjs";\n'
+      'let fetchDailyBars = async () => [];\n'
+      'export function _setFetch(f){ fetchDailyBars = f; }\n' + js)
+js = js.replace('const DATA_DIR = path.join(process.cwd(), "data", "bars");',
+                'const DATA_DIR = path.join(process.env.BS_DIR, "bars");')
+js += '\nexport { loadBars, saveBars, cachedDailyBars };\n'
+pathlib.Path(sys.argv[2]).write_text(js)
+PY
+
+cp "$ROOT/engine/scripts/_diffbars_occ.mjs" "$TMP/occ.mjs"
+cp "$ROOT/engine/scripts/_diffbars_run.mjs" "$TMP/run.mjs"
+python3 "$ROOT/engine/scripts/_diffbars_casos.py" > "$TMP/casos.json"
+
+BS_DIR="$TMP/vd" BS_CASOS="$TMP/casos.json" BS_OUT="$TMP/victor_out.json" node "$TMP/run.mjs"
+sed "s#/tmp/bs/casos.json#$TMP/casos.json#; s#/tmp/bs/py_out.json#$TMP/py_out.json#" \
+    "$ROOT/engine/scripts/_diffbars_run_py.py" > "$TMP/run_py.py"
+python3 "$TMP/run_py.py"
+
+python3 - "$TMP/victor_out.json" "$TMP/py_out.json" <<'PY'
+import json, sys
+v = json.load(open(sys.argv[1])); p = json.load(open(sys.argv[2]))
+difs = [(a, b) for a, b in zip(v, p)
+        if a["res"] != b["res"] or a.get("archivos") != b.get("archivos")]
+print(f"\n  {len(v)-len(difs)}/{len(v)} idénticos")
+for a, b in difs:
+    print(f"  ✗ {a['caso']}\n     víctor={a['res']}\n     port  ={b['res']}")
+print("\n  IDÉNTICO a su barsStore.ts" if not difs else f"\n  {len(difs)} DIFERENCIAS")
+PY

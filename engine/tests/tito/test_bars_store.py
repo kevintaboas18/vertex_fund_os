@@ -226,12 +226,19 @@ class TestCachedDailyBars:
         assert vistos == [30, 365]
 
 
-class TestProtegeContraLosDosBugsDeVictor:
-    """`loadBars` hace `JSON.parse(raw) as BarsFile` a secas, y ese `as` es una
-    promesa del compilador que el disco no tiene por que cumplir.
+class TestBugsDeVictorReplicados:
+    """Dos bugs de su `barsStore.ts`, replicados A PROPOSITO.
 
-    Medido ejecutando su archivo en Node — parche propuesto en
-    engine/scripts/upstream-tito-barsstore.patch.
+    `loadBars` hace `JSON.parse(raw) as BarsFile` a secas, y ese `as` es una
+    afirmacion para el compilador, no una comprobacion. Estos tests fijan SU
+    comportamiento exacto, medido ejecutando su archivo en Node — para que el
+    port sea identico y para que, si alguien lo cambia, se vea que se esta
+    separando del original a sabiendas.
+
+    El arreglo propuesto para el upstream esta en
+    engine/scripts/upstream-tito-barsstore.patch. Aqui no se aplica: el modulo
+    no lo llama nadie (su cabecera dice que solo lo usa Wheel), asi que el
+    riesgo esta acotado y la fidelidad pesa mas.
     """
 
     def _escribe(self, nombre, contenido):
@@ -241,34 +248,35 @@ class TestProtegeContraLosDosBugsDeVictor:
         p.mkdir(parents=True, exist_ok=True)
         (p / nombre).write_text(contenido, encoding="utf-8")
 
-    def test_un_cache_sin_campo_bars_no_tumba_la_peticion(self):
-        # En el suyo: `cached.bars.length` lanza TypeError y sube al llamador.
+    def test_BUG1_un_cache_del_dia_sin_campo_bars_lanza(self):
+        # El suyo: `cached.bars.length` sobre undefined → TypeError, y el
+        # `catch` de loadBars ya quedo atras, asi que sube al llamador.
         self._escribe("A.json", '{"ticker":"A","date":"2026-07-31"}')
-        pedidos = []
+        with pytest.raises(TypeError):
+            cached_daily_bars("A", now=HOY, fetch=lambda t, d: _barras(4))
 
-        def fetch(t, days):
-            pedidos.append(t)
-            return _barras(4)
-
-        r = cached_daily_bars("A", now=HOY, fetch=fetch)
-        assert len(r) == 4 and pedidos == ["A"]      # refresco, no reviento
-
-    def test_un_bars_que_no_es_lista_no_se_devuelve_como_si_lo_fuera(self):
-        # En el suyo: `"texto".length > 0` es cierto → devuelve el STRING.
+    def test_BUG2_un_bars_de_texto_se_devuelve_como_si_fueran_barras(self):
+        # El suyo: `"texto".length > 0` es cierto, la guarda pasa y el llamador
+        # recibe un string donde espera DailyBar[]. Sin excepcion.
         self._escribe("B.json", '{"ticker":"B","date":"2026-07-31","bars":"texto"}')
         r = cached_daily_bars("B", now=HOY, fetch=lambda t, d: _barras(4))
-        assert isinstance(r, list) and len(r) == 4
+        assert r == "texto"
 
-    def test_ni_aunque_sea_un_objeto_con_length(self):
+    def test_BUG2_con_un_objeto_devuelve_el_objeto(self):
         self._escribe("C.json",
                       '{"ticker":"C","date":"2026-07-31","bars":{"length":9}}')
         r = cached_daily_bars("C", now=HOY, fetch=lambda t, d: _barras(4))
-        assert isinstance(r, list) and len(r) == 4
+        assert r == {"length": 9}
 
-    def test_y_el_cache_corrupto_se_repara_solo(self):
-        self._escribe("D.json", '{"ticker":"D","date":"2026-07-31"}')
-        cached_daily_bars("D", now=HOY, fetch=lambda t, d: _barras(4))
-        assert len(load_bars("D").bars) == 4
+    def test_load_bars_no_valida_nada(self):
+        # `JSON.parse(raw) as BarsFile`: lo que haya en el disco pasa tal cual.
+        self._escribe("E.json", '{"ticker":"E","date":"x","bars":"txt"}')
+        assert load_bars("E").bars == "txt"
+        self._escribe("F.json", '[1,2]')
+        f = load_bars("F")
+        assert f is not None and f.ticker is None and f.bars is None
+        self._escribe("G.json", 'null')
+        assert load_bars("G") is None      # `catch` → null
 
 
 class TestNoEstaCableadoFueraDeWheel:

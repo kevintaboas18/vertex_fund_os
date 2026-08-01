@@ -4,6 +4,11 @@ Encontrados al portar el módulo a Python (Vertex Fund OS) con un test
 diferencial: se ejecuta el barsStore.ts real en Node y el port en Python sobre
 los mismos casos, y se comparan las salidas. Los dos salen del mismo sitio.
 
+Nota sobre el port: los dos bugs están REPLICADOS a propósito, para que el
+módulo sea idéntico al original (27/27 casos del diferencial). Los tests
+`TestBugsDeVictorReplicados` fijan este comportamiento exacto, así que si algún
+día se aplica este parche arriba, allí se ve qué hay que cambiar abajo.
+
 
 ── El origen: un `as` que el disco no tiene por qué cumplir ────────────────
 
