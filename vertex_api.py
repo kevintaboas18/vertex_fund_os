@@ -3913,19 +3913,18 @@ def _tito_chain_and_bars(ticker):
     Devuelve `(rows, bars, spot)`. Levanta `MassiveError` con el motivo exacto
     (key ausente, key rechazada, rate limit, ticker sin datos).
     """
-    from wbj.tito.massive import MassiveError, fetch_option_chain
+    from wbj.tito.massive import MassiveError, fetch_daily_bars, fetch_option_chain
 
     chain_res = fetch_option_chain(ticker)
-    # Las barras van por el cache de `barsStore`: son 365 días de historial que
-    # solo cambian una vez al día, y esta ruta corre en cada refresco del panel.
-    # El cache solo se da por bueno con la sesión ya cerrada — la barra del día
-    # en curso es parcial y congelarla dejaría la gráfica quieta.
-    try:
-        from wbj.tito.bars_store import cached_daily_bars
-        bars = cached_daily_bars(ticker)
-    except Exception:
-        from wbj.tito.massive import fetch_daily_bars
-        bars = fetch_daily_bars(ticker)
+    # Barras SIN cache, que es lo que hace Víctor fuera de Wheel. Su propia
+    # cabecera de `barsStore.ts` lo deja escrito: *"`fetchDailyBars` sigue sin
+    # cache para el resto de rutas: este store es nuevo y en v1 solo lo usa
+    # Wheel"*. Enchufarlo aquí fue una idea mía, y de ella salieron seis
+    # problemas seguidos —el fin de semana sin cachear, la gráfica congelada si
+    # Massive publicaba tarde, el histórico truncado en silencio—. Ninguno era
+    # de él. El módulo queda portado y listo para cuando exista el equivalente
+    # de Wheel; hasta entonces, esta ruta pide en directo.
+    bars = fetch_daily_bars(ticker)
     if not bars:
         raise MassiveError(f"Massive no devolvió barras diarias para {ticker}.")
     # La cadena puede venir vacía (subyacente sin opciones listadas) y el motor

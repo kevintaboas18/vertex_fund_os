@@ -258,81 +258,52 @@ chk(_limpios == 6, f"toda respuesta mal formada sale como MassiveError ({_limpio
 chk(_sin, "`results` ausente es cadena vacía, no un error")
 
 # ── barsStore.ts: cache de barras por día de mercado ──────────────────
+# Traducción literal. Las cuatro reglas que llegué a añadir aquí (horario de
+# sesión, campo `days`, recorte de ventana, cache viejo al fallar la red) están
+# QUITADAS: ninguna estaba en el original y cada una trajo su propio fallo.
 from wbj.tito import bars_store as BS
 from wbj.tito.levels import LvlBar
-_ABIERTA = datetime(2026,7,31,14,tzinfo=timezone.utc)   # 10:00 ET
-_CERRADA = datetime(2026,7,31,21,tzinfo=timezone.utc)   # 17:00 ET
+_ET = __import__("zoneinfo").ZoneInfo("America/New_York")
+_HOY = datetime(2026,7,31,21,tzinfo=timezone.utc)
+_AYER = _HOY - timedelta(days=1)
 with tempfile.TemporaryDirectory() as _tdb:
     os.environ["WBJ_TITO_DATA"] = _tdb
     _bb = [LvlBar("2026-07-30",101,99,100)]
     _n = []
-    def _f(t, days): _n.append(t); return _bb
-    BS.cached_daily_bars("D", now=_CERRADA, fetch=_f)
-    BS.cached_daily_bars("D", now=_CERRADA, fetch=_f)
-    BS.cached_daily_bars("D", now=_CERRADA, fetch=_f)
-    chk(len(_n) == 1, f"con la sesión cerrada el cache ahorra la red ({len(_n)}/3 llamadas)")
+    def _f(t, days): _n.append((t, days)); return _bb
+    BS.cached_daily_bars("D", now=_HOY, fetch=_f)
+    BS.cached_daily_bars("D", now=_HOY, fetch=_f)
+    BS.cached_daily_bars("D", now=_HOY, fetch=_f)
+    chk(_n == [("D", 365)], f"el cache ahorra la red y pasa `days` tal cual ({len(_n)} llamadas)")
     _n.clear()
-    BS.cached_daily_bars("E", now=_ABIERTA, fetch=_f)
-    BS.cached_daily_bars("E", now=_ABIERTA, fetch=_f)
-    chk(len(_n) == 2, "con la sesión ABIERTA siempre refresca (la barra de hoy es parcial)")
-    chk(BS.MARKET_CLOSE_HOUR == 16, "el cierre de la sesión regular son las 16:00 ET")
-    _ET = __import__("zoneinfo").ZoneInfo("America/New_York")
-    _horario = [(datetime(2026,7,27,8,tzinfo=_ET), False),   # pre-market
-                (datetime(2026,7,27,9,30,tzinfo=_ET), True), # apertura
-                (datetime(2026,7,27,15,59,tzinfo=_ET), True),
-                (datetime(2026,7,27,16,tzinfo=_ET), False),  # cierre
-                (datetime(2026,8,1,11,tzinfo=_ET), False),   # sábado
-                (datetime(2026,8,2,14,tzinfo=_ET), False)]   # domingo
-    chk(all(BS.mercado_abierto(t) is v for t, v in _horario),
-        "horario de sesión: L-V 09:30-16:00 ET, fin de semana cerrado")
-    _sab = datetime(2026,8,1,11,tzinfo=_ET); _ns = []
-    def _fs(t, days): _ns.append(t); return _bb
-    for _ in range(4): BS.cached_daily_bars("SAB", now=_sab, fetch=_fs)
-    chk(len(_ns) == 1, f"el FIN DE SEMANA sí cachea ({len(_ns)}/4 llamadas)")
-    _est = {"b": [LvlBar("2026-07-24",101,99,100)]}
-    def _fh(t, days): return _est["b"]
-    BS.cached_daily_bars("SES", now=datetime(2026,7,27,9,31,tzinfo=_ET), fetch=_fh)
-    _est["b"] = _est["b"] + [LvlBar("2026-07-27",105,99,104)]
-    _r = BS.cached_daily_bars("SES", now=datetime(2026,7,27,15,tzinfo=_ET), fetch=_fh)
-    chk(_r[-1].time == "2026-07-27",
-        "no se congela si Massive publica la barra de hoy tarde")
-    _many = [LvlBar(f"2026-{(i%12)+1:02d}-0{(i%9)+1}",101,99,100) for i in range(365)]
-    BS.cached_daily_bars("REC", 365, now=_CERRADA, fetch=lambda t,days: _many[-days:])
-    def _habiles(days, fin=datetime(2026,7,27).date()):
-        d, out = fin - timedelta(days=days), []
-        while d <= fin:
-            if d.weekday() < 5: out.append(LvlBar(d.isoformat(),101,99,100))
-            d += timedelta(days=1)
-        return out
-    _cer2 = datetime(2026,7,27,18,tzinfo=_ET)
-    BS.cached_daily_bars("REC", 365, now=_cer2, fetch=lambda t,days: _habiles(days))
-    _c30 = BS.cached_daily_bars("REC", 30, now=_cer2, fetch=lambda t,days: _habiles(days))
-    chk(len(_c30) == len(_habiles(30)),
-        f"el cache se recorta por FECHA, no por nº de barras ({len(_c30)} vs {len(_habiles(30))})")
-    _pedidos = []
-    def _fd(t, days): _pedidos.append(days); return _habiles(days)
-    BS.cached_daily_bars("CORTO", 30, now=_cer2, fetch=_fd)
-    _lg = BS.cached_daily_bars("CORTO", 365, now=_cer2, fetch=_fd)
-    chk(_pedidos == [30, 365] and len(_lg) == len(_habiles(365)),
-        "un cache CORTO no se sirve a quien pide LARGO (truncaba en silencio)")
-    _pedidos.clear()
-    BS.cached_daily_bars("CORTO", 30, now=_cer2, fetch=_fd)
-    chk(_pedidos == [], "pero el cache largo SÍ sirve al corto, sin tocar la red")
-    _cache = BS.load_bars("D")
-    chk(_cache is not None and _cache.date == "2026-07-31" and _cache.ticker == "D",
-        "BarsFile guarda ticker + día de mercado + barras")
-    def _boom(t, days): raise _MA.MassiveError("caído")
-    chk(BS.cached_daily_bars("D", now=_CERRADA - timedelta(days=9), fetch=_boom) == _bb,
-        "si la red falla y hay cache viejo, se usa (mejor viejo que nada)")
-    chk(BS.cached_daily_bars("SINNADA", now=_CERRADA, fetch=_boom) == [],
-        "si la red falla y no hay cache, devuelve vacío")
-    try:
-        BS.cached_daily_bars("LIMPIO", now=_CERRADA, fetch=lambda t: [])
-        _prog = False
-    except TypeError:
-        _prog = True
-    chk(_prog, "un error de PROGRAMACIÓN no se disfraza de red caída")
-    chk("cached_daily_bars" in API, "cableado en la ruta de Proyecciones")
+    for _h in (8, 11, 15, 18):   # pre-market, sesión, sesión, cerrada
+        BS.cached_daily_bars("HOR", now=datetime(2026,7,31,_h,tzinfo=_ET), fetch=_f)
+    chk(len(_n) == 1, "el cache vale para TODO el día de mercado (sin regla de horario)")
+    _c = BS.load_bars("D")
+    chk(_c is not None and _c.date == "2026-07-31" and _c.ticker == "D",
+        "BarsFile = {ticker, date, bars}, como su interface")
+    _n.clear()
+    BS.cached_daily_bars("AY", now=_AYER, fetch=_f)
+    BS.cached_daily_bars("AY", now=_HOY, fetch=_f)
+    chk(len(_n) == 2, "un cache de ayer no vale para hoy")
+    _n.clear()
+    BS.cached_daily_bars("VAC", now=_HOY, fetch=lambda t, d: [])
+    BS.cached_daily_bars("VAC", now=_HOY, fetch=_f)
+    chk(len(_n) == 1, "un cache vacío no cuenta como cache (`bars.length > 0`)")
+    def _boom(t, days): raise RuntimeError("caído")
+    chk(BS.cached_daily_bars("NUEVO", now=_HOY, fetch=_boom) == [],
+        "si falla la red devuelve [] (`.catch(() => [])`, sin usar cache viejo)")
+    BS.save_bars("VIEJO", _bb, _AYER)
+    BS.cached_daily_bars("VIEJO", now=_HOY, fetch=_boom)
+    chk(BS.load_bars("VIEJO").bars == _bb, "y no borra el cache que ya había")
+    _src = (TITO_DIR/"bars_store.py").read_text()
+    chk(not any(x in _src for x in ("mercado_abierto","_datos_congelados","_recorta",
+                                    'days: int = 0','"days"')),
+        "sin las 4 reglas que no están en el original")
+_blkb = API[API.index("def _tito_chain_and_bars"):API.index("def _tito_memory")]
+chk("cached_daily_bars" not in _blkb and "fetch_daily_bars(ticker)" in _blkb,
+    'no cableado fuera de Wheel ("fetchDailyBars sigue sin cache para el resto de rutas")')
+
 # 6ª pasada: un nocional que RESTA es peor que uno que falta.
 chk(all(C.to_row(_c).notional_value >= 0 for _c in (
         {"open_interest":-500,"details":{"strike_price":100}},
