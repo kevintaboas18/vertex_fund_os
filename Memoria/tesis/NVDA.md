@@ -1,5 +1,61 @@
 # Tesis — NVDA
 
+## 2026-08-01 14:10 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $281.05.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-01 13:55 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $281.05.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-01 13:54 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $281.05.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-01 13:53 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $281.05.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-01 13:52 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi tesis de inversión para NVIDIA se mantiene consistente con mi reporte anterior de hace 0 días, donde mi Fair Value fue de $281.05 y mi recomendación DESFAVORABLE con una convicción de 37/100. Desde entonces, el precio spot se ha mantenido en $200.75, y los datos clave no han alterado fundamentalmente mi perspectiva. El Fair Value de Victor se mantiene en $281.05, y la recomendación DESFAVORABLE persiste, con una convicción de 37/100. La empresa sigue siendo un líder indiscutible en el sector de la IA y los centros de datos, con márgenes operativos envidiables y una sólida generación de fluj
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-01 13:51 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $281.05.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-01 13:50 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi tesis de inversión para NVIDIA se mantiene consistente con el reporte anterior, donde mi Fair Value fue $281.05 y la recomendación DESFAVORABLE con una convicción de 37/100. Los datos actuales no justifican un cambio en esta postura. El precio spot de $200.75 sigue estando muy por encima del valor intrínseco de $111.27 calculado por DCF, lo que indica una valoración estirada. Aunque el Fair Value de Victor a 12 meses es de $281.05, ofreciendo un upside del 40%, la recomendación final del gate determinista es 'DESFAVORABLE', lo que subraya la importancia de la prudencia. El régimen de mercad
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
 ## 2026-08-01 12:00 — perfil Avoid / Wait · raw 37.1/100
 - Precio al análisis: $200.75 · Fair value (base): $281.05
 - Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74

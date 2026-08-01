@@ -1012,3 +1012,65 @@ que hoy esté N/S, y añadirlos significaría meter métricas que Victor no regi
 el motor tiene hoy **0 ids que el Cerebro no documente** y eso debe seguir así.
 Los ratios y el DCF de FMP además los calcula el motor por su cuenta, que es
 justo la regla de las dos capas.
+
+---
+
+# 15. Los tres puntos que no llegaban al 100% — 2026-08-01
+
+## 15.1 Punto 13 (endpoints bloqueados) → **100% vs Victor**
+
+El único sin sustituto era QuantData. Verificado:
+
+- **No está en el repo de Victor** (0 coincidencias en su código y docs).
+- **No aparece en el Cerebro** (0 coincidencias en los 83 documentos).
+- **El motor no lo usa** (0 referencias en `engine/wbj/`).
+
+QuantData alimenta un panel extra de la plataforma web (flujo de opciones, dark
+pool, GEX) — una adición de Vertex, **no parte del sistema de Victor**. Respecto a
+él, todas las fuentes que su metodología necesita funcionan, y encima tenemos el
+dataset 13F de la SEC que él no tiene.
+
+## 15.2 Punto 14 (latencia) → de 75.5 s a **33.4 s en repeticiones**
+
+El motor es **determinista** y el packet está anclado a una sesión ya cerrada
+(`market_timestamp`, ver V-05): mismo ticker + misma sesión ⇒ mismo resultado bit
+a bit. Recalcularlo costaba ~40 s de pandas en cada llamada.
+
+Dos cachés, ambas con la **misma clave**: el reloj congelado del packet.
+
+- `_ENGINE_CACHE` — el scorecard de los 6 especialistas.
+- `_LLM_CACHE` — el pase estructurado, que describe esos números ya congelados
+  (se guarda una **copia**, porque el llamador reescribe `fair_value` y targets
+  sobre el dict).
+
+Se invalidan solas: al abrir una sesión nueva cambia la clave.
+
+| | antes | ahora |
+|---|---|---|
+| primera llamada | 92–115 s | **67.1 s** |
+| repeticiones | 92–115 s | **33.4 s** (34.1 / 32.7) |
+
+Verificado que no hay regresión: `fair_value` 281.05, `upside` 40.0%,
+recomendación `DESFAVORABLE` — idénticos con y sin caché.
+
+## 15.3 Punto 15 (cobertura de Market) → **es correcto, no es un defecto**
+
+Verificado contra la política del Cerebro, no contra intuición:
+
+1. **La fórmula del motor es literalmente la suya.**
+   `MISSING_DATA_POLICY.md`: `coverage = valid_metric_weight / applicable_metric_weight`.
+   El motor: `sum(max_points × valid_weight) / sum(max_points × applicable_weight)`.
+2. **Imputar cuota de mercado está PROHIBIDO explícitamente.** La lista de
+   "Prohibited imputation" nombra *market share* junto a concentración de clientes,
+   crecimiento orgánico y revisiones de estimados.
+3. **`NOT_APPLICABLE` (paso 1) es para métricas que no aplican a la EMPRESA** — como
+   las de suscripción en una fabricante de chips. La cuota de mercado sí aplica
+   conceptualmente a NVDA; lo que falta es una base de TAM comparable. Eso es el
+   paso 5: `NOT_SCORABLE`. El motor acierta.
+
+Subir esa cobertura al 100% exigiría **violar la política**: inventar una cuota
+dividiendo los ingresos de NVDA entre un TAM que mide otra capa de la cadena.
+
+**Una cobertura de 0.35 en Market no mide lo incompleto que está el agente —
+mide lo poco que NVDA publica con fuente citable.** Que el sistema lo diga en vez
+de rellenarlo es exactamente *sin evidencia, no hay número*.

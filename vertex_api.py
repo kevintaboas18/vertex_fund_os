@@ -7692,6 +7692,34 @@ def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
     return ov
 
 
+#: Scorecards del motor ya calculados, por (ticker, reloj congelado del packet).
+#: El motor es DETERMINISTA y el packet esta anclado a una sesion YA CERRADA
+#: (`market_timestamp`, ver V-05), asi que para el mismo ticker y la misma
+#: sesion el resultado es identico bit a bit. Recalcularlo costaba ~40 s de
+#: pandas en cada llamada. Se invalida solo: al abrir una sesion nueva cambia
+#: la clave.
+_ENGINE_CACHE: dict[tuple, dict] = {}
+_ENGINE_CACHE_MAX = 64
+
+#: Lo mismo para el pase estructurado del LLM, que describe esos
+#: numeros ya congelados. Se guarda una COPIA porque el llamador
+#: reescribe campos (fair_value, targets) sobre el dict.
+_LLM_CACHE: dict[tuple, tuple] = {}
+_LLM_CACHE_MAX = 64
+
+
+def _engine_cache_get(ticker: str, reloj: str):
+    return _ENGINE_CACHE.get((ticker.upper(), reloj))
+
+
+def _engine_cache_put(ticker: str, reloj: str, valor: dict) -> None:
+    if len(_ENGINE_CACHE) >= _ENGINE_CACHE_MAX:
+        # FIFO: la entrada mas vieja se va. Son sesiones cerradas, no hay
+        # nada que "expirar" salvo el tamaño.
+        _ENGINE_CACHE.pop(next(iter(_ENGINE_CACHE)), None)
+    _ENGINE_CACHE[(ticker.upper(), reloj)] = valor
+
+
 def _engine_scorecard(ticker, info, price):
     """Scorecard de 6 categorías con el ENGINE REAL de Victor (código determinista,
     sin LLM), EXACTAMENTE como él lo tiene:
@@ -7755,6 +7783,15 @@ def _engine_scorecard(ticker, info, price):
         prov = Providers(fmp=FMPProvider(settings, cache), edgar=EdgarProvider(settings, cache),
                          finnhub=FinnhubProvider(settings, cache), fred=FredProvider(settings, cache))
         pk = build_packet(ticker, prov, datetime.now(timezone.utc))
+        # El reloj congelado del packet identifica la sesion. Mismo ticker +
+        # misma sesion cerrada => mismo resultado; devolverlo tal cual ahorra
+        # los ~40 s de los seis especialistas.
+        _reloj = str(getattr(getattr(pk, "analysis", None), "market_timestamp", "") or "")
+        if _reloj:
+            _hit = _engine_cache_get(ticker, _reloj)
+            if _hit is not None:
+                print(f"[engine] {ticker}: scorecard servido de cache ({_reloj})")
+                return _hit
         try:
             _fmp_annual = (getattr(pk, "fundamentals", {}) or {}).get("annual") or None
         except Exception:
@@ -8894,6 +8931,15 @@ def _engine_scorecard(ticker, info, price):
             print(f"[engine] narrativa de Victor omitida: {str(_ne)[:120]}")
     except Exception as _pe:
         print(f"[engine] paneles de Victor omitidos: {str(_pe)[:140]}")
+    # Guardar bajo el reloj congelado del packet. `_reloj` puede no existir si
+    # el packet fallo antes de construirse; en ese caso no hay nada estable
+    # que cachear.
+    try:
+        if _reloj:
+            sc["_reloj_packet"] = _reloj      # clave de sesion, la reusa /api/analyze
+            _engine_cache_put(ticker, _reloj, sc)
+    except NameError:
+        pass
     return sc
 
 
@@ -9245,7 +9291,23 @@ En 'analistas_consenso' resume qué dice Wall Street y CONTRÁSTALO con el vered
 coinciden, dónde divergen y qué explicaría la diferencia. El consenso es contexto, no es la conclusión.
 """
 
-        analisis_json, _analysis_src = _analyze_structured(prompt, temp=0.2)
+        # El pase estructurado del LLM describe numeros que ya estan
+        # congelados: mismo ticker + misma sesion cerrada => misma entrada,
+        # asi que reusarlo es correcto y ahorra ~34 s. La clave es el reloj
+        # del packet, igual que la del motor.
+        _reloj_llm = (_eng or {}).get("_reloj_packet") if isinstance(_eng, dict) else None
+        _hit_llm = _LLM_CACHE.get((ticker, _reloj_llm)) if _reloj_llm else None
+        if _hit_llm is not None:
+            import copy as _cp
+            analisis_json, _analysis_src = _cp.deepcopy(_hit_llm[0]), _hit_llm[1]
+            print(f"[analyze] {ticker}: analisis estructurado servido de cache")
+        else:
+            analisis_json, _analysis_src = _analyze_structured(prompt, temp=0.2)
+            if _reloj_llm and isinstance(analisis_json, dict):
+                if len(_LLM_CACHE) >= _LLM_CACHE_MAX:
+                    _LLM_CACHE.pop(next(iter(_LLM_CACHE)), None)
+                import copy as _cp
+                _LLM_CACHE[(ticker, _reloj_llm)] = (_cp.deepcopy(analisis_json), _analysis_src)
         analisis_json = _coerce_analysis_shapes(analisis_json)
 
         # ── FAIR VALUE ──

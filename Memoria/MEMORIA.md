@@ -38,3 +38,10 @@ son la señal de aprendizaje.
 - NVDA · 2026-08-01 11:58 · Avoid / Wait · raw 37.1/100 · FV $281.05
 - AAPL · 2026-08-01 11:59 · Avoid / Wait · raw 31.6/100 · FV $322.17
 - NVDA · 2026-08-01 12:00 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-01 13:50 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-01 13:51 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-01 13:52 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-01 13:53 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-01 13:54 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-01 13:55 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-01 14:10 · Avoid / Wait · raw 37.1/100 · FV $281.05
