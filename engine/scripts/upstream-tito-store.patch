@@ -4,14 +4,16 @@ Encontrados al portar el módulo a Python (Vertex Fund OS) con un test
 diferencial: se ejecuta el store.ts real en Node y el port en Python sobre los
 mismos 47 casos, y se comparan las salidas (`engine/scripts/diff_store.sh`).
 
-Nota sobre el port: los tres están REPLICADOS a propósito, para que el módulo
-sea idéntico al original (47/47, comparador estricto). Los tests
-`TestBugsDeVictorReplicados` fijan este comportamiento exacto, así que si algún
-día se aplica este parche arriba, allí se ve qué hay que cambiar abajo.
+Nota sobre el port: los tres están ARREGLADOS en la versión de Python, y el
+arreglo es el que se propone abajo. El diferencial lo comprueba en las dos
+direcciones — 39/47 casos idénticos, y los 8 restantes son exactamente estas
+tres guardas, cada una declarada en su caso; si una dejara de disparar, el
+script falla. Los tests `TestLasTresGuardas` fijan el comportamiento.
 
 A diferencia de barsStore.ts, este módulo SÍ está cableado en las dos partes:
 es la memoria acumulada que enciende el sub-agente 6 (Confirmación de Precio),
-el IV Rank real y la auto-calibración. Lo que se pierde aquí no se recupera.
+el IV Rank real y la auto-calibración. Lo que se pierde aquí no se recupera —
+por eso se arregló en vez de replicarse.
 
 
 ── BUG 1 · los tickers que sanean a nada comparten un archivo ──────────────

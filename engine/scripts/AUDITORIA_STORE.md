@@ -1,32 +1,32 @@
 # Auditoría del port de `store.ts`
 
-> **AVISO — este documento quedó parcialmente revertido.** Lo que sigue es el
-> registro de las cinco pasadas de auditoría, y sigue siendo válido como
-> descripción de los agujeros que tiene el módulo. Pero la instrucción posterior
-> fue *"quiero todo exactamente como lo tiene Víctor"*, y al construir el test
-> diferencial contra su `store.ts` real (`engine/scripts/diff_store.sh`) 12 de
-> 35 casos NO coincidían — todos por guardas añadidas aquí.
+> **NOTA — recorrido de este documento.** Las cinco guardas descritas abajo se
+> revirtieron en una pasada intermedia (instrucción: *"quiero todo exactamente
+> como lo tiene Víctor"*) y se volvieron a poner en la siguiente (*"soluciona
+> esto si hay error o un problema"*). Lo que quedó de ese ida y vuelta es lo
+> valioso: el **test diferencial** (`engine/scripts/diff_store.sh`), que ejecuta
+> su `store.ts` real en Node y ya no pregunta "¿es idéntico?" sino "¿difiere
+> SOLO donde dijimos que difiere?".
 >
-> **Estado actual: 47/47 casos idénticos a su archivo, con comparador
-> estricto.** Se revirtieron cinco cosas descritas abajo:
+> **Estado actual: 39/47 casos idénticos a su archivo, y las 8 diferencias son
+> exactamente las tres guardas**, cada una declarada en su caso de prueba. El
+> script falla en las dos direcciones: si aparece una divergencia sin declarar,
+> y también si una guarda declarada deja de disparar.
 >
-> | Sección | Guarda | Estado |
+> | # | Guarda | Qué evita |
 > |---|---|---|
-> | 1 | `_ts_key` normalizando a UTC | revertida — ahora `_date_parse` replica `Date.parse` (fecha-hora sin offset en hora LOCAL) |
-> | 2 | `load_trades` filtrando filas no-dict | revertida — el array pasa tal cual |
-> | 6 | ticker que sanea a nada → `ValueError` | revertida — comparten `.json`, como él |
-> | 7 | `_dedupe_key` con clave compuesta sin id | revertida — la clave es `t.id`, y sin id el historial colapsa |
-> | — | `MAX_TICKER_LEN` | eliminada — el nombre va tal cual al FS |
+> | G1 | ticker que sanea a nada → `ValueError` | `"!!!"`, `"@@@"` y `""` compartían un `.json` sin dueño |
+> | G2 | dedupe con clave compuesta sin `id` | un tape sin `id` colapsaba el historial entero a UN trade |
+> | G3 | `load_trades` descarta las filas no-objeto | un `null` en disco tumbaba **cada** guardado, para siempre |
 >
-> Los tres agujeros que eso reabre están medidos y documentados en
-> `engine/scripts/upstream-tito-store.patch`, fijados por
-> `TestBugsDeVictorReplicados`, y el de la fila corrupta lo reporta ahora
-> `/api/tito-health` (`memoria.flows.corrupto`) para que no degrade mudo.
+> Más el parseo de fechas: un timestamp sin zona se lee como UTC y no en la del
+> servidor, porque ese orden decide qué se cae por el tope de `MAX_PER_TICKER`.
 >
-> Lo que **no** se revirtió: cerrojo, escritura atómica y el saneado de `NaN`.
-> No cambian nada de lo observable con una petición a la vez —el diferencial lo
-> confirma— y sin ellos el archivo se corrompe o se pierde el 75% de las
-> escrituras concurrentes.
+> Las tres están propuestas para el upstream en
+> `engine/scripts/upstream-tito-store.patch` y fijadas por `TestLasTresGuardas`.
+> Lo que sí se conservó del original en esa pasada intermedia, y se queda: la
+> clave del payload es `updatedAt` (camelCase, la suya) y `_date_parse` replica
+> `Date.parse` en todo lo demás.
 
 Cuatro pasadas, atacando el port en vez de releer el diff. Once hallazgos: nueve
 arreglados, uno compartido con el original que se deja como está, y uno que

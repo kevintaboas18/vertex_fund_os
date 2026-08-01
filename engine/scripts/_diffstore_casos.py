@@ -14,6 +14,14 @@ T = lambda d, h=15, m=0: f"2026-07-{d:02d}T{h:02d}:{m:02d}:00Z"
 casos = []
 def c(**k): casos.append(k)
 
+# Las tres guardas del port (divergencias deliberadas). Cada caso que difiera de
+# su store.ts tiene que declarar CUÁL, y cada guarda declarada tiene que
+# producir de verdad una diferencia: así el diferencial pilla tanto una
+# divergencia nueva sin querer como una guarda que desapareció en silencio.
+G1 = "G1 · ticker que no da nombre de archivo"
+G2 = "G2 · dedupe sin id"
+G3 = "G3 · fila corrupta en disco"
+
 # ── load ──
 c(nombre="load sin historial", op="load", ticker="NADA")
 c(nombre="load json roto", op="load", ticker="R", raw="{no", rawFile="R.json")
@@ -22,7 +30,7 @@ c(nombre="load sin campo trades", op="load", ticker="S", raw='{"ticker":"S"}', r
 c(nombre="load trades no lista", op="load", ticker="N", raw='{"ticker":"N","trades":"txt"}', rawFile="N.json")
 c(nombre="load null", op="load", ticker="U", raw='null', rawFile="U.json")
 c(nombre="load numero pelado", op="load", ticker="NU", raw='42', rawFile="NU.json")
-c(nombre="load con basura entre trades", op="load", ticker="B",
+c(nombre="load con basura entre trades", op="load", ticker="B", divergencia=G3,
   raw='{"ticker":"B","updatedAt":"x","trades":[{"id":1,"timestamp":"'+T(30)+'"},"basura",null,42]}',
   rawFile="B.json")
 c(nombre="load sin ticker ni updatedAt", op="load", ticker="V",
@@ -52,10 +60,16 @@ c(nombre="save timestamps identicos", op="save", ticker="A9",
 # ── save: tickers ──
 for t in ("demo", " demo ", "DEMO", "brk.b", "brk/b", "!!!", "", "a"*70,
           "../../ETC/X", "a b", "ñ"):
-    c(nombre=f"save ticker={t!r}", op="save", ticker=t, rows=[fr(1,T(30))])
+    # Los que sanean a nada (o pasan del tope) los rechaza la guarda 1.
+    _safe = "".join(ch for ch in t.strip().upper() if ch.isascii()
+                    and (ch.isalnum() or ch in "._-"))
+    _mal = not _safe.strip("._-") or len(_safe) > 64
+    c(nombre=f"save ticker={t!r}", op="save", ticker=t, rows=[fr(1,T(30))],
+      **({"divergencia": G1} if _mal else {}))
 
 # ── save: valores raros ──
-c(nombre="save id ausente (0)", op="save", ticker="Z1", rows=[fr(0,T(28)), fr(0,T(29))])
+c(nombre="save id ausente (0)", op="save", ticker="Z1", divergencia=G2,
+  rows=[fr(0,T(28)), fr(0,T(29))])
 c(nombre="save timestamp vacio", op="save", ticker="Z2", rows=[fr(1,""), fr(2,T(30))])
 c(nombre="save timestamp no parseable", op="save", ticker="Z3", rows=[fr(1,"ayer"), fr(2,T(30))])
 c(nombre="save timestamp naive", op="save", ticker="Z4",
@@ -86,9 +100,11 @@ c(nombre="save sobre json roto", op="save", ticker="C1", rows=[fr(1,T(30))],
 c(nombre="save sobre lista pelada", op="save", ticker="C2", rows=[fr(1,T(30))],
   raw='[{"id":9}]', rawFile="C2.json")
 c(nombre="save sobre trades con basura", op="save", ticker="C3", rows=[fr(1,T(30))],
+  divergencia=G3,
   raw='{"ticker":"C3","trades":[{"id":9,"timestamp":"'+T(20)+'"},"basura",null]}',
   rawFile="C3.json")
 c(nombre="save sobre trades con string suelto", op="save", ticker="C4", rows=[fr(1,T(30))],
+  divergencia=G3,
   raw='{"ticker":"C4","trades":[{"id":9,"timestamp":"'+T(20)+'"},"basura"]}',
   rawFile="C4.json")
 c(nombre="save sobre archivo del port viejo (updated_at)", op="save", ticker="C5",

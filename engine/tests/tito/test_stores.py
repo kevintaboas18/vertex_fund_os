@@ -6,6 +6,7 @@ más los 5 casos de `predictionStore.test.ts`.
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -347,15 +348,14 @@ class TestTradesStore:
         assert __import__("re").match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$",
                                       crudo["updatedAt"])
 
-    def test_el_orden_sigue_su_regla_de_zona_horaria(self):
-        """`Date.parse` no usa una zona uniforme, y aquí se replica tal cual.
+    def test_el_orden_no_depende_de_la_zona_horaria_del_servidor(self):
+        """GUARDA: un timestamp SIN zona se lee como UTC, no como hora local.
 
-        Una fecha SOLA se lee en UTC; una fecha-hora SIN offset se lee en la
-        zona LOCAL de la máquina. Llegué a normalizar todo a UTC —el orden
-        decide qué trade se cae por el tope y no debería depender del
-        servidor—, y es una divergencia: se quitó para que el port sea idéntico.
-        En Render y en el contenedor la TZ es UTC, así que en la práctica dan lo
-        mismo.
+        Su `Date.parse` no usa una zona uniforme: una fecha sola va en UTC y una
+        fecha-hora sin offset va en la zona LOCAL de la máquina. Ese orden
+        decide qué trade se cae por el tope de `MAX_PER_TICKER`, así que con su
+        regla el mismo archivo se recorta distinto en UTC que en New York — la
+        persistencia acabaría dependiendo de la TZ del servidor.
         """
         import os
         import time
@@ -363,14 +363,13 @@ class TestTradesStore:
         from wbj.tito.stores import _date_parse
 
         previo = os.environ.get("TZ")
+        vistos = set()
         try:
-            os.environ["TZ"] = "UTC"; time.tzset()
-            en_utc = _date_parse("2026-07-30T15:00:00")
-            os.environ["TZ"] = "America/New_York"; time.tzset()
-            en_ny = _date_parse("2026-07-30T15:00:00")
-            # 4 horas de diferencia en julio (EDT): su regla, no un arreglo.
-            assert en_ny - en_utc == 4 * 3600 * 1000
-            # La fecha sola, en cambio, es UTC en las dos.
+            for tz in ("UTC", "America/New_York", "Asia/Tokyo"):
+                os.environ["TZ"] = tz
+                time.tzset()
+                vistos.add(_date_parse("2026-07-30T15:00:00"))
+            # La fecha sola ya era UTC en el suyo; se conserva.
             assert _date_parse("2026-07-30") == 1785369600000
         finally:
             if previo is None:
@@ -378,6 +377,7 @@ class TestTradesStore:
             else:
                 os.environ["TZ"] = previo
             time.tzset()
+        assert len(vistos) == 1, f"el parseo cambió con la TZ: {vistos}"
 
     def test_un_timestamp_ilegible_no_se_va_al_final(self):
         # `Date.parse("ayer")` es NaN, la resta da NaN y ECMA-262 manda tratar
@@ -400,18 +400,15 @@ class TestTradesStore:
         assert load_trades("DEMO") is None
 
 
-class TestBugsDeVictorReplicados:
-    """Tres agujeros de su `store.ts`, replicados A PROPÓSITO.
+class TestLasTresGuardas:
+    """Las tres divergencias deliberadas de este módulo.
 
-    Los tres los tapé durante la auditoría y los tres se volvieron a abrir para
-    que el port sea idéntico a su archivo (47/47 en `diff_store.sh`, comparador
-    estricto). Estos tests fijan SU comportamiento exacto, medido ejecutando su
-    `store.ts` en Node, para que quien lo cambie vea que se está separando del
-    original a sabiendas.
-
-    El arreglo propuesto para el upstream está en
-    `engine/scripts/upstream-tito-store.patch`. A diferencia de `barsStore.ts`,
-    este módulo SÍ está cableado: es la memoria acumulada del sub-agente 6.
+    Con datos bien formados el port es idéntico a su `store.ts` (medido
+    ejecutándolo en Node, `engine/scripts/diff_store.sh`). Estas guardas solo
+    actúan sobre entradas que su propio archivo maneja mal, y aquí pesan más
+    que en su repo: esto es la memoria ACUMULADA del sub-agente 6, y lo que se
+    pierde no se recupera. Las tres están propuestas para el upstream en
+    `engine/scripts/upstream-tito-store.patch`.
     """
 
     def _escribe(self, nombre, contenido):
@@ -421,72 +418,85 @@ class TestBugsDeVictorReplicados:
         p.mkdir(parents=True, exist_ok=True)
         (p / nombre).write_text(contenido, encoding="utf-8")
 
-    def test_BUG1_los_tickers_que_sanean_a_nada_comparten_archivo(self):
-        # `"!!!"`, `"@@@"` y `""` sanean todos a la cadena vacía, así que
-        # `fileFor` los manda al MISMO `.json`.
-        from wbj.tito.stores import _file_for, data_dir
-
-        assert _file_for("!!!").name == _file_for("@@@").name == _file_for("").name == ".json"
-        save_trades("!!!", [_flow_row(1, "2026-07-30T15:00:00Z")])
-        save_trades("@@@", [_flow_row(2, "2026-07-30T15:01:00Z")])
-        # Un solo archivo, y la memoria de la primera consulta dentro de la otra.
-        assert sorted(f.name for f in (data_dir() / "trades").glob("*.json")) == [".json"]
-        assert {t["id"] for t in load_trades("!!!").trades} == {1, 2}
-
-    def test_BUG1b_un_ticker_larguisimo_llega_al_sistema_de_archivos(self):
-        # Sin tope de longitud el nombre va tal cual al FS. Aquí cabe; en uno
-        # con límite más bajo saldría ENAMETOOLONG, que depende del sistema.
+    def test_1_un_ticker_que_no_da_nombre_de_archivo_se_rechaza(self):
+        # Sin la guarda, `"!!!"`, `"@@@"` y `""` sanean todos a la cadena vacía
+        # y comparten un `.json` sin dueño: la memoria de una consulta basura
+        # contamina la del siguiente.
         from wbj.tito.stores import _file_for
 
-        assert _file_for("A" * 200).name == "A" * 200 + ".json"
+        for malo in ("!!!", "@@@", "", "   ", "../..", "..."):
+            with pytest.raises(ValueError):
+                _file_for(malo)
+        assert load_trades("!!!") is None          # leer nunca lanza
+        with pytest.raises(ValueError):            # guardar sí: hay algo que se perdería
+            save_trades("@@@", [_flow_row(1, "2026-07-30T15:00:00Z")])
 
-    def test_BUG2_sin_id_el_historial_entero_colapsa_a_un_trade(self):
+    def test_1b_un_ticker_absurdamente_largo_falla_igual_que_los_demas(self):
+        # Sin tope llega al sistema de archivos y revienta con ENAMETOOLONG,
+        # que depende del FS. Mejor el mismo ValueError determinista.
+        from wbj.tito.stores import MAX_TICKER_LEN, _file_for
+
+        _file_for("A" * MAX_TICKER_LEN)               # el límite justo pasa
+        with pytest.raises(ValueError):
+            _file_for("A" * (MAX_TICKER_LEN + 1))
+        assert load_trades("A" * 300) is None
+
+    def test_2_trades_sin_id_no_se_funden_en_uno(self):
         # La clave del Map es `t.id`. `flow._base_row` hace
         # `int(_num(raw.get("id")))`, así que un tape sin ese campo devuelve 0
-        # para TODOS y se conserva uno solo — sin un error. `added` tampoco
-        # avisa: la segunda y la tercera ya "existen", así que cuenta 1.
+        # para TODOS: sin la guarda se conserva UNO, y `added` tampoco avisa
+        # porque a partir del segundo la clave "ya existe".
         r = save_trades("SINID", [_flow_row(0, "2026-07-30T15:00:00Z"),
                                   _flow_row(0, "2026-07-30T15:01:00Z"),
                                   _flow_row(0, "2026-07-30T15:02:00Z")])
-        assert (r.total, r.added) == (1, 1)
-        assert len(load_trades("SINID").trades) == 1
+        assert (r.total, r.added) == (3, 3)
+        assert len(load_trades("SINID").trades) == 3
 
-    def test_BUG3_una_fila_null_en_disco_tumba_el_guardado(self):
-        # `for (const t of existing.trades) byId.set(t.id, t)` sobre `null`
-        # lanza, y el guardado entero se pierde. Se repite en cada corrida
-        # porque la fila corrupta sigue en el archivo.
+    def test_2b_con_id_real_el_dedupe_es_el_suyo(self):
+        rows = [_flow_row(1, "2026-07-30T15:00:00Z"), _flow_row(2, "2026-07-30T15:01:00Z")]
+        save_trades("CONID", rows)
+        r = save_trades("CONID", rows)
+        assert (r.total, r.added) == (2, 0)
+
+    def test_3_una_fila_corrupta_no_tumba_el_guardado(self):
+        # El suyo: `for (const t of existing.trades) byId.set(t.id, t)` sobre un
+        # `null` lanza, el guardado entero se pierde, y vuelve a pasar en CADA
+        # corrida porque la fila sigue en el archivo. Ese ticker deja de
+        # acumular memoria para siempre y sin un solo mensaje.
         self._escribe("C.json",
                       '{"ticker":"C","updatedAt":"x",'
-                      '"trades":[{"id":9,"timestamp":"2026-07-20T15:00:00Z"},null]}')
-        with pytest.raises(TypeError):
-            save_trades("C", [_flow_row(1, "2026-07-30T15:00:00Z")])
+                      '"trades":[{"id":9,"timestamp":"2026-07-20T15:00:00Z"},null,'
+                      '"basura",42]}')
+        r = save_trades("C", [_flow_row(1, "2026-07-30T15:00:00Z")])
+        assert (r.total, r.added) == (2, 1)
+        # …y el archivo queda reparado: la próxima lectura ya no ve basura.
+        assert all(isinstance(t, dict) for t in load_trades("C").trades)
 
-    def test_BUG3b_una_fila_string_pasa_sin_quejarse(self):
-        # `"basura".id` es `undefined` en JS, no un error: la fila entra al Map
-        # bajo la clave `undefined` y se guarda tal cual.
-        self._escribe("D.json",
-                      '{"ticker":"D","updatedAt":"x",'
-                      '"trades":[{"id":9,"timestamp":"2026-07-20T15:00:00Z"},"basura"]}')
-        r = save_trades("D", [_flow_row(1, "2026-07-30T15:00:00Z")])
-        assert r.total == 3
-        assert "basura" in load_trades("D").trades
-
-    def test_load_no_mira_dentro_del_array(self):
-        # `Array.isArray(parsed.trades) ? parsed : null` — el contenido pasa tal
-        # cual, incluidas las filas corruptas.
+    def test_3b_load_descarta_la_basura_pero_conserva_lo_bueno(self):
         self._escribe("E.json",
                       '{"ticker":"E","updatedAt":"x","trades":[{"id":1},"basura",null,42]}')
-        assert load_trades("E").trades == [{"id": 1}, "basura", None, 42]
+        assert load_trades("E").trades == [{"id": 1}]
+
+    def test_3c_el_consumidor_no_revienta_con_un_archivo_sucio(self):
+        # Es el filtro de su /api/validation: `t.assetPrice > 0 && t.timestamp`.
+        # En TS sobre un string da `undefined` y la fila se cae sola; en Python
+        # el `.get` lanzaría si `load_trades` no la hubiera descartado ya.
+        bueno = {"id": 1, "timestamp": "2026-07-30T15:00:00Z", "asset_price": 95.0}
+        self._escribe("F.json", json.dumps(
+            {"ticker": "F", "updatedAt": "x", "trades": [bueno, "basura", None, 42]}))
+        usables = [t for t in load_trades("F").trades
+                   if (t.get("asset_price") or 0) > 0 and t.get("timestamp")]
+        assert usables == [bueno]
 
     def test_load_no_inventa_los_campos_que_faltan(self):
         # Sin `str(... or "")`: un `ticker` ausente llega como None (su
-        # `undefined`) y uno numérico llega como número.
-        self._escribe("F.json", '{"trades":[]}')
-        f = load_trades("F")
-        assert f.ticker is None and f.updated_at is None
-        self._escribe("G.json", '{"ticker":7,"updatedAt":9,"trades":[]}')
+        # `undefined`) y uno numérico llega como número. Esto SÍ es literal.
+        self._escribe("G.json", '{"trades":[]}')
         g = load_trades("G")
-        assert g.ticker == 7 and g.updated_at == 9
+        assert g.ticker is None and g.updated_at is None
+        self._escribe("H.json", '{"ticker":7,"updatedAt":9,"trades":[]}')
+        h = load_trades("H")
+        assert h.ticker == 7 and h.updated_at == 9
 
 
 def _snap(d: str, base: float, spot: float = 100.0, direction: str = "up") -> PredictionSnapshot:

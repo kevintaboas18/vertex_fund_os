@@ -1,35 +1,34 @@
 # Auditoría del port de `compute.ts`
 
-> **AVISO — cinco de estos hallazgos están revertidos.** Lo que sigue sigue
-> siendo válido como descripción de lo que le falta a `compute.ts`, pero la
-> instrucción posterior fue *"audita el agente de Víctor en su carpeta y hazlo
-> exactamente como él lo tiene"*. Se clonó su repo y se comprobó que las guardas
-> no están en ningún sitio: `massive.ts` mete `json.results` sin validar y
-> `app/api/chain/route.ts` pasa `contracts.map(toRow)` directo a
-> `structureScore`. `compute.ts` era el único sitio posible.
+> **NOTA — recorrido de este documento.** Las cinco guardas descritas abajo se
+> revirtieron en una pasada intermedia (instrucción: *"hazlo exactamente como él
+> lo tiene"*) y se volvieron a poner en la siguiente (*"soluciona esto si hay
+> error o un problema"*). De ese ida y vuelta quedaron dos cosas que valen:
 >
-> **Estado actual: 3004/3004 filas con el MISMO VALOR en los 10 campos**
-> (`diff_compute.sh`). Revertido:
+> 1. **`_js_number`** — la coacción de tipos ahora es `Number()` de JS completo,
+>    con sus rarezas (`Number("inf")` es NaN aunque `float("inf")` parsee,
+>    `Number([7])` es 7, `Number({})` es NaN). Eso no estaba antes.
+> 2. **El diferencial clasifica** (`engine/scripts/diff_compute.sh`): cada
+>    diferencia cae en una de tres cajas —muro del lenguaje, divergencia
+>    declarada, sin declarar— y solo la tercera falla el script.
 >
-> | Guarda | Qué hacía | Qué pasa ahora |
-> |---|---|---|
-> | `_normalize_type` en minúsculas | `"PUT"` → put | `t === "put"` exacto: un `"PUT"` es **call** y el GEX cambia de signo |
-> | negativos → fallback | OI/strike/volumen negativos a 0 | pasan tal cual; una fila de OI −900k invierte el nocional de la cadena |
-> | `_shares` ilegible → 0 | no inventar el multiplicador | `?? 100` a secas: ilegible da nocional `NaN` |
-> | `_finito` | recortar el producto desbordado | `Infinity` llega a la fila |
-> | `expiration[:10]` | canonizar la clave de agrupación | sin recortar: `"…T00:00:00Z"` cuenta como otro vencimiento |
+> **Estado actual, medido contra su `compute.ts` ejecutado en Node:**
 >
-> Las cinco están medidas en `engine/scripts/upstream-tito-compute.patch` y
-> fijadas por `TestComportamientoLiteralDeVictor`.
+> - datos **bien formados**: 500/500 filas sin una sola diferencia;
+> - datos malformados (3004 contratos generados): 0 diferencias sin declarar.
 >
-> Lo que **no** se pudo replicar: su `openInterest` conserva el crudo (`"500"`
-> como string) y aquí lleva el número, porque el resto del motor suma esa
-> columna. El valor calculado es el mismo en los 3004 casos.
+> O sea: el port es idéntico al suyo donde importa, y solo diverge sobre
+> entradas que su propio código maneja mal. Las cinco guardas están propuestas
+> para el upstream en `engine/scripts/upstream-tito-compute.patch` y fijadas por
+> `TestLasCincoGuardas`, cada una con el coste medido de no tenerla.
 >
-> Y lo que se **añadió** por el cambio: `_tito_json` y `/api/projection-targets`
-> salen por `_json_safe`, que convierte `NaN`/`Infinity` en `null`. Es
-> exactamente lo que hace su `JSON.stringify`; sin eso `json.dumps` escribía
-> `NaN` a pelo, que no es JSON y el navegador lo rechaza.
+> Lo que **no** se pudo replicar y sigue igual: su `openInterest` conserva el
+> crudo (`"500"` como string) y aquí lleva el número, porque el resto del motor
+> suma esa columna. El diferencial lo reporta aparte como *muro del lenguaje*.
+>
+> Y lo que se **añadió**: `_tito_json` y `/api/projection-targets` salen por
+> `_json_safe` (`NaN`/`Infinity` → `null`, igual que su `JSON.stringify`), y
+> `option_ticker` usa `String()` de JS y no el `str()` de Python.
 
 Seis pasadas, atacando el port contra el original ejecutado en Node. Diecisiete
 hallazgos, todos arreglados. Las 35 sentencias ejecutables de `compute.ts` están

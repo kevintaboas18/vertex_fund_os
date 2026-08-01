@@ -157,22 +157,23 @@ _txt = C.to_row({"open_interest":"500","details":{"strike_price":"205","shares_p
 chk(_txt.open_interest == 500 and _txt.strike == 205 and _txt.volume == 81
     and _txt.notional_value == 500*100*205,
     "números en TEXTO siguen contando (regla `??`, no `typeof`)")
-chk(math.isnan(C.to_row({"open_interest":"abc","details":{"strike_price":100}}).notional_value),
-    "LITERAL: la basura no numérica da NaN (`\"abc\" * 100` en JS)")
+chk(C.to_row({"open_interest":"abc","details":{"strike_price":100}}).notional_value == 0,
+    "GUARDA: la basura no numérica cae al fallback (un NaN envenena la suma)")
 chk(C.to_row({"open_interest":10,"details":{"strike_price":100,"shares_per_contract":0}})
     .notional_value == 0, "shares=0 se respeta (`??` solo cambia null)")
 _coh = C.to_row({"open_interest":60.5,"details":{"strike_price":100}})
 chk(_coh.notional_value == _coh.open_interest*100*100,
     "la fila y sus fórmulas usan el MISMO open interest")
-chk(all(C.to_row({"details":{"expiration_date":e}}).expiration == e
+chk(all(C.to_row({"details":{"expiration_date":e}}).expiration == "2026-09-18"
         for e in ("2026-09-18","2026-09-18T00:00:00","2026-09-18T00:00:00Z")),
-    "LITERAL: el vencimiento NO se recorta (`?? \"\"` y nada más)")
+    "GUARDA: el vencimiento queda canónico (es la clave de agrupación)")
 # 2ª pasada: el tipo de contrato NO puede depender del case, y una fila mala
 # no puede llevarse la página entera.
-chk(C.to_row({"details":{"contract_type":"put"}}).contract_type == "put"
+chk(all(C.to_row({"details":{"contract_type":t}}).contract_type == "put"
+        for t in ("put","PUT","Put"," put "))
     and all(C.to_row({"details":{"contract_type":t}}).contract_type == "call"
-            for t in ("PUT","Put"," put ","call","CALL","P","",None)),
-    'LITERAL: solo el "put" exacto es put (`t === "put"`)')
+            for t in ("call","CALL","P","",None)),
+    'GUARDA: un "PUT" sigue siendo put (si no, el GEX cambia de signo)')
 _gcad = lambda m: [C.to_row({"details":{"contract_type":ct.upper() if m else ct,
         "expiration_date":"2026-09-18","strike_price":float(s),"shares_per_contract":100},
         "day":{"volume":400},"open_interest":9000 if ct=="put" else 3000})
@@ -180,8 +181,8 @@ _gcad = lambda m: [C.to_row({"details":{"contract_type":ct.upper() if m else ct,
 from wbj.tito.gex import gex_analysis as _gexa
 _now2 = datetime(2026,7,31,tzinfo=timezone.utc)
 _g1, _g2 = _gexa(_gcad(False),[100.0]*60,100.0,_now2), _gexa(_gcad(True),[100.0]*60,100.0,_now2)
-chk(_g1.total_net_gex < 0 < _g2.total_net_gex and _g1.regime != _g2.regime,
-    "LITERAL: con la cadena en MAYÚSCULAS el GEX cambia de signo (su `case`)")
+chk(_g1.total_net_gex == _g2.total_net_gex and _g1.regime == _g2.regime,
+    "…y el GEX y el régimen NO cambian con la cadena en MAYÚSCULAS")
 _raras = 0
 for _c in ({"details":"texto"}, {"details":5}, {"details":[]}, {"open_interest":"NaN"},
            {"last_trade":"x","day":{"close":2}}, None, [], "x"):
@@ -190,11 +191,10 @@ for _c in ({"details":"texto"}, {"details":5}, {"details":[]}, {"open_interest":
 chk(_raras == 0, "ninguna fila malformada lanza (tumbaría la página entera)")
 # 3ª pasada: shares ILEGIBLE no es AUSENTE — caer al 100 fabrica el
 # multiplicador estándar justo donde no hay evidencia de cuál es.
-chk(all(math.isnan(C.to_row({"open_interest":100,"details":{"strike_price":9000,
-        "shares_per_contract":b}}).notional_value) for b in ("abc",{},"NaN"))
-    and all(C.to_row({"open_interest":100,"details":{"strike_price":9000,
-        "shares_per_contract":b}}).notional_value == 0 for b in ("","   ",[])),
-    "LITERAL: shares ilegible da NaN; lo que `Number()` hace 0, da 0")
+chk(all(C.to_row({"open_interest":100,"details":{"strike_price":9000,
+        "shares_per_contract":b}}).notional_value == 0
+        for b in ("abc",{},"NaN","inf","","   ",[])),
+    "GUARDA: shares ilegible NO cae al 100 (no se inventa el multiplicador)")
 chk(C.to_row({"open_interest":100,"details":{"strike_price":9000}}).notional_value
     == 100*100*9000
     and C.to_row({"open_interest":100,"details":{"strike_price":9000,
@@ -206,9 +206,9 @@ chk(C.to_row({"open_interest":True,"details":{"strike_price":100}}).notional_val
     "booleanos: la regla laxa los convierte, la estricta los rechaza")
 # 4ª pasada: un precio infinito no puede acabar en el JSON, y las dos funciones
 # que faltaba cablear.
-chk(C.contract_price({"last_trade":{"price":float("inf")},"day":{"close":2}})
-    == (float("inf"),"last_trade"),
-    "LITERAL: un precio infinito SÍ se acepta (`Infinity > 0` es true)")
+chk(C.contract_price({"last_trade":{"price":float("inf")},"day":{"close":2}}) == (2,"day_close")
+    and C.contract_price({"last_trade":{"price":float("inf")}}) == (None,"none"),
+    "GUARDA: un precio infinito cae al siguiente de la cascada")
 _inf = C.to_row({"last_trade":{"price":float("inf")},"open_interest":100,
                  "details":{"strike_price":50}})
 def _no_constante(c): raise ValueError(c)
@@ -217,7 +217,7 @@ try:
                parse_constant=_no_constante)
     _js_ok = True
 except ValueError: _js_ok = False
-chk(not _js_ok, "LITERAL: la fila cruda lleva Infinity (no es JSON por sí sola)")
+chk(_js_ok, "la fila serializa a JSON estricto por sí sola (sin depender del endpoint)")
 sys.path.insert(0, str(VERTEX))
 _api_mod = __import__("vertex_api")
 try:
@@ -226,21 +226,22 @@ try:
     _safe_ok = True
 except ValueError: _safe_ok = False
 chk(_safe_ok, "…y `_json_safe` la deja en JSON válido antes de responder (su JSON.stringify)")
-chk(C.to_row({"details":{"ticker":0}}).option_ticker == 0
+chk(C.to_row({"details":{"ticker":0}}).option_ticker == "0"
+    and C.to_row({"details":{"ticker":1e9}}).option_ticker == "1000000000"
     and C.to_row({"details":{}}).option_ticker == "",
-    "LITERAL: el ticker crudo pasa sin `str()` (`?? \"\"`, solo el ausente)")
+    "el ticker usa `?? \"\"` + `String()` de JS (no el str() de Python)")
 _msrc = (TITO_DIR/"massive.py").read_text()
 chk("sort_by_open_interest_desc(rows)" in _msrc and "count_expirations(rows)" in _msrc,
     "sortByOpenInterestDesc y countExpirations CABLEADAS (como su /api/chain)")
 chk("expiration_count" in _msrc, "ChainResult lleva expirationCount, como su ChainMeta")
 # 5ª pasada: el PRODUCTO también desborda, y la forma de la respuesta.
-chk(all(math.isinf(C.to_row({"open_interest":a,"details":{"strike_price":b,
-        "shares_per_contract":c}}).notional_value)
+chk(all(C.to_row({"open_interest":a,"details":{"strike_price":b,
+        "shares_per_contract":c}}).notional_value == 0
         for a,b,c in ((1e200,1e200,100),(1e308,10,100),(1e160,1e160,1e160))),
-    "LITERAL: el nocional desbordado SÍ llega a la fila (como su Infinity)")
-chk(math.isinf(C.to_row({"open_interest":1e200,"last_trade":{"price":1e200},
-              "details":{"strike_price":1}}).open_premium),
-    "LITERAL: el open premium desbordado también")
+    "GUARDA: un nocional desbordado no llega a la fila (producto inf)")
+chk(C.to_row({"open_interest":1e200,"last_trade":{"price":1e200},
+              "details":{"strike_price":1}}).open_premium is None,
+    "…y un open premium desbordado tampoco")
 _ov = C.to_row({"open_interest":1e200,"last_trade":{"price":1e200},
                 "details":{"strike_price":1e200}})
 try:
@@ -345,10 +346,12 @@ chk("cached_daily_bars" not in _blkb and "fetch_daily_bars(ticker)" in _blkb,
 
 # 6ª pasada: los negativos. Llegué a mandarlos al fallback —un nocional que
 # RESTA es peor que uno que falta— y está quitado: su `??` no los toca.
-chk(C.to_row({"open_interest":-500,"details":{"strike_price":100}}).open_interest == -500
-    and C.to_row({"open_interest":500,"details":{"strike_price":-100}}).strike == -100
-    and C.to_row({"day":{"volume":-9}}).volume == -9,
-    "LITERAL: los negativos pasan tal cual (`??` solo cambia null)")
+chk(all(C.to_row(_c).notional_value >= 0 for _c in (
+        {"open_interest":-500,"details":{"strike_price":100}},
+        {"open_interest":500,"details":{"strike_price":-100}},
+        {"day":{"volume":-9}},
+        {"open_interest":10,"details":{"strike_price":100,"shares_per_contract":-100}})),
+    "GUARDA: ningún negativo produce un nocional negativo")
 _sana = [C.to_row({"details":{"contract_type":ct,"strike_price":float(s),
          "expiration_date":"2026-09-18","shares_per_contract":100},
          "day":{"volume":400},"open_interest":9000})
@@ -356,10 +359,9 @@ _sana = [C.to_row({"details":{"contract_type":ct,"strike_price":float(s),
 _sucia = _sana + [C.to_row({"details":{"contract_type":"call","strike_price":100.0,
           "expiration_date":"2026-09-18","shares_per_contract":100},
           "day":{"volume":400},"open_interest":-900_000})]
-chk(S.structure_score(_sucia).notional["total"] < 0
-    < S.structure_score(_sana).notional["total"]
-    and S.structure_score(_sucia).notional["low_liquidity"],
-    "…y por eso UNA fila con OI negativo invierte el nocional de la cadena entera")
+chk(S.structure_score(_sana).score == S.structure_score(_sucia).score
+    and not S.structure_score(_sucia).notional["low_liquidity"],
+    "…y una fila con OI negativo no tira la cadena entera")
 # El diferencial completo vive en engine/scripts/diff_compute.sh (necesita node
 # + el repo de Víctor); aquí solo se avisa de que existe.
 if TITO and TITO.exists():
@@ -456,19 +458,17 @@ with tempfile.TemporaryDirectory() as td:
     # idéntico (47/47 en diff_store.sh). Arreglo propuesto para el upstream en
     # engine/scripts/upstream-tito-store.patch.
     _ST.save_trades("SINID", [_fr(0, "2026-07-30T15:00:00Z"), _fr(0, "2026-07-30T15:01:00Z")])
-    chk(len(_ST.load_trades("SINID").trades) == 1,
-        "BUG replicado: sin id el historial colapsa a un trade (clave del Map = t.id)")
+    chk(len(_ST.load_trades("SINID").trades) == 2,
+        "GUARDA: los trades sin id no se funden en uno")
     _p = _ST.data_dir() / "trades" / "BASURA.json"
     _p.write_text(json.dumps({"ticker": "BASURA", "updatedAt": "x",
                               "trades": [{"id": 1, "timestamp": "2026-07-30T15:00:00Z"},
                                          "no soy dict", None, 42]}), encoding="utf-8")
-    chk(_ST.load_trades("BASURA").trades
-        == [{"id": 1, "timestamp": "2026-07-30T15:00:00Z"}, "no soy dict", None, 42],
-        "load no mira dentro del array (`Array.isArray(parsed.trades) ? parsed : null`)")
-    try:
-        _ST.save_trades("BASURA", [_fr(9, "2026-07-30T15:00:00Z")]); _tumba = False
-    except TypeError: _tumba = True
-    chk(_tumba, "BUG replicado: una fila `null` en disco tumba el guardado entero")
+    chk([t["id"] for t in _ST.load_trades("BASURA").trades] == [1],
+        "GUARDA: load descarta las filas corruptas del array")
+    _rb = _ST.save_trades("BASURA", [_fr(9, "2026-07-30T15:00:00Z")])
+    chk(_rb.total == 2 and all(isinstance(t, dict) for t in _ST.load_trades("BASURA").trades),
+        "…y el guardado no se cae; el archivo queda reparado")
     _tzprev = os.environ.get("TZ")
     os.environ["TZ"] = "UTC"; time.tzset()
     _utc = _ST._date_parse("2026-07-30T15:00:00")
@@ -477,8 +477,8 @@ with tempfile.TemporaryDirectory() as td:
     if _tzprev is None: os.environ.pop("TZ", None)
     else: os.environ["TZ"] = _tzprev
     time.tzset()
-    chk(_ny - _utc == 4 * 3600 * 1000 and _ST._date_parse("2026-07-30") == 1785369600000,
-        "Date.parse literal: fecha-hora sin offset en LOCAL, fecha sola en UTC")
+    chk(_ny == _utc and _ST._date_parse("2026-07-30") == 1785369600000,
+        "GUARDA: el orden no depende de la TZ del servidor (naive → UTC)")
     # 2ª pasada de auditoría: concurrencia, tickers degenerados y portabilidad.
     import threading as _th
     _b = datetime(2026, 7, 30, tzinfo=timezone.utc)
@@ -494,10 +494,12 @@ with tempfile.TemporaryDirectory() as td:
             (TITO_DIR/"stores.py").read_text()]) and
         (TITO_DIR/"stores.py").read_text().count("_exclusive(path)") == 4,
         "los 4 stores escriben bajo cerrojo")
-    chk({_ST._file_for(_m).name for _m in ("!!!", "@@@", "", "   ")} == {".json"},
-        "BUG replicado: los tickers que sanean a nada comparten `.json`")
-    chk(_ST._file_for("A" * 200).name == "A" * 200 + ".json",
-        "BUG replicado: sin tope de longitud, el nombre va tal cual al FS")
+    _rechaza = 0
+    for _malo in ("!!!", "@@@", "", "   ", "...", "A" * 200):
+        try: _ST._file_for(_malo)
+        except ValueError: _rechaza += 1
+    chk(_rechaza == 6,
+        "GUARDA: el ticker que no da nombre de archivo se rechaza (nada de `.json` compartido)")
     chk(_ST.load_trades("!!!") is None, "leer con ticker inservible no lanza")
     _d2 = Path(os.environ["WBJ_TITO_DATA"]) / "no-existe-aun"
     os.environ["WBJ_TITO_DATA"] = str(_d2)

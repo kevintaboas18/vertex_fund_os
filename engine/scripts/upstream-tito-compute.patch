@@ -3,15 +3,17 @@ Cinco lagunas en web/lib/compute.ts de agente-tito-metralleta
 Encontradas al portar el módulo a Python (Vertex Fund OS) con un test
 diferencial: se ejecuta el compute.ts real en Node y el port en Python sobre los
 mismos ~3000 contratos crudos, cubriendo todas las formas que puede mandar
-Massive, y se comparan las salidas (`engine/scripts/diff_compute.sh --estricto`).
+Massive, y se comparan las salidas (`engine/scripts/diff_compute.sh`).
 
-Nota sobre el port: las cinco están REPLICADAS a propósito, para que el módulo
-sea idéntico al original (3004/3004 filas con el mismo valor en los 10 campos).
-Los tests `TestComportamientoLiteralDeVictor` fijan este comportamiento exacto,
-así que si algún día se aplica este parche arriba, allí se ve qué hay que
-cambiar abajo.
+Nota sobre el port: las cinco están ARREGLADAS en la versión de Python, y el
+arreglo es el que se propone abajo. El criterio para divergir es medido, no de
+estilo: **con datos bien formados el port sigue siendo idéntico** (500/500 filas
+sin una sola diferencia), así que las guardas solo actúan sobre entradas que
+`compute.ts` ya maneja mal. El diferencial clasifica cada divergencia por su
+causa y falla si aparece una sin declarar. Los tests `TestLasCincoGuardas` fijan
+el comportamiento y su coste medido.
 
-Auditado en el repo antes de replicarlas: `massive.ts` mete `json.results` sin
+Auditado en su repo antes de decidir:  `massive.ts` mete `json.results` sin
 validar (`for (const c of results) contracts.push(c)`) y
 `app/api/chain/route.ts` hace `contracts.map(toRow)` y pasa las filas directo a
 `structureScore`. `compute.ts` es el único sitio donde estas guardas podrían

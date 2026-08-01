@@ -60,10 +60,12 @@ def _file_for(ticker: str) -> Path:
 
         const safe = ticker.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "");
 
-    Sin guardas propias, igual que el `_file_for` de `stores.py`: un ticker que
-    se queda en nada (`"!!!"`, `""`) va al mismo `.json` compartido y uno
-    larguísimo llega tal cual al sistema de archivos. Es su comportamiento en
-    los dos módulos.
+    Sin las guardas que sí lleva `stores._sanea_ticker`: allí un ticker que se
+    queda en nada (`"!!!"`, `""`) se rechaza, porque un `.json` compartido
+    contamina la MEMORIA acumulada del sub-agente 6. Aquí el daño se limita a
+    que dos tickers basura compartan un cache que se reescribe cada día, y este
+    módulo además no lo llama nadie (su cabecera dice que en v1 solo lo usa
+    Wheel), así que se deja literal — y el diferencial se mantiene en 27/27.
 
     La travesía de rutas sigue cerrada sin guarda extra: su propio regex borra
     las barras, así que `../..` se queda en `....` y no sale del directorio.

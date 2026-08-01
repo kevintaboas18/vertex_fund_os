@@ -3960,31 +3960,39 @@ def _tito_memory(ticker, trades, chain, bars, now):
     except Exception as e:
         return _empty(f"el motor no carga: {type(e).__name__}")
 
-    try:
-        # 1. Guardar la foto de hoy ANTES de leer: así el primer día ya cuenta.
-        if chain:
-            st.save_chain_snapshot(ticker, chain, now)
-        notable = classify_flow(trades, now).interesting if trades else []
-        if notable:
-            # Los mismos `convictionRows` que guarda su /api/flow.
-            st.save_trades(ticker, notable)
-            ivs = [r.iv * 100 for r in notable if r.iv and r.iv > 0]
-            if ivs:
-                st.save_iv_snapshot(ticker, sum(ivs) / len(ivs), now)
+    # 1. Guardar la foto de hoy ANTES de leer: así el primer día ya cuenta.
+    #
+    # Cada escritura va en su propio try, como en su `/api/flow`: allí el
+    # `saveTrades` está envuelto con el comentario *"el guardado no debe romper
+    # el reporte"*, y su `/api/ideas` hace lo mismo con `.catch(() => null)`.
+    # Con un solo try alrededor de todo el bloque, un fallo al ESCRIBIR se
+    # llevaba también la LECTURA — o sea el IV Rank real, el sub-agente 6 y la
+    # calibración— cuando lo que hay en disco estaba perfectamente bien.
+    escrituras: list[str] = []
 
+    def _guarda(nombre, fn):
+        try:
+            fn()
+        except Exception as e:                       # noqa: BLE001
+            escrituras.append(f"{nombre}: {type(e).__name__}")
+
+    if chain:
+        _guarda("cadena", lambda: st.save_chain_snapshot(ticker, chain, now))
+    notable = classify_flow(trades, now).interesting if trades else []
+    if notable:
+        # Los mismos `convictionRows` que guarda su /api/flow.
+        _guarda("trades", lambda: st.save_trades(ticker, notable))
+        ivs = [r.iv * 100 for r in notable if r.iv and r.iv > 0]
+        if ivs:
+            _guarda("iv", lambda: st.save_iv_snapshot(ticker, sum(ivs) / len(ivs), now))
+
+    try:
         # 2. Leer lo acumulado. El filtro por asset_price/timestamp es el de su
         #    /api/validation: un trade sin precio de subyacente no se puede
         #    seguir hacia adelante, así que no entra al backtest.
         iv_history = st.load_iv_history(ticker)
         stored = st.load_trades(ticker)
-        # `load_trades` no mira dentro del array (su `Array.isArray(parsed.trades)`
-        # a secas), así que una fila corrupta en disco llega tal cual. En TS
-        # `t.asset_price` sobre un string es `undefined` y la fila se cae sola
-        # por el filtro; en Python el `.get` lanza y el `except` de abajo lo
-        # convierte en "no hay memoria", apagando IV Rank real, sub-agente 6 y
-        # calibración de golpe. El `isinstance` reproduce SU comportamiento, no
-        # lo cambia.
-        guardados = [t for t in (stored.trades if stored else []) if isinstance(t, dict)]
+        guardados = stored.trades if stored else []
         past = [t for t in guardados
                 if (t.get("asset_price") or 0) > 0 and t.get("timestamp")]
         journal = st.load_journal(ticker)
@@ -4006,6 +4014,10 @@ def _tito_memory(ticker, trades, chain, bars, now):
                 "flows_guardados": len(guardados),
                 "flows_utilizables": len(past),
                 "flows_descartados": len(guardados) - len(past),
+                # Un fallo de ESCRITURA ya no se lleva la lectura, pero tampoco
+                # puede quedar mudo: la memoria se acumula hacia adelante y un
+                # día que no se guarda no se recupera.
+                "escrituras_fallidas": escrituras or None,
                 "predicciones_vencidas": review.get("matured_count", 0),
                 "sesgo_pct": review.get("bias_pct"),
                 "calibracion_activa": bool(
@@ -4119,17 +4131,22 @@ def tito_health(ticker: str = "AAPL"):
             + (f" · última escritura {_stored.updated_at}" if _stored and _stored.updated_at else ""),
             None if flows else "se acumulan con cada consulta",
             None if usables else "sub-agente 6 (Confirmación) sin score")
-        # `store.ts` no mira dentro del array y su `byId.set(t.id, t)` sobre una
-        # fila `null` lanza: el guardado se pierde y vuelve a pasar en cada
-        # corrida, porque la fila sigue en el archivo. El bug está replicado a
-        # propósito (ver upstream-tito-store.patch), así que al menos que se
-        # DIGA — el ticker se queda sin poder acumular nada más.
-        _rotas = sum(1 for t in (_stored.trades if _stored else []) if not isinstance(t, dict))
+        # `load_trades` ya descarta las filas corruptas —sin eso, su
+        # `byId.set(t.id, t)` sobre un `null` tumbaba CADA guardado, y para
+        # siempre, porque la fila seguía en el archivo—. Pero descartarlas en
+        # silencio tampoco vale: son trades que se pierden. Se cuentan leyendo
+        # el archivo crudo, que es lo único que las ve.
+        _rotas = 0
+        try:
+            _crudo = json.loads((d / "trades" / f"{tk}.json").read_text(encoding="utf-8"))
+            _rotas = sum(1 for t in _crudo.get("trades", []) if not isinstance(t, dict))
+        except Exception:
+            pass
         if _rotas:
             add("memoria.flows.corrupto", False,
-                f"{_rotas} fila(s) corrupta(s) en trades/{tk}.json",
-                "borra ese archivo: se vuelve a acumular solo desde la próxima consulta",
-                "cada guardado lanza TypeError y el ticker no acumula más flows")
+                f"{_rotas} fila(s) corrupta(s) en trades/{tk}.json, descartadas al leer",
+                "el archivo se repara solo en el próximo guardado; esas filas ya no vuelven",
+                f"{_rotas} trades perdidos del historial del sub-agente 6")
         if flows and not usables:
             add("memoria.flows.formato", False,
                 f"los {flows} trades guardados no traen asset_price/timestamp usables",
