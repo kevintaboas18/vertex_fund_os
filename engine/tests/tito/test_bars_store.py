@@ -229,12 +229,55 @@ class TestCuandoElCacheEsValido:
         r = cached_daily_bars("D", now=datetime(2026, 7, 27, 15, 0, tzinfo=ET), fetch=fetch)
         assert r[-1].time == hoy, "la grafica se quedo sin el dia en curso"
 
-    def test_el_cache_se_recorta_a_los_dias_pedidos(self):
-        # El cache lo llena quien pide 365; devolverle 365 a quien pide 30 le da
-        # un historico que no encargo.
-        def fetch(t, days):
-            return _barras(365)[-days:]
-
+    def test_el_cache_se_recorta_por_FECHA_no_por_numero_de_barras(self):
+        # `days` son dias de CALENDARIO —fetch_daily_bars hace
+        # end - timedelta(days=days)— y en 30 dias de calendario caben ~21
+        # barras, no 30. Una version anterior hacia bars[-days:] y devolvia 30
+        # barras, o sea 41 dias de calendario: mas historico del pedido.
         cerrada = datetime(2026, 7, 27, 18, tzinfo=ET)
-        assert len(cached_daily_bars("E", 365, now=cerrada, fetch=fetch)) == 365
-        assert len(cached_daily_bars("E", 30, now=cerrada, fetch=fetch)) == 30
+
+        def habiles(days):
+            fin = datetime(2026, 7, 27).date()
+            d, out = fin - timedelta(days=days), []
+            while d <= fin:
+                if d.weekday() < 5:
+                    out.append(LvlBar(d.isoformat(), 101, 99, 100))
+                d += timedelta(days=1)
+            return out
+
+        def fetch(t, days):
+            return habiles(days)
+
+        largo = cached_daily_bars("E", 365, now=cerrada, fetch=fetch)
+        corto = cached_daily_bars("E", 30, now=cerrada, fetch=fetch)   # del cache
+        assert len(largo) == len(habiles(365))
+        assert len(corto) == len(habiles(30)), "recorto por numero de barras"
+        assert corto[0].time >= "2026-06-27"
+
+    def test_un_cache_CORTO_no_se_sirve_a_quien_pide_LARGO(self):
+        """El peor de los tres: el analisis correria sobre 21 barras creyendo
+        tener 261, sin un solo aviso."""
+        cerrada = datetime(2026, 7, 27, 18, tzinfo=ET)
+        n = []
+
+        def fetch(t, days):
+            n.append(days)
+            return _barras(21 if days <= 30 else 261)
+
+        corto = cached_daily_bars("F", 30, now=cerrada, fetch=fetch)
+        largo = cached_daily_bars("F", 365, now=cerrada, fetch=fetch)
+        assert len(corto) == 21
+        assert len(largo) == 261, "se sirvio el cache corto y trunco el historico"
+        assert n == [30, 365], "no refresco"
+
+    def test_pero_el_cache_LARGO_si_sirve_al_corto(self):
+        cerrada = datetime(2026, 7, 27, 18, tzinfo=ET)
+        n = []
+
+        def fetch(t, days):
+            n.append(days)
+            return _barras(60)
+
+        cached_daily_bars("G", 365, now=cerrada, fetch=fetch)
+        cached_daily_bars("G", 30, now=cerrada, fetch=fetch)
+        assert n == [365], "pidio a la red teniendo un cache que cubria la ventana"

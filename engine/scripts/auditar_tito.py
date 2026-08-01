@@ -298,8 +298,26 @@ with tempfile.TemporaryDirectory() as _tdb:
         "no se congela si Massive publica la barra de hoy tarde")
     _many = [LvlBar(f"2026-{(i%12)+1:02d}-0{(i%9)+1}",101,99,100) for i in range(365)]
     BS.cached_daily_bars("REC", 365, now=_CERRADA, fetch=lambda t,days: _many[-days:])
-    chk(len(BS.cached_daily_bars("REC", 30, now=_CERRADA, fetch=lambda t,days: _many[-days:])) == 30,
-        "el cache se recorta a los días pedidos")
+    def _habiles(days, fin=datetime(2026,7,27).date()):
+        d, out = fin - timedelta(days=days), []
+        while d <= fin:
+            if d.weekday() < 5: out.append(LvlBar(d.isoformat(),101,99,100))
+            d += timedelta(days=1)
+        return out
+    _cer2 = datetime(2026,7,27,18,tzinfo=_ET)
+    BS.cached_daily_bars("REC", 365, now=_cer2, fetch=lambda t,days: _habiles(days))
+    _c30 = BS.cached_daily_bars("REC", 30, now=_cer2, fetch=lambda t,days: _habiles(days))
+    chk(len(_c30) == len(_habiles(30)),
+        f"el cache se recorta por FECHA, no por nº de barras ({len(_c30)} vs {len(_habiles(30))})")
+    _pedidos = []
+    def _fd(t, days): _pedidos.append(days); return _habiles(days)
+    BS.cached_daily_bars("CORTO", 30, now=_cer2, fetch=_fd)
+    _lg = BS.cached_daily_bars("CORTO", 365, now=_cer2, fetch=_fd)
+    chk(_pedidos == [30, 365] and len(_lg) == len(_habiles(365)),
+        "un cache CORTO no se sirve a quien pide LARGO (truncaba en silencio)")
+    _pedidos.clear()
+    BS.cached_daily_bars("CORTO", 30, now=_cer2, fetch=_fd)
+    chk(_pedidos == [], "pero el cache largo SÍ sirve al corto, sin tocar la red")
     _cache = BS.load_bars("D")
     chk(_cache is not None and _cache.date == "2026-07-31" and _cache.ticker == "D",
         "BarsFile guarda ticker + día de mercado + barras")

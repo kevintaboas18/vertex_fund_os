@@ -19,13 +19,13 @@ JSON y el resto.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
 from .levels import LvlBar
 from .massive import MassiveError
-from .occ import MARKET_TZ, market_date_str
+from .occ import MARKET_TZ, market_date, market_date_str
 from .stores import MAX_TICKER_LEN, _exclusive, _read, _sanea_ticker, _write, data_dir
 
 __all__ = [
@@ -50,6 +50,12 @@ class BarsFile:
     ticker: str
     date: str          # día de mercado (ET) en que se guardó
     bars: list[LvlBar]
+    #: Ventana, en días de CALENDARIO, con la que se pidieron. Víctor no la
+    #: guarda porque su único llamador usa siempre el default. Sin ella, el
+    #: primero que pidiera 30 días dejaba el cache corto y el siguiente que
+    #: pidiera 365 recibía un histórico truncado **en silencio** — con el
+    #: análisis corriendo sobre 21 barras en vez de 261.
+    days: int = 0
 
 
 def _file_for(ticker: str) -> Path:
@@ -61,8 +67,9 @@ def mercado_abierto(now: datetime) -> bool:
     """¿Está la sesión regular en curso? Lunes a viernes, 09:30–16:00 ET.
 
     No conoce los festivos: en uno, esto dice "abierto" y el cache se refresca
-    todo el día. Se desperdicia una llamada, nunca se sirve un dato viejo — y el
-    caso lo cubre igualmente `_datos_congelados`, que mira la propia barra.
+    todo el día. Se desperdicia un puñado de llamadas ~9 días al año; nunca se
+    sirve un dato viejo. Se intentó cubrirlos mirando la propia barra y salió
+    peor — ver `_datos_congelados`.
     """
     et = now.astimezone(MARKET_TZ)
     if et.weekday() >= 5:            # sábado o domingo
@@ -71,7 +78,7 @@ def mercado_abierto(now: datetime) -> bool:
     return MARKET_OPEN_MIN <= minutos < MARKET_CLOSE_MIN
 
 
-def _datos_congelados(cache: BarsFile, now: datetime) -> bool:
+def _datos_congelados(now: datetime) -> bool:
     """¿Puede el mercado cambiar todavía lo que hay en este cache?
 
     DIVERGENCIA declarada, y la única de peso en este módulo. El cache de Víctor
@@ -105,6 +112,20 @@ def _datos_congelados(cache: BarsFile, now: datetime) -> bool:
     return not mercado_abierto(now)
 
 
+def _recorta(bars: Sequence[LvlBar], days: int, now: datetime) -> list[LvlBar]:
+    """Recorta a la ventana pedida por FECHA, no por número de barras.
+
+    `days` son días de **calendario** —así lo entiende `fetch_daily_bars`, que
+    hace `end - timedelta(days=days)`— y en 30 días de calendario caben unas 21
+    barras, no 30. Una primera versión de esto hacía `bars[-days:]` y devolvía
+    30 barras, o sea 41 días de calendario: más histórico del pedido.
+    """
+    if days <= 0:
+        return list(bars)
+    corte = (market_date(now) - timedelta(days=days)).isoformat()
+    return [b for b in bars if b.time >= corte]
+
+
 def _a_bar(d: object) -> LvlBar | None:
     if not isinstance(d, dict):
         return None
@@ -129,12 +150,20 @@ def load_bars(ticker: str) -> BarsFile | None:
     if not isinstance(parsed, dict) or not isinstance(parsed.get("bars"), list):
         return None
     bars = [b for b in (_a_bar(x) for x in parsed["bars"]) if b is not None]
+    try:
+        dias = int(parsed.get("days") or 0)
+    except (TypeError, ValueError):
+        dias = 0
     return BarsFile(ticker=str(parsed.get("ticker", "")),
-                    date=str(parsed.get("date", "")), bars=bars)
+                    date=str(parsed.get("date", "")), bars=bars, days=dias)
 
 
-def save_bars(ticker: str, bars: Sequence[LvlBar], now: datetime | None = None) -> None:
-    """`saveBars`: guarda las barras con el día de mercado en que se pidieron."""
+def save_bars(ticker: str, bars: Sequence[LvlBar], now: datetime | None = None,
+              days: int = 0) -> None:
+    """`saveBars`: guarda las barras con el día de mercado en que se pidieron.
+
+    `days` deja constancia de la ventana pedida, para que un cache corto no se
+    sirva a quien necesita uno largo."""
     now = now or datetime.now(timezone.utc)
     path = _file_for(ticker)
     with _exclusive(path):
@@ -143,6 +172,7 @@ def save_bars(ticker: str, bars: Sequence[LvlBar], now: datetime | None = None) 
             "date": market_date_str(now),
             "bars": [{"time": b.time, "high": b.high, "low": b.low, "close": b.close}
                      for b in bars],
+            "days": int(days),
         })
 
 
@@ -164,11 +194,12 @@ def cached_daily_bars(
     hoy = market_date_str(now)
 
     cache = load_bars(ticker)
-    if cache and cache.date == hoy and cache.bars and _datos_congelados(cache, now):
-        # Recortado a la ventana pedida: el cache lo llenó quien pidió 365 días,
-        # y devolverle 365 a quien pide 30 le da un histórico que no encargó.
-        # Víctor no lo recorta porque su único llamador usa siempre el default.
-        return cache.bars[-days:] if days > 0 else list(cache.bars)
+    # El cache solo sirve si CUBRE la ventana pedida. Al revés —servir uno corto
+    # a quien pide largo— trunca el histórico en silencio, y el análisis correría
+    # sobre 21 barras creyendo tener 261.
+    if (cache and cache.date == hoy and cache.bars
+            and cache.days >= days and _datos_congelados(now)):
+        return _recorta(cache.bars, days, now)
 
     if fetch is None:
         from .massive import fetch_daily_bars as fetch  # import tardío: evita el ciclo
@@ -190,7 +221,7 @@ def cached_daily_bars(
 
     if bars:
         try:
-            save_bars(ticker, bars, now)
+            save_bars(ticker, bars, now, days=days)
         except OSError:
             pass  # sin disco el cache no funciona, pero la consulta sí
     return bars
