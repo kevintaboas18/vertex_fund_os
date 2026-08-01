@@ -871,8 +871,9 @@
                 <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-4 flex items-center gap-2"><i data-lucide="scale" class="w-4 h-4"></i> Verdict</h3>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                     <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 text-center">
-                        <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Fair Value</span>
+                        <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Target Base 12M</span>
                         <span id="vFairValue" class="text-xl font-mono font-black text-emerald-400"></span>
+                        <span id="vFairValueBasis" class="text-[9px] text-gray-600 block mt-1 leading-tight"></span>
                     </div>
                     <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900 text-center">
                         <span class="text-[10px] text-gray-500 uppercase font-bold block mb-1">Upside PCT</span>
@@ -1701,12 +1702,23 @@ function renderDashboard(data) {
     // porque mostrar "$0.00" sería engañoso.
     const _fv = a.fair_value, _sup = a.valuation_per_share_suppressed;
     const _fvEl = document.getElementById('vFairValue'), _upEl = document.getElementById('vUpside');
+    // El rótulo dice QUÉ es el número. Se llamaba "Fair Value" y es el target
+    // Base a 12 meses por múltiplo — el valor intrínseco del DCF es otro
+    // número y vive abajo (victor_valuation.dcf_per_share). Sobre NVDA los dos
+    // difieren 2.5x, así que el rótulo no es un detalle de estilo.
+    const _fvBasisEl = document.getElementById('vFairValueBasis');
+    const _fvBasis = a.victor_fair_value_basis || null;
     if (_fv != null) {
         _fvEl.innerText = `$${Number(_fv).toFixed(2)}`;
         _upEl.innerText = `${(a.upside_pct||0).toFixed(1)}%`;
+        if (_fvBasisEl) {
+            _fvBasisEl.innerText = _fvBasis ? _fvBasis.method : 'EPS × (1+crecimiento) × P/E';
+            _fvBasisEl.title = _fvBasis ? _fvBasis.not : '';
+        }
         if (_sup && _sup.active) { _fvEl.title = _sup.reason || ''; }   // conflicto marcado, no oculto
-        else { _fvEl.removeAttribute('title'); }
+        else { _fvEl.title = 'Target a 12 meses por múltiplo. No es el valor intrínseco del DCF.'; }
     } else {
+        if (_fvBasisEl) _fvBasisEl.innerText = '';
         _fvEl.innerText = 'N/D'; _upEl.innerText = '—';
         _fvEl.title = (_sup && _sup.active)
             ? (_sup.reason || 'Valuación por acción suprimida (Override 7: conflicto no resuelto de acciones/deuda/caja/precio).')
@@ -4081,8 +4093,25 @@ async function exportReportPDF() {   // async: el snapshot SVG→PNG de la gráf
     doc.setTextColor(20,20,20); doc.setFont('helvetica','bold'); doc.setFontSize(12);
     doc.text(`Recomendación: ${a.recommendation||'—'}`, M, y);
     doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    doc.text(`Fair Value: $${(a.fair_value||0).toFixed(2)}    Upside: ${(a.upside_pct||0).toFixed(1)}%    Precio: $${currentAnalysis.precio_actual}`, M, y+18);
-    y += 44;
+    // Los DOS números de precio, cada uno rotulado. En pantalla el "Fair
+    // Value" lleva tooltip explicando que es el target a 12 meses por
+    // múltiplo; exportado a PDF el tooltip no viaja y "Fair Value: $277" se
+    // lee como valor intrínseco — cuando el DCF del especialista dice otra
+    // cosa. CONTRADICTION_RESOLUTION.md regla 5: mostrar ambas vistas.
+    doc.text(`Target Base 12M: $${(a.fair_value||0).toFixed(2)}    Upside: ${(a.upside_pct||0).toFixed(1)}%    Precio: $${currentAnalysis.precio_actual}`, M, y+18);
+    y += 32;
+    const _pdfVV = a.victor_valuation || {};
+    if (_pdfVV.dcf_per_share != null) {
+        const _pdfDcfUp = currentAnalysis.precio_actual
+            ? ((_pdfVV.dcf_per_share / currentAnalysis.precio_actual - 1) * 100).toFixed(1) : null;
+        doc.setFontSize(9); doc.setTextColor(90,90,90);
+        doc.text(`DCF (valor intrínseco, FCFF base): $${Number(_pdfVV.dcf_per_share).toFixed(2)}`
+            + (_pdfDcfUp !== null ? `    ${_pdfDcfUp >= 0 ? '+' : ''}${_pdfDcfUp}%` : '')
+            + `  —  el target asume que el múltiplo actual aguanta; el DCF no.`, M, y+12);
+        doc.setFontSize(10); doc.setTextColor(20,20,20);
+        y += 20;
+    }
+    y += 12;
 
     // Earnings
     const e = currentAnalysis.earnings_info || {};
@@ -4452,11 +4481,12 @@ function htmlEscBold(s) {
 // Keys needed in backend:
 //   export PLAID_CLIENT_ID="..."  PLAID_SECRET="..."  PLAID_ENV="sandbox"
 // ══════════════════════════════════════════════════════════════════════════════
-const PLAID_TOKEN_KEY = 'vertex_plaid_access_token';
-localStorage.removeItem(PLAID_TOKEN_KEY); // reset: force reconnect
-let portfolioAccessToken = '';
-let snaptradeReady = false;
-const pfHasData = () => !!(portfolioAccessToken || snaptradeReady);
+// C-03: el access_token de Plaid vive SOLO en el servidor. El navegador ya no
+// lo guarda ni lo manda por URL; solo sabe si hay conexion activa.
+localStorage.removeItem('vertex_plaid_access_token');   // limpia el de versiones previas
+let plaidConnected = false;
+let snapshotReady = false;   // hay un snapshot guardado en el servidor (Plaid o import manual)
+const pfHasData = () => !!(plaidConnected || snapshotReady);
 
 const PF_AI_CFG = [
     { icon:'🔍', color:'#60a5fa', title:'1. Diagnóstico del Portafolio'                                   },
@@ -4509,10 +4539,9 @@ async function connectPlaid() {
                 try {
                     const exRes = await fetch(`${API_BASE}/api/plaid/exchange-token`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({public_token})});
                     const exData = await exRes.json();
-                    if (!exData.access_token) throw new Error('No se recibió access_token');
-                    portfolioAccessToken = exData.access_token;
-                    localStorage.setItem(PLAID_TOKEN_KEY, portfolioAccessToken);
-                    await loadPortfolio(portfolioAccessToken);
+                    if (!exData.ok) throw new Error(exData.detail || 'El servidor no pudo guardar la conexión');
+                    plaidConnected = true;   // el token queda en el servidor, aqui nunca
+                    await loadPortfolio();
                 } catch(e2) { showPfError('Error al conectar: ' + e2.message); }
             },
             onExit: (err) => {
@@ -4528,12 +4557,12 @@ async function connectPlaid() {
 }
 
 async function refreshPortfolio() {
-    if (!portfolioAccessToken) { connectPlaid(); return; }
+    if (!plaidConnected) { connectPlaid(); return; }
     hidePfError();
-    await loadPortfolio(portfolioAccessToken);
+    await loadPortfolio();
 }
 
-async function loadPortfolio(accessToken) {
+async function loadPortfolio() {
     document.getElementById('portfolioNotConnected').classList.add('hidden');
     document.getElementById('portfolioDashboard').classList.add('hidden');
     document.getElementById('pfAccountSelector').classList.add('hidden');
@@ -4541,7 +4570,7 @@ async function loadPortfolio(accessToken) {
     document.getElementById('portfolioRefreshBtn').classList.remove('hidden');
     hidePfError();
     pfSelectedAcctId = '';
-    await loadAccountSelector(accessToken);
+    await loadAccountSelector();
 }
 
 function renderPortfolio(d) {
@@ -4655,8 +4684,8 @@ function renderPfAiSections(rawText, container) {
 const _origSwitchView = switchView;
 window.switchView = function(viewId) {
     _origSwitchView(viewId);
-    if (viewId === 'portfolioView' && portfolioAccessToken && document.getElementById('portfolioDashboard')?.classList.contains('hidden')) {
-        loadPortfolio(portfolioAccessToken);
+    if (viewId === 'portfolioView' && plaidConnected && document.getElementById('portfolioDashboard')?.classList.contains('hidden')) {
+        loadPortfolio();
     }
 };
 // ══════════════════════════════════════════════════════════════════════════════
@@ -4778,8 +4807,76 @@ function authSignOut() {
 // END AUTH
 // ══════════════════════════════════════════════════════════════════════════════
 
-document.addEventListener('DOMContentLoaded', () => {
+// ── ACCESO A LA API (C-02) ────────────────────────────────────────────────────
+// El backend protege /api/* con una cookie HttpOnly. Como todas las llamadas van
+// al mismo origen, el navegador la manda sola: no hay que tocar ningún fetch().
+// Aquí sólo se pide la contraseña cuando el servidor dice que hace falta.
+async function vertexGateCheck() {
+    let st;
+    try {
+        st = await fetch(`${API_BASE}/api/auth/status`).then(r => r.json());
+    } catch (e) {
+        return true;   // servidor caído: que la app cargue y falle con su propio aviso
+    }
+    if (!st.auth_required || st.authenticated) return true;
+    vertexShowGate();
+    return false;
+}
+
+function vertexShowGate(msg) {
+    if (document.getElementById('vertexGate')) {
+        if (msg) document.getElementById('vertexGateMsg').textContent = msg;
+        return;
+    }
+    const d = document.createElement('div');
+    d.id = 'vertexGate';
+    d.className = 'fixed inset-0 z-[9999] bg-[#070A0F]/95 backdrop-blur flex items-center justify-center p-6';
+    d.innerHTML = `
+      <div class="bg-panel border border-panel rounded-2xl p-7 w-full max-w-sm">
+        <h2 class="text-white font-extrabold text-base mb-1">Vertex Fund OS</h2>
+        <p class="text-[11px] text-gray-500 mb-5">Esta instancia est&aacute; protegida. Introduce tu clave de acceso.</p>
+        <input id="vertexGateInput" type="password" autocomplete="current-password"
+               class="w-full bg-[#0B0E14] border border-gray-800 text-gray-200 text-sm rounded-lg px-3 py-2.5 mb-3 focus:outline-none focus:border-emerald-600"
+               placeholder="Clave de acceso">
+        <button id="vertexGateBtn"
+                class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-lg text-sm transition">Entrar</button>
+        <p id="vertexGateMsg" class="text-[11px] text-amber-400 mt-3 min-h-[1rem]">${msg || ''}</p>
+      </div>`;
+    document.body.appendChild(d);
+    const go = async () => {
+        const tok = document.getElementById('vertexGateInput').value;
+        if (!tok) return;
+        const btn = document.getElementById('vertexGateBtn');
+        btn.disabled = true; btn.textContent = 'Comprobando…';
+        try {
+            const r = await fetch(`${API_BASE}/api/login`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: tok })
+            });
+            if (r.ok) { location.reload(); return; }
+            document.getElementById('vertexGateMsg').textContent = 'Clave incorrecta.';
+        } catch (e) {
+            document.getElementById('vertexGateMsg').textContent = 'Error de red: ' + e.message;
+        }
+        btn.disabled = false; btn.textContent = 'Entrar';
+    };
+    document.getElementById('vertexGateBtn').onclick = go;
+    document.getElementById('vertexGateInput').addEventListener('keydown', e => {
+        if (e.key === 'Enter') go();
+    });
+    document.getElementById('vertexGateInput').focus();
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
     lucide.createIcons();
+    // Si el servidor exige clave y aún no hay sesión, se pide antes de arrancar
+    // nada: así no se disparan 20 llamadas que sólo devolverían 401.
+    if (!(await vertexGateCheck())) return;
+    // C-03: la conexion de Plaid vive en el servidor, no en este navegador.
+    try {
+        const pi = await fetch(`${API_BASE}/api/plaid/items`).then(r => r.json());
+        plaidConnected = !!pi.connected;
+    } catch (e) { plaidConnected = false; }
     renderRecentReports();
     syncReportsFromServer();   // #4 — trae reportes durables del servidor (multi-dispositivo)
     loadDataHealth();          // #5 — salud de fuentes de datos
@@ -4982,9 +5079,9 @@ document.addEventListener('keydown', (e) => {
 let pfAllAccounts    = [];
 let pfSelectedAcctId = '';
 
-async function loadAccountSelector(accessToken) {
+async function loadAccountSelector() {
     try {
-        const res = await fetch(`${API_BASE}/api/accounts?access_token=${encodeURIComponent(accessToken)}`);
+        const res = await fetch(`${API_BASE}/api/accounts`);
         if (!res.ok) throw new Error('accounts error');
         const d = await res.json();
         pfAllAccounts = d.accounts || [];
@@ -5046,8 +5143,8 @@ async function analyzeSelectedAccount() {
     if (_holdBtn && typeof switchPortfolioTab === 'function') switchPortfolioTab('pfHoldingsTab', _holdBtn);
 
     const url = pfSelectedAcctId
-        ? `${API_BASE}/api/portfolio?access_token=${encodeURIComponent(portfolioAccessToken)}&account_id=${encodeURIComponent(pfSelectedAcctId)}`
-        : `${API_BASE}/api/portfolio?access_token=${encodeURIComponent(portfolioAccessToken)}`;
+        ? `${API_BASE}/api/portfolio?account_id=${encodeURIComponent(pfSelectedAcctId)}`
+        : `${API_BASE}/api/portfolio`;
 
     try {
         const res = await fetch(url);
@@ -5115,8 +5212,8 @@ async function loadPortfolioRisk(force) {
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
         Calculando riesgo cuantitativo sobre tus posiciones reales…</div>`;
     const url = pfSelectedAcctId
-        ? `${API_BASE}/api/portfolio-risk?access_token=${encodeURIComponent(portfolioAccessToken)}&account_id=${encodeURIComponent(pfSelectedAcctId)}`
-        : `${API_BASE}/api/portfolio-risk?access_token=${encodeURIComponent(portfolioAccessToken)}`;
+        ? `${API_BASE}/api/portfolio-risk?account_id=${encodeURIComponent(pfSelectedAcctId)}`
+        : `${API_BASE}/api/portfolio-risk`;
     try {
         const res = await fetch(url);
         if (!res.ok) { const err = await res.json().catch(()=>({detail:`HTTP ${res.status}`})); throw new Error(err.detail); }
@@ -5309,8 +5406,8 @@ async function loadPortfolioStress(force) {
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
         Corriendo stress test, Monte Carlo y replay de crisis sobre tu book… (puede tardar unos segundos)</div>`;
     const url = pfSelectedAcctId
-        ? `${API_BASE}/api/portfolio-stress?access_token=${encodeURIComponent(portfolioAccessToken)}&account_id=${encodeURIComponent(pfSelectedAcctId)}`
-        : `${API_BASE}/api/portfolio-stress?access_token=${encodeURIComponent(portfolioAccessToken)}`;
+        ? `${API_BASE}/api/portfolio-stress?account_id=${encodeURIComponent(pfSelectedAcctId)}`
+        : `${API_BASE}/api/portfolio-stress`;
     try {
         const res = await fetch(url);
         if (!res.ok) { const err = await res.json().catch(()=>({detail:`HTTP ${res.status}`})); throw new Error(err.detail); }
@@ -5466,7 +5563,7 @@ async function runWhatif() {
     body.innerHTML = `<div class="flex items-center gap-3 text-gray-400 text-xs p-6 justify-center">
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
         Recalculando tu riesgo antes vs. después…</div>`;
-    let url = `${API_BASE}/api/portfolio-whatif?access_token=${encodeURIComponent(portfolioAccessToken)}&ticker=${encodeURIComponent(ticker)}&action=${encodeURIComponent(action)}&amount=${encodeURIComponent(amount)}`;
+    let url = `${API_BASE}/api/portfolio-whatif?ticker=${encodeURIComponent(ticker)}&action=${encodeURIComponent(action)}&amount=${encodeURIComponent(amount)}`;
     if (pfSelectedAcctId) url += `&account_id=${encodeURIComponent(pfSelectedAcctId)}`;
     try {
         const res = await fetch(url);
@@ -5552,7 +5649,7 @@ async function loadPortfolioAttribution(force) {
     body.innerHTML = `<div class="flex items-center gap-3 text-gray-400 text-xs p-6 justify-center">
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
         Calculando atribución de retorno por posición y sector…</div>`;
-    let url = `${API_BASE}/api/portfolio-attribution?access_token=${encodeURIComponent(portfolioAccessToken)}`;
+    let url = `${API_BASE}/api/portfolio-attribution`;
     if (pfSelectedAcctId) url += `&account_id=${encodeURIComponent(pfSelectedAcctId)}`;
     try {
         const res = await fetch(url);
@@ -5640,7 +5737,7 @@ async function loadPortfolioGuardrails(force) {
     body.innerHTML = `<div class="flex items-center gap-3 text-gray-400 text-xs p-6 justify-center">
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
         Auditando tu book contra tus reglas…</div>`;
-    let url = `${API_BASE}/api/portfolio-guardrails?access_token=${encodeURIComponent(portfolioAccessToken)}`;
+    let url = `${API_BASE}/api/portfolio-guardrails`;
     if (pfSelectedAcctId) url += `&account_id=${encodeURIComponent(pfSelectedAcctId)}`;
     try {
         const res = await fetch(url);
@@ -5690,138 +5787,125 @@ function renderPortfolioGuardrails(d) {
 // ── END ATTRIBUTION + GUARDRAILS ─────────────────────────────────────────────────────────────────────────
 
 
-// ── SNAPTRADE BROKERAGE CONNECTION (near real-time) ───────────────────────────
-function stUid()    { return localStorage.getItem('vertex_st_uid') || ''; }
-function stSecret() { return localStorage.getItem('vertex_st_secret') || ''; }
+// ── IMPORTAR PORTAFOLIO (fuente-agnóstica: manual, CSV o fuente futura) ───────
+// Escribe el MISMO snapshot del servidor que llena Plaid, así todo el suite
+// (Riesgo, Stress, What-If, Atribución, Guardrails, Optimizador, Griegas) corre
+// con o sin broker conectado.
+function impMsg(html, cls = 'text-gray-400') {
+    const el = document.getElementById('impStatus');
+    if (el) el.innerHTML = `<span class="${cls}">${html}</span>`;
+}
 
-function toggleSnaptradePanel() {
-    const p = document.getElementById('snaptradePanel');
+function toggleImportPanel() {
+    const p = document.getElementById('importPanel');
     if (p) p.classList.toggle('hidden');
+    if (p && !p.classList.contains('hidden')) refreshSnapshotStatus();
     if (window.lucide) lucide.createIcons();
 }
 
-function stMsg(html, cls) {
-    const el = document.getElementById('stStatus');
-    if (el) el.innerHTML = `<span class="${cls||'text-gray-400'}">${html}</span>`;
+// Estado del snapshot guardado en el servidor: decide si el dashboard puede correr.
+async function refreshSnapshotStatus() {
+    try {
+        const d = await fetch(`${API_BASE}/api/portfolio/snapshot`).then(r => r.json());
+        snapshotReady = !!d.has_data;
+        if (d.has_data) {
+            impMsg(`● Snapshot guardado: <b>${d.n_positions}</b> posiciones` +
+                   (d.n_options ? ` · <b>${d.n_options}</b> opciones` : '') +
+                   ` · $${Number(d.total_value).toLocaleString()}`, 'text-emerald-400');
+            const b = document.getElementById('pfSourceBanner');
+            if (b && !plaidConnected) b.classList.remove('hidden');
+        } else {
+            impMsg('Sin datos guardados todavía.', 'text-gray-500');
+        }
+        return d;
+    } catch (e) {
+        impMsg('No se pudo leer el snapshot: ' + e.message, 'text-amber-400');
+        return null;
+    }
 }
 
-async function connectSnapTrade() {
-    stMsg('<div class="inline-flex items-center gap-2"><div class="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div> Verificando configuración…</div>', 'text-blue-400');
-    try {
-        const stt = await fetch(`${API_BASE}/api/snaptrade/status`).then(r => r.json()).catch(() => null);
-        if (stt && stt.ok === false) {
-            const steps = `<div class="text-left text-[10px] leading-relaxed"><b class="text-amber-300">SnapTrade aún no está listo.</b><br>${stt.error || ''}<br><br><b class="text-gray-300">Para activarlo:</b><br>1. En tu terminal: <code class="text-emerald-400">pip install snaptrade-python-sdk</code><br>2. Pega tus llaves en <code>vertex_api.py</code> (<code>SNAPTRADE_CLIENT_ID</code> y <code>SNAPTRADE_CONSUMER_KEY</code>, de tu dashboard de SnapTrade) o expórtalas como variables de entorno.<br>3. Reinicia el backend y recarga esta página.</div>`;
-            stMsg(steps, 'text-amber-400'); return;
-        }
-        stMsg('<div class="inline-flex items-center gap-2"><div class="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div> Preparando usuario…</div>', 'text-blue-400');
-        let uid = stUid(), secret = stSecret();
-        // Personal keys: el usuario ya viene provisto — tiene PRIORIDAD y salta el registro.
-        const who = await fetch(`${API_BASE}/api/snaptrade/whoami`).then(r => r.json()).catch(() => null);
-        if (who && who.preprovisioned) {
-            uid = who.user_id; secret = who.user_secret;
-            localStorage.setItem('vertex_st_uid', uid);
-            localStorage.setItem('vertex_st_secret', secret);
-        } else if (!uid || !secret) {
-            uid = 'vertex_' + Math.random().toString(36).slice(2, 10);
-            const reg = await fetch(`${API_BASE}/api/snaptrade/register?user_id=${encodeURIComponent(uid)}`, { method: 'POST' });
-            const rd = await reg.json();
-            if (!rd.ok) {
-                if (rd.personal_keys) {
-                    stMsg(`<div class="text-left text-[10px] leading-relaxed"><b class="text-amber-300">Llaves personales de SnapTrade.</b><br>${rd.error}</div>`, 'text-amber-400');
-                    return;
-                }
-                stMsg('⚠️ ' + (rd.error || 'No se pudo registrar. ¿Configuraste SNAPTRADE_CLIENT_ID / CONSUMER_KEY?'), 'text-amber-400'); return;
+// Parser del textarea. Una posición por línea:
+//   Acción : TICKER, VALOR[, COSTO_BASE]        → NVDA, 5000, 4000
+//   Opción : SUBY CALL|PUT STRIKE YYYY-MM-DD CONTRATOS [PRECIO]
+//                                               → NVDA CALL 180 2026-09-18 2 12.50
+// Devuelve {positions, options, errors} — nunca lanza; los errores se muestran.
+function parseImportText(txt) {
+    const positions = [], options = [], errors = [];
+    (txt || '').split(/\r?\n/).forEach((raw, i) => {
+        const line = raw.trim();
+        if (!line || line.startsWith('#')) return;
+        const f = line.split(/[\s,]+/).filter(Boolean);
+        const kind = (f[1] || '').toUpperCase();
+        if (f.length >= 5 && (kind === 'CALL' || kind === 'PUT' || kind === 'C' || kind === 'P')) {
+            const [und, , strike, expiry, contracts, price] = f;
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry)) {
+                errors.push(`Línea ${i + 1}: vencimiento debe ser YYYY-MM-DD (recibí "${expiry}").`); return;
             }
-            uid = rd.user_id || uid; secret = rd.user_secret;
-            localStorage.setItem('vertex_st_uid', uid);
-            localStorage.setItem('vertex_st_secret', secret);
+            if (!(Number(strike) > 0) || !Number(contracts)) {
+                errors.push(`Línea ${i + 1}: strike debe ser >0 y contratos ≠0.`); return;
+            }
+            options.push({
+                underlying: und.toUpperCase(), option_type: kind.startsWith('C') ? 'call' : 'put',
+                strike: Number(strike), expiry, contracts: Number(contracts),
+                price: Number(price || 0)
+            });
+        } else if (f.length >= 2) {
+            const [tk, value, cost] = f;
+            if (!(Number(value) > 0)) {
+                errors.push(`Línea ${i + 1}: el valor de ${tk} debe ser un número >0.`); return;
+            }
+            const p = { ticker: tk.toUpperCase(), value: Number(value) };
+            if (cost !== undefined && Number(cost) > 0) p.cost_basis = Number(cost);
+            positions.push(p);
+        } else {
+            errors.push(`Línea ${i + 1}: no la entendí ("${line}").`);
         }
-        stMsg('<div class="inline-flex items-center gap-2"><div class="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div> Generando portal de conexión…</div>', 'text-blue-400');
-        const lk = await fetch(`${API_BASE}/api/snaptrade/login-link?user_id=${encodeURIComponent(uid)}&user_secret=${encodeURIComponent(secret)}`);
-        const ld = await lk.json();
-        if (!ld.ok || !ld.redirect_uri) { stMsg('⚠️ ' + (ld.error || 'No se obtuvo el link de conexión.'), 'text-amber-400'); return; }
-        window.open(ld.redirect_uri, '_blank', 'width=520,height=720');
-        stMsg('✅ Portal abierto en otra ventana. Conecta Robinhood ahí y luego pulsa <b>Cargar cuentas</b>.', 'text-emerald-400');
-        const lb = document.getElementById('stLoadBtn'); if (lb) lb.classList.remove('hidden');
-    } catch (e) { stMsg('Error: ' + e.message, 'text-red-400'); }
+    });
+    return { positions, options, errors };
 }
 
-async function loadSnapTradeAccounts() {
-    const uid = stUid(), secret = stSecret();
-    if (!uid || !secret) { stMsg('Primero pulsa “Conectar Robinhood”.', 'text-amber-400'); return; }
-    stMsg('<div class="inline-flex items-center gap-2"><div class="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-500"></div> Cargando cuentas…</div>', 'text-blue-400');
+async function submitImport() {
+    const ta = document.getElementById('impText');
+    const { positions, options, errors } = parseImportText(ta ? ta.value : '');
+    if (errors.length) {
+        impMsg('⚠️ ' + errors.slice(0, 4).join('<br>'), 'text-amber-400');
+        if (!positions.length && !options.length) return;
+    }
+    if (!positions.length && !options.length) {
+        impMsg('No hay nada que importar.', 'text-amber-400'); return;
+    }
     try {
-        const r = await fetch(`${API_BASE}/api/snaptrade/accounts?user_id=${encodeURIComponent(uid)}&user_secret=${encodeURIComponent(secret)}`);
+        const r = await fetch(`${API_BASE}/api/portfolio/import`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source: 'manual', positions, options })
+        });
         const d = await r.json();
-        if (!d.ok) { stMsg('⚠️ ' + (d.error || 'No se pudieron cargar cuentas.'), 'text-amber-400'); return; }
-        const accts = d.accounts || [];
-        const sel = document.getElementById('stAccountSel');
-        if (!accts.length) { stMsg('No hay cuentas conectadas todavía. Completa la conexión en el portal y reintenta.', 'text-amber-400'); return; }
-        sel.innerHTML = accts.map(a => `<option value="${a.id}">${(a.institution||'Broker')} · ${a.name||a.id} ${a.balance!=null?('· $'+Number(a.balance).toLocaleString('en-US',{maximumFractionDigits:0})):''}</option>`).join('');
-        document.getElementById('stAccountRow').classList.remove('hidden');
-        stMsg(`✅ ${accts.length} cuenta(s) cargada(s). Elige una y pulsa <b>Ver holdings</b>.`, 'text-emerald-400');
-    } catch (e) { stMsg('Error: ' + e.message, 'text-red-400'); }
-}
-
-async function loadSnapTradeHoldings() {
-    const uid = stUid(), secret = stSecret();
-    const sel = document.getElementById('stAccountSel');
-    const acctId = sel ? sel.value : '';
-    if (!acctId) { stMsg('Selecciona una cuenta.', 'text-amber-400'); return; }
-    const box = document.getElementById('stHoldings');
-    box.innerHTML = '<div class="flex items-center gap-2 text-gray-400 text-xs p-3"><div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div> Cargando posiciones (casi en tiempo real)…</div>';
-    try {
-        const r = await fetch(`${API_BASE}/api/snaptrade/holdings?user_id=${encodeURIComponent(uid)}&user_secret=${encodeURIComponent(secret)}&account_id=${encodeURIComponent(acctId)}`);
-        const d = await r.json();
-        if (!d.ok) { box.innerHTML = `<p class="text-xs text-amber-400 italic p-2">${d.error || 'No se pudieron cargar posiciones.'}</p>`; return; }
-        const pos = d.positions || [];
-        if (!pos.length) { box.innerHTML = '<p class="text-xs text-gray-500 italic p-2">Sin posiciones de acciones en esta cuenta.</p>'; return; }
-        const tot = pos.reduce((a, p) => a + (p.value || 0), 0);
-        const totCost = pos.reduce((a, p) => a + (p.cost_basis || 0), 0);
-        const totPnl = pos.reduce((a, p) => a + (p.unrealized_pnl || 0), 0);
-        const hasCost = pos.some(p => p.cost_basis != null);
-        const rows = pos.sort((a,b)=>b.value-a.value).map(p => {
-            const pnl = (p.unrealized_pct != null)
-                ? `<span style="color:${p.unrealized_pct>=0?'#10b981':'#ef4444'}">${p.unrealized_pct>=0?'+':''}${p.unrealized_pct}%</span>`
-                : '<span class="text-gray-700">—</span>';
-            return `<tr class="border-b border-gray-900/60">
-            <td class="py-1.5 pr-3 font-bold text-white">${p.ticker}</td>
-            <td class="py-1.5 pr-3 text-gray-500 truncate max-w-[140px]">${p.name||''}</td>
-            <td class="py-1.5 text-right font-mono text-gray-300">$${Number(p.value).toLocaleString('en-US',{maximumFractionDigits:0})}</td>
-            <td class="py-1.5 pl-3 text-right font-mono">${pnl}</td>
-            <td class="py-1.5 pl-3 text-right font-mono text-gray-500">${(p.value/tot*100).toFixed(1)}%</td></tr>`;
-        }).join('');
-        const pnlSummary = hasCost
-            ? ` · P&L no realizado <b style="color:${totPnl>=0?'#10b981':'#ef4444'}">${totPnl>=0?'+':''}$${Number(totPnl).toLocaleString('en-US',{maximumFractionDigits:0})}${totCost>0?` (${(totPnl/totCost*100).toFixed(1)}%)`:''}</b>`
-            : '';
-        box.innerHTML = `<div class="flex items-center justify-between mb-2 flex-wrap gap-1">
-                <span class="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">● SnapTrade · casi en vivo</span>
-                <span class="text-[10px] text-gray-500">${pos.length} posiciones · $${Number(tot).toLocaleString('en-US',{maximumFractionDigits:0})}${pnlSummary} · ${d.generated_at||''}</span></div>
-            <div class="overflow-x-auto"><table class="w-full text-xs min-w-[460px]"><thead><tr class="text-gray-600 text-[9px] uppercase border-b border-gray-800"><th class="text-left py-1 pr-3 font-bold">Ticker</th><th class="text-left py-1 pr-3 font-bold">Nombre</th><th class="text-right py-1 font-bold">Valor</th><th class="text-right py-1 pl-3 font-bold">P&L</th><th class="text-right py-1 pl-3 font-bold">%</th></tr></thead><tbody>${rows}</tbody></table></div>
-            <p class="text-[9px] text-gray-600 mt-2 italic">Snapshot guardado en el servidor — el agente y el motor de riesgo usan estos datos igual que los de Plaid.${hasCost ? '' : ' (SnapTrade no envió costo base para esta cuenta — P&L no disponible.)'}</p>`;
-        // Habilita el dashboard de análisis (Riesgo, Stress, What-If, Atribución, Guardrails, Optimizador) sobre el snapshot de SnapTrade
-        snaptradeReady = true;
-        pfSelectedAcctId = '';
-        pfRiskLoaded = false; pfStressLoaded = false; pfAttribLoaded = false; pfGuardLoaded = false; pfOptLoaded = false; pfOptionsLoaded = false;
+        if (!d.ok) { impMsg('⚠️ ' + (d.error || 'Error al importar.'), 'text-amber-400'); return; }
+        impMsg(`✓ Importado: <b>${d.n_positions}</b> posiciones` +
+               (d.n_options ? ` y <b>${d.n_options}</b> opciones` : '') +
+               `. El dashboard de análisis ya puede correr.`, 'text-emerald-400');
+        snapshotReady = true;
         const dash = document.getElementById('portfolioDashboard');
         if (dash) {
             dash.classList.remove('hidden');
-            const sb = document.getElementById('pfSourceBanner'); if (sb) sb.classList.remove('hidden');
-            const rb = document.querySelector('#portfolioDashboard .pf-subtab[data-pftab="pfRiskTab"]');
-            if (rb) switchPortfolioTab('pfRiskTab', rb);
+            const b = document.getElementById('pfSourceBanner'); if (b) b.classList.remove('hidden');
             loadPortfolioRisk(true);
             dash.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
-    } catch (e) { box.innerHTML = `<p class="text-xs text-red-400 italic p-2">Error: ${e.message}</p>`; }
+    } catch (e) {
+        impMsg('Error: ' + e.message, 'text-red-400');
+    }
 }
 
-function disconnectSnapTrade() {
-    localStorage.removeItem('vertex_st_uid');
-    localStorage.removeItem('vertex_st_secret');
-    const box = document.getElementById('stHoldings'); if (box) box.innerHTML = '';
-    const row = document.getElementById('stAccountRow'); if (row) row.classList.add('hidden');
-    const lb = document.getElementById('stLoadBtn'); if (lb) lb.classList.add('hidden');
-    stMsg('Desconectado localmente. Tus credenciales SnapTrade se borraron de este navegador.', 'text-gray-400');
+async function clearSnapshot() {
+    try {
+        await fetch(`${API_BASE}/api/portfolio/clear`, { method: 'POST' });
+        snapshotReady = false;
+        const b = document.getElementById('pfSourceBanner'); if (b) b.classList.add('hidden');
+        impMsg('Snapshot borrado del servidor.', 'text-gray-400');
+    } catch (e) {
+        impMsg('Error: ' + e.message, 'text-red-400');
+    }
 }
 
 
@@ -5838,7 +5922,7 @@ async function loadPortfolioOptimizer(force) {
     body.innerHTML = `<div class="flex items-center gap-3 text-gray-400 text-xs p-6 justify-center">
         <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
         Corriendo optimización media-varianza (Monte Carlo, ~8k carteras)…</div>`;
-    let url = `${API_BASE}/api/portfolio-optimizer?access_token=${encodeURIComponent(portfolioAccessToken)}&max_weight=${mw}`;
+    let url = `${API_BASE}/api/portfolio-optimizer?max_weight=${mw}`;
     if (pfSelectedAcctId) url += `&account_id=${encodeURIComponent(pfSelectedAcctId)}`;
     try {
         const res = await fetch(url);
@@ -5964,7 +6048,7 @@ function renderPortfolioOptimizer(d) {
     if (window.lucide) lucide.createIcons();
     loadPortfolioIdeas(false);
 }
-// ── END SNAPTRADE + OPTIMIZER ─────────────────────────────────────────────────────────────────────────────────────────────────────
+// ── END IMPORT + OPTIMIZER ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 // ── #Ideas — ideas de inversión nuevas (no en tu book) + menú ⋮ (¿Por qué? / Analyze) ──
 let pfIdeasData = [], pfIdeasLoaded = false, pfKebabBound = false;
@@ -5976,7 +6060,7 @@ async function loadPortfolioIdeas(force) {
     host.innerHTML = `<p class="text-[11px] text-gray-500 italic flex items-center gap-2"><i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Generando ideas con búsqueda en vivo…</p>`;
     if (window.lucide) lucide.createIcons();
     try {
-        const r = await fetch(`${API_BASE}/api/portfolio-ideas?access_token=${encodeURIComponent(portfolioAccessToken || '')}&n=5`);
+        const r = await fetch(`${API_BASE}/api/portfolio-ideas?n=5`);
         const d = await r.json();
         if (!d.ok) { host.innerHTML = `<p class="text-[11px] text-amber-400 italic">${d.error || 'No se pudieron generar ideas.'}</p>`; pfIdeasLoaded = true; return; }
         pfIdeasData = d.ideas || [];
@@ -6110,7 +6194,7 @@ function renderOptions(d) {
         body.innerHTML = `<div class="text-center py-8 px-4">
             <i data-lucide="inbox" class="w-8 h-8 text-gray-600 mx-auto mb-2"></i>
             <p class="text-xs text-gray-400">${d.note || 'No se detectaron opciones.'}</p>
-            <p class="text-[10px] text-gray-600 mt-1.5">Conecta una cuenta con posiciones de opciones vía SnapTrade y recarga Holdings.</p></div>`;
+            <p class="text-[10px] text-gray-600 mt-1.5">Conecta Plaid con una cuenta que reporte opciones, o cárgalas en <b>Importar portafolio</b>.</p></div>`;
         if (window.lucide) lucide.createIcons();
         return;
     }
@@ -6954,9 +7038,9 @@ function analyzeTickerNow(tk) {
                 class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-2 transition">
                 <i data-lucide="link" class="w-3.5 h-3.5"></i> Conectar con Plaid
             </button>
-            <button onclick="toggleSnaptradePanel()" id="snaptradeBtn"
+            <button onclick="toggleImportPanel()" id="importBtn"
                 class="bg-emerald-600/90 hover:bg-emerald-600 text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-2 transition">
-                <i data-lucide="zap" class="w-3.5 h-3.5"></i> SnapTrade
+                <i data-lucide="upload" class="w-3.5 h-3.5"></i> Importar
             </button>
             <button onclick="refreshPortfolio()" id="portfolioRefreshBtn"
                 class="hidden bg-[#11141D] hover:bg-[#1a1f2e] border border-gray-800 text-gray-400 hover:text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-2 transition">
@@ -6970,33 +7054,37 @@ function analyzeTickerNow(tk) {
         <p id="portfolioErrorText" class="text-xs text-red-300 leading-relaxed"></p>
     </div>
 
-    <div id="snaptradePanel" class="hidden bg-panel border border-panel rounded-2xl p-5 mb-5">
+    <div id="importPanel" class="hidden bg-panel border border-panel rounded-2xl p-5 mb-5">
         <div class="flex items-start justify-between mb-3">
             <div>
                 <h3 class="text-xs font-extrabold text-emerald-400 uppercase tracking-widest flex items-center gap-2">
-                    <i data-lucide="zap" class="w-4 h-4"></i> SnapTrade — Robinhood casi en tiempo real
+                    <i data-lucide="upload" class="w-4 h-4"></i> Importar portafolio
                 </h3>
-                <p class="text-[11px] text-gray-500 italic mt-0.5">Conexión de solo-lectura vía el portal oficial de SnapTrade. Tickers limpios y datos casi en vivo (vs. fin-de-día de Plaid).</p>
+                <p class="text-[11px] text-gray-500 italic mt-0.5">Carga tus posiciones a mano cuando no quieras conectar un broker. Escribe el mismo snapshot que usa Plaid, así que el dashboard de análisis corre igual.</p>
             </div>
-            <button onclick="toggleSnaptradePanel()" class="text-gray-600 hover:text-gray-300"><i data-lucide="x" class="w-4 h-4"></i></button>
+            <button onclick="toggleImportPanel()" class="text-gray-600 hover:text-gray-300"><i data-lucide="x" class="w-4 h-4"></i></button>
         </div>
+        <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-3 mb-3">
+            <p class="text-[10px] text-gray-500 leading-relaxed">
+                <b class="text-gray-300">Una posición por línea.</b><br>
+                Acción: <code class="text-emerald-400">TICKER, VALOR[, COSTO_BASE]</code> &nbsp;&rarr;&nbsp; <code class="text-gray-400">NVDA, 5000, 4000</code><br>
+                Opción: <code class="text-emerald-400">SUBY CALL|PUT STRIKE YYYY-MM-DD CONTRATOS [PRECIO]</code> &nbsp;&rarr;&nbsp; <code class="text-gray-400">NVDA CALL 180 2026-09-18 2 12.50</code><br>
+                <span class="text-gray-600 italic">El costo base es opcional, pero sin él la regla de stop-loss de Guardrails queda inactiva. Contratos negativos = posición corta.</span>
+            </p>
+        </div>
+        <textarea id="impText" rows="7" spellcheck="false"
+            class="w-full bg-[#0B0E14] border border-gray-800 text-gray-200 text-[11px] font-mono rounded-lg px-3 py-2 mb-3 focus:outline-none focus:border-emerald-600"
+            placeholder="NVDA, 5000, 4000&#10;AAPL, 3000&#10;NVDA CALL 180 2026-09-18 2 12.50"></textarea>
         <div class="flex flex-wrap items-center gap-2 mb-3">
-            <button onclick="connectSnapTrade()" class="bg-emerald-600/90 hover:bg-emerald-600 text-white font-bold py-2 px-3.5 rounded-lg text-[11px] flex items-center gap-1.5 transition">
-                <i data-lucide="link" class="w-3.5 h-3.5"></i> Conectar Robinhood
+            <button onclick="submitImport()" class="bg-emerald-600/90 hover:bg-emerald-600 text-white font-bold py-2 px-3.5 rounded-lg text-[11px] flex items-center gap-1.5 transition">
+                <i data-lucide="upload" class="w-3.5 h-3.5"></i> Importar
             </button>
-            <button onclick="loadSnapTradeAccounts()" id="stLoadBtn" class="hidden bg-[#11141D] hover:bg-[#1a1f2e] border border-gray-800 text-gray-300 font-bold py-2 px-3.5 rounded-lg text-[11px] flex items-center gap-1.5 transition">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Cargar cuentas
+            <button onclick="refreshSnapshotStatus()" class="bg-[#11141D] hover:bg-[#1a1f2e] border border-gray-800 text-gray-300 font-bold py-2 px-3.5 rounded-lg text-[11px] flex items-center gap-1.5 transition">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Ver qué hay guardado
             </button>
-            <button onclick="disconnectSnapTrade()" class="text-[10px] text-gray-600 hover:text-red-400 underline ml-auto">desconectar</button>
+            <button onclick="clearSnapshot()" class="text-[10px] text-gray-600 hover:text-red-400 underline ml-auto">borrar snapshot</button>
         </div>
-        <div id="stStatus" class="text-[11px] mb-3"></div>
-        <div id="stAccountRow" class="hidden flex flex-wrap items-center gap-2 mb-3">
-            <select id="stAccountSel" class="bg-[#0B0E14] border border-gray-800 text-gray-200 text-[11px] rounded-lg px-3 py-2 flex-grow min-w-[200px]"></select>
-            <button onclick="loadSnapTradeHoldings()" id="stHoldingsBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-3.5 rounded-lg text-[11px] flex items-center gap-1.5 transition">
-                <i data-lucide="eye" class="w-3.5 h-3.5"></i> Ver holdings
-            </button>
-        </div>
-        <div id="stHoldings"></div>
+        <div id="impStatus" class="text-[11px]"></div>
     </div>
 
     <div id="portfolioNotConnected" class="bg-panel border border-panel rounded-2xl p-12 text-center">
@@ -7047,8 +7135,8 @@ function analyzeTickerNow(tk) {
 
     <div id="portfolioDashboard" class="hidden space-y-5">
         <div id="pfSourceBanner" class="hidden bg-emerald-500/10 border border-emerald-500/25 rounded-xl px-3 py-2 flex items-center gap-2">
-            <span class="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">● Fuente: SnapTrade</span>
-            <span class="text-[10px] text-gray-500">Análisis corriendo sobre el snapshot de tu broker — sin Plaid. La pestaña Holdings (arriba) muestra tus posiciones; la regla de stop-loss en Guardrails queda inactiva (SnapTrade no envía costo base).</span>
+            <span class="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">● Fuente: snapshot guardado</span>
+            <span class="text-[10px] text-gray-500">Análisis corriendo sobre el snapshot guardado en el servidor — sin llamar a Plaid. Si las posiciones se cargaron sin costo base, la regla de stop-loss en Guardrails queda inactiva.</span>
         </div>
 
         <div class="bg-panel border border-panel rounded-2xl p-5">

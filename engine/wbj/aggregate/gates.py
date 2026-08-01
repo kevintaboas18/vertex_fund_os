@@ -159,11 +159,23 @@ def raw_total(points) -> float:
     return float(sum(values))
 
 
-def descriptive_band(raw: float) -> str:
+def descriptive_band(raw: float, overrides: list[Override] | None = None) -> str:
     """Raw-score descriptive band (SCORING_AND_GATES.md table, verbatim).
-    Informational only -- "a raw band is not the final profile."."""
+    Informational only -- "a raw band is not the final profile."
+
+    M-14: override 2 reads "ROIC below WACC prevents `Elite`, `Quality
+    Opportunity`, or `Excellent business` classification". `apply_gates`
+    already blocks Quality Opportunity, but the *band* was computed from
+    `raw` alone -- so a company destroying value could still be labelled
+    "Elite raw score" in its own report. The doc says the override prevents
+    the Elite classification, not only the gate, so the band honours it too.
+    `overrides` is optional to keep every existing caller working.
+    """
+    blocked = overrides is not None and any(
+        o.id == OVERRIDE_2_ROIC_BELOW_WACC for o in overrides)
     if raw >= 90:
-        return "Elite raw score"
+        return ("Strong raw score (Elite bloqueado: ROIC<WACC, override 2)"
+                if blocked else "Elite raw score")
     if raw >= 80:
         return "Strong raw score"
     if raw >= 70:
@@ -279,7 +291,7 @@ def apply_gates(
     """
     override_ids = {o.id for o in overrides}
     conf_total = total_confidence(confidences)
-    band = descriptive_band(raw_total)
+    band = descriptive_band(raw_total, overrides)
     warnings = [o.reason for o in overrides if o.id == OVERRIDE_3_SOLVENCY_WARNING]
     override_id_list = [o.id for o in overrides]
 

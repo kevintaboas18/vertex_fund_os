@@ -1,4 +1,16 @@
+import sys
 from pathlib import Path
+
+# N-03: este script imprime ✔ / ❌ / ⚠️, y la consola de Windows usa cp1252 por
+# defecto — así que `python main.py` moría con UnicodeEncodeError antes de
+# indexar nada. Se fuerza UTF-8 en la salida; si la consola no lo admite, los
+# símbolos se sustituyen en vez de reventar el proceso.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 
 def verificar_e_ingestar_ecosistema_total():
     """
@@ -16,6 +28,10 @@ def verificar_e_ingestar_ecosistema_total():
 
     # Estructura jerárquica del Cerebro + carpetas de conocimiento del proyecto.
     mapa_arquitectura = {
+        # M-05: faltaba la RAÍZ de Cerebro/. Con solo las subcarpetas, 7
+        # documentos nunca se indexaban — incluido QUICK_START.md, que
+        # CLAUDE.md señala como el punto de partida del packet de análisis.
+        "Cerebro":                      None,
         "Cerebro/00_main_agent":        None,
         "Cerebro/01_business_analysis": None,
         "Cerebro/02_financial_analysis":None,
@@ -84,8 +100,14 @@ if __name__ == "__main__":
         print(f"[🚨 ALERTA CRÍTICA]: Especialistas sin SCORING.md: {faltantes}")
 
     # El perfil del inversionista debe leerse SIEMPRE antes de recomendar.
-    perfil = "Perfil Inversionista/Victor Gonzalez.md"
-    if perfil in base_conocimiento_ia:
-        print(f"[✔] Perfil del inversionista cargado ({len(base_conocimiento_ia[perfil])} caracteres).")
+    # M-05: se validaba el de Victor. El vigente es Kevin.md, que dice
+    # explícitamente que lo reemplaza; se busca en el mismo orden de
+    # prioridad que usan vertex_api._load_investor_profile y risk.py.
+    perfil = next((f"Perfil Inversionista/{n}"
+                   for n in ("Kevin.md", "Mi Perfil.md", "Victor Gonzalez.md")
+                   if f"Perfil Inversionista/{n}" in base_conocimiento_ia), None)
+    if perfil:
+        print(f"[✔] Perfil del inversionista cargado: {perfil.split('/')[-1]} "
+              f"({len(base_conocimiento_ia[perfil])} caracteres).")
     else:
         print("[⚠️] Perfil del inversionista (.md) no detectado — revisar carpeta 'Perfil Inversionista'.")

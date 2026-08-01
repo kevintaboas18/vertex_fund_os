@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 
 _MAX_ATTEMPTS = 3
 _BACKOFF_SECONDS = (0.5, 1.0, 2.0)
+
+#: "You are not entitled to this", as opposed to "this does not exist".
+#: 401 unauthenticated, 402 payment required (FMP's plan wall), 403
+#: forbidden (FinnHub's). Retrying never helps and the analysis is poorer
+#: in a way the reader has to be told about.
+_ENTITLEMENT_STATUSES = frozenset({401, 402, 403})
 _REDACTED_PARAMS = frozenset({"apikey", "token", "api_key"})
 
 
@@ -82,6 +88,13 @@ class Provider:
         self.settings = settings
         self.cache = cache
         self.client = client if client is not None else httpx.Client()
+        # Endpoints this run asked for and was refused ENTITLEMENT to, as
+        # {cache_key: status}. A 402/403 is not "no data": the data exists
+        # and the plan does not reach it, which is a different sentence to
+        # write in a report. Both used to return None like any other miss,
+        # so three dead endpoints (FMP institutional-ownership 402, FinnHub
+        # eps- and revenue-estimate 403) degraded the analysis in silence.
+        self.blocked_endpoints: dict[str, int] = {}
 
     def _sleep(self, seconds: float) -> None:
         """Sleep for `seconds`. Isolated so tests can monkeypatch it out."""
@@ -113,6 +126,26 @@ class Provider:
     @staticmethod
     def _qualified_cache_key(cache_key: str, params: dict[str, Any]) -> str:
         return _qualified_cache_key(cache_key, params)
+
+    def get_bytes(self, url: str, headers: dict[str, str] | None = None,
+                  timeout: float = 300.0) -> bytes | None:
+        """Descarga un binario grande (p. ej. el zip trimestral de 13F).
+
+        NO usa el cache de `get_json`: ese guarda JSON, y estos archivos pesan
+        ~100 MB. Quien llama decide donde persistirlo. Devuelve None ante
+        cualquier fallo -- nunca lanza, igual que `get_json`.
+        """
+        try:
+            response = self.client.get(url, headers=headers, timeout=timeout,
+                                       follow_redirects=True)
+        except httpx.TransportError as exc:
+            logger.warning("wbj provider byte fetch failed url=%s error=%s", url, exc)
+            return None
+        if response.status_code >= 400:
+            logger.info("wbj provider byte fetch status=%d url=%s",
+                        response.status_code, url)
+            return None
+        return response.content
 
     def get_json(
         self,
@@ -184,6 +217,11 @@ class Provider:
                 return payload
 
             if response.status_code < 500:
+                if response.status_code in _ENTITLEMENT_STATUSES:
+                    # Remembered, not just logged: the caller cannot tell
+                    # "your plan does not include this" from "this company
+                    # has none" once both arrive as None.
+                    self.blocked_endpoints[cache_key] = response.status_code
                 logger.warning(
                     "wbj provider client error status=%d url=%s params=%s",
                     response.status_code,

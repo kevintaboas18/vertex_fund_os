@@ -312,13 +312,80 @@ def test_facts_table_total_debt_reconciled(fake_providers, fixed_now):
     assert total_debt.value == 9710000000
 
 
-def test_facts_table_price_is_fmp_only(fake_providers, fixed_now):
+def test_facts_table_price_is_the_settled_close_the_levels_use(fake_providers,
+                                                               fixed_now):
+    """One price per packet, and it is the bar the technicals are drawn on.
+
+    It used to be `profile.price`, a live quote, while every technical level
+    and the football field's "current" marker read `market_data.daily[0]`. The
+    two disagree whenever the quote has not caught up to the session — on NVDA
+    the packet carried 195.04 (the PRIOR close) against 198.70 — so the margin
+    of safety was measured against a different day than the levels.
+    """
     packet = build_packet("NVDA", fake_providers, fixed_now)
 
     price = packet.facts_table["price"]
+    newest_bar = packet.market_data.daily[0]
+
     assert price.is_valid
-    assert price.value == 120.5
     assert price.source_name == "FMP"
+    assert price.value == newest_bar.adj_close
+    # Framed at the same instant the packet declares for that bar.
+    assert price.as_of.startswith(newest_bar.date)
+
+
+def test_the_session_still_trading_is_not_taken_as_a_close(fixed_now):
+    """FMP serves the CURRENT session as a bar whose close is the last print,
+    and it moves until the bell. Taking it made `market_timestamp` claim a
+    16:00 ET close that had not happened, and made every level and ATR change
+    between two runs on the same morning — which the audit trail's
+    `packet_hashes` are supposed to rule out."""
+    from wbj.packet.builder import _settled_sessions
+
+    bars = [{"date": "2026-07-16"}, {"date": "2026-07-15"}, {"date": "2026-07-14"}]
+
+    mid_session = datetime(2026, 7, 16, 13, 41, tzinfo=timezone.utc)
+    assert [b["date"] for b in _settled_sessions(bars, mid_session)] == \
+        ["2026-07-15", "2026-07-14"]
+
+    after_close = datetime(2026, 7, 16, 21, 0, tzinfo=timezone.utc)
+    assert [b["date"] for b in _settled_sessions(bars, after_close)] == \
+        ["2026-07-16", "2026-07-15", "2026-07-14"]
+
+    # A bar dated past the analysis clock is never ours to use.
+    assert [b["date"] for b in _settled_sessions(
+        [{"date": "2026-08-05"}] + bars, after_close)] == \
+        ["2026-07-16", "2026-07-15", "2026-07-14"]
+
+
+def test_a_malformed_bar_date_is_dropped_not_fatal():
+    """The series comes from a provider; one unparseable row must not take
+    the packet down with it."""
+    from wbj.packet.builder import _settled_sessions
+
+    now = datetime(2026, 7, 16, 21, 0, tzinfo=timezone.utc)
+    bars = [{"date": "not-a-date"}, {"date": "2026-07-15"}, {"volume": 1}]
+    assert [b["date"] for b in _settled_sessions(bars, now)] == ["2026-07-15"]
+
+
+def test_the_stock_series_is_anchored_to_the_analysis_clock(fake_providers,
+                                                            fixed_now):
+    """`ohlcv_daily`'s docstring: `today` "must be supplied by the caller so
+    this stays deterministic". The benchmark fetch passed `now.date()`; the
+    stock fetch did not, so it fell back to `date.today()` — the wall clock —
+    and the two series could be anchored to different days."""
+    seen = {}
+    real = fake_providers.fmp.ohlcv_daily
+
+    def spy(t, years=3, today=None):
+        seen[t] = today
+        return real(t, years=years, today=today)
+
+    fake_providers.fmp.ohlcv_daily = spy
+    build_packet("NVDA", fake_providers, fixed_now)
+
+    assert seen["NVDA"] == fixed_now.date()
+    assert seen["SPY"] == fixed_now.date()
 
 
 def test_facts_table_revenue_conflicted_when_sources_disagree(fixed_now):

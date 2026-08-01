@@ -30,9 +30,15 @@
 - Aproximadamente **$1,000 USD**.
 
 ## Reglas de dimensionamiento (guía, no altera el scoring)
+- **Máximo por posición individual: 20% – 30% del capital.** Elegido por mí.
+  Con ~$1,000 son **$200–$300 por posición**, es decir entre 3 y 5 posiciones
+  simultáneas como máximo. El engine lee este rango de aquí (`risk.py`), así
+  que cambiarlo en esta línea lo cambia en todo el sistema.
 - Capital pequeño + perfil agresivo: el **sizing** debe cuidar el riesgo de
   ruina. Con $1,000 y opciones, una sola posición mal dimensionada puede borrar
-  una fracción grande de la cuenta.
+  una fracción grande de la cuenta. Con un tope de 30%, **tres pérdidas totales
+  seguidas se llevan casi la cuenta entera** — por eso el reporte debe declarar
+  siempre el nivel de invalidación antes que el objetivo.
 - Prioriza **probabilidad de éxito** y **puntos de entrada/salida (timing)**.
 - El sistema entrega **clasificación de research** con niveles de confirmación e
   invalidación — nunca una orden automática de compra/venta. La ejecución es

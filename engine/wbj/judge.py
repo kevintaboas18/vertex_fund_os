@@ -19,8 +19,8 @@ Design:
 - No API key / SDK missing → returns `[]` gracefully (the dashboard then
   shows those metrics as still-pending, never a crash).
 
-Model defaults to `claude-opus-4-8`; set `JUDGE_MODEL` in `API/.env`
-(e.g. `claude-haiku-4-5`) to trade quality for cost.
+Modelo por defecto `claude-opus-5`; fija `JUDGE_MODEL` en `API/.env`
+(p. ej. `claude-haiku-4-5`) para abaratar.
 """
 
 from __future__ import annotations
@@ -375,7 +375,9 @@ def answer_judgments(
 
     resp = client.messages.parse(
         model=settings.judge_model,
-        max_tokens=4096,
+        # Opus 5 razona por defecto y ese razonamiento COMPARTE el presupuesto
+        # de max_tokens con la respuesta: con 4096 la respuesta salía truncada.
+        max_tokens=8192,
         system=_SYSTEM,
         messages=[{"role": "user", "content": user}],
         output_format=_Answers,

@@ -301,12 +301,16 @@ def test_thesis_killer_priority():
 
 
 def test_profile_fit_within_cap():
-    fit = risk.profile_fit(0.40)
-    assert fit["within_position_cap"] is True
-    fit_over = risk.profile_fit(0.80)
-    assert fit_over["within_position_cap"] is False
-    fit_none = risk.profile_fit(None)
-    assert fit_none["within_position_cap"] is None
+    """A-03: el perfil se LEE de `Perfil Inversionista/`, ya no está transcrito
+    a mano en el módulo. El test comprueba el mecanismo (comparar contra el
+    rango del perfil vigente), no las cifras de un inversionista concreto —
+    codificarlas es lo que hizo que el módulo se desincronizara del archivo."""
+    lo, hi = risk.PROFILE["max_position_pct"]
+    dentro = (lo + hi) / 2.0
+    assert risk.profile_fit(dentro)["within_position_cap"] is True
+    assert risk.profile_fit(hi + 0.10)["within_position_cap"] is False
+    assert risk.profile_fit(max(0.0, lo - 0.01))["within_position_cap"] is False
+    assert risk.profile_fit(None)["within_position_cap"] is None
 
 
 # ============================================================================
@@ -444,9 +448,13 @@ def test_run_beta_not_scorable_empty_benchmark():
 
 
 def test_run_nvda_fixture_profile_fit_populated(nvda_packet):
-    out = risk.run(nvda_packet, overlay={"position_size_pct": 0.45})
+    """El bloque profile_fit se rellena con el perfil VIGENTE (A-03), sin
+    depender del capital de ningún inversionista en particular."""
+    lo, hi = risk.PROFILE["max_position_pct"]
+    out = risk.run(nvda_packet, overlay={"position_size_pct": (lo + hi) / 2.0})
     assert out.profile_fit["within_position_cap"] is True
-    assert out.profile_fit["capital_usd"] == pytest.approx(25_000.0)
+    assert out.profile_fit["capital_usd"] == pytest.approx(risk.PROFILE["capital_usd"])
+    assert out.profile_fit["horizon_years_range"] == list(risk.PROFILE["horizon_years"])
 
 
 def test_run_nvda_fixture_validation_tests_all_self_checks_pass(nvda_packet):

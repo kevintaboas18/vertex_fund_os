@@ -140,25 +140,56 @@ def test_replacement_outranks_normalization_when_both_are_claimed():
 # --- business actually wires them -----------------------------------------
 
 
-def test_business_no_longer_hardcodes_the_three_components():
-    """The point of the module is that these stop being constants."""
-    import inspect
-    import re
+def _confidence_packet(adapter="default_nonfinancial"):
+    """A packet that differs from its siblings only by industry adapter."""
+    from datetime import datetime, timezone
 
+    from wbj.schemas.packet import AnalysisMeta, Packet, Security
+
+    return Packet(
+        security=Security(ticker="T", exchange="X",
+                          security_type="operating_company",
+                          reporting_currency="USD", valuation_currency="USD",
+                          sector="Technology", industry="Semiconductors"),
+        analysis=AnalysisMeta(
+            knowledge_timestamp=datetime.now(timezone.utc).isoformat(),
+            industry_adapter=adapter),
+        fundamentals={"annual": [{"fiscalYear": "2025",
+                                  "filingDate": "2026-02-20"}]},
+        facts_table={}, market_data={}, estimates={}, capital_structure={},
+        staleness={})
+
+
+def test_business_no_longer_hardcodes_the_three_components():
+    """The point of the module is that these stop being constants.
+
+    A constant does not move when its input moves. So vary one signal at
+    a time, holding the other four fixed, and require the answer to
+    change in the documented direction. Each of the three used to come
+    back identical from both sides of these pairs.
+    """
     from wbj.specialists import business as bus
 
-    src = inspect.getsource(bus._category_confidence)
-    # A bare `x = 12.3` is a constant. `x = 12.3 if measured is None else
-    # measured` is a fallback for the case where nothing could be
-    # measured, which is a different thing and is documented as such.
-    constant = re.compile(
-        r"^(source_quality|consistency|model_fit)\s*=\s*[\d.]+\s*(#.*)?$")
-    for line in src.splitlines():
-        stripped = line.strip()
-        assert not constant.match(stripped), f"component hardcoded again: {stripped}"
-    assert "_confidence_inputs.source_quality" in src
-    assert "_confidence_inputs.consistency" in src
-    assert "_confidence_inputs.model_fit" in src
+    base = dict(coverage=1.0, packet=_confidence_packet(),
+                evidence_classes=["R"], consistency_checks=(2, 2))
+
+    # source_quality: "regulatory/official evidence scores higher than
+    # secondary estimates" -- an audited filing against a judgment call.
+    filed = bus._category_confidence(**{**base, "evidence_classes": ["R"]})
+    judged = bus._category_confidence(**{**base, "evidence_classes": ["Q"]})
+    assert filed > judged
+
+    # consistency: two sources that agree against two that contradict.
+    agree = bus._category_confidence(**{**base, "consistency_checks": (2, 2)})
+    conflict = bus._category_confidence(**{**base, "consistency_checks": (0, 2)})
+    assert agree > conflict
+
+    # model_fit: conventional formulas against an adapter whose
+    # methodology replaces them.
+    conventional = bus._category_confidence(**base)
+    replaced = bus._category_confidence(
+        **{**base, "packet": _confidence_packet("banks")})
+    assert conventional > replaced
 
 
 def test_the_proxy_floor_cannot_raise_a_replaced_model():

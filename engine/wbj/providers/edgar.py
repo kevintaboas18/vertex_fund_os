@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+from pathlib import Path
 from typing import Any
 
 from wbj.providers.base import Provider
@@ -35,8 +37,43 @@ TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 
-EDGAR_USER_AGENT = "warren-buffett-jr victor@infusioninvestments.com"
+#: Último recurso, sólo si nadie configuró `EDGAR_USER_AGENT`. Deliberadamente
+#: genérico: la SEC pide un contacto real, y poner aquí el correo de otra
+#: persona hace que sus límites de fair-access y los tuyos se compartan.
+_EDGAR_UA_FALLBACK = "Vertex Fund OS research (configura EDGAR_USER_AGENT)"
+
+#: Identidad resuelta al importar. `EdgarProvider` prefiere la de `Settings`
+#: (que lee `API/.env`); esto cubre a quien importa `_EDGAR_HEADERS` suelto
+#: — `screener.py`, `scripts/webapp.py` — y el caso Render, donde la variable
+#: llega por entorno y no existe ningún `.env` en disco.
+EDGAR_USER_AGENT = (os.environ.get("EDGAR_USER_AGENT") or "").strip() or _EDGAR_UA_FALLBACK
 _EDGAR_HEADERS = {"User-Agent": EDGAR_USER_AGENT}
+
+
+def edgar_headers(settings: Any = None) -> dict[str, str]:
+    """Cabeceras para la SEC, con la identidad configurada.
+
+    Orden: `Settings.edgar_user_agent` (de `API/.env`) → variable de entorno →
+    fallback genérico. Antes esto era una constante con el correo de Victor
+    codificado, así que `EDGAR_USER_AGENT` en `render.yaml` y en `API/.env`
+    no hacía absolutamente nada.
+    """
+    ua = (getattr(settings, "edgar_user_agent", None) or "").strip() if settings else ""
+    return {"User-Agent": ua or EDGAR_USER_AGENT}
+
+#: Nombres de formulario de las Schedule 13D/G, en sus DOS familias.
+#:
+#: Al exigir el formato estructurado (dic-2024) EDGAR renombro el tipo: lo que
+#: se presentaba como `SC 13G/A` pasa a indexarse como `SCHEDULE 13G/A`. Filtrar
+#: solo por los viejos devolvia CERO resultados desde 2025 — para NVDA se
+#: perdian las dos presentaciones de Vanguard de 2026-01-30 y 2026-03-26, y el
+#: reporte mostraba en su lugar un 13G/A de 2024 como si fuera el vigente.
+#: Se piden las dos familias porque el historico anterior a dic-2024 conserva
+#: los nombres antiguos.
+_SCHEDULE_13DG_FORMS = (
+    "SC 13D,SC 13D/A,SC 13G,SC 13G/A,"
+    "SCHEDULE 13D,SCHEDULE 13D/A,SCHEDULE 13G,SCHEDULE 13G/A"
+)
 
 # The tickers map is one global, ticker-independent payload, so it is
 # cached under a fixed pseudo-ticker rather than the caller's ticker —
@@ -72,6 +109,11 @@ class EdgarProvider(Provider):
     def available(self) -> bool:
         """Always True — EDGAR requires no API key, only a User-Agent header."""
         return True
+
+    @property
+    def _headers(self) -> dict[str, str]:
+        """Cabeceras de esta instancia: prefiere la identidad de sus `Settings`."""
+        return edgar_headers(self.settings)
 
     def _declared_overrides(self) -> dict:
         """The `Entradas/cik_overrides.json` map, or `{}`.
@@ -125,7 +167,7 @@ class EdgarProvider(Provider):
             "tickers",
             _GLOBAL_CACHE_TICKER,
             max_age_days=_MAX_AGE_TICKERS,
-            headers=_EDGAR_HEADERS,
+            headers=self._headers,
         )
         if not isinstance(payload, dict):
             return None
@@ -172,9 +214,127 @@ class EdgarProvider(Provider):
             "companyfacts",
             _cik_cache_key(cik),
             max_age_days=_MAX_AGE_COMPANYFACTS,
-            headers=_EDGAR_HEADERS,
+            headers=self._headers,
         )
         return payload if isinstance(payload, dict) else None
+
+    #: Ventanas de 3 meses con que la SEC nombra cada dataset trimestral de 13F.
+    _F13_WINDOWS = (("dec", "feb"), ("mar", "may"), ("jun", "aug"), ("sep", "nov"))
+    _F13_LAST_DAY = {"feb": 28, "may": 31, "aug": 31, "nov": 30}
+    _F13_BASE = ("https://www.sec.gov/files/structureddata/data/"
+                 "form-13f-data-sets/{name}")
+
+    def _f13_candidates(self, today) -> list[str]:
+        """Nombres de dataset del trimestre actual hacia atras, mas reciente primero."""
+        out = []
+        year = today.year
+        for back in range(6):                      # ~18 meses de margen
+            for (ini, fin) in reversed(self._F13_WINDOWS):
+                y = year - (1 if (ini == "dec") else 0)
+                out.append(f"01{ini}{y}-{self._F13_LAST_DAY[fin]}{fin}{year}_form13f.zip")
+            year -= 1
+        return out
+
+    def holders_13f_dataset(self, cusip: str, top: int = 12) -> list[dict]:
+        """Tenedores institucionales de `cusip`, ORDENADOS POR VALOR DE POSICION.
+
+        Por que existe, cuando ya hay `institutional_holders_13f`: aquel busca
+        el CUSIP en el indice de texto completo de EDGAR, y ese camino **no
+        puede** devolver a los grandes. Medido sobre NVDA: 10.000+ filings
+        mencionan el CUSIP y el indice sirve 300; los hits mas recientes de
+        Vanguard, BlackRock, State Street y FMR son de 2012, 2009, 2013 y 2016
+        -- sus tablas de posiciones son tan grandes que EDGAR deja de
+        indexarlas a texto completo. Lo que quedaba eran gestoras pequeñas
+        ordenadas por fecha de presentacion, y recencia no es reconocimiento.
+
+        Este metodo usa el conjunto de datos estructurado que la SEC publica
+        cada trimestre: `INFOTABLE.tsv` trae TODAS las posiciones con CUSIP,
+        valor y numero de acciones, y `COVERPAGE.tsv` el nombre del gestor. Es
+        completo por construccion -- 6.334 filings reportan NVDA frente a los
+        160 del indice -- y da el ranking real por tamaño de posicion, que es
+        lo que pide el item 4 de CLAUDE.md.
+
+        Coste: un zip de ~100 MB por trimestre, cacheado y COMPARTIDO por todos
+        los tickers (el dataset cubre el mercado entero); el filtrado son ~2 s
+        sobre 3,8 millones de filas. Devuelve [] si no hay dataset disponible,
+        y el llamador conserva su respaldo.
+        """
+        import csv
+        import io
+        import zipfile
+        from datetime import date
+
+        cusip = str(cusip).strip().upper()
+        if not cusip:
+            return []
+        cache_dir = Path(getattr(self.settings, "cache_dir", ".")) / "form13f"
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return []
+
+        blob = period = None
+        for name in self._f13_candidates(date.today()):
+            local = cache_dir / name
+            if local.is_file() and local.stat().st_size > 1_000_000:
+                blob, period = local.read_bytes(), name
+                break
+            try:
+                blob = self.get_bytes(self._F13_BASE.format(name=name), headers=self._headers)
+            except Exception:
+                blob = None
+            if blob:
+                try:
+                    local.write_bytes(blob)
+                except OSError:
+                    pass
+                period = name
+                break
+        if not blob:
+            logger.info("no 13F structured dataset available for %s", cusip)
+            return []
+
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(blob))
+            por_filing: dict[str, dict] = {}
+            with zf.open("INFOTABLE.tsv") as fh:
+                for row in csv.DictReader(io.TextIOWrapper(fh, "utf-8", "replace"), delimiter="\t"):
+                    if (row.get("CUSIP") or "").strip().upper() != cusip:
+                        continue
+                    acc = row.get("ACCESSION_NUMBER") or ""
+                    agg = por_filing.setdefault(acc, {"value": 0.0, "shares": 0.0})
+                    try:                       # varias filas por filing (clases, opciones)
+                        agg["value"] += float(row.get("VALUE") or 0)
+                        agg["shares"] += float(row.get("SSHPRNAMT") or 0)
+                    except (TypeError, ValueError):
+                        continue
+            if not por_filing:
+                return []
+            nombres: dict[str, str] = {}
+            with zf.open("COVERPAGE.tsv") as fh:
+                for row in csv.DictReader(io.TextIOWrapper(fh, "utf-8", "replace"), delimiter="\t"):
+                    acc = row.get("ACCESSION_NUMBER")
+                    if acc in por_filing:
+                        nombres[acc] = (row.get("FILINGMANAGER_NAME") or "").strip()
+        except Exception:
+            logger.warning("13F dataset unreadable for %s", cusip, exc_info=True)
+            return []
+
+        # Un mismo gestor presenta varios filings (enmiendas, entidades del
+        # grupo). Se queda el mayor por gestor: sumarlos duplicaria la posicion.
+        por_gestor: dict[str, dict] = {}
+        for acc, agg in por_filing.items():
+            nombre = nombres.get(acc) or "(sin nombre en COVERPAGE)"
+            clave = nombre.upper()
+            prev = por_gestor.get(clave)
+            if prev is None or agg["value"] > prev["value"]:
+                por_gestor[clave] = {"name": nombre, "value": agg["value"],
+                                     "shares": agg["shares"], "accession": acc}
+        rank = sorted(por_gestor.values(), key=lambda r: -r["value"])[:max(1, top)]
+        for r in rank:
+            r["period"] = period
+            r["source_locator"] = f"13F-HR accession {r['accession']} (SEC 13F data set {period})"
+        return rank
 
     def institutional_holders_13f(self, cusip: str, since: str, until: str,
                                   pages: int = 3) -> list[dict]:
@@ -209,7 +369,7 @@ class EdgarProvider(Provider):
                 params["from"] = page * 100
             payload = self.get_json(
                 base, params, "efts_13f", f"{cusip}_{since}_{page}",
-                max_age_days=_MAX_AGE_SUBMISSIONS, headers=_EDGAR_HEADERS,
+                max_age_days=_MAX_AGE_SUBMISSIONS, headers=self._headers,
             )
             hits = (((payload or {}).get("hits") or {}).get("hits")) or []
             if not hits:
@@ -259,13 +419,13 @@ class EdgarProvider(Provider):
         base = "https://efts.sec.gov/LATEST/search-index"
         by_cik: dict[str, dict] = {}
         for page in range(max(1, pages)):
-            params = {"q": f'"{cusip}"', "forms": "SC 13D,SC 13D/A,SC 13G,SC 13G/A",
+            params = {"q": f'"{cusip}"', "forms": _SCHEDULE_13DG_FORMS,
                       "startdt": since, "enddt": until}
             if page:
                 params["from"] = page * 100
             payload = self.get_json(
                 base, params, "efts_13dg", f"{cusip}_{since}_{page}",
-                max_age_days=_MAX_AGE_SUBMISSIONS, headers=_EDGAR_HEADERS,
+                max_age_days=_MAX_AGE_SUBMISSIONS, headers=self._headers,
             )
             hits = (((payload or {}).get("hits") or {}).get("hits")) or []
             if not hits:
@@ -324,7 +484,7 @@ class EdgarProvider(Provider):
         payload = self.get_json(
             SUBMISSIONS_URL.format(cik=cik), {}, "submissions",
             _cik_cache_key(cik), max_age_days=_MAX_AGE_SUBMISSIONS,
-            headers=_EDGAR_HEADERS,
+            headers=self._headers,
         )
         recent = (payload or {}).get("filings", {}).get("recent")
         if not isinstance(recent, dict):
@@ -343,7 +503,7 @@ class EdgarProvider(Provider):
             index = self.get_json(
                 f"https://www.sec.gov/Archives/edgar/data/{cik}/{bare}/index.json",
                 {}, "filing_index", f"{_cik_cache_key(cik)}_{bare}",
-                max_age_days=_MAX_AGE_FILING, headers=_EDGAR_HEADERS,
+                max_age_days=_MAX_AGE_FILING, headers=self._headers,
             )
             items = ((index or {}).get("directory") or {}).get("item") or []
             candidates = []
@@ -393,7 +553,7 @@ class EdgarProvider(Provider):
         payload = self.get_json(
             SUBMISSIONS_URL.format(cik=cik), {}, "submissions",
             _cik_cache_key(cik), max_age_days=_MAX_AGE_SUBMISSIONS,
-            headers=_EDGAR_HEADERS,
+            headers=self._headers,
         )
         recent = (payload or {}).get("filings", {}).get("recent")
         if not isinstance(recent, dict):
@@ -413,7 +573,7 @@ class EdgarProvider(Provider):
         payload = self.get_json(
             SUBMISSIONS_URL.format(cik=cik), {}, "submissions",
             _cik_cache_key(cik), max_age_days=_MAX_AGE_SUBMISSIONS,
-            headers=_EDGAR_HEADERS,
+            headers=self._headers,
         )
         recent = (payload or {}).get("filings", {}).get("recent")
         if not isinstance(recent, dict):
@@ -443,7 +603,7 @@ class EdgarProvider(Provider):
         # Cache per accession: a filing is immutable, and the 10-Q series
         # must not overwrite one another under a single key.
         raw = self.get_text(url, {}, f"filing_{accession}", _cik_cache_key(cik),
-                            max_age_days=_MAX_AGE_FILING, headers=_EDGAR_HEADERS)
+                            max_age_days=_MAX_AGE_FILING, headers=self._headers)
         if not raw:
             return None
 
@@ -474,7 +634,7 @@ class EdgarProvider(Provider):
             "submissions",
             _cik_cache_key(cik),
             max_age_days=_MAX_AGE_SUBMISSIONS,
-            headers=_EDGAR_HEADERS,
+            headers=self._headers,
         )
         if not isinstance(payload, dict):
             return None

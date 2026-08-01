@@ -99,16 +99,55 @@ def test_an_unsourced_market_definition_keeps_the_cap():
 # --- anchor provenance ----------------------------------------------------
 
 
+def _anchor_scored_metrics() -> set[str]:
+    """Every `add("BUS-...", ...)` in `_compute_all` scored off an anchor scale.
+
+    This is a completeness check over a registry, so it reads the code
+    rather than a run: no single packet exercises all ~90 metrics, and a
+    metric that scores without a registered scale has to be caught the
+    moment it is written, not when some future fixture happens to reach
+    it.
+
+    Parsed as a syntax tree, not matched line by line. The regex this
+    replaces required the `add(...)` call and `_score_from_anchor` to
+    share a source line, so wrapping a long call dropped the metric from
+    the scan silently — the test kept passing while checking less.
+    """
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(inspect.getmodule(bus)))
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "_compute_all")
+
+    found: set[str] = set()
+    for node in ast.walk(fn):
+        if not (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name) and node.func.id == "add"):
+            continue
+        if not (node.args and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+                and node.args[0].value.startswith("BUS-")):
+            continue
+        uses_anchor = any(
+            isinstance(inner, ast.Name) and inner.id == "_score_from_anchor"
+            for arg in node.args[1:] for inner in ast.walk(arg))
+        if uses_anchor:
+            found.add(node.args[0].value)
+    return found
+
+
 def test_every_scored_metric_declares_where_its_anchors_came_from():
     """SCORING_ENGINE.md asks for interpolation between *registered*
     anchors. A metric that scores without its scale being traceable to
     either Victor or a declared calibration is a number nobody can
     audit."""
-    import inspect
-    import re
-
-    src = inspect.getsource(bus._compute_all)
-    scored = set(re.findall(r'add\("(BUS-[A-Z]+-\d+)",[^\n]*_score_from_anchor', src))
+    scored = _anchor_scored_metrics()
+    # A scan that stops matching passes vacuously, which is the one way
+    # this check can rot without anyone noticing. Seventeen metrics score
+    # off an anchor scale today; the floor only has to catch a scan that
+    # has gone blind, not track the exact count.
+    assert len(scored) >= 15, f"the scan found only {len(scored)} metrics"
     missing = scored - set(bus.ANCHOR_PROVENANCE)
     assert not missing, f"scored with unregistered anchors: {sorted(missing)}"
 

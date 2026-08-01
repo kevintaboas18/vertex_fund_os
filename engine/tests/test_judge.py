@@ -82,7 +82,7 @@ def test_batches_all_requests_into_one_call():
     out = answer_judgments({}, reqs, s, client=client)
     assert len(out) == 3
     # one API call, and it used the configured model
-    assert client.last_call["model"] == "claude-opus-4-8"
+    assert client.last_call["model"] == "claude-opus-5"
     assert f"{len(reqs)}" in client.last_call["messages"][0]["content"]
 
 

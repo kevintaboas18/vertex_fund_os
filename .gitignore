@@ -1,9 +1,40 @@
-start_vertex.bat
+# NOTA: git NO soporta comentarios al final de una línea. Un "#" solo abre
+# comentario si es el primer carácter. Cada comentario va en su propia línea.
+
+# ── SECRETOS — nunca se commitean ─────────────────────────────────────────────
 vertex.env
+API/.env
+.env
+*.env.local
+# copia local del arranque, suele llevar claves pegadas
+start_vertex.bat
+
+# ── DATOS LOCALES (la DB se regenera; en Render vive en disco persistente) ─────
+# sqlite: reportes, snapshots de portafolio, historial de señales
 vertex.db
-__pycache__/
+# temporales que sqlite escribe junto a la DB (WAL/journal)
+vertex.db-journal
+vertex.db-wal
+vertex.db-shm
+# caché de respuestas de FMP/EDGAR/FinnHub/FRED
+engine/cache/
+
+# ── ENTORNOS Y BUILD ──────────────────────────────────────────────────────────
 .venv/
 venv/
-API/.env
-engine/cache/
 engine/.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ── SISTEMA / EDITOR ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+
+# ── LO QUE SÍ SE VERSIONA A PROPÓSITO ─────────────────────────────────────────
+# Memoria/ y Reportes/ se commitean: son la memoria del agente y el track
+# record (prediccion.json). CLAUDE.md los define como la semilla del
+# aprendizaje entre sesiones; perderlos rompe la calibración.

@@ -62,6 +62,13 @@ El engine lee sus claves de `API/.env` (FMP/FinnHub/FRED + EDGAR_USER_AGENT).
 2. En Render: **New → Blueprint** → conecta tu repo → Render lee `render.yaml`.
 3. Render te pedirá el valor de cada clave marcada `sync: false` (§4). Pégalas
    ahí (Render las guarda cifradas; **nunca** van al código).
+
+> ⚠️ **El plan `free` no conserva nada.** No tiene disco persistente, así que
+> cada redeploy —y cada despertar tras dormirse por inactividad— borra
+> `vertex.db`: reportes, snapshots, historial de señales, la conexión de Plaid
+> y las **predicciones del track record**. Si quieres que el agente aprenda
+> entre sesiones, sube a `starter`, descomenta el bloque `disk` de
+> `render.yaml` **y** la variable `VERTEX_DB` (las dos, o no sirve).
 4. **Create** → Render instala, arranca y te da una URL pública.
 
 ### Opción B — Servicio Web manual
@@ -94,7 +101,10 @@ La app las lee de `vertex.env` (local) o de las Environment Variables (Render).
 
 | Variable | Para qué | ¿Obligatoria? |
 |---|---|---|
-| `EDGAR_USER_AGENT` | Identidad ante la SEC (tu nombre + email) | Sí (EDGAR la exige) |
+| `VERTEX_API_TOKEN` | **Clave de acceso a la API.** Sin ella el servidor solo atiende a localhost | **Sí en Render** |
+| `VERTEX_ORIGIN` | URL pública del servicio, para CORS | Sí en Render |
+| `VERTEX_DB_KEY` | Cifra el `access_token` de Plaid guardado en la DB | Recomendada |
+| `EDGAR_USER_AGENT` | Identidad ante la SEC (tu nombre + email real) | Sí (EDGAR la exige) |
 | `GEMINI_API_KEY` | Explicación en palabras (LLM principal) | Sí, para la explicación |
 | `FMP_API_KEY` | Pares, gaps de earnings, revisiones | Recomendada |
 | `OPENAI_API_KEY` | Respaldo del LLM | Opcional |
@@ -103,8 +113,12 @@ La app las lee de `vertex.env` (local) o de las Environment Variables (Render).
 | `FRED_API_KEY` | Datos macro | Opcional |
 | `QUANTDATA_API_KEY` | Flujo de opciones / dark pool | Opcional |
 | `PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV` | Conexión bancaria | Solo si usas Plaid |
+
+> **El `access_token` de Plaid nunca sale del servidor** (C-03). Se guarda en
+> `vertex.db` — cifrado si defines `VERTEX_DB_KEY` — y el navegador solo recibe
+> el `item_id`. Para desconectar: `POST /api/plaid/disconnect`, que además
+> invalida el token en Plaid, no solo en tu base.
 | `SCHWAB_APP_KEY` / `SCHWAB_APP_SECRET` | Conexión con Schwab | Solo si usas Schwab |
-| `SNAPTRADE_*` | Conexión con brokers | Solo si usas SnapTrade |
 
 **Formato de `vertex.env`** (una por línea, sin comillas):
 ```
@@ -132,8 +146,8 @@ curl -s https://TU-URL/ | grep -o "WARREN BUFFETT JR" | head -1
 # Precio rápido
 curl -s "https://TU-URL/api/quote?ticker=AAPL"
 
-# Salud de las fuentes de datos
-curl -s "https://TU-URL/api/data-health"
+# Salud de las fuentes de datos (requiere el token)
+curl -s -H "X-Vertex-Token: $VERTEX_API_TOKEN" "https://TU-URL/api/data-health"
 
 # Análisis completo (tarda ~20-40s: EDGAR + FMP + Gemini)
 curl -s "https://TU-URL/api/analyze?ticker=AAPL"
@@ -148,18 +162,24 @@ scorecard con **"Fuente de los scores: engine determinista (metodología de Vict
 
 | Síntoma | Causa | Solución |
 |---|---|---|
-| EDGAR `403 Forbidden` | Falta/incorrecto el User-Agent | Define `EDGAR_USER_AGENT` con tu email real |
+| EDGAR `403 Forbidden` | Falta/incorrecto el User-Agent | Define `EDGAR_USER_AGENT` con tu nombre y email real. La SEC limita POR user-agent, así que usa uno tuyo y no lo compartas |
 | Scores dicen "estimación LLM (fallback)" | El engine no pudo (sin red a EDGAR, o deps faltantes) | Revisa que `scipy/httpx/typer/pandas` estén instalados y haya red a `data.sec.gov` |
 | FMP `401/403` | Key inválida o plan sin ese endpoint | Verifica `FMP_API_KEY`; pares/gaps requieren plan con esos datos |
 | No aparece la explicación | Falta `GEMINI_API_KEY` o cuota agotada | Configura la key; el análisis numérico sigue válido |
 | "Application failed to respond" en Render | Falta `--host 0.0.0.0 --port $PORT` | Corrige el Start Command |
+| `401 unauthorized` en todo `/api/*` | Falta la sesion o el token | En el navegador: introduce la clave. En scripts: manda `X-Vertex-Token`. |
+| La app no carga y pide clave que no tienes | `VERTEX_API_TOKEN` cambio en Render | Usa el valor actual del dashboard de Render |
 | Timeout / lento | Primer análisis baja 5 años de OHLCV + EDGAR | Normal (~20-40s la 1ª vez); luego cachea |
 
 ---
 
 ## 7. Seguridad (importante)
 - **Nunca** subas `vertex.env` ni `API/.env` a git (ya están en `.gitignore`).
-- Trata `SCHWAB_*`, `PLAID_*` y `SNAPTRADE_*` como **acceso a dinero real**.
+- **Define `VERTEX_API_TOKEN` antes de exponer el servicio.** Sin esa variable
+  el backend solo responde a `localhost`; con ella, cada peticion a `/api/*`
+  exige la cookie de sesion (navegador) o la cabecera `X-Vertex-Token`
+  (scripts). Generala con `openssl rand -hex 24` y no la reutilices.
+- Trata `SCHWAB_*` y `PLAID_*` como **acceso a dinero real**.
 - No reutilices contraseñas personales como secretos de API.
 - Si una clave se expuso, **rótala** en el portal del proveedor.
 - El output del sistema es **clasificación de research**, no una orden de
