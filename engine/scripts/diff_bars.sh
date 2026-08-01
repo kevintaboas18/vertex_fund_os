@@ -2,20 +2,27 @@
 # Test diferencial de barsStore.ts: ejecuta SU archivo en Node (solo sin tipos,
 # la lógica intacta) y el port en Python sobre los mismos casos, y compara.
 #
+#     engine/scripts/diff_bars.sh                       # baja su barsStore.ts de GitHub
 #     TITO_ROOT=/ruta/a/agente-tito-metralleta engine/scripts/diff_bars.sh
 #
 # Verifica que la SALIDA coincida, no que el código se parezca.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TITO="${TITO_ROOT:-}"
-if [[ -z "$TITO" || ! -f "$TITO/web/lib/barsStore.ts" ]]; then
-  echo "  · saltado: define TITO_ROOT con el repo de Víctor clonado"; exit 0
-fi
+RAW="https://raw.githubusercontent.com/infusionvictor/agente-tito-metralleta/main/web/lib/barsStore.ts"
 command -v node >/dev/null || { echo "  · saltado: hace falta node"; exit 0; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-python3 - "$TITO/web/lib/barsStore.ts" "$TMP/victor.mjs" <<'PY'
+if [[ -n "${TITO_ROOT:-}" && -f "$TITO_ROOT/web/lib/barsStore.ts" ]]; then
+  cp "$TITO_ROOT/web/lib/barsStore.ts" "$TMP/barsStore.ts"
+  echo "  fuente: $TITO_ROOT/web/lib/barsStore.ts"
+elif curl -fsS "$RAW" -o "$TMP/barsStore.ts"; then
+  echo "  fuente: GitHub (main)"
+else
+  echo "  · saltado: sin TITO_ROOT y sin poder bajar su barsStore.ts"; exit 0
+fi
+
+python3 - "$TMP/barsStore.ts" "$TMP/victor.mjs" <<'PY'
 import pathlib, re, sys
 ts = pathlib.Path(sys.argv[1]).read_text()
 js = re.sub(r'^import .*?;\s*$', '', ts, flags=re.M)

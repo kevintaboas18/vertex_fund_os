@@ -438,26 +438,33 @@ with tempfile.TemporaryDirectory() as td:
         "guarda el análisis COMPLETO, no un recorte de 8 campos")
     chk(_ST._file_for("../../ETC/X").resolve().parent
         == (_ST.data_dir() / "trades").resolve(), "el ticker no se escapa del directorio")
-    # Los 3 que salieron de la auditoría del port (ver AUDITORIA_STORE.md).
+    # Los 3 agujeros de SU store.ts, replicados a propósito para que el port sea
+    # idéntico (47/47 en diff_store.sh). Arreglo propuesto para el upstream en
+    # engine/scripts/upstream-tito-store.patch.
     _ST.save_trades("SINID", [_fr(0, "2026-07-30T15:00:00Z"), _fr(0, "2026-07-30T15:01:00Z")])
-    chk(len(_ST.load_trades("SINID").trades) == 2, "trades sin id no se funden en uno")
+    chk(len(_ST.load_trades("SINID").trades) == 1,
+        "BUG replicado: sin id el historial colapsa a un trade (clave del Map = t.id)")
     _p = _ST.data_dir() / "trades" / "BASURA.json"
-    _p.write_text(json.dumps({"ticker": "BASURA", "updated_at": "x",
+    _p.write_text(json.dumps({"ticker": "BASURA", "updatedAt": "x",
                               "trades": [{"id": 1, "timestamp": "2026-07-30T15:00:00Z"},
                                          "no soy dict", None, 42]}), encoding="utf-8")
-    chk([t["id"] for t in _ST.load_trades("BASURA").trades] == [1],
-        "una fila corrupta no tumba el historial entero")
-    _naive = [{"timestamp": "2026-07-30T15:00:00", "id": 1},
-              {"timestamp": "2026-07-30T16:00:00Z", "id": 2}]
-    _ordenes = set()
+    chk(_ST.load_trades("BASURA").trades
+        == [{"id": 1, "timestamp": "2026-07-30T15:00:00Z"}, "no soy dict", None, 42],
+        "load no mira dentro del array (`Array.isArray(parsed.trades) ? parsed : null`)")
+    try:
+        _ST.save_trades("BASURA", [_fr(9, "2026-07-30T15:00:00Z")]); _tumba = False
+    except TypeError: _tumba = True
+    chk(_tumba, "BUG replicado: una fila `null` en disco tumba el guardado entero")
     _tzprev = os.environ.get("TZ")
-    for _tz in ("UTC", "America/New_York", "Asia/Tokyo"):
-        os.environ["TZ"] = _tz; time.tzset()
-        _ordenes.add(tuple(r["id"] for r in sorted(_naive, key=_ST._ts_key, reverse=True)))
+    os.environ["TZ"] = "UTC"; time.tzset()
+    _utc = _ST._date_parse("2026-07-30T15:00:00")
+    os.environ["TZ"] = "America/New_York"; time.tzset()
+    _ny = _ST._date_parse("2026-07-30T15:00:00")
     if _tzprev is None: os.environ.pop("TZ", None)
     else: os.environ["TZ"] = _tzprev
     time.tzset()
-    chk(_ordenes == {(2, 1)}, "el orden no depende de la TZ del servidor")
+    chk(_ny - _utc == 4 * 3600 * 1000 and _ST._date_parse("2026-07-30") == 1785369600000,
+        "Date.parse literal: fecha-hora sin offset en LOCAL, fecha sola en UTC")
     # 2ª pasada de auditoría: concurrencia, tickers degenerados y portabilidad.
     import threading as _th
     _b = datetime(2026, 7, 30, tzinfo=timezone.utc)
@@ -473,11 +480,10 @@ with tempfile.TemporaryDirectory() as td:
             (TITO_DIR/"stores.py").read_text()]) and
         (TITO_DIR/"stores.py").read_text().count("_exclusive(path)") == 4,
         "los 4 stores escriben bajo cerrojo")
-    _rechaza = 0
-    for _malo in ("!!!", "@@@", "", "   ", "..."):
-        try: _ST._file_for(_malo)
-        except ValueError: _rechaza += 1
-    chk(_rechaza == 5, "el ticker que no da nombre de archivo se rechaza (nada de `.json` compartido)")
+    chk({_ST._file_for(_m).name for _m in ("!!!", "@@@", "", "   ")} == {".json"},
+        "BUG replicado: los tickers que sanean a nada comparten `.json`")
+    chk(_ST._file_for("A" * 200).name == "A" * 200 + ".json",
+        "BUG replicado: sin tope de longitud, el nombre va tal cual al FS")
     chk(_ST.load_trades("!!!") is None, "leer con ticker inservible no lanza")
     _d2 = Path(os.environ["WBJ_TITO_DATA"]) / "no-existe-aun"
     os.environ["WBJ_TITO_DATA"] = str(_d2)
@@ -523,11 +529,6 @@ with tempfile.TemporaryDirectory() as _td4:
     _t = {r["id"]: r for r in _ST.load_trades("NAN").trades}
     chk(len(_t) == 2 and _t[1]["iv"] is None and _t[2]["iv"] == 0.45,
         "el trade con el campo roto sobrevive; los sanos, intactos")
-    _ST._file_for("A" * _ST.MAX_TICKER_LEN)
-    try:
-        _ST._file_for("A" * (_ST.MAX_TICKER_LEN + 1)); _cap = False
-    except ValueError: _cap = True
-    chk(_cap, f"ticker de más de {_ST.MAX_TICKER_LEN} chars → ValueError, no ENAMETOOLONG")
     _r = _ST.save_trades("DUP", [_fr(1, "2026-07-30T15:00:00Z"),
                                  _fr(1, "2026-07-30T15:00:00Z"),
                                  _fr(2, "2026-07-30T15:01:00Z")])

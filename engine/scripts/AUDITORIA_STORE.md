@@ -1,5 +1,33 @@
 # Auditoría del port de `store.ts`
 
+> **AVISO — este documento quedó parcialmente revertido.** Lo que sigue es el
+> registro de las cinco pasadas de auditoría, y sigue siendo válido como
+> descripción de los agujeros que tiene el módulo. Pero la instrucción posterior
+> fue *"quiero todo exactamente como lo tiene Víctor"*, y al construir el test
+> diferencial contra su `store.ts` real (`engine/scripts/diff_store.sh`) 12 de
+> 35 casos NO coincidían — todos por guardas añadidas aquí.
+>
+> **Estado actual: 47/47 casos idénticos a su archivo, con comparador
+> estricto.** Se revirtieron cinco cosas descritas abajo:
+>
+> | Sección | Guarda | Estado |
+> |---|---|---|
+> | 1 | `_ts_key` normalizando a UTC | revertida — ahora `_date_parse` replica `Date.parse` (fecha-hora sin offset en hora LOCAL) |
+> | 2 | `load_trades` filtrando filas no-dict | revertida — el array pasa tal cual |
+> | 6 | ticker que sanea a nada → `ValueError` | revertida — comparten `.json`, como él |
+> | 7 | `_dedupe_key` con clave compuesta sin id | revertida — la clave es `t.id`, y sin id el historial colapsa |
+> | — | `MAX_TICKER_LEN` | eliminada — el nombre va tal cual al FS |
+>
+> Los tres agujeros que eso reabre están medidos y documentados en
+> `engine/scripts/upstream-tito-store.patch`, fijados por
+> `TestBugsDeVictorReplicados`, y el de la fila corrupta lo reporta ahora
+> `/api/tito-health` (`memoria.flows.corrupto`) para que no degrade mudo.
+>
+> Lo que **no** se revirtió: cerrojo, escritura atómica y el saneado de `NaN`.
+> No cambian nada de lo observable con una petición a la vez —el diferencial lo
+> confirma— y sin ellos el archivo se corrompe o se pierde el 75% de las
+> escrituras concurrentes.
+
 Cuatro pasadas, atacando el port en vez de releer el diff. Once hallazgos: nueve
 arreglados, uno compartido con el original que se deja como está, y uno que
 resultó ser un artefacto del contenedor.

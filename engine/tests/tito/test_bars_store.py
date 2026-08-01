@@ -51,9 +51,8 @@ class TestGuardarYLeer:
         assert load_bars("DEMO").ticker == "DEMO"
 
     def test_el_saneado_del_ticker_es_el_suyo(self):
-        # `ticker.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "")`, sin las
-        # guardas extra de stores.py: aquellas valian la pena en la memoria
-        # acumulada, aqui el dano se limita a un cache que se reescribe cada dia.
+        # `ticker.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "")` — el mismo
+        # saneado literal que `stores._file_for`, sin guardas anadidas.
         from wbj.tito.bars_store import _file_for
 
         assert _file_for("demo").name == "DEMO.json"

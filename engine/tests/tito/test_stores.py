@@ -17,7 +17,6 @@ from wbj.tito.stores import (
     load_chain_history,
     load_iv_history,
     load_journal,
-    _ts_key,
     load_trades,
     review_predictions,
     save_chain_snapshot,
@@ -201,18 +200,6 @@ class TestTradesStore:
         assert len(escritos) == 1
         assert os.path.realpath(escritos[0]).startswith(str(data_dir().resolve()))
 
-    def test_un_ticker_que_no_da_nombre_de_archivo_se_rechaza(self):
-        # "!!!", "@@@" y "" sanean todos a la cadena vacía: sin esta guarda los
-        # tres compartían un `.json` sin dueño, y la memoria de una consulta
-        # basura contaminaba la siguiente.
-        from wbj.tito.stores import _file_for
-        for malo in ("!!!", "@@@", "", "   ", "../..", "..."):
-            with pytest.raises(ValueError):
-                _file_for(malo)
-        assert load_trades("!!!") is None          # leer nunca lanza
-        with pytest.raises(ValueError):            # guardar sí: hay algo que se perdería
-            save_trades("@@@", [_flow_row(1, "2026-07-30T15:00:00Z")])
-
     def test_leer_no_deja_rastro_en_disco(self):
         # Preguntar "¿hay historial?" no puede crear carpetas.
         from wbj.tito.stores import data_dir
@@ -246,16 +233,6 @@ class TestTradesStore:
         assert trades[1]["iv"] is None                # el no-finito pasa a null
         assert trades[1]["delta"] is None
         assert trades[2]["iv"] == 0.45                # los sanos, intactos
-
-    def test_un_ticker_absurdamente_largo_falla_igual_que_los_demas(self):
-        # Sin tope llega al sistema de archivos y revienta con ENAMETOOLONG,
-        # que depende del FS. Mejor el mismo ValueError determinista.
-        from wbj.tito.stores import MAX_TICKER_LEN, _file_for
-
-        _file_for("A" * MAX_TICKER_LEN)               # el límite justo pasa
-        with pytest.raises(ValueError):
-            _file_for("A" * (MAX_TICKER_LEN + 1))
-        assert load_trades("A" * 300) is None
 
     def test_el_mismo_id_dos_veces_en_la_misma_llamada(self):
         r = save_trades("DUP", [_flow_row(1, "2026-07-30T15:00:00Z"),
@@ -357,54 +334,61 @@ class TestTradesStore:
         (p / "DEMO.json").write_text("{no soy json", encoding="utf-8")
         assert load_trades("DEMO") is None
 
-    def test_el_orden_no_depende_de_la_zona_horaria_del_servidor(self):
-        # Un timestamp SIN zona se leía en hora local, así que el mismo archivo
-        # se ordenaba distinto en UTC que en New York — y el orden decide qué se
-        # cae por el tope de MAX_PER_TICKER.
-        import os, time
-        rows = [_flow_row(1, "2026-07-30T15:00:00"),      # naive
-                _flow_row(2, "2026-07-30T16:00:00Z")]     # aware
-        vistos = set()
+    def test_el_json_usa_su_clave_updatedAt(self):
+        # Su payload es `{ticker, updatedAt, trades}` en camelCase. El atributo
+        # de Python se llama `updated_at`, la CLAVE del archivo no.
+        import json
+        from wbj.tito.stores import data_dir
+
+        save_trades("DEMO", [_flow_row(1, "2026-07-30T15:00:00Z")])
+        crudo = json.loads((data_dir() / "trades" / "DEMO.json").read_text(encoding="utf-8"))
+        assert sorted(crudo) == ["ticker", "trades", "updatedAt"]
+        # `new Date().toISOString()` — con milisegundos y sufijo Z.
+        assert __import__("re").match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$",
+                                      crudo["updatedAt"])
+
+    def test_el_orden_sigue_su_regla_de_zona_horaria(self):
+        """`Date.parse` no usa una zona uniforme, y aquí se replica tal cual.
+
+        Una fecha SOLA se lee en UTC; una fecha-hora SIN offset se lee en la
+        zona LOCAL de la máquina. Llegué a normalizar todo a UTC —el orden
+        decide qué trade se cae por el tope y no debería depender del
+        servidor—, y es una divergencia: se quitó para que el port sea idéntico.
+        En Render y en el contenedor la TZ es UTC, así que en la práctica dan lo
+        mismo.
+        """
+        import os
+        import time
+
+        from wbj.tito.stores import _date_parse
+
         previo = os.environ.get("TZ")
         try:
-            for tz in ("UTC", "America/New_York", "Asia/Tokyo"):
-                os.environ["TZ"] = tz
-                time.tzset()
-                vistos.add(tuple(t["id"] for t in
-                                 sorted(({"timestamp": r.timestamp, "id": r.id} for r in rows),
-                                        key=_ts_key, reverse=True)))
+            os.environ["TZ"] = "UTC"; time.tzset()
+            en_utc = _date_parse("2026-07-30T15:00:00")
+            os.environ["TZ"] = "America/New_York"; time.tzset()
+            en_ny = _date_parse("2026-07-30T15:00:00")
+            # 4 horas de diferencia en julio (EDT): su regla, no un arreglo.
+            assert en_ny - en_utc == 4 * 3600 * 1000
+            # La fecha sola, en cambio, es UTC en las dos.
+            assert _date_parse("2026-07-30") == 1785369600000
         finally:
             if previo is None:
                 os.environ.pop("TZ", None)
             else:
                 os.environ["TZ"] = previo
             time.tzset()
-        assert vistos == {(2, 1)}
 
-    def test_trades_sin_id_no_se_funden_en_uno(self):
-        # `flow._base_row` hace int(_num(raw.get("id"))): sin ese campo TODOS
-        # salen con id 0, y un dedupe por id se quedaría con uno solo.
-        rows = [_flow_row(0, "2026-07-30T15:00:00Z"),
-                _flow_row(0, "2026-07-30T15:01:00Z"),
-                _flow_row(0, "2026-07-30T15:02:00Z")]
-        r = save_trades("DEMO", rows)
-        assert r.total == 3
-
-    def test_una_fila_corrupta_no_tumba_el_resto_del_historial(self):
-        # En TS una fila mala se lee como undefined y el pipeline sigue; en
-        # Python cada .get() sobre ella revienta y el llamador lo convierte en
-        # "no hay memoria", apagando IV Rank, sub-agente 6 y calibración.
-        from wbj.tito.stores import data_dir
-        import json
-        p = data_dir() / "trades"
-        p.mkdir(parents=True, exist_ok=True)
-        bueno = {"id": 1, "timestamp": "2026-07-30T15:00:00Z", "asset_price": 95.0}
-        (p / "DEMO.json").write_text(json.dumps(
-            {"ticker": "DEMO", "updated_at": "x", "trades": [bueno, "basura", None, 42]}),
-            encoding="utf-8")
-        trades = load_trades("DEMO").trades
-        assert trades == [bueno]
-        assert all(t.get("asset_price") for t in trades)   # el consumidor no revienta
+    def test_un_timestamp_ilegible_no_se_va_al_final(self):
+        # `Date.parse("ayer")` es NaN, la resta da NaN y ECMA-262 manda tratar
+        # ese comparador como 0 ("iguales"): con un sort estable la fila se
+        # queda donde estaba. Llegué a mandarlas al final (-inf) y no es lo suyo.
+        # El [1, 3, 2] está medido ejecutando su sort en Node: la ilegible se
+        # queda arriba y las dos legibles sí se ordenan entre ellas.
+        save_trades("ILEG", [_flow_row(1, "ayer"),
+                             _flow_row(2, "2026-07-28T15:00:00Z"),
+                             _flow_row(3, "2026-07-30T15:00:00Z")])
+        assert [t["id"] for t in load_trades("ILEG").trades] == [1, 3, 2]
 
     def test_una_lista_pelada_del_formato_viejo_no_se_lee_como_historial(self):
         # Antes el archivo era una lista; ahora es {ticker, updated_at, trades}.
@@ -414,6 +398,95 @@ class TestTradesStore:
         p.mkdir(parents=True, exist_ok=True)
         (p / "DEMO.json").write_text('[{"id": 1}]', encoding="utf-8")
         assert load_trades("DEMO") is None
+
+
+class TestBugsDeVictorReplicados:
+    """Tres agujeros de su `store.ts`, replicados A PROPÓSITO.
+
+    Los tres los tapé durante la auditoría y los tres se volvieron a abrir para
+    que el port sea idéntico a su archivo (47/47 en `diff_store.sh`, comparador
+    estricto). Estos tests fijan SU comportamiento exacto, medido ejecutando su
+    `store.ts` en Node, para que quien lo cambie vea que se está separando del
+    original a sabiendas.
+
+    El arreglo propuesto para el upstream está en
+    `engine/scripts/upstream-tito-store.patch`. A diferencia de `barsStore.ts`,
+    este módulo SÍ está cableado: es la memoria acumulada del sub-agente 6.
+    """
+
+    def _escribe(self, nombre, contenido):
+        from wbj.tito.stores import data_dir
+
+        p = data_dir() / "trades"
+        p.mkdir(parents=True, exist_ok=True)
+        (p / nombre).write_text(contenido, encoding="utf-8")
+
+    def test_BUG1_los_tickers_que_sanean_a_nada_comparten_archivo(self):
+        # `"!!!"`, `"@@@"` y `""` sanean todos a la cadena vacía, así que
+        # `fileFor` los manda al MISMO `.json`.
+        from wbj.tito.stores import _file_for, data_dir
+
+        assert _file_for("!!!").name == _file_for("@@@").name == _file_for("").name == ".json"
+        save_trades("!!!", [_flow_row(1, "2026-07-30T15:00:00Z")])
+        save_trades("@@@", [_flow_row(2, "2026-07-30T15:01:00Z")])
+        # Un solo archivo, y la memoria de la primera consulta dentro de la otra.
+        assert sorted(f.name for f in (data_dir() / "trades").glob("*.json")) == [".json"]
+        assert {t["id"] for t in load_trades("!!!").trades} == {1, 2}
+
+    def test_BUG1b_un_ticker_larguisimo_llega_al_sistema_de_archivos(self):
+        # Sin tope de longitud el nombre va tal cual al FS. Aquí cabe; en uno
+        # con límite más bajo saldría ENAMETOOLONG, que depende del sistema.
+        from wbj.tito.stores import _file_for
+
+        assert _file_for("A" * 200).name == "A" * 200 + ".json"
+
+    def test_BUG2_sin_id_el_historial_entero_colapsa_a_un_trade(self):
+        # La clave del Map es `t.id`. `flow._base_row` hace
+        # `int(_num(raw.get("id")))`, así que un tape sin ese campo devuelve 0
+        # para TODOS y se conserva uno solo — sin un error. `added` tampoco
+        # avisa: la segunda y la tercera ya "existen", así que cuenta 1.
+        r = save_trades("SINID", [_flow_row(0, "2026-07-30T15:00:00Z"),
+                                  _flow_row(0, "2026-07-30T15:01:00Z"),
+                                  _flow_row(0, "2026-07-30T15:02:00Z")])
+        assert (r.total, r.added) == (1, 1)
+        assert len(load_trades("SINID").trades) == 1
+
+    def test_BUG3_una_fila_null_en_disco_tumba_el_guardado(self):
+        # `for (const t of existing.trades) byId.set(t.id, t)` sobre `null`
+        # lanza, y el guardado entero se pierde. Se repite en cada corrida
+        # porque la fila corrupta sigue en el archivo.
+        self._escribe("C.json",
+                      '{"ticker":"C","updatedAt":"x",'
+                      '"trades":[{"id":9,"timestamp":"2026-07-20T15:00:00Z"},null]}')
+        with pytest.raises(TypeError):
+            save_trades("C", [_flow_row(1, "2026-07-30T15:00:00Z")])
+
+    def test_BUG3b_una_fila_string_pasa_sin_quejarse(self):
+        # `"basura".id` es `undefined` en JS, no un error: la fila entra al Map
+        # bajo la clave `undefined` y se guarda tal cual.
+        self._escribe("D.json",
+                      '{"ticker":"D","updatedAt":"x",'
+                      '"trades":[{"id":9,"timestamp":"2026-07-20T15:00:00Z"},"basura"]}')
+        r = save_trades("D", [_flow_row(1, "2026-07-30T15:00:00Z")])
+        assert r.total == 3
+        assert "basura" in load_trades("D").trades
+
+    def test_load_no_mira_dentro_del_array(self):
+        # `Array.isArray(parsed.trades) ? parsed : null` — el contenido pasa tal
+        # cual, incluidas las filas corruptas.
+        self._escribe("E.json",
+                      '{"ticker":"E","updatedAt":"x","trades":[{"id":1},"basura",null,42]}')
+        assert load_trades("E").trades == [{"id": 1}, "basura", None, 42]
+
+    def test_load_no_inventa_los_campos_que_faltan(self):
+        # Sin `str(... or "")`: un `ticker` ausente llega como None (su
+        # `undefined`) y uno numérico llega como número.
+        self._escribe("F.json", '{"trades":[]}')
+        f = load_trades("F")
+        assert f.ticker is None and f.updated_at is None
+        self._escribe("G.json", '{"ticker":7,"updatedAt":9,"trades":[]}')
+        g = load_trades("G")
+        assert g.ticker == 7 and g.updated_at == 9
 
 
 def _snap(d: str, base: float, spot: float = 100.0, direction: str = "up") -> PredictionSnapshot:

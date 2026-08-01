@@ -36,6 +36,7 @@ import threading
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
+from functools import cmp_to_key
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
@@ -297,16 +298,18 @@ def load_iv_history(ticker: str) -> list[dict]:
 #   que necesita en los tickers tranquilos.
 # - **Orden descendente** (lo más nuevo primero), que es también lo que hace que
 #   el recorte a 5000 tire lo más viejo.
+#
+# Es una traducción LITERAL, incluidos los tres agujeros de su archivo (ticker
+# que se queda en nada, id ausente que funde el historial, fila corrupta que
+# tumba el guardado). Están medidos y documentados en
+# `engine/scripts/upstream-tito-store.patch`, y fijados por
+# `TestBugsDeVictorReplicados` en `engine/tests/tito/test_stores.py`. Lo único
+# que no es traducción literal es el manejo de fichero —cerrojo y escritura
+# atómica—, que no cambia nada de lo observable con una petición a la vez.
 
 
 #: Tope por ticker para que el archivo no crezca sin control (`MAX_PER_TICKER`).
 MAX_PER_TICKER = 5000
-
-#: Un ticker más largo que esto no es un ticker. Sin el tope, uno de 300
-#: caracteres llega al sistema de archivos y revienta con ENAMETOOLONG —un error
-#: que depende del FS y del sistema— en vez del mismo `ValueError` determinista
-#: que dan los demás tickers inservibles. El más largo de verdad no pasa de 6.
-MAX_TICKER_LEN = 64
 
 
 @dataclass(frozen=True)
@@ -316,11 +319,16 @@ class StoredTrades:
     El envoltorio guarda de quién es el historial y cuándo se tocó por última
     vez, que es lo que permite responder "¿esta memoria está viva?" sin abrir
     los 5000 trades.
+
+    Los tres campos van sin tipar de verdad porque `loadTrades` hace
+    `JSON.parse(raw)` y solo comprueba `Array.isArray(parsed.trades)`: el resto
+    del archivo entra tal cual. Un `ticker` que en disco sea un número llega como
+    número, y un `updatedAt` ausente llega como `None` (su `undefined`).
     """
 
-    ticker: str
-    updated_at: str
-    trades: list[dict]
+    ticker: Any
+    updated_at: Any
+    trades: list
 
 
 @dataclass(frozen=True)
@@ -332,101 +340,137 @@ class SaveResult:
     first_seen: str | None  # fecha del trade más antiguo guardado
 
 
-def _sanea_ticker(ticker: str) -> str:
-    """El saneado de `fileFor`, aparte para que TODOS los stores usen el mismo.
+def _file_for(ticker: str) -> Path:
+    """`fileFor`, literal:
 
-    `bars_store` lo reutiliza: escribir su propia versión habría reintroducido
-    la travesía de rutas y el cubo compartido que costaron dos hallazgos aquí.
+        const safe = ticker.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "");
+        return path.join(DATA_DIR, `${safe}.json`);
+
+    Sin guardas propias, y sin crear el directorio (el que escribe ya lo crea).
+
+    La travesía de rutas queda cerrada por su propio regex, que borra las
+    barras: `"../../etc/x"` se queda en `"....ETCX"` y no sale del directorio.
+    Lo que su regex **no** cierra es el cubo compartido: `"!!!"`, `"@@@"` y `""`
+    sanean todos a la cadena vacía y acaban en el mismo `.json`. Ver
+    `engine/scripts/upstream-tito-store.patch`.
     """
     safe = re.sub(r"[^A-Z0-9._-]", "", ticker.strip().upper())
-    if not safe.strip("._-") or len(safe) > MAX_TICKER_LEN:
-        raise ValueError(f"ticker inservible como nombre de archivo: {ticker!r}")
-    return safe
+    return data_dir() / "trades" / f"{safe}.json"
 
 
-def _file_for(ticker: str) -> Path:
-    """`fileFor`: el ticker es entrada de usuario y aquí acaba siendo una ruta.
+def _prop(obj: Any, name: str) -> Any:
+    """`obj.name` con las reglas de JS, que es lo que corre en su `saveTrades`.
 
-    El saneado no es cosmético — sin él un `../` en el ticker escribe fuera del
-    directorio de datos.
-
-    Dos cosas que Víctor no hace:
-
-    - **No crea el directorio.** Era un efecto secundario en la ruta de LECTURA:
-      preguntar "¿hay historial?" dejaba carpetas escritas. El que escribe ya
-      las crea.
-    - **Rechaza el ticker que se queda en nada.** `"!!!"`, `"@@@"` y `""` sanean
-      todos a la cadena vacía, así que `fileFor` los mandaba al MISMO
-      `.json` — un cubo compartido donde la memoria de una consulta basura
-      contamina la siguiente. Mejor un error que un archivo que no es de nadie.
+    - Sobre `null`/`undefined` **lanza** (`Cannot read properties of null`).
+    - Sobre cualquier otra cosa que no sea objeto —un string, un número— da
+      `undefined` sin quejarse. Por eso una fila `"basura"` no revienta su
+      bucle y una fila `null` sí.
     """
-    return data_dir() / "trades" / f"{_sanea_ticker(ticker)}.json"
+    if obj is None:
+        raise TypeError(f"Cannot read properties of null (reading '{name}')")
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return None
 
 
-def _ts_key(row: dict) -> float:
-    """`Date.parse(timestamp)`, con los no-parseables al final (como NaN en JS).
+#: Formato de fecha que acepta `Date.parse`. Los legacy (`"Jul 30 2026"`) no
+#: entran: la fuente manda ISO y todo lo demás da `NaN` en los dos lados.
+_ISO_JS = re.compile(
+    r"^(\d{4})-(\d{2})-(\d{2})"
+    r"(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3})\d*)?)?"
+    r"(Z|z|[+-]\d{2}:?\d{2})?)?$"
+)
 
-    DIVERGENCIA deliberada: un timestamp SIN zona se lee como UTC, no como hora
-    local. `Date.parse("2026-07-30T15:00:00")` (y `datetime.timestamp()`) lo
-    interpretan en la zona del servidor, así que el mismo archivo se ordenaba
-    distinto en UTC que en America/New_York — y el orden decide qué se cae por
-    el tope de MAX_PER_TICKER. La persistencia no puede depender de la TZ de la
-    máquina. Es además el criterio que ya usa `flow._epoch`, que directamente
-    rechaza los naive.
+
+def _date_parse(v: Any) -> float:
+    """`Date.parse(v)` en milisegundos, o `NaN` si no se puede.
+
+    Reproduce la regla de ES2015+ que decide la zona horaria, que no es
+    uniforme: una fecha **sola** (`"2026-07-30"`) se lee en UTC, y una
+    fecha-hora **sin offset** (`"2026-07-30T15:00:00"`) se lee en la zona
+    LOCAL de la máquina. Aquí se replica tal cual, incluida esa dependencia de
+    la TZ del servidor — es la que decide el orden y, con él, qué trade se cae
+    por el tope de `MAX_PER_TICKER`. En Render y en el contenedor la TZ es UTC,
+    así que en la práctica coinciden; en una máquina con otra TZ, los dos
+    quedan igual de torcidos, que es lo que pide ser idéntico.
     """
+    if not isinstance(v, str):
+        return math.nan          # `Date.parse(undefined)`, `Date.parse(null)` → NaN
+    m = _ISO_JS.match(v.strip())
+    if not m:
+        return math.nan
+    y, mo, d, hh, mm, ss, ms, off = m.groups()
     try:
-        dt = datetime.fromisoformat(str(row.get("timestamp", "")).replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return float("-inf")
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.timestamp()
+        base = datetime(int(y), int(mo), int(d), int(hh or 0), int(mm or 0),
+                        int(ss or 0), int((ms or "0").ljust(3, "0")) * 1000)
+    except ValueError:
+        return math.nan          # `new Date("2026-13-45")` → Invalid Date
+    if off is None and hh is not None:
+        dt = base                # fecha-hora sin offset → hora local (su regla)
+    elif off is None or off in ("Z", "z"):
+        dt = base.replace(tzinfo=timezone.utc)
+    else:
+        o = off.replace(":", "")
+        delta = timedelta(hours=int(o[1:3]), minutes=int(o[3:5]))
+        dt = base.replace(tzinfo=timezone(-delta if o[0] == "-" else delta))
+    try:
+        return dt.timestamp() * 1000.0
+    except (OSError, OverflowError, ValueError):   # fechas fuera del rango del SO
+        return math.nan
 
 
-def _dedupe_key(row: dict) -> Any:
-    """La clave del `Map` de Víctor es `t.id`, y para datos válidos esto lo es.
+def _cmp_reciente_primero(a: Any, b: Any) -> int:
+    """`(a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)`.
 
-    La guarda es para el id AUSENTE. `flow._base_row` hace
-    `int(_num(raw.get("id")))`, así que un tape sin ese campo devuelve **0 para
-    todos** los trades — y un `Map` con la misma clave 5000 veces conserva uno.
-    No es teórico: basta con que MarketSnack renombre el campo para que la
-    memoria del sub-agente 6 se vacíe en silencio, sin un solo error. Con id
-    real el comportamiento es idéntico al suyo; sin él, cada trade conserva su
-    identidad en vez de fundirse con los demás.
+    El detalle que importa es el `NaN`: si un timestamp no se parsea, la resta
+    da `NaN`, y ECMA-262 manda tratar un comparador que devuelve `NaN` como
+    **0**, o sea "iguales". Con un `sort` estable eso deja las filas ilegibles
+    donde estaban en vez de mandarlas al final. Aquí se replica exactamente:
+    `cmp_to_key` sobre este comparador y el Timsort de Python, que también es
+    estable.
     """
-    rid = row.get("id")
-    if rid:
-        return rid
-    return ("sin-id", row.get("timestamp"), row.get("symbol"),
-            row.get("strike"), row.get("premium"))
+    d = _date_parse(_prop(b, "timestamp")) - _date_parse(_prop(a, "timestamp"))
+    if d != d:          # NaN → SortCompare devuelve +0
+        return 0
+    return -1 if d < 0 else (1 if d > 0 else 0)
+
+
+def _dedupe_key(row: Any) -> Any:
+    """La clave del `Map` de Víctor: `t.id`, tal cual.
+
+    Un id ausente da `undefined` (aquí `None`) para **todas** las filas, así
+    que un tape sin ese campo colapsa el historial entero a un solo trade. Es
+    su comportamiento y aquí se replica; el arreglo propuesto está en
+    `engine/scripts/upstream-tito-store.patch`.
+    """
+    return _prop(row, "id")
 
 
 def load_trades(ticker: str) -> StoredTrades | None:
-    """`loadTrades`. Devuelve `None` si aún no hay historial para este ticker.
+    """`loadTrades`, literal:
+
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed.trades) ? parsed : null;
+
+    Solo comprueba que `trades` sea un array; **el contenido no se mira**. Una
+    fila corrupta dentro del array (un `null`, un string) se devuelve tal cual,
+    igual que en el original.
 
     `None` y "historial vacío" son cosas distintas y el llamador las distingue:
     la primera es "nunca se ha guardado nada", la segunda "se guardó y no quedó
     nada". Por eso no colapsa a lista vacía.
-
-    Un ticker que no da nombre de archivo tampoco tiene historial: leer nunca
-    lanza. Guardarlo sí, porque ahí sí hay algo que se perdería en silencio.
     """
-    try:
-        path = _file_for(ticker)
-    except ValueError:
-        return None
-    parsed = _read(path)
+    parsed = _read(_file_for(ticker))
     if not isinstance(parsed, dict) or not isinstance(parsed.get("trades"), list):
+        # Su `catch` cubre los tres casos que aquí llegan como no-dict: archivo
+        # que no existe, JSON roto y `JSON.parse("null")` (que en TS revienta al
+        # leerle `.trades`). Un array pelado o un escalar no tienen `.trades`,
+        # así que caen por el `Array.isArray` — mismo `null` de salida.
         return None
     return StoredTrades(
-        ticker=str(parsed.get("ticker", "")),
-        updated_at=str(parsed.get("updated_at", "")),
-        # Simétrico con `save_trades`, que ya descarta lo que no es dict. En TS
-        # una fila corrupta se lee como `undefined` y el pipeline sigue; en
-        # Python cada `.get()` sobre ella revienta, y el `except` del llamador
-        # convierte eso en "no hay memoria" — apagando el IV Rank real, el
-        # sub-agente 6 y la calibración de golpe y sin un solo mensaje.
-        trades=[t for t in parsed["trades"] if isinstance(t, dict)],
+        ticker=parsed.get("ticker"),
+        updated_at=parsed.get("updatedAt"),
+        trades=parsed["trades"],
     )
 
 
@@ -437,20 +481,24 @@ def save_trades(ticker: str, rows: Sequence[Any]) -> SaveResult:
     que juzgar, así que la Confirmación de Precio solo existe sobre lo que este
     archivo fue acumulando.
 
-    Leer-fusionar-escribir va bajo cerrojo: sin él, dos peticiones al mismo
-    ticker leen el mismo archivo y la segunda escribe encima de lo que acumuló
-    la primera.
+    Traducción literal salvo el fichero: leer-fusionar-escribir va bajo cerrojo
+    y la escritura es atómica. Sin el cerrojo, dos peticiones al mismo ticker
+    leen el mismo archivo y la segunda escribe encima de lo que acumuló la
+    primera — medido aquí: 8 escrituras concurrentes de 50 trades dejaban 100 de
+    400. No cambia nada de lo observable con una sola petición a la vez, que es
+    el caso que mide el diferencial contra su archivo.
     """
     clean = ticker.strip().upper()
-    path = _file_for(clean)   # antes del cerrojo: un ticker inservible falla ya
+    path = _file_for(clean)
 
     with _exclusive(path):
         existing = load_trades(clean)
-        by_id: dict[Any, dict] = {}
+        by_id: dict[Any, Any] = {}
 
+        # `for (const t of existing?.trades ?? []) byId.set(t.id, t);` — sin
+        # filtrar: una fila `null` en disco lanza aquí, como en el suyo.
         for t in (existing.trades if existing else []):
-            if isinstance(t, dict):
-                by_id[_dedupe_key(t)] = t
+            by_id[_dedupe_key(t)] = t
         added = 0
         for r in rows:
             row = r if isinstance(r, dict) else asdict(r)
@@ -459,15 +507,22 @@ def save_trades(ticker: str, rows: Sequence[Any]) -> SaveResult:
                 added += 1
             by_id[key] = row   # el análisis más reciente gana
 
-        merged = sorted(by_id.values(), key=_ts_key, reverse=True)[:MAX_PER_TICKER]
+        merged = sorted(by_id.values(), key=cmp_to_key(_cmp_reciente_primero))[:MAX_PER_TICKER]
 
         _write(path, {
             "ticker": clean,
-            "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            # `new Date().toISOString()` — con milisegundos, que es lo que
+            # produce el original.
+            "updatedAt": datetime.now(timezone.utc)
+                                 .isoformat(timespec="milliseconds")
+                                 .replace("+00:00", "Z"),
             "trades": merged,
         })
 
-    oldest = merged[-1].get("timestamp") if merged else None
+    # `merged[merged.length - 1]?.timestamp ?? null`: el `?.` no lanza con una
+    # fila corrupta y el `??` solo convierte el ausente, no la cadena vacía.
+    ultimo = merged[-1] if merged else None
+    oldest = ultimo.get("timestamp") if isinstance(ultimo, dict) else None
     return SaveResult(total=len(merged), added=added, first_seen=oldest)
 
 

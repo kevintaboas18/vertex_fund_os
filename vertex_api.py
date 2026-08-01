@@ -3975,7 +3975,14 @@ def _tito_memory(ticker, trades, chain, bars, now):
         #    seguir hacia adelante, así que no entra al backtest.
         iv_history = st.load_iv_history(ticker)
         stored = st.load_trades(ticker)
-        guardados = stored.trades if stored else []
+        # `load_trades` no mira dentro del array (su `Array.isArray(parsed.trades)`
+        # a secas), así que una fila corrupta en disco llega tal cual. En TS
+        # `t.asset_price` sobre un string es `undefined` y la fila se cae sola
+        # por el filtro; en Python el `.get` lanza y el `except` de abajo lo
+        # convierte en "no hay memoria", apagando IV Rank real, sub-agente 6 y
+        # calibración de golpe. El `isinstance` reproduce SU comportamiento, no
+        # lo cambia.
+        guardados = [t for t in (stored.trades if stored else []) if isinstance(t, dict)]
         past = [t for t in guardados
                 if (t.get("asset_price") or 0) > 0 and t.get("timestamp")]
         journal = st.load_journal(ticker)
@@ -4099,14 +4106,28 @@ def tito_health(ticker: str = "AAPL"):
             None if iv_days >= 60 else f"faltan {60 - iv_days} sesiones; se acumula solo",
             None if iv_days >= 60 else "IV Rank usa el proxy de volatilidad realizada")
         usables = sum(1 for t in (_stored.trades if _stored else [])
-                      if (t.get("asset_price") or 0) > 0 and t.get("timestamp"))
+                      if isinstance(t, dict)          # ver el filtro de _tito_memory
+                      and (t.get("asset_price") or 0) > 0 and t.get("timestamp"))
         add("memoria.flows", usables > 0,
             f"{flows} flows guardados"
             + (f" (tope {st.MAX_PER_TICKER}: ya rota lo más viejo)" if flows >= st.MAX_PER_TICKER else "")
             + (f", {usables} utilizables" if usables != flows else "")
-            + (f" · última escritura {_stored.updated_at}" if _stored else ""),
+            # `updatedAt` puede faltar en un archivo escrito a mano o por una
+            # versión anterior: el port lo pasa tal cual, sin inventar cadena.
+            + (f" · última escritura {_stored.updated_at}" if _stored and _stored.updated_at else ""),
             None if flows else "se acumulan con cada consulta",
             None if usables else "sub-agente 6 (Confirmación) sin score")
+        # `store.ts` no mira dentro del array y su `byId.set(t.id, t)` sobre una
+        # fila `null` lanza: el guardado se pierde y vuelve a pasar en cada
+        # corrida, porque la fila sigue en el archivo. El bug está replicado a
+        # propósito (ver upstream-tito-store.patch), así que al menos que se
+        # DIGA — el ticker se queda sin poder acumular nada más.
+        _rotas = sum(1 for t in (_stored.trades if _stored else []) if not isinstance(t, dict))
+        if _rotas:
+            add("memoria.flows.corrupto", False,
+                f"{_rotas} fila(s) corrupta(s) en trades/{tk}.json",
+                "borra ese archivo: se vuelve a acumular solo desde la próxima consulta",
+                "cada guardado lanza TypeError y el ticker no acumula más flows")
         if flows and not usables:
             add("memoria.flows.formato", False,
                 f"los {flows} trades guardados no traen asset_price/timestamp usables",

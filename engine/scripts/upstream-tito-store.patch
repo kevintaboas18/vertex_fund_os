@@ -1,0 +1,144 @@
+Tres agujeros en web/lib/store.ts de agente-tito-metralleta
+
+Encontrados al portar el módulo a Python (Vertex Fund OS) con un test
+diferencial: se ejecuta el store.ts real en Node y el port en Python sobre los
+mismos 47 casos, y se comparan las salidas (`engine/scripts/diff_store.sh`).
+
+Nota sobre el port: los tres están REPLICADOS a propósito, para que el módulo
+sea idéntico al original (47/47, comparador estricto). Los tests
+`TestBugsDeVictorReplicados` fijan este comportamiento exacto, así que si algún
+día se aplica este parche arriba, allí se ve qué hay que cambiar abajo.
+
+A diferencia de barsStore.ts, este módulo SÍ está cableado en las dos partes:
+es la memoria acumulada que enciende el sub-agente 6 (Confirmación de Precio),
+el IV Rank real y la auto-calibración. Lo que se pierde aquí no se recupera.
+
+
+── BUG 1 · los tickers que sanean a nada comparten un archivo ──────────────
+
+    function fileFor(ticker: string): string {
+      const safe = ticker.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "");
+      return path.join(DATA_DIR, `${safe}.json`);
+    }
+
+    fileFor("!!!")  ·  fileFor("@@@")  ·  fileFor("")   →   data/trades/.json
+
+Los tres sanean a la cadena vacía y acaban en el MISMO archivo: un `.json` sin
+dueño donde la memoria de una consulta basura se mezcla con la siguiente. Y no
+hay tope de longitud, así que un ticker de 300 caracteres llega tal cual al
+sistema de archivos (ENAMETOOLONG, que depende del FS).
+
+La travesía de rutas sí está cerrada — el regex borra las barras, así que
+`"../../etc/x"` se queda en `"....ETCX"`.
+
+
+── BUG 2 · sin `id`, el historial entero colapsa a un trade ────────────────
+
+    const byId = new Map<number, FlowRow>();
+    for (const t of existing?.trades ?? []) byId.set(t.id, t);
+    for (const t of rows) { if (!byId.has(t.id)) added++; byId.set(t.id, t); }
+
+Si la fuente deja de mandar `id`, todas las filas entran con la misma clave
+(`undefined`) y el `Map` conserva UNA. Sin excepción y sin aviso: `added`
+también cuenta 1, porque a partir de la segunda la clave "ya existe".
+
+    saveTrades("X", [3 trades sin id])   →   { total: 1, added: 1 }
+
+Basta con que el tape renombre el campo para que la memoria del sub-agente 6 se
+vacíe en silencio.
+
+
+── BUG 3 · una fila corrupta en disco tumba el guardado, y se repite ───────
+
+    data/trades/C.json  =  {"ticker":"C","updatedAt":"x",
+                            "trades":[{"id":9,"timestamp":"…"}, null]}
+
+    await saveTrades("C", nuevos)
+    // TypeError: Cannot read properties of null (reading 'id')
+
+`loadTrades` solo comprueba `Array.isArray(parsed.trades)`; el contenido no se
+mira. El `catch` de `loadTrades` ya quedó atrás, así que el error sube al
+llamador — y como la fila corrupta sigue en el archivo, vuelve a pasar en cada
+corrida: el ticker queda sin poder acumular nada más.
+
+Con una fila que sea un string en vez de `null` no hay excepción: `"basura".id`
+es `undefined`, entra al Map y se vuelve a escribir. El archivo se degrada en
+silencio.
+
+
+── Arreglo ────────────────────────────────────────────────────────────────
+
+ function fileFor(ticker: string): string {
+   const safe = ticker.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "");
++  if (!safe.replace(/[._-]/g, "") || safe.length > 64) {
++    throw new Error(`ticker inservible como nombre de archivo: ${ticker}`);
++  }
+   return path.join(DATA_DIR, `${safe}.json`);
+ }
+
+ export async function loadTrades(ticker: string): Promise<StoredTrades | null> {
+   try {
+     const raw = await fs.readFile(fileFor(ticker), "utf8");
+-    const parsed = JSON.parse(raw) as StoredTrades;
+-    return Array.isArray(parsed.trades) ? parsed : null;
++    const parsed: unknown = JSON.parse(raw);
++    if (typeof parsed !== "object" || parsed === null) return null;
++    const p = parsed as StoredTrades;
++    if (!Array.isArray(p.trades)) return null;
++    // Una fila corrupta no puede tirar el historial entero.
++    p.trades = p.trades.filter((t): t is FlowRow => !!t && typeof t === "object");
++    return p;
+   } catch {
+     return null;
+   }
+ }
+
++/** Clave del dedupe. Sin `id` cada trade conserva su identidad. */
++function dedupeKey(t: FlowRow): string | number {
++  return t.id ? t.id : `sin-id:${t.timestamp}:${t.strike}:${t.premium}`;
++}
++
+ export async function saveTrades(ticker: string, rows: FlowRow[]) {
+-  const byId = new Map<number, FlowRow>();
+-  for (const t of existing?.trades ?? []) byId.set(t.id, t);
++  const byId = new Map<string | number, FlowRow>();
++  for (const t of existing?.trades ?? []) byId.set(dedupeKey(t), t);
+   let added = 0;
+   for (const t of rows) {
+-    if (!byId.has(t.id)) added++;
+-    byId.set(t.id, t);
++    const k = dedupeKey(t);
++    if (!byId.has(k)) added++;
++    byId.set(k, t);
+   }
+
+
+── Bonus: dos escrituras a la vez pierden el 75% ──────────────────────────
+
+No es un caso raro. `saveTrades` hace `await loadTrades()` y después
+`await fs.writeFile()`: dos peticiones al mismo ticker se intercalan en los
+`await` y la segunda escribe encima de lo que leyó la primera. El panel se
+auto-refresca mientras el usuario consulta, y en producción corren varios
+workers.
+
+Medido en el port sin cerrojo: 8 escrituras concurrentes de 50 trades dejaban
+**100 de 400**. El port sí lleva cerrojo (`flock` + lock de hilos) y escritura
+atómica; es la única parte que no es traducción literal, y no cambia nada de lo
+observable con una petición a la vez.
+
+
+── Tests de regresión sugeridos (store.test.ts) ───────────────────────────
+
+  it("dos tickers basura no comparten archivo", () => {
+    expect(() => fileFor("!!!")).toThrow();
+  });
+
+  it("sin id, los trades no se funden en uno", async () => {
+    const r = await saveTrades("X", [sinId(1), sinId(2), sinId(3)]);
+    expect(r.total).toBe(3);
+  });
+
+  it("una fila corrupta no tumba el guardado", async () => {
+    await fs.writeFile(fileFor("C"), '{"ticker":"C","trades":[{"id":9},null]}');
+    await expect(saveTrades("C", [row(1)])).resolves.toMatchObject({ total: 2 });
+  });
