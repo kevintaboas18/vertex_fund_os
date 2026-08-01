@@ -332,6 +332,18 @@ class SaveResult:
     first_seen: str | None  # fecha del trade más antiguo guardado
 
 
+def _sanea_ticker(ticker: str) -> str:
+    """El saneado de `fileFor`, aparte para que TODOS los stores usen el mismo.
+
+    `bars_store` lo reutiliza: escribir su propia versión habría reintroducido
+    la travesía de rutas y el cubo compartido que costaron dos hallazgos aquí.
+    """
+    safe = re.sub(r"[^A-Z0-9._-]", "", ticker.strip().upper())
+    if not safe.strip("._-") or len(safe) > MAX_TICKER_LEN:
+        raise ValueError(f"ticker inservible como nombre de archivo: {ticker!r}")
+    return safe
+
+
 def _file_for(ticker: str) -> Path:
     """`fileFor`: el ticker es entrada de usuario y aquí acaba siendo una ruta.
 
@@ -348,10 +360,7 @@ def _file_for(ticker: str) -> Path:
       `.json` — un cubo compartido donde la memoria de una consulta basura
       contamina la siguiente. Mejor un error que un archivo que no es de nadie.
     """
-    safe = re.sub(r"[^A-Z0-9._-]", "", ticker.strip().upper())
-    if not safe.strip("._-") or len(safe) > MAX_TICKER_LEN:
-        raise ValueError(f"ticker inservible como nombre de archivo: {ticker!r}")
-    return data_dir() / "trades" / f"{safe}.json"
+    return data_dir() / "trades" / f"{_sanea_ticker(ticker)}.json"
 
 
 def _ts_key(row: dict) -> float:

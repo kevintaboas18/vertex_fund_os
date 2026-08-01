@@ -14,7 +14,7 @@ apúntalo con TITO_ROOT=/ruta/a/agente-tito-metralleta. Sin esa variable se
 salta esa sección y el resto corre igual.
 """
 from __future__ import annotations
-import json, os, re, subprocess, sys, time
+import json, os, re, subprocess, sys, tempfile, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -46,7 +46,8 @@ MAPA = {
     "risk.ts": "risk.py", "structure.ts": "structure.py", "validation.ts": "validation.py",
     "chainStore.ts": "stores.py", "ivStore.ts": "stores.py",
     "predictionStore.ts": "stores.py", "store.ts": "stores.py",
-    "compute.ts": "compute.py", "types.ts": "(dataclasses)",
+    "compute.ts": "compute.py", "barsStore.ts": "bars_store.py",
+    "types.ts": "(dataclasses)",
     "chartGeometry.ts": "(JS en el HTML)", "news.ts": "news.py",
 }
 FUERA = {  # deferidos a propósito, no son del motor de análisis
@@ -255,6 +256,41 @@ except Exception: _sin = False
 _MA._get = _orig_get
 chk(_limpios == 6, f"toda respuesta mal formada sale como MassiveError ({_limpios}/6)")
 chk(_sin, "`results` ausente es cadena vacía, no un error")
+
+# ── barsStore.ts: cache de barras por día de mercado ──────────────────
+from wbj.tito import bars_store as BS
+from wbj.tito.levels import LvlBar
+_ABIERTA = datetime(2026,7,31,14,tzinfo=timezone.utc)   # 10:00 ET
+_CERRADA = datetime(2026,7,31,21,tzinfo=timezone.utc)   # 17:00 ET
+with tempfile.TemporaryDirectory() as _tdb:
+    os.environ["WBJ_TITO_DATA"] = _tdb
+    _bb = [LvlBar("2026-07-30",101,99,100)]
+    _n = []
+    def _f(t, days): _n.append(t); return _bb
+    BS.cached_daily_bars("D", now=_CERRADA, fetch=_f)
+    BS.cached_daily_bars("D", now=_CERRADA, fetch=_f)
+    BS.cached_daily_bars("D", now=_CERRADA, fetch=_f)
+    chk(len(_n) == 1, f"con la sesión cerrada el cache ahorra la red ({len(_n)}/3 llamadas)")
+    _n.clear()
+    BS.cached_daily_bars("E", now=_ABIERTA, fetch=_f)
+    BS.cached_daily_bars("E", now=_ABIERTA, fetch=_f)
+    chk(len(_n) == 2, "con la sesión ABIERTA siempre refresca (la barra de hoy es parcial)")
+    chk(BS.MARKET_CLOSE_HOUR == 16, "el cierre de la sesión regular son las 16:00 ET")
+    _cache = BS.load_bars("D")
+    chk(_cache is not None and _cache.date == "2026-07-31" and _cache.ticker == "D",
+        "BarsFile guarda ticker + día de mercado + barras")
+    def _boom(t, days): raise _MA.MassiveError("caído")
+    chk(BS.cached_daily_bars("D", now=_CERRADA - timedelta(days=9), fetch=_boom) == _bb,
+        "si la red falla y hay cache viejo, se usa (mejor viejo que nada)")
+    chk(BS.cached_daily_bars("SINNADA", now=_CERRADA, fetch=_boom) == [],
+        "si la red falla y no hay cache, devuelve vacío")
+    try:
+        BS.cached_daily_bars("LIMPIO", now=_CERRADA, fetch=lambda t: [])
+        _prog = False
+    except TypeError:
+        _prog = True
+    chk(_prog, "un error de PROGRAMACIÓN no se disfraza de red caída")
+    chk("cached_daily_bars" in API, "cableado en la ruta de Proyecciones")
 # 6ª pasada: un nocional que RESTA es peor que uno que falta.
 chk(all(C.to_row(_c).notional_value >= 0 for _c in (
         {"open_interest":-500,"details":{"strike_price":100}},
@@ -314,7 +350,6 @@ chk(any("SALVAGUARDA DE LIQUIDEZ" in w for w in
 
 # ─────────────────────────────────────────────────────────────────────
 sec("5. Memoria (los 3 que no arrancan sin persistencia)")
-import tempfile
 with tempfile.TemporaryDirectory() as td:
     os.environ["WBJ_TITO_DATA"] = td
     viejos = [{"id":900+i,"timestamp":(NOW-timedelta(days=40-i)).isoformat(),"type":"call",
