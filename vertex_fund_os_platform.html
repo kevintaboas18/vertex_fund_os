@@ -2890,7 +2890,10 @@ function renderVictorProjChart(containerId, d, horizon) {
 
     const width = Math.max(320, cont.clientWidth || 900), height = Math.max(260, cont.clientHeight || 440);
     const spot = d.spot, C = VC.C;
-    const iv = (d.gex && d.gex.iv) || 0.4;
+    // `Math.max(iv, 0.01)` es SU suelo (`expectedMove` de expectedMove.ts).
+    // Sin él, una IV estimada casi nula colapsa el cono a una sola línea —
+    // y "nunca una sola línea" es la regla de visualización nº1 del proyecto.
+    const iv = Math.max((d.gex && d.gex.iv) || 0.4, 0.01);
 
     // El orden es el de Víctor (bull, base, bear) porque define el z-order.
     const scen = VC.SCEN.map(s => Object.assign({}, s, p[s.key]));
@@ -2917,17 +2920,23 @@ function renderVictorProjChart(containerId, d, horizon) {
     }
 
     // 2. Cono 2σ y luego 1σ encima — la banda va primero, todo lo demás sobre ella.
-    const conePoly = (lower, upper, fill) => {
+    // Su `conePoints` evalúa `expectedMove(spot, iv, t)` en CADA paso, o sea
+    // `spot * exp(±m·σ·√(t/365))`. Antes aquí se interpolaba la banda del
+    // extremo en √f, que coincide en los dos extremos pero NO en medio: el
+    // exponencial es convexo y la recta se le queda por fuera. Medido contra su
+    // archivo en Node, el desvío máximo del borde 1σ por cada $100 de spot es
+    // $0.22 con IV 0.45 y $5.52 con IV 2.0 — visible en la gráfica.
+    const conePoly = (mult, fill) => {
         const up = [], dn = [];
         for (let i = 0; i <= VC.CONE_STEPS; i++) {
             const f = i / VC.CONE_STEPS, x = S.xOfFuture(horizon * f), k = Math.sqrt(f);
-            up.push(`${x},${S.yOfPrice(spot + (upper - spot) * k)}`);
-            dn.push(`${x},${S.yOfPrice(spot + (lower - spot) * k)}`);
+            up.push(`${x},${S.yOfPrice(spot * Math.exp(mult * sd * k))}`);
+            dn.push(`${x},${S.yOfPrice(spot * Math.exp(-mult * sd * k))}`);
         }
         return `<polygon points="${up.concat(dn.reverse()).join(' ')}" fill="${fill}" stroke="none"/>`;
     };
-    parts.push(conePoly(sigma2.lower, sigma2.upper, C.cone2));
-    parts.push(conePoly(sigma1.lower, sigma1.upper, C.cone1));
+    parts.push(conePoly(2, C.cone2));
+    parts.push(conePoly(1, C.cone1));
 
     // 3. Velas — histórico SÓLIDO (regla 3). Mecha en color propio, como Víctor.
     for (const c of S.candles) {

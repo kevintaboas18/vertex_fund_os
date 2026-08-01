@@ -685,6 +685,17 @@ chk(len(re.findall(r"^function renderVictorChart\(", HTML, re.M)) == 1
     "sin colisión entre el renderer de research y el de Proyecciones")
 
 # ─────────────────────────────────────────────────────────────────────
+# El cono de la gráfica es lo único del panel que se calcula en el NAVEGADOR,
+# así que ningún diferencial de Python lo alcanza. Diferencial completo en
+# engine/scripts/diff_cono.sh (necesita node); aquí, las dos cosas que de él
+# salieron.
+_chart = HTML[HTML.index("function renderVictorProjChart"):]
+_chart = _chart[:_chart.index("\n}")]
+chk("Math.max((d.gex && d.gex.iv) || 0.4, 0.01)" in _chart,
+    "el cono lleva SU suelo `max(iv, 0.01)` (si no, se colapsa a una línea)")
+chk("Math.exp(mult * sd * k)" in _chart and "(upper - spot) * k" not in _chart,
+    "el cono se evalúa paso a paso como su `conePoints`, no se interpola el extremo")
+
 sec("7. Seguridad")
 chk("URAc4p9DJi6Z" not in subprocess.run(["git","grep","-I","-l","URAc4p9DJi6Z"],
     cwd=VERTEX, capture_output=True, text=True).stdout, "la API key pegada no está en el repo")
