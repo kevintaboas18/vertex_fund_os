@@ -1,0 +1,48 @@
+# Tesis — NVDA
+
+## 2026-08-01 11:41 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi tesis de inversión para NVIDIA Corporation (NVDA) se mantiene sin cambios desde mi reporte anterior de hace 0 días, donde ya había emitido una recomendación DESFAVORABLE con un Fair Value de $281.05 y una convicción de 37/100. El precio spot actual de $200.75, aunque ofrece un upside teórico del 40.00% hasta el Fair Value de $281.05, no altera la prudencia de la recomendación. NVIDIA sigue siendo un líder indiscutible en el mercado de GPUs y chips de IA, con márgenes brutos y EBITDA excepcionalmente altos (74.15% y 65.29% respectivamente) y un crecimiento de ingresos YoY del 85.2%. Sin emba
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-01 11:37 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi visión sobre NVDA se mantiene DESFAVORABLE, consistente con el reporte anterior del 2026-08-01, donde mi Fair Value fue de $281.05 y la recomendación también fue DESFAVORABLE con una convicción de 37/100. El precio spot se ha mantenido en $200.75, lo que significa que mi tesis no ha sido validada ni invalidada por el movimiento del precio en el corto plazo. Los datos actuales refuerzan mi cautela. NVIDIA es un líder indiscutible en el mercado de GPUs para IA y centros de datos, con un crecimiento de ingresos del 85.2% YoY y márgenes operativos excepcionales. Su posición competitiva es fuert
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-01 11:34 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi tesis de inversión para NVIDIA se mantiene DESFAVORABLE, en línea con mi análisis previo de hace 0 días, donde mi Fair Value fue de $281.05 y la recomendación DESFAVORABLE con una convicción de 37/100. Desde entonces, el precio se ha mantenido en $200.75, sin cambios significativos que alteren mi perspectiva. La compañía sigue siendo un líder indiscutible en el sector de semiconductores para IA y computación de alto rendimiento, con márgenes operativos y crecimiento de ingresos excepcionales. Sin embargo, la valoración actual, con un P/E de 30.79, es exigente y se encuentra muy por encima d
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-01 11:30 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi tesis de inversión para NVIDIA se mantiene sin cambios desde mi reporte anterior del 1 de agosto de 2026, donde mi Fair Value fue de $281.05 y la recomendación DESFAVORABLE con una convicción de 37/100. El precio spot se mantiene en $200.75, lo que significa que no ha habido una evolución en el precio que justifique un cambio en la tesis. La empresa sigue siendo un líder indiscutible en el sector de semiconductores para IA y gaming, con márgenes operativos envidiables. Sin embargo, la valoración actual, a pesar de un Forward P/E de 15.57, parece estirada cuando se contrasta con un DCF de $1
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-01 11:28 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: NVIDIA es un líder indiscutible en sectores de alto crecimiento como la Inteligencia Artificial y el gaming, como lo demuestra su impresionante crecimiento de ingresos del 85.2% interanual. Sin embargo, el precio actual de mercado de $200.75 parece estirado cuando se considera la valoración DCF de Victor de $111.27 por acción y un P/E de 30.79. Mi análisis previo de hace 0 días también arrojó una recomendación DESFAVORABLE con una convicción de 37 y un Fair Value de $281.05. Mi visión se mantiene consistente: si bien las perspectivas de negocio a largo plazo son robustas, la valoración actual 
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-01 11:23 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: NVIDIA se encuentra en una posición envidiable como líder indiscutible en el mercado de GPUs para IA y centros de datos, lo que se refleja en su impresionante crecimiento de ingresos del 85.2% interanual y sus excepcionales márgenes brutos (74.14%) y EBITDA (65.29%). La demanda estructural por sus productos en la era de la inteligencia artificial es un catalizador a largo plazo innegable. Sin embargo, la tesis de inversión actual se ve comprometida por una valoración que parece haber descontado ya gran parte de este potencial. El precio spot de $200.75, aunque por debajo del target base de Vic
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+

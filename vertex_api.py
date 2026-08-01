@@ -4978,9 +4978,12 @@ def _run_backfill(ticker, sample_every=3, lookback_days=365, throttle=0.4):
         st.update(running=False, error=str(e))
 
 
-@app.get("/api/backfill/start")
+@app.post("/api/backfill/start")
 def backfill_start_endpoint(ticker: str, sample_every: int = 3):
-    """Kick off a background historical backfill of confluence snapshots (Quant Data sessionDate)."""
+    """Kick off a background historical backfill of confluence snapshots (Quant Data sessionDate).
+
+    POST, like every other route that starts work: a GET is defined as safe
+    and browsers may reissue it on their own."""
     ticker = ticker.upper().strip()
     if not _quantdata_ready():
         return {"ok": False, "error": _quantdata_reason()}
@@ -5462,7 +5465,13 @@ def options_gex(ticker: str, refresh: bool = False):
 # signal. Set QUANTDATA_API_KEY to activate; everything degrades to None when
 # absent, so the platform runs identically with or without it.
 QUANTDATA_API_KEY = os.environ.get("QUANTDATA_API_KEY", "")   # <-- pega tu API key de Quant Data
-QUANTDATA_BASE    = os.environ.get("QUANTDATA_BASE", "https://api.quantdata.us/v1")
+# Sin "/v1": la API no lo usa. Con el sufijo, TODAS las rutas devolvian
+# 404 ("No resource found at 'v1/option/flow'"), asi que el flujo de
+# opciones, el dark pool y el GEX llevaban muertos en silencio -- cada
+# /api/analyze gastaba 25 peticiones y ~8 s en rutas inexistentes. Sin el
+# sufijo responden 403 (existen; el plan no las cubre), que es un estado
+# distinto y ademas lo memoriza `_QD_SIN_DERECHO` para no repetirlas.
+QUANTDATA_BASE    = os.environ.get("QUANTDATA_BASE", "https://api.quantdata.us")
 # Endpoint paths centralized. All confirmed from Quant Data's API reference
 # (quantdata.us/api). Base = https://api.quantdata.us/v1, all POST with body
 # {"sessionDate": "YYYY-MM-DD", "filter": {"ticker": "..."}}.
@@ -5485,11 +5494,23 @@ def _quantdata_reason():
         return "QUANTDATA_API_KEY no configurada. Pega tu API key de Quant Data para activar flow + dark pool."
     return None
 
+#: Rutas de Quant Data que la cuenta NO tiene derecho a usar (401/402/403),
+#: recordadas para no volver a pedirlas. Un rechazo de ENTITLEMENT no cambia
+#: dentro de la misma corrida: reintentarlo sólo gasta tiempo de pared.
+#: Medido en `/api/analyze`: 25 peticiones, todas 403, ~8 s tirados.
+_QD_SIN_DERECHO: dict[str, int] = {}
+_QD_ENTITLEMENT_STATUSES = frozenset({401, 402, 403})
+
+
 def _quantdata_request(path, payload=None, method="POST", timeout=12):
     """Bearer-auth call to the Quant Data API. Returns parsed JSON, or a dict with
     '_error' on failure. Never raises — keeps the agent resilient if the feed is down."""
     if not QUANTDATA_API_KEY:
         return None
+    ya = _QD_SIN_DERECHO.get(path)
+    if ya:
+        # Mismo cuerpo de error que habría devuelto la llamada, sin hacerla.
+        return {"_error": f"HTTP {ya}", "_body": "endpoint fuera del plan (no se reintenta)"}
     url = QUANTDATA_BASE.rstrip("/") + path
     headers = {"Authorization": f"Bearer {QUANTDATA_API_KEY}", "Content-Type": "application/json"}
     try:
@@ -5498,6 +5519,8 @@ def _quantdata_request(path, payload=None, method="POST", timeout=12):
         else:
             r = requests.get(url, params=(payload or {}), headers=headers, timeout=timeout)
         if r.status_code != 200:
+            if r.status_code in _QD_ENTITLEMENT_STATUSES:
+                _QD_SIN_DERECHO[path] = r.status_code
             return {"_error": f"HTTP {r.status_code}", "_body": (r.text or "")[:300]}
         return r.json()
     except Exception as e:
@@ -10354,16 +10377,28 @@ def reports_list(limit: int = 60):
         return {"ok": False, "error": str(e), "reports": []}
 
 
-@app.get("/api/report-delete")
+@app.post("/api/report-delete")
 def report_delete(report_id: str):
-    """#4 — borra un reporte del archivo del servidor (sincroniza el borrado entre dispositivos)."""
+    """#4 — borra un reporte del archivo del servidor (sincroniza el borrado entre dispositivos).
+
+    POST, no GET. Un GET tiene que ser SEGURO: la especificación de HTTP
+    permite que navegadores, prefetchers, escáneres de enlaces y la caché
+    de ida/vuelta lo reemitan solos. Este borraba filas, así que cualquiera
+    de esas cosas podía borrar reportes sin que nadie pulsara nada —
+    y `<img src=".../api/report-delete?report_id=X">` en cualquier página
+    lo disparaba. La cookie es `SameSite=Strict`, que corta el caso entre
+    sitios, pero la reemisión dentro del propio sitio no depende de eso.
+    """
     try:
         conn = _db()
         conn.execute("DELETE FROM reports WHERE report_id=?", (report_id,))
         conn.commit(); conn.close()
         return {"ok": True}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    except Exception:
+        # El texto de la excepción puede llevar rutas del servidor o SQL;
+        # va al log, no al navegador.
+        logging.getLogger("vertex").warning("report-delete falló", exc_info=True)
+        return {"ok": False, "error": "no se pudo borrar el reporte"}
 
 
 @app.get("/api/calibration")
@@ -13237,9 +13272,13 @@ def scheduler_status():
             "next_run": _SCHED_STATE["next_run"], "universe": _scheduler_tickers(),
             "primary": VERTEX_PRIMARY_TICKERS}
 
-@app.get("/api/scheduler/run-now")
+@app.post("/api/scheduler/run-now")
 def scheduler_run_now():
-    """Dispara la colección de snapshots de inmediato (en un hilo, para no bloquear)."""
+    """Dispara la colección de snapshots de inmediato (en un hilo, para no bloquear).
+
+    POST porque arranca trabajo. Un GET puede reemitirlo un prefetch o la
+    caché de ida/vuelta del navegador, y aquí eso significa lanzar una
+    colección entera contra los proveedores sin que nadie la pidiera."""
     if _SCHED_STATE["running"]:
         return {"ok": False, "note": "Ya hay una colección en curso."}
     threading.Thread(target=_run_daily_collection, daemon=True, name="vertex-collect-now").start()

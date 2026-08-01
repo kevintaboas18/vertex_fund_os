@@ -1,0 +1,14 @@
+{
+  "ticker": "JPM",
+  "date": "2026-08-01",
+  "price": 351.79,
+  "bear": 253.9,
+  "base": 366.67,
+  "bull": 441.9,
+  "growth_base": 0.0423,
+  "pe_now": 17.2,
+  "score10": 3.63,
+  "evidence_points": 66,
+  "horizon_days": 365,
+  "source": "cerebro"
+}

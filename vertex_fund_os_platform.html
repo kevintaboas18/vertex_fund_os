@@ -3595,7 +3595,7 @@ async function startBackfill() {
     const st = document.getElementById('projBtStatus');
     if (st) st.textContent = 'Iniciando backfill histórico (corre en segundo plano)…';
     try {
-        const r = await fetch(`${API_BASE}/api/backfill/start?ticker=${encodeURIComponent(ticker)}`);
+        const r = await fetch(`${API_BASE}/api/backfill/start?ticker=${encodeURIComponent(ticker)}`, {method:"POST"});
         const d = await r.json();
         if (!d.ok) { if (st) st.textContent = d.error || 'No se pudo iniciar el backfill.'; return; }
         if (backfillPoll) clearInterval(backfillPoll);
@@ -4223,12 +4223,12 @@ function deleteReport(reportId, e) {
     e.stopPropagation();
     if (!confirm('Delete this report?')) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(getAllReports().filter(r => r.report_id !== reportId)));
-    try { fetch(`${API_BASE}/api/report-delete?report_id=${encodeURIComponent(reportId)}`); } catch(e2) {}  // #4 sync del borrado
+    try { fetch(`${API_BASE}/api/report-delete?report_id=${encodeURIComponent(reportId)}`, {method:"POST"}); } catch(e2) {}  // #4 sync del borrado
     renderFullReportsList(); renderRecentReports();
 }
 function clearAllHistory() {
     if (!confirm('Delete ALL reports? This cannot be undone.')) return;
-    try { getAllReports().forEach(r => { if (r.report_id) fetch(`${API_BASE}/api/report-delete?report_id=${encodeURIComponent(r.report_id)}`); }); } catch(e) {}
+    try { getAllReports().forEach(r => { if (r.report_id) fetch(`${API_BASE}/api/report-delete?report_id=${encodeURIComponent(r.report_id)}`, {method:"POST"}); }); } catch(e) {}
     localStorage.removeItem(STORAGE_KEY);
     renderFullReportsList(); renderRecentReports();
 }
@@ -7948,7 +7948,7 @@ async function schedulerRunNow() {
     const btn = document.getElementById('schedRunBtn');
     btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="w-3 h-3 animate-spin"></i> Colectando…'; lucide.createIcons();
     try {
-        await fetch(`${API_BASE}/api/scheduler/run-now`);
+        await fetch(`${API_BASE}/api/scheduler/run-now`, {method:"POST"});
         setTimeout(loadSchedulerStatus, 1500);
         setTimeout(loadSchedulerStatus, 8000);
     } catch(e) {}

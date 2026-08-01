@@ -24,3 +24,10 @@ son la señal de aprendizaje.
 ## Tesis activas
 
 *(el agente agrega una línea por ticker analizado: `- [TICKER](tesis/TICKER.md) — resumen de una línea`)*
+- NVDA · 2026-08-01 11:23 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-01 11:28 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-01 11:30 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- AAPL · 2026-08-01 11:32 · Avoid / Wait · raw 31.6/100 · FV $322.17
+- NVDA · 2026-08-01 11:34 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-01 11:37 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-01 11:41 · Avoid / Wait · raw 37.1/100 · FV $281.05

@@ -768,3 +768,78 @@ llenar `Entradas/`. La lista de A-03 dice qué claves faltan.
 
 **2107 tests del engine + 49 de la capa web.** 57/57 casos de aceptación,
 207/207 métricas, Cerebro 83/83 idéntico.
+
+---
+
+# 11. Auditoría de las 67 rutas web — 2026-08-01
+
+Se enumeraron las 67 rutas, se escanearon por AST y se ejercitaron **todas**
+contra un servidor real (`TestClient`).
+
+## 11.1 W-01 — tres GET que cambiaban estado
+
+| ruta | qué hacía |
+|---|---|
+| `/api/report-delete` | `DELETE FROM reports` |
+| `/api/scheduler/run-now` | lanzaba un hilo de colección |
+| `/api/backfill/start` | lanzaba un hilo de backfill |
+
+HTTP define GET como **seguro**: navegadores, prefetchers, escáneres de enlaces
+y la caché de ida/vuelta pueden reemitirlo solos. La cookie es `SameSite=Strict`,
+que corta el caso entre sitios, pero la reemisión dentro del propio sitio no
+depende de eso — y `<img src=".../api/report-delete?report_id=X">` bastaba.
+Las tres pasaron a **POST**, con la UI actualizada.
+
+## 11.2 W-02 — QuantData llevaba muerta en silencio
+
+`QUANTDATA_BASE` tenía un `/v1` que la API no usa. **Todas** las rutas devolvían
+404 (`"No resource found at 'v1/option/flow'"`), así que el flujo de opciones,
+el dark pool y el GEX no funcionaban — y nadie se enteraba, porque
+`_quantdata_request` devuelve `{"_error": ...}` y los llamadores degradan callados.
+
+Cada `/api/analyze` gastaba **25 peticiones y ~8 s** contra rutas inexistentes.
+
+Sin el sufijo responden **403** (existen; el plan no las cubre), que es un hecho
+distinto. Añadido `_QD_SIN_DERECHO`: un rechazo de permisos no se reintenta en la
+misma corrida.
+
+**Medido:** 25 peticiones / 8.1 s → **8 peticiones / 2.2 s**.
+
+## 11.3 W-03 — `/api/analyze` tarda 92–115 s
+
+Medido tres veces (frío y caliente), sobre NVDA y AAPL. Perfilado por host:
+
+| origen | segundos |
+|---|---|
+| **Gemini (narrativa)** | **50.9** (2 llamadas) |
+| QuantData | 8.1 → 2.2 tras W-02 |
+| FinnHub + SEC + FMP + Yahoo | ~6.6 |
+| motor + agregación | el resto |
+
+**La mitad del tiempo es la narrativa del LLM, que es presentación, no cálculo.**
+Los números del motor están listos mucho antes.
+
+Esto importa para el despliegue: Render y la mayoría de proxies cortan entre 30 y
+100 s, así que **el endpoint principal probablemente agote el tiempo de espera en
+producción**. No lo arreglé porque la solución (devolver los números primero y la
+narrativa después, o en streaming) es un cambio de diseño, no una corrección de
+error. Queda medido y sobre la mesa.
+
+## 11.4 Verificado sano
+
+- **60 de 67 rutas tras autenticación**; las 7 públicas son las que deben serlo
+  (`/`, `/legacy`, `/wbj`, login, auth-status, manifest, favicon).
+- Cookie `httponly` + `samesite=strict`.
+- `serve_icon` usa **lista blanca** de tamaños — sin traversal de rutas.
+- SQL siempre parametrizado — sin inyección.
+- **58 de 59 rutas responden sin 5xx.** La única 500 fue
+  `/api/plaid/exchange-token` con cuerpo vacío, que es entrada inválida (aunque
+  debería contestar 4xx, no 5xx).
+- **`str(e)` al cliente en 26 rutas**: comprobé si podía filtrar claves.
+  **No.** `/api/news` va a Yahoo sin clave, y Plaid manda credenciales por
+  **cabeceras**, no en la URL. Filtra detalle interno (rutas, SQL), no secretos.
+  Corregido en `/api/report-delete`; el resto queda como endurecimiento menor.
+
+## 11.5 Estado
+
+**2107 tests del engine + 56 de la capa web** (7 nuevos de seguridad de rutas).
