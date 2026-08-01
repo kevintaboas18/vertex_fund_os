@@ -886,3 +886,67 @@ Verificado que **no filtran claves** (§11.4). Corregido en `/api/report-delete`
 que es la que borra. El resto queda como endurecimiento menor pendiente: cambiar
 26 rutas a la vez, sin poder validar cada una en vivo, arriesga más de lo que
 aporta hoy.
+
+---
+
+# 13. Verificación de los tres puntos no-100% — 2026-08-01
+
+## 13.1 Endpoints de pago: son límites de plan REALES
+
+Tras el caso de QuantData (un `/v1` de más disfrazado de "sin permisos"), verifiqué
+los otros probando rutas alternativas:
+
+| endpoint | código | veredicto |
+|---|---|---|
+| FMP `institutional-ownership/*` (4 variantes) | **402** | *"Restricted Endpoint: not available under your plan"* — real |
+| FinnHub `eps-estimate`, `revenue-estimate`, `price-target` | **403** | *"You don't have access to this resource"* — real |
+| FinnHub `stock/recommendation` | **200** | **sí funciona** — el plan gratis lo incluye |
+
+**No son bugs.** Y dos de los tres **ya están cubiertos por otra fuente**:
+
+- FMP institutional-ownership → cubierto por el **dataset 13F de la SEC** (10 tenedores
+  reales en el reporte).
+- FinnHub eps/revenue-estimate → cubierto por **FMP analyst-estimates** (200, 10 filas,
+  es lo que alimenta el crecimiento base de V-02).
+
+Sólo **QuantData** (flujo de opciones, dark pool, GEX) queda sin sustituto.
+
+## 13.2 Cobertura de Market: mi lista pedía trabajo YA HECHO
+
+`Entradas/NVDA.json` documenta decisiones de investigación cerradas:
+
+- `_share_no_scorable`: *"MKT-SHARE-006 y MKT-SHDELTA-007 quedan NOT_SCORABLE tras
+  research (2026-07-19)"*
+- `_advertencia_capa_de_canal`: *"Gartner mide gasto del USUARIO FINAL; NVDA vende
+  aguas arriba a OEM/ODM/CSP"* — dividir ingresos entre ese TAM compara **capas
+  distintas de la cadena de valor**
+- `_recurring_ausente`: *"NVDA NO divulga porcentaje de ingresos recurrentes en su 10-K"*
+- `_adopt_no_scorable`: la única fuente con ambos números no es citable
+
+El motor tiene razón al negarse, y **Kevin ya lo había resuelto**. Mi lista de A-03
+las pedía igualmente: convertía un hallazgo cerrado en una tarea eterna.
+
+`_researched_and_declared()` lee esas notas y separa las dos cosas:
+
+| | antes | ahora |
+|---|---|---|
+| pendientes de verdad | 21 claves | **18 claves** |
+| ya investigadas y declaradas | mezcladas dentro | **4, reportadas aparte** |
+
+También comprobé si alguna métrica N/S se puede alimentar con datos que ya traemos:
+**`MKT-DISP-013` no.** Exige `stdev(estimaciones individuales)`, y FMP da low/avg/high
++ recuento, no las individuales. Sacar una desviación típica de un rango exigiría
+asumir una distribución — que es justo la imputación que el motor prohíbe.
+
+## 13.3 Latencia: bajada y con el resto explicado
+
+Ver §12. De 92–115 s a **75.5 s de media**. Lo que queda es coste estructural
+(`_analyze_structured` 34.5 s + motor ~40 s) y bajarlo exige el rediseño asíncrono.
+
+## 13.4 Porcentajes corregidos
+
+| Área | Antes dije | Real | Por qué |
+|---|---|---|---|
+| Endpoints de pago | ~60% | **~85%** | 2 de 3 ya cubiertos por otra fuente; sólo QuantData sin sustituto |
+| Cobertura de Market | ~35% | **~35% y correcto** | lo que falta es research que Kevin declaró imposible, no un fallo |
+| Latencia | ~50% | **~65%** | 75.5 s vs 92–115 s |

@@ -227,3 +227,72 @@ def test_nothing_missing_means_no_work_list():
 
     assert _analyst_input_gaps({"market": _out_with([])}, "NVDA") == []
     assert _analyst_input_gaps({}, "NVDA") == []
+
+
+def test_a_metric_the_analyst_researched_is_not_asked_for_again(tmp_path):
+    """`Entradas/<TICKER>.json` carries notes recording the OUTCOME of
+    research. NVDA's says "MKT-SHARE-006 y MKT-SHDELTA-007 quedan
+    NOT_SCORABLE tras research", because Gartner's TAM measures end-user
+    spend while NVDA sells upstream to OEM/ODM — dividing one by the other
+    compares different layers of the chain.
+
+    The work list asked for exactly those, turning a settled finding into
+    a recurring chore."""
+    import json
+
+    from wbj.report import _analyst_input_gaps, _researched_and_declared
+
+    entradas = tmp_path / "Entradas"
+    entradas.mkdir()
+    (entradas / "TEST.json").write_text(json.dumps({
+        "_share_no_scorable": "MKT-SHARE-006 queda NOT_SCORABLE tras research.",
+        "_fuente": "Gartner, MKT-SAM-002 se cita aqui solo como procedencia",
+        "tam": 1_000,
+    }), encoding="utf-8")
+    settings = SimpleNamespace(repo_root=tmp_path)
+
+    declared = _researched_and_declared(settings, "TEST")
+    assert declared == {"MKT-SHARE-006": "_share_no_scorable"}
+
+    gaps = _analyst_input_gaps({
+        "market": _out_with([
+            _metric("MKT-SHARE-006", ["MARKET_SHARE_UNAVAILABLE_PROHIBITED_IMPUTATION: "
+                                      "set `share` = {company_sales, total_market_sales}"]),
+            _metric("MKT-SAM-002", ["SAM_UNAVAILABLE"]),
+        ]),
+    }, "TEST", settings)
+
+    pendiente = next(g for g in gaps if "would score metrics" in g)
+    resuelto = next(g for g in gaps if "researched and declared" in g)
+    # La investigada sale de la lista de trabajo...
+    assert "share" not in pendiente
+    assert "sam_inputs" in pendiente
+    # ...y se reporta como hallazgo cerrado, no como tarea.
+    assert "MKT-SHARE-006" in resuelto
+    assert "not pending work" in resuelto
+
+
+def test_a_note_that_is_only_provenance_declares_nothing():
+    """El archivo lleva citas y fuentes además de decisiones. Una nota que
+    menciona un metric id sin declarar una ausencia no lo silencia."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from wbj.report import _researched_and_declared
+
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "Entradas").mkdir()
+        (root / "Entradas" / "TEST.json").write_text(json.dumps({
+            "_fuente": "Gartner. Alimenta MKT-TAM-001 y MKT-SAM-002.",
+        }), encoding="utf-8")
+        assert _researched_and_declared(SimpleNamespace(repo_root=root), "TEST") == {}
+
+
+def test_no_entradas_file_declares_nothing():
+    from pathlib import Path
+
+    from wbj.report import _researched_and_declared
+
+    assert _researched_and_declared(SimpleNamespace(repo_root=Path("/no/existe")), "TEST") == {}

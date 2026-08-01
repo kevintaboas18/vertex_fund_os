@@ -98,7 +98,51 @@ _ANALYST_INPUT_KEYS = {
 _ENTRADAS_KEY_IN_WARNING = re.compile(r"set `([a-z_]+)`")
 
 
-def _analyst_input_gaps(outs: dict, ticker: str) -> list[str]:
+#: Un metric id nombrado dentro de una nota `_*` del archivo de analista.
+_DECLARED_METRIC = re.compile(r"\b((?:BUS|FIN|MKT|TECH|RSK|VAL)-[A-Z0-9]+-\d+)\b")
+
+
+def _researched_and_declared(settings: Any, ticker: str) -> dict[str, str]:
+    """Métricas que el analista YA investigó y declaró no puntuables.
+
+    `Entradas/<TICKER>.json` admite notas con clave `_...` donde se deja
+    escrito el resultado de una investigación. En el archivo de NVDA, por
+    ejemplo: *"MKT-SHARE-006 y MKT-SHDELTA-007 quedan NOT_SCORABLE tras
+    research"*, con el motivo — el TAM de Gartner mide gasto del usuario
+    final mientras NVDA vende aguas arriba a OEM/ODM, así que dividir uno
+    entre otro compara capas distintas de la cadena.
+
+    Sin esto, la lista de trabajo pedía rellenar precisamente lo que ya se
+    había resuelto que no se puede rellenar: convertía una decisión
+    documentada en una tarea recurrente y hacía ver como pendiente algo
+    terminado.
+    """
+    import json
+    from pathlib import Path
+
+    root = Path(getattr(settings, "repo_root", ".")) / "Entradas"
+    path = root / f"{ticker.upper()}.json"
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.warning("no se pudo leer %s", path, exc_info=True)
+        return {}
+    out: dict[str, str] = {}
+    for key, value in data.items():
+        if not (key.startswith("_") and isinstance(value, str)):
+            continue
+        # Sólo las notas que declaran una AUSENCIA resuelta, no cualquier
+        # comentario: el archivo también lleva citas y procedencia.
+        if not re.search(r"no[_ ]scorable|NOT_SCORABLE|ausente|excluido", key + " " + value, re.I):
+            continue
+        for metric_id in _DECLARED_METRIC.findall(value):
+            out.setdefault(metric_id, key)
+    return out
+
+
+def _analyst_input_gaps(outs: dict, ticker: str, settings: Any = None) -> list[str]:
     """The unscored metrics an analyst input would close, as a work list.
 
     Six dimensions come back NOT_SCORABLE on a typical run and the report
@@ -113,10 +157,19 @@ def _analyst_input_gaps(outs: dict, ticker: str) -> list[str]:
     """
     from wbj.core.nullstates import NullState
 
+    declarados = _researched_and_declared(settings, ticker) if settings else {}
+
     keys: dict[str, set[str]] = {}
+    ya_resueltas: set[str] = set()
     for name, out in outs.items():
         for row in (getattr(out, "metrics", None) or []):
             if row.state is NullState.NOT_APPLICABLE:
+                continue
+            # El analista ya investigó ESTA métrica y dejó escrito que no se
+            # puede puntuar. Volver a pedirla convierte una decisión cerrada
+            # en una tarea eterna.
+            if row.metric_id in declarados:
+                ya_resueltas.add(row.metric_id)
                 continue
             for warning in (row.warnings or []):
                 found = _ENTRADAS_KEY_IN_WARNING.search(warning)
@@ -124,17 +177,24 @@ def _analyst_input_gaps(outs: dict, ticker: str) -> list[str]:
                     warning.split(":")[0].strip())
                 if key:
                     keys.setdefault(key, set()).add(row.metric_id)
-    if not keys:
-        return []
-    listed = ", ".join(
-        f"{k} ({len(v)} metric{'s' if len(v) > 1 else ''})"
-        for k, v in sorted(keys.items(), key=lambda kv: (-len(kv[1]), kv[0])))
-    return [
-        f"analyst inputs: {len(keys)} key(s) in Entradas/{ticker.upper()}.json would "
-        f"score metrics that are NOT_SCORABLE for want of a declared figure, not "
-        f"because they are unknowable — {listed}. These are read from filings and "
-        "named sources by a person; the engine will not impute them."
-    ]
+
+    salida: list[str] = []
+    if keys:
+        listed = ", ".join(
+            f"{k} ({len(v)} metric{'s' if len(v) > 1 else ''})"
+            for k, v in sorted(keys.items(), key=lambda kv: (-len(kv[1]), kv[0])))
+        salida.append(
+            f"analyst inputs: {len(keys)} key(s) in Entradas/{ticker.upper()}.json would "
+            f"score metrics that are NOT_SCORABLE for want of a declared figure, not "
+            f"because they are unknowable — {listed}. These are read from filings and "
+            "named sources by a person; the engine will not impute them.")
+    if ya_resueltas:
+        salida.append(
+            f"analyst inputs: {len(ya_resueltas)} metric(s) were researched and declared "
+            f"unscorable in Entradas/{ticker.upper()}.json — {', '.join(sorted(ya_resueltas))}. "
+            "These are settled findings, not pending work; the note in that file gives "
+            "the reason each one cannot be sourced.")
+    return salida
 
 
 def _price_view_divergence(valuation: Any, targets: Any,
@@ -740,7 +800,7 @@ def run_report(ticker: str, settings: Any, now: datetime | None = None,
     except Exception:
         logger.warning("price targets unavailable; scenario fan skipped", exc_info=True)
     data_gaps.extend(_price_view_divergence(outs["valuation"], targets, price))
-    data_gaps.extend(_analyst_input_gaps(outs, ticker))
+    data_gaps.extend(_analyst_input_gaps(outs, ticker, settings))
 
     sec = outs["business"].security
     report = build_final_report(
