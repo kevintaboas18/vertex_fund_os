@@ -22,6 +22,7 @@ problemas que costaron once hallazgos en la auditoría de `store.ts`.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,7 +30,7 @@ from typing import Sequence
 
 from .levels import LvlBar
 from .occ import market_date_str
-from .stores import _exclusive, _read, _sanea_ticker, _write, data_dir
+from .stores import _exclusive, _read, _write, data_dir
 
 __all__ = [
     "BarsFile",
@@ -49,8 +50,22 @@ class BarsFile:
 
 
 def _file_for(ticker: str) -> Path:
-    """`fileFor`. El saneado es el suyo, vía el helper compartido de `stores`."""
-    return data_dir() / "bars" / f"{_sanea_ticker(ticker)}.json"
+    """`fileFor`, literal:
+
+        const safe = ticker.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "");
+
+    No usa el `_sanea_ticker` de `stores.py` a propósito: aquel rechaza el
+    ticker que se queda en nada (`"!!!"`, `""`) y el demasiado largo, y esas dos
+    guardas no están aquí. En `store.ts` valían la pena —un `.json` compartido
+    contamina la MEMORIA acumulada del sub-agente 6—; en un cache de barras el
+    daño se limita a que dos tickers basura compartan un archivo que se
+    reescribe cada día.
+
+    La travesía de rutas sigue cerrada sin guarda extra: su propio regex borra
+    las barras, así que `../..` se queda en `....` y no sale del directorio.
+    """
+    safe = re.sub(r"[^A-Z0-9._-]", "", ticker.strip().upper())
+    return data_dir() / "bars" / f"{safe}.json"
 
 
 def _a_bar(d: object) -> LvlBar | None:
@@ -65,12 +80,25 @@ def _a_bar(d: object) -> LvlBar | None:
 
 
 def load_bars(ticker: str) -> BarsFile | None:
-    """`loadBars`: el cache guardado, o `None` si no hay o no se puede leer."""
-    try:
-        path = _file_for(ticker)
-    except ValueError:
-        return None
-    parsed = _read(path)
+    """`loadBars`: el cache guardado, o `None` si no hay o no se puede leer.
+
+    DIVERGENCIA declarada, y la única que queda: aquí se **valida** lo leído.
+    Víctor hace `JSON.parse(raw) as BarsFile` a secas, y ese `as` es una promesa
+    del compilador que el disco no tiene por qué cumplir. Medido contra su
+    archivo, con un cache del día corrupto:
+
+        sin campo `bars`      → `cached.bars.length` lanza TypeError
+                                y **tumba la petición entera**
+        `bars` como texto     → `"texto".length > 0` es cierto, así que
+                                **devuelve el string como si fueran barras**
+        `bars` como objeto    → devuelve el objeto igual
+
+    Basta una escritura interrumpida o un disco lleno para dejar ese archivo, y
+    entonces el escaneo revienta o corre sobre basura sin avisar. El parche
+    propuesto para el original está en
+    `engine/scripts/upstream-tito-barsstore.patch`.
+    """
+    parsed = _read(_file_for(ticker))
     if not isinstance(parsed, dict) or not isinstance(parsed.get("bars"), list):
         return None
     return BarsFile(
@@ -86,7 +114,7 @@ def save_bars(ticker: str, bars: Sequence[LvlBar], now: datetime | None = None) 
     path = _file_for(ticker)
     with _exclusive(path):
         _write(path, {
-            "ticker": ticker.strip().upper(),
+            "ticker": ticker.upper(),   # `ticker.toUpperCase()`, sin trim (él tampoco)
             "date": market_date_str(now),
             "bars": [{"time": b.time, "high": b.high, "low": b.low, "close": b.close}
                      for b in bars],

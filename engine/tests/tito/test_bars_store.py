@@ -50,10 +50,33 @@ class TestGuardarYLeer:
         save_bars("demo", _barras(), HOY)
         assert load_bars("DEMO").ticker == "DEMO"
 
-    def test_un_ticker_inservible_no_lanza_al_leer(self):
-        assert load_bars("!!!") is None
-        with pytest.raises(ValueError):
-            save_bars("!!!", _barras(), HOY)
+    def test_el_saneado_del_ticker_es_el_suyo(self):
+        # `ticker.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "")`, sin las
+        # guardas extra de stores.py: aquellas valian la pena en la memoria
+        # acumulada, aqui el dano se limita a un cache que se reescribe cada dia.
+        from wbj.tito.bars_store import _file_for
+
+        assert _file_for("demo").name == "DEMO.json"
+        assert _file_for(" demo ").name == "DEMO.json"
+        assert _file_for("BRK.B").name == "BRK.B.json"
+        assert _file_for("brk/b").name == "BRKB.json"
+        assert _file_for("!!!").name == ".json"       # como el suyo
+        assert _file_for("").name == ".json"
+
+    def test_el_regex_ya_cierra_la_travesia_de_rutas(self):
+        # Sin guarda extra: su propio regex borra las barras.
+        from wbj.tito.bars_store import _file_for
+        from wbj.tito.stores import data_dir
+
+        d = _file_for("../../ETC/X")
+        assert d.name == "....ETCX.json"
+        assert d.resolve().parent == (data_dir() / "bars").resolve()
+
+    def test_el_ticker_guardado_NO_se_recorta(self):
+        # `ticker.toUpperCase()` sin trim: el nombre de archivo si se recorta
+        # (fileFor hace .trim()), pero el campo del payload no.
+        save_bars(" demo ", _barras(), HOY)
+        assert load_bars("DEMO").ticker == " DEMO "
 
     def test_una_barra_corrupta_no_tumba_el_cache(self):
         import json
@@ -201,6 +224,51 @@ class TestCachedDailyBars:
         cached_daily_bars("A", 30, now=HOY, fetch=fetch)
         cached_daily_bars("B", now=HOY, fetch=fetch)
         assert vistos == [30, 365]
+
+
+class TestProtegeContraLosDosBugsDeVictor:
+    """`loadBars` hace `JSON.parse(raw) as BarsFile` a secas, y ese `as` es una
+    promesa del compilador que el disco no tiene por que cumplir.
+
+    Medido ejecutando su archivo en Node — parche propuesto en
+    engine/scripts/upstream-tito-barsstore.patch.
+    """
+
+    def _escribe(self, nombre, contenido):
+        from wbj.tito.stores import data_dir
+
+        p = data_dir() / "bars"
+        p.mkdir(parents=True, exist_ok=True)
+        (p / nombre).write_text(contenido, encoding="utf-8")
+
+    def test_un_cache_sin_campo_bars_no_tumba_la_peticion(self):
+        # En el suyo: `cached.bars.length` lanza TypeError y sube al llamador.
+        self._escribe("A.json", '{"ticker":"A","date":"2026-07-31"}')
+        pedidos = []
+
+        def fetch(t, days):
+            pedidos.append(t)
+            return _barras(4)
+
+        r = cached_daily_bars("A", now=HOY, fetch=fetch)
+        assert len(r) == 4 and pedidos == ["A"]      # refresco, no reviento
+
+    def test_un_bars_que_no_es_lista_no_se_devuelve_como_si_lo_fuera(self):
+        # En el suyo: `"texto".length > 0` es cierto → devuelve el STRING.
+        self._escribe("B.json", '{"ticker":"B","date":"2026-07-31","bars":"texto"}')
+        r = cached_daily_bars("B", now=HOY, fetch=lambda t, d: _barras(4))
+        assert isinstance(r, list) and len(r) == 4
+
+    def test_ni_aunque_sea_un_objeto_con_length(self):
+        self._escribe("C.json",
+                      '{"ticker":"C","date":"2026-07-31","bars":{"length":9}}')
+        r = cached_daily_bars("C", now=HOY, fetch=lambda t, d: _barras(4))
+        assert isinstance(r, list) and len(r) == 4
+
+    def test_y_el_cache_corrupto_se_repara_solo(self):
+        self._escribe("D.json", '{"ticker":"D","date":"2026-07-31"}')
+        cached_daily_bars("D", now=HOY, fetch=lambda t, d: _barras(4))
+        assert len(load_bars("D").bars) == 4
 
 
 class TestNoEstaCableadoFueraDeWheel:

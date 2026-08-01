@@ -300,6 +300,23 @@ with tempfile.TemporaryDirectory() as _tdb:
     chk(not any(x in _src for x in ("mercado_abierto","_datos_congelados","_recorta",
                                     'days: int = 0','"days"')),
         "sin las 4 reglas que no están en el original")
+    chk(BS._file_for("!!!").name == ".json" and BS._file_for(" demo ").name == "DEMO.json"
+        and BS._file_for("brk/b").name == "BRKB.json",
+        "el saneado del ticker es el suyo, sin guardas extra")
+    chk(BS._file_for("../../ETC/X").resolve().parent == (BS.data_dir()/"bars").resolve(),
+        "su propio regex ya cierra la travesía de rutas")
+    BS.save_bars(" demo ", _bb, _HOY)
+    chk(BS.load_bars("DEMO").ticker == " DEMO ",
+        "el ticker guardado NO se recorta (`ticker.toUpperCase()`, sin trim)")
+    # Los 2 BUGS de su barsStore.ts: `JSON.parse(raw) as BarsFile` sin validar.
+    _bp = BS.data_dir()/"bars"; _bp.mkdir(parents=True, exist_ok=True)
+    (_bp/"A.json").write_text('{"ticker":"A","date":"'+ _HOY.astimezone(_ET).date().isoformat() +'"}')
+    chk(len(BS.cached_daily_bars("A", now=_HOY, fetch=lambda t,d: _bb)) == 1,
+        "un cache sin campo `bars` no tumba la petición (en el suyo: TypeError)")
+    (_bp/"B.json").write_text('{"ticker":"B","date":"'+ _HOY.astimezone(_ET).date().isoformat() +'","bars":"texto"}')
+    _rb = BS.cached_daily_bars("B", now=_HOY, fetch=lambda t,d: _bb)
+    chk(isinstance(_rb, list) and len(_rb) == 1,
+        "un `bars` que no es lista no se devuelve como si lo fuera (él devuelve el string)")
 _blkb = API[API.index("def _tito_chain_and_bars"):API.index("def _tito_memory")]
 chk("cached_daily_bars" not in _blkb and "fetch_daily_bars(ticker)" in _blkb,
     'no cableado fuera de Wheel ("fetchDailyBars sigue sin cache para el resto de rutas")')
