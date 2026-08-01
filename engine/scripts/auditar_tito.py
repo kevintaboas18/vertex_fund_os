@@ -14,7 +14,7 @@ apúntalo con TITO_ROOT=/ruta/a/agente-tito-metralleta. Sin esa variable se
 salta esa sección y el resto corre igual.
 """
 from __future__ import annotations
-import json, os, re, subprocess, sys, tempfile, time
+import json, math, os, re, subprocess, sys, tempfile, time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -157,23 +157,22 @@ _txt = C.to_row({"open_interest":"500","details":{"strike_price":"205","shares_p
 chk(_txt.open_interest == 500 and _txt.strike == 205 and _txt.volume == 81
     and _txt.notional_value == 500*100*205,
     "números en TEXTO siguen contando (regla `??`, no `typeof`)")
-chk(C.to_row({"open_interest":"abc","details":{"strike_price":100}}).notional_value == 0,
-    "la basura no numérica cae al fallback, no a NaN")
+chk(math.isnan(C.to_row({"open_interest":"abc","details":{"strike_price":100}}).notional_value),
+    "LITERAL: la basura no numérica da NaN (`\"abc\" * 100` en JS)")
 chk(C.to_row({"open_interest":10,"details":{"strike_price":100,"shares_per_contract":0}})
     .notional_value == 0, "shares=0 se respeta (`??` solo cambia null)")
 _coh = C.to_row({"open_interest":60.5,"details":{"strike_price":100}})
 chk(_coh.notional_value == _coh.open_interest*100*100,
     "la fila y sus fórmulas usan el MISMO open interest")
-chk(all(C.to_row({"details":{"expiration_date":e}}).expiration == "2026-09-18"
+chk(all(C.to_row({"details":{"expiration_date":e}}).expiration == e
         for e in ("2026-09-18","2026-09-18T00:00:00","2026-09-18T00:00:00Z")),
-    "el vencimiento queda canónico (es la clave de agrupación del sub-agente 4)")
+    "LITERAL: el vencimiento NO se recorta (`?? \"\"` y nada más)")
 # 2ª pasada: el tipo de contrato NO puede depender del case, y una fila mala
 # no puede llevarse la página entera.
-chk(all(C.to_row({"details":{"contract_type":t}}).contract_type == "put"
-        for t in ("put","PUT","Put"," put ")),
-    'un "PUT" sigue siendo put (si no, el GEX cambia de signo)')
-chk(all(C.to_row({"details":{"contract_type":t}}).contract_type == "call"
-        for t in ("call","CALL","P","",None)), "lo que no es put es call")
+chk(C.to_row({"details":{"contract_type":"put"}}).contract_type == "put"
+    and all(C.to_row({"details":{"contract_type":t}}).contract_type == "call"
+            for t in ("PUT","Put"," put ","call","CALL","P","",None)),
+    'LITERAL: solo el "put" exacto es put (`t === "put"`)')
 _gcad = lambda m: [C.to_row({"details":{"contract_type":ct.upper() if m else ct,
         "expiration_date":"2026-09-18","strike_price":float(s),"shares_per_contract":100},
         "day":{"volume":400},"open_interest":9000 if ct=="put" else 3000})
@@ -181,8 +180,8 @@ _gcad = lambda m: [C.to_row({"details":{"contract_type":ct.upper() if m else ct,
 from wbj.tito.gex import gex_analysis as _gexa
 _now2 = datetime(2026,7,31,tzinfo=timezone.utc)
 _g1, _g2 = _gexa(_gcad(False),[100.0]*60,100.0,_now2), _gexa(_gcad(True),[100.0]*60,100.0,_now2)
-chk(_g1.total_net_gex == _g2.total_net_gex and _g1.regime == _g2.regime,
-    "el GEX y el régimen no cambian con la cadena en MAYÚSCULAS")
+chk(_g1.total_net_gex < 0 < _g2.total_net_gex and _g1.regime != _g2.regime,
+    "LITERAL: con la cadena en MAYÚSCULAS el GEX cambia de signo (su `case`)")
 _raras = 0
 for _c in ({"details":"texto"}, {"details":5}, {"details":[]}, {"open_interest":"NaN"},
            {"last_trade":"x","day":{"close":2}}, None, [], "x"):
@@ -191,10 +190,11 @@ for _c in ({"details":"texto"}, {"details":5}, {"details":[]}, {"open_interest":
 chk(_raras == 0, "ninguna fila malformada lanza (tumbaría la página entera)")
 # 3ª pasada: shares ILEGIBLE no es AUSENTE — caer al 100 fabrica el
 # multiplicador estándar justo donde no hay evidencia de cuál es.
-chk(all(C.to_row({"open_interest":100,"details":{"strike_price":9000,
-        "shares_per_contract":b}}).notional_value == 0
-        for b in ("abc","","   ",[],{},"NaN")),
-    "shares_per_contract ilegible NO cae al 100 (no se inventa el multiplicador)")
+chk(all(math.isnan(C.to_row({"open_interest":100,"details":{"strike_price":9000,
+        "shares_per_contract":b}}).notional_value) for b in ("abc",{},"NaN"))
+    and all(C.to_row({"open_interest":100,"details":{"strike_price":9000,
+        "shares_per_contract":b}}).notional_value == 0 for b in ("","   ",[])),
+    "LITERAL: shares ilegible da NaN; lo que `Number()` hace 0, da 0")
 chk(C.to_row({"open_interest":100,"details":{"strike_price":9000}}).notional_value
     == 100*100*9000
     and C.to_row({"open_interest":100,"details":{"strike_price":9000,
@@ -206,9 +206,9 @@ chk(C.to_row({"open_interest":True,"details":{"strike_price":100}}).notional_val
     "booleanos: la regla laxa los convierte, la estricta los rechaza")
 # 4ª pasada: un precio infinito no puede acabar en el JSON, y las dos funciones
 # que faltaba cablear.
-chk(C.contract_price({"last_trade":{"price":float("inf")},"day":{"close":2}}) == (2,"day_close")
-    and C.contract_price({"last_trade":{"price":float("inf")}}) == (None,"none"),
-    "un precio infinito cae al siguiente de la cascada (no contamina el JSON)")
+chk(C.contract_price({"last_trade":{"price":float("inf")},"day":{"close":2}})
+    == (float("inf"),"last_trade"),
+    "LITERAL: un precio infinito SÍ se acepta (`Infinity > 0` es true)")
 _inf = C.to_row({"last_trade":{"price":float("inf")},"open_interest":100,
                  "details":{"strike_price":50}})
 def _no_constante(c): raise ValueError(c)
@@ -217,22 +217,30 @@ try:
                parse_constant=_no_constante)
     _js_ok = True
 except ValueError: _js_ok = False
-chk(_js_ok, "la fila siempre serializa a JSON estricto")
-chk(C.to_row({"details":{"ticker":0}}).option_ticker == "0"
+chk(not _js_ok, "LITERAL: la fila cruda lleva Infinity (no es JSON por sí sola)")
+sys.path.insert(0, str(VERTEX))
+_api_mod = __import__("vertex_api")
+try:
+    json.loads(json.dumps(_api_mod._json_safe({"p":_inf.price,"op":_inf.open_premium})),
+               parse_constant=_no_constante)
+    _safe_ok = True
+except ValueError: _safe_ok = False
+chk(_safe_ok, "…y `_json_safe` la deja en JSON válido antes de responder (su JSON.stringify)")
+chk(C.to_row({"details":{"ticker":0}}).option_ticker == 0
     and C.to_row({"details":{}}).option_ticker == "",
-    "el ticker usa `?? \"\"`, no `or \"\"` (solo el ausente cae a vacío)")
+    "LITERAL: el ticker crudo pasa sin `str()` (`?? \"\"`, solo el ausente)")
 _msrc = (TITO_DIR/"massive.py").read_text()
 chk("sort_by_open_interest_desc(rows)" in _msrc and "count_expirations(rows)" in _msrc,
     "sortByOpenInterestDesc y countExpirations CABLEADAS (como su /api/chain)")
 chk("expiration_count" in _msrc, "ChainResult lleva expirationCount, como su ChainMeta")
 # 5ª pasada: el PRODUCTO también desborda, y la forma de la respuesta.
-chk(all(C.to_row({"open_interest":a,"details":{"strike_price":b,
-        "shares_per_contract":c}}).notional_value == 0
+chk(all(math.isinf(C.to_row({"open_interest":a,"details":{"strike_price":b,
+        "shares_per_contract":c}}).notional_value)
         for a,b,c in ((1e200,1e200,100),(1e308,10,100),(1e160,1e160,1e160))),
-    "un nocional desbordado no llega a la fila (entradas finitas, producto inf)")
-chk(C.to_row({"open_interest":1e200,"last_trade":{"price":1e200},
-              "details":{"strike_price":1}}).open_premium is None,
-    "un open premium desbordado tampoco")
+    "LITERAL: el nocional desbordado SÍ llega a la fila (como su Infinity)")
+chk(math.isinf(C.to_row({"open_interest":1e200,"last_trade":{"price":1e200},
+              "details":{"strike_price":1}}).open_premium),
+    "LITERAL: el open premium desbordado también")
 _ov = C.to_row({"open_interest":1e200,"last_trade":{"price":1e200},
                 "details":{"strike_price":1e200}})
 try:
@@ -240,7 +248,13 @@ try:
                parse_constant=_no_constante)
     _ov_ok = True
 except ValueError: _ov_ok = False
-chk(_ov_ok, "la fila desbordada sigue serializando a JSON estricto")
+try:
+    json.loads(json.dumps(_api_mod._json_safe(
+        {"a":_ov.open_premium,"b":_ov.notional_value,"c":_ov.price})),
+        parse_constant=_no_constante)
+    _ov_safe = True
+except ValueError: _ov_safe = False
+chk(_ov_safe, "la fila desbordada sale como null por `_json_safe`, no como Infinity")
 import wbj.tito.massive as _MA
 _orig_get = _MA._get
 os.environ.setdefault("MASSIVE_API_KEY", "x"*32)
@@ -329,13 +343,12 @@ _blkb = API[API.index("def _tito_chain_and_bars"):API.index("def _tito_memory")]
 chk("cached_daily_bars" not in _blkb and "fetch_daily_bars(ticker)" in _blkb,
     'no cableado fuera de Wheel ("fetchDailyBars sigue sin cache para el resto de rutas")')
 
-# 6ª pasada: un nocional que RESTA es peor que uno que falta.
-chk(all(C.to_row(_c).notional_value >= 0 for _c in (
-        {"open_interest":-500,"details":{"strike_price":100}},
-        {"open_interest":500,"details":{"strike_price":-100}},
-        {"day":{"volume":-9}},
-        {"open_interest":10,"details":{"strike_price":100,"shares_per_contract":-100}})),
-    "ningún negativo produce un nocional negativo")
+# 6ª pasada: los negativos. Llegué a mandarlos al fallback —un nocional que
+# RESTA es peor que uno que falta— y está quitado: su `??` no los toca.
+chk(C.to_row({"open_interest":-500,"details":{"strike_price":100}}).open_interest == -500
+    and C.to_row({"open_interest":500,"details":{"strike_price":-100}}).strike == -100
+    and C.to_row({"day":{"volume":-9}}).volume == -9,
+    "LITERAL: los negativos pasan tal cual (`??` solo cambia null)")
 _sana = [C.to_row({"details":{"contract_type":ct,"strike_price":float(s),
          "expiration_date":"2026-09-18","shares_per_contract":100},
          "day":{"volume":400},"open_interest":9000})
@@ -343,9 +356,10 @@ _sana = [C.to_row({"details":{"contract_type":ct,"strike_price":float(s),
 _sucia = _sana + [C.to_row({"details":{"contract_type":"call","strike_price":100.0,
           "expiration_date":"2026-09-18","shares_per_contract":100},
           "day":{"volume":400},"open_interest":-900_000})]
-chk(S.structure_score(_sana).score == S.structure_score(_sucia).score
-    and not S.structure_score(_sucia).notional["low_liquidity"],
-    "una fila con OI negativo no tira la cadena entera")
+chk(S.structure_score(_sucia).notional["total"] < 0
+    < S.structure_score(_sana).notional["total"]
+    and S.structure_score(_sucia).notional["low_liquidity"],
+    "…y por eso UNA fila con OI negativo invierte el nocional de la cadena entera")
 # El diferencial completo vive en engine/scripts/diff_compute.sh (necesita node
 # + el repo de Víctor); aquí solo se avisa de que existe.
 if TITO and TITO.exists():

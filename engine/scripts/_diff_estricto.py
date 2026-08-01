@@ -32,13 +32,37 @@ def stringify(v):
     return v
 
 
-por_campo, ejemplos = {}, {}
+def js_number(v):
+    """`Number(v)`, solo para saber si dos valores son el MISMO número.
+
+    Se aplica sobre el valor CRUDO, antes de serializar: su campo puede traer
+    `"abc"` o `{}` y el del port el `NaN` correspondiente. `Number` de los dos
+    es `NaN`, o sea el mismo número, y eso es lo que hay que ver.
+    """
+    if v in ("NaN", "Infinity", "-Infinity"):          # marcado por el runner
+        return math.nan if v == "NaN" else math.inf * (1 if v[0] != "-" else -1)
+    if v is None or v == "" or v == []:
+        return 0.0                                     # Number(null/""/[]) === 0
+    if v is True:
+        return 1.0
+    if v is False:
+        return 0.0
+    if isinstance(v, (dict, list)):
+        return math.nan
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return math.nan
+    return n if not isinstance(v, str) or math.isfinite(n) else math.nan
+
+
+valor, tipo, ejemplos = {}, {}, {}
 distintos = 0
 for i, (c, v) in enumerate(zip(casos, vic)):
     if v["row"].get("ERROR"):
         continue
     r = to_row(c)
-    dif = []
+    dif = False
     for js, py in CAMPOS:
         suyo, mio = stringify(v["row"][js]), stringify(getattr(r, py))
         if isinstance(suyo, (int, float)) and isinstance(mio, (int, float)) \
@@ -46,17 +70,32 @@ for i, (c, v) in enumerate(zip(casos, vic)):
             igual = abs(float(suyo) - float(mio)) <= 1e-9 * max(1.0, abs(float(suyo)))
         else:
             igual = suyo == mio and type(suyo) is type(mio)
-        if not igual:
-            dif.append(js)
-            por_campo[js] = por_campo.get(js, 0) + 1
-            ejemplos.setdefault(js, (i, suyo, mio, c))
+        if igual:
+            continue
+        # ¿Es el MISMO número escrito en otro tipo? Eso es el muro del lenguaje:
+        # él deja el crudo en el campo (`"500"`, `true`), aquí va el número.
+        a, b = js_number(v["row"][js]), js_number(getattr(r, py))
+        solo_tipo = (a == b) or (a != a and b != b)
+        (tipo if solo_tipo else valor)[js] = (tipo if solo_tipo else valor).get(js, 0) + 1
+        ejemplos.setdefault((js, solo_tipo), (i, suyo, mio, c))
+        if not solo_tipo:
+            dif = True
     if dif:
         distintos += 1
 
 print(f"  {len(casos)} casos · comparación ESTRICTA (salida ya serializada)\n")
-for k, n in sorted(por_campo.items(), key=lambda kv: -kv[1]):
-    i, s, m, c = ejemplos[k]
+if tipo:
+    print("  · MURO DEL LENGUAJE — mismo número, distinto tipo de campo")
+    print("    (él deja el crudo: `\"500\"`, `true`; aquí va el número, porque")
+    print("     el resto del motor suma ese campo y en Python un string no se suma)")
+    for k, n in sorted(tipo.items(), key=lambda kv: -kv[1]):
+        i, s, m, c = ejemplos[(k, True)]
+        print(f"      {k:<16} {n:>5}   ej #{i}: víctor={s!r} port={m!r}")
+    print()
+for k, n in sorted(valor.items(), key=lambda kv: -kv[1]):
+    i, s, m, c = ejemplos[(k, False)]
     print(f"  ✗ {k:<16} {n:>5}   ej #{i}: víctor={s!r} port={m!r}")
     print(f"     {json.dumps(c)[:100]}")
-print(f"\n  {len(casos)-distintos}/{len(casos)} filas idénticas · {distintos} distintas")
+print(f"\n  {len(casos)-distintos}/{len(casos)} filas con el MISMO VALOR en los 10 campos"
+      + (f" · {distintos} con algún valor distinto" if distintos else " · SIN diferencias de valor"))
 sys.exit(1 if distintos else 0)

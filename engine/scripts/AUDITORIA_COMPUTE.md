@@ -1,5 +1,36 @@
 # Auditoría del port de `compute.ts`
 
+> **AVISO — cinco de estos hallazgos están revertidos.** Lo que sigue sigue
+> siendo válido como descripción de lo que le falta a `compute.ts`, pero la
+> instrucción posterior fue *"audita el agente de Víctor en su carpeta y hazlo
+> exactamente como él lo tiene"*. Se clonó su repo y se comprobó que las guardas
+> no están en ningún sitio: `massive.ts` mete `json.results` sin validar y
+> `app/api/chain/route.ts` pasa `contracts.map(toRow)` directo a
+> `structureScore`. `compute.ts` era el único sitio posible.
+>
+> **Estado actual: 3004/3004 filas con el MISMO VALOR en los 10 campos**
+> (`diff_compute.sh`). Revertido:
+>
+> | Guarda | Qué hacía | Qué pasa ahora |
+> |---|---|---|
+> | `_normalize_type` en minúsculas | `"PUT"` → put | `t === "put"` exacto: un `"PUT"` es **call** y el GEX cambia de signo |
+> | negativos → fallback | OI/strike/volumen negativos a 0 | pasan tal cual; una fila de OI −900k invierte el nocional de la cadena |
+> | `_shares` ilegible → 0 | no inventar el multiplicador | `?? 100` a secas: ilegible da nocional `NaN` |
+> | `_finito` | recortar el producto desbordado | `Infinity` llega a la fila |
+> | `expiration[:10]` | canonizar la clave de agrupación | sin recortar: `"…T00:00:00Z"` cuenta como otro vencimiento |
+>
+> Las cinco están medidas en `engine/scripts/upstream-tito-compute.patch` y
+> fijadas por `TestComportamientoLiteralDeVictor`.
+>
+> Lo que **no** se pudo replicar: su `openInterest` conserva el crudo (`"500"`
+> como string) y aquí lleva el número, porque el resto del motor suma esa
+> columna. El valor calculado es el mismo en los 3004 casos.
+>
+> Y lo que se **añadió** por el cambio: `_tito_json` y `/api/projection-targets`
+> salen por `_json_safe`, que convierte `NaN`/`Infinity` en `null`. Es
+> exactamente lo que hace su `JSON.stringify`; sin eso `json.dumps` escribía
+> `NaN` a pelo, que no es JSON y el navegador lo rechaza.
+
 Seis pasadas, atacando el port contra el original ejecutado en Node. Diecisiete
 hallazgos, todos arreglados. Las 35 sentencias ejecutables de `compute.ts` están
 mapeadas una a una (tabla al final).

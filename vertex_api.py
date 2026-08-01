@@ -3851,7 +3851,9 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
         for b in bars[-70:]
     ]
     out["levels_for_chart"] = _tito_chart_levels(r)
-    return out
+    # `_json_safe` = su `JSON.stringify`: NaN/Infinity → null. `_tito_json` ya
+    # pasó por ahí, pero estos tres campos se añaden después.
+    return _json_safe(out)
 
 
 def _tito_chart_levels(r, max_per_side=2, min_strength=25):
@@ -4225,7 +4227,15 @@ def _tito_remember(ticker, result, now):
 
 
 def _tito_json(r):
-    """Aplana el ScorecardResult a JSON. Solo lo que el panel necesita pintar."""
+    """Aplana el ScorecardResult a JSON. Solo lo que el panel necesita pintar.
+
+    Sale por `_json_safe`, que convierte `NaN`/`Infinity` en `null`. Es lo mismo
+    que hace su `JSON.stringify` en Next.js, y aquí hace falta de verdad:
+    `compute.to_row` es traducción literal de su `compute.ts`, así que un
+    contrato con `open_interest: "abc"` produce un nocional `NaN` — y
+    `json.dumps` escribiría `NaN` a pelo, que NO es JSON y el `JSON.parse` del
+    navegador rechaza. La misma fila, en su lado, sale como `null`.
+    """
     def scen(s):
         return {"target": round(s.target, 2), "change_pct": round(s.change_pct, 1),
                 "probability": round(s.probability, 3), "driver": s.driver}
@@ -4235,7 +4245,7 @@ def _tito_json(r):
                 "distance_pct": round(l.distance_pct, 1), "why": l.why,
                 "flipped": l.flipped}
 
-    return {
+    return _json_safe({
         "ok": True,
         "ticker": r.ticker,
         "spot": round(r.spot, 2),
@@ -4274,7 +4284,7 @@ def _tito_json(r):
         # de Prediction Pro, y el que /api/tito-news necesita para confrontar la
         # dirección del dinero contra la de los titulares.
         "call_pct": _tito_call_pct(r),
-    }
+    })
 
 
 def _tito_call_pct(r):

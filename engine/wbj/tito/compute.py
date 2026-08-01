@@ -4,10 +4,19 @@ Funciones puras: convierten el contrato crudo del Option Chain Snapshot de
 Massive en la fila que consumen el sub-agente 4 (Estructura) y la tabla.
 
 Vive aparte de `massive.py` por la misma razón que en el original: el cliente
-HTTP se ocupa de traer páginas, y las fórmulas se pueden probar sin red. Antes
-la conversión estaba metida dentro de `fetch_option_chain`, y ahí se coló el
-único bug real de este módulo: el nocional daba por hecho 100 acciones por
-contrato.
+HTTP se ocupa de traer páginas, y las fórmulas se pueden probar sin red.
+
+**Traducción literal, incluidas sus lagunas.** Llegué a añadir aquí cinco
+guardas para datos malformados y las cinco están quitadas: la instrucción es que
+el motor sea exactamente el de Víctor. Auditado en su repo antes de quitarlas —
+`massive.ts` mete `json.results` sin validar y `app/api/chain/route.ts` pasa las
+filas directo a `structureScore`, así que `compute.ts` era el único sitio donde
+podían estar, y no están. Lo que eso reabre está medido en
+`engine/scripts/upstream-tito-compute.patch` y fijado por
+`TestComportamientoLiteralDeVictor` en `engine/tests/tito/test_compute.py`.
+
+Verificado con `engine/scripts/diff_compute.sh`, que ejecuta su
+`compute.ts` real en Node y compara la salida campo a campo.
 """
 
 from __future__ import annotations
@@ -27,9 +36,15 @@ __all__ = [
     "count_expirations",
 ]
 
-#: Acciones por contrato de un contrato estándar. Los ajustados traen otro
-#: número en `details.shares_per_contract` y hay que respetarlo.
+#: Acciones por contrato de un contrato estándar (`?? 100` en su `toRow`). Los
+#: ajustados traen otro número en `details.shares_per_contract`.
 DEFAULT_SHARES_PER_CONTRACT = 100
+
+#: Lo que `Number()` de JS acepta como infinito y Python no (y al revés):
+#: `Number("Infinity")` es infinito pero `Number("inf")` es NaN, mientras que
+#: `float("inf")` parsea las dos. Sin esta tabla el port convertía en infinito
+#: un texto que para él es basura.
+_INFINITOS_JS = {"infinity": math.inf, "+infinity": math.inf, "-infinity": -math.inf}
 
 
 def _num(v: Any) -> float | None:
@@ -46,75 +61,52 @@ def _num(v: Any) -> float | None:
     return float(v)
 
 
-def _coerce(v: Any, fallback: float) -> float:
-    """La regla LAXA: `raw.x ?? fallback` seguido de aritmética de JS.
+def _js_number(v: Any) -> float:
+    """`Number(v)` de JS: la coacción que hace su aritmética con el valor crudo.
 
-    Para OI, strike, volumen y acciones por contrato Víctor NO usa `typeof`:
-    usa `??`, que solo cambia `null`/`undefined`. Un `"500"` sobrevive y luego
-    `"500" * 100 * strike` lo convierte a número, así que su nocional sale bien.
-
-    Portar la regla estricta a estos cuatro campos era una divergencia cara: si
-    Massive pasa a mandar los números como texto, Víctor sigue calculando y este
-    port se llenaba de ceros **sin un solo error** — la cadena entera con OI 0,
-    Estructura y GEX a cero. Es el mismo fallo silencioso que apareció en
-    `store.ts` cuando cambia el esquema de la fuente.
-
-    Diferencia con JS que sí se mantiene: la basura no numérica (`"abc"`) da
-    `NaN` en JS y envenena el nocional en silencio; aquí cae al `fallback`, que
-    además enciende la salvaguarda de baja liquidez del sub-agente 4.
+    Es lo que convierte su `openInterest: "500"` en 500 al multiplicar, y su
+    `volume: true` en 1. Lo único que no se reproduce es el literal hexadecimal
+    (`Number("0x1A") === 26`), que ninguna fuente manda.
     """
     if v is None:
-        return fallback
-    # Los booleanos SÍ se convierten aquí (`true * 5 === 5`), al revés que en la
-    # regla estricta, donde `typeof true === "boolean"` los rechaza. Son las dos
-    # reglas de Víctor haciendo cosas distintas con el mismo valor, a propósito.
+        return 0.0                     # `Number(null) === 0`
     if isinstance(v, bool):
-        return 1.0 if v else 0.0
+        return 1.0 if v else 0.0       # `Number(true) === 1`
     if isinstance(v, (int, float)):
-        n = float(v)
-    else:
+        return float(v)
+    if isinstance(v, str):
+        s = v.strip()
+        if s == "":
+            return 0.0                 # `Number("") === 0`
+        if s.lower() in _INFINITOS_JS:
+            return _INFINITOS_JS[s.lower()]
         try:
-            n = float(str(v).strip())
-        except (TypeError, ValueError):
-            return fallback
-    # `float("NaN")` y `float("inf")` PARSEAN. Sin este filtro un
-    # `open_interest: "NaN"` llegaba entero hasta `int(oi)`, que lanza
-    # ValueError y tumba la cadena completa desde dentro del cliente HTTP.
-    if not math.isfinite(n):
-        return fallback
-    # DIVERGENCIA declarada: los negativos caen al fallback. Estos cuatro campos
-    # son cantidades —contratos abiertos, contratos negociados, un precio de
-    # ejercicio, acciones por contrato— y ninguna puede ser negativa. Víctor los
-    # arrastra porque JS no distingue, y el resultado es que **una sola fila
-    # corrupta tira la cadena entera**: con un OI de -900.000 en una cadena por
-    # lo demás sana, el nocional pasaba de +$900M a -$8.100M, Estructura de 3/15
-    # a 1/15, y se encendía la salvaguarda de baja liquidez sobre una cadena
-    # perfectamente líquida. Un nocional que RESTA es peor que uno que falta.
-    return n if n >= 0 else fallback
+            n = float(s)
+        except ValueError:
+            return math.nan
+        # `float("inf")` y `float("nan")` parsean en Python; `Number("inf")` no.
+        return math.nan if not math.isfinite(n) else n
+    if isinstance(v, (list, tuple)):
+        # `Number([]) === 0`, `Number([7]) === 7`, `Number([1,2])` es NaN.
+        if not v:
+            return 0.0
+        return _js_number(v[0]) if len(v) == 1 else math.nan
+    return math.nan                    # `Number({})` es NaN
 
 
-#: Marca "el campo no venía", distinta de "vino y no se entiende".
-_AUSENTE = object()
+def _coerce(v: Any, fallback: float) -> float:
+    """`raw.x ?? fallback`, y después la aritmética de JS sobre el resultado.
 
+    El `??` solo cambia `null`/`undefined`; todo lo demás sobrevive y lo coacciona
+    la multiplicación. Un `"500"` sale 500 y un `"abc"` sale NaN, que es lo que
+    hace que su nocional acabe en `NaN` (y en `null` al serializar).
 
-def _shares(v: Any) -> float:
-    """Acciones por contrato, distinguiendo AUSENTE de ILEGIBLE.
-
-    `?? 100` de Víctor solo rellena cuando el campo falta. Si viene y no se
-    puede leer (`"abc"`, `[]`, `""`), él acaba con un nocional `NaN`.
-
-    Aquí no se puede caer al 100: sería **inventar** el multiplicador estándar
-    justo cuando no hay evidencia de cuál es — que es exactamente el bug que
-    motivó portar este módulo, reintroducido por la puerta de atrás. Medido:
-    con `shares_per_contract: "abc"` el fallback a 100 daba un nocional de
-    $900.000 sobre un contrato del que no sabemos nada.
-
-    Sin multiplicador fiable el nocional es 0, que además enciende la
-    salvaguarda de baja liquidez del sub-agente 4 en vez de fabricar un número.
+    El valor que se guarda en el campo es el número, no el crudo: es la única
+    concesión al lenguaje. En su JSON `openInterest` sale como el string
+    `"500"`; aquí sale `500.0`, porque el resto del motor suma ese campo y en
+    Python un string no se suma. **El valor calculado es el mismo.**
     """
-    if v is None or v is _AUSENTE:
-        return DEFAULT_SHARES_PER_CONTRACT
-    return _coerce(v, 0)
+    return fallback if v is None else _js_number(v)
 
 
 def _obj(v: Any) -> dict:
@@ -123,8 +115,8 @@ def _obj(v: Any) -> dict:
     `raw.get("details") or {}` solo cubre `None` y el dict vacío. Si Massive
     manda `details` como texto o número —la misma clase de cambio de esquema que
     ya apareció dos veces— el `.get` lanza `AttributeError`, y como esto corre
-    dentro del bucle de `fetch_option_chain`, **una sola fila malformada tumba
-    la página entera** y la cadena sale vacía.
+    dentro del bucle de `fetch_option_chain`, una sola fila malformada tumbaría
+    la página entera. En TS eso es `undefined` y sigue; aquí también.
     """
     return v if isinstance(v, dict) else {}
 
@@ -143,15 +135,11 @@ def contract_price(raw: dict) -> tuple[float | None, PriceSource]:
     raw = _obj(raw)
 
     def usable(v: float | None) -> bool:
-        # DIVERGENCIA declarada: un precio infinito NO se acepta. En JS
-        # `Infinity > 0` es `true`, así que Víctor lo devuelve como precio y el
-        # Open Premium sale `Infinity` — que su `JSON.stringify` convierte a
-        # `null`, así que su archivo sigue siendo válido. `json.dumps` escribiría
-        # `Infinity`, que NO es JSON, y estos dos campos existen precisamente
-        # para servir la tabla de la cadena. Es el mismo fallo que apareció en
-        # `store.ts`. Un precio infinito es basura: cae al siguiente de la
-        # cascada, que es lo que ya se hace con el 0 y los negativos.
-        return v is not None and v > 0 and math.isfinite(v)
+        # `typeof x === "number" && x > 0`, literal. Un precio infinito PASA:
+        # llegué a rechazarlo y no está en el original. Su Open Premium sale
+        # `Infinity` y `JSON.stringify` lo escribe como `null`; aquí lo hace
+        # `_json_safe` de `vertex_api` al serializar la respuesta.
+        return v is not None and v > 0
 
     lt = _num(_obj(raw.get("last_trade")).get("price"))
     if usable(lt):
@@ -193,37 +181,20 @@ def notional_value(
 
 
 def _normalize_type(t: Any) -> str:
-    """`normalizeType`: cualquier cosa que no sea "put" es un call.
+    """`normalizeType`: `t === "put" ? "put" : "call"`, comparación EXACTA.
 
-    DIVERGENCIA declarada: se compara en minúsculas. Víctor hace `t === "put"`
-    exacto, así que un `"PUT"` se convierte en **call** — y ese fallo no avisa,
-    miente. Medido con una cadena entera en mayúsculas:
+    Un `"PUT"` en mayúsculas se cuenta como **call**. Llegué a comparar en
+    minúsculas y está quitado: no es lo que hace su archivo. Medido con una
+    cadena entera en mayúsculas, lo que cuesta es la señal central del motor:
 
         "put"  →  GEX total  -13,614,827  ·  régimen negative
         "PUT"  →  GEX total  +27,229,653  ·  régimen positive
 
-    Todos los puts pasan a contarse como calls: el GEX neto cambia de signo, el
-    put wall desaparece y el régimen se invierte. Es la señal central del motor
-    entero decidida por el `case` de un string de la fuente.
+    Massive manda `"call"`/`"put"` en minúsculas, así que hoy no se dispara. Si
+    algún día cambia el `case`, el aviso está aquí y el arreglo en
+    `engine/scripts/upstream-tito-compute.patch`.
     """
-    return "put" if str(t or "").strip().lower() == "put" else "call"
-
-
-def _finito(v: float | None, fallback: float | None) -> float | None:
-    """Recorta un resultado no finito al salir de las fórmulas.
-
-    Las dos multiplicaciones pueden **desbordar aunque las entradas sean
-    finitas**: `1e200 * 100 * 1e200` es `inf`. Filtrar solo lo que ENTRA dejaba
-    el agujero abierto por el otro lado, y un `inf` acaba en `json.dumps` como
-    `Infinity`, que no es JSON. Es el mismo fallo que el `NaN` de `store.ts`, y
-    el arreglo del precio infinito estaba a medias sin esto.
-
-    Se recorta aquí y no dentro de `notional_value` / `open_premium` para que
-    esas dos sigan siendo el port literal de sus fórmulas.
-    """
-    if v is None or not math.isfinite(v):
-        return fallback
-    return v
+    return "put" if t == "put" else "call"
 
 
 def to_row(raw: dict) -> ChainRow:
@@ -237,37 +208,32 @@ def to_row(raw: dict) -> ChainRow:
     day = _obj(raw.get("day"))
     oi = _coerce(raw.get("open_interest"), 0)
     strike = _coerce(details.get("strike_price"), 0)
-    shares = _shares(details.get("shares_per_contract", _AUSENTE))
+    shares = _coerce(details.get("shares_per_contract"), DEFAULT_SHARES_PER_CONTRACT)
     price, source = contract_price(raw)
-    # El MISMO `oi` alimenta el campo y las dos fórmulas. Redondear para el campo
-    # y calcular con el crudo dejaba filas que se contradicen a sí mismas: OI 60
-    # con un nocional calculado sobre 60.5.
-    #
-    # DIVERGENCIA declarada: el open interest se trunca a entero. Es un CONTEO de
-    # contratos —no existe medio contrato abierto— y Víctor lo arrastra tal cual
-    # solo porque JS no distingue. Con datos reales no cambia nada: ninguna
-    # fuente manda un OI fraccionario.
-    oi_int = int(oi)
     return ChainRow(
         # `?? ""`, no `or ""`: solo el ausente cae a vacío. Con `or`, un ticker
         # `0` o `False` —basura, pero basura que la fuente mandó— se borraba y
-        # quedaba indistinguible de "no vino".
-        option_ticker="" if details.get("ticker") is None else str(details["ticker"]),
+        # quedaba indistinguible de "no vino". El valor crudo pasa tal cual.
+        option_ticker="" if details.get("ticker") is None else details["ticker"],
         contract_type=_normalize_type(details.get("contract_type")),  # type: ignore[arg-type]
-        # DIVERGENCIA declarada: se recorta a YYYY-MM-DD. Víctor no lo hace
-        # porque su destino es una tabla; aquí la cadena de vencimiento es la
-        # CLAVE con la que agrupan el sub-agente 4 y el heatmap, y también la
-        # etiqueta del eje. Sin canonizar, "2026-09-18" y "2026-09-18T00:00:00"
-        # serían dos vencimientos distintos.
-        expiration=str(details.get("expiration_date") or "")[:10],
+        # `?? ""` y nada más. Llegué a recortarlo a YYYY-MM-DD porque esta
+        # cadena es la CLAVE con la que agrupan el sub-agente 4 y el heatmap;
+        # está quitado. Massive manda la fecha sola, así que hoy no cambia nada:
+        # si mandara `"2026-09-18T00:00:00Z"`, ese vencimiento contaría aparte.
+        expiration="" if details.get("expiration_date") is None else details["expiration_date"],
         strike=strike,
-        open_interest=oi_int,
-        volume=int(_coerce(day.get("volume"), 0)),
+        # Sin `int()`: su `openInterest` es un `number` y puede ser fraccionario.
+        # El MISMO valor alimenta el campo y las dos fórmulas, así que la fila no
+        # se contradice a sí misma.
+        open_interest=oi,
+        volume=_coerce(day.get("volume"), 0),
         price=price,
         price_source=source,
-        # Recortados: el producto desborda a `inf` con entradas finitas.
-        open_premium=_finito(open_premium(oi_int, price), None),
-        notional_value=_finito(notional_value(oi_int, strike, shares), 0.0),
+        # Sin recortar los no finitos: el producto desborda a `inf` con entradas
+        # finitas (`1e200 * 100 * 1e200`) y un `"abc"` da `NaN`. Los dos salen
+        # como `null` al serializar, igual que su `JSON.stringify`.
+        open_premium=open_premium(oi, price),
+        notional_value=notional_value(oi, strike, shares),
     )
 
 
@@ -276,10 +242,26 @@ def sort_by_open_interest_desc(rows: Sequence[ChainRow]) -> list[ChainRow]:
 
     No muta la de entrada — el original lo deja explícito con `[...rows]` y hay
     llamadores que siguen usando el orden original después.
+
+    Con un OI `NaN` su comparador devuelve `NaN`, que ECMA-262 trata como 0
+    ("iguales"), y el sort estable deja la fila donde estaba. `_clave` reproduce
+    eso: los no finitos comparan como iguales entre sí y con todo lo demás.
     """
-    return sorted(rows, key=lambda r: r.open_interest, reverse=True)
+    from functools import cmp_to_key
+
+    def cmp(a: ChainRow, b: ChainRow) -> int:
+        d = _js_number(b.open_interest) - _js_number(a.open_interest)
+        if d != d:          # NaN → SortCompare devuelve +0
+            return 0
+        return -1 if d < 0 else (1 if d > 0 else 0)
+
+    return sorted(rows, key=cmp_to_key(cmp))
 
 
 def count_expirations(rows: Sequence[ChainRow]) -> int:
-    """Vencimientos distintos presentes. Las cadenas vacías no cuentan."""
+    """Vencimientos distintos presentes. Las cadenas vacías no cuentan.
+
+    `new Set(rows.map(r => r.expiration).filter(Boolean)).size` — el `filter`
+    es por veracidad, así que `""` y `0` no cuentan pero `"0"` sí.
+    """
     return len({r.expiration for r in rows if r.expiration})

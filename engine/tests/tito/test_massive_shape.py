@@ -56,6 +56,11 @@ def test_contratos_no_dict_mezclados_no_tumban_la_pagina(monkeypatch):
     r = fetch_option_chain("DEMO")
     assert len(r.rows) == 2
     assert r.underlying_price == 99.0
-    assert r.expiration_count == 1                       # el 'T00:00:00Z' agrupa igual
     assert [x.open_interest for x in r.rows] == [700, 500]   # ordenadas por OI
-    assert [x.contract_type for x in r.rows] == ["put", "call"]   # 'PUT' sigue siendo put
+    # Los dos siguientes son comportamiento LITERAL de su `compute.ts`, no un
+    # descuido del port: `expiration_date` no se recorta, así que el
+    # `T00:00:00Z` cuenta como otro vencimiento; y `normalizeType` compara
+    # `t === "put"` exacto, así que un `"PUT"` en mayúsculas es un call.
+    # Ver `TestComportamientoLiteralDeVictor` y upstream-tito-compute.patch.
+    assert r.expiration_count == 2
+    assert [x.contract_type for x in r.rows] == ["call", "call"]
