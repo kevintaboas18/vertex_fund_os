@@ -2895,14 +2895,27 @@ function renderVictorProjChart(containerId, d, horizon) {
     // y "nunca una sola línea" es la regla de visualización nº1 del proyecto.
     const iv = Math.max((d.gex && d.gex.iv) || 0.4, 0.01);
 
-    // El orden es el de Víctor (bull, base, bear) porque define el z-order.
-    const scen = VC.SCEN.map(s => Object.assign({}, s, p[s.key]));
     const lvls = d.levels_for_chart || [];
 
     // Cono de σ: mismas bandas que expected_move (lognormal, se abre en √t).
     const sd = iv * Math.sqrt(Math.max(horizon, 0) / 365);
     const sigma1 = { lower: spot * Math.exp(-sd), upper: spot * Math.exp(sd) };
     const sigma2 = { lower: spot * Math.exp(-2 * sd), upper: spot * Math.exp(2 * sd) };
+
+    // El orden es el de Víctor (bull, base, bear) porque define el z-order.
+    //
+    // El target se recorta al cono de 2σ, que es lo que hace su `predictionPath`
+    // antes de dibujar; su SimpleChart etiqueta el RECORTADO, no el crudo ("El
+    // target es el de `predictionPath` (ya recortado al cono), no el crudo").
+    // El motor ya recorta con el MISMO `gex.iv`, así que hoy los dos valores
+    // coinciden; esto lo hace estructural — si algún día dejaran de coincidir,
+    // la línea del escenario no se sale del cono que la gráfica dibuja.
+    const enCono = v => Math.min(Math.max(v, sigma2.lower), sigma2.upper);
+    const scen = VC.SCEN.map(s => {
+        const e = Object.assign({}, s, p[s.key]);
+        e.target = enCono(e.target);
+        return e;
+    });
 
     const domain = vcSmartDomain({ bars: hist, spot, sigma1, sigma2, levels: lvls,
         targets: scen.map(s => ({ price: s.target, weight: 1 })) });

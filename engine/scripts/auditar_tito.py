@@ -695,6 +695,17 @@ chk("Math.max((d.gex && d.gex.iv) || 0.4, 0.01)" in _chart,
     "el cono lleva SU suelo `max(iv, 0.01)` (si no, se colapsa a una línea)")
 chk("Math.exp(mult * sd * k)" in _chart and "(upper - spot) * k" not in _chart,
     "el cono se evalúa paso a paso como su `conePoints`, no se interpola el extremo")
+chk("enCono(e.target)" in _chart and "sigma2.lower), sigma2.upper" in _chart,
+    "el target se recorta al cono 2σ, como su `predictionPath` (etiqueta incluida)")
+_wig = HTML[HTML.index("function vcWigglePath"):]
+_wig = _wig[:_wig.index("\n}")]
+chk(all(x in _wig for x in ("f * 8", "f * 19", "f * 37", "* 0.6", "* 0.28", "* 0.12",
+                            "Math.sin(Math.PI * f)", "sigma * 0.5 * envelope * wob",
+                            "steps = 30")),
+    "`vcWigglePath` es su `wigglePath` entero (fases, pesos, envelope, pasos)")
+chk(all(f"seed: {x}" in HTML for x in ("1.7", "4.1", "8.3"))
+    and all(c in HTML for c in ("#12b76a", "#2f6bff", "#f04438")),
+    "semillas y colores de los 3 escenarios, los suyos")
 
 sec("7. Seguridad")
 chk("URAc4p9DJi6Z" not in subprocess.run(["git","grep","-I","-l","URAc4p9DJi6Z"],
