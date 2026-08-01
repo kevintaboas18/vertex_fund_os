@@ -616,3 +616,68 @@ compañías.
 0.29. La diferencia es exactamente `Entradas/NVDA.json`. Llenar ese archivo sube la
 cobertura sin depender del judge — y la lista de A-03 dice qué claves faltan (21
 para NVDA, cubriendo 25 métricas).
+
+---
+
+# 9. Tercera auditoría del área `analyze` — 2026-08-01
+
+Esta pasada fue a lo que **no** se había escudriñado: los casos de aceptación
+del propio Victor.
+
+## 9.1 A-05 — 20 de los 57 casos de Victor no tenían test que los nombrara
+
+Cada `Cerebro/*/VALIDATION_TESTS.md` declara una tabla numerada: entradas a la
+izquierda, resultado exigido a la derecha. Son su definición de "funciona".
+
+Veinte no aparecían citados en `engine/tests/`. **El comportamiento era
+correcto** —los verifiqué a mano uno por uno y todos pasaban— pero nada ataba
+el comportamiento al caso, así que una regresión habría salido como un fallo
+anónimo en otro sitio, o no habría salido.
+
+`engine/tests/test_victor_validation_cases.py` los encodea citando el ID. Ahora
+**57/57**, y una ruptura dice qué caso de Victor se rompió.
+
+| Caso | Qué exige |
+|---|---|
+| VAL-T002/T003 | `g >= WACC` se rechaza (denominador cero o negativo) |
+| VAL-T004 | reinversión terminal = `g / ROIC` |
+| VAL-T005 | puente de deuda: EV 1000 → equity 800 → $10/acción |
+| VAL-T006 | probabilidades que suman 1 pasan; las que no, se rechazan |
+| VAL-T007 | valor terminal 80% del EV → bandera de alta sensibilidad |
+| VAL-T009 | FCFF y beneficio económico reconcilian bajo los mismos supuestos |
+| TECH-T002 | true range abarca el cierre previo |
+| TECH-T004 | dos máximos a 2 sesiones son **un** toque (exige ≥5) |
+| TECH-T009 | distancia en ATR, **con signo** desde el precio |
+| TECH-T010 | historia sin ajustar → packet técnico rechazado (`ERROR`, cobertura 0) |
+| TECH-T011 | un pivote no se conoce hasta k sesiones después (sin look-ahead) |
+| TECH-T012 | sin volumen la dimensión no puntúa; no se inventa un valor medio |
+| FIN-T006 | pérdida + FCF negativo + emisión → Override 1 |
+| FIN-T007 | ROIC < WACC bloquea Excellent; entradas ausentes **no** lo disparan |
+| FIN-T008 | 27 métricas Excellent = 54/54 = 100% |
+| MKT-T006 | pronóstico por encima del TAM falla el gate de consistencia |
+| MKT-T007 | TAM tier 4 (confianza 45) capa la dimensión |
+| MKT-T008 | consenso posterior al reporte no puede medir sorpresa |
+| RSK-T008 | Risk 4/15 con raw 90 → capado a Speculative pese a banda Elite |
+| RSK-T009 | M-score forense es una cifra, no una acusación |
+
+## 9.2 Errores míos que el chequeo atrapó
+
+Vale registrarlos porque muestran por qué no basta con leer el código:
+
+- Probé `VAL-T003` con los argumentos al revés (`gordon_terminal_value` es
+  `(fcff, g, wacc)`, no `(fcff, wacc, g)`) y **casi reporto un bug que no
+  existía**. El motor estaba bien.
+- Inventé siete nombres de función que no existen (`tam_consistency_ok`,
+  `beneish_m_score_flag`, `_PIVOT_K`…). Los reales son
+  `forecast_consistency_gate`, `beneish_m_score`, `find_pivots(...).confirmed_index`.
+- Asumí que RSK-T008 necesitaba el objeto `Override` para capar. **No**: el gate
+  lee el score de riesgo directamente y capa solo con eso — el motor es más
+  estricto de lo que supuse.
+
+## 9.3 Estado
+
+**2091 tests del engine + 49 de la capa web.** 57/57 casos de Victor,
+207/207 métricas, 0 sin documentar.
+
+Sigue abierto **V-03** (sin saldo en Anthropic) con su consecuencia de §8.3:
+`OVERRIDE_6` en 4 de 4 tickers, ninguna empresa puede pasar un gate de perfil.
