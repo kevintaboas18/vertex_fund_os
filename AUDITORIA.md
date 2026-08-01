@@ -843,3 +843,46 @@ error. Queda medido y sobre la mesa.
 ## 11.5 Estado
 
 **2107 tests del engine + 56 de la capa web** (7 nuevos de seguridad de rutas).
+
+---
+
+# 12. W-03: latencia de `/api/analyze` — 2026-08-01
+
+## 12.1 Dónde se iba el tiempo (medido, no estimado)
+
+Instrumenté el cliente de Gemini para atribuir cada llamada a su llamador:
+
+| origen | segundos | ¿lo consume alguien? |
+|---|---|---|
+| `_analyze_structured` (reporte estructurado) | **34.5** | sí — es el cuerpo de la respuesta |
+| `_wbj_explain` (narrativa en palabras) | **18.4** | **NO — cero usos en la plataforma** |
+| QuantData (25 peticiones a rutas 404) | 8.1 | no (W-02) |
+| motor + resto de fuentes | ~45 | sí |
+
+## 12.2 El hallazgo: se pagaban 18.4 s por un campo que nadie lee
+
+`grep wbj_explanation` sobre `vertex_fund_os_platform.html` da **0 usos**. La API
+lo generaba en cada llamada y ninguna pantalla lo mostraba.
+
+Ahora va detrás de **`?explain=1`**. La capacidad sigue ahí; se paga si se pide.
+
+## 12.3 Resultado
+
+| | antes | ahora |
+|---|---|---|
+| `/api/analyze` (media de 3) | 92–115 s | **75.5 s** (69.4 / 61.7 / 95.2) |
+| peticiones QuantData | 25 (8.1 s) | 8 (2.2 s) |
+
+**Honestamente: sigue siendo lento.** La varianza del LLM es alta y el pico de
+95 s roza el corte de Render. Lo que queda —`_analyze_structured` (34.5 s) más el
+motor (~40 s)— es coste estructural: bajarlo de verdad exige devolver los números
+primero y el LLM después (trabajo en segundo plano + sondeo desde la UI), que es
+un cambio de diseño de la interfaz, no una corrección puntual. Queda medido y
+documentado; no lo hice unilateralmente porque cambia el contrato de la respuesta.
+
+## 12.4 Sobre las 26 rutas con `str(e)`
+
+Verificado que **no filtran claves** (§11.4). Corregido en `/api/report-delete`,
+que es la que borra. El resto queda como endurecimiento menor pendiente: cambiar
+26 rutas a la vez, sin poder validar cada una en vivo, arriesga más de lo que
+aporta hoy.

@@ -8898,7 +8898,11 @@ def _engine_scorecard(ticker, info, price):
 
 
 @app.get("/api/analyze")
-def analyze_ticker(ticker: str):
+def analyze_ticker(ticker: str, explain: bool = False):
+    """Análisis completo. `explain=1` añade la explicación en palabras del
+    2º pase LLM, que cuesta ~18 s y que NINGUNA pantalla consume hoy
+    (`grep wbj_explanation` sobre la plataforma: 0 usos). Se paga sólo si
+    alguien la pide."""
     ticker = ticker.upper().strip()
     try:
         stock = yf.Ticker(ticker)
@@ -9689,7 +9693,13 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
                 if isinstance(_eng, dict):
                     _eng.pop("_victor_final", None)   # objeto interno: nunca al cliente
             # ── EXPLICACIÓN EN PALABRAS (2º pase LLM): SOLO explica los números YA congelados
-            #    de Victor + su ajuste a tu perfil. NO cambia ningún cálculo (Kevin.md). ──
+            #    de Victor + su ajuste a tu perfil. NO cambia ningún cálculo (Kevin.md).
+            #
+            #    Detrás de `?explain=1`. Medido: 18.4 s de los ~105 s que tardaba
+            #    /api/analyze, para un campo que la plataforma no lee en ningún
+            #    sitio (0 usos de `wbj_explanation` en el HTML). Pagarlo en cada
+            #    llamada acercaba el endpoint al corte de Render sin que nadie
+            #    viera el resultado. La capacidad sigue ahí; ahora se pide. ──
             try:
                 _pname, _ptext = _load_investor_profile()
                 _wj = analisis_json.get("wbj") or {}
@@ -9728,7 +9738,8 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
                     f"FIT DE PERFIL (determinista): {_pf.get('fit')} — {_pf.get('fit_reason')}\n"
                     + _prior_ctx +
                     f"\n=== MI PERFIL ({_pname or 'Kevin'}) ===\n{_ptext}")
-                _expl, _expl_src = _wbj_explain(_ctx)
+                # La unica linea cara del bloque: ~18.4 s contra Gemini.
+                _expl, _expl_src = _wbj_explain(_ctx) if explain else (None, None)
                 if _expl:
                     analisis_json["wbj_explanation"] = _expl
                     analisis_json["wbj_explanation_source"] = _expl_src

@@ -1,5 +1,13 @@
 # Tesis — AAPL
 
+## 2026-08-01 11:59 — perfil Avoid / Wait · raw 31.6/100
+- Precio al análisis: $308.91 · Fair value (base): $322.17
+- Targets 12M: Bull $388.25 / Base $322.17 / Bear $223.09
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $322.17.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — AAPL
+
 ## 2026-08-01 11:32 — perfil Avoid / Wait · raw 31.6/100
 - Precio al análisis: $308.91 · Fair value (base): $322.17
 - Targets 12M: Bull $388.25 / Base $322.17 / Bear $223.09
