@@ -783,12 +783,25 @@ def thesis_killer_priority(probability: float, impact: float, detectability: flo
 def profile_fit(position_size_pct: float | None) -> dict[str, Any]:
     """Position-sizing and horizon fit against `PROFILE` (task-18 brief's
     "profile-fit section reads the Perfil file")."""
+    # A CAP is an upper bound. This read the range as a required band
+    # (`lo <= pos <= hi`), so a position UNDER it counted as a breach: with
+    # Kevin.md's "Máximo por posición individual: 20% - 30%", a 10% position
+    # reported `within_position_cap = False`, as if sizing conservatively
+    # were a violation of a maximum. The bug was latent under the old
+    # (0.05, 0.20) default, where almost any real position cleared 5%.
+    #
+    # The range is the cap itself, not yet pinned to one number, so the
+    # breach test is against its top. Being below the range is reported
+    # separately, as information rather than as a failure.
     lo, hi = PROFILE["max_position_pct"]
-    within_cap = (lo <= position_size_pct <= hi) if position_size_pct is not None else None
+    within_cap = (position_size_pct <= hi) if position_size_pct is not None else None
+    below_range = (position_size_pct < lo) if position_size_pct is not None else None
     return {
         "position_size_pct": position_size_pct,
         "max_position_pct_range": list(PROFILE["max_position_pct"]),
         "within_position_cap": within_cap,
+        # Not a breach: smaller than the sizing the profile contemplates.
+        "below_intended_sizing": below_range,
         "horizon_years_range": list(PROFILE["horizon_years"]),
         "style": PROFILE["style"],
         "capital_usd": PROFILE["capital_usd"],

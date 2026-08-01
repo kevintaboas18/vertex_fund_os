@@ -681,3 +681,90 @@ Vale registrarlos porque muestran por qué no basta con leer el código:
 
 Sigue abierto **V-03** (sin saldo en Anthropic) con su consecuencia de §8.3:
 `OVERRIDE_6` en 4 de 4 tickers, ninguna empresa puede pasar un gate de perfil.
+
+---
+
+# 10. Auditoría contra el repo real de Victor — 2026-08-01
+
+Esta pasada clonó `infusionvictor/warren-buffett-jr` y comparó archivo por
+archivo, además de correr **sus 36 archivos de test contra este motor**.
+
+## 10.1 Lo que es idéntico a Victor
+
+| Área | Resultado |
+|---|---|
+| **Cerebro (la metodología)** | **83/83 archivos idénticos byte a byte** |
+| Superficie pública del motor | **0 funciones/clases suyas eliminadas** |
+| Archivos suyos ausentes | **ninguno** — este repo es un superconjunto (64 .py vs 51) |
+| `.claude/agents` | 7/7 presentes, 6 idénticos (risk-analysis apunta a Kevin.md a propósito) |
+
+Su repo lleva sin tocarse desde el **18 de julio**, dos semanas antes de este
+trabajo.
+
+## 10.2 Sus tests contra este motor: 702 pasan, 29 fallan
+
+Los 29 se reparten así:
+
+| Causa | N | ¿Es un problema? |
+|---|---|---|
+| Idioma (sus tests esperan narrativa en español; el motor responde en inglés) | 6 | No — el motor se internacionalizó (`i18n.py`) |
+| Claves de caché cualificadas por parámetros | 6 | No — viene del commit de port, evita colisiones reales |
+| Adapters que esta copia **implementa** en vez de rechazar (bancos → residual income) | 3 | No — es una mejora sobre su rechazo |
+| Modelo del judge `opus-4-8` → `opus-5` | 1 | No — upgrade deliberado |
+| Comportamientos que esta auditoría corrigió (precio liquidado, dilución 3a) | 4 | No — sus tests codifican lo viejo |
+| IDs de petición del judge distintos | 4 | No — internamente consistentes (verificado abajo) |
+| **Regresiones reales** | **2** | **Sí — corregidas** |
+| Otros (memoria, quick, brief) | 3 | Divergencias del port |
+
+## 10.3 A-06 — un adapter desconocido se valuaba con el modelo convencional
+
+`industry_adapter="bank_adapter"` —la grafía de Victor en VAL-T010, donde este
+motor dice `"banks"`— no caía en ninguna rama y producía
+`primary=['FCFF_DCF','ECONOMIC_PROFIT']` **para un banco**: exactamente el modelo
+que la matriz de DECISION_RULES.md prohíbe para ese tipo de empresa.
+
+`business.py` ya trataba un adapter sin clasificar como no fiable (le pone piso
+al model-fit: *"claiming a good fit for it would be an assertion without
+evidence"*). Valuación, que es donde más daño hace, no lo hacía.
+`_adapters.is_classified()` cierra el hueco: cualquier nombre que ninguno de los
+tres conjuntos clasifique se rechaza igual que un adapter que reemplaza el modelo.
+
+## 10.4 A-07 — un techo tratado como banda obligatoria (bug mío)
+
+`profile_fit` comprobaba `lo <= pos <= hi`. Con el **"Máximo por posición
+individual: 20% – 30%"** de Kevin.md, una posición del **10% reportaba
+`within_position_cap = False`** — como si dimensionar conservador incumpliera un
+máximo. Lo introduje yo al cambiar el rango a 20–30% sin revisar cómo se
+consumía; estaba latente con el (0.05, 0.20) por defecto, donde casi cualquier
+posición real superaba el 5%. Ahora el incumplimiento se mide contra el techo, y
+estar por debajo del rango se reporta aparte como información.
+
+## 10.5 CORRECCIÓN: los créditos NO desbloquean Market
+
+En §8.3 escribí que el judge caído le costaba a Market 13 de sus 20 puntos.
+**Es incorrecto y lo corrijo.** Simulé las 8 respuestas del judge y las pasé por
+`merge_overlay`:
+
+| categoría | antes | después |
+|---|---|---|
+| Financial | 10.08 | **12.48** (cobertura 0.92 → 1.00) |
+| Business | 11.39 | 11.39 |
+| **Market** | **5.17** | **5.17** (cobertura **0.49 → 0.49**) |
+| Technical / Risk / Valuation | sin cambio | sin cambio |
+| **TOTAL** | 47.95 | **50.35** (+2.40) |
+
+Market le hace al judge **una sola petición**
+(`three_growth_thesis_killers`), que es narrativa y no alimenta ninguna
+dimensión puntuada. Sus **14 métricas sin puntuar salen todas de
+`Entradas/<TICKER>.json`**: SAM, SOM, cuota de mercado, HHI, runway, catalizadores,
+adopción, ARPU, escenarios.
+
+**Consecuencia práctica:** cargar créditos suma ~2.4 puntos y llena los thesis
+killers, pero **no mueve la cobertura de Market**, así que `OVERRIDE_6` sigue
+disparando y ninguna empresa pasa un gate. Lo que levanta esa cobertura es
+llenar `Entradas/`. La lista de A-03 dice qué claves faltan.
+
+## 10.6 Estado
+
+**2107 tests del engine + 49 de la capa web.** 57/57 casos de aceptación,
+207/207 métricas, Cerebro 83/83 idéntico.

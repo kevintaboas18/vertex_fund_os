@@ -304,13 +304,31 @@ def test_profile_fit_within_cap():
     """A-03: el perfil se LEE de `Perfil Inversionista/`, ya no está transcrito
     a mano en el módulo. El test comprueba el mecanismo (comparar contra el
     rango del perfil vigente), no las cifras de un inversionista concreto —
-    codificarlas es lo que hizo que el módulo se desincronizara del archivo."""
+    codificarlas es lo que hizo que el módulo se desincronizara del archivo.
+
+    Un TECHO es una cota superior. Este test exigía `lo <= pos <= hi`, o sea
+    trataba el rango como una banda obligatoria, y con el "Máximo por posición
+    individual: 20% - 30%" de Kevin.md una posición del 10% salía como
+    violación — como si dimensionar conservador incumpliera un máximo. El
+    fallo estaba latente con el (0.05, 0.20) por defecto, donde casi
+    cualquier posición real superaba el 5%.
+    """
     lo, hi = risk.PROFILE["max_position_pct"]
     dentro = (lo + hi) / 2.0
     assert risk.profile_fit(dentro)["within_position_cap"] is True
+    # Por encima del techo: sí incumple.
     assert risk.profile_fit(hi + 0.10)["within_position_cap"] is False
-    assert risk.profile_fit(max(0.0, lo - 0.01))["within_position_cap"] is False
+    # Justo en el techo: cabe (es un máximo, no un límite abierto).
+    assert risk.profile_fit(hi)["within_position_cap"] is True
+    # Por DEBAJO del rango: cabe de sobra en el techo, y se reporta aparte
+    # como información, nunca como incumplimiento.
+    conservadora = risk.profile_fit(max(0.0, lo - 0.01))
+    assert conservadora["within_position_cap"] is True
+    assert conservadora["below_intended_sizing"] is True
+    # Dentro del rango no está "por debajo de lo previsto".
+    assert risk.profile_fit(dentro)["below_intended_sizing"] is False
     assert risk.profile_fit(None)["within_position_cap"] is None
+    assert risk.profile_fit(None)["below_intended_sizing"] is None
 
 
 # ============================================================================

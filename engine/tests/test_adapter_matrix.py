@@ -218,8 +218,16 @@ def test_no_test_fixture_invents_an_adapter_name():
     real = {a for _, a in (*_ADAPTER_BY_INDUSTRY, *_ADAPTER_BY_SECTOR)}
     real.add("default_nonfinancial")
 
+    # The one file whose whole subject is the unrecognised name: A-06 asks
+    # what valuation does when handed an adapter no set classifies, so it
+    # HAS to write names the builder never emits. Exempting it by name
+    # keeps the guard meaningful everywhere else.
+    deliberate = {"test_adapter_and_cap_semantics.py"}
+
     offenders = []
     for path in Path(__file__).parent.rglob("test_*.py"):
+        if path.name in deliberate:
+            continue
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             for name in re.findall(r'industry_adapter\s*=\s*["\']([^"\']+)["\']', line):
                 if name not in real:

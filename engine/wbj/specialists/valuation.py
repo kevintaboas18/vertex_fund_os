@@ -35,14 +35,21 @@ unweighted stdlib stdev.
 
 ## Model-selection matrix (brief's simplification of DECISION_RULES.md)
 
-Per the task-19 brief, this module implements only the "general
-non-financial" row of Cerebro's full 8-row model-selection matrix: FCFF
-DCF + an economic-profit cross-check. Every other `industry_adapter`
-value (bank, insurer, REIT, ...) returns an `ADAPTER_UNSUPPORTED`
-mandatory flag and an all-`NOT_SCORABLE` category rather than silently
-running FCFF/EV-EBITDA math Cerebro's matrix explicitly says to avoid for
-that company type (`DECISION_RULES.md`: "Do not use a valuation model
-that conflicts with the company type").
+This module implements the "general non-financial" row of Cerebro's
+8-row model-selection matrix (FCFF DCF + an economic-profit cross-check),
+plus the bank/insurer and REIT rows through `_financial_adapter_output`
+and `_reit_adapter_output`.
+
+Any adapter left over -- one the matrix names but registers no model for,
+AND any name none of `wbj.core.adapters`' three sets classifies -- returns
+an `ADAPTER_MODELS_NOT_REGISTERED` mandatory flag with every dimension
+`NOT_APPLICABLE`, rather than silently running FCFF/EV-EBITDA math the
+matrix says to avoid for that company type (`DECISION_RULES.md`: "Do not
+use a valuation model that conflicts with the company type").
+
+The unrecognised-name half matters as much as the documented one: an
+adapter spelled `bank_adapter` instead of `banks` used to fall straight
+through to the conventional DCF and price a BANK by FCFF.
 
 ## Dataset coverage vs. `Packet`
 
@@ -1058,6 +1065,20 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     if adapter == "reits":
         return _reit_adapter_output(packet, overlay)
     if adapter in MODEL_REPLACING_ADAPTERS:
+        return _unsupported_adapter_output(packet)
+    # An adapter no set classifies is one nobody has checked the
+    # conventional formulas against, so running them on it is an assertion
+    # without evidence. Falling through valued a company by FCFF DCF purely
+    # because its adapter name was unrecognised: `industry_adapter="bank_adapter"`
+    # — Victor's own spelling in VAL-T010, and this engine's is "banks" —
+    # produced `primary=['FCFF_DCF', 'ECONOMIC_PROFIT']` for a BANK, the
+    # exact model DECISION_RULES.md's selection matrix bars for one.
+    #
+    # `business.py` already treats an unclassified adapter as untrusted
+    # (`_category_confidence` floors its model fit "as a model-replacing
+    # adapter is: no evidence the formulas fit"). Valuation is where the
+    # same unknown does the most damage, since it prices the company.
+    if not _adapters.is_classified(adapter):
         return _unsupported_adapter_output(packet)
 
     annual = _annual_rows(packet)
