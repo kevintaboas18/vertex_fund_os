@@ -69,22 +69,32 @@ class TestGuardarYLeer:
         save_bars("demo", _barras(), HOY)
         assert load_bars("DEMO").ticker == "DEMO"
 
-    def test_el_saneado_del_ticker_es_el_suyo(self):
-        # `ticker.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "")`, sin las
-        # guardas extra de stores.py: aquellas valen la pena en la memoria
-        # acumulada, aqui el dano se limita a un cache que se reescribe cada dia
-        # y que ademas no llama nadie.
+    def test_el_saneado_es_el_MISMO_que_el_de_stores(self):
+        """Un solo saneado para las dos rutas de disco.
+
+        `_file_for` de este modulo usaba el regex literal de Victor, que sanea
+        `"!!!"`, `""` y `"n~"` a la cadena vacia y los manda todos al mismo
+        `.json`. Se dejo asi mientras nadie llamaba al modulo. Al cablearlo dejo
+        de dar igual: `fetch_option_chain` NO lanza con una cadena vacia, asi
+        que la llamada a barras se alcanza con cualquier ticker que se escriba.
+        """
         from wbj.tito.bars_store import _file_for
+        from wbj.tito.stores import _file_for as _trades_file_for
 
         assert _file_for("demo").name == "DEMO.json"
         assert _file_for(" demo ").name == "DEMO.json"
         assert _file_for("BRK.B").name == "BRK.B.json"
         assert _file_for("brk/b").name == "BRKB.json"
-        assert _file_for("!!!").name == ".json"       # como el suyo
-        assert _file_for("").name == ".json"
+        # …y el mismo rechazo que en la memoria de trades
+        for malo in ("!!!", "@@@", "", "   ", "...", "A" * 200):
+            with pytest.raises(ValueError):
+                _file_for(malo)
+            with pytest.raises(ValueError):
+                _trades_file_for(malo)
+        assert load_bars("!!!") is None            # leer nunca lanza
 
     def test_el_regex_ya_cierra_la_travesia_de_rutas(self):
-        # Sin guarda extra: su propio regex borra las barras.
+        # Esto si es suyo y se conserva: su propio regex borra las barras.
         from wbj.tito.bars_store import _file_for
         from wbj.tito.stores import data_dir
 
@@ -380,6 +390,65 @@ class TestPoliticaDelPanel:
         daily_bars_for_panel("X", now=noche, fetch=lambda t, d: larga)
         daily_bars_for_panel("X", now=noche + timedelta(days=3), fetch=lambda t, d: corta)
         assert len(load_bars("X").bars) == 250, "el historico se acorto"
+
+    def test_4b_dos_peticiones_a_la_vez_no_acortan_el_historico(self):
+        """La guarda de "no acortar" tiene que decidir DENTRO del cerrojo.
+
+        Comparando contra el `load_bars` que hizo el llamador, dos peticiones
+        simultaneas leen el cache vacio, las dos deciden que pueden escribir y
+        gana la ultima: una respuesta truncada de 5 barras pisaba una serie
+        buena de 250. Es el mismo patron leer-decidir-escribir sin cerrojo que
+        costo ocho hallazgos en `store.ts`.
+        """
+        import threading
+
+        noche = datetime(2026, 7, 31, 18, tzinfo=ET)
+        leyeron = threading.Barrier(2)
+        larga_ok = threading.Event()
+
+        def larga():
+            daily_bars_for_panel(
+                "RACE", now=noche,
+                fetch=lambda t, d: (leyeron.wait(), _barras_hasta("2026-07-31", 250))[1])
+            larga_ok.set()
+
+        def corta():
+            def f(t, d):
+                leyeron.wait()
+                larga_ok.wait(10)          # la truncada escribe DESPUES
+                return _barras_hasta("2026-07-31", 5)
+
+            daily_bars_for_panel("RACE", now=noche, fetch=f)
+
+        hs = [threading.Thread(target=larga), threading.Thread(target=corta)]
+        for h in hs:
+            h.start()
+        for h in hs:
+            h.join(timeout=15)
+        assert len(load_bars("RACE").bars) == 250, "la truncada piso el historico"
+
+    def test_el_corte_no_depende_de_la_TZ_del_servidor(self):
+        # Un `now` sin zona se lee como UTC, igual que en `occ.market_date`. Si
+        # no, la validez del cache dependeria de la TZ de la maquina.
+        import os
+        import time
+
+        from wbj.tito.bars_store import _ultima_sesion_cerrada
+
+        previo = os.environ.get("TZ")
+        vistos = set()
+        try:
+            for tz in ("UTC", "America/New_York", "Asia/Tokyo"):
+                os.environ["TZ"] = tz
+                time.tzset()
+                vistos.add(_ultima_sesion_cerrada(datetime(2026, 7, 31, 22, 0)))
+        finally:
+            if previo is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = previo
+            time.tzset()
+        assert len(vistos) == 1, f"el corte cambio con la TZ: {vistos}"
 
     def test_si_falla_la_red_el_error_sube(self):
         # A diferencia de `cached_daily_bars` (que hace `.catch(() => [])`), aqui

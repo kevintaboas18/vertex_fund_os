@@ -326,13 +326,26 @@ with tempfile.TemporaryDirectory() as _tdb:
     BS.save_bars("VIEJO", _bb, _AYER)
     BS.cached_daily_bars("VIEJO", now=_HOY, fetch=_boom)
     chk(BS.load_bars("VIEJO").bars == _bb, "y no borra el cache que ya había")
-    _src = (TITO_DIR/"bars_store.py").read_text()
-    chk(not any(x in _src for x in ("mercado_abierto","_datos_congelados","_recorta",
-                                    'days: int = 0','"days"')),
-        "sin las 4 reglas que no están en el original")
-    chk(BS._file_for("!!!").name == ".json" and BS._file_for(" demo ").name == "DEMO.json"
-        and BS._file_for("brk/b").name == "BRKB.json",
-        "el saneado del ticker es el suyo, sin guardas extra")
+    # La separación de capas es lo que hace que el diferencial signifique algo:
+    # SU función no puede llevar ni una regla del panel, o dejaría de poder
+    # medirse contra su archivo. La política vive en `daily_bars_for_panel`.
+    import inspect as _insp
+    _suya = _insp.getsource(BS.cached_daily_bars)
+    chk(not any(x in _suya for x in ("_ultima_sesion_cerrada", "_CIERRE_ET",
+                                     "mercado_abierto", "_datos_congelados",
+                                     "_recorta", "_guarda_si_no_acorta")),
+        "`cached_daily_bars` sigue siendo SU función, sin una sola regla del panel")
+    _pol = _insp.getsource(BS.daily_bars_for_panel)
+    chk("_ultima_sesion_cerrada" in _pol and "_guarda_si_no_acorta" in _pol,
+        "…y la política del panel vive aparte, en `daily_bars_for_panel`")
+    _bs_rechaza = 0
+    for _malo in ("!!!", "@@@", "", "   ", "...", "A" * 200):
+        try: BS._file_for(_malo)
+        except ValueError: _bs_rechaza += 1
+    chk(BS._file_for(" demo ").name == "DEMO.json"
+        and BS._file_for("brk/b").name == "BRKB.json" and _bs_rechaza == 6
+        and "_sanea_ticker" in (TITO_DIR/"bars_store.py").read_text(),
+        "el saneado del ticker es el MISMO que el de stores (uno solo, compartido)")
     chk(BS._file_for("../../ETC/X").resolve().parent == (BS.data_dir()/"bars").resolve(),
         "su propio regex ya cierra la travesía de rutas")
     BS.save_bars(" demo ", _bb, _HOY)

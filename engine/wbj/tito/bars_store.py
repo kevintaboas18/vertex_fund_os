@@ -30,7 +30,6 @@ mientras no lo llamaba nadie, reales desde que el panel lo usa.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -38,7 +37,7 @@ from typing import Any, Sequence
 
 from .levels import LvlBar
 from .occ import market_date_str
-from .stores import _exclusive, _read, _write, data_dir
+from .stores import _exclusive, _read, _sanea_ticker, _write, data_dir
 
 __all__ = [
     "BarsFile",
@@ -69,18 +68,23 @@ def _file_for(ticker: str) -> Path:
 
         const safe = ticker.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "");
 
-    Sin las guardas que sí lleva `stores._sanea_ticker`: allí un ticker que se
-    queda en nada (`"!!!"`, `""`) se rechaza, porque un `.json` compartido
-    contamina la MEMORIA acumulada del sub-agente 6. Aquí el daño se limita a
-    que dos tickers basura compartan un cache que se reescribe cada día, y este
-    módulo además no lo llama nadie (su cabecera dice que en v1 solo lo usa
-    Wheel), así que se deja literal — y el diferencial se mantiene en 27/27.
+    GUARDA (divergencia deliberada): usa el MISMO `_sanea_ticker` que
+    `stores.py`, que además rechaza el ticker que se queda en nada (`"!!!"`,
+    `""`, `"ñ"`) y el demasiado largo. Su regex los sanea todos a la cadena
+    vacía y los manda al mismo `.json`.
 
-    La travesía de rutas sigue cerrada sin guarda extra: su propio regex borra
-    las barras, así que `../..` se queda en `....` y no sale del directorio.
+    Mientras el módulo no lo llamaba nadie esto daba igual y se dejó literal. Al
+    cablearlo dejó de dar igual: `fetch_option_chain` **no lanza** con una cadena
+    vacía —devuelve `rows=[]`, que el motor sabe manejar—, así que la llamada a
+    barras se alcanza con cualquier ticker que el usuario escriba.
+
+    Se comparte la función en vez de copiarla: dos saneados distintos para la
+    misma entrada, en el mismo repo, es una trampa por sí sola.
+
+    La travesía de rutas ya la cerraba su regex: borra las barras, así que
+    `../..` se queda en `....` y no sale del directorio.
     """
-    safe = re.sub(r"[^A-Z0-9._-]", "", ticker.strip().upper())
-    return data_dir() / "bars" / f"{safe}.json"
+    return data_dir() / "bars" / f"{_sanea_ticker(ticker)}.json"
 
 
 def _a_bar(d: object) -> LvlBar | None:
@@ -125,7 +129,11 @@ def load_bars(ticker: str) -> BarsFile | None:
     por su forma; en Python hacen falta `LvlBar` para que `levels`, `validation`
     y compañía puedan leer `b.time`.
     """
-    parsed = _read(_file_for(ticker))
+    try:
+        path = _file_for(ticker)
+    except ValueError:
+        return None          # un ticker sin nombre de archivo tampoco tiene cache
+    parsed = _read(path)
     if not isinstance(parsed, dict) or not isinstance(parsed.get("bars"), list):
         return None
     return BarsFile(
@@ -222,6 +230,11 @@ def _ultima_sesion_cerrada(now: datetime) -> str:
     """
     from .occ import MARKET_TZ
 
+    if now.tzinfo is None:
+        # Mismo criterio que `occ.market_date`: un naive se lee como UTC y no en
+        # la zona de la máquina. Si no, el corte —y con él la validez del
+        # cache— dependería de la TZ del servidor.
+        now = now.replace(tzinfo=timezone.utc)
     et = now.astimezone(MARKET_TZ)
     d = et.date()
     if et.hour < _CIERRE_ET:
@@ -270,8 +283,29 @@ def daily_bars_for_panel(
     bars = list(fetch(ticker, days))
 
     if bars and bars[-1].time >= corte:
-        # Nunca acortar el histórico: una respuesta truncada no pisa una serie
-        # buena que ya está en disco.
-        if cache is None or not cache.bars or len(bars) >= len(cache.bars):
-            save_bars(ticker, bars, now)
+        _guarda_si_no_acorta(ticker, bars, now)
     return bars
+
+
+def _guarda_si_no_acorta(ticker: str, bars: Sequence[LvlBar], now: datetime) -> bool:
+    """Escribe el cache salvo que acorte lo que ya hay. Decide DENTRO del cerrojo.
+
+    La comparación tiene que ir bajo el mismo cerrojo que la escritura, no sobre
+    el `load_bars` que hizo el llamador. Con dos peticiones simultáneas del
+    mismo ticker —el panel se auto-refresca y Render corre varios workers—, las
+    dos leen el cache vacío, las dos deciden que pueden escribir, y **la última
+    en llegar gana**: una respuesta truncada de 5 barras pisaba una serie buena
+    de 250. Medido, y es justo el fallo que esta guarda existe para evitar.
+
+    Es el mismo patrón leer-decidir-escribir sin cerrojo que costó ocho
+    hallazgos en `store.ts`.
+    """
+    with _exclusive(_file_for(ticker)):
+        # Relectura bajo cerrojo: el estado de antes puede ser de hace dos
+        # llamadas de red. `_exclusive` es reentrante por hilo, así que el
+        # `save_bars` de dentro no se bloquea a sí mismo.
+        actual = load_bars(ticker)
+        if actual is not None and actual.bars and len(bars) < len(actual.bars):
+            return False
+        save_bars(ticker, bars, now)
+        return True

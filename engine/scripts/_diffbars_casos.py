@@ -7,7 +7,8 @@ def c(**k): casos.append(k)
 # difiera de su barsStore.ts tiene que declarar CUÁL, y cada guarda declarada
 # tiene que producir de verdad una diferencia: así el diferencial pilla tanto
 # una divergencia nueva sin querer como una guarda que desapareció en silencio.
-G_VALIDA = "G · load_bars valida lo que hay en disco (sus 2 bugs del `as`)"
+G_VALIDA = "G1 · load_bars valida lo que hay en disco (sus 2 bugs del `as`)"
+G_TICKER = "G2 · ticker que no da nombre de archivo (mismo saneado que stores)"
 
 c(nombre="load sin cache", op="load", ticker="DEMO")
 c(nombre="load tras save", op="load", ticker="DEMO", pre={"ticker":"DEMO","n":3,"now":HOY})
@@ -18,7 +19,13 @@ c(nombre="load array pelado", divergencia=G_VALIDA, op="load", ticker="U", raw='
 c(nombre="load null", op="load", ticker="V", raw='null', rawFile="V.json")
 # save: normalización del ticker
 for t in ("demo"," demo ","DEMO","brk.b","brk/b","a"*70,"!!!",""):
-    c(nombre=f"save ticker={t!r}", op="save", ticker=t, n=2, now=HOY)
+    # Los que sanean a nada (o pasan del tope de 64) los rechaza la guarda 2,
+    # la misma que ya tenia `stores.py`: su regex los mandaba al mismo `.json`.
+    _safe = "".join(ch for ch in t.strip().upper()
+                    if ch.isascii() and (ch.isalnum() or ch in "._-"))
+    _mal = not _safe.strip("._-") or len(_safe) > 64
+    c(nombre=f"save ticker={t!r}", op="save", ticker=t, n=2, now=HOY,
+      **({"divergencia": G_TICKER} if _mal else {}))
 # cached
 c(nombre="cached primera vez", op="cached", ticker="C1", now=HOY, n=4)
 c(nombre="cached con cache de hoy", op="cached", ticker="C2", now=HOY, n=4,
