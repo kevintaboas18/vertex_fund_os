@@ -3851,9 +3851,72 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
         for b in bars[-70:]
     ]
     out["levels_for_chart"] = _tito_chart_levels(r)
+    out["gex_heatmap"] = _tito_heatmap(chain or [], r, trades, now)
     # `_json_safe` = su `JSON.stringify`: NaN/Infinity → null. `_tito_json` ya
-    # pasó por ahí, pero estos tres campos se añaden después.
+    # pasó por ahí, pero estos cuatro campos se añaden después.
     return _json_safe(out)
+
+
+def _tito_heatmap(chain, r, trades, now):
+    """GEX por strike × vencimiento — el mapa en sus dos dimensiones.
+
+    El GEX que ya sirve el scorecard es un agregado: un número por strike, con
+    todos los vencimientos sumados. Eso esconde lo que el heatmap enseña — que
+    un mismo strike puede ser muro en el vencimiento de esta semana y no serlo
+    en el de enero, y que el gamma se concentra en los de corto plazo. Es el
+    `GexHeatmapCard` de su página.
+
+    Las entradas se arman como en su `page.tsx`: los `HeatTrade` salen de unir
+    los trades de convicción con los inusuales, deduplicados por `id`, y solo
+    aportan `strike`, `expiration`, `gamma` y `premium`.
+    """
+    try:
+        from wbj.tito.flow import classify_flow
+        from wbj.tito.gex_heatmap import HeatTrade, gex_heatmap
+    except Exception:
+        return None
+    if not chain or not (r.spot > 0):
+        return None
+    try:
+        notables = classify_flow(trades, now).interesting if trades else []
+        vistos, ht = set(), []
+        for t in notables:
+            if t.id in vistos:
+                continue
+            vistos.add(t.id)
+            ht.append(HeatTrade(strike=t.strike, expiration=t.expiration,
+                                gamma=t.gamma, premium=t.premium))
+        h = gex_heatmap(chain, spot=r.spot, iv=r.gex.iv, now=now, trades=ht)
+    except Exception:
+        # El heatmap ILUSTRA; no puede tumbar los targets, que son lo que el
+        # panel necesita. Mismo criterio que él con el guardado de la cadena.
+        return None
+    if not h.cells:
+        return None
+    return {
+        "spot": round(h.spot, 2),
+        "iv": round(h.iv, 4),
+        "total_net_gex": h.total_net_gex,
+        "max_abs_cell": h.max_abs_cell,
+        "strikes": [{"strike": s.strike, "net_gex": s.net_gex, "call_gex": s.call_gex,
+                     "put_gex": s.put_gex, "open_interest": s.open_interest,
+                     "distance_pct": round(s.distance_pct, 2)} for s in h.strikes],
+        "expirations": [{"expiration": e.expiration, "dte": e.dte,
+                         "net_gex": e.net_gex, "open_interest": e.open_interest}
+                        for e in h.expirations],
+        "cells": [{"strike": c.strike, "expiration": c.expiration, "net_gex": c.net_gex,
+                   "call_gex": c.call_gex, "put_gex": c.put_gex,
+                   "open_interest": c.open_interest, "intensity": round(c.intensity, 4)}
+                  for c in h.cells],
+        "hottest_positive": (None if h.hottest_positive is None else
+                             {"strike": h.hottest_positive.strike,
+                              "expiration": h.hottest_positive.expiration,
+                              "net_gex": h.hottest_positive.net_gex}),
+        "hottest_negative": (None if h.hottest_negative is None else
+                             {"strike": h.hottest_negative.strike,
+                              "expiration": h.hottest_negative.expiration,
+                              "net_gex": h.hottest_negative.net_gex}),
+    }
 
 
 def _tito_chart_levels(r, max_per_side=2, min_strength=25):

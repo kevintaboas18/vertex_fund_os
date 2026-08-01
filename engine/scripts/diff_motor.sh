@@ -4,9 +4,12 @@
 #     engine/scripts/diff_motor.sh
 #     TITO_ROOT=/ruta/a/agente-tito-metralleta engine/scripts/diff_motor.sh
 #
-# Cubre el sub-agente 6 (15 pts), el sub-agente 4 (20 pts) y los niveles que
-# alimentan la gráfica y la síntesis de precios. Son los tres módulos de su repo
-# que no importan a ningún otro, así que se ejecutan tal cual.
+# Cubre los SEIS sub-agentes que producen el score de 0-100:
+#
+#     flow.ts        agresividad + convicción + inusualidad   55 pts
+#     structure.ts   estructura de la cadena                  20 pts
+#     validation.ts  confirmación de precio                   15 pts
+#     levels.ts      niveles (gráfica y síntesis de precios)
 #
 # Usa el quitado de tipos NATIVO de Node en vez de un transpilador propio: solo
 # desaparecen los tipos, la lógica no se toca. De aquí salieron dos hallazgos que
@@ -21,13 +24,16 @@ node --experimental-strip-types -e '' 2>/dev/null || {
   echo "  · saltado: este node no quita tipos (hace falta 22+)"; exit 0; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-for f in validation levels structure types; do
+for f in validation levels structure types flow conditions occ; do
   if [[ -n "${TITO_ROOT:-}" && -f "$TITO_ROOT/web/lib/$f.ts" ]]; then
     cp "$TITO_ROOT/web/lib/$f.ts" "$TMP/$f.ts"
   elif ! curl -fsS "$BASE/$f.ts" -o "$TMP/$f.ts"; then
     echo "  · saltado: no se pudo bajar $f.ts"; exit 0
   fi
 done
+# Node exige la extensión en los imports relativos; su bundler no. Se añade sin
+# tocar nada más — es lo único que se modifica de sus archivos.
+sed -i 's|from "\./conditions"|from "./conditions.ts"|; s|from "\./occ"|from "./occ.ts"|' "$TMP/flow.ts"
 echo "  fuente: ${TITO_ROOT:-GitHub (main)}"
 
 cp "$S/_diffmotor_run.mts" "$TMP/run.mts"

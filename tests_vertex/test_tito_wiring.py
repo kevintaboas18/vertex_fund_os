@@ -519,3 +519,74 @@ class TestScorecardCompleto:
         assert d["chain_source"] == "massive"
         assert set(d["scores"]) == {"aggression", "conviction", "unusuality",
                                     "structure", "iv_context", "validation"}
+
+
+class TestHeatmapDeGex:
+    """`gexHeatmap` estaba portado y sin endpoint: nadie lo llamaba.
+
+    El GEX que ya sirve el scorecard es un agregado —un número por strike, con
+    todos los vencimientos sumados— y eso esconde justo lo que el heatmap
+    enseña: que un mismo strike puede ser muro esta semana y no serlo en enero.
+    Es el `GexHeatmapCard` de su página.
+    """
+
+    def test_el_endpoint_sirve_el_heatmap(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        h = d["gex_heatmap"]
+        assert h is not None, "el heatmap sigue sin llegar al panel"
+        assert h["cells"], "sin celdas no hay mapa"
+        assert h["strikes"] and h["expirations"]
+
+    def test_las_celdas_son_strike_x_vencimiento(self, client):
+        h = client.get("/api/projection-targets?ticker=DEMO").json()["gex_heatmap"]
+        ejes = {(s["strike"]) for s in h["strikes"]}, {e["expiration"] for e in h["expirations"]}
+        for c in h["cells"]:
+            assert c["strike"] in ejes[0]
+            assert c["expiration"] in ejes[1]
+        # el mismo strike aparece en más de un vencimiento: es la dimensión que
+        # el GEX agregado no tiene.
+        por_strike = {}
+        for c in h["cells"]:
+            por_strike.setdefault(c["strike"], set()).add(c["expiration"])
+        assert any(len(v) > 1 for v in por_strike.values())
+
+    def test_la_intensidad_esta_normalizada(self, client):
+        h = client.get("/api/projection-targets?ticker=DEMO").json()["gex_heatmap"]
+        assert all(-1.0000001 <= c["intensity"] <= 1.0000001 for c in h["cells"])
+        assert h["max_abs_cell"] > 0
+
+    def test_el_spot_y_la_iv_son_los_del_scorecard(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["gex_heatmap"]["spot"] == d["spot"]
+        assert d["gex_heatmap"]["iv"] == d["gex"]["iv"]
+
+    def test_los_extremos_apuntan_a_una_celda_real(self, client):
+        h = client.get("/api/projection-targets?ticker=DEMO").json()["gex_heatmap"]
+        celdas = {(c["strike"], c["expiration"]) for c in h["cells"]}
+        for k in ("hottest_positive", "hottest_negative"):
+            if h[k] is not None:
+                assert (h[k]["strike"], h[k]["expiration"]) in celdas
+
+    def test_el_heatmap_no_puede_tumbar_los_targets(self, client, monkeypatch):
+        # Ilustra, no decide: si revienta, el panel sigue dando escenarios.
+        import wbj.tito.gex_heatmap as GH
+
+        def boom(*a, **k):
+            raise RuntimeError("heatmap roto")
+
+        monkeypatch.setattr(GH, "gex_heatmap", boom)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["ok"] is True
+        assert d["gex_heatmap"] is None
+        assert d["predictions"], "los targets tienen que seguir ahí"
+
+    def test_es_JSON_estricto(self, client):
+        import json
+
+        h = client.get("/api/projection-targets?ticker=DEMO").json()["gex_heatmap"]
+        crudo = json.dumps(h)
+
+        def estricto(c):
+            raise ValueError(c)
+
+        json.loads(crudo, parse_constant=estricto)

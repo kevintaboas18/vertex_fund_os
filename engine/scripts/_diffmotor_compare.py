@@ -12,11 +12,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _diffmotor_casos import casos as generar                       # noqa: E402
 from wbj.tito.levels import ChainLevel, FlowLevel, GexLevel, LvlBar, find_levels  # noqa: E402
 from wbj.tito.structure import ChainRow, structure_score            # noqa: E402
+from wbj.tito.flow import (aggression_score, classify_flow, conviction_score,  # noqa: E402
+                           detect_clusters, unusuality_score)
 from wbj.tito.validation import FlowLite, ValBar, validation_score  # noqa: E402
 
 C = generar()
 V = json.load(open(os.environ["MOTOR_OUT"]))
-r6 = lambda x: round(x * 1e6) / 1e6
+r6 = lambda x: (round(x * 1e6) / 1e6
+                if isinstance(x, (int, float)) and not isinstance(x, bool) else x)
 
 
 def _ulp(a, b):
@@ -96,7 +99,48 @@ for i, (rows, v) in enumerate(zip(C["structure"], V["structure"])):
     fallos += [(f"structure#{i}",) + d for d in dif({k: v[k] for k in mio}, mio, "")]
     n += 1
 
-print(f"  {n} casos · validation + levels + structure")
+cf_now = datetime.fromisoformat(C["flow"]["now"].replace("Z", "+00:00"))
+for i, (lote, v) in enumerate(zip(C["flow"]["lotes"], V["flow"])):
+    cf = classify_flow(lote, cf_now)
+    A = aggression_score(cf.interesting)
+    Vc = conviction_score(cf.interesting)
+    U = unusuality_score(cf.interesting)
+    CL = detect_clusters(cf.interesting)
+    mio = {
+        "n": len(cf.interesting), "nAll": len(cf.rows),
+        "ids": [r.id for r in cf.interesting[:8]],
+        "filas": [[r.id, r.type, r.strike, r.dte, r.aggression, r.expiry_status, r.sentiment,
+                   r6(r.premium), r6(r.theta_pct_daily), r.flags.big, r.flags.conv_delta,
+                   r.flags.above_ask, r.flags.below_bid, r.flags.mid, r.flags.leap,
+                   r.flags.repeated, r.flags.multileg, r.flags.simultaneous,
+                   r.flags.exceeded_oi, r.unusual, r.interesting, r.condition_code,
+                   r.condition_name, r.underlying, r.expiration, r6(r.asset_price),
+                   r6(r.iv), r6(r.delta), r.scores.volume, r.scores.timing,
+                   r.scores.repetition, r.scores.total] for r in cf.interesting[:5]],
+        "agg": {"score": A.score, "ratio": r6(A.ratio), "premiumAsk": r6(A.premium_ask),
+                "premiumBid": r6(A.premium_bid), "premiumMid": r6(A.premium_mid), "n": A.n},
+        "conv": {"score": Vc.score, "n": Vc.n,
+                 "spread": {"avgPct": r6(Vc.spread["avg_pct"]), "points": Vc.spread["points"],
+                            "wideCount": Vc.spread["wide_count"]},
+                 "dominance": {"askPct": r6(Vc.dominance["ask_pct"]),
+                               "bidPct": r6(Vc.dominance["bid_pct"]),
+                               "dominantPct": r6(Vc.dominance["dominant_pct"]),
+                               "side": Vc.dominance["side"], "points": Vc.dominance["points"]},
+                 "execution": {"points": Vc.execution["points"],
+                               "avgRaw": r6(Vc.execution["avg_raw"]),
+                               "counts": Vc.execution["counts"]}},
+        "unu": {"score": U.score, "unusualCount": U.unusual_count, "n": U.n,
+                "avgByParam": {k: r6(x) for k, x in U.avg_by_param.items()},
+                "top": [[t[0].id, t[1].total, t[1].size, t[1].delta, t[1].theta,
+                         t[1].gamma, t[1].leg, t[1].expiry] for t in U.top[:3]]},
+        "clus": [[c.start_sec, c.end_sec, c.count, r6(c.premium), c.direction,
+                  r6(c.unidirectionality), c.score, r6(c.call_premium), r6(c.put_premium),
+                  c.bet, c.bet_label] for c in CL[:3]],
+    }
+    fallos += [(f"flow#{i}",) + d for d in dif({k: v.get(k) for k in mio}, mio, "")]
+    n += 1
+
+print(f"  {n} casos · flow + validation + levels + structure")
 for f in fallos[:15]:
     print(f"   ✗ {f[0]} {f[1]}\n       víctor = {str(f[2])[:110]}\n       port   = {str(f[3])[:110]}")
 print(f"\n  {n - len({f[0] for f in fallos})}/{n} casos idénticos"

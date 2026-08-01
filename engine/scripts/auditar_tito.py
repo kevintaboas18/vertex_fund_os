@@ -707,6 +707,16 @@ chk(all(f"seed: {x}" in HTML for x in ("1.7", "4.1", "8.3"))
     and all(c in HTML for c in ("#12b76a", "#2f6bff", "#f04438")),
     "semillas y colores de los 3 escenarios, los suyos")
 
+# gex_heatmap: estaba portado y sin llamador. Ahora sale por
+# /api/projection-targets, con las entradas armadas como en su `page.tsx`.
+chk("_tito_heatmap(chain or [], r, trades, now)" in API and '"gex_heatmap"' in API,
+    "el heatmap de GEX llega al panel (era el último módulo sin cablear)")
+chk("HeatTrade(strike=t.strike" in API and "vistos" in API,
+    "…con los HeatTrade de convicción+inusuales deduplicados por id, como él")
+chk(API.index("def _tito_heatmap") > 0 and "return None" in
+    API[API.index("def _tito_heatmap"):API.index("def _tito_heatmap") + 2200],
+    "…y si el heatmap falla, los targets siguen saliendo (ilustra, no decide)")
+
 sec("7. Seguridad")
 chk("URAc4p9DJi6Z" not in subprocess.run(["git","grep","-I","-l","URAc4p9DJi6Z"],
     cwd=VERTEX, capture_output=True, text=True).stdout, "la API key pegada no está en el repo")

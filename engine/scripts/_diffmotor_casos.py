@@ -3,13 +3,18 @@
 Deterministas (semilla fija), como los demás diferenciales: se comitea el
 generador, no los 2,6 MB de datos.
 
-Estos tres módulos se eligieron porque no importan a otros del repo de Víctor,
-así que se pueden ejecutar tal cual con el quitado de tipos nativo de Node. Son
-el sub-agente 6 (15 puntos), el sub-agente 4 (20 puntos) y los niveles que
-alimentan la síntesis de precios y la gráfica.
+Cubre los seis sub-agentes que producen el score:
+
+    flow.ts        agresividad + convicción + inusualidad   55 pts
+    structure.ts   estructura de la cadena                  20 pts
+    validation.ts  confirmación de precio                   15 pts
+    levels.ts      niveles por confluencia (gráfica y síntesis de precios)
+
+`flow.ts` importa `conditions` y `occ`, que también se bajan; los demás no
+importan nada, así que se ejecutan tal cual.
 """
 import json, random
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 
 def _barras(n, base, vol, inicio=date(2026, 1, 5)):
@@ -71,7 +76,53 @@ def casos():
              "openInterest": random.randint(0, 120000), "volume": random.randint(0, 300000),
              "notionalValue": random.uniform(0, 9e9)} for _ in range(random.choice([0, 1, 8, 60, 200]))]
            for _ in range(120)]
-    return {"validation": val, "levels": lev, "structure": est}
+    random.seed(97)
+    NOW = "2026-07-31T18:00:00Z"
+    SIDES = ["AT_ASK", "ABOVE_ASK", "ASKSIDE", "AT_BID", "BELOW_BID", "BIDSIDE",
+             "MID", "NO_SIDE", "", "at_ask"]
+    COND = [None, 0, 100, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210,
+            211, 212, 213, 214, 215, 219, 227, 231, 232, 233]
+    base = datetime(2026, 7, 31, 18, 0, tzinfo=timezone.utc)
+
+    def _trade(i, minutos, strike=None, cp=None):
+        cp = cp or random.choice("CP")
+        strike = strike if strike is not None else random.choice([90, 95, 100, 105, 110, 150, 205])
+        exp = random.choice(["270115", "260918", "260807", "261218"])
+        bid = round(random.uniform(.05, 40), 2)
+        ask = round(bid + random.uniform(0, 6), 2)
+        px = round(random.choice([bid, ask, (bid + ask) / 2, ask + .5,
+                                  max(.01, bid - .3), random.uniform(bid, ask)]), 2)
+        size = random.choice([1, 5, 50, 300, 800, 5000])
+        return {"id": i, "symbol": f"DEMO{exp}{cp}{int(strike * 1000):08d}",
+                "price": px, "size": size, "side": random.choice(SIDES),
+                "bid_price": bid, "ask_price": ask, "premium": round(px * size * 100, 2),
+                "delta": round(random.uniform(-1, 1), 4),
+                "gamma": round(random.uniform(0, .2), 5),
+                "theta": round(random.uniform(-2, 0), 4),
+                "vega": round(random.uniform(0, 2), 4),
+                "implied_volatility": round(random.uniform(.05, 3), 4),
+                "open_interest": random.randint(0, 90000),
+                "volume": random.randint(0, 300000), "score": random.randint(0, 10),
+                "sentiment": random.choice(["bullish", "bearish", "neutral", ""]),
+                "timestamp": (base - timedelta(minutes=minutos)).isoformat().replace("+00:00", "Z"),
+                "asset_price": round(random.uniform(50, 300), 2),
+                "trade_condition_id": random.choice(COND)}
+
+    lotes = []
+    for _ in range(90):
+        lote = []
+        for i in range(random.choice([0, 1, 2, 5, 20, 60, 150])):
+            # 35% de racimo: mismo strike y tipo, dentro de la ventana de 5 min.
+            if random.random() < .35 and lote:
+                b = lote[0]
+                lote.append(_trade(i + 1, random.randint(0, 4),
+                                   strike=int(b["symbol"][-8:]) / 1000, cp=b["symbol"][-9]))
+            else:
+                lote.append(_trade(i + 1, random.randint(0, 60 * 24 * 10)))
+        lotes.append(lote)
+
+    return {"validation": val, "levels": lev, "structure": est,
+            "flow": {"now": NOW, "lotes": lotes}}
 
 
 if __name__ == "__main__":
