@@ -553,3 +553,66 @@ Pendiente: **V-03/V-04** (Anthropic: saldo y `JUDGE_MODEL`).
 Sin saldo: 7 preguntas cualitativas sin responder → Market pierde 13 de 20 puntos
 → cobertura 0.49 → OVERRIDE_6 → la etiqueta refleja datos faltantes, no la
 empresa. No hay nada que arreglar en el código: requiere cargar créditos.
+
+---
+
+# 8. Re-auditoría del área `analyze` — 2026-08-01
+
+## 8.1 Hallazgo nuevo y arreglado
+
+**A-04 — la distancia a un soporte tenía el signo al revés.** `levels_engine`
+calculaba la rama de soporte como `(CurrentClose − upper)`, los operandos al revés
+de la fórmula que escribe PRICE_LEVEL_SYNTHESIS.md (`(Level − CurrentPrice) /
+CurrentPrice`). Toda zona **debajo** del precio salía **positiva**.
+
+Dos convenciones en la misma tabla, sobre NVDA con precio 200.75:
+
+| nivel | valor | mostraba | correcto |
+|---|---|---|---|
+| `moving_average` | 193.11 | −3.80 ✓ | −3.80 |
+| `support zone` | 186.02–191.74 | **+4.49** ✗ | −4.49 |
+| `weekly_zone` | 94.48–107.42 | **+46.49** ✗ | −46.49 |
+
+La plataforma formatea ese campo como `${dp >= 0 ? '+' : ''}${dp}%`, así que un
+soporte 47% **abajo** se mostraba como **"+46.5%"**. Los fixtures de
+`aggregate/synthesis.py` ya asumían la forma con signo (un soporte 90–92 con precio
+100 declarado como −8.0): las dos capas discrepaban y el fixture tenía razón.
+Commit `94f0584`. Verificado: los 40 niveles del reporte quedan coherentes, y 0
+incoherencias en NVDA/AAPL/KO/JPM/PLTR.
+
+## 8.2 Verificado sano — no son bugs
+
+| Área | Resultado |
+|---|---|
+| Registro de métricas | **207 de 207** implementadas; 0 sin documentar |
+| Pesos de categoría | 20/15/20/20/15/10 — coinciden CLAUDE.md ↔ engine |
+| Umbrales de los 3 gates | coinciden literal con SCORING_AND_GATES.md |
+| Confianza total | `sum(max × conf)/100` = 86.4683 exacto |
+| Perfil de Kevin | `max_position_pct = (0.2, 0.3)` leído de Kevin.md |
+| Niveles de precio | soporte debajo, resistencia encima, 40 niveles coherentes |
+| Escenarios ↔ niveles | los 3 valores intrínsecos coinciden exacto |
+| Frescura | OHLCV 1d, FY 10-K, Q 10-Q, consenso FY2027, 13F Q1-Q2 2026, insiders jun-2026 |
+| 6 puntos obligatorios | los 6 presentes (clasificación, revisita, rangos, 13F, insiders >$1M, visuales) |
+| `except` silenciosos | los revisados devuelven un null declarado con razón, no tragan |
+
+## 8.3 La consecuencia operativa de V-03
+
+`OVERRIDE_6_COVERAGE_GATE_INELIGIBLE` dispara en **4 de 4** tickers probados:
+
+| ticker | cobertura Market | total | etiqueta |
+|---|---|---|---|
+| NVDA | 0.49 | 48.0 | Avoid / Wait |
+| AAPL | 0.29 | 41.4 | Avoid / Wait |
+| KO | 0.29 | 49.9 | Avoid / Wait |
+| PLTR | 0.36 | 38.2 | Avoid / Wait |
+
+Market sale **5.2–5.8 de 20 en todos**, sin importar la empresa. Ninguna categoría
+llega al 70% de cobertura que exige el override, así que **mientras el judge no
+corra, ninguna empresa puede pasar un gate de perfil**. El motor se comporta bien
+—se niega a puntuar lo que no puede medir— pero la salida no diferencia entre
+compañías.
+
+**Hay una segunda vía además de los créditos:** NVDA saca 0.49 y AAPL/KO sacan
+0.29. La diferencia es exactamente `Entradas/NVDA.json`. Llenar ese archivo sube la
+cobertura sin depender del judge — y la lista de A-03 dice qué claves faltan (21
+para NVDA, cubriendo 25 métricas).
