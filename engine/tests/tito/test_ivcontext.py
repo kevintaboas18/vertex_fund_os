@@ -213,9 +213,70 @@ class TestIvContextScore:
         iv_history = [{"date": f"d{i}", "avg_iv": 40 + i} for i in range(60)]
         s = iv_context_score([row(iv=0.85)], CLOSES, iv_history)
         assert s.iv["points"] == 8  # 85% -> 61-89%
-        assert s.score == round((s.iv["points"] + s.rank["points"]) / 2)
+        # `js_round`, no `round`: su `Math.round((iv.points + rank.points) / 2)`
+        # redondea la mitad hacia ARRIBA y el `round` de Python al par. Con 8 y 1
+        # la media es 4.5 → él da 5 y Python daba 4. Esta línea afirmaba el bug:
+        # comparaba el port contra la semántica de Python en vez de contra la
+        # suya, y por eso la suite portada nunca lo vio. Lo destapó el
+        # diferencial de `levels.ts` (ver `wbj/tito/jsmath.py`).
+        from wbj.tito.jsmath import js_round
+
+        assert s.score == js_round((s.iv["points"] + s.rank["points"]) / 2)
+        assert s.score == 5
 
     def test_el_score_nunca_se_sale_de_cero_a_diez(self):
         for iv in (0.05, 0.35, 0.45, 0.65, 0.85, 1.5):
             s = iv_context_score([row(iv=iv)], CLOSES)
             assert 0 <= s.score <= 10
+
+
+class TestElRedondeoEsElDeJS:
+    """`Math.round` de JS y `round` de Python NO son la misma función.
+
+    Python usa redondeo bancario (mitad al par) y JS la manda hacia arriba. Los
+    sub-agentes puntúan promediando enteros, así que el `.5` sale constantemente:
+    de las 121 combinaciones de dos puntuaciones 0-10, **30 caen en un `.5` donde
+    las dos funciones difieren**, y en todas ellas el port devolvía un punto
+    MENOS que él — directo al scorecard de 0-100.
+
+    Lo destapó el diferencial de `levels.ts`: una fuerza de nivel salía 10 donde
+    su archivo daba 11.
+    """
+
+    def test_la_mitad_va_hacia_arriba_como_en_JS(self):
+        from wbj.tito.jsmath import js_round
+
+        # Los casos donde Python discrepa de `Math.round`.
+        assert js_round(0.5) == 1 and round(0.5) == 0
+        assert js_round(2.5) == 3 and round(2.5) == 2
+        assert js_round(4.5) == 5 and round(4.5) == 4
+        assert js_round(10.5) == 11 and round(10.5) == 10
+        # …y donde coinciden, coinciden.
+        for v in (1.5, 3.5, 11.5, 1.4, 1.6, 0.0, 7.0):
+            assert js_round(v) == round(v), v
+
+    def test_los_negativos_siguen_su_regla_floor_x_mas_medio(self):
+        # ECMA-262 define `Math.round` como `floor(x + 0.5)`, así que
+        # `Math.round(-10.5)` es -10, no -11.
+        from wbj.tito.jsmath import js_round
+
+        assert js_round(-10.5) == -10
+        assert js_round(-2.5) == -2
+        assert js_round(-2.6) == -3
+
+    def test_ningun_modulo_del_motor_usa_ya_el_round_de_Python_para_puntuar(self):
+        """Barrido: todo `round(x)` de un argumento que espeje un `Math.round`
+        suyo tiene que ser `js_round`."""
+        import re
+        from pathlib import Path
+
+        tito = Path(__file__).resolve().parents[2] / "wbj" / "tito"
+        sospechosos = []
+        for f in sorted(tito.glob("*.py")):
+            if f.name == "jsmath.py":
+                continue
+            for n, linea in enumerate(f.read_text().splitlines(), 1):
+                if re.search(r"(?<!js_)\bround\([^,()]*(\([^()]*\))?[^,()]*\)(?!\s*,)", linea) \
+                        and "round(" in linea and not re.search(r"round\([^)]*,", linea):
+                    sospechosos.append(f"{f.name}:{n}: {linea.strip()}")
+        assert not sospechosos, "usan el round() de Python:\n  " + "\n  ".join(sospechosos)

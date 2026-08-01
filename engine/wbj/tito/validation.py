@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, Sequence
 
+from .jsmath import js_round
+
 __all__ = [
     "MOVE_THRESHOLD_PCT",
     "THRESHOLD_ATR_MULTIPLE",
@@ -380,7 +382,7 @@ def validation_score(
         verdict = "El precio absorbe el flujo: entra dinero grande pero el movimiento no se desarrolla."
 
     return ValidationScore(
-        score=round((hr.points + sp.points) / 2),
+        score=js_round((hr.points + sp.points) / 2),
         hit_rate={
             "value": hit_rate_value, "validated": len(validated),
             "resolved": len(resolved), "points": hr.points, "band": hr.band,

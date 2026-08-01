@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Literal, Sequence
 
+from .jsmath import js_round
 from .black_scholes import bs_gamma
 from .occ import days_to_expiration
 from .structure import ChainRow
@@ -256,7 +257,8 @@ def gex_analysis(
     sharpness = (max_gex_mag / sum_gex_mag) if sum_gex_mag > 0 else 0.0
     sub_scores = [v for v in (conviction_score, structure_score) if v is not None]
     sub_avg = (sum(sub_scores) / len(sub_scores) / 10) if sub_scores else 0.5
-    confidence = round(100 * min(1.0, 0.6 * sharpness + 0.4 * sub_avg))
+    # `Math.round`, mitad hacia arriba — ver `jsmath.js_round`.
+    confidence = js_round(100 * min(1.0, 0.6 * sharpness + 0.4 * sub_avg))
 
     return GexAnalysis(
         spot=spot, iv=iv, nodes=nodes, king_strike=king_strike,

@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal, Sequence
 
+from .jsmath import js_round
+
 __all__ = [
     "LvlBar",
     "Pivot",
@@ -231,12 +233,24 @@ def find_levels(
 
     # Strikes de opciones relevantes que aún no tienen pivote de precio: también
     # son niveles, aunque el precio nunca haya reaccionado ahí todavía.
-    option_strikes = {
+    #
+    # El ORDEN de este recorrido decide qué nivel sobrevive, y por eso es
+    # `dict.fromkeys` y no un `set`. Dos strikes dentro de la tolerancia no
+    # pueden coexistir —el segundo se descarta por `near`—, así que el primero
+    # que se recorre gana. Su `new Set<number>()` itera en orden de INSERCIÓN,
+    # o sea el orden en que los strikes vienen en la cadena.
+    #
+    # Aquí estaba `sorted(option_strikes)`. Es determinista, pero es OTRO orden:
+    # con la cadena `[…, 170.08, …, 169.67, …]` y 2% de tolerancia, él conserva
+    # 170.08 (el que viene antes) y el port conservaba 169.67 (el menor). El
+    # panel dibujaba una resistencia en un precio distinto al suyo. Un `set` de
+    # Python habría sido peor todavía: no conserva ningún orden.
+    option_strikes = dict.fromkeys(
         c.strike for c in chain if abs(c.strike - spot) / spot * 100 <= rango_pct
-    }
+    )
 
     candidates: list[tuple[float, PivotCluster | None]] = [(c.price, c) for c in clusters]
-    for strike in sorted(option_strikes):
+    for strike in option_strikes:
         if not any(near(p, strike) for p, _ in candidates):
             candidates.append((strike, None))
 
@@ -314,7 +328,10 @@ def find_levels(
         # nivel real de una coincidencia.
         confluence = 10 if touches > 0 and (oi > 0 or flow_premium > 0) else 0
 
-        strength = round(min(100.0, p_touch + p_oi + p_flow + p_gex + confluence))
+        # `Math.round`, no el `round` de Python: el suyo redondea la mitad
+        # hacia arriba y el de Python al par. Aquí salía una fuerza de 10
+        # donde su archivo daba 11 — el hallazgo que destapó `jsmath`.
+        strength = js_round(min(100.0, p_touch + p_oi + p_flow + p_gex + confluence))
         if strength < 8:
             continue  # ruido
 
@@ -332,7 +349,7 @@ def find_levels(
             parts.append(f"el precio reaccionó {touches} {'vez' if touches == 1 else 'veces'} aquí")
         if oi > 0:
             lado = "calls" if kind == "resistencia" else "puts"
-            parts.append(f"{round(oi):,} contratos abiertos de {lado}")
+            parts.append(f"{js_round(oi):,} contratos abiertos de {lado}")
         if flow_premium > 0:
             lado = "calls" if kind == "resistencia" else "puts"
             parts.append(f"venta de {lado} por dinero real")

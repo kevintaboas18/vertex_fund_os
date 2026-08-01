@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Sequence
 
+from .jsmath import js_round
+
 __all__ = [
     "LOW_LIQUIDITY_NOTIONAL",
     "STRIKE_DOMINANCE_PCT",
@@ -243,7 +245,7 @@ def structure_score(rows: Sequence[ChainRow]) -> StructureScore:
         e.pct_of_total = (e.notional / total * 100) if total > 0 else 0.0
 
     return StructureScore(
-        score=round((n_points + s_points + v_points) / 3),
+        score=js_round((n_points + s_points + v_points) / 3),
         notional={
             "avg_per_strike": avg_per_strike,
             "total": total,

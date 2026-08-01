@@ -22,6 +22,7 @@ import math
 from dataclasses import dataclass
 from typing import Literal, Sequence
 
+from .jsmath import js_round
 from .flow import FlowRow
 
 __all__ = [
@@ -334,7 +335,7 @@ def iv_context_score(
             regime = "normal"
 
     return IvContextScore(
-        score=round((iv_band.points + rank_band.points) / 2),
+        score=js_round((iv_band.points + rank_band.points) / 2),
         iv={
             "current": current,
             "simple_avg": plain / len(with_iv),

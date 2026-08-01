@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Sequence
 
+from .jsmath import js_round
 from .black_scholes import bs_gamma
 from .structure import ChainRow
 
@@ -94,7 +95,7 @@ def _dte_of(expiration: str, now: datetime) -> int:
         return 0
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
-    return max(0, round((exp - now).total_seconds() / 86_400))
+    return max(0, js_round((exp - now).total_seconds() / 86_400))
 
 
 def gex_heatmap(

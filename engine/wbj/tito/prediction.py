@@ -19,6 +19,7 @@ import math
 from dataclasses import dataclass
 from typing import Literal, Sequence
 
+from .jsmath import js_round
 from .expected_move import (
     LevelInput,
     LevelProb,
@@ -137,7 +138,7 @@ def weighted_score(scores: SubScores) -> tuple[int, int, int]:
         active += 1
         weight += w
         pts += (s / 10) * w
-    return (round(pts / weight * 100) if weight > 0 else 0, active, int(weight))
+    return (js_round(pts / weight * 100) if weight > 0 else 0, active, int(weight))
 
 
 def calibration_shift_pct(bias_pct: float | None, samples: int) -> float:
@@ -168,7 +169,7 @@ def confidence_of(
     coverage = min(1.0, active / 6)
     track = 0.5 if hit_rate is None else min(1.0, max(0.0, hit_rate / 100))
     raw = 0.45 * sharpness + 0.30 * coverage + 0.25 * track
-    return round(100 * min(1.0, max(0.0, raw)))
+    return js_round(100 * min(1.0, max(0.0, raw)))
 
 
 def _pct_change(spot: float, target: float) -> float:

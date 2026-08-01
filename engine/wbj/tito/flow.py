@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Iterable, Literal, Sequence
 
+from .jsmath import js_round
 from .conditions import condition_of, is_canceled_condition, is_multi_leg_condition
 from .occ import MARKET_TZ, days_to_expiration, parse_occ
 
@@ -502,7 +503,7 @@ def detect_clusters(
         unid = (max(ask, bid) / premium) if premium > 0 else 0.0
         norm_count = min(1.0, len(group) / 10)
         norm_prem = min(1.0, premium / 2_000_000)
-        score = round(10 * (0.4 * norm_count + 0.3 * norm_prem + 0.3 * unid))
+        score = js_round(10 * (0.4 * norm_count + 0.3 * norm_prem + 0.3 * unid))
         bullish = buckets["call_ask"] + buckets["put_bid"]
         bearish = buckets["put_ask"] + buckets["call_bid"]
         labels = [
@@ -698,7 +699,7 @@ def conviction_score(rows: Sequence[FlowRow]) -> ConvictionScore:
     exec_avg = (exec_weighted / exec_weight) if exec_weight > 0 else 0.0
 
     return ConvictionScore(
-        score=round((spread_points + dom_points + exec_avg) / 3),
+        score=js_round((spread_points + dom_points + exec_avg) / 3),
         spread={
             "avg_pct": avg_spread_pct,
             "points": spread_points,
@@ -712,7 +713,7 @@ def conviction_score(rows: Sequence[FlowRow]) -> ConvictionScore:
             "side": "ask" if ask_pct >= bid_pct else "bid",
             "points": dom_points,
         },
-        execution={"points": round(exec_avg), "avg_raw": exec_avg, "counts": counts},
+        execution={"points": js_round(exec_avg), "avg_raw": exec_avg, "counts": counts},
         n=len(rows),
     )
 
@@ -823,7 +824,7 @@ def unusual_trade_score(r: FlowRow) -> UnusualScores:
     total = (size + delta + theta + gamma + leg + expiry) / 6
     return UnusualScores(
         size=size, delta=delta, theta=theta, gamma=gamma, leg=leg, expiry=expiry,
-        total=round(total * 10) / 10,
+        total=js_round(total * 10) / 10,
     )
 
 
@@ -869,8 +870,8 @@ def unusuality_score(rows: Sequence[FlowRow]) -> UnusualityScore:
 
     n = len(scored)
     return UnusualityScore(
-        score=round(weighted / weight) if weight > 0 else 0,
-        avg_by_param={k: round(v / n * 10) / 10 for k, v in sums.items()},
+        score=js_round(weighted / weight) if weight > 0 else 0,
+        avg_by_param={k: js_round(v / n * 10) / 10 for k, v in sums.items()},
         unusual_count=sum(1 for _, s in scored if s.total >= UNUSUAL_TRADE_THRESHOLD),
         n=n,
         top=sorted(scored, key=lambda x: (x[1].total, x[0].premium), reverse=True)[:150],
@@ -911,7 +912,7 @@ def aggression_score(rows: Sequence[FlowRow]) -> AggressionScore:
     denom = ask + bid
     ratio = (ask / denom) if denom > 0 else 0.0
     return AggressionScore(
-        score=round(ratio * 10) if denom > 0 else 0,
+        score=js_round(ratio * 10) if denom > 0 else 0,
         ratio=ratio,
         premium_ask=ask,
         premium_bid=bid,
