@@ -76,9 +76,11 @@ def test_the_gap_names_the_provider_the_endpoint_and_the_status():
     assert "fmp: ENDPOINT_NOT_IN_PLAN (institutional_holders, HTTP 402)" in blob
     assert "finnhub: ENDPOINT_NOT_IN_PLAN (estimates, HTTP 403)" in blob
     assert "finnhub: ENDPOINT_NOT_IN_PLAN (revenue_estimates, HTTP 403)" in blob
-    # And it says which way the analysis erred, because "unscored" and
-    # "estimated" are the distinction the whole engine rests on.
-    assert "stay unscored rather than being estimated" in gaps[0]
+    # Y dice si el dato esta TAPADO por otra fuente o realmente perdido:
+    # son dos acciones distintas (no hacer nada / subir de plan).
+    tapado = next(g for g in gaps if "institutional_holders" in g)
+    assert "already sourced from" in tapado
+    assert "13F" in tapado
 
 
 def test_the_cache_key_hash_is_not_shown_to_the_reader():
@@ -99,3 +101,12 @@ def test_one_endpoint_blocked_under_two_parameter_sets_is_reported_once():
 
 def test_nothing_blocked_reports_nothing():
     assert _entitlement_gaps(_FakeProviders()) == []
+
+
+def test_an_endpoint_with_no_substitute_still_reports_the_loss():
+    """QuantData (flujo de opciones, dark pool, GEX) no tiene otra fuente en
+    el sistema. Ese sí es un hueco real y tiene que leerse distinto del que
+    está tapado por la SEC o por FMP."""
+    gaps = _entitlement_gaps(_FakeProviders(fmp={"quantdata_flow": 403}))
+    assert "stay unscored rather than being estimated" in gaps[0]
+    assert "already sourced from" not in gaps[0]

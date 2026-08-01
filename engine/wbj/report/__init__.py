@@ -266,6 +266,18 @@ def _reverse_dcf_context(valuation: Any, price: float | None):
     )
 
 
+#: Endpoint fuera de plan -> la fuente que YA cubre ese dato. Sin esto, el
+#: reporte listaba tres huecos sin decir que dos están tapados: FMP
+#: institutional-ownership lo sustituye el conjunto 13F de la SEC, y las
+#: estimaciones de FinnHub las da FMP analyst-estimates (200 en el plan de
+#: pago). Un hueco tapado y uno abierto piden acciones distintas.
+_ENTITLEMENT_SUBSTITUTES = {
+    "institutional_holders": "el conjunto de datos 13F de la SEC (holders_13f_dataset)",
+    "estimates": "FMP analyst-estimates",
+    "revenue_estimates": "FMP analyst-estimates",
+}
+
+
 def _entitlement_gaps(providers: Any) -> list[str]:
     """One line per endpoint the plan was refused, for the report.
 
@@ -286,10 +298,17 @@ def _entitlement_gaps(providers: Any) -> list[str]:
             if (name, label, status) in seen:
                 continue
             seen.add((name, label, status))
-            gaps.append(
-                f"{name}: ENDPOINT_NOT_IN_PLAN ({label}, HTTP {status}) — the "
-                "data exists but this plan cannot reach it; inputs that rest on "
-                "it stay unscored rather than being estimated")
+            sustituto = _ENTITLEMENT_SUBSTITUTES.get(label)
+            if sustituto:
+                gaps.append(
+                    f"{name}: ENDPOINT_NOT_IN_PLAN ({label}, HTTP {status}) — but the "
+                    f"data is already sourced from {sustituto}, so nothing is lost. "
+                    "Upgrading the plan would only add a second, redundant source.")
+            else:
+                gaps.append(
+                    f"{name}: ENDPOINT_NOT_IN_PLAN ({label}, HTTP {status}) — the "
+                    "data exists but this plan cannot reach it; inputs that rest on "
+                    "it stay unscored rather than being estimated")
     return gaps
 
 

@@ -950,3 +950,65 @@ Ver §12. De 92–115 s a **75.5 s de media**. Lo que queda es coste estructural
 | Endpoints de pago | ~60% | **~85%** | 2 de 3 ya cubiertos por otra fuente; sólo QuantData sin sustituto |
 | Cobertura de Market | ~35% | **~35% y correcto** | lo que falta es research que Kevin declaró imposible, no un fallo |
 | Latencia | ~50% | **~65%** | 75.5 s vs 92–115 s |
+
+---
+
+# 14. ¿Falta algo que Victor sí tenga? — 2026-08-01
+
+Pregunta directa de Kevin: *"si Victor lo tiene con esos es porque funcionan"*.
+Cloné su repo y comparé proveedor por proveedor.
+
+## 14.1 FinnHub: el proveedor de Victor es IDÉNTICO al nuestro
+
+Mismos 4 métodos (`estimates`, `revenue_estimates`, `earnings_calendar`, `quote`),
+mismas rutas (`stock/eps-estimate`, `stock/revenue-estimate`, `calendar/earnings`,
+`quote`). **Victor llama exactamente los dos endpoints que devuelven 403.** Su
+código no funciona mejor; su plan sería el mismo o de pago.
+
+Mapa del plan de Kevin: **10 accesibles, 6 bloqueados**.
+
+| accesibles | bloqueados (403) |
+|---|---|
+| quote, profile2, metric, calendar/earnings, recommendation, earnings, insider-transactions, company-news, financials-reported, peers | price-target, **eps-estimate**, **revenue-estimate**, candle, ownership, social-sentiment |
+
+## 14.2 FMP: nosotros llamamos MÁS que Victor
+
+| | Victor | nosotros |
+|---|---|---|
+| endpoints FMP | 10 | **13** |
+| extra nuestros | — | `key-executives`, `revenue-product-segmentation`, `revenue-geographic-segmentation` |
+| `institutional-ownership` | **sí lo llama** (mismo 402) | sí, **+ respaldo 13F de la SEC que él no tiene** |
+
+Mapa del plan de pago ($29): **24 accesibles, 3 bloqueados**.
+
+Bloqueados: `institutional-ownership/extract-analytics/holder`,
+`institutional-ownership/symbol-positions-summary`, y `analyst-estimates` con
+`period=quarter` (el anual funciona).
+
+## 14.3 Conclusión: no falta nada de Victor
+
+**Los 402/403 no son un fallo de configuración ni algo que Victor tenga resuelto.**
+Son límites de plan que él también tendría — llama los mismos endpoints. Y de los
+tres, **dos ya están tapados por otra fuente**:
+
+| bloqueado | sustituto | ¿se pierde algo? |
+|---|---|---|
+| FMP institutional-ownership | dataset 13F de la SEC | **no** — y Victor NO tiene este respaldo |
+| FinnHub eps/revenue-estimate | FMP analyst-estimates (200) | **no** — es lo que alimenta V-02 |
+| QuantData | ninguno | **sí** — flujo de opciones, dark pool, GEX |
+
+El reporte ahora lo dice: un endpoint tapado se lee *"the data is already sourced
+from X, so nothing is lost"*, y uno sin sustituto conserva el aviso de pérdida.
+Son dos acciones distintas: no hacer nada, o subir de plan.
+
+## 14.4 Lo que el plan de pago da y NO usamos
+
+`key-metrics`, `ratios`, `enterprise-values`, `grades-consensus`,
+`price-target-consensus`, `price-target-summary`, `financial-scores`,
+`owner-earnings`, `discounted-cash-flow`, `shares-float`, `market-capitalization`.
+
+**No los cableé a propósito.** Ninguno cierra una métrica que el Cerebro defina y
+que hoy esté N/S, y añadirlos significaría meter métricas que Victor no registró —
+el motor tiene hoy **0 ids que el Cerebro no documente** y eso debe seguir así.
+Los ratios y el DCF de FMP además los calcula el motor por su cuenta, que es
+justo la regla de las dos capas.
