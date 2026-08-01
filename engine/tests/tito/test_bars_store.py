@@ -10,8 +10,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from zoneinfo import ZoneInfo
+
 from wbj.tito.bars_store import (
     MARKET_CLOSE_HOUR,
+    mercado_abierto,
     cached_daily_bars,
     load_bars,
     save_bars,
@@ -172,3 +175,66 @@ class TestCachedDailyBars:
 
     def test_el_cierre_esta_donde_dice_estar(self):
         assert MARKET_CLOSE_HOUR == 16
+
+
+ET = ZoneInfo("America/New_York")
+
+
+class TestCuandoElCacheEsValido:
+    """La regla es una: con la sesión en curso no se cachea, punto.
+
+    Dos versiones anteriores estaban mal y las encontró la auditoría.
+    """
+
+    @pytest.mark.parametrize("lbl,cuando,abierto", [
+        ("lunes pre-market 08:00",   datetime(2026, 7, 27, 8, tzinfo=ET), False),
+        ("lunes apertura 09:30",     datetime(2026, 7, 27, 9, 30, tzinfo=ET), True),
+        ("lunes 11:00",              datetime(2026, 7, 27, 11, tzinfo=ET), True),
+        ("lunes 15:59",              datetime(2026, 7, 27, 15, 59, tzinfo=ET), True),
+        ("lunes cierre 16:00",       datetime(2026, 7, 27, 16, tzinfo=ET), False),
+        ("lunes 18:00",              datetime(2026, 7, 27, 18, tzinfo=ET), False),
+        ("SABADO 11:00",             datetime(2026, 8, 1, 11, tzinfo=ET), False),
+        ("DOMINGO 14:00",            datetime(2026, 8, 2, 14, tzinfo=ET), False),
+    ])
+    def test_el_horario_de_sesion(self, lbl, cuando, abierto):
+        assert mercado_abierto(cuando) is abierto, lbl
+
+    def test_el_fin_de_semana_SI_cachea(self):
+        # La 1a version miraba solo `hora >= 16` y dejaba el fin de semana
+        # entero sin cache, con cero posibilidad de que el dato cambiara.
+        sabado = datetime(2026, 8, 1, 11, tzinfo=ET)
+        n = []
+
+        def fetch(t, days):
+            n.append(t)
+            return _barras()
+
+        for _ in range(5):
+            cached_daily_bars("D", now=sabado, fetch=fetch)
+        assert len(n) == 1
+
+    def test_no_se_congela_si_massive_aun_no_publico_la_barra_de_hoy(self):
+        """La 2a version cacheaba cuando la ultima barra era anterior a hoy,
+        creyendo que era un festivo. Pero a las 9:31 Massive puede no haber
+        publicado el agregado del dia — y entonces la sesion entera se servia
+        del cache, con la grafica sin el dia en curso."""
+        hoy = "2026-07-27"
+        estado = {"bars": [LvlBar("2026-07-24", 101, 99, 100)]}
+
+        def fetch(t, days):
+            return estado["bars"]
+
+        cached_daily_bars("D", now=datetime(2026, 7, 27, 9, 31, tzinfo=ET), fetch=fetch)
+        estado["bars"] = estado["bars"] + [LvlBar(hoy, 105, 99, 104)]
+        r = cached_daily_bars("D", now=datetime(2026, 7, 27, 15, 0, tzinfo=ET), fetch=fetch)
+        assert r[-1].time == hoy, "la grafica se quedo sin el dia en curso"
+
+    def test_el_cache_se_recorta_a_los_dias_pedidos(self):
+        # El cache lo llena quien pide 365; devolverle 365 a quien pide 30 le da
+        # un historico que no encargo.
+        def fetch(t, days):
+            return _barras(365)[-days:]
+
+        cerrada = datetime(2026, 7, 27, 18, tzinfo=ET)
+        assert len(cached_daily_bars("E", 365, now=cerrada, fetch=fetch)) == 365
+        assert len(cached_daily_bars("E", 30, now=cerrada, fetch=fetch)) == 30

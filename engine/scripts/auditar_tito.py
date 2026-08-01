@@ -276,6 +276,30 @@ with tempfile.TemporaryDirectory() as _tdb:
     BS.cached_daily_bars("E", now=_ABIERTA, fetch=_f)
     chk(len(_n) == 2, "con la sesión ABIERTA siempre refresca (la barra de hoy es parcial)")
     chk(BS.MARKET_CLOSE_HOUR == 16, "el cierre de la sesión regular son las 16:00 ET")
+    _ET = __import__("zoneinfo").ZoneInfo("America/New_York")
+    _horario = [(datetime(2026,7,27,8,tzinfo=_ET), False),   # pre-market
+                (datetime(2026,7,27,9,30,tzinfo=_ET), True), # apertura
+                (datetime(2026,7,27,15,59,tzinfo=_ET), True),
+                (datetime(2026,7,27,16,tzinfo=_ET), False),  # cierre
+                (datetime(2026,8,1,11,tzinfo=_ET), False),   # sábado
+                (datetime(2026,8,2,14,tzinfo=_ET), False)]   # domingo
+    chk(all(BS.mercado_abierto(t) is v for t, v in _horario),
+        "horario de sesión: L-V 09:30-16:00 ET, fin de semana cerrado")
+    _sab = datetime(2026,8,1,11,tzinfo=_ET); _ns = []
+    def _fs(t, days): _ns.append(t); return _bb
+    for _ in range(4): BS.cached_daily_bars("SAB", now=_sab, fetch=_fs)
+    chk(len(_ns) == 1, f"el FIN DE SEMANA sí cachea ({len(_ns)}/4 llamadas)")
+    _est = {"b": [LvlBar("2026-07-24",101,99,100)]}
+    def _fh(t, days): return _est["b"]
+    BS.cached_daily_bars("SES", now=datetime(2026,7,27,9,31,tzinfo=_ET), fetch=_fh)
+    _est["b"] = _est["b"] + [LvlBar("2026-07-27",105,99,104)]
+    _r = BS.cached_daily_bars("SES", now=datetime(2026,7,27,15,tzinfo=_ET), fetch=_fh)
+    chk(_r[-1].time == "2026-07-27",
+        "no se congela si Massive publica la barra de hoy tarde")
+    _many = [LvlBar(f"2026-{(i%12)+1:02d}-0{(i%9)+1}",101,99,100) for i in range(365)]
+    BS.cached_daily_bars("REC", 365, now=_CERRADA, fetch=lambda t,days: _many[-days:])
+    chk(len(BS.cached_daily_bars("REC", 30, now=_CERRADA, fetch=lambda t,days: _many[-days:])) == 30,
+        "el cache se recorta a los días pedidos")
     _cache = BS.load_bars("D")
     chk(_cache is not None and _cache.date == "2026-07-31" and _cache.ticker == "D",
         "BarsFile guarda ticker + día de mercado + barras")

@@ -31,14 +31,16 @@ from .stores import MAX_TICKER_LEN, _exclusive, _read, _sanea_ticker, _write, da
 __all__ = [
     "BarsFile",
     "MARKET_CLOSE_HOUR",
+    "mercado_abierto",
     "load_bars",
     "save_bars",
     "cached_daily_bars",
 ]
 
-#: Cierre de la sesión regular, hora del Este. La barra del día solo es
-#: definitiva a partir de aquí.
-MARKET_CLOSE_HOUR = 16
+#: Sesión regular del mercado de EE.UU., hora del Este.
+MARKET_OPEN_MIN = 9 * 60 + 30    # 09:30
+MARKET_CLOSE_MIN = 16 * 60       # 16:00
+MARKET_CLOSE_HOUR = MARKET_CLOSE_MIN // 60   # se mantiene por compatibilidad
 
 
 @dataclass(frozen=True)
@@ -55,25 +57,52 @@ def _file_for(ticker: str) -> Path:
     return data_dir() / "bars" / f"{_sanea_ticker(ticker)}.json"
 
 
-def _sesion_cerrada(now: datetime) -> bool:
-    """¿La sesión del día de mercado de `now` ya cerró?
+def mercado_abierto(now: datetime) -> bool:
+    """¿Está la sesión regular en curso? Lunes a viernes, 09:30–16:00 ET.
 
-    DIVERGENCIA declarada, y la única de este módulo. El cache de Víctor vale
-    para todo el día de mercado, sin mirar la hora. Eso le sirve porque su
-    consumidor es el escáner de Wheel, donde una última barra algo vieja no
+    No conoce los festivos: en uno, esto dice "abierto" y el cache se refresca
+    todo el día. Se desperdicia una llamada, nunca se sirve un dato viejo — y el
+    caso lo cubre igualmente `_datos_congelados`, que mira la propia barra.
+    """
+    et = now.astimezone(MARKET_TZ)
+    if et.weekday() >= 5:            # sábado o domingo
+        return False
+    minutos = et.hour * 60 + et.minute
+    return MARKET_OPEN_MIN <= minutos < MARKET_CLOSE_MIN
+
+
+def _datos_congelados(cache: BarsFile, now: datetime) -> bool:
+    """¿Puede el mercado cambiar todavía lo que hay en este cache?
+
+    DIVERGENCIA declarada, y la única de peso en este módulo. El cache de Víctor
+    vale para todo el día de mercado, **sin mirar la hora**. Eso le sirve porque
+    su consumidor es el escáner de Wheel, donde una última barra algo vieja no
     cambia qué contrato vender.
 
     Aquí el consumidor es la gráfica del panel, que se auto-refresca para
     enseñar el movimiento del día. La barra de hoy es **parcial** mientras la
     sesión está abierta: guardarla a las 11:00 ET congelaría el precio hasta el
-    cierre y el usuario vería una gráfica que no se mueve mientras el mercado sí.
+    cierre y el usuario vería una gráfica quieta con el mercado moviéndose.
 
-    Así que el cache solo se da por bueno cuando la sesión que lo produjo ya
-    terminó. Fuera de horario —que es cuando de verdad se repiten las
-    consultas— ahorra igual.
+    La regla es una sola: **con la sesión en curso no se cachea, punto.** Fin de
+    semana, pre-market y después del cierre sí.
+
+    Dos versiones anteriores de esto estaban mal, y las dos las encontró la
+    auditoría:
+
+    - Mirar solo `hora >= 16` dejaba **el fin de semana entero sin cache**,
+      justo cuando más se repiten las consultas y con cero posibilidad de que el
+      dato cambie.
+    - Añadir "…o si la última barra guardada es anterior a hoy" pretendía cubrir
+      los festivos sin calendario, pero confunde **festivo** con **el dato aún
+      no ha llegado**. Massive puede no haber publicado el agregado de hoy a las
+      9:31; se cacheaba sin la barra del día y la sesión entera se servía de ahí
+      — la gráfica sin el día en curso hasta el cierre.
+
+    En un festivo se refresca todo el día y se desperdicia un puñado de llamadas.
+    Sale más barato que congelar la gráfica en una sesión viva.
     """
-    et = now.astimezone(MARKET_TZ)
-    return et.hour >= MARKET_CLOSE_HOUR
+    return not mercado_abierto(now)
 
 
 def _a_bar(d: object) -> LvlBar | None:
@@ -135,8 +164,11 @@ def cached_daily_bars(
     hoy = market_date_str(now)
 
     cache = load_bars(ticker)
-    if cache and cache.date == hoy and cache.bars and _sesion_cerrada(now):
-        return cache.bars
+    if cache and cache.date == hoy and cache.bars and _datos_congelados(cache, now):
+        # Recortado a la ventana pedida: el cache lo llenó quien pidió 365 días,
+        # y devolverle 365 a quien pide 30 le da un histórico que no encargó.
+        # Víctor no lo recorta porque su único llamador usa siempre el default.
+        return cache.bars[-days:] if days > 0 else list(cache.bars)
 
     if fetch is None:
         from .massive import fetch_daily_bars as fetch  # import tardío: evita el ciclo
