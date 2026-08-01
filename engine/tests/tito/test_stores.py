@@ -499,6 +499,54 @@ class TestLasTresGuardas:
         assert h.ticker == 7 and h.updated_at == 9
 
 
+class TestDateParseSigueElEstandar:
+    """El subconjunto ISO que la ECMA-262 sí define, con sus formatos cortos.
+
+    Salió del diferencial de primitivas: `"2026"` y `"2026-07"` son formatos
+    VÁLIDOS del Date Time String Format y el port los daba por ilegibles, así
+    que un timestamp truncado se ordenaba al azar en vez de por su fecha.
+    """
+
+    def test_los_formatos_cortos_del_estandar(self):
+        from wbj.tito.stores import _date_parse
+
+        # Año solo y año-mes: el mes y el día que faltan valen 1, en UTC.
+        assert _date_parse("2026") == _date_parse("2026-01-01T00:00:00Z")
+        assert _date_parse("2026-07") == _date_parse("2026-07-01T00:00:00Z")
+        assert _date_parse("+002026-07-30T00:00:00Z") == _date_parse("2026-07-30")
+
+    def test_una_fecha_imposible_en_formato_ISO_es_NaN(self):
+        # La especificación pide una fecha válida. (V8 cae a su parseo legacy y
+        # las desborda al mes siguiente; eso es cosa suya, no del estándar.)
+        import math
+
+        from wbj.tito.stores import _date_parse
+
+        for v in ("2026-13-45T00:00:00Z", "2026-02-30", "2026-00-10", "2026-07-00"):
+            assert math.isnan(_date_parse(v)), v
+
+    def test_el_legacy_de_V8_no_se_replica(self):
+        # `Date.parse("500")` es el año 500 y `Date.parse("$5")` es mayo de 2001.
+        # ECMA-262 lo declara implementation-defined: replicarlo sería copiar una
+        # peculiaridad de V8, no la lógica de Víctor.
+        import math
+
+        from wbj.tito.stores import _date_parse
+
+        for v in ("500", "$5", "Jul 30 2026", "30/07/2026", "ayer"):
+            assert math.isnan(_date_parse(v)), v
+
+    def test_las_variantes_ISO_que_si_se_parsean(self):
+        from wbj.tito.stores import _date_parse
+
+        base = _date_parse("2026-07-30T15:00:00Z")
+        assert _date_parse("2026-07-30T15:00:00z") == base
+        assert _date_parse("2026-07-30T15:00") == base
+        assert _date_parse("2026-07-30T10:00:00-05:00") == base
+        assert _date_parse("2026-07-30T20:00:00+0500") == base
+        assert _date_parse("2026-07-30T15:00:00.250Z") == base + 250
+
+
 def _snap(d: str, base: float, spot: float = 100.0, direction: str = "up") -> PredictionSnapshot:
     return PredictionSnapshot(date=d, horizon_days=10, spot=spot,
                               bear=spot * 0.9, base=base, bull=spot * 1.1,

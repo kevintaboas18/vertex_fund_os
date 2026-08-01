@@ -121,6 +121,7 @@ chk(srcs == {"MARKETSNACK_COOKIE","MASSIVE_API_KEY","MASSIVE_MAX_PAGES","WBJ_TIT
 
 # ── compute.ts: las fórmulas de la cadena ────────────────────────────
 from wbj.tito import compute as C
+from wbj.tito import stores as _ST
 from wbj.tito.structure import ChainRow
 chk(C.contract_price({"last_trade":{"price":1.25},"day":{"close":1.1,"vwap":1.05}})
     == (1.25,"last_trade"), "precio: prefiere last_trade")
@@ -149,6 +150,19 @@ chk(C.count_expirations([ChainRow("call",e,100.0,0,0,0.0)
     for e in ("2026-07-22","2026-07-22","2026-08-21","")]) == 2, "cuenta vencimientos distintos")
 chk("to_row(c)" in (TITO_DIR/"massive.py").read_text(),
     "massive usa compute.to_row (una sola conversión, como el original)")
+# Las dos primitivas de JS que el port reimplementa. El diferencial completo
+# vive en engine/scripts/diff_primitivas.sh (necesita node); aquí van los cuatro
+# casos que salieron de él, que son donde float() y Number() se separan.
+chk(all(math.isnan(C._js_number(v)) for v in ("1_0", "1_000", "12_3.4"))
+    and C._js_number("0x1A") == 26 and C._js_number("0o17") == 15
+    and C._js_number("Infinity") == float("inf")
+    and all(math.isnan(C._js_number(v)) for v in ("infinity", "inf", "nan")),
+    "`_js_number` es Number() de JS, no float() de Python (4 casos límite)")
+chk(_ST._date_parse("2026") == _ST._date_parse("2026-01-01T00:00:00Z")
+    and _ST._date_parse("2026-07") == _ST._date_parse("2026-07-01T00:00:00Z")
+    and math.isnan(_ST._date_parse("2026-02-30"))
+    and math.isnan(_ST._date_parse("Jul 30 2026")),
+    "`_date_parse` cubre el Date Time String Format y NO el legacy de V8")
 # Las DOS reglas de tipo de Víctor: estricta para el precio, laxa (`??` + la
 # aritmética de JS) para OI/strike/volumen/acciones. Aplicar la estricta a los
 # cuatro llenaba la cadena de ceros en silencio si la fuente cambia de tipo.

@@ -395,10 +395,19 @@ def _prop(obj: Any, name: str) -> Any:
     return None
 
 
-#: Formato de fecha que acepta `Date.parse`. Los legacy (`"Jul 30 2026"`) no
-#: entran: la fuente manda ISO y todo lo demás da `NaN` en los dos lados.
+#: El *Date Time String Format* de ECMA-262, que es lo único que `Date.parse`
+#: tiene definido: año solo, año-mes o fecha completa, con hora opcional. El año
+#: extendido (`+002026-…`) también es del estándar.
+#:
+#: Lo que queda FUERA a propósito es el parseo *legacy* (`"Jul 30 2026"`,
+#: `"$5"`, `"500"`). La propia especificación lo declara **implementation-
+#: defined**: V8 lo resuelve con heurísticas propias —`Date.parse("500")` es el
+#: año 500 y `Date.parse("$5")` es mayo de 2001— que otro motor no tiene por qué
+#: compartir. Replicar eso sería copiar una peculiaridad de V8, no la lógica de
+#: Víctor; aquí dan `NaN`, que es lo que ya devuelve cualquier otra cosa
+#: ilegible. La fuente manda ISO.
 _ISO_JS = re.compile(
-    r"^(\d{4})-(\d{2})-(\d{2})"
+    r"^([+-]\d{6}|\d{4})(?:-(\d{2})(?:-(\d{2}))?)?"
     r"(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3})\d*)?)?"
     r"(Z|z|[+-]\d{2}:?\d{2})?)?$"
 )
@@ -423,11 +432,23 @@ def _date_parse(v: Any) -> float:
     if not m:
         return math.nan
     y, mo, d, hh, mm, ss, ms, off = m.groups()
+    # `"2026"` y `"2026-07"` son formatos válidos del estándar: el mes y el día
+    # que falten valen 1. Sin esto, un timestamp truncado se ordenaba como
+    # ilegible en vez de por su fecha.
     try:
-        base = datetime(int(y), int(mo), int(d), int(hh or 0), int(mm or 0),
+        base = datetime(int(y), int(mo or 1), int(d or 1),
+                        int(hh or 0), int(mm or 0),
                         int(ss or 0), int((ms or "0").ljust(3, "0")) * 1000)
     except ValueError:
-        return math.nan          # `new Date("2026-13-45")` → Invalid Date
+        # Dos casos caen aquí:
+        #  · `"2026-13-45"`, `"2026-02-30"` — la especificación pide una fecha
+        #    válida en el formato ISO, así que `NaN`. (V8 cae a su parseo legacy
+        #    y las desborda al mes siguiente; eso es cosa suya, no del estándar.)
+        #  · el año extendido fuera del rango de `datetime`, que empieza en el
+        #    año 1 y llega al 9999. `Date.parse("-000001-01-01T00:00:00Z")` sí
+        #    da un número. Es un muro del lenguaje, no una decisión: un
+        #    timestamp del año -1 no existe en este dominio.
+        return math.nan
     if off is None and hh is not None:
         dt = base.replace(tzinfo=timezone.utc)   # su regla diría LOCAL: ver arriba
     elif off is None or off in ("Z", "z"):

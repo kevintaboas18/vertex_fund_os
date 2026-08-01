@@ -475,3 +475,53 @@ class TestCountExpirations:
 
     def test_sin_filas_es_cero(self):
         assert count_expirations([]) == 0
+
+
+class TestNumberDeJSNoEsFloatDePython:
+    """Los cuatro sitios donde `float()` y `Number()` dejan de coincidir.
+
+    Salieron del diferencial de PRIMITIVAS (`engine/scripts/diff_primitivas.sh`),
+    que ejecuta `Number()` de V8 sobre un corpus de casos límite. El diferencial
+    a nivel de fila no los alcanza: su generador nunca produce un `"1_000"`.
+    """
+
+    def test_el_separador_de_millar_de_Python_no_es_un_numero_en_JS(self):
+        # `float("1_000")` es 1000 y `Number("1_000")` es NaN. Sin el filtro, un
+        # texto que para él es basura entraba como número — y encima grande.
+        from wbj.tito.compute import _js_number
+        import math
+
+        for v in ("1_0", "1_000", "12_3.4", "1_0.5"):
+            assert math.isnan(_js_number(v)), v
+        r = to_row({"open_interest": "1_000", "details": {"strike_price": 100}})
+        assert r.open_interest == 0        # NaN → fallback de la guarda
+
+    def test_las_bases_que_JS_entiende_y_float_no(self):
+        from wbj.tito.compute import _js_number
+        import math
+
+        assert _js_number("0x1A") == 26
+        assert _js_number("0X1a") == 26
+        assert _js_number("0o17") == 15
+        assert _js_number("0b101") == 5
+        assert math.isnan(_js_number("0xZZ"))
+
+    def test_Infinity_distingue_el_case_y_float_no(self):
+        # `float()` acepta "inf", "infinity" y "NAN" en cualquier capitalización;
+        # `Number()` solo el "Infinity" exacto.
+        from wbj.tito.compute import _js_number
+        import math
+
+        assert _js_number("Infinity") == float("inf")
+        assert _js_number("-Infinity") == float("-inf")
+        for v in ("infinity", "INFINITY", "inf", "-inf", "nan", "NaN", "NAN"):
+            assert math.isnan(_js_number(v)), v
+
+    def test_lo_que_si_coincide(self):
+        from wbj.tito.compute import _js_number
+
+        assert _js_number("  500  ") == 500      # Number() recorta
+        assert _js_number("") == 0
+        assert _js_number("1e3") == 1000
+        assert _js_number([7]) == 7              # Number([7]) === 7
+        assert _js_number(True) == 1

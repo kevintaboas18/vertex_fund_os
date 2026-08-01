@@ -3969,19 +3969,21 @@ def _tito_memory(ticker, trades, chain, bars, now):
     # llevaba también la LECTURA — o sea el IV Rank real, el sub-agente 6 y la
     # calibración— cuando lo que hay en disco estaba perfectamente bien.
     escrituras: list[str] = []
+    guardado = None            # el `SaveResult` de su `saveTrades`
 
     def _guarda(nombre, fn):
         try:
-            fn()
+            return fn()
         except Exception as e:                       # noqa: BLE001
             escrituras.append(f"{nombre}: {type(e).__name__}")
+            return None
 
     if chain:
         _guarda("cadena", lambda: st.save_chain_snapshot(ticker, chain, now))
     notable = classify_flow(trades, now).interesting if trades else []
     if notable:
         # Los mismos `convictionRows` que guarda su /api/flow.
-        _guarda("trades", lambda: st.save_trades(ticker, notable))
+        guardado = _guarda("trades", lambda: st.save_trades(ticker, notable))
         ivs = [r.iv * 100 for r in notable if r.iv and r.iv > 0]
         if ivs:
             _guarda("iv", lambda: st.save_iv_snapshot(ticker, sum(ivs) / len(ivs), now))
@@ -4018,6 +4020,14 @@ def _tito_memory(ticker, trades, chain, bars, now):
                 # puede quedar mudo: la memoria se acumula hacia adelante y un
                 # día que no se guarda no se recupera.
                 "escrituras_fallidas": escrituras or None,
+                # El `SaveResult` de su `saveTrades`, que su UI sí muestra y
+                # aquí se estaba tirando. `memoria_desde` es el dato que dice si
+                # el sub-agente 6 tiene recorrido que evaluar: 5000 flows de
+                # esta semana no valen lo que 500 de hace tres meses.
+                "flows_nuevos": guardado.added if guardado else 0,
+                "memoria_desde": guardado.first_seen if guardado else (
+                    min((t.get("timestamp") for t in past if t.get("timestamp")),
+                        default=None)),
                 "predicciones_vencidas": review.get("matured_count", 0),
                 "sesgo_pct": review.get("bias_pct"),
                 "calibracion_activa": bool(
