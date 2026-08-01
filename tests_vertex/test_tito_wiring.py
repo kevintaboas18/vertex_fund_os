@@ -60,7 +60,11 @@ def fuentes(monkeypatch, tmp_path):
                                          int(oi * (1.4 if wall else 0.25)), oi * 100 * s))
         return MASS.ChainResult(rows=rows, underlying_price=SPOT, pages=1, truncated=False)
 
-    def fake_bars(ticker, **k):
+    def fake_bars(ticker, days=365, **k):
+        # `days` posicional: la firma real es `fetch_daily_bars(ticker, days=365,
+        # timeout=...)` y tanto `cached_daily_bars` como `daily_bars_for_panel`
+        # lo pasan por posición. Un doble que solo acepte kwargs convierte un
+        # cambio de firma en un `TypeError` disfrazado de "Massive está caído".
         out, seed = [], 7
         for i in range(200):
             seed = (seed * 1103515245 + 12345) % 2147483648

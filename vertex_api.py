@@ -3915,18 +3915,23 @@ def _tito_chain_and_bars(ticker):
     Devuelve `(rows, bars, spot)`. Levanta `MassiveError` con el motivo exacto
     (key ausente, key rechazada, rate limit, ticker sin datos).
     """
-    from wbj.tito.massive import MassiveError, fetch_daily_bars, fetch_option_chain
+    from wbj.tito.bars_store import daily_bars_for_panel
+    from wbj.tito.massive import MassiveError, fetch_option_chain
 
     chain_res = fetch_option_chain(ticker)
-    # Barras SIN cache, que es lo que hace Víctor fuera de Wheel. Su propia
-    # cabecera de `barsStore.ts` lo deja escrito: *"`fetchDailyBars` sigue sin
-    # cache para el resto de rutas: este store es nuevo y en v1 solo lo usa
-    # Wheel"*. Enchufarlo aquí fue una idea mía, y de ella salieron seis
-    # problemas seguidos —el fin de semana sin cachear, la gráfica congelada si
-    # Massive publicaba tarde, el histórico truncado en silencio—. Ninguno era
-    # de él. El módulo queda portado y listo para cuando exista el equivalente
-    # de Wheel; hasta entonces, esta ruta pide en directo.
-    bars = fetch_daily_bars(ticker)
+    # Barras diarias CON cache. Su cabecera de `barsStore.ts` dice que en v1 el
+    # store solo lo usa Wheel, y durante todo el port se respetó; se enchufa
+    # ahora porque el motivo que él escribió para Wheel —"las barras diarias
+    # solo cambian una vez al día"— vale igual aquí: Proyecciones las pide en
+    # CADA consulta y el panel se auto-refresca.
+    #
+    # No se usa su `cached_daily_bars` a pelo: su regla es "cachea por día de
+    # mercado" y eso, en un panel en vivo, congela la vela de hoy a media
+    # sesión, sella el archivo sin la barra del día si Massive publica tarde y
+    # pierde el cache justo el fin de semana. `daily_bars_for_panel` es la capa
+    # de política de Vertex y ancla el cache en el DATO —la última sesión
+    # cerrada— en vez de en el reloj. Su función queda intacta y verificable.
+    bars = daily_bars_for_panel(ticker)
     if not bars:
         raise MassiveError(f"Massive no devolvió barras diarias para {ticker}.")
     # La cadena puede venir vacía (subyacente sin opciones listadas) y el motor
@@ -4083,10 +4088,26 @@ def tito_health(ticker: str = "AAPL"):
                 + (" · TRUNCADA" if ch.truncated else ""),
                 None if ch.rows else f"¿{tk} tiene opciones listadas?",
                 None if ch.rows else "Estructura sin score y salvaguarda de liquidez activa")
+            # EN DIRECTO a propósito, sin pasar por `daily_bars_for_panel`: el
+            # trabajo de este check es probar que Massive responde, y una
+            # respuesta servida del cache taparía justo la caída que busca.
             bars = fetch_daily_bars(tk)
             add("massive.barras", bool(bars), f"{len(bars)} barras diarias",
                 None if bars else "sin barras el motor corta",
                 None if bars else "Proyecciones devuelve error para este ticker")
+            # …y aparte, si el cache del panel está sirviendo o no. Un cache que
+            # nunca acierta es una llamada de más en cada consulta.
+            from wbj.tito.bars_store import _ultima_sesion_cerrada, load_bars
+            _cb = load_bars(tk)
+            _corte = _ultima_sesion_cerrada(datetime.now(timezone.utc))
+            _vale = bool(_cb and _cb.bars and _cb.bars[-1].time >= _corte)
+            add("massive.barras.cache", True,
+                (f"{len(_cb.bars)} barras hasta {_cb.bars[-1].time}" if _cb and _cb.bars
+                 else "vacío")
+                + (" · sirviendo" if _vale else
+                   f" · se repedirá (última sesión cerrada: {_corte})"),
+                None,
+                None)
         except Exception as e:
             add("massive", False, str(e),
                 "revisa la key en el panel de Massive y que api.massive.com sea alcanzable",

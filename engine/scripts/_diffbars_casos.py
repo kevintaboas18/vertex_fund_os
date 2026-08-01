@@ -3,12 +3,18 @@ HOY="2026-07-31T21:00:00Z"; AYER="2026-07-30T21:00:00Z"; SESION="2026-07-31T15:0
 casos=[]
 def c(**k): casos.append(k)
 # load
+# Las dos guardas de `load_bars` (divergencias deliberadas). Cada caso que
+# difiera de su barsStore.ts tiene que declarar CUÁL, y cada guarda declarada
+# tiene que producir de verdad una diferencia: así el diferencial pilla tanto
+# una divergencia nueva sin querer como una guarda que desapareció en silencio.
+G_VALIDA = "G · load_bars valida lo que hay en disco (sus 2 bugs del `as`)"
+
 c(nombre="load sin cache", op="load", ticker="DEMO")
 c(nombre="load tras save", op="load", ticker="DEMO", pre={"ticker":"DEMO","n":3,"now":HOY})
 c(nombre="load json roto", op="load", ticker="R", raw="{no", rawFile="R.json")
-c(nombre="load sin campo bars", op="load", ticker="S", raw='{"ticker":"S","date":"2026-07-31"}', rawFile="S.json")
-c(nombre="load bars no lista", op="load", ticker="T", raw='{"ticker":"T","date":"x","bars":"txt"}', rawFile="T.json")
-c(nombre="load array pelado", op="load", ticker="U", raw='[1,2]', rawFile="U.json")
+c(nombre="load sin campo bars", divergencia=G_VALIDA, op="load", ticker="S", raw='{"ticker":"S","date":"2026-07-31"}', rawFile="S.json")
+c(nombre="load bars no lista", divergencia=G_VALIDA, op="load", ticker="T", raw='{"ticker":"T","date":"x","bars":"txt"}', rawFile="T.json")
+c(nombre="load array pelado", divergencia=G_VALIDA, op="load", ticker="U", raw='[1,2]', rawFile="U.json")
 c(nombre="load null", op="load", ticker="V", raw='null', rawFile="V.json")
 # save: normalización del ticker
 for t in ("demo"," demo ","DEMO","brk.b","brk/b","a"*70,"!!!",""):
@@ -29,9 +35,9 @@ c(nombre="cached cache vacio", op="cached", ticker="C8", now=HOY, n=0)
 c(nombre="cached cache de hoy vacio en disco", op="cached", ticker="C9", now=HOY, n=4,
   raw='{"ticker":"C9","date":"2026-07-31","bars":[]}', rawFile="C9.json")
 
-c(nombre="cache de HOY sin campo bars", op="cached", ticker="X1", now=HOY, n=4,
+c(nombre="cache de HOY sin campo bars", divergencia=G_VALIDA, op="cached", ticker="X1", now=HOY, n=4,
   raw='{"ticker":"X1","date":"2026-07-31"}', rawFile="X1.json")
-c(nombre="cache de HOY con bars no lista", op="cached", ticker="X2", now=HOY, n=4,
+c(nombre="cache de HOY con bars no lista", divergencia=G_VALIDA, op="cached", ticker="X2", now=HOY, n=4,
   raw='{"ticker":"X2","date":"2026-07-31","bars":"texto"}', rawFile="X2.json")
 c(nombre="cache de HOY que es un array", op="cached", ticker="X3", now=HOY, n=4,
   raw='[1,2,3]', rawFile="X3.json")

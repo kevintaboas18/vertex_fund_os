@@ -1,22 +1,33 @@
-"""Port de `barsStore.ts`.
+"""Port de `barsStore.ts`, en sus dos capas.
 
-El original no trae test propio (su consumidor es Wheel), así que estos cubren
-su contrato tal cual: cache por día de mercado, sin más reglas.
+El original no trae test propio (su consumidor es Wheel), así que estos cubren:
 
-Cuatro reglas que llegué a añadir aquí —horario de sesión, campo `days`,
-recorte de la ventana, usar cache viejo si falla la red— están **quitadas**.
-Cada una parecía una mejora y cada una trajo su propio fallo; ninguna estaba en
-el original. Su cabecera ya avisaba de que este store no se enchufa fuera de
-Wheel, y ahí estaba la respuesta.
+- `TestCachedDailyBars` — SU contrato tal cual, cache por día de mercado y sin
+  más reglas. Es lo que verifica `diff_bars.sh` contra su archivo en Node.
+- `TestLasDosGuardasDeLoadBars` — los dos bugs de su `as BarsFile`, tapados
+  desde que el módulo se cablea.
+- `TestPoliticaDelPanel` — `daily_bars_for_panel`, que es política de Vertex y
+  no suya: los tres agujeros que su regla de cache deja en un panel en vivo.
+
+Las reglas del panel viven en su propia función a propósito. Llegué a meterlas
+dentro de `cached_daily_bars` y eso rompía la única forma de comprobar que el
+port es fiel — ejecutar su archivo y comparar. Separadas, su función sigue
+midiéndose contra la suya y la política se prueba aparte.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
-from wbj.tito.bars_store import cached_daily_bars, load_bars, save_bars
+from wbj.tito.bars_store import (
+    cached_daily_bars,
+    daily_bars_for_panel,
+    load_bars,
+    save_bars,
+)
 from wbj.tito.levels import LvlBar
 
 AYER = datetime(2026, 7, 30, 21, 0, tzinfo=timezone.utc)
@@ -26,6 +37,14 @@ HOY = datetime(2026, 7, 31, 21, 0, tzinfo=timezone.utc)   # 17:00 ET
 @pytest.fixture(autouse=True)
 def _tmp_data(tmp_path, monkeypatch):
     monkeypatch.setenv("WBJ_TITO_DATA", str(tmp_path))
+
+
+def _barras_hasta(ultimo: str, n: int = 30, base: float = 100.0):
+    """`n` barras diarias consecutivas que terminan en `ultimo` (inclusive)."""
+    fin = datetime.fromisoformat(ultimo).date()
+    return [LvlBar(time=(fin - timedelta(days=n - 1 - i)).isoformat(),
+                   high=base + i + 1, low=base + i - 1, close=base + i)
+            for i in range(n)]
 
 
 def _barras(n=5, base=100.0):
@@ -227,19 +246,17 @@ class TestCachedDailyBars:
         assert vistos == [30, 365]
 
 
-class TestBugsDeVictorReplicados:
-    """Dos bugs de su `barsStore.ts`, replicados A PROPOSITO.
+class TestLasDosGuardasDeLoadBars:
+    """Los dos bugs de su `barsStore.ts`, TAPADOS desde que el modulo se cablea.
 
     `loadBars` hace `JSON.parse(raw) as BarsFile` a secas, y ese `as` es una
-    afirmacion para el compilador, no una comprobacion. Estos tests fijan SU
-    comportamiento exacto, medido ejecutando su archivo en Node — para que el
-    port sea identico y para que, si alguien lo cambia, se vea que se esta
-    separando del original a sabiendas.
+    afirmacion para el compilador, no una comprobacion. Mientras el modulo no lo
+    llamaba nadie los dos estaban replicados a proposito; ahora que el panel de
+    Proyecciones lo usa, un archivo a medio escribir tumbaria la peticion o la
+    dejaria calculando sobre texto.
 
     El arreglo propuesto para el upstream esta en
-    engine/scripts/upstream-tito-barsstore.patch. Aqui no se aplica: el modulo
-    no lo llama nadie (su cabecera dice que solo lo usa Wheel), asi que el
-    riesgo esta acotado y la fidelidad pesa mas.
+    engine/scripts/upstream-tito-barsstore.patch.
     """
 
     def _escribe(self, nombre, contenido):
@@ -249,45 +266,149 @@ class TestBugsDeVictorReplicados:
         p.mkdir(parents=True, exist_ok=True)
         (p / nombre).write_text(contenido, encoding="utf-8")
 
-    def test_BUG1_un_cache_del_dia_sin_campo_bars_lanza(self):
+    def test_BUG1_un_cache_del_dia_sin_campo_bars_ya_no_lanza(self):
         # El suyo: `cached.bars.length` sobre undefined → TypeError, y el
         # `catch` de loadBars ya quedo atras, asi que sube al llamador.
         self._escribe("A.json", '{"ticker":"A","date":"2026-07-31"}')
-        with pytest.raises(TypeError):
-            cached_daily_bars("A", now=HOY, fetch=lambda t, d: _barras(4))
+        assert load_bars("A") is None
+        assert cached_daily_bars("A", now=HOY, fetch=lambda t, d: _barras(4)) == _barras(4)
 
-    def test_BUG2_un_bars_de_texto_se_devuelve_como_si_fueran_barras(self):
+    def test_BUG2_un_bars_de_texto_ya_no_se_devuelve_como_barras(self):
         # El suyo: `"texto".length > 0` es cierto, la guarda pasa y el llamador
         # recibe un string donde espera DailyBar[]. Sin excepcion.
         self._escribe("B.json", '{"ticker":"B","date":"2026-07-31","bars":"texto"}')
         r = cached_daily_bars("B", now=HOY, fetch=lambda t, d: _barras(4))
-        assert r == "texto"
+        assert r == _barras(4)
 
-    def test_BUG2_con_un_objeto_devuelve_el_objeto(self):
+    def test_BUG2_con_un_objeto_tampoco(self):
         self._escribe("C.json",
                       '{"ticker":"C","date":"2026-07-31","bars":{"length":9}}')
         r = cached_daily_bars("C", now=HOY, fetch=lambda t, d: _barras(4))
-        assert r == {"length": 9}
+        assert r == _barras(4)
 
-    def test_load_bars_no_valida_nada(self):
-        # `JSON.parse(raw) as BarsFile`: lo que haya en el disco pasa tal cual.
-        self._escribe("E.json", '{"ticker":"E","date":"x","bars":"txt"}')
-        assert load_bars("E").bars == "txt"
-        self._escribe("F.json", '[1,2]')
-        f = load_bars("F")
-        assert f is not None and f.ticker is None and f.bars is None
-        self._escribe("G.json", 'null')
-        assert load_bars("G") is None      # `catch` → null
+    def test_un_cache_ilegible_es_un_cache_que_no_esta(self):
+        for nombre, crudo in (("E.json", '{"ticker":"E","date":"x","bars":"txt"}'),
+                              ("F.json", '[1,2]'),
+                              ("G.json", 'null'),
+                              ("H.json", '{no soy json')):
+            self._escribe(nombre, crudo)
+            assert load_bars(nombre[0]) is None, nombre
+
+    def test_y_el_archivo_corrupto_se_repara_solo(self):
+        self._escribe("D.json", '{"ticker":"D","date":"2026-07-31","bars":"texto"}')
+        cached_daily_bars("D", now=HOY, fetch=lambda t, d: _barras(4))
+        assert load_bars("D").bars == _barras(4)
 
 
-class TestNoEstaCableadoFueraDeWheel:
-    """La instrucción está en su cabecera: *"`fetchDailyBars` sigue sin cache
-    para el resto de rutas: este store es nuevo y en v1 solo lo usa Wheel"*."""
+ET = ZoneInfo("America/New_York")
 
-    def test_la_ruta_de_proyecciones_pide_en_directo(self):
+
+class TestPoliticaDelPanel:
+    """`daily_bars_for_panel` — politica de Vertex, no de Victor.
+
+    Su `cachedDailyBars` cachea por dia de mercado y punto. Los cuatro casos de
+    abajo son los agujeros que eso deja en un panel en vivo, y son los mismos
+    que aparecieron la primera vez que intente enchufar el store.
+    """
+
+    def _fetch(self, bars, llamadas):
+        def f(t, d):
+            llamadas.append(t)
+            return bars
+        return f
+
+    def test_1_a_media_sesion_no_se_cachea_la_vela_parcial(self):
+        # 11:00 ET del viernes: la barra de hoy esta a medio hacer. La ultima
+        # sesion cerrada es la de ayer, asi que la serie de ayer sirve y la
+        # parcial no se sella.
+        llamadas = []
+        ayer = _barras_hasta("2026-07-30")
+        out = daily_bars_for_panel("X", now=datetime(2026, 7, 31, 11, tzinfo=ET),
+                                   fetch=self._fetch(ayer, llamadas))
+        assert out == ayer and len(llamadas) == 1
+        # …y la segunda consulta ya sale del cache
+        daily_bars_for_panel("X", now=datetime(2026, 7, 31, 15, tzinfo=ET),
+                             fetch=self._fetch(ayer, llamadas))
+        assert len(llamadas) == 1
+
+    def test_2_si_Massive_publica_tarde_se_vuelve_a_pedir(self):
+        # 18:00 ET del viernes y la serie NO trae la barra del viernes: no se
+        # cachea, porque sellarla dejaria el dia fuera para siempre.
+        llamadas = []
+        vieja = _barras_hasta("2026-07-30")
+        noche = datetime(2026, 7, 31, 18, tzinfo=ET)
+        for _ in range(3):
+            daily_bars_for_panel("X", now=noche, fetch=self._fetch(vieja, llamadas))
+        assert len(llamadas) == 3, "sello una serie sin la barra de hoy"
+        assert load_bars("X") is None
+
+    def test_2b_y_en_cuanto_la_publica_se_cachea(self):
+        llamadas = []
+        noche = datetime(2026, 7, 31, 18, tzinfo=ET)
+        completa = _barras_hasta("2026-07-31")
+        for _ in range(3):
+            daily_bars_for_panel("X", now=noche, fetch=self._fetch(completa, llamadas))
+        assert len(llamadas) == 1
+
+    def test_3_el_fin_de_semana_el_cache_SI_sirve(self):
+        # `market_date` devuelve sabado, que nunca coincide con la fecha del
+        # cache: con su regla se perdia el cache justo los dos dias en que las
+        # barras no pueden cambiar.
+        llamadas = []
+        viernes = _barras_hasta("2026-07-31")
+        daily_bars_for_panel("X", now=datetime(2026, 7, 31, 18, tzinfo=ET),
+                             fetch=self._fetch(viernes, llamadas))
+        for cuando in (datetime(2026, 8, 1, 12, tzinfo=ET),    # sabado
+                       datetime(2026, 8, 2, 20, tzinfo=ET),    # domingo
+                       datetime(2026, 8, 3, 9, tzinfo=ET)):    # lunes pre-market
+            out = daily_bars_for_panel("X", now=cuando, fetch=self._fetch(viernes, llamadas))
+            assert out == viernes
+        assert len(llamadas) == 1, "el cache se perdio el fin de semana"
+
+    def test_4_una_respuesta_truncada_no_acorta_el_historico(self):
+        # Una pagina truncada o un rate limit devuelven menos barras. Sellarlas
+        # recortaba el historico en silencio, con el ano de barras que necesitan
+        # `levels` y el sub-agente 6 dependiendo de el.
+        noche = datetime(2026, 7, 31, 18, tzinfo=ET)
+        larga = _barras_hasta("2026-07-31", n=250)
+        daily_bars_for_panel("X", now=noche, fetch=lambda t, d: larga)
+        assert len(load_bars("X").bars) == 250
+
+        corta = _barras_hasta("2026-07-31", n=5)
+        from wbj.tito.stores import data_dir
+        (data_dir() / "bars" / "X.json").unlink()      # forzar el refetch
+        daily_bars_for_panel("X", now=noche, fetch=lambda t, d: larga)
+        daily_bars_for_panel("X", now=noche + timedelta(days=3), fetch=lambda t, d: corta)
+        assert len(load_bars("X").bars) == 250, "el historico se acorto"
+
+    def test_si_falla_la_red_el_error_sube(self):
+        # A diferencia de `cached_daily_bars` (que hace `.catch(() => [])`), aqui
+        # el fallo tiene que llegar al llamador: `_tito_chain_and_bars` convierte
+        # un fallo de Massive en un error del endpoint, no en un score sin datos.
+        def boom(t, d):
+            raise RuntimeError("Massive caido")
+
+        with pytest.raises(RuntimeError):
+            daily_bars_for_panel("X", now=HOY, fetch=boom)
+
+
+class TestCableadoEnProyecciones:
+    """Lo contrario de lo que decia el test anterior: ahora SI esta cableado."""
+
+    def test_la_ruta_de_proyecciones_usa_el_cache(self):
         from pathlib import Path
 
         api = (Path(__file__).resolve().parents[3] / "vertex_api.py").read_text()
         bloque = api[api.index("def _tito_chain_and_bars"):api.index("def _tito_memory")]
-        assert "cached_daily_bars" not in bloque
-        assert "fetch_daily_bars(ticker)" in bloque
+        assert "daily_bars_for_panel(ticker)" in bloque
+        assert "fetch_daily_bars(ticker)" not in bloque
+
+    def test_el_health_check_sigue_pidiendo_en_directo(self):
+        # Su trabajo es probar que Massive responde; una respuesta del cache
+        # taparia justo la caida que busca.
+        from pathlib import Path
+
+        api = (Path(__file__).resolve().parents[3] / "vertex_api.py").read_text()
+        bloque = api[api.index('add("massive.cadena"'):api.index("# 3. MarketSnack")]
+        assert "fetch_daily_bars(tk)" in bloque
+        assert "massive.barras.cache" in bloque

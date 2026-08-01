@@ -4,10 +4,15 @@ Encontrados al portar el módulo a Python (Vertex Fund OS) con un test
 diferencial: se ejecuta el barsStore.ts real en Node y el port en Python sobre
 los mismos casos, y se comparan las salidas. Los dos salen del mismo sitio.
 
-Nota sobre el port: los dos bugs están REPLICADOS a propósito, para que el
-módulo sea idéntico al original (27/27 casos del diferencial). Los tests
-`TestBugsDeVictorReplicados` fijan este comportamiento exacto, así que si algún
-día se aplica este parche arriba, allí se ve qué hay que cambiar abajo.
+Nota sobre el port: los dos bugs están ARREGLADOS en la versión de Python, y el
+arreglo es el que se propone abajo. Estuvieron replicados mientras el módulo no
+lo llamaba nadie —su cabecera dice que en v1 solo lo usa Wheel—; se taparon al
+enchufar el cache al panel de Proyecciones, donde un archivo a medio escribir
+tumbaría la petición o la dejaría calculando sobre texto.
+
+El diferencial lo comprueba en las dos direcciones: 22/27 casos idénticos, y los
+5 restantes son exactamente esta guarda, cada uno declarado en su caso. Los
+tests `TestLasDosGuardasDeLoadBars` fijan el comportamiento.
 
 
 ── El origen: un `as` que el disco no tiene por qué cumplir ────────────────
@@ -70,6 +75,33 @@ Validar en el borde, que es donde entra el dato:
 
 Con eso los dos casos caen al camino que ya existe —`cached` es `null`, se pide
 a la red y se reescribe el archivo—, o sea que el cache corrupto se repara solo.
+
+
+── Aparte: la regla de cache no sirve para un panel en vivo ───────────────
+
+`cachedDailyBars` cachea por día de mercado y punto:
+
+    if (cached && cached.date === today && cached.bars.length > 0) return cached.bars;
+
+Para el escaneo de Wheel está bien: corre una vez y pide 40 tickers de golpe.
+Para una ruta que se consulta en vivo deja tres agujeros, los tres medidos:
+
+  1. A media sesión la barra de HOY es parcial. Cachearla congela la última vela
+     —y los niveles calculados sobre ella— el resto del día.
+  2. Si el proveedor publica tarde, después del cierre el archivo se sella con la
+     fecha de hoy pero SIN la barra de hoy, y ya no se vuelve a pedir.
+  3. El fin de semana `marketDateStr` devuelve sábado, que nunca coincide con la
+     fecha del cache: se pierde el cache justo los dos días en que las barras no
+     pueden cambiar.
+
+El port no toca `cachedDailyBars` por esto; añade una capa aparte
+(`daily_bars_for_panel`) que ancla la validez en el DATO —la última sesión
+cerrada— en vez de en el reloj:
+
+    valido  ⟺  cache.bars[at(-1)].time >= ultimaSesionCerrada(now)
+
+y que además nunca reemplaza una serie por otra más corta, porque una página
+truncada recortaba el histórico en silencio.
 
 
 ── Tests de regresión sugeridos (barsStore.test.ts) ───────────────────────

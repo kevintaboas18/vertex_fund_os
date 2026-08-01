@@ -51,13 +51,5 @@ sed "s#/tmp/bs/casos.json#$TMP/casos.json#; s#/tmp/bs/py_out.json#$TMP/py_out.js
     "$ROOT/engine/scripts/_diffbars_run_py.py" > "$TMP/run_py.py"
 python3 "$TMP/run_py.py"
 
-python3 - "$TMP/victor_out.json" "$TMP/py_out.json" <<'PY'
-import json, sys
-v = json.load(open(sys.argv[1])); p = json.load(open(sys.argv[2]))
-difs = [(a, b) for a, b in zip(v, p)
-        if a["res"] != b["res"] or a.get("archivos") != b.get("archivos")]
-print(f"\n  {len(v)-len(difs)}/{len(v)} idénticos")
-for a, b in difs:
-    print(f"  ✗ {a['caso']}\n     víctor={a['res']}\n     port  ={b['res']}")
-print("\n  IDÉNTICO a su barsStore.ts" if not difs else f"\n  {len(difs)} DIFERENCIAS")
-PY
+export BS_CASOS="$TMP/casos.json" BS_OUT="$TMP/victor_out.json" BS_PY_OUT="$TMP/py_out.json"
+python3 "$ROOT/engine/scripts/_diffbars_compare.py"

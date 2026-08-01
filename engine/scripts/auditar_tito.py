@@ -15,7 +15,7 @@ salta esa sección y el resto corre igual.
 """
 from __future__ import annotations
 import json, math, os, re, subprocess, sys, tempfile, time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 VERTEX = Path(os.environ.get("VERTEX_ROOT") or Path(__file__).resolve().parents[2])
@@ -111,7 +111,8 @@ chk('BASE_URL = "https://api.massive.com"' in (TITO_DIR/"massive.py").read_text(
 i, j = API.index("def _tito_chain_and_bars"), API.index("def _tito_memory")
 blk = API[i:j]
 chk("yf.Ticker" not in blk and "tk.option_chain" not in blk, "sin yfinance en la ruta de Tito")
-chk("fetch_option_chain" in blk and "fetch_daily_bars" in blk, "usa los dos endpoints de Massive")
+chk("fetch_option_chain" in blk and "daily_bars_for_panel" in blk,
+    "usa los dos endpoints de Massive (las barras, por el cache del panel)")
 chk('"source": "massive"' in API, "el fallo de Massive se reporta con su motivo")
 chk('out["chain_source"] = "massive"' in API, "el reporte declara la procedencia de la cadena")
 srcs = {m for m in re.findall(r'os\.environ\.get\("(\w+)"', "\n".join(
@@ -337,26 +338,40 @@ with tempfile.TemporaryDirectory() as _tdb:
     BS.save_bars(" demo ", _bb, _HOY)
     chk(BS.load_bars("DEMO").ticker == " DEMO ",
         "el ticker guardado NO se recorta (`ticker.toUpperCase()`, sin trim)")
-    # Los 2 BUGS de su barsStore.ts, REPLICADOS a propósito para que el port sea
-    # idéntico. Arreglo propuesto: engine/scripts/upstream-tito-barsstore.patch.
+    # Los 2 bugs de su barsStore.ts, TAPADOS desde que el módulo se cablea.
+    # Arreglo propuesto: engine/scripts/upstream-tito-barsstore.patch.
     _bp = BS.data_dir()/"bars"; _bp.mkdir(parents=True, exist_ok=True)
     _hoy_et = _HOY.astimezone(_ET).date().isoformat()
     (_bp/"A.json").write_text('{"ticker":"A","date":"'+_hoy_et+'"}')
-    try:
-        BS.cached_daily_bars("A", now=_HOY, fetch=lambda t,d: _bb); _b1 = False
-    except TypeError:
-        _b1 = True
-    chk(_b1, "BUG 1 de Víctor replicado: cache sin `bars` lanza TypeError")
+    chk(BS.cached_daily_bars("A", now=_HOY, fetch=lambda t,d: _bb) == _bb,
+        "GUARDA: un cache del día sin campo `bars` ya no lanza (BUG 1 de su `as`)")
     (_bp/"B.json").write_text('{"ticker":"B","date":"'+_hoy_et+'","bars":"texto"}')
-    chk(BS.cached_daily_bars("B", now=_HOY, fetch=lambda t,d: _bb) == "texto",
-        "BUG 2 de Víctor replicado: un `bars` de texto se devuelve tal cual")
+    chk(BS.cached_daily_bars("B", now=_HOY, fetch=lambda t,d: _bb) == _bb,
+        "GUARDA: un `bars` de texto ya no se devuelve como barras (BUG 2)")
     (_bp/"E.json").write_text('[1,2]')
-    _e = BS.load_bars("E")
-    chk(_e is not None and _e.ticker is None and _e.bars is None,
-        "load_bars no valida nada (`JSON.parse(raw) as BarsFile`)")
+    chk(BS.load_bars("E") is None, "un cache ilegible es un cache que no está")
+    # La política del panel: ancla el cache en la última sesión CERRADA, no en
+    # el reloj. Sin esto, la vela de hoy se congela a media sesión, un retraso
+    # de Massive deja el día fuera para siempre y el fin de semana no cachea.
+    _vie18 = datetime(2026, 7, 31, 18, tzinfo=_ET)
+    _sab = datetime(2026, 8, 1, 12, tzinfo=_ET)
+    _serie = [LvlBar(time=(date(2026,7,31) - timedelta(days=29-i)).isoformat(),
+                     high=101+i, low=99+i, close=100+i) for i in range(30)]
+    _n = []
+    BS.daily_bars_for_panel("PANEL", now=_vie18, fetch=lambda t,d: (_n.append(1), _serie)[1])
+    BS.daily_bars_for_panel("PANEL", now=_sab, fetch=lambda t,d: (_n.append(1), _serie)[1])
+    chk(len(_n) == 1, "el cache del panel SÍ sirve el fin de semana")
+    _m = []
+    _sin_hoy = _serie[:-1]
+    for _ in range(3):
+        BS.daily_bars_for_panel("TARDE", now=_vie18,
+                                fetch=lambda t,d: (_m.append(1), _sin_hoy)[1])
+    chk(len(_m) == 3, "si Massive publica tarde, no se sella el día y se repide")
 _blkb = API[API.index("def _tito_chain_and_bars"):API.index("def _tito_memory")]
-chk("cached_daily_bars" not in _blkb and "fetch_daily_bars(ticker)" in _blkb,
-    'no cableado fuera de Wheel ("fetchDailyBars sigue sin cache para el resto de rutas")')
+chk("daily_bars_for_panel(ticker)" in _blkb and "fetch_daily_bars(ticker)" not in _blkb,
+    "las barras de Proyecciones pasan por el cache del panel")
+chk("fetch_daily_bars(tk)" in API and "massive.barras.cache" in API,
+    "…y el health check sigue pidiendo EN DIRECTO (un cache taparía la caída)")
 
 # 6ª pasada: los negativos. Llegué a mandarlos al fallback —un nocional que
 # RESTA es peor que uno que falta— y está quitado: su `??` no los toca.
