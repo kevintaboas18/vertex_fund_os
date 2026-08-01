@@ -366,10 +366,10 @@ datos faltantes, no la empresa.
 
 ### V-04 (ALTO) — `JUDGE_MODEL` contiene una clave, no un nombre de modelo
 
-`vertex.env:32` → `JUDGE_MODEL=sk-ant-api03-...`
+`vertex.env:32` → `JUDGE_MODEL=sk-ant-…` (una clave, no un modelo)
 
 `config.py:93` lo toma tal cual (`_key("JUDGE_MODEL") or "claude-opus-5"`), así
-que el judge pediría `model="sk-ant-api03-..."`. Independiente de V-03: aunque
+que el judge pediría `model="sk-ant-…"`. Independiente de V-03: aunque
 haya créditos, esto rompe el judge.
 **Solución:** dejarlo vacío (usa `claude-opus-5`) o poner `claude-haiku-4-5`.
 
