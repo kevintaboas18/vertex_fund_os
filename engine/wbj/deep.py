@@ -676,11 +676,20 @@ _KEY_BY_LABEL = {
 
 
 def _run_specialists(full_packet: Any, settings: Any = None,
-                     judge: bool = True) -> tuple[list[tuple[str, Any]], int]:
+                     judge: bool = True,
+                     notes: list[str] | None = None) -> tuple[list[tuple[str, Any]], int]:
     """The 6 specialists, with Victor's judgment overlay merged in.
 
     Returns (labelled outputs, judgments applied). Judgment is enrichment:
     any failure leaves the un-judged outputs intact.
+
+    `notes`, when given, collects data-gap lines for the report. A judge
+    that could not run is the single largest cause of NOT_SCORABLE
+    dimensions — on NVDA it cost Market 13 of its 20 points and dropped
+    coverage to 0.49, which then tripped OVERRIDE_6 and forced the label
+    down. That used to be visible only in the log, so the report showed
+    three unscored dimensions and an "Avoid" verdict with nothing tying
+    them to the cause.
     """
     # Specialists read their hardest inputs (WACC above all) from an
     # overlay. Nothing built one, so those metrics were NOT_SCORABLE on
@@ -770,6 +779,7 @@ def _run_specialists(full_packet: Any, settings: Any = None,
 
             if judgments is None:
                 asked_of_claude = []
+                judge_failed = False
                 if requests:
                     try:
                         # The 10-K narrative is where customer concentration, backlog/RPO
@@ -783,13 +793,28 @@ def _run_specialists(full_packet: Any, settings: Any = None,
                             # which only exist here.
                             outputs=outs,
                         )
-                    except Exception:
+                    except Exception as exc:
                         # An exhausted or unreachable API must not discard
                         # the answers the analyst already wrote down.
+                        judge_failed = True
                         logger.warning("judge unavailable; keeping analyst answers only",
                                        exc_info=True)
+                        from wbj.report import _llm_failure_reason
+
+                        _, reason = _llm_failure_reason(exc)
+                        if notes is not None:
+                            notes.append(
+                                f"judge: QUALITATIVE_JUDGE_UNAVAILABLE ({reason}); "
+                                f"{len(requests)} question(s) went unanswered, so the "
+                                "dimensions that rest on them stay NOT_SCORABLE")
                 judgments = [*analyst, *asked_of_claude]
-                if ticker and judgments:
+                # Never cache a set the judge could not finish. The cache key
+                # is the full question list, so storing the analyst-only
+                # answers under it made every later run inside the TTL match
+                # the cache, skip the judge entirely and reproduce the
+                # degraded scores in silence — one outage poisoning days of
+                # reports, with nothing in them saying so.
+                if ticker and judgments and not judge_failed:
                     cache.put(ticker, _JUDGMENT_CACHE_KEY,
                               {"requests": asked,
                                "judgments": [j.model_dump(mode="json") for j in judgments]})

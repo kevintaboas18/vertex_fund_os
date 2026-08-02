@@ -1,0 +1,14 @@
+{
+  "ticker": "KO",
+  "date": "2026-08-02",
+  "price": 87.59,
+  "bear": 65.44,
+  "base": 94.26,
+  "bull": 113.44,
+  "growth_base": 0.0762,
+  "pe_now": 28.8,
+  "score10": 5.01,
+  "evidence_points": 81,
+  "horizon_days": 365,
+  "source": "cerebro"
+}

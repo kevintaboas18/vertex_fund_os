@@ -4,13 +4,23 @@ services:
   - type: web
     name: vertex-fund-os
     runtime: python
-    # 'free' funciona sin tarjeta (se duerme tras inactividad). Para "siempre
-    # encendido" + disco persistente, sube a 'starter' y descomenta el bloque disk.
+    # ⚠ M-12: 'free' NO tiene disco persistente. `vertex.db` vive en un sistema de
+    # archivos efímero, así que CADA redeploy (y cada despertar tras dormir por
+    # inactividad) BORRA reportes, snapshots de consenso, historial de señales,
+    # la conexión de Plaid y las predicciones — es decir, destruye el track
+    # record del que dependen `wbj track` y toda la calibración.
+    #
+    # Si el aprendizaje entre sesiones te importa (el protocolo de memoria de
+    # CLAUDE.md dice que sí), sube a 'starter' y descomenta el bloque `disk` de
+    # abajo + la variable VERTEX_DB. Mientras sigas en 'free', trata la base
+    # como caché: lo que quieras conservar, commitéalo en Memoria/ y Reportes/.
     plan: free
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn vertex_api:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: /
-    # --- Disco persistente (SOLO en planes de pago: starter+). Descomenta si subes de plan ---
+    # --- Disco persistente (SOLO en planes de pago: starter+) ---
+    # Descomenta ESTO y la variable VERTEX_DB de abajo, a la vez: el disco sin
+    # la variable no sirve de nada (la DB seguiría escribiéndose fuera de él).
     # disk:
     #   name: vertex-data
     #   mountPath: /var/data
@@ -20,7 +30,23 @@ services:
         value: 3.11.9
       - key: EDGAR_USER_AGENT
         value: "Vertex Fund OS - Kevin Taboas kevintaboas02@gmail.com"
-      # Con disco (plan pago) añade: VERTEX_DB=/var/data/vertex.db para conservar la memoria.
+      # Con el disco activo, descomenta esto para que la memoria sobreviva a
+      # los redeploys. Sin el bloque `disk` de arriba, no hace nada.
+      # - key: VERTEX_DB
+      #   value: /var/data/vertex.db
+      # C-02: clave de acceso a la API. SIN esta variable el servicio solo
+      # atiende a localhost, asi que en Render quedaria inutilizable: es
+      # obligatoria. Genera una larga y aleatoria (ej. `openssl rand -hex 24`).
+      - key: VERTEX_API_TOKEN
+        sync: false
+      # C-04: origen permitido por CORS. Pon aqui la URL publica de Render
+      # (https://...onrender.com). Sin ella, CORS solo admite localhost.
+      - key: VERTEX_ORIGIN
+        sync: false
+      # C-03: cifra el access_token de Plaid guardado en la DB. Opcional pero
+      # recomendado: protege el token si alguien obtiene una copia del .db.
+      - key: VERTEX_DB_KEY
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       # Claude (Anthropic): capa de judge para lo cualitativo (moat, catalizadores, etc.)
@@ -77,12 +103,4 @@ services:
       - key: SCHWAB_APP_KEY
         sync: false
       - key: SCHWAB_APP_SECRET
-        sync: false
-      - key: SNAPTRADE_CLIENT_ID
-        sync: false
-      - key: SNAPTRADE_CONSUMER_KEY
-        sync: false
-      - key: SNAPTRADE_USER_ID
-        sync: false
-      - key: SNAPTRADE_USER_SECRET
         sync: false

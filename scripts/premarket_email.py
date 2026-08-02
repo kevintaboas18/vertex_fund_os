@@ -7,7 +7,7 @@ Usage:
 
 Env vars:
     RESEND_API_KEY  clave de https://resend.com (requerida salvo DRY_RUN=1)
-    EMAIL_TO        destinatario (default: victor@infusioninvestments.com)
+    EMAIL_TO        destinatario (default: kevintaboas02@gmail.com)
     EMAIL_FROM      remitente   (default: onboarding@resend.dev — solo puede
                     enviar al email dueño de la cuenta Resend; verifica tu
                     dominio en Resend para usar otro remitente)
@@ -28,8 +28,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 ET = ZoneInfo("America/New_York")
-EMAIL_TO = os.environ.get("EMAIL_TO", "victor@infusioninvestments.com")
-EMAIL_FROM = os.environ.get("EMAIL_FROM", "Warren Buffett Jr <onboarding@resend.dev>")
+EMAIL_TO = os.environ.get("EMAIL_TO", "kevintaboas02@gmail.com")
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "Vertex Fund OS <onboarding@resend.dev>")
 
 GAINERS_URL = "https://stockanalysis.com/markets/premarket/"
 LOSERS_URL = "https://stockanalysis.com/markets/premarket/losers/"

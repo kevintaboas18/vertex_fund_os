@@ -194,14 +194,20 @@ def test_predictions_written_before_the_split_are_read_as_quick():
 
 def test_the_report_pipeline_records_its_own_prediction():
     """`wbj report` is the strict Cerebro path; it recorded nothing, so the
-    only thing being calibrated was the quick scorecard."""
-    import inspect
+    only thing being calibrated was the quick scorecard.
 
+    Reaching the call site for real costs a network packet and six
+    specialist outputs, so this reads what the compiled function
+    references instead of its text: `co_names` survives reformatting,
+    comment edits and reordering, and drops the name only when the
+    pipeline genuinely stops recording. What gets recorded, and that the
+    two sources stay apart, is covered by the round-trip tests above.
+    """
     from wbj import report
 
-    src = inspect.getsource(report.run_report)
-    assert "save_prediction" in src
-    assert "SOURCE_CEREBRO" in src
+    referenced = report.run_report.__code__.co_names
+    assert "save_prediction" in referenced
+    assert "SOURCE_CEREBRO" in referenced
 
 
 # ============================================================================

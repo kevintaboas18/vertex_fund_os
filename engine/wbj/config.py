@@ -22,9 +22,15 @@ class Settings:
     finnhub_api_key: str | None = None
     fred_api_key: str | None = None
     anthropic_api_key: str | None = None
-    # Model for the qualitative judgment agent; override to cut cost (e.g.
-    # "claude-haiku-4-5"). Default per the Anthropic SDK guidance.
-    judge_model: str = "claude-opus-4-8"
+    # Identidad ante la SEC. Su política de fair-access exige un User-Agent con
+    # un contacto real; si se dispara un límite, la SEC bloquea POR user-agent,
+    # así que compartirlo con otro proyecto propaga el bloqueo. Se configura con
+    # EDGAR_USER_AGENT (API/.env o entorno) — ver providers/edgar.py.
+    edgar_user_agent: str | None = None
+    # Modelo del agente de juicio cualitativo. Opus 5 cuesta lo mismo que 4.8
+    # ($5/$25 por MTok) y es mejor en lo que hace el judge: clasificar moat,
+    # catalizadores y thesis-killers. Bájalo a "claude-haiku-4-5" para abaratar.
+    judge_model: str = "claude-opus-5"
     repo_root: Path = field(default_factory=_find_repo_root)
     cache_dir: Path = field(default_factory=lambda: _find_repo_root() / "engine" / "cache")
     reports_dir: Path = field(default_factory=lambda: _find_repo_root() / "Reportes")
@@ -60,23 +66,38 @@ def load_settings(env_file: Path | None = None) -> Settings:
     if env_file.exists():
         env_vars = dotenv_values(env_file)
 
-    # Map empty strings to None
-    fmp_api_key = env_vars.get("FMP_API_KEY") or None
-    finnhub_api_key = env_vars.get("FINNHUB_API_KEY") or None
-    fred_api_key = env_vars.get("FRED_API_KEY") or None
-    # ANTHROPIC_API_KEY may also come from the real environment (SDK convention).
     import os
 
-    anthropic_api_key = (
-        env_vars.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or None
-    )
-    judge_model = env_vars.get("JUDGE_MODEL") or "claude-opus-4-8"
+    def _key(name: str) -> str | None:
+        """Valor de una clave: primero `API/.env`, luego el entorno real.
+
+        El entorno importa en DOS casos que antes quedaban fuera:
+          1. **Render** — no existe `API/.env`; las claves llegan por el dashboard.
+          2. **`vertex.env`** — la app web lo carga a `os.environ` al arrancar.
+
+        Antes solo `ANTHROPIC_API_KEY` miraba el entorno; `FMP`, `FinnHub` y
+        `FRED` leían únicamente el archivo. Con las claves en `vertex.env` eso
+        dejaba `fmp_api_key = None` y `FMPProvider.available = False`, así que
+        `wbj analyze` desde el CLI corría sin FMP — y las tres categorías que
+        dependen de él (Market, Technical, Valuation) salían NOT_SCORABLE con
+        la clave puesta y funcionando. Silencioso, porque el provider devuelve
+        `None` en vez de fallar.
+        """
+        return (env_vars.get(name) or os.environ.get(name) or "").strip() or None
+
+    fmp_api_key = _key("FMP_API_KEY")
+    finnhub_api_key = _key("FINNHUB_API_KEY")
+    fred_api_key = _key("FRED_API_KEY")
+    anthropic_api_key = _key("ANTHROPIC_API_KEY")
+    edgar_user_agent = _key("EDGAR_USER_AGENT")
+    judge_model = _key("JUDGE_MODEL") or "claude-opus-5"
 
     return Settings(
         fmp_api_key=fmp_api_key,
         finnhub_api_key=finnhub_api_key,
         fred_api_key=fred_api_key,
         anthropic_api_key=anthropic_api_key,
+        edgar_user_agent=edgar_user_agent,
         judge_model=judge_model,
         repo_root=repo_root,
         cache_dir=repo_root / "engine" / "cache",

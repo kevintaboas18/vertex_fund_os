@@ -46,14 +46,39 @@ def test_a_successful_call_passes_its_result_through():
         "ticker": "AAPL", "x": 1}
 
 
-def test_the_mvp_pipeline_says_it_is_not_the_cerebro_profile():
+def test_the_mvp_pipeline_says_it_is_not_the_cerebro_profile(tmp_path, monkeypatch,
+                                                             capsys):
     """`scorecard` says "quick" and `aggregate` says "Cerebro profile";
     `analyze` said neither, so its numbers read as the strict methodology's.
-    They carry no gates, overrides or coverage rules."""
-    import inspect
+    They carry no gates, overrides or coverage rules.
 
-    from wbj import cli
+    The label is only worth anything if the user sees it, so drive the
+    command with the fetch/compute stages stubbed and read stdout.
+    """
+    from wbj import cli, memoria, targets
+    from wbj.config import Settings
 
-    src = inspect.getsource(cli.analyze)
-    assert "quick MVP" in src
-    assert "wbj report" in src        # points at the strict path
+    packet = {"entity": "Test Co", "ticker": "T", "fiscal_year_end": "2025-12-31"}
+    result = {
+        **packet,
+        "metrics": {"revenue_usd": 1000.0, "revenue_yoy": 0.1, "net_margin": 0.15,
+                    "fcf_margin": 0.2, "debt_to_equity": 0.3},
+        "scores": {"dimensions": {"moat": 7.0},
+                   "category": {"name": "business", "points": 15.0,
+                                "max_points": 20.0, "score10": 7.5,
+                                "coverage": 0.9}},
+        "scorecard": {},
+    }
+    monkeypatch.setattr(cli, "_providers",
+                        lambda: (Settings(reports_dir=tmp_path), None, None))
+    monkeypatch.setattr(cli, "_build_packet", lambda _t: packet)
+    monkeypatch.setattr(cli, "_compute", lambda _p: result)
+    monkeypatch.setattr(targets, "live_price", lambda *_a, **_k: None)
+    monkeypatch.setattr(targets, "price_targets", lambda *_a, **_k: {})
+    monkeypatch.setattr(memoria, "save_prediction", lambda *_a, **_k: False)
+
+    cli.analyze("T")
+
+    out = capsys.readouterr().out
+    assert "quick MVP" in out
+    assert "wbj report" in out        # points at the strict path

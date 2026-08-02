@@ -74,12 +74,26 @@ def test_an_unreadable_return_leaves_the_branch_unavailable(rows):
 def test_the_branch_only_applies_to_a_financial_sector_adapter():
     """His words are "an approved financial-sector adapter". The
     conventional formulas already produce a ROIC-WACC spread for every
-    other security, so the alternative is not theirs to take."""
-    import inspect
+    other security, so the alternative is not theirs to take.
 
-    src = inspect.getsource(bus._run_once)
-    block = src[src.index("adapter_persistence = "):src.index("condition_1 = ")]
-    assert "_adapters.replaces_model" in block
+    Same numbers, same WACC, only the adapter differs: the bank may reach
+    condition 1 through its ROE, the software company may not.
+    """
+    rows = [_annual(y) for y in (2025, 2024, 2023, 2022, 2021, 2020)]
+    # A WACC no ROIC here can beat, so the first branch cannot carry
+    # condition 1 and only the alternative is left.
+    overlay = {"wacc": 0.50, "cost_of_equity": 0.08}
+
+    bank = bus.run(_packet(rows, adapter="banks",
+                           sector="Financial Services",
+                           industry="Banks - Diversified"), overlay)
+    other = bus.run(_packet(rows), overlay)
+
+    assert any("condition 1 met through its alternative" in a
+               for a in bank.assumptions)
+    assert not any("condition 1 met through its alternative" in a
+                   for a in other.assumptions)
+    assert other.moat_gate_inputs.mechanical_conditions_pass is False
 
 
 # --- condition 2's alternative --------------------------------------------
@@ -129,26 +143,54 @@ def test_no_peer_drawdowns_leave_the_branch_unavailable():
 # --- the gate reads them ---------------------------------------------------
 
 
+def _wide_range_shallow_dip():
+    """Margins falling 25%..17% over the window — a 7pp range, so
+    condition 2's first branch (a range of 5pp or less) cannot carry it —
+    with only a 1pp dip into the 2020 recession, more resilient than any
+    of PEERS. Newest first, as the packet carries them."""
+    return [_annual(2025, ebit=170.0), _annual(2024, ebit=190.0),
+            _annual(2023, ebit=210.0), _annual(2022, ebit=230.0),
+            _annual(2021, ebit=250.0), _annual(2020, ebit=250.0),
+            _annual(2019, ebit=260.0)]
+
+
 def test_the_gate_treats_both_conditions_as_alternatives():
     """The defect in its structural form: each condition must be
-    satisfiable two ways."""
-    import inspect
+    satisfiable two ways.
 
-    src = inspect.getsource(bus._run_once)
-    gate = src[src.index("spread_persistence_ok = "):src.index("moat_gate_mechanical = ")]
-    assert "condition_1 = spread_persistence_ok or adapter_excess_ok" in gate
-    assert "condition_2 = margin_range_ok or peer_resilience_ok" in gate
+    Condition 1's second branch is covered end to end by the bank tests
+    below; this is condition 2's. The margin range fails it either way,
+    so the peer comparison is the only thing that can carry the gate —
+    supply the peers and it passes, withhold them and it does not.
+    """
+    with_peers = bus.run(_packet(_wide_range_shallow_dip()),
+                         {"wacc": 0.09, "recession_years": [2020],
+                          "peer_recession_drawdown": PEERS})
+    without = bus.run(_packet(_wide_range_shallow_dip()),
+                      {"wacc": 0.09, "recession_years": [2020]})
+
+    assert with_peers.moat_gate_inputs.mechanical_conditions_pass is True
+    assert without.moat_gate_inputs.mechanical_conditions_pass is False
 
 
 def test_taking_an_alternative_is_declared_in_the_output():
     """A Wide-moat label reached through the alternative rests on a
     different measurement than one reached through the first branch, and
-    a reader has to be able to tell which."""
-    import inspect
+    a reader has to be able to tell which. Both alternatives have to say
+    so in the output the reader sees, not only in the code."""
+    out = bus.run(_packet(_wide_range_shallow_dip()),
+                  {"wacc": 0.09, "recession_years": [2020],
+                   "peer_recession_drawdown": PEERS})
+    assert any("wide-moat condition 2 met through its alternative" in a
+               for a in out.assumptions)
 
-    src = inspect.getsource(bus._run_once)
-    assert "wide-moat condition 1 met through its alternative" in src
-    assert "wide-moat condition 2 met through its alternative" in src
+    bank = bus.run(
+        _packet([_annual(y) for y in (2025, 2024, 2023, 2022, 2021, 2020)],
+                adapter="banks", sector="Financial Services",
+                industry="Banks - Diversified"),
+        {"wacc": 0.50, "cost_of_equity": 0.08})
+    assert any("wide-moat condition 1 met through its alternative" in a
+               for a in bank.assumptions)
 
 
 def test_the_thresholds_are_the_ones_he_states():
@@ -164,11 +206,23 @@ def test_condition_four_still_stands_alone():
     """"No unresolved customer/product concentration threat invalidates
     durability" is written without an alternative, and must not acquire
     one."""
-    import inspect
+    rows = _wide_range_shallow_dip()
+    passing = {"wacc": 0.09, "recession_years": [2020],
+               "peer_recession_drawdown": PEERS}
 
-    src = inspect.getsource(bus._run_once)
-    gate = src[src.index("condition_4 = "):]
-    assert gate.splitlines()[0].strip() == "condition_4 = not concentration_flag"
+    assert bus.run(_packet(rows),
+                   passing).moat_gate_inputs.mechanical_conditions_pass is True
+
+    # DECISION_RULES.md flags concentration above 30% of revenue. One
+    # customer at 45% must sink the gate on its own, with conditions 1
+    # and 2 left exactly as they were.
+    flagged = bus.run(_packet(rows),
+                      {**passing, "largest_customer_share": 0.45})
+    assert flagged.moat_gate_inputs.mechanical_conditions_pass is False
+
+    # And a share below the threshold must not.
+    assert bus.run(_packet(rows), {**passing, "largest_customer_share": 0.10}) \
+        .moat_gate_inputs.mechanical_conditions_pass is True
 
 
 def test_a_financial_sector_packet_runs_the_adapter_branch_end_to_end():
@@ -347,12 +401,13 @@ def test_the_excellent_verdict_row_still_requires_it():
 
 
 def test_the_gate_expression_is_only_his_four_conditions():
-    import inspect
-
-    src = inspect.getsource(bus._run_once)
-    line = next(l for l in src.splitlines() if "moat_gate_mechanical = " in l)
-    assert "positive_spread" not in line
-    assert "condition_1 and condition_2 and condition_4" in line
+    """`positive_spread` is not one of the four, and the three that are
+    have to be required together. Each of the three tests above trips one
+    condition on its own and sinks the gate; this one holds the gate open
+    while the spread turns, which must not."""
+    out = bus.run(_packet(_LATEST_YEAR_NEGATIVE), {"wacc": 0.09})
+    assert out.moat_gate_inputs.positive_spread is False
+    assert out.moat_gate_inputs.mechanical_conditions_pass is True
 
 
 # --- the cap's own alternative ---------------------------------------------
@@ -440,8 +495,18 @@ def test_the_verdict_reads_the_count_from_the_evidence_list():
 
 
 def test_the_gate_no_longer_reads_the_classification_word():
-    import inspect
+    """Condition 3 is "at least two independent moat effects are
+    quantitatively visible", which is a count of evidence. The word
+    "Wide" is the judge's label for that evidence, and reading the label
+    let an unjudged moat through: it is the count that decides, and the
+    classification must not change the answer either way."""
+    passing = bus.MoatGateInputs(
+        mechanical_conditions_pass=True, roic_at_least_20pct=True,
+        positive_spread=True, fcf_conversion_at_least_0_9=True)
 
-    src = inspect.getsource(bus.MoatGateInputs.excellent_gate_passes)
-    assert "moat_effects_count" in src
-    assert '"Wide"' not in src
+    # The count decides, on its own.
+    assert passing.excellent_gate_passes(bus.WIDE_MOAT_MIN_EFFECTS) is True
+    assert passing.excellent_gate_passes(bus.WIDE_MOAT_MIN_EFFECTS - 1) is False
+    # An unjudged moat has no evidence, so it fails rather than passing by
+    # default — which is what reading the "Wide" label used to allow.
+    assert passing.excellent_gate_passes(0) is False

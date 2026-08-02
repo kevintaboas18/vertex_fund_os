@@ -65,6 +65,19 @@ def normalizes_inputs(adapter: str | None) -> bool:
     return (adapter or "") in MODEL_NORMALIZING
 
 
+def is_classified(adapter: str | None) -> bool:
+    """True when INDUSTRY_ADAPTERS.md places this adapter in one of its
+    three treatments (replacing, normalizing, additive).
+
+    A name in none of them is one nobody has checked the conventional
+    formulas against. `business.py` already floors its model-fit
+    confidence on exactly this test — "claiming a good fit for it would be
+    an assertion without evidence" — and valuation uses it to refuse
+    rather than price the company with formulas that may not apply.
+    """
+    return (adapter or "") in (MODEL_REPLACING | MODEL_NORMALIZING | MODEL_ADDITIVE)
+
+
 def needs_caveat(adapter: str | None) -> bool:
     """True when a specialist running conventional formulas owes the
     reader a warning. Additive adapters do not."""

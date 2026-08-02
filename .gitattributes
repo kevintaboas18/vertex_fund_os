@@ -1,0 +1,14 @@
+# Normalización de finales de línea.
+#
+# El proyecto se escribió con LF. Editar desde Windows (o cualquier script de
+# Python, que por defecto traduce \n a \r\n al escribir) convierte el archivo
+# entero a CRLF y git lo ve como "todas las líneas cambiaron" — un diff de
+# 12.000 líneas para un cambio de 3. Esto lo impide de raíz.
+* text=auto eol=lf
+
+# Binarios: git no debe tocarlos nunca.
+*.png  binary
+*.webp binary
+*.pdf  binary
+*.pages binary
+*.db   binary

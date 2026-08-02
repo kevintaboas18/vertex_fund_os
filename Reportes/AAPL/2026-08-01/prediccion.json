@@ -1,0 +1,16 @@
+{
+  "report_id": "20260801_115830_AAPL",
+  "ticker": "AAPL",
+  "fecha": "2026-08-01",
+  "price_at_analysis": 308.91,
+  "fair_value": 322.17,
+  "profile": "Avoid / Wait",
+  "raw_total": 31.6,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 388.25,
+    "base": 322.17,
+    "bear": 223.09
+  },
+  "framework": "WBJ v2.0.0"
+}

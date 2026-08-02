@@ -799,12 +799,31 @@ def compute_levels(
         # not, so a registry-coverage audit read the only untagged formula in
         # the file as unimplemented. QA_CHECKLIST.md ("levels show distance in
         # both percent and ATR") is what makes both branches mandatory.
-        if zone_type == "resistance":
-            distance_atr = (state.lower - current_close) / current_atr if current_atr and not math.isnan(current_atr) else None
-            distance_percent = (state.lower - current_close) / current_close * 100
-        else:
-            distance_atr = (current_close - state.upper) / current_atr if current_atr and not math.isnan(current_atr) else None
-            distance_percent = (current_close - state.upper) / current_close * 100
+        #
+        # SIGNED, both branches. PRICE_LEVEL_SYNTHESIS.md writes one formula
+        # for every level — `(Level - CurrentPrice) / CurrentPrice` — so a
+        # level below the price is NEGATIVE. The support branch computed
+        # `(CurrentClose - upper)`, the operands the other way round, which
+        # made every zone below the price read positive.
+        #
+        # That put two conventions in one table: on the same NVDA report a
+        # moving average at 193.11 read -3.80 while a support zone at
+        # 186-192 read +4.49, both below a price of 200.75, and a weekly
+        # zone 47% below read +46.49. The platform formats this field as
+        # `${dp >= 0 ? '+' : ''}${dp}%`, so those all displayed as gains.
+        # `aggregate/synthesis.py` copies `Zone.distance_percent` through
+        # untouched and its own fixtures already assume the signed form
+        # (a 90-92 support at a price of 100 is declared -8.0).
+        #
+        # The BOUNDARY choice is unchanged and still correct: FORMULAS.md's
+        # "use nearest zone boundary for approach status" means `lower` for
+        # resistance above and `upper` for support below.
+        near_boundary = state.lower if zone_type == "resistance" else state.upper
+        distance_percent = (near_boundary - current_close) / current_close * 100
+        distance_atr = (
+            (near_boundary - current_close) / current_atr
+            if current_atr and not math.isnan(current_atr) else None
+        )
 
         zone = Zone(
             zone_id=f"{tf}-{zone_type}-{state.center:.2f}",

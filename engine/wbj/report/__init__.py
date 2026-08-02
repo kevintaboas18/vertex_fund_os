@@ -11,6 +11,7 @@ Claude, grounded strictly in the specialists' own outputs.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -67,21 +68,299 @@ def _price_and_atr(packet: Any) -> tuple[float | None, float | None]:
     })
     atr_series = ind.atr14(df)
     atr = float(atr_series.iloc[-1]) if len(atr_series) and pd.notna(atr_series.iloc[-1]) else None
-    return rows[-1].close, atr
+    # The ADJUSTED close, which is what `facts_table["price"]` carries and
+    # what the valuation measures its margin of safety against. Returning
+    # the raw close put the levels and the football field's "current"
+    # marker on a different number from the valuation the moment a
+    # dividend or split landed — the same split V-05 closed one layer down.
+    return rows[-1].adj_close, atr
+
+
+#: Warnings that name an analyst input but do not spell out its key. The
+#: ones that already say "set `x` in Entradas/<TICKER>.json" are read
+#: straight out of the warning text instead.
+_ANALYST_INPUT_KEYS = {
+    "RECURRING_REVENUE_UNAVAILABLE": "recurring_revenue_share",
+    "ORGANIC_GROWTH_BRIDGE_UNAVAILABLE_JUDGMENT_REQUIRED": "organic_growth_bridge",
+    "MARKET_SHARE_SERIES_UNAVAILABLE_JUDGMENT_REQUIRED": "share_history",
+    "SAM_UNAVAILABLE": "sam_inputs",
+    "SOM_UNAVAILABLE": "som_inputs",
+    "MARKET_SHARE_DELTA_UNAVAILABLE": "share_history",
+    "INDUSTRY_HHI_UNAVAILABLE": "competitor_shares",
+    "RUNWAY_INPUTS_UNAVAILABLE": "target_revenue",
+    "REVENUE_COVERAGE_UNAVAILABLE": "ntm_contracted",
+    "CATALYST_REGISTRY_UNAVAILABLE": "catalysts",
+    "ADOPTION_UNAVAILABLE": "adoption",
+    "ARPU_GROWTH_UNAVAILABLE": "arpu_t",
+    "SCENARIOS_UNAVAILABLE": "scenarios",
+}
+
+_ENTRADAS_KEY_IN_WARNING = re.compile(r"set `([a-z_]+)`")
+
+
+#: Un metric id nombrado dentro de una nota `_*` del archivo de analista.
+_DECLARED_METRIC = re.compile(r"\b((?:BUS|FIN|MKT|TECH|RSK|VAL)-[A-Z0-9]+-\d+)\b")
+
+
+def _researched_and_declared(settings: Any, ticker: str) -> dict[str, str]:
+    """Métricas que el analista YA investigó y declaró no puntuables.
+
+    `Entradas/<TICKER>.json` admite notas con clave `_...` donde se deja
+    escrito el resultado de una investigación. En el archivo de NVDA, por
+    ejemplo: *"MKT-SHARE-006 y MKT-SHDELTA-007 quedan NOT_SCORABLE tras
+    research"*, con el motivo — el TAM de Gartner mide gasto del usuario
+    final mientras NVDA vende aguas arriba a OEM/ODM, así que dividir uno
+    entre otro compara capas distintas de la cadena.
+
+    Sin esto, la lista de trabajo pedía rellenar precisamente lo que ya se
+    había resuelto que no se puede rellenar: convertía una decisión
+    documentada en una tarea recurrente y hacía ver como pendiente algo
+    terminado.
+    """
+    import json
+    from pathlib import Path
+
+    root = Path(getattr(settings, "repo_root", ".")) / "Entradas"
+    path = root / f"{ticker.upper()}.json"
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.warning("no se pudo leer %s", path, exc_info=True)
+        return {}
+    out: dict[str, str] = {}
+    for key, value in data.items():
+        if not (key.startswith("_") and isinstance(value, str)):
+            continue
+        # Sólo las notas que declaran una AUSENCIA resuelta, no cualquier
+        # comentario: el archivo también lleva citas y procedencia.
+        if not re.search(r"no[_ ]scorable|NOT_SCORABLE|ausente|excluido", key + " " + value, re.I):
+            continue
+        for metric_id in _DECLARED_METRIC.findall(value):
+            out.setdefault(metric_id, key)
+    return out
+
+
+def _analyst_input_gaps(outs: dict, ticker: str, settings: Any = None) -> list[str]:
+    """The unscored metrics an analyst input would close, as a work list.
+
+    Six dimensions come back NOT_SCORABLE on a typical run and the report
+    says only that. Most of them are not unknowable — they are inputs
+    `Entradas/<TICKER>.json` is designed to carry, and the metric warnings
+    already name several of them one row at a time. Nobody reads 117 metric
+    rows to find out that eight keys would restore two whole dimensions.
+
+    NOT_APPLICABLE is deliberately excluded: subscription metrics on a chip
+    maker are not a gap to fill, and `Category.points()` already rescales
+    them away rather than charging for them.
+    """
+    from wbj.core.nullstates import NullState
+
+    declarados = _researched_and_declared(settings, ticker) if settings else {}
+
+    keys: dict[str, set[str]] = {}
+    ya_resueltas: set[str] = set()
+    for name, out in outs.items():
+        for row in (getattr(out, "metrics", None) or []):
+            if row.state is NullState.NOT_APPLICABLE:
+                continue
+            # El analista ya investigó ESTA métrica y dejó escrito que no se
+            # puede puntuar. Volver a pedirla convierte una decisión cerrada
+            # en una tarea eterna.
+            if row.metric_id in declarados:
+                ya_resueltas.add(row.metric_id)
+                continue
+            for warning in (row.warnings or []):
+                found = _ENTRADAS_KEY_IN_WARNING.search(warning)
+                key = found.group(1) if found else _ANALYST_INPUT_KEYS.get(
+                    warning.split(":")[0].strip())
+                if key:
+                    keys.setdefault(key, set()).add(row.metric_id)
+
+    salida: list[str] = []
+    if keys:
+        listed = ", ".join(
+            f"{k} ({len(v)} metric{'s' if len(v) > 1 else ''})"
+            for k, v in sorted(keys.items(), key=lambda kv: (-len(kv[1]), kv[0])))
+        salida.append(
+            f"analyst inputs: {len(keys)} key(s) in Entradas/{ticker.upper()}.json would "
+            f"score metrics that are NOT_SCORABLE for want of a declared figure, not "
+            f"because they are unknowable — {listed}. These are read from filings and "
+            "named sources by a person; the engine will not impute them.")
+    if ya_resueltas:
+        salida.append(
+            f"analyst inputs: {len(ya_resueltas)} metric(s) were researched and declared "
+            f"unscorable in Entradas/{ticker.upper()}.json — {', '.join(sorted(ya_resueltas))}. "
+            "These are settled findings, not pending work; the note in that file gives "
+            "the reason each one cannot be sourced.")
+    return salida
+
+
+def _price_view_divergence(valuation: Any, targets: Any,
+                           price: float | None) -> list[str]:
+    """The report's two price answers, stated together when they disagree.
+
+    A report carries both a discounted-cash-flow value (5-year intrinsic
+    worth, `valuation_scenarios` and the football-field chart) and a
+    12-month price target (today's P/E carried forward on earnings growth,
+    the scenario-fan chart). On NVDA those read $124 and $277 in the same
+    document, one below the price and one 40% above it, with nothing saying
+    they answer different questions.
+
+    They are not a data error — CONTRADICTION_RESOLUTION.md rule 5: "If the
+    contradiction is economic rather than data-driven, show both views and
+    name the condition that would resolve it." The condition is whether the
+    current multiple holds: the target assumes it does, the DCF prices the
+    cash flows without it.
+
+    Only fires when the two point OPPOSITE ways across the current price;
+    agreeing views need no reconciliation.
+    """
+    if not price or targets is None or targets.get("status") != "ok":
+        return []
+    base_scn = next((s for s in (valuation.scenarios or []) if s.name == "Base"), None)
+    dcf = getattr(base_scn, "per_share_value", None) if base_scn else None
+    target = next((s.get("target") for s in (targets.get("scenarios") or [])
+                   if s.get("key") == "base"), None)
+    if dcf is None or target is None:
+        return []
+    if (dcf >= price) == (target >= price):
+        return []
+    return [
+        "valuation: PRICE_VIEWS_DIVERGE — the 5-year DCF base case values the "
+        f"business at {dcf:,.2f} ({(dcf / price - 1):+.0%} vs {price:,.2f}) while "
+        f"the 12-month target is {target:,.2f} ({(target / price - 1):+.0%}). They "
+        "answer different questions: the target carries today's multiple forward "
+        "on earnings growth, the DCF discounts the cash flows without assuming "
+        "the multiple holds. The condition that resolves it is whether that "
+        "multiple persists — neither figure is a forecast of the other."
+    ]
+
+
+def _reverse_dcf_context(valuation: Any, price: float | None):
+    """CONTRADICTION_RESOLUTION.md row 6's inputs, off the frozen output.
+
+    "DCF high, reverse DCF demanding | Model assumptions may be optimistic
+    | Lower valuation confidence" — the one row of the table that needs
+    more than category scores. `contradictions()` implements it in full and
+    takes the context as a keyword argument; `run_report` never passed one,
+    so the row could not fire on any company and the table was five rows
+    deep in practice.
+    """
+    from wbj.aggregate.contradiction import ReverseDCFContext
+
+    base = next((s for s in (valuation.scenarios or []) if s.name == "Base"), None)
+    base_per_share = getattr(base, "per_share_value", None) if base else None
+    upside = ((base_per_share - price) / price
+              if base_per_share is not None and price else None)
+    rdcf = getattr(valuation, "reverse_dcf", None)
+    # The reference the implied growth is judged against is the base case's
+    # own revenue-growth assumption — now the consensus forecast, which is
+    # exactly what "demanding" should be measured against.
+    reference = (base.assumptions or {}).get("growth") if base else None
+    return ReverseDCFContext(
+        base_case_upside_pct=upside,
+        reverse_dcf_implied_growth=getattr(rdcf, "implied_revenue_cagr", None),
+        reference_growth=reference,
+    )
+
+
+#: Endpoint fuera de plan -> la fuente que YA cubre ese dato. Sin esto, el
+#: reporte listaba tres huecos sin decir que dos están tapados: FMP
+#: institutional-ownership lo sustituye el conjunto 13F de la SEC, y las
+#: estimaciones de FinnHub las da FMP analyst-estimates (200 en el plan de
+#: pago). Un hueco tapado y uno abierto piden acciones distintas.
+_ENTITLEMENT_SUBSTITUTES = {
+    "institutional_holders": "el conjunto de datos 13F de la SEC (holders_13f_dataset)",
+    "estimates": "FMP analyst-estimates",
+    "revenue_estimates": "FMP analyst-estimates",
+}
+
+
+def _entitlement_gaps(providers: Any) -> list[str]:
+    """One line per endpoint the plan was refused, for the report.
+
+    FMP's institutional-ownership answers 402 and FinnHub's eps- and
+    revenue-estimate answer 403 on the current plans. Each came back as
+    `None`, which is the same thing a company with no data returns, so the
+    analysis quietly lost inputs and the reader had no way to tell a
+    missing figure from an unpaid one.
+    """
+    gaps: list[str] = []
+    seen: set[tuple[str, str, int]] = set()
+    for name in ("fmp", "edgar", "finnhub", "fred"):
+        provider = getattr(providers, name, None)
+        for endpoint, status in sorted(getattr(provider, "blocked_endpoints", {}).items()):
+            # Cache keys carry a parameter hash (`estimates_d07de7c492a6`);
+            # the reader wants the endpoint, not the cache bookkeeping.
+            label = re.sub(r"_[0-9a-f]{8,}$", "", endpoint)
+            if (name, label, status) in seen:
+                continue
+            seen.add((name, label, status))
+            sustituto = _ENTITLEMENT_SUBSTITUTES.get(label)
+            if sustituto:
+                gaps.append(
+                    f"{name}: ENDPOINT_NOT_IN_PLAN ({label}, HTTP {status}) — but the "
+                    f"data is already sourced from {sustituto}, so nothing is lost. "
+                    "Upgrading the plan would only add a second, redundant source.")
+            else:
+                gaps.append(
+                    f"{name}: ENDPOINT_NOT_IN_PLAN ({label}, HTTP {status}) — the "
+                    "data exists but this plan cannot reach it; inputs that rest on "
+                    "it stay unscored rather than being estimated")
+    return gaps
+
+
+def _llm_failure_reason(exc: BaseException) -> tuple[str, str]:
+    """Why the narrative call failed, in Spanish and English.
+
+    Every one of these sends the reader somewhere different: a spent
+    balance is a billing page, a bad model name is a config file, a
+    rejected key is the key itself. Reporting them all as "no API key"
+    pointed at the one thing that was demonstrably fine.
+    """
+    text = str(exc).lower()
+    if "credit balance" in text or "billing" in text or "quota" in text:
+        return ("la cuenta de Anthropic no tiene saldo (la clave si funciona)",
+                "the Anthropic account is out of credit (the key itself works)")
+    if "model" in text and ("not_found" in text or "not found" in text
+                            or "invalid" in text):
+        return ("JUDGE_MODEL no nombra un modelo valido",
+                "JUDGE_MODEL does not name a valid model")
+    if "authentication" in text or "invalid x-api-key" in text or "401" in text:
+        return ("ANTHROPIC_API_KEY fue rechazada",
+                "ANTHROPIC_API_KEY was rejected")
+    if "rate limit" in text or "429" in text:
+        return ("limite de peticiones de Anthropic alcanzado",
+                "Anthropic rate limit reached")
+    if isinstance(exc, ImportError):
+        return ("el SDK de anthropic no esta instalado",
+                "the anthropic SDK is not installed")
+    return (f"la llamada fallo ({type(exc).__name__})",
+            f"the call failed ({type(exc).__name__})")
 
 
 def _executive_thesis(ticker: str, profile: Any, outs: dict, levels: Any,
                       settings: Any, lang: str) -> ExecutiveThesis:
     """Claude writes the 7 narrative sentences; falls back to an honest
-    'not available' thesis when no API key or the call fails."""
+    'not available' thesis when no API key or the call fails.
+
+    The fallback names the ACTUAL reason. It used to say "no
+    ANTHROPIC_API_KEY" for every failure, including the case where the key
+    is present and working and the account simply has no credit balance —
+    which sent the reader to check the one thing that was already right.
+    """
     target = "Spanish" if lang == "es" else "English"
-    fallback = ExecutiveThesis(**{
-        f: ("Narrativa no disponible (falta ANTHROPIC_API_KEY)." if lang == "es"
-            else "Narrative unavailable (no ANTHROPIC_API_KEY).")
-        for f in _Thesis.model_fields
-    })
+
+    def _fallback(reason_es: str, reason_en: str) -> ExecutiveThesis:
+        text = (f"Narrativa no disponible: {reason_es}." if lang == "es"
+                else f"Narrative unavailable: {reason_en}.")
+        return ExecutiveThesis(**{f: text for f in _Thesis.model_fields})
+
     if not getattr(settings, "anthropic_api_key", None):
-        return fallback
+        return _fallback("falta ANTHROPIC_API_KEY",
+                         "ANTHROPIC_API_KEY is not set")
     try:
         import anthropic
 
@@ -104,15 +383,17 @@ def _executive_thesis(ticker: str, profile: Any, outs: dict, levels: Any,
             f"Write the 7 executive-thesis sentences in {target}."
         )
         resp = anthropic.Anthropic(api_key=settings.anthropic_api_key).messages.parse(
-            model=settings.judge_model, max_tokens=2048, system=_SYSTEM,
+            model=settings.judge_model, max_tokens=8192, system=_SYSTEM,
             messages=[{"role": "user", "content": user}], output_format=_Thesis,
         )
         if resp.parsed_output is None:
-            return fallback
+            return _fallback("el modelo no devolvio la estructura pedida",
+                             "the model returned no structured answer")
         return ExecutiveThesis(**resp.parsed_output.model_dump())
-    except Exception:
+    except Exception as exc:
         logger.warning("executive thesis generation failed; using fallback", exc_info=True)
-        return fallback
+        es, en = _llm_failure_reason(exc)
+        return _fallback(es, en)
 
 
 def _charts(packet: Any, outs: dict, price: float | None, charts_dir: Any,
@@ -308,10 +589,12 @@ def _ownership(ticker: str, settings: Any) -> dict:
                                 "value": h.get("marketValue") or h.get("value")})
 
     if not holders:
-        # The tier-1 fallback. Share counts stay None: they live inside the
-        # information-table document, and naming the holder with its accession
-        # is what report item 4 asks for -- fetching and parsing hundreds of
-        # tables to rank them is a different feature with its own failure mode.
+        # Respaldo tier 1, en tres escalones de mejor a peor:
+        #   1. Conjunto de datos estructurado 13F de la SEC -> nombres RECONOCIDOS
+        #      con posicion real (acciones y dolares), ordenados por tamaño.
+        #   2. Schedule 13D/G -> los >5% por definicion, pero su CUSIP dejo de
+        #      indexarse a texto completo tras el formato estructurado de 2024.
+        #   3. Busqueda de 13F-HR en el indice -> nombres sin cifras, por fecha.
         try:
             cusip = ((fmp.profile(ticker) or [{}])[0] or {}).get("cusip")
             if cusip:
@@ -319,52 +602,105 @@ def _ownership(ticker: str, settings: Any) -> dict:
                 today = _date.today()
                 company_cik = edgar.cik_for(ticker)
 
-                # Recognised first, and by a definition rather than a ranking.
-                # A Schedule 13D/13G is filed only on crossing 5% of a class,
-                # so its filer set IS the recognised holders -- no ordering
-                # step, nothing parsed. That is what CLAUDE.md's "recognised"
-                # asks for, and a 13F list ordered by filing date cannot give.
-                if company_cik:
+                # (1) El dataset trimestral. Es el unico camino que devuelve a
+                # los grandes: el indice de texto completo sirve 300 hits de los
+                # 10.000+ que mencionan el CUSIP, y las tablas de Vanguard o
+                # BlackRock son tan grandes que EDGAR deja de indexarlas -- sus
+                # hits mas recientes ahi son de 2009-2016. Un zip por trimestre,
+                # cacheado y compartido por todos los tickers.
+                _dataset_ok = False
+                for r in edgar.holders_13f_dataset(str(cusip), top=10):
+                    _dataset_ok = True
+                    holders.append({
+                        "name": r["name"], "shares": r["shares"], "value": r["value"],
+                        "cik": None, "filing_date": None, "basis": "13F dataset",
+                        "stake": None, "stale": False,
+                        "source_locator": r["source_locator"],
+                    })
+                if holders:
+                    _periodo = holders[0]["source_locator"].split("data set ")[-1].rstrip(")")
+                    source = (
+                        f"SEC Form 13F structured data set ({_periodo}): "
+                        f"{len(holders)} mayores tenedores institucionales de CUSIP {cusip}, "
+                        "ORDENADOS POR VALOR DE POSICION reportado, con acciones y dolares. "
+                        "Es el conjunto completo de 13F del trimestre, no una muestra del "
+                        "indice de texto completo."
+                    )
+
+                # (2) Schedule 13D/G: los >5% por definicion, sin ranking ni
+                # parseo. Solo si el dataset no dio nada -- cuando si lo da,
+                # trae los MISMOS nombres con cifras y al dia, y añadir aqui
+                # los de 2024 seria repetirlos peor.
+                if company_cik and not _dataset_ok:
                     major = edgar.major_holders_13d_g(
                         str(cusip), company_cik,
                         (today - timedelta(days=1825)).isoformat(), today.isoformat())
                     for r in major[:8]:
+                        # Edad declarada. Desde el formato estructurado que la SEC
+                        # exige a los 13D/G (dic-2024), su CUSIP deja de ser
+                        # buscable a texto completo, así que este barrido devuelve
+                        # las últimas ANTERIORES a ese cambio -- para NVDA, de
+                        # 2024. Un 5% de hace dos años no es un 5% de hoy, y
+                        # presentarlo sin fecha lo haría pasar por vigente.
+                        edad = None
+                        try:
+                            edad = (today - _date.fromisoformat(r["filing_date"])).days
+                        except (ValueError, TypeError):
+                            pass
                         holders.append({
                             "name": r["name"], "shares": None, "value": None,
                             "cik": r["cik"], "filing_date": r["filing_date"],
-                            "stake": ">5% of class",
+                            "stake": ">5% of class", "basis": "13D/G",
+                            "age_days": edad,
+                            "stale": (edad is not None and edad > 400),
                             "source_locator": f"{r['form']} accession {r['accession']}",
                         })
                     if holders:
+                        _viejos = [h for h in holders if h.get("stale")]
                         source = (
                             f"SEC EDGAR: {len(major)} beneficial owners above 5% "
                             f"(Schedule 13D/13G on CUSIP {cusip}). A 13D/G is filed only "
                             "on crossing 5%, so the filer set is the recognised holders "
                             "by definition -- not a ranking of a longer list."
+                            + (f" AVISO: {len(_viejos)} de {len(holders)} tienen mas de "
+                               "400 dias -- desde el formato estructurado de dic-2024 el "
+                               "CUSIP de un 13D/G no es buscable a texto completo, asi que "
+                               "estas son las ultimas indexadas, no necesariamente las "
+                               "vigentes." if _viejos else "")
                         )
 
-                rows = edgar.institutional_holders_13f(
-                    str(cusip), (today - timedelta(days=270)).isoformat(),
-                    today.isoformat()) if not holders else []
+                # (3) Ultimo escalon: barrido del indice de texto completo.
+                # Nombres sin cifras y por fecha de presentacion. Se gatilla en
+                # que el DATASET fallara, no en que ya haya nombres: cuando solo
+                # respondio el 13D/G, sus filas son de 2024 y este barrido añade
+                # las presentaciones del trimestre en curso. Bloquearlo por
+                # "ya hay holders" era servir el dato viejo teniendo el actual.
+                _vistos = {h.get("cik") for h in holders}
+                rows = [] if _dataset_ok else [
+                    r for r in edgar.institutional_holders_13f(
+                        str(cusip), (today - timedelta(days=270)).isoformat(),
+                        today.isoformat()) if r.get("cik") not in _vistos]
+                _n_13dg = len(holders)
                 for r in rows[:8]:
                     holders.append({
                         "name": r["name"], "shares": None, "value": None,
                         "cik": r["cik"], "filing_date": r["filing_date"],
+                        "basis": "13F", "stake": None, "stale": False,
                         "source_locator": f"{r['form']} accession {r['accession']}",
                     })
-                # Only when the 13F sweep is what produced them: `holders` may
-                # already hold the 13D/G set, and overwriting the source there
-                # would credit the wrong filing for names it did not supply.
-                if rows and holders:
-                    source = (
+                # La nota del 13F se AÑADE a la del 13D/G en vez de pisarla: cada
+                # bloque de nombres lo produjo un formulario distinto y con una
+                # definicion distinta, y atribuirlos todos a uno solo seria
+                # acreditar al filing equivocado.
+                if rows:
+                    _n13f = (
                         f"SEC EDGAR full-text search of 13F-HR for CUSIP {cusip} "
-                        f"({len(rows)} managers reported a position). Ordered by "
-                        "filing date, NOT by position size: the search index names "
-                        "the filer but the share count lives inside the information "
-                        "table. CLAUDE.md asks for recognised holders, and recency "
-                        "is not recognition -- holders above 5% file SC 13D/G under "
-                        "the company's own CIK and are the ones to check for that."
+                        f"({len(rows)} managers reported a position, ultimos 270 dias). "
+                        "Ordered by filing date, NOT by position size: the search index "
+                        "names the filer but the share count lives inside the information "
+                        "table -- recency is not recognition."
                     )
+                    source = f"{source} | {_n13f}" if source else _n13f
         except Exception:
             logger.warning("13F fallback unavailable for %s", ticker, exc_info=True)
 
@@ -437,8 +773,11 @@ def run_report(ticker: str, settings: Any, now: datetime | None = None,
     """Build and render the auditable final report for `ticker`."""
     now = now or datetime.now(timezone.utc)
     _ensure_entradas_skeleton(settings, ticker)
-    packet = build_packet(ticker, build_providers(settings), now=now)
-    labelled, judged = _run_specialists(packet, settings)
+    providers = build_providers(settings)
+    packet = build_packet(ticker, providers, now=now)
+    data_gaps: list[str] = []
+    labelled, judged = _run_specialists(packet, settings, notes=data_gaps)
+    data_gaps.extend(_entitlement_gaps(providers))
     outs = {_KEY_BY_LABEL[lbl]: o for lbl, o in labelled if lbl in _KEY_BY_LABEL}
     missing = [k for k in _KEY_BY_LABEL.values() if k not in outs]
     if missing:
@@ -453,14 +792,34 @@ def run_report(ticker: str, settings: Any, now: datetime | None = None,
     raw = raw_total(pts)
     profile = apply_gates(raw, pts, confs, overrides)
     unscored_keys = {k for k, o in outs.items() if is_unscored(o)}
+    price, atr = _price_and_atr(packet)
     clashes = [
-        c for c in contradictions(s10, raw)
+        c for c in contradictions(s10, raw,
+                                  reverse_dcf=_reverse_dcf_context(outs["valuation"], price))
         if not any(k in c.combination.lower() for k in unscored_keys)
     ]
 
-    price, atr = _price_and_atr(packet)
     levels = synthesize_levels(outs["technical"], outs["valuation"], price or 0.0, atr or 0.0)
     thesis = _executive_thesis(ticker, profile, outs, levels, settings, lang)
+
+    # 12-month price targets: they drive the scenario fan AND seed the
+    # agent's memory. Computed unconditionally now -- gating them on
+    # `charts_dir` meant a report run without charts recorded no prediction,
+    # so the strict Cerebro analysis contributed nothing to calibration
+    # while the quick scorecard (which scores the same company very
+    # differently) was the only thing being tracked.
+    #
+    # Built BEFORE the report so the two price views can be compared into
+    # `data_gaps` -- see `_price_view_divergence`.
+    targets = None
+    try:
+        from wbj.cli import _build_packet
+        from wbj.targets import price_targets
+        targets = price_targets(_build_packet(ticker), price)
+    except Exception:
+        logger.warning("price targets unavailable; scenario fan skipped", exc_info=True)
+    data_gaps.extend(_price_view_divergence(outs["valuation"], targets, price))
+    data_gaps.extend(_analyst_input_gaps(outs, ticker, settings))
 
     sec = outs["business"].security
     report = build_final_report(
@@ -469,21 +828,8 @@ def run_report(ticker: str, settings: Any, now: datetime | None = None,
         exchange=getattr(sec, "exchange", "") or "",
         currency=getattr(sec, "currency", "") or "",
         analysis_timestamp=now.isoformat(),
+        data_gaps=data_gaps,
     )
-    # 12-month price targets: they drive the scenario fan AND seed the
-    # agent's memory. Computed unconditionally now -- gating them on
-    # `charts_dir` meant a report run without charts recorded no prediction,
-    # so the strict Cerebro analysis contributed nothing to calibration
-    # while the quick scorecard (which scores the same company very
-    # differently) was the only thing being tracked.
-    targets = None
-    try:
-        from wbj.cli import _build_packet
-        from wbj.targets import price_targets
-        targets = price_targets(_build_packet(ticker), price)
-    except Exception:
-        logger.warning("price targets unavailable; scenario fan skipped", exc_info=True)
-        targets = None
 
     if targets:
         try:

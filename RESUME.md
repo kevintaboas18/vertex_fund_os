@@ -1,26 +1,74 @@
-# Resume Point — wbj Compute Engine Build
+# Estado del proyecto — Vertex Fund OS
 
-**Last session:** 2026-07-16 · **Branch:** `feature/wbj-engine` · **Status:** paused mid-plan (9.5 / 25 tasks)
+**Actualizado:** 2026-07-30 · **Rama:** `main` · **Estado:** engine completo; auditoría en curso.
 
-## To resume (next Claude Code session)
+> Este archivo describía en qué punto quedó la construcción del engine en julio de
+> 2026. Esa construcción **terminó**, así que el contenido anterior había quedado
+> falso de arriba abajo (decía que `packet/builder.py` no existía —tiene 1139
+> líneas—, que había 160 tests —hay 2006—, y apuntaba a un `.superpowers/sdd/`
+> que no existe). Reescrito con el estado real.
 
-Open a session in this folder and say:
+## Qué es esto
 
-> Resume the wbj engine build. Read `.superpowers/sdd/progress.md` (the ledger) and continue subagent-driven-development of `docs/superpowers/plans/2026-07-16-wbj-engine.md` from Task 10.
+Dos capas sobre la metodología de Victor (`Cerebro/`, v2.0.0, build 2026-07-14):
 
-The ledger + `git log` are the source of truth for what's done. Tasks 1–9 are complete and reviewed — do NOT redo them.
+| Capa | Qué hace |
+|---|---|
+| `engine/wbj/` | Motor **determinista** en Python. Calcula las 6 categorías, gates, overrides y niveles. Sin LLM. |
+| `vertex_api.py` + `vertex_fund_os_platform.html` | Web app (FastAPI + una sola página). Llama al engine y usa el LLM **solo para explicar en palabras**, nunca para puntuar. |
 
-## Current state
+El `Cerebro/` está verificado íntegro: 83 archivos, SHA-256 coinciden con su
+`MANIFEST.md`.
 
-- **Done (committed, reviewed):** Tasks 1–9 — scaffold, Value null-states, formula registry, scoring engine, confidence engine, cache/provider base, FMP + EDGAR + FinnHub + FRED providers, reconciliation. 160 tests.
-- **In progress:** Task 10 (packet builder). Tests, staleness, schemas, fixture script exist (WIP commit `ff5a0c4`); **`engine/wbj/packet/builder.py` does not exist yet** → `pytest tests/packet` fails collection. Until it lands: `cd engine && .venv/bin/python -m pytest tests/ --ignore=tests/packet` (146 pass).
-- **Remaining:** Tasks 10–25 (indicators, levels engine, valuation engine, 6 specialists, overlay, aggregation/gates, charts, renderer, CLI wiring, live smoke test).
-- **Bonus (not in plan):** working MVP — `engine/.venv/bin/wbj analyze AAPL` runs an EDGAR-based Financial-category analysis and saves to `Reportes/<T>/<date>/`. Also `engine/scripts/dashboard.py`, `webapp.py` (unreviewed, from a parallel session).
+## Cómo se corre
 
-## Open decisions / warnings
+```bash
+# Web app (local)
+python -m uvicorn vertex_api:app --port 8000     # o ./start.sh / start.bat
 
-1. **Task 24 conflict:** the MVP lives in `engine/wbj/cli.py`; the plan's Task 24 wires the full staged pipeline into the same file. Ask Victor: merge (e.g., keep MVP as `wbj quick <T>`) or replace.
-2. **FMP key returns 403** on `/api/v3/profile` (plan limitation?). Check the FMP subscription before Task 25's live smoke test. EDGAR path works without any key.
-3. Speed preference: Victor asked to batch remaining tasks — batch the six specialists (14–19) under one implementer + one review; keep individual review gates on Tasks 10, 12, 13, 21.
-4. Deferred Minor review findings are listed per-task in `.superpowers/sdd/progress.md` — feed them to the final whole-branch review.
-5. Git identity is auto-generated; run `git config --global user.email victor@infusioninvestments.com` before pushing anywhere.
+# CLI del engine
+cd engine && pip install -e ".[dev]"
+wbj analyze NVDA      # análisis completo   ·  wbj quick / scorecard / report
+wbj track             # actualiza Memoria/calibracion.md con el track record
+```
+
+Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
+`scorecard`, `track`, `screen`, `judgments`, `aggregate`, `report`.
+
+## Tests
+
+```bash
+cd engine && python -m pytest tests/ -q    # 1959 pasan, 1 skip (documentado)
+python -m pytest tests_vertex/ -q          # 47 pasan
+```
+
+## Variables de entorno
+
+Local en `vertex.env`; en Render, por el dashboard. Ver `DEPLOYMENT.md §4` para
+la tabla completa. Las que **no pueden faltar** en un despliegue público:
+
+- `VERTEX_API_TOKEN` — clave de acceso. **Sin ella el servicio solo atiende a
+  `localhost`**, así que en Render quedaría inaccesible. Es deliberado: el fallo
+  por omisión debe ser cerrado, no abierto.
+- `VERTEX_ORIGIN` — la URL pública, para CORS.
+- `EDGAR_USER_AGENT` — identidad ante la SEC (tu nombre + email real).
+- `VERTEX_DB_KEY` — cifra el `access_token` de Plaid guardado en la base.
+
+## Auditoría en curso
+
+`AUDITORIA.md` tiene los 26 hallazgos con su diagnóstico y solución. Cada
+arreglo va en su propio commit; `git log` es el historial real.
+
+**Cerrados:** C-01 a C-04 (los 4 críticos), A-01, A-07, M-07.
+**Siguiente:** A-02 — dos funciones llaman `load_settings()` sin inyectar
+`FMP_API_KEY` desde el entorno, así que en Render devuelven vacío en silencio y
+los items obligatorios 4 y 5 del reporte salen en blanco.
+
+## Notas
+
+- La identidad de git está configurada **local a este repo**
+  (`Kevin Taboas <kevintaboas02@gmail.com>`). No hace falta tocar `--global`.
+- No hay remoto configurado. Si lo añades, que sea **privado**: el código maneja
+  credenciales de Plaid.
+- `docs/archive/` guarda los planes de diseño de la construcción del engine —
+  histórico, ya implementado. No son instrucciones vigentes.

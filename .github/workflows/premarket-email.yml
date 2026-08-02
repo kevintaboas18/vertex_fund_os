@@ -1,0 +1,39 @@
+name: Pre-market movers
+
+# M-03: scripts/premarket_email.py decía "corre en GitHub Actions cada mañana
+# de mercado", pero no existía ningún workflow — era código muerto.
+#
+# Cron en UTC: 11:30 UTC = 7:30 ET en horario de verano (EDT, UTC-4) y 6:30 ET
+# en invierno (EST, UTC-5). GitHub no admite husos horarios, así que el propio
+# script comprueba la hora ET y los feriados y se salta el envío si no toca.
+on:
+  schedule:
+    - cron: "30 11 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Imprimir el email en vez de enviarlo"
+        type: boolean
+        default: true
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Enviar resumen pre-market
+        env:
+          # Configura RESEND_API_KEY en Settings > Secrets and variables > Actions.
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_TO: ${{ vars.EMAIL_TO }}
+          # workflow_dispatch: por defecto NO envía, para poder probar sin ruido.
+          # El cron deja ambas vacías, así que envía de verdad.
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: python scripts/premarket_email.py

@@ -1,0 +1,14 @@
+{
+  "ticker": "PLTR",
+  "date": "2026-08-02",
+  "price": 123.06,
+  "bear": 113.09,
+  "base": 160.62,
+  "bull": 191.79,
+  "growth_base": 0.3053,
+  "pe_now": 194.3,
+  "score10": 3.82,
+  "evidence_points": 76,
+  "horizon_days": 365,
+  "source": "cerebro"
+}

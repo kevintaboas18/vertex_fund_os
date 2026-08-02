@@ -35,14 +35,21 @@ unweighted stdlib stdev.
 
 ## Model-selection matrix (brief's simplification of DECISION_RULES.md)
 
-Per the task-19 brief, this module implements only the "general
-non-financial" row of Cerebro's full 8-row model-selection matrix: FCFF
-DCF + an economic-profit cross-check. Every other `industry_adapter`
-value (bank, insurer, REIT, ...) returns an `ADAPTER_UNSUPPORTED`
-mandatory flag and an all-`NOT_SCORABLE` category rather than silently
-running FCFF/EV-EBITDA math Cerebro's matrix explicitly says to avoid for
-that company type (`DECISION_RULES.md`: "Do not use a valuation model
-that conflicts with the company type").
+This module implements the "general non-financial" row of Cerebro's
+8-row model-selection matrix (FCFF DCF + an economic-profit cross-check),
+plus the bank/insurer and REIT rows through `_financial_adapter_output`
+and `_reit_adapter_output`.
+
+Any adapter left over -- one the matrix names but registers no model for,
+AND any name none of `wbj.core.adapters`' three sets classifies -- returns
+an `ADAPTER_MODELS_NOT_REGISTERED` mandatory flag with every dimension
+`NOT_APPLICABLE`, rather than silently running FCFF/EV-EBITDA math the
+matrix says to avoid for that company type (`DECISION_RULES.md`: "Do not
+use a valuation model that conflicts with the company type").
+
+The unrecognised-name half matters as much as the documented one: an
+adapter spelled `bank_adapter` instead of `banks` used to fall straight
+through to the conventional DCF and price a BANK by FCFF.
 
 ## Dataset coverage vs. `Packet`
 
@@ -367,6 +374,135 @@ def _confidence_for(v: Value) -> float:
     base = base_by_class.get(v.evidence_class, 70.0) if v.evidence_class else 70.0
     base -= 15.0 * len(v.warnings)
     return max(0.0, min(100.0, base))
+
+
+def _est_field(row: dict, *keys: str):
+    """Primer valor no nulo entre `keys`.
+
+    FMP renombro los campos al retirar `/api/v3/` en favor de `/stable/`:
+    `estimatedRevenueAvg` -> `revenueAvg`, `estimatedEpsAvg` -> `epsAvg`. El
+    codigo seguia pidiendo los viejos, asi que **todo estimado forward salia
+    None en silencio** y la valuacion caia al P/E trailing sin decirlo.
+    `quick.py` ya toleraba ambos; esto lo alinea.
+    """
+    for k in keys:
+        v = row.get(k)
+        if v is not None:
+            return v
+    return None
+
+
+def _next_year_estimate(estimates, as_of: str):
+    """Fila de consenso del PROXIMO periodo, no la primera de la lista.
+
+    FMP devuelve los estimados en orden DESCENDENTE (el mas lejano primero:
+    para NVDA, 2031 antes que 2027). `fmp_est[0]` no era "el proximo año" sino
+    el mas lejano disponible, asi que el reverse-DCF y el P/E forward
+    comparaban contra un consenso a 5 años vista.
+    """
+    futuras = [e for e in (estimates or []) if str(e.get("date", "")) > str(as_of)]
+    return min(futuras, key=lambda e: str(e["date"])) if futuras else None
+
+
+def _mc_range(pessimistic: float, base: float, optimistic: float) -> MonteCarloRange:
+    """A triangular range that is always ordered `low <= mode <= high`.
+
+    The bear/bull defaults are derived from the base case (`base*0.5` and
+    `base*1.5`), and `_scenario_input` applies overrides PER SCENARIO. So an
+    analyst who sets only `scenarios.base.growth` — the override the module
+    documents — leaves bear and bull bracketing the OLD base. Setting a base
+    of 12% under a 36% consensus gave low=18%, mode=12%: numpy's
+    `triangular` raises `left > mode`, the exception escaped `run()`, and
+    the whole valuation category came back ERROR.
+
+    The endpoints are taken as the extremes of the three scenarios rather
+    than by position, which keeps an explicit three-way override intact
+    while making the inversion unrepresentable.
+    """
+    return MonteCarloRange(low=min(pessimistic, base, optimistic), mode=base,
+                           high=max(pessimistic, base, optimistic))
+
+
+def _last_reported_date(packet) -> str:
+    """The period end of the newest REPORTED fiscal year.
+
+    The cutoff that separates consensus for periods already filed from
+    consensus for periods still ahead. Callers passed
+    `getattr(packet.analysis, "as_of", "")` — and `AnalysisMeta` has no
+    `as_of` field, so that was always `""`, which made every estimate row
+    count as forward-looking. `_next_year_estimate` then returned the
+    OLDEST row: for NVDA the "next year" estimate was FY2022's $26.7bn
+    against $215.9bn reported, five years stale, feeding the reverse-DCF's
+    consensus comparison and the forward P/E.
+    """
+    rows = (packet.fundamentals or {}).get("annual") or []
+    if not rows:
+        return ""
+    newest = rows[0]
+    date = str(newest.get("date") or "")
+    if date:
+        return date
+    # No period end reported: fall back to the fiscal year label, which
+    # sorts correctly against the estimates' `YYYY-MM-DD` dates.
+    year = str(newest.get("fiscalYear") or newest.get("calendarYear") or "")
+    return f"{year}-12-31" if year else ""
+
+
+def _consensus_revenue_cagr(estimates, revenue0: float | None, as_of: str,
+                            horizon_years: int) -> dict | None:
+    """Consensus revenue CAGR over the explicit forecast period.
+
+    DATASET.md makes `forecast_drivers` — "revenue, margins, reinvestment,
+    ROIC ... explicit model assumptions" — a REQUIRED input, and
+    DECISION_RULES.md's reverse-DCF section names consensus as one of the
+    four references a forecast is measured against. This is the packet's
+    only automatic source for that input.
+
+    Returns the CAGR to the furthest consensus year inside `horizon_years`,
+    with the evidence supporting it (year, analyst count), or None when the
+    packet carries no forward estimate.
+    """
+    if not revenue0 or revenue0 <= 0 or horizon_years <= 0:
+        return None
+    forward = []
+    for row in (estimates or []):
+        date = str(row.get("date", ""))
+        if date <= str(as_of):
+            continue
+        revenue = _est_field(row, "revenueAvg", "estimatedRevenueAvg")
+        if revenue is not None and revenue > 0:
+            forward.append((date, revenue, row))
+    if not forward:
+        return None
+    forward.sort()
+    # One year per consensus period, capped at the explicit horizon: a CAGR
+    # taken to a year beyond the period the DCF actually forecasts would
+    # price growth the model never applies.
+    idx = min(len(forward), horizon_years) - 1
+    date, revenue, row = forward[idx]
+    years = idx + 1
+
+    def _cagr(target: float | None) -> float | None:
+        if target is None or target <= 0:
+            return None
+        return (target / revenue0) ** (1.0 / years) - 1.0
+
+    # The analysts' own low/high, which is a SOURCED dispersion. Bear and
+    # bull used to be `base*0.5` and `base*1.5`: multipliers calibrated for
+    # a small trailing-ratio growth, and nonsense on a large one — PLTR's
+    # bull came out at 109%, or 40x revenue in five years, an assumption
+    # nobody made. DECISION_RULES.md's scenario framework asks each
+    # scenario to "separately define" its revenue growth path; this is the
+    # packet's only sourced way to do that.
+    return {
+        "cagr": _cagr(revenue),
+        "cagr_low": _cagr(_est_field(row, "revenueLow", "estimatedRevenueLow")),
+        "cagr_high": _cagr(_est_field(row, "revenueHigh", "estimatedRevenueHigh")),
+        "years": years,
+        "to_date": date,
+        "to_revenue": revenue,
+        "analysts": _est_field(row, "numAnalystsRevenue", "numberAnalystEstimatedRevenue"),
+    }
 
 
 def _num(row: dict, key: str) -> float | None:
@@ -930,6 +1066,20 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
         return _reit_adapter_output(packet, overlay)
     if adapter in MODEL_REPLACING_ADAPTERS:
         return _unsupported_adapter_output(packet)
+    # An adapter no set classifies is one nobody has checked the
+    # conventional formulas against, so running them on it is an assertion
+    # without evidence. Falling through valued a company by FCFF DCF purely
+    # because its adapter name was unrecognised: `industry_adapter="bank_adapter"`
+    # — Victor's own spelling in VAL-T010, and this engine's is "banks" —
+    # produced `primary=['FCFF_DCF', 'ECONOMIC_PROFIT']` for a BANK, the
+    # exact model DECISION_RULES.md's selection matrix bars for one.
+    #
+    # `business.py` already treats an unclassified adapter as untrusted
+    # (`_category_confidence` floors its model fit "as a model-replacing
+    # adapter is: no evidence the formulas fit"). Valuation is where the
+    # same unknown does the most damage, since it prices the company.
+    if not _adapters.is_classified(adapter):
+        return _unsupported_adapter_output(packet)
 
     annual = _annual_rows(packet)
     assumptions: list[str] = []
@@ -1027,15 +1177,84 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     if roic_v.is_null:
         assumptions.append("ROIC unavailable from Packet; substituted a 10% fallback for the reinvestment-rate/fundamental-growth derivation.")
 
+    # The explicit forecast horizon, read here because the base-case growth
+    # below is a CAGR over exactly that period.
+    years = int(overlay.get("forecast_years", 5))
+
+    # --- Base-case revenue growth: a forecast driver, not a trailing ratio ---
+    #
+    # DATASET.md makes `forecast_drivers` ("revenue, margins, reinvestment,
+    # ROIC ... explicit model assumptions") a REQUIRED input. This used to
+    # manufacture one instead: trailing capex/NOPAT times trailing ROIC,
+    # labelled VAL-REINV-043.
+    #
+    # That inverts the rule it cited. VAL-REINV-043 is "Terminal reinvestment
+    # consistency", `rr = g / TerminalROIC` — a constraint binding the
+    # TERMINAL year's reinvestment to its growth so the model cannot price
+    # free growth. DECISION_RULES.md rule 2 states the same identity as a
+    # consistency condition ON a forecast, not a way to produce one. The DCF
+    # already enforces it: `terminal_year_metrics` derives each year's
+    # reinvestment as `g / ROIC` from whatever growth it is handed.
+    #
+    # Measuring reinvestment as capex alone also breaks for anything
+    # asset-light, where growth is bought with R&D that is expensed rather
+    # than capitalised. On NVDA it produced 5.05% for a company that had just
+    # grown 65.5%, valuing it near $41 against a $195 price — while the packet
+    # already carried consensus revenue out to FY2031.
+    #
+    # So: use the forecast the packet carries, and keep fundamental growth
+    # capacity beside it as the cross-reference DECISION_RULES.md's
+    # reverse-DCF section asks for ("compare implied values to historical
+    # performance, market capacity, consensus, and fundamental growth
+    # capacity"). An analyst overrides either via
+    # `overlay['scenarios']['base']['growth']`.
     capex_latest = abs(_num(latest, "capex") or 0.0)
     reinvestment_rate = capex_latest / nopat_v.value if nopat_v.is_valid and nopat_v.value != 0 else 0.30
-    base_growth_v = ve.fundamental_growth(reinvestment_rate, roic_value)
-    base_growth = base_growth_v.value if base_growth_v.is_valid else 0.03
-    assumptions.append(
-        f"Base-case revenue growth ({base_growth:.4f}) derived as reinvestment_rate*ROIC "
-        f"(VAL-REINV-043), not a management/consensus figure -- agent-overridable via "
-        "overlay['scenarios']['base']['growth']."
+    fundamental_growth_v = ve.fundamental_growth(reinvestment_rate, roic_value)
+    fundamental_growth = fundamental_growth_v.value if fundamental_growth_v.is_valid else 0.03
+
+    consensus_cagr = _consensus_revenue_cagr(
+        (packet.estimates or {}).get("fmp_analyst_estimates") or [],
+        revenue0, _last_reported_date(packet), years,
     )
+    # Bear and bull default to `base * 0.5` and `base * 1.5` below. Those
+    # multipliers are this module's calibration, and they were tuned when
+    # the base was a small trailing ratio: on a hypergrowth consensus they
+    # produce assumptions nobody made (PLTR's bull reached 109% — 40x
+    # revenue in five years). The analysts' own low/high is a sourced
+    # dispersion for the same horizon, and DECISION_RULES.md's scenario
+    # framework asks each scenario to "separately define" its growth path.
+    bear_growth = bull_growth = None
+    if consensus_cagr is not None:
+        base_growth = consensus_cagr["cagr"]
+        bear_growth, bull_growth = consensus_cagr["cagr_low"], consensus_cagr["cagr_high"]
+        spread = (
+            f"Bear/bull take the analysts' own low/high for the same horizon "
+            f"({bear_growth:.4f}/{bull_growth:.4f}), a sourced dispersion rather "
+            "than a multiple of the base."
+            if bear_growth is not None and bull_growth is not None
+            else "The estimate carries no low/high, so bear/bull fall back to "
+                 "0.5x/1.5x of the base — this module's calibration, not a forecast."
+        )
+        assumptions.append(
+            f"Base-case revenue growth ({base_growth:.4f}) is the consensus revenue "
+            f"CAGR over the {consensus_cagr['years']}-year explicit period (to "
+            f"{consensus_cagr['to_date']}, {consensus_cagr['analysts'] or 'n/a'} "
+            f"analysts) — DATASET.md's required `forecast_drivers`. {spread} "
+            f"Fundamental growth capacity (capex/NOPAT * ROIC) is "
+            f"{fundamental_growth:.4f} for comparison; it measures reinvestment as "
+            "capex only, so it understates any business that grows on expensed "
+            "R&D. Override via overlay['scenarios']['base']['growth']."
+        )
+    else:
+        base_growth = fundamental_growth
+        assumptions.append(
+            f"Base-case revenue growth ({base_growth:.4f}) falls back to fundamental "
+            "growth capacity (capex/NOPAT * ROIC): the packet carries no forward "
+            "consensus revenue. Reinvestment is measured as capex only, so this "
+            "understates any business that grows on expensed R&D. Override via "
+            "overlay['scenarios']['base']['growth']."
+        )
 
     op_margin_latest = ebit / revenue0 if ebit is not None and revenue0 not in (None, 0) else 0.20
     if ebit is None or revenue0 in (None, 0):
@@ -1094,8 +1313,6 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     else:
         tv_growth = tv_growth_default
 
-    years = int(overlay.get("forecast_years", 5))
-
     # ---- Scenario construction (bear/base/bull) -- brief's derived defaults ----
     # `scenario_overrides`, not `scenarios`. The two are different inputs that
     # collided on one key: MKT-SCEN-025 reads `scenarios` as a LIST of
@@ -1126,9 +1343,9 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
             tv_growth=float(ov.get("tv_growth", tv_growth)),
         )
 
-    bear_input = _scenario_input("bear", base_growth * 0.5, op_margin_latest - 0.02, (wacc_value + 0.01) if wacc_value else None, 0.25)
+    bear_input = _scenario_input("bear", bear_growth if bear_growth is not None else base_growth * 0.5, op_margin_latest - 0.02, (wacc_value + 0.01) if wacc_value else None, 0.25)
     base_input = _scenario_input("base", base_growth, op_margin_latest, wacc_value, 0.50)
-    bull_input = _scenario_input("bull", base_growth * 1.5, op_margin_latest + 0.02, (wacc_value - 0.01) if wacc_value else None, 0.25)
+    bull_input = _scenario_input("bull", bull_growth if bull_growth is not None else base_growth * 1.5, op_margin_latest + 0.02, (wacc_value - 0.01) if wacc_value else None, 0.25)
 
     scenario_summaries: list[ScenarioSummary] = []
     # VAL-SCEN-036's number, not just its dimension score. `DECISION_RULES.md`:
@@ -1173,8 +1390,9 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     # ---- Reverse DCF (VAL-RDCF-027) ----
     consensus_growth = None
     fmp_est = (packet.estimates or {}).get("fmp_analyst_estimates") or []
-    if len(fmp_est) >= 2 and revenue0:
-        rev_next = fmp_est[0].get("estimatedRevenueAvg")
+    _next_est = _next_year_estimate(fmp_est, _last_reported_date(packet))
+    if _next_est and revenue0:
+        rev_next = _est_field(_next_est, "revenueAvg", "estimatedRevenueAvg")
         if rev_next is not None:
             consensus_growth = rev_next / revenue0 - 1
 
@@ -1200,13 +1418,26 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     fcff_per_share = base_per_share  # scenarios() IS the FCFF DCF model for the base case
     econ_profit_per_share = None
     ep_ev = None            # bound outside the branch: VAL-EVA-020 emits either way
-    if wacc_value is not None and ic_result is not None and diluted_shares and nopat_v.is_valid:
-        eps_forecast = [nopat_v.value * (1 - reinvestment_rate) * (1 + base_growth) ** t for t in range(1, years + 1)]
-        ep_ev = ve.economic_profit_value(ic_result, eps_forecast, wacc_value)
+    if (wacc_value is not None and ic_result is not None and diluted_shares
+            and base_input is not None and revenue0):
+        # Built on the SAME base-scenario forecast the FCFF DCF prices, so
+        # Cerebro 9's cross-check compares two routes through one set of
+        # assumptions. It used to be fed `NOPAT*(1-rr)*(1+g)^t` — free cash
+        # flow — where economic profit belongs, and `IC0` was then added on
+        # top of a present value of cash flows, double-counting the capital
+        # base. The check could never pass, so the flag fired on every
+        # company and said nothing about the assumptions it was meant to test.
+        ep_ev = ve.economic_profit_ev(
+            ic0=ic_result, growth=base_input.growth, margin=base_input.margin,
+            wacc_value=base_input.wacc, tv_growth=base_input.tv_growth,
+            revenue0=revenue0, tax_rate=tax_rate, roic_value=roic_value,
+            years=years,
+        )
         if ep_ev.is_valid:
-            eq_v = ve.equity_bridge(ep_ev.value, cash, 0.0, total_debt, 0.0, 0.0, 0.0, 0.0)
-            ps_v = ve.per_share(eq_v.value, diluted_shares) if eq_v.is_valid else None
-            econ_profit_per_share = ps_v.value if ps_v is not None and ps_v.is_valid else None
+            # The same debt bridge the DCF applies (`common.net_debt`), or the
+            # two per-share figures would differ by the bridge alone.
+            ps_v = ve.per_share(ep_ev.value - net_debt, diluted_shares)
+            econ_profit_per_share = ps_v.value if ps_v.is_valid else None
     add("VAL-EVAEV-021", _ok(econ_profit_per_share, unit="usd_per_share") if econ_profit_per_share is not None else _null(NullState.MISSING, "usd_per_share", "ECONOMIC_PROFIT_INPUTS_UNAVAILABLE"), None)
 
     reconciled = None
@@ -1275,9 +1506,9 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     if bear_input and base_input and bull_input and wacc_value is not None and diluted_shares and revenue0 is not None:
         mc_inputs = MonteCarloInputs(
             revenue0=revenue0, shares=diluted_shares, tax_rate=tax_rate, roic=roic_value, years=years, net_debt=net_debt,
-            growth_range=MonteCarloRange(low=bear_input.growth, mode=base_input.growth, high=bull_input.growth),
-            margin_range=MonteCarloRange(low=bear_input.margin, mode=base_input.margin, high=bull_input.margin),
-            wacc_range=MonteCarloRange(low=bull_input.wacc, mode=wacc_value, high=bear_input.wacc),
+            growth_range=_mc_range(bear_input.growth, base_input.growth, bull_input.growth),
+            margin_range=_mc_range(bear_input.margin, base_input.margin, bull_input.margin),
+            wacc_range=_mc_range(bull_input.wacc, wacc_value, bear_input.wacc),
             tv_growth=tv_growth,
         )
         mc_result = ve.monte_carlo(mc_inputs, n=2000, seed=42)
@@ -1545,7 +1776,8 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     # only fall back to trailing EPS -- a documented proxy, FORMULAS.md's own
     # "definitions vary" caveat -- when no forward estimate is present.
     eps = _num(latest, "eps")
-    fwd_eps = fmp_est[0].get("estimatedEpsAvg") if fmp_est else None
+    _ny = _next_year_estimate(fmp_est, _last_reported_date(packet))
+    fwd_eps = _est_field(_ny, "epsAvg", "estimatedEpsAvg") if _ny else None
     pe_eps = fwd_eps if (fwd_eps is not None and fwd_eps > 0) else eps
     used_trailing_pe = not (fwd_eps is not None and fwd_eps > 0)
     consensus_eps_growth_pct = overlay.get("eps_growth_pct")

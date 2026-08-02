@@ -3,15 +3,16 @@ import sys
 import json
 import math
 import re
+import secrets
 import time
 import threading
 import traceback
 import numpy as np
 import requests
 from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 import yfinance as yf
 from pydantic import BaseModel, Field
 from google import genai
@@ -21,7 +22,7 @@ from urllib.parse import urlparse
 # ─────────────────────────────────────────────────────────────────────────────
 # CARGA DE CREDENCIALES
 # Lee vertex.env (gitignored) hacia el entorno para que TODAS las API keys
-# (GEMINI/OPENAI/FINNHUB/QUANTDATA/XAI/PLAID/SNAPTRADE…) queden disponibles
+# (GEMINI/OPENAI/FINNHUB/QUANTDATA/XAI/PLAID…) queden disponibles
 # vía os.environ. Nunca se imprime ni se commitea su contenido.
 # ─────────────────────────────────────────────────────────────────────────────
 try:
@@ -47,14 +48,145 @@ try:
 except Exception:
     client_gemini = None
 
+# Ruta del engine determinista de Victor. Se define aquí arriba porque
+# `_sec_user_agent()` (A-01) la necesita al importar el módulo, mucho antes
+# de que se use para el scoring.
+_WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine")
+
 app = FastAPI(title="Vertex Fund OS Core")
 
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTENTICACIÓN (C-02)
+#
+# La app se despliega públicamente en Render. Sin esto, los ~60 endpoints son
+# anónimos: cualquiera con la URL puede leer el portafolio, y `/api/analyze`
+# permite vaciar las cuotas de FMP/Gemini/Anthropic desde fuera.
+#
+# Modelo (un solo usuario):
+#   - `VERTEX_API_TOKEN` en el entorno es la contraseña.
+#   - El navegador se autentica una vez (`POST /api/login`) y recibe una cookie
+#     HttpOnly + SameSite=Strict. HttpOnly = JavaScript no puede leerla, así que
+#     un XSS no la roba; SameSite=Strict = el navegador no la manda en peticiones
+#     originadas por otro sitio, que es la defensa contra CSRF.
+#   - Los scripts (curl, cron) usan la cabecera `X-Vertex-Token`.
+#
+# Default seguro: si `VERTEX_API_TOKEN` NO está definido, sólo se atiende a
+# localhost. Así el desarrollo local sigue funcionando sin configurar nada, y
+# un despliegue público al que se le olvidó la variable queda CERRADO en vez de
+# abierto — el fallo por omisión nunca debe ser "todo el mundo entra".
+# ─────────────────────────────────────────────────────────────────────────────
+VERTEX_API_TOKEN = os.environ.get("VERTEX_API_TOKEN", "").strip()
+_AUTH_COOKIE = "vertex_session"
+_LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+#: Rutas sin autenticación: el HTML de la app (que por sí solo no expone datos —
+#: todo lo pinta vía /api/*), los iconos del PWA y el propio login.
+_PUBLIC_PATHS = {"/", "/legacy", "/wbj", "/manifest.webmanifest",
+                 "/api/login", "/api/auth/status", "/favicon.ico"}
+
+
+def _client_host(request) -> str:
+    return (request.client.host if request.client else "") or ""
+
+
+def _auth_ok(request) -> bool:
+    """¿Esta petición puede pasar? Comparación en tiempo constante para no
+    filtrar el token por diferencias de tiempo de respuesta."""
+    if not VERTEX_API_TOKEN:                      # sin token configurado → sólo local
+        return _client_host(request) in _LOCAL_HOSTS
+    cookie = request.cookies.get(_AUTH_COOKIE, "")
+    if cookie and secrets.compare_digest(cookie, VERTEX_API_TOKEN):
+        return True
+    header = request.headers.get("x-vertex-token", "")
+    return bool(header) and secrets.compare_digest(header, VERTEX_API_TOKEN)
+
+
+@app.middleware("http")
+async def _require_auth(request, call_next):
+    path = request.url.path
+    if (path in _PUBLIC_PATHS or path.startswith("/assets/")
+            or request.method == "OPTIONS"          # preflight de CORS
+            or _auth_ok(request)):
+        return await call_next(request)
+    return JSONResponse(status_code=401, content={
+        "ok": False, "error": "unauthorized",
+        "detail": ("Esta API requiere autenticación. En el navegador: inicia sesión. "
+                   "En un script: manda la cabecera X-Vertex-Token.")})
+
+
+# N-01: freno a la fuerza bruta sobre /api/login. Un token de 24 bytes no se
+# adivina, pero sin freno el endpoint sirve de oráculo y de vector de carga:
+# cada intento es gratis para quien lo lanza y trabajo para el servidor.
+# Ventana deslizante por IP, en memoria (un solo proceso; suficiente aquí).
+_LOGIN_ATTEMPTS: dict[str, list[float]] = {}
+_LOGIN_MAX_TRIES = 8
+_LOGIN_WINDOW_S = 300.0
+
+
+def _login_rate_limited(host: str) -> bool:
+    now = time.time()
+    tries = [t for t in _LOGIN_ATTEMPTS.get(host, []) if now - t < _LOGIN_WINDOW_S]
+    _LOGIN_ATTEMPTS[host] = tries
+    if len(_LOGIN_ATTEMPTS) > 500:            # cota de memoria: purga lo caducado
+        for k in [k for k, v in _LOGIN_ATTEMPTS.items() if not v]:
+            _LOGIN_ATTEMPTS.pop(k, None)
+    return len(tries) >= _LOGIN_MAX_TRIES
+
+
+@app.post("/api/login")
+def api_login(request: Request, body: dict = None):
+    """Canjea el token por una cookie de sesión. Nunca devuelve el token."""
+    if not VERTEX_API_TOKEN:
+        return {"ok": True, "auth_required": False,
+                "detail": "No hay VERTEX_API_TOKEN configurado: acceso limitado a localhost."}
+    host = _client_host(request)
+    if _login_rate_limited(host):
+        return JSONResponse(status_code=429, content={
+            "ok": False, "error": "Demasiados intentos. Espera 5 minutos."})
+    token = str((body or {}).get("token") or "")
+    if not token or not secrets.compare_digest(token, VERTEX_API_TOKEN):
+        _LOGIN_ATTEMPTS.setdefault(host, []).append(time.time())
+        return JSONResponse(status_code=401,
+                            content={"ok": False, "error": "Token incorrecto."})
+    _LOGIN_ATTEMPTS.pop(host, None)           # acierto: se limpia el contador
+    resp = JSONResponse(content={"ok": True, "auth_required": True})
+    # N-02: el flag Secure sale del esquema REAL de la petición, no de que
+    # alguien se acuerde de definir VERTEX_ORIGIN. Antes, olvidar esa variable
+    # emitía la cookie sin Secure sobre https — viajaría por http en un
+    # downgrade. `x-forwarded-proto` es lo que manda el proxy de Render.
+    is_https = (request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+                or request.url.scheme) == "https"
+    resp.set_cookie(_AUTH_COOKIE, VERTEX_API_TOKEN, httponly=True, samesite="strict",
+                    secure=is_https, max_age=60 * 60 * 24 * 30, path="/")
+    return resp
+
+
+@app.post("/api/logout")
+def api_logout():
+    resp = JSONResponse(content={"ok": True})
+    resp.delete_cookie(_AUTH_COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/auth/status")
+def api_auth_status(request: Request):
+    """Pública a propósito: el frontend la consulta al cargar para saber si debe
+    pedir contraseña. No revela el token, sólo si hace falta y si ya hay sesión."""
+    return {"ok": True, "auth_required": bool(VERTEX_API_TOKEN),
+            "authenticated": _auth_ok(request)}
+
+
+# CORS (C-04): con una cookie de sesión en juego, `allow_origins=["*"]` +
+# credenciales sería un agujero CSRF. Se restringe al origen real; en local, a
+# los puertos de desarrollo habituales.
+_ORIGIN = os.environ.get("VERTEX_ORIGIN", "").strip()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=([_ORIGIN] if _ORIGIN else
+                   ["http://localhost:8000", "http://127.0.0.1:8000"]),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["content-type", "x-vertex-token"],
 )
 
 @app.get("/", response_class=HTMLResponse)
@@ -198,11 +330,89 @@ def init_db():
 
 init_db()
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# A-02: SETTINGS DEL ENGINE CON LAS CLAVES DEL ENTORNO
+#
+# `wbj.config.load_settings()` lee `API/.env` con `dotenv_values()`, que
+# devuelve un dict y NO mira `os.environ`. En Render ese archivo no existe —
+# las claves llegan por el dashboard — así que `settings.fmp_api_key` sale
+# `None`, `FMPProvider.available` es `False` y el provider devuelve `None`
+# en silencio.
+#
+# Media docena de call-sites inyectaban las claves a mano y dos se olvidaron
+# (`_wbj_insiders_clasificados`, `_wbj_holders_from_edgar`), así que los items
+# obligatorios 4 (13F/13D-G) y 5 (insiders >$1M) de CLAUDE.md salían VACÍOS en
+# producción, sin un solo aviso. En local funcionaban porque sí hay `API/.env`.
+#
+# Este helper es ahora el único camino: usarlo siempre en vez de `load_settings()`.
+# ─────────────────────────────────────────────────────────────────────────────
+def _engine_settings(base=None):
+    """`Settings` del engine con las claves del entorno ya inyectadas."""
+    if _WBJ_ENGINE_PATH not in sys.path:
+        sys.path.insert(0, _WBJ_ENGINE_PATH)
+    from wbj.config import load_settings
+    st = base or load_settings()
+    for env_name, attr in (("FMP_API_KEY", "fmp_api_key"),
+                           ("FINNHUB_API_KEY", "finnhub_api_key"),
+                           ("FRED_API_KEY", "fred_api_key"),
+                           ("ANTHROPIC_API_KEY", "anthropic_api_key"),
+                           ("EDGAR_USER_AGENT", "edgar_user_agent"),
+                           ("JUDGE_MODEL", "judge_model")):
+        val = (os.environ.get(env_name) or "").strip()
+        if val and not (getattr(st, attr, None) or "").strip():
+            try:
+                setattr(st, attr, val)
+            except Exception:
+                pass
+    return st
+
+
+# ── ESTIMADOS DE CONSENSO DE FMP ─────────────────────────────────────────────
+# Dos trampas, ambas silenciosas, ambas encontradas midiendo con la clave real:
+#
+# 1. FMP renombro los campos al retirar `/api/v3/`: `estimatedRevenueAvg` es
+#    ahora `revenueAvg`, `estimatedEpsAvg` es `epsAvg`. Pedir el nombre viejo
+#    devuelve None, no un error.
+# 2. Los devuelve en orden DESCENDENTE — para NVDA, 2031 antes que 2027. Coger
+#    `[0]` no daba "el proximo año" sino el consenso mas lejano disponible.
+#
+# Juntas dejaban en None todo el puente de estimados: crecimiento de consenso,
+# P/E forward, PEG y la magnitud de revision.
+
+def _est_field(row, *keys):
+    """Primer valor no nulo entre `keys` (tolera los dos juegos de nombres)."""
+    for k in keys:
+        v = (row or {}).get(k)
+        if v is not None:
+            return v
+    return None
+
+
+def _next_year_estimate(estimates, as_of=""):
+    """Fila de consenso del PROXIMO periodo posterior a `as_of`."""
+    if not as_of:
+        as_of = datetime.now(timezone.utc).date().isoformat()
+    futuras = [e for e in (estimates or [])
+               if isinstance(e, dict) and str(e.get("date", "")) > str(as_of)]
+    return min(futuras, key=lambda e: str(e["date"])) if futuras else None
+
+
 # ── #5 — CACHÉ COMPARTIDO DE SERIES DE PRECIO ────────────────────────────────
 # track-record, calibración, IC y portfolio-fit bajaban 1 año de historia por
 # ticker cada uno, por separado. Este caché (TTL 1h) lo comparte y reduce el
 # riesgo de ratelimit de yfinance.
 _PRICE_SERIES_CACHE = {}
+
+# ── A-06: PRESUPUESTO DE LLAMADAS A FMP ──────────────────────────────────────
+# Un solo /api/analyze disparaba 80-120 peticiones a FMP; el plan free son 250
+# AL DÍA. Los bucles de pares eran el grueso: 15 profile + 15 income (P/S),
+# 20 ohlcv de 2 años (breadth + RS) y otros 15 income + 15 balance (peer ROIC).
+# Se recortan a los mínimos que la propia metodología exige — 8 pares es el
+# MIN_PEERS que ya se comprobaba más abajo, y 5 filas el mínimo del percentil
+# de fuerza relativa. Menos que eso no cambia el número; más solo gasta cuota.
+_FMP_MAX_PEERS = 10       # P/S y peer ROIC (umbral real: 8)
+_FMP_MAX_BREADTH = 12     # breadth sectorial + universo RS (umbral real: 5)
 
 _PERIODO_DIAS = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92,
                  "2mo": 62, "1mo": 31, "5d": 7, "7d": 7}
@@ -211,10 +421,9 @@ _PERIODO_DIAS = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92,
 def _fmp_daily_bars(ticker, period="1y"):
     """#3 RESPALDO de historia diaria: FMP EOD ajustado por splits/dividendos.
 
-    Sustituye a Stooq, que dejó de servir el CSV: ahora responde con una página
-    que exige resolver un desafío JavaScript de detección de bots, así que
-    `_stooq_series` devuelve [] SIEMPRE y el "tercer respaldo" del sistema
-    llevaba tiempo siendo decorativo -- quedaban dos fuentes, no tres.
+Sustituyó a Stooq, que dejó de servir el CSV (responde con un desafío
+    anti-bot). Aquel camino se eliminó en M-08: el sistema decía tener tres
+    fuentes de historia diaria y tenía dos.
 
     FMP ya es una fuente del sistema (la usa el engine de Victor y hay clave
     configurada), así que esto no añade dependencias nuevas. Se reusa
@@ -232,9 +441,7 @@ def _fmp_daily_bars(ticker, period="1y"):
         from wbj.config import load_settings
         from wbj.providers.cache import Cache
         from wbj.providers.fmp import FMPProvider
-        _s = load_settings()
-        if not getattr(_s, "fmp_api_key", None):
-            _s.fmp_api_key = os.environ.get("FMP_API_KEY")
+        _s = _engine_settings()
         dias = _PERIODO_DIAS.get(period, 365)
         anios = 1 if dias <= 300 else (2 if dias <= 700 else 5)
         filas = FMPProvider(_s, Cache(_s.cache_dir)).ohlcv_daily(str(ticker).upper().strip(),
@@ -278,9 +485,7 @@ def _fmp_perfil(ticker):
         from wbj.config import load_settings
         from wbj.providers.cache import Cache
         from wbj.providers.fmp import FMPProvider
-        _s = load_settings()
-        if not getattr(_s, "fmp_api_key", None):
-            _s.fmp_api_key = os.environ.get("FMP_API_KEY")
+        _s = _engine_settings()
         p = FMPProvider(_s, Cache(_s.cache_dir)).profile(str(ticker).upper().strip())
         if isinstance(p, list):
             p = p[0] if p else None
@@ -292,41 +497,9 @@ def _fmp_perfil(ticker):
         return {}
 
 
-def _stooq_series(ticker, period="1y"):
-    """RESPALDO HISTÓRICO, HOY INERTE: Stooq dejó de servir este CSV — responde con
-    una página que exige resolver un desafío JavaScript anti-bot, así que esta
-    función devuelve [] en la práctica. Se conserva por si Stooq vuelve a abrirlo,
-    pero el respaldo real de historia diaria es `_fmp_daily_bars`. No intentar
-    sortear el desafío.
-    Devuelve [(epoch, close)] filtrado al periodo. Best-effort: cualquier error → lista vacía."""
-    try:
-        sym = str(ticker).strip().lower()
-        url = f"https://stooq.com/q/d/l/?s={sym}.us&i=d"
-        r = requests.get(url, timeout=8)
-        if r.status_code != 200 or not r.text or "Date" not in r.text[:64]:
-            return []
-        days = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92, "2mo": 62, "1mo": 31}.get(period, 365)
-        cutoff = time.time() - days * 86400
-        out = []
-        for line in r.text.strip().splitlines()[1:]:
-            parts = line.split(",")
-            if len(parts) < 5:
-                continue
-            try:
-                ts = datetime.strptime(parts[0], "%Y-%m-%d").timestamp()
-                close = float(parts[4])
-            except (ValueError, IndexError):
-                continue
-            if ts >= cutoff and close > 0:
-                out.append((ts, close))
-        return out
-    except Exception:
-        return []
-
-
 def _resilient_history(stock, ticker, period):
-    """Historia diaria OHLCV con respaldo Stooq: si yfinance falla o viene vacío (rate-limit/caída),
-    reconstruye el DataFrame (Open/High/Low/Close/Volume) desde Stooq para que /api/analyze NO se caiga.
+    """Historia diaria OHLCV con respaldo FMP: si yfinance falla o viene vacío (rate-limit/caída),
+    reconstruye el DataFrame (Open/High/Low/Close/Volume) desde FMP para que /api/analyze NO se caiga.
     Devuelve un DataFrame estilo yfinance o None si ninguna fuente respondió."""
     try:
         h = stock.history(period=period)
@@ -334,8 +507,7 @@ def _resilient_history(stock, ticker, period):
             return h
     except Exception:
         pass
-    # #3 respaldo REAL: FMP EOD. Antes aquí solo estaba Stooq, que hoy responde con
-    # un desafío anti-bot: el respaldo existía en el código pero no en los hechos.
+    # #3 respaldo REAL: FMP EOD (el único que queda; Stooq se eliminó en M-08).
     try:
         import pandas as pd
         barras = _fmp_daily_bars(ticker, period)
@@ -346,35 +518,10 @@ def _resilient_history(stock, ticker, period):
                                  "Volume": [b[5] for b in barras]}, index=idx)
     except Exception:
         pass
-    try:
-        import pandas as pd
-        sym = str(ticker).strip().lower()
-        r = requests.get(f"https://stooq.com/q/d/l/?s={sym}.us&i=d", timeout=8)
-        if r.status_code != 200 or not r.text or "Date" not in r.text[:64]:
-            return None
-        days = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92, "2mo": 62, "1mo": 31}.get(period, 365)
-        cutoff = time.time() - days * 86400
-        rows = []
-        for line in r.text.strip().splitlines()[1:]:
-            p = line.split(",")
-            if len(p) < 6:
-                continue
-            try:
-                d = datetime.strptime(p[0], "%Y-%m-%d")
-                if d.timestamp() < cutoff:
-                    continue
-                rows.append((d, float(p[1]), float(p[2]), float(p[3]), float(p[4]), int(float(p[5] or 0))))
-            except (ValueError, IndexError):
-                continue
-        if not rows:
-            return None
-        idx = pd.DatetimeIndex([x[0] for x in rows])
-        return pd.DataFrame({"Open": [x[1] for x in rows], "High": [x[2] for x in rows],
-                             "Low": [x[3] for x in rows], "Close": [x[4] for x in rows],
-                             "Volume": [x[5] for x in rows]}, index=idx)
-    except Exception:
-        return None
-
+    # Tercer respaldo: eliminado. Stooq dejó de servir el CSV (responde con un
+    # desafío anti-bot), así que este camino devolvía None siempre — el sistema
+    # decía tener 3 fuentes de historia diaria y tenía 2: yfinance y FMP.
+    return None
 
 def _cached_price_series(ticker, period="1y", ttl=3600):
     key = f"{str(ticker).upper()}|{period}"
@@ -391,8 +538,6 @@ def _cached_price_series(ticker, period="1y", ttl=3600):
         series = []
     if not series:                                  # #3 respaldo: yfinance vacío → FMP
         series = [(b[0], b[4]) for b in _fmp_daily_bars(ticker, period)]
-    if not series:                                  # Stooq: inerte hoy, ver _stooq_series
-        series = _stooq_series(ticker, period)
     _PRICE_SERIES_CACHE[key] = (nowt, series)
     return series
 
@@ -520,7 +665,7 @@ def _deep_memory_block(ticker, current_price, exclude_id=None):
     lines, hits, n_scored = [], 0, 0
     for r in reps:
         base = r.get("price_at_analysis")
-        rec = (r.get("recommendation") or "?").upper()
+        rec = _reco_norm(r.get("recommendation")) or "?"
         when = (r.get("created_at") or "")[:10]
         conv = r.get("conviction")
         seg = f"  • {when}: {rec} (conv {conv}) @ ${base}"
@@ -669,8 +814,8 @@ def get_portfolio_snapshot():
         return []
 
 def save_options_snapshot(options):
-    """Replace the stored option-positions snapshot (modular: any source — SnapTrade
-    today, Unusual Whales later — feeds the same Greeks engine)."""
+    """Replace the stored option-positions snapshot (modular: cualquier fuente —
+    Plaid hoy, o `/api/portfolio/import` — alimenta el mismo motor de griegas)."""
     try:
         conn = _db()
         conn.execute("DELETE FROM option_holdings")
@@ -1230,7 +1375,26 @@ def _news_catalyst_context(noticias):
     return head + " ".join(out_lines), uniq
 
 
-SEC_HEADERS = {"User-Agent": "Vertex Holding Group research contact@vertexholding.com",
+# A-01: identidad ÚNICA ante la SEC, la misma que usa el engine. Antes había dos
+# hardcodeadas y distintas (esta y la de providers/edgar.py, con el correo de
+# Victor), y `EDGAR_USER_AGENT` de render.yaml / API/.env no se leía en ninguna.
+# La política de fair-access de la SEC bloquea POR user-agent: dos identidades
+# significaba dos cuotas separadas, y una de ellas compartida con otro proyecto.
+def _sec_user_agent():
+    ua = (os.environ.get("EDGAR_USER_AGENT") or "").strip()
+    if ua:
+        return ua
+    try:                       # respaldo: lo que el engine haya resuelto (API/.env)
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.config import load_settings
+        from wbj.providers.edgar import edgar_headers
+        return edgar_headers(_engine_settings())["User-Agent"]
+    except Exception:
+        return "Vertex Fund OS research (configura EDGAR_USER_AGENT)"
+
+
+SEC_HEADERS = {"User-Agent": _sec_user_agent(),
                "Accept-Encoding": "gzip, deflate", "Host": "www.sec.gov"}
 _SEC_TICKER_CACHE = {}
 
@@ -1271,7 +1435,7 @@ def _wbj_insiders_clasificados(ticker):
             sys.path.insert(0, _WBJ_ENGINE_PATH)
         from wbj.config import load_settings
         from wbj.report import _insiders
-        d = _insiders(str(ticker).upper().strip(), load_settings()) or {}
+        d = _insiders(str(ticker).upper().strip(), _engine_settings()) or {}
         if not d.get("available"):
             return {}
         return {"bought": float(d.get("bought") or 0.0),
@@ -1305,7 +1469,7 @@ def _wbj_holders_from_edgar(ticker):
             sys.path.insert(0, _WBJ_ENGINE_PATH)
         from wbj.config import load_settings
         from wbj.report import _ownership
-        o = _ownership(str(ticker).upper().strip(), load_settings()) or {}
+        o = _ownership(str(ticker).upper().strip(), _engine_settings()) or {}
         return {"holders": o.get("holders") or [],
                 "source": o.get("holders_source"),
                 "executives": o.get("executives") or []}
@@ -1313,10 +1477,35 @@ def _wbj_holders_from_edgar(ticker):
         return {}
 
 
+#: Presentaciones de EDGAR ya resueltas, por (ticker, limite). Se rehacen
+#: cada `_EDGAR_TTL_S`.
+#:
+#: `fetch_edgar_filings` recorre el conjunto trimestral 13F de la SEC, que es
+#: un TSV enorme: ~24 s por llamada. Y /api/analyze la invocaba DOS VECES --
+#: una para el contexto de insiders y otra para `mandatory_report.edgar` --,
+#: o sea ~47 s de los ~55 s que tardaba una peticion con todo lo demas ya
+#: cacheado. Las presentaciones no cambian entre esas dos llamadas.
+_EDGAR_CACHE: dict[tuple, tuple] = {}
+_EDGAR_TTL_S = 1800.0
+_EDGAR_CACHE_MAX = 32
+
+
+def _edgar_cache_put(clave: tuple, valor: dict) -> None:
+    import copy as _cp
+    if len(_EDGAR_CACHE) >= _EDGAR_CACHE_MAX:
+        _EDGAR_CACHE.pop(next(iter(_EDGAR_CACHE)), None)
+    _EDGAR_CACHE[clave] = (time.time(), _cp.deepcopy(valor))
+
+
 def fetch_edgar_filings(ticker, limit=8):
     """Authoritative recent SEC filings for the company: Form 4 (insider) +
     tenedores >5% por Schedule 13D/13G (ver `_wbj_holders_from_edgar`).
     Returns direct EDGAR links so the user can click through to the source filing."""
+    _clave = (str(ticker).upper(), int(limit))
+    _guardado = _EDGAR_CACHE.get(_clave)
+    if _guardado and (time.time() - _guardado[0]) < _EDGAR_TTL_S:
+        import copy as _cp
+        return _cp.deepcopy(_guardado[1])
     out = {"cik": None, "form4": [], "form13f": [], "holders_5pct": [], "holders_source": None}
     try:
         cik = _get_sec_cik(ticker)
@@ -1348,6 +1537,7 @@ def fetch_edgar_filings(ticker, limit=8):
         if tenedores.get("holders"):
             out["holders_5pct"] = tenedores["holders"][:limit]
             out["holders_source"] = tenedores.get("source")
+        _edgar_cache_put(_clave, out)
         return out
     except Exception:
         return out
@@ -2140,7 +2330,7 @@ def get_quick_quote(ticker: str):
             info = stock.info or {}
         except Exception:
             info = {}
-        hist = _resilient_history(stock, ticker_clean, "5d")   # yfinance → respaldo Stooq
+        hist = _resilient_history(stock, ticker_clean, "5d")   # yfinance → respaldo FMP
         tiene_hist = hist is not None and not hist.empty
         fh = None
         if not info:                                           # solo si Yahoo no respondio
@@ -2150,7 +2340,7 @@ def get_quick_quote(ticker: str):
                 fh = {}
         fh = fh or {}
 
-        spot = _resolve_spot(ticker_clean)                     # yfinance → Finnhub → Stooq
+        spot = _resolve_spot(ticker_clean)                     # yfinance → Finnhub → serie cacheada
         precio_actual = (spot.get("price") or info.get("currentPrice") or fh.get("price")
                          or (float(hist['Close'].iloc[-1]) if tiene_hist else None))
         if not precio_actual:
@@ -2158,7 +2348,7 @@ def get_quick_quote(ticker: str):
                                 detail=f"Sin datos de precio para {ticker_clean} en ninguna fuente.")
         precio_actual = float(precio_actual)
 
-        # Cierre anterior explicito antes que deducirlo de la serie: Stooq suele ir un
+        # Cierre anterior explicito antes que deducirlo de la serie: el respaldo suele ir un
         # dia por detras, y ahi `iloc[-2]` compararia contra el dia equivocado.
         precio_anterior = (info.get("regularMarketPreviousClose") or info.get("previousClose")
                            or fh.get("prev_close")
@@ -2207,7 +2397,7 @@ def get_quick_quote(ticker: str):
             "low": round(low_dia, 2),
             "after_hours": after_hours,
             # La fuente real, no "yfinance" siempre: si el precio vino de Finnhub o
-            # Stooq la tarjeta tiene que decirlo, igual que el resto de los paneles.
+            # un respaldo, la tarjeta tiene que decirlo, igual que el resto de los paneles.
             "precio_fuente": spot.get("source") or "yfinance",
             "as_of": spot.get("as_of") or datetime.now().strftime('%I:%M:%S %p'),
             "logo_url": logo_url
@@ -2297,7 +2487,7 @@ def get_price_history(ticker: str, period: str = "1mo", interval: str = "1d"):
         stock = yf.Ticker(ticker_clean)
         # Mismo caso que /api/quote: esto era `stock.history(...)` a secas y un
         # rate-limit de Yahoo salia como 500, dejando la grafica de precio en
-        # blanco. El respaldo Stooq SOLO sirve para velas diarias, asi que la ruta
+        # blanco. El respaldo FMP SOLO sirve para velas diarias, asi que la ruta
         # intradia se queda sin red -- pero al menos lo dice con un 503 honesto en
         # vez de un 500 generico.
         fallo_fuente = False
@@ -4373,9 +4563,19 @@ def tito_health(ticker: str = "AAPL"):
         from wbj.tito import stores as st
         d = st.data_dir()
         d.mkdir(parents=True, exist_ok=True)
-        probe = d / ".health"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink()
+        # Permiso de escritura, SIN escribir. Antes esto creaba y borraba un
+        # `.health` en cada llamada, y `/api/tito-health` es un GET: un
+        # prefetch, un escáner de enlaces o el back-forward del navegador lo
+        # reejecutan sin que nadie lo pida. Lo fija
+        # `tests_vertex/test_route_safety.py`.
+        #
+        # No se pierde nada real. El probe tampoco demostraba lo que parecía:
+        # en el plan free de Render el directorio ES escribible —es un tmpfs— y
+        # el probe pasaba igual; lo que se pierde ahí es la PERSISTENCIA, y eso
+        # no se ve escribiendo, se ve en `flows_guardados` e `iv_days`, que son
+        # escrituras de verdad acumuladas entre reinicios. Esos dos números ya
+        # están unas líneas más abajo y son la prueba buena.
+        escribible = os.access(d, os.W_OK)
         iv_days = len(st.load_iv_history(tk))
         _stored = st.load_trades(tk)
         # `load_trades` es literal y devuelve el array tal como está en disco;
@@ -4383,7 +4583,13 @@ def tito_health(ticker: str = "AAPL"):
         _crudos = _stored.trades if _stored else []
         _sanos = borde.trades_utiles(_crudos)
         flows = len(_sanos)
-        add("memoria.disco", True, f"escribible en {d}", None, None)
+        add("memoria.disco", escribible,
+            f"{d} con permiso de escritura" if escribible
+            else f"{d} existe pero NO se puede escribir en él",
+            None if escribible else
+            "revisa el propietario y los permisos del volumen montado",
+            None if escribible else
+            "la memoria no se acumula: IV Rank en el proxy y sub-agente 6 apagado")
         add("memoria.iv", iv_days >= 60,
             f"{iv_days}/60 días de IV acumulados",
             None if iv_days >= 60 else f"faltan {60 - iv_days} sesiones; se acumula solo",
@@ -5664,9 +5870,12 @@ def _run_backfill(ticker, sample_every=3, lookback_days=365, throttle=0.4):
         st.update(running=False, error=str(e))
 
 
-@app.get("/api/backfill/start")
+@app.post("/api/backfill/start")
 def backfill_start_endpoint(ticker: str, sample_every: int = 3):
-    """Kick off a background historical backfill of confluence snapshots (Quant Data sessionDate)."""
+    """Kick off a background historical backfill of confluence snapshots (Quant Data sessionDate).
+
+    POST, like every other route that starts work: a GET is defined as safe
+    and browsers may reissue it on their own."""
     ticker = ticker.upper().strip()
     if not _quantdata_ready():
         return {"ok": False, "error": _quantdata_reason()}
@@ -6148,7 +6357,13 @@ def options_gex(ticker: str, refresh: bool = False):
 # signal. Set QUANTDATA_API_KEY to activate; everything degrades to None when
 # absent, so the platform runs identically with or without it.
 QUANTDATA_API_KEY = os.environ.get("QUANTDATA_API_KEY", "")   # <-- pega tu API key de Quant Data
-QUANTDATA_BASE    = os.environ.get("QUANTDATA_BASE", "https://api.quantdata.us/v1")
+# Sin "/v1": la API no lo usa. Con el sufijo, TODAS las rutas devolvian
+# 404 ("No resource found at 'v1/option/flow'"), asi que el flujo de
+# opciones, el dark pool y el GEX llevaban muertos en silencio -- cada
+# /api/analyze gastaba 25 peticiones y ~8 s en rutas inexistentes. Sin el
+# sufijo responden 403 (existen; el plan no las cubre), que es un estado
+# distinto y ademas lo memoriza `_QD_SIN_DERECHO` para no repetirlas.
+QUANTDATA_BASE    = os.environ.get("QUANTDATA_BASE", "https://api.quantdata.us")
 # Endpoint paths centralized. All confirmed from Quant Data's API reference
 # (quantdata.us/api). Base = https://api.quantdata.us/v1, all POST with body
 # {"sessionDate": "YYYY-MM-DD", "filter": {"ticker": "..."}}.
@@ -6171,11 +6386,23 @@ def _quantdata_reason():
         return "QUANTDATA_API_KEY no configurada. Pega tu API key de Quant Data para activar flow + dark pool."
     return None
 
+#: Rutas de Quant Data que la cuenta NO tiene derecho a usar (401/402/403),
+#: recordadas para no volver a pedirlas. Un rechazo de ENTITLEMENT no cambia
+#: dentro de la misma corrida: reintentarlo sólo gasta tiempo de pared.
+#: Medido en `/api/analyze`: 25 peticiones, todas 403, ~8 s tirados.
+_QD_SIN_DERECHO: dict[str, int] = {}
+_QD_ENTITLEMENT_STATUSES = frozenset({401, 402, 403})
+
+
 def _quantdata_request(path, payload=None, method="POST", timeout=12):
     """Bearer-auth call to the Quant Data API. Returns parsed JSON, or a dict with
     '_error' on failure. Never raises — keeps the agent resilient if the feed is down."""
     if not QUANTDATA_API_KEY:
         return None
+    ya = _QD_SIN_DERECHO.get(path)
+    if ya:
+        # Mismo cuerpo de error que habría devuelto la llamada, sin hacerla.
+        return {"_error": f"HTTP {ya}", "_body": "endpoint fuera del plan (no se reintenta)"}
     url = QUANTDATA_BASE.rstrip("/") + path
     headers = {"Authorization": f"Bearer {QUANTDATA_API_KEY}", "Content-Type": "application/json"}
     try:
@@ -6184,6 +6411,8 @@ def _quantdata_request(path, payload=None, method="POST", timeout=12):
         else:
             r = requests.get(url, params=(payload or {}), headers=headers, timeout=timeout)
         if r.status_code != 200:
+            if r.status_code in _QD_ENTITLEMENT_STATUSES:
+                _QD_SIN_DERECHO[path] = r.status_code
             return {"_error": f"HTTP {r.status_code}", "_body": (r.text or "")[:300]}
         return r.json()
     except Exception as e:
@@ -6816,9 +7045,9 @@ def data_health():
          "configured": bool(FINNHUB_API_KEY), "live": None, "note": None if FINNHUB_API_KEY else "Falta FINNHUB_API_KEY"},
         {"key": "openai", "label": "OpenAI", "role": "desempate (opc.)", "critical": False,
          "configured": bool(OPENAI_API_KEY), "live": None, "note": None if OPENAI_API_KEY else "Opcional · sin configurar"},
-        {"key": "plaid", "label": "Plaid/SnapTrade", "role": "portafolio", "critical": False,
+        {"key": "plaid", "label": "Plaid", "role": "portafolio", "critical": False,
          "configured": bool(PLAID_CLIENT_ID and PLAID_SECRET), "live": None,
-         "note": None if (PLAID_CLIENT_ID and PLAID_SECRET) else "Portafolio por SnapTrade snapshot"},
+         "note": None if (PLAID_CLIENT_ID and PLAID_SECRET) else "Sin Plaid: el portafolio usa el snapshot guardado (/api/portfolio/import)"},
     ]
     n_crit_down = sum(1 for s in sources if s["critical"] and (not s["configured"] or s["live"] is False))
     # `ok` era un True literal, asi que la respuesta se contradecia a si misma:
@@ -6902,7 +7131,8 @@ def _live_spot(ticker):
 
 _SPOT_RESOLVE_CACHE = {}
 def _resolve_spot(ticker, ttl=20):
-    """Fuente ÚNICA de precio para todo el sistema: yfinance/Finnhub → Stooq, con etiqueta de FUENTE y HORA.
+    """Fuente ÚNICA de precio para todo el sistema: yfinance/Finnhub → serie cacheada,
+    con etiqueta de FUENTE y HORA.
     Devuelve {price, source, as_of}. Cache corto para que todos los paneles vean el MISMO spot y no haya
     discrepancias sutiles (GEX a un precio, gráfica a otro). Degradación limpia si una fuente cae."""
     tk = str(ticker).upper().strip()
@@ -6915,7 +7145,7 @@ def _resolve_spot(ticker, ttl=20):
         try:
             s = _cached_price_series(tk, period="5d") or []
             if s:
-                price, source = round(float(s[-1][1]), 2), "stooq (respaldo)"
+                price, source = round(float(s[-1][1]), 2), "serie diaria (respaldo)"
         except Exception:
             pass
     out = {"price": price, "source": source,
@@ -7079,7 +7309,7 @@ def _agent_coherence_checks(aj, spot):
     cw = _safe_num(aj.get("conviccion_score"))
     up = aj.get("upside_pct")
     up = _safe_num(up) if up is not None else None
-    buyish = any(w in rec for w in ("BUY", "COMPR", "ACUMUL"))
+    buyish = any(w in rec for w in ("FAVORABLE", "BUY", "COMPR", "ACUMUL"))
     sellish = any(w in rec for w in ("SELL", "VEND", "REDUC"))
     if buyish and cw and cw < 45:
         flags.append({"check": "Recomendación vs convicción", "status": "warn",
@@ -7202,21 +7432,43 @@ class WBJLevel(BaseModel):
     valor: float = Field(..., description="Precio del nivel/zona.")
     nota: str = Field(..., description="Confirmación/invalidación o supuesto. Lenguaje de referencia, nunca 'target garantizado'.")
 
-# Perfiles de los gates de Victor → (recomendación, clasificación en español).
-# Cualquier perfil fuera de este mapa (Avoid / Wait, Weak / Wait, o uno nuevo que
-# él agregue) cae al default AVOID: ante la duda no se recomienda comprar.
+# M-09: CLAUDE.md ("Límites del sistema") prohíbe convertir el análisis en una
+# instrucción de compra/venta. El campo emitía literalmente BUY / AVOID — una
+# orden, no una clasificación. Ahora emite CLASES DE RESEARCH.
+#
+# `_RECO_LEGACY` traduce los valores viejos al leer `vertex.db`: el track record
+# compara la dirección de reportes anteriores, así que renombrar sin puente
+# habría invalidado todo el histórico acumulado.
+RESEARCH_FAVORABLE   = "FAVORABLE"
+RESEARCH_CONDICIONAL = "CONDICIONAL"
+RESEARCH_ESPECULATIVO = "ESPECULATIVO"
+RESEARCH_DESFAVORABLE = "DESFAVORABLE"
+
+_RECO_LEGACY = {"BUY": RESEARCH_FAVORABLE, "HOLD": RESEARCH_CONDICIONAL,
+                "SPECULATIVE": RESEARCH_ESPECULATIVO, "AVOID": RESEARCH_DESFAVORABLE}
+
+
+def _reco_norm(v):
+    """Clase de research de un valor guardado, sea nuevo o del esquema anterior."""
+    u = (v or "").upper().strip()
+    return _RECO_LEGACY.get(u, u)
+
+
+# Perfiles de los gates de Victor → (clase de research, texto en español).
+# Cualquier perfil fuera de este mapa cae a DESFAVORABLE: ante la duda, el
+# research no favorece entrar.
 _WBJ_PROFILE_TO_RECO = {
-    "Momentum Candidate":  ("BUY", "Favorable a invertir"),
-    "Quality Opportunity": ("BUY", "Favorable a invertir"),
-    "Value Opportunity":   ("BUY", "Favorable a invertir"),
-    "Conditional / Watch": ("HOLD", "Condicional — esperar confirmación"),
-    "Speculative":         ("SPECULATIVE", "Especulativa — solo tamaño de riesgo"),
+    "Momentum Candidate":  (RESEARCH_FAVORABLE, "Favorable a invertir"),
+    "Quality Opportunity": (RESEARCH_FAVORABLE, "Favorable a invertir"),
+    "Value Opportunity":   (RESEARCH_FAVORABLE, "Favorable a invertir"),
+    "Conditional / Watch": (RESEARCH_CONDICIONAL, "Condicional — esperar confirmación"),
+    "Speculative":         (RESEARCH_ESPECULATIVO, "Especulativa — solo tamaño de riesgo"),
 }
 
 
 def _wbj_reco_from_profile(profile):
     """Perfil de Victor → (recomendación, clasificación). Avoid/Wait y Weak/Wait → AVOID."""
-    return _WBJ_PROFILE_TO_RECO.get(profile, ("AVOID", "Evitar / esperar"))
+    return _WBJ_PROFILE_TO_RECO.get(profile, (RESEARCH_DESFAVORABLE, "Evitar / esperar"))
 
 
 def _wbj_band(raw: float) -> str:
@@ -7245,7 +7497,28 @@ def _wbj_gates(comp: dict) -> dict:
     # y/o financial OVERRIDE_2_ROIC_BELOW_WACC) → NO_ELITE_QUALITY (no Quality Opportunity).
     value_destruction = ("VALUE_DESTRUCTION" in biz_flags) or ("OVERRIDE_2_ROIC_BELOW_WACC" in fin_flags)
 
+    # A-05: overrides 1, 3 y 7 faltaban aquí. Estaban implementados en el engine
+    # (`aggregate/overrides.py`) pero en el camino web solo existían como PROSA
+    # en el prompt del LLM — es decir, se le *pedía* al modelo que los mencionara,
+    # sin ningún chequeo determinista. Eso viola la regla innegociable de
+    # CLAUDE.md: "sin fórmula, no hay conclusión". Se leen de los mismos
+    # mandatory_flags que emiten los especialistas, una sola fuente por condición.
+    rsk_flags, val_flags = F("risk"), F("valuation")
+    capital_dependence = "OVERRIDE_1_LOSS_NEGATIVE_FCF_EXTERNAL_DEPENDENCE" in fin_flags
+    solvency_warning = ("SOLVENCY_WARNING" in rsk_flags) or ("SOLVENCY_WARNING" in fin_flags)
+    data_conflict = [f for f in (val_flags + fin_flags) if f.startswith("OVERRIDE_7_")]
+
     overrides = []
+    if capital_dependence:
+        overrides.append("Override 1 (dependencia de capital): pérdida neta + FCF negativo + "
+                         "dependencia de capital externo → el perfil final se limita a "
+                         "Avoid/Speculative.")
+    if solvency_warning:
+        overrides.append("⚠ Override 3 (SOLVENCIA): cobertura de intereses por debajo de 1.5x. "
+                         "Esta advertencia debe aparecer de forma prominente en el reporte.")
+    if data_conflict:
+        overrides.append("Override 7 (conflicto de datos sin resolver): " + ", ".join(data_conflict) +
+                         " → no se publica valor por acción hasta reconciliar la fuente.")
     if rsk <= 4:
         overrides.append("Risk override: Risk ≤4/15 limita el perfil a Speculative.")
     if val <= 4 and tec <= 8:
@@ -7295,6 +7568,10 @@ def _wbj_gates(comp: dict) -> dict:
     if rsk <= 4: spec_reasons.append("Risk ≤4/15")
     if tconf < 60: spec_reasons.append("confianza total <60")
     if core_incomplete: spec_reasons.append("categoría crítica incompleta")
+    # A-05: el override 1 CAPA el perfil, no solo se muestra. `apply_gates` del
+    # engine lo enruta a Speculative (a Avoid solo se llega por raw<50, que ya
+    # se evalúa abajo) — así se reproduce el tope "Avoid/Speculative" del doc.
+    if capital_dependence: spec_reasons.append("dependencia de capital externo (override 1)")
 
     if raw < 50 or (val <= 4 and tec <= 8):
         profile = "Avoid / Wait"
@@ -7308,23 +7585,37 @@ def _wbj_gates(comp: dict) -> dict:
     # Cap a Speculative aunque un gate haya pasado, igual que apply_gates de Victor: además de
     # Risk ≤4/15, la confianza total <60 FUERZA Speculative (apply_gates devuelve Speculative
     # antes de resolver los gates cuando conf_total<60). Antes el backup solo capaba por Risk.
-    if profile in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity") and (rsk <= 4 or tconf < 60):
+    # A-05: la dependencia de capital entra en el mismo cap.
+    if profile in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity") and (
+            rsk <= 4 or tconf < 60 or capital_dependence):
         profile = "Speculative"
 
     # Clasificación de research + recomendación de compatibilidad (persistencia/histórico)
     if profile in ("Momentum Candidate", "Quality Opportunity", "Value Opportunity"):
-        classification, rec = "Favorable a invertir", "BUY"
+        classification, rec = "Favorable a invertir", RESEARCH_FAVORABLE
     elif profile == "Conditional / Watch":
-        classification, rec = "Condicional — esperar confirmación", "HOLD"
+        classification, rec = "Condicional — esperar confirmación", RESEARCH_CONDICIONAL
     elif profile == "Speculative":
-        classification, rec = "Especulativa — solo tamaño de riesgo", "SPECULATIVE"
+        classification, rec = "Especulativa — solo tamaño de riesgo", RESEARCH_ESPECULATIVO
     else:
-        classification, rec = "Evitar / esperar", "AVOID"
+        classification, rec = "Evitar / esperar", RESEARCH_DESFAVORABLE
 
-    return {"profile": profile, "band": _wbj_band(raw), "classification": classification,
+    _band = _wbj_band(raw)
+    if value_destruction and _band == "Elite raw score":
+        _band = "Strong raw score (Elite bloqueado: ROIC<WACC, override 2)"
+    return {"profile": profile, "band": _band, "classification": classification,
             "recommendation": rec, "passed_gates": passed, "failed_gates": failed,
             "overrides": overrides, "spec_reasons": spec_reasons,
-            "gate_eligible": gate_eligible}
+            "gate_eligible": gate_eligible,
+            # A-05: banderas explícitas para que el reporte pueda destacarlas.
+            # El override 3 exige aparecer "de forma prominente", así que el
+            # frontend necesita poder distinguirlo, no solo leer una lista.
+            "solvency_warning": bool(solvency_warning),
+            "capital_dependence": bool(capital_dependence),
+            "data_conflict": data_conflict,
+            # M-14: la banda "Elite" no sobrevive a la destrucción de valor.
+            "band_note": ("Elite bloqueado por override 2 (ROIC<WACC)"
+                          if (value_destruction and raw >= 90) else None)}
 
 
 # Metodología WBJ resumida que se inyecta en el prompt (fuente: /Cerebro).
@@ -7406,15 +7697,15 @@ def _wbj_profile_fit(info, recommendation):
     _exch = (info.get("exchange") or "").upper()
     _country = info.get("country") or ""
     universe_ok = (_exch in _US_EXCHANGES) or (_country == "United States")
-    rec = (recommendation or "").upper()
+    rec = _reco_norm(recommendation)
     if not universe_ok:
         fit, reason = "fuera-de-universo", "Kevin invierte solo en EE.UU.; este valor no cotiza en EE.UU."
-    elif rec == "BUY":
+    elif rec == RESEARCH_FAVORABLE:
         fit, reason = "apto", "Clasificación favorable, dentro de tu universo y tolerancia."
-    elif rec == "SPECULATIVE":
+    elif rec == RESEARCH_ESPECULATIVO:
         fit, reason = "apto-especulativo", ("Especulativa, pero dentro de tu tolerancia agresiva/especulativa "
                                             "— cuida el sizing (riesgo de ruina con ~$1,000 + opciones).")
-    elif rec == "HOLD":
+    elif rec == RESEARCH_CONDICIONAL:
         fit, reason = "condicional", "Condicional — esperar confirmación antes de dimensionar."
     else:
         fit, reason = "evitar", "El research no favorece invertir ahora."
@@ -7443,14 +7734,18 @@ def _wbj_fmp_important_insiders(ticker):
         from wbj.config import load_settings
         from wbj.providers.cache import Cache
         from wbj.providers.fmp import FMPProvider
-        _s = load_settings()
-        if not getattr(_s, "fmp_api_key", None):
-            _s.fmp_api_key = os.environ.get("FMP_API_KEY")
+        _s = _engine_settings()
         _fmp = FMPProvider(_s, Cache(_s.cache_dir))
         rows = _fmp.insider_trades(ticker) or []
         if not isinstance(rows, list):
             return None
-        important = []
+        # A-04: CLAUDE.md item 5 dice "las que EXCEDAN $1M USD **en total**".
+        # Antes se umbralizaba cada Form 4 por separado, así que un insider que
+        # vendía 6 veces $300k ($1.8M) desaparecía del reporte — justo el patrón
+        # de venta escalonada que más importa detectar. Ahora se AGRUPA por
+        # persona y dirección, y se umbraliza el total (igual que hace el engine
+        # en `wbj.report._insiders`, que tiene test propio).
+        _grupos = {}
         for r in rows:
             if not isinstance(r, dict):
                 continue
@@ -7459,17 +7754,35 @@ def _wbj_fmp_important_insiders(ticker):
                 _px = float(r.get("price") or 0)
             except (TypeError, ValueError):
                 continue
-            _val = _sh * _px
-            if _val <= 1_000_000:
-                continue
+            if _sh <= 0 or _px <= 0:          # un Form 3 o una concesión sin precio
+                continue                       # no llevan valor que umbralizar
             _tt = str(r.get("transactionType") or "")
-            _is_buy = _tt.upper().startswith("P")     # P-Purchase
-            _is_sell = _tt.upper().startswith("S")    # S-Sale
+            _dir = "buy" if _tt.upper().startswith("P") else \
+                   "sell" if _tt.upper().startswith("S") else ""
+            if not _dir:
+                continue
+            _nombre = str(r.get("reportingName") or "").strip()
+            _k = (_nombre.upper(), _dir)
+            g = _grupos.setdefault(_k, {"insider": _nombre, "direccion": _dir, "shares": 0.0,
+                                        "value": 0.0, "n": 0, "date": "", "transaction": _tt})
+            g["shares"] += _sh
+            g["value"] += _sh * _px
+            g["n"] += 1
+            _f = str(r.get("transactionDate") or r.get("filingDate") or "")[:10]
+            if _f > g["date"]:                # la más reciente del grupo
+                g["date"] = _f
+        important = []
+        for g in _grupos.values():
+            if g["value"] <= 1_000_000:       # el umbral se aplica al TOTAL
+                continue
             important.append({
-                "insider": r.get("reportingName", ""), "transaction": _tt,
-                "shares": int(_sh), "price": round(_px, 2), "value": round(_val, 2),
-                "date": str(r.get("transactionDate") or r.get("filingDate") or "")[:10],
-                "is_buy": _is_buy, "is_sell": _is_sell, "source": "FMP Form 4"})
+                "insider": g["insider"], "transaction": g["transaction"],
+                "shares": int(g["shares"]), "n_operaciones": g["n"],
+                "price": round(g["value"] / g["shares"], 2) if g["shares"] else 0.0,
+                "value": round(g["value"], 2), "date": g["date"],
+                "is_buy": g["direccion"] == "buy", "is_sell": g["direccion"] == "sell",
+                "source": "FMP Form 4 (agregado por insider)"})
+        important.sort(key=lambda x: x["value"], reverse=True)
         # Flujo NETO de insiders con la función de Victor (brief.py `_insiders_flow`): compras vs
         # ventas en dólares sobre TODO el feed, no solo lo que excede $1M. Él la describe como
         # "a coarser, fuller-picture lens than the >$1M highlights" — las dos vistas conviven.
@@ -7529,7 +7842,7 @@ def _wbj_mandatory_report(insiders, recommendation, next_earnings_date=None, fmp
         # (los regalos/adjudicaciones a precio 0 no suman). Más gruesa pero más completa.
         out["insiders_flow"] = _flow
     out["institutional_13f"] = (insiders.get("institutional") or [])[:10]  # inversionistas reconocidos (13F)
-    if (recommendation or "").upper() == "AVOID":
+    if _reco_norm(recommendation) == RESEARCH_DESFAVORABLE:
         out["revisit"] = {   # CLAUDE.md: si 'evitar', fecha/evento concreto para revisitar
             "trigger": "Próximo reporte de resultados (10-Q/10-K) o cambio material en la tesis.",
             "date": next_earnings_date}
@@ -7589,9 +7902,7 @@ def _wbj_management_track_record(info, settings=None):
             if _WBJ_ENGINE_PATH not in sys.path:
                 sys.path.insert(0, _WBJ_ENGINE_PATH)
             from wbj.config import load_settings
-            settings = load_settings()
-            if not getattr(settings, "anthropic_api_key", None):
-                settings.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY")
+            settings = _engine_settings()
         key = getattr(settings, "anthropic_api_key", None)
     except Exception:
         key = os.environ.get("ANTHROPIC_API_KEY")
@@ -7616,7 +7927,7 @@ def _wbj_management_track_record(info, settings=None):
                    '"assessment": "verificable"|"no_verificable", "note": string}], '
                    '"overall": string}')
         _msg = _client.messages.create(
-            model=getattr(settings, "judge_model", "claude-opus-4-8") if settings else "claude-opus-4-8",
+            model=getattr(settings, "judge_model", "claude-opus-5") if settings else "claude-opus-5",
             max_tokens=1024, system=_sys,
             messages=[{"role": "user", "content":
                        f"Empresa: {company}. Ejecutivos clave:\n{_roster_txt}\n\n"
@@ -7846,7 +8157,6 @@ def _wbj_explain(context_text, temp=0.3):
 
 
 # ── ENGINE DETERMINISTA DE VICTOR (sin LLM) para los scores de las 6 categorías ──
-_WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine")
 
 
 
@@ -8143,7 +8453,7 @@ def _edgar_companyfacts_for(cik, settings=None):
         from wbj.config import load_settings
         from wbj.providers.cache import Cache
         from wbj.providers.edgar import EdgarProvider
-        st = settings or load_settings()
+        st = settings or _engine_settings()
         return EdgarProvider(st, Cache(st.cache_dir)).companyfacts(int(cik))
     except Exception as e:
         print(f"[engine] companyfacts no disponible: {str(e)[:110]}")
@@ -8274,6 +8584,34 @@ def _wbj_extract_business_qual(ticker, cik, settings, revenue_hint=None):
     return ov
 
 
+#: Scorecards del motor ya calculados, por (ticker, reloj congelado del packet).
+#: El motor es DETERMINISTA y el packet esta anclado a una sesion YA CERRADA
+#: (`market_timestamp`, ver V-05), asi que para el mismo ticker y la misma
+#: sesion el resultado es identico bit a bit. Recalcularlo costaba ~40 s de
+#: pandas en cada llamada. Se invalida solo: al abrir una sesion nueva cambia
+#: la clave.
+_ENGINE_CACHE: dict[tuple, dict] = {}
+_ENGINE_CACHE_MAX = 64
+
+#: Lo mismo para el pase estructurado del LLM, que describe esos
+#: numeros ya congelados. Se guarda una COPIA porque el llamador
+#: reescribe campos (fair_value, targets) sobre el dict.
+_LLM_CACHE: dict[tuple, tuple] = {}
+_LLM_CACHE_MAX = 64
+
+
+def _engine_cache_get(ticker: str, reloj: str):
+    return _ENGINE_CACHE.get((ticker.upper(), reloj))
+
+
+def _engine_cache_put(ticker: str, reloj: str, valor: dict) -> None:
+    if len(_ENGINE_CACHE) >= _ENGINE_CACHE_MAX:
+        # FIFO: la entrada mas vieja se va. Son sesiones cerradas, no hay
+        # nada que "expirar" salvo el tamaño.
+        _ENGINE_CACHE.pop(next(iter(_ENGINE_CACHE)), None)
+    _ENGINE_CACHE[(ticker.upper(), reloj)] = valor
+
+
 def _engine_scorecard(ticker, info, price):
     """Scorecard de 6 categorías con el ENGINE REAL de Victor (código determinista,
     sin LLM), EXACTAMENTE como él lo tiene:
@@ -8312,15 +8650,9 @@ def _engine_scorecard(ticker, info, price):
 
     # settings + inyección de claves desde el entorno (Render) si el .env no las tomó
     try:
-        settings = load_settings()
+        settings = _engine_settings()
     except Exception as e:
         print(f"[engine] load_settings falló: {str(e)[:120]}"); return None
-    for _env, _attr in (("FMP_API_KEY", "fmp_api_key"), ("FINNHUB_API_KEY", "finnhub_api_key"),
-                        ("FRED_API_KEY", "fred_api_key")):
-        _v = os.environ.get(_env)
-        if _v and not getattr(settings, _attr, None):
-            try: setattr(settings, _attr, _v)
-            except Exception: pass
     cache = Cache(settings.cache_dir)
 
     _LABEL = {k: WBJ_CATEGORIES[k]["label"] for k in WBJ_ORDER}
@@ -8343,6 +8675,15 @@ def _engine_scorecard(ticker, info, price):
         prov = Providers(fmp=FMPProvider(settings, cache), edgar=EdgarProvider(settings, cache),
                          finnhub=FinnhubProvider(settings, cache), fred=FredProvider(settings, cache))
         pk = build_packet(ticker, prov, datetime.now(timezone.utc))
+        # El reloj congelado del packet identifica la sesion. Mismo ticker +
+        # misma sesion cerrada => mismo resultado; devolverlo tal cual ahorra
+        # los ~40 s de los seis especialistas.
+        _reloj = str(getattr(getattr(pk, "analysis", None), "market_timestamp", "") or "")
+        if _reloj:
+            _hit = _engine_cache_get(ticker, _reloj)
+            if _hit is not None:
+                print(f"[engine] {ticker}: scorecard servido de cache ({_reloj})")
+                return _hit
         try:
             _fmp_annual = (getattr(pk, "fundamentals", {}) or {}).get("annual") or None
         except Exception:
@@ -8515,10 +8856,10 @@ def _engine_scorecard(ticker, info, price):
             # comparar → no se inyecta y la métrica queda N/S, que es lo honesto.
             try:
                 _est_rows = (getattr(pk, "estimates", {}) or {}).get("fmp_analyst_estimates") or []
-                _e0 = _est_rows[0] if _est_rows and isinstance(_est_rows[0], dict) else {}
-                _eps_now = _e0.get("estimatedEpsAvg")
-                _rev_now = _e0.get("estimatedRevenueAvg")
-                _n_an = _e0.get("numberAnalystEstimatedRevenue")
+                _e0 = _next_year_estimate(_est_rows) or {}
+                _eps_now = _est_field(_e0, "epsAvg", "estimatedEpsAvg")
+                _rev_now = _est_field(_e0, "revenueAvg", "estimatedRevenueAvg")
+                _n_an = _est_field(_e0, "numAnalystsRevenue", "numberAnalystEstimatedRevenue")
                 _prior_c = consensus_snapshot(
                     ticker, str(_e0.get("date", ""))[:10] or None,
                     float(_eps_now) if _eps_now is not None else None,
@@ -8548,8 +8889,9 @@ def _engine_scorecard(ticker, info, price):
             _fest = (getattr(pk, "estimates", {}) or {}).get("fmp_analyst_estimates") or []
             _af_pk = (getattr(pk, "fundamentals", {}) or {}).get("annual") or []
             _eps0 = _af_pk[0].get("eps") if _af_pk and isinstance(_af_pk[0], dict) else None
-            if _fest and isinstance(_fest[0], dict) and _eps0 not in (None, 0):
-                _eps_next = _fest[0].get("estimatedEpsAvg")
+            _ny = _next_year_estimate(_fest)
+            if _ny and _eps0 not in (None, 0):
+                _eps_next = _est_field(_ny, "epsAvg", "estimatedEpsAvg")
                 if _eps_next is not None:
                     _g_eps = float(_eps_next) / float(_eps0) - 1.0
                     if _g_eps > 0:
@@ -8602,7 +8944,7 @@ def _engine_scorecard(ticker, info, price):
             _pm_list = (_pm_raw[0].get("peersList") if isinstance(_pm_raw, list) and _pm_raw
                         and isinstance(_pm_raw[0], dict) else _pm_raw) or []
             _pmults = []
-            for _ppt in list(_pm_list)[:15]:
+            for _ppt in list(_pm_list)[:_FMP_MAX_PEERS]:
                 try:
                     if not _ppt or str(_ppt).upper() == ticker.upper():
                         continue
@@ -8641,10 +8983,10 @@ def _engine_scorecard(ticker, info, price):
                 _RSW = {"RS21": 21, "RS63": 63, "RS126": 126, "RS252": 252}
                 _b50 = _b200 = _bval = 0
                 _rs_rows = []
-                for _bpt in list(_pm_list)[:20]:
+                for _bpt in list(_pm_list)[:_FMP_MAX_BREADTH]:
                     if not _bpt or str(_bpt).upper() == ticker.upper():
                         continue
-                    _bars = prov.fmp.ohlcv_daily(_bpt, years=2, today=datetime.now(timezone.utc).date()) or []
+                    _bars = prov.fmp.ohlcv_daily(_bpt, years=2, today=datetime.now(timezone.utc).date()) or []   # cacheado 1d por el provider
                     # FMP entrega newest-first → ordenar ASCENDENTE por fecha antes de las medias
                     _cl = [float(_c) for _, _c in
                            sorted(((str(b.get("date"))[:10], b.get("close")) for b in _bars
@@ -8848,7 +9190,7 @@ def _engine_scorecard(ticker, info, price):
             _proics = []
             # Victor's peer_score exige ≥8 pares válidos (SCORING_ENGINE.md); con menos
             # devuelve N/S. Por eso pedimos hasta 15 para asegurar ≥8 tras posibles fallos.
-            for _pt in list(_plist)[:15]:
+            for _pt in list(_plist)[:_FMP_MAX_PEERS]:
                 try:
                     if not _pt or str(_pt).upper() == ticker.upper():
                         continue                      # nunca comparar la empresa contra sí misma
@@ -9342,13 +9684,41 @@ def _engine_scorecard(ticker, info, price):
         _pt_packet = {"annual": {"net_income": _sv(_fmp_annual, "net_income"),
                                  "revenue": _sv(_fmp_annual, "revenue"),
                                  "diluted_shares": _sv(_fmp_annual, "diluted_shares")}}
+    # El MISMO precio contra el que puntuó el engine, no el de yfinance.
+    # `price` llega de `/api/analyze`, que lo toma de yfinance: durante la
+    # sesión ése es el último print y se mueve, mientras el packet lleva el
+    # cierre ajustado ya liquidado (V-05). Con los dos en la misma página, el
+    # upside del target se medía contra un precio distinto del que usó la
+    # valuación — a las 13:41 UTC de hoy eran 198 y 195.04. Se cae a `price`
+    # sólo si el packet no trae precio.
+    _pk_price = None
+    try:
+        _pf = (getattr(pk, "facts_table", None) or {}).get("price")
+        if _pf is not None and getattr(_pf, "is_valid", False):
+            _pk_price = float(_pf.value)
+    except Exception:
+        _pk_price = None
+    _target_price = _pk_price if _pk_price else price
     if _pt_packet:
         try:
-            pt = price_targets(_pt_packet, price)
+            pt = price_targets(_pt_packet, _target_price)
             if isinstance(pt, dict) and pt.get("status") == "ok":
                 sm = {s["key"]: s.get("target") for s in pt.get("scenarios", [])}
                 sc["victor_targets_12m"] = {"bull": sm.get("bull"), "base": sm.get("base"), "bear": sm.get("bear")}
                 sc["victor_fair_value"] = sm.get("base")      # el target "Medio" ES el fair value de Victor
+                # QUÉ es ese número, viajando CON él. La UI lo explica en un
+                # tooltip y el PDF no: exportado, "Fair Value: $277" se lee
+                # como valor intrínseco cuando es un target a 12 meses por
+                # múltiplo — y el DCF del especialista dice otra cosa ($111
+                # en NVDA). Ninguna superficie debe publicar uno sin decir
+                # cuál es (CONTRADICTION_RESOLUTION.md regla 5).
+                sc["victor_fair_value_basis"] = {
+                    "label": "Target Base 12M (múltiplo)",
+                    "method": "EPS x (1+crecimiento) x (P/E actual x factor)",
+                    "horizon": "12 meses",
+                    "not": "No es el valor intrínseco del DCF; ése va en victor_valuation.dcf_per_share",
+                    "priced_against": _target_price,
+                }
                 sc["victor_targets_detail"] = pt
             elif isinstance(pt, dict):
                 sc["victor_targets_reason"] = pt.get("reason")   # por qué no hay target (se surfacea honesto)
@@ -9453,11 +9823,24 @@ def _engine_scorecard(ticker, info, price):
             print(f"[engine] narrativa de Victor omitida: {str(_ne)[:120]}")
     except Exception as _pe:
         print(f"[engine] paneles de Victor omitidos: {str(_pe)[:140]}")
+    # Guardar bajo el reloj congelado del packet. `_reloj` puede no existir si
+    # el packet fallo antes de construirse; en ese caso no hay nada estable
+    # que cachear.
+    try:
+        if _reloj:
+            sc["_reloj_packet"] = _reloj      # clave de sesion, la reusa /api/analyze
+            _engine_cache_put(ticker, _reloj, sc)
+    except NameError:
+        pass
     return sc
 
 
 @app.get("/api/analyze")
-def analyze_ticker(ticker: str):
+def analyze_ticker(ticker: str, explain: bool = False):
+    """Análisis completo. `explain=1` añade la explicación en palabras del
+    2º pase LLM, que cuesta ~18 s y que NINGUNA pantalla consume hoy
+    (`grep wbj_explanation` sobre la plataforma: 0 usos). Se paga sólo si
+    alguien la pide."""
     ticker = ticker.upper().strip()
     try:
         stock = yf.Ticker(ticker)
@@ -9465,7 +9848,7 @@ def analyze_ticker(ticker: str):
             info = stock.info or {}
         except Exception:
             info = {}
-        hist  = _resilient_history(stock, ticker, "6mo")   # yfinance → respaldo Stooq (no se cae)
+        hist  = _resilient_history(stock, ticker, "6mo")   # yfinance → respaldo FMP (no se cae)
         if hist is None or hist.empty:
             raise HTTPException(status_code=404, detail="Sin datos")
 
@@ -9800,7 +10183,23 @@ En 'analistas_consenso' resume qué dice Wall Street y CONTRÁSTALO con el vered
 coinciden, dónde divergen y qué explicaría la diferencia. El consenso es contexto, no es la conclusión.
 """
 
-        analisis_json, _analysis_src = _analyze_structured(prompt, temp=0.2)
+        # El pase estructurado del LLM describe numeros que ya estan
+        # congelados: mismo ticker + misma sesion cerrada => misma entrada,
+        # asi que reusarlo es correcto y ahorra ~34 s. La clave es el reloj
+        # del packet, igual que la del motor.
+        _reloj_llm = (_eng or {}).get("_reloj_packet") if isinstance(_eng, dict) else None
+        _hit_llm = _LLM_CACHE.get((ticker, _reloj_llm)) if _reloj_llm else None
+        if _hit_llm is not None:
+            import copy as _cp
+            analisis_json, _analysis_src = _cp.deepcopy(_hit_llm[0]), _hit_llm[1]
+            print(f"[analyze] {ticker}: analisis estructurado servido de cache")
+        else:
+            analisis_json, _analysis_src = _analyze_structured(prompt, temp=0.2)
+            if _reloj_llm and isinstance(analisis_json, dict):
+                if len(_LLM_CACHE) >= _LLM_CACHE_MAX:
+                    _LLM_CACHE.pop(next(iter(_LLM_CACHE)), None)
+                import copy as _cp
+                _LLM_CACHE[(ticker, _reloj_llm)] = (_cp.deepcopy(analisis_json), _analysis_src)
         analisis_json = _coerce_analysis_shapes(analisis_json)
 
         # ── FAIR VALUE ──
@@ -9989,7 +10388,7 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
         # "Qué me haría cambiar de opinión": checkpoints concretos y verificables construidos desde las señales
         # reales del análisis (precio, walls, gamma flip, flujo, earnings). No depende del LLM → siempre presente.
         _inval = []
-        _is_bull = (_rec or "").upper() == "BUY"
+        _is_bull = _reco_norm(_rec) == RESEARCH_FAVORABLE
         _inval.append({"factor": "Precio", "kind": "price",
                        "trigger": f"Cierre {'bajo' if _is_bull else 'sobre'} ${round(bear12, 2)} (quiebre de tesis = −1R)"})
         try:
@@ -10248,7 +10647,13 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
                 if isinstance(_eng, dict):
                     _eng.pop("_victor_final", None)   # objeto interno: nunca al cliente
             # ── EXPLICACIÓN EN PALABRAS (2º pase LLM): SOLO explica los números YA congelados
-            #    de Victor + su ajuste a tu perfil. NO cambia ningún cálculo (Kevin.md). ──
+            #    de Victor + su ajuste a tu perfil. NO cambia ningún cálculo (Kevin.md).
+            #
+            #    Detrás de `?explain=1`. Medido: 18.4 s de los ~105 s que tardaba
+            #    /api/analyze, para un campo que la plataforma no lee en ningún
+            #    sitio (0 usos de `wbj_explanation` en el HTML). Pagarlo en cada
+            #    llamada acercaba el endpoint al corte de Render sin que nadie
+            #    viera el resultado. La capacidad sigue ahí; ahora se pide. ──
             try:
                 _pname, _ptext = _load_investor_profile()
                 _wj = analisis_json.get("wbj") or {}
@@ -10287,7 +10692,8 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
                     f"FIT DE PERFIL (determinista): {_pf.get('fit')} — {_pf.get('fit_reason')}\n"
                     + _prior_ctx +
                     f"\n=== MI PERFIL ({_pname or 'Kevin'}) ===\n{_ptext}")
-                _expl, _expl_src = _wbj_explain(_ctx)
+                # La unica linea cara del bloque: ~18.4 s contra Gemini.
+                _expl, _expl_src = _wbj_explain(_ctx) if explain else (None, None)
                 if _expl:
                     analisis_json["wbj_explanation"] = _expl
                     analisis_json["wbj_explanation_source"] = _expl_src
@@ -10668,10 +11074,13 @@ def get_watchlist_quote(ticker: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 def _dir_hit(rec, ret, flat=5.0):
-    """Acierto direccional crudo (se usa para todos los buckets)."""
-    if rec == "BUY":
+    """Acierto direccional crudo (se usa para todos los buckets).
+    M-09: normaliza primero, para que las filas guardadas con el esquema
+    anterior (BUY/AVOID) sigan puntuando en el track record."""
+    rec = _reco_norm(rec)
+    if rec == RESEARCH_FAVORABLE:
         return ret > 0
-    if rec in ("SELL", "AVOID"):
+    if rec in ("SELL", RESEARCH_DESFAVORABLE):
         return ret < 0
     return abs(ret) < flat
 
@@ -10742,7 +11151,7 @@ def compute_calibration_stats():
         base_p = r.get("price_at_analysis")
         if not base_p:
             continue
-        rec = (r.get("recommendation") or "").upper()
+        rec = _reco_norm(r.get("recommendation"))
         created = r.get("created_ts", 0)
         pred_up = r.get("upside_pct")
         series = _cached_price_series(r["ticker"])
@@ -10765,9 +11174,9 @@ def compute_calibration_stats():
                 if p_spy:
                     spy_ret = (p_spy - base_spy) / base_spy * 100
                     alpha = ret - spy_ret
-                    if rec == "BUY":
+                    if rec == RESEARCH_FAVORABLE:
                         alpha_hit = alpha > 0
-                    elif rec in ("SELL", "AVOID"):
+                    elif rec in ("SELL", RESEARCH_DESFAVORABLE):
                         alpha_hit = alpha < 0
                     else:
                         alpha_hit = abs(alpha) < 5
@@ -10933,16 +11342,28 @@ def reports_list(limit: int = 60):
         return {"ok": False, "error": str(e), "reports": []}
 
 
-@app.get("/api/report-delete")
+@app.post("/api/report-delete")
 def report_delete(report_id: str):
-    """#4 — borra un reporte del archivo del servidor (sincroniza el borrado entre dispositivos)."""
+    """#4 — borra un reporte del archivo del servidor (sincroniza el borrado entre dispositivos).
+
+    POST, no GET. Un GET tiene que ser SEGURO: la especificación de HTTP
+    permite que navegadores, prefetchers, escáneres de enlaces y la caché
+    de ida/vuelta lo reemitan solos. Este borraba filas, así que cualquiera
+    de esas cosas podía borrar reportes sin que nadie pulsara nada —
+    y `<img src=".../api/report-delete?report_id=X">` en cualquier página
+    lo disparaba. La cookie es `SameSite=Strict`, que corta el caso entre
+    sitios, pero la reemisión dentro del propio sitio no depende de eso.
+    """
     try:
         conn = _db()
         conn.execute("DELETE FROM reports WHERE report_id=?", (report_id,))
         conn.commit(); conn.close()
         return {"ok": True}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    except Exception:
+        # El texto de la excepción puede llevar rutas del servidor o SQL;
+        # va al log, no al navegador.
+        logging.getLogger("vertex").warning("report-delete falló", exc_info=True)
+        return {"ok": False, "error": "no se pudo borrar el reporte"}
 
 
 @app.get("/api/calibration")
@@ -10963,8 +11384,8 @@ def get_calibration(horizon: int = 90):
         for r in rows:
             conv = _safe_num(r.get("conviction"))
             base_p = _safe_num(r.get("price_at_analysis"))
-            rec = (r.get("recommendation") or "").upper()
-            if conv <= 0 or base_p <= 0 or rec not in ("BUY", "SELL", "AVOID"):
+            rec = _reco_norm(r.get("recommendation"))
+            if conv <= 0 or base_p <= 0 or rec not in (RESEARCH_FAVORABLE, "SELL", RESEARCH_DESFAVORABLE):
                 continue
             hts = _safe_num(r.get("created_ts")) + horizon * 86400
             if hts > now:
@@ -11010,7 +11431,7 @@ def _r_outcome(r, series, now):
     No necesita tu contrato real: mide la CALIDAD DE LA SEÑAL del agente en unidades de riesgo."""
     entry = _safe_num(r.get("price_at_analysis"))
     bull = _safe_num(r.get("target_bull")); bear = _safe_num(r.get("target_bear"))
-    rec = (r.get("recommendation") or "").upper()
+    rec = _reco_norm(r.get("recommendation"))
     created = _safe_num(r.get("created_ts"))
     if entry <= 0 or not series:
         return None
@@ -11022,9 +11443,10 @@ def _r_outcome(r, series, now):
         return None
     if not (bull and bear and bull > entry > bear):   # bracket sano requerido
         return None
-    if rec == "BUY":
+    rec = _reco_norm(rec)
+    if rec == RESEARCH_FAVORABLE:
         target, stop, up = bull, bear, True
-    elif rec in ("SELL", "AVOID"):
+    elif rec in ("SELL", RESEARCH_DESFAVORABLE):
         target, stop, up = bear, bull, False           # gana si baja al bear; stop si sube al bull
     else:
         return None
@@ -11085,7 +11507,7 @@ def get_track_record():
             base_p = r.get("price_at_analysis")
             if not base_p:
                 continue
-            rec = (r.get("recommendation") or "").upper()
+            rec = _reco_norm(r.get("recommendation"))
             created = r.get("created_ts", 0)
             series = _cached_price_series(r["ticker"])
             base_spy = _price_at(spy, created)
@@ -11107,7 +11529,7 @@ def get_track_record():
                     p_spy = _price_at(spy, hts)
                     if p_spy:
                         alpha = round(ret - (p_spy - base_spy) / base_spy * 100, 1)
-                        a_hit = (alpha > 0) if rec == "BUY" else (alpha < 0) if rec in ("SELL", "AVOID") else (abs(alpha) < 5)
+                        a_hit = (alpha > 0) if rec == RESEARCH_FAVORABLE else (alpha < 0) if rec in ("SELL", RESEARCH_DESFAVORABLE) else (abs(alpha) < 5)
                         alpha_buckets[label].append(a_hit)
                 # magnitud: clasifica el resultado (no solo signo)
                 mag = ("ganancia fuerte" if ret >= 8 else "ganancia" if ret > 1 else
@@ -11119,8 +11541,8 @@ def get_track_record():
             if row_eval["horizons"]:
                 detail.append(row_eval)
             # curva de equity: posición direccional a 90d (BUY=+ret, SELL=-ret, HOLD ignora)
-            if ret90 is not None and rec in ("BUY", "SELL", "AVOID"):
-                pnl = ret90 if rec == "BUY" else -ret90
+            if ret90 is not None and rec in (RESEARCH_FAVORABLE, "SELL", RESEARCH_DESFAVORABLE):
+                pnl = ret90 if rec == RESEARCH_FAVORABLE else -ret90
                 equity *= (1.0 + pnl / 100.0)
                 peak = max(peak, equity)
                 max_dd = min(max_dd, (equity - peak) / peak * 100.0)
@@ -11487,6 +11909,107 @@ def plaid_headers():
     return {"Content-Type": "application/json", "PLAID-CLIENT-ID": PLAID_CLIENT_ID, "PLAID-SECRET": PLAID_SECRET}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CUSTODIA DEL access_token DE PLAID (C-03)
+#
+# Antes el token viajaba como parámetro de URL en 9 endpoints y se guardaba en
+# el localStorage del navegador. Las query strings quedan escritas en los logs
+# de acceso de Render, en el historial del navegador y en las cabeceras
+# `Referer` hacia terceros — y ese token da lectura de cuentas bancarias.
+#
+# Ahora vive SOLO en el servidor: `/api/plaid/exchange-token` lo guarda y
+# devuelve únicamente el `item_id`. El navegador nunca lo ve, así que no puede
+# filtrarlo por ninguna de esas vías.
+#
+# Cifrado en reposo: si `VERTEX_DB_KEY` está definida se cifra con Fernet
+# (AES-128-CBC + HMAC). Protege el caso de que alguien obtenga una copia del
+# archivo .db (backup, disco) sin tener el entorno del proceso. No protege
+# contra un compromiso de la app — para eso está la autenticación de C-02.
+# ─────────────────────────────────────────────────────────────────────────────
+def _fernet():
+    """Cifrador, o None si no hay clave configurada o falta la librería."""
+    key = os.environ.get("VERTEX_DB_KEY", "").strip()
+    if not key:
+        return None
+    try:
+        import base64, hashlib
+        from cryptography.fernet import Fernet
+        # Se deriva una clave Fernet válida de cualquier cadena, para no obligar
+        # a generar exactamente 32 bytes en base64url.
+        return Fernet(base64.urlsafe_b64encode(hashlib.sha256(key.encode()).digest()))
+    except Exception as e:
+        print(f"[plaid] cifrado no disponible ({str(e)[:80]}); se guarda en claro")
+        return None
+
+
+def _init_plaid_db():
+    try:
+        conn = _db()
+        conn.execute("""CREATE TABLE IF NOT EXISTS plaid_items (
+            item_id      TEXT PRIMARY KEY,
+            access_token TEXT NOT NULL,
+            encrypted    INTEGER DEFAULT 0,
+            institution  TEXT,
+            created_at   TEXT
+        )""")
+        conn.commit(); conn.close()
+    except Exception as e:
+        print(f"[DB] plaid table init error: {e}")
+
+_init_plaid_db()
+
+
+def _plaid_save_token(item_id, access_token, institution=""):
+    f = _fernet()
+    stored = f.encrypt(access_token.encode()).decode() if f else access_token
+    conn = _db()
+    conn.execute("INSERT OR REPLACE INTO plaid_items "
+                 "(item_id,access_token,encrypted,institution,created_at) VALUES (?,?,?,?,?)",
+                 (item_id, stored, 1 if f else 0, institution,
+                  datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    conn.commit(); conn.close()
+    if not f:
+        print("[plaid] AVISO: token guardado SIN cifrar. Define VERTEX_DB_KEY para cifrarlo.")
+
+
+def _plaid_get_token(item_id=""):
+    """El token del `item_id` pedido, o el más reciente. '' si no hay ninguno."""
+    try:
+        conn = _db()
+        if item_id:
+            row = conn.execute("SELECT access_token,encrypted FROM plaid_items WHERE item_id=?",
+                               (item_id,)).fetchone()
+        else:
+            row = conn.execute("SELECT access_token,encrypted FROM plaid_items "
+                               "ORDER BY created_at DESC LIMIT 1").fetchone()
+        conn.close()
+        if not row:
+            return ""
+        tok = row["access_token"]
+        if not row["encrypted"]:
+            return tok
+        f = _fernet()
+        if not f:
+            print("[plaid] token cifrado pero falta VERTEX_DB_KEY — no se puede leer")
+            return ""
+        return f.decrypt(tok.encode()).decode()
+    except Exception as e:
+        print(f"[plaid] lectura de token falló: {str(e)[:110]}")
+        return ""
+
+
+def _plaid_items():
+    """Conexiones guardadas, sin exponer nunca el token."""
+    try:
+        conn = _db()
+        rows = conn.execute("SELECT item_id,institution,created_at,encrypted "
+                            "FROM plaid_items ORDER BY created_at DESC").fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
 @app.post("/api/plaid/link-token")
 def create_link_token(body: dict = None):
     """Step 1 — Create a Plaid Link token to open the Plaid UI in the browser."""
@@ -11507,21 +12030,71 @@ def create_link_token(body: dict = None):
 
 @app.post("/api/plaid/exchange-token")
 def exchange_public_token(body: dict):
-    """Step 2 — Exchange public_token from Plaid Link for an access_token."""
+    """Paso 2 — canjea el public_token de Plaid Link por el access_token.
+
+    C-03: el access_token se guarda EN EL SERVIDOR y no se devuelve. El
+    navegador solo recibe el `item_id`, que no sirve para llamar a Plaid.
+    """
     public_token = body.get("public_token", "")
     try:
         resp = requests.post(f"{plaid_base_url()}/item/public_token/exchange",
             headers=plaid_headers(), json={"public_token": public_token}, timeout=15)
         resp.raise_for_status()
-        return resp.json()   # contains access_token — store this in the frontend
+        data = resp.json()
+        token, item_id = data.get("access_token", ""), data.get("item_id", "")
+        if not token:
+            raise HTTPException(status_code=502, detail="Plaid no devolvió access_token.")
+        inst = ""
+        try:                    # nombre del banco, solo para mostrarlo en la UI
+            ir = requests.post(f"{plaid_base_url()}/item/get", headers=plaid_headers(),
+                               json={"access_token": token}, timeout=10)
+            inst = (ir.json().get("item", {}) or {}).get("institution_name", "") if ir.ok else ""
+        except Exception:
+            pass
+        _plaid_save_token(item_id, token, inst)
+        return {"ok": True, "item_id": item_id, "institution": inst}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Plaid exchange error: {str(e)}")
 
 
+@app.get("/api/plaid/items")
+def plaid_items():
+    """Conexiones de Plaid guardadas. Nunca incluye el access_token."""
+    items = _plaid_items()
+    return {"ok": True, "connected": bool(items), "items": items}
+
+
+@app.post("/api/plaid/disconnect")
+def plaid_disconnect(body: dict = None):
+    """Borra la conexión guardada (y la invalida en Plaid si se puede)."""
+    item_id = str((body or {}).get("item_id") or "")
+    token = _plaid_get_token(item_id)
+    if token:
+        try:                    # invalida el token del lado de Plaid, no solo el nuestro
+            requests.post(f"{plaid_base_url()}/item/remove", headers=plaid_headers(),
+                          json={"access_token": token}, timeout=10)
+        except Exception as e:
+            print(f"[plaid] item/remove falló: {str(e)[:90]}")
+    try:
+        conn = _db()
+        conn.execute("DELETE FROM plaid_items WHERE item_id=?", (item_id,)) if item_id \
+            else conn.execute("DELETE FROM plaid_items")
+        conn.commit(); conn.close()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": True}
+
+
 
 @app.get("/api/accounts")
-def get_accounts(access_token: str):
-    """Return list of investment accounts so the user can choose which one to analyze."""
+def get_accounts(item_id: str = ""):
+    """Cuentas de inversión para que el usuario elija cuál analizar.
+    C-03: el token sale del servidor, ya no lo manda el cliente."""
+    access_token = _plaid_get_token(item_id)
+    if not access_token:
+        raise HTTPException(status_code=409, detail="No hay ninguna cuenta de Plaid conectada.")
     try:
         resp = requests.post(f"{plaid_base_url()}/investments/holdings/get",
             headers=plaid_headers(), json={"access_token": access_token}, timeout=20)
@@ -11554,7 +12127,7 @@ def get_accounts(access_token: str):
         raise HTTPException(status_code=500, detail=f"Accounts error: {str(e)}")
 
 @app.get("/api/portfolio")
-def get_portfolio(access_token: str, account_id: str = ""):
+def get_portfolio(account_id: str = "", item_id: str = ""):
     """
     Fetch full investment holdings + transactions from Plaid and enrich with:
     - Live prices via yfinance
@@ -11562,12 +12135,27 @@ def get_portfolio(access_token: str, account_id: str = ""):
     - Options contracts details
     - AI analysis via Gemini on the full portfolio
     """
+    access_token = _plaid_get_token(item_id)   # C-03: del servidor, nunca del cliente
+    if not access_token:
+        raise HTTPException(status_code=409, detail="No hay ninguna cuenta de Plaid conectada.")
     try:
         # ── Fetch holdings ─────────────────────────────────────────────────
         holdings_resp = requests.post(f"{plaid_base_url()}/investments/holdings/get",
             headers=plaid_headers(), json={"access_token": access_token}, timeout=20)
         holdings_resp.raise_for_status()
         plaid_data = holdings_resp.json()
+
+        # Persistimos el libro en el snapshot: es la fuente única del resto del
+        # suite (riesgo, stress, what-if, atribución, guardrails, optimizador,
+        # griegas), y así todas esas rutas funcionan después sin el access_token.
+        # Best-effort — un fallo de DB nunca rompe la carga del portafolio.
+        try:
+            _snap_eq = _extract_equity_positions(plaid_data, account_id, with_cost=True)
+            if _snap_eq:
+                save_portfolio_snapshot(_snap_eq, "PLAID")
+            save_options_snapshot(_plaid_extract_options(plaid_data, account_id))
+        except Exception as _e:
+            print(f"[portfolio] snapshot persist skip: {_e}")
 
         holdings_all = plaid_data.get("holdings", [])
         securities   = plaid_data.get("securities", [])
@@ -12468,25 +13056,41 @@ def compute_portfolio_stress(positions, lookback_days=504):
     }
 
 
-def _resolve_positions(access_token, account_id="", with_cost=False):
-    """Resolve normalized equity positions from Plaid (when an access_token is given)
-    or from the stored SnapTrade snapshot otherwise — so the entire portfolio suite
-    runs on SnapTrade alone, no Plaid required. Returns (positions, source)."""
+def _resolve_positions(account_id="", with_cost=False):
+    """Posiciones normalizadas: de Plaid si hay conexión guardada (C-03: el token
+    se lee del servidor)
+    o del snapshot guardado si no lo hay — así todo el suite de portafolio corre
+    con o sin Plaid. Cuando Plaid responde, el resultado se PERSISTE en el snapshot
+    para que las rutas siguientes funcionen sin volver a pedir el token.
+    Devuelve (positions, source)."""
+    access_token = _plaid_get_token()          # C-03: del servidor, nunca del cliente
     if access_token:
         resp = requests.post(f"{plaid_base_url()}/investments/holdings/get",
                              headers=plaid_headers(), json={"access_token": access_token}, timeout=20)
         resp.raise_for_status()
-        return _extract_equity_positions(resp.json(), account_id, with_cost=with_cost), "plaid"
-    return get_portfolio_snapshot(), "snaptrade"
+        _data = resp.json()
+        positions = _extract_equity_positions(_data, account_id, with_cost=with_cost)
+        # Persistimos lo que Plaid devolvió: el snapshot es la fuente única del
+        # resto del suite, y así una llamada posterior SIN access_token sigue
+        # encontrando el libro. Best-effort: un fallo de DB no rompe la respuesta.
+        try:
+            if positions:
+                save_portfolio_snapshot(
+                    _extract_equity_positions(_data, account_id, with_cost=True), "PLAID")
+            save_options_snapshot(_plaid_extract_options(_data, account_id))
+        except Exception as _e:
+            print(f"[portfolio] snapshot persist skip: {_e}")
+        return positions, "plaid"
+    return get_portfolio_snapshot(), "snapshot"
 
 
 @app.get("/api/portfolio-risk")
-def get_portfolio_risk(access_token: str = "", account_id: str = ""):
-    """Run the quant risk engine on the user's real holdings (Plaid or SnapTrade snapshot)."""
+def get_portfolio_risk(account_id: str = ""):
+    """Run the quant risk engine on the user's real holdings (Plaid o snapshot guardado)."""
     try:
-        positions, _src = _resolve_positions(access_token, account_id)
+        positions, _src = _resolve_positions(account_id)
         if not positions:
-            return {"ok": False, "error": "No se encontraron posiciones. Carga tus holdings con SnapTrade (o conecta Plaid)."}
+            return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         return compute_portfolio_risk(positions)
     except HTTPException:
         raise
@@ -12495,12 +13099,12 @@ def get_portfolio_risk(access_token: str = "", account_id: str = ""):
 
 
 @app.get("/api/portfolio-stress")
-def get_portfolio_stress(access_token: str = "", account_id: str = ""):
-    """Run the stress engine on the user's real holdings (Plaid or SnapTrade snapshot)."""
+def get_portfolio_stress(account_id: str = ""):
+    """Run the stress engine on the user's real holdings (Plaid o snapshot guardado)."""
     try:
-        positions, _src = _resolve_positions(access_token, account_id)
+        positions, _src = _resolve_positions(account_id)
         if not positions:
-            return {"ok": False, "error": "No se encontraron posiciones. Carga tus holdings con SnapTrade (o conecta Plaid)."}
+            return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         return compute_portfolio_stress(positions)
     except HTTPException:
         raise
@@ -12509,7 +13113,7 @@ def get_portfolio_stress(access_token: str = "", account_id: str = ""):
 
 
 @app.get("/api/portfolio-whatif")
-def get_portfolio_whatif(access_token: str = "", ticker: str = "", action: str = "add",
+def get_portfolio_whatif(ticker: str = "", action: str = "add",
                          amount: float = 0.0, account_id: str = ""):
     """Recompute portfolio risk BEFORE vs AFTER a hypothetical add/trim of `ticker`."""
     try:
@@ -12521,9 +13125,9 @@ def get_portfolio_whatif(access_token: str = "", ticker: str = "", action: str =
             except (TypeError, ValueError):
                 return d
 
-        positions, _src = _resolve_positions(access_token, account_id)
+        positions, _src = _resolve_positions(account_id)
         if not positions:
-            return {"ok": False, "error": "No se encontraron posiciones. Carga tus holdings con SnapTrade (o conecta Plaid)."}
+            return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
 
         after = [dict(p) for p in positions]
         found = next((p for p in after if p["ticker"] == ticker), None)
@@ -12798,13 +13402,63 @@ def _extract_equity_positions(data, account_id, with_cost=False):
     return positions
 
 
+def _plaid_extract_options(data, account_id=""):
+    """Extractor de posiciones de OPCIONES desde el payload de Plaid, a la misma
+    forma plana que consume el motor de griegas (`compute_options_analytics`).
+
+    `_extract_equity_positions` descarta las opciones a propósito (solo quiere el
+    libro de acciones); esta es su contraparte. Plaid expone el contrato en
+    `security.option_contract` con `contract_type` / `strike_price` /
+    `expiration_date` / `underlying_security_ticker`.
+
+    Devuelve [] si el broker no reporta opciones — que es lo honesto: sin
+    contrato no hay griegas, y no se inventa ninguna.
+    """
+    holdings_all = data.get("holdings", []) or []
+    securities = data.get("securities", []) or []
+    sec_map = {s["security_id"]: s for s in securities if s.get("security_id")}
+    holdings = ([h for h in holdings_all if h.get("account_id") == account_id]
+                if account_id else holdings_all)
+
+    def sf(v, d=0.0):
+        try:
+            f = float(v)
+            return d if (math.isnan(f) or math.isinf(f)) else f
+        except (TypeError, ValueError):
+            return d
+
+    out = []
+    for h in holdings:
+        sec = sec_map.get(h.get("security_id"), {})
+        oc = sec.get("option_contract")
+        if not isinstance(oc, dict):
+            continue
+        und = str(oc.get("underlying_security_ticker") or "").upper().strip()
+        ot = str(oc.get("contract_type") or "").lower().strip()
+        ot = "call" if ot.startswith("c") else "put" if ot.startswith("p") else ""
+        strike = sf(oc.get("strike_price"))
+        expiry = str(oc.get("expiration_date") or "")[:10]
+        contracts = sf(h.get("quantity"))          # con signo: negativo = corto
+        if not (und and ot and strike > 0 and len(expiry) == 10 and contracts != 0):
+            continue
+        # Plaid cotiza la opción por acción; el valor del contrato es ×100.
+        price = sf(h.get("institution_price"))
+        value = sf(h.get("institution_value")) or round(contracts * price * 100, 2)
+        cost = sf(h.get("cost_basis"))
+        avg = round(cost / (abs(contracts) * 100), 4) if cost and contracts else None
+        out.append({"underlying": und, "option_type": ot, "strike": strike,
+                    "expiry": expiry, "contracts": contracts, "price": price,
+                    "avg_price": avg, "value": round(value, 2)})
+    return out
+
+
 @app.get("/api/portfolio-attribution")
-def get_portfolio_attribution(access_token: str = "", account_id: str = "", lookback_days: int = 252):
+def get_portfolio_attribution(account_id: str = "", lookback_days: int = 252):
     """Return + sector attribution over a trailing window on the real book."""
     try:
-        positions, _src = _resolve_positions(access_token, account_id)
+        positions, _src = _resolve_positions(account_id)
         if not positions:
-            return {"ok": False, "error": "No se encontraron posiciones. Carga tus holdings con SnapTrade (o conecta Plaid)."}
+            return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         return compute_portfolio_attribution(positions, lookback_days=max(20, min(lookback_days, 504)))
     except HTTPException:
         raise
@@ -12813,12 +13467,12 @@ def get_portfolio_attribution(access_token: str = "", account_id: str = "", look
 
 
 @app.get("/api/portfolio-guardrails")
-def get_portfolio_guardrails(access_token: str = "", account_id: str = ""):
+def get_portfolio_guardrails(account_id: str = ""):
     """Check the real book against portfolio rules (concentration, 70/30, stops, corr)."""
     try:
-        positions, _src = _resolve_positions(access_token, account_id, with_cost=True)
+        positions, _src = _resolve_positions(account_id, with_cost=True)
         if not positions:
-            return {"ok": False, "error": "No se encontraron posiciones. Carga tus holdings con SnapTrade (o conecta Plaid)."}
+            return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         sectors = _fetch_sectors([p["ticker"] for p in positions])
         for p in positions:
             p["sector"] = sectors.get(p["ticker"], "Otros")
@@ -12831,279 +13485,116 @@ def get_portfolio_guardrails(access_token: str = "", account_id: str = ""):
 
 
 
-# ── SNAPTRADE BROKERAGE CONNECTION (near real-time, via official SDK) ──────────
-SNAPTRADE_CLIENT_ID = os.environ.get("SNAPTRADE_CLIENT_ID", "")        # <-- tu Client ID
-SNAPTRADE_CONSUMER_KEY = os.environ.get("SNAPTRADE_CONSUMER_KEY", "")  # <-- tu Consumer Key
-# Llaves PERSONALES de SnapTrade: el usuario viene provisto al registrarte (no se usa registerUser).
-# Pega aquí el userId y userSecret que aparecen en tu dashboard de SnapTrade:
-SNAPTRADE_USER_ID = os.environ.get("SNAPTRADE_USER_ID", "")            # <-- tu userId provisto
-SNAPTRADE_USER_SECRET = os.environ.get("SNAPTRADE_USER_SECRET", "")    # <-- tu userSecret provisto
-_snaptrade_client = None
+# ── IMPORTACIÓN DE PORTAFOLIO (fuente-agnóstica) ──────────────────────────────
+# El snapshot guardado (tablas portfolio_holdings / option_holdings) es la fuente
+# ÚNICA que alimenta todo el suite de portafolio: riesgo, stress, what-if,
+# atribución, guardrails, optimizador, ideas y el panel de griegas. Ninguna de
+# esas rutas conoce al broker: solo leen el snapshot.
+#
+# Hoy lo escriben dos caminos:
+#   1. Plaid  — `/api/portfolio` y `_resolve_positions` lo persisten solos.
+#   2. Manual — `/api/portfolio/import` (abajo). Es el punto de extensión para
+#      cualquier fuente futura: solo tiene que emitir las dos formas de abajo.
+#
+# Formas normalizadas (contrato estable — no cambiar sin migrar la DB):
+#   acción : {"ticker","name","value","cost_basis"?}
+#   opción : {"underlying","option_type"("call"|"put"),"strike",
+#             "expiry"("YYYY-MM-DD"),"contracts","price","avg_price"?,"value"}
 
-
-def _get_snaptrade():
-    global _snaptrade_client
-    if not SNAPTRADE_CLIENT_ID or not SNAPTRADE_CONSUMER_KEY:
-        return None
-    if _snaptrade_client is None:
-        try:
-            from snaptrade_client import SnapTrade
-            _snaptrade_client = SnapTrade(consumer_key=SNAPTRADE_CONSUMER_KEY, client_id=SNAPTRADE_CLIENT_ID)
-        except Exception as e:
-            print(f"[SnapTrade] init error: {e}")
-            return None
-    return _snaptrade_client
-
-
-def _snaptrade_reason():
-    """Precise diagnosis of why SnapTrade isn't ready, so the UI can tell the user
-    exactly what to fix (missing keys vs SDK not installed)."""
-    if not SNAPTRADE_CLIENT_ID or not SNAPTRADE_CONSUMER_KEY:
-        return ("Faltan tus llaves de SnapTrade. Define SNAPTRADE_CLIENT_ID y "
-                "SNAPTRADE_CONSUMER_KEY (pégalas en vertex_api.py ~línea 3960 o expórtalas "
-                "como variables de entorno) y reinicia el backend.")
-    try:
-        from snaptrade_client import SnapTrade  # noqa: F401
-    except Exception:
-        return "SDK de SnapTrade no instalado. Ejecuta en tu terminal: pip install snaptrade-python-sdk  (y reinicia el backend)."
-    return "SnapTrade no disponible: revisa que tus llaves sean correctas y que el backend se haya reiniciado."
-
-
-def _st_body(r):
-    """Normalize SDK response to plain python (body attr or the object itself)."""
-    b = getattr(r, "body", None)
-    return b if b is not None else r
-
-
-def _snaptrade_extract_positions(raw):
-    """Normalize SnapTrade positions to {ticker,name,value}. Symbol nesting varies,
-    so we probe several shapes defensively."""
+def _norm_import_positions(rows):
+    """Valida y normaliza posiciones de acciones de una fuente externa.
+    Descarta filas sin ticker o sin valor positivo en vez de guardar basura."""
     out = []
-    for p in (raw or []):
-        sym = p.get("symbol") if isinstance(p, dict) else None
-        ticker, name = "", ""
-        node = sym
-        # descend through possible nesting: symbol -> symbol -> symbol
-        for _ in range(3):
-            if isinstance(node, dict):
-                if node.get("symbol") and isinstance(node.get("symbol"), str):
-                    ticker = node.get("symbol")
-                    name = node.get("description") or node.get("raw_symbol") or name
-                    break
-                if node.get("raw_symbol") and isinstance(node.get("raw_symbol"), str) and not ticker:
-                    ticker = node.get("raw_symbol")
-                    name = node.get("description") or name
-                node = node.get("symbol")
-            else:
-                break
-        if not ticker and isinstance(sym, dict):
-            ticker = sym.get("raw_symbol") or sym.get("symbol") or ""
-        units = p.get("units") or p.get("fractional_units") or 0
-        price = p.get("price") or 0
-        try:
-            units_f = float(units)
-            value = units_f * float(price)
-        except (TypeError, ValueError):
-            units_f, value = 0.0, 0.0
-        # Cost basis: SnapTrade usually exposes average_purchase_price (per share)
-        avg = p.get("average_purchase_price")
-        try:
-            avg = float(avg) if avg not in (None, "") else None
-        except (TypeError, ValueError):
-            avg = None
-        cost_basis = round(units_f * avg, 2) if (avg is not None and units_f) else None
-        if cost_basis is None:
-            op = p.get("open_pnl")  # fallback: derive cost from open P&L if provided
-            try:
-                cost_basis = round(value - float(op), 2) if op not in (None, "") else None
-            except (TypeError, ValueError):
-                cost_basis = None
-        unreal = round(value - cost_basis, 2) if cost_basis is not None else None
-        unreal_pct = round((value - cost_basis) / cost_basis * 100, 2) if (cost_basis and cost_basis > 0) else None
-        if isinstance(ticker, str) and ticker and value > 0:
-            out.append({"ticker": ticker.upper().strip(), "name": name or ticker,
-                        "value": round(value, 2), "units": round(units_f, 4),
-                        "avg_price": round(avg, 2) if avg is not None else None,
-                        "cost_basis": cost_basis, "unrealized_pnl": unreal,
-                        "unrealized_pct": unreal_pct})
+    for r in (rows or []):
+        if not isinstance(r, dict):
+            continue
+        tk = str(r.get("ticker") or "").upper().strip()
+        if not tk or len(tk) > 6:
+            continue
+        val = _safe_num(r.get("value"), 0.0)
+        if val <= 0:
+            continue
+        pos = {"ticker": tk, "name": str(r.get("name") or tk), "value": round(val, 2)}
+        cb = r.get("cost_basis")
+        if cb not in (None, ""):
+            pos["cost_basis"] = round(_safe_num(cb, 0.0), 2)
+        out.append(pos)
     return out
 
 
-def _snaptrade_extract_options(raw):
-    """Normalize SnapTrade option positions to the flat shape the Greeks engine needs.
-    Symbol nesting varies by brokerage, so we probe defensively. Modular by design:
-    any future source (e.g. Unusual Whales) just needs to emit this same dict shape."""
+def _norm_import_options(rows):
+    """Igual que arriba, para opciones: exige los 5 campos que el motor de griegas
+    necesita (subyacente, tipo, strike, vencimiento, contratos)."""
     out = []
-    for p in (raw or []):
-        if not isinstance(p, dict):
+    for r in (rows or []):
+        if not isinstance(r, dict):
             continue
-        # Locate the option_symbol node (may sit on p, p.symbol, or p.symbol.symbol)
-        sym = p.get("symbol")
-        osym = None
-        for node in (p, sym, sym.get("symbol") if isinstance(sym, dict) else None):
-            if isinstance(node, dict) and isinstance(node.get("option_symbol"), dict):
-                osym = node["option_symbol"]; break
-        if not isinstance(osym, dict):
+        und = str(r.get("underlying") or "").upper().strip()
+        ot = str(r.get("option_type") or "").lower().strip()
+        ot = "call" if ot.startswith("c") else "put" if ot.startswith("p") else ""
+        strike = _safe_num(r.get("strike"), 0.0)
+        expiry = str(r.get("expiry") or "")[:10]
+        contracts = _safe_num(r.get("contracts"), 0.0)
+        if not (und and ot and strike > 0 and len(expiry) == 10 and contracts != 0):
             continue
-        # Underlying ticker
-        us = osym.get("underlying_symbol")
-        underlying = ""
-        if isinstance(us, dict):
-            underlying = us.get("symbol") or us.get("raw_symbol") or ""
-        elif isinstance(us, str):
-            underlying = us
-        if not underlying:  # last resort: parse OCC root from the option ticker
-            tk = (osym.get("ticker") or "").strip()
-            underlying = tk.split(" ")[0][:6] if tk else ""
-        # Option type
-        ot = (osym.get("option_type") or "").upper()
-        otype = "call" if ot.startswith("C") else "put" if ot.startswith("P") else ""
-        # Strike
-        try:
-            strike = float(osym.get("strike_price")) if osym.get("strike_price") not in (None, "") else None
-        except (TypeError, ValueError):
-            strike = None
-        expiry = str(osym.get("expiration_date") or "")[:10]
-        # Contracts (signed: negative = short), per-share price, avg purchase price
-        try:
-            contracts = float(p.get("units") or 0)
-        except (TypeError, ValueError):
-            contracts = 0.0
-        try:
-            price = float(p.get("price") or 0)
-        except (TypeError, ValueError):
-            price = 0.0
-        avg = p.get("average_purchase_price")
-        try:
-            avg = float(avg) if avg not in (None, "") else None
-        except (TypeError, ValueError):
-            avg = None
-        value = round(contracts * price * 100, 2)  # option price is per-share → ×100 per contract
-        if underlying and otype and strike and expiry and contracts != 0:
-            out.append({"underlying": underlying.upper().strip(), "option_type": otype,
-                        "strike": strike, "expiry": expiry, "contracts": contracts,
-                        "price": price, "avg_price": avg, "value": value})
+        price = _safe_num(r.get("price"), 0.0)
+        avg = r.get("avg_price")
+        out.append({
+            "underlying": und, "option_type": ot, "strike": strike, "expiry": expiry,
+            "contracts": contracts, "price": price,
+            "avg_price": (_safe_num(avg, 0.0) if avg not in (None, "") else None),
+            # El precio de una opción es por acción → ×100 por contrato.
+            "value": round(_safe_num(r.get("value"), contracts * price * 100), 2)})
     return out
 
 
-@app.get("/api/snaptrade/status")
-def snaptrade_status():
-    if not SNAPTRADE_CLIENT_ID or not SNAPTRADE_CONSUMER_KEY:
-        return {"ok": False, "configured": False, "error": "SNAPTRADE_CLIENT_ID / CONSUMER_KEY no configuradas."}
-    cli = _get_snaptrade()
-    if not cli:
-        return {"ok": False, "configured": True, "error": "SDK no instalado. Ejecuta: pip install snaptrade-python-sdk"}
-    try:
-        st = cli.api_status.check(); return {"ok": True, "configured": True, "status": str(_st_body(st))}
-    except Exception as e:
-        return {"ok": False, "configured": True, "error": f"{e}"}
+@app.post("/api/portfolio/import")
+def portfolio_import(body: dict = None):
+    """Carga del portafolio desde cualquier fuente (manual, CSV, broker futuro).
+
+    Body: {"positions": [...], "options": [...], "source": "manual"}
+    Ambas listas son opcionales: se manda la que se quiera reemplazar.
+    REEMPLAZA el snapshot (no hace merge) — el snapshot representa "el libro tal
+    como está ahora", igual que hacía el camino de broker.
+    """
+    body = body or {}
+    src = str(body.get("source") or "manual").upper()[:20]
+    positions = _norm_import_positions(body.get("positions"))
+    options = _norm_import_options(body.get("options"))
+    if not positions and not options:
+        return {"ok": False, "error": ("No se recibió ninguna posición válida. Formato esperado: "
+                                       "positions[] con {ticker, value>0}; options[] con "
+                                       "{underlying, option_type, strike, expiry, contracts}.")}
+    if positions:
+        save_portfolio_snapshot(positions, src)
+    if options:
+        save_options_snapshot(options)
+    return {"ok": True, "source": src.lower(), "n_positions": len(positions),
+            "n_options": len(options),
+            "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}
 
 
-@app.get("/api/snaptrade/whoami")
-def snaptrade_whoami():
-    """Personal SnapTrade keys come with a pre-provisioned user. If the userId/userSecret
-    are configured, return them so the frontend skips registerUser (not allowed for
-    personal keys) and goes straight to the OAuth connection portal."""
-    if SNAPTRADE_USER_ID and SNAPTRADE_USER_SECRET:
-        return {"ok": True, "preprovisioned": True,
-                "user_id": SNAPTRADE_USER_ID, "user_secret": SNAPTRADE_USER_SECRET}
-    return {"ok": False, "preprovisioned": False}
+@app.get("/api/portfolio/snapshot")
+def portfolio_snapshot_status():
+    """Qué hay guardado ahora mismo. La UI lo consulta para saber si el suite de
+    análisis puede correr sin conectar Plaid."""
+    eq = get_portfolio_snapshot()
+    op = get_options_snapshot()
+    return {"ok": True, "has_data": bool(eq or op),
+            "n_positions": len(eq), "n_options": len(op),
+            "total_value": round(sum(_safe_num(p.get("value"), 0.0) for p in eq), 2)}
 
 
-@app.post("/api/snaptrade/register")
-def snaptrade_register(user_id: str):
-    cli = _get_snaptrade()
-    if not cli:
-        return {"ok": False, "error": _snaptrade_reason()}
-    # Personal keys: user already provisioned — use configured creds, don't call registerUser.
-    if SNAPTRADE_USER_ID and SNAPTRADE_USER_SECRET:
-        return {"ok": True, "user_id": SNAPTRADE_USER_ID, "user_secret": SNAPTRADE_USER_SECRET,
-                "preprovisioned": True}
-    try:
-        r = _st_body(cli.authentication.register_snap_trade_user(body={"userId": user_id}))
-        return {"ok": True, "user_id": r.get("userId"), "user_secret": r.get("userSecret")}
-    except Exception as e:
-        msg = str(e)
-        if "1012" in msg or "registerUser is not available" in msg or "personal" in msg.lower():
-            return {"ok": False, "personal_keys": True, "error": (
-                "Tus llaves de SnapTrade son PERSONALES: el usuario ya viene provisto al "
-                "registrarte (no se permite registerUser). Copia tu userId y userSecret desde "
-                "tu dashboard de SnapTrade y pégalos en vertex_api.py como SNAPTRADE_USER_ID y "
-                "SNAPTRADE_USER_SECRET, luego reinicia el backend.")}
-        return {"ok": False, "error": msg}
-
-
-@app.get("/api/snaptrade/login-link")
-def snaptrade_login_link(user_id: str, user_secret: str):
-    cli = _get_snaptrade()
-    if not cli:
-        return {"ok": False, "error": _snaptrade_reason()}
-    try:
-        r = _st_body(cli.authentication.login_snap_trade_user(user_id=user_id, user_secret=user_secret))
-        uri = r.get("redirectURI") if isinstance(r, dict) else None
-        return {"ok": True, "redirect_uri": uri}
-    except Exception as e:
-        return {"ok": False, "error": f"{e}"}
-
-
-@app.get("/api/snaptrade/accounts")
-def snaptrade_accounts(user_id: str, user_secret: str):
-    cli = _get_snaptrade()
-    if not cli:
-        return {"ok": False, "error": _snaptrade_reason()}
-    try:
-        r = _st_body(cli.account_information.list_user_accounts(user_id=user_id, user_secret=user_secret))
-        accts = []
-        for a in (r or []):
-            bal = a.get("balance") if isinstance(a, dict) else None
-            tot = None
-            if isinstance(bal, dict):
-                tot = (bal.get("total") or {}).get("amount") if isinstance(bal.get("total"), dict) else bal.get("total")
-            accts.append({"id": a.get("id"), "name": a.get("name") or a.get("number"),
-                          "institution": a.get("institution_name"), "balance": tot})
-        return {"ok": True, "accounts": accts}
-    except Exception as e:
-        return {"ok": False, "error": f"{e}"}
-
-
-@app.get("/api/snaptrade/holdings")
-def snaptrade_holdings(user_id: str, user_secret: str, account_id: str):
-    """Near-real-time positions for one connected account; saves the book snapshot
-    so the agent + risk engine can use SnapTrade data interchangeably with Plaid."""
-    cli = _get_snaptrade()
-    if not cli:
-        return {"ok": False, "error": _snaptrade_reason()}
-    try:
-        r = _st_body(cli.account_information.get_user_account_positions(
-            user_id=user_id, user_secret=user_secret, account_id=account_id))
-        positions = _snaptrade_extract_positions(r)
-        if positions:
-            try:
-                save_portfolio_snapshot(positions, "SNAPTRADE")
-            except Exception as _e:
-                print(f"[SnapTrade] snapshot skip: {_e}")
-        # Options live under a separate SnapTrade endpoint; fetch defensively so a
-        # brokerage that doesn't expose option positions never breaks the equity load.
-        options = []
-        try:
-            ro = _st_body(cli.options.list_option_holdings(
-                user_id=user_id, user_secret=user_secret, account_id=account_id))
-            if isinstance(ro, dict):
-                ro = ro.get("option_positions") or ro.get("positions") or ro.get("data") or []
-            options = _snaptrade_extract_options(ro)
-            save_options_snapshot(options)
-        except Exception as _eo:
-            print(f"[SnapTrade] options skip: {_eo}")
-        return {"ok": True, "account_id": account_id, "positions": positions,
-                "options": options, "n_options": len(options),
-                "source": "snaptrade", "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}
-    except Exception as e:
-        return {"ok": False, "error": f"{e}"}
-
+@app.post("/api/portfolio/clear")
+def portfolio_clear():
+    """Borra el snapshot guardado (el equivalente a 'desconectar')."""
+    save_portfolio_snapshot([])
+    save_options_snapshot([])
+    return {"ok": True}
 
 # ── OPTIONS GREEKS ENGINE (Black-Scholes from positions + yfinance IV) ─────────
-# Modular: positions come from get_options_snapshot() (SnapTrade today). To swap in
-# Unusual Whales later, feed its option list through the same compute function.
+# Modular: las posiciones vienen de get_options_snapshot(), que llenan Plaid o
+# /api/portfolio/import. Cualquier fuente futura solo tiene que emitir esa forma.
 def _norm_cdf(x):
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
@@ -13159,7 +13650,7 @@ def compute_options_analytics(options, equity_positions=None):
     if not options:
         return {"ok": True, "n_options": 0,
                 "note": "No se detectaron posiciones de opciones en la cuenta conectada. "
-                        "(Algunos brokers no exponen opciones vía SnapTrade.)"}
+                        "(Plaid solo expone opciones si el broker las reporta; si no, cárgalas con /api/portfolio/import.)"}
     RF = 0.043
     now = datetime.now()
     spot_cache, iv_cache = {}, {}
@@ -13278,7 +13769,7 @@ def compute_options_analytics(options, equity_positions=None):
 
 @app.get("/api/portfolio-options")
 def portfolio_options():
-    """Book-level options Greeks panel. Reads the stored option snapshot (SnapTrade)
+    """Book-level options Greeks panel. Reads the stored option snapshot (Plaid o import)
     + equity snapshot (for total directional delta) and prices everything with BSM."""
     try:
         opts = get_options_snapshot()
@@ -13548,12 +14039,12 @@ def compute_portfolio_optimizer(positions, lookback="2y", max_weight=0.25, n_sim
 
 
 @app.get("/api/portfolio-optimizer")
-def get_portfolio_optimizer(access_token: str = "", account_id: str = "", max_weight: float = 0.25):
+def get_portfolio_optimizer(account_id: str = "", max_weight: float = 0.25):
     """Black-Litterman + 70/30 mandate optimization (Monte Carlo frontier) on the real book."""
     try:
-        positions, _src = _resolve_positions(access_token, account_id)
+        positions, _src = _resolve_positions(account_id)
         if not positions:
-            return {"ok": False, "error": "No se encontraron posiciones. Carga tus holdings con SnapTrade (o conecta Plaid)."}
+            return {"ok": False, "error": "No se encontraron posiciones. Conecta Plaid o carga tu portafolio con POST /api/portfolio/import."}
         mw = max(0.05, min(float(max_weight), 1.0))
         return compute_portfolio_optimizer(positions, max_weight=mw)
     except HTTPException:
@@ -13563,7 +14054,7 @@ def get_portfolio_optimizer(access_token: str = "", account_id: str = "", max_we
 
 
 @app.get("/api/portfolio-ideas")
-def get_portfolio_ideas(access_token: str = "", account_id: str = "", n: int = 5):
+def get_portfolio_ideas(account_id: str = "", n: int = 5):
     """#Ideas — Genera ideas de inversión NUEVAS (tickers que NO tienes ni has analizado) que
     DIVERSIFIQUEN tu book concentrado en IA, con % sugerido y un razonamiento completo
     (a qué se dedica, cuánto crece hoy, cuánto se espera que crezca, deuda/rentabilidad,
@@ -13574,7 +14065,7 @@ def get_portfolio_ideas(access_token: str = "", account_id: str = "", n: int = 5
     try:
         held = []
         try:
-            positions, _src = _resolve_positions(access_token, account_id)
+            positions, _src = _resolve_positions(account_id)
             held = sorted({str(p.get("ticker") or "").upper() for p in (positions or []) if p.get("ticker")})
         except Exception:
             held = []
@@ -13746,9 +14237,13 @@ def scheduler_status():
             "next_run": _SCHED_STATE["next_run"], "universe": _scheduler_tickers(),
             "primary": VERTEX_PRIMARY_TICKERS}
 
-@app.get("/api/scheduler/run-now")
+@app.post("/api/scheduler/run-now")
 def scheduler_run_now():
-    """Dispara la colección de snapshots de inmediato (en un hilo, para no bloquear)."""
+    """Dispara la colección de snapshots de inmediato (en un hilo, para no bloquear).
+
+    POST porque arranca trabajo. Un GET puede reemitirlo un prefetch o la
+    caché de ida/vuelta del navegador, y aquí eso significa lanzar una
+    colección entera contra los proveedores sin que nadie la pidiera."""
     if _SCHED_STATE["running"]:
         return {"ok": False, "note": "Ya hay una colección en curso."}
     threading.Thread(target=_run_daily_collection, daemon=True, name="vertex-collect-now").start()

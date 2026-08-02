@@ -1,0 +1,14 @@
+{
+  "ticker": "NVDA",
+  "date": "2026-07-31",
+  "price": 195.04,
+  "bear": 193.09,
+  "base": 273.06,
+  "bull": 314.01,
+  "growth_base": 0.4,
+  "pe_now": 39.8,
+  "score10": 4.72,
+  "evidence_points": 88,
+  "horizon_days": 365,
+  "source": "cerebro"
+}
