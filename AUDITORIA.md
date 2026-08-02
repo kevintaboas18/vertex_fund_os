@@ -1185,3 +1185,63 @@ no lleva football field — correcto: la matriz de modelos veta el DCF para banc
 falsos positivos de mis propias comprobaciones (docs fuera de `Cerebro/`, ids creados
 en tiempo de ejecución, mi signo del capex). Queda únicamente el saldo de Anthropic,
 que no es código.
+
+---
+
+# 18. Las comprobaciones de la auditoría, ahora permanentes — 2026-08-02
+
+## 18.1 Aclaración sobre §17
+
+Dos de las filas de §17 se leyeron como problemas y **son el resultado correcto**:
+
+| fila | lectura |
+|---|---|
+| `endpoints huérfanos: 0 de 53` | **cero es lo bueno** — la UI nunca llama una ruta inexistente |
+| `NaN / Infinity: 0` | **cero es lo bueno** — ningún número corrupto en el reporte |
+
+Y los tres "hallazgos" fueron errores de mis propios scripts de comprobación, no
+del código. No había nada que arreglar en ninguno de los tres casos.
+
+## 18.2 Lo que sí faltaba: que esas comprobaciones no se pierdan
+
+Corrían como scripts sueltos en un directorio temporal. **Un invariante que sólo se
+comprueba a mano no es un invariante, es una foto.** Victor codifica los suyos como
+tests; estos ahora también.
+
+`tests_vertex/test_project_invariants.py` — 11 tests:
+
+| test | defecto que cubre |
+|---|---|
+| todo `.py` compila | un archivo roto tumba el arranque |
+| todo módulo de `wbj` importa | un import roto sólo aparece al llamar esa ruta |
+| la UI no llama rutas inexistentes | un `fetch` a 404 deja la pantalla vacía sin decir por qué |
+| *(guarda)* la UI llama >30 rutas | si el patrón deja de encajar, el test de arriba pasaría vacío |
+| todo doc citado existe | una regla que cita un archivo inexistente queda sin respaldo |
+| todo id del DOM es alcanzable | `getElementById` nulo → *"cannot read properties of null"* |
+| ningún especialista publica NaN/Inf | `NaN` no es JSON válido: el `JSON.parse` del cliente lanza |
+| la salida sobrevive `allow_nan=False` | la misma regla que aplica un cliente HTTP |
+| los puntos no salen de `[0, max]` | rompería la suma contra el `raw_total` que leen los gates |
+| `fcff` toma el capex positivo | con el signo del estado financiero el capex SUMA |
+| el especialista normaliza el signo | la defensa real: da igual cómo venga del proveedor |
+
+Corren **sin red**, sobre el packet golden.
+
+## 18.3 Cada uno arregla la trampa que me hizo caer
+
+Las tres versiones nuevas evitan explícitamente mis falsos positivos:
+
+- los documentos se buscan en **todo el repo**, no sólo en `Cerebro/`;
+- un id del DOM vale si el HTML lo declara **o** si el script lo crea **o** si el uso
+  está guardado;
+- `fcff` se prueba con el capex **positivo**, y hay un caso que demuestra que con el
+  signo invertido el resultado se infla en `2 × capex`.
+
+## 18.4 Verificado por mutación
+
+No basta con que pasen. Roto el invariante a propósito, los tres detectan:
+
+- ruta inventada en la UI → `['/api/ruta-que-no-existe']`
+- `NaN` e `inf` inyectados → `x.cat.score=nan`, `x.otro[1]=inf`
+- `allow_nan=False` rechaza el `NaN`
+
+**2111 tests del engine + 71 de la capa web.**
