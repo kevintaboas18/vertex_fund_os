@@ -28,7 +28,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 
 from .compute import count_expirations, sort_by_open_interest_desc, to_row
@@ -39,6 +39,7 @@ __all__ = [
     "BASE_URL",
     "MassiveError",
     "ChainResult",
+    "DailyBar",
     "fetch_option_chain",
     "fetch_daily_bars",
 ]
@@ -203,7 +204,29 @@ def fetch_ticker_name(ticker: str, timeout: float = 12.0) -> str | None:
     return name if isinstance(name, str) and name.strip() else None
 
 
-def fetch_daily_bars(ticker: str, days: int = 365, timeout: float = 25.0) -> list[LvlBar]:
+@dataclass(frozen=True)
+class DailyBar:
+    """`DailyBar` de su `types.ts`. Es un `LvlBar` **más la apertura**.
+
+    El port devolvía `LvlBar` y tiraba el `open`, con dos consecuencias que solo
+    se ven al dibujar: la gráfica de Proyecciones pintaba TODAS las velas como
+    doji —cuerpo cero, y `close >= open` siempre cierto, o sea todas verdes— y
+    el cache en disco guardaba una serie mutilada que ya no se puede completar
+    sin volver a pedirla.
+
+    Los campos van en el orden de su interfaz. `levels`, `validation` y
+    `estimate_iv` solo leen `time/high/low/close`, así que sirve igual donde
+    antes iba un `LvlBar`.
+    """
+
+    time: str          # YYYY-MM-DD
+    open: float
+    high: float
+    low: float
+    close: float
+
+
+def fetch_daily_bars(ticker: str, days: int = 365, timeout: float = 25.0) -> list[DailyBar]:
     """Barras diarias del subyacente (`/v2/aggs/...`), de más vieja a más nueva."""
     key = _api_key()
     clean = (ticker or "").strip().upper()
@@ -213,17 +236,22 @@ def fetch_daily_bars(ticker: str, days: int = 365, timeout: float = 25.0) -> lis
     start = end - timedelta(days=days)
     url = (
         f"{BASE_URL}/v2/aggs/ticker/{urllib.parse.quote(clean)}/range/1/day/"
-        f"{start.isoformat()}/{end.isoformat()}?adjusted=true&sort=asc&limit=50000"
+        f"{start.isoformat()}/{end.isoformat()}?adjusted=true&sort=asc&limit=500"
     )
     data = _get(url, key, clean, timeout)
-    out: list[LvlBar] = []
+    out: list[DailyBar] = []
     for b in data.get("results") or []:
         ts = b.get("t")
         if not isinstance(ts, (int, float)):
             continue
-        day = date.fromtimestamp(ts / 1000).isoformat()
-        low, high, close = _num(b.get("l")), _num(b.get("h")), _num(b.get("c"))
-        if low <= 0 or high <= 0 or close <= 0:
-            continue
-        out.append(LvlBar(time=day, high=high, low=low, close=close))
+        # `new Date(ms).toISOString().slice(0, 10)` — su `toDateStr`, que es
+        # **UTC**. `date.fromtimestamp` usa la zona LOCAL del servidor: con el
+        # contenedor en una zona al oeste de Greenwich, la barra del cierre
+        # (21:00 UTC) se etiquetaba con el día ANTERIOR y todo el eje temporal
+        # se corría un día contra el suyo.
+        day = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).date().isoformat()
+        out.append(DailyBar(
+            time=day, open=_num(b.get("o")), high=_num(b.get("h")),
+            low=_num(b.get("l")), close=_num(b.get("c")),
+        ))
     return out

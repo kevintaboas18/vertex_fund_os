@@ -3994,15 +3994,7 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     except ValueError:
         hz = (10, 20, 30)
 
-    try:
-        flow = fetch_flow(tk, period="5d", min_premium=100_000, max_pages=6)
-        trades = flow.trades
-        flow_error = None
-    except MarketSnackError as e:
-        # Sin tape el motor sigue corriendo con la cadena (GEX + estructura),
-        # pero 4 de las 6 categorías quedan sin dato. Se reporta el motivo en
-        # vez de devolver un número que aparenta estar completo.
-        trades, flow_error = [], str(e)
+    trades, conviction_trades, flow_error = _tito_tape(tk)
 
     try:
         chain, bars, spot = _tito_chain_and_bars(tk)
@@ -4012,7 +4004,7 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
         return {"ok": False, "error": str(e), "source": "massive"}
 
     now = datetime.now(timezone.utc)
-    mem = _tito_memory(tk, trades, chain, bars, now)
+    mem = _tito_memory(tk, conviction_trades or trades, chain, bars, now)
 
     # El motor es un port LITERAL: lanza donde su TypeScript lanza (un
     # `symbol` que no es texto, un `timestamp` nulo, una fila `null` del tape).
@@ -4026,6 +4018,7 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
             iv_history=mem["iv_history"],
             past_flows=mem["past_flows"],
             calibration=mem["calibration"],
+            conviction_trades=conviction_trades,
         )
     except Exception as e:                       # noqa: BLE001 — se reporta, no se traga
         return {"ok": False, "error": f"{type(e).__name__}: {e}", "source": "motor"}
@@ -4046,7 +4039,8 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     # reparto 60/40 del lienzo, más velas encogen el cuerpo por debajo de lo
     # legible y el recorte lo acabaría haciendo `vcBuildScales` de todos modos.
     out["history"] = [
-        {"time": b.time, "open": b.close, "high": b.high, "low": b.low, "close": b.close}
+        {"time": b.time, "open": getattr(b, "open", b.close), "high": b.high,
+         "low": b.low, "close": b.close}
         for b in bars[-70:]
     ]
     out["levels_for_chart"] = _tito_chart_levels(r)
@@ -4154,15 +4148,22 @@ def _tito_clusters(trades, now, top=6):
         cl = detect_clusters(notables)
     except Exception:
         return None      # ilustra, no decide: nunca tumba los targets
-    cl = sorted(cl, key=lambda c: -c.premium)[:top]
+    # `c.premium` llega crudo del tape y puede ser texto (el `+` de JS
+    # concatena, ver `flow.detect_clusters`): ordenar con `-c.premium` reventaba
+    # la petición entera por un solo trade mal serializado.
+    from wbj.tito.jsmath import js_clave, js_number
+    cl = sorted(cl, key=lambda c: -js_number(c.premium))[:top]
     return [{
         "start_sec": c.start_sec, "end_sec": c.end_sec, "count": c.count,
         "premium": c.premium, "direction": c.direction, "score": c.score,
-        "unidirectionality": round(c.unidirectionality, 4),
+        "unidirectionality": _r(c.unidirectionality, 4),
         "bet": c.bet, "bet_label": c.bet_label,
         "call_premium": c.call_premium, "put_premium": c.put_premium,
         # Los strikes que tocó el racimo, para poder marcarlo en el eje de precio.
-        "strikes": sorted({t.strike for t in c.trades}),
+        # `js_clave` para deduplicar: un strike que llegue como lista es
+        # inhashable en Python y su `Set` lo acepta sin pestañear.
+        "strikes": sorted({js_clave(t.strike): t.strike
+                           for t in c.trades}.values(), key=js_number),
     } for c in cl] or None
 
 
@@ -4177,24 +4178,20 @@ def _tito_heatmap(chain, r, trades, now):
 
     Las entradas se arman como en su `page.tsx`: los `HeatTrade` salen de unir
     los trades de convicción con los inusuales, deduplicados por `id`, y solo
-    aportan `strike`, `expiration`, `gamma` y `premium`.
+    aportan `strike`, `expiration`, `gamma` y `premium`. Esa unión ya la hizo el
+    motor —es la misma que ancla el GEX—, así que aquí se reusa en vez de
+    rehacerla sobre los 5 días, que era otro universo.
     """
     try:
-        from wbj.tito.flow import classify_flow
         from wbj.tito.gex_heatmap import HeatTrade, gex_heatmap
     except Exception:
         return None
     if not chain or not (r.spot > 0):
         return None
     try:
-        notables = classify_flow(trades, now).interesting if trades else []
-        vistos, ht = set(), []
-        for t in notables:
-            if t.id in vistos:
-                continue
-            vistos.add(t.id)
-            ht.append(HeatTrade(strike=t.strike, expiration=t.expiration,
-                                gamma=t.gamma, premium=t.premium))
+        filas = r.conviction_flow or r.flow.interesting
+        ht = [HeatTrade(strike=t.strike, expiration=t.expiration,
+                        gamma=t.gamma, premium=t.premium) for t in filas]
         h = gex_heatmap(chain, spot=r.spot, iv=r.gex.iv, now=now, trades=ht)
     except Exception:
         # El heatmap ILUSTRA; no puede tumbar los targets, que son lo que el
@@ -4203,19 +4200,19 @@ def _tito_heatmap(chain, r, trades, now):
     if not h.cells:
         return None
     return {
-        "spot": round(h.spot, 2),
-        "iv": round(h.iv, 4),
+        "spot": _r(h.spot),
+        "iv": _r(h.iv, 4),
         "total_net_gex": h.total_net_gex,
         "max_abs_cell": h.max_abs_cell,
         "strikes": [{"strike": s.strike, "net_gex": s.net_gex, "call_gex": s.call_gex,
                      "put_gex": s.put_gex, "open_interest": s.open_interest,
-                     "distance_pct": round(s.distance_pct, 2)} for s in h.strikes],
+                     "distance_pct": _r(s.distance_pct)} for s in h.strikes],
         "expirations": [{"expiration": e.expiration, "dte": e.dte,
                          "net_gex": e.net_gex, "open_interest": e.open_interest}
                         for e in h.expirations],
         "cells": [{"strike": c.strike, "expiration": c.expiration, "net_gex": c.net_gex,
                    "call_gex": c.call_gex, "put_gex": c.put_gex,
-                   "open_interest": c.open_interest, "intensity": round(c.intensity, 4)}
+                   "open_interest": c.open_interest, "intensity": _r(c.intensity, 4)}
                   for c in h.cells],
         "hottest_positive": (None if h.hottest_positive is None else
                              {"strike": h.hottest_positive.strike,
@@ -4245,7 +4242,7 @@ def _tito_chart_levels(r, max_per_side=2, min_strength=25):
         )[:max_per_side]
         for l in picked:
             out.append({
-                "price": round(l.price, 2), "kind": l.kind,
+                "price": _r(l.price), "kind": l.kind,
                 "strength": l.strength, "why": l.why,
             })
     return out
@@ -4304,6 +4301,53 @@ def _tito_ticker(ticker, default=""):
         return ticker_valido(crudo), None
     except TickerInvalido as e:
         return None, str(e)
+
+
+def _tito_tape(ticker):
+    """Las DOS descargas de tape de su `/api/flow`, no una.
+
+    Su ruta baja el flujo dos veces con parámetros distintos, y de ahí salen
+    dos universos que puntúan cosas distintas:
+
+    1. **Agresividad** — `period` (5d), premium ≥ $100K, 6 páginas. Es el pulso
+       reciente: "¿el dinero de esta semana está entrando al ask?".
+    2. **Convicción, Inusualidad y Contexto IV** — `period: "1m"`, premium
+       ≥ $1M, 15 páginas y `targetDays: 30`. El comentario de su archivo lo
+       dice: *"Convicción revisa una ventana de 30 días (nota del documento)"*.
+
+    El port corría los seis sub-agentes sobre la PRIMERA descarga. Tres de las
+    seis categorías puntuaban entonces sobre un universo diez veces más barato y
+    seis veces más corto que el suyo — el score no era el mismo número.
+
+    Si la ventana ancha falla, se cae a la corta: es literalmente lo que hace su
+    `catch` (*"si falla la ventana ancha, Convicción se calcula con los 5
+    días"*). Devuelve `(trades, conviction_trades, error)`.
+    """
+    from wbj.tito.marketsnack import MarketSnackError, fetch_flow
+    from wbj.tito.scorecard import (CONVICTION_DAYS, CONVICTION_MAX_PAGES,
+                                    CONVICTION_MIN_PREMIUM)
+
+    try:
+        trades = fetch_flow(ticker, period="5d", min_premium=100_000,
+                            max_pages=6).trades
+        error = None
+    except MarketSnackError as e:
+        # Sin tape el motor sigue corriendo con la cadena (GEX + estructura),
+        # pero 4 de las 6 categorías quedan sin dato. Se reporta el motivo en
+        # vez de devolver un número que aparenta estar completo.
+        trades, error = [], str(e)
+
+    anchos = None
+    if trades:
+        try:
+            r = fetch_flow(ticker, period="1m",
+                           min_premium=CONVICTION_MIN_PREMIUM,
+                           max_pages=CONVICTION_MAX_PAGES,
+                           target_days=CONVICTION_DAYS)
+            anchos = r.trades or None
+        except MarketSnackError:
+            anchos = None          # su `catch`: Convicción se queda con los 5 días
+    return trades, anchos, error
 
 
 def _tito_chain_and_bars(ticker):
@@ -4369,6 +4413,7 @@ def _tito_memory(ticker, trades, chain, bars, now):
         from wbj.tito import borde
         from wbj.tito import stores as st
         from wbj.tito.flow import classify_flow
+        from wbj.tito.ivcontext import iv_context_score
     except Exception as e:
         return _empty(f"el motor no carga: {type(e).__name__}")
 
@@ -4392,13 +4437,24 @@ def _tito_memory(ticker, trades, chain, bars, now):
 
     if chain:
         _guarda("cadena", lambda: st.save_chain_snapshot(ticker, chain, now))
+    # `trades` es la VENTANA ANCHA (30 d / ≥$1M) — los `convictionRows` que su
+    # `/api/flow` persiste (`saveTrades(ticker, convictionRows)`), no los 5 días
+    # de Agresividad.
     notable = classify_flow(trades, now).interesting if trades else []
     if notable:
-        # Los mismos `convictionRows` que guarda su /api/flow.
         guardado = _guarda("trades", lambda: st.save_trades(ticker, notable))
-        ivs = [r.iv * 100 for r in notable if r.iv and r.iv > 0]
-        if ivs:
-            _guarda("iv", lambda: st.save_iv_snapshot(ticker, sum(ivs) / len(ivs), now))
+        # `saveIvSnapshot(ticker, ivContext)` guarda `s.iv.current`, que es la
+        # IV PONDERADA POR PREMIUM — el dinero grande define el contexto. Aquí
+        # se hacía un promedio simple, que es el número que su propio módulo
+        # descarta por dejarse dominar por los cientos de tickets de 0DTE. Ese
+        # número es el que alimenta el IV Rank real durante meses.
+        ivc = iv_context_score(notable, [], None)
+        if ivc.iv["current"] is not None:
+            _guarda("iv", lambda: st.save_iv_snapshot(ticker, ivc.iv["current"], now,
+                                                      min_iv=ivc.iv["min"],
+                                                      max_iv=ivc.iv["max"],
+                                                      contracts=ivc.iv["contracts"],
+                                                      front_skew=ivc.front_skew))
 
     try:
         # 2. Leer lo acumulado. El filtro por asset_price/timestamp es el de su
@@ -4697,7 +4753,7 @@ def tito_news(ticker: str, call_pct: float | None = None, name: str | None = Non
             "company": [it(x) for x in rep.company[:8]],
             "macro": [it(x) for x in rep.macro],
             "promoted": [it(x) for x in rep.promoted],
-            "bias": {"bias": rep.bias.bias, "score": round(rep.bias.score, 3),
+            "bias": {"bias": rep.bias.bias, "score": _r(rep.bias.score, 3),
                      "positive": rep.bias.positive, "negative": rep.bias.negative,
                      "neutral": rep.bias.neutral},
             "flow_bias": fbias,
@@ -4723,10 +4779,33 @@ def _tito_remember(ticker, result, now):
             st.save_prediction(ticker, st.PredictionSnapshot(
                 date=st.market_date_str(now), horizon_days=int(h), spot=p.spot,
                 bear=p.bear.target, base=p.base.target, bull=p.bull.target,
-                direction=p.direction,
+                direction=p.direction, confidence=p.confidence,
+                # `savedAt: now.toISOString()` de su `savePrediction`.
+                saved_at=now.astimezone(timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z",
             ))
     except Exception:
         pass  # la memoria es acumulativa: perder un día no rompe la corrida
+
+
+def _r(x, n=2):
+    """Redondeo de JS (`Math.round`, mitad SIEMPRE hacia arriba), no el de Python.
+
+    El `round()` de Python es bancario: `round(2.675, 2)` y `round(0.5)` no dan
+    lo mismo que `(2.675).toFixed(2)` y `Math.round(0.5)`. Todo lo que sale por
+    esta ruta se pinta al lado de números que su panel formatea con `toFixed`,
+    así que el criterio tiene que ser el suyo. Es la misma regla que
+    `jsmath.js_round` fija dentro del motor — aquí faltaba en el borde.
+
+    `None` y los no finitos pasan tal cual: `_json_safe` los convierte después.
+    """
+    if x is None or not isinstance(x, (int, float)) or isinstance(x, bool):
+        return x
+    if x != x or x in (float("inf"), float("-inf")):
+        return x
+    from wbj.tito.jsmath import js_round
+    f = 10 ** n
+    return js_round(x * f) / f
 
 
 def _tito_json(r):
@@ -4740,28 +4819,28 @@ def _tito_json(r):
     navegador rechaza. La misma fila, en su lado, sale como `null`.
     """
     def scen(s):
-        return {"target": round(s.target, 2), "change_pct": round(s.change_pct, 1),
-                "probability": round(s.probability, 3), "driver": s.driver}
+        return {"target": _r(s.target), "change_pct": _r(s.change_pct, 1),
+                "probability": _r(s.probability, 3), "driver": s.driver}
 
     def lvl(l):
-        return {"price": round(l.price, 2), "kind": l.kind, "strength": l.strength,
-                "distance_pct": round(l.distance_pct, 1), "why": l.why,
+        return {"price": _r(l.price), "kind": l.kind, "strength": l.strength,
+                "distance_pct": _r(l.distance_pct, 1), "why": l.why,
                 "flipped": l.flipped}
 
     return _json_safe({
         "ok": True,
         "ticker": r.ticker,
-        "spot": round(r.spot, 2),
+        "spot": _r(r.spot),
         "score": r.score,
         "verdict": r.verdict,
         "verdict_meaning": r.verdict_meaning,
         "active": r.active,
         "scores": r.scores,
         "gex": {
-            "iv": round(r.gex.iv, 4),
+            "iv": _r(r.gex.iv, 4),
             "regime": r.gex.regime,
             "king_strike": r.gex.king_strike,
-            "flip_strike": round(r.gex.flip_strike, 2) if r.gex.flip_strike else None,
+            "flip_strike": _r(r.gex.flip_strike) if r.gex.flip_strike else None,
             "direction": r.gex.direction,
             "confidence": r.gex.confidence,
             "low_liquidity": r.gex.low_liquidity,
@@ -4782,7 +4861,13 @@ def _tito_json(r):
         # Las advertencias NO son decorativas: la salvaguarda de liquidez y el
         # aviso de categorías faltantes deben viajar con el número siempre.
         "warnings": r.warnings,
+        # Los DOS contadores, como su `meta.notableCount` y su
+        # `convictionMeta.total`: el pulso de la semana y la ventana ancha de 30
+        # días. Con uno solo no se puede saber sobre qué universo puntuaron
+        # Convicción, Inusualidad y Contexto IV.
         "notable_trades": len(r.flow.interesting),
+        "conviction_trades": len(r.conviction_flow),
+        "conviction_window": r.conviction_window,
         # % del premium notable en calls. Es el mismo número que usa el resumen
         # de Prediction Pro, y el que /api/tito-news necesita para confrontar la
         # dirección del dinero contra la de los titulares.
@@ -4793,13 +4878,20 @@ def _tito_json(r):
 def _tito_call_pct(r):
     """% del premium notable que está en calls, o None si no hay flujo direccional.
 
-    Se calcula sobre el set "interesante" — el mismo `convictionRows` que usa
-    Víctor, que en su código es literalmente `interesting`.
+    Se calcula sobre `convictionRows` —la ventana ancha de 30 días y ≥$1M—,
+    igual que el `callPct` de su `page.tsx`. Es el mismo número que usa el
+    resumen de Prediction Pro y el que `/api/tito-news` necesita para confrontar
+    la dirección del dinero contra la de los titulares.
+
+    `premium` llega crudo: `sum()` de Python lanza con un texto y su aritmética
+    coacciona. `Math.round`, no `round()`, por lo mismo de siempre.
     """
-    call_p = sum(x.premium for x in r.flow.interesting if x.type == "call")
-    put_p = sum(x.premium for x in r.flow.interesting if x.type == "put")
+    from wbj.tito.jsmath import js_number, js_round
+    filas = r.conviction_flow or r.flow.interesting
+    call_p = sum(js_number(x.premium) for x in filas if x.type == "call")
+    put_p = sum(js_number(x.premium) for x in filas if x.type == "put")
     total = call_p + put_p
-    return round(call_p / total * 100) if total > 0 else None
+    return js_round(call_p / total * 100) if total > 0 else None
 
 
 @app.get("/api/tito-scorecard")
@@ -4824,12 +4916,11 @@ def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
     except ValueError:
         hz = (10, 20, 30)
 
-    try:
-        flow = fetch_flow(tk, period="5d", min_premium=100_000, max_pages=6)
-    except MarketSnackError as e:
+    trades, conviction_trades, flow_error = _tito_tape(tk)
+    if flow_error and not trades:
         # Sin tape no hay scorecard: 4 de las 6 categorías dependen de él. Se
         # devuelve el motivo exacto en vez de un reporte a medias sin avisar.
-        return {"ok": False, "error": str(e), "source": "marketsnack"}
+        return {"ok": False, "error": flow_error, "source": "marketsnack"}
 
     try:
         chain, bars, spot = _tito_chain_and_bars(tk)
@@ -4840,15 +4931,14 @@ def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
     # donde su archivo lanza; aquí se traduce a un error con forma de JSON.
     try:
         r = sc.run_scorecard(
-            tk, flow.trades, chain or [], bars,
+            tk, trades, chain or [], bars,
             now=datetime.now(timezone.utc), spot=spot, horizons=hz,
+            conviction_trades=conviction_trades,
         )
     except Exception as e:                       # noqa: BLE001 — se reporta, no se traga
         return {"ok": False, "error": f"{type(e).__name__}: {e}", "source": "motor"}
     out = _tito_json(r)
     out["chain_source"] = "massive"
-    out["pages_fetched"] = flow.pages
-    out["truncated"] = flow.truncated
     return out
 
 

@@ -33,6 +33,7 @@ import re
 from typing import Any, Iterable
 
 from .levels import LvlBar
+from .massive import DailyBar
 from .stores import _sanea_ticker
 
 __all__ = [
@@ -145,7 +146,8 @@ def barras_utiles(cache: Any) -> list[LvlBar] | None:
     texto. Un cache ilegible es un cache que no está: devuelve `None`, se pide a
     la red y el archivo se reescribe solo.
 
-    Se exige que TODAS las barras sean `LvlBar`. Un cache medio bueno no es un
+    Se exige que TODAS las barras sean barras de verdad (`DailyBar` del cliente
+    de Massive o el `LvlBar` que usa `levels`). Un cache medio bueno no es un
     ahorro: el histórico se usa entero para máximos, mínimos y toques, y una
     serie con huecos silenciosos es peor que una petición de más.
     """
@@ -154,6 +156,6 @@ def barras_utiles(cache: Any) -> list[LvlBar] | None:
     bars = getattr(cache, "bars", None)
     if not isinstance(bars, list) or not bars:
         return None
-    if not all(isinstance(b, LvlBar) for b in bars):
+    if not all(isinstance(b, (LvlBar, DailyBar)) for b in bars):
         return None
     return bars

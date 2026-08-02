@@ -256,18 +256,42 @@ def load_chain_history(ticker: str) -> list[dict]:
 # ─────────────────────────────── IV (sub-agente 5) ──────────────────────────
 
 
-def save_iv_snapshot(ticker: str, avg_iv: float, now: datetime) -> int:
-    """Guarda la IV media del día (en %). Alimenta el IV Rank real.
+def save_iv_snapshot(
+    ticker: str,
+    avg_iv: float,
+    now: datetime,
+    min_iv: float | None = None,
+    max_iv: float | None = None,
+    contracts: int | None = None,
+    front_skew: float | None = None,
+) -> int:
+    """Guarda la foto de IV del día (en %). Alimenta el IV Rank real.
 
     A partir de `MIN_IV_HISTORY_DAYS` (60) muestras, `iv_context_score` deja de
     usar el proxy de volatilidad realizada y pasa al rank de verdad, solo.
+
+    `avg_iv` tiene que ser la IV **ponderada por premium** (`iv.current` de
+    `iv_context_score`), que es lo que guarda su `saveIvSnapshot`. Un promedio
+    simple lo dominan los cientos de tickets pequeños de 0DTE, y ese número
+    queda escrito para siempre: el IV Rank de dentro de seis meses se calcula
+    sobre lo que se guarde hoy.
+
+    Los cuatro campos opcionales son los que su snapshot también persiste
+    (`minIv`, `maxIv`, `contracts`, `frontSkew`). El rank NO los usa —solo lee
+    `avgIv`—, pero sin ellos no se puede auditar hacia atrás por qué la IV de
+    un día concreto salió como salió.
     """
     if not (avg_iv and avg_iv > 0):
         return len(load_iv_history(ticker))
     path = _path("iv", ticker)
+    fila = {"date": market_date_str(now), "avg_iv": round(float(avg_iv), 4)}
+    for k, v in (("min_iv", min_iv), ("max_iv", max_iv),
+                 ("contracts", contracts), ("front_skew", front_skew)):
+        if v is not None:
+            fila[k] = round(float(v), 4) if k != "contracts" else int(v)
     with _exclusive(path):
         hist = _read(path) or []
-        hist = _upsert(hist, {"date": market_date_str(now), "avg_iv": round(float(avg_iv), 4)})
+        hist = _upsert(hist, fila)
         hist = _prune(hist, IV_DAYS)
         _write(path, hist)
     return len(hist)
@@ -525,10 +549,30 @@ class PredictionSnapshot:
     base: float
     bull: float
     direction: Literal["up", "down", "flat"]
+    #: `confidence` y `savedAt` de su `PredictionSnapshot`. `reviewPredictions`
+    #: no los lee —el sesgo sale de los targets—, pero su diario los guarda y
+    #: sin ellos no se puede auditar hacia atrás con qué confianza se dijo lo
+    #: que se dijo, que es justo lo que hace falta al revisar un fallo.
+    confidence: int = 0
+    saved_at: str | None = None
 
 
 def save_prediction(ticker: str, snap: PredictionSnapshot) -> int:
-    """Guarda la foto del día. Dedupe por (fecha, horizonte)."""
+    """Guarda la foto del día. Dedupe por **(fecha, horizonte)**.
+
+    DIVERGENCIA declarada respecto a su `savePrediction`, que deduplica **solo
+    por fecha** (`byDate.set(s.date, s)`).
+
+    Su UI muestra un horizonte a la vez y hace un POST por el que esté
+    seleccionado, así que su diario tiene una fila por día y la clave le basta.
+    Vertex sirve los tres horizontes en la MISMA respuesta y guarda los tres:
+    con su clave, dos de cada tres se perderían en silencio y la calibración se
+    quedaría con un tercio de las muestras.
+
+    Su propio `reviewPredictions` lee `horizonDays` de cada fila para decidir si
+    ya venció, así que un diario con tres horizontes por día lo procesa sin
+    tocar nada — la clave es lo único que cambia.
+    """
     path = _path("predictions", ticker)
     with _exclusive(path):
         # Se llama una vez POR HORIZONTE. Sin cerrojo, dos peticiones a la vez

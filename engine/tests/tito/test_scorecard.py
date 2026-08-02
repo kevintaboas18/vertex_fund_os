@@ -6,6 +6,8 @@ import math
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+import pytest
+
 from wbj.tito.levels import LvlBar
 from wbj.tito.scorecard import run_scorecard, verdict_of
 from wbj.tito.structure import ChainRow
@@ -146,3 +148,86 @@ def test_la_calibracion_por_memoria_mueve_el_target_base():
     )
     assert con.predictions[20].calibration["applied"] is True
     assert con.predictions[20].base.target != sin.predictions[20].base.target
+
+
+class TestLaVentanaAnchaDeConviccion:
+    """Su `/api/flow` hace DOS descargas y de ahí salen dos universos.
+
+    1. `period` (5d) · ≥$100K · 6 páginas          → Agresividad
+    2. `period: "1m"` · ≥$1M · 15 pág · 30 días    → Convicción, Inusualidad,
+                                                     Contexto IV, GEX y callPct
+
+    El port corría los seis sub-agentes sobre la primera. Estos casos fijan que
+    cada uno mira el universo que le toca.
+    """
+
+    @staticmethod
+    def _tape(n, primer_id, iv, premium, tipo="call"):
+        return [{
+            "id": primer_id + i,
+            "symbol": f"DEMO270115{'C' if tipo == 'call' else 'P'}00100000",
+            "price": 2.0, "size": 800, "side": "AT_ASK",
+            "bid_price": 1.9, "ask_price": 2.1, "premium": premium,
+            "delta": 0.62, "gamma": 0.03, "theta": -0.04, "vega": 0.3,
+            "implied_volatility": iv, "open_interest": 4000, "volume": 5200,
+            "score": 8, "sentiment": "bullish",
+            "timestamp": "2026-07-31T15:30:00Z",
+        } for i in range(n)]
+
+    def _corre(self, **kw):
+        from datetime import datetime, timezone
+
+        from wbj.tito.levels import LvlBar
+        from wbj.tito.scorecard import run_scorecard
+        from wbj.tito.structure import ChainRow
+
+        now = datetime(2026, 7, 31, 18, tzinfo=timezone.utc)
+        bars = [LvlBar(time=f"2026-0{4 + i // 30}-{i % 30 + 1:02d}",
+                       high=101.0, low=99.0, close=100.0) for i in range(60)]
+        chain = [ChainRow("call", "2026-09-18", float(s), 9000, 400, 9e7)
+                 for s in range(90, 115, 5)]
+        return run_scorecard("DEMO", self._tape(4, 1, 0.44, 200_000),
+                             chain, bars, now=now, spot=100.0,
+                             horizons=(20,), **kw)
+
+    def test_sin_ventana_ancha_todo_sale_de_los_cinco_dias(self):
+        r = self._corre()
+        assert r.conviction_window == "5d"
+        assert [x.id for x in r.conviction_flow] == [x.id for x in r.flow.interesting]
+
+    def test_con_ventana_ancha_conviccion_puntua_sobre_ELLA(self):
+        anchos = self._tape(6, 100, 2.9, 5_000_000)
+        r = self._corre(conviction_trades=anchos)
+        assert r.conviction_window == "30d"
+        # Convicción/Inusualidad/Contexto IV miran los 6 anchos, no los 4 cortos.
+        assert {x.id for x in r.conviction_flow} == {100, 101, 102, 103, 104, 105}
+        assert r.conviction.n == 6
+        assert r.unusuality.n == 6
+        assert r.iv_context.iv["contracts"] == 6
+        # …y la IV que sale es la de la ventana ancha (290%), no la corta (44%).
+        assert r.iv_context.iv["current"] == pytest.approx(290.0)
+        # Agresividad sigue mirando los 5 días.
+        assert r.aggression.n == 4
+
+    def test_el_gex_ancla_con_la_ventana_ancha(self):
+        anchos = self._tape(6, 100, 2.9, 5_000_000)
+        corto = self._corre()
+        ancho = self._corre(conviction_trades=anchos)
+        # Los mismos strikes, pero la gamma real que ancla viene de otro set.
+        assert corto.gex.n == ancho.gex.n
+        assert [n.strike for n in corto.gex.nodes] == [n.strike for n in ancho.gex.nodes]
+
+    def test_los_niveles_usan_la_UNION_de_las_dos_ventanas(self):
+        anchos = self._tape(6, 100, 2.9, 5_000_000)
+        r = self._corre(conviction_trades=anchos)
+        # `convRows ∪ notable` con dedupe por id: 6 + 4 = 10 flows distintos.
+        from wbj.tito.scorecard import _unir
+        assert len(_unir(r.conviction_flow, r.flow.interesting)) == 10
+
+    def test_el_call_pct_sale_de_la_ventana_ancha(self):
+        # Ventana ancha 100% puts contra una corta 100% calls: si el callPct
+        # saliera de la corta daría 100, y de la ancha da 0.
+        anchos = self._tape(6, 100, 2.9, 5_000_000, tipo="put")
+        r = self._corre(conviction_trades=anchos)
+        assert r.predictions[20].summary.startswith("A 20 días")
+        assert "en puts" in r.predictions[20].summary

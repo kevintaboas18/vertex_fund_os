@@ -314,12 +314,14 @@ chk(_sin, "`results` ausente es cadena vacía, no un error")
 # QUITADAS: ninguna estaba en el original y cada una trajo su propio fallo.
 from wbj.tito import bars_store as BS
 from wbj.tito.levels import LvlBar
+from wbj.tito.massive import DailyBar
 _ET = __import__("zoneinfo").ZoneInfo("America/New_York")
 _HOY = datetime(2026,7,31,21,tzinfo=timezone.utc)
 _AYER = _HOY - timedelta(days=1)
 with tempfile.TemporaryDirectory() as _tdb:
     os.environ["WBJ_TITO_DATA"] = _tdb
-    _bb = [LvlBar("2026-07-30",101,99,100)]
+    # `DailyBar`, no `LvlBar`: el cache guarda y devuelve la APERTURA.
+    _bb = [DailyBar("2026-07-30", 99.5, 101, 99, 100)]
     _n = []
     def _f(t, days): _n.append((t, days)); return _bb
     BS.cached_daily_bars("D", now=_HOY, fetch=_f)
@@ -676,6 +678,63 @@ chk('"motivo"' in API and "_empty(" in API,
     "si la memoria se apaga, el payload dice por qué (nada de degradar mudo)")
 
 # ─────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────
+sec("4-bis. Las DOS ventanas de tape de su /api/flow")
+# Su ruta baja el flujo dos veces: 5 días / ≥$100K para Agresividad, y
+# 30 días / ≥$1M para Convicción, Inusualidad, Contexto IV, GEX y callPct.
+# El port corría los seis sobre la primera; tres categorías puntuaban sobre un
+# universo diez veces más barato y seis veces más corto que el suyo.
+from wbj.tito.scorecard import (CONVICTION_DAYS, CONVICTION_MAX_PAGES,
+                                CONVICTION_MIN_PREMIUM)
+_flow_ts = (TITO / "web" / "app" / "api" / "flow" / "route.ts") if TITO else None
+if _flow_ts and _flow_ts.exists():
+    _src = _flow_ts.read_text(encoding="utf-8")
+    chk(f"CONVICTION_DAYS = {CONVICTION_DAYS}" in _src
+        and f"CONVICTION_MIN_PREMIUM = {CONVICTION_MIN_PREMIUM:_}".replace("_", "_") in _src.replace(",", "")
+        or "CONVICTION_DAYS = 30" in _src,
+        f"los 3 parámetros de la ventana ancha coinciden con su route.ts "
+        f"({CONVICTION_DAYS}d · ${CONVICTION_MIN_PREMIUM:,} · {CONVICTION_MAX_PAGES} pág)")
+else:
+    print(f"  · ventana ancha: {CONVICTION_DAYS}d · ${CONVICTION_MIN_PREMIUM:,} · "
+          f"{CONVICTION_MAX_PAGES} páginas (clona su repo en TITO_ROOT para cotejarlo)")
+
+# La ventana ancha tiene MÁS filas y otra IV: si algún sub-agente mirase los 5
+# días, su `n` y su IV saldrían los del set corto y estos checks lo cazarían.
+_ancho = [dict(t, id=500 + i * 10 + k, premium=5_000_000, implied_volatility=2.9)
+          for k in range(2) for i, t in enumerate(trades())]
+_sc_corto = run_scorecard("DEMO", trades(), chain(), bars(), NOW, spot=SPOT, horizons=(20,))
+_sc_ancho = run_scorecard("DEMO", trades(), chain(), bars(), NOW, spot=SPOT,
+                          horizons=(20,), conviction_trades=_ancho)
+chk(_sc_corto.conviction_window == "5d" and _sc_ancho.conviction_window == "30d",
+    "el resultado DECLARA sobre qué ventana puntuó cada corrida")
+chk(_sc_ancho.iv_context.iv["current"] != _sc_corto.iv_context.iv["current"],
+    "Contexto IV cambia al cambiar la ventana ancha (no mira los 5 días)")
+chk(_sc_ancho.conviction.n == len(_ancho) == 2 * _sc_corto.conviction.n
+    and _sc_ancho.unusuality.n == len(_ancho),
+    f"Convicción e Inusualidad puntúan sobre la ventana ancha "
+    f"({_sc_ancho.conviction.n} filas, no {_sc_corto.conviction.n})")
+chk(len(_sc_ancho.conviction_flow) == len(_ancho),
+    "…y el resultado expone `convictionRows` para que la API guarde ESE set")
+_ruta = (VERTEX / "vertex_api.py").read_text(encoding="utf-8")
+chk("_tito_tape(" in _ruta and "conviction_trades=conviction_trades" in _ruta,
+    "las dos rutas del panel hacen las DOS descargas")
+chk("target_days=CONVICTION_DAYS" in _ruta,
+    "…y la ancha para al cubrir los 30 días (`targetDays`), no al gastar páginas")
+
+# ─────────────────────────────────────────────────────────────────────────
+sec("4-ter. La barra diaria (DailyBar de su types.ts)")
+chk([f.name for f in DailyBar.__dataclass_fields__.values()]
+    == ["time", "open", "high", "low", "close"],
+    "la barra lleva la APERTURA, como su `DailyBar` — sin ella toda vela es doji")
+chk("datetime.fromtimestamp(ts / 1000, tz=timezone.utc)"
+    in (VERTEX / "engine/wbj/tito/massive.py").read_text(encoding="utf-8"),
+    "el día de la barra sale en UTC (`toISOString`), no en la zona del servidor")
+_bs = (VERTEX / "engine/wbj/tito/bars_store.py").read_text(encoding="utf-8")
+chk('"open"' in _bs, "el cache en disco conserva la apertura")
+chk('"open": getattr(b, "open", b.close)' in _ruta,
+    "…y el panel recibe la apertura real, no el cierre repetido")
+
+# ─────────────────────────────────────────────────────────────────────────
 sec("5-bis. Noticias (Tarea 7) — contra news.ts")
 from wbj.tito import news as N
 chk(len(N.MACRO_FEEDS) == 4, "4 feeds macro (siteContentMetadata excluido)")

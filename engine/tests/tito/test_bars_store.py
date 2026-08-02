@@ -32,6 +32,7 @@ from wbj.tito.bars_store import (
     save_bars,
 )
 from wbj.tito.levels import LvlBar
+from wbj.tito.massive import DailyBar
 
 AYER = datetime(2026, 7, 30, 21, 0, tzinfo=timezone.utc)
 HOY = datetime(2026, 7, 31, 21, 0, tzinfo=timezone.utc)   # 17:00 ET
@@ -45,14 +46,16 @@ def _tmp_data(tmp_path, monkeypatch):
 def _barras_hasta(ultimo: str, n: int = 30, base: float = 100.0):
     """`n` barras diarias consecutivas que terminan en `ultimo` (inclusive)."""
     fin = datetime.fromisoformat(ultimo).date()
-    return [LvlBar(time=(fin - timedelta(days=n - 1 - i)).isoformat(),
-                   high=base + i + 1, low=base + i - 1, close=base + i)
+    return [DailyBar(time=(fin - timedelta(days=n - 1 - i)).isoformat(),
+                     open=base + i - 0.5, high=base + i + 1,
+                     low=base + i - 1, close=base + i)
             for i in range(n)]
 
 
 def _barras(n=5, base=100.0):
-    return [LvlBar(time=(datetime(2026, 7, 27) + timedelta(days=i)).date().isoformat(),
-                   high=base + i + 1, low=base + i - 1, close=base + i)
+    return [DailyBar(time=(datetime(2026, 7, 27) + timedelta(days=i)).date().isoformat(),
+                     open=base + i - 0.5, high=base + i + 1,
+                     low=base + i - 1, close=base + i)
             for i in range(n)]
 
 
@@ -146,7 +149,7 @@ class TestGuardarYLeer:
 
         from wbj.tito.stores import data_dir
 
-        save_bars("NAN", [LvlBar("2026-07-30", float("nan"), 1, float("inf"))], HOY)
+        save_bars("NAN", [DailyBar("2026-07-30", 1, float("nan"), 1, float("inf"))], HOY)
         crudo = (data_dir() / "bars" / "NAN.json").read_text(encoding="utf-8")
 
         def estricto(c):

@@ -42,6 +42,7 @@ from typing import Any, Sequence
 
 from .borde import barras_utiles
 from .levels import LvlBar
+from .massive import DailyBar
 from .occ import market_date_str
 from .stores import _exclusive, _prop, _read, _sanea_ticker, _write, data_dir
 
@@ -104,8 +105,10 @@ def _a_bar(d: object) -> Any:
     if not isinstance(d, dict):
         return d
     try:
-        return LvlBar(time=str(d["time"]), high=float(d["high"]),
-                      low=float(d["low"]), close=float(d["close"]))
+        return DailyBar(time=str(d["time"]),
+                        open=float(d.get("open", d["close"])),
+                        high=float(d["high"]), low=float(d["low"]),
+                        close=float(d["close"]))
     except (KeyError, TypeError, ValueError):
         return d
 
@@ -153,7 +156,11 @@ def save_bars(ticker: str, bars: Sequence[LvlBar], now: datetime | None = None) 
         _write(path, {
             "ticker": ticker.upper(),   # `ticker.toUpperCase()`, sin trim (él tampoco)
             "date": market_date_str(now),
-            "bars": [{"time": b.time, "high": b.high, "low": b.low, "close": b.close}
+            # `bars` van con la APERTURA: su `BarsFile` guarda `DailyBar[]`.
+            # Sin ella el cache devolvía una serie que ya no se puede usar para
+            # dibujar velas, y encima sellada en disco.
+            "bars": [{"time": b.time, "open": getattr(b, "open", b.close),
+                      "high": b.high, "low": b.low, "close": b.close}
                      for b in bars],
         })
 
