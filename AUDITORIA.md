@@ -1359,3 +1359,67 @@ Queda anotado como decisión consciente, no como olvido.
 ## 20.3 Estado
 
 **2115 tests del engine + 75 de la capa web.**
+
+---
+
+# 21. La caché de proveedores se escribía a medias (W-04)
+
+Al revisar si esas ocho rutas necesitaban lock, lo que apareció no fue un problema
+de rutas: era la caché compartida. `Cache.put` escribía así:
+
+```python
+path.write_text(json.dumps(record), encoding="utf-8")
+```
+
+`write_text` abre **truncando**. Entre el truncado y el volcado el archivo está
+vacío en disco. Y la aplicación corre **cuatro hilos de fondo** que escriben esa
+misma caché mientras las peticiones en vivo la leen:
+
+| Hilo | `vertex_api.py` |
+|---|---|
+| índice de FMP | `_fmp_cargar_indice` |
+| backfill | `_run_backfill` |
+| planificador | `_scheduler_loop` |
+| colección bajo demanda | `_run_daily_collection` |
+
+**Por qué no se veía.** `_read_record` devuelve `None` ante un JSON roto, así que
+la carrera no se manifestaba como un error: se manifestaba como una petición más a
+la API. Cuota gastada para recuperar algo que ya estaba guardado.
+
+**Medido** (3 escritores + 3 lectores, 1.5 s, misma entrada):
+
+| | lecturas perdidas |
+|---|---|
+| `write_text` (original) | **71** |
+| temporal + `os.replace` | **0** |
+
+## 21.1 El arreglo no era el lock
+
+Serializar ocho rutas habría tapado el síntoma en la web y dejado el defecto vivo
+en los cuatro hilos de fondo, que no pasan por ninguna ruta. La escritura atómica
+—temporal en el MISMO directorio y luego `os.replace`, atómico en POSIX y en
+Windows— lo arregla en la raíz y cubre todos los llamadores a la vez, sin
+encadenar la aplicación. **Sigue sin haber lock en esas ocho rutas, y ahora por
+una razón medida, no por prudencia.**
+
+Un fallo de disco en `put` no puede tumbar el análisis: el dato ya se obtuvo y la
+caché es una optimización, así que el `OSError` se traga tras limpiar el temporal.
+
+## 21.2 Un segundo hallazgo, específico de Windows
+
+Con la escritura ya atómica el test **seguía fallando**: 15 lecturas perdidas, pero
+no por contenido roto — `PermissionError`. En Windows `os.replace` deja una ventana
+brevísima en la que abrir el destino da *sharing violation* aunque el reemplazo
+funcione. En Linux (Render, producción) no ocurre.
+
+El efecto es el mismo agujero de cuota, así que `_read_record` reintenta 3 veces
+con 10 ms. Distingue los dos casos: un `JSONDecodeError` es corrupción real y no se
+reintenta; un `OSError` es la ventana del rename y sí.
+
+## 21.3 Estado
+
+`engine/tests/test_cache_writes_are_atomic.py` — 5 tests con hilos de verdad contra
+disco de verdad, no lectura de código fuente. Verificado que **fallan** contra el
+`put` original (71 lecturas rotas), así que discriminan.
+
+**2120 tests del engine + 75 de la capa web.**
