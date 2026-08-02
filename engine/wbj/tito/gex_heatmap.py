@@ -16,7 +16,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Sequence
 
-from .jsmath import MS_POR_DIA, es_nulo, js_date_parse, js_round, js_time
+from .jsmath import (MS_POR_DIA, es_nulo, js_abs, js_add, js_clave,
+                     js_date_parse, js_gt, js_is_finite, js_max, js_min,
+                     js_number, js_orden, js_round, js_string, js_time,
+                     js_truthy)
 from .black_scholes import bs_gamma
 from .structure import ChainRow
 
@@ -109,6 +112,45 @@ def _dte_of(expiration: str, now: datetime) -> float:
     return max(0.0, js_round(ms / MS_POR_DIA)) if ms == ms else math.nan
 
 
+def _entero_js(v, negado: bool = False) -> int:
+    """`ToIntegerOrInfinity(v)` — lo que `Array.prototype.slice` hace con su
+    argumento: `NaN` y `undefined` valen 0, y el resto se trunca hacia cero.
+
+    `negado` devuelve `-n`, que es como su archivo pide "los últimos n"
+    (`.slice(-strikeRadius)`).
+    """
+    n = js_number(v)
+    if n != n:
+        n = 0.0
+    if math.isinf(n):
+        return -(10 ** 9) if (n > 0) == negado else 10 ** 9
+    n = int(n)
+    return -n if negado else n
+
+
+#: "argumento ausente" — que NO es lo mismo que pasar `null`. `.slice(0)` da la
+#: lista entera y `.slice(0, null)` da una vacía, porque `ToIntegerOrInfinity`
+#: convierte el `null` en 0.
+_SIN = object()
+
+
+def _rodaja(xs: list, inicio, fin=_SIN) -> list:
+    """`xs.slice(inicio, fin)` de JS, con sus reglas de índice.
+
+    Dos trampas que el corte de Python no tiene: `.slice(-0)` es `.slice(0)`
+    —la lista ENTERA, no una vacía— y un `fin` de `null` sí cuenta como 0.
+    """
+    i = inicio if isinstance(inicio, int) else _entero_js(inicio)
+    if i < 0:
+        i = max(0, len(xs) + i)
+    if fin is _SIN:
+        return xs[i:]
+    j = _entero_js(fin)
+    if j < 0:
+        j = max(0, len(xs) + j)
+    return xs[i:j]
+
+
 def gex_heatmap(
     rows: Sequence[ChainRow],
     spot: float,
@@ -119,56 +161,89 @@ def gex_heatmap(
     max_expirations: int = 8,
 ) -> GexHeatmap:
     """Construye la malla strike × vencimiento con su GEX neto por celda."""
-    if not (spot > 0) or not rows:
+    # `if (!(spot > 0) || rows.length === 0)`: la comparación coacciona sola y
+    # un `spot` ilegible la hace falsa, así que sigue. Todo el resto del cuerpo
+    # trabaja con el crudo y coacciona en cada uso, igual que su archivo — el
+    # port usaba operadores de Python y lanzaba con la mitad del corpus
+    # malformado. Lo destapó `diff_motor3.sh`.
+    if not js_gt(spot) or not rows:
         return _EMPTY
+    spot_n = js_number(spot)
 
     # Gamma real del tape por (strike, vencimiento) para anclar la estimación.
     real_gamma: dict[str, list[float]] = {}
     for t in trades:
-        if es_nulo(t.strike) or not t.expiration or not (t.gamma > 0):
+        if es_nulo(t.strike) or not js_truthy(t.expiration) or not js_gt(t.gamma):
             continue
-        real_gamma.setdefault(f"{t.strike}|{t.expiration}", []).append(t.gamma)
+        # `${t.strike}|${t.expiration}` — plantilla, o sea `String()`.
+        clave = f"{js_string(t.strike)}|{js_string(t.expiration)}"
+        # `e.sum += t.gamma` — el `+` de JS: con una gamma `"Infinity"` el
+        # acumulador es la CADENA "0Infinity", que al dividir da `NaN`. El port
+        # coaccionaba antes de acumular y salía un infinito.
+        real_gamma.setdefault(clave, []).append(t.gamma)
 
     # Vencimientos más cercanos con contratos vivos.
-    exp_set: dict[str, int] = {}
+    exp_set: dict = {}
     for r in rows:
-        if not r.expiration or r.open_interest <= 0:
+        # `!r.expiration` es la veracidad de JS; `r.openInterest <= 0` NO se
+        # cumple con un OI ilegible, así que la fila entra.
+        if not js_truthy(r.expiration) or js_number(r.open_interest) <= 0:
             continue
-        exp_set[r.expiration] = exp_set.get(r.expiration, 0) + r.open_interest
-    expirations = [e for e in sorted(exp_set) if _dte_of(e, now) >= 0][:max_expirations]
+        k = js_clave(r.expiration)
+        exp_set[k] = js_add(exp_set.get(k, 0), r.open_interest)
+    # `[...expSet.keys()].sort()` sin comparador: ordena por TEXTO, no numérico.
+    expirations = [e for e in sorted((r.expiration for r in rows
+                                      if js_clave(r.expiration) in exp_set),
+                                     key=js_string)
+                   if js_number(_dte_of(e, now)) >= 0]
+    vistos, unicas = set(), []
+    for e in expirations:
+        if js_clave(e) not in vistos:
+            vistos.add(js_clave(e))
+            unicas.append(e)
+    expirations = _rodaja(unicas, 0, max_expirations)
     if not expirations:
         return _EMPTY
-    exp_selected = set(expirations)
+    exp_selected = {js_clave(e) for e in expirations}
 
     # Strikes alrededor del spot: los `strike_radius` más cercanos por cada lado.
-    all_strikes = sorted(
-        {r.strike for r in rows if r.expiration in exp_selected and r.strike > 0}
-    )
-    above = [s for s in all_strikes if s >= spot][:strike_radius]
-    below = [s for s in all_strikes if s < spot][-strike_radius:]
-    strike_set = set(below) | set(above)
+    todos: dict = {}
+    for r in rows:
+        if js_clave(r.expiration) in exp_selected and js_gt(r.strike):
+            todos.setdefault(js_clave(r.strike), r.strike)
+    all_strikes = sorted(todos.values(),
+                         key=js_orden(lambda a, b: js_number(a) - js_number(b)))
+    arriba = [s for s in all_strikes if js_number(s) >= spot_n]
+    abajo = [s for s in all_strikes if js_number(s) < spot_n]
+    above = _rodaja(arriba, 0, strike_radius)
+    below = _rodaja(abajo, _entero_js(strike_radius, negado=True))
+    strike_set = {js_clave(s) for s in below} | {js_clave(s) for s in above}
     if not strike_set:
         return _EMPTY
 
     # Acumulación por celda.
     cell_map: dict[str, HeatCell] = {}
     for r in rows:
-        if r.expiration not in exp_selected or r.strike not in strike_set:
+        if (js_clave(r.expiration) not in exp_selected
+                or js_clave(r.strike) not in strike_set):
             continue
-        if r.open_interest <= 0:
+        if js_number(r.open_interest) <= 0:
             continue
 
         dte = _dte_of(r.expiration, now)
         # Piso de 1 día: T=0 haría explotar la gamma de Black-Scholes.
-        T = max(dte, 1) / 365
-        gamma = bs_gamma(spot, r.strike, T, iv)
-        anchor = real_gamma.get(f"{r.strike}|{r.expiration}")
+        T = js_max(dte, 1) / 365
+        gamma = bs_gamma(spot_n, js_number(r.strike), T, js_number(iv))
+        anchor = real_gamma.get(f"{js_string(r.strike)}|{js_string(r.expiration)}")
         if anchor:
-            gamma = (gamma + sum(anchor) / len(anchor)) / 2
+            suma: object = 0
+            for x in anchor:
+                suma = js_add(suma, x)
+            gamma = (gamma + js_number(suma) / len(anchor)) / 2
 
         # GEX = Γ · OI · 100 · S² · 0.01 — dólares por 1% de movimiento.
-        gex = gamma * r.open_interest * 100 * spot * spot * 0.01
-        key = f"{r.strike}|{r.expiration}"
+        gex = gamma * js_number(r.open_interest) * 100 * spot_n * spot_n * 0.01
+        key = f"{js_string(r.strike)}|{js_string(r.expiration)}"
         cell = cell_map.setdefault(key, HeatCell(strike=r.strike, expiration=r.expiration))
         if r.contract_type == "call":
             cell.call_gex += gex
@@ -176,47 +251,55 @@ def gex_heatmap(
         else:
             cell.put_gex += gex
             cell.net_gex -= gex
-        cell.open_interest += r.open_interest
+        cell.open_interest = js_add(cell.open_interest, r.open_interest)
 
     cells = list(cell_map.values())
     if not cells:
         return _EMPTY
 
-    max_abs_cell = max([1.0, *(abs(c.net_gex) for c in cells)])
+    # `Math.max(...lista, 1)` — el 1 es un argumento más y un `NaN` se lleva el
+    # máximo entero, que es lo que hace que la intensidad salga `NaN` y no 1.
+    max_abs_cell = js_max(*[js_abs(c.net_gex) for c in cells], 1)
     for c in cells:
-        c.intensity = min(1.0, abs(c.net_gex) / max_abs_cell)
+        c.intensity = js_min(1, js_abs(c.net_gex) / max_abs_cell)
 
     # Totales por strike (fila) y por vencimiento (columna).
-    by_strike: dict[float, HeatStrike] = {}
+    by_strike: dict = {}
     for c in cells:
         s = by_strike.setdefault(
-            c.strike,
-            HeatStrike(strike=c.strike, distance_pct=(c.strike - spot) / spot * 100),
+            js_clave(c.strike),
+            HeatStrike(strike=c.strike,
+                       distance_pct=(js_number(c.strike) - spot_n) / spot_n * 100),
         )
         s.net_gex += c.net_gex
         s.call_gex += c.call_gex
         s.put_gex += c.put_gex
-        s.open_interest += c.open_interest
+        s.open_interest = js_add(s.open_interest, c.open_interest)
 
-    by_exp: dict[str, HeatExpiration] = {}
+    by_exp: dict = {}
     for c in cells:
         e = by_exp.setdefault(
-            c.expiration, HeatExpiration(expiration=c.expiration, dte=_dte_of(c.expiration, now))
+            js_clave(c.expiration), HeatExpiration(expiration=c.expiration, dte=_dte_of(c.expiration, now))
         )
         e.net_gex += c.net_gex
-        e.open_interest += c.open_interest
+        e.open_interest = js_add(e.open_interest, c.open_interest)
 
-    sorted_cells = sorted(cells, key=lambda c: c.net_gex, reverse=True)
+    # `.sort((a, b) => b.netGex - a.netGex)` — resta numérica, y un `NaN` deja
+    # el par como estaba (ver `jsmath.js_orden`).
+    sorted_cells = sorted(cells, key=js_orden(lambda a, b: b.net_gex - a.net_gex))
 
     return GexHeatmap(
         spot=spot,
         iv=iv,
         # Precio alto arriba, como en cualquier tabla de opciones.
-        strikes=sorted(by_strike.values(), key=lambda s: s.strike, reverse=True),
-        expirations=sorted(by_exp.values(), key=lambda e: e.expiration),
+        strikes=sorted(by_strike.values(),
+                       key=js_orden(lambda a, b: js_number(b.strike) - js_number(a.strike))),
+        # `.sort((a, b) => a.expiration.localeCompare(b.expiration))` — texto.
+        expirations=sorted(by_exp.values(), key=lambda e: js_string(e.expiration)),
         cells=cells,
         max_abs_cell=max_abs_cell,
-        hottest_positive=sorted_cells[0] if sorted_cells[0].net_gex > 0 else None,
-        hottest_negative=sorted_cells[-1] if sorted_cells[-1].net_gex < 0 else None,
+        hottest_positive=sorted_cells[0] if js_gt(sorted_cells[0].net_gex) else None,
+        hottest_negative=(sorted_cells[-1]
+                          if js_number(sorted_cells[-1].net_gex) < 0 else None),
         total_net_gex=sum(c.net_gex for c in cells),
     )

@@ -122,9 +122,16 @@ def decode_entities(s: str) -> str:
             return named
         if code.startswith("#"):
             try:
-                return chr(int(code[1:]))
-            except (ValueError, OverflowError):
+                n = float(code[1:])
+            except ValueError:
                 return m.group(0)
+            if n != n or math.isinf(n):
+                return m.group(0)          # `Number.isFinite` filtra los no finitos
+            # `String.fromCharCode(n)` trunca a entero y toma el MÓDULO 65536,
+            # así que `&#999999999;` no es un error: es el carácter 0xCCFF. El
+            # `chr()` de Python lanza fuera de rango y el port devolvía la
+            # entidad sin decodificar. Medido en `diff_motor3.sh`.
+            return chr(int(n) % 65536)
         return m.group(0)
 
     return re.sub(r"&(#?\w+);", rep, s)
@@ -153,13 +160,26 @@ def parse_feed_date(raw: str | None) -> str | None:
         if naive:
             d = datetime.fromisoformat(f"{naive.group(1)}T{naive.group(2)}+00:00")
         else:
-            from email.utils import parsedate_to_datetime
-            d = parsedate_to_datetime(raw)
-            if d.tzinfo is None:
-                d = d.replace(tzinfo=timezone.utc)
+            # `new Date(raw)`: primero el formato del estándar (ISO), y si no
+            # encaja, el RFC-822 que usa CNBC. El port solo intentaba el
+            # segundo, así que un feed que ya viniera en ISO se descartaba
+            # entero. Medido en `diff_motor3.sh`.
+            ms = js_date_parse(raw)
+            if ms == ms:
+                d = datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+            else:
+                from email.utils import parsedate_to_datetime
+                d = parsedate_to_datetime(raw)
+                if d.tzinfo is None:
+                    d = d.replace(tzinfo=timezone.utc)
     except (ValueError, TypeError, IndexError):
         return None
-    return d.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    # `Date.prototype.toISOString()` SIEMPRE escribe los milisegundos:
+    # "2026-07-24T03:15:46.000Z". El `isoformat()` de Python los omite cuando
+    # son cero, y ese texto es el `publishedUtc` que viaja al reporte y al
+    # cliente. Medido en `diff_motor3.sh`.
+    d = d.astimezone(timezone.utc)
+    return d.strftime("%Y-%m-%dT%H:%M:%S.") + f"{d.microsecond // 1000:03d}Z"
 
 
 def parse_rss(xml: str, publisher: str) -> list[NewsItem]:
@@ -168,7 +188,7 @@ def parse_rss(xml: str, publisher: str) -> list[NewsItem]:
     Tolerante a propósito: los feeds vienen en una sola línea y con CDATA.
     """
     items: list[NewsItem] = []
-    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+    epoch = "1970-01-01T00:00:00.000Z"   # `new Date(0).toISOString()`
     for m in re.finditer(r"<item[^>]*>([\s\S]*?)</item>", xml, re.I):
         block = m.group(1)
         title = _tag(block, "title")

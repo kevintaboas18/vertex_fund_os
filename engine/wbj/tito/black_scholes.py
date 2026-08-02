@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 
-from .jsmath import js_number
+from .jsmath import js_log, js_number, js_sqrt
 from typing import Literal
 
 from .expected_move import norm_cdf
@@ -32,12 +32,19 @@ _IV_ITERS = 60
 
 
 def _phi(x: float) -> float:
-    """Densidad normal estándar φ(x)."""
-    return math.exp(-0.5 * x * x) / math.sqrt(2 * math.pi)
+    """Densidad normal estándar φ(x).
+
+    `Math.exp` desborda a `Infinity` y baja a 0; `math.exp` lanza
+    `OverflowError`, que con un strike ilegible se lleva el mapa entero.
+    """
+    try:
+        return math.exp(-0.5 * x * x) / math.sqrt(2 * math.pi)
+    except OverflowError:
+        return math.inf
 
 
 def _d1(spot: float, strike: float, T: float, iv: float, r: float) -> float:
-    return (math.log(spot / strike) + (r + 0.5 * iv * iv) * T) / (iv * math.sqrt(T))
+    return (js_log(spot / strike) + (r + 0.5 * iv * iv) * T) / (iv * js_sqrt(T))
 
 
 def _invalid(spot: float, strike: float, T: float, iv: float) -> bool:
@@ -88,8 +95,12 @@ def bs_gamma(spot: float, strike: float, T: float, iv: float) -> float:
     """
     if _invalid(spot, strike, T, iv):
         return 0.0
-    sqrt_t = math.sqrt(T)
-    d1 = (math.log(spot / strike) + 0.5 * iv * iv * T) / (iv * sqrt_t)
+    # `Math.log` de un cociente infinito o negativo da `NaN` donde `math.log`
+    # lanza — y con un `strike: "Infinity"` en la cadena eso se llevaba el mapa
+    # de calor entero. Su archivo propaga el `NaN` a la vista. Lo destapó
+    # `diff_motor3.sh`.
+    sqrt_t = js_sqrt(T)
+    d1 = (js_log(spot / strike) + 0.5 * iv * iv * T) / (iv * sqrt_t)
     return _phi(d1) / (spot * iv * sqrt_t)
 
 

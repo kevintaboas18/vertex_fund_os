@@ -53,7 +53,8 @@ class TestParseRss:
         assert rows[0].title == "Trump's tariff draws rebukes"
         assert rows[0].description == "Partners rejected the rationale."
         assert rows[0].url == "https://cnbc.com/a.html"
-        assert rows[0].published_utc == "2026-07-24T03:15:46Z"
+        # `toISOString()` SIEMPRE escribe los milisegundos.
+        assert rows[0].published_utc == "2026-07-24T03:15:46.000Z"
         assert rows[0].layer == "macro"
 
     def test_descarta_items_sin_titulo_o_sin_link(self):
@@ -65,10 +66,16 @@ class TestParseRss:
 
 class TestParseFeedDate:
     def test_acepta_rfc822_de_cnbc(self):
-        assert parse_feed_date("Fri, 24 Jul 2026 03:15:46 GMT") == "2026-07-24T03:15:46Z"
+        # `new Date(raw).toISOString()`: los milisegundos van siempre.
+        assert parse_feed_date("Fri, 24 Jul 2026 03:15:46 GMT") == "2026-07-24T03:15:46.000Z"
 
     def test_asume_utc_en_el_formato_sin_zona_de_investing(self):
-        assert parse_feed_date("2026-07-24 02:54:27") == "2026-07-24T02:54:27Z"
+        assert parse_feed_date("2026-07-24 02:54:27") == "2026-07-24T02:54:27.000Z"
+
+    def test_acepta_tambien_el_iso_que_ya_trae_zona(self):
+        # Su `new Date(raw)` lee el formato del estándar antes que el RFC-822;
+        # el port solo intentaba el segundo y descartaba el feed entero.
+        assert parse_feed_date("2026-07-24T02:54:27Z") == "2026-07-24T02:54:27.000Z"
 
     def test_devuelve_none_si_no_se_puede_parsear(self):
         assert parse_feed_date("ayer") is None

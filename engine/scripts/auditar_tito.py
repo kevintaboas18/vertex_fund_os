@@ -683,8 +683,10 @@ chk(not any("siteContentMetadata" in f["url"] for f in N.MACRO_FEEDS),
     "siteContentMetadata NO está (devuelve 0 artículos)")
 chk({f["name"] for f in N.MACRO_FEEDS} == {"CNBC — Top News","CNBC — Economía",
      "Investing.com — Earnings","Investing.com — Macro"}, "los 4 nombres de RSS Feed.md")
-chk(N.parse_feed_date("Fri, 24 Jul 2026 03:15:46 GMT") == "2026-07-24T03:15:46Z", "RFC-822 de CNBC")
-chk(N.parse_feed_date("2026-07-24 02:54:27") == "2026-07-24T02:54:27Z", "Investing sin zona → UTC")
+# `toISOString()` escribe SIEMPRE los milisegundos — ver `diff_motor3.sh`.
+chk(N.parse_feed_date("Fri, 24 Jul 2026 03:15:46 GMT") == "2026-07-24T03:15:46.000Z",
+    "RFC-822 de CNBC")
+chk(N.parse_feed_date("2026-07-24 02:54:27") == "2026-07-24T02:54:27.000Z", "Investing sin zona → UTC")
 chk([N.recency_weight(d, datetime(2026,7,24,12,tzinfo=timezone.utc)) for d in
      ("2026-07-24T06:00:00Z","2026-07-22T12:00:00Z","2026-07-20T12:00:00Z","2026-06-01T12:00:00Z")]
     == [1,0.6,0.3,0.1], "frescura 1 / 0.6 / 0.3 / 0.1")
@@ -912,13 +914,19 @@ DIFERENCIALES = {
     "diff_cono.sh":       "expectedMove.ts — cono + rutas de la gráfica",
     "diff_motor.sh":      "flow + validation + levels + structure — 1.142 casos",
     "diff_motor2.sh":     "ivcontext + gex + prediction + risk — 846 casos",
+    "diff_motor3.sh":     "gexHeatmap + news — 349 casos",
     "diff_frescura.sh":   "levels.recencyFactor — el peso por frescura",
     "diff_reloj.sh":      "las 5 funciones que cuentan tiempo",
 }
-#: Los dos que llevan corpus MALFORMADO. Es lo que separa "coincide con datos
+#: Los TRES que llevan corpus MALFORMADO. Es lo que separa "coincide con datos
 #: buenos" de "coincide también cuando la fuente cambia de esquema", y fue donde
-#: salieron los 155 casos en que el port lanzaba y su archivo no.
-CON_BASURA = ("diff_motor.sh", "diff_motor2.sh")
+#: salieron los casos en que el port lanzaba y su archivo no.
+#:
+#: Entre los tres cubren los 14 módulos de su `web/lib` que el motor usa: los
+#: cuatro que no tienen diferencial propio —occ, conditions, expectedMove y
+#: blackScholes— los llama el motor en CADA caso de `diff_motor.sh` y
+#: `diff_motor2.sh`, basura incluida, así que quedan medidos ahí.
+CON_BASURA = ("diff_motor.sh", "diff_motor2.sh", "diff_motor3.sh")
 _faltan = [d for d in DIFERENCIALES if not (VERTEX/"engine"/"scripts"/d).exists()]
 chk(not _faltan, f"los {len(DIFERENCIALES)} diferenciales contra su repo existen"
     + (f" · FALTAN: {_faltan}" if _faltan else ""))
