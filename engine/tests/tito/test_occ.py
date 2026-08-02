@@ -47,7 +47,25 @@ class TestDaysToExpiration:
         assert days_to_expiration("2026-07-23", noche_et) == 0
         assert days_to_expiration("2026-07-22", noche_et) == -1
 
-    def test_fecha_no_parseable_devuelve_none(self):
-        # Divergencia deliberada vs TS (que devolveria NaN): None es explicito y
-        # el llamador no puede confundirlo con "vence hoy".
-        assert days_to_expiration("no-es-fecha", _utc("2026-07-22T15:00:00")) is None
+    def test_fecha_no_parseable_devuelve_NaN_como_el(self):
+        # Literal: `Math.round(NaN / DAY)` es NaN, no null ni 0. Un NaN tampoco
+        # se confunde con "vence hoy" — `NaN == 0` es falso, igual que todas las
+        # comparaciones que hace el scorecard con este numero.
+        import math
+        for malo in ("no-es-fecha", "", "2026-13-45"):
+            assert math.isnan(days_to_expiration(malo, _utc("2026-07-22T15:00:00")))
+
+    def test_un_vencimiento_con_hora_tampoco_se_recorta(self):
+        # Su `Date.parse(`${expiration}T00:00:00Z`)` sobre algo que YA trae hora
+        # da una cadena invalida. Desde que `compute` es literal el vencimiento
+        # llega tal cual lo manda Massive, asi que este caso es alcanzable.
+        import math
+        now = _utc("2026-07-22T15:00:00")
+        assert days_to_expiration("2026-09-18", now) == 58
+        assert math.isnan(days_to_expiration("2026-09-18T00:00:00Z", now))
+
+    def test_los_formatos_cortos_del_estandar_SI_cuentan(self):
+        # `"2026"` y `"2026-09"` son Date Time String Format validos.
+        now = _utc("2026-07-22T15:00:00")
+        assert days_to_expiration("2026-09", now) == 41
+        assert days_to_expiration("2026", now) == -202

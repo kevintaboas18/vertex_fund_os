@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal, Sequence
 
-from .jsmath import js_round
+from .jsmath import js_days_since, js_locale_string, js_round
 
 __all__ = [
     "LvlBar",
@@ -188,13 +188,27 @@ def cluster_pivots(pivots: Sequence[Pivot], tolerance_pct: float = 1) -> list[Pi
 
 
 def recency_factor(last_touch: str, now: datetime) -> float:
-    """Peso por frescura del último toque: lo de hace un año ya no manda igual."""
-    try:
-        touched = date.fromisoformat(last_touch[:10])
-    except (ValueError, TypeError):
-        return 1.0
-    days = (now.date() - touched).days
-    if days < 0:
+    """Peso por frescura del último toque: lo de hace un año ya no manda igual.
+
+    Literal:
+
+        const days = (now.getTime()
+                      - new Date(`${lastTouch}T21:00:00Z`).getTime()) / DAY;
+        if (!Number.isFinite(days) || days < 0) return 1;
+
+    Días **fraccionarios**, anclados al cierre de la sesión que produjo la barra
+    (21:00Z). El port contaba días de CALENDARIO, que es casi lo mismo y no lo
+    es: con la diferencia justo en un umbral (30, 90, 180 días) y la consulta
+    después de las 22:00 UTC —las 6 de la tarde en Nueva York—, el calendario
+    todavía dice 30 y su reloj ya dice 30.04.
+
+    Medido contra su `levels.ts` en Node: 4 de 28 combinaciones daban un factor
+    distinto, **siempre más alto en el port**. Y un factor más alto es un nivel
+    más fuerte del que él calcula, en el número que decide si el nivel entra al
+    reporte. Lo fija `engine/scripts/diff_frescura.sh`.
+    """
+    days = js_days_since(last_touch, now)
+    if not math.isfinite(days) or days < 0:
         return 1.0
     if days <= 30:
         return 1.0
@@ -349,7 +363,9 @@ def find_levels(
             parts.append(f"el precio reaccionó {touches} {'vez' if touches == 1 else 'veces'} aquí")
         if oi > 0:
             lado = "calls" if kind == "resistencia" else "puts"
-            parts.append(f"{js_round(oi):,} contratos abiertos de {lado}")
+            # `Math.round(oi).toLocaleString("en-US")`, tal cual.
+            parts.append(
+                f"{js_locale_string(js_round(oi))} contratos abiertos de {lado}")
         if flow_premium > 0:
             lado = "calls" if kind == "resistencia" else "puts"
             parts.append(f"venta de {lado} por dinero real")

@@ -18,11 +18,13 @@ nada sobre dirección, y contarlos diluiría la señal de agresividad.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import cmp_to_key
 from typing import Any, Iterable, Literal, Sequence
 
-from .jsmath import js_round
+from .jsmath import js_date_parse, js_round
 from .conditions import condition_of, is_canceled_condition, is_multi_leg_condition
 from .occ import MARKET_TZ, days_to_expiration, parse_occ
 
@@ -31,6 +33,7 @@ __all__ = [
     "CONVICTION_PREMIUM",
     "CONVICTION_DELTA",
     "AGGRESSIVE_FLOOR",
+    "REPEAT_WINDOW_MS",
     "REPEAT_WINDOW_SEC",
     "REPEAT_MIN_COUNT",
     "LEAP_DTE",
@@ -83,7 +86,12 @@ CONVICTION_PREMIUM = 100_000
 CONVICTION_DELTA = 0.6
 #: Piso para que un above-ask / below-bid "cuente" como interesante por sí solo.
 AGGRESSIVE_FLOOR = 50_000
-REPEAT_WINDOW_SEC = 5 * 60
+#: `REPEAT_WINDOW_MS` de Víctor. Él trabaja en milisegundos porque compara
+#: `Date.parse` a pelo; el alias en segundos se conserva porque es el nombre que
+#: usan los tests y la auditoría, y porque `detect_clusters` sí razona en
+#: segundos (como su `detectClusters`, que multiplica el gap por 1000).
+REPEAT_WINDOW_MS = 5 * 60 * 1000
+REPEAT_WINDOW_SEC = REPEAT_WINDOW_MS // 1000
 REPEAT_MIN_COUNT = 3
 LEAP_DTE = 90
 #: Total (de 30) para marcar el trade como "inusual" y resaltarlo.
@@ -257,12 +265,39 @@ def aggression_of(side: str) -> Aggression:
     return "unknown"
 
 
-def _epoch(ts: str) -> float | None:
-    try:
-        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return None
-    return dt.timestamp() if dt.tzinfo is not None else None
+def _cmp_ms(a: tuple, b: tuple) -> int:
+    """`(a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)`, ASCENDENTE.
+
+    Con el mismo detalle del `NaN` que su otro comparador: ECMA-262 manda
+    tratar un resultado `NaN` como **+0**, o sea "iguales", y con un sort
+    estable —el suyo y el Timsort de Python lo son— la fila ilegible se queda
+    donde estaba en vez de irse a un extremo.
+    """
+    d = a[1] - b[1]
+    if d != d:
+        return 0
+    return -1 if d < 0 else (1 if d > 0 else 0)
+
+
+def _epoch_ms(ts: Any) -> float:
+    """`Date.parse(ts)` — milisegundos, `NaN` si no se puede.
+
+    Era `datetime.fromisoformat`, que **no** es `Date.parse`: rechazaba lo que
+    él acepta (un timestamp sin zona, que ES2015+ lee en la zona local) y con
+    ello tiraba trades enteros del análisis de repetición y de racimos. Medido
+    en `diff_reloj.sh`.
+    """
+    return js_date_parse(ts if isinstance(ts, str) else str(ts))
+
+
+def _epoch(ts: Any) -> float:
+    """`Math.floor(Date.parse(ts) / 1000)` — los segundos de `detectClusters`.
+
+    Devuelve `NaN` para lo ilegible, que es lo que propaga `Math.floor(NaN)`.
+    Cada llamador decide: `detect_clusters` lo filtra con `Number.isFinite`,
+    `_mark_repeated` NO —y esa asimetría es suya, no un descuido del port.
+    """
+    return math.floor(_epoch_ms(ts) / 1000) if _epoch_ms(ts) == _epoch_ms(ts) else math.nan
 
 
 def _num(v: Any, default: float = 0.0) -> float:
@@ -350,12 +385,18 @@ def _mark_repeated(rows: Sequence[FlowRow]) -> None:
     for group in groups.values():
         if len(group) < REPEAT_MIN_COUNT:
             continue
-        timed = [(r, _epoch(r.timestamp)) for r in group]
-        timed = [(r, t) for r, t in timed if t is not None]
-        timed.sort(key=lambda x: x[1])
+        # Sin filtrar los timestamps ilegibles: él tampoco. Su `sort` compara
+        # `Date.parse(a) - Date.parse(b)`, y ECMA-262 manda tratar un comparador
+        # que devuelve NaN como 0 —o sea "iguales"—, así que con un sort estable
+        # la fila ilegible se queda donde estaba. Y en la ventana deslizante
+        # `NaN > REPEAT_WINDOW_MS` es falso, así que `start` no avanza y el
+        # grupo entero sigue contando. El port las descartaba, que es una
+        # decisión distinta: quitaba trades del conteo de repetición.
+        timed = [(r, _epoch_ms(r.timestamp)) for r in group]
+        timed.sort(key=cmp_to_key(_cmp_ms))
         start = 0
         for end in range(len(timed)):
-            while timed[end][1] - timed[start][1] > REPEAT_WINDOW_SEC:
+            while timed[end][1] - timed[start][1] > REPEAT_WINDOW_MS:
                 start += 1
             if end - start + 1 >= REPEAT_MIN_COUNT:
                 for i in range(start, end + 1):

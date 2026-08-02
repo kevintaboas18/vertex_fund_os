@@ -740,7 +740,49 @@ chk(API.index("def _tito_heatmap") > 0 and "return None" in
     API[API.index("def _tito_heatmap"):API.index("def _tito_heatmap") + 2200],
     "…y si el heatmap falla, los targets siguen saliendo (ilustra, no decide)")
 
-sec("7. Seguridad")
+sec("7. El repo carga en el Python que se despliega")
+#
+# `runtime.txt` fija la versión de Python de Render, y la del contenedor no
+# tiene por qué ser la misma. Un archivo que use sintaxis más nueva compila aquí
+# y revienta allí — y no falla el archivo, falla el PAQUETE entero: un
+# `SyntaxError` en `wbj/report/render.py` se llevaba `wbj.report` completo, y con
+# él `run_report` y el `_insiders` que llama `vertex_api`.
+#
+# Medido: pasó de verdad. `render.py` metía barras invertidas dentro de la parte
+# de EXPRESIÓN de una f-string, que PEP 701 permite desde 3.12 pero 3.11 no. En
+# local (3.11) 4 archivos de test dejaban de coleccionar; en Render el reporte
+# final no se generaba. Este check lo pilla sin desplegar.
+_runtime = (VERTEX / "runtime.txt")
+_pin = _runtime.read_text().strip() if _runtime.exists() else ""
+_m = re.match(r"python-(\d+)\.(\d+)", _pin)
+chk(bool(_m), f"runtime.txt fija la versión de Python ({_pin or 'ausente'})")
+if _m:
+    _objetivo = (int(_m.group(1)), int(_m.group(2)))
+    _rotos = []
+    for _py in sorted((VERTEX / "engine" / "wbj").rglob("*.py")):
+        try:
+            compile(_py.read_text(encoding="utf-8"), str(_py), "exec",
+                    dont_inherit=True, _feature_version=_objetivo[1])
+        except SyntaxError as _e:
+            _rotos.append(f"{_py.relative_to(VERTEX)}:{_e.lineno} {_e.msg}")
+        except ValueError:
+            break      # `_feature_version` fuera del rango que soporta este intérprete
+    chk(not _rotos,
+        f"los {len(list((VERTEX/'engine'/'wbj').rglob('*.py')))} módulos de wbj/ "
+        f"compilan con la sintaxis de Python {_objetivo[0]}.{_objetivo[1]}"
+        + (" · ROTOS: " + "; ".join(_rotos[:3]) if _rotos else ""))
+    _paquetes = []
+    for _init in sorted((VERTEX / "engine" / "wbj").rglob("__init__.py")):
+        _mod = ".".join(_init.relative_to(VERTEX / "engine").parts[:-1])
+        try:
+            __import__(_mod)
+        except Exception as _e:                       # noqa: BLE001
+            _paquetes.append(f"{_mod}: {type(_e).__name__}")
+    chk(not _paquetes,
+        "todos los paquetes de wbj/ importan de verdad"
+        + (" · ROTOS: " + "; ".join(_paquetes) if _paquetes else ""))
+
+sec("8. Seguridad")
 chk("URAc4p9DJi6Z" not in subprocess.run(["git","grep","-I","-l","URAc4p9DJi6Z"],
     cwd=VERTEX, capture_output=True, text=True).stdout, "la API key pegada no está en el repo")
 _C = "kEyS3cr3t4NoDebeSalirJamas"
@@ -759,7 +801,7 @@ chk("vertex.env" in (VERTEX/".gitignore").read_text(), "vertex.env gitignoreado"
 chk("sync: false" in RENDER, "los secretos de Render no van en el blueprint")
 
 # ─────────────────────────────────────────────────────────────────────
-sec("8. Funciones públicas sin llamador")
+sec("9. Funciones públicas sin llamador")
 #
 # Una función portada y sin cablear es código que NADIE ejecuta: no falla, no
 # avisa y da la sensación de que la funcionalidad está. Aquí se cuentan las
@@ -819,13 +861,33 @@ chk("_tito_clusters(trades, now)" in API and "detect_clusters" in API,
     "`detect_clusters` CABLEADA: `flow_clusters` (su FlowPriceChart)")
 
 # ─────────────────────────────────────────────────────────────────────
-sec("9. Tests")
+sec("10. Tests")
 r = subprocess.run([sys.executable,"-m","pytest","tests/tito/","-q"],
                    cwd=VERTEX/"engine", capture_output=True, text=True)
 m = re.search(r"(\d+) passed", r.stdout)
 chk(r.returncode == 0, f"suite del motor verde ({m.group(1) if m else '?'} tests)")
 chk(len(list((VERTEX/"engine"/"tests"/"tito").glob("test_*.py"))) >= 12,
     f"{len(list((VERTEX/'engine'/'tests'/'tito').glob('test_*.py')))} archivos de test")
+
+# Los diferenciales son lo único que compara contra SU archivo de verdad, así
+# que su ausencia es un agujero silencioso: la suite seguiría verde con el port
+# divergiendo. Se comprueba que están y que la lista no encoge.
+DIFERENCIALES = {
+    "diff_store.sh":      "store.ts — 47 casos de persistencia de trades",
+    "diff_compute.sh":    "compute.ts — 604 filas de cadena",
+    "diff_bars.sh":       "barsStore.ts — 27 casos de cache de barras",
+    "diff_primitivas.sh": "Number() y Date.parse() contra V8",
+    "diff_cono.sh":       "expectedMove.ts — cono + rutas de la gráfica",
+    "diff_motor.sh":      "flow + validation + levels + structure — 431 casos",
+    "diff_frescura.sh":   "levels.recencyFactor — el peso por frescura",
+    "diff_reloj.sh":      "las 5 funciones que cuentan tiempo",
+}
+_faltan = [d for d in DIFERENCIALES if not (VERTEX/"engine"/"scripts"/d).exists()]
+chk(not _faltan, f"los {len(DIFERENCIALES)} diferenciales contra su repo existen"
+    + (f" · FALTAN: {_faltan}" if _faltan else ""))
+for _d, _q in DIFERENCIALES.items():
+    print(f"      {_d:<22} {_q}")
+print("  · córrelos con node instalado; TITO_ROOT usa tu clon en vez de GitHub")
 
 # ─────────────────────────────────────────────────────────────────────
 print(f"\n\033[1m{'='*66}\033[0m")

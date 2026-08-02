@@ -18,6 +18,8 @@ from datetime import date, datetime, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
+from .jsmath import MS_POR_DIA, js_date_parse, js_round
+
 __all__ = ["OccInfo", "parse_occ", "market_date", "market_date_str", "days_to_expiration"]
 
 MARKET_TZ = ZoneInfo("America/New_York")
@@ -79,17 +81,32 @@ def market_date_str(now: datetime) -> str:
     return market_date(now).isoformat()
 
 
-def days_to_expiration(expiration: str, now: datetime) -> int | None:
+def _market_today(now: datetime) -> float:
+    """`marketToday`: el día de mercado (ET) como epoch de medianoche UTC."""
+    return js_date_parse(f"{market_date_str(now)}T00:00:00Z")
+
+
+def days_to_expiration(expiration: str, now: datetime) -> float:
     """Días hasta el vencimiento respecto al día de mercado (ET) de `now`.
 
-    Devuelve ``None`` si la fecha no es parseable — nunca un 0 silencioso, que
-    el scorecard leería como "vence hoy".
+    Literal:
+
+        const exp = Date.parse(`${expiration}T00:00:00Z`);
+        return Math.round((exp - marketToday(now)) / 86_400_000);
+
+    Devuelve `NaN` cuando la fecha no se parsea, que es lo que hace su
+    `Date.parse` — no `None`. La diferencia importa desde que `compute` es
+    literal: él **no** recorta el vencimiento a `YYYY-MM-DD`, así que si Massive
+    manda `"2026-09-18T00:00:00Z"` la concatenación con `T00:00:00Z` da una
+    cadena inválida y su motor propaga `NaN`. El port lo recortaba y devolvía 49
+    donde él no devuelve ningún número. Medido en `diff_reloj.sh`.
+
+    Un `NaN` no es un 0 silencioso: `NaN > x` y `NaN <= x` son los dos falsos,
+    así que cae por todas las bandas de puntuación en vez de colarse como "vence
+    hoy". Es exactamente lo que le pasa a él.
     """
-    try:
-        exp = date.fromisoformat(expiration[:10])
-    except (ValueError, TypeError):
-        return None
-    return (exp - market_date(now)).days
+    exp = js_date_parse(f"{expiration}T00:00:00Z")
+    return js_round((exp - _market_today(now)) / MS_POR_DIA)
 
 
 def add_days(d: date, n: int) -> date:

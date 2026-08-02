@@ -35,6 +35,7 @@ por ticker, y se pondera por frescura.
 from __future__ import annotations
 
 import html
+import math
 import os
 import re
 import time
@@ -43,6 +44,8 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+
+from .jsmath import js_date_parse, js_time
 from typing import Literal, Sequence
 
 __all__ = [
@@ -231,21 +234,25 @@ def mentions_company(text: str, aliases: Sequence[str]) -> str | None:
 
 # ---------- sesgo y bandera ----------
 
-_HOUR = 3600.0
+#: `const HOUR = 3600_000` de su news.ts — milisegundos, como todo su reloj.
+_HOUR_MS = 3600_000
 
 
 def recency_weight(published_utc: str, now: datetime) -> float:
-    """Peso por frescura: una noticia de hoy pesa más que una de la semana pasada."""
-    try:
-        pub = datetime.fromisoformat(str(published_utc).replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return 1.0
-    if pub.tzinfo is None:
-        pub = pub.replace(tzinfo=timezone.utc)
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
-    age = (now - pub).total_seconds() / _HOUR
-    if age < 0:
+    """Peso por frescura: una noticia de hoy pesa más que una de la semana pasada.
+
+    Literal:
+
+        const age = (now.getTime() - new Date(publishedUtc).getTime()) / HOUR;
+        if (!Number.isFinite(age) || age < 0) return 1;
+
+    Con `Date.parse` de JS, no con `fromisoformat`. La diferencia se ve con los
+    formatos cortos del estándar: `"2026"` es una fecha válida para él —el 1 de
+    enero— y una noticia de hace siete meses pesaba 1.0 en el port en vez de
+    0.1. Medido en `diff_reloj.sh`.
+    """
+    age = (js_time(now) - js_date_parse(str(published_utc))) / _HOUR_MS
+    if not math.isfinite(age) or age < 0:
         return 1.0
     if age <= 24:
         return 1.0

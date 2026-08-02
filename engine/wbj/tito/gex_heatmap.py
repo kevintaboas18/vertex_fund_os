@@ -11,11 +11,12 @@ meses.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Sequence
 
-from .jsmath import js_round
+from .jsmath import MS_POR_DIA, js_date_parse, js_round, js_time
 from .black_scholes import bs_gamma
 from .structure import ChainRow
 
@@ -87,15 +88,25 @@ _EMPTY = GexHeatmap(
 )
 
 
-def _dte_of(expiration: str, now: datetime) -> int:
-    """DTE contra el cierre del día de vencimiento (21:00 UTC ≈ 17:00 ET)."""
-    try:
-        exp = datetime.fromisoformat(f"{expiration[:10]}T21:00:00+00:00")
-    except (ValueError, TypeError):
-        return 0
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=timezone.utc)
-    return max(0, js_round((exp - now).total_seconds() / 86_400))
+def _dte_of(expiration: str, now: datetime) -> float:
+    """DTE contra el cierre del día de vencimiento (21:00 UTC ≈ 17:00 ET).
+
+    Literal:
+
+        const ms = new Date(`${expiration}T21:00:00Z`).getTime() - now.getTime();
+        return Math.max(0, Math.round(ms / 86_400_000));
+
+    Sin recortar el vencimiento a 10 caracteres y sin caer a 0 cuando no se
+    parsea: `Math.max(0, NaN)` en JS es `NaN`, no 0. El port devolvía 0 —que se
+    lee como "vence hoy" y manda la celda a la banda más caliente del heatmap—
+    donde él propaga un `NaN` que no entra en ninguna banda.
+
+    Importa desde que `compute` es literal: el vencimiento llega tal como lo
+    manda Massive, y si trae hora la concatenación con `T21:00:00Z` es inválida.
+    Medido en `diff_reloj.sh`.
+    """
+    ms = js_date_parse(f"{expiration}T21:00:00Z") - js_time(now)
+    return max(0.0, js_round(ms / MS_POR_DIA)) if ms == ms else math.nan
 
 
 def gex_heatmap(

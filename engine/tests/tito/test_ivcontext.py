@@ -276,6 +276,10 @@ class TestElRedondeoEsElDeJS:
             if f.name == "jsmath.py":
                 continue
             for n, linea in enumerate(f.read_text().splitlines(), 1):
+                # Las lineas que CITAN su TypeScript en un docstring no cuentan:
+                # `Math.round(...)` es la fuente, no una llamada del port.
+                if "Math.round(" in linea:
+                    continue
                 if re.search(r"(?<!js_)\bround\([^,()]*(\([^()]*\))?[^,()]*\)(?!\s*,)", linea) \
                         and "round(" in linea and not re.search(r"round\([^)]*,", linea):
                     sospechosos.append(f"{f.name}:{n}: {linea.strip()}")

@@ -154,7 +154,12 @@ def gex_analysis(
         if r.open_interest <= 0:
             continue
         dte = days_to_expiration(r.expiration, now)
-        if dte is None or dte <= 0:
+        # `if (dte <= 0) continue;`, literal. Un `NaN` NO se salta: `NaN <= 0`
+        # es falso, así que la fila entra y su gamma sale `NaN`, igual que en su
+        # archivo. El port descartaba la fila, que es una decisión distinta —y
+        # más silenciosa: un vencimiento ilegible desaparecía del GEX sin dejar
+        # rastro en vez de envenenar la suma a la vista.
+        if dte <= 0:
             continue
         T = dte / 365
 

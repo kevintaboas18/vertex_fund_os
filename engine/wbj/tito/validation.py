@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal, Sequence
 
-from .jsmath import js_round
+from .jsmath import js_date_parse, js_round
 
 __all__ = [
     "MOVE_THRESHOLD_PCT",
@@ -147,17 +147,17 @@ class FlowOutcome:
     resolved: bool = False
 
 
-def _days_between(a: str, b: str) -> int:
-    try:
-        da = datetime.fromisoformat(a.replace("Z", "+00:00"))
-        db = datetime.fromisoformat(b.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return 0
-    if da.tzinfo is None:
-        da = da.replace(tzinfo=timezone.utc)
-    if db.tzinfo is None:
-        db = db.replace(tzinfo=timezone.utc)
-    return math.floor((db - da).total_seconds() / 86_400)
+def _days_between(a: str, b: str) -> float:
+    """`Math.floor((new Date(b).getTime() - new Date(a).getTime()) / DAY)`.
+
+    Literal, con `Date.parse` de JS y no con `fromisoformat` de Python. El port
+    devolvía **0** cuando alguna de las dos no se parseaba, y un 0 aquí se lee
+    como "el flow es de hoy": el backtest lo trataba como recién abierto en vez
+    de dejarlo sin resolver. Él propaga `NaN`, que no pasa ninguna comparación.
+    Medido en `diff_reloj.sh`.
+    """
+    ms = js_date_parse(b) - js_date_parse(a)
+    return math.floor(ms / 86_400_000) if ms == ms else math.nan
 
 
 def evaluate_flow(
