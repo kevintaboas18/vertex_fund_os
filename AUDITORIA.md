@@ -1121,3 +1121,67 @@ recomendación `DESFAVORABLE`, idénticos.
 **Ambos números caben de sobra en el corte de Render** (que era el motivo de
 preocupación). El objetivo de <30 s se cumple en repeticiones con margen de 4×, y
 la primera llamada baja de 115 s a 42 s.
+
+---
+
+# 17. Auditoría completa del proyecto — 2026-08-02
+
+Barrida mecánica de todo, con evidencia medida.
+
+## 17.1 Estructura y sintaxis
+
+| comprobación | resultado |
+|---|---|
+| archivos `.py` que compilan | **204 / 204** |
+| módulos de `wbj` que importan | **todos, 0 fallos** |
+| docs del Cerebro citados por el código que no existen | **0** (`CLAUDE.md` y `MEMORIA.md` viven fuera de `Cerebro/`) |
+
+## 17.2 Conexiones
+
+| comprobación | resultado |
+|---|---|
+| endpoints que la UI llama y la API no expone | **0 de 53** |
+| ids del DOM que el JS toca y el HTML no define | 3 — **los tres se crean dinámicamente y están guardados** (`\|\| create`, `if (!c)`, `if (exists)`) |
+| endpoints de la API sin uso en la UI | 5 (`logout`, `plaid/disconnect`, `finnhub-quote`, `quantdata/*`) — superficie legítima, no código muerto |
+
+## 17.3 Datos y cálculos
+
+| comprobación | resultado |
+|---|---|
+| NaN / Infinity en el reporte | **0** |
+| serializable a JSON estricto (`allow_nan=False`) | **OK** |
+| suma de categorías vs `raw_score` | 47.9095 = 47.9095 **exacto** |
+| puntos dentro de `[0, max]` y confianzas en `[0,100]` | **todos** |
+| fórmulas verificadas contra aritmética a mano | **10 / 10** |
+
+Sobre las fórmulas: mi primera pasada marcó FCFF como discrepante. **Era mi error**:
+pasé el capex negativo cuando la fórmula del Cerebro es `EBIT(1−t) + D&A − Capex − ΔNWC`,
+con capex como magnitud positiva. Los llamadores del motor hacen `abs()` y el test
+`test_fcff_reconciles_with_nopat_minus_reinvestment` fija la convención con
+`capex=45.0`. El motor estaba bien.
+
+## 17.4 Sub-agentes y memoria
+
+Los **7** apuntan a su carpeta del Cerebro, declaran sus puntos y sus herramientas.
+Memoria: `MEMORIA.md`, `calibracion.md`, `errores.md`, 2 tesis por ticker,
+**10 predicciones** guardadas.
+
+## 17.5 End-to-end sobre cinco formas de empresa
+
+| ticker | total | perfil | niveles | gráficas | 13F | insiders |
+|---|---|---|---|---|---|---|
+| NVDA | 47.9 | Avoid / Wait | 40 | 4 | 10 | 10 |
+| AAPL | 41.4 | Avoid / Wait | 36 | 4 | 10 | 9 |
+| KO | 50.1 | **Speculative** | 36 | 4 | 10 | 24 |
+| JPM | 36.3 | Avoid / Wait | 17 | **3** | 10 | 12 |
+| PLTR | 38.2 | Avoid / Wait | 60 | 4 | 10 | 10 |
+
+Las etiquetas **sí diferencian** (KO llega a Speculative). JPM trae 3 gráficas porque
+no lleva football field — correcto: la matriz de modelos veta el DCF para bancos.
+
+## 17.6 Veredicto
+
+**Cero fallos abiertos en el código.** Los tres "hallazgos" de esta pasada resultaron
+falsos positivos de mis propias comprobaciones (docs fuera de `Cerebro/`, ids creados
+en tiempo de ejecución, mi signo del capex). Queda únicamente el saldo de Anthropic,
+que no es código.

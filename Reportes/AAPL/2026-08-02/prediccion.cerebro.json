@@ -1,0 +1,14 @@
+{
+  "ticker": "AAPL",
+  "date": "2026-08-02",
+  "price": 308.91,
+  "bear": 223.09,
+  "base": 322.17,
+  "bull": 388.25,
+  "growth_base": 0.0429,
+  "pe_now": 41.4,
+  "score10": 4.14,
+  "evidence_points": 78,
+  "horizon_days": 365,
+  "source": "cerebro"
+}
