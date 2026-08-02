@@ -24,7 +24,7 @@ from datetime import datetime
 from functools import cmp_to_key
 from typing import Any, Iterable, Literal, Sequence
 
-from .jsmath import js_date_parse, js_round
+from .jsmath import js_add, js_date_parse, js_gt, js_number, js_round
 from .conditions import condition_of, is_canceled_condition, is_multi_leg_condition
 from .occ import MARKET_TZ, days_to_expiration, parse_occ
 
@@ -198,7 +198,14 @@ class ClassifiedFlow:
 
 
 def volume_score(size: float, premium: float) -> int:
-    """A. Puntuación por Volumen (nº de contratos)."""
+    """A. Puntuación por Volumen (nº de contratos).
+
+    `js_number` en la entrada: su `size` y su `premium` llegan CRUDOS desde
+    `baseRow` (`raw.size`, `raw.premium ?? 0`), así que un valor en texto entra
+    aquí tal cual y en TS lo coacciona la comparación. Sin esto, `None >= 150`
+    lanza y se lleva la puntuación de todos los trades.
+    """
+    size, premium = js_number(size), js_number(premium)
     if size >= 150:
         return 10
     if size >= 100:
@@ -301,38 +308,67 @@ def _epoch(ts: Any) -> float:
 
 
 def _num(v: Any, default: float = 0.0) -> float:
+    """`typeof x === "number"` — la regla ESTRICTA. Solo donde él la usa."""
     return float(v) if isinstance(v, (int, float)) else default
 
 
+def _nn(v: Any, default: Any = 0) -> Any:
+    """`x ?? default` — el nullish coalescing, que NO es lo mismo que `_num`.
+
+    Solo reemplaza `null`/`undefined`; un `"500"`, un `true` o un `{}`
+    sobreviven tal cual y los coacciona la aritmética de después. `_num` los
+    convertía todos en 0, que es una divergencia cara: si MarketSnack pasa a
+    mandar los números como texto, su motor sigue calculando y el port se
+    llenaba de ceros SIN un solo error. Es el mismo hallazgo que motivó
+    `_coerce` en `compute.py`, por la otra puerta.
+
+    Lo destapó el corpus malformado de `diff_motor.sh`: `assetPrice`, `iv` y
+    `delta` salían 0 donde él conserva el valor.
+    """
+    return default if v is None else v
+
+
 def _base_row(raw: dict[str, Any], now: datetime) -> FlowRow:
-    """Convierte un trade crudo en FlowRow (sin las banderas cross-row)."""
+    """Convierte un trade crudo en FlowRow (sin las banderas cross-row).
+
+    `raw` puede no ser un objeto: en su TS `("basura").symbol` es `undefined` y
+    la fila sale vacía; en Python `.get` sobre un string es un `AttributeError`
+    que se lleva `classify_flow` entero. Un lote con un `null` entre los trades
+    es exactamente lo que manda un tape a medio serializar.
+    """
+    if not isinstance(raw, dict):
+        raw = {}
     symbol = str(raw.get("symbol") or "")
     occ = parse_occ(symbol)
     dte = days_to_expiration(occ.expiration, now) if occ else None
     side = str(raw.get("side") or "")
     aggr = aggression_of(side)
-    premium = _num(raw.get("premium"))
-    delta = _num(raw.get("delta"))
-    price = _num(raw.get("price"))
+    # `?? 0`, no `Number()`: es lo que hace su `baseRow`.
+    premium = _nn(raw.get("premium"))
+    delta = _nn(raw.get("delta"))
+    price = raw.get("price")            # sin default: su `price: raw.price`
     theta_raw = raw.get("theta")
-    volume = int(_num(raw.get("volume")))
-    open_interest = int(_num(raw.get("open_interest")))
+    volume = raw.get("volume")          # sin default: su `volume: raw.volume`
+    open_interest = raw.get("open_interest")
     cond = condition_of(raw.get("trade_condition_id"))
 
     flags = FlowFlags(
-        big=premium >= BIG_PREMIUM,
-        conv_delta=premium >= CONVICTION_PREMIUM and abs(delta) > CONVICTION_DELTA,
+        big=js_number(premium) >= BIG_PREMIUM,
+        conv_delta=(js_number(premium) >= CONVICTION_PREMIUM
+                    and abs(js_number(delta)) > CONVICTION_DELTA),
         above_ask=aggr == "ask",
         below_bid=aggr == "bid",
         mid=aggr == "mid",
-        leap=dte is not None and dte >= LEAP_DTE,
+        leap=dte is not None and js_number(dte) >= LEAP_DTE,
         multileg=is_multi_leg_condition(raw.get("trade_condition_id")),
-        exceeded_oi=volume > open_interest and open_interest > 0,
+        # `(raw.volume ?? 0) > (raw.open_interest ?? 0) && (raw.open_interest ?? 0) > 0`
+        exceeded_oi=(js_number(_nn(volume)) > js_number(_nn(open_interest))
+                     and js_number(_nn(open_interest)) > 0),
     )
 
     if dte is None:
         status = "desconocido"
-    elif dte < 0:
+    elif js_number(dte) < 0:
         status = "expirado"
     elif dte == 0:
         status = "expira_hoy"
@@ -340,7 +376,7 @@ def _base_row(raw: dict[str, Any], now: datetime) -> FlowRow:
         status = "vigente"
 
     return FlowRow(
-        id=int(_num(raw.get("id"))),
+        id=raw.get("id"),
         symbol=symbol,
         underlying=occ.underlying if occ else symbol,
         type=occ.type if occ else "unknown",
@@ -348,21 +384,23 @@ def _base_row(raw: dict[str, Any], now: datetime) -> FlowRow:
         expiration=occ.expiration if occ else None,
         dte=dte,
         price=price,
-        size=int(_num(raw.get("size"))),
+        size=raw.get("size"),
         side=side,
         aggression=aggr,
-        asset_price=_num(raw.get("asset_price")),
-        bid=_num(raw.get("bid_price")),
-        ask=_num(raw.get("ask_price")),
+        asset_price=_nn(raw.get("asset_price")),
+        bid=raw.get("bid_price"),
+        ask=raw.get("ask_price"),
         premium=premium,
         delta=delta,
-        gamma=_num(raw.get("gamma")),
-        theta=_num(theta_raw),
-        vega=_num(raw.get("vega")),
+        gamma=_nn(raw.get("gamma")),
+        theta=_nn(theta_raw),
+        vega=_nn(raw.get("vega")),
+        # `raw.theta != null && raw.price > 0 ? Math.abs(raw.theta)/raw.price*100 : null`
         theta_pct_daily=(
-            abs(_num(theta_raw)) / price * 100 if theta_raw is not None and price > 0 else None
+            abs(js_number(theta_raw)) / js_number(price) * 100
+            if theta_raw is not None and js_gt(price) else None
         ),
-        iv=_num(raw.get("implied_volatility")),
+        iv=raw.get("implied_volatility"),      # sin default, como él
         open_interest=open_interest,
         volume=volume,
         score=_num(raw.get("score")),
@@ -448,17 +486,24 @@ def _compute_interesting(r: FlowRow) -> bool:
 def classify_flow(raw: Iterable[dict[str, Any]], now: datetime) -> ClassifiedFlow:
     """Pipeline completo: crudo → filas clasificadas + subconjunto "interesante"."""
     # Las transacciones canceladas se descartan: la orden se anuló, no existió.
+    # `t.trade_condition_id` sobre algo que no es un objeto es `undefined` en
+    # TS, no un `AttributeError`. Un lote con un `null` o un string entre los
+    # trades tumbaba `classify_flow` entero; él lo procesa como un trade vacío.
     rows = [
         _base_row(t, now)
         for t in raw
-        if not is_canceled_condition(t.get("trade_condition_id"))
+        if not is_canceled_condition(
+            t.get("trade_condition_id") if isinstance(t, dict) else None)
     ]
     _mark_repeated(rows)
     _mark_simultaneous(rows)
     _score_rows(rows)
     for r in rows:
         r.interesting = _compute_interesting(r)
-    interesting = sorted((r for r in rows if r.interesting), key=lambda r: r.premium, reverse=True)
+    # `sort((a, b) => b.premium - a.premium)` — resta numérica, no el orden
+    # natural de Python (que lanza al mezclar un texto con un número).
+    interesting = sorted((r for r in rows if r.interesting),
+                         key=lambda r: js_number(r.premium), reverse=True)
     return ClassifiedFlow(rows=rows, interesting=interesting)
 
 
@@ -508,10 +553,12 @@ def detect_clusters(
     empujan bajista; comprar calls y vender puts empujan alcista. Confundirlos
     haría leer una cobertura masiva como una apuesta al alza.
     """
+    # `.filter((x) => Number.isFinite(x.sec))` — el filtro es por FINITUD, no
+    # por `None`. Un `NaN` pasaba el `is not None` y reventaba en `int()`.
     timed = [
         (r, int(t))
         for r, t in ((r, _epoch(r.timestamp)) for r in rows if r.aggression in ("ask", "bid"))
-        if t is not None
+        if math.isfinite(t)
     ]
     timed.sort(key=lambda x: x[1])
 
@@ -520,40 +567,52 @@ def detect_clusters(
     def flush(group: list[tuple[FlowRow, int]]) -> None:
         if len(group) < min_count:
             return
-        ask = bid = call_p = put_p = 0.0
-        buckets = {"call_ask": 0.0, "put_ask": 0.0, "call_bid": 0.0, "put_bid": 0.0}
+        # Acumuladores con el `+` de JS: el `premium` de la fila llega crudo.
+        ask: Any = 0
+        bid: Any = 0
+        call_p: Any = 0
+        put_p: Any = 0
+        buckets: dict[str, Any] = {"call_ask": 0, "put_ask": 0, "call_bid": 0, "put_bid": 0}
         for r, _ in group:
             p = r.premium
             if r.aggression == "ask":
-                ask += p
+                ask = js_add(ask, p)
             else:
-                bid += p
+                bid = js_add(bid, p)
             if r.type == "call":
-                call_p += p
-                buckets["call_ask" if r.aggression == "ask" else "call_bid"] += p
+                call_p = js_add(call_p, p)
+                _k = "call_ask" if r.aggression == "ask" else "call_bid"
+                buckets[_k] = js_add(buckets[_k], p)
             elif r.type == "put":
-                put_p += p
-                buckets["put_ask" if r.aggression == "ask" else "put_bid"] += p
+                put_p = js_add(put_p, p)
+                _k = "put_ask" if r.aggression == "ask" else "put_bid"
+                buckets[_k] = js_add(buckets[_k], p)
             else:
                 # tipo desconocido: cae al criterio simple ask=alcista / bid=bajista
-                buckets["call_ask" if r.aggression == "ask" else "call_bid"] += p
+                _k = "call_ask" if r.aggression == "ask" else "call_bid"
+                buckets[_k] = js_add(buckets[_k], p)
 
-        premium = ask + bid
-        if premium < min_premium:
+        premium = js_add(ask, bid)
+        if js_number(premium) < min_premium:
             return
-        unid = (max(ask, bid) / premium) if premium > 0 else 0.0
+        # A partir de aquí todo es aritmética, así que se trabaja con los
+        # números — que es lo que hace su código al dividir y comparar.
+        ask_n, bid_n = js_number(ask), js_number(bid)
+        prem_n = js_number(premium)
+        unid = (max(ask_n, bid_n) / prem_n) if prem_n > 0 else 0.0
         norm_count = min(1.0, len(group) / 10)
-        norm_prem = min(1.0, premium / 2_000_000)
+        norm_prem = min(1.0, prem_n / 2_000_000)
         score = js_round(10 * (0.4 * norm_count + 0.3 * norm_prem + 0.3 * unid))
-        bullish = buckets["call_ask"] + buckets["put_bid"]
-        bearish = buckets["put_ask"] + buckets["call_bid"]
+        bullish = js_add(buckets["call_ask"], buckets["put_bid"])
+        bearish = js_add(buckets["put_ask"], buckets["call_bid"])
         labels = [
             (buckets["call_ask"], "Compraron CALLS"),
             (buckets["put_ask"], "Compraron PUTS"),
             (buckets["call_bid"], "Vendieron CALLS"),
             (buckets["put_bid"], "Vendieron PUTS"),
         ]
-        labels.sort(key=lambda x: x[0], reverse=True)
+        # `sort((a, b) => b[0] - a[0])` — resta numérica.
+        labels.sort(key=lambda x: js_number(x[0]), reverse=True)
         clusters.append(
             Cluster(
                 start_sec=group[0][1],
@@ -562,7 +621,7 @@ def detect_clusters(
                 premium_ask=ask,
                 premium_bid=bid,
                 premium=premium,
-                direction="ask" if ask >= bid else "bid",
+                direction="ask" if ask_n >= bid_n else "bid",
                 unidirectionality=unid,
                 score=score,
                 trades=[r for r, _ in group],
@@ -570,7 +629,7 @@ def detect_clusters(
                 put_premium=put_p,
                 bullish_premium=bullish,
                 bearish_premium=bearish,
-                bet="alcista" if bullish >= bearish else "bajista",
+                bet="alcista" if js_number(bullish) >= js_number(bearish) else "bajista",
                 bet_label=labels[0][1],
             )
         )
@@ -598,6 +657,7 @@ def detect_clusters(
 
 def spread_pct(bid: float, ask: float) -> float | None:
     """Spread relativo de un trade: ``(ask − bid) / mid``, en %. ``None`` sin quote."""
+    bid, ask = js_number(bid), js_number(ask)
     if not (bid > 0) or not (ask > 0) or ask < bid:
         return None
     mid = (ask + bid) / 2
@@ -644,6 +704,7 @@ def execution_level(price: float, bid: float, ask: float, side: str) -> Executio
 
     "Cerca" = dentro del 20% del ancho del spread desde el ask o el bid.
     """
+    price, bid, ask = js_number(price), js_number(bid), js_number(ask)
     if not (bid > 0) or not (ask > 0) or ask < bid:
         return "unclear"
     if price > ask:
@@ -707,26 +768,29 @@ def conviction_score(rows: Sequence[FlowRow]) -> ConvictionScore:
     ask_prem = bid_prem = 0.0
     exec_weighted = exec_weight = 0.0
 
+    # `premium` llega crudo desde `baseRow` (`raw.premium ?? 0`), así que aquí
+    # puede ser texto. Cada uso lo coacciona, igual que su aritmética.
     for r in rows:
+        prem = js_number(r.premium)
         pct = spread_pct(r.bid, r.ask)
         if pct is not None:
             if is_wide_spread(pct):
                 wide_count += 1
-                if r.premium >= WIDE_SPREAD_ALERT_PREMIUM:
+                if prem >= WIDE_SPREAD_ALERT_PREMIUM:
                     wide_alert.append(r)
             else:
-                spread_weighted += pct * r.premium
-                spread_weight += r.premium
+                spread_weighted += pct * prem
+                spread_weight += prem
 
         if r.aggression == "ask":
-            ask_prem += r.premium
+            ask_prem += prem
         elif r.aggression == "bid":
-            bid_prem += r.premium
+            bid_prem += prem
 
         level = execution_level(r.price, r.bid, r.ask, r.side)
         counts[level] += 1
-        exec_weighted += execution_score(level) * r.premium
-        exec_weight += r.premium
+        exec_weighted += execution_score(level) * prem
+        exec_weight += prem
 
     avg_spread_pct = (spread_weighted / spread_weight) if spread_weight > 0 else None
     spread_points = spread_score(avg_spread_pct)
@@ -745,7 +809,8 @@ def conviction_score(rows: Sequence[FlowRow]) -> ConvictionScore:
             "avg_pct": avg_spread_pct,
             "points": spread_points,
             "wide_count": wide_count,
-            "wide_alert": sorted(wide_alert, key=lambda r: r.premium, reverse=True),
+            "wide_alert": sorted(wide_alert, key=lambda r: js_number(r.premium),
+                                 reverse=True),
         },
         dominance={
             "ask_pct": ask_pct,
@@ -768,6 +833,7 @@ def conviction_score(rows: Sequence[FlowRow]) -> ConvictionScore:
 
 def order_size_score(premium: float) -> int:
     """Tamaño de la orden (premium en $)."""
+    premium = js_number(premium)
     if premium > 5_000_000:
         return 10
     if premium >= 1_000_000:
@@ -783,7 +849,7 @@ def order_size_score(premium: float) -> int:
 
 def delta_score(delta: float) -> int:
     """Delta en valor absoluto: un put de −0.85 es tan direccional como un call de +0.85."""
-    d = abs(delta)
+    d = abs(js_number(delta))
     if d >= 0.8:
         return 10
     if d >= 0.7:
@@ -802,6 +868,7 @@ def theta_score(pct_daily: float | None) -> int:
     """
     if pct_daily is None:
         return 0
+    pct_daily = js_number(pct_daily)
     if pct_daily < 1:
         return 10
     if pct_daily <= 3:
@@ -813,7 +880,7 @@ def theta_score(pct_daily: float | None) -> int:
 
 def gamma_score(gamma: float) -> int:
     """Gamma: la zona 0.01-0.08 es la "institucional"; muy alta o muy baja puntúa menos."""
-    g = abs(gamma)
+    g = abs(js_number(gamma))
     if g < 0.01:
         return 2
     if g <= 0.08:
@@ -832,6 +899,7 @@ def expiry_score(dte: int | None) -> int:
     """Vencimiento (días para expirar)."""
     if dte is None:
         return 0
+    dte = js_number(dte)
     if dte >= 120:
         return 10  # incluye los LEAPs de ~320 días
     if dte >= 90:
@@ -899,7 +967,9 @@ def unusuality_score(rows: Sequence[FlowRow]) -> UnusualityScore:
     sums = {"size": 0, "delta": 0, "theta": 0, "gamma": 0, "leg": 0, "expiry": 0}
     for row, s in scored:
         # Piso de 1 para que un trade con premium 0 no desaparezca del promedio.
-        w = max(row.premium, 1.0)
+        # `Math.max(row.premium, 1)` — coacciona; `max()` de Python compara
+        # tipos y lanza con un premium en texto o ausente.
+        w = max(js_number(row.premium), 1.0)
         weighted += s.total * w
         weight += w
         sums["size"] += s.size
@@ -942,16 +1012,21 @@ def aggression_score(rows: Sequence[FlowRow]) -> AggressionScore:
     Sin flujo ask/bid → score 0 (no un 5 "neutral": la ausencia de señal no es
     media señal).
     """
-    ask = bid = mid = 0.0
+    # Acumuladores con el `+` de JS: su `premium` llega crudo desde `baseRow`
+    # (`raw.premium ?? 0`) y puede ser texto. `sum()` de Python lanza; él suma o
+    # concatena, y la división de después lo vuelve a número.
+    ask: Any = 0
+    bid: Any = 0
+    mid: Any = 0
     for r in rows:
         if r.aggression == "ask":
-            ask += r.premium
+            ask = js_add(ask, r.premium)
         elif r.aggression == "bid":
-            bid += r.premium
+            bid = js_add(bid, r.premium)
         elif r.aggression == "mid":
-            mid += r.premium
-    denom = ask + bid
-    ratio = (ask / denom) if denom > 0 else 0.0
+            mid = js_add(mid, r.premium)
+    denom = js_number(ask) + js_number(bid)
+    ratio = (js_number(ask) / denom) if denom > 0 else 0.0
     return AggressionScore(
         score=js_round(ratio * 10) if denom > 0 else 0,
         ratio=ratio,

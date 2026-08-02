@@ -22,9 +22,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Literal, Sequence
+from typing import Any, Literal, Sequence
 
-from .jsmath import js_date_parse, js_round
+from .jsmath import js_add, js_date_parse, js_gt, js_number, js_round, js_string
 
 __all__ = [
     "MOVE_THRESHOLD_PCT",
@@ -94,10 +94,11 @@ def adaptive_threshold(bars: Sequence[ValBar], sessions: int = 60) -> float:
     diría nada. Se usa el rango diario típico (mediana de high-low en %) ×
     `THRESHOLD_ATR_MULTIPLE`.
     """
-    recent = [b for b in bars[-sessions:] if b.low > 0]
+    recent = [b for b in bars[-sessions:] if js_gt(b.low)]
     if len(recent) < 5:
         return MOVE_THRESHOLD_PCT
-    ranges = [(b.high - b.low) / b.low * 100 for b in recent]
+    ranges = [(js_number(b.high) - js_number(b.low)) / js_number(b.low) * 100
+              for b in recent]
     typical = median(ranges) or MOVE_THRESHOLD_PCT
     return max(MOVE_THRESHOLD_PCT, typical * THRESHOLD_ATR_MULTIPLE)
 
@@ -172,7 +173,10 @@ def evaluate_flow(
     Solo cuentan las sesiones **posteriores** al día del flow: el mismo día ya
     está contaminado por el propio trade.
     """
-    day = flow.timestamp[:10]
+    # `flow.timestamp.slice(0, 10)` — sobre `undefined` esto LANZA también en su
+    # archivo, así que no se tapa. Lo que sí se hace es no lanzar por una razón
+    # distinta a la suya: `js_string` deja el resto del recorrido con un texto.
+    day = js_string(flow.timestamp)[:10]
     entry = flow.asset_price
     direction = flow_direction(flow.type, flow.aggression)
     if now.tzinfo is None:
@@ -185,12 +189,22 @@ def evaluate_flow(
         entry_price=entry, days_elapsed=days_elapsed,
     )
 
-    if not (entry > 0) or direction == "neutral":
+    # `if (!(entry > 0) || direction === "neutral") return base;`
+    #
+    # `js_gt` y no `entry > 0`: en JS el operador relacional coacciona con
+    # `ToNumber` y un `NaN` hace falsa TODA comparación, así que `undefined > 0`
+    # es `false` y el flow se descarta solo. En Python `None > 0` es un
+    # `TypeError` que sube por la pila — y aquí eso no tumbaba un flow, tumbaba
+    # `validation_score` ENTERO: el sub-agente 6 se quedaba sin score por una
+    # sola fila con `asset_price` ausente. Lo encontró el corpus malformado de
+    # `diff_motor.sh`.
+    if not js_gt(entry) or direction == "neutral":
         return out
 
-    forward = [b for b in bars if b.time > day]
+    forward = [b for b in bars if js_string(b.time) > day]
     if flow.expiration:
-        forward = [b for b in forward if b.time <= flow.expiration]
+        forward = [b for b in forward
+                   if js_string(b.time) <= js_string(flow.expiration)]
     forward = forward[:horizon]
     if not forward:
         return out
@@ -200,19 +214,30 @@ def evaluate_flow(
     days_to_mfe = days_to_mae = None
     days_to_validate = days_to_invalidate = None
 
+    # En TS cada operación aritmética coacciona con `ToNumber` por su cuenta, así
+    # que `(b.high - entry)` con `entry = "500"` da 500 sin que él escriba nada.
+    # En Python eso es un `TypeError`. Se coacciona UNA vez aquí, que es
+    # equivalente y no repite la conversión en cada vuelta del bucle.
+    #
+    # El campo `entry_price` de la salida conserva el valor CRUDO, como su
+    # `entryPrice: entry`: lo que se coacciona es la cuenta, no lo que se reporta.
+    e = js_number(entry)
+    umbral = js_number(threshold_pct)
+
     for i, b in enumerate(forward):
         session = i + 1
+        alto, bajo = js_number(b.high), js_number(b.low)
         # A favor del contrato: para un alcista el máximo; para un bajista el mínimo.
-        fav = ((b.high - entry) / entry * 100) if up else ((entry - b.low) / entry * 100)
-        adv = ((entry - b.low) / entry * 100) if up else ((b.high - entry) / entry * 100)
+        fav = ((alto - e) / e * 100) if up else ((e - bajo) / e * 100)
+        adv = ((e - bajo) / e * 100) if up else ((alto - e) / e * 100)
 
         if fav > mfe:
             mfe, days_to_mfe = fav, session
         if adv > mae:
             mae, days_to_mae = adv, session
-        if days_to_validate is None and fav >= threshold_pct:
+        if days_to_validate is None and fav >= umbral:
             days_to_validate = session
-        if days_to_invalidate is None and adv >= threshold_pct:
+        if days_to_invalidate is None and adv >= umbral:
             days_to_invalidate = session
 
     # Se juzga cuando cruzó algún umbral, o cuando ya se agotó la observación.
@@ -322,7 +347,10 @@ def validation_score(
     if not flows or not bars:
         return _EMPTY
 
-    ordered = sorted(bars, key=lambda b: b.time)
+    # `sort((a, b) => a.time.localeCompare(b.time))` — comparación de TEXTO. El
+    # orden natural de Python lanza si se mezcla `None` con `str`; `js_string`
+    # da la misma cadena que compararía él (`String(undefined)` es "undefined").
+    ordered = sorted(bars, key=lambda b: js_string(b.time))
     thr = threshold_pct if threshold_pct is not None else adaptive_threshold(ordered)
     outcomes = sorted(
         (
@@ -330,7 +358,9 @@ def validation_score(
             for o in (evaluate_flow(f, ordered, now, thr, horizon) for f in flows)
             if o.direction != "neutral"
         ),
-        key=lambda o: o.timestamp,
+        # Ordena por texto, como su `localeCompare`: un `timestamp` ausente
+        # no puede hacer que la comparación lance.
+        key=lambda o: js_string(o.timestamp),
         reverse=True,
     )
 
@@ -339,9 +369,19 @@ def validation_score(
     hit_rate_value = (len(validated) / len(resolved) * 100) if resolved else None
 
     # Ponderada por premium: pesa más el acierto del dinero grande.
-    w_total = sum(o.premium for o in resolved)
-    w_hit = sum(o.premium for o in resolved if o.validated)
-    weighted_hit_rate = (w_hit / w_total * 100) if w_total > 0 else None
+    #
+    # `js_add` y no `sum()`: su acumulador es `wTotal += o.premium` y el `+` de
+    # JS concatena en cuanto un operando es un string. Con premios numéricos —el
+    # caso normal— esto es una suma corriente; con un `premium` que llegue en
+    # texto reproduce su resultado en vez de caerse con un `TypeError`.
+    w_total: Any = 0
+    w_hit: Any = 0
+    for o in resolved:
+        w_total = js_add(w_total, o.premium)
+        if o.validated:
+            w_hit = js_add(w_hit, o.premium)
+    weighted_hit_rate = ((js_number(w_hit) / js_number(w_total) * 100)
+                         if js_gt(w_total) else None)
 
     median_sessions = median(
         [o.days_to_validate for o in validated if o.days_to_validate is not None]
@@ -363,11 +403,11 @@ def validation_score(
             }
         )
 
-    stamps = sorted(o.timestamp for o in outcomes)
+    stamps = sorted(js_string(o.timestamp) for o in outcomes)
     first_flow = stamps[0] if stamps else None
     last_flow = stamps[-1] if stamps else None
     days = _days_between(first_flow, last_flow) if first_flow and last_flow else 0
-    sessions = len({o.timestamp[:10] for o in outcomes})
+    sessions = len({js_string(o.timestamp)[:10] for o in outcomes})
 
     def avg(xs: list[float]) -> float | None:
         return (sum(xs) / len(xs)) if xs else None

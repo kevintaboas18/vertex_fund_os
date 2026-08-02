@@ -41,8 +41,9 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-__all__ = ["js_round", "js_date_parse", "js_time", "js_days_since",
-           "js_locale_string", "MS_POR_DIA"]
+__all__ = ["js_round", "js_number", "js_gt", "js_add", "js_string",
+           "js_date_parse", "js_time", "js_days_since", "js_locale_string",
+           "MS_POR_DIA"]
 
 #: `const DAY = 86_400_000` de su `levels.ts`.
 MS_POR_DIA = 86_400_000
@@ -184,3 +185,125 @@ def js_days_since(fecha: Any, now: datetime, hora: str = "T21:00:00Z") -> float:
     `Date.parse`; el llamador decide (él responde 1).
     """
     return (js_time(now) - js_date_parse(f"{fecha}{hora}")) / MS_POR_DIA
+
+
+_INFINITOS_JS = {"Infinity": math.inf, "+Infinity": math.inf, "-Infinity": -math.inf}
+
+#: Bases que `Number()` entiende y `float()` no (`Number("0x1A") === 26`).
+_BASES_JS = {"0x": 16, "0X": 16, "0o": 8, "0O": 8, "0b": 2, "0B": 2}
+
+
+def js_number(v: Any) -> float:
+    """`Number(v)` de JS: la coacción que hace su aritmética con el valor crudo.
+
+    Es lo que convierte su `openInterest: "500"` en 500 al multiplicar, y su
+    `volume: true` en 1.
+
+    Los cuatro sitios donde `float()` de Python y `Number()` de JS **no** son lo
+    mismo, todos medidos ejecutando Node sobre el mismo corpus:
+
+        "1_000"     float() → 1000     ·  Number() → NaN   (Python permite `_`)
+        "0x1A"      float() → error    ·  Number() → 26    (JS entiende bases)
+        "infinity"  float() → inf      ·  Number() → NaN   (JS distingue el case)
+        "inf"       float() → inf      ·  Number() → NaN
+    """
+    if v is None:
+        return 0.0                     # `Number(null) === 0`
+    if isinstance(v, bool):
+        return 1.0 if v else 0.0       # `Number(true) === 1`
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        s = v.strip()                  # `Number()` recorta el espacio en blanco
+        if s == "":
+            return 0.0                 # `Number("") === 0`
+        if s in _INFINITOS_JS:
+            return _INFINITOS_JS[s]
+        if s[:2] in _BASES_JS:
+            try:
+                return float(int(s[2:], _BASES_JS[s[:2]]))
+            except ValueError:
+                return math.nan
+        # `float()` acepta separadores de millar (`"1_000"`) y las constantes
+        # `inf`/`nan` en cualquier capitalización; `Number()` no hace ninguna de
+        # las dos. Sin este filtro un texto que para él es basura entraba como
+        # número — y encima como uno grande.
+        if "_" in s:
+            return math.nan
+        try:
+            n = float(s)
+        except ValueError:
+            return math.nan
+        return math.nan if not math.isfinite(n) else n
+    if isinstance(v, (list, tuple)):
+        # `Number([]) === 0`, `Number([7]) === 7`, `Number([1,2])` es NaN.
+        if not v:
+            return 0.0
+        return js_number(v[0]) if len(v) == 1 else math.nan
+    return math.nan                    # `Number({})` es NaN
+
+
+def js_gt(v: Any, umbral: float = 0.0) -> bool:
+    """`v > umbral` con las reglas de JS, sin lanzar.
+
+    En JS un operador relacional coacciona con `ToNumber` antes de comparar, y
+    un `NaN` hace que TODA comparación sea falsa. Por eso `undefined > 0`,
+    `"abc" > 0` y `{} > 0` son los tres `false` — y `"5" > 0` es `true`.
+
+    En Python `None > 0` es un `TypeError` que sube por la pila. Ahí está la
+    diferencia que importa: donde su código descarta un flow con
+    `assetPrice` ausente y sigue con los demás, el port tumbaba
+    `validation_score` entero y el sub-agente 6 se quedaba sin score.
+    Lo encontró el corpus malformado de `diff_motor.sh`.
+    """
+    return js_number(v) > umbral
+
+
+def js_string(v: Any) -> str:
+    """`String(v)` de JS. No es `str()` de Python en cuatro sitios.
+
+        None   → "null"      (str() da "None")
+        True   → "true"      (str() da "True")
+        1e9    → "1000000000" (str() da "1000000000.0")
+        [1, 2] → "1,2"       (str() da "[1, 2]")
+    """
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, float):
+        if v != v:
+            return "NaN"
+        if math.isinf(v):
+            return "Infinity" if v > 0 else "-Infinity"
+        if v.is_integer() and abs(v) < 1e21:
+            return str(int(v))
+        return repr(v)
+    if isinstance(v, (list, tuple)):
+        return ",".join("" if x is None else js_string(x) for x in v)
+    if isinstance(v, dict):
+        return "[object Object]"
+    return str(v)
+
+
+def js_add(a: Any, b: Any) -> Any:
+    """El operador `+` de JS, que **no** es siempre una suma.
+
+    ECMA-262: si alguno de los dos operandos es un string tras `ToPrimitive`,
+    `+` CONCATENA; si no, convierte los dos a número y suma.
+
+    Importa donde el motor acumula un campo que viene de fuera. Su
+    `wTotal += o.premium` con un `premium` que llegue como `"500"` produce
+    `"0500"`, luego `"0500500"`… y el `wTotal > 0` de después lo vuelve a
+    convertir a número. Es un comportamiento raro pero es el suyo, y el port
+    hacía una suma normal —o se caía con un `TypeError`—, que es otra cosa.
+
+    Lo encontró el corpus malformado de `diff_motor.sh`. En condiciones
+    normales los dos caminos coinciden: con números, esto es `a + b`.
+    """
+    if isinstance(a, str) or isinstance(b, str):
+        return js_string(a) + js_string(b)
+    if isinstance(a, (list, tuple, dict)) or isinstance(b, (list, tuple, dict)):
+        # `ToPrimitive` de un array o un objeto da un string, así que concatena.
+        return js_string(a) + js_string(b)
+    return js_number(a) + js_number(b)

@@ -14,7 +14,19 @@ const C = JSON.parse(fs.readFileSync(process.env.MOTOR_CASOS!, 'utf8'));
 // El guard de `typeof` no es cosmético: en JS `null * 1e6` es 0, así que un
 // `Math.round(x * 1e6) / 1e6` sin él convertía todos los `null` en ceros y el
 // comparador los denunciaba como diferencias del port que no existían.
-const r6 = (x: any) => (typeof x === 'number' ? Math.round(x * 1e6) / 1e6 : x);
+// Los no finitos viajan como texto: JSON no los tiene, y desde que el corpus
+// lleva entradas malformadas son alcanzables (un `assetPrice` de 1e308 produce
+// un MFE infinito en los dos lados). El lado Python usa la misma convención.
+const r6 = (x: any) => {
+  if (typeof x !== 'number') return x;
+  if (!Number.isFinite(x)) return Number.isNaN(x) ? 'NaN' : (x > 0 ? 'Inf' : '-Inf');
+  // `x * 1e6` desborda a Infinity aunque `x` sea finito (1e308·1e6). Sin este
+  // segundo control el valor sale como Infinity, `JSON.stringify` lo vuelve
+  // `null` y el comparador lo lee como una diferencia que no existe.
+  const y = x * 1e6;
+  if (!Number.isFinite(y)) return y > 0 ? 'Inf' : '-Inf';
+  return Math.round(y) / 1e6;
+};
 
 const validation = C.validation.map((c: any) => {
   try {

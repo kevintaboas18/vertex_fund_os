@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Sequence
 
-from .jsmath import js_round
+from .jsmath import js_add, js_gt, js_number, js_round
 
 __all__ = [
     "LOW_LIQUIDITY_NOTIONAL",
@@ -172,6 +172,25 @@ def _empty() -> StructureScore:
     )
 
 
+def _clave(v):
+    """Clave de agrupación con la semántica de un `Map` de JS.
+
+    Su `byStrike` es un `Map`, que acepta **cualquier** valor como clave —
+    incluidos `undefined` y un objeto. Un `dict` de Python solo acepta lo
+    hashable, así que una lista o un dict como strike lanzaba `TypeError` y se
+    llevaba `structure_score` entero.
+
+    Se envuelve lo no hashable en su representación de texto: no colisiona con
+    ningún strike real y conserva "cada valor raro es su propio grupo", que es
+    lo que hace su `Map`.
+    """
+    try:
+        hash(v)
+    except TypeError:
+        return f"__nohash__{v!r}"
+    return v
+
+
 def structure_score(rows: Sequence[ChainRow]) -> StructureScore:
     """Analiza la cadena: nocional por strike, dominio calls/puts, y cuántas
     veces el volumen supera al Open Interest.
@@ -186,63 +205,81 @@ def structure_score(rows: Sequence[ChainRow]) -> StructureScore:
     by_exp: dict[str, ExpirationStat] = {}
     total = call_total = put_total = 0.0
 
+    # Todos los acumuladores usan `js_add`, que es el `+` de JS. Con la cadena
+    # bien formada esto es la suma de siempre; con un campo que llegue en texto
+    # o ausente reproduce su resultado en vez de lanzar un `TypeError` — y aquí
+    # un `TypeError` no descarta una fila, tumba `structure_score` entero y con
+    # él el sub-agente 4. Lo encontró el corpus malformado de `diff_motor.sh`
+    # (41 casos, el bloque que más reventaba).
+    #
+    # El `r.strike` de la clave del dict NO se coacciona: su `byStrike` es un
+    # `Map` que acepta cualquier valor como clave, incluido `undefined`.
     for r in rows:
         n = r.notional_value
-        total += n
+        total = js_add(total, n)
         if r.contract_type == "call":
-            call_total += n
+            call_total = js_add(call_total, n)
         else:
-            put_total += n
+            put_total = js_add(put_total, n)
 
-        s = by_strike.setdefault(r.strike, StrikeStat(strike=r.strike))
-        s.notional += n
+        clave = _clave(r.strike)
+        s = by_strike.setdefault(clave, StrikeStat(strike=r.strike))
+        s.notional = js_add(s.notional, n)
         if r.contract_type == "call":
-            s.call_notional += n
+            s.call_notional = js_add(s.call_notional, n)
         else:
-            s.put_notional += n
-        s.open_interest += r.open_interest
-        s.volume += r.volume
+            s.put_notional = js_add(s.put_notional, n)
+        s.open_interest = js_add(s.open_interest, r.open_interest)
+        s.volume = js_add(s.volume, r.volume)
         s.expirations += 1
 
         if r.expiration:
-            e = by_exp.setdefault(r.expiration, ExpirationStat(expiration=r.expiration))
-            e.notional += n
+            e = by_exp.setdefault(_clave(r.expiration),
+                                  ExpirationStat(expiration=r.expiration))
+            e.notional = js_add(e.notional, n)
             if r.contract_type == "call":
-                e.call_notional += n
+                e.call_notional = js_add(e.call_notional, n)
             else:
-                e.put_notional += n
+                e.put_notional = js_add(e.put_notional, n)
             e.contracts += 1
 
     strike_stats = list(by_strike.values())
     strike_count = len(strike_stats)
-    avg_per_strike = (total / strike_count) if strike_count > 0 else 0.0
+    # `total` puede ser un string si algún nocional llegó en texto (el `+` de JS
+    # concatena). La división de después lo vuelve a número, que es lo que hace
+    # su motor; aquí se hace explícito.
+    avg_per_strike = (js_number(total) / strike_count) if strike_count > 0 else 0.0
 
     for s in strike_stats:
-        s.pct_of_total = (s.notional / total * 100) if total > 0 else 0.0
-        s.side = "calls" if s.call_notional >= s.put_notional else "puts"
-        s.dominance_pct = (
-            max(s.call_notional, s.put_notional) / s.notional * 100 if s.notional > 0 else 0.0
-        )
-        s.dominant = s.notional > 0 and s.dominance_pct >= STRIKE_DOMINANCE_PCT
+        nt, cn, pn = js_number(s.notional), js_number(s.call_notional), js_number(s.put_notional)
+        s.pct_of_total = (nt / js_number(total) * 100) if js_gt(total) else 0.0
+        s.side = "calls" if cn >= pn else "puts"
+        s.dominance_pct = (max(cn, pn) / nt * 100) if nt > 0 else 0.0
+        s.dominant = nt > 0 and s.dominance_pct >= STRIKE_DOMINANCE_PCT
 
-    by_notional = sorted(strike_stats, key=lambda s: s.notional, reverse=True)
+    by_notional = sorted(strike_stats, key=lambda s: js_number(s.notional), reverse=True)
     considered = by_notional[:TOP_STRIKES_CONSIDERED]
     dominant_count = sum(1 for s in considered if s.dominant)
     top = by_notional[:10]
 
     # Solo cuentan los contratos con actividad: incluir los muertos (OI 0 y
     # volumen 0) diluiría el porcentaje hacia 0 en cualquier cadena larga.
-    activos = [r for r in rows if r.open_interest > 0 or r.volume > 0]
-    exceeded = sum(1 for r in activos if r.volume > r.open_interest)
+    # `js_gt` / `js_number`: en JS estas comparaciones coaccionan y un valor
+    # ilegible las hace falsas; en Python `None > 0` lanza.
+    activos = [r for r in rows if js_gt(r.open_interest) or js_gt(r.volume)]
+    exceeded = sum(1 for r in activos
+                   if js_number(r.volume) > js_number(r.open_interest))
     vol_pct = (exceeded / len(activos) * 100) if activos else 0.0
 
     n_points = notional_score(avg_per_strike)
     s_points = dominant_strikes_score(dominant_count)
     v_points = volume_over_oi_score(vol_pct)
 
-    expirations = sorted(by_exp.values(), key=lambda e: e.notional, reverse=True)[:10]
+    expirations = sorted(by_exp.values(), key=lambda e: js_number(e.notional),
+                         reverse=True)[:10]
     for e in expirations:
-        e.pct_of_total = (e.notional / total * 100) if total > 0 else 0.0
+        e.pct_of_total = ((js_number(e.notional) / js_number(total) * 100)
+                          if js_gt(total) else 0.0)
 
     return StructureScore(
         score=js_round((n_points + s_points + v_points) / 3),
@@ -258,9 +295,12 @@ def structure_score(rows: Sequence[ChainRow]) -> StructureScore:
             "considered_count": len(considered),
             "points": s_points,
             "top": top,
-            "call_pct": (call_total / total * 100) if total > 0 else 0.0,
-            "put_pct": (put_total / total * 100) if total > 0 else 0.0,
-            "dominant_side": "calls" if call_total >= put_total else "puts",
+            "call_pct": ((js_number(call_total) / js_number(total) * 100)
+                         if js_gt(total) else 0.0),
+            "put_pct": ((js_number(put_total) / js_number(total) * 100)
+                        if js_gt(total) else 0.0),
+            "dominant_side": ("calls" if js_number(call_total) >= js_number(put_total)
+                              else "puts"),
         },
         vol_oi={
             "pct": vol_pct,

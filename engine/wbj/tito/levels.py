@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal, Sequence
 
-from .jsmath import js_days_since, js_locale_string, js_round
+from .jsmath import js_add, js_days_since, js_gt, js_locale_string, js_number, js_round
 
 __all__ = [
     "LvlBar",
@@ -128,6 +128,19 @@ _EMPTY = LevelsReport(
 )
 
 
+def _suma(it):
+    """`reduce((s, x) => s + x, 0)` de JS sobre un iterable.
+
+    `sum()` de Python lanza en cuanto aparece un `None`; el `+` de JS coacciona
+    (y concatena si hay un string). Aquí eso no descartaba un strike: tumbaba
+    `find_levels` entero, y con él los niveles del reporte y de la gráfica.
+    """
+    total = 0
+    for x in it:
+        total = js_add(total, x)
+    return total
+
+
 def find_pivots(bars: Sequence[LvlBar], k: int = 3) -> list[Pivot]:
     """Swing highs / lows: una vela cuyo máximo (o mínimo) manda sobre las `k`
     velas de cada lado. Es la definición estándar de pivote y no requiere
@@ -141,9 +154,12 @@ def find_pivots(bars: Sequence[LvlBar], k: int = 3) -> list[Pivot]:
         for j in range(i - k, i + k + 1):
             if j == i:
                 continue
-            if bars[j].high >= bars[i].high:
+            # `js_number`: en JS estas comparaciones coaccionan y un `undefined`
+            # las hace falsas; en Python `None >= 1` lanza y se lleva
+            # `find_levels` entero. Con barras bien formadas no cambia nada.
+            if js_number(bars[j].high) >= js_number(bars[i].high):
                 is_high = False
-            if bars[j].low <= bars[i].low:
+            if js_number(bars[j].low) <= js_number(bars[i].low):
                 is_low = False
             if not is_high and not is_low:
                 break
@@ -233,11 +249,16 @@ def find_levels(
 
     `rango_pct` acota a niveles dentro de ±% del spot: más allá no se opera.
     """
-    if not (spot > 0) or not bars:
+    if not js_gt(spot) or not bars:
         return _EMPTY
 
-    def near(a: float, b: float) -> bool:
-        return abs(a - b) / spot * 100 <= tolerance_pct
+    # A partir de aquí el spot ya es un número > 0 (lo garantiza el `js_gt`),
+    # pero `a` y `b` pueden ser cualquier cosa: vienen de la cadena, del tape y
+    # del GEX. `js_number` reproduce la coacción que hace su aritmética.
+    spot = js_number(spot)
+
+    def near(a, b) -> bool:
+        return abs(js_number(a) - js_number(b)) / spot * 100 <= tolerance_pct
 
     clusters = [
         c
@@ -272,9 +293,8 @@ def find_levels(
 
     # Umbral de tamaño para los strikes SIN rebote previo.
     aligned_oi = sorted(
-        oi
-        for oi in (
-            sum(
+        (oi for oi in (
+            _suma(
                 c.open_interest
                 for c in chain
                 if near(c.strike, price)
@@ -286,7 +306,10 @@ def find_levels(
             )
             for price, _ in candidates
         )
-        if oi > 0
+         if js_gt(oi)),
+        # `sort((a, b) => a - b)` de JS: numérico, no el orden natural de
+        # Python, que con un string mezclado lanza `TypeError`.
+        key=js_number,
     )
     oi_floor = aligned_oi[int(len(aligned_oi) * 0.7)] if aligned_oi else 0
 
@@ -306,8 +329,8 @@ def find_levels(
             )
             if not aligned:
                 continue
-            oi += c.open_interest
-            notional += c.notional_value
+            oi = js_add(oi, c.open_interest)
+            notional = js_add(notional, c.notional_value)
 
         # --- flujo real ejecutado que apunta a ese nivel ---
         flow_premium = 0.0
@@ -317,12 +340,12 @@ def find_levels(
             if f.aggression != "bid":
                 continue  # solo la VENTA construye muro
             if kind == "resistencia" and f.type == "call":
-                flow_premium += f.premium
+                flow_premium = js_add(flow_premium, f.premium)
             if kind == "soporte" and f.type == "put":
-                flow_premium += f.premium
+                flow_premium = js_add(flow_premium, f.premium)
 
         # --- gamma del dealer ---
-        net_gex = sum(g.net_gex for g in gex if near(g.strike, price))
+        net_gex = _suma(g.net_gex for g in gex if near(g.strike, price))
 
         touches = cluster.touches if cluster else 0
 
@@ -334,13 +357,20 @@ def find_levels(
         recency = recency_factor(last_touch, now) if last_touch else 0.0
 
         # --- puntuación 0-100 ---
+        # Los tres acumuladores (`oi`, `flow_premium`, `net_gex`) pueden llevar
+        # un string si algún campo de la cadena o del tape llegó en texto: el
+        # `+` de JS concatena. Se convierten aquí, que es lo que hace su
+        # aritmética al usarlos.
+        oi_n = js_number(oi)
+        fp_n = js_number(flow_premium)
+        gex_n = js_number(net_gex)
         p_touch = min(1.0, touches / max(2, max_touches)) * 35 * (0.4 + 0.6 * recency)
-        p_oi = min(1.0, math.log10(1 + oi) / 5) * 25 if oi > 0 else 0.0
-        p_flow = min(1.0, math.log10(1 + flow_premium) / 8) * 20 if flow_premium > 0 else 0.0
-        p_gex = min(1.0, abs(net_gex) / 5e8) * 10
+        p_oi = min(1.0, math.log10(1 + oi_n) / 5) * 25 if oi_n > 0 else 0.0
+        p_flow = min(1.0, math.log10(1 + fp_n) / 8) * 20 if fp_n > 0 else 0.0
+        p_gex = min(1.0, abs(gex_n) / 5e8) * 10 if gex_n == gex_n else 0.0
         # Confluencia: precio Y opciones a la vez. Es el bonus que separa un
         # nivel real de una coincidencia.
-        confluence = 10 if touches > 0 and (oi > 0 or flow_premium > 0) else 0
+        confluence = 10 if touches > 0 and (oi_n > 0 or fp_n > 0) else 0
 
         # `Math.round`, no el `round` de Python: el suyo redondea la mitad
         # hacia arriba y el de Python al par. Aquí salía una fuerza de 10
@@ -361,12 +391,12 @@ def find_levels(
         parts: list[str] = []
         if touches > 0:
             parts.append(f"el precio reaccionó {touches} {'vez' if touches == 1 else 'veces'} aquí")
-        if oi > 0:
+        if oi_n > 0:
             lado = "calls" if kind == "resistencia" else "puts"
             # `Math.round(oi).toLocaleString("en-US")`, tal cual.
             parts.append(
-                f"{js_locale_string(js_round(oi))} contratos abiertos de {lado}")
-        if flow_premium > 0:
+                f"{js_locale_string(js_round(oi_n))} contratos abiertos de {lado}")
+        if fp_n > 0:
             lado = "calls" if kind == "resistencia" else "puts"
             parts.append(f"venta de {lado} por dinero real")
         if confluence > 0:

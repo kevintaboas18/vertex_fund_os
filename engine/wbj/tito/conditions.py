@@ -81,8 +81,20 @@ CANCELED_CODES = frozenset({"CANC", "CNCL", "CNCO", "CNOL"})
 
 
 def condition_of(id: int | None) -> TradeCondition | None:
-    """Busca la condición por id. ``None`` si no está en el catálogo."""
-    return None if id is None else _BY_ID.get(id)
+    """Busca la condición por id. ``None`` si no está en el catálogo.
+
+    Su `BY_ID` es un `Map`, que acepta cualquier valor como clave; un `dict` de
+    Python solo acepta lo hashable, así que un `trade_condition_id` que llegue
+    como lista o como objeto lanzaba `TypeError` y se llevaba `classify_flow`
+    entero. Lo no hashable no está en el catálogo, que es la misma respuesta que
+    da su `Map`: `undefined`.
+    """
+    if id is None:
+        return None
+    try:
+        return _BY_ID.get(id)
+    except TypeError:
+        return None
 
 
 def is_canceled_condition(id: int | None) -> bool:

@@ -28,6 +28,8 @@ real en Node y compara la salida campo a campo.
 from __future__ import annotations
 
 import math
+
+from .jsmath import js_number as _js_number
 from typing import Any, Sequence
 
 from .structure import ChainRow, PriceSource
@@ -50,12 +52,6 @@ DEFAULT_SHARES_PER_CONTRACT = 100
 #: `Number("Infinity")` es infinito pero `Number("infinity")` y `Number("inf")`
 #: son NaN — mientras que `float()` de Python parsea las tres sin distinguir.
 #: Sin esta tabla el port convertía en infinito un texto que para él es basura.
-_INFINITOS_JS = {"Infinity": math.inf, "+Infinity": math.inf, "-Infinity": -math.inf}
-
-#: Bases que `Number()` entiende y `float()` no (`Number("0x1A") === 26`).
-_BASES_JS = {"0x": 16, "0X": 16, "0o": 8, "0O": 8, "0b": 2, "0B": 2}
-
-
 def _num(v: Any) -> float | None:
     """`typeof x === "number"`: un string numérico NO cuenta.
 
@@ -68,56 +64,6 @@ def _num(v: Any) -> float | None:
     if isinstance(v, bool) or not isinstance(v, (int, float)):
         return None
     return float(v)
-
-
-def _js_number(v: Any) -> float:
-    """`Number(v)` de JS: la coacción que hace su aritmética con el valor crudo.
-
-    Es lo que convierte su `openInterest: "500"` en 500 al multiplicar, y su
-    `volume: true` en 1.
-
-    Los cuatro sitios donde `float()` de Python y `Number()` de JS **no** son lo
-    mismo, todos medidos ejecutando Node sobre el mismo corpus:
-
-        "1_000"     float() → 1000     ·  Number() → NaN   (Python permite `_`)
-        "0x1A"      float() → error    ·  Number() → 26    (JS entiende bases)
-        "infinity"  float() → inf      ·  Number() → NaN   (JS distingue el case)
-        "inf"       float() → inf      ·  Number() → NaN
-    """
-    if v is None:
-        return 0.0                     # `Number(null) === 0`
-    if isinstance(v, bool):
-        return 1.0 if v else 0.0       # `Number(true) === 1`
-    if isinstance(v, (int, float)):
-        return float(v)
-    if isinstance(v, str):
-        s = v.strip()                  # `Number()` recorta el espacio en blanco
-        if s == "":
-            return 0.0                 # `Number("") === 0`
-        if s in _INFINITOS_JS:
-            return _INFINITOS_JS[s]
-        if s[:2] in _BASES_JS:
-            try:
-                return float(int(s[2:], _BASES_JS[s[:2]]))
-            except ValueError:
-                return math.nan
-        # `float()` acepta separadores de millar (`"1_000"`) y las constantes
-        # `inf`/`nan` en cualquier capitalización; `Number()` no hace ninguna de
-        # las dos. Sin este filtro un texto que para él es basura entraba como
-        # número — y encima como uno grande.
-        if "_" in s:
-            return math.nan
-        try:
-            n = float(s)
-        except ValueError:
-            return math.nan
-        return math.nan if not math.isfinite(n) else n
-    if isinstance(v, (list, tuple)):
-        # `Number([]) === 0`, `Number([7]) === 7`, `Number([1,2])` es NaN.
-        if not v:
-            return 0.0
-        return _js_number(v[0]) if len(v) == 1 else math.nan
-    return math.nan                    # `Number({})` es NaN
 
 
 def _coerce(v: Any, fallback: float) -> float:
