@@ -338,8 +338,11 @@ def _base_row(raw: dict[str, Any], now: datetime) -> FlowRow:
     """
     if not isinstance(raw, dict):
         raw = {}
-    symbol = str(raw.get("symbol") or "")
-    occ = parse_occ(symbol)
+    # `raw.symbol` CRUDO en la fila, como él; el `str(… or "")` solo para
+    # `parse_occ`, que es lo único que necesita texto (`symbol.length` sobre un
+    # número es `undefined` en TS y su `parseOcc` devuelve `null`).
+    symbol = raw.get("symbol")
+    occ = parse_occ(symbol if isinstance(symbol, str) else "")
     dte = days_to_expiration(occ.expiration, now) if occ else None
     side = str(raw.get("side") or "")
     aggr = aggression_of(side)
@@ -404,7 +407,7 @@ def _base_row(raw: dict[str, Any], now: datetime) -> FlowRow:
         open_interest=open_interest,
         volume=volume,
         score=_num(raw.get("score")),
-        sentiment=str(raw.get("sentiment") or ""),
+        sentiment=raw.get("sentiment"),        # crudo, como su `raw.sentiment`
         timestamp=str(raw.get("timestamp") or ""),
         condition_code=cond.code if cond else None,
         condition_name=cond.name if cond else None,

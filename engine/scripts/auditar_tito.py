@@ -898,16 +898,32 @@ DIFERENCIALES = {
     "diff_bars.sh":       "barsStore.ts — 27 casos de cache de barras",
     "diff_primitivas.sh": "Number() y Date.parse() contra V8",
     "diff_cono.sh":       "expectedMove.ts — cono + rutas de la gráfica",
-    "diff_motor.sh":      "flow + validation + levels + structure — 431 casos",
+    "diff_motor.sh":      "flow + validation + levels + structure — 1.142 casos",
+    "diff_motor2.sh":     "ivcontext + gex + prediction + risk — 846 casos",
     "diff_frescura.sh":   "levels.recencyFactor — el peso por frescura",
     "diff_reloj.sh":      "las 5 funciones que cuentan tiempo",
 }
+#: Los dos que llevan corpus MALFORMADO. Es lo que separa "coincide con datos
+#: buenos" de "coincide también cuando la fuente cambia de esquema", y fue donde
+#: salieron los 155 casos en que el port lanzaba y su archivo no.
+CON_BASURA = ("diff_motor.sh", "diff_motor2.sh")
 _faltan = [d for d in DIFERENCIALES if not (VERTEX/"engine"/"scripts"/d).exists()]
 chk(not _faltan, f"los {len(DIFERENCIALES)} diferenciales contra su repo existen"
     + (f" · FALTAN: {_faltan}" if _faltan else ""))
 for _d, _q in DIFERENCIALES.items():
     print(f"      {_d:<22} {_q}")
 print("  · córrelos con node instalado; TITO_ROOT usa tu clon en vez de GitHub")
+for _d in CON_BASURA:
+    _src = (VERTEX / "engine" / "scripts" / _d.replace(".sh", "_casos.py")
+            .replace("diff_", "_diff"))
+    _casos = VERTEX / "engine" / "scripts" / ("_diff" + _d[5:-3] + "_casos.py")
+    chk(_casos.exists() and "BASURA" in _casos.read_text(encoding="utf-8").upper(),
+        f"{_d} lleva corpus MALFORMADO, no solo datos bien formados")
+    _base = VERTEX / "engine" / "scripts" / ("_diff" + _d[5:-3] + "_base.json")
+    if _base.exists():
+        import json as _json
+        print(f"      {_d:<18} {len(_json.loads(_base.read_text()))} divergencias "
+              "declaradas por ID (falla si aparece una nueva)")
 
 # Lo único que NINGUNA de las comprobaciones de arriba puede dar: la forma REAL
 # de la respuesta de Massive y de MarketSnack. Todo lo demás corre sin red
