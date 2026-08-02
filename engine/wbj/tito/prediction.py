@@ -19,7 +19,7 @@ import math
 from dataclasses import dataclass
 from typing import Literal, Sequence
 
-from .jsmath import js_round
+from .jsmath import js_round, js_gt, js_number
 from .expected_move import (
     LevelInput,
     LevelProb,
@@ -137,7 +137,7 @@ def weighted_score(scores: SubScores) -> tuple[int, int, int]:
             continue
         active += 1
         weight += w
-        pts += (s / 10) * w
+        pts += (js_number(s) / 10) * w
     return (js_round(pts / weight * 100) if weight > 0 else 0, active, int(weight))
 
 
@@ -167,12 +167,14 @@ def confidence_of(
     # Un solo nivel con >=50% del peso ya es "nitidez máxima": por eso x2 y se acota.
     sharpness = min(1.0, levels[0].magnet * 2)
     coverage = min(1.0, active / 6)
-    track = 0.5 if hit_rate is None else min(1.0, max(0.0, hit_rate / 100))
+    track = (0.5 if hit_rate is None
+             else min(1.0, max(0.0, js_number(hit_rate) / 100)))
     raw = 0.45 * sharpness + 0.30 * coverage + 0.25 * track
     return js_round(100 * min(1.0, max(0.0, raw)))
 
 
 def _pct_change(spot: float, target: float) -> float:
+    target, spot = js_number(target), js_number(spot)
     return ((target - spot) / spot * 100) if spot > 0 else 0.0
 
 
@@ -206,10 +208,12 @@ def predict_pro(
     # se ajusta el target base (recortado al cono de 2σ). El imán CRUDO sigue
     # anclando la búsqueda de bull/bear para no arrastrar el sesgo a los extremos.
     def in_cone(x: float) -> float:
-        return min(max(x, em.lower2), em.upper2)
+        return min(max(js_number(x), js_number(em.lower2)), js_number(em.upper2))
 
-    cal = calibration or {}
-    shift_pct = calibration_shift_pct(cal.get("bias_pct"), int(cal.get("samples") or 0))
+    # `calibration?.biasPct` de JS: si no es un objeto, `undefined`.
+    cal = calibration if isinstance(calibration, dict) else {}
+    shift_pct = calibration_shift_pct(cal.get("bias_pct"),
+                                      int(js_number(cal.get("samples") or 0)))
     # El recorte al cono es INCONDICIONAL.
     #
     # DIVERGENCIA vs el TypeScript original (deliberada, es un arreglo): allí
@@ -231,19 +235,18 @@ def predict_pro(
     # `gex_analysis` filtra a ±20% del spot— este tope no toca nada; solo actúa
     # cuando el imán está tan lejos que la volatilidad no lo alcanza, y ahí
     # decir "hasta aquí llega lo defendible" es más honesto que fingir el nivel.
-    base_floor = (em.lower1 + em.lower2) / 2
-    base_ceil = (em.upper1 + em.upper2) / 2
-    base_target = min(max(raw_base + spot * shift_pct / 100, base_floor), base_ceil)
+    base_floor = (js_number(em.lower1) + js_number(em.lower2)) / 2
+    base_ceil = (js_number(em.upper1) + js_number(em.upper2)) / 2
+    base_target = min(max(js_number(raw_base) + js_number(spot) * shift_pct / 100,
+                          base_floor), base_ceil)
 
     # Bull y bear se buscan EXCLUYENDO el nivel base: si no, cuando el imán ya
     # está arriba (o abajo) los tres escenarios colapsan en el mismo precio.
     others = [l for l in levels if l.strike != raw_base]
-    above = max(
-        (l for l in others if l.strike > spot), key=lambda l: l.magnet, default=None
-    )
-    below = max(
-        (l for l in others if l.strike < spot), key=lambda l: l.magnet, default=None
-    )
+    above = max((l for l in others if js_number(l.strike) > spot),
+                key=lambda l: js_number(l.magnet), default=None)
+    below = max((l for l in others if js_number(l.strike) < spot),
+                key=lambda l: js_number(l.magnet), default=None)
 
     bull_target = above.strike if above else em.upper1
     bear_target = below.strike if below else em.lower1
@@ -263,10 +266,11 @@ def predict_pro(
     # volatilidad (2σ), que está por debajo de la base por construcción y sigue
     # siendo el límite duro que el motor ya respeta. La volatilidad manda, que
     # es la regla de oro — solo que aquí hay que bajar un peldaño más.
+    bear_target, bull_target = js_number(bear_target), js_number(bull_target)
     if bear_target >= base_target:
-        bear_target = em.lower1 if em.lower1 < base_target else em.lower2
+        bear_target = em.lower1 if js_number(em.lower1) < base_target else em.lower2
     if bull_target <= base_target:
-        bull_target = em.upper1 if em.upper1 > base_target else em.upper2
+        bull_target = em.upper1 if js_number(em.upper1) > base_target else em.upper2
 
     # Y nada puede salirse del cono de 2σ.
     bear_target = max(bear_target, em.lower2)
@@ -278,9 +282,26 @@ def predict_pro(
         else "el dealer amplifica (γ−): si el precio llega, acelera"
     )
 
+    def _fijo(x, n: int = 2) -> str:
+        """`Number(x).toFixed(n)` de JS: coacciona y no lanza.
+
+        Con `Infinity` escribe "Infinity" (no "1e+308" ni un `OverflowError`) y
+        con `NaN` escribe "NaN". Lo destapó el corpus malformado.
+        """
+        v = js_number(x)
+        if v != v:
+            return "NaN"
+        if math.isinf(v):
+            return "Infinity" if v > 0 else "-Infinity"
+        return f"{v:.{n}f}"
+
     def wall_text(l: LevelProb) -> str:
         lado = "calls" if l.side == "call" else "puts"
-        return f"Gamma concentrada en ${l.strike:.2f} (dominan {lado}) — {regime_word}"
+        # `${l.strike.toFixed(2)}` — coacciona y nunca lanza. En Python un
+        # `:.2f` sobre `None` es un `TypeError` y sobre `NaN` da "nan" donde JS
+        # escribe "NaN"; `_fijo` reproduce su `toFixed`.
+        return (f"Gamma concentrada en ${_fijo(l.strike)} (dominan {lado})"
+                f" — {regime_word}")
 
     bull = Scenario(
         kind="bull",
@@ -312,7 +333,8 @@ def predict_pro(
         change_pct=_pct_change(spot, base_target),
         probability=prob_touch(spot, base_target, iv, horizon_days) if magnet else 0.0,
         driver=(
-            f"Nivel imán: {magnet.magnet * 100:.0f}% del peso del mapa está en ${magnet.strike:.2f}"
+            f"Nivel imán: {js_number(magnet.magnet) * 100:.0f}% del peso del mapa"
+            f" está en ${js_number(magnet.strike):.2f}"
             if magnet
             else "Sin nodos de gamma suficientes para fijar un imán"
         ),
@@ -329,14 +351,15 @@ def predict_pro(
     else:
         dir_text = f"lateral, cerca de ${base_target:.2f}"
 
+    cp = js_number(callvpct)
     if callvpct is None:
         money_text = "No hay lectura clara del flujo."
-    elif callvpct >= 60:
-        money_text = f"El dinero está {callvpct:.0f}% en calls: apuesta al alza."
-    elif callvpct <= 40:
-        money_text = f"El dinero está {100 - callvpct:.0f}% en puts: apuesta a la baja."
+    elif cp >= 60:
+        money_text = f"El dinero está {cp:.0f}% en calls: apuesta al alza."
+    elif cp <= 40:
+        money_text = f"El dinero está {100 - cp:.0f}% en puts: apuesta a la baja."
     else:
-        money_text = f"El dinero está repartido ({callvpct:.0f}% calls): sin apuesta dominante."
+        money_text = f"El dinero está repartido ({cp:.0f}% calls): sin apuesta dominante."
 
     if score >= 70:
         score_text = "Las señales de los sub-agentes son fuertes."
@@ -350,7 +373,8 @@ def predict_pro(
     track_text = (
         ""
         if hit_rate is None
-        else f" Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el {hit_rate:.0f}% de las veces."
+        else (" Históricamente, cuando aparece flujo así en este ticker el precio"
+              f" lo confirmó el {js_number(hit_rate):.0f}% de las veces.")
     )
 
     samples = int(cal.get("samples") or 0)

@@ -10,6 +10,8 @@ en `expected_move` y está testeada allí.
 from __future__ import annotations
 
 import math
+
+from .jsmath import js_number
 from typing import Literal
 
 from .expected_move import norm_cdf
@@ -39,6 +41,8 @@ def _d1(spot: float, strike: float, T: float, iv: float, r: float) -> float:
 
 
 def _invalid(spot: float, strike: float, T: float, iv: float) -> bool:
+    spot, strike, T, iv = (js_number(spot), js_number(strike),
+                           js_number(T), js_number(iv))
     return not (spot > 0) or not (strike > 0) or not (T > 0) or not (iv > 0)
 
 

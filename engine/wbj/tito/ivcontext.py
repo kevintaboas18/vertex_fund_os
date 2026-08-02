@@ -22,7 +22,7 @@ import math
 from dataclasses import dataclass
 from typing import Literal, Sequence
 
-from .jsmath import js_round
+from .jsmath import js_round, js_gt, js_number, js_add
 from .flow import FlowRow
 
 __all__ = [
@@ -114,8 +114,8 @@ def realized_vol_series(closes: Sequence[float], window: int = 30) -> list[float
         return []
     rets: list[float] = []
     for prev, cur in zip(closes, closes[1:]):
-        if prev > 0 and cur > 0:
-            rets.append(math.log(cur / prev))
+        if js_gt(prev) and js_gt(cur):
+            rets.append(math.log(js_number(cur) / js_number(prev)))
     out: list[float] = []
     for i in range(window, len(rets) + 1):
         window_rets = rets[i - window : i]
@@ -225,12 +225,17 @@ def iv_context_score(
     """
     iv_history = iv_history or []
 
-    with_iv = [r for r in rows if math.isfinite(r.iv) and r.iv > 0]
+    # `js_number` / `js_gt`: en TS estas comparaciones y productos coaccionan
+    # solos y un valor ilegible los hace falsos o `NaN`; en Python lanzan y se
+    # llevan el sub-agente entero. Lo destapó el corpus malformado de
+    # `diff_motor2.sh`. Con datos bien formados no cambia nada.
+    with_iv = [r for r in rows
+               if math.isfinite(js_number(r.iv)) and js_gt(r.iv)]
     if not with_iv:
         return _EMPTY
 
     def iv_pct(r: FlowRow) -> float:
-        return r.iv * 100
+        return js_number(r.iv) * 100
 
     # IV representativa = ponderada por premium. El dinero grande define el
     # contexto; un promedio simple lo dominarían los cientos de tickets
@@ -239,7 +244,7 @@ def iv_context_score(
     lo, hi = math.inf, -math.inf
     for r in with_iv:
         v = iv_pct(r)
-        w = max(r.premium, 1.0)
+        w = max(js_number(r.premium), 1.0)   # `Math.max` coacciona
         w_sum += w
         w_iv += v * w
         plain += v
@@ -255,7 +260,7 @@ def iv_context_score(
             continue
         e = by_exp_map.setdefault(r.expiration, {"dte": r.dte, "ivs": [], "premium": 0.0})
         e["ivs"].append(iv_pct(r))
-        e["premium"] += r.premium
+        e["premium"] = js_add(e["premium"], r.premium)
         if e["dte"] is None:
             e["dte"] = r.dte
 
@@ -288,7 +293,7 @@ def iv_context_score(
             expiration=r.expiration, dte=r.dte, iv=iv_pct(r),
             premium=r.premium, size=r.size,
         )
-        for r in sorted(with_iv, key=lambda r: r.iv, reverse=True)[:8]
+        for r in sorted(with_iv, key=lambda r: js_number(r.iv), reverse=True)[:8]
     ]
 
     # --- IV Rank: historia propia si alcanza, si no el proxy de vol realizada ---
@@ -300,7 +305,7 @@ def iv_context_score(
     if len(iv_history) >= MIN_IV_HISTORY_DAYS:
         series = [
             h["avg_iv"] for h in iv_history
-            if isinstance(h.get("avg_iv"), (int, float))
+            if isinstance(h, dict) and isinstance(h.get("avg_iv"), (int, float))
             and math.isfinite(h["avg_iv"]) and h["avg_iv"] > 0
         ]
         rank_value = rank_within(series, current)

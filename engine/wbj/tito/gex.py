@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Literal, Sequence
 
-from .jsmath import js_round
+from .jsmath import js_round, js_gt, js_number, js_add
 from .black_scholes import bs_gamma
 from .occ import days_to_expiration
 from .structure import ChainRow
@@ -96,7 +96,7 @@ def estimate_iv(closes: Sequence[float]) -> float:
 
     `closes` va del más viejo al más reciente. Ventana de hasta 21 sesiones.
     """
-    c = [v for v in closes if v > 0][-22:]
+    c = [js_number(v) for v in closes if js_gt(v)][-22:]
     if len(c) < 3:
         return FALLBACK_IV
     rets = [math.log(b / a) for a, b in zip(c, c[1:])]
@@ -129,7 +129,11 @@ def gex_analysis(
     ``GEX por strike = gamma × OI × 100 × spot² × 0.01``, con signo +call/−put.
     """
     iv = estimate_iv(closes)
-    if spot <= 0 or not rows:
+    # `js_number` / `js_gt`: en TS estas comparaciones y productos coaccionan
+    # solos y un valor ilegible los hace falsos o `NaN`; en Python lanzan y se
+    # llevan el sub-agente entero. Lo destapó el corpus malformado de
+    # `diff_motor2.sh`. Con datos bien formados no cambia nada.
+    if not js_gt(spot) or not rows:
         return _empty(spot, iv, low_liquidity)
 
     # ── Gamma real por strike+lado (promedio) desde los trades, para anclar ──
@@ -138,20 +142,22 @@ def gex_analysis(
     for t in trades:
         if t.strike is None or t.type == "unknown":
             continue
-        if t.gamma > 0:
+        if js_gt(t.gamma):
             real_gamma.setdefault(f"{t.strike}|{t.type}", []).append(abs(t.gamma))
-        p = trade_prem.setdefault(t.strike, {"premium": 0.0, "count": 0})
-        p["premium"] += t.premium
+        p = trade_prem.setdefault(js_number(t.strike), {"premium": 0.0, "count": 0})
+        p["premium"] = js_add(p["premium"], t.premium)
         p["count"] += 1
 
     # ── GEX por strike sobre toda la cadena (solo contratos vigentes) ──
+    spot = js_number(spot)
     lo, hi = spot * (1 - NEAR_SPOT_PCT), spot * (1 + NEAR_SPOT_PCT)
     by_strike: dict[float, dict] = {}
 
     for r in rows:
-        if r.strike < lo or r.strike > hi:
+        strike = js_number(r.strike)
+        if strike < lo or strike > hi:
             continue
-        if r.open_interest <= 0:
+        if not js_gt(r.open_interest):
             continue
         dte = days_to_expiration(r.expiration, now)
         # `if (dte <= 0) continue;`, literal. Un `NaN` NO se salta: `NaN <= 0`
@@ -163,13 +169,13 @@ def gex_analysis(
             continue
         T = dte / 365
 
-        gamma = bs_gamma(spot, r.strike, T, iv)
+        gamma = bs_gamma(spot, strike, T, iv)
         anchor = real_gamma.get(f"{r.strike}|{r.contract_type}")
         if anchor:
             gamma = (gamma + sum(anchor) / len(anchor)) / 2
 
-        gex = gamma * r.open_interest * 100 * spot * spot * 0.01
-        s = by_strike.setdefault(r.strike, {"call_gex": 0.0, "put_gex": 0.0})
+        gex = gamma * js_number(r.open_interest) * 100 * spot * spot * 0.01
+        s = by_strike.setdefault(strike, {"call_gex": 0.0, "put_gex": 0.0})
         if r.contract_type == "call":
             s["call_gex"] += gex
         else:
@@ -228,7 +234,7 @@ def gex_analysis(
     # cambia de signo (put-dominante abajo → call-dominante arriba). Se elige el
     # cruce MÁS CERCANO al spot e interpola el punto medio ponderado: un flip a
     # 15% de distancia no gobierna el comportamiento de hoy.
-    asc = sorted(raw, key=lambda r: r["strike"])
+    asc = sorted(raw, key=lambda r: js_number(r["strike"]))
     flip_strike: float | None = None
     best_dist = math.inf
     for a, b in zip(asc, asc[1:]):

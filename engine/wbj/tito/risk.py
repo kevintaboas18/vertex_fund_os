@@ -18,6 +18,7 @@ disco. El saldo del usuario nunca sale de donde esté.
 from __future__ import annotations
 
 import math
+from .jsmath import js_gt, js_number
 from dataclasses import dataclass
 from typing import Literal
 
@@ -106,6 +107,15 @@ def _safe(n: float | None) -> float:
     return float(n) if isinstance(n, (int, float)) and math.isfinite(n) and n > 0 else 0.0
 
 
+def _floor(x: float) -> float:
+    """`Math.floor(x)` de JS: los no finitos pasan tal cual, no lanzan.
+
+    `budgets.premium / cost_per_contract` con una cuenta de 1e308 desborda, y
+    `math.floor(inf)` es un `OverflowError` que se lleva el sizing entero.
+    """
+    return x if not math.isfinite(x) else float(math.floor(x))
+
+
 def budgets_of(profile: RiskProfile) -> Budgets:
     account = _safe(getattr(profile, "account_size", 0))
     tolerance = _safe(getattr(profile, "tolerance_pct", 0))
@@ -125,17 +135,17 @@ def passes_quality_filter(row: FlowRow) -> QualityResult:
         return QualityResult(False, "sin_theta", "El feed no trajo theta para este contrato.")
     if row.expiry_status in ("expirado", "expira_hoy"):
         return QualityResult(False, "vencido", "El contrato ya venció o vence hoy.")
-    if row.dte is None or row.dte < MIN_DTE:
+    if row.dte is None or js_number(row.dte) < MIN_DTE:
         return QualityResult(
             False,
             "vencido",
             f"Vence en menos de {MIN_DTE} días: no da tiempo a que el movimiento se desarrolle.",
         )
-    if row.theta_pct_daily > MAX_THETA_PCT_DAILY:
+    if js_number(row.theta_pct_daily) > MAX_THETA_PCT_DAILY:
         return QualityResult(
             False,
             "theta_alto",
-            f"Pierde {row.theta_pct_daily:.1f}% de su valor al día "
+            f"Pierde {js_number(row.theta_pct_daily):.1f}% de su valor al día "
             f"(máximo {MAX_THETA_PCT_DAILY:.0f}%): es lotería, no posición.",
         )
     return QualityResult(True)
@@ -187,15 +197,15 @@ def size_flow(
         return _blocked("sin_theta", "El contrato no tiene precio utilizable.")
 
     # No se quema theta más allá del vencimiento.
-    burn_days = int(max(0, min(row.dte or 0, _safe(horizon_days))))
+    burn_days = int(max(0, min(js_number(row.dte or 0), _safe(horizon_days))))
     raw_burn = _safe(abs(row.theta)) * _MULTIPLIER * burn_days
     # Tope: una opción larga no puede perder más que su prima.
     theta_burn_per_contract = min(raw_burn, cost_per_contract)
     fully_decays = raw_burn >= cost_per_contract and raw_burn > 0
 
-    by_premium = math.floor(budgets.premium / cost_per_contract)
+    by_premium = _floor(budgets.premium / cost_per_contract)
     by_theta = (
-        math.floor(budgets.theta / theta_burn_per_contract)
+        _floor(budgets.theta / theta_burn_per_contract)
         if theta_burn_per_contract > 0
         else by_premium  # sin quema medible, la prima decide
     )

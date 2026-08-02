@@ -20,6 +20,8 @@ resultado es el mismo dentro de 1e-7 y aquí es estrictamente más preciso.
 from __future__ import annotations
 
 import math
+
+from .jsmath import js_gt, js_number
 from dataclasses import dataclass
 from typing import Literal, Sequence
 
@@ -68,6 +70,18 @@ class ExpectedMove:
     lower2: float  # ~95%
 
 
+def _exp(x: float) -> float:
+    """`Math.exp(x)` de JS: desborda a `Infinity`, no lanza `OverflowError`.
+
+    Con una IV de 1e308 el exponente se va de rango. Su motor devuelve
+    `Infinity` y sigue; el port se caía y con él los tres escenarios.
+    """
+    try:
+        return math.exp(x)
+    except OverflowError:
+        return math.inf
+
+
 def expected_move(spot: float, iv: float, days: float) -> ExpectedMove:
     """Movimiento esperado a `days` días.
 
@@ -75,6 +89,11 @@ def expected_move(spot: float, iv: float, days: float) -> ExpectedMove:
     "expected move". Las bandas usan lognormal (``exp``) para que el suelo nunca
     cruce cero.
     """
+    # `js_number` / `js_gt`: en TS estas comparaciones y productos coaccionan
+    # solos y un valor ilegible los hace falsos o `NaN`; en Python lanzan y se
+    # llevan el sub-agente entero. Lo destapó el corpus malformado de
+    # `diff_motor2.sh`. Con datos bien formados no cambia nada.
+    spot, iv, days = js_number(spot), js_number(iv), js_number(days)
     T = max(days, 0.0) / DAYS_PER_YEAR
     safe_iv = max(iv, 0.01)
     sd = safe_iv * math.sqrt(T)  # desviación en log-espacio
@@ -85,10 +104,10 @@ def expected_move(spot: float, iv: float, days: float) -> ExpectedMove:
         days=days,
         sigma=sigma,
         sigma_pct=(sigma / spot * 100.0) if spot > 0 else 0.0,
-        upper1=spot * math.exp(sd),
-        lower1=spot * math.exp(-sd),
-        upper2=spot * math.exp(2 * sd),
-        lower2=spot * math.exp(-2 * sd),
+        upper1=spot * _exp(sd),
+        lower1=spot * _exp(-sd),
+        upper2=spot * _exp(2 * sd),
+        lower2=spot * _exp(-2 * sd),
     )
 
 
@@ -126,13 +145,16 @@ def cone_points(spot: float, iv: float, days: float, steps: int = 20) -> list[Co
 
 def prob_above(spot: float, strike: float, iv: float, days: float) -> float:
     """P(S_T > K) bajo lognormal sin deriva."""
+    spot, strike = js_number(spot), js_number(strike)
     if not (spot > 0) or not (strike > 0):
         return 0.0
-    T = max(days, 0.0) / DAYS_PER_YEAR
-    sd = max(iv, 0.01) * math.sqrt(T)
+    T = max(js_number(days), 0.0) / DAYS_PER_YEAR
+    sd = max(js_number(iv), 0.01) * math.sqrt(T)
     if sd <= 0:
         return 1.0 if spot > strike else 0.0
-    d2 = (math.log(spot / strike) - 0.5 * sd * sd) / sd
+    # `Math.log(0)` en JS es -Infinity; en Python es un `ValueError`.
+    d2 = ((-math.inf if spot / strike == 0 else math.log(spot / strike))
+          - 0.5 * sd * sd) / sd
     return norm_cdf(d2)
 
 
@@ -150,6 +172,7 @@ def prob_touch(spot: float, strike: float, iv: float, days: float) -> float:
     la de terminar más allá. Por eso un muro cercano se toca mucho más de lo que
     sugiere la probabilidad de cierre.
     """
+    spot, strike = js_number(spot), js_number(strike)
     if not (spot > 0) or not (strike > 0):
         return 0.0
     if abs(strike - spot) < 1e-9:
@@ -199,21 +222,25 @@ def level_probabilities(
     concentración de dinero (el "imán" del GEX) y se normaliza para que los
     niveles sumen 100%.
     """
-    if not levels or not (spot > 0):
+    if not levels or not js_gt(spot):
         return []
 
-    ordered = sorted(levels, key=lambda l: l.strike)
+    # `sort((a, b) => a.strike - b.strike)` — resta numérica.
+    spot = js_number(spot)
+    ordered = sorted(levels, key=lambda l: js_number(l.strike))
     # Ancho de banda = separación TÍPICA (mediana) entre strikes, no la media:
     # un solo strike raro no debe ensanchar la banda de todos los demás.
     gaps = sorted(
-        g for g in (b.strike - a.strike for a, b in zip(ordered, ordered[1:])) if g > 0
+        g for g in (js_number(b.strike) - js_number(a.strike)
+                    for a, b in zip(ordered, ordered[1:])) if g > 0
     )
     width = band_width if band_width is not None else (gaps[len(gaps) // 2] if gaps else spot * 0.01)
 
     raw: list[LevelProb] = []
     for l in ordered:
-        touch = prob_touch(spot, l.strike, iv, days)
-        band = prob_in_band(spot, l.strike - width / 2, l.strike + width / 2, iv, days)
+        touch = prob_touch(spot, js_number(l.strike), iv, days)
+        _k = js_number(l.strike)
+        band = prob_in_band(spot, _k - width / 2, _k + width / 2, iv, days)
         raw.append(
             LevelProb(
                 strike=l.strike,
@@ -222,7 +249,7 @@ def level_probabilities(
                 concentration=l.concentration,
                 # El piso de 0.01 evita que un nivel sin GEX quede con imán 0 y
                 # desaparezca del reparto: sigue siendo alcanzable, solo pesa poco.
-                magnet=touch * max(l.concentration, 0.01),
+                magnet=touch * max(js_number(l.concentration), 0.01),
                 side=l.side,
                 net_gex=l.net_gex,
             )
