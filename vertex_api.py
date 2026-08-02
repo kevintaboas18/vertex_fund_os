@@ -1011,7 +1011,7 @@ def calculate_institutional_targets(ticker: str, info: dict, hist) -> dict:
     except Exception as e:
         price_f = float(hist['Close'].iloc[-1]) if not hist.empty else 100.0
         return {
-            "methodology": {"error": str(e)},
+            "methodology": {"error": _error_publico(e, "operacion")},
             "targets": {
                 "7d":  {"bull": round(price_f*1.02,2), "base": round(price_f*1.005,2), "bear": round(price_f*0.98,2)},
                 "30d": {"bull": round(price_f*1.06,2), "base": round(price_f*1.02,2),  "bear": round(price_f*0.94,2)},
@@ -1911,7 +1911,7 @@ Return ONLY valid JSON: {{"buzz_stocks":[{{"ticker":"","name":"","sector":"","to
         except Exception as ex2:
             raise HTTPException(status_code=500, detail=f"Explore error: {str(ex2)}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_error_publico(e, "/api/explore"))
 
 
 @app.get("/api/explore-screens")
@@ -2461,7 +2461,7 @@ def get_company_news(ticker: str):
         feed_final.sort(key=lambda x: x["publish_ts"], reverse=True)
         return {"ticker": ticker_clean, "total": len(feed_final), "noticias": feed_final}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_error_publico(e, "/api/news"))
 
 
 @app.get("/api/history")
@@ -2551,7 +2551,7 @@ def get_price_history(ticker: str, period: str = "1mo", interval: str = "1d"):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_error_publico(e, "/api/history"))
 
 
 def _ols_beta(y, X):
@@ -4422,7 +4422,7 @@ def confluence_endpoint(ticker: str):
         return _json_safe({"ok": True, "ticker": ticker, "spot": spot,
                            "confluence": confl, "conviction": conv, "dark_flow": dpf})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": _error_publico(e, "/api/confluence")}
 
 
 def _income_flow_sells(ticker, dte_max):
@@ -4681,7 +4681,7 @@ def income_strategies_endpoint(ticker: str, dte_min: int = 7, dte_max: int = 30,
         return _json_safe(build_income_strategies(ticker, dte_min=dte_min, dte_max=dte_max,
                                                   capital=capital, risk_pct=risk_pct))
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": _error_publico(e, "/api/income-strategies")}
 
 
 @app.get("/api/net-flow")
@@ -4712,7 +4712,7 @@ def net_flow_endpoint(ticker: str, window: str = "today", expiration: str = ""):
             prints = []
         return _json_safe({"ok": True, "ticker": ticker, "expirations": exps, "prints": prints, **nf})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": _error_publico(e, "/api/net-flow")}
 
 
 @app.get("/api/gex-strike")
@@ -4753,7 +4753,7 @@ def gex_strike_endpoint(ticker: str, exp: str = "", greek: str = "GAMMA"):
                            "by_strike": ex["by_strike"], "walls": walls, "max_pain": max_pain,
                            "expirations": exps})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": _error_publico(e, "/api/gex-strike")}
 
 
 # ════════════════════════ HISTORICAL COLLECTOR + BACKTEST ════════════════════════
@@ -4929,7 +4929,7 @@ def signal_history_endpoint(ticker: str):
         conn.close()
         return _json_safe({"ok": True, "ticker": ticker, "count": len(rows), "rows": [dict(r) for r in rows]})
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": _error_publico(e, "/api/signal-history")}
 
 
 # ──────────────── HISTORICAL BACKFILL (reconstruct past confluence via Quant Data sessionDate) ────────────────
@@ -8969,12 +8969,48 @@ def _engine_scorecard(ticker, info, price):
     return sc
 
 
+#: Un análisis a la vez, igual que `engine/scripts/webapp.py` de Victor:
+#: *"One analysis at a time: providers share one httpx client/cache."*
+#:
+#: Su razón vale aquí igual: los cuatro proveedores comparten un `Cache` y un
+#: cliente httpx por proceso. Y desde que `/api/analyze` memoiza el scorecard,
+#: el pase del LLM y las presentaciones de EDGAR, dos peticiones a la vez
+#: competirían además por esos tres diccionarios — la segunda podría leer una
+#: entrada a medio escribir, o duplicar 40 s de trabajo que la primera ya está
+#: haciendo. Serializar cuesta espera; no serializar cuesta corrección.
+_ANALYZE_LOCK = threading.Lock()
+
+
+def _error_publico(exc: BaseException, contexto: str) -> str:
+    """El detalle al log; al navegador, una frase que no revela nada.
+
+    Victor devuelve `str(e)` al cliente en `webapp.py`, y en su caso es
+    inofensivo: liga el servidor a `127.0.0.1`, asi que el unico que lee
+    esos mensajes es el. Este servicio arranca con `--host 0.0.0.0` en
+    Render, de cara a internet, y ahi el mismo texto puede llevar rutas del
+    servidor, fragmentos de SQL y -- si algun dia una excepcion de httpx
+    escapa de `raise_for_status()` -- la URL completa CON la clave en la
+    query. Hoy verifique que ninguna ruta esta en ese ultimo caso; el
+    cambio es para que siga siendo cierto sin depender de revisarlo.
+
+    Es su mismo razonamiento aplicado a un contexto distinto, no una
+    desviacion de su metodologia.
+    """
+    logging.getLogger("vertex").warning("%s: %s", contexto, exc, exc_info=True)
+    return f"{contexto}: no se pudo completar"
+
+
 @app.get("/api/analyze")
 def analyze_ticker(ticker: str, explain: bool = False):
     """Análisis completo. `explain=1` añade la explicación en palabras del
     2º pase LLM, que cuesta ~18 s y que NINGUNA pantalla consume hoy
     (`grep wbj_explanation` sobre la plataforma: 0 usos). Se paga sólo si
     alguien la pide."""
+    with _ANALYZE_LOCK:
+        return _analyze_ticker_serializado(ticker, explain)
+
+
+def _analyze_ticker_serializado(ticker: str, explain: bool = False):
     ticker = ticker.upper().strip()
     try:
         stock = yf.Ticker(ticker)
@@ -10206,7 +10242,7 @@ def get_watchlist_quote(ticker: str):
             "market_cap": info.get("marketCap"),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_error_publico(e, "/api/watchlist-quote"))
 def _dir_hit(rec, ret, flat=5.0):
     """Acierto direccional crudo (se usa para todos los buckets).
     M-09: normaliza primero, para que las filas guardadas con el esquema
@@ -10473,7 +10509,7 @@ def reports_list(limit: int = 60):
                 continue
         return {"ok": True, "reports": out}
     except Exception as e:
-        return {"ok": False, "error": str(e), "reports": []}
+        return {"ok": False, "error": _error_publico(e, "/api/reports/list"), "reports": []}
 
 
 @app.post("/api/report-delete")
@@ -10553,7 +10589,7 @@ def get_calibration(horizon: int = 90):
                          "diagonal = pesimista (aciertas MÁS de lo que dices); por debajo = sobreconfiado. Necesita "
                          "reportes con ≥" + str(horizon) + "d de maduración para puntuar.")}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": _error_publico(e, "/api/calibration")}
 
 
 def _r_outcome(r, series, now):
@@ -10767,7 +10803,7 @@ def get_track_record():
             "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p'),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_error_publico(e, "/api/track-record"))
 
 
 @app.get("/api/portfolio-edge")
@@ -11217,7 +11253,7 @@ def plaid_disconnect(body: dict = None):
             else conn.execute("DELETE FROM plaid_items")
         conn.commit(); conn.close()
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": _error_publico(e, "/api/plaid/disconnect")}
     return {"ok": True}
 
 

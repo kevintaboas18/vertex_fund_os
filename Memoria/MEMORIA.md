@@ -54,3 +54,7 @@ son la señal de aprendizaje.
 - NVDA · 2026-08-02 00:56 · Avoid / Wait · raw 37.1/100 · FV $281.05
 - NVDA · 2026-08-02 00:56 · Avoid / Wait · raw 37.1/100 · FV $281.05
 - NVDA · 2026-08-02 00:56 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 01:52 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 01:52 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 01:52 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 01:52 · Avoid / Wait · raw 37.1/100 · FV $281.05

@@ -1245,3 +1245,63 @@ No basta con que pasen. Roto el invariante a propósito, los tres detectan:
 - `allow_nan=False` rechaza el `NaN`
 
 **2111 tests del engine + 71 de la capa web.**
+
+---
+
+# 19. Puntos 3 y 4, resueltos mirando qué hace Victor — 2026-08-02
+
+Antes de diseñar nada, cloné su repo y leí `engine/scripts/webapp.py`.
+
+## 19.1 Lo que Victor hace
+
+| | Victor | nosotros (antes) |
+|---|---|---|
+| `/api/analyze` | **síncrono**, bajo un lock global | síncrono, **sin lock** |
+| errores al cliente | `self._json({"error": str(e)}, 500)` | `{"error": str(e)}` |
+| bind | **`127.0.0.1`** | `0.0.0.0` (Render) |
+| caché a nivel de análisis | ninguna | 3 (motor, LLM, EDGAR) |
+
+Su comentario, literal: *"One analysis at a time: providers share one httpx
+client/cache."*
+
+## 19.2 Punto 3 (latencia): su respuesta es "no lo difieras"
+
+Victor **no** separa los números del LLM. Corre todo síncrono y liga el servidor a
+localhost, donde 90 s no molestan a nadie porque no hay proxy que corte.
+
+Así que el rediseño asíncrono **no es "como Victor lo tiene"** — es lo contrario.
+Y nuestra versión ya es más rápida que la suya: él no cachea nada a nivel de
+análisis; nosotros vamos a **6.5 s en repeticiones** y 42 s en frío.
+
+Lo que sí le faltaba a nuestra copia era **su lock**. Adoptado. Y ahora importa más
+que a él: desde que `/api/analyze` memoiza el scorecard, el pase del LLM y las
+presentaciones de EDGAR, dos peticiones simultáneas competirían por esos tres
+diccionarios — la segunda podría leer una entrada a medio escribir, o duplicar
+40 s de trabajo que la primera ya está haciendo.
+
+**Verificado:** 3 peticiones concurrentes se serializan (6.7 / 13.2 / 20.4 s) y
+las tres devuelven lo idéntico — `fair_value` 281.05, `DESFAVORABLE`.
+
+## 19.3 Punto 4 (`str(e)`): su elección es segura en SU contexto
+
+Victor devuelve la excepción cruda, y en su caso es inofensivo: el único que la lee
+es él, porque su servidor nunca sale de `127.0.0.1`.
+
+El nuestro arranca con `--host 0.0.0.0` en Render, de cara a internet. Ahí ese
+mismo texto puede llevar rutas del servidor, fragmentos de SQL y —si algún día una
+excepción de httpx escapara de `raise_for_status()`— la URL completa **con la clave
+en la query**. Hoy verifiqué que ninguna ruta está en ese último caso; el cambio es
+para que siga siendo cierto sin depender de revisarlo cada vez.
+
+**14 ocurrencias** sustituidas por `_error_publico(exc, contexto)`: el detalle va al
+log con `exc_info=True`, y al navegador una frase que no revela nada.
+
+**Es su mismo razonamiento aplicado a un contexto distinto** — él eligió localhost
+precisamente para que sus internos quedaran privados—, no una desviación de su
+metodología.
+
+## 19.4 Estado
+
+**2111 tests del engine + 75 de la capa web** (4 nuevos: el lock, la ausencia de
+fugas, que el helper sí registre lo que oculta, y el bind público como el hecho que
+justifica ambas decisiones).

@@ -127,3 +127,55 @@ def test_the_cached_payloads_are_copied_not_shared():
     fn = _TEXT[_TEXT.index("def _edgar_cache_put"):]
     fn = fn[:fn.index("\ndef ", 10)]
     assert "deepcopy" in fn
+
+
+# ===========================================================================
+# Lo que Victor tiene y faltaba aquí
+# ===========================================================================
+
+
+def test_analyze_is_serialised_like_victor_does_it():
+    """`engine/scripts/webapp.py` de Victor: *"One analysis at a time:
+    providers share one httpx client/cache."*
+
+    Su razón vale igual aquí, y desde que `/api/analyze` memoiza el
+    scorecard, el pase del LLM y las presentaciones de EDGAR, dos
+    peticiones a la vez competirían además por esos tres diccionarios: la
+    segunda podría leer una entrada a medio escribir, o duplicar 40 s de
+    trabajo que la primera ya está haciendo."""
+    assert "_ANALYZE_LOCK" in _TEXT
+    cuerpo = next(b for v, p, b in _routes() if p == "/api/analyze")
+    assert "with _ANALYZE_LOCK" in cuerpo
+
+
+def test_no_route_hands_the_raw_exception_to_the_browser():
+    """Victor devuelve `str(e)` al cliente y en su caso es inofensivo: liga
+    el servidor a `127.0.0.1`, así que el único que lo lee es él. Este
+    arranca con `--host 0.0.0.0` en Render, de cara a internet, donde ese
+    texto puede llevar rutas del servidor, SQL y — si una excepción de
+    httpx escapara de `raise_for_status()` — la URL completa CON la clave.
+
+    Es su mismo razonamiento aplicado a un contexto distinto."""
+    import re
+
+    fugas = re.findall(r'"error":\s*str\(e\)|detail=str\(e\)|"detail":\s*str\(e\)', _TEXT)
+    assert not fugas, f"{len(fugas)} rutas devuelven la excepción cruda"
+
+
+def test_the_public_error_helper_logs_what_it_hides():
+    """Ocultarlo al navegador no puede significar perderlo: el detalle
+    tiene que quedar en el log del servidor."""
+    fn = _TEXT[_TEXT.index("def _error_publico"):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert "logging.getLogger" in fn and "exc_info=True" in fn
+    assert "str(exc)" not in fn.split("return")[-1], "el mensaje devuelto no puede llevar la excepción"
+
+
+def test_the_service_binds_publicly_which_is_why_this_matters():
+    """La diferencia de contexto con Victor, fijada como hecho: si algún
+    día esto volviera a `127.0.0.1`, las dos decisiones de arriba podrían
+    revisarse."""
+    from pathlib import Path
+
+    render = (Path(__file__).resolve().parents[1] / "render.yaml").read_text(encoding="utf-8")
+    assert "0.0.0.0" in render

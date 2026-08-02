@@ -1,5 +1,37 @@
 # Tesis — NVDA
 
+## 2026-08-02 01:52 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $281.05.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-02 01:52 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $281.05.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-02 01:52 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $281.05.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-02 01:52 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $281.05.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
 ## 2026-08-02 00:56 — perfil Avoid / Wait · raw 37.1/100
 - Precio al análisis: $200.75 · Fair value (base): $281.05
 - Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
