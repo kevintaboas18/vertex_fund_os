@@ -829,3 +829,75 @@ class TestHeatmapDeGex:
             raise ValueError(c)
 
         json.loads(crudo, parse_constant=estricto)
+
+
+class TestLaAdvertenciaDelSubagente6:
+    """Sus bandas de puntos son una PROPUESTA: su PDF, a diferencia de los otros
+    cinco, no trae tabla de puntuación.
+
+    Bajo la regla innegociable del proyecto —"sin fórmula, no hay conclusión"—
+    esa es la única parte del scorecard cuya escala no tiene respaldo
+    documental, y **tiene que declararse en cada reporte que la use**. Hasta
+    ahora eso vivía solo en un docstring y en un `warnings.append`; nada
+    comprobaba que llegara al otro extremo del cable.
+    """
+
+    def _con_memoria(self, client):
+        """Siembra flows VIEJOS y consulta.
+
+        El sub-agente 6 solo puntúa sobre flows con recorrido: mide qué hizo el
+        precio DESPUÉS. Con el tape de hoy —que es lo que da el doble— nunca
+        hay nada resuelto y el test se saltaría, que es no probar nada. Se
+        escriben directamente en el store, que es de donde los lee.
+        """
+        import wbj.tito.stores as st
+
+        viejos = [{
+            "id": 9000 + i,
+            "timestamp": (NOW - timedelta(days=45 - i)).isoformat(),
+            "symbol": f"DEMO270115C0010{i}000", "underlying": "DEMO",
+            "type": "call", "strike": 100.0 + i, "expiration": "2027-01-15",
+            "dte": 200, "price": 9.2, "size": 800, "side": "AT_ASK",
+            "aggression": "ask", "asset_price": 92.0 + i, "bid": 9.14, "ask": 9.26,
+            "premium": 736_000.0, "delta": 0.62, "gamma": 0.03, "theta": -0.04,
+            "vega": 0.3, "theta_pct_daily": 0.43, "iv": 0.44,
+            "open_interest": 4000, "volume": 5200, "score": 8,
+            "sentiment": "bullish", "condition_code": None, "condition_name": None,
+            "expiry_status": "vigente",
+        } for i in range(8)]
+        st.save_trades("MEM6", viejos)
+        return client.get("/api/projection-targets?ticker=MEM6").json()
+
+    def test_el_subagente_6_puntua_de_verdad_en_este_montaje(self, client):
+        """Guarda de la guarda: si esto se salta, los dos de abajo no prueban nada."""
+        d = self._con_memoria(client)
+        assert d["scores"]["validation"] is not None, \
+            "el montaje ya no ejercita el sub-agente 6; los tests de abajo son humo"
+
+    def test_si_el_subagente_6_puntua_la_advertencia_viaja_en_el_json(self, client):
+        d = self._con_memoria(client)
+        assert any("PROPUESTA" in w for w in d["warnings"]), \
+            "el score se publicó sin declarar que su escala no tiene respaldo"
+
+    def test_y_lo_dice_con_el_motivo_no_solo_la_etiqueta(self, client):
+        d = self._con_memoria(client)
+        aviso = next(w for w in d["warnings"] if "PROPUESTA" in w)
+        assert "no trae tabla" in aviso and "6" in aviso
+
+    def test_sin_score_del_subagente_6_no_se_declara_nada(self, client, monkeypatch):
+        # Sin tape no hay Confirmación de Precio: la advertencia sobraría, y una
+        # advertencia que sale siempre deja de leerse.
+        import wbj.tito.marketsnack as MS
+        from wbj.tito.marketsnack import MarketSnackError
+
+        monkeypatch.setattr(MS, "fetch_flow",
+                            lambda *a, **k: (_ for _ in ()).throw(MarketSnackError("x")))
+        d = client.get("/api/projection-targets?ticker=SINTAPE").json()
+        assert d["scores"].get("validation") is None
+        assert not any("PROPUESTA" in w for w in d["warnings"])
+
+    def test_la_gráfica_pinta_las_advertencias(self):
+        """El JSON no sirve de nada si el panel no las muestra."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "(d.warnings || [])" in html
+        assert "⚠" in html

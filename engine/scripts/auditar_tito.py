@@ -67,6 +67,26 @@ for lib in sorted(libs - FUERA):
         chk((TITO_DIR / dest).exists(), f"{lib:<22} → {dest}")
 print(f"  · {len(FUERA)} módulos fuera de alcance a propósito (Wheel, watchlist, broker)")
 
+# Los docstrings citan los documentos de metodología de Víctor (`SCOREDCARD/*`)
+# como fuente de cada tabla de puntuación. Esos archivos viven en SU repo, no en
+# este, así que la cita no se podía comprobar desde aquí — y una cita que nadie
+# comprueba es una cita que puede apuntar a un archivo que ya no existe.
+#
+# Con TITO_ROOT puesto sí se comprueba. Sin él, se declara que no se comprobó en
+# vez de dar por buena la referencia.
+_citas = set()
+for _py in sorted(TITO_DIR.glob("*.py")):
+    _citas |= set(re.findall(r"SCOREDCARD/[\w.-]+\.md", _py.read_text(encoding="utf-8")))
+if TITO and TITO.parent.exists():
+    _rotas = sorted(c for c in _citas if not (TITO.parent / c).exists())
+    chk(not _rotas,
+        f"las {len(_citas)} citas a SCOREDCARD/ apuntan a un documento REAL de su repo"
+        + (f" · ROTAS: {_rotas}" if _rotas else ""))
+else:
+    chk(True, f"{len(_citas)} citas a SCOREDCARD/ sin comprobar "
+              "(define TITO_ROOT para verificarlas contra su repo)",
+        warn_if_false=False)
+
 # ─────────────────────────────────────────────────────────────────────
 sec("2. Umbrales del scorecard (contra las tablas de Víctor)")
 from wbj.tito import flow as F, structure as S, ivcontext as IV, validation as V, risk as R
@@ -888,6 +908,22 @@ chk(not _faltan, f"los {len(DIFERENCIALES)} diferenciales contra su repo existen
 for _d, _q in DIFERENCIALES.items():
     print(f"      {_d:<22} {_q}")
 print("  · córrelos con node instalado; TITO_ROOT usa tu clon en vez de GitHub")
+
+# Lo único que NINGUNA de las comprobaciones de arriba puede dar: la forma REAL
+# de la respuesta de Massive y de MarketSnack. Todo lo demás corre sin red
+# porque el contenedor bloquea los dos dominios; eso no se puede arreglar desde
+# aquí, pero sí se puede dejar el comando que lo cierra en 30 segundos.
+_pf = VERTEX / "engine" / "scripts" / "preflight_vivo.py"
+chk(_pf.exists(),
+    "existe el preflight EN VIVO para el día del despliegue (preflight_vivo.py)")
+if _pf.exists():
+    _src = _pf.read_text(encoding="utf-8")
+    chk("shares_per_contract" in _src and "expiration_date" in _src,
+        "…y comprueba los campos que rompen en silencio si cambia el esquema")
+    chk("run_scorecard" in _src,
+        "…y corre el scorecard de punta a punta con los datos reales")
+    print("      MASSIVE_API_KEY=… MARKETSNACK_COOKIE=… \\")
+    print("          python engine/scripts/preflight_vivo.py AAPL")
 
 # ─────────────────────────────────────────────────────────────────────
 print(f"\n\033[1m{'='*66}\033[0m")
