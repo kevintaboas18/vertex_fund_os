@@ -20,6 +20,7 @@ resultado es el mismo dentro de 1e-7 y aquí es estrictamente más preciso.
 from __future__ import annotations
 
 import math
+from functools import cmp_to_key
 
 from .jsmath import js_gt, js_number
 from dataclasses import dataclass
@@ -48,11 +49,31 @@ DAYS_PER_YEAR = 365
 OptionSide = Literal["call", "put"]
 
 
+#: Coeficientes de Abramowitz & Stegun 7.1.26, los de su `normCdf`.
+_AS = (0.254829592, -0.284496736, 1.421413741, -1.453152027, 1.061405429)
+
+
 def norm_cdf(x: float) -> float:
-    """Normal acumulada estándar N(x)."""
+    """Normal acumulada estándar N(x). LITERAL: su misma aproximación.
+
+    El port usaba `math.erf`, que es exacto a doble precisión y por tanto
+    **mejor**. Se cambió a propósito: su `normCdf` usa Abramowitz & Stegun
+    7.1.26 (|ε| < 7.5e-8) porque el runtime de JS no trae `erf`, y esa
+    diferencia se propaga — `prob_touch`, `prob_in_band` y con ellas la
+    probabilidad de cada nivel y de cada escenario.
+
+    Medido en `diff_motor2.sh`: 48 casos donde el peso de un nivel salía
+    0.158091 en su archivo y 0.158092 en el port. Es poco, pero es un número
+    que va al reporte, y "más preciso" no es "igual".
+    """
     if not math.isfinite(x):
         return 1.0 if x > 0 else 0.0
-    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+    sign = -1.0 if x < 0 else 1.0
+    z = abs(x) / math.sqrt(2.0)
+    t = 1.0 / (1.0 + 0.3275911 * z)
+    y = 1.0 - ((((_AS[4] * t + _AS[3]) * t + _AS[2]) * t + _AS[1]) * t
+               + _AS[0]) * t * _exp(-z * z)
+    return 0.5 * (1.0 + sign * y)
 
 
 @dataclass(frozen=True)
@@ -268,7 +289,17 @@ def level_probabilities(
         )
         for l in raw
     ]
-    return sorted(scaled, key=lambda l: l.magnet, reverse=True)
+    # `sort((a, b) => b.magnet - a.magnet)`. Con `js_number` porque el `magnet`
+    # puede ser `NaN` si la concentración llegó ilegible, y un comparador que
+    # devuelve NaN es "iguales" para ECMA-262 — con sort estable, la fila se
+    # queda donde estaba. `sorted` de Python manda los NaN a un extremo.
+    def _cmp(a, b):
+        d = js_number(b.magnet) - js_number(a.magnet)
+        if d != d:
+            return 0
+        return -1 if d < 0 else (1 if d > 0 else 0)
+
+    return sorted(scaled, key=cmp_to_key(_cmp))
 
 
 @dataclass(frozen=True)

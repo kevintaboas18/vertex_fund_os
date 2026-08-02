@@ -178,6 +178,22 @@ def _pct_change(spot: float, target: float) -> float:
     return ((target - spot) / spot * 100) if spot > 0 else 0.0
 
 
+def _fijo(x, n: int = 2) -> str:
+    """`Number(x).toFixed(n)` de JS: coacciona y no lanza.
+
+    Con `Infinity` escribe "Infinity" (no "1e+308" ni un `OverflowError`), con
+    `NaN` escribe "NaN", y con un `undefined` escribe "NaN" en vez de lanzar.
+    Todos los textos del resumen pasan por aquí porque interpolan valores que
+    vienen crudos del llamador. Lo destapó el corpus malformado.
+    """
+    v = js_number(x)
+    if v != v:
+        return "NaN"
+    if math.isinf(v):
+        return "Infinity" if v > 0 else "-Infinity"
+    return f"{v:.{n}f}"
+
+
 def predict_pro(
     spot: float,
     iv: float,
@@ -214,27 +230,34 @@ def predict_pro(
     cal = calibration if isinstance(calibration, dict) else {}
     shift_pct = calibration_shift_pct(cal.get("bias_pct"),
                                       int(js_number(cal.get("samples") or 0)))
-    # El recorte al cono es INCONDICIONAL.
+
+    # ARREGLO vs su TypeScript, verificado ejecutando SU archivo en Node.
     #
-    # DIVERGENCIA vs el TypeScript original (deliberada, es un arreglo): allí
-    # era `shiftPct !== 0 ? inCone(...) : rawBase`, así que el target base solo
-    # se acotaba CUANDO había calibración. Sin ella el imán salía crudo y podía
-    # escaparse del cono de 2σ mientras bear y bull sí se recortaban — rompiendo
-    # la regla de oro que este mismo módulo declara ("el GEX confirma, no
-    # adivina: la volatilidad manda sobre el posicionamiento") y el orden
-    # bear < base < bull.
+    # Él tiene:
     #
-    # En el pipeline completo no se alcanzaba porque `gex_analysis` ya filtra
-    # los nodos a ±20% del spot, pero `predict_pro` es público y su contrato
-    # dice que NINGÚN escenario sale del cono. Ahora lo cumple siempre.
+    #     const baseTarget = shiftPct !== 0
+    #       ? inCone(rawBase + (spot * shiftPct) / 100)
+    #       : rawBase;
+    #
+    # o sea que el recorte al cono solo ocurre CUANDO hay calibración. Sin ella
+    # el imán sale crudo. Medido con su propio archivo:
+    #
+    #     predictPro({ spot: 100, iv: 0.2, horizonDays: 10,
+    #                  nodes: [{ strike: 200, concentration: 1, side: "call", … }] })
+    #     → base = 200.00  ·  bull = 106.84       base > bull, y fuera del cono
+    #
+    # Eso incumple DOS cosas que él mismo escribió: la regla de la cabecera de
+    # su módulo ("el GEX confirma, no adivina: ningún escenario puede salirse
+    # del cono de 2σ") y su test "ordena SIEMPRE bear < base < bull". Su suite
+    # no lo detecta porque sus casos nunca ponen el imán tan lejos.
     #
     # El tope del base es el punto medio entre 1σ y 2σ, no el borde de 2σ: ese
     # borde pertenece a los escenarios EXTREMOS. Si el base pudiera sentarse
-    # justo encima, no quedaría sitio para el bear (o el bull) y los tres
-    # colapsarían en el mismo precio. Con un imán alcanzable —lo normal, porque
-    # `gex_analysis` filtra a ±20% del spot— este tope no toca nada; solo actúa
-    # cuando el imán está tan lejos que la volatilidad no lo alcanza, y ahí
-    # decir "hasta aquí llega lo defendible" es más honesto que fingir el nivel.
+    # justo encima no quedaría sitio para el bear (o el bull). Con un imán
+    # alcanzable —lo normal, porque `gex_analysis` filtra a ±20% del spot— este
+    # tope no toca nada.
+    #
+    # Propuesto aguas arriba en `engine/scripts/upstream-tito-prediction.patch`.
     base_floor = (js_number(em.lower1) + js_number(em.lower2)) / 2
     base_ceil = (js_number(em.upper1) + js_number(em.upper2)) / 2
     base_target = min(max(js_number(raw_base) + js_number(spot) * shift_pct / 100,
@@ -254,23 +277,33 @@ def predict_pro(
     # El bear tiene que ser MÁS bajista que el base y el bull más alcista: si el
     # muro más cercano se queda corto, el escenario lo marca la volatilidad (1σ).
     #
-    # DIVERGENCIA vs el TypeScript original (deliberada, es un arreglo):
-    # allí esto era `min(em.lower1, base_target)`, que devuelve `base_target`
-    # cuando el suelo de 1σ queda POR ENCIMA de la base — pasa cuando el imán
-    # está lejos por debajo del spot a plazo corto (p.ej. imán en 92 con spot
-    # 100 a 10 días: lower1 ≈ 92.05 > 92). El resultado era bear == base: dos
-    # escenarios en el mismo precio, justo lo que la propia función declara
-    # impedir y lo que su test "ordena SIEMPRE bear < base < bull" exige.
+    # ARREGLO vs su TypeScript, verificado ejecutando SU archivo en Node.
     #
-    # Cuando 1σ no alcanza, el escenario lo marca la SIGUIENTE banda de
-    # volatilidad (2σ), que está por debajo de la base por construcción y sigue
-    # siendo el límite duro que el motor ya respeta. La volatilidad manda, que
-    # es la regla de oro — solo que aquí hay que bajar un peldaño más.
+    # Él tiene `bearTarget = Math.min(em.lower1, baseTarget)`, que devuelve
+    # `baseTarget` cuando el suelo de 1σ queda POR ENCIMA de la base. Medido:
+    #
+    #     predictPro({ spot: 100, iv: 0.5, horizonDays: 10, nodes: [
+    #       { strike: 110, concentration: 1.0, side: "call", netGex:  5e6 },
+    #       { strike:  92, concentration: 0.7, side: "put",  netGex: -3e6 }]})
+    #     → bear = 92.00  ·  base = 92.00        DOS escenarios en el mismo precio
+    #
+    # Su propio test lo prohíbe dos veces: "ordena SIEMPRE bear < base < bull"
+    # (`toBeLessThan`, estricto) y "los tres escenarios son SIEMPRE precios
+    # distintos", cuyo comentario dice literalmente *"Imán por debajo del spot:
+    # bear no puede colapsar con base"*. Su suite no lo detecta porque sus casos
+    # usan otra IV y otro horizonte.
+    #
+    # Cuando 1σ no alcanza, el escenario lo marca la SIGUIENTE banda (2σ), que
+    # está por debajo de la base por construcción y sigue siendo el límite duro
+    # que el motor ya respeta.
+    #
+    # Propuesto aguas arriba en `engine/scripts/upstream-tito-prediction.patch`.
     bear_target, bull_target = js_number(bear_target), js_number(bull_target)
-    if bear_target >= base_target:
-        bear_target = em.lower1 if js_number(em.lower1) < base_target else em.lower2
-    if bull_target <= base_target:
-        bull_target = em.upper1 if js_number(em.upper1) > base_target else em.upper2
+    base_n = js_number(base_target)
+    if bear_target >= base_n:
+        bear_target = em.lower1 if js_number(em.lower1) < base_n else em.lower2
+    if bull_target <= base_n:
+        bull_target = em.upper1 if js_number(em.upper1) > base_n else em.upper2
 
     # Y nada puede salirse del cono de 2σ.
     bear_target = max(bear_target, em.lower2)
@@ -281,19 +314,6 @@ def predict_pro(
         if regime == "positive"
         else "el dealer amplifica (γ−): si el precio llega, acelera"
     )
-
-    def _fijo(x, n: int = 2) -> str:
-        """`Number(x).toFixed(n)` de JS: coacciona y no lanza.
-
-        Con `Infinity` escribe "Infinity" (no "1e+308" ni un `OverflowError`) y
-        con `NaN` escribe "NaN". Lo destapó el corpus malformado.
-        """
-        v = js_number(x)
-        if v != v:
-            return "NaN"
-        if math.isinf(v):
-            return "Infinity" if v > 0 else "-Infinity"
-        return f"{v:.{n}f}"
 
     def wall_text(l: LevelProb) -> str:
         lado = "calls" if l.side == "call" else "puts"
@@ -345,21 +365,21 @@ def predict_pro(
 
     # ---- resumen en lenguaje llano ----
     if direction == "up":
-        dir_text = f"hacia ${base_target:.2f} (+{base.change_pct:.1f}%)"
+        dir_text = f"hacia ${_fijo(base_target, 2)} (+{_fijo(base.change_pct, 1)}%)"
     elif direction == "down":
-        dir_text = f"hacia ${base_target:.2f} ({base.change_pct:.1f}%)"
+        dir_text = f"hacia ${_fijo(base_target, 2)} ({_fijo(base.change_pct, 1)}%)"
     else:
-        dir_text = f"lateral, cerca de ${base_target:.2f}"
+        dir_text = f"lateral, cerca de ${_fijo(base_target)}"
 
     cp = js_number(callvpct)
     if callvpct is None:
         money_text = "No hay lectura clara del flujo."
     elif cp >= 60:
-        money_text = f"El dinero está {cp:.0f}% en calls: apuesta al alza."
+        money_text = f"El dinero está {_fijo(cp, 0)}% en calls: apuesta al alza."
     elif cp <= 40:
-        money_text = f"El dinero está {100 - cp:.0f}% en puts: apuesta a la baja."
+        money_text = f"El dinero está {_fijo(100 - cp, 0)}% en puts: apuesta a la baja."
     else:
-        money_text = f"El dinero está repartido ({cp:.0f}% calls): sin apuesta dominante."
+        money_text = f"El dinero está repartido ({_fijo(cp, 0)}% calls): sin apuesta dominante."
 
     if score >= 70:
         score_text = "Las señales de los sub-agentes son fuertes."
@@ -374,12 +394,12 @@ def predict_pro(
         ""
         if hit_rate is None
         else (" Históricamente, cuando aparece flujo así en este ticker el precio"
-              f" lo confirmó el {js_number(hit_rate):.0f}% de las veces.")
+              f" lo confirmó el {_fijo(hit_rate, 0)}% de las veces.")
     )
 
     samples = int(cal.get("samples") or 0)
     cal_text = (
-        f" El target se ajustó {'+' if shift_pct >= 0 else ''}{shift_pct:.1f}% por el sesgo "
+        f" El target se ajustó {'+' if shift_pct >= 0 else ''}{_fijo(shift_pct, 1)}% por el sesgo "
         f"histórico del agente ({samples} predicciones vencidas)."
         if shift_pct != 0
         else ""
@@ -387,7 +407,7 @@ def predict_pro(
 
     summary = (
         f"A {horizon_days} días el escenario base apunta {dir_text}, dentro de un rango "
-        f"esperado de ±{em.sigma_pct:.1f}% (1σ). {money_text} {score_text}{track_text}{cal_text}"
+        f"esperado de ±{_fijo(em.sigma_pct, 1)}% (1σ). {money_text} {score_text}{track_text}{cal_text}"
     )
 
     if low_liquidity:
