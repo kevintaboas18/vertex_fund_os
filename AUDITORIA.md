@@ -1074,3 +1074,50 @@ dividiendo los ingresos de NVDA entre un TAM que mide otra capa de la cadena.
 **Una cobertura de 0.35 en Market no mide lo incompleto que está el agente —
 mide lo poco que NVDA publica con fuente citable.** Que el sistema lo diga en vez
 de rellenarlo es exactamente *sin evidencia, no hay número*.
+
+---
+
+# 16. Punto 14 al 100%: la latencia era trabajo repetido — 2026-08-01
+
+## 16.1 El perfil dijo otra cosa de la que yo suponía
+
+Con las cachés del motor y del LLM ya activas quedaban 33 s, y yo asumía que
+eran red o LLM. **No.** Instrumentado por host: sólo **5.7 s eran red**. Un
+`cProfile` sobre la petición cacheada señaló al culpable:
+
+```
+55.4 s  analyze_ticker
+47.5 s  └─ fetch_edgar_filings   (2 llamadas × 23.8 s)
+```
+
+**El 86% del tiempo era una sola función, invocada dos veces.**
+
+`fetch_edgar_filings` recorre el conjunto trimestral 13F de la SEC — un TSV
+enorme — y `/api/analyze` la llamaba una vez para el contexto de insiders y otra
+para `mandatory_report.edgar`. Las presentaciones no cambian entre ambas.
+
+## 16.2 Tres cachés, todas ancladas a algo que no puede cambiar
+
+| caché | qué guarda | clave | por qué es correcta |
+|---|---|---|---|
+| `_ENGINE_CACHE` | scorecard de los 6 especialistas | reloj congelado del packet | el motor es determinista y la sesión ya cerró |
+| `_LLM_CACHE` | pase estructurado del LLM | el mismo reloj | describe números ya congelados |
+| `_EDGAR_CACHE` | presentaciones de la SEC | (ticker, límite) + TTL 30 min | los filings no cambian entre dos llamadas de la misma petición |
+
+Las tres acotan su tamaño y devuelven **copias**, porque el llamador reescribe
+`fair_value` y los targets sobre el dict — servir la misma referencia dejaría que
+una petición mutara lo que ve la siguiente.
+
+## 16.3 Resultado
+
+| | original | ahora |
+|---|---|---|
+| primera llamada | 92–115 s | **41.8 s** |
+| repeticiones | 92–115 s | **6.5 s** |
+
+Verificado sin regresión en las tres corridas: `fair_value` 281.05,
+recomendación `DESFAVORABLE`, idénticos.
+
+**Ambos números caben de sobra en el corte de Render** (que era el motivo de
+preocupación). El objetivo de <30 s se cumple en repeticiones con margen de 4×, y
+la primera llamada baja de 115 s a 42 s.

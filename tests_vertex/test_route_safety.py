@@ -82,3 +82,48 @@ def test_an_entitlement_refusal_is_not_retried_all_run():
     assert "_QD_SIN_DERECHO" in _TEXT
     body = next(b for b in [_TEXT] if "_quantdata_request" in b)
     assert "_QD_ENTITLEMENT_STATUSES" in body
+
+
+# ===========================================================================
+# Latencia: el trabajo repetido que dominaba /api/analyze
+# ===========================================================================
+
+
+def test_the_edgar_fetch_is_memoised():
+    """`fetch_edgar_filings` recorre el conjunto trimestral 13F de la SEC
+    (un TSV enorme): ~24 s por llamada. Y `/api/analyze` la invocaba DOS
+    VECES — una para el contexto de insiders y otra para
+    `mandatory_report.edgar` — o sea ~47 s de los ~55 s que tardaba una
+    petición con todo lo demás ya cacheado. Las presentaciones no cambian
+    entre esas dos llamadas."""
+    assert "_EDGAR_CACHE" in _TEXT
+    assert "_EDGAR_TTL_S" in _TEXT
+    cuerpo = next(b for v, p, b in _routes() if p == "/api/analyze")
+    del cuerpo  # la ruta existe; la memoización vive en el helper
+    fn = _TEXT[_TEXT.index("def fetch_edgar_filings"):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert "_EDGAR_CACHE.get" in fn, "no consulta la caché"
+    assert "_edgar_cache_put" in fn, "no la rellena"
+
+
+def test_the_deterministic_layers_are_cached_on_the_frozen_clock():
+    """El motor es determinista y el packet está anclado a una sesión ya
+    cerrada, así que mismo ticker + misma sesión da el mismo resultado bit
+    a bit. La clave es ese reloj: se invalida sola al abrir sesión."""
+    assert "_ENGINE_CACHE" in _TEXT and "_LLM_CACHE" in _TEXT
+    assert "market_timestamp" in _TEXT
+
+
+def test_every_cache_bounds_its_size():
+    """Un proceso de larga vida no puede crecer sin límite."""
+    for nombre in ("_ENGINE_CACHE_MAX", "_LLM_CACHE_MAX", "_EDGAR_CACHE_MAX"):
+        assert nombre in _TEXT, nombre
+
+
+def test_the_cached_payloads_are_copied_not_shared():
+    """El llamador reescribe `fair_value` y los targets sobre el dict del
+    análisis. Servir la MISMA referencia dejaría que una petición mutara lo
+    que ve la siguiente."""
+    fn = _TEXT[_TEXT.index("def _edgar_cache_put"):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert "deepcopy" in fn

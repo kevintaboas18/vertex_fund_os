@@ -1477,10 +1477,35 @@ def _wbj_holders_from_edgar(ticker):
         return {}
 
 
+#: Presentaciones de EDGAR ya resueltas, por (ticker, limite). Se rehacen
+#: cada `_EDGAR_TTL_S`.
+#:
+#: `fetch_edgar_filings` recorre el conjunto trimestral 13F de la SEC, que es
+#: un TSV enorme: ~24 s por llamada. Y /api/analyze la invocaba DOS VECES --
+#: una para el contexto de insiders y otra para `mandatory_report.edgar` --,
+#: o sea ~47 s de los ~55 s que tardaba una peticion con todo lo demas ya
+#: cacheado. Las presentaciones no cambian entre esas dos llamadas.
+_EDGAR_CACHE: dict[tuple, tuple] = {}
+_EDGAR_TTL_S = 1800.0
+_EDGAR_CACHE_MAX = 32
+
+
+def _edgar_cache_put(clave: tuple, valor: dict) -> None:
+    import copy as _cp
+    if len(_EDGAR_CACHE) >= _EDGAR_CACHE_MAX:
+        _EDGAR_CACHE.pop(next(iter(_EDGAR_CACHE)), None)
+    _EDGAR_CACHE[clave] = (time.time(), _cp.deepcopy(valor))
+
+
 def fetch_edgar_filings(ticker, limit=8):
     """Authoritative recent SEC filings for the company: Form 4 (insider) +
     tenedores >5% por Schedule 13D/13G (ver `_wbj_holders_from_edgar`).
     Returns direct EDGAR links so the user can click through to the source filing."""
+    _clave = (str(ticker).upper(), int(limit))
+    _guardado = _EDGAR_CACHE.get(_clave)
+    if _guardado and (time.time() - _guardado[0]) < _EDGAR_TTL_S:
+        import copy as _cp
+        return _cp.deepcopy(_guardado[1])
     out = {"cik": None, "form4": [], "form13f": [], "holders_5pct": [], "holders_source": None}
     try:
         cik = _get_sec_cik(ticker)
@@ -1512,6 +1537,7 @@ def fetch_edgar_filings(ticker, limit=8):
         if tenedores.get("holders"):
             out["holders_5pct"] = tenedores["holders"][:limit]
             out["holders_source"] = tenedores.get("source")
+        _edgar_cache_put(_clave, out)
         return out
     except Exception:
         return out

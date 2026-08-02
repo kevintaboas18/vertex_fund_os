@@ -45,3 +45,12 @@ son la señal de aprendizaje.
 - NVDA · 2026-08-01 13:54 · Avoid / Wait · raw 37.1/100 · FV $281.05
 - NVDA · 2026-08-01 13:55 · Avoid / Wait · raw 37.1/100 · FV $281.05
 - NVDA · 2026-08-01 14:10 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 00:47 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 00:48 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 00:50 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 00:50 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 00:52 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 00:53 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 00:56 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 00:56 · Avoid / Wait · raw 37.1/100 · FV $281.05
+- NVDA · 2026-08-02 00:56 · Avoid / Wait · raw 37.1/100 · FV $281.05

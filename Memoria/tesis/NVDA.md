@@ -1,5 +1,77 @@
 # Tesis — NVDA
 
+## 2026-08-02 00:56 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $281.05.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-02 00:56 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $281.05.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-02 00:56 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Evitar / esperar — perfil Avoid / Wait; fair value base $281.05.
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-02 00:53 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi visión sobre NVDA se mantiene consistente con el reporte anterior de hace 0 días, donde mi Fair Value era $281.05 y la recomendación DESFAVORABLE con una convicción de 37/100. El precio spot se ha mantenido en $200.75, sin cambios significativos que justifiquen una alteración en la tesis. La tesis de inversión para NVIDIA sigue siendo compleja: por un lado, la compañía es un líder indiscutible en el mercado de GPUs y un pilar fundamental en la revolución de la Inteligencia Artificial, con un crecimiento de ingresos excepcional (85.2% YoY) y márgenes operativos envidiables (Gross 74.14%, EBI
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-02 00:52 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi visión sobre NVDA se mantiene consistente con el reporte anterior de hace 0 días, donde mi Fair Value era $281.05 y la recomendación DESFAVORABLE con una convicción de 37/100. El precio spot se ha mantenido en $200.75, sin cambios significativos que justifiquen una alteración en la tesis. La tesis de inversión para NVIDIA sigue siendo compleja: por un lado, la compañía es un líder indiscutible en el mercado de GPUs y un pilar fundamental en la revolución de la Inteligencia Artificial, con un crecimiento de ingresos excepcional (85.2% YoY) y márgenes operativos envidiables (Gross 74.14%, EBI
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-02 00:50 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi tesis de inversión para NVIDIA se mantiene sin cambios desde mi reporte anterior, donde mi Fair Value era de $281.05 y mi recomendación 'DESFAVORABLE' con una convicción de 37/100. A pesar de que NVIDIA es un líder indiscutible en el mercado de la inteligencia artificial y los centros de datos, con un crecimiento de ingresos impresionante del 85.2% YoY y márgenes operativos excepcionales, la asignación de capital en los niveles actuales presenta riesgos significativos que justifican una postura de 'Evitar / esperar'. El precio spot de $200.75, aunque por debajo del Fair Value de Victor de $
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-02 00:50 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi tesis de inversión para NVIDIA se mantiene sin cambios desde mi reporte anterior, donde mi Fair Value era de $281.05 y mi recomendación 'DESFAVORABLE' con una convicción de 37/100. A pesar de que NVIDIA es un líder indiscutible en el mercado de la inteligencia artificial y los centros de datos, con un crecimiento de ingresos impresionante del 85.2% YoY y márgenes operativos excepcionales, la asignación de capital en los niveles actuales presenta riesgos significativos que justifican una postura de 'Evitar / esperar'. El precio spot de $200.75, aunque por debajo del Fair Value de Victor de $
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-02 00:48 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi visión sobre NVIDIA se mantiene consistente con el reporte anterior de hace 0 días, donde mi Fair Value fue de $281.05 y la recomendación 'DESFAVORABLE' con una convicción de 37/100. No ha habido cambios significativos en los datos fundamentales o de mercado que justifiquen una alteración de esta tesis. Si bien el precio spot se mantiene en $200.75, lo que implica un potencial de subida del 40.00% hasta nuestro Fair Value, la prudencia sigue siendo la clave. El régimen de mercado actual es alcista con volatilidad normal, lo que podría favorecer el momentum, pero la ausencia de flujo institu
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
+## 2026-08-02 00:47 — perfil Avoid / Wait · raw 37.1/100
+- Precio al análisis: $200.75 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi visión sobre NVIDIA se mantiene consistente con el reporte anterior de hace 0 días, donde mi Fair Value fue de $281.05 y la recomendación 'DESFAVORABLE' con una convicción de 37/100. No ha habido cambios significativos en los datos fundamentales o de mercado que justifiquen una alteración de esta tesis. Si bien el precio spot se mantiene en $200.75, lo que implica un potencial de subida del 40.00% hasta nuestro Fair Value, la prudencia sigue siendo la clave. El régimen de mercado actual es alcista con volatilidad normal, lo que podría favorecer el momentum, pero la ausencia de flujo institu
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
+# Tesis — NVDA
+
 ## 2026-08-01 14:10 — perfil Avoid / Wait · raw 37.1/100
 - Precio al análisis: $200.75 · Fair value (base): $281.05
 - Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
