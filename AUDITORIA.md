@@ -1305,3 +1305,57 @@ metodología.
 **2111 tests del engine + 75 de la capa web** (4 nuevos: el lock, la ausencia de
 fugas, que el helper sí registre lo que oculta, y el bind público como el hecho que
 justifica ambas decisiones).
+
+---
+
+# 20. Más paridad con la capa web de Victor — 2026-08-02
+
+El lock ya estaba (§19). Releyendo `engine/scripts/webapp.py` aparecieron dos
+patrones suyos más que esta copia no tenía.
+
+## 20.1 Un cliente httpx por proceso
+
+Victor: `edgar = EdgarProvider(settings, Cache(settings.cache_dir))` **a nivel de
+módulo**, instanciado una vez y reutilizado toda la vida del servidor.
+
+Esta copia hacía lo contrario. `Provider.__init__` llamaba a `httpx.Client()` cada
+vez que nadie le pasaba uno, y `build_providers` se invoca **siete veces** entre
+`deep`, `report` y la capa web.
+
+**Medido sobre un `run_report` real: 22 clientes.** Cada uno con su propio pool, así
+que ninguna conexión se reutilizaba entre proveedores —handshake TCP+TLS nuevo en
+cada llamada— y ninguno se cerraba explícitamente.
+
+Dos cambios:
+
+- `build_providers` memoizado por `(cache_dir, repo_root)`, devolviendo el mismo
+  juego con el mismo cliente.
+- `Provider.__init__` cae a un **cliente compartido perezoso** en vez de crear uno.
+  Arreglarlo en la raíz cubre también los proveedores que se construyen por otras
+  rutas, sin perseguir llamadores.
+
+Un cliente explícito sigue mandando — los tests inyectan `MockTransport` y no se ven
+afectados.
+
+| | antes | ahora |
+|---|---|---|
+| clientes en el 1er reporte | **22** | **4** |
+| clientes en el 2º reporte | 22 | **2** |
+
+Los 2 restantes son del SDK de Anthropic (el judge y la tesis ejecutiva), que no son
+nuestros para agrupar.
+
+## 20.2 Lo que NO copié, y por qué
+
+Victor serializa **dos** rutas: `/api/screen` y `/api/analyze`. Nosotros serializamos
+`/api/analyze`. Tenemos ocho rutas pesadas más (`/api/explore`, `/api/backtest`,
+`/api/watchlist-radar`…) que siguen sin lock.
+
+**No las serialicé.** Con un solo lock global, encadenar ocho rutas más convierte
+cualquier panel lento en un bloqueo de toda la aplicación — y ninguna de esas ocho
+toca las tres cachés de `/api/analyze`, que era la razón concreta para serializar.
+Queda anotado como decisión consciente, no como olvido.
+
+## 20.3 Estado
+
+**2115 tests del engine + 75 de la capa web.**

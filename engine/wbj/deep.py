@@ -35,13 +35,45 @@ _SPECIALISTS = [
 ]
 
 
+#: Un juego de proveedores por directorio de caché, con UN solo cliente
+#: httpx detrás — el patrón de `engine/scripts/webapp.py` de Victor, que
+#: instancia `EdgarProvider(settings, Cache(...))` una vez a nivel de módulo
+#: y lo reutiliza siempre.
+#:
+#: Cada `Provider` se creaba su propio `httpx.Client()`, y `build_providers`
+#: se llama siete veces entre `deep`, `report` y la capa web: **22 clientes
+#: por reporte**, medido. Cada uno abre su propio pool, así que ninguna
+#: conexión se reutilizaba entre proveedores —handshake TCP+TLS nuevo en
+#: cada llamada— y ninguno se cerraba explícitamente.
+_PROVIDERS: dict[tuple, Providers] = {}
+_HTTP_CLIENT: "httpx.Client | None" = None
+
+
 def build_providers(settings: Any) -> Providers:
-    """Wire all four live data providers off one shared cache."""
+    """Wire all four live data providers off one shared cache.
+
+    Memoizado por (cache_dir, repo_root): las llamadas siguientes devuelven
+    el MISMO juego, con el mismo cliente y el mismo pool de conexiones.
+    """
+    global _HTTP_CLIENT
+    clave = (str(getattr(settings, "cache_dir", "")), str(getattr(settings, "repo_root", "")))
+    existente = _PROVIDERS.get(clave)
+    if existente is not None:
+        return existente
+
+    import httpx
+
+    if _HTTP_CLIENT is None:
+        _HTTP_CLIENT = httpx.Client()
     cache = Cache(settings.cache_dir)
-    return Providers(
-        fmp=FMPProvider(settings, cache), edgar=EdgarProvider(settings, cache),
-        finnhub=FinnhubProvider(settings, cache), fred=FredProvider(settings, cache),
+    nuevos = Providers(
+        fmp=FMPProvider(settings, cache, client=_HTTP_CLIENT),
+        edgar=EdgarProvider(settings, cache, client=_HTTP_CLIENT),
+        finnhub=FinnhubProvider(settings, cache, client=_HTTP_CLIENT),
+        fred=FredProvider(settings, cache, client=_HTTP_CLIENT),
     )
+    _PROVIDERS[clave] = nuevos
+    return nuevos
 
 
 #: The two inputs MKT-GCAP-009 needs, and the metric each is registered under.

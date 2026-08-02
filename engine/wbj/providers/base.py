@@ -27,6 +27,20 @@ _BACKOFF_SECONDS = (0.5, 1.0, 2.0)
 #: forbidden (FinnHub's). Retrying never helps and the analysis is poorer
 #: in a way the reader has to be told about.
 _ENTITLEMENT_STATUSES = frozenset({401, 402, 403})
+
+
+#: El cliente httpx que comparten todos los proveedores que no reciben uno.
+#: Se crea perezosamente para que importar el módulo no abra sockets.
+_CLIENTE: httpx.Client | None = None
+
+
+def _cliente_compartido() -> httpx.Client:
+    global _CLIENTE
+    if _CLIENTE is None:
+        _CLIENTE = httpx.Client()
+    return _CLIENTE
+
+
 _REDACTED_PARAMS = frozenset({"apikey", "token", "api_key"})
 
 
@@ -87,7 +101,20 @@ class Provider:
     ) -> None:
         self.settings = settings
         self.cache = cache
-        self.client = client if client is not None else httpx.Client()
+        # UN cliente por proceso, como `engine/scripts/webapp.py` de Victor,
+        # que instancia su proveedor una vez a nivel de módulo y lo reutiliza.
+        #
+        # El defecto era `httpx.Client()` aquí mismo: cada Provider abría su
+        # propio pool, así que ninguna conexión se reutilizaba entre
+        # proveedores (handshake TCP+TLS nuevo en cada llamada) y ninguno se
+        # cerraba. Medido sobre un `run_report`: 22 clientes. Los que llegan
+        # por `build_providers` ya venían arreglados; estos ocho son los que
+        # se construyen por otras rutas, y arreglarlo en la raíz los cubre a
+        # todos sin perseguir llamadores.
+        #
+        # Un cliente explícito (los tests pasan `MockTransport`) sigue
+        # mandando: sólo se comparte cuando nadie pide uno concreto.
+        self.client = client if client is not None else _cliente_compartido()
         # Endpoints this run asked for and was refused ENTITLEMENT to, as
         # {cache_key: status}. A 402/403 is not "no data": the data exists
         # and the plan does not reach it, which is a different sentence to
