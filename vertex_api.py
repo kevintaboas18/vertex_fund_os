@@ -9,6 +9,7 @@ import threading
 import traceback
 import numpy as np
 import requests
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -53,7 +54,24 @@ except Exception:
 # de que se use para el scoring.
 _WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine")
 
-app = FastAPI(title="Vertex Fund OS Core")
+@asynccontextmanager
+async def _vertex_lifespan(app: FastAPI):
+    """Arranque de la aplicación: el planificador y el aviso de claves.
+
+    Esto era `@app.on_event("startup")`, que FastAPI marca como obsoleto y
+    va a retirar — el aviso salía en cada corrida de los tests. `lifespan`
+    es el reemplazo oficial y además da un lugar donde apagar cosas (tras
+    el `yield`) que `on_event` no tenía.
+
+    `_vertex_startup` se define mucho más abajo, junto al planificador que
+    arranca: el cuerpo sólo se ejecuta al levantar el servidor, así que el
+    nombre ya está resuelto para entonces.
+    """
+    _vertex_startup()
+    yield
+
+
+app = FastAPI(title="Vertex Fund OS Core", lifespan=_vertex_lifespan)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AUTENTICACIÓN (C-02)
@@ -13381,7 +13399,6 @@ def _start_scheduler():
     threading.Thread(target=_scheduler_loop, daemon=True, name="vertex-collector").start()
     _SCHED_STATE["started"] = True
 
-@app.on_event("startup")
 def _vertex_startup():
     try:
         _start_scheduler()

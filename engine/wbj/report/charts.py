@@ -82,7 +82,12 @@ def price_levels_chart(
 
     for label, value in (smas or {}).items():
         ax.axhline(float(value), ls="--", lw=1.0, color="#9aa1ad")
+        # Anclada al último punto pero desplazada HACIA DENTRO: anclada
+        # justo en el borde, la última cifra se cortaba contra el marco
+        # ("SMA200 193.1" en vez de "193.11"). Un número a medias en un
+        # gráfico de niveles es peor que no ponerlo.
         ax.annotate(f"{label} {float(value):,.2f}", xy=(len(ys) - 1, float(value)),
+                    xytext=(-4, 3), textcoords="offset points",
                     fontsize=8, ha="right", va="bottom", color="#5b6270")
 
     step = max(1, len(xs) // 6)
@@ -138,11 +143,18 @@ def scenario_fan_chart(
         ax.plot(x_proj, [last, lo], _DOTTED, color=color, lw=1.4)
         ax.plot(x_proj, [last, hi], _DOTTED, color=color, lw=1.4)
         ax.fill_between(x_proj, [last, lo], [last, hi], color=color, alpha=0.14)
+        # Encima del borde SUPERIOR de la banda, no en su centro. Anclada al
+        # centro, el texto caía justo sobre las dos líneas punteadas que
+        # definen el escenario y tapaba el rango que pretende explicar —
+        # con dos escenarios, cada etiqueta se comía la banda del otro.
         ax.annotate(f"{s.get('name', 'scenario')}  {lo:,.0f}–{hi:,.0f}\n{s.get('assumptions', '')}",
-                    xy=(x_proj[1], (lo + hi) / 2), fontsize=8, va="center", ha="right",
-                    color=color)
+                    xy=(x_proj[1], hi), xytext=(-2, 6), textcoords="offset points",
+                    fontsize=8, va="bottom", ha="right", color=color)
 
     ax.axvline(n - 1, color="#c9ced8", lw=1.0)
+    # Aire arriba para que la etiqueta más alta no choque con el marco.
+    _lo_eje, _hi_eje = ax.get_ylim()
+    ax.set_ylim(_lo_eje, _hi_eje + (_hi_eje - _lo_eje) * 0.13)
     ax.annotate("projected →", xy=(n - 1, min(ys) if ys else 0), fontsize=8, color="#9aa1ad")
     ax.set_ylabel(f"Price ({currency}/share)")
     ax.set_xlabel("Session (projection beyond the divider)")
@@ -169,7 +181,14 @@ def scorecard_chart(category_points: Sequence[Mapping[str, Any]], out_path: Path
         else:
             ax.barh(i, float(c["points"]), color="#22a06b")
             ax.annotate(f"{float(c['points']):,.1f}/{maximum:,.0f}", xy=(maximum, i),
+                        xytext=(5, 0), textcoords="offset points",
                         va="center", ha="left", fontsize=8, color="#5b6270")
+    # Sitio para esa etiqueta. Sin esto arranca justo en el máximo del eje
+    # (20 pts) y se sale del área de dibujo: "11.4/20" quedaba pegado al
+    # borde y las categorías de 20 puntos perdían el texto.
+    if category_points:
+        techo = max(float(c["max_points"]) for c in category_points)
+        ax.set_xlim(0, techo * 1.16)
     ax.set_yticks(list(y))
     ax.set_yticklabels(labels, fontsize=9)
     ax.invert_yaxis()
