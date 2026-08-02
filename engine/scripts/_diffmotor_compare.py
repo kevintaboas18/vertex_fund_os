@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _diffmotor_casos import casos as generar                       # noqa: E402
 from wbj.tito.levels import ChainLevel, FlowLevel, GexLevel, LvlBar, find_levels  # noqa: E402
 from wbj.tito.structure import ChainRow, structure_score            # noqa: E402
+from wbj.tito.jsmath import UNDEFINED           # noqa: E402
 from wbj.tito.flow import (aggression_score, classify_flow, conviction_score,  # noqa: E402
                            detect_clusters, unusuality_score)
 from wbj.tito.validation import FlowLite, ValBar, validation_score  # noqa: E402
@@ -66,14 +67,67 @@ def dif(a, b, ruta=""):
     return [] if (a == b or _ulp(a, b)) else [(ruta, a, b)]
 
 
+def d6(x):
+    """`r6` en PROFUNDIDAD, el espejo del `d6` del runner.
+
+    `JSON.stringify(NaN)` y `JSON.stringify(Infinity)` son `null`, así que todo
+    escalar que no pasara por `r6` llegaba al comparador indistinguible de un
+    "sin dato" — y tapaba divergencias reales del port.
+    """
+    if isinstance(x, list):
+        return [d6(v) for v in x]
+    if isinstance(x, dict):
+        return {k: d6(v) for k, v in x.items()}
+    return r6(x)
+
+
 def g(d, k):
     """`obj.k` de JS: la clave ausente es `undefined`, no un `KeyError`.
 
     El arnés tiene que reproducir eso o el corpus malformado no se puede
     ejecutar: una fila SIN el campo es exactamente el caso que se quiere medir,
     y con `d[k]` se cae el comparador antes de llegar al motor.
+
+    `undefined` NO es `null`: `Number(undefined)` es `NaN` y `Number(null)` es
+    0, así que un campo ausente y un campo con `null` toman caminos distintos
+    dentro de su archivo. Ver `jsmath.UNDEFINED`.
     """
-    return d.get(k) if isinstance(d, dict) else None
+    if not isinstance(d, dict):
+        return UNDEFINED
+    return d.get(k, UNDEFINED)
+
+
+class _Nulo:
+    """El `null` de JS como receptor: leer una propiedad lanza TypeError.
+
+    Sin esto el arnés aplanaba una fila `null` en un dataclass con todos los
+    campos vacíos y el port seguía adelante donde su archivo revienta con
+    *Cannot read properties of null*. La divergencia era del arnés.
+    """
+
+    __slots__ = ()
+
+    def __getattr__(self, k):
+        raise TypeError(f"Cannot read properties of null (reading '{k}')")
+
+
+class _Primitivo:
+    """`"basura"`, `42`, `[]` como receptor: leer una propiedad da `undefined`."""
+
+    __slots__ = ()
+
+    def __getattr__(self, k):
+        return UNDEFINED
+
+
+def _receptor(d):
+    """Lo que JS pondría a la izquierda del punto. `None` si es un objeto y hay
+    que construir el dataclass de verdad."""
+    if d is None:
+        return _Nulo()
+    if not isinstance(d, dict):
+        return _Primitivo()
+    return None
 
 
 fallos, n = [], 0
@@ -110,10 +164,12 @@ def protegido(fn):
 for i, (c, v) in enumerate(zip(C["validation"], V["validation"])):
   def _caso(c=c):
     r = validation_score(
-        [FlowLite(g(f, "id"), g(f, "timestamp"), g(f, "type"), g(f, "strike"),
-                  g(f, "expiration"), g(f, "assetPrice"), g(f, "premium"),
-                  g(f, "aggression")) for f in c["flows"]],
-        [ValBar(g(b, "time"), g(b, "high"), g(b, "low"), g(b, "close")) for b in c["bars"]],
+        [_receptor(f) or FlowLite(g(f, "id"), g(f, "timestamp"), g(f, "type"),
+                                  g(f, "strike"), g(f, "expiration"),
+                                  g(f, "assetPrice"), g(f, "premium"),
+                                  g(f, "aggression")) for f in c["flows"]],
+        [_receptor(b) or ValBar(g(b, "time"), g(b, "high"), g(b, "low"),
+                                g(b, "close")) for b in c["bars"]],
         datetime.fromisoformat(c["now"].replace("Z", "+00:00")),
         threshold_pct=c["thresholdPct"], horizon=c["horizon"])
     mio = {"score": r.score, "whr": r.weighted_hit_rate, "mfe": r.avg_mfe, "mae": r.avg_mae,
@@ -121,7 +177,7 @@ for i, (c, v) in enumerate(zip(C["validation"], V["validation"])):
            "ids": [o.id for o in r.outcomes[:6]],
            "det": [[o.resolved, o.validated, o.sessions_observed, o.days_to_validate,
                     r6(o.mfe_pct), r6(o.mae_pct)] for o in r.outcomes[:6]]}
-    return mio
+    return d6(mio)
   mio = protegido(_caso)
   if "ERROR" in mio and "ERROR" not in v:
       lanza_port.append(("validation", mio["ERROR"]))
@@ -134,13 +190,17 @@ for i, (c, v) in enumerate(zip(C["validation"], V["validation"])):
 for i, (c, v) in enumerate(zip(C["levels"], V["levels"])):
   def _caso(c=c):
     r = find_levels(
-        bars=[LvlBar(g(b, "time"), g(b, "high"), g(b, "low"), g(b, "close")) for b in c["bars"]],
+        bars=[_receptor(b) or LvlBar(g(b, "time"), g(b, "high"), g(b, "low"),
+                                     g(b, "close")) for b in c["bars"]],
         spot=c["spot"], now=datetime.fromisoformat(c["now"].replace("Z", "+00:00")),
-        chain=[ChainLevel(g(x, "strike"), g(x, "contractType"), g(x, "openInterest"),
-                          g(x, "notionalValue")) for x in c["chain"]],
-        flows=[FlowLevel(g(x, "strike"), g(x, "type"), g(x, "aggression"),
-                         g(x, "premium")) for x in c["flows"]],
-        gex=[GexLevel(g(x, "strike"), g(x, "netGex")) for x in c["gex"]],
+        chain=[_receptor(x) or ChainLevel(g(x, "strike"), g(x, "contractType"),
+                                          g(x, "openInterest"),
+                                          g(x, "notionalValue")) for x in c["chain"]],
+        flows=[_receptor(x) or FlowLevel(g(x, "strike"), g(x, "type"),
+                                         g(x, "aggression"),
+                                         g(x, "premium")) for x in c["flows"]],
+        gex=[_receptor(x) or GexLevel(g(x, "strike"), g(x, "netGex"))
+             for x in c["gex"]],
         tolerance_pct=c["tolerancePct"], rango_pct=c["rangePct"])
     m = lambda a: [[r6(l.price), l.kind, r6(l.strength), r6(l.distance_pct),
                     [l.sources.touches, l.sources.last_touch, l.sources.open_interest,
@@ -150,7 +210,7 @@ for i, (c, v) in enumerate(zip(C["levels"], V["levels"])):
            "ks": r6(r.key_support.price) if r.key_support else None,
            "kr": r6(r.key_resistance.price) if r.key_resistance else None,
            "tol": r.tolerance_pct}
-    return mio
+    return d6(mio)
   mio = protegido(_caso)
   if "ERROR" in mio and "ERROR" not in v:
       lanza_port.append(("levels", mio["ERROR"]))
@@ -162,9 +222,10 @@ for i, (c, v) in enumerate(zip(C["levels"], V["levels"])):
 
 for i, (rows, v) in enumerate(zip(C["structure"], V["structure"])):
   def _caso(rows=rows):
-    r = structure_score([ChainRow(g(x, "contractType"), g(x, "expiration"), g(x, "strike"),
-                                  g(x, "openInterest"), g(x, "volume"),
-                                  g(x, "notionalValue")) for x in rows])
+    r = structure_score([_receptor(x) or ChainRow(g(x, "contractType"),
+                                                  g(x, "expiration"), g(x, "strike"),
+                                                  g(x, "openInterest"), g(x, "volume"),
+                                                  g(x, "notionalValue")) for x in rows])
     st = r.strikes
     mio = {"score": r.score,
            "strikes": {"dominantCount": st["dominant_count"], "consideredCount": st["considered_count"],
@@ -175,7 +236,7 @@ for i, (rows, v) in enumerate(zip(C["structure"], V["structure"])):
            "volOI": {"pct": r.vol_oi["pct"], "exceeded": r.vol_oi["exceeded"],
                      "considered": r.vol_oi["considered"], "points": r.vol_oi["points"]},
            "exps": [[e.expiration, e.contracts, r6(e.notional)] for e in r.expirations[:4]]}
-    return mio
+    return d6(mio)
   mio = protegido(_caso)
   if "ERROR" in mio and "ERROR" not in v:
       lanza_port.append(("structure", mio["ERROR"]))
@@ -224,7 +285,7 @@ for i, (lote, v) in enumerate(zip(C["flow"]["lotes"], V["flow"])):
                   r6(c.unidirectionality), c.score, r6(c.call_premium), r6(c.put_premium),
                   c.bet, c.bet_label] for c in CL[:3]],
     }
-    return mio
+    return d6(mio)
   mio = protegido(_caso)
   if "ERROR" in mio and "ERROR" not in v:
       lanza_port.append(("flow", mio["ERROR"]))
@@ -266,6 +327,14 @@ if campos:
         print(f"      {k:<40} {c:>4}   ej {ej[0]}:"
               f" víctor={str(ej[2])[:42]} port={str(ej[3])[:42]}")
 
+if os.environ.get("MOTOR_LISTA"):
+    # `MOTOR_LISTA=flow` (o `=1` para todos): vuelca caso por caso, que es lo
+    # único que sirve para cerrar divergencias una a una.
+    filtro = os.environ["MOTOR_LISTA"]
+    print("\n  · DETALLE")
+    for b, ruta, s_, m_ in fallos:
+        if filtro in ("1", b.split("#")[0]):
+            print(f"      {b}{ruta:<26} víctor={str(s_)[:64]!r} port={str(m_)[:64]!r}")
 if _DONDE:
     print("\n  · DÓNDE LANZA EL PORT (MOTOR_DEBUG)")
     for k, c in _DONDE.most_common(12):

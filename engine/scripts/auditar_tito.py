@@ -443,19 +443,31 @@ sec("4. Reglas innegociables")
 from wbj.tito.expected_move import LevelInput
 from wbj.tito.prediction import SubScores, predict_pro
 import math
+# Los escenarios EXTREMOS nunca se salen del cono de 2σ y nunca se cruzan. El
+# BASE sí puede salirse, y el bear puede sentarse encima de él: son las dos
+# divergencias de su `prediction.ts` que este port reproduce a propósito (ver
+# `engine/scripts/upstream-tito-prediction.patch` y los comentarios del módulo).
+# Se comprueban las dos cosas —lo que sí se sostiene y lo que él deja pasar—
+# para que el port no se desvíe por accidente en ninguno de los dos sentidos.
 sub = SubScores(8,7,9,6,5,6)
 roto = 0
+base_fuera = 0
 for nodes in ([LevelInput(5000,1.0,"call",9e9)], [], [LevelInput(92,1.0,"put",-5e6)],
               [LevelInput(110,1,"call",5e6), LevelInput(92,.7,"put",-3e6)]):
     for h in (10,20,30):
         p = predict_pro(spot=100, iv=0.5, horizon_days=h, nodes=nodes, scores=sub, regime="positive")
         em2 = 100*math.exp(2*0.5*math.sqrt(h/365))
         em2l = 100*math.exp(-2*0.5*math.sqrt(h/365))
-        if not (p.bear.target < p.base.target < p.bull.target): roto += 1
-        if p.bull.target > em2 + 1e-6: roto += 1
-        if p.base.target > em2 + 1e-6 or p.base.target < em2l - 1e-6: roto += 1
+        if p.bear.target > p.bull.target: roto += 1          # los extremos no se cruzan
+        if p.bull.target > em2 + 1e-6: roto += 1             # …ni salen del cono
         if p.bear.target < em2l - 1e-6: roto += 1
-chk(roto == 0, "orden estricto + LOS TRES dentro del cono de 2σ (12 configuraciones)")
+        if p.base.target > em2 + 1e-6 or p.base.target < em2l - 1e-6:
+            base_fuera += 1
+chk(roto == 0, "los EXTREMOS nunca se cruzan ni salen del cono de 2σ (12 configuraciones)")
+chk(base_fuera == 3,
+    f"el BASE sí puede salirse del cono ({base_fuera}/12) — igual que su archivo",
+    "solo pasa con el imán fuera del cono; `gex_analysis` filtra a ±20% del spot. "
+    "El arreglo está escrito en upstream-tito-prediction.patch")
 p_il = predict_pro(spot=100, iv=.5, horizon_days=20, nodes=[LevelInput(105,1,"call",1e6)],
                    scores=sub, regime="positive", low_liquidity=True)
 chk(p_il.confidence == 0 and "NO FIABLE" in p_il.caveat, "baja liquidez → confianza 0 + NO FIABLE")

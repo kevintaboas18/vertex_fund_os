@@ -18,7 +18,8 @@ disco. El saldo del usuario nunca sale de donde esté.
 from __future__ import annotations
 
 import math
-from .jsmath import js_gt, js_number
+from .jsmath import (js_gt, js_number, js_is_finite, js_max, js_min,
+                     js_abs, js_floor, js_to_fixed, js_truthy, es_nulo)
 from dataclasses import dataclass
 from typing import Literal
 
@@ -102,18 +103,15 @@ class QualityResult:
     detail: str | None = None
 
 
-def _safe(n: float | None) -> float:
-    """Número finito y positivo, o 0. Blinda contra NaN/inf que lleguen de la UI."""
-    return float(n) if isinstance(n, (int, float)) and math.isfinite(n) and n > 0 else 0.0
+def _safe(n) -> float:
+    """`Number.isFinite(n) && n > 0 ? n : 0` — número finito y positivo, o 0.
 
-
-def _floor(x: float) -> float:
-    """`Math.floor(x)` de JS: los no finitos pasan tal cual, no lanzan.
-
-    `budgets.premium / cost_per_contract` con una cuenta de 1e308 desborda, y
-    `math.floor(inf)` es un `OverflowError` que se lleva el sizing entero.
+    `Number.isFinite` NO coacciona: un `true` y un `"500"` valen 0 aquí, aunque
+    `Number()` sepa leerlos. El port usaba `isinstance` + `isfinite`, y como en
+    Python `bool` es subclase de `int`, un `tolerancePct: true` se convertía en
+    un 1% de tolerancia real. Medido en `diff_motor2.sh`.
     """
-    return x if not math.isfinite(x) else float(math.floor(x))
+    return float(n) if js_is_finite(n) and n > 0 else 0.0
 
 
 def budgets_of(profile: RiskProfile) -> Budgets:
@@ -131,11 +129,11 @@ def passes_quality_filter(row: FlowRow) -> QualityResult:
     **No estima theta**: si el feed no lo trajo, el flow no se dimensiona. Un
     theta inventado produciría un techo inventado.
     """
-    if row.theta_pct_daily is None:
+    if es_nulo(row.theta_pct_daily):
         return QualityResult(False, "sin_theta", "El feed no trajo theta para este contrato.")
     if row.expiry_status in ("expirado", "expira_hoy"):
         return QualityResult(False, "vencido", "El contrato ya venció o vence hoy.")
-    if row.dte is None or js_number(row.dte) < MIN_DTE:
+    if es_nulo(row.dte) or js_number(row.dte) < MIN_DTE:
         return QualityResult(
             False,
             "vencido",
@@ -145,7 +143,9 @@ def passes_quality_filter(row: FlowRow) -> QualityResult:
         return QualityResult(
             False,
             "theta_alto",
-            f"Pierde {js_number(row.theta_pct_daily):.1f}% de su valor al día "
+            # `row.thetaPctDaily.toFixed(1)` es una llamada a MÉTODO: sobre un
+            # valor que no sea número lanza, igual que su archivo.
+            f"Pierde {js_to_fixed(row.theta_pct_daily, 1)}% de su valor al día "
             f"(máximo {MAX_THETA_PCT_DAILY:.0f}%): es lotería, no posición.",
         )
     return QualityResult(True)
@@ -180,7 +180,8 @@ def size_flow(
     theta, y se reporta cuál fue.
     """
     # La iliquidez manda sobre todo lo demás, por buena que sea la estructura.
-    if low_liquidity:
+    # `if (ctx.lowLiquidity)` con la veracidad de JS: `[]` bloquea.
+    if js_truthy(low_liquidity):
         return _blocked(
             "iliquidez",
             "Cadena ilíquida: el agente no calcula tamaño cuando no confía en los datos.",
@@ -197,20 +198,27 @@ def size_flow(
         return _blocked("sin_theta", "El contrato no tiene precio utilizable.")
 
     # No se quema theta más allá del vencimiento.
-    burn_days = int(max(0, min(js_number(row.dte or 0), _safe(horizon_days))))
-    raw_burn = _safe(abs(row.theta)) * _MULTIPLIER * burn_days
+    #
+    # `Math.max(0, Math.min(row.dte ?? 0, safe(horizonDays)))`, literal y en
+    # tres puntos que el port tenía distintos: NO es un entero (un horizonte de
+    # 0.3 días se reporta como 0.3), `?? 0` solo sustituye `null`/`undefined`
+    # —un `dte: 0` sigue siendo 0— y `Math.min` propaga el `NaN` en vez de
+    # esconderlo, que es lo que hacía el `min()` de Python.
+    dte = row.dte if not es_nulo(row.dte) else 0
+    burn_days = js_max(0, js_min(dte, _safe(horizon_days)))
+    raw_burn = _safe(js_abs(row.theta)) * _MULTIPLIER * burn_days
     # Tope: una opción larga no puede perder más que su prima.
-    theta_burn_per_contract = min(raw_burn, cost_per_contract)
+    theta_burn_per_contract = js_min(raw_burn, cost_per_contract)
     fully_decays = raw_burn >= cost_per_contract and raw_burn > 0
 
-    by_premium = _floor(budgets.premium / cost_per_contract)
+    by_premium = js_floor(budgets.premium / cost_per_contract)
     by_theta = (
-        _floor(budgets.theta / theta_burn_per_contract)
+        js_floor(budgets.theta / theta_burn_per_contract)
         if theta_burn_per_contract > 0
         else by_premium  # sin quema medible, la prima decide
     )
 
-    max_contracts = max(0, min(by_premium, by_theta))
+    max_contracts = js_max(0, js_min(by_premium, by_theta))
     # Empate → se atribuye a la prima: es la restricción de pérdida real.
     binding: Binding | None = (
         None if max_contracts == 0 else ("theta" if by_theta < by_premium else "prima")

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .jsmath import es_nulo
+
 __all__ = [
     "TradeCondition",
     "TRADE_CONDITIONS",
@@ -89,7 +91,7 @@ def condition_of(id: int | None) -> TradeCondition | None:
     entero. Lo no hashable no está en el catálogo, que es la misma respuesta que
     da su `Map`: `undefined`.
     """
-    if id is None:
+    if es_nulo(id):
         return None
     try:
         return _BY_ID.get(id)

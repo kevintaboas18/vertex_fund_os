@@ -26,7 +26,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Literal, Sequence
 
-from .jsmath import js_round, js_gt, js_number, js_add
+from .jsmath import (js_round, js_gt, js_number, js_add, js_string, js_max,
+                     js_min, js_log, js_sqrt, js_clave, js_orden, es_nulo)
 from .black_scholes import bs_gamma
 from .occ import days_to_expiration
 from .structure import ChainRow
@@ -96,14 +97,19 @@ def estimate_iv(closes: Sequence[float]) -> float:
 
     `closes` va del más viejo al más reciente. Ventana de hasta 21 sesiones.
     """
-    c = [js_number(v) for v in closes if js_gt(v)][-22:]
+    # `closes.filter(v => v > 0).slice(-22)`: el filtro compara con coacción
+    # pero NO convierte — los valores siguen crudos y es la división de abajo la
+    # que los coacciona. `Math.log` de un negativo da `NaN` donde `math.log`
+    # lanza, y `Math.min`/`Math.max` propagan el `NaN` donde los de Python lo
+    # esconden (`min(1.0, nan)` devuelve 1.0).
+    c = [v for v in closes if js_gt(v)][-22:]
     if len(c) < 3:
         return FALLBACK_IV
-    rets = [math.log(b / a) for a, b in zip(c, c[1:])]
+    rets = [js_log(js_number(b) / js_number(a)) for a, b in zip(c, c[1:])]
     mean = sum(rets) / len(rets)
     variance = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
-    iv = math.sqrt(variance) * math.sqrt(252)
-    return min(3.0, max(0.05, iv))
+    iv = js_sqrt(variance) * math.sqrt(252)
+    return js_min(3, js_max(0.05, iv))
 
 
 def _empty(spot: float, iv: float, low_liquidity: bool) -> GexAnalysis:
@@ -129,35 +135,46 @@ def gex_analysis(
     ``GEX por strike = gamma × OI × 100 × spot² × 0.01``, con signo +call/−put.
     """
     iv = estimate_iv(closes)
-    # `js_number` / `js_gt`: en TS estas comparaciones y productos coaccionan
-    # solos y un valor ilegible los hace falsos o `NaN`; en Python lanzan y se
-    # llevan el sub-agente entero. Lo destapó el corpus malformado de
-    # `diff_motor2.sh`. Con datos bien formados no cambia nada.
-    if not js_gt(spot) or not rows:
+    # `if (spot <= 0 || rows.length === 0)`, literal. Con `spot` ilegible la
+    # comparación es FALSA (`NaN <= 0` no se cumple) y su archivo sigue
+    # adelante; el port usaba `not (spot > 0)`, que es la negación contraria y
+    # devolvía el análisis vacío. Lo destapó el corpus malformado.
+    if js_number(spot) <= 0 or not rows:
         return _empty(spot, iv, low_liquidity)
 
     # ── Gamma real por strike+lado (promedio) desde los trades, para anclar ──
-    real_gamma: dict[str, list[float]] = {}
-    trade_prem: dict[float, dict] = {}
+    #
+    # Sus dos índices son `Map`, no objetos: la clave es el strike CRUDO, sin
+    # coaccionar, así que `"500"` y `500` son dos entradas distintas (ver
+    # `jsmath.js_clave`). El port indexaba por `js_number` y las fundía, lo que
+    # cambiaba el conteo de strikes `n` que sale en el reporte.
+    real_gamma: dict = {}
+    trade_prem: dict = {}
     for t in trades:
-        if t.strike is None or t.type == "unknown":
+        if es_nulo(t.strike) or t.type == "unknown":
             continue
         if js_gt(t.gamma):
-            real_gamma.setdefault(f"{t.strike}|{t.type}", []).append(abs(t.gamma))
-        p = trade_prem.setdefault(js_number(t.strike), {"premium": 0.0, "count": 0})
+            # `${t.strike}|${t.type}` — plantilla, o sea `String()`: un `null`
+            # escribe "null" y un `true` escribe "true".
+            k = f"{js_string(t.strike)}|{js_string(t.type)}"
+            real_gamma.setdefault(k, []).append(abs(js_number(t.gamma)))
+        p = trade_prem.setdefault(js_clave(t.strike), {"premium": 0.0, "count": 0})
         p["premium"] = js_add(p["premium"], t.premium)
         p["count"] += 1
 
     # ── GEX por strike sobre toda la cadena (solo contratos vigentes) ──
-    spot = js_number(spot)
-    lo, hi = spot * (1 - NEAR_SPOT_PCT), spot * (1 + NEAR_SPOT_PCT)
-    by_strike: dict[float, dict] = {}
+    spot_n = js_number(spot)          # `spot` se DEVUELVE crudo; solo la aritmética coacciona
+    lo, hi = spot_n * (1 - NEAR_SPOT_PCT), spot_n * (1 + NEAR_SPOT_PCT)
+    by_strike: dict = {}
 
     for r in rows:
         strike = js_number(r.strike)
         if strike < lo or strike > hi:
             continue
-        if not js_gt(r.open_interest):
+        # `if (r.openInterest <= 0) continue;`, literal: con un OI ilegible la
+        # comparación es falsa y la fila ENTRA, envenenando su GEX con un `NaN`
+        # a la vista. El port la descartaba en silencio.
+        if js_number(r.open_interest) <= 0:
             continue
         dte = days_to_expiration(r.expiration, now)
         # `if (dte <= 0) continue;`, literal. Un `NaN` NO se salta: `NaN <= 0`
@@ -169,13 +186,14 @@ def gex_analysis(
             continue
         T = dte / 365
 
-        gamma = bs_gamma(spot, strike, T, iv)
-        anchor = real_gamma.get(f"{r.strike}|{r.contract_type}")
+        gamma = bs_gamma(spot_n, strike, T, iv)
+        anchor = real_gamma.get(f"{js_string(r.strike)}|{js_string(r.contract_type)}")
         if anchor:
             gamma = (gamma + sum(anchor) / len(anchor)) / 2
 
-        gex = gamma * js_number(r.open_interest) * 100 * spot * spot * 0.01
-        s = by_strike.setdefault(strike, {"call_gex": 0.0, "put_gex": 0.0})
+        gex = gamma * js_number(r.open_interest) * 100 * spot_n * spot_n * 0.01
+        s = by_strike.setdefault(js_clave(r.strike),
+                                 {"strike": r.strike, "call_gex": 0.0, "put_gex": 0.0})
         if r.contract_type == "call":
             s["call_gex"] += gex
         else:
@@ -186,12 +204,12 @@ def gex_analysis(
 
     # ── Nodos + concentración de dinero (GEX + actividad real) ──
     raw = []
-    for strike, g in by_strike.items():
+    for clave, g in by_strike.items():
         net_gex = g["call_gex"] - g["put_gex"]
-        tp = trade_prem.get(strike)
+        tp = trade_prem.get(clave)
         raw.append(
             {
-                "strike": strike,
+                "strike": g["strike"],          # el crudo, que es lo que él propaga
                 "net_gex": net_gex,
                 "call_gex": g["call_gex"],
                 "put_gex": g["put_gex"],
@@ -201,8 +219,11 @@ def gex_analysis(
             }
         )
 
-    max_gex_mag = max((r["gex_mag"] for r in raw), default=0.0)
-    max_trade_prem = max((r["trade_premium"] for r in raw), default=0.0)
+    # `Math.max(...lista, 0)` — el 0 es un argumento más (suelo), y un solo
+    # `NaN` en la lista se lleva el máximo entero. `max(..., default=0)` de
+    # Python no hace ninguna de las dos cosas.
+    max_gex_mag = js_max(*[r["gex_mag"] for r in raw], 0)
+    max_trade_prem = js_max(*[r["trade_premium"] for r in raw], 0)
     has_trades = max_trade_prem > 0
 
     nodes = sorted(
@@ -224,8 +245,9 @@ def gex_analysis(
             )
             for r in raw
         ),
-        key=lambda n: n.concentration,
-        reverse=True,
+        # `.sort((a, b) => b.concentration - a.concentration)`: un `NaN` en la
+        # resta vale "iguales", no reordena — ver `jsmath.js_orden`.
+        key=js_orden(lambda a, b: b.concentration - a.concentration),
     )
 
     king_strike = nodes[0].strike if nodes else None
@@ -234,18 +256,17 @@ def gex_analysis(
     # cambia de signo (put-dominante abajo → call-dominante arriba). Se elige el
     # cruce MÁS CERCANO al spot e interpola el punto medio ponderado: un flip a
     # 15% de distancia no gobierna el comportamiento de hoy.
-    asc = sorted(raw, key=lambda r: js_number(r["strike"]))
+    asc = sorted(raw, key=js_orden(
+        lambda a, b: js_number(a["strike"]) - js_number(b["strike"])))
     flip_strike: float | None = None
     best_dist = math.inf
     for a, b in zip(asc, asc[1:]):
         if (a["net_gex"] < 0 <= b["net_gex"]) or (a["net_gex"] > 0 >= b["net_gex"]):
             span = abs(a["net_gex"]) + abs(b["net_gex"])
-            cross = (
-                a["strike"] + (b["strike"] - a["strike"]) * (abs(a["net_gex"]) / span)
-                if span > 0
-                else (a["strike"] + b["strike"]) / 2
-            )
-            dist = abs(cross - spot)
+            sa, sb = js_number(a["strike"]), js_number(b["strike"])
+            cross = (sa + (sb - sa) * (abs(a["net_gex"]) / span)
+                     if span > 0 else (sa + sb) / 2)
+            dist = abs(cross - spot_n)
             if dist < best_dist:
                 best_dist, flip_strike = dist, cross
 
@@ -254,9 +275,9 @@ def gex_analysis(
 
     if king_strike is None:
         direction = None
-    elif king_strike > spot * 1.002:
+    elif js_number(king_strike) > spot_n * 1.002:
         direction = "up"
-    elif king_strike < spot * 0.998:
+    elif js_number(king_strike) < spot_n * 0.998:
         direction = "down"
     else:
         direction = "flat"
@@ -266,10 +287,13 @@ def gex_analysis(
     # no puede subir la confianza.
     sum_gex_mag = sum(r["gex_mag"] for r in raw)
     sharpness = (max_gex_mag / sum_gex_mag) if sum_gex_mag > 0 else 0.0
-    sub_scores = [v for v in (conviction_score, structure_score) if v is not None]
-    sub_avg = (sum(sub_scores) / len(sub_scores) / 10) if sub_scores else 0.5
-    # `Math.round`, mitad hacia arriba — ver `jsmath.js_round`.
-    confidence = js_round(100 * min(1.0, 0.6 * sharpness + 0.4 * sub_avg))
+    sub_scores = [v for v in (conviction_score, structure_score) if not es_nulo(v)]
+    sub_avg = (sum(js_number(v) for v in sub_scores) / len(sub_scores) / 10
+               if sub_scores else 0.5)
+    # `Math.round(100 * Math.min(1, …))`: `Math.min` propaga el `NaN` y
+    # `Math.round` lo deja pasar. El `min()` de Python devolvía el 1.0 y la
+    # confianza salía 100 justo donde su archivo dice "no sé".
+    confidence = js_round(100 * js_min(1, 0.6 * sharpness + 0.4 * sub_avg))
 
     return GexAnalysis(
         spot=spot, iv=iv, nodes=nodes, king_strike=king_strike,

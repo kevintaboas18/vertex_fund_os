@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Sequence
 
-from .jsmath import MS_POR_DIA, js_date_parse, js_round, js_time
+from .jsmath import MS_POR_DIA, es_nulo, js_date_parse, js_round, js_time
 from .black_scholes import bs_gamma
 from .structure import ChainRow
 
@@ -125,7 +125,7 @@ def gex_heatmap(
     # Gamma real del tape por (strike, vencimiento) para anclar la estimación.
     real_gamma: dict[str, list[float]] = {}
     for t in trades:
-        if t.strike is None or not t.expiration or not (t.gamma > 0):
+        if es_nulo(t.strike) or not t.expiration or not (t.gamma > 0):
             continue
         real_gamma.setdefault(f"{t.strike}|{t.expiration}", []).append(t.gamma)
 

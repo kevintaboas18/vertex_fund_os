@@ -23,7 +23,8 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Literal, Sequence
 
-from .jsmath import js_add, js_days_since, js_gt, js_locale_string, js_number, js_round
+from .jsmath import (es_nulo, js_abs, js_add, js_days_since, js_gt, js_log10,
+                     js_locale_string, js_max, js_min, js_number, js_round)
 
 __all__ = [
     "LvlBar",
@@ -252,6 +253,7 @@ def find_levels(
     if not js_gt(spot) or not bars:
         return _EMPTY
 
+    crudo = spot            # `spot: spot` — el reporte lo devuelve TAL CUAL
     # A partir de aquí el spot ya es un número > 0 (lo garantiza el `js_gt`),
     # pero `a` y `b` pueden ser cualquier cosa: vienen de la cadena, del tape y
     # del GEX. `js_number` reproduce la coacción que hace su aritmética.
@@ -335,7 +337,7 @@ def find_levels(
         # --- flujo real ejecutado que apunta a ese nivel ---
         flow_premium = 0.0
         for f in flows:
-            if f.strike is None or not near(f.strike, price):
+            if es_nulo(f.strike) or not near(f.strike, price):
                 continue
             if f.aggression != "bid":
                 continue  # solo la VENTA construye muro
@@ -350,7 +352,8 @@ def find_levels(
         touches = cluster.touches if cluster else 0
 
         # Un strike donde el precio nunca reaccionó solo cuenta si el dinero es grande.
-        if touches == 0 and flow_premium == 0 and oi < oi_floor:
+        if (touches == 0 and flow_premium == 0
+                and js_number(oi) < js_number(oi_floor)):
             continue
 
         last_touch = cluster.last_touch if cluster else None
@@ -364,18 +367,22 @@ def find_levels(
         oi_n = js_number(oi)
         fp_n = js_number(flow_premium)
         gex_n = js_number(net_gex)
-        p_touch = min(1.0, touches / max(2, max_touches)) * 35 * (0.4 + 0.6 * recency)
-        p_oi = min(1.0, math.log10(1 + oi_n) / 5) * 25 if oi_n > 0 else 0.0
-        p_flow = min(1.0, math.log10(1 + fp_n) / 8) * 20 if fp_n > 0 else 0.0
-        p_gex = min(1.0, abs(gex_n) / 5e8) * 10 if gex_n == gex_n else 0.0
+        p_touch = js_min(1, touches / js_max(2, max_touches)) * 35 * (0.4 + 0.6 * recency)
+        # `Math.log10(1 + oi)` — el `1 + oi` es el `+` de JS, no una suma: con un
+        # open interest que llega como `"500"` el acumulador ya es la cadena
+        # `"0500"` y esto CONCATENA a `"10500"`, o sea log10 de 10.500 y no de
+        # 501. Son 6 puntos de fuerza de nivel. Medido en `diff_motor.sh`.
+        p_oi = js_min(1, js_log10(js_add(1, oi)) / 5) * 25 if js_gt(oi) else 0.0
+        p_flow = js_min(1, js_log10(js_add(1, flow_premium)) / 8) * 20 if js_gt(flow_premium) else 0.0
+        p_gex = js_min(1, js_abs(net_gex) / 5e8) * 10
         # Confluencia: precio Y opciones a la vez. Es el bonus que separa un
         # nivel real de una coincidencia.
-        confluence = 10 if touches > 0 and (oi_n > 0 or fp_n > 0) else 0
+        confluence = 10 if touches > 0 and (js_gt(oi) or js_gt(flow_premium)) else 0
 
         # `Math.round`, no el `round` de Python: el suyo redondea la mitad
         # hacia arriba y el de Python al par. Aquí salía una fuerza de 10
         # donde su archivo daba 11 — el hallazgo que destapó `jsmath`.
-        strength = js_round(min(100.0, p_touch + p_oi + p_flow + p_gex + confluence))
+        strength = js_round(js_min(100, p_touch + p_oi + p_flow + p_gex + confluence))
         if strength < 8:
             continue  # ruido
 
@@ -428,7 +435,7 @@ def find_levels(
         return max(xs, key=lambda l: l.strength) if xs else None
 
     return LevelsReport(
-        spot=spot,
+        spot=crudo,
         supports=supports[:6],
         resistances=resistances[:6],
         key_support=strongest(supports),

@@ -256,3 +256,233 @@ class TestElGexNoDescartaElVencimientoIlegible:
         buena = gex_analysis(self._cadena("2026-09-18"), [100.0] * 60, 100.0, now)
         assert buena.total_net_gex > 0
         assert math.isfinite(buena.total_net_gex)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Las primitivas que cerraron `diff_motor.sh` y `diff_motor2.sh` a cero.
+#
+# Cada una existe porque Python tiene una función que hace *casi* lo mismo y el
+# port usaba la de Python. Los valores esperados salen de ejecutar sus archivos
+# en Node, no de leer la especificación.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestNumberIsFinite:
+    def test_no_coacciona_como_si_lo_hace_number(self):
+        from wbj.tito.jsmath import js_is_finite, js_number
+
+        assert js_number("500") == 500        # `Number("500")` sí lee el texto
+        assert js_is_finite("500") is False   # `Number.isFinite("500")` no
+
+    def test_un_booleano_tampoco_es_un_numero(self):
+        from wbj.tito.jsmath import js_is_finite
+
+        assert js_is_finite(True) is False
+        assert js_is_finite(False) is False
+
+    def test_los_numeros_de_verdad_si(self):
+        from wbj.tito.jsmath import js_is_finite
+
+        assert js_is_finite(0) and js_is_finite(-3.5)
+        assert not js_is_finite(float("nan"))
+        assert not js_is_finite(float("inf"))
+
+
+class TestMathMaxYMin:
+    def test_un_solo_nan_se_lleva_el_resultado(self):
+        from wbj.tito.jsmath import js_max, js_min
+
+        assert math.isnan(js_min(1, float("nan")))
+        assert math.isnan(js_max(1, float("nan")))
+        # El de Python lo esconde: `min(1.0, nan)` devuelve 1.0.
+        assert min(1.0, float("nan")) == 1.0
+
+    def test_coacciona_los_argumentos(self):
+        from wbj.tito.jsmath import js_max
+
+        from wbj.tito.jsmath import UNDEFINED
+
+        assert js_max("5", 1) == 5
+        assert js_max(None, 1) == 1                  # `Math.max(null, 1)` es 1
+        assert math.isnan(js_max(UNDEFINED, 1))      # …pero con undefined es NaN
+
+    def test_sin_argumentos_son_los_infinitos(self):
+        from wbj.tito.jsmath import js_max, js_min
+
+        assert js_max() == -math.inf
+        assert js_min() == math.inf
+
+
+class TestToFixed:
+    def test_es_una_llamada_a_metodo_y_lanza(self):
+        from wbj.tito.jsmath import js_to_fixed
+
+        # `null.toFixed(2)` y `"500".toFixed(0)` son TypeError en su archivo.
+        with pytest.raises(TypeError):
+            js_to_fixed(None, 2)
+        with pytest.raises(TypeError):
+            js_to_fixed("500", 0)
+        with pytest.raises(TypeError):
+            js_to_fixed(True, 0)
+
+    def test_el_empate_va_hacia_arriba_no_al_par(self):
+        from wbj.tito.jsmath import js_to_fixed
+
+        assert js_to_fixed(2.5, 0) == "3"      # `f"{2.5:.0f}"` da "2"
+        assert js_to_fixed(0.5, 0) == "1"
+
+    def test_por_encima_de_1e21_sale_en_exponencial(self):
+        from wbj.tito.jsmath import js_to_fixed
+
+        assert js_to_fixed(-1e308, 2) == "-1e+308"
+        assert js_to_fixed(1e21, 2) == "1e+21"
+
+    def test_el_cero_negativo_no_lleva_signo(self):
+        from wbj.tito.jsmath import js_to_fixed
+
+        assert js_to_fixed(-0.0, 2) == "0.00"
+
+    def test_los_no_finitos_siguen_a_string(self):
+        from wbj.tito.jsmath import js_to_fixed
+
+        assert js_to_fixed(float("nan"), 2) == "NaN"
+        assert js_to_fixed(float("inf"), 2) == "Infinity"
+
+
+class TestVeracidad:
+    def test_el_array_y_el_objeto_vacios_son_CIERTOS(self):
+        from wbj.tito.jsmath import js_truthy
+
+        assert js_truthy([]) is True           # en Python son falsos
+        assert js_truthy({}) is True
+        assert bool([]) is False
+
+    def test_los_falsy_de_js_son_exactamente_siete(self):
+        from wbj.tito.jsmath import UNDEFINED, js_truthy
+
+        for v in (False, 0, -0.0, "", None, UNDEFINED, float("nan")):
+            assert js_truthy(v) is False, v
+        for v in ("0", "false", [], {}, 0.1, -1):
+            assert js_truthy(v) is True, v
+
+
+class TestClaveDeMap:
+    def test_un_texto_y_un_numero_son_claves_DISTINTAS(self):
+        from wbj.tito.jsmath import js_clave
+
+        assert js_clave("500") != js_clave(500)
+        assert js_clave(True) != js_clave(1)
+
+    def test_todos_los_nan_son_la_misma_clave(self):
+        from wbj.tito.jsmath import js_clave
+
+        assert js_clave(float("nan")) == js_clave(float("nan"))
+
+    def test_los_ceros_con_signo_son_la_misma(self):
+        from wbj.tito.jsmath import js_clave
+
+        assert js_clave(-0.0) == js_clave(0.0)
+
+    def test_dos_objetos_iguales_son_claves_distintas(self):
+        from wbj.tito.jsmath import js_clave
+
+        assert js_clave([1, 2]) != js_clave([1, 2])   # identidad, como el Map
+
+
+class TestUndefined:
+    def test_no_es_null_donde_importa(self):
+        from wbj.tito.jsmath import UNDEFINED, js_number, js_string
+
+        assert js_number(None) == 0            # `Number(null) === 0`
+        assert math.isnan(js_number(UNDEFINED))  # `Number(undefined)` es NaN
+        assert js_string(None) == "null"
+        assert js_string(UNDEFINED) == "undefined"
+
+    def test_pero_si_lo_es_en_todo_lo_demas(self):
+        from wbj.tito.jsmath import UNDEFINED, es_nulo, js_truthy
+
+        assert UNDEFINED == None               # noqa: E711 — `undefined == null`
+        assert es_nulo(UNDEFINED) and es_nulo(None)
+        assert not js_truthy(UNDEFINED)
+
+    def test_es_un_singleton(self):
+        from wbj.tito.jsmath import UNDEFINED, _Undefined
+
+        assert _Undefined() is UNDEFINED
+
+
+class TestRelacionalYSlice:
+    def test_dos_textos_se_comparan_como_textos(self):
+        from wbj.tito.jsmath import js_le
+
+        assert js_le("2026-02-03", "2026-09-18") is True
+        assert js_le("2026-09-18", "2026-02-03") is False
+
+    def test_con_un_numero_de_por_medio_todo_va_a_numero(self):
+        from wbj.tito.jsmath import js_le
+
+        # `"2026-02-03"` a número es NaN, y con NaN la comparación es falsa.
+        assert js_le("2026-02-03", 20260918) is False
+
+    def test_slice_es_un_metodo_y_lanza(self):
+        from wbj.tito.jsmath import UNDEFINED, js_slice
+
+        assert js_slice("2026-02-02T15:30:00Z", 0, 10) == "2026-02-02"
+        for malo in (None, UNDEFINED, 20260918, []):
+            with pytest.raises(TypeError):
+                js_slice(malo, 0, 10)
+
+
+class TestLogYSqrt:
+    def test_fuera_del_dominio_dan_nan_no_una_excepcion(self):
+        from wbj.tito.jsmath import js_log, js_log10, js_sqrt
+
+        assert math.isnan(js_log(-1)) and math.isnan(js_log10(-1))
+        assert math.isnan(js_sqrt(-2))
+        assert js_log(0) == -math.inf and js_log10(0) == -math.inf
+
+
+class TestLocaleString:
+    def test_formatea_la_representacion_mas_corta_no_la_binaria(self):
+        from wbj.tito.jsmath import js_locale_string
+
+        # `(1e308).toLocaleString("en-US")` es un 1 y 308 ceros agrupados.
+        s = js_locale_string(1e308)
+        assert s.startswith("100,000,000")
+        assert set(s) <= set("0,1")
+        assert s.replace(",", "") == "1" + "0" * 308
+
+    def test_hasta_tres_decimales_sin_rellenar(self):
+        from wbj.tito.jsmath import js_locale_string
+
+        assert js_locale_string(1234567.8915) == "1,234,567.892"
+        assert js_locale_string(0.5) == "0.5"
+        assert js_locale_string(40000.0) == "40,000"
+
+
+class TestOrdenDeArray:
+    def test_un_nan_en_el_comparador_vale_iguales_y_no_lanza(self):
+        from wbj.tito.jsmath import js_number, js_orden
+
+        # `sort((a, b) => a.v - b.v)` con un valor ilegible: el par da `NaN`,
+        # que la especificación trata como "iguales". Ni lanza ni pierde
+        # elementos — que es lo que hacía el `key=` de Python, o directamente
+        # reventar al comparar un texto con un número.
+        xs = [{"v": 3}, {"v": "abc"}, {"v": 1}]
+        out = sorted(xs, key=js_orden(lambda a, b: js_number(a["v"]) - js_number(b["v"])))
+        assert len(out) == 3
+        assert sorted(str(x["v"]) for x in out) == ["1", "3", "abc"]
+
+    def test_con_un_comparador_consistente_el_orden_es_exacto(self):
+        from wbj.tito.jsmath import js_number, js_orden
+
+        xs = [{"v": 3}, {"v": 1}, {"v": 2}]
+        out = sorted(xs, key=js_orden(lambda a, b: js_number(b["v"]) - js_number(a["v"])))
+        assert [x["v"] for x in out] == [3, 2, 1]
+
+    def test_los_empates_conservan_el_orden_de_llegada(self):
+        from wbj.tito.jsmath import js_orden
+
+        xs = [{"v": 1, "i": 0}, {"v": 1, "i": 1}, {"v": 1, "i": 2}]
+        out = sorted(xs, key=js_orden(lambda a, b: a["v"] - b["v"]))
+        assert [x["i"] for x in out] == [0, 1, 2]

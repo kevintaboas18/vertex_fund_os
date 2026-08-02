@@ -4014,12 +4014,21 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     now = datetime.now(timezone.utc)
     mem = _tito_memory(tk, trades, chain, bars, now)
 
-    r = sc.run_scorecard(
-        tk, trades, chain or [], bars, now=now, spot=spot, horizons=hz,
-        iv_history=mem["iv_history"],
-        past_flows=mem["past_flows"],
-        calibration=mem["calibration"],
-    )
+    # El motor es un port LITERAL: lanza donde su TypeScript lanza (un
+    # `symbol` que no es texto, un `timestamp` nulo, una fila `null` del tape).
+    # Eso es correcto dentro del motor y es lo que mide `diff_motor.sh`; lo que
+    # no puede pasar es que salga como un 500 sin explicación. El borde de
+    # Vertex lo traduce al mismo sobre `{ok: false, error}` que usan las demás
+    # rutas — filtrar es trabajo del borde, no del motor.
+    try:
+        r = sc.run_scorecard(
+            tk, trades, chain or [], bars, now=now, spot=spot, horizons=hz,
+            iv_history=mem["iv_history"],
+            past_flows=mem["past_flows"],
+            calibration=mem["calibration"],
+        )
+    except Exception as e:                       # noqa: BLE001 — se reporta, no se traga
+        return {"ok": False, "error": f"{type(e).__name__}: {e}", "source": "motor"}
     out = _tito_json(r)
     out["engine"] = "victor/tito"
     out["chain_source"] = "massive"
@@ -4827,10 +4836,15 @@ def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
     except Exception as e:
         return {"ok": False, "error": str(e), "source": "massive"}
 
-    r = sc.run_scorecard(
-        tk, flow.trades, chain or [], bars,
-        now=datetime.now(timezone.utc), spot=spot, horizons=hz,
-    )
+    # Ver la nota del borde en `/api/tito-targets`: el motor es literal y lanza
+    # donde su archivo lanza; aquí se traduce a un error con forma de JSON.
+    try:
+        r = sc.run_scorecard(
+            tk, flow.trades, chain or [], bars,
+            now=datetime.now(timezone.utc), spot=spot, horizons=hz,
+        )
+    except Exception as e:                       # noqa: BLE001 — se reporta, no se traga
+        return {"ok": False, "error": f"{type(e).__name__}: {e}", "source": "motor"}
     out = _tito_json(r)
     out["chain_source"] = "massive"
     out["pages_fetched"] = flow.pages

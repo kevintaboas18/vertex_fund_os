@@ -1,7 +1,15 @@
 Dos bugs en web/lib/prediction.ts de agente-tito-metralleta
 
-Encontrados al portar el motor a Python (Vertex Fund OS). Los dos rompen la
-misma regla que el propio módulo declara en su cabecera:
+Encontrados al portar el motor a Python (Vertex Fund OS).
+
+ESTADO EN EL PORT: los dos se reproducen TAL CUAL. El port es un espejo, no una
+versión mejorada — `engine/scripts/diff_motor2.sh` compara 846 casos contra este
+archivo y exige cero diferencias, así que arreglarlos aquí y no allá rompería la
+comparación. El arreglo entra en el port el día que entre aquí. Mientras tanto
+queda fijado en tests de caracterización (`test_prediction.py`) y en un check de
+`auditar_tito.py`, para que nadie lo "arregle" por accidente sin darse cuenta.
+
+Los dos rompen la misma regla que el propio módulo declara en su cabecera:
 
     "Regla de oro heredada de la Guía GEX: el GEX **confirma, no adivina**. Por
      eso ningún escenario puede salirse del cono de 2σ — la volatilidad manda

@@ -24,7 +24,9 @@ from datetime import datetime
 from functools import cmp_to_key
 from typing import Any, Iterable, Literal, Sequence
 
-from .jsmath import js_add, js_date_parse, js_gt, js_number, js_round
+from .jsmath import (UNDEFINED, es_nulo, js_add, js_clave, js_date_parse,
+                     js_gt, js_max, js_min, js_number, js_round,
+                     js_string, js_truthy)
 from .conditions import condition_of, is_canceled_condition, is_multi_leg_condition
 from .occ import MARKET_TZ, days_to_expiration, parse_occ
 
@@ -239,7 +241,7 @@ def timing_score(ts: str) -> int:
     12:00 es una decisión tomada con el mercado ya asentado.
     """
     minutes = _et_minutes(ts)
-    if minutes is None:
+    if es_nulo(minutes):
         return 3
     if 660 <= minutes <= 780:  # 11:00-13:00 Mediodía
         return 10
@@ -325,7 +327,16 @@ def _nn(v: Any, default: Any = 0) -> Any:
     Lo destapó el corpus malformado de `diff_motor.sh`: `assetPrice`, `iv` y
     `delta` salían 0 donde él conserva el valor.
     """
-    return default if v is None else v
+    return default if es_nulo(v) else v
+
+
+def _prop(obj, nombre: str):
+    """`obj.nombre` de JS: `undefined` si falta, y TypeError sobre `null`."""
+    if obj is None:
+        raise TypeError(f"Cannot read properties of null (reading '{nombre}')")
+    if isinstance(obj, dict):
+        return obj.get(nombre, UNDEFINED)
+    return UNDEFINED          # primitivas: cualquier propiedad es `undefined`
 
 
 def _base_row(raw: dict[str, Any], now: datetime) -> FlowRow:
@@ -338,22 +349,21 @@ def _base_row(raw: dict[str, Any], now: datetime) -> FlowRow:
     """
     if not isinstance(raw, dict):
         raw = {}
-    # `raw.symbol` CRUDO en la fila, como él; el `str(… or "")` solo para
-    # `parse_occ`, que es lo único que necesita texto (`symbol.length` sobre un
-    # número es `undefined` en TS y su `parseOcc` devuelve `null`).
-    symbol = raw.get("symbol")
-    occ = parse_occ(symbol if isinstance(symbol, str) else "")
+    # `parseOcc(raw.symbol)` con el símbolo CRUDO: `parse_occ` ya reproduce lo
+    # que hace su archivo con un símbolo que no es texto (ver su docstring).
+    symbol = raw.get("symbol", UNDEFINED)
+    occ = parse_occ(symbol)
     dte = days_to_expiration(occ.expiration, now) if occ else None
-    side = str(raw.get("side") or "")
+    side = str(raw.get("side", UNDEFINED) or "")
     aggr = aggression_of(side)
     # `?? 0`, no `Number()`: es lo que hace su `baseRow`.
-    premium = _nn(raw.get("premium"))
-    delta = _nn(raw.get("delta"))
-    price = raw.get("price")            # sin default: su `price: raw.price`
-    theta_raw = raw.get("theta")
-    volume = raw.get("volume")          # sin default: su `volume: raw.volume`
-    open_interest = raw.get("open_interest")
-    cond = condition_of(raw.get("trade_condition_id"))
+    premium = _nn(raw.get("premium", UNDEFINED))
+    delta = _nn(raw.get("delta", UNDEFINED))
+    price = raw.get("price", UNDEFINED)            # sin default: su `price: raw.price`
+    theta_raw = raw.get("theta", UNDEFINED)
+    volume = raw.get("volume", UNDEFINED)          # sin default: su `volume: raw.volume`
+    open_interest = raw.get("open_interest", UNDEFINED)
+    cond = condition_of(raw.get("trade_condition_id", UNDEFINED))
 
     flags = FlowFlags(
         big=js_number(premium) >= BIG_PREMIUM,
@@ -362,14 +372,14 @@ def _base_row(raw: dict[str, Any], now: datetime) -> FlowRow:
         above_ask=aggr == "ask",
         below_bid=aggr == "bid",
         mid=aggr == "mid",
-        leap=dte is not None and js_number(dte) >= LEAP_DTE,
-        multileg=is_multi_leg_condition(raw.get("trade_condition_id")),
+        leap=not es_nulo(dte) and js_number(dte) >= LEAP_DTE,
+        multileg=is_multi_leg_condition(raw.get("trade_condition_id", UNDEFINED)),
         # `(raw.volume ?? 0) > (raw.open_interest ?? 0) && (raw.open_interest ?? 0) > 0`
         exceeded_oi=(js_number(_nn(volume)) > js_number(_nn(open_interest))
                      and js_number(_nn(open_interest)) > 0),
     )
 
-    if dte is None:
+    if es_nulo(dte):
         status = "desconocido"
     elif js_number(dte) < 0:
         status = "expirado"
@@ -379,7 +389,7 @@ def _base_row(raw: dict[str, Any], now: datetime) -> FlowRow:
         status = "vigente"
 
     return FlowRow(
-        id=raw.get("id"),
+        id=raw.get("id", UNDEFINED),
         symbol=symbol,
         underlying=occ.underlying if occ else symbol,
         type=occ.type if occ else "unknown",
@@ -387,28 +397,28 @@ def _base_row(raw: dict[str, Any], now: datetime) -> FlowRow:
         expiration=occ.expiration if occ else None,
         dte=dte,
         price=price,
-        size=raw.get("size"),
+        size=raw.get("size", UNDEFINED),
         side=side,
         aggression=aggr,
-        asset_price=_nn(raw.get("asset_price")),
-        bid=raw.get("bid_price"),
-        ask=raw.get("ask_price"),
+        asset_price=_nn(raw.get("asset_price", UNDEFINED)),
+        bid=raw.get("bid_price", UNDEFINED),
+        ask=raw.get("ask_price", UNDEFINED),
         premium=premium,
         delta=delta,
-        gamma=_nn(raw.get("gamma")),
+        gamma=_nn(raw.get("gamma", UNDEFINED)),
         theta=_nn(theta_raw),
-        vega=_nn(raw.get("vega")),
+        vega=_nn(raw.get("vega", UNDEFINED)),
         # `raw.theta != null && raw.price > 0 ? Math.abs(raw.theta)/raw.price*100 : null`
         theta_pct_daily=(
             abs(js_number(theta_raw)) / js_number(price) * 100
-            if theta_raw is not None and js_gt(price) else None
+            if not es_nulo(theta_raw) and js_gt(price) else None
         ),
-        iv=raw.get("implied_volatility"),      # sin default, como él
+        iv=raw.get("implied_volatility", UNDEFINED),      # sin default, como él
         open_interest=open_interest,
         volume=volume,
-        score=_num(raw.get("score")),
-        sentiment=raw.get("sentiment"),        # crudo, como su `raw.sentiment`
-        timestamp=str(raw.get("timestamp") or ""),
+        score=_num(raw.get("score", UNDEFINED)),
+        sentiment=raw.get("sentiment", UNDEFINED),        # crudo, como su `raw.sentiment`
+        timestamp=str(raw.get("timestamp", UNDEFINED) or ""),
         condition_code=cond.code if cond else None,
         condition_name=cond.name if cond else None,
         flags=flags,
@@ -452,22 +462,30 @@ def _mark_simultaneous(rows: Sequence[FlowRow]) -> None:
     """
     groups: dict[str, list[FlowRow]] = {}
     for r in rows:
-        groups.setdefault(f"{r.underlying}|{r.timestamp}", []).append(r)
+        # `${r.underlying}|${r.timestamp}` es una plantilla: `String()`, no `str()`.
+        groups.setdefault(f"{js_string(r.underlying)}|{js_string(r.timestamp)}",
+                          []).append(r)
     for group in groups.values():
-        if len({r.symbol for r in group}) >= 2:
+        # `new Set(group.map(r => r.symbol))` acepta cualquier valor como
+        # elemento; el `set` de Python lanza con un símbolo que sea lista o
+        # dict. `js_clave` da la misma identidad que usa un `Set` de JS.
+        if len({js_clave(r.symbol) for r in group}) >= 2:
             for r in group:
                 r.flags.simultaneous = True
 
 
 def _score_rows(rows: Sequence[FlowRow]) -> None:
     """Aplica el sistema de puntuación del sub-agente (volumen, momento, repetición)."""
-    per_contract: dict[str, int] = {}
+    # `new Map()` con el símbolo CRUDO como clave: acepta listas y objetos,
+    # que en un `dict` de Python son inhashables (ver `jsmath.js_clave`).
+    per_contract: dict = {}
     for r in rows:
-        per_contract[r.symbol] = per_contract.get(r.symbol, 0) + 1
+        k = js_clave(r.symbol)
+        per_contract[k] = per_contract.get(k, 0) + 1
     for r in rows:
         volume = volume_score(r.size, r.premium)
         timing = timing_score(r.timestamp)
-        repetition = repetition_score(per_contract.get(r.symbol, 1))
+        repetition = repetition_score(per_contract.get(js_clave(r.symbol), 1))
         total = volume + timing + repetition
         r.scores = TradeScores(volume=volume, timing=timing, repetition=repetition, total=total)
         r.unusual = total >= UNUSUAL_TOTAL
@@ -492,12 +510,12 @@ def classify_flow(raw: Iterable[dict[str, Any]], now: datetime) -> ClassifiedFlo
     # `t.trade_condition_id` sobre algo que no es un objeto es `undefined` en
     # TS, no un `AttributeError`. Un lote con un `null` o un string entre los
     # trades tumbaba `classify_flow` entero; él lo procesa como un trade vacío.
-    rows = [
-        _base_row(t, now)
-        for t in raw
-        if not is_canceled_condition(
-            t.get("trade_condition_id") if isinstance(t, dict) else None)
-    ]
+    # `raw.filter(t => !isCanceledCondition(t.trade_condition_id))`, literal:
+    # leer una propiedad de un `null` LANZA en su archivo, y un lote a medio
+    # serializar tumba la petición entera. El filtro de entrada vive en
+    # `borde.py`, no aquí.
+    rows = [_base_row(t, now) for t in raw
+            if not is_canceled_condition(_prop(t, "trade_condition_id"))]
     _mark_repeated(rows)
     _mark_simultaneous(rows)
     _score_rows(rows)
@@ -596,15 +614,19 @@ def detect_clusters(
                 buckets[_k] = js_add(buckets[_k], p)
 
         premium = js_add(ask, bid)
-        if js_number(premium) < min_premium:
+        # `if (premium >= minPremium)`, NEGADO — que no es lo mismo que `<`
+        # cuando hay un `NaN` de por medio: `NaN >= x` y `NaN < x` son AMBOS
+        # falsos. El port usaba `<` y creaba un racimo con premium ilegible
+        # justo donde su archivo no crea ninguno.
+        if not (js_number(premium) >= min_premium):
             return
         # A partir de aquí todo es aritmética, así que se trabaja con los
         # números — que es lo que hace su código al dividir y comparar.
         ask_n, bid_n = js_number(ask), js_number(bid)
         prem_n = js_number(premium)
-        unid = (max(ask_n, bid_n) / prem_n) if prem_n > 0 else 0.0
-        norm_count = min(1.0, len(group) / 10)
-        norm_prem = min(1.0, prem_n / 2_000_000)
+        unid = (js_max(ask_n, bid_n) / prem_n) if prem_n > 0 else 0.0
+        norm_count = js_min(1, len(group) / 10)
+        norm_prem = js_min(1, prem_n / 2_000_000)
         score = js_round(10 * (0.4 * norm_count + 0.3 * norm_prem + 0.3 * unid))
         bullish = js_add(buckets["call_ask"], buckets["put_bid"])
         bearish = js_add(buckets["put_ask"], buckets["call_bid"])
@@ -660,18 +682,21 @@ def detect_clusters(
 
 def spread_pct(bid: float, ask: float) -> float | None:
     """Spread relativo de un trade: ``(ask − bid) / mid``, en %. ``None`` sin quote."""
-    bid, ask = js_number(bid), js_number(ask)
-    if not (bid > 0) or not (ask > 0) or ask < bid:
+    # `const mid = (ask + bid) / 2` — el `+` de JS. Con un `ask` que llega como
+    # texto (`"0x1A"`) esto CONCATENA antes de dividir y el mid sale `NaN`, así
+    # que el spread entero es `NaN` y contamina el promedio ponderado. El port
+    # coaccionaba primero y devolvía un spread perfectamente creíble.
+    if not js_gt(bid) or not js_gt(ask) or js_number(ask) < js_number(bid):
         return None
-    mid = (ask + bid) / 2
+    mid = js_number(js_add(ask, bid)) / 2
     if mid <= 0:
         return None
-    return (ask - bid) / mid * 100
+    return (js_number(ask) - js_number(bid)) / mid * 100
 
 
 def spread_score(pct: float | None) -> int:
     """Puntuación por spread (0-10). >10% no puntúa: se separa aparte."""
-    if pct is None:
+    if es_nulo(pct):
         return 0
     if pct < 2:
         return 10
@@ -684,7 +709,7 @@ def spread_score(pct: float | None) -> int:
 
 def is_wide_spread(pct: float | None) -> bool:
     """Un spread > 10% se separa para revisión aparte."""
-    return pct is not None and pct > 10
+    return not es_nulo(pct) and pct > 10
 
 
 def dominance_score(pct_dominant: float) -> int:
@@ -765,46 +790,55 @@ def conviction_score(rows: Sequence[FlowRow]) -> ConvictionScore:
         "near": 0, "mid": 0, "unclear": 0,
     }
 
-    spread_weighted = spread_weight = 0.0
+    # Los acumuladores usan el `+=` de JS sobre el `premium` CRUDO, que llega de
+    # `baseRow` como `raw.premium ?? 0` y puede ser texto. Los que suman premium
+    # a secas (`spreadWeight`, `askPrem`, `bidPrem`, `execWeight`) CONCATENAN
+    # cuando eso pasa; los que multiplican primero (`spreadWeighted`,
+    # `execWeighted`) sí son números. El port coaccionaba todo por adelantado y
+    # puntuaba 4 donde su archivo puntúa 0 o 1. Medido en `diff_motor.sh`.
+    spread_weighted = 0.0
+    spread_weight: Any = 0
     wide_count = 0
     wide_alert: list[FlowRow] = []
-    ask_prem = bid_prem = 0.0
-    exec_weighted = exec_weight = 0.0
+    ask_prem: Any = 0
+    bid_prem: Any = 0
+    exec_weighted = 0.0
+    exec_weight: Any = 0
 
-    # `premium` llega crudo desde `baseRow` (`raw.premium ?? 0`), así que aquí
-    # puede ser texto. Cada uso lo coacciona, igual que su aritmética.
     for r in rows:
-        prem = js_number(r.premium)
         pct = spread_pct(r.bid, r.ask)
-        if pct is not None:
+        if not es_nulo(pct):
             if is_wide_spread(pct):
                 wide_count += 1
-                if prem >= WIDE_SPREAD_ALERT_PREMIUM:
+                if js_number(r.premium) >= WIDE_SPREAD_ALERT_PREMIUM:
                     wide_alert.append(r)
             else:
-                spread_weighted += pct * prem
-                spread_weight += prem
+                spread_weighted += pct * js_number(r.premium)
+                spread_weight = js_add(spread_weight, r.premium)
 
         if r.aggression == "ask":
-            ask_prem += prem
+            ask_prem = js_add(ask_prem, r.premium)
         elif r.aggression == "bid":
-            bid_prem += prem
+            bid_prem = js_add(bid_prem, r.premium)
 
         level = execution_level(r.price, r.bid, r.ask, r.side)
         counts[level] += 1
-        exec_weighted += execution_score(level) * prem
-        exec_weight += prem
+        exec_weighted += execution_score(level) * js_number(r.premium)
+        exec_weight = js_add(exec_weight, r.premium)
 
-    avg_spread_pct = (spread_weighted / spread_weight) if spread_weight > 0 else None
+    avg_spread_pct = ((spread_weighted / js_number(spread_weight))
+                      if js_gt(spread_weight) else None)
     spread_points = spread_score(avg_spread_pct)
 
-    total_dir = ask_prem + bid_prem
-    ask_pct = (ask_prem / total_dir * 100) if total_dir > 0 else 0.0
-    bid_pct = (bid_prem / total_dir * 100) if total_dir > 0 else 0.0
-    dominant_pct = max(ask_pct, bid_pct)
-    dom_points = dominance_score(dominant_pct) if total_dir > 0 else 0
+    total_dir = js_add(ask_prem, bid_prem)
+    td = js_number(total_dir)
+    ask_pct = (js_number(ask_prem) / td * 100) if td > 0 else 0.0
+    bid_pct = (js_number(bid_prem) / td * 100) if td > 0 else 0.0
+    dominant_pct = js_max(ask_pct, bid_pct)
+    dom_points = dominance_score(dominant_pct) if td > 0 else 0
 
-    exec_avg = (exec_weighted / exec_weight) if exec_weight > 0 else 0.0
+    exec_avg = ((exec_weighted / js_number(exec_weight))
+                if js_gt(exec_weight) else 0.0)
 
     return ConvictionScore(
         score=js_round((spread_points + dom_points + exec_avg) / 3),
@@ -869,7 +903,7 @@ def theta_score(pct_daily: float | None) -> int:
 
     Decaimiento bajo = posición para sostener, no lotería.
     """
-    if pct_daily is None:
+    if es_nulo(pct_daily):
         return 0
     pct_daily = js_number(pct_daily)
     if pct_daily < 1:
@@ -900,7 +934,7 @@ def leg_score(multileg: bool) -> int:
 
 def expiry_score(dte: int | None) -> int:
     """Vencimiento (días para expirar)."""
-    if dte is None:
+    if es_nulo(dte):
         return 0
     dte = js_number(dte)
     if dte >= 120:
@@ -1028,10 +1062,15 @@ def aggression_score(rows: Sequence[FlowRow]) -> AggressionScore:
             bid = js_add(bid, r.premium)
         elif r.aggression == "mid":
             mid = js_add(mid, r.premium)
-    denom = js_number(ask) + js_number(bid)
-    ratio = (js_number(ask) / denom) if denom > 0 else 0.0
+    # `const denom = ask + bid` — el `+` de JS OTRA VEZ, no una suma. Con un
+    # premium `"500"` el acumulador ya es la cadena `"0500"`, y `"0500" + 0`
+    # CONCATENA a `"05000"`; la división de después lo lee como 5000 y el ratio
+    # sale 0.1, no 1. El port coaccionaba antes de sumar y puntuaba 10 donde su
+    # archivo puntúa 1. Medido en `diff_motor.sh`.
+    denom = js_add(ask, bid)
+    ratio = (js_number(ask) / js_number(denom)) if js_gt(denom) else 0.0
     return AggressionScore(
-        score=js_round(ratio * 10) if denom > 0 else 0,
+        score=js_round(ratio * 10) if js_gt(denom) else 0,
         ratio=ratio,
         premium_ask=ask,
         premium_bid=bid,

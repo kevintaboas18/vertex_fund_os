@@ -22,7 +22,7 @@ import math
 from dataclasses import dataclass
 from typing import Literal, Sequence
 
-from .jsmath import js_round, js_gt, js_number, js_add
+from .jsmath import js_round, js_gt, js_number, js_add, js_is_finite, js_max, es_nulo
 from .flow import FlowRow
 
 __all__ = [
@@ -135,6 +135,15 @@ def rank_within(series: Sequence[float], current: float) -> float | None:
     return max(0.0, min(100.0, (current - low) / (high - low) * 100))
 
 
+def _prop(obj: object, nombre: str):
+    """`obj.nombre` de JS: `undefined` si no está, y TypeError sobre `null`."""
+    if obj is None:
+        raise TypeError(f"Cannot read properties of None (reading '{nombre}')")
+    if isinstance(obj, dict):
+        return obj.get(nombre)
+    return getattr(obj, nombre, None)
+
+
 # ---------- reporte ----------
 
 
@@ -225,17 +234,18 @@ def iv_context_score(
     """
     iv_history = iv_history or []
 
-    # `js_number` / `js_gt`: en TS estas comparaciones y productos coaccionan
-    # solos y un valor ilegible los hace falsos o `NaN`; en Python lanzan y se
-    # llevan el sub-agente entero. Lo destapó el corpus malformado de
-    # `diff_motor2.sh`. Con datos bien formados no cambia nada.
-    with_iv = [r for r in rows
-               if math.isfinite(js_number(r.iv)) and js_gt(r.iv)]
+    # `rows.filter(r => Number.isFinite(r.iv) && r.iv > 0)`, literal.
+    #
+    # `Number.isFinite` NO coacciona (ver `jsmath.js_is_finite`): una fila con
+    # `iv: "500"` o `iv: true` NO entra, aunque `Number()` sepa leerlas. El port
+    # las metía y una sola de ellas movía la banda de IV del sub-agente entero.
+    with_iv = [r for r in rows if js_is_finite(_prop(r, "iv")) and js_gt(r.iv)]
     if not with_iv:
         return _EMPTY
 
     def iv_pct(r: FlowRow) -> float:
-        return js_number(r.iv) * 100
+        # Tras el filtro `r.iv` ya es un número: aquí no hace falta coaccionar.
+        return r.iv * 100
 
     # IV representativa = ponderada por premium. El dinero grande define el
     # contexto; un promedio simple lo dominarían los cientos de tickets
@@ -244,7 +254,7 @@ def iv_context_score(
     lo, hi = math.inf, -math.inf
     for r in with_iv:
         v = iv_pct(r)
-        w = max(js_number(r.premium), 1.0)   # `Math.max` coacciona
+        w = js_max(r.premium, 1)             # `Math.max`: un premium ilegible → NaN
         w_sum += w
         w_iv += v * w
         plain += v
@@ -261,7 +271,7 @@ def iv_context_score(
         e = by_exp_map.setdefault(r.expiration, {"dte": r.dte, "ivs": [], "premium": 0.0})
         e["ivs"].append(iv_pct(r))
         e["premium"] = js_add(e["premium"], r.premium)
-        if e["dte"] is None:
+        if es_nulo(e["dte"]):
             e["dte"] = r.dte
 
     by_expiration = sorted(
@@ -276,7 +286,7 @@ def iv_context_score(
             )
             for exp, e in by_exp_map.items()
         ),
-        key=lambda e: e.dte if e.dte is not None else 10**9,
+        key=lambda e: e.dte if not es_nulo(e.dte) else 10**9,
     )
 
     # Skew del frente: si el vencimiento más cercano cotiza muy por encima del
@@ -303,11 +313,17 @@ def iv_context_score(
     low = high = reference = None
 
     if len(iv_history) >= MIN_IV_HISTORY_DAYS:
-        series = [
-            h["avg_iv"] for h in iv_history
-            if isinstance(h, dict) and isinstance(h.get("avg_iv"), (int, float))
-            and math.isfinite(h["avg_iv"]) and h["avg_iv"] > 0
-        ]
+        # `ivHistory.map(h => h.avgIv).filter(v => Number.isFinite(v) && v > 0)`.
+        #
+        # `Number.isFinite` NO coacciona: `"50"` no pasa el filtro aunque
+        # `Number("50")` valga 50, y `true` tampoco. Por eso aquí no va
+        # `js_number` sino una prueba de tipo estricta —`bool` excluido, que en
+        # Python es subclase de `int`—. Y `h.avgIv` sobre `null` lanza en JS:
+        # `_prop` reproduce eso en vez de tragárselo, porque una historia de IV
+        # con agujeros es un fallo del store, no un dato pobre.
+        series = [v for v in (_prop(h, "avg_iv") for h in iv_history)
+                  if isinstance(v, (int, float)) and not isinstance(v, bool)
+                  and math.isfinite(v) and v > 0]
         rank_value = rank_within(series, current)
         if rank_value is not None:
             source, days = "iv-history", len(series)

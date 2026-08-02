@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import math
 
-from .jsmath import js_number as _js_number
+from .jsmath import es_nulo, js_number as _js_number
 from typing import Any, Sequence
 
 from .structure import ChainRow, PriceSource
@@ -87,7 +87,7 @@ def _coerce(v: Any, fallback: float) -> float:
     `engine/scripts/upstream-tito-compute.patch`, pero el port reproduce su
     archivo.
     """
-    return fallback if v is None else _js_number(v)
+    return fallback if es_nulo(v) else _js_number(v)
 
 
 def _js_string(v: Any) -> str:
@@ -117,7 +117,7 @@ def _shares(v: Any) -> float:
     un valor ilegible es inventar el multiplicador justo donde no hay evidencia
     de cuál es— y está quitado. Ver `upstream-tito-compute.patch`.
     """
-    return DEFAULT_SHARES_PER_CONTRACT if v is None else _js_number(v)
+    return DEFAULT_SHARES_PER_CONTRACT if es_nulo(v) else _js_number(v)
 
 
 def _obj(v: Any) -> dict:
@@ -150,7 +150,7 @@ def contract_price(raw: dict) -> tuple[float | None, PriceSource]:
         # `Infinity > 0` es `true` en JS. El Open Premium sale `Infinity` y el
         # `_json_safe` del endpoint lo escribe como `null`, igual que su
         # `JSON.stringify`.
-        return v is not None and v > 0
+        return not es_nulo(v) and v > 0
 
     lt = _num(_obj(raw.get("last_trade")).get("price"))
     if usable(lt):
@@ -171,7 +171,7 @@ def open_premium(open_interest: float, price: float | None) -> float | None:
     `None` y `0` son cosas distintas: el primero es "no se pudo calcular", el
     segundo "vale cero". No se colapsan.
     """
-    if price is None:
+    if es_nulo(price):
         return None
     return open_interest * price
 
@@ -240,9 +240,9 @@ def to_row(raw: dict) -> ChainRow:
         # `0` o `False` —basura, pero basura que la fuente mandó— se borraría y
         # quedaría indistinguible de "no vino". El `String()` de JS y no el
         # `str()` de Python: `String(1e9)` es "1000000000", no "1000000000.0".
-        option_ticker="" if details.get("ticker") is None else _js_string(details["ticker"]),
+        option_ticker="" if es_nulo(details.get("ticker")) else _js_string(details["ticker"]),
         contract_type=_normalize_type(details.get("contract_type")),  # type: ignore[arg-type]
-        expiration=("" if details.get("expiration_date") is None
+        expiration=("" if es_nulo(details.get("expiration_date"))
                     else details["expiration_date"]),
         strike=strike,
         open_interest=open_interest,

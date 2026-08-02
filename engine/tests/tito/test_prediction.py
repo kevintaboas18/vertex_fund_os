@@ -128,25 +128,40 @@ class TestTresEscenarios:
         em2 = 100 * math.exp(2 * 0.5 * math.sqrt(10 / 365))
         assert p.bull.target <= em2 + 1e-6
 
-    def test_el_target_base_tampoco_se_sale_del_cono(self):
-        # Regresion: en el TypeScript original el base solo se recortaba CUANDO
-        # habia calibracion (`shiftPct !== 0 ? inCone(...) : rawBase`). Sin ella
-        # el iman salia crudo y se escapaba del cono mientras bear y bull si se
-        # recortaban, rompiendo el orden y la regla de oro del modulo.
+    def test_el_base_solo_se_recorta_al_cono_cuando_hay_calibracion(self):
+        # Caracterizacion de SU comportamiento, no de uno mejorado:
+        # `shiftPct !== 0 ? inCone(...) : rawBase`. Sin calibracion el iman sale
+        # crudo y puede escaparse del cono de 2 sigma que la cabecera de su
+        # modulo declara; bear y bull si se recortan, asi que el orden se rompe.
+        # El arreglo esta escrito en `upstream-tito-prediction.patch` y entra
+        # aqui el dia que lo acepte. Este test existe para que el port NO se
+        # desvie por accidente en ninguno de los dos sentidos.
         for h in (10, 20, 30):
             p = call(
                 horizon_days=h,
                 nodes=[LevelInput(strike=5000, concentration=1.0, side="call", net_gex=9e9)],
             )
             em2 = 100 * math.exp(2 * 0.5 * math.sqrt(h / 365))
-            assert p.base.target <= em2 + 1e-6, h
-            assert p.bear.target < p.base.target < p.bull.target, h
+            assert p.base.target == 5000, h          # crudo, fuera del cono
+            assert p.bull.target <= em2 + 1e-6, h    # el bull si se recorta
+            assert p.base.target > p.bull.target, h  # y por eso el orden cae
 
-    def test_el_base_se_recorta_tambien_hacia_abajo(self):
+        # Con calibracion (`shiftPct != 0`) el `inCone` si corre y el base entra.
+        p = call(
+            horizon_days=20,
+            nodes=[LevelInput(strike=5000, concentration=1.0, side="call", net_gex=9e9)],
+            calibration={"bias_pct": 30.0, "samples": 12},
+        )
+        em2 = 100 * math.exp(2 * 0.5 * math.sqrt(20 / 365))
+        assert p.calibration["applied"] is True
+        assert p.base.target <= em2 + 1e-6
+
+    def test_hacia_abajo_pasa_lo_mismo(self):
         p = call(nodes=[LevelInput(strike=1, concentration=1.0, side="put", net_gex=-9e9)])
         em2_low = 100 * math.exp(-2 * 0.5 * math.sqrt(20 / 365))
-        assert p.base.target >= em2_low - 1e-6
-        assert p.bear.target < p.base.target < p.bull.target
+        assert p.base.target == 1                  # crudo
+        assert p.bear.target >= em2_low - 1e-6     # el bear si se recorta
+        assert p.base.target < p.bear.target
 
     def test_sin_muros_usa_las_bandas_de_una_sigma(self):
         p = call(nodes=[])
@@ -189,11 +204,13 @@ class TestTresEscenarios:
         assert call(horizon_days=10).horizon_days == 10
         assert call(horizon_days=30).horizon_days == 30
 
-    def test_el_orden_aguanta_con_el_iman_lejos_por_debajo_a_plazo_corto(self):
-        # Regresion del bug que traia el TypeScript original: con el iman en 92
-        # y spot 100 a 10 dias, el suelo de 1 sigma cae en ~92.05 -> POR ENCIMA
-        # de la base. `min(lower1, base)` devolvia la base y bear colapsaba con
-        # ella. Ahora baja al suelo de 2 sigma.
+    def test_con_el_iman_lejos_por_debajo_a_plazo_corto_el_bear_colapsa_con_la_base(self):
+        # Caracterizacion de SU comportamiento: con el iman en 92 y spot 100 a
+        # 10 dias, el suelo de 1 sigma cae en ~92.05 -> POR ENCIMA de la base.
+        # `Math.min(em.lower1, baseTarget)` devuelve la base, y bear y base
+        # terminan en el mismo precio. Su propia suite no lo alcanza porque sus
+        # casos usan otra IV y otro horizonte. Arreglo propuesto en
+        # `upstream-tito-prediction.patch`.
         p = call(
             horizon_days=10,
             nodes=[
@@ -202,10 +219,12 @@ class TestTresEscenarios:
             ],
         )
         assert p.base.target == 92
-        assert p.bear.target < p.base.target
-        assert len({p.bear.target, p.base.target, p.bull.target}) == 3
+        assert p.bear.target == 92
+        assert len({p.bear.target, p.base.target, p.bull.target}) == 2
 
     def test_el_orden_aguanta_en_todos_los_horizontes_y_configuraciones(self):
+        # `<=`, no `<`: con su logica el bear puede sentarse EN la base (ver el
+        # test de arriba). Lo que si se sostiene siempre es que no se cruzan.
         configs = [
             [LevelInput(strike=110, concentration=1.0, side="call", net_gex=5e6),
              LevelInput(strike=92, concentration=0.7, side="put", net_gex=-3e6)],
@@ -216,7 +235,7 @@ class TestTresEscenarios:
         for nodes in configs:
             for h in (10, 20, 30, 60, 90, 120):
                 p = call(horizon_days=h, nodes=nodes)
-                assert p.bear.target < p.base.target < p.bull.target, (h, nodes)
+                assert p.bear.target <= p.base.target <= p.bull.target, (h, nodes)
 
     def test_proyecta_a_horizontes_largos_con_el_cono_abriendose_en_raiz_de_t(self):
         # HORIZONS solo ofrece 10/20/30, pero el motor acepta cualquier plazo.

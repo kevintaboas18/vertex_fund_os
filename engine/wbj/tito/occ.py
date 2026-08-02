@@ -18,7 +18,8 @@ from datetime import date, datetime, timedelta
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from .jsmath import MS_POR_DIA, js_date_parse, js_round
+from .jsmath import (MS_POR_DIA, UNDEFINED, js_date_parse, js_number,
+                     js_round, js_truthy)
 
 __all__ = ["OccInfo", "parse_occ", "market_date", "market_date_str", "days_to_expiration"]
 
@@ -41,14 +42,32 @@ class OccInfo:
     strike: float
 
 
-def parse_occ(symbol: str) -> OccInfo | None:
+def parse_occ(symbol) -> OccInfo | None:
     """Descompone un símbolo OCC. Devuelve ``None`` si no encaja con el formato.
 
     Nunca adivina: un símbolo malformado devuelve ``None`` en vez de un parseo
     parcial, porque un strike equivocado contamina todo el scorecard.
+
+    `if (!symbol || symbol.length < 16) return null;` es literal, y con un
+    símbolo que NO es texto se comporta de tres maneras distintas — las tres
+    medidas ejecutando su archivo en Node:
+
+        symbol: []    `[]` es truthy pero `[].length` es 0  → null, sin ruido
+        symbol: 5     `(5).length` es `undefined`, y `undefined < 16` es FALSO,
+        symbol: {}    así que sigue y `symbol.slice` LANZA un TypeError
+
+    O sea que un símbolo numérico tumba la petición en su archivo. El port
+    llamaba con `symbol if isinstance(symbol, str) else ""`, que lo convertía en
+    un `null` silencioso — otra decisión. El filtro de entrada vive en
+    `borde.py`, no aquí.
     """
-    if not symbol or len(symbol) < 16:
+    if not js_truthy(symbol):
         return None
+    largo = len(symbol) if isinstance(symbol, (str, list, tuple)) else UNDEFINED
+    if js_number(largo) < 16:          # `undefined < 16` es falso: sigue y lanza
+        return None
+    if not isinstance(symbol, str):
+        raise TypeError("symbol.slice is not a function")
     strike_raw = symbol[-8:]
     type_raw = symbol[-9:-8]
     date_raw = symbol[-15:-9]

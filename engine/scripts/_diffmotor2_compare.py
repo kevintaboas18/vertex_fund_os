@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _diffmotor2_casos import casos as generar                     # noqa: E402
 
 from wbj.tito.expected_move import LevelInput                      # noqa: E402
+from wbj.tito.jsmath import UNDEFINED                              # noqa: E402
 from wbj.tito.flow import FlowFlags, FlowRow, TradeScores          # noqa: E402
 from wbj.tito.gex import TradeLite, gex_analysis                   # noqa: E402
 from wbj.tito.ivcontext import iv_context_score                    # noqa: E402
@@ -45,8 +46,15 @@ def r6(x):
 
 
 def g(d, k):
-    """`obj.k` de JS: la clave ausente es `undefined`, no un `KeyError`."""
-    return d.get(k) if isinstance(d, dict) else None
+    """`obj.k` de JS: la clave ausente es `undefined` — que NO es `null`.
+
+    La distinción importa de verdad: `Number(undefined)` es `NaN` y
+    `Number(null)` es 0, así que un campo AUSENTE y un campo con `null` toman
+    caminos distintos dentro de su archivo. Ver `jsmath.UNDEFINED`.
+    """
+    if not isinstance(d, dict):
+        return UNDEFINED
+    return d.get(k, UNDEFINED)
 
 
 def _ulp(a, b):
@@ -86,9 +94,60 @@ def protegido(fn):
         return {"ERROR": type(e).__name__}
 
 
+class _Nulo:
+    """El `null` de JS como receptor: leer CUALQUIER propiedad lanza TypeError.
+
+    Sin esto el arnés aplanaba una fila `null` del corpus en un dataclass con
+    todos los campos a `None`, y el port seguía tan tranquilo donde su archivo
+    revienta con *Cannot read properties of null*. La divergencia era del arnés,
+    no del port: el port nunca llegaba a ver el `null`.
+    """
+
+    __slots__ = ()
+
+    def __getattr__(self, k):
+        raise TypeError(f"Cannot read properties of null (reading '{k}')")
+
+
+class _Primitivo:
+    """`"basura"`, `42`, `[]` como receptor: leer una propiedad da `undefined`."""
+
+    __slots__ = ()
+
+    def __getattr__(self, k):
+        return UNDEFINED
+
+
+def _receptor(d):
+    """Traduce una entrada cruda del corpus a lo que JS pondría a la izquierda
+    del punto. Solo los objetos llegan al constructor del dataclass."""
+    if d is None:
+        return _Nulo()
+    if not isinstance(d, dict):
+        return _Primitivo()
+    return None
+
+
+def _lista(v, opcional=False):
+    """La lista tal cual la recibe su archivo.
+
+    `opcional` marca los parámetros con valor por defecto en su desestructurado
+    (`const { trades = [] } = input`). Un valor por defecto de JS entra SOLO con
+    `undefined`, **no con `null`**: `trades: null` se queda en `null` y el
+    `for…of` de después lanza. Los demás parámetros —`nodes` de `predictPro`—
+    entran crudos.
+    """
+    if opcional and v is UNDEFINED:
+        return []
+    return v
+
+
 def _fila(d):
     """Un `FlowRow` del corpus. Los campos ausentes entran como `None`, que es
     lo que ve su TS (`undefined`)."""
+    r = _receptor(d)
+    if r is not None:
+        return r
     fl, sc = g(d, "flags"), g(d, "scores")
     return FlowRow(
         id=g(d, "id"), symbol=g(d, "symbol"), underlying=g(d, "underlying"),
@@ -102,14 +161,16 @@ def _fila(d):
         score=g(d, "score"), sentiment=g(d, "sentiment"),
         timestamp=g(d, "timestamp"), condition_code=g(d, "conditionCode"),
         condition_name=g(d, "conditionName"),
-        flags=FlowFlags(
+        # `row.flags` y `row.scores` son objetos anidados: un `null` ahí lanza
+        # en su archivo al leer `row.flags.big`, así que no se aplanan.
+        flags=_receptor(fl) or FlowFlags(
             big=g(fl, "big") or False, conv_delta=g(fl, "convDelta") or False,
             above_ask=g(fl, "aboveAsk") or False, below_bid=g(fl, "belowBid") or False,
             mid=g(fl, "mid") or False, leap=g(fl, "leap") or False,
             repeated=g(fl, "repeated") or False, multileg=g(fl, "multileg") or False,
             simultaneous=g(fl, "simultaneous") or False,
             exceeded_oi=g(fl, "exceededOI") or False),
-        scores=TradeScores(volume=g(sc, "volume") or 0, timing=g(sc, "timing") or 0,
+        scores=_receptor(sc) or TradeScores(volume=g(sc, "volume") or 0, timing=g(sc, "timing") or 0,
                            repetition=g(sc, "repetition") or 0,
                            total=g(sc, "total") or 0),
         unusual=g(d, "unusual") or False, interesting=g(d, "interesting") or False,
@@ -136,8 +197,17 @@ def compara(bloque, i, mio, suyo_full):
 # ─────────────────────────────── ivcontext ────────────────────────────────
 for i, (c, v) in enumerate(zip(C["ivcontext"], V["ivcontext"])):
     def _caso(c=c):
-        r = iv_context_score([_fila(x) for x in c["rows"]], c["closes"],
-                             c.get("ivHistory"))
+        # `avgIv` → `avg_iv`: el corpus habla el idioma de SU archivo y el port
+        # el de `stores.py`. Traducir aquí es lo correcto; el port leyendo
+        # `avgIv` sería el port hablando camelCase, que no es su convención.
+        # Solo se renombra la clave — el valor viaja intacto, basura incluida,
+        # y una entrada que no es objeto pasa tal cual para que ambos lados
+        # tropiecen con lo mismo.
+        hist = c.get("ivHistory", UNDEFINED)
+        if isinstance(hist, list):
+            hist = [{("avg_iv" if k == "avgIv" else k): w for k, w in h.items()}
+                    if isinstance(h, dict) else h for h in hist]
+        r = iv_context_score([_fila(x) for x in c["rows"]], c["closes"], hist)
         return {
             "score": r.score,
             "iv": [r6(r.iv["current"]), r6(r.iv["simple_avg"]), r6(r.iv["min"]),
@@ -157,16 +227,18 @@ for i, (c, v) in enumerate(zip(C["ivcontext"], V["ivcontext"])):
 for i, (c, v) in enumerate(zip(C["gex"], V["gex"])):
     def _caso(c=c):
         r = gex_analysis(
-            [ChainRow(g(x, "contractType"), g(x, "expiration"), g(x, "strike"),
-                      g(x, "openInterest"), g(x, "volume"), g(x, "notionalValue"))
+            [_receptor(x) or ChainRow(g(x, "contractType"), g(x, "expiration"),
+                                      g(x, "strike"), g(x, "openInterest"),
+                                      g(x, "volume"), g(x, "notionalValue"))
              for x in c["rows"]],
-            c["closes"], c["spot"],
+            c.get("closes", UNDEFINED), c.get("spot", UNDEFINED),
             datetime.fromisoformat(c["now"].replace("Z", "+00:00")),
-            trades=[TradeLite(g(t, "strike"), g(t, "type"), g(t, "premium"),
-                              g(t, "gamma")) for t in (c.get("trades") or [])],
-            conviction_score=c.get("convictionScore"),
-            structure_score=c.get("structureScore"),
-            low_liquidity=c.get("lowLiquidity", False))
+            trades=[_receptor(t) or TradeLite(g(t, "strike"), g(t, "type"),
+                                             g(t, "premium"), g(t, "gamma"))
+                    for t in _lista(c.get("trades", UNDEFINED), opcional=True)],
+            conviction_score=c.get("convictionScore", UNDEFINED),
+            structure_score=c.get("structureScore", UNDEFINED),
+            low_liquidity=c.get("lowLiquidity", UNDEFINED))
         return {
             "spot": r6(r.spot), "iv": r6(r.iv), "regime": r.regime,
             "direction": r.direction, "totalNetGex": r6(r.total_net_gex),
@@ -182,20 +254,26 @@ for i, (c, v) in enumerate(zip(C["gex"], V["gex"])):
 # ──────────────────────────────── prediction ──────────────────────────────
 for i, (c, v) in enumerate(zip(C["prediction"], V["prediction"])):
     def _caso(c=c):
-        sc = c.get("scores")
+        sc = c.get("scores", UNDEFINED)
         r = predict_pro(
-            spot=c.get("spot"), iv=c.get("iv"), horizon_days=c.get("horizonDays"),
-            nodes=[LevelInput(strike=g(x, "strike"),
-                              concentration=g(x, "concentration"),
-                              side=g(x, "side"), net_gex=g(x, "netGex"))
-                   for x in (c.get("nodes") or [])],
-            scores=SubScores(**{k: g(sc, j) for k, j in (
+            spot=c.get("spot", UNDEFINED), iv=c.get("iv", UNDEFINED), horizon_days=c.get("horizonDays", UNDEFINED),
+            nodes=[_receptor(x) or LevelInput(strike=g(x, "strike"),
+                                             concentration=g(x, "concentration"),
+                                             side=g(x, "side"), net_gex=g(x, "netGex"))
+                   for x in _lista(c.get("nodes", UNDEFINED))],
+            scores=_receptor(sc) or SubScores(**{k: g(sc, j) for k, j in (
                 ("aggression", "aggression"), ("conviction", "conviction"),
                 ("unusuality", "unusuality"), ("structure", "structure"),
                 ("iv_context", "ivContext"), ("validation", "validation"))}),
-            regime=c.get("regime"), callvpct=c.get("callPct"),
-            hit_rate=c.get("hitRate"), low_liquidity=c.get("lowLiquidity"),
-            calibration=c.get("calibration"))
+            regime=c.get("regime", UNDEFINED), callvpct=c.get("callPct", UNDEFINED),
+            hit_rate=c.get("hitRate", UNDEFINED), low_liquidity=c.get("lowLiquidity", UNDEFINED),
+            # `biasPct` → `bias_pct`, como el `avgIv` de arriba: el corpus habla
+            # camelCase porque viene de su archivo, y `stores.calibration_for`
+            # —el único productor real de este dict— escribe snake_case.
+            calibration=({("bias_pct" if k == "biasPct" else k): v
+                          for k, v in c["calibration"].items()}
+                         if isinstance(c.get("calibration", UNDEFINED), dict)
+                         else c.get("calibration", UNDEFINED)))
         s = lambda x: [x.kind, r6(x.target), r6(x.change_pct), r6(x.probability),
                        x.driver]
         return {
@@ -214,12 +292,14 @@ for i, (c, v) in enumerate(zip(C["prediction"], V["prediction"])):
 # ─────────────────────────────────── risk ─────────────────────────────────
 for i, (c, v) in enumerate(zip(C["risk"], V["risk"])):
     def _caso(c=c):
-        p = c.get("profile")
+        p = c.get("profile", UNDEFINED)
+        # Sin `_receptor`: su `sizeFlow` lee el perfil con encadenamiento
+        # opcional (`safe(profile?.accountSize)`), así que un `null` NO lanza.
         perfil = RiskProfile(account_size=g(p, "accountSize"),
                              tolerance_pct=g(p, "tolerancePct"))
         fila = _fila(c["row"])
-        r = size_flow(fila, perfil, c.get("horizonDays"),
-                      low_liquidity=bool(g(c.get("ctx"), "lowLiquidity")))
+        r = size_flow(fila, perfil, c.get("horizonDays", UNDEFINED),
+                      low_liquidity=g(c.get("ctx", UNDEFINED), "lowLiquidity"))
         b = budgets_of(perfil)
         return {
             "maxContracts": r6(r.max_contracts), "binding": r.binding,
@@ -260,6 +340,14 @@ if campos:
         ej = next(f for f in fallos if f"{f[0].split('#')[0]}{f[1]}" == k)
         print(f"      {k:<38} {c:>4}   ej {ej[0]}:"
               f" víctor={str(ej[2])[:40]} port={str(ej[3])[:40]}")
+if os.environ.get("MOTOR2_LISTA"):
+    # `MOTOR2_LISTA=prediction` (o `=1` para todos): vuelca caso por caso, que
+    # es lo único que sirve para cerrar divergencias una a una.
+    filtro = os.environ["MOTOR2_LISTA"]
+    print("\n  · DETALLE")
+    for b, ruta, s, m in fallos:
+        if filtro in ("1", b.split("#")[0]):
+            print(f"      {b}{ruta:<24} víctor={str(s)[:70]!r} port={str(m)[:70]!r}")
 if _DONDE:
     print("\n  · DÓNDE LANZA EL PORT (MOTOR2_DEBUG)")
     for k, c in _DONDE.most_common(12):

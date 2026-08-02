@@ -36,14 +36,78 @@ más ALTO en el port, o sea niveles más fuertes de lo que él calcula. Ver
 
 from __future__ import annotations
 
+import decimal
 import math
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 __all__ = ["js_round", "js_number", "js_gt", "js_add", "js_string",
+           "js_is_finite", "js_max", "js_min", "js_to_fixed",
+           "js_log", "js_log10", "js_sqrt", "js_clave", "js_orden", "js_abs", "js_floor",
+           "js_truthy", "js_le", "js_slice", "UNDEFINED", "es_nulo",
            "js_date_parse", "js_time", "js_days_since", "js_locale_string",
            "MS_POR_DIA"]
+
+class _Undefined:
+    """El `undefined` de JS, que Python no tiene.
+
+    Python tiene un solo hueco (`None`) donde JS tiene dos, y **no se comportan
+    igual en aritmética**:
+
+        Number(null)       === 0        Number(undefined)      es NaN
+        String(null)       === "null"   String(undefined)      === "undefined"
+        Math.max(null, 1)  === 1        Math.max(undefined, 1) es NaN
+
+    Un campo AUSENTE en el JSON es `undefined`; un campo presente con valor
+    `null` es `null`. El port los fundía en `None`, y por eso un `openInterest`
+    que no venía se leía como 0 —fila descartada, en silencio— donde su archivo
+    la deja entrar y propaga un `NaN` bien visible por todo el GEX.
+
+    Todo lo DEMÁS sí coincide: `undefined == null` es cierto en JS, los dos son
+    falsy y los dos disparan `??`. Por eso este centinela se compara igual a
+    `None` y es falso — el único sitio que tiene que distinguirlos es `es_nulo`,
+    que acepta los dos, y las tres funciones de coacción de aquí abajo.
+
+    Solo lo produce el arnés diferencial al traducir un campo ausente del
+    corpus. La ruta de producción nunca lo crea: ahí `None` sigue siendo `None`.
+    """
+
+    __slots__ = ()
+    _inst = None
+
+    def __new__(cls):
+        if cls._inst is None:
+            cls._inst = super().__new__(cls)
+        return cls._inst
+
+    def __repr__(self):
+        return "undefined"
+
+    def __bool__(self):
+        return False
+
+    def __eq__(self, otro):
+        return otro is self or otro is None     # `undefined == null` es cierto
+
+    def __ne__(self, otro):
+        return not self.__eq__(otro)
+
+    def __hash__(self):
+        return hash(None)
+
+
+UNDEFINED = _Undefined()
+
+
+def es_nulo(v: Any) -> bool:
+    """`v == null` de JS: cierto para `null` Y para `undefined`.
+
+    Es la traducción exacta de sus `x == null`, `x != null` y `x ?? y`. Un
+    `is None` pelado se dejaba fuera el `undefined`.
+    """
+    return v is None or v is UNDEFINED
+
 
 #: `const DAY = 86_400_000` de su `levels.ts`.
 MS_POR_DIA = 86_400_000
@@ -164,7 +228,16 @@ def js_locale_string(x: float) -> str:
         return "NaN"
     if math.isinf(x):
         return "∞" if x > 0 else "-∞"
-    s = f"{x:,.3f}".rstrip("0").rstrip(".")
+    # Se formatea la representación decimal MÁS CORTA que redondea al mismo
+    # `float` (lo que hace `Number::toString`), no el valor binario exacto:
+    # `(1e308).toLocaleString()` es un 1 seguido de 308 ceros, y `f"{x:,.3f}"`
+    # escupe los 309 dígitos de la expansión binaria. Medido contra Node.
+    d = decimal.Decimal(repr(float(x)))
+    if -d.as_tuple().exponent > 3:
+        d = d.quantize(decimal.Decimal(1).scaleb(-3), rounding=decimal.ROUND_HALF_UP)
+    s = f"{d:,f}"
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
     return s or "0"
 
 
@@ -207,6 +280,8 @@ def js_number(v: Any) -> float:
         "infinity"  float() → inf      ·  Number() → NaN   (JS distingue el case)
         "inf"       float() → inf      ·  Number() → NaN
     """
+    if v is UNDEFINED:
+        return math.nan                # `Number(undefined)` es NaN
     if v is None:
         return 0.0                     # `Number(null) === 0`
     if isinstance(v, bool):
@@ -243,6 +318,210 @@ def js_number(v: Any) -> float:
     return math.nan                    # `Number({})` es NaN
 
 
+def js_is_finite(v: Any) -> bool:
+    """`Number.isFinite(v)` — que NO es `isFinite(v)` ni `js_number` + `isfinite`.
+
+    La versión del objeto `Number` **no coacciona**: exige que el valor ya sea
+    un número. Por eso `Number.isFinite("500")` es `false` aunque
+    `Number("500")` valga 500, y `Number.isFinite(true)` también es `false`.
+
+    Esa distinción decide qué filas entran al sub-agente 5: su
+    `rows.filter(r => Number.isFinite(r.iv) && r.iv > 0)` DESCARTA una fila con
+    `iv: "500"`, y el port —que coaccionaba— la metía con una IV de 50.000%,
+    arrastrando la banda entera a "prima muy inflada". Medido en
+    `diff_motor2.sh`.
+
+    `bool` se excluye a mano porque en Python es subclase de `int`.
+    """
+    return (isinstance(v, (int, float)) and not isinstance(v, bool)
+            and math.isfinite(v))
+
+
+def js_max(*vs: Any) -> float:
+    """`Math.max(...)`: coacciona con `ToNumber` y un solo `NaN` gana.
+
+    `Math.max(undefined, 1)` es `NaN`, no 1 — el `max()` de Python con un
+    `None` lanza, y con un 0 devuelve 1. Donde el motor pondera por premium
+    (`Math.max(r.premium, 1)`), un premium ilegible envenena el promedio entero
+    en su archivo y el port lo salvaba con un 1.
+    """
+    ns = [js_number(v) for v in vs]
+    if not ns:
+        return -math.inf                       # `Math.max()` es -Infinity
+    return math.nan if any(n != n for n in ns) else max(ns)
+
+
+def js_min(*vs: Any) -> float:
+    """`Math.min(...)`, con la misma regla del `NaN` que `js_max`."""
+    ns = [js_number(v) for v in vs]
+    if not ns:
+        return math.inf                        # `Math.min()` es Infinity
+    return math.nan if any(n != n for n in ns) else min(ns)
+
+
+def js_le(a: Any, b: Any) -> bool:
+    """`a <= b` con las reglas relacionales de ECMA-262.
+
+    La regla no es "coacciona siempre": si **los dos** operandos son strings, la
+    comparación es lexicográfica por unidades UTF-16; en cualquier otro caso los
+    dos van a número y un `NaN` hace falsa la comparación.
+
+    Donde su `validation` recorta las barras con
+    `forward.filter(b => b.time <= flow.expiration)` y el `expiration` llega
+    como el NÚMERO 20260918, la comparación deja de ser textual: `"2026-02-03"`
+    pasa a `NaN` y NINGUNA barra sobrevive. El port comparaba textos y resolvía
+    el flow. Medido en `diff_motor.sh`.
+    """
+    if isinstance(a, str) and isinstance(b, str):
+        return a <= b
+    return js_number(a) <= js_number(b)
+
+
+def js_slice(s: Any, i: int, j: Any = None) -> str:
+    """`s.slice(i, j)` — llamada a MÉTODO: sobre algo que no sea texto, lanza.
+
+    `null.slice(0, 10)` y `(20260918).slice(0, 10)` son los dos `TypeError` en
+    su archivo, y ahí se acaba la petición. El port hacía `String(x)[:10]`, que
+    inventa un día a partir de un timestamp ilegible.
+    """
+    if s is None or s is UNDEFINED:
+        raise TypeError("Cannot read properties of null (reading 'slice')")
+    if not isinstance(s, str):
+        raise TypeError("s.slice is not a function")
+    return s[i:j] if j is not None else s[i:]
+
+
+def js_truthy(v: Any) -> bool:
+    """La veracidad de JS, que no es la de Python en los dos casos que importan.
+
+    Falsy en JS son exactamente: `false`, `0`, `-0`, `""`, `null`, `undefined` y
+    `NaN`. **Un array vacío y un objeto vacío son VERDADEROS** — en Python son
+    falsos, y esa es toda la diferencia.
+
+    Donde su archivo escribe `if (lowLiquidity)` con un `lowLiquidity: []` que
+    llega del cliente, él bloquea el análisis y el port lo dejaba pasar con una
+    confianza del 89%. Medido en `diff_motor2.sh`.
+    """
+    if v is None or v is UNDEFINED or v is False:
+        return False
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return not (v == 0 or v != v)
+    if isinstance(v, str):
+        return v != ""
+    return True                       # objetos y arrays, vacíos incluidos
+
+
+def js_abs(x: Any) -> float:
+    """`Math.abs(x)`: coacciona primero, así que un `null` da 0 y un `"abc"` NaN.
+
+    El `abs()` de Python lanza sobre cualquiera de los dos.
+    """
+    return abs(js_number(x))
+
+
+def js_floor(x: Any) -> float:
+    """`Math.floor(x)`: coacciona, y los no finitos pasan tal cual.
+
+    `math.floor(inf)` es un `OverflowError` que se lleva el sizing entero
+    cuando `presupuesto / costo` desborda con una cuenta de 1e308.
+    """
+    v = js_number(x)
+    return v if not math.isfinite(v) else float(math.floor(v))
+
+
+def js_log(x: Any) -> float:
+    """`Math.log(x)`: `NaN` fuera del dominio y `-Infinity` en el cero.
+
+    `math.log` de Python lanza `ValueError` en los dos casos, y ahí se lleva por
+    delante el sub-agente entero en vez de propagar un `NaN` visible.
+    """
+    v = js_number(x)
+    if v != v or v < 0:
+        return math.nan
+    if v == 0:
+        return -math.inf
+    return math.log(v)
+
+
+def js_log10(x: Any) -> float:
+    """`Math.log10(x)`: `NaN` fuera del dominio y `-Infinity` en el cero."""
+    v = js_number(x)
+    if v != v or v < 0:
+        return math.nan
+    if v == 0:
+        return -math.inf
+    return math.log10(v)
+
+
+def js_sqrt(x: Any) -> float:
+    """`Math.sqrt(x)`: `NaN` para los negativos, donde `math.sqrt` lanza."""
+    v = js_number(x)
+    return math.nan if (v != v or v < 0) else math.sqrt(v)
+
+
+def js_clave(v: Any):
+    """Clave de un `Map` de JS (SameValueZero), para usar un `dict` de Python.
+
+    Un `Map` acepta CUALQUIER cosa como clave y no coacciona: `"500"` y `500`
+    son dos entradas distintas, y dos objetos con el mismo contenido también.
+    Un `dict` de Python no puede indexarse con una lista, y además funde
+    `True` con `1` porque `bool` es subclase de `int`.
+
+    Se traduce así:
+
+    * primitivas → `(etiqueta_de_tipo, valor)`, que separa `"500"` de `500` y
+      `true` de `1`;
+    * `NaN` → una clave única, porque SameValueZero considera iguales todos los
+      `NaN` (a diferencia de `===`);
+    * objetos y arrays → su identidad (`id`), que es exactamente lo que compara
+      un `Map`.
+
+    Lo destapó `diff_motor2.sh`: su `byStrike` es un `Map` con el strike CRUDO,
+    así que una cadena con `strike: "500"` y otra con `strike: 500` producen dos
+    nodos —y el port, que coaccionaba antes de indexar, los fundía en uno y
+    devolvía un `n` menor.
+    """
+    if v is UNDEFINED:
+        return ("undefined", None)
+    if v is None:
+        return ("null", None)
+    if isinstance(v, bool):
+        return ("bool", v)
+    if isinstance(v, (int, float)):
+        return ("num", "NaN" if v != v else float(v))
+    if isinstance(v, str):
+        return ("str", v)
+    return ("ref", id(v))
+
+
+def js_orden(cmp):
+    """`Array.prototype.sort(cmp)` para `sorted(..., key=js_orden(cmp))`.
+
+    Dos detalles del estándar que no se obtienen ordenando por una clave:
+
+    * el comparador devuelve un **número**, y si sale `NaN` (restar dos strikes
+      ilegibles, por ejemplo) se trata como 0, o sea "iguales" — no como un
+      error ni como un orden arbitrario;
+    * el orden es **estable** en V8, igual que el `sorted` de Python, así que
+      los empates conservan el orden de llegada.
+
+    Ordenar por `key=` en vez de por comparador parece equivalente y no lo es:
+    con `NaN` de por medio, `key=` los reordena y el comparador los deja donde
+    estaban. Eso cambia qué nodo es el rey del mapa de GEX.
+    """
+    class _K:
+        __slots__ = ("v",)
+
+        def __init__(self, v, *_):
+            self.v = v
+
+        def __lt__(self, otro):
+            r = js_number(cmp(self.v, otro.v))
+            return r < 0 if r == r else False
+
+    return _K
+
+
 def js_gt(v: Any, umbral: float = 0.0) -> bool:
     """`v > umbral` con las reglas de JS, sin lanzar.
 
@@ -267,6 +546,8 @@ def js_string(v: Any) -> str:
         1e9    → "1000000000" (str() da "1000000000.0")
         [1, 2] → "1,2"       (str() da "[1, 2]")
     """
+    if v is UNDEFINED:
+        return "undefined"
     if v is None:
         return "null"
     if isinstance(v, bool):
@@ -284,6 +565,52 @@ def js_string(v: Any) -> str:
     if isinstance(v, dict):
         return "[object Object]"
     return str(v)
+
+
+def js_to_fixed(x: Any, n: int = 2) -> str:
+    """`x.toFixed(n)` de JS — una LLAMADA A MÉTODO sobre `x`, no `Number(x).toFixed(n)`.
+
+    La distinción es el motivo de que esta función lance. En su código nunca
+    aparece `Number(x).toFixed(...)`: siempre es `baseTarget.toFixed(2)`,
+    `hitRate.toFixed(0)`, `row.thetaPctDaily.toFixed(1)`. Si el valor no es un
+    número, JS no coacciona — revienta:
+
+        null.toFixed(2)     TypeError: Cannot read properties of null
+        "500".toFixed(0)    TypeError: hitRate.toFixed is not a function
+
+    Medido ejecutando SU `prediction.ts` en Node con `spot: null` y con
+    `hitRate: "500"`. El port coaccionaba y devolvía un texto plausible donde su
+    archivo tumba la petición entera; eso no es ser más robusto, es contar otra
+    historia. El filtro de datos vive en `borde.py`, a la entrada, no aquí.
+
+    Ya con un número, tres reglas del estándar que el formato de Python no
+    comparte:
+
+    * **`|x| >= 1e21` sale en notación exponencial.** `(-1e308).toFixed(2)` es
+      `"-1e+308"`, no un número de 309 dígitos.
+    * **El empate se rompe hacia arriba en magnitud**, no al par:
+      `(2.5).toFixed(0)` es `"3"` y `f"{2.5:.0f}"` es `"2"`. Se calcula sobre el
+      valor EXACTO del `float` (por eso `Decimal(v)` y no `Decimal(str(v))`).
+    * **El cero negativo no lleva signo**: `(-0).toFixed(2)` es `"0.00"` y
+      Python escribe `"-0.00"`.
+
+    Los no finitos siguen a `String`: `"NaN"`, `"Infinity"`, `"-Infinity"`.
+    """
+    if x is None:
+        raise TypeError("Cannot read properties of null (reading 'toFixed')")
+    if isinstance(x, bool) or not isinstance(x, (int, float)):
+        raise TypeError("x.toFixed is not a function")
+    v = float(x)
+    if v != v:
+        return "NaN"
+    if math.isinf(v):
+        return "Infinity" if v > 0 else "-Infinity"
+    if abs(v) >= 1e21:
+        return js_string(v)
+    signo = "-" if v < 0 else ""          # `-0 < 0` es falso: sin signo, igual que él
+    q = decimal.Decimal(abs(v)).quantize(decimal.Decimal(1).scaleb(-n),
+                                         rounding=decimal.ROUND_HALF_UP)
+    return signo + f"{q:f}"
 
 
 def js_add(a: Any, b: Any) -> Any:

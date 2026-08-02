@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal, Sequence
 
-from .jsmath import js_add, js_date_parse, js_gt, js_number, js_round, js_string
+from .jsmath import js_add, js_date_parse, js_gt, js_number, js_round, js_string, js_le, js_slice, js_truthy
 
 __all__ = [
     "MOVE_THRESHOLD_PCT",
@@ -176,7 +176,7 @@ def evaluate_flow(
     # `flow.timestamp.slice(0, 10)` — sobre `undefined` esto LANZA también en su
     # archivo, así que no se tapa. Lo que sí se hace es no lanzar por una razón
     # distinta a la suya: `js_string` deja el resto del recorrido con un texto.
-    day = js_string(flow.timestamp)[:10]
+    day = js_slice(flow.timestamp, 0, 10)
     entry = flow.asset_price
     direction = flow_direction(flow.type, flow.aggression)
     if now.tzinfo is None:
@@ -202,9 +202,9 @@ def evaluate_flow(
         return out
 
     forward = [b for b in bars if js_string(b.time) > day]
-    if flow.expiration:
+    if js_truthy(flow.expiration):
         forward = [b for b in forward
-                   if js_string(b.time) <= js_string(flow.expiration)]
+                   if js_le(b.time, flow.expiration)]
     forward = forward[:horizon]
     if not forward:
         return out
