@@ -1,32 +1,38 @@
 # Auditoría del port de `store.ts`
 
-> **NOTA — recorrido de este documento.** Las cinco guardas descritas abajo se
-> revirtieron en una pasada intermedia (instrucción: *"quiero todo exactamente
-> como lo tiene Víctor"*) y se volvieron a poner en la siguiente (*"soluciona
-> esto si hay error o un problema"*). Lo que quedó de ese ida y vuelta es lo
-> valioso: el **test diferencial** (`engine/scripts/diff_store.sh`), que ejecuta
-> su `store.ts` real en Node y ya no pregunta "¿es idéntico?" sino "¿difiere
-> SOLO donde dijimos que difiere?".
+> **NOTA — estado final: el port es LITERAL.** Las guardas descritas abajo
+> estuvieron dentro del módulo durante una pasada y ya no están. La instrucción
+> que mandó es *"hazlo como Víctor lo hace exactamente"*, así que `stores.py` es
+> su `store.ts` y nada más.
 >
-> **Estado actual: 39/47 casos idénticos a su archivo, y las 8 diferencias son
-> exactamente las tres guardas**, cada una declarada en su caso de prueba. El
-> script falla en las dos direcciones: si aparece una divergencia sin declarar,
-> y también si una guarda declarada deja de disparar.
+> Lo que quedó de todo el recorrido es lo valioso: el **test diferencial**
+> (`engine/scripts/diff_store.sh`), que ejecuta su `store.ts` real en Node y ya
+> no pregunta "¿es idéntico?" sino "¿difiere SOLO donde dijimos que difiere?".
 >
-> | # | Guarda | Qué evita |
-> |---|---|---|
-> | G1 | ticker que sanea a nada → `ValueError` | `"!!!"`, `"@@@"` y `""` compartían un `.json` sin dueño |
-> | G2 | dedupe con clave compuesta sin `id` | un tape sin `id` colapsaba el historial entero a UN trade |
-> | G3 | `load_trades` descarta las filas no-objeto | un `null` en disco tumbaba **cada** guardado, para siempre |
+> **Estado actual: 47/47 casos idénticos a su archivo · 0 divergencias
+> declaradas.** El script sigue fallando en las dos direcciones: si aparece una
+> divergencia sin declarar, y también si una declarada deja de disparar.
 >
-> Más el parseo de fechas: un timestamp sin zona se lee como UTC y no en la del
-> servidor, porque ese orden decide qué se cae por el tope de `MAX_PER_TICKER`.
+> Sus tres agujeros siguen siendo reales y siguen documentados, ahora como
+> comportamiento FIJADO (`TestLasTresQueSeQuedanComoEl`) con su coste medido, y
+> propuestos aguas arriba en `engine/scripts/upstream-tito-store.patch`:
 >
-> Las tres están propuestas para el upstream en
-> `engine/scripts/upstream-tito-store.patch` y fijadas por `TestLasTresGuardas`.
-> Lo que sí se conservó del original en esa pasada intermedia, y se queda: la
-> clave del payload es `updatedAt` (camelCase, la suya) y `_date_parse` replica
-> `Date.parse` en todo lo demás.
+> | # | Agujero de `store.ts` | Qué provoca | Dónde lo tapa Vertex |
+> |---|---|---|---|
+> | 1 | ticker que sanea a nada | `"!!!"`, `"@@@"` y `""` comparten un `.json` sin dueño | `borde.ticker_valido`, en la ruta |
+> | 2 | dedupe por `t.id` a secas | un tape sin `id` colapsa el historial a UN trade | `borde.trades_sin_id` lo hace visible (no lo arregla) |
+> | 3 | `loadTrades` no mira el array | un `null` en disco tumba **cada** guardado | `borde.trades_utiles` al leer |
+>
+> Ese borde no es una invención: es el sitio donde su propio pipeline de Next ya
+> las tiene —las rutas normalizan el ticker antes de tocar un store, y en TS
+> `"basura".assetPrice` es `undefined`, así que `/api/validation` tira sola la
+> fila corrupta—. Vertex no es Next, así que se escribe, una sola vez, en
+> `engine/wbj/tito/borde.py`.
+>
+> Más el parseo de fechas: `_date_parse` replica `Date.parse` **entero**,
+> incluida la regla de ES2015+ por la que un timestamp sin zona se lee en la TZ
+> local del servidor y una fecha sola en UTC. Y la clave del payload es
+> `updatedAt` (camelCase, la suya).
 
 Cuatro pasadas, atacando el port en vez de releer el diff. Once hallazgos: nueve
 arreglados, uno compartido con el original que se deja como está, y uno que

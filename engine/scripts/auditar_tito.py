@@ -14,7 +14,7 @@ apúntalo con TITO_ROOT=/ruta/a/agente-tito-metralleta. Sin esa variable se
 salta esa sección y el resto corre igual.
 """
 from __future__ import annotations
-import json, math, os, re, subprocess, sys, tempfile, time
+import ast, json, math, os, re, subprocess, sys, tempfile, time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -172,23 +172,22 @@ _txt = C.to_row({"open_interest":"500","details":{"strike_price":"205","shares_p
 chk(_txt.open_interest == 500 and _txt.strike == 205 and _txt.volume == 81
     and _txt.notional_value == 500*100*205,
     "números en TEXTO siguen contando (regla `??`, no `typeof`)")
-chk(C.to_row({"open_interest":"abc","details":{"strike_price":100}}).notional_value == 0,
-    "GUARDA: la basura no numérica cae al fallback (un NaN envenena la suma)")
+chk(math.isnan(C.to_row({"open_interest":"abc","details":{"strike_price":100}}).notional_value),
+    "LITERAL: la basura no numérica da NaN (`Number(\"abc\") * 100 * 100`)")
 chk(C.to_row({"open_interest":10,"details":{"strike_price":100,"shares_per_contract":0}})
     .notional_value == 0, "shares=0 se respeta (`??` solo cambia null)")
 _coh = C.to_row({"open_interest":60.5,"details":{"strike_price":100}})
 chk(_coh.notional_value == _coh.open_interest*100*100,
     "la fila y sus fórmulas usan el MISMO open interest")
-chk(all(C.to_row({"details":{"expiration_date":e}}).expiration == "2026-09-18"
+chk(all(C.to_row({"details":{"expiration_date":e}}).expiration == e
         for e in ("2026-09-18","2026-09-18T00:00:00","2026-09-18T00:00:00Z")),
-    "GUARDA: el vencimiento queda canónico (es la clave de agrupación)")
+    "LITERAL: el vencimiento entra TAL CUAL (dos formatos = dos vencimientos)")
 # 2ª pasada: el tipo de contrato NO puede depender del case, y una fila mala
 # no puede llevarse la página entera.
-chk(all(C.to_row({"details":{"contract_type":t}}).contract_type == "put"
-        for t in ("put","PUT","Put"," put "))
+chk(C.to_row({"details":{"contract_type":"put"}}).contract_type == "put"
     and all(C.to_row({"details":{"contract_type":t}}).contract_type == "call"
-            for t in ("call","CALL","P","",None)),
-    'GUARDA: un "PUT" sigue siendo put (si no, el GEX cambia de signo)')
+            for t in ("PUT","Put"," put ","call","CALL","P","",None)),
+    'LITERAL: `t === "put"` exacto — un "PUT" se vuelve call')
 _gcad = lambda m: [C.to_row({"details":{"contract_type":ct.upper() if m else ct,
         "expiration_date":"2026-09-18","strike_price":float(s),"shares_per_contract":100},
         "day":{"volume":400},"open_interest":9000 if ct=="put" else 3000})
@@ -196,8 +195,8 @@ _gcad = lambda m: [C.to_row({"details":{"contract_type":ct.upper() if m else ct,
 from wbj.tito.gex import gex_analysis as _gexa
 _now2 = datetime(2026,7,31,tzinfo=timezone.utc)
 _g1, _g2 = _gexa(_gcad(False),[100.0]*60,100.0,_now2), _gexa(_gcad(True),[100.0]*60,100.0,_now2)
-chk(_g1.total_net_gex == _g2.total_net_gex and _g1.regime == _g2.regime,
-    "…y el GEX y el régimen NO cambian con la cadena en MAYÚSCULAS")
+chk(_g1.total_net_gex < 0 < _g2.total_net_gex and _g1.regime != _g2.regime,
+    "…con lo que cuesta medido: el GEX y el régimen SE INVIERTEN en MAYÚSCULAS")
 _raras = 0
 for _c in ({"details":"texto"}, {"details":5}, {"details":[]}, {"open_interest":"NaN"},
            {"last_trade":"x","day":{"close":2}}, None, [], "x"):
@@ -206,10 +205,11 @@ for _c in ({"details":"texto"}, {"details":5}, {"details":[]}, {"open_interest":
 chk(_raras == 0, "ninguna fila malformada lanza (tumbaría la página entera)")
 # 3ª pasada: shares ILEGIBLE no es AUSENTE — caer al 100 fabrica el
 # multiplicador estándar justo donde no hay evidencia de cuál es.
-chk(all(C.to_row({"open_interest":100,"details":{"strike_price":9000,
-        "shares_per_contract":b}}).notional_value == 0
-        for b in ("abc",{},"NaN","inf","","   ",[])),
-    "GUARDA: shares ilegible NO cae al 100 (no se inventa el multiplicador)")
+chk(all(math.isnan(C.to_row({"open_interest":100,"details":{"strike_price":9000,
+        "shares_per_contract":b}}).notional_value) for b in ("abc",{},"NaN","inf"))
+    and all(C.to_row({"open_interest":100,"details":{"strike_price":9000,
+        "shares_per_contract":b}}).notional_value == 0 for b in ("","   ",[])),
+    "LITERAL: shares ilegible NO cae al 100 (`?? 100` solo rellena el AUSENTE)")
 chk(C.to_row({"open_interest":100,"details":{"strike_price":9000}}).notional_value
     == 100*100*9000
     and C.to_row({"open_interest":100,"details":{"strike_price":9000,
@@ -221,9 +221,10 @@ chk(C.to_row({"open_interest":True,"details":{"strike_price":100}}).notional_val
     "booleanos: la regla laxa los convierte, la estricta los rechaza")
 # 4ª pasada: un precio infinito no puede acabar en el JSON, y las dos funciones
 # que faltaba cablear.
-chk(C.contract_price({"last_trade":{"price":float("inf")},"day":{"close":2}}) == (2,"day_close")
-    and C.contract_price({"last_trade":{"price":float("inf")}}) == (None,"none"),
-    "GUARDA: un precio infinito cae al siguiente de la cascada")
+chk(C.contract_price({"last_trade":{"price":float("inf")},"day":{"close":2}})
+        == (float("inf"),"last_trade")
+    and C.contract_price({"day":{"close":float("-inf"),"vwap":1.5}}) == (1.5,"day_vwap"),
+    "LITERAL: `Infinity > 0` pasa su guarda y se devuelve como precio")
 _inf = C.to_row({"last_trade":{"price":float("inf")},"open_interest":100,
                  "details":{"strike_price":50}})
 def _no_constante(c): raise ValueError(c)
@@ -232,7 +233,7 @@ try:
                parse_constant=_no_constante)
     _js_ok = True
 except ValueError: _js_ok = False
-chk(_js_ok, "la fila serializa a JSON estricto por sí sola (sin depender del endpoint)")
+chk(not _js_ok, "la fila SÍ puede llevar no-finitos (su aritmética, literal)")
 sys.path.insert(0, str(VERTEX))
 _api_mod = __import__("vertex_api")
 try:
@@ -250,13 +251,13 @@ chk("sort_by_open_interest_desc(rows)" in _msrc and "count_expirations(rows)" in
     "sortByOpenInterestDesc y countExpirations CABLEADAS (como su /api/chain)")
 chk("expiration_count" in _msrc, "ChainResult lleva expirationCount, como su ChainMeta")
 # 5ª pasada: el PRODUCTO también desborda, y la forma de la respuesta.
-chk(all(C.to_row({"open_interest":a,"details":{"strike_price":b,
-        "shares_per_contract":c}}).notional_value == 0
+chk(all(math.isinf(C.to_row({"open_interest":a,"details":{"strike_price":b,
+        "shares_per_contract":c}}).notional_value)
         for a,b,c in ((1e200,1e200,100),(1e308,10,100),(1e160,1e160,1e160))),
-    "GUARDA: un nocional desbordado no llega a la fila (producto inf)")
-chk(C.to_row({"open_interest":1e200,"last_trade":{"price":1e200},
-              "details":{"strike_price":1}}).open_premium is None,
-    "…y un open premium desbordado tampoco")
+    "LITERAL: el producto desbordado llega a la fila como Infinity")
+chk(math.isinf(C.to_row({"open_interest":1e200,"last_trade":{"price":1e200},
+              "details":{"strike_price":1}}).open_premium),
+    "…y el open premium desbordado también")
 _ov = C.to_row({"open_interest":1e200,"last_trade":{"price":1e200},
                 "details":{"strike_price":1e200}})
 try:
@@ -338,12 +339,10 @@ with tempfile.TemporaryDirectory() as _tdb:
     _pol = _insp.getsource(BS.daily_bars_for_panel)
     chk("_ultima_sesion_cerrada" in _pol and "_guarda_si_no_acorta" in _pol,
         "…y la política del panel vive aparte, en `daily_bars_for_panel`")
-    _bs_rechaza = 0
-    for _malo in ("!!!", "@@@", "", "   ", "...", "A" * 200):
-        try: BS._file_for(_malo)
-        except ValueError: _bs_rechaza += 1
     chk(BS._file_for(" demo ").name == "DEMO.json"
-        and BS._file_for("brk/b").name == "BRKB.json" and _bs_rechaza == 6
+        and BS._file_for("brk/b").name == "BRKB.json"
+        and all(BS._file_for(t).name == _ST._file_for(t).name
+                for t in ("!!!", "@@@", "", "   ", "...", "A"*200, "ñ", "brk.b"))
         and "_sanea_ticker" in (TITO_DIR/"bars_store.py").read_text(),
         "el saneado del ticker es el MISMO que el de stores (uno solo, compartido)")
     chk(BS._file_for("../../ETC/X").resolve().parent == (BS.data_dir()/"bars").resolve(),
@@ -351,18 +350,27 @@ with tempfile.TemporaryDirectory() as _tdb:
     BS.save_bars(" demo ", _bb, _HOY)
     chk(BS.load_bars("DEMO").ticker == " DEMO ",
         "el ticker guardado NO se recorta (`ticker.toUpperCase()`, sin trim)")
-    # Los 2 bugs de su barsStore.ts, TAPADOS desde que el módulo se cablea.
-    # Arreglo propuesto: engine/scripts/upstream-tito-barsstore.patch.
+    # Los 2 bugs de su barsStore.ts, PORTADOS TAL CUAL (el `as BarsFile` no
+    # comprueba nada). Arreglo propuesto aguas arriba:
+    # engine/scripts/upstream-tito-barsstore.patch.
+    from wbj.tito.borde import barras_utiles as _bu
     _bp = BS.data_dir()/"bars"; _bp.mkdir(parents=True, exist_ok=True)
     _hoy_et = _HOY.astimezone(_ET).date().isoformat()
     (_bp/"A.json").write_text('{"ticker":"A","date":"'+_hoy_et+'"}')
-    chk(BS.cached_daily_bars("A", now=_HOY, fetch=lambda t,d: _bb) == _bb,
-        "GUARDA: un cache del día sin campo `bars` ya no lanza (BUG 1 de su `as`)")
+    try:
+        BS.cached_daily_bars("A", now=_HOY, fetch=lambda t,d: _bb); _bug1 = False
+    except TypeError: _bug1 = True
+    chk(_bug1, "LITERAL: un cache del día sin campo `bars` LANZA (BUG 1 de su `as`)")
     (_bp/"B.json").write_text('{"ticker":"B","date":"'+_hoy_et+'","bars":"texto"}')
-    chk(BS.cached_daily_bars("B", now=_HOY, fetch=lambda t,d: _bb) == _bb,
-        "GUARDA: un `bars` de texto ya no se devuelve como barras (BUG 2)")
+    chk(BS.cached_daily_bars("B", now=_HOY, fetch=lambda t,d: _bb) == "texto",
+        "LITERAL: un `bars` de texto SÍ se devuelve como barras (BUG 2)")
     (_bp/"E.json").write_text('[1,2]')
-    chk(BS.load_bars("E") is None, "un cache ilegible es un cache que no está")
+    chk(_bu(BS.load_bars("E")) is None and _bu(BS.load_bars("A")) is None
+        and _bu(BS.load_bars("B")) is None,
+        "BORDE: `barras_utiles` trata los tres como un cache que no está")
+    chk(BS.daily_bars_for_panel("A", now=_HOY, fetch=lambda t,d: _bb) == _bb
+        and BS.daily_bars_for_panel("B", now=_HOY, fetch=lambda t,d: _bb) == _bb,
+        "…y el panel no se come ninguno de los dos bugs")
     # La política del panel: ancla el cache en la última sesión CERRADA, no en
     # el reloj. Sin esto, la vela de hoy se congela a media sesión, un retraso
     # de Massive deja el día fuera para siempre y el fin de semana no cachea.
@@ -386,14 +394,14 @@ chk("daily_bars_for_panel(ticker)" in _blkb and "fetch_daily_bars(ticker)" not i
 chk("fetch_daily_bars(tk)" in API and "massive.barras.cache" in API,
     "…y el health check sigue pidiendo EN DIRECTO (un cache taparía la caída)")
 
-# 6ª pasada: los negativos. Llegué a mandarlos al fallback —un nocional que
-# RESTA es peor que uno que falta— y está quitado: su `??` no los toca.
-chk(all(C.to_row(_c).notional_value >= 0 for _c in (
+# 6ª pasada: los negativos. Su `??` solo rellena el AUSENTE, así que un open
+# interest negativo entra negativo y el nocional RESTA. Es suyo y se fija aquí
+# para que nadie lo "arregle" dentro del módulo: el arreglo va aguas arriba.
+chk(all(C.to_row(_c).notional_value < 0 for _c in (
         {"open_interest":-500,"details":{"strike_price":100}},
         {"open_interest":500,"details":{"strike_price":-100}},
-        {"day":{"volume":-9}},
         {"open_interest":10,"details":{"strike_price":100,"shares_per_contract":-100}})),
-    "GUARDA: ningún negativo produce un nocional negativo")
+    "LITERAL: un negativo produce un nocional negativo (su `??` no los toca)")
 _sana = [C.to_row({"details":{"contract_type":ct,"strike_price":float(s),
          "expiration_date":"2026-09-18","shares_per_contract":100},
          "day":{"volume":400},"open_interest":9000})
@@ -401,9 +409,9 @@ _sana = [C.to_row({"details":{"contract_type":ct,"strike_price":float(s),
 _sucia = _sana + [C.to_row({"details":{"contract_type":"call","strike_price":100.0,
           "expiration_date":"2026-09-18","shares_per_contract":100},
           "day":{"volume":400},"open_interest":-900_000})]
-chk(S.structure_score(_sana).score == S.structure_score(_sucia).score
-    and not S.structure_score(_sucia).notional["low_liquidity"],
-    "…y una fila con OI negativo no tira la cadena entera")
+chk(S.structure_score(_sucia).notional["total"] < 0 < S.structure_score(_sana).notional["total"]
+    and S.structure_score(_sucia).notional["low_liquidity"],
+    "…con lo que cuesta medido: UNA fila de OI -900k invierte la cadena entera")
 # El diferencial completo vive en engine/scripts/diff_compute.sh (necesita node
 # + el repo de Víctor); aquí solo se avisa de que existe.
 if TITO and TITO.exists():
@@ -496,21 +504,30 @@ with tempfile.TemporaryDirectory() as td:
         "guarda el análisis COMPLETO, no un recorte de 8 campos")
     chk(_ST._file_for("../../ETC/X").resolve().parent
         == (_ST.data_dir() / "trades").resolve(), "el ticker no se escapa del directorio")
-    # Los 3 agujeros de SU store.ts, replicados a propósito para que el port sea
-    # idéntico (47/47 en diff_store.sh). Arreglo propuesto para el upstream en
-    # engine/scripts/upstream-tito-store.patch.
+    # Los 3 agujeros de SU store.ts, PORTADOS TAL CUAL para que el port sea
+    # idéntico (47/47 en diff_store.sh, cero divergencias). Arreglo propuesto
+    # para el upstream en engine/scripts/upstream-tito-store.patch; las guardas
+    # de Vertex viven en wbj/tito/borde.py y se comprueban justo debajo.
+    from wbj.tito import borde as _BO
     _ST.save_trades("SINID", [_fr(0, "2026-07-30T15:00:00Z"), _fr(0, "2026-07-30T15:01:00Z")])
-    chk(len(_ST.load_trades("SINID").trades) == 2,
-        "GUARDA: los trades sin id no se funden en uno")
+    chk(len(_ST.load_trades("SINID").trades) == 1,
+        "LITERAL: los trades sin id se funden en uno (su clave de dedupe es `t.id`)")
     _p = _ST.data_dir() / "trades" / "BASURA.json"
     _p.write_text(json.dumps({"ticker": "BASURA", "updatedAt": "x",
                               "trades": [{"id": 1, "timestamp": "2026-07-30T15:00:00Z"},
                                          "no soy dict", None, 42]}), encoding="utf-8")
-    chk([t["id"] for t in _ST.load_trades("BASURA").trades] == [1],
-        "GUARDA: load descarta las filas corruptas del array")
-    _rb = _ST.save_trades("BASURA", [_fr(9, "2026-07-30T15:00:00Z")])
-    chk(_rb.total == 2 and all(isinstance(t, dict) for t in _ST.load_trades("BASURA").trades),
-        "…y el guardado no se cae; el archivo queda reparado")
+    chk(_ST.load_trades("BASURA").trades == [{"id": 1, "timestamp": "2026-07-30T15:00:00Z"},
+                                             "no soy dict", None, 42],
+        "LITERAL: load devuelve el array del disco sin mirar su contenido")
+    try:
+        _ST.save_trades("BASURA", [_fr(9, "2026-07-30T15:00:00Z")]); _cae = False
+    except TypeError: _cae = True
+    chk(_cae, "LITERAL: una fila `null` en disco tumba el guardado (`byId.set(t.id, t)`)")
+    chk([t["id"] for t in _BO.trades_utiles(_ST.load_trades("BASURA").trades)] == [1],
+        "BORDE: `trades_utiles` es el filtro que su /api/validation hace solo en TS")
+    chk(_BO.trades_sin_id(_ST.load_trades("BASURA").trades) == 3
+        and _BO.trades_sin_id([{"id": 1}, {"id": 2}]) == 0,
+        "BORDE: `trades_sin_id` deja visible el dedupe que colapsa (no lo arregla)")
     _tzprev = os.environ.get("TZ")
     os.environ["TZ"] = "UTC"; time.tzset()
     _utc = _ST._date_parse("2026-07-30T15:00:00")
@@ -519,8 +536,8 @@ with tempfile.TemporaryDirectory() as td:
     if _tzprev is None: os.environ.pop("TZ", None)
     else: os.environ["TZ"] = _tzprev
     time.tzset()
-    chk(_ny == _utc and _ST._date_parse("2026-07-30") == 1785369600000,
-        "GUARDA: el orden no depende de la TZ del servidor (naive → UTC)")
+    chk(_ny != _utc and _ST._date_parse("2026-07-30") == 1785369600000,
+        "LITERAL: el naive se lee en la TZ LOCAL y la fecha sola en UTC (ES2015+)")
     # 2ª pasada de auditoría: concurrencia, tickers degenerados y portabilidad.
     import threading as _th
     _b = datetime(2026, 7, 30, tzinfo=timezone.utc)
@@ -536,12 +553,18 @@ with tempfile.TemporaryDirectory() as td:
             (TITO_DIR/"stores.py").read_text()]) and
         (TITO_DIR/"stores.py").read_text().count("_exclusive(path)") == 4,
         "los 4 stores escriben bajo cerrojo")
+    chk(len({_ST._file_for(m) for m in ("!!!", "@@@", "", "   ", "ñ", "🙂")}) == 1,
+        "LITERAL: los tickers que sanean a nada comparten el mismo `.json`")
     _rechaza = 0
-    for _malo in ("!!!", "@@@", "", "   ", "...", "A" * 200):
-        try: _ST._file_for(_malo)
-        except ValueError: _rechaza += 1
-    chk(_rechaza == 6,
-        "GUARDA: el ticker que no da nombre de archivo se rechaza (nada de `.json` compartido)")
+    for _malo in ("!!!", "@@@", "", "   ", "...", "../..", "A" * 200):
+        try: _BO.ticker_valido(_malo)
+        except _BO.TickerInvalido: _rechaza += 1
+    chk(_rechaza == 7,
+        "BORDE: `ticker_valido` los rechaza ANTES del store (nada de `.json` compartido)")
+    chk(_BO.ticker_valido("  aapl ") == "AAPL" and _BO.ticker_valido("brk.b") == "BRK.B",
+        "…y el ticker bueno pasa ya saneado con SU regex")
+    chk("_tito_ticker(ticker)" in API and "borde import TickerInvalido, ticker_valido" in API,
+        "…cableado en las rutas de Proyecciones, que es el borde de verdad")
     chk(_ST.load_trades("!!!") is None, "leer con ticker inservible no lanza")
     _d2 = Path(os.environ["WBJ_TITO_DATA"]) / "no-existe-aun"
     os.environ["WBJ_TITO_DATA"] = str(_d2)
@@ -736,7 +759,67 @@ chk("vertex.env" in (VERTEX/".gitignore").read_text(), "vertex.env gitignoreado"
 chk("sync: false" in RENDER, "los secretos de Render no van en el blueprint")
 
 # ─────────────────────────────────────────────────────────────────────
-sec("8. Tests")
+sec("8. Funciones públicas sin llamador")
+#
+# Una función portada y sin cablear es código que NADIE ejecuta: no falla, no
+# avisa y da la sensación de que la funcionalidad está. Aquí se cuentan las
+# públicas de `wbj/tito/` que ningún módulo de producción llama —ni el motor ni
+# `vertex_api.py`— y se exige que cada una esté DECLARADA con su motivo.
+#
+# El registro no es una lista de excusas: cada entrada dice quién la llama en SU
+# repo. Si una función tiene consumidor en Proyecciones, no va aquí; se cablea.
+# Y si aparece una huérfana nueva sin declarar, este check falla.
+HUERFANAS = {
+    # ── pertenecen a funciones de su app que NO se portan (Wheel, Ideas) ──
+    "cached_daily_bars":
+        "solo la llama su /api/wheel. Wheel no se porta; aquí queda como el port "
+        "literal que verifica diff_bars.sh, y el panel usa daily_bars_for_panel",
+    "bs_delta":     "solo la llama su wheel.ts (elegir el strike por delta)",
+    "implied_vol":  "solo la llama su wheel.ts (IV del contrato a vender)",
+    "fetch_market_flow": "solo la llama su /api/ideas (barrido del mercado entero)",
+    "is_tradeable_idea": "solo la llama su /api/ideas (filtro de ideas)",
+    "size_flow":         "solo la llama su /api/ideas y su ideas/page.tsx",
+    # ── huérfanas EN SU PROPIO REPO ──
+    "add_days":
+        "sin llamador también en su occ.ts: nadie la usa en agente-tito-metralleta",
+    "load_chain_history":
+        "sin llamador también en su chainStore.ts. Aquí el sub-agente 4 puntúa "
+        "sobre la cadena de HOY; la serie se acumula para poder usarla, no se lee",
+}
+_pub, _prod = {}, set()
+for _f in sorted(TITO_DIR.glob("*.py")):
+    if _f.name == "__init__.py":
+        continue
+    for _n in ast.parse(_f.read_text(encoding="utf-8")).body:
+        if isinstance(_n, (ast.FunctionDef, ast.AsyncFunctionDef)) and not _n.name.startswith("_"):
+            _pub[_n.name] = _f.name
+for _p in list(TITO_DIR.glob("*.py")) + [VERTEX / "vertex_api.py"]:
+    for _n in ast.walk(ast.parse(_p.read_text(encoding="utf-8"))):
+        if isinstance(_n, ast.Name):
+            _prod.add(_n.id)
+        elif isinstance(_n, ast.Attribute):
+            _prod.add(_n.attr)
+_huerfanas = {n for n in _pub if n not in _prod}
+_sin_declarar = sorted(_huerfanas - set(HUERFANAS))
+_ya_cableadas = sorted(set(HUERFANAS) - _huerfanas)
+chk(not _sin_declarar,
+    f"{len(_pub)} públicas · {len(_huerfanas)} sin llamador, todas declaradas"
+    + (f" · SIN DECLARAR: {_sin_declarar}" if _sin_declarar else ""))
+chk(not _ya_cableadas,
+    "el registro no miente: ninguna declarada como huérfana está ya cableada"
+    + (f" · {_ya_cableadas}" if _ya_cableadas else ""))
+for _n in sorted(_huerfanas):
+    print(f"      {_pub[_n] + '::' + _n:<40} {HUERFANAS.get(_n, '')[:80]}")
+# Y las que SÍ se cablearon en esta pasada, con su consumidor.
+chk("_tito_chart_geometry(r)" in API and "cone_points, prediction_path" in API,
+    "`cone_points`/`prediction_path` CABLEADAS: el motor sirve `chart_geometry`")
+chk("d.chart_geometry" in HTML and "geo.cone" in HTML,
+    "…y la gráfica dibuja SUS puntos en vez de recalcular la fórmula")
+chk("_tito_clusters(trades, now)" in API and "detect_clusters" in API,
+    "`detect_clusters` CABLEADA: `flow_clusters` (su FlowPriceChart)")
+
+# ─────────────────────────────────────────────────────────────────────
+sec("9. Tests")
 r = subprocess.run([sys.executable,"-m","pytest","tests/tito/","-q"],
                    cwd=VERTEX/"engine", capture_output=True, text=True)
 m = re.search(r"(\d+) passed", r.stdout)

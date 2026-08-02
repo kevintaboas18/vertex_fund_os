@@ -348,14 +348,18 @@ class TestTradesStore:
         assert __import__("re").match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$",
                                       crudo["updatedAt"])
 
-    def test_el_orden_no_depende_de_la_zona_horaria_del_servidor(self):
-        """GUARDA: un timestamp SIN zona se lee como UTC, no como hora local.
+    def test_el_orden_depende_de_la_zona_horaria_del_servidor_como_en_JS(self):
+        """Su `Date.parse` no usa una zona uniforme, y se replica tal cual.
 
-        Su `Date.parse` no usa una zona uniforme: una fecha sola va en UTC y una
-        fecha-hora sin offset va en la zona LOCAL de la máquina. Ese orden
-        decide qué trade se cae por el tope de `MAX_PER_TICKER`, así que con su
-        regla el mismo archivo se recorta distinto en UTC que en New York — la
-        persistencia acabaría dependiendo de la TZ del servidor.
+        Una fecha SOLA (`"2026-07-30"`) se lee en UTC; una fecha-hora SIN
+        offset (`"2026-07-30T15:00:00"`) se lee en la zona LOCAL de la máquina.
+        Es la regla de ES2015+, no un descuido suyo.
+
+        La consecuencia es real: ese orden decide qué trade se cae por el tope
+        de `MAX_PER_TICKER`, así que el mismo archivo se recorta distinto en UTC
+        que en New York. En Render y en el contenedor la TZ es UTC, así que en
+        la práctica coinciden — pero la dependencia existe y se fija aquí para
+        que nadie la "arregle" sin querer y rompa el diferencial.
         """
         import os
         import time
@@ -369,7 +373,7 @@ class TestTradesStore:
                 os.environ["TZ"] = tz
                 time.tzset()
                 vistos.add(_date_parse("2026-07-30T15:00:00"))
-            # La fecha sola ya era UTC en el suyo; se conserva.
+            # La fecha sola SÍ es UTC en las tres, que es lo que dice el estándar.
             assert _date_parse("2026-07-30") == 1785369600000
         finally:
             if previo is None:
@@ -377,7 +381,7 @@ class TestTradesStore:
             else:
                 os.environ["TZ"] = previo
             time.tzset()
-        assert len(vistos) == 1, f"el parseo cambió con la TZ: {vistos}"
+        assert len(vistos) == 3, f"el naive dejó de leerse como local: {vistos}"
 
     def test_un_timestamp_ilegible_no_se_va_al_final(self):
         # `Date.parse("ayer")` es NaN, la resta da NaN y ECMA-262 manda tratar
@@ -400,15 +404,18 @@ class TestTradesStore:
         assert load_trades("DEMO") is None
 
 
-class TestLasTresGuardas:
-    """Las tres divergencias deliberadas de este módulo.
+class TestLasTresQueSeQuedanComoEl:
+    """Los tres puntos donde `store.ts` maneja mal una entrada malformada.
 
-    Con datos bien formados el port es idéntico a su `store.ts` (medido
-    ejecutándolo en Node, `engine/scripts/diff_store.sh`). Estas guardas solo
-    actúan sobre entradas que su propio archivo maneja mal, y aquí pesan más
-    que en su repo: esto es la memoria ACUMULADA del sub-agente 6, y lo que se
-    pierde no se recupera. Las tres están propuestas para el upstream en
-    `engine/scripts/upstream-tito-store.patch`.
+    El módulo es **literal**: los tres están portados tal cual, comprobados
+    ejecutando su archivo en Node (`engine/scripts/diff_store.sh`, 47/47 sin
+    una sola divergencia declarada). Los arreglos propuestos aguas arriba viven
+    en `engine/scripts/upstream-tito-store.patch`.
+
+    Lo que protege a Vertex de los tres es el BORDE, no una guarda dentro del
+    store: `borde.ticker_valido` en el endpoint, `borde.trades_utiles` al leer
+    y `borde.trades_sin_id` como contador visible. Es exactamente donde su
+    pipeline de Next las tiene. Se fijan en `TestElBordeDeVertex`.
     """
 
     def _escribe(self, nombre, contenido):
@@ -418,39 +425,34 @@ class TestLasTresGuardas:
         p.mkdir(parents=True, exist_ok=True)
         (p / nombre).write_text(contenido, encoding="utf-8")
 
-    def test_1_un_ticker_que_no_da_nombre_de_archivo_se_rechaza(self):
-        # Sin la guarda, `"!!!"`, `"@@@"` y `""` sanean todos a la cadena vacía
-        # y comparten un `.json` sin dueño: la memoria de una consulta basura
-        # contamina la del siguiente.
+    def test_1_un_ticker_que_no_da_nombre_de_archivo_comparte_cubo(self):
+        # `"!!!"`, `"@@@"` y `""` sanean todos a la cadena vacía y comparten un
+        # `.json` sin dueño. Suyo, portado: el store no lo mira.
         from wbj.tito.stores import _file_for
 
-        for malo in ("!!!", "@@@", "", "   ", "../..", "..."):
-            with pytest.raises(ValueError):
-                _file_for(malo)
-        assert load_trades("!!!") is None          # leer nunca lanza
-        with pytest.raises(ValueError):            # guardar sí: hay algo que se perdería
-            save_trades("@@@", [_flow_row(1, "2026-07-30T15:00:00Z")])
+        vacios = {_file_for(m) for m in ("!!!", "@@@", "", "   ", "ñ", "🙂")}
+        assert len(vacios) == 1
+        assert next(iter(vacios)).name == ".json"
 
-    def test_1b_un_ticker_absurdamente_largo_falla_igual_que_los_demas(self):
-        # Sin tope llega al sistema de archivos y revienta con ENAMETOOLONG,
-        # que depende del FS. Mejor el mismo ValueError determinista.
-        from wbj.tito.stores import MAX_TICKER_LEN, _file_for
+    def test_1b_la_travesia_de_rutas_SI_la_cierra_su_regex(self):
+        # Lo único que su saneado sí resuelve: borra las barras, así que no se
+        # sale del directorio. Esto no necesitaba guarda y no la tiene.
+        from wbj.tito.stores import _file_for, data_dir
 
-        _file_for("A" * MAX_TICKER_LEN)               # el límite justo pasa
-        with pytest.raises(ValueError):
-            _file_for("A" * (MAX_TICKER_LEN + 1))
-        assert load_trades("A" * 300) is None
+        p = _file_for("../../etc/passwd")
+        assert p.parent == data_dir() / "trades"
+        assert p.name == "....ETCPASSWD.json"
 
-    def test_2_trades_sin_id_no_se_funden_en_uno(self):
+    def test_2_trades_sin_id_se_funden_en_uno(self):
         # La clave del Map es `t.id`. `flow._base_row` hace
         # `int(_num(raw.get("id")))`, así que un tape sin ese campo devuelve 0
-        # para TODOS: sin la guarda se conserva UNO, y `added` tampoco avisa
-        # porque a partir del segundo la clave "ya existe".
+        # para TODOS: se conserva UNO, y `added` tampoco avisa porque a partir
+        # del segundo la clave "ya existe". Su comportamiento, medido.
         r = save_trades("SINID", [_flow_row(0, "2026-07-30T15:00:00Z"),
                                   _flow_row(0, "2026-07-30T15:01:00Z"),
                                   _flow_row(0, "2026-07-30T15:02:00Z")])
-        assert (r.total, r.added) == (3, 3)
-        assert len(load_trades("SINID").trades) == 3
+        assert (r.total, r.added) == (1, 1)
+        assert len(load_trades("SINID").trades) == 1
 
     def test_2b_con_id_real_el_dedupe_es_el_suyo(self):
         rows = [_flow_row(1, "2026-07-30T15:00:00Z"), _flow_row(2, "2026-07-30T15:01:00Z")]
@@ -458,35 +460,97 @@ class TestLasTresGuardas:
         r = save_trades("CONID", rows)
         assert (r.total, r.added) == (2, 0)
 
-    def test_3_una_fila_corrupta_no_tumba_el_guardado(self):
+    def test_3_una_fila_corrupta_tumba_el_guardado(self):
         # El suyo: `for (const t of existing.trades) byId.set(t.id, t)` sobre un
         # `null` lanza, el guardado entero se pierde, y vuelve a pasar en CADA
         # corrida porque la fila sigue en el archivo. Ese ticker deja de
-        # acumular memoria para siempre y sin un solo mensaje.
+        # acumular memoria hasta que alguien limpie el `.json`.
+        #
+        # En Vertex no pasa mudo: `_tito_memory` lo mete en
+        # `stats.escrituras_fallidas` y `/api/tito-health` levanta
+        # `memoria.flows.corrupto` con el arreglo.
         self._escribe("C.json",
                       '{"ticker":"C","updatedAt":"x",'
                       '"trades":[{"id":9,"timestamp":"2026-07-20T15:00:00Z"},null,'
                       '"basura",42]}')
-        r = save_trades("C", [_flow_row(1, "2026-07-30T15:00:00Z")])
-        assert (r.total, r.added) == (2, 1)
-        # …y el archivo queda reparado: la próxima lectura ya no ve basura.
-        assert all(isinstance(t, dict) for t in load_trades("C").trades)
+        with pytest.raises(TypeError):
+            save_trades("C", [_flow_row(1, "2026-07-30T15:00:00Z")])
 
-    def test_3b_load_descarta_la_basura_pero_conserva_lo_bueno(self):
+    def test_3b_load_devuelve_la_basura_tal_cual(self):
         self._escribe("E.json",
                       '{"ticker":"E","updatedAt":"x","trades":[{"id":1},"basura",null,42]}')
-        assert load_trades("E").trades == [{"id": 1}]
+        assert load_trades("E").trades == [{"id": 1}, "basura", None, 42]
 
-    def test_3c_el_consumidor_no_revienta_con_un_archivo_sucio(self):
+    def test_load_no_inventa_los_campos_que_faltan(self):
+        # `loadTrades` solo comprueba `Array.isArray(parsed.trades)`; el resto
+        # del archivo entra tal cual.
+        self._escribe("G.json", '{"trades":[]}')
+        g = load_trades("G")
+        assert g.ticker is None and g.updated_at is None
+        self._escribe("H.json", '{"ticker":7,"updatedAt":9,"trades":[]}')
+        h = load_trades("H")
+        assert h.ticker == 7 and h.updated_at == 9
+
+
+class TestElBordeDeVertex:
+    """Las guardas que se quitaron del store, en el sitio donde él las tiene.
+
+    En su repo las librerías nunca ven datos crudos: el ticker llega
+    normalizado desde las rutas de Next y las filas pasan por el filtro de
+    `/api/validation`, donde `"basura".assetPrice` es `undefined` y la fila se
+    cae sola. Vertex no es Next, así que ese borde se escribe — en `borde.py`,
+    una sola vez, y sin tocar un número.
+    """
+
+    def _escribe(self, nombre, contenido):
+        from wbj.tito.stores import data_dir
+
+        p = data_dir() / "trades"
+        p.mkdir(parents=True, exist_ok=True)
+        (p / nombre).write_text(contenido, encoding="utf-8")
+
+    def test_el_ticker_que_no_deja_nada_se_rechaza_ANTES_del_store(self):
+        from wbj.tito.borde import TickerInvalido, ticker_valido
+
+        for malo in ("!!!", "@@@", "", "   ", "../..", "ñ"):
+            with pytest.raises(TickerInvalido):
+                ticker_valido(malo)
+
+    def test_el_ticker_bueno_pasa_ya_saneado(self):
+        from wbj.tito.borde import ticker_valido
+
+        assert ticker_valido("  aapl ") == "AAPL"
+        assert ticker_valido("brk.b") == "BRK.B"
+        assert ticker_valido("A@A!P#L") == "AAPL"    # su regex, tal cual
+
+    def test_el_ticker_absurdamente_largo_tambien(self):
+        # Sin tope llega al sistema de archivos y revienta con ENAMETOOLONG,
+        # que depende del FS. Mejor un error determinista y con motivo.
+        from wbj.tito.borde import MAX_TICKER_LEN, TickerInvalido, ticker_valido
+
+        ticker_valido("A" * MAX_TICKER_LEN)          # el límite justo pasa
+        with pytest.raises(TickerInvalido):
+            ticker_valido("A" * (MAX_TICKER_LEN + 1))
+
+    def test_el_consumidor_no_revienta_con_un_archivo_sucio(self):
         # Es el filtro de su /api/validation: `t.assetPrice > 0 && t.timestamp`.
-        # En TS sobre un string da `undefined` y la fila se cae sola; en Python
-        # el `.get` lanzaría si `load_trades` no la hubiera descartado ya.
+        from wbj.tito.borde import trades_utiles
+
         bueno = {"id": 1, "timestamp": "2026-07-30T15:00:00Z", "asset_price": 95.0}
         self._escribe("F.json", json.dumps(
             {"ticker": "F", "updatedAt": "x", "trades": [bueno, "basura", None, 42]}))
-        usables = [t for t in load_trades("F").trades
+        usables = [t for t in trades_utiles(load_trades("F").trades)
                    if (t.get("asset_price") or 0) > 0 and t.get("timestamp")]
         assert usables == [bueno]
+
+    def test_los_trades_sin_id_se_cuentan_aunque_no_se_arreglen(self):
+        # No es un filtro: el dedupe sigue siendo el suyo. Es lo que hace que el
+        # fallo se vea el mismo día en vez de descubrirse dentro de un mes con
+        # un archivo de un solo trade.
+        from wbj.tito.borde import trades_sin_id
+
+        assert trades_sin_id([{"id": 1}, {"id": None}, {}, "basura", None]) == 4
+        assert trades_sin_id([{"id": 1}, {"id": 2}]) == 0
 
     def test_load_no_inventa_los_campos_que_faltan(self):
         # Sin `str(... or "")`: un `ticker` ausente llega como None (su

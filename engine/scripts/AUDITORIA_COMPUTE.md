@@ -1,34 +1,40 @@
 # Auditoría del port de `compute.ts`
 
-> **NOTA — recorrido de este documento.** Las cinco guardas descritas abajo se
-> revirtieron en una pasada intermedia (instrucción: *"hazlo exactamente como él
-> lo tiene"*) y se volvieron a poner en la siguiente (*"soluciona esto si hay
-> error o un problema"*). De ese ida y vuelta quedaron dos cosas que valen:
+> **NOTA — estado final: el port es LITERAL.** Las cinco guardas descritas abajo
+> estuvieron dentro del módulo durante una pasada y ya no están. La instrucción
+> que mandó es *"hazlo como Víctor lo hace exactamente"*, así que `compute.py`
+> es su `compute.ts` y nada más.
 >
-> 1. **`_js_number`** — la coacción de tipos ahora es `Number()` de JS completo,
->    con sus rarezas (`Number("inf")` es NaN aunque `float("inf")` parsee,
->    `Number([7])` es 7, `Number({})` es NaN). Eso no estaba antes.
+> De todo el recorrido quedaron dos cosas que valen:
+>
+> 1. **`_js_number`** — la coacción de tipos es `Number()` de JS completo, con
+>    sus rarezas (`Number("inf")` es NaN aunque `float("inf")` parsee,
+>    `Number([7])` es 7, `Number({})` es NaN, `Number("1_000")` es NaN). Sin
+>    ella el port NO era literal: era `float()` de Python disfrazado.
 > 2. **El diferencial clasifica** (`engine/scripts/diff_compute.sh`): cada
 >    diferencia cae en una de tres cajas —muro del lenguaje, divergencia
 >    declarada, sin declarar— y solo la tercera falla el script.
 >
-> **Estado actual, medido contra su `compute.ts` ejecutado en Node:**
+> **Estado actual, medido contra su `compute.ts` ejecutado en Node: 604/604
+> filas · 0 divergencias declaradas · 0 sin declarar.**
 >
-> - datos **bien formados**: 500/500 filas sin una sola diferencia;
-> - datos malformados (3004 contratos generados): 0 diferencias sin declarar.
+> Sus cinco lagunas siguen siendo reales y siguen documentadas, ahora como
+> comportamiento FIJADO (`TestLasCincoQueSeQuedanComoEl`) con su coste medido, y
+> propuestas aguas arriba en `engine/scripts/upstream-tito-compute.patch`:
+> `Infinity` pasa su guarda de precio, un negativo produce un nocional que
+> resta, el producto desborda a `Infinity`, `"PUT"` se vuelve `call` (el GEX se
+> invierte) y el vencimiento entra sin canonizar (dos formatos = dos
+> vencimientos).
 >
-> O sea: el port es idéntico al suyo donde importa, y solo diverge sobre
-> entradas que su propio código maneja mal. Las cinco guardas están propuestas
-> para el upstream en `engine/scripts/upstream-tito-compute.patch` y fijadas por
-> `TestLasCincoGuardas`, cada una con el coste medido de no tenerla.
+> Lo que **no** es literal y no puede serlo: su `openInterest` conserva el crudo
+> (`"500"` como string) y aquí lleva el número, porque el resto del motor suma
+> esa columna y en Python un string no se suma. Igual con `optionTicker`, que
+> él declara `string` pero TS no comprueba. El diferencial los reporta aparte
+> como *muro del lenguaje*, no como divergencias.
 >
-> Lo que **no** se pudo replicar y sigue igual: su `openInterest` conserva el
-> crudo (`"500"` como string) y aquí lleva el número, porque el resto del motor
-> suma esa columna. El diferencial lo reporta aparte como *muro del lenguaje*.
->
-> Y lo que se **añadió**: `_tito_json` y `/api/projection-targets` salen por
-> `_json_safe` (`NaN`/`Infinity` → `null`, igual que su `JSON.stringify`), y
-> `option_ticker` usa `String()` de JS y no el `str()` de Python.
+> Lo que protege a Vertex de las cinco es el BORDE, que es el mismo que tiene
+> él: `_tito_json` y `/api/projection-targets` salen por `_json_safe`
+> (`NaN`/`Infinity` → `null`, exactamente su `JSON.stringify`).
 
 Seis pasadas, atacando el port contra el original ejecutado en Node. Diecisiete
 hallazgos, todos arreglados. Las 35 sentencias ejecutables de `compute.ts` están

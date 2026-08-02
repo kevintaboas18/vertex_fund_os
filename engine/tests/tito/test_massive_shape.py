@@ -57,5 +57,9 @@ def test_contratos_no_dict_mezclados_no_tumban_la_pagina(monkeypatch):
     assert len(r.rows) == 2
     assert r.underlying_price == 99.0
     assert [x.open_interest for x in r.rows] == [700, 500]   # ordenadas por OI
-    assert r.expiration_count == 1                       # el 'T00:00:00Z' agrupa igual
-    assert [x.contract_type for x in r.rows] == ["put", "call"]   # 'PUT' sigue siendo put
+    # Los dos comportamientos de su `compute.ts`, portados literales y fijados
+    # aquí desde el cliente: el `T00:00:00Z` NO agrupa con la fecha pelada, y
+    # `"PUT"` NO es `put` (su comparación es `t === "put"` exacto). Los dos
+    # están propuestos aguas arriba en `upstream-tito-compute.patch`.
+    assert r.expiration_count == 2
+    assert [x.contract_type for x in r.rows] == ["call", "call"]

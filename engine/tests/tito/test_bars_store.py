@@ -4,8 +4,11 @@ El original no trae test propio (su consumidor es Wheel), así que estos cubren:
 
 - `TestCachedDailyBars` — SU contrato tal cual, cache por día de mercado y sin
   más reglas. Es lo que verifica `diff_bars.sh` contra su archivo en Node.
-- `TestLasDosGuardasDeLoadBars` — los dos bugs de su `as BarsFile`, tapados
-  desde que el módulo se cablea.
+- `TestLasDosDeLoadBarsSeQuedanComoEl` — los dos bugs de su `as BarsFile`,
+  portados tal cual: el cache sin campo `bars` lanza y el `bars` de texto cuela.
+- `TestElBordeDeLasBarras` — `borde.barras_utiles`, la guarda de Vertex, en el
+  sitio donde su pipeline la tiene (sus barras vienen de `fetchDailyBars`, no
+  de un JSON ajeno leído del disco).
 - `TestPoliticaDelPanel` — `daily_bars_for_panel`, que es política de Vertex y
   no suya: los tres agujeros que su regla de cache deja en un panel en vivo.
 
@@ -72,11 +75,11 @@ class TestGuardarYLeer:
     def test_el_saneado_es_el_MISMO_que_el_de_stores(self):
         """Un solo saneado para las dos rutas de disco.
 
-        `_file_for` de este modulo usaba el regex literal de Victor, que sanea
-        `"!!!"`, `""` y `"n~"` a la cadena vacia y los manda todos al mismo
-        `.json`. Se dejo asi mientras nadie llamaba al modulo. Al cablearlo dejo
-        de dar igual: `fetch_option_chain` NO lanza con una cadena vacia, asi
-        que la llamada a barras se alcanza con cualquier ticker que se escriba.
+        Su `fileFor` es el mismo regex en `barsStore.ts` y en `store.ts`, así
+        que se comparte `_sanea_ticker` en vez de copiarlo: dos saneados
+        distintos para la misma entrada, en el mismo repo, es una trampa por sí
+        sola. Literal en los dos, y el rechazo del ticker vacío vive en
+        `borde.ticker_valido`.
         """
         from wbj.tito.bars_store import _file_for
         from wbj.tito.stores import _file_for as _trades_file_for
@@ -85,12 +88,9 @@ class TestGuardarYLeer:
         assert _file_for(" demo ").name == "DEMO.json"
         assert _file_for("BRK.B").name == "BRK.B.json"
         assert _file_for("brk/b").name == "BRKB.json"
-        # …y el mismo rechazo que en la memoria de trades
-        for malo in ("!!!", "@@@", "", "   ", "...", "A" * 200):
-            with pytest.raises(ValueError):
-                _file_for(malo)
-            with pytest.raises(ValueError):
-                _trades_file_for(malo)
+        # …y el mismo saneado que en la memoria de trades, carácter por carácter
+        for t in ("!!!", "@@@", "", "   ", "...", "A" * 200, "brk/b", " demo "):
+            assert _file_for(t).name == _trades_file_for(t).name
         assert load_bars("!!!") is None            # leer nunca lanza
 
     def test_el_regex_ya_cierra_la_travesia_de_rutas(self):
@@ -108,9 +108,15 @@ class TestGuardarYLeer:
         save_bars(" demo ", _barras(), HOY)
         assert load_bars("DEMO").ticker == " DEMO "
 
-    def test_una_barra_corrupta_no_tumba_el_cache(self):
+    def test_una_barra_corrupta_se_devuelve_tal_cual(self):
+        # Literal: en TS los objetos del JSON ya SON `DailyBar` por su forma y
+        # uno malformado se queda en la lista con los campos en `undefined`.
+        # Filtrarlo cambiaría `bars.length`, que es lo único que mira su
+        # `cachedDailyBars`. Quien decide sobre una serie ilegible es
+        # `borde.barras_utiles`, no `load_bars`.
         import json
 
+        from wbj.tito.borde import barras_utiles
         from wbj.tito.stores import data_dir
 
         p = data_dir() / "bars"
@@ -120,7 +126,10 @@ class TestGuardarYLeer:
             "bars": [{"time": "2026-07-30", "high": 2, "low": 1, "close": 1.5},
                      "basura", None, {"time": "x"}, 42],
         }), encoding="utf-8")
-        assert len(load_bars("DEMO").bars) == 1
+        crudo = load_bars("DEMO")
+        assert len(crudo.bars) == 5
+        assert crudo.bars[1] == "basura" and crudo.bars[2] is None
+        assert barras_utiles(crudo) is None   # el borde la trata como sin cache
 
     def test_un_archivo_roto_se_lee_como_sin_cache(self):
         from wbj.tito.stores import data_dir
@@ -256,17 +265,17 @@ class TestCachedDailyBars:
         assert vistos == [30, 365]
 
 
-class TestLasDosGuardasDeLoadBars:
-    """Los dos bugs de su `barsStore.ts`, TAPADOS desde que el modulo se cablea.
+class TestLasDosDeLoadBarsSeQuedanComoEl:
+    """Los dos bugs de su `barsStore.ts`, portados tal cual.
 
     `loadBars` hace `JSON.parse(raw) as BarsFile` a secas, y ese `as` es una
-    afirmacion para el compilador, no una comprobacion. Mientras el modulo no lo
-    llamaba nadie los dos estaban replicados a proposito; ahora que el panel de
-    Proyecciones lo usa, un archivo a medio escribir tumbaria la peticion o la
-    dejaria calculando sobre texto.
+    afirmacion para el compilador, no una comprobacion: lo que haya en el
+    archivo entra tal cual y `cachedDailyBars` lo usa sin mirar.
 
     El arreglo propuesto para el upstream esta en
-    engine/scripts/upstream-tito-barsstore.patch.
+    engine/scripts/upstream-tito-barsstore.patch. Quien no se los come es
+    `daily_bars_for_panel`, que lee por `borde.barras_utiles` — ver
+    `TestElBordeDeLasBarras`.
     """
 
     def _escribe(self, nombre, contenido):
@@ -276,38 +285,110 @@ class TestLasDosGuardasDeLoadBars:
         p.mkdir(parents=True, exist_ok=True)
         (p / nombre).write_text(contenido, encoding="utf-8")
 
-    def test_BUG1_un_cache_del_dia_sin_campo_bars_ya_no_lanza(self):
-        # El suyo: `cached.bars.length` sobre undefined → TypeError, y el
-        # `catch` de loadBars ya quedo atras, asi que sube al llamador.
+    def test_BUG1_un_cache_del_dia_sin_campo_bars_lanza(self):
+        # `cached.bars.length` sobre undefined → TypeError, y el `catch` de
+        # loadBars ya quedo atras, asi que sube al llamador.
         self._escribe("A.json", '{"ticker":"A","date":"2026-07-31"}')
-        assert load_bars("A") is None
-        assert cached_daily_bars("A", now=HOY, fetch=lambda t, d: _barras(4)) == _barras(4)
+        assert load_bars("A").bars is None
+        with pytest.raises(TypeError):
+            cached_daily_bars("A", now=HOY, fetch=lambda t, d: _barras(4))
 
-    def test_BUG2_un_bars_de_texto_ya_no_se_devuelve_como_barras(self):
-        # El suyo: `"texto".length > 0` es cierto, la guarda pasa y el llamador
-        # recibe un string donde espera DailyBar[]. Sin excepcion.
+    def test_BUG2_un_bars_de_texto_se_devuelve_como_barras(self):
+        # `"texto".length > 0` es cierto, la guarda pasa y el llamador recibe un
+        # string donde espera DailyBar[]. Sin excepcion: el analisis sigue,
+        # sobre basura y en silencio. Es el feo de los dos.
         self._escribe("B.json", '{"ticker":"B","date":"2026-07-31","bars":"texto"}')
-        r = cached_daily_bars("B", now=HOY, fetch=lambda t, d: _barras(4))
-        assert r == _barras(4)
+        assert cached_daily_bars("B", now=HOY, fetch=lambda t, d: _barras(4)) == "texto"
 
-    def test_BUG2_con_un_objeto_tampoco(self):
+    def test_BUG2_un_objeto_con_length_tambien_cuela(self):
         self._escribe("C.json",
                       '{"ticker":"C","date":"2026-07-31","bars":{"length":9}}')
-        r = cached_daily_bars("C", now=HOY, fetch=lambda t, d: _barras(4))
-        assert r == _barras(4)
+        # En JS `({length:9}).length > 0` pasa la guarda. En Python `len()` de
+        # un dict es su numero de claves: 1 > 0, tambien pasa. Mismo desenlace.
+        assert cached_daily_bars("C", now=HOY, fetch=lambda t, d: _barras(4)) \
+            == {"length": 9}
 
-    def test_un_cache_ilegible_es_un_cache_que_no_esta(self):
-        for nombre, crudo in (("E.json", '{"ticker":"E","date":"x","bars":"txt"}'),
-                              ("F.json", '[1,2]'),
-                              ("G.json", 'null'),
-                              ("H.json", '{no soy json')):
+    def test_el_None_sale_donde_sale_el_suyo(self):
+        # Su `catch` cubre exactamente tres cosas: archivo que no existe, JSON
+        # roto y `JSON.parse("null")`. Ni una mas.
+        for nombre, crudo in (("G.json", 'null'), ("H.json", '{no soy json')):
             self._escribe(nombre, crudo)
             assert load_bars(nombre[0]) is None, nombre
+        assert load_bars("NOEXISTE") is None
+        # Un array pelado NO da None: da un BarsFile con los campos en None,
+        # igual que su `cached.date` seria `undefined`.
+        self._escribe("F.json", '[1,2]')
+        f = load_bars("F")
+        assert f is not None and f.date is None and f.bars is None
 
-    def test_y_el_archivo_corrupto_se_repara_solo(self):
+    def test_el_archivo_corrupto_NO_se_repara_solo(self):
+        # `bars: "texto"` pasa la guarda, asi que nunca se pide a la red y
+        # nunca se reescribe. El cache se queda envenenado para ese dia.
         self._escribe("D.json", '{"ticker":"D","date":"2026-07-31","bars":"texto"}')
         cached_daily_bars("D", now=HOY, fetch=lambda t, d: _barras(4))
-        assert load_bars("D").bars == _barras(4)
+        assert load_bars("D").bars == "texto"
+
+
+class TestElBordeDeLasBarras:
+    """`borde.barras_utiles` — la guarda, en el sitio donde su pipeline la tiene.
+
+    Sus barras salen de `fetchDailyBars`, que devuelve `DailyBar[]` construidos
+    por el, no JSON ajeno. Vertex sí lee JSON ajeno (el cache en disco), asi que
+    el borde se escribe.
+    """
+
+    def _escribe(self, nombre, contenido):
+        from wbj.tito.stores import data_dir
+
+        p = data_dir() / "bars"
+        p.mkdir(parents=True, exist_ok=True)
+        (p / nombre).write_text(contenido, encoding="utf-8")
+
+    @pytest.mark.parametrize("crudo", [
+        '{"ticker":"X","date":"2026-07-31"}',                      # BUG 1
+        '{"ticker":"X","date":"2026-07-31","bars":"texto"}',       # BUG 2
+        '{"ticker":"X","date":"2026-07-31","bars":{"length":9}}',
+        '{"ticker":"X","date":"2026-07-31","bars":[]}',
+        '{"ticker":"X","date":"2026-07-31","bars":[{"time":"x"},1]}',
+        '[1,2]',
+        'null',
+        '{no soy json',
+    ])
+    def test_un_cache_ilegible_es_un_cache_que_no_esta(self, crudo):
+        from wbj.tito.borde import barras_utiles
+
+        self._escribe("X.json", crudo)
+        assert barras_utiles(load_bars("X")) is None
+
+    def test_un_cache_bueno_pasa_entero(self):
+        from wbj.tito.borde import barras_utiles
+
+        save_bars("OK", _barras(5), HOY)
+        assert barras_utiles(load_bars("OK")) == _barras(5)
+
+    def test_una_sola_barra_rota_invalida_la_serie(self):
+        # Un cache a medias no es un ahorro: el historico se usa entero para
+        # maximos, minimos y toques. Mejor una peticion de mas.
+        import json
+
+        from wbj.tito.borde import barras_utiles
+
+        self._escribe("Y.json", json.dumps({
+            "ticker": "Y", "date": "2026-07-31",
+            "bars": [{"time": "2026-07-30", "high": 2, "low": 1, "close": 1.5},
+                     {"time": "2026-07-31", "high": "no"}],
+        }))
+        assert barras_utiles(load_bars("Y")) is None
+
+    def test_el_panel_no_se_come_ninguno_de_los_dos_bugs(self):
+        from wbj.tito.bars_store import daily_bars_for_panel
+
+        for nombre, crudo in (("P.json", '{"ticker":"P","date":"2026-07-31"}'),
+                              ("Q.json",
+                               '{"ticker":"Q","date":"2026-07-31","bars":"texto"}')):
+            self._escribe(nombre, crudo)
+            r = daily_bars_for_panel(nombre[0], now=HOY, fetch=lambda t, d: _barras(4))
+            assert r == _barras(4)
 
 
 ET = ZoneInfo("America/New_York")

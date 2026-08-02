@@ -68,73 +68,15 @@ NUMERICOS = {"strike", "openInterest", "volume", "openPremium", "notionalValue",
 
 
 def clasifica(campo, crudo, suyo, mio):
-    """¿Qué guarda del port explica esta diferencia? `None` = no declarada."""
-    det = crudo.get("details") if isinstance(crudo.get("details"), dict) else {}
-    day = crudo.get("day") if isinstance(crudo.get("day"), dict) else {}
-    lt = crudo.get("last_trade") if isinstance(crudo.get("last_trade"), dict) else {}
-    fuente = {"openInterest": crudo.get("open_interest"),
-              "strike": det.get("strike_price"),
-              "volume": day.get("volume")}.get(campo)
+    """¿Qué guarda del port explica esta diferencia? `None` = no declarada.
 
-    def negativo(x):
-        return (isinstance(x, (int, float)) and not isinstance(x, bool) and x < 0) or \
-               (isinstance(x, str) and x.strip().startswith("-"))
-
-    def ilegible(x):
-        return js_number(x) != js_number(x) or not math.isfinite(js_number(x))
-
-    if campo == "contractType":
-        return G_CASE if str(det.get("contract_type") or "").lower() == "put" else None
-    if campo == "expiration":
-        ve = suyo if isinstance(suyo, str) else str(suyo)
-        return G_EXP if ve[:10] == mio or str(suyo) == mio else None
-    if campo == "optionTicker":
-        # La guarda es "el campo se declara str": mismo valor, en texto.
-        return G_TICKER if _js_string(suyo) == mio else None
-    if campo in ("openInterest", "strike", "volume"):
-        if negativo(fuente):
-            return G_NEG
-        if ilegible(fuente):
-            return G_ILEG
-        n = js_number(suyo)
-        if math.isfinite(n) and int(n) == mio:
-            return G_ENTERO
-        return None
-    if campo in ("notionalValue", "openPremium"):
-        entradas = (crudo.get("open_interest"), det.get("strike_price"),
-                    det.get("shares_per_contract"), lt.get("price"),
-                    day.get("close"), day.get("vwap"))
-        if any(negativo(x) for x in entradas):
-            return G_NEG
-        if det.get("shares_per_contract") is not None and ilegible(det.get("shares_per_contract")):
-            return G_SHARES
-        if any(ilegible(x) for x in entradas[:3] if x is not None):
-            return G_ILEG
-        n = js_number(suyo)
-        if not math.isfinite(n):
-            return G_DESB
-        if any(isinstance(x, (int, float)) and not isinstance(x, bool)
-               and math.isinf(x) for x in entradas[3:]):
-            return G_INF
-        crudo_oi = crudo.get("open_interest")
-        no = js_number(crudo_oi)
-        if math.isfinite(no) and no != int(no):
-            return G_ENTERO
-        return None
-    if campo == "price":
-        return G_INF if not math.isfinite(js_number(suyo)) else None
+    El port de `compute.ts` es LITERAL y hoy no tiene ninguna guarda, así que
+    esta función devuelve `None` siempre y el diferencial sale a 0 declaradas.
+    Se conserva —y el mecanismo entero con ella— porque es la única forma de
+    que una divergencia futura tenga que declararse en vez de colarse: si
+    alguien mete una guarda sin nombrarla aquí, el script falla.
+    """
     return None
-
-
-G_CASE   = "case del tipo de contrato (\"PUT\" → put)"
-G_NEG    = "negativo → fallback (un nocional que resta)"
-G_ILEG   = "no numérico → fallback (NaN envenena la suma)"
-G_SHARES = "shares ilegible → 0 (no inventar el multiplicador)"
-G_DESB   = "producto desbordado → recortado"
-G_INF    = "precio infinito → siguiente de la cascada"
-G_EXP    = "vencimiento canónico YYYY-MM-DD"
-G_TICKER = "ticker a str (el campo se declara str)"
-G_ENTERO = "open interest / volumen a entero"
 
 valor, tipo, ejemplos = {}, {}, {}
 declaradas = {}
@@ -164,6 +106,14 @@ for i, (c, v) in enumerate(zip(casos, vic)):
                 tipo[js] = tipo.get(js, 0) + 1
                 ejemplos.setdefault((js, "tipo"), (i, suyo, mio, c))
                 continue
+        # El mismo muro, por el otro lado: `optionTicker` se declara `string` en
+        # los dos, pero TS no lo comprueba y un `details.ticker` numérico llega
+        # como número a su fila. `String(x)` es lo que hace su propia plantilla
+        # al pintarlo. Mismo valor, distinto tipo de campo — no es una guarda.
+        if js == "optionTicker" and _js_string(v["row"][js]) == getattr(r, py):
+            tipo[js] = tipo.get(js, 0) + 1
+            ejemplos.setdefault((js, "tipo"), (i, suyo, mio, c))
+            continue
         g = clasifica(js, c, v["row"][js], getattr(r, py))
         if g:
             declaradas[g] = declaradas.get(g, 0) + 1

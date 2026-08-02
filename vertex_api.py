@@ -3795,9 +3795,9 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
 
     from wbj.tito.marketsnack import MarketSnackError, fetch_flow
 
-    tk = (ticker or "").strip().upper()
-    if not tk:
-        return {"ok": False, "error": "Ticker vacío."}
+    tk, err = _tito_ticker(ticker)
+    if err:
+        return {"ok": False, "error": err}
 
     try:
         hz = tuple(int(h) for h in horizons.split(",") if h.strip())[:5] or (10, 20, 30)
@@ -3852,9 +3852,119 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     ]
     out["levels_for_chart"] = _tito_chart_levels(r)
     out["gex_heatmap"] = _tito_heatmap(chain or [], r, trades, now)
+    out["chart_geometry"] = _tito_chart_geometry(r)
+    out["flow_clusters"] = _tito_clusters(trades, now)
     # `_json_safe` = su `JSON.stringify`: NaN/Infinity → null. `_tito_json` ya
-    # pasó por ahí, pero estos cuatro campos se añaden después.
+    # pasó por ahí, pero estos campos se añaden después.
     return _json_safe(out)
+
+
+#: Pasos del cono y de las rutas. Son los de su `SimpleChart`: `conePoints(…, 24)`
+#: y `wigglePath(…, steps = 30)`.
+_CONO_STEPS = 24
+_RUTA_STEPS = 30
+
+#: Los tres escenarios de su `SimpleChart`, con la semilla que da a cada ruta su
+#: forma. El orden define el z-order al dibujar.
+_ESCENARIOS = (("bull", 1.7), ("base", 4.1), ("bear", 8.3))
+
+
+def _tito_chart_geometry(r):
+    """El cono y las rutas de la gráfica, calculados con SUS funciones.
+
+    Su `SimpleChart` importa `conePoints` y `predictionPath` de
+    `lib/expectedMove.ts` y los llama en el componente. Aquí la gráfica es un
+    SVG del navegador, así que la geometría se calcula en el servidor —con el
+    port de esas dos funciones— y viaja ya resuelta.
+
+    Por qué se hace así y no en JS: la fórmula estaba escrita **dos veces**, una
+    en `expected_move.py` (sin llamador) y otra a mano dentro de
+    `renderVictorProjChart`. Dos copias de la misma matemática es la forma más
+    barata de que una se quede atrás sin que nadie lo note; `diff_cono.sh` medía
+    la del navegador contra su archivo, pero nada garantizaba que las dos copias
+    coincidieran entre sí.
+
+    El `target` que se devuelve es el de `prediction_path` —ya recortado al cono
+    de 2σ—, que es exactamente lo que su `SimpleChart` etiqueta: *"El target es
+    el de `predictionPath` (ya recortado al cono), no el crudo."*
+
+    Nunca tumba la respuesta: si algo falla, devuelve `None` y la gráfica cae a
+    su fórmula local. Ilustra, no decide.
+    """
+    try:
+        from wbj.tito.expected_move import cone_points, prediction_path
+    except Exception:
+        return None
+    spot = r.spot
+    # `Math.max(iv, 0.01)` es SU suelo, dentro de `expected_move`. Aquí solo se
+    # evita el caso sin dato: sin IV no hay cono que dibujar.
+    iv = (r.gex.iv if r.gex and r.gex.iv else 0.0) or 0.4
+    if not (spot > 0):
+        return None
+    geo = {}
+    for dias, pred in (r.predictions or {}).items():
+        try:
+            cono = cone_points(spot, iv, float(dias), _CONO_STEPS)
+            rutas = {}
+            for clave, seed in _ESCENARIOS:
+                esc = getattr(pred, clave, None)
+                objetivo = getattr(esc, "target", None)
+                if objetivo is None:
+                    continue
+                ruta = prediction_path(spot, float(objetivo), iv, float(dias), _RUTA_STEPS)
+                rutas[clave] = {
+                    "seed": seed,
+                    "target": round(ruta.target, 4),
+                    # `clamped` avisa de que el escenario pedía más de lo que la
+                    # volatilidad da. La gráfica no puede dibujar fuera del cono.
+                    "clamped": bool(ruta.clamped),
+                    # `PredictionPath.points` son tuplas `(t, precio)`, que es su
+                    # `{ t, price }[]` sin nombre de campo.
+                    "points": [{"t": round(t, 4), "price": round(precio, 4)}
+                               for t, precio in ruta.points],
+                }
+        except Exception:
+            continue
+        geo[str(dias)] = {
+            "iv": round(iv, 6),
+            "cone": [{"t": round(c.t, 4),
+                      "upper1": round(c.upper1, 4), "lower1": round(c.lower1, 4),
+                      "upper2": round(c.upper2, 4), "lower2": round(c.lower2, 4)}
+                     for c in cono],
+            "paths": rutas,
+        }
+    return geo or None
+
+
+def _tito_clusters(trades, now, top=6):
+    """Racimos del tape: bursts agresivos contiguos en la misma dirección.
+
+    Es `detectClusters` de su `flow.ts`, que su `FlowPriceChart` usa para marcar
+    en la gráfica DÓNDE se concentró la agresión en vez de dejar el tape como
+    una lista plana. Lo que aporta y el scorecard no: la **apuesta neta** de
+    cada racimo —comprar puts es bajista, no alcista— y su ventana temporal.
+
+    Se recortan a los `top` de mayor premium: la gráfica no puede dibujar
+    cuarenta marcas y el resto ya está en el scorecard.
+    """
+    if not trades:
+        return None
+    try:
+        from wbj.tito.flow import classify_flow, detect_clusters
+        notables = classify_flow(trades, now).interesting
+        cl = detect_clusters(notables)
+    except Exception:
+        return None      # ilustra, no decide: nunca tumba los targets
+    cl = sorted(cl, key=lambda c: -c.premium)[:top]
+    return [{
+        "start_sec": c.start_sec, "end_sec": c.end_sec, "count": c.count,
+        "premium": c.premium, "direction": c.direction, "score": c.score,
+        "unidirectionality": round(c.unidirectionality, 4),
+        "bet": c.bet, "bet_label": c.bet_label,
+        "call_premium": c.call_premium, "put_premium": c.put_premium,
+        # Los strikes que tocó el racimo, para poder marcarlo en el eje de precio.
+        "strikes": sorted({t.strike for t in c.trades}),
+    } for c in cl] or None
 
 
 def _tito_heatmap(chain, r, trades, now):
@@ -3963,6 +4073,40 @@ def _tito_mod():
         return None
 
 
+def _tito_ticker(ticker, default=""):
+    """Valida el ticker EN EL BORDE. Devuelve `(tk, error)`; uno de los dos es None.
+
+    Este es el sitio que en su repo ocupan las rutas de Next: el ticker llega de
+    `searchParams`, se normaliza y se rechaza antes de tocar un store. Los
+    ports de `store.ts` y `barsStore.ts` son literales precisamente porque esta
+    comprobación existe aquí.
+
+    Lo que atrapa y un `.strip().upper()` no: `"!!!"`, `"@@@"`, `"ñ"` pasan el
+    "no está vacío" y luego el `fileFor` de Víctor los sanea TODOS a la cadena
+    vacía — o sea que escriben en el mismo `.json` y mezclan la memoria de un
+    ticker con la de otro. Y no es teórico: `fetch_option_chain` no lanza con
+    una cadena vacía (devuelve `rows=[]`), así que el camino se alcanza con
+    cualquier cosa que el usuario escriba en la caja.
+    """
+    crudo = (ticker or default or "").strip()
+    if not crudo:
+        return None, "Ticker vacío."
+    if _WBJ_ENGINE_PATH not in sys.path:
+        sys.path.insert(0, _WBJ_ENGINE_PATH)   # `tito_health` valida ANTES de importar el motor
+    try:
+        from wbj.tito.borde import TickerInvalido, ticker_valido
+    except Exception:
+        # Sin motor no hay panel, y el llamador ya lo reporta con su propio
+        # mensaje. Aquí no se inventa una validación de repuesto: sería un
+        # segundo saneado distinto del de Víctor, que es justo lo que `borde`
+        # existe para evitar.
+        return crudo.upper(), None
+    try:
+        return ticker_valido(crudo), None
+    except TickerInvalido as e:
+        return None, str(e)
+
+
 def _tito_chain_and_bars(ticker):
     """Cadena + barras diarias desde **Massive**, la fuente que usa Víctor.
 
@@ -4023,6 +4167,7 @@ def _tito_memory(ticker, trades, chain, bars, now):
                 "stats": {"available": False, "motivo": motivo}}
 
     try:
+        from wbj.tito import borde
         from wbj.tito import stores as st
         from wbj.tito.flow import classify_flow
     except Exception as e:
@@ -4062,7 +4207,12 @@ def _tito_memory(ticker, trades, chain, bars, now):
         #    seguir hacia adelante, así que no entra al backtest.
         iv_history = st.load_iv_history(ticker)
         stored = st.load_trades(ticker)
-        guardados = stored.trades if stored else []
+        crudos = stored.trades if stored else []
+        # `load_trades` es literal: devuelve el array del disco sin mirar su
+        # contenido, igual que su `loadTrades`. El filtro por forma va aquí, en
+        # el borde, que es donde su pipeline lo tiene: en TS `"basura".assetPrice`
+        # es `undefined` y la fila se cae sola en este mismo `filter`.
+        guardados = borde.trades_utiles(crudos)
         past = [t for t in guardados
                 if (t.get("asset_price") or 0) > 0 and t.get("timestamp")]
         journal = st.load_journal(ticker)
@@ -4084,6 +4234,16 @@ def _tito_memory(ticker, trades, chain, bars, now):
                 "flows_guardados": len(guardados),
                 "flows_utilizables": len(past),
                 "flows_descartados": len(guardados) - len(past),
+                # Filas que ni siquiera son objetos: un archivo a medio escribir
+                # o editado a mano. Se cuentan aparte de `flows_descartados`
+                # porque no son un problema del tape, son un problema del disco.
+                "flows_corruptos": len(crudos) - len(guardados),
+                # Filas sin `id`. Su dedupe es `t.id` a secas: si el tape deja
+                # de traer ese campo, `_base_row` mete 0 en todos y el `Map` se
+                # queda con UN solo trade de la corrida — sin error y sin que
+                # `added` avise. Es su comportamiento, portado tal cual; lo que
+                # no puede es pasar mudo (upstream-tito-store.patch).
+                "flows_sin_id": borde.trades_sin_id(crudos),
                 # Un fallo de ESCRITURA ya no se lleva la lectura, pero tampoco
                 # puede quedar mudo: la memoria se acumula hacia adelante y un
                 # día que no se guarda no se recupera.
@@ -4120,12 +4280,22 @@ def tito_health(ticker: str = "AAPL"):
 
     Nunca imprime credenciales: solo si están puestas, su longitud y si sirven.
     """
-    tk = (ticker or "AAPL").strip().upper()
+    tk, err_tk = _tito_ticker(ticker, default="AAPL")
     checks = []
 
     def add(nombre, ok, detalle, arreglo=None, impacto=None):
         checks.append({"check": nombre, "ok": bool(ok), "detalle": detalle,
                        "arreglo": arreglo, "impacto": impacto})
+
+    # 0. El ticker. Va primero porque sin él ninguna de las fuentes de abajo se
+    #    puede tocar, y porque es el check que explica el fallo más silencioso
+    #    del sistema: un ticker que el saneado de Víctor deja en nada.
+    if err_tk:
+        add("ticker", False, err_tk,
+            "escribe el símbolo con letras, números, punto, guion o guion bajo",
+            "sin ticker válido no se puede consultar ninguna fuente")
+        return {"ok": False, "ticker": None, "checks": checks}
+    add("ticker", True, f"{tk} (saneado como lo hace `fileFor`)")
 
     # 1. El motor
     sc = _tito_mod()
@@ -4199,6 +4369,7 @@ def tito_health(ticker: str = "AAPL"):
 
     # 4. Memoria — lo que enciende IV Rank real, sub-agente 6 y calibración
     try:
+        from wbj.tito import borde
         from wbj.tito import stores as st
         d = st.data_dir()
         d.mkdir(parents=True, exist_ok=True)
@@ -4207,15 +4378,18 @@ def tito_health(ticker: str = "AAPL"):
         probe.unlink()
         iv_days = len(st.load_iv_history(tk))
         _stored = st.load_trades(tk)
-        flows = len(_stored.trades) if _stored else 0
+        # `load_trades` es literal y devuelve el array tal como está en disco;
+        # el filtro por forma es el del borde, el mismo que usa `_tito_memory`.
+        _crudos = _stored.trades if _stored else []
+        _sanos = borde.trades_utiles(_crudos)
+        flows = len(_sanos)
         add("memoria.disco", True, f"escribible en {d}", None, None)
         add("memoria.iv", iv_days >= 60,
             f"{iv_days}/60 días de IV acumulados",
             None if iv_days >= 60 else f"faltan {60 - iv_days} sesiones; se acumula solo",
             None if iv_days >= 60 else "IV Rank usa el proxy de volatilidad realizada")
-        usables = sum(1 for t in (_stored.trades if _stored else [])
-                      if isinstance(t, dict)          # ver el filtro de _tito_memory
-                      and (t.get("asset_price") or 0) > 0 and t.get("timestamp"))
+        usables = sum(1 for t in _sanos
+                      if (t.get("asset_price") or 0) > 0 and t.get("timestamp"))
         add("memoria.flows", usables > 0,
             f"{flows} flows guardados"
             + (f" (tope {st.MAX_PER_TICKER}: ya rota lo más viejo)" if flows >= st.MAX_PER_TICKER else "")
@@ -4225,22 +4399,25 @@ def tito_health(ticker: str = "AAPL"):
             + (f" · última escritura {_stored.updated_at}" if _stored and _stored.updated_at else ""),
             None if flows else "se acumulan con cada consulta",
             None if usables else "sub-agente 6 (Confirmación) sin score")
-        # `load_trades` ya descarta las filas corruptas —sin eso, su
-        # `byId.set(t.id, t)` sobre un `null` tumbaba CADA guardado, y para
-        # siempre, porque la fila seguía en el archivo—. Pero descartarlas en
-        # silencio tampoco vale: son trades que se pierden. Se cuentan leyendo
-        # el archivo crudo, que es lo único que las ve.
-        _rotas = 0
-        try:
-            _crudo = json.loads((d / "trades" / f"{tk}.json").read_text(encoding="utf-8"))
-            _rotas = sum(1 for t in _crudo.get("trades", []) if not isinstance(t, dict))
-        except Exception:
-            pass
+        # Filas que no son objetos. Su `byId.set(t.id, t)` sobre un `null`
+        # tumba CADA guardado —y para siempre, porque la fila sigue en el
+        # archivo—, así que esto no es cosmético: es la memoria del sub-agente 6
+        # congelada. El port replica su comportamiento; el aviso es de Vertex.
+        _rotas = len(_crudos) - len(_sanos)
         if _rotas:
             add("memoria.flows.corrupto", False,
-                f"{_rotas} fila(s) corrupta(s) en trades/{tk}.json, descartadas al leer",
-                "el archivo se repara solo en el próximo guardado; esas filas ya no vuelven",
-                f"{_rotas} trades perdidos del historial del sub-agente 6")
+                f"{_rotas} fila(s) corrupta(s) en trades/{tk}.json",
+                "borra esas filas del archivo: mientras estén, cada `save_trades` "
+                "se cae al recorrerlas y no se guarda un solo flow nuevo",
+                "el historial del sub-agente 6 deja de crecer, en silencio")
+        # Trades sin `id`. Su dedupe es `t.id` a secas, así que todos colisionan
+        # en la misma clave y el `Map` conserva UNO de la corrida entera.
+        _sin_id = borde.trades_sin_id(_crudos)
+        if _sin_id:
+            add("memoria.flows.sin_id", False,
+                f"{_sin_id} de {len(_crudos)} trades guardados no traen `id`",
+                "revisa que el tape de MarketSnack siga trayendo el campo `id`",
+                "el dedupe los colapsa en uno solo: se guarda 1 trade por corrida")
         if flows and not usables:
             add("memoria.flows.formato", False,
                 f"los {flows} trades guardados no traen asset_price/timestamp usables",
@@ -4282,9 +4459,9 @@ def tito_news(ticker: str, call_pct: float | None = None, name: str | None = Non
     if sc is None:
         return {"ok": False, "error": "Motor de Víctor no disponible."}
 
-    tk = (ticker or "").strip().upper()
-    if not tk:
-        return {"ok": False, "error": "Falta el ticker."}
+    tk, err = _tito_ticker(ticker)
+    if err:
+        return {"ok": False, "error": err}
 
     try:
         from wbj.tito import news as N
@@ -4423,9 +4600,9 @@ def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
 
     from wbj.tito.marketsnack import MarketSnackError, fetch_flow
 
-    tk = (ticker or "").strip().upper()
-    if not tk:
-        return {"ok": False, "error": "Ticker vacío."}
+    tk, err = _tito_ticker(ticker)
+    if err:
+        return {"ok": False, "error": err}
 
     try:
         hz = tuple(int(h) for h in horizons.split(",") if h.strip())[:5] or (10, 20, 30)

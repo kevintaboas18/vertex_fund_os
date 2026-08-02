@@ -4,15 +4,21 @@ Encontrados al portar el módulo a Python (Vertex Fund OS) con un test
 diferencial: se ejecuta el barsStore.ts real en Node y el port en Python sobre
 los mismos casos, y se comparan las salidas. Los dos salen del mismo sitio.
 
-Nota sobre el port: los dos bugs están ARREGLADOS en la versión de Python, y el
-arreglo es el que se propone abajo. Estuvieron replicados mientras el módulo no
-lo llamaba nadie —su cabecera dice que en v1 solo lo usa Wheel—; se taparon al
-enchufar el cache al panel de Proyecciones, donde un archivo a medio escribir
-tumbaría la petición o la dejaría calculando sobre texto.
+Nota sobre el port: los dos bugs están REPLICADOS TAL CUAL en la versión de
+Python. El port de `barsStore.ts` es literal —27/27 casos idénticos, cero
+divergencias declaradas— y los tests `TestLasDosDeLoadBarsSeQuedanComoEl` fijan
+los dos comportamientos: el cache sin campo `bars` LANZA y el `bars` de texto SÍ
+se devuelve como barras.
 
-El diferencial lo comprueba en las dos direcciones: 22/27 casos idénticos, y los
-5 restantes son exactamente esta guarda, cada uno declarado en su caso. Los
-tests `TestLasDosGuardasDeLoadBars` fijan el comportamiento.
+El arreglo que se propone abajo es para ESTE repo (agente-tito-metralleta), que
+es donde tiene que vivir.
+
+Qué hace Vertex mientras tanto: la guarda vive en el BORDE
+(`engine/wbj/tito/borde.py::barras_utiles`) y solo la usa
+`daily_bars_for_panel`, que es política propia de Vertex y no un port de
+`cachedDailyBars`. Es el sitio equivalente al de este repo: aquí las barras
+salen de `fetchDailyBars`, que devuelve `DailyBar[]` construidos por el propio
+código, no JSON ajeno leído del disco.
 
 
 ── El origen: un `as` que el disco no tiene por qué cumplir ────────────────

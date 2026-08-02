@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from wbj.tito.compute import (
@@ -141,14 +143,12 @@ class TestLasDosReglasDeVictor:
                     "details": {"strike_price": 100, "shares_per_contract": None}})
         assert r.notional_value == 10 * 100 * 100
 
-    def test_la_basura_no_numerica_cae_al_fallback(self):
-        # GUARDA: en JS `"abc" * 100 * 100` da NaN y envenena el nocional en
-        # silencio — un NaN no es ni un número ni una ausencia, y se lleva la
-        # suma entera del sub-agente 4. Aquí cae a 0, que además enciende la
-        # salvaguarda de baja liquidez.
+    def test_la_basura_no_numerica_da_NaN_como_en_JS(self):
+        # `Number("abc")` es NaN y `NaN * 100 * 100` es NaN. Se porta tal cual:
+        # `?? fallback` solo rellena el AUSENTE, no el ilegible.
         r = to_row({"open_interest": "abc", "details": {"strike_price": 100}})
-        assert r.open_interest == 0
-        assert r.notional_value == 0
+        assert math.isnan(r.open_interest)
+        assert math.isnan(r.notional_value)
 
     def test_el_precio_conserva_la_regla_estricta(self):
         # Aquí NO se coacciona: un precio raro cae al siguiente de la cascada.
@@ -158,18 +158,27 @@ class TestLasDosReglasDeVictor:
 class TestNoInventarElMultiplicador:
     """`shares_per_contract` ILEGIBLE no es lo mismo que AUSENTE.
 
-    Su `?? 100` solo rellena cuando el campo falta. GUARDA: caer al 100 cuando
-    el campo viene y no se entiende es inventar el multiplicador estándar justo
-    donde no hay evidencia de cuál es — el mismo bug que motivó portar este
-    módulo, por la puerta de atrás. Medido: con `"abc"` el fallback a 100 daba
-    un nocional de $900.000 sobre un contrato del que no sabemos nada.
+    Su `?? 100` solo rellena cuando el campo falta; un `"abc"` NO cae al 100.
+    Ese es el detalle que motivó portar este módulo entero —dar por hecho 100
+    acciones por contrato infla el nocional de los ajustados por el factor del
+    ajuste— y es literal en su archivo: la aritmética de JS convierte el
+    ilegible en `NaN`, no en 100.
     """
 
-    @pytest.mark.parametrize("basura", ["abc", {}, "NaN", "inf", "", "   ", []])
+    @pytest.mark.parametrize("basura", ["abc", {}, "NaN", "inf"])
     def test_shares_ilegible_no_cae_al_100(self, basura):
         r = to_row({"open_interest": 100,
                     "details": {"strike_price": 9000, "shares_per_contract": basura}})
-        assert r.notional_value == 0, "se fabricó un multiplicador de la nada"
+        assert math.isnan(r.notional_value), "se fabricó un multiplicador de la nada"
+        assert r.notional_value != 100 * 100 * 9000
+
+    @pytest.mark.parametrize("vacio", ["", "   ", []])
+    def test_shares_en_blanco_es_CERO_en_JS(self, vacio):
+        # `Number("")`, `Number("   ")` y `Number([])` son 0, no NaN. Otra vez:
+        # tampoco son 100.
+        r = to_row({"open_interest": 100,
+                    "details": {"strike_price": 9000, "shares_per_contract": vacio}})
+        assert r.notional_value == 0
 
     def test_shares_ausente_si_cae_al_100(self):
         r = to_row({"open_interest": 100, "details": {"strike_price": 9000}})
@@ -204,40 +213,47 @@ class TestBooleanos:
             == (2, "day_close")
 
 
-class TestLasCincoGuardas:
-    """Las cinco divergencias deliberadas de este módulo, con lo que cuesta cada
-    una medido contra su `compute.ts` ejecutado en Node.
+class TestLasCincoQueSeQuedanComoEl:
+    """Los cinco puntos donde `compute.ts` maneja mal una entrada malformada.
 
-    El criterio no es de estilo: con datos BIEN FORMADOS el port es idéntico al
-    suyo (500/500 filas en `diff_compute.sh`). Estas guardas solo actúan sobre
-    entradas que su propio código maneja mal. Las cinco están propuestas para el
-    upstream en `engine/scripts/upstream-tito-compute.patch`.
+    Este módulo es **literal**: los cinco están portados tal cual, comprobados
+    ejecutando su archivo en Node (`diff_compute.sh`, 604/604 sin una sola
+    divergencia declarada). Los arreglos propuestos aguas arriba viven en
+    `engine/scripts/upstream-tito-compute.patch`; lo que aquí se fija es que el
+    port hace exactamente lo que hace el suyo, ni más ni menos.
+
+    Lo que protege a Vertex de estos cinco no es una guarda dentro del módulo,
+    es el borde: `_json_safe` en el endpoint (que es su `JSON.stringify`) y los
+    filtros de `borde.py`. Los dos últimos tests de la clase lo comprueban.
     """
 
-    def test_1_un_precio_infinito_cae_al_siguiente_de_la_cascada(self):
-        # El suyo: `Infinity > 0` es true, así que lo devuelve como precio y el
-        # `day.close` bueno que viene detrás no se llega a mirar.
+    def test_1_un_precio_infinito_se_devuelve_como_precio(self):
+        # `Infinity > 0` es true, así que lo devuelve y el `day.close` bueno que
+        # viene detrás no se llega a mirar. Suyo, portado.
         assert contract_price({"last_trade": {"price": float("inf")},
-                               "day": {"close": 2}}) == (2, "day_close")
+                               "day": {"close": 2}}) == (float("inf"), "last_trade")
+        # El negativo sí cae al siguiente nivel: su cascada ya lo trataba.
         assert contract_price({"day": {"close": float("-inf"), "vwap": 1.5}}) \
             == (1.5, "day_vwap")
-        assert contract_price({"last_trade": {"price": float("inf")}}) == (None, "none")
 
-    @pytest.mark.parametrize("crudo,campo", [
-        ({"open_interest": -500, "details": {"strike_price": 100}}, "open_interest"),
-        ({"open_interest": 500, "details": {"strike_price": -100}}, "strike"),
-        ({"day": {"volume": -9}}, "volume"),
+    @pytest.mark.parametrize("crudo,esperado", [
+        ({"open_interest": -500, "details": {"strike_price": 100}}, -500 * 100 * 100),
+        ({"open_interest": 500, "details": {"strike_price": -100}}, 500 * 100 * -100),
         ({"open_interest": 10,
-          "details": {"strike_price": 100, "shares_per_contract": -100}}, "shares"),
+          "details": {"strike_price": 100, "shares_per_contract": -100}},
+         10 * -100 * 100),
     ])
-    def test_2_ningun_negativo_produce_un_nocional_negativo(self, crudo, campo):
-        r = to_row(crudo)
-        assert r.notional_value >= 0
-        assert r.open_interest >= 0 and r.volume >= 0 and r.strike >= 0
+    def test_2_un_negativo_produce_un_nocional_negativo(self, crudo, esperado):
+        assert to_row(crudo).notional_value == esperado
 
-    def test_2b_una_fila_corrupta_no_tira_la_cadena_entera(self):
-        """Lo que cuesta la guarda 2, medido: sin ella UNA fila de OI -900k
-        invierte el nocional de la cadena y la declara ilíquida."""
+    def test_2b_y_una_fila_corrupta_invierte_la_cadena_entera(self):
+        """Lo que cuesta portarlo literal, medido: UNA fila de OI -900k invierte
+        el nocional de la cadena y la declara ilíquida. Es su comportamiento.
+
+        Se fija a propósito. Si algún día deja de pasar, o alguien metió una
+        guarda que él no tiene, o su archivo cambió — las dos cosas hay que
+        enterarse de ellas.
+        """
         from wbj.tito.structure import structure_score
 
         def cadena(con_corrupta):
@@ -256,9 +272,8 @@ class TestLasCincoGuardas:
             return filas
 
         sana, sucia = structure_score(cadena(False)), structure_score(cadena(True))
-        assert sucia.notional["total"] == sana.notional["total"]
-        assert sucia.score == sana.score
-        assert not sucia.notional["low_liquidity"]
+        assert sucia.notional["total"] < 0 < sana.notional["total"]
+        assert sucia.notional["low_liquidity"]
 
     def test_2c_el_precio_negativo_sigue_con_su_propia_regla(self):
         # La cascada ya lo trataba: cae al siguiente nivel, no al fallback.
@@ -268,61 +283,59 @@ class TestLasCincoGuardas:
     @pytest.mark.parametrize("oi,strike,shares", [
         (1e200, 1e200, 100), (1e308, 10, 100), (1e160, 1e160, 1e160),
     ])
-    def test_3_el_producto_desbordado_no_llega_a_la_fila(self, oi, strike, shares):
-        # `1e200 * 100 * 1e200` es `inf` con las dos entradas finitas: filtrar
-        # solo lo que ENTRA dejaba el agujero abierto por el otro lado.
+    def test_3_el_producto_desbordado_llega_a_la_fila_como_infinito(self, oi, strike, shares):
+        # `1e200 * 100 * 1e200` es `Infinity` con las dos entradas finitas.
         r = to_row({"open_interest": oi,
                     "details": {"strike_price": strike, "shares_per_contract": shares}})
-        assert r.notional_value == 0
+        assert math.isinf(r.notional_value)
 
-    def test_3b_un_open_premium_desbordado_tampoco(self):
+    def test_3b_un_open_premium_desbordado_tambien(self):
         r = to_row({"open_interest": 1e200, "last_trade": {"price": 1e200},
                     "details": {"strike_price": 1}})
-        assert r.open_premium is None
+        assert math.isinf(r.open_premium)
 
-    def test_4_el_ticker_usa_la_semantica_de_Victor_pero_es_str(self):
-        # `?? ""`, no `or ""`: solo el ausente cae a vacío. El `str()` es la
-        # guarda — el campo se declara `str` y acaba en la tabla del panel.
+    def test_4_el_ticker_usa_la_semantica_de_Victor(self):
+        # `?? ""`, no `or ""`: solo el ausente cae a vacío. `String(0)` es "0",
+        # que es lo que produce la interpolación de su plantilla.
         assert to_row({"details": {"ticker": None}}).option_ticker == ""
         assert to_row({"details": {}}).option_ticker == ""
         assert to_row({"details": {"ticker": 0}}).option_ticker == "0"
         assert to_row({"details": {"ticker": "O:X"}}).option_ticker == "O:X"
 
-    def test_5_el_vencimiento_queda_canonico(self):
-        # Es la CLAVE con la que agrupan el sub-agente 4 y el heatmap.
+    def test_5_el_vencimiento_entra_TAL_CUAL(self):
+        # Sin recorte a 10 caracteres: es la clave con la que agrupan el
+        # sub-agente 4 y el heatmap, y él la usa cruda.
         for crudo in ("2026-09-18", "2026-09-18T00:00:00", "2026-09-18T00:00:00Z"):
-            assert to_row({"details": {"expiration_date": crudo}}).expiration == "2026-09-18"
+            assert to_row({"details": {"expiration_date": crudo}}).expiration == crudo
 
-    def test_5b_dos_formatos_del_mismo_dia_agrupan_juntos(self):
+    def test_5b_dos_formatos_del_mismo_dia_NO_agrupan_juntos(self):
+        # Su consecuencia directa, fijada: el mismo vencimiento escrito de dos
+        # formas cuenta como dos. Ver upstream-tito-compute.patch.
         from wbj.tito.structure import structure_score
 
         filas = [to_row({"details": {"contract_type": "call", "strike_price": 100,
                                      "expiration_date": e},
                          "open_interest": 1000, "day": {"volume": 100}})
                  for e in ("2026-09-18", "2026-09-18T00:00:00")]
-        exps = structure_score(filas).expirations
-        assert len(exps) == 1 and exps[0].expiration == "2026-09-18"
-        assert exps[0].contracts == 2
-        assert count_expirations(filas) == 1
+        assert len(structure_score(filas).expirations) == 2
+        assert count_expirations(filas) == 2
 
-    def test_la_fila_siempre_serializa_a_json_estricto(self):
-        """Con las guardas puestas, la fila ya es JSON válido por sí sola —
-        `_json_safe` del endpoint deja de ser la única línea de defensa."""
-        import json
+    def test_la_fila_SI_puede_llevar_no_finitos(self):
+        """El módulo no limpia nada: NaN e Infinity salen en la fila.
 
+        Quien los convierte en `null` es `_json_safe` del endpoint, que es el
+        port de su `JSON.stringify` — la misma y única línea de defensa que
+        tiene él. Fijado desde el otro lado en
+        `tests_vertex/test_tito_wiring.py`.
+        """
         filas = [to_row({"open_interest": "abc", "details": {"strike_price": 100}}),
                  to_row({"open_interest": 1e200, "last_trade": {"price": 1e200},
                          "details": {"strike_price": 1e200}}),
                  to_row({"last_trade": {"price": float("inf")}, "open_interest": 100,
                          "details": {"strike_price": 50}})]
-        crudo = json.dumps([{"oi": f.open_interest, "nv": f.notional_value,
-                             "op": f.open_premium, "p": f.price} for f in filas])
-
-        def estricto(c):
-            raise ValueError(c)
-
-        json.loads(crudo, parse_constant=estricto)
-        assert "NaN" not in crudo and "Infinity" not in crudo
+        assert math.isnan(filas[0].notional_value)
+        assert math.isinf(filas[1].notional_value)
+        assert math.isinf(filas[2].price)
 
 
 class TestLasDosFuncionesQueFaltabaCablear:
@@ -371,23 +384,32 @@ class TestCoherenciaInterna:
         assert r.open_premium is None or r.open_premium == r.open_interest * (r.price or 0)
 
 
-class TestElTipoDeContratoNoPuedeDependerDelCase:
-    """La guarda más barata y la más cara de no tener: no avisa, miente.
+class TestElTipoDeContratoDependeDelCase:
+    """`t === "put"` exacto. Un `"PUT"` de la fuente se convierte en **call**.
 
-    Víctor compara `t === "put"` exacto, así que un `"PUT"` de la fuente se
-    convierte en **call**. Y el `case` de un campo es justo lo que cambia en una
-    migración de proveedor sin que nadie lo note.
+    Es lo más caro de su archivo y lo que menos avisa: no lanza, miente. Y el
+    `case` de un campo es justo lo que cambia en una migración de proveedor sin
+    que nadie lo note. Portado literal; el arreglo propuesto está en
+    `upstream-tito-compute.patch`.
+
+    Lo que hace que esto NO llegue a Proyecciones es la fuente: Massive envía
+    `contract_type` en minúsculas, y el día que deje de hacerlo lo dirá este
+    test al romperse contra su archivo en `diff_compute.sh`.
     """
 
-    def test_put_en_cualquier_case_sigue_siendo_put(self):
-        for t in ("put", "PUT", "Put", " put "):
-            assert to_row({"details": {"contract_type": t}}).contract_type == "put"
+    def test_solo_el_put_en_minusculas_es_put(self):
+        assert to_row({"details": {"contract_type": "put"}}).contract_type == "put"
+
+    def test_cualquier_otro_case_se_vuelve_call(self):
+        for t in ("PUT", "Put", " put "):
+            assert to_row({"details": {"contract_type": t}}).contract_type == "call"
 
     def test_lo_que_no_es_put_es_call(self):
         for t in ("call", "CALL", "P", "", None, 5):
             assert to_row({"details": {"contract_type": t}}).contract_type == "call"
 
-    def test_el_gex_no_cambia_de_signo_con_la_cadena_en_mayusculas(self):
+    def test_el_gex_cambia_de_signo_con_la_cadena_en_mayusculas(self):
+        """Lo que cuesta, medido: -13.6M → +27.2M y el régimen se invierte."""
         from datetime import datetime, timezone
 
         from wbj.tito.gex import gex_analysis
@@ -405,9 +427,8 @@ class TestElTipoDeContratoNoPuedeDependerDelCase:
 
         bajo = gex_analysis(cadena(False), [100.0] * 60, 100.0, now)
         alto = gex_analysis(cadena(True), [100.0] * 60, 100.0, now)
-        # Sin la guarda: -13.6M → +27.2M y el régimen se invierte.
-        assert alto.total_net_gex == bajo.total_net_gex
-        assert alto.regime == bajo.regime
+        assert bajo.total_net_gex < 0 < alto.total_net_gex
+        assert alto.regime != bajo.regime
 
 
 class TestUnaFilaMalaNoTumbaLaPagina:
@@ -430,14 +451,18 @@ class TestUnaFilaMalaNoTumbaLaPagina:
             assert r.strike == 0 and r.open_interest == 0
 
     def test_un_string_no_finito_no_revienta_la_conversion(self):
-        # `float("NaN")` y `float("inf")` PARSEAN en Python: sin filtro llegaba
-        # a `int(oi)` y lanzaba ValueError dentro del cliente HTTP, tumbando la
-        # cadena completa. `Number("inf")` además es NaN en JS, no infinito.
-        for v in ("NaN", "nan", "inf", "-Infinity", "Infinity"):
+        # `float("NaN")` y `float("inf")` PARSEAN en Python, `Number()` no
+        # siempre: `Number("inf")` es NaN y `Number("Infinity")` sí es infinito
+        # (distingue el case). Lo que se fija es que ninguno LANCE — el port no
+        # llama a `int()` en ningún sitio, igual que él.
+        for v in ("NaN", "nan", "inf"):
             r = to_row({"open_interest": v, "details": {"strike_price": 100}})
-            assert r.open_interest == 0 and r.notional_value == 0
+            assert math.isnan(r.open_interest) and math.isnan(r.notional_value)
+        for v in ("Infinity", "-Infinity"):
+            r = to_row({"open_interest": v, "details": {"strike_price": 100}})
+            assert math.isinf(r.open_interest) and math.isinf(r.notional_value)
         r = to_row({"open_interest": 10, "details": {"strike_price": float("nan")}})
-        assert r.strike == 0 and r.notional_value == 0
+        assert math.isnan(r.strike) and math.isnan(r.notional_value)
 
     def test_una_fila_mala_en_medio_de_la_pagina_no_se_lleva_el_resto(self):
         crudos = [
@@ -494,7 +519,7 @@ class TestNumberDeJSNoEsFloatDePython:
         for v in ("1_0", "1_000", "12_3.4", "1_0.5"):
             assert math.isnan(_js_number(v)), v
         r = to_row({"open_interest": "1_000", "details": {"strike_price": 100}})
-        assert r.open_interest == 0        # NaN → fallback de la guarda
+        assert math.isnan(r.open_interest)   # NaN, como él: NO 1000
 
     def test_las_bases_que_JS_entiende_y_float_no(self):
         from wbj.tito.compute import _js_number

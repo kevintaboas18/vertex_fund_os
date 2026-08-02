@@ -22,10 +22,15 @@ CADA consulta y el panel se auto-refresca. Las barras diarias cambian una vez al
 día. Es exactamente el motivo que él escribió para Wheel, aplicado a un panel
 que consulta un ticker en vez de cuarenta.
 
-Dos cosas no son traducción literal, las dos declaradas en su sitio: el manejo
-de fichero (se reutilizan `_exclusive`, `_read` y `_write` de `stores.py`) y la
-validación de `load_bars`, que tapa los dos bugs de su archivo — inertes
-mientras no lo llamaba nadie, reales desde que el panel lo usa.
+Lo único que no es traducción literal de sus tres funciones es el manejo de
+fichero: se reutilizan `_exclusive`, `_read` y `_write` de `stores.py`, que
+añaden cerrojo y escritura atómica sin cambiar nada de lo observable con una
+petición a la vez.
+
+Sus DOS bugs de `loadBars` (`as BarsFile` no comprueba nada) están portados tal
+cual. La guarda que los tapaba se movió al borde de Vertex
+(`borde.barras_utiles`), que es donde su pipeline la tiene: sus barras salen de
+`fetchDailyBars`, que devuelve `DailyBar[]` construidos por él, no JSON ajeno.
 """
 
 from __future__ import annotations
@@ -35,9 +40,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
+from .borde import barras_utiles
 from .levels import LvlBar
 from .occ import market_date_str
-from .stores import _exclusive, _read, _sanea_ticker, _write, data_dir
+from .stores import _exclusive, _prop, _read, _sanea_ticker, _write, data_dir
 
 __all__ = [
     "BarsFile",
@@ -68,78 +74,74 @@ def _file_for(ticker: str) -> Path:
 
         const safe = ticker.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "");
 
-    GUARDA (divergencia deliberada): usa el MISMO `_sanea_ticker` que
-    `stores.py`, que además rechaza el ticker que se queda en nada (`"!!!"`,
-    `""`, `"ñ"`) y el demasiado largo. Su regex los sanea todos a la cadena
-    vacía y los manda al mismo `.json`.
-
-    Mientras el módulo no lo llamaba nadie esto daba igual y se dejó literal. Al
-    cablearlo dejó de dar igual: `fetch_option_chain` **no lanza** con una cadena
-    vacía —devuelve `rows=[]`, que el motor sabe manejar—, así que la llamada a
-    barras se alcanza con cualquier ticker que el usuario escriba.
-
-    Se comparte la función en vez de copiarla: dos saneados distintos para la
+    Es exactamente el mismo saneado que su `store.ts`, así que se comparte
+    `_sanea_ticker` en vez de copiar el regex: dos saneados distintos para la
     misma entrada, en el mismo repo, es una trampa por sí sola.
 
-    La travesía de rutas ya la cerraba su regex: borra las barras, así que
-    `../..` se queda en `....` y no sale del directorio.
+    Sin guardas. Su regex ya cierra la travesía de rutas —borra las barras, así
+    que `"../../etc/x"` se queda en `"....ETCX"`—; lo que NO cierra es el cubo
+    compartido (`"!!!"`, `""` y `"ñ"` van todos al mismo `.json`). Esa guarda
+    vive en el borde de Vertex (`borde.ticker_valido`), igual que en su repo
+    vive en las rutas de Next.
     """
     return data_dir() / "bars" / f"{_sanea_ticker(ticker)}.json"
 
 
-def _a_bar(d: object) -> LvlBar | None:
-    """`DailyBar` crudo → `LvlBar`. En TS esto es el `as BarsFile` del `JSON.parse`."""
+def _a_bar(d: object) -> Any:
+    """`DailyBar` crudo → `LvlBar`, o el valor TAL CUAL si no lo es.
+
+    En TS no hay conversión: los objetos del JSON ya sirven como `DailyBar` por
+    su forma, y uno malformado se queda en la lista con sus campos en
+    `undefined`. En Python hace falta un `LvlBar` para que `levels`,
+    `validation` y compañía puedan leer `b.time`.
+
+    Lo que no se hace es **descartar**: una barra ilegible se devuelve sin
+    tocar. Filtrarla cambiaría `bars.length`, que es justo lo único que mira su
+    `cachedDailyBars` — una lista de 250 barras rotas pasaría a valer 0 y el
+    cache se recargaría donde el suyo no lo hace. Quién decide sobre una serie
+    ilegible es `borde.barras_utiles`, no esta función.
+    """
     if not isinstance(d, dict):
-        return None
+        return d
     try:
         return LvlBar(time=str(d["time"]), high=float(d["high"]),
                       low=float(d["low"]), close=float(d["close"]))
     except (KeyError, TypeError, ValueError):
-        return None
+        return d
 
 
 def load_bars(ticker: str) -> BarsFile | None:
-    """`loadBars`:
+    """`loadBars`, literal:
 
         const raw = await fs.readFile(fileFor(ticker), "utf8");
         return JSON.parse(raw) as BarsFile;
+        // catch → null
 
-    GUARDA (divergencia deliberada): **se valida lo que hay en disco**. Ese `as`
-    es una afirmación para el compilador, no una comprobación, así que en el
-    original lo que haya en el archivo pasa tal cual y `cachedDailyBars` lo usa
-    sin mirar. De ahí salen sus dos bugs:
+    Ese `as` es una afirmación para el compilador, no una comprobación: lo que
+    haya en el archivo entra tal cual. **No se valida nada**, como él. De ahí
+    salen sus dos bugs, portados a propósito:
 
         {"ticker":"A","date":hoy}                → `cached.bars.length` lanza
         {"ticker":"B","date":hoy,"bars":"texto"} → devuelve el string "texto"
 
-    El segundo es el feo: `"texto".length > 0` es cierto, así que la guarda pasa
-    y el llamador recibe un string donde espera barras. Sin excepción: el
-    análisis sigue, sobre basura y en silencio.
+    Ver `engine/scripts/upstream-tito-barsstore.patch` para el arreglo propuesto
+    aguas arriba. Quien no quiera comerse ninguno de los dos pasa el resultado
+    por `borde.barras_utiles`, que es lo que hace `daily_bars_for_panel`.
 
-    Mientras el módulo no lo llamaba nadie los dos estaban replicados. Ahora que
-    el panel de Proyecciones sí lo usa, un archivo a medio escribir —un proceso
-    muerto, un disco lleno— tumbaría la petición entera o, peor, la dejaría
-    calculando sobre texto. Un cache ilegible es un cache que no está: se
-    devuelve `None`, se pide a la red y el archivo se reescribe solo.
-
-    Ver `engine/scripts/upstream-tito-barsstore.patch`.
-
-    Lo que sí se conserva del original: la lista de barras se reconstruye cuando
-    de verdad es una lista. En TS los objetos del JSON ya sirven como `DailyBar`
-    por su forma; en Python hacen falta `LvlBar` para que `levels`, `validation`
-    y compañía puedan leer `b.time`.
+    El `None` sale solo donde sale el suyo: su `catch` cubre el archivo que no
+    existe, el JSON roto y `JSON.parse("null")`. Los campos se leen con las
+    reglas de JS (`_prop`), así que un archivo que en disco sea un array o un
+    número da un `BarsFile` con los tres campos en `None` — igual que su
+    `cached.date` sería `undefined` y el cache se descartaría por no coincidir.
     """
-    try:
-        path = _file_for(ticker)
-    except ValueError:
-        return None          # un ticker sin nombre de archivo tampoco tiene cache
-    parsed = _read(path)
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("bars"), list):
+    parsed = _read(_file_for(ticker))
+    if parsed is None:
         return None
+    bars = _prop(parsed, "bars")
     return BarsFile(
-        ticker=parsed.get("ticker"),
-        date=parsed.get("date"),
-        bars=[b for b in (_a_bar(x) for x in parsed["bars"]) if b is not None],
+        ticker=_prop(parsed, "ticker"),
+        date=_prop(parsed, "date"),
+        bars=[_a_bar(x) for x in bars] if isinstance(bars, list) else bars,
     )
 
 
@@ -175,7 +177,9 @@ def cached_daily_bars(
     cached = load_bars(ticker)
     # `if (cached && cached.date === today && cached.bars.length > 0)` — con
     # `len()`, no con la veracidad del objeto: es lo que hace que un `bars`
-    # ausente lance (BUG 1) y que un `bars` de texto pase la guarda (BUG 2).
+    # ausente lance (BUG 1, `len(None)` = TypeError) y que un `bars` de texto
+    # pase la guarda y salga por el `return` (BUG 2). Los dos suyos, los dos
+    # portados. `daily_bars_for_panel` es la que no se los come.
     if cached is not None and cached.date == today and len(cached.bars) > 0:
         return cached.bars
 
@@ -269,14 +273,18 @@ def daily_bars_for_panel(
     el cache recortaba el histórico en silencio — con el año de barras que
     necesitan `levels` y el sub-agente 6 dependiendo de ello.
 
+    Y una quinta: el archivo se lee por `borde.barras_utiles`, así que los dos
+    bugs del `as BarsFile` de su `loadBars` —que aquí están portados tal cual—
+    no llegan al panel. Un cache ilegible se trata como un cache que no está.
+
     `fetch` solo existe para poder probar esto sin red.
     """
     now = now or datetime.now(timezone.utc)
     corte = _ultima_sesion_cerrada(now)
 
-    cache = load_bars(ticker)
-    if cache is not None and cache.bars and cache.bars[-1].time >= corte:
-        return cache.bars
+    cache = barras_utiles(load_bars(ticker))
+    if cache is not None and cache[-1].time >= corte:
+        return cache
 
     if fetch is None:
         from .massive import fetch_daily_bars as fetch   # import tardío: evita el ciclo
@@ -304,8 +312,8 @@ def _guarda_si_no_acorta(ticker: str, bars: Sequence[LvlBar], now: datetime) -> 
         # Relectura bajo cerrojo: el estado de antes puede ser de hace dos
         # llamadas de red. `_exclusive` es reentrante por hilo, así que el
         # `save_bars` de dentro no se bloquea a sí mismo.
-        actual = load_bars(ticker)
-        if actual is not None and actual.bars and len(bars) < len(actual.bars):
+        actual = barras_utiles(load_bars(ticker))
+        if actual is not None and len(bars) < len(actual):
             return False
         save_bars(ticker, bars, now)
         return True

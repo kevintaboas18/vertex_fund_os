@@ -3,29 +3,28 @@ HOY="2026-07-31T21:00:00Z"; AYER="2026-07-30T21:00:00Z"; SESION="2026-07-31T15:0
 casos=[]
 def c(**k): casos.append(k)
 # load
-# Las dos guardas de `load_bars` (divergencias deliberadas). Cada caso que
-# difiera de su barsStore.ts tiene que declarar CUÁL, y cada guarda declarada
-# tiene que producir de verdad una diferencia: así el diferencial pilla tanto
-# una divergencia nueva sin querer como una guarda que desapareció en silencio.
-G_VALIDA = "G1 · load_bars valida lo que hay en disco (sus 2 bugs del `as`)"
-G_TICKER = "G2 · ticker que no da nombre de archivo (mismo saneado que stores)"
+# El port de `barsStore.ts` es LITERAL: cero divergencias declaradas. Sus dos
+# bugs del `as BarsFile` —el cache sin campo `bars` que lanza y el `bars` de
+# texto que cuela— están portados tal cual, así que aquí son casos IDÉNTICOS.
+# La guarda vive en `borde.barras_utiles`, que es del borde de Vertex y solo la
+# usa `daily_bars_for_panel` (que tampoco es suya).
+#
+# El comparador sigue admitiendo `divergencia=`: si algún día hace falta una,
+# tiene que declararse Y tiene que producir de verdad una diferencia.
 
 c(nombre="load sin cache", op="load", ticker="DEMO")
 c(nombre="load tras save", op="load", ticker="DEMO", pre={"ticker":"DEMO","n":3,"now":HOY})
 c(nombre="load json roto", op="load", ticker="R", raw="{no", rawFile="R.json")
-c(nombre="load sin campo bars", divergencia=G_VALIDA, op="load", ticker="S", raw='{"ticker":"S","date":"2026-07-31"}', rawFile="S.json")
-c(nombre="load bars no lista", divergencia=G_VALIDA, op="load", ticker="T", raw='{"ticker":"T","date":"x","bars":"txt"}', rawFile="T.json")
-c(nombre="load array pelado", divergencia=G_VALIDA, op="load", ticker="U", raw='[1,2]', rawFile="U.json")
+c(nombre="load sin campo bars", op="load", ticker="S", raw='{"ticker":"S","date":"2026-07-31"}', rawFile="S.json")
+c(nombre="load bars no lista", op="load", ticker="T", raw='{"ticker":"T","date":"x","bars":"txt"}', rawFile="T.json")
+c(nombre="load array pelado", op="load", ticker="U", raw='[1,2]', rawFile="U.json")
 c(nombre="load null", op="load", ticker="V", raw='null', rawFile="V.json")
 # save: normalización del ticker
 for t in ("demo"," demo ","DEMO","brk.b","brk/b","a"*70,"!!!",""):
-    # Los que sanean a nada (o pasan del tope de 64) los rechaza la guarda 2,
-    # la misma que ya tenia `stores.py`: su regex los mandaba al mismo `.json`.
-    _safe = "".join(ch for ch in t.strip().upper()
-                    if ch.isascii() and (ch.isalnum() or ch in "._-"))
-    _mal = not _safe.strip("._-") or len(_safe) > 64
-    c(nombre=f"save ticker={t!r}", op="save", ticker=t, n=2, now=HOY,
-      **({"divergencia": G_TICKER} if _mal else {}))
+    # Su regex manda a `.json` todos los que sanean a nada, en su archivo y en el
+    # port: no hay diferencia que declarar. El rechazo lo hace `borde.ticker_valido`
+    # en el endpoint, que es donde su pipeline de Next lo tiene.
+    c(nombre=f"save ticker={t!r}", op="save", ticker=t, n=2, now=HOY)
 # cached
 c(nombre="cached primera vez", op="cached", ticker="C1", now=HOY, n=4)
 c(nombre="cached con cache de hoy", op="cached", ticker="C2", now=HOY, n=4,
@@ -42,9 +41,9 @@ c(nombre="cached cache vacio", op="cached", ticker="C8", now=HOY, n=0)
 c(nombre="cached cache de hoy vacio en disco", op="cached", ticker="C9", now=HOY, n=4,
   raw='{"ticker":"C9","date":"2026-07-31","bars":[]}', rawFile="C9.json")
 
-c(nombre="cache de HOY sin campo bars", divergencia=G_VALIDA, op="cached", ticker="X1", now=HOY, n=4,
+c(nombre="cache de HOY sin campo bars", op="cached", ticker="X1", now=HOY, n=4,
   raw='{"ticker":"X1","date":"2026-07-31"}', rawFile="X1.json")
-c(nombre="cache de HOY con bars no lista", divergencia=G_VALIDA, op="cached", ticker="X2", now=HOY, n=4,
+c(nombre="cache de HOY con bars no lista", op="cached", ticker="X2", now=HOY, n=4,
   raw='{"ticker":"X2","date":"2026-07-31","bars":"texto"}', rawFile="X2.json")
 c(nombre="cache de HOY que es un array", op="cached", ticker="X3", now=HOY, n=4,
   raw='[1,2,3]', rawFile="X3.json")

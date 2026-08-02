@@ -145,6 +145,107 @@ class TestProjectionTargets:
         assert len(d["history"]) == 70  # las 70 velas de SimpleChart
         assert d["levels_for_chart"] is not None
         assert d["call_pct"] is not None
+        assert d["chart_geometry"] is not None
+
+
+class TestGeometriaDeLaGrafica:
+    """`cone_points` y `prediction_path` — sus dos funciones de `expectedMove.ts`
+    que su `SimpleChart` llama y aquí estaban portadas SIN llamador.
+
+    La fórmula estaba escrita dos veces: en `expected_move.py` (muerta) y a mano
+    dentro de `renderVictorProjChart`. `diff_cono.sh` medía la del navegador
+    contra su archivo, pero nada garantizaba que las dos copias de este repo
+    coincidieran entre sí. Ahora el cono y las rutas los calcula el motor con
+    SUS funciones y la gráfica los dibuja.
+    """
+
+    def test_hay_cono_y_rutas_para_cada_horizonte(self, client):
+        g = client.get("/api/projection-targets?ticker=DEMO").json()["chart_geometry"]
+        assert set(g) == {"10", "20", "30"}
+        for h, geo in g.items():
+            assert len(geo["cone"]) == 25          # `conePoints(…, 24)` → 24+1
+            assert set(geo["paths"]) == {"bull", "base", "bear"}
+            for ruta in geo["paths"].values():
+                assert len(ruta["points"]) == 31   # `wigglePath(…, steps = 30)`
+
+    def test_el_cono_se_abre_con_la_raiz_del_tiempo(self, client):
+        geo = client.get("/api/projection-targets?ticker=DEMO").json()["chart_geometry"]["30"]
+        c = geo["cone"]
+        assert c[0]["t"] == 0 and c[0]["upper1"] == c[0]["lower1"]   # arranca cerrado
+        anchos = [p["upper1"] - p["lower1"] for p in c]
+        assert anchos == sorted(anchos)                              # solo se abre
+        # 2σ envuelve a 1σ en TODOS los pasos: si no, el polígono se cruza.
+        assert all(p["upper2"] >= p["upper1"] and p["lower2"] <= p["lower1"] for p in c)
+
+    def test_ninguna_ruta_se_sale_del_cono_de_2_sigma(self, client):
+        """Es la regla de su `predictionPath`: *el precio no puede llegar a donde
+        la volatilidad no da*. Sin esto, la línea del escenario se dibuja fuera
+        de la banda que la propia gráfica pinta."""
+        geo = client.get("/api/projection-targets?ticker=DEMO").json()["chart_geometry"]["30"]
+        techo = geo["cone"][-1]["upper2"]
+        suelo = geo["cone"][-1]["lower2"]
+        for ruta in geo["paths"].values():
+            assert suelo - 1e-6 <= ruta["target"] <= techo + 1e-6
+
+    def test_la_ruta_empieza_en_el_spot_y_acaba_en_el_target(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        geo = d["chart_geometry"]["20"]
+        for ruta in geo["paths"].values():
+            assert abs(ruta["points"][0]["price"] - d["spot"]) < 1e-6
+            assert abs(ruta["points"][-1]["price"] - ruta["target"]) < 1e-6
+
+    def test_es_JSON_estricto(self, client):
+        import json
+
+        crudo = json.dumps(
+            client.get("/api/projection-targets?ticker=DEMO").json()["chart_geometry"])
+        assert "NaN" not in crudo and "Infinity" not in crudo
+
+
+class TestRacimosDelTape:
+    """`detect_clusters` de su `flow.ts` — lo que su `FlowPriceChart` dibuja.
+
+    Estaba portado y sin llamador. Aporta lo que el scorecard no tiene: la
+    **apuesta neta** de cada burst (comprar puts es bajista, no alcista) y su
+    ventana temporal.
+    """
+
+    def test_el_endpoint_sirve_los_racimos(self, client):
+        cl = client.get("/api/projection-targets?ticker=DEMO").json()["flow_clusters"]
+        assert cl, "el tape del doble tiene un burst de 3 trades en 105"
+        c = cl[0]
+        assert c["count"] >= 3 and c["premium"] > 0
+        assert c["direction"] in ("ask", "bid")
+        assert c["bet"] in ("alcista", "bajista")
+        assert 0.0 <= c["unidirectionality"] <= 1.0
+        assert c["strikes"]
+
+    def test_la_apuesta_neta_no_es_el_lado_de_ejecucion(self, client):
+        # Su regla: comprar CALLs al ask es alcista. El burst del doble es
+        # 3× call 105 AT_ASK/ABOVE_ASK, así que tiene que salir alcista.
+        cl = client.get("/api/projection-targets?ticker=DEMO").json()["flow_clusters"]
+        burst = next(c for c in cl if 105.0 in c["strikes"])
+        assert burst["direction"] == "ask" and burst["bet"] == "alcista"
+        assert burst["call_premium"] > burst["put_premium"]
+
+    def test_sin_tape_no_se_inventan_racimos(self, client, monkeypatch):
+        import wbj.tito.marketsnack as MS
+        from wbj.tito.marketsnack import MarketSnackError
+
+        def sin_tape(*a, **k):
+            raise MarketSnackError("cookie caducada")
+
+        monkeypatch.setattr(MS, "fetch_flow", sin_tape)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["flow_clusters"] is None
+
+    def test_un_fallo_al_agrupar_no_tumba_los_targets(self, client, monkeypatch):
+        # Ilustra, no decide — mismo criterio que el heatmap.
+        import wbj.tito.flow as F
+
+        monkeypatch.setattr(F, "detect_clusters", lambda *a, **k: 1 / 0)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["ok"] is True and d["flow_clusters"] is None
 
     def test_expone_el_estado_de_la_memoria(self, client):
         d = client.get("/api/projection-targets?ticker=DEMO").json()
@@ -392,6 +493,144 @@ class TestProjectionTargets:
 
     def test_ticker_vacio_no_revienta(self, client):
         assert client.get("/api/projection-targets?ticker=").json()["ok"] is False
+
+
+class TestElBordeDeVertex:
+    """Las guardas que se quitaron de sus archivos, comprobadas desde el HTTP.
+
+    Sus tres módulos (`store.ts`, `compute.ts`, `barsStore.ts`) son literales:
+    no llevan una sola comprobación que él no escriba. Lo que impide que sus
+    fallos conocidos lleguen al panel es este borde, que es exactamente donde
+    su pipeline de Next lo tiene. Si algo de esto se rompe, el port sigue
+    siendo fiel pero Vertex deja de estar protegido — y eso hay que verlo.
+    """
+
+    @pytest.mark.parametrize("malo", ["!!!", "@@@", "   ", "ñ", "...", "../..",
+                                      "A" * 300])
+    def test_un_ticker_que_no_deja_nada_se_rechaza_en_las_tres_rutas(self, client, malo):
+        # Sin esto los tres van al MISMO `.json` sin dueño y la memoria de una
+        # consulta basura contamina la del siguiente.
+        for ruta in ("/api/projection-targets", "/api/tito-scorecard", "/api/tito-news"):
+            r = client.get(f"{ruta}?ticker={malo}").json()
+            assert r["ok"] is False, f"{ruta} aceptó {malo!r}"
+            assert "ticker" in r["error"].lower()
+
+    def test_un_ticker_bueno_pasa_ya_saneado(self, client):
+        import wbj.tito.stores as st
+
+        assert client.get("/api/projection-targets?ticker=+demo+").json()["ok"] is True
+        assert (st.data_dir() / "trades" / "DEMO.json").exists()
+
+    def test_el_health_reporta_el_ticker_invalido_antes_que_nada(self, client):
+        r = client.get("/api/tito-health?ticker=!!!").json()
+        assert r["ok"] is False and r["ticker"] is None
+        assert r["checks"][0]["check"] == "ticker"
+
+    def test_una_fila_corrupta_en_disco_no_tumba_la_peticion(self, client):
+        """Su `saveTrades` SÍ se cae con ella (portado literal). Lo que no puede
+        es llevarse la respuesta entera ni pasar mudo."""
+        import json
+
+        import wbj.tito.stores as st
+
+        client.get("/api/projection-targets?ticker=DEMO")
+        p = st.data_dir() / "trades" / "DEMO.json"
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        raw["trades"] = [raw["trades"][0], None, "basura", 42]
+        p.write_text(json.dumps(raw), encoding="utf-8")
+
+        m = client.get("/api/projection-targets?ticker=DEMO").json()["memory"]
+        assert m["available"] is True                 # la LECTURA sobrevive
+        assert m["flows_corruptos"] == 3              # y se dicen cuántas son
+        # …y el fallo de ESCRITURA de su `saveTrades` queda declarado.
+        assert any("trades" in e for e in (m["escrituras_fallidas"] or []))
+
+    def test_el_health_levanta_la_bandera_del_archivo_corrupto(self, client):
+        import json
+
+        import wbj.tito.stores as st
+
+        client.get("/api/projection-targets?ticker=DEMO")
+        p = st.data_dir() / "trades" / "DEMO.json"
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        raw["trades"] = [raw["trades"][0], None]
+        p.write_text(json.dumps(raw), encoding="utf-8")
+
+        checks = {c["check"]: c for c in client.get(
+            "/api/tito-health?ticker=DEMO").json()["checks"]}
+        assert checks["memoria.flows.corrupto"]["ok"] is False
+        assert "1 fila" in checks["memoria.flows.corrupto"]["detalle"]
+
+    def test_los_trades_sin_id_se_cuentan_aunque_el_dedupe_siga_siendo_el_suyo(self, client):
+        # Su clave de dedupe es `t.id` a secas: sin ese campo el `Map` conserva
+        # UNO de la corrida entera, sin error. El contador es lo que hace que se
+        # vea el mismo día en vez de descubrirse con un archivo de un trade.
+        import json
+
+        import wbj.tito.stores as st
+
+        client.get("/api/projection-targets?ticker=DEMO")
+        p = st.data_dir() / "trades" / "DEMO.json"
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        for t in raw["trades"]:
+            t.pop("id", None)
+        p.write_text(json.dumps(raw), encoding="utf-8")
+
+        checks = {c["check"]: c for c in client.get(
+            "/api/tito-health?ticker=DEMO").json()["checks"]}
+        assert checks["memoria.flows.sin_id"]["ok"] is False
+
+    def test_un_cache_de_barras_envenenado_no_llega_al_motor(self, client):
+        # BUG 2 de su `barsStore.ts`: `bars: "texto"` pasa su guarda de longitud
+        # y el llamador recibe un string donde espera barras. `borde.barras_utiles`
+        # lo trata como un cache que no está y se pide a la red.
+        import json
+
+        import wbj.tito.stores as st
+
+        p = st.data_dir() / "bars"
+        p.mkdir(parents=True, exist_ok=True)
+        (p / "DEMO.json").write_text(json.dumps(
+            {"ticker": "DEMO", "date": "2999-01-01", "bars": "texto"}), encoding="utf-8")
+        r = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert r["ok"] is True
+
+    def test_los_no_finitos_de_compute_no_salen_publicados(self, client, monkeypatch):
+        """`to_row` SÍ produce NaN e Infinity: es su aritmética de JS, literal.
+
+        Quien no los publica es `_json_safe`, que es el port de su
+        `JSON.stringify` (NaN e Infinity → `null`). Es la misma y única línea de
+        defensa que tiene él, y aquí se comprueba de punta a punta.
+        """
+        import json
+
+        import wbj.tito.massive as MASS
+        from wbj.tito.compute import to_row
+
+        original = MASS.fetch_option_chain
+
+        def con_basura(ticker, *a, **k):
+            res = original(ticker, *a, **k)
+            sucias = [
+                to_row({"open_interest": "abc", "details": {"strike_price": 100,
+                                                            "expiration_date": "2026-09-18"}}),
+                to_row({"open_interest": 1e200, "last_trade": {"price": 1e200},
+                        "details": {"strike_price": 1e200,
+                                    "expiration_date": "2026-09-18"}}),
+            ]
+            return MASS.ChainResult(rows=list(res.rows) + sucias,
+                                    underlying_price=res.underlying_price,
+                                    pages=res.pages, truncated=res.truncated,
+                                    expiration_count=res.expiration_count)
+
+        monkeypatch.setattr(MASS, "fetch_option_chain", con_basura)
+        crudo = client.get("/api/projection-targets?ticker=DEMO").text
+
+        def estricto(c):
+            raise ValueError(f"el endpoint publicó {c}")
+
+        json.loads(crudo, parse_constant=estricto)
+        assert "NaN" not in crudo and "Infinity" not in crudo
 
 
 class TestFalloDeMassive:

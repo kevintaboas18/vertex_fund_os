@@ -5,13 +5,20 @@ diferencial: se ejecuta el compute.ts real en Node y el port en Python sobre los
 mismos ~3000 contratos crudos, cubriendo todas las formas que puede mandar
 Massive, y se comparan las salidas (`engine/scripts/diff_compute.sh`).
 
-Nota sobre el port: las cinco están ARREGLADAS en la versión de Python, y el
-arreglo es el que se propone abajo. El criterio para divergir es medido, no de
-estilo: **con datos bien formados el port sigue siendo idéntico** (500/500 filas
-sin una sola diferencia), así que las guardas solo actúan sobre entradas que
-`compute.ts` ya maneja mal. El diferencial clasifica cada divergencia por su
-causa y falla si aparece una sin declarar. Los tests `TestLasCincoGuardas` fijan
-el comportamiento y su coste medido.
+Nota sobre el port: las cinco están REPLICADAS TAL CUAL en la versión de
+Python. El port de `compute.ts` es literal —604/604 filas, cero divergencias
+declaradas— y los tests `TestLasCincoQueSeQuedanComoEl` fijan cada
+comportamiento junto con su coste medido, para que nadie los "arregle" dentro
+del módulo sin darse cuenta de que rompe la fidelidad.
+
+Los arreglos que se proponen abajo son para ESTE repo
+(agente-tito-metralleta), que es donde tienen que vivir.
+
+Qué hace Vertex mientras tanto: nada dentro del módulo. Lo único que impide que
+un `NaN` o un `Infinity` salgan publicados es `JSON.stringify`, que los
+convierte en `null` — exactamente la misma y única línea de defensa que tiene
+este repo, porque sus rutas responden con `Response.json`. En el port eso es
+`_json_safe`, y está fijado de punta a punta en `tests_vertex/`.
 
 Auditado en su repo antes de decidir:  `massive.ts` mete `json.results` sin
 validar (`for (const c of results) contracts.push(c)`) y

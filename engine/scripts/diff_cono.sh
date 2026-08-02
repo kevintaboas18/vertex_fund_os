@@ -43,5 +43,12 @@ assert "Math.exp(mult * sd * k)" in bloque, "el cono no se evalúa paso a paso"
 pathlib.Path(sys.argv[2]).write_text(json.dumps({"ok": True}))
 PY
 
+# La geometría que sirve el MOTOR (`chart_geometry` de /api/projection-targets),
+# que es lo que la gráfica dibuja de verdad desde que `cone_points` y
+# `prediction_path` están cableadas. La fórmula del HTML queda como respaldo y se
+# sigue midiendo arriba.
+export CONO_PY_OUT="$TMP/py.json"
+python3 "$ROOT/engine/scripts/_diffcono_casos.py"
+
 cp "$ROOT/engine/scripts/_diffcono_run.mjs" "$TMP/run.mjs"
 ( cd "$TMP" && node run.mjs )

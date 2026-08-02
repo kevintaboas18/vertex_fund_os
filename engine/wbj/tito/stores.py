@@ -299,14 +299,18 @@ def load_iv_history(ticker: str) -> list[dict]:
 # - **Orden descendente** (lo más nuevo primero), que es también lo que hace que
 #   el recorte a 5000 tire lo más viejo.
 #
-# Su lógica, con TRES guardas para datos malformados: ticker que se queda en
-# nada, id ausente que funde el historial, fila corrupta que tumba el guardado.
-# El criterio es medido, no de estilo: con datos bien formados el port es
-# idéntico a su `store.ts` (39/47 casos del diferencial, y los 8 restantes son
-# exactamente estas tres guardas, cada una declarada en su caso). Aquí pesan más
-# que en su repo — esto es la memoria ACUMULADA del sub-agente 6, y lo que se
-# pierde no se recupera. Las tres están propuestas para el upstream en
-# `engine/scripts/upstream-tito-store.patch` y fijadas por `TestLasTresGuardas`.
+# Su lógica, LITERAL — incluidos sus tres agujeros con datos malformados:
+# ticker que se queda en nada, id ausente que funde el historial, fila corrupta
+# que tumba el guardado. 47/47 casos del diferencial, cero divergencias
+# declaradas. Los tres están propuestos para el upstream en
+# `engine/scripts/upstream-tito-store.patch` y fijados —con su coste medido—
+# por `TestLasTresQueSeQuedanComoEl`.
+#
+# Las guardas no desaparecieron: se movieron al BORDE de Vertex (`borde.py`),
+# que es donde su pipeline de TypeScript ya las tiene de forma implícita. Aquí
+# pesan más que en su repo —esto es la memoria ACUMULADA del sub-agente 6 y lo
+# que se pierde no se recupera—, así que el borde no es opcional; lo que no
+# puede es entrar dentro de su archivo.
 #
 # Aparte van el cerrojo y la escritura atómica, que no cambian nada de lo
 # observable con una petición a la vez pero evitan perder el 75% de las
@@ -345,33 +349,22 @@ class SaveResult:
     first_seen: str | None  # fecha del trade más antiguo guardado
 
 
-#: Un ticker más largo que esto no es un ticker. Sin el tope, uno de 300
-#: caracteres llega al sistema de archivos y revienta con ENAMETOOLONG —un error
-#: que depende del FS y del sistema— en vez del mismo `ValueError` determinista
-#: que dan los demás tickers inservibles. El más largo de verdad no pasa de 6.
-MAX_TICKER_LEN = 64
-
-
 def _sanea_ticker(ticker: str) -> str:
-    """El saneado de `fileFor`, aparte para que todos los stores usen el mismo.
+    """`fileFor`, literal:
 
         const safe = ticker.trim().toUpperCase().replace(/[^A-Z0-9._-]/g, "");
 
-    La travesía de rutas ya la cierra su propio regex, que borra las barras:
-    `"../../etc/x"` se queda en `"....ETCX"` y no sale del directorio.
+    Sin guardas. La travesía de rutas ya la cierra su propio regex, que borra
+    las barras: `"../../etc/x"` se queda en `"....ETCX"` y no sale del
+    directorio. Lo que su regex NO cierra es el cubo compartido: `"!!!"`,
+    `"@@@"` y `""` sanean todos a la cadena vacía y acaban en el mismo `.json`.
 
-    GUARDA (divergencia deliberada): se rechaza el ticker que se queda en nada.
-    `"!!!"`, `"@@@"` y `""` sanean todos a la cadena vacía, así que su `fileFor`
-    los manda al MISMO `.json` — un cubo compartido sin dueño donde la memoria
-    de una consulta basura contamina la siguiente. Aquí eso importa más que en
-    su repo: este archivo es la memoria ACUMULADA del sub-agente 6, y mezclarla
-    entre tickers no se deshace. Mejor un error que un archivo que no es de
-    nadie.
+    Esa guarda estaba aquí y se movió al BORDE de Vertex (`borde.py`), que es
+    donde su pipeline de TypeScript ya la tiene: sus rutas reciben el ticker de
+    `searchParams`, lo normalizan y rechazan el vacío antes de que llegue a
+    ningún store. Así el port es su archivo y el dato sigue sin mezclarse.
     """
-    safe = re.sub(r"[^A-Z0-9._-]", "", ticker.strip().upper())
-    if not safe.strip("._-") or len(safe) > MAX_TICKER_LEN:
-        raise ValueError(f"ticker inservible como nombre de archivo: {ticker!r}")
-    return safe
+    return re.sub(r"[^A-Z0-9._-]", "", ticker.strip().upper())
 
 
 def _file_for(ticker: str) -> Path:
@@ -420,11 +413,10 @@ def _date_parse(v: Any) -> float:
     una fecha **sola** (`"2026-07-30"`) se lee en UTC, y una fecha-hora **sin
     offset** (`"2026-07-30T15:00:00"`) se lee en la zona LOCAL de la máquina.
 
-    GUARDA (divergencia deliberada): aquí el naive se lee como UTC. Ese orden
-    decide qué trade se cae por el tope de `MAX_PER_TICKER`, así que con su
-    regla el mismo archivo se recorta distinto en UTC que en `America/New_York`
-    — la persistencia acabaría dependiendo de la TZ de la máquina. Es además el
-    criterio que ya usa `flow._epoch`, que directamente rechaza los naive.
+    Se replica tal cual, incluida esa dependencia de la TZ del servidor: el
+    mismo archivo se recorta distinto en UTC que en `America/New_York`, porque
+    ese orden decide qué trade se cae por el tope de `MAX_PER_TICKER`. En Render
+    y en el contenedor la TZ es UTC, así que en la práctica coinciden.
     """
     if not isinstance(v, str):
         return math.nan          # `Date.parse(undefined)`, `Date.parse(null)` → NaN
@@ -450,7 +442,7 @@ def _date_parse(v: Any) -> float:
         #    timestamp del año -1 no existe en este dominio.
         return math.nan
     if off is None and hh is not None:
-        dt = base.replace(tzinfo=timezone.utc)   # su regla diría LOCAL: ver arriba
+        dt = base                                # fecha-hora sin offset → LOCAL
     elif off is None or off in ("Z", "z"):
         dt = base.replace(tzinfo=timezone.utc)
     else:
@@ -480,23 +472,20 @@ def _cmp_reciente_primero(a: Any, b: Any) -> int:
 
 
 def _dedupe_key(row: Any) -> Any:
-    """La clave del `Map` de Víctor es `t.id`, y para datos válidos esto lo es.
+    """La clave del `Map` de Víctor: `t.id`, tal cual.
 
-    GUARDA (divergencia deliberada) para el id AUSENTE. `flow._base_row` hace
-    `int(_num(raw.get("id")))`, así que un tape sin ese campo devuelve **0 para
-    todos** los trades — y un `Map` con la misma clave 5000 veces conserva uno.
-    No es teórico: basta con que MarketSnack renombre el campo para que la
-    memoria del sub-agente 6 se vacíe en silencio, sin un solo error, y `added`
-    tampoco avisa porque a partir del segundo la clave "ya existe".
+    Sin guarda para el id AUSENTE. `flow._base_row` hace
+    `int(_num(raw.get("id")))`, así que un tape sin ese campo devuelve 0 para
+    TODOS los trades y el `Map` conserva uno solo — sin un error, y `added`
+    tampoco avisa porque a partir del segundo la clave "ya existe". Es su
+    comportamiento; el arreglo propuesto está en
+    `engine/scripts/upstream-tito-store.patch`.
 
-    Con id real el comportamiento es idéntico al suyo; sin él, cada trade
-    conserva su identidad en vez de fundirse con los demás.
+    Es la única de las tres que NO se puede mover al borde: vive dentro de su
+    `saveTrades`. `borde.trades_con_id` la deja al menos visible — cuenta
+    cuántos trades llegan sin id para que el panel lo pueda decir.
     """
-    rid = _prop(row, "id")
-    if rid:
-        return rid
-    return ("sin-id", _prop(row, "timestamp"), _prop(row, "symbol"),
-            _prop(row, "strike"), _prop(row, "premium"))
+    return _prop(row, "id")
 
 
 def load_trades(ticker: str) -> StoredTrades | None:
@@ -511,22 +500,14 @@ def load_trades(ticker: str) -> StoredTrades | None:
     la primera es "nunca se ha guardado nada", la segunda "se guardó y no quedó
     nada". Por eso no colapsa a lista vacía.
 
-    GUARDA (divergencia deliberada): se descartan las filas que no son objetos.
-    En TS una fila corrupta se lee como `undefined` y el pipeline sigue; en
-    Python cada `.get()` sobre ella revienta. Peor: su `saveTrades` hace
-    `byId.set(t.id, t)` sobre esa misma fila y un `null` lo tumba **en cada
-    corrida**, porque la fila sigue en el archivo — el ticker deja de acumular
-    memoria para siempre y sin un solo mensaje. Descartándola aquí, el archivo
-    se repara solo en el siguiente guardado.
-
-    Un ticker que no da nombre de archivo tampoco tiene historial: leer nunca
-    lanza. Guardarlo sí, porque ahí sí hay algo que se perdería en silencio.
+    El contenido del array NO se mira, como él. Una fila corrupta (un `null`, un
+    string) se devuelve tal cual, y su `saveTrades` la vuelve a escribir o se
+    cae con ella. El filtro que había aquí se movió al borde de Vertex
+    (`borde.trades_utiles`), que es donde su pipeline lo hace de forma
+    implícita: en TS `t.assetPrice` sobre un string es `undefined` y la fila se
+    cae sola por el filtro de `/api/validation`.
     """
-    try:
-        path = _file_for(ticker)
-    except ValueError:
-        return None
-    parsed = _read(path)
+    parsed = _read(_file_for(ticker))
     if not isinstance(parsed, dict) or not isinstance(parsed.get("trades"), list):
         # Su `catch` cubre los tres casos que aquí llegan como no-dict: archivo
         # que no existe, JSON roto y `JSON.parse("null")` (que en TS revienta al
@@ -536,7 +517,7 @@ def load_trades(ticker: str) -> StoredTrades | None:
     return StoredTrades(
         ticker=parsed.get("ticker"),
         updated_at=parsed.get("updatedAt"),
-        trades=[t for t in parsed["trades"] if isinstance(t, dict)],
+        trades=parsed["trades"],
     )
 
 
@@ -555,14 +536,14 @@ def save_trades(ticker: str, rows: Sequence[Any]) -> SaveResult:
     el caso que mide el diferencial contra su archivo.
     """
     clean = ticker.strip().upper()
-    path = _file_for(clean)   # antes del cerrojo: un ticker inservible falla ya
+    path = _file_for(clean)
 
     with _exclusive(path):
         existing = load_trades(clean)
         by_id: dict[Any, Any] = {}
 
-        # `load_trades` ya descartó lo que no es objeto, así que aquí no puede
-        # llegar el `null` que tumba su bucle.
+        # `for (const t of existing?.trades ?? []) byId.set(t.id, t);` — sin
+        # filtrar: una fila `null` en disco lanza aquí, igual que en el suyo.
         for t in (existing.trades if existing else []):
             by_id[_dedupe_key(t)] = t
         added = 0

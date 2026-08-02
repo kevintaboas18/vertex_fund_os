@@ -2781,19 +2781,32 @@ function vcNiceTicks(min, max, count = 5) {
  *  extremos — así arranca exactamente en el spot y aterriza exactamente en el
  *  target. El `seed` da a cada escenario una forma distinta. Determinista:
  *  la misma entrada dibuja siempre lo mismo. */
-function vcWigglePath(spot, target, iv, days, seed, steps = 30) {
-    const pts = [];
-    for (let i = 0; i <= steps; i++) {
-        const f = i / steps;
-        const smooth = spot + (target - spot) * Math.sqrt(f);
+/** Su `wigglePath` de `SimpleChart.tsx`: la ruta suave de `predictionPath` con
+ *  oscilación encima, proporcional a la volatilidad de ese instante y con un
+ *  sobre que vale 0 en los dos extremos (arranca en el spot y aterriza justo en
+ *  el target). El `seed` da a cada escenario una forma distinta. Determinista.
+ *
+ *  `base` son los puntos que sirve el motor, calculados con SU `prediction_path`
+ *  —igual que él, que hace `const base = predictionPath(...)` y le suma el
+ *  wobble—. Sin `base` se reconstruye la ruta suave aquí, que es el respaldo
+ *  para una respuesta sin `chart_geometry`. */
+function vcWigglePath(spot, target, iv, days, seed, base = null, steps = 30) {
+    const suave = base && base.length
+        ? base
+        : Array.from({ length: steps + 1 }, (_, i) => {
+            const f = i / steps;
+            return { t: days * f, price: spot + (target - spot) * Math.sqrt(f) };
+        });
+    const n = Math.max(1, suave.length - 1);
+    return suave.map((q, i) => {
+        const f = i / n;
         const sigma = spot * iv * Math.sqrt(Math.max(0, f) * days / 365);
         const envelope = Math.sin(Math.PI * f);
         const wob = Math.sin(f * 8 + seed) * 0.6
                   + Math.sin(f * 19 + seed * 1.7) * 0.28
                   + Math.sin(f * 37 + seed * 2.6) * 0.12;
-        pts.push({ t: days * f, price: smooth + sigma * 0.5 * envelope * wob });
-    }
-    return pts;
+        return { t: q.t, price: q.price + sigma * 0.5 * envelope * wob };
+    });
 }
 
 /** Encuadre: cubre velas + spot + 1σ + niveles, y estira al 2σ solo mientras
@@ -2897,10 +2910,23 @@ function renderVictorProjChart(containerId, d, horizon) {
 
     const lvls = d.levels_for_chart || [];
 
+    // Geometría servida por el MOTOR: el cono y las rutas los calcula
+    // `expected_move.py` —el port de su `expectedMove.ts`— con las mismas dos
+    // funciones que llama su `SimpleChart` (`conePoints` y `predictionPath`).
+    //
+    // Antes esta fórmula estaba escrita dos veces —allí y a mano aquí abajo— y
+    // nada garantizaba que las dos copias siguieran coincidiendo. Ahora manda
+    // una sola. `geo` puede faltar (motor viejo, IV sin dato): en ese caso se
+    // cae a la fórmula local, que `diff_cono.sh` verifica contra su archivo.
+    const geo = (d.chart_geometry || {})[String(horizon)] || null;
+
     // Cono de σ: mismas bandas que expected_move (lognormal, se abre en √t).
     const sd = iv * Math.sqrt(Math.max(horizon, 0) / 365);
-    const sigma1 = { lower: spot * Math.exp(-sd), upper: spot * Math.exp(sd) };
-    const sigma2 = { lower: spot * Math.exp(-2 * sd), upper: spot * Math.exp(2 * sd) };
+    const borde = geo && geo.cone.length ? geo.cone[geo.cone.length - 1] : null;
+    const sigma1 = borde ? { lower: borde.lower1, upper: borde.upper1 }
+                         : { lower: spot * Math.exp(-sd), upper: spot * Math.exp(sd) };
+    const sigma2 = borde ? { lower: borde.lower2, upper: borde.upper2 }
+                         : { lower: spot * Math.exp(-2 * sd), upper: spot * Math.exp(2 * sd) };
 
     // El orden es el de Víctor (bull, base, bear) porque define el z-order.
     //
@@ -2913,7 +2939,11 @@ function renderVictorProjChart(containerId, d, horizon) {
     const enCono = v => Math.min(Math.max(v, sigma2.lower), sigma2.upper);
     const scen = VC.SCEN.map(s => {
         const e = Object.assign({}, s, p[s.key]);
-        e.target = enCono(e.target);
+        const ruta = geo && geo.paths ? geo.paths[s.key] : null;
+        // El target del motor ya viene recortado por `prediction_path`; el
+        // `enCono` local queda como respaldo cuando no hay geometría servida.
+        e.target = ruta ? ruta.target : enCono(e.target);
+        e.path = ruta ? ruta.points : null;
         return e;
     });
 
@@ -2941,10 +2971,19 @@ function renderVictorProjChart(containerId, d, horizon) {
     // $0.22 con IV 0.45 y $5.52 con IV 2.0 — visible en la gráfica.
     const conePoly = (mult, fill) => {
         const up = [], dn = [];
-        for (let i = 0; i <= VC.CONE_STEPS; i++) {
-            const f = i / VC.CONE_STEPS, x = S.xOfFuture(horizon * f), k = Math.sqrt(f);
-            up.push(`${x},${S.yOfPrice(spot * Math.exp(mult * sd * k))}`);
-            dn.push(`${x},${S.yOfPrice(spot * Math.exp(-mult * sd * k))}`);
+        if (geo) {
+            // Los puntos del motor, ya evaluados con SU `cone_points`.
+            for (const c of geo.cone) {
+                const x = S.xOfFuture(c.t);
+                up.push(`${x},${S.yOfPrice(mult === 2 ? c.upper2 : c.upper1)}`);
+                dn.push(`${x},${S.yOfPrice(mult === 2 ? c.lower2 : c.lower1)}`);
+            }
+        } else {
+            for (let i = 0; i <= VC.CONE_STEPS; i++) {
+                const f = i / VC.CONE_STEPS, x = S.xOfFuture(horizon * f), k = Math.sqrt(f);
+                up.push(`${x},${S.yOfPrice(spot * Math.exp(mult * sd * k))}`);
+                dn.push(`${x},${S.yOfPrice(spot * Math.exp(-mult * sd * k))}`);
+            }
         }
         return `<polygon points="${up.concat(dn.reverse()).join(' ')}" fill="${fill}" stroke="none"/>`;
     };
@@ -2974,7 +3013,7 @@ function renderVictorProjChart(containerId, d, horizon) {
 
     // 7. Escenarios — rutas que SE MUEVEN dentro del cono, punteadas (regla 3).
     for (const s of scen) {
-        const pts = vcWigglePath(spot, s.target, iv, horizon, s.seed)
+        const pts = vcWigglePath(spot, s.target, iv, horizon, s.seed, s.path)
             .map(q => `${S.xOfFuture(q.t)},${S.yOfPrice(q.price)}`);
         parts.push(`<polyline points="${pts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="2.4" stroke-dasharray="4 3" stroke-linejoin="round"/>`);
     }
