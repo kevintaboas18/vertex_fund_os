@@ -964,6 +964,19 @@ chk("input.futureRatio ?? 0.4" in HTML,
     "cubre `undefined` y dejaba el futuro en cero con un `null`)")
 chk("clampedTo2Sigma" in HTML and "mask${uid}" in HTML,
     "el cono se DESVANECE cuando el 2σ no cabe entero, como su PriceChart")
+
+# ── Los DOS motores de gamma del tab ─────────────────────────────────────
+# `/api/options-gex` (Quant Data, respaldo yfinance+BSM) alimenta las cards de
+# arriba; el de Víctor (Massive + MarketSnack) alimenta la gráfica, el imán y
+# los escenarios. Dos medidas independientes de lo mismo son útiles —igual que
+# σ/DCF vs gamma/flujo—, pero solo si se sabe cuál es cuál y la discrepancia se
+# ve. El encabezado de SU gráfica salía del OTRO motor.
+chk("vcSyncCabecera(d)" in HTML and "function vcGexHTML(" in HTML,
+    "la gráfica de Víctor lleva SU cabecera y SU lectura de gamma")
+chk("projData.net_gex" in HTML and "choque" in HTML,
+    "…y si los dos motores leen el régimen al revés, se avisa en vez de taparlo")
+chk("· Quant Data" in HTML,
+    "las cards del otro motor declaran su fuente (no se confunden con las suyas)")
 chk("_tito_clusters(trades, now)" in API and "detect_clusters" in API,
     "`detect_clusters` CABLEADA: `flow_clusters` (su FlowPriceChart)")
 
@@ -989,6 +1002,7 @@ DIFERENCIALES = {
     "diff_motor2.sh":     "ivcontext + gex + prediction + risk — 846 casos",
     "diff_motor3.sh":     "gexHeatmap + news — 349 casos",
     "diff_geo.sh":        "chartGeometry.ts — la gráfica del panel, 274 casos",
+    "diff_calib.sh":      "predictionStore.reviewPredictions — 182 diarios",
     "diff_frescura.sh":   "levels.recencyFactor — el peso por frescura",
     "diff_reloj.sh":      "las 5 funciones que cuentan tiempo",
 }
@@ -1000,7 +1014,7 @@ DIFERENCIALES = {
 #: cuatro que no tienen diferencial propio —occ, conditions, expectedMove y
 #: blackScholes— los llama el motor en CADA caso de `diff_motor.sh` y
 #: `diff_motor2.sh`, basura incluida, así que quedan medidos ahí.
-CON_BASURA = ("diff_motor.sh", "diff_motor2.sh", "diff_motor3.sh")
+CON_BASURA = ("diff_motor.sh", "diff_motor2.sh", "diff_motor3.sh", "diff_calib.sh")
 _faltan = [d for d in DIFERENCIALES if not (VERTEX/"engine"/"scripts"/d).exists()]
 chk(not _faltan, f"los {len(DIFERENCIALES)} diferenciales contra su repo existen"
     + (f" · FALTAN: {_faltan}" if _faltan else ""))

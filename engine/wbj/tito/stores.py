@@ -40,7 +40,8 @@ from functools import cmp_to_key
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
-from .jsmath import js_date_parse
+from .jsmath import (RangeError, UNDEFINED, js_abs, js_date_parse, js_gt, js_le, js_max, js_min,
+                     js_number, js_orden, js_string)
 from .occ import market_date_str
 
 __all__ = [
@@ -596,16 +597,44 @@ def _touched(target: float, spot: float, high: float, low: float) -> bool:
     return high >= target if target >= spot else low <= target
 
 
+def _add_calendar_days(fecha, dias) -> str:
+    """`addCalendarDays` de su archivo: `new Date(`${d}T00:00:00Z`)` + días.
+
+    Es aritmética de **calendario en UTC**, no de sesiones: `setUTCDate` cuenta
+    días naturales. Con una fecha ilegible su `Date` sale `Invalid Date` y
+    `toISOString()` LANZA un `RangeError` — que se propaga, así que ese diario
+    entero no se revisa. El port lo capturaba y saltaba SOLO esa foto, o sea
+    calibraba con una muestra que él nunca llega a tener.
+    """
+    ms = js_date_parse(f"{js_string(fecha)}T00:00:00Z")
+    d = js_number(dias)
+    if ms != ms or d != d or math.isinf(d):
+        raise RangeError("Invalid time value")
+    try:
+        return (datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+                + timedelta(days=int(d))).date().isoformat()
+    except (OverflowError, OSError, ValueError):
+        raise RangeError("Invalid time value") from None
+
+
+def _touched(target, spot, high, low) -> bool:
+    """`target >= spot ? high >= target : low <= target`, con la coacción de JS."""
+    t, sp = js_number(target), js_number(spot)
+    return js_number(high) >= t if t >= sp else js_number(low) <= t
+
+
 def review_predictions(
     snapshots: Sequence[dict],
     bars: Sequence[Any],
     now: datetime,
 ) -> dict:
-    """Compara cada predicción contra lo que hizo el precio.
+    """Compara cada predicción contra lo que hizo el precio. PURA.
 
     Devuelve el **sesgo** (error medio *firmado* del target base) que alimenta
     la auto-calibración: si el agente apunta sistemáticamente alto, el sesgo
-    sale positivo y `calibration_shift_pct` baja el próximo target.
+    sale positivo y `calibration_shift_pct` baja el próximo target. Por eso esta
+    función decide hacia dónde se corrige el motor, y por eso tiene diferencial
+    propio (`engine/scripts/diff_calib.sh`).
 
     Solo cuentan las **vencidas**: juzgar una predicción a mitad de su horizonte
     mediría ruido, no acierto.
@@ -614,55 +643,81 @@ def review_predictions(
     evals: list[dict] = []
 
     for s in snapshots:
-        try:
-            end = (date.fromisoformat(s["date"]) + timedelta(days=int(s["horizon_days"]))).isoformat()
-        except (ValueError, KeyError, TypeError):
-            continue
+        # `addCalendarDays` puede lanzar, y en su archivo eso se lleva la
+        # revisión ENTERA (no hay try dentro del bucle). Literal.
+        end = _add_calendar_days(_prop(s, "date"), _prop(s, "horizon_days"))
         matured = today >= end
-        window = [b for b in bars if s["date"] < b.time <= end]
+        fecha = _prop(s, "date")
+        # `b.time > s.date && b.time <= end`: comparación de TEXTO cuando los dos
+        # lo son, con la coacción de JS si alguno no lo es (`jsmath.js_le`).
+        window = [b for b in bars
+                  if not js_le(b.time, fecha) and js_le(b.time, end)]
+        base = {
+            "date": fecha, "horizon_days": _prop(s, "horizon_days"),
+            "spot": _prop(s, "spot"), "bear": _prop(s, "bear"),
+            "base": _prop(s, "base"), "bull": _prop(s, "bull"),
+            "direction": _prop(s, "direction"),
+        }
         if not window:
-            evals.append({**s, "sessions": 0, "matured": matured, "actual_close": None,
-                          "base_error_pct": None, "base_touched": False,
+            evals.append({**base, "sessions": 0, "matured": matured,
+                          "actual_close": None, "actual_high": None,
+                          "actual_low": None, "base_error_pct": None,
+                          "base_abs_error_pct": None, "base_touched": False,
+                          "bull_touched": False, "bear_touched": False,
                           "direction_hit": None, "best": None})
             continue
 
         actual_close = window[-1].close
-        actual_high = max(b.high for b in window)
-        actual_low = min(b.low for b in window)
-        spot = float(s["spot"])
-        base_error_pct = ((actual_close - float(s["base"])) / spot * 100) if spot > 0 else None
+        actual_high = js_max(*[b.high for b in window])
+        actual_low = js_min(*[b.low for b in window])
+        spot = _prop(s, "spot")
+        base_error_pct = (
+            (js_number(actual_close) - js_number(_prop(s, "base"))) / js_number(spot) * 100
+            if js_gt(spot) else None)
 
-        best = min(
-            (("bear", s["bear"]), ("base", s["base"]), ("bull", s["bull"])),
-            key=lambda t: abs(float(t[1]) - actual_close),
-        )[0]
+        # `.sort((a,b) => Math.abs(a[1]-close) - Math.abs(b[1]-close))[0][0]`:
+        # orden ESTABLE, así que con distancias iguales gana el primero (bear).
+        objetivos = [("bear", _prop(s, "bear")), ("base", _prop(s, "base")),
+                     ("bull", _prop(s, "bull"))]
+        best = sorted(objetivos, key=js_orden(
+            lambda a, b: (js_abs(js_number(a[1]) - js_number(actual_close))
+                          - js_abs(js_number(b[1]) - js_number(actual_close)))))[0][0]
 
-        moved = actual_close - spot
-        flat_band = spot * 0.01
+        moved = js_number(actual_close) - js_number(spot)
+        flat_band = js_number(spot) * 0.01
+        direccion = _prop(s, "direction")
         if not matured:
             direction_hit = None
-        elif s["direction"] == "up":
+        elif direccion == "up":
             direction_hit = moved > 0
-        elif s["direction"] == "down":
+        elif direccion == "down":
             direction_hit = moved < 0
         else:
-            direction_hit = abs(moved) <= flat_band
+            direction_hit = js_abs(moved) <= flat_band
 
         evals.append({
-            **s, "sessions": len(window), "matured": matured,
-            "actual_close": actual_close,
+            **base, "sessions": len(window), "matured": matured,
+            "actual_close": actual_close, "actual_high": actual_high,
+            "actual_low": actual_low,
             "base_error_pct": base_error_pct,
-            "base_touched": _touched(float(s["base"]), spot, actual_high, actual_low),
+            "base_abs_error_pct": (None if base_error_pct is None
+                                   else js_abs(base_error_pct)),
+            "base_touched": _touched(_prop(s, "base"), spot, actual_high, actual_low),
+            "bull_touched": _touched(_prop(s, "bull"), spot, actual_high, actual_low),
+            "bear_touched": _touched(_prop(s, "bear"), spot, actual_high, actual_low),
             "direction_hit": direction_hit, "best": best,
         })
 
-    evals.sort(key=lambda e: e["date"], reverse=True)
+    # `.sort((a, b) => b.date.localeCompare(a.date))` — texto, descendente.
+    evals.sort(key=lambda e: js_string(e["date"]), reverse=True)
     mat = [e for e in evals if e["matured"] and e["actual_close"] is not None]
 
-    def mean(xs: list[float]) -> float | None:
+    def mean(xs: list) -> float | None:
         return (sum(xs) / len(xs)) if xs else None
 
     errs = [e["base_error_pct"] for e in mat if e["base_error_pct"] is not None]
+    abs_errs = [e["base_abs_error_pct"] for e in mat
+                if e["base_abs_error_pct"] is not None]
     best_counts = {"bear": 0, "base": 0, "bull": 0}
     for e in mat:
         if e["best"]:
@@ -671,10 +726,12 @@ def review_predictions(
     return {
         "evals": evals,
         "matured_count": len(mat),
-        "mean_abs_error_pct": mean([abs(x) for x in errs]),
+        "mean_abs_error_pct": mean(abs_errs),
         "bias_pct": mean(errs),
-        "base_touch_rate": (sum(1 for e in mat if e["base_touched"]) / len(mat) * 100) if mat else None,
-        "direction_hit_rate": (sum(1 for e in mat if e["direction_hit"]) / len(mat) * 100) if mat else None,
+        "base_touch_rate": (sum(1 for e in mat if e["base_touched"]) / len(mat) * 100)
+                            if mat else None,
+        "direction_hit_rate": (sum(1 for e in mat if e["direction_hit"]) / len(mat) * 100)
+                               if mat else None,
         "best_counts": best_counts,
     }
 

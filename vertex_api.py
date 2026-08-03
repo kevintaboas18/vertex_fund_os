@@ -4844,6 +4844,11 @@ def _tito_json(r):
             "direction": r.gex.direction,
             "confidence": r.gex.confidence,
             "low_liquidity": r.gex.low_liquidity,
+            # `totalNetGex` y `n` de su `GexAnalysis`. Son los dos números que
+            # dicen SOBRE QUÉ se calculó el régimen: sin ellos la etiqueta
+            # "γ+ / γ−" es una palabra sin magnitud ni muestra detrás.
+            "total_net_gex": r.gex.total_net_gex,
+            "n": r.gex.n,
         },
         "levels": {
             "supports": [lvl(l) for l in r.levels.supports],

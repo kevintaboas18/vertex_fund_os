@@ -969,11 +969,41 @@ class TestElPanelNoTiraNadaDelPayload:
         assert "['aggression', 'Agresividad', 20," in html
         assert "['iv_context', 'Contexto IV', 10," in html
 
+    def test_la_cabecera_de_SU_grafica_sale_de_SU_motor(self):
+        """El tab mide gamma DOS veces y con fuentes distintas.
+
+        `/api/options-gex` (Quant Data, respaldo yfinance+BSM) alimenta las
+        cards de arriba; el motor de Víctor (Massive + MarketSnack) alimenta la
+        gráfica, los escenarios y el imán. El título y la insignia van ENCIMA de
+        su gráfica, así que salían de la fuente equivocada: el encabezado podía
+        decir "GEX+ anclado" mientras los escenarios de abajo venían de una
+        lectura γ−, y nadie podía notarlo.
+        """
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        cargador = html[html.index("async function loadProjTargets("):]
+        cargador = cargador[:cargador.index("\n}")]
+        assert "vcSyncCabecera(d)" in cargador, (
+            "la cabecera de la gráfica de Víctor no se sincroniza con SU payload")
+        sync = html[html.index("function vcSyncCabecera(d) {"):]
+        sync = sync[:sync.index("\n}")]
+        assert "d.gex.regime" in sync, "la insignia no usa el régimen de su motor"
+        assert "d.spot" in sync, "el título no usa el spot de su motor"
+        # Y la discrepancia entre los dos motores se AVISA, no se tapa.
+        assert "projData.net_gex" in sync and "choque" in sync, (
+            "si los dos motores leen el régimen al revés, tiene que verse")
+
+    def test_la_lectura_de_gamma_de_victor_se_pinta(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "function vcGexHTML(" in html
+        for campo in ("king_strike", "flip_strike", "total_net_gex", "regime",
+                      "confidence", "low_liquidity"):
+            assert f"g.{campo}" in html, f"`gex.{campo}` se sirve y no se pinta"
+
     def test_los_bloques_nuevos_se_llaman_desde_el_render(self):
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
         render = html[html.index("function renderVictorTargets(d) {"):]
         render = render[:render.index("\nfunction ")]
-        for fn in ("vcScorecardHTML", "vcLevelsHTML", "vcHeatmapHTML",
+        for fn in ("vcGexHTML", "vcScorecardHTML", "vcLevelsHTML", "vcHeatmapHTML",
                    "vcClustersHTML", "vcMemoryHTML"):
             assert f"function {fn}(" in html, f"{fn} no existe"
             assert f"{fn}(d)" in render, f"{fn} existe pero nadie lo llama"

@@ -45,7 +45,7 @@ from typing import Any
 __all__ = ["js_round", "js_number", "js_gt", "js_add", "js_string",
            "js_is_finite", "js_max", "js_min", "js_to_fixed",
            "js_log", "js_log10", "js_sqrt", "js_clave", "js_orden", "js_abs", "js_floor",
-           "js_truthy", "js_le", "js_slice", "UNDEFINED", "es_nulo",
+           "js_truthy", "js_le", "js_slice", "UNDEFINED", "es_nulo", "RangeError",
            "js_date_parse", "js_time", "js_days_since", "js_locale_string",
            "MS_POR_DIA"]
 
@@ -98,6 +98,19 @@ class _Undefined:
 
 
 UNDEFINED = _Undefined()
+
+
+class RangeError(ValueError):
+    """El `RangeError` de JS, que Python no tiene.
+
+    Lo lanza `Date.prototype.toISOString()` sobre una fecha inválida, y en su
+    `predictionStore.addCalendarDays` eso se propaga y se lleva la revisión
+    ENTERA del diario. Sin esta clase el port lanzaba un `ValueError` y el
+    diferencial no podía distinguir "lanza igual que él" de "lanza otra cosa".
+
+    Hereda de `ValueError` para que un `except ValueError` que ya existiera lo
+    siga capturando.
+    """
 
 
 def es_nulo(v: Any) -> bool:

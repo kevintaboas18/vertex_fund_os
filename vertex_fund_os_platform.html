@@ -3159,6 +3159,69 @@ async function vcLoadNews(d) {
     }
 }
 
+/** Cabecera de la gráfica: SU spot y SU régimen, con la discrepancia a la vista.
+ *
+ *  El tab mide gamma dos veces con fuentes distintas (Quant Data/yfinance en las
+ *  cards de arriba, Massive+MarketSnack en el motor de Víctor). Dos medidas
+ *  independientes de lo mismo son útiles —es el mismo criterio que ya usa el
+ *  proyecto con σ/DCF vs gamma/flujo—, pero solo si se sabe cuál es cuál. Si
+ *  discrepan en el SIGNO del régimen, eso se avisa en vez de taparse: es
+ *  información, no ruido. */
+function vcSyncCabecera(d) {
+    const t = document.getElementById('projChartTitle');
+    if (t && d.spot != null) t.innerText = `${d.ticker} · $${Number(d.spot).toFixed(2)}`;
+    const b = document.getElementById('projRegimeBadge');
+    if (!b || !d.gex) return;
+    const pos = d.gex.regime === 'positive';
+    // ¿Dice lo contrario el otro motor?
+    let choque = '';
+    try {
+        if (projData && projData.net_gex != null && (projData.net_gex >= 0) !== pos) {
+            choque = ' ⚠';
+            b.title = 'El motor de Quant Data/yfinance lee el régimen contrario '
+                    + `(GEX neto ${projData.net_gex >= 0 ? '+' : '−'}). Las cards de arriba `
+                    + 'son de ESA fuente; la gráfica y los escenarios, del motor de Víctor.';
+        } else { b.title = 'Régimen de gamma según el motor de Víctor (Massive + MarketSnack).'; }
+    } catch (e) {}
+    b.className = `text-[9px] font-bold px-2 py-0.5 rounded-full ${pos ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`;
+    b.innerText = (pos ? 'γ+ estabiliza' : 'γ− amplifica') + choque;
+}
+
+/** La lectura de gamma de SU motor — `gexAnalysis` de `gex.ts`.
+ *
+ *  El tab tiene DOS motores de gamma: `/api/options-gex` (Quant Data, con
+ *  respaldo yfinance+BSM) alimenta las cards de arriba, y este —cadena de
+ *  Massive + gamma real del tape de MarketSnack— alimenta los escenarios, el
+ *  imán y el heatmap. Son dos medidas independientes de lo mismo y eso está
+ *  bien; lo que no puede es que solo se vea una y la otra decida los targets en
+ *  la sombra. Aquí se muestra la SUYA, que es la que manda en esta gráfica.
+ *
+ *  `king_strike` es el nodo imán —el precio al que la gamma tira— y `flip` la
+ *  zona donde el dealer cambia de lado. `n` y el GEX neto van delante porque
+ *  una etiqueta "γ+" sin magnitud ni muestra detrás no dice nada. */
+function vcGexHTML(d) {
+    const g = d.gex;
+    if (!g) return '';
+    const pos = g.regime === 'positive';
+    const dir = { up: '↑ hacia arriba', down: '↓ hacia abajo', flat: '→ lateral' }[g.direction] || '—';
+    const chip = (lbl, val, cls) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
+        <div class="text-[8px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">${lbl}</div>
+        <div class="text-[13px] font-extrabold ${cls || 'text-white'}">${val}</div></div>`;
+    return `<div class="mt-3">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-1.5">
+          <p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider">Gamma del dealer · motor de Víctor</p>
+          <span class="text-[9px] text-gray-600">cadena de Massive + gamma real del tape · ${g.n} strikes cerca del spot</span>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          ${chip('Régimen', pos ? 'γ+ estabiliza' : 'γ− amplifica', pos ? 'text-emerald-400' : 'text-red-400')}
+          ${chip('Nodo imán', g.king_strike != null ? '$' + Number(g.king_strike).toFixed(2) : '—', 'text-blue-300')}
+          ${chip('Zona de flip', g.flip_strike != null ? '$' + Number(g.flip_strike).toFixed(2) : '—', 'text-purple-300')}
+          ${chip('GEX neto', fmtAbbr(g.total_net_gex), pos ? 'text-emerald-400' : 'text-red-400')}
+        </div>
+        <p class="text-[9px] text-gray-600 mt-1">Empuje ${dir} · confianza ${g.confidence}/100 · IV estimada ${(Number(g.iv) * 100).toFixed(1)}%${g.low_liquidity ? ' · <span class="text-amber-400">cadena ILÍQUIDA: lectura NO fiable</span>' : ''}</p>
+      </div>`;
+}
+
 /** Options Flow Scorecard — las 6 categorías con su peso, como su `ScorecardPanel`.
  *
  *  Los nombres, los pesos y las preguntas son literalmente los suyos
@@ -3357,6 +3420,7 @@ function renderVictorTargets(d) {
       </div>
       <p class="text-[10px] text-gray-300 mt-2 leading-snug">${_vcEsc(p.summary)}</p>
       ${p.caveat ? `<p class="text-[9px] text-amber-400 mt-1">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
+      ${vcGexHTML(d)}
       ${vcScorecardHTML(d)}
       ${vcLevelsHTML(d)}
       ${vcHeatmapHTML(d)}
@@ -3396,7 +3460,8 @@ function renderProjections(d) {
             <div id="pwGammaFlip" class="text-base font-extrabold text-purple-400">${_aw.gamma_flip ? '$' + _aw.gamma_flip : '—'}</div>
             <div id="pwFlipConf" class="text-[8px] text-gray-600"></div></div>` +
         cardId('Max Pain', 'pwMaxPain', _aw.max_pain ? '$' + _aw.max_pain : '—', 'text-gray-300') +
-        card('GEX Neto', '$' + gexAbb, pos ? 'text-emerald-400' : 'text-red-400') +
+        card('GEX Neto <span class="text-[7px] text-gray-600 normal-case">· Quant Data</span>',
+             '$' + gexAbb, pos ? 'text-emerald-400' : 'text-red-400') +
         (function(){
             const pp = d.pcr_premium, pv = d.pcr_vol;
             if (pp == null && pv == null) return '';
@@ -4108,6 +4173,11 @@ async function loadProjTargets(ticker) {
         window._vcData = d;
         renderVictorTargets(d);
         renderVictorProjChart('projChart', d, window._vcHz || 20);
+        // El título y la insignia van ENCIMA de SU gráfica, así que tienen que
+        // ser SU spot y SU régimen. Los ponía `/api/options-gex`, que es otro
+        // motor con otra fuente: el encabezado podía decir "GEX+ anclado"
+        // mientras los escenarios de abajo salían de una lectura γ−.
+        vcSyncCabecera(d);
     } catch (e) { el.innerHTML = `<p class="text-[11px] text-red-400 italic">Error: ${e.message}</p>`; }
 }
 
