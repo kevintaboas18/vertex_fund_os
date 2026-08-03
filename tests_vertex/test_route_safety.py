@@ -69,23 +69,50 @@ def test_the_delete_route_does_not_hand_its_exception_to_the_browser():
     assert "logger" in body or "logging" in body
 
 
-def test_no_dead_config_survives_its_provider():
-    """Constantes de configuración de un proveedor que ya no existe.
+def test_yahoo_and_quantdata_never_reach_the_scoring_engine():
+    """La linea que separa los dos agentes.
 
-    `QUANTDATA_API_KEY`, `QUANTDATA_BASE` y los ocho `QD_EP_*` seguían
-    declarados después de borrar las 22 funciones que los usaban: 165 líneas
-    de configuración muerta que `render.yaml` además pedía en el despliegue.
-    Config huérfana no rompe nada — sólo hace creer que el sistema depende de
-    algo que ya no toca.
+    Analyze (acciones) puntua SOLO con las cuatro fuentes de Victor: FMP,
+    FinnHub, FRED y EDGAR. Proyecciones (opciones) necesita cadenas que esas
+    cuatro no sirven -- FMP da 404 en `options-chain` con este plan y Quant
+    Data tiene el plan API inactivo -- asi que ahi si se usa Yahoo.
+
+    Lo que no puede pasar es que crucen. Un score que depende de un endpoint
+    sin documentar se mueve entre corridas sin que nadie sepa por que; un
+    panel de opciones que se queda vacio se ve al instante.
+
+    El motor tiene su propio guardian (`test_the_engine_no_longer_imports_yahoo`,
+    en la suite del engine). Este cubre el otro lado: que la ruta de scoring
+    de la capa web no los toque.
     """
+    import ast
+
+    arbol = ast.parse(_TEXT)
+    scoring = next(
+        n for n in ast.walk(arbol)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and n.name == "_engine_scorecard")
+
+    prohibidos = set()
+    for n in ast.walk(scoring):
+        if isinstance(n, ast.Attribute) and getattr(n.value, "id", None) == "yf":
+            prohibidos.add(f"yf.{n.attr}")
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+            f = n.func.id
+            if "quantdata" in f.lower() or f.startswith("_qd_"):
+                prohibidos.add(f)
+    assert not prohibidos, (
+        f"la ruta de scoring toca fuentes que no son de Victor: {sorted(prohibidos)}")
+
+
+def test_the_options_layer_is_the_only_place_yahoo_lives():
+    """Yahoo entra por UN solo import, y con su razon escrita al lado."""
     import re as _re
 
-    muertas = _re.findall(r"^(QUANTDATA_[A-Z_]+|QD_EP_[A-Z_]+)\s*=", _TEXT, _re.M)
-    assert not muertas, f"config de un proveedor eliminado: {sorted(set(muertas))}"
-
-    render = (_RAIZ / "render.yaml").read_text(encoding="utf-8")
-    pedidas = _re.findall(r"- key: (QUANTDATA_[A-Z_]+|SCHWAB_[A-Z_]+)", render)
-    assert not pedidas, f"render.yaml pide variables de proveedores muertos: {pedidas}"
+    assert _TEXT.count("import yfinance") == 1,         "yfinance entra por mas de un sitio; deberia haber una sola puerta"
+    bloque = _TEXT[max(0, _TEXT.index("import yfinance") - 1400):
+                   _TEXT.index("import yfinance")]
+    assert "PROYECCIONES" in bloque or "opciones" in bloque.lower(),         "el import de yfinance perdio la explicacion de por que esta ahi"
 
 
 def test_the_public_repo_carries_no_personal_contact():
@@ -97,41 +124,6 @@ def test_the_public_repo_carries_no_personal_contact():
     render = (_RAIZ / "render.yaml").read_text(encoding="utf-8")
     correos = _re.findall(r"value:.*?([\w.+-]+@[\w-]+\.[\w.]+)", render)
     assert not correos, f"correo expuesto en render.yaml: {correos}"
-
-
-def test_no_dead_provider_is_still_wired():
-    """Quant Data y yfinance salieron del proyecto: la primera porque su
-    plan API está inactivo (403 en todo) y no es fuente del sistema, la
-    segunda porque raspa un endpoint sin documentar.
-
-    Este test antes comprobaba que un 402 de Quant Data no se reintentara
-    25 veces. Ya no hay a quién no reintentar — lo que hay que impedir es
-    que vuelvan."""
-    import ast
-
-    arbol = ast.parse(_TEXT)
-    # CÓDIGO, no prosa: los comentarios y docstrings siguen nombrando a
-    # yfinance para explicar de qué se migró cada cosa, y esa mención no es
-    # una regresión. La primera versión de este test buscaba la palabra en
-    # todo el archivo y fallaba justo por eso.
-    importados = {a.name.split(".")[0] for n in ast.walk(arbol)
-                  if isinstance(n, ast.Import) for a in n.names}
-    importados |= {(n.module or "").split(".")[0] for n in ast.walk(arbol)
-                   if isinstance(n, ast.ImportFrom)}
-    assert "yfinance" not in importados, "yfinance volvió a la capa web"
-
-    llamadas = {n.func.id for n in ast.walk(arbol)
-                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
-    qd = sorted(f for f in llamadas
-                if "quantdata" in f.lower() or f.startswith("_qd_"))
-    assert not qd, f"Quant Data volvió a la capa web: {qd}"
-
-    assert "vertex_market" in importados, "falta el proveedor de fuentes principales"
-
-
-# ===========================================================================
-# Latencia: el trabajo repetido que dominaba /api/analyze
-# ===========================================================================
 
 
 def test_the_edgar_fetch_is_memoised():

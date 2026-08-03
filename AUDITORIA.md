@@ -1860,3 +1860,60 @@ Ahora se autentica como cualquier cliente en vez de asumir un entorno sin
 token.
 
 **2126 tests del engine + 94 de la capa web.**
+
+---
+
+# 30. Proyecciones restaurada: dos agentes, una frontera (D-03)
+
+Victor pidió que Proyecciones volviera. **Es otro agente**: Analyze puntúa
+acciones, Proyecciones opera opciones. Yo lo borré por una interpretación
+mía equivocada — cuando dijo *"no toques nada de proyecciones déjalo así"*,
+lo leí como "déjalo borrado" cuando quería decir "déjalo intacto".
+
+## 30.1 La frontera
+
+| | Analyze (acciones) | Proyecciones (opciones) |
+|---|---|---|
+| Fuentes | FMP, FinnHub, FRED, EDGAR | + Yahoo (cadenas) |
+| Toca el score | sí | **nunca** |
+| Si su fuente cae | análisis degradado y declarado | panel vacío, visible al instante |
+
+Yahoo entra por **un solo import**, con su razón escrita al lado. Las cadenas
+de opciones no existen en las cuatro fuentes: FMP da 404 en `options-chain`
+con este plan y Quant Data tiene el plan API inactivo.
+
+Dos tests fijan la frontera:
+`test_yahoo_and_quantdata_never_reach_the_scoring_engine` (la ruta de scoring
+de la web) y `test_the_engine_no_longer_imports_yahoo` (el motor).
+
+## 30.2 Tres nombres que la restauración destapó
+
+Reinsertar 77 funciones por AST dejó fuera lo que vive **entre** funciones:
+
+| Nombre | Efecto |
+|---|---|
+| `_QD_SIN_DERECHO` | `NameError` en toda llamada a Quant Data |
+| `_QD_MAXPAIN_CACHE` | `NameError` en `compute_gex` → GEX caído |
+| `_SCHED_STATE` | el planificador sin estado |
+
+Y uno que **no** venía de la restauración: **`import logging` nunca existió
+en `vertex_api.py`**. `_error_publico` —el manejador de errores que escribí
+hace varias sesiones— lo usaba sin importarlo. Nunca falló porque esos
+caminos no habían lanzado una excepción; el primer error real dentro de un
+`except` produjo un `NameError` *dentro del manejador de errores*.
+
+## 30.3 Verificación en vivo
+
+| Ruta | Resultado |
+|---|---|
+| `/api/options-gex` | spot 758.39 · call wall 760 · put wall 720 · max pain 744 · gamma flip 745.89 |
+| `/api/projection-targets` | 7 targets |
+| `/api/income-strategies`, `/api/trade-plan`, `/api/options-ledger`, `/api/portfolio-options` | 200 |
+| `/api/analyze` NVDA | **raw 48.6, FV $281.05 — sin cambios** |
+
+yfinance 1.5.1 sirve 34 expiraciones de SPY (120 calls / 165 puts).
+`gex-strike` sigue diciendo "sin exposición GAMMA": eso es Quant Data, cuyo
+plan está inactivo — el resto cae a lo derivado de la cadena, como fue
+diseñado.
+
+**2126 tests del engine + 94 de la capa web.**

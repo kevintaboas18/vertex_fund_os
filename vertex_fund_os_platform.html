@@ -321,6 +321,7 @@
             <button onclick="switchView('reportsView')" class="hover:text-white transition">Reports</button>
             <button class="hidden xl:block hover:text-white transition">Vertex Credit Division</button>
             <button onclick="switchView('portfolioView')" class="hover:text-white transition">Portfolio</button>
+            <button onclick="switchView('projectionsView')" class="hover:text-white transition">Proyecciones</button>
             <button onclick="switchView('watchlistView')" class="hover:text-white transition">Watchlist</button>
             <button onclick="switchView('trackRecordView')" class="hover:text-white transition">Track Record</button>
         </div>
@@ -416,6 +417,10 @@
                 <i data-lucide="zap" class="w-4 h-4 text-blue-400"></i>
                 <span class="flex-1">Analizar un ticker<span class="block text-[10px] font-normal text-gray-600">Analisis completo de los 6 especialistas</span></span>
             </button>
+            <button class="mnav-item" onclick="mobileGo('projectionsView')">
+                <i data-lucide="activity" class="w-4 h-4 text-amber-400"></i>
+                <span class="flex-1">Proyecciones GEX<span class="block text-[10px] font-normal text-gray-600">Muros de gamma y niveles de opciones</span></span>
+            </button>
         </div>
 
         <div class="px-3 pt-4">
@@ -423,6 +428,7 @@
             <button class="mnav-item" data-view="homeView"        onclick="mobileGo('homeView')"><i data-lucide="layout-dashboard" class="w-4 h-4"></i> Dashboard</button>
             <button class="mnav-item" data-view="reportsView"     onclick="mobileGo('reportsView')"><i data-lucide="file-text" class="w-4 h-4"></i> Reports</button>
             <button class="mnav-item" data-view="portfolioView"   onclick="mobileGo('portfolioView')"><i data-lucide="briefcase" class="w-4 h-4"></i> Portfolio</button>
+            <button class="mnav-item" data-view="projectionsView" onclick="mobileGo('projectionsView')"><i data-lucide="trending-up" class="w-4 h-4"></i> Proyecciones</button>
             <button class="mnav-item" data-view="watchlistView"   onclick="mobileGo('watchlistView')"><i data-lucide="eye" class="w-4 h-4"></i> Watchlist</button>
             <button class="mnav-item" data-view="trackRecordView" onclick="mobileGo('trackRecordView')"><i data-lucide="target" class="w-4 h-4"></i> Track Record</button>
             <button class="mnav-item" disabled><i data-lucide="landmark" class="w-4 h-4"></i>
@@ -834,6 +840,15 @@
                 <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900">
                     <p id="qtCompanySummary" class="text-xs text-gray-300 leading-relaxed"></p>
                 </div>
+            </div>
+            <div id="qtGexCard" class="hidden">
+                <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+                    <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="target" class="w-4 h-4"></i> Inteligencia de Opciones (GEX)</h3>
+                    <button onclick="switchView('projectionsView'); setTimeout(()=>loadProjections(currentTicker),50);" class="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition flex items-center gap-1">
+                        <i data-lucide="line-chart" class="w-3 h-3"></i> Ver gráfica de Proyecciones
+                    </button>
+                </div>
+                <div class="bg-[#0B0E14] p-4 rounded-xl border border-gray-900"><div id="qtGexBody"></div></div>
             </div>
         </div>
 
@@ -1671,6 +1686,7 @@ function renderDashboard(data) {
     }
 
     renderQtChart();
+    renderReportOptionPlay(data.ticker, (a.trade_plan && a.trade_plan.suggested_pct != null) ? a.trade_plan.suggested_pct : null);
     const t12 = targets['12m'] || {};
     document.getElementById('qt_bull_12m').innerText = `$${(t12.bull||0).toFixed(2)}`;
     document.getElementById('qt_base_12m').innerText = `$${(t12.base||0).toFixed(2)}`;
@@ -1725,11 +1741,51 @@ function renderDashboard(data) {
     // 7d/30d/3m/6m que ya no existen (los targets son los de Victor, solo 12M), el
     // debate y la memoria tienen su propia pestaña y su propia tarjeta. Lo único sin
     // otro hogar era la coherencia, que ahora va en el strip de integridad de arriba.
-            // El panel 'Plan de Trade' vivia en `qtTradePlan`, que salio con la
-            // capa de opciones: sus probabilidades, el sizing de Kelly y los stops
-            // se alimentaban del motor de gamma/flujo. El bloque quedo escribiendo
-            // en un elemento inexistente, y al quitarlo por lineas se perdio la que
-            // abria su plantilla — lo que rompio TODO el script desde aqui.
+    // #2 + #5 Plan de Trade (probabilidades calibradas + Kelly sizing + stops)
+    const tp = a.trade_plan;
+    const tpc = document.getElementById('qtTradePlan');
+    if (tpc) {
+        if (tp) {
+            const pr = tp.probabilities || {}, rp = tp.risk_plan || {};
+            const tr = tp.targets_r || null, inval = tp.thesis_invalidation || [];
+            const chip = (lbl, v) => `<div class="bg-gray-900/60 rounded-lg px-2 py-1.5 text-center"><p class="text-[8px] text-gray-500 uppercase font-bold">${lbl}</p><p class="text-sm font-mono font-black text-white">${v != null ? v : '—'}%</p></div>`;
+            const sizeCol = tp.suggested_pct > 0 ? '#10b981' : '#6b7280';
+            const stopHtml = rp.is_a_grade
+                ? `<span class="text-emerald-400 font-bold">Sin stop fijo (A-grade)</span> · ${rp.equity_stop_note || ''}`
+                : `<span class="text-amber-400 font-bold">Stop $${rp.equity_stop}</span> · ${rp.equity_stop_note || ''}`;
+            document.getElementById('qtTradePlanBody').innerHTML = `
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                    ${chip('Pos 12m', pr.p_positive_12m)}${chip('Bull 12m', pr.p_touch_bull_12m)}
+                    ${chip('Bear 12m', pr.p_touch_bear_12m)}${chip('+10% 3m', pr.p_up_10pct_3m)}
+                </div>
+                ${pr.rationale ? `<p class="text-[10px] text-gray-500 italic mb-3">${pr.rationale}</p>` : ''}
+                <div class="flex items-stretch gap-3 mb-2">
+                    <div class="flex-1 bg-gray-900/60 rounded-lg p-2.5">
+                        <p class="text-[8px] text-gray-500 uppercase font-bold mb-1">Reward / Risk</p>
+                        <p class="text-base font-mono font-black text-white">${tp.reward_risk}x</p>
+                        <p class="text-[9px] text-gray-600">+${tp.reward_pct}% / −${tp.risk_pct}%</p>
+                    </div>
+                    <div class="flex-1 bg-gray-900/60 rounded-lg p-2.5">
+                        <p class="text-[8px] text-gray-500 uppercase font-bold mb-1">Tamaño sugerido</p>
+                        <p class="text-base font-mono font-black" style="color:${sizeCol}">${tp.suggested_pct}%${tp.factor_haircut_pct > 0 ? ` <span class="text-[9px] text-red-400 align-middle font-bold">−${tp.factor_haircut_pct}% factor</span>` : ''}</p>
+                        <p class="text-[9px] text-gray-600">½-Kelly ${tp.kelly_half_pct}% · full ${tp.kelly_full_pct}%${tp.already_held_pct > 0 ? ' · ya: '+tp.already_held_pct+'%' : ''}</p>
+                    </div>
+                </div>
+                ${tp.cap_reason ? `<p class="text-[10px] text-amber-400/90 mb-2">⚠ ${tp.cap_reason}</p>` : ''}
+                <div class="border-t border-gray-900 pt-2 space-y-1 text-[10px] text-gray-400 leading-relaxed">
+                    ${tr ? `<p><span class="text-gray-600 font-bold">Targets en R:</span> Bull <b class="text-emerald-400">+${tr.bull_r}R</b> · Base <b class="text-gray-300">${tr.base_r >= 0 ? '+' : ''}${tr.base_r}R</b> · Bear <b class="text-red-400">−1R</b> <span class="text-gray-600">(1R = $${tr.r_unit})</span></p>` : ''}
+                    <p><span class="text-gray-600 font-bold">Equity:</span> ${stopHtml}</p>
+                    <p><span class="text-gray-600 font-bold">Quiebre de tesis:</span> $${rp.thesis_break_level}</p>
+                    <p><span class="text-gray-600 font-bold">Opciones:</span> ${rp.options_stop_rule || ''}</p>
+                </div>
+                ${inval.length ? `<div class="border-t border-gray-900 mt-2 pt-2">
+                    <p class="text-[9px] text-gray-500 uppercase font-bold mb-1.5 flex items-center gap-1"><i data-lucide="alert-octagon" class="w-3 h-3 text-amber-400"></i> Qu&eacute; me har&iacute;a cambiar de opini&oacute;n</p>
+                    <div class="space-y-1">${inval.map(iv => `<div class="flex items-start gap-1.5 text-[10px]"><span class="text-amber-400 mt-0.5">▸</span><span class="text-gray-400"><b class="text-gray-300">${iv.factor}:</b> ${iv.trigger}</span></div>`).join('')}</div>
+                </div>` : ''}
+                <p class="text-[9px] text-gray-600 mt-2 italic">Kelly fraccional (½) acotado por tu tope de concentración 25%. No es consejo de inversión.</p>`;
+            tpc.classList.remove('hidden');
+        } else { tpc.classList.add('hidden'); }
+    }
 
     // Institutional Levels
     const fmtM = (v, prefix='$') => v ? `${prefix}${v}` : 'N/A';
@@ -1777,10 +1833,83 @@ function renderDashboard(data) {
     document.getElementById('thesisWS').innerText           = a.analistas_consenso || '';
     document.getElementById('theBottomLine').innerText      = a.the_bottom_line || '';
     lucide.createIcons();
+    try { const _gc = document.getElementById('qtGexCard'); if (_gc) _gc.classList.add('hidden'); loadAnalysisGex(data.ticker); } catch(e) {}
 }
 
 // ── CHARTS ───────────────────────────────────────────────
-
+async function renderReportOptionPlay(ticker, kellyPct) {
+    const wrap = document.getElementById('qtOptionPlay');
+    const body = document.getElementById('qtOptionPlayBody');
+    if (!wrap || !body || !ticker) return;
+    const cap = parseFloat((document.getElementById('tpCapital') || {}).value) || 500;
+    const risk = parseFloat((document.getElementById('tpRisk') || {}).value) || 15;
+    const useKelly = (kellyPct != null && !isNaN(kellyPct));   // si el agente dio tamaño Kelly, manda él
+    wrap.classList.remove('hidden');
+    body.innerHTML = `<p class="text-[11px] text-gray-500">Estructurando contrato para <b>${ticker}</b>…</p>`;
+    try {
+        const url = `${API_BASE}/api/trade-plan?ticker=${encodeURIComponent(ticker)}&capital=${cap}&risk_pct=${risk}`
+                  + (useKelly ? `&alloc_pct=${encodeURIComponent(kellyPct)}` : '');
+        const r = await fetch(url);
+        const d = await r.json();
+        if (!d.ok) { wrap.classList.add('hidden'); return; }
+        const money = v => v == null ? '—' : (Math.abs(v) >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : '$' + Number(v).toFixed(0));
+        const px = v => v == null ? '—' : '$' + Number(v).toFixed(2);
+        const taOn = d.tipo_a_active;
+        document.getElementById('qtOptionPlayHead').innerHTML =
+            `spot ${px(d.spot)} · sesgo <b class="${d.bias==='alcista'?'text-emerald-400':d.bias==='bajista'?'text-red-400':'text-gray-300'}">${(d.bias||'neutral').toUpperCase()}</b> · Tipo A <b class="${taOn?'text-amber-300':'text-gray-500'}">${taOn?'ACTIVO':'no'}</b> · capital ${money(d.capital)}`
+            + (d.sizing_basis === 'kelly_alloc'
+                ? ` · <b class="text-emerald-300">tamaño = Kelly del agente ${d.alloc_pct}%</b>`
+                : ` · <span class="text-gray-500">tamaño = riesgo fijo ${Number(d.risk_pct).toFixed(0)}%</span>`)
+            + (d.ai_concentration && d.ai_concentration.level !== 'baja'
+                ? `<div class="mt-1.5 text-[9px] rounded px-2 py-1 ${d.ai_concentration.level==='alta'?'text-red-300 bg-red-500/10 border border-red-500/20':'text-amber-300 bg-amber-500/10 border border-amber-500/20'}">⚠ Concentración IA (${d.ai_concentration.level}): ${d.ai_concentration.note}</div>`
+                : '');
+        const cards = (d.plans || []).slice(0,3).map(p => {
+            const call = p.opt_type === 'CALL';
+            const rr = p.rr_fast || 0;
+            const rrColor = rr >= 2 ? 'text-emerald-400' : rr >= 1 ? 'text-amber-300' : 'text-red-400';
+            const fits = p.contracts >= 1;
+            const sp = p.spread;
+            const recTxt = p.recommended || (fits ? 'opción simple' : '—');
+            // estructura que cabe en el capital
+            let sizing;
+            if (fits) {
+                sizing = `<b class="text-white">${p.contracts}</b> contrato${p.contracts>1?'s':''} · costo ${money(p.total_cost)} · riesgo ${money(p.total_risk)}`;
+            } else if (sp && sp.fits_capital) {
+                sizing = `Opción simple no cabe → <b class="text-blue-300">${recTxt}</b> ${sp.combo} ≈ ${money(sp.net_debit_contract)}/contrato (riesgo ${sp.risk_pct_at_1}%)`;
+            } else {
+                sizing = `<span class="text-amber-400">No cabe en ${money(d.capital)} — menos DTE o strike más OTM</span>`;
+            }
+            const noteChips = (p.notes || []).slice(0,3).map(n =>
+                `<span class="text-[8px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300/90">${n}</span>`).join(' ');
+            return `<div class="bg-panel border border-gray-800 rounded-xl p-3 mb-2">
+                <div class="flex items-center justify-between flex-wrap gap-1 mb-1.5">
+                    <span class="text-[11px] font-bold text-white">${p.label} · <span class="${call?'text-emerald-400':'text-red-400'}">${p.opt_type} $${p.strike}</span> <span class="text-gray-500 text-[9px]">(${p.long_moneyness})</span></span>
+                    <span class="text-[9px] text-gray-500 font-mono">${p.dte}d · exp ${p.expiry||'—'} · IV ${p.iv_pct}%</span>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-[9px] mb-1.5">
+                    <div><p class="text-gray-600">Entrada</p><p class="font-mono text-gray-200">${px(p.entry_price)}</p><p class="text-gray-600 text-[8px]">${money(p.entry_cost_contract)}/ct</p></div>
+                    <div><p class="text-gray-600">R:R rápido</p><p class="font-mono font-bold ${rrColor}">${p.rr_fast!=null?p.rr_fast:'—'}</p></div>
+                    <div><p class="text-gray-600">Target / BE</p><p class="font-mono text-gray-200">${px(p.target_underlying)}</p><p class="text-gray-600 text-[8px]">BE ${px(p.breakeven)}</p></div>
+                    <div><p class="text-gray-600">Stop ${p.stop_pct}%</p><p class="font-mono text-red-400">${px(p.stop_price)}</p></div>
+                </div>
+                ${p.anchored ? `<p class="text-[8px] text-blue-300/80 mb-1">🏛 strike anclado al flujo institucional${p.inst_premium?` (${money(p.inst_premium)})`:''}</p>` : ''}
+                ${p.iv_structure_hint ? `<p class="text-[8px] ${p.iv_vs_realized>=1.25?'text-amber-300/90':p.iv_vs_realized<=1.0?'text-emerald-300/90':'text-gray-500'} mb-1">IV/realizada ${p.iv_vs_realized!=null?p.iv_vs_realized+'×':''} — ${p.iv_structure_hint}</p>` : ''}
+                ${p.entry_basis ? `<p class="text-[8px] ${p.liquidity_ok===false?'text-amber-300/90':'text-gray-500'} mb-1">fill: <b>${p.entry_basis}</b>${p.strike_oi!=null?` · OI ${p.strike_oi}`:''}${p.entry_spread_pct!=null?` · spread ${p.entry_spread_pct}%`:''}${p.entry_ask?` · ask ${px(p.entry_ask)}`:''}${p.entry_basis.indexOf('teórico')>=0&&p.entry_theo?'':''}</p>` : ''}
+                <p class="text-[9px] text-gray-400">${sizing}</p>
+                ${noteChips ? `<div class="flex flex-wrap gap-1 mt-1.5">${noteChips}</div>` : ''}
+            </div>`;
+        }).join('');
+        body.innerHTML = cards + `<p class="text-[9px] ${taOn?'text-amber-300':'text-gray-600'} italic mt-1">${d.flow_exception||''}</p>`;
+        const aic = d.ai_concentration;
+        if (aic && aic.note && (aic.level === 'alta' || aic.level === 'media')) {
+            const hot = aic.level === 'alta';
+            body.innerHTML = `<div class="rounded-lg border ${hot?'border-red-500/30 bg-red-500/10':'border-amber-500/25 bg-amber-500/10'} p-2.5 mb-2">
+                <p class="text-[10px] font-bold ${hot?'text-red-300':'text-amber-300'} mb-0.5">⚠ Concentración IA · correlación ${aic.level} (ρ=${aic.rho} vs ${aic.proxy})</p>
+                <p class="text-[9px] text-gray-300 leading-snug">${aic.note}</p></div>` + body.innerHTML;
+        }
+        if (window.lucide) lucide.createIcons();
+    } catch(e) { wrap.classList.add('hidden'); }
+}
 
 function renderQtChart() {
     renderVictorChart('qtVictorChart');
@@ -2534,48 +2663,1199 @@ function buildTVChart(containerId, ohlc, volume, levels, showEMA) {
 // (toggleQtEMA / toggleFrEMA eliminados: la gráfica de Victor no lleva EMAs — su renderer
 //  es precio + targets, tal cual su webapp. Las EMAs siguen en la vista de Proyecciones.)
 
-        // Aqui vivia la vista de Proyecciones (chart GEX, walls, dark pool,
-        // targets de gamma) y `runSelfTest`, que leia su ticker activo. Salio con
-        // la capa de opciones. El diagnostico en vivo sigue existiendo en la API
-        // (`/api/self-test`), ahora sobre las cuatro fuentes reales.
+// ── PROYECCIONES GEX (vista de nivel superior) ───────────────────────────────
+let projTV = null, projGexChartObj = null, projData = null, projTf = '1d';
+// Temporalidad de velas → (period, interval) que entiende /api/history. 1d=diario·1y, 1H=horario·1mes, 10m=10min(reagrupado de 5m)·5d
+const PROJ_TF = {
+    '1d':  { period: '1y',  interval: '1d'  },
+    '1h':  { period: '1mo', interval: '1h'  },
+    '10m': { period: '5d',  interval: '10m' },
+};
+let projNetDriftChart = null, projNetDriftWin = 'today', projNetDriftTicker = null, projNetDriftExpTicker = null;
+let projGammaChart = null, projGammaTicker = null, projGammaExpLoaded = false, projBtTicker = null, projLedgerTicker = null;
+let projGammaRows = [], projGammaGreekCur = 'GAMMA', projGammaExpTicker = null;   // filas vivas para el tooltip al actualizar EN SITIO + ticker dueño del dropdown de expiraciones
+let _ledgerTrades = [], _ledgerPage = 0; const LEDGER_PAGE_SIZE = 15;
+let projTargetsData = null, projTargetLines = [];
+let projWallHorizon = 'all';   // 'all' = walls estructurales (todas las exp); 'Hoy'/'7d'/'30d'/... = exp más cercana a ese horizonte
+let projVisibleTargets = new Set(['Hoy', '7d', '30d', '60d', '90d', '120d']);
+let projScenarioSeries = null, projLastBarTime = null;
+let projDpView = '30d';        // 'today' | '30d' — vista activa del dark pool
+let projDpLines = [];          // handles de las price-lines de dark pool en el chart de velas
+let projGexLines = [];         // handles de las price-lines de GEX (call/put wall, flip, max pain)
+let projAutoTimer = null;      // timer de auto-refresh mientras el mercado está abierto
+
+const DP_MIN_VALUE = 500e6;    // solo cruces de dark pool de $500M o más
+
+// Niveles de dark pool de la vista activa (hoy o 30 días), solo ≥ $500M
+function projDpLevels() {
+    if (!projData) return [];
+    const arr = (projDpView === 'today' ? projData.dark_pool_today : projData.dark_pool) || [];
+    return arr.filter(p => p && p.price && p.value && p.value >= DP_MIN_VALUE);
+}
+// Para la GRÁFICA: los 3 mayores por $ por encima del spot (resistencia) + los 3 mayores por debajo
+// (soporte) = 6 niveles. Si no hay spot, cae a los 6 mayores globales.
+function projDpChartLevels() {
+    const lv = projDpLevels();
+    const spot = projData ? projData.spot : null;
+    if (!spot) return lv.slice().sort((a, b) => (b.value || 0) - (a.value || 0)).slice(0, 6);
+    const above = lv.filter(p => p.price >= spot).sort((a, b) => (b.value || 0) - (a.value || 0)).slice(0, 3);
+    const below = lv.filter(p => p.price < spot).sort((a, b) => (b.value || 0) - (a.value || 0)).slice(0, 3);
+    return above.concat(below);
+}
+// ¿Mercado de EE.UU. abierto? (lun–vie 9:30–16:00 hora del Este; PR es UTC-4 todo el año)
+function projIsMarketOpen() {
+    try {
+        const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+        const dow = et.getDay();
+        if (dow === 0 || dow === 6) return false;
+        const mins = et.getHours() * 60 + et.getMinutes();
+        return mins >= 570 && mins < 960;   // 9:30 = 570 · 16:00 = 960
+    } catch (e) { return false; }
+}
+
+async function loadProjections(tickerArg, opts) {
+    opts = opts || {};
+    const silent = !!opts.silent, force = !!opts.force;   // silent = sin spinner (refresh en vivo) · force = salta cache GEX
+    const _scrollY = silent ? (window.scrollY || document.documentElement.scrollTop || 0) : null;   // conserva dónde estabas mirando
+    const inp = document.getElementById('projTicker');
+    let ticker = (tickerArg || (inp ? inp.value : '') || '').trim().toUpperCase();
+    if (!ticker) { if (inp) inp.focus(); return; }
+    if (inp) inp.value = ticker;
+    const empty = document.getElementById('projEmpty');
+    const content = document.getElementById('projContent');
+    const btn = document.getElementById('projRefreshBtn');
+    if (!silent) {
+        empty.classList.remove('hidden');
+        empty.innerHTML = `<i data-lucide="loader" class="w-8 h-8 text-blue-500 mx-auto mb-3 animate-spin"></i><p class="text-sm text-gray-400">Calculando gamma exposure de ${ticker}…</p>`;
+        content.classList.add('hidden');
+        if (window.lucide) lucide.createIcons();
+    } else if (btn) { btn.classList.add('animate-spin'); }
+    try {
+        const r = await fetch(`${API_BASE}/api/options-gex?ticker=${encodeURIComponent(ticker)}${force ? '&refresh=1' : ''}`);
+        const d = await r.json();
+        if (!d.ok) {
+            if (!silent) {
+                empty.innerHTML = `<i data-lucide="alert-triangle" class="w-8 h-8 text-amber-500 mx-auto mb-3"></i><p class="text-sm text-amber-400">${d.error || 'No hay cadena de opciones para ' + ticker + '.'}</p>`;
+                if (window.lucide) lucide.createIcons();
+            }
+            return;
+        }
+        projData = d;
+        if (!silent) { empty.classList.add('hidden'); content.classList.remove('hidden'); }
+        // Recarga COMPLETA de todos los paneles (en vivo cuando es silent / refresh)
+        renderProjections(d);             // cards (GEX + P/C), escenarios, inusual, dark pool panel, gráfico gamma
+        loadProjTargets(ticker);          // targets por horizonte (incluye Hoy/0DTE)
+        loadFlowLedger(ticker);           // libro de flujo institucional
+        loadProjConfluence(ticker);       // confluencia QD
+        loadNetDrift(ticker, projNetDriftWin, (document.getElementById('projNetDriftExp') || {}).value || 'all');  // net drift — conserva la expiración elegida
+        loadGammaStrike(ticker, (silent && document.getElementById('projGammaExp') && document.getElementById('projGammaExp').value) ? document.getElementById('projGammaExp').value : 'all');   // gamma por strike — en refresh conserva la exp. elegida
+        loadIncomeStrategies(ticker);     // estrategias de venta de prima (condor / spreads / CSP) 7–30 DTE
+        loadBacktestStatus(ticker);       // estado del backtest
+        await projLoadChart(ticker, { preserve: silent });    // chart de velas + overlays · silent=auto-refresh → conserva zoom
+    } catch (e) {
+        if (!silent) empty.innerHTML = `<p class="text-sm text-red-400">Error: ${e.message}</p>`;
+    } finally {
+        if (silent) {
+            if (_scrollY != null) {   // restaura la posición (varias veces: los paneles async resuelven después y reflowean)
+                const _rs = () => window.scrollTo(0, _scrollY);
+                _rs(); requestAnimationFrame(_rs); setTimeout(_rs, 250); setTimeout(_rs, 700);
+            }
+            const ts = document.getElementById('projRefreshTs');
+            if (ts) ts.textContent = 'Actualizado ' + new Date().toLocaleTimeString('es-PR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            if (btn) setTimeout(() => btn.classList.remove('animate-spin'), 600);
+        }
+    }
+}
+
+async function projLoadChart(ticker, opts = {}) {
+    const preserve = !!opts.preserve;                       // refresh silencioso → actualiza sin reconstruir (preserva zoom)
+    const tf = PROJ_TF[projTf] || PROJ_TF['1d'];
+    try {
+        const res = await fetch(`${API_BASE}/api/history?ticker=${ticker}&period=${tf.period}&interval=${tf.interval}`);
+        const d = res.ok ? await res.json() : { ohlc: [], volumen: [] };
+        const intraday = !!d.intraday;
+        const ohlc = d.ohlc || [], vol = d.volumen || [];
+
+        // ── ACTUALIZACIÓN EN SITIO: ya hay chart, misma temporalidad → refresca datos + overlays y CONSERVA zoom/scroll ──
+        if (preserve && projTV && projTV.chart && projTV.candle && ohlc.length) {
+            let range = null;
+            try { range = projTV.chart.timeScale().getVisibleLogicalRange(); } catch(e){}
+            projTV.candle.setData(ohlc);
+            if (projTV.volSeries) projTV.volSeries.setData(vol.map(v => ({ time: v.time, value: v.value, color: v.up ? 'rgba(16,185,129,0.45)' : 'rgba(239,68,68,0.45)' })));
+            if (projTV.ema20 || projTV.ema50) {
+                const closes = ohlc.map(c => ({ time: c.time, value: c.close }));
+                if (projTV.ema20) projTV.ema20.setData(computeEMA(closes, 20));
+                if (projTV.ema50) projTV.ema50.setData(computeEMA(closes, 50));
+            }
+            projLastBarTime = ohlc[ohlc.length - 1].time;
+            projRedrawOverlays();
+            try { if (range) projTV.chart.timeScale().setVisibleLogicalRange(range); } catch(e){}   // restaura el zoom exacto
+            return;
+        }
+
+        // ── RECONSTRUCCIÓN COMPLETA: primer load o cambio de temporalidad (cambia el dominio temporal → fitContent) ──
+        if (projTV && projTV.chart) { try { projTV.chart.remove(); } catch(e){} projTV = null; }
+        projTV = buildTVChart('projChart', ohlc, vol, {}, false);
+        _chartCite('projChartSrc', 'US$/acción · niveles GEX proyectados (dashed) + dark pool real (sólido)', 'Quant Data (opciones + dark pool)');
+        try { projTV.chart.applyOptions({ timeScale: { timeVisible: intraday, secondsVisible: false } }); } catch(e){}
+        projTargetLines = [];
+        projGexLines = [];
+        projScenarioSeries = null;
+        projLastBarTime = ohlc.length ? ohlc[ohlc.length - 1].time : null;
+        projRedrawOverlays();
+        setTimeout(projPlaceDarkpoolLabels, 90);
+        try { projTV.chart.timeScale().subscribeVisibleTimeRangeChange(projPlaceDarkpoolLabels); } catch (e) {}
+    } catch(e) {}
+}
+
+// Redibuja TODOS los overlays sobre la vela (GEX walls + dark pool + targets + escenario) sin reconstruir el chart.
+// Cada grupo se auto-limpia, así que es seguro llamarlo en cada refresh (incluido el silencioso).
+function projRedrawOverlays() {
+    if (!projTV || !projTV.candle) return;
+    projGexLines.forEach(l => { try { projTV.candle.removePriceLine(l); } catch(e){} });
+    projGexLines = [];
+    const _aw = projActiveWalls();
+    if (_aw) {
+        [
+            { p: _aw.call_wall, c: '#f87171', t: 'Call Wall' },
+            { p: _aw.put_wall,  c: '#34d399', t: 'Put Wall' },
+            { p: _aw.gamma_flip,c: '#a78bfa', t: 'Gamma Flip' },
+            { p: _aw.max_pain,  c: '#9ca3af', t: 'Max Pain' },
+        ].forEach(x => { if (x.p) projGexLines.push(projTV.candle.createPriceLine({ price: x.p, color: x.c, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `${x.t} $${Number(x.p).toFixed(2)}` })); });
+    }
+    projDrawDarkpoolLines();   // TODOS los niveles de dark pool de la vista activa (hoy / 30d)
+    projDrawTargets();
+    projDrawScenario();
+    projApplyLevelAutoscale();  // asegura que flip/walls/dark-pool entren en el rango de precio visible (clave en intradía)
+}
+
+// Resuelve los walls activos según el horizonte elegido.
+// 'all'  → walls estructurales de TODAS las expiraciones (projData, de /api/options-gex).
+// 'Hoy'/'7d'/'30d'/...  → walls de QD-gamma de la expiración MÁS CERCANA a ese horizonte (del target correspondiente).
+function projActiveWalls() {
+    const struct = projData ? {
+        call_wall: projData.call_wall, put_wall: projData.put_wall,
+        gamma_flip: projData.gamma_flip, max_pain: projData.max_pain,
+        label: 'Todas', expiry: null, dte: null
+    } : null;
+    if (projWallHorizon === 'all') return struct;
+    if (projTargetsData && projTargetsData.targets) {
+        const t = projTargetsData.targets.find(x => x.label === projWallHorizon);
+        if (t && (t.call_wall != null || t.put_wall != null)) {
+            return { call_wall: t.call_wall, put_wall: t.put_wall,
+                     gamma_flip: t.gamma_flip, max_pain: t.max_pain,
+                     label: t.label, expiry: t.expiry, dte: t.dte };
+        }
+    }
+    return struct;   // fallback: si el target aún no cargó o no trae walls, usa los estructurales
+}
+
+// Actualiza en sitio las cards Call Wall / Put Wall / Gamma Flip / Max Pain + la nota del horizonte activo,
+// sin re-renderizar todo el bloque (Spot / GEX Neto / P-C se quedan como están).
+function projRenderWallCards() {
+    const aw = projActiveWalls();
+    const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = (v != null && v !== '') ? '$' + v : '—'; };
+    if (aw) { set('pwCallWall', aw.call_wall); set('pwPutWall', aw.put_wall); set('pwGammaFlip', aw.gamma_flip); set('pwMaxPain', aw.max_pain); }
+    const cf = document.getElementById('pwFlipConf');
+    if (cf) {
+        const c = aw && aw.gamma_flip_confidence;
+        if (c && aw.gamma_flip) {
+            const col = c.level === 'alta' ? 'text-emerald-500' : c.level === 'media' ? 'text-amber-500' : 'text-red-400';
+            cf.className = `text-[8px] font-bold ${col}`;
+            cf.textContent = `confianza ${c.level} (${c.score})`;
+        } else { cf.className = 'text-[8px] text-gray-600'; cf.textContent = ''; }
+    }
+    const note = document.getElementById('pwHorizonNote');
+    if (note) {
+        note.textContent = (!aw || projWallHorizon === 'all' || !aw.expiry)
+            ? 'Walls: todas las expiraciones (estructural)'
+            : `Walls: ${aw.label} · exp ${aw.expiry}${aw.dte != null ? ` · ${aw.dte} DTE` : ''}`;
+    }
+}
+
+// Expande el autoescalado de la vela para que SIEMPRE entren los niveles estructurales (call/put wall, gamma flip,
+// max pain) y los niveles de dark pool visibles. En intradía la ventana de precio es estrecha y, sin esto, el
+// gamma flip (y otros niveles lejos del precio reciente) quedaban fuera de pantalla.
+function projApplyLevelAutoscale() {
+    if (!projTV || !projTV.candle) return;
+    const lvls = [];
+    if (projData) [projData.call_wall, projData.put_wall, projData.gamma_flip, projData.max_pain]
+        .forEach(v => { const n = Number(v); if (v != null && isFinite(n)) lvls.push(n); });
+    try { projDpChartLevels().forEach(p => { const n = Number(p && p.price); if (isFinite(n)) lvls.push(n); }); } catch(e){}
+    try {
+        projTV.candle.applyOptions({
+            autoscaleInfoProvider: (orig) => {
+                const res = orig();
+                if (!res || !res.priceRange) return res;
+                let mn = res.priceRange.minValue, mx = res.priceRange.maxValue;
+                lvls.forEach(v => { if (v < mn) mn = v; if (v > mx) mx = v; });
+                return { priceRange: { minValue: mn, maxValue: mx }, margins: res.margins };
+            }
+        });
+    } catch(e){}
+}
+
+// Dibuja en el chart de velas los 6 niveles de dark pool mayores (3 resistencia + 3 soporte, ≥ $500M),
+// opacidad escalada por tamaño $. Reutilizable en toggle hoy/30d y en auto-refresh sin reconstruir el chart.
+function projDrawDarkpoolLines() {
+    if (!projTV || !projTV.candle) return;
+    projDpLines.forEach(l => { try { projTV.candle.removePriceLine(l); } catch (e) {} });
+    projDpLines = [];
+    const sel = projDpChartLevels();
+    if (!sel.length) { projPlaceDarkpoolLabels(); return; }
+    const maxV = Math.max(...sel.map(p => p.value || 0)) || 1;
+    sel.forEach(p => {
+        const a = 0.45 + 0.5 * Math.min((p.value || 0) / maxV, 1);   // más grande = más opaco (piso visible)
+        const ln = projTV.candle.createPriceLine({ price: p.price, color: `rgba(192,132,252,${a.toFixed(2)})`,
+            lineWidth: 1, lineStyle: 0, axisLabelVisible: false });
+        projDpLines.push(ln);
+    });
+    projPlaceDarkpoolLabels();
+}
+
+// Overlay the abbreviated $ value of each dark-pool line (los mismos 6) at its price level, on the right.
+function projPlaceDarkpoolLabels() {
+    const cont = document.getElementById('projChart');
+    if (!cont) return;
+    cont.querySelectorAll('.dp-ovl').forEach(e => e.remove());
+    if (!projTV || !projTV.candle) return;
+    const sel = projDpChartLevels();
+    if (!sel.length) return;
+    sel.forEach(p => {
+        let y = null;
+        try { y = projTV.candle.priceToCoordinate(p.price); } catch (e) { y = null; }
+        if (y == null) return;
+        const el = document.createElement('div');
+        el.className = 'dp-ovl';
+        el.textContent = fmtAbbr(p.value);
+        el.style.cssText = `position:absolute; right:58px; top:${y}px; transform:translateY(-50%); background:rgba(192,132,252,0.18); color:#e9d5ff; font-size:9px; font-weight:800; padding:0 4px; border-radius:4px; pointer-events:none; z-index:6; white-space:nowrap;`;
+        cont.appendChild(el);
+    });
+}
+
+function projChangeTf(tf, btn) {
+    document.querySelectorAll('.proj-tf').forEach(el => el.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    projTf = tf;
+    if (projData) projLoadChart(projData.ticker, { preserve: false });   // cambia el dominio temporal → reconstruye y encuadra
+}
+
+function integrityStripHTML(intg){
+    if(!intg || !intg.checks || !intg.checks.length) return '';
+    const tone = {ok:['bg-emerald-500/10','text-emerald-400','border-emerald-500/20','#10b981','Íntegro'],
+                  warn:['bg-amber-500/10','text-amber-400','border-amber-500/20','#f59e0b','Revisar'],
+                  fail:['bg-red-500/10','text-red-400','border-red-500/20','#ef4444','Alerta']};
+    const t = tone[intg.status] || tone.warn;
+    const dot = s => s==='ok' ? '#10b981' : (s==='warn' ? '#f59e0b' : '#ef4444');
+    const chips = intg.checks.map(c=>`<span class="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md bg-[#0B0E14] border border-gray-800 text-gray-300">
+        <span style="width:6px;height:6px;border-radius:9999px;background:${dot(c.status)};display:inline-block"></span>
+        <b class="text-gray-400">${c.name}</b><span class="text-gray-500">${(c.detail||'')}</span></span>`).join(' ');
+    return `<div class="rounded-xl border ${t[2]} ${t[0]} p-3">
+        <div class="flex items-center justify-between mb-2 flex-wrap gap-1">
+          <div class="flex items-center gap-2">
+            <span style="width:8px;height:8px;border-radius:9999px;background:${t[3]};display:inline-block"></span>
+            <span class="text-xs font-extrabold ${t[1]}">Integridad de datos · ${t[4]}</span>
+          </div>
+          <span class="text-[10px] text-gray-500">${intg.ok} ok · ${intg.warn} leve · ${intg.fail} crítico</span>
+        </div>
+        <div class="flex flex-wrap gap-1.5">${chips}</div>
+      </div>`;
+}
+
+/** El Plan de operación se llena desde /api/analyze, pero vive en Proyecciones.
+ *  Solo se muestra si hay un análisis cargado, y si es de OTRO ticker se dice
+ *  explícitamente — un plan de NVDA junto a un GEX de AMD sería engañoso. */
+function syncOpPlanVisibility(projTicker) {
+    const box = document.getElementById('projOpPlan');
+    const tag = document.getElementById('projOpPlanFor');
+    if (!box) return;
+    const has = !!(currentAnalysis && currentTicker);
+    box.classList.toggle('hidden', !has);
+    if (!has || !tag) return;
+    const mismatch = projTicker && currentTicker && projTicker.toUpperCase() !== currentTicker.toUpperCase();
+    tag.innerHTML = mismatch
+        ? `<span class="text-amber-400">⚠ plan de <b>${currentTicker}</b> — no de ${projTicker.toUpperCase()}</span>`
+        : `del análisis de <b class="text-gray-300">${currentTicker}</b>`;
+}
+
+function renderProjections(d) {
+    document.getElementById('projChartTitle').innerText = `${d.ticker} · $${d.spot}`;
+    syncOpPlanVisibility(d.ticker);
+    const pos = (d.net_gex >= 0);
+    const badge = document.getElementById('projRegimeBadge');
+    badge.className = `text-[9px] font-bold px-2 py-0.5 rounded-full ${pos ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`;
+    badge.innerText = pos ? 'GEX+ anclado' : 'GEX− amplificado';
+
+    // Cards
+    const card = (lbl, val, cls) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
+        <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">${lbl}</div>
+        <div class="text-base font-extrabold ${cls || 'text-white'}">${val}</div></div>`;
+    const cardId = (lbl, id, val, cls) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
+        <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">${lbl}</div>
+        <div id="${id}" class="text-base font-extrabold ${cls || 'text-white'}">${val}</div></div>`;
+    const gexAbb = (Math.abs(d.net_gex) >= 1e9 ? (d.net_gex/1e9).toFixed(2)+'B' : (d.net_gex/1e6).toFixed(1)+'M');
+    const _aw = projActiveWalls() || { call_wall: d.call_wall, put_wall: d.put_wall, gamma_flip: d.gamma_flip, max_pain: d.max_pain };
+    document.getElementById('projCards').innerHTML =
+        card('Spot', '$' + d.spot) +
+        cardId('Call Wall', 'pwCallWall', _aw.call_wall ? '$' + _aw.call_wall : '—', 'text-red-400') +
+        cardId('Put Wall', 'pwPutWall', _aw.put_wall ? '$' + _aw.put_wall : '—', 'text-emerald-400') +
+        `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
+            <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">Gamma Flip</div>
+            <div id="pwGammaFlip" class="text-base font-extrabold text-purple-400">${_aw.gamma_flip ? '$' + _aw.gamma_flip : '—'}</div>
+            <div id="pwFlipConf" class="text-[8px] text-gray-600"></div></div>` +
+        cardId('Max Pain', 'pwMaxPain', _aw.max_pain ? '$' + _aw.max_pain : '—', 'text-gray-300') +
+        card('GEX Neto', '$' + gexAbb, pos ? 'text-emerald-400' : 'text-red-400') +
+        (function(){
+            const pp = d.pcr_premium, pv = d.pcr_vol;
+            if (pp == null && pv == null) return '';
+            const ref = pp != null ? pp : pv;
+            const cls = ref > 1 ? 'text-red-400' : 'text-emerald-400';   // P/C>1 = más puts = bajista
+            const sub = (pp != null && pv != null) ? `prima · vol ${pv.toFixed(2)}` : (pp != null ? 'por prima' : 'por volumen');
+            return `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
+                <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">Put/Call</div>
+                <div class="text-base font-extrabold ${cls}">${ref.toFixed(2)}</div>
+                <div class="text-[8px] text-gray-600">${sub}</div></div>`;
+        })();
+    projRenderWallCards();   // nota del horizonte activo (las cards ya salen con el horizonte vía _aw)
+
+    const _projIE = document.getElementById('projIntegrity');
+    if (_projIE) _projIE.innerHTML = integrityStripHTML(d.integrity);
+
+    // Scenarios (deterministic, from GEX levels)
+    const cw = d.call_wall, pw = d.put_wall, flip = d.gamma_flip, spot = d.spot;
+    const pct = (a, b) => (a && b) ? `${(((a - b) / b) * 100).toFixed(1)}%` : '';
+    const S = [];
+    if (pw && cw) {
+        S.push(`<div class="flex items-start gap-2"><span class="text-blue-400 font-bold text-xs mt-0.5">▸ Rango base:</span><span class="text-xs text-gray-300">Mientras el precio se mantenga entre el <b class="text-emerald-400">put wall $${pw}</b> y el <b class="text-red-400">call wall $${cw}</b>, espera oscilación dentro de ese canal (${pct(cw, pw)} de ancho).</span></div>`);
+    }
+    if (pos) {
+        S.push(`<div class="flex items-start gap-2"><span class="text-emerald-400 font-bold text-xs mt-0.5">▸ Régimen GEX+:</span><span class="text-xs text-gray-300">Gamma de dealer positivo → el precio tiende a <b>anclarse y mean-revertir</b>. Los dips hacia el put wall suelen comprarse; los pops al call wall, venderse.</span></div>`);
+    } else {
+        S.push(`<div class="flex items-start gap-2"><span class="text-red-400 font-bold text-xs mt-0.5">▸ Régimen GEX−:</span><span class="text-xs text-gray-300">Gamma de dealer negativo → los movimientos se <b>amplifican</b>. Mayor riesgo de tramos direccionales rápidos; el rango es menos confiable.</span></div>`);
+    }
+    if (cw) S.push(`<div class="flex items-start gap-2"><span class="text-red-400 font-bold text-xs mt-0.5">▸ Ruptura alcista:</span><span class="text-xs text-gray-300">Cierre confirmado sobre <b>$${cw}</b> suele soltar el siguiente tramo al alza (objetivo de extensión por encima del call wall).</span></div>`);
+    if (pw) S.push(`<div class="flex items-start gap-2"><span class="text-emerald-400 font-bold text-xs mt-0.5">▸ Ruptura bajista:</span><span class="text-xs text-gray-300">Pérdida de <b>$${pw}</b> abre caída acelerada${flip ? ` (sobre todo si se pierde el gamma flip $${flip})` : ''}.</span></div>`);
+    if (flip) S.push(`<div class="flex items-start gap-2"><span class="text-purple-400 font-bold text-xs mt-0.5">▸ Gamma flip $${flip}:</span><span class="text-xs text-gray-300">${spot >= flip ? 'El spot está <b>sobre</b> el flip → régimen de anclaje activo.' : 'El spot está <b>bajo</b> el flip → zona de volatilidad amplificada.'}</span></div>`);
+    document.getElementById('projScenarios').innerHTML = S.join('');
+
+    // Unusual activity table
+    const ua = d.unusual_activity || [];
+    if (ua.length) {
+        document.getElementById('projUnusual').innerHTML = `<div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[480px]">
+            <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+                <th class="text-left pb-1.5 pr-3">Tipo</th><th class="text-right pb-1.5 pr-3">Strike</th><th class="text-right pb-1.5 pr-3">Vence</th>
+                <th class="text-right pb-1.5 pr-3">Volumen</th><th class="text-right pb-1.5 pr-3">OI</th><th class="text-right pb-1.5">Vol/OI</th></tr></thead>
+            <tbody>${ua.map(u => `<tr class="border-b border-gray-800/50">
+                <td class="py-2 pr-3"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${u.type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${u.type.toUpperCase()}</span>${u.golden ? ' <span title="golden sweep">⭐</span>' : (u.unusual ? ' <span title="unusual" class="text-purple-300">⚡</span>' : '')}</td>
+                <td class="py-2 pr-3 text-right text-gray-300">$${u.strike}</td>
+                <td class="py-2 pr-3 text-right text-gray-400">${u.exp.slice(5)}</td>
+                <td class="py-2 pr-3 text-right text-gray-200 font-bold">${u.volume.toLocaleString()}</td>
+                <td class="py-2 pr-3 text-right text-gray-400">${u.oi.toLocaleString()}</td>
+                <td class="py-2 text-right text-amber-400 font-bold">${u.vol_oi}x</td></tr>`).join('')}</tbody></table></div>`;
+    } else {
+        document.getElementById('projUnusual').innerHTML = `<p class="text-xs text-gray-500 italic">Sin actividad inusual destacada en las expiraciones cercanas.</p>`;
+    }
+
+    // Gamma exposure by strike (Chart.js)
+    renderProjRoute(d);
+    renderProjDarkPool(d);
+    if (window.lucide) lucide.createIcons();
+}
+
+function setNetDriftWin(win) {
+    projNetDriftWin = win;
+    if (projNetDriftTicker) loadNetDrift(projNetDriftTicker, win, (document.getElementById('projNetDriftExp') || {}).value || 'all');
+}
+async function loadNetDrift(ticker, win, exp) {
+    projNetDriftTicker = ticker;
+    win = win || projNetDriftWin || 'today';
+    projNetDriftWin = win;
+    const expSel = document.getElementById('projNetDriftExp');
+    if (exp === undefined || exp === null) exp = (expSel && expSel.value) ? expSel.value : 'all';
+    const card = document.getElementById('projNetDriftCard');
+    const tabsEl = document.getElementById('projNetDriftTabs');
+    const trendEl = document.getElementById('projNetDriftTrend');
+    if (!card) return;
+    const wins = [['today', 'Hoy'], ['7d', '7d'], ['30d', '30d'], ['90d', '90d']];
+    if (tabsEl) tabsEl.innerHTML = wins.map(([w, l]) =>
+        `<button onclick="setNetDriftWin('${w}')" class="px-2.5 py-1 rounded-md text-[10px] font-bold ${w === win ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}">${l}</button>`).join('');
+    const fmtUsd = v => (Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : (v / 1e3).toFixed(0) + 'K');
+    try {
+        const r = await fetch(`${API_BASE}/api/net-flow?ticker=${encodeURIComponent(ticker)}&window=${win}&expiration=${encodeURIComponent(exp || 'all')}`);
+        const d = await r.json();
+        if (!d.ok || !d.series || !d.series.length) { card.classList.add('hidden'); return; }
+        card.classList.remove('hidden');
+        // dropdown de expiración: (re)pobla al cambiar de ticker o si está vacío; preserva tu elección en el refresh
+        if (expSel && d.expirations && d.expirations.length && (expSel.options.length <= 1 || projNetDriftExpTicker !== ticker)) {
+            expSel.innerHTML = `<option value="all">Todas las exp.</option>` +
+                d.expirations.map((e, idx) => `<option value="${e}">${e}${idx === 0 ? ' (0DTE)' : ''}</option>`).join('');
+            projNetDriftExpTicker = ticker;
+        }
+        if (expSel) expSel.value = (exp || 'all');
+        const tcolor = d.bias === 'alcista' ? 'text-emerald-400' : (d.bias === 'bajista' ? 'text-red-400' : 'text-gray-400');
+        if (trendEl) trendEl.innerHTML = `acum <span class="${tcolor} font-bold">${d.cum_net >= 0 ? '+' : '-'}$${fmtUsd(Math.abs(d.cum_net))}</span> · <span class="${tcolor}">${d.trend}</span>`;
+        const labels = d.series.map(s => { const dt = new Date(s.t); return win === 'today' ? dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (dt.getMonth() + 1) + '/' + dt.getDate(); });
+        // Drift ACUMULADO por NETO (compras − ventas): cada línea sube si se COMPRA ese lado y baja si se VENDE.
+        let cc = 0, cp = 0;
+        const callCum = [], putCum = [], price = [];
+        d.series.forEach(s => {
+            cc += (s.call || 0); cp += (s.put || 0);
+            callCum.push(Math.round(cc));        // neto de calls acumulado: sube con compra de call, baja con venta de call
+            putCum.push(Math.round(cp));         // neto de puts acumulado:  sube con compra de put,  baja con venta de put
+            price.push(s.spot != null ? s.spot : null);
+        });
+        const lastCall = callCum.length ? callCum[callCum.length - 1] : 0;
+        const lastPut = putCum.length ? putCum[putCum.length - 1] : 0;
+        let lastSpot = null; for (let i = price.length - 1; i >= 0; i--) { if (price[i] != null) { lastSpot = price[i]; break; } }
+        const mlbl = v => (v < 0 ? '-' : '') + '$' + (Math.abs(v) / 1e6).toFixed(2) + ' M';
+        // ── Prints institucionales grandes sobre la línea (Tipo A: único ≥$5M ▲ · Tipo B: ≥2 de ≥$1M mismo contrato ●) ──
+        const N = d.series.length;
+        const times = d.series.map(s => s.t);
+        const callPts = new Array(N).fill(null), putPts = new Array(N).fill(null);
+        const callMeta = new Array(N).fill(null), putMeta = new Array(N).fill(null);
+        const callStyle = new Array(N).fill('circle'), putStyle = new Array(N).fill('circle');
+        const callRad = new Array(N).fill(0), putRad = new Array(N).fill(0);
+        const callCol = new Array(N).fill('rgba(0,0,0,0)'), putCol = new Array(N).fill('rgba(0,0,0,0)');
+        const callBord = new Array(N).fill('#052e16'), putBord = new Array(N).fill('#450a0a');
+        const callBW = new Array(N).fill(1), putBW = new Array(N).fill(1);
+        const nearestBucket = tms => { let bi = 0, bd = Infinity; for (let i = 0; i < times.length; i++) { const dd = Math.abs(times[i] - tms); if (dd < bd) { bd = dd; bi = i; } } return bi; };
+        const premM = p => (p >= 1e6 ? '$' + (p / 1e6).toFixed(1) + 'M' : '$' + (p / 1e3).toFixed(0) + 'K');
+        const radFor = p => Math.max(5, Math.min(13, 5 + (p / 1e6) * 0.9));   // tamaño del marcador ∝ premium
+        // Sesgo DIRECCIONAL del print (no el tipo crudo): call comprada / put vendida = ALCISTA (línea verde);
+        // put comprada / call vendida = BAJISTA (línea roja). Vender calls empuja abajo; vender puts empuja arriba.
+        const biasBull = pr => {
+            const isC = (pr.cp || '').toUpperCase() === 'CALL';
+            const sd = (pr.side || '').toUpperCase();
+            if (sd.includes('ASK')) return isC;      // compra agresiva (ASK/ABOVE_ASK): call=alcista, put=bajista
+            if (sd.includes('BID')) return !isC;     // venta (BID/BELOW_BID): call=bajista, put=alcista
+            return isC;                              // sin lado claro → por tipo
+        };
+        (d.prints || []).forEach(p => {
+            const bi = nearestBucket(p.t);
+            const isBull = biasBull(p);              // ← lado por FUERZA direccional, no por call/put
+            const pts = isBull ? callPts : putPts, meta = isBull ? callMeta : putMeta;
+            const sty = isBull ? callStyle : putStyle, rad = isBull ? callRad : putRad, col = isBull ? callCol : putCol;
+            const bord = isBull ? callBord : putBord, bw = isBull ? callBW : putBW;
+            if (pts[bi] == null) { pts[bi] = (isBull ? callCum[bi] : putCum[bi]); meta[bi] = { items: [p], top: p }; }
+            else { meta[bi].items.push(p); if (p.premium > meta[bi].top.premium) meta[bi].top = p; }
+            const m = meta[bi];
+            sty[bi] = m.items.some(x => x.type === 'A') ? 'triangle' : 'circle';   // ▲ Tipo A presente · ● solo Tipo B
+            rad[bi] = radFor(m.top.premium);
+            col[bi] = isBull ? 'rgba(34,197,94,0.95)' : 'rgba(239,68,68,0.95)';    // color por SESGO (verde=alcista, rojo=bajista)
+            if (m.items.some(x => x.oi_confirm === true)) { bord[bi] = '#fbbf24'; bw[bi] = 2; }   // ✓ abrió OI → borde dorado
+            else if (m.top.oi_confirm === false) { bord[bi] = '#6b7280'; bw[bi] = 1; }            // posible cierre → borde gris
+        });
+        const fmtSpan = mins => mins == null ? '' : (mins <= 60 ? Math.round(mins) + 'min' : mins <= 1440 ? (mins / 60).toFixed(1) + 'h' : (mins / 1440).toFixed(1) + 'd');
+        const printTip = (meta, i) => {
+            const m = meta[i]; if (!m) return undefined;
+            const t = m.top, extra = m.items.length - 1;
+            const tag = t.type === 'A' ? '🅐 Tipo A' : '🅑 Tipo B';
+            const side = (t.side || '').replace('_', ' ').toLowerCase();
+            const dir = biasBull(t) ? '↑ fuerza alcista' : '↓ fuerza bajista';
+            let line = `  ${tag} · ${t.cp} $${t.strike} · ${premM(t.premium)} · ${side} → ${dir}${t.golden ? ' · sweep' : ''}`;
+            if (t.oi_confirm === true) line += ' · ✓abrió OI';
+            else if (t.oi_confirm === false) line += ' · ⚠posible cierre';
+            if (t.type === 'B' && t.b_density) line += ` · ${t.b_count}× en ${fmtSpan(t.b_span_min)} (densidad ${t.b_density})`;
+            if (extra > 0) line += ` (+${extra} más aquí)`;
+            return line;
+        };
+        const nPrints = (d.prints || []).length;
+        const ctx = document.getElementById('projNetDriftCanvas');
+        if (!ctx || !window.Chart) return;
+        if (projNetDriftChart) { try { projNetDriftChart.destroy(); } catch (e) {} projNetDriftChart = null; }
+        _chartCite('projNetDriftSrc', 'US$ prima neta acumulada', 'Quant Data (flujo de opciones)');
+        const sgn = v => (v >= 0 ? '+' : '-') + '$' + fmtUsd(Math.abs(v));
+        projNetDriftChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets: [
+                { label: `Calls (${mlbl(lastCall)})`, data: callCum, yAxisID: 'y', borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.08)', fill: false, tension: 0.2, pointRadius: 0, borderWidth: 2 },
+                { label: `Puts (${mlbl(lastPut)})`, data: putCum, yAxisID: 'y', borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)', fill: false, tension: 0.2, pointRadius: 0, borderWidth: 2 },
+                { label: `${ticker} (${lastSpot != null ? '$' + lastSpot.toFixed(2) : '—'})`, data: price, yAxisID: 'yP', borderColor: '#3b82f6', backgroundColor: 'transparent', fill: false, tension: 0.2, pointRadius: 0, borderWidth: 1.5, spanGaps: true },
+                { label: 'Flujo alcista ▲A/●B', data: callPts, yAxisID: 'y', showLine: false, pointStyle: callStyle, pointRadius: callRad, pointHoverRadius: callRad.map(r => r ? r + 2 : 0), pointBackgroundColor: callCol, pointBorderColor: callBord, pointBorderWidth: callBW, borderColor: 'transparent' },
+                { label: 'Flujo bajista ▲A/●B', data: putPts, yAxisID: 'y', showLine: false, pointStyle: putStyle, pointRadius: putRad, pointHoverRadius: putRad.map(r => r ? r + 2 : 0), pointBackgroundColor: putCol, pointBorderColor: putBord, pointBorderWidth: putBW, borderColor: 'transparent' }
+            ] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: true, position: 'top', align: 'center', labels: { color: '#d1d5db', font: { size: 10 }, usePointStyle: true, pointStyle: 'circle', boxWidth: 7, padding: 14 } },
+                    tooltip: { filter: it => !((it.datasetIndex === 3 || it.datasetIndex === 4) && it.raw == null), callbacks: {
+                        label: c => {
+                            if (c.datasetIndex === 3) return printTip(callMeta, c.dataIndex);
+                            if (c.datasetIndex === 4) return printTip(putMeta, c.dataIndex);
+                            if (c.datasetIndex === 2) return '  ' + ticker + ': $' + (c.raw == null ? '—' : Number(c.raw).toFixed(2));
+                            return '  ' + (c.datasetIndex === 0 ? 'Calls' : 'Puts') + ': ' + sgn(c.raw);
+                        },
+                        footer: items => { const i = items[0].dataIndex; const nv = (callCum[i] || 0) - (putCum[i] || 0); return 'Neto direccional (call−put): ' + sgn(nv); }
+                    } }
+                },
+                scales: {
+                    x: { ticks: { color: '#6b7280', font: { size: 9 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { color: '#1F2532' } },
+                    y: { position: 'left', ticks: { color: '#6b7280', font: { size: 9 }, callback: v => (Math.abs(v) >= 1e6 ? '$' + (v / 1e6).toFixed(0) + 'M' : '$' + (v / 1e3).toFixed(0) + 'K') }, grid: { color: '#1F2532' } },
+                    yP: { position: 'right', ticks: { color: '#60a5fa', font: { size: 9 }, callback: v => '$' + Number(v).toFixed(0) }, grid: { display: false } }
+                }
+            }
+        });
+        if (trendEl && nPrints) trendEl.innerHTML += ` · <span class="text-amber-300 font-bold">${nPrints} prints A/B</span>`;
+    } catch (e) { card.classList.add('hidden'); }
+}
+
+async function loadGammaStrike(ticker, exp) {
+    projGammaTicker = ticker;
+    const card = document.getElementById('projGammaCard');
+    if (!card) return;
+    exp = exp || 'all';
+    const greek = ((document.getElementById('projGammaGreek') || {}).value) || 'GAMMA';
+    try {
+        const r = await fetch(`${API_BASE}/api/gex-strike?ticker=${encodeURIComponent(ticker)}&exp=${encodeURIComponent(exp)}&greek=${greek}`);
+        const d = await r.json();
+        if (!d.ok || !d.by_strike || !d.by_strike.length) { card.classList.add('hidden'); return; }
+        card.classList.remove('hidden');
+        const sel = document.getElementById('projGammaExp');
+        if (sel && d.expirations && d.expirations.length && (sel.options.length <= 1 || projGammaExpTicker !== ticker)) {   // (re)pobla al cambiar de ticker o si está vacío; NO en el refresh del mismo ticker → preserva tu elección
+            sel.innerHTML = `<option value="all">Todas las exp.</option>` +
+                d.expirations.map(e => `<option value="${e}" ${e === exp ? 'selected' : ''}>${e}</option>`).join('');
+            sel.value = exp;
+            projGammaExpTicker = ticker;
+        }
+        const note = document.getElementById('projGammaNote');
+        if (note) {
+            if (greek === 'GAMMA' && d.walls) {
+                const w = d.walls;
+                const mp = d.max_pain || w.max_pain;
+                note.innerHTML = `Exposición <b>GAMMA</b> neta por strike. ` +
+                    (mp ? `<b>Max pain</b> (OI): $${mp} · ` : '') +
+                    (w.gamma_flip ? `<b>Gamma flip</b> (gamma): $${w.gamma_flip} · ` : '') +
+                    (w.call_wall ? `call wall $${w.call_wall} · ` : '') +
+                    (w.put_wall ? `put wall $${w.put_wall}` : '') +
+                    `. Los dos pines: max pain (por OI completo) y gamma flip (por gamma). ` +
+                    (mp ? '' : 'El max pain aparece al elegir un vencimiento. ') +
+                    `Verde = soporte/imán; rojo = aceleración.`;
+            } else {
+                const desc = { VANNA: 'cómo cambia el delta del dealer con la IV — clave alrededor de eventos/earnings', CHARM: 'cómo decae el delta con el paso del tiempo — empuja el pin hacia el vencimiento', DELTA: 'exposición direccional neta del dealer' };
+                note.innerHTML = `Exposición <b>${greek}</b> neta por strike — ${desc[greek] || ''}.`;
+            }
+        }
+        const spot = d.spot;
+        const lo = spot ? spot * 0.85 : 0, hi = spot ? spot * 1.15 : 1e12;
+        const f = d.by_strike.filter(x => !spot || (x.strike >= lo && x.strike <= hi));
+        const labels = f.map(x => '$' + x.strike);
+        const ctx = document.getElementById('projGammaCanvas');
+        if (!ctx || !window.Chart) return;
+        projGammaRows = f; projGammaGreekCur = greek;
+        _chartCite('projGammaSrc', 'gamma neto del dealer por strike', 'Quant Data (opciones)');
+        const gbg = f.map(x => x.net >= 0 ? 'rgba(52,211,153,0.55)' : 'rgba(248,113,113,0.55)');
+        const gbd = f.map(x => x.net >= 0 ? '#34d399' : '#f87171');
+        if (projGammaChart) {   // actualización EN SITIO: no destruyas (no resetea el panel ni te brinca el scroll)
+            try {
+                projGammaChart.data.labels = labels;
+                projGammaChart.data.datasets[0].label = greek + ' neto';
+                projGammaChart.data.datasets[0].data = f.map(x => x.net);
+                projGammaChart.data.datasets[0].backgroundColor = gbg;
+                projGammaChart.data.datasets[0].borderColor = gbd;
+                projGammaChart.update('none');
+                return;
+            } catch (e) { try { projGammaChart.destroy(); } catch (e2) {} projGammaChart = null; }
+        }
+        projGammaChart = new Chart(ctx, {
+            type: 'bar',
+            data: { labels, datasets: [{ label: greek + ' neto', data: f.map(x => x.net),
+                backgroundColor: gbg, borderColor: gbd, borderWidth: 1 }] },
+            options: { responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => {
+                    const row = projGammaRows[c.dataIndex]; if (!row) return '';
+                    return [projGammaGreekCur + ': $' + (row.net / 1e6).toFixed(2) + 'M', 'Call: $' + (row.call / 1e6).toFixed(2) + 'M', 'Put: $' + (row.put / 1e6).toFixed(2) + 'M'];
+                } } } },
+                scales: { x: { ticks: { color: '#6b7280', font: { size: 8 }, maxRotation: 90, minRotation: 45, autoSkip: true, maxTicksLimit: 18 }, grid: { color: '#1F2532' } },
+                    y: { ticks: { color: '#6b7280', font: { size: 9 }, callback: v => (v / 1e6).toFixed(0) + 'M' }, grid: { color: '#1F2532' } } } }
+        });
+    } catch (e) { card.classList.add('hidden'); }
+}
+
+async function loadFlowLedger(ticker) {
+    const card = document.getElementById('projLedgerCard');
+    const el = document.getElementById('projLedger');
+    const biasEl = document.getElementById('projLedgerBias');
+    if (!card || !el) return;
+    if (ticker) projLedgerTicker = ticker; else ticker = projLedgerTicker;
+    if (!ticker) return;
+    const withOi = (document.getElementById('projLedgerOI') || {}).checked !== false;
+    try {
+        const r = await fetch(`${API_BASE}/api/options-ledger?ticker=${encodeURIComponent(ticker)}&limit=300&min_premium=5000000&only_active=true&with_oi=${withOi}`);
+        const d = await r.json();
+        if (!d.ok || !d.trades || !d.trades.length) { card.classList.add('hidden'); return; }
+        card.classList.remove('hidden');
+        const s = d.summary || {};
+        const fmt = v => v == null ? '—' : (Math.abs(v) >= 1e6 ? '$' + (v / 1e6).toFixed(1) + 'M' : '$' + (v / 1e3).toFixed(0) + 'K');
+        if (biasEl) {
+            const up = s.bias === 'alcista', dn = s.bias === 'bajista';
+            biasEl.className = `text-[10px] font-bold ${up ? 'text-emerald-400' : dn ? 'text-red-400' : 'text-gray-400'}`;
+            biasEl.textContent = `Sesgo: ${(s.bias || 'neutral').toUpperCase()} · alcista ${fmt(s.bull_notional)} vs bajista ${fmt(s.bear_notional)}`;
+        }
+        // summary bar
+        const bull = s.bull_notional || 0, bear = s.bear_notional || 0, tot = bull + bear || 1;
+        const bar = `<div class="flex h-2 rounded-full overflow-hidden mb-3">
+            <div style="width:${(bull / tot * 100).toFixed(1)}%" class="bg-emerald-500"></div>
+            <div style="width:${(bear / tot * 100).toFixed(1)}%" class="bg-red-500"></div></div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-center text-[9px]">
+              <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-1.5"><p class="text-gray-500 uppercase">Compra calls</p><p class="text-emerald-400 font-bold text-[11px]">${fmt(s.call_buy)}</p></div>
+              <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-1.5"><p class="text-gray-500 uppercase">Venta puts</p><p class="text-emerald-400 font-bold text-[11px]">${fmt(s.put_sell)}</p></div>
+              <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-1.5"><p class="text-gray-500 uppercase">Compra puts</p><p class="text-red-400 font-bold text-[11px]">${fmt(s.put_buy)}</p></div>
+              <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-1.5"><p class="text-gray-500 uppercase">Venta calls</p><p class="text-red-400 font-bold text-[11px]">${fmt(s.call_sell)}</p></div>
+            </div>`;
+        _ledgerTrades = d.trades || []; _ledgerPage = 0;
+        const expNote = d.n_expired_hidden ? ` · <span class="text-gray-500">${d.n_expired_hidden} vencidos ocultos</span>` : '';
+        el.innerHTML = bar + `<div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <span class="text-[10px] text-gray-400"><b class="text-gray-200">${_ledgerTrades.length}</b> transacciones de <b>$5M+</b> vigentes${expNote}</span>
+            <div class="flex items-center gap-2">
+                <button onclick="ledgerPage(-1)" id="ledgerPrev" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-[#0B0E14] border border-gray-800 text-gray-300 hover:bg-gray-800 disabled:opacity-40">&lsaquo; Anterior</button>
+                <span id="ledgerPageInfo" class="text-[10px] text-gray-500 font-mono"></span>
+                <button onclick="ledgerPage(1)" id="ledgerNext" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-[#0B0E14] border border-gray-800 text-gray-300 hover:bg-gray-800 disabled:opacity-40">Siguiente &rsaquo;</button>
+            </div></div>
+            <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[760px]">
+            <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+                <th class="text-left pb-1.5 pr-2">Fecha</th><th class="text-left pb-1.5 pr-2">Contrato</th><th class="text-left pb-1.5 pr-2">Vence</th>
+                <th class="text-right pb-1.5 pr-2">DTE</th><th class="text-right pb-1.5 pr-2">Contratos</th>
+                <th class="text-right pb-1.5 pr-2">Precio</th><th class="text-left pb-1.5 pr-2">Lado</th>
+                <th class="text-right pb-1.5 pr-2">Prima invert.</th><th class="text-right pb-1.5 pr-2">OI actual</th>
+                <th class="text-right pb-1.5 pr-2">Prima OI</th><th class="text-left pb-1.5"></th></tr></thead>
+            <tbody id="ledgerBody"></tbody></table></div>
+            <p class="text-[9px] text-gray-600 italic mt-2">Orden: más reciente → más viejo. Solo contratos <b>vigentes</b> (no vencidos). <b>COMPRA</b> = ASK/above-ask (agresivo) · <b>VENTA</b> = BID/below-bid · MID = neutral. <b>Prima invert.</b> = premium que metió en ESE trade al ejecutarse. <b>OI actual</b> = interés abierto vigente del contrato · <b>Prima OI</b> = OI actual × precio actual × 100. ★ golden · ⚡ unusual · +OI = abre interés.</p>`;
+        renderLedgerPage();
+    } catch (e) { card.classList.add('hidden'); }
+}
+
+function renderLedgerPage() {
+    const tb = document.getElementById('ledgerBody');
+    if (!tb) return;
+    const fmt = v => v == null ? '—' : (Math.abs(v) >= 1e6 ? '$' + (v / 1e6).toFixed(1) + 'M' : '$' + (v / 1e3).toFixed(0) + 'K');
+    const total = _ledgerTrades.length;
+    const totalPages = Math.max(1, Math.ceil(total / LEDGER_PAGE_SIZE));
+    if (_ledgerPage < 0) _ledgerPage = 0;
+    if (_ledgerPage > totalPages - 1) _ledgerPage = totalPages - 1;
+    const start = _ledgerPage * LEDGER_PAGE_SIZE;
+    const slice = _ledgerTrades.slice(start, start + LEDGER_PAGE_SIZE);
+    tb.innerHTML = slice.map(t => {
+        const call = t.cp === 'CALL', buy = t.buy_sell === 'compra', sell = t.buy_sell === 'venta';
+        const sideC = buy ? 'text-emerald-400' : sell ? 'text-red-400' : 'text-gray-400';
+        const tags = `${t.golden ? '<span class="text-amber-400">★</span>' : ''}${t.unusual ? '<span class="text-purple-300">⚡</span>' : ''}${t.opening ? '<span class="text-blue-300">+OI</span>' : ''}`;
+        return `<tr class="border-b border-gray-800/50">
+            <td class="py-1.5 pr-2 text-gray-500 whitespace-nowrap">${t.when || '—'}</td>
+            <td class="py-1.5 pr-2 font-bold ${call ? 'text-emerald-400' : 'text-red-400'}">${t.cp} $${t.strike ?? '—'}</td>
+            <td class="py-1.5 pr-2 text-gray-300">${t.exp ? String(t.exp).slice(5) : '—'}</td>
+            <td class="py-1.5 pr-2 text-right text-gray-400">${t.dte ?? '—'}d</td>
+            <td class="py-1.5 pr-2 text-right text-gray-200">${t.size != null ? Number(t.size).toLocaleString() : '—'}</td>
+            <td class="py-1.5 pr-2 text-right text-gray-300">${t.price != null ? '$' + t.price : '—'}</td>
+            <td class="py-1.5 pr-2 font-bold ${sideC}">${buy ? 'COMPRA' : sell ? 'VENTA' : 'MID'}<span class="text-gray-600 font-normal"> ${(t.side || '').replace('_', ' ').toLowerCase()}</span></td>
+            <td class="py-1.5 pr-2 text-right text-gray-100 font-bold">${fmt(t.premium)}</td>
+            <td class="py-1.5 pr-2 text-right text-gray-300">${t.oi_now != null ? Number(t.oi_now).toLocaleString() : '—'}</td>
+            <td class="py-1.5 pr-2 text-right text-blue-300">${t.premium_oi_now != null ? fmt(t.premium_oi_now) : '—'}</td>
+            <td class="py-1.5 text-left">${tags}</td>
+        </tr>`;
+    }).join('') || `<tr><td colspan="11" class="py-3 text-center text-gray-600 text-[10px]">Sin transacciones vigentes de $5M+.</td></tr>`;
+    const info = document.getElementById('ledgerPageInfo');
+    if (info) info.textContent = total ? `Pág. ${_ledgerPage + 1} / ${totalPages} · ${start + 1}–${Math.min(start + LEDGER_PAGE_SIZE, total)} de ${total}` : '';
+    const prev = document.getElementById('ledgerPrev'), next = document.getElementById('ledgerNext');
+    if (prev) prev.disabled = _ledgerPage <= 0;
+    if (next) next.disabled = _ledgerPage >= totalPages - 1;
+}
+
+function ledgerPage(delta) {
+    _ledgerPage += delta;
+    renderLedgerPage();
+}
+
+async function runSelfTest() {
+    const ticker = projBtTicker || projGammaTicker || projNetDriftTicker;
+    const el = document.getElementById('projSelfTest');
+    if (!el) return;
+    if (!ticker) { el.innerHTML = '<p class="text-[11px] text-gray-500">Carga un ticker en Proyecciones primero (Gamma o Net-Drift).</p>'; return; }
+    el.innerHTML = `<p class="text-[11px] text-gray-500">Corriendo diagnóstico en vivo de <b>${ticker}</b>… (varias llamadas reales, puede tardar unos segundos)</p>`;
+    try {
+        const r = await fetch(`${API_BASE}/api/self-test?ticker=${encodeURIComponent(ticker)}`);
+        const d = await r.json();
+        if (!d.ok || !Array.isArray(d.checks)) { el.innerHTML = '<p class="text-[11px] text-red-400">No se pudo correr el diagnóstico.</p>'; return; }
+        const s = d.summary || {};
+        const col = st => st === 'ok' ? '#10b981' : st === 'warn' ? '#f59e0b' : '#ef4444';
+        const lbl = st => st === 'ok' ? 'OK' : st === 'warn' ? 'REVISAR' : 'FALLA';
+        const head = `<div class="flex flex-wrap gap-2 mb-3 text-[10px] font-bold">
+            <span class="px-2 py-1 rounded-lg bg-emerald-500/15 text-emerald-400">${s.ok || 0} OK</span>
+            <span class="px-2 py-1 rounded-lg bg-amber-500/15 text-amber-400">${s.warn || 0} a revisar</span>
+            <span class="px-2 py-1 rounded-lg bg-red-500/15 text-red-400">${s.fail || 0} falla</span>
+            <span class="px-2 py-1 rounded-lg bg-[#0B0E14] border border-gray-800 text-gray-400">${d.ticker} · spot ${d.spot != null ? '$' + Number(d.spot).toFixed(2) : '—'}</span></div>`;
+        const rows = d.checks.map(c => `<div class="flex items-start gap-2 py-1.5 border-b border-gray-800/50">
+                <span style="background:${col(c.status)}" class="mt-1.5 w-2 h-2 rounded-full flex-shrink-0"></span>
+                <div class="flex-1 min-w-0">
+                    <p class="text-[11px] font-bold text-gray-200">${c.name} <span style="color:${col(c.status)}" class="text-[9px] ml-1">${lbl(c.status)}</span></p>
+                    <p class="text-[10px] text-gray-500 break-words">${c.detail || ''}</p>
+                </div></div>`).join('');
+        el.innerHTML = head + rows;
+    } catch (e) { el.innerHTML = '<p class="text-[11px] text-red-400">Error de red al correr el diagnóstico (¿uvicorn arriba?).</p>'; }
+}
 
 let projIncomeTicker = null;
+function renderIncomeStrategies(d) {
+    const card = document.getElementById('projIncomeCard');
+    const el = document.getElementById('projIncome');
+    if (!card || !el) return;
+    if (!d || !d.ok || !d.primary) { if (el) el.innerHTML = `<p class="text-[11px] text-gray-500">${(d && d.error) || 'Sin estructuras para esta ventana.'}</p>`; return; }
+    const P = d.primary;
+    const usd0 = v => '$' + Math.round(v).toLocaleString();
+    const dirBadge = dir => {
+        const c = dir === 'neutral' ? 'bg-blue-500/15 text-blue-300' : (String(dir).startsWith('alcista') ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300');
+        return `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${c}">${dir}</span>`;
+    };
+    const legStr = lg => (lg || []).map(l => {
+        const col = l.action === 'SELL' ? 'text-amber-300' : 'text-gray-400';
+        const sell = l.inst_sell_usd > 0 ? ` <span class="text-purple-300" title="venta institucional en este strike">◆${usd0(l.inst_sell_usd)}</span>` : '';
+        return `<span class="${col}">${l.action === 'SELL' ? 'V' : 'C'} ${l.type === 'put' ? 'P' : 'C'} $${l.strike}</span>${sell}`;
+    }).join(' · ');
+    const stratCard = (s, top) => `
+        <div class="rounded-xl border ${top ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-gray-800 bg-black/20'} p-3">
+          <div class="flex items-center justify-between gap-2 mb-1">
+            <div class="flex items-center gap-2 flex-wrap"><span class="text-[12px] font-extrabold text-gray-100">${s.kind}</span>${dirBadge(s.direction)}${top ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-600 text-white">MEJOR</span>' : ''}</div>
+            <span class="text-[10px] text-gray-500">${s.exp} · ${s.dte}d</span>
+          </div>
+          <div class="text-[11px] text-gray-300 mb-1.5">${legStr(s.legs)}</div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mb-1.5">
+            <div><div class="text-[9px] text-gray-500 uppercase">Crédito</div><div class="text-[12px] font-bold text-emerald-400">${usd0(s.credit_usd)}</div></div>
+            <div><div class="text-[9px] text-gray-500 uppercase">Máx pérdida</div><div class="text-[12px] font-bold text-red-400">${usd0(s.max_loss_usd)}</div></div>
+            <div><div class="text-[9px] text-gray-500 uppercase">POP</div><div class="text-[12px] font-bold text-gray-100">${s.pop_pct != null ? s.pop_pct + '%' : '—'}</div></div>
+            <div><div class="text-[9px] text-gray-500 uppercase">RoR</div><div class="text-[12px] font-bold text-gray-100">${s.ror_pct != null ? s.ror_pct + '%' : '—'}</div></div>
+          </div>
+          <div class="text-[10px] text-gray-500">BE: ${s.breakeven_low ? ('$' + s.breakeven_low) : ''}${(s.breakeven_low && s.breakeven_high) ? ' – ' : ''}${s.breakeven_high ? ('$' + s.breakeven_high) : ''} · ${s.contracts > 0 ? (s.contracts + '× para tu riesgo') : (s.collateral_usd ? ('colateral ' + usd0(s.collateral_usd)) : '1×')}</div>
+          <div class="text-[10px] text-gray-600 italic mt-1">${s.note}</div>
+        </div>`;
+    const strs = (P.strategies || []);
+    const cardsHtml = strs.length ? strs.map((s, i) => stratCard(s, i === 0)).join('') : '<p class="text-[11px] text-gray-500">Sin estructuras válidas en esta expiración.</p>';
+    const sells = (d.big_sells || []).slice(0, 6).map(x => `<span class="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 text-[9px] font-bold" title="premium vendido por institucionales">${x.cp === 'CALL' ? 'C' : 'P'} $${x.strike} ◆${usd0(x.premium_usd)}</span>`).join(' ');
+    card.classList.remove('hidden');
+    el.innerHTML = `
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] mb-3 pb-2 border-b border-gray-800">
+          <span class="text-gray-400">Spot <b class="text-gray-100">$${d.spot}</b></span>
+          <span class="text-gray-400">Exp <b class="text-gray-100">${P.exp}</b> (${P.dte}d)</span>
+          <span class="text-gray-400">IV <b class="text-gray-100">${P.iv_pct}%</b></span>
+          <span class="text-gray-400">Mov. esperado <b class="text-blue-300">±$${P.expected_move}</b> [$${P.em_low}–$${P.em_high}]</span>
+          ${P.put_wall ? `<span class="text-gray-400">Put wall <b class="text-emerald-300">$${P.put_wall}</b></span>` : ''}
+          ${P.call_wall ? `<span class="text-gray-400">Call wall <b class="text-red-300">$${P.call_wall}</b></span>` : ''}
+        </div>
+        ${sells ? `<div class="mb-3"><div class="text-[9px] text-gray-500 uppercase tracking-wider mb-1">Ventas institucionales más grandes del chain (◆ = premium vendido)</div><div class="flex flex-wrap gap-1.5">${sells}</div></div>` : ''}
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-2.5">${cardsHtml}</div>`;
+    if (window.lucide) lucide.createIcons();
+}
 
+async function loadIncomeStrategies(ticker) {
+    const card = document.getElementById('projIncomeCard');
+    const el = document.getElementById('projIncome');
+    if (!card || !el) return;
+    ticker = ticker || projIncomeTicker || projGammaTicker || projNetDriftTicker;
+    if (!ticker) return;
+    projIncomeTicker = ticker;
+    const dmin = (document.getElementById('incDteMin') || {}).value || 7;
+    const dmax = (document.getElementById('incDteMax') || {}).value || 30;
+    const risk = (document.getElementById('incRisk') || {}).value || 250;
+    card.classList.remove('hidden');
+    el.innerHTML = '<p class="text-[11px] text-gray-600">Calculando estructuras de venta de prima…</p>';
+    try {
+        const r = await fetch(`${API_BASE}/api/income-strategies?ticker=${encodeURIComponent(ticker)}&dte_min=${dmin}&dte_max=${dmax}&capital=${risk}&risk_pct=100`);
+        const d = await r.json();
+        if (!d.ok) { el.innerHTML = `<p class="text-[11px] text-gray-500">${d.error || 'Sin estructuras para esta ventana.'}</p>`; return; }
+        renderIncomeStrategies(d);
+    } catch (e) { el.innerHTML = '<p class="text-[11px] text-red-400">Error de red al calcular estructuras (¿uvicorn arriba?).</p>'; }
+}
 
+async function loadTradePlan() {
+    const ticker = projBtTicker || projGammaTicker || projNetDriftTicker;
+    const el = document.getElementById('projTradePlan');
+    if (!el) return;
+    if (!ticker) { el.innerHTML = '<p class="text-[11px] text-gray-500">Carga un ticker en Proyecciones primero (Gamma o Net-Drift).</p>'; return; }
+    const cap = parseFloat((document.getElementById('tpCapital') || {}).value) || 500;
+    const risk = parseFloat((document.getElementById('tpRisk') || {}).value) || 15;
+    el.innerHTML = `<p class="text-[11px] text-gray-500">Estructurando plan de <b>${ticker}</b>… (targets + convicción + cadena)</p>`;
+    try {
+        const r = await fetch(`${API_BASE}/api/trade-plan?ticker=${encodeURIComponent(ticker)}&capital=${cap}&risk_pct=${risk}`);
+        const d = await r.json();
+        if (!d.ok) { el.innerHTML = `<p class="text-[11px] text-amber-400">${d.error || 'No se pudo estructurar.'}</p>`; return; }
+        const money = v => v == null ? '—' : (Math.abs(v) >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : '$' + Number(v).toFixed(0));
+        const px = v => v == null ? '—' : '$' + Number(v).toFixed(2);
+        const cv = d.conviction || {}, taOn = d.tipo_a_active;
+        const head = `<div class="flex flex-wrap items-center gap-2 mb-2 text-[10px]">
+            <span class="px-2 py-1 rounded-lg bg-[#0B0E14] border border-gray-800 text-gray-300 font-bold">${d.ticker} · spot ${px(d.spot)}</span>
+            <span class="px-2 py-1 rounded-lg font-bold ${d.bias === 'alcista' ? 'bg-emerald-500/15 text-emerald-400' : d.bias === 'bajista' ? 'bg-red-500/15 text-red-400' : 'bg-gray-700/30 text-gray-300'}">Sesgo ${(d.bias || 'neutral').toUpperCase()}</span>
+            ${cv.bias ? `<span class="px-2 py-1 rounded-lg bg-[#0B0E14] border border-gray-800 text-gray-400">Convicción: ${cv.bias}${cv.strength_pct != null ? ' ' + cv.strength_pct + '%' : ''}${cv.qualifying != null ? ' · ' + cv.qualifying + ' trades' : ''}</span>` : ''}
+            <span class="px-2 py-1 rounded-lg font-bold ${taOn ? 'bg-amber-500/15 text-amber-300' : 'bg-gray-700/20 text-gray-500'}">Tipo A ${taOn ? 'ACTIVO' : 'no'}</span>
+            <span class="px-2 py-1 rounded-lg bg-[#0B0E14] border border-gray-800 text-gray-400">Capital ${money(d.capital)} · riesgo ${d.risk_pct}%</span>
+            ${d.inst_anchor ? `<span class="px-2 py-1 rounded-lg bg-blue-500/10 text-blue-300 border border-blue-900/40 font-bold">🏛 Institución: ${d.inst_anchor.cp} $${d.inst_anchor.strike} · ${money(d.inst_anchor.premium)} (${d.inst_anchor.trades} trades)</span>` : ''}
+        </div>
+        <p class="text-[10px] ${taOn ? 'text-amber-300' : 'text-gray-500'} italic mb-3">${d.flow_exception || ''}</p>`;
+        const cards = (d.plans || []).map(p => {
+            const call = p.opt_type === 'CALL';
+            const rrColor = (p.rr_fast || 0) >= 2 ? 'text-emerald-400' : (p.rr_fast || 0) >= 1 ? 'text-amber-300' : 'text-red-400';
+            const aff = p.contracts > 0;
+            const rrCls = v => (v || 0) >= 2 ? 'text-emerald-400' : (v || 0) >= 1 ? 'text-amber-300' : 'text-red-400';
+            const spreadBlock = (sp, title) => sp ? `<div class="mt-2 pt-2 border-t border-gray-800/60">
+                    <p class="text-[10px] font-bold text-blue-300 mb-1">${title} <span class="text-gray-500 font-normal">(compra $${sp.long_strike} / vende $${sp.short_strike})${sp.combo ? ' · ' + sp.combo : ''}${sp.cost_saving_pct != null ? ` · −${sp.cost_saving_pct}% vs opción` : ''} · ${sp.fits_capital ? '<span class="text-emerald-400">cabe</span>' : '<span class="text-amber-400">no cabe</span>'}</span></p>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 text-[10px]">
+                        <div><p class="text-gray-500">Costo neto</p><p class="text-gray-100 font-bold">${money(sp.net_debit_contract)}<span class="text-gray-500 font-normal">/c</span></p></div>
+                        <div><p class="text-gray-500">Ganancia máx</p><p class="text-emerald-300 font-bold">${money(sp.max_profit_contract)}<span class="text-gray-500 font-normal">/c</span></p></div>
+                        <div><p class="text-gray-500">Breakeven</p><p class="text-gray-200 font-bold">${px(sp.breakeven)}</p></div>
+                        <div><p class="text-gray-500">R:R ráp</p><p class="font-bold ${rrCls(sp.rr_fast)}">${sp.rr_fast ?? '—'}</p></div>
+                        <div class="col-span-2 sm:col-span-1"><p class="text-gray-500">Tamaño</p><p class="text-gray-100 font-bold">${sp.contracts}× <span class="text-gray-500 font-normal">${money(sp.total_cost)}</span></p></div>
+                    </div></div>` : '';
+            return `<div class="bg-[#0B0E14] border ${aff ? 'border-gray-800' : 'border-amber-900/50'} rounded-xl p-3 mb-2">
+                <div class="flex items-center justify-between flex-wrap gap-1 mb-1">
+                    <p class="text-[12px] font-extrabold ${call ? 'text-emerald-400' : 'text-red-400'}">${p.opt_type} $${p.strike}${p.long_moneyness ? ` <span class="text-[9px] px-1 py-0.5 rounded ${p.long_moneyness === 'ITM' ? 'bg-emerald-500/20 text-emerald-300' : p.long_moneyness === 'ATM' ? 'bg-blue-500/20 text-blue-300' : 'bg-amber-500/20 text-amber-300'}">${p.long_moneyness}</span>` : ''} · ${p.label} <span class="text-gray-500 font-normal">(${p.expiry || '—'} · ${p.dte}d)</span></p>
+                    <span class="text-[9px] text-gray-400">${p.confidence || ''}${p.calibrated_pct != null ? ` · ${p.calibrated_pct}% (piso ${p.calibrated_lo ?? '—'}% · n${p.calibrated_n ?? '?'})` : ''}</span>
+                </div>
+                ${p.inst_strike ? `<p class="text-[9px] text-blue-300/80 mb-1.5">🏛 Ancla institucional $${p.inst_strike}${p.inst_premium ? ' · ' + money(p.inst_premium) : ''}${p.inst_trades ? ' · ' + p.inst_trades + ' trades' : ''}${p.inst_exp ? ' · vence ' + p.inst_exp : ''} → tú compras <b>$${p.strike} ${p.long_moneyness || ''}</b></p>` : `<p class="text-[9px] text-gray-600 mb-1.5">Sin ancla institucional clara → strike ATM $${p.strike}</p>`}
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1.5 text-[10px]">
+                    <div><p class="text-gray-500">Entrada</p><p class="text-gray-100 font-bold">${px(p.entry_price)} <span class="text-gray-500 font-normal">/${money(p.entry_cost_contract)}c</span></p></div>
+                    <div><p class="text-gray-500">Breakeven</p><p class="text-gray-200 font-bold">${px(p.breakeven)}</p></div>
+                    <div><p class="text-gray-500">Target subyac.</p><p class="text-gray-200 font-bold">${px(p.target_underlying)}</p></div>
+                    <div><p class="text-gray-500">IV</p><p class="text-gray-300">${p.iv_pct}% <span class="text-gray-600">${p.iv_source === 'IV' ? 'real' : 'hist'}</span></p></div>
+                    <div><p class="text-gray-500">Valor en target</p><p class="text-emerald-300 font-bold">${money(p.exit_value_fast)}<span class="text-gray-500 font-normal"> ráp</span> · ${money(p.exit_value_expiry)}<span class="text-gray-500 font-normal"> venc</span></p></div>
+                    <div><p class="text-gray-500">R:R</p><p class="${rrColor} font-bold">${p.rr_fast ?? '—'}<span class="text-gray-500 font-normal"> ráp</span> · ${p.rr_expiry ?? '—'}<span class="text-gray-500 font-normal"> venc</span></p></div>
+                    <div><p class="text-gray-500">Stop ${p.stop_pct}%</p><p class="text-red-300 font-bold">${px(p.stop_price)} <span class="text-gray-500 font-normal">−${money(p.planned_risk_contract)}/c</span></p></div>
+                    <div><p class="text-gray-500">Tamaño</p><p class="text-gray-100 font-bold">${p.contracts}× <span class="text-gray-500 font-normal">${money(p.total_cost)}</span></p></div>
+                </div>
+                ${p.contracts > 0 ? `<p class="text-[9px] text-gray-500 mt-1.5">Riesgo total ${money(p.total_risk)} · objetivo rápido ${money(p.total_reward_fast)} · pérdida máx ${money(p.max_loss_contract)}/contrato</p>` : ''}
+                ${(p.notes && p.notes.length) ? `<p class="text-[9px] text-amber-400/80 mt-1">⚠ ${p.notes.join(' · ')}</p>` : ''}
+                ${p.recommended ? `<p class="text-[10px] mt-2 font-bold px-2 py-1 rounded-lg ${aff ? 'bg-emerald-500/10 text-emerald-300' : 'bg-blue-500/10 text-blue-300'}">✅ Para ${money(d.capital)}: estructura recomendada → <b>${p.recommended}</b>${aff ? ` (${p.contracts}× opción simple)` : ''}</p>` : `<p class="text-[10px] mt-2 font-bold px-2 py-1 rounded-lg bg-amber-500/10 text-amber-300">⚠ Con ${money(d.capital)} no cabe ninguna estructura completa — sube capital, baja DTE o usa un strike más OTM</p>`}
+                ${spreadBlock(p.spread, 'Débito spread (tu regla · largo ATM/ITM)')}
+                ${spreadBlock(p.spread_otm, 'Débito spread OTM/OTM (lotería barata)')}
+            </div>`;
+        }).join('');
+        el.innerHTML = head + cards + `<p class="text-[9px] text-gray-600 italic mt-2">${d.disclaimer || ''}</p>`;
+    } catch (e) { el.innerHTML = '<p class="text-[11px] text-red-400">Error de red al estructurar (¿uvicorn arriba?).</p>'; }
+}
 
+async function loadBacktestStatus(ticker) {
+    projBtTicker = ticker;
+    const st = document.getElementById('projBtStatus');
+    try {
+        const r = await fetch(`${API_BASE}/api/signal-history?ticker=${encodeURIComponent(ticker)}`);
+        const d = await r.json();
+        if (d.ok && st) {
+            st.innerHTML = d.count > 0
+                ? `<b>${d.count}</b> snapshot(s) de <b>${ticker}</b> guardados (último: ${d.rows[0].snap_date}). Captura a diario para nutrir el backtest.`
+                : `Sin snapshots de <b>${ticker}</b> todavía. Pulsa "Capturar hoy" para empezar el histórico.`;
+        }
+    } catch (e) {}
+}
 
+async function collectSignalSnapshot() {
+    const ticker = projBtTicker || projGammaTicker || projNetDriftTicker;
+    if (!ticker) return;
+    const st = document.getElementById('projBtStatus');
+    if (st) st.textContent = 'Capturando snapshot…';
+    try {
+        const r = await fetch(`${API_BASE}/api/collect-signals?ticker=${encodeURIComponent(ticker)}`);
+        const d = await r.json();
+        if (d.ok && d.snapshot && st) {
+            st.innerHTML = `Snapshot guardado para <b>${ticker}</b> (${d.snapshot.snap_date}): confluencia <b>${d.snapshot.confl_verdict || '—'} ${d.snapshot.confl_direction || ''}</b>, spot $${d.snapshot.spot}.`;
+        } else if (st) { st.textContent = d.error || 'No se pudo capturar.'; }
+    } catch (e) { if (st) st.textContent = 'Error de red al capturar.'; }
+}
 
-
-
-
-
-
-
+async function runBacktest() {
+    const ticker = projBtTicker || projGammaTicker;
+    if (!ticker) return;
+    const res = document.getElementById('projBtResults');
+    if (res) res.innerHTML = '<p class="text-[11px] text-gray-500">Corriendo backtest…</p>';
+    try {
+        const r = await fetch(`${API_BASE}/api/backtest?ticker=${encodeURIComponent(ticker)}`);
+        const d = await r.json();
+        if (!d.ok) { if (res) res.innerHTML = `<p class="text-[11px] text-red-400">${d.error || 'Error'}</p>`; return; }
+        if (!d.n_snapshots) { if (res) res.innerHTML = `<p class="text-[11px] text-gray-500">${d.message || 'Sin datos.'}</p>`; return; }
+        const cd = d.confluence_direction || {}, hr = d.target_hit_rate || {};
+        const accColor = a => a == null ? 'text-gray-400' : (a >= 60 ? 'text-emerald-400' : (a >= 45 ? 'text-amber-400' : 'text-red-400'));
+        const vbody = Object.entries(cd.by_verdict || {}).map(([v, x]) => `<tr class="border-b border-gray-800/50"><td class="py-1 pr-3 text-gray-300">${v}</td><td class="py-1 text-right ${accColor(x.accuracy_pct)} font-bold">${x.accuracy_pct}%</td><td class="py-1 pr-3 text-right text-gray-500">${x.total}</td></tr>`).join('');
+        const hbody = Object.entries(hr).map(([h, x]) => `<tr class="border-b border-gray-800/50"><td class="py-1 pr-3 text-gray-300">${h}d</td><td class="py-1 text-right ${accColor(x.hit_rate_pct)} font-bold">${x.hit_rate_pct}%</td><td class="py-1 pr-3 text-right text-gray-500">${x.total}</td></tr>`).join('');
+        res.innerHTML = `
+        <div class="grid sm:grid-cols-2 gap-4 mt-1">
+          <div>
+            <p class="text-[10px] font-extrabold text-amber-300 uppercase tracking-wider mb-1">Acierto direccional de confluencia (${cd.fwd_days || 10}d fwd)</p>
+            <p class="text-2xl font-extrabold ${accColor(cd.accuracy_pct)}">${cd.accuracy_pct != null ? cd.accuracy_pct + '%' : '—'}</p>
+            <p class="text-[10px] text-gray-500 mb-1.5">${cd.evaluated || 0} señales evaluadas</p>
+            <table class="w-full text-[11px]"><thead><tr class="text-gray-500 text-[9px] uppercase"><th class="text-left pb-1">Veredicto</th><th class="text-right pb-1">Acierto</th><th class="text-right pb-1">n</th></tr></thead><tbody>${vbody || '<tr><td class="text-gray-600 py-1 text-[10px]">sin señales transcurridas aún</td></tr>'}</tbody></table>
+          </div>
+          <div>
+            <p class="text-[10px] font-extrabold text-amber-300 uppercase tracking-wider mb-1">Hit-rate de targets por horizonte</p>
+            <table class="w-full text-[11px]"><thead><tr class="text-gray-500 text-[9px] uppercase"><th class="text-left pb-1">Horizonte</th><th class="text-right pb-1">Hit-rate</th><th class="text-right pb-1">n</th></tr></thead><tbody>${hbody || '<tr><td class="text-gray-600 py-1 text-[10px]">horizontes aún no transcurridos</td></tr>'}</tbody></table>
+          </div>
+        </div>
+        <p class="text-[9px] text-gray-600 italic mt-2">${d.note || ''} Rango: ${(d.date_range || []).join(' → ')}. ${d.n_snapshots} snapshots.</p>`;
+    } catch (e) { if (res) res.innerHTML = '<p class="text-[11px] text-red-400">Error de red.</p>'; }
+}
 
 let backfillPoll = null;
+async function startBackfill() {
+    const ticker = projBtTicker || projGammaTicker || projNetDriftTicker;
+    if (!ticker) return;
+    const st = document.getElementById('projBtStatus');
+    if (st) st.textContent = 'Iniciando backfill histórico (corre en segundo plano)…';
+    try {
+        const r = await fetch(`${API_BASE}/api/backfill/start?ticker=${encodeURIComponent(ticker)}`, {method:"POST"});
+        const d = await r.json();
+        if (!d.ok) { if (st) st.textContent = d.error || 'No se pudo iniciar el backfill.'; return; }
+        if (backfillPoll) clearInterval(backfillPoll);
+        backfillPoll = setInterval(() => pollBackfill(ticker), 2500);
+        pollBackfill(ticker);
+    } catch (e) { if (st) st.textContent = 'Error de red al iniciar el backfill.'; }
+}
+async function pollBackfill(ticker) {
+    const st = document.getElementById('projBtStatus');
+    try {
+        const r = await fetch(`${API_BASE}/api/backfill/status?ticker=${encodeURIComponent(ticker)}`);
+        const d = await r.json();
+        if (!d.ok) return;
+        const pct = d.total ? Math.round((d.done / d.total) * 100) : 0;
+        if (d.running) {
+            if (st) st.innerHTML = `Backfill <b>${ticker}</b>: ${d.done}/${d.total} (${pct}%) · ${d.stored} guardados${d.errors ? (' · ' + d.errors + ' err') : ''}…`;
+        } else {
+            if (backfillPoll) { clearInterval(backfillPoll); backfillPoll = null; }
+            if (d.error) { if (st) st.textContent = 'Backfill error: ' + d.error; return; }
+            if (st) st.innerHTML = `Backfill completo: <b>${d.stored || 0}</b> snapshots históricos guardados. Corriendo backtest…`;
+            loadBacktestStatus(ticker);
+            runBacktest();
+        }
+    } catch (e) {}
+}
 
+async function loadProjConfluence(ticker) {
+    const el = document.getElementById('projConfluence');
+    if (!el) return;
+    el.innerHTML = '';
+    try {
+        const r = await fetch(`${API_BASE}/api/confluence?ticker=${encodeURIComponent(ticker)}`);
+        const d = await r.json();
+        if (!d.ok || !d.confluence) return;   // QD no configurado / sin datos → se oculta
+        const c = d.confluence, s = c.signals;
+        const dirColor = c.direction === 'alcista' ? 'text-emerald-400' : (c.direction === 'bajista' ? 'text-red-400' : 'text-gray-400');
+        const badgeColors = {
+            'ALTA CONVICCIÓN': 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300',
+            'CONFIRMACIÓN':    'bg-emerald-500/10 border-emerald-500/30 text-emerald-300',
+            'DIVERGENCIA':     'bg-red-500/15 border-red-500/40 text-red-300',
+            'MIXTO':           'bg-amber-500/12 border-amber-500/35 text-amber-300',
+            'PARCIAL':         'bg-blue-500/10 border-blue-500/30 text-blue-300',
+            'SOLO POSICIONAMIENTO': 'bg-blue-500/10 border-blue-500/30 text-blue-300',
+            'SIN SEÑAL':       'bg-gray-700/20 border-gray-600/30 text-gray-400'
+        };
+        const badgeCls = badgeColors[c.badge] || badgeColors['SIN SEÑAL'];
+        const voteIcon = v => v > 0 ? '▲' : (v < 0 ? '▼' : '●');
+        const voteCol = v => v > 0 ? 'text-emerald-400' : (v < 0 ? 'text-red-400' : 'text-gray-500');
+        const pill = (name, sig) => `
+            <div class="flex-1 min-w-[150px] bg-black/20 border border-gray-800 rounded-xl p-3">
+                <div class="flex items-center justify-between mb-1 gap-2">
+                    <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">${name}</span>
+                    <span class="text-xs ${voteCol(sig.vote)} font-bold">${voteIcon(sig.vote)} ${sig.label}</span>
+                </div>
+                <p class="text-[10px] text-gray-500 leading-snug">${sig.detail}</p>
+            </div>`;
+        // Dark-pool buy/sell pressure bar (equity-prints proxy)
+        let dpBar = '';
+        const df = d.dark_flow;
+        if (df && df.total_notional) {
+            const b = df.buy_notional || 0, s = df.sell_notional || 0, m = df.mid_notional || 0, tot = b + s + m || 1;
+            const pct = x => (x / tot * 100).toFixed(1) + '%';
+            const fM = x => '$' + (Math.abs(x) >= 1e6 ? (x / 1e6).toFixed(1) + 'M' : (x / 1e3).toFixed(0) + 'K');
+            dpBar = `
+            <div class="mt-1 mb-3 bg-black/20 border border-gray-800 rounded-xl p-3">
+                <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Presión dark pool (prints · proxy compra/venta)</span>
+                    <span class="text-[10px] font-bold ${df.bias === 'alcista' ? 'text-emerald-400' : (df.bias === 'bajista' ? 'text-red-400' : 'text-gray-400')}">${df.bias}${df.lean_pct != null ? ' · ' + (df.lean_pct >= 0 ? '+' : '') + df.lean_pct + ' net' : ''}</span>
+                </div>
+                <div class="flex h-3 rounded-full overflow-hidden bg-gray-800">
+                    <div class="bg-emerald-500/70" style="width:${pct(b)}" title="Compra ${fM(b)}"></div>
+                    <div class="bg-gray-600/50" style="width:${pct(m)}" title="Mid ${fM(m)}"></div>
+                    <div class="bg-red-500/70" style="width:${pct(s)}" title="Venta ${fM(s)}"></div>
+                </div>
+                <div class="flex justify-between text-[9px] text-gray-500 mt-1">
+                    <span class="text-emerald-400">Compra ${fM(b)}</span>
+                    <span>Mid ${fM(m)}</span>
+                    <span class="text-red-400">Venta ${fM(s)}</span>
+                </div>
+            </div>`;
+        }
+        el.innerHTML = `
+        <div class="bg-panel border border-panel rounded-2xl p-5">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="git-merge" class="w-4 h-4"></i> Confluencia de Señales</h3>
+                <span class="px-3 py-1 rounded-full text-[11px] font-extrabold border ${badgeCls}">${c.badge} · <span class="${dirColor}">${c.direction.toUpperCase()}</span> · score ${c.score > 0 ? '+' : ''}${c.score}</span>
+            </div>
+            <div class="flex flex-wrap gap-2.5 mb-3">
+                ${pill('Convicción (tape ΔOI)', s.conviccion)}
+                ${pill('GEX · posicionamiento', s.gex)}
+                ${pill('Dark pool', s.darkpool)}
+            </div>
+            ${dpBar}
+            <p class="text-[11px] text-gray-300 leading-relaxed">${c.summary}</p>
+            <p class="text-[9px] text-gray-600 italic mt-1.5">Pesos: convicción 50% · GEX 30% · dark pool 20%. El voto de dark pool usa el proxy compra/venta de los prints (ASK=compra, BID=venta) cuando hay datos; si no, cae al posicional (soporte/resistencia).</p>
+        </div>`;
+        if (window.lucide) lucide.createIcons();
+    } catch (e) { /* silencioso */ }
+}
 
+async function loadProjTargets(ticker) {
+    const el = document.getElementById('projTargets');
+    if (!el) return;
+    let ai12 = 0;
+    try {
+        if (typeof currentAnalysis !== 'undefined' && currentAnalysis && currentAnalysis.ticker === ticker && currentAnalysis.targets && currentAnalysis.targets['12m']) {
+            const t12 = currentAnalysis.targets['12m'];
+            ai12 = Number(t12.base || t12.target || t12.precio || 0) || 0;
+        }
+    } catch (e) {}
+    el.innerHTML = `<p class="text-[11px] text-gray-500 italic">Proyectando targets por horizonte…</p>`;
+    try {
+        const r = await fetch(`${API_BASE}/api/projection-targets?ticker=${encodeURIComponent(ticker)}${ai12 ? `&ai_12m=${ai12}` : ''}`);
+        const d = await r.json();
+        if (!d.ok) { el.innerHTML = `<p class="text-[11px] text-amber-400 italic">${d.error || 'No disponible.'}</p>`; return; }
+        renderProjTargets(d);
+    } catch (e) { el.innerHTML = `<p class="text-[11px] text-red-400 italic">Error: ${e.message}</p>`; }
+}
 
-
-
-
-
-
+function renderProjTargets(d) {
+    const el = document.getElementById('projTargets');
+    const biasEl = document.getElementById('projTgtBias');
+    if (biasEl) {
+        const up = d.bias === 'alcista', dn = d.bias === 'bajista';
+        biasEl.className = `text-[10px] font-bold ${up ? 'text-emerald-400' : dn ? 'text-red-400' : 'text-gray-400'}`;
+        const cv = d.conviction;
+        const convTxt = cv ? ` · convicción ${cv.strength_pct}% (${cv.qualifying} trades)` : (d.directional_pct != null ? ` · ${d.directional_pct}% direccional` : '');
+        const src = d.gex_source ? ` · GEX: ${d.gex_source}` : '';
+        biasEl.innerHTML = `Sesgo: ${(d.bias || 'neutral').toUpperCase()}${convTxt}${src}`;
+    }
+    const spot = d.spot;
+    const confColor = c => ({ 'muy alta': 'text-emerald-400', 'alta': 'text-emerald-400', 'media': 'text-yellow-400', 'media-baja': 'text-orange-400', 'fundamental': 'text-blue-400' })[c] || 'text-gray-400';
+    const cards = (d.targets || []).map(t => {
+        const up = t.direction === 'up';
+        const arrow = t.direction === 'up' ? '↑' : t.direction === 'down' ? '↓' : '•';
+        const arrowC = up ? 'text-emerald-400' : t.direction === 'down' ? 'text-red-400' : 'text-gray-500';
+        const pct = (t.level && spot) ? `${(((t.level - spot) / spot) * 100) >= 0 ? '+' : ''}${(((t.level - spot) / spot) * 100).toFixed(1)}%` : '';
+        const band = (t.em_low != null && t.em_high != null) ? `1σ $${t.em_low}–$${t.em_high}${t.vol_source === 'IV' ? ' · IV' : ''}` : '';
+        const capTag = t.capped ? `<span class="text-[8px] text-amber-400 font-bold">· ajustado</span>` : '';
+        return `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3 text-center">
+            <p class="text-[10px] text-gray-500 uppercase font-bold mb-1">${t.label}</p>
+            <p class="text-lg font-black ${arrowC}">${arrow} ${t.level != null ? '$' + t.level : '—'}</p>
+            <p class="text-[9px] text-gray-500">${pct} ${capTag}</p>
+            <p class="text-[8px] text-gray-600">${band}</p>
+            <p class="text-[9px] font-bold mt-1 ${confColor(t.confidence)}">${(t.confidence || '').toUpperCase()}${t.calibrated_pct != null ? ` <span class="text-gray-500 font-normal">· ${t.calibrated_pct}% (piso ${t.calibrated_lo ?? '—'}% · n${t.calibrated_n ?? '?'})</span>` : ''}</p>
+            <p class="text-[8px] text-gray-600 mt-0.5 leading-tight">${t.source || ''}${(t.max_pain && t.max_pain_source) ? ` · MP ${t.max_pain_source === 'quantdata' ? '<span class="text-blue-400 font-bold">QD</span>' : 'yf'}` : ''}</p>
+            ${t.conflict ? `<p class="text-[8px] text-amber-400 font-bold mt-0.5">⚠ flujo vs gamma</p>` : ''}
+            ${t.earnings_soon ? `<p class="text-[8px] text-orange-400 font-bold mt-0.5">📅 earnings en el rango</p>` : ''}
+        </div>`;
+    }).join('');
+    let convHtml = '';
+    const cv = d.conviction;
+    if (cv && cv.strong_trades && cv.strong_trades.length) {
+        const rows = cv.strong_trades.map(t => {
+            const call = t.cp === 'CALL', dirc = t.type === 'direccional';
+            return `<tr class="border-b border-gray-800/50">
+                <td class="py-1.5 pr-3 font-bold ${call ? 'text-emerald-400' : 'text-red-400'}">${t.cp} $${t.strike ?? '—'}</td>
+                <td class="py-1.5 pr-3 text-gray-300">${t.exp ? String(t.exp).slice(5) : '—'}</td>
+                <td class="py-1.5 pr-3 text-right text-gray-400">${t.dte ?? '—'}d</td>
+                <td class="py-1.5 pr-3 text-right text-gray-100 font-bold">${fmtAbbr(t.premium)}</td>
+                <td class="py-1.5 pr-3 text-gray-400">${t.kind || '—'}</td>
+                <td class="py-1.5 pr-3 text-gray-400">${(t.side || '').replace('_', ' ')}</td>
+                <td class="py-1.5 pr-3 text-right font-bold ${t.oi_change != null ? 'text-emerald-300' : 'text-purple-300'}">${t.oi_change != null ? (t.oi_change > 0 ? '+' : '') + Number(t.oi_change).toLocaleString() : (t.vol_oi != null ? t.vol_oi + '×' : 'abre')}</td>
+                <td class="py-1.5 text-right ${dirc ? 'text-emerald-300' : 'text-yellow-400'}">${t.delta ?? '—'} ${dirc ? 'dir' : 'esp'}</td>
+            </tr>`;
+        }).join('');
+        convHtml = `<p class="text-[10px] font-extrabold text-amber-300 uppercase tracking-wider mb-1.5 mt-4">Transacciones institucionales · convicción (${cv.qualifying})</p>
+            <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[520px]">
+            <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+                <th class="text-left pb-1.5 pr-3">Contrato</th><th class="text-left pb-1.5 pr-3">Vence</th>
+                <th class="text-right pb-1.5 pr-3">DTE</th><th class="text-right pb-1.5 pr-3">Premium</th>
+                <th class="text-left pb-1.5 pr-3">Tipo</th><th class="text-left pb-1.5 pr-3">Lado</th>
+                <th class="text-right pb-1.5 pr-3">ΔOI</th><th class="text-right pb-1.5">Delta</th></tr></thead>
+            <tbody>${rows}</tbody></table></div>
+            <p class="text-[9px] text-gray-600 italic mt-1.5">Solo trades cuyo <b>open interest creció</b> (ΔOI &gt; 0 = se añadieron contratos a ese strike, comparando OI día-después vs día-de) y compras ASK/above-ask que pasan tus umbrales: $1M ≤10d · $5M ≤45d · $10M &gt;45d. <b>ΔOI</b> = contratos netos añadidos a ese strike — capta la acumulación de varios días (ej. +30k sobre 70k ya abiertos), que el proxy vol&gt;OI perdía. Si el endpoint de ΔOI no responde, cae al proxy vol&gt;OI del mismo día. dir = direccional (Δ0.60–0.90), esp = especulativo (Δ0.30–0.59).</p>`;
+    }
+    el.innerHTML = `<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">${cards}</div>${convHtml}
+        <p class="text-[10px] text-gray-600 italic mt-2">${d.note || ''} El nivel es un <b>wall de gamma acotado al movimiento esperado</b> (1.5σ del horizonte): "ajustado" = el wall estaba más lejos de lo que el precio suele recorrer en ese plazo y se recortó al borde de la banda. <b>1σ</b> = rango ~68% del movimiento esperado.</p>`;
+    projTargetsData = d;
+    projDrawTargets();
+    projDrawScenario();
+    if (projWallHorizon !== 'all') { projRedrawOverlays(); projRenderWallCards(); }   // walls atados al horizonte: refresca con los walls por-expiración recién llegados
+}
 
 // Draw horizon targets as price lines inside the chart, filtered by the targets the
 // user has toggled on (multi-select). 12m stays in the panel, off-chart.
-
+function projDrawTargets() {
+    if (!projTV || !projTV.candle) return;
+    projTargetLines.forEach(l => { try { projTV.candle.removePriceLine(l); } catch (e) {} });
+    projTargetLines = [];
+    if (!projTargetsData || !projTargetsData.targets) return;
+    projTargetsData.targets
+        .filter(t => t.level != null && t.horizon_days < 365 && projVisibleTargets.has(t.label))
+        .forEach(t => {
+            const up = t.direction === 'up';
+            const color = up ? '#34d399' : t.direction === 'down' ? '#f87171' : '#9ca3af';
+            const arrow = up ? '▲' : t.direction === 'down' ? '▼' : '•';
+            const ln = projTV.candle.createPriceLine({
+                price: t.level, color: color, lineWidth: 2, lineStyle: 3,
+                axisLabelVisible: true, title: `🎯 ${t.label} ${arrow} $${Number(t.level).toFixed(2)}`
+            });
+            projTargetLines.push(ln);
+        });
+}
 
 // Toggle a target horizon on/off and redraw lines + the scenario path.
 // Además, el target que toques fija el HORIZONTE de los walls: call/put wall, gamma flip y max pain
 // pasan a la expiración más cercana a ese target (Hoy→0DTE, 30d→~30 DTE, etc.), automático.
-
+function projToggleTarget(h, btn) {
+    if (projVisibleTargets.has(h)) { projVisibleTargets.delete(h); if (btn) btn.classList.remove('active'); }
+    else { projVisibleTargets.add(h); if (btn) btn.classList.add('active'); }
+    projWallHorizon = h;        // los walls siguen al target elegido
+    projRedrawOverlays();       // redibuja walls (al horizonte del target) + targets + escenario
+    projRenderWallCards();      // cards Call/Put Wall/Gamma Flip/Max Pain + nota del horizonte
+}
 
 // Tiempo futuro `days` después de `base`. Diario → string "YYYY-MM-DD" (salta fin de semana). Intradía → epoch(seg)+días.
-
+function projFutureDate(base, days) {
+    if (typeof base === 'number') return base + days * 86400;   // intradía: epoch en segundos + N días
+    const d = new Date(base + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    const wd = d.getDay();
+    if (wd === 6) d.setDate(d.getDate() + 2);       // Sat → Mon
+    else if (wd === 0) d.setDate(d.getDate() + 1);  // Sun → Mon
+    return d.toISOString().slice(0, 10);
+}
 
 // Draw a projected price path: spot → first selected target → next → … into the future.
-
+function projDrawScenario() {
+    if (!projTV || !projTV.chart) return;
+    if (projScenarioSeries) { try { projTV.chart.removeSeries(projScenarioSeries); } catch (e) {} projScenarioSeries = null; }
+    if (!projTargetsData || !projTargetsData.targets || projLastBarTime == null) return;
+    const spot = projTargetsData.spot;
+    if (spot == null) return;
+    const intraday = (typeof projLastBarTime === 'number');
+    const maxHz = intraday ? (projTf === '10m' ? 10 : 45) : 99999;   // intradía: no proyectes tan lejos que aplaste las velas
+    const sel = projTargetsData.targets
+        .filter(t => t.level != null && t.horizon_days < 365 && t.horizon_days <= maxHz && projVisibleTargets.has(t.label))
+        .sort((a, b) => a.horizon_days - b.horizon_days);
+    if (!sel.length) return;
+    const pts = [{ time: projLastBarTime, value: Number(spot) }];
+    sel.forEach(t => {
+        let ft = projFutureDate(projLastBarTime, t.horizon_days);
+        if (t.horizon_days === 0) {
+            // "Hoy"/0DTE coincide con la última vela (la última vela YA es hoy) → proyéctalo al SIGUIENTE slot
+            // para que el segmento de proyección se dibuje en vez de descartarse por el guard de tiempos.
+            ft = intraday ? (projLastBarTime + (projTf === '10m' ? 1800 : 3600))   // +30m (10m) / +1h (1H)
+                          : projFutureDate(projLastBarTime, 1);                      // +1 día hábil (diario)
+        }
+        if (ft > pts[pts.length - 1].time) pts.push({ time: ft, value: Number(t.level) });   // tiempos estrictamente ascendentes
+    });
+    if (pts.length < 2) return;
+    try {
+        projScenarioSeries = projTV.chart.addLineSeries({
+            color: '#eab308', lineWidth: 2, lineStyle: 2, lastValueVisible: false,
+            priceLineVisible: false, crosshairMarkerVisible: true, pointMarkersVisible: true
+        });
+        projScenarioSeries.setData(pts);
+    } catch (e) { projScenarioSeries = null; }
+}
 
 // Abbreviated dollar formatter ($3.4B / $55.7M / $12.0K).
 function fmtAbbr(v) {
@@ -2587,26 +3867,207 @@ function fmtAbbr(v) {
     return '$' + Math.round(v);
 }
 
-
+function renderProjDarkPool(d) {
+    const el = document.getElementById('projDarkPool');
+    if (!el) return;
+    const np = d.tape_flow, spot = d.spot;
+    const has30 = ((d.dark_pool || []).length > 0), hasToday = ((d.dark_pool_today || []).length > 0);
+    // No Quant Data data → keep the connect placeholder untouched
+    if (!np && !has30 && !hasToday) return;
+    let html = '';
+    if (np) {
+        const pos = (np.net_premium || 0) >= 0;
+        html += `<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+            <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-0.5">Premium neto calls</p><p class="text-sm font-mono font-black text-emerald-400">${fmtAbbr(np.net_call_premium)}</p></div>
+            <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-0.5">Premium neto puts</p><p class="text-sm font-mono font-black text-red-400">${fmtAbbr(np.net_put_premium)}</p></div>
+            <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-0.5">Premium neto total</p><p class="text-sm font-mono font-black ${pos ? 'text-emerald-400' : 'text-red-400'}">${fmtAbbr(np.net_premium)}</p></div>
+            <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-0.5">Sesgo de flujo</p><p class="text-sm font-black ${pos ? 'text-emerald-400' : 'text-red-400'}">${(np.bias || '—').toUpperCase()}</p></div>
+        </div>`;
+    }
+    if (has30 || hasToday) {
+        const dp = [...projDpLevels()].sort((a, b) => (b.price || 0) - (a.price || 0));   // ORDEN POR PRECIO (escalera)
+        const lbl = projDpView === 'today' ? 'hoy' : 'últimos 30 días';
+        const tgl = `<div class="inline-flex rounded-lg overflow-hidden border border-gray-700 text-[9px] font-bold flex-shrink-0">
+            <button onclick="projSetDpView('today')" class="px-2.5 py-0.5 transition ${projDpView === 'today' ? 'bg-purple-500/30 text-purple-200' : 'text-gray-400 hover:text-gray-200'}">Hoy</button>
+            <button onclick="projSetDpView('30d')" class="px-2.5 py-0.5 transition ${projDpView === '30d' ? 'bg-purple-500/30 text-purple-200' : 'text-gray-400 hover:text-gray-200'}">30 días</button>
+        </div>`;
+        html += `<div class="flex items-center justify-between gap-2 mb-1.5 mt-1 flex-wrap"><p class="text-[10px] font-extrabold text-purple-300 uppercase tracking-wider">Niveles de dark pool ≥ $500M · ${lbl} · ${dp.length} niveles (ordenado por precio)</p>${tgl}</div>`;
+        if (!dp.length) {
+            html += `<p class="text-xs text-gray-500 italic">Sin cruces dark ≥ $500M ${projDpView === 'today' ? 'hoy' : 'en los últimos 30 días'}.</p>`;
+        } else {
+            const totVal = dp.reduce((s, p) => s + (p.value || 0), 0);
+            const totSh = dp.reduce((s, p) => s + (p.size || 0), 0);
+            const zona = p => (spot && p.price != null) ? (p.price < spot
+                ? '<span class="text-emerald-400">Soporte</span>'
+                : '<span class="text-red-400">Resistencia</span>') : '—';
+            html += `<div class="overflow-x-auto max-h-[420px] overflow-y-auto"><table class="w-full text-[11px] min-w-[400px]">
+                <thead class="sticky top-0 bg-panel"><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+                    <th class="text-left pb-1.5 pr-3">Nivel</th><th class="text-left pb-1.5 pr-3">Zona</th>
+                    <th class="text-right pb-1.5 pr-3">Acciones</th><th class="text-right pb-1.5 pr-3"># Prints</th>
+                    <th class="text-right pb-1.5">Valor total</th></tr></thead>
+                <tbody>${dp.map(p => `<tr class="border-b border-gray-800/50">
+                    <td class="py-1.5 pr-3 text-gray-200 font-bold">${p.price != null ? '$' + Number(p.price).toFixed(2) : '—'}</td>
+                    <td class="py-1.5 pr-3 font-bold">${zona(p)}</td>
+                    <td class="py-1.5 pr-3 text-right text-gray-300">${p.size ? p.size.toLocaleString() : '—'}</td>
+                    <td class="py-1.5 pr-3 text-right text-gray-400">${p.trade_count ? p.trade_count.toLocaleString() : '—'}</td>
+                    <td class="py-1.5 text-right text-purple-300 font-bold">${fmtAbbr(p.value)}</td></tr>`).join('')}
+                    <tr class="border-t border-gray-700 text-gray-200 font-black">
+                    <td class="py-1.5 pr-3">TOTAL</td><td></td>
+                    <td class="py-1.5 pr-3 text-right">${totSh.toLocaleString()}</td><td></td>
+                    <td class="py-1.5 text-right text-purple-200">${fmtAbbr(totVal)}</td></tr>
+                </tbody></table></div>
+            <p class="text-[9px] text-gray-600 italic mt-1.5">Nota: los cruces dark no llevan lado comprador/vendedor en la cinta pública. "Zona" indica si el nivel está por debajo (soporte/acumulación) o por encima (resistencia/distribución) del precio actual ($${spot}). En la gráfica se dibujan los 6 mayores: 3 resistencia (arriba) + 3 soporte (abajo).</p>`;
+        }
+    }
+    html += `<p class="text-[10px] text-gray-600 italic mt-2">Fuente: Quant Data (exchange-licensed).</p>`;
+    el.innerHTML = html;
+}
 
 // Cambia la vista del dark pool (hoy / 30 días) y redibuja panel + líneas del chart sin recargar.
-
+function projSetDpView(v) {
+    projDpView = v;
+    if (projData) {
+        renderProjDarkPool(projData);
+        projDrawDarkpoolLines();
+        if (window.lucide) lucide.createIcons();
+    }
+}
 
 // Recarga COMPLETA y en vivo del área de proyecciones, sin spinner (no borra la vista). force=true salta
 // el cache de GEX en el backend. Reusa loadProjections para que TODO se actualice (paneles + chart + targets).
-
+function projRefresh(force) {
+    if (!projData || !projData.ticker) return;
+    loadProjections(projData.ticker, { silent: true, force: !!force });
+}
 
 // Enciende/apaga el auto-refresh; solo corre con la vista de proyecciones visible y el mercado abierto.
+function projToggleAuto() {
+    const cb = document.getElementById('projAutoRefresh');
+    const on = cb ? cb.checked : false;
+    if (projAutoTimer) { clearInterval(projAutoTimer); projAutoTimer = null; }
+    const lbl = document.getElementById('projAutoState');
+    if (on) {
+        projAutoTimer = setInterval(() => {
+            const view = document.getElementById('projectionsView');
+            if (view && !view.classList.contains('hidden') && projData && projData.ticker && projIsMarketOpen()) {
+                projRefresh(true);
+            }
+        }, 90000);   // cada 90 s
+        if (lbl) lbl.textContent = projIsMarketOpen() ? 'auto · mercado abierto' : 'auto · espera apertura';
+    } else if (lbl) {
+        lbl.textContent = '';
+    }
+}
 
+function renderProjRoute(d) {
+    const el = document.getElementById('projRoute');
+    const hz = document.getElementById('projRouteHorizon');
+    if (!el) return;
+    const spot = d.spot, flip = d.gamma_flip, cw = d.call_wall, pw = d.put_wall, mp = d.max_pain;
+    const pos = (d.net_gex >= 0);
+    const fmt = v => (v == null ? '—' : '$' + Number(v).toFixed(2));
+    const pctOf = v => (v != null && spot) ? ` (${(((v - spot) / spot) * 100) >= 0 ? '+' : ''}${(((v - spot) / spot) * 100).toFixed(1)}%)` : '';
+    if (hz) hz.innerText = (d.dte_dominant != null) ? `Horizonte ~${d.dte_dominant}d (venc. ${(d.expiries_used || [])[0] || '—'})` : '';
 
+    let resL = (d.resistances || []).map(r => r.strike).filter(s => s > spot);
+    if (cw && cw > spot && !resL.includes(cw)) resL.push(cw);
+    resL = Array.from(new Set(resL)).sort((a, b) => a - b);
+    let supL = (d.supports || []).map(s => s.strike).filter(s => s < spot);
+    if (pw && pw < spot && !supL.includes(pw)) supL.push(pw);
+    supL = Array.from(new Set(supL)).sort((a, b) => b - a);
 
+    const step = (n, txt, col) => `<div class="flex items-start gap-2 mb-2"><span class="flex-shrink-0 w-5 h-5 rounded-full ${col} text-[10px] font-black flex items-center justify-center mt-0.5">${n}</span><p class="text-[11px] text-gray-300 leading-relaxed">${txt}</p></div>`;
 
+    let up = [], n = 1;
+    if (flip && spot < flip) up.push(step(n++, `Recuperar y <b>sostener el gamma flip ${fmt(flip)}</b>${pctOf(flip)}: saca al precio del régimen amplificado y devuelve el soporte del dealer.`, 'bg-emerald-500/20 text-emerald-400'));
+    if (resL.length) {
+        up.push(step(n++, `Atacar la <b>resistencia primaria ${fmt(resL[0])}</b>${pctOf(resL[0])} (call wall). ${pos ? 'En GEX+ el precio tiende a “pinear” bajo este nivel — necesita un cierre confirmado con volumen para romperlo.' : 'En GEX− una ruptura acelera rápido porque el dealer compra por encima.'}`, 'bg-emerald-500/20 text-emerald-400'));
+        for (let i = 1; i < resL.length; i++) up.push(step(n++, `Romper ${fmt(resL[i - 1])} suelta el siguiente tramo hacia <b>${fmt(resL[i])}</b>${pctOf(resL[i])} (próximo cúmulo de calls).`, 'bg-emerald-500/20 text-emerald-400'));
+    }
+    if (!up.length) up.push(`<p class="text-[11px] text-gray-500 italic">Sin resistencias claras por encima en las expiraciones cercanas.</p>`);
 
+    let dn = [], m = 1;
+    if (supL.length) {
+        dn.push(step(m++, `Defender el <b>soporte primario ${fmt(supL[0])}</b>${pctOf(supL[0])} (put wall). ${pos ? 'En GEX+ los dips aquí suelen comprarse.' : 'En GEX− perderlo puede gatillar ventas en cascada.'}`, 'bg-red-500/20 text-red-400'));
+        for (let i = 1; i < supL.length; i++) dn.push(step(m++, `Perder ${fmt(supL[i - 1])} abre la caída hacia <b>${fmt(supL[i])}</b>${pctOf(supL[i])}.`, 'bg-red-500/20 text-red-400'));
+    }
+    if (flip && spot >= flip) dn.push(step(m++, `Perder el <b>gamma flip ${fmt(flip)}</b>${pctOf(flip)} cambia a régimen amplificado → caídas más rápidas.`, 'bg-red-500/20 text-red-400'));
+    if (!dn.length) dn.push(`<p class="text-[11px] text-gray-500 italic">Sin soportes claros por debajo en las expiraciones cercanas.</p>`);
+
+    let aiLine = '';
+    try {
+        if (typeof currentAnalysis !== 'undefined' && currentAnalysis && currentAnalysis.ticker === d.ticker && currentAnalysis.targets && currentAnalysis.targets['30d']) {
+            const t = currentAnalysis.targets['30d'];
+            aiLine = `<div class="mt-3 pt-3 border-t border-gray-800 text-[11px] text-gray-400"><b class="text-blue-400">Targets del agente (30d):</b> base ${fmt(t.base)}, bull ${fmt(t.bull)}, bear ${fmt(t.bear)}. ${cw ? `El bull ${fmt(t.bull)} ${t.bull >= cw ? 'queda por encima del call wall — requiere romper ' + fmt(cw) + ' primero.' : 'cae dentro del rango, alcanzable sin romper el call wall.'}` : ''}</div>`;
+        }
+    } catch (e) {}
+
+    const mpSrc = d.max_pain_source === 'quantdata' ? ` <span class="text-blue-400 font-bold">(QD)</span>` : (d.max_pain_source === 'yfinance' ? ` <span class="text-gray-600">(yf)</span>` : '');
+    const mpLine = mp ? `<div class="mt-2 text-[11px] text-gray-400"><i data-lucide="magnet" class="w-3 h-3 inline -mt-0.5"></i> <b class="text-gray-300">Imán de vencimiento:</b> max pain ${fmt(mp)}${pctOf(mp)}${mpSrc} — el precio tiende a gravitar aquí hacia el vencimiento (~${d.dte_dominant != null ? d.dte_dominant : '?'}d).</div>` : '';
+
+    el.innerHTML = `
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="bg-emerald-500/5 border border-emerald-500/15 rounded-xl p-3">
+          <p class="text-[10px] font-extrabold text-emerald-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><i data-lucide="trending-up" class="w-3.5 h-3.5"></i> Camino alcista</p>
+          ${up.join('')}
+        </div>
+        <div class="bg-red-500/5 border border-red-500/15 rounded-xl p-3">
+          <p class="text-[10px] font-extrabold text-red-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><i data-lucide="trending-down" class="w-3.5 h-3.5"></i> Camino bajista</p>
+          ${dn.join('')}
+        </div>
+      </div>${mpLine}${aiLine}`;
+    if (window.lucide) lucide.createIcons();
+}
+
+function projGenerarTesis() {
+    if (!projData || !projData.ticker) return;
+    const inp = document.getElementById('tickerInput');
+    if (inp) inp.value = projData.ticker;
+    ejecutarAnalisisAPI();   // corre el análisis completo (ya incluye GEX) y cambia a la vista del reporte
+}
 
 // ── PANEL GEX EN LA VISTA DE ANÁLISIS (Quick Take) ───────────────────────────
+async function loadAnalysisGex(ticker) {
+    const card = document.getElementById('qtGexCard');
+    const body = document.getElementById('qtGexBody');
+    if (!card || !body || !ticker) return;
+    card.classList.remove('hidden');
+    body.innerHTML = `<p class="text-[11px] text-gray-500 italic flex items-center gap-2"><i data-lucide="loader" class="w-3 h-3 animate-spin"></i> Calculando gamma exposure…</p>`;
+    if (window.lucide) lucide.createIcons();
+    try {
+        const r = await fetch(`${API_BASE}/api/options-gex?ticker=${encodeURIComponent(ticker)}`);
+        const d = await r.json();
+        if (!d.ok) { card.classList.add('hidden'); return; }
+        renderAnalysisGex(d);
+    } catch(e) { card.classList.add('hidden'); }
+}
 
-
-
+function renderAnalysisGex(d) {
+    const body = document.getElementById('qtGexBody');
+    const pos = (d.net_gex >= 0);
+    const chip = (lbl, val, cls) => `<div class="text-center"><p class="text-[9px] text-gray-500 uppercase font-bold mb-0.5">${lbl}</p><p class="text-sm font-mono font-black ${cls || 'text-white'}">${val}</p></div>`;
+    const ua = (d.unusual_activity || []).slice(0, 2);
+    const uaTxt = ua.length
+        ? 'Actividad inusual: ' + ua.map(u => `${u.type} $${u.strike} (${u.vol_oi}x OI)`).join(', ') + '.'
+        : 'Sin actividad inusual destacada.';
+    body.innerHTML = `
+        <div class="flex items-center gap-2 mb-3">
+            <span class="text-[9px] font-bold px-2 py-0.5 rounded-full ${pos ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}">${pos ? 'GEX+ anclado' : 'GEX− amplificado'}</span>
+            <span class="text-[10px] text-gray-500">Niveles institucionales de opciones (calculados de la cadena)</span>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+            ${chip('Call Wall', d.call_wall ? '$' + d.call_wall : '—', 'text-red-400')}
+            ${chip('Put Wall', d.put_wall ? '$' + d.put_wall : '—', 'text-emerald-400')}
+            ${chip('Gamma Flip', d.gamma_flip ? '$' + d.gamma_flip : '—', 'text-purple-400')}
+            ${chip('Max Pain', d.max_pain ? '$' + d.max_pain : '—', 'text-gray-300')}
+        </div>
+        <p class="text-[11px] text-gray-400 leading-relaxed">
+            ${d.put_wall && d.call_wall ? `Rango defendido por el posicionamiento: <b class="text-emerald-400">$${d.put_wall}</b> (soporte) ↔ <b class="text-red-400">$${d.call_wall}</b> (resistencia). ` : ''}
+            ${pos ? 'Gamma positivo: el precio tiende a anclarse / mean-revertir dentro del rango.' : 'Gamma negativo: los movimientos se amplifican; mayor riesgo de tramos direccionales.'}
+        </p>
+        <p class="text-[10px] text-gray-500 italic mt-1.5">${uaTxt}</p>`;
+    if (window.lucide) lucide.createIcons();
+}
 
 async function exportReportPDF() {   // async: el snapshot SVG→PNG de la gráfica de Victor espera al Image.onload
     if (!currentAnalysis) { alert('No hay reporte para exportar.'); return; }
@@ -3599,8 +5060,13 @@ function cmdKey(e) {
     const tk = (e.target.value || '').trim().toUpperCase();
     if (!tk) return;
     closeCmdBar();
-    // Shift abría las proyecciones GEX, que salieron con la capa de opciones.
-    if (typeof analyzeTickerNow === 'function') analyzeTickerNow(tk);
+    if (e.shiftKey) {   // proyecciones GEX rápidas
+        if (typeof switchView === 'function') switchView('projectionsView');
+        const pt = document.getElementById('projTicker'); if (pt) pt.value = tk;
+        if (typeof loadProjections === 'function') loadProjections();
+    } else {            // análisis completo del agente
+        if (typeof analyzeTickerNow === 'function') analyzeTickerNow(tk);
+    }
 }
 document.addEventListener('keydown', (e) => {
     const tag = (e.target && e.target.tagName || '').toLowerCase();
@@ -3723,6 +5189,7 @@ function switchPortfolioTab(tabId, btn) {
     if (tabId === 'pfAttribTab' && !pfAttribLoaded) loadPortfolioAttribution();
     if (tabId === 'pfGuardTab' && !pfGuardLoaded) loadPortfolioGuardrails();
     if (tabId === 'pfOptTab' && !pfOptLoaded) loadPortfolioOptimizer();
+    if (tabId === 'pfOptionsTab' && !pfOptionsLoaded) loadOptions();
     if (window.lucide) lucide.createIcons();
 }
 
@@ -4702,9 +6169,143 @@ function pfIdeaAnalyze(tk) {
 
 
 let pfOptionsLoaded = false;
+async function loadOptions(force) {
+    // OJO: este panel es el de GRIEGAS del libro. Antes usaba el id 'pfOptionsBody', que ya
+    // existía en el panel "Contratos de Opciones" — getElementById devolvía ese otro y el de
+    // griegas quedaba SIEMPRE vacío. Ahora tiene su propio id.
+    const body = document.getElementById('pfGreeksBody');
+    if (!body) return;
+    if (pfOptionsLoaded && !force) return;
+    body.innerHTML = `<p class="text-xs text-gray-500 italic p-4 flex items-center gap-2"><i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Calculando griegas (spot + IV en vivo)…</p>`;
+    if (window.lucide) lucide.createIcons();
+    try {
+        const r = await fetch(`${API_BASE}/api/portfolio-options`);
+        const d = await r.json();
+        if (!d.ok) { body.innerHTML = `<p class="text-xs text-amber-400 italic p-4">${d.error || 'No se pudo calcular.'}</p>`; pfOptionsLoaded = true; return; }
+        renderOptions(d); pfOptionsLoaded = true;
+    } catch (e) {
+        body.innerHTML = `<p class="text-xs text-red-400 italic p-4">Error: ${e.message}</p>`;
+    }
+}
 
+function renderOptions(d) {
+    const body = document.getElementById('pfGreeksBody');
+    if (d.n_options === 0) {
+        body.innerHTML = `<div class="text-center py-8 px-4">
+            <i data-lucide="inbox" class="w-8 h-8 text-gray-600 mx-auto mb-2"></i>
+            <p class="text-xs text-gray-400">${d.note || 'No se detectaron opciones.'}</p>
+            <p class="text-[10px] text-gray-600 mt-1.5">Conecta Plaid con una cuenta que reporte opciones, o cárgalas en <b>Importar portafolio</b>.</p></div>`;
+        if (window.lucide) lucide.createIcons();
+        return;
+    }
+    const g = d.greeks || {};
+    const sgn = v => (Number(v) >= 0 ? 'text-emerald-400' : 'text-red-400');
+    const card = (label, val, sub, cls) => `
+        <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
+            <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">${label}</div>
+            <div class="text-lg font-extrabold ${cls || 'text-white'}">${val}</div>
+            ${sub ? `<div class="text-[10px] text-gray-500 mt-0.5">${sub}</div>` : ''}
+        </div>`;
 
+    const cards = `<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        ${card('Δ Neto (Opciones)', pfUSD(g.net_delta_dollar), (g.net_delta_shares != null ? `${g.net_delta_shares.toLocaleString()} acc-equiv` : ''), sgn(g.net_delta_dollar))}
+        ${card('Γ Neto', (g.net_gamma != null ? g.net_gamma.toLocaleString() : '—'), 'Δ por $1 de movimiento', sgn(g.net_gamma))}
+        ${card('Θ Neto', pfUSD(g.net_theta_day) + '/día', (g.net_theta_day >= 0 ? 'el decaimiento te favorece' : 'costo de mantener'), sgn(g.net_theta_day))}
+        ${card('ν Neto', pfUSD(g.net_vega_1pct), 'por +1% de IV', sgn(g.net_vega_1pct))}
+    </div>`;
 
+    const tot = `<div class="bg-gradient-to-r from-blue-500/5 to-transparent border border-blue-500/20 rounded-xl p-4 mb-5">
+        <div class="text-[10px] text-blue-400 uppercase tracking-wider font-bold mb-2">Exposición Direccional Total del Libro</div>
+        <div class="flex items-end justify-between flex-wrap gap-3">
+            <div class="text-2xl font-extrabold ${sgn(d.total_book_delta_dollar)}">${pfUSD(d.total_book_delta_dollar)}</div>
+            <div class="text-[11px] text-gray-400 flex gap-4">
+                <span>Opciones (Δ$): <b class="${sgn(d.options_delta_dollar)}">${pfUSD(d.options_delta_dollar)}</b></span>
+                <span>Acciones (Δ$): <b class="text-gray-300">${pfUSD(d.stock_delta_dollar)}</b></span>
+            </div>
+        </div>
+        <p class="text-[10px] text-gray-600 mt-1.5">Cuánto gana/pierde el libro completo por cada $1 de movimiento del subyacente (acciones tienen delta = 1).</p>
+    </div>`;
+
+    // Expiry ladder
+    const maxTheta = Math.max(1, ...d.ladder.map(l => Math.abs(l.theta_day)));
+    const ladderRows = d.ladder.map(l => {
+        const w = Math.min(100, Math.abs(l.theta_day) / maxTheta * 100);
+        const near = l.dte != null && l.dte <= 7;
+        return `<tr class="border-b border-gray-800/50">
+            <td class="py-2 pr-3 font-bold ${near ? 'text-amber-400' : 'text-gray-200'}">${l.expiry}${near ? ' ⚠' : ''}</td>
+            <td class="py-2 pr-3 text-right ${near ? 'text-amber-400' : 'text-gray-400'}">${l.dte != null ? l.dte + 'd' : '—'}</td>
+            <td class="py-2 pr-3 text-right text-gray-300">${l.contracts}</td>
+            <td class="py-2 pr-3 text-right text-gray-300">${pfUSD(l.value)}</td>
+            <td class="py-2 pr-3 text-right ${sgn(l.theta_day)}">${pfUSD(l.theta_day)}</td>
+            <td class="py-2 text-right ${sgn(l.delta_dollar)}">${pfUSD(l.delta_dollar)}</td>
+        </tr>`;
+    }).join('');
+    const ladder = `<div class="mb-5">
+        <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-wider mb-2 flex items-center gap-1.5"><i data-lucide="layers" class="w-3.5 h-3.5"></i> Escalera de Vencimientos</h4>
+        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[480px]">
+            <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+                <th class="text-left pb-1.5 pr-3">Vence</th><th class="text-right pb-1.5 pr-3">DTE</th>
+                <th class="text-right pb-1.5 pr-3">Contratos</th><th class="text-right pb-1.5 pr-3">Valor</th>
+                <th class="text-right pb-1.5 pr-3">Θ/día</th><th class="text-right pb-1.5">Δ$</th></tr></thead>
+            <tbody>${ladderRows}</tbody></table></div></div>`;
+
+    // By underlying
+    const buRows = Object.entries(d.by_underlying).map(([u, v]) => `
+        <tr class="border-b border-gray-800/50">
+            <td class="py-2 pr-3 font-bold text-gray-200">${u}</td>
+            <td class="py-2 pr-3 text-right text-gray-400">${v.contracts}</td>
+            <td class="py-2 pr-3 text-right ${sgn(v.delta_dollar)}">${pfUSD(v.delta_dollar)}</td>
+            <td class="py-2 pr-3 text-right ${sgn(v.theta_day)}">${pfUSD(v.theta_day)}</td>
+            <td class="py-2 text-right ${sgn(v.vega)}">${pfUSD(v.vega)}</td>
+        </tr>`).join('');
+    const byU = `<div class="mb-5">
+        <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-wider mb-2 flex items-center gap-1.5"><i data-lucide="pie-chart" class="w-3.5 h-3.5"></i> Por Subyacente</h4>
+        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[420px]">
+            <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+                <th class="text-left pb-1.5 pr-3">Subyacente</th><th class="text-right pb-1.5 pr-3">Contratos</th>
+                <th class="text-right pb-1.5 pr-3">Δ$</th><th class="text-right pb-1.5 pr-3">Θ/día</th><th class="text-right pb-1.5">ν</th></tr></thead>
+            <tbody>${buRows}</tbody></table></div></div>`;
+
+    // Per-position detail
+    const posRows = d.positions.map(p => {
+        const near = p.dte != null && p.dte <= 7;
+        return `<tr class="border-b border-gray-800/50">
+            <td class="py-2 pr-2 font-bold text-gray-200">${p.underlying}</td>
+            <td class="py-2 pr-2"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${p.option_type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${p.option_type.toUpperCase()}</span></td>
+            <td class="py-2 pr-2 text-right text-gray-300">$${p.strike}</td>
+            <td class="py-2 pr-2 text-right ${near ? 'text-amber-400 font-bold' : 'text-gray-400'}">${p.expiry}${near ? ' ⚠' : ''}</td>
+            <td class="py-2 pr-2 text-right text-gray-300">${p.contracts}</td>
+            <td class="py-2 pr-2 text-right text-gray-400">${p.iv != null ? p.iv + '%' : '—'}</td>
+            <td class="py-2 pr-2 text-right ${sgn(p.delta)}">${p.delta}</td>
+            <td class="py-2 pr-2 text-right text-gray-400">${p.gamma}</td>
+            <td class="py-2 pr-2 text-right ${sgn(p['theta_day_$'])}">${p['theta_day_$'] != null ? pfUSD(p['theta_day_$']) : '—'}</td>
+            <td class="py-2 text-right ${sgn(p['vega_$'])}">${p['vega_$'] != null ? pfUSD(p['vega_$']) : '—'}</td>
+        </tr>`;
+    }).join('');
+    const detail = `<div class="mb-4">
+        <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-wider mb-2 flex items-center gap-1.5"><i data-lucide="list" class="w-3.5 h-3.5"></i> Detalle por Posición</h4>
+        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[640px]">
+            <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+                <th class="text-left pb-1.5 pr-2">Suby.</th><th class="text-left pb-1.5 pr-2">Tipo</th>
+                <th class="text-right pb-1.5 pr-2">Strike</th><th class="text-right pb-1.5 pr-2">Vence</th>
+                <th class="text-right pb-1.5 pr-2">Contr.</th><th class="text-right pb-1.5 pr-2">IV</th>
+                <th class="text-right pb-1.5 pr-2">Δ</th><th class="text-right pb-1.5 pr-2">Γ</th>
+                <th class="text-right pb-1.5 pr-2">Θ/día</th><th class="text-right pb-1.5">ν</th></tr></thead>
+            <tbody>${posRows}</tbody></table></div></div>`;
+
+    // Alerts
+    const alertHtml = (d.alerts || []).map(a => {
+        const c = a.level === 'warn' ? 'bg-amber-500/10 border-amber-500/30 text-amber-300' : 'bg-blue-500/5 border-blue-500/20 text-blue-300';
+        const ic = a.level === 'warn' ? 'alert-triangle' : 'info';
+        return `<div class="flex items-start gap-2 ${c} border rounded-lg px-3 py-2 text-[11px]"><i data-lucide="${ic}" class="w-3.5 h-3.5 mt-0.5 flex-shrink-0"></i><span>${a.msg}</span></div>`;
+    }).join('');
+    const alerts = alertHtml ? `<div class="space-y-1.5 mb-4">${alertHtml}</div>` : '';
+
+    const note = `<p class="text-[10px] text-gray-600 italic mt-3 flex items-start gap-1.5"><i data-lucide="info" class="w-3 h-3 mt-0.5 flex-shrink-0"></i>${d.note || ''}</p>`;
+
+    body.innerHTML = cards + tot + alerts + ladder + byU + detail + note;
+    if (window.lucide) lucide.createIcons();
+}
 
 
 // ── PORTFOLIO TIMEFRAME SELECTOR ─────────────────────────────────────────────
@@ -5158,6 +6759,270 @@ function analyzeTickerNow(tk) {
 
 </script>
 
+<main id="projectionsView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4 space-y-5">
+
+    <div class="flex items-center justify-between mb-1 flex-wrap gap-3">
+        <div>
+            <h2 class="text-xl font-extrabold text-white flex items-center gap-2"><i data-lucide="target" class="w-5 h-5 text-blue-500"></i> Proyecciones GEX</h2>
+            <p class="text-xs text-gray-500 mt-0.5">Niveles institucionales de opciones (gamma exposure) → soportes, resistencias y rango proyectado del precio.</p>
+        </div>
+        <div class="flex items-center gap-2">
+            <input id="projTicker" type="text" placeholder="Ticker (ej. NVDA)" onkeydown="if(event.key==='Enter')loadProjections()"
+                   class="bg-[#0B0E14] border border-gray-800 text-white text-sm rounded-lg px-3 py-2 w-36 uppercase focus:border-blue-500 outline-none" />
+            <button onclick="loadProjections()" class="text-xs font-bold px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-1.5">
+                <i data-lucide="search" class="w-3.5 h-3.5"></i> Proyectar
+            </button>
+            <button onclick="projRefresh(true)" title="Refrescar GEX y dark pool ahora" class="text-xs font-bold p-2 rounded-lg bg-gray-700/50 text-gray-200 hover:bg-gray-700 transition flex items-center">
+                <i id="projRefreshBtn" data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            </button>
+            <label class="flex items-center gap-1.5 text-[10px] text-gray-400 cursor-pointer select-none">
+                <input id="projAutoRefresh" type="checkbox" onchange="projToggleAuto()" class="accent-blue-500"> auto
+                <span id="projAutoState" class="text-[9px] text-emerald-400 font-bold"></span>
+            </label>
+            <span id="projRefreshTs" class="text-[9px] text-gray-600"></span>
+        </div>
+    </div>
+
+    <div id="projEmpty" class="text-center py-20 px-4">
+        <i data-lucide="line-chart" class="w-12 h-12 text-gray-700 mx-auto mb-3"></i>
+        <p class="text-sm text-gray-400">Escribe un ticker y presiona <b class="text-gray-300">Proyectar</b>.</p>
+        <p class="text-[11px] text-gray-600 mt-1">Gráfica grande + proyecciones de precio basadas en el gamma exposure del libro de opciones.</p>
+    </div>
+
+    <div id="projContent" class="hidden space-y-5">
+        <div class="flex items-center justify-between flex-wrap gap-2 bg-gradient-to-r from-blue-500/5 to-transparent border border-blue-500/20 rounded-xl px-4 py-2.5">
+            <p class="text-[11px] text-gray-400">¿Quieres la lectura completa del agente para este ticker (tesis, recomendación y plan, ya con el GEX integrado)?</p>
+            <button onclick="projGenerarTesis()" class="text-xs font-bold px-4 py-2 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-1.5 flex-shrink-0">
+                <i data-lucide="brain-circuit" class="w-3.5 h-3.5"></i> Generar tesis AI completa
+            </button>
+        </div>
+        <!-- Big price chart with GEX levels -->
+        <div class="bg-panel border border-panel rounded-2xl p-4">
+            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <h3 class="text-sm font-extrabold text-white flex items-center gap-2"><span id="projChartTitle">—</span>
+                    <span id="projRegimeBadge" class="text-[9px] font-bold px-2 py-0.5 rounded-full"></span></h3>
+                <div class="flex items-center gap-1 flex-wrap">
+                    <span class="text-[9px] text-gray-500 uppercase font-bold mr-0.5">Velas:</span>
+                    <button class="proj-tf tf-pill" data-tf="10m" onclick="projChangeTf('10m',this)">10m</button>
+                    <button class="proj-tf tf-pill" data-tf="1h" onclick="projChangeTf('1h',this)">1H</button>
+                    <button class="proj-tf tf-pill active" data-tf="1d" onclick="projChangeTf('1d',this)">1D</button>
+                    <span class="w-px h-4 bg-gray-700 mx-1.5"></span>
+                    <span class="text-[9px] text-gray-500 uppercase font-bold mr-0.5">Targets:</span>
+                    <button class="proj-tgt tf-pill active" data-h="Hoy" onclick="projToggleTarget('Hoy',this)">Hoy</button>
+                    <button class="proj-tgt tf-pill active" data-h="7d" onclick="projToggleTarget('7d',this)">7d</button>
+                    <button class="proj-tgt tf-pill active" data-h="30d" onclick="projToggleTarget('30d',this)">30d</button>
+                    <button class="proj-tgt tf-pill active" data-h="60d" onclick="projToggleTarget('60d',this)">60d</button>
+                    <button class="proj-tgt tf-pill active" data-h="90d" onclick="projToggleTarget('90d',this)">90d</button>
+                    <button class="proj-tgt tf-pill active" data-h="120d" onclick="projToggleTarget('120d',this)">120d</button>
+                </div>
+            </div>
+            <div id="projChart" style="height:440px;width:100%;position:relative"></div>
+            <div class="flex flex-wrap gap-3 mt-2 text-[10px] text-gray-500">
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-red-400"></span> Call Wall (resistencia)</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-emerald-400"></span> Put Wall (soporte)</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-purple-400"></span> Gamma Flip</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5 bg-gray-400"></span> Max Pain</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:#c084fc"></span> Dark Pool $ (Quant Data)</span>
+                <span class="flex items-center gap-1">🎯 Targets <span style="color:#34d399">▲</span>/<span style="color:#f87171">▼</span> (seleccionables)</span>
+                <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:#eab308"></span> Escenario proyectado</span>
+                <span id="pwHorizonNote" class="ml-auto text-[10px] font-bold text-blue-300">Walls: todas las expiraciones (estructural)</span>
+            </div>
+            <p id="projChartSrc" class="chart-cite"></p>
+        </div>
+
+        <!-- Projection cards -->
+        <div id="projCards" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"></div>
+
+        <!-- Integrity strip (sanity checks on the numbers) -->
+        <div id="projIntegrity" class="mt-3"></div>
+
+        <!-- Confluence engine (GEX + dark pool + conviction alignment) -->
+        <div id="projConfluence"></div>
+
+        <!-- Net drift over time (net-flow) with window selector -->
+        <div id="projNetDriftCard" class="bg-panel border border-panel rounded-2xl p-5 hidden">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="activity" class="w-4 h-4"></i> Net Drift (Premium)</h3>
+                <div class="flex items-center gap-2">
+                    <select id="projNetDriftExp" onchange="loadNetDrift(projNetDriftTicker, projNetDriftWin, this.value)" class="bg-black/30 border border-gray-700 rounded-lg text-[11px] text-gray-200 px-2 py-1 focus:outline-none" title="Filtrar el flujo por fecha de expiración (0DTE = la del día)"><option value="all">Todas las exp.</option></select>
+                    <div id="projNetDriftTabs" class="flex gap-1 bg-black/30 rounded-lg p-0.5"></div>
+                    <span id="projNetDriftTrend" class="text-[10px]"></span>
+                </div>
+            </div>
+            <p class="text-[11px] text-gray-500 italic mb-3">Prima neta <b>acumulada</b> (compras − ventas) de los contratos de la <b>expiración seleccionada</b> (elige una arriba; <b>0DTE</b> = la del día): <b class="text-emerald-400">Calls (verde)</b> sube si se compran calls, baja si se venden; <b class="text-red-400">Puts (rojo)</b> sube si se compran puts, baja si se venden; <b class="text-blue-400">precio</b> en el eje derecho. La distancia <b>verde − roja</b> es el neto direccional. Pasa el cursor para ver call, put, precio y neto en cada punto.</p>
+            <div style="height:240px;"><canvas id="projNetDriftCanvas"></canvas></div>
+            <p id="projNetDriftSrc" class="chart-cite"></p>
+        </div>
+
+        <!-- Gamma exposure by strike (Quant Data) with expiration selector -->
+        <div id="projGammaCard" class="bg-panel border border-panel rounded-2xl p-5 hidden">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="bar-chart-3" class="w-4 h-4"></i> Exposición por Strike · Quant Data</h3>
+                <div class="flex gap-1.5">
+                    <select id="projGammaGreek" onchange="loadGammaStrike(projGammaTicker, document.getElementById('projGammaExp').value || 'all')" class="bg-black/30 border border-gray-700 rounded-lg text-[11px] text-gray-200 px-2 py-1 focus:outline-none">
+                        <option value="GAMMA">Gamma</option>
+                        <option value="VANNA">Vanna</option>
+                        <option value="CHARM">Charm</option>
+                        <option value="DELTA">Delta</option>
+                    </select>
+                    <select id="projGammaExp" onchange="loadGammaStrike(projGammaTicker, this.value)" class="bg-black/30 border border-gray-700 rounded-lg text-[11px] text-gray-200 px-2 py-1 focus:outline-none"></select>
+                </div>
+            </div>
+            <p id="projGammaNote" class="text-[11px] text-gray-500 italic mb-3">Gamma neto del dealer por strike (call + put). Verde = soporte/imán; rojo = aceleración. La línea punteada marca el <b>gamma flip</b> (pin / gamma cero).</p>
+            <div style="height:240px;"><canvas id="projGammaCanvas"></canvas></div>
+            <p id="projGammaSrc" class="chart-cite"></p>
+        </div>
+
+        <!-- Institutional options trade ledger (Quant Data order-flow) -->
+        <div id="projLedgerCard" class="bg-panel border border-panel rounded-2xl p-5 hidden">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="receipt" class="w-4 h-4"></i> Libro de Flujo Institucional · Quant Data</h3>
+                <div class="flex items-center gap-3">
+                    <label class="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer" title="Baja el OI vigente de cada contrato (más lento). Apágalo para carga instantánea.">
+                        <input id="projLedgerOI" type="checkbox" checked onchange="loadFlowLedger()" class="accent-blue-500 w-3 h-3"> OI actual
+                    </label>
+                    <span id="projLedgerBias" class="text-[10px] font-bold text-gray-400"></span>
+                </div>
+            </div>
+            <p class="text-[10px] text-gray-600 italic mb-3">Últimos <b>120 días</b> · trades de <b>$5M+</b> · solo <b>contratos vigentes</b> (no vencidos) · solo lados direccionales (<b>ASK/above-ask</b> = compra agresiva · <b>BID/below-bid</b> = venta) · DTE en días enteros. Filtrado server-side por Quant Data. Usa <b>Anterior/Siguiente</b> para paginar.</p>
+            <div id="projLedger"></div>
+        </div>
+
+        <!-- Live self-diagnostic (validates data paths against real data) -->
+        <div id="projSelfTestCard" class="bg-panel border border-panel rounded-2xl p-5">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="stethoscope" class="w-4 h-4"></i> Diagnóstico en Vivo · Validación de Datos</h3>
+                <button onclick="runSelfTest()" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-blue-600/80 hover:bg-blue-600 text-white">Correr diagnóstico</button>
+            </div>
+            <p class="text-[11px] text-gray-500 italic mb-3">Corre las rutas de datos clave del ticker actual contra datos reales y marca en <span class="text-emerald-400 font-bold">verde</span> / <span class="text-amber-400 font-bold">ámbar</span> / <span class="text-red-400 font-bold">rojo</span> lo que se vea raro: sin spot, IV inválida, target con movimiento absurdo, walls invertidos, max pain fuera de rango, libro vacío. Úsalo para validar antes de operar.</p>
+            <div id="projSelfTest"><p class="text-[11px] text-gray-600">Pulsa <b>"Correr diagnóstico"</b> para validar el ticker cargado en Proyecciones.</p></div>
+        </div>
+
+        <!-- Signal history collector + backtest -->
+        <div id="projBacktestCard" class="bg-panel border border-panel rounded-2xl p-5">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="history" class="w-4 h-4"></i> Backtest de Señales · Histórico</h3>
+                <div class="flex gap-1.5 flex-wrap">
+                    <button onclick="collectSignalSnapshot()" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-600/80 hover:bg-emerald-600 text-white">Capturar hoy</button>
+                    <button onclick="startBackfill()" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-purple-600/80 hover:bg-purple-600 text-white">Backfill 365d</button>
+                    <button onclick="runBacktest()" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-blue-600/80 hover:bg-blue-600 text-white">Correr backtest</button>
+                </div>
+            </div>
+            <p id="projBtStatus" class="text-[11px] text-gray-500 mb-2">Captura un snapshot diario para construir el histórico; el backtest mide el acierto de la confluencia y el hit-rate de los targets cuando su horizonte ya transcurrió.</p>
+            <div id="projBtResults"></div>
+        </div>
+
+        <!-- Directional targets by horizon -->
+        <div class="bg-panel border border-panel rounded-2xl p-5">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="goal" class="w-4 h-4"></i> Targets Proyectados por Horizonte</h3>
+                <span id="projTgtBias" class="text-[10px]"></span>
+            </div>
+            <p class="text-[11px] text-gray-500 italic mb-3">7d–120d guiados por posicionamiento de opciones (GEX + flujo + dark pool + delta); 12m fundamental. Escenarios probabilísticos.</p>
+            <div id="projTargets"></div>
+        </div>
+
+        <!-- Signal -> concrete options trade structurer -->
+        <div class="bg-panel border border-panel rounded-2xl p-5">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="crosshair" class="w-4 h-4"></i> Plan de Operación · Señal → Trade</h3>
+                <div class="flex items-center gap-1.5 text-[10px]">
+                    <label class="text-gray-500">Capital $</label>
+                    <input id="tpCapital" type="number" value="500" class="w-20 bg-[#0B0E14] border border-gray-700 rounded px-1.5 py-0.5 text-gray-200 text-[10px]">
+                    <label class="text-gray-500">Riesgo %</label>
+                    <input id="tpRisk" type="number" value="15" class="w-12 bg-[#0B0E14] border border-gray-700 rounded px-1.5 py-0.5 text-gray-200 text-[10px]">
+                    <button onclick="loadTradePlan()" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-blue-600/80 hover:bg-blue-600 text-white">Estructurar</button>
+                </div>
+            </div>
+            <p class="text-[11px] text-gray-500 italic mb-3">Convierte la dirección + convicción + target de cada horizonte en un <b>contrato concreto</b> (≈ATM): prima de entrada (Black-Scholes), valor si el subyacente llega al target, R:R, breakeven, stop −20/−30% y nº de contratos para tu capital. Complementa el plan de equity del agente.</p>
+            <div id="projTradePlan"><p class="text-[11px] text-gray-600">Pulsa <b>"Estructurar"</b> para generar el plan del ticker cargado en Proyecciones.</p></div>
+        </div>
+
+        <!-- Premium-selling / income structures (iron condor, credit spreads, CSP) -->
+        <div id="projIncomeCard" class="bg-panel border border-panel rounded-2xl p-5 hidden">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+                <h3 class="text-xs font-extrabold text-emerald-400 uppercase tracking-widest flex items-center gap-2"><i data-lucide="hand-coins" class="w-4 h-4"></i> Venta de Prima · Iron Condor & Credit Spreads</h3>
+                <div class="flex items-center gap-1.5 text-[10px]">
+                    <label class="text-gray-500">DTE</label>
+                    <input id="incDteMin" type="number" value="7" class="w-11 bg-[#0B0E14] border border-gray-700 rounded px-1.5 py-0.5 text-gray-200 text-[10px]">
+                    <span class="text-gray-600">–</span>
+                    <input id="incDteMax" type="number" value="30" class="w-11 bg-[#0B0E14] border border-gray-700 rounded px-1.5 py-0.5 text-gray-200 text-[10px]">
+                    <label class="text-gray-500 ml-1">Riesgo $</label>
+                    <input id="incRisk" type="number" value="250" class="w-16 bg-[#0B0E14] border border-gray-700 rounded px-1.5 py-0.5 text-gray-200 text-[10px]">
+                    <button onclick="loadIncomeStrategies()" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-600/80 hover:bg-emerald-600 text-white">Recalcular</button>
+                </div>
+            </div>
+            <p class="text-[11px] text-gray-500 italic mb-3">Cobra prima vendiendo opciones con vencimiento a <b>7–30 días</b>: los cortos se colocan <b>~1σ fuera del movimiento esperado</b> (IV·√T), alineados con los <b>OI walls</b> y con las <b>ventas institucionales más grandes</b> del chain. Para cada estructura: crédito, POP (prob. de ganar), breakevens y retorno sobre riesgo. Riesgo definido salvo el Cash-Secured Put.</p>
+            <div id="projIncome"></div>
+        </div>
+
+
+        <!-- Price route / roadmap toward targets -->
+        <div class="bg-panel border border-panel rounded-2xl p-5">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="route" class="w-4 h-4"></i> Ruta del Precio hacia los Targets</h3>
+                <span id="projRouteHorizon" class="text-[10px] text-gray-500"></span>
+            </div>
+            <p class="text-[11px] text-gray-500 italic mb-3">Secuencia condicional: qué nivel debe romper o sostener el precio para avanzar al siguiente objetivo, según el posicionamiento de opciones.</p>
+            <div id="projRoute"></div>
+        </div>
+
+        <!-- Escenarios de precio (GEX) -->
+        <div class="bg-panel border border-panel rounded-2xl p-5">
+            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-3 flex items-center gap-2"><i data-lucide="git-branch" class="w-4 h-4"></i> Escenarios de Precio (GEX)</h3>
+            <div id="projScenarios" class="space-y-2.5"></div>
+        </div>
+
+        <!-- Unusual activity (free flow proxy) -->
+        <div class="bg-panel border border-panel rounded-2xl p-5">
+            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4"></i> Actividad Inusual de Opciones <span class="text-[9px] text-gray-600 normal-case font-normal tracking-normal">(volumen &gt; OI = posicionamiento fresco)</span></h3>
+            <div id="projUnusual"></div>
+        </div>
+
+        <!-- Dark pool / institutional flow (Quant Data) -->
+        <div class="bg-gradient-to-br from-purple-500/5 to-transparent border border-purple-500/20 rounded-2xl p-5">
+            <h3 class="text-xs font-extrabold text-purple-400 uppercase tracking-widest mb-2 flex items-center gap-2"><i data-lucide="radar" class="w-4 h-4"></i> Dark Pool & Flujo Institucional <span class="text-[9px] text-gray-600 normal-case font-normal tracking-normal">(Quant Data)</span></h3>
+            <div id="projDarkPool">
+                <p class="text-xs text-gray-400">Conecta tu API de <b class="text-purple-300">Quant Data</b> para activar aquí los <b>dark pool prints</b>, el <b>premium neto institucional</b> y el flujo real, superpuestos con las proyecciones.</p>
+                <p class="text-[10px] text-gray-600 mt-1.5">El motor ya está cableado: al poner tu <code class="text-purple-300">QUANTDATA_API_KEY</code>, esta sección se llena automáticamente.</p>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ══ PLAN DE OPERACIÓN — movido desde Full Research. Aquí es donde vive:
+         Full Research responde "¿cuánto vale y por qué?"; esto responde "¿cómo se
+         opera?", que es justo lo que hace el área de Proyecciones. ══ -->
+    <div id="projOpPlan" class="hidden space-y-4">
+        <div class="flex items-center justify-between gap-3 flex-wrap border-b border-panel pb-2">
+            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2">
+                <i data-lucide="clipboard-list" class="w-4 h-4"></i> Plan de operación
+            </h3>
+            <!-- De qué ticker es este plan. Sin esto verías el plan de NVDA mientras
+                 proyectas AMD, sin ninguna señal de que no corresponden. -->
+            <span id="projOpPlanFor" class="text-[10px] font-mono text-gray-500"></span>
+        </div>
+                    <div id="qtTradePlan" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3">
+                        <div class="flex items-center gap-2 mb-3">
+                            <i data-lucide="target" class="w-4 h-4 text-blue-400"></i>
+                            <span class="text-xs font-bold text-white uppercase tracking-wider">Plan de Trade &mdash; Probabilidades, Sizing &amp; Stops</span>
+                        </div>
+                        <div id="qtTradePlanBody"></div>
+                    </div>
+                    <div id="qtOptionPlay" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-blue-900/40 mt-3">
+                        <div class="flex items-center justify-between gap-2 mb-1 flex-wrap">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="crosshair" class="w-4 h-4 text-blue-400"></i>
+                                <span class="text-xs font-bold text-white uppercase tracking-wider">Estructura de Opciones &mdash; Señal &rarr; Contrato</span>
+                            </div>
+                            <span id="qtOptionPlayHead" class="text-[10px] text-gray-500"></span>
+                        </div>
+                        <p class="text-[10px] text-gray-500 mb-3">Contrato concreto (strike anclado al flujo institucional, prima Black-Scholes, R:R, stop &minus;20/&minus;30% con excepción Tipo&nbsp;A) dimensionado a tu capital. Énfasis en flujo+gamma del horizonte corto.</p>
+                        <div id="qtOptionPlayBody"></div>
+                    </div>
+    </div>
+</main>
+
 <main id="portfolioView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4">
 
     <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -5501,6 +7366,20 @@ function analyzeTickerNow(tk) {
             <div id="pfOptBody"></div>
         </div>
 
+        <div id="pfOptionsTab" class="hidden space-y-5">
+            <div class="bg-panel border border-panel rounded-2xl p-5">
+                <div class="flex items-center justify-between flex-wrap gap-3 mb-1">
+                    <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2">
+                        <i data-lucide="activity" class="w-4 h-4"></i> Griegas del Libro de Opciones
+                    </h3>
+                    <button onclick="loadOptions(true)" class="text-[10px] font-bold px-3 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition flex items-center gap-1.5">
+                        <i data-lucide="refresh-cw" class="w-3 h-3"></i> Recalcular
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 italic mb-4">Delta · Gamma · Theta · Vega netos del libro · Escalera de vencimientos · Exposición direccional total (opciones + acciones) · Black-Scholes con IV de yfinance.</p>
+                <div id="pfGreeksBody"></div>
+            </div>
+        </div>
 
     </div>
 </main>
@@ -5763,6 +7642,20 @@ function wlToggleAutoRefresh() {
         </button>
     </div>
 
+    <div id="schedStrip" class="bg-[#0B0E14] border border-gray-900 rounded-xl px-4 py-2.5 mb-4 flex items-center justify-between flex-wrap gap-2">
+        <div class="flex items-center gap-2 text-[11px]">
+            <span id="schedDot" class="w-2 h-2 rounded-full bg-gray-600"></span>
+            <span class="text-gray-400">Colector automático:</span>
+            <span id="schedState" class="font-mono text-gray-300">—</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="schedLast" class="text-[10px] text-gray-600 font-mono"></span>
+            <button onclick="schedulerRunNow()" id="schedRunBtn"
+                class="bg-blue-600/20 hover:bg-blue-600/40 border border-blue-600/40 text-blue-300 font-bold py-1 px-2.5 rounded-lg text-[10px] flex items-center gap-1 transition">
+                <i data-lucide="zap" class="w-3 h-3"></i> Colectar ahora
+            </button>
+        </div>
+    </div>
 
     <div id="trkLoading" class="hidden bg-panel border border-panel rounded-2xl p-10 text-center">
         <div class="flex items-center justify-center gap-2 mb-2">
@@ -6036,9 +7929,31 @@ async function loadTrackRecord() {
     }
 }
 
+async function loadSchedulerStatus() {
+    try {
+        const r = await fetch(`${API_BASE}/api/scheduler/status`);
+        if (!r.ok) return;
+        const d = await r.json();
+        const dot = document.getElementById('schedDot');
+        const st = document.getElementById('schedState');
+        const last = document.getElementById('schedLast');
+        if (d.running) { dot.className='w-2 h-2 rounded-full bg-blue-400 animate-pulse'; st.innerText='colectando…'; }
+        else if (d.started) { dot.className='w-2 h-2 rounded-full bg-emerald-400'; st.innerText=`activo · ${ (d.universe||[]).length } tickers`; }
+        else { dot.className='w-2 h-2 rounded-full bg-gray-600'; st.innerText='inactivo'; }
+        last.innerText = (d.last_run ? `última: ${d.last_run} (${d.last_count})` : 'sin colectas aún') + (d.next_run?` · próxima ${d.next_run}`:'');
+    } catch(e) {}
+}
 
-
-
+async function schedulerRunNow() {
+    const btn = document.getElementById('schedRunBtn');
+    btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="w-3 h-3 animate-spin"></i> Colectando…'; lucide.createIcons();
+    try {
+        await fetch(`${API_BASE}/api/scheduler/run-now`, {method:"POST"});
+        setTimeout(loadSchedulerStatus, 1500);
+        setTimeout(loadSchedulerStatus, 8000);
+    } catch(e) {}
+    setTimeout(()=>{ btn.disabled=false; btn.innerHTML='<i data-lucide="zap" class="w-3 h-3"></i> Colectar ahora'; lucide.createIcons(); }, 2000);
+}
 
 let trkEqMode = 'pct';   // Batch R · modo de la curva de equity: '%' o 'R'
 function setTrkEqMode(m) { trkEqMode = m; drawTrkEquity(); }
@@ -6209,7 +8124,7 @@ function renderRegime(d) {
     const _prevSwitch2 = window.switchView;
     window.switchView = function(viewId) {
         _prevSwitch2(viewId);
-        if (viewId === 'trackRecordView') { loadTrackRecord(); loadRegime(); loadCalibration(); }
+        if (viewId === 'trackRecordView') { loadTrackRecord(); loadRegime(); loadSchedulerStatus(); loadCalibration(); }
     };
 })();
 </script>

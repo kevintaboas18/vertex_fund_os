@@ -101,9 +101,14 @@ def test_no_handler_points_at_a_function_that_does_not_exist():
     definidas = set(re.findall(r"(?:async\s+)?function\s+([A-Za-z_$][\w$]*)", js))
     definidas |= set(re.findall(r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
                                 r"(?:async\s*)?(?:function|\()", js))
-    # Nombres del navegador que aparecen en manejadores.
+    # Nombres del navegador que aparecen en manejadores. No los declara
+    # nadie porque los pone el propio entorno.
     definidas |= {"alert", "confirm", "print", "open", "close", "history",
-                  "location", "event", "this", "window", "document"}
+                  "location", "event", "this", "window", "document",
+                  "setTimeout", "setInterval", "clearTimeout", "clearInterval",
+                  "requestAnimationFrame", "fetch", "Number", "String",
+                  "Boolean", "Array", "Object", "JSON", "Math", "Date",
+                  "parseInt", "parseFloat", "encodeURIComponent", "isNaN"}
 
     # Palabras clave que van seguidas de `(` sin ser una llamada.
     claves = {"if", "for", "while", "switch", "catch", "return", "typeof",

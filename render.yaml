@@ -71,6 +71,11 @@ services:
         sync: false
       - key: FRED_API_KEY
         sync: false
+      # Quant Data: enriquece Proyecciones (flujo de opciones, dark pool). Su
+      # plan API esta inactivo, asi que hoy devuelve 403 y toda la capa cae a
+      # lo que se deriva de la cadena. Dejala vacia hasta que lo actives.
+      - key: QUANTDATA_API_KEY
+        sync: false
       - key: PLAID_CLIENT_ID
         sync: false
       - key: PLAID_SECRET

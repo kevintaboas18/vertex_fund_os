@@ -18,3 +18,6 @@ anthropic>=0.40
 matplotlib>=3.8
 # C-03: cifrado en reposo del access_token de Plaid (opcional, via VERTEX_DB_KEY)
 cryptography>=42
+# Solo para las CADENAS DE OPCIONES de Proyecciones. El analisis de acciones
+# no lo toca: sus fuentes son FMP, FinnHub, FRED y EDGAR.
+yfinance>=0.2,<2

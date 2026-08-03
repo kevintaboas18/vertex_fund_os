@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import logging
 import math
 import re
 import secrets
@@ -10714,5 +10715,2939 @@ def _vertex_startup():
                   + "  → carga vertex.env (set -a; source vertex.env; set +a) antes de uvicorn.")
     except Exception:
         pass
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# PROYECCIONES — el agente de OPCIONES. Vive aparte del de acciones a propósito.
+# ═════════════════════════════════════════════════════════════════════════════
+# Analyze (acciones) puntúa SÓLO con las cuatro fuentes de Victor: FMP,
+# FinnHub, FRED y EDGAR. Ni una línea de aquí abajo toca su score — el motor
+# tiene un test (`test_the_engine_no_longer_imports_yahoo`) que falla si Yahoo
+# vuelve a entrar ahí.
+#
+# Esta capa es otra cosa: cadenas de opciones, GEX, muros de gamma, max pain,
+# venta de prima y griegas del portafolio. Ese dato NO existe en las cuatro
+# fuentes — FMP devuelve 404 en `options-chain` con este plan y Quant Data
+# tiene el plan API inactivo. Yahoo es el único que las sirve, así que se usa
+# AQUÍ y sólo aquí. Si Yahoo se cae, estos paneles salen vacíos y el análisis
+# de acciones sigue exactamente igual: el fallo es ruidoso, no silencioso.
+#
+# Las funciones de Quant Data se conservan porque toda esta capa fue escrita
+# para funcionar con o sin ellas: sin clave, `_quantdata_ready()` da False y
+# cada una devuelve None, y el cálculo cae a lo que se deriva de la cadena.
+import yfinance as yf
+
+# ── QUANT DATA PROVIDER (options flow + exposure + dark pool) ──────────────────
+# Modular institutional-data source chosen over Unusual Whales. Fills the
+# dark_pool / tape_flow slots of the GEX engine and feeds the agent's 25% flow
+# signal. Set QUANTDATA_API_KEY to activate; everything degrades to None when
+# absent, so the platform runs identically with or without it.
+QUANTDATA_API_KEY = os.environ.get("QUANTDATA_API_KEY", "")   # <-- pega tu API key de Quant Data
+# Sin "/v1": la API no lo usa. Con el sufijo, TODAS las rutas devolvian
+# 404 ("No resource found at 'v1/option/flow'"), asi que el flujo de
+# opciones, el dark pool y el GEX llevaban muertos en silencio -- cada
+# /api/analyze gastaba 25 peticiones y ~8 s en rutas inexistentes. Sin el
+# sufijo responden 403 (existen; el plan no las cubre), que es un estado
+# distinto y ademas lo memoriza `_QD_SIN_DERECHO` para no repetirlas.
+QUANTDATA_BASE    = os.environ.get("QUANTDATA_BASE", "https://api.quantdata.us")
+# Endpoint paths centralized. All confirmed from Quant Data's API reference
+# (quantdata.us/api). Base = https://api.quantdata.us/v1, all POST with body
+# {"sessionDate": "YYYY-MM-DD", "filter": {"ticker": "..."}}.
+QUANTDATA_ENDPOINTS = {
+    "net_premium": os.environ.get("QD_EP_NETPREMIUM", "/options/tool/net-drift"),
+    "flow":        os.environ.get("QD_EP_FLOW",       "/options/tool/order-flow/consolidated"),
+    "exposure":    os.environ.get("QD_EP_EXPOSURE",   "/options/tool/exposure-by-strike"),
+    "darkpool":    os.environ.get("QD_EP_DARKPOOL",   "/equities/tool/dark-pool-levels"),
+    "oi_change":   os.environ.get("QD_EP_OICHANGE",   "/options/tool/open-interest-change"),
+    "equity_prints": os.environ.get("QD_EP_PRINTS",   "/equities/tool/equity-prints"),
+    "net_flow":    os.environ.get("QD_EP_NETFLOW",    "/options/tool/net-flow"),
+    "max_pain":    os.environ.get("QD_EP_MAXPAIN",    "/options/tool/max-pain"),
+}
+
+
+def compute_gex(ticker, max_expiries=4, max_dte=60):
+    """Dealer gamma exposure + key levels from the option chain (free, model-derived).
+    Returns net GEX, gamma flip, call/put walls, max pain, P/C ratios and unusual-volume
+    strikes (volume > OI = fresh positioning). Calls +, puts - (SqueezeMetrics-style)."""
+    try:
+        tk = yf.Ticker(ticker)
+        h = tk.history(period="5d")
+        if h.empty:
+            return None
+        spot = _safe_num(h["Close"].iloc[-1], 0.0)
+        exps = list(tk.options or [])
+    except Exception:
+        return None
+    if spot <= 0 or not exps:
+        return None
+    now = datetime.now()
+    rows, used_exp = [], []
+    for exp in exps:
+        try:
+            dte = (datetime.strptime(exp, "%Y-%m-%d") - now).days
+        except Exception:
+            continue
+        if dte < 0 or dte > max_dte:
+            continue
+        if len(used_exp) >= max_expiries:
+            break
+        try:
+            ch = tk.option_chain(exp)
+        except Exception:
+            continue
+        T = max(dte / 365.0, 1.0 / 365.0)
+        for df, typ in ((ch.calls, "call"), (ch.puts, "put")):
+            for _, r in df.iterrows():
+                try:
+                    K = _safe_num(r["strike"]); oi = _safe_num(r.get("openInterest"))
+                    vol = _safe_num(r.get("volume")); iv = _safe_num(r.get("impliedVolatility"))
+                except Exception:
+                    continue
+                if K <= 0 or iv <= 0:
+                    continue
+                gm = _bs_greeks(spot, K, T, iv, 0.043, typ)["gamma"]
+                rows.append({"exp": exp, "typ": typ, "K": K, "oi": oi, "vol": vol, "iv": iv, "T": T, "gamma": gm})
+        used_exp.append(exp)
+    if not rows:
+        return None
+    strike_gex, call_oi_by_K, put_oi_by_K = {}, {}, {}
+    tot_call_oi = tot_put_oi = tot_call_vol = tot_put_vol = 0.0
+    for x in rows:
+        sign = 1.0 if x["typ"] == "call" else -1.0
+        g = x["gamma"] * x["oi"] * 100.0 * spot * spot * 0.01 * sign
+        strike_gex[x["K"]] = strike_gex.get(x["K"], 0.0) + g
+        if x["typ"] == "call":
+            call_oi_by_K[x["K"]] = call_oi_by_K.get(x["K"], 0.0) + x["oi"]
+            tot_call_oi += x["oi"]; tot_call_vol += x["vol"]
+        else:
+            put_oi_by_K[x["K"]] = put_oi_by_K.get(x["K"], 0.0) + x["oi"]
+            tot_put_oi += x["oi"]; tot_put_vol += x["vol"]
+    net_gex = sum(strike_gex.values())
+    calls_above = {k: v for k, v in call_oi_by_K.items() if k >= spot}
+    puts_below = {k: v for k, v in put_oi_by_K.items() if k <= spot}
+    call_wall = max(calls_above, key=calls_above.get) if calls_above else (max(call_oi_by_K, key=call_oi_by_K.get) if call_oi_by_K else None)
+    put_wall = max(puts_below, key=puts_below.get) if puts_below else (max(put_oi_by_K, key=put_oi_by_K.get) if put_oi_by_K else None)
+    flip = _gamma_flip(rows, spot)
+    max_pain, max_pain_src = _max_pain_best(ticker, None, call_oi_by_K, put_oi_by_K)   # QD nativo → yfinance
+    unusual = []
+    for x in rows:
+        if x["vol"] > max(x["oi"], 50) and x["vol"] >= 200:
+            unusual.append({"strike": x["K"], "type": x["typ"], "exp": x["exp"],
+                            "volume": int(x["vol"]), "oi": int(x["oi"]),
+                            "vol_oi": round(x["vol"] / max(x["oi"], 1), 1)})
+    unusual = sorted(unusual, key=lambda u: u["volume"], reverse=True)[:8]
+    # Laddered resistance (call OI clusters above spot) and support (put OI clusters below)
+    resistances = sorted(
+        [{"strike": round(k, 2), "oi": int(v)} for k, v in call_oi_by_K.items() if k >= spot and v > 0],
+        key=lambda x: x["oi"], reverse=True)[:4]
+    resistances = sorted(resistances, key=lambda x: x["strike"])          # nearest-above first
+    supports = sorted(
+        [{"strike": round(k, 2), "oi": int(v)} for k, v in put_oi_by_K.items() if k <= spot and v > 0],
+        key=lambda x: x["oi"], reverse=True)[:4]
+    supports = sorted(supports, key=lambda x: x["strike"], reverse=True)   # nearest-below first
+    dte_dominant = None
+    if used_exp:
+        try:
+            dte_dominant = max((datetime.strptime(used_exp[0], "%Y-%m-%d") - now).days, 0)
+        except Exception:
+            dte_dominant = None
+    return _json_safe({
+        "ok": True, "ticker": ticker.upper(), "spot": round(spot, 2), "expiries_used": used_exp,
+        "dte_dominant": dte_dominant,
+        "net_gex": round(net_gex, 0),
+        "net_gex_regime": ("positivo (precio anclado / mean-revert)" if net_gex >= 0
+                           else "negativo (movimientos amplificados / tendencia)"),
+        "gamma_flip": round(flip, 2) if flip else None,
+        "call_wall": call_wall, "put_wall": put_wall, "max_pain": max_pain, "max_pain_source": max_pain_src,
+        "resistances": resistances, "supports": supports,
+        "pcr_oi": round(tot_put_oi / tot_call_oi, 2) if tot_call_oi else None,
+        "pcr_vol": round(tot_put_vol / tot_call_vol, 2) if tot_call_vol else None,
+        "total_call_oi": int(tot_call_oi), "total_put_oi": int(tot_put_oi),
+        "strike_gex": {round(k, 2): round(v, 0) for k, v in sorted(strike_gex.items())},
+        "unusual_activity": unusual,
+        "dark_pool": None, "tape_flow": None,   # ← Unusual Whales fills these later
+        "source": "computed (yfinance chain + BSM)",
+        "generated_at": now.strftime('%m/%d/%Y, %I:%M:%S %p')})
+
+
+def _gex_from_quantdata(ticker):
+    """GEX 100% Quant Data: net GEX, gamma flip, call/put walls, max pain, perfil por strike y
+    resistencias/soportes desde la exposición GAMMA de QD; Put/Call por PRIMA (net-flow) y por VOLUMEN +
+    actividad inusual (golden/unusual/opening sweeps) desde el order-flow QD; spot de QD/Finnhub.
+    pcr_oi/total OI quedan None (QD no expone el OI de cadena completa). Si QD no responde, get_gex_cached
+    cae a yfinance+BSM. MISMA forma que compute_gex."""
+    try:
+        exp = quantdata_exposure(ticker, "GAMMA")
+    except Exception:
+        exp = None
+    if not exp or not exp.get("by_strike"):
+        return None
+    rows = exp["by_strike"]
+    spot = _safe_num(exp.get("stock_price")) or _safe_num(_live_spot(ticker))
+    if spot <= 0:
+        return None
+    net_gex = sum(_safe_num(r.get("net")) for r in rows)
+    walls = _qd_gex_walls(exp, spot) or {}
+    flip = walls.get("gamma_flip")
+    try:
+        mp = quantdata_max_pain(ticker)
+    except Exception:
+        mp = None
+    above = sorted([r for r in rows if _safe_num(r.get("strike")) >= spot and _safe_num(r.get("call")) > 0],
+                   key=lambda r: _safe_num(r.get("call")), reverse=True)[:4]
+    below = sorted([r for r in rows if _safe_num(r.get("strike")) <= spot and abs(_safe_num(r.get("put"))) > 0],
+                   key=lambda r: abs(_safe_num(r.get("put"))), reverse=True)[:4]
+    resistances = sorted([{"strike": round(_safe_num(r["strike"]), 2), "oi": None} for r in above],
+                         key=lambda x: x["strike"])
+    supports = sorted([{"strike": round(_safe_num(r["strike"]), 2), "oi": None} for r in below],
+                      key=lambda x: x["strike"], reverse=True)
+    now = datetime.now()
+    # ── Put/Call + actividad inusual NATIVOS de Quant Data (llenan el bloque sin tocar yfinance) ──
+    # P/C por PRIMA (dónde está el dinero) desde net-flow; P/C por VOLUMEN y la actividad inusual
+    # (golden/unusual/opening sweeps, más rico que el vol>OI de yfinance) desde el order-flow reciente.
+    pcr_premium = pcr_vol = None
+    call_prem = put_prem = None
+    try:
+        nf = quantdata_net_flow(ticker, "today")
+        if nf:
+            call_prem = _safe_num(nf.get("call_total")); put_prem = _safe_num(nf.get("put_total"))
+            if call_prem > 0:
+                pcr_premium = round(put_prem / call_prem, 2)
+    except Exception:
+        pass
+    unusual = []
+    try:
+        fw = quantdata_flow_window(ticker, days=3, min_premium=250_000, max_rows=150)
+        cvol = pvol = 0.0
+        for t in fw:
+            cp = str(t.get("cp") or "").upper()
+            sz = _safe_num(t.get("size"))
+            if cp.startswith("C"):
+                cvol += sz
+            elif cp.startswith("P"):
+                pvol += sz
+            if t.get("golden") or t.get("unusual") or t.get("opening"):
+                oi = int(_safe_num(t.get("oi")))
+                vol = int(sz)
+                unusual.append({"strike": t.get("strike"),
+                                "type": ("call" if cp.startswith("C") else "put"),
+                                "exp": t.get("exp"), "volume": vol, "oi": oi,
+                                "vol_oi": round(vol / max(oi, 1), 1),
+                                "golden": bool(t.get("golden")), "unusual": bool(t.get("unusual")),
+                                "premium": _safe_num(t.get("premium"))})
+        if cvol > 0:
+            pcr_vol = round(pvol / cvol, 2)
+        seen, dedup = set(), []
+        for u in sorted(unusual, key=lambda x: (x.get("premium") or 0), reverse=True):
+            k = (u["type"], u["strike"], u["exp"])
+            if k in seen:
+                continue
+            seen.add(k); dedup.append(u)
+        unusual = dedup[:8]
+    except Exception:
+        unusual = []
+    return _json_safe({
+        "ok": True, "ticker": ticker.upper(), "spot": round(spot, 2),
+        "expiries_used": (exp.get("expirations") or [])[:4], "dte_dominant": None,
+        "net_gex": round(net_gex, 0),
+        "net_gex_regime": ("positivo (precio anclado / mean-revert)" if net_gex >= 0
+                           else "negativo (movimientos amplificados / tendencia)"),
+        "gamma_flip": round(flip, 2) if flip else None,
+        "call_wall": walls.get("call_wall"), "put_wall": walls.get("put_wall"),
+        "max_pain": mp, "max_pain_source": "quantdata" if mp else None,
+        "resistances": resistances, "supports": supports,
+        "pcr_oi": None, "pcr_vol": pcr_vol, "pcr_premium": pcr_premium,
+        "net_premium_call": round(call_prem, 0) if call_prem is not None else None,
+        "net_premium_put": round(put_prem, 0) if put_prem is not None else None,
+        "total_call_oi": None, "total_put_oi": None,
+        "strike_gex": {round(_safe_num(r["strike"]), 2): round(_safe_num(r.get("net")), 0) for r in rows},
+        "unusual_activity": unusual,
+        "dark_pool": None, "tape_flow": None,
+        "source": "Quant Data (primario)",
+        "generated_at": now.strftime('%m/%d/%Y, %I:%M:%S %p')})
+
+
+def get_gex_cached(ticker, ttl=300, force=False):
+    key = ticker.upper(); now = time.time()
+    ttl = _gex_ttl(ttl)                       # 0DTE: refresco más rápido cerca del cierre
+    ent = _GEX_CACHE.get(key)
+    if ent and not force and now - ent[0] < ttl:
+        return ent[1]
+    # QuantData PRIMARIO (consistente con walls / max pain / flujo / gráfico de gamma, todos QD).
+    try:
+        val = _gex_from_quantdata(ticker)
+    except Exception:
+        val = None
+    if val is None:                       # QD no respondió → respaldo yfinance + Black-Scholes
+        try:
+            val = compute_gex(ticker)
+        except Exception:
+            val = None
+    _GEX_CACHE[key] = (now, val)
+    return val
+
+
+def _walls_for_expiry(tk, exp, spot):
+    try:
+        ch = tk.option_chain(exp)
+    except Exception:
+        return None
+    call_oi, put_oi = {}, {}
+    for df, typ in ((ch.calls, "call"), (ch.puts, "put")):
+        for _, r in df.iterrows():
+            K = _safe_num(r["strike"]); oi = _safe_num(r.get("openInterest"))
+            if K <= 0 or oi <= 0:
+                continue
+            d = call_oi if typ == "call" else put_oi
+            d[K] = d.get(K, 0.0) + oi
+    ca = {k: v for k, v in call_oi.items() if k >= spot}
+    pb = {k: v for k, v in put_oi.items() if k <= spot}
+    cw = max(ca, key=ca.get) if ca else (max(call_oi, key=call_oi.get) if call_oi else None)
+    pw = max(pb, key=pb.get) if pb else (max(put_oi, key=put_oi.get) if put_oi else None)
+    return {"call_wall": cw, "put_wall": pw, "max_pain": _max_pain(call_oi, put_oi)}
+
+
+def _qd_conviction(flow, oi_change_map=None):
+    """Kevin's institutional-conviction filter on the Quant Data tape. Counts ONLY trades whose
+    contract's OPEN INTEREST ACTUALLY GREW that session (real day-over-day ΔOI > 0 from the
+    open-interest-change endpoint = position was added/accumulated — catches the multi-day builds
+    that vol>OI misses, e.g. +30k on top of an existing 70k) AND are aggressive buys (side contains
+    ASK), premium tiered by DTE: $1M (<=10d) · $5M (11-45d) · $10M (>45d). CALL=bullish, PUT=bearish;
+    delta 0.60-0.90 = direccional, 0.30-0.59 = especulativo. If oi_change_map is None (endpoint
+    unavailable) it falls back to the same-day vol>OI 'opening' proxy."""
+    if not flow:
+        return None
+    now = datetime.now()
+    use_oi = isinstance(oi_change_map, dict) and len(oi_change_map) > 0
+    bull = bear = 0.0
+    strong = []
+    for t in flow:
+        try:
+            prem = abs(_safe_num(t.get("premium")))
+            if prem <= 0:
+                continue
+            cp = str(t.get("cp") or "").upper()
+            strike = _safe_num(t.get("strike"))
+            exp = str(t.get("exp") or "")[:10]
+            # --- real "added to open interest" gate (ΔOI day-after vs day-of) ---
+            oi_chg = None
+            if use_oi:
+                cp_full = "CALL" if cp.startswith("C") else ("PUT" if cp.startswith("P") else cp)
+                ent = oi_change_map.get(f"{cp_full}|{round(strike, 2)}|{exp}")
+                if not ent or _safe_num(ent.get("change")) <= 0:
+                    continue                          # OI did NOT grow → not an addition → ignore
+                oi_chg = int(_safe_num(ent.get("change")))
+            else:
+                if not t.get("opening"):              # fallback: same-day vol>OI proxy
+                    continue
+            side = str(t.get("side") or "").upper()
+            if "ASK" not in side:                 # only aggressive buys (ASK / ABOVE_ASK)
+                continue
+            dte = _safe_num(t.get("dte"))
+            if dte <= 0:
+                try:
+                    dte = max((datetime.strptime(exp, "%Y-%m-%d") - now).days, 0)
+                except Exception:
+                    dte = 30
+            thr = 1e6 if dte <= 10 else (5e6 if dte <= 45 else 10e6)
+            if prem < thr:
+                continue
+            dlt = abs(_safe_num(t.get("delta")))
+            if cp.startswith("C"):
+                bull += prem
+            elif cp.startswith("P"):
+                bear += prem
+            strong.append({
+                "cp": "CALL" if cp.startswith("C") else ("PUT" if cp.startswith("P") else "?"),
+                "strike": strike or None, "exp": t.get("exp"),
+                "dte": int(dte), "premium": round(prem, 0), "side": side,
+                "kind": t.get("kind"), "delta": round(dlt, 2) if dlt else None,
+                "vol_oi": t.get("vol_oi"), "oi_change": oi_chg,
+                "type": "direccional" if (0.60 <= dlt <= 0.90) else "especulativo",
+            })
+        except Exception:
+            continue
+    if not strong:
+        return None
+    tot = bull + bear
+    strong.sort(key=lambda x: x["premium"], reverse=True)
+    return {"bias": "alcista" if bull > bear else ("bajista" if bear > bull else "neutral"),
+            "bull_premium": round(bull, 0), "bear_premium": round(bear, 0),
+            "strength_pct": round(max(bull, bear) / tot * 100, 0) if tot > 0 else None,
+            "qualifying": len(strong), "strong_trades": strong[:15],
+            "oi_confirmed": use_oi}
+
+
+def _qd_conviction_prompt_block(conv):
+    """Render the OI-confirmed conviction dict as a Spanish prompt block for the agent's reasoning.
+    Empty string when there's no qualifying conviction so the prompt stays clean."""
+    if not conv or not isinstance(conv, dict) or not conv.get("qualifying"):
+        return ""
+    bias = str(conv.get("bias", "neutral"))
+    strg = conv.get("strength_pct")
+    bull = _safe_num(conv.get("bull_premium"))
+    bear = _safe_num(conv.get("bear_premium"))
+    metodo = ("confirmados por crecimiento REAL del open interest (ΔOI>0, comparando OI día-después vs "
+              "día-de la transacción — no un proxy)" if conv.get("oi_confirmed")
+              else "marcados como apertura por el proxy vol>OI del mismo día")
+    lines = []
+    for t in (conv.get("strong_trades") or [])[:8]:
+        doi = t.get("oi_change")
+        doi_txt = (f"ΔOI +{int(_safe_num(doi)):,} contratos" if doi is not None else "abre OI")
+        lines.append(
+            f"  - {t.get('cp')} ${t.get('strike')} vence {str(t.get('exp'))[:10]} ({t.get('dte')}d): "
+            f"premium ${_safe_num(t.get('premium')):,.0f}, {doi_txt}, "
+            f"delta {t.get('delta')} ({t.get('type')}){(', ' + str(t.get('kind'))) if t.get('kind') else ''}")
+    trades_txt = "\n".join(lines)
+    return (
+        f"\nCONVICCIÓN INSTITUCIONAL CONFIRMADA POR OPEN INTEREST (Quant Data — la evidencia de flujo de MÁS "
+        f"alta calidad que tienes): solo compras agresivas (ASK/above-ask) {metodo}, con premium por plazo "
+        f"$1M≤10d / $5M≤45d / $10M>45d. Sesgo de convicción: {bias.upper()}"
+        f"{(' · fuerza ' + str(int(strg)) + '%') if strg is not None else ''} "
+        f"· {conv.get('qualifying')} trades calificados. Premium alcista (calls que abren OI) ${bull:,.0f} "
+        f"vs bajista (puts que abren OI) ${bear:,.0f}.\nTrades de mayor convicción:\n{trades_txt}\n"
+        f"INTERPRETACIÓN: son institucionales ABRIENDO posición nueva con dinero real (el open interest creció), "
+        f"no cerrando ni rolando. Por eso pesa más que el premium neto suelto. Si este sesgo COINCIDE con tu tesis, "
+        f"sube la puntuación de 'flujo institucional' (señal 25%) y CITA los contratos concretos "
+        f"(strike/vencimiento/ΔOI/delta) en tu tesis. Si CONTRADICE tu tesis fundamental, NO lo ignores: "
+        f"el smart money podría anticipar un catalizador — explica el conflicto en 'tesis_riesgos' y modera tu convicción.")
+
+
+def _qd_confluence(conv, gex, darkpool, spot=None, dp_flow=None):
+    """Confluence engine: do Kevin's three Quant Data pillars agree?
+      1) Convicción (tape ΔOI)              — señal líder, peso 0.50
+      2) GEX / posicionamiento de dealers   — walls + gamma flip, peso 0.30
+      3) Dark pool (notional soporte/resist)— peso 0.20
+    Returns verdict (confirmacion/divergencia/mixto/parcial/posicionamiento/neutral), a badge,
+    a -1..1 score, per-signal votes (+1 alcista / -1 bajista / 0 neutral) and a summary.
+    HONEST: dark-pool prints are sideless, so its vote is a POSITIONAL lean (dónde están los
+    bloques vs el precio), not a buy/sell read."""
+    spot = _safe_num(spot) or (_safe_num(gex.get("spot")) if isinstance(gex, dict) else 0)
+    def _lab(v):
+        return "alcista" if v > 0 else ("bajista" if v < 0 else "neutral")
+
+    # 1) Convicción (tape ΔOI) — la señal líder
+    va, da = 0, "sin trades de convicción"
+    if isinstance(conv, dict) and conv.get("qualifying"):
+        b = str(conv.get("bias"))
+        va = 1 if b == "alcista" else (-1 if b == "bajista" else 0)
+        s = conv.get("strength_pct")
+        da = f"convicción {b}{(' ' + str(int(s)) + '%') if s is not None else ''} · {conv.get('qualifying')} trades ΔOI+"
+
+    # 2) GEX / posicionamiento (walls + gamma flip)
+    vb, db = 0, "GEX no disponible"
+    if isinstance(gex, dict) and gex.get("ok"):
+        cw, pw = _safe_num(gex.get("call_wall")), _safe_num(gex.get("put_wall"))
+        flipn = _safe_num(gex.get("gamma_flip"))
+        if cw and spot and spot > cw * 1.001:
+            vb, db = 1, f"spot ${round(spot,2)} rompió el call wall ${cw} (resistencia superada)"
+        elif pw and spot and spot < pw * 0.999:
+            vb, db = -1, f"spot ${round(spot,2)} bajo el put wall ${pw} (soporte roto)"
+        elif flipn and spot:
+            if spot >= flipn:
+                vb, db = 1, f"sobre el gamma flip ${flipn} (GEX+, los dips se soportan)"
+            else:
+                vb, db = -1, f"bajo el gamma flip ${flipn} (GEX−, movimientos amplificados)"
+        else:
+            vb, db = 0, "GEX sin gamma flip ni ruptura de wall (neutral)"
+
+    # 3) Dark pool (posicional, sideless): notional en soporte vs resistencia
+    vc, dc = 0, "sin niveles dark pool"
+    # Preferimos el flujo DIRECCIONAL de prints (compra ASK vs venta BID) cuando está disponible;
+    # si no, caemos al posicional (soporte/resistencia por notional).
+    if isinstance(dp_flow, dict) and dp_flow.get("total_notional"):
+        bN, sN = _safe_num(dp_flow.get("buy_notional")), _safe_num(dp_flow.get("sell_notional"))
+        bM, sM2 = bN / 1e6, sN / 1e6
+        if bN > sN * 1.15:
+            vc, dc = 1, f"prints dark COMPRA (${bM:,.0f}M ask vs ${sM2:,.0f}M bid)"
+        elif sN > bN * 1.15:
+            vc, dc = -1, f"prints dark VENTA (${sM2:,.0f}M bid vs ${bM:,.0f}M ask)"
+        else:
+            vc, dc = 0, f"prints dark equilibrados (${bM:,.0f}M compra / ${sM2:,.0f}M venta)"
+    elif isinstance(darkpool, list) and darkpool and spot:
+        supp = sum(_safe_num(x.get("value")) for x in darkpool
+                   if _safe_num(x.get("price")) and _safe_num(x.get("price")) < spot)
+        resist = sum(_safe_num(x.get("value")) for x in darkpool
+                     if _safe_num(x.get("price")) > spot)
+        sM, rM = supp / 1e6, resist / 1e6
+        if supp > resist * 1.2:
+            vc, dc = 1, f"bloques en SOPORTE (${sM:,.0f}M abajo vs ${rM:,.0f}M arriba)"
+        elif resist > supp * 1.2:
+            vc, dc = -1, f"bloques en RESISTENCIA (${rM:,.0f}M arriba vs ${sM:,.0f}M abajo)"
+        else:
+            vc, dc = 0, f"dark pool equilibrado (${sM:,.0f}M soporte / ${rM:,.0f}M resistencia)"
+
+    score = round(0.50 * va + 0.30 * vb + 0.20 * vc, 2)
+    others = [vb, vc]
+    agree = sum(1 for o in others if o != 0 and o == va) if va != 0 else 0
+    oppose = sum(1 for o in others if o != 0 and o == -va) if va != 0 else 0
+
+    if va != 0:
+        direction = _lab(va)
+        if oppose == 0 and agree >= 1:
+            verdict = "confirmacion"
+            badge = "ALTA CONVICCIÓN" if agree == 2 else "CONFIRMACIÓN"
+        elif oppose >= 1 and agree == 0:
+            verdict, badge = "divergencia", "DIVERGENCIA"
+        elif oppose >= 1 and agree >= 1:
+            verdict, badge = "mixto", "MIXTO"
+        else:
+            verdict, badge = "parcial", "PARCIAL"
+    else:
+        pos = vb + vc
+        direction = _lab(1 if pos > 0 else (-1 if pos < 0 else 0))
+        if pos != 0 and vb != 0 and vc != 0 and vb == vc:
+            verdict, badge = "posicionamiento", "SOLO POSICIONAMIENTO"
+        else:
+            verdict, badge = "neutral", "SIN SEÑAL"
+
+    sig = {"conviccion": {"vote": va, "label": _lab(va), "detail": da},
+           "gex":        {"vote": vb, "label": _lab(vb), "detail": db},
+           "darkpool":   {"vote": vc, "label": _lab(vc), "detail": dc}}
+
+    if verdict == "confirmacion":
+        summary = (f"Confluencia {direction.upper()}: las señales se confirman entre sí "
+                   f"({'las 3 alineadas' if agree == 2 else 'convicción + 1 confirmación'}). Setup de mayor probabilidad.")
+    elif verdict == "divergencia":
+        summary = (f"DIVERGENCIA: la convicción de tape es {sig['conviccion']['label']} pero el posicionamiento la "
+                   f"contradice. El smart money y los dealers/bloques no coinciden — reduce tamaño y espera confirmación.")
+    elif verdict == "mixto":
+        summary = (f"Señales mixtas sobre una convicción {sig['conviccion']['label']}: una confirma y otra contradice. "
+                   f"Sesgo {direction} sin consenso.")
+    elif verdict == "parcial":
+        summary = (f"Solo hay convicción de tape ({sig['conviccion']['label']}); GEX y dark pool neutrales. "
+                   f"Direccional sin confirmación de posicionamiento.")
+    elif verdict == "posicionamiento":
+        summary = f"Sin convicción de tape, pero el posicionamiento (GEX + dark pool) inclina {direction}."
+    else:
+        summary = "Sin señal clara de confluencia: los pilares no coinciden o faltan datos."
+
+    return {"ok": True, "direction": direction, "verdict": verdict, "badge": badge,
+            "score": score, "agree": agree, "oppose": oppose, "signals": sig, "summary": summary}
+
+
+    def _lab(v):
+        return "alcista" if v > 0 else ("bajista" if v < 0 else "neutral")
+
+
+def _qd_confluence_prompt_block(confl):
+    """Render the confluence verdict as a Spanish prompt block for the agent's reasoning."""
+    if not confl or not isinstance(confl, dict) or not confl.get("ok"):
+        return ""
+    s = confl["signals"]
+    return (
+        f"\nCONFLUENCIA DE SEÑALES (motor Vertex — ¿coinciden tus 3 pilares de Quant Data?): "
+        f"veredicto {confl['badge']} · dirección {confl['direction'].upper()} · score {confl['score']:+.2f}. "
+        f"(1) Convicción tape: {s['conviccion']['detail']}. (2) GEX: {s['gex']['detail']}. "
+        f"(3) Dark pool: {s['darkpool']['detail']}. {confl['summary']} "
+        f"USO: cuando los 3 pilares se CONFIRMAN, sube tu convicción y tu probabilidad calibrada y dilo en la tesis; "
+        f"cuando hay DIVERGENCIA, BÁJALAS y explica el conflicto en 'tesis_riesgos' (tape institucional vs "
+        f"posicionamiento de dealers/bloques en desacuerdo suele preceder volatilidad o un head-fake).")
+
+
+def _qd_darkpool_prompt_block(darkpool, spot, dp_flow=None):
+    """Render Quant Data dark-pool levels as a prompt block: top support (below spot) and
+    resistance (above spot) zones by notional, plus the BUY/SELL proxy from prints when available."""
+    if not darkpool or not isinstance(darkpool, list):
+        return ""
+    spot = _safe_num(spot)
+    if not spot:
+        return ""
+    below = [x for x in darkpool if _safe_num(x.get("price")) and _safe_num(x.get("price")) < spot]
+    above = [x for x in darkpool if _safe_num(x.get("price")) > spot]
+    supp = sorted(below, key=lambda x: _safe_num(x.get("value")), reverse=True)[:4]
+    resist = sorted(above, key=lambda x: _safe_num(x.get("value")), reverse=True)[:4]
+
+    def _fmt(rows):
+        return ", ".join(
+            f"${round(_safe_num(r.get('price')), 2)} (${_safe_num(r.get('value'))/1e6:,.0f}M, "
+            f"{int(_safe_num(r.get('size'))):,} sh)" for r in rows) or "—"
+    tot_s = sum(_safe_num(x.get("value")) for x in below)
+    tot_r = sum(_safe_num(x.get("value")) for x in above)
+    flow_txt = ""
+    if isinstance(dp_flow, dict) and dp_flow.get("total_notional"):
+        bM = _safe_num(dp_flow.get("buy_notional")) / 1e6
+        sM = _safe_num(dp_flow.get("sell_notional")) / 1e6
+        mM = _safe_num(dp_flow.get("mid_notional")) / 1e6
+        lean = dp_flow.get("lean_pct")
+        flow_txt = (f" PROXY COMPRA/VENTA de los prints dark (tradeSide vs bid/ask): "
+                    f"${bM:,.0f}M en el ASK (compra) vs ${sM:,.0f}M en el BID (venta), ${mM:,.0f}M al mid → "
+                    f"sesgo {dp_flow.get('bias')}{(' (' + str(int(lean)) + ' net)') if lean is not None else ''}. "
+                    f"El mid es neutral; el desbalance ask-vs-bid es la dirección real del dinero institucional.")
+    return (
+        f"\nDARK POOL (Quant Data — bloques off-exchange agregados por nivel, último mes): "
+        f"SOPORTE (bajo el spot, posible acumulación): {_fmt(supp)}. "
+        f"RESISTENCIA (sobre el spot, posible distribución): {_fmt(resist)}. "
+        f"Notional total ${tot_s/1e6:,.0f}M en soporte vs ${tot_r/1e6:,.0f}M en resistencia.{flow_txt} "
+        f"Los niveles agregados son posicionales (imán/soporte/resistencia que confirman o niegan los walls de GEX); "
+        f"el proxy compra/venta sí da dirección. Intégralo en tus targets y en tu señal de flujo institucional.")
+
+
+    def _fmt(rows):
+        return ", ".join(
+            f"${round(_safe_num(r.get('price')), 2)} (${_safe_num(r.get('value'))/1e6:,.0f}M, "
+            f"{int(_safe_num(r.get('size'))):,} sh)" for r in rows) or "—"
+
+
+def _qd_netflow_prompt_block(nf):
+    """Render the net-premium-over-time (net-flow) drift + trend as a prompt block."""
+    if not nf or not isinstance(nf, dict) or not nf.get("series"):
+        return ""
+    cum = _safe_num(nf.get("cum_net"))
+    win = {"today": "hoy (intradía)", "7d": "últimos 7 días", "30d": "últimos 30 días",
+           "90d": "últimos 90 días"}.get(nf.get("window"), nf.get("window"))
+    return (
+        f"\nNET DRIFT EN EL TIEMPO (Quant Data net-flow, {win}): premium neto call−put acumulado "
+        f"${cum:,.0f} → sesgo {nf.get('bias')}; tendencia {nf.get('trend')}. "
+        f"USO: no mires solo el nivel — la TENDENCIA importa. 'acelerando (alcista)' = la presión compradora "
+        f"de premium se intensifica (confirma momentum); 'desvaneciéndose' = el flujo pierde fuerza (cuidado con "
+        f"agotamiento); 'revirtiendo' = el dinero está cambiando de lado (posible giro). Pondéralo en tu señal de flujo y en tu timing.")
+
+
+def _qd_gex_walls(exposure, spot):
+    """Derive call wall / put wall + zero-gamma pin from a Quant Data exposure dict (GAMMA, by_strike).
+    El wall NO es el strike único con más gamma, sino el CENTRO del clúster de strikes contiguos con más
+    gamma sumada (ventana ≈ ±1 strike → 2-3 strikes). Más robusto: una mecha aislada en un solo strike no
+    desplaza el wall; gana la 'zona de pared' real donde se concentra el posicionamiento del dealer.
+    El net devuelto es la suma del clúster (refleja la fuerza de la zona, no de un solo strike)."""
+    if not exposure or not isinstance(exposure, dict):
+        return None
+    rows = [r for r in (exposure.get("by_strike") or []) if r.get("strike")]
+    if not rows:
+        return None
+    # net agregado por strike + ventana = 1.5× el espaciado mediano de strikes (capta el strike ± su vecino inmediato)
+    netmap = {}
+    for r in rows:
+        k = _safe_num(r.get("strike"))
+        netmap[k] = netmap.get(k, 0.0) + _safe_num(r.get("net"))
+    ks = sorted(netmap.keys())
+    gaps = [ks[i + 1] - ks[i] for i in range(len(ks) - 1) if ks[i + 1] - ks[i] > 0]
+    W = 1.5 * (sorted(gaps)[len(gaps) // 2] if gaps else 1.0)
+
+    def _cluster(cands, want_max):
+        best_k, best_key = None, None
+        for k in cands:
+            s = sum(n for kk, n in netmap.items() if abs(kk - k) <= W)   # suma del clúster contiguo
+            key = (s, netmap.get(k, 0.0))   # desempate: a igual clúster, gana el strike con más gamma PROPIA (el pico real)
+            if best_key is None or (key > best_key if want_max else key < best_key):
+                best_key, best_k = key, k
+        return (best_k, best_key[0]) if best_k is not None else (None, None)
+
+    above = [k for k in ks if k > spot]
+    below = [k for k in ks if k < spot]
+    cw, cw_net = _cluster(above, True)   # call wall = clúster con MÁS gamma positiva arriba del spot
+    pw, pw_net = _cluster(below, False)  # put wall  = clúster con MÁS gamma negativa abajo del spot
+    flip = _gamma_flip_from_strikes(rows, spot)
+    return {"call_wall": cw, "put_wall": pw,
+            "call_wall_net": cw_net, "put_wall_net": pw_net,
+            "gamma_flip": flip, "gamma_flip_confidence": (_flip_confidence(rows, spot) if flip else None),
+            "max_pain": None}
+
+
+    def _cluster(cands, want_max):
+        best_k, best_key = None, None
+        for k in cands:
+            s = sum(n for kk, n in netmap.items() if abs(kk - k) <= W)   # suma del clúster contiguo
+            key = (s, netmap.get(k, 0.0))   # desempate: a igual clúster, gana el strike con más gamma PROPIA (el pico real)
+            if best_key is None or (key > best_key if want_max else key < best_key):
+                best_key, best_k = key, k
+        return (best_k, best_key[0]) if best_k is not None else (None, None)
+
+
+def _qd_exposure_walls(ticker, exp, spot, ttl=300):
+    """Cached call/put wall from Quant Data GAMMA exposure for a single expiry."""
+    key = f"{ticker.upper()}|{exp}"
+    nowt = time.time()
+    ent = _QD_EXPWALL_CACHE.get(key)
+    if ent and nowt - ent[0] < ttl:
+        return ent[1]
+    w = _qd_gex_walls(quantdata_exposure(ticker, "GAMMA", expiration=exp), spot)
+    _QD_EXPWALL_CACHE[key] = (nowt, w)
+    return w
+
+
+def _chain_metrics(tk, exp, spot):
+    """ONE option_chain fetch → ATM IV (forward-looking) + TRUE max pain from full-chain open interest.
+    Max pain needs the COMPLETE chain OI (every strike), which Quant Data's open-interest-change can't
+    give (it only returns strikes whose OI changed), so we use the full yfinance chain here."""
+    iv = mp = None
+    mp_src = None
+    try:
+        ch = tk.option_chain(exp)
+        ivs = []
+        call_oi, put_oi = {}, {}
+        for df, oid in ((ch.calls, call_oi), (ch.puts, put_oi)):
+            if df is None or df.empty:
+                continue
+            d2 = df.dropna(subset=["impliedVolatility"])
+            if not d2.empty:
+                idx = (d2["strike"] - spot).abs().idxmin()
+                v = float(d2.loc[idx, "impliedVolatility"])
+                if 0.01 < v < 5.0:
+                    ivs.append(v)
+            for _, r in df.iterrows():
+                K = _safe_num(r.get("strike")); oi = _safe_num(r.get("openInterest"))
+                if K > 0 and oi > 0:
+                    oid[K] = oid.get(K, 0.0) + oi
+        if ivs:
+            iv = sum(ivs) / len(ivs)
+        # #7 — max pain por-vencimiento: QD nativo si honra el filtro (autodetectado), si no yfinance
+        try:
+            _sym = getattr(tk, "ticker", None) or ""
+        except Exception:
+            _sym = ""
+        mp, mp_src = _max_pain_per_expiry_best(_sym, exp, call_oi, put_oi)
+    except Exception:
+        pass
+    return {"iv": iv, "max_pain": mp, "max_pain_source": mp_src}
+
+
+def compute_horizon_targets(ticker, net_premium=None, flow=None, ai_12m=None, qd_walls_fn=None, conviction=None, calibrate=True):
+    """Targets at Hoy(0DTE)/7/30/60/90/120d + 12m. Levels anchored to Quant Data GEX walls (per expiry)
+    when qd_walls_fn is provided, else to the computed chain. Direction driven by tape
+    conviction (Kevin's tiers) → net premium → GEX, in that priority. El target 'Hoy' usa el
+    vencimiento más cercano (0DTE si existe) + el flujo/convicción del día, mismo motor que el resto."""
+    HZ = [0, 7, 30, 60, 90, 120]   # 0 = Hoy (0DTE / vencimiento más cercano)
+    try:
+        tk = yf.Ticker(ticker)
+        h = tk.history(period="3mo")
+        spot = _safe_num(h["Close"].iloc[-1], 0.0)
+        exps = list(tk.options or [])
+    except Exception:
+        return None
+    if spot <= 0 or not exps:
+        return None
+    # Annualized volatility from recent daily log-returns → drives the expected-move band.
+    try:
+        _r = np.log(h["Close"] / h["Close"].shift(1)).dropna()
+        ann_vol = float(_r.std() * np.sqrt(252)) if len(_r) > 5 else 0.4
+        if not (0.05 <= ann_vol <= 3.0):
+            ann_vol = 0.4
+    except Exception:
+        ann_vol = 0.4
+    earn_dt = _next_earnings_date(tk)   # #3 — flag horizons that cross a report
+    now = datetime.now()
+    # Direction priority: tape conviction > net premium > GEX magnet
+    bias = "neutral"
+    if conviction and conviction.get("bias") and conviction["bias"] != "neutral":
+        bias = conviction["bias"]
+    elif net_premium and isinstance(net_premium, dict):
+        np_ = _safe_num(net_premium.get("net_premium"))
+        bias = "alcista" if np_ > 0 else ("bajista" if np_ < 0 else "neutral")
+    dir_pct = _classify_flow_delta(flow, spot) if flow else None
+    conv_strength = conviction.get("strength_pct") if conviction else None
+    strong_metric = conv_strength if conv_strength is not None else dir_pct
+
+    # ── Dirección del horizonte "Hoy" con flujo PROPIO de la expiración 0DTE (no el agregado del día) ──
+    # Kevin: el target de Hoy debe leer solo el tape de la 0DTE/vencimiento más cercano, también en dirección.
+    bias0, strong0 = None, None
+    try:
+        _ne0 = _nearest_expiry(exps, 0, now)
+        if _ne0 and _quantdata_ready():
+            _nf0 = quantdata_net_flow(ticker, "today", _ne0[0])
+            if _nf0 and _nf0.get("n"):
+                bias0 = _nf0.get("bias") if _nf0.get("bias") != "neutral" else None
+                _gross0 = _safe_num(_nf0.get("call_total")) + _safe_num(_nf0.get("put_total"))
+                if _gross0 > 0:
+                    strong0 = round(100.0 * abs(_safe_num(_nf0.get("cum_net"))) / _gross0)   # desbalance 0DTE (0–100)
+    except Exception:
+        bias0, strong0 = None, None
+
+    # #4 — pull this ticker's own backtest so confidence reflects REAL accuracy, not fixed rules.
+    bt_cal = None
+    if calibrate:
+        try:
+            _bt = _backtest_cached(ticker)
+            if _bt and _bt.get("ok") and _bt.get("n_snapshots"):
+                _cd = _bt.get("confluence_direction") or {}
+                bt_cal = {"hr": _bt.get("target_hit_rate") or {},
+                          "dir_acc": _cd.get("accuracy_pct"), "dir_n": _cd.get("evaluated") or 0}
+        except Exception:
+            bt_cal = None
+
+    targets, used_qd = [], False
+    for i, hz in enumerate(HZ):
+        ne = _nearest_expiry(exps, hz, now)
+        if not ne:
+            continue
+        exp, dte = ne
+        w, wsrc = None, "cadena"
+        if qd_walls_fn:
+            try:
+                w = qd_walls_fn(exp, spot)
+            except Exception:
+                w = None
+            if w:
+                wsrc = "Quant Data GEX"; used_qd = True
+        if not w:
+            w = _walls_for_expiry(tk, exp, spot)
+        if not w:
+            continue
+        _cm = _chain_metrics(tk, exp, spot)   # #2 IV + #5 max pain real (una sola bajada de cadena)
+        iv = _cm["iv"]
+        chain_mp = _cm["max_pain"]
+        pin = chain_mp or w.get("gamma_flip")  # max pain real (OI completo) o, si no, el gamma flip
+        # ── Dirección = mezcla de FLUJO y el IMÁN DE GAMMA dominante (no flujo-solo) ──
+        cw, pw = w.get("call_wall"), w.get("put_wall")
+        cwn, pwn = w.get("call_wall_net"), w.get("put_wall_net")
+        # imán dominante: el wall con mayor |gamma neta| (o, si no se conoce, el más cercano al spot)
+        magnet, mag_dir = None, None
+        if cw and pw and cwn is not None and pwn is not None:
+            magnet, mag_dir = (cw, "up") if abs(cwn) >= abs(pwn) else (pw, "down")
+        elif cw and pw:
+            magnet, mag_dir = (cw, "up") if abs(cw - spot) <= abs(spot - pw) else (pw, "down")
+        elif cw:
+            magnet, mag_dir = cw, "up"
+        elif pw:
+            magnet, mag_dir = pw, "down"
+        flow_dir = (bias0 if (hz == 0 and bias0) else bias)   # Hoy usa el sesgo 0DTE propio si existe
+        sm_use = strong0 if (hz == 0 and strong0 is not None) else strong_metric
+        conflict = False
+        if magnet is None:
+            level = pin or cw or pw
+            direction = "up" if (level and level > spot) else "down"
+            basis = ("max pain" if chain_mp else ("pin gamma" if w.get("gamma_flip") else "estructura"))
+        elif flow_dir == "neutral":
+            direction, level, basis = mag_dir, magnet, "imán gamma"
+        elif (flow_dir == "alcista" and mag_dir == "up") or (flow_dir == "bajista" and mag_dir == "down"):
+            direction = mag_dir
+            level = cw if mag_dir == "up" else pw
+            basis = "flujo + gamma"
+        else:
+            # flujo y gamma se contradicen → el flujo manda SOLO si la convicción es fuerte (≥60%)
+            conflict = True
+            if sm_use is not None and sm_use >= 60:
+                direction = "up" if flow_dir == "alcista" else "down"
+                level = cw if flow_dir == "alcista" else pw
+                basis = "flujo fuerte vs imán"
+            else:
+                direction, level, basis = mag_dir, magnet, "imán gamma vs flujo débil"
+        # Sin reversión forzada; cada horizonte usa su propia estructura.
+        vol_use = iv if iv else ann_vol
+        em = _expected_move(spot, vol_use, dte)
+        level, capped = _clamp_target(level, spot, direction, em)
+        earnings_soon = bool(earn_dt and now <= earn_dt <= now + timedelta(days=hz))
+        # Base confidence by horizon — fallback only while there's no backtest yet.
+        conf = "alta" if hz <= 30 else ("media" if hz <= 90 else "media-baja")
+        if sm_use is not None:
+            if sm_use >= 60 and hz <= 60:
+                conf = "muy alta"
+            elif sm_use < 40 and hz <= 30:
+                conf = "media"
+        # #4 + rigor estadístico — calibra SOLO con muestra suficiente y mapea la confianza desde el
+        # PISO de Wilson, no del % crudo (n baja → piso bajo → confianza menor, automáticamente).
+        cal_pct = cal_lo = cal_n = None
+        cal_low_sample = False
+        if bt_cal:
+            _hr = bt_cal["hr"].get(str(hz))
+            if _hr and _hr.get("hit_rate_pct") is not None and _hr.get("total", 0) >= _BT_MIN_HZ_N:
+                cal_n = int(_hr["total"]); cal_pct = _hr["hit_rate_pct"]
+                cal_lo = round(_wilson_lower(round(cal_pct / 100.0 * cal_n), cal_n) * 100, 1)
+            elif bt_cal.get("dir_acc") is not None and bt_cal.get("dir_n", 0) >= _BT_MIN_DIR_N:
+                cal_n = int(bt_cal["dir_n"]); cal_pct = bt_cal["dir_acc"]
+                cal_lo = round(_wilson_lower(round(cal_pct / 100.0 * cal_n), cal_n) * 100, 1)
+            elif (_hr and _hr.get("total", 0) > 0) or bt_cal.get("dir_n", 0) > 0:
+                cal_low_sample = True   # hay backtest pero muestra demasiado chica → NO calibramos
+        _cal_conf = _confidence_from_hit(cal_lo) if cal_lo is not None else None
+        _src = f"{wsrc} · {basis}"
+        if capped:
+            _src += " · ajustado a mov. esperado"
+            if conf in ("muy alta", "alta"):
+                conf = "media"  # capped a far wall → menos certeza del nivel exacto
+        if _cal_conf:                                       # el backtest real (con muestra) manda sobre la regla
+            conf = _cal_conf
+            _src += f" · calibrado {cal_pct:.0f}% (piso {cal_lo:.0f}%, n={cal_n})"
+        elif cal_low_sample:
+            _src += " · n insuficiente → confianza por reglas"
+        if earnings_soon:                                   # #3 — earnings en el horizonte = otro régimen
+            _src += " · ⚠ earnings en el rango"
+            if conf in ("muy alta", "alta"):
+                conf = "media"
+        if hz == 0:                                         # Hoy / 0DTE: ruido intrínseco salvo convicción fuerte
+            _src = "0DTE · " + _src
+            if bias0:
+                _src += " · dir. flujo 0DTE propio"
+            if conf in ("muy alta", "alta") and not (sm_use is not None and sm_use >= 60):
+                conf = "media"
+        targets.append({"label": ("Hoy" if hz == 0 else f"{hz}d"), "horizon_days": hz, "expiry": exp, "dte": dte,
+                        "level": round(level, 2) if level else None, "direction": direction,
+                        "confidence": conf, "capped": capped, "basis": basis, "conflict": conflict,
+                        "calibrated_pct": (round(cal_pct, 0) if cal_pct is not None else None),
+                        "calibrated_lo": (round(cal_lo, 0) if cal_lo is not None else None),
+                        "calibrated_n": cal_n,
+                        "expected_move": round(em, 2) if em else None,
+                        "em_low": round(spot - em, 2) if em else None,
+                        "em_high": round(spot + em, 2) if em else None,
+                        "iv": (round(iv, 4) if iv else None), "vol_used": round(vol_use, 4),
+                        "vol_source": ("IV" if iv else "histórica"),
+                        "earnings_soon": earnings_soon,
+                        "gamma_flip": w.get("gamma_flip"), "max_pain": chain_mp,
+                        "call_wall": cw, "put_wall": pw,
+                        "call_wall_net": cwn, "put_wall_net": pwn,
+                        "max_pain_source": _cm.get("max_pain_source"),
+                        "source": _src})
+    if ai_12m and _safe_num(ai_12m) > 0:
+        a = _safe_num(ai_12m)
+        targets.append({"label": "12 meses", "horizon_days": 365, "level": round(a, 2),
+                        "direction": "up" if a > spot else "down", "confidence": "fundamental",
+                        "source": "DCF / fundamental del agente"})
+    else:
+        targets.append({"label": "12 meses", "horizon_days": 365, "level": None, "direction": None,
+                        "confidence": "fundamental",
+                        "source": "Corre la tesis AI para el target fundamental de 12m"})
+    return _json_safe({"ok": True, "ticker": ticker.upper(), "spot": round(spot, 2),
+                       "bias": bias, "directional_pct": dir_pct, "conviction": conviction,
+                       "gex_source": "Quant Data" if used_qd else "computed (yfinance)",
+                       "targets": targets,
+                       "note": "Targets cortos (Hoy/0DTE–120d) guiados por GEX + convicción del tape; el de 12m es "
+                               "fundamental. 'Hoy' usa el vencimiento más cercano + flujo del día. Escenarios probabilísticos, no predicciones.",
+                       "generated_at": now.strftime('%m/%d/%Y, %I:%M:%S %p')})
+
+
+def get_horizon_targets_cached(ticker, net_premium=None, flow=None, ai_12m=None, ttl=300):
+    key = f"{ticker.upper()}|{ai_12m}|{bool(net_premium)}"
+    nowt = time.time()
+    ent = _HZTGT_CACHE.get(key)
+    if ent and nowt - ent[0] < ttl:
+        return ent[1]
+    val = compute_horizon_targets(ticker, net_premium, flow, ai_12m)
+    _HZTGT_CACHE[key] = (nowt, val)
+    return val
+
+
+@app.get("/api/projection-targets")
+def projection_targets(ticker: str, ai_12m: float = 0.0):
+    """Directional targets by horizon. When Quant Data is configured, levels come from QD
+    GEX (per expiry) and direction from tape conviction (Kevin's tiers)."""
+    ready = _quantdata_ready()
+    np_ = quantdata_net_premium(ticker) if ready else None
+    fl = quantdata_flow(ticker) if ready else None
+    oic = quantdata_oi_change(ticker) if ready else None          # real per-contract ΔOI
+    oic_map = oic.get("map") if isinstance(oic, dict) else None
+    conv = _qd_conviction(fl, oi_change_map=oic_map) if fl else None
+    walls_fn = (lambda e, s: _qd_exposure_walls(ticker, e, s)) if ready else None
+    t = compute_horizon_targets(ticker, np_, fl, (ai_12m or None),
+                                qd_walls_fn=walls_fn, conviction=conv)
+    if not t:
+        return {"ok": False, "error": "No se pudieron proyectar targets (cadena no disponible)."}
+    if isinstance(oic, dict) and oic.get("builds"):
+        t["oi_builds"] = oic["builds"]                            # top OI accumulations for display
+    return t
+
+
+def _chain_quote_map(ticker, expiries, ttl=180):
+    """Quotes REALES (bid/ask/mid + OI + volumen) por (expiry, CALL/PUT, strike) desde la cadena de yfinance.
+    Permite que el plan de opciones use el FILL real (mid del bid/ask) y la LIQUIDEZ real (OI/spread) en vez del
+    precio teórico Black-Scholes. Best-effort y cacheado: si yfinance no responde, devuelve {} y el plan cae al
+    teórico sin romperse. El spread bid/ask en contratos chicos/OTM se come 10–30% de la prima — esto lo expone."""
+    exps = sorted({str(e)[:10] for e in (expiries or []) if e})
+    if not exps:
+        return {}
+    key = (ticker.upper(), tuple(exps))
+    now = time.time()
+    hit = _QMAP_CACHE.get(key)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    out = {}
+    try:
+        tk = yf.Ticker(ticker)
+        for e in exps:
+            try:
+                ch = tk.option_chain(e)
+            except Exception:
+                continue
+            for df, cp in ((getattr(ch, "calls", None), "CALL"), (getattr(ch, "puts", None), "PUT")):
+                if df is None or getattr(df, "empty", True):
+                    continue
+                for _, r in df.iterrows():
+                    K = _safe_num(r.get("strike"))
+                    if K <= 0:
+                        continue
+                    bid = _safe_num(r.get("bid")); ask = _safe_num(r.get("ask")); last = _safe_num(r.get("lastPrice"))
+                    mid = round((bid + ask) / 2, 4) if (bid > 0 and ask > 0) else (last if last > 0 else None)
+                    out[(e, cp, round(K, 2))] = {"oi": int(_safe_num(r.get("openInterest"))),
+                                                 "vol": int(_safe_num(r.get("volume"))),
+                                                 "bid": (bid or None), "ask": (ask or None), "mid": mid}
+    except Exception:
+        return {}
+    _QMAP_CACHE[key] = (now, out)
+    return out
+
+
+@app.get("/api/trade-plan")
+def trade_plan_endpoint(ticker: str, capital: float = 500.0, risk_pct: float = 15.0,
+                        horizons: str = "30,60,90", stop_pct: float = 25.0,
+                        alloc_pct: float = None):
+    """Convierte la SEÑAL (dirección + convicción + target por horizonte) en una OPERACIÓN de opción
+    CONCRETA: contrato (CALL/PUT ≈ATM), prima de entrada (Black-Scholes con la IV del horizonte),
+    valor proyectado de la opción si el subyacente llega al target (rápido vs al vencimiento), R:R,
+    breakeven, stop (−20/−30% de la prima, con excepción de flujo Tipo A $5M+) y nº de contratos
+    dimensionado a tu capital y presupuesto de riesgo. Complementa el trade_plan de equity del agente."""
+    ticker = ticker.upper().strip()
+    RF = 0.043
+    stop_frac = max(min(float(stop_pct), 90.0), 1.0) / 100.0
+    try:
+        hz_list = [int(x) for x in str(horizons).split(",") if x.strip().isdigit()][:5] or [30, 60, 90]
+    except Exception:
+        hz_list = [30, 60, 90]
+    ready = _quantdata_ready()
+    np_ = quantdata_net_premium(ticker) if ready else None
+    fl = quantdata_flow(ticker) if ready else None
+    oic = quantdata_oi_change(ticker) if ready else None
+    oic_map = oic.get("map") if isinstance(oic, dict) else None
+    conv = _qd_conviction(fl, oi_change_map=oic_map) if fl else None
+    walls_fn = (lambda e, s: _qd_exposure_walls(ticker, e, s)) if ready else None
+    t = compute_horizon_targets(ticker, np_, fl, None, qd_walls_fn=walls_fn, conviction=conv, calibrate=True)
+    if not t or not t.get("ok") or not t.get("targets"):
+        return {"ok": False, "error": "Sin targets para estructurar (cadena/QD no disponible)."}
+    spot = _safe_num(t.get("spot"))
+    if spot <= 0:
+        return {"ok": False, "error": "Sin spot disponible."}
+
+    # IV vs volatilidad REALIZADA (proxy de VRP, sin necesitar IV-rank histórico): si la IV del
+    # horizonte está cara vs la realizada, comprar prima larga es ineficiente → favorecer débito spread;
+    # si está barata, la opción simple es más eficiente (más convexidad por el costo).
+    realized_ann = None
+    try:
+        _ser = _cached_price_series(ticker, period="6mo")
+        if _ser and len(_ser) > 20:
+            _cl = [c for _, c in _ser]
+            _rets = [math.log(_cl[i] / _cl[i - 1]) for i in range(1, len(_cl)) if _cl[i - 1] > 0]
+            if len(_rets) > 10:
+                _mean = sum(_rets) / len(_rets)
+                _var = sum((x - _mean) ** 2 for x in _rets) / (len(_rets) - 1)
+                realized_ann = (_var ** 0.5) * (252 ** 0.5)
+    except Exception:
+        realized_ann = None
+
+    def _iv_regime(iv):
+        if not realized_ann or realized_ann <= 0 or not iv:
+            return None, None
+        ratio = iv / realized_ann
+        if ratio >= 1.25:
+            return round(ratio, 2), "IV rica vs realizada → el débito spread es más eficiente (vendes vol cara)"
+        if ratio <= 1.00:
+            return round(ratio, 2), "IV barata vs realizada → la opción simple larga es más eficiente (más convexidad)"
+        return round(ratio, 2), "IV en línea con la realizada → estructura por capital/preferencia"
+
+    # Tipo A activo = una sola transacción ≥ $5M alineada con el sesgo dominante (excepción de stop de Kevin)
+    tipo_a = False
+    dom_bias = (conv or {}).get("bias")
+    if conv and conv.get("strong_trades"):
+        want = "CALL" if dom_bias == "alcista" else ("PUT" if dom_bias == "bajista" else None)
+        for st in conv["strong_trades"]:
+            if _safe_num(st.get("premium")) >= 5e6 and (want is None or st.get("cp") == want):
+                tipo_a = True
+                break
+
+    # Anclaje institucional: dónde se acumularon MÁS millones direccionales (ventana 90d, $1M+).
+    inst_rows = quantdata_flow_window(ticker, days=90, min_premium=1_000_000) if ready else None
+    inst_overall = None
+    if inst_rows and dom_bias in ("alcista", "bajista"):
+        inst_overall = _institutional_strike(inst_rows, dom_bias)
+
+    def strike_round(x):
+        if x >= 100:
+            return round(x / 5.0) * 5.0
+        if x >= 25:
+            return float(round(x))
+        return round(x * 2) / 2.0
+
+    by_hz = {x.get("horizon_days"): x for x in t["targets"]}
+    short = [x for x in t["targets"] if x.get("horizon_days", 0) < 365 and x.get("level")]
+    # Quotes reales de la cadena (mid del bid/ask + OI) para que la entrada y la liquidez NO sean teóricas
+    _need_exp = sorted({x.get("expiry") for x in t["targets"] if x.get("expiry")})
+    qmap = _chain_quote_map(ticker, _need_exp)
+    plans = []
+    for hz in hz_list:
+        tg = by_hz.get(hz)
+        if not (tg and tg.get("level") and tg.get("direction")):
+            tg = min(short, key=lambda x: abs(x["horizon_days"] - hz)) if short else None
+        if not tg or not tg.get("level") or not tg.get("direction"):
+            continue
+        direction = tg["direction"]
+        opt = "call" if direction == "up" else "put"
+        atm_K = strike_round(spot)
+        bias_for_anchor = "alcista" if opt == "call" else "bajista"
+        inst_hz = _institutional_strike(inst_rows, bias_for_anchor, near_dte=hz) if inst_rows else None
+        anchor_K = (inst_hz["strike"] if inst_hz
+                    else (inst_overall["strike"] if (inst_overall and inst_overall.get("cp") == opt.upper()) else None))
+        K = _kevin_long_strike(anchor_K, spot, opt, atm_K)   # tu regla: ATM o ITM, nunca OTM
+        long_mny = _moneyness(K, spot, opt)
+        dte = int(tg.get("dte") or hz)
+        iv = _safe_num(tg.get("vol_used")) or _safe_num(tg.get("iv"))
+        if iv <= 0 or dte <= 0:
+            continue
+        entry_theo = _bs_price(spot, K, dte / 365.0, iv, RF, opt)    # prima teórica BSM (por acción)
+        rq = _q_lookup(qmap, tg.get("expiry"), opt, K)               # fill REAL (mid) + liquidez de la cadena
+        liq_oi = liq_vol = liq_ask = liq_spread = None
+        if rq and rq.get("mid") and rq["mid"] > 0:
+            entry = float(rq["mid"]); pricing_basis = "mid real (bid/ask)"
+            liq_oi, liq_vol, liq_ask = rq.get("oi"), rq.get("vol"), rq.get("ask")
+            if rq.get("bid") and rq.get("ask") and entry > 0:
+                liq_spread = round((rq["ask"] - rq["bid"]) / entry * 100, 1)   # % del mid
+        else:
+            entry = entry_theo; pricing_basis = "teórico (sin quote en vivo)"
+        if entry <= 0:
+            continue
+        entry_c = entry * 100.0
+        level = _safe_num(tg["level"])
+        # Valor de salida en el target bajo 2 supuestos de tiempo (theta):
+        val_fast = _bs_price(level, K, max(dte / 2.0, 0.5) / 365.0, iv, RF, opt) * 100.0   # llega a mitad del horizonte
+        intr = max(0.0, (level - K) if opt == "call" else (K - level)) * 100.0             # llega al vencimiento (solo intrínseco)
+        breakeven = (K + entry) if opt == "call" else (K - entry)
+        stop_price = entry * (1 - stop_frac)
+        planned_risk_c = entry_c * stop_frac
+        budget = max(float(capital), 0.0) * max(float(risk_pct), 0.0) / 100.0
+        n_by_risk = int(budget // planned_risk_c) if planned_risk_c > 0 else 0
+        n_by_cap = int(float(capital) // entry_c) if entry_c > 0 else 0
+        if alloc_pct is not None:                       # Kelly del agente → dimensiona por CAPITAL desplegado en prima
+            alloc_dollars = max(float(capital), 0.0) * max(float(alloc_pct), 0.0) / 100.0
+            n_by_alloc = int(alloc_dollars // entry_c) if entry_c > 0 else 0
+            contracts = max(0, min(n_by_alloc, n_by_cap))
+        else:
+            contracts = max(0, min(n_by_risk, n_by_cap))
+        reward_fast_c = val_fast - entry_c
+        reward_intr_c = intr - entry_c
+        rr_fast = (reward_fast_c / planned_risk_c) if planned_risk_c > 0 else None
+        rr_intr = (reward_intr_c / planned_risk_c) if planned_risk_c > 0 else None
+        notes = []
+        if tg.get("vol_source") != "IV":
+            notes.append("IV histórica (proxy): la prima real puede diferir")
+        if tg.get("earnings_soon"):
+            notes.append("⚠ earnings en el horizonte: posible IV crush tras el evento")
+        if tg.get("capped"):
+            notes.append("target ajustado al movimiento esperado")
+        if tg.get("conflict"):
+            notes.append("flujo vs imán de gamma en conflicto")
+        # --- Liquidez / fill real del contrato (qué tan fácil es ENTRAR y SALIR) ---
+        if pricing_basis.startswith("mid real"):
+            if liq_oi is not None and liq_oi < 50:
+                notes.append(f"⚠ OI bajo ({liq_oi}) en el strike — difícil de cerrar sin mover el precio")
+            if liq_spread is not None and liq_spread > 20:
+                notes.append(f"⚠ spread ancho (~{liq_spread}% del mid) — el bid/ask te come prima al entrar y salir")
+        else:
+            notes.append("prima teórica (sin quote en vivo): el fill real puede diferir 10–30% en strikes finos")
+        # --- Estructuras de débito para capital chico (dos variantes) ---
+        step = 5.0 if spot >= 100 else (1.0 if spot >= 25 else 0.5)
+        _alloc_d = (max(float(capital), 0.0) * max(float(alloc_pct), 0.0) / 100.0) if alloc_pct is not None else None
+        # 1) Tu regla: largo ATM/ITM (K) · corto OTM hacia el target → ITM/OTM o ATM/OTM
+        s_short = (max(strike_round(level), K + step) if opt == "call" else min(strike_round(level), K - step))
+        spread = _build_debit_spread(spot, K, s_short, level, dte, iv, RF, opt, stop_frac, capital, budget, entry_c, alloc=_alloc_d)
+        # 2) OTM/OTM barato tipo lotería: largo a mitad de camino al target, corto en/junto al target
+        if opt == "call":
+            l2 = max(strike_round((spot + level) / 2.0), strike_round(spot) + step)
+            s2 = max(strike_round(level), l2 + step)
+        else:
+            l2 = min(strike_round((spot + level) / 2.0), strike_round(spot) - step)
+            s2 = min(strike_round(level), l2 - step)
+        spread_otm = _build_debit_spread(spot, l2, s2, level, dte, iv, RF, opt, stop_frac, capital, budget, entry_c, alloc=_alloc_d)
+        # Sizing por CAPITAL (no solo por presupuesto de riesgo): qué estructura cabe de verdad en tu cuenta
+        naked_fits = int(float(capital) // entry_c) >= 1
+        if naked_fits:
+            recommended = "opción simple"
+        elif spread and spread.get("fits_capital"):
+            recommended = f"débito spread {spread['combo']}"
+        elif spread_otm and spread_otm.get("fits_capital"):
+            recommended = "débito spread OTM/OTM"
+        else:
+            recommended = None
+        if contracts == 0:
+            if recommended == "opción simple":
+                notes.append(f"Cabe 1 opción simple (${entry_c:,.0f}) pero excede tu presupuesto de riesgo {risk_pct:.0f}% — decides tú.")
+            elif recommended and spread and spread.get("fits_capital"):
+                notes.append(f"La opción simple no cabe en ${float(capital):,.0f} → usa el {recommended} (≈${spread['net_debit_contract']:,.0f}/contrato, riesgo {spread.get('risk_pct_at_1')}%).")
+            elif recommended and spread_otm:
+                notes.append(f"Solo cabe el {recommended} (≈${spread_otm['net_debit_contract']:,.0f}/contrato) en ${float(capital):,.0f}.")
+            else:
+                notes.append(f"Ni opción simple ni spread caben en ${float(capital):,.0f} — sube capital, usa menos DTE, o un strike más OTM.")
+        plans.append({
+            "label": tg.get("label"), "horizon_days": tg.get("horizon_days"),
+            "direction": direction, "opt_type": opt.upper(), "strike": K,
+            "long_moneyness": long_mny,
+            "inst_strike": (inst_hz["strike"] if inst_hz else anchor_K),
+            "inst_premium": (inst_hz["premium"] if inst_hz else None),
+            "inst_trades": (inst_hz["trades"] if inst_hz else None),
+            "inst_exp": (inst_hz["exp_top"] if inst_hz else None),
+            "anchored": bool(anchor_K is not None),
+            "expiry": tg.get("expiry"), "dte": dte,
+            "iv_pct": round(iv * 100, 1), "iv_source": tg.get("vol_source"),
+            "entry_price": round(entry, 2), "entry_cost_contract": round(entry_c, 0),
+            "entry_basis": pricing_basis, "entry_theo": round(entry_theo, 2),
+            "entry_ask": (round(liq_ask, 2) if liq_ask else None),
+            "entry_spread_pct": liq_spread, "strike_oi": liq_oi, "strike_vol": liq_vol,
+            "liquidity_ok": (None if not pricing_basis.startswith("mid real")
+                             else bool((liq_oi or 0) >= 50 and (liq_spread is None or liq_spread <= 20))),
+            "breakeven": round(breakeven, 2), "target_underlying": round(level, 2),
+            "exit_value_fast": round(val_fast, 0), "exit_value_expiry": round(intr, 0),
+            "reward_fast_contract": round(reward_fast_c, 0), "reward_expiry_contract": round(reward_intr_c, 0),
+            "rr_fast": round(rr_fast, 2) if rr_fast is not None else None,
+            "rr_expiry": round(rr_intr, 2) if rr_intr is not None else None,
+            "stop_pct": round(stop_frac * 100, 0), "stop_price": round(stop_price, 2), "stop_band": "−20% a −30%",
+            "planned_risk_contract": round(planned_risk_c, 0), "max_loss_contract": round(entry_c, 0),
+            "contracts": contracts, "total_cost": round(entry_c * contracts, 0),
+            "n_by_risk": n_by_risk, "n_by_cap": n_by_cap,
+            "total_risk": round(planned_risk_c * contracts, 0),
+            "total_reward_fast": round(reward_fast_c * contracts, 0),
+            "confidence": tg.get("confidence"), "calibrated_pct": tg.get("calibrated_pct"),
+            "earnings_soon": tg.get("earnings_soon"), "tipo_a_active": tipo_a, "notes": notes,
+            "spread": spread, "spread_otm": spread_otm, "recommended": recommended,
+            "iv_vs_realized": _iv_regime(iv)[0], "iv_structure_hint": _iv_regime(iv)[1],
+            "realized_vol_pct": round(realized_ann * 100, 1) if realized_ann else None,
+        })
+    if not plans:
+        return {"ok": False, "error": "No se pudo estructurar ninguna operación (sin IV/targets válidos)."}
+    return _json_safe({
+        "ok": True, "ticker": ticker, "spot": round(spot, 2),
+        "capital": float(capital), "risk_pct": float(risk_pct), "stop_pct": round(stop_frac * 100, 0),
+        "alloc_pct": (round(float(alloc_pct), 1) if alloc_pct is not None else None),
+        "sizing_basis": ("kelly_alloc" if alloc_pct is not None else "risk_budget"),
+        "bias": t.get("bias"), "conviction": conv, "tipo_a_active": tipo_a,
+        "ai_concentration": _ai_concentration(ticker),
+        "inst_anchor": inst_overall,
+        "flow_exception": ("Flujo Tipo A ($5M+) activo y alineado con el sesgo: tu regla permite mantener pese al "
+                           "stop −20/−30% mientras el flujo siga vivo."
+                           if tipo_a else "Sin flujo Tipo A ($5M+) alineado: respeta el stop −20/−30% sin excepción."),
+        "plans": plans,
+        "disclaimer": ("Estructura estimada con Black-Scholes (IV del horizonte, r=4.3%). El strike LARGO se ancla al "
+                       "strike institucional con más millones direccionales (ventana 90d, $1M+) y se ajusta a tu regla: "
+                       "ATM o ITM, nunca OTM. El valor en el target depende de CUÁNDO llegue (theta): 'rápido' = a mitad "
+                       "del horizonte con valor temporal; 'al vencimiento' = solo intrínseco. No es consejo de inversión."),
+        "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')})
+
+
+    def _iv_regime(iv):
+        if not realized_ann or realized_ann <= 0 or not iv:
+            return None, None
+        ratio = iv / realized_ann
+        if ratio >= 1.25:
+            return round(ratio, 2), "IV rica vs realizada → el débito spread es más eficiente (vendes vol cara)"
+        if ratio <= 1.00:
+            return round(ratio, 2), "IV barata vs realizada → la opción simple larga es más eficiente (más convexidad)"
+        return round(ratio, 2), "IV en línea con la realizada → estructura por capital/preferencia"
+
+
+    def strike_round(x):
+        if x >= 100:
+            return round(x / 5.0) * 5.0
+        if x >= 25:
+            return float(round(x))
+        return round(x * 2) / 2.0
+
+
+@app.get("/api/confluence")
+def confluence_endpoint(ticker: str):
+    """Confirmation/divergence engine: do the 3 Quant Data pillars agree?
+    Convicción (tape ΔOI) + GEX/posicionamiento + dark pool → veredicto + badge + votos."""
+    ticker = ticker.upper().strip()
+    if not _quantdata_ready():
+        return {"ok": False, "error": _quantdata_reason()}
+    try:
+        gex = get_gex_cached(ticker)
+        spot = gex.get("spot") if isinstance(gex, dict) else None
+        fl = quantdata_flow(ticker)
+        oic = quantdata_oi_change(ticker)
+        oimap = oic.get("map") if isinstance(oic, dict) else None
+        conv = _qd_conviction(fl, oi_change_map=oimap) if fl else None
+        dp = quantdata_darkpool(ticker)
+        dpf = quantdata_dark_prints(ticker)                      # buy/sell proxy (directional)
+        confl = _qd_confluence(conv, gex, dp, spot, dp_flow=dpf)
+        return _json_safe({"ok": True, "ticker": ticker, "spot": spot,
+                           "confluence": confl, "conviction": conv, "dark_flow": dpf})
+    except Exception as e:
+        return {"ok": False, "error": _error_publico(e, "/api/confluence")}
+
+
+def _income_flow_sells(ticker, dte_max):
+    """Ventas de prima institucionales más GRANDES del chain (lado BID/BELOW_BID), agrupadas por
+    (exp, cp, strike) sumando premium. Marcan dónde el dinero grande VENDE prima = dónde apuesta a que
+    el precio NO llega. Se usan para alinear los cortos de nuestras estructuras. {} si no hay Quant Data."""
+    try:
+        if not _quantdata_ready():
+            return {}
+        flow = quantdata_flow_window(ticker, days=max(int(dte_max), 30), min_premium=250_000, max_rows=400) or []
+    except Exception:
+        return {}
+    sells = {}
+    for t in flow:
+        if "BID" not in str(t.get("side") or "").upper():          # solo ventas (BID / BELOW_BID)
+            continue
+        cp = str(t.get("cp") or "").upper()
+        K = _safe_num(t.get("strike"))
+        exp = str(t.get("exp") or "")[:10]
+        if K <= 0 or not exp:
+            continue
+        key = (exp, "CALL" if cp.startswith("C") else "PUT", round(K, 2))
+        sells[key] = sells.get(key, 0.0) + abs(_safe_num(t.get("premium")))
+    return sells
+
+
+def build_income_strategies(ticker, dte_min=7, dte_max=30, capital=500.0, risk_pct=50.0):
+    """Estructuras de VENTA DE PRIMA (income) sobre expiraciones dte_min–dte_max (por defecto 7–30 DTE):
+    Iron Condor, Put Credit Spread (bull put), Call Credit Spread (bear call) y Cash-Secured Put.
+    Los cortos se colocan ~1σ (delta≈0.16) FUERA del movimiento esperado (IV × √T), y se alinean con
+    los OI walls y con las VENTAS institucionales más grandes del chain. Para cada estructura: crédito,
+    máx ganancia/pérdida, breakevens, POP (prob. de ganar, riesgo-neutral desde IV) y retorno sobre riesgo.
+    Rankea por POP × RoR. Escanea varias expiraciones de la ventana y elige la mejor."""
+    RF = 0.043
+    try:
+        tk = yf.Ticker(ticker)
+        h = tk.history(period="3mo")
+        spot = _safe_num(h["Close"].iloc[-1], 0.0)
+        exps_all = list(tk.options or [])
+    except Exception:
+        return {"ok": False, "error": "Sin datos de mercado para el ticker."}
+    if spot <= 0 or not exps_all:
+        return {"ok": False, "error": "Sin cadena de opciones disponible."}
+    now = datetime.now()
+    _dte = lambda e: ((datetime.strptime(e, "%Y-%m-%d") - now).days if e else None)
+    win = [(e, _dte(e)) for e in exps_all]
+    win = [(e, d) for e, d in win if d is not None and dte_min <= d <= dte_max]
+    if not win:                                    # sin expiraciones en la ventana → la más cercana al centro
+        fut = [(e, _dte(e)) for e in exps_all if (_dte(e) or 0) >= 1]
+        fut.sort(key=lambda x: abs((x[1] or 0) - (dte_min + dte_max) // 2))
+        win = fut[:1]
+    if not win:
+        return {"ok": False, "error": "Sin expiraciones utilizables."}
+    win.sort(key=lambda x: x[1])
+    picks = [win[0], win[len(win) // 2], win[-1]] if len(win) > 3 else win   # muestrea corta/media/larga
+    seen = set(); picks = [p for p in picks if not (p[0] in seen or seen.add(p[0]))]
+    sells = _income_flow_sells(ticker, dte_max)
+    risk_budget = max(0.0, _safe_num(capital) * _safe_num(risk_pct) / 100.0)
+
+    def _p_below(K, T, iv):                         # prob. riesgo-neutral de que S_T < K (lognormal con IV)
+        if iv <= 0 or T <= 0 or K <= 0 or spot <= 0:
+            return None
+        d2 = (math.log(spot / K) + (RF - 0.5 * iv * iv) * T) / (iv * math.sqrt(T))
+        return _norm_cdf(-d2)
+    _p_above = lambda K, T, iv: (None if _p_below(K, T, iv) is None else 1.0 - _p_below(K, T, iv))
+
+    all_structs, per_exp = [], []
+    for exp, dte in picks:
+        try:
+            ch = tk.option_chain(exp)
+        except Exception:
+            continue
+        T = max(int(dte), 1) / 365.0
+        # IV ATM + walls + filas por strike desde UNA sola bajada de cadena
+        ivs = []
+        for df in (ch.calls, ch.puts):
+            if df is None or df.empty:
+                continue
+            d2 = df.dropna(subset=["impliedVolatility"])
+            if d2.empty:
+                continue
+            idx = (d2["strike"] - spot).abs().idxmin()
+            v = float(d2.loc[idx, "impliedVolatility"])
+            if 0.01 < v < 5.0:
+                ivs.append(v)
+        iv = (sum(ivs) / len(ivs)) if ivs else 0.0
+        if iv <= 0:
+            continue
+        em = _expected_move(spot, iv, dte)
+        call_oi, put_oi = {}, {}
+        calls, puts = {}, {}
+        for df, oid, rowd in ((ch.calls, call_oi, calls), (ch.puts, put_oi, puts)):
+            if df is None or df.empty:
+                continue
+            for _, r in df.iterrows():
+                K = _safe_num(r.get("strike"))
+                if K <= 0:
+                    continue
+                rowd[round(K, 2)] = r
+                oi = _safe_num(r.get("openInterest"))
+                if oi > 0:
+                    oid[round(K, 2)] = oid.get(round(K, 2), 0.0) + oi
+        call_ks = sorted(calls.keys()); put_ks = sorted(puts.keys())
+        if len(call_ks) < 3 or len(put_ks) < 3:
+            continue
+        _ca = {k: v for k, v in call_oi.items() if k >= spot}
+        _pb = {k: v for k, v in put_oi.items() if k <= spot}
+        call_wall = max(_ca, key=_ca.get) if _ca else None
+        put_wall = max(_pb, key=_pb.get) if _pb else None
+        gap = 1.0
+        if len(call_ks) > 1:
+            gaps = [call_ks[i + 1] - call_ks[i] for i in range(len(call_ks) - 1)]
+            gap = sorted(gaps)[len(gaps) // 2] if gaps else 1.0
+
+        def _px(rowmap, K, opt):
+            r = rowmap.get(round(K, 2))
+            if r is None:
+                return _bs_price(spot, K, T, iv, RF, opt)
+            bid = _safe_num(r.get("bid")); ask = _safe_num(r.get("ask")); last = _safe_num(r.get("lastPrice"))
+            if bid > 0 and ask > 0:
+                return (bid + ask) / 2.0
+            if last > 0:
+                return last
+            return _bs_price(spot, K, T, iv, RF, opt)
+        _dlt = lambda K, opt: _bs_greeks(spot, K, T, iv, RF, opt)["delta"]
+        _near = lambda ks, tgt: (min(ks, key=lambda k: abs(k - tgt)) if ks else None)
+
+        def _by_delta(ks, opt, dtarget=0.16):       # strike cuyo |delta| ≈ objetivo (≈ borde 1σ)
+            best, bd = None, 1e9
+            for k in ks:
+                d = abs(abs(_dlt(k, opt)) - dtarget)
+                if d < bd:
+                    bd, best = d, k
+            return best
+
+        put_below = [k for k in put_ks if k < spot]
+        call_above = [k for k in call_ks if k > spot]
+        short_put = _by_delta(put_below, "put") or _near(put_ks, spot - em)
+        short_call = _by_delta(call_above, "call") or _near(call_ks, spot + em)
+        # snap hacia el wall si está a ≤1 gap (alinéate con el OI institucional)
+        if put_wall and short_put and abs(put_wall - short_put) <= gap * 1.5 and put_wall <= spot:
+            short_put = _near(put_ks, put_wall)
+        if call_wall and short_call and abs(call_wall - short_call) <= gap * 1.5 and call_wall >= spot:
+            short_call = _near(call_ks, call_wall)
+        wt = max(gap, round(0.4 * em / gap) * gap) if em else gap * 2   # ancho de ala
+        long_put = _near([k for k in put_ks if k < (short_put or spot)], (short_put or spot) - wt) if short_put else None
+        long_call = _near([k for k in call_ks if k > (short_call or spot)], (short_call or spot) + wt) if short_call else None
+
+        _sell_at = lambda cp, K: max((v for (e2, c2, k2), v in sells.items()
+                                      if e2 == exp and c2 == cp and abs(k2 - K) <= gap * 0.6), default=0.0)
+
+        def _mk(kind, direction, legs, credit, maxloss, be_lo, be_hi, pop, note, collateral=None):
+            credit = round(max(0.0, credit), 2); maxloss = round(max(0.01, maxloss), 2)
+            ror = credit / maxloss if maxloss > 0 else None
+            score = round((pop * 100.0) * (ror or 0), 1) if pop is not None else None
+            if collateral:
+                contracts = int(_safe_num(capital) // collateral) if collateral > 0 else 0
+            else:
+                contracts = int(risk_budget // (maxloss * 100.0)) if maxloss > 0 else 0
+            return {"kind": kind, "exp": exp, "dte": int(dte), "direction": direction, "iv_pct": round(iv * 100, 1),
+                    "legs": legs, "credit": credit, "credit_usd": round(credit * 100, 0),
+                    "max_profit_usd": round(credit * 100, 0), "max_loss": maxloss, "max_loss_usd": round(maxloss * 100, 0),
+                    "breakeven_low": (round(be_lo, 2) if be_lo else None), "breakeven_high": (round(be_hi, 2) if be_hi else None),
+                    "pop_pct": (round(pop * 100, 1) if pop is not None else None),
+                    "ror_pct": (round(ror * 100, 1) if ror else None), "score": score,
+                    "contracts": max(0, contracts), "collateral_usd": (round(collateral, 0) if collateral else None),
+                    "note": note}
+
+        def _leg(action, opt, K):
+            return {"action": action, "type": opt, "strike": round(K, 2),
+                    "price": round(_px(puts if opt == "put" else calls, K, opt), 2),
+                    "delta": round(_dlt(K, opt), 3), "inst_sell_usd": round(_sell_at(opt.upper(), K), 0)}
+
+        structs = []
+        # ── Iron Condor (neutral, riesgo definido) ──
+        if short_put and short_call and long_put and long_call and short_put > long_put and long_call > short_call:
+            cr = (_px(puts, short_put, "put") - _px(puts, long_put, "put")
+                  + _px(calls, short_call, "call") - _px(calls, long_call, "call"))
+            width = max(short_put - long_put, long_call - short_call)
+            ml = width - cr
+            be_lo, be_hi = short_put - cr, short_call + cr
+            pa, pb2 = _p_below(be_hi, T, iv), _p_below(be_lo, T, iv)
+            pop = (pa - pb2) if (pa is not None and pb2 is not None) else None
+            structs.append(_mk("Iron Condor", "neutral",
+                               [_leg("BUY", "put", long_put), _leg("SELL", "put", short_put),
+                                _leg("SELL", "call", short_call), _leg("BUY", "call", long_call)],
+                               cr, ml, be_lo, be_hi, pop,
+                               "Ganas si el precio se queda ENTRE los cortos al vencimiento. Neutral, riesgo definido por las alas."))
+        # ── Put Credit Spread / Bull Put (alcista-neutral) ──
+        if short_put and long_put and short_put > long_put:
+            cr = _px(puts, short_put, "put") - _px(puts, long_put, "put")
+            ml = (short_put - long_put) - cr
+            be_lo = short_put - cr
+            pop = _p_above(be_lo, T, iv)
+            structs.append(_mk("Put Credit Spread", "alcista-neutral",
+                               [_leg("BUY", "put", long_put), _leg("SELL", "put", short_put)],
+                               cr, ml, be_lo, None, pop,
+                               "Vendes soporte: ganas si el precio se mantiene ARRIBA del breakeven. Sesgo alcista-neutral."))
+        # ── Call Credit Spread / Bear Call (bajista-neutral) ──
+        if short_call and long_call and long_call > short_call:
+            cr = _px(calls, short_call, "call") - _px(calls, long_call, "call")
+            ml = (long_call - short_call) - cr
+            be_hi = short_call + cr
+            pop = _p_below(be_hi, T, iv)
+            structs.append(_mk("Call Credit Spread", "bajista-neutral",
+                               [_leg("SELL", "call", short_call), _leg("BUY", "call", long_call)],
+                               cr, ml, None, be_hi, pop,
+                               "Vendes resistencia: ganas si el precio se mantiene DEBAJO del breakeven. Sesgo bajista-neutral."))
+        # ── Cash-Secured Put (alcista-neutral / quiero las acciones) ──
+        if short_put:
+            cr = _px(puts, short_put, "put")
+            ml = short_put - cr                      # pérdida si el subyacente → 0 (menos el crédito)
+            be_lo = short_put - cr
+            pop = _p_above(be_lo, T, iv)
+            structs.append(_mk("Cash-Secured Put", "alcista-neutral",
+                               [_leg("SELL", "put", short_put)],
+                               cr, ml, be_lo, None, pop,
+                               "Cobras prima por comprometerte a comprar en el corto. Si baja, te asignan a un precio menor; si no, te quedas la prima.",
+                               collateral=short_put * 100.0))
+
+        structs = [s for s in structs if s["credit"] > 0]
+        for s in structs:
+            all_structs.append(s)
+        ic = next((s for s in structs if s["kind"] == "Iron Condor"), None)
+        per_exp.append({"exp": exp, "dte": int(dte), "iv_pct": round(iv * 100, 1),
+                        "expected_move": round(em, 2), "em_low": round(spot - em, 2), "em_high": round(spot + em, 2),
+                        "call_wall": call_wall, "put_wall": put_wall,
+                        "strategies": sorted(structs, key=lambda s: (s["score"] or 0), reverse=True),
+                        "_ic_score": (ic["score"] if ic else -1)})
+
+    if not per_exp:
+        return {"ok": False, "error": "No se pudieron construir estructuras (cadena/IV insuficiente en 7–30 DTE)."}
+    per_exp.sort(key=lambda x: x["_ic_score"], reverse=True)
+    primary = per_exp[0]
+    ranked = sorted(all_structs, key=lambda s: (s["score"] or 0), reverse=True)[:8]
+    big_sells = sorted(({"exp": e, "cp": c, "strike": k, "premium_usd": round(v, 0)}
+                        for (e, c, k), v in sells.items()), key=lambda x: x["premium_usd"], reverse=True)[:8]
+    return {"ok": True, "ticker": ticker.upper(), "spot": round(spot, 2),
+            "dte_window": [int(dte_min), int(dte_max)], "capital": _safe_num(capital), "risk_pct": _safe_num(risk_pct),
+            "primary": primary, "expiries": [{k: v for k, v in pe.items() if k != "_ic_score"} for pe in per_exp],
+            "ranked": ranked, "big_sells": big_sells,
+            "note": "Cortos ~1σ (delta≈0.16) fuera del movimiento esperado, alineados con OI walls y con las ventas "
+                    "institucionales más grandes. POP es riesgo-neutral (desde IV); en la práctica suele salir algo mejor. "
+                    "Crédito con mids del chain (fallback Black-Scholes). Riesgo definido salvo el Cash-Secured Put."}
+
+
+    def _p_below(K, T, iv):                         # prob. riesgo-neutral de que S_T < K (lognormal con IV)
+        if iv <= 0 or T <= 0 or K <= 0 or spot <= 0:
+            return None
+        d2 = (math.log(spot / K) + (RF - 0.5 * iv * iv) * T) / (iv * math.sqrt(T))
+        return _norm_cdf(-d2)
+
+
+        def _px(rowmap, K, opt):
+            r = rowmap.get(round(K, 2))
+            if r is None:
+                return _bs_price(spot, K, T, iv, RF, opt)
+            bid = _safe_num(r.get("bid")); ask = _safe_num(r.get("ask")); last = _safe_num(r.get("lastPrice"))
+            if bid > 0 and ask > 0:
+                return (bid + ask) / 2.0
+            if last > 0:
+                return last
+            return _bs_price(spot, K, T, iv, RF, opt)
+
+
+        def _by_delta(ks, opt, dtarget=0.16):       # strike cuyo |delta| ≈ objetivo (≈ borde 1σ)
+            best, bd = None, 1e9
+            for k in ks:
+                d = abs(abs(_dlt(k, opt)) - dtarget)
+                if d < bd:
+                    bd, best = d, k
+            return best
+
+
+        def _mk(kind, direction, legs, credit, maxloss, be_lo, be_hi, pop, note, collateral=None):
+            credit = round(max(0.0, credit), 2); maxloss = round(max(0.01, maxloss), 2)
+            ror = credit / maxloss if maxloss > 0 else None
+            score = round((pop * 100.0) * (ror or 0), 1) if pop is not None else None
+            if collateral:
+                contracts = int(_safe_num(capital) // collateral) if collateral > 0 else 0
+            else:
+                contracts = int(risk_budget // (maxloss * 100.0)) if maxloss > 0 else 0
+            return {"kind": kind, "exp": exp, "dte": int(dte), "direction": direction, "iv_pct": round(iv * 100, 1),
+                    "legs": legs, "credit": credit, "credit_usd": round(credit * 100, 0),
+                    "max_profit_usd": round(credit * 100, 0), "max_loss": maxloss, "max_loss_usd": round(maxloss * 100, 0),
+                    "breakeven_low": (round(be_lo, 2) if be_lo else None), "breakeven_high": (round(be_hi, 2) if be_hi else None),
+                    "pop_pct": (round(pop * 100, 1) if pop is not None else None),
+                    "ror_pct": (round(ror * 100, 1) if ror else None), "score": score,
+                    "contracts": max(0, contracts), "collateral_usd": (round(collateral, 0) if collateral else None),
+                    "note": note}
+
+
+        def _leg(action, opt, K):
+            return {"action": action, "type": opt, "strike": round(K, 2),
+                    "price": round(_px(puts if opt == "put" else calls, K, opt), 2),
+                    "delta": round(_dlt(K, opt), 3), "inst_sell_usd": round(_sell_at(opt.upper(), K), 0)}
+
+
+@app.get("/api/income-strategies")
+def income_strategies_endpoint(ticker: str, dte_min: int = 7, dte_max: int = 30,
+                               capital: float = 500.0, risk_pct: float = 50.0):
+    """Estructuras de venta de prima (Iron Condor, credit spreads, CSP) en la ventana 7–30 DTE,
+    con crédito, POP, breakevens y retorno sobre riesgo. Motor: build_income_strategies."""
+    ticker = (ticker or "").upper().strip()
+    if not ticker:
+        return {"ok": False, "error": "Ticker requerido."}
+    try:
+        return _json_safe(build_income_strategies(ticker, dte_min=dte_min, dte_max=dte_max,
+                                                  capital=capital, risk_pct=risk_pct))
+    except Exception as e:
+        return {"ok": False, "error": _error_publico(e, "/api/income-strategies")}
+
+
+@app.get("/api/net-flow")
+def net_flow_endpoint(ticker: str, window: str = "today", expiration: str = ""):
+    """Net call vs put premium over time (net-flow). window: today/7d/30d/90d.
+    expiration (YYYY-MM-DD) restringe el flujo a los contratos de esa expiración (0DTE = la del día)."""
+    ticker = ticker.upper().strip()
+    if window not in ("today", "7d", "30d", "90d"):
+        window = "today"
+    if not _quantdata_ready():
+        return {"ok": False, "error": _quantdata_reason()}
+    try:
+        exp = (expiration or "").strip()
+        nf = quantdata_net_flow(ticker, window, expiration=(exp or None))
+        if not nf:
+            return {"ok": False, "error": "Sin datos de net-flow para esta ventana."}
+        exps = []
+        try:
+            exps = (quantdata_exposure(ticker, "GAMMA") or {}).get("expirations") or []
+        except Exception:
+            exps = []
+        prints = []
+        try:
+            _oic = quantdata_oi_change(ticker)          # ΔOI por contrato para confirmar apertura de los prints
+            _oimap = (_oic or {}).get("map") if isinstance(_oic, dict) else None
+            prints = quantdata_big_prints(ticker, window, expiration=(exp or None), oi_map=_oimap)
+        except Exception:
+            prints = []
+        return _json_safe({"ok": True, "ticker": ticker, "expirations": exps, "prints": prints, **nf})
+    except Exception as e:
+        return {"ok": False, "error": _error_publico(e, "/api/net-flow")}
+
+
+@app.get("/api/gex-strike")
+def gex_strike_endpoint(ticker: str, exp: str = "", greek: str = "GAMMA"):
+    """Quant Data exposure by strike for GAMMA / VANNA / CHARM / DELTA, optionally for one expiration.
+    Returns by_strike, spot, call/put walls (gamma) and the list of available expirations."""
+    ticker = ticker.upper().strip()
+    greek = (greek or "GAMMA").upper()
+    if greek not in ("GAMMA", "VANNA", "CHARM", "DELTA"):
+        greek = "GAMMA"
+    if not _quantdata_ready():
+        return {"ok": False, "error": _quantdata_reason()}
+    try:
+        expf = exp if (exp and exp.lower() not in ("all", "todas", "")) else None
+        ex = quantdata_exposure(ticker, greek, expiration=expf)
+        if not ex or not ex.get("by_strike"):
+            return {"ok": False, "error": f"Sin datos de exposición {greek}."}
+        spot = ex.get("stock_price")
+        if not spot:
+            g = get_gex_cached(ticker)
+            spot = g.get("spot") if isinstance(g, dict) else None
+        # walls/gamma-flip solo tienen sentido en GAMMA
+        walls = _qd_gex_walls(ex, _safe_num(spot)) if (spot and greek == "GAMMA") else None
+        # #5 — max pain REAL (OI completo de la cadena) para el vencimiento seleccionado
+        max_pain = None
+        if greek == "GAMMA" and expf and spot:
+            try:
+                max_pain = _chain_metrics(yf.Ticker(ticker), expf, _safe_num(spot)).get("max_pain")
+            except Exception:
+                max_pain = None
+        if walls is not None:
+            walls["max_pain"] = max_pain
+        exps = ex.get("expirations") or []
+        if expf and not exps:
+            base = quantdata_exposure(ticker, greek)
+            exps = base.get("expirations") if base else []
+        return _json_safe({"ok": True, "ticker": ticker, "greek": greek, "exp": expf or "all", "spot": spot,
+                           "by_strike": ex["by_strike"], "walls": walls, "max_pain": max_pain,
+                           "expirations": exps})
+    except Exception as e:
+        return {"ok": False, "error": _error_publico(e, "/api/gex-strike")}
+
+
+def _collect_signal_snapshot(ticker):
+    """Snapshot today's full signal set for a ticker into signal_snapshots (idempotente por día)."""
+    ticker = ticker.upper().strip()
+    gex = get_gex_cached(ticker)
+    spot = _safe_num(gex.get("spot")) if isinstance(gex, dict) else 0.0
+    if spot <= 0:
+        return {"ok": False, "error": "Sin spot/GEX para capturar el snapshot."}
+    qd = _quantdata_ready()
+    fl = quantdata_flow(ticker) if qd else None
+    oic = quantdata_oi_change(ticker) if qd else None
+    oimap = oic.get("map") if isinstance(oic, dict) else None
+    conv = _qd_conviction(fl, oi_change_map=oimap) if fl else None
+    npm = quantdata_net_premium(ticker) if qd else None
+    dp = quantdata_darkpool(ticker) if qd else None
+    dpf = quantdata_dark_prints(ticker) if qd else None
+    confl = _qd_confluence(conv, gex, dp, spot, dp_flow=dpf)
+    targets = []
+    try:
+        wallsfn = (lambda e, s: _qd_exposure_walls(ticker, e, s)) if qd else None
+        t = compute_horizon_targets(ticker, net_premium=npm, flow=fl, ai_12m=0.0,
+                                    qd_walls_fn=wallsfn, conviction=conv, calibrate=False)
+        for tg in ((t.get("targets") if isinstance(t, dict) else []) or []):
+            lvl = _safe_num(tg.get("level")); hz = tg.get("horizon_days")
+            if lvl > 0 and hz:
+                targets.append({"hz": int(hz), "level": round(lvl, 2), "dir": tg.get("direction")})
+    except Exception:
+        pass
+    row = {"ticker": ticker, "snap_date": datetime.now().strftime("%Y-%m-%d"), "spot": round(spot, 2),
+           "confl_verdict": confl.get("verdict"), "confl_direction": confl.get("direction"),
+           "confl_score": confl.get("score"),
+           "conv_bias": (conv or {}).get("bias"), "conv_strength": (conv or {}).get("strength_pct"),
+           "net_premium": (_safe_num(npm.get("net_premium")) if isinstance(npm, dict) else None),
+           "dark_bias": (dpf or {}).get("bias"),
+           "call_wall": _safe_num(gex.get("call_wall")) or None,
+           "put_wall": _safe_num(gex.get("put_wall")) or None,
+           "gamma_flip": _safe_num(gex.get("gamma_flip")) or None,
+           "targets_json": json.dumps(targets), "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    try:
+        _store_signal_snapshot(row)
+    except Exception as e:
+        return {"ok": False, "error": f"DB: {e}"}
+    return {"ok": True, "snapshot": row}
+
+
+def _backtest_signals(ticker):
+    """Read stored snapshots + realized prices (yfinance) and evaluate. Honest: only snapshots
+    whose horizon already elapsed count; starts empty and fills as you collect daily."""
+    ticker = ticker.upper().strip()
+    try:
+        conn = _db()
+        rows = conn.execute("SELECT * FROM signal_snapshots WHERE ticker=? ORDER BY snap_date", (ticker,)).fetchall()
+        conn.close()
+        snaps = [dict(r) for r in rows]
+    except Exception as e:
+        return {"ok": False, "error": f"DB: {e}"}
+    if not snaps:
+        return {"ok": True, "ticker": ticker, "n_snapshots": 0,
+                "message": "Aún no hay snapshots para este ticker. Captura señales unos días y vuelve."}
+    try:
+        hist = yf.Ticker(ticker).history(period="1y")
+        closes = {d.strftime("%Y-%m-%d"): float(c) for d, c in hist["Close"].items()}
+        highs = {d.strftime("%Y-%m-%d"): float(c) for d, c in hist["High"].items()}
+        lows = {d.strftime("%Y-%m-%d"): float(c) for d, c in hist["Low"].items()}
+        dates = sorted(closes.keys())
+    except Exception as e:
+        return {"ok": False, "error": f"No pude bajar precios realizados: {e}"}
+    ev = _backtest_eval(snaps, closes, highs, lows, dates)
+    return {"ok": True, "ticker": ticker, "n_snapshots": len(snaps),
+            "date_range": [snaps[0]["snap_date"], snaps[-1]["snap_date"]],
+            "note": "Solo se evalúan snapshots cuyo horizonte ya transcurrió.", **ev}
+
+
+@app.get("/api/collect-signals")
+def collect_signals_endpoint(ticker: str):
+    """Capture today's signal snapshot for forward backtesting."""
+    return _json_safe(_collect_signal_snapshot(ticker))
+
+
+@app.get("/api/backtest")
+def backtest_endpoint(ticker: str):
+    """Backtest stored snapshots: confluence direction accuracy + target hit-rate per horizon."""
+    return _json_safe(_backtest_signals(ticker))
+
+
+def _reconstruct_confluence_snapshot(ticker, date, spot):
+    """Rebuild the confluence as it WOULD have looked on `date` using Quant Data history
+    (sessionDate). Direction signals only — target levels need the live options chain, so the
+    historical row stores no targets (target hit-rate accrues forward via the live collector)."""
+    spot = _safe_num(spot)
+    if spot <= 0:
+        return None
+    fl = quantdata_flow(ticker, session_date=date)
+    oic = quantdata_oi_change(ticker, session_date=date)
+    oimap = oic.get("map") if isinstance(oic, dict) else None
+    conv = _qd_conviction(fl, oi_change_map=oimap) if fl else None
+    ex = quantdata_exposure(ticker, "GAMMA", session_date=date)
+    walls = _qd_gex_walls(ex, spot) if ex else None
+    # Antes se tiraba el gamma_flip que _qd_gex_walls ya calcula y net_gex quedaba en None, dejando
+    # el voto GEX en "neutral" salvo ruptura de wall. Ahora los reconstruimos desde la MISMA
+    # exposición histórica (sessionDate), igual que en vivo → el histórico se vuelve un test justo.
+    _flip_hist = (walls or {}).get("gamma_flip")
+    _net_gex_hist = None
+    try:
+        _rows = (ex.get("by_strike") if isinstance(ex, dict) else None) or []
+        if _rows:
+            _net_gex_hist = round(sum(_safe_num(r.get("net")) for r in _rows if r.get("strike")), 0)
+    except Exception:
+        _net_gex_hist = None
+    gexd = ({"ok": True, "spot": spot, "call_wall": (walls or {}).get("call_wall"),
+             "put_wall": (walls or {}).get("put_wall"), "gamma_flip": _flip_hist, "net_gex": _net_gex_hist}
+            if walls else None)
+    dpf = quantdata_dark_prints(ticker, session_date=date)
+    npm = quantdata_net_premium(ticker, session_date=date)
+    confl = _qd_confluence(conv, gexd, None, spot, dp_flow=dpf)
+    return {"ticker": ticker.upper(), "snap_date": str(date)[:10], "spot": round(spot, 2),
+            "confl_verdict": confl.get("verdict"), "confl_direction": confl.get("direction"),
+            "confl_score": confl.get("score"),
+            "conv_bias": (conv or {}).get("bias"), "conv_strength": (conv or {}).get("strength_pct"),
+            "net_premium": (_safe_num(npm.get("net_premium")) if isinstance(npm, dict) else None),
+            "dark_bias": (dpf or {}).get("bias"),
+            "call_wall": (walls or {}).get("call_wall"), "put_wall": (walls or {}).get("put_wall"),
+            "gamma_flip": _flip_hist, "targets_json": "[]",
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " (backfill)"}
+
+
+def _run_backfill(ticker, sample_every=3, lookback_days=365, throttle=0.4):
+    st = _BACKFILL_STATE[ticker]
+    try:
+        hist = yf.Ticker(ticker).history(period="1y")
+        all_dates = [d.strftime("%Y-%m-%d") for d in hist.index]
+        closes = {d.strftime("%Y-%m-%d"): float(c) for d, c in hist["Close"].items()}
+        if not all_dates:
+            st.update(running=False, error="Sin precios históricos."); return
+        sampled = all_dates[::max(int(sample_every), 1)]
+        # leave a forward tail so the 10-day direction window can be evaluated
+        cutoff_idx = len(all_dates) - 11
+        sampled = [d for d in sampled if all_dates.index(d) <= cutoff_idx]
+        st["total"] = len(sampled)
+        for d in sampled:
+            if st.get("cancel"):
+                break
+            try:
+                snap = _reconstruct_confluence_snapshot(ticker, d, closes.get(d))
+                if snap:
+                    _store_signal_snapshot(snap); st["stored"] += 1
+            except Exception:
+                st["errors"] = st.get("errors", 0) + 1
+            st["done"] += 1
+            time.sleep(throttle)
+        st.update(running=False, finished=True)
+    except Exception as e:
+        st.update(running=False, error=str(e))
+
+
+@app.post("/api/backfill/start")
+def backfill_start_endpoint(ticker: str, sample_every: int = 3):
+    """Kick off a background historical backfill of confluence snapshots (Quant Data sessionDate).
+
+    POST, like every other route that starts work: a GET is defined as safe
+    and browsers may reissue it on their own."""
+    ticker = ticker.upper().strip()
+    if not _quantdata_ready():
+        return {"ok": False, "error": _quantdata_reason()}
+    cur = _BACKFILL_STATE.get(ticker)
+    if cur and cur.get("running"):
+        return {"ok": True, "already_running": True, **{k: cur.get(k) for k in ("done", "total", "stored")}}
+    _BACKFILL_STATE[ticker] = {"running": True, "done": 0, "total": 0, "stored": 0, "errors": 0,
+                               "finished": False, "cancel": False, "started": datetime.now().strftime("%H:%M:%S")}
+    threading.Thread(target=_run_backfill, args=(ticker, max(int(sample_every), 1)), daemon=True).start()
+    return {"ok": True, "started": True, "ticker": ticker,
+            "note": "Reconstruyendo histórico en segundo plano. Consulta el progreso."}
+
+
+@app.get("/api/backfill/status")
+def backfill_status_endpoint(ticker: str):
+    ticker = ticker.upper().strip()
+    st = _BACKFILL_STATE.get(ticker)
+    if not st:
+        return {"ok": True, "running": False, "total": 0, "done": 0, "stored": 0}
+    return _json_safe({"ok": True, **st})
+
+
+def _horizon_targets_prompt_block(ticker, conviction=None, net_premium=None):
+    """#4 — feed the SAME gamma/flow target engine that Proyecciones uses into the agent prompt,
+    so its narrative and Proyecciones agree (magnet, conflicts, earnings, calibrated confidence)."""
+    try:
+        wallsfn = (lambda e, s: _qd_exposure_walls(ticker, e, s)) if _quantdata_ready() else None
+        t = compute_horizon_targets(ticker, net_premium=net_premium, flow=None, ai_12m=0.0,
+                                    qd_walls_fn=wallsfn, conviction=conviction, calibrate=True)
+    except Exception:
+        return ""
+    tgs = (t.get("targets") if isinstance(t, dict) else None) or []
+    rows = [x for x in tgs if x.get("horizon_days", 0) < 365 and x.get("level")]
+    if not rows:
+        return ""
+    parts = []
+    for x in rows:
+        arrow = "↑" if x["direction"] == "up" else "↓"
+        tag = []
+        if x.get("conflict"):
+            tag.append("CONFLICTO flujo-vs-gamma")
+        if x.get("earnings_soon"):
+            tag.append("earnings en el rango")
+        if x.get("capped"):
+            tag.append("acotado al mov. esperado")
+        extra = (" [" + "; ".join(tag) + "]") if tag else ""
+        parts.append(f"{x['label']} {arrow}${x['level']} (conf {x['confidence']}, base {x.get('basis')}{extra})")
+    return ("\nTARGETS DE GAMMA/FLUJO (MISMO motor que Proyecciones — niveles-imán de dealers + flujo "
+            f"institucional, corto plazo; spot ${t.get('spot')}): " + " · ".join(parts) +
+            ". USO: son niveles-imán (gamma) y de flujo, NO el target fundamental. Concílialos con tus "
+            "targets de σ/DCF: si coinciden, refuerza la convicción; si un horizonte marca CONFLICTO "
+            "flujo-vs-gamma o earnings en el rango, explícalo en tesis_riesgos. No los cambies de número.")
+
+
+def _ledger_current_oi(ticker, trades, max_expiries=15):
+    """Enriquece los trades mostrados con el OI ACTUAL del contrato y su prima vigente. Baja la cadena
+    yfinance una vez por cada vencimiento único NO vencido. Agrega oi_now, price_now y
+    premium_oi_now = oi_now × price_now × 100. Deja None si no hay (p.ej. contrato ya vencido)."""
+    today = datetime.now().date()
+    exps = []
+    for t in trades:
+        e = t.get("exp")
+        if not e or e in exps:
+            continue
+        try:
+            if datetime.strptime(e, "%Y-%m-%d").date() < today:
+                continue   # contrato vencido → no hay OI actual
+        except Exception:
+            continue
+        exps.append(e)
+    exps = exps[:max_expiries]
+    if not exps:
+        return
+    tk = yf.Ticker(ticker)
+    cmap = {}
+    for e in exps:
+        try:
+            ch = tk.option_chain(e)
+        except Exception:
+            continue
+        for df, cp in ((getattr(ch, "calls", None), "CALL"), (getattr(ch, "puts", None), "PUT")):
+            if df is None or df.empty:
+                continue
+            for _, r in df.iterrows():
+                K = _safe_num(r.get("strike"))
+                if K <= 0:
+                    continue
+                bid = _safe_num(r.get("bid")); ask = _safe_num(r.get("ask")); last = _safe_num(r.get("lastPrice"))
+                price = round((bid + ask) / 2, 2) if (bid > 0 and ask > 0) else (last if last > 0 else None)
+                cmap[(e, cp, round(K, 2))] = {"oi": int(_safe_num(r.get("openInterest"))), "price": price}
+    for t in trades:
+        info = cmap.get((t.get("exp"), t.get("cp"), round(_safe_num(t.get("strike")), 2)))
+        if info:
+            t["oi_now"] = info["oi"] or None
+            t["price_now"] = info["price"]
+            t["premium_oi_now"] = (round(info["oi"] * info["price"] * 100, 0)
+                                   if (info["oi"] and info["price"]) else None)
+        else:
+            t["oi_now"] = t["price_now"] = t["premium_oi_now"] = None
+
+
+@app.get("/api/options-ledger")
+def options_ledger_endpoint(ticker: str, limit: int = 60, days: int = 120,
+                            min_premium: float = 5_000_000, with_oi: bool = True,
+                            only_active: bool = True):
+    """Libro de transacciones institucionales de los ÚLTIMOS `days` días (default 120), solo trades de
+    `min_premium`+ (default $5M) y solo lado direccional (ASK/ABOVE_ASK = compra · BID/BELOW_BID = venta).
+    Con only_active=True (default) OCULTA contratos cuya fecha de vencimiento ya pasó: solo muestra flujo de
+    contratos vigentes. Por trade: contrato, DTE (entero), nº de contratos, precio (optionPrice), total
+    invertido. Más un resumen comprado-vs-vendido. Todo filtrado server-side por Quant Data (timeRange+premiumRange+sides)."""
+    ticker = ticker.upper().strip()
+    if not _quantdata_ready():
+        return {"ok": False, "error": _quantdata_reason()}
+    _today = datetime.utcnow().strftime("%Y-%m-%d")
+    rows = quantdata_flow_window(ticker, days=int(days), min_premium=float(min_premium))
+    if not rows:
+        # fallback: sesión más reciente, filtrada del lado del cliente
+        base = quantdata_flow(ticker, limit=100) or []
+        rows = [r for r in base
+                if _safe_num(r.get("premium")) >= float(min_premium)
+                and (r.get("side") or "").upper() in ("ASK", "ABOVE_ASK", "BID", "BELOW_BID")]
+        for r in rows:
+            r["tradeTime"] = None
+            r["price"] = (round(_safe_num(r.get("premium")) / (int(_safe_num(r.get("size"))) * 100), 2)
+                          if int(_safe_num(r.get("size"))) > 0 else None)
+    if not rows:
+        return {"ok": True, "ticker": ticker, "trades": [], "summary": None,
+                "note": f"Sin trades de ${float(min_premium):,.0f}+ direccionales en {int(days)} días."}
+
+    def lean(side):
+        s = (side or "").upper()
+        if s in ("ASK", "ABOVE_ASK"):
+            return "compra"
+        if s in ("BID", "BELOW_BID"):
+            return "venta"
+        return "neutral"
+
+    trades, summ = [], {"call_buy": 0.0, "call_sell": 0.0, "put_buy": 0.0, "put_sell": 0.0}
+    n_expired = 0
+    for r in rows:
+        _exp = (r.get("exp") or "")[:10]
+        if only_active and _exp and _exp < _today:      # contrato ya vencido → no mostrar su flujo
+            n_expired += 1
+            continue
+        prem = _safe_num(r.get("premium"))
+        size = int(_safe_num(r.get("size")))
+        price = r.get("price")
+        if price is None and size > 0 and prem:
+            price = round(prem / (size * 100), 2)
+        bs = lean(r.get("side"))
+        cp = (r.get("cp") or "").upper()
+        if prem:
+            if cp == "CALL" and bs == "compra":
+                summ["call_buy"] += prem
+            elif cp == "CALL" and bs == "venta":
+                summ["call_sell"] += prem
+            elif cp == "PUT" and bs == "compra":
+                summ["put_buy"] += prem
+            elif cp == "PUT" and bs == "venta":
+                summ["put_sell"] += prem
+        # fecha legible del trade (la ventana abarca 120 días)
+        tt = r.get("tradeTime")
+        when = None
+        if tt:
+            try:
+                when = datetime.fromtimestamp(int(tt) / 1000).strftime("%m-%d %H:%M")
+            except Exception:
+                when = None
+        oi = int(_safe_num(r.get("oi")))
+        premium_oi = round(oi * price * 100, 0) if (oi > 0 and price) else None   # prima total comprometida en el OI actual
+        trades.append({"when": when, "_ts": (int(tt) if tt else 0),
+                       "cp": cp, "strike": r.get("strike"), "exp": r.get("exp"),
+                       "dte": (int(round(_safe_num(r.get("dte")))) if r.get("dte") is not None else None),
+                       "size": size, "price": price, "side": r.get("side"), "buy_sell": bs,
+                       "premium": round(prem, 0) if prem else None,
+                       "oi": oi or None, "premium_oi": premium_oi, "kind": r.get("kind"),
+                       "opening": r.get("opening"), "unusual": r.get("unusual"),
+                       "golden": r.get("golden"), "delta": r.get("delta")})
+    trades.sort(key=lambda t: (t.get("_ts") or 0), reverse=True)   # más reciente → más viejo
+    bull = summ["call_buy"] + summ["put_sell"]
+    bear = summ["put_buy"] + summ["call_sell"]
+    bias = "alcista" if bull > bear else ("bajista" if bear > bull else "neutral")
+    summ = {k: round(v, 0) for k, v in summ.items()}
+    summ.update({"net_call": round(summ["call_buy"] - summ["call_sell"], 0),
+                 "net_put": round(summ["put_buy"] - summ["put_sell"], 0),
+                 "bull_notional": round(bull, 0), "bear_notional": round(bear, 0), "bias": bias})
+    shown = trades[:int(limit)]
+    if with_oi:
+        try:
+            _ledger_current_oi(ticker, shown)
+        except Exception:
+            pass
+    return _json_safe({"ok": True, "ticker": ticker, "n": len(trades), "days": int(days),
+                       "min_premium": float(min_premium), "only_active": only_active,
+                       "n_expired_hidden": n_expired, "trades": shown, "summary": summ})
+
+
+    def lean(side):
+        s = (side or "").upper()
+        if s in ("ASK", "ABOVE_ASK"):
+            return "compra"
+        if s in ("BID", "BELOW_BID"):
+            return "venta"
+        return "neutral"
+
+
+@app.get("/api/options-gex")
+def options_gex(ticker: str, refresh: bool = False):
+    """GEX + key levels for one ticker. When a Quant Data API key is configured, augments
+    tape_flow / pro-exposure y el dark pool COMPLETO (todos los niveles) de HOY y de los últimos
+    30 días. refresh=1 salta el cache de GEX para recalcular en vivo (botón Refrescar / auto-refresh)."""
+    g = get_gex_cached(ticker, force=bool(refresh))
+    if not g:
+        return {"ok": False, "error": "Cadena de opciones no disponible para este ticker."}
+    try:
+        g = dict(g)
+        g["integrity"] = _integrity_checks(g)
+    except Exception as _e:
+        print(f"[integrity] skip: {_e}")
+    if _quantdata_ready():
+        try:
+            g = dict(g)
+            g["tape_flow"] = quantdata_net_premium(ticker)
+            g["dark_pool"] = quantdata_darkpool(ticker, limit=500, lookback_days=30)   # todos, 30 días
+            g["dark_pool_today"] = quantdata_darkpool(ticker, limit=500, lookback_days=0)  # todos, hoy
+            g["exposure_pro"] = quantdata_exposure(ticker)
+        except Exception as e:
+            print(f"[QuantData] augment skip: {e}")
+    return _json_safe(g)
+
+
+def _quantdata_ready():
+    return bool(QUANTDATA_API_KEY)
+
+
+def _quantdata_reason():
+    if not QUANTDATA_API_KEY:
+        return "QUANTDATA_API_KEY no configurada. Pega tu API key de Quant Data para activar flow + dark pool."
+    return None
+
+
+#: Rutas de Quant Data que la cuenta NO tiene derecho a usar (401/402/403),
+#: recordadas para no volver a pedirlas. Un rechazo de ENTITLEMENT no cambia
+#: dentro de la misma corrida: reintentarlo sólo gasta tiempo de pared.
+#: Medido en `/api/analyze`: 25 peticiones, todas 403, ~8 s tirados.
+_QD_SIN_DERECHO: dict[str, int] = {}
+_QD_ENTITLEMENT_STATUSES = frozenset({401, 402, 403})
+
+
+def _quantdata_request(path, payload=None, method="POST", timeout=12):
+    """Bearer-auth call to the Quant Data API. Returns parsed JSON, or a dict with
+    '_error' on failure. Never raises — keeps the agent resilient if the feed is down."""
+    if not QUANTDATA_API_KEY:
+        return None
+    ya = _QD_SIN_DERECHO.get(path)
+    if ya:
+        # Mismo cuerpo de error que habría devuelto la llamada, sin hacerla.
+        return {"_error": f"HTTP {ya}", "_body": "endpoint fuera del plan (no se reintenta)"}
+    url = QUANTDATA_BASE.rstrip("/") + path
+    headers = {"Authorization": f"Bearer {QUANTDATA_API_KEY}", "Content-Type": "application/json"}
+    try:
+        if method.upper() == "POST":
+            r = requests.post(url, json=(payload or {}), headers=headers, timeout=timeout)
+        else:
+            r = requests.get(url, params=(payload or {}), headers=headers, timeout=timeout)
+        if r.status_code != 200:
+            if r.status_code in _QD_ENTITLEMENT_STATUSES:
+                _QD_SIN_DERECHO[path] = r.status_code
+            return {"_error": f"HTTP {r.status_code}", "_body": (r.text or "")[:300]}
+        return r.json()
+    except Exception as e:
+        return {"_error": str(e)}
+
+
+def quantdata_net_premium(ticker, session_date=None):
+    """Net call/put premium (endpoint /options/tool/net-drift).
+    Response: {"data": {ts: {netCallPremium, netPutPremium, stockPrice}}}.
+    session_date (YYYY-MM-DD) pulls a historical session for backtesting."""
+    _p = {"filter": {"ticker": ticker.upper()}}
+    if session_date:
+        _p["sessionDate"] = str(session_date)[:10]
+    d = _quantdata_request(QUANTDATA_ENDPOINTS["net_premium"], _p)
+    if not d or not isinstance(d, dict) or "_error" in d:
+        return None
+    data = d.get("data") or {}
+    if not isinstance(data, dict) or not data:
+        return None
+    try:
+        last_ts = max(data.keys(), key=lambda k: int(k))
+        row = data[last_ts] or {}
+        ncp = _safe_num(row.get("netCallPremium")); npp = _safe_num(row.get("netPutPremium"))
+        # Convención Quant Data: netPutPremium > 0 = COMPRA de puts (bajista); < 0 = venta (alcista).
+        # Bullishness = call premium MENOS put premium (no sumar: el signo de puts ya codifica bajista).
+        net = ncp - npp
+        return {"net_call_premium": round(ncp, 0), "net_put_premium": round(npp, 0),
+                "net_premium": round(net, 0), "stock_price": _safe_num(row.get("stockPrice")) or None,
+                "bias": "alcista" if net > 0 else ("bajista" if net < 0 else "neutral")}
+    except Exception:
+        return None
+
+
+def quantdata_darkpool(ticker, limit=15, lookback_days=30):
+    """Off-exchange print activity aggregated BY PRICE LEVEL via /equities/tool/dark-pool-levels.
+    Request uses sessionDateRange (startDate required; endDate defaults to tomorrow NY).
+    Default lookback = 30 days (accumulation/distribution zones over the last month).
+    Response: {"latestStockPrice":x, "data": {"215.00": {notionalValue, size, tradeCount}}}."""
+    start = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    d = _quantdata_request(QUANTDATA_ENDPOINTS["darkpool"],
+                           {"sessionDateRange": {"startDate": start}, "filter": {"ticker": ticker.upper()}})
+    if not d or not isinstance(d, dict) or "_error" in d:
+        return None
+    data = d.get("data") or {}
+    if not isinstance(data, dict) or not data:
+        return None
+    out = []
+    for lvl, cell in data.items():
+        if not isinstance(cell, dict):
+            continue
+        try:
+            price = float(lvl)
+        except Exception:
+            price = _safe_num(cell.get("price"))
+        out.append({
+            "price": price or None,
+            "value": _safe_num(cell.get("notionalValue")) or None,
+            "size": int(_safe_num(cell.get("size"))),
+            "trade_count": int(_safe_num(cell.get("tradeCount"))),
+        })
+    out = [x for x in out if x["price"] and x["value"]]
+    out.sort(key=lambda x: x["value"], reverse=True)
+    return out[:limit] or None
+
+
+def quantdata_exposure(ticker, greek="GAMMA", representation="PER_ONE_PERCENT_MOVE", expiration=None, session_date=None):
+    """Per-strike dealer exposure via /options/tool/exposure-by-strike. greekMode +
+    representationMode are REQUIRED by the API (GAMMA/DELTA/VANNA/CHARM). Aggregates the
+    exposureMap (expiration -> strike -> {callExposure,putExposure}) into net per strike.
+    If `expiration` (YYYY-MM-DD) is given, restricts exposure to that expiry.
+    session_date (YYYY-MM-DD) pulls a historical session for backtesting."""
+    _filter = {"ticker": ticker.upper()}
+    if expiration:
+        _filter["expirationDate"] = str(expiration)[:10]
+    _payload = {"greekMode": greek, "representationMode": representation, "filter": _filter}
+    if session_date:
+        _payload["sessionDate"] = str(session_date)[:10]
+    d = _quantdata_request(QUANTDATA_ENDPOINTS["exposure"], _payload)
+    if not d or not isinstance(d, dict) or "_error" in d:
+        return None
+    data = d.get("data") or {}
+    if not isinstance(data, dict) or not data:
+        return None
+    tk = data.get(ticker.upper()) or next(iter(data.values()), {})
+    if not isinstance(tk, dict):
+        return None
+    emap = tk.get("exposureMap") or {}
+    by_strike = {}
+    for _exp, strikes in (emap.items() if isinstance(emap, dict) else []):
+        if not isinstance(strikes, dict):
+            continue
+        for k, cell in strikes.items():
+            if not isinstance(cell, dict):
+                continue
+            K = _safe_num(k)
+            if K <= 0:
+                continue
+            ce = _safe_num(cell.get("callExposure")); pe = _safe_num(cell.get("putExposure"))
+            agg = by_strike.setdefault(K, {"call": 0.0, "put": 0.0})
+            agg["call"] += ce; agg["put"] += pe
+    rows = [{"strike": K, "call": round(v["call"], 0), "put": round(v["put"], 0),
+             "net": round(v["call"] + v["put"], 0)} for K, v in sorted(by_strike.items())]
+    if not rows:
+        return None
+    exps_avail = sorted({str(e)[:10] for e in emap.keys()}) if isinstance(emap, dict) else []
+    return {"greek": greek, "representation": representation,
+            "stock_price": _safe_num(tk.get("stockPrice")) or None,
+            "by_strike": rows, "expirations": exps_avail}
+
+
+def _extract_max_pain(d, ticker, expiration=None):
+    """Extrae el strike de Max Pain de la respuesta QD sin asumir un único formato (defensivo)."""
+    if not d or not isinstance(d, dict) or "_error" in d:
+        return None
+
+    def _mp_from(obj):
+        if not isinstance(obj, dict):
+            return None
+        for k in ("maxPain", "max_pain", "maxPainStrike", "maxPainPrice", "maxpain"):
+            if obj.get(k) is not None:
+                v = _safe_num(obj.get(k))
+                return v if v > 0 else None
+        return None
+
+    data = d.get("data", d)
+    v = _mp_from(data)                                   # caso 1: maxPain directo
+    if v:
+        return v
+    if isinstance(data, dict):
+        v = _mp_from(data.get(ticker.upper()))           # caso 2: keyed por ticker
+        if v:
+            return v
+        try:                                             # caso 3: keyed por timestamp → último bucket
+            num_keys = [k for k in data.keys() if str(k).isdigit()]
+            if num_keys:
+                last = data[max(num_keys, key=lambda k: int(k))]
+                v = _mp_from(last) if isinstance(last, dict) else (_safe_num(last) or None)
+                if v and v > 0:
+                    return v
+        except Exception:
+            pass
+        exp_keys = [k for k in data.keys() if isinstance(k, str) and re.match(r"\d{4}-\d{2}-\d{2}", k)]
+        if exp_keys:                                     # caso 4: keyed por expiración
+            pick = str(expiration)[:10] if (expiration and str(expiration)[:10] in exp_keys) else sorted(exp_keys)[0]
+            cell = data.get(pick)
+            v = _mp_from(cell) if isinstance(cell, dict) else (_safe_num(cell) or None)
+            if v and v > 0:
+                return v
+        first = next(iter(data.values()), None)          # caso 5: primer valor
+        v = _mp_from(first) if isinstance(first, dict) else (_safe_num(first) or None)
+        if v and v > 0:
+            return v
+    return None
+
+
+    def _mp_from(obj):
+        if not isinstance(obj, dict):
+            return None
+        for k in ("maxPain", "max_pain", "maxPainStrike", "maxPainPrice", "maxpain"):
+            if obj.get(k) is not None:
+                v = _safe_num(obj.get(k))
+                return v if v > 0 else None
+        return None
+
+
+_QD_MAXPAIN_CACHE = {}
+
+
+def quantdata_max_pain(ticker, expiration=None, session_date=None, ttl=300):
+    """Max Pain NATIVO de Quant Data (/options/tool/max-pain), computado server-side sobre el OI
+    completo de 18 exchanges. Devuelve el strike (float) o None. Si el endpoint/schema difieren,
+    degrada a None y el caller cae a yfinance (sin romper nada)."""
+    key = f"{ticker.upper()}|{expiration or ''}|{session_date or ''}"
+    nowt = time.time()
+    ent = _QD_MAXPAIN_CACHE.get(key)
+    if ent and nowt - ent[0] < ttl:
+        return ent[1]
+    val = None
+    try:
+        _filter = {"ticker": ticker.upper()}
+        if expiration:
+            _filter["expirationDate"] = str(expiration)[:10]
+        payload = {"filter": _filter}
+        if session_date:
+            payload["sessionDate"] = str(session_date)[:10]
+        val = _extract_max_pain(_quantdata_request(QUANTDATA_ENDPOINTS["max_pain"], payload), ticker, expiration)
+    except Exception:
+        val = None
+    _QD_MAXPAIN_CACHE[key] = (nowt, val)
+    return val
+
+
+def _max_pain_best(ticker, expiration=None, call_oi=None, put_oi=None):
+    """Prefiere el Max Pain NATIVO de Quant Data (OI completo, server-side); si no hay, cae al cálculo
+    sobre el OI de la cadena yfinance. Devuelve (valor|None, fuente)."""
+    if _quantdata_ready():
+        qd = quantdata_max_pain(ticker, expiration)
+        if qd:
+            return qd, "quantdata"
+    if call_oi and put_oi:
+        mp = _max_pain(call_oi, put_oi)
+        if mp:
+            return mp, "yfinance"
+    return None, None
+
+
+def _max_pain_per_expiry_best(ticker, expiration, call_oi, put_oi):
+    """#7 — Max Pain POR VENCIMIENTO. Prefiere el nativo de Quant Data (OI completo de 18 exchanges,
+    server-side) PERO solo si QD realmente honra el filtro `expirationDate`. Lo AUTODETECTA: si el
+    max-pain QD del vencimiento concreto difiere del agregado QD (None), entonces QD está respetando
+    el filtro → se usa. Si es idéntico (lo ignora) o nulo, cae al cálculo por-vencimiento de yfinance,
+    que SÍ varía por expiración. Así nunca degradamos: o mejora con QD real, o queda igual que antes.
+    Kill-switch: env QD_MAXPAIN_PER_EXPIRY=0. Devuelve (valor|None, fuente)."""
+    yf_mp = _max_pain(call_oi, put_oi) if (call_oi and put_oi) else None
+    try:
+        if os.environ.get("QD_MAXPAIN_PER_EXPIRY", "1") != "0" and expiration and _quantdata_ready():
+            qd_exp = quantdata_max_pain(ticker, expiration)
+            if qd_exp:
+                qd_agg = quantdata_max_pain(ticker, None)          # cacheado; 1 sola vez por ticker
+                if qd_agg is None or abs(float(qd_exp) - float(qd_agg)) > 1e-6:
+                    return qd_exp, "quantdata"                     # QD honró expirationDate
+    except Exception:
+        pass
+    return (yf_mp, "yfinance") if yf_mp else (None, None)
+
+
+def quantdata_flow(ticker, limit=20, session_date=None):
+    """Per-trade options flow via /options/tool/order-flow/consolidated (blocks, sweeps, splits).
+    Field names match the real schema; delta comes from each row's nested `greeks`.
+    session_date (YYYY-MM-DD) pulls a historical session for backtesting."""
+    _p = {"filter": {"ticker": ticker.upper()}, "size": max(limit, 50)}
+    if session_date:
+        _p["sessionDate"] = str(session_date)[:10]
+    d = _quantdata_request(QUANTDATA_ENDPOINTS["flow"], _p)
+    if not d or not isinstance(d, dict) or "_error" in d:
+        return None
+    rows = d.get("data") or []
+    if isinstance(rows, dict):
+        rows = list(rows.values())
+    out = []
+    for r in (rows or []):
+        if not isinstance(r, dict):
+            continue
+        g = r.get("greeks") or {}
+        dlt = g.get("delta")
+        vol = _safe_num(r.get("volume"))
+        oi_raw = r.get("openInterest", r.get("open_interest", r.get("oi")))
+        oi = _safe_num(oi_raw) if oi_raw is not None else None
+        unusual = bool(r.get("isUnusual"))
+        # "Adds to open interest" = an OPENING trade. Direct proof: the day's volume exceeds
+        # the prior open interest (you can't close more contracts than exist → must be opening).
+        # Falls back to isUnusual (Quant Data's vol>OI flag) when OI isn't in the payload.
+        if oi is not None and vol > 0:
+            opening = vol > oi
+        else:
+            opening = unusual
+        out.append({
+            "time": r.get("tradeTime"),
+            "kind": r.get("tradeConsolidationType") or r.get("tradeType"),   # SWEEP / BLOCK / SPLIT
+            "side": r.get("tradeSideCode"),                                   # ABOVE_ASK / BELOW_BID ...
+            "cp": r.get("contractType"),                                      # CALL / PUT
+            "exp": r.get("expirationDate"),
+            "dte": _safe_num(r.get("dte")) or None,
+            "strike": _safe_num(r.get("strikePrice")) or None,
+            "size": int(_safe_num(r.get("size") or r.get("volume"))),
+            "volume": int(vol),
+            "open_interest": (int(oi) if oi is not None else None),
+            "vol_oi": (round(vol / oi, 2) if (oi and oi > 0) else None),
+            "opening": opening,                                               # adds to OI
+            "premium": _safe_num(r.get("premium")) or None,
+            "delta": (_safe_num(dlt) if dlt is not None else None),
+            "spot": _safe_num(r.get("stockPrice")) or None,
+            "unusual": unusual,
+            "golden": bool(r.get("isGoldenSweep")),
+        })
+        if len(out) >= limit:
+            break
+    return out or None
+
+
+def quantdata_flow_window(ticker, days=120, min_premium=1_000_000, max_rows=300):
+    """Order-flow over a multi-day window, FILTERED SERVER-SIDE (one paginated query, no per-day loop):
+    timeRange (last `days`), premiumRange ≥ min_premium, and tradeSideCodes restricted to the four
+    directional sides (ASK/ABOVE_ASK/BID/BELOW_BID — excludes MID). Uses optionPrice + isOpeningPosition
+    straight from the schema. Sorted by tradeTime DESC (most recent first); cursor-paginated up to max_rows."""
+    if not _quantdata_ready():
+        return []
+    end = datetime.utcnow()
+    start = end - timedelta(days=int(days))
+    iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
+    base = {"filter": {"ticker": ticker.upper(),
+                       "premiumRange": {"min": float(min_premium)},
+                       "tradeSideCodes": ["ASK", "ABOVE_ASK", "BID", "BELOW_BID"]},
+            "timeRange": {"startTime": iso(start), "endTime": iso(end)},
+            "size": 100, "sort": {"field": "tradeTime", "direction": "DESCENDING"}}
+    out, after = [], None
+    for _ in range(max(1, max_rows // 100 + 1)):
+        body = dict(base)
+        if after:
+            body["searchAfter"] = after
+        d = _quantdata_request(QUANTDATA_ENDPOINTS["flow"], body)
+        if not d or not isinstance(d, dict) or "_error" in d:
+            break
+        rows = d.get("data") or []
+        for r in rows:
+            g = r.get("greeks") or {}
+            dlt = g.get("delta") if isinstance(g, dict) else None
+            out.append({
+                "tradeTime": r.get("tradeTime"),
+                "kind": r.get("tradeConsolidationType") or r.get("tradeType"),
+                "side": r.get("tradeSideCode"),
+                "cp": r.get("contractType"),
+                "exp": r.get("expirationDate"),
+                "dte": _safe_num(r.get("dte")) or None,
+                "strike": _safe_num(r.get("strikePrice")) or None,
+                "size": int(_safe_num(r.get("size") or r.get("volume"))),
+                "oi": int(_safe_num(r.get("openInterest"))),
+                "price": _safe_num(r.get("optionPrice")) or None,
+                "premium": _safe_num(r.get("premium")) or None,
+                "opening": (bool(r.get("isOpeningPosition")) if r.get("isOpeningPosition") is not None
+                            else bool(r.get("isVolumeGreaterThanOpenInterest"))),
+                "unusual": bool(r.get("isUnusual")),
+                "golden": bool(r.get("isGoldenSweep")),
+                "delta": (_safe_num(dlt) if dlt is not None else None),
+                "spot": _safe_num(r.get("stockPrice")) or None,
+            })
+        after = d.get("nextSearchAfter")
+        if not after or len(out) >= max_rows:
+            break
+    return out[:max_rows]
+
+
+def quantdata_oi_change(ticker, limit=100, session_date=None):
+    """Per-contract daily open-interest delta via /options/tool/open-interest-change.
+    THIS is the real 'added to OI' signal Kevin wants: it compares the open interest the day
+    AFTER the trades (currentOpenInterest) vs the day OF the trades (previousOpenInterest) and
+    returns the signed changeInOpenInterest. Solves multi-day accumulation: even with 70k already
+    open, adding 30k more shows changeInOpenInterest = +30k (vol>OI would have missed it).
+    Returns {'map': {key->{change,current,previous,pct}}, 'builds': [top OI builds]} or None.
+    key = 'CALL|220.0|2026-05-16' (contractType|strike|expiration)."""
+    payload = {
+        "filter": {"tickers": [ticker.upper()],
+                   "changeInOpenInterestRange": {"min": 1, "max": None}},  # positive deltas = additions
+        "size": min(max(int(limit), 1), 100),
+        "sort": {"field": "changeInOpenInterest", "direction": "DESCENDING"},
+    }
+    if session_date:
+        payload["sessionDate"] = str(session_date)[:10]
+    d = _quantdata_request(QUANTDATA_ENDPOINTS["oi_change"], payload)
+    if not d or not isinstance(d, dict) or "_error" in d:
+        return None
+    rows = d.get("data") or []
+    if isinstance(rows, dict):
+        rows = list(rows.values())
+    omap, builds = {}, []
+    for r in (rows or []):
+        if not isinstance(r, dict):
+            continue
+        cp = str(r.get("contractType") or "").upper()
+        K = _safe_num(r.get("strikePrice"))
+        exp = str(r.get("expirationDate") or "")[:10]
+        chg = int(_safe_num(r.get("changeInOpenInterest")))
+        cur = int(_safe_num(r.get("currentOpenInterest")))
+        prev = int(_safe_num(r.get("previousOpenInterest")))
+        pct = _safe_num(r.get("percentChangeInOpenInterest"))
+        if not cp or not exp:
+            continue
+        key = f"{cp}|{round(K, 2)}|{exp}"
+        omap[key] = {"change": chg, "current": cur, "previous": prev, "pct": pct}
+        builds.append({"cp": cp, "strike": K, "exp": exp, "change": chg,
+                       "current": cur, "pct": round(pct * 100, 1) if pct else None})
+    if not omap:
+        return None
+    builds.sort(key=lambda b: b["change"], reverse=True)
+    return {"map": omap, "builds": builds[:15]}
+
+
+def quantdata_dark_prints(ticker, limit=100, session_date=None):
+    """Dark-pool BUY/SELL proxy via /equities/tool/equity-prints (printType DARK_POOL).
+    tradeSide ASK/ABOVE_ASK = comprador (levanta la oferta, alcista); BID/BELOW_BID = vendedor
+    (golpea el bid, bajista); MID_MARKET = neutral. Agrega notional por lado → el dark pool deja de
+    ser solo posicional y pasa a ser DIRECCIONAL. Honesto: muchos prints dark imprimen al mid.
+    session_date (YYYY-MM-DD) pulls a historical session for backtesting."""
+    payload = {"filter": {"ticker": ticker.upper(), "equityPrintTypes": ["DARK_POOL"]},
+               "size": min(max(int(limit), 1), 100),
+               "sort": {"field": "notionalValue", "direction": "DESCENDING"}}
+    if session_date:
+        payload["sessionDate"] = str(session_date)[:10]
+    d = _quantdata_request(QUANTDATA_ENDPOINTS["equity_prints"], payload)
+    if not d or not isinstance(d, dict) or "_error" in d:
+        return None
+    rows = d.get("data") or []
+    if isinstance(rows, dict):
+        rows = list(rows.values())
+    buy = sell = mid = 0.0
+    prints = []
+    for r in (rows or []):
+        if not isinstance(r, dict):
+            continue
+        notl = _safe_num(r.get("notionalValue"))
+        if notl <= 0:
+            continue
+        side = str(r.get("tradeSide") or "").upper()
+        if side in ("ASK", "ABOVE_ASK"):
+            buy += notl; lab = "compra"
+        elif side in ("BID", "BELOW_BID"):
+            sell += notl; lab = "venta"
+        else:
+            mid += notl; lab = "mid"
+        if len(prints) < 12:
+            prints.append({"price": _safe_num(r.get("price")) or None,
+                           "size": int(_safe_num(r.get("size"))), "notional": round(notl, 0),
+                           "side": side, "lab": lab, "time": r.get("tradeTime")})
+    tot = buy + sell + mid
+    if tot <= 0:
+        return None
+    directional = buy + sell
+    lean = round((buy - sell) / directional * 100, 0) if directional > 0 else None
+    bias = "alcista" if buy > sell * 1.15 else ("bajista" if sell > buy * 1.15 else "neutral")
+    return {"buy_notional": round(buy, 0), "sell_notional": round(sell, 0), "mid_notional": round(mid, 0),
+            "total_notional": round(tot, 0), "bias": bias, "lean_pct": lean, "prints": prints}
+
+
+def quantdata_net_flow(ticker, window="today", expiration=None):
+    """Net call vs put premium OVER TIME via /options/tool/net-flow (dataMode NET_PREMIUM, en centavos).
+    window: 'today' (última sesión, buckets intradía) o '7d'/'30d'/'90d' (timeRange multi-día).
+    expiration: 'YYYY-MM-DD' restringe el flujo a los contratos de esa expiración (0DTE = la del día).
+    Devuelve serie + neto acumulado + tendencia (acelerando/desvaneciéndose/revirtiendo)."""
+    _filter = {"ticker": ticker.upper()}
+    if expiration and str(expiration).strip().lower() not in ("", "all", "todas"):
+        _filter["expirationDate"] = str(expiration)[:10]
+    payload = {"dataMode": "NET_PREMIUM", "filter": _filter}
+    wd = {"7d": 7, "30d": 30, "90d": 90}.get(window)
+    if wd:
+        end = datetime.utcnow()
+        start = end - timedelta(days=wd)
+        payload["timeRange"] = {"startTime": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                "endTime": end.strftime("%Y-%m-%dT%H:%M:%SZ")}
+    d = _quantdata_request(QUANTDATA_ENDPOINTS["net_flow"], payload)
+    if not d or not isinstance(d, dict) or "_error" in d:
+        return None
+    data = d.get("data") or {}
+    if not isinstance(data, dict) or not data:
+        return None
+    series = []
+    for ts, cell in data.items():
+        if not isinstance(cell, dict):
+            continue
+        try:
+            t = int(ts)
+        except Exception:
+            continue
+        call = _safe_num(cell.get("callSum")) / 100.0      # cents → dollars
+        put = _safe_num(cell.get("putSum")) / 100.0
+        series.append({"t": t, "call": round(call, 0), "put": round(put, 0),
+                       "net": round(call - put, 0), "spot": _safe_num(cell.get("stockPrice")) or None})
+    if not series:
+        return None
+    series.sort(key=lambda x: x["t"])
+    call_total = sum(s["call"] for s in series)
+    put_total = sum(s["put"] for s in series)
+    cum_net = round(call_total - put_total, 0)
+    n = len(series)
+
+    def _dir(x):
+        return "alcista" if x > 0 else ("bajista" if x < 0 else "neutral")
+    if n < 3:
+        trend = "datos insuficientes"
+    else:
+        k = max(n // 3, 1)
+        first = sum(s["net"] for s in series[:k]) / k
+        last = sum(s["net"] for s in series[-k:]) / k
+        if first != 0 and last * first < 0:
+            trend = f"revirtiendo a {_dir(last)}"
+        elif abs(last) > abs(first) * 1.15:
+            trend = f"acelerando ({_dir(last)})"
+        elif abs(last) < abs(first) * 0.6:
+            trend = "desvaneciéndose"
+        else:
+            trend = f"estable ({_dir(last)})"
+    return {"window": window, "expiration": (expiration or "all"), "series": series, "n": n, "cum_net": cum_net,
+            "call_total": round(call_total, 0), "put_total": round(put_total, 0),
+            "bias": _dir(cum_net), "trend": trend}
+
+
+    def _dir(x):
+        return "alcista" if x > 0 else ("bajista" if x < 0 else "neutral")
+
+
+def quantdata_big_prints(ticker, window="today", expiration=None, a_min=5_000_000, b_min=1_000_000, oi_map=None):
+    """Prints institucionales grandes para MARCAR sobre la línea de Net Drift, alineados a la ventana.
+    Tipo A = transacción ÚNICA ≥ $5M (convicción de un solo golpe). Tipo B = ≥2 transacciones ≥ $1M en el
+    MISMO contrato (cp/strike/exp) → acumulación repetida. Devuelve [{t(ms), premium, cp, side, strike, exp,
+    type, golden, spot, oi_confirm, oi_change, b_count, b_span_min, b_density}] ordenado por tiempo.
+    oi_map (de quantdata_oi_change) confirma si el print ABRIÓ posición (ΔOI>0) o probablemente la cerró (ΔOI<0).
+    Tipo B trae densidad temporal: 3 golpes en 20min (density 'alta') pesan mucho más que 3 en 3 días ('baja')."""
+    days = {"today": 1, "7d": 7, "30d": 30, "90d": 90}.get(window, 1)
+    flow = quantdata_flow_window(ticker, days=days, min_premium=b_min, max_rows=400)
+    if not flow:
+        return []
+    exp_f = str(expiration)[:10] if (expiration and str(expiration).strip().lower() not in ("", "all", "todas")) else None
+
+    def _to_ms(ts):
+        if ts is None:
+            return None
+        try:
+            v = float(ts)
+            return int(v) if v > 1e11 else int(v * 1000)   # ≥1e11 ya viene en ms; si no, seg→ms
+        except Exception:
+            pass
+        s = str(ts).replace("Z", "").replace("T", " ")[:19]
+        import calendar
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+            try:
+                return int(calendar.timegm(time.strptime(s, fmt)) * 1000)   # ISO tratado como UTC (igual que los buckets QD)
+            except Exception:
+                continue
+        return None
+
+    # 1er paso: por contrato, junta los timestamps de trades ≥ b_min → define Tipo B + su densidad temporal
+    times = {}
+    for t in flow:
+        if exp_f and str(t.get("exp") or "")[:10] != exp_f:
+            continue
+        if abs(_safe_num(t.get("premium"))) >= b_min:
+            ms0 = _to_ms(t.get("tradeTime"))
+            if ms0 is None:
+                continue
+            times.setdefault((t.get("cp"), t.get("strike"), t.get("exp")), []).append(ms0)
+    bmeta = {}
+    for key, ts in times.items():
+        if len(ts) >= 2:
+            span_min = (max(ts) - min(ts)) / 60000.0
+            dens = "alta" if span_min <= 30 else ("media" if span_min <= 1440 else "baja")
+            bmeta[key] = {"count": len(ts), "span_min": round(span_min, 1), "density": dens}
+
+    out = []
+    for t in flow:
+        if exp_f and str(t.get("exp") or "")[:10] != exp_f:
+            continue
+        prem = abs(_safe_num(t.get("premium")))
+        key = (t.get("cp"), t.get("strike"), t.get("exp"))
+        typ = "A" if prem >= a_min else ("B" if (prem >= b_min and key in bmeta) else None)
+        if not typ:
+            continue
+        ms = _to_ms(t.get("tradeTime"))
+        if ms is None:
+            continue
+        rec = {"t": ms, "premium": round(prem, 0), "cp": t.get("cp"), "side": t.get("side"),
+               "strike": t.get("strike"), "exp": t.get("exp"), "type": typ,
+               "golden": bool(t.get("golden")), "spot": t.get("spot")}
+        # Confirmación de OI: ¿el print ABRIÓ posición (ΔOI>0) o probablemente la cerró (ΔOI<0)?
+        if isinstance(oi_map, dict) and oi_map:
+            _cp = str(t.get("cp") or "").upper()
+            _cpf = "CALL" if _cp.startswith("C") else ("PUT" if _cp.startswith("P") else _cp)
+            oi = oi_map.get(f"{_cpf}|{round(_safe_num(t.get('strike')), 2)}|{str(t.get('exp') or '')[:10]}")
+            if oi is not None:
+                ch = int(_safe_num(oi.get("change")))
+                rec["oi_change"] = ch
+                rec["oi_confirm"] = True if ch > 0 else (False if ch < 0 else None)
+            else:
+                rec["oi_confirm"] = None
+        # Densidad temporal del Tipo B
+        if typ == "B" and key in bmeta:
+            bm = bmeta[key]
+            rec["b_count"] = bm["count"]
+            rec["b_span_min"] = bm["span_min"]
+            rec["b_density"] = bm["density"]
+        out.append(rec)
+    out.sort(key=lambda x: x["t"])
+    return out[:60]
+
+
+    def _to_ms(ts):
+        if ts is None:
+            return None
+        try:
+            v = float(ts)
+            return int(v) if v > 1e11 else int(v * 1000)   # ≥1e11 ya viene en ms; si no, seg→ms
+        except Exception:
+            pass
+        s = str(ts).replace("Z", "").replace("T", " ")[:19]
+        import calendar
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+            try:
+                return int(calendar.timegm(time.strptime(s, fmt)) * 1000)   # ISO tratado como UTC (igual que los buckets QD)
+            except Exception:
+                continue
+        return None
+
+
+@app.get("/api/quantdata/status")
+def quantdata_status():
+    """Configured? + a live probe that SURFACES the real HTTP error so failures are diagnosable."""
+    if not _quantdata_ready():
+        return {"ok": False, "configured": False, "error": _quantdata_reason()}
+    probe = _quantdata_request(QUANTDATA_ENDPOINTS["net_premium"], {"filter": {"ticker": "AAPL"}})
+    err = probe.get("_error") if isinstance(probe, dict) else None
+    body = probe.get("_body") if isinstance(probe, dict) else None
+    has_data = bool(isinstance(probe, dict) and probe.get("data"))
+    if has_data:
+        hint = "Conexión OK · datos recibidos de la última sesión cerrada."
+    elif err and "401" in str(err):
+        hint = "HTTP 401: API key inválida o no autorizada. Verifica que copiaste bien la key."
+    elif err and ("403" in str(err) or "402" in str(err)):
+        hint = "HTTP 403/402: la key es válida pero el PLAN API no está activo. Activa el plan API ($149.99/mo) en quantdata.us/pricing?planType=API."
+    elif err and "404" in str(err):
+        hint = "HTTP 404: ruta incorrecta. Revisa QUANTDATA_ENDPOINTS."
+    elif err and ("422" in str(err) or "400" in str(err)):
+        hint = ("HTTP 422/400: request mal formado o sin datos para esa sesión. "
+                "Al omitir sessionDate debería usar la última sesión cerrada.")
+    elif err and "429" in str(err):
+        hint = "HTTP 429: límite de tasa (240 req/min). Espera y reintenta."
+    else:
+        # Antes esta rama culpaba al "fin de semana/feriado" SIEMPRE, y traía
+        # "Juneteenth" escrito a mano de cuando se redactó. En un jueves de
+        # mercado abierto eso manda a buscar el problema donde no está: la API
+        # respondió sin error y devolvió `data` vacío, que es otra cosa. Se dice
+        # el día real y se separan los dos casos.
+        _hoy = datetime.now()
+        _fin_de_semana = _hoy.weekday() >= 5
+        hint = (
+            f"La API respondió SIN error HTTP pero con `data` vacío "
+            f"(hoy {_hoy.strftime('%A %Y-%m-%d')})."
+            + (" Es fin de semana: sin sesión reciente es lo esperado."
+               if _fin_de_semana else
+               " Es día de semana, así que NO es falta de sesión: revisa que el"
+               " plan API cubra /options/tool/net-drift y que la forma del"
+               " request (filter/sessionDate) siga siendo la que espera la API.")
+        )
+    return {"ok": True, "configured": True, "base": QUANTDATA_BASE,
+            "endpoints": QUANTDATA_ENDPOINTS, "live_ping": has_data,
+            "error": err, "error_body": body, "hint": hint}
+
+
+@app.get("/api/quantdata/flow")
+def quantdata_flow_endpoint(ticker: str):
+    """Quant Data flow + dark pool + net premium for one ticker (for the agent / UI)."""
+    if not _quantdata_ready():
+        return {"ok": False, "configured": False, "error": _quantdata_reason()}
+    return _json_safe({"ok": True, "ticker": ticker.upper(),
+                       "net_premium": quantdata_net_premium(ticker),
+                       "dark_pool": quantdata_darkpool(ticker),
+                       "flow": quantdata_flow(ticker)})
+
+
+def compute_options_analytics(options, equity_positions=None):
+    """Book-level Greeks from option positions. Pulls spot + IV from yfinance, prices
+    each contract with Black-Scholes, aggregates net Δ/Γ/Θ/ν, expiry ladder, by-underlying
+    breakdown, per-position detail, and alerts. Greeks are model estimates."""
+    if not options:
+        return {"ok": True, "n_options": 0,
+                "note": "No se detectaron posiciones de opciones en la cuenta conectada. "
+                        "(Plaid solo expone opciones si el broker las reporta; si no, cárgalas con /api/portfolio/import.)"}
+    RF = 0.043
+    now = datetime.now()
+    spot_cache, iv_cache = {}, {}
+    enriched = []
+    net_delta_dollar = net_gamma = net_theta = net_vega = 0.0
+    by_underlying, ladder = {}, {}
+
+    for o in options:
+        u, exp, otype = o["underlying"], o["expiry"], o["option_type"]
+        strike = float(o["strike"]); contracts = float(o["contracts"])
+        # Spot (cache per underlying)
+        if u not in spot_cache:
+            try:
+                h = yf.Ticker(u).history(period="5d")
+                spot_cache[u] = _safe_num(h["Close"].iloc[-1], 0.0) or None if not h.empty else None
+            except Exception:
+                spot_cache[u] = None
+        S = spot_cache[u]
+        # IV from the option chain (cache per underlying+expiry)
+        ivkey = (u, exp)
+        if ivkey not in iv_cache:
+            chain_iv = {}
+            try:
+                ch = yf.Ticker(u).option_chain(exp)
+                for df, typ in ((ch.calls, "call"), (ch.puts, "put")):
+                    for _, row in df.iterrows():
+                        chain_iv[(typ, round(_safe_num(row["strike"]), 2))] = _safe_num(row.get("impliedVolatility"))
+            except Exception:
+                pass
+            iv_cache[ivkey] = chain_iv
+        iv = iv_cache[ivkey].get((otype, round(strike, 2)))
+        if not iv or iv <= 0:  # fallback: avg IV of same type on that expiry, else 0.5
+            cands = [v for (t, _k), v in iv_cache[ivkey].items() if t == otype and v > 0]
+            iv = (sum(cands) / len(cands)) if cands else 0.5
+        # Time to expiry in years
+        try:
+            ed = datetime.strptime(exp, "%Y-%m-%d")
+            T = max((ed - now).total_seconds() / (365.0 * 86400.0), 0.0)
+            dte = max(int(round((ed - now).total_seconds() / 86400.0)), 0)
+        except Exception:
+            T, dte = 0.0, None
+        g = _bs_greeks(S, strike, T, iv, RF, otype)
+        mult = contracts * 100.0
+        if S:
+            d_dollar = g["delta"] * mult * S
+            gm = g["gamma"] * mult
+            th = g["theta_day"] * mult
+            vg = g["vega_1pct"] * mult
+            net_delta_dollar += d_dollar; net_gamma += gm; net_theta += th; net_vega += vg
+            bu = by_underlying.setdefault(u, {"delta_dollar": 0.0, "theta_day": 0.0,
+                                              "vega": 0.0, "value": 0.0, "contracts": 0.0})
+            bu["delta_dollar"] += d_dollar; bu["theta_day"] += th
+            bu["vega"] += vg; bu["value"] += o["value"]; bu["contracts"] += contracts
+            lad = ladder.setdefault(exp, {"expiry": exp, "dte": dte, "contracts": 0.0,
+                                          "value": 0.0, "theta_day": 0.0, "delta_dollar": 0.0})
+            lad["contracts"] += contracts; lad["value"] += o["value"]
+            lad["theta_day"] += th; lad["delta_dollar"] += d_dollar
+        enriched.append({
+            "underlying": u, "option_type": otype, "strike": strike, "expiry": exp, "dte": dte,
+            "contracts": contracts, "value": o["value"], "spot": round(S, 2) if S else None,
+            "iv": round(iv * 100, 1), "delta": round(g["delta"], 3), "gamma": round(g["gamma"], 4),
+            "theta_day_$": round(g["theta_day"] * mult, 2) if S else None,
+            "vega_$": round(g["vega_1pct"] * mult, 2) if S else None,
+            "delta_$": round(g["delta"] * mult * S, 0) if S else None})
+
+    # Total directional delta of the whole book: options Δ$ + stock value (stock delta = 1)
+    stock_delta = sum(float(p.get("value") or 0) for p in (equity_positions or []))
+    total_book_delta = net_delta_dollar + stock_delta
+
+    for v in by_underlying.values():
+        for k in ("delta_dollar", "theta_day", "vega", "value"):
+            v[k] = round(v[k], 2)
+    ladder_list = sorted(ladder.values(), key=lambda x: x["expiry"])
+    for l in ladder_list:
+        for k in ("value", "theta_day", "delta_dollar"):
+            l[k] = round(l[k], 2)
+
+    # Alerts
+    alerts = []
+    soon = [e for e in enriched if e.get("dte") is not None and e["dte"] <= 7]
+    if soon:
+        alerts.append({"level": "warn",
+                       "msg": f"{len(soon)} posición(es) vencen en ≤7 días — el theta se acelera y el gamma se dispara."})
+    if net_theta < 0:
+        alerts.append({"level": "info",
+                       "msg": f"El libro de opciones pierde ${abs(round(net_theta,0)):,.0f}/día por decaimiento temporal (theta neto)."})
+    elif net_theta > 0:
+        alerts.append({"level": "info",
+                       "msg": f"El libro de opciones cobra ${round(net_theta,0):,.0f}/día de theta neto (el decaimiento juega a tu favor)."})
+    if by_underlying:
+        top_u = max(by_underlying.items(), key=lambda kv: abs(kv[1]["delta_dollar"]))
+        tot_abs = sum(abs(v["delta_dollar"]) for v in by_underlying.values()) or 1
+        share = abs(top_u[1]["delta_dollar"]) / tot_abs
+        if share >= 0.6 and len(by_underlying) > 1:
+            alerts.append({"level": "warn",
+                           "msg": f"{top_u[0]} concentra {share*100:.0f}% del delta de opciones — riesgo direccional poco diversificado."})
+
+    return _json_safe({
+        "ok": True, "n_options": len(options),
+        "greeks": {"net_delta_dollar": round(net_delta_dollar, 0),
+                   "net_delta_shares": round(net_delta_dollar / spot_cache[options[0]["underlying"]], 0)
+                   if spot_cache.get(options[0]["underlying"]) else None,
+                   "net_gamma": round(net_gamma, 2),
+                   "net_theta_day": round(net_theta, 2),
+                   "net_vega_1pct": round(net_vega, 2)},
+        "total_book_delta_dollar": round(total_book_delta, 0),
+        "options_delta_dollar": round(net_delta_dollar, 0),
+        "stock_delta_dollar": round(stock_delta, 0),
+        "by_underlying": by_underlying, "ladder": ladder_list,
+        "positions": sorted(enriched, key=lambda x: (x["expiry"], x["underlying"])),
+        "alerts": alerts, "rf": RF,
+        "note": "Las griegas son estimaciones del modelo Black-Scholes con IV de yfinance; "
+                "pueden diferir de las de tu broker.",
+        "generated_at": now.strftime('%m/%d/%Y, %I:%M:%S %p')})
+
+
+@app.get("/api/portfolio-options")
+def portfolio_options():
+    """Book-level options Greeks panel. Reads the stored option snapshot (Plaid o import)
+    + equity snapshot (for total directional delta) and prices everything with BSM."""
+    try:
+        opts = get_options_snapshot()
+        eq = get_portfolio_snapshot()
+        return compute_options_analytics(opts, eq)
+    except Exception as e:
+        return {"ok": False, "error": f"{e}"}
+
+
+def _scheduler_tickers():
+    """Universo a snapshotear: primarios + holdings persistidos + tickers analizados recientemente."""
+    s = set(VERTEX_PRIMARY_TICKERS)
+    try:
+        for h in (get_portfolio_snapshot() or []):
+            t = str(h.get("ticker") or "").upper().strip()
+            if t and t.replace(".", "").isalnum() and len(t) <= 6:
+                s.add(t)
+    except Exception:
+        pass
+    try:
+        conn = _db()
+        rows = conn.execute("SELECT DISTINCT ticker FROM reports ORDER BY created_ts DESC LIMIT 40").fetchall()
+        conn.close()
+        for r in rows:
+            t = str(r["ticker"] or "").upper().strip()
+            if t:
+                s.add(t)
+    except Exception:
+        pass
+    return sorted(s)
+
+
+def _run_daily_collection(throttle=1.0):
+    """Captura el snapshot de hoy para cada ticker del universo. Devuelve cuántos capturó."""
+    if _SCHED_STATE["running"]:
+        return 0
+    _SCHED_STATE["running"] = True
+    n = 0
+    tickers = _scheduler_tickers()
+    try:
+        for tk in tickers:
+            try:
+                _collect_signal_snapshot(tk)
+                n += 1
+                time.sleep(throttle)            # throttle suave para Quant Data
+            except Exception:
+                pass
+    finally:
+        _SCHED_STATE.update({"running": False, "last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                             "last_count": n, "last_tickers": tickers})
+    return n
+
+
+_SCHED_STATE = {"started": False, "last_run": None, "last_count": 0,
+                "last_tickers": [], "running": False, "next_run": None}
+
+
+def _seconds_until_next_run():
+    """Próxima corrida ~21:30 UTC (post-cierre US; ~4:30pm EST / 5:30pm EDT)."""
+    now = datetime.now(timezone.utc)
+    target = now.replace(hour=21, minute=30, second=0, microsecond=0)
+    if now >= target:
+        target += timedelta(days=1)
+    # saltar fines de semana
+    while target.weekday() >= 5:
+        target += timedelta(days=1)
+    _SCHED_STATE["next_run"] = target.strftime("%Y-%m-%d %H:%M UTC")
+    return max(60.0, (target - now).total_seconds())
+
+
+def _scheduler_loop():
+    while True:
+        try:
+            time.sleep(_seconds_until_next_run())
+            if datetime.now(timezone.utc).weekday() < 5:    # solo días de mercado
+                _run_daily_collection()
+        except Exception:
+            time.sleep(3600)
+
+
+def _start_scheduler():
+    if _SCHED_STATE["started"] or os.environ.get("VERTEX_SCHEDULER", "1") == "0":
+        return
+    threading.Thread(target=_scheduler_loop, daemon=True, name="vertex-collector").start()
+    _SCHED_STATE["started"] = True
+
+
+@app.get("/api/scheduler/status")
+def scheduler_status():
+    _seconds_until_next_run()
+    return {"started": _SCHED_STATE["started"], "running": _SCHED_STATE["running"],
+            "last_run": _SCHED_STATE["last_run"], "last_count": _SCHED_STATE["last_count"],
+            "next_run": _SCHED_STATE["next_run"], "universe": _scheduler_tickers(),
+            "primary": VERTEX_PRIMARY_TICKERS}
+
+
+@app.post("/api/scheduler/run-now")
+def scheduler_run_now():
+    """Dispara la colección de snapshots de inmediato (en un hilo, para no bloquear).
+
+    POST porque arranca trabajo. Un GET puede reemitirlo un prefetch o la
+    caché de ida/vuelta del navegador, y aquí eso significa lanzar una
+    colección entera contra los proveedores sin que nadie la pidiera."""
+    if _SCHED_STATE["running"]:
+        return {"ok": False, "note": "Ya hay una colección en curso."}
+    threading.Thread(target=_run_daily_collection, daemon=True, name="vertex-collect-now").start()
+    return {"ok": True, "note": "Colección disparada en segundo plano.", "universe": _scheduler_tickers()}
 
 
