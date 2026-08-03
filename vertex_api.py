@@ -5610,7 +5610,28 @@ def _engine_scorecard(ticker, info, price):
         #    lo CONSUMEN vía overlay["wacc"]. Sin este traspaso, todo ROIC/spread/EVA/moat de
         #    Business degrada a MISSING (business ≈ 0). Es el mecanismo que su metodología define
         #    ("mirroring financial.py's overlay['wacc'] precedent" + HANDOFF_CONTRACT). ──
-        _overlay = {}
+        # La BASE es el overlay canónico del motor — el mismo que usan
+        # `run_aggregate`, `wbj report` y la CLI. Antes esto arrancaba en `{}`
+        # y la ruta construía sus propias 16 claves a mano, mientras el motor
+        # construye 42: la web ni siquiera leía `Entradas/<TICKER>.json`, así
+        # que el TAM declarado, la clasificación de moat y la concentración de
+        # clientes existían en disco y no llegaban a los especialistas.
+        #
+        # Por eso el mismo ticker daba dos números el mismo día (motor 44.70,
+        # web 39.84 sobre NVDA): −3.94 en Risk y −0.92 en Business, no por una
+        # regla distinta sino por hambre de datos. `CLAUDE.md` dice "dos capas,
+        # una sola matemática"; esto es lo que lo hacía falso.
+        #
+        # Las asignaciones propias de la ruta vienen DESPUÉS y siguen ganando:
+        # aporta seis claves que el motor no construye (beta, risk_free_rate,
+        # equity_issuance, earnings_dates, peer_multiples, sector_breadth), y
+        # así se suman en vez de competir.
+        try:
+            from wbj.overlay.from_packet import build_overlay as _build_overlay
+            _overlay = _build_overlay(pk, settings) or {}
+        except Exception as _eov:
+            print(f"[engine] overlay canónico no disponible: {str(_eov)[:120]}")
+            _overlay = {}
         # MISSING_DATA_POLICY.md paso 4: un input de FUENTE PROXY (respaldo) se usa "con un proxy
         # flag y menor confianza". Registramos aquí cada respaldo inyectado para SURFACEARLO
         # (beta y WACC están en la lista de imputación prohibida: nunca se INVENTAN, pero sí se

@@ -1,11 +1,11 @@
 {
-  "report_id": "20260803_112845_NVDA",
+  "report_id": "20260803_114525_NVDA",
   "ticker": "NVDA",
   "fecha": "2026-08-03",
-  "price_at_analysis": 207.12,
+  "price_at_analysis": 206.56,
   "fair_value": 281.05,
   "profile": "Avoid / Wait",
-  "raw_total": 37.0,
+  "raw_total": 48.6,
   "recommendation": "DESFAVORABLE",
   "targets_12m": {
     "bull": 323.21,

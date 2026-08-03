@@ -1,11 +1,11 @@
 {
-  "report_id": "20260803_092955_AAPL",
+  "report_id": "20260803_114951_AAPL",
   "ticker": "AAPL",
   "fecha": "2026-08-03",
-  "price_at_analysis": 308.91,
+  "price_at_analysis": 303.78,
   "fair_value": 322.17,
   "profile": "Avoid / Wait",
-  "raw_total": 31.5,
+  "raw_total": 37.8,
   "recommendation": "DESFAVORABLE",
   "targets_12m": {
     "bull": 388.25,

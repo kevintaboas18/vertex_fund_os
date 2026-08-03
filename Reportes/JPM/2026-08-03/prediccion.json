@@ -1,11 +1,11 @@
 {
-  "report_id": "20260803_112951_JPM",
+  "report_id": "20260803_114636_JPM",
   "ticker": "JPM",
   "fecha": "2026-08-03",
-  "price_at_analysis": 353.28,
+  "price_at_analysis": 352.51,
   "fair_value": 366.24,
   "profile": "Avoid / Wait",
-  "raw_total": 22.9,
+  "raw_total": 35.6,
   "recommendation": "DESFAVORABLE",
   "targets_12m": {
     "bull": 441.41,

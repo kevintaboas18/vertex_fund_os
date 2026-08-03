@@ -1612,3 +1612,63 @@ JPM raw 22.9 (55 s). `/api/data-health` pasó a **ok=true** — antes era
 La interfaz carga con 0 errores de consola y sus 6 vistas intactas.
 
 **2126 tests del engine + 86 de la capa web.**
+
+---
+
+# 26. La capa web ignoraba `Entradas/` (M-02, resuelto)
+
+La sección 23 dejó abierto que motor y web daban números distintos para el
+mismo ticker el mismo día. La causa medida:
+
+| | Claves del overlay | ¿Usa `build_overlay`? |
+|---|---|---|
+| Motor (`run_aggregate`, `wbj report`, CLI) | **42** | — |
+| Ruta web (`_engine_scorecard`) | **16** | **No: lo reimplementaba** |
+
+No era una regla distinta. Era **hambre de datos**: la ruta arrancaba su
+overlay en `{}` y construía 16 claves a mano. Entre las 26 que le faltaban
+estaban **todas las de `Entradas/<TICKER>.json`** — el TAM declarado con su
+fuente y su tier, la clasificación de moat, la concentración de clientes.
+
+**El analista las escribía en disco y la ruta web no las miraba.** Todo el
+trabajo de investigar el TAM de Gartner y documentar por qué `MKT-SHARE-006`
+no es puntuable existía sólo para el motor.
+
+Coste medido sobre NVDA con el packet golden: **Risk −3.94, Business −0.92**.
+
+## 26.1 El arreglo
+
+`_overlay` se siembra ahora con `build_overlay(pk, settings)` — el mismo que
+usan las otras tres entradas del sistema. Las asignaciones propias de la ruta
+van DESPUÉS y siguen ganando, así que sus seis claves exclusivas (`beta`,
+`risk_free_rate`, `equity_issuance`, `earnings_dates`, `peer_multiples`,
+`sector_breadth`) se suman en vez de competir. Riesgo de regresión: ninguno
+sobre lo que ya calculaba.
+
+Efecto en los cinco tickers con reporte, por la ruta real:
+
+| Ticker | Antes | Ahora | |
+|---|---|---|---|
+| NVDA | 37.0 | **48.6** | +11.6 |
+| JPM | 22.9 | **35.6** | +12.7 |
+| KO | 39.3 | **47.5** | +8.2 |
+| AAPL | 31.5 | **37.8** | +6.3 |
+| PLTR | 29.3 | **32.7** | +3.4 |
+
+Ninguno cambia de perfil: los cinco siguen en `Avoid / Wait`. Lo que cambia
+es que el número ya no está deprimido por datos que existían y no llegaban.
+
+## 26.2 Lo que queda
+
+La diferencia con el motor pasó de **−7.7 a +3.87**, y ahora es explicable y
+va en la dirección correcta: la ruta ve estrictamente MÁS que el motor por
+sus seis claves propias. Cerrarla del todo pide subir esas seis a
+`build_overlay`, para que las cuatro entradas del sistema vean lo mismo.
+
+## 26.3 Estado
+
+`tests_vertex/test_overlay_parity.py` — 4 tests que comparan las claves que
+cada capa entrega de verdad, no el código fuente. El testigo es el TAM: si
+deja de llegar con su tier, falla.
+
+**2126 tests del engine + 90 de la capa web.**

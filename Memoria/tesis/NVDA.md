@@ -1,5 +1,12 @@
 # Tesis — NVDA
 
+## 2026-08-03 11:46 — perfil Avoid / Wait · raw 48.6/100
+<!-- firma: Avoid / Wait|48.6|281.05|323.21|281.05|198.74 | desde: 2026-08-03 11:46 -->
+- Precio al análisis: $206.56 · Fair value (base): $281.05
+- Targets 12M: Bull $323.21 / Base $281.05 / Bear $198.74
+- Tesis: Mi visión sobre NVDA ha evolucionado ligeramente en convicción, pasando de 37 a 48.6, pero la recomendación se mantiene DESFAVORABLE. Mi Fair Value de $281.05 se mantiene sin cambios desde el reporte anterior, lo que indica que los datos fundamentales y las proyecciones a 12 meses no han alterado significativamente el valor intrínseco proyectado. La tesis de inversión sigue siendo que NVIDIA es una empresa fundamentalmente sólida y líder en un sector de crecimiento explosivo (IA). Su dominio en el hardware y software para IA es innegable, como lo demuestran sus márgenes excepcionales y su hist
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
 ## 2026-08-03 09:29 — perfil Avoid / Wait · raw 37.0/100  *(sin cambios; revisado 2026-08-03 11:29)*
 <!-- firma: Avoid / Wait|37.0|281.05|323.21|281.05|198.74 | desde: 2026-08-03 09:29 -->
 - Precio al análisis: $200.75 · Fair value (base): $281.05
