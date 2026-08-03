@@ -53,8 +53,18 @@ def test_the_health_strip_only_lists_real_sources():
     """`/api/data-health` anunciaba Quant Data como fuente CRÍTICA y
     yfinance como airbag de precio. Las dos salieron: decir que el sistema
     se apoya en algo que ya no existe es peor que no decir nada."""
+    # `/api/data-health` NO es pública: exige el token cuando hay uno
+    # configurado. Y `vertex_api` carga `vertex.env` al importarse, así que
+    # basta con que el desarrollador tenga su `VERTEX_API_TOKEN` puesto —
+    # para desplegar en Render, por ejemplo— para que este test recibiera un
+    # 401 y fallara con `KeyError: 'sources'`. Se autentica como lo haría
+    # cualquier cliente en vez de asumir un entorno sin token.
+    cabeceras = ({"x-vertex-token": vertex_api.VERTEX_API_TOKEN}
+                 if vertex_api.VERTEX_API_TOKEN else {})
     with TestClient(vertex_api.app) as c:
-        d = c.get("/api/data-health").json()
+        r = c.get("/api/data-health", headers=cabeceras)
+    assert r.status_code == 200, f"{r.status_code}: {r.text[:120]}"
+    d = r.json()
     claves = {s["key"] for s in d["sources"]}
     assert "quantdata" not in claves and "yfinance" not in claves
     assert {"fmp", "edgar", "fred"} <= claves, claves

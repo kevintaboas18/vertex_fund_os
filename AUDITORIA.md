@@ -1786,3 +1786,77 @@ ponerla a mano en el dashboard).
 ## 28.4 Estado
 
 **2126 tests del engine + 91 de la capa web.**
+
+---
+
+# 29. La web quedó rota en producción por un borrado por líneas (D-02)
+
+Kevin no podía iniciar sesión ni crear cuenta en
+`https://vertex-fund-os.onrender.com`. Diagnosticado contra el sitio en vivo:
+
+```
+authSubmit      -> undefined
+renderDashboard -> undefined
+buildTVChart    -> undefined
+switchView      -> function     (está ANTES del corte)
+loadTrackRecord -> function     (está DESPUÉS)
+```
+
+Un solo error de sintaxis impide que se ejecute el bloque `<script>`
+**entero** —250.000 caracteres, casi toda la aplicación— y el navegador no
+lo grita: la página carga, se ve bien, y las funciones no existen.
+
+## 29.1 La causa
+
+Al quitar los paneles de opciones se borraron líneas por su CONTENIDO sin
+mirar si además abrían un bloque. Una era:
+
+```js
+document.getElementById('qtTradePlanBody').innerHTML = `
+```
+
+que abría una plantilla de 30 líneas. Sin ella el HTML quedó suelto en medio
+del código. Lo mismo con la firma de `projLoadChart` (quedó su cuerpo) y con
+el `const el = ...` de `runSelfTest`.
+
+**Es el tercer caso del mismo error** en esta sesión: `portfolioView`,
+`/api/data-health` y ahora esto. Cortar por marcadores o por contenido en vez
+de por límites sintácticos.
+
+## 29.2 Por qué mi verificación no lo vio
+
+Comprobé que la página cargaba y que las 6 vistas existían. `switchView`
+está en la posición 134.126 — **antes** del corte, así que respondía. Todo lo
+roto vive entre 154.491 y 462.301.
+
+Los tests existentes miran ids del DOM y rutas de la API. **Ninguno
+comprobaba que el código llegara a ejecutarse.**
+
+## 29.3 El arreglo
+
+Eliminados como unidad sintáctica: el bloque del Plan de Trade en
+`renderDashboard` (lo escribía en un `qtTradePlanBody` que ya no existe), los
+globales de Proyecciones con el cuerpo huérfano de `projLoadChart`, y
+`runSelfTest`.
+
+Verificado en ejecución: `authSubmit`, `renderDashboard`, `buildTVChart`,
+`authToggleMode` definidas; pulsar "Create one" cambia a modo `register`,
+aparece el campo de nombre y el título pasa a "Create Account".
+
+## 29.4 El test que faltaba
+
+`tests_vertex/test_javascript_parses.py` — corre `node --check` sobre cada
+bloque `<script>` propio (el mismo analizador del navegador) y comprueba que
+ningún `onclick` apunte a una función inexistente. Habría atrapado este fallo
+antes de desplegarlo.
+
+## 29.5 Un test frágil, de paso
+
+`test_the_health_strip_only_lists_real_sources` fallaba con
+`KeyError: 'sources'`: `/api/data-health` NO es pública, y `vertex_api` carga
+`vertex.env` al importarse — basta con que el desarrollador tenga su
+`VERTEX_API_TOKEN` puesto (para desplegar en Render) para recibir un 401.
+Ahora se autentica como cualquier cliente en vez de asumir un entorno sin
+token.
+
+**2126 tests del engine + 94 de la capa web.**
