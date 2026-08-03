@@ -10,10 +10,12 @@ from __future__ import annotations
 import ast
 import pathlib
 import re
+from pathlib import Path
 
 import pytest
 
 _SRC = pathlib.Path(__file__).resolve().parents[1] / "vertex_api.py"
+_RAIZ = Path(__file__).resolve().parents[1]
 _TEXT = _SRC.read_text(encoding="utf-8")
 _LINES = _TEXT.split("\n")
 
@@ -67,16 +69,34 @@ def test_the_delete_route_does_not_hand_its_exception_to_the_browser():
     assert "logger" in body or "logging" in body
 
 
-def test_the_quantdata_base_has_no_stale_version_segment():
-    """`https://api.quantdata.us/v1` answered 404 on every path ("No
-    resource found at 'v1/option/flow'"), so options flow, dark pool and
-    GEX were dead in silence — 25 requests and ~8s per analyze against
-    routes that do not exist. Without the segment they answer 403: they
-    exist, the plan does not reach them, which is a different fact."""
-    default = re.search(r'QUANTDATA_BASE\s*=\s*os\.environ\.get\(\s*"QUANTDATA_BASE",\s*"([^"]+)"',
-                        _TEXT).group(1)
-    assert not default.rstrip("/").endswith("/v1"), default
-    assert default.startswith("https://")
+def test_no_dead_config_survives_its_provider():
+    """Constantes de configuración de un proveedor que ya no existe.
+
+    `QUANTDATA_API_KEY`, `QUANTDATA_BASE` y los ocho `QD_EP_*` seguían
+    declarados después de borrar las 22 funciones que los usaban: 165 líneas
+    de configuración muerta que `render.yaml` además pedía en el despliegue.
+    Config huérfana no rompe nada — sólo hace creer que el sistema depende de
+    algo que ya no toca.
+    """
+    import re as _re
+
+    muertas = _re.findall(r"^(QUANTDATA_[A-Z_]+|QD_EP_[A-Z_]+)\s*=", _TEXT, _re.M)
+    assert not muertas, f"config de un proveedor eliminado: {sorted(set(muertas))}"
+
+    render = (_RAIZ / "render.yaml").read_text(encoding="utf-8")
+    pedidas = _re.findall(r"- key: (QUANTDATA_[A-Z_]+|SCHWAB_[A-Z_]+)", render)
+    assert not pedidas, f"render.yaml pide variables de proveedores muertos: {pedidas}"
+
+
+def test_the_public_repo_carries_no_personal_contact():
+    """`render.yaml` traía el correo personal en `EDGAR_USER_AGENT` con
+    `value:`. Este repo es PÚBLICO: la SEC exige un contacto real, pero el
+    sitio de ese valor es el dashboard de Render, no un archivo indexable."""
+    import re as _re
+
+    render = (_RAIZ / "render.yaml").read_text(encoding="utf-8")
+    correos = _re.findall(r"value:.*?([\w.+-]+@[\w-]+\.[\w.]+)", render)
+    assert not correos, f"correo expuesto en render.yaml: {correos}"
 
 
 def test_no_dead_provider_is_still_wired():

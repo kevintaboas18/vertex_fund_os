@@ -3666,172 +3666,6 @@ def _integrity_checks(g, fair_value=None, targets=None):
 
 
 
-# ── QUANT DATA PROVIDER (options flow + exposure + dark pool) ──────────────────
-# Modular institutional-data source chosen over Unusual Whales. Fills the
-# dark_pool / tape_flow slots of the GEX engine and feeds the agent's 25% flow
-# signal. Set QUANTDATA_API_KEY to activate; everything degrades to None when
-# absent, so the platform runs identically with or without it.
-QUANTDATA_API_KEY = os.environ.get("QUANTDATA_API_KEY", "")   # <-- pega tu API key de Quant Data
-# Sin "/v1": la API no lo usa. Con el sufijo, TODAS las rutas devolvian
-# 404 ("No resource found at 'v1/option/flow'"), asi que el flujo de
-# opciones, el dark pool y el GEX llevaban muertos en silencio -- cada
-# /api/analyze gastaba 25 peticiones y ~8 s en rutas inexistentes. Sin el
-# sufijo responden 403 (existen; el plan no las cubre), que es un estado
-# distinto y ademas lo memoriza `_QD_SIN_DERECHO` para no repetirlas.
-QUANTDATA_BASE    = os.environ.get("QUANTDATA_BASE", "https://api.quantdata.us")
-# Endpoint paths centralized. All confirmed from Quant Data's API reference
-# (quantdata.us/api). Base = https://api.quantdata.us/v1, all POST with body
-# {"sessionDate": "YYYY-MM-DD", "filter": {"ticker": "..."}}.
-QUANTDATA_ENDPOINTS = {
-    "net_premium": os.environ.get("QD_EP_NETPREMIUM", "/options/tool/net-drift"),
-    "flow":        os.environ.get("QD_EP_FLOW",       "/options/tool/order-flow/consolidated"),
-    "exposure":    os.environ.get("QD_EP_EXPOSURE",   "/options/tool/exposure-by-strike"),
-    "darkpool":    os.environ.get("QD_EP_DARKPOOL",   "/equities/tool/dark-pool-levels"),
-    "oi_change":   os.environ.get("QD_EP_OICHANGE",   "/options/tool/open-interest-change"),
-    "equity_prints": os.environ.get("QD_EP_PRINTS",   "/equities/tool/equity-prints"),
-    "net_flow":    os.environ.get("QD_EP_NETFLOW",    "/options/tool/net-flow"),
-    "max_pain":    os.environ.get("QD_EP_MAXPAIN",    "/options/tool/max-pain"),
-}
-
-
-
-#: Rutas de Quant Data que la cuenta NO tiene derecho a usar (401/402/403),
-#: recordadas para no volver a pedirlas. Un rechazo de ENTITLEMENT no cambia
-#: dentro de la misma corrida: reintentarlo sólo gasta tiempo de pared.
-#: Medido en `/api/analyze`: 25 peticiones, todas 403, ~8 s tirados.
-_QD_SIN_DERECHO: dict[str, int] = {}
-_QD_ENTITLEMENT_STATUSES = frozenset({401, 402, 403})
-
-
-
-
-# NOTE: sessionDate is intentionally OMITTED on the time-series tools. Per the Quant
-# Data docs, when omitted the API uses "the most recent completed trading session" —
-# which is exactly what we want and is robust on weekends, holidays (e.g. Juneteenth),
-# and before today's close. Forcing today's date returns empty data on non-session days.
-
-
-
-_QD_MAXPAIN_CACHE = {}
-
-def _extract_max_pain(d, ticker, expiration=None):
-    """Extrae el strike de Max Pain de la respuesta QD sin asumir un único formato (defensivo)."""
-    if not d or not isinstance(d, dict) or "_error" in d:
-        return None
-
-    def _mp_from(obj):
-        if not isinstance(obj, dict):
-            return None
-        for k in ("maxPain", "max_pain", "maxPainStrike", "maxPainPrice", "maxpain"):
-            if obj.get(k) is not None:
-                v = _safe_num(obj.get(k))
-                return v if v > 0 else None
-        return None
-
-    data = d.get("data", d)
-    v = _mp_from(data)                                   # caso 1: maxPain directo
-    if v:
-        return v
-    if isinstance(data, dict):
-        v = _mp_from(data.get(ticker.upper()))           # caso 2: keyed por ticker
-        if v:
-            return v
-        try:                                             # caso 3: keyed por timestamp → último bucket
-            num_keys = [k for k in data.keys() if str(k).isdigit()]
-            if num_keys:
-                last = data[max(num_keys, key=lambda k: int(k))]
-                v = _mp_from(last) if isinstance(last, dict) else (_safe_num(last) or None)
-                if v and v > 0:
-                    return v
-        except Exception:
-            pass
-        exp_keys = [k for k in data.keys() if isinstance(k, str) and re.match(r"\d{4}-\d{2}-\d{2}", k)]
-        if exp_keys:                                     # caso 4: keyed por expiración
-            pick = str(expiration)[:10] if (expiration and str(expiration)[:10] in exp_keys) else sorted(exp_keys)[0]
-            cell = data.get(pick)
-            v = _mp_from(cell) if isinstance(cell, dict) else (_safe_num(cell) or None)
-            if v and v > 0:
-                return v
-        first = next(iter(data.values()), None)          # caso 5: primer valor
-        v = _mp_from(first) if isinstance(first, dict) else (_safe_num(first) or None)
-        if v and v > 0:
-            return v
-    return None
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-_DH_CACHE = {"ts": 0.0, "data": None}
-
-
-@app.get("/api/data-health")
-def data_health():
-    """#5 — Salud de fuentes de datos para el strip persistente: qué está configurado y, en la fuente crítica
-    (Quant Data), si está VIVA ahora mismo. Cacheado 90s para no martillar la API. Nunca tradees sobre datos
-    stale: si QD sale en rojo, los walls/GEX que ves pueden ser de otra sesión."""
-    now = time.time()
-    if _DH_CACHE["data"] and now - _DH_CACHE["ts"] < 90:
-        return _DH_CACHE["data"]
-    # Las CUATRO fuentes de datos del sistema, las mismas que el motor de
-    # Victor: FMP, FinnHub, FRED y EDGAR. Aquí estaban Quant Data (plan API
-    # inactivo, 403 en todo) y yfinance (raspaba un endpoint sin documentar);
-    # las dos salieron del proyecto, así que anunciarlas como fuentes era
-    # decir que el sistema se apoya en algo que ya no existe.
-    _fmp_ok = bool((os.environ.get("FMP_API_KEY") or "").strip())
-    sources = [
-        {"key": "fmp", "label": "FMP", "role": "precio · estados · consenso", "critical": True,
-         "configured": _fmp_ok, "live": None,
-         "note": None if _fmp_ok else "Falta FMP_API_KEY"},
-        {"key": "edgar", "label": "SEC EDGAR", "role": "filings · insiders · 13F",
-         "critical": True, "configured": True, "live": None,
-         "note": "Sin key · identifícate con EDGAR_USER_AGENT"},
-        {"key": "fred", "label": "FRED", "role": "macro · tasa libre de riesgo",
-         "critical": False, "configured": bool((os.environ.get("FRED_API_KEY") or "").strip()),
-         "live": None, "note": None},
-        {"key": "gemini", "label": "Gemini", "role": "tesis · IA", "critical": True,
-         "configured": bool(API_KEY), "live": None, "note": None if API_KEY else "Falta GEMINI_API_KEY"},
-        {"key": "grok", "label": "Grok / xAI", "role": "sentimiento · X", "critical": False,
-         "configured": bool(XAI_API_KEY), "live": None, "note": None if XAI_API_KEY else "Falta XAI_API_KEY"},
-        {"key": "finnhub", "label": "Finnhub", "role": "insiders · earnings", "critical": False,
-         "configured": bool(FINNHUB_API_KEY), "live": None, "note": None if FINNHUB_API_KEY else "Falta FINNHUB_API_KEY"},
-        {"key": "openai", "label": "OpenAI", "role": "desempate (opc.)", "critical": False,
-         "configured": bool(OPENAI_API_KEY), "live": None, "note": None if OPENAI_API_KEY else "Opcional · sin configurar"},
-        {"key": "plaid", "label": "Plaid", "role": "portafolio", "critical": False,
-         "configured": bool(PLAID_CLIENT_ID and PLAID_SECRET), "live": None,
-         "note": None if (PLAID_CLIENT_ID and PLAID_SECRET) else "Sin Plaid: el portafolio usa el snapshot guardado (/api/portfolio/import)"},
-    ]
-    n_crit_down = sum(1 for s in sources if s["critical"] and (not s["configured"] or s["live"] is False))
-    # `ok` era un True literal, asi que la respuesta se contradecia a si misma:
-    # decia ok=true junto a status="down". El strip lee `status` y por eso siempre
-    # se pinto bien, pero cualquiera que consulte el endpoint directamente lee
-    # `ok` primero y concluye lo contrario -- me paso auditando esto.
-    out = {"ok": not n_crit_down, "sources": sources, "checked_at": int(now),
-           "status": ("down" if n_crit_down else "ok"),
-           "critical_down": n_crit_down}
-    _DH_CACHE.update(ts=now, data=out)
-    return out
-
-
-
-
 # ── FINNHUB DATA PROVIDER ─────────────────────────────────────────────────────
 # Best "basic" tier: 60 calls/min free — delayed (~15-min) US quotes, fundamentals,
 # company news, insider sentiment, congressional trading. Paste your free key below
@@ -8103,6 +7937,58 @@ def get_regime_cached(ttl=2700):
 
 
 # (Función regime_signal_weights eliminada junto con el motor de convicción ponderado.)
+
+
+# Caché del strip de salud: 90 s, para no repetir el sondeo en cada pantalla.
+_DH_CACHE = {"ts": 0.0, "data": None}
+
+
+@app.get("/api/data-health")
+def data_health():
+    """#5 — Salud de fuentes de datos para el strip persistente: qué está configurado y, en la fuente crítica
+    (Quant Data), si está VIVA ahora mismo. Cacheado 90s para no martillar la API. Nunca tradees sobre datos
+    stale: si QD sale en rojo, los walls/GEX que ves pueden ser de otra sesión."""
+    now = time.time()
+    if _DH_CACHE["data"] and now - _DH_CACHE["ts"] < 90:
+        return _DH_CACHE["data"]
+    # Las CUATRO fuentes de datos del sistema, las mismas que el motor de
+    # Victor: FMP, FinnHub, FRED y EDGAR. Aquí estaban Quant Data (plan API
+    # inactivo, 403 en todo) y yfinance (raspaba un endpoint sin documentar);
+    # las dos salieron del proyecto, así que anunciarlas como fuentes era
+    # decir que el sistema se apoya en algo que ya no existe.
+    _fmp_ok = bool((os.environ.get("FMP_API_KEY") or "").strip())
+    sources = [
+        {"key": "fmp", "label": "FMP", "role": "precio · estados · consenso", "critical": True,
+         "configured": _fmp_ok, "live": None,
+         "note": None if _fmp_ok else "Falta FMP_API_KEY"},
+        {"key": "edgar", "label": "SEC EDGAR", "role": "filings · insiders · 13F",
+         "critical": True, "configured": True, "live": None,
+         "note": "Sin key · identifícate con EDGAR_USER_AGENT"},
+        {"key": "fred", "label": "FRED", "role": "macro · tasa libre de riesgo",
+         "critical": False, "configured": bool((os.environ.get("FRED_API_KEY") or "").strip()),
+         "live": None, "note": None},
+        {"key": "gemini", "label": "Gemini", "role": "tesis · IA", "critical": True,
+         "configured": bool(API_KEY), "live": None, "note": None if API_KEY else "Falta GEMINI_API_KEY"},
+        {"key": "grok", "label": "Grok / xAI", "role": "sentimiento · X", "critical": False,
+         "configured": bool(XAI_API_KEY), "live": None, "note": None if XAI_API_KEY else "Falta XAI_API_KEY"},
+        {"key": "finnhub", "label": "Finnhub", "role": "insiders · earnings", "critical": False,
+         "configured": bool(FINNHUB_API_KEY), "live": None, "note": None if FINNHUB_API_KEY else "Falta FINNHUB_API_KEY"},
+        {"key": "openai", "label": "OpenAI", "role": "desempate (opc.)", "critical": False,
+         "configured": bool(OPENAI_API_KEY), "live": None, "note": None if OPENAI_API_KEY else "Opcional · sin configurar"},
+        {"key": "plaid", "label": "Plaid", "role": "portafolio", "critical": False,
+         "configured": bool(PLAID_CLIENT_ID and PLAID_SECRET), "live": None,
+         "note": None if (PLAID_CLIENT_ID and PLAID_SECRET) else "Sin Plaid: el portafolio usa el snapshot guardado (/api/portfolio/import)"},
+    ]
+    n_crit_down = sum(1 for s in sources if s["critical"] and (not s["configured"] or s["live"] is False))
+    # `ok` era un True literal, asi que la respuesta se contradecia a si misma:
+    # decia ok=true junto a status="down". El strip lee `status` y por eso siempre
+    # se pinto bien, pero cualquiera que consulte el endpoint directamente lee
+    # `ok` primero y concluye lo contrario -- me paso auditando esto.
+    out = {"ok": not n_crit_down, "sources": sources, "checked_at": int(now),
+           "status": ("down" if n_crit_down else "ok"),
+           "critical_down": n_crit_down}
+    _DH_CACHE.update(ts=now, data=out)
+    return out
 
 
 @app.get("/api/regime")

@@ -1742,3 +1742,47 @@ atómica de caché (`os.replace`).
 |---|---|---|
 | Archivos de test | 36 | **122** (motor) + 9 (web) |
 | Tests que pasan | — | **2126 + 90** |
+
+---
+
+# 28. Despliegue: config muerta y un correo en un repo público (D-01)
+
+## 28.1 Config que sobrevivió a su proveedor
+
+Al borrar las 22 funciones de Quant Data quedaron **165 líneas** de
+configuración huérfana: `QUANTDATA_API_KEY`, `QUANTDATA_BASE` y ocho
+`QD_EP_*`. No rompía nada — sólo hacía creer que el sistema depende de algo
+que ya no toca, y `render.yaml` seguía pidiendo la variable en el
+despliegue.
+
+**Al cortar ese bloque me llevé también `/api/data-health`**, que vivía
+entre esa cabecera y la siguiente. El mismo error que ya cometí con
+`portfolioView`: cortar por marcadores de sección en vez de por límites
+sintácticos. Lo detectó el test que comprueba que la UI no llame rutas
+inexistentes; restaurada desde git con su `_DH_CACHE`.
+
+## 28.2 El correo personal estaba en el repo
+
+`render.yaml` traía `EDGAR_USER_AGENT` con `value:` y el correo de Victor
+dentro. Este repo es **público**. La SEC exige un contacto real, así que el
+valor no se inventa — pero su sitio es el dashboard de Render, no un archivo
+indexable. Pasa a `sync: false`.
+
+También salieron `SCHWAB_APP_KEY` y `SCHWAB_APP_SECRET`, declaradas y nunca
+usadas, y entró `JUDGE_MODEL`, que se usa y no estaba declarada (había que
+ponerla a mano en el dashboard).
+
+## 28.3 Verificación para móvil, tablet y escritorio
+
+| | |
+|---|---|
+| viewport | `width=device-width, viewport-fit=cover` ✓ |
+| PWA | `manifest.webmanifest` + `apple-mobile-web-app-*` ✓ |
+| A 375×812 (teléfono) | **0 desbordes horizontales** ✓ |
+| `/api/data-health` | `ok`, 8 fuentes, ninguna muerta |
+| `/api/analyze` NVDA | 70.4 s, raw 48.6, upside 35.66% |
+| Rutas verificadas | self-test, quote, history, regime, track-record → 200 |
+
+## 28.4 Estado
+
+**2126 tests del engine + 91 de la capa web.**
