@@ -849,75 +849,47 @@ def _estimates(fmp: Any, ticker: str) -> dict[str, Any] | None:
             "snapshot_before_release": True}
 
 
-def _yahoo_revisions(ticker: str) -> dict[str, Any]:
-    """Estimate-revision counts and the prior consensus, from Yahoo.
+def _consensus_eps_growth(fmp: Any, ticker: str,
+                          today: str | None = None) -> float | None:
+    """VAL-PEG-028's denominator, desde el consenso de FMP.
 
-    SOURCE_HIERARCHY.md's tier 6 is a "consensus-estimate provider with
-    timestamped revisions", and DATASET.md marks
-    `consensus_estimates_history` required. Yahoo publishes exactly that
-    — it aggregates LSEG/Refinitiv I/B/E/S — where FMP has only a
-    snapshot and FinnHub gates estimates above this plan.
+    Esto lo daba Yahoo (`earnings_estimate.loc["0y"]["growth"]`). Yahoo
+    queda FUERA por decisión de Victor: las fuentes del sistema son FMP,
+    FinnHub, FRED y EDGAR, y yfinance raspa un endpoint no documentado que
+    puede cambiar sin aviso — un PEG que depende de eso es un PEG que
+    puede desaparecer entre dos corridas sin que nadie lo note.
 
-    Two things arrive that nothing else here could supply:
+    FMP publica el mismo panel por año fiscal, así que el crecimiento del
+    año en curso sale de dividir el primer año FORWARD entre el último ya
+    pasado — consenso contra consenso, el mismo panel a ambos lados. En
+    NVDA (2026-08-03) da FY2027/FY2026 = 9.001/4.694 = **+91.8%**, contra
+    el +88.6% que devolvía Yahoo: la misma magnitud medida sobre un panel
+    ligeramente distinto.
 
-    - `eps_revisions` gives up/down analyst counts over 30 days, which
-      is MKT-REVBR-011's numerator and denominator. Rating upgrades from
-      FMP's grades endpoint are a different quantity and were rejected
-      for this.
-    - `eps_trend` gives the same panel's consensus 30 days ago, so
-      MKT-REVMAG-012 compares like with like today instead of waiting
-      for a month of our own snapshots.
+    Comparar contra el EPS *reportado* del año pasado mezclaría un dato
+    auditado con una estimación, que es precisamente lo que
+    `NORMALIZATION_AND_RESTATEMENTS.md` manda no hacer en un mismo ratio.
 
-    The current fiscal year row (`0y`) is used throughout: mixing the
-    quarter's revision counts with the year's consensus would answer two
-    questions at once. Returns {} on any failure — yfinance scrapes an
-    undocumented endpoint, so it is treated as enrichment that may
-    vanish, never as a dependency.
+    Devuelve fracción decimal (0.918), no puntos porcentuales: es lo que
+    espera `valuation.py`, que multiplica por 100 al formar el PEG.
     """
-    try:
-        import yfinance as yf
-    except ImportError:
-        return {}
+    from datetime import date as _date
 
-    try:
-        t = yf.Ticker(ticker)
-        out: dict[str, Any] = {}
-
-        revisions = t.eps_revisions
-        if revisions is not None and "0y" in revisions.index:
-            row = revisions.loc["0y"]
-            up, down = row.get("upLast30days"), row.get("downLast30days")
-            if up is not None and down is not None:
-                up, down = int(up), int(down)
-                if up + down > 0:
-                    out["upward"], out["total"] = up, up + down
-
-        trend = t.eps_trend
-        if trend is not None and "0y" in trend.index:
-            row = trend.loc["0y"]
-            current, prior = row.get("current"), row.get("30daysAgo")
-            if current is not None and prior:
-                out["current_consensus"] = float(current)
-                out["prior_consensus"] = float(prior)
-
-        # VAL-PEG-028's denominator. Same panel as the revision figures
-        # above, so the P/E is divided by a growth rate the same
-        # analysts produced. Guarded separately: this frame going missing
-        # must not discard the revision counts gathered above.
-        try:
-            growth = t.earnings_estimate
-            if growth is not None and "0y" in growth.index:
-                g = growth.loc["0y"].get("growth")
-                if g is not None:
-                    out["eps_growth_pct"] = float(g)
-        except Exception:
-            logger.warning("Yahoo growth estimate unavailable for %s", ticker,
-                           exc_info=True)
-
-        return out
-    except Exception:
-        logger.warning("Yahoo revisions unavailable for %s", ticker, exc_info=True)
-        return {}
+    rows = fmp.analyst_estimates(ticker)
+    if not isinstance(rows, list) or not rows:
+        return None
+    today = today or _date.today().isoformat()
+    con_eps = [r for r in rows if r.get("date") and r.get("epsAvg")]
+    pasados = sorted((r for r in con_eps if r["date"] <= today), key=lambda r: r["date"])
+    futuros = sorted((r for r in con_eps if r["date"] > today), key=lambda r: r["date"])
+    if not pasados or not futuros:
+        return None
+    base = float(pasados[-1]["epsAvg"])
+    if base <= 0:
+        # Un crecimiento contra una base negativa o nula no significa nada;
+        # el PEG lo trataría como una cifra buena. Mejor sin métrica.
+        return None
+    return float(futuros[0]["epsAvg"]) / base - 1.0
 
 
 def _consensus_history(fmp: Any, settings: Any, ticker: str,
@@ -1355,21 +1327,20 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         if universe:
             overlay["rs_universe"] = universe
         est = _estimates(fmp, ticker) or {}
-        # Our own FMP snapshot series is the fallback: it needs 30 days of
-        # history to say anything, whereas Yahoo already carries the
-        # prior consensus. Yahoo wins when present, and it alone can
-        # supply the revision counts.
+        # Nuestra propia serie de snapshots de FMP es AHORA la única fuente
+        # del consenso previo. Antes Yahoo lo servía ya hecho y esto era el
+        # respaldo; al quedar Yahoo fuera, MKT-REVMAG-012 necesita
+        # `_REVISION_MIN_DAYS` de historia propia antes de poder decir algo,
+        # y hasta entonces reporta MISSING con esa razón. Se cura con el uso
+        # y no depende de ningún endpoint que nadie documenta.
         revision = _consensus_history(fmp, settings, ticker) or {}
         est.update({k: v for k, v in revision.items() if k != "prior_as_of"})
-        yahoo = _yahoo_revisions(ticker)
-        # `eps_growth_pct` is read by valuation.py at the top level of the
-        # overlay, while market.py reads the revision figures from inside
-        # `estimates`. Putting them all in one place hid the growth rate
-        # from VAL-PEG-028, which then reported its inputs as missing.
-        growth = yahoo.pop("eps_growth_pct", None)
+        # `eps_growth_pct` lo lee valuation.py en la RAÍZ del overlay,
+        # mientras market.py lee las revisiones dentro de `estimates`.
+        # Ponerlos juntos escondía el crecimiento de VAL-PEG-028.
+        growth = _consensus_eps_growth(fmp, ticker)
         if growth is not None:
             overlay["eps_growth_pct"] = growth
-        est.update(yahoo)
         count = _active_estimate_count(fmp, ticker)
         if count is not None:
             est["active_estimates"] = count

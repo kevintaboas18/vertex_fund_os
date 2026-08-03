@@ -1510,3 +1510,42 @@ escritas usan el de la ruta.
 **Por qué queda abierto:** unificarlo es un cambio de arquitectura —
 `_engine_scorecard` tendría que consumir `run_aggregate` en vez de reimplementarlo—
 y decide Victor cuál de los dos overlays es el bueno.
+
+---
+
+# 24. Yahoo fuera del motor (Y-01)
+
+Decisión de Victor: las fuentes del sistema son **FMP, FinnHub, FRED y
+EDGAR**. yfinance no está en esa lista, y raspa un endpoint que nadie
+documenta — un score que depende de eso puede moverse entre dos corridas sin
+que nadie sepa por qué.
+
+`_yahoo_revisions` alimentaba tres cosas. Al quitarlo:
+
+| Aportaba | Métrica | Después |
+|---|---|---|
+| `eps_growth_pct` | VAL-PEG-028 | **Sustituido por FMP**: primer año FORWARD contra el último pasado del mismo panel. NVDA: 9.001/4.694 = **+91.8%** vs el +88.6% de Yahoo |
+| `current`/`prior_consensus` | MKT-REVMAG-012 | `_consensus_history` (snapshots propios de FMP). Necesita 30 días; ya está grabando desde 2026-08-01, así que vuelve a puntuar **~2026-08-31** |
+| `upward`/`total` | MKT-REVBR-011 | **NOT_SCORABLE.** Ninguna fuente principal sirve conteos de revisión de ESTIMADOS. FMP `grades` son cambios de RECOMENDACIÓN — otra magnitud, no se sustituye |
+
+**Coste medido** (NVDA, 2026-08-03): Market **5.05 → 1.84 / 20**, cobertura
+0.487 → 0.388. Se recupera parcialmente solo, con el histórico propio.
+
+El aviso de MKT-REVBR-011 ahora explica la causa y qué declarar en
+`Entradas/<TICKER>.json`, en vez de decir sólo "unavailable".
+
+## 24.1 Lo que sigue usando Yahoo
+
+La capa web, en 116 puntos: precio histórico (25), `.info`/quote y **cadenas
+de opciones (7)**. FMP cubre los dos primeros (`historical-price-eod/full`,
+`quote`, `profile` → 200). **Las opciones no**: `options-chain` y
+`options/contracts` dan **404** en este plan, y QuantData —que era la fuente
+de opciones— tiene el plan API inactivo. Quitarlas dejaría los paneles de
+opciones sin datos.
+
+## 24.2 Estado
+
+`test_the_engine_no_longer_imports_yahoo` recorre todo `engine/wbj/` y falla
+si alguien vuelve a importarlo.
+
+**2126 tests del engine + 88 de la capa web.**

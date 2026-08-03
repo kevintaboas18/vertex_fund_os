@@ -913,7 +913,14 @@ def _compute_all(
             int(upward), int(total),
             active_estimates=int(active) if active is not None else None)
     else:
-        v_revbr = _null(NullState.NOT_SCORABLE, "pct", "REVISION_BREADTH_UNAVAILABLE")
+        v_revbr = _null(
+            NullState.NOT_SCORABLE, "pct",
+            "REVISION_BREADTH_UNAVAILABLE: needs counts of upward vs downward "
+            "*estimate* revisions. No primary source serves them — FMP has no "
+            "revision-count endpoint and FinnHub's estimate endpoints are 403 "
+            "on this plan. FMP's `grades` tracks RATING upgrades, a different "
+            "quantity that must not be substituted. Set `estimates.upward` and "
+            "`estimates.total` in Entradas/<TICKER>.json to score it.")
     add("MKT-REVBR-011", v_revbr, _score_from_anchor(v_revbr, [(0.30, 0), (0.50, 5), (0.70, 8), (0.90, 10)]))
 
     cur_c, prior_c = est.get("current_consensus"), est.get("prior_consensus")
