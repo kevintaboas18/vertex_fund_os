@@ -901,3 +901,79 @@ class TestLaAdvertenciaDelSubagente6:
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
         assert "(d.warnings || [])" in html
         assert "⚠" in html
+
+
+class TestElPanelNoTiraNadaDelPayload:
+    """Cada campo que el motor sirve tiene que llegar a la pantalla.
+
+    Un campo calculado, serializado y nunca pintado es peor que no calcularlo:
+    cuesta lo mismo, da la sensación de que la funcionalidad está, y nadie se
+    entera de que falta. Pasó con SEIS a la vez —las 6 puntuaciones de los
+    sub-agentes, los niveles, el mapa de GEX, los racimos, la memoria y el
+    significado del veredicto—: el motor los servía desde el primer día y el
+    panel los leía en una variable que no usaba nadie.
+    """
+
+    #: Campos de infraestructura, no de pantalla. Cada uno con su motivo.
+    _NO_SE_PINTAN = {
+        "ok": "lo consume el `if (!d.ok)` del cargador",
+        "ticker": "va en el título del panel, que lo pone `renderProjections`",
+        "engine": "sello de procedencia para depurar, no dato de mercado",
+        "chain_source": "idem: de qué proveedor salió la cadena",
+        "history": "son las velas; las dibuja la gráfica, no el texto",
+        "levels_for_chart": "el recorte de niveles para la gráfica",
+        "chart_geometry": "el cono y las rutas que dibuja la gráfica",
+        "flow_error": "se promueve a `warnings[0]`, que sí se pinta",
+    }
+
+    @staticmethod
+    def _payload_keys():
+        import re
+        api = (ROOT / "vertex_api.py").read_text(encoding="utf-8")
+        cuerpo = api[api.index("def _tito_json(r):"):api.index("def _tito_call_pct(r):")]
+        ruta = api[api.index("def projection_targets("):api.index("def _tito_chart_geometry(")]
+        return (set(re.findall(r'^\s{8}"(\w+)":', cuerpo, re.M))
+                | set(re.findall(r'out\["(\w+)"\]', ruta)))
+
+    def test_cada_campo_servido_tiene_consumidor_en_el_panel(self):
+        import re
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        huerfanos = []
+        for k in sorted(self._payload_keys()):
+            if k in self._NO_SE_PINTAN:
+                continue
+            if not re.search(rf"\bd\.{k}\b|\['{k}'\]|\[\"{k}\"\]", html):
+                huerfanos.append(k)
+        assert not huerfanos, (
+            f"el motor sirve {huerfanos} y el panel no los pinta. O se cablean, "
+            f"o se declaran en `_NO_SE_PINTAN` con su motivo.")
+
+    def test_el_registro_de_no_pintados_no_miente(self):
+        sobran = sorted(set(self._NO_SE_PINTAN) - self._payload_keys())
+        assert not sobran, f"declarados como no pintados pero ya no se sirven: {sobran}"
+
+    def test_las_seis_categorias_del_scorecard_estan_en_el_panel(self):
+        # Nombres, pesos y preguntas son literalmente los de su `ScorecardPanel`.
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        from wbj.tito.prediction import WEIGHTS
+        for clave, peso in WEIGHTS.items():
+            assert f"'{clave}'" in html, f"la categoría {clave} no aparece en el panel"
+        for nombre in ("Agresividad", "Convicción", "Inusualidad", "Estructura",
+                       "Contexto IV", "Confirmación de Precio"):
+            assert nombre in html, f"falta el nombre {nombre!r} de su ScorecardPanel"
+        for pregunta in ("¿Compran al ask con fuerza?", "¿Cuánto dinero real entró?",
+                         "¿Es flujo anormal?", "¿Strike/DTE de convicción o lotería?",
+                         "¿IV limpia o inflada?", "¿El precio valida o absorbe?"):
+            assert pregunta in html, f"falta la pregunta {pregunta!r}"
+        # Y los pesos, que son los que convierten el 0-10 en puntos del 0-100.
+        assert "['aggression', 'Agresividad', 20," in html
+        assert "['iv_context', 'Contexto IV', 10," in html
+
+    def test_los_bloques_nuevos_se_llaman_desde_el_render(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        render = html[html.index("function renderVictorTargets(d) {"):]
+        render = render[:render.index("\nfunction ")]
+        for fn in ("vcScorecardHTML", "vcLevelsHTML", "vcHeatmapHTML",
+                   "vcClustersHTML", "vcMemoryHTML"):
+            assert f"function {fn}(" in html, f"{fn} no existe"
+            assert f"{fn}(d)" in render, f"{fn} existe pero nadie lo llama"

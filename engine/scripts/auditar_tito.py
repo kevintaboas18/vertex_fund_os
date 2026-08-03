@@ -950,6 +950,20 @@ chk("_tito_chart_geometry(r)" in API and "cone_points, prediction_path" in API,
     "`cone_points`/`prediction_path` CABLEADAS: el motor sirve `chart_geometry`")
 chk("d.chart_geometry" in HTML and "geo.cone" in HTML,
     "…y la gráfica dibuja SUS puntos en vez de recalcular la fórmula")
+# La geometría del panel es la ÚNICA pieza del port escrita a mano en JS (la
+# ejecuta el navegador). `diff_geo.sh` la extrae del HTML y la corre al lado de
+# su `chartGeometry.ts`; estos checks son la red de seguridad de esa extracción.
+chk(all(f"function vc{n}(" in HTML for n in ("SmartDomain", "BuildScales", "PackLabels")),
+    "las 3 funciones de su chartGeometry siguen en el panel con el nombre que "
+    "`diff_geo.sh` extrae")
+chk("!Number.isFinite(v)" in HTML,
+    "el encuadre usa `Number.isFinite` (el `isFinite` global COACCIONA y colaba "
+    "un sigma de texto que disparaba el dominio a millones)")
+chk("input.futureRatio ?? 0.4" in HTML,
+    "`futureRatio` se resuelve con `??`, no con un valor por defecto (que solo "
+    "cubre `undefined` y dejaba el futuro en cero con un `null`)")
+chk("clampedTo2Sigma" in HTML and "mask${uid}" in HTML,
+    "el cono se DESVANECE cuando el 2σ no cabe entero, como su PriceChart")
 chk("_tito_clusters(trades, now)" in API and "detect_clusters" in API,
     "`detect_clusters` CABLEADA: `flow_clusters` (su FlowPriceChart)")
 
@@ -974,6 +988,7 @@ DIFERENCIALES = {
     "diff_motor.sh":      "flow + validation + levels + structure — 1.142 casos",
     "diff_motor2.sh":     "ivcontext + gex + prediction + risk — 846 casos",
     "diff_motor3.sh":     "gexHeatmap + news — 349 casos",
+    "diff_geo.sh":        "chartGeometry.ts — la gráfica del panel, 274 casos",
     "diff_frescura.sh":   "levels.recencyFactor — el peso por frescura",
     "diff_reloj.sh":      "las 5 funciones que cuentan tiempo",
 }

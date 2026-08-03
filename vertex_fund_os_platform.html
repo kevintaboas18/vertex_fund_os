@@ -2831,10 +2831,19 @@ function vcSmartDomain({ bars, spot, sigma1, sigma2, targets = [], levels = [] }
     }
     const cRange = Math.max(cMax - cMin, 1e-9);
     let min = cMin, max = cMax;
-    const inc = v => { if (v == null || !isFinite(v) || v <= 0) return; if (v < min) min = v; if (v > max) max = v; };
+    // `Number.isFinite`, NO el `isFinite` global: el global COACCIONA
+    // (`isFinite("500")` y `isFinite(true)` son ciertos) y metía en el encuadre
+    // valores que su archivo descarta. Con un `sigma1.lower` que llegue como
+    // texto, `max` pasaba a ser la cadena "500", el `+ pad` de después
+    // CONCATENABA y el dominio saltaba a cinco millones: la gráfica quedaba en
+    // blanco. Es el mismo fallo que `jsmath.js_is_finite` arregló dentro del
+    // motor. Lo destapó `engine/scripts/diff_geo.sh`.
+    const inc = v => { if (v == null || !Number.isFinite(v) || v <= 0) return; if (v < min) min = v; if (v > max) max = v; };
     if (spot > 0) inc(spot);
     if (sigma1) { inc(sigma1.lower); inc(sigma1.upper); }
-    for (const t of targets) if ((t.weight ?? 1) >= VC.MIN_TARGET_WEIGHT) inc(t.price);
+    // `t.weight` a secas, como él: un target sin peso NO deforma el encuadre
+    // (`undefined >= 0.02` es falso). El `?? 1` lo colaba con peso máximo.
+    for (const t of targets) if (t.weight >= VC.MIN_TARGET_WEIGHT) inc(t.price);
     for (const l of levels) inc(l.price);
     if (sigma2) {
         const room = Math.max(0, cRange / VC.MIN_CANDLE_SHARE - (max - min));
@@ -2843,15 +2852,29 @@ function vcSmartDomain({ bars, spot, sigma1, sigma2, targets = [], levels = [] }
         if (want > 0) { const f = Math.min(1, room / want); min -= wantDown * f; max += wantUp * f; }
     }
     const pad = Math.max((max - min) * VC.DOMAIN_PAD, 1e-9);
-    return { min: min - pad, max: max + pad };
+    min -= pad; max += pad;
+    // `clampedTo2Sigma`: el 2σ NO cupo entero y el cono está cortado. Su
+    // `PriceChart` lo usa para desvanecerlo contra el borde en vez de dejarlo
+    // acabar en una línea recta que parece un límite real. Sin este campo la
+    // gráfica mentía justo donde su archivo avisa.
+    const clampedTo2Sigma = sigma2
+        ? min > sigma2.lower + 1e-6 || max < sigma2.upper - 1e-6
+        : false;
+    return { min, max, clampedTo2Sigma };
 }
 
 /** Reparte el lienzo: 60% histórico / 40% futuro, con xNow explícito. */
-function vcBuildScales({ bars, domain, horizonDays, width, height, padding, futureRatio = 0.4 }) {
+function vcBuildScales(input) {
+    const { bars, domain, horizonDays, width, height, padding } = input;
+    // `input.futureRatio ?? 0.4`, no un parámetro con valor por defecto: el
+    // valor por defecto de JS entra SOLO con `undefined`, y un `null` se
+    // quedaba en `null` → ratio 0 → el futuro desaparecía y las velas ocupaban
+    // el lienzo entero. `??` sí cubre los dos.
+    const futureRatio = Math.min(0.9, Math.max(0, input.futureRatio ?? 0.4));
     const plotLeft = padding.left, plotRight = width - padding.right;
     const plotTop = padding.top, plotBottom = height - padding.bottom;
     const usableW = Math.max(1, plotRight - plotLeft), usableH = Math.max(1, plotBottom - plotTop);
-    const xNow = plotLeft + usableW * (1 - Math.min(0.9, Math.max(0, futureRatio)));
+    const xNow = plotLeft + usableW * (1 - futureRatio);
     const span = Math.max(domain.max - domain.min, 1e-9);
     const yOfPrice = p => Math.min(plotBottom, Math.max(plotTop, plotBottom - ((p - domain.min) / span) * usableH));
 
@@ -2999,8 +3022,23 @@ function renderVictorProjChart(containerId, d, horizon) {
         }
         return `<polygon points="${up.concat(dn.reverse()).join(' ')}" fill="${fill}" stroke="none"/>`;
     };
+    // Máscara de desvanecido: cuando el 2σ no cupo entero, el cono se apaga
+    // contra los bordes en vez de terminar en un corte recto. Mismos cuatro
+    // `stop` que su `PriceChart` (0% · 14% · 86% · 100%).
+    const uid = `vc${Math.abs(Math.round(spot * 1000))}`;
+    const corte = domain.clampedTo2Sigma ? 0 : 1;
+    parts.push(`<defs><linearGradient id="fade${uid}" x1="0" y1="0" x2="0" y2="1">`
+        + `<stop offset="0%" stop-color="#fff" stop-opacity="${corte}"/>`
+        + `<stop offset="14%" stop-color="#fff" stop-opacity="1"/>`
+        + `<stop offset="86%" stop-color="#fff" stop-opacity="1"/>`
+        + `<stop offset="100%" stop-color="#fff" stop-opacity="${corte}"/>`
+        + `</linearGradient><mask id="mask${uid}">`
+        + `<rect x="0" y="0" width="${width}" height="${height}" fill="url(#fade${uid})"/>`
+        + `</mask></defs>`);
+    parts.push(`<g mask="url(#mask${uid})">`);
     parts.push(conePoly(2, C.cone2));
     parts.push(conePoly(1, C.cone1));
+    parts.push(`</g>`);
 
     // 3. Velas — histórico SÓLIDO (regla 3). Mecha en color propio, como Víctor.
     for (const c of S.candles) {
@@ -3121,6 +3159,164 @@ async function vcLoadNews(d) {
     }
 }
 
+/** Options Flow Scorecard — las 6 categorías con su peso, como su `ScorecardPanel`.
+ *
+ *  Los nombres, los pesos y las preguntas son literalmente los suyos
+ *  (`web/app/components/ScorecardPanel.tsx`). Una categoría sin dato va como
+ *  "pendiente", NO como 0: cero es una medición y ausencia no lo es — por eso
+ *  el total se muestra sobre el peso ACTIVO cuando falta alguna.
+ *
+ *  El motor ya servía `d.scores` desde el primer día; el panel lo leía en una
+ *  variable que no usaba nadie, así que las seis puntuaciones que sostienen el
+ *  0-100 no se veían por ninguna parte. */
+const VC_CATS = [
+    ['aggression', 'Agresividad', 20, '¿Compran al ask con fuerza?'],
+    ['conviction', 'Convicción', 20, '¿Cuánto dinero real entró?'],
+    ['unusuality', 'Inusualidad', 20, '¿Es flujo anormal?'],
+    ['structure', 'Estructura', 15, '¿Strike/DTE de convicción o lotería?'],
+    ['iv_context', 'Contexto IV', 10, '¿IV limpia o inflada?'],
+    ['validation', 'Confirmación de Precio', 15, '¿El precio valida o absorbe?'],
+];
+
+function vcScorecardHTML(d) {
+    const sc = d.scores || {};
+    const cats = VC_CATS.map(([k, name, weight, q]) => {
+        const score = (sc[k] === null || sc[k] === undefined) ? null : Number(sc[k]);
+        return { name, weight, q, score, pts: score == null ? null : (score / 10) * weight };
+    });
+    const act = cats.filter(c => c.score != null);
+    const actPts = act.reduce((a, c) => a + c.pts, 0);
+    const actW = act.reduce((a, c) => a + c.weight, 0);
+    // `d.active` es el contador que el MOTOR calculó; el de aquí sale de las
+    // mismas seis casillas. Si no coinciden, el payload y la pantalla están
+    // contando cosas distintas y eso hay que verlo, no taparlo.
+    const desfase = (d.active != null && d.active !== act.length)
+        ? `<span class="text-amber-400" title="el motor contó ${d.active}">⚠</span>` : '';
+    const total = act.length === cats.length
+        ? `Total <b class="text-white">${Math.round(actPts)}</b> / 100`
+        : `<span class="text-gray-500">— / 100 · <b class="text-amber-400">${act.length}/${cats.length}</b> categorías activas`
+          + (act.length ? ` · ${Math.round(actPts)}/${actW} pts activos` : '') + `</span>`;
+
+    const celda = c => `<div class="bg-[#0B0E14] border ${c.score == null ? 'border-gray-800/60' : 'border-gray-800'} rounded-xl p-2.5">
+        <div class="text-[10px] font-bold ${c.score == null ? 'text-gray-500' : 'text-gray-200'}">${_vcEsc(c.name)}
+          <span class="text-[8px] text-gray-500 font-normal">${c.weight}%</span></div>
+        <div class="text-[8px] text-gray-600 leading-tight mb-1">${_vcEsc(c.q)}</div>
+        ${c.score == null
+            ? `<div class="text-sm font-black text-gray-600">— <span class="text-[8px] font-normal">pendiente</span></div>`
+            : `<div class="text-sm font-black text-white">${c.score}<span class="text-[9px] text-gray-500 font-normal">/10</span>
+                 <span class="text-[8px] text-blue-300 font-normal ml-1">→ ${c.pts.toFixed(1)}/${c.weight} pts</span></div>`}
+      </div>`;
+
+    const meta = [];
+    if (d.notable_trades != null) meta.push(`${d.notable_trades} notables (5d · ≥$100K)`);
+    if (d.conviction_trades != null) {
+        meta.push(`${d.conviction_trades} de convicción (${d.conviction_window === '30d'
+            ? '30d · ≥$1M' : 'ventana corta: la ancha no respondió'})`);
+    }
+    if (d.call_pct != null) meta.push(`${d.call_pct}% del premium en calls`);
+
+    return `<div class="mt-3">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-1.5">
+          <p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider">Options Flow Scorecard</p>
+          <span class="text-[10px] text-gray-400">${total}${desfase}</span>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">${cats.map(celda).join('')}</div>
+        ${d.verdict_meaning ? `<p class="text-[9px] text-gray-500 italic mt-1.5">${_vcEsc(d.verdict)}: ${_vcEsc(d.verdict_meaning)}</p>` : ''}
+        ${meta.length ? `<p class="text-[9px] text-gray-600 mt-1">${meta.map(_vcEsc).join(' · ')}</p>` : ''}
+      </div>`;
+}
+
+/** Soportes y resistencias por confluencia precio ∩ opciones — su `LevelsCard`.
+ *  El `why` es suyo y explica de dónde sale cada nivel; sin él la lista son
+ *  números sin respaldo. */
+function vcLevelsHTML(d) {
+    const L = d.levels || {};
+    const filas = k => (L[k] || []).slice(0, 5).map(l => `<tr class="border-b border-gray-800/50">
+        <td class="py-1 pr-2 font-bold ${k === 'supports' ? 'text-emerald-400' : 'text-red-400'}">$${Number(l.price).toFixed(2)}</td>
+        <td class="py-1 pr-2 text-right text-gray-300">${l.strength}</td>
+        <td class="py-1 pr-2 text-right text-gray-500">${Number(l.distance_pct).toFixed(1)}%</td>
+        <td class="py-1 text-gray-500 text-[9px] leading-tight">${_vcEsc(l.why || '')}${l.flipped ? ' <span class="text-amber-400">· flipeado</span>' : ''}</td></tr>`).join('');
+    const sup = filas('supports'), res = filas('resistances');
+    if (!sup && !res) return '';
+    const tabla = (t, cuerpo) => cuerpo ? `<p class="text-[9px] font-bold text-gray-500 uppercase mt-1.5 mb-0.5">${t}</p>
+        <table class="w-full text-[10px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
+        <th class="text-left pb-0.5">Nivel</th><th class="text-right pb-0.5 pr-2">Fuerza</th>
+        <th class="text-right pb-0.5 pr-2">Dist.</th><th class="text-left pb-0.5">Por qué</th></tr></thead>
+        <tbody>${cuerpo}</tbody></table>` : '';
+    return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider">Niveles · precio ∩ opciones</p>
+        ${tabla('Resistencias', res)}${tabla('Soportes', sup)}</div>`;
+}
+
+/** Mapa de GEX por strike × vencimiento — su `GexHeatmapCard`.
+ *  Abre el GEX en sus dos dimensiones: un mismo strike puede ser muro esta
+ *  semana y no serlo en enero. El agregado del scorecard esconde justo eso. */
+function vcHeatmapHTML(d) {
+    const h = d.gex_heatmap;
+    if (!h || !h.strikes || !h.strikes.length) return '';
+    const exps = (h.expirations || []).slice(0, 6);
+    const strikes = [...h.strikes].sort((a, b) => Math.abs(b.net_gex) - Math.abs(a.net_gex)).slice(0, 10)
+        .sort((a, b) => b.strike - a.strike);
+    const celda = (st, ex) => {
+        const c = (h.cells || []).find(x => x.strike === st.strike && x.expiration === ex.expiration);
+        if (!c) return `<td class="px-1 py-0.5"></td>`;
+        const pos = c.net_gex >= 0, a = Math.min(0.85, Math.max(0.06, Number(c.intensity) || 0));
+        return `<td class="px-1 py-0.5 text-center text-[8px] font-mono"
+            style="background:${pos ? `rgba(18,183,106,${a})` : `rgba(240,68,56,${a})`}"
+            title="${st.strike} · ${ex.expiration} · GEX ${fmtAbbr(c.net_gex)} · OI ${c.open_interest}">${fmtAbbr(c.net_gex)}</td>`;
+    };
+    const cab = exps.map(e => `<th class="px-1 pb-0.5 text-[8px] text-gray-500 font-bold">${e.expiration.slice(5)}<br><span class="font-normal">${e.dte}d</span></th>`).join('');
+    const filas = strikes.map(st => `<tr><td class="pr-1.5 text-[9px] font-bold ${st.strike >= h.spot ? 'text-red-300' : 'text-emerald-300'}">$${st.strike}</td>${exps.map(e => celda(st, e)).join('')}</tr>`).join('');
+    const cal = k => h[k] ? `${k === 'hottest_positive' ? '🟢' : '🔴'} $${h[k].strike} · ${h[k].expiration} (${fmtAbbr(h[k].net_gex)})` : '';
+    return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider mb-1">Mapa de GEX · strike × vencimiento</p>
+        <div class="overflow-x-auto"><table class="text-[10px]"><thead><tr><th></th>${cab}</tr></thead><tbody>${filas}</tbody></table></div>
+        <p class="text-[9px] text-gray-600 mt-1">${cal('hottest_positive')} ${cal('hottest_negative')} · GEX neto total ${fmtAbbr(h.total_net_gex)}</p></div>`;
+}
+
+/** Racimos del tape — su `FlowPriceChart` marca DÓNDE se concentró la agresión.
+ *  Lo que aporta y el scorecard no: la apuesta NETA de cada racimo (comprar
+ *  puts es bajista, no alcista) y su ventana temporal. */
+function vcClustersHTML(d) {
+    const cl = d.flow_clusters;
+    if (!cl || !cl.length) return '';
+    const hhmm = sec => new Date(sec * 1000).toISOString().slice(11, 16);
+    return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider mb-1">Racimos del tape</p>
+      <table class="w-full text-[10px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
+        <th class="text-left pb-0.5">Ventana (UTC)</th><th class="text-right pb-0.5 pr-2">Trades</th>
+        <th class="text-right pb-0.5 pr-2">Premium</th><th class="text-right pb-0.5 pr-2">Score</th>
+        <th class="text-left pb-0.5">Apuesta neta</th></tr></thead><tbody>
+      ${cl.map(c => `<tr class="border-b border-gray-800/50">
+        <td class="py-1 text-gray-400">${hhmm(c.start_sec)}–${hhmm(c.end_sec)}</td>
+        <td class="py-1 pr-2 text-right text-gray-300">${c.count}</td>
+        <td class="py-1 pr-2 text-right text-gray-200 font-bold">${fmtAbbr(c.premium)}</td>
+        <td class="py-1 pr-2 text-right text-gray-400">${c.score}/10</td>
+        <td class="py-1 font-bold ${c.bet === 'alcista' ? 'text-emerald-400' : 'text-red-400'}">${_vcEsc(c.bet_label)}</td></tr>`).join('')}
+      </tbody></table></div>`;
+}
+
+/** Memoria del agente — su `MemoriaCard`. Es lo que enciende el IV Rank real,
+ *  el sub-agente 6 y la auto-calibración; sin verlo no se sabe si están vivos. */
+function vcMemoryHTML(d) {
+    const m = d.memory;
+    if (!m) return '';
+    if (!m.available) {
+        return `<p class="text-[9px] text-amber-400 mt-2">🧠 Memoria apagada: ${_vcEsc(m.motivo || 'motivo no reportado')}</p>`;
+    }
+    const bits = [
+        `${m.iv_days} días de IV` + (m.iv_rank_real_en > 0 ? ` (rank real en ${m.iv_rank_real_en})` : ' · rank REAL activo'),
+        `${m.flows_utilizables}/${m.flows_guardados} flows utilizables`,
+        m.memoria_desde ? `desde ${String(m.memoria_desde).slice(0, 10)}` : null,
+        `${m.predicciones_vencidas} predicciones vencidas`,
+        m.calibracion_activa ? `calibración ACTIVA (sesgo ${Number(m.sesgo_pct).toFixed(1)}%)` : 'calibración en espera',
+        m.dir_hit_rate != null ? `acierto direccional ${Math.round(m.dir_hit_rate)}%` : null,
+    ].filter(Boolean);
+    const alerta = [];
+    if (m.flows_corruptos) alerta.push(`${m.flows_corruptos} filas corruptas en disco`);
+    if (m.flows_sin_id) alerta.push(`${m.flows_sin_id} flows sin id (se funden en uno)`);
+    if (m.escrituras_fallidas) alerta.push(`escrituras fallidas: ${m.escrituras_fallidas.join(', ')}`);
+    return `<div class="mt-2"><p class="text-[9px] text-gray-500">🧠 ${bits.map(_vcEsc).join(' · ')}</p>
+      ${alerta.length ? `<p class="text-[9px] text-amber-400">⚠ ${alerta.map(_vcEsc).join(' · ')}</p>` : ''}</div>`;
+}
+
 /** Panel de targets — tres escenarios por horizonte, no un nivel por horizonte. */
 function renderVictorTargets(d) {
     const el = document.getElementById('projTargets');
@@ -3161,6 +3357,11 @@ function renderVictorTargets(d) {
       </div>
       <p class="text-[10px] text-gray-300 mt-2 leading-snug">${_vcEsc(p.summary)}</p>
       ${p.caveat ? `<p class="text-[9px] text-amber-400 mt-1">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
+      ${vcScorecardHTML(d)}
+      ${vcLevelsHTML(d)}
+      ${vcHeatmapHTML(d)}
+      ${vcClustersHTML(d)}
+      ${vcMemoryHTML(d)}
       <div id="vcNews">${d.news ? vcNewsHTML(d.news) : ''}</div>
       ${warn ? `<div class="mt-2 space-y-0.5">${warn}</div>` : ''}`;
 
