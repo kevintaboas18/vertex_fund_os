@@ -1,5 +1,6 @@
 import os
 import sys
+import hashlib
 import json
 import logging
 import math
@@ -14,7 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 # Datos de mercado desde las fuentes PRINCIPALES (FMP/FinnHub), no de
 # yfinance: Victor fijó FMP, FinnHub, FRED y EDGAR, y su repo no depende
 # de Yahoo en ninguna parte. `vertex_market.Ticker` mantiene la misma
@@ -212,16 +213,46 @@ app.add_middleware(
     allow_headers=["content-type", "x-vertex-token"],
 )
 
+#: El HTML es el ESQUELETO de la app: todo el JavaScript va dentro. Se servía
+#: sin una sola cabecera de caché, así que el navegador decidía por su cuenta
+#: cuánto guardarlo — y tras un despliegue seguía ejecutando el JavaScript
+#: viejo contra la API nueva. Eso es justo lo que le paso a Victor: la API ya
+#: tenía el arreglo y su navegador seguía con el bundle roto, dando
+#: "integrityStripHTML is not defined" al analizar.
+#:
+#: `no-cache` NO significa "no lo guardes": significa "guárdalo, pero
+#: pregúntame antes de usarlo". Con `ETag`, si el archivo no cambió el
+#: servidor responde 304 y no se transfiere nada — misma velocidad, pero un
+#: despliegue llega siempre. `no-store` sí prohibiría guardarlo y penalizaría
+#: cada carga en el teléfono.
+_HTML_SIN_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
+
+
+def _servir_html(nombre: str, request: Request | None = None) -> Response:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    ruta = os.path.join(base_dir, nombre)
+    if not os.path.exists(ruta):
+        return HTMLResponse("<h1>Vertex OS Error: Frontend no encontrado en el servidor.</h1>",
+                            status_code=404)
+    with open(ruta, "r", encoding="utf-8") as f:
+        cuerpo = f.read()
+    # El ETag sale del CONTENIDO: cambia sólo cuando el archivo cambia.
+    etiqueta = f'W/"{hashlib.sha256(cuerpo.encode("utf-8")).hexdigest()[:16]}"'
+    cabeceras = {**_HTML_SIN_CACHE, "ETag": etiqueta}
+    # Si el navegador ya tiene esta misma versión, 304 y no se transfiere el
+    # cuerpo. Sin esto, `no-cache` costaría medio mega en cada carga — caro
+    # en un teléfono. Con esto: se revalida siempre, se descarga sólo cuando
+    # de verdad cambió.
+    if request is not None and request.headers.get("if-none-match") == etiqueta:
+        return Response(status_code=304, headers=cabeceras)
+    return HTMLResponse(cuerpo, headers=cabeceras)
+
+
 @app.get("/", response_class=HTMLResponse)
-def serve_frontend():
+def serve_frontend(request: Request):
     """Sirve el agente Vertex COMPLETO (Dashboard, Reports, Portfolio, Proyecciones,
     Watchlist, Track Record). El análisis muestra los números de Victor (overlay)."""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    html_path = os.path.join(base_dir, "vertex_fund_os_platform.html")
-    if os.path.exists(html_path):
-        with open(html_path, "r", encoding="utf-8") as file:
-            return file.read()
-    return "<h1>Vertex OS Error: Frontend no encontrado en el servidor.</h1>", 404
+    return _servir_html("vertex_fund_os_platform.html", request)
 
 
 @app.get("/manifest.webmanifest")
@@ -275,12 +306,7 @@ def serve_wbj_terminal():
 @app.get("/legacy", response_class=HTMLResponse)
 def serve_frontend_legacy():
     """Interfaz anterior (framework de 7 señales) por si se necesita comparar."""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    html_path = os.path.join(base_dir, "vertex_fund_os_platform.html")
-    if os.path.exists(html_path):
-        with open(html_path, "r", encoding="utf-8") as file:
-            return file.read()
-    return "<h1>Legacy frontend no encontrado.</h1>", 404
+    return _servir_html("vertex_fund_os_platform.html")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1917,3 +1917,63 @@ plan está inactivo — el resto cae a lo derivado de la cadena, como fue
 diseñado.
 
 **2126 tests del engine + 94 de la capa web.**
+
+---
+
+# 31. El navegador no se enteraba de los despliegues (D-04)
+
+Victor no podía analizar: `integrityStripHTML is not defined`. **El código
+estaba bien** — producción y local eran byte-idénticos (mismo SHA-256), los
+cuatro bloques `<script>` compilaban y la función estaba definida en la
+línea 2943.
+
+Lo que fallaba era lo que llegaba a su pantalla.
+
+## 31.1 La causa
+
+`/` se servía **sin una sola cabecera de caché**:
+
+```
+Cache-Control: (ausente)   ETag: (ausente)
+Last-Modified: (ausente)   Expires: (ausente)
+```
+
+Sin instrucciones, el navegador aplica caché heurística: decide por su cuenta
+cuánto guardarlo. El HTML es el ESQUELETO de la app —todo el JavaScript va
+dentro—, así que su navegador seguía ejecutando el bundle roto contra la API
+ya arreglada.
+
+Esto no era un caso aislado: **habría pasado en cada despliegue.**
+
+## 31.2 El arreglo
+
+`Cache-Control: no-cache, must-revalidate` + `ETag` derivado del contenido.
+
+`no-cache` no es "no lo guardes": es "guárdalo, pero pregúntame antes de
+usarlo". Con `ETag` la revalidación es gratis — si nada cambió, 304 y cero
+bytes; si cambió, baja la versión nueva sola.
+
+| Situación | Antes | Ahora |
+|---|---|---|
+| Misma versión | 572.072 bytes | **304, 0 bytes** |
+| Tras desplegar | seguía el viejo hasta vaciar caché | **200, versión nueva** |
+
+Medido en local. `no-store` habría prohibido guardarlo y costado medio mega
+en cada carga — caro en el teléfono, que es donde lo usa.
+
+## 31.3 Un error de subcadena, de paso
+
+Al añadir el import de `Response`, la comprobación buscaba la subcadena
+`"Response"` en la línea del import — y **ya aparecía dentro de
+`HTMLResponse`**. La condición dio positivo, el import no se añadió, y la
+ruta devolvía 500. Comparación exacta contra la lista de nombres, no
+`in` sobre el texto.
+
+## 31.4 Estado
+
+`tests_vertex/test_html_revalidation.py` — 4 tests: que el esqueleto siempre
+revalide, que una versión sin cambios cueste 0 bytes, que un despliegue nuevo
+llegue solo, y que el `ETag` salga del CONTENIDO y no del reloj (uno por
+marca de tiempo invalidaría la caché en cada reinicio sin motivo).
+
+**2126 tests del engine + 98 de la capa web.**
