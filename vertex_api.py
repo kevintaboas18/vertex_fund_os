@@ -7217,33 +7217,122 @@ def _wbj_read_thesis_md(ticker):
     return ""
 
 
+def _wbj_sin_encabezado(texto):
+    """El historial de un archivo de tesis, sin su título `# Tesis — X`.
+
+    El defecto que arregla: se anteponía el texto ANTERIOR COMPLETO —título
+    incluido— debajo de un título nuevo, así que `# Tesis — NVDA` se
+    multiplicaba una vez por corrida. `NVDA.md` llegó a tener el mismo
+    encabezado repetido con bloques idénticos debajo.
+    """
+    cuerpo = (texto or "").lstrip()
+    if cuerpo.startswith("# "):
+        _, _, cuerpo = cuerpo.partition("\n")
+    return cuerpo.strip()
+
+
+def _wbj_firma_tesis(profile, raw, fair_value, t12):
+    """Lo que hace que dos análisis sean el MISMO resultado."""
+    return (f"{profile}|{raw}|{fair_value}|"
+            f"{t12.get('bull')}|{t12.get('base')}|{t12.get('bear')}")
+
+
 def _wbj_write_thesis_md(ticker, price, profile, raw, fair_value, targets, thesis, invalidation):
     """Escribe/actualiza Memoria/tesis/<TICKER>.md (protocolo de memoria del CLAUDE.md).
-    Corrige encima; no borra la tesis vieja (la apila como historial). Best-effort."""
+
+    Corrige encima; nunca borra una tesis vieja: el historial es la señal de
+    aprendizaje. Pero repetir el MISMO resultado tampoco es historial —
+    veinte bloques idénticos no dicen que la tesis se sostuvo, sólo que se
+    apretó el botón veinte veces. Si el análisis nuevo coincide con el más
+    reciente (perfil, score, fair value y los tres targets), se actualiza la
+    fecha de revisión de ese bloque en lugar de apilar un duplicado; el
+    bloque conserva la fecha en que la conclusión apareció por primera vez.
+    Un cambio en cualquiera de esos campos sí abre un bloque nuevo.
+
+    Best-effort: fallar aquí nunca puede tumbar el análisis.
+    """
     try:
         base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "tesis")
         os.makedirs(base, exist_ok=True)
         p = os.path.join(base, f"{ticker.upper()}.md")
         fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
         t12 = (targets or {}).get("12m", {}) or {}
-        prev = ""
+        firma = _wbj_firma_tesis(profile, raw, fair_value, t12)
+
+        previo = ""
         if os.path.exists(p):
             with open(p, "r", encoding="utf-8") as f:
-                prev = f.read()
-        entry = (f"## {fecha} — perfil {profile} · raw {raw}/100\n"
-                 f"- Precio al análisis: ${price} · Fair value (base): ${fair_value}\n"
-                 f"- Targets 12M: Bull ${t12.get('bull')} / Base ${t12.get('base')} / Bear ${t12.get('bear')}\n"
-                 f"- Tesis: {(thesis or '').strip()[:600]}\n"
-                 f"- Invalidación: {invalidation}\n\n")
+                previo = _wbj_sin_encabezado(f.read())
+
+        bloques = [b for b in re.split(r"\n(?=## )", previo) if b.strip()]
+        reciente = bloques[0] if bloques else ""
+        m = re.search(r"<!-- firma: (.*?) \| desde: (.*?) -->", reciente)
+
+        if m and m.group(1) == firma:
+            # Mismo resultado: se sella la revisión, no se duplica el bloque.
+            desde = m.group(2)
+            bloques[0] = re.sub(
+                r"^## .*$",
+                f"## {desde} — perfil {profile} · raw {raw}/100  "
+                f"*(sin cambios; revisado {fecha})*",
+                reciente, count=1, flags=re.M)
+        else:
+            entry = (f"## {fecha} — perfil {profile} · raw {raw}/100\n"
+                     f"<!-- firma: {firma} | desde: {fecha} -->\n"
+                     f"- Precio al análisis: ${price} · Fair value (base): ${fair_value}\n"
+                     f"- Targets 12M: Bull ${t12.get('bull')} / Base ${t12.get('base')} / Bear ${t12.get('bear')}\n"
+                     f"- Tesis: {(thesis or '').strip()[:600]}\n"
+                     f"- Invalidación: {invalidation}\n")
+            bloques.insert(0, entry)
+
         with open(p, "w", encoding="utf-8") as f:
-            f.write(f"# Tesis — {ticker.upper()}\n\n{entry}{prev}")
-        # índice
-        idx = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "MEMORIA.md")
-        line = f"- {ticker.upper()} · {fecha} · {profile} · raw {raw}/100 · FV ${fair_value}\n"
-        with open(idx, "a", encoding="utf-8") as f:
-            f.write(line)
+            f.write(f"# Tesis — {ticker.upper()}\n\n"
+                    + "\n\n".join(b.strip() for b in bloques) + "\n")
+
+        _wbj_actualizar_indice_memoria(ticker, fecha, profile, raw, fair_value)
     except Exception as e:
         print(f"[Memoria] no se pudo escribir tesis {ticker}: {e}")
+
+
+#: Dónde viven las líneas por ticker dentro de `Memoria/MEMORIA.md`.
+_MEMORIA_SECCION = "## Tesis activas"
+
+
+def _wbj_actualizar_indice_memoria(ticker, fecha, profile, raw, fair_value):
+    """UNA línea por ticker en `Memoria/MEMORIA.md`, no una por corrida.
+
+    El índice se abría en modo `"a"`, así que cada análisis añadía una línea
+    aunque el resultado fuese idéntico: NVDA aparecía 25 veces con el mismo
+    texto y el índice dejaba de servir para lo único que existe — mirar de
+    un vistazo qué se dijo de cada empresa. El propio MEMORIA.md lo pide
+    así: "el agente agrega una línea por ticker analizado".
+
+    La línea se REEMPLAZA y el listado queda ordenado. El historial no se
+    pierde: vive en `tesis/<TICKER>.md`, que es su sitio.
+    """
+    idx = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Memoria", "MEMORIA.md")
+    linea = f"- [{ticker.upper()}](tesis/{ticker.upper()}.md) · {fecha} · {profile} · raw {raw}/100 · FV ${fair_value}"
+    try:
+        with open(idx, "r", encoding="utf-8") as f:
+            texto = f.read()
+    except OSError:
+        texto = f"# Memoria del Agente — Warren Buffett Jr\n\n{_MEMORIA_SECCION}\n\n"
+
+    cabeza, sep, cola = texto.partition(_MEMORIA_SECCION)
+    if not sep:                                    # sin la sección: se crea
+        cabeza, cola = texto.rstrip() + "\n\n", "\n"
+
+    lineas = [l for l in cola.splitlines() if re.match(r"- \[?[A-Z][A-Z.\-]*\]?[ (·]", l)]
+    otras = [l for l in cola.splitlines()
+             if l.strip() and l not in lineas and not l.startswith("- ")]
+    lineas = [l for l in lineas
+              if not re.match(rf"- \[?{re.escape(ticker.upper())}\]?[ (·]", l)]
+    lineas.append(linea)
+    lineas.sort(key=lambda l: re.sub(r"^- \[?", "", l))
+
+    with open(idx, "w", encoding="utf-8") as f:
+        f.write(cabeza + _MEMORIA_SECCION + "\n\n"
+                + "\n".join(otras + ([""] if otras else []) + lineas) + "\n")
 
 
 def _wbj_write_prediccion(ticker, report_id, price, fair_value, profile, raw, targets, recommendation):

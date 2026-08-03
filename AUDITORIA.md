@@ -1423,3 +1423,90 @@ disco de verdad, no lectura de código fuente. Verificado que **fallan** contra 
 `put` original (71 lecturas rotas), así que discriminan.
 
 **2120 tests del engine + 75 de la capa web.**
+
+---
+
+# 22. El protocolo de memoria se degradaba solo (M-01)
+
+`CLAUDE.md` hace obligatorio escribir `Memoria/tesis/<TICKER>.md` y una línea
+en `Memoria/MEMORIA.md` después de cada análisis. El escritor existía y corría
+— pero se destruía a sí mismo, sin dar error nunca.
+
+## 22.1 El título se multiplicaba
+
+```python
+f.write(f"# Tesis — {ticker.upper()}\n\n{entry}{prev}")
+```
+
+`prev` era el archivo ANTERIOR COMPLETO, título incluido, y se le anteponía un
+título nuevo. Estado encontrado:
+
+| Archivo | Encabezados `# Tesis` | Bloques | Bloques DISTINTOS |
+|---|---|---|---|
+| `NVDA.md` | **32** | 32 | **15** |
+| `AAPL.md` | 2 | 2 | 2 |
+
+## 22.2 El índice crecía sin límite
+
+`open(idx, "a")` añadía una línea por CORRIDA. `MEMORIA.md` tenía 34 líneas,
+25 de ellas `NVDA` con texto idéntico (`raw 37.1/100 · FV $281.05`) — y el
+propio archivo pide lo contrario: *"el agente agrega una línea por ticker
+analizado"*. Un índice con el mismo ticker 25 veces no sirve para lo único
+que existe: mirar de un vistazo qué se dijo de cada empresa.
+
+## 22.3 El arreglo
+
+Un bloque por RESULTADO, no por corrida. Cada bloque lleva
+`<!-- firma: perfil|raw|fv|bull|base|bear | desde: fecha -->`; si el análisis
+nuevo coincide, se sella *"sin cambios; revisado"* y se conserva la fecha en
+que la conclusión apareció por primera vez — que es justo el dato que decía
+cuánto tiempo se sostuvo, y que apilar duplicados destruía. Cualquier cambio
+abre bloque nuevo y **nunca** borra el viejo.
+
+El índice se reescribe: una línea por ticker, ordenada y enlazada a su tesis.
+El historial no se pierde — vive en `tesis/<TICKER>.md`, que es su sitio.
+
+Reparado el daño existente sin perder ningún análisis real: `NVDA.md` 32 → 18
+bloques (sólo se colapsaron los idénticos), `AAPL.md` intacto.
+
+Cobertura del protocolo, antes → después: **2/5 → 5/5** tickers con tesis,
+2/5 → 5/5 con `prediccion.json`, corriendo el análisis real de JPM, KO y PLTR
+(no escribiendo los archivos a mano).
+
+## 22.4 Estado
+
+`tests_vertex/test_memoria_protocolo.py` — 8 tests. Todos REPITEN corridas,
+que es lo único que destapa ambos fallos.
+
+**2125 tests del engine + 88 de la capa web.**
+
+---
+
+# 23. ABIERTO: las dos capas no dan el mismo número (M-02)
+
+`CLAUDE.md`: *"Dos capas, una sola matemática. `engine/wbj/` calcula;
+`vertex_api.py` presenta."* No se cumple.
+
+Mismo ticker, mismo día (2026-08-03), NVDA:
+
+| Camino | raw | business | financial | market | technical | risk | valuation |
+|---|---|---|---|---|---|---|---|
+| `run_aggregate` (motor) | **47.91** | 11.39 | 10.08 | 5.05 | 10.48 | 5.95 | 4.97 |
+| `/api/analyze` (web) | **37.0** | 6.8 | 10.05 | 1.8 | 9.4 | 4.05 | 5.1 |
+
+**No es el judge.** Medido con `judge=True` y `judge=False`: 47.91 en ambos
+casos, porque el judge está caído por créditos y su fallo ya degrada limpio.
+
+**Causa:** `vertex_api.py::_engine_scorecard` construye su PROPIO `_overlay`
+(beta, risk_free_rate, interest_expense, equity_issuance, estimates) en
+paralelo al que arma `engine/wbj/deep.py::_run_specialists`. Dos overlays
+independientes alimentan a los mismos especialistas con entradas distintas.
+Es lógica de scoring duplicada que derivó.
+
+**Qué implica:** el número que se ve en la interfaz y el que escribe la
+memoria (37.0) NO es el que da el motor (47.91). Las cinco tesis recién
+escritas usan el de la ruta.
+
+**Por qué queda abierto:** unificarlo es un cambio de arquitectura —
+`_engine_scorecard` tendría que consumir `run_aggregate` en vez de reimplementarlo—
+y decide Victor cuál de los dos overlays es el bueno.

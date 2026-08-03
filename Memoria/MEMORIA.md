@@ -24,37 +24,9 @@ son la señal de aprendizaje.
 ## Tesis activas
 
 *(el agente agrega una línea por ticker analizado: `- [TICKER](tesis/TICKER.md) — resumen de una línea`)*
-- NVDA · 2026-08-01 11:23 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 11:28 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 11:30 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- AAPL · 2026-08-01 11:32 · Avoid / Wait · raw 31.6/100 · FV $322.17
-- NVDA · 2026-08-01 11:34 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 11:37 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 11:41 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 11:49 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 11:51 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 11:55 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 11:56 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 11:58 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- AAPL · 2026-08-01 11:59 · Avoid / Wait · raw 31.6/100 · FV $322.17
-- NVDA · 2026-08-01 12:00 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 13:50 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 13:51 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 13:52 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 13:53 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 13:54 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 13:55 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-01 14:10 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 00:47 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 00:48 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 00:50 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 00:50 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 00:52 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 00:53 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 00:56 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 00:56 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 00:56 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 01:52 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 01:52 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 01:52 · Avoid / Wait · raw 37.1/100 · FV $281.05
-- NVDA · 2026-08-02 01:52 · Avoid / Wait · raw 37.1/100 · FV $281.05
+
+- [AAPL](tesis/AAPL.md) · 2026-08-03 09:30 · Avoid / Wait · raw 31.5/100 · FV $322.17
+- [JPM](tesis/JPM.md) · 2026-08-03 09:26 · Avoid / Wait · raw 22.9/100 · FV $366.24
+- [KO](tesis/KO.md) · 2026-08-03 09:27 · Avoid / Wait · raw 39.3/100 · FV $94.18
+- [NVDA](tesis/NVDA.md) · 2026-08-03 09:32 · Avoid / Wait · raw 37.0/100 · FV $281.05
+- [PLTR](tesis/PLTR.md) · 2026-08-03 09:28 · Avoid / Wait · raw 29.3/100 · FV $160.62

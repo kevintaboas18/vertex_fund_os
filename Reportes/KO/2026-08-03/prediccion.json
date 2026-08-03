@@ -1,0 +1,16 @@
+{
+  "report_id": "20260803_092631_KO",
+  "ticker": "KO",
+  "fecha": "2026-08-03",
+  "price_at_analysis": 87.59,
+  "fair_value": 94.18,
+  "profile": "Avoid / Wait",
+  "raw_total": 39.3,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 113.35,
+    "base": 94.18,
+    "bear": 65.38
+  },
+  "framework": "WBJ v2.0.0"
+}
