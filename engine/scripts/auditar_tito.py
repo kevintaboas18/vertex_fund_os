@@ -973,10 +973,36 @@ chk("clampedTo2Sigma" in HTML and "mask${uid}" in HTML,
 # ve. El encabezado de SU gráfica salía del OTRO motor.
 chk("vcSyncCabecera(d)" in HTML and "function vcGexHTML(" in HTML,
     "la gráfica de Víctor lleva SU cabecera y SU lectura de gamma")
-chk("projData.net_gex" in HTML and "choque" in HTML,
-    "…y si los dos motores leen el régimen al revés, se avisa en vez de taparlo")
-chk("· Quant Data" in HTML,
-    "las cards del otro motor declaran su fuente (no se confunden con las suyas)")
+# El tab ya no mide gamma dos veces: `/api/options-gex` (Quant Data, respaldo
+# yfinance+BSM) salió del cargador. Sigue vivo para la vista de Research, que es
+# otra pantalla; lo que no puede es volver a ESTE tab.
+import re as _re
+_carg = HTML[HTML.index("async function loadProjections("):]
+_carg = _carg[:_carg.index("\nasync function vcFetchTargets(")]
+_carg = _re.sub(r"/\*[\s\S]*?\*/", "", _carg)
+_carg = _re.sub(r"^\s*//.*$", "", _carg, flags=_re.M)
+_qd = {"options-gex", "net-flow", "options-ledger", "confluence", "gex-strike"}
+_usa = set(_re.findall(r"api/([a-z0-9-]+)", _carg)) & _qd
+chk(not _usa, "el tab de Proyecciones NO llama a Quant Data"
+    + (f" · VUELVE A LLAMAR: {sorted(_usa)}" if _usa else ""))
+chk("vcFetchTargets(ticker)" in _carg,
+    "…y su única puerta de datos es `/api/projection-targets`")
+_dom = HTML[HTML.index('<main id="projectionsView"'):]
+_dom = _dom[:_dom.index("</main>")]
+_muertos = [n for n in ("projNetDriftCard", "projLedgerCard", "projDarkPool",
+                        "projConfluence") if f'id="{n}"' in _dom]
+chk(not _muertos, "los paneles de Quant Data salieron del tab"
+    + (f" · SIGUEN: {_muertos}" if _muertos else ""))
+_render = HTML[HTML.index("function renderProjections(d) {"):]
+_render = _re.sub(r"^\s*//.*$", "",
+                  _render[:_render.index("\n/** Gamma neto por strike")], flags=_re.M)
+chk("g.nodes" in _render and "g.flip_strike" in _render and "g.king_strike" in _render,
+    "los muros, el flip y el imán de las cards salen de SUS nodos")
+chk("Max Pain" not in _render and "Nodo imán" in _render,
+    "fuera Max Pain (Víctor no lo calcula); en su sitio va el nodo imán")
+chk(not any(v in _render for v in ("d.call_wall", "d.put_wall", "d.gamma_flip",
+                                   "d.max_pain", "d.net_gex")),
+    "ni un campo del payload de Quant Data sobrevive en las cards")
 chk("_tito_clusters(trades, now)" in API and "detect_clusters" in API,
     "`detect_clusters` CABLEADA: `flow_clusters` (su FlowPriceChart)")
 

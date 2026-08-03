@@ -2578,21 +2578,16 @@ function applyTargetsSourceUI() {
 // dentro del cono de 1σ/2σ. No hay velas ni overlays de TradingView aquí — un
 // solo renderizador dueño de `#projChart`, como lo tiene Víctor.
 let projGexChartObj = null, projData = null;
-let projNetDriftChart = null, projNetDriftWin = 'today', projNetDriftTicker = null, projNetDriftExpTicker = null;
-let projGammaChart = null, projGammaTicker = null, projGammaExpLoaded = false, projBtTicker = null, projLedgerTicker = null;
-let projGammaRows = [], projGammaGreekCur = 'GAMMA', projGammaExpTicker = null;   // filas vivas para el tooltip al actualizar EN SITIO + ticker dueño del dropdown de expiraciones
-let _ledgerTrades = [], _ledgerPage = 0; const LEDGER_PAGE_SIZE = 15;
-let projDpView = '30d';        // 'today' | '30d' — vista activa del dark pool
+// El tab de Proyecciones tiene UNA sola fuente: el motor de Víctor
+// (`/api/projection-targets`). Los paneles de Quant Data —dark pool, drift
+// de premium neto, libro institucional, confluencia y su gamma por strike—
+// se retiraron: medían gamma en paralelo con otro proveedor y otra fórmula,
+// y en la misma pantalla eso son dos verdades sin forma de saber cuál manda.
+// `/api/options-gex` sigue vivo para la vista de Research, que no es este tab.
+let projBtTicker = null;
 let projAutoTimer = null;      // timer de auto-refresh mientras el mercado está abierto
 
 const DP_MIN_VALUE = 500e6;    // solo cruces de dark pool de $500M o más
-
-// Niveles de dark pool de la vista activa (hoy o 30 días), solo ≥ $500M
-function projDpLevels() {
-    if (!projData) return [];
-    const arr = (projDpView === 'today' ? projData.dark_pool_today : projData.dark_pool) || [];
-    return arr.filter(p => p && p.price && p.value && p.value >= DP_MIN_VALUE);
-}
 // ¿Mercado de EE.UU. abierto? (lun–vie 9:30–16:00 hora del Este; PR es UTC-4 todo el año)
 function projIsMarketOpen() {
     try {
@@ -2606,8 +2601,8 @@ function projIsMarketOpen() {
 
 async function loadProjections(tickerArg, opts) {
     opts = opts || {};
-    const silent = !!opts.silent, force = !!opts.force;   // silent = sin spinner (refresh en vivo) · force = salta cache GEX
-    const _scrollY = silent ? (window.scrollY || document.documentElement.scrollTop || 0) : null;   // conserva dónde estabas mirando
+    const silent = !!opts.silent;
+    const _scrollY = silent ? (window.scrollY || document.documentElement.scrollTop || 0) : null;
     const inp = document.getElementById('projTicker');
     let ticker = (tickerArg || (inp ? inp.value : '') || '').trim().toUpperCase();
     if (!ticker) { if (inp) inp.focus(); return; }
@@ -2617,77 +2612,56 @@ async function loadProjections(tickerArg, opts) {
     const btn = document.getElementById('projRefreshBtn');
     if (!silent) {
         empty.classList.remove('hidden');
-        empty.innerHTML = `<i data-lucide="loader" class="w-8 h-8 text-blue-500 mx-auto mb-3 animate-spin"></i><p class="text-sm text-gray-400">Calculando gamma exposure de ${ticker}…</p>`;
+        empty.innerHTML = `<i data-lucide="loader" class="w-8 h-8 text-blue-500 mx-auto mb-3 animate-spin"></i><p class="text-sm text-gray-400">Analizando el flujo de ${ticker}…</p>`;
         content.classList.add('hidden');
         if (window.lucide) lucide.createIcons();
     } else if (btn) { btn.classList.add('animate-spin'); }
     try {
-        const r = await fetch(`${API_BASE}/api/options-gex?ticker=${encodeURIComponent(ticker)}${force ? '&refresh=1' : ''}`);
-        const d = await r.json();
-        if (!d.ok) {
+        // UNA sola fuente para todo el tab: el motor de Víctor. Antes había dos
+        // —`/api/options-gex` (Quant Data, respaldo yfinance+BSM) alimentaba las
+        // cards y el gráfico de gamma— y las dos medían lo mismo con datos
+        // distintos. La insignia podía decir "GEX+ anclado" mientras los
+        // escenarios de abajo salían de una lectura γ−.
+        const d = await vcFetchTargets(ticker);
+        if (!d || !d.ok) {
             if (!silent) {
-                empty.innerHTML = `<i data-lucide="alert-triangle" class="w-8 h-8 text-amber-500 mx-auto mb-3"></i><p class="text-sm text-amber-400">${d.error || 'No hay cadena de opciones para ' + ticker + '.'}</p>`;
+                empty.innerHTML = `<i data-lucide="alert-triangle" class="w-8 h-8 text-amber-500 mx-auto mb-3"></i><p class="text-sm text-amber-400">${(d && d.error) || 'No se pudo analizar ' + ticker + '.'}</p>`;
                 if (window.lucide) lucide.createIcons();
             }
             return;
         }
         projData = d;
+        window._vcData = d;
         if (!silent) { empty.classList.add('hidden'); content.classList.remove('hidden'); }
-        // Recarga COMPLETA de todos los paneles (en vivo cuando es silent / refresh)
-        renderProjections(d);             // cards (GEX + P/C), escenarios, inusual, dark pool panel, gráfico gamma
-        loadProjTargets(ticker);          // targets por horizonte (incluye Hoy/0DTE)
-        loadFlowLedger(ticker);           // libro de flujo institucional
-        loadProjConfluence(ticker);       // confluencia QD
-        loadNetDrift(ticker, projNetDriftWin, (document.getElementById('projNetDriftExp') || {}).value || 'all');  // net drift — conserva la expiración elegida
-        loadGammaStrike(ticker, (silent && document.getElementById('projGammaExp') && document.getElementById('projGammaExp').value) ? document.getElementById('projGammaExp').value : 'all');   // gamma por strike — en refresh conserva la exp. elegida
-        loadIncomeStrategies(ticker);     // estrategias de venta de prima (condor / spreads / CSP) 7–30 DTE
-        loadBacktestStatus(ticker);       // estado del backtest
-        // La gráfica la dibuja loadProjTargets con el payload de Víctor: precio +
-        // escenarios salen de la MISMA llamada, así que no hay un segundo fetch de
-        // historial ni un segundo dueño de #projChart.
+        renderProjections(d);              // cards, escenarios e inusuales — todo del motor de Víctor
+        renderVictorTargets(d);            // scorecard, niveles, heatmap, racimos, memoria
+        renderVictorProjChart('projChart', d, window._vcHz || 20);
+        vcSyncCabecera(d);
+        loadIncomeStrategies(ticker);      // venta de prima — no es gamma, no depende de Quant Data
+        loadBacktestStatus(ticker);        // estado del backtest de señales
     } catch (e) {
         if (!silent) empty.innerHTML = `<p class="text-sm text-red-400">Error: ${e.message}</p>`;
     } finally {
         if (silent) {
-            if (_scrollY != null) {   // restaura la posición (varias veces: los paneles async resuelven después y reflowean)
-                const _rs = () => window.scrollTo(0, _scrollY);
-                _rs(); requestAnimationFrame(_rs); setTimeout(_rs, 250); setTimeout(_rs, 700);
+            if (_scrollY != null) {
+                const restore = () => window.scrollTo(0, _scrollY);
+                restore(); setTimeout(restore, 60); setTimeout(restore, 300);
             }
-            const ts = document.getElementById('projRefreshTs');
-            if (ts) ts.textContent = 'Actualizado ' + new Date().toLocaleTimeString('es-PR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            if (btn) setTimeout(() => btn.classList.remove('animate-spin'), 600);
+            if (btn) setTimeout(() => btn.classList.remove('animate-spin'), 400);
         }
+        const ts = document.getElementById('projRefreshTs');
+        if (ts) ts.textContent = 'actualizado ' + new Date().toLocaleTimeString();
     }
 }
 
-
-// Walls estructurales de TODAS las expiraciones (projData, de /api/options-gex).
-// Ya no hay variante por horizonte: la selección de horizonte vive en el panel de
-// Víctor (10/20/30 días) y ese motor no expone walls por expiración.
-function projActiveWalls() {
-    return projData ? {
-        call_wall: projData.call_wall, put_wall: projData.put_wall,
-        gamma_flip: projData.gamma_flip, max_pain: projData.max_pain,
-        label: 'Todas', expiry: null, dte: null
-    } : null;
+/** La única llamada de datos del tab. Separada para que `loadProjTargets`
+ *  —que sigue existiendo para el refresco del panel de targets— y el cargador
+ *  del tab compartan exactamente la misma petición. */
+async function vcFetchTargets(ticker) {
+    const r = await fetch(`${API_BASE}/api/projection-targets?ticker=${encodeURIComponent(ticker)}`);
+    return await r.json();
 }
 
-// Actualiza en sitio las cards Call Wall / Put Wall / Gamma Flip / Max Pain,
-// sin re-renderizar todo el bloque (Spot / GEX Neto / P-C se quedan como están).
-function projRenderWallCards() {
-    const aw = projActiveWalls();
-    const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = (v != null && v !== '') ? '$' + v : '—'; };
-    if (aw) { set('pwCallWall', aw.call_wall); set('pwPutWall', aw.put_wall); set('pwGammaFlip', aw.gamma_flip); set('pwMaxPain', aw.max_pain); }
-    const cf = document.getElementById('pwFlipConf');
-    if (cf) {
-        const c = aw && aw.gamma_flip_confidence;
-        if (c && aw.gamma_flip) {
-            const col = c.level === 'alta' ? 'text-emerald-500' : c.level === 'media' ? 'text-amber-500' : 'text-red-400';
-            cf.className = `text-[8px] font-bold ${col}`;
-            cf.textContent = `confianza ${c.level} (${c.score})`;
-        } else { cf.className = 'text-[8px] text-gray-600'; cf.textContent = ''; }
-    }
-}
 
 function integrityStripHTML(intg){
     if(!intg || !intg.checks || !intg.checks.length) return '';
@@ -3159,42 +3133,35 @@ async function vcLoadNews(d) {
     }
 }
 
-/** Cabecera de la gráfica: SU spot y SU régimen, con la discrepancia a la vista.
+/** Cabecera de la gráfica: SU spot y SU régimen.
  *
- *  El tab mide gamma dos veces con fuentes distintas (Quant Data/yfinance en las
- *  cards de arriba, Massive+MarketSnack en el motor de Víctor). Dos medidas
- *  independientes de lo mismo son útiles —es el mismo criterio que ya usa el
- *  proyecto con σ/DCF vs gamma/flujo—, pero solo si se sabe cuál es cuál. Si
- *  discrepan en el SIGNO del régimen, eso se avisa en vez de taparse: es
- *  información, no ruido. */
+ *  El tab tuvo dos motores de gamma —`/api/options-gex` (Quant Data, respaldo
+ *  yfinance+BSM) alimentaba las cards y el gráfico de gamma por strike— y el
+ *  título y la insignia, que van ENCIMA de la gráfica de Víctor, salían del
+ *  OTRO. El encabezado podía decir "GEX+ anclado" mientras los escenarios de
+ *  abajo venían de una lectura γ−, y no había forma de notarlo.
+ *
+ *  Ya no: el tab entero se sirve de `/api/projection-targets`. Quant Data sigue
+ *  vivo para la vista de Research, que es otra pantalla y otro contrato. */
 function vcSyncCabecera(d) {
     const t = document.getElementById('projChartTitle');
     if (t && d.spot != null) t.innerText = `${d.ticker} · $${Number(d.spot).toFixed(2)}`;
     const b = document.getElementById('projRegimeBadge');
     if (!b || !d.gex) return;
     const pos = d.gex.regime === 'positive';
-    // ¿Dice lo contrario el otro motor?
-    let choque = '';
-    try {
-        if (projData && projData.net_gex != null && (projData.net_gex >= 0) !== pos) {
-            choque = ' ⚠';
-            b.title = 'El motor de Quant Data/yfinance lee el régimen contrario '
-                    + `(GEX neto ${projData.net_gex >= 0 ? '+' : '−'}). Las cards de arriba `
-                    + 'son de ESA fuente; la gráfica y los escenarios, del motor de Víctor.';
-        } else { b.title = 'Régimen de gamma según el motor de Víctor (Massive + MarketSnack).'; }
-    } catch (e) {}
     b.className = `text-[9px] font-bold px-2 py-0.5 rounded-full ${pos ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`;
-    b.innerText = (pos ? 'γ+ estabiliza' : 'γ− amplifica') + choque;
+    b.innerText = pos ? 'γ+ estabiliza' : 'γ− amplifica';
+    b.title = 'Régimen de gamma del dealer — motor de Víctor '
+            + '(cadena de Massive + gamma real del tape de MarketSnack).';
 }
 
 /** La lectura de gamma de SU motor — `gexAnalysis` de `gex.ts`.
  *
- *  El tab tiene DOS motores de gamma: `/api/options-gex` (Quant Data, con
- *  respaldo yfinance+BSM) alimenta las cards de arriba, y este —cadena de
- *  Massive + gamma real del tape de MarketSnack— alimenta los escenarios, el
- *  imán y el heatmap. Son dos medidas independientes de lo mismo y eso está
- *  bien; lo que no puede es que solo se vea una y la otra decida los targets en
- *  la sombra. Aquí se muestra la SUYA, que es la que manda en esta gráfica.
+ *  Es la ÚNICA lectura de gamma del tab. Antes había otra en paralelo
+ *  (`/api/options-gex`, Quant Data con respaldo yfinance+BSM) alimentando las
+ *  cards de arriba: dos proveedores midiendo lo mismo con fórmulas distintas en
+ *  la misma pantalla, sin forma de saber cuál mandaba. Ahora manda esta, que es
+ *  la que además decide los escenarios, el nodo imán y el heatmap.
  *
  *  `king_strike` es el nodo imán —el precio al que la gamma tira— y `flip` la
  *  zona donde el dealer cambia de lado. `n` y el GEX neto van delante porque
@@ -3435,387 +3402,133 @@ function renderVictorTargets(d) {
 }
 
 function renderProjections(d) {
-    document.getElementById('projChartTitle').innerText = `${d.ticker} · $${d.spot}`;
     syncOpPlanVisibility(d.ticker);
-    const pos = (d.net_gex >= 0);
-    const badge = document.getElementById('projRegimeBadge');
-    badge.className = `text-[9px] font-bold px-2 py-0.5 rounded-full ${pos ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`;
-    badge.innerText = pos ? 'GEX+ anclado' : 'GEX− amplificado';
+    const g = d.gex || {}, spot = Number(d.spot), pos = g.regime === 'positive';
 
-    // Cards
-    const card = (lbl, val, cls) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
+    // ── Muros: el nodo de mayor magnitud de cada lado ────────────────────
+    // Es como los saca su `ProWallsCard`: de `gex.nodes`, no de un proveedor
+    // aparte. Un "muro" es el strike donde el dealer acumula más gamma.
+    const nodes = g.nodes || [];
+    const mayor = lado => nodes.filter(n => n.side === lado)
+        .sort((a, b) => Math.abs(b.net_gex) - Math.abs(a.net_gex))[0] || null;
+    const cwN = mayor('call'), pwN = mayor('put');
+    const cw = cwN ? cwN.strike : null, pw = pwN ? pwN.strike : null;
+    const flip = g.flip_strike, iman = g.king_strike;
+
+    const money = v => v == null ? '—' : '$' + Number(v).toFixed(2);
+    const card = (lbl, val, cls, sub) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
         <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">${lbl}</div>
-        <div class="text-base font-extrabold ${cls || 'text-white'}">${val}</div></div>`;
-    const cardId = (lbl, id, val, cls) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
-        <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">${lbl}</div>
-        <div id="${id}" class="text-base font-extrabold ${cls || 'text-white'}">${val}</div></div>`;
-    const gexAbb = (Math.abs(d.net_gex) >= 1e9 ? (d.net_gex/1e9).toFixed(2)+'B' : (d.net_gex/1e6).toFixed(1)+'M');
-    const _aw = projActiveWalls() || { call_wall: d.call_wall, put_wall: d.put_wall, gamma_flip: d.gamma_flip, max_pain: d.max_pain };
+        <div class="text-base font-extrabold ${cls || 'text-white'}">${val}</div>
+        ${sub ? `<div class="text-[8px] text-gray-600">${sub}</div>` : ''}</div>`;
+
+    const st = d.structure || {};
+    const pc = (st.put_pct != null && st.call_pct != null && st.call_pct > 0)
+        ? (st.put_pct / st.call_pct) : null;
+
     document.getElementById('projCards').innerHTML =
-        card('Spot', '$' + d.spot) +
-        cardId('Call Wall', 'pwCallWall', _aw.call_wall ? '$' + _aw.call_wall : '—', 'text-red-400') +
-        cardId('Put Wall', 'pwPutWall', _aw.put_wall ? '$' + _aw.put_wall : '—', 'text-emerald-400') +
-        `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
-            <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">Gamma Flip</div>
-            <div id="pwGammaFlip" class="text-base font-extrabold text-purple-400">${_aw.gamma_flip ? '$' + _aw.gamma_flip : '—'}</div>
-            <div id="pwFlipConf" class="text-[8px] text-gray-600"></div></div>` +
-        cardId('Max Pain', 'pwMaxPain', _aw.max_pain ? '$' + _aw.max_pain : '—', 'text-gray-300') +
-        card('GEX Neto <span class="text-[7px] text-gray-600 normal-case">· Quant Data</span>',
-             '$' + gexAbb, pos ? 'text-emerald-400' : 'text-red-400') +
-        (function(){
-            const pp = d.pcr_premium, pv = d.pcr_vol;
-            if (pp == null && pv == null) return '';
-            const ref = pp != null ? pp : pv;
-            const cls = ref > 1 ? 'text-red-400' : 'text-emerald-400';   // P/C>1 = más puts = bajista
-            const sub = (pp != null && pv != null) ? `prima · vol ${pv.toFixed(2)}` : (pp != null ? 'por prima' : 'por volumen');
-            return `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
-                <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-1">Put/Call</div>
-                <div class="text-base font-extrabold ${cls}">${ref.toFixed(2)}</div>
-                <div class="text-[8px] text-gray-600">${sub}</div></div>`;
-        })();
-    projRenderWallCards();   // nota del horizonte activo (las cards ya salen con el horizonte vía _aw)
+        card('Spot', money(spot)) +
+        card('Muro de calls', money(cw), 'text-red-400',
+             cwN ? 'GEX ' + fmtAbbr(cwN.net_gex) : '') +
+        card('Muro de puts', money(pw), 'text-emerald-400',
+             pwN ? 'GEX ' + fmtAbbr(pwN.net_gex) : '') +
+        card('Gamma Flip', money(flip), 'text-purple-400',
+             flip != null ? (spot >= flip ? 'spot por encima' : 'spot por debajo') : '') +
+        // Sustituye al Max Pain, que Víctor NO calcula: el nodo imán es su
+        // equivalente funcional — el precio al que la gamma tira.
+        card('Nodo imán', money(iman), 'text-blue-300',
+             g.direction ? ({ up: 'empuja al alza', down: 'empuja a la baja', flat: 'lateral' })[g.direction] : '') +
+        card('GEX neto', fmtAbbr(g.total_net_gex), pos ? 'text-emerald-400' : 'text-red-400',
+             (g.n != null ? g.n + ' strikes cerca del spot' : '')) +
+        (pc != null ? card('Put/Call', pc.toFixed(2), pc > 1 ? 'text-red-400' : 'text-emerald-400',
+                           'por nocional de la cadena') : '');
 
-    const _projIE = document.getElementById('projIntegrity');
-    if (_projIE) _projIE.innerHTML = integrityStripHTML(d.integrity);
-
-    // Scenarios (deterministic, from GEX levels)
-    const cw = d.call_wall, pw = d.put_wall, flip = d.gamma_flip, spot = d.spot;
+    // ── Escenarios deterministas, sobre SUS niveles ──────────────────────
     const pct = (a, b) => (a && b) ? `${(((a - b) / b) * 100).toFixed(1)}%` : '';
     const S = [];
-    if (pw && cw) {
-        S.push(`<div class="flex items-start gap-2"><span class="text-blue-400 font-bold text-xs mt-0.5">▸ Rango base:</span><span class="text-xs text-gray-300">Mientras el precio se mantenga entre el <b class="text-emerald-400">put wall $${pw}</b> y el <b class="text-red-400">call wall $${cw}</b>, espera oscilación dentro de ese canal (${pct(cw, pw)} de ancho).</span></div>`);
-    }
-    if (pos) {
-        S.push(`<div class="flex items-start gap-2"><span class="text-emerald-400 font-bold text-xs mt-0.5">▸ Régimen GEX+:</span><span class="text-xs text-gray-300">Gamma de dealer positivo → el precio tiende a <b>anclarse y mean-revertir</b>. Los dips hacia el put wall suelen comprarse; los pops al call wall, venderse.</span></div>`);
-    } else {
-        S.push(`<div class="flex items-start gap-2"><span class="text-red-400 font-bold text-xs mt-0.5">▸ Régimen GEX−:</span><span class="text-xs text-gray-300">Gamma de dealer negativo → los movimientos se <b>amplifican</b>. Mayor riesgo de tramos direccionales rápidos; el rango es menos confiable.</span></div>`);
-    }
-    if (cw) S.push(`<div class="flex items-start gap-2"><span class="text-red-400 font-bold text-xs mt-0.5">▸ Ruptura alcista:</span><span class="text-xs text-gray-300">Cierre confirmado sobre <b>$${cw}</b> suele soltar el siguiente tramo al alza (objetivo de extensión por encima del call wall).</span></div>`);
-    if (pw) S.push(`<div class="flex items-start gap-2"><span class="text-emerald-400 font-bold text-xs mt-0.5">▸ Ruptura bajista:</span><span class="text-xs text-gray-300">Pérdida de <b>$${pw}</b> abre caída acelerada${flip ? ` (sobre todo si se pierde el gamma flip $${flip})` : ''}.</span></div>`);
-    if (flip) S.push(`<div class="flex items-start gap-2"><span class="text-purple-400 font-bold text-xs mt-0.5">▸ Gamma flip $${flip}:</span><span class="text-xs text-gray-300">${spot >= flip ? 'El spot está <b>sobre</b> el flip → régimen de anclaje activo.' : 'El spot está <b>bajo</b> el flip → zona de volatilidad amplificada.'}</span></div>`);
-    document.getElementById('projScenarios').innerHTML = S.join('');
+    if (pw && cw) S.push(`<div class="flex items-start gap-2"><span class="text-blue-400 font-bold text-xs mt-0.5">▸ Rango base:</span><span class="text-xs text-gray-300">Mientras el precio se mantenga entre el <b class="text-emerald-400">muro de puts $${Number(pw).toFixed(2)}</b> y el <b class="text-red-400">muro de calls $${Number(cw).toFixed(2)}</b>, espera oscilación dentro de ese canal (${pct(cw, pw)} de ancho).</span></div>`);
+    S.push(pos
+        ? `<div class="flex items-start gap-2"><span class="text-emerald-400 font-bold text-xs mt-0.5">▸ Régimen γ+:</span><span class="text-xs text-gray-300">Gamma de dealer positivo → el precio tiende a <b>anclarse y mean-revertir</b>. Los dips hacia el muro de puts suelen comprarse; los pops al de calls, venderse.</span></div>`
+        : `<div class="flex items-start gap-2"><span class="text-red-400 font-bold text-xs mt-0.5">▸ Régimen γ−:</span><span class="text-xs text-gray-300">Gamma de dealer negativo → los movimientos se <b>amplifican</b>. Mayor riesgo de tramos direccionales rápidos; el rango es menos confiable.</span></div>`);
+    if (cw) S.push(`<div class="flex items-start gap-2"><span class="text-red-400 font-bold text-xs mt-0.5">▸ Ruptura alcista:</span><span class="text-xs text-gray-300">Cierre confirmado sobre <b>$${Number(cw).toFixed(2)}</b> suele soltar el siguiente tramo al alza.</span></div>`);
+    if (pw) S.push(`<div class="flex items-start gap-2"><span class="text-emerald-400 font-bold text-xs mt-0.5">▸ Ruptura bajista:</span><span class="text-xs text-gray-300">Pérdida de <b>$${Number(pw).toFixed(2)}</b> abre caída acelerada${flip ? ` (sobre todo si se pierde el gamma flip $${Number(flip).toFixed(2)})` : ''}.</span></div>`);
+    if (iman != null) S.push(`<div class="flex items-start gap-2"><span class="text-blue-300 font-bold text-xs mt-0.5">▸ Nodo imán $${Number(iman).toFixed(2)}:</span><span class="text-xs text-gray-300">Es el nivel al que tira la concentración de gamma; el escenario base de los targets se ancla ahí.</span></div>`);
+    if (g.low_liquidity) S.push(`<div class="flex items-start gap-2"><span class="text-amber-400 font-bold text-xs mt-0.5">▸ Liquidez:</span><span class="text-xs text-amber-300">Cadena ilíquida: la lectura de gamma se marca <b>NO FIABLE</b>.</span></div>`);
+    const esc = document.getElementById('projScenarios');
+    if (esc) esc.innerHTML = S.join('');
 
-    // Unusual activity table
-    const ua = d.unusual_activity || [];
-    if (ua.length) {
-        document.getElementById('projUnusual').innerHTML = `<div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[480px]">
+    // ── Actividad inusual: SUS trades, no volumen contra OI de la cadena ──
+    const ua = d.unusual || [];
+    const inu = document.getElementById('projUnusual');
+    if (inu) {
+        inu.innerHTML = ua.length ? `<div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[520px]">
             <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
-                <th class="text-left pb-1.5 pr-3">Tipo</th><th class="text-right pb-1.5 pr-3">Strike</th><th class="text-right pb-1.5 pr-3">Vence</th>
-                <th class="text-right pb-1.5 pr-3">Volumen</th><th class="text-right pb-1.5 pr-3">OI</th><th class="text-right pb-1.5">Vol/OI</th></tr></thead>
+                <th class="text-left pb-1.5 pr-3">Tipo</th><th class="text-right pb-1.5 pr-3">Strike</th>
+                <th class="text-right pb-1.5 pr-3">Vence</th><th class="text-right pb-1.5 pr-3">DTE</th>
+                <th class="text-right pb-1.5 pr-3">Premium</th><th class="text-right pb-1.5">Inusualidad</th></tr></thead>
             <tbody>${ua.map(u => `<tr class="border-b border-gray-800/50">
-                <td class="py-2 pr-3"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${u.type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${u.type.toUpperCase()}</span>${u.golden ? ' <span title="golden sweep">⭐</span>' : (u.unusual ? ' <span title="unusual" class="text-purple-300">⚡</span>' : '')}</td>
-                <td class="py-2 pr-3 text-right text-gray-300">$${u.strike}</td>
-                <td class="py-2 pr-3 text-right text-gray-400">${u.exp.slice(5)}</td>
-                <td class="py-2 pr-3 text-right text-gray-200 font-bold">${u.volume.toLocaleString()}</td>
-                <td class="py-2 pr-3 text-right text-gray-400">${u.oi.toLocaleString()}</td>
-                <td class="py-2 text-right text-amber-400 font-bold">${u.vol_oi}x</td></tr>`).join('')}</tbody></table></div>`;
-    } else {
-        document.getElementById('projUnusual').innerHTML = `<p class="text-xs text-gray-500 italic">Sin actividad inusual destacada en las expiraciones cercanas.</p>`;
+                <td class="py-2 pr-3"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${u.type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${String(u.type || '').toUpperCase()}</span>
+                    <span class="text-[8px] text-gray-500">${_vcEsc(u.aggression || '')}</span></td>
+                <td class="py-2 pr-3 text-right text-gray-300">${u.strike != null ? '$' + u.strike : '—'}</td>
+                <td class="py-2 pr-3 text-right text-gray-400">${u.expiration ? String(u.expiration).slice(5) : '—'}</td>
+                <td class="py-2 pr-3 text-right text-gray-500">${u.dte != null ? u.dte + 'd' : '—'}</td>
+                <td class="py-2 pr-3 text-right text-gray-200 font-bold">${fmtAbbr(u.premium)}</td>
+                <td class="py-2 text-right text-amber-400 font-bold" title="tamaño ${u.size} · delta ${u.delta} · theta ${u.theta} · gamma ${u.gamma} · pata ${u.leg} · vencimiento ${u.expiry}">${u.total}/30</td></tr>`).join('')}</tbody></table></div>
+            ${st.vol_oi && st.vol_oi.exceeded ? `<p class="text-[9px] text-gray-600 mt-1.5">Y en la cadena, ${st.vol_oi.exceeded} de ${st.vol_oi.considered} contratos negociaron más que su open interest (${st.vol_oi.pct}%): posiciones ABIERTAS hoy, no rotación.</p>` : ''}`
+            : `<p class="text-xs text-gray-500 italic">Sin trades inusuales en la ventana de 30 días.</p>`;
     }
 
-    // Gamma exposure by strike (Chart.js)
-    renderProjRoute(d);
-    renderProjDarkPool(d);
+    renderProjGammaPorStrike(d);
     if (window.lucide) lucide.createIcons();
 }
 
-function setNetDriftWin(win) {
-    projNetDriftWin = win;
-    if (projNetDriftTicker) loadNetDrift(projNetDriftTicker, win, (document.getElementById('projNetDriftExp') || {}).value || 'all');
-}
-async function loadNetDrift(ticker, win, exp) {
-    projNetDriftTicker = ticker;
-    win = win || projNetDriftWin || 'today';
-    projNetDriftWin = win;
-    const expSel = document.getElementById('projNetDriftExp');
-    if (exp === undefined || exp === null) exp = (expSel && expSel.value) ? expSel.value : 'all';
-    const card = document.getElementById('projNetDriftCard');
-    const tabsEl = document.getElementById('projNetDriftTabs');
-    const trendEl = document.getElementById('projNetDriftTrend');
-    if (!card) return;
-    const wins = [['today', 'Hoy'], ['7d', '7d'], ['30d', '30d'], ['90d', '90d']];
-    if (tabsEl) tabsEl.innerHTML = wins.map(([w, l]) =>
-        `<button onclick="setNetDriftWin('${w}')" class="px-2.5 py-1 rounded-md text-[10px] font-bold ${w === win ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'}">${l}</button>`).join('');
-    const fmtUsd = v => (Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : (v / 1e3).toFixed(0) + 'K');
-    try {
-        const r = await fetch(`${API_BASE}/api/net-flow?ticker=${encodeURIComponent(ticker)}&window=${win}&expiration=${encodeURIComponent(exp || 'all')}`);
-        const d = await r.json();
-        if (!d.ok || !d.series || !d.series.length) { card.classList.add('hidden'); return; }
-        card.classList.remove('hidden');
-        // dropdown de expiración: (re)pobla al cambiar de ticker o si está vacío; preserva tu elección en el refresh
-        if (expSel && d.expirations && d.expirations.length && (expSel.options.length <= 1 || projNetDriftExpTicker !== ticker)) {
-            expSel.innerHTML = `<option value="all">Todas las exp.</option>` +
-                d.expirations.map((e, idx) => `<option value="${e}">${e}${idx === 0 ? ' (0DTE)' : ''}</option>`).join('');
-            projNetDriftExpTicker = ticker;
-        }
-        if (expSel) expSel.value = (exp || 'all');
-        const tcolor = d.bias === 'alcista' ? 'text-emerald-400' : (d.bias === 'bajista' ? 'text-red-400' : 'text-gray-400');
-        if (trendEl) trendEl.innerHTML = `acum <span class="${tcolor} font-bold">${d.cum_net >= 0 ? '+' : '-'}$${fmtUsd(Math.abs(d.cum_net))}</span> · <span class="${tcolor}">${d.trend}</span>`;
-        const labels = d.series.map(s => { const dt = new Date(s.t); return win === 'today' ? dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : (dt.getMonth() + 1) + '/' + dt.getDate(); });
-        // Drift ACUMULADO por NETO (compras − ventas): cada línea sube si se COMPRA ese lado y baja si se VENDE.
-        let cc = 0, cp = 0;
-        const callCum = [], putCum = [], price = [];
-        d.series.forEach(s => {
-            cc += (s.call || 0); cp += (s.put || 0);
-            callCum.push(Math.round(cc));        // neto de calls acumulado: sube con compra de call, baja con venta de call
-            putCum.push(Math.round(cp));         // neto de puts acumulado:  sube con compra de put,  baja con venta de put
-            price.push(s.spot != null ? s.spot : null);
-        });
-        const lastCall = callCum.length ? callCum[callCum.length - 1] : 0;
-        const lastPut = putCum.length ? putCum[putCum.length - 1] : 0;
-        let lastSpot = null; for (let i = price.length - 1; i >= 0; i--) { if (price[i] != null) { lastSpot = price[i]; break; } }
-        const mlbl = v => (v < 0 ? '-' : '') + '$' + (Math.abs(v) / 1e6).toFixed(2) + ' M';
-        // ── Prints institucionales grandes sobre la línea (Tipo A: único ≥$5M ▲ · Tipo B: ≥2 de ≥$1M mismo contrato ●) ──
-        const N = d.series.length;
-        const times = d.series.map(s => s.t);
-        const callPts = new Array(N).fill(null), putPts = new Array(N).fill(null);
-        const callMeta = new Array(N).fill(null), putMeta = new Array(N).fill(null);
-        const callStyle = new Array(N).fill('circle'), putStyle = new Array(N).fill('circle');
-        const callRad = new Array(N).fill(0), putRad = new Array(N).fill(0);
-        const callCol = new Array(N).fill('rgba(0,0,0,0)'), putCol = new Array(N).fill('rgba(0,0,0,0)');
-        const callBord = new Array(N).fill('#052e16'), putBord = new Array(N).fill('#450a0a');
-        const callBW = new Array(N).fill(1), putBW = new Array(N).fill(1);
-        const nearestBucket = tms => { let bi = 0, bd = Infinity; for (let i = 0; i < times.length; i++) { const dd = Math.abs(times[i] - tms); if (dd < bd) { bd = dd; bi = i; } } return bi; };
-        const premM = p => (p >= 1e6 ? '$' + (p / 1e6).toFixed(1) + 'M' : '$' + (p / 1e3).toFixed(0) + 'K');
-        const radFor = p => Math.max(5, Math.min(13, 5 + (p / 1e6) * 0.9));   // tamaño del marcador ∝ premium
-        // Sesgo DIRECCIONAL del print (no el tipo crudo): call comprada / put vendida = ALCISTA (línea verde);
-        // put comprada / call vendida = BAJISTA (línea roja). Vender calls empuja abajo; vender puts empuja arriba.
-        const biasBull = pr => {
-            const isC = (pr.cp || '').toUpperCase() === 'CALL';
-            const sd = (pr.side || '').toUpperCase();
-            if (sd.includes('ASK')) return isC;      // compra agresiva (ASK/ABOVE_ASK): call=alcista, put=bajista
-            if (sd.includes('BID')) return !isC;     // venta (BID/BELOW_BID): call=bajista, put=alcista
-            return isC;                              // sin lado claro → por tipo
-        };
-        (d.prints || []).forEach(p => {
-            const bi = nearestBucket(p.t);
-            const isBull = biasBull(p);              // ← lado por FUERZA direccional, no por call/put
-            const pts = isBull ? callPts : putPts, meta = isBull ? callMeta : putMeta;
-            const sty = isBull ? callStyle : putStyle, rad = isBull ? callRad : putRad, col = isBull ? callCol : putCol;
-            const bord = isBull ? callBord : putBord, bw = isBull ? callBW : putBW;
-            if (pts[bi] == null) { pts[bi] = (isBull ? callCum[bi] : putCum[bi]); meta[bi] = { items: [p], top: p }; }
-            else { meta[bi].items.push(p); if (p.premium > meta[bi].top.premium) meta[bi].top = p; }
-            const m = meta[bi];
-            sty[bi] = m.items.some(x => x.type === 'A') ? 'triangle' : 'circle';   // ▲ Tipo A presente · ● solo Tipo B
-            rad[bi] = radFor(m.top.premium);
-            col[bi] = isBull ? 'rgba(34,197,94,0.95)' : 'rgba(239,68,68,0.95)';    // color por SESGO (verde=alcista, rojo=bajista)
-            if (m.items.some(x => x.oi_confirm === true)) { bord[bi] = '#fbbf24'; bw[bi] = 2; }   // ✓ abrió OI → borde dorado
-            else if (m.top.oi_confirm === false) { bord[bi] = '#6b7280'; bw[bi] = 1; }            // posible cierre → borde gris
-        });
-        const fmtSpan = mins => mins == null ? '' : (mins <= 60 ? Math.round(mins) + 'min' : mins <= 1440 ? (mins / 60).toFixed(1) + 'h' : (mins / 1440).toFixed(1) + 'd');
-        const printTip = (meta, i) => {
-            const m = meta[i]; if (!m) return undefined;
-            const t = m.top, extra = m.items.length - 1;
-            const tag = t.type === 'A' ? '🅐 Tipo A' : '🅑 Tipo B';
-            const side = (t.side || '').replace('_', ' ').toLowerCase();
-            const dir = biasBull(t) ? '↑ fuerza alcista' : '↓ fuerza bajista';
-            let line = `  ${tag} · ${t.cp} $${t.strike} · ${premM(t.premium)} · ${side} → ${dir}${t.golden ? ' · sweep' : ''}`;
-            if (t.oi_confirm === true) line += ' · ✓abrió OI';
-            else if (t.oi_confirm === false) line += ' · ⚠posible cierre';
-            if (t.type === 'B' && t.b_density) line += ` · ${t.b_count}× en ${fmtSpan(t.b_span_min)} (densidad ${t.b_density})`;
-            if (extra > 0) line += ` (+${extra} más aquí)`;
-            return line;
-        };
-        const nPrints = (d.prints || []).length;
-        const ctx = document.getElementById('projNetDriftCanvas');
-        if (!ctx || !window.Chart) return;
-        if (projNetDriftChart) { try { projNetDriftChart.destroy(); } catch (e) {} projNetDriftChart = null; }
-        _chartCite('projNetDriftSrc', 'US$ prima neta acumulada', 'Quant Data (flujo de opciones)');
-        const sgn = v => (v >= 0 ? '+' : '-') + '$' + fmtUsd(Math.abs(v));
-        projNetDriftChart = new Chart(ctx, {
-            type: 'line',
-            data: { labels, datasets: [
-                { label: `Calls (${mlbl(lastCall)})`, data: callCum, yAxisID: 'y', borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.08)', fill: false, tension: 0.2, pointRadius: 0, borderWidth: 2 },
-                { label: `Puts (${mlbl(lastPut)})`, data: putCum, yAxisID: 'y', borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.08)', fill: false, tension: 0.2, pointRadius: 0, borderWidth: 2 },
-                { label: `${ticker} (${lastSpot != null ? '$' + lastSpot.toFixed(2) : '—'})`, data: price, yAxisID: 'yP', borderColor: '#3b82f6', backgroundColor: 'transparent', fill: false, tension: 0.2, pointRadius: 0, borderWidth: 1.5, spanGaps: true },
-                { label: 'Flujo alcista ▲A/●B', data: callPts, yAxisID: 'y', showLine: false, pointStyle: callStyle, pointRadius: callRad, pointHoverRadius: callRad.map(r => r ? r + 2 : 0), pointBackgroundColor: callCol, pointBorderColor: callBord, pointBorderWidth: callBW, borderColor: 'transparent' },
-                { label: 'Flujo bajista ▲A/●B', data: putPts, yAxisID: 'y', showLine: false, pointStyle: putStyle, pointRadius: putRad, pointHoverRadius: putRad.map(r => r ? r + 2 : 0), pointBackgroundColor: putCol, pointBorderColor: putBord, pointBorderWidth: putBW, borderColor: 'transparent' }
-            ] },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
-                plugins: {
-                    legend: { display: true, position: 'top', align: 'center', labels: { color: '#d1d5db', font: { size: 10 }, usePointStyle: true, pointStyle: 'circle', boxWidth: 7, padding: 14 } },
-                    tooltip: { filter: it => !((it.datasetIndex === 3 || it.datasetIndex === 4) && it.raw == null), callbacks: {
-                        label: c => {
-                            if (c.datasetIndex === 3) return printTip(callMeta, c.dataIndex);
-                            if (c.datasetIndex === 4) return printTip(putMeta, c.dataIndex);
-                            if (c.datasetIndex === 2) return '  ' + ticker + ': $' + (c.raw == null ? '—' : Number(c.raw).toFixed(2));
-                            return '  ' + (c.datasetIndex === 0 ? 'Calls' : 'Puts') + ': ' + sgn(c.raw);
-                        },
-                        footer: items => { const i = items[0].dataIndex; const nv = (callCum[i] || 0) - (putCum[i] || 0); return 'Neto direccional (call−put): ' + sgn(nv); }
-                    } }
-                },
-                scales: {
-                    x: { ticks: { color: '#6b7280', font: { size: 9 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { color: '#1F2532' } },
-                    y: { position: 'left', ticks: { color: '#6b7280', font: { size: 9 }, callback: v => (Math.abs(v) >= 1e6 ? '$' + (v / 1e6).toFixed(0) + 'M' : '$' + (v / 1e3).toFixed(0) + 'K') }, grid: { color: '#1F2532' } },
-                    yP: { position: 'right', ticks: { color: '#60a5fa', font: { size: 9 }, callback: v => '$' + Number(v).toFixed(0) }, grid: { display: false } }
-                }
-            }
-        });
-        if (trendEl && nPrints) trendEl.innerHTML += ` · <span class="text-amber-300 font-bold">${nPrints} prints A/B</span>`;
-    } catch (e) { card.classList.add('hidden'); }
-}
-
-async function loadGammaStrike(ticker, exp) {
-    projGammaTicker = ticker;
+/** Gamma neto por strike — el mismo gráfico de antes, con SUS nodos.
+ *  Venía de `/api/gex-strike` (Quant Data); ahora sale de `gex.nodes`, que es
+ *  la misma cadena de Massive con la que se calculan los targets. */
+function renderProjGammaPorStrike(d) {
     const card = document.getElementById('projGammaCard');
-    if (!card) return;
-    exp = exp || 'all';
-    const greek = ((document.getElementById('projGammaGreek') || {}).value) || 'GAMMA';
-    try {
-        const r = await fetch(`${API_BASE}/api/gex-strike?ticker=${encodeURIComponent(ticker)}&exp=${encodeURIComponent(exp)}&greek=${greek}`);
-        const d = await r.json();
-        if (!d.ok || !d.by_strike || !d.by_strike.length) { card.classList.add('hidden'); return; }
-        card.classList.remove('hidden');
-        const sel = document.getElementById('projGammaExp');
-        if (sel && d.expirations && d.expirations.length && (sel.options.length <= 1 || projGammaExpTicker !== ticker)) {   // (re)pobla al cambiar de ticker o si está vacío; NO en el refresh del mismo ticker → preserva tu elección
-            sel.innerHTML = `<option value="all">Todas las exp.</option>` +
-                d.expirations.map(e => `<option value="${e}" ${e === exp ? 'selected' : ''}>${e}</option>`).join('');
-            sel.value = exp;
-            projGammaExpTicker = ticker;
-        }
-        const note = document.getElementById('projGammaNote');
-        if (note) {
-            if (greek === 'GAMMA' && d.walls) {
-                const w = d.walls;
-                const mp = d.max_pain || w.max_pain;
-                note.innerHTML = `Exposición <b>GAMMA</b> neta por strike. ` +
-                    (mp ? `<b>Max pain</b> (OI): $${mp} · ` : '') +
-                    (w.gamma_flip ? `<b>Gamma flip</b> (gamma): $${w.gamma_flip} · ` : '') +
-                    (w.call_wall ? `call wall $${w.call_wall} · ` : '') +
-                    (w.put_wall ? `put wall $${w.put_wall}` : '') +
-                    `. Los dos pines: max pain (por OI completo) y gamma flip (por gamma). ` +
-                    (mp ? '' : 'El max pain aparece al elegir un vencimiento. ') +
-                    `Verde = soporte/imán; rojo = aceleración.`;
-            } else {
-                const desc = { VANNA: 'cómo cambia el delta del dealer con la IV — clave alrededor de eventos/earnings', CHARM: 'cómo decae el delta con el paso del tiempo — empuja el pin hacia el vencimiento', DELTA: 'exposición direccional neta del dealer' };
-                note.innerHTML = `Exposición <b>${greek}</b> neta por strike — ${desc[greek] || ''}.`;
-            }
-        }
-        const spot = d.spot;
-        const lo = spot ? spot * 0.85 : 0, hi = spot ? spot * 1.15 : 1e12;
-        const f = d.by_strike.filter(x => !spot || (x.strike >= lo && x.strike <= hi));
-        const labels = f.map(x => '$' + x.strike);
-        const ctx = document.getElementById('projGammaCanvas');
-        if (!ctx || !window.Chart) return;
-        projGammaRows = f; projGammaGreekCur = greek;
-        _chartCite('projGammaSrc', 'gamma neto del dealer por strike', 'Quant Data (opciones)');
-        const gbg = f.map(x => x.net >= 0 ? 'rgba(52,211,153,0.55)' : 'rgba(248,113,113,0.55)');
-        const gbd = f.map(x => x.net >= 0 ? '#34d399' : '#f87171');
-        if (projGammaChart) {   // actualización EN SITIO: no destruyas (no resetea el panel ni te brinca el scroll)
-            try {
-                projGammaChart.data.labels = labels;
-                projGammaChart.data.datasets[0].label = greek + ' neto';
-                projGammaChart.data.datasets[0].data = f.map(x => x.net);
-                projGammaChart.data.datasets[0].backgroundColor = gbg;
-                projGammaChart.data.datasets[0].borderColor = gbd;
-                projGammaChart.update('none');
-                return;
-            } catch (e) { try { projGammaChart.destroy(); } catch (e2) {} projGammaChart = null; }
-        }
-        projGammaChart = new Chart(ctx, {
-            type: 'bar',
-            data: { labels, datasets: [{ label: greek + ' neto', data: f.map(x => x.net),
-                backgroundColor: gbg, borderColor: gbd, borderWidth: 1 }] },
-            options: { responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => {
-                    const row = projGammaRows[c.dataIndex]; if (!row) return '';
-                    return [projGammaGreekCur + ': $' + (row.net / 1e6).toFixed(2) + 'M', 'Call: $' + (row.call / 1e6).toFixed(2) + 'M', 'Put: $' + (row.put / 1e6).toFixed(2) + 'M'];
-                } } } },
-                scales: { x: { ticks: { color: '#6b7280', font: { size: 8 }, maxRotation: 90, minRotation: 45, autoSkip: true, maxTicksLimit: 18 }, grid: { color: '#1F2532' } },
-                    y: { ticks: { color: '#6b7280', font: { size: 9 }, callback: v => (v / 1e6).toFixed(0) + 'M' }, grid: { color: '#1F2532' } } } }
-        });
-    } catch (e) { card.classList.add('hidden'); }
+    const cv = document.getElementById('projGammaCanvas');
+    if (!card || !cv || !window.Chart) return;
+    const nodes = ((d.gex || {}).nodes || []).slice().sort((a, b) => a.strike - b.strike);
+    if (!nodes.length) { card.classList.add('hidden'); return; }
+    card.classList.remove('hidden');
+    if (window._projGammaChart) window._projGammaChart.destroy();
+    const flip = (d.gex || {}).flip_strike, spot = Number(d.spot);
+    window._projGammaChart = new Chart(cv.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: nodes.map(n => '$' + n.strike),
+            datasets: [{
+                label: 'GEX neto ($ por 1% de movimiento)',
+                data: nodes.map(n => n.net_gex),
+                backgroundColor: nodes.map(n => n.net_gex >= 0 ? 'rgba(18,183,106,0.55)' : 'rgba(240,68,56,0.55)'),
+                borderWidth: 0,
+            }],
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: c => {
+                    const n = nodes[c.dataIndex];
+                    return [`GEX neto ${fmtAbbr(n.net_gex)}`,
+                            `calls ${fmtAbbr(n.call_gex)} · puts ${fmtAbbr(n.put_gex)}`,
+                            `concentración ${(n.concentration * 100).toFixed(0)}%`];
+                } } },
+            },
+            scales: {
+                x: { ticks: { color: '#5c6a85', font: { size: 9 } }, grid: { display: false } },
+                y: { ticks: { color: '#5c6a85', font: { size: 9 }, callback: v => fmtAbbr(v) },
+                     grid: { color: 'rgba(255,255,255,0.055)' } },
+            },
+        },
+    });
+    const nota = document.getElementById('projGammaSrc');
+    if (nota) nota.textContent = 'Gamma neto del dealer por strike (call − put), de la cadena de Massive '
+        + 'anclada con la gamma real del tape de MarketSnack'
+        + (flip != null ? ` · gamma flip en $${Number(flip).toFixed(2)}` : '')
+        + (spot ? ` · spot $${spot.toFixed(2)}` : '');
 }
 
-async function loadFlowLedger(ticker) {
-    const card = document.getElementById('projLedgerCard');
-    const el = document.getElementById('projLedger');
-    const biasEl = document.getElementById('projLedgerBias');
-    if (!card || !el) return;
-    if (ticker) projLedgerTicker = ticker; else ticker = projLedgerTicker;
-    if (!ticker) return;
-    const withOi = (document.getElementById('projLedgerOI') || {}).checked !== false;
-    try {
-        const r = await fetch(`${API_BASE}/api/options-ledger?ticker=${encodeURIComponent(ticker)}&limit=300&min_premium=5000000&only_active=true&with_oi=${withOi}`);
-        const d = await r.json();
-        if (!d.ok || !d.trades || !d.trades.length) { card.classList.add('hidden'); return; }
-        card.classList.remove('hidden');
-        const s = d.summary || {};
-        const fmt = v => v == null ? '—' : (Math.abs(v) >= 1e6 ? '$' + (v / 1e6).toFixed(1) + 'M' : '$' + (v / 1e3).toFixed(0) + 'K');
-        if (biasEl) {
-            const up = s.bias === 'alcista', dn = s.bias === 'bajista';
-            biasEl.className = `text-[10px] font-bold ${up ? 'text-emerald-400' : dn ? 'text-red-400' : 'text-gray-400'}`;
-            biasEl.textContent = `Sesgo: ${(s.bias || 'neutral').toUpperCase()} · alcista ${fmt(s.bull_notional)} vs bajista ${fmt(s.bear_notional)}`;
-        }
-        // summary bar
-        const bull = s.bull_notional || 0, bear = s.bear_notional || 0, tot = bull + bear || 1;
-        const bar = `<div class="flex h-2 rounded-full overflow-hidden mb-3">
-            <div style="width:${(bull / tot * 100).toFixed(1)}%" class="bg-emerald-500"></div>
-            <div style="width:${(bear / tot * 100).toFixed(1)}%" class="bg-red-500"></div></div>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-center text-[9px]">
-              <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-1.5"><p class="text-gray-500 uppercase">Compra calls</p><p class="text-emerald-400 font-bold text-[11px]">${fmt(s.call_buy)}</p></div>
-              <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-1.5"><p class="text-gray-500 uppercase">Venta puts</p><p class="text-emerald-400 font-bold text-[11px]">${fmt(s.put_sell)}</p></div>
-              <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-1.5"><p class="text-gray-500 uppercase">Compra puts</p><p class="text-red-400 font-bold text-[11px]">${fmt(s.put_buy)}</p></div>
-              <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-1.5"><p class="text-gray-500 uppercase">Venta calls</p><p class="text-red-400 font-bold text-[11px]">${fmt(s.call_sell)}</p></div>
-            </div>`;
-        _ledgerTrades = d.trades || []; _ledgerPage = 0;
-        const expNote = d.n_expired_hidden ? ` · <span class="text-gray-500">${d.n_expired_hidden} vencidos ocultos</span>` : '';
-        el.innerHTML = bar + `<div class="flex items-center justify-between flex-wrap gap-2 mb-2">
-            <span class="text-[10px] text-gray-400"><b class="text-gray-200">${_ledgerTrades.length}</b> transacciones de <b>$5M+</b> vigentes${expNote}</span>
-            <div class="flex items-center gap-2">
-                <button onclick="ledgerPage(-1)" id="ledgerPrev" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-[#0B0E14] border border-gray-800 text-gray-300 hover:bg-gray-800 disabled:opacity-40">&lsaquo; Anterior</button>
-                <span id="ledgerPageInfo" class="text-[10px] text-gray-500 font-mono"></span>
-                <button onclick="ledgerPage(1)" id="ledgerNext" class="px-2 py-1 rounded-lg text-[10px] font-bold bg-[#0B0E14] border border-gray-800 text-gray-300 hover:bg-gray-800 disabled:opacity-40">Siguiente &rsaquo;</button>
-            </div></div>
-            <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[760px]">
-            <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
-                <th class="text-left pb-1.5 pr-2">Fecha</th><th class="text-left pb-1.5 pr-2">Contrato</th><th class="text-left pb-1.5 pr-2">Vence</th>
-                <th class="text-right pb-1.5 pr-2">DTE</th><th class="text-right pb-1.5 pr-2">Contratos</th>
-                <th class="text-right pb-1.5 pr-2">Precio</th><th class="text-left pb-1.5 pr-2">Lado</th>
-                <th class="text-right pb-1.5 pr-2">Prima invert.</th><th class="text-right pb-1.5 pr-2">OI actual</th>
-                <th class="text-right pb-1.5 pr-2">Prima OI</th><th class="text-left pb-1.5"></th></tr></thead>
-            <tbody id="ledgerBody"></tbody></table></div>
-            <p class="text-[9px] text-gray-600 italic mt-2">Orden: más reciente → más viejo. Solo contratos <b>vigentes</b> (no vencidos). <b>COMPRA</b> = ASK/above-ask (agresivo) · <b>VENTA</b> = BID/below-bid · MID = neutral. <b>Prima invert.</b> = premium que metió en ESE trade al ejecutarse. <b>OI actual</b> = interés abierto vigente del contrato · <b>Prima OI</b> = OI actual × precio actual × 100. ★ golden · ⚡ unusual · +OI = abre interés.</p>`;
-        renderLedgerPage();
-    } catch (e) { card.classList.add('hidden'); }
-}
-
-function renderLedgerPage() {
-    const tb = document.getElementById('ledgerBody');
-    if (!tb) return;
-    const fmt = v => v == null ? '—' : (Math.abs(v) >= 1e6 ? '$' + (v / 1e6).toFixed(1) + 'M' : '$' + (v / 1e3).toFixed(0) + 'K');
-    const total = _ledgerTrades.length;
-    const totalPages = Math.max(1, Math.ceil(total / LEDGER_PAGE_SIZE));
-    if (_ledgerPage < 0) _ledgerPage = 0;
-    if (_ledgerPage > totalPages - 1) _ledgerPage = totalPages - 1;
-    const start = _ledgerPage * LEDGER_PAGE_SIZE;
-    const slice = _ledgerTrades.slice(start, start + LEDGER_PAGE_SIZE);
-    tb.innerHTML = slice.map(t => {
-        const call = t.cp === 'CALL', buy = t.buy_sell === 'compra', sell = t.buy_sell === 'venta';
-        const sideC = buy ? 'text-emerald-400' : sell ? 'text-red-400' : 'text-gray-400';
-        const tags = `${t.golden ? '<span class="text-amber-400">★</span>' : ''}${t.unusual ? '<span class="text-purple-300">⚡</span>' : ''}${t.opening ? '<span class="text-blue-300">+OI</span>' : ''}`;
-        return `<tr class="border-b border-gray-800/50">
-            <td class="py-1.5 pr-2 text-gray-500 whitespace-nowrap">${t.when || '—'}</td>
-            <td class="py-1.5 pr-2 font-bold ${call ? 'text-emerald-400' : 'text-red-400'}">${t.cp} $${t.strike ?? '—'}</td>
-            <td class="py-1.5 pr-2 text-gray-300">${t.exp ? String(t.exp).slice(5) : '—'}</td>
-            <td class="py-1.5 pr-2 text-right text-gray-400">${t.dte ?? '—'}d</td>
-            <td class="py-1.5 pr-2 text-right text-gray-200">${t.size != null ? Number(t.size).toLocaleString() : '—'}</td>
-            <td class="py-1.5 pr-2 text-right text-gray-300">${t.price != null ? '$' + t.price : '—'}</td>
-            <td class="py-1.5 pr-2 font-bold ${sideC}">${buy ? 'COMPRA' : sell ? 'VENTA' : 'MID'}<span class="text-gray-600 font-normal"> ${(t.side || '').replace('_', ' ').toLowerCase()}</span></td>
-            <td class="py-1.5 pr-2 text-right text-gray-100 font-bold">${fmt(t.premium)}</td>
-            <td class="py-1.5 pr-2 text-right text-gray-300">${t.oi_now != null ? Number(t.oi_now).toLocaleString() : '—'}</td>
-            <td class="py-1.5 pr-2 text-right text-blue-300">${t.premium_oi_now != null ? fmt(t.premium_oi_now) : '—'}</td>
-            <td class="py-1.5 text-left">${tags}</td>
-        </tr>`;
-    }).join('') || `<tr><td colspan="11" class="py-3 text-center text-gray-600 text-[10px]">Sin transacciones vigentes de $5M+.</td></tr>`;
-    const info = document.getElementById('ledgerPageInfo');
-    if (info) info.textContent = total ? `Pág. ${_ledgerPage + 1} / ${totalPages} · ${start + 1}–${Math.min(start + LEDGER_PAGE_SIZE, total)} de ${total}` : '';
-    const prev = document.getElementById('ledgerPrev'), next = document.getElementById('ledgerNext');
-    if (prev) prev.disabled = _ledgerPage <= 0;
-    if (next) next.disabled = _ledgerPage >= totalPages - 1;
-}
 
 function ledgerPage(delta) {
     _ledgerPage += delta;
@@ -3823,7 +3536,7 @@ function ledgerPage(delta) {
 }
 
 async function runSelfTest() {
-    const ticker = projBtTicker || projGammaTicker || projNetDriftTicker;
+    const ticker = projBtTicker || (projData && projData.ticker);
     const el = document.getElementById('projSelfTest');
     if (!el) return;
     if (!ticker) { el.innerHTML = '<p class="text-[11px] text-gray-500">Carga un ticker en Proyecciones primero (Gamma o Net-Drift).</p>'; return; }
@@ -3905,7 +3618,7 @@ async function loadIncomeStrategies(ticker) {
     const card = document.getElementById('projIncomeCard');
     const el = document.getElementById('projIncome');
     if (!card || !el) return;
-    ticker = ticker || projIncomeTicker || projGammaTicker || projNetDriftTicker;
+    ticker = ticker || projIncomeTicker || (projData && projData.ticker);
     if (!ticker) return;
     projIncomeTicker = ticker;
     const dmin = (document.getElementById('incDteMin') || {}).value || 7;
@@ -3922,7 +3635,7 @@ async function loadIncomeStrategies(ticker) {
 }
 
 async function loadTradePlan() {
-    const ticker = projBtTicker || projGammaTicker || projNetDriftTicker;
+    const ticker = projBtTicker || (projData && projData.ticker);
     const el = document.getElementById('projTradePlan');
     if (!el) return;
     if (!ticker) { el.innerHTML = '<p class="text-[11px] text-gray-500">Carga un ticker en Proyecciones primero (Gamma o Net-Drift).</p>'; return; }
@@ -4001,7 +3714,7 @@ async function loadBacktestStatus(ticker) {
 }
 
 async function collectSignalSnapshot() {
-    const ticker = projBtTicker || projGammaTicker || projNetDriftTicker;
+    const ticker = projBtTicker || (projData && projData.ticker);
     if (!ticker) return;
     const st = document.getElementById('projBtStatus');
     if (st) st.textContent = 'Capturando snapshot…';
@@ -4015,7 +3728,7 @@ async function collectSignalSnapshot() {
 }
 
 async function runBacktest() {
-    const ticker = projBtTicker || projGammaTicker;
+    const ticker = projBtTicker || (projData && projData.ticker);
     if (!ticker) return;
     const res = document.getElementById('projBtResults');
     if (res) res.innerHTML = '<p class="text-[11px] text-gray-500">Corriendo backtest…</p>';
@@ -4047,7 +3760,7 @@ async function runBacktest() {
 
 let backfillPoll = null;
 async function startBackfill() {
-    const ticker = projBtTicker || projGammaTicker || projNetDriftTicker;
+    const ticker = projBtTicker || (projData && projData.ticker);
     if (!ticker) return;
     const st = document.getElementById('projBtStatus');
     if (st) st.textContent = 'Iniciando backfill histórico (corre en segundo plano)…';
@@ -4079,79 +3792,6 @@ async function pollBackfill(ticker) {
     } catch (e) {}
 }
 
-async function loadProjConfluence(ticker) {
-    const el = document.getElementById('projConfluence');
-    if (!el) return;
-    el.innerHTML = '';
-    try {
-        const r = await fetch(`${API_BASE}/api/confluence?ticker=${encodeURIComponent(ticker)}`);
-        const d = await r.json();
-        if (!d.ok || !d.confluence) return;   // QD no configurado / sin datos → se oculta
-        const c = d.confluence, s = c.signals;
-        const dirColor = c.direction === 'alcista' ? 'text-emerald-400' : (c.direction === 'bajista' ? 'text-red-400' : 'text-gray-400');
-        const badgeColors = {
-            'ALTA CONVICCIÓN': 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300',
-            'CONFIRMACIÓN':    'bg-emerald-500/10 border-emerald-500/30 text-emerald-300',
-            'DIVERGENCIA':     'bg-red-500/15 border-red-500/40 text-red-300',
-            'MIXTO':           'bg-amber-500/12 border-amber-500/35 text-amber-300',
-            'PARCIAL':         'bg-blue-500/10 border-blue-500/30 text-blue-300',
-            'SOLO POSICIONAMIENTO': 'bg-blue-500/10 border-blue-500/30 text-blue-300',
-            'SIN SEÑAL':       'bg-gray-700/20 border-gray-600/30 text-gray-400'
-        };
-        const badgeCls = badgeColors[c.badge] || badgeColors['SIN SEÑAL'];
-        const voteIcon = v => v > 0 ? '▲' : (v < 0 ? '▼' : '●');
-        const voteCol = v => v > 0 ? 'text-emerald-400' : (v < 0 ? 'text-red-400' : 'text-gray-500');
-        const pill = (name, sig) => `
-            <div class="flex-1 min-w-[150px] bg-black/20 border border-gray-800 rounded-xl p-3">
-                <div class="flex items-center justify-between mb-1 gap-2">
-                    <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">${name}</span>
-                    <span class="text-xs ${voteCol(sig.vote)} font-bold">${voteIcon(sig.vote)} ${sig.label}</span>
-                </div>
-                <p class="text-[10px] text-gray-500 leading-snug">${sig.detail}</p>
-            </div>`;
-        // Dark-pool buy/sell pressure bar (equity-prints proxy)
-        let dpBar = '';
-        const df = d.dark_flow;
-        if (df && df.total_notional) {
-            const b = df.buy_notional || 0, s = df.sell_notional || 0, m = df.mid_notional || 0, tot = b + s + m || 1;
-            const pct = x => (x / tot * 100).toFixed(1) + '%';
-            const fM = x => '$' + (Math.abs(x) >= 1e6 ? (x / 1e6).toFixed(1) + 'M' : (x / 1e3).toFixed(0) + 'K');
-            dpBar = `
-            <div class="mt-1 mb-3 bg-black/20 border border-gray-800 rounded-xl p-3">
-                <div class="flex items-center justify-between mb-1.5">
-                    <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Presión dark pool (prints · proxy compra/venta)</span>
-                    <span class="text-[10px] font-bold ${df.bias === 'alcista' ? 'text-emerald-400' : (df.bias === 'bajista' ? 'text-red-400' : 'text-gray-400')}">${df.bias}${df.lean_pct != null ? ' · ' + (df.lean_pct >= 0 ? '+' : '') + df.lean_pct + ' net' : ''}</span>
-                </div>
-                <div class="flex h-3 rounded-full overflow-hidden bg-gray-800">
-                    <div class="bg-emerald-500/70" style="width:${pct(b)}" title="Compra ${fM(b)}"></div>
-                    <div class="bg-gray-600/50" style="width:${pct(m)}" title="Mid ${fM(m)}"></div>
-                    <div class="bg-red-500/70" style="width:${pct(s)}" title="Venta ${fM(s)}"></div>
-                </div>
-                <div class="flex justify-between text-[9px] text-gray-500 mt-1">
-                    <span class="text-emerald-400">Compra ${fM(b)}</span>
-                    <span>Mid ${fM(m)}</span>
-                    <span class="text-red-400">Venta ${fM(s)}</span>
-                </div>
-            </div>`;
-        }
-        el.innerHTML = `
-        <div class="bg-panel border border-panel rounded-2xl p-5">
-            <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
-                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="git-merge" class="w-4 h-4"></i> Confluencia de Señales</h3>
-                <span class="px-3 py-1 rounded-full text-[11px] font-extrabold border ${badgeCls}">${c.badge} · <span class="${dirColor}">${c.direction.toUpperCase()}</span> · score ${c.score > 0 ? '+' : ''}${c.score}</span>
-            </div>
-            <div class="flex flex-wrap gap-2.5 mb-3">
-                ${pill('Convicción (tape ΔOI)', s.conviccion)}
-                ${pill('GEX · posicionamiento', s.gex)}
-                ${pill('Dark pool', s.darkpool)}
-            </div>
-            ${dpBar}
-            <p class="text-[11px] text-gray-300 leading-relaxed">${c.summary}</p>
-            <p class="text-[9px] text-gray-600 italic mt-1.5">Pesos: convicción 50% · GEX 30% · dark pool 20%. El voto de dark pool usa el proxy compra/venta de los prints (ASK=compra, BID=venta) cuando hay datos; si no, cae al posicional (soporte/resistencia).</p>
-        </div>`;
-        if (window.lucide) lucide.createIcons();
-    } catch (e) { /* silencioso */ }
-}
 
 async function loadProjTargets(ticker) {
     const el = document.getElementById('projTargets');
@@ -4191,70 +3831,6 @@ function fmtAbbr(v) {
     return '$' + Math.round(v);
 }
 
-function renderProjDarkPool(d) {
-    const el = document.getElementById('projDarkPool');
-    if (!el) return;
-    const np = d.tape_flow, spot = d.spot;
-    const has30 = ((d.dark_pool || []).length > 0), hasToday = ((d.dark_pool_today || []).length > 0);
-    // No Quant Data data → keep the connect placeholder untouched
-    if (!np && !has30 && !hasToday) return;
-    let html = '';
-    if (np) {
-        const pos = (np.net_premium || 0) >= 0;
-        html += `<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-            <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-0.5">Premium neto calls</p><p class="text-sm font-mono font-black text-emerald-400">${fmtAbbr(np.net_call_premium)}</p></div>
-            <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-0.5">Premium neto puts</p><p class="text-sm font-mono font-black text-red-400">${fmtAbbr(np.net_put_premium)}</p></div>
-            <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-0.5">Premium neto total</p><p class="text-sm font-mono font-black ${pos ? 'text-emerald-400' : 'text-red-400'}">${fmtAbbr(np.net_premium)}</p></div>
-            <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-0.5">Sesgo de flujo</p><p class="text-sm font-black ${pos ? 'text-emerald-400' : 'text-red-400'}">${(np.bias || '—').toUpperCase()}</p></div>
-        </div>`;
-    }
-    if (has30 || hasToday) {
-        const dp = [...projDpLevels()].sort((a, b) => (b.price || 0) - (a.price || 0));   // ORDEN POR PRECIO (escalera)
-        const lbl = projDpView === 'today' ? 'hoy' : 'últimos 30 días';
-        const tgl = `<div class="inline-flex rounded-lg overflow-hidden border border-gray-700 text-[9px] font-bold flex-shrink-0">
-            <button onclick="projSetDpView('today')" class="px-2.5 py-0.5 transition ${projDpView === 'today' ? 'bg-purple-500/30 text-purple-200' : 'text-gray-400 hover:text-gray-200'}">Hoy</button>
-            <button onclick="projSetDpView('30d')" class="px-2.5 py-0.5 transition ${projDpView === '30d' ? 'bg-purple-500/30 text-purple-200' : 'text-gray-400 hover:text-gray-200'}">30 días</button>
-        </div>`;
-        html += `<div class="flex items-center justify-between gap-2 mb-1.5 mt-1 flex-wrap"><p class="text-[10px] font-extrabold text-purple-300 uppercase tracking-wider">Niveles de dark pool ≥ $500M · ${lbl} · ${dp.length} niveles (ordenado por precio)</p>${tgl}</div>`;
-        if (!dp.length) {
-            html += `<p class="text-xs text-gray-500 italic">Sin cruces dark ≥ $500M ${projDpView === 'today' ? 'hoy' : 'en los últimos 30 días'}.</p>`;
-        } else {
-            const totVal = dp.reduce((s, p) => s + (p.value || 0), 0);
-            const totSh = dp.reduce((s, p) => s + (p.size || 0), 0);
-            const zona = p => (spot && p.price != null) ? (p.price < spot
-                ? '<span class="text-emerald-400">Soporte</span>'
-                : '<span class="text-red-400">Resistencia</span>') : '—';
-            html += `<div class="overflow-x-auto max-h-[420px] overflow-y-auto"><table class="w-full text-[11px] min-w-[400px]">
-                <thead class="sticky top-0 bg-panel"><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
-                    <th class="text-left pb-1.5 pr-3">Nivel</th><th class="text-left pb-1.5 pr-3">Zona</th>
-                    <th class="text-right pb-1.5 pr-3">Acciones</th><th class="text-right pb-1.5 pr-3"># Prints</th>
-                    <th class="text-right pb-1.5">Valor total</th></tr></thead>
-                <tbody>${dp.map(p => `<tr class="border-b border-gray-800/50">
-                    <td class="py-1.5 pr-3 text-gray-200 font-bold">${p.price != null ? '$' + Number(p.price).toFixed(2) : '—'}</td>
-                    <td class="py-1.5 pr-3 font-bold">${zona(p)}</td>
-                    <td class="py-1.5 pr-3 text-right text-gray-300">${p.size ? p.size.toLocaleString() : '—'}</td>
-                    <td class="py-1.5 pr-3 text-right text-gray-400">${p.trade_count ? p.trade_count.toLocaleString() : '—'}</td>
-                    <td class="py-1.5 text-right text-purple-300 font-bold">${fmtAbbr(p.value)}</td></tr>`).join('')}
-                    <tr class="border-t border-gray-700 text-gray-200 font-black">
-                    <td class="py-1.5 pr-3">TOTAL</td><td></td>
-                    <td class="py-1.5 pr-3 text-right">${totSh.toLocaleString()}</td><td></td>
-                    <td class="py-1.5 text-right text-purple-200">${fmtAbbr(totVal)}</td></tr>
-                </tbody></table></div>
-            <p class="text-[9px] text-gray-600 italic mt-1.5">Nota: los cruces dark no llevan lado comprador/vendedor en la cinta pública. "Zona" indica si el nivel está por debajo (soporte/acumulación) o por encima (resistencia/distribución) del precio actual ($${spot}). En la gráfica se dibujan los 6 mayores: 3 resistencia (arriba) + 3 soporte (abajo).</p>`;
-        }
-    }
-    html += `<p class="text-[10px] text-gray-600 italic mt-2">Fuente: Quant Data (exchange-licensed).</p>`;
-    el.innerHTML = html;
-}
-
-// Cambia la vista del dark pool (hoy / 30 días) y redibuja panel + líneas del chart sin recargar.
-function projSetDpView(v) {
-    projDpView = v;
-    if (projData) {
-        renderProjDarkPool(projData);
-        if (window.lucide) lucide.createIcons();
-    }
-}
 
 // Recarga COMPLETA y en vivo del área de proyecciones, sin spinner (no borra la vista). force=true salta
 // el cache de GEX en el backend. Reusa loadProjections para que TODO se actualice (paneles + chart + targets).
@@ -4282,65 +3858,6 @@ function projToggleAuto() {
     }
 }
 
-function renderProjRoute(d) {
-    const el = document.getElementById('projRoute');
-    const hz = document.getElementById('projRouteHorizon');
-    if (!el) return;
-    const spot = d.spot, flip = d.gamma_flip, cw = d.call_wall, pw = d.put_wall, mp = d.max_pain;
-    const pos = (d.net_gex >= 0);
-    const fmt = v => (v == null ? '—' : '$' + Number(v).toFixed(2));
-    const pctOf = v => (v != null && spot) ? ` (${(((v - spot) / spot) * 100) >= 0 ? '+' : ''}${(((v - spot) / spot) * 100).toFixed(1)}%)` : '';
-    if (hz) hz.innerText = (d.dte_dominant != null) ? `Horizonte ~${d.dte_dominant}d (venc. ${(d.expiries_used || [])[0] || '—'})` : '';
-
-    let resL = (d.resistances || []).map(r => r.strike).filter(s => s > spot);
-    if (cw && cw > spot && !resL.includes(cw)) resL.push(cw);
-    resL = Array.from(new Set(resL)).sort((a, b) => a - b);
-    let supL = (d.supports || []).map(s => s.strike).filter(s => s < spot);
-    if (pw && pw < spot && !supL.includes(pw)) supL.push(pw);
-    supL = Array.from(new Set(supL)).sort((a, b) => b - a);
-
-    const step = (n, txt, col) => `<div class="flex items-start gap-2 mb-2"><span class="flex-shrink-0 w-5 h-5 rounded-full ${col} text-[10px] font-black flex items-center justify-center mt-0.5">${n}</span><p class="text-[11px] text-gray-300 leading-relaxed">${txt}</p></div>`;
-
-    let up = [], n = 1;
-    if (flip && spot < flip) up.push(step(n++, `Recuperar y <b>sostener el gamma flip ${fmt(flip)}</b>${pctOf(flip)}: saca al precio del régimen amplificado y devuelve el soporte del dealer.`, 'bg-emerald-500/20 text-emerald-400'));
-    if (resL.length) {
-        up.push(step(n++, `Atacar la <b>resistencia primaria ${fmt(resL[0])}</b>${pctOf(resL[0])} (call wall). ${pos ? 'En GEX+ el precio tiende a “pinear” bajo este nivel — necesita un cierre confirmado con volumen para romperlo.' : 'En GEX− una ruptura acelera rápido porque el dealer compra por encima.'}`, 'bg-emerald-500/20 text-emerald-400'));
-        for (let i = 1; i < resL.length; i++) up.push(step(n++, `Romper ${fmt(resL[i - 1])} suelta el siguiente tramo hacia <b>${fmt(resL[i])}</b>${pctOf(resL[i])} (próximo cúmulo de calls).`, 'bg-emerald-500/20 text-emerald-400'));
-    }
-    if (!up.length) up.push(`<p class="text-[11px] text-gray-500 italic">Sin resistencias claras por encima en las expiraciones cercanas.</p>`);
-
-    let dn = [], m = 1;
-    if (supL.length) {
-        dn.push(step(m++, `Defender el <b>soporte primario ${fmt(supL[0])}</b>${pctOf(supL[0])} (put wall). ${pos ? 'En GEX+ los dips aquí suelen comprarse.' : 'En GEX− perderlo puede gatillar ventas en cascada.'}`, 'bg-red-500/20 text-red-400'));
-        for (let i = 1; i < supL.length; i++) dn.push(step(m++, `Perder ${fmt(supL[i - 1])} abre la caída hacia <b>${fmt(supL[i])}</b>${pctOf(supL[i])}.`, 'bg-red-500/20 text-red-400'));
-    }
-    if (flip && spot >= flip) dn.push(step(m++, `Perder el <b>gamma flip ${fmt(flip)}</b>${pctOf(flip)} cambia a régimen amplificado → caídas más rápidas.`, 'bg-red-500/20 text-red-400'));
-    if (!dn.length) dn.push(`<p class="text-[11px] text-gray-500 italic">Sin soportes claros por debajo en las expiraciones cercanas.</p>`);
-
-    let aiLine = '';
-    try {
-        if (typeof currentAnalysis !== 'undefined' && currentAnalysis && currentAnalysis.ticker === d.ticker && currentAnalysis.targets && currentAnalysis.targets['30d']) {
-            const t = currentAnalysis.targets['30d'];
-            aiLine = `<div class="mt-3 pt-3 border-t border-gray-800 text-[11px] text-gray-400"><b class="text-blue-400">Targets del agente (30d):</b> base ${fmt(t.base)}, bull ${fmt(t.bull)}, bear ${fmt(t.bear)}. ${cw ? `El bull ${fmt(t.bull)} ${t.bull >= cw ? 'queda por encima del call wall — requiere romper ' + fmt(cw) + ' primero.' : 'cae dentro del rango, alcanzable sin romper el call wall.'}` : ''}</div>`;
-        }
-    } catch (e) {}
-
-    const mpSrc = d.max_pain_source === 'quantdata' ? ` <span class="text-blue-400 font-bold">(QD)</span>` : (d.max_pain_source === 'yfinance' ? ` <span class="text-gray-600">(yf)</span>` : '');
-    const mpLine = mp ? `<div class="mt-2 text-[11px] text-gray-400"><i data-lucide="magnet" class="w-3 h-3 inline -mt-0.5"></i> <b class="text-gray-300">Imán de vencimiento:</b> max pain ${fmt(mp)}${pctOf(mp)}${mpSrc} — el precio tiende a gravitar aquí hacia el vencimiento (~${d.dte_dominant != null ? d.dte_dominant : '?'}d).</div>` : '';
-
-    el.innerHTML = `
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div class="bg-emerald-500/5 border border-emerald-500/15 rounded-xl p-3">
-          <p class="text-[10px] font-extrabold text-emerald-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><i data-lucide="trending-up" class="w-3.5 h-3.5"></i> Camino alcista</p>
-          ${up.join('')}
-        </div>
-        <div class="bg-red-500/5 border border-red-500/15 rounded-xl p-3">
-          <p class="text-[10px] font-extrabold text-red-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><i data-lucide="trending-down" class="w-3.5 h-3.5"></i> Camino bajista</p>
-          ${dn.join('')}
-        </div>
-      </div>${mpLine}${aiLine}`;
-    if (window.lucide) lucide.createIcons();
-}
 
 function projGenerarTesis() {
     if (!projData || !projData.ticker) return;
@@ -7146,60 +6663,16 @@ function analyzeTickerNow(tk) {
 
         <!-- Integrity strip (sanity checks on the numbers) -->
         <div id="projIntegrity" class="mt-3"></div>
-
-        <!-- Confluence engine (GEX + dark pool + conviction alignment) -->
-        <div id="projConfluence"></div>
-
-        <!-- Net drift over time (net-flow) with window selector -->
-        <div id="projNetDriftCard" class="bg-panel border border-panel rounded-2xl p-5 hidden">
-            <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
-                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="activity" class="w-4 h-4"></i> Net Drift (Premium)</h3>
-                <div class="flex items-center gap-2">
-                    <select id="projNetDriftExp" onchange="loadNetDrift(projNetDriftTicker, projNetDriftWin, this.value)" class="bg-black/30 border border-gray-700 rounded-lg text-[11px] text-gray-200 px-2 py-1 focus:outline-none" title="Filtrar el flujo por fecha de expiración (0DTE = la del día)"><option value="all">Todas las exp.</option></select>
-                    <div id="projNetDriftTabs" class="flex gap-1 bg-black/30 rounded-lg p-0.5"></div>
-                    <span id="projNetDriftTrend" class="text-[10px]"></span>
-                </div>
-            </div>
-            <p class="text-[11px] text-gray-500 italic mb-3">Prima neta <b>acumulada</b> (compras − ventas) de los contratos de la <b>expiración seleccionada</b> (elige una arriba; <b>0DTE</b> = la del día): <b class="text-emerald-400">Calls (verde)</b> sube si se compran calls, baja si se venden; <b class="text-red-400">Puts (rojo)</b> sube si se compran puts, baja si se venden; <b class="text-blue-400">precio</b> en el eje derecho. La distancia <b>verde − roja</b> es el neto direccional. Pasa el cursor para ver call, put, precio y neto en cada punto.</p>
-            <div style="height:240px;"><canvas id="projNetDriftCanvas"></canvas></div>
-            <p id="projNetDriftSrc" class="chart-cite"></p>
-        </div>
-
-        <!-- Gamma exposure by strike (Quant Data) with expiration selector -->
+        <!-- Live self-diagnostic (validates data paths against real data) -->
+        <!-- Gamma neto por strike — motor de Víctor (cadena de Massive + gamma del tape) -->
         <div id="projGammaCard" class="bg-panel border border-panel rounded-2xl p-5 hidden">
-            <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
-                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="bar-chart-3" class="w-4 h-4"></i> Exposición por Strike · Quant Data</h3>
-                <div class="flex gap-1.5">
-                    <select id="projGammaGreek" onchange="loadGammaStrike(projGammaTicker, document.getElementById('projGammaExp').value || 'all')" class="bg-black/30 border border-gray-700 rounded-lg text-[11px] text-gray-200 px-2 py-1 focus:outline-none">
-                        <option value="GAMMA">Gamma</option>
-                        <option value="VANNA">Vanna</option>
-                        <option value="CHARM">Charm</option>
-                        <option value="DELTA">Delta</option>
-                    </select>
-                    <select id="projGammaExp" onchange="loadGammaStrike(projGammaTicker, this.value)" class="bg-black/30 border border-gray-700 rounded-lg text-[11px] text-gray-200 px-2 py-1 focus:outline-none"></select>
-                </div>
-            </div>
-            <p id="projGammaNote" class="text-[11px] text-gray-500 italic mb-3">Gamma neto del dealer por strike (call + put). Verde = soporte/imán; rojo = aceleración. La línea punteada marca el <b>gamma flip</b> (pin / gamma cero).</p>
+            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2 mb-1">
+                <i data-lucide="activity" class="w-4 h-4"></i> Gamma neto por strike</h3>
+            <p class="text-[11px] text-gray-500 italic mb-3">Gamma neto del dealer por strike (call − put). Verde = el dealer estabiliza ahí; rojo = amplifica. El <b>gamma flip</b> es donde cambia de lado.</p>
             <div style="height:240px;"><canvas id="projGammaCanvas"></canvas></div>
             <p id="projGammaSrc" class="chart-cite"></p>
         </div>
 
-        <!-- Institutional options trade ledger (Quant Data order-flow) -->
-        <div id="projLedgerCard" class="bg-panel border border-panel rounded-2xl p-5 hidden">
-            <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
-                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="receipt" class="w-4 h-4"></i> Libro de Flujo Institucional · Quant Data</h3>
-                <div class="flex items-center gap-3">
-                    <label class="flex items-center gap-1 text-[10px] text-gray-400 cursor-pointer" title="Baja el OI vigente de cada contrato (más lento). Apágalo para carga instantánea.">
-                        <input id="projLedgerOI" type="checkbox" checked onchange="loadFlowLedger()" class="accent-blue-500 w-3 h-3"> OI actual
-                    </label>
-                    <span id="projLedgerBias" class="text-[10px] font-bold text-gray-400"></span>
-                </div>
-            </div>
-            <p class="text-[10px] text-gray-600 italic mb-3">Últimos <b>120 días</b> · trades de <b>$5M+</b> · solo <b>contratos vigentes</b> (no vencidos) · solo lados direccionales (<b>ASK/above-ask</b> = compra agresiva · <b>BID/below-bid</b> = venta) · DTE en días enteros. Filtrado server-side por Quant Data. Usa <b>Anterior/Siguiente</b> para paginar.</p>
-            <div id="projLedger"></div>
-        </div>
-
-        <!-- Live self-diagnostic (validates data paths against real data) -->
         <div id="projSelfTestCard" class="bg-panel border border-panel rounded-2xl p-5">
             <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
                 <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="stethoscope" class="w-4 h-4"></i> Diagnóstico en Vivo · Validación de Datos</h3>
@@ -7293,10 +6766,6 @@ function analyzeTickerNow(tk) {
         <!-- Dark pool / institutional flow (Quant Data) -->
         <div class="bg-gradient-to-br from-purple-500/5 to-transparent border border-purple-500/20 rounded-2xl p-5">
             <h3 class="text-xs font-extrabold text-purple-400 uppercase tracking-widest mb-2 flex items-center gap-2"><i data-lucide="radar" class="w-4 h-4"></i> Dark Pool & Flujo Institucional <span class="text-[9px] text-gray-600 normal-case font-normal tracking-normal">(Quant Data)</span></h3>
-            <div id="projDarkPool">
-                <p class="text-xs text-gray-400">Conecta tu API de <b class="text-purple-300">Quant Data</b> para activar aquí los <b>dark pool prints</b>, el <b>premium neto institucional</b> y el flujo real, superpuestos con las proyecciones.</p>
-                <p class="text-[10px] text-gray-600 mt-1.5">El motor ya está cableado: al poner tu <code class="text-purple-300">QUANTDATA_API_KEY</code>, esta sección se llena automáticamente.</p>
-            </div>
         </div>
     </div>
 

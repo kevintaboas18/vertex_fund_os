@@ -4849,7 +4849,48 @@ def _tito_json(r):
             # "γ+ / γ−" es una palabra sin magnitud ni muestra detrás.
             "total_net_gex": r.gex.total_net_gex,
             "n": r.gex.n,
+            # Los nodos: GEX neto por strike con su lado. Es lo que dibuja el
+            # gráfico de gamma por strike y de donde salen los MUROS (el nodo
+            # call de mayor magnitud y el put de mayor magnitud), que es como
+            # los saca su `ProWallsCard`. Antes ese gráfico y esas cards venían
+            # de Quant Data — otro proveedor midiendo lo mismo.
+            "nodes": [{"strike": n.strike, "net_gex": n.net_gex,
+                       "call_gex": n.call_gex, "put_gex": n.put_gex,
+                       "trade_premium": n.trade_premium,
+                       "trade_count": n.trade_count,
+                       "concentration": _r(n.concentration, 4), "side": n.side}
+                      for n in r.gex.nodes],
         },
+        # Sub-agente 4 sobre la cadena completa. `call_pct`/`put_pct` son el
+        # reparto del NOCIONAL entre calls y puts —el Put/Call de la card— y
+        # `vol_oi` cuántos contratos negociaron más de su open interest, que es
+        # la definición de "actividad inusual" que él usa sobre la cadena.
+        "structure": {
+            "score": r.structure.score,
+            "call_pct": _r(r.structure.strikes["call_pct"], 1),
+            "put_pct": _r(r.structure.strikes["put_pct"], 1),
+            "dominant_side": r.structure.strikes["dominant_side"],
+            "avg_notional": r.structure.notional["avg_per_strike"],
+            "low_liquidity": r.structure.notional["low_liquidity"],
+            "vol_oi": {"pct": _r(r.structure.vol_oi["pct"], 1),
+                       "exceeded": r.structure.vol_oi["exceeded"],
+                       "considered": r.structure.vol_oi["considered"]},
+            "top_strikes": [{"strike": t.strike, "notional": t.notional,
+                             "side": t.side, "dominant": t.dominant,
+                             "dominance_pct": _r(t.dominance_pct, 1),
+                             "open_interest": t.open_interest, "volume": t.volume}
+                            for t in r.structure.strikes["top"][:8]],
+        },
+        # Sub-agente 3: los trades más inusuales, con el desglose por parámetro.
+        # Es su `UnusualityCard` — la tabla de "actividad inusual" del tab salía
+        # de Quant Data y medía otra cosa (volumen contra OI de la cadena).
+        "unusual": [{"id": t[0].id, "symbol": t[0].symbol, "type": t[0].type,
+                     "strike": t[0].strike, "expiration": t[0].expiration,
+                     "dte": t[0].dte, "premium": t[0].premium,
+                     "aggression": t[0].aggression, "total": t[1].total,
+                     "size": t[1].size, "delta": t[1].delta, "theta": t[1].theta,
+                     "gamma": t[1].gamma, "leg": t[1].leg, "expiry": t[1].expiry}
+                    for t in r.unusuality.top[:12]],
         "levels": {
             "supports": [lvl(l) for l in r.levels.supports],
             "resistances": [lvl(l) for l in r.levels.resistances],

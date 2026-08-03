@@ -903,6 +903,18 @@ class TestLaAdvertenciaDelSubagente6:
         assert "⚠" in html
 
 
+def _sin_comentarios(js: str) -> str:
+    """Quita comentarios de un fragmento de JS.
+
+    Sin esto, un test que busca `Max Pain` o `api/options-gex` en el CÓDIGO pasa
+    o falla por lo que digan los comentarios que explican precisamente que eso
+    ya no está. El comentario documenta; el código es lo que se ejecuta.
+    """
+    import re
+    js = re.sub(r"/\*[\s\S]*?\*/", "", js)          # /* … */ y /** … */
+    return re.sub(r"^\s*//.*$", "", js, flags=re.M)   # // …
+
+
 class TestElPanelNoTiraNadaDelPayload:
     """Cada campo que el motor sirve tiene que llegar a la pantalla.
 
@@ -969,6 +981,59 @@ class TestElPanelNoTiraNadaDelPayload:
         assert "['aggression', 'Agresividad', 20," in html
         assert "['iv_context', 'Contexto IV', 10," in html
 
+    def test_el_tab_no_toca_quant_data(self):
+        """UNA sola fuente para el tab: el motor de Víctor.
+
+        El tab medía gamma DOS veces —`/api/options-gex` (Quant Data, respaldo
+        yfinance+BSM) alimentaba las cards, los muros y el gráfico de gamma por
+        strike— y las dos lecturas convivían en la misma pantalla sin forma de
+        saber cuál mandaba. Ahora el cargador del tab llama a un solo endpoint.
+
+        `/api/options-gex` sigue existiendo: lo usa la vista de Research, que es
+        otra pantalla. Lo que este test prohíbe es que vuelva a ESTE tab.
+        """
+        import re
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        ini = html.index("async function loadProjections(")
+        fin = html.index("\nasync function vcFetchTargets(", ini)
+        cargador = _sin_comentarios(html[ini:fin])
+        apis = set(re.findall(r"api/([a-z0-9-]+)", cargador))
+        # `vcFetchTargets` es la única puerta de datos del tab.
+        assert "vcFetchTargets(ticker)" in cargador
+        prohibidos = {"options-gex", "net-flow", "options-ledger", "confluence",
+                      "gex-strike"}
+        assert not (apis & prohibidos), (
+            f"el tab volvió a llamar a Quant Data: {sorted(apis & prohibidos)}")
+
+    def test_los_paneles_de_quant_data_ya_no_estan_en_el_tab(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        dom = html[html.index('<main id="projectionsView"'):]
+        dom = dom[:dom.index("</main>")]
+        for nodo in ("projNetDriftCard", "projLedgerCard", "projDarkPool",
+                     "projConfluence"):
+            assert f'id="{nodo}"' not in dom, f"{nodo} sigue en el tab"
+        # …y sus cargadores tampoco quedan colgando.
+        for fn in ("loadNetDrift", "loadFlowLedger", "loadProjConfluence",
+                   "loadGammaStrike", "renderProjDarkPool", "projActiveWalls"):
+            assert f"function {fn}(" not in html, f"{fn} quedó definida"
+            assert f"{fn}(" not in html, f"{fn} quedó referenciada"
+
+    def test_las_cards_del_tab_salen_del_motor_de_victor(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        render = html[html.index("function renderProjections(d) {"):]
+        render = _sin_comentarios(render[:render.index("\n/** Gamma neto por strike")])
+        # Muros = el nodo de mayor magnitud de cada lado, como su ProWallsCard.
+        assert "g.nodes" in render and "n.side === lado" in render
+        assert "g.flip_strike" in render and "g.king_strike" in render
+        assert "g.total_net_gex" in render
+        # Max Pain fuera: Víctor no lo calcula.
+        assert "Max Pain" not in render, "Víctor no calcula max pain; no puede estar"
+        assert "Nodo imán" in render, "el nodo imán es su equivalente y debe estar"
+        # Nada del payload de Quant Data.
+        for viejo in ("d.call_wall", "d.put_wall", "d.gamma_flip", "d.max_pain",
+                      "d.net_gex", "d.unusual_activity"):
+            assert viejo not in render, f"{viejo} es del payload de Quant Data"
+
     def test_la_cabecera_de_SU_grafica_sale_de_SU_motor(self):
         """El tab mide gamma DOS veces y con fuentes distintas.
 
@@ -988,9 +1053,6 @@ class TestElPanelNoTiraNadaDelPayload:
         sync = sync[:sync.index("\n}")]
         assert "d.gex.regime" in sync, "la insignia no usa el régimen de su motor"
         assert "d.spot" in sync, "el título no usa el spot de su motor"
-        # Y la discrepancia entre los dos motores se AVISA, no se tapa.
-        assert "projData.net_gex" in sync and "choque" in sync, (
-            "si los dos motores leen el régimen al revés, tiene que verse")
 
     def test_la_lectura_de_gamma_de_victor_se_pinta(self):
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
