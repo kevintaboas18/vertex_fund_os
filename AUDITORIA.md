@@ -1672,3 +1672,73 @@ cada capa entrega de verdad, no el código fuente. El testigo es el TAM: si
 deja de llegar con su tier, falla.
 
 **2126 tests del engine + 90 de la capa web.**
+
+---
+
+# 27. Auditoría de Analyze contra el repo de Victor (2026-08-03)
+
+Comparado contra `infusionvictor/warren-buffett-jr` en su commit actual
+`72d92d9`. La copia local estaba en `e841254`, muy atrasada; se actualizó
+antes de comparar.
+
+## 27.1 Cerebro: idéntico
+
+**84 de 84 archivos byte-idénticos.** La metodología —fórmulas, scoring,
+gates, políticas de datos, adaptadores— es exactamente la suya. Cero
+divergencia.
+
+## 27.2 Motor: superconjunto estricto
+
+| | |
+|---|---|
+| Funciones de Victor que me faltan | **0** |
+| Funciones mías de más | **137** |
+| Archivos que sólo tengo yo | **13** |
+
+Los 13 son precisamente la capacidad que Victor no tiene y que este proyecto
+sí necesita: `entradas.py` (canal `Entradas/<TICKER>.json`),
+`overlay/from_packet.py` (lo que alimenta a los especialistas),
+`report/*` (reporte auditable + las 4 gráficas), `deep.py` (pipeline),
+`extract/filing.py` (10-K), y cuatro lecturas compartidas del Cerebro
+(`adapters`, `taxes`, `periods`, `confidence_inputs`).
+
+**Volver a ser byte-idéntico borraría el canal `Entradas/`, el generador de
+reportes y las gráficas.**
+
+## 27.3 Dónde su código se desvía de su propio Cerebro
+
+`PRICE_LEVEL_SYNTHESIS.md` (idéntico en ambos repos) fija:
+
+```text
+Distance_percent = (Level - CurrentPrice) / CurrentPrice
+Distance_ATR     = (Level - CurrentPrice) / ATR14
+```
+
+Fórmula **con signo**: un nivel por debajo del precio da negativo.
+
+| | Convención |
+|---|---|
+| Cerebro | con signo |
+| Victor `aggregate/synthesis.py:139` | con signo ✓ |
+| Victor `engine/tests/aggregate/test_synthesis.py:38` | `-8.0` para soporte ✓ |
+| Victor `engines/levels_engine.py:796-800` | **invierte los operandos → siempre positivo** ✗ |
+| Este repo | con signo ✓ |
+
+Victor lo sabía. Su propio docstring dice que la discrepancia "no se puede
+reconciliar sin modificar ese módulo, lo cual está fuera de alcance". Su
+`synthesis.py` copia `zone.distance_percent` **tal cual** (línea 154), así
+que las dos convenciones acaban en la misma tabla.
+
+**Ser exacto a él aquí reintroduciría una desviación del Cerebro.** Se
+mantiene el arreglo.
+
+Otros defectos suyos vivos hoy que este repo ya corrige: sin
+`_settled_sessions` (la sesión en curso se toma como cierre) y sin escritura
+atómica de caché (`os.replace`).
+
+## 27.4 Estado
+
+| | Victor | Este repo |
+|---|---|---|
+| Archivos de test | 36 | **122** (motor) + 9 (web) |
+| Tests que pasan | — | **2126 + 90** |
