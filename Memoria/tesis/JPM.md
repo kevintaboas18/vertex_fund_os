@@ -1,6 +1,6 @@
 # Tesis — JPM
 
-## 2026-08-03 09:26 — perfil Avoid / Wait · raw 22.9/100
+## 2026-08-03 09:26 — perfil Avoid / Wait · raw 22.9/100  *(sin cambios; revisado 2026-08-03 11:30)*
 <!-- firma: Avoid / Wait|22.9|366.24|441.41|366.24|253.57 | desde: 2026-08-03 09:26 -->
 - Precio al análisis: $351.79 · Fair value (base): $366.24
 - Targets 12M: Bull $441.41 / Base $366.24 / Bear $253.57

@@ -37,28 +37,27 @@ def test_the_startup_hook_actually_runs():
     assert llamadas == [1], f"el arranque corrió {len(llamadas)} veces, no una"
 
 
-def test_the_scheduler_is_running_after_startup():
-    """Lo que le importa al usuario: que el recolector quede vivo."""
+def test_the_app_serves_after_startup():
+    """Lo que le importa al usuario: que la aplicación quede sirviendo.
+
+    Antes esto comprobaba que el planificador quedara vivo. El planificador
+    existía para capturar un snapshot diario de señales de Quant Data, y esa
+    capa salió del proyecto — un hilo despertándose cada noche para no hacer
+    nada no es una garantía que valga la pena tener."""
     with TestClient(vertex_api.app) as c:
-        r = c.get("/api/scheduler/status")
+        r = c.get("/api/auth/status")
     assert r.status_code == 200
-    assert r.json()["started"] is True, "la app levantó sin planificador"
 
 
-def test_a_failing_scheduler_never_blocks_the_app():
-    """Si el planificador no puede arrancar, la aplicación tiene que seguir
-    sirviendo: el análisis no depende de la recolección de fondo."""
-    original = vertex_api._start_scheduler
-
-    def revienta() -> None:
-        raise RuntimeError("disco lleno")
-
-    vertex_api._start_scheduler = revienta
-    try:
-        with TestClient(vertex_api.app) as c:
-            assert c.get("/api/scheduler/status").status_code == 200
-    finally:
-        vertex_api._start_scheduler = original
+def test_the_health_strip_only_lists_real_sources():
+    """`/api/data-health` anunciaba Quant Data como fuente CRÍTICA y
+    yfinance como airbag de precio. Las dos salieron: decir que el sistema
+    se apoya en algo que ya no existe es peor que no decir nada."""
+    with TestClient(vertex_api.app) as c:
+        d = c.get("/api/data-health").json()
+    claves = {s["key"] for s in d["sources"]}
+    assert "quantdata" not in claves and "yfinance" not in claves
+    assert {"fmp", "edgar", "fred"} <= claves, claves
 
 
 def test_the_app_declares_no_deprecated_event_handlers():

@@ -26,7 +26,7 @@ son la señal de aprendizaje.
 *(el agente agrega una línea por ticker analizado: `- [TICKER](tesis/TICKER.md) — resumen de una línea`)*
 
 - [AAPL](tesis/AAPL.md) · 2026-08-03 09:30 · Avoid / Wait · raw 31.5/100 · FV $322.17
-- [JPM](tesis/JPM.md) · 2026-08-03 09:26 · Avoid / Wait · raw 22.9/100 · FV $366.24
+- [JPM](tesis/JPM.md) · 2026-08-03 11:30 · Avoid / Wait · raw 22.9/100 · FV $366.24
 - [KO](tesis/KO.md) · 2026-08-03 09:27 · Avoid / Wait · raw 39.3/100 · FV $94.18
-- [NVDA](tesis/NVDA.md) · 2026-08-03 09:32 · Avoid / Wait · raw 37.0/100 · FV $281.05
+- [NVDA](tesis/NVDA.md) · 2026-08-03 11:29 · Avoid / Wait · raw 37.0/100 · FV $281.05
 - [PLTR](tesis/PLTR.md) · 2026-08-03 09:28 · Avoid / Wait · raw 29.3/100 · FV $160.62

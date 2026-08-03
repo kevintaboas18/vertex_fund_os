@@ -49,8 +49,11 @@ def test_no_get_route_changes_server_state():
     assert not offenders, f"GET routes that mutate: {offenders}"
 
 
-@pytest.mark.parametrize("path", ["/api/report-delete", "/api/scheduler/run-now",
-                                  "/api/backfill/start"])
+# `/api/scheduler/run-now` y `/api/backfill/start` ya no existen: el
+# planificador capturaba señales de Quant Data y el backfill reconstruía
+# confluencias de opciones, y ambas capas salieron del proyecto. Queda la
+# tercera, que es la que de verdad borraba datos con un GET.
+@pytest.mark.parametrize("path", ["/api/report-delete"])
 def test_the_three_that_were_converted_stay_post(path):
     verbs = {verb for verb, p, _ in _routes() if p == path}
     assert verbs == {"post"}, f"{path} is {verbs}"
@@ -76,12 +79,34 @@ def test_the_quantdata_base_has_no_stale_version_segment():
     assert default.startswith("https://")
 
 
-def test_an_entitlement_refusal_is_not_retried_all_run():
-    """A 401/402/403 is a fact about the plan, not a transient failure.
-    Retrying it 25 times per request only spends wall time."""
-    assert "_QD_SIN_DERECHO" in _TEXT
-    body = next(b for b in [_TEXT] if "_quantdata_request" in b)
-    assert "_QD_ENTITLEMENT_STATUSES" in body
+def test_no_dead_provider_is_still_wired():
+    """Quant Data y yfinance salieron del proyecto: la primera porque su
+    plan API está inactivo (403 en todo) y no es fuente del sistema, la
+    segunda porque raspa un endpoint sin documentar.
+
+    Este test antes comprobaba que un 402 de Quant Data no se reintentara
+    25 veces. Ya no hay a quién no reintentar — lo que hay que impedir es
+    que vuelvan."""
+    import ast
+
+    arbol = ast.parse(_TEXT)
+    # CÓDIGO, no prosa: los comentarios y docstrings siguen nombrando a
+    # yfinance para explicar de qué se migró cada cosa, y esa mención no es
+    # una regresión. La primera versión de este test buscaba la palabra en
+    # todo el archivo y fallaba justo por eso.
+    importados = {a.name.split(".")[0] for n in ast.walk(arbol)
+                  if isinstance(n, ast.Import) for a in n.names}
+    importados |= {(n.module or "").split(".")[0] for n in ast.walk(arbol)
+                   if isinstance(n, ast.ImportFrom)}
+    assert "yfinance" not in importados, "yfinance volvió a la capa web"
+
+    llamadas = {n.func.id for n in ast.walk(arbol)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    qd = sorted(f for f in llamadas
+                if "quantdata" in f.lower() or f.startswith("_qd_"))
+    assert not qd, f"Quant Data volvió a la capa web: {qd}"
+
+    assert "vertex_market" in importados, "falta el proveedor de fuentes principales"
 
 
 # ===========================================================================

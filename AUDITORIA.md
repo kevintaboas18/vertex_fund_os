@@ -1549,3 +1549,66 @@ opciones sin datos.
 si alguien vuelve a importarlo.
 
 **2126 tests del engine + 88 de la capa web.**
+
+---
+
+# 25. Sólo las cuatro fuentes de Victor (Y-02)
+
+Decisión de Victor: el proyecto usa **FMP, FinnHub, FRED y EDGAR**, y nada
+más. Se verificó contra su repo: sus proveedores son exactamente
+`edgar/finnhub/fmp/fred`, su `pyproject.toml` no declara yfinance, y no hay
+una sola línea de opciones ni de Quant Data en su código.
+
+## 25.1 yfinance sustituido, no parcheado
+
+`vertex_market.Ticker` replica el contrato de `yfinance.Ticker` con datos de
+FMP, para no reescribir 45 llamadores en un archivo de 13.500 líneas.
+Verificado contra la clave de Victor (2026-08-03):
+
+| Necesidad | Endpoint FMP | Antes |
+|---|---|---|
+| velas diarias | `historical-price-eod/full` | Yahoo |
+| **velas 1h / 5m** | `historical-chart/{1hour,5min}` | **sólo Yahoo** |
+| cotización / ficha | `quote`, `profile` | Yahoo `.info` |
+| múltiplos, márgenes | `ratios-ttm` | Yahoo |
+| precio objetivo, recomendación | `price-target-consensus`, `grades-consensus` | Yahoo |
+| noticias | `news/stock` | Yahoo |
+| insiders | `insider-trading/search` | Yahoo |
+
+El intradía es la sorpresa: el código documentaba que "el respaldo FMP SÓLO
+sirve para velas diarias" y la ruta intradía se quedaba sin red. FMP sí las
+sirve en este plan.
+
+## 25.2 Lo que se eliminó
+
+Las cadenas de opciones no tienen sustituto (`options-chain` y
+`options/contracts` dan **404**), así que se eliminaron en vez de fingir
+datos. Con ellas se fue Quant Data, cuyo plan API está inactivo.
+
+| Capa | Se fue |
+|---|---|
+| Opciones | GEX, max pain, IV, walls, venta de prima, griegas, trade-plan |
+| Quant Data | 22 funciones: flujo, convicción ΔOI, dark pool, net-flow, confluencia |
+| Derivado | proyecciones, backtest, colector de snapshots, planificador nocturno |
+
+`vertex_api.py` **13.525 → 10.811** líneas (−2.714).
+`vertex_fund_os_platform.html` **8.253 → 6.537** (−1.716).
+
+## 25.3 Lo que se conservó a propósito
+
+- `_calibration_prompt_block` — es el track record propio del ticker, no un
+  dato de opciones. Estaba enterrado en medio del bloque de Quant Data.
+- `Entradas/` y `Memoria/` — Victor no las tiene, pero son el camino de los
+  puntos de Market y el protocolo obligatorio de `CLAUDE.md`.
+- El `flow_override` quedó en `False` fijo: lo disparaba la convicción por
+  ΔOI, y activarlo por defecto afirmaría un flujo institucional que nadie
+  midió.
+
+## 25.4 Estado
+
+`/api/analyze` verificado end-to-end tras el recorte: NVDA raw 37.0 (94 s),
+JPM raw 22.9 (55 s). `/api/data-health` pasó a **ok=true** — antes era
+`false` porque declaraba Quant Data como fuente crítica y estaba caída.
+La interfaz carga con 0 errores de consola y sus 6 vistas intactas.
+
+**2126 tests del engine + 86 de la capa web.**
