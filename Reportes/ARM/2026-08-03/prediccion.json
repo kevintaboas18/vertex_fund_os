@@ -1,0 +1,16 @@
+{
+  "report_id": "20260803_224604_ARM",
+  "ticker": "ARM",
+  "fecha": "2026-08-03",
+  "price_at_analysis": 239.06,
+  "fair_value": 270.8,
+  "profile": "Avoid / Wait",
+  "raw_total": 29.8,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 325.17,
+    "base": 270.8,
+    "bear": 188.76
+  },
+  "framework": "WBJ v2.0.0"
+}

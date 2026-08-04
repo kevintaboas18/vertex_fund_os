@@ -1,0 +1,16 @@
+{
+  "report_id": "20260803_155054_MU",
+  "ticker": "MU",
+  "fecha": "2026-08-03",
+  "price_at_analysis": 830.8,
+  "fair_value": 904.22,
+  "profile": "Avoid / Wait",
+  "raw_total": 36.6,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 1087.18,
+    "base": 904.22,
+    "bear": 628.78
+  },
+  "framework": "WBJ v2.0.0"
+}

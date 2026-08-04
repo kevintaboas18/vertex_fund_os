@@ -1,0 +1,16 @@
+{
+  "report_id": "20260803_224320_TSM",
+  "ticker": "TSM",
+  "fecha": "2026-08-03",
+  "price_at_analysis": 406.11,
+  "fair_value": 516.55,
+  "profile": "Avoid / Wait",
+  "raw_total": 44.7,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 617.38,
+    "base": 516.55,
+    "bear": 363.05
+  },
+  "framework": "WBJ v2.0.0"
+}

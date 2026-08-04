@@ -1,0 +1,16 @@
+{
+  "report_id": "20260803_155702_INTC",
+  "ticker": "INTC",
+  "fecha": "2026-08-03",
+  "price_at_analysis": 90.85,
+  "fair_value": 81.18,
+  "profile": "Avoid / Wait",
+  "raw_total": 21.9,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 98.54,
+    "base": 81.18,
+    "bear": 60.88
+  },
+  "framework": "WBJ v2.0.0"
+}

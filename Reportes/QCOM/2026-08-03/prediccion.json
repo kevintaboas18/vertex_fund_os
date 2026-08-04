@@ -1,0 +1,16 @@
+{
+  "report_id": "20260803_155932_QCOM",
+  "ticker": "QCOM",
+  "fecha": "2026-08-03",
+  "price_at_analysis": 151.3,
+  "fair_value": 132.85,
+  "profile": "Avoid / Wait",
+  "raw_total": 34.5,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 161.26,
+    "base": 132.85,
+    "bear": 99.64
+  },
+  "framework": "WBJ v2.0.0"
+}

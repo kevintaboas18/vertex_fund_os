@@ -4842,6 +4842,12 @@ def _wbj_explain(context_text, temp=0.3):
         "NO recalcules, NO cambies, NO reduzcas ni 'corrijas' ningún número, score, gate ni nivel. "
         "Si algo no tiene datos (NOT_SCORABLE), explícalo con honestidad. No prometas retornos ni "
         "des órdenes de compra/venta.\n\n" + context_text)
+    # Por qué falló CADA proveedor, en orden. Antes sólo se propagaba el
+    # último error de la cadena, así que un 429 de cuota en Gemini —el
+    # proveedor PRINCIPAL— se reportaba como "Grok no configurado
+    # (XAI_API_KEY vacío)". El mensaje señalaba una variable de entorno que
+    # falta a propósito y escondía la causa real, que es de facturación.
+    fallos: list[str] = []
     for attempt in range(2):
         try:
             r = client_gemini.models.generate_content(
@@ -4852,6 +4858,7 @@ def _wbj_explain(context_text, temp=0.3):
         except Exception as e:
             if _is_quota_error(e) and attempt == 0:
                 time.sleep(_retry_delay_secs(e)); continue
+            fallos.append(f"gemini: {type(e).__name__} {str(e)[:90]}")
             break
     try:
         keys = list(getattr(WBJExplanation, "model_fields", None) or getattr(WBJExplanation, "__fields__", {}) or [])
@@ -4860,8 +4867,11 @@ def _wbj_explain(context_text, temp=0.3):
     for fn, src in ((_openai_json, "openai (ChatGPT)"), (_grok_json, "grok")):
         try:
             return fn(prompt, keys, temp), src
-        except Exception:
-            pass
+        except Exception as e:
+            fallos.append(f"{src}: {type(e).__name__} {str(e)[:90]}")
+    if fallos:
+        # El PRIMERO es el que importa: es el proveedor principal.
+        print("[analyze] narrativa: ningún proveedor respondió — " + " | ".join(fallos))
     return None, None
 
 

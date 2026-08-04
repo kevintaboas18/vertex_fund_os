@@ -1977,3 +1977,82 @@ llegue solo, y que el `ETag` salga del CONTENIDO y no del reloj (uno por
 marca de tiempo invalidaría la caché en cada reinicio sin motivo).
 
 **2126 tests del engine + 98 de la capa web.**
+
+---
+
+# 32. Los puntos 2-5, resueltos como los tiene Victor
+
+## 32.1 Latencia (#2): fuera el conjunto trimestral 13F
+
+Perfilado con `cProfile` sobre un ticker frío: **96 s totales, 44 s en
+lecturas de socket SSL** — 71 peticiones HTTP (31 del motor por httpx, 40 de
+la capa web por requests). No había una función lenta: eran round-trips.
+
+El único bloque grande y evitable era `_ownership`, que ante el 402 de FMP
+caía a un respaldo de tres escalones sobre EDGAR cuyo primer paso descargaba
+el **zip trimestral 13F** de la SEC.
+
+Victor no lo hace. Su `packet/builder.py`, líneas 308-309:
+
+```python
+insider_trades = fmp.insider_trades(ticker) or []
+institutional_holders = fmp.institutional_holders(ticker) or []
+```
+
+y su docstring: *"13F institutional holders (may be plan-restricted →
+None)"*. Cuenta con el 402 y devuelve vacío.
+
+**Medido**: `_wbj_holders_from_edgar` **19.1 s → 0.3 s**. `_ownership` pasó
+de 167 a 71 líneas.
+
+**El precio, declarado**: `institutional_13f` queda `[]` y
+`holders_available` en False. `CLAUDE.md` pide los inversionistas 13F y ese
+requisito queda SIN CUBRIR con el plan actual de FMP — en este repo y en el
+de Victor por igual. Se resuelve subiendo de plan, no con más código. Los
+métodos siguen en `EdgarProvider` por si un día hay presupuesto de latencia.
+
+**Corrección**: antes dije que paralelizar "empeoró" la latencia. Comparé
+**tickers distintos** (AMD 177 s contra NVDA 92 s), que no son comparables.
+La única medición válida es la directa de arriba.
+
+## 32.2 Insiders (#5): no había bug — el error era mío
+
+Reporté "insiders: 0". Falso: leía `mandatory_report.insiders`, clave que no
+existe. La real es `insiders_over_1m`. Corriendo el análisis de verdad:
+
+```
+insiders_over_1m : 8 operaciones agrupadas (Mark Stevens $485M en 8 Forms 4)
+insiders_flow    : venta $819.5M · 141 ventas · 0 compras
+```
+
+FMP devuelve 200 Forms 4 y 63 superan $1M. **Funciona como debe.**
+
+## 32.3 Narrativa (#4): cuota, no código — pero el mensaje mentía
+
+`_wbj_explain` intenta Gemini → OpenAI → Grok. La cadena es correcta. El
+diagnóstico real:
+
+| Proveedor | Estado |
+|---|---|
+| Gemini | **429 RESOURCE_EXHAUSTED** |
+| OpenAI | **429 quota** |
+| Grok | sin `XAI_API_KEY` |
+
+Pero sólo se propagaba el ÚLTIMO error, así que un problema de facturación
+en el proveedor PRINCIPAL se reportaba como *"Grok no configurado
+(XAI_API_KEY vacío)"* — señalando una variable que falta a propósito y
+escondiendo la causa. Ahora se registran los tres, en orden.
+
+## 32.4 Market (#3): sin resolver, y no es código
+
+Sigue en 0.9/10. El TAM de Gartner mide gasto de usuario final y NVDA vende
+componentes: son capas distintas de la cadena de valor. Necesita un TAM de
+aceleradores de datacenter (IDC, Mercury Research, Omdia). Es un dato que
+hay que comprar o citar, no una línea que escribir.
+
+## 32.5 Estado
+
+**2110 tests del engine + 98 de la capa web.** El archivo que cubría el
+respaldo retirado ahora fija lo contrario: que nadie vuelva a descargar el
+zip, que los tenedores salgan de FMP, y que un hueco sin sustituto se
+declare en vez de anunciarse como tapado.

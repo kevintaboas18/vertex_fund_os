@@ -1,0 +1,16 @@
+{
+  "report_id": "20260803_224433_ASML",
+  "ticker": "ASML",
+  "fecha": "2026-08-03",
+  "price_at_analysis": 1642.52,
+  "fair_value": 1819.26,
+  "profile": "Avoid / Wait",
+  "raw_total": 43.6,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 2186.59,
+    "base": 1819.26,
+    "bear": 1265.89
+  },
+  "framework": "WBJ v2.0.0"
+}
