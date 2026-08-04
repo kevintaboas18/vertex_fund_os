@@ -33,7 +33,7 @@ son la señal de aprendizaje.
 - [JPM](tesis/JPM.md) · 2026-08-03 11:47 · Avoid / Wait · raw 35.6/100 · FV $366.24
 - [KO](tesis/KO.md) · 2026-08-03 11:48 · Avoid / Wait · raw 47.5/100 · FV $94.18
 - [MU](tesis/MU.md) · 2026-08-03 15:52 · Avoid / Wait · raw 36.6/100 · FV $904.22
-- [NVDA](tesis/NVDA.md) · 2026-08-03 22:56 · Avoid / Wait · raw 48.9/100 · FV $289.3
+- [NVDA](tesis/NVDA.md) · 2026-08-03 23:42 · Avoid / Wait · raw 48.9/100 · FV $289.3
 - [PLTR](tesis/PLTR.md) · 2026-08-03 11:49 · Avoid / Wait · raw 32.7/100 · FV $160.62
 - [QCOM](tesis/QCOM.md) · 2026-08-03 16:00 · Avoid / Wait · raw 34.5/100 · FV $132.85
 - [TSM](tesis/TSM.md) · 2026-08-03 22:44 · Avoid / Wait · raw 44.7/100 · FV $516.55

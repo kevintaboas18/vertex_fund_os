@@ -2056,3 +2056,67 @@ hay que comprar o citar, no una línea que escribir.
 respaldo retirado ahora fija lo contrario: que nadie vuelva a descargar el
 zip, que los tenedores salgan de FMP, y que un hueco sin sustituto se
 declare en vez de anunciarse como tapado.
+
+---
+
+# 33. Grok fuera: sólo Gemini y OpenAI (G-01)
+
+Victor no usa Grok en **ninguna parte** de su repo — ni en `engine/wbj`, ni
+en su `CLAUDE.md`, ni en sus dependencias. Aquí estaba en 8 funciones.
+
+## 33.1 Dos rutas dependían SÓLO de él
+
+`/api/sentiment` y `/api/explore-deep` llamaban a `api.x.ai` **sin ningún
+respaldo**: una clave sin configurar apagaba la ruta entera. No se podían
+borrar sin romperlas, así que se portaron a los dos proveedores del sistema
+con el helper nuevo `_texto_llm(system, user)` — Gemini primero, OpenAI
+después, y si ninguno responde devuelve por qué falló CADA uno.
+
+## 33.2 Las cadenas de Analyze
+
+`_wbj_explain` y `_analyze_structured` tenían Grok como tercer escalón.
+Ahora son **Gemini → OpenAI**. `_grok_json` eliminada.
+
+## 33.3 Nombres que mentían
+
+Las variables y las **claves JSON** se llamaban `grok_ok`, `grok_text`,
+`grok_error` — y ya contenían salida de Gemini o de OpenAI. Renombradas a
+`llm_*` en la API (31 sitios) y en la interfaz (8), que las lee. Un nombre
+que miente sobre su origen es peor que uno feo: manda a depurar al sitio
+equivocado.
+
+Fuera también de `render.yaml` y del aviso de claves al arrancar.
+
+## 33.4 Auditoría de Analyze — estado verificado
+
+Contra `infusionvictor/warren-buffett-jr` en `72d92d9`:
+
+| | |
+|---|---|
+| Cerebro | **84/84 byte-idénticos**, 0 suyos ausentes |
+| Motor | **0 funciones suyas me faltan** |
+| Proveedores | `base, cache, edgar, finnhub, fmp, fred` — **la misma lista** |
+
+Corrida real de NVDA (77.5 s):
+
+```
+raw 48.9 · Avoid / Wait · FV $289.30 · upside 40.0%
+scores_source: victor          insiders > $1M: 8
+flujo insiders: -$819.5M       niveles de precio: 39
+```
+
+Lo que NO corre, y por qué:
+
+| Pieza | Causa | HTTP |
+|---|---|---|
+| judge | créditos Anthropic | 400 |
+| extracción cualitativa 10-K | créditos Anthropic | 400 |
+| historial de management | créditos Anthropic | 400 |
+| narrativa | cuota Gemini **y** OpenAI | 429 / 429 |
+| 13F institucional | plan FMP | 402 |
+| Market 0.9/10 | TAM de capa incorrecta | — |
+
+**Ninguna es un defecto de código.** Cuatro son facturación, una es plan y
+una es un dato que hay que comprar.
+
+**2110 tests del engine + 98 de la capa web.**

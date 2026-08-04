@@ -29,7 +29,7 @@ from urllib.parse import urlparse
 # ─────────────────────────────────────────────────────────────────────────────
 # CARGA DE CREDENCIALES
 # Lee vertex.env (gitignored) hacia el entorno para que TODAS las API keys
-# (GEMINI/OPENAI/FINNHUB/QUANTDATA/XAI/PLAID…) queden disponibles
+# (GEMINI/OPENAI/FMP/FINNHUB/FRED/PLAID…) queden disponibles
 # vía os.environ. Nunca se imprime ni se commitea su contenido.
 # ─────────────────────────────────────────────────────────────────────────────
 try:
@@ -48,7 +48,7 @@ except Exception:
 
 # Cliente Gemini (modelo principal de la IA). GEMINI_API_KEY vive en vertex.env.
 # Si no hay key, client_gemini queda en None y los endpoints de IA degradan a
-# sus respaldos (OpenAI/Grok) o devuelven un error limpio en vez de romper.
+# su respaldo (OpenAI) o devuelven un error limpio en vez de romper.
 API_KEY = os.environ.get("GEMINI_API_KEY", "") or os.environ.get("GOOGLE_API_KEY", "")
 try:
     client_gemini = genai.Client(api_key=API_KEY) if API_KEY else None
@@ -2023,7 +2023,7 @@ Reglas duras: tickers reales; cifras reales y recientes; 'metric' corto (<= 6 pa
 @app.get("/api/explore-deep")
 def get_explore_deep(ticker: str):
     """
-    Deep dive on a trending ticker: uses Grok (xAI) to analyze what people are saying
+    Deep dive on a trending ticker: usa Gemini/OpenAI para leer lo que se dice
     on X/Twitter, Reddit, web, news + AI thesis and speculation. Same 3-month window.
     """
     ticker_clean = ticker.upper().strip()
@@ -2047,7 +2047,7 @@ def get_explore_deep(ticker: str):
     except Exception:
         pass
 
-    # Fetch REAL Reddit posts to feed Grok as literal context
+    # Fetch REAL Reddit posts para dárselos al LLM como contexto literal
     reddit_posts   = fetch_reddit_posts(ticker_clean, limit=8)
     reddit_context = format_reddit_context(reddit_posts)
 
@@ -2139,39 +2139,18 @@ La trampa psicologica mas grande que ve el agente en como la gente percibe a {ti
 Especulacion del agente: si todo va como la comunidad espera, donde puede estar el precio en 12 meses?
 """
 
-    grok_ok    = False
-    grok_text  = ""
-    grok_error = ""
+    # Igual que en `/api/sentiment`: esto llamaba a `api.x.ai` sin respaldo.
+    # Ahora, los dos proveedores del sistema — Gemini y OpenAI.
+    llm_text, _fuente, llm_error = _texto_llm(system_msg, user_msg,
+                                                temp=0.45, max_tokens=5000)
+    llm_ok = bool(llm_text)
+    if not llm_ok:
+        print(f"[explore-deep] ningún proveedor respondió — {llm_error}")
 
-    try:
-        resp = requests.post(
-            "https://api.x.ai/v1/chat/completions",
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {XAI_API_KEY}"},
-            json={
-                "model":       "grok-3",
-                "messages": [
-                    {"role": "system", "content": system_msg},
-                    {"role": "user",   "content": user_msg}
-                ],
-                "max_tokens":  5000,
-                "temperature": 0.45
-            },
-            timeout=130
-        )
-        if resp.status_code == 200:
-            grok_text = resp.json()["choices"][0]["message"]["content"].strip()
-            grok_ok   = True
-        else:
-            grok_error = f"Grok error {resp.status_code}: {resp.text[:400]}"
-    except requests.exceptions.Timeout:
-        grok_error = "Timeout: Grok tardó demasiado. Intenta de nuevo."
-    except Exception as ex:
-        grok_error = f"Error conectando con Grok: {str(ex)}"
-
-    # Compute overall sentiment score from grok_text (same algo as /api/sentiment)
+    # Puntaje de sentimiento a partir de llm_text (mismo algoritmo que /api/sentiment)
     score, label, color = 50, "NEUTRAL", "amber"
-    if grok_ok and grok_text:
-        txt = grok_text.lower()
+    if llm_ok and llm_text:
+        txt = llm_text.lower()
         bulls = ["bullish","alcist","optimism","euforia","compra","subir","sube","rally","positiv",
                  "esperanza","confianza","buy","strong","crecimiento","potencial","conviction"]
         bears = ["bearish","bajist","pesimism","panico","miedo","venta","bajar","baja","negativ",
@@ -2195,9 +2174,9 @@ Especulacion del agente: si todo va como la comunidad espera, donde puede estar 
         "overall_score":     score,
         "overall_label":     label,
         "overall_color":     color,
-        "grok_ok":           grok_ok,
-        "grok_text":         grok_text,
-        "grok_error":        grok_error,
+        "llm_ok":           llm_ok,
+        "llm_text":         llm_text,
+        "llm_error":        llm_error,
         "date_range_label":  date_label,
         "window_start":      three_months_ago,
         "window_end":        today_str,
@@ -4847,6 +4826,7 @@ def _wbj_explain(context_text, temp=0.3):
     # proveedor PRINCIPAL— se reportaba como "Grok no configurado
     # (XAI_API_KEY vacío)". El mensaje señalaba una variable de entorno que
     # falta a propósito y escondía la causa real, que es de facturación.
+    # (Grok salió del proyecto: Victor no lo usa en ninguna parte.)
     fallos: list[str] = []
     for attempt in range(2):
         try:
@@ -4864,7 +4844,7 @@ def _wbj_explain(context_text, temp=0.3):
         keys = list(getattr(WBJExplanation, "model_fields", None) or getattr(WBJExplanation, "__fields__", {}) or [])
     except Exception:
         keys = []
-    for fn, src in ((_openai_json, "openai (ChatGPT)"), (_grok_json, "grok")):
+    for fn, src in ((_openai_json, "openai (ChatGPT)"),):
         try:
             return fn(prompt, keys, temp), src
         except Exception as e:
@@ -7519,25 +7499,62 @@ def _openai_json(prompt, keys, temp=0.3, model="gpt-4o"):
     return json.loads(txt)
 
 
-def _grok_json(prompt, keys, temp=0.4):
-    """Fallback when Gemini is out of quota: ask Grok (x.ai) for strict JSON."""
-    if not XAI_API_KEY:
-        raise RuntimeError("Grok no configurado (XAI_API_KEY vacío).")
-    sysmsg = ("Devuelve EXCLUSIVAMENTE un objeto JSON válido (sin markdown, sin ```), "
-              "con exactamente estas claves (todas string salvo las numéricas obvias): "
-              + ", ".join(keys) + ".")
-    resp = requests.post(
-        "https://api.x.ai/v1/chat/completions",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {XAI_API_KEY}"},
-        json={"model": "grok-3", "temperature": temp,
-              "messages": [{"role": "system", "content": sysmsg},
-                           {"role": "user", "content": prompt}]},
-        timeout=60)
-    if resp.status_code != 200:
-        raise RuntimeError(f"Grok error {resp.status_code}: {resp.text[:200]}")
-    txt = resp.json()["choices"][0]["message"]["content"].strip()
-    txt = re.sub(r"^```(?:json)?\s*|\s*```$", "", txt, flags=re.S).strip()
-    return json.loads(txt)
+def _texto_llm(system_msg, user_msg, temp=0.4, max_tokens=4000):
+    """Texto libre (no JSON) desde los DOS proveedores del sistema.
+
+    Devuelve `(texto, fuente, error)`. Nunca lanza: si ninguno responde,
+    `texto` viene vacío y `error` explica por qué CADA uno falló — el mismo
+    criterio que `_wbj_explain`, donde propagar sólo el último fallo hacía
+    que un 429 de cuota se reportara como una variable de entorno ausente.
+
+    Sustituye las llamadas directas a `api.x.ai` que había en
+    `/api/sentiment` y `/api/explore-deep`. Victor no usa Grok en ninguna
+    parte de su repo, y su ausencia dejaba esas dos rutas sin ningún
+    respaldo: una sola clave sin configurar las apagaba enteras.
+    """
+    fallos = []
+    if client_gemini is not None:
+        try:
+            r = client_gemini.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=f"{system_msg}\n\n{user_msg}",
+                config=types.GenerateContentConfig(
+                    temperature=temp, max_output_tokens=max_tokens))
+            texto = (r.text or "").strip()
+            if texto:
+                return texto, "gemini", ""
+            fallos.append("gemini: respuesta vacía")
+        except Exception as e:
+            fallos.append(f"gemini: {type(e).__name__} {str(e)[:110]}")
+    else:
+        fallos.append("gemini: sin GEMINI_API_KEY")
+
+    if OPENAI_API_KEY:
+        try:
+            resp = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {OPENAI_API_KEY}"},
+                json={"model": "gpt-4o",
+                      "messages": [{"role": "system", "content": system_msg},
+                                   {"role": "user", "content": user_msg}],
+                      "max_tokens": max_tokens, "temperature": temp},
+                timeout=120)
+            if resp.status_code == 200:
+                texto = resp.json()["choices"][0]["message"]["content"].strip()
+                if texto:
+                    return texto, "openai (ChatGPT)", ""
+                fallos.append("openai: respuesta vacía")
+            else:
+                fallos.append(f"openai: HTTP {resp.status_code} {resp.text[:110]}")
+        except Exception as e:
+            fallos.append(f"openai: {type(e).__name__} {str(e)[:110]}")
+    else:
+        fallos.append("openai: sin OPENAI_API_KEY")
+
+    return "", None, " | ".join(fallos)
+
+
 
 
 
@@ -7545,7 +7562,7 @@ def _grok_json(prompt, keys, temp=0.4):
 # ─────────────────────────────────────────────────────────────────────────────
 def _analyze_structured(prompt, temp=0.2):
     """#7 — genera el reporte estructurado con RESPALDO DE PROVEEDOR: Gemini (schema) → ChatGPT
-    (json_object) → Grok. Devuelve (dict, fuente). El downstream usa .get() con defaults, así que un
+    (json_object). Devuelve (dict, fuente). El downstream usa .get() con defaults, así que un
     JSON parcial del respaldo degrada con gracia en vez de tumbar el endpoint cuando se agota la cuota."""
     last = None
     for attempt in range(2):
@@ -7566,7 +7583,7 @@ def _analyze_structured(prompt, temp=0.2):
                     or getattr(VertexDeepAnalysis, "__fields__", {}) or [])
     except Exception:
         keys = []
-    for fn, src in ((_openai_json, "openai (ChatGPT)"), (_grok_json, "grok")):
+    for fn, src in ((_openai_json, "openai (ChatGPT)"),):
         try:
             return fn(prompt, keys, temp), src
         except Exception as e2:
@@ -7577,7 +7594,7 @@ def _analyze_structured(prompt, temp=0.2):
     # proyecto es "los números mandan y la narrativa los sigue", así que devolvemos
     # el análisis determinista con la narrativa marcada como no disponible.
     reason = (f"{type(last).__name__}: {str(last)[:180]}" if last
-              else "ningún proveedor de narrativa configurado (falta GEMINI_API_KEY / OPENAI_API_KEY / XAI_API_KEY)")
+              else "ningún proveedor de narrativa configurado (falta GEMINI_API_KEY / OPENAI_API_KEY)")
     print(f"[analyze] narrativa no disponible ({reason}) → se entrega el análisis determinista de Victor")
     return _narrative_unavailable(reason), "no disponible"
 
@@ -7586,7 +7603,7 @@ def _coerce_analysis_shapes(a: dict) -> dict:
     """Normaliza los campos ANIDADOS que devuelve el LLM antes de usarlos.
 
     Gemini responde validado contra el schema, pero los proveedores de respaldo
-    (ChatGPT/Grok en modo json_object) solo garantizan "JSON valido" — no el tipo
+    (ChatGPT en modo json_object) solo garantiza "JSON valido" — no el tipo
     de cada campo. Un `probabilities` que llego como string tumbo /api/analyze con
     AttributeError: 'str' object has no attribute 'get', despues de que los 6
     especialistas de Victor ya habian terminado.
@@ -8006,8 +8023,6 @@ def data_health():
          "live": None, "note": None},
         {"key": "gemini", "label": "Gemini", "role": "tesis · IA", "critical": True,
          "configured": bool(API_KEY), "live": None, "note": None if API_KEY else "Falta GEMINI_API_KEY"},
-        {"key": "grok", "label": "Grok / xAI", "role": "sentimiento · X", "critical": False,
-         "configured": bool(XAI_API_KEY), "live": None, "note": None if XAI_API_KEY else "Falta XAI_API_KEY"},
         {"key": "finnhub", "label": "Finnhub", "role": "insiders · earnings", "critical": False,
          "configured": bool(FINNHUB_API_KEY), "live": None, "note": None if FINNHUB_API_KEY else "Falta FINNHUB_API_KEY"},
         {"key": "openai", "label": "OpenAI", "role": "desempate (opc.)", "critical": False,
@@ -8411,9 +8426,8 @@ def portfolio_edge():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SENTIMENT ENGINE — xAI Grok
+# SENTIMENT ENGINE
 # ─────────────────────────────────────────────────────────────────────────────
-XAI_API_KEY = os.environ.get("XAI_API_KEY", "")
 
 @app.get("/api/sentiment")
 def get_sentiment(ticker: str):
@@ -8539,43 +8553,18 @@ Que le recomendarias al inversor inteligente basandote en el sentimiento recient
 Cual es la trampa psicologica mas grande que ves en como la gente percibe a {ticker_clean} en este momento?
 """
 
-    grok_ok    = False
-    grok_text  = ""
-    grok_error = ""
-
-    try:
-        resp = requests.post(
-            "https://api.x.ai/v1/chat/completions",
-            headers={
-                "Content-Type":  "application/json",
-                "Authorization": f"Bearer {XAI_API_KEY}"
-            },
-            json={
-                "model":       "grok-3",
-                "messages": [
-                    {"role": "system", "content": system_msg},
-                    {"role": "user",   "content": user_msg}
-                ],
-                "max_tokens":  4000,
-                "temperature": 0.4
-            },
-            timeout=120
-        )
-        if resp.status_code == 200:
-            grok_text = resp.json()["choices"][0]["message"]["content"].strip()
-            grok_ok   = True
-        else:
-            grok_error = f"Grok API error {resp.status_code}: {resp.text[:600]}"
-            print(f"[GROK DEBUG] {resp.status_code}: {resp.text[:600]}")
-    except requests.exceptions.Timeout:
-        grok_error = "Timeout: Grok tardo mas de 90 segundos. Intenta de nuevo."
-    except Exception as ex:
-        grok_error = f"Error de conexion con Grok: {str(ex)}"
+    # Antes esto llamaba a `api.x.ai` (Grok) sin ningún respaldo, así que
+    # una clave sin configurar apagaba la ruta entera. Ahora usa los DOS
+    # proveedores del sistema, los mismos que Victor: Gemini y OpenAI.
+    llm_text, _fuente, llm_error = _texto_llm(system_msg, user_msg, temp=0.4)
+    llm_ok = bool(llm_text)
+    if not llm_ok:
+        print(f"[sentiment] ningún proveedor respondió — {llm_error}")
 
 
     score, label, color = 50, "NEUTRAL", "amber"
-    if grok_ok and grok_text:
-        txt = grok_text.lower()
+    if llm_ok and llm_text:
+        txt = llm_text.lower()
         bulls = ["bullish","alcist","optimism","euforia","compra","subir","sube","rally","positiv",
                  "esperanza","confianza","buy","strong","crecimiento","potencial"]
         bears = ["bearish","bajist","pesimism","panico","miedo","venta","bajar","baja","negativ",
@@ -8598,9 +8587,9 @@ Cual es la trampa psicologica mas grande que ves en como la gente percibe a {tic
         "overall_score": score,
         "overall_label": label,
         "overall_color": color,
-        "grok_ok":       grok_ok,
-        "grok_text":     grok_text,
-        "grok_error":    grok_error,
+        "llm_ok":       llm_ok,
+        "llm_text":     llm_text,
+        "llm_error":    llm_error,
         "analysis_date": today_str,
         "window_start":  three_months_ago,
         "window_end":    today_str,
@@ -10743,7 +10732,7 @@ def _vertex_startup():
     try:
         _need = {"FMP_API_KEY": (os.environ.get("FMP_API_KEY") or "").strip(),
                  "GEMINI_API_KEY": API_KEY,
-                 "OPENAI_API_KEY": OPENAI_API_KEY, "XAI_API_KEY": XAI_API_KEY,
+                 "OPENAI_API_KEY": OPENAI_API_KEY,
                  "FINNHUB_API_KEY": FINNHUB_API_KEY}
         missing = [k for k, v in _need.items() if not v]
         if missing:

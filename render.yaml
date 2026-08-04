@@ -63,8 +63,6 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
-      - key: XAI_API_KEY
-        sync: false
       - key: FMP_API_KEY
         sync: false
       - key: FINNHUB_API_KEY
