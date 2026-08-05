@@ -1,25 +1,20 @@
 {
-  "_generado_por": "vertex/tam_research",
+  "_generado_por": "vertex/tam_oficial",
   "_resuelto_en": "2026-08-05",
-  "_como_se_obtuvo": "Buscado automaticamente al analizar JPM. Se revisa cada 90 dias.",
+  "_cadena": "JPM -> SEC EDGAR SIC 6021 (National Commercial Banks) -> NAICS 5221 -> FRED REV5221TAXABL144QNSA",
+  "_geografia": "Estados Unidos. Las encuestas del Census miden el mercado DOMESTICO; los ingresos de un emisor son mundiales. Lee la participacion como captura sobre el mercado de EE.UU.",
+  "_ambito": "US",
+  "_serie_fred": "REV5221TAXABL144QNSA",
+  "_serie_titulo": "Total Revenue for 5221: Depository Credit Intermediation, Establishments Subject to Federal Income Tax",
+  "_serie_frecuencia": "Q",
+  "_serie_ultima_observacion": "2026-01-01",
+  "_unidades_origen": "Mil. of $",
   "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo: pasa a ser un TAM de analista.",
-  "tam": 6400000000000,
-  "tam_source": "McKinsey Global Banking Annual Review 2026: Precision with speed",
-  "tam_source_tier": 3,
+  "tam": 980094000000,
+  "tam_source": "U.S. Census Bureau / BLS via FRED — Total Revenue for 5221: Depository Credit Intermediation, Establishments Subject to Federal Income Tax (REV5221TAXABL144QNSA), observacion 2026-01-01",
+  "tam_source_tier": 1,
   "tam_history": [
-    6100000000000,
-    6400000000000
-  ],
-  "_segmento_patrones": [
-    "consumer & community banking",
-    "corporate & investment bank",
-    "asset & wealth management",
-    "commercial banking",
-    "global banking"
-  ],
-  "_capa": "ingresos antes de costos de riesgo de la industria bancaria global",
-  "_capa_coincide": "Las empresas bancarias diversificadas como JPM generan sus ingresos principales a través de una variedad de servicios financieros (banca minorista, banca comercial, banca de inversión, gestión de activos, etc.). La métrica de 'ingresos antes de costos de riesgo' de la industria bancaria global es una medida adecuada del tamaño del mercado en el que operan estas empresas, ya que representa los ingresos generados por la provisión de estos servicios financieros.",
-  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHFi_bv0vQMJkx90ABCFcragDCfumcEfAbeCwLx2Kh6KE-M7ilUAA6_MInkYJWzPXQe567lDxTxFPfqxFotnXGiT3hlQgSSuteTEeNf3UT0kozYXuDrNDQPZVmTZIwDVTymE0Mw-prH2jlLk6qdIRo5L6yQPhi0-Z96Jk3pKMOIiJVDLV1RQxp-s_tZVJCIhRO2I7MfHKFqzmOdJA==",
-  "_cita_es_redirect": "Enlace de grounding de Gemini: caduca. La cifra se reencuentra por el nombre de la casa mas la frase textual de abajo.",
-  "_cita_textual": "Revenues before risk costs rose from $6.1 trillion in 2024 to $6.4 trillion in 2025."
+    923854000000,
+    980094000000
+  ]
 }

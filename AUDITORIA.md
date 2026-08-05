@@ -2422,64 +2422,65 @@ archivo ausente no rompa, y que el slug case con el nombre del archivo.
 
 ---
 
-## Cierre 2026-08-05 — El TAM y la participación se investigan solos
+## Cierre 2026-08-05 — El TAM se descarga de fuentes oficiales
 
 **Lo que se resolvió:** analizar un ticker de una industria nueva exigía trabajo
 manual antes de que Market pudiera puntuar. Alguien tenía que buscar el estudio
-de mercado, verificar la cifra y escribirla en `Entradas/`. Sólo NVDA lo tenía,
-así que sólo NVDA puntuaba `MKT-TAM-005`, `MKT-SHARE-006` y `MKT-SHDELTA-007`.
+de mercado, verificarlo y escribirlo en `Entradas/`. Sólo NVDA lo tenía, así que
+sólo NVDA puntuaba `MKT-TAM-005`, `MKT-SHARE-006` y `MKT-SHDELTA-007`.
 
-Dos piezas nuevas, las dos disparadas solas al analizar:
+**Un intento descartado, y por qué.** La primera versión le preguntaba a Gemini
+con búsqueda de Google. Funcionaba, y estaba mal por dos motivos: Google no es
+una de las fuentes de este sistema, y lo que devolvía no era el dato sino el
+*comunicado de prensa* sobre el dato — IDC, Omdia y Gartner venden sus informes,
+así que se estaba citando la nota que resume un número que nadie de aquí puede
+abrir. Se retiró entera (`tam_research.py` borrado, claves de LLM fuera del
+engine).
 
-| Pieza | Qué hace | Dónde |
-|---|---|---|
-| `overlay/tam_research.py` | Busca el TAM de la industria en la web, valida la fuente y escribe `Entradas/_industrias/<slug>.json` | Gemini + `google_search`, OpenAI de suplente |
-| `_share_automatico` | Divide el segmento del 10-K entre ese TAM | `overlay/from_packet.py` |
+**La cadena de ahora, oficial de punta a punta:**
 
-**Cadencia trimestral**, como los filings: `_resuelto_en` marca la fecha y no se
-vuelve a preguntar hasta pasados 90 días.
+```
+ticker -> CIK -> SEC EDGAR (codigo SIC declarado por el emisor)
+              -> NAICS (tabla SIC_A_NAICS, escrita a mano)
+              -> FRED (Census Bureau / BLS)  = tier 1
+```
 
-**Por qué no usa Anthropic.** Es la misma cuenta que el judge. Colgar el TAM de
-un saldo agotado dejaría a Market sin sus tres dimensiones más pesadas cada vez
-que el judge no puede correr.
+`engine/wbj/overlay/tam_oficial.py`. Cadencia trimestral, como los filings.
 
-### Lo que el validador rechaza, y por qué
+### Las trampas que este código tiene que esquivar
 
-| Rechazo | Caso real que lo motivó |
+| Regla | Caso real que la motivó |
 |---|---|
-| Casa no reconocida | Mordor Intelligence en bebidas: recopila cifras de terceros sin firmar metodología. Tier 5, no puntuable |
-| Años en lugar de dólares | JPM devolvió `tam_history: [2024, 2025]`. Sin este chequeo, la participación habría salido de dividir los ingresos de JPM entre 2024 |
-| Serie que no cierra en el TAM | `_share_automatico` divide el año anterior entre `historia[-2]` y el actual entre `tam`; si el último punto fuera otro, las dos mitades hablarían de mercados distintos |
-| Sin `capa` declarada | El error de Gartner/NVDA: gasto de usuario final contra ingresos de componentes. Daba 39,6%, ningún chequeo aritmético lo caza |
-| Redirect de grounding sin cita textual | Gemini cita con enlaces que caducan y no dicen de quién es la página |
+| La escala sale del metadato de FRED | La serie de software marca 169.800 y son **millones**. Ignorarlo es equivocarse por mil, en silencio |
+| El NAICS debe aparecer en el id o el título | Para un buscador, "Software Publishers" y "Other Information Services" son igual de plausibles. Una es el mercado de otra empresa |
+| Series trimestrales se suman de 4 en 4 | Un trimestre suelto contra ingresos anuales da 4× la participación real, y el número sigue pareciendo razonable |
+| Porcentajes e índices nunca son un TAM | FRED publica la misma industria en dólares y en variación; la de variación sale antes por popularidad |
+| **El numerador se elige por el ámbito** | El Census mide EE.UU.; los ingresos de un emisor son mundiales. Con TAM doméstico el numerador es el ingreso doméstico del 10-K (FMP), no el segmento de producto |
+| **Participación > 100% se rechaza** | AAPL: "Americas" $178.000M sobre un mercado de $21.000M = 1.900%. No dice que Apple domine — dice que el denominador no es el suyo |
 
 ### Medido el 2026-08-05
 
 ```
-Entradas/_industrias/     quién        TAM
-  semiconductors          ANALISTA     $207.000M      <- no se toca, lo escribió una persona
-  banks-diversified        auto        $6,4 billones  McKinsey Global Banking Review
-  software-infrastructure  auto        $899.900M      Gartner Enterprise Software
-  beverages-non-alcoholic  auto        $1,45 billones
-  consumer-electronics     auto        SIN TAM        ninguna casa firmada lo cubre
+tk     market   cob            TAM      ambito   share    fuente
+NVDA    4.87   0.537   $207.000M       mundial  93,57%   Omdia (ANALISTA, no se toca)
+AMD     1.82   0.463   $207.000M       mundial   8,04%   Omdia (heredado)
+PLTR    2.31   0.463   $649.179M       US        0,51%   FRED REV5112TAXABL144QSA
+JPM     0.57   0.388   $980.094M       US       14,25%   FRED REV5221TAXABL144QNSA
+KO      2.82   0.388   $104.678M       US       18,71%   FRED IPUEN3121T300000000
+AAPL    1.81   0.237    $20.992M       US          —     rechazada por el tope del 100%
 ```
 
-Participación, sin tocar un archivo de ticker:
-
-```
-AMD    ausente -> 8,04%    cobertura 0,312 -> 0,463
-INTC   ausente -> 8,17%    cobertura 0,312 -> 0,463
-AVGO   sigue ausente       "Semiconductor Solutions" mezcla aceleradores con redes
-MU     sigue ausente       no compite en este mercado
-```
-
-Los tres huecos son el comportamiento correcto. Una participación inflada no se
-ve; un hueco sí.
+Cobertura de Market: PLTR 0,312 -> 0,463 · JPM y KO 0,237 -> 0,388.
 
 ### Lo que sigue siendo manual, a propósito
 
-Un archivo de `Entradas/` **sin** `_generado_por` es de un analista y el sistema
-no lo toca nunca. Quien leyó el estudio sabe algo que ninguna búsqueda sabe.
-Para recuperar el control de un TAM automático, basta con borrarle esa clave.
+Un archivo de `Entradas/` **sin** `_generado_por` es de un analista y no se toca
+nunca. `semiconductors.json` es el caso: el mercado de aceleradores de datacenter
+no existe en las encuestas del Census, y quien leyó el estudio de Omdia sabe algo
+que la descarga no sabe. Para recuperar el control de un TAM automático, basta
+con borrarle esa clave.
 
-**Suites:** engine 2141 (+25), web 104.
+Un SIC que no esté en `SIC_A_NAICS` deja el hueco **con su código anotado** en el
+archivo de industria: añadirlo es una línea.
+
+**Suites:** engine 2143, web 104.

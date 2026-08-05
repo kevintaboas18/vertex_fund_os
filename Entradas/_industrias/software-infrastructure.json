@@ -1,29 +1,20 @@
 {
-  "_generado_por": "vertex/tam_research",
+  "_generado_por": "vertex/tam_oficial",
   "_resuelto_en": "2026-08-05",
-  "_como_se_obtuvo": "Buscado automaticamente al analizar PLTR. Se revisa cada 90 dias.",
+  "_cadena": "PLTR -> SEC EDGAR SIC 7372 (Services-Prepackaged Software) -> NAICS 5112 -> FRED REV5112TAXABL144QSA",
+  "_geografia": "Estados Unidos. Las encuestas del Census miden el mercado DOMESTICO; los ingresos de un emisor son mundiales. Lee la participacion como captura sobre el mercado de EE.UU.",
+  "_ambito": "US",
+  "_serie_fred": "REV5112TAXABL144QSA",
+  "_serie_titulo": "Total Revenue for 5112: Software Publishers, Establishments Subject to Federal Income Tax",
+  "_serie_frecuencia": "Q",
+  "_serie_ultima_observacion": "2026-01-01",
+  "_unidades_origen": "Mil. of $",
   "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo: pasa a ser un TAM de analista.",
-  "tam": 899900000000,
-  "tam_source": "Gartner - Market Share: Enterprise Software, Worldwide, 2024",
-  "tam_source_tier": 3,
+  "tam": 649179000000,
+  "tam_source": "U.S. Census Bureau / BLS via FRED — Total Revenue for 5112: Software Publishers, Establishments Subject to Federal Income Tax (REV5112TAXABL144QSA), observacion 2026-01-01",
+  "tam_source_tier": 1,
   "tam_history": [
-    785100000000,
-    899900000000
-  ],
-  "_segmento_patrones": [
-    "data",
-    "analytics",
-    "ai",
-    "platform",
-    "enterprise software",
-    "infrastructure software",
-    "middleware",
-    "security",
-    "database"
-  ],
-  "_capa": "Gasto del usuario final / Ingresos de fabricantes",
-  "_capa_coincide": "Las empresas en la industria de 'Software - Infrastructure', como PLTR, facturan por la venta de plataformas de software y servicios a empresas y gobiernos. Gartner define el mercado de software empresarial como el gasto del usuario final, y esta definición más amplia incluye software de infraestructura, seguridad y bases de datos, lo cual se alinea directamente con las ofertas de estas empresas.",
-  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtOazdOZHyfk3nzy6vpuRrTKIJ8KTfZOXMj4pMbXcEFdpkIJ9F0ErM6fDdkekzfeiFaOekqXs7TFrAL3Q9L-4r3vTx2JkiVc3XQ8aQpIsuNei2Wksi9LN-z2DBVWhwwMbBLzt_f1fx",
-  "_cita_es_redirect": "Enlace de grounding de Gemini: caduca. La cifra se reencuentra por el nombre de la casa mas la frase textual de abajo.",
-  "_cita_textual": "The worldwide enterprise software market grew by 11.9% to reach $899.9 billion in 2024."
+    568296000000,
+    649179000000
+  ]
 }

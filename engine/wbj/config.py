@@ -22,13 +22,6 @@ class Settings:
     finnhub_api_key: str | None = None
     fred_api_key: str | None = None
     anthropic_api_key: str | None = None
-    # Investigación del TAM (`overlay/tam_research.py`). Va por Gemini primero
-    # porque trae búsqueda de Google integrada, y OpenAI de suplente. NO usa
-    # Anthropic a propósito: es la misma cuenta que el judge, y dejar el TAM
-    # colgando de un saldo agotado significaría que Market se queda sin sus
-    # tres dimensiones más pesadas cada vez que el judge no puede correr.
-    gemini_api_key: str | None = None
-    openai_api_key: str | None = None
     # Identidad ante la SEC. Su política de fair-access exige un User-Agent con
     # un contacto real; si se dispara un límite, la SEC bloquea POR user-agent,
     # así que compartirlo con otro proyecto propaga el bloqueo. Se configura con
@@ -96,8 +89,6 @@ def load_settings(env_file: Path | None = None) -> Settings:
     finnhub_api_key = _key("FINNHUB_API_KEY")
     fred_api_key = _key("FRED_API_KEY")
     anthropic_api_key = _key("ANTHROPIC_API_KEY")
-    gemini_api_key = _key("GEMINI_API_KEY")
-    openai_api_key = _key("OPENAI_API_KEY")
     edgar_user_agent = _key("EDGAR_USER_AGENT")
     judge_model = _key("JUDGE_MODEL") or "claude-opus-5"
 
@@ -106,8 +97,6 @@ def load_settings(env_file: Path | None = None) -> Settings:
         finnhub_api_key=finnhub_api_key,
         fred_api_key=fred_api_key,
         anthropic_api_key=anthropic_api_key,
-        gemini_api_key=gemini_api_key,
-        openai_api_key=openai_api_key,
         edgar_user_agent=edgar_user_agent,
         judge_model=judge_model,
         repo_root=repo_root,

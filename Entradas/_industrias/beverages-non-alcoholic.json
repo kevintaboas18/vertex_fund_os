@@ -1,22 +1,20 @@
 {
-  "_generado_por": "vertex/tam_research",
+  "_generado_por": "vertex/tam_oficial",
   "_resuelto_en": "2026-08-05",
-  "_como_se_obtuvo": "Buscado automaticamente al analizar KO. Se revisa cada 90 dias.",
+  "_cadena": "KO -> SEC EDGAR SIC 2080 (Beverages) -> NAICS 3121 -> FRED IPUEN3121T300000000",
+  "_geografia": "Estados Unidos. Las encuestas del Census miden el mercado DOMESTICO; los ingresos de un emisor son mundiales. Lee la participacion como captura sobre el mercado de EE.UU.",
+  "_ambito": "US",
+  "_serie_fred": "IPUEN3121T300000000",
+  "_serie_titulo": "Sectoral Output for Manufacturing: Beverage Manufacturing (NAICS 3121) in the United States",
+  "_serie_frecuencia": "A",
+  "_serie_ultima_observacion": "2025-01-01",
+  "_unidades_origen": "Mil. of $",
   "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo: pasa a ser un TAM de analista.",
-  "tam": 1450000000000,
-  "tam_source": "Statista Market Insights 2023",
-  "tam_source_tier": 3,
-  "_segmento_patrones": [
-    "non-alcoholic beverages",
-    "soft drinks",
-    "juices",
-    "bottled water",
-    "ready-to-drink coffee & tea",
-    "energy drinks",
-    "sports drinks"
-  ],
-  "_capa": "gasto de usuario final / ingresos de minoristas",
-  "_capa_coincide": "Las empresas como KO facturan a través de la venta de sus productos a los consumidores finales, ya sea directamente o a través de minoristas. La cifra de 'valor de mercado' o 'ingresos' a nivel minorista o de consumidor final es la capa relevante para el TAM de estas empresas, ya que representa el gasto total en sus productos por parte del consumidor. Statista Market Insights especifica que sus valores de ventas se refieren al valor minorista e incluyen impuestos sobre las ventas.",
-  "_cita": "https://www.scribd.com/document/690943960/Non-Alcoholic-Drinks-Market-Analysis-2023",
-  "_cita_textual": "The global non-alcoholic drinks market was valued at US$1.45 trillion in 2023 and is expected to grow annually by 4.66% until 2027."
+  "tam": 104677792000,
+  "tam_source": "U.S. Census Bureau / BLS via FRED — Sectoral Output for Manufacturing: Beverage Manufacturing (NAICS 3121) in the United States (IPUEN3121T300000000), observacion 2025-01-01",
+  "tam_source_tier": 1,
+  "tam_history": [
+    108694498000,
+    104677792000
+  ]
 }

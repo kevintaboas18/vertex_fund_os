@@ -556,6 +556,30 @@ class EdgarProvider(Provider):
                 fallback = fallback or hit
         return fallback
 
+    def sic_for(self, cik: int) -> tuple[str, str] | None:
+        """El código SIC que el emisor declara ante la SEC, y su descripción.
+
+        No es la clasificación de un proveedor de datos: es la que la propia
+        empresa presenta en cada filing, y por eso `SOURCE_HIERARCHY.md` la
+        pone por encima de cualquier etiqueta de industria comercial. Es la
+        pieza que permite resolver el tamaño del mercado sin salir de las
+        fuentes oficiales — ver `overlay/tam_oficial.py`.
+
+        Reutiliza el `submissions.json` que ya está en caché para los filings,
+        así que no cuesta una petición extra a la SEC.
+        """
+        payload = self.get_json(
+            SUBMISSIONS_URL.format(cik=cik), {}, "submissions",
+            _cik_cache_key(cik), max_age_days=_MAX_AGE_SUBMISSIONS,
+            headers=self._headers,
+        )
+        if not isinstance(payload, dict):
+            return None
+        sic = str(payload.get("sic") or "").strip()
+        if not sic:
+            return None
+        return sic, str(payload.get("sicDescription") or "").strip()
+
     def latest_10k_text(self, cik: int) -> dict | None:
         """The newest 10-K's primary document, as plain text.
 

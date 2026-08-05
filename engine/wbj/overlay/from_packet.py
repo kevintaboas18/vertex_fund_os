@@ -323,9 +323,44 @@ def _segmento_del_mercado(segmentos: Any, patrones: Any) -> tuple[str, float] | 
     return encajan[0]
 
 
+_REGIONES_US = ("united states", "u.s.", "us ", "usa", "north america",
+                "americas", "domestic")
+
+
+def _ingreso_en_el_ambito(fmp: Any, ticker: str) -> tuple[float, str] | None:
+    """Los ingresos de la empresa en EE.UU., del desglose geográfico del 10-K.
+
+    Hace falta cuando el denominador es doméstico. Las encuestas del Census
+    miden EE.UU.; los ingresos de un emisor son mundiales. Dividir uno entre
+    otro es el error de capa de Gartner/NVDA otra vez, sólo que en el eje
+    geográfico: a AAPL le salía 1.900% de participación.
+
+    Es un NUMERADOR APROXIMADO y hay que leerlo como tal: "Americas" de AAPL
+    y "North America" de KO incluyen Canadá y Latinoamérica, y son ingresos de
+    TODA la empresa en la región, no del producto que compite en ese mercado.
+    FMP no publica el cruce producto × geografía porque el 10-K tampoco lo
+    trae. Se prefiere aproximado y declarado a exacto en el ámbito equivocado.
+    """
+    try:
+        filas = fmp.revenue_geographic_segmentation(ticker)
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(filas, list) or not filas:
+        return None
+    datos = (filas[0] or {}).get("data") or {}
+    if not isinstance(datos, dict):
+        return None
+    encajan = [(n, v) for n, v in datos.items()
+               if isinstance(v, (int, float)) and v > 0
+               and any(r in str(n).lower() for r in _REGIONES_US)]
+    if len(encajan) != 1:
+        return None
+    return float(encajan[0][1]), encajan[0][0]
+
+
 def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
                       tam: float | None, tam_history: Any,
-                      patrones: Any) -> dict[str, Any]:
+                      patrones: Any, ambito: str | None = None) -> dict[str, Any]:
     """Participación de mercado calculada SOLA, sin que nadie la declare.
 
     Es el paso que faltaba para que analizar un ticker nuevo no exigiera
@@ -345,9 +380,33 @@ def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
     """
     if not tam or tam <= 0:
         return {}
-    actual = _segmento_del_mercado(segmentos, patrones)
-    if not actual:
+
+    # El numerador se elige por el ÁMBITO del denominador, no por comodidad.
+    # Un TAM doméstico (las encuestas del Census, vía FRED) pide los ingresos
+    # domésticos; uno mundial (un estudio de industria) pide el segmento de
+    # producto. Mezclarlos daba a AAPL un 1.900% de participación.
+    if (ambito or "").upper() == "US":
+        dom = _ingreso_en_el_ambito(fmp, ticker)
+        if not dom:
+            logger.info("%s: TAM domestico sin desglose geografico reportado — "
+                        "sin participacion", ticker)
+            return {}
+        actual: tuple[str, float] = (dom[1], dom[0])
+    else:
+        encontrado = _segmento_del_mercado(segmentos, patrones)
+        if not encontrado:
+            return {}
+        actual = encontrado
+
+    # Una participación por encima del 100% no es una empresa dominante: es la
+    # prueba de que el denominador no era el suyo. Se rechaza en vez de
+    # recortarse a 100%, porque recortar esconde el error en vez de mostrarlo.
+    if actual[1] > tam:
+        logger.warning("%s: participacion implicita %.0f%% > 100%% — el "
+                       "denominador no es el de esta empresa, se descarta",
+                       ticker, actual[1] / tam * 100)
         return {}
+
     salida: dict[str, Any] = {
         "share": {"company_sales": actual[1], "total_market_sales": float(tam)}}
 
@@ -357,13 +416,28 @@ def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
     if len(historia) < 2:
         return salida
     try:
-        filas = fmp.revenue_product_segmentation(ticker)
+        # El año anterior se lee del MISMO desglose que el actual. Tomarlo del
+        # de producto cuando el nivel salió del geográfico compararía dos
+        # numeradores distintos, y la variación —que es lo que de verdad mide
+        # `MKT-SHDELTA-007`— saldría de restar peras y manzanas.
+        domestico = (ambito or "").upper() == "US"
+        filas = (fmp.revenue_geographic_segmentation(ticker) if domestico
+                 else fmp.revenue_product_segmentation(ticker))
         if not isinstance(filas, list) or len(filas) < 2:
             return salida
-        anterior = _segmento_del_mercado((filas[1] or {}).get("data") or {}, patrones)
+        previos = (filas[1] or {}).get("data") or {}
+        if domestico:
+            encajan = [(n, v) for n, v in previos.items()
+                       if isinstance(v, (int, float)) and v > 0
+                       and any(r in str(n).lower() for r in _REGIONES_US)]
+            anterior = (encajan[0][0], encajan[0][1]) if len(encajan) == 1 else None
+        else:
+            anterior = _segmento_del_mercado(previos, patrones)
         if not anterior:
             return salida
         tam_anterior = float(historia[-2])
+        if anterior[1] > tam_anterior:
+            return salida  # mismo motivo que arriba: denominador ajeno
         if tam_anterior <= 0:
             return salida
         salida["share_history"] = [round(anterior[1] / tam_anterior, 6),
@@ -721,6 +795,7 @@ def _overlay_industria(settings: Any, industria: str | None,
     # regla que dice cómo reconocer, en la segmentación del 10-K, el segmento
     # que compite en este mercado. Se rescata antes de barrer las notas.
     patrones = data.get("_segmento_patrones")
+    ambito = data.get("_ambito")
 
     for key in [k for k in data if k.startswith("_")]:
         data.pop(key)
@@ -734,6 +809,8 @@ def _overlay_industria(settings: Any, industria: str | None,
     # Sólo viaja si hay TAM: sin denominador no hay participación que calcular.
     if isinstance(patrones, list) and patrones and fuera.get("tam"):
         fuera["_segmento_patrones"] = patrones
+    if ambito and fuera.get("tam"):
+        fuera["_ambito"] = ambito
     return fuera
 
 
@@ -1539,16 +1616,21 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
     # a figure came from a person rather than a feed.
     try:
         _ind = getattr(getattr(packet, "security", None), "industry", None)
-        # El TAM se investiga ANTES de leer `Entradas/`, porque lo que escribe
+        # El TAM se resuelve ANTES de leer `Entradas/`, porque lo que escribe
         # es justo el archivo que `_manual_overlay` está a punto de leer. Así
         # una industria que nadie había mirado nunca llega con denominador al
         # primer análisis, en vez de exigir que alguien se siente a teclearlo.
+        # La cadena es toda oficial: EDGAR da el SIC, FRED el tamaño del
+        # mercado del Census. Ver `overlay/tam_oficial.py`.
         try:
-            from wbj.overlay.tam_research import asegurar_tam_industria
-            logger.info("TAM de industria: %s",
-                        asegurar_tam_industria(settings, _ind, ticker))
+            from wbj.overlay.tam_oficial import asegurar_tam_industria
+            from wbj.providers.edgar import EdgarProvider
+
+            logger.info("TAM de industria: %s", asegurar_tam_industria(
+                settings, _ind, ticker,
+                providers={"edgar": EdgarProvider(settings, Cache(settings.cache_dir))}))
         except Exception:
-            logger.warning("investigacion de TAM no disponible", exc_info=True)
+            logger.warning("resolucion oficial de TAM no disponible", exc_info=True)
         manual = _manual_overlay(settings, ticker, industria=_ind)
         for key in sorted(set(manual) & set(overlay)):
             logger.info("analyst input overrides computed %s for %s", key, ticker)
@@ -1578,14 +1660,21 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
     # declaró. Quien leyó el estudio manda; esto sólo cubre el hueco.
     try:
         segmentos = overlay.get("segment_revenue")
-        if isinstance(segmentos, dict) and segmentos:
+        # Con ámbito doméstico el numerador sale del desglose GEOGRÁFICO, así
+        # que exigir segmentos de producto para entrar dejaba fuera justo al
+        # caso que cubre el TAM oficial: JPM, KO y PLTR salían sin
+        # participación teniendo el denominador delante.
+        domestico = str(overlay.get("_ambito") or "").upper() == "US"
+        if domestico or (isinstance(segmentos, dict) and segmentos):
             auto = _share_automatico(
-                fmp, ticker, segmentos, overlay.get("tam"),
-                overlay.get("tam_history"), overlay.pop("_segmento_patrones", None))
+                fmp, ticker, segmentos or {}, overlay.get("tam"),
+                overlay.get("tam_history"), overlay.pop("_segmento_patrones", None),
+                ambito=overlay.pop("_ambito", None))
             for key, value in auto.items():
                 overlay.setdefault(key, value)
     except Exception:
         logger.warning("automatic market share unavailable", exc_info=True)
     overlay.pop("_segmento_patrones", None)
+    overlay.pop("_ambito", None)
 
     return overlay

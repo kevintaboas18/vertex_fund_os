@@ -119,3 +119,76 @@ def test_the_history_needs_the_previous_year_on_both_sides():
                               207_000_000_000, [207_000_000_000], ["data center"])
     assert "share_history" not in fuera
     assert "share" in fuera, "el nivel sigue siendo válido sin la serie"
+
+
+# --- el ámbito: numerador y denominador en el mismo mapa ------------------
+
+class _FMPGeo(_FMP):
+    """FMP publica también el desglose geográfico que el emisor reporta en su
+    10-K. Es lo que permite poner un numerador doméstico bajo un denominador
+    doméstico."""
+
+    def __init__(self, geo=None, historial=None):
+        super().__init__(historial)
+        self._geo = geo or []
+
+    def revenue_geographic_segmentation(self, ticker, period="annual"):
+        return self._geo
+
+
+def test_a_domestic_tam_takes_a_domestic_numerator():
+    """Las encuestas del Census miden EE.UU.; los ingresos de un emisor son
+    mundiales. Es el error de capa de Gartner/NVDA otra vez, en el eje
+    geográfico."""
+    geo = [{"date": "2025", "data": {"United States": 2_000_000_000.0,
+                                     "International": 1_500_000_000.0}}]
+    fuera = _share_automatico(_FMPGeo(geo), "PLTR", {"Government": 3_000_000_000.0},
+                              649_000_000_000, None, ["government"], ambito="US")
+    assert fuera["share"]["company_sales"] == 2_000_000_000.0, (
+        "con TAM doméstico el numerador es el ingreso doméstico, no el segmento")
+
+
+def test_a_worldwide_tam_still_takes_the_product_segment():
+    """El TAM de Omdia para NVDA es mundial: ahí el numerador correcto sigue
+    siendo el segmento que compite en ese mercado."""
+    geo = [{"date": "2025", "data": {"United States": 1.0}}]
+    fuera = _share_automatico(_FMPGeo(geo), "AMD", {"Data Center": 16_635_000_000.0},
+                              207_000_000_000, None, ["data center"])
+    assert fuera["share"]["company_sales"] == 16_635_000_000.0
+
+
+def test_two_domestic_regions_pick_nothing():
+    """Igual que con los segmentos: si encajan dos regiones, el emisor las
+    nombra de una forma que este código no sabe leer. Sumarlas sería inventar."""
+    geo = [{"date": "2025", "data": {"United States": 1.0, "North America": 2.0}}]
+    assert _share_automatico(_FMPGeo(geo), "X", {}, 1e12, None, None, ambito="US") == {}
+
+
+def test_a_domestic_tam_without_a_geographic_breakdown_yields_nothing():
+    assert _share_automatico(_FMPGeo([]), "X", {"Seg": 1.0}, 1e12, None,
+                             ["seg"], ambito="US") == {}
+
+
+# --- el tope del 100% -----------------------------------------------------
+
+def test_a_share_above_one_hundred_percent_is_rejected():
+    """Medido con AAPL: "Americas" son $178.000M y el mercado de fabricación de
+    computadoras de EE.UU. $21.000M. El 1.900% no dice que Apple domine — dice
+    que ese denominador no es el suyo. Se rechaza en vez de recortarse a 100%,
+    porque recortar esconde el error."""
+    geo = [{"date": "2025", "data": {"Americas Segment": 178_353_000_000.0}}]
+    assert _share_automatico(_FMPGeo(geo), "AAPL", {}, 20_991_569_000,
+                             None, None, ambito="US") == {}
+
+
+def test_the_history_is_read_from_the_same_breakdown_as_the_level():
+    """Tomar el año anterior del desglose de producto cuando el nivel salió del
+    geográfico compararía dos numeradores distintos, y la variación —que es lo
+    que mide MKT-SHDELTA-007— saldría de restar peras y manzanas."""
+    geo = [{"date": "2025", "data": {"United States": 2_000_000_000.0}},
+           {"date": "2024", "data": {"United States": 1_500_000_000.0}}]
+    fuera = _share_automatico(_FMPGeo(geo), "PLTR", {}, 649_000_000_000,
+                              [560_000_000_000, 649_000_000_000], None, ambito="US")
+    assert fuera["share_history"] == [
+        round(1_500_000_000.0 / 560_000_000_000, 6),
+        round(2_000_000_000.0 / 649_000_000_000, 6)]
