@@ -2211,3 +2211,71 @@ cuando FMP viene vacío, que FMP mande cuando responde, que sin ninguno no
 reviente, y el tope de diez.
 
 **2110 tests del engine + 102 de la capa web.**
+
+---
+
+# 35. Yahoo fuera de Analyze, de verdad: FMP → FinnHub → EDGAR (F-02)
+
+## 35.1 El 402 no lo causaba yfinance
+
+Victor lo supuso y merecía una respuesta con evidencia. Petición HTTP
+directa a `financialmodelingprep.com`, **con cero módulos de yfinance
+cargados**:
+
+```
+modulos con 'yfinance': NINGUNO
+HTTP 402  <- respuesta DIRECTA de financialmodelingprep.com
+Restricted Endpoint: This endpoint is not available under your current subscription
+```
+
+El 402 es FMP hablando de su propio plan. Ninguna otra librería lo provoca.
+
+## 35.2 La cadena que pidió, implementada literal
+
+| Escalón | Endpoint | Estado hoy |
+|---|---|---|
+| 1. FMP | `institutional-ownership/extract-analytics/holder` | **402** |
+| 2. FinnHub | `stock/fund-ownership` | **403** (tier de pago) |
+| 3. EDGAR | conjunto trimestral 13F | **funciona** |
+
+FinnHub se cablea aunque hoy falle: el día que suba de plan empieza a
+funcionar sin tocar una línea. Sus rutas `institutional-ownership` e
+`institutional-portfolio` ni existen (404); `fund-ownership` y `ownership`
+son de pago. Lo que **sí** sirve gratis es `insider-transactions`, y los
+insiders ya salían de FMP (200, 100 filas).
+
+## 35.3 El último uso de Yahoo en el camino del score
+
+Recorriendo el cierre COMPLETO de llamadas desde
+`_analyze_ticker_serializado` — 139 funciones — quedaba **uno**:
+`_backtest_signals` pedía el historial de precios a Yahoo, a varios saltos de
+distancia. Migrado a FMP.
+
+## 35.4 El import pasa a ser perezoso
+
+Aun sin usarlo, `import yfinance as yf` en la cabecera lo metía en memoria en
+cada arranque, y hacía imposible distinguir *"está cargado porque el análisis
+lo usó"* de *"está cargado porque el archivo lo importó"*.
+
+Ahora se carga en el primer uso real. Medido:
+
+| Momento | ¿yfinance en memoria? |
+|---|---|
+| Tras importar `vertex_api` | **NO** |
+| Tras un análisis completo de NVDA | **NO** |
+| Tras `compute_gex` (Proyecciones) | SÍ, y el GEX responde |
+
+La separación entre los dos agentes deja de ser disciplina y pasa a ser
+física. De paso abarata el arranque en Render: yfinance arrastra
+dependencias que el análisis de acciones no necesita.
+
+## 35.5 Estado
+
+Análisis de NVDA sin Yahoo en memoria: `raw 48.8`, **8 tenedores 13F**
+(BlackRock $336B, Vanguard $268B, State Street $173B) y **8 insiders sobre
+$1M**.
+
+Dos tests nuevos: uno recorre el cierre de 139 funciones y falla si alguna
+vuelve a tocar `yf`; el otro prohíbe el `import` en la cabecera.
+
+**2110 tests del engine + 104 de la capa web.**

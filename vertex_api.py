@@ -10782,7 +10782,30 @@ def _vertex_startup():
 # Las funciones de Quant Data se conservan porque toda esta capa fue escrita
 # para funcionar con o sin ellas: sin clave, `_quantdata_ready()` da False y
 # cada una devuelve None, y el cálculo cae a lo que se deriva de la cadena.
-import yfinance as yf
+class _YahooPerezoso:
+    """Carga yfinance en el PRIMER uso, no al importar el módulo.
+
+    Ninguna de las 139 funciones alcanzables desde `/api/analyze` lo toca —
+    verificado recorriendo el árbol de llamadas — pero un `import` en la
+    cabecera lo metía en memoria igual, en cada arranque, aunque nadie
+    abriera Proyecciones. La separación entre los dos agentes pasa a ser
+    física y no sólo de disciplina: si el análisis de acciones lo cargara
+    alguna vez, se vería.
+
+    También abarata el arranque en Render: yfinance arrastra pandas y varias
+    dependencias más que el análisis de acciones no necesita.
+    """
+
+    _mod = None
+
+    def __getattr__(self, nombre):
+        if _YahooPerezoso._mod is None:
+            import yfinance as _yf          # noqa: PLC0415 — a propósito
+            _YahooPerezoso._mod = _yf
+        return getattr(_YahooPerezoso._mod, nombre)
+
+
+yf = _YahooPerezoso()
 
 # ── QUANT DATA PROVIDER (options flow + exposure + dark pool) ──────────────────
 # Modular institutional-data source chosen over Unusual Whales. Fills the
@@ -12447,7 +12470,11 @@ def _backtest_signals(ticker):
         return {"ok": True, "ticker": ticker, "n_snapshots": 0,
                 "message": "Aún no hay snapshots para este ticker. Captura señales unos días y vuelve."}
     try:
-        hist = yf.Ticker(ticker).history(period="1y")
+        # Historial de precios desde FMP, no desde Yahoo: era el ÚLTIMO uso
+        # de yfinance alcanzable desde `/api/analyze`. Yahoo se queda sólo
+        # donde no hay alternativa —las cadenas de opciones de Proyecciones—
+        # y fuera del camino que produce un score.
+        hist = vertex_market.Ticker(ticker).history(period="1y")
         closes = {d.strftime("%Y-%m-%d"): float(c) for d, c in hist["Close"].items()}
         highs = {d.strftime("%Y-%m-%d"): float(c) for d, c in hist["High"].items()}
         lows = {d.strftime("%Y-%m-%d"): float(c) for d, c in hist["Low"].items()}

@@ -106,6 +106,32 @@ def _get(ruta: str, params: dict, tipo: str, simbolo: str):
     return datos
 
 
+_FINNHUB_BASE = "https://finnhub.io/api/v1"
+
+
+def _finnhub(ruta: str, params: dict):
+    """GET a FinnHub, el SEGUNDO escalón de la cadena. None ante cualquier
+    fallo — quien llama tiene EDGAR detrás.
+
+    Sin caché propia: hoy las rutas de propiedad institucional responden 403
+    (tier de pago) y no llega a haber payload que guardar. Cuando el plan las
+    cubra, se le añade el mismo `_TTL` que usa `_get`.
+    """
+    token = (os.environ.get("FINNHUB_API_KEY") or "").strip()
+    if not token:
+        return None
+    try:
+        r = requests.get(f"{_FINNHUB_BASE}/{ruta}",
+                         params={**params, "token": token}, timeout=_TIMEOUT)
+        if r.status_code >= 400:
+            logger.info("FinnHub %s -> HTTP %d", ruta, r.status_code)
+            return None
+        return r.json()
+    except Exception:
+        logger.warning("FinnHub %s falló", ruta, exc_info=True)
+        return None
+
+
 def _primera(datos) -> dict:
     if isinstance(datos, list) and datos and isinstance(datos[0], dict):
         return datos[0]
@@ -326,15 +352,55 @@ class Ticker:
 
     @property
     def institutional_holders(self):
-        """FMP devuelve 402 en `institutional-ownership` con este plan.
+        """Tenedores 13F: **FMP → FinnHub**, y si ninguno, `None` para que
+        el llamador caiga a EDGAR.
 
-        Los 13F se leen de EDGAR en `_wbj_holders_from_edgar`, que es la
-        fuente primaria y gratuita. Aquí se declara la ausencia.
+        La cadena es literal a propósito, aunque hoy los dos primeros fallen:
+        el día que suba de plan cualquiera de los dos, esto empieza a
+        funcionar sin tocar una línea.
+
+        Estado medido contra las claves actuales:
+
+        | Fuente | Endpoint | |
+        |---|---|---|
+        | FMP | `institutional-ownership/extract-analytics/holder` | **402** |
+        | FinnHub | `stock/fund-ownership` | **403** |
+        | EDGAR | conjunto trimestral 13F | **funciona** |
+
+        El 402 es respuesta PROPIA de `financialmodelingprep.com` sobre el
+        plan — verificado con una petición directa y cero módulos de
+        yfinance cargados. No lo provoca ninguna otra librería.
         """
+        filas = _get("institutional-ownership/extract-analytics/holder",
+                     {"symbol": self.symbol}, "insiders", self.symbol)
+        if isinstance(filas, list) and filas:
+            return pd.DataFrame([{
+                "Holder": f.get("investorName") or f.get("holder"),
+                "Shares": f.get("sharesNumber") or f.get("shares"),
+                "Value": f.get("marketValue") or f.get("value"),
+                "pctHeld": f.get("weight"),
+                "Date Reported": f.get("date") or f.get("dateReported"),
+            } for f in filas if isinstance(f, dict)])
+
+        fh = _finnhub("stock/fund-ownership", {"symbol": self.symbol, "limit": 20})
+        propietarios = (fh or {}).get("ownership") if isinstance(fh, dict) else None
+        if isinstance(propietarios, list) and propietarios:
+            return pd.DataFrame([{
+                "Holder": f.get("name"),
+                "Shares": f.get("share"),
+                "Value": None,          # FinnHub no publica el valor en dólares
+                "pctHeld": f.get("portfolioPercent"),
+                "Date Reported": f.get("filingDate"),
+            } for f in propietarios if isinstance(f, dict)])
+
+        # Ninguno de los dos: el llamador tiene EDGAR como tercer escalón.
         return None
 
     @property
     def major_holders(self):
+        """El reparto insiders/instituciones no lo publica ninguna de las dos
+        fuentes principales, y EDGAR sólo da posiciones absolutas. Se declara
+        la ausencia en vez de derivarla de un total incompleto."""
         return None
 
     @property

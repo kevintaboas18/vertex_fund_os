@@ -1,6 +1,6 @@
 # Tesis — NVDA
 
-## 2026-08-05 09:56 — perfil Avoid / Wait · raw 48.8/100  *(sin cambios; revisado 2026-08-05 09:59)*
+## 2026-08-05 09:56 — perfil Avoid / Wait · raw 48.8/100  *(sin cambios; revisado 2026-08-05 10:13)*
 <!-- firma: Avoid / Wait|48.8|296.72|341.22|296.72|209.82 | desde: 2026-08-05 09:56 -->
 - Precio al análisis: $220.55 · Fair value (base): $296.72
 - Targets 12M: Bull $341.22 / Base $296.72 / Bear $209.82

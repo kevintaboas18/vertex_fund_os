@@ -216,3 +216,70 @@ def test_the_service_binds_publicly_which_is_why_this_matters():
 
     render = (Path(__file__).resolve().parents[1] / "render.yaml").read_text(encoding="utf-8")
     assert "0.0.0.0" in render
+
+
+def test_analyze_never_touches_yahoo():
+    """La frontera entre los dos agentes, comprobada sobre el árbol de
+    llamadas y no sobre la disciplina de quien edita.
+
+    Analyze (acciones) puntúa con FMP, FinnHub, FRED y EDGAR. Proyecciones
+    (opciones) usa Yahoo porque las cadenas de opciones no existen en esas
+    cuatro. Lo que no puede pasar es que crucen: un score que depende de un
+    endpoint sin documentar se mueve entre corridas sin que nadie sepa por
+    qué.
+
+    Se recorre el cierre COMPLETO de llamadas desde `_analyze_ticker_serializado`
+    (139 funciones), no sólo su cuerpo — el último uso que quedaba estaba a
+    varios saltos de distancia, dentro de `_backtest_signals`.
+    """
+    import ast
+
+    arbol = ast.parse(_TEXT)
+    fns = {n.name: n for n in ast.walk(arbol)
+           if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+    alcanzables = {"_analyze_ticker_serializado"}
+    creciendo = True
+    while creciendo:
+        creciendo = False
+        for nombre in list(alcanzables):
+            cuerpo = fns.get(nombre)
+            if cuerpo is None:
+                continue
+            for c in ast.walk(cuerpo):
+                if (isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                        and c.func.id in fns and c.func.id not in alcanzables):
+                    alcanzables.add(c.func.id)
+                    creciendo = True
+
+    assert len(alcanzables) > 50, (
+        f"el cierre salió demasiado pequeño ({len(alcanzables)}): el propio "
+        "test dejó de cubrir lo que dice cubrir")
+
+    sucias = [f"{nombre}:{c.lineno}" for nombre in alcanzables
+              for c in ast.walk(fns[nombre])
+              if isinstance(c, ast.Attribute) and getattr(c.value, "id", None) == "yf"]
+    assert not sucias, f"el análisis de acciones volvió a tocar Yahoo: {sucias}"
+
+
+def test_yahoo_is_not_imported_until_projections_asks():
+    """El import es PEREZOSO: cargar el módulo no debe traer yfinance.
+
+    Con un `import` en la cabecera, yfinance entraba en memoria en cada
+    arranque aunque nadie abriera Proyecciones — y hacía imposible
+    distinguir "está cargado porque el análisis lo usó" de "está cargado
+    porque el archivo lo importó".
+    """
+    import ast
+
+    arbol = ast.parse(_TEXT)
+    cabecera = {a.name for n in ast.walk(arbol) if isinstance(n, ast.Import)
+                for a in n.names
+                if isinstance(getattr(n, "parent", None), type(None))}
+    # Un `import yfinance` a nivel de módulo (columna 0) es lo que se prohíbe.
+    directos = [n.lineno for n in arbol.body if isinstance(n, ast.Import)
+                and any(a.name == "yfinance" for a in n.names)]
+    assert not directos, (
+        f"volvió el import de yfinance en la cabecera (línea {directos}); "
+        "debe cargarse sólo cuando Proyecciones lo pide")
+    assert "_YahooPerezoso" in _TEXT, "desapareció el cargador perezoso"
