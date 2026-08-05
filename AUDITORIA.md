@@ -2279,3 +2279,81 @@ Dos tests nuevos: uno recorre el cierre de 139 funciones y falla si alguna
 vuelve a tocar `yf`; el otro prohíbe el `import` en la cabecera.
 
 **2110 tests del engine + 104 de la capa web.**
+
+---
+
+# 36. El TAM estaba midiendo la capa equivocada (M-03)
+
+Market llevaba en 0.9/10 porque el TAM declarado era **Gartner Data Center
+Systems ($489.5B CY2025)**, que mide *gasto del usuario final* en servidores,
+switching, almacenamiento y software. NVDA vende **aguas arriba**, a
+OEM/ODM/CSP: una GPU suya dentro de un servidor Dell entra en ese denominador
+UNA vez, como gasto del comprador final.
+
+Dividir el ingreso de NVDA entre ese número comparaba **dos capas distintas
+de la cadena de valor**, y por eso `share`, `share_history` y
+`competitor_shares` estaban declarados NOT_SCORABLE — correctamente.
+
+## 36.1 La fuente en la capa correcta
+
+**Omdia, "AI Processors for Cloud and the Data Center Forecast"**, agosto 2025:
+
+| Año | GPUs + aceleradores IA embarcados |
+|---|---|
+| 2024 | **$123 000 M** |
+| 2025 | **$207 000 M** |
+| 2030 | $286 000 M |
+
+Es el mercado de CHIPS — la misma capa en la que NVDA cobra. Tier 3, igual que
+Gartner: el cambio es de capa, no de calidad de fuente.
+
+`omdia.tech.informa.com` devuelve 403 a WebFetch, igual que `gartner.com`.
+Las cifras están verificadas textualmente en **cinco** publicaciones
+independientes que citan el mismo comunicado y coinciden exacto.
+
+El propio archivo de Kevin ya registraba que *"Omdia publica el TAM pero las
+participaciones por vendedor son de pago"* — la cifra buena estaba
+identificada desde julio; faltaba usarla como denominador.
+
+## 36.2 El share vuelve a ser puntuable
+
+Los cuatro números son **reportados**, no estimados:
+
+| | NVDA Data Center | TAM Omdia | Captura |
+|---|---|---|---|
+| 2024 | $115.2B | $123B | 93.66% |
+| 2025 | $193.7B | $207B | **93.57%** |
+
+**Salvedad declarada**: el segmento Data Center de NVDA incluye networking
+(NVLink, Spectrum, InfiniBand), que no está en el denominador de chips. En
+Q1 FY2027 —el único trimestre con desglose publicado— networking fue $14.8B
+de $75.2B, ~20% del segmento. **NVIDIA no publica ese desglose para el año
+fiscal completo** (verificado en el comunicado de FY2026: sólo da el total),
+así que aplicar el ratio de un trimestre a un año sería imputar. El NIVEL se
+declara como cota superior.
+
+La VARIACIÓN sí es sólida: el mismo sesgo está en los dos años y se cancela
+al restar. Por eso `MKT-SHDELTA-007` vale más aquí que `MKT-SHARE-006`.
+
+**Lectura**: captura plana con −9 puntos básicos. Coincide con lo que el
+propio comunicado de Omdia describe — ASIC a medida (TPU de Google), ASSP
+mercantiles (Ascend, Groq, Cerebras) y el avance de AMD con Instinct. No es
+pérdida de participación todavía, pero tampoco la expansión que un +68% de
+ingresos sugeriría por sí solo.
+
+## 36.3 Efecto medido
+
+| | Antes | Ahora |
+|---|---|---|
+| Market | 1.84/20 (cob. 0.388) | **4.87/20** (cob. 0.537) |
+| `MKT-TAM-001` | — | $207 000 M |
+| `MKT-CAGR-004` | — | **+68.3%** |
+| `MKT-SHARE-006` | NOT_SCORABLE | 93.57% |
+| `MKT-SHDELTA-007` | NOT_SCORABLE | **−0.0009** |
+| **raw_total** | 48.8 | **51.9** |
+| **perfil** | `Avoid / Wait` | **`Speculative`** |
+
+El perfil cambia porque `raw_total` cruza 50, el gate que venía fallando. No
+es que la empresa mejorara: es que el denominador dejó de estar equivocado.
+
+**2110 tests del engine + 104 de la capa web.**

@@ -1,22 +1,33 @@
 {
-  "_fuente": "Gartner, Worldwide IT Spending Forecast — segmento Data Center Systems (servers, data center switching, storage, systems software), mundial. Vintage: revision de octubre 2025. Investigado por el sub-agente market-analysis el 2026-07-19.",
-  "_cita_2025": "Gartner expects datacenter systems spending to rise by 46.8 percent this year to $489.5 billion in 2025 — https://www.nextplatform.com/2025/10/27/gartner-radically-raises-datacenter-spending-forecasts/",
-  "_cita_2024": "Gartner's latest numbers put datacenter systems spending at $333.4 billion in 2024 — misma URL",
-  "_tier": "3 = research independiente con metodologia divulgada (confianza 70, sobre el umbral de 60, asi que NO capea la dimension en 6). No es tier 1 (no es gobierno/auditado) ni tier 2 (no es asociacion de industria) ni tier 4 (no es estimacion del emisor).",
-  "_verificacion": "gartner.com devuelve HTTP 403 a WebFetch, asi que la fuente primaria no es legible por maquina. Las cifras estan verificadas textualmente en dos medios independientes que citan el mismo vintage y coinciden exacto. Limitacion de fetch declarada, no un dato sin atribuir.",
-  "_gate_consistencia": "PASA: NVDA Data Center $193.7B <= TAM $489.5B bajo la misma definicion mundial CY2025.",
-  "_advertencia_capa_de_canal": "Gartner mide gasto del USUARIO FINAL; NVDA vende aguas arriba a OEM/ODM/CSP. Una GPU de NVDA dentro de un servidor Dell se cuenta una sola vez en el denominador como gasto del usuario final. Por eso la penetracion aqui es un RATIO DE CAPTURA DE VALOR, no participacion de mercado, y no es aditiva con la de los OEM. share, share_history y competitor_shares quedan NOT_SCORABLE a proposito.",
-  "_2026_excluido": "Gartner tiene dos vintages para 2026 que difieren de forma material: $582.4B (oct-2025) y $788.0B (abr-2026). SOURCE_HIERARCHY.md manda marcar CONFLICTED y no puntuar, asi que 2026 queda fuera del historial.",
+  "_fuente": "Omdia, AI Processors for Cloud and the Data Center Forecast — GPUs y aceleradores de IA embarcados para datacenter, mundial. Vintage: comunicado de agosto 2025. Sustituye al TAM de Gartner el 2026-08-05.",
+  "_cita_2025": "$123 billion in GPUs and AI accelerators shipped in 2024, $207 billion is expected in 2025, and $286 billion by 2030 — https://omdia.tech.informa.com/pr/2025/aug/ai-data-center-chip-market-to-hit-286bn-growth-likely-peaking-as-custom-asics-gain-ground",
+  "_cita_2024": "Misma fuente: 2024 = $123B. Crecimiento 2024->2025 ~67%; el mercado crecio mas de 250% interanual entre 2022 y 2024.",
+  "_por_que_se_cambio_gartner": "El TAM anterior era Gartner Data Center Systems ($489.5B CY2025), que mide GASTO DEL USUARIO FINAL en servidores, switching, almacenamiento y software de sistemas. NVDA vende aguas arriba a OEM/ODM/CSP: una GPU suya dentro de un servidor Dell entraba en ese denominador UNA sola vez, como gasto del comprador final. Dividir el ingreso de NVDA entre ese numero comparaba dos CAPAS DISTINTAS de la cadena de valor, y por eso share, share_history y competitor_shares quedaban NOT_SCORABLE. Omdia mide el mercado de CHIPS -- la misma capa en la que NVDA cobra -- asi que el cociente vuelve a significar algo.",
+  "_tier": "3 = research independiente con metodologia divulgada (confianza 70, sobre el umbral de 60, asi que NO capea la dimension en 6). No es tier 1 (no es gobierno/auditado) ni tier 2 (no es asociacion de industria) ni tier 4 (no es estimacion del emisor). Mismo tier que tenia Gartner: el cambio es de CAPA, no de calidad de fuente.",
+  "_verificacion": "omdia.tech.informa.com devuelve HTTP 403 a WebFetch, igual que gartner.com. Las cifras estan verificadas textualmente en cinco publicaciones independientes que citan el mismo comunicado y coinciden exacto (RCR Wireless, TechEdge AI, Nasdaq, Seeking Alpha, Yahoo Finance). Limitacion de fetch declarada, no un dato sin atribuir.",
+  "_gate_consistencia": "PASA, pero justo: NVDA Data Center $193.7B <= TAM $207B. El cociente da ~93.6%, que es ALTO y hay que leerlo con dos salvedades: (a) el segmento Data Center de NVDA incluye networking (NVLink, Spectrum, InfiniBand), que NO esta en el denominador de chips de Omdia; (b) los periodos no coinciden -- el FY2026 de NVDA cierra en enero de 2026 y el dato de Omdia es CY2025. Asi que 93.6% es una COTA SUPERIOR de la captura de NVDA en su propia capa, no una participacion medida.",
+  "_2026_excluido": "El pronostico de Omdia salta de 2025 ($207B) a 2030 ($286B) sin publicar los años intermedios en el comunicado. No se interpola: una linea recta entre esos dos puntos seria un numero inventado con apariencia de dato. El historial se queda en los dos años REPORTADOS.",
   "_share_no_scorable": "MKT-SHARE-006 y MKT-SHDELTA-007 quedan NOT_SCORABLE tras research (2026-07-19). Verificado y rechazado: TrendForce ~70% (no declara si es ingresos o unidades, denominador solo chips, un solo periodo, sin competidores); TrendForce ene-2026 (participacion por CATEGORIA GPU vs ASIC, no por vendedor, y en unidades); Omdia (publica el TAM pero las participaciones por vendedor son de pago); Dell'Oro 4T2025 (solo un ranking sin porcentajes, y denominador de componentes que mezcla fabricantes de memoria); IDC servidores (capa de canal equivocada: son OEM, NVDA ni aparece); paginas tipo Silicon Analysts con 'NVIDIA ~80%' (sin firma originadora = tier 5, no puntuable). NO se construyo el denominador sumando ingresos de empresas publicas: seria un denominador incompleto y daria una participacion inflada.",
   "_adopt_no_scorable": "MKT-ADOPT-021 queda NOT_SCORABLE. La unica fuente con ambos numeros (HostZealot: 4.0M GPUs en 2024 a 8.3M en 2028) resulto ser aritmetica del propio autor: su metodologia dice que las unidades salen de revertir el tamano del mercado en dolares asumiendo un precio promedio de $20,000 por GPU. Tier 5. Ademas 8.3M en 2028 es un ano de pronostico, no un denominador de saturacion.",
-  "tam": 489500000000,
+  "tam": 207000000000,
   "tam_history": [
-    333400000000,
-    489500000000
+    123000000000,
+    207000000000
   ],
-  "tam_source": "Gartner, Worldwide IT Spending Forecast — Data Center Systems, vintage octubre 2025",
+  "tam_source": "Omdia, AI Processors for Cloud and the Data Center Forecast — GPUs y aceleradores de IA para datacenter, vintage agosto 2025",
   "tam_source_tier": 3,
   "company_relevant_revenue": 193700000000,
+  "_share_ahora_si": "MKT-SHARE-006 y MKT-SHDELTA-007 vuelven a ser puntuables (2026-08-05) porque el TAM cambio de CAPA. Con Gartner el cociente comparaba gasto de usuario final contra ingreso de componentes -- dos capas distintas de la cadena. Con Omdia, numerador y denominador estan en la MISMA: chips de datacenter. Los cuatro numeros son REPORTADOS, no estimados: NVDA Data Center FY2025 $115.2B y FY2026 $193.7B (segmentacion de FMP, verificada contra el 10-K), y el TAM de Omdia CY2024 $123B y CY2025 $207B.",
+  "_share_salvedad": "El NIVEL esta inflado y hay que leerlo asi: el segmento Data Center de NVDA incluye networking (NVLink, Spectrum, InfiniBand), que NO esta en el denominador de chips de Omdia. En Q1 FY2027 -- el unico trimestre con desglose publicado -- networking fue $14.8B de $75.2B, o sea ~20% del segmento. NVIDIA NO publica ese desglose para el año fiscal completo (verificado en el comunicado de FY2026: solo da el total combinado), asi que aplicar el ratio de un trimestre a un año seria imputar. Por eso el nivel se declara como COTA SUPERIOR.\n\nLa VARIACION, en cambio, es solida: el mismo sesgo de networking esta en los dos años, asi que se cancela en gran parte al restar. Por eso MKT-SHDELTA-007 -- que mide si NVDA gana o pierde captura -- vale mas aqui que MKT-SHARE-006.",
+  "_share_lectura": "93.66% (2024) -> 93.57% (2025): captura plana, con una caida de 9 puntos basicos. Coincide con lo que el propio comunicado de Omdia describe: los ASIC a medida (TPU de Google) y los ASSP mercantiles (Ascend de Huawei, Groq, Cerebras) ganando terreno, mas el avance de AMD con Instinct. No es una perdida de participacion todavia, pero tampoco es la expansion que un 68% de crecimiento de ingresos podria sugerir por si solo.",
+  "share": {
+    "company_sales": 193700000000,
+    "total_market_sales": 207000000000
+  },
+  "share_history": [
+    0.9366,
+    0.9357
+  ],
   "_judgments_nota": "Respuestas de juicio que aportas tu. moat_classification: Wide | Narrow | None — segun el gate de DECISION_RULES.md (spread ROIC-WACC >=5pp en 4 de 5 años, rango de margen <=5pp, al menos dos efectos de moat visibles, sin amenaza de concentracion).",
   "judgments": {
     "moat_classification": "Wide"

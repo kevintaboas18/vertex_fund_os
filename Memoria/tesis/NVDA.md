@@ -1,5 +1,12 @@
 # Tesis — NVDA
 
+## 2026-08-05 10:34 — perfil Speculative · raw 51.9/100
+<!-- firma: Speculative|51.9|296.72|341.22|296.72|209.82 | desde: 2026-08-05 10:34 -->
+- Precio al análisis: $220.37 · Fair value (base): $296.72
+- Targets 12M: Bull $341.22 / Base $296.72 / Bear $209.82
+- Tesis: Mi tesis de inversión sobre NVIDIA ha evolucionado ligeramente desde mi reporte anterior de hace 0 días, donde mi Fair Value era de $296.72 y mi recomendación 'DESFAVORABLE' con una convicción de 49. Hoy, el Fair Value se mantiene en $296.72, pero la recomendación ha pasado a 'ESPECULATIVO' con una convicción de 52. Esta evolución se justifica por varios factores. Si bien el precio spot actual ($220.37) es ligeramente inferior al de mi análisis previo ($221.61), la esencia de la tesis de NVIDIA como líder indiscutible en la infraestructura de IA se ha reforzado con noticias como el acuerdo de 
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
 ## 2026-08-05 09:56 — perfil Avoid / Wait · raw 48.8/100  *(sin cambios; revisado 2026-08-05 10:13)*
 <!-- firma: Avoid / Wait|48.8|296.72|341.22|296.72|209.82 | desde: 2026-08-05 09:56 -->
 - Precio al análisis: $220.55 · Fair value (base): $296.72
