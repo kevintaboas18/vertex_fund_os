@@ -2357,3 +2357,65 @@ El perfil cambia porque `raw_total` cruza 50, el gate que venía fallando. No
 es que la empresa mejorara: es que el denominador dejó de estar equivocado.
 
 **2110 tests del engine + 104 de la capa web.**
+
+---
+
+# 37. El TAM era del ticker cuando debía ser del mercado (M-04)
+
+Victor lo vio antes que yo: el TAM de Omdia se declaró en
+`Entradas/NVDA.json`, así que **sólo NVDA lo tenía**. Medido el 2026-08-05:
+
+| Ticker | Industria | Market | TAM |
+|---|---|---|---|
+| NVDA | Semiconductors | **4.87**/20 | $207 000 M |
+| **AMD** | Semiconductors | 1.82/20 | **ninguno** |
+| AVGO | Semiconductors | 2.31/20 | ninguno |
+
+AMD vende Instinct **al mismo mercado** que el comunicado de Omdia describe
+—nombra a NVIDIA, AMD, Google, Huawei, Groq y Cerebras en el mismo
+denominador— y salía sin TAM. No faltaba el dato: estaba escrito en el
+archivo de otra empresa.
+
+## 37.1 `Entradas/_industrias/<slug>.json`
+
+El TAM se hereda por `security.industry` del packet, y **el archivo del
+ticker gana** en cualquier clave que repita: la industria son cimientos, no
+una imposición. La validación es la misma — un `tam` sin `tam_source` y sin
+tier 1-4 se cae igual aquí que en el archivo del ticker.
+
+## 37.2 El riesgo que introduce, y su freno
+
+Una industria de GICS es **más ancha que un mercado**. `Semiconductors` mete
+en la misma bolsa a NVIDIA, que vende aceleradores, y a **Micron, que vende
+memoria**. En la primera versión MU heredaba el TAM de Omdia y su
+participación habría salido diminuta pero *puntuable* — un número
+equivocado, que es peor que un hueco porque el hueco se ve.
+
+Freno: la clave `_aplica_a` lista explícitamente a quién cubre. Es opcional
+— cuando el mercado sí coincide con la clasificación, exigirla sería
+burocracia.
+
+| Ticker | Hereda | Por qué |
+|---|---|---|
+| NVDA, AMD, AVGO | **sí** | compiten en aceleradores |
+| MU | **no** | memoria |
+| JPM, KO | **no** | otra industria, sin archivo |
+
+## 37.3 Efecto
+
+Cobertura de Market: AMD y AVGO **0.188 → 0.312**. Los puntos suben poco
+porque `share` y `share_history` siguen sin declararse para ellos — el TAM
+es el denominador, y el numerador (ingreso del segmento comparable) hay que
+investigarlo por empresa.
+
+Lo que cambia de verdad es que **el trabajo de investigar un TAM se hace una
+vez por mercado**, no una vez por ticker.
+
+## 37.4 Estado
+
+`engine/tests/test_tam_por_industria.py` — 6 tests: que el TAM llegue a cada
+ticker listado, que uno fuera de la lista no herede nada, que sin lista
+cubra a toda la industria, que un TAM sin atribución se caiga igual, que un
+archivo ausente no rompa, y que el slug case con el nombre del archivo.
+
+**2116 tests del engine + 104 de la capa web.**

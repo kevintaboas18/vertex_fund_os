@@ -24,6 +24,7 @@ dimensions stay honestly unscored.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from wbj.core import adapters as _adapters
@@ -583,8 +584,81 @@ def _recession_years(fred: Any) -> list[int]:
     return sorted(years)
 
 
-def _manual_overlay(settings: Any, ticker: str) -> dict[str, Any]:
+def _slug_industria(nombre: str) -> str:
+    """`Semiconductors` -> `semiconductors`, `Banks - Diversified` -> `banks-diversified`."""
+    limpio = re.sub(r"[^a-z0-9]+", "-", str(nombre or "").lower()).strip("-")
+    return limpio
+
+
+def _overlay_industria(settings: Any, industria: str | None,
+                       ticker: str = "") -> dict[str, Any]:
+    """Entradas compartidas por INDUSTRIA, de `Entradas/_industrias/<slug>.json`.
+
+    El TAM no es propiedad de una empresa: es del mercado en el que compite.
+    El de Omdia para chips de datacenter ($207.000M en 2025) cubre a NVDA, a
+    AMD con sus Instinct, a Broadcom y a Marvell por igual — el comunicado
+    los nombra a todos. Guardado sólo en `Entradas/NVDA.json`, AMD salía con
+    `tam=ninguno` y Market en 1.82 mientras NVDA sacaba 4.87, no porque el
+    dato faltara sino porque estaba escrito en el archivo de otro.
+
+    El archivo del TICKER siempre gana: lo de la industria son cimientos, no
+    una imposición. Una empresa con un mercado propio —o con un desglose
+    mejor— lo declara en el suyo y esto no la toca.
+
+    La validación es la misma: un `tam` sin `tam_source` y sin
+    `tam_source_tier` 1-4 se cae igual aquí que en el archivo del ticker.
+    Compartir un dato no lo exime de estar atribuido.
+    """
+    import json
+    from pathlib import Path
+
+    if not industria:
+        return {}
+    root = getattr(settings, "inputs_dir", None) or (
+        Path(getattr(settings, "reports_dir", ".")).parent / "Entradas")
+    path = Path(root) / "_industrias" / f"{_slug_industria(industria)}.json"
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.warning("no se pudo leer el TAM de industria en %s", path, exc_info=True)
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    # Lista explícita de a quién cubre. Una industria de GICS es más ancha
+    # que un mercado: `Semiconductors` mete en la misma bolsa a NVIDIA, que
+    # vende aceleradores, y a Micron, que vende memoria. Sin esta lista MU
+    # heredaba el TAM de aceleradores de Omdia — un denominador que no es el
+    # suyo — y su participación habría salido absurdamente pequeña en vez de
+    # ausente. Un número equivocado es peor que un hueco: el hueco se ve.
+    #
+    # Sin `_aplica_a` el archivo cubre a toda la industria, que es lo
+    # razonable cuando el mercado sí coincide con la clasificación.
+    cubre = data.get("_aplica_a")
+    if isinstance(cubre, list) and cubre:
+        if ticker.upper() not in {str(t).upper() for t in cubre}:
+            return {}
+
+    for key in [k for k in data if k.startswith("_")]:
+        data.pop(key)
+    if data.get("tam") is not None:
+        if not data.get("tam_source") or data.get("tam_source_tier") not in (1, 2, 3, 4):
+            logger.warning("TAM de industria en %s descartado: falta tam_source "
+                           "o tam_source_tier 1-4", path)
+            for k in ("tam", "tam_history", "tam_source", "tam_source_tier"):
+                data.pop(k, None)
+    return {k: v for k, v in data.items() if v is not None}
+
+
+def _manual_overlay(settings: Any, ticker: str,
+                    industria: str | None = None) -> dict[str, Any]:
     """Analyst-supplied inputs for `Entradas/<TICKER>.json`.
+
+    Se apoya sobre `Entradas/_industrias/<industria>.json` cuando existe: el
+    TAM y su fuente son del MERCADO, no de la empresa. Lo del ticker gana
+    siempre — ver `_overlay_industria`.
 
     Market sizing has no free structured source, and the methodology is
     explicit about what that means: DECISION_RULES.md's tier 5 is an
@@ -605,9 +679,10 @@ def _manual_overlay(settings: Any, ticker: str) -> dict[str, Any]:
 
     root = getattr(settings, "inputs_dir", None) or (
         Path(getattr(settings, "reports_dir", ".")).parent / "Entradas")
+    base = _overlay_industria(settings, industria, ticker)
     path = Path(root) / f"{ticker.upper()}.json"
     if not path.is_file():
-        return {}
+        return base
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -680,7 +755,9 @@ def _manual_overlay(settings: Any, ticker: str) -> dict[str, Any]:
     for warning in _analyst_block_warnings(data):
         logger.warning("%s: %s", path.name, warning)
         data.setdefault("analyst_input_warnings", []).append(warning)
-    return data
+    # La industria son cimientos; lo que el analista escribió para ESTE
+    # ticker va encima y gana en cada clave que traiga.
+    return {**base, **data}
 
 
 def _cached_extract(cache: Any, ticker: str, filing: dict, kind: str,
@@ -1376,7 +1453,8 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
     # this channel exists. Overrides are logged so the audit trail shows
     # a figure came from a person rather than a feed.
     try:
-        manual = _manual_overlay(settings, ticker)
+        _ind = getattr(getattr(packet, "security", None), "industry", None)
+        manual = _manual_overlay(settings, ticker, industria=_ind)
         for key in sorted(set(manual) & set(overlay)):
             logger.info("analyst input overrides computed %s for %s", key, ticker)
         for key, value in manual.items():
