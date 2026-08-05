@@ -4440,7 +4440,29 @@ def _wbj_mandatory_report(insiders, recommendation, next_earnings_date=None, fmp
         # Vista COMPLEMENTARIA de Victor: compras vs ventas en dólares sobre TODO el feed
         # (los regalos/adjudicaciones a precio 0 no suman). Más gruesa pero más completa.
         out["insiders_flow"] = _flow
-    out["institutional_13f"] = (insiders.get("institutional") or [])[:10]  # inversionistas reconocidos (13F)
+    # Inversionistas reconocidos (13F) — CLAUDE.md, punto 4.
+    #
+    # Había DOS caminos y este leía el vacío. `insiders["institutional"]` se
+    # llenaba del `institutional_holders` estilo yfinance, que hoy devuelve
+    # None: FMP responde 402 en las SEIS rutas de `institutional-ownership`
+    # con este plan. Mientras tanto `insiders["edgar"]["holders_5pct"]` sí
+    # traía los diez de verdad —BlackRock, Vanguard, State Street con
+    # acciones y dólares— desde el conjunto trimestral 13F de la SEC.
+    #
+    # El reporte decía "0 tenedores" con los datos ya en memoria, en la
+    # misma estructura, una clave más abajo.
+    _inst = (insiders.get("institutional") or [])[:10]
+    if not _inst:
+        _edg = (insiders.get("edgar") or {}).get("holders_5pct") or []
+        # Se normaliza el nombre del campo: el camino de EDGAR usa `name`
+        # y la interfaz espera `holder`.
+        _inst = [{"holder": h.get("name") or h.get("holder"),
+                  "shares": h.get("shares"), "value": h.get("value"),
+                  "pct_held": h.get("pct_held"),
+                  "date": h.get("period") or h.get("date"),
+                  "source": h.get("source_locator")}
+                 for h in _edg[:10] if isinstance(h, dict)]
+    out["institutional_13f"] = _inst
     if _reco_norm(recommendation) == RESEARCH_DESFAVORABLE:
         out["revisit"] = {   # CLAUDE.md: si 'evitar', fecha/evento concreto para revisitar
             "trigger": "Próximo reporte de resultados (10-Q/10-K) o cambio material en la tesis.",

@@ -1,5 +1,12 @@
 # Tesis — NVDA
 
+## 2026-08-05 09:56 — perfil Avoid / Wait · raw 48.8/100  *(sin cambios; revisado 2026-08-05 09:59)*
+<!-- firma: Avoid / Wait|48.8|296.72|341.22|296.72|209.82 | desde: 2026-08-05 09:56 -->
+- Precio al análisis: $220.55 · Fair value (base): $296.72
+- Targets 12M: Bull $341.22 / Base $296.72 / Bear $209.82
+- Tesis: Desde mi análisis previo hace un día, donde mi Fair Value era de $289.3 y la recomendación DESFAVORABLE a un precio de $206.64, el precio spot ha subido un 6.7%. Mi Fair Value actual se ha ajustado ligeramente al alza a $296.72, reflejando una recalibración de los targets de Victor. Sin embargo, la tesis central de que la valoración actual es excesivamente estirada se mantiene inalterada. A pesar de los catalizadores positivos como los sólidos earnings y el optimismo en IA, la discrepancia entre el precio de mercado y el valor intrínseco calculado por el DCF ($111.03) es un factor crítico. La 
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
 ## 2026-08-03 22:54 — perfil Avoid / Wait · raw 48.9/100  *(sin cambios; revisado 2026-08-03 23:42)*
 <!-- firma: Avoid / Wait|48.9|289.3|332.69|289.3|204.57 | desde: 2026-08-03 22:54 -->
 - Precio al análisis: $206.64 · Fair value (base): $289.3

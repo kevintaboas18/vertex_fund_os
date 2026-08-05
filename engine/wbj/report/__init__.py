@@ -270,13 +270,12 @@ def _reverse_dcf_context(valuation: Any, price: float | None):
 #: reporte listaba los huecos sin decir cuáles están tapados, y un hueco
 #: tapado y uno abierto piden acciones distintas.
 #:
-#: `institutional_holders` YA NO tiene sustituto y por eso no aparece aquí:
-#: lo cubría el conjunto trimestral 13F de la SEC, que se retiró porque
-#: costaba 19 s en cada ticker nuevo — Victor tampoco lo descarga (su
-#: `packet/builder.py` hace `fmp.institutional_holders(ticker) or []` y
-#: acepta el None). Decir que está tapado cuando no lo está sería peor que
-#: no decir nada: el lector dejaría de buscarlo.
+#: `institutional_holders` SÍ está tapado: las seis rutas de FMP dan 402 con
+#: este plan, y el respaldo por EDGAR entra justo ahí (ver `_ownership`). El
+#: costo real es UN zip por trimestre compartido por todos los tickers, no
+#: 19 s por acción — se midió mal la primera vez y por eso llegó a retirarse.
 _ENTITLEMENT_SUBSTITUTES = {
+    "institutional_holders": "el conjunto de datos 13F de la SEC (holders_13f_dataset)",
     "estimates": "FMP analyst-estimates",
     "revenue_estimates": "FMP analyst-estimates",
 }
@@ -592,25 +591,136 @@ def _ownership(ticker: str, settings: Any) -> dict:
                 holders.append({"name": name, "shares": h.get("shares"),
                                 "value": h.get("marketValue") or h.get("value")})
 
-    # Sin respaldo por EDGAR: es EXACTAMENTE lo que hace Victor.
+    # ── RESPALDO tier 1: sólo cuando FMP no trae la lista ────────────────
+    # `if not holders` es la condición entera: si FMP responde, esto no se
+    # ejecuta y no cuesta nada. Con el plan actual FMP devuelve 402 en TODA
+    # la familia `institutional-ownership` (verificado sobre las seis rutas),
+    # así que en la práctica sí se usa — y por eso está aquí.
     #
-    # `packet/builder.py` (líneas 308-309) de su repo:
-    #     insider_trades = fmp.insider_trades(ticker) or []
-    #     institutional_holders = fmp.institutional_holders(ticker) or []
+    # Victor no lo tiene: su `packet/builder.py` hace
+    # `fmp.institutional_holders(ticker) or []` y acepta el vacío. Pero su
+    # `CLAUDE.md` —el mismo que este— exige en el punto 4 los fondos con
+    # posición 13F, así que su sistema deja ese requisito sin cubrir. Aquí no.
     #
-    # y el docstring de su método lo dice: "13F institutional holders (may be
-    # plan-restricted -> None)". Cuenta con el 402 y devuelve vacío.
-    #
-    # Aquí había un respaldo de tres escalones sobre EDGAR cuyo primer paso
-    # descargaba el conjunto trimestral 13F: un zip por trimestre. Encontraba
-    # tenedores reales donde FMP da 402 — pero costaba **19 segundos en cada
-    # ticker nuevo**, casi una cuarta parte de los 82 s de un análisis en frío.
-    #
-    # El precio de quitarlo está declarado, no escondido: `holders_available`
-    # sale en False y el reporte dice que no hay lista. `CLAUDE.md` pide los
-    # inversionistas 13F, y con el plan actual de FMP ese requisito queda sin
-    # cubrir — en este repo y en el de Victor por igual. Se resuelve con el
-    # plan de FMP que incluye institutional-ownership, no con más código.
+    # El costo NO es por ticker: el conjunto trimestral es UN zip por
+    # trimestre, cacheado y compartido por todos los tickers. Medido: 19.1 s
+    # la primera vez, 8.3 s el siguiente ticker, 0.3 s el tercero. Se paga
+    # una vez por trimestre, no una vez por acción.
+    if not holders:
+        # Respaldo tier 1, en tres escalones de mejor a peor:
+        #   1. Conjunto de datos estructurado 13F de la SEC -> nombres RECONOCIDOS
+        #      con posicion real (acciones y dolares), ordenados por tamaño.
+        #   2. Schedule 13D/G -> los >5% por definicion, pero su CUSIP dejo de
+        #      indexarse a texto completo tras el formato estructurado de 2024.
+        #   3. Busqueda de 13F-HR en el indice -> nombres sin cifras, por fecha.
+        try:
+            cusip = ((fmp.profile(ticker) or [{}])[0] or {}).get("cusip")
+            if cusip:
+                edgar = EdgarProvider(settings, Cache(settings.cache_dir))
+                today = _date.today()
+                company_cik = edgar.cik_for(ticker)
+
+                # (1) El dataset trimestral. Es el unico camino que devuelve a
+                # los grandes: el indice de texto completo sirve 300 hits de los
+                # 10.000+ que mencionan el CUSIP, y las tablas de Vanguard o
+                # BlackRock son tan grandes que EDGAR deja de indexarlas -- sus
+                # hits mas recientes ahi son de 2009-2016. Un zip por trimestre,
+                # cacheado y compartido por todos los tickers.
+                _dataset_ok = False
+                for r in edgar.holders_13f_dataset(str(cusip), top=10):
+                    _dataset_ok = True
+                    holders.append({
+                        "name": r["name"], "shares": r["shares"], "value": r["value"],
+                        "cik": None, "filing_date": None, "basis": "13F dataset",
+                        "stake": None, "stale": False,
+                        "source_locator": r["source_locator"],
+                    })
+                if holders:
+                    _periodo = holders[0]["source_locator"].split("data set ")[-1].rstrip(")")
+                    source = (
+                        f"SEC Form 13F structured data set ({_periodo}): "
+                        f"{len(holders)} mayores tenedores institucionales de CUSIP {cusip}, "
+                        "ORDENADOS POR VALOR DE POSICION reportado, con acciones y dolares. "
+                        "Es el conjunto completo de 13F del trimestre, no una muestra del "
+                        "indice de texto completo."
+                    )
+
+                # (2) Schedule 13D/G: los >5% por definicion, sin ranking ni
+                # parseo. Solo si el dataset no dio nada -- cuando si lo da,
+                # trae los MISMOS nombres con cifras y al dia, y añadir aqui
+                # los de 2024 seria repetirlos peor.
+                if company_cik and not _dataset_ok:
+                    major = edgar.major_holders_13d_g(
+                        str(cusip), company_cik,
+                        (today - timedelta(days=1825)).isoformat(), today.isoformat())
+                    for r in major[:8]:
+                        # Edad declarada. Desde el formato estructurado que la SEC
+                        # exige a los 13D/G (dic-2024), su CUSIP deja de ser
+                        # buscable a texto completo, así que este barrido devuelve
+                        # las últimas ANTERIORES a ese cambio -- para NVDA, de
+                        # 2024. Un 5% de hace dos años no es un 5% de hoy, y
+                        # presentarlo sin fecha lo haría pasar por vigente.
+                        edad = None
+                        try:
+                            edad = (today - _date.fromisoformat(r["filing_date"])).days
+                        except (ValueError, TypeError):
+                            pass
+                        holders.append({
+                            "name": r["name"], "shares": None, "value": None,
+                            "cik": r["cik"], "filing_date": r["filing_date"],
+                            "stake": ">5% of class", "basis": "13D/G",
+                            "age_days": edad,
+                            "stale": (edad is not None and edad > 400),
+                            "source_locator": f"{r['form']} accession {r['accession']}",
+                        })
+                    if holders:
+                        _viejos = [h for h in holders if h.get("stale")]
+                        source = (
+                            f"SEC EDGAR: {len(major)} beneficial owners above 5% "
+                            f"(Schedule 13D/13G on CUSIP {cusip}). A 13D/G is filed only "
+                            "on crossing 5%, so the filer set is the recognised holders "
+                            "by definition -- not a ranking of a longer list."
+                            + (f" AVISO: {len(_viejos)} de {len(holders)} tienen mas de "
+                               "400 dias -- desde el formato estructurado de dic-2024 el "
+                               "CUSIP de un 13D/G no es buscable a texto completo, asi que "
+                               "estas son las ultimas indexadas, no necesariamente las "
+                               "vigentes." if _viejos else "")
+                        )
+
+                # (3) Ultimo escalon: barrido del indice de texto completo.
+                # Nombres sin cifras y por fecha de presentacion. Se gatilla en
+                # que el DATASET fallara, no en que ya haya nombres: cuando solo
+                # respondio el 13D/G, sus filas son de 2024 y este barrido añade
+                # las presentaciones del trimestre en curso. Bloquearlo por
+                # "ya hay holders" era servir el dato viejo teniendo el actual.
+                _vistos = {h.get("cik") for h in holders}
+                rows = [] if _dataset_ok else [
+                    r for r in edgar.institutional_holders_13f(
+                        str(cusip), (today - timedelta(days=270)).isoformat(),
+                        today.isoformat()) if r.get("cik") not in _vistos]
+                _n_13dg = len(holders)
+                for r in rows[:8]:
+                    holders.append({
+                        "name": r["name"], "shares": None, "value": None,
+                        "cik": r["cik"], "filing_date": r["filing_date"],
+                        "basis": "13F", "stake": None, "stale": False,
+                        "source_locator": f"{r['form']} accession {r['accession']}",
+                    })
+                # La nota del 13F se AÑADE a la del 13D/G en vez de pisarla: cada
+                # bloque de nombres lo produjo un formulario distinto y con una
+                # definicion distinta, y atribuirlos todos a uno solo seria
+                # acreditar al filing equivocado.
+                if rows:
+                    _n13f = (
+                        f"SEC EDGAR full-text search of 13F-HR for CUSIP {cusip} "
+                        f"({len(rows)} managers reported a position, ultimos 270 dias). "
+                        "Ordered by filing date, NOT by position size: the search index "
+                        "names the filer but the share count lives inside the information "
+                        "table -- recency is not recognition."
+                    )
+                    source = f"{source} | {_n13f}" if source else _n13f
+        except Exception:
+            logger.warning("13F fallback unavailable for %s", ticker, exc_info=True)
 
     execs = []
     if isinstance(execs_raw, list):

@@ -2120,3 +2120,94 @@ Lo que NO corre, y por qué:
 una es un dato que hay que comprar.
 
 **2110 tests del engine + 98 de la capa web.**
+
+---
+
+# 34. El 13F: por qué FMP no funciona, y por qué a Victor tampoco (F-01)
+
+## 34.1 La respuesta a "¿por qué a él sí y a mí no?"
+
+**A él tampoco.** Su `providers/fmp.py` y el de este repo son **byte-idénticos**
+en este método:
+
+```python
+def institutional_holders(self, t: str) -> list | dict | None:
+    """13F institutional holders (may be plan-restricted → None)."""
+    return self.get_json(
+        f"{BASE_URL}/institutional-ownership/extract-analytics/holder",
+        self._params(symbol=t), ...)
+```
+
+Y el docstring de su módulo lo dice: *"Endpoints not included in the caller's
+plan return a non-JSON 'Restricted Endpoint' body, which `get_json` turns
+into None (graceful degradation)."* **Escribió ese código contando con el
+402.**
+
+## 34.2 No es esa ruta: es toda la familia
+
+Probadas una por una contra la clave:
+
+| Endpoint | |
+|---|---|
+| `extract-analytics/holder` (la de Victor) | **402** |
+| `symbol-positions-summary` | **402** |
+| `holder-performance-summary` | **402** |
+| `institutional-ownership/latest` | **402** |
+| `symbol-ownership`, `institutional-ownership/list` | 404 (no existen) |
+
+> *Restricted Endpoint: This endpoint is not available under your current
+> subscription*
+
+El módulo entero está por encima del plan de $29. No hay ruta alternativa.
+
+## 34.3 Respaldo restaurado, y ahora sí barato
+
+Vuelve el camino por EDGAR, **dentro de `if not holders:`** — sólo cuando FMP
+no trae la lista. Devuelve tenedores reales con acciones y dólares:
+
+```
+BlackRock, Inc.                 1.928.629.174 acc   $336.352.928.002
+VANGUARD CAPITAL MANAGEMENT LLC 1.538.550.382 acc   $268.519.177.197
+STATE STREET CORP                 993.885.601 acc   $173.343.323.230
+```
+
+**Corrección de una medición mía.** Dije que el costo era "un zip por
+trimestre compartido por todos los tickers". Falso: medí tres llamadas
+seguidas al MISMO ticker y costaron 19.3 s, 18.7 s y 18.1 s. El zip de 99 MB
+sí se cachea en disco — lo que no se cacheaba era el RESULTADO, así que cada
+llamada recorría los 3,8 millones de filas de `INFOTABLE.tsv` otra vez. El
+docstring decía "~2 s" y nadie lo había comprobado.
+
+Arreglado: el resultado se cachea por `(cusip, trimestre, top)`. La clave
+lleva el trimestre, así que cuando la SEC publica el siguiente el viejo deja
+de usarse solo — sin TTL que ajustar.
+
+| | Antes | Ahora |
+|---|---|---|
+| Primera vez por ticker | 17 s | 17 s |
+| **Repetir el mismo ticker** | **18 s** | **0.8 s** |
+
+## 34.4 Y un bug que el respaldo destapó
+
+Con los tenedores ya en memoria, el reporte seguía diciendo **"0 tenedores"**.
+Había DOS caminos y `institutional_13f` leía el vacío:
+
+- `insiders["institutional"]` ← el `institutional_holders` estilo yfinance,
+  que hoy devuelve `None` (FMP 402).
+- `insiders["edgar"]["holders_5pct"]` ← el que **sí** traía los diez.
+
+Los datos estaban en la misma estructura, una clave más abajo. Es el mismo
+patrón que ya me engañó leyendo `mandatory_report.insiders` en vez de
+`insiders_over_1m`: un dato presente que no se ve porque se busca donde no
+está.
+
+Verificado end-to-end: NVDA y AAPL devuelven **8 tenedores** con sus dólares,
+más los insiders sobre $1M.
+
+## 34.5 Estado
+
+`tests_vertex/test_13f_llega_al_reporte.py` — 4 tests: que EDGAR llegue
+cuando FMP viene vacío, que FMP mande cuando responde, que sin ninguno no
+reviente, y el tope de diez.
+
+**2110 tests del engine + 102 de la capa web.**

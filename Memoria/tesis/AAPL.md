@@ -1,5 +1,12 @@
 # Tesis — AAPL
 
+## 2026-08-05 09:59 — perfil Avoid / Wait · raw 36.3/100
+<!-- firma: Avoid / Wait|36.3|322.66|388.85|322.66|223.43 | desde: 2026-08-05 09:59 -->
+- Precio al análisis: $307.28 · Fair value (base): $322.66
+- Targets 12M: Bull $388.85 / Base $322.66 / Bear $223.43
+- Tesis: Mi tesis de inversión previa, emitida hace solo un día (2026-08-03), también arrojó una recomendación DESFAVORABLE con una convicción de 38 y un Fair Value de $322.17. Hoy, el Fair Value se ha ajustado marginalmente a $322.66 y la convicción a 36.3, lo que indica una consistencia en la postura, incluso con una ligera inclinación a la cautela. La esencia de la tesis permanece inalterada: Apple posee un ecosistema inigualable, una base de clientes extremadamente leal y un segmento de servicios en expansión que genera ingresos recurrentes y de alto margen. La superación de los 2.5 mil millones de
+- Invalidación: Broken by a confirmed close < zone_low - 0.25*ATR14 with volume/median(50d) >= 1.5 and follow-through: two consecutive closes beyond the buffer, or one close plus three sessions with no close back inside the zone (Cerebro IMPORTANT_LEVELS_ENGINE C).
+
 ## 2026-08-03 11:50 — perfil Avoid / Wait · raw 37.8/100
 <!-- firma: Avoid / Wait|37.8|322.17|388.25|322.17|223.09 | desde: 2026-08-03 11:50 -->
 - Precio al análisis: $303.78 · Fair value (base): $322.17

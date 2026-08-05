@@ -79,18 +79,17 @@ def test_the_gap_names_the_provider_the_endpoint_and_the_status():
     # Y dice si el dato esta TAPADO por otra fuente o realmente perdido:
     # son dos acciones distintas (no hacer nada / subir de plan).
     #
-    # `institutional_holders` YA NO esta tapado. Lo cubria el conjunto
-    # trimestral 13F de la SEC, retirado porque costaba 19 s por ticker
-    # nuevo -- y Victor tampoco lo descarga: su `packet/builder.py` hace
-    # `fmp.institutional_holders(ticker) or []` y acepta el None. Anunciarlo
-    # como tapado haria que el lector dejara de buscarlo.
-    perdido = next(g for g in gaps if "institutional_holders" in g)
-    assert "already sourced from" not in perdido, (
-        "se anuncia un sustituto que ya no existe: " + perdido)
-    estimados = next(g for g in gaps if "revenue_estimates" in g)
-    assert "already sourced from" in estimados, (
-        "el sustituto REAL de las estimaciones (FMP analyst-estimates) "
-        "dejo de anunciarse")
+    # `institutional_holders` esta TAPADO por el respaldo de EDGAR, que entra
+    # dentro de `if not holders` en `_ownership`. Las seis rutas de FMP dan
+    # 402 con este plan, asi que en la practica se usa siempre -- y su costo
+    # real es UN zip por trimestre compartido por todos los tickers, no 19 s
+    # por accion (asi se midio mal la primera vez, y por eso llego a
+    # retirarse).
+    tapado = next(g for g in gaps if "institutional_holders" in g)
+    assert "already sourced from" in tapado, (
+        "el respaldo de EDGAR volvio pero el hueco se sigue anunciando como "
+        "descubierto: " + tapado)
+    assert "13F" in tapado
 
 
 def test_the_cache_key_hash_is_not_shown_to_the_reader():

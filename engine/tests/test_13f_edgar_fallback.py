@@ -1,23 +1,26 @@
-"""Los tenedores 13F salen de FMP, y si el plan no los cubre, no salen.
+"""Los tenedores 13F: FMP primero, EDGAR sólo si FMP no los trae.
 
-Es exactamente lo que hace Victor. Su `packet/builder.py` (líneas 308-309):
+`CLAUDE.md` punto 4 exige los fondos reconocidos con posición en la empresa
+(13F). Con el plan actual, **las seis rutas** de `institutional-ownership`
+de FMP devuelven 402 — verificado una por una contra la clave:
 
-    insider_trades = fmp.insider_trades(ticker) or []
-    institutional_holders = fmp.institutional_holders(ticker) or []
+    Restricted Endpoint: This endpoint is not available under your
+    current subscription
 
-y el docstring de su método lo dice sin rodeos: *"13F institutional holders
-(may be plan-restricted -> None)"*. Cuenta con el 402 y devuelve vacío.
+Victor recibe el mismo 402. Su `packet/builder.py` hace
+`fmp.institutional_holders(ticker) or []` y su docstring lo dice:
+*"may be plan-restricted -> None"*. Su sistema deja ese requisito de su
+propio CLAUDE.md sin cubrir; el nuestro no.
 
-Aquí había un respaldo de tres escalones sobre EDGAR cuyo primer paso
-descargaba el conjunto trimestral 13F de la SEC. **Encontraba tenedores
-reales donde FMP da 402** — pero costaba **19 segundos en cada ticker
-nuevo**, casi una cuarta parte de un análisis en frío, y Victor no lo hace.
+El respaldo por EDGAR se retiró un rato por latencia y se devolvió al medir
+bien el costo: el conjunto trimestral es **UN zip por trimestre, cacheado y
+compartido por todos los tickers** — 19.1 s la primera vez, 8.3 s el
+siguiente ticker, 0.3 s el tercero. Se paga una vez por trimestre, no una
+vez por acción.
 
-Este archivo cubría aquel respaldo. Ahora cubre lo contrario: que el hueco
-se declare en vez de taparse con una fuente que ya no existe. `CLAUDE.md`
-pide los inversionistas 13F y ese requisito queda SIN CUBRIR con el plan
-actual de FMP — en este repo y en el de Victor por igual. Se resuelve
-subiendo de plan, no con más código.
+Estos tests fijan el orden (FMP primero), que el camino caro viva DENTRO de
+`if not holders:`, y que un hueco sin sustituto se declare en vez de
+anunciarse como tapado.
 """
 
 from __future__ import annotations
@@ -28,26 +31,46 @@ from pathlib import Path
 _MOTOR = Path(__file__).resolve().parents[1] / "wbj"
 
 
-def test_the_report_does_not_download_the_quarterly_dataset():
-    """El invariante de latencia: nadie vuelve a bajar el zip trimestral.
+def test_the_expensive_path_runs_only_when_fmp_came_back_empty():
+    """El invariante de latencia: EDGAR es RESPALDO, no primera opción.
 
-    Se comprueba por AST y no por texto: el docstring que explica por qué se
-    retiró nombra el método, y esa mención no es una regresión.
+    La descarga del conjunto trimestral tiene que vivir DENTRO de
+    `if not holders:`. Si alguien la saca de ahí, se paga el zip aunque FMP
+    haya respondido — que es lo contrario de lo que se pidió.
+
+    Se comprueba por AST y no por texto: el docstring que explica el diseño
+    nombra los métodos, y esa mención no es una regresión.
     """
     fuente = (_MOTOR / "report" / "__init__.py").read_text(encoding="utf-8")
     arbol = ast.parse(fuente)
+    objetivo = next(n for n in ast.walk(arbol)
+                    if isinstance(n, ast.FunctionDef) and n.name == "_ownership")
+
     pesados = {"holders_13f_dataset", "institutional_holders_13f",
                "major_holders_13d_g"}
-    usados = {n.func.attr for n in ast.walk(arbol)
+
+    # Los `if` cuyo test es exactamente `not holders`.
+    guardas = [n for n in ast.walk(objetivo)
+               if isinstance(n, ast.If) and isinstance(n.test, ast.UnaryOp)
+               and isinstance(n.test.op, ast.Not)
+               and getattr(n.test.operand, "id", None) == "holders"]
+    assert guardas, "`_ownership` perdió la guarda `if not holders:`"
+
+    dentro = {n.func.attr for g in guardas for n in ast.walk(g)
               if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
               and n.func.attr in pesados}
-    assert not usados, (
-        f"el reporte volvió a llamar a EDGAR para los 13F: {sorted(usados)}. "
-        "Son 19 s por ticker nuevo y Victor no lo hace.")
+    fuera = {n.func.attr for n in ast.walk(objetivo)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+             and n.func.attr in pesados} - dentro
+
+    assert dentro, "el respaldo de EDGAR desapareció; el 13F queda sin cubrir"
+    assert not fuera, (
+        f"estos bajan de EDGAR SIEMPRE, no sólo cuando FMP falla: {sorted(fuera)}")
 
 
-def test_the_holders_come_from_fmp_like_victor():
-    """La ÚNICA fuente, igual que en su `packet/builder.py`."""
+def test_fmp_is_asked_first():
+    """FMP va primero — es la vía de Victor y no cuesta latencia. EDGAR sólo
+    entra si esa lista vino vacía."""
     fuente = (_MOTOR / "report" / "__init__.py").read_text(encoding="utf-8")
     arbol = ast.parse(fuente)
     objetivo = next(n for n in ast.walk(arbol)
@@ -67,22 +90,27 @@ def test_an_absent_list_is_declared_not_hidden():
         "el reporte dejó de declarar si la lista de tenedores existe")
 
 
-def test_no_substitute_is_announced_for_a_gap_that_has_none():
-    """Anunciar un sustituto retirado es peor que no anunciar nada: el
-    lector deja de buscar el dato."""
+def test_the_gap_is_announced_as_covered_because_it_is():
+    """El 402 de FMP está TAPADO por el respaldo de EDGAR, y el reporte
+    tiene que decirlo: un hueco tapado y uno abierto piden acciones
+    distintas (no hacer nada / subir de plan).
+
+    El emparejamiento importa en los dos sentidos. Anunciar un sustituto que
+    no existe hace que el lector deje de buscar el dato; callar uno que sí
+    existe le hace pagar un plan que no necesita."""
     from wbj.report import _ENTITLEMENT_SUBSTITUTES
 
-    assert "institutional_holders" not in _ENTITLEMENT_SUBSTITUTES, (
-        "se sigue anunciando el conjunto 13F de la SEC como sustituto, y ya "
-        "no se descarga")
+    assert _ENTITLEMENT_SUBSTITUTES.get("institutional_holders"), (
+        "el respaldo de EDGAR volvió pero el reporte sigue anunciando el "
+        "13F como un hueco sin cubrir")
     assert _ENTITLEMENT_SUBSTITUTES.get("estimates"), (
-        "el sustituto que SÍ existe (FMP analyst-estimates) desapareció")
+        "el sustituto de las estimaciones (FMP analyst-estimates) desapareció")
 
 
 def test_the_edgar_provider_keeps_the_methods_for_whoever_wants_them():
-    """Retirar la LLAMADA no es borrar la capacidad. Los métodos siguen en
-    el proveedor: si algún día hay presupuesto de latencia (un trabajo
-    nocturno, por ejemplo), están listos y probados."""
+    """Los tres escalones del respaldo siguen disponibles: el conjunto
+    trimestral, el 13F por CUSIP y el 13D/G de los >5%. `_ownership` los usa
+    de mejor a peor y se queda con el primero que devuelva nombres."""
     from wbj.providers.edgar import EdgarProvider
 
     for m in ("holders_13f_dataset", "institutional_holders_13f",

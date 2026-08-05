@@ -277,6 +277,19 @@ class EdgarProvider(Provider):
         for name in self._f13_candidates(date.today()):
             local = cache_dir / name
             if local.is_file() and local.stat().st_size > 1_000_000:
+                # El RESULTADO, no sólo el zip. Guardar el zip evitaba
+                # volver a descargar 99 MB, pero cada llamada seguía
+                # recorriendo INFOTABLE.tsv entero: 3,8 millones de filas,
+                # ~18 s medidos — el mismo costo la primera vez y la tercera,
+                # sobre el mismo ticker. El docstring decía "~2 s" y nadie lo
+                # había comprobado.
+                #
+                # La clave lleva el TRIMESTRE, así que cuando la SEC publica
+                # el siguiente el resultado viejo deja de usarse solo: no hay
+                # TTL que ajustar ni caché que invalidar a mano.
+                hecho = self.cache.get(cusip, f"f13_{name}_{top}")
+                if isinstance(hecho, dict) and isinstance(hecho.get("rows"), list):
+                    return hecho["rows"]
                 blob, period = local.read_bytes(), name
                 break
             try:
@@ -334,6 +347,13 @@ class EdgarProvider(Provider):
         for r in rank:
             r["period"] = period
             r["source_locator"] = f"13F-HR accession {r['accession']} (SEC 13F data set {period})"
+        # Se guarda incluso vacío: "este CUSIP no aparece en el trimestre" es
+        # un hecho tan bueno como una lista, y volver a recorrer 3,8 millones
+        # de filas para redescubrirlo cuesta lo mismo que encontrarla.
+        try:
+            self.cache.put(cusip, f"f13_{period}_{top}", {"rows": rank})
+        except Exception:
+            logger.warning("no se pudo cachear el 13F de %s", cusip, exc_info=True)
         return rank
 
     def institutional_holders_13f(self, cusip: str, since: str, until: str,
