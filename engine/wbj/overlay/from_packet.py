@@ -1539,6 +1539,16 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
     # a figure came from a person rather than a feed.
     try:
         _ind = getattr(getattr(packet, "security", None), "industry", None)
+        # El TAM se investiga ANTES de leer `Entradas/`, porque lo que escribe
+        # es justo el archivo que `_manual_overlay` está a punto de leer. Así
+        # una industria que nadie había mirado nunca llega con denominador al
+        # primer análisis, en vez de exigir que alguien se siente a teclearlo.
+        try:
+            from wbj.overlay.tam_research import asegurar_tam_industria
+            logger.info("TAM de industria: %s",
+                        asegurar_tam_industria(settings, _ind, ticker))
+        except Exception:
+            logger.warning("investigacion de TAM no disponible", exc_info=True)
         manual = _manual_overlay(settings, ticker, industria=_ind)
         for key in sorted(set(manual) & set(overlay)):
             logger.info("analyst input overrides computed %s for %s", key, ticker)

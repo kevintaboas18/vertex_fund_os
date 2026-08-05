@@ -2419,3 +2419,67 @@ cubra a toda la industria, que un TAM sin atribución se caiga igual, que un
 archivo ausente no rompa, y que el slug case con el nombre del archivo.
 
 **2116 tests del engine + 104 de la capa web.**
+
+---
+
+## Cierre 2026-08-05 — El TAM y la participación se investigan solos
+
+**Lo que se resolvió:** analizar un ticker de una industria nueva exigía trabajo
+manual antes de que Market pudiera puntuar. Alguien tenía que buscar el estudio
+de mercado, verificar la cifra y escribirla en `Entradas/`. Sólo NVDA lo tenía,
+así que sólo NVDA puntuaba `MKT-TAM-005`, `MKT-SHARE-006` y `MKT-SHDELTA-007`.
+
+Dos piezas nuevas, las dos disparadas solas al analizar:
+
+| Pieza | Qué hace | Dónde |
+|---|---|---|
+| `overlay/tam_research.py` | Busca el TAM de la industria en la web, valida la fuente y escribe `Entradas/_industrias/<slug>.json` | Gemini + `google_search`, OpenAI de suplente |
+| `_share_automatico` | Divide el segmento del 10-K entre ese TAM | `overlay/from_packet.py` |
+
+**Cadencia trimestral**, como los filings: `_resuelto_en` marca la fecha y no se
+vuelve a preguntar hasta pasados 90 días.
+
+**Por qué no usa Anthropic.** Es la misma cuenta que el judge. Colgar el TAM de
+un saldo agotado dejaría a Market sin sus tres dimensiones más pesadas cada vez
+que el judge no puede correr.
+
+### Lo que el validador rechaza, y por qué
+
+| Rechazo | Caso real que lo motivó |
+|---|---|
+| Casa no reconocida | Mordor Intelligence en bebidas: recopila cifras de terceros sin firmar metodología. Tier 5, no puntuable |
+| Años en lugar de dólares | JPM devolvió `tam_history: [2024, 2025]`. Sin este chequeo, la participación habría salido de dividir los ingresos de JPM entre 2024 |
+| Serie que no cierra en el TAM | `_share_automatico` divide el año anterior entre `historia[-2]` y el actual entre `tam`; si el último punto fuera otro, las dos mitades hablarían de mercados distintos |
+| Sin `capa` declarada | El error de Gartner/NVDA: gasto de usuario final contra ingresos de componentes. Daba 39,6%, ningún chequeo aritmético lo caza |
+| Redirect de grounding sin cita textual | Gemini cita con enlaces que caducan y no dicen de quién es la página |
+
+### Medido el 2026-08-05
+
+```
+Entradas/_industrias/     quién        TAM
+  semiconductors          ANALISTA     $207.000M      <- no se toca, lo escribió una persona
+  banks-diversified        auto        $6,4 billones  McKinsey Global Banking Review
+  software-infrastructure  auto        $899.900M      Gartner Enterprise Software
+  beverages-non-alcoholic  auto        $1,45 billones
+  consumer-electronics     auto        SIN TAM        ninguna casa firmada lo cubre
+```
+
+Participación, sin tocar un archivo de ticker:
+
+```
+AMD    ausente -> 8,04%    cobertura 0,312 -> 0,463
+INTC   ausente -> 8,17%    cobertura 0,312 -> 0,463
+AVGO   sigue ausente       "Semiconductor Solutions" mezcla aceleradores con redes
+MU     sigue ausente       no compite en este mercado
+```
+
+Los tres huecos son el comportamiento correcto. Una participación inflada no se
+ve; un hueco sí.
+
+### Lo que sigue siendo manual, a propósito
+
+Un archivo de `Entradas/` **sin** `_generado_por` es de un analista y el sistema
+no lo toca nunca. Quien leyó el estudio sabe algo que ninguna búsqueda sabe.
+Para recuperar el control de un TAM automático, basta con borrarle esa clave.
+
+**Suites:** engine 2141 (+25), web 104.
