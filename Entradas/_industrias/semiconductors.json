@@ -21,5 +21,10 @@
     207000000000
   ],
   "tam_source": "Omdia, AI Processors for Cloud and the Data Center Forecast — GPUs y aceleradores de IA para datacenter, vintage agosto 2025",
-  "tam_source_tier": 3
+  "tam_source_tier": 3,
+  "_segmento_patrones_nota": "Como reconocer, en la segmentacion que publica FMP desde el 10-K, el segmento que compite en ESTE mercado. Se casa por patron y no por igualdad porque el nombre lo pone cada emisor: NVDA y AMD dicen Data Center, Intel dice Data Center Group. Si encajan DOS segmentos el sistema no elige ninguno: significa que el patron esta mal escrito, y sumarlos o quedarse con el mayor seria inventar la respuesta.",
+  "_segmento_patrones_limite": "AVGO reporta Semiconductor Solutions, que mezcla aceleradores con conectividad, almacenamiento e inalambrico. Ese nombre NO encaja con el patron a proposito: preferir un hueco visible a una participacion inflada. Si algun dia desglosa, se anade su patron aqui.",
+  "_segmento_patrones": [
+    "data center"
+  ]
 }

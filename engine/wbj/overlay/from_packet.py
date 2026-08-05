@@ -298,6 +298,82 @@ def _named_segment_revenue(rows: Any) -> dict[str, float] | None:
     return named if len(named) >= 2 else None
 
 
+def _segmento_del_mercado(segmentos: Any, patrones: Any) -> tuple[str, float] | None:
+    """El segmento cuyo nombre encaja con el mercado del TAM.
+
+    Los nombres los pone cada emisor, no una norma: NVDA y AMD dicen
+    "Data Center", Intel "Data Center Group". Por eso se casa por PATRÓN y
+    no por igualdad. Si encajan varios, no se elige: dos segmentos que
+    parecen el mercado significa que el patrón está mal escrito, y sumarlos
+    o quedarse con el mayor sería inventar la respuesta.
+    """
+    if not isinstance(segmentos, dict) or not segmentos:
+        return None
+    pats = [str(p).lower() for p in (patrones or []) if str(p).strip()]
+    if not pats:
+        return None
+    encajan = [(n, v) for n, v in segmentos.items()
+               if isinstance(v, (int, float)) and v > 0
+               and any(p in str(n).lower() for p in pats)]
+    if len(encajan) != 1:
+        if len(encajan) > 1:
+            logger.warning("varios segmentos encajan con %s: %s — no se elige uno",
+                           pats, [n for n, _ in encajan])
+        return None
+    return encajan[0]
+
+
+def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
+                      tam: float | None, tam_history: Any,
+                      patrones: Any) -> dict[str, Any]:
+    """Participación de mercado calculada SOLA, sin que nadie la declare.
+
+    Es el paso que faltaba para que analizar un ticker nuevo no exigiera
+    trabajo manual. El denominador ya lo comparte la industria; el numerador
+    —el ingreso del segmento que compite en ese mercado— lo publica FMP a
+    partir del propio 10-K. Dividirlos no es imputar: son dos cifras
+    reportadas en la misma capa de la cadena de valor.
+
+    `share_history` importa más que el nivel. `MKT-SHDELTA-007` mide si la
+    empresa GANA o PIERDE captura, y cualquier sesgo del segmento (NVDA mete
+    networking en "Data Center") aparece en los dos años por igual y se
+    cancela al restar. El nivel se queda como cota superior.
+
+    Devuelve `{}` en cuanto algo no cuadre. Nada aquí adivina: sin patrón,
+    sin segmento único, sin TAM o sin dos años comparables, la métrica sigue
+    NOT_SCORABLE, que es la respuesta honesta.
+    """
+    if not tam or tam <= 0:
+        return {}
+    actual = _segmento_del_mercado(segmentos, patrones)
+    if not actual:
+        return {}
+    salida: dict[str, Any] = {
+        "share": {"company_sales": actual[1], "total_market_sales": float(tam)}}
+
+    # El historial necesita el MISMO segmento un año antes y el TAM de ese
+    # año. Si falta cualquiera de los dos, se entrega sólo el nivel.
+    historia = list(tam_history or [])
+    if len(historia) < 2:
+        return salida
+    try:
+        filas = fmp.revenue_product_segmentation(ticker)
+        if not isinstance(filas, list) or len(filas) < 2:
+            return salida
+        anterior = _segmento_del_mercado((filas[1] or {}).get("data") or {}, patrones)
+        if not anterior:
+            return salida
+        tam_anterior = float(historia[-2])
+        if tam_anterior <= 0:
+            return salida
+        salida["share_history"] = [round(anterior[1] / tam_anterior, 6),
+                                   round(actual[1] / float(tam), 6)]
+    except Exception:
+        logger.warning("historial de participación no disponible para %s",
+                       ticker, exc_info=True)
+    return salida
+
+
 def _income_statement_keys(packet: Any) -> dict[str, Any]:
     """Risk reads these from the overlay, but they are plain income-
     statement lines the packet already carries."""
@@ -641,6 +717,11 @@ def _overlay_industria(settings: Any, industria: str | None,
         if ticker.upper() not in {str(t).upper() for t in cubre}:
             return {}
 
+    # `_segmento_patrones` lleva guion bajo pero NO es un comentario: es la
+    # regla que dice cómo reconocer, en la segmentación del 10-K, el segmento
+    # que compite en este mercado. Se rescata antes de barrer las notas.
+    patrones = data.get("_segmento_patrones")
+
     for key in [k for k in data if k.startswith("_")]:
         data.pop(key)
     if data.get("tam") is not None:
@@ -649,7 +730,11 @@ def _overlay_industria(settings: Any, industria: str | None,
                            "o tam_source_tier 1-4", path)
             for k in ("tam", "tam_history", "tam_source", "tam_source_tier"):
                 data.pop(k, None)
-    return {k: v for k, v in data.items() if v is not None}
+    fuera = {k: v for k, v in data.items() if v is not None}
+    # Sólo viaja si hay TAM: sin denominador no hay participación que calcular.
+    if isinstance(patrones, list) and patrones and fuera.get("tam"):
+        fuera["_segmento_patrones"] = patrones
+    return fuera
 
 
 def _manual_overlay(settings: Any, ticker: str,
@@ -1473,5 +1558,24 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
                 overlay[key] = value
     except Exception:
         logger.warning("analyst inputs unavailable", exc_info=True)
+
+    # Participación de mercado calculada sola, para CUALQUIER ticker: el
+    # denominador lo pone la industria y el numerador el segmento del 10-K
+    # que compite en ese mercado. Va DESPUÉS de la fusión manual por dos
+    # razones, y las dos importan: antes de ella el TAM heredado todavía no
+    # existe -- el cálculo salía vacío para todos menos NVDA, que lo traía
+    # escrito a mano -- y `setdefault` deja intacto lo que el analista ya
+    # declaró. Quien leyó el estudio manda; esto sólo cubre el hueco.
+    try:
+        segmentos = overlay.get("segment_revenue")
+        if isinstance(segmentos, dict) and segmentos:
+            auto = _share_automatico(
+                fmp, ticker, segmentos, overlay.get("tam"),
+                overlay.get("tam_history"), overlay.pop("_segmento_patrones", None))
+            for key, value in auto.items():
+                overlay.setdefault(key, value)
+    except Exception:
+        logger.warning("automatic market share unavailable", exc_info=True)
+    overlay.pop("_segmento_patrones", None)
 
     return overlay
