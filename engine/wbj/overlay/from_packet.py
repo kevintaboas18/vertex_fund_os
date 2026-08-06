@@ -1617,7 +1617,11 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         from wbj.overlay.amplitud_sector import amplitud_de_sector
 
         _sec = getattr(getattr(packet, "security", None), "sector", None)
-        _amp = amplitud_de_sector(fmp, _sec)
+        # SOLO CACHE. Ver el docstring de `amplitud_de_sector`: pedirla por red
+        # aqui agotaba el limite de FMP y los 429 caian sobre las llamadas del
+        # propio ticker. Se calienta aparte; si no esta, la metrica queda
+        # NOT_SCORABLE, que cuesta 3 puntos y no el analisis entero.
+        _amp = amplitud_de_sector(fmp, _sec, permitir_red=False)
         if _amp:
             overlay["sector_breadth"] = _amp
             logger.info("amplitud de %s: %d/%d sobre su media de 50",

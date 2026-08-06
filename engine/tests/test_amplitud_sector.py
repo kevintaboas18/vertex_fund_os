@@ -138,3 +138,35 @@ def test_without_a_sector_or_a_provider_there_is_nothing_to_measure():
     assert amp.amplitud_de_sector(fmp, "") is None
     fmp.available = False
     assert amp.amplitud_de_sector(fmp, "Technology") is None
+
+
+def test_the_analysis_path_never_touches_the_network():
+    """La regresion que esto arregla, y que se vio en produccion.
+
+    Pedir la amplitud por red durante el analisis disparaba cientos de
+    peticiones a FMP, agotaba su limite, y los 429 caian sobre las llamadas
+    del PROPIO ticker: el estado de flujo de caja de NVDA y su historico de
+    precios fallaron detras de esa tormenta. Una metrica de contexto que vale
+    3 de los 100 puntos estaba tumbando las seis categorias.
+
+    Desde el analisis se lee cache y nada mas. Sin cache, la metrica queda
+    NOT_SCORABLE: cuesta 3 puntos, no el analisis entero.
+    """
+    miembros = [f"T{i}" for i in range(40)]
+    quotes = {s: _quote(110.0, 100.0) for s in miembros}
+    fmp = _FMP(miembros, quotes)
+    assert amp.amplitud_de_sector(fmp, "Technology", permitir_red=False) is None
+    assert fmp.llamadas == [], "toco la red desde la ruta del analisis"
+
+    # Calentada aparte, la siguiente lectura sale de cache sin pedir nada.
+    amp.amplitud_de_sector(fmp, "Technology")
+    n = len(fmp.llamadas)
+    assert amp.amplitud_de_sector(fmp, "Technology", permitir_red=False) is not None
+    assert len(fmp.llamadas) == n
+
+
+def test_the_universe_is_capped_where_an_index_would_cap_it():
+    """405 peticiones por sector fue lo que agoto el limite. 120 mayores por
+    capitalizacion es como se construye cualquier indice sectorial, y se
+    declara en la salida para que el numero se pueda leer."""
+    assert amp.TOPE_MIEMBROS == 120

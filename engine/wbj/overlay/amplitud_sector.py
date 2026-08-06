@@ -47,7 +47,7 @@ BOLSAS = "NASDAQ,NYSE"
 #: Cuántas cotizaciones se piden a la vez. Medido: 60 en 1,6 s con 12 hilos,
 #: así que un sector de 405 miembros sale en ~11 s. Se paga una vez por sector
 #: y por día — el resultado lo comparte todo ticker de ese sector.
-HILOS = 8
+HILOS = 4
 
 #: Qué fracción del universo tiene que contestar para que el número valga.
 #: Medido el 2026-08-06: corriendo cuatro sectores seguidos, Financial Services
@@ -58,11 +58,19 @@ HILOS = 8
 #: convierte en un dato de aspecto perfectamente normal.
 RESPUESTA_MINIMA = 0.60
 
-#: Tope de miembros. No es una preferencia de rendimiento: por encima de esto
-#: la cola son empresas cuyo precio no confirma ni desmiente nada, y el sector
-#: más grande medido tiene 458. Si algún día se supera, el recorte se declara
-#: en la salida en vez de quedarse callado.
-TOPE_MIEMBROS = 600
+#: Tope de miembros, y la razón por la que bajó de 600 a 120.
+#:
+#: Con 600, Technology disparaba 405 peticiones y agotaba el limite de FMP.
+#: Eso no solo tiraba la amplitud -- medido en produccion, se descarto por
+#: llegar al 57% de respuesta -- sino que ENVENENABA EL ANALISIS: las llamadas
+#: propias del ticker, su estado de flujo de caja y su historico de precios,
+#: salian 429 detras de la tormenta. Una metrica de contexto de 3 puntos
+#: estaba tumbando las seis categorias.
+#:
+#: 120 mayores por capitalizacion no es un recorte por rendimiento: es como se
+#: construye cualquier indice sectorial, con sus constituyentes grandes. Se
+#: declara en la salida, que es lo que permite leer el numero.
+TOPE_MIEMBROS = 120
 
 
 def _slug(sector: str) -> str:
@@ -92,9 +100,16 @@ def _miembros(fmp: Any, sector: str) -> list[str]:
     return [f["symbol"] for f in conocidas[:TOPE_MIEMBROS]]
 
 
-def amplitud_de_sector(fmp: Any, sector: str | None,
-                       hoy: date | None = None) -> dict[str, Any] | None:
+def amplitud_de_sector(fmp: Any, sector: str | None, hoy: date | None = None,
+                       permitir_red: bool = True) -> dict[str, Any] | None:
     """Los conteos que `MKT-SECB-023` necesita, o `None` si no se pudieron medir.
+
+    `permitir_red=False` devuelve lo que haya en cache y NADA MAS. Es como se
+    llama desde el analisis, y la razon es la unica que importa: esta metrica
+    vale 3 de los 100 puntos del sistema, y sus cientos de peticiones estaban
+    agotando el limite de FMP con el que se pagan las otras 97. Un numero de
+    contexto no puede competir por cuota con los datos del ticker que se esta
+    analizando.
 
     Nunca levanta: una amplitud que no se pudo calcular deja la métrica
     NOT_SCORABLE, que es la respuesta honesta, no un análisis roto.
@@ -111,6 +126,9 @@ def amplitud_de_sector(fmp: Any, sector: str | None,
         previo = cache.get("_sector", clave)
         if isinstance(previo, dict) and previo.get("valid_members"):
             return previo
+
+    if not permitir_red:
+        return None
 
     simbolos = _miembros(fmp, sector)
     if len(simbolos) < 20:

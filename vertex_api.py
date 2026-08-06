@@ -2382,9 +2382,64 @@ def buscar_tickers(q: str, limite: int = 8):
     return {"q": termino, "resultados": resultados[:limite]}
 
 
+def _quote_rapido_fmp(ticker: str) -> dict | None:
+    """Precio y cambio del dia en UNA peticion, o `None`.
+
+    `/stable/quote` de FMP trae precio, cierre anterior, cambio, volumen y el
+    maximo y minimo del dia: todo lo que la tarjeta de precio enseña. La ruta
+    larga de abajo, en cambio, pedia un AÑO de historico para mostrar una
+    cifra de hoy -- medido, 2,4 s la primera vez que pulsas un ticker, que es
+    justo el momento en que el usuario esta mirando la pantalla.
+    """
+    clave = (os.environ.get("FMP_API_KEY") or "").strip()
+    if not clave:
+        return None
+    try:
+        r = requests.get("https://financialmodelingprep.com/stable/quote",
+                         params={"symbol": ticker, "apikey": clave}, timeout=4)
+        filas = r.json() if r.status_code == 200 else []
+    except Exception:
+        return None
+    q = filas[0] if isinstance(filas, list) and filas and isinstance(filas[0], dict) else None
+    if not q or not isinstance(q.get("price"), (int, float)) or q["price"] <= 0:
+        return None
+    return q
+
+
 @app.get("/api/quote")
 def get_quick_quote(ticker: str):
     ticker_clean = ticker.upper().strip()
+
+    # Via rapida: una sola peticion. Si trae precio, se contesta y ya. La ruta
+    # completa de abajo sigue existiendo para cuando FMP no responda -- no se
+    # borra un respaldo por tener un atajo.
+    rapido = _quote_rapido_fmp(ticker_clean)
+    if rapido:
+        try:
+            precio = float(rapido["price"])
+            previo = float(rapido.get("previousClose") or precio) or precio
+            alto = float(rapido.get("dayHigh") or precio)
+            bajo = float(rapido.get("dayLow") or precio)
+            perfil = _fmp_perfil(ticker_clean) or {}
+            return {
+                "ticker": ticker_clean,
+                "name": rapido.get("name") or perfil.get("name") or ticker_clean,
+                "price": round(precio, 2),
+                "previous_close": round(previo, 2),
+                "change_pct": round((precio - previo) / previo * 100.0, 2) if previo else 0.0,
+                "volume": int(rapido.get("volume") or 0),
+                "day_high": round(alto, 2),
+                "day_low": round(bajo, 2),
+                # VWAP no viene en `quote`; el precio tipico (H+L+C)/3 es el
+                # mismo respaldo que ya usaba la ruta larga cuando faltaba.
+                "vwap": round((alto + bajo + precio) / 3, 2),
+                "logo_url": obtener_logo(ticker_clean, perfil.get("website") or ""),
+                "after_hours": None,
+                "fuente": "fmp_quote",
+            }
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass  # cae a la ruta completa
+
     try:
         stock = vertex_market.Ticker(ticker_clean)
         # Este endpoint es lo PRIMERO que toca el usuario: el buscador lo llama al
@@ -8077,7 +8132,46 @@ def analyze_ticker(ticker: str, explain: bool = False):
     (`grep wbj_explanation` sobre la plataforma: 0 usos). Se paga sólo si
     alguien la pide."""
     with _ANALYZE_LOCK:
-        return _analyze_ticker_serializado(ticker, explain)
+        resultado = _analyze_ticker_serializado(ticker, explain)
+    # La amplitud de sector se calienta DESPUES, y fuera del lock.
+    #
+    # Pedirla durante el analisis disparaba cientos de peticiones a FMP, agotaba
+    # el limite y los 429 caian sobre las llamadas del propio ticker -- su
+    # estado de flujo de caja y su historico de precios llegaron a fallar
+    # detras de esa tormenta. Una metrica de contexto de 3 puntos tumbando las
+    # seis categorias.
+    #
+    # Aqui ya no compite con nada: el usuario tiene su reporte y el hilo
+    # trabaja para el SIGUIENTE analisis de ese sector, que la encontrara en
+    # cache. Si falla, no se entera nadie y la metrica queda NOT_SCORABLE.
+    _calentar_amplitud_en_segundo_plano(ticker)
+    return resultado
+
+
+def _calentar_amplitud_en_segundo_plano(ticker: str) -> None:
+    """Deja lista la amplitud del sector de `ticker` para la proxima vez."""
+    def _trabajo():
+        try:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+            from wbj.config import load_settings
+            from wbj.overlay.amplitud_sector import amplitud_de_sector
+            from wbj.providers.cache import Cache
+            from wbj.providers.fmp import FMPProvider
+
+            s = load_settings()
+            f = FMPProvider(s, Cache(s.cache_dir))
+            perfil = (f.profile(ticker) or [{}])
+            sector = (perfil[0] or {}).get("sector") if isinstance(perfil, list) else None
+            if sector:
+                amplitud_de_sector(f, sector)
+        except Exception:
+            logging.getLogger(__name__).info(
+                "no se pudo calentar la amplitud de sector", exc_info=True)
+
+    try:
+        threading.Thread(target=_trabajo, daemon=True).start()
+    except Exception:
+        pass
 
 
 def _analyze_ticker_serializado(ticker: str, explain: bool = False):
