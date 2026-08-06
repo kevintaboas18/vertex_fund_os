@@ -4179,9 +4179,70 @@ def tito_ideas():
 
 
 #: Concurrencia del escaneo Wheel — su `CONCURRENCY`. Cada ticker son dos
-#: llamadas a Massive (cadena + financials); sin tope, 40 símbolos en paralelo
-#: se comen la cuota de un tirón.
+#: llamadas a Massive (cadena + barras); sin tope, 40 símbolos en paralelo se
+#: comen la cuota de un tirón.
 _WHEEL_CONCURRENCY = 6
+
+#: Reintentos ante un 429 de Massive, con espera creciente.
+#:
+#: 40 tickers × 2 llamadas en 6 hilos es una **ráfaga de ~80 peticiones en
+#: segundos**, y los planes de Massive limitan por minuto. La firma es
+#: inconfundible: unos pocos símbolos pasan y el resto cae de golpe — Kevin vio
+#: "35 sin barras diarias" con 5 buenos.
+#:
+#: No va dentro de `massive.py` a propósito: ese módulo es port literal y su
+#: `_get` no reintenta. Reintentar es política de Vertex, y vive aquí igual que
+#: `borde.py` o `_tito_tape`.
+_WHEEL_REINTENTOS = 3
+_WHEEL_ESPERA_BASE = 1.5
+
+
+def _wheel_con_reintento(fn, *a, **k):
+    """Llama a `fn` y reintenta SOLO ante un 429, con espera creciente.
+
+    Cualquier otro error se propaga tal cual: un 403 del plan no mejora por
+    esperar, y reintentarlo solo retrasa el diagnóstico.
+    """
+    from wbj.tito.massive import MassiveError
+
+    for intento in range(_WHEEL_REINTENTOS):
+        try:
+            return fn(*a, **k)
+        except MassiveError as e:
+            if getattr(e, "status", None) != 429 or intento == _WHEEL_REINTENTOS - 1:
+                raise
+            time.sleep(_WHEEL_ESPERA_BASE * (2 ** intento))
+    return None
+
+
+def _wheel_barras(ticker, now):
+    """Barras diarias del escaneo, **con el motivo cuando fallan**.
+
+    `cached_daily_bars` hace `.catch(() => [])` —es lo que hace su
+    `cachedDailyBars`, y ahí está bien— pero eso convierte un 429, un 403 y un
+    ticker sin datos en la misma lista vacía. En un escaneo de 40 símbolos eso
+    es la diferencia entre "espera un momento" y "revisa tu plan".
+
+    Se usa el parámetro `fetch` que el propio store expone para poder probarse
+    sin red: aquí sirve para capturar el error sin tocar el port.
+    """
+    from wbj.tito.bars_store import cached_daily_bars
+    from wbj.tito.massive import MassiveError, fetch_daily_bars
+
+    fallo = {}
+
+    def _traer(t, d):
+        try:
+            return _wheel_con_reintento(fetch_daily_bars, t, d)
+        except MassiveError as e:
+            fallo["motivo"] = ("fuente", str(e))
+            raise
+        except Exception as e:                   # noqa: BLE001
+            fallo["motivo"] = ("error", f"{type(e).__name__}: {e}")
+            raise
+
+    bars = cached_daily_bars(ticker, 365, now, fetch=_traer)
+    return bars, fallo.get("motivo")
 
 
 @app.get("/api/tito-wheel")
@@ -4215,7 +4276,9 @@ def tito_wheel(preset: str = "balanceado"):
     from wbj.tito.ivcontext import rank_within, realized_vol_series
     from wbj.tito.levels import LvlBar, find_levels
     from wbj.tito.massive import MassiveError, fetch_wheel_chain
-    from wbj.tito.wheel import WHEEL_PRESETS, CandidatesInput, wheel_candidates
+    from wbj.tito.wheel import (MAX_SPREAD_PCT as WHEEL_MAX_SPREAD,
+                                MIN_OI as WHEEL_MIN_OI, WHEEL_PRESETS,
+                                CandidatesInput, wheel_candidates)
     from wbj.tito.wheel_universe import WHEEL_UNIVERSE
 
     p = WHEEL_PRESETS.get(preset if preset in WHEEL_PRESETS else "balanceado")
@@ -4235,7 +4298,8 @@ def tito_wheel(preset: str = "balanceado"):
         forma de saber si el problema era la cuenta, el mercado o el filtro.
         """
         try:
-            chain = fetch_wheel_chain(sym.ticker, p.dte_min, p.dte_max, now=now)
+            chain = _wheel_con_reintento(fetch_wheel_chain, sym.ticker,
+                                         p.dte_min, p.dte_max, now=now)
         except MassiveError as e:
             return [], ("fuente", str(e))
         except Exception as e:                   # noqa: BLE001 — un ticker no tumba el escaneo
@@ -4245,16 +4309,28 @@ def tito_wheel(preset: str = "balanceado"):
             return [], ("sin_cadena",
                         f"sin puts entre {p.dte_min} y {p.dte_max} días")
 
+        # ¿Trae HORQUILLA la cadena? Es la pregunta que decide si este escaneo
+        # puede dar algo, y hay que hacerla antes que ninguna otra.
+        #
+        # Sin bid/ask pasan dos cosas, las dos malas y ninguna evidente:
+        #   · no hay `mid`, así que la IV implícita no se puede despejar y el
+        #     delta se calcula con volatilidad REALIZADA — los strikes se salen
+        #     de la banda del preset y el ticker sale como "fuera_de_banda";
+        #   · y si alguno cae dentro, `liquidity_block` lo tumba por "sin_bid".
+        #
+        # Las dos rutas acaban en cero candidatos por el MISMO motivo, y
+        # ninguna de las dos lo nombra. `last_quote` es un añadido de plan en
+        # Massive: no es la key y no mejora reintentando.
+        if not any(q.bid is not None and q.ask is not None for q in chain.quotes):
+            return [], ("sin_horquilla",
+                        f"{len(chain.quotes)} puts y ninguno con bid/ask")
+
         # Las barras van ANTES que el spot: hacen falta igual para los niveles
         # y el IV Rank, y su último cierre es el respaldo que nunca falla.
-        try:
-            bars = cached_daily_bars(sym.ticker, 365, now)
-        except MassiveError as e:
-            return [], ("fuente", str(e))
-        except Exception as e:                   # noqa: BLE001
-            return [], ("error", f"{type(e).__name__}: {e}")
+        bars, fallo_barras = _wheel_barras(sym.ticker, now)
         if not bars:
-            return [], ("sin_barras", "Massive no devolvió barras diarias")
+            return [], fallo_barras or ("sin_barras",
+                                        "Massive no devolvió barras diarias para este símbolo")
 
         # ── El SPOT, con la cadena de respaldo COMPLETA ──────────────────
         #
@@ -4332,6 +4408,7 @@ def tito_wheel(preset: str = "balanceado"):
         "sin_cadena":     "sin puts en la ventana de DTE",
         "sin_barras":     "sin barras diarias",
         "fuera_de_banda": "cadena OK, pero ningún strike en la banda de delta",
+        "sin_horquilla":  "la cadena no trae bid/ask (last_quote)",
     }
     motivos, ejemplos = {}, {}
     for sym, (cands, motivo) in zip(WHEEL_UNIVERSE, resultados):
@@ -4373,6 +4450,28 @@ def tito_wheel(preset: str = "balanceado"):
         }
 
     con_candidatos = len({c.ticker for c in todos if not c.blocked})
+    # Por qué se BLOQUEÓ cada contrato (distinto de por qué se cayó cada
+    # ticker). Si todos caen por lo mismo, no es el mercado: es la fuente.
+    _bloqueos = {}
+    for c in todos:
+        if c.blocked:
+            _bloqueos[c.block_reason] = _bloqueos.get(c.block_reason, 0) + 1
+    _POR = {
+        "sin_bid": ("la cadena no trae precio de compra (bid)",
+                    "Sin horquilla no se puede saber lo que cobrarías de verdad, y la "
+                    "regla es no enseñar un número que no puedes cobrar. Si TODOS los "
+                    "contratos caen aquí, tu plan de Massive no está sirviendo "
+                    "`last_quote` en el snapshot de opciones — es un añadido de plan, "
+                    "no un problema de la key."),
+        "spread_ancho": (f"horquilla más ancha del {WHEEL_MAX_SPREAD}%",
+                         "Entrar y salir se comería la prima."),
+        "oi_bajo": (f"open interest bajo el mínimo de {WHEEL_MIN_OI}",
+                    "Contrato poco negociado: difícil de cerrar."),
+    }
+    bloqueos = [{"motivo": k, "contratos": v,
+                 "que_significa": _POR.get(k, (k, ""))[0],
+                 "por_que": _POR.get(k, (k, ""))[1]}
+                for k, v in sorted(_bloqueos.items(), key=lambda x: -x[1])]
     return _json_safe({
         "ok": True, "engine": "victor/tito",
         "candidates": [_fila(c) for c in todos[:120]],
@@ -4382,6 +4481,8 @@ def tito_wheel(preset: str = "balanceado"):
                      "dte_min": q.dte_min, "dte_max": q.dte_max,
                      "take_profit_pct": q.take_profit_pct, "roll_dte": q.roll_dte}
                     for q in WHEEL_PRESETS.values()],
+        "blocked_summary": bloqueos,
+        "blocked_total": sum(_bloqueos.values()),
         "scanned": len(WHEEL_UNIVERSE), "failed": fallidos,
         "with_candidates": con_candidatos,
         # El desglose de POR QUÉ se cayó cada ticker, con un ejemplo real de
