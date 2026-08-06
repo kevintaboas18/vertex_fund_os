@@ -1025,6 +1025,54 @@ class TestIdeasDelMercado:
         assert "ideas" not in d
 
 
+class TestElTabSeArmaAlEntrarPorElMENU:
+    """El fallo: la inicialización colgaba de la barra de comandos (Cmd+K).
+
+    Entrando por el menú —que es como se entra— no se pintaba ni la navegación
+    de pestañas ni los tickers rápidos: quedaba el DOM crudo y el único texto
+    visible era "Analiza un ticker". Todo el trabajo estaba hecho y no lo
+    llamaba nadie.
+    """
+
+    def test_switchView_arma_proyecciones(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function switchView(viewId) {")
+        cuerpo = _sin_comentarios(html[i:html.index("\n}", i)])
+        assert "viewId === 'projectionsView'" in cuerpo
+        assert "vcArrancaProyecciones()" in cuerpo
+
+    def test_el_arranque_pinta_las_cuatro_piezas(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcArrancaProyecciones() {")
+        cuerpo = _sin_comentarios(html[i:html.index("\n}", i)])
+        for pieza in ("vcPintaNav()", "vcPintaQuick(", "vcAbreTab(", "vcArrancaVivo()"):
+            assert pieza in cuerpo, f"el arranque no llama a {pieza}"
+
+    def test_TODAS_las_entradas_al_tab_pasan_por_switchView(self):
+        """Si mañana alguien añade otro botón que enseñe el tab sin pasar por
+        `switchView`, vuelve el DOM crudo. Aquí se fija que no hay atajos."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        sin_comentarios = _sin_comentarios(html)
+        # Nadie puede quitarle el `hidden` al tab a mano.
+        sospechosos = re.findall(
+            r"getElementById\(['\"]projectionsView['\"]\)[^;\n]*classList\.remove",
+            sin_comentarios)
+        assert not sospechosos, f"alguien enseña el tab sin pasar por switchView: {sospechosos}"
+        # Y el menú móvil también pasa por ahí.
+        i = html.index("function mobileGo(viewId){")
+        assert "switchView(viewId)" in html[i:i + 200]
+
+    def test_el_arranque_es_idempotente(self):
+        """Entrar diez veces al tab no puede relanzar diez veces el escaneo ni
+        dejar diez temporizadores corriendo."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcArrancaProyecciones() {")
+        cuerpo = _sin_comentarios(html[i:html.index("\n}", i)])
+        assert "!vcVivoTimer" in cuerpo, "el temporizador en vivo se duplicaría"
+        j = html.index("function vcAbreTab(id) {")
+        assert "if (vcTabCargada[id]) return;" in html[j:j + 900]
+
+
 class TestEnVivoSinBotones:
     """Fuera el botón de recargar y la casilla "auto": el panel se mantiene solo."""
 

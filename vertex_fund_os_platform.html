@@ -1233,6 +1233,25 @@ function switchView(viewId) {
     lucide.createIcons();
     if (viewId === 'reportsView') { renderFullReportsList(); syncReportsFromServer(); }
     if (viewId === 'homeView') renderRecentReports();
+    // Proyecciones se arma AQUÍ, en la navegación.
+    //
+    // Estaba colgado de la barra de comandos (Cmd+K), así que entrando por el
+    // menú —que es como se entra— no se pintaba ni la navegación de pestañas ni
+    // los tickers rápidos: quedaba el DOM crudo y el único texto visible era
+    // "Analiza un ticker". Todo el trabajo estaba hecho y no lo llamaba nadie.
+    if (viewId === 'projectionsView') vcArrancaProyecciones();
+}
+
+/** Deja el tab de Proyecciones listo: pestañas, tickers rápidos, panel activo
+ *  y el motor en vivo. Idempotente — entrar diez veces no relanza diez veces
+ *  el escaneo, de eso se encarga `vcTabCargada`. */
+function vcArrancaProyecciones() {
+    if (typeof vcPintaNav === 'function') vcPintaNav();
+    const inp = document.getElementById('projTicker');
+    if (typeof vcPintaQuick === 'function') vcPintaQuick(inp ? inp.value : null);
+    if (typeof vcAbreTab === 'function') vcAbreTab(vcTabActiva);
+    if (typeof vcArrancaVivo === 'function' && !vcVivoTimer) vcArrancaVivo();
+    if (window.lucide) lucide.createIcons();
 }
 function switchAnalysisTab(tabId, btn) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -5307,11 +5326,8 @@ function cmdKey(e) {
     if (e.shiftKey) {   // proyecciones GEX rápidas
         if (typeof switchView === 'function') switchView('projectionsView');
         const pt = document.getElementById('projTicker'); if (pt) pt.value = tk;
-        if (typeof vcPintaQuick === 'function') vcPintaQuick(null);
-        // Sin ticker el agente NO se queda esperando: entra por Ideas, que
-        // escanea el mercado y no pide nada.
-        if (typeof vcAbreTab === 'function') vcAbreTab(vcTabActiva);
-        if (typeof vcArrancaVivo === 'function' && !vcVivoTimer) vcArrancaVivo();
+        // `switchView` ya dejó el tab armado; con símbolo, se analiza.
+        if (typeof loadProjections === 'function') loadProjections(tk);
     } else {            // análisis completo del agente
         if (typeof analyzeTickerNow === 'function') analyzeTickerNow(tk);
     }
