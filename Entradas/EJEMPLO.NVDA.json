@@ -255,6 +255,8 @@
   ],
   "_comment_37": "BUS-REC-002: fraccion 0-1 del ingreso que es recurrente. DATASET.md: recurring_revenue_5y. No el monto absoluto.",
   "recurring_revenue_share": 0.18,
+  "_comment_recurring_revenue_applies": "Solo hace falta cuando la empresa SI tiene ingreso recurrente pero NO publica el porcentaje. Por defecto BUS-REC-002 se decide por industria, y la industria es un proxy: NVDA es 'Semiconductors' y aun asi vende NVIDIA AI Enterprise por suscripcion. Sin esta clave se marcaria como 'no aplica' un hueco que es real, y la cobertura de business subiria tapandolo. Ponlo en true solo si lo comprobaste en el filing.",
+  "recurring_revenue_applies": null,
   "_comment_38": "FIN-GR-004: puente de crecimiento organico. {organic_growth, total_growth} en decimal. DATASET.md: organic_growth_bridge.",
   "organic_growth_bridge": {
     "organic_growth": 0.52,

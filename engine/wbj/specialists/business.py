@@ -1158,7 +1158,31 @@ def _compute_all(
     elif recurring is not None and rev_latest not in (None, 0):
         v = recurring_revenue_pct(recurring, rev_latest)
     else:
-        v = _null(NullState.MISSING, "pct", "RECURRING_REVENUE_UNAVAILABLE")
+        # `DATASET.md` tipa `recurring_revenue_5y` como **conditional** y lo
+        # define como "contractual or subscription revenue with recurring
+        # character". Un negocio que no corre sobre contratos recurrentes no
+        # tiene esa cifra AUSENTE: no la tiene. Es el paso 1 del arbol de
+        # `MISSING_DATA_POLICY.md` -- "la metrica aplica? Si no,
+        # NOT_APPLICABLE" -- la misma puerta que ya cruzan BUS-NRR-020..026,
+        # de la que esta fila se habia quedado fuera.
+        #
+        # Ojo con el otro lado: un SaaS que SI corre sobre suscripciones y no
+        # publica el porcentaje tiene un hueco real, y sigue siendo MISSING.
+        # NVDA es el caso limite y por eso importa: tiene ingreso recurrente
+        # (AI Enterprise) y no lo reporta, asi que le cuenta en contra.
+        # Y la industria es solo un PROXY de la pregunta real, que es de
+        # empresa: NVDA es "Semiconductors" y aun asi tiene ingreso recurrente
+        # (NVIDIA AI Enterprise) que no reporta. Su propio archivo lo dice con
+        # todas las letras -- "no es que no aplique, es que no la reporta" --
+        # asi que un analista que lo haya comprobado pisa al proxy con
+        # `recurring_revenue_applies`. Sin esa declaracion se marcaria como no
+        # aplicable algo que un humano ya verifico que si aplica, y NVDA
+        # saltaba a una cobertura perfecta de 1,000 por un hueco real.
+        declarado = overlay.get("recurring_revenue_applies")
+        aplica = (bool(declarado) if declarado is not None
+                  else _subscription_business(packet, overlay))
+        v = _null(NullState.MISSING if aplica else NullState.NOT_APPLICABLE,
+                  "pct", "RECURRING_REVENUE_UNAVAILABLE")
     add("BUS-REC-002", v, _score_from_anchor(v, [(0.0, 0), (0.30, 4), (0.70, 7), (1.0, 10)]), source=analyst_source)
 
     # ---- BUS-CONC-003: largest customer concentration (overlay only; PROHIBITED_IMPUTATION) ----
@@ -1733,6 +1757,10 @@ _OVERLAY_LINEAGE: dict[str, str] = {
     "wacc": "wacc_inputs",
     "segment_shares": "revenue_by_segment_5y",
     "recurring_revenue": "recurring_revenue_5y",
+    # Declara que la empresa SI tiene ingreso recurrente aunque no publique el
+    # porcentaje. Sale del mismo campo del dataset porque responde a la misma
+    # pregunta: si ese campo aplica a esta empresa.
+    "recurring_revenue_applies": "recurring_revenue_5y",
     "largest_customer_share": "customer_revenue_shares",
     "customer_shares": "customer_revenue_shares",
     "retention": "retention_churn_cohorts",

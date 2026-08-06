@@ -56,3 +56,56 @@ def test_the_membership_list_is_affirmative():
         assert entrada == entrada.lower(), (
             f"{entrada!r} no esta en minusculas: la comparacion la hace en "
             "minusculas y una mayuscula lo dejaria fuera en silencio")
+
+
+# --- BUS-REC-002: ingresos recurrentes -------------------------------------
+
+def test_recurring_revenue_crosses_the_same_door():
+    """`DATASET.md` tipa `recurring_revenue_5y` como **conditional** y lo define
+    como "contractual or subscription revenue with recurring character".
+
+    Un negocio que no corre sobre contratos recurrentes no tiene esa cifra
+    ausente: no la tiene. Es el paso 1 del arbol de `MISSING_DATA_POLICY.md`,
+    la misma puerta que ya cruzaban BUS-NRR-020..026 -- y de la que esta fila
+    se habia quedado fuera, cobrandosela a Coca-Cola y a Exxon.
+    """
+    import inspect
+
+    fuente = inspect.getsource(bus)
+    bloque = fuente[fuente.index("---- BUS-REC-002"):]
+    bloque = bloque[:bloque.index('add("BUS-REC-002"')]
+    assert "NOT_APPLICABLE" in bloque, (
+        "BUS-REC-002 volvio a cobrarse a todo negocio, tenga o no ingreso "
+        "recurrente que reportar")
+
+
+def test_an_analyst_can_say_it_does_apply_after_all():
+    """La industria es solo un PROXY de una pregunta que es de empresa.
+
+    NVDA es "Semiconductors" y aun asi tiene ingreso recurrente que no reporta
+    -- NVIDIA AI Enterprise. Su propio archivo lo dice: "no es que no aplique,
+    es que no la reporta". Sin este escape se marcaria como inaplicable algo
+    que un humano ya verifico que aplica, y NVDA saltaba a una cobertura
+    perfecta de 1,000 tapando un hueco real.
+    """
+    import inspect
+
+    fuente = inspect.getsource(bus)
+    assert "recurring_revenue_applies" in fuente, (
+        "se perdio el escape del analista sobre el proxy de industria")
+
+
+def test_nvda_declares_it_because_its_own_note_says_so():
+    """El archivo de NVDA documentaba el hallazgo en prosa desde antes. Ahora
+    ademas lo declara donde el motor puede leerlo."""
+    import json
+    from pathlib import Path
+
+    ruta = Path(__file__).parent.parent.parent / "Entradas" / "NVDA.json"
+    if not ruta.exists():
+        return  # el archivo del analista es opcional
+    d = json.loads(ruta.read_text(encoding="utf-8"))
+    if "_recurring_ausente" in d:
+        assert d.get("recurring_revenue_applies") is True, (
+            "la nota dice que SI aplica; la clave que lee el motor tiene que "
+            "decir lo mismo, o el hueco real de NVDA se esconderia")

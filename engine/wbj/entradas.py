@@ -75,6 +75,7 @@ _EXTRA_DATASET_FIELD: dict[str, str] = {
     # The share form of `recurring_revenue`; business.py's lineage names only
     # the amount form, so this one is declared here.
     "recurring_revenue_share": "recurring_revenue_5y (01_business_analysis)",
+    "recurring_revenue_applies": "recurring_revenue_5y (01_business_analysis)",
     "catalysts": "catalyst_registry (03_market_analysis)",
     "backlog_history": "backlog_rpo_bookings (03_market_analysis)",
     "ntm_contracted": "backlog_rpo_bookings (03_market_analysis)",
@@ -321,7 +322,7 @@ _SECTIONS: list[tuple[str, list[str], list[str]]] = [
          "10-K: \"subscription revenue was 45% of total net revenue\" -> 0.45.",
          "Si tienes el monto absoluto en vez de la fraccion, usa la llave",
          "`recurring_revenue` y el motor lo divide entre el ingreso."],
-        ["recurring_revenue_share"],
+        ["recurring_revenue_share", "recurring_revenue_applies"],
     ),
     (
         "I+D capitalizada y arrendamientos",
