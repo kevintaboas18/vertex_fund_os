@@ -1270,17 +1270,71 @@ def reverse_dcf(price: float, shares: float, base_inputs: ReverseDCFInputs) -> R
         ) - price
 
     lo, hi = base_inputs.growth_bounds
+
+    # `brentq` solo mira los EXTREMOS, y esta funcion no es monotona: mas
+    # crecimiento exige mas reinversion, asi que el valor sube, hace pico y
+    # cae. Con f(lo) y f(hi) los dos negativos y un pico positivo en medio hay
+    # DOS raices y el acotado por extremos no encuentra ninguna. Se escanea el
+    # rango y se resuelve en el primer tramo donde el signo cambia.
+    _muestras = 64
+    _xs = [lo + (hi - lo) * i / _muestras for i in range(_muestras + 1)]
+    _tramo = None
+    _previo = None
+    for x in _xs:
+        try:
+            y = f_growth(x)
+        except Exception:  # noqa: BLE001 -- un tramo refutado no invalida el resto
+            _previo = None
+            continue
+        if _previo is not None and (_previo[1] < 0) != (y < 0):
+            _tramo = (_previo[0], x)
+            break
+        _previo = (x, y)
+
     try:
-        implied_growth = brentq(f_growth, lo, hi, xtol=1e-12, rtol=1e-12)
+        if _tramo is None:
+            raise ValueError("sin cambio de signo en el rango")
+        implied_growth = brentq(f_growth, _tramo[0], _tramo[1], xtol=1e-12, rtol=1e-12)
         converged = True
         warnings: list[str] = []
     except ValueError:
+        # No hay raiz, y la razon importa: el valor modelado NO es monotono en
+        # el crecimiento. Mas crecimiento exige mas reinversion, asi que pasado
+        # cierto punto el flujo libre cae y con el el valor. Medido en AMD: el
+        # maximo que el modelo alcanza son ~11,46 por accion y el precio son
+        # 482,05. Ningun crecimiento justifica ese precio.
+        #
+        # Decir solo "no encontro raiz" tiraba esa conclusion a la basura. Es
+        # justo la banda 0-3 que `SCORING.md` describe para esta dimension --
+        # "price implies growth/returns far above evidenced capacity" -- asi
+        # que se distingue de que direccion viene el fallo.
+        try:
+            en_lo, en_hi = f_growth(lo), f_growth(hi)
+            techo = max(f_growth(g) for g in
+                        (lo, 0.0, min(hi, 0.25), min(hi, 0.5), min(hi, 1.0), hi))
+        except Exception:  # noqa: BLE001
+            en_lo = en_hi = techo = None
+
+        if techo is not None and techo < 0:
+            motivo = ("PRICE_ABOVE_EVERY_MODELLED_VALUE: ningun crecimiento en "
+                      f"[{lo:.0%}, {hi:.0%}] alcanza el precio; el maximo que el "
+                      "modelo produce queda por debajo. SCORING.md: 'price implies "
+                      "growth/returns far above evidenced capacity'")
+        elif en_lo is not None and en_lo > 0 and en_hi is not None and en_hi > 0:
+            motivo = ("PRICE_BELOW_EVERY_MODELLED_VALUE: el precio queda por "
+                      "debajo del valor en todo el rango de crecimiento")
+        else:
+            motivo = "NO_SIGN_CHANGE_IN_GROWTH_BOUNDS"
         return ReverseDCFResult(
-            implied_growth=_null(NullState.NOT_SCORABLE, "pct", "NO_SIGN_CHANGE_IN_GROWTH_BOUNDS"),
-            implied_margin=_null(NullState.NOT_SCORABLE, "pct", "NO_SIGN_CHANGE_IN_GROWTH_BOUNDS"),
+            # El ESTADO sigue siendo NOT_SCORABLE: no hay crecimiento
+            # implicito que reportar, y cambiarlo alteraba un contrato que
+            # nada necesitaba. Lo que cambia es el AVISO, que ahora dice de
+            # que lado falla -- y con eso el especialista puede puntuar.
+            implied_growth=_null(NullState.NOT_SCORABLE, "pct", motivo),
+            implied_margin=_null(NullState.NOT_SCORABLE, "pct", motivo),
             consensus_growth_used=base_inputs.consensus_growth or 0.0,
             converged=False,
-            warnings=["reverse_dcf growth solve did not bracket a root"],
+            warnings=[f"reverse_dcf: {motivo.split(':')[0]}"],
         )
 
     consensus_growth = base_inputs.consensus_growth if base_inputs.consensus_growth is not None else implied_growth
