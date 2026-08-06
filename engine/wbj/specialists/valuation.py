@@ -699,15 +699,41 @@ def _reit_adapter_output(packet: Packet, overlay: dict[str, Any]) -> ValuationOu
     add("VAL-MOS-040", mos_v, None)
     mos_score = _score_from_anchor(mos_v, [(-0.25, 0), (0.0, 4), (0.15, 7), (0.30, 10)])
     scored = [(1.0, Value.of(mos_score, unit="score"))] if mos_score is not None else []
+
+    # El modelo de dividendos es un chequeo que la matriz nombra para REITs, y
+    # corre sobre el tag de dividendos en XBRL sin pedirle nada a nadie. Si
+    # produjo un valor justo -- y lo produjo, porque de ahi sale el margen de
+    # seguridad -- entonces `fair_value_by_scenarios` NO es inaplicable: es la
+    # dimension que ese valor llena. Marcarla inaplicable teniendo el numero
+    # calculado escondia dos puntos de la categoria detras de una etiqueta.
     na = Value.null(NullState.NOT_APPLICABLE, unit="score",
                     warnings=["NOT_APPLICABLE_UNDER_REITS"])
-    dims = [
-        Dimension(name=n, max_points=DIMENSION_MAX_POINTS[n],
-                  metric_scores=(scored if n == DIM_MOS else [(1.0, na)]))
-        for n in DIMENSION_NAMES
-    ]
+    # P/AFFO es EL multiplo de un REIT: INDUSTRY_ADAPTERS.md dice "replace EPS
+    # with FFO/AFFO", asi que el hueco no es que el multiplo no aplique, es que
+    # falta AFFO. Y falta por una razon escrita arriba: su definicion varia un
+    # 14% entre lecturas defendibles del mismo filing, asi que la transcribe un
+    # analista con su fuente. Eso es NOT_SCORABLE -- cuenta en contra y se ve --
+    # y no NOT_APPLICABLE, que lo sacaria del denominador y lo escondería.
+    sin_affo = Value.null(NullState.NOT_SCORABLE, unit="score",
+                          warnings=["P_AFFO_NEEDS_ISSUER_AFFO_IN_ENTRADAS"])
+    por_dimension = {
+        DIM_MOS: scored,
+        DIM_FAIR_VALUE_SCENARIOS: ([(1.0, Value.of(mos_score, unit="score"))]
+                                   if mos_score is not None else [(1.0, sin_affo)]),
+        # Multiplos e historico: el de EPS no aplica (queda reemplazado), el de
+        # AFFO falta. Los dos estados, cada uno donde corresponde.
+        DIM_MULTIPLES: [(0.5, na), (0.5, sin_affo)],
+        DIM_HIST_PEER: [(1.0, sin_affo)],
+        DIM_CF_YIELD: [(0.5, na), (0.5, sin_affo)],
+    }
+    dims = [Dimension(name=n, max_points=DIMENSION_MAX_POINTS[n],
+                      metric_scores=por_dimension[n])
+            for n in DIMENSION_NAMES]
     awarded = Category(name="valuation", max_points=MAX_POINTS, dimensions=dims).points()
-    coverage = (DIMENSION_MAX_POINTS[DIM_MOS] / MAX_POINTS) if scored else 0.0
+    # `MISSING_DATA_POLICY.md`: peso VALIDO / peso APLICABLE. Antes se dividia
+    # entre `MAX_POINTS`, los 10 puntos completos, asi que O salia en 0,100.
+    _apl = sum(d.max_points * d.applicable_weight() for d in dims)
+    coverage = (sum(d.max_points * d.valid_weight() for d in dims) / _apl) if _apl else 0.0
 
     assumptions.append(
         "industry_adapter='reits': DECISION_RULES.md assigns NAV, AFFO DCF and cap rates as "
@@ -956,11 +982,94 @@ def _financial_adapter_output(packet: Packet, overlay: dict[str, Any]) -> Valuat
              else _null(NullState.MISSING, "x", "JUSTIFIED_PB_INPUTS_UNAVAILABLE"))
     add("VAL-JPB-031", jpb_v, None)
 
+    # ---- VAL-JPE-032: P/E justificado, y el múltiplo contra él ----
+    # `SCORING.md` da 3 puntos a la dimensión de múltiplos y nombra cuatro
+    # entradas: VAL-PEG-028, JPE-032, JEVS-033 y el DCF inverso. El adaptador
+    # prohíbe las que van sobre ENTERPRISE VALUE —EV/Sales y el DCF inverso,
+    # que descuenta flujos de la empresa— porque en un banco la deuda es
+    # materia prima y el enterprise value no significa nada. Pero el P/E
+    # justificado sale de ROE, crecimiento y costo de capital: los tres
+    # existen aquí y ninguno está prohibido.
+    #
+    # La dimensión se estaba dejando vacía entera. Vacía no es lo mismo que
+    # inaplicable: una dimensión ausente y una que no aplica se leen igual
+    # desde fuera, y sólo la segunda era verdad para dos de las cuatro
+    # entradas.
+    jpe_v = (ve.justified_pe(tv_growth, roe, ke_v.value)
+             if roe is not None and ke_v.is_valid
+             else _null(NullState.MISSING, "", "JUSTIFIED_PE_INPUTS_UNAVAILABLE"))
+    add("VAL-JPE-032", jpe_v, None)
+
+    eps_banco = (net_income / shares
+                 if net_income is not None and shares not in (None, 0) else None)
+    pe_actual = (_ok(price / eps_banco, unit="ratio")
+                 if price and eps_banco and eps_banco > 0
+                 else _null(NullState.MISSING, "ratio", "TRAILING_PE_UNAVAILABLE"))
+    pe_vs_jpe = _null(NullState.MISSING, "pct", "JPE_COMPARISON_UNAVAILABLE")
+    if jpe_v.is_valid and pe_actual.is_valid and jpe_v.value != 0:
+        pe_vs_jpe = _ok((pe_actual.value - jpe_v.value) / jpe_v.value, unit="pct")
+    # Mismas anclas que la ruta por defecto: cotizar por debajo del P/E que
+    # justifican sus propios fundamentales puntúa alto.
+    multiplos_score = _score_from_anchor(
+        pe_vs_jpe, [(0.50, 0), (0.15, 4), (0.0, 7), (-0.15, 10)])
+    if pe_vs_jpe.is_valid:
+        assumptions.append(
+            f"VAL-JPE-032: el P/E justificado por ROE {roe:.1%}, crecimiento "
+            f"{tv_growth:.1%} y costo de capital {ke_v.value:.1%} es "
+            f"{jpe_v.value:,.1f}x; el mercado paga {pe_actual.value:,.1f}x, un "
+            f"{pe_vs_jpe.value:+.1%}. VAL-JEVS-033 y el DCF inverso quedan "
+            "NOT_APPLICABLE: los dos se apoyan en enterprise value, que en un "
+            "banco no significa nada porque su deuda es materia prima."
+        )
+
+    # ---- VAL-EY-029: rendimiento de utilidades ----
+    # `SCORING.md` da 2 puntos a la dimensión de rendimientos y nombra dos
+    # entradas: VAL-EY-029 (utilidades/precio) y VAL-FCFY-030 (flujo libre/
+    # capitalización). El adaptador de bancos prohíbe la SEGUNDA —"do not use
+    # ... conventional FCFF"— pero no la primera: las utilidades de un banco
+    # son perfectamente reales y su precio también.
+    #
+    # La dimensión entera se estaba dejando vacía, así que un banco perdía sus
+    # 2 puntos por una prohibición que sólo alcanzaba a la mitad. Ahora se
+    # puntúa lo permitido y lo prohibido se marca NOT_APPLICABLE, que es lo que
+    # `MISSING_DATA_POLICY.md` manda hacer con lo que no aplica —y, a
+    # diferencia de MISSING, sale del denominador de la cobertura.
+    ey_v = (_ok(eps_banco / price, unit="pct")
+            if eps_banco is not None and eps_banco > 0 and price
+            else _null(NullState.NOT_MEANINGFUL, "pct",
+                       "EARNINGS_YIELD_NONPOSITIVE_EPS_OR_PRICE"))
+    ey_score = _score_from_anchor(ey_v, [(0.0, 0), (0.03, 4), (0.06, 7), (0.10, 10)])
+    add("VAL-EY-029", ey_v, ey_score)
+
+    fcfy_v = _null(NullState.NOT_APPLICABLE, "pct",
+                   f"NOT_APPLICABLE_UNDER_{(packet.analysis.industry_adapter or '').upper()}")
+    add("VAL-FCFY-030", fcfy_v, None)
+    if ey_v.is_valid:
+        assumptions.append(
+            f"VAL-EY-029: rendimiento de utilidades {ey_v.value:.2%} "
+            f"({eps_banco:,.2f} por accion sobre un precio de {price:,.2f}). "
+            "VAL-FCFY-030 queda NOT_APPLICABLE, no ausente: INDUSTRY_ADAPTERS.md "
+            "prohibe el flujo de caja libre convencional para este adaptador "
+            "-- los pasivos de un banco son su materia prima, no su "
+            "financiamiento -- pero no prohibe sus utilidades."
+        )
+
     # ---- Fair value and margin of safety, off the models the matrix allows ----
-    candidates = [v for v in (riv_per_share,
-                              ddm_v.value if ddm_v.is_valid else None,
-                              hddm_v.value if hddm_v.is_valid else None) if v is not None]
-    fair_value = sum(candidates) / len(candidates) if candidates else None
+    # Por la funcion COMPARTIDA del motor, no con aritmetica local. El mismo
+    # valor justo lo necesita `overlay/from_packet.py` para derivar el margen
+    # de seguridad que consume el agente de riesgo, y calcularlo dos veces es
+    # lo que hacia que divergieran: reconstruido a mano, Realty Income salia
+    # con -81,2% de margen contra el -2,2% de aqui.
+    fair_value, _modelos = ve.valor_justo_por_adaptador(
+        adapter=packet.analysis.industry_adapter,
+        price=price, shares=shares, net_income=net_income,
+        equity_now=equity_now, equity_begin=equity_begin,
+        cost_of_equity_value=ke_v.value if ke_v.is_valid else None,
+        dividend_per_share=overlay.get("dividend_per_share"),
+        dividend_growth=div_growth,
+        terminal_growth=overlay_float(overlay, "tv_growth", 0.025),
+        forecast_years=int(overlay.get("forecast_years", 5)))
+    candidates = _modelos
     mos_v = (ve.margin_of_safety(fair_value, price)
              if fair_value is not None and price is not None
              else _null(NullState.MISSING, "pct", "MOS_INPUTS_UNAVAILABLE"))
@@ -983,12 +1092,43 @@ def _financial_adapter_output(packet: Packet, overlay: dict[str, Any]) -> Valuat
     fv_score = mos_score  # same price-vs-value read the default path scores
     _s = (lambda x: [(1.0, Value.of(x, unit="score"))] if x is not None else [])
     dims = [
+        # Los cuatro pesos que nombra `SCORING.md`, no una lista vacía. Dos de
+        # ellos —EV/Sales y el DCF inverso— van sobre enterprise value y el
+        # adaptador los prohíbe: entran como NOT_APPLICABLE y salen del
+        # denominador. VAL-PEG-028 sigue siendo un hueco real (necesita el
+        # crecimiento de utilidades que declara un analista), y como hueco se
+        # declara: NOT_SCORABLE cuenta en contra, que es lo correcto.
         Dimension(name=DIM_MULTIPLES, max_points=DIMENSION_MAX_POINTS[DIM_MULTIPLES],
-                  metric_scores=[]),
+                  metric_scores=[
+                      (0.35, Value.null(NullState.NOT_SCORABLE, unit="score",
+                                        warnings=["PEG_NEEDS_ANALYST_GROWTH"])),
+                      (0.25, Value.of(multiplos_score, unit="score")
+                       if multiplos_score is not None
+                       else Value.null(NullState.NOT_SCORABLE, unit="score")),
+                      (0.40, Value.null(NullState.NOT_APPLICABLE, unit="score",
+                                        warnings=["ENTERPRISE_VALUE_BARRED_UNDER_ADAPTER"])),
+                  ]),
+        # El z-score contra su propia historia (VAL-ZHIST-035) no es
+        # inaplicable a un banco: su P/E tiene historia como el de cualquiera.
+        # Es un hueco de datos, y por eso NOT_SCORABLE y no NOT_APPLICABLE --
+        # marcarlo inaplicable lo sacaría del denominador y escondería que
+        # falta.
         Dimension(name=DIM_HIST_PEER, max_points=DIMENSION_MAX_POINTS[DIM_HIST_PEER],
-                  metric_scores=[]),
+                  metric_scores=[
+                      (1.0, Value.null(NullState.NOT_SCORABLE, unit="score",
+                                       warnings=["NO_HISTORICAL_MULTIPLES_IN_ADAPTER_PATH"])),
+                  ]),
+        # Los dos pesos de `SCORING.md`, no una lista vacía. El de flujo de
+        # caja entra como NOT_APPLICABLE y por tanto fuera del denominador; el
+        # de utilidades se puntúa. Vaciar la dimensión los trataba a los dos
+        # como ausentes, y sólo uno lo estaba.
         Dimension(name=DIM_CF_YIELD, max_points=DIMENSION_MAX_POINTS[DIM_CF_YIELD],
-                  metric_scores=[]),
+                  metric_scores=[
+                      (0.5, Value.of(ey_score, unit="score") if ey_score is not None
+                       else Value.null(NullState.NOT_SCORABLE, unit="score")),
+                      (0.5, Value.null(NullState.NOT_APPLICABLE, unit="score",
+                                       warnings=["NOT_APPLICABLE_UNDER_ADAPTER"])),
+                  ]),
         Dimension(name=DIM_FAIR_VALUE_SCENARIOS,
                   max_points=DIMENSION_MAX_POINTS[DIM_FAIR_VALUE_SCENARIOS],
                   metric_scores=_s(fv_score)),
@@ -999,8 +1139,17 @@ def _financial_adapter_output(packet: Packet, overlay: dict[str, Any]) -> Valuat
     # points = max points * score / 10; category points = sum"), and it is
     # null-aware, which the per-dimension score10() is deliberately not.
     awarded = Category(name="valuation", max_points=MAX_POINTS, dimensions=dims).points()
-    scored_weight = sum(d.max_points for d in dims if d.metric_scores)
-    coverage = scored_weight / MAX_POINTS
+    # `MISSING_DATA_POLICY.md`: cobertura = peso VÁLIDO / peso APLICABLE, y su
+    # árbol de decisión empieza por "¿la métrica aplica? Si no, NOT_APPLICABLE".
+    # Aquí se dividía entre `MAX_POINTS`, o sea entre los 10 puntos completos,
+    # así que un banco pagaba en cobertura por obedecer la prohibición del
+    # propio Cerebro: medido, JPM salía en 0,300 con su valuación entregada.
+    # Contar lo prohibido en el denominador convierte una regla metodológica en
+    # un castigo, y no distingue "no aplica" de "no lo tengo" — que es
+    # exactamente la distinción que esta política existe para hacer.
+    aplicable = sum(d.max_points * d.applicable_weight() for d in dims)
+    valido = sum(d.max_points * d.valid_weight() for d in dims)
+    coverage = (valido / aplicable) if aplicable > 0 else 0.0
 
     assumptions.append(
         f"industry_adapter={packet.analysis.industry_adapter!r}: DECISION_RULES.md's matrix "

@@ -53,6 +53,7 @@
   ],
   "_concentracion_fuente": "BUS-CONC-003 y BUS-HHI-004. Cita textual del 10-K FY2026 (accession 0001045810-26-000021): \"For fiscal year 2026, sales to one direct customer represented 22% of total revenue and sales to another direct customer represented 14% of total revenue\". Verificado contra el documento en SEC EDGAR.",
   "_recurring_ausente": "BUS-REC-002 queda NOT_SCORABLE: NVDA NO divulga porcentaje de ingresos recurrentes en su 10-K. Busque \"recurring revenue\", \"subscription revenue\" y \"software and services revenue\" en el filing completo: no hay cifra. No es que no aplique (NVDA si tiene ingresos recurrentes via NVIDIA AI Enterprise) — es que no la reporta.",
+  "recurring_revenue_applies": true,
   "largest_customer_share": 0.22,
   "customer_shares": [
     0.22,

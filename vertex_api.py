@@ -12,6 +12,7 @@ import threading
 import traceback
 import numpy as np
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, Request
@@ -75,6 +76,17 @@ async def _vertex_lifespan(app: FastAPI):
     nombre ya está resuelto para entonces.
     """
     _vertex_startup()
+    # El índice de tickers se cargaba perezosamente, con la PRIMERA búsqueda.
+    # Tarda 1,8 s, así que las primeras teclas del usuario caían a FMP: 750-1000
+    # ms por pulsación justo en el momento en que estrena la página. En Render,
+    # donde el servicio se duerme, ese arranque frío es lo primero que ve cada
+    # vez. Se dispara aquí, en segundo plano, para que esté listo antes de que
+    # dé tiempo a escribir la primera letra.
+    try:
+        _indice_actual()
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "no se pudo precalentar el indice de tickers", exc_info=True)
     yield
 
 
@@ -2190,6 +2202,14 @@ Especulacion del agente: si todo va como la comunidad espera, donde puede estar 
 
 
 _BUSQUEDA_CACHE = {}          # q -> (ts, resultados)
+#: Cuántos resultados locales bastan para NO bajar a la cola larga de FMP. Con
+#: el umbral en el cupo entero (8) casi cada tecla disparaba dos peticiones
+#: HTTP: 750-1000 ms por pulsación. Tres buenos candidatos locales ya ponen
+#: arriba lo que estás buscando; por debajo de eso FMP sí aporta.
+_MIN_LOCAL_PARA_NO_PREGUNTAR = 3
+#: Un autocompletado que tarda 12 s ya perdió la carrera contra la siguiente
+#: tecla y su respuesta se descarta por vieja. Mejor contestar con el índice.
+_TIMEOUT_BUSQUEDA_S = 2.5
 _INDICE = {"ts": 0.0, "filas": {}, "cargando": False}
 _INDICE_LOCK = threading.Lock()
 _FONDO_MUTUO = re.compile(r"^[A-Z]{4}X$")     # AGTHX, TESIX: 5 letras terminando en X
@@ -2296,24 +2316,44 @@ def buscar_tickers(q: str, limite: int = 8):
         if rango is not None:
             candidatos[s] = (rango, nombre, bolsa, cap)
 
-    # El índice cubre lo grande; FMP cubre la cola larga. Se consulta solo cuando
-    # hace falta, para no gastar una llamada por tecla si ya hay de sobra.
-    if len(candidatos) < limite:
+    # El índice cubre lo grande; FMP cubre la cola larga.
+    #
+    # Antes se preguntaba a FMP en cuanto el índice no llenaba el cupo de 8, y
+    # eso convertía casi cada tecla en DOS peticiones HTTP secuenciales. Medido:
+    # 750-1000 ms por tecla, 3,3 s para escribir "NVDA" — mientras que una "Z",
+    # que sí llenaba el cupo local, contestaba en 11 ms. El autocompletado no
+    # necesita ocho resultados para ser útil: necesita que el que buscas esté
+    # arriba. Ahora sólo se baja a la cola larga cuando el índice se queda de
+    # verdad corto, que es cuando FMP aporta algo (ADRs, small caps, símbolos
+    # recién listados).
+    if len(candidatos) < _MIN_LOCAL_PARA_NO_PREGUNTAR:
         clave = (os.environ.get("FMP_API_KEY") or "").strip()
         if not clave and not indice:
             raise HTTPException(status_code=503,
                                 detail="Búsqueda no disponible: falta FMP_API_KEY.")
-        for ruta in ("search-symbol", "search-name"):
-            if not clave:
-                break
+
+        def _consultar(ruta: str) -> list:
+            # 12 s de timeout no tenían sentido aquí: a los 12 s el usuario ya
+            # escribió tres letras más y esta respuesta se descarta por vieja.
+            # Más vale contestar sólo con el índice local que hacer esperar.
             try:
                 r = requests.get(f"https://financialmodelingprep.com/stable/{ruta}",
                                  params={"query": termino, "limit": 50, "apikey": clave},
-                                 timeout=12)
+                                 timeout=_TIMEOUT_BUSQUEDA_S)
                 filas = r.json() if r.status_code == 200 else []
             except Exception:
                 filas = []
-            for f in (filas if isinstance(filas, list) else []):
+            return filas if isinstance(filas, list) else []
+
+        # Las dos rutas van A LA VEZ. Eran secuenciales y sumaban sus latencias
+        # sin necesidad: ninguna depende del resultado de la otra.
+        respuestas: list[list] = []
+        if clave:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                respuestas = list(pool.map(_consultar, ("search-symbol", "search-name")))
+
+        for filas in respuestas:
+            for f in filas:
                 if not isinstance(f, dict):
                     continue
                 s = (f.get("symbol") or "").upper().strip()
@@ -2343,9 +2383,71 @@ def buscar_tickers(q: str, limite: int = 8):
     return {"q": termino, "resultados": resultados[:limite]}
 
 
+def _quote_rapido_fmp(ticker: str) -> dict | None:
+    """Precio y cambio del dia en UNA peticion, o `None`.
+
+    `/stable/quote` de FMP trae precio, cierre anterior, cambio, volumen y el
+    maximo y minimo del dia: todo lo que la tarjeta de precio enseña. La ruta
+    larga de abajo, en cambio, pedia un AÑO de historico para mostrar una
+    cifra de hoy -- medido, 2,4 s la primera vez que pulsas un ticker, que es
+    justo el momento en que el usuario esta mirando la pantalla.
+    """
+    clave = (os.environ.get("FMP_API_KEY") or "").strip()
+    if not clave:
+        return None
+    try:
+        r = requests.get("https://financialmodelingprep.com/stable/quote",
+                         params={"symbol": ticker, "apikey": clave}, timeout=4)
+        filas = r.json() if r.status_code == 200 else []
+    except Exception:
+        return None
+    q = filas[0] if isinstance(filas, list) and filas and isinstance(filas[0], dict) else None
+    if not q or not isinstance(q.get("price"), (int, float)) or q["price"] <= 0:
+        return None
+    return q
+
+
 @app.get("/api/quote")
 def get_quick_quote(ticker: str):
     ticker_clean = ticker.upper().strip()
+
+    # Via rapida: una sola peticion. Si trae precio, se contesta y ya. La ruta
+    # completa de abajo sigue existiendo para cuando FMP no responda -- no se
+    # borra un respaldo por tener un atajo.
+    rapido = _quote_rapido_fmp(ticker_clean)
+    if rapido:
+        try:
+            precio = float(rapido["price"])
+            previo = float(rapido.get("previousClose") or precio) or precio
+            alto = float(rapido.get("dayHigh") or precio)
+            bajo = float(rapido.get("dayLow") or precio)
+            perfil = _fmp_perfil(ticker_clean) or {}
+            # EXACTAMENTE las mismas claves que la ruta larga de abajo. Se
+            # inventaron en ingles -- `price`, `volume`, `day_high` -- mientras
+            # la pantalla lee `precio`, `volumen` y `high`, asi que la tarjeta
+            # salio con "undefined" en todo salvo el VWAP, que fue la unica que
+            # coincidio por casualidad. Dos rutas que responden al mismo
+            # endpoint tienen que devolver la misma forma; si no, la mas rapida
+            # rompe a quien la consume.
+            return {
+                "ticker": ticker_clean,
+                "nombre_completo": rapido.get("name") or perfil.get("name") or ticker_clean,
+                "precio": round(precio, 2),
+                "cambio_pct": round((precio - previo) / previo * 100.0, 2) if previo else 0.0,
+                "volumen": format_volume(int(rapido.get("volume") or 0)),
+                # VWAP no viene en `quote`; el precio tipico (H+L+C)/3 es el
+                # mismo respaldo que ya usaba la ruta larga cuando faltaba.
+                "vwap": round((alto + bajo + precio) / 3, 2),
+                "high": round(alto, 2),
+                "low": round(bajo, 2),
+                "after_hours": None,
+                "precio_fuente": "fmp",
+                "as_of": datetime.now().strftime("%I:%M:%S %p"),
+                "logo_url": obtener_logo(ticker_clean, perfil.get("website") or ""),
+            }
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass  # cae a la ruta completa
+
     try:
         stock = vertex_market.Ticker(ticker_clean)
         # Este endpoint es lo PRIMERO que toca el usuario: el buscador lo llama al
@@ -9020,7 +9122,46 @@ def analyze_ticker(ticker: str, explain: bool = False):
     (`grep wbj_explanation` sobre la plataforma: 0 usos). Se paga sólo si
     alguien la pide."""
     with _ANALYZE_LOCK:
-        return _analyze_ticker_serializado(ticker, explain)
+        resultado = _analyze_ticker_serializado(ticker, explain)
+    # La amplitud de sector se calienta DESPUES, y fuera del lock.
+    #
+    # Pedirla durante el analisis disparaba cientos de peticiones a FMP, agotaba
+    # el limite y los 429 caian sobre las llamadas del propio ticker -- su
+    # estado de flujo de caja y su historico de precios llegaron a fallar
+    # detras de esa tormenta. Una metrica de contexto de 3 puntos tumbando las
+    # seis categorias.
+    #
+    # Aqui ya no compite con nada: el usuario tiene su reporte y el hilo
+    # trabaja para el SIGUIENTE analisis de ese sector, que la encontrara en
+    # cache. Si falla, no se entera nadie y la metrica queda NOT_SCORABLE.
+    _calentar_amplitud_en_segundo_plano(ticker)
+    return resultado
+
+
+def _calentar_amplitud_en_segundo_plano(ticker: str) -> None:
+    """Deja lista la amplitud del sector de `ticker` para la proxima vez."""
+    def _trabajo():
+        try:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+            from wbj.config import load_settings
+            from wbj.overlay.amplitud_sector import amplitud_de_sector
+            from wbj.providers.cache import Cache
+            from wbj.providers.fmp import FMPProvider
+
+            s = load_settings()
+            f = FMPProvider(s, Cache(s.cache_dir))
+            perfil = (f.profile(ticker) or [{}])
+            sector = (perfil[0] or {}).get("sector") if isinstance(perfil, list) else None
+            if sector:
+                amplitud_de_sector(f, sector)
+        except Exception:
+            logging.getLogger(__name__).info(
+                "no se pudo calentar la amplitud de sector", exc_info=True)
+
+    try:
+        threading.Thread(target=_trabajo, daemon=True).start()
+    except Exception:
+        pass
 
 
 def _analyze_ticker_serializado(ticker: str, explain: bool = False):

@@ -140,7 +140,68 @@ _MOS_FORECAST_YEARS = 5
 _MOS_TERMINAL_GROWTH = 0.025
 
 
-def _margin_of_safety_from_packet(packet: Any) -> float | None:
+def _margin_of_safety_adapter(packet: Any, overlay: dict | None = None) -> float | None:
+    """VAL-MOS-040 para bancos, aseguradoras y REITs, con SUS modelos.
+
+    Delega en `ve.valor_justo_por_adaptador`, la misma funcion que corre la
+    ruta de adaptador de `valuation.py`. Se deriva del packet COMUN y nunca de
+    la salida del otro agente, asi que la independencia entre especialistas se
+    mantiene: lo que cruza es un NUMERO, no un score.
+    """
+    from wbj.engines import valuation_engine as ve
+
+    overlay = overlay or {}
+    annual = (packet.fundamentals or {}).get("annual") or []
+    if not annual:
+        return None
+    latest, prior = annual[0], (annual[1] if len(annual) > 1 else annual[0])
+    facts = getattr(packet, "facts_table", None) or {}
+
+    def _f(key):
+        v = facts.get(key)
+        v = getattr(v, "value", None) if v is not None else None
+        return float(v) if isinstance(v, (int, float)) else None
+
+    def _n(row, key):
+        v = row.get(key)
+        return float(v) if isinstance(v, (int, float)) else None
+
+    price = _f("price")
+    if not price:
+        return None
+
+    caps = getattr(packet, "capital_structure", None) or {}
+    est = getattr(packet, "estimates", None) or {}
+    rf = overlay.get("risk_free_rate", est.get("risk_free_rate"))
+    beta = overlay.get("beta", caps.get("beta"))
+    ke = ve.cost_of_equity(float(rf), float(beta), 0.045) if rf is not None and beta is not None else None
+
+    dps = [float(x) for x in (overlay.get("dividends_per_share_history") or [])
+           if isinstance(x, (int, float)) and x > 0]
+    g_div = None
+    if len(dps) >= 2 and dps[0] > 0:
+        n = len(dps) - 1
+        g_div = (dps[-1] / dps[0]) ** (1 / n) - 1 if n else None
+
+    justo, _modelos = ve.valor_justo_por_adaptador(
+        adapter=getattr(getattr(packet, "analysis", None), "industry_adapter", None),
+        price=price,
+        shares=_f("diluted_shares") or _n(latest, "diluted_shares"),
+        net_income=_n(latest, "net_income"),
+        equity_now=_n(latest, "total_equity"),
+        equity_begin=_n(prior, "total_equity") or _n(latest, "total_equity"),
+        cost_of_equity_value=ke.value if (ke is not None and ke.is_valid) else None,
+        dividend_per_share=overlay.get("dividend_per_share"),
+        dividend_growth=g_div,
+        terminal_growth=float(overlay.get("tv_growth", 0.025)),
+        forecast_years=int(overlay.get("forecast_years", 5)))
+    if justo is None:
+        return None
+    mos = ve.margin_of_safety(justo, price)
+    return float(mos.value) if mos.is_valid else None
+
+
+def _margin_of_safety_from_packet(packet: Any, overlay: dict | None = None) -> float | None:
     """VAL-MOS-040 `(Estimated value - Price) / Estimated value`, from the
     common packet.
 
@@ -174,7 +235,17 @@ def _margin_of_safety_from_packet(packet: Any) -> float | None:
     # deposits.
     adapter = getattr(getattr(packet, "analysis", None), "industry_adapter", None)
     if _adapters.replaces_model(adapter):
-        return None
+        # El FCFF de abajo sigue prohibido para estos: sin ese freno esta
+        # derivacion llego a valorar a JPM con un +831% de margen, un flujo
+        # libre de un banco cuya "deuda" son depositos.
+        #
+        # Pero negarse en redondo dejaba a JPM y a O SIN margen de seguridad, y
+        # con ello su dimension `valuation_compression_risk` en 0,00 de 1,00 --
+        # castigados en RIESGO por una limitacion de esta funcion, no por nada
+        # suyo. Ahora corren los modelos que su matriz si les asigna, por la
+        # MISMA funcion del motor que usa el especialista de valuacion, asi que
+        # los dos no pueden dar numeros distintos para la misma empresa.
+        return _margin_of_safety_adapter(packet, overlay)
 
     wacc_value = _wacc_from_packet(packet)
     if wacc_value is None:
@@ -408,7 +479,14 @@ def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
         return {}
 
     salida: dict[str, Any] = {
-        "share": {"company_sales": actual[1], "total_market_sales": float(tam)}}
+        "share": {"company_sales": actual[1], "total_market_sales": float(tam)},
+        # MKT-PEN-005 (penetración) divide ESTE MISMO numerador entre el mismo
+        # TAM. Estaba ausente para todo ticker que no lo trajera escrito a mano,
+        # y era gratis: el ingreso que compite en el mercado es justo el que se
+        # acaba de identificar y de validar de capa unas lineas mas arriba.
+        # Publicarlo aparte evita que alguien lo derive por su cuenta con otro
+        # criterio y acabe con dos numeradores distintos para el mismo mercado.
+        "company_relevant_revenue": actual[1]}
 
     # El historial necesita el MISMO segmento un año antes y el TAM de ese
     # año. Si falta cualquiera de los dos, se entrega sólo el nivel.
@@ -940,6 +1018,17 @@ def _cached_extract(cache: Any, ticker: str, filing: dict, kind: str,
     if isinstance(hit, dict) and "value" in hit:
         return hit["value"]
     value = compute()
+    # Un FALLO no se cachea. Guardarlo contra la accession -- que es inmutable
+    # -- dejaba al ticker devolviendo vacio para siempre, asi que el dia que la
+    # cuenta de Anthropic tenga saldo la respuesta buena ya no podria entrar.
+    #
+    # `None` y `{}` SI se guardan, porque son respuestas: "este filing no
+    # divulga backlog" no cambia nunca, y volver a preguntarlo es volver a
+    # pagar por el mismo silencio.
+    from wbj.extract.filing import FALLO
+
+    if value is FALLO:
+        return None
     cache.put(ticker, key, {"value": value})
     return value
 
@@ -1482,6 +1571,65 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
             if history:
                 overlay["backlog_history"] = history
 
+            # ¿Este emisor DECLARA backlog contratado? La NIIF 15 / ASC 606
+            # obliga a divulgar las obligaciones de desempeño pendientes a quien
+            # tiene contratos de más de un año. Quien no etiqueta nunca ese
+            # concepto no es que se lo haya callado: es que su negocio no lo
+            # produce -- una refresquera vende cajas, no contratos plurianuales.
+            #
+            # Con esto `market.py` puede distinguir "no lo tengo" de "no aplica"
+            # con EVIDENCIA de EDGAR en vez de con una lista de industrias, que
+            # ahi seria adivinar. Sin esta clave, MKT-BACK-015 y MKT-COVER-016
+            # se le cobraban a todo el mundo.
+            try:
+                overlay["_backlog_reportado"] = bool(
+                    history or _xbrl_series(
+                        edgar, cik, "RevenueRemainingPerformanceObligation"))
+            except Exception:
+                logger.warning("no se pudo comprobar si %s declara RPO", ticker,
+                               exc_info=True)
+
+            # ---- FIN-GR-004: el puente de crecimiento organico ----
+            # `DATASET.md` nombra su fuente: "issuer reconciliation", que vive
+            # en el COMUNICADO DE RESULTADOS y no en el 10-K. `organic_growth`
+            # esta en PROHIBITED_IMPUTATION, asi que no se deduce restando
+            # adquisiciones: se transcribe la cifra que la propia empresa
+            # concilia, verificada por cita, que es lo que `financial.py` ya
+            # admite como "explicitly disclosed assumption".
+            #
+            # Los dos crecimientos tienen que ser del MISMO periodo. El
+            # comunicado es trimestral, asi que el total se calcula contra el
+            # mismo trimestre del ano anterior -- no contra el ano fiscal, que
+            # compararia tres meses con doce.
+            try:
+                from wbj.extract.filing import extract_organic_growth
+
+                release = edgar.latest_earnings_release(cik)
+                if release:
+                    org = _cached_extract(
+                        Cache(settings.cache_dir), ticker,
+                        {"accession": release.get("accession")}, "organic",
+                        lambda: extract_organic_growth(release, settings))
+                    if isinstance(org, (int, float)):
+                        # `fmp` todavia no existe en este punto de la
+                        # funcion: se construye aqui, con el mismo cache.
+                        _fmp = FMPProvider(settings, Cache(settings.cache_dir))
+                        qs = _fmp.income_quarterly(ticker) or []
+                        rev = [float(q["revenue"]) for q in qs[:5]
+                               if isinstance(q, dict) and q.get("revenue")]
+                        if len(rev) >= 5 and rev[4]:
+                            total = (rev[0] - rev[4]) / abs(rev[4])
+                            if total != 0:
+                                overlay["organic_growth_bridge"] = {
+                                    "organic_growth": float(org),
+                                    "total_growth": total,
+                                    "_fuente": release.get("url"),
+                                    "_periodo": "trimestre contra el mismo del ano anterior",
+                                }
+            except Exception:
+                logger.warning("puente de crecimiento organico no disponible",
+                               exc_info=True)
+
             # Dividends per share, for VAL-DDM-024/VAL-HDDM-025. EDGAR is
             # tier 1 in SOURCE_HIERARCHY.md and FMP tier 5, and the figure is
             # tagged in XBRL, so the primary source is also the free one --
@@ -1551,7 +1699,7 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         # with the shared engine -- the same way `_wacc_from_packet` resolves
         # financial's cross-agent WACC -- so no specialist reads another's
         # output and Phase 2 stays parallel.
-        mos = _margin_of_safety_from_packet(packet)
+        mos = _margin_of_safety_from_packet(packet, overlay)
         if mos is not None:
             overlay["margin_of_safety"] = mos
 
@@ -1609,6 +1757,25 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
                 logger.info("XBRL supplied analyst input %s for %s", key, ticker)
     except Exception:
         logger.warning("XBRL analyst inputs unavailable", exc_info=True)
+
+    # Amplitud de sector (MKT-SECB-023): cuantos miembros del sector van por
+    # encima de su media de 50 sesiones. Es un numero del SECTOR, no del
+    # ticker, asi que se cachea por sector y por dia y lo comparten todos.
+    try:
+        from wbj.overlay.amplitud_sector import amplitud_de_sector
+
+        _sec = getattr(getattr(packet, "security", None), "sector", None)
+        # SOLO CACHE. Ver el docstring de `amplitud_de_sector`: pedirla por red
+        # aqui agotaba el limite de FMP y los 429 caian sobre las llamadas del
+        # propio ticker. Se calienta aparte; si no esta, la metrica queda
+        # NOT_SCORABLE, que cuesta 3 puntos y no el analisis entero.
+        _amp = amplitud_de_sector(fmp, _sec, permitir_red=False)
+        if _amp:
+            overlay["sector_breadth"] = _amp
+            logger.info("amplitud de %s: %d/%d sobre su media de 50",
+                        _sec, _amp["above_50dma_count"], _amp["valid_members"])
+    except Exception:
+        logger.warning("amplitud de sector no disponible", exc_info=True)
 
     # Applied last: an analyst who has read a sourced market study knows
     # something no endpoint here can supply, and TAM is the whole reason

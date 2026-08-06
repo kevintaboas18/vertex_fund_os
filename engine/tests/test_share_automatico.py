@@ -192,3 +192,32 @@ def test_the_history_is_read_from_the_same_breakdown_as_the_level():
     assert fuera["share_history"] == [
         round(1_500_000_000.0 / 560_000_000_000, 6),
         round(2_000_000_000.0 / 649_000_000_000, 6)]
+
+
+def test_the_relevant_revenue_travels_with_the_share():
+    """MKT-PEN-005 divide EL MISMO numerador entre el mismo TAM.
+
+    Estaba ausente para todo ticker que no lo trajera escrito a mano -- NVDA lo
+    tenia, AMD e INTC no, teniendo los tres una participacion calculada. Era
+    gratis: el ingreso que compite en el mercado es justo el que
+    `_segmento_del_mercado` acaba de identificar y de validar de capa.
+
+    Se publica desde aqui, y no se deja que cada consumidor lo derive por su
+    cuenta, para que no acaben existiendo dos numeradores distintos para el
+    mismo mercado.
+    """
+    fuera = _share_automatico(_FMP(), "AMD", {"Data Center": 16_635_000_000.0},
+                              207_000_000_000, None, ["data center"])
+    assert fuera["company_relevant_revenue"] == 16_635_000_000.0
+    assert fuera["company_relevant_revenue"] == fuera["share"]["company_sales"], (
+        "la penetracion y la participacion tienen que compartir numerador")
+
+
+def test_a_rejected_share_publishes_no_relevant_revenue_either():
+    """Si el numerador no supero la comprobacion de capa, tampoco sirve para la
+    penetracion: seria colar por la puerta de al lado lo que se acaba de
+    rechazar por la principal."""
+    geo = [{"date": "2025", "data": {"Americas Segment": 178_353_000_000.0}}]
+    fuera = _share_automatico(_FMPGeo(geo), "AAPL", {}, 20_991_569_000,
+                              None, None, ambito="US")
+    assert "company_relevant_revenue" not in fuera

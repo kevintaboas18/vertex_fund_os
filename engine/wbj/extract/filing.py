@@ -30,6 +30,28 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+
+class _FalloDeExtraccion:
+    """No se pudo preguntar. Distinto de "no divulga nada".
+
+    Hace falta un valor propio porque `None` ya significa algo aqui: para
+    `extract_backlog`, "este filing no divulga backlog" es una RESPUESTA -- no
+    cambia nunca y guardarla evita volver a pagar por el mismo silencio.
+
+    Un fallo no es eso. Guardarlo contra la accession del filing, que es
+    inmutable, dejaba al ticker devolviendo vacio para siempre: el dia que la
+    cuenta de Anthropic tenga saldo, la respuesta buena ya no podria entrar.
+    """
+
+    __slots__ = ()
+
+    def __bool__(self) -> bool:
+        return False
+
+
+#: Centinela unico, para poder compararlo con `is`.
+FALLO = _FalloDeExtraccion()
+
 # The filing runs ~370k characters. Sending the whole thing costs tokens
 # for prose that cannot contain these disclosures, so the extraction
 # reads generous windows around the phrases that introduce them.
@@ -64,6 +86,13 @@ _CATALYST_ANCHORS = (
 )
 _BACKLOG_ANCHORS = ("remaining performance obligation", "contracted backlog",
                     "total backlog")
+#: FIN-GR-004 sale del puente que el emisor concilia en su comunicado de
+#: resultados: `DATASET.md` lo llama "issuer reconciliation". Es una convención
+#: de consumo e industriales -- KO lo menciona 19 veces en el suyo, WMT, PLTR y
+#: JPM ninguna -- así que quien no lo use se queda sin la métrica, que es lo
+#: correcto: `organic_growth` está en PROHIBITED_IMPUTATION y no se deduce.
+_ORGANIC_ANCHORS = ("organic revenue", "organic growth", "organic sales",
+                    "comparable revenue", "organic net revenue")
 # DATASET.md's catalyst registry looks "forward 24 months".
 _CATALYST_HORIZON_MONTHS = 24.0
 _WINDOW = 1400
@@ -292,6 +321,72 @@ class _Backlog(BaseModel):
     quote: str | None = Field(None, description="Verbatim sentence stating it.")
 
 
+class _Organic(BaseModel):
+    """El crecimiento orgánico tal como el emisor lo concilia."""
+
+    organic_growth_pct: float | None = Field(
+        None, description="Organic revenue growth for the period as a decimal "
+                          "(6% -> 0.06). Null unless the release states it.")
+    quote: str | None = Field(None, description="Verbatim sentence stating it.")
+
+
+def extract_organic_growth(release: dict, settings: Any,
+                           client: Any = None) -> float | None:
+    """El crecimiento orgánico que el emisor declara, verificado por cita.
+
+    `FIN-GR-004` divide crecimiento orgánico entre crecimiento total, y
+    `DATASET.md` nombra su fuente: "issuer reconciliation", que vive en el
+    comunicado de resultados y no en el 10-K.
+
+    **Esto no es la imputación que prohíbe `PROHIBITED_IMPUTATION`.** Ahí lo
+    vedado es DEDUCIR el orgánico de otros números reportados -- restar
+    adquisiciones del crecimiento total, por ejemplo. Aquí se transcribe la
+    cifra que la propia empresa concilia y publica, que es lo que el módulo de
+    financial ya admite como "explicitly disclosed assumption".
+
+    Devuelve `None` cuando el comunicado no lo menciona, que es el caso de la
+    mayoría: es una convención de consumo e industriales. Medido: KO lo
+    menciona 19 veces en su comunicado; WMT, PLTR y JPM, ninguna.
+    """
+    text = (release or {}).get("text") or ""
+    if not text:
+        return None
+    client = client or _client_for(settings)
+    if client is None:
+        return None
+
+    excerpts = _relevant_context(text, _ORGANIC_ANCHORS, budget=12_000)
+    if not excerpts:
+        logger.info("el comunicado no concilia crecimiento organico; no se pregunta")
+        return None
+
+    try:
+        parsed = _parsed(client.messages.parse(
+            model=getattr(settings, "extract_model", None) or "claude-sonnet-5",
+            max_tokens=2048,
+            system=_SYSTEM,
+            messages=[{"role": "user", "content":
+                       "What organic revenue growth does this earnings release "
+                       "state for the reported period? Give it as a decimal "
+                       "(6% -> 0.06). Return null unless the release states it "
+                       "plainly.\n\n" + excerpts}],
+            output_format=_Organic,
+        ), _Organic)
+    except Exception:
+        logger.warning("extraccion del crecimiento organico fallo", exc_info=True)
+        return FALLO
+
+    if parsed is None:
+        return FALLO
+    v = parsed.organic_growth_pct
+    if v is None or not parsed.quote or not -1.0 < v < 3.0:
+        return None
+    if _normalise(parsed.quote) not in _normalise(text):
+        logger.warning("la cita del crecimiento organico no esta en el comunicado")
+        return None
+    return v
+
+
 def extract_backlog(filing: dict, settings: Any, client: Any = None) -> float | None:
     """One filing's contracted backlog, quote-verified.
 
@@ -326,10 +421,10 @@ def extract_backlog(filing: dict, settings: Any, client: Any = None) -> float | 
     except Exception:
         logger.warning("backlog extraction failed for %s", filing.get("accession"),
                        exc_info=True)
-        return None
+        return FALLO
 
     if parsed is None:
-        return None
+        return FALLO
     return _verified_amount(parsed.rpo_total_usd, parsed.quote, text,
                             f"backlog[{filing.get('period')}]")
 
@@ -432,12 +527,30 @@ def extract_disclosures(filing: dict, settings: Any, client: Any = None) -> dict
             output_format=_Extraction,
         )
         parsed = _parsed(resp, _Extraction)
-    except Exception:
-        logger.warning("filing extraction failed; disclosures stay absent", exc_info=True)
-        return {}
+    except Exception as e:  # noqa: BLE001
+        # `None` (no `{}`) porque son cosas DISTINTAS y el cacheador las trata
+        # distinto: `{}` significa "el filing no divulga nada", que es una
+        # respuesta y se guarda; `None` significa "no se pudo preguntar", que
+        # no lo es. Guardar el fallo como resultado dejaba al ticker devolviendo
+        # vacio PARA SIEMPRE contra esa accession, incluso despues de recargar
+        # el saldo -- un fallo transitorio convertido en permanente.
+        motivo = str(e)
+        if "credit balance" in motivo or "billing" in motivo.lower():
+            # Sin saldo no es un error de programa: no merece un traceback de
+            # 30 lineas en cada analisis, que es lo que enterraba el resto del
+            # log. Una linea que diga que pasa y que hacer.
+            logger.warning(
+                "extraccion del 10-K omitida: la cuenta de Anthropic no tiene "
+                "saldo. Las divulgaciones de concentracion de clientes, "
+                "ingresos recurrentes y RPO quedan NOT_SCORABLE hasta que lo "
+                "recargues.")
+        else:
+            logger.warning("filing extraction failed; disclosures stay absent",
+                           exc_info=True)
+        return None
 
     if parsed is None:
-        return {}
+        return None
 
     out: dict[str, Any] = {}
     largest = _verified(parsed.largest_customer_share,

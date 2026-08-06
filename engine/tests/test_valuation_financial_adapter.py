@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pytest
 
+from wbj.core.nullstates import NullState
 from wbj.schemas.packet import Packet
 from wbj.specialists import valuation as val
 
@@ -89,13 +90,53 @@ def test_the_category_is_incomplete_and_gate_ineligible():
     assert "CATEGORY_INCOMPLETE_GATE_INELIGIBLE" in out.mandatory_flags
 
 
-def test_the_barred_dimensions_carry_no_weight_rather_than_a_zero_score():
-    """SCORING_ENGINE.md: "do not assign 5/10 to missing evidence" -- and a
-    barred model is not a failed one, so it carries no weight at all."""
+def test_only_the_enterprise_value_inputs_are_barred_not_whole_dimensions():
+    """Lo prohibido no lleva peso; lo permitido sí se puntúa.
+
+    Este test decía antes que las tres dimensiones iban con `metric_scores ==
+    []`. La razón era buena —"un modelo prohibido no es uno fallido, así que no
+    lleva peso"— pero la aplicaba a las dimensiones ENTERAS, y el adaptador no
+    prohíbe dimensiones: prohíbe las entradas que se apoyan en *enterprise
+    value*. En un banco la deuda es materia prima, así que EV/Sales y el DCF
+    inverso no significan nada; sus utilidades, su precio y su ROE sí.
+
+    Vaciar las tres costaba 7 de los 10 puntos de la categoría por obedecer
+    una regla que sólo alcanzaba a una parte. Medido: JPM salía con cobertura
+    0,300 teniendo su valuación entregada.
+
+    El propio archivo ya enunciaba la regla fina en su otra ruta: "cada
+    dimensión lleva un NOT_APPLICABLE explícito en vez de una lista vacía --
+    una dimensión ausente y una que no aplica se leen igual desde fuera, y
+    sólo la segunda es verdad aquí".
+    """
     out = val.run(_bank(), _DIVIDENDS)
     by_name = {d.name: d for d in out.dimensions}
-    for barred in (val.DIM_MULTIPLES, val.DIM_HIST_PEER, val.DIM_CF_YIELD):
-        assert by_name[barred].metric_scores == []
+
+    # Ninguna dimensión desaparece: una lista vacía sale del denominador de la
+    # cobertura y haría que un banco pareciera cubierto al 100% con múltiplos
+    # e histórico ausentes.
+    for nombre in (val.DIM_MULTIPLES, val.DIM_HIST_PEER, val.DIM_CF_YIELD):
+        assert by_name[nombre].metric_scores, f"{nombre} volvio a quedar vacia"
+
+    estados = {n: [v.state for _, v in by_name[n].metric_scores]
+               for n in (val.DIM_MULTIPLES, val.DIM_HIST_PEER, val.DIM_CF_YIELD)}
+
+    # Lo que se apoya en enterprise value: NOT_APPLICABLE, fuera del denominador.
+    assert NullState.NOT_APPLICABLE in estados[val.DIM_MULTIPLES], (
+        "el DCF inverso se apoya en enterprise value y debe quedar inaplicable")
+    assert NullState.NOT_APPLICABLE in estados[val.DIM_CF_YIELD], (
+        "el rendimiento de FCF usa flujo libre convencional, prohibido aqui")
+
+    # Y lo permitido se puntúa de verdad: el rendimiento de utilidades de un
+    # banco es tan real como el de cualquier otra empresa.
+    assert any(v.is_valid for _, v in by_name[val.DIM_CF_YIELD].metric_scores), (
+        "el rendimiento de utilidades no se puntuo")
+
+    # El histórico NO es inaplicable a un banco: su P/E tiene historia como el
+    # de cualquiera. Es un hueco, y como hueco tiene que contar en contra.
+    assert NullState.NOT_APPLICABLE not in estados[val.DIM_HIST_PEER], (
+        "marcar el historico inaplicable lo sacaria del denominador y "
+        "esconderia que falta")
 
 
 def test_cost_of_equity_is_published_without_a_wacc():
@@ -130,3 +171,50 @@ def test_a_recovery_cagr_is_disclosed_not_smuggled_in():
 def test_the_scoring_rule_is_named_in_the_output():
     out = val.run(_bank(), _DIVIDENDS)
     assert any("INCOMPLETE" in a and "70%" in a for a in out.assumptions)
+
+
+# --- REITs -----------------------------------------------------------------
+
+def test_a_reit_scores_the_dimension_its_dividend_model_fills():
+    """El modelo de dividendos es un chequeo que la matriz nombra para REITs y
+    corre sobre el tag de dividendos en XBRL sin pedirle nada a nadie.
+
+    Si produjo un valor justo -- y lo produce, porque de ahi salia ya el margen
+    de seguridad -- entonces `fair_value_by_scenarios` no es inaplicable: es la
+    dimension que ese valor llena. Estaba marcada NOT_APPLICABLE teniendo el
+    numero calculado, lo que escondia dos puntos detras de una etiqueta.
+    """
+    out = val.run(_bank("reits"), _DIVIDENDS)
+    por_nombre = {d.name: d for d in out.dimensions}
+    fv = por_nombre[val.DIM_FAIR_VALUE_SCENARIOS]
+    assert any(v.is_valid for _, v in fv.metric_scores), (
+        "el valor justo del modelo de dividendos no llego a su dimension")
+
+
+def test_a_reit_gap_is_a_gap_not_an_exemption():
+    """P/AFFO es EL multiplo de un REIT: INDUSTRY_ADAPTERS.md dice "replace EPS
+    with FFO/AFFO". Asi que el hueco no es que el multiplo no aplique, es que
+    falta AFFO -- y falta por una razon real: su definicion varia un 14% entre
+    lecturas defendibles del mismo filing, asi que la transcribe un analista.
+
+    NOT_SCORABLE cuenta en contra y se ve. NOT_APPLICABLE lo sacaria del
+    denominador y haria que un REIT pareciera mejor cubierto por no tener el
+    dato.
+    """
+    out = val.run(_bank("reits"), _DIVIDENDS)
+    por_nombre = {d.name: d for d in out.dimensions}
+    for dim in (val.DIM_MULTIPLES, val.DIM_HIST_PEER, val.DIM_CF_YIELD):
+        estados = [v.state for _, v in por_nombre[dim].metric_scores]
+        assert NullState.NOT_SCORABLE in estados, (
+            f"{dim}: el hueco de AFFO tiene que verse, no desaparecer")
+    assert out.coverage < 0.70, "sin AFFO la categoria sigue siendo INCOMPLETE"
+    assert "CATEGORY_INCOMPLETE_GATE_INELIGIBLE" in out.mandatory_flags
+
+
+def test_the_reit_primary_models_are_still_refused():
+    """NAV, AFFO DCF y cap rates son nombres en la matriz sin fórmula
+    registrada en ninguna FORMULAS.md. Implementarlos seria elegir una
+    definicion que el Cerebro no eligio."""
+    out = val.run(_bank("reits"), _DIVIDENDS)
+    assert "ADAPTER_PRIMARY_MODELS_NOT_REGISTERED" in out.mandatory_flags
+    assert out.model_selection.primary == []

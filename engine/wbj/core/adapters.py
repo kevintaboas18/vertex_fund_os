@@ -92,3 +92,59 @@ def model_fit(adapter: str | None) -> float:
     fit for it would be an assertion without evidence.
     """
     return _MODEL_FIT.get(adapter or "", 40.0)
+
+
+# ---------------------------------------------------------------------------
+# Negocios de contratos recurrentes
+#
+# Vivía dentro de `business.py`, y `market.py` no tenía nada equivalente: ni
+# una sola linea de NOT_APPLICABLE en todo el modulo. El resultado es que la
+# misma pregunta -- "¿este negocio produce este dato?" -- se contestaba en un
+# especialista y se ignoraba en el otro, que es exactamente lo que el docstring
+# de arriba dice que este archivo existe para evitar.
+#
+# `MISSING_DATA_POLICY.md` empieza su arbol por ahi: "¿la metrica aplica? Si
+# no, NOT_APPLICABLE e invoca el adaptador de industria". La distincion decide
+# si un dato ausente sale del denominador de la cobertura o le cuesta la
+# dimension a la empresa, y por eso dos empresas sanas pueden dar coberturas
+# muy distintas sin que ninguna tenga un problema de datos.
+#
+# La pertenencia es AFIRMATIVA: un modelo gana estas metricas por correr sobre
+# contratos recurrentes, no por no aparecer en una lista de excepciones. Al
+# reves, cada industria nueva entraria por defecto y pagaria por no publicar
+# algo que no produce.
+
+SUBSCRIPTION_INDUSTRIES: tuple[str, ...] = (
+    "software", "saas", "internet content", "information technology services",
+    "telecom", "entertainment", "streaming", "broadcasting", "publishing",
+    "security & protection services", "staffing",
+    "specialty business services", "data processing",
+)
+
+#: Adaptadores que nombran economia de suscripcion directamente.
+SUBSCRIPTION_ADAPTERS: tuple[str, ...] = ("saas", "subscription")
+
+#: Claves de overlay que, si un analista las lleno, zanjan la pregunta: quien
+#: aporto un puente de retencion ya establecio que la metrica existe aqui,
+#: diga lo que diga la etiqueta del sector.
+SUBSCRIPTION_OVERLAY_KEYS: tuple[str, ...] = ("retention", "customer_economics", "churn")
+
+
+def is_subscription_business(packet: object, overlay: dict | None = None) -> bool:
+    """True cuando la economia de clientes de esta empresa es de suscripcion.
+
+    Compartida por `business.py` (BUS-NRR-020..BUS-PAYBACK-026) y `market.py`
+    (MKT-ARPU-022, MKT-ADOPT-021): las dos preguntan lo mismo y tenian que
+    contestarlo igual.
+    """
+    overlay = overlay or {}
+    if any(isinstance(overlay.get(k), dict) and overlay.get(k)
+           for k in SUBSCRIPTION_OVERLAY_KEYS):
+        return True
+
+    adapter = (getattr(getattr(packet, "analysis", None), "industry_adapter", "") or "").lower()
+    if any(tag in adapter for tag in SUBSCRIPTION_ADAPTERS):
+        return True
+
+    industry = (getattr(getattr(packet, "security", None), "industry", "") or "").lower()
+    return any(tag in industry for tag in SUBSCRIPTION_INDUSTRIES)

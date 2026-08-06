@@ -581,3 +581,27 @@ def test_an_explicit_overlay_value_still_wins_over_the_packet():
     out = risk.run(_minimal_packet(rows), overlay={"interest_expense": 100.0})
     icov = next(r for r in out.metrics if r.metric_id == "RSK-ICOV-011")
     assert icov.value == pytest.approx(200.0 / 100.0)  # ebit 200 / overlay 100
+
+
+def test_every_dimension_slot_goes_through_the_state_preserving_helper():
+    """`_dimension_slot` existe para que un NOT_APPLICABLE no se aplane a
+    NOT_SCORABLE al construir el slot -- su propio docstring lo dice: "solo si
+    el estado sobrevive hasta aqui".
+
+    Tres sitios lo construian a mano y se saltaban esa proteccion. Hoy no
+    cuesta cobertura, porque las metricas que pasan por ahi no son de las que
+    se marcan inaplicables; el dia que una lo sea, se perderia en silencio y
+    nadie lo notaria. Este test es lo que impide que vuelva a abrirse.
+    """
+    import inspect
+    import re
+
+    import wbj.specialists.risk as rsk
+
+    fuente = inspect.getsource(rsk.run)
+    a_mano = re.findall(
+        r'Value\.of\([^)]*score10[^)]*\)\s*if[^)]*is not None\s*else\s*'
+        r'Value\.null\(NullState\.NOT_SCORABLE', fuente)
+    assert not a_mano, (
+        f"{len(a_mano)} slot(s) construidos a mano: usa `_dimension_slot`, "
+        "que conserva el estado de la metrica")

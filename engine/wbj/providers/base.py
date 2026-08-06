@@ -19,6 +19,20 @@ from wbj.providers.cache import Cache
 
 logger = logging.getLogger(__name__)
 
+# httpx registra cada peticion con su URL COMPLETA, y en estas URLs la clave de
+# API viaja como parametro de query. Este modulo se toma el trabajo de redactar
+# `apikey`/`token`/`api_key` de sus propios registros (`_redact_params`), y todo
+# ese cuidado no servia de nada: bastaba con que alguien subiera el nivel de log
+# a INFO -- en produccion, o depurando -- para que la clave saliera impresa
+# entera en la linea siguiente. Ocurrio de verdad el 2026-08-06 depurando la
+# amplitud de sector, con la clave de FMP.
+#
+# Se sube el umbral del logger de httpx, no el del proceso: quien quiera ver el
+# resto de la aplicacion en INFO puede hacerlo sin filtrar credenciales. Un
+# fallo de red sigue apareciendo, porque los avisos son WARNING.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 _MAX_ATTEMPTS = 3
 _BACKOFF_SECONDS = (0.5, 1.0, 2.0)
 

@@ -1365,10 +1365,15 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     financing_dim = Dimension(name=DIM_FINANCING, max_points=DIMENSION_MAX_POINTS[DIM_FINANCING], metric_scores=financing_scores)
 
     # ---- DIM_CONCENTRATION (3 pts) ----
+    # Por `_dimension_slot`, no a mano. Construir el slot aqui aplanaba a
+    # NOT_SCORABLE lo que la metrica habia marcado NOT_APPLICABLE, y con eso
+    # se perdia justo la distincion que ese helper existe para conservar.
+    # Medido: JPM y O declaraban 12 metricas inaplicables y solo 4 llegaban al
+    # slot -- a un banco se le cobraban ocho que su modelo no produce.
     concentration_scores: list[tuple[float, Value]] = [
-        (1 / 3, Value.of(cust_score, unit="score") if cust_score is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
-        (1 / 3, Value.of(by_id["RSK-PROD-018"].score10, unit="score") if by_id["RSK-PROD-018"].score10 is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
-        (1 / 3, Value.of(by_id["RSK-GEO-019"].score10, unit="score") if by_id["RSK-GEO-019"].score10 is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
+        (1 / 3, _dimension_slot(by_id["RSK-CUST-017"], cust_score)),
+        (1 / 3, _dimension_slot(by_id["RSK-PROD-018"])),
+        (1 / 3, _dimension_slot(by_id["RSK-GEO-019"])),
     ]
     concentration_dim = Dimension(name=DIM_CONCENTRATION, max_points=DIMENSION_MAX_POINTS[DIM_CONCENTRATION], metric_scores=concentration_scores)
 
@@ -1385,7 +1390,7 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     # ---- DIM_REGULATORY_MACRO (2 pts): only RSK-CYC-034 is mechanically scorable ----
     cyc_score = by_id["RSK-CYC-034"].score10
     regulatory_scores: list[tuple[float, Value]] = [
-        (1.0, Value.of(cyc_score, unit="score") if cyc_score is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
+        (1.0, _dimension_slot(by_id["RSK-CYC-034"])),
     ]
     regulatory_dim = Dimension(name=DIM_REGULATORY_MACRO, max_points=DIMENSION_MAX_POINTS[DIM_REGULATORY_MACRO], metric_scores=regulatory_scores)
     if overlay.get("regulatory_events"):
@@ -1402,7 +1407,12 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
 
     # ---- DIM_VALUATION_COMPRESSION (2 pts) ----
     valuation_scores: list[tuple[float, Value]] = [
-        (1.0, Value.of(mos_score, unit="score") if mos_score is not None else Value.null(NullState.NOT_SCORABLE, unit="score")),
+        # `v_mos` llega del overlay de valuation y no es una fila registrada,
+        # asi que el slot se arma desde el Value. Lo que importa es lo mismo:
+        # que un NOT_APPLICABLE no se aplane a NOT_SCORABLE por el camino.
+        (1.0, Value.of(mos_score, unit="score") if mos_score is not None
+         else Value.null(v_mos.state if v_mos.state is NullState.NOT_APPLICABLE
+                         else NullState.NOT_SCORABLE, unit="score")),
     ]
     valuation_dim = Dimension(name=DIM_VALUATION_COMPRESSION, max_points=DIMENSION_MAX_POINTS[DIM_VALUATION_COMPRESSION], metric_scores=valuation_scores)
 

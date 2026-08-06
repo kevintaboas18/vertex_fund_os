@@ -752,6 +752,27 @@ def _reinvestment_rate_and_roic(annual: list[dict]) -> tuple[float | None, float
     return reinvestment_rate, roic_value
 
 
+def _slot(row: "_Row") -> Value:
+    """El valor de un slot de dimension, CONSERVANDO el estado de la metrica.
+
+    Este modulo convertia todo lo no puntuado en NOT_SCORABLE, y con eso perdia
+    la unica distincion que `MISSING_DATA_POLICY.md` considera primero: una
+    metrica que no aplica sale del denominador de la cobertura, y una que falta
+    le cuesta la dimension a la empresa.
+
+    Aplanarlas hacia que Coca-Cola pagara por no publicar ARPU -- no tiene
+    usuarios que promediar, vende concentrado a embotelladores -- y que una
+    refresquera pagara por no tener backlog contratado. `business.py` ya
+    conservaba el estado con este mismo helper; aqui no existia.
+    """
+    if row.score10 is not None:
+        return Value.of(row.score10, unit="score")
+    if getattr(row.value, "state", None) is NullState.NOT_APPLICABLE:
+        return Value.null(NullState.NOT_APPLICABLE, unit="score",
+                          warnings=list(getattr(row.value, "warnings", []) or []))
+    return Value.null(NullState.NOT_SCORABLE, unit="score")
+
+
 def _compute_all(
     packet: Packet, overlay: dict[str, Any]
 ) -> tuple[list[_Row], list[str], list[JudgmentRequest], dict[str, Any]]:
@@ -959,18 +980,27 @@ def _compute_all(
     add("MKT-SURP-014", v_surp, _score_from_anchor(v_surp, [(-0.10, 0), (0.0, 5), (0.03, 8), (0.10, 10)]))
 
     # ---- MKT-BACK-015 / MKT-COVER-016: backlog (overlay only) ----
+    # MKT-BACK-015 y MKT-COVER-016 viven del backlog contratado (RPO). La
+    # NIIF 15 / ASC 606 obliga a divulgarlo a quien tiene contratos de mas de
+    # un ano; quien no publica ese tag es que no tiene ese backlog, no que se
+    # le haya olvidado. Se decide con EVIDENCIA de EDGAR -- `_backlog_reportado`
+    # lo pone `overlay/from_packet.py` tras mirar el XBRL del emisor -- y no
+    # con una lista de industrias, que aqui seria adivinar.
+    _hay_rpo = bool(overlay.get("_backlog_reportado")) or overlay.get("backlog_history") is not None
+    _sin_backlog = (NullState.MISSING if _hay_rpo else NullState.NOT_APPLICABLE)
+
     backlog_history = overlay.get("backlog_history")
     if backlog_history and len(backlog_history) >= 2:
         v_back = backlog_growth(backlog_history[-1], backlog_history[-2])
     else:
-        v_back = _null(NullState.MISSING, "pct", "BACKLOG_GROWTH_UNAVAILABLE")
+        v_back = _null(_sin_backlog, "pct", "BACKLOG_GROWTH_UNAVAILABLE")
     add("MKT-BACK-015", v_back, _score_from_anchor(v_back, [(-0.10, 0), (0.0, 5), (0.10, 8), (0.25, 10)]))
 
     ntm_contracted, ntm_estimate = overlay.get("ntm_contracted"), overlay.get("ntm_revenue_estimate")
     if ntm_contracted is not None and ntm_estimate is not None:
         v_cover = revenue_coverage(ntm_contracted, ntm_estimate)
     else:
-        v_cover = _null(NullState.MISSING, "ratio", "REVENUE_COVERAGE_UNAVAILABLE")
+        v_cover = _null(_sin_backlog, "ratio", "REVENUE_COVERAGE_UNAVAILABLE")
     add("MKT-COVER-016", v_cover, _score_from_anchor(v_cover, [(0.0, 0), (0.30, 5), (0.60, 8), (0.90, 10)]))
 
     # ---- MKT-OPLEV-017 / MKT-INCM-018: operating leverage (from packet) ----
@@ -1057,17 +1087,29 @@ def _compute_all(
 
     # ---- MKT-ADOPT-021 / MKT-ARPU-022 (overlay only) ----
     adoption = overlay.get("adoption")
+    # MKT-ADOPT-021 y MKT-ARPU-022 miden algo que no todo negocio produce.
+    # `FORMULAS.md` pide para ARPU "revenue and average users or issuer KPI":
+    # Coca-Cola vende concentrado a embotelladores y no tiene usuarios que
+    # promediar, asi que su ARPU no falta -- no existe. `MISSING_DATA_POLICY.md`
+    # empieza su arbol justo ahi: "la metrica aplica? Si no, NOT_APPLICABLE".
+    #
+    # `business.py` ya contestaba esta pregunta para sus propias metricas de
+    # suscripcion; este modulo no la contestaba en absoluto. Ahora las dos usan
+    # la misma definicion, en `core/adapters.py`.
+    _suscripcion = _adapters.is_subscription_business(packet, overlay)
+    _sin_modelo = (NullState.MISSING if _suscripcion else NullState.NOT_APPLICABLE)
+
     if adoption and {"current_units", "eventual_units"} <= adoption.keys():
         v_adopt = adoption_penetration(adoption["current_units"], adoption["eventual_units"])
     else:
-        v_adopt = _null(NullState.MISSING, "pct", "ADOPTION_UNAVAILABLE")
+        v_adopt = _null(_sin_modelo, "pct", "ADOPTION_UNAVAILABLE")
     add("MKT-ADOPT-021", v_adopt, _score_from_anchor(v_adopt, [(0.50, 0), (0.20, 4), (0.05, 8), (0.0, 10)]))
 
     arpu_t, arpu_t1 = overlay.get("arpu_t"), overlay.get("arpu_t1")
     if arpu_t is not None and arpu_t1 is not None:
         v_arpu = arpu_growth(arpu_t, arpu_t1)
     else:
-        v_arpu = _null(NullState.MISSING, "pct", "ARPU_GROWTH_UNAVAILABLE")
+        v_arpu = _null(_sin_modelo, "pct", "ARPU_GROWTH_UNAVAILABLE")
     add("MKT-ARPU-022", v_arpu, _score_from_anchor(v_arpu, [(-0.10, 0), (0.0, 5), (0.05, 8), (0.15, 10)]))
 
     # ---- MKT-SECB-023 / MKT-RSG-024: sector breadth / relative strength ----
@@ -1214,8 +1256,8 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> MarketOutput:
     tam_weight = 1 / len(tam_members)
     tam_scores: list[tuple[float, Value]] = []
     for mid in tam_members:
-        s = by_id[mid].score10
-        tam_scores.append((tam_weight, Value.of(s, unit="score") if s is not None else Value.null(NullState.NOT_SCORABLE, unit="score")))
+        s = by_id[mid].score10  # noqa: F841 -- se conserva por los usos de abajo
+        tam_scores.append((tam_weight, _slot(by_id[mid])))
     tam_source_tier_slot_index: int | None = None
     if tam_needs_judgment:
         # A tier is NOT a score. DECISION_RULES.md's table maps it to a
@@ -1252,15 +1294,15 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> MarketOutput:
     # ---- Revisions dimension (4 pts) ----
     revisions_scores: list[tuple[float, Value]] = []
     for mid in ("MKT-REVBR-011", "MKT-REVMAG-012", "MKT-DISP-013", "MKT-SURP-014"):
-        s = by_id[mid].score10
-        revisions_scores.append((0.25, Value.of(s, unit="score") if s is not None else Value.null(NullState.NOT_SCORABLE, unit="score")))
+        s = by_id[mid].score10  # noqa: F841 -- se conserva por los usos de abajo
+        revisions_scores.append((0.25, _slot(by_id[mid])))
     revisions_dim = Dimension(name=DIM_REVISIONS, max_points=DIMENSION_MAX_POINTS[DIM_REVISIONS], metric_scores=revisions_scores)
 
     # ---- Catalysts dimension (4 pts) ----
     catalyst_scores: list[tuple[float, Value]] = []
     for mid in ("MKT-BACK-015", "MKT-COVER-016", "MKT-CAT-019", "MKT-TDEC-020"):
-        s = by_id[mid].score10
-        catalyst_scores.append((0.25, Value.of(s, unit="score") if s is not None else Value.null(NullState.NOT_SCORABLE, unit="score")))
+        s = by_id[mid].score10  # noqa: F841 -- se conserva por los usos de abajo
+        catalyst_scores.append((0.25, _slot(by_id[mid])))
     narrative_only = ctx.get("has_catalysts") and not ctx.get("any_catalyst_quantified")
     if narrative_only:
         catalyst_scores = apply_dimension_cap(catalyst_scores, cap=3.0)
@@ -1275,15 +1317,15 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> MarketOutput:
         "MKT-PEN-005", "MKT-SHARE-006", "MKT-SHDELTA-007",
         "MKT-GCAP-009", "MKT-RUN-010", "MKT-BACK-015", "MKT-ADOPT-021", "MKT-ARPU-022",
     ):
-        s = by_id[mid].score10
-        runway_scores.append((1 / 8, Value.of(s, unit="score") if s is not None else Value.null(NullState.NOT_SCORABLE, unit="score")))
+        s = by_id[mid].score10  # noqa: F841 -- se conserva por los usos de abajo
+        runway_scores.append((1 / 8, _slot(by_id[mid])))
     runway_dim = Dimension(name=DIM_RUNWAY_SHARE, max_points=DIMENSION_MAX_POINTS[DIM_RUNWAY_SHARE], metric_scores=runway_scores)
 
     # ---- Operating leverage dimension (3 pts) ----
     oplev_scores: list[tuple[float, Value]] = []
     for mid in ("MKT-OPLEV-017", "MKT-INCM-018", "MKT-SECB-023", "MKT-RSG-024"):
-        s = by_id[mid].score10
-        oplev_scores.append((0.25, Value.of(s, unit="score") if s is not None else Value.null(NullState.NOT_SCORABLE, unit="score")))
+        s = by_id[mid].score10  # noqa: F841 -- se conserva por los usos de abajo
+        oplev_scores.append((0.25, _slot(by_id[mid])))
     oplev_dim = Dimension(name=DIM_OPLEV, max_points=DIMENSION_MAX_POINTS[DIM_OPLEV], metric_scores=oplev_scores)
 
     dimensions = [tam_dim, revisions_dim, catalysts_dim, runway_dim, oplev_dim]
