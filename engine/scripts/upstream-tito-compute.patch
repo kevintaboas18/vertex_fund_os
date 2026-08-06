@@ -1,0 +1,155 @@
+Cinco lagunas en web/lib/compute.ts de agente-tito-metralleta
+
+Encontradas al portar el módulo a Python (Vertex Fund OS) con un test
+diferencial: se ejecuta el compute.ts real en Node y el port en Python sobre los
+mismos ~3000 contratos crudos, cubriendo todas las formas que puede mandar
+Massive, y se comparan las salidas (`engine/scripts/diff_compute.sh`).
+
+Nota sobre el port: las cinco están REPLICADAS TAL CUAL en la versión de
+Python. El port de `compute.ts` es literal —604/604 filas, cero divergencias
+declaradas— y los tests `TestLasCincoQueSeQuedanComoEl` fijan cada
+comportamiento junto con su coste medido, para que nadie los "arregle" dentro
+del módulo sin darse cuenta de que rompe la fidelidad.
+
+Los arreglos que se proponen abajo son para ESTE repo
+(agente-tito-metralleta), que es donde tienen que vivir.
+
+Qué hace Vertex mientras tanto: nada dentro del módulo. Lo único que impide que
+un `NaN` o un `Infinity` salgan publicados es `JSON.stringify`, que los
+convierte en `null` — exactamente la misma y única línea de defensa que tiene
+este repo, porque sus rutas responden con `Response.json`. En el port eso es
+`_json_safe`, y está fijado de punta a punta en `tests_vertex/`.
+
+Auditado en su repo antes de decidir:  `massive.ts` mete `json.results` sin
+validar (`for (const c of results) contracts.push(c)`) y
+`app/api/chain/route.ts` hace `contracts.map(toRow)` y pasa las filas directo a
+`structureScore`. `compute.ts` es el único sitio donde estas guardas podrían
+estar, y no están.
+
+
+── LAGUNA 1 · el tipo de contrato depende del `case` ───────────────────────
+
+    function normalizeType(t: string | undefined): ContractType {
+      return t === "put" ? "put" : "call";
+    }
+
+Comparación exacta: un `"PUT"` de la fuente se convierte en **call**. Y no falla
+ruidosamente — miente. Medido con una cadena entera en mayúsculas:
+
+    "put"  →  GEX total  -13,614,827  ·  régimen negative
+    "PUT"  →  GEX total  +27,229,653  ·  régimen positive
+
+Todos los puts pasan a contarse como calls: el GEX neto cambia de signo, el put
+wall desaparece y el régimen se invierte. Es la señal central del motor decidida
+por el `case` de un string de la fuente.
+
+Hoy Massive manda minúsculas, así que no se dispara. Es exactamente el tipo de
+cosa que cambia en una migración de proveedor sin que nadie lo note.
+
+-  return t === "put" ? "put" : "call";
++  return String(t ?? "").trim().toLowerCase() === "put" ? "put" : "call";
+
+
+── LAGUNA 2 · un negativo RESTA del nocional de toda la cadena ─────────────
+
+    const openInterest = raw.open_interest ?? 0;
+    const strike = raw.details?.strike_price ?? 0;
+
+Los cuatro campos laxos —OI, strike, volumen, acciones por contrato— son
+CANTIDADES: no existe un open interest negativo. El `??` solo cubre null, así
+que un valor corrupto entra tal cual. Medido con UNA fila de OI −900.000 en una
+cadena por lo demás sana:
+
+    nocional total   +$900M  →  −$8,100M
+    Estructura         3/15  →  1/15
+    baja liquidez     false  →  true      ← sobre una cadena perfectamente líquida
+
+Un nocional que RESTA es peor que uno que falta: no se distingue de un mercado
+bajista real.
+
++function cantidad(v: unknown, fallback: number): number {
++  const n = Number(v ?? fallback);
++  return Number.isFinite(n) && n >= 0 ? n : fallback;
++}
+-  const openInterest = raw.open_interest ?? 0;
+-  const strike = raw.details?.strike_price ?? 0;
++  const openInterest = cantidad(raw.open_interest, 0);
++  const strike = cantidad(raw.details?.strike_price, 0);
+
+
+── LAGUNA 3 · `shares_per_contract` ilegible inventa el multiplicador ──────
+
+    const shares = raw.details?.shares_per_contract ?? 100;
+
+El `??` no distingue AUSENTE de ILEGIBLE. Con `shares_per_contract: "abc"` el
+nocional sale `NaN` (y `null` al serializar); con `""` o `[]` sale 0, porque
+`Number("")` es 0. En los dos casos el número se decide sin evidencia de cuál es
+el multiplicador — que es justo el bug que motivó portar este módulo, entrando
+por la puerta de atrás.
+
+-  const shares = raw.details?.shares_per_contract ?? 100;
++  const bruto = raw.details?.shares_per_contract;
++  const shares = bruto == null ? 100 : cantidad(bruto, 0);
+
+
+── LAGUNA 4 · el producto desborda con entradas finitas ────────────────────
+
+    notionalValue(1e200, 1e200, 100)   →   Infinity
+
+Las dos entradas son finitas y el producto no. `JSON.stringify` lo escribe como
+`null`, así que en TS el daño se queda en un campo vacío; en un consumidor que
+sume la columna, un `Infinity` se lleva el total.
+
++  const nv = notionalValue(openInterest, strike, shares);
+   return {
+-    notionalValue: notionalValue(openInterest, strike, shares),
++    notionalValue: Number.isFinite(nv) ? nv : 0,
+
+
+── LAGUNA 5 · el vencimiento no se canoniza ────────────────────────────────
+
+    expiration: raw.details?.expiration_date ?? "",
+
+Esa cadena es la CLAVE con la que agrupan `structureScore` y el heatmap de GEX.
+Sin recortar a `YYYY-MM-DD`, `"2026-09-18"` y `"2026-09-18T00:00:00Z"` son dos
+vencimientos distintos: el mismo día aparece partido en dos, con la mitad del
+open interest cada uno, y `countExpirations` cuenta de más.
+
+-    expiration: raw.details?.expiration_date ?? "",
++    expiration: String(raw.details?.expiration_date ?? "").slice(0, 10),
+
+
+── Nota sobre el port: lo único que NO se pudo replicar ────────────────────
+
+Su `openInterest` conserva el valor CRUDO: si Massive manda `"500"`, el campo de
+la fila es el string `"500"`, y funciona porque la aritmética de JS lo coacciona
+al multiplicar. En Python el campo lleva el número (500.0), porque el resto del
+motor suma esa columna y un string no se suma.
+
+El VALOR calculado es el mismo en los 3004 casos del diferencial — la diferencia
+es el tipo del campo en el JSON, y solo aparece con datos malformados. Con datos
+bien formados las filas son idénticas hasta el último campo.
+
+
+── Tests de regresión sugeridos (compute.test.ts) ─────────────────────────
+
+  it("un PUT en mayúsculas sigue siendo un put", () => {
+    expect(toRow({ details: { contract_type: "PUT" } }).contractType).toBe("put");
+  });
+
+  it("un OI negativo no resta del nocional", () => {
+    expect(toRow({ open_interest: -500, details: { strike_price: 100 } })
+      .notionalValue).toBe(0);
+  });
+
+  it("shares_per_contract ilegible no cae al 100", () => {
+    expect(toRow({ open_interest: 100,
+                   details: { strike_price: 9000, shares_per_contract: "abc" } })
+      .notionalValue).toBe(0);
+  });
+
+  it("el vencimiento se agrupa por día", () => {
+    const filas = ["2026-09-18", "2026-09-18T00:00:00Z"]
+      .map((e) => toRow({ details: { expiration_date: e } }));
+    expect(countExpirations(filas)).toBe(1);
+  });

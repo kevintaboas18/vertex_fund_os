@@ -1,0 +1,105 @@
+Dos bugs en web/lib/prediction.ts de agente-tito-metralleta
+
+Encontrados al portar el motor a Python (Vertex Fund OS).
+
+ESTADO EN EL PORT: los dos se reproducen TAL CUAL. El port es un espejo, no una
+versión mejorada — `engine/scripts/diff_motor2.sh` compara 846 casos contra este
+archivo y exige cero diferencias, así que arreglarlos aquí y no allá rompería la
+comparación. El arreglo entra en el port el día que entre aquí. Mientras tanto
+queda fijado en tests de caracterización (`test_prediction.py`) y en un check de
+`auditar_tito.py`, para que nadie lo "arregle" por accidente sin darse cuenta.
+
+Los dos rompen la misma regla que el propio módulo declara en su cabecera:
+
+    "Regla de oro heredada de la Guía GEX: el GEX **confirma, no adivina**. Por
+     eso ningún escenario puede salirse del cono de 2σ — la volatilidad manda
+     sobre el posicionamiento."
+
+y el invariante que exige su propio test ("ordena SIEMPRE bear < base < bull").
+Ninguno de los dos lo detecta la suite actual.
+
+
+── BUG 1 · bear colapsa con base ───────────────────────────────────────────
+
+    if (bearTarget >= baseTarget) bearTarget = Math.min(em.lower1, baseTarget);
+
+Cuando el suelo de 1σ queda POR ENCIMA de la base, ese Math.min devuelve
+baseTarget y bear termina EXACTAMENTE igual que base: dos escenarios en el
+mismo precio.
+
+Se reproduce con el imán lejos por debajo del spot a plazo corto:
+
+    predictPro({ spot: 100, iv: 0.5, horizonDays: 10, nodes: [
+      { strike: 110, concentration: 1.0, side: "call", netGex: 5e6 },
+      { strike: 92,  concentration: 0.7, side: "put",  netGex: -3e6 },
+    ], ... })
+    // lower1 ≈ 92.05 > base 92  →  bear = 92 = base
+
+Arreglo: cuando 1σ no alcanza, el escenario lo marca la SIGUIENTE banda de
+volatilidad (2σ), que está por debajo de la base por construcción.
+
+-  if (bearTarget >= baseTarget) bearTarget = Math.min(em.lower1, baseTarget);
+-  if (bullTarget <= baseTarget) bullTarget = Math.max(em.upper1, baseTarget);
++  if (bearTarget >= baseTarget) bearTarget = em.lower1 < baseTarget ? em.lower1 : em.lower2;
++  if (bullTarget <= baseTarget) bullTarget = em.upper1 > baseTarget ? em.upper1 : em.upper2;
+
+
+── BUG 2 · el target base no se recorta al cono ────────────────────────────
+
+    const baseTarget = shiftPct !== 0 ? inCone(rawBase + (spot * shiftPct) / 100) : rawBase;
+
+El recorte solo ocurre CUANDO hay calibración. Sin ella el imán sale crudo
+mientras bear y bull sí se acotan, así que el base puede quedar fuera del cono
+de 2σ y romper el orden:
+
+    predictPro({ spot: 100, iv: 0.5, horizonDays: 10,
+                 nodes: [{ strike: 5000, concentration: 1, side: "call", netGex: 9e9 }] })
+    // base = 5000, bull = 118 (recortado)  →  base > bull
+
+En el pipeline completo no se alcanza porque gexAnalysis ya filtra los nodos a
+±20% del spot (NEAR_SPOT_PCT), pero predictPro es una función pública y su
+contrato dice que ningún escenario sale del cono.
+
+Arreglo: recorte incondicional, con el tope del base en el punto medio entre 1σ
+y 2σ en vez del borde de 2σ. Ese borde pertenece a los escenarios EXTREMOS: si
+el base pudiera sentarse justo encima, no quedaría sitio para el bear y los tres
+colapsarían (que es lo que pasa si solo se aplica inCone).
+
+-  const baseTarget = shiftPct !== 0 ? inCone(rawBase + (spot * shiftPct) / 100) : rawBase;
++  // El borde de 2σ es de los escenarios extremos; el base se queda un peldaño
++  // dentro para que bear y bull siempre tengan sitio.
++  const baseFloor = (em.lower1 + em.lower2) / 2;
++  const baseCeil = (em.upper1 + em.upper2) / 2;
++  const baseTarget = Math.min(
++    Math.max(rawBase + (spot * shiftPct) / 100, baseFloor),
++    baseCeil,
++  );
+
+Con un imán alcanzable —lo normal— este tope no cambia nada: a 20 días con
+IV 0.5 el techo del base queda en ~119 y un imán en 110 pasa intacto.
+
+
+── Tests de regresión sugeridos (prediction.test.ts) ───────────────────────
+
+  it("el orden aguanta con el imán lejos por debajo a plazo corto", () => {
+    const p = predictPro(input({ horizonDays: 10, nodes: [
+      { strike: 110, concentration: 1.0, side: "call", netGex: 5e6 },
+      { strike: 92,  concentration: 0.7, side: "put",  netGex: -3e6 },
+    ] }));
+    expect(p.base.target).toBe(92);
+    expect(p.bear.target).toBeLessThan(p.base.target);
+    expect(new Set([p.bear.target, p.base.target, p.bull.target]).size).toBe(3);
+  });
+
+  it("el target base tampoco se sale del cono de 2σ", () => {
+    for (const h of [10, 20, 30]) {
+      const p = predictPro(input({ horizonDays: h,
+        nodes: [{ strike: 5000, concentration: 1, side: "call", netGex: 9e9 }] }));
+      expect(p.base.target).toBeLessThanOrEqual(expectedMove(100, 0.5, h).upper2 + 1e-6);
+      expect(p.bear.target).toBeLessThan(p.base.target);
+      expect(p.base.target).toBeLessThan(p.bull.target);
+    }
+  });
+
+El test actual "ningún escenario se sale del cono de 2σ" solo comprueba
+p.bull.target; por eso ninguno de los dos bugs salta hoy.

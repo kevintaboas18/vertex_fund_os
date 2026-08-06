@@ -2477,3 +2477,244 @@ electrónica se quedaron sin denominador teniendo un suplente escrito. Instalado
 OpenAI resolvió bebidas con Gemini caído.
 
 **Suites:** engine 2148, web 104.
+
+# 38. Auditoría del tab de Proyecciones — ronda 4 (2026-08-06)
+
+**Alcance:** el tab de Proyecciones completo, de la vista al endpoint y al motor.
+**Base comparada:** https://github.com/infusionvictor/agente-tito-metralleta (`53d5a20`).
+
+## 38.1 Lo que estaba MAL (y quedó resuelto)
+
+### [x] P4-01 — El tab medía gamma DOS veces
+Ya cerrado en la ronda 3 para el cargador y sus paneles (commit `a6d4fc2`), pero
+sobrevivieron cuatro restos que esta ronda destapó:
+
+| Resto | Qué se veía | Resuelto |
+|---|---|---|
+| Tarjeta *"Dark Pool & Flujo Institucional (Quant Data)"* vacía | marco morado + título sobre un cuerpo sin contenido: se leía como "el panel no carga", no como "el panel ya no está" | eliminada |
+| Rótulo *"(volumen > OI = posicionamiento fresco)"* | la definición de Quant Data sobre los trades del sub-agente 3, que puntúa inusualidad /30 sobre la cinta | rotulado con lo que de verdad pinta |
+| Subtítulo de targets *"7d–120d … GEX + flujo + dark pool + delta"* | horizontes que ya no existen y una fuente que ya no se consulta | 10d/20d/30d con los 6 pesos de su scorecard |
+| `trade_plan` del *Plan de operación* | put wall, call wall, gamma flip (de `get_gex_cached` → Quant Data) y un checkpoint de flujo de `_qd_conv`, a dos tarjetas de los mismos cuatro niveles calculados por el motor de Víctor | eliminados del plan; Quant Data sigue intacto en el prompt de Full Research, que es otra pantalla |
+
+**Por qué importa el último:** `trade_plan` se pinta en UN solo sitio y ese sitio es
+este tab. Cuando los dos proveedores discrepaban no había forma de saber cuál mirar.
+
+### [x] P4-02 — El motor de calibración no tenía diferencial
+Resuelto en la ronda 3 (`diff_calib.sh`, 182 diarios).
+
+## 38.2 Lo NUEVO de su repo, ya portado
+
+Su commit `53d5a20` *"feat(ideas): screener más accesible para cuenta chica"*
+toca `web/lib/risk.ts`. Portado literal a `engine/wbj/tito/risk.py`:
+
+| Suyo | Antes | Ahora |
+|---|---|---|
+| `MIN_DTE` | 7 | **2** — deja pasar semanales; el 0DTE lo sigue tumbando `expiry_status` |
+| `IDEA_UNUSUAL_THRESHOLD` | no existía | **5**, propio del screener. **No toca** el 7 institucional de `flow.py` |
+| `MONEYNESS_CAP` | no existía | **0.25** — el strike dentro del ±25% del precio |
+| `within_moneyness()` | no existía | portada. Ante datos faltantes **no filtra**: la cercanía es preferencia, no salvaguarda |
+
+Lo demás del commit (piso de premium $500k→$100k, slider 10%→50%, conteo de
+rechazos `lejano`) vive en su `/api/ideas` y su `ideas/page.tsx`, que **no se
+portan** — están declarados en el registro de huérfanas de `auditar_tito.py`.
+
+## 38.3 Cómo se verificó
+
+- `diff_motor2.sh` subió de 846 a **918 casos** con el corpus malformado nuevo
+  para `withinMoneyness`: basura en `strike` y en `assetPrice`, los bordes
+  exactos de la banda por los dos lados, y la banda misma con `null` explícito
+  —que en JS **no** activa el valor por defecto, solo lo hace `undefined`—.
+  918/918 idénticos a su archivo corriendo en Node.
+- 4 tests de cableado nuevos: ningún rótulo de Quant Data visible en el tab,
+  ninguna tarjeta con título y sin cuerpo, el plan sin gamma ni flujo de Quant
+  Data (leyendo el **código**, no el comentario que explica la eliminación), y
+  el rótulo de inusualidad describiendo lo que pinta.
+- 9 tests nuevos en `test_risk.py`: sus 6 de `withinMoneyness` + los 3 que fijan
+  que el umbral del screener no se coma al institucional.
+
+## 38.4 Estado
+
+```
+2.684 tests del engine · 154 de la capa web · 238 checks de auditoría · 0 fallos
+store 47/47 · compute 604/604 · bars 27/27 · primitivas · cono
+motor 1142/1142 · motor2 918/918 · motor3 348/349 · geo 274/274
+calib 182/182 · frescura 342/342 · reloj 223/223
+```
+
+Única divergencia declarada en los 12 diferenciales: `new Date("0")` → año 2000
+(parsing legacy de V8, *implementation-defined* según la spec).
+
+**Paneles que quedan en el tab:** gráfica de Víctor · Gamma neto por strike ·
+Targets por horizonte · Escenarios de precio (GEX) · Actividad inusual ·
+Plan de operación. **Fetches del tab:** `/api/projection-targets` y
+`/api/tito-news`. Nada más.
+
+---
+
+# 39. Auditoría del tab de Proyecciones — ronda 5 (2026-08-06)
+
+**Alcance:** el tab entero, atacando lo que las cuatro rondas anteriores no
+midieron. **Base comparada:** su repo en `53d5a20`.
+
+## 39.1 El hallazgo grande: seis números sin evidencia
+
+Todas las rondas anteriores preguntaban **"¿lo que se sirve, se pinta?"**.
+Ninguna preguntó **"¿se sirve lo que ÉL muestra?"**. Ahí estaba el hueco.
+
+El motor calcula el desglose completo de los 6 sub-agentes desde el primer día
+—el spread medio y la dominancia de Convicción, el promedio por parámetro de
+Inusualidad, el nocional por strike y el reparto por vencimiento de Estructura,
+el IV Rank **con su fuente** y el skew del frente, el MFE/MAE y la tasa de
+validación del backtest— y el payload servía **solo el titular 0-10**.
+
+Es exactamente lo que la regla innegociable del proyecto prohíbe:
+
+> *Sin evidencia, no hay número.*
+
+Seis cifras en pantalla y nada detrás. Resuelto: `subagents` en el payload
+(60 hojas) y `vcSubagentesHTML` en el panel, port de sus seis tarjetas —
+`AggressionScoreCard`, `ConvictionCard`, `UnusualityCard`, `StructureCard`,
+`IvContextCard`, `ValidationCard`— con sus veredictos y umbrales literales,
+dentro del mismo `<details>` colapsado que él usa.
+
+## 39.2 Los otros cuatro
+
+| # | Hallazgo | Resuelto |
+|---|---|---|
+| P5-02 | `conviction_trades` servía solo el **contador**. Esas filas son el universo sobre el que puntúan Convicción, Inusualidad y Contexto IV: tres de seis categorías sin nada que las respalde | `conviction_rows` (25 de mayor premium) + su `ConvictionTransactions` |
+| P5-03 | Mi propio renderizador nuevo tiraba 4 hojas: `by_expiration.trades`/`.premium` (la muestra que sostiene cada IV media) y `expirations.call_notional`/`.put_notional` (dos vencimientos con el mismo nocional pueden ser tesis opuestas) | pintadas — lo detectó el test de hojas, no yo |
+| P5-04 | `strike` y `size` llegan **crudos** de MarketSnack y se interpolaban sin escapar en las dos tablas de filas. El port es literal: no valida tipos | `_vcEsc` en los 4 puntos + test |
+| P5-05 | La flecha del `<details>` dependía de la variante `group-open:` de Tailwind, servida por CDN sin versión fijada. Si no resolviera, se verían las **dos** flechas | CSS propio, sin depender de nadie |
+
+## 39.3 Lo que ahora es auditable y antes no
+
+**Registro de sus 39 componentes** (`auditar_tito.py` §9-ter). Cada uno de los
+componentes que renderiza su `web/app/page.tsx` está mapeado: **22 con
+consumidor** en el tab, **17 declarados con motivo escrito**. Con `TITO_ROOT`
+apuntando a su clon, el registro se contrasta contra su carpeta real — un
+componente nuevo suyo que nadie declare hace **fallar** el check. Se probó: la
+primera versión inventó un `ChartPanel` en `chart/` y se le escaparon
+`ChartCrosshair` y `PriceChart`; el check lo dijo.
+
+**Cobertura por HOJA del payload** (`test_cada_hoja_del_detalle_de_subagentes_se_pinta`).
+El test viejo miraba claves raíz, y `subagents` es **una** clave con 60 hojas
+dentro. El nuevo recorre el árbol servido y exige que cada hoja se lea en el
+renderizador o esté declarada con su motivo (6 lo están).
+
+## 39.4 Estado
+
+```
+2.684 tests del engine · 159 de la capa web · 271 checks de auditoría · 0 fallos
+store 47/47 · compute 604/604 · bars 27/27 · primitivas · cono
+motor 1142/1142 · motor2 918/918 · motor3 348/349 · geo 274/274
+calib 182/182 · frescura 342/342 · reloj 223/223
+```
+
+Nada mío entra en el tab salvo lo que Kevin pidió: su email y su perfil de
+inversionista. Las fuentes son Massive (cadena + barras) y MarketSnack (cinta).
+
+## 39.5 Lo que destapó la fusión con `main`
+
+`main` avanzó 22 commits mientras esta rama avanzaba 63. Al fusionar salieron
+tres cosas que ninguna de las dos ramas veía sola:
+
+| Hallazgo | Detalle |
+|---|---|
+| **`/api/projection-targets` duplicado** | La fusión resucitó el endpoint viejo de Quant Data (`compute_horizon_targets` + walls y convicción de QD). Dos `@app.get` con el mismo path **no dan error** en FastAPI: gana el primero y el segundo queda como código que nadie ejecuta y que en la siguiente lectura parece la implementación vigente. Borrado. |
+| **La excepción cruda iba al navegador** | `main` añadió `test_route_safety.py` con una regla correcta: este servicio liga `0.0.0.0` en Render, y un `str(e)` de httpx que escapara de `raise_for_status()` llevaría la URL **con la clave**. Dos rutas de Proyecciones caían ahí. |
+| **…pero ocultarlo todo tampoco servía** | Con `_error_publico` a secas, "Falta MASSIVE_API_KEY" pasaba a ser "no se pudo completar" y mandaba a leer logs de Render para descubrir una variable de entorno. `_error_de_fuente` deja pasar `MassiveError`/`MarketSnackError` —mensajes que escribimos nosotros, y que el centinela de §8 **demuestra** que no llevan credenciales— y manda todo lo demás al camino ciego. |
+
+`main` había llegado por su cuenta a la misma conclusión de la ronda 4 (fuera
+Quant Data del plan de operación), pero dejando el andamio muerto: un
+`flow_override = False` sin usos y un `try` con `_pw/_cw/_fl` fijados a `None`
+cuyos tres `if` no pueden entrar nunca. Se conservó la eliminación limpia.
+
+---
+
+# 40. Auditoría del tab de Proyecciones — ronda 6 (2026-08-06)
+
+**Alcance:** el tab entero **y todo lo auditado en las cinco rondas previas**,
+con dos preguntas nuevas que ninguna se había hecho. **Base:** su `53d5a20`.
+
+## 40.1 El error más caro: el spot salía de la fuente equivocada
+
+Su `page.tsx` elige el precio así, y en este orden:
+
+```
+company?.price ?? chainMeta?.underlyingPrice ?? bars[bars.length - 1].close
+```
+
+El port **se saltaba el primer eslabón** y usaba el segundo. No es lo mismo:
+
+- `company.price` es el **snapshot del subyacente** (`/v2/snapshot/...`, última
+  operación: `day.c ?? min.c ?? prevDay.c`).
+- `underlying_price` es el precio con el que Massive calculó **esa cadena**.
+
+Cuando la cadena se sirve de caché o el papel se movió después de calcularla,
+no coinciden. Y el spot no es un dato más: ancla **los nodos del GEX**, la
+ventana de ±20% (`NEAR_SPOT_PCT`) que decide qué strikes entran, **los
+niveles**, **el cono** y **los tres targets**. Cogerlo del eslabón equivocado
+mueve el panel entero en silencio.
+
+**Resuelto:** portado su `fetchCompany` → `massive.fetch_company`, y el spot
+resuelto en su orden. Con su guarda: un precio ≤ 0 (o no numérico) no gana —
+él corta con `if (!spot || spot <= 0) return null`.
+
+## 40.2 Lo que se servía y no se pintaba (14 hojas más)
+
+El test de hojas de la ronda 5 solo cubría `subagents`. Extendido al payload
+**entero** (≈120 hojas), aparecieron 14:
+
+| Qué | Por qué importaba |
+|---|---|
+| `structure.top_strikes.*` (7 columnas) | **la tabla entera** de "Dónde se acumula" de su `StructureCard` — servida desde el primer día, nunca pintada |
+| `structure.dominant_side` / `call_pct` / `put_pct` | su barra de reparto calls/puts con "Dominan los CALLS" |
+| `flow_clusters.unidirectionality` | **la** métrica del racimo: qué parte del premium va en una sola dirección |
+| `flow_clusters.call_premium` / `put_premium` | lo que la sostiene |
+| `gex.nodes.trade_premium` / `trade_count` | la parte del nodo que viene del **tape**: distingue un muro de open interest viejo de uno que se construye hoy |
+| `predictions.*.calibration.samples` | sobre cuántas predicciones vencidas se midió el ajuste. Un "+2.1%" sin la muestra no se puede juzgar |
+
+Faltaba además `top_strikes.pct_of_total`, que ni se servía.
+
+## 40.3 La salvaguarda de liquidez era más débil que la suya
+
+Su `VeredictoCard` tiene una regla de prioridad que es lo **primero** que hace:
+si hay `caveat`, **no se da dirección** — se muestra *"Datos no fiables — no
+operar"* y nada más.
+
+Aquí se pintaban los tres targets igual y el caveat quedaba de nota al pie en
+9px debajo. Es lo contrario de la regla del proyecto: *la confianza nunca
+convierte un desconocido en un score favorable*. **Resuelto**, y con ello se
+portó su veredicto completo: dirección en lenguaje llano (📈 *Probablemente
+SUBE* / 📉 *BAJA* / ➡️ *LATERAL*), `confLabel` con sus cortes **66 / 33**, el
+horizonte en prosa y el tooltip completo del chip de calibración.
+
+## 40.4 Dos cotejos automáticos nuevos (§9-quater)
+
+Lo que antes se revisaba a ojo, ahora falla solo:
+
+- **Sus 32 módulos de `web/lib`**: 24 portados, 8 declarados con motivo. Con
+  `TITO_ROOT` se contrasta contra su carpeta real.
+- **Sus 32 constantes numéricas exportadas**, valor a valor. No se puede hacer
+  a ojo: están repartidas en 13 archivos, y una mal copiada **pasaría verde**
+  en los dos lados porque los tests portados usan la constante, no el literal.
+  Destapó 3 que existían con **otro nombre** (`CLUSTER_WINDOW_MS`,
+  `HISTORY_DAYS`, `IV_HISTORY_DAYS`): mismos valores, pero invisibles para
+  cualquier cotejo. Renombradas a las suyas.
+
+También se cotejaron sus **104 funciones exportadas**: todas presentes salvo
+las cuatro de Massive que solo usan `/api/bars`, `/api/logo` y `/api/wheel`
+—rutas que no se portan— y `fetchCompany`, que es la de §40.1 y ahora está.
+
+## 40.5 Estado
+
+```
+2.716 tests del engine · 197 de la capa web · 277 checks · 0 fallos
+store 47/47 · compute 604/604 · bars 27/27 · primitivas · cono
+motor 1142/1142 · motor2 918/918 · motor3 348/349 · geo 274/274
+calib 182/182 · frescura 342/342 · reloj 223/223
+```
+
+Cero funciones muertas en el tab. Las 7 constantes de su `chartGeometry` y sus
+4 feeds de noticias coinciden literalmente.
+

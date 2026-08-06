@@ -3180,6 +3180,1188 @@ def _confidence_from_hit(pct):
 _HZTGT_CACHE = {}
 
 
+@app.get("/api/projection-targets")
+def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,30"):
+    """Targets de Proyecciones — motor de Víctor (Tito Metralleta).
+
+    Sustituye al motor de gamma/flujo (`compute_horizon_targets`) SOLO en este
+    panel: devuelve tres escenarios bear/base/bull por horizonte, anclados al
+    nodo imán del GEX y recortados al cono de 2σ, más los niveles por
+    confluencia precio ∩ opciones.
+
+    `compute_horizon_targets` sigue vivo y alimentando el prompt del agente,
+    `_reconcile` y el self-test — ahí no se tocó nada, así que la comparación
+    σ/DCF vs gamma/flujo mantiene su contraparte independiente.
+
+    `ai_12m` se acepta por compatibilidad con el frontend viejo; el motor de
+    Víctor no lo usa (su base sale del imán del GEX, no de un target externo).
+
+    Horizontes: **10 / 20 / 30 días**, exactamente los `HORIZONS` de Víctor
+    (`prediction.py`), con default 20. El panel viejo de Vertex daba hasta 120
+    días; eso se descarta a propósito — el escenario base se ancla al nodo imán
+    del GEX, y a 90-120 días la cadena que produjo ese imán ya habrá rotado casi
+    entera, así que el número existiría pero no significaría lo mismo. Víctor
+    corta en 30 y esa es la razón.
+
+    Los 320/120/90 días de `SCOREDCARD/Inusualidad.md` son otro eje: son las
+    bandas de DTE del CONTRATO para puntuar Inusualidad (premiar LEAPs sobre
+    lotería semanal), no el plazo de la proyección. Viven en `expiry_score`.
+    """
+    sc = _tito_mod()
+    if sc is None:
+        return {"ok": False, "error": "Motor de Víctor no disponible (engine/wbj/tito)."}
+
+    from wbj.tito.marketsnack import MarketSnackError, fetch_flow
+
+    tk, err = _tito_ticker(ticker)
+    if err:
+        return {"ok": False, "error": err}
+
+    try:
+        hz = tuple(int(h) for h in horizons.split(",") if h.strip())[:5] or (10, 20, 30)
+    except ValueError:
+        hz = (10, 20, 30)
+
+    trades, conviction_trades, flow_error = _tito_tape(tk)
+
+    try:
+        chain, bars, spot = _tito_chain_and_bars(tk)
+    except Exception as e:
+        # Sin cadena no hay Estructura, ni GEX, ni niveles, ni escenarios. Se
+        # devuelve el motivo exacto de Massive en vez de un reporte a medias.
+        return {"ok": False, "error": _error_de_fuente(e, "Cadena de Massive"),
+                "source": "massive"}
+
+    now = datetime.now(timezone.utc)
+    mem = _tito_memory(tk, conviction_trades or trades, chain, bars, now)
+
+    # El motor es un port LITERAL: lanza donde su TypeScript lanza (un
+    # `symbol` que no es texto, un `timestamp` nulo, una fila `null` del tape).
+    # Eso es correcto dentro del motor y es lo que mide `diff_motor.sh`; lo que
+    # no puede pasar es que salga como un 500 sin explicación. El borde de
+    # Vertex lo traduce al mismo sobre `{ok: false, error}` que usan las demás
+    # rutas — filtrar es trabajo del borde, no del motor.
+    try:
+        r = sc.run_scorecard(
+            tk, trades, chain or [], bars, now=now, spot=spot, horizons=hz,
+            iv_history=mem["iv_history"],
+            past_flows=mem["past_flows"],
+            calibration=mem["calibration"],
+            conviction_trades=conviction_trades,
+        )
+    except Exception as e:                       # noqa: BLE001 — se reporta, no se traga
+        return {"ok": False, "error": _error_publico(e, "Motor de Víctor"),
+                "source": "motor"}
+    out = _tito_json(r)
+    out["engine"] = "victor/tito"
+    out["chain_source"] = "massive"
+    out["memory"] = mem["stats"]
+    # Las noticias NO viajan aquí: van en /api/tito-news, igual que Víctor las
+    # tiene en su propia ruta y su propio panel. Acoplarlas al scorecard haría
+    # que 4 feeds RSS lentos retrasaran los targets, que es lo que de verdad
+    # importa — y un feed caído no debe hacer esperar a nadie.
+    _tito_remember(tk, r, now)
+    if flow_error:
+        out["flow_error"] = flow_error
+        out["warnings"] = [f"Sin tape de MarketSnack: {flow_error}"] + out.get("warnings", [])
+    # Serie histórica para que la gráfica dibuje sin una segunda llamada.
+    # 70 velas es lo que pide Víctor (`SimpleChart`: bars.slice(-70)): con el
+    # reparto 60/40 del lienzo, más velas encogen el cuerpo por debajo de lo
+    # legible y el recorte lo acabaría haciendo `vcBuildScales` de todos modos.
+    out["history"] = [
+        {"time": b.time, "open": getattr(b, "open", b.close), "high": b.high,
+         "low": b.low, "close": b.close}
+        for b in bars[-70:]
+    ]
+    out["levels_for_chart"] = _tito_chart_levels(r)
+    out["gex_heatmap"] = _tito_heatmap(chain or [], r, trades, now)
+    out["chart_geometry"] = _tito_chart_geometry(r)
+    out["flow_clusters"] = _tito_clusters(trades, now)
+    # `_json_safe` = su `JSON.stringify`: NaN/Infinity → null. `_tito_json` ya
+    # pasó por ahí, pero estos campos se añaden después.
+    return _json_safe(out)
+
+
+#: Pasos del cono y de las rutas. Son los de su `SimpleChart`: `conePoints(…, 24)`
+#: y `wigglePath(…, steps = 30)`.
+_CONO_STEPS = 24
+_RUTA_STEPS = 30
+
+#: Los tres escenarios de su `SimpleChart`, con la semilla que da a cada ruta su
+#: forma. El orden define el z-order al dibujar.
+_ESCENARIOS = (("bull", 1.7), ("base", 4.1), ("bear", 8.3))
+
+
+def _tito_chart_geometry(r):
+    """El cono y las rutas de la gráfica, calculados con SUS funciones.
+
+    Su `SimpleChart` importa `conePoints` y `predictionPath` de
+    `lib/expectedMove.ts` y los llama en el componente. Aquí la gráfica es un
+    SVG del navegador, así que la geometría se calcula en el servidor —con el
+    port de esas dos funciones— y viaja ya resuelta.
+
+    Por qué se hace así y no en JS: la fórmula estaba escrita **dos veces**, una
+    en `expected_move.py` (sin llamador) y otra a mano dentro de
+    `renderVictorProjChart`. Dos copias de la misma matemática es la forma más
+    barata de que una se quede atrás sin que nadie lo note; `diff_cono.sh` medía
+    la del navegador contra su archivo, pero nada garantizaba que las dos copias
+    coincidieran entre sí.
+
+    El `target` que se devuelve es el de `prediction_path` —ya recortado al cono
+    de 2σ—, que es exactamente lo que su `SimpleChart` etiqueta: *"El target es
+    el de `predictionPath` (ya recortado al cono), no el crudo."*
+
+    Nunca tumba la respuesta: si algo falla, devuelve `None` y la gráfica cae a
+    su fórmula local. Ilustra, no decide.
+    """
+    try:
+        from wbj.tito.expected_move import cone_points, prediction_path
+    except Exception:
+        return None
+    spot = r.spot
+    # `Math.max(iv, 0.01)` es SU suelo, dentro de `expected_move`. Aquí solo se
+    # evita el caso sin dato: sin IV no hay cono que dibujar.
+    iv = (r.gex.iv if r.gex and r.gex.iv else 0.0) or 0.4
+    if not (spot > 0):
+        return None
+    geo = {}
+    for dias, pred in (r.predictions or {}).items():
+        try:
+            cono = cone_points(spot, iv, float(dias), _CONO_STEPS)
+            rutas = {}
+            for clave, seed in _ESCENARIOS:
+                esc = getattr(pred, clave, None)
+                objetivo = getattr(esc, "target", None)
+                if objetivo is None:
+                    continue
+                ruta = prediction_path(spot, float(objetivo), iv, float(dias), _RUTA_STEPS)
+                rutas[clave] = {
+                    "seed": seed,
+                    "target": round(ruta.target, 4),
+                    # `clamped` avisa de que el escenario pedía más de lo que la
+                    # volatilidad da. La gráfica no puede dibujar fuera del cono.
+                    "clamped": bool(ruta.clamped),
+                    # `PredictionPath.points` son tuplas `(t, precio)`, que es su
+                    # `{ t, price }[]` sin nombre de campo.
+                    "points": [{"t": round(t, 4), "price": round(precio, 4)}
+                               for t, precio in ruta.points],
+                }
+        except Exception:
+            continue
+        geo[str(dias)] = {
+            "iv": round(iv, 6),
+            "cone": [{"t": round(c.t, 4),
+                      "upper1": round(c.upper1, 4), "lower1": round(c.lower1, 4),
+                      "upper2": round(c.upper2, 4), "lower2": round(c.lower2, 4)}
+                     for c in cono],
+            "paths": rutas,
+        }
+    return geo or None
+
+
+def _tito_clusters(trades, now, top=6):
+    """Racimos del tape: bursts agresivos contiguos en la misma dirección.
+
+    Es `detectClusters` de su `flow.ts`, que su `FlowPriceChart` usa para marcar
+    en la gráfica DÓNDE se concentró la agresión en vez de dejar el tape como
+    una lista plana. Lo que aporta y el scorecard no: la **apuesta neta** de
+    cada racimo —comprar puts es bajista, no alcista— y su ventana temporal.
+
+    Se recortan a los `top` de mayor premium: la gráfica no puede dibujar
+    cuarenta marcas y el resto ya está en el scorecard.
+    """
+    if not trades:
+        return None
+    try:
+        from wbj.tito.flow import classify_flow, detect_clusters
+        notables = classify_flow(trades, now).interesting
+        cl = detect_clusters(notables)
+    except Exception:
+        return None      # ilustra, no decide: nunca tumba los targets
+    # `c.premium` llega crudo del tape y puede ser texto (el `+` de JS
+    # concatena, ver `flow.detect_clusters`): ordenar con `-c.premium` reventaba
+    # la petición entera por un solo trade mal serializado.
+    from wbj.tito.jsmath import js_clave, js_number
+    cl = sorted(cl, key=lambda c: -js_number(c.premium))[:top]
+    return [{
+        "start_sec": c.start_sec, "end_sec": c.end_sec, "count": c.count,
+        "premium": c.premium, "direction": c.direction, "score": c.score,
+        "unidirectionality": _r(c.unidirectionality, 4),
+        "bet": c.bet, "bet_label": c.bet_label,
+        "call_premium": c.call_premium, "put_premium": c.put_premium,
+        # Los strikes que tocó el racimo, para poder marcarlo en el eje de precio.
+        # `js_clave` para deduplicar: un strike que llegue como lista es
+        # inhashable en Python y su `Set` lo acepta sin pestañear.
+        "strikes": sorted({js_clave(t.strike): t.strike
+                           for t in c.trades}.values(), key=js_number),
+    } for c in cl] or None
+
+
+def _tito_heatmap(chain, r, trades, now):
+    """GEX por strike × vencimiento — el mapa en sus dos dimensiones.
+
+    El GEX que ya sirve el scorecard es un agregado: un número por strike, con
+    todos los vencimientos sumados. Eso esconde lo que el heatmap enseña — que
+    un mismo strike puede ser muro en el vencimiento de esta semana y no serlo
+    en el de enero, y que el gamma se concentra en los de corto plazo. Es el
+    `GexHeatmapCard` de su página.
+
+    Las entradas se arman como en su `page.tsx`: los `HeatTrade` salen de unir
+    los trades de convicción con los inusuales, deduplicados por `id`, y solo
+    aportan `strike`, `expiration`, `gamma` y `premium`. Esa unión ya la hizo el
+    motor —es la misma que ancla el GEX—, así que aquí se reusa en vez de
+    rehacerla sobre los 5 días, que era otro universo.
+    """
+    try:
+        from wbj.tito.gex_heatmap import HeatTrade, gex_heatmap
+    except Exception:
+        return None
+    if not chain or not (r.spot > 0):
+        return None
+    try:
+        filas = r.conviction_flow or r.flow.interesting
+        ht = [HeatTrade(strike=t.strike, expiration=t.expiration,
+                        gamma=t.gamma, premium=t.premium) for t in filas]
+        h = gex_heatmap(chain, spot=r.spot, iv=r.gex.iv, now=now, trades=ht)
+    except Exception:
+        # El heatmap ILUSTRA; no puede tumbar los targets, que son lo que el
+        # panel necesita. Mismo criterio que él con el guardado de la cadena.
+        return None
+    if not h.cells:
+        return None
+    return {
+        "spot": _r(h.spot),
+        "iv": _r(h.iv, 4),
+        "total_net_gex": h.total_net_gex,
+        "max_abs_cell": h.max_abs_cell,
+        "strikes": [{"strike": s.strike, "net_gex": s.net_gex, "call_gex": s.call_gex,
+                     "put_gex": s.put_gex, "open_interest": s.open_interest,
+                     "distance_pct": _r(s.distance_pct)} for s in h.strikes],
+        "expirations": [{"expiration": e.expiration, "dte": e.dte,
+                         "net_gex": e.net_gex, "open_interest": e.open_interest}
+                        for e in h.expirations],
+        "cells": [{"strike": c.strike, "expiration": c.expiration, "net_gex": c.net_gex,
+                   "call_gex": c.call_gex, "put_gex": c.put_gex,
+                   "open_interest": c.open_interest, "intensity": _r(c.intensity, 4)}
+                  for c in h.cells],
+        "hottest_positive": (None if h.hottest_positive is None else
+                             {"strike": h.hottest_positive.strike,
+                              "expiration": h.hottest_positive.expiration,
+                              "net_gex": h.hottest_positive.net_gex}),
+        "hottest_negative": (None if h.hottest_negative is None else
+                             {"strike": h.hottest_negative.strike,
+                              "expiration": h.hottest_negative.expiration,
+                              "net_gex": h.hottest_negative.net_gex}),
+    }
+
+
+def _tito_chart_levels(r, max_per_side=2, min_strength=25):
+    """Niveles para la gráfica: los 2 soportes y 2 resistencias más CERCANOS con
+    fuerza real, exactamente el filtro de `SimpleChart` de Víctor.
+
+    El recorte no es un capricho: la lista completa mete tanto ruido que tapa
+    los escenarios, que es lo que la gráfica tiene que comunicar. El orden es
+    por distancia absoluta al spot, no por precio — un soporte al 2% importa
+    más que uno al 20% aunque sea más fuerte.
+    """
+    out = []
+    for group in (r.levels.supports, r.levels.resistances):
+        picked = sorted(
+            (l for l in group if l.strength >= min_strength),
+            key=lambda l: abs(l.distance_pct),
+        )[:max_per_side]
+        for l in picked:
+            out.append({
+                "price": _r(l.price), "kind": l.kind,
+                "strength": l.strength, "why": l.why,
+            })
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCORECARD DE FLUJO (motor Tito) — capa PROPIA dentro de Proyecciones
+#
+# NO compite con compute_horizon_targets ni lo reemplaza. Son dos lecturas
+# distintas del mismo mercado y se reportan por separado, igual que ya se hace
+# con σ/DCF vs gamma/flujo: el consumidor las reconcilia, el servidor no las
+# promedia. Toda la matemática vive en engine/wbj/tito/ (puro, 282 tests); aquí
+# solo hay I/O y traducción a JSON.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _tito_mod():
+    """Importa el motor Tito con el engine en el path. None si no está disponible."""
+    try:
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)
+        from wbj.tito import scorecard as _sc
+        return _sc
+    except Exception:
+        return None
+
+
+def _tito_ticker(ticker, default=""):
+    """Valida el ticker EN EL BORDE. Devuelve `(tk, error)`; uno de los dos es None.
+
+    Este es el sitio que en su repo ocupan las rutas de Next: el ticker llega de
+    `searchParams`, se normaliza y se rechaza antes de tocar un store. Los
+    ports de `store.ts` y `barsStore.ts` son literales precisamente porque esta
+    comprobación existe aquí.
+
+    Lo que atrapa y un `.strip().upper()` no: `"!!!"`, `"@@@"`, `"ñ"` pasan el
+    "no está vacío" y luego el `fileFor` de Víctor los sanea TODOS a la cadena
+    vacía — o sea que escriben en el mismo `.json` y mezclan la memoria de un
+    ticker con la de otro. Y no es teórico: `fetch_option_chain` no lanza con
+    una cadena vacía (devuelve `rows=[]`), así que el camino se alcanza con
+    cualquier cosa que el usuario escriba en la caja.
+    """
+    crudo = (ticker or default or "").strip()
+    if not crudo:
+        return None, "Ticker vacío."
+    if _WBJ_ENGINE_PATH not in sys.path:
+        sys.path.insert(0, _WBJ_ENGINE_PATH)   # `tito_health` valida ANTES de importar el motor
+    try:
+        from wbj.tito.borde import TickerInvalido, ticker_valido
+    except Exception:
+        # Sin motor no hay panel, y el llamador ya lo reporta con su propio
+        # mensaje. Aquí no se inventa una validación de repuesto: sería un
+        # segundo saneado distinto del de Víctor, que es justo lo que `borde`
+        # existe para evitar.
+        return crudo.upper(), None
+    try:
+        return ticker_valido(crudo), None
+    except TickerInvalido as e:
+        return None, str(e)
+
+
+def _tito_tape(ticker):
+    """Las DOS descargas de tape de su `/api/flow`, no una.
+
+    Su ruta baja el flujo dos veces con parámetros distintos, y de ahí salen
+    dos universos que puntúan cosas distintas:
+
+    1. **Agresividad** — `period` (5d), premium ≥ $100K, 6 páginas. Es el pulso
+       reciente: "¿el dinero de esta semana está entrando al ask?".
+    2. **Convicción, Inusualidad y Contexto IV** — `period: "1m"`, premium
+       ≥ $1M, 15 páginas y `targetDays: 30`. El comentario de su archivo lo
+       dice: *"Convicción revisa una ventana de 30 días (nota del documento)"*.
+
+    El port corría los seis sub-agentes sobre la PRIMERA descarga. Tres de las
+    seis categorías puntuaban entonces sobre un universo diez veces más barato y
+    seis veces más corto que el suyo — el score no era el mismo número.
+
+    Si la ventana ancha falla, se cae a la corta: es literalmente lo que hace su
+    `catch` (*"si falla la ventana ancha, Convicción se calcula con los 5
+    días"*). Devuelve `(trades, conviction_trades, error)`.
+    """
+    from wbj.tito.marketsnack import MarketSnackError, fetch_flow
+    from wbj.tito.scorecard import (CONVICTION_DAYS, CONVICTION_MAX_PAGES,
+                                    CONVICTION_MIN_PREMIUM)
+
+    try:
+        trades = fetch_flow(ticker, period="5d", min_premium=100_000,
+                            max_pages=6).trades
+        error = None
+    except MarketSnackError as e:
+        # Sin tape el motor sigue corriendo con la cadena (GEX + estructura),
+        # pero 4 de las 6 categorías quedan sin dato. Se reporta el motivo en
+        # vez de devolver un número que aparenta estar completo.
+        trades, error = [], str(e)
+
+    anchos = None
+    if trades:
+        try:
+            r = fetch_flow(ticker, period="1m",
+                           min_premium=CONVICTION_MIN_PREMIUM,
+                           max_pages=CONVICTION_MAX_PAGES,
+                           target_days=CONVICTION_DAYS)
+            anchos = r.trades or None
+        except MarketSnackError:
+            anchos = None          # su `catch`: Convicción se queda con los 5 días
+    return trades, anchos, error
+
+
+def _tito_chain_and_bars(ticker):
+    """Cadena + barras diarias desde **Massive**, la fuente que usa Víctor.
+
+    Fuente única a propósito: **no hay respaldo a yfinance**. Un fallback
+    silencioso a otro proveedor es peor que un error — cambia los datos bajo
+    los pies del scorecard sin que nadie se entere, y dos corridas dejan de
+    ser comparables. Si Massive no responde, el endpoint lo dice y no publica
+    un número.
+
+    El motor no conoce a Massive: recibe `ChainRow`/`LvlBar` ya normalizados,
+    así que cambiar de proveedor no toca una línea de `wbj/tito/`.
+
+    Devuelve `(rows, bars, spot)`. Levanta `MassiveError` con el motivo exacto
+    (key ausente, key rechazada, rate limit, ticker sin datos).
+    """
+    from wbj.tito.bars_store import daily_bars_for_panel
+    from wbj.tito.massive import MassiveError, fetch_company, fetch_option_chain
+
+    chain_res = fetch_option_chain(ticker)
+    # Barras diarias CON cache. Su cabecera de `barsStore.ts` dice que en v1 el
+    # store solo lo usa Wheel, y durante todo el port se respetó; se enchufa
+    # ahora porque el motivo que él escribió para Wheel —"las barras diarias
+    # solo cambian una vez al día"— vale igual aquí: Proyecciones las pide en
+    # CADA consulta y el panel se auto-refresca.
+    #
+    # No se usa su `cached_daily_bars` a pelo: su regla es "cachea por día de
+    # mercado" y eso, en un panel en vivo, congela la vela de hoy a media
+    # sesión, sella el archivo sin la barra del día si Massive publica tarde y
+    # pierde el cache justo el fin de semana. `daily_bars_for_panel` es la capa
+    # de política de Vertex y ancla el cache en el DATO —la última sesión
+    # cerrada— en vez de en el reloj. Su función queda intacta y verificable.
+    bars = daily_bars_for_panel(ticker)
+    if not bars:
+        raise MassiveError(f"Massive no devolvió barras diarias para {ticker}.")
+    # La cadena puede venir vacía (subyacente sin opciones listadas) y el motor
+    # lo sabe manejar: Estructura sale NOT_SCORABLE y salta la salvaguarda de
+    # liquidez. Sin barras, en cambio, no hay nada que calcular.
+    # El SPOT, en el orden exacto de su `page.tsx`:
+    #
+    #     company?.price ?? chainMeta?.underlyingPrice ?? bars[bars.length - 1].close
+    #
+    # `company.price` es el snapshot del subyacente (última operación);
+    # `underlying_price` es el precio con el que Massive calculó ESA cadena, que
+    # no es el mismo cuando la cadena viene de caché o el papel se movió después.
+    # El spot ancla los nodos del GEX, la ventana de ±20% que decide qué strikes
+    # entran, los niveles, el cono y los tres targets: cogerlo del eslabón
+    # equivocado mueve el panel entero en silencio.
+    #
+    # `_precio` implementa su `??`: solo salta el nulo. Pero un precio <= 0 no es
+    # un precio —él lo corta con `if (!spot || spot <= 0) return null`— así que
+    # aquí sigue bajando por la cadena en vez de publicar un cero.
+    empresa = fetch_company(ticker) or {}
+    def _precio(*candidatos):
+        for v in candidatos:
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+                return float(v)
+        return None
+    spot = _precio(empresa.get("price"), chain_res.underlying_price, bars[-1].close)
+    if spot is None:
+        raise MassiveError(f"Massive no devolvió un precio utilizable para {ticker}.")
+    return chain_res.rows, bars, spot
+
+
+def _tito_memory(ticker, trades, chain, bars, now):
+    """Lee la memoria acumulada y guarda la foto de hoy.
+
+    Es lo que enciende las tres piezas que una sola foto del mercado no puede
+    dar: el IV Rank real (sub-agente 5), el backtest de flows (sub-agente 6) y
+    la auto-calibración de los targets.
+
+    Nunca revienta la petición: si el disco no está disponible, el motor corre
+    igual con lo que haya y `stats` lo refleja.
+
+    Pero degradar en silencio es peor que fallar: sin memoria el scorecard sale
+    igual de bonito y con menos evidencia detrás. Por eso `stats.motivo` dice
+    SIEMPRE por qué se apagó, y `/api/tito-health` lo repite.
+    """
+    def _empty(motivo):
+        return {"iv_history": [], "past_flows": [], "calibration": None,
+                "stats": {"available": False, "motivo": motivo}}
+
+    try:
+        from wbj.tito import borde
+        from wbj.tito import stores as st
+        from wbj.tito.flow import classify_flow
+        from wbj.tito.ivcontext import iv_context_score
+    except Exception as e:
+        return _empty(f"el motor no carga: {type(e).__name__}")
+
+    # 1. Guardar la foto de hoy ANTES de leer: así el primer día ya cuenta.
+    #
+    # Cada escritura va en su propio try, como en su `/api/flow`: allí el
+    # `saveTrades` está envuelto con el comentario *"el guardado no debe romper
+    # el reporte"*, y su `/api/ideas` hace lo mismo con `.catch(() => null)`.
+    # Con un solo try alrededor de todo el bloque, un fallo al ESCRIBIR se
+    # llevaba también la LECTURA — o sea el IV Rank real, el sub-agente 6 y la
+    # calibración— cuando lo que hay en disco estaba perfectamente bien.
+    escrituras: list[str] = []
+    guardado = None            # el `SaveResult` de su `saveTrades`
+
+    def _guarda(nombre, fn):
+        try:
+            return fn()
+        except Exception as e:                       # noqa: BLE001
+            escrituras.append(f"{nombre}: {type(e).__name__}")
+            return None
+
+    if chain:
+        _guarda("cadena", lambda: st.save_chain_snapshot(ticker, chain, now))
+    # `trades` es la VENTANA ANCHA (30 d / ≥$1M) — los `convictionRows` que su
+    # `/api/flow` persiste (`saveTrades(ticker, convictionRows)`), no los 5 días
+    # de Agresividad.
+    notable = classify_flow(trades, now).interesting if trades else []
+    if notable:
+        guardado = _guarda("trades", lambda: st.save_trades(ticker, notable))
+        # `saveIvSnapshot(ticker, ivContext)` guarda `s.iv.current`, que es la
+        # IV PONDERADA POR PREMIUM — el dinero grande define el contexto. Aquí
+        # se hacía un promedio simple, que es el número que su propio módulo
+        # descarta por dejarse dominar por los cientos de tickets de 0DTE. Ese
+        # número es el que alimenta el IV Rank real durante meses.
+        ivc = iv_context_score(notable, [], None)
+        if ivc.iv["current"] is not None:
+            _guarda("iv", lambda: st.save_iv_snapshot(ticker, ivc.iv["current"], now,
+                                                      min_iv=ivc.iv["min"],
+                                                      max_iv=ivc.iv["max"],
+                                                      contracts=ivc.iv["contracts"],
+                                                      front_skew=ivc.front_skew))
+
+    try:
+        # 2. Leer lo acumulado. El filtro por asset_price/timestamp es el de su
+        #    /api/validation: un trade sin precio de subyacente no se puede
+        #    seguir hacia adelante, así que no entra al backtest.
+        iv_history = st.load_iv_history(ticker)
+        stored = st.load_trades(ticker)
+        crudos = stored.trades if stored else []
+        # `load_trades` es literal: devuelve el array del disco sin mirar su
+        # contenido, igual que su `loadTrades`. El filtro por forma va aquí, en
+        # el borde, que es donde su pipeline lo tiene: en TS `"basura".assetPrice`
+        # es `undefined` y la fila se cae sola en este mismo `filter`.
+        guardados = borde.trades_utiles(crudos)
+        past = [t for t in guardados
+                if (t.get("asset_price") or 0) > 0 and t.get("timestamp")]
+        journal = st.load_journal(ticker)
+        review = st.review_predictions(journal, bars, now)
+        calibration = st.calibration_from_review(review)
+
+        return {
+            "iv_history": iv_history,
+            "past_flows": past,
+            "calibration": calibration,
+            "stats": {
+                "available": True,
+                "iv_days": len(iv_history),
+                "iv_rank_real_en": max(0, 60 - len(iv_history)),
+                # Dos números, no uno: lo que hay en disco y lo que el backtest
+                # puede usar. Si el tape pierde `asset_price` el archivo sigue
+                # creciendo mientras el sub-agente 6 se queda sin nada — con un
+                # solo contador eso se ve como "no se ha guardado nada".
+                "flows_guardados": len(guardados),
+                "flows_utilizables": len(past),
+                "flows_descartados": len(guardados) - len(past),
+                # Filas que ni siquiera son objetos: un archivo a medio escribir
+                # o editado a mano. Se cuentan aparte de `flows_descartados`
+                # porque no son un problema del tape, son un problema del disco.
+                "flows_corruptos": len(crudos) - len(guardados),
+                # Filas sin `id`. Su dedupe es `t.id` a secas: si el tape deja
+                # de traer ese campo, `_base_row` mete 0 en todos y el `Map` se
+                # queda con UN solo trade de la corrida — sin error y sin que
+                # `added` avise. Es su comportamiento, portado tal cual; lo que
+                # no puede es pasar mudo (upstream-tito-store.patch).
+                "flows_sin_id": borde.trades_sin_id(crudos),
+                # Un fallo de ESCRITURA ya no se lleva la lectura, pero tampoco
+                # puede quedar mudo: la memoria se acumula hacia adelante y un
+                # día que no se guarda no se recupera.
+                "escrituras_fallidas": escrituras or None,
+                # El `SaveResult` de su `saveTrades`, que su UI sí muestra y
+                # aquí se estaba tirando. `memoria_desde` es el dato que dice si
+                # el sub-agente 6 tiene recorrido que evaluar: 5000 flows de
+                # esta semana no valen lo que 500 de hace tres meses.
+                "flows_nuevos": guardado.added if guardado else 0,
+                "memoria_desde": guardado.first_seen if guardado else (
+                    min((t.get("timestamp") for t in past if t.get("timestamp")),
+                        default=None)),
+                "predicciones_vencidas": review.get("matured_count", 0),
+                "sesgo_pct": review.get("bias_pct"),
+                "calibracion_activa": bool(
+                    calibration.get("bias_pct") is not None
+                    and calibration.get("samples", 0) >= 5
+                ),
+                "dir_hit_rate": review.get("direction_hit_rate"),
+                "motivo": None,
+            },
+        }
+    except Exception as e:
+        return _empty(f"{type(e).__name__}: {e}"[:200])
+
+
+@app.get("/api/tito-health")
+def tito_health(ticker: str = "AAPL"):
+    """Diagnóstico del motor de Víctor: qué fuente está viva y qué falta.
+
+    Responde la pregunta operativa "¿por qué mi scorecard sale incompleto?"
+    tocando cada fuente de verdad, una por una, y diciendo qué hacer con la que
+    falle. Es el equivalente en servidor del preflight local.
+
+    Nunca imprime credenciales: solo si están puestas, su longitud y si sirven.
+    """
+    tk, err_tk = _tito_ticker(ticker, default="AAPL")
+    checks = []
+
+    def add(nombre, ok, detalle, arreglo=None, impacto=None):
+        checks.append({"check": nombre, "ok": bool(ok), "detalle": detalle,
+                       "arreglo": arreglo, "impacto": impacto})
+
+    # 0. El ticker. Va primero porque sin él ninguna de las fuentes de abajo se
+    #    puede tocar, y porque es el check que explica el fallo más silencioso
+    #    del sistema: un ticker que el saneado de Víctor deja en nada.
+    if err_tk:
+        add("ticker", False, err_tk,
+            "escribe el símbolo con letras, números, punto, guion o guion bajo",
+            "sin ticker válido no se puede consultar ninguna fuente")
+        return {"ok": False, "ticker": None, "checks": checks}
+    add("ticker", True, f"{tk} (saneado como lo hace `fileFor`)")
+
+    # 1. El motor
+    sc = _tito_mod()
+    add("motor", sc is not None,
+        "wbj.tito cargado" if sc else "no se pudo importar engine/wbj/tito",
+        None if sc else "revisa que engine/ esté en el despliegue",
+        None if sc else "Proyecciones no funciona")
+    if sc is None:
+        return {"ok": False, "ticker": tk, "checks": checks}
+
+    # 2. Massive — cadena y barras (2 de 6 sub-agentes + GEX + niveles)
+    key = os.environ.get("MASSIVE_API_KEY", "").strip()
+    add("MASSIVE_API_KEY", bool(key),
+        f"presente ({len(key)} caracteres)" if key else "no está en el entorno",
+        None if key else "ponla en Environment de Render",
+        None if key else "sin cadena: no hay Estructura, GEX, niveles ni escenarios")
+    if key:
+        try:
+            from wbj.tito.massive import fetch_daily_bars, fetch_option_chain
+            ch = fetch_option_chain(tk)
+            add("massive.cadena", bool(ch.rows),
+                f"{len(ch.rows)} contratos en {ch.pages} página(s)"
+                + (" · TRUNCADA" if ch.truncated else ""),
+                None if ch.rows else f"¿{tk} tiene opciones listadas?",
+                None if ch.rows else "Estructura sin score y salvaguarda de liquidez activa")
+            # EN DIRECTO a propósito, sin pasar por `daily_bars_for_panel`: el
+            # trabajo de este check es probar que Massive responde, y una
+            # respuesta servida del cache taparía justo la caída que busca.
+            bars = fetch_daily_bars(tk)
+            add("massive.barras", bool(bars), f"{len(bars)} barras diarias",
+                None if bars else "sin barras el motor corta",
+                None if bars else "Proyecciones devuelve error para este ticker")
+            # …y aparte, si el cache del panel está sirviendo o no. Un cache que
+            # nunca acierta es una llamada de más en cada consulta.
+            from wbj.tito.bars_store import _ultima_sesion_cerrada, load_bars
+            _cb = load_bars(tk)
+            _corte = _ultima_sesion_cerrada(datetime.now(timezone.utc))
+            _vale = bool(_cb and _cb.bars and _cb.bars[-1].time >= _corte)
+            add("massive.barras.cache", True,
+                (f"{len(_cb.bars)} barras hasta {_cb.bars[-1].time}" if _cb and _cb.bars
+                 else "vacío")
+                + (" · sirviendo" if _vale else
+                   f" · se repedirá (última sesión cerrada: {_corte})"),
+                None,
+                None)
+        except Exception as e:
+            add("massive", False, str(e),
+                "revisa la key en el panel de Massive y que api.massive.com sea alcanzable",
+                "sin cadena: Proyecciones devuelve error, no un número parcial")
+
+    # 3. MarketSnack — el tape (5 de los 6 sub-agentes)
+    cookie = os.environ.get("MARKETSNACK_COOKIE", "").strip()
+    add("MARKETSNACK_COOKIE", bool(cookie),
+        f"presente ({len(cookie)} caracteres)" if cookie else "no está en el entorno",
+        None if cookie else "DevTools en app.marketsnack.com → Network → /api/flow_feed → header Cookie",
+        None if cookie else "5 de 6 sub-agentes sin dato; solo queda Estructura")
+    if cookie:
+        try:
+            from wbj.tito.marketsnack import fetch_flow
+            fl = fetch_flow(tk, period="1d", min_premium=100_000, max_pages=1)
+            add("marketsnack.tape", True,
+                f"{len(fl.trades)} trades notables (1d)"
+                + (" · 0 puede ser mercado cerrado" if not fl.trades else ""),
+                None, None)
+        except Exception as e:
+            caducada = "expirada" in str(e) or "caduc" in str(e).lower()
+            add("marketsnack.tape", False, str(e),
+                "la cookie caduca sola: sácala otra vez de DevTools y actualízala en Render"
+                if caducada else "revisa la conectividad con app.marketsnack.com",
+                "5 de 6 sub-agentes sin dato; el scorecard va incompleto y lo declara")
+
+    # 4. Memoria — lo que enciende IV Rank real, sub-agente 6 y calibración
+    try:
+        from wbj.tito import borde
+        from wbj.tito import stores as st
+        d = st.data_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        # Permiso de escritura, SIN escribir. Antes esto creaba y borraba un
+        # `.health` en cada llamada, y `/api/tito-health` es un GET: un
+        # prefetch, un escáner de enlaces o el back-forward del navegador lo
+        # reejecutan sin que nadie lo pida. Lo fija
+        # `tests_vertex/test_route_safety.py`.
+        #
+        # No se pierde nada real. El probe tampoco demostraba lo que parecía:
+        # en el plan free de Render el directorio ES escribible —es un tmpfs— y
+        # el probe pasaba igual; lo que se pierde ahí es la PERSISTENCIA, y eso
+        # no se ve escribiendo, se ve en `flows_guardados` e `iv_days`, que son
+        # escrituras de verdad acumuladas entre reinicios. Esos dos números ya
+        # están unas líneas más abajo y son la prueba buena.
+        escribible = os.access(d, os.W_OK)
+        iv_days = len(st.load_iv_history(tk))
+        _stored = st.load_trades(tk)
+        # `load_trades` es literal y devuelve el array tal como está en disco;
+        # el filtro por forma es el del borde, el mismo que usa `_tito_memory`.
+        _crudos = _stored.trades if _stored else []
+        _sanos = borde.trades_utiles(_crudos)
+        flows = len(_sanos)
+        add("memoria.disco", escribible,
+            f"{d} con permiso de escritura" if escribible
+            else f"{d} existe pero NO se puede escribir en él",
+            None if escribible else
+            "revisa el propietario y los permisos del volumen montado",
+            None if escribible else
+            "la memoria no se acumula: IV Rank en el proxy y sub-agente 6 apagado")
+        add("memoria.iv", iv_days >= 60,
+            f"{iv_days}/60 días de IV acumulados",
+            None if iv_days >= 60 else f"faltan {60 - iv_days} sesiones; se acumula solo",
+            None if iv_days >= 60 else "IV Rank usa el proxy de volatilidad realizada")
+        usables = sum(1 for t in _sanos
+                      if (t.get("asset_price") or 0) > 0 and t.get("timestamp"))
+        add("memoria.flows", usables > 0,
+            f"{flows} flows guardados"
+            + (f" (tope {st.MAX_PER_TICKER}: ya rota lo más viejo)" if flows >= st.MAX_PER_TICKER else "")
+            + (f", {usables} utilizables" if usables != flows else "")
+            # `updatedAt` puede faltar en un archivo escrito a mano o por una
+            # versión anterior: el port lo pasa tal cual, sin inventar cadena.
+            + (f" · última escritura {_stored.updated_at}" if _stored and _stored.updated_at else ""),
+            None if flows else "se acumulan con cada consulta",
+            None if usables else "sub-agente 6 (Confirmación) sin score")
+        # Filas que no son objetos. Su `byId.set(t.id, t)` sobre un `null`
+        # tumba CADA guardado —y para siempre, porque la fila sigue en el
+        # archivo—, así que esto no es cosmético: es la memoria del sub-agente 6
+        # congelada. El port replica su comportamiento; el aviso es de Vertex.
+        _rotas = len(_crudos) - len(_sanos)
+        if _rotas:
+            add("memoria.flows.corrupto", False,
+                f"{_rotas} fila(s) corrupta(s) en trades/{tk}.json",
+                "borra esas filas del archivo: mientras estén, cada `save_trades` "
+                "se cae al recorrerlas y no se guarda un solo flow nuevo",
+                "el historial del sub-agente 6 deja de crecer, en silencio")
+        # Trades sin `id`. Su dedupe es `t.id` a secas, así que todos colisionan
+        # en la misma clave y el `Map` conserva UNO de la corrida entera.
+        _sin_id = borde.trades_sin_id(_crudos)
+        if _sin_id:
+            add("memoria.flows.sin_id", False,
+                f"{_sin_id} de {len(_crudos)} trades guardados no traen `id`",
+                "revisa que el tape de MarketSnack siga trayendo el campo `id`",
+                "el dedupe los colapsa en uno solo: se guarda 1 trade por corrida")
+        if flows and not usables:
+            add("memoria.flows.formato", False,
+                f"los {flows} trades guardados no traen asset_price/timestamp usables",
+                "el tape de MarketSnack cambió de esquema: revisa que cada trade traiga "
+                "`asset_price` y `timestamp`",
+                "el archivo crece pero el sub-agente 6 no puede puntuar nada")
+    except Exception as e:
+        add("memoria.disco", False, str(e),
+            "en Render el plan free NO tiene disco: sube a starter y monta el volumen "
+            "en WBJ_TITO_DATA=/var/data/tito",
+            "IV Rank atascado en el proxy, sub-agente 6 apagado y sin auto-calibración")
+
+    faltan = [c for c in checks if not c["ok"]]
+    return {
+        "ok": not faltan,
+        "ticker": tk,
+        "resumen": ("Todo en orden." if not faltan
+                    else f"{len(faltan)} punto(s) por resolver: "
+                         + ", ".join(c["check"] for c in faltan)),
+        "checks": checks,
+    }
+
+
+@app.get("/api/tito-news")
+def tito_news(ticker: str, call_pct: float | None = None, name: str | None = None):
+    """Tarea 7 — noticias en dos capas + bandera de contradicción.
+
+    Ruta propia, como la tiene Víctor (`/api/news` en su app): el panel de
+    noticias se carga y se refresca por separado del scorecard.
+
+    La bandera **NO toca los 100 pts**: las 6 categorías ya suman 100%. Es
+    contexto que confronta la dirección del dinero contra la de los titulares.
+
+    `call_pct` es el % del premium notable en calls — el mismo número que usa el
+    resumen de Prediction Pro. Sin él la bandera sale `none` (no hay apuesta
+    dominante que contrastar), nunca inventada.
+    """
+    sc = _tito_mod()
+    if sc is None:
+        return {"ok": False, "error": "Motor de Víctor no disponible."}
+
+    tk, err = _tito_ticker(ticker)
+    if err:
+        return {"ok": False, "error": err}
+
+    try:
+        from wbj.tito import news as N
+        from wbj.tito.massive import fetch_ticker_name
+
+        rep = N.build_news_report(tk, name or fetch_ticker_name(tk), datetime.now(timezone.utc))
+        fbias = N.flow_bias(call_pct) if call_pct is not None else "neutral"
+        flag = N.contradiction_flag(fbias, rep.bias)
+
+        def it(x):
+            return {"title": x.title, "url": x.url, "publisher": x.publisher,
+                    "published_utc": x.published_utc, "sentiment": x.sentiment,
+                    "reasoning": x.reasoning, "matched_by": x.matched_by}
+
+        return {
+            "ok": True,
+            "ticker": tk,
+            "company": [it(x) for x in rep.company[:8]],
+            "macro": [it(x) for x in rep.macro],
+            "promoted": [it(x) for x in rep.promoted],
+            "bias": {"bias": rep.bias.bias, "score": _r(rep.bias.score, 3),
+                     "positive": rep.bias.positive, "negative": rep.bias.negative,
+                     "neutral": rep.bias.neutral},
+            "flow_bias": fbias,
+            "flag": {"kind": flag.kind, "title": flag.title, "detail": flag.detail},
+            "feeds_ok": rep.feeds_ok, "feeds_total": rep.feeds_total,
+            "afecta_scorecard": False,
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"No se pudieron leer las noticias: {e}"}
+
+
+def _tito_remember(ticker, result, now):
+    """Guarda la predicción del día para que el lazo de calibración cierre.
+
+    Solo se guardan las fiables: archivar una predicción marcada NO FIABLE
+    contaminaría el sesgo histórico con ruido que el agente ya sabía malo.
+    """
+    try:
+        from wbj.tito import stores as st
+        for h, p in (result.predictions or {}).items():
+            if p.caveat and "NO FIABLE" in p.caveat:
+                continue
+            st.save_prediction(ticker, st.PredictionSnapshot(
+                date=st.market_date_str(now), horizon_days=int(h), spot=p.spot,
+                bear=p.bear.target, base=p.base.target, bull=p.bull.target,
+                direction=p.direction, confidence=p.confidence,
+                # `savedAt: now.toISOString()` de su `savePrediction`.
+                saved_at=now.astimezone(timezone.utc).strftime(
+                    "%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z",
+            ))
+    except Exception:
+        pass  # la memoria es acumulativa: perder un día no rompe la corrida
+
+
+def _r(x, n=2):
+    """Redondeo de JS (`Math.round`, mitad SIEMPRE hacia arriba), no el de Python.
+
+    El `round()` de Python es bancario: `round(2.675, 2)` y `round(0.5)` no dan
+    lo mismo que `(2.675).toFixed(2)` y `Math.round(0.5)`. Todo lo que sale por
+    esta ruta se pinta al lado de números que su panel formatea con `toFixed`,
+    así que el criterio tiene que ser el suyo. Es la misma regla que
+    `jsmath.js_round` fija dentro del motor — aquí faltaba en el borde.
+
+    `None` y los no finitos pasan tal cual: `_json_safe` los convierte después.
+    """
+    if x is None or not isinstance(x, (int, float)) or isinstance(x, bool):
+        return x
+    if x != x or x in (float("inf"), float("-inf")):
+        return x
+    from wbj.tito.jsmath import js_round
+    f = 10 ** n
+    return js_round(x * f) / f
+
+
+def _tito_json(r):
+    """Aplana el ScorecardResult a JSON. Solo lo que el panel necesita pintar.
+
+    Sale por `_json_safe`, que convierte `NaN`/`Infinity` en `null`. Es lo mismo
+    que hace su `JSON.stringify` en Next.js, y aquí hace falta de verdad:
+    `compute.to_row` es traducción literal de su `compute.ts`, así que un
+    contrato con `open_interest: "abc"` produce un nocional `NaN` — y
+    `json.dumps` escribiría `NaN` a pelo, que NO es JSON y el `JSON.parse` del
+    navegador rechaza. La misma fila, en su lado, sale como `null`.
+    """
+    def scen(s):
+        return {"target": _r(s.target), "change_pct": _r(s.change_pct, 1),
+                "probability": _r(s.probability, 3), "driver": s.driver}
+
+    def lvl(l):
+        return {"price": _r(l.price), "kind": l.kind, "strength": l.strength,
+                "distance_pct": _r(l.distance_pct, 1), "why": l.why,
+                "flipped": l.flipped}
+
+    return _json_safe({
+        "ok": True,
+        "ticker": r.ticker,
+        "spot": _r(r.spot),
+        "score": r.score,
+        "verdict": r.verdict,
+        "verdict_meaning": r.verdict_meaning,
+        "active": r.active,
+        "scores": r.scores,
+        "gex": {
+            "iv": _r(r.gex.iv, 4),
+            "regime": r.gex.regime,
+            "king_strike": r.gex.king_strike,
+            "flip_strike": _r(r.gex.flip_strike) if r.gex.flip_strike else None,
+            "direction": r.gex.direction,
+            "confidence": r.gex.confidence,
+            "low_liquidity": r.gex.low_liquidity,
+            # `totalNetGex` y `n` de su `GexAnalysis`. Son los dos números que
+            # dicen SOBRE QUÉ se calculó el régimen: sin ellos la etiqueta
+            # "γ+ / γ−" es una palabra sin magnitud ni muestra detrás.
+            "total_net_gex": r.gex.total_net_gex,
+            "n": r.gex.n,
+            # Los nodos: GEX neto por strike con su lado. Es lo que dibuja el
+            # gráfico de gamma por strike y de donde salen los MUROS (el nodo
+            # call de mayor magnitud y el put de mayor magnitud), que es como
+            # los saca su `ProWallsCard`. Antes ese gráfico y esas cards venían
+            # de Quant Data — otro proveedor midiendo lo mismo.
+            "nodes": [{"strike": n.strike, "net_gex": n.net_gex,
+                       "call_gex": n.call_gex, "put_gex": n.put_gex,
+                       "trade_premium": n.trade_premium,
+                       "trade_count": n.trade_count,
+                       "concentration": _r(n.concentration, 4), "side": n.side}
+                      for n in r.gex.nodes],
+        },
+        # Sub-agente 4 sobre la cadena completa. `call_pct`/`put_pct` son el
+        # reparto del NOCIONAL entre calls y puts —el Put/Call de la card— y
+        # `vol_oi` cuántos contratos negociaron más de su open interest, que es
+        # la definición de "actividad inusual" que él usa sobre la cadena.
+        "structure": {
+            "score": r.structure.score,
+            "call_pct": _r(r.structure.strikes["call_pct"], 1),
+            "put_pct": _r(r.structure.strikes["put_pct"], 1),
+            "dominant_side": r.structure.strikes["dominant_side"],
+            "avg_notional": r.structure.notional["avg_per_strike"],
+            "low_liquidity": r.structure.notional["low_liquidity"],
+            "vol_oi": {"pct": _r(r.structure.vol_oi["pct"], 1),
+                       "exceeded": r.structure.vol_oi["exceeded"],
+                       "considered": r.structure.vol_oi["considered"]},
+            # `pct_of_total` es la sexta columna de su tabla "Top strikes por
+            # nocional". Sin ella, "$268M" no dice si ese strike es la mitad de
+            # la cadena o una esquina.
+            "top_strikes": [{"strike": t.strike, "notional": t.notional,
+                             "pct_of_total": _r(t.pct_of_total, 1),
+                             "side": t.side, "dominant": t.dominant,
+                             "dominance_pct": _r(t.dominance_pct, 1),
+                             "open_interest": t.open_interest, "volume": t.volume}
+                            for t in r.structure.strikes["top"][:8]],
+        },
+        # Sub-agente 3: los trades más inusuales, con el desglose por parámetro.
+        # Es su `UnusualityCard` — la tabla de "actividad inusual" del tab salía
+        # de Quant Data y medía otra cosa (volumen contra OI de la cadena).
+        "unusual": [{"id": t[0].id, "symbol": t[0].symbol, "type": t[0].type,
+                     "strike": t[0].strike, "expiration": t[0].expiration,
+                     "dte": t[0].dte, "premium": t[0].premium,
+                     "aggression": t[0].aggression, "total": t[1].total,
+                     "size": t[1].size, "delta": t[1].delta, "theta": t[1].theta,
+                     "gamma": t[1].gamma, "leg": t[1].leg, "expiry": t[1].expiry}
+                    for t in r.unusuality.top[:12]],
+        # ── El DETALLE de los 6 sub-agentes — su `<details>` "Detalle de
+        # sub-agentes", que es donde se ve POR QUÉ cada categoría puntúa lo que
+        # puntúa. El motor lo calculaba entero desde el primer día y el payload
+        # servía solo el titular 0-10: un número sin su evidencia, que es
+        # justo lo que la regla innegociable del proyecto prohíbe.
+        "subagents": {
+            # 1 · Agresividad — cuánto premium fue al ask contra el bid.
+            "aggression": {
+                "score": r.aggression.score, "ratio": _r(r.aggression.ratio, 4),
+                "premium_ask": r.aggression.premium_ask,
+                "premium_bid": r.aggression.premium_bid,
+                "premium_mid": r.aggression.premium_mid, "n": r.aggression.n,
+            },
+            # 2 · Convicción — spread, dominancia y calidad de la ejecución.
+            "conviction": {
+                "score": r.conviction.score, "n": r.conviction.n,
+                "spread": {"avg_pct": _r(r.conviction.spread["avg_pct"], 2),
+                           "points": r.conviction.spread["points"],
+                           "wide_count": r.conviction.spread["wide_count"]},
+                "dominance": {"side": r.conviction.dominance["side"],
+                              "dominant_pct": _r(r.conviction.dominance["dominant_pct"], 1),
+                              "ask_pct": _r(r.conviction.dominance["ask_pct"], 1),
+                              "bid_pct": _r(r.conviction.dominance["bid_pct"], 1),
+                              "points": r.conviction.dominance["points"]},
+                "execution": {"points": _r(r.conviction.execution["points"], 1),
+                              "counts": r.conviction.execution["counts"]},
+            },
+            # 3 · Inusualidad — el promedio por parámetro, que es el desglose
+            # que su `UnusualityCard` pone bajo el 0-10.
+            "unusuality": {
+                "score": r.unusuality.score, "n": r.unusuality.n,
+                "unusual_count": r.unusuality.unusual_count,
+                "avg_by_param": {k: _r(v, 1) for k, v in r.unusuality.avg_by_param.items()},
+            },
+            # 4 · Estructura — nocional por strike, dominio y volumen>OI.
+            "structure": {
+                "score": r.structure.score,
+                "notional": {"avg_per_strike": r.structure.notional["avg_per_strike"],
+                             "total": r.structure.notional["total"],
+                             "strike_count": r.structure.notional["strike_count"],
+                             "points": r.structure.notional["points"]},
+                "strikes": {"dominant_count": r.structure.strikes["dominant_count"],
+                            "considered_count": r.structure.strikes["considered_count"],
+                            "points": r.structure.strikes["points"]},
+                "vol_oi_points": r.structure.vol_oi["points"],
+                "expirations": [{"expiration": e.expiration, "notional": e.notional,
+                                 "pct_of_total": _r(e.pct_of_total, 1),
+                                 "call_notional": e.call_notional,
+                                 "put_notional": e.put_notional,
+                                 "contracts": e.contracts}
+                                for e in r.structure.expirations[:6]],
+            },
+            # 5 · Contexto IV — la banda, el rank CON SU FUENTE y el skew.
+            # `rank.source` no es decorativo: dice si el IV Rank sale del
+            # historial propio o de un proxy de volatilidad realizada, y eso
+            # cambia cuánto vale el número.
+            "iv_context": {
+                "score": r.iv_context.score, "regime": r.iv_context.regime,
+                "note": r.iv_context.note,
+                "front_skew": _r(r.iv_context.front_skew, 1) if r.iv_context.front_skew is not None else None,
+                "iv": {"current": _r(r.iv_context.iv["current"], 1),
+                       "points": r.iv_context.iv["points"],
+                       "band": r.iv_context.iv["band"],
+                       "special": r.iv_context.iv["special"],
+                       "contracts": r.iv_context.iv["contracts"]},
+                "rank": {"value": _r(r.iv_context.rank["value"], 0),
+                         "points": r.iv_context.rank["points"],
+                         "band": r.iv_context.rank["band"],
+                         "source": r.iv_context.rank["source"],
+                         "days": r.iv_context.rank["days"],
+                         "low": _r(r.iv_context.rank["low"], 1),
+                         "high": _r(r.iv_context.rank["high"], 1)},
+                "by_expiration": [{"expiration": e.expiration, "dte": e.dte,
+                                   "trades": e.trades, "avg_iv": _r(e.avg_iv, 1),
+                                   "premium": e.premium}
+                                  for e in r.iv_context.by_expiration[:6]],
+            },
+            # 6 · Confirmación de precio — el backtest. `coverage.below_target`
+            # es la advertencia de "preliminar" que ya viajaba en `warnings`;
+            # aquí va con los números que la sostienen.
+            "validation": {
+                "score": r.validation.score, "verdict": r.validation.verdict,
+                "threshold_pct": _r(r.validation.threshold_pct, 1),
+                "weighted_hit_rate": _r(r.validation.weighted_hit_rate, 0),
+                "avg_mfe": _r(r.validation.avg_mfe, 1),
+                "avg_mae": _r(r.validation.avg_mae, 1),
+                "hit_rate": {"value": _r(r.validation.hit_rate["value"], 0),
+                             "points": r.validation.hit_rate["points"],
+                             "validated": r.validation.hit_rate["validated"],
+                             "resolved": r.validation.hit_rate["resolved"],
+                             "band": r.validation.hit_rate["band"]},
+                "speed": {"median_sessions": r.validation.speed["median_sessions"],
+                          "points": r.validation.speed["points"],
+                          "band": r.validation.speed["band"]},
+                "by_direction": r.validation.by_direction,
+                "coverage": {"days": r.validation.coverage["days"],
+                             "flows": r.validation.coverage["flows"],
+                             "pending": r.validation.coverage["pending"],
+                             "below_target": r.validation.coverage["below_target"]},
+            },
+        },
+        "levels": {
+            "supports": [lvl(l) for l in r.levels.supports],
+            "resistances": [lvl(l) for l in r.levels.resistances],
+        },
+        "predictions": {
+            str(h): {
+                "bear": scen(p.bear), "base": scen(p.base), "bull": scen(p.bull),
+                "confidence": p.confidence, "direction": p.direction,
+                "summary": p.summary, "caveat": p.caveat,
+                "calibration": p.calibration,
+            }
+            for h, p in r.predictions.items()
+        },
+        # Las advertencias NO son decorativas: la salvaguarda de liquidez y el
+        # aviso de categorías faltantes deben viajar con el número siempre.
+        "warnings": r.warnings,
+        # Los DOS contadores, como su `meta.notableCount` y su
+        # `convictionMeta.total`: el pulso de la semana y la ventana ancha de 30
+        # días. Con uno solo no se puede saber sobre qué universo puntuaron
+        # Convicción, Inusualidad y Contexto IV.
+        "notable_trades": len(r.flow.interesting),
+        "conviction_trades": len(r.conviction_flow),
+        "conviction_window": r.conviction_window,
+        # Las FILAS de convicción, no solo su contador — su
+        # `ConvictionTransactions`, "Transacciones revisadas". Estos trades son
+        # el universo sobre el que puntúan Convicción, Inusualidad y Contexto
+        # IV: servir únicamente el número dejaba tres de las seis categorías
+        # sin nada que las respalde en pantalla. Se mandan las 25 de mayor
+        # premium, que es lo que cabe leer sin paginar.
+        "conviction_rows": [
+            {"id": t.id, "underlying": t.underlying, "type": t.type,
+             "strike": t.strike, "expiration": t.expiration, "dte": t.dte,
+             "expiry_status": t.expiry_status, "premium": t.premium,
+             "size": t.size, "aggression": t.aggression,
+             "timestamp": t.timestamp, "repeated": t.flags.repeated,
+             "multileg": t.flags.multileg}
+            for t in sorted(r.conviction_flow,
+                            key=lambda t: t.premium if isinstance(t.premium, (int, float)) else 0,
+                            reverse=True)[:25]
+        ],
+        # % del premium notable en calls. Es el mismo número que usa el resumen
+        # de Prediction Pro, y el que /api/tito-news necesita para confrontar la
+        # dirección del dinero contra la de los titulares.
+        "call_pct": _tito_call_pct(r),
+    })
+
+
+def _tito_call_pct(r):
+    """% del premium notable que está en calls, o None si no hay flujo direccional.
+
+    Se calcula sobre `convictionRows` —la ventana ancha de 30 días y ≥$1M—,
+    igual que el `callPct` de su `page.tsx`. Es el mismo número que usa el
+    resumen de Prediction Pro y el que `/api/tito-news` necesita para confrontar
+    la dirección del dinero contra la de los titulares.
+
+    `premium` llega crudo: `sum()` de Python lanza con un texto y su aritmética
+    coacciona. `Math.round`, no `round()`, por lo mismo de siempre.
+    """
+    from wbj.tito.jsmath import js_number, js_round
+    filas = r.conviction_flow or r.flow.interesting
+    call_p = sum(js_number(x.premium) for x in filas if x.type == "call")
+    put_p = sum(js_number(x.premium) for x in filas if x.type == "put")
+    total = call_p + put_p
+    return js_round(call_p / total * 100) if total > 0 else None
+
+
+@app.get("/api/tito-scorecard")
+def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
+    """Scorecard de flujo 0-100 (6 sub-agentes) + 3 escenarios por horizonte.
+
+    Fuente del tape: MarketSnack (MARKETSNACK_COOKIE).
+    Cadena y barras: Massive (MASSIVE_API_KEY), sin respaldo.
+    """
+    sc = _tito_mod()
+    if sc is None:
+        return {"ok": False, "error": "Motor Tito no disponible (engine/wbj/tito)."}
+
+    from wbj.tito.marketsnack import MarketSnackError, fetch_flow
+
+    tk, err = _tito_ticker(ticker)
+    if err:
+        return {"ok": False, "error": err}
+
+    try:
+        hz = tuple(int(h) for h in horizons.split(",") if h.strip())[:5] or (10, 20, 30)
+    except ValueError:
+        hz = (10, 20, 30)
+
+    trades, conviction_trades, flow_error = _tito_tape(tk)
+    if flow_error and not trades:
+        # Sin tape no hay scorecard: 4 de las 6 categorías dependen de él. Se
+        # devuelve el motivo exacto en vez de un reporte a medias sin avisar.
+        return {"ok": False, "error": flow_error, "source": "marketsnack"}
+
+    try:
+        chain, bars, spot = _tito_chain_and_bars(tk)
+    except Exception as e:
+        return {"ok": False, "error": _error_de_fuente(e, "Cadena de Massive"),
+                "source": "massive"}
+
+    # Ver la nota del borde en `/api/tito-targets`: el motor es literal y lanza
+    # donde su archivo lanza; aquí se traduce a un error con forma de JSON.
+    try:
+        r = sc.run_scorecard(
+            tk, trades, chain or [], bars,
+            now=datetime.now(timezone.utc), spot=spot, horizons=hz,
+            conviction_trades=conviction_trades,
+        )
+    except Exception as e:                       # noqa: BLE001 — se reporta, no se traga
+        return {"ok": False, "error": _error_publico(e, "Motor de Víctor"),
+                "source": "motor"}
+    out = _tito_json(r)
+    out["chain_source"] = "massive"
+    return out
 
 
 def _moneyness(K, spot, opt):
@@ -6608,6 +7790,33 @@ def _error_publico(exc: BaseException, contexto: str) -> str:
     return f"{contexto}: no se pudo completar"
 
 
+def _error_de_fuente(exc: BaseException, contexto: str) -> str:
+    """Como `_error_publico`, pero deja pasar los errores QUE ESCRIBIMOS NOSOTROS.
+
+    `MassiveError` y `MarketSnackError` no llevan excepción de terceros dentro:
+    sus mensajes son frases nuestras ("Falta MASSIVE_API_KEY en el entorno",
+    "Ticker vacío", el código HTTP con el cuerpo de la respuesta). El centinela
+    de §8 de `auditar_tito.py` lo comprueba de verdad: mete una clave falsa en
+    el entorno, provoca el fallo por tres caminos y exige que la clave no
+    aparezca en ninguno de los mensajes.
+
+    La diferencia importa en pantalla. "Falta MASSIVE_API_KEY" dice qué hacer;
+    "no se pudo completar" manda a Kevin a leer logs de Render para descubrir
+    que faltaba una variable de entorno. Cualquier otra excepción —una de httpx
+    que escapara de `raise_for_status()`, con la URL completa dentro— cae al
+    camino ciego de `_error_publico`.
+    """
+    try:
+        from wbj.tito.marketsnack import MarketSnackError
+        from wbj.tito.massive import MassiveError
+    except Exception:                              # el motor no está instalado
+        return _error_publico(exc, contexto)
+    if isinstance(exc, (MassiveError, MarketSnackError)):
+        logging.getLogger("vertex").warning("%s: %s", contexto, exc)
+        return str(exc)
+    return _error_publico(exc, contexto)
+
+
 @app.get("/api/analyze")
 def analyze_ticker(ticker: str, explain: bool = False):
     """Análisis completo. `explain=1` añade la explicación en palabras del
@@ -7054,13 +8263,12 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
         else:
             equity_stop = round(precio_actual * 0.85, 2)
             equity_stop_note = f"No A-grade: stop sugerido en ${equity_stop} (-15% del spot)."
-        # Override de flujo: ahora usa el flujo institucional COMPUTADO (Quant Data: sesgo alcista
-        # con convicción ≥80% sobre trades calificados), no la autoevaluación del LLM que se eliminó.
-        # Es dato medido en vez de opinión, que era el punto débil de la señal anterior.
-        # El override lo disparaba la convicción por ΔOI de Quant Data. Sin esa
-        # medición no hay nada que lo justifique, y activarlo por defecto sería
-        # afirmar un flujo institucional que nadie midió.
-        flow_override = False
+        # El override de flujo (Quant Data: sesgo alcista con convicción ≥80%) se ELIMINÓ.
+        # `trade_plan` se pinta en UN solo sitio —el panel "Plan de operación" del tab de
+        # Proyecciones— y ese tab ya lleva el flujo de Víctor (agresión / convicción /
+        # inusualidad sobre la cinta de MarketSnack). Dos proveedores midiendo flujo en la
+        # misma pantalla es justo la lectura doble que se mandó quitar; Quant Data sigue
+        # intacto donde sí manda, que es el prompt de Full Research.
 
         analisis_json["trade_plan"] = {
             "probabilities": {
@@ -7076,9 +8284,7 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
             "risk_plan": {
                 "is_a_grade": is_a_grade, "equity_stop": equity_stop,
                 "equity_stop_note": equity_stop_note, "thesis_break_level": round(bear12, 2),
-                "options_stop_rule": ("Opciones: stop −20% a −30% de la prima pagada."
-                                      + (" ⚠️ Override: flujo Tipo A ($5M+) fuerte — puede justificar mantener pese al stop." if flow_override else "")),
-                "flow_override": flow_override,
+                "options_stop_rule": "Opciones: stop −20% a −30% de la prima pagada.",
             },
         }
 
@@ -7090,29 +8296,22 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
             "bull_r": round((bull12 - precio_actual) / _R_unit, 2),
             "base_r": round((_base12 - precio_actual) / _R_unit, 2), "bear_r": -1.0,
         }
-        # "Qué me haría cambiar de opinión": checkpoints concretos y verificables construidos desde las señales
-        # reales del análisis (precio, walls, gamma flip, flujo, earnings). No depende del LLM → siempre presente.
+        # "Qué me haría cambiar de opinión": checkpoints concretos y verificables construidos
+        # desde las señales reales del análisis. No depende del LLM → siempre presente.
+        #
+        # Los checkpoints de GAMMA (put wall, call wall, gamma flip) y de FLUJO salían de
+        # Quant Data (`get_gex_cached` → `_gex_from_quantdata`, `_qd_conv`, `_qd_np`) y se
+        # ELIMINARON de aquí: este plan se pinta dentro del tab de Proyecciones, donde el
+        # bloque "Escenarios de Precio (GEX)" ya da ruptura alcista, ruptura bajista, gamma
+        # flip y nodo imán — calculados por el motor de Víctor sobre la cadena de Massive.
+        # Tener los mismos cuatro niveles de otro proveedor a dos dedos de distancia es la
+        # lectura doble de gamma que se mandó quitar del tab, y cuando discrepaban no había
+        # forma de saber cuál mirar. Quedan los checkpoints que son de ESTE análisis y de
+        # nadie más: el precio de quiebre de tesis y el catalizador de earnings.
         _inval = []
         _is_bull = _reco_norm(_rec) == RESEARCH_FAVORABLE
         _inval.append({"factor": "Precio", "kind": "price",
                        "trigger": f"Cierre {'bajo' if _is_bull else 'sobre'} ${round(bear12, 2)} (quiebre de tesis = −1R)"})
-        try:
-            # Los walls de gamma y el flip venían de la cadena de opciones.
-            _gw = {}
-            _pw, _cw, _fl = None, None, None
-            if _is_bull and _pw:
-                _inval.append({"factor": "Put wall", "kind": "level",
-                               "trigger": f"Pérdida del put wall ${_pw} (el soporte gamma cede)"})
-            if (not _is_bull) and _cw:
-                _inval.append({"factor": "Call wall", "kind": "level",
-                               "trigger": f"Ruptura del call wall ${_cw} (la resistencia gamma cede)"})
-            if _fl:
-                _inval.append({"factor": "Gamma flip", "kind": "regime",
-                               "trigger": f"{'Pérdida' if _is_bull else 'Recuperación'} del flip ${_fl} → dealers en régimen {'vendedor' if _is_bull else 'comprador'}"})
-        except Exception:
-            pass
-        # La invalidación por flujo institucional necesitaba el premium neto de
-        # Quant Data: sin medición, no se declara.
         _ed = (earnings_info or {}).get("days_until")
         if isinstance(_ed, (int, float)) and 0 <= _ed <= 45:
             _inval.append({"factor": "Earnings", "kind": "catalyst",
@@ -11685,24 +12884,12 @@ def get_horizon_targets_cached(ticker, net_premium=None, flow=None, ai_12m=None,
     return val
 
 
-@app.get("/api/projection-targets")
-def projection_targets(ticker: str, ai_12m: float = 0.0):
-    """Directional targets by horizon. When Quant Data is configured, levels come from QD
-    GEX (per expiry) and direction from tape conviction (Kevin's tiers)."""
-    ready = _quantdata_ready()
-    np_ = quantdata_net_premium(ticker) if ready else None
-    fl = quantdata_flow(ticker) if ready else None
-    oic = quantdata_oi_change(ticker) if ready else None          # real per-contract ΔOI
-    oic_map = oic.get("map") if isinstance(oic, dict) else None
-    conv = _qd_conviction(fl, oi_change_map=oic_map) if fl else None
-    walls_fn = (lambda e, s: _qd_exposure_walls(ticker, e, s)) if ready else None
-    t = compute_horizon_targets(ticker, np_, fl, (ai_12m or None),
-                                qd_walls_fn=walls_fn, conviction=conv)
-    if not t:
-        return {"ok": False, "error": "No se pudieron proyectar targets (cadena no disponible)."}
-    if isinstance(oic, dict) and oic.get("builds"):
-        t["oi_builds"] = oic["builds"]                            # top OI accumulations for display
-    return t
+# El `/api/projection-targets` de Quant Data —el que llamaba a
+# `compute_horizon_targets` con walls y convicción de QD— vivía aquí y la
+# fusión con `main` lo resucitó. Se borra: la ruta la sirve el motor de Víctor,
+# arriba. Dos `@app.get` con el mismo path no dan error en FastAPI; gana el
+# primero y el segundo queda como código que nadie ejecuta y que en la
+# siguiente lectura parece la implementación vigente.
 
 
 def _chain_quote_map(ticker, expiries, ttl=180):

@@ -1,0 +1,124 @@
+Dos bugs en web/lib/barsStore.ts de agente-tito-metralleta
+
+Encontrados al portar el módulo a Python (Vertex Fund OS) con un test
+diferencial: se ejecuta el barsStore.ts real en Node y el port en Python sobre
+los mismos casos, y se comparan las salidas. Los dos salen del mismo sitio.
+
+Nota sobre el port: los dos bugs están REPLICADOS TAL CUAL en la versión de
+Python. El port de `barsStore.ts` es literal —27/27 casos idénticos, cero
+divergencias declaradas— y los tests `TestLasDosDeLoadBarsSeQuedanComoEl` fijan
+los dos comportamientos: el cache sin campo `bars` LANZA y el `bars` de texto SÍ
+se devuelve como barras.
+
+El arreglo que se propone abajo es para ESTE repo (agente-tito-metralleta), que
+es donde tiene que vivir.
+
+Qué hace Vertex mientras tanto: la guarda vive en el BORDE
+(`engine/wbj/tito/borde.py::barras_utiles`) y solo la usa
+`daily_bars_for_panel`, que es política propia de Vertex y no un port de
+`cachedDailyBars`. Es el sitio equivalente al de este repo: aquí las barras
+salen de `fetchDailyBars`, que devuelve `DailyBar[]` construidos por el propio
+código, no JSON ajeno leído del disco.
+
+
+── El origen: un `as` que el disco no tiene por qué cumplir ────────────────
+
+    export async function loadBars(ticker: string): Promise<BarsFile | null> {
+      try {
+        const raw = await fs.readFile(fileFor(ticker), "utf8");
+        return JSON.parse(raw) as BarsFile;      // ← aquí
+      } catch {
+        return null;
+      }
+    }
+
+`as BarsFile` es una afirmación para el compilador, no una comprobación. Lo que
+haya en el disco entra tal cual, y `cachedDailyBars` lo usa sin mirar:
+
+    if (cached && cached.date === today && cached.bars.length > 0) return cached.bars;
+
+
+── BUG 1 · un cache sin `bars` tumba la petición ───────────────────────────
+
+    data/bars/A.json  =  {"ticker":"A","date":"2026-07-31"}
+
+    await cachedDailyBars("A", 365, new Date("2026-07-31T21:00:00Z"))
+    // TypeError: Cannot read properties of undefined (reading 'length')
+
+El `catch` de `loadBars` ya quedó atrás, así que el error sube hasta el
+llamador. En el escaneo de Wheel, un solo archivo así deja la pasada entera sin
+resultado.
+
+
+── BUG 2 · un `bars` que no es un array se devuelve como si lo fuera ───────
+
+    data/bars/B.json  =  {"ticker":"B","date":"2026-07-31","bars":"texto"}
+
+    const bars = await cachedDailyBars("B", 365, hoy);
+    // devuelve "texto"  ·  typeof bars === "string"
+
+`"texto".length > 0` es cierto, así que la guarda pasa y el llamador recibe un
+string donde espera `DailyBar[]`. Con `{"bars":{"length":9}}` devuelve el objeto.
+Aquí no hay excepción: el análisis sigue, sobre basura y en silencio.
+
+Basta una escritura interrumpida, un disco lleno o una edición a mano para
+dejar uno de esos archivos.
+
+
+── Arreglo ────────────────────────────────────────────────────────────────
+
+Validar en el borde, que es donde entra el dato:
+
+-    return JSON.parse(raw) as BarsFile;
++    const parsed: unknown = JSON.parse(raw);
++    if (
++      typeof parsed !== "object" || parsed === null ||
++      !Array.isArray((parsed as BarsFile).bars)
++    ) {
++      return null;                       // un cache ilegible es un cache que no está
++    }
++    return parsed as BarsFile;
+
+Con eso los dos casos caen al camino que ya existe —`cached` es `null`, se pide
+a la red y se reescribe el archivo—, o sea que el cache corrupto se repara solo.
+
+
+── Aparte: la regla de cache no sirve para un panel en vivo ───────────────
+
+`cachedDailyBars` cachea por día de mercado y punto:
+
+    if (cached && cached.date === today && cached.bars.length > 0) return cached.bars;
+
+Para el escaneo de Wheel está bien: corre una vez y pide 40 tickers de golpe.
+Para una ruta que se consulta en vivo deja tres agujeros, los tres medidos:
+
+  1. A media sesión la barra de HOY es parcial. Cachearla congela la última vela
+     —y los niveles calculados sobre ella— el resto del día.
+  2. Si el proveedor publica tarde, después del cierre el archivo se sella con la
+     fecha de hoy pero SIN la barra de hoy, y ya no se vuelve a pedir.
+  3. El fin de semana `marketDateStr` devuelve sábado, que nunca coincide con la
+     fecha del cache: se pierde el cache justo los dos días en que las barras no
+     pueden cambiar.
+
+El port no toca `cachedDailyBars` por esto; añade una capa aparte
+(`daily_bars_for_panel`) que ancla la validez en el DATO —la última sesión
+cerrada— en vez de en el reloj:
+
+    valido  ⟺  cache.bars[at(-1)].time >= ultimaSesionCerrada(now)
+
+y que además nunca reemplaza una serie por otra más corta, porque una página
+truncada recortaba el histórico en silencio.
+
+
+── Tests de regresión sugeridos (barsStore.test.ts) ───────────────────────
+
+  it("un cache sin `bars` no tumba la petición", async () => {
+    await fs.writeFile(fileFor("A"), '{"ticker":"A","date":todayStr}');
+    await expect(cachedDailyBars("A", 365, hoy)).resolves.toEqual(barsDeLaRed);
+  });
+
+  it("un `bars` que no es array no se devuelve como si lo fuera", async () => {
+    await fs.writeFile(fileFor("B"), '{"ticker":"B","date":todayStr,"bars":"texto"}');
+    const r = await cachedDailyBars("B", 365, hoy);
+    expect(Array.isArray(r)).toBe(true);
+  });

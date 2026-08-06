@@ -38,3 +38,8 @@ Thumbs.db
 # Memoria/ y Reportes/ se commitean: son la memoria del agente y el track
 # record (prediccion.json). CLAUDE.md los define como la semilla del
 # aprendizaje entre sesiones; perderlos rompe la calibración.
+
+# Memoria del motor de Víctor (Tito). Sin WBJ_TITO_DATA cae aquí, junto al
+# repo: son datos de mercado acumulados (cadena, IV, trades, diario), no código.
+data/tito/
+*.json.lock

@@ -101,11 +101,17 @@ def test_every_referenced_cerebro_document_exists():
 
     Busca en TODO el repo, no sólo en `Cerebro/`: `CLAUDE.md` está en la
     raíz y `MEMORIA.md` en `Memoria/`. La primera versión de esta
-    comprobación sólo miraba `Cerebro/` y los reportó como inexistentes."""
+    comprobación sólo miraba `Cerebro/` y los reportó como inexistentes.
+
+    El `(?<![\\w-])` de delante NO es cosmético. Con `\\b` a secas, el guion
+    cuenta como límite de palabra y `SCOREDCARD/Contexto-IV.md` —una cita real
+    de `ivcontext.py`— se leía como un documento llamado `IV.md`, que no existe
+    y nadie citó nunca. Un falso positivo en esta comprobación es caro: la
+    manda a callar cambiando la cita en vez de creando el documento."""
     existentes = {p.name for p in _RAIZ.rglob("*.md")}
     citados: set[str] = set()
     for p in [*(_RAIZ / "engine" / "wbj").rglob("*.py"), _RAIZ / "vertex_api.py"]:
-        citados |= set(re.findall(r"\b([A-Z][A-Z_0-9]+\.md)\b",
+        citados |= set(re.findall(r"(?<![\w-])([A-Z][A-Z_0-9]+\.md)\b",
                                   p.read_text(encoding="utf-8")))
     faltan = sorted(citados - existentes)
     assert not faltan, f"documentos citados que no existen: {faltan}"

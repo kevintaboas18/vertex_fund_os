@@ -165,6 +165,45 @@ def render_markdown(report: FinalReport, lang: str = "en",
             + _fmt(report.implied_exit_multiple, 1) + "x | — | " + _mult_note + " |"
         )
 
+    # Tres notas al pie se calculan AQUÍ y no dentro de la plantilla, aunque
+    # visualmente quedaría más cerca de su sitio.
+    #
+    # El motivo es de lenguaje, no de estilo: hasta Python 3.11 la parte de
+    # EXPRESIÓN de una f-string no puede contener una barra invertida, y estas
+    # tres la llevan —las comillas escapadas de «"Not assessable"» y los
+    # `ins.get('bought')` de una f-string anidada—. PEP 701 lo permite desde
+    # 3.12, pero `runtime.txt` fija python-3.11.9, así que ahí el módulo entero
+    # deja de importar con un `SyntaxError`: no falla el reporte, falla
+    # `wbj.report` completo y con él `run_report` y `_insiders`.
+    #
+    # Sacarlas fuera cuesta tres nombres y hace que el archivo cargue en las dos
+    # versiones. Los tests de `engine/tests/report/` lo fijan.
+    _nota_ns = L(
+        lang,
+        'N/S means every dimension fell below the coverage threshold: the '
+        'category is unscored for lack of evidence, not scored zero on merit. '
+        '"Not assessable" counts the points behind dimensions whose data fell '
+        'below 70% coverage: they earn nothing, so a low score there reflects '
+        'missing evidence, not a judgment against the company.',
+        'N/S significa que todas las dimensiones quedaron bajo el umbral de '
+        'cobertura: la categoría no se evaluó por falta de evidencia, no sacó '
+        'cero por mérito. "No evaluable" cuenta los puntos detrás de dimensiones '
+        'cuya data quedó bajo 70% de cobertura: no ganan nada, así que un '
+        'puntaje bajo ahí refleja evidencia faltante, no un juicio en contra de '
+        'la empresa.',
+    )
+    _comprado = _fmt(ins.get("bought") or 0, 0)
+    _vendido = _fmt(ins.get("sold") or 0, 0)
+    _nota_insiders = L(
+        lang,
+        f"Bought {_comprado} · sold {_vendido}. "
+        "Only insiders whose transactions exceed $1M in total are listed; smaller "
+        "activity is reported by the SEC but is not treated as material here.",
+        f"Compras {_comprado} · ventas {_vendido}. "
+        "Solo se listan insiders cuyas transacciones superan $1M en total; la "
+        "actividad menor la reporta la SEC pero aquí no se considera material.",
+    )
+
     return f"""# {L(lang, "Investment research report", "Reporte de research de inversión")} — {s.ticker}
 
 **{L(lang, "Exchange", "Bolsa")}:** {s.exchange} · **{L(lang, "Currency", "Moneda")}:** {s.currency}
@@ -190,9 +229,7 @@ def render_markdown(report: FinalReport, lang: str = "en",
 |---|---|---|---|---|
 {cat_rows}
 
-_{L(lang,
-   "N/S means every dimension fell below the coverage threshold: the category is unscored for lack of evidence, not scored zero on merit. \"Not assessable\" counts the points behind dimensions whose data fell below 70% coverage: they earn nothing, so a low score there reflects missing evidence, not a judgment against the company.",
-   "N/S significa que todas las dimensiones quedaron bajo el umbral de cobertura: la categoría no se evaluó por falta de evidencia, no sacó cero por mérito. \"No evaluable\" cuenta los puntos detrás de dimensiones cuya data quedó bajo 70% de cobertura: no ganan nada, así que un puntaje bajo ahí refleja evidencia faltante, no un juicio en contra de la empresa.")}_
+_{_nota_ns}_
 
 ## 3. {L(lang, "Executive thesis", "Tesis ejecutiva")}
 
@@ -226,13 +263,7 @@ _{L(lang,
 |---|---|---|---|---|
 {insider_rows}
 
-_{L(lang,
-   f"Bought {_fmt(ins.get('bought') or 0, 0)} · sold {_fmt(ins.get('sold') or 0, 0)}. "
-   "Only insiders whose transactions exceed $1M in total are listed; smaller "
-   "activity is reported by the SEC but is not treated as material here.",
-   f"Compras {_fmt(ins.get('bought') or 0, 0)} · ventas {_fmt(ins.get('sold') or 0, 0)}. "
-   "Solo se listan insiders cuyas transacciones superan $1M en total; la "
-   "actividad menor la reporta la SEC pero aquí no se considera material.")}_
+_{_nota_insiders}_
 
 ## 6. {L(lang, "Important levels", "Niveles importantes")}
 

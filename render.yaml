@@ -74,6 +74,36 @@ services:
       # lo que se deriva de la cadena. Dejala vacia hasta que lo actives.
       - key: QUANTDATA_API_KEY
         sync: false
+      # ── Motor de Víctor (Tito) — área de Proyecciones ──────────────────
+      # MARKETSNACK_COOKIE sostiene 4 de los 6 sub-agentes (Agresividad,
+      # Convicción, Inusualidad y Contexto IV). OJO: NO es una API key, es una
+      # COOKIE DE SESIÓN y CADUCA. En un servidor no hay navegador que la
+      # refresque, así que hay que re-pegarla a mano cada vez que muera. Sin
+      # ella el motor sigue corriendo con la cadena (Estructura + GEX +
+      # niveles) y lo declara en `warnings`, pero el scorecard va incompleto.
+      - key: MARKETSNACK_COOKIE
+        sync: false
+      # OBLIGATORIA para Proyecciones. La cadena de opciones y las barras
+      # entran SOLO por Massive, la fuente de Víctor — sin respaldo a yfinance
+      # a propósito: un fallback silencioso cambiaría los datos bajo los pies
+      # del scorecard y dos corridas dejarían de ser comparables. Sin esta key
+      # /api/projection-targets devuelve error, no un reporte a medias.
+      - key: MASSIVE_API_KEY
+        sync: false
+      # Tope de paginación de la cadena (40 ≈ 10k contratos). Salvaguarda de
+      # cuota: sin él, un subyacente con miles de strikes la agota en una sola
+      # consulta.
+      - key: MASSIVE_MAX_PAGES
+        value: "40"
+      # Dónde acumula el motor sus series diarias. CRÍTICO: en plan `free` no
+      # hay disco, así que este directorio se BORRA en cada reinicio y tres
+      # piezas nunca arrancan — el sub-agente 6 (Confirmación) sale siempre
+      # sin score, el IV Rank se queda para siempre en el proxy, y la
+      # auto-calibración nunca junta las 5 predicciones vencidas que necesita.
+      # Con plan starter+ y el bloque `disk` activo, apúntalo al disco:
+      #     WBJ_TITO_DATA=/var/data/tito
+      - key: WBJ_TITO_DATA
+        value: "/var/data/tito"
       - key: PLAID_CLIENT_ID
         sync: false
       - key: PLAID_SECRET

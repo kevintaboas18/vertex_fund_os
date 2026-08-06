@@ -1,0 +1,1087 @@
+"""Clasificación del flujo (Time & Sales) y los sub-agentes 1-3 del scorecard.
+
+Port de `web/lib/flow.ts`.
+
+Funciones puras: reciben trades crudos de MarketSnack + `now`, devuelven filas
+procesadas y los tres primeros scores del scorecard.
+
+- **Sub-agente 1 — Agresividad** (`aggression_score`): ¿el dinero grande entra
+  al ask o golpea el bid?
+- **Sub-agente 2 — Convicción** (`conviction_score`): spread, dominancia de un
+  lado y fuerza de ejecución.
+- **Sub-agente 3 — Inusualidad** (`unusuality_score`): perfil de griegos propio
+  de instituciones (theta bajo, delta alto, vencimiento largo).
+
+Los trades en el **MID se descartan** del subconjunto "interesante": no dicen
+nada sobre dirección, y contarlos diluiría la señal de agresividad.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from datetime import datetime
+from functools import cmp_to_key
+from typing import Any, Iterable, Literal, Sequence
+
+from .jsmath import (UNDEFINED, es_nulo, js_add, js_clave, js_date_parse,
+                     js_gt, js_max, js_min, js_number, js_round,
+                     js_string, js_truthy)
+from .conditions import condition_of, is_canceled_condition, is_multi_leg_condition
+from .occ import MARKET_TZ, days_to_expiration, parse_occ
+
+__all__ = [
+    "BIG_PREMIUM",
+    "CONVICTION_PREMIUM",
+    "CONVICTION_DELTA",
+    "AGGRESSIVE_FLOOR",
+    "REPEAT_WINDOW_MS",
+    "REPEAT_WINDOW_SEC",
+    "REPEAT_MIN_COUNT",
+    "LEAP_DTE",
+    "UNUSUAL_TOTAL",
+    "UNUSUAL_TRADE_THRESHOLD",
+    "WIDE_SPREAD_ALERT_PREMIUM",
+    "Aggression",
+    "ExecutionLevel",
+    "EXECUTION_LABEL",
+    "FlowFlags",
+    "TradeScores",
+    "FlowRow",
+    "ClassifiedFlow",
+    "volume_score",
+    "timing_score",
+    "repetition_score",
+    "aggression_of",
+    "classify_flow",
+    "CLUSTER_WINDOW_SEC",
+    "CLUSTER_WINDOW_MS",
+    "CLUSTER_MIN_COUNT",
+    "CLUSTER_MIN_PREMIUM",
+    "Cluster",
+    "detect_clusters",
+    "spread_pct",
+    "spread_score",
+    "is_wide_spread",
+    "dominance_score",
+    "execution_level",
+    "execution_score",
+    "ConvictionScore",
+    "conviction_score",
+    "order_size_score",
+    "delta_score",
+    "theta_score",
+    "gamma_score",
+    "leg_score",
+    "expiry_score",
+    "UnusualScores",
+    "unusual_trade_score",
+    "UnusualityScore",
+    "unusuality_score",
+    "AggressionScore",
+    "aggression_score",
+]
+
+# ---- Umbrales (ajustables) tomados del Scorecard --------------------------------
+
+BIG_PREMIUM = 1_000_000
+CONVICTION_PREMIUM = 100_000
+CONVICTION_DELTA = 0.6
+#: Piso para que un above-ask / below-bid "cuente" como interesante por sí solo.
+AGGRESSIVE_FLOOR = 50_000
+#: `REPEAT_WINDOW_MS` de Víctor. Él trabaja en milisegundos porque compara
+#: `Date.parse` a pelo; el alias en segundos se conserva porque es el nombre que
+#: usan los tests y la auditoría, y porque `detect_clusters` sí razona en
+#: segundos (como su `detectClusters`, que multiplica el gap por 1000).
+REPEAT_WINDOW_MS = 5 * 60 * 1000
+REPEAT_WINDOW_SEC = REPEAT_WINDOW_MS // 1000
+REPEAT_MIN_COUNT = 3
+LEAP_DTE = 90
+#: Total (de 30) para marcar el trade como "inusual" y resaltarlo.
+UNUSUAL_TOTAL = 24
+#: Umbral (de 10) para etiquetar un trade como de grado institucional.
+UNUSUAL_TRADE_THRESHOLD = 7
+#: Premium desde el cual un spread ancho (>10%) merece alerta explícita.
+WIDE_SPREAD_ALERT_PREMIUM = 1_000_000
+
+_ASK_SIDES = frozenset({"ABOVE_ASK", "ASKSIDE", "AT_ASK"})
+_BID_SIDES = frozenset({"BELOW_BID", "BIDSIDE", "AT_BID"})
+
+Aggression = Literal["ask", "bid", "mid", "unknown"]
+ExecutionLevel = Literal[
+    "above_ask", "below_bid", "at_ask", "at_bid", "near", "mid", "unclear"
+]
+
+EXECUTION_LABEL: dict[str, str] = {
+    "above_ask": "Sobre el ask",
+    "below_bid": "Bajo el bid",
+    "at_ask": "En el ask",
+    "at_bid": "En el bid",
+    "near": "Cerca del borde",
+    "mid": "En el medio",
+    "unclear": "Sin claridad",
+}
+
+
+@dataclass
+class FlowFlags:
+    """Banderas por trade. Las cross-row (`repeated`, `simultaneous`) se llenan
+    en una segunda pasada, cuando ya se ven todos los trades juntos."""
+
+    big: bool = False  # >= $1M
+    conv_delta: bool = False  # >= $100K y |delta| > .60
+    above_ask: bool = False
+    below_bid: bool = False
+    mid: bool = False
+    leap: bool = False  # DTE largo (LEAP-ish)
+    repeated: bool = False  # repetido en ventana de 5 min
+    multileg: bool = False  # condición OPRA de multi leg
+    simultaneous: bool = False  # mismo timestamp que otros contratos del subyacente
+    exceeded_oi: bool = False  # volumen del contrato > open interest
+
+
+@dataclass
+class TradeScores:
+    """Sub-scores del scorecard del sub-agente 1 (0-10 cada uno, total 0-30)."""
+
+    volume: int = 0
+    timing: int = 0
+    repetition: int = 0
+    total: int = 0
+
+
+@dataclass
+class FlowRow:
+    """Un trade ya clasificado."""
+
+    id: int
+    symbol: str
+    underlying: str
+    type: Literal["call", "put", "unknown"]
+    strike: float | None
+    expiration: str | None
+    dte: int | None
+    price: float
+    size: int
+    side: str
+    aggression: Aggression
+    asset_price: float
+    bid: float
+    ask: float
+    premium: float
+    delta: float
+    gamma: float
+    theta: float
+    vega: float
+    #: Decaimiento diario como % del precio del contrato: |theta| / price * 100.
+    theta_pct_daily: float | None
+    iv: float
+    open_interest: int
+    volume: int
+    score: float
+    sentiment: str
+    timestamp: str
+    condition_code: str | None
+    condition_name: str | None
+    flags: FlowFlags = field(default_factory=FlowFlags)
+    scores: TradeScores = field(default_factory=TradeScores)
+    unusual: bool = False
+    interesting: bool = False
+    #: Estado del contrato respecto a HOY (los trades pueden ser de hace semanas).
+    expiry_status: Literal["expirado", "expira_hoy", "vigente", "desconocido"] = "desconocido"
+
+
+@dataclass
+class ClassifiedFlow:
+    rows: list[FlowRow]
+    interesting: list[FlowRow]
+
+
+# ---- Sub-agente 1: puntuación por trade ------------------------------------------
+
+
+def volume_score(size: float, premium: float) -> int:
+    """A. Puntuación por Volumen (nº de contratos).
+
+    `js_number` en la entrada: su `size` y su `premium` llegan CRUDOS desde
+    `baseRow` (`raw.size`, `raw.premium ?? 0`), así que un valor en texto entra
+    aquí tal cual y en TS lo coacciona la comparación. Sin esto, `None >= 150`
+    lanza y se lleva la puntuación de todos los trades.
+    """
+    size, premium = js_number(size), js_number(premium)
+    if size >= 150:
+        return 10
+    if size >= 100:
+        return 8
+    if size >= 50:
+        return 6
+    if size >= 20:
+        return 4
+    if size < 20 and premium > 500_000:
+        return 1
+    return 0
+
+
+def _et_minutes(ts: str) -> int | None:
+    """Minutos desde medianoche en horario del mercado (ET)."""
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        return None
+    et = dt.astimezone(MARKET_TZ)
+    return (et.hour % 24) * 60 + et.minute
+
+
+def timing_score(ts: str) -> int:
+    """B. Puntuación por Momento (horario ET).
+
+    El mediodía puntúa más alto que la apertura a propósito: la apertura está
+    llena de ruido de reposicionamiento, mientras que un ticket grande a las
+    12:00 es una decisión tomada con el mercado ya asentado.
+    """
+    minutes = _et_minutes(ts)
+    if es_nulo(minutes):
+        return 3
+    if 660 <= minutes <= 780:  # 11:00-13:00 Mediodía
+        return 10
+    if 570 <= minutes <= 630:  # 9:30-10:30 Apertura
+        return 7
+    if 900 <= minutes <= 960:  # 15:00-16:00 Cierre
+        return 6
+    return 3  # Otros horarios
+
+
+def repetition_score(count: int) -> int:
+    """C. Puntuación por Repetición (nº de trades sobre el mismo contrato)."""
+    if count >= 3:
+        return 10
+    if count == 2:
+        return 7
+    if count == 1:
+        return 4
+    return 1
+
+
+def aggression_of(side: str) -> Aggression:
+    """Traduce el código de lado de MarketSnack a ask / bid / mid."""
+    if side in _ASK_SIDES:
+        return "ask"
+    if side in _BID_SIDES:
+        return "bid"
+    if side == "MIDMKT":
+        return "mid"
+    return "unknown"
+
+
+def _cmp_ms(a: tuple, b: tuple) -> int:
+    """`(a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)`, ASCENDENTE.
+
+    Con el mismo detalle del `NaN` que su otro comparador: ECMA-262 manda
+    tratar un resultado `NaN` como **+0**, o sea "iguales", y con un sort
+    estable —el suyo y el Timsort de Python lo son— la fila ilegible se queda
+    donde estaba en vez de irse a un extremo.
+    """
+    d = a[1] - b[1]
+    if d != d:
+        return 0
+    return -1 if d < 0 else (1 if d > 0 else 0)
+
+
+def _epoch_ms(ts: Any) -> float:
+    """`Date.parse(ts)` — milisegundos, `NaN` si no se puede.
+
+    Era `datetime.fromisoformat`, que **no** es `Date.parse`: rechazaba lo que
+    él acepta (un timestamp sin zona, que ES2015+ lee en la zona local) y con
+    ello tiraba trades enteros del análisis de repetición y de racimos. Medido
+    en `diff_reloj.sh`.
+    """
+    return js_date_parse(ts if isinstance(ts, str) else str(ts))
+
+
+def _epoch(ts: Any) -> float:
+    """`Math.floor(Date.parse(ts) / 1000)` — los segundos de `detectClusters`.
+
+    Devuelve `NaN` para lo ilegible, que es lo que propaga `Math.floor(NaN)`.
+    Cada llamador decide: `detect_clusters` lo filtra con `Number.isFinite`,
+    `_mark_repeated` NO —y esa asimetría es suya, no un descuido del port.
+    """
+    return math.floor(_epoch_ms(ts) / 1000) if _epoch_ms(ts) == _epoch_ms(ts) else math.nan
+
+
+def _num(v: Any, default: float = 0.0) -> float:
+    """`typeof x === "number"` — la regla ESTRICTA. Solo donde él la usa."""
+    return float(v) if isinstance(v, (int, float)) else default
+
+
+def _nn(v: Any, default: Any = 0) -> Any:
+    """`x ?? default` — el nullish coalescing, que NO es lo mismo que `_num`.
+
+    Solo reemplaza `null`/`undefined`; un `"500"`, un `true` o un `{}`
+    sobreviven tal cual y los coacciona la aritmética de después. `_num` los
+    convertía todos en 0, que es una divergencia cara: si MarketSnack pasa a
+    mandar los números como texto, su motor sigue calculando y el port se
+    llenaba de ceros SIN un solo error. Es el mismo hallazgo que motivó
+    `_coerce` en `compute.py`, por la otra puerta.
+
+    Lo destapó el corpus malformado de `diff_motor.sh`: `assetPrice`, `iv` y
+    `delta` salían 0 donde él conserva el valor.
+    """
+    return default if es_nulo(v) else v
+
+
+def _prop(obj, nombre: str):
+    """`obj.nombre` de JS: `undefined` si falta, y TypeError sobre `null`."""
+    if obj is None:
+        raise TypeError(f"Cannot read properties of null (reading '{nombre}')")
+    if isinstance(obj, dict):
+        return obj.get(nombre, UNDEFINED)
+    return UNDEFINED          # primitivas: cualquier propiedad es `undefined`
+
+
+def _base_row(raw: dict[str, Any], now: datetime) -> FlowRow:
+    """Convierte un trade crudo en FlowRow (sin las banderas cross-row).
+
+    `raw` puede no ser un objeto: en su TS `("basura").symbol` es `undefined` y
+    la fila sale vacía; en Python `.get` sobre un string es un `AttributeError`
+    que se lleva `classify_flow` entero. Un lote con un `null` entre los trades
+    es exactamente lo que manda un tape a medio serializar.
+    """
+    if not isinstance(raw, dict):
+        raw = {}
+    # `parseOcc(raw.symbol)` con el símbolo CRUDO: `parse_occ` ya reproduce lo
+    # que hace su archivo con un símbolo que no es texto (ver su docstring).
+    symbol = raw.get("symbol", UNDEFINED)
+    occ = parse_occ(symbol)
+    dte = days_to_expiration(occ.expiration, now) if occ else None
+    side = str(raw.get("side", UNDEFINED) or "")
+    aggr = aggression_of(side)
+    # `?? 0`, no `Number()`: es lo que hace su `baseRow`.
+    premium = _nn(raw.get("premium", UNDEFINED))
+    delta = _nn(raw.get("delta", UNDEFINED))
+    price = raw.get("price", UNDEFINED)            # sin default: su `price: raw.price`
+    theta_raw = raw.get("theta", UNDEFINED)
+    volume = raw.get("volume", UNDEFINED)          # sin default: su `volume: raw.volume`
+    open_interest = raw.get("open_interest", UNDEFINED)
+    cond = condition_of(raw.get("trade_condition_id", UNDEFINED))
+
+    flags = FlowFlags(
+        big=js_number(premium) >= BIG_PREMIUM,
+        conv_delta=(js_number(premium) >= CONVICTION_PREMIUM
+                    and abs(js_number(delta)) > CONVICTION_DELTA),
+        above_ask=aggr == "ask",
+        below_bid=aggr == "bid",
+        mid=aggr == "mid",
+        leap=not es_nulo(dte) and js_number(dte) >= LEAP_DTE,
+        multileg=is_multi_leg_condition(raw.get("trade_condition_id", UNDEFINED)),
+        # `(raw.volume ?? 0) > (raw.open_interest ?? 0) && (raw.open_interest ?? 0) > 0`
+        exceeded_oi=(js_number(_nn(volume)) > js_number(_nn(open_interest))
+                     and js_number(_nn(open_interest)) > 0),
+    )
+
+    if es_nulo(dte):
+        status = "desconocido"
+    elif js_number(dte) < 0:
+        status = "expirado"
+    elif dte == 0:
+        status = "expira_hoy"
+    else:
+        status = "vigente"
+
+    return FlowRow(
+        id=raw.get("id", UNDEFINED),
+        symbol=symbol,
+        underlying=occ.underlying if occ else symbol,
+        type=occ.type if occ else "unknown",
+        strike=occ.strike if occ else None,
+        expiration=occ.expiration if occ else None,
+        dte=dte,
+        price=price,
+        size=raw.get("size", UNDEFINED),
+        side=side,
+        aggression=aggr,
+        asset_price=_nn(raw.get("asset_price", UNDEFINED)),
+        bid=raw.get("bid_price", UNDEFINED),
+        ask=raw.get("ask_price", UNDEFINED),
+        premium=premium,
+        delta=delta,
+        gamma=_nn(raw.get("gamma", UNDEFINED)),
+        theta=_nn(theta_raw),
+        vega=_nn(raw.get("vega", UNDEFINED)),
+        # `raw.theta != null && raw.price > 0 ? Math.abs(raw.theta)/raw.price*100 : null`
+        theta_pct_daily=(
+            abs(js_number(theta_raw)) / js_number(price) * 100
+            if not es_nulo(theta_raw) and js_gt(price) else None
+        ),
+        iv=raw.get("implied_volatility", UNDEFINED),      # sin default, como él
+        open_interest=open_interest,
+        volume=volume,
+        score=_num(raw.get("score", UNDEFINED)),
+        sentiment=raw.get("sentiment", UNDEFINED),        # crudo, como su `raw.sentiment`
+        timestamp=str(raw.get("timestamp", UNDEFINED) or ""),
+        condition_code=cond.code if cond else None,
+        condition_name=cond.name if cond else None,
+        flags=flags,
+        expiry_status=status,  # type: ignore[arg-type]
+    )
+
+
+def _mark_repeated(rows: Sequence[FlowRow]) -> None:
+    """Marca los trades que forman >=REPEAT_MIN_COUNT sobre el mismo contrato+lado
+    dentro de una ventana deslizante de 5 minutos."""
+    groups: dict[str, list[FlowRow]] = {}
+    for r in rows:
+        groups.setdefault(f"{r.symbol}|{r.aggression}", []).append(r)
+
+    for group in groups.values():
+        if len(group) < REPEAT_MIN_COUNT:
+            continue
+        # Sin filtrar los timestamps ilegibles: él tampoco. Su `sort` compara
+        # `Date.parse(a) - Date.parse(b)`, y ECMA-262 manda tratar un comparador
+        # que devuelve NaN como 0 —o sea "iguales"—, así que con un sort estable
+        # la fila ilegible se queda donde estaba. Y en la ventana deslizante
+        # `NaN > REPEAT_WINDOW_MS` es falso, así que `start` no avanza y el
+        # grupo entero sigue contando. El port las descartaba, que es una
+        # decisión distinta: quitaba trades del conteo de repetición.
+        timed = [(r, _epoch_ms(r.timestamp)) for r in group]
+        timed.sort(key=cmp_to_key(_cmp_ms))
+        start = 0
+        for end in range(len(timed)):
+            while timed[end][1] - timed[start][1] > REPEAT_WINDOW_MS:
+                start += 1
+            if end - start + 1 >= REPEAT_MIN_COUNT:
+                for i in range(start, end + 1):
+                    timed[i][0].flags.repeated = True
+
+
+def _mark_simultaneous(rows: Sequence[FlowRow]) -> None:
+    """Mismo timestamp exacto + mismo subyacente, en >=2 contratos distintos.
+
+    OJO: esto NO define multileg (para eso está la condición OPRA); es solo una
+    señal de ejecuciones simultáneas.
+    """
+    groups: dict[str, list[FlowRow]] = {}
+    for r in rows:
+        # `${r.underlying}|${r.timestamp}` es una plantilla: `String()`, no `str()`.
+        groups.setdefault(f"{js_string(r.underlying)}|{js_string(r.timestamp)}",
+                          []).append(r)
+    for group in groups.values():
+        # `new Set(group.map(r => r.symbol))` acepta cualquier valor como
+        # elemento; el `set` de Python lanza con un símbolo que sea lista o
+        # dict. `js_clave` da la misma identidad que usa un `Set` de JS.
+        if len({js_clave(r.symbol) for r in group}) >= 2:
+            for r in group:
+                r.flags.simultaneous = True
+
+
+def _score_rows(rows: Sequence[FlowRow]) -> None:
+    """Aplica el sistema de puntuación del sub-agente (volumen, momento, repetición)."""
+    # `new Map()` con el símbolo CRUDO como clave: acepta listas y objetos,
+    # que en un `dict` de Python son inhashables (ver `jsmath.js_clave`).
+    per_contract: dict = {}
+    for r in rows:
+        k = js_clave(r.symbol)
+        per_contract[k] = per_contract.get(k, 0) + 1
+    for r in rows:
+        volume = volume_score(r.size, r.premium)
+        timing = timing_score(r.timestamp)
+        repetition = repetition_score(per_contract.get(js_clave(r.symbol), 1))
+        total = volume + timing + repetition
+        r.scores = TradeScores(volume=volume, timing=timing, repetition=repetition, total=total)
+        r.unusual = total >= UNUSUAL_TOTAL
+
+
+def _compute_interesting(r: FlowRow) -> bool:
+    if r.flags.mid:
+        return False  # los mid se descartan: no informan dirección
+    return bool(
+        r.flags.big
+        or r.flags.conv_delta
+        or r.flags.repeated
+        or r.flags.multileg
+        or r.flags.simultaneous
+        or ((r.flags.above_ask or r.flags.below_bid) and r.premium >= AGGRESSIVE_FLOOR)
+    )
+
+
+def classify_flow(raw: Iterable[dict[str, Any]], now: datetime) -> ClassifiedFlow:
+    """Pipeline completo: crudo → filas clasificadas + subconjunto "interesante"."""
+    # Las transacciones canceladas se descartan: la orden se anuló, no existió.
+    # `t.trade_condition_id` sobre algo que no es un objeto es `undefined` en
+    # TS, no un `AttributeError`. Un lote con un `null` o un string entre los
+    # trades tumbaba `classify_flow` entero; él lo procesa como un trade vacío.
+    # `raw.filter(t => !isCanceledCondition(t.trade_condition_id))`, literal:
+    # leer una propiedad de un `null` LANZA en su archivo, y un lote a medio
+    # serializar tumba la petición entera. El filtro de entrada vive en
+    # `borde.py`, no aquí.
+    rows = [_base_row(t, now) for t in raw
+            if not is_canceled_condition(_prop(t, "trade_condition_id"))]
+    _mark_repeated(rows)
+    _mark_simultaneous(rows)
+    _score_rows(rows)
+    for r in rows:
+        r.interesting = _compute_interesting(r)
+    # `sort((a, b) => b.premium - a.premium)` — resta numérica, no el orden
+    # natural de Python (que lanza al mezclar un texto con un número).
+    interesting = sorted((r for r in rows if r.interesting),
+                         key=lambda r: js_number(r.premium), reverse=True)
+    return ClassifiedFlow(rows=rows, interesting=interesting)
+
+
+# ---- Detección de racimos (acumulación de trades) -------------------------------
+
+#: Gap máximo entre trades para que sigan siendo el mismo racimo.
+#:
+#: Su nombre y su valor, en milisegundos, porque en JS los timestamps son ms.
+#: El port trabaja en segundos —`datetime.timestamp()`— así que deriva el suyo
+#: de éste en vez de escribir el número dos veces: si él cambia la ventana, aquí
+#: cambia sola. Sin la constante con SU nombre, el cotejo automático de
+#: constantes de `auditar_tito.py` no la encuentra y la da por ausente.
+CLUSTER_WINDOW_MS = 5 * 60 * 1000
+CLUSTER_WINDOW_SEC = CLUSTER_WINDOW_MS // 1000
+#: Mínimo de trades para contar como racimo.
+CLUSTER_MIN_COUNT = 3
+#: Premium acumulado mínimo del racimo.
+CLUSTER_MIN_PREMIUM = 500_000
+
+
+@dataclass
+class Cluster:
+    """Un burst de trades agresivos contiguos en la misma dirección."""
+
+    start_sec: int
+    end_sec: int
+    count: int
+    premium_ask: float
+    premium_bid: float
+    premium: float
+    direction: Literal["ask", "bid"]
+    unidirectionality: float  # 0..1 (qué tan de un solo lado)
+    score: int  # 0-10 (cantidad + dinero + unidireccionalidad)
+    trades: list[FlowRow]
+    # Composición call/put y apuesta neta (comprar puts = bajista, no alcista):
+    call_premium: float
+    put_premium: float
+    bullish_premium: float  # compra de calls + venta de puts
+    bearish_premium: float  # compra de puts + venta de calls
+    bet: Literal["alcista", "bajista"]
+    bet_label: str  # ej. "Compraron PUTS"
+
+
+def detect_clusters(
+    rows: Sequence[FlowRow],
+    window_sec: int = CLUSTER_WINDOW_SEC,
+    min_count: int = CLUSTER_MIN_COUNT,
+    min_premium: float = CLUSTER_MIN_PREMIUM,
+) -> list[Cluster]:
+    """Detecta racimos: bursts de >=min_count trades notables (ask/bid) contiguos
+    (gap <= window_sec) con premium acumulado >= min_premium.
+
+    La **apuesta neta** no es el lado de ejecución: comprar puts y vender calls
+    empujan bajista; comprar calls y vender puts empujan alcista. Confundirlos
+    haría leer una cobertura masiva como una apuesta al alza.
+    """
+    # `.filter((x) => Number.isFinite(x.sec))` — el filtro es por FINITUD, no
+    # por `None`. Un `NaN` pasaba el `is not None` y reventaba en `int()`.
+    timed = [
+        (r, int(t))
+        for r, t in ((r, _epoch(r.timestamp)) for r in rows if r.aggression in ("ask", "bid"))
+        if math.isfinite(t)
+    ]
+    timed.sort(key=lambda x: x[1])
+
+    clusters: list[Cluster] = []
+
+    def flush(group: list[tuple[FlowRow, int]]) -> None:
+        if len(group) < min_count:
+            return
+        # Acumuladores con el `+` de JS: el `premium` de la fila llega crudo.
+        ask: Any = 0
+        bid: Any = 0
+        call_p: Any = 0
+        put_p: Any = 0
+        buckets: dict[str, Any] = {"call_ask": 0, "put_ask": 0, "call_bid": 0, "put_bid": 0}
+        for r, _ in group:
+            p = r.premium
+            if r.aggression == "ask":
+                ask = js_add(ask, p)
+            else:
+                bid = js_add(bid, p)
+            if r.type == "call":
+                call_p = js_add(call_p, p)
+                _k = "call_ask" if r.aggression == "ask" else "call_bid"
+                buckets[_k] = js_add(buckets[_k], p)
+            elif r.type == "put":
+                put_p = js_add(put_p, p)
+                _k = "put_ask" if r.aggression == "ask" else "put_bid"
+                buckets[_k] = js_add(buckets[_k], p)
+            else:
+                # tipo desconocido: cae al criterio simple ask=alcista / bid=bajista
+                _k = "call_ask" if r.aggression == "ask" else "call_bid"
+                buckets[_k] = js_add(buckets[_k], p)
+
+        premium = js_add(ask, bid)
+        # `if (premium >= minPremium)`, NEGADO — que no es lo mismo que `<`
+        # cuando hay un `NaN` de por medio: `NaN >= x` y `NaN < x` son AMBOS
+        # falsos. El port usaba `<` y creaba un racimo con premium ilegible
+        # justo donde su archivo no crea ninguno.
+        if not (js_number(premium) >= min_premium):
+            return
+        # A partir de aquí todo es aritmética, así que se trabaja con los
+        # números — que es lo que hace su código al dividir y comparar.
+        ask_n, bid_n = js_number(ask), js_number(bid)
+        prem_n = js_number(premium)
+        unid = (js_max(ask_n, bid_n) / prem_n) if prem_n > 0 else 0.0
+        norm_count = js_min(1, len(group) / 10)
+        norm_prem = js_min(1, prem_n / 2_000_000)
+        score = js_round(10 * (0.4 * norm_count + 0.3 * norm_prem + 0.3 * unid))
+        bullish = js_add(buckets["call_ask"], buckets["put_bid"])
+        bearish = js_add(buckets["put_ask"], buckets["call_bid"])
+        labels = [
+            (buckets["call_ask"], "Compraron CALLS"),
+            (buckets["put_ask"], "Compraron PUTS"),
+            (buckets["call_bid"], "Vendieron CALLS"),
+            (buckets["put_bid"], "Vendieron PUTS"),
+        ]
+        # `sort((a, b) => b[0] - a[0])` — resta numérica.
+        labels.sort(key=lambda x: js_number(x[0]), reverse=True)
+        clusters.append(
+            Cluster(
+                start_sec=group[0][1],
+                end_sec=group[-1][1],
+                count=len(group),
+                premium_ask=ask,
+                premium_bid=bid,
+                premium=premium,
+                direction="ask" if ask_n >= bid_n else "bid",
+                unidirectionality=unid,
+                score=score,
+                trades=[r for r, _ in group],
+                call_premium=call_p,
+                put_premium=put_p,
+                bullish_premium=bullish,
+                bearish_premium=bearish,
+                bet="alcista" if js_number(bullish) >= js_number(bearish) else "bajista",
+                bet_label=labels[0][1],
+            )
+        )
+
+    group: list[tuple[FlowRow, int]] = []
+    for x in timed:
+        if not group:
+            group = [x]
+            continue
+        if x[1] - group[-1][1] <= window_sec:
+            group.append(x)
+        else:
+            flush(group)
+            group = [x]
+    flush(group)
+    return clusters
+
+
+# ============================================================================
+# Sub-agente 2 — CONVICCIÓN
+# Mide la calidad/decisión del flujo: spread, dominancia ask-vs-bid y fuerza de
+# ejecución. Ver SCOREDCARD/Conviccion.md
+# ============================================================================
+
+
+def spread_pct(bid: float, ask: float) -> float | None:
+    """Spread relativo de un trade: ``(ask − bid) / mid``, en %. ``None`` sin quote."""
+    # `const mid = (ask + bid) / 2` — el `+` de JS. Con un `ask` que llega como
+    # texto (`"0x1A"`) esto CONCATENA antes de dividir y el mid sale `NaN`, así
+    # que el spread entero es `NaN` y contamina el promedio ponderado. El port
+    # coaccionaba primero y devolvía un spread perfectamente creíble.
+    if not js_gt(bid) or not js_gt(ask) or js_number(ask) < js_number(bid):
+        return None
+    mid = js_number(js_add(ask, bid)) / 2
+    if mid <= 0:
+        return None
+    return (js_number(ask) - js_number(bid)) / mid * 100
+
+
+def spread_score(pct: float | None) -> int:
+    """Puntuación por spread (0-10). >10% no puntúa: se separa aparte."""
+    if es_nulo(pct):
+        return 0
+    if pct < 2:
+        return 10
+    if pct <= 5:
+        return 7
+    if pct <= 10:
+        return 4
+    return 0  # spread ancho → se aparta del análisis normal
+
+
+def is_wide_spread(pct: float | None) -> bool:
+    """Un spread > 10% se separa para revisión aparte."""
+    return not es_nulo(pct) and pct > 10
+
+
+def dominance_score(pct_dominant: float) -> int:
+    """Puntuación por dominancia (% del premium en el lado dominante)."""
+    if pct_dominant >= 80:
+        return 10
+    if pct_dominant >= 70:
+        return 8
+    if pct_dominant >= 60:
+        return 6
+    if pct_dominant >= 55:
+        return 4
+    if pct_dominant >= 50:
+        return 2
+    return 0
+
+
+def execution_level(price: float, bid: float, ask: float, side: str) -> ExecutionLevel:
+    """Dónde cayó el precio del trade respecto al spread.
+
+    "Cerca" = dentro del 20% del ancho del spread desde el ask o el bid.
+    """
+    price, bid, ask = js_number(price), js_number(bid), js_number(ask)
+    if not (bid > 0) or not (ask > 0) or ask < bid:
+        return "unclear"
+    if price > ask:
+        return "above_ask"
+    if price < bid:
+        return "below_bid"
+    width = ask - bid
+    if width <= 0:
+        return "at_ask" if price >= ask else "at_bid"
+    if price >= ask:
+        return "at_ask"
+    if price <= bid:
+        return "at_bid"
+    from_ask = (ask - price) / width
+    from_bid = (price - bid) / width
+    if from_ask <= 0.2 or from_bid <= 0.2:
+        return "near"
+    # Zona media: si está muy centrado es mid; si no, nos apoyamos en el lado reportado.
+    if abs(from_ask - from_bid) < 0.2:
+        return "mid"
+    return "mid" if side == "MIDMKT" else "near"
+
+
+def execution_score(level: ExecutionLevel) -> int:
+    """Puntuación por fuerza de ejecución (0-10). La dirección se etiqueta aparte."""
+    if level in ("above_ask", "below_bid"):
+        return 10
+    if level in ("at_ask", "at_bid"):
+        return 8
+    if level == "near":
+        return 6
+    if level == "mid":
+        return 3
+    return 0
+
+
+@dataclass
+class ConvictionScore:
+    score: int  # 0-10 final de la categoría
+    spread: dict[str, Any]
+    dominance: dict[str, Any]
+    execution: dict[str, Any]
+    n: int
+
+
+def conviction_score(rows: Sequence[FlowRow]) -> ConvictionScore:
+    """Score de Convicción (0-10).
+
+    Promedio de los 3 sub-scores (spread, dominancia, fuerza de ejecución),
+    ponderando por premium donde aplica: un ticket de $2M debe mover la aguja
+    más que uno de $100K.
+    """
+    counts: dict[str, int] = {
+        "above_ask": 0, "below_bid": 0, "at_ask": 0, "at_bid": 0,
+        "near": 0, "mid": 0, "unclear": 0,
+    }
+
+    # Los acumuladores usan el `+=` de JS sobre el `premium` CRUDO, que llega de
+    # `baseRow` como `raw.premium ?? 0` y puede ser texto. Los que suman premium
+    # a secas (`spreadWeight`, `askPrem`, `bidPrem`, `execWeight`) CONCATENAN
+    # cuando eso pasa; los que multiplican primero (`spreadWeighted`,
+    # `execWeighted`) sí son números. El port coaccionaba todo por adelantado y
+    # puntuaba 4 donde su archivo puntúa 0 o 1. Medido en `diff_motor.sh`.
+    spread_weighted = 0.0
+    spread_weight: Any = 0
+    wide_count = 0
+    wide_alert: list[FlowRow] = []
+    ask_prem: Any = 0
+    bid_prem: Any = 0
+    exec_weighted = 0.0
+    exec_weight: Any = 0
+
+    for r in rows:
+        pct = spread_pct(r.bid, r.ask)
+        if not es_nulo(pct):
+            if is_wide_spread(pct):
+                wide_count += 1
+                if js_number(r.premium) >= WIDE_SPREAD_ALERT_PREMIUM:
+                    wide_alert.append(r)
+            else:
+                spread_weighted += pct * js_number(r.premium)
+                spread_weight = js_add(spread_weight, r.premium)
+
+        if r.aggression == "ask":
+            ask_prem = js_add(ask_prem, r.premium)
+        elif r.aggression == "bid":
+            bid_prem = js_add(bid_prem, r.premium)
+
+        level = execution_level(r.price, r.bid, r.ask, r.side)
+        counts[level] += 1
+        exec_weighted += execution_score(level) * js_number(r.premium)
+        exec_weight = js_add(exec_weight, r.premium)
+
+    avg_spread_pct = ((spread_weighted / js_number(spread_weight))
+                      if js_gt(spread_weight) else None)
+    spread_points = spread_score(avg_spread_pct)
+
+    total_dir = js_add(ask_prem, bid_prem)
+    td = js_number(total_dir)
+    ask_pct = (js_number(ask_prem) / td * 100) if td > 0 else 0.0
+    bid_pct = (js_number(bid_prem) / td * 100) if td > 0 else 0.0
+    dominant_pct = js_max(ask_pct, bid_pct)
+    dom_points = dominance_score(dominant_pct) if td > 0 else 0
+
+    exec_avg = ((exec_weighted / js_number(exec_weight))
+                if js_gt(exec_weight) else 0.0)
+
+    return ConvictionScore(
+        score=js_round((spread_points + dom_points + exec_avg) / 3),
+        spread={
+            "avg_pct": avg_spread_pct,
+            "points": spread_points,
+            "wide_count": wide_count,
+            "wide_alert": sorted(wide_alert, key=lambda r: js_number(r.premium),
+                                 reverse=True),
+        },
+        dominance={
+            "ask_pct": ask_pct,
+            "bid_pct": bid_pct,
+            "dominant_pct": dominant_pct,
+            "side": "ask" if ask_pct >= bid_pct else "bid",
+            "points": dom_points,
+        },
+        execution={"points": js_round(exec_avg), "avg_raw": exec_avg, "counts": counts},
+        n=len(rows),
+    )
+
+
+# ============================================================================
+# Sub-agente 3 — INUSUALIDAD
+# Identifica transacciones con parámetros de griegos propios de instituciones.
+# Ver SCOREDCARD/Inusualidad.md
+# ============================================================================
+
+
+def order_size_score(premium: float) -> int:
+    """Tamaño de la orden (premium en $)."""
+    premium = js_number(premium)
+    if premium > 5_000_000:
+        return 10
+    if premium >= 1_000_000:
+        return 8
+    if premium >= 500_000:
+        return 7
+    if premium >= 200_000:
+        return 5
+    if premium >= 100_000:
+        return 3
+    return 0
+
+
+def delta_score(delta: float) -> int:
+    """Delta en valor absoluto: un put de −0.85 es tan direccional como un call de +0.85."""
+    d = abs(js_number(delta))
+    if d >= 0.8:
+        return 10
+    if d >= 0.7:
+        return 8
+    if d >= 0.6:
+        return 7
+    if d >= 0.5:
+        return 5
+    return 0
+
+
+def theta_score(pct_daily: float | None) -> int:
+    """Theta como % de decaimiento diario sobre el precio del contrato.
+
+    Decaimiento bajo = posición para sostener, no lotería.
+    """
+    if es_nulo(pct_daily):
+        return 0
+    pct_daily = js_number(pct_daily)
+    if pct_daily < 1:
+        return 10
+    if pct_daily <= 3:
+        return 8
+    if pct_daily <= 5:
+        return 5
+    return 0
+
+
+def gamma_score(gamma: float) -> int:
+    """Gamma: la zona 0.01-0.08 es la "institucional"; muy alta o muy baja puntúa menos."""
+    g = abs(js_number(gamma))
+    if g < 0.01:
+        return 2
+    if g <= 0.08:
+        return 10
+    if g <= 0.15:
+        return 8
+    return 4
+
+
+def leg_score(multileg: bool) -> int:
+    """Una sola pata es más limpia de leer que un multileg."""
+    return 5 if multileg else 10
+
+
+def expiry_score(dte: int | None) -> int:
+    """Vencimiento (días para expirar)."""
+    if es_nulo(dte):
+        return 0
+    dte = js_number(dte)
+    if dte >= 120:
+        return 10  # incluye los LEAPs de ~320 días
+    if dte >= 90:
+        return 8
+    if dte >= 60:
+        return 7
+    if dte >= 30:
+        return 5
+    return 2
+
+
+@dataclass(frozen=True)
+class UnusualScores:
+    size: int
+    delta: int
+    theta: int
+    gamma: int
+    leg: int
+    expiry: int
+    total: float  # 0-10 (promedio de los 6)
+
+
+def unusual_trade_score(r: FlowRow) -> UnusualScores:
+    """Puntúa un trade con la tabla de Inusualidad (6 parámetros → promedio 0-10)."""
+    size = order_size_score(r.premium)
+    delta = delta_score(r.delta)
+    theta = theta_score(r.theta_pct_daily)
+    gamma = gamma_score(r.gamma)
+    leg = leg_score(r.flags.multileg)
+    expiry = expiry_score(r.dte)
+    total = (size + delta + theta + gamma + leg + expiry) / 6
+    return UnusualScores(
+        size=size, delta=delta, theta=theta, gamma=gamma, leg=leg, expiry=expiry,
+        total=js_round(total * 10) / 10,
+    )
+
+
+@dataclass
+class UnusualityScore:
+    score: int  # 0-10 de la categoría
+    avg_by_param: dict[str, float]
+    unusual_count: int  # trades con total >= umbral
+    n: int
+    top: list[tuple[FlowRow, UnusualScores]]  # más inusuales, ordenados
+
+
+def unusuality_score(rows: Sequence[FlowRow]) -> UnusualityScore:
+    """Score de Inusualidad (0-10).
+
+    Promedio **ponderado por premium** del puntaje inusual de cada trade: los
+    tickets grandes pesan más, porque son los que mueven el mercado.
+    """
+    if not rows:
+        return UnusualityScore(
+            score=0,
+            avg_by_param={"size": 0, "delta": 0, "theta": 0, "gamma": 0, "leg": 0, "expiry": 0},
+            unusual_count=0,
+            n=0,
+            top=[],
+        )
+
+    scored = [(row, unusual_trade_score(row)) for row in rows]
+
+    weighted = weight = 0.0
+    sums = {"size": 0, "delta": 0, "theta": 0, "gamma": 0, "leg": 0, "expiry": 0}
+    for row, s in scored:
+        # Piso de 1 para que un trade con premium 0 no desaparezca del promedio.
+        # `Math.max(row.premium, 1)` — coacciona; `max()` de Python compara
+        # tipos y lanza con un premium en texto o ausente.
+        w = max(js_number(row.premium), 1.0)
+        weighted += s.total * w
+        weight += w
+        sums["size"] += s.size
+        sums["delta"] += s.delta
+        sums["theta"] += s.theta
+        sums["gamma"] += s.gamma
+        sums["leg"] += s.leg
+        sums["expiry"] += s.expiry
+
+    n = len(scored)
+    return UnusualityScore(
+        score=js_round(weighted / weight) if weight > 0 else 0,
+        avg_by_param={k: js_round(v / n * 10) / 10 for k, v in sums.items()},
+        unusual_count=sum(1 for _, s in scored if s.total >= UNUSUAL_TRADE_THRESHOLD),
+        n=n,
+        top=sorted(scored, key=lambda x: (x[1].total, x[0].premium), reverse=True)[:150],
+    )
+
+
+# ============================================================================
+# Sub-agente 1 — AGRESIVIDAD (la casilla del scorecard)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class AggressionScore:
+    score: int  # 0-10 (casilla del scorecard)
+    ratio: float  # premium al ask / (ask + bid)
+    premium_ask: float
+    premium_bid: float
+    premium_mid: float
+    n: int  # nº de transacciones notables consideradas
+
+
+def aggression_score(rows: Sequence[FlowRow]) -> AggressionScore:
+    """Score de Agresividad (0-10) — "¿compran al ask con fuerza?".
+
+    Pondera por premium: cuánto del dinero notable entró agresivo al ask vs
+    golpeando el bid. Los mid **se reportan pero no cuentan** para el ratio.
+    Sin flujo ask/bid → score 0 (no un 5 "neutral": la ausencia de señal no es
+    media señal).
+    """
+    # Acumuladores con el `+` de JS: su `premium` llega crudo desde `baseRow`
+    # (`raw.premium ?? 0`) y puede ser texto. `sum()` de Python lanza; él suma o
+    # concatena, y la división de después lo vuelve a número.
+    ask: Any = 0
+    bid: Any = 0
+    mid: Any = 0
+    for r in rows:
+        if r.aggression == "ask":
+            ask = js_add(ask, r.premium)
+        elif r.aggression == "bid":
+            bid = js_add(bid, r.premium)
+        elif r.aggression == "mid":
+            mid = js_add(mid, r.premium)
+    # `const denom = ask + bid` — el `+` de JS OTRA VEZ, no una suma. Con un
+    # premium `"500"` el acumulador ya es la cadena `"0500"`, y `"0500" + 0`
+    # CONCATENA a `"05000"`; la división de después lo lee como 5000 y el ratio
+    # sale 0.1, no 1. El port coaccionaba antes de sumar y puntuaba 10 donde su
+    # archivo puntúa 1. Medido en `diff_motor.sh`.
+    denom = js_add(ask, bid)
+    ratio = (js_number(ask) / js_number(denom)) if js_gt(denom) else 0.0
+    return AggressionScore(
+        score=js_round(ratio * 10) if js_gt(denom) else 0,
+        ratio=ratio,
+        premium_ask=ask,
+        premium_bid=bid,
+        premium_mid=mid,
+        n=len(rows),
+    )
