@@ -3263,3 +3263,96 @@ lleva asterisco y color ámbar cuando su fuente no es el bid.
 **Reproducido de punta a punta** con una cadena sin `last_quote` y `day.close`
 poblado: **40 de 40 símbolos con candidatos**, prima de fuente `ultimo`,
 liquidez 0/15.
+
+## 41.12 «¿Cómo tenemos datos 100% reales?» — la sonda que lo contesta
+
+Kevin, tras pagar Massive: *"¿cómo hacemos para tener los datos que
+necesitamos y 100% confiables y reales? Verifica."*
+
+**Yo no puedo verificarlo desde aquí, y eso hay que decirlo primero.** El
+contenedor bloquea `api.massive.com`. Todo lo que llevo dicho sobre qué
+devuelve su plan es **inferencia** a partir de los síntomas de sus capturas —
+buena inferencia, pero inferencia.
+
+Así que en vez de seguir adivinando, la respuesta es una **sonda que él corre
+contra su propia cuenta**: `/api/tito-fuentes`, con botón en el panel de Wheel.
+
+### Qué hace
+
+Pide **cada endpoint** que el motor usa y comprueba **cada campo** que el motor
+lee. Por campo dice tres cosas: si está, de qué tipo, y **qué se rompe si
+falta**. La lista no sale de la documentación de Massive —esa describe el plan
+más caro— sino de leer quién consume qué en el código.
+
+| Endpoint | Sostiene |
+|---|---|
+| `/v3/snapshot/options` | Estructura, GEX, niveles, escenarios, Wheel |
+| `/v2/aggs/…/range/1/day` | niveles, IV Rank, sub-agente 6, la gráfica |
+| `/v2/snapshot/locale/us/…` | el spot en vivo (1er eslabón) |
+| `/v3/reference/tickers` | nombre para el matcher de noticias |
+| `/vX/reference/financials` | el proxy de earnings de Wheel |
+| MarketSnack `/api/flow_feed` | 4 de los 6 sub-agentes + Ideas + Time & Sales |
+
+Y termina con el **veredicto por pestaña**: ok / degradado / roto, con el motivo
+y el arreglo.
+
+### Lo que ya se puede afirmar sin la sonda
+
+Wheel es la **única** pestaña que depende de `last_quote`. Ticker, Ideas y Time
+& Sales sacan su bid/ask de **MarketSnack**, no de Massive. Por eso funcionan.
+
+Y "degradado" no es "roto": sin horquilla el motor puntúa igual con la cascada
+de precio que él mismo escribió, y el score cobra **0 de 15** en liquidez por no
+poder medir el spread. Un contrato sin bid **nunca** superará a uno con bid.
+
+### Honestidad sobre "100% real"
+
+Con `last_quote`, la prima **es** el bid: real y verificable. Sin él, la prima
+es una **estimación** del último precio con recorte del 10%, y el panel lo dice
+con asterisco, color ámbar y *"verifica la prima en tu bróker antes de vender"*.
+
+Lo que **no** se hará nunca es rellenar la columna con un Black-Scholes y
+callarlo. Ese sería exactamente el número que no puedes cobrar.
+
+## 41.13 Que quepa en cualquier pantalla
+
+Kevin: *"quiero que se ajuste a un móvil, tablet/iPad, computadora, monitor y
+todos los dispositivos."*
+
+### Lo que estaba mal, medido
+
+- **16 tablas con ancho mínimo fijo**, de 420px hasta **720px**. En un teléfono
+  de 390px eso es scroll horizontal en todas, y peor: el usuario **no sabe** que
+  hay columnas a la derecha. Las de Wheel (9 columnas) y Time & Sales (9) eran
+  ilegibles.
+- **Contenedor topado en `max-w-6xl`** = 1152px. En un monitor de 27" el tab
+  usaba un tercio de la pantalla… y las tablas *seguían* con scroll.
+- **Alturas en píxeles**: gráfica de 440px y gamma de 240px. 440px en un
+  teléfono apaisado es la pantalla entera.
+- La navegación de pestañas se partía en dos filas y empujaba el contenido.
+
+### La solución para las tablas: dejar de dibujarlas como tablas
+
+Bajo 640px cada fila pasa a ser una **tarjeta** con `etiqueta ····· valor`. No
+hay scroll porque no hay nada que desbordar.
+
+La etiqueta sale de `data-th`, y ahí está la decisión que importa: **no se
+escribe a mano**. Son ~150 celdas repartidas en 8 tablas generadas por
+plantilla; escritas a mano se desincronizarían con el primer cambio de columna.
+`vcTablaResponsive` las estampa leyendo el `<thead>` de cada tabla, así que **no
+pueden** desincronizarse. La primera columna se deja sin etiqueta a propósito:
+es el identificador de la fila y manda sola, como título de la tarjeta.
+
+### Los cinco tamaños
+
+| Ancho | Qué cambia |
+|---|---|
+| **< 640px** móvil | tablas → tarjetas · nav con scroll propio · buscador a ancho completo · gráfica 280px |
+| **≥ 640px** tablet | tablas normales · cabecera en una línea · gráfica 360px |
+| **≥ 1024px** portátil | 6 columnas de cards · gráfica 440px |
+| **≥ 1280px** monitor | contenedor **1400px** |
+| **≥ 1536px** 4K | contenedor **1760px** · gráfica 520px |
+
+Seis tests lo fijan, y uno de ellos es el que evita la regresión de verdad:
+**ninguna tabla puede llevar ancho mínimo sin el modo tarjeta**. Si mañana se
+añade una novena tabla y se olvida la clase, el test la caza.

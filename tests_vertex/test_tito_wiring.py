@@ -1481,6 +1481,164 @@ class TestTimeAndSales:
         assert "trades" not in d
 
 
+class TestCabeEnCualquierPantalla:
+    """El tab tenía 16 tablas con ancho mínimo de hasta 720px. En un teléfono
+    de 390px eso es scroll horizontal en todas, y el usuario no sabe que hay
+    más a la derecha."""
+
+    @staticmethod
+    def _tab():
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        dom = html[html.index('<main id="projectionsView"'):]
+        return html, dom[:dom.index("</main>")]
+
+    def test_ninguna_tabla_con_ancho_fijo_se_queda_sin_modo_tarjeta(self):
+        """Bajo 640px el CSS convierte `table.vc-t` en tarjetas. Una tabla con
+        `min-w` y sin esa clase es scroll horizontal garantizado."""
+        html, _ = self._tab()
+        desde = html.index("const VC_TABS = [")
+        sueltas = [m.group(1)[:70] for m in re.finditer(r'<table class="([^"]*)"', html[desde:])
+                   if "min-w" in m.group(1) and "vc-t" not in m.group(1)]
+        assert not sueltas, f"tablas con ancho fijo y sin modo tarjeta: {sueltas}"
+
+    def test_el_css_de_tarjeta_existe_y_apaga_el_ancho_minimo(self):
+        html, _ = self._tab()
+        assert "@media (max-width: 639px)" in html
+        i = html.index("@media (max-width: 639px)")
+        bloque = html[i:i + 1400]
+        assert "table.vc-t { min-width: 0 !important" in bloque
+        assert "table.vc-t thead { display: none; }" in bloque
+        assert "content: attr(data-th)" in bloque
+
+    def test_las_etiquetas_se_leen_del_THEAD_no_se_escriben_a_mano(self):
+        """Son ~150 celdas en 8 tablas generadas por plantilla: escritas a mano
+        se desincronizan con el primer cambio de columna."""
+        html, _ = self._tab()
+        assert "function vcTablaResponsive(raiz) {" in html
+        i = html.index("function vcTablaResponsive(raiz) {")
+        cuerpo = _sin_comentarios(html[i:html.index("\n}", i)])
+        assert "thead th" in cuerpo and "setAttribute('data-th'" in cuerpo
+        # Y se llama tras CADA render que pinta tablas.
+        for caja in ("projIdeas", "projWheel", "projTape", "projTargets", "projUnusual"):
+            assert f"vcTablaResponsive('{caja}')" in html, f"falta en {caja}"
+        # Un `colspan` (fila de aviso) no lleva etiqueta.
+        assert "hasAttribute('colspan')" in cuerpo
+
+    def test_no_quedan_alturas_fijas_en_pixeles(self):
+        """440px de gráfica en un teléfono apaisado ocupan la pantalla entera."""
+        _, dom = self._tab()
+        assert not re.findall(r"height:\s*\d+px", dom)
+        assert "h-[280px] sm:h-[360px] lg:h-[440px]" in dom
+
+    def test_el_contenedor_crece_en_monitores_grandes(self):
+        """`max-w-6xl` son 1152px: en un 27 pulgadas el tab usaba un tercio de
+        la pantalla y las tablas seguían con scroll."""
+        html, _ = self._tab()
+        clase = re.search(r'<main id="projectionsView"[^>]*class="([^"]*)"', html).group(1)
+        assert "xl:max-w-[1400px]" in clase and "2xl:max-w-[1760px]" in clase
+        # …y el relleno se encoge en móvil.
+        assert "p-3 sm:p-4" in clase
+
+    def test_la_navegacion_no_se_parte_en_dos_filas_en_movil(self):
+        html, dom = self._tab()
+        nav = re.search(r'<div id="projNav" class="([^"]*)"', dom).group(1)
+        assert "overflow-x-auto" in nav and "sm:flex-wrap" in nav
+        assert "flex-shrink-0 whitespace-nowrap" in html   # los botones no se encogen
+
+
+class TestDiagnosticoDeFuentes:
+    """`/api/tito-fuentes` — qué devuelve TU plan, campo por campo."""
+
+    @staticmethod
+    def _sonda(monkeypatch, sin_quote=True, snapshot_403=True):
+        import io
+        import json as _j
+        import urllib.error
+        import urllib.request
+
+        class _Res(io.BytesIO):
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): pass
+
+        def fake(req, timeout=None):
+            u = req.full_url
+            if "/v2/snapshot/locale" in u and snapshot_403:
+                raise urllib.error.HTTPError(u, 403, "Forbidden", {},
+                                             io.BytesIO(b'{"error":"NOT_AUTHORIZED"}'))
+            if "/v3/snapshot/options" in u:
+                c = {"details": {"strike_price": 180.0, "expiration_date": "2026-09-18",
+                                 "contract_type": "put", "shares_per_contract": 100,
+                                 "ticker": "O:X"},
+                     "open_interest": 900, "day": {"volume": 1, "close": 2.35, "vwap": 2.31},
+                     "last_trade": {"price": 2.34},
+                     "underlying_asset": {"price": 190.0}}
+                if not sin_quote:
+                    c["last_quote"] = {"bid": 2.30, "ask": 2.40}
+                d = {"results": [c]}
+            elif "/v2/aggs/" in u:
+                d = {"results": [{"t": 1, "o": 1, "h": 2, "l": 0.5, "c": 1.5}]}
+            elif "/v3/reference/tickers/" in u:
+                d = {"results": {"name": "X Inc."}}
+            elif "/vX/reference/financials" in u:
+                d = {"results": [{"filing_date": "2026-05-01"}]}
+            else:
+                d = {"results": []}
+            return _Res(_j.dumps(d).encode())
+
+        monkeypatch.setattr(urllib.request, "urlopen", fake)
+
+    def test_dice_campo_por_campo_que_falta_y_que_rompe(self, client, monkeypatch):
+        self._sonda(monkeypatch)
+        d = client.get("/api/tito-fuentes?ticker=AAPL").json()
+        cadena = next(e for e in d["endpoints"] if e["endpoint"] == "cadena")
+        faltan = {c["campo"] for c in cadena["campos"] if not c["hay"]}
+        assert faltan == {"last_quote.bid", "last_quote.ask"}
+        # …y cada campo ausente explica su consecuencia, no solo que falta.
+        bid = next(c for c in cadena["campos"] if c["campo"] == "last_quote.bid")
+        assert "0/15" in bid["si_falta"] and "COBRAS" in bid["que_es"]
+
+    def test_distingue_el_403_del_plan_del_resto(self, client, monkeypatch):
+        self._sonda(monkeypatch)
+        d = client.get("/api/tito-fuentes?ticker=AAPL").json()
+        snap = next(e for e in d["endpoints"] if e["endpoint"] == "snapshot")
+        assert snap["status"] == 403
+        assert any(e["status"] == 200 for e in d["endpoints"])   # no todo está roto
+
+    def test_el_veredicto_por_pestana_es_el_que_toca(self, client, monkeypatch):
+        """Sin bid, Wheel queda DEGRADADO —no roto—: el motor puntúa con la
+        cascada de precio y el score cobra 0/15 en liquidez. Las otras tres no
+        dependen de la horquilla de Massive."""
+        self._sonda(monkeypatch)
+        d = client.get("/api/tito-fuentes?ticker=AAPL").json()
+        assert d["veredicto"]["wheel"]["estado"] == "degradado"
+        assert "quotes" in d["veredicto"]["wheel"]["arreglo"].lower()
+        for tab in ("ticker", "ideas", "tape"):
+            assert d["veredicto"][tab]["estado"] == "ok", tab
+
+    def test_con_bid_el_veredicto_de_wheel_pasa_a_ok(self, client, monkeypatch):
+        self._sonda(monkeypatch, sin_quote=False)
+        d = client.get("/api/tito-fuentes?ticker=AAPL").json()
+        assert d["veredicto"]["wheel"]["estado"] == "ok"
+
+    def test_no_filtra_la_credencial(self, client, monkeypatch):
+        """Dice SI están puestas, nunca cuáles."""
+        self._sonda(monkeypatch)
+        crudo = json.dumps(client.get("/api/tito-fuentes?ticker=AAPL").json())
+        assert "x" * 32 not in crudo and "y" * 32 not in crudo
+        d = client.get("/api/tito-fuentes?ticker=AAPL").json()
+        assert d["credenciales"] == {"massive": True, "marketsnack": True}
+
+    def test_el_panel_lo_pinta(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "async function loadProjFuentes()" in html
+        assert 'id="projFuentes"' in html
+        assert "loadProjFuentes()" in html          # el botón lo llama
+        i = html.index("async function loadProjFuentes()")
+        cuerpo = html[i:html.index("/* ── WHEEL", i)]
+        assert "si_falta" in cuerpo and "veredicto" in cuerpo
+
+
 class TestElMotivoDeMassiveEsAccionable:
     """401 y 403 son problemas distintos y se arreglan distinto."""
 
