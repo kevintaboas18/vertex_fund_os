@@ -4309,8 +4309,7 @@ def tito_wheel(preset: str = "balanceado"):
     from wbj.tito.earnings import earnings_for_ticker
     from wbj.tito.ivcontext import rank_within, realized_vol_series
     from wbj.tito.levels import LvlBar, find_levels
-    from wbj.tito.massive import (MassiveError, fetch_company,
-                                  fetch_wheel_chain)
+    from wbj.tito.massive import MassiveError, fetch_wheel_chain
     from wbj.tito.wheel import WHEEL_PRESETS, CandidatesInput, wheel_candidates
     from wbj.tito.wheel_universe import WHEEL_UNIVERSE
 
@@ -4337,35 +4336,52 @@ def tito_wheel(preset: str = "balanceado"):
         except Exception as e:                   # noqa: BLE001 — un ticker no tumba el escaneo
             return [], ("error", f"{type(e).__name__}: {e}")
 
-        # El spot. La cadena de opciones lo trae en `underlying_asset.price`…
-        # cuando lo trae. La ronda 6 ya destapó que ese campo no es fiable en
-        # esta cuenta —por eso el tab de Ticker pide el precio al snapshot del
-        # subyacente— y aquí se había quedado como fuente ÚNICA: si Massive lo
-        # omite, los 40 símbolos caen de golpe con un "sin cadena" que no
-        # explica nada. Se usa el mismo respaldo que ya funciona en Ticker.
-        spot = chain.spot
-        if spot is None:
-            try:
-                spot = (fetch_company(sym.ticker) or {}).get("price")
-            except Exception:                    # noqa: BLE001
-                spot = None
-        if not isinstance(spot, (int, float)) or isinstance(spot, bool) or spot <= 0:
-            return [], ("sin_precio",
-                        "ni la cadena ni el snapshot del subyacente trajeron precio")
-        # Solo puts OTM: `fetch_wheel_chain` ya filtra con el spot de la cadena,
-        # pero si vino del snapshot ese filtro no se aplicó.
-        if chain.spot is None:
-            chain.quotes = [q for q in chain.quotes if q.strike <= spot]
-            if not chain.quotes:
-                return [], ("sin_cadena", f"sin puts OTM bajo ${spot:.2f}")
         if not chain.quotes:
             return [], ("sin_cadena",
                         f"sin puts entre {p.dte_min} y {p.dte_max} días")
 
+        # Las barras van ANTES que el spot: hacen falta igual para los niveles
+        # y el IV Rank, y su último cierre es el respaldo que nunca falla.
         try:
             bars = cached_daily_bars(sym.ticker, 365, now)
-            if not bars:
-                return [], ("sin_barras", "Massive no devolvió barras diarias")
+        except MassiveError as e:
+            return [], ("fuente", str(e))
+        except Exception as e:                   # noqa: BLE001
+            return [], ("error", f"{type(e).__name__}: {e}")
+        if not bars:
+            return [], ("sin_barras", "Massive no devolvió barras diarias")
+
+        # ── El SPOT, con la cadena de respaldo COMPLETA ──────────────────
+        #
+        # Su `page.tsx` lo resuelve así:
+        #
+        #     company?.price ?? chainMeta?.underlyingPrice ?? bars[last].close
+        #
+        # Aquí faltaba el TERCER eslabón, que es justo el que nunca falla: las
+        # barras ya están descargadas, así que el último cierre sale gratis.
+        # Sin él, un plan de Massive que no devuelva `underlying_asset.price`
+        # en la cadena tumbaba los 40 símbolos de golpe.
+        #
+        # `fetch_company` NO se llama en este escaneo, y es deliberado: son 40
+        # símbolos, o sea 40 peticiones extra cada 15 minutos, y el diagnóstico
+        # demostró que en esta cuenta ese endpoint no responde. Donde sí
+        # compensa —el tab de Ticker, UNA petición— se mantiene su precedencia
+        # entera. Para strikes a 30-45 días, una fracción de punto en el spot
+        # no mueve la banda de delta.
+        spot = chain.spot
+        if not isinstance(spot, (int, float)) or isinstance(spot, bool) or spot <= 0:
+            spot = bars[-1].close
+        if not isinstance(spot, (int, float)) or isinstance(spot, bool) or spot <= 0:
+            return [], ("sin_precio",
+                        "ni la cadena ni el último cierre dieron un precio utilizable")
+        # Solo puts OTM. `fetch_wheel_chain` filtra cuando la cadena trae su
+        # propio spot; si el precio vino de las barras, ese filtro no se aplicó.
+        if chain.spot is None:
+            chain.quotes = [q for q in chain.quotes if q.strike <= spot]
+            if not chain.quotes:
+                return [], ("sin_cadena", f"sin puts OTM bajo ${spot:.2f}")
+
+        try:
             lvl = [LvlBar(time=b.time, high=b.high, low=b.low, close=b.close) for b in bars]
             niveles = find_levels(bars=lvl, spot=spot, now=now)
 
