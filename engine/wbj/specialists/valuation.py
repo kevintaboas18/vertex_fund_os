@@ -1375,7 +1375,7 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
     # framework asks each scenario to "separately define" its growth path.
     bear_growth = bull_growth = None
     if consensus_cagr is not None:
-        base_growth = consensus_cagr["cagr"]
+        base_growth = ve.crecimiento_base(consensus_cagr, None)
         bear_growth, bull_growth = consensus_cagr["cagr_low"], consensus_cagr["cagr_high"]
         spread = (
             f"Bear/bull take the analysts' own low/high for the same horizon "

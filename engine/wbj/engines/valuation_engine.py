@@ -1496,3 +1496,30 @@ def valor_justo_por_adaptador(
     if not candidatos:
         return None, []
     return sum(candidatos) / len(candidatos), usados
+
+
+# ---------------------------------------------------------------------------
+# Crecimiento base del escenario, en UN SOLO SITIO.
+#
+# `specialists/valuation.py` elegia el consenso de analistas cuando existe y
+# caia al crecimiento fundamental si no; `overlay/from_packet.py`, que deriva
+# el margen de seguridad para el agente de riesgo, usaba SIEMPRE el
+# fundamental. Mismo modelo, distinto insumo -- y por eso NVDA salia con
+# -437,6% de margen en un sitio y -96,0% en el otro, un 355,9% de desvio para
+# la misma empresa.
+# ---------------------------------------------------------------------------
+
+def crecimiento_base(consensus_cagr: dict | None,
+                     fundamental_growth: float | None) -> float | None:
+    """El crecimiento del escenario base, elegido igual en todo el sistema.
+
+    El consenso manda cuando existe: `DECISION_RULES.md` lo nombra como una de
+    las cuatro referencias contra las que se mide un pronostico. El
+    fundamental (`reinvestment * ROIC`) es el respaldo cuando no hay
+    estimaciones publicadas.
+    """
+    if isinstance(consensus_cagr, dict):
+        c = consensus_cagr.get("cagr")
+        if isinstance(c, (int, float)):
+            return float(c)
+    return float(fundamental_growth) if isinstance(fundamental_growth, (int, float)) else None
