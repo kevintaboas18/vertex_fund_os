@@ -2422,65 +2422,58 @@ archivo ausente no rompa, y que el slug case con el nombre del archivo.
 
 ---
 
-## Cierre 2026-08-05 — El TAM se descarga de fuentes oficiales
+## Cierre 2026-08-06 — El TAM es MUNDIAL y lo firma quien mide el mercado
 
-**Lo que se resolvió:** analizar un ticker de una industria nueva exigía trabajo
-manual antes de que Market pudiera puntuar. Alguien tenía que buscar el estudio
-de mercado, verificarlo y escribirlo en `Entradas/`. Sólo NVDA lo tenía, así que
-sólo NVDA puntuaba `MKT-TAM-005`, `MKT-SHARE-006` y `MKT-SHDELTA-007`.
+Hicieron falta tres intentos, y los dos descartados enseñaron algo que ahora
+está escrito como regla en `engine/wbj/overlay/tam_mundial.py`.
 
-**Un intento descartado, y por qué.** La primera versión le preguntaba a Gemini
-con búsqueda de Google. Funcionaba, y estaba mal por dos motivos: Google no es
-una de las fuentes de este sistema, y lo que devolvía no era el dato sino el
-*comunicado de prensa* sobre el dato — IDC, Omdia y Gartner venden sus informes,
-así que se estaba citando la nota que resume un número que nadie de aquí puede
-abrir. Se retiró entera (`tam_research.py` borrado, claves de LLM fuera del
-engine).
+| Intento | Por qué se descartó | Medido |
+|---|---|---|
+| Buscar en Google y aceptar lo que salga | Devolvía el **comunicado de prensa** sobre el dato, no el dato. IDC/Omdia/Gartner venden sus informes | Mordor Intelligence colándose como fuente |
+| Census de EE.UU. vía FRED | Oficial y tier 1, pero **sólo EE.UU.** — y `market.py::sam()` estrecha el TAM por geografía, o sea que lo espera mundial | AAPL: 1.900% de participación |
+| Sumar los ingresos de todas las cotizadas | Mundial, pero **apila capas**: NVDA factura $216.000M que ya incluyen lo que pagó a TSMC, y TSMC entra otra vez con $119.000M | $921.000M contra ~$790.000M reales |
 
-**La cadena de ahora, oficial de punta a punta:**
+**Lo que funciona: preguntarle a quien mide el mercado**, en este orden.
 
-```
-ticker -> CIK -> SEC EDGAR (codigo SIC declarado por el emisor)
-              -> NAICS (tabla SIC_A_NAICS, escrita a mano)
-              -> FRED (Census Bureau / BLS)  = tier 1
-```
+1. **Asociación de industria** — tier 2, confianza 85. Mide su propio mercado,
+   publica mundial y **gratis**, es el ORIGEN del dato y cubre **una sola capa**.
+   WSTS da $795.600M de ventas mundiales de chips: facturación de chips, sin
+   fundiciones ni fabricantes de equipo encima.
+2. **Casa de análisis** — tier 3, confianza 70, sólo si no hay asociación.
 
-`engine/wbj/overlay/tam_oficial.py`. Cadencia trimestral, como los filings.
+Máximo **dos fuentes**, por decisión de Victor. Agregadores (Mordor, Grand View,
+MarketsandMarkets, Statista…) se rechazan por nombre: recopilan cifras de
+terceros sin firmar metodología.
 
-### Las trampas que este código tiene que esquivar
+### Las reglas que se validan sobre la respuesta
 
-| Regla | Caso real que la motivó |
+| Regla | Caso real |
 |---|---|
-| La escala sale del metadato de FRED | La serie de software marca 169.800 y son **millones**. Ignorarlo es equivocarse por mil, en silencio |
-| El NAICS debe aparecer en el id o el título | Para un buscador, "Software Publishers" y "Other Information Services" son igual de plausibles. Una es el mercado de otra empresa |
-| Series trimestrales se suman de 4 en 4 | Un trimestre suelto contra ingresos anuales da 4× la participación real, y el número sigue pareciendo razonable |
-| Porcentajes e índices nunca son un TAM | FRED publica la misma industria en dólares y en variación; la de variación sale antes por popularidad |
-| **El numerador se elige por el ámbito** | El Census mide EE.UU.; los ingresos de un emisor son mundiales. Con TAM doméstico el numerador es el ingreso doméstico del 10-K (FMP), no el segmento de producto |
-| **Participación > 100% se rechaza** | AAPL: "Americas" $178.000M sobre un mercado de $21.000M = 1.900%. No dice que Apple domine — dice que el denominador no es el suyo |
+| Ámbito mundial obligatorio | Un denominario regional bajo ingresos globales daba a AAPL 1.900% |
+| Capa declarada | El error Gartner/NVDA: gasto de usuario final contra ingresos de componentes. Daba 39,6%, perfectamente creíble |
+| Años ≠ dólares en la serie | JPM devolvió `tam_history: [2024, 2025]` |
+| La serie cierra en el TAM | Si no, las dos mitades hablan de mercados distintos |
+| Redirect de grounding + frase textual | Gemini cita con enlaces que caducan y no dicen de quién es la página |
 
-### Medido el 2026-08-05
+### Medido el 2026-08-06
 
 ```
-tk     market   cob            TAM      ambito   share    fuente
-NVDA    4.87   0.537   $207.000M       mundial  93,57%   Omdia (ANALISTA, no se toca)
-AMD     1.82   0.463   $207.000M       mundial   8,04%   Omdia (heredado)
-PLTR    2.31   0.463   $649.179M       US        0,51%   FRED REV5112TAXABL144QSA
-JPM     0.57   0.388   $980.094M       US       14,25%   FRED REV5221TAXABL144QNSA
-KO      2.82   0.388   $104.678M       US       18,71%   FRED IPUEN3121T300000000
-AAPL    1.81   0.237    $20.992M       US          —     rechazada por el tope del 100%
+industria                 tier   TAM mundial      fuente
+semiconductors              3    $207.000M        Omdia (ANALISTA, no se toca)
+  -- sin ese archivo, resuelve solo: WSTS $795.600M, tier 2
+software-infrastructure     3    $175.170M        Gartner, Data & Analytics Software
+banks-diversified           3    $6,4 billones    McKinsey Global Banking Review
+beverages-non-alcoholic     3    $418.000M        NielsenIQ
+consumer-electronics        —    SIN TAM          hueco correcto: AAPL compite en
+                                                  telefonos, computadoras y wearables,
+                                                  que son mercados distintos
 ```
 
-Cobertura de Market: PLTR 0,312 -> 0,463 · JPM y KO 0,237 -> 0,388.
+### Un arreglo que salió de medir
 
-### Lo que sigue siendo manual, a propósito
+El suplente de OpenAI estaba **configurado pero no instalable**: `openai` no
+estaba en `requirements.txt`. Cuando Gemini devolvió 429 por cuota, bebidas y
+electrónica se quedaron sin denominador teniendo un suplente escrito. Instalado,
+OpenAI resolvió bebidas con Gemini caído.
 
-Un archivo de `Entradas/` **sin** `_generado_por` es de un analista y no se toca
-nunca. `semiconductors.json` es el caso: el mercado de aceleradores de datacenter
-no existe en las encuestas del Census, y quien leyó el estudio de Omdia sabe algo
-que la descarga no sabe. Para recuperar el control de un TAM automático, basta
-con borrarle esa clave.
-
-Un SIC que no esté en `SIC_A_NAICS` deja el hueco **con su código anotado** en el
-archivo de industria: añadirlo es una línea.
-
-**Suites:** engine 2143, web 104.
+**Suites:** engine 2148, web 104.

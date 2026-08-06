@@ -1620,15 +1620,14 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         # es justo el archivo que `_manual_overlay` está a punto de leer. Así
         # una industria que nadie había mirado nunca llega con denominador al
         # primer análisis, en vez de exigir que alguien se siente a teclearlo.
-        # La cadena es toda oficial: EDGAR da el SIC, FRED el tamaño del
-        # mercado del Census. Ver `overlay/tam_oficial.py`.
+        # El TAM es MUNDIAL y viene de quien mide el mercado: la asociación
+        # de industria (WSTS para semiconductores) o, si no la hay, una casa
+        # de análisis. Máximo dos fuentes. Ver `overlay/tam_mundial.py`.
         try:
-            from wbj.overlay.tam_oficial import asegurar_tam_industria
-            from wbj.providers.edgar import EdgarProvider
+            from wbj.overlay.tam_mundial import asegurar_tam_industria
 
-            logger.info("TAM de industria: %s", asegurar_tam_industria(
-                settings, _ind, ticker,
-                providers={"edgar": EdgarProvider(settings, Cache(settings.cache_dir))}))
+            logger.info("TAM de industria: %s",
+                        asegurar_tam_industria(settings, _ind, ticker))
         except Exception:
             logger.warning("resolucion oficial de TAM no disponible", exc_info=True)
         manual = _manual_overlay(settings, ticker, industria=_ind)

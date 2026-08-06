@@ -1,20 +1,26 @@
 {
-  "_generado_por": "vertex/tam_oficial",
-  "_resuelto_en": "2026-08-05",
-  "_cadena": "KO -> SEC EDGAR SIC 2080 (Beverages) -> NAICS 3121 -> FRED IPUEN3121T300000000",
-  "_geografia": "Estados Unidos. Las encuestas del Census miden el mercado DOMESTICO; los ingresos de un emisor son mundiales. Lee la participacion como captura sobre el mercado de EE.UU.",
-  "_ambito": "US",
-  "_serie_fred": "IPUEN3121T300000000",
-  "_serie_titulo": "Sectoral Output for Manufacturing: Beverage Manufacturing (NAICS 3121) in the United States",
-  "_serie_frecuencia": "A",
-  "_serie_ultima_observacion": "2025-01-01",
-  "_unidades_origen": "Mil. of $",
-  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo: pasa a ser un TAM de analista.",
-  "tam": 104677792000,
-  "tam_source": "U.S. Census Bureau / BLS via FRED — Sectoral Output for Manufacturing: Beverage Manufacturing (NAICS 3121) in the United States (IPUEN3121T300000000), observacion 2025-01-01",
-  "tam_source_tier": 1,
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-08-06",
+  "_como_se_obtuvo": "Resuelto al analizar KO. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 418000000000,
+  "tam_source": "NielsenIQ + non-alcoholic drinks global value sales + 2025",
+  "tam_source_tier": 3,
+  "_ambito": "mundial",
+  "_capa": "facturación mundial de bebidas no alcohólicas",
+  "_capa_coincide": "KO factura por la venta de bebidas no alcohólicas (refrescos, agua, zumos, etc.), lo que coincide directamente con la 'facturación mundial de bebidas no alcohólicas'.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG0jp2kO1ABPqcMgA6-L1A5W0vsMmlcrPikNx-UuwCwIGlRFn7XyyazaVJJpnMK0N4x4_cMim-kvNW0lN7Aq6Q6lwwTwT6aUnIY7vdE-wCbYoTuzjbOgK3Knp7T22nVP_O-La6jys9l5CqRoSvNduHhsNuppzZN7Qom_IrotIxIZFoUfIrENgSPEPUWBoSTtlLKZByt1e96mEyYd60ffdEZydJKyoVwDr6E9DRp5E0iT5DfLVQslLs2VQ==",
+  "_cita_textual": "non-alcoholic drinks hit $418bn in global value sales, up +6.3%, with Latin America posting +11.8% and North America +8.1%.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
   "tam_history": [
-    108694498000,
-    104677792000
+    393226716839,
+    418000000000
+  ],
+  "_segmento_patrones": [
+    "non-alcoholic beverages",
+    "soft drinks",
+    "juices",
+    "water",
+    "energy drinks"
   ]
 }

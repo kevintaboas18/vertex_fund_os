@@ -1,20 +1,26 @@
 {
-  "_generado_por": "vertex/tam_oficial",
+  "_generado_por": "vertex/tam_mundial",
   "_resuelto_en": "2026-08-05",
-  "_cadena": "PLTR -> SEC EDGAR SIC 7372 (Services-Prepackaged Software) -> NAICS 5112 -> FRED REV5112TAXABL144QSA",
-  "_geografia": "Estados Unidos. Las encuestas del Census miden el mercado DOMESTICO; los ingresos de un emisor son mundiales. Lee la participacion como captura sobre el mercado de EE.UU.",
-  "_ambito": "US",
-  "_serie_fred": "REV5112TAXABL144QSA",
-  "_serie_titulo": "Total Revenue for 5112: Software Publishers, Establishments Subject to Federal Income Tax",
-  "_serie_frecuencia": "Q",
-  "_serie_ultima_observacion": "2026-01-01",
-  "_unidades_origen": "Mil. of $",
-  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo: pasa a ser un TAM de analista.",
-  "tam": 649179000000,
-  "tam_source": "U.S. Census Bureau / BLS via FRED — Total Revenue for 5112: Software Publishers, Establishments Subject to Federal Income Tax (REV5112TAXABL144QSA), observacion 2026-01-01",
-  "tam_source_tier": 1,
+  "_como_se_obtuvo": "Resuelto al analizar PLTR. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 175170000000,
+  "tam_source": "Gartner - Market Share: Data and Analytics Software, Worldwide, 2024",
+  "tam_source_tier": 3,
+  "_ambito": "mundial",
+  "_capa": "Facturación mundial de software de datos y análisis",
+  "_capa_coincide": "Palantir factura por sus plataformas de software que proporcionan capacidades de integración de datos, análisis y operativos de inteligencia artificial, lo cual encaja directamente en el mercado de software de datos y análisis.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHpA_NTIDMiPhlaZUZ07LLd3XjKMWpPce7pV1Wgk_POK700G5Cqh9h7B06MyZ1cLkNKvpX8ddC7PvY9dFtYtEwJtJLkjV8cN5aptG-F6wwDPN6yWlbmwH3eL1MBytsL-t_F51soBjRY",
+  "_cita_textual": "The overall data and analytics software market grew by 13.9% to $175.17 billion in 2024.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
   "tam_history": [
-    568296000000,
-    649179000000
+    150900000000,
+    175170000000
+  ],
+  "_segmento_patrones": [
+    "data",
+    "analytics",
+    "ai",
+    "platform",
+    "software"
   ]
 }
