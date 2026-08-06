@@ -1546,6 +1546,9 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
             consensus_growth = rev_next / revenue0 - 1
 
     reverse_dcf_summary = ReverseDCFSummary(current_price=price)
+    # Definido antes del `if`: la rama `else` no lo crea, y mas abajo se lee
+    # para saber POR QUE no hubo raiz.
+    rdcf_result = None
     if wacc_value is not None and diluted_shares and price and revenue0 is not None:
         rdcf_inputs = ReverseDCFInputs(
             revenue0=revenue0, shares=diluted_shares, tax_rate=tax_rate, roic=roic_value, years=years,
@@ -2217,6 +2220,36 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> ValuationOutpu
         reference_growth = consensus_growth if consensus_growth is not None else base_growth
         implied_vs_reference = reverse_dcf_summary.implied_revenue_cagr - reference_growth
         rdcf_plausibility_score = anchor_score(implied_vs_reference, [(0.10, 0), (0.02, 5), (-0.02, 8), (-0.10, 10)])
+    elif rdcf_result is not None:
+        # El DCF inverso puede fallar por no encontrar raiz Y AUN ASI haber
+        # contestado la pregunta. Cuando NINGUN crecimiento del rango alcanza
+        # el precio -- porque pasado cierto punto la reinversion se come el
+        # flujo y el valor cae -- la respuesta no es "no se": es que el precio
+        # exige mas de lo que el modelo puede producir con ninguna hipotesis.
+        #
+        # `SCORING.md` describe esa situacion palabra por palabra en la banda
+        # 0-3 de esta dimension: "price implies growth/returns far above
+        # evidenced capacity". Puntuarla 0 no es inventar calibracion; es leer
+        # la que ya esta escrita. Medido: AMD, TSLA y PLTR caian aqui, tres de
+        # diez tickers, y justo los de crecimiento extremo donde esta metrica
+        # mas dice.
+        _avisos = " ".join(getattr(rdcf_result, "warnings", None) or [])
+        if "PRICE_ABOVE_EVERY_MODELLED_VALUE" in _avisos:
+            rdcf_plausibility_score = 0.0
+            assumptions.append(
+                "VAL-RDCF-027: ningun crecimiento del rango alcanza el precio; el "
+                "maximo que el modelo produce queda por debajo. SCORING.md pone esa "
+                "situacion en la banda 0-3, 'price implies growth/returns far above "
+                "evidenced capacity', asi que la fila puntua 0 en vez de quedar sin "
+                "puntuar."
+            )
+        elif "PRICE_BELOW_EVERY_MODELLED_VALUE" in _avisos:
+            rdcf_plausibility_score = 10.0
+            assumptions.append(
+                "VAL-RDCF-027: el precio queda por debajo del valor modelado en todo "
+                "el rango de crecimiento -- el extremo opuesto, y la banda 7-10 de "
+                "SCORING.md ('price embeds conservative growth relative to quality')."
+            )
 
     # ---- Historical/peer comparison (VAL-REL-034, VAL-ZHIST-035) ----
     hist_multiples = overlay.get("historical_multiples")

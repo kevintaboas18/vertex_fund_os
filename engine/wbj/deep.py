@@ -155,6 +155,7 @@ def is_unscored(output: Any) -> bool:
 
 _CATALYST_REQUEST_PREFIX = "market_analysis:catalyst_"
 _MARKET_LABEL = "Market & Growth"
+_RISK_LABEL = "Risk & Resilience"
 
 
 # OUTPUT_SCHEMA.md declares fields that a judgment answers but that
@@ -602,6 +603,74 @@ def _shape_answer(value: Any, schema_hint: str) -> Any:
     return value
 
 
+def _rerun_risk_with_judged_thesis_killers(labelled: list, judgments: list,
+                                           packet: Any, overlay: dict) -> list:
+    """Segunda pasada de Riesgo una vez el juez puso numero a los riesgos.
+
+    `RSK-THESIS-035` es `Probability * Impact * (1-Detectability) *
+    TimeUrgency`, y `FORMULAS.md` tipa sus insumos como "explicit 0-1
+    assumptions". El juez responde los riesgos en prosa -- que riesgo, su
+    metrica de alerta temprana, su mitigante -- pero esa respuesta no puede
+    volver por `judgment_slots`: ese camino sustituye un slot por un 0-10 ya
+    hecho, y aqui lo que vuelve es una CUARTETA que todavia tiene que pasar
+    por la formula. `merge_overlay` dice sin rodeos que nunca rehace
+    aritmetica de puntos.
+
+    Asi que los numeros vuelven de donde salieron, a `overlay["thesis_killers"]`,
+    y Riesgo se corre otra vez. Es el mismo patron -- y las mismas razones --
+    que `_rerun_market_with_judged_catalysts`.
+
+    El motor sigue sin inventar nada: quien declara las cuatro cifras es el
+    agente de juicio, igual que declara la clasificacion de moat o el tier del
+    TAM. Lo que la regla prohibe es que el MOTOR se las invente.
+
+    Sin cuartetas completas no se re-corre, asi que un juez callado no cambia
+    nada.
+    """
+    killers: list[dict] = []
+    for j in judgments:
+        if getattr(j, "request_id", "") != "risk_analysis:thesis_killers":
+            continue
+        answer = j.answer
+        items = answer.get("items") if isinstance(answer, dict) else answer
+        if not isinstance(items, list):
+            continue
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            cuarteta = {k: it.get(k if k != "impact" else "impact_0_1")
+                        for k in ("probability", "impact", "detectability", "time_urgency")}
+            if any(not isinstance(v, (int, float)) or not 0.0 <= float(v) <= 1.0
+                   for v in cuarteta.values()):
+                continue
+            killers.append({**it, **{k: float(v) for k, v in cuarteta.items()}})
+
+    if not killers:
+        return labelled
+
+    try:
+        from wbj.specialists import risk as _risk
+        rejudged = _risk.run(packet, {**overlay, "thesis_killers": killers})
+    except Exception:
+        logger.warning("re-run de riesgo con los thesis killers puntuados fallo; "
+                       "se conserva la salida sin puntuar", exc_info=True)
+        return labelled
+
+    previo = next((o for lbl, o in labelled if lbl == _RISK_LABEL), None)
+    arrastradas = list(getattr(previo, "assumptions", None) or [])
+    arrastradas += [
+        f"thesis killer {k.get('risk', '?')!r} puntuado por juicio: "
+        f"probabilidad={k['probability']}, impacto={k['impact']}, "
+        f"detectabilidad={k['detectability']}, urgencia={k['time_urgency']}"
+        for k in killers
+    ]
+    try:
+        rejudged = rejudged.model_copy(update={"assumptions": arrastradas})
+    except Exception:
+        pass
+    return [(lbl, rejudged if lbl == _RISK_LABEL else o) for lbl, o in labelled]
+
+
 def _rerun_market_with_judged_catalysts(labelled: list, judgments: list,
                                         packet: Any, overlay: dict) -> list:
     """Second pass at Market once the judge has priced the catalysts.
@@ -861,6 +930,9 @@ def _run_specialists(full_packet: Any, settings: Any = None,
                 # roic_reinvestment wiring for exactly the tickers whose
                 # catalysts got priced.
                 labelled = _rerun_market_with_judged_catalysts(
+                    labelled, judgments, full_packet,
+                    {**derivadas, **(overlay or {})})
+                labelled = _rerun_risk_with_judged_thesis_killers(
                     labelled, judgments, full_packet,
                     {**derivadas, **(overlay or {})})
                 labelled = _apply_judgments_to_output_fields(
