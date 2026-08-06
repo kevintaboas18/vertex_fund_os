@@ -1,5 +1,6 @@
 import os
 import sys
+import contextvars
 import hashlib
 import concurrent.futures
 import json
@@ -116,19 +117,87 @@ VERTEX_API_TOKEN = os.environ.get("VERTEX_API_TOKEN", "").strip()
 _AUTH_COOKIE = "vertex_session"
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
+#: Cookie de la sesión de USUARIO. Es distinta de `_AUTH_COOKIE`, que es la
+#: puerta del despliegue entero (un secreto compartido). Aquí va el token de
+#: una persona concreta, y de él sale su perfil y su archivo de reportes.
+_USER_COOKIE = "vertex_usuario"
+
+#: Quién puede crear cuenta:
+#:   · `abierto`     — cualquiera con la URL (por defecto: Kevin quiere que la
+#:                     gente se registre).
+#:   · `invitacion`  — hace falta `VERTEX_INVITE_CODE`.
+#:   · `cerrado`     — nadie; solo entran las cuentas que ya existen.
+#: Se declara aquí, arriba, porque es la decisión de seguridad más consecuente
+#: del archivo y no puede quedar enterrada en una ruta.
+VERTEX_REGISTRO = (os.environ.get("VERTEX_REGISTRO", "abierto").strip().lower()
+                   or "abierto")
+VERTEX_INVITE_CODE = os.environ.get("VERTEX_INVITE_CODE", "").strip()
+
 #: Rutas sin autenticación: el HTML de la app (que por sí solo no expone datos —
 #: todo lo pinta vía /api/*), los iconos del PWA y el propio login.
+#:
+#: Las de cuentas son públicas por necesidad: quien aún no tiene sesión no puede
+#: pasar la puerta, y sin poder llamarlas nunca la tendría.
 _PUBLIC_PATHS = {"/", "/legacy", "/wbj", "/manifest.webmanifest",
-                 "/api/login", "/api/auth/status", "/favicon.ico"}
+                 "/api/login", "/api/auth/status", "/favicon.ico",
+                 "/api/auth/registro", "/api/auth/entrar", "/api/auth/salir",
+                 "/api/auth/yo"}
 
 
 def _client_host(request) -> str:
     return (request.client.host if request.client else "") or ""
 
 
+#: El usuario de ESTA petición.
+#:
+#: Es un `ContextVar` y no un global a propósito. Un global sería el último que
+#: entró contestándole a todos los demás en cuanto hubiera dos peticiones a la
+#: vez. Un `ContextVar` es por contexto asíncrono, y Starlette copia el contexto
+#: al hilo donde corre cada ruta síncrona, así que cada petición ve el suyo.
+#:
+#: Existe para que `_load_investor_profile()` sepa de quién es el perfil sin
+#: tener que hilar `request` por media docena de capas de Analyze y Explore —
+#: que son justo las que no se pueden tocar.
+_USUARIO_CTX: contextvars.ContextVar = contextvars.ContextVar("vertex_usuario",
+                                                              default=None)
+
+
+def _usuario_actual(request=None):
+    """El usuario de la sesión, o `None`. Nunca lanza.
+
+    Con `request`, resuelve desde su cookie. Sin él, devuelve el que el
+    middleware dejó en el contexto — que es cómo lo consultan las capas
+    profundas.
+    """
+    if request is None:
+        return _USUARIO_CTX.get()
+    tok = request.cookies.get(_USER_COOKIE, "")
+    if not tok:
+        return None
+    try:
+        conn = _db()
+        try:
+            return _CU.usuario_de_sesion(conn, tok)
+        finally:
+            conn.close()
+    except Exception:                             # noqa: BLE001
+        return None
+
+
 def _auth_ok(request) -> bool:
     """¿Esta petición puede pasar? Comparación en tiempo constante para no
-    filtrar el token por diferencias de tiempo de respuesta."""
+    filtrar el token por diferencias de tiempo de respuesta.
+
+    Tres llaves, en orden de preferencia:
+
+    1. **Sesión de usuario** — la normal desde que hay cuentas.
+    2. **`VERTEX_API_TOKEN`** — la puerta compartida. Sigue valiendo para
+       scripts y cron, y es la única forma de entrar antes de que exista la
+       primera cuenta.
+    3. **Localhost sin token configurado** — desarrollo local.
+    """
+    if _usuario_actual(request) is not None:
+        return True
     if not VERTEX_API_TOKEN:                      # sin token configurado → sólo local
         return _client_host(request) in _LOCAL_HOSTS
     cookie = request.cookies.get(_AUTH_COOKIE, "")
@@ -141,6 +210,13 @@ def _auth_ok(request) -> bool:
 @app.middleware("http")
 async def _require_auth(request, call_next):
     path = request.url.path
+    # Se resuelve el usuario ANTES de decidir, y se deja en el contexto de la
+    # petición. Sin esto, las capas profundas (el perfil que lee el agente de
+    # acciones) no tendrían forma de saber de quién es la sesión sin recibir el
+    # `request`, y recibirlo obligaría a tocar Analyze y Explore.
+    #
+    # Sin cookie no hay consulta: `_usuario_actual` sale en la primera línea.
+    _USUARIO_CTX.set(_usuario_actual(request))
     if (path in _PUBLIC_PATHS or path.startswith("/assets/")
             or request.method == "OPTIONS"          # preflight de CORS
             or _auth_ok(request)):
@@ -211,6 +287,147 @@ def api_auth_status(request: Request):
     pedir contraseña. No revela el token, sólo si hace falta y si ya hay sesión."""
     return {"ok": True, "auth_required": bool(VERTEX_API_TOKEN),
             "authenticated": _auth_ok(request)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  CUENTAS DE USUARIO
+#
+#  Antes de esto, "iniciar sesión" era una ficción del navegador: el usuario y
+#  su contraseña **en texto plano** vivían en `localStorage`, o sea una base de
+#  datos por Chrome. Entrar desde el móvil era imposible porque la cuenta no
+#  existía fuera de aquel portátil, y cualquiera con la consola abierta leía la
+#  contraseña de todos.
+#
+#  Ahora la cuenta vive en SQLite y la sesión es una cookie HttpOnly. Ver
+#  `vertex_cuentas.py` para el hashing y el modelo.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _pon_cookie_usuario(resp, request, token):
+    """Cookie de sesión. `Secure` sale del esquema REAL de la petición, no de
+    que alguien se acuerde de definir una variable."""
+    is_https = (request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+                or request.url.scheme) == "https"
+    resp.set_cookie(_USER_COOKIE, token, httponly=True, samesite="strict",
+                    secure=is_https, max_age=60 * 60 * 24 * 30, path="/")
+    return resp
+
+
+def _publico(usuario):
+    """Lo que se le devuelve al navegador de un usuario. Sin `pass_hash`,
+    obviamente, y sin el perfil entero: eso tiene su propia ruta."""
+    if not usuario:
+        return None
+    return {"id": usuario["id"], "email": usuario["email"], "nombre": usuario["nombre"]}
+
+
+@app.post("/api/auth/registro")
+async def auth_registro(request: Request):
+    """Crea la cuenta y deja la sesión abierta."""
+    host = _client_host(request)
+    if _login_rate_limited(host):
+        return JSONResponse(status_code=429, content={
+            "ok": False, "error": "Demasiados intentos. Espera 5 minutos."})
+    try:
+        body = await request.json()
+    except Exception:                             # noqa: BLE001
+        return {"ok": False, "error": "Cuerpo no es JSON."}
+    if not isinstance(body, dict):
+        return {"ok": False, "error": "Cuerpo no es un objeto."}
+
+    if VERTEX_REGISTRO == "cerrado":
+        return {"ok": False, "error": "El registro está cerrado en este despliegue."}
+    if VERTEX_REGISTRO == "invitacion":
+        codigo = str(body.get("invitacion") or "")
+        if not VERTEX_INVITE_CODE or not secrets.compare_digest(codigo, VERTEX_INVITE_CODE):
+            _LOGIN_ATTEMPTS.setdefault(host, []).append(time.time())
+            return {"ok": False, "error": "Código de invitación incorrecto."}
+
+    conn = _db()
+    try:
+        usuario = _CU.crear_usuario(conn, str(body.get("email") or ""),
+                                    str(body.get("nombre") or ""),
+                                    str(body.get("password") or ""))
+        # El `.md` se escribe YA, con los defaults de Kevin. Así el agente de
+        # acciones tiene un perfil que leer desde el primer análisis, aunque la
+        # persona no haya contestado todavía — y el propio archivo declara
+        # cuántas preguntas siguen heredadas.
+        _CU.guardar_perfil(conn, _PERFIL_DIR, usuario, _CU.leer_perfil(conn, usuario["id"]))
+        token = _CU.abrir_sesion(conn, usuario["id"])
+    except _CU.ErrorDeCuenta as e:
+        # `e.publico`, no `str(e)`: el mensaje se redactó en el `raise` para que
+        # lo lea una persona («Ya existe una cuenta con ese email»). Ver
+        # `vertex_cuentas.ErrorDeCuenta`.
+        return {"ok": False, "error": e.publico}
+    except Exception as e:                        # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Crear la cuenta")}
+    finally:
+        conn.close()
+
+    return _pon_cookie_usuario(
+        JSONResponse(content={"ok": True, "usuario": _publico(usuario),
+                              "nuevo": True}),
+        request, token)
+
+
+@app.post("/api/auth/entrar")
+async def auth_entrar(request: Request):
+    """Email + contraseña. Mismo mensaje para «no existe» y «contraseña mala»:
+    distinguirlos convierte el login en un directorio de emails registrados."""
+    host = _client_host(request)
+    if _login_rate_limited(host):
+        return JSONResponse(status_code=429, content={
+            "ok": False, "error": "Demasiados intentos. Espera 5 minutos."})
+    try:
+        body = await request.json()
+    except Exception:                             # noqa: BLE001
+        return {"ok": False, "error": "Cuerpo no es JSON."}
+
+    conn = _db()
+    try:
+        usuario = _CU.autenticar(conn, str((body or {}).get("email") or ""),
+                                 str((body or {}).get("password") or ""))
+        token = _CU.abrir_sesion(conn, usuario["id"])
+    except _CU.CredencialInvalida as e:
+        _LOGIN_ATTEMPTS.setdefault(host, []).append(time.time())
+        return JSONResponse(status_code=401,
+                            content={"ok": False, "error": e.publico})
+    except Exception as e:                        # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Iniciar sesión")}
+    finally:
+        conn.close()
+
+    _LOGIN_ATTEMPTS.pop(host, None)               # acierto: se limpia el contador
+    return _pon_cookie_usuario(
+        JSONResponse(content={"ok": True, "usuario": _publico(usuario)}),
+        request, token)
+
+
+@app.post("/api/auth/salir")
+def auth_salir(request: Request):
+    """Cierra la sesión **en el servidor**, no solo en el navegador.
+
+    Borrar la cookie y dejar la fila viva dejaría el token válido para siempre
+    en cualquier sitio donde se hubiera copiado."""
+    tok = request.cookies.get(_USER_COOKIE, "")
+    if tok:
+        conn = _db()
+        try:
+            _CU.cerrar_sesion(conn, tok)
+        finally:
+            conn.close()
+    resp = JSONResponse(content={"ok": True})
+    resp.delete_cookie(_USER_COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/auth/yo")
+def auth_yo(request: Request):
+    """Quién está dentro. El frontend la consulta al cargar para saber si tiene
+    que enseñar el formulario o la app."""
+    u = _usuario_actual(request)
+    return {"ok": True, "usuario": _publico(u),
+            "registro": VERTEX_REGISTRO,
+            "necesita_invitacion": VERTEX_REGISTRO == "invitacion"}
 
 
 # CORS (C-04): con una cookie de sesión en juego, `allow_origins=["*"]` +
@@ -326,6 +543,11 @@ def serve_frontend_legacy():
 # PERSISTENCE — SQLite (long-term agent memory + accuracy tracker)
 # ─────────────────────────────────────────────────────────────────────────────
 import sqlite3
+
+#: Cuentas, perfiles por usuario y el cuestionario. Vive aparte porque no
+#: depende de nada de este archivo y así se puede probar solo.
+import vertex_cuentas as _CU
+
 DB_PATH = os.environ.get("VERTEX_DB",
                          os.path.join(os.path.dirname(os.path.abspath(__file__)), "vertex.db"))
 
@@ -385,6 +607,16 @@ def init_db():
             PRIMARY KEY (ticker, taken_ts)
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_cons_ticker ON consensus_snapshots(ticker, taken_ts)")
+        # Cuentas, sesiones y el registro de contribuciones al pool común.
+        _CU.crear_tablas(conn)
+        # `usuario_id` en reports: el archivo pasa a ser PRIVADO de cada quien.
+        # Las filas anteriores se quedan en NULL — son de la época de un solo
+        # usuario y se tratan como de nadie, no como de todos.
+        try:
+            conn.execute("ALTER TABLE reports ADD COLUMN usuario_id TEXT")
+        except Exception:
+            pass
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reports_usuario ON reports(usuario_id, created_ts)")
         conn.commit()
         conn.close()
     except Exception as e:
@@ -622,17 +854,27 @@ def save_report(report_id, ticker, price, fair_value, upside_pct, recommendation
         def _hb(k):
             return ((targets or {}).get(k, {}) or {}).get("base")
         vc_json = json.dumps(victor_categories) if victor_categories else None
+        # De quién es este reporte. El archivo es PRIVADO: cada quien ve el
+        # suyo. Lo que se comparte es el APRENDIZAJE —la calibración, las
+        # series—, no el análisis de nadie. Ver `/api/aprendizaje`.
+        _u = _usuario_actual()
         conn = _db()
         conn.execute("""INSERT OR REPLACE INTO reports
             (report_id,ticker,created_at,created_ts,price_at_analysis,fair_value,upside_pct,
              recommendation,conviction,target_bull,target_base,target_bear,thesis,victor_categories,
-             target_7d,target_30d,target_3m,target_6m)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             target_7d,target_30d,target_3m,target_6m,usuario_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (report_id, ticker,
              datetime.now().strftime("%Y-%m-%d %H:%M:%S"), datetime.now().timestamp(),
              price, fair_value, upside_pct, recommendation, conviction,
              t12.get("bull"), t12.get("base"), t12.get("bear"), (thesis or "")[:4000], vc_json,
-             _hb("7d"), _hb("30d"), _hb("3m"), _hb("6m")))
+             _hb("7d"), _hb("30d"), _hb("3m"), _hb("6m"),
+             (_u or {}).get("id")))
+        # Cada análisis alimenta al agente de ACCIONES. Su forma de aprender es
+        # la calibración: guarda convicción y objetivos, y el tiempo dice si
+        # acertó. Más reportes de más gente = una curva de fiabilidad con más
+        # puntos, para todos.
+        _CU.registrar_contribucion(conn, "acciones", ticker, (_u or {}).get("id"))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -3838,6 +4080,24 @@ def _tito_memory(ticker, trades, chain, bars, now):
 
     if chain:
         _guarda("cadena", lambda: st.save_chain_snapshot(ticker, chain, now))
+        # Cada ticker que alguien mira alimenta al agente de OPCIONES. Su forma
+        # de aprender no es la del agente de acciones: no hay calibración de
+        # aciertos aquí, hay ACUMULACIÓN HACIA ADELANTE. La IV histórica, las
+        # cadenas y el flujo pasado no se pueden comprar en ningún sitio — se
+        # juntan una foto por día de mercado, y sin ellas el IV Rank real y el
+        # sub-agente 6 se quedan apagados para siempre.
+        #
+        # Por eso mirar un ticker YA es aportar, aunque no salga ningún reporte:
+        # la foto de hoy es lo que hará posible el rank de dentro de un año.
+        try:
+            _c = _db()
+            try:
+                _CU.registrar_contribucion(_c, "opciones", ticker,
+                                           (_usuario_actual() or {}).get("id"))
+            finally:
+                _c.close()
+        except Exception:                            # noqa: BLE001 — nunca rompe el panel
+            pass
     # `trades` es la VENTANA ANCHA (30 d / ≥$1M) — los `convictionRows` que su
     # `/api/flow` persiste (`saveTrades(ticker, convictionRows)`), no los 5 días
     # de Agresividad.
@@ -4146,7 +4406,7 @@ def _ideas_dedupe(rows):
 
 
 @app.get("/api/tito-ideas")
-def tito_ideas():
+def tito_ideas(request: Request):
     """Screener de flujo inusual **en todo el mercado** — su `/api/ideas`.
 
     Es la respuesta a "no quiero tener que escribir un ticker para que el agente
@@ -4264,7 +4524,7 @@ def tito_ideas():
     # información, no ruido — y ocultarla te dejaría creyendo que el mercado no
     # ofrecía nada.
     from wbj.tito.risk import RiskProfile, size_flow
-    _perfil = _perfil_leer()
+    _perfil = _perfil_leer(request)
     _rp = RiskProfile(account_size=_perfil["capital"], tolerance_pct=_perfil["riesgo_pct"])
     _sizing = {}
     for r in operables:
@@ -4400,7 +4660,7 @@ def _wheel_barras(ticker, now):
 
 
 @app.get("/api/tito-wheel")
-def tito_wheel(preset: str = "balanceado"):
+def tito_wheel(request: Request, preset: str = "balanceado"):
     """Screener de la **Wheel** — su `/api/wheel`.
 
     Vender *cash-secured puts* sobre su universo curado de 40 símbolos. Por cada
@@ -4600,7 +4860,7 @@ def tito_wheel(preset: str = "balanceado"):
     # Lo que NO se hace: esconder lo que no te cabe. Un put de 100 acciones de
     # NVDA no deja de existir porque tengas $1,000 — se marca y se baja.
     from wbj.tito.wheel_universe import sort_by_afford_then_score
-    _perfil = _perfil_leer()
+    _perfil = _perfil_leer(request)
     pares = sort_by_afford_then_score(todos, _perfil["capital"])
     todos = [c for c, _ in pares]
 
@@ -4967,7 +5227,7 @@ def tito_fuentes(ticker: str = "AAPL"):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  PERFIL DEL INVERSIONISTA
+#  PERFIL DEL INVERSIONISTA — UNO POR USUARIO
 #
 #  Dos piezas, y la separación entre ellas es la regla del proyecto:
 #
@@ -4978,288 +5238,303 @@ def tito_fuentes(ticker: str = "AAPL"):
 #     como contexto y **jamás** se convierte en un score: "sin evidencia no hay
 #     número, sin número no hay score".
 #
-#  Se guarda en DOS archivos, a propósito:
+#  Antes había UN perfil global (`perfil.json`) y un solo `Kevin.md`. Con
+#  cuentas de verdad eso ya no vale: dos personas compartirían capital y
+#  tolerancia. Ahora el perfil vive en la fila del usuario, y su `.md` en
+#  `Perfil Inversionista/usuarios/<nombre>-<id>.md`.
 #
-#   · `Perfil Inversionista/perfil.json` — la verdad estructurada.
-#   · `Perfil Inversionista/<Nombre>.md` — GENERADO a partir del anterior.
+#  El `.md` existe porque `_load_investor_profile()` ya lo leía, y con él lo
+#  leen Analyze y Explore. Lo único que cambió en esa función es CUÁL archivo
+#  resuelve — el del usuario de la sesión, con `Kevin.md` de respaldo. Su
+#  lógica, su prompt y su pantalla no se han tocado.
 #
-#  El `.md` existe porque `_load_investor_profile()` ya lo lee, y con él lo leen
-#  Analyze y Explore **sin tocar una línea de esas dos áreas**. Escribiendo el
-#  archivo que ya consumen, el perfil llega a los tres agentes por el camino que
-#  el proyecto ya tenía montado.
+#  Las preguntas y el hashing viven en `vertex_cuentas.py`.
 # ═══════════════════════════════════════════════════════════════════════════
 
 _PERFIL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "Perfil Inversionista")
-_PERFIL_JSON = os.path.join(_PERFIL_DIR, "perfil.json")
 
-#: Bandas de tolerancia. El % es del CAPITAL por operación, y es lo que
-#: `risk.size_flow` usa como techo. Los nombres son los del perfil de Kevin.
-_TOLERANCIAS = {
-    "conservador": {"label": "Conservador", "riesgo_pct": 2.0,
-                    "que_significa": "Priorizas no perder. Posiciones pequeñas y muy filtradas."},
-    "moderado":    {"label": "Moderado", "riesgo_pct": 5.0,
-                    "que_significa": "Aceptas volatilidad a cambio de crecimiento."},
-    "agresivo":    {"label": "Agresivo", "riesgo_pct": 15.0,
-                    "que_significa": "Buscas crecimiento de capital y toleras drawdowns fuertes."},
-    "especulativo": {"label": "Especulativo", "riesgo_pct": 30.0,
-                     "que_significa": "Asumes riesgo de ruina real a cambio de asimetría."},
-}
-
-_PERFIL_DEFECTO = {
-    "nombre": "", "email": "", "capital": 1000.0, "tolerancia": "agresivo",
-    "horizonte": "1-3 años", "instrumentos": ["acciones", "etf", "opciones"],
-    "mercados": ["EE.UU."], "texto": "",
-    #: Tope por POSICIÓN, como rango. Es distinto del riesgo por operación:
-    #: aquel dice cuánto puedes perder, este cuánto puedes desplegar.
-    #: `engine/wbj/specialists/risk.py::_load_profile` lo saca del `.md` con
-    #: un regex que exige un RANGO en porcentaje ("20% – 30%"). Por eso vive
-    #: como par y por eso el markdown lo escribe con ese formato exacto.
-    "max_posicion_pct": [20, 30],
-    "excluir": [], "actualizado": None,
-}
+#: El `.md` de referencia: el que Kevin escribió a mano. Es el respaldo cuando
+#: no hay sesión (scripts, cron, el preflight) y el que da los valores por
+#: defecto que hereda quien no contesta el cuestionario.
+_PERFIL_MD_DEFECTO = os.path.join(_PERFIL_DIR, "Kevin.md")
 
 
-def _perfil_semilla_del_md():
-    """Lo que se pueda rescatar del `.md` escrito a mano, la primera vez.
+def _perfil_leer(request=None):
+    """El perfil del usuario de la sesión, o el de Kevin si no hay sesión.
 
-    Sin esto, abrir la pantalla de perfil y pulsar «Guardar» sobre un usuario
-    que nunca tuvo `perfil.json` reescribiría un `Kevin.md` redactado a mano
-    con un formulario vacío. El texto entero se conserva en «En mis palabras»:
-    no se pierde una línea, y el inversionista lo recorta si quiere.
-
-    Nunca lanza: sin `.md`, devuelve un diccionario vacío.
+    Devuelve siempre un diccionario utilizable: sin sesión y sin archivo, los
+    valores por defecto del cuestionario. Nunca lanza — un análisis no puede
+    caerse por un archivo de contexto.
     """
-    for nombre in ("Kevin.md", "Mi Perfil.md", "MiPerfil.md", "Perfil.md"):
-        ruta = os.path.join(_PERFIL_DIR, nombre)
-        if not os.path.isfile(ruta):
-            continue
+    # Sin `request` NO se cae al defecto: se mira el contexto que dejó el
+    # middleware. Guardar aquí un `if request is not None` dejaba mudo justo al
+    # camino que usa el engine —que no recibe `request`— y el especialista de
+    # riesgo volvía a contarle a todo el mundo el capital por defecto.
+    u = _usuario_actual(request)
+    if u is not None:
         try:
-            with open(ruta, "r", encoding="utf-8") as f:
-                texto = f.read().strip()
-        except Exception:                        # noqa: BLE001
-            return {}
-        if not texto:
-            return {}
-        # Si el `.md` ya lo generamos nosotros, su contenido sale del JSON:
-        # volver a meterlo como texto libre lo duplicaría en cada guardado.
-        if "Generado desde el editor de perfil de Vertex" in texto:
-            return {}
-        semilla = {"texto": texto, "nombre": nombre[:-3]}
-        m = re.search(r"\$\s?([\d.,]+)", texto)
-        if m:
+            conn = _db()
             try:
-                semilla["capital"] = float(m.group(1).replace(",", ""))
-            except ValueError:
-                pass
-        m = re.search(r"(\d+)\s*(?:a|-|–|—)\s*(\d+)\s*años", texto, re.I)
-        if m:
-            semilla["horizonte"] = f"{m.group(1)}-{m.group(2)} años"
-        m = re.search(r"(\d{1,3})\s*%\s*(?:a|-|–|—)\s*(\d{1,3})\s*%", texto)
-        if m:
-            semilla["max_posicion_pct"] = [int(m.group(1)), int(m.group(2))]
-        return semilla
-    return {}
+                return _CU.leer_perfil(conn, u["id"])
+            finally:
+                conn.close()
+        except Exception:                        # noqa: BLE001
+            pass
+    base = _CU.perfil_por_defecto()
+    base.update(_CU.derivados(base))
+    base["sin_contestar"] = _CU.preguntas_sin_contestar(base)
+    return base
 
 
 def _perfil_horizonte_dias(d):
-    """El horizonte del perfil en días, para la quema de theta de `size_flow`.
+    """El horizonte del perfil en días, para la quema de theta de `size_flow`."""
+    return _CU.horizonte_dias(d)
 
-    El campo es texto libre ("1-3 años", "semanas a meses") porque así lo
-    escribe una persona. Se traduce a días con el extremo CORTO del rango: un
-    horizonte corto quema menos theta y por tanto deja un techo más alto, así
-    que usar el largo sería el lado conservador… pero también el que esconde
-    operaciones que sí caben. Se usa el corto y se declara.
+
+def _perfil_para_el_engine():
+    """Traduce el perfil de la sesión al diccionario que espera `risk.py`.
+
+    Son dos vocabularios distintos —el cuestionario habla en español y en
+    porcentajes enteros, el especialista en inglés y en fracciones— y traducir
+    aquí es lo que evita que el engine tenga que saber del cuestionario.
+
+    `fields_parsed` va relleno a propósito: estos campos NO se adivinaron de un
+    markdown, los contestó una persona. `fields_defaulted` lleva las preguntas
+    que siguen heredadas, para que el reporte pueda decir "este tope no lo
+    fijaste tú" en vez de presentarlo como si sí.
     """
-    t = (d.get("horizonte") or "").lower()
-    if "día" in t or "dia" in t:
-        return 5
-    if "semana" in t:
-        return 21
-    if "mes" in t:
-        return 45
-    if "año" in t or "ano" in t:
-        return 90        # tope: `size_flow` no mira más allá del vencimiento
-    return 30
+    d = _perfil_leer()
+    pos = d.get("max_posicion_pct") or [20, 30]
+    anios = _CU._anios_de_horizonte(d.get("horizonte"))
+    heredadas = list(d.get("sin_contestar") or [])
+    _CAMPOS = {"capital": "capital_usd", "horizonte": "horizon_years",
+               "max_posicion_pct": "max_position_pct"}
+    return {
+        "objective": ",".join(d.get("objetivos") or []) or "capital_growth",
+        "horizon_years": (anios[0], anios[1]),
+        "max_loss_tolerance": d.get("tolerancia") or "agresivo",
+        "style": d.get("tolerancia") or "aggressive_speculative",
+        "capital_usd": float(d.get("capital") or 0),
+        "max_position_pct": (pos[0] / 100.0, pos[1] / 100.0),
+        "geography": ",".join(d.get("mercados") or []) or "us_only",
+        "excludes": tuple(d.get("excluir") or ()),
+        "source": f"cuestionario de {d.get('nombre') or 'el inversionista'}",
+        "fields_parsed": [v for k, v in _CAMPOS.items() if k not in heredadas],
+        "fields_defaulted": [v for k, v in _CAMPOS.items() if k in heredadas],
+    }
 
 
-def _perfil_leer():
-    """El perfil estructurado. Nunca lanza: sin archivo, devuelve el defecto."""
-    d = dict(_PERFIL_DEFECTO)
+# ═══════════════════════════════════════════════════════════════════════════
+#  APRENDIZAJE COMPARTIDO
+#
+#  «Todo lo que analice cada usuario alimenta a los agentes en general.»
+#
+#  Los dos agentes aprenden de forma DISTINTA, y contarlos juntos escondería
+#  precisamente lo que los diferencia:
+#
+#   · **Acciones** (Analyze/Explore) aprende por CALIBRACIÓN. Cada reporte
+#     guarda convicción y objetivos de precio; el tiempo dice si acertó. Más
+#     reportes de más gente = una curva de fiabilidad con más puntos. Es un
+#     lazo cerrado: se puede comprobar si un «70%» acierta el 70% de las veces.
+#
+#   · **Opciones** (Proyecciones) aprende por ACUMULACIÓN HACIA ADELANTE. La IV
+#     histórica, las cadenas y el flujo pasado no los vende nadie; se juntan
+#     una foto por día de mercado. No hay nada que "acertar" aquí: hay serie o
+#     no la hay. Sin ella el IV Rank real (sub-agente 5) y la confirmación de
+#     precio (sub-agente 6) se quedan apagados.
+#
+#  Lo que se comparte es ESO. El análisis de cada quien es privado — esta ruta
+#  no devuelve nunca quién analizó qué, solo cuánto hay y de cuántas personas.
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.get("/api/aprendizaje")
+def aprendizaje(request: Request):
+    """Cuánto han aprendido los agentes del uso de TODOS, y cuánto aportaste tú."""
+    u = _usuario_actual(request)
+    ahora = time.time()
+    salida = {"ok": True, "agentes": {}, "tuyo": {}, "generado": ahora}
+
     try:
-        with open(_PERFIL_JSON, "r", encoding="utf-8") as f:
-            guardado = json.load(f)
-        if isinstance(guardado, dict):
-            d.update({k: v for k, v in guardado.items() if k in _PERFIL_DEFECTO})
-    except Exception:                            # noqa: BLE001 — sin perfil se sigue
-        # Primera vez: no hay JSON todavía. Se siembra de lo que ya había
-        # escrito a mano, para que guardar no destruya el perfil de nadie.
-        d.update(_perfil_semilla_del_md())
-    if d.get("tolerancia") not in _TOLERANCIAS:
-        d["tolerancia"] = "agresivo"
+        conn = _db()
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Abrir la base")}
     try:
-        d["capital"] = float(d.get("capital") or 0) or 0.0
-    except (TypeError, ValueError):
-        d["capital"] = 0.0
-    d["riesgo_pct"] = _TOLERANCIAS[d["tolerancia"]]["riesgo_pct"]
-    #: Lo máximo que aceptas perder en UNA operación. Es el número que ordena
-    #: las Ideas y el que la Wheel usa para saber qué colateral te cabe.
-    d["riesgo_por_trade"] = _r(d["capital"] * d["riesgo_pct"] / 100)
-    return d
+        # ── Lo aportado, por agente ────────────────────────────────────
+        for agente in _CU.AGENTES:
+            fila = conn.execute(
+                "SELECT COUNT(*) n, COUNT(DISTINCT ticker) tk, "
+                "       COUNT(DISTINCT usuario_id) us, MAX(creado_ts) ult "
+                "FROM contribuciones WHERE agente=?", (agente,)).fetchone()
+            recientes = conn.execute(
+                "SELECT COUNT(*) FROM contribuciones WHERE agente=? AND creado_ts > ?",
+                (agente, ahora - 30 * 86400)).fetchone()[0]
+            salida["agentes"][agente] = {
+                "analisis": fila["n"] or 0,
+                "tickers": fila["tk"] or 0,
+                # Cuántas personas han aportado. Es un conteo, nunca una lista.
+                "personas": fila["us"] or 0,
+                "ultimo": fila["ult"],
+                "ultimos_30d": recientes,
+            }
+            if u is not None:
+                mio = conn.execute(
+                    "SELECT COUNT(*) n, COUNT(DISTINCT ticker) tk FROM contribuciones "
+                    "WHERE agente=? AND usuario_id=?", (agente, u["id"])).fetchone()
+                salida["tuyo"][agente] = {"analisis": mio["n"] or 0,
+                                          "tickers": mio["tk"] or 0}
 
+        # ── Cómo aprende cada uno, con la cifra que lo demuestra ───────
+        #
+        # ACCIONES: la calibración necesita reportes ya VENCIDOS. Un reporte de
+        # ayer no dice nada todavía; el lazo se cierra cuando pasa el horizonte.
+        cerrados = conn.execute(
+            "SELECT COUNT(*) FROM reports WHERE created_ts < ?",
+            (ahora - 90 * 86400,)).fetchone()[0]
+        total_rep = conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0]
+        salida["agentes"]["acciones"].update({
+            "como_aprende": "calibración",
+            "explicacion": ("Cada reporte guarda su convicción y sus objetivos. Cuando "
+                            "pasa el horizonte, el precio real dice si acertó. Con más "
+                            "reportes de más gente, la curva de fiabilidad tiene más "
+                            "puntos — y se puede comprobar si un «70%» acierta el 70%."),
+            "reportes": total_rep,
+            "reportes_vencidos": cerrados,
+            "listo": cerrados >= 5,
+            "falta": ("aún no hay reportes con 90 días cumplidos: la calibración "
+                      "necesita tiempo, no solo volumen" if cerrados < 5 else None),
+        })
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Leer el aprendizaje")}
+    finally:
+        conn.close()
 
-def _perfil_a_markdown(d):
-    """Genera el `.md` que YA leen Analyze y Explore.
+    # OPCIONES: la serie vive en disco (`WBJ_TITO_DATA`), no en SQLite. Se mide
+    # lo que de verdad importa — cuántos días de historia hay— porque el IV Rank
+    # real necesita 52 semanas y hasta entonces usa un proxy.
+    try:
+        from wbj.tito import stores as _st
+        # El umbral sale de SU módulo, no de un número escrito aquí. Si mañana
+        # cambia el mínimo de historia, este panel se entera solo; una copia se
+        # quedaría diciendo "ya está listo" cuando el motor sigue con el proxy.
+        from wbj.tito.ivcontext import MIN_IV_HISTORY_DAYS as _MIN_IV
+        _dir = str(_st.data_dir())
+        _tickers_iv, _dias_max = 0, 0
+        _iv_dir = os.path.join(_dir, "iv")
+        if os.path.isdir(_iv_dir):
+            for _f in os.listdir(_iv_dir):
+                if not _f.endswith(".json"):
+                    continue
+                _tickers_iv += 1
+                try:
+                    with open(os.path.join(_iv_dir, _f), "r", encoding="utf-8") as fh:
+                        _dias_max = max(_dias_max, len(json.load(fh) or []))
+                except Exception:                # noqa: BLE001
+                    continue
+        salida["agentes"]["opciones"].update({
+            "como_aprende": "acumulación hacia adelante",
+            "explicacion": ("La IV histórica, las cadenas y el flujo pasado no los vende "
+                            "ninguna fuente: se juntan una foto por día de mercado. Mirar "
+                            "un ticker YA aporta, aunque no salga ningún reporte — la foto "
+                            "de hoy es la que hará posible el IV Rank real más adelante."),
+            "tickers_con_serie": _tickers_iv,
+            "dias_de_serie": _dias_max,
+            "dias_necesarios": _MIN_IV,
+            "listo": _dias_max >= _MIN_IV,
+            "falta": (f"faltan {_MIN_IV - _dias_max} días de mercado para el IV Rank "
+                      "real; hasta entonces se usa el proxy de volatilidad realizada"
+                      if _dias_max < _MIN_IV else None),
+        })
+    except Exception:                            # noqa: BLE001 — el bloque de acciones ya vale
+        salida["agentes"]["opciones"].setdefault("como_aprende", "acumulación hacia adelante")
 
-    El formato importa por DOS motivos, y el segundo es el que muerde:
-
-    1. `_load_investor_profile()` devuelve el archivo entero como texto y lo
-       pega en el prompt. Tiene que leerse como un perfil escrito por una
-       persona, no como un volcado de JSON.
-    2. `engine/wbj/specialists/risk.py::_load_profile` **parsea este archivo
-       con tres regex**: el primer importe en dólares (capital), un rango
-       "N a M años" (horizonte) y un rango "N% – M%" (tope por posición). Si
-       alguna deja de casar, ese especialista cae al valor por defecto **en
-       silencio** y el reporte pasa a hablar del perfil de otro. Por eso:
-
-       · el capital es el PRIMER `$` del documento;
-       · el horizonte se escribe también como rango en años cuando se conoce;
-       · el tope por posición se escribe siempre como rango en porcentaje.
-
-    Los tests `TestElMdSigueSiendoLegibleParaElEngine` lo verifican contra la
-    función real, no contra una copia del regex.
-    """
-    tol = _TOLERANCIAS[d["tolerancia"]]
-    inst = ", ".join(d.get("instrumentos") or []) or "sin especificar"
-    merc = ", ".join(d.get("mercados") or []) or "sin especificar"
-    excl = ", ".join(d.get("excluir") or [])
-    pos = d.get("max_posicion_pct") or _PERFIL_DEFECTO["max_posicion_pct"]
-    horiz = d.get("horizonte") or "sin especificar"
-    # El regex del engine quiere "N a M años". Si el horizonte se escribió con
-    # palabras ("semanas a meses"), se añade el equivalente en años detrás en
-    # vez de callar: un horizonte por defecto no declarado es peor que uno
-    # aproximado y dicho.
-    if not re.search(r"\d+\s*(?:a|-|–|—)\s*\d+\s*años", horiz, re.I):
-        _dias = _perfil_horizonte_dias(d)
-        _a = max(1, round(_dias / 365)) if _dias >= 180 else 1
-        horiz = f"{horiz} (aprox. {_a} a {_a + 2} años para el especialista de riesgo)"
-    lineas = [
-        f"# Perfil de inversionista — {d.get('nombre') or 'sin nombre'}",
-        "",
-        "> Generado desde el editor de perfil de Vertex. Es la ÚNICA fuente del",
-        "> perfil: la edita el inversionista y la leen los tres agentes.",
-        "",
-        "## Datos duros",
-        "",
-        f"- **Capital disponible**: ${d['capital']:,.0f}",
-        f"- **Tolerancia al riesgo**: {tol['label']} — {tol['que_significa']}",
-        f"- **Riesgo máximo por operación**: {d['riesgo_pct']:.0f}% del capital "
-        f"(${d['riesgo_por_trade']:,.0f})",
-        f"- **Máximo por posición individual**: {pos[0]}% – {pos[1]}% del capital.",
-        f"- **Horizonte**: {horiz}",
-        f"- **Instrumentos**: {inst}",
-        f"- **Mercados**: {merc}",
-    ]
-    if excl:
-        lineas.append(f"- **Excluido a propósito**: {excl}")
-    lineas += [
-        "",
-        "## En mis palabras",
-        "",
-        (d.get("texto") or "_El inversionista aún no ha escrito su perfil._").strip(),
-        "",
-        "---",
-        "",
-        "**Cómo usar esto.** Los datos duros son restricciones: el sizing y el",
-        "universo salen de ahí. El texto es contexto para la tesis y **nunca**",
-        "se convierte en un score — sin evidencia no hay número.",
-        "",
-    ]
-    return "\n".join(lineas)
-
-
-def _perfil_guardar(d):
-    """Escribe el JSON y REGENERA el `.md` que consumen los otros agentes."""
-    os.makedirs(_PERFIL_DIR, exist_ok=True)
-    d = {k: v for k, v in d.items() if k in _PERFIL_DEFECTO}
-    d["actualizado"] = datetime.now(timezone.utc).isoformat()
-    tmp = _PERFIL_JSON + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(d, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, _PERFIL_JSON)               # atómico: nunca un JSON a medias
-
-    # El `.md` con el nombre que `_load_investor_profile` busca primero. Se
-    # regenera LEYENDO lo que se acaba de escribir, no el diccionario de
-    # entrada: así el markdown no puede desviarse del JSON ni un decimal.
-    md = os.path.join(_PERFIL_DIR, "Kevin.md")
-    tmp_md = md + ".tmp"
-    with open(tmp_md, "w", encoding="utf-8") as f:
-        f.write(_perfil_a_markdown(_perfil_leer()))
-    os.replace(tmp_md, md)
-    return d
+    # Dicho sin ambigüedad, porque es la pregunta que se hace cualquiera que
+    # comparte una herramienta: qué sale de aquí y qué no.
+    salida["privacidad"] = {
+        "compartido": "Las series y el track record agregados: es lo que mejora al agente.",
+        "privado": "Tus reportes. Nadie más ve qué analizaste ni qué te salió.",
+        "nunca": "Esta ruta no devuelve quién analizó qué. Solo cuánto hay y de cuánta gente.",
+    }
+    return _json_safe(salida)
 
 
 @app.get("/api/perfil")
-def perfil_get():
-    """El perfil del inversionista: cuenta + datos duros + texto."""
-    d = _perfil_leer()
+def perfil_get(request: Request):
+    """El cuestionario, tus respuestas y lo que el sistema deriva de ellas.
+
+    Devuelve las preguntas ENTERAS —enunciado, ayuda, opciones y el valor por
+    defecto de cada una— para que la pantalla no tenga que llevar una copia. Una
+    copia en el HTML se desincronizaría con la primera pregunta que se añada, y
+    entonces el formulario preguntaría una cosa y el servidor guardaría otra.
+    """
+    u = _usuario_actual(request)
+    perfil = _perfil_leer(request)
     return _json_safe({
-        "ok": True, "perfil": d,
-        "tolerancias": [{"id": k, **v} for k, v in _TOLERANCIAS.items()],
-        # Dónde acaba, para que no sea magia: el `.md` es lo que leen los otros
-        # dos agentes, y por eso editar aquí los cambia a ellos también.
-        "archivos": {"estructurado": "Perfil Inversionista/perfil.json",
-                     "para_los_agentes": "Perfil Inversionista/Kevin.md"},
+        "ok": True,
+        "perfil": perfil,
+        "usuario": _publico(u),
+        "preguntas": _CU.PREGUNTAS,
+        "tolerancias": [{"id": k, **v} for k, v in _CU.TOLERANCIAS.items()],
+        # Cuántas ha contestado esta persona y cuántas hereda de Kevin. Un
+        # perfil heredado presentado como propio haría que el reporte hable con
+        # una confianza que no tiene.
+        "progreso": {"total": len(_CU.PREGUNTAS),
+                     "contestadas": len(perfil.get("respondidas") or []),
+                     "sin_contestar": perfil.get("sin_contestar") or []},
+        "archivos": {
+            "para_los_agentes": (
+                os.path.relpath(_CU.ruta_md_de(_PERFIL_DIR, u), os.path.dirname(_PERFIL_DIR))
+                if u else "Perfil Inversionista/Kevin.md (defaults)"),
+        },
+        # Sin sesión no se puede guardar: no habría dónde. Se dice aquí para que
+        # la pantalla enseñe el formulario en modo lectura en vez de fallar al
+        # pulsar el botón.
+        "editable": u is not None,
     })
 
 
 @app.post("/api/perfil")
 async def perfil_post(request: Request):
-    """Guarda el perfil. Valida lo que es número y respeta lo que es texto."""
+    """Guarda las respuestas del cuestionario.
+
+    El cuerpo es `{"respuestas": {"<id de pregunta>": valor, ...}}`. Solo entran
+    en `respondidas` los ids presentes: mandar el formulario sin tocar una
+    pregunta la deja heredada, y la pantalla lo puede decir.
+    """
+    u = _usuario_actual(request)
+    if u is None:
+        return JSONResponse(status_code=401, content={
+            "ok": False, "error": "Inicia sesión para guardar tu perfil."})
     try:
         body = await request.json()
     except Exception:                            # noqa: BLE001
         return {"ok": False, "error": "Cuerpo no es JSON."}
     if not isinstance(body, dict):
         return {"ok": False, "error": "Cuerpo no es un objeto."}
+    respuestas = body.get("respuestas")
+    if not isinstance(respuestas, dict):
+        return {"ok": False, "error": "Falta el objeto `respuestas`."}
 
-    d = _perfil_leer()
-    for campo in ("nombre", "email", "horizonte", "texto"):
-        if campo in body:
-            d[campo] = str(body[campo] or "")[:8000]
-    if "capital" in body:
-        try:
-            cap = float(body["capital"])
-        except (TypeError, ValueError):
-            return {"ok": False, "error": "El capital tiene que ser un número."}
-        if cap < 0 or cap > 1e12:
-            return {"ok": False, "error": "Capital fuera de rango."}
-        d["capital"] = cap
-    if "tolerancia" in body:
-        if body["tolerancia"] not in _TOLERANCIAS:
-            return {"ok": False, "error": f"Tolerancia desconocida: {body['tolerancia']!r}"}
-        d["tolerancia"] = body["tolerancia"]
-    for campo in ("instrumentos", "mercados", "excluir"):
-        if campo in body:
-            v = body[campo]
-            if not isinstance(v, list):
-                return {"ok": False, "error": f"`{campo}` tiene que ser una lista."}
-            d[campo] = [str(x)[:60] for x in v][:40]
-    if "max_posicion_pct" in body:
-        v = body["max_posicion_pct"]
-        try:
-            lo, hi = int(v[0]), int(v[1])
-        except (TypeError, ValueError, IndexError, KeyError):
-            return {"ok": False, "error": "`max_posicion_pct` es un par [min, max]."}
-        if not 0 < lo <= hi <= 100:
-            return {"ok": False, "error": "El tope por posición va entre 1% y 100%, min ≤ max."}
-        d["max_posicion_pct"] = [lo, hi]
-
+    conn = _db()
     try:
-        _perfil_guardar(d)
+        base = _CU.leer_perfil(conn, u["id"])
+        perfil, error = _CU.perfil_desde_respuestas(respuestas, base)
+        if error:
+            # Una sola respuesta inválida aborta el guardado entero: un perfil a
+            # medias es peor que uno viejo, porque nadie sabría qué parte es suya.
+            return {"ok": False, "error": error}
+        _CU.guardar_perfil(conn, _PERFIL_DIR, u, perfil)
+        guardado = _CU.leer_perfil(conn, u["id"])
     except Exception as e:                       # noqa: BLE001
         return {"ok": False, "error": _error_publico(e, "Guardar el perfil")}
-    return _json_safe({"ok": True, "perfil": _perfil_leer()})
+    finally:
+        conn.close()
+
+    return _json_safe({"ok": True, "perfil": guardado,
+                       "progreso": {"total": len(_CU.PREGUNTAS),
+                                    "contestadas": len(guardado.get("respondidas") or []),
+                                    "sin_contestar": guardado.get("sin_contestar") or []}})
+
 
 
 @app.get("/api/tito-news")
@@ -6744,10 +7019,37 @@ probabilidades calibradas. El fair_value debe ser el escenario Base. Lenguaje de
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _load_investor_profile():
-    """Lee el perfil del inversionista (el mío). Prioriza 'Mi Perfil.md'.
-    Devuelve (nombre, texto) o (None, '') si no existe. Solo contexto para la
-    explicación; nunca cambia el scoring."""
-    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Perfil Inversionista")
+    """Lee el perfil del inversionista de la sesión.
+
+    Devuelve `(nombre, texto)` o `(None, "")` si no hay ninguno. Solo contexto
+    para la explicación; nunca cambia el scoring.
+
+    **Lo único que cambió al haber cuentas.** Antes leía siempre `Kevin.md`, que
+    con un solo usuario era correcto: era el perfil de todo el mundo. Con varias
+    cuentas eso significaba contarle a cada persona su análisis con el capital y
+    la tolerancia de Kevin.
+
+    Ahora resuelve el `.md` del usuario de la sesión —lo deja el middleware en
+    `_USUARIO_CTX`— y cae a `Kevin.md` cuando no hay sesión (scripts, cron,
+    preflight). La firma, el valor de retorno y sus dos llamadores siguen
+    exactamente igual: Analyze y Explore no saben que esto cambió, solo reciben
+    el perfil correcto.
+    """
+    # `_PERFIL_DIR`, no una ruta calculada aparte. Estuvo calculada aquí y era
+    # exactamente el fallo que se documentaba en el test: dos funciones
+    # resolviendo el mismo directorio por su cuenta acaban en directorios
+    # distintos, el editor escribe en uno y el agente lee del otro, y nadie se
+    # entera porque el archivo viejo sigue existiendo.
+    base = _PERFIL_DIR
+    u = _usuario_actual()
+    if u is not None:
+        propio = _CU.ruta_md_de(base, u)
+        if os.path.exists(propio):
+            try:
+                with open(propio, "r", encoding="utf-8") as f:
+                    return (u.get("nombre") or "inversionista"), f.read().strip()
+            except Exception:
+                pass
     for fn in ("Kevin.md", "Mi Perfil.md", "MiPerfil.md", "Perfil.md"):
         p = os.path.join(base, fn)
         if os.path.exists(p):
@@ -8479,6 +8781,12 @@ def _engine_scorecard(ticker, info, price):
         _qual_prov = _qual.get("__provenance__") or {}
 
         # ── Fase A: correr los 6 especialistas (con overlay wacc/peer_roic) y recoger sus outputs ──
+        #
+        # El perfil de QUIEN pidió el análisis, para el especialista de riesgo.
+        # Su `PROFILE` se resuelve al importar el módulo y por tanto es el mismo
+        # para todo el proceso: sin esto, `profile_fit` le contaría a cada
+        # usuario su análisis con el capital y el horizonte de Kevin.
+        _rsk.PERFIL_ACTUAL.set(_perfil_para_el_engine())
         _outputs = []                       # [(key, output)] en orden, para el judge y el merge
         for key, mod in _MODS:
             try:
@@ -10613,14 +10921,33 @@ def get_regime():
 
 
 @app.get("/api/reports/list")
-def reports_list(limit: int = 60):
+def reports_list(request: Request, limit: int = 60):
     """#4 — Lista de reportes DURABLES desde el servidor (payload completo) para hidratar el archivo
-    multi-dispositivo. Cae en silencio si no hay payloads (DBs viejas sin la columna llena)."""
+    multi-dispositivo. Cae en silencio si no hay payloads (DBs viejas sin la columna llena).
+
+    **El archivo es privado.** Devolvía TODOS los reportes a CUALQUIERA, que con
+    un solo usuario era lo mismo que devolver los suyos. Con cuentas es otra
+    cosa: el análisis de una persona lo leerían las demás. Alimentar al agente y
+    publicar tu trabajo no son lo mismo — lo que se comparte está en
+    `/api/aprendizaje`, y ahí no aparece quién analizó qué.
+
+    Las filas sin `usuario_id` son de la época de un solo usuario. Se tratan
+    como de nadie, no como de todos: solo las ve quien entre sin sesión (la
+    puerta del token compartido, que es el propio Kevin o un script suyo).
+    """
+    u = _usuario_actual(request)
     try:
         conn = _db()
-        rows = conn.execute(
-            "SELECT payload FROM reports WHERE payload IS NOT NULL ORDER BY created_ts DESC LIMIT ?",
-            (int(max(1, min(limit, 200))),)).fetchall()
+        if u is not None:
+            rows = conn.execute(
+                "SELECT payload FROM reports WHERE payload IS NOT NULL AND usuario_id=? "
+                "ORDER BY created_ts DESC LIMIT ?",
+                (u["id"], int(max(1, min(limit, 200))))).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT payload FROM reports WHERE payload IS NOT NULL AND usuario_id IS NULL "
+                "ORDER BY created_ts DESC LIMIT ?",
+                (int(max(1, min(limit, 200))),)).fetchall()
         conn.close()
         out = []
         for r in rows:
@@ -10634,7 +10961,7 @@ def reports_list(limit: int = 60):
 
 
 @app.post("/api/report-delete")
-def report_delete(report_id: str):
+def report_delete(request: Request, report_id: str):
     """#4 — borra un reporte del archivo del servidor (sincroniza el borrado entre dispositivos).
 
     POST, no GET. Un GET tiene que ser SEGURO: la especificación de HTTP
@@ -10645,11 +10972,23 @@ def report_delete(report_id: str):
     lo disparaba. La cookie es `SameSite=Strict`, que corta el caso entre
     sitios, pero la reemisión dentro del propio sitio no depende de eso.
     """
+    # Solo lo tuyo. Sin este filtro, cualquiera con una cuenta podría borrar el
+    # archivo de otro con solo acertar un `report_id` — y los ids llevan ticker
+    # y fecha, así que adivinarlos no es difícil.
+    u = _usuario_actual(request)
     try:
         conn = _db()
-        conn.execute("DELETE FROM reports WHERE report_id=?", (report_id,))
+        if u is not None:
+            cur = conn.execute("DELETE FROM reports WHERE report_id=? AND usuario_id=?",
+                               (report_id, u["id"]))
+        else:
+            cur = conn.execute("DELETE FROM reports WHERE report_id=? AND usuario_id IS NULL",
+                               (report_id,))
+        borradas = cur.rowcount
         conn.commit(); conn.close()
-        return {"ok": True}
+        # No se distingue "no existe" de "no es tuyo": distinguirlos convertiría
+        # la ruta en un oráculo de qué reportes tienen los demás.
+        return {"ok": True, "borrado": bool(borradas)}
     except Exception:
         # El texto de la excepción puede llevar rutas del servidor o SQL;
         # va al log, no al navegador.

@@ -66,11 +66,11 @@
         .vx-opt:hover, .pf-tab:hover { color: #e5e7eb; }
         .vx-opt.activa, .pf-tab.activa { background: rgba(59,130,246,.14); border-color: rgba(59,130,246,.45); color: #60a5fa; }
         .pf-tab { border-color: transparent; background: transparent; }
-        .pf-tol { background: #0B0E14; border-color: #1F2532; color: #9ca3af; }
-        .pf-tol:hover { border-color: #374151; color: #e5e7eb; }
-        .pf-tol.activa { background: rgba(59,130,246,.12); border-color: rgba(59,130,246,.5); color: #60a5fa; }
-        html.light .vx-opt, html.light .pf-tol { background: #f4f6fa; border-color: #e5e8ee; color: #5b6270; }
-        html.light .vx-opt.activa, html.light .pf-tab.activa, html.light .pf-tol.activa { color: #2563eb; }
+        .pf-opt { background: #0B0E14; border-color: #1F2532; color: #9ca3af; }
+        .pf-opt:hover { border-color: #374151; color: #e5e7eb; }
+        .pf-opt.activa { background: rgba(59,130,246,.12); border-color: rgba(59,130,246,.5); color: #60a5fa; }
+        html.light .vx-opt, html.light .pf-opt { background: #f4f6fa; border-color: #e5e8ee; color: #5b6270; }
+        html.light .vx-opt.activa, html.light .pf-tab.activa, html.light .pf-opt.activa { color: #2563eb; }
 
         /* ══════════════ RESPONSIVE — telefono / tablet / escritorio ══════════════
            La app es una sola pagina que tiene que servir en las tres. Reglas base:
@@ -329,19 +329,26 @@
             </div>
 
             <div id="authNameField" class="mb-3 hidden">
-                <label class="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">Full Name</label>
-                <input id="authName" type="text" placeholder="Your name" class="auth-input w-full rounded-lg px-4 py-2.5 text-sm">
+                <label class="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">Nombre</label>
+                <input id="authName" type="text" placeholder="Tu nombre" autocomplete="name" class="auth-input w-full rounded-lg px-4 py-2.5 text-sm">
             </div>
 
             <div class="mb-3">
                 <label class="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">Email</label>
-                <input id="authEmail" type="email" placeholder="you@example.com" class="auth-input w-full rounded-lg px-4 py-2.5 text-sm">
+                <input id="authEmail" type="email" placeholder="tu@ejemplo.com" autocomplete="email" class="auth-input w-full rounded-lg px-4 py-2.5 text-sm">
             </div>
 
-            <div class="mb-5">
-                <label class="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">Password</label>
-                <input id="authPassword" type="password" placeholder="••••••••" class="auth-input w-full rounded-lg px-4 py-2.5 text-sm"
+            <div class="mb-3">
+                <label class="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">Contrase&ntilde;a</label>
+                <input id="authPassword" type="password" placeholder="••••••••" autocomplete="current-password" class="auth-input w-full rounded-lg px-4 py-2.5 text-sm"
                     onkeydown="if(event.key==='Enter') authSubmit()">
+                <p class="text-[9px] text-gray-600 mt-1.5">M&iacute;nimo 8 caracteres. Se guarda cifrada &mdash; ni el servidor puede leerla.</p>
+            </div>
+
+            <!-- Solo si este despliegue exige invitacion (VERTEX_REGISTRO=invitacion). -->
+            <div id="authInviteField" class="mb-5 hidden">
+                <label class="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">C&oacute;digo de invitaci&oacute;n</label>
+                <input id="authInvite" type="text" class="auth-input w-full rounded-lg px-4 py-2.5 text-sm">
             </div>
 
             <button onclick="authSubmit()" class="auth-btn-primary w-full text-white font-bold py-2.5 rounded-xl text-sm mb-4">
@@ -5219,27 +5226,40 @@ window.switchView = function(viewId) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════════════════════
-// AUTH — Sign In / Sign Up / Sign Out (localStorage-based)
+// AUTH — cuentas de VERDAD, en el servidor
+//
+// Esto vivía entero en `localStorage`: un objeto `{email, name, password}` con
+// la contraseña EN TEXTO PLANO, y una base de datos por navegador. Tres cosas
+// estaban rotas a la vez:
+//
+//   · cualquiera con la consola abierta leía la contraseña de todos;
+//   · entrar desde el móvil era imposible, porque la cuenta no existía fuera
+//     de aquel Chrome;
+//   · «cerrar sesión» solo borraba una clave local — no había nada que cerrar.
+//
+// Ahora la cuenta vive en SQLite (hash PBKDF2 con sal) y la sesión es una
+// cookie HttpOnly que el JavaScript **no puede leer**, que es justamente la
+// gracia: un XSS ya no se la lleva. Por eso aquí no se guarda ningún token —
+// el navegador la manda solo, y el servidor dice quién eres.
 // ══════════════════════════════════════════════════════════════════════════════
-const AUTH_USERS_KEY = 'vertex_users_db';
-const AUTH_SESSION_KEY = 'vertex_session';
 let authMode = 'login'; // 'login' | 'register'
 
-function authGetUsers() {
-    try { return JSON.parse(localStorage.getItem(AUTH_USERS_KEY) || '{}'); } catch(e) { return {}; }
+//: El usuario de la sesión, tal como lo devolvió el servidor. Es una CACHÉ para
+//: pintar el nombre, no la fuente de la verdad: la fuente es la cookie.
+let VX_USUARIO = null;
+
+function authGetSession() { return VX_USUARIO; }
+
+/** Pregunta al servidor quién está dentro. */
+async function authQuienSoy() {
+    try {
+        const d = await fetch(`${API_BASE}/api/auth/yo`).then(r => r.json());
+        VX_USUARIO = d.usuario || null;
+        VX_REGISTRO = d.registro || 'abierto';
+        return VX_USUARIO;
+    } catch (e) { VX_USUARIO = null; return null; }
 }
-function authSaveUsers(users) {
-    localStorage.setItem(AUTH_USERS_KEY, JSON.stringify(users));
-}
-function authGetSession() {
-    try { return JSON.parse(localStorage.getItem(AUTH_SESSION_KEY) || 'null'); } catch(e) { return null; }
-}
-function authSaveSession(user) {
-    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(user));
-}
-function authClearSession() {
-    localStorage.removeItem(AUTH_SESSION_KEY);
-}
+let VX_REGISTRO = 'abierto';
 
 function authShowError(msg) {
     const el = document.getElementById('authError');
@@ -5253,85 +5273,120 @@ function authHideError() {
 function authToggleMode() {
     authMode = authMode === 'login' ? 'register' : 'login';
     authHideError();
-    if (authMode === 'register') {
-        document.getElementById('authTitle').innerText = 'Create Account';
-        document.getElementById('authSubtitle').innerText = 'Join Vertex Fund OS';
-        document.getElementById('authBtnText').innerText = 'Create Account';
-        document.getElementById('authToggleText').innerText = 'Already have an account?';
-        document.getElementById('authToggleBtn').innerText = 'Sign in';
-        document.getElementById('authNameField').classList.remove('hidden');
-    } else {
-        document.getElementById('authTitle').innerText = 'Sign In';
-        document.getElementById('authSubtitle').innerText = 'Access your Vertex Fund OS account';
-        document.getElementById('authBtnText').innerText = 'Sign In';
-        document.getElementById('authToggleText').innerText = "Don't have an account?";
-        document.getElementById('authToggleBtn').innerText = 'Create one';
-        document.getElementById('authNameField').classList.add('hidden');
-    }
+    authAplicaModo();
 }
 
-function authSubmit() {
+/** Pinta el formulario segun el modo. Separado de `authToggleMode` porque
+ *  `authSignOut` tambien necesita devolverlo a «entrar», y duplicar los siete
+ *  `innerText` fue como se desincronizaron la primera vez. */
+function authAplicaModo() {
+    const registrando = authMode === 'register';
+    const t = (id, txt) => { const el = document.getElementById(id); if (el) el.innerText = txt; };
+    t('authTitle', registrando ? 'Crear cuenta' : 'Iniciar sesión');
+    t('authSubtitle', registrando ? 'Tu perfil, tu archivo y tus agentes'
+                                  : 'Entra a tu cuenta de Vertex Fund OS');
+    t('authBtnText', registrando ? 'Crear cuenta' : 'Entrar');
+    t('authToggleText', registrando ? '¿Ya tienes cuenta?' : '¿No tienes cuenta?');
+    t('authToggleBtn', registrando ? 'Inicia sesión' : 'Crea una');
+    document.getElementById('authNameField')?.classList.toggle('hidden', !registrando);
+    // El código de invitación solo aparece si este despliegue lo pide.
+    document.getElementById('authInviteField')?.classList.toggle(
+        'hidden', !(registrando && VX_REGISTRO === 'invitacion'));
+}
+
+
+async function authSubmit() {
     authHideError();
     const email = (document.getElementById('authEmail').value || '').trim().toLowerCase();
     const password = document.getElementById('authPassword').value || '';
+    const btn = document.getElementById('authBtnText');
 
-    if (!email || !password) { authShowError('Please enter your email and password.'); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { authShowError('Please enter a valid email address.'); return; }
+    if (!email || !password) { authShowError('Escribe tu email y tu contrase\u00f1a.'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { authShowError('Ese email no parece v\u00e1lido.'); return; }
 
-    if (authMode === 'register') {
-        const name = (document.getElementById('authName').value || '').trim();
-        if (!name) { authShowError('Please enter your full name.'); return; }
-        if (password.length < 6) { authShowError('Password must be at least 6 characters.'); return; }
-        const users = authGetUsers();
-        if (users[email]) { authShowError('An account with this email already exists.'); return; }
-        users[email] = { email, name, password }; // NOTE: demo only — not secure for production
-        authSaveUsers(users);
-        authLogin({ email, name });
-    } else {
-        const users = authGetUsers();
-        const user = users[email];
-        if (!user || user.password !== password) { authShowError('Invalid email or password.'); return; }
-        authLogin(user);
+    const registrando = authMode === 'register';
+    const cuerpo = { email, password };
+    if (registrando) {
+        cuerpo.nombre = (document.getElementById('authName').value || '').trim();
+        if (!cuerpo.nombre) { authShowError('Escribe tu nombre.'); return; }
+        // El m\u00ednimo lo decide el SERVIDOR: aqu\u00ed se comprueba solo para no hacer
+        // un viaje que ya se sabe que falla. Un m\u00ednimo distinto en cada lado
+        // dejar\u00eda pasar contrase\u00f1as que luego el servidor rechaza sin explicar.
+        if (password.length < 8) { authShowError('La contrase\u00f1a necesita al menos 8 caracteres.'); return; }
+        const inv = document.getElementById('authInvite');
+        if (inv && !inv.parentElement.classList.contains('hidden')) cuerpo.invitacion = inv.value || '';
+    }
+
+    const textoOriginal = btn ? btn.innerText : '';
+    if (btn) btn.innerText = registrando ? 'Creando\u2026' : 'Entrando\u2026';
+    try {
+        // Las dos rutas van LITERALES, no armadas con una interpolacion. Una
+        // URL construida a trozos no se puede comprobar leyendo el archivo, y
+        // el chequeo que verifica que la pantalla no llama a rutas
+        // inexistentes deja de ver esta llamada.
+        const ruta = registrando ? `${API_BASE}/api/auth/registro`
+                                 : `${API_BASE}/api/auth/entrar`;
+        const r = await fetch(ruta, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cuerpo),
+        });
+        const d = await r.json();
+        if (!d.ok) { authShowError(d.error || 'No se pudo completar.'); return; }
+        // La cookie ya viene puesta en la respuesta. No se guarda ning\u00fan token
+        // aqu\u00ed: es HttpOnly a prop\u00f3sito y el JavaScript no debe poder leerla.
+        await authLogin(d.usuario, { nuevo: !!d.nuevo });
+    } catch (e) {
+        authShowError('No se pudo hablar con el servidor. Revisa tu conexi\u00f3n.');
+    } finally {
+        if (btn) btn.innerText = textoOriginal;
     }
 }
 
-function authLogin(user) {
-    authSaveSession(user);
+async function authLogin(user, opciones) {
+    VX_USUARIO = user;
     document.getElementById('authOverlay').classList.add('hidden');
-    // Update navbar
-    const initials = (user.name || user.email).split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+    const initials = (user.nombre || user.email).split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
     document.getElementById('navUserAvatar').innerText = initials;
-    document.getElementById('navUserName').innerText = user.name || user.email;
+    document.getElementById('navUserName').innerText = user.nombre || user.email;
     const badge = document.getElementById('navUserBadge');
     badge.classList.remove('hidden');
     badge.classList.add('flex');
     lucide.createIcons();
-    // El menú de cuenta cuelga de este nombre: se rellena al entrar, no al
+    // El men\u00fa de cuenta cuelga de este nombre: se rellena al entrar, no al
     // abrirlo por primera vez.
     if (typeof vxPintaMenu === 'function') vxPintaMenu();
     startNotifPolling();   // #4 — campana + escaneo de alertas de la watchlist
+    // El archivo es privado por usuario: lo que hubiera del anterior no vale.
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    if (typeof syncReportsFromServer === 'function') syncReportsFromServer();
+    if (typeof pfCargar === 'function') await pfCargar();
+
+    // Cuenta reci\u00e9n creada: el cuestionario, y de una vez. Un perfil vac\u00edo no
+    // es neutral — hereda el de Kevin entero, y el agente recomendar\u00eda con el
+    // capital y la tolerancia de otra persona sin que nadie lo hubiera pedido.
+    if (opciones && opciones.nuevo) switchView('perfilView');
 }
 
-function authSignOut() {
-    authClearSession();
+async function authSignOut() {
+    // Se cierra en el SERVIDOR, no solo aqu\u00ed. Borrar la cookie y dejar la
+    // sesi\u00f3n viva la dejar\u00eda v\u00e1lida para siempre donde se hubiera copiado.
+    try { await fetch(`${API_BASE}/api/auth/salir`, { method: 'POST' }); } catch (e) {}
+    VX_USUARIO = null;
     stopNotifPolling();   // #4 — detén el escaneo al cerrar sesión
-    // Reset navbar
     document.getElementById('navUserBadge').classList.add('hidden');
     document.getElementById('navUserBadge').classList.remove('flex');
-    // Reset auth form
+    // El archivo local es de quien acaba de salir: se limpia, o el siguiente
+    // que entre en este navegador ver\u00eda sus reportes.
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
     document.getElementById('authEmail').value = '';
     document.getElementById('authPassword').value = '';
     document.getElementById('authName').value = '';
     authMode = 'login';
-    document.getElementById('authTitle').innerText = 'Sign In';
-    document.getElementById('authSubtitle').innerText = 'Access your Vertex Fund OS account';
-    document.getElementById('authBtnText').innerText = 'Sign In';
-    document.getElementById('authToggleText').innerText = "Don't have an account?";
-    document.getElementById('authToggleBtn').innerText = 'Create one';
-    document.getElementById('authNameField').classList.add('hidden');
+    authAplicaModo();
     authHideError();
     document.getElementById('authOverlay').classList.remove('hidden');
 }
+
 // ══════════════════════════════════════════════════════════════════════════════
 // END AUTH
 // ══════════════════════════════════════════════════════════════════════════════
@@ -5410,10 +5465,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     syncReportsFromServer();   // #4 — trae reportes durables del servidor (multi-dispositivo)
     loadDataHealth();          // #5 — salud de fuentes de datos
     setInterval(() => loadDataHealth(), 120000);   // re-chequea cada 2 min
-    // Auto-login if there's a saved session
-    const session = authGetSession();
-    if (session) {
-        authLogin(session);
+    // Quien esta dentro lo dice el SERVIDOR, no una clave de localStorage.
+    // La cookie es HttpOnly: el JavaScript no puede leerla, asi que la unica
+    // forma de saberlo es preguntar. Es tambien lo que hace que la sesion
+    // sobreviva a cambiar de dispositivo.
+    const usuario = await authQuienSoy();
+    if (usuario) {
+        await authLogin(usuario);
+    } else {
+        authAplicaModo();
+        document.getElementById('authOverlay')?.classList.remove('hidden');
     }
 });
 
@@ -7435,101 +7496,42 @@ function analyzeTickerNow(tk) {
                 data-i18n="perfil.tab.perfil">Perfil</button>
     </div>
 
-    <!-- ── INFORMACIÓN — los datos de la cuenta ───────────────────────── -->
+    <!-- INFORMACION: los datos de la cuenta -->
     <div id="pfPaneInfo" class="hidden space-y-4">
         <div class="bg-panel border border-panel rounded-2xl p-4 sm:p-5">
             <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <i data-lucide="id-card" class="w-4 h-4"></i> <span data-i18n="perfil.cuenta">Datos de la cuenta</span>
             </h3>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <label class="block">
-                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider" data-i18n="perfil.nombre">Nombre</span>
-                    <input id="pfNombre" type="text" autocomplete="name"
-                           class="mt-1 w-full bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
-                </label>
-                <label class="block">
-                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider" data-i18n="perfil.email">Email</span>
-                    <input id="pfEmail" type="email" autocomplete="email"
-                           class="mt-1 w-full bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
-                </label>
-            </div>
-            <p class="text-[9px] text-gray-600 mt-3 leading-relaxed" data-i18n="perfil.cuenta.nota">
-                El email es lo &uacute;nico tuyo que el sistema necesita adem&aacute;s del perfil. No se env&iacute;a a ninguna
+            <div id="pfCuenta" class="space-y-2.5 text-sm"></div>
+            <p class="text-[9px] text-gray-600 mt-4 leading-relaxed" data-i18n="perfil.cuenta.nota">
+                Tu email es lo &uacute;nico tuyo que el sistema necesita adem&aacute;s del perfil. No se env&iacute;a a ninguna
                 fuente de datos: Massive y MarketSnack solo reciben s&iacute;mbolos.
             </p>
         </div>
 
         <div class="bg-panel border border-panel rounded-2xl p-4 sm:p-5">
+            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-2">
+                <i data-lucide="brain" class="w-4 h-4"></i> <span data-i18n="perfil.aprendizaje">Lo que aprenden los agentes</span>
+            </h3>
+            <p class="text-[10px] text-gray-600 italic mb-4" data-i18n="perfil.aprendizaje.nota">
+                Cada an&aacute;lisis que hace cualquiera mejora al agente para todos. Tus reportes, en cambio,
+                son tuyos: nadie m&aacute;s ve qu&eacute; analizaste.
+            </p>
+            <div id="pfAprendizaje" class="space-y-3"></div>
+        </div>
+
+        <div class="bg-panel border border-panel rounded-2xl p-4 sm:p-5">
             <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                <i data-lucide="file-text" class="w-4 h-4"></i> <span data-i18n="perfil.donde">D&oacute;nde acaba esto</span>
+                <i data-lucide="file-text" class="w-4 h-4"></i> <span data-i18n="perfil.donde">D&oacute;nde acaba tu perfil</span>
             </h3>
             <div id="pfArchivos" class="space-y-1.5 text-[11px] text-gray-400"></div>
         </div>
     </div>
 
-    <!-- ── PERFIL — restricciones duras + el texto del inversionista ───── -->
+    <!-- PERFIL: el cuestionario, pregunta a pregunta -->
     <div id="pfPanePerfil" class="hidden space-y-4">
-        <div class="bg-panel border border-panel rounded-2xl p-4 sm:p-5">
-            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-2">
-                <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> <span data-i18n="perfil.duros">Datos duros</span>
-            </h3>
-            <p class="text-[10px] text-gray-600 italic mb-4" data-i18n="perfil.duros.nota">
-                Esto son restricciones, no preferencias: el sizing sale de aqu&iacute;.
-            </p>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <label class="block">
-                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider" data-i18n="perfil.capital">Capital disponible (USD)</span>
-                    <input id="pfCapital" type="number" min="0" step="100" inputmode="decimal"
-                           class="mt-1 w-full bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
-                </label>
-                <label class="block">
-                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider" data-i18n="perfil.horizonte">Horizonte</span>
-                    <input id="pfHorizonte" type="text" list="pfHorizontes" placeholder="1-3 a&ntilde;os"
-                           class="mt-1 w-full bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
-                    <datalist id="pfHorizontes">
-                        <option value="días"></option><option value="semanas a meses"></option>
-                        <option value="1-3 años"></option><option value="5+ años"></option>
-                    </datalist>
-                </label>
-            </div>
-            <div class="mt-4">
-                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider" data-i18n="perfil.tolerancia">Tolerancia al riesgo</span>
-                <div id="pfTolerancias" class="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-1.5"></div>
-            </div>
-            <!-- Distinto del riesgo por operación: aquel dice cuánto puedes
-                 PERDER, este cuánto puedes DESPLEGAR. El especialista de riesgo
-                 del engine lo lee del perfil, y lo quiere como rango. -->
-            <div class="mt-4">
-                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider" data-i18n="perfil.posicion">M&aacute;ximo por posici&oacute;n individual</span>
-                <div class="flex items-center gap-2 mt-1.5">
-                    <input id="pfPosMin" type="number" min="1" max="100" step="1" inputmode="numeric"
-                           class="w-20 bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
-                    <span class="text-xs text-gray-500">%</span>
-                    <span class="text-xs text-gray-600">&ndash;</span>
-                    <input id="pfPosMax" type="number" min="1" max="100" step="1" inputmode="numeric"
-                           class="w-20 bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
-                    <span class="text-xs text-gray-500">% del capital</span>
-                </div>
-                <p class="text-[9px] text-gray-600 mt-1.5 leading-relaxed" data-i18n="perfil.posicion.nota">
-                    Cu&aacute;nto capital puede ocupar UNA posici&oacute;n. Con un tope del 30%, tres p&eacute;rdidas
-                    totales seguidas se llevan casi la cuenta entera &mdash; por eso el reporte declara
-                    siempre el nivel de invalidaci&oacute;n antes que el objetivo.
-                </p>
-            </div>
-            <div id="pfRiesgoNota" class="mt-3 text-[11px] px-3 py-2 rounded-lg bg-blue-500/[0.06] border border-blue-500/20 text-gray-300"></div>
-        </div>
-
-        <div class="bg-panel border border-panel rounded-2xl p-4 sm:p-5">
-            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-2">
-                <i data-lucide="pen-line" class="w-4 h-4"></i> <span data-i18n="perfil.texto">En mis palabras</span>
-            </h3>
-            <p class="text-[10px] text-gray-600 italic mb-3" data-i18n="perfil.texto.nota">
-                Escribe tu perfil como se lo contar&iacute;as a un asesor: qu&eacute; buscas, qu&eacute; no tocas, qu&eacute; te quita
-                el sue&ntilde;o. Esto es CONTEXTO para la tesis &mdash; nunca se convierte en un score.
-            </p>
-            <textarea id="pfTexto" rows="9" spellcheck="true"
-                      class="w-full bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-gray-200 leading-relaxed focus:border-blue-500/50 focus:outline-none resize-y"></textarea>
-        </div>
+        <div id="pfProgreso" class="rounded-2xl px-4 py-3 border"></div>
+        <div id="pfPreguntas" class="space-y-4"></div>
     </div>
 
     <div class="flex items-center gap-3 flex-wrap mt-4">
@@ -8836,17 +8838,11 @@ const VX_I18N = {
         'perfil.titulo': 'My profile',
         'perfil.sub': 'Your capital, your tolerance and your own words. All three agents read this before recommending anything.',
         'perfil.tab.info': 'Information', 'perfil.tab.perfil': 'Profile',
-        'perfil.cuenta': 'Account details', 'perfil.nombre': 'Name', 'perfil.email': 'Email',
+        'perfil.cuenta': 'Account details',
         'perfil.cuenta.nota': 'Your email is the only personal detail the system needs besides the profile. It is never sent to a data provider: Massive and MarketSnack only ever receive symbols.',
-        'perfil.donde': 'Where this ends up',
-        'perfil.duros': 'Hard constraints',
-        'perfil.duros.nota': 'These are constraints, not preferences: position sizing comes from here.',
-        'perfil.capital': 'Available capital (USD)', 'perfil.horizonte': 'Horizon',
-        'perfil.tolerancia': 'Risk tolerance',
-        'perfil.posicion': 'Maximum per single position',
-        'perfil.posicion.nota': 'How much capital a SINGLE position may take up. With a 30% cap, three total losses in a row wipe out almost the whole account — which is why every report states the invalidation level before the target.',
-        'perfil.texto': 'In my own words',
-        'perfil.texto.nota': 'Write your profile the way you would tell an advisor: what you are after, what you never touch, what keeps you up at night. This is CONTEXT for the thesis — it never becomes a score.',
+        'perfil.donde': 'Where your profile ends up',
+        'perfil.aprendizaje': 'What the agents are learning',
+        'perfil.aprendizaje.nota': 'Every analysis anyone runs makes the agent better for everyone. Your reports, though, are yours: nobody else sees what you analysed.',
         'perfil.guardar': 'Save profile',
     },
     es: {},   // el marcado ya está en español: el diccionario `es` es el original
@@ -8876,12 +8872,20 @@ function vxIdioma(l) {
     if (window.lucide) lucide.createIcons();
 }
 
-/* ── PERFIL ───────────────────────────────────────────────────────────── */
+/* ── PERFIL — el cuestionario ─────────────────────────────────────────────
+ *
+ * Las preguntas NO están escritas aquí. Vienen de `/api/perfil`, que las
+ * sirve enteras: enunciado, ayuda, opciones y el valor por defecto de cada
+ * una. Una copia en este archivo se desincronizaría con la primera pregunta
+ * que se añadiera, y entonces el formulario preguntaría una cosa y el
+ * servidor guardaría otra.
+ * ──────────────────────────────────────────────────────────────────────── */
 
 let VX_PERFIL = null;          // el perfil tal como lo devolvió el servidor
-let VX_TOLERANCIAS = [];       // las bandas, con su % y su explicación
-let pfTolSel = null;           // la tolerancia elegida en pantalla, sin guardar
+let VX_PREGUNTAS = [];         // el cuestionario, tal cual lo sirve el servidor
+let pfRespuestas = {};         // lo tocado en pantalla y aún sin guardar
 let pfTabActiva = 'info';
+let pfProgresoSrv = null;      // cuántas contestadas, según el servidor
 
 function pfTab(cual) {
     pfTabActiva = cual;
@@ -8889,113 +8893,244 @@ function pfTab(cual) {
     document.getElementById('pfPanePerfil')?.classList.toggle('hidden', cual !== 'perfil');
     document.getElementById('pfTabInfo')?.classList.toggle('activa', cual === 'info');
     document.getElementById('pfTabPerfil')?.classList.toggle('activa', cual === 'perfil');
+    // Guardar solo tiene sentido en el cuestionario.
+    document.getElementById('pfBtnGuardar')?.classList.toggle('hidden', cual !== 'perfil');
     if (window.lucide) lucide.createIcons();
 }
 
 async function pfCargar() {
-    pfTab(pfTabActiva);
     const est = document.getElementById('pfEstado');
     try {
         const r = await fetch(`${API_BASE}/api/perfil`);
         const d = await r.json();
         if (!d.ok) throw new Error(d.error || 'No se pudo leer el perfil.');
-        pfTolSel = d.perfil.tolerancia;
-        pfPinta(d);          // fija VX_PERFIL y VX_TOLERANCIAS
+        VX_PERFIL = d.perfil;
+        VX_PREGUNTAS = d.preguntas || [];
+        pfProgresoSrv = d.progreso || null;
+        pfRespuestas = {};
+        pfPinta(d);
         if (est) est.innerText = '';
     } catch (e) {
-        if (est) { est.innerText = 'No se pudo cargar el perfil: ' + e.message; est.className = 'text-[11px] text-amber-400'; }
+        if (est) { est.innerText = 'No se pudo cargar el perfil: ' + e.message;
+                   est.className = 'text-[11px] text-amber-400'; }
     }
+    pfTab(pfTabActiva);
+    pfCargaAprendizaje();
+}
+
+/** El valor vigente de una pregunta: lo que has tocado ahora, o lo guardado. */
+function pfValor(preg) {
+    if (Object.prototype.hasOwnProperty.call(pfRespuestas, preg.id)) return pfRespuestas[preg.id];
+    return (VX_PERFIL || {})[preg.campo];
 }
 
 function pfPinta(d) {
-    const p = d.perfil;
-    // Las bandas se toman del payload que se está pintando, no de lo que
-    // dejara una llamada anterior: `pfPinta` tiene que poder pintar sola. Con
-    // la lista vacía, la nota del riesgo por operación salía en blanco.
-    VX_TOLERANCIAS = d.tolerancias || [];
-    VX_PERFIL = p;
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v == null ? '' : v; };
-    // El nombre/email de la sesión rellenan el hueco si el perfil está vacío:
-    // es el mismo dato y pedirlo dos veces sería trabajo del usuario, no suyo.
-    let s = null; try { s = authGetSession(); } catch (e) {}
-    set('pfNombre', p.nombre || (s && s.name) || '');
-    set('pfEmail', p.email || (s && s.email) || '');
-    set('pfCapital', p.capital);
-    set('pfHorizonte', p.horizonte);
-    set('pfTexto', p.texto);
-    const pos = p.max_posicion_pct || [20, 30];
-    set('pfPosMin', pos[0]); set('pfPosMax', pos[1]);
+    // Se pinta lo que llega en el payload, no lo que dejara una llamada
+    // anterior. `pfPinta` tiene que poder pintar sola — leer las preguntas de
+    // una variable que solo llena `pfCargar` ya dejó una pantalla en blanco
+    // una vez, y es el tipo de fallo que ningún test de texto puede ver.
+    VX_PERFIL = d.perfil || VX_PERFIL;
+    if (d.preguntas) VX_PREGUNTAS = d.preguntas;
+    const p = VX_PERFIL || {};
+    const u = d.usuario;
 
-    const caja = document.getElementById('pfTolerancias');
-    if (caja) {
-        // El id de la banda va como `data-tol` y se lee por delegación, no
-        // dentro de un `onclick`: `_vcEsc` escapa para HTML, que no es lo
-        // mismo que escapar para un literal de JS — una comilla se saldría
-        // del string. Es el mismo cuidado que `_vcTicker` documenta.
-        caja.innerHTML = (d.tolerancias || []).map(t => `
-            <button type="button" data-tol="${_vcEsc(t.id)}"
-                    class="pf-tol text-left px-3 py-2.5 rounded-xl border transition">
-                <span class="block text-[11px] font-bold">${_vcEsc(t.label)}</span>
-                <span class="block text-[9px] opacity-70 mt-0.5">${t.riesgo_pct}% por operaci&oacute;n</span>
-            </button>`).join('');
-        caja.onclick = e => {
-            const b = e.target.closest('[data-tol]');
-            if (b) pfEligeTolerancia(b.dataset.tol);
-        };
+    // ── Información: la cuenta ───────────────────────────────────────
+    const cuenta = document.getElementById('pfCuenta');
+    if (cuenta) {
+        const fila = (etq, val) => `<div class="flex items-baseline justify-between gap-3 border-b border-gray-800/60 pb-2">
+            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider shrink-0">${etq}</span>
+            <span class="text-gray-200 text-right break-all">${val}</span></div>`;
+        cuenta.innerHTML = u
+            ? fila('Nombre', _vcEsc(u.nombre)) + fila('Email', _vcEsc(u.email)) +
+              fila('Perfil', `${(p.respondidas || []).length} de ${VX_PREGUNTAS.length} preguntas contestadas`) +
+              fila('Capital declarado', fmtMoney(p.capital)) +
+              fila('Riesgo por operaci&oacute;n', `${fmtMoney(p.riesgo_por_trade)} (${p.riesgo_pct}%)`)
+            : `<p class="text-xs text-amber-400">No has iniciado sesi&oacute;n. Puedes ver el cuestionario, pero no guardar tus respuestas.</p>`;
     }
-    pfEligeTolerancia(p.tolerancia);
+
+    // ── El cuestionario ──────────────────────────────────────────────
+    const caja = document.getElementById('pfPreguntas');
+    if (caja) caja.innerHTML = VX_PREGUNTAS.map(pfPreguntaHTML).join('');
+    pfPintaProgreso();
 
     const arch = document.getElementById('pfArchivos');
     if (arch) {
         const a = d.archivos || {};
         arch.innerHTML = `
-            <p class="flex items-start gap-2"><code class="text-blue-400 shrink-0">${_vcEsc(a.estructurado || '')}</code>
-               <span class="text-gray-600">la verdad estructurada &mdash; n&uacute;meros, listas, fechas.</span></p>
-            <p class="flex items-start gap-2"><code class="text-blue-400 shrink-0">${_vcEsc(a.para_los_agentes || '')}</code>
-               <span class="text-gray-600">se regenera al guardar. Es el archivo que el agente de opciones (Proyecciones)
-               y el de acciones (Analyze, Explore) ya le&iacute;an, as&iacute; que tu perfil llega a los tres por el mismo camino.</span></p>
-            <p class="text-[9px] text-gray-700 mt-2">&Uacute;ltimo guardado: ${p.actualizado ? _vcEsc(String(p.actualizado).slice(0, 16).replace('T', ' ')) + ' UTC' : 'nunca'}</p>`;
+            <p class="flex items-start gap-2"><code class="text-blue-400 shrink-0 break-all">${_vcEsc(a.para_los_agentes || '')}</code></p>
+            <p class="text-gray-600">Se regenera cada vez que guardas. Es el archivo que lee el agente de acciones
+               (Analyze, Explore) y del que sale el sizing del agente de opciones (Proyecciones):
+               tu perfil llega a los tres por el mismo camino.</p>
+            <p class="text-[9px] text-gray-700 mt-2">&Uacute;ltimo guardado: ${p.actualizado
+                ? _vcEsc(String(p.actualizado).slice(0, 16).replace('T', ' ')) + ' UTC' : 'nunca'}</p>`;
     }
+    if (window.lucide) lucide.createIcons();
 }
 
-function pfEligeTolerancia(id) {
-    pfTolSel = id;
-    document.querySelectorAll('[data-tol]').forEach(b => b.classList.toggle('activa', b.dataset.tol === id));
-    const t = VX_TOLERANCIAS.find(x => x.id === id);
-    const cap = Number(document.getElementById('pfCapital')?.value || 0);
-    const nota = document.getElementById('pfRiesgoNota');
-    if (nota && t) {
-        nota.innerHTML = `<b class="text-white">${_vcEsc(t.label)}</b> &mdash; ${_vcEsc(t.que_significa)}
-            <span class="block mt-1 text-gray-400">Riesgo m&aacute;ximo por operaci&oacute;n:
-            <b class="text-emerald-400">${fmtMoney(cap * t.riesgo_pct / 100)}</b> (${t.riesgo_pct}% de ${fmtMoney(cap)}).
-            Es el techo que ordena las Ideas y decide qu&eacute; colateral aguanta la Wheel.</span>`;
+/** Una pregunta. `heredada` es la diferencia que importa: enseña el valor de
+ *  Kevin y DICE que es suyo, en vez de presentarlo como si lo hubieras
+ *  elegido tú. */
+function pfPreguntaHTML(preg) {
+    const heredada = !((VX_PERFIL || {}).respondidas || []).includes(preg.id)
+                     && !Object.prototype.hasOwnProperty.call(pfRespuestas, preg.id);
+    const val = pfValor(preg);
+    let control = '';
+
+    if (preg.tipo === 'opcion' || preg.tipo === 'multi') {
+        const multi = preg.tipo === 'multi';
+        const sel = multi ? (Array.isArray(val) ? val : []) : [val];
+        control = `<div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2.5">` + (preg.opciones || []).map(o => `
+            <button type="button" data-preg="${_vcEsc(preg.id)}" data-opt="${_vcEsc(o.valor)}"
+                    class="pf-opt text-left px-3 py-2.5 rounded-xl border transition ${sel.includes(o.valor) ? 'activa' : ''}">
+                <span class="block text-[11px] font-bold">${_vcEsc(o.label)}</span>
+                ${o.detalle ? `<span class="block text-[9px] opacity-70 mt-0.5 leading-snug">${_vcEsc(o.detalle)}</span>` : ''}
+            </button>`).join('') + `</div>`;
+    } else if (preg.tipo === 'numero') {
+        control = `<input type="number" min="0" step="100" inputmode="decimal" data-preg="${_vcEsc(preg.id)}"
+            value="${val == null ? '' : _vcEsc(val)}"
+            class="pf-in mt-2.5 w-full sm:w-56 bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">`;
+    } else if (preg.tipo === 'rango_pct') {
+        const r = Array.isArray(val) ? val : [20, 30];
+        control = `<div class="flex items-center gap-2 mt-2.5">
+            <input type="number" min="1" max="100" data-preg="${_vcEsc(preg.id)}" data-parte="0" value="${_vcEsc(r[0])}"
+                   class="pf-in w-20 bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
+            <span class="text-xs text-gray-500">%</span><span class="text-xs text-gray-600">&ndash;</span>
+            <input type="number" min="1" max="100" data-preg="${_vcEsc(preg.id)}" data-parte="1" value="${_vcEsc(r[1])}"
+                   class="pf-in w-20 bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
+            <span class="text-xs text-gray-500">% del capital</span></div>`;
+    } else {
+        control = `<textarea rows="4" spellcheck="true" data-preg="${_vcEsc(preg.id)}"
+            class="pf-in mt-2.5 w-full bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-gray-200 leading-relaxed focus:border-blue-500/50 focus:outline-none resize-y">${_vcEsc(val || '')}</textarea>`;
     }
+
+    return `<div class="bg-panel border border-panel rounded-2xl p-4 sm:p-5" data-pregunta="${_vcEsc(preg.id)}">
+        <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div class="min-w-0">
+                <span class="text-[9px] font-bold text-blue-500 uppercase tracking-widest">${_vcEsc(preg.seccion)}</span>
+                <p class="text-sm font-bold text-white mt-0.5">${_vcEsc(preg.pregunta)}</p>
+            </div>
+            <span class="pf-badge text-[9px] font-bold px-2 py-1 rounded-full shrink-0 ${heredada
+                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/25'
+                : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25'}">${heredada
+                ? 'valor heredado' : 'contestada'}</span>
+        </div>
+        <p class="text-[10px] text-gray-600 leading-relaxed mt-1.5">${_vcEsc(preg.ayuda)}</p>
+        ${control}
+    </div>`;
+}
+
+function pfPintaProgreso() {
+    const caja = document.getElementById('pfProgreso');
+    if (!caja) return;
+    const total = VX_PREGUNTAS.length || 1;
+    const hechas = new Set([...(((VX_PERFIL || {}).respondidas) || []),
+                            ...Object.keys(pfRespuestas)]).size;
+    const pct = Math.round(hechas / total * 100);
+    const todo = hechas >= total;
+    caja.className = `rounded-2xl px-4 py-3 border ${todo
+        ? 'bg-emerald-500/[0.07] border-emerald-500/25' : 'bg-amber-500/[0.07] border-amber-500/25'}`;
+    caja.innerHTML = `
+        <div class="flex items-baseline justify-between gap-3 flex-wrap">
+            <p class="text-xs font-bold ${todo ? 'text-emerald-400' : 'text-amber-400'}">
+                ${hechas} de ${total} preguntas contestadas</p>
+            <p class="text-[10px] text-gray-500">${pct}%</p>
+        </div>
+        <div class="h-1.5 rounded-full bg-black/30 mt-2 overflow-hidden">
+            <div class="h-full ${todo ? 'bg-emerald-500' : 'bg-amber-500'}" style="width:${pct}%"></div>
+        </div>
+        <p class="text-[10px] text-gray-500 mt-2 leading-relaxed">${todo
+            ? 'El perfil es tuyo entero. Los tres agentes recomiendan con estos n&uacute;meros.'
+            : 'Lo que no contestes usa la respuesta de Kevin &mdash; el perfil de referencia. Funciona, pero recomienda con SU capital y SU tolerancia, no con los tuyos.'}</p>`;
+}
+
+/* Un solo manejador para todo el cuestionario, por delegación.
+ *
+ * Los ids de pregunta van en `data-preg`, nunca dentro de un `onclick`:
+ * `_vcEsc` escapa para HTML, que no es lo mismo que escapar para un literal
+ * de JavaScript. Es el mismo cuidado que documenta `_vcTicker`. */
+document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('.pf-opt');
+    if (!b) return;
+    const preg = VX_PREGUNTAS.find(p => p.id === b.dataset.preg);
+    if (!preg) return;
+    if (preg.tipo === 'multi') {
+        const actual = Array.isArray(pfValor(preg)) ? [...pfValor(preg)] : [];
+        const i = actual.indexOf(b.dataset.opt);
+        if (i >= 0) actual.splice(i, 1); else actual.push(b.dataset.opt);
+        pfRespuestas[preg.id] = actual;
+    } else {
+        pfRespuestas[preg.id] = b.dataset.opt;
+    }
+    pfRepintaPregunta(preg);
+});
+
+document.addEventListener('input', e => {
+    const el = e.target;
+    if (!el || !el.dataset || !el.dataset.preg || !el.classList.contains('pf-in')) return;
+    const preg = VX_PREGUNTAS.find(p => p.id === el.dataset.preg);
+    if (!preg) return;
+    if (preg.tipo === 'numero') {
+        pfRespuestas[preg.id] = Number(el.value || 0);
+    } else if (preg.tipo === 'rango_pct') {
+        const base = Array.isArray(pfValor(preg)) ? [...pfValor(preg)] : [20, 30];
+        base[Number(el.dataset.parte)] = Number(el.value || 0);
+        pfRespuestas[preg.id] = base;
+    } else {
+        pfRespuestas[preg.id] = el.value;
+    }
+    // El texto NO se repinta: reemplazar el `<textarea>` mientras escribes te
+    // mueve el cursor al principio en cada tecla. Solo se actualiza la insignia.
+    pfActualizaInsignia(preg);
+    pfPintaProgreso();
+});
+
+function pfRepintaPregunta(preg) {
+    const nodo = document.querySelector(`[data-pregunta="${CSS.escape(preg.id)}"]`);
+    if (!nodo) return;
+    nodo.outerHTML = pfPreguntaHTML(preg);
+    pfPintaProgreso();
+    if (window.lucide) lucide.createIcons();
+}
+
+function pfActualizaInsignia(preg) {
+    const nodo = document.querySelector(`[data-pregunta="${CSS.escape(preg.id)}"] .pf-badge`);
+    if (!nodo) return;
+    nodo.className = 'pf-badge text-[9px] font-bold px-2 py-1 rounded-full shrink-0 '
+        + 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25';
+    nodo.innerText = 'contestada';
 }
 
 async function pfGuardar() {
     const est = document.getElementById('pfEstado');
     const btn = document.getElementById('pfBtnGuardar');
-    const val = id => document.getElementById(id)?.value;
+    if (!Object.keys(pfRespuestas).length) {
+        if (est) { est.innerText = 'No has cambiado nada.'; est.className = 'text-[11px] text-gray-500'; }
+        return;
+    }
     if (btn) btn.disabled = true;
     if (est) { est.innerText = 'Guardando…'; est.className = 'text-[11px] text-gray-500'; }
     try {
         const r = await fetch(`${API_BASE}/api/perfil`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                nombre: val('pfNombre'), email: val('pfEmail'),
-                capital: Number(val('pfCapital') || 0),
-                tolerancia: pfTolSel, horizonte: val('pfHorizonte'), texto: val('pfTexto'),
-                max_posicion_pct: [Number(val('pfPosMin') || 20), Number(val('pfPosMax') || 30)],
-            }),
+            body: JSON.stringify({ respuestas: pfRespuestas }),
         });
         const d = await r.json();
         if (!d.ok) throw new Error(d.error || 'El servidor rechazó el perfil.');
         VX_PERFIL = d.perfil;
-        pfEligeTolerancia(d.perfil.tolerancia);
-        vxPintaMenu();
-        if (est) { est.innerText = 'Guardado. Los tres agentes ya lo leen.'; est.className = 'text-[11px] text-emerald-400'; }
-        // Las Ideas se ordenan CON el perfil: si están en pantalla, ya no valen.
-        if (typeof vcTabCargada === 'object' && vcTabCargada) vcTabCargada.ideas = false;
+        pfProgresoSrv = d.progreso;
+        pfRespuestas = {};
+        pfPinta({ perfil: d.perfil, usuario: VX_USUARIO, preguntas: VX_PREGUNTAS,
+                  archivos: { para_los_agentes: 'Perfil Inversionista/usuarios/…' } });
+        if (est) { est.innerText = 'Guardado. Los tres agentes ya lo leen.';
+                   est.className = 'text-[11px] text-emerald-400'; }
+        // Las Ideas y la Wheel se ordenan CON el perfil: lo pintado ya no vale.
+        if (typeof vcTabCargada === 'object' && vcTabCargada) {
+            vcTabCargada.ideas = false; vcTabCargada.wheel = false;
+        }
+        // Y el `.md` que se acaba de regenerar es el que lee el agente de
+        // acciones, así que se recarga la ruta real en vez de dejar el texto
+        // provisional de arriba.
+        pfCargar();
     } catch (e) {
         if (est) { est.innerText = e.message; est.className = 'text-[11px] text-amber-400'; }
     } finally {
@@ -9003,10 +9138,47 @@ async function pfGuardar() {
     }
 }
 
-// El capital cambia el riesgo por operación: la nota se recalcula al teclear.
-document.addEventListener('input', e => {
-    if (e.target && e.target.id === 'pfCapital') pfEligeTolerancia(pfTolSel);
-});
+/* ── LO QUE APRENDEN LOS AGENTES ──────────────────────────────────────── */
+
+async function pfCargaAprendizaje() {
+    const caja = document.getElementById('pfAprendizaje');
+    if (!caja) return;
+    let d;
+    try {
+        d = await fetch(`${API_BASE}/api/aprendizaje`).then(r => r.json());
+    } catch (e) { d = null; }
+    if (!d || !d.ok) {
+        caja.innerHTML = `<p class="text-[11px] text-gray-600">No se pudo leer el estado de los agentes.</p>`;
+        return;
+    }
+    const NOMBRE = { acciones: 'Agente de acciones', opciones: 'Agente de opciones' };
+    const DONDE = { acciones: 'Analyze · Explore', opciones: 'Proyecciones' };
+    caja.innerHTML = Object.entries(d.agentes).map(([k, a]) => {
+        const mio = (d.tuyo || {})[k] || {};
+        return `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3.5">
+            <div class="flex items-baseline justify-between gap-2 flex-wrap">
+                <p class="text-xs font-bold text-white">${NOMBRE[k] || k}
+                    <span class="text-[9px] text-gray-600 font-normal">${DONDE[k] || ''}</span></p>
+                <span class="text-[9px] font-bold px-2 py-0.5 rounded-full ${a.listo
+                    ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'}">${a.listo
+                    ? 'aprendiendo a pleno' : 'reuniendo datos'}</span>
+            </div>
+            <p class="text-[10px] text-gray-500 leading-relaxed mt-1.5">
+                Aprende por <b class="text-gray-300">${_vcEsc(a.como_aprende || '')}</b>. ${_vcEsc(a.explicacion || '')}</p>
+            <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2.5 text-[10px]">
+                <span class="text-gray-500">Del uso de todos:
+                    <b class="text-gray-200">${a.analisis}</b> an&aacute;lisis &middot;
+                    <b class="text-gray-200">${a.tickers}</b> tickers &middot;
+                    <b class="text-gray-200">${a.personas}</b> ${a.personas === 1 ? 'persona' : 'personas'}</span>
+                <span class="text-blue-400">T&uacute; aportaste: <b>${mio.analisis || 0}</b></span>
+            </div>
+            ${a.falta ? `<p class="text-[9px] text-amber-400/80 mt-2 leading-snug">${_vcEsc(a.falta)}</p>` : ''}
+        </div>`;
+    }).join('') + `<p class="text-[9px] text-gray-600 leading-relaxed pt-1">
+        <b class="text-gray-500">Se comparte:</b> ${_vcEsc(d.privacidad.compartido)}<br>
+        <b class="text-gray-500">Es tuyo:</b> ${_vcEsc(d.privacidad.privado)}<br>
+        <b class="text-gray-500">Nunca:</b> ${_vcEsc(d.privacidad.nunca)}</p>`;
+}
 
 /* Arranque: idioma y perfil. El tema ya lo aplica su propio script. */
 document.addEventListener('DOMContentLoaded', () => {

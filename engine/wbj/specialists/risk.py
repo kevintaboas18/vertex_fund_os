@@ -54,6 +54,8 @@ another security's beta or a sector average.
 
 from __future__ import annotations
 
+import contextvars
+
 import math
 from dataclasses import dataclass, replace as _dc_replace
 from typing import Any
@@ -376,6 +378,25 @@ def _load_profile() -> dict[str, Any]:
 
 
 PROFILE: dict[str, Any] = _load_profile()
+
+#: El perfil de LA PETICIÓN en curso, cuando hay varias personas usando la app.
+#:
+#: `PROFILE` se resuelve una sola vez, al importar, y eso era correcto mientras
+#: el sistema tenía un solo inversionista. Con cuentas de verdad, dejarlo así
+#: significaba contarle a cada usuario su análisis con el capital, el horizonte
+#: y el tope de posición de Kevin — el mismo fallo silencioso que A-03.
+#:
+#: Es un `ContextVar` y no un global mutable porque dos peticiones concurrentes
+#: se pisarían: cada contexto asíncrono (y cada hilo al que Starlette copia el
+#: contexto) ve el suyo. Vacío = se usa `PROFILE`, que es lo que ocurre en la
+#: CLI y en los tests.
+PERFIL_ACTUAL: contextvars.ContextVar = contextvars.ContextVar(
+    "wbj_perfil_actual", default=None)
+
+
+def perfil_vigente() -> dict[str, Any]:
+    """El perfil que manda ahora: el de la sesión, o el del archivo."""
+    return PERFIL_ACTUAL.get() or PROFILE
 
 
 def _ok(x: float, unit: str, **lineage: object) -> Value:
@@ -793,28 +814,29 @@ def profile_fit(position_size_pct: float | None) -> dict[str, Any]:
     # The range is the cap itself, not yet pinned to one number, so the
     # breach test is against its top. Being below the range is reported
     # separately, as information rather than as a failure.
-    lo, hi = PROFILE["max_position_pct"]
+    perfil = perfil_vigente()
+    lo, hi = perfil["max_position_pct"]
     within_cap = (position_size_pct <= hi) if position_size_pct is not None else None
     below_range = (position_size_pct < lo) if position_size_pct is not None else None
     return {
         "position_size_pct": position_size_pct,
-        "max_position_pct_range": list(PROFILE["max_position_pct"]),
+        "max_position_pct_range": list(perfil["max_position_pct"]),
         "within_position_cap": within_cap,
         # Not a breach: smaller than the sizing the profile contemplates.
         "below_intended_sizing": below_range,
-        "horizon_years_range": list(PROFILE["horizon_years"]),
-        "style": PROFILE["style"],
-        "capital_usd": PROFILE["capital_usd"],
+        "horizon_years_range": list(perfil["horizon_years"]),
+        "style": perfil["style"],
+        "capital_usd": perfil["capital_usd"],
         # Procedencia (A-03): de qué archivo salió, qué campos se leyeron de él
         # y cuáles son valores por defecto. Un tope que no aparece en el perfil
         # no puede presentarse como si el inversionista lo hubiera fijado.
-        "profile_source": PROFILE.get("source"),
-        "fields_parsed": list(PROFILE.get("fields_parsed", [])),
-        "fields_defaulted": list(PROFILE.get("fields_defaulted", [])),
+        "profile_source": perfil.get("source"),
+        "fields_parsed": list(perfil.get("fields_parsed", [])),
+        "fields_defaulted": list(perfil.get("fields_defaulted", [])),
         "profile_caveat": (
             "Campos NO declarados en el perfil, con valor conservador por defecto: "
-            + ", ".join(PROFILE["fields_defaulted"])
-            if PROFILE.get("fields_defaulted") else None),
+            + ", ".join(perfil["fields_defaulted"])
+            if perfil.get("fields_defaulted") else None),
     }
 
 

@@ -39,7 +39,7 @@ globalThis.lucide = { createIcons(){} };
 
 // Se extraen las funciones que se quieren ejercitar, con sus dependencias.
 const api = new Function(src + `
-  return { renderProjIdeas, renderProjWheel, vcCabeceraPerfil, fmtMoney, pfPinta, pfTab };`)();
+  return { renderProjIdeas, renderProjWheel, vcCabeceraPerfil, fmtMoney, pfPinta, pfTab, pfPreguntaHTML };`)();
 
 let fallos = 0;
 const chk = (ok, msg) => { console.log((ok?'  \x1b[32m✓\x1b[0m ':'  \x1b[31m✗\x1b[0m ') + msg); if(!ok) fallos++; };
@@ -97,24 +97,61 @@ chk(wheel.includes('faltan $8,500'), 'dice cuánto falta para el colateral de NV
 chk(wheel.indexOf('>F<') < wheel.indexOf('NVDA'), 'lo asequible va primero');
 chk(wheel.includes('NVDA'), 'lo que no cabe NO se esconde');
 
-// ── PANTALLA DE PERFIL ───────────────────────────────────────────────────
-api.pfPinta({ perfil:{ nombre:'Kevin', email:'k@x.com', capital:1000,
-  tolerancia:'agresivo', horizonte:'1-3 años', texto:'Sin cripto.',
-  max_posicion_pct:[20,30], riesgo_pct:15, riesgo_por_trade:150, actualizado:'2026-08-06T12:00:00' },
-  tolerancias:[{id:'agresivo',label:'Agresivo',riesgo_pct:15,que_significa:'x'},
-               {id:'moderado',label:'Moderado',riesgo_pct:5,que_significa:'y'}],
-  archivos:{ estructurado:'Perfil Inversionista/perfil.json',
-             para_los_agentes:'Perfil Inversionista/Kevin.md' } });
-console.log('\n── Pantalla de perfil ──────────────────────────────────');
-chk(store['pfNombre'].value === 'Kevin', 'el nombre se rellena');
-chk(store['pfEmail'].value === 'k@x.com', 'el email se rellena');
-chk(store['pfCapital'].value === 1000, 'el capital se rellena');
-chk(store['pfTexto'].value === 'Sin cripto.', 'el texto libre se rellena');
-chk(store['pfPosMin'].value === 20 && store['pfPosMax'].value === 30, 'el tope por posición se rellena');
-chk(store['pfTolerancias'].innerHTML.includes('data-tol="agresivo"'), 'las bandas se pintan');
-chk(!store['pfTolerancias'].innerHTML.includes('onclick'), 'el id NO va dentro de un onclick');
-chk(store['pfRiesgoNota'].innerHTML.includes('$150'), 'la nota calcula el riesgo por operación');
-chk(store['pfArchivos'].innerHTML.includes('Kevin.md'), 'dice dónde acaba el perfil');
+// ── EL CUESTIONARIO ──────────────────────────────────────────────────────
+// Las preguntas llegan del servidor, no están escritas en el HTML: el smoke
+// las inyecta igual que lo haría `/api/perfil`.
+const PREGUNTAS = [
+  { id:'objetivos', seccion:'Objetivos', pregunta:'¿Qué buscas con este dinero?',
+    ayuda:'Puedes marcar más de uno.', tipo:'multi', campo:'objetivos',
+    opciones:[{valor:'crecimiento',label:'Crecimiento de capital',detalle:''},
+              {valor:'ingresos',label:'Generación de ingresos',detalle:''}],
+    defecto:['crecimiento'] },
+  { id:'tolerancia', seccion:'Tolerancia al riesgo', pregunta:'¿Cuánto puedes perder?',
+    ayuda:'Es el techo del sizing.', tipo:'opcion', campo:'tolerancia',
+    opciones:[{valor:'moderado',label:'Moderado · 5%',detalle:''},
+              {valor:'agresivo',label:'Agresivo · 15%',detalle:''}],
+    defecto:'agresivo' },
+  { id:'capital', seccion:'Capital', pregunta:'¿Con cuánto capital operas?',
+    ayuda:'Solo el dinero destinado a esto.', tipo:'numero', campo:'capital', defecto:1000 },
+  { id:'max_posicion_pct', seccion:'Reglas', pregunta:'¿Cuánto puede ocupar una posición?',
+    ayuda:'Cuánto puedes DESPLEGAR.', tipo:'rango_pct', campo:'max_posicion_pct', defecto:[20,30] },
+  { id:'texto', seccion:'En mis palabras', pregunta:'¿Algo más?',
+    ayuda:'Contexto para la tesis.', tipo:'texto_largo', campo:'texto', defecto:'' },
+];
+
+globalThis.VX_USUARIO = { id:'u1', nombre:'Kevin', email:'k@x.com' };
+api.pfPinta({
+  perfil:{ nombre:'Kevin', email:'k@x.com', capital:1000, tolerancia:'agresivo',
+           objetivos:['crecimiento'], max_posicion_pct:[20,30], texto:'',
+           riesgo_pct:15, riesgo_por_trade:150, respondidas:['capital'],
+           actualizado:'2026-08-06T12:00:00' },
+  usuario:{ id:'u1', nombre:'Kevin', email:'k@x.com' },
+  preguntas: PREGUNTAS,
+  archivos:{ para_los_agentes:'Perfil Inversionista/usuarios/Kevin-u1.md' } });
+
+const preg = store['pfPreguntas'].innerHTML;
+console.log('\n── El cuestionario ─────────────────────────────────────');
+chk(PREGUNTAS.every(p => preg.includes(p.pregunta)), 'se pintan TODAS las preguntas');
+chk(PREGUNTAS.every(p => preg.includes(p.ayuda)), 'cada una explica para qué sirve');
+chk((preg.match(/valor heredado/g) || []).length === 4, 'las 4 no contestadas se marcan como heredadas');
+chk((preg.match(/>contestada</g) || []).length === 1, 'la contestada se distingue');
+chk(preg.includes('data-preg="tolerancia"') && preg.includes('data-opt="agresivo"'),
+    'las opciones llevan el id en data-, no en un onclick');
+chk(!preg.includes('onclick'), 'ningún id de pregunta va dentro de un onclick');
+chk(preg.includes('type="number"'), 'el capital es un campo numérico');
+chk(preg.includes('data-parte="0"') && preg.includes('data-parte="1"'), 'el rango son dos campos');
+chk(preg.includes('<textarea'), 'el texto libre es un área de texto');
+
+const prog = store['pfProgreso'].innerHTML;
+chk(prog.includes('1 de 5'), 'el progreso dice cuántas van');
+chk(/Kevin/.test(prog), 'explica de quién es el valor heredado');
+
+console.log('\n── Información de la cuenta ────────────────────────────');
+const cuenta = store['pfCuenta'].innerHTML;
+chk(cuenta.includes('k@x.com'), 'muestra el email');
+chk(cuenta.includes('$1,000'), 'muestra el capital entero');
+chk(cuenta.includes('$150'), 'muestra el riesgo por operación');
+chk(store['pfArchivos'].innerHTML.includes('Kevin-u1.md'), 'dice en qué archivo acaba TU perfil');
 
 // ── franja sin perfil ────────────────────────────────────────────────────
 console.log('\n── Bordes ──────────────────────────────────────────────');

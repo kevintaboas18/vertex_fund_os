@@ -3471,3 +3471,124 @@ smoke · 12 diferenciales · 0 fallos.**
 Los diferenciales se volvieron a correr contra el clon actual de su repo
 (`53d5a20`): motor 1142/1142, motor2 918/918, compute 604/604, geo 274/274,
 reloj 223/223, calib 182/182, frescura 342/342, store 47/47, bars 27/27.
+
+## 41.15 Cuentas de verdad, el cuestionario y el aprendizaje compartido
+
+Kevin: *"en mi documento de Kevin.md hay unas preguntas que yo contesto. Cada
+usuario que se cree una cuenta debe contestar esas mismas preguntas… si no
+contesta usará las default que son las mías. También cada cuenta que se cree
+debe guardarse y puede iniciar sesión usando su email y contraseña. También todo
+lo que analicen cada usuario alimenta los agentes en general."*
+
+### Lo que había: un login que no era un login
+
+`vertex_users_db` en `localStorage`, con esta línea marcada en el propio código
+como *«demo only — not secure for production»*:
+
+```js
+users[email] = { email, name, password };   // contraseña EN TEXTO PLANO
+```
+
+Tres cosas rotas a la vez, y ninguna era obvia desde la pantalla:
+
+1. Cualquiera con la consola del navegador abierta leía la contraseña de todos.
+2. **Entrar desde el móvil era imposible**: la cuenta no existía fuera de aquel
+   Chrome. No es que fallara — es que el registro creaba otra cuenta distinta.
+3. «Cerrar sesión» borraba una clave local. No había nada que cerrar.
+
+Ahora: SQLite, **PBKDF2-HMAC-SHA256 con 600.000 iteraciones y sal por usuario**,
+y una sesión cuyo **hash** es lo único que toca el disco — llevarse la base de
+datos no es llevarse sesiones vivas. La cookie es HttpOnly (un XSS no se la
+lleva) y SameSite=Strict (la defensa contra CSRF).
+
+Y un detalle que no es cosmético: *«no existe»* y *«contraseña incorrecta»*
+devuelven **el mismo mensaje**. Distinguirlos convierte el login en un
+directorio de qué emails tienen cuenta.
+
+### El cuestionario sale de Kevin.md, no de la imaginación
+
+Doce preguntas, una por apartado que Kevin contestó en prosa: objetivos,
+horizonte, tolerancia, capital, instrumentos, vetos, universo, tope por
+posición, prioridad, experiencia, texto libre y qué espera del sistema.
+
+**Su respuesta es el `defecto` de cada una.** Y el perfil por defecto se
+construye DESDE la lista de preguntas, no como una segunda copia: una copia se
+desincronizaría con el primer cambio, y el default que se enseña en pantalla y
+el que se guarda serían distintos.
+
+Lo que no se contesta se hereda **y se declara**. La pantalla dice «4 de 12
+contestadas», cada pregunta lleva su insignia de *valor heredado*, y el propio
+`.md` que lee el agente abre diciendo cuántas siguen sin contestar. Un perfil
+heredado presentado como propio hace que el reporte hable con una confianza que
+no tiene.
+
+### Dos fallos silenciosos que el smoke y el parser real cazaron
+
+**El capital que valía $150.** El `.md` se reordenó y la sección de Tolerancia
+quedó delante de la de Capital. `risk._load_profile` toma el **primer** importe
+en dólares del documento como capital — y el primero pasó a ser el riesgo por
+operación, «$150». El especialista concluía que la cuenta entera eran $150. Lo
+cazó correr el parser REAL sobre el markdown REAL, no una copia del regex.
+
+**El horizonte que nadie eligió.** El rango en años estaba DERIVADO de los días,
+y «5+ años» acababa impreso como «1 a 3 años» porque la derivación redondeaba 90
+días a 0. Ahora cada opción declara su rango a mano: lo declarado no puede
+derivar mal.
+
+**Y dos veces el mismo patrón en el JavaScript**: una función de pintado que
+leía sus datos de una variable que solo llenaba el cargador. La primera vez dejó
+en blanco la nota del riesgo; la segunda, el cuestionario entero. Ningún test de
+texto puede ver eso — lo vio `_smoke_perfil.mjs`, que ejecuta el JS contra un DOM.
+
+### Un perfil por usuario, y cómo llega a los tres agentes
+
+| Camino | Qué cambió |
+|---|---|
+| Proyecciones | `_perfil_leer(request)` → el sizing de Ideas y la Wheel usan TU capital |
+| Prompt de Analyze/Explore | `_load_investor_profile()` resuelve TU `.md`; su firma y sus dos llamadores no cambian |
+| Especialista de riesgo | `risk.PROFILE` se resolvía **al importar**: era el de Kevin para todo el proceso |
+
+Ese tercero era el peor. La misma posición del 25% es válida para Kevin (tope
+30%) e incumplimiento para Ana (tope 10%) — sin arreglarlo, las dos veían el
+veredicto de Kevin. Se resolvió con un `ContextVar` en `risk.py`: por contexto
+asíncrono, no un global mutable que dos peticiones concurrentes se pisarían.
+
+También se arregló una deriva latente: `_load_investor_profile` calculaba el
+directorio de perfiles por su cuenta en vez de usar `_PERFIL_DIR`. Dos funciones
+resolviendo la misma ruta acaban en rutas distintas — el editor escribe en una y
+el agente lee de la otra, sin que nada falle porque el archivo viejo existe.
+
+### Archivo privado, aprendizaje compartido
+
+`/api/reports/list` devolvía **todos** los reportes a **cualquiera**. Con un solo
+usuario era lo mismo que devolver los suyos; con cuentas, es el análisis de una
+persona leído por las demás. Alimentar al agente y publicar tu trabajo no son lo
+mismo.
+
+- **Tuyo**: tus reportes. Filtrados por `usuario_id`, y `report-delete` solo
+  alcanza lo tuyo (los `report_id` llevan ticker y fecha: adivinarlos es fácil).
+- **De todos**: las series y el track record. `/api/aprendizaje` nunca devuelve
+  quién analizó qué — solo cuánto hay y de cuánta gente.
+
+**Los dos agentes aprenden distinto, y por eso se cuentan aparte:**
+
+| | Cómo aprende | Qué necesita |
+|---|---|---|
+| **Acciones** (Analyze/Explore) | **Calibración** — un lazo cerrado. Cada reporte guarda convicción y objetivos; el tiempo dice si acertó. | Reportes ya vencidos. Necesita **tiempo**, no solo volumen. |
+| **Opciones** (Proyecciones) | **Acumulación hacia adelante** — no hay nada que acertar. La IV histórica, las cadenas y el flujo no los vende nadie: se juntan una foto por día. | `MIN_IV_HISTORY_DAYS` del propio motor. Mirar un ticker YA aporta, aunque no salga ningún reporte. |
+
+El umbral se lee del módulo, no de un número copiado: una copia diría «ya está
+listo» mientras el motor sigue usando el proxy de volatilidad realizada.
+
+### Una decisión de seguridad que conviene saber
+
+`VERTEX_REGISTRO` controla quién puede crear cuenta: `abierto` (por defecto),
+`invitacion` (con `VERTEX_INVITE_CODE`) o `cerrado`. Está en `abierto` porque lo
+pedido era que la gente se registrara — pero en un despliegue público eso
+significa que **cualquiera con la URL puede crear una cuenta**. Cambiar la
+variable lo cierra sin tocar código.
+
+### Batería
+
+**2.779 tests del motor · 338 de la capa web · 248 checks de auditoría · 27 del
+smoke de JS · 12 diferenciales · 0 fallos.**
