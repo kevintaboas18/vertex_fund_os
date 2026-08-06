@@ -40,6 +40,35 @@ def client():
     return TestClient(V.app)
 
 
+@pytest.fixture
+def mercado(monkeypatch):
+    """El barrido SIN filtro de símbolo — su `fetchMarketFlow`."""
+    import wbj.tito.marketsnack as MS
+    from wbj.tito.marketsnack import FlowResult
+
+    def fake(**k):
+        tr = []
+        for i, (sym, strike, side) in enumerate(
+            [("NVDA270115C00180000", 180, "AT_ASK"),
+             ("TSLA260918C00420000", 420, "ABOVE_ASK"),
+             ("AAPL270115P00200000", 200, "AT_BID")]
+        ):
+            cp = "C" if "C00" in sym else "P"
+            tr.append({
+                "id": i + 1, "symbol": sym, "price": 12.5, "size": 900, "side": side,
+                "bid_price": 12.4, "ask_price": 12.6, "premium": 12.5 * 900 * 100,
+                "delta": 0.61 if cp == "C" else -0.31, "gamma": 0.02, "theta": -0.05,
+                "vega": 0.3, "implied_volatility": 0.42, "open_interest": 5000,
+                "volume": 6000, "score": 9, "sentiment": "bullish",
+                "timestamp": (NOW - timedelta(minutes=i * 3 + 1)).isoformat(),
+                "asset_price": strike * 0.98, "trade_condition_id": 231,
+            })
+        return FlowResult(trades=tr, pages=1, truncated=False)
+
+    monkeypatch.setattr(MS, "fetch_market_flow", fake)
+    return fake
+
+
 @pytest.fixture(autouse=True)
 def fuentes(monkeypatch, tmp_path):
     """Sustituye Massive, MarketSnack y los feeds por dobles deterministas."""
@@ -720,11 +749,21 @@ class TestElTabEsSoloDeVictor:
                       "Generar tesis AI completa", "Plan de operación"):
             assert viejo not in self._dom(), f"queda el copy viejo «{viejo}»"
 
-    def test_esta_su_cabecera_y_su_estado_vacio(self):
+    def test_esta_su_cabecera_y_el_tab_no_exige_ticker(self):
+        """Su app tiene cuatro pestañas y solo una —el dashboard— pide símbolo.
+        La de *Ideas* escanea el mercado entero sin que escribas nada. Aquí las
+        dos conviven: sin ticker manda Ideas, con ticker manda el scorecard."""
         dom = self._dom()
         assert "Tito Metralleta" in dom and "AI Options Agent" in dom
-        assert "Analiza un ticker" in dom
-        assert "el agente armar" in dom   # su frase, con la entidad HTML del acento
+        assert "Ideas del mercado" in dom
+        assert "no hace falta escribir nada" in dom
+        assert 'id="projIdeas"' in dom
+
+    def test_al_abrir_el_tab_arranca_el_screener_no_un_cartel(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "loadProjIdeas()" in html
+        # …y en cuanto hay ticker, las ideas se retiran: manda el análisis.
+        assert "_ideas.classList.add('hidden')" in html
 
     def test_no_hay_que_teclear_estan_sus_cuatro_tickers(self):
         """Su `HeaderBar` lleva `QUICK = ["TSLA","NVDA","SPY","AAPL"]`: se hace
@@ -742,6 +781,56 @@ class TestElTabEsSoloDeVictor:
             assert id_ not in html, f"{id_} sigue en la página"
         for fn in ("syncOpPlanVisibility", "projGenerarTesis"):
             assert f"function {fn}(" not in html and f"{fn}(" not in html
+
+
+class TestIdeasDelMercado:
+    """`/api/tito-ideas` — su `/api/ideas`, el screener que no pide ticker."""
+
+    def test_escanea_sin_ticker_y_devuelve_ideas(self, client, monkeypatch, mercado):
+        d = client.get("/api/tito-ideas").json()
+        assert d["ok"] is True and d["engine"] == "victor/tito"
+        assert d["ideas"] and d["tickers"] >= 1
+
+    def test_usa_SUS_parametros_de_escaneo(self, client, mercado):
+        """`MIN_PREMIUM=100_000`, `PERIOD="1d"`, `MONEYNESS_CAP=0.25` — los de
+        su `route.ts` después del commit 53d5a20."""
+        d = client.get("/api/tito-ideas").json()
+        assert d["min_premium"] == 100_000
+        assert d["period"] == "1d"
+        assert d["moneyness_cap"] == 0.25
+
+    def test_declara_POR_QUE_se_cayo_cada_contrato(self, client, mercado):
+        """Sin el desglose, "0 ideas" y "el mercado está tranquilo" se ven
+        igual. Sus cinco motivos, incluido el `lejano` del commit nuevo."""
+        d = client.get("/api/tito-ideas").json()
+        assert set(d["rejected"]) == {"theta_alto", "vencido", "sin_theta",
+                                      "no_inusual", "lejano"}
+
+    def test_el_sizing_NO_viaja_en_la_respuesta(self, client, mercado):
+        """Igual que su ruta: el tamaño de cuenta es de Kevin y no sale del
+        navegador. Aquí van los griegos, no el techo de contratos."""
+        d = client.get("/api/tito-ideas").json()
+        for i in d["ideas"]:
+            for prohibido in ("max_contracts", "total_cost", "account_size",
+                              "binding", "suggested_pct"):
+                assert prohibido not in i, f"el sizing se coló: {prohibido}"
+
+    def test_el_umbral_es_el_del_SCREENER_no_el_institucional(self):
+        from wbj.tito.risk import IDEA_UNUSUAL_THRESHOLD
+        from wbj.tito.flow import UNUSUAL_TRADE_THRESHOLD
+        assert IDEA_UNUSUAL_THRESHOLD == 5 < UNUSUAL_TRADE_THRESHOLD == 7
+
+    def test_sin_cinta_lo_dice_y_no_inventa_ideas(self, client, monkeypatch):
+        import wbj.tito.marketsnack as MS
+
+        def boom(**k):
+            raise MS.MarketSnackError("La cookie de MarketSnack caducó.")
+
+        monkeypatch.setattr(MS, "fetch_market_flow", boom)
+        d = client.get("/api/tito-ideas").json()
+        assert d["ok"] is False and d["source"] == "marketsnack"
+        assert "cadu" in d["error"]          # el motivo nuestro pasa entero
+        assert "ideas" not in d
 
 
 class TestElMotivoDeMassiveEsAccionable:

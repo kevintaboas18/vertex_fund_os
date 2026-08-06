@@ -918,10 +918,10 @@ HUERFANAS = {
         "literal que verifica diff_bars.sh, y el panel usa daily_bars_for_panel",
     "bs_delta":     "solo la llama su wheel.ts (elegir el strike por delta)",
     "implied_vol":  "solo la llama su wheel.ts (IV del contrato a vender)",
-    "fetch_market_flow": "solo la llama su /api/ideas (barrido del mercado entero)",
-    "is_tradeable_idea": "solo la llama su /api/ideas (filtro de ideas)",
-    "size_flow":         "solo la llama su /api/ideas y su ideas/page.tsx",
-    "within_moneyness":  "solo la llama su /api/ideas (filtro de cercanía del strike)",
+    "size_flow":
+        "el sizing NO se calcula en el servidor: el saldo de Kevin no sale del "
+        "navegador, igual que en su /api/ideas. La ruta devuelve los griegos; "
+        "el techo de contratos lo aplica quien tenga el perfil delante",
     # ── huérfanas EN SU PROPIO REPO ──
     "add_days":
         "sin llamador también en su occ.ts: nadie la usa en agente-tito-metralleta",
@@ -1163,7 +1163,7 @@ COMPONENTES_SUYOS = {
     "RiskProfileCard":       ("no", "el perfil de riesgo es el de Kevin, no un slider suyo"),
     "WheelPresetCard":       ("no", "de su /wheel, que no se porta"),
     "WheelTable":            ("no", "de su /wheel, que no se porta"),
-    "IdeasTable":            ("no", "de su /ideas, que no se porta"),
+    "IdeasTable":            ("panel", "renderProjIdeas — el screener de mercado del tab"),
     "RepeatBadge":           ("no", "insignia interna de otras tablas suyas"),
     "NotableTable":          ("no", "tabla de notables de su /flow, que no se porta"),
     "ChartPanel":            ("no", "su app/ChartPanel dibuja los top-5 contratos de la "
@@ -1179,7 +1179,7 @@ _portados = {k: v for k, v in COMPONENTES_SUYOS.items() if v[0] == "panel"}
 _sin_portar = {k: v for k, v in COMPONENTES_SUYOS.items() if v[0] != "panel"}
 chk(all(m for _, m in COMPONENTES_SUYOS.values()),
     f"los {len(COMPONENTES_SUYOS)} componentes de su app están declarados")
-chk(len(_portados) == 22, f"{len(_portados)} de sus componentes tienen consumidor en el tab")
+chk(len(_portados) == 23, f"{len(_portados)} de sus componentes tienen consumidor en el tab")
 chk(all(len(m) > 20 for _, m in _sin_portar.values()),
     f"los {len(_sin_portar)} no portados llevan MOTIVO escrito, no una excusa de una línea")
 # Y los que se declaran portados tienen que existir de verdad en el panel.

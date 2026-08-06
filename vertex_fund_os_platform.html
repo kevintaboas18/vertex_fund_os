@@ -2497,6 +2497,8 @@ async function loadProjections(tickerArg, opts) {
     if (!ticker) { if (inp) inp.focus(); return; }
     if (inp) inp.value = ticker;
     vcPintaQuick(ticker);
+    const _ideas = document.getElementById('projIdeas');
+    if (_ideas) _ideas.classList.add('hidden');   // manda el ticker
     const empty = document.getElementById('projEmpty');
     const content = document.getElementById('projContent');
     const btn = document.getElementById('projRefreshBtn');
@@ -2558,6 +2560,103 @@ function vcPintaQuick(activo) {
         return `<button onclick="loadProjections('${t}')" class="text-[10px] font-bold px-2 py-2 rounded-lg transition ${
             on ? 'bg-blue-500 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800 hover:text-white'}">${t}</button>`;
     }).join('');
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   IDEAS DEL MERCADO — su `/ideas`, la pestaña que NO pide ticker.
+
+   Su app tiene cuatro: *Ticker* (el dashboard, que sí exige símbolo), *Ideas*
+   (esto), *Wheel* y *Time & Sales*. Aquí las dos primeras conviven en el mismo
+   tab: sin ticker manda Ideas, con ticker manda el scorecard. Así el agente
+   hace algo desde que se abre, sin obligar a teclear nada.
+
+   El sizing NO se pide al servidor, igual que en su ruta: el tamaño de cuenta
+   es de Kevin y no tiene por qué salir del navegador.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** El ticker, saneado para poder ir dentro de un literal de JS en un atributo.
+ *  `_vcEsc` escapa para HTML, que no es lo mismo: una comilla se saldría del
+ *  string. Mismo juego de caracteres que su `fileFor`. */
+function _vcTicker(t) {
+    return String(t == null ? '' : t).toUpperCase().replace(/[^A-Z0-9._-]/g, '');
+}
+
+async function loadProjIdeas() {
+    const caja = document.getElementById('projIdeas');
+    const empty = document.getElementById('projEmpty');
+    if (!caja) return;
+    caja.classList.remove('hidden');
+    caja.innerHTML = `<p class="text-xs text-gray-500 italic flex items-center justify-center gap-2 py-6"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Escaneando el flujo de todo el mercado&hellip;</p>`;
+    if (window.lucide) lucide.createIcons();
+    let d;
+    try {
+        const r = await fetch(`${API_BASE}/api/tito-ideas`);
+        d = await r.json();
+    } catch (e) { d = { ok: false, error: e.message }; }
+    if (!d || !d.ok) {
+        caja.innerHTML = `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-center">
+            <p class="text-xs text-amber-300">${_vcEsc((d && d.error) || 'No se pudo escanear el mercado.')}</p>
+            <p class="text-[10px] text-amber-200/60 mt-1">Escribe un ticker arriba para el an&aacute;lisis completo de una acci&oacute;n.</p></div>`;
+        return;
+    }
+    if (empty) empty.classList.add('hidden');
+    renderProjIdeas(d);
+}
+
+function renderProjIdeas(d) {
+    const caja = document.getElementById('projIdeas');
+    if (!caja) return;
+    const ideas = d.ideas || [];
+    // Por qué se cayó cada contrato. Sin esto, "0 ideas" y "el mercado está
+    // tranquilo" se ven exactamente igual en pantalla.
+    const R = d.rejected || {};
+    const nota = `Escaneadas <b class="text-gray-400">${d.scanned}</b> operaciones &ge; ${fmtAbbr(d.min_premium)} en ${d.pages} p&aacute;gina(s)${d.truncated ? ' (truncado)' : ''}.
+        El filtro de calidad tumb&oacute; <b class="text-gray-400">${R.theta_alto || 0}</b> por theta alto (loter&iacute;a),
+        <b class="text-gray-400">${R.vencido || 0}</b> por vencer demasiado pronto,
+        <b class="text-gray-400">${R.sin_theta || 0}</b> sin theta en el feed,
+        <b class="text-gray-400">${R.no_inusual || 0}</b> por no ser flujo inusual y
+        <b class="text-gray-400">${R.lejano || 0}</b> por tener el strike a m&aacute;s de ${Math.round(Number(d.moneyness_cap) * 100)}% del precio.`;
+
+    if (!ideas.length) {
+        caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5 text-center">
+            <p class="text-sm font-bold text-gray-300">Sin ideas operables ahora mismo</p>
+            <p class="text-[10px] text-gray-500 mt-2 leading-relaxed max-w-xl mx-auto">${nota}</p></div>`;
+        return;
+    }
+
+    const filas = ideas.map(i => {
+        const h = i.history;
+        const t = i.type === 'call' ? 'C' : 'P';
+        return `<tr class="border-b border-gray-800/50 hover:bg-white/[0.02] cursor-pointer" onclick="loadProjections('${_vcTicker(i.ticker)}')">
+            <td class="py-2 pr-3 font-bold text-white">${_vcEsc(i.ticker)}${i.repeated ? ' <span class="text-amber-400 text-[9px]" title="contrato repetido">&#8635;</span>' : ''}</td>
+            <td class="py-2 pr-3"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${i.type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${_vcEsc(i.strike)}${t}</span></td>
+            <td class="py-2 pr-3 text-right text-gray-400">${i.dte != null ? Math.round(i.dte) + 'd' : '&mdash;'}</td>
+            <td class="py-2 pr-3 text-right text-gray-200 font-bold">${fmtAbbr(i.premium)}</td>
+            <td class="py-2 pr-3 text-right ${i.aggression === 'ask' ? 'text-emerald-400' : (i.aggression === 'bid' ? 'text-red-400' : 'text-gray-500')}">${i.aggression === 'ask' ? '&#9650; Compra' : (i.aggression === 'bid' ? '&#9660; Venta' : 'Mid')}</td>
+            <td class="py-2 pr-3 text-right text-gray-400" title="decaimiento diario en % de la prima">${i.theta_pct_daily != null ? Number(i.theta_pct_daily).toFixed(1) + '%' : '&mdash;'}</td>
+            <td class="py-2 pr-3 text-right text-amber-400 font-bold">${i.unusual_score}/30</td>
+            <td class="py-2 text-right text-[9px] ${h ? 'text-gray-300' : 'text-gray-600'}"
+                title="${h ? `${h.resolved} flows de este ticker ya juzgados por el sub-agente 6` : 'aún no hay historial guardado de este ticker'}">${
+                h && h.hit_rate != null ? `${Math.round(h.hit_rate)}% <span class="text-gray-600">(${h.resolved})</span>` : '&mdash;'}</td></tr>`;
+    }).join('');
+
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+          <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="lightbulb" class="w-4 h-4"></i> Ideas del mercado</h3>
+          <span class="text-[10px] text-gray-500">${ideas.length} operables en ${d.tickers} tickers &middot; ${d.with_history} con historial</span>
+        </div>
+        <p class="text-[10px] text-gray-600 italic mb-3">Flujo inusual de TODO el mercado, ya filtrado por lo que se puede operar: theta sano, no vencido, inusualidad &ge;5/30 y strike dentro del &plusmn;${Math.round(Number(d.moneyness_cap) * 100)}% del precio. Haz clic en una fila para el an&aacute;lisis completo de ese ticker.</p>
+        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[620px]"><thead>
+          <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+            <th class="text-left pb-1.5 pr-3">Ticker</th><th class="text-left pb-1.5 pr-3">Contrato</th>
+            <th class="text-right pb-1.5 pr-3">DTE</th><th class="text-right pb-1.5 pr-3">Dinero</th>
+            <th class="text-right pb-1.5 pr-3">Lado</th><th class="text-right pb-1.5 pr-3">Theta/d&iacute;a</th>
+            <th class="text-right pb-1.5 pr-3">Inusualidad</th><th class="text-right pb-1.5">Acierto hist.</th></tr></thead>
+          <tbody>${filas}</tbody></table></div>
+        <p class="text-[9px] text-gray-600 mt-2 leading-relaxed">${nota}</p>
+        <p class="text-[9px] text-gray-600 mt-1 italic">El tama&ntilde;o de posici&oacute;n no se calcula aqu&iacute;: tu saldo no sale del navegador. Esto es un screener de research, no una orden.</p>
+      </div>`;
+    if (window.lucide) lucide.createIcons();
 }
 
 /** La ÚNICA llamada de datos del tab.
@@ -4841,7 +4940,8 @@ function cmdKey(e) {
         if (typeof switchView === 'function') switchView('projectionsView');
         const pt = document.getElementById('projTicker'); if (pt) pt.value = tk;
         if (typeof vcPintaQuick === 'function') vcPintaQuick(null);
-        if (typeof loadProjections === 'function') loadProjections();
+        // Sin ticker el agente NO se queda esperando: escanea el mercado.
+        if (typeof loadProjIdeas === 'function') loadProjIdeas();
     } else {            // análisis completo del agente
         if (typeof analyzeTickerNow === 'function') analyzeTickerNow(tk);
     }
@@ -6567,9 +6667,11 @@ function analyzeTickerNow(tk) {
 
     <div id="projEmpty" class="text-center py-20 px-4">
         <i data-lucide="line-chart" class="w-12 h-12 text-gray-700 mx-auto mb-3"></i>
-        <p class="text-sm font-bold text-gray-300">Analiza un ticker</p>
-        <p class="text-[11px] text-gray-500 mt-1 max-w-md mx-auto leading-relaxed">Elige un ticker arriba (o b&uacute;scalo) y el agente armar&aacute; el sentiment score, el flujo inusual, los muros de strikes y el detalle completo de cada sub-agente.</p>
+        <p class="text-sm font-bold text-gray-300">Ideas del mercado</p>
+        <p class="text-[11px] text-gray-500 mt-1 max-w-lg mx-auto leading-relaxed">El agente escanea el flujo de opciones de <b class="text-gray-400">todo el mercado</b> &mdash; no hace falta escribir nada. Elige un ticker arriba si quieres el an&aacute;lisis completo de una acci&oacute;n concreta.</p>
     </div>
+
+    <div id="projIdeas" class="hidden"></div>
 
     <div id="projContent" class="hidden space-y-5">
         <!-- Big price chart with GEX levels -->
