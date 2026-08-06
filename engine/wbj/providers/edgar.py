@@ -470,6 +470,88 @@ class EdgarProvider(Provider):
                         }
         return sorted(by_cik.values(), key=lambda r: r["filing_date"], reverse=True)
 
+    def latest_earnings_release(self, cik: int, limit: int = 12) -> dict | None:
+        """El comunicado de resultados más reciente, como texto plano.
+
+        `BUS-GUIDE-027` compara el punto medio del guidance contra lo
+        reportado, y `DATASET.md` nombra su fuente: "earnings releases". El
+        motor no iba a buscarlas — sólo leía el 10-K — así que la métrica
+        quedaba MISSING para todo ticker salvo el que un analista tecleara a
+        mano.
+
+        Se busca el 8-K con **item 2.02** ("Results of Operations"), que es el
+        que la SEC exige para publicar resultados, y dentro de él el documento
+        del comunicado. El nombre no está normalizado entre emisores: KO
+        presenta `a2026q2earningsreleaseex-9.htm`, WMT `earningsreleasefy27q1.htm`
+        y PLTR `a2026q2ex991pressrelease.htm`. Por eso se buscan las tres
+        formas, y no sólo `ex-99` como haría la intuición.
+
+        **Hay emisores que no lo presentan.** NVIDIA publica el suyo en su
+        propia sala de prensa y su 8-K son 4.100 caracteres de carátula: ahí
+        esto devuelve `None`, que es la respuesta correcta. Verificado sobre
+        cuatro emisores el 2026-08-06: KO, WMT y PLTR sí, NVDA no.
+
+        Devuelve `{"text", "url", "filing_date", "accession"}` o `None`. Texto
+        y no localización, al revés que `latest_reit_supplement`, porque quien
+        lo consume verifica con cita textual: la diferencia está en que ahí un
+        parser podía confundir una columna y aquí no se parsea nada.
+        """
+        import html as _html
+        import re as _re
+
+        payload = self.get_json(
+            SUBMISSIONS_URL.format(cik=cik), {}, "submissions",
+            _cik_cache_key(cik), max_age_days=_MAX_AGE_SUBMISSIONS,
+            headers=self._headers,
+        )
+        recent = (payload or {}).get("filings", {}).get("recent")
+        if not isinstance(recent, dict):
+            return None
+        forms = recent.get("form") or []
+        items_col = recent.get("items") or [""] * len(forms)
+        accessions = recent.get("accessionNumber") or [None] * len(forms)
+        fechas = recent.get("filingDate") or [None] * len(forms)
+
+        vistos = 0
+        for i, form in enumerate(forms):
+            if form != "8-K" or "2.02" not in str(items_col[i] or ""):
+                continue
+            if vistos >= limit:
+                break
+            vistos += 1
+            accession = accessions[i]
+            if not accession:
+                continue
+            bare = accession.replace("-", "")
+            index = self.get_json(
+                f"https://www.sec.gov/Archives/edgar/data/{cik}/{bare}/index.json",
+                {}, "filing_index", f"{_cik_cache_key(cik)}_{bare}",
+                max_age_days=_MAX_AGE_FILING, headers=self._headers,
+            )
+            nombres = [str(it.get("name", ""))
+                       for it in ((index or {}).get("directory") or {}).get("item") or []]
+            elegido = next(
+                (n for n in nombres
+                 if n.lower().endswith((".htm", ".html"))
+                 and _re.search(r"earnings.?release|press.?release|ex.?99", n, _re.I)),
+                None)
+            if not elegido:
+                continue
+            url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{bare}/{elegido}"
+            crudo = self.get_text(url, {}, "earnings_release",
+                                  f"{_cik_cache_key(cik)}_{bare}_rel",
+                                  max_age_days=_MAX_AGE_FILING,
+                                  headers=self._headers)
+            if not crudo:
+                continue
+            texto = _re.sub(r"<[^>]+>", " ", crudo)
+            texto = _re.sub(r"\s+", " ", _html.unescape(texto)).strip()
+            if len(texto) < 1000:
+                continue  # una carátula, no un comunicado
+            return {"text": texto, "url": url, "accession": accession,
+                    "filing_date": fechas[i]}
+        return None
+
     def latest_reit_supplement(self, cik: int, limit: int = 12) -> dict | None:
         """Locate the newest quarterly supplement filed as an 8-K exhibit.
 
