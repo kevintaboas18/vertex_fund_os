@@ -683,14 +683,24 @@ class TestElSpotSaleDeSuFuente:
         d = client.get("/api/projection-targets?ticker=DEMO").json()
         assert d["spot"] == SPOT   # `underlying_price` del doble de cadena
 
-    def test_un_precio_no_positivo_no_se_publica_como_spot(self, client, monkeypatch):
-        """Él corta con `if (!spot || spot <= 0) return null`. Un 0 o un
-        negativo del snapshot no puede ganarle a la cadena."""
+    def test_el_nulo_baja_pero_el_cero_NO_baja(self, client, monkeypatch):
+        """Su `??` solo salta el nulo. Un `price: 0` se queda en 0 y entonces su
+        guarda `if (!spot || spot <= 0) return null` corta la lectura.
+
+        Es deliberado: si el snapshot dice 0, el feed está mal, y bajar en
+        silencio a otro precio es el fallback callado que este proyecto trata
+        como peor que un error. Aquí se corta con el motivo escrito."""
         import wbj.tito.massive as MASS
-        for malo in (0, -5, None, "abc", True):
+        # `null`/ausente → baja al precio de la cadena.
+        for nulo in ({"price": None}, {}):
+            monkeypatch.setattr(MASS, "fetch_company", lambda t, _v=nulo, **k: _v)
+            assert client.get("/api/projection-targets?ticker=DEMO").json()["spot"] == SPOT
+        # 0, negativo o basura → NO baja: no se publica lectura.
+        for malo in (0, -5, "abc", True):
             monkeypatch.setattr(MASS, "fetch_company", lambda t, _m=malo, **k: {"price": _m})
             d = client.get("/api/projection-targets?ticker=DEMO").json()
-            assert d["spot"] == SPOT, f"un price={malo!r} se coló como spot"
+            assert d["ok"] is False, f"un price={malo!r} produjo un scorecard"
+            assert "score" not in d
 
 
 class TestSinTape:

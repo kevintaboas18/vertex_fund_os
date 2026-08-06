@@ -3628,19 +3628,28 @@ def _tito_chain_and_bars(ticker):
     # entran, los niveles, el cono y los tres targets: cogerlo del eslabón
     # equivocado mueve el panel entero en silencio.
     #
-    # `_precio` implementa su `??`: solo salta el nulo. Pero un precio <= 0 no es
-    # un precio —él lo corta con `if (!spot || spot <= 0) return null`— así que
-    # aquí sigue bajando por la cadena en vez de publicar un cero.
+    # Se copia su `??` TAL CUAL, y eso incluye lo que NO hace: el `??` solo salta
+    # `null`/`undefined`. Un `price: 0` del snapshot **no** se salta — se queda en
+    # 0 y entonces su guarda `if (!spot || spot <= 0) return null` corta y NO da
+    # lectura. Es deliberado suyo: si el snapshot dice 0 el feed está mal, y
+    # bajar en silencio a otro precio es justo el fallback callado que la
+    # cabecera de este módulo llama peor que un error. Aquí se corta igual, con
+    # el motivo escrito, en vez de publicar un scorecard sobre un precio que
+    # nadie pidió.
     empresa = fetch_company(ticker) or {}
-    def _precio(*candidatos):
+    def _nn(*candidatos):
+        """`a ?? b ?? c` — devuelve el primero que no sea nulo, no el primero
+        que sea "bueno". Un 0 gana a los siguientes, igual que en su archivo."""
         for v in candidatos:
-            if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
-                return float(v)
+            if v is not None:
+                return v
         return None
-    spot = _precio(empresa.get("price"), chain_res.underlying_price, bars[-1].close)
-    if spot is None:
-        raise MassiveError(f"Massive no devolvió un precio utilizable para {ticker}.")
-    return chain_res.rows, bars, spot
+    spot = _nn(empresa.get("price"), chain_res.underlying_price, bars[-1].close)
+    if not isinstance(spot, (int, float)) or isinstance(spot, bool) or spot <= 0:
+        raise MassiveError(
+            f"Massive no devolvió un precio utilizable para {ticker} "
+            f"(snapshot {empresa.get('price')!r} · cadena {chain_res.underlying_price!r}).")
+    return chain_res.rows, bars, float(spot)
 
 
 def _tito_memory(ticker, trades, chain, bars, now):

@@ -2718,3 +2718,31 @@ calib 182/182 · frescura 342/342 · reloj 223/223
 Cero funciones muertas en el tab. Las 7 constantes de su `chartGeometry` y sus
 4 feeds de noticias coinciden literalmente.
 
+## 40.6 La cadena de datos, cotejada línea a línea con su cliente
+
+Revisada la fuente de **cada** número del tab contra su `massive.ts` y su
+`marketsnack.ts`. Dos divergencias más, ya corregidas:
+
+| Qué | Él | El port (antes) |
+|---|---|---|
+| **Rango de barras** | `new Date()` → `toDateStr` = **UTC** | `date.today()` = zona **local** del servidor → al oeste de Greenwich pedía un día menos, al este uno más |
+| **`price: 0` del snapshot** | `??` **no** salta el 0 → `if (!spot \|\| spot <= 0) return null`: **no da lectura** | bajaba al precio de la cadena — el fallback callado que la cabecera del módulo llama peor que un error |
+
+Ahora el `??` se copia tal cual, incluido lo que **no** hace: solo salta
+`null`/`undefined`. Un 0 se queda en 0 y corta, con el motivo escrito
+(`snapshot 0 · cadena …`) en vez de publicar un scorecard sobre un precio que
+nadie pidió.
+
+**Lo que ya coincidía y queda verificado:**
+
+- `Authorization: Bearer` + `cache: no-store` en Massive; `Accept` + `Cookie`
+  en MarketSnack.
+- Cadena: `/v3/snapshot/options/{T}?limit=250`, paginación por `next_url`,
+  tope `MASSIVE_MAX_PAGES=40`, y `throw` en cualquier `!res.ok` (404 incluido).
+- Barras: `/v2/aggs/ticker/{T}/range/1/day/{from}/{to}?adjusted=true&sort=asc&limit=500`.
+- Snapshot: `/v2/snapshot/locale/us/markets/stocks/tickers/{T}`, y el precio
+  como `day.c ?? min.c ?? prevDay.c`.
+- Tape: `/api/flow_feed` con `filter[scope]=all`, `filter[symbol][]`, `period`,
+  `filter[premium][gte]` y `next_page_token`, en ese orden.
+- Noticias: sus 4 feeds RSS + `/v2/reference/news` de Massive.
+
