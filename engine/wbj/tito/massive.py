@@ -31,7 +31,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 
-from .compute import count_expirations, sort_by_open_interest_desc, to_row
+from .compute import (contract_price, count_expirations,
+                      sort_by_open_interest_desc, to_row)
 from .levels import LvlBar
 from .structure import ChainRow
 
@@ -398,11 +399,24 @@ def fetch_wheel_chain(ticker: str, dte_min: int, dte_max: int,
             dte = (date.fromisoformat(str(expiration)) - base).days
         except ValueError:
             continue
+        # El precio de respaldo sale de SU `contract_price`, la misma cascada
+        # que usa para la tabla de la cadena: `last_trade` → `day.close` →
+        # `day.vwap`. Aquí se leía solo el primer nivel, y su propio comentario
+        # en `compute.py` explica por qué eso no basta:
+        #
+        #     "La fórmula del agente pide BID, pero el plan actual de Massive
+        #      NO devuelve quotes, así que cae a last_trade → day.close →
+        #      day.vwap."
+        #
+        # O sea: la cascada existe justamente para esto. Usar solo `last_trade`
+        # dejaba sin precio cualquier contrato que no hubiera negociado hoy —
+        # que fuera de sesión son todos.
+        precio, _fuente = contract_price(c)
         quotes.append(WheelChainQuote(
             strike=float(strike), expiration=str(expiration), dte=dte,
             bid=(c.get("last_quote") or {}).get("bid"),
             ask=(c.get("last_quote") or {}).get("ask"),
-            last_trade=(c.get("last_trade") or {}).get("price"),
+            last_trade=precio,
             open_interest=c.get("open_interest") or 0))
 
     otm = [q for q in quotes if q.strike <= spot] if spot is not None else quotes

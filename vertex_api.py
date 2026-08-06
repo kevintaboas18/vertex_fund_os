@@ -4416,9 +4416,12 @@ def tito_wheel(preset: str = "balanceado"):
         # Las dos rutas acaban en cero candidatos por el MISMO motivo, y
         # ninguna de las dos lo nombra. `last_quote` es un añadido de plan en
         # Massive: no es la key y no mejora reintentando.
-        if not any(q.bid is not None and q.ask is not None for q in chain.quotes):
-            return [], ("sin_horquilla",
-                        f"{len(chain.quotes)} puts y ninguno con bid/ask")
+        # Ya NO se corta por falta de horquilla: con `allow_missing_quote` el
+        # motor puntúa igual usando la cascada de precio que él mismo escribió,
+        # y el score cobra 0/15 en liquidez por no poder medir el spread. Solo
+        # se anota para poder decirlo en pantalla.
+        sin_horquilla = not any(q.bid is not None and q.ask is not None
+                                for q in chain.quotes)
 
         # Las barras van ANTES que el spot: hacen falta igual para los niveles
         # y el IV Rank, y su último cierre es el respaldo que nunca falla.
@@ -4478,7 +4481,12 @@ def tito_wheel(preset: str = "balanceado"):
             cands = wheel_candidates(CandidatesInput(
                 ticker=sym.ticker, spot=spot, quotes=chain.quotes, preset=p,
                 iv_rank=iv_rank, supports=niveles.supports, earnings=flag,
-                fallback_iv=(actual / 100) if actual is not None else 0.4))
+                fallback_iv=(actual / 100) if actual is not None else 0.4,
+                # Massive no sirve horquilla de opciones en este plan —lo dice
+                # su propio `compute.py`— y sin esto el screener sale SIEMPRE
+                # vacío. La salvaguarda no se pierde: el `spread_pct` sigue sin
+                # conocerse y el score cobra 0 de 15 en liquidez por ello.
+                allow_missing_quote=True))
         except Exception as e:                   # noqa: BLE001
             return [], ("error", f"{type(e).__name__}: {e}")
 
@@ -4490,7 +4498,7 @@ def tito_wheel(preset: str = "balanceado"):
             return [], ("fuera_de_banda",
                         f"{len(chain.quotes)} puts, ninguno con delta "
                         f"{p.delta_min}-{p.delta_max}")
-        return cands, None
+        return cands, ("__sin_horquilla__" if sin_horquilla else None)
 
     # `mapLimit(WHEEL_UNIVERSE, CONCURRENCY, …)` — el mismo tope en vuelo.
     with concurrent.futures.ThreadPoolExecutor(max_workers=_WHEEL_CONCURRENCY) as ex:
@@ -4505,10 +4513,14 @@ def tito_wheel(preset: str = "balanceado"):
         "fuera_de_banda": "cadena OK, pero ningún strike en la banda de delta",
         "sin_horquilla":  "la cadena no trae bid/ask (last_quote)",
     }
-    motivos, ejemplos = {}, {}
+    motivos, ejemplos, sin_horquilla_n = {}, {}, 0
     for sym, (cands, motivo) in zip(WHEEL_UNIVERSE, resultados):
         todos.extend(cands)
-        if motivo:
+        if motivo == "__sin_horquilla__":
+            sin_horquilla_n += 1
+            pasos.append(f"{sym.ticker}: {sum(1 for c in cands if not c.blocked)} candidatos "
+                         f"(sin horquilla)")
+        elif motivo:
             clave, detalle = motivo
             motivos[clave] = motivos.get(clave, 0) + 1
             ejemplos.setdefault(clave, f"{sym.ticker}: {detalle}")
@@ -4576,6 +4588,11 @@ def tito_wheel(preset: str = "balanceado"):
                      "dte_min": q.dte_min, "dte_max": q.dte_max,
                      "take_profit_pct": q.take_profit_pct, "roll_dte": q.roll_dte}
                     for q in WHEEL_PRESETS.values()],
+        # Cuántos símbolos se puntuaron SIN horquilla. No es un fallo —el
+        # score ya cobra 0/15 en liquidez por ello— pero quien mira la tabla
+        # tiene derecho a saber que la prima sale del último precio y no del
+        # bid, y que la liquidez no se pudo medir.
+        "quotes_missing": sin_horquilla_n,
         "blocked_summary": bloqueos,
         "blocked_total": sum(_bloqueos.values()),
         "scanned": len(WHEEL_UNIVERSE), "failed": fallidos,
