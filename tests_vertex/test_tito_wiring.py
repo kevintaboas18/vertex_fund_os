@@ -783,6 +783,83 @@ class TestElTabEsSoloDeVictor:
             assert f"function {fn}(" not in html and f"{fn}(" not in html
 
 
+class TestElPanelDiceQueEstaApagadoYPorQue:
+    """Con la cookie de MarketSnack caída, 4 de los 6 sub-agentes se apagan."""
+
+    def test_el_payload_nombra_las_categorias_sin_dato_y_el_arreglo(self, client, monkeypatch):
+        import wbj.tito.marketsnack as MS
+
+        def boom(*a, **k):
+            raise MS.MarketSnackError("La cookie de MarketSnack caducó.")
+
+        monkeypatch.setattr(MS, "fetch_flow", boom)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        ap = d["subagentes_apagados"]
+        assert ap["de"] == 6 and ap["total"] >= 4
+        cats = {c for g in ap["grupos"] for c in g["categorias"]}
+        assert {"Agresividad", "Convicción", "Inusualidad", "Contexto IV"} <= cats
+        arreglos = " ".join(g["arreglo"] for g in ap["grupos"])
+        assert "MARKETSNACK_COOKIE" in arreglos and "CADUCA" in arreglos
+
+    def test_con_las_seis_encendidas_no_hay_aviso(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        apagadas = [k for k, v in d["scores"].items() if v is None]
+        if not apagadas:
+            assert "subagentes_apagados" not in d
+
+    def test_el_aviso_se_pinta_ARRIBA_no_en_9px_al_final(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "function vcApagadosHTML(d) {" in html
+        bloque = html[html.index("    el.innerHTML = `\n      ${vcApagadosHTML(d)}"):][:400]
+        # Antes que el veredicto, que antes que los targets.
+        assert "vcApagadosHTML" in bloque
+
+    def test_sin_cinta_el_screener_no_manda_a_escribir_un_ticker(self):
+        """Era un consejo falso: con la cinta caída el análisis por ticker
+        también sale cojo, así que escribir el símbolo no arregla nada."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("async function loadProjIdeas() {")
+        cuerpo = html[i:html.index("function renderProjIdeas(d) {")]
+        assert "Escribe un ticker arriba para el" not in cuerpo
+        assert "MARKETSNACK_COOKIE no es una API key" in cuerpo
+        assert "d.source === 'marketsnack'" in cuerpo
+
+
+class TestElHorizonteSeVeYSeCambia:
+    """Kevin: «no me dice a cuánto tiempo son los targets, ni me deja ver el
+    horizonte ni cambiarlo»."""
+
+    @staticmethod
+    def _render():
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderVictorTargets(d) {")
+        return _sin_comentarios(html[i:html.index("function renderProjections(d) {")])
+
+    def test_el_selector_de_horizonte_esta_rotulado(self):
+        r = self._render()
+        assert "Horizonte" in r
+        assert "'Esta semana'" in r and "'2 semanas'" in r and "'1 mes'" in r
+
+    def test_cada_target_dice_su_plazo(self):
+        r = self._render()
+        assert "Targets a ${h} días" in r
+        assert "a ${h} días" in r          # y también en cada card
+
+    def test_la_cobertura_parcial_NO_esconde_los_targets(self):
+        """Sus DOS `caveat` no son el mismo aviso: baja liquidez es "no
+        operar"; `active < 6` dice que la confianza está recortada. La ronda 6
+        los colapsó y escondía los targets también con cobertura parcial — que
+        es el estado exacto en el que deja el panel una cookie caducada."""
+        r = self._render()
+        assert "const noFiable = !!((d.gex || {}).low_liquidity);" in r
+        assert "${noFiable ? '' :" in r, "los targets solo se ocultan por baja liquidez"
+        assert "${p.caveat ? '' :" not in r, "volvió a esconderlos por cobertura parcial"
+
+    def test_los_targets_desaparecen_SI_la_cadena_es_ilíquida(self):
+        r = self._render()
+        assert "Datos no fiables — no operar" in r
+
+
 class TestIdeasDelMercado:
     """`/api/tito-ideas` — su `/api/ideas`, el screener que no pide ticker."""
 

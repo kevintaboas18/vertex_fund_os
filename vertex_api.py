@@ -3264,6 +3264,43 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     if flow_error:
         out["flow_error"] = flow_error
         out["warnings"] = [f"Sin tape de MarketSnack: {flow_error}"] + out.get("warnings", [])
+    # Diagnóstico explícito de QUÉ sub-agente está apagado y POR QUÉ.
+    #
+    # El aviso viajaba solo dentro de `warnings`, que el panel pinta en 9px al
+    # final. Con la cookie caducada el resultado es un scorecard que se ve
+    # entero —score, veredicto, targets— sostenido por UNA sola categoría, y
+    # había que saber leer una línea de texto para enterarse. Aquí va la lista
+    # nombrada, la fuente que le falta a cada una y qué hacer.
+    _FUENTE = {
+        "aggression": ("marketsnack", "Agresividad"),
+        "conviction": ("marketsnack", "Convicción"),
+        "unusuality": ("marketsnack", "Inusualidad"),
+        "iv_context": ("marketsnack", "Contexto IV"),
+        "structure":  ("massive", "Estructura"),
+        "validation": ("memoria", "Confirmación de Precio"),
+    }
+    _apagados = [k for k, v in (out.get("scores") or {}).items() if v is None]
+    if _apagados:
+        _por_fuente = {}
+        for k in _apagados:
+            fuente, nombre = _FUENTE.get(k, ("desconocida", k))
+            _por_fuente.setdefault(fuente, []).append(nombre)
+        _ARREGLO = {
+            "marketsnack": ("La cookie de MarketSnack no está sirviendo. NO es una API key: "
+                            "es una cookie de sesión y CADUCA. Vuelve a copiarla del navegador "
+                            "(DevTools → Network → /api/flow_feed → header Cookie) y pégala en "
+                            "MARKETSNACK_COOKIE."),
+            "massive":     ("Massive no devolvió cadena para este ticker. Revisa "
+                            "/api/tito-health para ver si es la credencial, el plan o el ticker."),
+            "memoria":     ("Todavía no hay historial suficiente: el sub-agente 6 necesita flows "
+                            "guardados de días anteriores. Se llena solo con cada consulta, "
+                            "siempre que WBJ_TITO_DATA sea un disco que persista."),
+        }
+        out["subagentes_apagados"] = {
+            "total": len(_apagados), "de": 6,
+            "grupos": [{"fuente": f, "categorias": c, "arreglo": _ARREGLO.get(f, "")}
+                       for f, c in _por_fuente.items()],
+        }
     # Serie histórica para que la gráfica dibuje sin una segunda llamada.
     # 70 velas es lo que pide Víctor (`SimpleChart`: bars.slice(-70)): con el
     # reparto 60/40 del lienzo, más velas encogen el cuerpo por debajo de lo
