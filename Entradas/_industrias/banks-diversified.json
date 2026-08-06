@@ -1,0 +1,20 @@
+{
+  "_generado_por": "vertex/tam_oficial",
+  "_resuelto_en": "2026-08-05",
+  "_cadena": "JPM -> SEC EDGAR SIC 6021 (National Commercial Banks) -> NAICS 5221 -> FRED REV5221TAXABL144QNSA",
+  "_geografia": "Estados Unidos. Las encuestas del Census miden el mercado DOMESTICO; los ingresos de un emisor son mundiales. Lee la participacion como captura sobre el mercado de EE.UU.",
+  "_ambito": "US",
+  "_serie_fred": "REV5221TAXABL144QNSA",
+  "_serie_titulo": "Total Revenue for 5221: Depository Credit Intermediation, Establishments Subject to Federal Income Tax",
+  "_serie_frecuencia": "Q",
+  "_serie_ultima_observacion": "2026-01-01",
+  "_unidades_origen": "Mil. of $",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo: pasa a ser un TAM de analista.",
+  "tam": 980094000000,
+  "tam_source": "U.S. Census Bureau / BLS via FRED — Total Revenue for 5221: Depository Credit Intermediation, Establishments Subject to Federal Income Tax (REV5221TAXABL144QNSA), observacion 2026-01-01",
+  "tam_source_tier": 1,
+  "tam_history": [
+    923854000000,
+    980094000000
+  ]
+}

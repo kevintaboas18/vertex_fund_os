@@ -1,0 +1,16 @@
+{
+  "report_id": "20260803_154756_AMD",
+  "ticker": "AMD",
+  "fecha": "2026-08-03",
+  "price_at_analysis": 484.18,
+  "fair_value": 513.26,
+  "profile": "Avoid / Wait",
+  "raw_total": 36.8,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 617.62,
+    "base": 513.26,
+    "bear": 356.37
+  },
+  "framework": "WBJ v2.0.0"
+}

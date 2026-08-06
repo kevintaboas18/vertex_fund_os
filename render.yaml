@@ -28,8 +28,13 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      # La SEC exige identificarse con un contacto real
+      # (sec.gov/os/webmaster-faq#developers). Va como `sync: false` para
+      # pedirlo en el dashboard: este archivo esta en un repo publico y un
+      # correo personal ahi es una direccion mas para cosechar.
+      # Formato: "NombreDelProyecto tu-correo@ejemplo.com"
       - key: EDGAR_USER_AGENT
-        value: "Vertex Fund OS - Kevin Taboas kevintaboas02@gmail.com"
+        sync: false
       # Con el disco activo, descomenta esto para que la memoria sobreviva a
       # los redeploys. Sin el bloque `disk` de arriba, no hace nada.
       # - key: VERTEX_DB
@@ -52,9 +57,11 @@ services:
       # Claude (Anthropic): capa de judge para lo cualitativo (moat, catalizadores, etc.)
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: OPENAI_API_KEY
+      # Modelo del judge. `wbj.config` lo lee y `vertex_api` lo respeta; sin
+      # declararlo aqui habia que ponerlo a mano en el dashboard cada vez.
+      - key: JUDGE_MODEL
         sync: false
-      - key: XAI_API_KEY
+      - key: OPENAI_API_KEY
         sync: false
       - key: FMP_API_KEY
         sync: false
@@ -62,6 +69,9 @@ services:
         sync: false
       - key: FRED_API_KEY
         sync: false
+      # Quant Data: enriquece Proyecciones (flujo de opciones, dark pool). Su
+      # plan API esta inactivo, asi que hoy devuelve 403 y toda la capa cae a
+      # lo que se deriva de la cadena. Dejala vacia hasta que lo actives.
       - key: QUANTDATA_API_KEY
         sync: false
       # ── Motor de Víctor (Tito) — área de Proyecciones ──────────────────
@@ -99,8 +109,4 @@ services:
       - key: PLAID_SECRET
         sync: false
       - key: PLAID_ENV
-        sync: false
-      - key: SCHWAB_APP_KEY
-        sync: false
-      - key: SCHWAB_APP_SECRET
         sync: false

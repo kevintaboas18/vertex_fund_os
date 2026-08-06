@@ -10,10 +10,12 @@ from __future__ import annotations
 import ast
 import pathlib
 import re
+from pathlib import Path
 
 import pytest
 
 _SRC = pathlib.Path(__file__).resolve().parents[1] / "vertex_api.py"
+_RAIZ = Path(__file__).resolve().parents[1]
 _TEXT = _SRC.read_text(encoding="utf-8")
 _LINES = _TEXT.split("\n")
 
@@ -49,8 +51,11 @@ def test_no_get_route_changes_server_state():
     assert not offenders, f"GET routes that mutate: {offenders}"
 
 
-@pytest.mark.parametrize("path", ["/api/report-delete", "/api/scheduler/run-now",
-                                  "/api/backfill/start"])
+# `/api/scheduler/run-now` y `/api/backfill/start` ya no existen: el
+# planificador capturaba señales de Quant Data y el backfill reconstruía
+# confluencias de opciones, y ambas capas salieron del proyecto. Queda la
+# tercera, que es la que de verdad borraba datos con un GET.
+@pytest.mark.parametrize("path", ["/api/report-delete"])
 def test_the_three_that_were_converted_stay_post(path):
     verbs = {verb for verb, p, _ in _routes() if p == path}
     assert verbs == {"post"}, f"{path} is {verbs}"
@@ -64,29 +69,61 @@ def test_the_delete_route_does_not_hand_its_exception_to_the_browser():
     assert "logger" in body or "logging" in body
 
 
-def test_the_quantdata_base_has_no_stale_version_segment():
-    """`https://api.quantdata.us/v1` answered 404 on every path ("No
-    resource found at 'v1/option/flow'"), so options flow, dark pool and
-    GEX were dead in silence — 25 requests and ~8s per analyze against
-    routes that do not exist. Without the segment they answer 403: they
-    exist, the plan does not reach them, which is a different fact."""
-    default = re.search(r'QUANTDATA_BASE\s*=\s*os\.environ\.get\(\s*"QUANTDATA_BASE",\s*"([^"]+)"',
-                        _TEXT).group(1)
-    assert not default.rstrip("/").endswith("/v1"), default
-    assert default.startswith("https://")
+def test_yahoo_and_quantdata_never_reach_the_scoring_engine():
+    """La linea que separa los dos agentes.
+
+    Analyze (acciones) puntua SOLO con las cuatro fuentes de Victor: FMP,
+    FinnHub, FRED y EDGAR. Proyecciones (opciones) necesita cadenas que esas
+    cuatro no sirven -- FMP da 404 en `options-chain` con este plan y Quant
+    Data tiene el plan API inactivo -- asi que ahi si se usa Yahoo.
+
+    Lo que no puede pasar es que crucen. Un score que depende de un endpoint
+    sin documentar se mueve entre corridas sin que nadie sepa por que; un
+    panel de opciones que se queda vacio se ve al instante.
+
+    El motor tiene su propio guardian (`test_the_engine_no_longer_imports_yahoo`,
+    en la suite del engine). Este cubre el otro lado: que la ruta de scoring
+    de la capa web no los toque.
+    """
+    import ast
+
+    arbol = ast.parse(_TEXT)
+    scoring = next(
+        n for n in ast.walk(arbol)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and n.name == "_engine_scorecard")
+
+    prohibidos = set()
+    for n in ast.walk(scoring):
+        if isinstance(n, ast.Attribute) and getattr(n.value, "id", None) == "yf":
+            prohibidos.add(f"yf.{n.attr}")
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+            f = n.func.id
+            if "quantdata" in f.lower() or f.startswith("_qd_"):
+                prohibidos.add(f)
+    assert not prohibidos, (
+        f"la ruta de scoring toca fuentes que no son de Victor: {sorted(prohibidos)}")
 
 
-def test_an_entitlement_refusal_is_not_retried_all_run():
-    """A 401/402/403 is a fact about the plan, not a transient failure.
-    Retrying it 25 times per request only spends wall time."""
-    assert "_QD_SIN_DERECHO" in _TEXT
-    body = next(b for b in [_TEXT] if "_quantdata_request" in b)
-    assert "_QD_ENTITLEMENT_STATUSES" in body
+def test_the_options_layer_is_the_only_place_yahoo_lives():
+    """Yahoo entra por UN solo import, y con su razon escrita al lado."""
+    import re as _re
+
+    assert _TEXT.count("import yfinance") == 1,         "yfinance entra por mas de un sitio; deberia haber una sola puerta"
+    bloque = _TEXT[max(0, _TEXT.index("import yfinance") - 1400):
+                   _TEXT.index("import yfinance")]
+    assert "PROYECCIONES" in bloque or "opciones" in bloque.lower(),         "el import de yfinance perdio la explicacion de por que esta ahi"
 
 
-# ===========================================================================
-# Latencia: el trabajo repetido que dominaba /api/analyze
-# ===========================================================================
+def test_the_public_repo_carries_no_personal_contact():
+    """`render.yaml` traía el correo personal en `EDGAR_USER_AGENT` con
+    `value:`. Este repo es PÚBLICO: la SEC exige un contacto real, pero el
+    sitio de ese valor es el dashboard de Render, no un archivo indexable."""
+    import re as _re
+
+    render = (_RAIZ / "render.yaml").read_text(encoding="utf-8")
+    correos = _re.findall(r"value:.*?([\w.+-]+@[\w-]+\.[\w.]+)", render)
+    assert not correos, f"correo expuesto en render.yaml: {correos}"
 
 
 def test_the_edgar_fetch_is_memoised():
@@ -127,3 +164,122 @@ def test_the_cached_payloads_are_copied_not_shared():
     fn = _TEXT[_TEXT.index("def _edgar_cache_put"):]
     fn = fn[:fn.index("\ndef ", 10)]
     assert "deepcopy" in fn
+
+
+# ===========================================================================
+# Lo que Victor tiene y faltaba aquí
+# ===========================================================================
+
+
+def test_analyze_is_serialised_like_victor_does_it():
+    """`engine/scripts/webapp.py` de Victor: *"One analysis at a time:
+    providers share one httpx client/cache."*
+
+    Su razón vale igual aquí, y desde que `/api/analyze` memoiza el
+    scorecard, el pase del LLM y las presentaciones de EDGAR, dos
+    peticiones a la vez competirían además por esos tres diccionarios: la
+    segunda podría leer una entrada a medio escribir, o duplicar 40 s de
+    trabajo que la primera ya está haciendo."""
+    assert "_ANALYZE_LOCK" in _TEXT
+    cuerpo = next(b for v, p, b in _routes() if p == "/api/analyze")
+    assert "with _ANALYZE_LOCK" in cuerpo
+
+
+def test_no_route_hands_the_raw_exception_to_the_browser():
+    """Victor devuelve `str(e)` al cliente y en su caso es inofensivo: liga
+    el servidor a `127.0.0.1`, así que el único que lo lee es él. Este
+    arranca con `--host 0.0.0.0` en Render, de cara a internet, donde ese
+    texto puede llevar rutas del servidor, SQL y — si una excepción de
+    httpx escapara de `raise_for_status()` — la URL completa CON la clave.
+
+    Es su mismo razonamiento aplicado a un contexto distinto."""
+    import re
+
+    fugas = re.findall(r'"error":\s*str\(e\)|detail=str\(e\)|"detail":\s*str\(e\)', _TEXT)
+    assert not fugas, f"{len(fugas)} rutas devuelven la excepción cruda"
+
+
+def test_the_public_error_helper_logs_what_it_hides():
+    """Ocultarlo al navegador no puede significar perderlo: el detalle
+    tiene que quedar en el log del servidor."""
+    fn = _TEXT[_TEXT.index("def _error_publico"):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert "logging.getLogger" in fn and "exc_info=True" in fn
+    assert "str(exc)" not in fn.split("return")[-1], "el mensaje devuelto no puede llevar la excepción"
+
+
+def test_the_service_binds_publicly_which_is_why_this_matters():
+    """La diferencia de contexto con Victor, fijada como hecho: si algún
+    día esto volviera a `127.0.0.1`, las dos decisiones de arriba podrían
+    revisarse."""
+    from pathlib import Path
+
+    render = (Path(__file__).resolve().parents[1] / "render.yaml").read_text(encoding="utf-8")
+    assert "0.0.0.0" in render
+
+
+def test_analyze_never_touches_yahoo():
+    """La frontera entre los dos agentes, comprobada sobre el árbol de
+    llamadas y no sobre la disciplina de quien edita.
+
+    Analyze (acciones) puntúa con FMP, FinnHub, FRED y EDGAR. Proyecciones
+    (opciones) usa Yahoo porque las cadenas de opciones no existen en esas
+    cuatro. Lo que no puede pasar es que crucen: un score que depende de un
+    endpoint sin documentar se mueve entre corridas sin que nadie sepa por
+    qué.
+
+    Se recorre el cierre COMPLETO de llamadas desde `_analyze_ticker_serializado`
+    (139 funciones), no sólo su cuerpo — el último uso que quedaba estaba a
+    varios saltos de distancia, dentro de `_backtest_signals`.
+    """
+    import ast
+
+    arbol = ast.parse(_TEXT)
+    fns = {n.name: n for n in ast.walk(arbol)
+           if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+    alcanzables = {"_analyze_ticker_serializado"}
+    creciendo = True
+    while creciendo:
+        creciendo = False
+        for nombre in list(alcanzables):
+            cuerpo = fns.get(nombre)
+            if cuerpo is None:
+                continue
+            for c in ast.walk(cuerpo):
+                if (isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                        and c.func.id in fns and c.func.id not in alcanzables):
+                    alcanzables.add(c.func.id)
+                    creciendo = True
+
+    assert len(alcanzables) > 50, (
+        f"el cierre salió demasiado pequeño ({len(alcanzables)}): el propio "
+        "test dejó de cubrir lo que dice cubrir")
+
+    sucias = [f"{nombre}:{c.lineno}" for nombre in alcanzables
+              for c in ast.walk(fns[nombre])
+              if isinstance(c, ast.Attribute) and getattr(c.value, "id", None) == "yf"]
+    assert not sucias, f"el análisis de acciones volvió a tocar Yahoo: {sucias}"
+
+
+def test_yahoo_is_not_imported_until_projections_asks():
+    """El import es PEREZOSO: cargar el módulo no debe traer yfinance.
+
+    Con un `import` en la cabecera, yfinance entraba en memoria en cada
+    arranque aunque nadie abriera Proyecciones — y hacía imposible
+    distinguir "está cargado porque el análisis lo usó" de "está cargado
+    porque el archivo lo importó".
+    """
+    import ast
+
+    arbol = ast.parse(_TEXT)
+    cabecera = {a.name for n in ast.walk(arbol) if isinstance(n, ast.Import)
+                for a in n.names
+                if isinstance(getattr(n, "parent", None), type(None))}
+    # Un `import yfinance` a nivel de módulo (columna 0) es lo que se prohíbe.
+    directos = [n.lineno for n in arbol.body if isinstance(n, ast.Import)
+                and any(a.name == "yfinance" for a in n.names)]
+    assert not directos, (
+        f"volvió el import de yfinance en la cabecera (línea {directos}); "
+        "debe cargarse sólo cuando Proyecciones lo pide")
+    assert "_YahooPerezoso" in _TEXT, "desapareció el cargador perezoso"

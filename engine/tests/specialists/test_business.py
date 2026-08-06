@@ -784,7 +784,10 @@ def test_proxies_are_declared_in_the_output_not_just_in_comments():
     import re
     import pathlib
 
-    src = pathlib.Path("wbj/specialists/business.py").read_text(encoding="utf-8")
+    # Anclado al módulo y no al directorio actual: con una ruta relativa este
+    # test pasaba desde `engine/` y fallaba desde la raíz del repo, que es
+    # justo donde se corre la suite completa.
+    src = pathlib.Path(bus.__file__).read_text(encoding="utf-8")
     declared = re.findall(r'assumptions\.append\(\s*\n?\s*"([^"]+)', src)
     joined = " ".join(declared)
     assert "revenue CAGR" in joined

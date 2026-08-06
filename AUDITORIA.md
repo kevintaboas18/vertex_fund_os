@@ -1248,12 +1248,1248 @@ No basta con que pasen. Roto el invariante a propósito, los tres detectan:
 
 ---
 
-# 19. Auditoría del tab de Proyecciones — ronda 4 (2026-08-06)
+# 19. Puntos 3 y 4, resueltos mirando qué hace Victor — 2026-08-02
+
+Antes de diseñar nada, cloné su repo y leí `engine/scripts/webapp.py`.
+
+## 19.1 Lo que Victor hace
+
+| | Victor | nosotros (antes) |
+|---|---|---|
+| `/api/analyze` | **síncrono**, bajo un lock global | síncrono, **sin lock** |
+| errores al cliente | `self._json({"error": str(e)}, 500)` | `{"error": str(e)}` |
+| bind | **`127.0.0.1`** | `0.0.0.0` (Render) |
+| caché a nivel de análisis | ninguna | 3 (motor, LLM, EDGAR) |
+
+Su comentario, literal: *"One analysis at a time: providers share one httpx
+client/cache."*
+
+## 19.2 Punto 3 (latencia): su respuesta es "no lo difieras"
+
+Victor **no** separa los números del LLM. Corre todo síncrono y liga el servidor a
+localhost, donde 90 s no molestan a nadie porque no hay proxy que corte.
+
+Así que el rediseño asíncrono **no es "como Victor lo tiene"** — es lo contrario.
+Y nuestra versión ya es más rápida que la suya: él no cachea nada a nivel de
+análisis; nosotros vamos a **6.5 s en repeticiones** y 42 s en frío.
+
+Lo que sí le faltaba a nuestra copia era **su lock**. Adoptado. Y ahora importa más
+que a él: desde que `/api/analyze` memoiza el scorecard, el pase del LLM y las
+presentaciones de EDGAR, dos peticiones simultáneas competirían por esos tres
+diccionarios — la segunda podría leer una entrada a medio escribir, o duplicar
+40 s de trabajo que la primera ya está haciendo.
+
+**Verificado:** 3 peticiones concurrentes se serializan (6.7 / 13.2 / 20.4 s) y
+las tres devuelven lo idéntico — `fair_value` 281.05, `DESFAVORABLE`.
+
+## 19.3 Punto 4 (`str(e)`): su elección es segura en SU contexto
+
+Victor devuelve la excepción cruda, y en su caso es inofensivo: el único que la lee
+es él, porque su servidor nunca sale de `127.0.0.1`.
+
+El nuestro arranca con `--host 0.0.0.0` en Render, de cara a internet. Ahí ese
+mismo texto puede llevar rutas del servidor, fragmentos de SQL y —si algún día una
+excepción de httpx escapara de `raise_for_status()`— la URL completa **con la clave
+en la query**. Hoy verifiqué que ninguna ruta está en ese último caso; el cambio es
+para que siga siendo cierto sin depender de revisarlo cada vez.
+
+**14 ocurrencias** sustituidas por `_error_publico(exc, contexto)`: el detalle va al
+log con `exc_info=True`, y al navegador una frase que no revela nada.
+
+**Es su mismo razonamiento aplicado a un contexto distinto** — él eligió localhost
+precisamente para que sus internos quedaran privados—, no una desviación de su
+metodología.
+
+## 19.4 Estado
+
+**2111 tests del engine + 75 de la capa web** (4 nuevos: el lock, la ausencia de
+fugas, que el helper sí registre lo que oculta, y el bind público como el hecho que
+justifica ambas decisiones).
+
+---
+
+# 20. Más paridad con la capa web de Victor — 2026-08-02
+
+El lock ya estaba (§19). Releyendo `engine/scripts/webapp.py` aparecieron dos
+patrones suyos más que esta copia no tenía.
+
+## 20.1 Un cliente httpx por proceso
+
+Victor: `edgar = EdgarProvider(settings, Cache(settings.cache_dir))` **a nivel de
+módulo**, instanciado una vez y reutilizado toda la vida del servidor.
+
+Esta copia hacía lo contrario. `Provider.__init__` llamaba a `httpx.Client()` cada
+vez que nadie le pasaba uno, y `build_providers` se invoca **siete veces** entre
+`deep`, `report` y la capa web.
+
+**Medido sobre un `run_report` real: 22 clientes.** Cada uno con su propio pool, así
+que ninguna conexión se reutilizaba entre proveedores —handshake TCP+TLS nuevo en
+cada llamada— y ninguno se cerraba explícitamente.
+
+Dos cambios:
+
+- `build_providers` memoizado por `(cache_dir, repo_root)`, devolviendo el mismo
+  juego con el mismo cliente.
+- `Provider.__init__` cae a un **cliente compartido perezoso** en vez de crear uno.
+  Arreglarlo en la raíz cubre también los proveedores que se construyen por otras
+  rutas, sin perseguir llamadores.
+
+Un cliente explícito sigue mandando — los tests inyectan `MockTransport` y no se ven
+afectados.
+
+| | antes | ahora |
+|---|---|---|
+| clientes en el 1er reporte | **22** | **4** |
+| clientes en el 2º reporte | 22 | **2** |
+
+Los 2 restantes son del SDK de Anthropic (el judge y la tesis ejecutiva), que no son
+nuestros para agrupar.
+
+## 20.2 Lo que NO copié, y por qué
+
+Victor serializa **dos** rutas: `/api/screen` y `/api/analyze`. Nosotros serializamos
+`/api/analyze`. Tenemos ocho rutas pesadas más (`/api/explore`, `/api/backtest`,
+`/api/watchlist-radar`…) que siguen sin lock.
+
+**No las serialicé.** Con un solo lock global, encadenar ocho rutas más convierte
+cualquier panel lento en un bloqueo de toda la aplicación — y ninguna de esas ocho
+toca las tres cachés de `/api/analyze`, que era la razón concreta para serializar.
+Queda anotado como decisión consciente, no como olvido.
+
+## 20.3 Estado
+
+**2115 tests del engine + 75 de la capa web.**
+
+---
+
+# 21. La caché de proveedores se escribía a medias (W-04)
+
+Al revisar si esas ocho rutas necesitaban lock, lo que apareció no fue un problema
+de rutas: era la caché compartida. `Cache.put` escribía así:
+
+```python
+path.write_text(json.dumps(record), encoding="utf-8")
+```
+
+`write_text` abre **truncando**. Entre el truncado y el volcado el archivo está
+vacío en disco. Y la aplicación corre **cuatro hilos de fondo** que escriben esa
+misma caché mientras las peticiones en vivo la leen:
+
+| Hilo | `vertex_api.py` |
+|---|---|
+| índice de FMP | `_fmp_cargar_indice` |
+| backfill | `_run_backfill` |
+| planificador | `_scheduler_loop` |
+| colección bajo demanda | `_run_daily_collection` |
+
+**Por qué no se veía.** `_read_record` devuelve `None` ante un JSON roto, así que
+la carrera no se manifestaba como un error: se manifestaba como una petición más a
+la API. Cuota gastada para recuperar algo que ya estaba guardado.
+
+**Medido** (3 escritores + 3 lectores, 1.5 s, misma entrada):
+
+| | lecturas perdidas |
+|---|---|
+| `write_text` (original) | **71** |
+| temporal + `os.replace` | **0** |
+
+## 21.1 El arreglo no era el lock
+
+Serializar ocho rutas habría tapado el síntoma en la web y dejado el defecto vivo
+en los cuatro hilos de fondo, que no pasan por ninguna ruta. La escritura atómica
+—temporal en el MISMO directorio y luego `os.replace`, atómico en POSIX y en
+Windows— lo arregla en la raíz y cubre todos los llamadores a la vez, sin
+encadenar la aplicación. **Sigue sin haber lock en esas ocho rutas, y ahora por
+una razón medida, no por prudencia.**
+
+Un fallo de disco en `put` no puede tumbar el análisis: el dato ya se obtuvo y la
+caché es una optimización, así que el `OSError` se traga tras limpiar el temporal.
+
+## 21.2 Un segundo hallazgo, específico de Windows
+
+Con la escritura ya atómica el test **seguía fallando**: 15 lecturas perdidas, pero
+no por contenido roto — `PermissionError`. En Windows `os.replace` deja una ventana
+brevísima en la que abrir el destino da *sharing violation* aunque el reemplazo
+funcione. En Linux (Render, producción) no ocurre.
+
+El efecto es el mismo agujero de cuota, así que `_read_record` reintenta 3 veces
+con 10 ms. Distingue los dos casos: un `JSONDecodeError` es corrupción real y no se
+reintenta; un `OSError` es la ventana del rename y sí.
+
+## 21.3 Estado
+
+`engine/tests/test_cache_writes_are_atomic.py` — 5 tests con hilos de verdad contra
+disco de verdad, no lectura de código fuente. Verificado que **fallan** contra el
+`put` original (71 lecturas rotas), así que discriminan.
+
+**2120 tests del engine + 75 de la capa web.**
+
+---
+
+# 22. El protocolo de memoria se degradaba solo (M-01)
+
+`CLAUDE.md` hace obligatorio escribir `Memoria/tesis/<TICKER>.md` y una línea
+en `Memoria/MEMORIA.md` después de cada análisis. El escritor existía y corría
+— pero se destruía a sí mismo, sin dar error nunca.
+
+## 22.1 El título se multiplicaba
+
+```python
+f.write(f"# Tesis — {ticker.upper()}\n\n{entry}{prev}")
+```
+
+`prev` era el archivo ANTERIOR COMPLETO, título incluido, y se le anteponía un
+título nuevo. Estado encontrado:
+
+| Archivo | Encabezados `# Tesis` | Bloques | Bloques DISTINTOS |
+|---|---|---|---|
+| `NVDA.md` | **32** | 32 | **15** |
+| `AAPL.md` | 2 | 2 | 2 |
+
+## 22.2 El índice crecía sin límite
+
+`open(idx, "a")` añadía una línea por CORRIDA. `MEMORIA.md` tenía 34 líneas,
+25 de ellas `NVDA` con texto idéntico (`raw 37.1/100 · FV $281.05`) — y el
+propio archivo pide lo contrario: *"el agente agrega una línea por ticker
+analizado"*. Un índice con el mismo ticker 25 veces no sirve para lo único
+que existe: mirar de un vistazo qué se dijo de cada empresa.
+
+## 22.3 El arreglo
+
+Un bloque por RESULTADO, no por corrida. Cada bloque lleva
+`<!-- firma: perfil|raw|fv|bull|base|bear | desde: fecha -->`; si el análisis
+nuevo coincide, se sella *"sin cambios; revisado"* y se conserva la fecha en
+que la conclusión apareció por primera vez — que es justo el dato que decía
+cuánto tiempo se sostuvo, y que apilar duplicados destruía. Cualquier cambio
+abre bloque nuevo y **nunca** borra el viejo.
+
+El índice se reescribe: una línea por ticker, ordenada y enlazada a su tesis.
+El historial no se pierde — vive en `tesis/<TICKER>.md`, que es su sitio.
+
+Reparado el daño existente sin perder ningún análisis real: `NVDA.md` 32 → 18
+bloques (sólo se colapsaron los idénticos), `AAPL.md` intacto.
+
+Cobertura del protocolo, antes → después: **2/5 → 5/5** tickers con tesis,
+2/5 → 5/5 con `prediccion.json`, corriendo el análisis real de JPM, KO y PLTR
+(no escribiendo los archivos a mano).
+
+## 22.4 Estado
+
+`tests_vertex/test_memoria_protocolo.py` — 8 tests. Todos REPITEN corridas,
+que es lo único que destapa ambos fallos.
+
+**2125 tests del engine + 88 de la capa web.**
+
+---
+
+# 23. ABIERTO: las dos capas no dan el mismo número (M-02)
+
+`CLAUDE.md`: *"Dos capas, una sola matemática. `engine/wbj/` calcula;
+`vertex_api.py` presenta."* No se cumple.
+
+Mismo ticker, mismo día (2026-08-03), NVDA:
+
+| Camino | raw | business | financial | market | technical | risk | valuation |
+|---|---|---|---|---|---|---|---|
+| `run_aggregate` (motor) | **47.91** | 11.39 | 10.08 | 5.05 | 10.48 | 5.95 | 4.97 |
+| `/api/analyze` (web) | **37.0** | 6.8 | 10.05 | 1.8 | 9.4 | 4.05 | 5.1 |
+
+**No es el judge.** Medido con `judge=True` y `judge=False`: 47.91 en ambos
+casos, porque el judge está caído por créditos y su fallo ya degrada limpio.
+
+**Causa:** `vertex_api.py::_engine_scorecard` construye su PROPIO `_overlay`
+(beta, risk_free_rate, interest_expense, equity_issuance, estimates) en
+paralelo al que arma `engine/wbj/deep.py::_run_specialists`. Dos overlays
+independientes alimentan a los mismos especialistas con entradas distintas.
+Es lógica de scoring duplicada que derivó.
+
+**Qué implica:** el número que se ve en la interfaz y el que escribe la
+memoria (37.0) NO es el que da el motor (47.91). Las cinco tesis recién
+escritas usan el de la ruta.
+
+**Por qué queda abierto:** unificarlo es un cambio de arquitectura —
+`_engine_scorecard` tendría que consumir `run_aggregate` en vez de reimplementarlo—
+y decide Victor cuál de los dos overlays es el bueno.
+
+---
+
+# 24. Yahoo fuera del motor (Y-01)
+
+Decisión de Victor: las fuentes del sistema son **FMP, FinnHub, FRED y
+EDGAR**. yfinance no está en esa lista, y raspa un endpoint que nadie
+documenta — un score que depende de eso puede moverse entre dos corridas sin
+que nadie sepa por qué.
+
+`_yahoo_revisions` alimentaba tres cosas. Al quitarlo:
+
+| Aportaba | Métrica | Después |
+|---|---|---|
+| `eps_growth_pct` | VAL-PEG-028 | **Sustituido por FMP**: primer año FORWARD contra el último pasado del mismo panel. NVDA: 9.001/4.694 = **+91.8%** vs el +88.6% de Yahoo |
+| `current`/`prior_consensus` | MKT-REVMAG-012 | `_consensus_history` (snapshots propios de FMP). Necesita 30 días; ya está grabando desde 2026-08-01, así que vuelve a puntuar **~2026-08-31** |
+| `upward`/`total` | MKT-REVBR-011 | **NOT_SCORABLE.** Ninguna fuente principal sirve conteos de revisión de ESTIMADOS. FMP `grades` son cambios de RECOMENDACIÓN — otra magnitud, no se sustituye |
+
+**Coste medido** (NVDA, 2026-08-03): Market **5.05 → 1.84 / 20**, cobertura
+0.487 → 0.388. Se recupera parcialmente solo, con el histórico propio.
+
+El aviso de MKT-REVBR-011 ahora explica la causa y qué declarar en
+`Entradas/<TICKER>.json`, en vez de decir sólo "unavailable".
+
+## 24.1 Lo que sigue usando Yahoo
+
+La capa web, en 116 puntos: precio histórico (25), `.info`/quote y **cadenas
+de opciones (7)**. FMP cubre los dos primeros (`historical-price-eod/full`,
+`quote`, `profile` → 200). **Las opciones no**: `options-chain` y
+`options/contracts` dan **404** en este plan, y QuantData —que era la fuente
+de opciones— tiene el plan API inactivo. Quitarlas dejaría los paneles de
+opciones sin datos.
+
+## 24.2 Estado
+
+`test_the_engine_no_longer_imports_yahoo` recorre todo `engine/wbj/` y falla
+si alguien vuelve a importarlo.
+
+**2126 tests del engine + 88 de la capa web.**
+
+---
+
+# 25. Sólo las cuatro fuentes de Victor (Y-02)
+
+Decisión de Victor: el proyecto usa **FMP, FinnHub, FRED y EDGAR**, y nada
+más. Se verificó contra su repo: sus proveedores son exactamente
+`edgar/finnhub/fmp/fred`, su `pyproject.toml` no declara yfinance, y no hay
+una sola línea de opciones ni de Quant Data en su código.
+
+## 25.1 yfinance sustituido, no parcheado
+
+`vertex_market.Ticker` replica el contrato de `yfinance.Ticker` con datos de
+FMP, para no reescribir 45 llamadores en un archivo de 13.500 líneas.
+Verificado contra la clave de Victor (2026-08-03):
+
+| Necesidad | Endpoint FMP | Antes |
+|---|---|---|
+| velas diarias | `historical-price-eod/full` | Yahoo |
+| **velas 1h / 5m** | `historical-chart/{1hour,5min}` | **sólo Yahoo** |
+| cotización / ficha | `quote`, `profile` | Yahoo `.info` |
+| múltiplos, márgenes | `ratios-ttm` | Yahoo |
+| precio objetivo, recomendación | `price-target-consensus`, `grades-consensus` | Yahoo |
+| noticias | `news/stock` | Yahoo |
+| insiders | `insider-trading/search` | Yahoo |
+
+El intradía es la sorpresa: el código documentaba que "el respaldo FMP SÓLO
+sirve para velas diarias" y la ruta intradía se quedaba sin red. FMP sí las
+sirve en este plan.
+
+## 25.2 Lo que se eliminó
+
+Las cadenas de opciones no tienen sustituto (`options-chain` y
+`options/contracts` dan **404**), así que se eliminaron en vez de fingir
+datos. Con ellas se fue Quant Data, cuyo plan API está inactivo.
+
+| Capa | Se fue |
+|---|---|
+| Opciones | GEX, max pain, IV, walls, venta de prima, griegas, trade-plan |
+| Quant Data | 22 funciones: flujo, convicción ΔOI, dark pool, net-flow, confluencia |
+| Derivado | proyecciones, backtest, colector de snapshots, planificador nocturno |
+
+`vertex_api.py` **13.525 → 10.811** líneas (−2.714).
+`vertex_fund_os_platform.html` **8.253 → 6.537** (−1.716).
+
+## 25.3 Lo que se conservó a propósito
+
+- `_calibration_prompt_block` — es el track record propio del ticker, no un
+  dato de opciones. Estaba enterrado en medio del bloque de Quant Data.
+- `Entradas/` y `Memoria/` — Victor no las tiene, pero son el camino de los
+  puntos de Market y el protocolo obligatorio de `CLAUDE.md`.
+- El `flow_override` quedó en `False` fijo: lo disparaba la convicción por
+  ΔOI, y activarlo por defecto afirmaría un flujo institucional que nadie
+  midió.
+
+## 25.4 Estado
+
+`/api/analyze` verificado end-to-end tras el recorte: NVDA raw 37.0 (94 s),
+JPM raw 22.9 (55 s). `/api/data-health` pasó a **ok=true** — antes era
+`false` porque declaraba Quant Data como fuente crítica y estaba caída.
+La interfaz carga con 0 errores de consola y sus 6 vistas intactas.
+
+**2126 tests del engine + 86 de la capa web.**
+
+---
+
+# 26. La capa web ignoraba `Entradas/` (M-02, resuelto)
+
+La sección 23 dejó abierto que motor y web daban números distintos para el
+mismo ticker el mismo día. La causa medida:
+
+| | Claves del overlay | ¿Usa `build_overlay`? |
+|---|---|---|
+| Motor (`run_aggregate`, `wbj report`, CLI) | **42** | — |
+| Ruta web (`_engine_scorecard`) | **16** | **No: lo reimplementaba** |
+
+No era una regla distinta. Era **hambre de datos**: la ruta arrancaba su
+overlay en `{}` y construía 16 claves a mano. Entre las 26 que le faltaban
+estaban **todas las de `Entradas/<TICKER>.json`** — el TAM declarado con su
+fuente y su tier, la clasificación de moat, la concentración de clientes.
+
+**El analista las escribía en disco y la ruta web no las miraba.** Todo el
+trabajo de investigar el TAM de Gartner y documentar por qué `MKT-SHARE-006`
+no es puntuable existía sólo para el motor.
+
+Coste medido sobre NVDA con el packet golden: **Risk −3.94, Business −0.92**.
+
+## 26.1 El arreglo
+
+`_overlay` se siembra ahora con `build_overlay(pk, settings)` — el mismo que
+usan las otras tres entradas del sistema. Las asignaciones propias de la ruta
+van DESPUÉS y siguen ganando, así que sus seis claves exclusivas (`beta`,
+`risk_free_rate`, `equity_issuance`, `earnings_dates`, `peer_multiples`,
+`sector_breadth`) se suman en vez de competir. Riesgo de regresión: ninguno
+sobre lo que ya calculaba.
+
+Efecto en los cinco tickers con reporte, por la ruta real:
+
+| Ticker | Antes | Ahora | |
+|---|---|---|---|
+| NVDA | 37.0 | **48.6** | +11.6 |
+| JPM | 22.9 | **35.6** | +12.7 |
+| KO | 39.3 | **47.5** | +8.2 |
+| AAPL | 31.5 | **37.8** | +6.3 |
+| PLTR | 29.3 | **32.7** | +3.4 |
+
+Ninguno cambia de perfil: los cinco siguen en `Avoid / Wait`. Lo que cambia
+es que el número ya no está deprimido por datos que existían y no llegaban.
+
+## 26.2 Lo que queda
+
+La diferencia con el motor pasó de **−7.7 a +3.87**, y ahora es explicable y
+va en la dirección correcta: la ruta ve estrictamente MÁS que el motor por
+sus seis claves propias. Cerrarla del todo pide subir esas seis a
+`build_overlay`, para que las cuatro entradas del sistema vean lo mismo.
+
+## 26.3 Estado
+
+`tests_vertex/test_overlay_parity.py` — 4 tests que comparan las claves que
+cada capa entrega de verdad, no el código fuente. El testigo es el TAM: si
+deja de llegar con su tier, falla.
+
+**2126 tests del engine + 90 de la capa web.**
+
+---
+
+# 27. Auditoría de Analyze contra el repo de Victor (2026-08-03)
+
+Comparado contra `infusionvictor/warren-buffett-jr` en su commit actual
+`72d92d9`. La copia local estaba en `e841254`, muy atrasada; se actualizó
+antes de comparar.
+
+## 27.1 Cerebro: idéntico
+
+**84 de 84 archivos byte-idénticos.** La metodología —fórmulas, scoring,
+gates, políticas de datos, adaptadores— es exactamente la suya. Cero
+divergencia.
+
+## 27.2 Motor: superconjunto estricto
+
+| | |
+|---|---|
+| Funciones de Victor que me faltan | **0** |
+| Funciones mías de más | **137** |
+| Archivos que sólo tengo yo | **13** |
+
+Los 13 son precisamente la capacidad que Victor no tiene y que este proyecto
+sí necesita: `entradas.py` (canal `Entradas/<TICKER>.json`),
+`overlay/from_packet.py` (lo que alimenta a los especialistas),
+`report/*` (reporte auditable + las 4 gráficas), `deep.py` (pipeline),
+`extract/filing.py` (10-K), y cuatro lecturas compartidas del Cerebro
+(`adapters`, `taxes`, `periods`, `confidence_inputs`).
+
+**Volver a ser byte-idéntico borraría el canal `Entradas/`, el generador de
+reportes y las gráficas.**
+
+## 27.3 Dónde su código se desvía de su propio Cerebro
+
+`PRICE_LEVEL_SYNTHESIS.md` (idéntico en ambos repos) fija:
+
+```text
+Distance_percent = (Level - CurrentPrice) / CurrentPrice
+Distance_ATR     = (Level - CurrentPrice) / ATR14
+```
+
+Fórmula **con signo**: un nivel por debajo del precio da negativo.
+
+| | Convención |
+|---|---|
+| Cerebro | con signo |
+| Victor `aggregate/synthesis.py:139` | con signo ✓ |
+| Victor `engine/tests/aggregate/test_synthesis.py:38` | `-8.0` para soporte ✓ |
+| Victor `engines/levels_engine.py:796-800` | **invierte los operandos → siempre positivo** ✗ |
+| Este repo | con signo ✓ |
+
+Victor lo sabía. Su propio docstring dice que la discrepancia "no se puede
+reconciliar sin modificar ese módulo, lo cual está fuera de alcance". Su
+`synthesis.py` copia `zone.distance_percent` **tal cual** (línea 154), así
+que las dos convenciones acaban en la misma tabla.
+
+**Ser exacto a él aquí reintroduciría una desviación del Cerebro.** Se
+mantiene el arreglo.
+
+Otros defectos suyos vivos hoy que este repo ya corrige: sin
+`_settled_sessions` (la sesión en curso se toma como cierre) y sin escritura
+atómica de caché (`os.replace`).
+
+## 27.4 Estado
+
+| | Victor | Este repo |
+|---|---|---|
+| Archivos de test | 36 | **122** (motor) + 9 (web) |
+| Tests que pasan | — | **2126 + 90** |
+
+---
+
+# 28. Despliegue: config muerta y un correo en un repo público (D-01)
+
+## 28.1 Config que sobrevivió a su proveedor
+
+Al borrar las 22 funciones de Quant Data quedaron **165 líneas** de
+configuración huérfana: `QUANTDATA_API_KEY`, `QUANTDATA_BASE` y ocho
+`QD_EP_*`. No rompía nada — sólo hacía creer que el sistema depende de algo
+que ya no toca, y `render.yaml` seguía pidiendo la variable en el
+despliegue.
+
+**Al cortar ese bloque me llevé también `/api/data-health`**, que vivía
+entre esa cabecera y la siguiente. El mismo error que ya cometí con
+`portfolioView`: cortar por marcadores de sección en vez de por límites
+sintácticos. Lo detectó el test que comprueba que la UI no llame rutas
+inexistentes; restaurada desde git con su `_DH_CACHE`.
+
+## 28.2 El correo personal estaba en el repo
+
+`render.yaml` traía `EDGAR_USER_AGENT` con `value:` y el correo de Victor
+dentro. Este repo es **público**. La SEC exige un contacto real, así que el
+valor no se inventa — pero su sitio es el dashboard de Render, no un archivo
+indexable. Pasa a `sync: false`.
+
+También salieron `SCHWAB_APP_KEY` y `SCHWAB_APP_SECRET`, declaradas y nunca
+usadas, y entró `JUDGE_MODEL`, que se usa y no estaba declarada (había que
+ponerla a mano en el dashboard).
+
+## 28.3 Verificación para móvil, tablet y escritorio
+
+| | |
+|---|---|
+| viewport | `width=device-width, viewport-fit=cover` ✓ |
+| PWA | `manifest.webmanifest` + `apple-mobile-web-app-*` ✓ |
+| A 375×812 (teléfono) | **0 desbordes horizontales** ✓ |
+| `/api/data-health` | `ok`, 8 fuentes, ninguna muerta |
+| `/api/analyze` NVDA | 70.4 s, raw 48.6, upside 35.66% |
+| Rutas verificadas | self-test, quote, history, regime, track-record → 200 |
+
+## 28.4 Estado
+
+**2126 tests del engine + 91 de la capa web.**
+
+---
+
+# 29. La web quedó rota en producción por un borrado por líneas (D-02)
+
+Kevin no podía iniciar sesión ni crear cuenta en
+`https://vertex-fund-os.onrender.com`. Diagnosticado contra el sitio en vivo:
+
+```
+authSubmit      -> undefined
+renderDashboard -> undefined
+buildTVChart    -> undefined
+switchView      -> function     (está ANTES del corte)
+loadTrackRecord -> function     (está DESPUÉS)
+```
+
+Un solo error de sintaxis impide que se ejecute el bloque `<script>`
+**entero** —250.000 caracteres, casi toda la aplicación— y el navegador no
+lo grita: la página carga, se ve bien, y las funciones no existen.
+
+## 29.1 La causa
+
+Al quitar los paneles de opciones se borraron líneas por su CONTENIDO sin
+mirar si además abrían un bloque. Una era:
+
+```js
+document.getElementById('qtTradePlanBody').innerHTML = `
+```
+
+que abría una plantilla de 30 líneas. Sin ella el HTML quedó suelto en medio
+del código. Lo mismo con la firma de `projLoadChart` (quedó su cuerpo) y con
+el `const el = ...` de `runSelfTest`.
+
+**Es el tercer caso del mismo error** en esta sesión: `portfolioView`,
+`/api/data-health` y ahora esto. Cortar por marcadores o por contenido en vez
+de por límites sintácticos.
+
+## 29.2 Por qué mi verificación no lo vio
+
+Comprobé que la página cargaba y que las 6 vistas existían. `switchView`
+está en la posición 134.126 — **antes** del corte, así que respondía. Todo lo
+roto vive entre 154.491 y 462.301.
+
+Los tests existentes miran ids del DOM y rutas de la API. **Ninguno
+comprobaba que el código llegara a ejecutarse.**
+
+## 29.3 El arreglo
+
+Eliminados como unidad sintáctica: el bloque del Plan de Trade en
+`renderDashboard` (lo escribía en un `qtTradePlanBody` que ya no existe), los
+globales de Proyecciones con el cuerpo huérfano de `projLoadChart`, y
+`runSelfTest`.
+
+Verificado en ejecución: `authSubmit`, `renderDashboard`, `buildTVChart`,
+`authToggleMode` definidas; pulsar "Create one" cambia a modo `register`,
+aparece el campo de nombre y el título pasa a "Create Account".
+
+## 29.4 El test que faltaba
+
+`tests_vertex/test_javascript_parses.py` — corre `node --check` sobre cada
+bloque `<script>` propio (el mismo analizador del navegador) y comprueba que
+ningún `onclick` apunte a una función inexistente. Habría atrapado este fallo
+antes de desplegarlo.
+
+## 29.5 Un test frágil, de paso
+
+`test_the_health_strip_only_lists_real_sources` fallaba con
+`KeyError: 'sources'`: `/api/data-health` NO es pública, y `vertex_api` carga
+`vertex.env` al importarse — basta con que el desarrollador tenga su
+`VERTEX_API_TOKEN` puesto (para desplegar en Render) para recibir un 401.
+Ahora se autentica como cualquier cliente en vez de asumir un entorno sin
+token.
+
+**2126 tests del engine + 94 de la capa web.**
+
+---
+
+# 30. Proyecciones restaurada: dos agentes, una frontera (D-03)
+
+Victor pidió que Proyecciones volviera. **Es otro agente**: Analyze puntúa
+acciones, Proyecciones opera opciones. Yo lo borré por una interpretación
+mía equivocada — cuando dijo *"no toques nada de proyecciones déjalo así"*,
+lo leí como "déjalo borrado" cuando quería decir "déjalo intacto".
+
+## 30.1 La frontera
+
+| | Analyze (acciones) | Proyecciones (opciones) |
+|---|---|---|
+| Fuentes | FMP, FinnHub, FRED, EDGAR | + Yahoo (cadenas) |
+| Toca el score | sí | **nunca** |
+| Si su fuente cae | análisis degradado y declarado | panel vacío, visible al instante |
+
+Yahoo entra por **un solo import**, con su razón escrita al lado. Las cadenas
+de opciones no existen en las cuatro fuentes: FMP da 404 en `options-chain`
+con este plan y Quant Data tiene el plan API inactivo.
+
+Dos tests fijan la frontera:
+`test_yahoo_and_quantdata_never_reach_the_scoring_engine` (la ruta de scoring
+de la web) y `test_the_engine_no_longer_imports_yahoo` (el motor).
+
+## 30.2 Tres nombres que la restauración destapó
+
+Reinsertar 77 funciones por AST dejó fuera lo que vive **entre** funciones:
+
+| Nombre | Efecto |
+|---|---|
+| `_QD_SIN_DERECHO` | `NameError` en toda llamada a Quant Data |
+| `_QD_MAXPAIN_CACHE` | `NameError` en `compute_gex` → GEX caído |
+| `_SCHED_STATE` | el planificador sin estado |
+
+Y uno que **no** venía de la restauración: **`import logging` nunca existió
+en `vertex_api.py`**. `_error_publico` —el manejador de errores que escribí
+hace varias sesiones— lo usaba sin importarlo. Nunca falló porque esos
+caminos no habían lanzado una excepción; el primer error real dentro de un
+`except` produjo un `NameError` *dentro del manejador de errores*.
+
+## 30.3 Verificación en vivo
+
+| Ruta | Resultado |
+|---|---|
+| `/api/options-gex` | spot 758.39 · call wall 760 · put wall 720 · max pain 744 · gamma flip 745.89 |
+| `/api/projection-targets` | 7 targets |
+| `/api/income-strategies`, `/api/trade-plan`, `/api/options-ledger`, `/api/portfolio-options` | 200 |
+| `/api/analyze` NVDA | **raw 48.6, FV $281.05 — sin cambios** |
+
+yfinance 1.5.1 sirve 34 expiraciones de SPY (120 calls / 165 puts).
+`gex-strike` sigue diciendo "sin exposición GAMMA": eso es Quant Data, cuyo
+plan está inactivo — el resto cae a lo derivado de la cadena, como fue
+diseñado.
+
+**2126 tests del engine + 94 de la capa web.**
+
+---
+
+# 31. El navegador no se enteraba de los despliegues (D-04)
+
+Victor no podía analizar: `integrityStripHTML is not defined`. **El código
+estaba bien** — producción y local eran byte-idénticos (mismo SHA-256), los
+cuatro bloques `<script>` compilaban y la función estaba definida en la
+línea 2943.
+
+Lo que fallaba era lo que llegaba a su pantalla.
+
+## 31.1 La causa
+
+`/` se servía **sin una sola cabecera de caché**:
+
+```
+Cache-Control: (ausente)   ETag: (ausente)
+Last-Modified: (ausente)   Expires: (ausente)
+```
+
+Sin instrucciones, el navegador aplica caché heurística: decide por su cuenta
+cuánto guardarlo. El HTML es el ESQUELETO de la app —todo el JavaScript va
+dentro—, así que su navegador seguía ejecutando el bundle roto contra la API
+ya arreglada.
+
+Esto no era un caso aislado: **habría pasado en cada despliegue.**
+
+## 31.2 El arreglo
+
+`Cache-Control: no-cache, must-revalidate` + `ETag` derivado del contenido.
+
+`no-cache` no es "no lo guardes": es "guárdalo, pero pregúntame antes de
+usarlo". Con `ETag` la revalidación es gratis — si nada cambió, 304 y cero
+bytes; si cambió, baja la versión nueva sola.
+
+| Situación | Antes | Ahora |
+|---|---|---|
+| Misma versión | 572.072 bytes | **304, 0 bytes** |
+| Tras desplegar | seguía el viejo hasta vaciar caché | **200, versión nueva** |
+
+Medido en local. `no-store` habría prohibido guardarlo y costado medio mega
+en cada carga — caro en el teléfono, que es donde lo usa.
+
+## 31.3 Un error de subcadena, de paso
+
+Al añadir el import de `Response`, la comprobación buscaba la subcadena
+`"Response"` en la línea del import — y **ya aparecía dentro de
+`HTMLResponse`**. La condición dio positivo, el import no se añadió, y la
+ruta devolvía 500. Comparación exacta contra la lista de nombres, no
+`in` sobre el texto.
+
+## 31.4 Estado
+
+`tests_vertex/test_html_revalidation.py` — 4 tests: que el esqueleto siempre
+revalide, que una versión sin cambios cueste 0 bytes, que un despliegue nuevo
+llegue solo, y que el `ETag` salga del CONTENIDO y no del reloj (uno por
+marca de tiempo invalidaría la caché en cada reinicio sin motivo).
+
+**2126 tests del engine + 98 de la capa web.**
+
+---
+
+# 32. Los puntos 2-5, resueltos como los tiene Victor
+
+## 32.1 Latencia (#2): fuera el conjunto trimestral 13F
+
+Perfilado con `cProfile` sobre un ticker frío: **96 s totales, 44 s en
+lecturas de socket SSL** — 71 peticiones HTTP (31 del motor por httpx, 40 de
+la capa web por requests). No había una función lenta: eran round-trips.
+
+El único bloque grande y evitable era `_ownership`, que ante el 402 de FMP
+caía a un respaldo de tres escalones sobre EDGAR cuyo primer paso descargaba
+el **zip trimestral 13F** de la SEC.
+
+Victor no lo hace. Su `packet/builder.py`, líneas 308-309:
+
+```python
+insider_trades = fmp.insider_trades(ticker) or []
+institutional_holders = fmp.institutional_holders(ticker) or []
+```
+
+y su docstring: *"13F institutional holders (may be plan-restricted →
+None)"*. Cuenta con el 402 y devuelve vacío.
+
+**Medido**: `_wbj_holders_from_edgar` **19.1 s → 0.3 s**. `_ownership` pasó
+de 167 a 71 líneas.
+
+**El precio, declarado**: `institutional_13f` queda `[]` y
+`holders_available` en False. `CLAUDE.md` pide los inversionistas 13F y ese
+requisito queda SIN CUBRIR con el plan actual de FMP — en este repo y en el
+de Victor por igual. Se resuelve subiendo de plan, no con más código. Los
+métodos siguen en `EdgarProvider` por si un día hay presupuesto de latencia.
+
+**Corrección**: antes dije que paralelizar "empeoró" la latencia. Comparé
+**tickers distintos** (AMD 177 s contra NVDA 92 s), que no son comparables.
+La única medición válida es la directa de arriba.
+
+## 32.2 Insiders (#5): no había bug — el error era mío
+
+Reporté "insiders: 0". Falso: leía `mandatory_report.insiders`, clave que no
+existe. La real es `insiders_over_1m`. Corriendo el análisis de verdad:
+
+```
+insiders_over_1m : 8 operaciones agrupadas (Mark Stevens $485M en 8 Forms 4)
+insiders_flow    : venta $819.5M · 141 ventas · 0 compras
+```
+
+FMP devuelve 200 Forms 4 y 63 superan $1M. **Funciona como debe.**
+
+## 32.3 Narrativa (#4): cuota, no código — pero el mensaje mentía
+
+`_wbj_explain` intenta Gemini → OpenAI → Grok. La cadena es correcta. El
+diagnóstico real:
+
+| Proveedor | Estado |
+|---|---|
+| Gemini | **429 RESOURCE_EXHAUSTED** |
+| OpenAI | **429 quota** |
+| Grok | sin `XAI_API_KEY` |
+
+Pero sólo se propagaba el ÚLTIMO error, así que un problema de facturación
+en el proveedor PRINCIPAL se reportaba como *"Grok no configurado
+(XAI_API_KEY vacío)"* — señalando una variable que falta a propósito y
+escondiendo la causa. Ahora se registran los tres, en orden.
+
+## 32.4 Market (#3): sin resolver, y no es código
+
+Sigue en 0.9/10. El TAM de Gartner mide gasto de usuario final y NVDA vende
+componentes: son capas distintas de la cadena de valor. Necesita un TAM de
+aceleradores de datacenter (IDC, Mercury Research, Omdia). Es un dato que
+hay que comprar o citar, no una línea que escribir.
+
+## 32.5 Estado
+
+**2110 tests del engine + 98 de la capa web.** El archivo que cubría el
+respaldo retirado ahora fija lo contrario: que nadie vuelva a descargar el
+zip, que los tenedores salgan de FMP, y que un hueco sin sustituto se
+declare en vez de anunciarse como tapado.
+
+---
+
+# 33. Grok fuera: sólo Gemini y OpenAI (G-01)
+
+Victor no usa Grok en **ninguna parte** de su repo — ni en `engine/wbj`, ni
+en su `CLAUDE.md`, ni en sus dependencias. Aquí estaba en 8 funciones.
+
+## 33.1 Dos rutas dependían SÓLO de él
+
+`/api/sentiment` y `/api/explore-deep` llamaban a `api.x.ai` **sin ningún
+respaldo**: una clave sin configurar apagaba la ruta entera. No se podían
+borrar sin romperlas, así que se portaron a los dos proveedores del sistema
+con el helper nuevo `_texto_llm(system, user)` — Gemini primero, OpenAI
+después, y si ninguno responde devuelve por qué falló CADA uno.
+
+## 33.2 Las cadenas de Analyze
+
+`_wbj_explain` y `_analyze_structured` tenían Grok como tercer escalón.
+Ahora son **Gemini → OpenAI**. `_grok_json` eliminada.
+
+## 33.3 Nombres que mentían
+
+Las variables y las **claves JSON** se llamaban `grok_ok`, `grok_text`,
+`grok_error` — y ya contenían salida de Gemini o de OpenAI. Renombradas a
+`llm_*` en la API (31 sitios) y en la interfaz (8), que las lee. Un nombre
+que miente sobre su origen es peor que uno feo: manda a depurar al sitio
+equivocado.
+
+Fuera también de `render.yaml` y del aviso de claves al arrancar.
+
+## 33.4 Auditoría de Analyze — estado verificado
+
+Contra `infusionvictor/warren-buffett-jr` en `72d92d9`:
+
+| | |
+|---|---|
+| Cerebro | **84/84 byte-idénticos**, 0 suyos ausentes |
+| Motor | **0 funciones suyas me faltan** |
+| Proveedores | `base, cache, edgar, finnhub, fmp, fred` — **la misma lista** |
+
+Corrida real de NVDA (77.5 s):
+
+```
+raw 48.9 · Avoid / Wait · FV $289.30 · upside 40.0%
+scores_source: victor          insiders > $1M: 8
+flujo insiders: -$819.5M       niveles de precio: 39
+```
+
+Lo que NO corre, y por qué:
+
+| Pieza | Causa | HTTP |
+|---|---|---|
+| judge | créditos Anthropic | 400 |
+| extracción cualitativa 10-K | créditos Anthropic | 400 |
+| historial de management | créditos Anthropic | 400 |
+| narrativa | cuota Gemini **y** OpenAI | 429 / 429 |
+| 13F institucional | plan FMP | 402 |
+| Market 0.9/10 | TAM de capa incorrecta | — |
+
+**Ninguna es un defecto de código.** Cuatro son facturación, una es plan y
+una es un dato que hay que comprar.
+
+**2110 tests del engine + 98 de la capa web.**
+
+---
+
+# 34. El 13F: por qué FMP no funciona, y por qué a Victor tampoco (F-01)
+
+## 34.1 La respuesta a "¿por qué a él sí y a mí no?"
+
+**A él tampoco.** Su `providers/fmp.py` y el de este repo son **byte-idénticos**
+en este método:
+
+```python
+def institutional_holders(self, t: str) -> list | dict | None:
+    """13F institutional holders (may be plan-restricted → None)."""
+    return self.get_json(
+        f"{BASE_URL}/institutional-ownership/extract-analytics/holder",
+        self._params(symbol=t), ...)
+```
+
+Y el docstring de su módulo lo dice: *"Endpoints not included in the caller's
+plan return a non-JSON 'Restricted Endpoint' body, which `get_json` turns
+into None (graceful degradation)."* **Escribió ese código contando con el
+402.**
+
+## 34.2 No es esa ruta: es toda la familia
+
+Probadas una por una contra la clave:
+
+| Endpoint | |
+|---|---|
+| `extract-analytics/holder` (la de Victor) | **402** |
+| `symbol-positions-summary` | **402** |
+| `holder-performance-summary` | **402** |
+| `institutional-ownership/latest` | **402** |
+| `symbol-ownership`, `institutional-ownership/list` | 404 (no existen) |
+
+> *Restricted Endpoint: This endpoint is not available under your current
+> subscription*
+
+El módulo entero está por encima del plan de $29. No hay ruta alternativa.
+
+## 34.3 Respaldo restaurado, y ahora sí barato
+
+Vuelve el camino por EDGAR, **dentro de `if not holders:`** — sólo cuando FMP
+no trae la lista. Devuelve tenedores reales con acciones y dólares:
+
+```
+BlackRock, Inc.                 1.928.629.174 acc   $336.352.928.002
+VANGUARD CAPITAL MANAGEMENT LLC 1.538.550.382 acc   $268.519.177.197
+STATE STREET CORP                 993.885.601 acc   $173.343.323.230
+```
+
+**Corrección de una medición mía.** Dije que el costo era "un zip por
+trimestre compartido por todos los tickers". Falso: medí tres llamadas
+seguidas al MISMO ticker y costaron 19.3 s, 18.7 s y 18.1 s. El zip de 99 MB
+sí se cachea en disco — lo que no se cacheaba era el RESULTADO, así que cada
+llamada recorría los 3,8 millones de filas de `INFOTABLE.tsv` otra vez. El
+docstring decía "~2 s" y nadie lo había comprobado.
+
+Arreglado: el resultado se cachea por `(cusip, trimestre, top)`. La clave
+lleva el trimestre, así que cuando la SEC publica el siguiente el viejo deja
+de usarse solo — sin TTL que ajustar.
+
+| | Antes | Ahora |
+|---|---|---|
+| Primera vez por ticker | 17 s | 17 s |
+| **Repetir el mismo ticker** | **18 s** | **0.8 s** |
+
+## 34.4 Y un bug que el respaldo destapó
+
+Con los tenedores ya en memoria, el reporte seguía diciendo **"0 tenedores"**.
+Había DOS caminos y `institutional_13f` leía el vacío:
+
+- `insiders["institutional"]` ← el `institutional_holders` estilo yfinance,
+  que hoy devuelve `None` (FMP 402).
+- `insiders["edgar"]["holders_5pct"]` ← el que **sí** traía los diez.
+
+Los datos estaban en la misma estructura, una clave más abajo. Es el mismo
+patrón que ya me engañó leyendo `mandatory_report.insiders` en vez de
+`insiders_over_1m`: un dato presente que no se ve porque se busca donde no
+está.
+
+Verificado end-to-end: NVDA y AAPL devuelven **8 tenedores** con sus dólares,
+más los insiders sobre $1M.
+
+## 34.5 Estado
+
+`tests_vertex/test_13f_llega_al_reporte.py` — 4 tests: que EDGAR llegue
+cuando FMP viene vacío, que FMP mande cuando responde, que sin ninguno no
+reviente, y el tope de diez.
+
+**2110 tests del engine + 102 de la capa web.**
+
+---
+
+# 35. Yahoo fuera de Analyze, de verdad: FMP → FinnHub → EDGAR (F-02)
+
+## 35.1 El 402 no lo causaba yfinance
+
+Victor lo supuso y merecía una respuesta con evidencia. Petición HTTP
+directa a `financialmodelingprep.com`, **con cero módulos de yfinance
+cargados**:
+
+```
+modulos con 'yfinance': NINGUNO
+HTTP 402  <- respuesta DIRECTA de financialmodelingprep.com
+Restricted Endpoint: This endpoint is not available under your current subscription
+```
+
+El 402 es FMP hablando de su propio plan. Ninguna otra librería lo provoca.
+
+## 35.2 La cadena que pidió, implementada literal
+
+| Escalón | Endpoint | Estado hoy |
+|---|---|---|
+| 1. FMP | `institutional-ownership/extract-analytics/holder` | **402** |
+| 2. FinnHub | `stock/fund-ownership` | **403** (tier de pago) |
+| 3. EDGAR | conjunto trimestral 13F | **funciona** |
+
+FinnHub se cablea aunque hoy falle: el día que suba de plan empieza a
+funcionar sin tocar una línea. Sus rutas `institutional-ownership` e
+`institutional-portfolio` ni existen (404); `fund-ownership` y `ownership`
+son de pago. Lo que **sí** sirve gratis es `insider-transactions`, y los
+insiders ya salían de FMP (200, 100 filas).
+
+## 35.3 El último uso de Yahoo en el camino del score
+
+Recorriendo el cierre COMPLETO de llamadas desde
+`_analyze_ticker_serializado` — 139 funciones — quedaba **uno**:
+`_backtest_signals` pedía el historial de precios a Yahoo, a varios saltos de
+distancia. Migrado a FMP.
+
+## 35.4 El import pasa a ser perezoso
+
+Aun sin usarlo, `import yfinance as yf` en la cabecera lo metía en memoria en
+cada arranque, y hacía imposible distinguir *"está cargado porque el análisis
+lo usó"* de *"está cargado porque el archivo lo importó"*.
+
+Ahora se carga en el primer uso real. Medido:
+
+| Momento | ¿yfinance en memoria? |
+|---|---|
+| Tras importar `vertex_api` | **NO** |
+| Tras un análisis completo de NVDA | **NO** |
+| Tras `compute_gex` (Proyecciones) | SÍ, y el GEX responde |
+
+La separación entre los dos agentes deja de ser disciplina y pasa a ser
+física. De paso abarata el arranque en Render: yfinance arrastra
+dependencias que el análisis de acciones no necesita.
+
+## 35.5 Estado
+
+Análisis de NVDA sin Yahoo en memoria: `raw 48.8`, **8 tenedores 13F**
+(BlackRock $336B, Vanguard $268B, State Street $173B) y **8 insiders sobre
+$1M**.
+
+Dos tests nuevos: uno recorre el cierre de 139 funciones y falla si alguna
+vuelve a tocar `yf`; el otro prohíbe el `import` en la cabecera.
+
+**2110 tests del engine + 104 de la capa web.**
+
+---
+
+# 36. El TAM estaba midiendo la capa equivocada (M-03)
+
+Market llevaba en 0.9/10 porque el TAM declarado era **Gartner Data Center
+Systems ($489.5B CY2025)**, que mide *gasto del usuario final* en servidores,
+switching, almacenamiento y software. NVDA vende **aguas arriba**, a
+OEM/ODM/CSP: una GPU suya dentro de un servidor Dell entra en ese denominador
+UNA vez, como gasto del comprador final.
+
+Dividir el ingreso de NVDA entre ese número comparaba **dos capas distintas
+de la cadena de valor**, y por eso `share`, `share_history` y
+`competitor_shares` estaban declarados NOT_SCORABLE — correctamente.
+
+## 36.1 La fuente en la capa correcta
+
+**Omdia, "AI Processors for Cloud and the Data Center Forecast"**, agosto 2025:
+
+| Año | GPUs + aceleradores IA embarcados |
+|---|---|
+| 2024 | **$123 000 M** |
+| 2025 | **$207 000 M** |
+| 2030 | $286 000 M |
+
+Es el mercado de CHIPS — la misma capa en la que NVDA cobra. Tier 3, igual que
+Gartner: el cambio es de capa, no de calidad de fuente.
+
+`omdia.tech.informa.com` devuelve 403 a WebFetch, igual que `gartner.com`.
+Las cifras están verificadas textualmente en **cinco** publicaciones
+independientes que citan el mismo comunicado y coinciden exacto.
+
+El propio archivo de Kevin ya registraba que *"Omdia publica el TAM pero las
+participaciones por vendedor son de pago"* — la cifra buena estaba
+identificada desde julio; faltaba usarla como denominador.
+
+## 36.2 El share vuelve a ser puntuable
+
+Los cuatro números son **reportados**, no estimados:
+
+| | NVDA Data Center | TAM Omdia | Captura |
+|---|---|---|---|
+| 2024 | $115.2B | $123B | 93.66% |
+| 2025 | $193.7B | $207B | **93.57%** |
+
+**Salvedad declarada**: el segmento Data Center de NVDA incluye networking
+(NVLink, Spectrum, InfiniBand), que no está en el denominador de chips. En
+Q1 FY2027 —el único trimestre con desglose publicado— networking fue $14.8B
+de $75.2B, ~20% del segmento. **NVIDIA no publica ese desglose para el año
+fiscal completo** (verificado en el comunicado de FY2026: sólo da el total),
+así que aplicar el ratio de un trimestre a un año sería imputar. El NIVEL se
+declara como cota superior.
+
+La VARIACIÓN sí es sólida: el mismo sesgo está en los dos años y se cancela
+al restar. Por eso `MKT-SHDELTA-007` vale más aquí que `MKT-SHARE-006`.
+
+**Lectura**: captura plana con −9 puntos básicos. Coincide con lo que el
+propio comunicado de Omdia describe — ASIC a medida (TPU de Google), ASSP
+mercantiles (Ascend, Groq, Cerebras) y el avance de AMD con Instinct. No es
+pérdida de participación todavía, pero tampoco la expansión que un +68% de
+ingresos sugeriría por sí solo.
+
+## 36.3 Efecto medido
+
+| | Antes | Ahora |
+|---|---|---|
+| Market | 1.84/20 (cob. 0.388) | **4.87/20** (cob. 0.537) |
+| `MKT-TAM-001` | — | $207 000 M |
+| `MKT-CAGR-004` | — | **+68.3%** |
+| `MKT-SHARE-006` | NOT_SCORABLE | 93.57% |
+| `MKT-SHDELTA-007` | NOT_SCORABLE | **−0.0009** |
+| **raw_total** | 48.8 | **51.9** |
+| **perfil** | `Avoid / Wait` | **`Speculative`** |
+
+El perfil cambia porque `raw_total` cruza 50, el gate que venía fallando. No
+es que la empresa mejorara: es que el denominador dejó de estar equivocado.
+
+**2110 tests del engine + 104 de la capa web.**
+
+---
+
+# 37. El TAM era del ticker cuando debía ser del mercado (M-04)
+
+Victor lo vio antes que yo: el TAM de Omdia se declaró en
+`Entradas/NVDA.json`, así que **sólo NVDA lo tenía**. Medido el 2026-08-05:
+
+| Ticker | Industria | Market | TAM |
+|---|---|---|---|
+| NVDA | Semiconductors | **4.87**/20 | $207 000 M |
+| **AMD** | Semiconductors | 1.82/20 | **ninguno** |
+| AVGO | Semiconductors | 2.31/20 | ninguno |
+
+AMD vende Instinct **al mismo mercado** que el comunicado de Omdia describe
+—nombra a NVIDIA, AMD, Google, Huawei, Groq y Cerebras en el mismo
+denominador— y salía sin TAM. No faltaba el dato: estaba escrito en el
+archivo de otra empresa.
+
+## 37.1 `Entradas/_industrias/<slug>.json`
+
+El TAM se hereda por `security.industry` del packet, y **el archivo del
+ticker gana** en cualquier clave que repita: la industria son cimientos, no
+una imposición. La validación es la misma — un `tam` sin `tam_source` y sin
+tier 1-4 se cae igual aquí que en el archivo del ticker.
+
+## 37.2 El riesgo que introduce, y su freno
+
+Una industria de GICS es **más ancha que un mercado**. `Semiconductors` mete
+en la misma bolsa a NVIDIA, que vende aceleradores, y a **Micron, que vende
+memoria**. En la primera versión MU heredaba el TAM de Omdia y su
+participación habría salido diminuta pero *puntuable* — un número
+equivocado, que es peor que un hueco porque el hueco se ve.
+
+Freno: la clave `_aplica_a` lista explícitamente a quién cubre. Es opcional
+— cuando el mercado sí coincide con la clasificación, exigirla sería
+burocracia.
+
+| Ticker | Hereda | Por qué |
+|---|---|---|
+| NVDA, AMD, AVGO | **sí** | compiten en aceleradores |
+| MU | **no** | memoria |
+| JPM, KO | **no** | otra industria, sin archivo |
+
+## 37.3 Efecto
+
+Cobertura de Market: AMD y AVGO **0.188 → 0.312**. Los puntos suben poco
+porque `share` y `share_history` siguen sin declararse para ellos — el TAM
+es el denominador, y el numerador (ingreso del segmento comparable) hay que
+investigarlo por empresa.
+
+Lo que cambia de verdad es que **el trabajo de investigar un TAM se hace una
+vez por mercado**, no una vez por ticker.
+
+## 37.4 Estado
+
+`engine/tests/test_tam_por_industria.py` — 6 tests: que el TAM llegue a cada
+ticker listado, que uno fuera de la lista no herede nada, que sin lista
+cubra a toda la industria, que un TAM sin atribución se caiga igual, que un
+archivo ausente no rompa, y que el slug case con el nombre del archivo.
+
+**2116 tests del engine + 104 de la capa web.**
+
+---
+
+## Cierre 2026-08-05 — El TAM se descarga de fuentes oficiales
+
+**Lo que se resolvió:** analizar un ticker de una industria nueva exigía trabajo
+manual antes de que Market pudiera puntuar. Alguien tenía que buscar el estudio
+de mercado, verificarlo y escribirlo en `Entradas/`. Sólo NVDA lo tenía, así que
+sólo NVDA puntuaba `MKT-TAM-005`, `MKT-SHARE-006` y `MKT-SHDELTA-007`.
+
+**Un intento descartado, y por qué.** La primera versión le preguntaba a Gemini
+con búsqueda de Google. Funcionaba, y estaba mal por dos motivos: Google no es
+una de las fuentes de este sistema, y lo que devolvía no era el dato sino el
+*comunicado de prensa* sobre el dato — IDC, Omdia y Gartner venden sus informes,
+así que se estaba citando la nota que resume un número que nadie de aquí puede
+abrir. Se retiró entera (`tam_research.py` borrado, claves de LLM fuera del
+engine).
+
+**La cadena de ahora, oficial de punta a punta:**
+
+```
+ticker -> CIK -> SEC EDGAR (codigo SIC declarado por el emisor)
+              -> NAICS (tabla SIC_A_NAICS, escrita a mano)
+              -> FRED (Census Bureau / BLS)  = tier 1
+```
+
+`engine/wbj/overlay/tam_oficial.py`. Cadencia trimestral, como los filings.
+
+### Las trampas que este código tiene que esquivar
+
+| Regla | Caso real que la motivó |
+|---|---|
+| La escala sale del metadato de FRED | La serie de software marca 169.800 y son **millones**. Ignorarlo es equivocarse por mil, en silencio |
+| El NAICS debe aparecer en el id o el título | Para un buscador, "Software Publishers" y "Other Information Services" son igual de plausibles. Una es el mercado de otra empresa |
+| Series trimestrales se suman de 4 en 4 | Un trimestre suelto contra ingresos anuales da 4× la participación real, y el número sigue pareciendo razonable |
+| Porcentajes e índices nunca son un TAM | FRED publica la misma industria en dólares y en variación; la de variación sale antes por popularidad |
+| **El numerador se elige por el ámbito** | El Census mide EE.UU.; los ingresos de un emisor son mundiales. Con TAM doméstico el numerador es el ingreso doméstico del 10-K (FMP), no el segmento de producto |
+| **Participación > 100% se rechaza** | AAPL: "Americas" $178.000M sobre un mercado de $21.000M = 1.900%. No dice que Apple domine — dice que el denominador no es el suyo |
+
+### Medido el 2026-08-05
+
+```
+tk     market   cob            TAM      ambito   share    fuente
+NVDA    4.87   0.537   $207.000M       mundial  93,57%   Omdia (ANALISTA, no se toca)
+AMD     1.82   0.463   $207.000M       mundial   8,04%   Omdia (heredado)
+PLTR    2.31   0.463   $649.179M       US        0,51%   FRED REV5112TAXABL144QSA
+JPM     0.57   0.388   $980.094M       US       14,25%   FRED REV5221TAXABL144QNSA
+KO      2.82   0.388   $104.678M       US       18,71%   FRED IPUEN3121T300000000
+AAPL    1.81   0.237    $20.992M       US          —     rechazada por el tope del 100%
+```
+
+Cobertura de Market: PLTR 0,312 -> 0,463 · JPM y KO 0,237 -> 0,388.
+
+### Lo que sigue siendo manual, a propósito
+
+Un archivo de `Entradas/` **sin** `_generado_por` es de un analista y no se toca
+nunca. `semiconductors.json` es el caso: el mercado de aceleradores de datacenter
+no existe en las encuestas del Census, y quien leyó el estudio de Omdia sabe algo
+que la descarga no sabe. Para recuperar el control de un TAM automático, basta
+con borrarle esa clave.
+
+Un SIC que no esté en `SIC_A_NAICS` deja el hueco **con su código anotado** en el
+archivo de industria: añadirlo es una línea.
+
+**Suites:** engine 2143, web 104.
+# 38. Auditoría del tab de Proyecciones — ronda 4 (2026-08-06)
 
 **Alcance:** el tab de Proyecciones completo, de la vista al endpoint y al motor.
 **Base comparada:** https://github.com/infusionvictor/agente-tito-metralleta (`53d5a20`).
 
-## 19.1 Lo que estaba MAL (y quedó resuelto)
+## 38.1 Lo que estaba MAL (y quedó resuelto)
 
 ### [x] P4-01 — El tab medía gamma DOS veces
 Ya cerrado en la ronda 3 para el cargador y sus paneles (commit `a6d4fc2`), pero
@@ -1272,7 +2508,7 @@ este tab. Cuando los dos proveedores discrepaban no había forma de saber cuál 
 ### [x] P4-02 — El motor de calibración no tenía diferencial
 Resuelto en la ronda 3 (`diff_calib.sh`, 182 diarios).
 
-## 19.2 Lo NUEVO de su repo, ya portado
+## 38.2 Lo NUEVO de su repo, ya portado
 
 Su commit `53d5a20` *"feat(ideas): screener más accesible para cuenta chica"*
 toca `web/lib/risk.ts`. Portado literal a `engine/wbj/tito/risk.py`:
@@ -1288,7 +2524,7 @@ Lo demás del commit (piso de premium $500k→$100k, slider 10%→50%, conteo de
 rechazos `lejano`) vive en su `/api/ideas` y su `ideas/page.tsx`, que **no se
 portan** — están declarados en el registro de huérfanas de `auditar_tito.py`.
 
-## 19.3 Cómo se verificó
+## 38.3 Cómo se verificó
 
 - `diff_motor2.sh` subió de 846 a **918 casos** con el corpus malformado nuevo
   para `withinMoneyness`: basura en `strike` y en `assetPrice`, los bordes
@@ -1302,7 +2538,7 @@ portan** — están declarados en el registro de huérfanas de `auditar_tito.py`
 - 9 tests nuevos en `test_risk.py`: sus 6 de `withinMoneyness` + los 3 que fijan
   que el umbral del screener no se coma al institucional.
 
-## 19.4 Estado
+## 38.4 Estado
 
 ```
 2.684 tests del engine · 154 de la capa web · 238 checks de auditoría · 0 fallos
@@ -1321,12 +2557,12 @@ Plan de operación. **Fetches del tab:** `/api/projection-targets` y
 
 ---
 
-# 20. Auditoría del tab de Proyecciones — ronda 5 (2026-08-06)
+# 39. Auditoría del tab de Proyecciones — ronda 5 (2026-08-06)
 
 **Alcance:** el tab entero, atacando lo que las cuatro rondas anteriores no
 midieron. **Base comparada:** su repo en `53d5a20`.
 
-## 20.1 El hallazgo grande: seis números sin evidencia
+## 39.1 El hallazgo grande: seis números sin evidencia
 
 Todas las rondas anteriores preguntaban **"¿lo que se sirve, se pinta?"**.
 Ninguna preguntó **"¿se sirve lo que ÉL muestra?"**. Ahí estaba el hueco.
@@ -1347,7 +2583,7 @@ Seis cifras en pantalla y nada detrás. Resuelto: `subagents` en el payload
 `IvContextCard`, `ValidationCard`— con sus veredictos y umbrales literales,
 dentro del mismo `<details>` colapsado que él usa.
 
-## 20.2 Los otros cuatro
+## 39.2 Los otros cuatro
 
 | # | Hallazgo | Resuelto |
 |---|---|---|
@@ -1356,7 +2592,7 @@ dentro del mismo `<details>` colapsado que él usa.
 | P5-04 | `strike` y `size` llegan **crudos** de MarketSnack y se interpolaban sin escapar en las dos tablas de filas. El port es literal: no valida tipos | `_vcEsc` en los 4 puntos + test |
 | P5-05 | La flecha del `<details>` dependía de la variante `group-open:` de Tailwind, servida por CDN sin versión fijada. Si no resolviera, se verían las **dos** flechas | CSS propio, sin depender de nadie |
 
-## 20.3 Lo que ahora es auditable y antes no
+## 39.3 Lo que ahora es auditable y antes no
 
 **Registro de sus 39 componentes** (`auditar_tito.py` §9-ter). Cada uno de los
 componentes que renderiza su `web/app/page.tsx` está mapeado: **22 con
@@ -1371,7 +2607,7 @@ El test viejo miraba claves raíz, y `subagents` es **una** clave con 60 hojas
 dentro. El nuevo recorre el árbol servido y exige que cada hoja se lea en el
 renderizador o esté declarada con su motivo (6 lo están).
 
-## 20.4 Estado
+## 39.4 Estado
 
 ```
 2.684 tests del engine · 159 de la capa web · 271 checks de auditoría · 0 fallos
@@ -1382,3 +2618,19 @@ calib 182/182 · frescura 342/342 · reloj 223/223
 
 Nada mío entra en el tab salvo lo que Kevin pidió: su email y su perfil de
 inversionista. Las fuentes son Massive (cadena + barras) y MarketSnack (cinta).
+
+## 39.5 Lo que destapó la fusión con `main`
+
+`main` avanzó 22 commits mientras esta rama avanzaba 63. Al fusionar salieron
+tres cosas que ninguna de las dos ramas veía sola:
+
+| Hallazgo | Detalle |
+|---|---|
+| **`/api/projection-targets` duplicado** | La fusión resucitó el endpoint viejo de Quant Data (`compute_horizon_targets` + walls y convicción de QD). Dos `@app.get` con el mismo path **no dan error** en FastAPI: gana el primero y el segundo queda como código que nadie ejecuta y que en la siguiente lectura parece la implementación vigente. Borrado. |
+| **La excepción cruda iba al navegador** | `main` añadió `test_route_safety.py` con una regla correcta: este servicio liga `0.0.0.0` en Render, y un `str(e)` de httpx que escapara de `raise_for_status()` llevaría la URL **con la clave**. Dos rutas de Proyecciones caían ahí. |
+| **…pero ocultarlo todo tampoco servía** | Con `_error_publico` a secas, "Falta MASSIVE_API_KEY" pasaba a ser "no se pudo completar" y mandaba a leer logs de Render para descubrir una variable de entorno. `_error_de_fuente` deja pasar `MassiveError`/`MarketSnackError` —mensajes que escribimos nosotros, y que el centinela de §8 **demuestra** que no llevan credenciales— y manda todo lo demás al camino ciego. |
+
+`main` había llegado por su cuenta a la misma conclusión de la ronda 4 (fuera
+Quant Data del plan de operación), pero dejando el andamio muerto: un
+`flow_override = False` sin usos y un `try` con `_pw/_cw/_fl` fijados a `None`
+cuyos tres `if` no pueden entrar nunca. Se conservó la eliminación limpia.

@@ -24,6 +24,7 @@ dimensions stay honestly unscored.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from wbj.core import adapters as _adapters
@@ -295,6 +296,156 @@ def _named_segment_revenue(rows: Any) -> dict[str, float] | None:
              if isinstance(v, (int, float)) and v > 0}
     # One line item is not a split, same rule as the shares parser.
     return named if len(named) >= 2 else None
+
+
+def _segmento_del_mercado(segmentos: Any, patrones: Any) -> tuple[str, float] | None:
+    """El segmento cuyo nombre encaja con el mercado del TAM.
+
+    Los nombres los pone cada emisor, no una norma: NVDA y AMD dicen
+    "Data Center", Intel "Data Center Group". Por eso se casa por PATRÓN y
+    no por igualdad. Si encajan varios, no se elige: dos segmentos que
+    parecen el mercado significa que el patrón está mal escrito, y sumarlos
+    o quedarse con el mayor sería inventar la respuesta.
+    """
+    if not isinstance(segmentos, dict) or not segmentos:
+        return None
+    pats = [str(p).lower() for p in (patrones or []) if str(p).strip()]
+    if not pats:
+        return None
+    encajan = [(n, v) for n, v in segmentos.items()
+               if isinstance(v, (int, float)) and v > 0
+               and any(p in str(n).lower() for p in pats)]
+    if len(encajan) != 1:
+        if len(encajan) > 1:
+            logger.warning("varios segmentos encajan con %s: %s — no se elige uno",
+                           pats, [n for n, _ in encajan])
+        return None
+    return encajan[0]
+
+
+_REGIONES_US = ("united states", "u.s.", "us ", "usa", "north america",
+                "americas", "domestic")
+
+
+def _ingreso_en_el_ambito(fmp: Any, ticker: str) -> tuple[float, str] | None:
+    """Los ingresos de la empresa en EE.UU., del desglose geográfico del 10-K.
+
+    Hace falta cuando el denominador es doméstico. Las encuestas del Census
+    miden EE.UU.; los ingresos de un emisor son mundiales. Dividir uno entre
+    otro es el error de capa de Gartner/NVDA otra vez, sólo que en el eje
+    geográfico: a AAPL le salía 1.900% de participación.
+
+    Es un NUMERADOR APROXIMADO y hay que leerlo como tal: "Americas" de AAPL
+    y "North America" de KO incluyen Canadá y Latinoamérica, y son ingresos de
+    TODA la empresa en la región, no del producto que compite en ese mercado.
+    FMP no publica el cruce producto × geografía porque el 10-K tampoco lo
+    trae. Se prefiere aproximado y declarado a exacto en el ámbito equivocado.
+    """
+    try:
+        filas = fmp.revenue_geographic_segmentation(ticker)
+    except Exception:  # noqa: BLE001
+        return None
+    if not isinstance(filas, list) or not filas:
+        return None
+    datos = (filas[0] or {}).get("data") or {}
+    if not isinstance(datos, dict):
+        return None
+    encajan = [(n, v) for n, v in datos.items()
+               if isinstance(v, (int, float)) and v > 0
+               and any(r in str(n).lower() for r in _REGIONES_US)]
+    if len(encajan) != 1:
+        return None
+    return float(encajan[0][1]), encajan[0][0]
+
+
+def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
+                      tam: float | None, tam_history: Any,
+                      patrones: Any, ambito: str | None = None) -> dict[str, Any]:
+    """Participación de mercado calculada SOLA, sin que nadie la declare.
+
+    Es el paso que faltaba para que analizar un ticker nuevo no exigiera
+    trabajo manual. El denominador ya lo comparte la industria; el numerador
+    —el ingreso del segmento que compite en ese mercado— lo publica FMP a
+    partir del propio 10-K. Dividirlos no es imputar: son dos cifras
+    reportadas en la misma capa de la cadena de valor.
+
+    `share_history` importa más que el nivel. `MKT-SHDELTA-007` mide si la
+    empresa GANA o PIERDE captura, y cualquier sesgo del segmento (NVDA mete
+    networking en "Data Center") aparece en los dos años por igual y se
+    cancela al restar. El nivel se queda como cota superior.
+
+    Devuelve `{}` en cuanto algo no cuadre. Nada aquí adivina: sin patrón,
+    sin segmento único, sin TAM o sin dos años comparables, la métrica sigue
+    NOT_SCORABLE, que es la respuesta honesta.
+    """
+    if not tam or tam <= 0:
+        return {}
+
+    # El numerador se elige por el ÁMBITO del denominador, no por comodidad.
+    # Un TAM doméstico (las encuestas del Census, vía FRED) pide los ingresos
+    # domésticos; uno mundial (un estudio de industria) pide el segmento de
+    # producto. Mezclarlos daba a AAPL un 1.900% de participación.
+    if (ambito or "").upper() == "US":
+        dom = _ingreso_en_el_ambito(fmp, ticker)
+        if not dom:
+            logger.info("%s: TAM domestico sin desglose geografico reportado — "
+                        "sin participacion", ticker)
+            return {}
+        actual: tuple[str, float] = (dom[1], dom[0])
+    else:
+        encontrado = _segmento_del_mercado(segmentos, patrones)
+        if not encontrado:
+            return {}
+        actual = encontrado
+
+    # Una participación por encima del 100% no es una empresa dominante: es la
+    # prueba de que el denominador no era el suyo. Se rechaza en vez de
+    # recortarse a 100%, porque recortar esconde el error en vez de mostrarlo.
+    if actual[1] > tam:
+        logger.warning("%s: participacion implicita %.0f%% > 100%% — el "
+                       "denominador no es el de esta empresa, se descarta",
+                       ticker, actual[1] / tam * 100)
+        return {}
+
+    salida: dict[str, Any] = {
+        "share": {"company_sales": actual[1], "total_market_sales": float(tam)}}
+
+    # El historial necesita el MISMO segmento un año antes y el TAM de ese
+    # año. Si falta cualquiera de los dos, se entrega sólo el nivel.
+    historia = list(tam_history or [])
+    if len(historia) < 2:
+        return salida
+    try:
+        # El año anterior se lee del MISMO desglose que el actual. Tomarlo del
+        # de producto cuando el nivel salió del geográfico compararía dos
+        # numeradores distintos, y la variación —que es lo que de verdad mide
+        # `MKT-SHDELTA-007`— saldría de restar peras y manzanas.
+        domestico = (ambito or "").upper() == "US"
+        filas = (fmp.revenue_geographic_segmentation(ticker) if domestico
+                 else fmp.revenue_product_segmentation(ticker))
+        if not isinstance(filas, list) or len(filas) < 2:
+            return salida
+        previos = (filas[1] or {}).get("data") or {}
+        if domestico:
+            encajan = [(n, v) for n, v in previos.items()
+                       if isinstance(v, (int, float)) and v > 0
+                       and any(r in str(n).lower() for r in _REGIONES_US)]
+            anterior = (encajan[0][0], encajan[0][1]) if len(encajan) == 1 else None
+        else:
+            anterior = _segmento_del_mercado(previos, patrones)
+        if not anterior:
+            return salida
+        tam_anterior = float(historia[-2])
+        if anterior[1] > tam_anterior:
+            return salida  # mismo motivo que arriba: denominador ajeno
+        if tam_anterior <= 0:
+            return salida
+        salida["share_history"] = [round(anterior[1] / tam_anterior, 6),
+                                   round(actual[1] / float(tam), 6)]
+    except Exception:
+        logger.warning("historial de participación no disponible para %s",
+                       ticker, exc_info=True)
+    return salida
 
 
 def _income_statement_keys(packet: Any) -> dict[str, Any]:
@@ -583,8 +734,93 @@ def _recession_years(fred: Any) -> list[int]:
     return sorted(years)
 
 
-def _manual_overlay(settings: Any, ticker: str) -> dict[str, Any]:
+def _slug_industria(nombre: str) -> str:
+    """`Semiconductors` -> `semiconductors`, `Banks - Diversified` -> `banks-diversified`."""
+    limpio = re.sub(r"[^a-z0-9]+", "-", str(nombre or "").lower()).strip("-")
+    return limpio
+
+
+def _overlay_industria(settings: Any, industria: str | None,
+                       ticker: str = "") -> dict[str, Any]:
+    """Entradas compartidas por INDUSTRIA, de `Entradas/_industrias/<slug>.json`.
+
+    El TAM no es propiedad de una empresa: es del mercado en el que compite.
+    El de Omdia para chips de datacenter ($207.000M en 2025) cubre a NVDA, a
+    AMD con sus Instinct, a Broadcom y a Marvell por igual — el comunicado
+    los nombra a todos. Guardado sólo en `Entradas/NVDA.json`, AMD salía con
+    `tam=ninguno` y Market en 1.82 mientras NVDA sacaba 4.87, no porque el
+    dato faltara sino porque estaba escrito en el archivo de otro.
+
+    El archivo del TICKER siempre gana: lo de la industria son cimientos, no
+    una imposición. Una empresa con un mercado propio —o con un desglose
+    mejor— lo declara en el suyo y esto no la toca.
+
+    La validación es la misma: un `tam` sin `tam_source` y sin
+    `tam_source_tier` 1-4 se cae igual aquí que en el archivo del ticker.
+    Compartir un dato no lo exime de estar atribuido.
+    """
+    import json
+    from pathlib import Path
+
+    if not industria:
+        return {}
+    root = getattr(settings, "inputs_dir", None) or (
+        Path(getattr(settings, "reports_dir", ".")).parent / "Entradas")
+    path = Path(root) / "_industrias" / f"{_slug_industria(industria)}.json"
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.warning("no se pudo leer el TAM de industria en %s", path, exc_info=True)
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    # Lista explícita de a quién cubre. Una industria de GICS es más ancha
+    # que un mercado: `Semiconductors` mete en la misma bolsa a NVIDIA, que
+    # vende aceleradores, y a Micron, que vende memoria. Sin esta lista MU
+    # heredaba el TAM de aceleradores de Omdia — un denominador que no es el
+    # suyo — y su participación habría salido absurdamente pequeña en vez de
+    # ausente. Un número equivocado es peor que un hueco: el hueco se ve.
+    #
+    # Sin `_aplica_a` el archivo cubre a toda la industria, que es lo
+    # razonable cuando el mercado sí coincide con la clasificación.
+    cubre = data.get("_aplica_a")
+    if isinstance(cubre, list) and cubre:
+        if ticker.upper() not in {str(t).upper() for t in cubre}:
+            return {}
+
+    # `_segmento_patrones` lleva guion bajo pero NO es un comentario: es la
+    # regla que dice cómo reconocer, en la segmentación del 10-K, el segmento
+    # que compite en este mercado. Se rescata antes de barrer las notas.
+    patrones = data.get("_segmento_patrones")
+    ambito = data.get("_ambito")
+
+    for key in [k for k in data if k.startswith("_")]:
+        data.pop(key)
+    if data.get("tam") is not None:
+        if not data.get("tam_source") or data.get("tam_source_tier") not in (1, 2, 3, 4):
+            logger.warning("TAM de industria en %s descartado: falta tam_source "
+                           "o tam_source_tier 1-4", path)
+            for k in ("tam", "tam_history", "tam_source", "tam_source_tier"):
+                data.pop(k, None)
+    fuera = {k: v for k, v in data.items() if v is not None}
+    # Sólo viaja si hay TAM: sin denominador no hay participación que calcular.
+    if isinstance(patrones, list) and patrones and fuera.get("tam"):
+        fuera["_segmento_patrones"] = patrones
+    if ambito and fuera.get("tam"):
+        fuera["_ambito"] = ambito
+    return fuera
+
+
+def _manual_overlay(settings: Any, ticker: str,
+                    industria: str | None = None) -> dict[str, Any]:
     """Analyst-supplied inputs for `Entradas/<TICKER>.json`.
+
+    Se apoya sobre `Entradas/_industrias/<industria>.json` cuando existe: el
+    TAM y su fuente son del MERCADO, no de la empresa. Lo del ticker gana
+    siempre — ver `_overlay_industria`.
 
     Market sizing has no free structured source, and the methodology is
     explicit about what that means: DECISION_RULES.md's tier 5 is an
@@ -605,9 +841,10 @@ def _manual_overlay(settings: Any, ticker: str) -> dict[str, Any]:
 
     root = getattr(settings, "inputs_dir", None) or (
         Path(getattr(settings, "reports_dir", ".")).parent / "Entradas")
+    base = _overlay_industria(settings, industria, ticker)
     path = Path(root) / f"{ticker.upper()}.json"
     if not path.is_file():
-        return {}
+        return base
 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -680,7 +917,9 @@ def _manual_overlay(settings: Any, ticker: str) -> dict[str, Any]:
     for warning in _analyst_block_warnings(data):
         logger.warning("%s: %s", path.name, warning)
         data.setdefault("analyst_input_warnings", []).append(warning)
-    return data
+    # La industria son cimientos; lo que el analista escribió para ESTE
+    # ticker va encima y gana en cada clave que traiga.
+    return {**base, **data}
 
 
 def _cached_extract(cache: Any, ticker: str, filing: dict, kind: str,
@@ -849,75 +1088,47 @@ def _estimates(fmp: Any, ticker: str) -> dict[str, Any] | None:
             "snapshot_before_release": True}
 
 
-def _yahoo_revisions(ticker: str) -> dict[str, Any]:
-    """Estimate-revision counts and the prior consensus, from Yahoo.
+def _consensus_eps_growth(fmp: Any, ticker: str,
+                          today: str | None = None) -> float | None:
+    """VAL-PEG-028's denominator, desde el consenso de FMP.
 
-    SOURCE_HIERARCHY.md's tier 6 is a "consensus-estimate provider with
-    timestamped revisions", and DATASET.md marks
-    `consensus_estimates_history` required. Yahoo publishes exactly that
-    — it aggregates LSEG/Refinitiv I/B/E/S — where FMP has only a
-    snapshot and FinnHub gates estimates above this plan.
+    Esto lo daba Yahoo (`earnings_estimate.loc["0y"]["growth"]`). Yahoo
+    queda FUERA por decisión de Victor: las fuentes del sistema son FMP,
+    FinnHub, FRED y EDGAR, y yfinance raspa un endpoint no documentado que
+    puede cambiar sin aviso — un PEG que depende de eso es un PEG que
+    puede desaparecer entre dos corridas sin que nadie lo note.
 
-    Two things arrive that nothing else here could supply:
+    FMP publica el mismo panel por año fiscal, así que el crecimiento del
+    año en curso sale de dividir el primer año FORWARD entre el último ya
+    pasado — consenso contra consenso, el mismo panel a ambos lados. En
+    NVDA (2026-08-03) da FY2027/FY2026 = 9.001/4.694 = **+91.8%**, contra
+    el +88.6% que devolvía Yahoo: la misma magnitud medida sobre un panel
+    ligeramente distinto.
 
-    - `eps_revisions` gives up/down analyst counts over 30 days, which
-      is MKT-REVBR-011's numerator and denominator. Rating upgrades from
-      FMP's grades endpoint are a different quantity and were rejected
-      for this.
-    - `eps_trend` gives the same panel's consensus 30 days ago, so
-      MKT-REVMAG-012 compares like with like today instead of waiting
-      for a month of our own snapshots.
+    Comparar contra el EPS *reportado* del año pasado mezclaría un dato
+    auditado con una estimación, que es precisamente lo que
+    `NORMALIZATION_AND_RESTATEMENTS.md` manda no hacer en un mismo ratio.
 
-    The current fiscal year row (`0y`) is used throughout: mixing the
-    quarter's revision counts with the year's consensus would answer two
-    questions at once. Returns {} on any failure — yfinance scrapes an
-    undocumented endpoint, so it is treated as enrichment that may
-    vanish, never as a dependency.
+    Devuelve fracción decimal (0.918), no puntos porcentuales: es lo que
+    espera `valuation.py`, que multiplica por 100 al formar el PEG.
     """
-    try:
-        import yfinance as yf
-    except ImportError:
-        return {}
+    from datetime import date as _date
 
-    try:
-        t = yf.Ticker(ticker)
-        out: dict[str, Any] = {}
-
-        revisions = t.eps_revisions
-        if revisions is not None and "0y" in revisions.index:
-            row = revisions.loc["0y"]
-            up, down = row.get("upLast30days"), row.get("downLast30days")
-            if up is not None and down is not None:
-                up, down = int(up), int(down)
-                if up + down > 0:
-                    out["upward"], out["total"] = up, up + down
-
-        trend = t.eps_trend
-        if trend is not None and "0y" in trend.index:
-            row = trend.loc["0y"]
-            current, prior = row.get("current"), row.get("30daysAgo")
-            if current is not None and prior:
-                out["current_consensus"] = float(current)
-                out["prior_consensus"] = float(prior)
-
-        # VAL-PEG-028's denominator. Same panel as the revision figures
-        # above, so the P/E is divided by a growth rate the same
-        # analysts produced. Guarded separately: this frame going missing
-        # must not discard the revision counts gathered above.
-        try:
-            growth = t.earnings_estimate
-            if growth is not None and "0y" in growth.index:
-                g = growth.loc["0y"].get("growth")
-                if g is not None:
-                    out["eps_growth_pct"] = float(g)
-        except Exception:
-            logger.warning("Yahoo growth estimate unavailable for %s", ticker,
-                           exc_info=True)
-
-        return out
-    except Exception:
-        logger.warning("Yahoo revisions unavailable for %s", ticker, exc_info=True)
-        return {}
+    rows = fmp.analyst_estimates(ticker)
+    if not isinstance(rows, list) or not rows:
+        return None
+    today = today or _date.today().isoformat()
+    con_eps = [r for r in rows if r.get("date") and r.get("epsAvg")]
+    pasados = sorted((r for r in con_eps if r["date"] <= today), key=lambda r: r["date"])
+    futuros = sorted((r for r in con_eps if r["date"] > today), key=lambda r: r["date"])
+    if not pasados or not futuros:
+        return None
+    base = float(pasados[-1]["epsAvg"])
+    if base <= 0:
+        # Un crecimiento contra una base negativa o nula no significa nada;
+        # el PEG lo trataría como una cifra buena. Mejor sin métrica.
+        return None
+    return float(futuros[0]["epsAvg"]) / base - 1.0
 
 
 def _consensus_history(fmp: Any, settings: Any, ticker: str,
@@ -1355,21 +1566,20 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         if universe:
             overlay["rs_universe"] = universe
         est = _estimates(fmp, ticker) or {}
-        # Our own FMP snapshot series is the fallback: it needs 30 days of
-        # history to say anything, whereas Yahoo already carries the
-        # prior consensus. Yahoo wins when present, and it alone can
-        # supply the revision counts.
+        # Nuestra propia serie de snapshots de FMP es AHORA la única fuente
+        # del consenso previo. Antes Yahoo lo servía ya hecho y esto era el
+        # respaldo; al quedar Yahoo fuera, MKT-REVMAG-012 necesita
+        # `_REVISION_MIN_DAYS` de historia propia antes de poder decir algo,
+        # y hasta entonces reporta MISSING con esa razón. Se cura con el uso
+        # y no depende de ningún endpoint que nadie documenta.
         revision = _consensus_history(fmp, settings, ticker) or {}
         est.update({k: v for k, v in revision.items() if k != "prior_as_of"})
-        yahoo = _yahoo_revisions(ticker)
-        # `eps_growth_pct` is read by valuation.py at the top level of the
-        # overlay, while market.py reads the revision figures from inside
-        # `estimates`. Putting them all in one place hid the growth rate
-        # from VAL-PEG-028, which then reported its inputs as missing.
-        growth = yahoo.pop("eps_growth_pct", None)
+        # `eps_growth_pct` lo lee valuation.py en la RAÍZ del overlay,
+        # mientras market.py lee las revisiones dentro de `estimates`.
+        # Ponerlos juntos escondía el crecimiento de VAL-PEG-028.
+        growth = _consensus_eps_growth(fmp, ticker)
         if growth is not None:
             overlay["eps_growth_pct"] = growth
-        est.update(yahoo)
         count = _active_estimate_count(fmp, ticker)
         if count is not None:
             est["active_estimates"] = count
@@ -1405,7 +1615,23 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
     # this channel exists. Overrides are logged so the audit trail shows
     # a figure came from a person rather than a feed.
     try:
-        manual = _manual_overlay(settings, ticker)
+        _ind = getattr(getattr(packet, "security", None), "industry", None)
+        # El TAM se resuelve ANTES de leer `Entradas/`, porque lo que escribe
+        # es justo el archivo que `_manual_overlay` está a punto de leer. Así
+        # una industria que nadie había mirado nunca llega con denominador al
+        # primer análisis, en vez de exigir que alguien se siente a teclearlo.
+        # La cadena es toda oficial: EDGAR da el SIC, FRED el tamaño del
+        # mercado del Census. Ver `overlay/tam_oficial.py`.
+        try:
+            from wbj.overlay.tam_oficial import asegurar_tam_industria
+            from wbj.providers.edgar import EdgarProvider
+
+            logger.info("TAM de industria: %s", asegurar_tam_industria(
+                settings, _ind, ticker,
+                providers={"edgar": EdgarProvider(settings, Cache(settings.cache_dir))}))
+        except Exception:
+            logger.warning("resolucion oficial de TAM no disponible", exc_info=True)
+        manual = _manual_overlay(settings, ticker, industria=_ind)
         for key in sorted(set(manual) & set(overlay)):
             logger.info("analyst input overrides computed %s for %s", key, ticker)
         for key, value in manual.items():
@@ -1424,5 +1650,31 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
                 overlay[key] = value
     except Exception:
         logger.warning("analyst inputs unavailable", exc_info=True)
+
+    # Participación de mercado calculada sola, para CUALQUIER ticker: el
+    # denominador lo pone la industria y el numerador el segmento del 10-K
+    # que compite en ese mercado. Va DESPUÉS de la fusión manual por dos
+    # razones, y las dos importan: antes de ella el TAM heredado todavía no
+    # existe -- el cálculo salía vacío para todos menos NVDA, que lo traía
+    # escrito a mano -- y `setdefault` deja intacto lo que el analista ya
+    # declaró. Quien leyó el estudio manda; esto sólo cubre el hueco.
+    try:
+        segmentos = overlay.get("segment_revenue")
+        # Con ámbito doméstico el numerador sale del desglose GEOGRÁFICO, así
+        # que exigir segmentos de producto para entrar dejaba fuera justo al
+        # caso que cubre el TAM oficial: JPM, KO y PLTR salían sin
+        # participación teniendo el denominador delante.
+        domestico = str(overlay.get("_ambito") or "").upper() == "US"
+        if domestico or (isinstance(segmentos, dict) and segmentos):
+            auto = _share_automatico(
+                fmp, ticker, segmentos or {}, overlay.get("tam"),
+                overlay.get("tam_history"), overlay.pop("_segmento_patrones", None),
+                ambito=overlay.pop("_ambito", None))
+            for key, value in auto.items():
+                overlay.setdefault(key, value)
+    except Exception:
+        logger.warning("automatic market share unavailable", exc_info=True)
+    overlay.pop("_segmento_patrones", None)
+    overlay.pop("_ambito", None)
 
     return overlay

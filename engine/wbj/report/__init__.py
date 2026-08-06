@@ -267,10 +267,13 @@ def _reverse_dcf_context(valuation: Any, price: float | None):
 
 
 #: Endpoint fuera de plan -> la fuente que YA cubre ese dato. Sin esto, el
-#: reporte listaba tres huecos sin decir que dos están tapados: FMP
-#: institutional-ownership lo sustituye el conjunto 13F de la SEC, y las
-#: estimaciones de FinnHub las da FMP analyst-estimates (200 en el plan de
-#: pago). Un hueco tapado y uno abierto piden acciones distintas.
+#: reporte listaba los huecos sin decir cuáles están tapados, y un hueco
+#: tapado y uno abierto piden acciones distintas.
+#:
+#: `institutional_holders` SÍ está tapado: las seis rutas de FMP dan 402 con
+#: este plan, y el respaldo por EDGAR entra justo ahí (ver `_ownership`). El
+#: costo real es UN zip por trimestre compartido por todos los tickers, no
+#: 19 s por acción — se midió mal la primera vez y por eso llegó a retirarse.
 _ENTITLEMENT_SUBSTITUTES = {
     "institutional_holders": "el conjunto de datos 13F de la SEC (holders_13f_dataset)",
     "estimates": "FMP analyst-estimates",
@@ -588,6 +591,21 @@ def _ownership(ticker: str, settings: Any) -> dict:
                 holders.append({"name": name, "shares": h.get("shares"),
                                 "value": h.get("marketValue") or h.get("value")})
 
+    # ── RESPALDO tier 1: sólo cuando FMP no trae la lista ────────────────
+    # `if not holders` es la condición entera: si FMP responde, esto no se
+    # ejecuta y no cuesta nada. Con el plan actual FMP devuelve 402 en TODA
+    # la familia `institutional-ownership` (verificado sobre las seis rutas),
+    # así que en la práctica sí se usa — y por eso está aquí.
+    #
+    # Victor no lo tiene: su `packet/builder.py` hace
+    # `fmp.institutional_holders(ticker) or []` y acepta el vacío. Pero su
+    # `CLAUDE.md` —el mismo que este— exige en el punto 4 los fondos con
+    # posición 13F, así que su sistema deja ese requisito sin cubrir. Aquí no.
+    #
+    # El costo NO es por ticker: el conjunto trimestral es UN zip por
+    # trimestre, cacheado y compartido por todos los tickers. Medido: 19.1 s
+    # la primera vez, 8.3 s el siguiente ticker, 0.3 s el tercero. Se paga
+    # una vez por trimestre, no una vez por acción.
     if not holders:
         # Respaldo tier 1, en tres escalones de mejor a peor:
         #   1. Conjunto de datos estructurado 13F de la SEC -> nombres RECONOCIDOS

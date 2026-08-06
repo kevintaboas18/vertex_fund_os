@@ -1,0 +1,20 @@
+{
+  "_generado_por": "vertex/tam_oficial",
+  "_resuelto_en": "2026-08-05",
+  "_cadena": "PLTR -> SEC EDGAR SIC 7372 (Services-Prepackaged Software) -> NAICS 5112 -> FRED REV5112TAXABL144QSA",
+  "_geografia": "Estados Unidos. Las encuestas del Census miden el mercado DOMESTICO; los ingresos de un emisor son mundiales. Lee la participacion como captura sobre el mercado de EE.UU.",
+  "_ambito": "US",
+  "_serie_fred": "REV5112TAXABL144QSA",
+  "_serie_titulo": "Total Revenue for 5112: Software Publishers, Establishments Subject to Federal Income Tax",
+  "_serie_frecuencia": "Q",
+  "_serie_ultima_observacion": "2026-01-01",
+  "_unidades_origen": "Mil. of $",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo: pasa a ser un TAM de analista.",
+  "tam": 649179000000,
+  "tam_source": "U.S. Census Bureau / BLS via FRED — Total Revenue for 5112: Software Publishers, Establishments Subject to Federal Income Tax (REV5112TAXABL144QSA), observacion 2026-01-01",
+  "tam_source_tier": 1,
+  "tam_history": [
+    568296000000,
+    649179000000
+  ]
+}

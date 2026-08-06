@@ -4122,8 +4122,8 @@ async function loadSentiment(ticker) {
         const d = await res.json();
 
         // ── Grok API error ───────────────────────────────────────────────
-        if (!d.grok_ok) {
-            errorTxtEl.innerText = d.grok_error || 'Error desconocido al llamar a Grok.';
+        if (!d.llm_ok) {
+            errorTxtEl.innerText = d.llm_error || 'Ningún proveedor de IA respondió.';
             errorEl.classList.remove('hidden');
             loadingEl.classList.add('hidden');
             refreshBtn.disabled = false;
@@ -4160,7 +4160,7 @@ async function loadSentiment(ticker) {
         statusEl.classList.remove('hidden');
 
         // ── Render 6 sections ────────────────────────────────────────────
-        renderSentimentSections(d.grok_text || '', contentEl);
+        renderSentimentSections(d.llm_text || '', contentEl);
         sentimentLoaded = true;
 
     } catch (e) {
@@ -6369,13 +6369,13 @@ async function loadGrokDeepDive(ticker, companyName) {
         }
 
         // Render 7 Grok sections
-        if (d.grok_ok && d.grok_text) {
-            deepGrokEl.innerHTML = renderExploreDeepSections(d.grok_text);
+        if (d.llm_ok && d.llm_text) {
+            deepGrokEl.innerHTML = renderExploreDeepSections(d.llm_text);
             // Also update thesis card with full grok text section 6/7
-            document.getElementById('deepThesis').innerHTML = htmlEscBold(d.grok_text.split('\n').slice(0,3).join('\n'));
+            document.getElementById('deepThesis').innerHTML = htmlEscBold(d.llm_text.split('\n').slice(0,3).join('\n'));
         } else {
             deepGrokEl.innerHTML = `<div class="bg-red-500/5 border border-red-500/20 rounded-xl p-3">
-                <p class="text-xs text-red-400">${htmlEsc(d.grok_error || 'Análisis no disponible')}</p>
+                <p class="text-xs text-red-400">${htmlEsc(d.llm_error || 'Análisis no disponible')}</p>
             </div>`;
         }
         deepGrokEl.classList.remove('hidden');

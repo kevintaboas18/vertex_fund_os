@@ -78,8 +78,17 @@ def test_the_gap_names_the_provider_the_endpoint_and_the_status():
     assert "finnhub: ENDPOINT_NOT_IN_PLAN (revenue_estimates, HTTP 403)" in blob
     # Y dice si el dato esta TAPADO por otra fuente o realmente perdido:
     # son dos acciones distintas (no hacer nada / subir de plan).
+    #
+    # `institutional_holders` esta TAPADO por el respaldo de EDGAR, que entra
+    # dentro de `if not holders` en `_ownership`. Las seis rutas de FMP dan
+    # 402 con este plan, asi que en la practica se usa siempre -- y su costo
+    # real es UN zip por trimestre compartido por todos los tickers, no 19 s
+    # por accion (asi se midio mal la primera vez, y por eso llego a
+    # retirarse).
     tapado = next(g for g in gaps if "institutional_holders" in g)
-    assert "already sourced from" in tapado
+    assert "already sourced from" in tapado, (
+        "el respaldo de EDGAR volvio pero el hueco se sigue anunciando como "
+        "descubierto: " + tapado)
     assert "13F" in tapado
 
 

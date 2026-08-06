@@ -1,0 +1,16 @@
+{
+  "report_id": "20260803_234143_NVDA",
+  "ticker": "NVDA",
+  "fecha": "2026-08-03",
+  "price_at_analysis": 206.64,
+  "fair_value": 289.3,
+  "profile": "Avoid / Wait",
+  "raw_total": 48.9,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 332.69,
+    "base": 289.3,
+    "bear": 204.57
+  },
+  "framework": "WBJ v2.0.0"
+}

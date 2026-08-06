@@ -9,7 +9,10 @@ N/S rule would quietly become "score a fabricated number".
 
 from types import SimpleNamespace
 
-from wbj.overlay.from_packet import _segment_shares, _wacc_from_packet
+import pytest
+
+from wbj.overlay.from_packet import (_consensus_eps_growth, _segment_shares,
+                                      _wacc_from_packet)
 
 
 class _Bar:
@@ -513,87 +516,91 @@ def test_a_single_tagged_period_falls_back_to_prose(tmp_path, monkeypatch):
     assert _backlog_history(e, _Settings(tmp_path), 1, None) == [7.0, 7.0]
 
 
-class _YF:
-    """Stand-in for yfinance.Ticker, shaped like the real frames."""
+class _FMPEstimates:
+    """Stand-in de FMPProvider para `analyst-estimates`, con el orden real:
+    FMP devuelve las filas DESCENDENTES por fecha."""
 
-    def __init__(self, revisions=None, trend=None):
-        import pandas as pd
-        self.eps_revisions = (pd.DataFrame(revisions).T if revisions else None)
-        self.eps_trend = (pd.DataFrame(trend).T if trend else None)
+    def __init__(self, rows):
+        self._rows = rows
 
-
-def _install_yf(monkeypatch, ticker_obj):
-    import sys
-    import types
-    mod = types.ModuleType("yfinance")
-    mod.Ticker = lambda symbol: ticker_obj
-    monkeypatch.setitem(sys.modules, "yfinance", mod)
+    def analyst_estimates(self, ticker, limit=10):
+        return self._rows
 
 
-def test_revision_counts_and_prior_consensus_come_from_yahoo(monkeypatch):
-    """MKT-REVBR-011 needs up/down analyst counts and MKT-REVMAG-012 the
-    same panel's prior consensus. FMP publishes neither."""
-    from wbj.overlay.from_packet import _yahoo_revisions
+def test_the_growth_rate_comes_from_fmp_not_yahoo():
+    """VAL-PEG-028 necesita el crecimiento del año fiscal EN CURSO. Lo daba
+    Yahoo; Yahoo queda fuera porque raspa un endpoint no documentado y no es
+    una de las fuentes del sistema. FMP publica el mismo panel por año, así
+    que el crecimiento sale del primer año FORWARD contra el último pasado.
 
-    _install_yf(monkeypatch, _YF(
-        revisions={"0y": {"upLast30days": 42, "downLast30days": 2}},
-        trend={"0y": {"current": 8.98594, "30daysAgo": 8.96014}}))
-    out = _yahoo_revisions("NVDA")
-    assert out["upward"] == 42
-    assert out["total"] == 44
-    assert out["current_consensus"] == 8.98594
-    assert out["prior_consensus"] == 8.96014
-
-
-def test_the_current_fiscal_year_row_is_the_one_read(monkeypatch):
-    """Mixing the quarter's revision counts with the year's consensus
-    would answer two questions at once."""
-    from wbj.overlay.from_packet import _yahoo_revisions
-
-    _install_yf(monkeypatch, _YF(
-        revisions={"0q": {"upLast30days": 34, "downLast30days": 3},
-                   "0y": {"upLast30days": 42, "downLast30days": 2}},
-        trend={"0q": {"current": 2.09, "30daysAgo": 2.07},
-               "0y": {"current": 8.98594, "30daysAgo": 8.96014}}))
-    out = _yahoo_revisions("NVDA")
-    assert out["upward"] == 42
-    assert out["current_consensus"] == 8.98594
+    Con las cifras reales de NVDA (2026-08-03): 9.001/4.694 - 1 = +91.8%,
+    que es la misma magnitud que devolvía Yahoo (+88.6%) sobre un panel
+    ligeramente distinto."""
+    fmp = _FMPEstimates([
+        {"date": "2028-01-25", "epsAvg": 12.752},
+        {"date": "2027-01-25", "epsAvg": 9.001},
+        {"date": "2026-01-25", "epsAvg": 4.694},
+        {"date": "2025-01-26", "epsAvg": 2.952},
+    ])
+    g = _consensus_eps_growth(fmp, "NVDA", today="2026-08-03")
+    assert g == pytest.approx(9.001 / 4.694 - 1, rel=1e-9)
+    assert 0.90 < g < 0.94
 
 
-def test_no_revisions_at_all_yields_no_breadth(monkeypatch):
-    """Zero up and zero down is no revision activity, not a breadth of
-    zero — dividing by that total would be meaningless."""
-    from wbj.overlay.from_packet import _yahoo_revisions
-
-    _install_yf(monkeypatch, _YF(
-        revisions={"0y": {"upLast30days": 0, "downLast30days": 0}}))
-    assert "upward" not in _yahoo_revisions("NVDA")
-
-
-def test_a_zero_prior_consensus_is_rejected(monkeypatch):
-    """Revision magnitude divides by the prior consensus."""
-    from wbj.overlay.from_packet import _yahoo_revisions
-
-    _install_yf(monkeypatch, _YF(
-        trend={"0y": {"current": 8.98, "30daysAgo": 0.0}}))
-    assert "prior_consensus" not in _yahoo_revisions("NVDA")
+def test_the_growth_is_a_decimal_fraction_not_percentage_points():
+    """`valuation.py` multiplica por 100 al formar el PEG. Devolver 91.8 en
+    vez de 0.918 daría un PEG 100 veces menor — una acción carísima
+    pareciendo una ganga."""
+    fmp = _FMPEstimates([{"date": "2027-01-25", "epsAvg": 2.0},
+                         {"date": "2026-01-25", "epsAvg": 1.0}])
+    assert _consensus_eps_growth(fmp, "NVDA", today="2026-08-03") == pytest.approx(1.0)
 
 
-def test_yahoo_failure_is_not_fatal(monkeypatch):
-    """yfinance reads an undocumented endpoint, so it is enrichment that
-    may vanish — never a dependency."""
-    import sys
-    import types
-    from wbj.overlay.from_packet import _yahoo_revisions
+def test_a_non_positive_base_yields_no_growth():
+    """Crecer contra una base negativa o cero no significa nada, y el PEG lo
+    trataría como una cifra buena."""
+    for base in (0.0, -0.5):
+        fmp = _FMPEstimates([{"date": "2027-01-25", "epsAvg": 3.0},
+                             {"date": "2026-01-25", "epsAvg": base}])
+        assert _consensus_eps_growth(fmp, "NVDA", today="2026-08-03") is None
 
-    mod = types.ModuleType("yfinance")
 
-    def _boom(symbol):
-        raise RuntimeError("endpoint moved")
+def test_without_a_past_or_a_forward_year_there_is_no_growth():
+    """Hace falta un año a cada lado de hoy: si no, no hay dos consensos que
+    comparar y cualquier número sería inventado."""
+    solo_futuro = _FMPEstimates([{"date": "2027-01-25", "epsAvg": 9.0}])
+    solo_pasado = _FMPEstimates([{"date": "2026-01-25", "epsAvg": 4.7}])
+    for fmp in (solo_futuro, solo_pasado):
+        assert _consensus_eps_growth(fmp, "NVDA", today="2026-08-03") is None
 
-    mod.Ticker = _boom
-    monkeypatch.setitem(sys.modules, "yfinance", mod)
-    assert _yahoo_revisions("NVDA") == {}
+
+def test_a_provider_failure_is_never_fatal():
+    """El overlay es enriquecimiento: si FMP no responde, el resto de las
+    métricas siguen puntuando."""
+    class _Roto:
+        def analyst_estimates(self, ticker, limit=10):
+            return None
+
+    assert _consensus_eps_growth(_Roto(), "NVDA", today="2026-08-03") is None
+
+
+def test_the_engine_no_longer_imports_yahoo():
+    """Victor fijó las fuentes: FMP, FinnHub, FRED y EDGAR. yfinance raspa
+    un endpoint sin documentar que puede cambiar sin aviso, y un score que
+    depende de eso puede moverse sin que nadie sepa por qué."""
+    import pathlib as _pl
+
+    motor = _pl.Path(__file__).resolve().parents[1] / "wbj"
+    culpables = []
+    for f in motor.rglob("*.py"):
+        texto = f.read_text(encoding="utf-8")
+        for linea in texto.splitlines():
+            despojada = linea.strip()
+            if despojada.startswith("#") or despojada.startswith('"'):
+                continue
+            if "import yfinance" in despojada or "yf.Ticker" in despojada:
+                culpables.append(f"{f.name}: {despojada[:60]}")
+    assert not culpables, f"el motor volvió a depender de Yahoo: {culpables}"
 
 
 class _Bar2:

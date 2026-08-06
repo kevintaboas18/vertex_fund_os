@@ -1,0 +1,20 @@
+{
+  "_generado_por": "vertex/tam_oficial",
+  "_resuelto_en": "2026-08-05",
+  "_cadena": "AAPL -> SEC EDGAR SIC 3571 (Electronic Computers) -> NAICS 3341 -> FRED IPUEN3341T300000000",
+  "_geografia": "Estados Unidos. Las encuestas del Census miden el mercado DOMESTICO; los ingresos de un emisor son mundiales. Lee la participacion como captura sobre el mercado de EE.UU.",
+  "_ambito": "US",
+  "_serie_fred": "IPUEN3341T300000000",
+  "_serie_titulo": "Sectoral Output for Manufacturing: Computer and Peripheral Equipment Manufacturing (NAICS 3341) in the United States",
+  "_serie_frecuencia": "A",
+  "_serie_ultima_observacion": "2025-01-01",
+  "_unidades_origen": "Mil. of $",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo: pasa a ser un TAM de analista.",
+  "tam": 20991569000,
+  "tam_source": "U.S. Census Bureau / BLS via FRED — Sectoral Output for Manufacturing: Computer and Peripheral Equipment Manufacturing (NAICS 3341) in the United States (IPUEN3341T300000000), observacion 2025-01-01",
+  "tam_source_tier": 1,
+  "tam_history": [
+    20132108000,
+    20991569000
+  ]
+}

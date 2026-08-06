@@ -1,0 +1,16 @@
+{
+  "report_id": "20260803_114848_PLTR",
+  "ticker": "PLTR",
+  "fecha": "2026-08-03",
+  "price_at_analysis": 124.97,
+  "fair_value": 160.62,
+  "profile": "Avoid / Wait",
+  "raw_total": 32.7,
+  "recommendation": "DESFAVORABLE",
+  "targets_12m": {
+    "bull": 191.79,
+    "base": 160.62,
+    "bear": 113.09
+  },
+  "framework": "WBJ v2.0.0"
+}
