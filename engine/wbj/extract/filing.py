@@ -30,6 +30,28 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
+
+class _FalloDeExtraccion:
+    """No se pudo preguntar. Distinto de "no divulga nada".
+
+    Hace falta un valor propio porque `None` ya significa algo aqui: para
+    `extract_backlog`, "este filing no divulga backlog" es una RESPUESTA -- no
+    cambia nunca y guardarla evita volver a pagar por el mismo silencio.
+
+    Un fallo no es eso. Guardarlo contra la accession del filing, que es
+    inmutable, dejaba al ticker devolviendo vacio para siempre: el dia que la
+    cuenta de Anthropic tenga saldo, la respuesta buena ya no podria entrar.
+    """
+
+    __slots__ = ()
+
+    def __bool__(self) -> bool:
+        return False
+
+
+#: Centinela unico, para poder compararlo con `is`.
+FALLO = _FalloDeExtraccion()
+
 # The filing runs ~370k characters. Sending the whole thing costs tokens
 # for prose that cannot contain these disclosures, so the extraction
 # reads generous windows around the phrases that introduce them.
@@ -326,10 +348,10 @@ def extract_backlog(filing: dict, settings: Any, client: Any = None) -> float | 
     except Exception:
         logger.warning("backlog extraction failed for %s", filing.get("accession"),
                        exc_info=True)
-        return None
+        return FALLO
 
     if parsed is None:
-        return None
+        return FALLO
     return _verified_amount(parsed.rpo_total_usd, parsed.quote, text,
                             f"backlog[{filing.get('period')}]")
 
@@ -432,12 +454,30 @@ def extract_disclosures(filing: dict, settings: Any, client: Any = None) -> dict
             output_format=_Extraction,
         )
         parsed = _parsed(resp, _Extraction)
-    except Exception:
-        logger.warning("filing extraction failed; disclosures stay absent", exc_info=True)
-        return {}
+    except Exception as e:  # noqa: BLE001
+        # `None` (no `{}`) porque son cosas DISTINTAS y el cacheador las trata
+        # distinto: `{}` significa "el filing no divulga nada", que es una
+        # respuesta y se guarda; `None` significa "no se pudo preguntar", que
+        # no lo es. Guardar el fallo como resultado dejaba al ticker devolviendo
+        # vacio PARA SIEMPRE contra esa accession, incluso despues de recargar
+        # el saldo -- un fallo transitorio convertido en permanente.
+        motivo = str(e)
+        if "credit balance" in motivo or "billing" in motivo.lower():
+            # Sin saldo no es un error de programa: no merece un traceback de
+            # 30 lineas en cada analisis, que es lo que enterraba el resto del
+            # log. Una linea que diga que pasa y que hacer.
+            logger.warning(
+                "extraccion del 10-K omitida: la cuenta de Anthropic no tiene "
+                "saldo. Las divulgaciones de concentracion de clientes, "
+                "ingresos recurrentes y RPO quedan NOT_SCORABLE hasta que lo "
+                "recargues.")
+        else:
+            logger.warning("filing extraction failed; disclosures stay absent",
+                           exc_info=True)
+        return None
 
     if parsed is None:
-        return {}
+        return None
 
     out: dict[str, Any] = {}
     largest = _verified(parsed.largest_customer_share,

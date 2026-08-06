@@ -947,6 +947,17 @@ def _cached_extract(cache: Any, ticker: str, filing: dict, kind: str,
     if isinstance(hit, dict) and "value" in hit:
         return hit["value"]
     value = compute()
+    # Un FALLO no se cachea. Guardarlo contra la accession -- que es inmutable
+    # -- dejaba al ticker devolviendo vacio para siempre, asi que el dia que la
+    # cuenta de Anthropic tenga saldo la respuesta buena ya no podria entrar.
+    #
+    # `None` y `{}` SI se guardan, porque son respuestas: "este filing no
+    # divulga backlog" no cambia nunca, y volver a preguntarlo es volver a
+    # pagar por el mismo silencio.
+    from wbj.extract.filing import FALLO
+
+    if value is FALLO:
+        return None
     cache.put(ticker, key, {"value": value})
     return value
 
