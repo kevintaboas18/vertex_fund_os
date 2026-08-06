@@ -1482,6 +1482,24 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
             if history:
                 overlay["backlog_history"] = history
 
+            # ¿Este emisor DECLARA backlog contratado? La NIIF 15 / ASC 606
+            # obliga a divulgar las obligaciones de desempeño pendientes a quien
+            # tiene contratos de más de un año. Quien no etiqueta nunca ese
+            # concepto no es que se lo haya callado: es que su negocio no lo
+            # produce -- una refresquera vende cajas, no contratos plurianuales.
+            #
+            # Con esto `market.py` puede distinguir "no lo tengo" de "no aplica"
+            # con EVIDENCIA de EDGAR en vez de con una lista de industrias, que
+            # ahi seria adivinar. Sin esta clave, MKT-BACK-015 y MKT-COVER-016
+            # se le cobraban a todo el mundo.
+            try:
+                overlay["_backlog_reportado"] = bool(
+                    history or _xbrl_series(
+                        edgar, cik, "RevenueRemainingPerformanceObligation"))
+            except Exception:
+                logger.warning("no se pudo comprobar si %s declara RPO", ticker,
+                               exc_info=True)
+
             # Dividends per share, for VAL-DDM-024/VAL-HDDM-025. EDGAR is
             # tier 1 in SOURCE_HIERARCHY.md and FMP tier 5, and the figure is
             # tagged in XBRL, so the primary source is also the free one --

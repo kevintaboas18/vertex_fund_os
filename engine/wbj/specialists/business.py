@@ -213,7 +213,7 @@ assert len(BUS_30_IDS) == 30
 # economics row says as much: "If not applicable, use adapter metrics; do
 # not impute." Reporting them MISSING on a chip maker and scoring the
 # dimension zero is imputing exactly what that forbids.
-_SUBSCRIPTION_ADAPTERS = ("saas", "subscription")
+_SUBSCRIPTION_ADAPTERS = _adapters.SUBSCRIPTION_ADAPTERS
 
 
 def _slot(row: Any) -> Value:
@@ -293,12 +293,12 @@ def _market_definition_is_confident(overlay: dict) -> bool:
 #:
 #: Membership is affirmative: a model earns these metrics by running on
 #: recurring contracts, not by failing to match an exclusion list.
-_SUBSCRIPTION_INDUSTRIES = (
-    "software", "saas", "internet content", "information technology services",
-    "telecom", "entertainment", "streaming", "broadcasting", "publishing",
-    "security & protection services", "staffing",
-    "specialty business services", "data processing",
-)
+# La lista vive en `core/adapters.py` desde el 2026-08-06. `market.py` hacía la
+# MISMA pregunta -- ¿este negocio produce este dato? -- y no la contestaba en
+# absoluto: ni una sola línea de NOT_APPLICABLE en todo el módulo, así que le
+# cobraba ARPU a Coca-Cola. Se movió al módulo compartido, que existe
+# literalmente para que dos especialistas no puedan discrepar en silencio.
+_SUBSCRIPTION_INDUSTRIES = _adapters.SUBSCRIPTION_INDUSTRIES
 
 #: "healthcare plans" salió de la lista el 2026-08-06, y no por conveniencia:
 #: `INDUSTRY_ADAPTERS.md` le asigna a las aseguradoras un juego de métricas

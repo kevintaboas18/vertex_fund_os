@@ -84,7 +84,13 @@ def test_the_skeleton_covers_every_key_the_engine_names():
                  "dividends_per_share_history", "eps_growth_pct",
                  "geographic_shares", "historical_multiples", "macro_series",
                  "margin_of_safety", "product_shares", "reit_supplement",
-                 "rs_universe", "segment_revenue"}
+                 "rs_universe", "segment_revenue",
+                 # Lo escribe `overlay/from_packet.py` mirando si el emisor
+                 # etiqueta RevenueRemainingPerformanceObligation en su XBRL.
+                 # No se le pide a nadie: es la evidencia de EDGAR con la que
+                 # MKT-BACK-015 y MKT-COVER-016 distinguen "no lo tengo" de
+                 # "no aplica".
+                 "_backlog_reportado"}
     _FROM_PACKET = {"beta", "risk_free_rate", "interest_expense",
                     "company_series", "earnings_dates", "depreciation", "ppe"}
     _DEFAULTS = {"erp", "terminal_growth", "tv_growth", "forecast_years"}

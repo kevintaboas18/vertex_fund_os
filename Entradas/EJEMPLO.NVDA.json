@@ -320,5 +320,7 @@
     "customer_life_years": 5.0,
     "cac_spend": 9000000000.0,
     "new_customers": 3000000.0
-  }
+  },
+  "_comment__backlog_reportado": "Lo RELLENA EL ENGINE, no tu: mira si el emisor etiqueta RevenueRemainingPerformanceObligation en su XBRL. La NIIF 15 / ASC 606 obliga a divulgar las obligaciones de desempeno pendientes a quien tiene contratos de mas de un ano, asi que quien no lo etiqueta nunca es que no tiene ese backlog -- una refresquera vende cajas, no contratos plurianuales. Con eso MKT-BACK-015 y MKT-COVER-016 distinguen 'no lo tengo' de 'no aplica' por EVIDENCIA de EDGAR en vez de por una lista de industrias. Ponlo a true a mano solo si sabes que la empresa reporta backlog fuera del XBRL.",
+  "_backlog_reportado": null
 }

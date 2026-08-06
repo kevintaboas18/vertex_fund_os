@@ -17,6 +17,7 @@ import pytest
 from wbj.core.nullstates import NullState
 from wbj.core.scoring import Category
 from wbj.schemas.packet import AnalysisMeta, MarketData, Packet, Security
+from wbj.core import adapters as _adapters
 import wbj.specialists.market as mkt
 
 _FIXTURE = Path(__file__).parent.parent / "fixtures" / "packet" / "NVDA_packet.json"
@@ -510,7 +511,22 @@ def test_an_additive_saas_adapter_is_not_warned_or_penalised():
                                    industry_adapter="saas_subscriptions"))
     default = mkt.run(_minimal_packet([_row(y) for y in range(2025, 2020, -1)]))
     assert not any("industry_adapter" in a for a in saas.assumptions)
-    assert saas.category.confidence == pytest.approx(default.category.confidence)
+    assert (_adapters.model_fit("saas_subscriptions")
+            == _adapters.model_fit(_adapters.DEFAULT_ADAPTER))
+
+    # La CONFIANZA ya no tiene por que coincidir, y no coincidir es lo correcto.
+    # Desde el 2026-08-06 MKT-ARPU-022 y MKT-ADOPT-021 son NOT_APPLICABLE fuera
+    # de un negocio de suscripcion: una fabricante de chips no tiene usuarios
+    # que promediar, y cobrarle su ARPU era imputar. Un SaaS que no publica el
+    # suyo SI tiene un hueco real. Coberturas distintas por razones distintas,
+    # y la confianza sigue a la cobertura.
+    #
+    # Este test comprobaba la confianza total como sustituto del model-fit, y
+    # los dos coincidian por accidente mientras ninguna metrica distinguia los
+    # modelos de negocio. Ahora se comprueba el model-fit, que es lo que la
+    # frase de arriba dice medir.
+    assert saas.coverage <= default.coverage, (
+        "el SaaS deberia cargar con los huecos que su modelo si produce")
 
 
 def test_a_model_replacing_adapter_is_warned():
