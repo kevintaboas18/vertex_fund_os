@@ -5478,8 +5478,14 @@ def perfil_get(request: Request):
         # Cuántas ha contestado esta persona y cuántas hereda de Kevin. Un
         # perfil heredado presentado como propio haría que el reporte hable con
         # una confianza que no tiene.
-        "progreso": {"total": len(_CU.PREGUNTAS),
-                     "contestadas": len(perfil.get("respondidas") or []),
+        # El denominador son las OBLIGATORIAS, no todas. Contar las opcionales
+        # dejaría el perfil eternamente incompleto por no escribir un texto que
+        # nadie tiene que escribir, y la advertencia de «hereda el perfil de
+        # Kevin» sería falsa justo cuando ya no hereda nada.
+        "progreso": {"total": len(_CU.OBLIGATORIAS),
+                     "contestadas": len([q for q in (perfil.get("respondidas") or [])
+                                         if q in _CU.OBLIGATORIAS]),
+                     "opcionales": len(_CU.PREGUNTAS) - len(_CU.OBLIGATORIAS),
                      "sin_contestar": perfil.get("sin_contestar") or []},
         "archivos": {
             "para_los_agentes": (
@@ -5512,13 +5518,24 @@ async def perfil_post(request: Request):
     if not isinstance(body, dict):
         return {"ok": False, "error": "Cuerpo no es un objeto."}
     respuestas = body.get("respuestas")
-    if not isinstance(respuestas, dict):
-        return {"ok": False, "error": "Falta el objeto `respuestas`."}
+    modo = body.get("modo")
+    if modo is not None and modo not in _CU.MODOS:
+        return {"ok": False, "error": f"Modo desconocido: {modo!r}"}
+    if respuestas is None and modo is None:
+        return {"ok": False, "error": "Falta `respuestas` o `modo`."}
+    if respuestas is not None and not isinstance(respuestas, dict):
+        return {"ok": False, "error": "`respuestas` tiene que ser un objeto."}
 
     conn = _db()
     try:
-        base = _CU.leer_perfil(conn, u["id"])
-        perfil, error = _CU.perfil_desde_respuestas(respuestas, base)
+        # Se parte de lo GUARDADO, no de lo efectivo: en modo `default` lo
+        # efectivo son los valores de Kevin, y usarlo como base convertiría sus
+        # respuestas en las tuyas en cuanto guardaras cualquier cosa.
+        guardadas = _CU.leer_perfil(conn, u["id"])
+        base = {**guardadas, **(guardadas.get("respuestas") or {})}
+        if modo is not None:
+            base["modo"] = modo
+        perfil, error = _CU.perfil_desde_respuestas(respuestas or {}, base)
         if error:
             # Una sola respuesta inválida aborta el guardado entero: un perfil a
             # medias es peor que uno viejo, porque nadie sabría qué parte es suya.
@@ -5531,8 +5548,10 @@ async def perfil_post(request: Request):
         conn.close()
 
     return _json_safe({"ok": True, "perfil": guardado,
-                       "progreso": {"total": len(_CU.PREGUNTAS),
-                                    "contestadas": len(guardado.get("respondidas") or []),
+                       "progreso": {"total": len(_CU.OBLIGATORIAS),
+                                    "contestadas": len([q for q in (guardado.get("respondidas") or [])
+                                                        if q in _CU.OBLIGATORIAS]),
+                                    "opcionales": len(_CU.PREGUNTAS) - len(_CU.OBLIGATORIAS),
                                     "sin_contestar": guardado.get("sin_contestar") or []}})
 
 

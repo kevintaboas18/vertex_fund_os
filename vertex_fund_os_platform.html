@@ -5309,9 +5309,9 @@ async function authSubmit() {
     if (registrando) {
         cuerpo.nombre = (document.getElementById('authName').value || '').trim();
         if (!cuerpo.nombre) { authShowError('Escribe tu nombre.'); return; }
-        // El m\u00ednimo lo decide el SERVIDOR: aqu\u00ed se comprueba solo para no hacer
-        // un viaje que ya se sabe que falla. Un m\u00ednimo distinto en cada lado
-        // dejar\u00eda pasar contrase\u00f1as que luego el servidor rechaza sin explicar.
+        // El mínimo lo decide el SERVIDOR: aquí se comprueba solo para no hacer
+        // un viaje que ya se sabe que falla. Un mínimo distinto en cada lado
+        // dejaría pasar contraseñas que luego el servidor rechaza sin explicar.
         if (password.length < 8) { authShowError('La contrase\u00f1a necesita al menos 8 caracteres.'); return; }
         const inv = document.getElementById('authInvite');
         if (inv && !inv.parentElement.classList.contains('hidden')) cuerpo.invitacion = inv.value || '';
@@ -5332,8 +5332,8 @@ async function authSubmit() {
         });
         const d = await r.json();
         if (!d.ok) { authShowError(d.error || 'No se pudo completar.'); return; }
-        // La cookie ya viene puesta en la respuesta. No se guarda ning\u00fan token
-        // aqu\u00ed: es HttpOnly a prop\u00f3sito y el JavaScript no debe poder leerla.
+        // La cookie ya viene puesta en la respuesta. No se guarda ningún token
+        // aquí: es HttpOnly a propósito y el JavaScript no debe poder leerla.
         await authLogin(d.usuario, { nuevo: !!d.nuevo });
     } catch (e) {
         authShowError('No se pudo hablar con el servidor. Revisa tu conexi\u00f3n.');
@@ -5352,7 +5352,7 @@ async function authLogin(user, opciones) {
     badge.classList.remove('hidden');
     badge.classList.add('flex');
     lucide.createIcons();
-    // El men\u00fa de cuenta cuelga de este nombre: se rellena al entrar, no al
+    // El menú de cuenta cuelga de este nombre: se rellena al entrar, no al
     // abrirlo por primera vez.
     if (typeof vxPintaMenu === 'function') vxPintaMenu();
     startNotifPolling();   // #4 — campana + escaneo de alertas de la watchlist
@@ -5361,22 +5361,25 @@ async function authLogin(user, opciones) {
     if (typeof syncReportsFromServer === 'function') syncReportsFromServer();
     if (typeof pfCargar === 'function') await pfCargar();
 
-    // Cuenta reci\u00e9n creada: el cuestionario, y de una vez. Un perfil vac\u00edo no
-    // es neutral — hereda el de Kevin entero, y el agente recomendar\u00eda con el
-    // capital y la tolerancia de otra persona sin que nadie lo hubiera pedido.
-    if (opciones && opciones.nuevo) switchView('perfilView');
+    // Entrar lleva al dashboard, también la primera vez.
+    //
+    // Estuvo mandando al cuestionario a quien acababa de registrarse, y era una
+    // barrera de once preguntas antes de haber visto nada. El perfil por
+    // defecto ya funciona; personalizarlo es una decisión que se toma cuando
+    // uno quiere, entrando a «Mi perfil» desde el menú.
+    switchView('homeView');
 }
 
 async function authSignOut() {
-    // Se cierra en el SERVIDOR, no solo aqu\u00ed. Borrar la cookie y dejar la
-    // sesi\u00f3n viva la dejar\u00eda v\u00e1lida para siempre donde se hubiera copiado.
+    // Se cierra en el SERVIDOR, no solo aquí. Borrar la cookie y dejar la
+    // sesión viva la dejaría válida para siempre donde se hubiera copiado.
     try { await fetch(`${API_BASE}/api/auth/salir`, { method: 'POST' }); } catch (e) {}
     VX_USUARIO = null;
     stopNotifPolling();   // #4 — detén el escaneo al cerrar sesión
     document.getElementById('navUserBadge').classList.add('hidden');
     document.getElementById('navUserBadge').classList.remove('flex');
     // El archivo local es de quien acaba de salir: se limpia, o el siguiente
-    // que entre en este navegador ver\u00eda sus reportes.
+    // que entre en este navegador vería sus reportes.
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
     document.getElementById('authEmail').value = '';
     document.getElementById('authPassword').value = '';
@@ -7528,9 +7531,10 @@ function analyzeTickerNow(tk) {
         </div>
     </div>
 
-    <!-- PERFIL: el cuestionario, pregunta a pregunta -->
+    <!-- PERFIL: primero el modo. Las preguntas solo salen si eliges personalizado. -->
     <div id="pfPanePerfil" class="hidden space-y-4">
-        <div id="pfProgreso" class="rounded-2xl px-4 py-3 border"></div>
+        <div id="pfModo" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+        <div id="pfProgreso" class="hidden rounded-2xl px-4 py-3 border"></div>
         <div id="pfPreguntas" class="space-y-4"></div>
     </div>
 
@@ -8908,6 +8912,7 @@ async function pfCargar() {
         VX_PREGUNTAS = d.preguntas || [];
         pfProgresoSrv = d.progreso || null;
         pfRespuestas = {};
+        pfModoSel = null;          // lo elegido en pantalla vuelve a lo guardado
         pfPinta(d);
         if (est) est.innerText = '';
     } catch (e) {
@@ -8918,9 +8923,18 @@ async function pfCargar() {
     pfCargaAprendizaje();
 }
 
-/** El valor vigente de una pregunta: lo que has tocado ahora, o lo guardado. */
+/** El valor vigente de una pregunta: lo que has tocado ahora, o lo guardado.
+ *
+ *  Lee de `respuestas`, que es lo que TÚ escribiste, no del nivel de arriba,
+ *  que es lo EFECTIVO. En modo por defecto los dos difieren: arriba están los
+ *  valores de referencia, y enseñarlos en el formulario haría que al pasar a
+ *  personalizado tus respuestas de antes hubieran desaparecido. */
 function pfValor(preg) {
     if (Object.prototype.hasOwnProperty.call(pfRespuestas, preg.id)) return pfRespuestas[preg.id];
+    const guardadas = (VX_PERFIL || {}).respuestas;
+    if (guardadas && Object.prototype.hasOwnProperty.call(guardadas, preg.campo)) {
+        return guardadas[preg.campo];
+    }
     return (VX_PERFIL || {})[preg.campo];
 }
 
@@ -8942,16 +8956,19 @@ function pfPinta(d) {
             <span class="text-gray-200 text-right break-all">${val}</span></div>`;
         cuenta.innerHTML = u
             ? fila('Nombre', _vcEsc(u.nombre)) + fila('Email', _vcEsc(u.email)) +
-              fila('Perfil', `${(p.respondidas || []).length} de ${VX_PREGUNTAS.length} preguntas contestadas`) +
+              fila('Perfil', (() => {
+                  // Mismo denominador que el cuestionario: las obligatorias.
+                  const obl = VX_PREGUNTAS.filter(q => !q.opcional).map(q => q.id);
+                  const hechas = (p.respondidas || []).filter(id => obl.includes(id)).length;
+                  return `${hechas} de ${obl.length} preguntas contestadas`;
+              })()) +
               fila('Capital declarado', fmtMoney(p.capital)) +
               fila('Riesgo por operaci&oacute;n', `${fmtMoney(p.riesgo_por_trade)} (${p.riesgo_pct}%)`)
             : `<p class="text-xs text-amber-400">No has iniciado sesi&oacute;n. Puedes ver el cuestionario, pero no guardar tus respuestas.</p>`;
     }
 
-    // ── El cuestionario ──────────────────────────────────────────────
-    const caja = document.getElementById('pfPreguntas');
-    if (caja) caja.innerHTML = VX_PREGUNTAS.map(pfPreguntaHTML).join('');
-    pfPintaProgreso();
+    // ── El modo, y solo entonces el cuestionario ─────────────────────
+    pfPintaModo();
 
     const arch = document.getElementById('pfArchivos');
     if (arch) {
@@ -8967,12 +8984,75 @@ function pfPinta(d) {
     if (window.lucide) lucide.createIcons();
 }
 
+/** El modo del perfil: por defecto o personalizado.
+ *
+ *  Las once preguntas no pueden ser lo primero que ve alguien que entra a su
+ *  perfil. El de referencia ya funciona, así que aquí se elige: usarlo tal
+ *  cual, o contestar. Solo si eliges personalizar aparece el cuestionario.
+ *
+ *  `pfModoSel` es lo elegido en pantalla y aún sin guardar — igual que las
+ *  respuestas. Cambiar de modo NO borra lo contestado: el servidor lo conserva
+ *  y volver a «personalizado» lo recupera tal cual. */
+let pfModoSel = null;
+
+function pfModoActual() {
+    return pfModoSel || (VX_PERFIL || {}).modo || 'default';
+}
+
+function pfPintaModo() {
+    const modo = pfModoActual();
+    const caja = document.getElementById('pfModo');
+    if (caja) {
+        const OPCIONES = [
+            { id: 'default', titulo: 'Perfil por defecto',
+              detalle: 'Usas el perfil de referencia tal cual. No hay nada que contestar y el sistema funciona desde el primer minuto.' },
+            { id: 'personalizado', titulo: 'Personalizado',
+              detalle: 'Contestas el cuestionario y los tres agentes recomiendan con tu capital, tu tolerancia y tu horizonte.' },
+        ];
+        // La clase `activa` va DENTRO de la plantilla, no en una segunda pasada
+        // con `querySelectorAll`: así el marcado que se genera ya dice cuál
+        // está elegido, sin depender de que alguien recuerde recorrerlo después.
+        caja.innerHTML = OPCIONES.map(o => `
+            <button type="button" data-modo="${o.id}"
+                    class="pf-opt text-left px-4 py-3.5 rounded-2xl border transition${
+                        modo === o.id ? ' activa' : ''}">
+                <span class="flex items-center gap-2">
+                    <span class="w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                        modo === o.id ? 'border-blue-400' : 'border-gray-600'}">${
+                        modo === o.id ? '<span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>' : ''}</span>
+                    <span class="text-xs font-bold">${o.titulo}</span>
+                </span>
+                <span class="block text-[10px] opacity-70 mt-1.5 leading-snug pl-5">${o.detalle}</span>
+            </button>`).join('');
+    }
+
+    // El cuestionario solo existe en modo personalizado.
+    const personalizado = modo === 'personalizado';
+    const preguntas = document.getElementById('pfPreguntas');
+    if (preguntas) preguntas.innerHTML = personalizado
+        ? VX_PREGUNTAS.map(pfPreguntaHTML).join('') : '';
+    document.getElementById('pfProgreso')?.classList.toggle('hidden', !personalizado);
+    if (personalizado) pfPintaProgreso();
+    if (window.lucide) lucide.createIcons();
+}
+
+document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('[data-modo]');
+    if (!b) return;
+    pfModoSel = b.dataset.modo;
+    pfPintaModo();
+});
+
 /** Una pregunta. `heredada` es la diferencia que importa: enseña el valor de
  *  Kevin y DICE que es suyo, en vez de presentarlo como si lo hubieras
  *  elegido tú. */
 function pfPreguntaHTML(preg) {
-    const heredada = !((VX_PERFIL || {}).respondidas || []).includes(preg.id)
-                     && !Object.prototype.hasOwnProperty.call(pfRespuestas, preg.id);
+    const contestada = ((VX_PERFIL || {}).respondidas || []).includes(preg.id)
+                       || Object.prototype.hasOwnProperty.call(pfRespuestas, preg.id);
+    // Una OPCIONAL en blanco no es un valor heredado: es una respuesta valida.
+    // El contexto personal de otra persona no es contexto tuyo, asi que no hay
+    // nada que heredar y el perfil esta completo sin ella.
+    const heredada = !contestada && !preg.opcional;
     const val = pfValor(preg);
     let control = '';
 
@@ -9009,10 +9089,11 @@ function pfPreguntaHTML(preg) {
                 <span class="text-[9px] font-bold text-blue-500 uppercase tracking-widest">${_vcEsc(preg.seccion)}</span>
                 <p class="text-sm font-bold text-white mt-0.5">${_vcEsc(preg.pregunta)}</p>
             </div>
-            <span class="pf-badge text-[9px] font-bold px-2 py-1 rounded-full shrink-0 ${heredada
-                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/25'
-                : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25'}">${heredada
-                ? 'valor heredado' : 'contestada'}</span>
+            <span class="pf-badge text-[9px] font-bold px-2 py-1 rounded-full shrink-0 ${
+                heredada ? 'bg-amber-500/10 text-amber-400 border border-amber-500/25'
+                : (contestada ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25'
+                              : 'bg-white/5 text-gray-500 border border-gray-700')}">${
+                heredada ? 'valor heredado' : (contestada ? 'contestada' : 'opcional')}</span>
         </div>
         <p class="text-[10px] text-gray-600 leading-relaxed mt-1.5">${_vcEsc(preg.ayuda)}</p>
         ${control}
@@ -9022,9 +9103,14 @@ function pfPreguntaHTML(preg) {
 function pfPintaProgreso() {
     const caja = document.getElementById('pfProgreso');
     if (!caja) return;
-    const total = VX_PREGUNTAS.length || 1;
-    const hechas = new Set([...(((VX_PERFIL || {}).respondidas) || []),
-                            ...Object.keys(pfRespuestas)]).size;
+    // Solo las OBLIGATORIAS. Contar las opcionales en el denominador dejaria el
+    // perfil eternamente incompleto por no escribir un texto que nadie tiene
+    // que escribir, y la advertencia de «usa el perfil de Kevin» seria falsa.
+    const obligatorias = VX_PREGUNTAS.filter(p => !p.opcional).map(p => p.id);
+    const total = obligatorias.length || 1;
+    const dadas = new Set([...(((VX_PERFIL || {}).respondidas) || []),
+                           ...Object.keys(pfRespuestas)]);
+    const hechas = obligatorias.filter(id => dadas.has(id)).length;
     const pct = Math.round(hechas / total * 100);
     const todo = hechas >= total;
     caja.className = `rounded-2xl px-4 py-3 border ${todo
@@ -9095,15 +9181,20 @@ function pfRepintaPregunta(preg) {
 function pfActualizaInsignia(preg) {
     const nodo = document.querySelector(`[data-pregunta="${CSS.escape(preg.id)}"] .pf-badge`);
     if (!nodo) return;
+    // Borrar lo escrito en una opcional la devuelve a «opcional», no la deja
+    // marcada como contestada con el campo vacio.
+    const vacia = preg.opcional && !String(pfValor(preg) || '').trim();
     nodo.className = 'pf-badge text-[9px] font-bold px-2 py-1 rounded-full shrink-0 '
-        + 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25';
-    nodo.innerText = 'contestada';
+        + (vacia ? 'bg-white/5 text-gray-500 border border-gray-700'
+                 : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25');
+    nodo.innerText = vacia ? 'opcional' : 'contestada';
 }
 
 async function pfGuardar() {
     const est = document.getElementById('pfEstado');
     const btn = document.getElementById('pfBtnGuardar');
-    if (!Object.keys(pfRespuestas).length) {
+    const modoCambia = pfModoSel && pfModoSel !== (VX_PERFIL || {}).modo;
+    if (!Object.keys(pfRespuestas).length && !modoCambia) {
         if (est) { est.innerText = 'No has cambiado nada.'; est.className = 'text-[11px] text-gray-500'; }
         return;
     }
@@ -9112,15 +9203,14 @@ async function pfGuardar() {
     try {
         const r = await fetch(`${API_BASE}/api/perfil`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ respuestas: pfRespuestas }),
+            body: JSON.stringify({ respuestas: pfRespuestas, modo: pfModoActual() }),
         });
         const d = await r.json();
         if (!d.ok) throw new Error(d.error || 'El servidor rechazó el perfil.');
         VX_PERFIL = d.perfil;
         pfProgresoSrv = d.progreso;
         pfRespuestas = {};
-        pfPinta({ perfil: d.perfil, usuario: VX_USUARIO, preguntas: VX_PREGUNTAS,
-                  archivos: { para_los_agentes: 'Perfil Inversionista/usuarios/…' } });
+        pfModoSel = null;
         if (est) { est.innerText = 'Guardado. Los tres agentes ya lo leen.';
                    est.className = 'text-[11px] text-emerald-400'; }
         // Las Ideas y la Wheel se ordenan CON el perfil: lo pintado ya no vale.

@@ -37,7 +37,8 @@ from datetime import datetime, timezone
 
 __all__ = [
     "PREGUNTAS", "TOLERANCIAS", "perfil_por_defecto", "perfil_desde_respuestas",
-    "perfil_a_markdown", "preguntas_sin_contestar", "hash_password",
+    "perfil_a_markdown", "preguntas_sin_contestar", "perfil_efectivo",
+    "MODOS", "OBLIGATORIAS", "hash_password",
     "verificar_password", "crear_tablas", "crear_usuario", "buscar_usuario",
     "autenticar", "abrir_sesion", "usuario_de_sesion", "cerrar_sesion",
     "guardar_perfil", "leer_perfil", "ruta_md_de", "registrar_contribucion",
@@ -251,25 +252,40 @@ PREGUNTAS = [
         "tipo": "texto_largo",
         "campo": "texto",
         "defecto": "",
-    },
-    {
-        "id": "espero_del_sistema",
-        "seccion": "Qué espero del sistema",
-        "pregunta": "¿Qué esperas que el sistema haga por ti?",
-        "ayuda": "El sistema entrega clasificación de research con niveles de "
-                 "confirmación e invalidación. Nunca una orden de compra o venta: "
-                 "la ejecución es siempre tuya y manual.",
-        "tipo": "texto_largo",
-        "campo": "espero_del_sistema",
-        "defecto": ("Que la matemática y el scoring se calculen exactamente con la "
-                    "metodología del Cerebro (framework WBJ), y que el LLM solo "
-                    "EXPLIQUE en palabras simples qué significa cada número, gate, "
-                    "override y nivel — sin cambiar ni reducir ningún cálculo."),
+        # **OPCIONAL.** Las demás preguntas tienen una respuesta correcta para
+        # cada persona y dejarla en blanco significa heredar la de Kevin. Esta
+        # no: en blanco es una respuesta válida —no tienes nada más que añadir—
+        # y no hay nada que heredar, porque el contexto de otra persona no es
+        # contexto tuyo. Por eso no cuenta para el progreso ni se marca como
+        # pendiente: un perfil sin texto libre está COMPLETO.
+        "opcional": True,
     },
 ]
 
+# La pregunta «¿Qué esperas que el sistema haga por ti?» estuvo aquí y se quitó.
+#
+# No era una pregunta: era el contrato del sistema disfrazado de preferencia. La
+# matemática es determinista y el LLM solo explica — eso no cambia porque alguien
+# conteste otra cosa, así que preguntarlo insinuaba una elección que no existe.
+# El contrato sigue estando en el `.md` que leen los agentes, pero como lo que
+# es: una constante, igual para todos.
+
 #: Índice por id, para no recorrer la lista en cada acceso.
 _POR_ID = {p["id"]: p for p in PREGUNTAS}
+
+
+#: Los dos modos del perfil.
+#:
+#:  · `default`       — usas el perfil de referencia (el de Kevin) tal cual. No
+#:                      hay preguntas que contestar, y eso es una ELECCIÓN, no
+#:                      una tarea pendiente.
+#:  · `personalizado` — contestas el cuestionario y el sistema recomienda con
+#:                      tus números.
+#:
+#: Cambiar de modo NO borra lo contestado: volver a `personalizado` recupera tus
+#: respuestas tal como las dejaste. Borrarlas al cambiar castigaría la
+#: curiosidad de quien solo quiso ver cómo era el otro modo.
+MODOS = ("default", "personalizado")
 
 
 def perfil_por_defecto() -> dict:
@@ -281,18 +297,50 @@ def perfil_por_defecto() -> dict:
     """
     d = {p["campo"]: (list(p["defecto"]) if isinstance(p["defecto"], list) else p["defecto"])
          for p in PREGUNTAS}
-    d.update({"nombre": "", "email": "", "respondidas": [], "actualizado": None})
+    d.update({"nombre": "", "email": "", "respondidas": [], "actualizado": None,
+              "modo": "default"})
     return d
+
+
+def perfil_efectivo(perfil: dict) -> dict:
+    """El perfil con el que de verdad se recomienda, aplicado el modo.
+
+    En `default` los campos del cuestionario vuelven a los de Kevin **sin tocar
+    lo guardado**: las respuestas siguen en el diccionario para cuando la
+    persona vuelva a `personalizado`. Lo que cambia es lo que sale por la
+    puerta — el sizing, el `.md` y el especialista de riesgo.
+    """
+    if (perfil or {}).get("modo") != "default":
+        return dict(perfil or {})
+    fuera = dict(perfil or {})
+    base = {p["campo"]: (list(p["defecto"]) if isinstance(p["defecto"], list)
+                         else p["defecto"]) for p in PREGUNTAS}
+    fuera.update(base)
+    return fuera
+
+
+#: Las que hay que contestar para que el perfil sea tuyo. Las opcionales no
+#: entran: en blanco son una respuesta válida, no un valor heredado.
+OBLIGATORIAS = [p["id"] for p in PREGUNTAS if not p.get("opcional")]
 
 
 def preguntas_sin_contestar(perfil: dict) -> list[str]:
     """Qué preguntas siguen con el valor de Kevin y no con el del usuario.
 
-    Es lo que permite decir en pantalla «4 de 12 contestadas» en vez de fingir
+    Es lo que permite decir en pantalla «4 de 11 contestadas» en vez de fingir
     que un perfil heredado es un perfil propio.
+
+    Las OPCIONALES nunca aparecen aquí. Dejarlas en blanco no es heredar nada:
+    el contexto personal de otra persona no es contexto tuyo, así que no hay
+    valor por defecto que heredar y el perfil está completo sin ellas.
     """
+    # En modo `default` no hay nada pendiente: usar el perfil de referencia es
+    # una decisión tomada, no un formulario a medias. Marcarlo como incompleto
+    # sería regañar a alguien por haber elegido.
+    if (perfil or {}).get("modo") == "default":
+        return []
     respondidas = set(perfil.get("respondidas") or [])
-    return [p["id"] for p in PREGUNTAS if p["id"] not in respondidas]
+    return [pid for pid in OBLIGATORIAS if pid not in respondidas]
 
 
 def _valida_respuesta(preg: dict, valor):
@@ -431,7 +479,7 @@ def perfil_a_markdown(perfil: dict) -> str:
        casar, ese especialista cae a su valor por defecto **en silencio** y el
        reporte pasa a hablar del perfil de otra persona.
     """
-    d = dict(perfil)
+    d = perfil_efectivo(perfil)
     d.update(derivados(d))
     tol = TOLERANCIAS.get(d.get("tolerancia"), TOLERANCIAS["agresivo"])
     pos = d.get("max_posicion_pct") or [20, 30]
@@ -464,6 +512,15 @@ def perfil_a_markdown(perfil: dict) -> str:
         "> Generado desde el cuestionario de Vertex. Es la ÚNICA fuente del perfil:",
         "> lo contesta el inversionista y lo leen los tres agentes.",
     ]
+    if d.get("modo") == "default":
+        # Se declara. El agente tiene que poder distinguir «este es su capital»
+        # de «este es el capital de referencia porque no eligió personalizar».
+        lineas += [
+            ">",
+            "> **Perfil por defecto.** Esta persona NO ha personalizado su perfil:",
+            "> estos valores son los de referencia, no los suyos. Trátalos como una",
+            "> base razonable, no como una declaración personal.",
+        ]
     if sin_contestar:
         # Se declara, no se disimula. Un perfil heredado que se presenta como
         # propio hace que el reporte hable con una confianza que no tiene.
@@ -517,11 +574,20 @@ def perfil_a_markdown(perfil: dict) -> str:
         "",
         "## En mis palabras",
         "",
-        (d.get("texto") or "_El inversionista aún no ha escrito nada aquí._").strip(),
+        (d.get("texto") or "_Sin nada más que añadir._").strip(),
         "",
-        "## Qué espero del sistema",
+        # Constante, no respuesta. Estuvo como pregunta y era el contrato del
+        # sistema disfrazado de preferencia: no cambia porque alguien conteste
+        # otra cosa, así que preguntarlo insinuaba una elección que no existe.
+        "## Cómo trabaja este sistema",
         "",
-        (d.get("espero_del_sistema") or "_Sin especificar._").strip(),
+        "- La matemática y el scoring se calculan **exactamente** con la metodología",
+        "  del Cerebro (framework WBJ). El LLM solo **explica** en palabras simples",
+        "  qué significa cada número, gate, override y nivel — sin cambiar ni reducir",
+        "  ningún cálculo.",
+        "- La salida es **clasificación de research** con niveles de confirmación e",
+        "  invalidación. Nunca una orden de compra o venta: la ejecución es siempre",
+        "  manual y del inversionista.",
         "",
         "---",
         "",
@@ -778,7 +844,10 @@ def ruta_md_de(dir_perfiles: str, usuario: dict) -> str:
 
 def guardar_perfil(conn, dir_perfiles: str, usuario: dict, perfil: dict) -> dict:
     """Escribe el perfil en la base y REGENERA el `.md` que leen los agentes."""
-    perfil = dict(perfil)
+    # Solo los campos que son del perfil: lo derivado (`riesgo_pct`,
+    # `sin_contestar`, `respuestas`) se recalcula al leer y guardarlo dejaría
+    # copias que envejecen y contradicen al original.
+    perfil = {k: v for k, v in dict(perfil).items() if k in perfil_por_defecto()}
     perfil["actualizado"] = datetime.now(timezone.utc).isoformat()
     perfil.setdefault("nombre", usuario.get("nombre", ""))
     perfil.setdefault("email", usuario.get("email", ""))
@@ -813,9 +882,18 @@ def leer_perfil(conn, usuario_id: str) -> dict:
         base.update({k: v for k, v in (guardado or {}).items() if k in base})
         base["nombre"] = base.get("nombre") or row["nombre"]
         base["email"] = base.get("email") or row["email"]
-    base.update(derivados(base))
-    base["sin_contestar"] = preguntas_sin_contestar(base)
-    return base
+    if base.get("modo") not in MODOS:
+        base["modo"] = "default"
+    # Se devuelven las DOS caras: `respuestas` es lo que la persona escribió y
+    # el resto es lo EFECTIVO (con el modo aplicado). Sin separarlas, entrar en
+    # modo `default` enseñaría el formulario con los valores de Kevin como si
+    # fueran los tuyos, y guardarlos los convertiría en tuyos sin quererlo.
+    respuestas = {p["campo"]: base.get(p["campo"]) for p in PREGUNTAS}
+    efectivo = perfil_efectivo(base)
+    efectivo["respuestas"] = respuestas
+    efectivo.update(derivados(efectivo))
+    efectivo["sin_contestar"] = preguntas_sin_contestar(base)
+    return efectivo
 
 
 # ═══════════════════════════════════════════════════════════════════════════

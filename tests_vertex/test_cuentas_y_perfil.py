@@ -205,9 +205,11 @@ class TestCuestionario:
 
         secciones = {p["seccion"] for p in C.PREGUNTAS}
         for esperada in ("Objetivos", "Tolerancia al riesgo", "Instrumentos",
-                         "Universo", "Capital", "Reglas de dimensionamiento",
-                         "Qué espero del sistema"):
+                         "Universo", "Capital", "Reglas de dimensionamiento"):
             assert esperada in secciones, f"falta la sección «{esperada}» de Kevin.md"
+        # «Qué espero del sistema» NO está: es una constante del sistema, no una
+        # pregunta. Ver `TestElContratoDelSistemaNoEsUnaPregunta`.
+        assert "Qué espero del sistema" not in secciones
 
     def test_cada_pregunta_trae_su_default_y_su_ayuda(self):
         import vertex_cuentas as C
@@ -232,7 +234,8 @@ class TestCuestionario:
 
     def test_lo_que_no_contestas_hereda_el_valor_de_Kevin(self, cliente):
         _registra(cliente)
-        cliente.post("/api/perfil", json={"respuestas": {"capital": 5000}})
+        cliente.post("/api/perfil", json={"modo": "personalizado",
+                                          "respuestas": {"capital": 5000}})
         d = cliente.get("/api/perfil").json()
         assert d["perfil"]["capital"] == 5000, "lo contestado no se guardó"
         assert d["perfil"]["tolerancia"] == "agresivo", "no heredó el default"
@@ -244,12 +247,17 @@ class TestCuestionario:
         import vertex_cuentas as C
 
         _registra(cliente)
+        cliente.post("/api/perfil", json={"modo": "personalizado"})
         d = cliente.get("/api/perfil").json()
         assert d["progreso"]["contestadas"] == 0
-        assert d["progreso"]["total"] == len(C.PREGUNTAS)
-        assert len(d["progreso"]["sin_contestar"]) == len(C.PREGUNTAS)
+        assert d["progreso"]["total"] == len(C.OBLIGATORIAS)
+        assert d["progreso"]["opcionales"] == len(C.PREGUNTAS) - len(C.OBLIGATORIAS)
+        # Pendientes son solo las OBLIGATORIAS: una opcional en blanco es una
+        # respuesta válida, no algo heredado.
+        assert d["progreso"]["sin_contestar"] == C.OBLIGATORIAS
 
-        cliente.post("/api/perfil", json={"respuestas": {"capital": 5000,
+        cliente.post("/api/perfil", json={"modo": "personalizado",
+                                          "respuestas": {"capital": 5000,
                                                          "tolerancia": "moderado"}})
         d = cliente.get("/api/perfil").json()
         assert d["progreso"]["contestadas"] == 2
@@ -261,12 +269,13 @@ class TestCuestionario:
         el agente habla del perfil de Kevin creyendo que es el tuyo."""
         import vertex_cuentas as C
 
-        p = C.perfil_por_defecto()
+        p = {**C.perfil_por_defecto(), "modo": "personalizado"}
         md = C.perfil_a_markdown(p)
         assert "sin contestar" in md.lower()
 
         contestado, err = C.perfil_desde_respuestas(
-            {q["id"]: q["defecto"] for q in C.PREGUNTAS})
+            {q["id"]: q["defecto"] for q in C.PREGUNTAS},
+            {**C.perfil_por_defecto(), "modo": "personalizado"})
         assert not err
         assert "sin contestar" not in C.perfil_a_markdown(contestado).lower()
 
@@ -274,7 +283,8 @@ class TestCuestionario:
         """Un perfil a medias es peor que uno viejo: nadie sabría qué parte
         es suya."""
         _registra(cliente)
-        cliente.post("/api/perfil", json={"respuestas": {"capital": 5000}})
+        cliente.post("/api/perfil", json={"modo": "personalizado",
+                                          "respuestas": {"capital": 5000}})
         r = cliente.post("/api/perfil", json={"respuestas": {
             "tolerancia": "moderado", "horizonte": "cuando me jubile"}})
         assert r.json()["ok"] is False
@@ -312,9 +322,11 @@ class TestPerfilPorUsuario:
         kevin, ana = TestClient(V.app), TestClient(V.app)
         _registra(kevin, "k@x.com", "Kevin", "clave-larga-1")
         _registra(ana, "a@x.com", "Ana", "otra-clave-2")
-        kevin.post("/api/perfil", json={"respuestas": {
+        # `modo` explícito: sin él el perfil se queda en «por defecto» y lo
+        # efectivo son los valores de referencia, no los contestados.
+        kevin.post("/api/perfil", json={"modo": "personalizado", "respuestas": {
             "capital": 1000, "tolerancia": "agresivo", "max_posicion_pct": [20, 30]}})
-        ana.post("/api/perfil", json={"respuestas": {
+        ana.post("/api/perfil", json={"modo": "personalizado", "respuestas": {
             "capital": 250000, "tolerancia": "conservador", "horizonte": "5+ años",
             "max_posicion_pct": [5, 10]}})
         return kevin, ana
@@ -436,8 +448,9 @@ class TestElMdSigueSiendoLegibleParaElEngine:
     def test_el_md_del_cuestionario_conserva_los_tres_campos(self, tmp_path, monkeypatch):
         import vertex_cuentas as C
 
-        p, err = C.perfil_desde_respuestas({"capital": 1000, "horizonte": "1-3 años",
-                                            "max_posicion_pct": [20, 30]})
+        p, err = C.perfil_desde_respuestas(
+            {"capital": 1000, "horizonte": "1-3 años", "max_posicion_pct": [20, 30]},
+            {**C.perfil_por_defecto(), "modo": "personalizado"})
         assert not err
         r = self._parsea(C.perfil_a_markdown(p), tmp_path, monkeypatch)
         assert r["fields_defaulted"] == [], (
@@ -452,7 +465,9 @@ class TestElMdSigueSiendoLegibleParaElEngine:
         especialista concluía que la cuenta entera eran $150."""
         import vertex_cuentas as C
 
-        p, _ = C.perfil_desde_respuestas({"capital": 1000, "tolerancia": "agresivo"})
+        p, _ = C.perfil_desde_respuestas(
+            {"capital": 1000, "tolerancia": "agresivo"},
+            {**C.perfil_por_defecto(), "modo": "personalizado"})
         md = C.perfil_a_markdown(p)
         assert md.index("$1,000") < md.index("$150"), (
             "el riesgo por operación aparece antes que el capital")
@@ -469,7 +484,8 @@ class TestElMdSigueSiendoLegibleParaElEngine:
         un horizonte que el inversionista nunca eligió."""
         import vertex_cuentas as C
 
-        p, err = C.perfil_desde_respuestas({"horizonte": horizonte})
+        p, err = C.perfil_desde_respuestas(
+            {"horizonte": horizonte}, {**C.perfil_por_defecto(), "modo": "personalizado"})
         assert not err
         r = self._parsea(C.perfil_a_markdown(p), tmp_path, monkeypatch)
         assert r["horizon_years"] == esperado
@@ -480,8 +496,9 @@ class TestElMdSigueSiendoLegibleParaElEngine:
         importe quedara antes que el capital, sería el que el engine leyera."""
         import vertex_cuentas as C
 
-        p, _ = C.perfil_desde_respuestas({"capital": 3000,
-                                          "texto": "Perdí $50,000 en 2022."})
+        p, _ = C.perfil_desde_respuestas(
+            {"capital": 3000, "texto": "Perdí $50,000 en 2022."},
+            {**C.perfil_por_defecto(), "modo": "personalizado"})
         md = C.perfil_a_markdown(p)
         assert md.index("$3,000") < md.index("$50,000")
         assert self._parsea(md, tmp_path, monkeypatch)["capital_usd"] == 3000
@@ -662,14 +679,6 @@ class TestLaPantallaDeCuentas:
         fn = fn[:fn.index("\n}")]
         assert "localStorage.removeItem(STORAGE_KEY)" in fn
 
-    def test_una_cuenta_nueva_va_derecha_al_cuestionario(self):
-        """Un perfil vacío no es neutral: hereda el de Kevin entero, y el
-        agente recomendaría con el capital de otra persona."""
-        h = _sin_comentarios(_html())
-        fn = h[h.index("async function authLogin("):]
-        fn = fn[:fn.index("\n}")]
-        assert "switchView('perfilView')" in fn and "nuevo" in fn
-
 
 class TestLaPantallaDelCuestionario:
 
@@ -768,3 +777,252 @@ class TestLaPantallaDelAprendizaje:
         fn = h[h.index("async function pfCargaAprendizaje()"):]
         for k in ("privacidad.compartido", "privacidad.privado", "privacidad.nunca"):
             assert k in fn, f"la pantalla no enseña `{k}`"
+
+
+class TestPreguntasOpcionales:
+    """Una opcional en blanco es una RESPUESTA, no un valor heredado.
+
+    Las demás preguntas tienen una respuesta correcta para cada persona, y
+    dejarlas en blanco significa heredar la de Kevin. El texto libre no: el
+    contexto personal de otra gente no es contexto tuyo, así que no hay nada
+    que heredar y el perfil está completo sin él.
+    """
+
+    def test_el_texto_libre_es_opcional(self):
+        import vertex_cuentas as C
+
+        preg = next(p for p in C.PREGUNTAS if p["id"] == "texto")
+        assert preg.get("opcional") is True
+
+    def test_una_opcional_NUNCA_sale_como_pendiente(self):
+        import vertex_cuentas as C
+
+        # En modo personalizado, que es donde el cuestionario existe.
+        p = {**C.perfil_por_defecto(), "modo": "personalizado"}
+        pendientes = C.preguntas_sin_contestar(p)
+        assert "texto" not in pendientes
+        assert set(pendientes) == set(C.OBLIGATORIAS)
+
+    def test_contestar_las_obligatorias_completa_el_perfil(self, cliente):
+        """Sin esto, el perfil se quedaría eternamente incompleto por no
+        escribir un texto que nadie tiene que escribir — y la advertencia de
+        «usa el perfil de Kevin» sería falsa."""
+        import vertex_cuentas as C
+
+        _registra(cliente)
+        cliente.post("/api/perfil", json={"modo": "personalizado", "respuestas": {
+            p["id"]: p["defecto"] for p in C.PREGUNTAS if not p.get("opcional")}})
+        d = cliente.get("/api/perfil").json()
+        assert d["progreso"]["sin_contestar"] == []
+        assert d["perfil"]["texto"] == "", "se rellenó sola una pregunta opcional"
+
+    def test_el_md_no_lista_las_opcionales_como_pendientes(self):
+        import vertex_cuentas as C
+
+        p, err = C.perfil_desde_respuestas(
+            {q["id"]: q["defecto"] for q in C.PREGUNTAS if not q.get("opcional")},
+            {**C.perfil_por_defecto(), "modo": "personalizado"})
+        assert not err
+        md = C.perfil_a_markdown(p)
+        assert "sin contestar" not in md.lower()
+        assert "texto" not in md.lower().split("---")[0].replace("contexto", "")
+
+    def test_la_opcional_sigue_guardandose_si_la_escribes(self, cliente):
+        _registra(cliente)
+        cliente.post("/api/perfil", json={"modo": "personalizado",
+                                          "respuestas": {"texto": "Sin cripto."}})
+        assert cliente.get("/api/perfil").json()["perfil"]["texto"] == "Sin cripto."
+
+
+class TestElContratoDelSistemaNoEsUnaPregunta:
+    """«¿Qué esperas que el sistema haga por ti?» estuvo en el cuestionario.
+
+    No era una pregunta: era el contrato del sistema disfrazado de preferencia.
+    La matemática es determinista y el LLM solo explica — eso no cambia porque
+    alguien conteste otra cosa, así que preguntarlo insinuaba una elección que
+    no existe.
+    """
+
+    def test_ya_no_se_pregunta(self):
+        import vertex_cuentas as C
+
+        assert not any(p["id"] == "espero_del_sistema" for p in C.PREGUNTAS)
+        assert "espero_del_sistema" not in C.perfil_por_defecto()
+
+    def test_no_queda_en_la_pantalla(self):
+        h = _html()
+        assert "espero_del_sistema" not in h
+        assert "¿Qué esperas que el sistema haga por ti?" not in h
+
+    def test_pero_el_contrato_SIGUE_en_el_md_que_leen_los_agentes(self):
+        """Quitar la pregunta no puede quitarle al agente el contexto de cómo
+        trabaja. Sigue ahí, pero como lo que es: una constante igual para
+        todos, no una respuesta que alguien pudiera cambiar."""
+        import vertex_cuentas as C
+
+        md = C.perfil_a_markdown(C.perfil_por_defecto())
+        assert "Cómo trabaja este sistema" in md
+        assert "solo **explica**" in md
+        assert "Nunca una orden de compra o venta" in md
+
+    def test_el_contrato_es_IGUAL_para_todo_el_mundo(self):
+        import vertex_cuentas as C
+
+        def contrato(md):
+            return md[md.index("## Cómo trabaja este sistema"):md.index("\n---")]
+
+        base = {**C.perfil_por_defecto(), "modo": "personalizado"}
+        a, _ = C.perfil_desde_respuestas({"capital": 1000, "tolerancia": "agresivo"}, base)
+        b, _ = C.perfil_desde_respuestas({"capital": 250000, "tolerancia": "conservador",
+                                          "texto": "Yo quiero otra cosa del sistema."}, base)
+        assert contrato(C.perfil_a_markdown(a)) == contrato(C.perfil_a_markdown(b))
+
+
+class TestModoDelPerfil:
+    """Por defecto o personalizado.
+
+    Once preguntas no pueden ser lo primero que ve alguien que entra a su
+    perfil. El de referencia ya funciona; personalizar es una decisión que se
+    toma cuando uno quiere.
+    """
+
+    def test_una_cuenta_nueva_arranca_en_por_defecto(self, cliente):
+        _registra(cliente)
+        d = cliente.get("/api/perfil").json()
+        assert d["perfil"]["modo"] == "default"
+
+    def test_en_por_defecto_no_hay_nada_pendiente(self, cliente):
+        """Usar el perfil de referencia es una decisión tomada, no un
+        formulario a medias. Marcarlo como incompleto sería regañar a alguien
+        por haber elegido."""
+        _registra(cliente)
+        d = cliente.get("/api/perfil").json()
+        assert d["progreso"]["sin_contestar"] == []
+
+    def test_cambiar_de_modo_NO_borra_lo_contestado(self, cliente):
+        """Borrar las respuestas al volver a «por defecto» castigaría la
+        curiosidad de quien solo quiso ver cómo era el otro modo."""
+        _registra(cliente)
+        cliente.post("/api/perfil", json={"modo": "personalizado",
+                                          "respuestas": {"capital": 250000}})
+        assert cliente.get("/api/perfil").json()["perfil"]["capital"] == 250000
+
+        cliente.post("/api/perfil", json={"modo": "default"})
+        d = cliente.get("/api/perfil").json()
+        assert d["perfil"]["capital"] == 1000, "el efectivo no volvió al de referencia"
+        assert d["perfil"]["respuestas"]["capital"] == 250000, "se perdió lo contestado"
+
+        cliente.post("/api/perfil", json={"modo": "personalizado"})
+        assert cliente.get("/api/perfil").json()["perfil"]["capital"] == 250000
+
+    def test_en_por_defecto_el_sizing_usa_el_de_referencia(self, cliente):
+        """Lo que decide no es lo guardado, es lo EFECTIVO. Si el modo no
+        llegara al sizing, el selector sería decorativo."""
+        import vertex_cuentas as C
+
+        _registra(cliente)
+        cliente.post("/api/perfil", json={"modo": "personalizado",
+                                          "respuestas": {"capital": 250000}})
+        cliente.post("/api/perfil", json={"modo": "default"})
+        d = cliente.get("/api/perfil").json()["perfil"]
+        assert d["riesgo_por_trade"] == C.TOLERANCIAS["agresivo"]["riesgo_pct"] * 1000 / 100
+
+    def test_el_md_DECLARA_que_el_perfil_es_el_de_referencia(self, cliente, entorno):
+        """El agente tiene que poder distinguir «este es su capital» de «este
+        es el de referencia porque no eligió personalizar»."""
+        _registra(cliente)
+        md = next((entorno / "Perfil Inversionista" / "usuarios").iterdir()
+                  ).read_text(encoding="utf-8")
+        assert "Perfil por defecto" in md
+        assert "NO ha personalizado" in md
+
+        cliente.post("/api/perfil", json={"modo": "personalizado",
+                                          "respuestas": {"capital": 5000}})
+        md = next((entorno / "Perfil Inversionista" / "usuarios").iterdir()
+                  ).read_text(encoding="utf-8")
+        assert "Perfil por defecto" not in md
+        assert "$5,000" in md
+
+    def test_contestar_en_modo_por_defecto_guarda_pero_no_surte_efecto(self, cliente):
+        """Comportamiento declarado, no un accidente.
+
+        Las respuestas se guardan siempre —para que estén ahí cuando pases a
+        personalizado— pero lo EFECTIVO lo manda el modo. El payload devuelve
+        las dos caras (`respuestas` y el nivel de arriba) precisamente para que
+        esto se pueda ver en pantalla en vez de descubrirse.
+        """
+        _registra(cliente)
+        cliente.post("/api/perfil", json={"respuestas": {"capital": 999999}})
+        d = cliente.get("/api/perfil").json()["perfil"]
+        assert d["respuestas"]["capital"] == 999999, "no guardó la respuesta"
+        assert d["capital"] == 1000, "la aplicó estando en modo por defecto"
+
+    def test_rechaza_un_modo_inventado(self, cliente):
+        _registra(cliente)
+        r = cliente.post("/api/perfil", json={"modo": "turbo"}).json()
+        assert r["ok"] is False
+        assert cliente.get("/api/perfil").json()["perfil"]["modo"] == "default"
+
+    def test_el_perfil_devuelve_las_dos_caras(self, cliente):
+        """`respuestas` es lo que escribiste; el resto es lo efectivo. Sin
+        separarlas, el formulario en modo por defecto enseñaría los valores de
+        Kevin como si fueran tuyos, y guardarlos los volvería tuyos."""
+        import vertex_cuentas as C
+
+        _registra(cliente)
+        d = cliente.get("/api/perfil").json()["perfil"]
+        assert "respuestas" in d
+        assert set(d["respuestas"]) == {p["campo"] for p in C.PREGUNTAS}
+
+
+class TestEntrarLlevaAlDashboard:
+
+    def test_registrarse_no_secuestra_al_cuestionario(self):
+        """Estuvo mandando al perfil a quien acababa de crear la cuenta: una
+        barrera de once preguntas antes de haber visto nada."""
+        h = _html()
+        fn = h[h.index("async function authLogin("):]
+        fn = fn[:fn.index("\n}")]
+        assert "switchView('homeView')" in fn
+        assert "switchView('perfilView')" not in fn
+
+    def test_al_perfil_se_llega_por_el_menu_de_cuenta(self):
+        h = _html()
+        assert "closeUserMenu(); switchView('perfilView');" in h
+
+
+class TestLaPantallaDelModo:
+
+    def test_el_selector_existe_y_ofrece_los_dos(self):
+        h = _html()
+        assert 'id="pfModo"' in h
+        assert "function pfPintaModo()" in h
+        fn = h[h.index("function pfPintaModo()"):]
+        fn = fn[:fn.index("\ndocument.addEventListener")]
+        assert "'default'" in fn and "'personalizado'" in fn
+
+    def test_las_preguntas_solo_salen_si_es_personalizado(self):
+        h = _html()
+        fn = h[h.index("function pfPintaModo()"):]
+        fn = fn[:fn.index("\ndocument.addEventListener")]
+        assert "const personalizado = modo === 'personalizado'" in fn
+        assert "personalizado\n        ? VX_PREGUNTAS.map(pfPreguntaHTML).join('') : ''" in fn
+
+    def test_el_modo_va_en_data_no_en_un_onclick(self):
+        h = _html()
+        assert "data-modo=" in h and "dataset.modo" in h
+        assert "pfPintaModo('${" not in h
+
+    def test_guardar_manda_el_modo(self):
+        h = _html()
+        fn = h[h.index("async function pfGuardar()"):]
+        fn = fn[:fn.index("\n}\n")]
+        assert "modo: pfModoActual()" in fn
+
+    def test_cambiar_solo_el_modo_ya_es_un_cambio_que_guardar(self):
+        """Sin esto, elegir «personalizado» y pulsar Guardar diría «no has
+        cambiado nada» y no guardaría el modo."""
+        h = _html()
+        fn = h[h.index("async function pfGuardar()"):]
+        fn = fn[:fn.index("\n}\n")]
+        assert "modoCambia" in fn

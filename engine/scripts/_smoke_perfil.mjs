@@ -116,25 +116,44 @@ const PREGUNTAS = [
   { id:'max_posicion_pct', seccion:'Reglas', pregunta:'¿Cuánto puede ocupar una posición?',
     ayuda:'Cuánto puedes DESPLEGAR.', tipo:'rango_pct', campo:'max_posicion_pct', defecto:[20,30] },
   { id:'texto', seccion:'En mis palabras', pregunta:'¿Algo más?',
-    ayuda:'Contexto para la tesis.', tipo:'texto_largo', campo:'texto', defecto:'' },
+    ayuda:'Contexto para la tesis.', tipo:'texto_largo', campo:'texto', defecto:'',
+    opcional:true },
 ];
 
 globalThis.VX_USUARIO = { id:'u1', nombre:'Kevin', email:'k@x.com' };
-api.pfPinta({
+
+const PERFIL = (extra) => ({
   perfil:{ nombre:'Kevin', email:'k@x.com', capital:1000, tolerancia:'agresivo',
            objetivos:['crecimiento'], max_posicion_pct:[20,30], texto:'',
-           riesgo_pct:15, riesgo_por_trade:150, respondidas:['capital'],
-           actualizado:'2026-08-06T12:00:00' },
+           riesgo_pct:15, riesgo_por_trade:150, respondidas:[], modo:'default',
+           respuestas:{ capital:1000, tolerancia:'agresivo', objetivos:['crecimiento'],
+                        max_posicion_pct:[20,30], texto:'' },
+           actualizado:'2026-08-06T12:00:00', ...(extra||{}) },
   usuario:{ id:'u1', nombre:'Kevin', email:'k@x.com' },
   preguntas: PREGUNTAS,
   archivos:{ para_los_agentes:'Perfil Inversionista/usuarios/Kevin-u1.md' } });
 
+// ── MODO POR DEFECTO: sin preguntas ──────────────────────────────────────
+api.pfPinta(PERFIL());
+console.log('\n── Perfil por defecto ──────────────────────────────────');
+chk(store['pfModo'].innerHTML.includes('Perfil por defecto'), 'ofrece los dos modos');
+chk(store['pfModo'].innerHTML.includes('Personalizado'), 'y el personalizado');
+chk(store['pfModo'].innerHTML.includes('activa'), 'marca cuál está elegido');
+chk(store['pfPreguntas'].innerHTML === '', 'NO salen las preguntas');
+chk(store['pfProgreso'].classList.contains('hidden'), 'ni la barra de progreso');
+
+// ── PERSONALIZADO: aparecen ──────────────────────────────────────────────
+api.pfPinta(PERFIL({ modo:'personalizado', respondidas:['capital'] }));
 const preg = store['pfPreguntas'].innerHTML;
-console.log('\n── El cuestionario ─────────────────────────────────────');
-chk(PREGUNTAS.every(p => preg.includes(p.pregunta)), 'se pintan TODAS las preguntas');
+console.log('\n── Personalizado ───────────────────────────────────────');
+chk(PREGUNTAS.every(p => preg.includes(p.pregunta)), 'ahora sí, TODAS las preguntas');
 chk(PREGUNTAS.every(p => preg.includes(p.ayuda)), 'cada una explica para qué sirve');
-chk((preg.match(/valor heredado/g) || []).length === 4, 'las 4 no contestadas se marcan como heredadas');
+chk(!store['pfProgreso'].classList.contains('hidden'), 'y la barra de progreso');
+chk((preg.match(/valor heredado/g) || []).length === 3,
+    'las 3 obligatorias sin contestar se marcan como heredadas');
 chk((preg.match(/>contestada</g) || []).length === 1, 'la contestada se distingue');
+chk((preg.match(/>opcional</g) || []).length === 1,
+    'la opcional en blanco dice «opcional», no «valor heredado»');
 chk(preg.includes('data-preg="tolerancia"') && preg.includes('data-opt="agresivo"'),
     'las opciones llevan el id en data-, no en un onclick');
 chk(!preg.includes('onclick'), 'ningún id de pregunta va dentro de un onclick');
@@ -143,8 +162,25 @@ chk(preg.includes('data-parte="0"') && preg.includes('data-parte="1"'), 'el rang
 chk(preg.includes('<textarea'), 'el texto libre es un área de texto');
 
 const prog = store['pfProgreso'].innerHTML;
-chk(prog.includes('1 de 5'), 'el progreso dice cuántas van');
+chk(prog.includes('1 de 4'), 'el progreso cuenta solo las OBLIGATORIAS (4 de 5)');
 chk(/Kevin/.test(prog), 'explica de quién es el valor heredado');
+
+// El formulario enseña lo que TÚ escribiste, no lo efectivo. En modo por
+// defecto los dos difieren, y confundirlos haría desaparecer tus respuestas.
+api.pfPinta(PERFIL({ capital:1000, respuestas:{ capital:250000, tolerancia:'moderado',
+                     objetivos:['ingresos'], max_posicion_pct:[5,10], texto:'' },
+                     modo:'personalizado' }));
+chk(store['pfPreguntas'].innerHTML.includes('value="250000"'),
+    'en modo por defecto, el formulario sigue enseñando TUS respuestas guardadas');
+
+// Contestar las obligatorias deja el perfil COMPLETO aunque la opcional siga
+// en blanco. Si contara en el denominador, no se llegaria nunca al 100%.
+api.pfPinta(PERFIL({ modo:'personalizado',
+                     respondidas:['objetivos','tolerancia','capital','max_posicion_pct'] }));
+const prog2 = store['pfProgreso'].innerHTML;
+chk(prog2.includes('4 de 4') && prog2.includes('100%'),
+    'sin escribir la opcional, el perfil llega al 100%');
+chk(!/perfil de referencia|Kevin/.test(prog2), 'ya no advierte de que hereda nada');
 
 console.log('\n── Información de la cuenta ────────────────────────────');
 const cuenta = store['pfCuenta'].innerHTML;

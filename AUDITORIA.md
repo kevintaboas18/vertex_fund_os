@@ -3592,3 +3592,83 @@ variable lo cierra sin tocar código.
 
 **2.779 tests del motor · 338 de la capa web · 248 checks de auditoría · 27 del
 smoke de JS · 12 diferenciales · 0 fallos.**
+
+## 41.16 Perfil por defecto o personalizado, y una pregunta que sobraba
+
+Kevin, sobre la pantalla de perfil: *"lo que dice que espero del sistema, no
+quiero que eso exista: siempre será el mismo sistema y agentes… lo de ¿algo más
+que el agente deba saber de ti? quiero que sea opcional… no quiero que salga lo
+del perfil de inversionista cuando entre en la cuenta, quiero que salga en el
+dashboard regular… tiene la opción de Default o personalizado. Si presiona
+personalizado salen las preguntas."*
+
+### Una pregunta que no era una pregunta
+
+«¿Qué esperas que el sistema haga por ti?» era el **contrato del sistema
+disfrazado de preferencia**. La matemática es determinista y el LLM solo
+explica; eso no cambia porque alguien conteste otra cosa, así que preguntarlo
+insinuaba una elección que no existe.
+
+Se quitó del cuestionario. El contrato **sigue** en el `.md` que leen los
+agentes —quitar la pregunta no puede quitarle al agente el contexto de cómo
+trabaja— pero como lo que es: una sección constante, **idéntica para todos**, y
+un test lo comprueba comparando el bloque entre dos perfiles distintos.
+
+### Opcional significa que en blanco es una respuesta
+
+El texto libre lleva ahora `opcional: True`, y eso cambia tres cosas:
+
+- **No cuenta en el denominador.** Con las once en el denominador, el perfil se
+  quedaba eternamente incompleto por no escribir un texto que nadie tiene que
+  escribir — y la advertencia de *«usa el perfil de Kevin»* seguía saliendo
+  cuando ya no heredaba nada. Son **10 obligatorias**.
+- **La insignia dice «opcional»**, no «valor heredado». No hay nada que heredar:
+  el contexto personal de otra persona no es contexto tuyo.
+- **Borrar lo escrito la devuelve a «opcional»**, en vez de dejarla marcada como
+  contestada con el campo vacío.
+
+### Default o personalizado
+
+Entrar ya no secuestra al cuestionario. Once preguntas como puerta de entrada
+son una barrera antes de haber visto nada, así que **registrarse lleva al
+dashboard** y al perfil se llega por el menú de cuenta.
+
+Y dentro del perfil, primero se elige:
+
+| Modo | Qué pasa |
+|---|---|
+| **Por defecto** | Usas el perfil de referencia tal cual. **No salen las preguntas**, y no hay nada «pendiente» — elegir no es dejar un formulario a medias. |
+| **Personalizado** | Aparece el cuestionario y los tres agentes recomiendan con tus números. |
+
+Tres decisiones que hacen que esto no sea un interruptor decorativo:
+
+1. **Cambiar de modo no borra lo contestado.** Volver a personalizado recupera
+   tus respuestas tal cual. Borrarlas castigaría la curiosidad de quien solo
+   quiso ver cómo era el otro modo.
+2. **El payload devuelve las dos caras**: `respuestas` es lo que escribiste, el
+   nivel de arriba es lo EFECTIVO con el modo aplicado. Sin separarlas, el
+   formulario en modo por defecto enseñaría los valores de Kevin como si fueran
+   tuyos, y guardarlos los volvería tuyos sin quererlo.
+3. **El `.md` declara el modo.** En por defecto abre diciendo *«esta persona NO
+   ha personalizado su perfil: estos valores son los de referencia, no los
+   suyos»*. El agente tiene que poder distinguir «este es su capital» de «este
+   es el de referencia».
+
+El modo llega hasta el final: lo efectivo es lo que dimensiona Ideas y la Wheel,
+lo que va al prompt y lo que lee el especialista de riesgo del engine.
+
+### Lo que encontró el smoke esta vez
+
+La clase que marca el modo elegido se aplicaba en una **segunda pasada** con
+`querySelectorAll` en vez de ir en la plantilla. Funcionaba en el navegador,
+pero el marcado generado no decía cuál estaba elegido — depende de que alguien
+recuerde recorrerlo después. Ahora va dentro de la plantilla.
+
+También se limpiaron once comentarios donde habían quedado secuencias `é`
+literales: dentro de una cadena de JS se decodifican, en un comentario son texto
+muerto que nadie lee bien.
+
+### Batería
+
+**2.787 tests del motor · 361 de la capa web · 248 checks · 29 del smoke de JS ·
+12 diferenciales · 0 fallos.**
