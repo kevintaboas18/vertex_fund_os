@@ -171,3 +171,50 @@ def test_a_recovery_cagr_is_disclosed_not_smuggled_in():
 def test_the_scoring_rule_is_named_in_the_output():
     out = val.run(_bank(), _DIVIDENDS)
     assert any("INCOMPLETE" in a and "70%" in a for a in out.assumptions)
+
+
+# --- REITs -----------------------------------------------------------------
+
+def test_a_reit_scores_the_dimension_its_dividend_model_fills():
+    """El modelo de dividendos es un chequeo que la matriz nombra para REITs y
+    corre sobre el tag de dividendos en XBRL sin pedirle nada a nadie.
+
+    Si produjo un valor justo -- y lo produce, porque de ahi salia ya el margen
+    de seguridad -- entonces `fair_value_by_scenarios` no es inaplicable: es la
+    dimension que ese valor llena. Estaba marcada NOT_APPLICABLE teniendo el
+    numero calculado, lo que escondia dos puntos detras de una etiqueta.
+    """
+    out = val.run(_bank("reits"), _DIVIDENDS)
+    por_nombre = {d.name: d for d in out.dimensions}
+    fv = por_nombre[val.DIM_FAIR_VALUE_SCENARIOS]
+    assert any(v.is_valid for _, v in fv.metric_scores), (
+        "el valor justo del modelo de dividendos no llego a su dimension")
+
+
+def test_a_reit_gap_is_a_gap_not_an_exemption():
+    """P/AFFO es EL multiplo de un REIT: INDUSTRY_ADAPTERS.md dice "replace EPS
+    with FFO/AFFO". Asi que el hueco no es que el multiplo no aplique, es que
+    falta AFFO -- y falta por una razon real: su definicion varia un 14% entre
+    lecturas defendibles del mismo filing, asi que la transcribe un analista.
+
+    NOT_SCORABLE cuenta en contra y se ve. NOT_APPLICABLE lo sacaria del
+    denominador y haria que un REIT pareciera mejor cubierto por no tener el
+    dato.
+    """
+    out = val.run(_bank("reits"), _DIVIDENDS)
+    por_nombre = {d.name: d for d in out.dimensions}
+    for dim in (val.DIM_MULTIPLES, val.DIM_HIST_PEER, val.DIM_CF_YIELD):
+        estados = [v.state for _, v in por_nombre[dim].metric_scores]
+        assert NullState.NOT_SCORABLE in estados, (
+            f"{dim}: el hueco de AFFO tiene que verse, no desaparecer")
+    assert out.coverage < 0.70, "sin AFFO la categoria sigue siendo INCOMPLETE"
+    assert "CATEGORY_INCOMPLETE_GATE_INELIGIBLE" in out.mandatory_flags
+
+
+def test_the_reit_primary_models_are_still_refused():
+    """NAV, AFFO DCF y cap rates son nombres en la matriz sin fórmula
+    registrada en ninguna FORMULAS.md. Implementarlos seria elegir una
+    definicion que el Cerebro no eligio."""
+    out = val.run(_bank("reits"), _DIVIDENDS)
+    assert "ADAPTER_PRIMARY_MODELS_NOT_REGISTERED" in out.mandatory_flags
+    assert out.model_selection.primary == []

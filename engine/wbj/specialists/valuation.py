@@ -699,15 +699,41 @@ def _reit_adapter_output(packet: Packet, overlay: dict[str, Any]) -> ValuationOu
     add("VAL-MOS-040", mos_v, None)
     mos_score = _score_from_anchor(mos_v, [(-0.25, 0), (0.0, 4), (0.15, 7), (0.30, 10)])
     scored = [(1.0, Value.of(mos_score, unit="score"))] if mos_score is not None else []
+
+    # El modelo de dividendos es un chequeo que la matriz nombra para REITs, y
+    # corre sobre el tag de dividendos en XBRL sin pedirle nada a nadie. Si
+    # produjo un valor justo -- y lo produjo, porque de ahi sale el margen de
+    # seguridad -- entonces `fair_value_by_scenarios` NO es inaplicable: es la
+    # dimension que ese valor llena. Marcarla inaplicable teniendo el numero
+    # calculado escondia dos puntos de la categoria detras de una etiqueta.
     na = Value.null(NullState.NOT_APPLICABLE, unit="score",
                     warnings=["NOT_APPLICABLE_UNDER_REITS"])
-    dims = [
-        Dimension(name=n, max_points=DIMENSION_MAX_POINTS[n],
-                  metric_scores=(scored if n == DIM_MOS else [(1.0, na)]))
-        for n in DIMENSION_NAMES
-    ]
+    # P/AFFO es EL multiplo de un REIT: INDUSTRY_ADAPTERS.md dice "replace EPS
+    # with FFO/AFFO", asi que el hueco no es que el multiplo no aplique, es que
+    # falta AFFO. Y falta por una razon escrita arriba: su definicion varia un
+    # 14% entre lecturas defendibles del mismo filing, asi que la transcribe un
+    # analista con su fuente. Eso es NOT_SCORABLE -- cuenta en contra y se ve --
+    # y no NOT_APPLICABLE, que lo sacaria del denominador y lo escondería.
+    sin_affo = Value.null(NullState.NOT_SCORABLE, unit="score",
+                          warnings=["P_AFFO_NEEDS_ISSUER_AFFO_IN_ENTRADAS"])
+    por_dimension = {
+        DIM_MOS: scored,
+        DIM_FAIR_VALUE_SCENARIOS: ([(1.0, Value.of(mos_score, unit="score"))]
+                                   if mos_score is not None else [(1.0, sin_affo)]),
+        # Multiplos e historico: el de EPS no aplica (queda reemplazado), el de
+        # AFFO falta. Los dos estados, cada uno donde corresponde.
+        DIM_MULTIPLES: [(0.5, na), (0.5, sin_affo)],
+        DIM_HIST_PEER: [(1.0, sin_affo)],
+        DIM_CF_YIELD: [(0.5, na), (0.5, sin_affo)],
+    }
+    dims = [Dimension(name=n, max_points=DIMENSION_MAX_POINTS[n],
+                      metric_scores=por_dimension[n])
+            for n in DIMENSION_NAMES]
     awarded = Category(name="valuation", max_points=MAX_POINTS, dimensions=dims).points()
-    coverage = (DIMENSION_MAX_POINTS[DIM_MOS] / MAX_POINTS) if scored else 0.0
+    # `MISSING_DATA_POLICY.md`: peso VALIDO / peso APLICABLE. Antes se dividia
+    # entre `MAX_POINTS`, los 10 puntos completos, asi que O salia en 0,100.
+    _apl = sum(d.max_points * d.applicable_weight() for d in dims)
+    coverage = (sum(d.max_points * d.valid_weight() for d in dims) / _apl) if _apl else 0.0
 
     assumptions.append(
         "industry_adapter='reits': DECISION_RULES.md assigns NAV, AFFO DCF and cap rates as "
