@@ -4129,24 +4129,53 @@ async function syncReportsFromServer() {
         });
         if (added) {
             local.sort((a, b) => String(b.report_id||'').localeCompare(String(a.report_id||'')));
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(local.slice(0, 200)));
+            guardarArchivoLocal(local);
             renderRecentReports(); renderFullReportsList();
         }
     } catch(e) {}
+}
+// Guarda el archivo local recortando por TAMANO, no por cantidad.
+//
+// El limite de localStorage es de bytes (~5 MB), y aqui se recortaba por
+// numero de reportes: 200. Un reporte completo lleva los seis especialistas
+// con sus metricas, asi que 200 pasan de los 5 MB mucho antes de llegar a 200.
+// Cuando `setItem` reventaba, la excepcion subia hasta el manejador de
+// analisis y mataba el analisis ENTERO -- que ya habia terminado bien en el
+// servidor. Eso es lo que producia "No se pudo analizar JPM. Motivo: Setting
+// the value of 'vertex_reports_v2' exceeded the quota".
+//
+// El archivo local es una CACHE: el servidor ya guarda los reportes de forma
+// duradera y `syncReportsFromServer` los baja de vuelta. Perder el mas viejo
+// de aqui no pierde nada; abortar el analisis si.
+function guardarArchivoLocal(reports) {
+    let lista = reports.slice(0, 200);
+    while (lista.length) {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(lista));
+            return true;
+        } catch (e) {
+            // Se tira el cuarto mas antiguo y se reintenta. Al menos uno por
+            // vuelta, para que un solo reporte gigante no deje el bucle quieto.
+            const fuera = Math.max(1, Math.floor(lista.length / 4));
+            lista = lista.slice(0, lista.length - fuera);
+        }
+    }
+    // Ni siquiera uno cabe: se deja el archivo vacio antes que a medio escribir.
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    return false;
 }
 function saveNewReport(data) {
     const reports = getAllReports();
     // Each report_id is unique (timestamp+ticker), so same ticker = new record each time
     if (!reports.find(r => r.report_id === data.report_id)) {
         reports.unshift(data);
-        if (reports.length > 200) reports.pop();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(reports));
+        guardarArchivoLocal(reports);
     }
 }
 function deleteReport(reportId, e) {
     e.stopPropagation();
     if (!confirm('Delete this report?')) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(getAllReports().filter(r => r.report_id !== reportId)));
+    guardarArchivoLocal(getAllReports().filter(r => r.report_id !== reportId));
     try { fetch(`${API_BASE}/api/report-delete?report_id=${encodeURIComponent(reportId)}`, {method:"POST"}); } catch(e2) {}  // #4 sync del borrado
     renderFullReportsList(); renderRecentReports();
 }
