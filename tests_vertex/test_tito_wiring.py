@@ -12,6 +12,7 @@ verifica es el CABLEADO, no los datos.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import os
@@ -38,6 +39,42 @@ def client():
     import vertex_api as V
 
     return TestClient(V.app)
+
+
+@pytest.fixture
+def wheel_dobles(monkeypatch):
+    """Cadena de puts + barras + filings, sin tocar red."""
+    import wbj.tito.bars_store as BS
+    import wbj.tito.earnings as EA
+    import wbj.tito.massive as MASS
+    from wbj.tito.massive import DailyBar, WheelChainQuote, WheelChainResult
+
+    def chain(t, dmin, dmax, now=None, **k):
+        spot, q = 100.0, []
+        for s in range(70, 101, 5):
+            # Bid/ask coherentes con una IV del 35%: si no, la bisección da
+            # deltas fuera de la banda del preset y no sale ningún candidato.
+            from wbj.tito.black_scholes import bs_price
+            px = bs_price(spot, float(s), 38 / 365, 0.35, "put")
+            q.append(WheelChainQuote(strike=float(s), expiration="2026-09-18", dte=38,
+                                     bid=round(px * 0.97, 2), ask=round(px * 1.03, 2),
+                                     last_trade=None, open_interest=600))
+        return WheelChainResult(spot=spot,
+                                quotes=[x for x in q if dmin <= x.dte <= dmax])
+
+    def barras(t, days=365, now=None, **k):
+        out, seed = [], 7
+        for i in range(300):
+            seed = (seed * 1103515245 + 12345) % 2147483648
+            c = 92 + i * 0.02 + 7 * math.sin(i / 19) + (seed / 2147483648 - 0.5) * 1.4
+            out.append(DailyBar((NOW - timedelta(days=300 - i)).date().isoformat(),
+                                c, c + 1.5, c - 1.5, c))
+        return out
+
+    monkeypatch.setattr(MASS, "fetch_wheel_chain", chain)
+    monkeypatch.setattr(BS, "cached_daily_bars", barras)
+    monkeypatch.setattr(EA, "fetch_filing_dates",
+                        lambda t, **k: ["2026-05-01", "2026-02-01", "2025-11-01"])
 
 
 @pytest.fixture
@@ -761,9 +798,42 @@ class TestElTabEsSoloDeVictor:
 
     def test_al_abrir_el_tab_arranca_el_screener_no_un_cartel(self):
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
-        assert "loadProjIdeas()" in html
-        # …y en cuanto hay ticker, las ideas se retiran: manda el análisis.
-        assert "_ideas.classList.add('hidden')" in html
+        # Entra por Ideas, que no pide nada.
+        assert "let vcTabActiva = 'ideas';" in html
+        assert "vcAbreTab(vcTabActiva);" in html
+        # …y en cuanto hay ticker, manda el análisis.
+        assert "if (vcTabActiva !== 'tape') vcAbreTab('ticker');" in html
+
+    def test_estan_sus_cuatro_pestanas_con_su_orden(self):
+        """`NavTabs.tsx`: Ticker / Ideas / Wheel / Time & Sales, en ese orden."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("const VC_TABS = [")
+        bloque = html[i:html.index("];", i)]
+        orden = re.findall(r"\['(\w+)',", bloque)
+        assert orden == ["ticker", "ideas", "wheel", "tape"], orden
+        for texto in ("Ticker", "Ideas", "Wheel", "Time &amp; Sales"):
+            assert texto.replace("&amp;", "&") in bloque or texto in bloque
+        dom = self._dom()
+        for pane in ("projPaneTicker", "projPaneIdeas", "projPaneWheel", "projPaneTape"):
+            assert f'id="{pane}"' in dom, f"falta el panel {pane}"
+
+    def test_cada_pestana_carga_BAJO_DEMANDA(self):
+        """Entrar a Proyecciones no puede disparar cuatro escaneos: entre Wheel
+        (40 tickers × 2 llamadas) e Ideas (el mercado entero) sería quemar la
+        cuota de golpe."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcAbreTab(id) {")
+        cuerpo = _sin_comentarios(html[i:html.index("/* ── WHEEL", i)])
+        assert "if (vcTabCargada[id]) return;" in cuerpo
+        for fn in ("loadProjIdeas()", "loadProjWheel()", "loadProjTape()"):
+            assert fn in cuerpo, f"{fn} no se dispara al abrir su pestaña"
+
+    def test_el_buscador_se_esconde_donde_no_va(self):
+        """Ideas y Wheel escanean el mercado entero: un cuadro de ticker ahí
+        promete un filtro que no existe."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert 'id="projBuscador"' in self._dom()
+        assert "id !== 'ticker' && id !== 'tape'" in html
 
     def test_no_hay_que_teclear_estan_sus_cuatro_tickers(self):
         """Su `HeaderBar` lleva `QUICK = ["TSLA","NVDA","SPY","AAPL"]`: se hace
@@ -908,6 +978,96 @@ class TestIdeasDelMercado:
         assert d["ok"] is False and d["source"] == "marketsnack"
         assert "cadu" in d["error"]          # el motivo nuestro pasa entero
         assert "ideas" not in d
+
+
+class TestWheel:
+    """`/api/tito-wheel` — su `/api/wheel`, vender puts cash-secured."""
+
+    def test_escanea_su_universo_curado(self, client, wheel_dobles):
+        d = client.get("/api/tito-wheel").json()
+        from wbj.tito.wheel_universe import WHEEL_UNIVERSE
+        assert d["ok"] is True and d["scanned"] == len(WHEEL_UNIVERSE) == 40
+
+    def test_sirve_sus_tres_presets_con_sus_bandas(self, client, wheel_dobles):
+        d = client.get("/api/tito-wheel").json()
+        bandas = {p["id"]: (p["delta_min"], p["delta_max"], p["dte_min"], p["dte_max"])
+                  for p in d["presets"]}
+        assert bandas["conservador"] == (0.10, 0.20, 30, 45)
+        assert bandas["balanceado"] == (0.20, 0.30, 30, 45)
+        assert bandas["agresivo"] == (0.30, 0.40, 7, 21)
+        assert d["preset_id"] == "balanceado"      # su default
+
+    def test_un_candidato_bloqueado_NO_lleva_prima(self, client, wheel_dobles):
+        """Su regla crítica: ante la duda, no operar y avisar. No se enseña un
+        número que no puedes cobrar."""
+        d = client.get("/api/tito-wheel").json()
+        for c in d["candidates"]:
+            if c["blocked"]:
+                assert c["premium"] is None and c["metrics"] is None and c["score"] is None
+                assert c["block_reason"] in ("sin_bid", "spread_ancho", "oi_bajo")
+
+    def test_el_sizing_del_usuario_NO_viaja(self, client, wheel_dobles):
+        """`wheelAfford.ts` corre en su cliente porque el saldo vive en
+        localStorage. Aquí va el colateral; quién puede pagarlo, no."""
+        d = client.get("/api/tito-wheel").json()
+        crudo = json.dumps(d)
+        for prohibido in ("affordable", "shortfall", "account_size", "cash"):
+            assert prohibido not in crudo, f"el saldo se coló: {prohibido}"
+
+    def test_castiga_el_rendimiento_sospechosamente_alto(self):
+        """Un screener que ordena por prima pone arriba justo las acciones a
+        punto de desplomarse. Su banda >60% da 10/30, menos que la de 15-35%."""
+        from wbj.tito.wheel import ScoreInput, score_candidate
+        def _t(pct):
+            return score_candidate(ScoreInput(
+                annualized_pct=pct, iv_rank=60, strike=90, spot=100, cushion_pct=12,
+                supports=[], open_interest=600, spread_pct=5, earnings="fuera")).annualized
+        assert _t(80).points == 10 and _t(25).points == 30
+        assert _t(80).points < _t(25).points
+
+    def test_la_banda_de_IV_rank_va_INVERTIDA_respecto_al_subagente_5(self):
+        """La Wheel VENDE prima: quiere la volatilidad cara. El resto del
+        agente compra y quiere vega barata."""
+        from wbj.tito.wheel import ScoreInput, score_candidate
+        from wbj.tito.ivcontext import iv_rank_points
+        def _w(rank):
+            return score_candidate(ScoreInput(
+                annualized_pct=20, iv_rank=rank, strike=90, spot=100, cushion_pct=12,
+                supports=[], open_interest=600, spread_pct=5, earnings="fuera")).iv_rank.points
+        assert _w(85) > _w(20), "la Wheel debe premiar el IV Rank ALTO"
+        assert iv_rank_points(85).points < iv_rank_points(20).points, \
+            "el sub-agente 5 debe premiar el IV Rank BAJO"
+
+
+class TestTimeAndSales:
+    """`/api/tito-tape` — su `/flow`, la cinta cruda de un ticker."""
+
+    def test_devuelve_la_cinta_clasificada(self, client):
+        d = client.get("/api/tito-tape?ticker=DEMO").json()
+        assert d["ok"] is True and d["ticker"] == "DEMO"
+        assert d["trades"] and d["notable"] >= 1
+        assert 0 <= d["aggression"]["score"] <= 10
+
+    def test_cada_operacion_lleva_su_evidencia(self, client):
+        """A diferencia del scorecard, aquí NO se agrega nada: se ve el flujo
+        tal como entró."""
+        d = client.get("/api/tito-tape?ticker=DEMO").json()
+        t = d["trades"][0]
+        for campo in ("timestamp", "strike", "expiration", "dte", "size", "price",
+                      "premium", "aggression", "delta", "iv", "unusual_score",
+                      "repeated", "multileg", "above_ask", "below_bid", "exceeded_oi"):
+            assert campo in t, f"falta {campo} en la fila del tape"
+
+    def test_sin_cinta_lo_dice_y_no_inventa(self, client, monkeypatch):
+        import wbj.tito.marketsnack as MS
+
+        def boom(*a, **k):
+            raise MS.MarketSnackError("La cookie de MarketSnack caducó.")
+
+        monkeypatch.setattr(MS, "fetch_flow", boom)
+        d = client.get("/api/tito-tape?ticker=DEMO").json()
+        assert d["ok"] is False and d["source"] == "marketsnack"
+        assert "trades" not in d
 
 
 class TestElMotivoDeMassiveEsAccionable:

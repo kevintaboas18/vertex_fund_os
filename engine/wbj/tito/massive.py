@@ -41,6 +41,9 @@ __all__ = [
     "ChainResult",
     "DailyBar",
     "fetch_company",
+    "fetch_wheel_chain",
+    "WheelChainQuote",
+    "WheelChainResult",
     "fetch_option_chain",
     "fetch_daily_bars",
 ]
@@ -325,6 +328,85 @@ class DailyBar:
     high: float
     low: float
     close: float
+
+
+@dataclass(frozen=True)
+class WheelChainQuote:
+    """Una fila de la cadena de puts, ya normalizada. Es su `WheelChainQuote`."""
+
+    strike: float
+    expiration: str
+    dte: int
+    bid: float | None
+    ask: float | None
+    last_trade: float | None
+    open_interest: int
+
+
+@dataclass
+class WheelChainResult:
+    spot: float | None = None
+    quotes: list[WheelChainQuote] = field(default_factory=list)
+
+
+def fetch_wheel_chain(ticker: str, dte_min: int, dte_max: int,
+                      now: datetime | None = None,
+                      timeout: float = 25.0) -> WheelChainResult:
+    """Cadena de PUTS acotada al rango de DTE del preset — su `fetchWheelChain`.
+
+    Dos cosas suyas que no son detalle:
+
+    - El "hoy" se ancla al día de mercado **ET**, no UTC. Después de las ~8 PM
+      ET el día UTC ya saltó, y el `dte` y el rango de vencimientos saldrían
+      desfasados un día (el aviso vive en `market_date_str`, en `occ.py`).
+    - Solo se devuelven **puts OTM** (`strike <= spot`). Un put ITM no es un
+      cash-secured put de Wheel: es otra cosa.
+    """
+    from .occ import market_date_str
+
+    key = _api_key()
+    clean = (ticker or "").strip().upper()
+    if not clean:
+        raise MassiveError("Ticker vacío.")
+    hoy_et = market_date_str(now or datetime.now(timezone.utc))
+    base = date.fromisoformat(hoy_et)
+    desde = (base + timedelta(days=dte_min)).isoformat()
+    hasta = (base + timedelta(days=dte_max)).isoformat()
+
+    url = (f"{BASE_URL}/v3/snapshot/options/{urllib.parse.quote(clean)}"
+           f"?contract_type=put&expiration_date.gte={desde}"
+           f"&expiration_date.lte={hasta}&limit=250")
+    data = _get(url, key, clean, timeout)
+    if not isinstance(data, dict):
+        raise MassiveError(
+            f"Massive devolvió {type(data).__name__} donde se esperaba un objeto.")
+
+    spot: float | None = None
+    quotes: list[WheelChainQuote] = []
+    for c in (data.get("results") or []):
+        if not isinstance(c, dict):
+            continue
+        det = c.get("details") or {}
+        strike, expiration = det.get("strike_price"), det.get("expiration_date")
+        if not (isinstance(strike, (int, float)) and strike > 0) or not expiration:
+            continue
+        if spot is None:
+            px = (c.get("underlying_asset") or {}).get("price")
+            if px:
+                spot = float(px)
+        try:
+            dte = (date.fromisoformat(str(expiration)) - base).days
+        except ValueError:
+            continue
+        quotes.append(WheelChainQuote(
+            strike=float(strike), expiration=str(expiration), dte=dte,
+            bid=(c.get("last_quote") or {}).get("bid"),
+            ask=(c.get("last_quote") or {}).get("ask"),
+            last_trade=(c.get("last_trade") or {}).get("price"),
+            open_interest=c.get("open_interest") or 0))
+
+    otm = [q for q in quotes if q.strike <= spot] if spot is not None else quotes
+    return WheelChainResult(spot=spot, quotes=otm)
 
 
 def fetch_daily_bars(ticker: str, days: int = 365, timeout: float = 25.0) -> list[DailyBar]:
