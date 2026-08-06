@@ -1271,3 +1271,108 @@ class TestLaExplicacionLlegaALaPantalla:
         h = _html()
         assert "cargaExplicacion('${" not in h
         assert "data-reintentar=" in h and "dataset.reintentar" in h
+
+
+class TestMigracionAUnMundoConCuentas:
+    """Estrenar las cuentas no puede costarte tu historial.
+
+    Dos formas de perderlo, las dos silenciosas, las dos encontradas simulando
+    la base que de verdad hay en Render:
+
+     · los reportes de antes tienen `usuario_id` NULL, así que al registrarte
+       tu archivo sale VACÍO;
+     · el navegador borraba su copia local en CADA login, y los reportes cuyo
+       `payload` nunca llegó al servidor solo viven ahí.
+    """
+
+    @staticmethod
+    def _base_vieja(entorno):
+        """Una base del mundo de un solo usuario: reportes sin dueño."""
+        import vertex_api as V
+
+        conn = V._db()
+        for t in ("AAPL", "JPM", "NVDA"):
+            conn.execute("INSERT INTO reports (report_id,ticker,created_at,created_ts,"
+                         "payload,usuario_id) VALUES (?,?,?,?,?,NULL)",
+                         (f"viejo_{t}", t, "antes", time.time(),
+                          json.dumps({"ticker": t})))
+        conn.commit()
+        conn.close()
+
+    def test_la_primera_cuenta_ADOPTA_el_archivo_huerfano(self, cliente, entorno):
+        """Quien se registra primero es quien los generó: era el único usuario
+        que había."""
+        self._base_vieja(entorno)
+        r = _registra(cliente)
+        assert r["primera_cuenta"] is True
+        assert r["reportes_adoptados"] == 3
+        vistos = [x["ticker"] for x in cliente.get("/api/reports/list").json()["reports"]]
+        assert sorted(vistos) == ["AAPL", "JPM", "NVDA"]
+
+    def test_la_SEGUNDA_cuenta_no_se_queda_con_el_archivo_de_nadie(self, entorno):
+        """Regalar los huérfanos a cualquiera que se registre sería entregarle
+        el archivo de otro."""
+        from fastapi.testclient import TestClient
+        import vertex_api as V
+
+        self._base_vieja(entorno)
+        kevin, ana = TestClient(V.app), TestClient(V.app)
+        _registra(kevin, "k@x.com", "Kevin", "clave-larga-1")
+        r = _registra(ana, "a@x.com", "Ana", "otra-clave-2")
+
+        assert r["primera_cuenta"] is False and r["reportes_adoptados"] == 0
+        assert ana.get("/api/reports/list").json()["reports"] == []
+        assert len(kevin.get("/api/reports/list").json()["reports"]) == 3
+
+    def test_una_base_VIEJA_arranca_sin_perder_nada(self, tmp_path, monkeypatch):
+        """Las columnas y tablas nuevas se añaden sobre lo que ya hay; los
+        reportes anteriores siguen ahí."""
+        import vertex_api as V
+
+        db = tmp_path / "vieja.db"
+        conn = sqlite3.connect(db)
+        conn.execute("""CREATE TABLE reports (report_id TEXT PRIMARY KEY, ticker TEXT,
+                        created_at TEXT, created_ts REAL, thesis TEXT)""")
+        conn.execute("INSERT INTO reports VALUES ('r','AAPL','antes',1.0,'tesis')")
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setattr(V, "DB_PATH", str(db))
+        V.init_db()
+
+        conn = sqlite3.connect(db)
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(reports)").fetchall()}
+        tablas = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        n = conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0]
+        conn.close()
+        assert {"usuario_id", "payload"} <= cols
+        assert {"usuarios", "sesiones", "contribuciones"} <= tablas
+        assert n == 1, "la migración perdió reportes"
+
+    def test_el_navegador_NO_borra_el_archivo_al_entrar_la_misma_persona(self):
+        """El fallo caro: los reportes sin `payload` en el servidor solo viven
+        en el navegador, y `syncReportsFromServer` no puede devolverlos."""
+        h = _html()
+        fn = h[h.index("async function authLogin("):]
+        fn = fn[:fn.index("\n}")]
+        assert "ARCHIVO_DUENO_KEY" in fn, "no distingue de quién es el archivo local"
+        assert "dueno !== user.id" in fn, "borra sin comprobar si cambió la persona"
+
+    def test_sin_dueno_guardado_el_archivo_se_CONSERVA(self):
+        """Un archivo sin dueño es de antes de las cuentas: de la única persona
+        que había, que es la que está entrando."""
+        h = _html()
+        fn = h[h.index("async function authLogin("):]
+        fn = fn[:fn.index("\n}")]
+        i = fn.index("if (dueno")
+        assert "dueno &&" in fn[i:i + 60], "sin dueño también borraría"
+
+    def test_al_SALIR_si_se_limpia(self):
+        """Es una salida deliberada, y lo que se pierde ya está en el servidor
+        bajo su cuenta."""
+        h = _html()
+        fn = h[h.index("async function authSignOut()"):]
+        fn = fn[:fn.index("\n}")]
+        assert "localStorage.removeItem(STORAGE_KEY)" in fn
+        assert "ARCHIVO_DUENO_KEY" in fn

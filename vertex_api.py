@@ -364,8 +364,11 @@ async def auth_registro(request: Request):
         conn.close()
 
     return _pon_cookie_usuario(
-        JSONResponse(content={"ok": True, "usuario": _publico(usuario),
-                              "nuevo": True}),
+        JSONResponse(content={"ok": True, "usuario": _publico(usuario), "nuevo": True,
+                              # Para que la pantalla pueda decirlo en vez de que
+                              # el usuario descubra solo que su archivo cambió.
+                              "primera_cuenta": bool(usuario.get("primera_cuenta")),
+                              "reportes_adoptados": usuario.get("reportes_adoptados") or 0}),
         request, token)
 
 

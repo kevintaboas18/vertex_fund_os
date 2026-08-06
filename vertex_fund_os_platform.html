@@ -5349,6 +5349,11 @@ window.switchView = function(viewId) {
 // ══════════════════════════════════════════════════════════════════════════════
 let authMode = 'login'; // 'login' | 'register'
 
+//: De quién es el archivo de reportes que hay en ESTE navegador. Sirve para
+//: distinguir «entra otra persona» (hay que limpiar) de «entra la misma»
+//: (limpiar sería tirar sus reportes).
+const ARCHIVO_DUENO_KEY = 'vertex_archivo_dueno';
+
 //: El usuario de la sesión, tal como lo devolvió el servidor. Es una CACHÉ para
 //: pintar el nombre, no la fuente de la verdad: la fuente es la cookie.
 let VX_USUARIO = null;
@@ -5461,8 +5466,24 @@ async function authLogin(user, opciones) {
     // abrirlo por primera vez.
     if (typeof vxPintaMenu === 'function') vxPintaMenu();
     startNotifPolling();   // #4 — campana + escaneo de alertas de la watchlist
-    // El archivo es privado por usuario: lo que hubiera del anterior no vale.
-    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+
+    // El archivo local se limpia SOLO al cambiar de persona.
+    //
+    // Borrarlo en cada login destruía datos: los reportes cuyo `payload` nunca
+    // llegó al servidor —los anteriores a que existiera esa columna— solo
+    // viven aquí, y el `syncReportsFromServer` de después no puede devolverlos
+    // porque en el servidor no están. La primera vez que alguien entrara tras
+    // estrenar las cuentas, su historial se habría ido para siempre.
+    //
+    // Se recuerda de quién es lo que hay guardado. Sin dueño (archivo de antes
+    // de las cuentas) se CONSERVA: es de la única persona que había, que es la
+    // que está entrando.
+    let dueno = null;
+    try { dueno = localStorage.getItem(ARCHIVO_DUENO_KEY); } catch (e) {}
+    if (dueno && dueno !== user.id) {
+        try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    }
+    try { localStorage.setItem(ARCHIVO_DUENO_KEY, user.id); } catch (e) {}
     if (typeof syncReportsFromServer === 'function') syncReportsFromServer();
     if (typeof pfCargar === 'function') await pfCargar();
 
@@ -5484,8 +5505,11 @@ async function authSignOut() {
     document.getElementById('navUserBadge').classList.add('hidden');
     document.getElementById('navUserBadge').classList.remove('flex');
     // El archivo local es de quien acaba de salir: se limpia, o el siguiente
-    // que entre en este navegador vería sus reportes.
+    // que entre en este navegador vería sus reportes. Aquí sí se borra sin
+    // condiciones — a diferencia del login, esto es una salida deliberada y
+    // lo que se pierde ya está en el servidor bajo su cuenta.
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    try { localStorage.removeItem(ARCHIVO_DUENO_KEY); } catch (e) {}
     document.getElementById('authEmail').value = '';
     document.getElementById('authPassword').value = '';
     document.getElementById('authName').value = '';

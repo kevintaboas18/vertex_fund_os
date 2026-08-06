@@ -737,6 +737,8 @@ def crear_usuario(conn, email: str, nombre: str, password: str) -> dict:
         raise UsuarioExiste("Ya existe una cuenta con ese email.")
 
     uid = secrets.token_hex(12)
+    #: ¿Es la PRIMERA cuenta de este despliegue? Se mira antes de insertar.
+    primera = conn.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0] == 0
     perfil = perfil_por_defecto()
     perfil.update({"nombre": nombre.strip(), "email": email})
     conn.execute(
@@ -744,8 +746,28 @@ def crear_usuario(conn, email: str, nombre: str, password: str) -> dict:
         "VALUES (?,?,?,?,?,?)",
         (uid, email, nombre.strip(), hash_password(password), time.time(),
          json.dumps(perfil, ensure_ascii=False)))
+    # ── ADOPCIÓN DEL ARCHIVO HUÉRFANO ──────────────────────────────────
+    #
+    # Los reportes anteriores a que existieran cuentas tienen `usuario_id`
+    # NULL. Sin esto, la primera persona que se registra —que es justamente
+    # quien los generó, porque era el único usuario que había— abre su archivo
+    # y lo ve VACÍO. Su historial entero desaparece de la vista sin que nada
+    # falle ni avise.
+    #
+    # Solo la PRIMERA cuenta los adopta. La segunda ya no puede: para entonces
+    # los huérfanos tienen dueño, y regalárselos a cualquiera que se registre
+    # sería entregarle el archivo de otro.
+    adoptados = 0
+    if primera:
+        try:
+            cur = conn.execute("UPDATE reports SET usuario_id=? WHERE usuario_id IS NULL",
+                               (uid,))
+            adoptados = cur.rowcount or 0
+        except Exception:                        # noqa: BLE001 — sin tabla aún, se sigue
+            adoptados = 0
     conn.commit()
-    return {"id": uid, "email": email, "nombre": nombre.strip(), "perfil": perfil}
+    return {"id": uid, "email": email, "nombre": nombre.strip(), "perfil": perfil,
+            "primera_cuenta": primera, "reportes_adoptados": adoptados}
 
 
 def buscar_usuario(conn, *, uid=None, email=None):

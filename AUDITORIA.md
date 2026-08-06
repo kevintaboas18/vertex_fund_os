@@ -3754,3 +3754,81 @@ Cuatro decisiones del diseño:
 
 **2.787 tests del motor · 377 de la capa web · 248 checks · 37 del smoke de JS ·
 12 diferenciales · 0 fallos.**
+
+## 41.18 Verificación: ¿esto tocó los agentes? Y lo que apareció al comprobarlo
+
+Kevin preguntó si el trabajo de cuentas y perfiles había afectado a los agentes,
+sub-agentes, cálculos, métricas, fuentes o cobertura.
+
+### La respuesta, verificada
+
+De todo el trabajo, **un solo archivo del motor**:
+`engine/wbj/specialists/risk.py`, y el diff entero cae **dentro de
+`profile_fit()`**. `engine/wbj/tito/` (los 6 sub-agentes de opciones),
+`providers/` y `packet/` (todas las fuentes): cero cambios.
+
+**Prueba estática.** En el especialista de riesgo, `awarded_points` sale en la
+línea 1468 y `coverage` en la 1470; `profile_fit` se pega en la 1522, 54 líneas
+después, como campo de reporte. Y `PROFILE` no aparece en ninguna otra línea del
+archivo: el perfil no tiene por dónde llegar al cálculo.
+
+**Prueba empírica, que es la que vale.** Se inyectó un perfil absurdo en todo el
+motor —capital ×1.000, tope de posición 100× más estrecho, horizonte al otro
+extremo— y se corrió la suite entera:
+
+```
+7 failed, 2780 passed
+```
+
+Los siete fallos son exactamente las pruebas de `profile_fit` en sí
+(`test_profile_fit_within_cap`, las cinco de semántica del tope,
+`test_run_nvda_fixture_profile_fit_populated`). **Cero fallos en scores,
+cobertura, métricas, gates u overrides.** Con el perfil cambiado mil veces, el
+resto del motor no se movió un decimal.
+
+**Concurrencia.** 30 peticiones simultáneas de 3 usuarios con capitales
+distintos: ninguna fuga. Y el especialista de riesgo en 3 hilos a la vez, cada
+uno con su capital correcto — el `ContextVar` hace lo que promete.
+
+### Pero al comprobarlo aparecieron dos formas de perder el archivo
+
+Simulando la base que de verdad hay en Render —con reportes de antes de que
+existieran cuentas— salieron dos fallos silenciosos, y el segundo destruye datos.
+
+**1. El archivo huérfano.** Los reportes anteriores tienen `usuario_id` NULL, así
+que al registrarte tu archivo salía **vacío**. Tu historial entero desaparecía de
+la vista sin que nada fallara ni avisara.
+
+Ahora **la primera cuenta del despliegue adopta los huérfanos**: quien se
+registra primero es quien los generó, porque era el único usuario que había. La
+segunda ya no puede — para entonces tienen dueño, y regalárselos a cualquiera
+que se registre sería entregarle el archivo de otro.
+
+**2. El borrado local, que sí perdía datos.** `authLogin` borraba el archivo del
+navegador en **cada** login. Los reportes cuyo `payload` nunca llegó al servidor
+—los anteriores a que existiera esa columna— **solo viven ahí**, y el
+`syncReportsFromServer` de después no puede devolverlos porque en el servidor no
+están. La primera vez que alguien entrara tras estrenar las cuentas, ese
+historial se habría ido para siempre.
+
+Ahora se recuerda de quién es lo guardado (`vertex_archivo_dueno`) y se limpia
+**solo al cambiar de persona**. Un archivo sin dueño es de antes de las cuentas
+—de la única persona que había, que es la que está entrando— así que se
+conserva. Al **salir** sí se borra sin condiciones: es una salida deliberada y lo
+que se pierde ya está en el servidor bajo su cuenta.
+
+### Un riesgo medido y no arreglado
+
+`save_report_payload` corta el JSON a 2 MB con `[:2_000_000]`. Cortar un JSON a
+la mitad produce un JSON **inválido**, y ese reporte desaparecería en silencio
+del archivo (`/api/reports/list` lo salta con un `except: continue`). Es anterior
+a este trabajo, pero el endpoint de explicación añade una segunda escritura al
+mismo payload.
+
+Medido: las series de precio de un reporte pesan **~36 KB**. Harían falta ~56
+veces más datos para llegar al tope. Queda declarado, no arreglado.
+
+### Batería
+
+**2.787 tests del motor · 383 de la capa web · 248 checks · 37 del smoke de JS ·
+12 diferenciales · 0 fallos.**
