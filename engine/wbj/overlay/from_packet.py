@@ -1610,6 +1610,21 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
     except Exception:
         logger.warning("XBRL analyst inputs unavailable", exc_info=True)
 
+    # Amplitud de sector (MKT-SECB-023): cuantos miembros del sector van por
+    # encima de su media de 50 sesiones. Es un numero del SECTOR, no del
+    # ticker, asi que se cachea por sector y por dia y lo comparten todos.
+    try:
+        from wbj.overlay.amplitud_sector import amplitud_de_sector
+
+        _sec = getattr(getattr(packet, "security", None), "sector", None)
+        _amp = amplitud_de_sector(fmp, _sec)
+        if _amp:
+            overlay["sector_breadth"] = _amp
+            logger.info("amplitud de %s: %d/%d sobre su media de 50",
+                        _sec, _amp["above_50dma_count"], _amp["valid_members"])
+    except Exception:
+        logger.warning("amplitud de sector no disponible", exc_info=True)
+
     # Applied last: an analyst who has read a sourced market study knows
     # something no endpoint here can supply, and TAM is the whole reason
     # this channel exists. Overrides are logged so the audit trail shows
