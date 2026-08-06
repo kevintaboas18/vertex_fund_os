@@ -296,9 +296,23 @@ def _market_definition_is_confident(overlay: dict) -> bool:
 _SUBSCRIPTION_INDUSTRIES = (
     "software", "saas", "internet content", "information technology services",
     "telecom", "entertainment", "streaming", "broadcasting", "publishing",
-    "security & protection services", "healthcare plans", "staffing",
+    "security & protection services", "staffing",
     "specialty business services", "data processing",
 )
+
+#: "healthcare plans" salió de la lista el 2026-08-06, y no por conveniencia:
+#: `INDUSTRY_ADAPTERS.md` le asigna a las aseguradoras un juego de métricas
+#: COMPLETAMENTE distinto -- "ROE, combined ratio, reserve development,
+#: solvency capital, book-value growth" -- y no nombra NRR, GRR ni churn en
+#: ninguna parte. Un plan de salud cobra primas recurrentes, sí, pero no
+#: reporta un puente de ingresos por cohorte ni un CAC payback: reporta
+#: afiliados y ratio de siniestralidad.
+#:
+#: Medido: era la razón por la que UNH salía en 0,583 de cobertura de business
+#: mientras NVDA, con el MISMO adaptador `default_nonfinancial`, salía en
+#: 0,913. Siete métricas que su industria no publica en esa forma, sentadas en
+#: su denominador. Es exactamente el caso que el comentario de arriba dice
+#: haber arreglado para Coca-Cola, con otra etiqueta.
 
 #: Adapters that name subscription economics directly.
 _SUBSCRIPTION_ADAPTERS = ("saas", "subscription")
