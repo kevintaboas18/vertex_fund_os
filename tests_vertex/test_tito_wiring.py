@@ -1264,6 +1264,100 @@ class TestWheel:
         # Devuelve su resultado; la suma se hace fuera, en un solo hilo.
         assert "return [], (" in cuerpo and "return cands, None" in cuerpo
 
+    def test_sin_bid_ask_lo_dice_por_su_nombre(self, client, monkeypatch, wheel_dobles):
+        """Sin horquilla no hay Wheel, y el fallo se disfrazaba de otra cosa.
+
+        Sin `last_quote` pasan dos cosas y ninguna se nombra sola:
+        no hay `mid`, así que la IV implícita no se despeja y el delta sale de
+        la volatilidad realizada —los strikes se salen de la banda y el ticker
+        cae como "fuera_de_banda"—; y si alguno entra, `liquidity_block` lo
+        tumba por "sin_bid". Dos rutas, el mismo motivo, ninguna lo decía.
+        """
+        import wbj.tito.massive as MASS
+        from wbj.tito.massive import WheelChainQuote, WheelChainResult
+        original = MASS.fetch_wheel_chain
+
+        def sin_quote(t, a, b, now=None, **k):
+            r = original(t, a, b, now=now)
+            return WheelChainResult(spot=r.spot, quotes=[
+                WheelChainQuote(strike=q.strike, expiration=q.expiration, dte=q.dte,
+                                bid=None, ask=None, last_trade=q.last_trade,
+                                open_interest=q.open_interest) for q in r.quotes])
+
+        monkeypatch.setattr(MASS, "fetch_wheel_chain", sin_quote)
+        d = client.get("/api/tito-wheel").json()
+        assert [r["motivo"] for r in d["rejected"]] == ["sin_horquilla"]
+        assert "ninguno con bid/ask" in d["rejected"][0]["ejemplo"]
+
+    def test_el_429_se_reintenta_y_no_se_confunde_con_otro_error(self, monkeypatch):
+        """40 tickers × 2 llamadas en 6 hilos es una ráfaga de ~80 peticiones, y
+        los planes limitan por minuto. La firma es inconfundible: unos pocos
+        pasan y el resto cae de golpe. Un 403, en cambio, no mejora esperando:
+        reintentarlo solo retrasaría el diagnóstico."""
+        import vertex_api as V
+        from wbj.tito.massive import MassiveError
+
+        monkeypatch.setattr(V, "_WHEEL_ESPERA_BASE", 0.001)
+        intentos = {"n": 0}
+
+        def falla_dos_veces():
+            intentos["n"] += 1
+            if intentos["n"] <= 2:
+                raise MassiveError("límite de tasa", 429)
+            return "ok"
+
+        assert V._wheel_con_reintento(falla_dos_veces) == "ok"
+        assert intentos["n"] == 3
+
+        prohibido = {"n": 0}
+
+        def prohibido_siempre():
+            prohibido["n"] += 1
+            raise MassiveError("el plan no lo cubre", 403)
+
+        with pytest.raises(MassiveError):
+            V._wheel_con_reintento(prohibido_siempre)
+        assert prohibido["n"] == 1, "un 403 no se reintenta"
+
+    def test_las_barras_reportan_su_motivo_en_vez_de_una_lista_vacia(self, monkeypatch):
+        """`cached_daily_bars` hace `.catch(() => [])` —comportamiento suyo, y
+        ahí está bien— pero eso convierte un 429, un 403 y un ticker sin datos
+        en la misma lista vacía. En un escaneo de 40 símbolos esa es la
+        diferencia entre "espera un momento" y "revisa tu plan".
+
+        Se prueba `_wheel_barras` directo: el doble de `wheel_dobles` sustituye
+        `cached_daily_bars` entero y taparía justo el camino que se mide.
+        """
+        import vertex_api as V
+        import wbj.tito.bars_store as BS
+        import wbj.tito.massive as MASS
+
+        def revienta(t, d=365, **k):
+            raise MASS.MassiveError("Massive no aceptó la credencial", 401)
+
+        monkeypatch.setattr(MASS, "fetch_daily_bars", revienta)
+        monkeypatch.setattr(BS, "load_bars", lambda t: None)      # sin cache
+        bars, motivo = V._wheel_barras("NVDA", NOW)
+        assert bars == []
+        assert motivo is not None and motivo[0] == "fuente"
+        assert "credencial" in motivo[1]
+
+        # Y con un ticker que simplemente no tiene datos, el motivo es None:
+        # la ruta lo traduce a "sin barras", que es otra cosa.
+        monkeypatch.setattr(MASS, "fetch_daily_bars", lambda t, d=365, **k: [])
+        bars, motivo = V._wheel_barras("NVDA", NOW)
+        assert bars == [] and motivo is None
+
+    def test_los_bloqueados_se_resumen_en_vez_de_llenar_la_tabla(self):
+        """Una fila bloqueada no lleva NINGÚN número —esa es su regla—, así que
+        cien seguidas son cien líneas vacías."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjWheel(d) {")
+        cuerpo = html[i:html.index("/* ── TIME & SALES", i)]
+        assert "_bloqMostrados <= 8" in cuerpo
+        assert "d.blocked_summary" in cuerpo and "Contratos bloqueados" in cuerpo
+        assert "a&ntilde;adido de plan" in cuerpo   # el porqué del sin_bid
+
     def test_castiga_el_rendimiento_sospechosamente_alto(self):
         """Un screener que ordena por prima pone arriba justo las acciones a
         punto de desplomarse. Su banda >60% da 10/30, menos que la de 15-35%."""
