@@ -1245,3 +1245,76 @@ No basta con que pasen. Roto el invariante a propósito, los tres detectan:
 - `allow_nan=False` rechaza el `NaN`
 
 **2111 tests del engine + 71 de la capa web.**
+
+---
+
+# 19. Auditoría del tab de Proyecciones — ronda 4 (2026-08-06)
+
+**Alcance:** el tab de Proyecciones completo, de la vista al endpoint y al motor.
+**Base comparada:** https://github.com/infusionvictor/agente-tito-metralleta (`53d5a20`).
+
+## 19.1 Lo que estaba MAL (y quedó resuelto)
+
+### [x] P4-01 — El tab medía gamma DOS veces
+Ya cerrado en la ronda 3 para el cargador y sus paneles (commit `a6d4fc2`), pero
+sobrevivieron cuatro restos que esta ronda destapó:
+
+| Resto | Qué se veía | Resuelto |
+|---|---|---|
+| Tarjeta *"Dark Pool & Flujo Institucional (Quant Data)"* vacía | marco morado + título sobre un cuerpo sin contenido: se leía como "el panel no carga", no como "el panel ya no está" | eliminada |
+| Rótulo *"(volumen > OI = posicionamiento fresco)"* | la definición de Quant Data sobre los trades del sub-agente 3, que puntúa inusualidad /30 sobre la cinta | rotulado con lo que de verdad pinta |
+| Subtítulo de targets *"7d–120d … GEX + flujo + dark pool + delta"* | horizontes que ya no existen y una fuente que ya no se consulta | 10d/20d/30d con los 6 pesos de su scorecard |
+| `trade_plan` del *Plan de operación* | put wall, call wall, gamma flip (de `get_gex_cached` → Quant Data) y un checkpoint de flujo de `_qd_conv`, a dos tarjetas de los mismos cuatro niveles calculados por el motor de Víctor | eliminados del plan; Quant Data sigue intacto en el prompt de Full Research, que es otra pantalla |
+
+**Por qué importa el último:** `trade_plan` se pinta en UN solo sitio y ese sitio es
+este tab. Cuando los dos proveedores discrepaban no había forma de saber cuál mirar.
+
+### [x] P4-02 — El motor de calibración no tenía diferencial
+Resuelto en la ronda 3 (`diff_calib.sh`, 182 diarios).
+
+## 19.2 Lo NUEVO de su repo, ya portado
+
+Su commit `53d5a20` *"feat(ideas): screener más accesible para cuenta chica"*
+toca `web/lib/risk.ts`. Portado literal a `engine/wbj/tito/risk.py`:
+
+| Suyo | Antes | Ahora |
+|---|---|---|
+| `MIN_DTE` | 7 | **2** — deja pasar semanales; el 0DTE lo sigue tumbando `expiry_status` |
+| `IDEA_UNUSUAL_THRESHOLD` | no existía | **5**, propio del screener. **No toca** el 7 institucional de `flow.py` |
+| `MONEYNESS_CAP` | no existía | **0.25** — el strike dentro del ±25% del precio |
+| `within_moneyness()` | no existía | portada. Ante datos faltantes **no filtra**: la cercanía es preferencia, no salvaguarda |
+
+Lo demás del commit (piso de premium $500k→$100k, slider 10%→50%, conteo de
+rechazos `lejano`) vive en su `/api/ideas` y su `ideas/page.tsx`, que **no se
+portan** — están declarados en el registro de huérfanas de `auditar_tito.py`.
+
+## 19.3 Cómo se verificó
+
+- `diff_motor2.sh` subió de 846 a **918 casos** con el corpus malformado nuevo
+  para `withinMoneyness`: basura en `strike` y en `assetPrice`, los bordes
+  exactos de la banda por los dos lados, y la banda misma con `null` explícito
+  —que en JS **no** activa el valor por defecto, solo lo hace `undefined`—.
+  918/918 idénticos a su archivo corriendo en Node.
+- 4 tests de cableado nuevos: ningún rótulo de Quant Data visible en el tab,
+  ninguna tarjeta con título y sin cuerpo, el plan sin gamma ni flujo de Quant
+  Data (leyendo el **código**, no el comentario que explica la eliminación), y
+  el rótulo de inusualidad describiendo lo que pinta.
+- 9 tests nuevos en `test_risk.py`: sus 6 de `withinMoneyness` + los 3 que fijan
+  que el umbral del screener no se coma al institucional.
+
+## 19.4 Estado
+
+```
+2.684 tests del engine · 154 de la capa web · 238 checks de auditoría · 0 fallos
+store 47/47 · compute 604/604 · bars 27/27 · primitivas · cono
+motor 1142/1142 · motor2 918/918 · motor3 348/349 · geo 274/274
+calib 182/182 · frescura 342/342 · reloj 223/223
+```
+
+Única divergencia declarada en los 12 diferenciales: `new Date("0")` → año 2000
+(parsing legacy de V8, *implementation-defined* según la spec).
+
+**Paneles que quedan en el tab:** gráfica de Víctor · Gamma neto por strike ·
+Targets por horizonte · Escenarios de precio (GEX) · Actividad inusual ·
+Plan de operación. **Fetches del tab:** `/api/projection-targets` y
+`/api/tito-news`. Nada más.

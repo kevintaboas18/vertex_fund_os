@@ -118,8 +118,15 @@ chk([IV.iv_rank_points(r).points for r in (10,20,40,60,80,100)] == [2,10,8,5,1,0
 chk(IV.MIN_IV_HISTORY_DAYS == 60, "IV Rank real a los 60 días")
 chk((V.MOVE_THRESHOLD_PCT, V.THRESHOLD_ATR_MULTIPLE, V.HORIZON_SESSIONS, V.BACKTEST_TARGET_DAYS)
     == (2.0, 1.5, 20, 60), "validación: piso 2% · ATR×1.5 · 20 sesiones · 60 días")
-chk((R.MAX_THETA_PCT_DAILY, R.THETA_BUDGET_PCT, R.MIN_DTE) == (5.0, 5.0, 7),
-    "riesgo: theta ≤5%/día · presupuesto 5% · DTE ≥7")
+chk((R.MAX_THETA_PCT_DAILY, R.THETA_BUDGET_PCT, R.MIN_DTE) == (5.0, 5.0, 2),
+    "riesgo: theta ≤5%/día · presupuesto 5% · DTE ≥2")
+# Su commit "screener más accesible para cuenta chica": el screener afloja, el
+# scorecard NO. Si alguien iguala los dos umbrales, la definición institucional
+# del dashboard cambia sin que nadie lo pida.
+chk((R.IDEA_UNUSUAL_THRESHOLD, R.MONEYNESS_CAP) == (5, 0.25),
+    "screener: inusualidad ≥5 · strike dentro del ±25% del precio")
+chk(R.IDEA_UNUSUAL_THRESHOLD < F.UNUSUAL_TRADE_THRESHOLD,
+    "el umbral del screener NO toca el institucional (7) del scorecard")
 chk(CALIBRATION == {"min_samples":5,"gain":0.6,"cap_pct":3.0}, "calibración: 5 muestras · 60% · ±3%")
 
 # ─────────────────────────────────────────────────────────────────────
@@ -914,6 +921,7 @@ HUERFANAS = {
     "fetch_market_flow": "solo la llama su /api/ideas (barrido del mercado entero)",
     "is_tradeable_idea": "solo la llama su /api/ideas (filtro de ideas)",
     "size_flow":         "solo la llama su /api/ideas y su ideas/page.tsx",
+    "within_moneyness":  "solo la llama su /api/ideas (filtro de cercanía del strike)",
     # ── huérfanas EN SU PROPIO REPO ──
     "add_days":
         "sin llamador también en su occ.ts: nadie la usa en agente-tito-metralleta",
@@ -1007,6 +1015,60 @@ chk("_tito_clusters(trades, now)" in API and "detect_clusters" in API,
     "`detect_clusters` CABLEADA: `flow_clusters` (su FlowPriceChart)")
 
 # ─────────────────────────────────────────────────────────────────────
+sec("9-bis. Rutas del servidor sin cliente")
+#
+# Al sacar Quant Data del tab, nueve rutas se quedaron sin nadie que las llame.
+# NO se borran: son superficie HTTP pública y alguien puede estar pegándoles
+# desde un script o un marcador. Pero tampoco pueden quedarse mudas — una ruta
+# sin cliente es código que nadie ejercita y que envejece sin avisar.
+#
+# Mismo contrato que el registro de funciones huérfanas: cada una declarada con
+# su motivo, y si aparece una nueva sin declarar, este check falla.
+RUTAS_HUERFANAS = {
+    # ── se quedaron sin cliente al sacar Quant Data del tab ──
+    "confluence":        "panel de confluencia (Quant Data), retirado del tab",
+    "net-flow":          "drift de premium neto (Quant Data), retirado del tab",
+    "options-ledger":    "libro de flujo institucional (Quant Data), retirado",
+    "gex-strike":        "gamma por strike de Quant Data; ahora sale de `gex.nodes`",
+    "self-test":         "diagnóstico que validaba las rutas de Quant Data",
+    "trade-plan":        "estructurador de contrato sobre flujo de Quant Data",
+    "income-strategies": "venta de prima sobre los walls de Quant Data",
+    "backtest":          "backtest de señales sobre exposure/flujo de Quant Data",
+    "collect-signals":   "captura del snapshot diario para ese backtest",
+    "signal-history":    "histórico de ese backtest",
+    # ── nunca tuvieron cliente en el panel, a propósito ──
+    "tito-health":       "diagnóstico del motor: se consulta a mano al desplegar",
+    "tito-scorecard":    "el scorecard suelto, sin memoria ni gráfica (API pública)",
+    # ── anteriores a este trabajo ──
+    "finnhub-quote":     "cotización suelta; la usa el flujo de análisis, no el panel",
+    "logout":            "lo dispara el navegador, no una llamada del script",
+    "history":           "el panel dibuja desde `chart_history`; la ruta queda "
+                         "para consumo externo",
+}
+# Una ruta cuenta como VIVA solo si aparece dentro de un `fetch(...)`. Buscar
+# "api/x" a secas la da por viva cuando lo único que hay es un comentario
+# explicando que se retiró — el mismo tropiezo que ya tuvieron dos tests. Y
+# quitar comentarios a lo bruto es peor: un `/*` dentro de una cadena se come
+# medio archivo. El `fetch` es el único sitio donde una ruta se USA de verdad.
+_rutas = set(re.findall(r'@app\.(?:get|post)\("/api/([a-z0-9\-_]+)"', API))
+# La URL no siempre va literal dentro del `fetch`: media docena se arman antes
+# en una variable (`const url = cond ? `…/api/x?…` : `…/api/x``). Así que se
+# cuenta como viva toda ruta que aparezca en una plantilla con `API_BASE`
+# delante, que es la forma que usa TODO el archivo para llamar al servidor.
+_usadas = set(re.findall(r"API_BASE\}/api/([a-z0-9-]+)", HTML))
+_huerf = {r for r in _rutas if r not in _usadas}
+_sin_declarar = sorted(_huerf - set(RUTAS_HUERFANAS))
+_ya_usadas = sorted(set(RUTAS_HUERFANAS) & _usadas)
+chk(not _sin_declarar,
+    f"{len(_rutas)} rutas · {len(_huerf)} sin cliente, todas declaradas"
+    + (f" · SIN DECLARAR: {_sin_declarar}" if _sin_declarar else ""))
+chk(not _ya_usadas,
+    "el registro no miente: ninguna declarada huérfana está ya cableada"
+    + (f" · {_ya_usadas}" if _ya_usadas else ""))
+print("  · no se borran: son superficie HTTP pública. Se declaran para que no "
+      "envejezcan mudas.")
+
+# ─────────────────────────────────────────────────────────────────────
 sec("10. Tests")
 r = subprocess.run([sys.executable,"-m","pytest","tests/tito/","-q"],
                    cwd=VERTEX/"engine", capture_output=True, text=True)
@@ -1025,7 +1087,7 @@ DIFERENCIALES = {
     "diff_primitivas.sh": "Number() y Date.parse() contra V8",
     "diff_cono.sh":       "expectedMove.ts — cono + rutas de la gráfica",
     "diff_motor.sh":      "flow + validation + levels + structure — 1.142 casos",
-    "diff_motor2.sh":     "ivcontext + gex + prediction + risk — 846 casos",
+    "diff_motor2.sh":     "ivcontext + gex + prediction + risk — 918 casos",
     "diff_motor3.sh":     "gexHeatmap + news — 349 casos",
     "diff_geo.sh":        "chartGeometry.ts — la gráfica del panel, 274 casos",
     "diff_calib.sh":      "predictionStore.reviewPredictions — 182 diarios",

@@ -23,7 +23,8 @@ from wbj.tito.gex import TradeLite, gex_analysis                   # noqa: E402
 from wbj.tito.ivcontext import iv_context_score                    # noqa: E402
 from wbj.tito.prediction import SubScores, predict_pro             # noqa: E402
 from wbj.tito.risk import (RiskProfile, budgets_of,                # noqa: E402
-                           is_tradeable_idea, size_flow)
+                           is_tradeable_idea, size_flow,
+                           within_moneyness)
 from wbj.tito.structure import ChainRow                            # noqa: E402
 
 C = generar()
@@ -312,6 +313,11 @@ for i, (c, v) in enumerate(zip(C["risk"], V["risk"])):
             "burnPctOfAccount": r6(r.burn_pct_of_account),
             "fullyDecays": r.fully_decays, "blocked": r.blocked,
             "tradeable": is_tradeable_idea(fila),
+            # Se respeta la ARIDAD: su `cap` tiene default, y en JS el default
+            # solo entra con `undefined`. Un caso sin `cap` llama con un
+            # argumento; uno con `cap: null` llama con dos y el `null` manda.
+            "cercano": (within_moneyness(fila, c["cap"]) if "cap" in c
+                        else within_moneyness(fila)),
             "budgets": [r6(b.premium), r6(b.theta)],
         }
     compara("risk", i, protegido(_caso), v)

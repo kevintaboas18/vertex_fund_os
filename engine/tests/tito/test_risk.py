@@ -7,15 +7,19 @@ from typing import Any
 
 import pytest
 
-from wbj.tito.flow import FlowFlags, FlowRow, TradeScores
+from wbj.tito.flow import (UNUSUAL_TRADE_THRESHOLD, FlowFlags, FlowRow,
+                           TradeScores)
 from wbj.tito.risk import (
+    IDEA_UNUSUAL_THRESHOLD,
     MAX_THETA_PCT_DAILY,
     MIN_DTE,
+    MONEYNESS_CAP,
     THETA_BUDGET_PCT,
     RiskProfile,
     budgets_of,
     passes_quality_filter,
     size_flow,
+    within_moneyness,
 )
 
 PROFILE = RiskProfile(account_size=10_000, tolerance_pct=4)
@@ -169,5 +173,48 @@ class TestSalvaguardas:
         assert s.max_contracts == 0
 
 
+class TestWithinMoneyness:
+    """`withinMoneyness — contratos más cercanos` (6 casos suyos)."""
+
+    def test_acepta_un_strike_pegado_al_precio_atm(self):
+        assert within_moneyness(row(strike=210, asset_price=210)) is True
+
+    def test_acepta_dentro_de_la_banda_y_rechaza_justo_fuera(self):
+        # banda por defecto ±25% sobre spot 200 → hasta 250 dentro, 251 fuera
+        assert within_moneyness(row(strike=250, asset_price=200)) is True
+        assert within_moneyness(row(strike=251, asset_price=200)) is False
+
+    def test_rechaza_lo_muy_otm_loteria_barata_y_lo_muy_itm_caro(self):
+        assert within_moneyness(row(strike=400, asset_price=200)) is False  # +100%
+        assert within_moneyness(row(strike=80, asset_price=200)) is False  # −60%
+
+    def test_respeta_una_banda_personalizada(self):
+        assert within_moneyness(row(strike=220, asset_price=200), 0.05) is False
+        assert within_moneyness(row(strike=220, asset_price=200), 0.15) is True
+
+    def test_con_datos_faltantes_no_filtra_la_cercania_es_preferencia(self):
+        assert within_moneyness(row(strike=None)) is True
+        assert within_moneyness(row(asset_price=0)) is True
+
+    def test_moneyness_cap_es_una_fraccion_razonable(self):
+        assert MONEYNESS_CAP > 0
+        assert MONEYNESS_CAP <= 1
+
+
 def test_theta_budget_esta_dentro_de_la_banda_del_documento():
     assert 3 <= THETA_BUDGET_PCT <= 5
+
+
+def test_el_umbral_del_screener_no_toca_el_institucional():
+    """Su commit lo dice explícito: el 5 es del screener, el 7 sigue en `flow`."""
+    assert IDEA_UNUSUAL_THRESHOLD == 5
+    assert UNUSUAL_TRADE_THRESHOLD == 7
+    assert IDEA_UNUSUAL_THRESHOLD < UNUSUAL_TRADE_THRESHOLD
+
+
+def test_min_dte_deja_pasar_semanales_pero_no_el_0dte():
+    """`MIN_DTE = 2`: el near-term entra; el que vence hoy lo tumba `expiry_status`."""
+    assert MIN_DTE == 2
+    assert passes_quality_filter(row(dte=2)).ok is True
+    assert passes_quality_filter(row(dte=1)).reason == "vencido"
+    assert passes_quality_filter(row(dte=0, expiry_status="expira_hoy")).reason == "vencido"

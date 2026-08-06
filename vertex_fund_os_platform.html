@@ -1687,7 +1687,6 @@ function renderDashboard(data) {
     }
 
     renderQtChart();
-    renderReportOptionPlay(data.ticker, (a.trade_plan && a.trade_plan.suggested_pct != null) ? a.trade_plan.suggested_pct : null);
     const t12 = targets['12m'] || {};
     document.getElementById('qt_bull_12m').innerText = `$${(t12.bull||0).toFixed(2)}`;
     document.getElementById('qt_base_12m').innerText = `$${(t12.base||0).toFixed(2)}`;
@@ -1838,79 +1837,6 @@ function renderDashboard(data) {
 }
 
 // ── CHARTS ───────────────────────────────────────────────
-async function renderReportOptionPlay(ticker, kellyPct) {
-    const wrap = document.getElementById('qtOptionPlay');
-    const body = document.getElementById('qtOptionPlayBody');
-    if (!wrap || !body || !ticker) return;
-    const cap = parseFloat((document.getElementById('tpCapital') || {}).value) || 500;
-    const risk = parseFloat((document.getElementById('tpRisk') || {}).value) || 15;
-    const useKelly = (kellyPct != null && !isNaN(kellyPct));   // si el agente dio tamaño Kelly, manda él
-    wrap.classList.remove('hidden');
-    body.innerHTML = `<p class="text-[11px] text-gray-500">Estructurando contrato para <b>${ticker}</b>…</p>`;
-    try {
-        const url = `${API_BASE}/api/trade-plan?ticker=${encodeURIComponent(ticker)}&capital=${cap}&risk_pct=${risk}`
-                  + (useKelly ? `&alloc_pct=${encodeURIComponent(kellyPct)}` : '');
-        const r = await fetch(url);
-        const d = await r.json();
-        if (!d.ok) { wrap.classList.add('hidden'); return; }
-        const money = v => v == null ? '—' : (Math.abs(v) >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : '$' + Number(v).toFixed(0));
-        const px = v => v == null ? '—' : '$' + Number(v).toFixed(2);
-        const taOn = d.tipo_a_active;
-        document.getElementById('qtOptionPlayHead').innerHTML =
-            `spot ${px(d.spot)} · sesgo <b class="${d.bias==='alcista'?'text-emerald-400':d.bias==='bajista'?'text-red-400':'text-gray-300'}">${(d.bias||'neutral').toUpperCase()}</b> · Tipo A <b class="${taOn?'text-amber-300':'text-gray-500'}">${taOn?'ACTIVO':'no'}</b> · capital ${money(d.capital)}`
-            + (d.sizing_basis === 'kelly_alloc'
-                ? ` · <b class="text-emerald-300">tamaño = Kelly del agente ${d.alloc_pct}%</b>`
-                : ` · <span class="text-gray-500">tamaño = riesgo fijo ${Number(d.risk_pct).toFixed(0)}%</span>`)
-            + (d.ai_concentration && d.ai_concentration.level !== 'baja'
-                ? `<div class="mt-1.5 text-[9px] rounded px-2 py-1 ${d.ai_concentration.level==='alta'?'text-red-300 bg-red-500/10 border border-red-500/20':'text-amber-300 bg-amber-500/10 border border-amber-500/20'}">⚠ Concentración IA (${d.ai_concentration.level}): ${d.ai_concentration.note}</div>`
-                : '');
-        const cards = (d.plans || []).slice(0,3).map(p => {
-            const call = p.opt_type === 'CALL';
-            const rr = p.rr_fast || 0;
-            const rrColor = rr >= 2 ? 'text-emerald-400' : rr >= 1 ? 'text-amber-300' : 'text-red-400';
-            const fits = p.contracts >= 1;
-            const sp = p.spread;
-            const recTxt = p.recommended || (fits ? 'opción simple' : '—');
-            // estructura que cabe en el capital
-            let sizing;
-            if (fits) {
-                sizing = `<b class="text-white">${p.contracts}</b> contrato${p.contracts>1?'s':''} · costo ${money(p.total_cost)} · riesgo ${money(p.total_risk)}`;
-            } else if (sp && sp.fits_capital) {
-                sizing = `Opción simple no cabe → <b class="text-blue-300">${recTxt}</b> ${sp.combo} ≈ ${money(sp.net_debit_contract)}/contrato (riesgo ${sp.risk_pct_at_1}%)`;
-            } else {
-                sizing = `<span class="text-amber-400">No cabe en ${money(d.capital)} — menos DTE o strike más OTM</span>`;
-            }
-            const noteChips = (p.notes || []).slice(0,3).map(n =>
-                `<span class="text-[8px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300/90">${n}</span>`).join(' ');
-            return `<div class="bg-panel border border-gray-800 rounded-xl p-3 mb-2">
-                <div class="flex items-center justify-between flex-wrap gap-1 mb-1.5">
-                    <span class="text-[11px] font-bold text-white">${p.label} · <span class="${call?'text-emerald-400':'text-red-400'}">${p.opt_type} $${p.strike}</span> <span class="text-gray-500 text-[9px]">(${p.long_moneyness})</span></span>
-                    <span class="text-[9px] text-gray-500 font-mono">${p.dte}d · exp ${p.expiry||'—'} · IV ${p.iv_pct}%</span>
-                </div>
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-[9px] mb-1.5">
-                    <div><p class="text-gray-600">Entrada</p><p class="font-mono text-gray-200">${px(p.entry_price)}</p><p class="text-gray-600 text-[8px]">${money(p.entry_cost_contract)}/ct</p></div>
-                    <div><p class="text-gray-600">R:R rápido</p><p class="font-mono font-bold ${rrColor}">${p.rr_fast!=null?p.rr_fast:'—'}</p></div>
-                    <div><p class="text-gray-600">Target / BE</p><p class="font-mono text-gray-200">${px(p.target_underlying)}</p><p class="text-gray-600 text-[8px]">BE ${px(p.breakeven)}</p></div>
-                    <div><p class="text-gray-600">Stop ${p.stop_pct}%</p><p class="font-mono text-red-400">${px(p.stop_price)}</p></div>
-                </div>
-                ${p.anchored ? `<p class="text-[8px] text-blue-300/80 mb-1">🏛 strike anclado al flujo institucional${p.inst_premium?` (${money(p.inst_premium)})`:''}</p>` : ''}
-                ${p.iv_structure_hint ? `<p class="text-[8px] ${p.iv_vs_realized>=1.25?'text-amber-300/90':p.iv_vs_realized<=1.0?'text-emerald-300/90':'text-gray-500'} mb-1">IV/realizada ${p.iv_vs_realized!=null?p.iv_vs_realized+'×':''} — ${p.iv_structure_hint}</p>` : ''}
-                ${p.entry_basis ? `<p class="text-[8px] ${p.liquidity_ok===false?'text-amber-300/90':'text-gray-500'} mb-1">fill: <b>${p.entry_basis}</b>${p.strike_oi!=null?` · OI ${p.strike_oi}`:''}${p.entry_spread_pct!=null?` · spread ${p.entry_spread_pct}%`:''}${p.entry_ask?` · ask ${px(p.entry_ask)}`:''}${p.entry_basis.indexOf('teórico')>=0&&p.entry_theo?'':''}</p>` : ''}
-                <p class="text-[9px] text-gray-400">${sizing}</p>
-                ${noteChips ? `<div class="flex flex-wrap gap-1 mt-1.5">${noteChips}</div>` : ''}
-            </div>`;
-        }).join('');
-        body.innerHTML = cards + `<p class="text-[9px] ${taOn?'text-amber-300':'text-gray-600'} italic mt-1">${d.flow_exception||''}</p>`;
-        const aic = d.ai_concentration;
-        if (aic && aic.note && (aic.level === 'alta' || aic.level === 'media')) {
-            const hot = aic.level === 'alta';
-            body.innerHTML = `<div class="rounded-lg border ${hot?'border-red-500/30 bg-red-500/10':'border-amber-500/25 bg-amber-500/10'} p-2.5 mb-2">
-                <p class="text-[10px] font-bold ${hot?'text-red-300':'text-amber-300'} mb-0.5">⚠ Concentración IA · correlación ${aic.level} (ρ=${aic.rho} vs ${aic.proxy})</p>
-                <p class="text-[9px] text-gray-300 leading-snug">${aic.note}</p></div>` + body.innerHTML;
-        }
-        if (window.lucide) lucide.createIcons();
-    } catch(e) { wrap.classList.add('hidden'); }
-}
 
 function renderQtChart() {
     renderVictorChart('qtVictorChart');
@@ -2584,7 +2510,6 @@ let projGexChartObj = null, projData = null;
 // se retiraron: medían gamma en paralelo con otro proveedor y otra fórmula,
 // y en la misma pantalla eso son dos verdades sin forma de saber cuál manda.
 // `/api/options-gex` sigue vivo para la vista de Research, que no es este tab.
-let projBtTicker = null;
 let projAutoTimer = null;      // timer de auto-refresh mientras el mercado está abierto
 
 const DP_MIN_VALUE = 500e6;    // solo cruces de dark pool de $500M o más
@@ -2637,8 +2562,6 @@ async function loadProjections(tickerArg, opts) {
         renderVictorTargets(d);            // scorecard, niveles, heatmap, racimos, memoria
         renderVictorProjChart('projChart', d, window._vcHz || 20);
         vcSyncCabecera(d);
-        loadIncomeStrategies(ticker);      // venta de prima — no es gamma, no depende de Quant Data
-        loadBacktestStatus(ticker);        // estado del backtest de señales
     } catch (e) {
         if (!silent) empty.innerHTML = `<p class="text-sm text-red-400">Error: ${e.message}</p>`;
     } finally {
@@ -2654,9 +2577,13 @@ async function loadProjections(tickerArg, opts) {
     }
 }
 
-/** La única llamada de datos del tab. Separada para que `loadProjTargets`
- *  —que sigue existiendo para el refresco del panel de targets— y el cargador
- *  del tab compartan exactamente la misma petición. */
+/** La ÚNICA llamada de datos del tab.
+ *
+ *  Está separada a propósito: es el punto por el que `diff`/auditoría
+ *  comprueban que nada más pide datos aquí. El endpoint es caro —dos bajadas
+ *  de MarketSnack (5 días y 30 días) más la cadena de Massive—, así que
+ *  llamarlo dos veces por carga no era solo redundante: duplicaba el gasto de
+ *  API y podía devolver dos fotos distintas del mismo instante. */
 async function vcFetchTargets(ticker) {
     const r = await fetch(`${API_BASE}/api/projection-targets?ticker=${encodeURIComponent(ticker)}`);
     return await r.json();
@@ -3535,291 +3462,9 @@ function ledgerPage(delta) {
     renderLedgerPage();
 }
 
-async function runSelfTest() {
-    const ticker = projBtTicker || (projData && projData.ticker);
-    const el = document.getElementById('projSelfTest');
-    if (!el) return;
-    if (!ticker) { el.innerHTML = '<p class="text-[11px] text-gray-500">Carga un ticker en Proyecciones primero (Gamma o Net-Drift).</p>'; return; }
-    el.innerHTML = `<p class="text-[11px] text-gray-500">Corriendo diagnóstico en vivo de <b>${ticker}</b>… (varias llamadas reales, puede tardar unos segundos)</p>`;
-    try {
-        const r = await fetch(`${API_BASE}/api/self-test?ticker=${encodeURIComponent(ticker)}`);
-        const d = await r.json();
-        if (!d.ok || !Array.isArray(d.checks)) { el.innerHTML = '<p class="text-[11px] text-red-400">No se pudo correr el diagnóstico.</p>'; return; }
-        const s = d.summary || {};
-        const col = st => st === 'ok' ? '#10b981' : st === 'warn' ? '#f59e0b' : '#ef4444';
-        const lbl = st => st === 'ok' ? 'OK' : st === 'warn' ? 'REVISAR' : 'FALLA';
-        const head = `<div class="flex flex-wrap gap-2 mb-3 text-[10px] font-bold">
-            <span class="px-2 py-1 rounded-lg bg-emerald-500/15 text-emerald-400">${s.ok || 0} OK</span>
-            <span class="px-2 py-1 rounded-lg bg-amber-500/15 text-amber-400">${s.warn || 0} a revisar</span>
-            <span class="px-2 py-1 rounded-lg bg-red-500/15 text-red-400">${s.fail || 0} falla</span>
-            <span class="px-2 py-1 rounded-lg bg-[#0B0E14] border border-gray-800 text-gray-400">${d.ticker} · spot ${d.spot != null ? '$' + Number(d.spot).toFixed(2) : '—'}</span></div>`;
-        const rows = d.checks.map(c => `<div class="flex items-start gap-2 py-1.5 border-b border-gray-800/50">
-                <span style="background:${col(c.status)}" class="mt-1.5 w-2 h-2 rounded-full flex-shrink-0"></span>
-                <div class="flex-1 min-w-0">
-                    <p class="text-[11px] font-bold text-gray-200">${c.name} <span style="color:${col(c.status)}" class="text-[9px] ml-1">${lbl(c.status)}</span></p>
-                    <p class="text-[10px] text-gray-500 break-words">${c.detail || ''}</p>
-                </div></div>`).join('');
-        el.innerHTML = head + rows;
-    } catch (e) { el.innerHTML = '<p class="text-[11px] text-red-400">Error de red al correr el diagnóstico (¿uvicorn arriba?).</p>'; }
-}
-
-let projIncomeTicker = null;
-function renderIncomeStrategies(d) {
-    const card = document.getElementById('projIncomeCard');
-    const el = document.getElementById('projIncome');
-    if (!card || !el) return;
-    if (!d || !d.ok || !d.primary) { if (el) el.innerHTML = `<p class="text-[11px] text-gray-500">${(d && d.error) || 'Sin estructuras para esta ventana.'}</p>`; return; }
-    const P = d.primary;
-    const usd0 = v => '$' + Math.round(v).toLocaleString();
-    const dirBadge = dir => {
-        const c = dir === 'neutral' ? 'bg-blue-500/15 text-blue-300' : (String(dir).startsWith('alcista') ? 'bg-emerald-500/15 text-emerald-300' : 'bg-red-500/15 text-red-300');
-        return `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${c}">${dir}</span>`;
-    };
-    const legStr = lg => (lg || []).map(l => {
-        const col = l.action === 'SELL' ? 'text-amber-300' : 'text-gray-400';
-        const sell = l.inst_sell_usd > 0 ? ` <span class="text-purple-300" title="venta institucional en este strike">◆${usd0(l.inst_sell_usd)}</span>` : '';
-        return `<span class="${col}">${l.action === 'SELL' ? 'V' : 'C'} ${l.type === 'put' ? 'P' : 'C'} $${l.strike}</span>${sell}`;
-    }).join(' · ');
-    const stratCard = (s, top) => `
-        <div class="rounded-xl border ${top ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-gray-800 bg-black/20'} p-3">
-          <div class="flex items-center justify-between gap-2 mb-1">
-            <div class="flex items-center gap-2 flex-wrap"><span class="text-[12px] font-extrabold text-gray-100">${s.kind}</span>${dirBadge(s.direction)}${top ? '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-600 text-white">MEJOR</span>' : ''}</div>
-            <span class="text-[10px] text-gray-500">${s.exp} · ${s.dte}d</span>
-          </div>
-          <div class="text-[11px] text-gray-300 mb-1.5">${legStr(s.legs)}</div>
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mb-1.5">
-            <div><div class="text-[9px] text-gray-500 uppercase">Crédito</div><div class="text-[12px] font-bold text-emerald-400">${usd0(s.credit_usd)}</div></div>
-            <div><div class="text-[9px] text-gray-500 uppercase">Máx pérdida</div><div class="text-[12px] font-bold text-red-400">${usd0(s.max_loss_usd)}</div></div>
-            <div><div class="text-[9px] text-gray-500 uppercase">POP</div><div class="text-[12px] font-bold text-gray-100">${s.pop_pct != null ? s.pop_pct + '%' : '—'}</div></div>
-            <div><div class="text-[9px] text-gray-500 uppercase">RoR</div><div class="text-[12px] font-bold text-gray-100">${s.ror_pct != null ? s.ror_pct + '%' : '—'}</div></div>
-          </div>
-          <div class="text-[10px] text-gray-500">BE: ${s.breakeven_low ? ('$' + s.breakeven_low) : ''}${(s.breakeven_low && s.breakeven_high) ? ' – ' : ''}${s.breakeven_high ? ('$' + s.breakeven_high) : ''} · ${s.contracts > 0 ? (s.contracts + '× para tu riesgo') : (s.collateral_usd ? ('colateral ' + usd0(s.collateral_usd)) : '1×')}</div>
-          <div class="text-[10px] text-gray-600 italic mt-1">${s.note}</div>
-        </div>`;
-    const strs = (P.strategies || []);
-    const cardsHtml = strs.length ? strs.map((s, i) => stratCard(s, i === 0)).join('') : '<p class="text-[11px] text-gray-500">Sin estructuras válidas en esta expiración.</p>';
-    const sells = (d.big_sells || []).slice(0, 6).map(x => `<span class="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 text-[9px] font-bold" title="premium vendido por institucionales">${x.cp === 'CALL' ? 'C' : 'P'} $${x.strike} ◆${usd0(x.premium_usd)}</span>`).join(' ');
-    card.classList.remove('hidden');
-    el.innerHTML = `
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] mb-3 pb-2 border-b border-gray-800">
-          <span class="text-gray-400">Spot <b class="text-gray-100">$${d.spot}</b></span>
-          <span class="text-gray-400">Exp <b class="text-gray-100">${P.exp}</b> (${P.dte}d)</span>
-          <span class="text-gray-400">IV <b class="text-gray-100">${P.iv_pct}%</b></span>
-          <span class="text-gray-400">Mov. esperado <b class="text-blue-300">±$${P.expected_move}</b> [$${P.em_low}–$${P.em_high}]</span>
-          ${P.put_wall ? `<span class="text-gray-400">Put wall <b class="text-emerald-300">$${P.put_wall}</b></span>` : ''}
-          ${P.call_wall ? `<span class="text-gray-400">Call wall <b class="text-red-300">$${P.call_wall}</b></span>` : ''}
-        </div>
-        ${sells ? `<div class="mb-3"><div class="text-[9px] text-gray-500 uppercase tracking-wider mb-1">Ventas institucionales más grandes del chain (◆ = premium vendido)</div><div class="flex flex-wrap gap-1.5">${sells}</div></div>` : ''}
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-2.5">${cardsHtml}</div>`;
-    if (window.lucide) lucide.createIcons();
-}
-
-async function loadIncomeStrategies(ticker) {
-    const card = document.getElementById('projIncomeCard');
-    const el = document.getElementById('projIncome');
-    if (!card || !el) return;
-    ticker = ticker || projIncomeTicker || (projData && projData.ticker);
-    if (!ticker) return;
-    projIncomeTicker = ticker;
-    const dmin = (document.getElementById('incDteMin') || {}).value || 7;
-    const dmax = (document.getElementById('incDteMax') || {}).value || 30;
-    const risk = (document.getElementById('incRisk') || {}).value || 250;
-    card.classList.remove('hidden');
-    el.innerHTML = '<p class="text-[11px] text-gray-600">Calculando estructuras de venta de prima…</p>';
-    try {
-        const r = await fetch(`${API_BASE}/api/income-strategies?ticker=${encodeURIComponent(ticker)}&dte_min=${dmin}&dte_max=${dmax}&capital=${risk}&risk_pct=100`);
-        const d = await r.json();
-        if (!d.ok) { el.innerHTML = `<p class="text-[11px] text-gray-500">${d.error || 'Sin estructuras para esta ventana.'}</p>`; return; }
-        renderIncomeStrategies(d);
-    } catch (e) { el.innerHTML = '<p class="text-[11px] text-red-400">Error de red al calcular estructuras (¿uvicorn arriba?).</p>'; }
-}
-
-async function loadTradePlan() {
-    const ticker = projBtTicker || (projData && projData.ticker);
-    const el = document.getElementById('projTradePlan');
-    if (!el) return;
-    if (!ticker) { el.innerHTML = '<p class="text-[11px] text-gray-500">Carga un ticker en Proyecciones primero (Gamma o Net-Drift).</p>'; return; }
-    const cap = parseFloat((document.getElementById('tpCapital') || {}).value) || 500;
-    const risk = parseFloat((document.getElementById('tpRisk') || {}).value) || 15;
-    el.innerHTML = `<p class="text-[11px] text-gray-500">Estructurando plan de <b>${ticker}</b>… (targets + convicción + cadena)</p>`;
-    try {
-        const r = await fetch(`${API_BASE}/api/trade-plan?ticker=${encodeURIComponent(ticker)}&capital=${cap}&risk_pct=${risk}`);
-        const d = await r.json();
-        if (!d.ok) { el.innerHTML = `<p class="text-[11px] text-amber-400">${d.error || 'No se pudo estructurar.'}</p>`; return; }
-        const money = v => v == null ? '—' : (Math.abs(v) >= 1000 ? '$' + (v / 1000).toFixed(1) + 'k' : '$' + Number(v).toFixed(0));
-        const px = v => v == null ? '—' : '$' + Number(v).toFixed(2);
-        const cv = d.conviction || {}, taOn = d.tipo_a_active;
-        const head = `<div class="flex flex-wrap items-center gap-2 mb-2 text-[10px]">
-            <span class="px-2 py-1 rounded-lg bg-[#0B0E14] border border-gray-800 text-gray-300 font-bold">${d.ticker} · spot ${px(d.spot)}</span>
-            <span class="px-2 py-1 rounded-lg font-bold ${d.bias === 'alcista' ? 'bg-emerald-500/15 text-emerald-400' : d.bias === 'bajista' ? 'bg-red-500/15 text-red-400' : 'bg-gray-700/30 text-gray-300'}">Sesgo ${(d.bias || 'neutral').toUpperCase()}</span>
-            ${cv.bias ? `<span class="px-2 py-1 rounded-lg bg-[#0B0E14] border border-gray-800 text-gray-400">Convicción: ${cv.bias}${cv.strength_pct != null ? ' ' + cv.strength_pct + '%' : ''}${cv.qualifying != null ? ' · ' + cv.qualifying + ' trades' : ''}</span>` : ''}
-            <span class="px-2 py-1 rounded-lg font-bold ${taOn ? 'bg-amber-500/15 text-amber-300' : 'bg-gray-700/20 text-gray-500'}">Tipo A ${taOn ? 'ACTIVO' : 'no'}</span>
-            <span class="px-2 py-1 rounded-lg bg-[#0B0E14] border border-gray-800 text-gray-400">Capital ${money(d.capital)} · riesgo ${d.risk_pct}%</span>
-            ${d.inst_anchor ? `<span class="px-2 py-1 rounded-lg bg-blue-500/10 text-blue-300 border border-blue-900/40 font-bold">🏛 Institución: ${d.inst_anchor.cp} $${d.inst_anchor.strike} · ${money(d.inst_anchor.premium)} (${d.inst_anchor.trades} trades)</span>` : ''}
-        </div>
-        <p class="text-[10px] ${taOn ? 'text-amber-300' : 'text-gray-500'} italic mb-3">${d.flow_exception || ''}</p>`;
-        const cards = (d.plans || []).map(p => {
-            const call = p.opt_type === 'CALL';
-            const rrColor = (p.rr_fast || 0) >= 2 ? 'text-emerald-400' : (p.rr_fast || 0) >= 1 ? 'text-amber-300' : 'text-red-400';
-            const aff = p.contracts > 0;
-            const rrCls = v => (v || 0) >= 2 ? 'text-emerald-400' : (v || 0) >= 1 ? 'text-amber-300' : 'text-red-400';
-            const spreadBlock = (sp, title) => sp ? `<div class="mt-2 pt-2 border-t border-gray-800/60">
-                    <p class="text-[10px] font-bold text-blue-300 mb-1">${title} <span class="text-gray-500 font-normal">(compra $${sp.long_strike} / vende $${sp.short_strike})${sp.combo ? ' · ' + sp.combo : ''}${sp.cost_saving_pct != null ? ` · −${sp.cost_saving_pct}% vs opción` : ''} · ${sp.fits_capital ? '<span class="text-emerald-400">cabe</span>' : '<span class="text-amber-400">no cabe</span>'}</span></p>
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 text-[10px]">
-                        <div><p class="text-gray-500">Costo neto</p><p class="text-gray-100 font-bold">${money(sp.net_debit_contract)}<span class="text-gray-500 font-normal">/c</span></p></div>
-                        <div><p class="text-gray-500">Ganancia máx</p><p class="text-emerald-300 font-bold">${money(sp.max_profit_contract)}<span class="text-gray-500 font-normal">/c</span></p></div>
-                        <div><p class="text-gray-500">Breakeven</p><p class="text-gray-200 font-bold">${px(sp.breakeven)}</p></div>
-                        <div><p class="text-gray-500">R:R ráp</p><p class="font-bold ${rrCls(sp.rr_fast)}">${sp.rr_fast ?? '—'}</p></div>
-                        <div class="col-span-2 sm:col-span-1"><p class="text-gray-500">Tamaño</p><p class="text-gray-100 font-bold">${sp.contracts}× <span class="text-gray-500 font-normal">${money(sp.total_cost)}</span></p></div>
-                    </div></div>` : '';
-            return `<div class="bg-[#0B0E14] border ${aff ? 'border-gray-800' : 'border-amber-900/50'} rounded-xl p-3 mb-2">
-                <div class="flex items-center justify-between flex-wrap gap-1 mb-1">
-                    <p class="text-[12px] font-extrabold ${call ? 'text-emerald-400' : 'text-red-400'}">${p.opt_type} $${p.strike}${p.long_moneyness ? ` <span class="text-[9px] px-1 py-0.5 rounded ${p.long_moneyness === 'ITM' ? 'bg-emerald-500/20 text-emerald-300' : p.long_moneyness === 'ATM' ? 'bg-blue-500/20 text-blue-300' : 'bg-amber-500/20 text-amber-300'}">${p.long_moneyness}</span>` : ''} · ${p.label} <span class="text-gray-500 font-normal">(${p.expiry || '—'} · ${p.dte}d)</span></p>
-                    <span class="text-[9px] text-gray-400">${p.confidence || ''}${p.calibrated_pct != null ? ` · ${p.calibrated_pct}% (piso ${p.calibrated_lo ?? '—'}% · n${p.calibrated_n ?? '?'})` : ''}</span>
-                </div>
-                ${p.inst_strike ? `<p class="text-[9px] text-blue-300/80 mb-1.5">🏛 Ancla institucional $${p.inst_strike}${p.inst_premium ? ' · ' + money(p.inst_premium) : ''}${p.inst_trades ? ' · ' + p.inst_trades + ' trades' : ''}${p.inst_exp ? ' · vence ' + p.inst_exp : ''} → tú compras <b>$${p.strike} ${p.long_moneyness || ''}</b></p>` : `<p class="text-[9px] text-gray-600 mb-1.5">Sin ancla institucional clara → strike ATM $${p.strike}</p>`}
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1.5 text-[10px]">
-                    <div><p class="text-gray-500">Entrada</p><p class="text-gray-100 font-bold">${px(p.entry_price)} <span class="text-gray-500 font-normal">/${money(p.entry_cost_contract)}c</span></p></div>
-                    <div><p class="text-gray-500">Breakeven</p><p class="text-gray-200 font-bold">${px(p.breakeven)}</p></div>
-                    <div><p class="text-gray-500">Target subyac.</p><p class="text-gray-200 font-bold">${px(p.target_underlying)}</p></div>
-                    <div><p class="text-gray-500">IV</p><p class="text-gray-300">${p.iv_pct}% <span class="text-gray-600">${p.iv_source === 'IV' ? 'real' : 'hist'}</span></p></div>
-                    <div><p class="text-gray-500">Valor en target</p><p class="text-emerald-300 font-bold">${money(p.exit_value_fast)}<span class="text-gray-500 font-normal"> ráp</span> · ${money(p.exit_value_expiry)}<span class="text-gray-500 font-normal"> venc</span></p></div>
-                    <div><p class="text-gray-500">R:R</p><p class="${rrColor} font-bold">${p.rr_fast ?? '—'}<span class="text-gray-500 font-normal"> ráp</span> · ${p.rr_expiry ?? '—'}<span class="text-gray-500 font-normal"> venc</span></p></div>
-                    <div><p class="text-gray-500">Stop ${p.stop_pct}%</p><p class="text-red-300 font-bold">${px(p.stop_price)} <span class="text-gray-500 font-normal">−${money(p.planned_risk_contract)}/c</span></p></div>
-                    <div><p class="text-gray-500">Tamaño</p><p class="text-gray-100 font-bold">${p.contracts}× <span class="text-gray-500 font-normal">${money(p.total_cost)}</span></p></div>
-                </div>
-                ${p.contracts > 0 ? `<p class="text-[9px] text-gray-500 mt-1.5">Riesgo total ${money(p.total_risk)} · objetivo rápido ${money(p.total_reward_fast)} · pérdida máx ${money(p.max_loss_contract)}/contrato</p>` : ''}
-                ${(p.notes && p.notes.length) ? `<p class="text-[9px] text-amber-400/80 mt-1">⚠ ${p.notes.join(' · ')}</p>` : ''}
-                ${p.recommended ? `<p class="text-[10px] mt-2 font-bold px-2 py-1 rounded-lg ${aff ? 'bg-emerald-500/10 text-emerald-300' : 'bg-blue-500/10 text-blue-300'}">✅ Para ${money(d.capital)}: estructura recomendada → <b>${p.recommended}</b>${aff ? ` (${p.contracts}× opción simple)` : ''}</p>` : `<p class="text-[10px] mt-2 font-bold px-2 py-1 rounded-lg bg-amber-500/10 text-amber-300">⚠ Con ${money(d.capital)} no cabe ninguna estructura completa — sube capital, baja DTE o usa un strike más OTM</p>`}
-                ${spreadBlock(p.spread, 'Débito spread (tu regla · largo ATM/ITM)')}
-                ${spreadBlock(p.spread_otm, 'Débito spread OTM/OTM (lotería barata)')}
-            </div>`;
-        }).join('');
-        el.innerHTML = head + cards + `<p class="text-[9px] text-gray-600 italic mt-2">${d.disclaimer || ''}</p>`;
-    } catch (e) { el.innerHTML = '<p class="text-[11px] text-red-400">Error de red al estructurar (¿uvicorn arriba?).</p>'; }
-}
-
-async function loadBacktestStatus(ticker) {
-    projBtTicker = ticker;
-    const st = document.getElementById('projBtStatus');
-    try {
-        const r = await fetch(`${API_BASE}/api/signal-history?ticker=${encodeURIComponent(ticker)}`);
-        const d = await r.json();
-        if (d.ok && st) {
-            st.innerHTML = d.count > 0
-                ? `<b>${d.count}</b> snapshot(s) de <b>${ticker}</b> guardados (último: ${d.rows[0].snap_date}). Captura a diario para nutrir el backtest.`
-                : `Sin snapshots de <b>${ticker}</b> todavía. Pulsa "Capturar hoy" para empezar el histórico.`;
-        }
-    } catch (e) {}
-}
-
-async function collectSignalSnapshot() {
-    const ticker = projBtTicker || (projData && projData.ticker);
-    if (!ticker) return;
-    const st = document.getElementById('projBtStatus');
-    if (st) st.textContent = 'Capturando snapshot…';
-    try {
-        const r = await fetch(`${API_BASE}/api/collect-signals?ticker=${encodeURIComponent(ticker)}`);
-        const d = await r.json();
-        if (d.ok && d.snapshot && st) {
-            st.innerHTML = `Snapshot guardado para <b>${ticker}</b> (${d.snapshot.snap_date}): confluencia <b>${d.snapshot.confl_verdict || '—'} ${d.snapshot.confl_direction || ''}</b>, spot $${d.snapshot.spot}.`;
-        } else if (st) { st.textContent = d.error || 'No se pudo capturar.'; }
-    } catch (e) { if (st) st.textContent = 'Error de red al capturar.'; }
-}
-
-async function runBacktest() {
-    const ticker = projBtTicker || (projData && projData.ticker);
-    if (!ticker) return;
-    const res = document.getElementById('projBtResults');
-    if (res) res.innerHTML = '<p class="text-[11px] text-gray-500">Corriendo backtest…</p>';
-    try {
-        const r = await fetch(`${API_BASE}/api/backtest?ticker=${encodeURIComponent(ticker)}`);
-        const d = await r.json();
-        if (!d.ok) { if (res) res.innerHTML = `<p class="text-[11px] text-red-400">${d.error || 'Error'}</p>`; return; }
-        if (!d.n_snapshots) { if (res) res.innerHTML = `<p class="text-[11px] text-gray-500">${d.message || 'Sin datos.'}</p>`; return; }
-        const cd = d.confluence_direction || {}, hr = d.target_hit_rate || {};
-        const accColor = a => a == null ? 'text-gray-400' : (a >= 60 ? 'text-emerald-400' : (a >= 45 ? 'text-amber-400' : 'text-red-400'));
-        const vbody = Object.entries(cd.by_verdict || {}).map(([v, x]) => `<tr class="border-b border-gray-800/50"><td class="py-1 pr-3 text-gray-300">${v}</td><td class="py-1 text-right ${accColor(x.accuracy_pct)} font-bold">${x.accuracy_pct}%</td><td class="py-1 pr-3 text-right text-gray-500">${x.total}</td></tr>`).join('');
-        const hbody = Object.entries(hr).map(([h, x]) => `<tr class="border-b border-gray-800/50"><td class="py-1 pr-3 text-gray-300">${h}d</td><td class="py-1 text-right ${accColor(x.hit_rate_pct)} font-bold">${x.hit_rate_pct}%</td><td class="py-1 pr-3 text-right text-gray-500">${x.total}</td></tr>`).join('');
-        res.innerHTML = `
-        <div class="grid sm:grid-cols-2 gap-4 mt-1">
-          <div>
-            <p class="text-[10px] font-extrabold text-amber-300 uppercase tracking-wider mb-1">Acierto direccional de confluencia (${cd.fwd_days || 10}d fwd)</p>
-            <p class="text-2xl font-extrabold ${accColor(cd.accuracy_pct)}">${cd.accuracy_pct != null ? cd.accuracy_pct + '%' : '—'}</p>
-            <p class="text-[10px] text-gray-500 mb-1.5">${cd.evaluated || 0} señales evaluadas</p>
-            <table class="w-full text-[11px]"><thead><tr class="text-gray-500 text-[9px] uppercase"><th class="text-left pb-1">Veredicto</th><th class="text-right pb-1">Acierto</th><th class="text-right pb-1">n</th></tr></thead><tbody>${vbody || '<tr><td class="text-gray-600 py-1 text-[10px]">sin señales transcurridas aún</td></tr>'}</tbody></table>
-          </div>
-          <div>
-            <p class="text-[10px] font-extrabold text-amber-300 uppercase tracking-wider mb-1">Hit-rate de targets por horizonte</p>
-            <table class="w-full text-[11px]"><thead><tr class="text-gray-500 text-[9px] uppercase"><th class="text-left pb-1">Horizonte</th><th class="text-right pb-1">Hit-rate</th><th class="text-right pb-1">n</th></tr></thead><tbody>${hbody || '<tr><td class="text-gray-600 py-1 text-[10px]">horizontes aún no transcurridos</td></tr>'}</tbody></table>
-          </div>
-        </div>
-        <p class="text-[9px] text-gray-600 italic mt-2">${d.note || ''} Rango: ${(d.date_range || []).join(' → ')}. ${d.n_snapshots} snapshots.</p>`;
-    } catch (e) { if (res) res.innerHTML = '<p class="text-[11px] text-red-400">Error de red.</p>'; }
-}
 
 let backfillPoll = null;
-async function startBackfill() {
-    const ticker = projBtTicker || (projData && projData.ticker);
-    if (!ticker) return;
-    const st = document.getElementById('projBtStatus');
-    if (st) st.textContent = 'Iniciando backfill histórico (corre en segundo plano)…';
-    try {
-        const r = await fetch(`${API_BASE}/api/backfill/start?ticker=${encodeURIComponent(ticker)}`, {method:"POST"});
-        const d = await r.json();
-        if (!d.ok) { if (st) st.textContent = d.error || 'No se pudo iniciar el backfill.'; return; }
-        if (backfillPoll) clearInterval(backfillPoll);
-        backfillPoll = setInterval(() => pollBackfill(ticker), 2500);
-        pollBackfill(ticker);
-    } catch (e) { if (st) st.textContent = 'Error de red al iniciar el backfill.'; }
-}
-async function pollBackfill(ticker) {
-    const st = document.getElementById('projBtStatus');
-    try {
-        const r = await fetch(`${API_BASE}/api/backfill/status?ticker=${encodeURIComponent(ticker)}`);
-        const d = await r.json();
-        if (!d.ok) return;
-        const pct = d.total ? Math.round((d.done / d.total) * 100) : 0;
-        if (d.running) {
-            if (st) st.innerHTML = `Backfill <b>${ticker}</b>: ${d.done}/${d.total} (${pct}%) · ${d.stored} guardados${d.errors ? (' · ' + d.errors + ' err') : ''}…`;
-        } else {
-            if (backfillPoll) { clearInterval(backfillPoll); backfillPoll = null; }
-            if (d.error) { if (st) st.textContent = 'Backfill error: ' + d.error; return; }
-            if (st) st.innerHTML = `Backfill completo: <b>${d.stored || 0}</b> snapshots históricos guardados. Corriendo backtest…`;
-            loadBacktestStatus(ticker);
-            runBacktest();
-        }
-    } catch (e) {}
-}
 
-
-async function loadProjTargets(ticker) {
-    const el = document.getElementById('projTargets');
-    if (!el) return;
-    let ai12 = 0;
-    try {
-        if (typeof currentAnalysis !== 'undefined' && currentAnalysis && currentAnalysis.ticker === ticker && currentAnalysis.targets && currentAnalysis.targets['12m']) {
-            const t12 = currentAnalysis.targets['12m'];
-            ai12 = Number(t12.base || t12.target || t12.precio || 0) || 0;
-        }
-    } catch (e) {}
-    el.innerHTML = `<p class="text-[11px] text-gray-500 italic">Proyectando targets por horizonte…</p>`;
-    try {
-        const r = await fetch(`${API_BASE}/api/projection-targets?ticker=${encodeURIComponent(ticker)}${ai12 ? `&ai_12m=${ai12}` : ''}`);
-        const d = await r.json();
-        if (!d.ok) { el.innerHTML = `<p class="text-[11px] text-amber-400 italic">${d.error || 'No disponible.'}</p>`; return; }
-        // Motor de Víctor (Tito): tres escenarios por horizonte + su propia
-        // gráfica SVG. Es el único renderizador de este panel.
-        window._vcData = d;
-        renderVictorTargets(d);
-        renderVictorProjChart('projChart', d, window._vcHz || 20);
-        // El título y la insignia van ENCIMA de SU gráfica, así que tienen que
-        // ser SU spot y SU régimen. Los ponía `/api/options-gex`, que es otro
-        // motor con otra fuente: el encabezado podía decir "GEX+ anclado"
-        // mientras los escenarios de abajo salían de una lectura γ−.
-        vcSyncCabecera(d);
-    } catch (e) { el.innerHTML = `<p class="text-[11px] text-red-400 italic">Error: ${e.message}</p>`; }
-}
 
 // Abbreviated dollar formatter ($3.4B / $55.7M / $12.0K).
 function fmtAbbr(v) {
@@ -6661,8 +6306,10 @@ function analyzeTickerNow(tk) {
         <!-- Projection cards -->
         <div id="projCards" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"></div>
 
-        <!-- Integrity strip (sanity checks on the numbers) -->
-        <div id="projIntegrity" class="mt-3"></div>
+        <!-- La tira de integridad comprobaba el GEX de Quant Data. Con una sola
+             fuente ya no hay dos números que cuadrar entre sí: lo que puede ir
+             mal —cadena ilíquida, categorías sin dato— lo dice el propio motor
+             en `warnings`, y eso se pinta con los targets. -->
         <!-- Live self-diagnostic (validates data paths against real data) -->
         <!-- Gamma neto por strike — motor de Víctor (cadena de Massive + gamma del tape) -->
         <div id="projGammaCard" class="bg-panel border border-panel rounded-2xl p-5 hidden">
@@ -6672,83 +6319,13 @@ function analyzeTickerNow(tk) {
             <div style="height:240px;"><canvas id="projGammaCanvas"></canvas></div>
             <p id="projGammaSrc" class="chart-cite"></p>
         </div>
-
-        <div id="projSelfTestCard" class="bg-panel border border-panel rounded-2xl p-5">
-            <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
-                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="stethoscope" class="w-4 h-4"></i> Diagnóstico en Vivo · Validación de Datos</h3>
-                <button onclick="runSelfTest()" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-blue-600/80 hover:bg-blue-600 text-white">Correr diagnóstico</button>
-            </div>
-            <p class="text-[11px] text-gray-500 italic mb-3">Corre las rutas de datos clave del ticker actual contra datos reales y marca en <span class="text-emerald-400 font-bold">verde</span> / <span class="text-amber-400 font-bold">ámbar</span> / <span class="text-red-400 font-bold">rojo</span> lo que se vea raro: sin spot, IV inválida, target con movimiento absurdo, walls invertidos, max pain fuera de rango, libro vacío. Úsalo para validar antes de operar.</p>
-            <div id="projSelfTest"><p class="text-[11px] text-gray-600">Pulsa <b>"Correr diagnóstico"</b> para validar el ticker cargado en Proyecciones.</p></div>
-        </div>
-
-        <!-- Signal history collector + backtest -->
-        <div id="projBacktestCard" class="bg-panel border border-panel rounded-2xl p-5">
-            <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
-                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="history" class="w-4 h-4"></i> Backtest de Señales · Histórico</h3>
-                <div class="flex gap-1.5 flex-wrap">
-                    <button onclick="collectSignalSnapshot()" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-600/80 hover:bg-emerald-600 text-white">Capturar hoy</button>
-                    <button onclick="startBackfill()" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-purple-600/80 hover:bg-purple-600 text-white">Backfill 365d</button>
-                    <button onclick="runBacktest()" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-blue-600/80 hover:bg-blue-600 text-white">Correr backtest</button>
-                </div>
-            </div>
-            <p id="projBtStatus" class="text-[11px] text-gray-500 mb-2">Captura un snapshot diario para construir el histórico; el backtest mide el acierto de la confluencia y el hit-rate de los targets cuando su horizonte ya transcurrió.</p>
-            <div id="projBtResults"></div>
-        </div>
-
         <!-- Directional targets by horizon -->
         <div class="bg-panel border border-panel rounded-2xl p-5">
             <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
                 <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="goal" class="w-4 h-4"></i> Targets Proyectados por Horizonte</h3>
-                <span id="projTgtBias" class="text-[10px]"></span>
             </div>
-            <p class="text-[11px] text-gray-500 italic mb-3">7d–120d guiados por posicionamiento de opciones (GEX + flujo + dark pool + delta); 12m fundamental. Escenarios probabilísticos.</p>
+            <p class="text-[11px] text-gray-500 italic mb-3">10d / 20d / 30d, los horizontes de su Prediction Pro. El puntaje que los mueve es el de sus 6 sub-agentes (agresi&oacute;n 20 &middot; convicci&oacute;n 20 &middot; inusualidad 20 &middot; estructura 15 &middot; contexto IV 10 &middot; validaci&oacute;n 15) y el ancho sale del movimiento esperado. Bear / Base / Bull &mdash; nunca un solo precio.</p>
             <div id="projTargets"></div>
-        </div>
-
-        <!-- Signal -> concrete options trade structurer -->
-        <div class="bg-panel border border-panel rounded-2xl p-5">
-            <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
-                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="crosshair" class="w-4 h-4"></i> Plan de Operación · Señal → Trade</h3>
-                <div class="flex items-center gap-1.5 text-[10px]">
-                    <label class="text-gray-500">Capital $</label>
-                    <input id="tpCapital" type="number" value="500" class="w-20 bg-[#0B0E14] border border-gray-700 rounded px-1.5 py-0.5 text-gray-200 text-[10px]">
-                    <label class="text-gray-500">Riesgo %</label>
-                    <input id="tpRisk" type="number" value="15" class="w-12 bg-[#0B0E14] border border-gray-700 rounded px-1.5 py-0.5 text-gray-200 text-[10px]">
-                    <button onclick="loadTradePlan()" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-blue-600/80 hover:bg-blue-600 text-white">Estructurar</button>
-                </div>
-            </div>
-            <p class="text-[11px] text-gray-500 italic mb-3">Convierte la dirección + convicción + target de cada horizonte en un <b>contrato concreto</b> (≈ATM): prima de entrada (Black-Scholes), valor si el subyacente llega al target, R:R, breakeven, stop −20/−30% y nº de contratos para tu capital. Complementa el plan de equity del agente.</p>
-            <div id="projTradePlan"><p class="text-[11px] text-gray-600">Pulsa <b>"Estructurar"</b> para generar el plan del ticker cargado en Proyecciones.</p></div>
-        </div>
-
-        <!-- Premium-selling / income structures (iron condor, credit spreads, CSP) -->
-        <div id="projIncomeCard" class="bg-panel border border-panel rounded-2xl p-5 hidden">
-            <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
-                <h3 class="text-xs font-extrabold text-emerald-400 uppercase tracking-widest flex items-center gap-2"><i data-lucide="hand-coins" class="w-4 h-4"></i> Venta de Prima · Iron Condor & Credit Spreads</h3>
-                <div class="flex items-center gap-1.5 text-[10px]">
-                    <label class="text-gray-500">DTE</label>
-                    <input id="incDteMin" type="number" value="7" class="w-11 bg-[#0B0E14] border border-gray-700 rounded px-1.5 py-0.5 text-gray-200 text-[10px]">
-                    <span class="text-gray-600">–</span>
-                    <input id="incDteMax" type="number" value="30" class="w-11 bg-[#0B0E14] border border-gray-700 rounded px-1.5 py-0.5 text-gray-200 text-[10px]">
-                    <label class="text-gray-500 ml-1">Riesgo $</label>
-                    <input id="incRisk" type="number" value="250" class="w-16 bg-[#0B0E14] border border-gray-700 rounded px-1.5 py-0.5 text-gray-200 text-[10px]">
-                    <button onclick="loadIncomeStrategies()" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-600/80 hover:bg-emerald-600 text-white">Recalcular</button>
-                </div>
-            </div>
-            <p class="text-[11px] text-gray-500 italic mb-3">Cobra prima vendiendo opciones con vencimiento a <b>7–30 días</b>: los cortos se colocan <b>~1σ fuera del movimiento esperado</b> (IV·√T), alineados con los <b>OI walls</b> y con las <b>ventas institucionales más grandes</b> del chain. Para cada estructura: crédito, POP (prob. de ganar), breakevens y retorno sobre riesgo. Riesgo definido salvo el Cash-Secured Put.</p>
-            <div id="projIncome"></div>
-        </div>
-
-
-        <!-- Price route / roadmap toward targets -->
-        <div class="bg-panel border border-panel rounded-2xl p-5">
-            <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
-                <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="route" class="w-4 h-4"></i> Ruta del Precio hacia los Targets</h3>
-                <span id="projRouteHorizon" class="text-[10px] text-gray-500"></span>
-            </div>
-            <p class="text-[11px] text-gray-500 italic mb-3">Secuencia condicional: qué nivel debe romper o sostener el precio para avanzar al siguiente objetivo, según el posicionamiento de opciones.</p>
-            <div id="projRoute"></div>
         </div>
 
         <!-- Escenarios de precio (GEX) -->
@@ -6757,15 +6334,13 @@ function analyzeTickerNow(tk) {
             <div id="projScenarios" class="space-y-2.5"></div>
         </div>
 
-        <!-- Unusual activity (free flow proxy) -->
+        <!-- Actividad inusual — sub-agente 3 de Víctor (inusualidad /30 sobre la
+             cinta de MarketSnack). NO es el "volumen > OI" de la cadena, que era
+             la definición de Quant Data: eso ahora va como nota al pie, medido
+             sobre SU cadena de Massive. -->
         <div class="bg-panel border border-panel rounded-2xl p-5">
-            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4"></i> Actividad Inusual de Opciones <span class="text-[9px] text-gray-600 normal-case font-normal tracking-normal">(volumen &gt; OI = posicionamiento fresco)</span></h3>
+            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-2"><i data-lucide="zap" class="w-4 h-4"></i> Actividad Inusual de Opciones <span class="text-[9px] text-gray-600 normal-case font-normal tracking-normal">(inusualidad /30 &mdash; tama&ntilde;o, delta, theta, gamma, pata y vencimiento)</span></h3>
             <div id="projUnusual"></div>
-        </div>
-
-        <!-- Dark pool / institutional flow (Quant Data) -->
-        <div class="bg-gradient-to-br from-purple-500/5 to-transparent border border-purple-500/20 rounded-2xl p-5">
-            <h3 class="text-xs font-extrabold text-purple-400 uppercase tracking-widest mb-2 flex items-center gap-2"><i data-lucide="radar" class="w-4 h-4"></i> Dark Pool & Flujo Institucional <span class="text-[9px] text-gray-600 normal-case font-normal tracking-normal">(Quant Data)</span></h3>
         </div>
     </div>
 
@@ -6788,17 +6363,6 @@ function analyzeTickerNow(tk) {
                             <span class="text-xs font-bold text-white uppercase tracking-wider">Plan de Trade &mdash; Probabilidades, Sizing &amp; Stops</span>
                         </div>
                         <div id="qtTradePlanBody"></div>
-                    </div>
-                    <div id="qtOptionPlay" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-blue-900/40 mt-3">
-                        <div class="flex items-center justify-between gap-2 mb-1 flex-wrap">
-                            <div class="flex items-center gap-2">
-                                <i data-lucide="crosshair" class="w-4 h-4 text-blue-400"></i>
-                                <span class="text-xs font-bold text-white uppercase tracking-wider">Estructura de Opciones &mdash; Señal &rarr; Contrato</span>
-                            </div>
-                            <span id="qtOptionPlayHead" class="text-[10px] text-gray-500"></span>
-                        </div>
-                        <p class="text-[10px] text-gray-500 mb-3">Contrato concreto (strike anclado al flujo institucional, prima Black-Scholes, R:R, stop &minus;20/&minus;30% con excepción Tipo&nbsp;A) dimensionado a tu capital. Énfasis en flujo+gamma del horizonte corto.</p>
-                        <div id="qtOptionPlayBody"></div>
                     </div>
     </div>
 </main>

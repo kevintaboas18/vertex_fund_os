@@ -18,17 +18,19 @@ disco. El saldo del usuario nunca sale de donde esté.
 from __future__ import annotations
 
 import math
-from .jsmath import (js_gt, js_number, js_is_finite, js_max, js_min,
+from .jsmath import (js_gt, js_number, js_is_finite, js_le, js_max, js_min,
                      js_abs, js_floor, js_to_fixed, js_truthy, es_nulo)
 from dataclasses import dataclass
 from typing import Literal
 
-from .flow import UNUSUAL_TRADE_THRESHOLD, FlowRow, unusual_trade_score
+from .flow import FlowRow, unusual_trade_score
 
 __all__ = [
     "MAX_THETA_PCT_DAILY",
     "THETA_BUDGET_PCT",
     "MIN_DTE",
+    "IDEA_UNUSUAL_THRESHOLD",
+    "MONEYNESS_CAP",
     "RiskProfile",
     "Budgets",
     "Sizing",
@@ -36,6 +38,7 @@ __all__ = [
     "budgets_of",
     "passes_quality_filter",
     "is_tradeable_idea",
+    "within_moneyness",
     "size_flow",
 ]
 
@@ -55,8 +58,24 @@ MAX_THETA_PCT_DAILY = 5.0
 #: Inusualidad— el theta frena de verdad cuando la tolerancia pasa del 5%.
 THETA_BUDGET_PCT = 5.0
 
-#: Días mínimos al vencimiento para que valga la pena mirarlo.
-MIN_DTE = 7
+#: Días mínimos al vencimiento para que valga la pena mirarlo. Bajo a propósito
+#: (contratos "más cercanos"): permite semanales/near-term, pero sigue tumbando
+#: los 0DTE / "expira_hoy" —que van por `expiry_status`— por ser pura lotería.
+MIN_DTE = 2
+
+#: Umbral de inusualidad SOLO para el screener de ideas (`is_tradeable_idea`).
+#:
+#: Más laxo que el institucional (`UNUSUAL_TRADE_THRESHOLD = 7` en `flow.py`, que
+#: define el scorecard): con un piso de premium más bajo, el puntaje de tamaño ya
+#: no basta para llegar a 7, así que aquí basta con un 5 para dejar pasar flujo
+#: direccional de tamaño mediano. No toca la definición institucional del dashboard.
+IDEA_UNUSUAL_THRESHOLD = 5
+
+#: Cercanía máxima del strike al precio del subyacente, |strike − spot| / spot.
+#:
+#: Contratos "más cercanos": descarta lo muy OTM (lotería barata) y lo muy ITM
+#: (caro y sin apalancamiento). 0.25 = dentro del ±25% del precio actual.
+MONEYNESS_CAP = 0.25
 
 #: Un contrato son 100 acciones.
 _MULTIPLIER = 100
@@ -152,11 +171,27 @@ def passes_quality_filter(row: FlowRow) -> QualityResult:
 
 
 def is_tradeable_idea(row: FlowRow) -> bool:
-    """¿El flow merece salir en el screener? Capa 1 + el umbral de inusualidad."""
+    """¿El flow merece salir en el screener? Capa 1 + el umbral del SCREENER."""
     return (
         passes_quality_filter(row).ok
-        and unusual_trade_score(row).total >= UNUSUAL_TRADE_THRESHOLD
+        and unusual_trade_score(row).total >= IDEA_UNUSUAL_THRESHOLD
     )
+
+
+def within_moneyness(row: FlowRow, cap: float = MONEYNESS_CAP) -> bool:
+    """¿El strike está cerca del precio actual? Filtro de "contratos más cercanos".
+
+    Ante datos faltantes (sin strike o sin precio del subyacente) **no filtra**:
+    la cercanía es una preferencia, no una salvaguarda, así que no tira filas por
+    falta de datos.
+
+    `Math.abs(row.strike - spot)` es una RESTA de JS: el `-` coacciona, así que
+    un `strike: "220"` que llegue como texto del feed vale 220 y no revienta.
+    """
+    spot = _safe(row.asset_price)
+    if spot == 0 or es_nulo(row.strike):
+        return True
+    return js_le(js_abs(js_number(row.strike) - spot) / spot, cap)
 
 
 def _blocked(reason: BlockReason, detail: str) -> Sizing:

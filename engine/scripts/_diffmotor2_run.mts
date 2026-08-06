@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import { ivContextScore } from './ivcontext.ts';
 import { gexAnalysis } from './gex.ts';
 import { predictPro } from './prediction.ts';
-import { sizeFlow, isTradeableIdea, budgetsOf } from './risk.ts';
+import { sizeFlow, isTradeableIdea, budgetsOf, withinMoneyness } from './risk.ts';
 
 const C = JSON.parse(fs.readFileSync(process.env.MOTOR2_CASOS!, 'utf8'));
 
@@ -81,6 +81,10 @@ const risk = C.risk.map((c: any) => {
       totalBurn: r6(r.totalBurn), burnPctOfAccount: r6(r.burnPctOfAccount),
       fullyDecays: r.fullyDecays, blocked: r.blocked ?? null,
       tradeable: isTradeableIdea(c.row),
+      // El default de `cap` solo entra si el argumento es `undefined`: pasarlo
+      // siempre convertiría un caso sin `cap` en uno con `cap: undefined`,
+      // que aquí da lo mismo pero no en un `null` explícito. Se respeta la aridad.
+      cercano: 'cap' in c ? withinMoneyness(c.row, c.cap) : withinMoneyness(c.row),
       budgets: (() => { const b = budgetsOf(c.profile); return [r6(b.premium), r6(b.theta)]; })(),
     };
   } catch (e: any) { return { ERROR: e.constructor.name }; }

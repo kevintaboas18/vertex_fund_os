@@ -276,6 +276,23 @@ def casos_risk():
         out.append(dict(sano, row=dict(fila, scores=v)))
     for v in (None, {}, "basura", {"multileg": "si"}):
         out.append(dict(sano, row=dict(fila, flags=v)))
+
+    # ── `withinMoneyness` (commit "screener más accesible para cuenta chica") ──
+    # La cercanía es una RESTA de JS (`row.strike - spot`), así que el `-`
+    # coacciona: un strike en texto vale, uno vacío vale 0 y uno con letras es
+    # NaN — tres caminos distintos que aquí se miden por separado.
+    for campo in ("strike", "assetPrice"):
+        for v in BASURA_NUM + [AUSENTE]:
+            out.append(dict(sano, row=mezcla(fila, campo, v)))
+    # Los bordes exactos de la banda ±25%, por los dos lados y con el spot fijo.
+    for s, a in ((100, 100), (125, 100), (125.1, 100), (126, 100),
+                 (75, 100), (74.9, 100), (200, 100), (10, 100),
+                 (0, 100), (-50, 100), (100, 0), (100, -100)):
+        out.append(dict(sano, row=dict(fila, strike=s, assetPrice=a)))
+    # Y la banda en sí: el parámetro tiene default, así que un `null` explícito
+    # NO lo activa (en JS solo lo hace `undefined`) y la comparación se cae.
+    for v in BASURA_NUM + [AUSENTE]:
+        out.append(mezcla(sano, "cap", v))
     return out
 
 

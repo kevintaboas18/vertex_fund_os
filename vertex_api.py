@@ -10500,12 +10500,12 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
         else:
             equity_stop = round(precio_actual * 0.85, 2)
             equity_stop_note = f"No A-grade: stop sugerido en ${equity_stop} (-15% del spot)."
-        # Override de flujo: ahora usa el flujo institucional COMPUTADO (Quant Data: sesgo alcista
-        # con convicción ≥80% sobre trades calificados), no la autoevaluación del LLM que se eliminó.
-        # Es dato medido en vez de opinión, que era el punto débil de la señal anterior.
-        flow_override = bool(_qd_conv and _qd_conv.get("qualifying")
-                             and str(_qd_conv.get("bias")) == "alcista"
-                             and _safe_num(_qd_conv.get("strength_pct")) >= 80)
+        # El override de flujo (Quant Data: sesgo alcista con convicción ≥80%) se ELIMINÓ.
+        # `trade_plan` se pinta en UN solo sitio —el panel "Plan de operación" del tab de
+        # Proyecciones— y ese tab ya lleva el flujo de Víctor (agresión / convicción /
+        # inusualidad sobre la cinta de MarketSnack). Dos proveedores midiendo flujo en la
+        # misma pantalla es justo la lectura doble que se mandó quitar; Quant Data sigue
+        # intacto donde sí manda, que es el prompt de Full Research.
 
         analisis_json["trade_plan"] = {
             "probabilities": {
@@ -10521,9 +10521,7 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
             "risk_plan": {
                 "is_a_grade": is_a_grade, "equity_stop": equity_stop,
                 "equity_stop_note": equity_stop_note, "thesis_break_level": round(bear12, 2),
-                "options_stop_rule": ("Opciones: stop −20% a −30% de la prima pagada."
-                                      + (" ⚠️ Override: flujo Tipo A ($5M+) fuerte — puede justificar mantener pese al stop." if flow_override else "")),
-                "flow_override": flow_override,
+                "options_stop_rule": "Opciones: stop −20% a −30% de la prima pagada.",
             },
         }
 
@@ -10535,29 +10533,22 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
             "bull_r": round((bull12 - precio_actual) / _R_unit, 2),
             "base_r": round((_base12 - precio_actual) / _R_unit, 2), "bear_r": -1.0,
         }
-        # "Qué me haría cambiar de opinión": checkpoints concretos y verificables construidos desde las señales
-        # reales del análisis (precio, walls, gamma flip, flujo, earnings). No depende del LLM → siempre presente.
+        # "Qué me haría cambiar de opinión": checkpoints concretos y verificables construidos
+        # desde las señales reales del análisis. No depende del LLM → siempre presente.
+        #
+        # Los checkpoints de GAMMA (put wall, call wall, gamma flip) y de FLUJO salían de
+        # Quant Data (`get_gex_cached` → `_gex_from_quantdata`, `_qd_conv`, `_qd_np`) y se
+        # ELIMINARON de aquí: este plan se pinta dentro del tab de Proyecciones, donde el
+        # bloque "Escenarios de Precio (GEX)" ya da ruptura alcista, ruptura bajista, gamma
+        # flip y nodo imán — calculados por el motor de Víctor sobre la cadena de Massive.
+        # Tener los mismos cuatro niveles de otro proveedor a dos dedos de distancia es la
+        # lectura doble de gamma que se mandó quitar del tab, y cuando discrepaban no había
+        # forma de saber cuál mirar. Quedan los checkpoints que son de ESTE análisis y de
+        # nadie más: el precio de quiebre de tesis y el catalizador de earnings.
         _inval = []
         _is_bull = _reco_norm(_rec) == RESEARCH_FAVORABLE
         _inval.append({"factor": "Precio", "kind": "price",
                        "trigger": f"Cierre {'bajo' if _is_bull else 'sobre'} ${round(bear12, 2)} (quiebre de tesis = −1R)"})
-        try:
-            _gw = _gex_now or {}
-            _pw, _cw, _fl = _gw.get("put_wall"), _gw.get("call_wall"), _gw.get("gamma_flip")
-            if _is_bull and _pw:
-                _inval.append({"factor": "Put wall", "kind": "level",
-                               "trigger": f"Pérdida del put wall ${_pw} (el soporte gamma cede)"})
-            if (not _is_bull) and _cw:
-                _inval.append({"factor": "Call wall", "kind": "level",
-                               "trigger": f"Ruptura del call wall ${_cw} (la resistencia gamma cede)"})
-            if _fl:
-                _inval.append({"factor": "Gamma flip", "kind": "regime",
-                               "trigger": f"{'Pérdida' if _is_bull else 'Recuperación'} del flip ${_fl} → dealers en régimen {'vendedor' if _is_bull else 'comprador'}"})
-        except Exception:
-            pass
-        if (_qd_conv or {}).get("bias") or (_qd_np or {}).get("bias"):
-            _inval.append({"factor": "Flujo institucional", "kind": "flow",
-                           "trigger": f"El flujo/premium neto se voltea {'bajista' if _is_bull else 'alcista'} de forma sostenida"})
         _ed = (earnings_info or {}).get("days_until")
         if isinstance(_ed, (int, float)) and 0 <= _ed <= 45:
             _inval.append({"factor": "Earnings", "kind": "catalyst",

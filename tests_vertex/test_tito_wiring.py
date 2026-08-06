@@ -13,6 +13,7 @@ verifica es el CABLEADO, no los datos.
 from __future__ import annotations
 
 import math
+import re
 import os
 import sys
 import tempfile
@@ -903,6 +904,39 @@ class TestLaAdvertenciaDelSubagente6:
         assert "⚠" in html
 
 
+def _cuerpo_js(html: str, nombre: str) -> str:
+    """El cuerpo EXACTO de `function nombre(…) { … }`, contando llaves.
+
+    Una ventana de N caracteres se desborda a la función siguiente y produce
+    falsos positivos: `projRefresh` parecía llamar a Quant Data solo porque el
+    corte alcanzaba a `loadAnalysisGex`, que es de otra vista.
+    """
+    for pre in ("async function ", "function "):
+        i = html.find(pre + nombre + "(")
+        if i == -1:
+            continue
+        par = html.index("(", i)
+        prof = 0
+        for k in range(par, len(html)):
+            if html[k] == "(":
+                prof += 1
+            elif html[k] == ")":
+                prof -= 1
+                if prof == 0:
+                    par = k
+                    break
+        b = html.index("{", par)
+        prof = 0
+        for k in range(b, len(html)):
+            if html[k] == "{":
+                prof += 1
+            elif html[k] == "}":
+                prof -= 1
+                if prof == 0:
+                    return html[i:k + 1]
+    return ""
+
+
 def _sin_comentarios(js: str) -> str:
     """Quita comentarios de un fragmento de JS.
 
@@ -1005,6 +1039,34 @@ class TestElPanelNoTiraNadaDelPayload:
         assert not (apis & prohibidos), (
             f"el tab volvió a llamar a Quant Data: {sorted(apis & prohibidos)}")
 
+    #: Rutas del servidor que usan Quant Data. Ninguna puede alimentar un panel
+    #: del tab: da igual que el fetch no esté en el cargador si el endpoint
+    #: consulta Quant Data por dentro. Este fue el hueco de la primera versión
+    #: del test — miraba solo `loadProjections` y dejó pasar cuatro paneles
+    #: (self-test, plan de operación, venta de prima y backtest de señales) que
+    #: llamaban a rutas con `get_gex_cached` y `quantdata_*` dentro.
+    _RUTAS_QD = ("options-gex", "net-flow", "options-ledger", "confluence",
+                 "gex-strike", "self-test", "trade-plan", "backtest",
+                 "collect-signals", "signal-history", "income-strategies",
+                 "backfill")
+
+    def test_ningun_handler_del_tab_llega_a_quant_data(self):
+        """Ni por el cargador ni por un botón: el tab entero, no solo la carga."""
+        import re
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        dom = html[html.index('<main id="projectionsView"'):]
+        dom = dom[:dom.index("</main>")]
+        handlers = {m.group(1) for m in
+                    re.finditer(r'on(?:click|change|keydown)="([A-Za-z_$][\w$]*)\(', dom)}
+        sucios = []
+        for h in sorted(handlers):
+            cuerpo = _sin_comentarios(_cuerpo_js(html, h))
+            for r in self._RUTAS_QD:
+                if f"api/{r}" in cuerpo:
+                    sucios.append(f"{h} → /api/{r}")
+        assert not sucios, (
+            "handlers del tab que llegan a Quant Data: " + ", ".join(sucios))
+
     def test_los_paneles_de_quant_data_ya_no_estan_en_el_tab(self):
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
         dom = html[html.index('<main id="projectionsView"'):]
@@ -1017,6 +1079,68 @@ class TestElPanelNoTiraNadaDelPayload:
                    "loadGammaStrike", "renderProjDarkPool", "projActiveWalls"):
             assert f"function {fn}(" not in html, f"{fn} quedó definida"
             assert f"{fn}(" not in html, f"{fn} quedó referenciada"
+
+    def test_no_queda_ni_el_rotulo_de_quant_data_en_el_tab(self):
+        """El cascarón también miente.
+
+        Al quitar `projDarkPool` sobrevivió la TARJETA que lo envolvía: marco
+        morado, icono de radar y el título *Dark Pool & Flujo Institucional
+        (Quant Data)* sobre un cuerpo vacío. Para quien mira la pantalla eso no
+        es "un panel menos", es "el panel de Quant Data no está cargando".
+        """
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        dom = html[html.index('<main id="projectionsView"'):]
+        dom = dom[:dom.index("</main>")]
+        # Se miran solo los textos VISIBLES: un comentario que explique por qué
+        # se quitó Quant Data es documentación, no una etiqueta en pantalla.
+        visible = re.sub(r"<!--.*?-->", "", dom, flags=re.S)
+        for rotulo in ("Quant Data", "Dark Pool", "Max Pain"):
+            assert rotulo not in visible, f"quedó el rótulo «{rotulo}» en el tab"
+
+    def test_ninguna_tarjeta_del_tab_se_queda_sin_cuerpo(self):
+        """Una tarjeta con título y sin contenedor de datos es un panel roto."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        dom = html[html.index('<main id="projectionsView"'):]
+        dom = dom[:dom.index("</main>")]
+        visible = re.sub(r"<!--.*?-->", "", dom, flags=re.S)
+        vacias = [m.group(1).strip() for m in re.finditer(
+            r'<div class="[^"]*rounded-2xl[^"]*">\s*<h3[^>]*>(.*?)</h3>\s*</div>',
+            visible, flags=re.S)]
+        assert not vacias, f"tarjetas con título y sin cuerpo: {vacias}"
+
+    def test_el_plan_de_operacion_no_trae_gamma_ni_flujo_de_quant_data(self):
+        """El único panel del tab que NO es de Víctor tampoco puede duplicarlo.
+
+        `projOpPlan` se llena desde `/api/analyze` —el motor de Full Research,
+        donde Quant Data sí manda— pero se PINTA dentro de Proyecciones. Traía
+        put wall, call wall y gamma flip de `get_gex_cached` (Quant Data) y un
+        checkpoint de flujo de `_qd_conv`: los mismos cuatro niveles que el
+        bloque *Escenarios de Precio (GEX)* ya muestra dos tarjetas más arriba,
+        calculados por el motor de Víctor sobre la cadena de Massive. Cuando
+        discrepaban no había forma de saber cuál mirar.
+        """
+        api = (ROOT / "vertex_api.py").read_text(encoding="utf-8")
+        ini = api.index('analisis_json["trade_plan"] = {')
+        fin = api.index('analisis_json["trade_plan"]["thesis_invalidation"]', ini)
+        bloque = api[ini:fin]
+        # Se lee el CÓDIGO, no el comentario que explica la eliminación.
+        codigo = "\n".join(l for l in bloque.splitlines()
+                           if not l.lstrip().startswith("#"))
+        for fuente in ("_gex_now", "_qd_conv", "_qd_np", "put_wall", "call_wall",
+                       "gamma_flip", "flow_override"):
+            assert fuente not in codigo, (
+                f"el plan del tab volvió a leer «{fuente}», que es de Quant Data")
+
+    def test_el_rotulo_de_actividad_inusual_describe_lo_que_pinta(self):
+        """Decía «volumen > OI» —la definición de Quant Data— sobre los trades
+        del sub-agente 3, que puntúa inusualidad /30 sobre la cinta."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        dom = html[html.index('<main id="projectionsView"'):]
+        dom = dom[:dom.index("</main>")]
+        titulo = re.search(r"Actividad Inusual de Opciones.*?</h3>", dom, flags=re.S)
+        assert titulo, "desapareció el panel de actividad inusual"
+        assert "volumen &gt; OI" not in titulo.group(0)
+        assert "/30" in titulo.group(0), "el rótulo debe decir de dónde sale el número"
 
     def test_las_cards_del_tab_salen_del_motor_de_victor(self):
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
@@ -1045,8 +1169,8 @@ class TestElPanelNoTiraNadaDelPayload:
         lectura γ−, y nadie podía notarlo.
         """
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
-        cargador = html[html.index("async function loadProjTargets("):]
-        cargador = cargador[:cargador.index("\n}")]
+        cargador = html[html.index("async function loadProjections("):]
+        cargador = cargador[:cargador.index("\nasync function vcFetchTargets(")]
         assert "vcSyncCabecera(d)" in cargador, (
             "la cabecera de la gráfica de Víctor no se sincroniza con SU payload")
         sync = html[html.index("function vcSyncCabecera(d) {"):]
