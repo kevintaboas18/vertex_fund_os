@@ -2634,3 +2634,92 @@ tres cosas que ninguna de las dos ramas veía sola:
 Quant Data del plan de operación), pero dejando el andamio muerto: un
 `flow_override = False` sin usos y un `try` con `_pw/_cw/_fl` fijados a `None`
 cuyos tres `if` no pueden entrar nunca. Se conservó la eliminación limpia.
+
+---
+
+# 40. Auditoría del tab de Proyecciones — ronda 6 (2026-08-06)
+
+**Alcance:** el tab entero **y todo lo auditado en las cinco rondas previas**,
+con dos preguntas nuevas que ninguna se había hecho. **Base:** su `53d5a20`.
+
+## 40.1 El error más caro: el spot salía de la fuente equivocada
+
+Su `page.tsx` elige el precio así, y en este orden:
+
+```
+company?.price ?? chainMeta?.underlyingPrice ?? bars[bars.length - 1].close
+```
+
+El port **se saltaba el primer eslabón** y usaba el segundo. No es lo mismo:
+
+- `company.price` es el **snapshot del subyacente** (`/v2/snapshot/...`, última
+  operación: `day.c ?? min.c ?? prevDay.c`).
+- `underlying_price` es el precio con el que Massive calculó **esa cadena**.
+
+Cuando la cadena se sirve de caché o el papel se movió después de calcularla,
+no coinciden. Y el spot no es un dato más: ancla **los nodos del GEX**, la
+ventana de ±20% (`NEAR_SPOT_PCT`) que decide qué strikes entran, **los
+niveles**, **el cono** y **los tres targets**. Cogerlo del eslabón equivocado
+mueve el panel entero en silencio.
+
+**Resuelto:** portado su `fetchCompany` → `massive.fetch_company`, y el spot
+resuelto en su orden. Con su guarda: un precio ≤ 0 (o no numérico) no gana —
+él corta con `if (!spot || spot <= 0) return null`.
+
+## 40.2 Lo que se servía y no se pintaba (14 hojas más)
+
+El test de hojas de la ronda 5 solo cubría `subagents`. Extendido al payload
+**entero** (≈120 hojas), aparecieron 14:
+
+| Qué | Por qué importaba |
+|---|---|
+| `structure.top_strikes.*` (7 columnas) | **la tabla entera** de "Dónde se acumula" de su `StructureCard` — servida desde el primer día, nunca pintada |
+| `structure.dominant_side` / `call_pct` / `put_pct` | su barra de reparto calls/puts con "Dominan los CALLS" |
+| `flow_clusters.unidirectionality` | **la** métrica del racimo: qué parte del premium va en una sola dirección |
+| `flow_clusters.call_premium` / `put_premium` | lo que la sostiene |
+| `gex.nodes.trade_premium` / `trade_count` | la parte del nodo que viene del **tape**: distingue un muro de open interest viejo de uno que se construye hoy |
+| `predictions.*.calibration.samples` | sobre cuántas predicciones vencidas se midió el ajuste. Un "+2.1%" sin la muestra no se puede juzgar |
+
+Faltaba además `top_strikes.pct_of_total`, que ni se servía.
+
+## 40.3 La salvaguarda de liquidez era más débil que la suya
+
+Su `VeredictoCard` tiene una regla de prioridad que es lo **primero** que hace:
+si hay `caveat`, **no se da dirección** — se muestra *"Datos no fiables — no
+operar"* y nada más.
+
+Aquí se pintaban los tres targets igual y el caveat quedaba de nota al pie en
+9px debajo. Es lo contrario de la regla del proyecto: *la confianza nunca
+convierte un desconocido en un score favorable*. **Resuelto**, y con ello se
+portó su veredicto completo: dirección en lenguaje llano (📈 *Probablemente
+SUBE* / 📉 *BAJA* / ➡️ *LATERAL*), `confLabel` con sus cortes **66 / 33**, el
+horizonte en prosa y el tooltip completo del chip de calibración.
+
+## 40.4 Dos cotejos automáticos nuevos (§9-quater)
+
+Lo que antes se revisaba a ojo, ahora falla solo:
+
+- **Sus 32 módulos de `web/lib`**: 24 portados, 8 declarados con motivo. Con
+  `TITO_ROOT` se contrasta contra su carpeta real.
+- **Sus 32 constantes numéricas exportadas**, valor a valor. No se puede hacer
+  a ojo: están repartidas en 13 archivos, y una mal copiada **pasaría verde**
+  en los dos lados porque los tests portados usan la constante, no el literal.
+  Destapó 3 que existían con **otro nombre** (`CLUSTER_WINDOW_MS`,
+  `HISTORY_DAYS`, `IV_HISTORY_DAYS`): mismos valores, pero invisibles para
+  cualquier cotejo. Renombradas a las suyas.
+
+También se cotejaron sus **104 funciones exportadas**: todas presentes salvo
+las cuatro de Massive que solo usan `/api/bars`, `/api/logo` y `/api/wheel`
+—rutas que no se portan— y `fetchCompany`, que es la de §40.1 y ahora está.
+
+## 40.5 Estado
+
+```
+2.716 tests del engine · 197 de la capa web · 277 checks · 0 fallos
+store 47/47 · compute 604/604 · bars 27/27 · primitivas · cono
+motor 1142/1142 · motor2 918/918 · motor3 348/349 · geo 274/274
+calib 182/182 · frescura 342/342 · reloj 223/223
+```
+
+Cero funciones muertas en el tab. Las 7 constantes de su `chartGeometry` y sus
+4 feeds de noticias coinciden literalmente.

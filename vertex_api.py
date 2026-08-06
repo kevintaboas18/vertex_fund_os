@@ -3596,7 +3596,7 @@ def _tito_chain_and_bars(ticker):
     (key ausente, key rechazada, rate limit, ticker sin datos).
     """
     from wbj.tito.bars_store import daily_bars_for_panel
-    from wbj.tito.massive import MassiveError, fetch_option_chain
+    from wbj.tito.massive import MassiveError, fetch_company, fetch_option_chain
 
     chain_res = fetch_option_chain(ticker)
     # Barras diarias CON cache. Su cabecera de `barsStore.ts` dice que en v1 el
@@ -3617,7 +3617,29 @@ def _tito_chain_and_bars(ticker):
     # La cadena puede venir vacía (subyacente sin opciones listadas) y el motor
     # lo sabe manejar: Estructura sale NOT_SCORABLE y salta la salvaguarda de
     # liquidez. Sin barras, en cambio, no hay nada que calcular.
-    spot = chain_res.underlying_price or bars[-1].close
+    # El SPOT, en el orden exacto de su `page.tsx`:
+    #
+    #     company?.price ?? chainMeta?.underlyingPrice ?? bars[bars.length - 1].close
+    #
+    # `company.price` es el snapshot del subyacente (última operación);
+    # `underlying_price` es el precio con el que Massive calculó ESA cadena, que
+    # no es el mismo cuando la cadena viene de caché o el papel se movió después.
+    # El spot ancla los nodos del GEX, la ventana de ±20% que decide qué strikes
+    # entran, los niveles, el cono y los tres targets: cogerlo del eslabón
+    # equivocado mueve el panel entero en silencio.
+    #
+    # `_precio` implementa su `??`: solo salta el nulo. Pero un precio <= 0 no es
+    # un precio —él lo corta con `if (!spot || spot <= 0) return null`— así que
+    # aquí sigue bajando por la cadena en vez de publicar un cero.
+    empresa = fetch_company(ticker) or {}
+    def _precio(*candidatos):
+        for v in candidatos:
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+                return float(v)
+        return None
+    spot = _precio(empresa.get("price"), chain_res.underlying_price, bars[-1].close)
+    if spot is None:
+        raise MassiveError(f"Massive no devolvió un precio utilizable para {ticker}.")
     return chain_res.rows, bars, spot
 
 
@@ -4105,7 +4127,11 @@ def _tito_json(r):
             "vol_oi": {"pct": _r(r.structure.vol_oi["pct"], 1),
                        "exceeded": r.structure.vol_oi["exceeded"],
                        "considered": r.structure.vol_oi["considered"]},
+            # `pct_of_total` es la sexta columna de su tabla "Top strikes por
+            # nocional". Sin ella, "$268M" no dice si ese strike es la mitad de
+            # la cadena o una esquina.
             "top_strikes": [{"strike": t.strike, "notional": t.notional,
+                             "pct_of_total": _r(t.pct_of_total, 1),
                              "side": t.side, "dominant": t.dominant,
                              "dominance_pct": _r(t.dominance_pct, 1),
                              "open_interest": t.open_interest, "volume": t.volume}

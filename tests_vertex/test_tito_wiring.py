@@ -98,6 +98,12 @@ def fuentes(monkeypatch, tmp_path):
     monkeypatch.setattr(MASS, "fetch_option_chain", fake_chain)
     monkeypatch.setattr(MASS, "fetch_daily_bars", fake_bars)
     monkeypatch.setattr(MASS, "fetch_ticker_name", lambda t, **k: "Demo Corporation")
+    # El snapshot del subyacente. Es el PRIMER eslabón del spot en su `page.tsx`,
+    # así que sin doble la suite salía a la red de verdad y esperaba el timeout
+    # en cada caso: 22 s se convirtieron en 55 s.
+    monkeypatch.setattr(MASS, "fetch_company",
+                        lambda t, **k: {"ticker": t, "name": "Demo Corporation",
+                                        "price": SPOT, "prev_close": SPOT - 1})
     monkeypatch.setattr(MS, "fetch_flow", fake_flow)
     monkeypatch.setattr(N, "fetch_ticker_news", lambda t, **k: [
         N.NewsItem(id="1", title="Demo misses targets", url="u", publisher="Reuters",
@@ -655,6 +661,38 @@ class TestFalloDeMassive:
         assert d["ok"] is False  # sin barras corta, no busca otra fuente
 
 
+class TestElSpotSaleDeSuFuente:
+    """`company?.price ?? chainMeta?.underlyingPrice ?? bars[last].close`.
+
+    El orden es suyo y no es un detalle: el spot ancla los nodos del GEX, la
+    ventana de ±20% que decide qué strikes entran, los niveles, el cono y los
+    tres targets. El port se saltaba el primer eslabón —el snapshot del
+    subyacente— y usaba el precio con el que Massive calculó la CADENA, que no
+    es el mismo cuando la cadena viene de caché o el papel se movió después.
+    """
+
+    def test_manda_el_snapshot_de_la_empresa(self, client, monkeypatch):
+        import wbj.tito.massive as MASS
+        monkeypatch.setattr(MASS, "fetch_company", lambda t, **k: {"price": 123.45})
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["spot"] == 123.45, "el precio de la cadena ganó al snapshot"
+
+    def test_sin_snapshot_cae_al_precio_de_la_cadena(self, client, monkeypatch):
+        import wbj.tito.massive as MASS
+        monkeypatch.setattr(MASS, "fetch_company", lambda t, **k: None)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["spot"] == SPOT   # `underlying_price` del doble de cadena
+
+    def test_un_precio_no_positivo_no_se_publica_como_spot(self, client, monkeypatch):
+        """Él corta con `if (!spot || spot <= 0) return null`. Un 0 o un
+        negativo del snapshot no puede ganarle a la cadena."""
+        import wbj.tito.massive as MASS
+        for malo in (0, -5, None, "abc", True):
+            monkeypatch.setattr(MASS, "fetch_company", lambda t, _m=malo, **k: {"price": _m})
+            d = client.get("/api/projection-targets?ticker=DEMO").json()
+            assert d["spot"] == SPOT, f"un price={malo!r} se coló como spot"
+
+
 class TestSinTape:
     def test_el_motor_sigue_con_la_cadena_y_lo_declara(self, client, monkeypatch):
         import wbj.tito.marketsnack as MS
@@ -1021,6 +1059,63 @@ class TestElPanelNoTiraNadaDelPayload:
                 yield from TestElPanelNoTiraNadaDelPayload._hojas(v[0], ruta + ".")
             else:
                 yield ruta
+
+    #: Hojas del payload ENTERO que el panel no lee, con su motivo. Mismo
+    #: contrato que `_SUB_NO_SE_PINTAN`, pero para todo lo demás.
+    _HOJAS_NO_SE_PINTAN = {
+        "gex_heatmap.max_abs_cell": "el normalizador de la escala de color; lo "
+                                    "consume el propio degradado, no es un dato de mercado",
+        "structure.avg_notional": "duplicado del `notional.avg_per_strike` que "
+                                  "pinta la tarjeta de Estructura con sus puntos",
+    }
+
+    @staticmethod
+    def _payload_completo():
+        """El payload REAL de la ruta, con lo que añade `projection_targets`."""
+        import vertex_api as V
+        sys.path.insert(0, str(ROOT / "engine" / "tests"))
+        from tests.tito.test_scorecard import bars, chain, trades, NOW, SPOT
+        from wbj.tito.scorecard import run_scorecard
+
+        r = run_scorecard("DEMO", trades(), chain(), bars(), now=NOW, spot=SPOT)
+        d = V._tito_json(r)
+        d["memory"] = {"iv_days": 0, "flows": 0, "predictions": 0}
+        d["gex_heatmap"] = V._tito_heatmap(chain(), r, trades(), NOW)
+        d["chart_geometry"] = V._tito_chart_geometry(r)
+        d["flow_clusters"] = V._tito_clusters(trades(), NOW)
+        return d
+
+    def test_cada_hoja_del_payload_ENTERO_se_pinta(self):
+        """La versión de arriba mira claves raíz; ésta mira las 120 hojas.
+
+        Con solo el test de raíces, `subagents` pasaba siendo UNA clave con 60
+        hojas dentro — y por el mismo hueco se colaron siete columnas de la
+        tabla de top strikes de su `StructureCard`, la unidireccionalidad de
+        los racimos, el premium del tape por nodo de gamma y la muestra de la
+        calibración. Todo servido, nada pintado.
+        """
+        d = self._payload_completo()
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        declaradas = dict(self._NO_SE_PINTAN)
+        declaradas.update(self._HOJAS_NO_SE_PINTAN)
+        huerfanas = []
+        for ruta in sorted(set(self._hojas(d))):
+            raiz = ruta.split(".")[0]
+            if raiz in self._NO_SE_PINTAN or raiz == "subagents":
+                continue          # infraestructura, o cubierto por el test de detalle
+            if ruta in self._HOJAS_NO_SE_PINTAN:
+                continue
+            hoja = ruta.rsplit(".", 1)[-1]
+            if not re.search(rf"\.{hoja}\b|'{hoja}'|\"{hoja}\"", html):
+                huerfanas.append(ruta)
+        assert not huerfanas, (
+            f"el motor sirve estas hojas y el panel no las pinta: {huerfanas}. "
+            f"O se cablean, o se declaran en `_HOJAS_NO_SE_PINTAN` con su motivo.")
+
+    def test_el_registro_de_hojas_del_payload_no_miente(self):
+        reales = set(self._hojas(self._payload_completo()))
+        sobran = sorted(set(self._HOJAS_NO_SE_PINTAN) - reales)
+        assert not sobran, f"declaradas como no pintadas pero ya no se sirven: {sobran}"
 
     def test_cada_hoja_del_detalle_de_subagentes_se_pinta(self):
         """El fallo que ESTE test existe para impedir, ya cometido una vez.

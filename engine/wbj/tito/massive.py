@@ -40,6 +40,7 @@ __all__ = [
     "MassiveError",
     "ChainResult",
     "DailyBar",
+    "fetch_company",
     "fetch_option_chain",
     "fetch_daily_bars",
 ]
@@ -202,6 +203,75 @@ def fetch_ticker_name(ticker: str, timeout: float = 12.0) -> str | None:
         return None
     name = (data.get("results") or {}).get("name")
     return name if isinstance(name, str) and name.strip() else None
+
+
+def fetch_company(ticker: str, timeout: float = 12.0) -> dict | None:
+    """Port de su `fetchCompany` — la ficha del subyacente **con su precio**.
+
+    Existe por UNA razón que no es cosmética: su `page.tsx` elige el spot así,
+    y en este orden::
+
+        company?.price ?? chainMeta?.underlyingPrice ?? bars[bars.length - 1].close
+
+    El port se saltaba el primero e iba directo al segundo. No es lo mismo:
+    ``chainMeta.underlyingPrice`` viene dentro de la respuesta de la CADENA y
+    es el precio con el que Massive calculó esa cadena; ``company.price`` es el
+    snapshot del subyacente —última operación, `day.c ?? min.c ?? prevDay.c`—.
+    Cuando la cadena se sirve de caché o el subyacente se movió después de
+    calcularla, los dos no coinciden. Y el spot no es un adorno: ancla los
+    nodos del GEX, la ventana de ±`NEAR_SPOT_PCT` que decide qué strikes
+    entran, los niveles, el cono y los tres targets. Un spot viejo mueve el
+    panel entero sin que nada avise.
+
+    Se piden los dos endpoints como él, y `None` en cualquiera no revienta:
+    devuelve lo que haya. Si falla del todo, `None` y el llamador cae al
+    siguiente eslabón de SU cadena de respaldo, no a otra fuente.
+    """
+    try:
+        key = _api_key()
+    except MassiveError:
+        return None
+    clean = (ticker or "").strip().upper()
+    if not clean:
+        return None
+    q = urllib.parse.quote(clean)
+
+    def _quiza(url):
+        try:
+            return _get(url, key, clean, timeout)
+        except MassiveError:
+            return None
+
+    det = _quiza(f"{BASE_URL}/v3/reference/tickers/{q}")
+    snap = _quiza(f"{BASE_URL}/v2/snapshot/locale/us/markets/stocks/tickers/{q}")
+    if det is None and snap is None:
+        return None
+    d = (det or {}).get("results") or {}
+    t = (snap or {}).get("ticker") or {}
+
+    def _c(*caminos):
+        """`t.day?.c ?? t.min?.c ?? t.prevDay?.c` — el `??` suyo: solo salta el
+        nulo, así que un cierre de 0 se queda en 0 y no cae al siguiente."""
+        for bloque, campo in caminos:
+            v = (t.get(bloque) or {}).get(campo)
+            if v is not None:
+                return v
+        return None
+
+    return {
+        "ticker": clean,
+        "name": d.get("name"),
+        "market_cap": d.get("market_cap"),
+        "sector": d.get("sic_description"),
+        "price": _c(("day", "c"), ("min", "c"), ("prevDay", "c")),
+        "change": t.get("todaysChange"),
+        "change_percent": t.get("todaysChangePerc"),
+        "day_open": (t.get("day") or {}).get("o"),
+        "day_high": (t.get("day") or {}).get("h"),
+        "day_low": (t.get("day") or {}).get("l"),
+        "day_volume": (t.get("day") or {}).get("v"),
+        "prev_close": (t.get("prevDay") or {}).get("c"),
+    }
 
 
 @dataclass(frozen=True)

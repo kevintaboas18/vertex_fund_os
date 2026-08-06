@@ -3249,12 +3249,17 @@ function vcClustersHTML(d) {
     return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider mb-1">Racimos del tape</p>
       <table class="w-full text-[10px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
         <th class="text-left pb-0.5">Ventana (UTC)</th><th class="text-right pb-0.5 pr-2">Trades</th>
-        <th class="text-right pb-0.5 pr-2">Premium</th><th class="text-right pb-0.5 pr-2">Score</th>
+        <th class="text-right pb-0.5 pr-2">Premium</th><th class="text-right pb-0.5 pr-2">Calls / Puts</th>
+        <th class="text-right pb-0.5 pr-2">Un solo lado</th><th class="text-right pb-0.5 pr-2">Score</th>
         <th class="text-left pb-0.5">Apuesta neta</th></tr></thead><tbody>
       ${cl.map(c => `<tr class="border-b border-gray-800/50">
         <td class="py-1 text-gray-400">${hhmm(c.start_sec)}–${hhmm(c.end_sec)}</td>
         <td class="py-1 pr-2 text-right text-gray-300">${c.count}</td>
         <td class="py-1 pr-2 text-right text-gray-200 font-bold">${fmtAbbr(c.premium)}</td>
+        <td class="py-1 pr-2 text-right text-[9px]"><span class="text-emerald-400">${fmtAbbr(c.call_premium)}</span>
+          <span class="text-gray-700">/</span> <span class="text-red-400">${fmtAbbr(c.put_premium)}</span></td>
+        <td class="py-1 pr-2 text-right ${c.unidirectionality >= 80 ? 'text-amber-400 font-bold' : 'text-gray-400'}"
+            title="qué parte del premium del racimo va en una sola dirección">${Math.round(Number(c.unidirectionality))}%</td>
         <td class="py-1 pr-2 text-right text-gray-400">${c.score}/10</td>
         <td class="py-1 font-bold ${c.bet === 'alcista' ? 'text-emerald-400' : 'text-red-400'}">${_vcEsc(c.bet_label)}</td></tr>`).join('')}
       </tbody></table></div>`;
@@ -3396,6 +3401,18 @@ function vcSubagentesHTML(d) {
             : st.score >= 8 ? 'Posicionamiento muy claro' : st.score >= 6 ? 'Posicionamiento claro'
             : st.score >= 4 ? 'Posicionamiento moderado' : 'Posicionamiento difuso';
         const vo = (d.structure || {}).vol_oi || {};
+        // Top strikes — su tabla "Dónde se acumula". Se servía entera desde el
+        // primer día (7 columnas) y no se pintaba ni una.
+        const sc = d.structure || {};
+        const tops = (sc.top_strikes || []).map(t =>
+            `<tr class="border-b border-gray-800/50 ${t.dominant ? 'bg-blue-500/5' : ''}">
+             <td class="py-1 pr-2 font-bold text-white">$${Number(t.strike).toFixed(2)}</td>
+             <td class="py-1 pr-2 text-right text-gray-200">${fmtAbbr(t.notional)}</td>
+             <td class="py-1 pr-2 text-right text-gray-500">${Number(t.pct_of_total).toFixed(1)}%</td>
+             <td class="py-1 pr-2"><span class="px-1 py-0.5 rounded text-[8px] font-bold ${t.side === 'calls' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${t.side === 'calls' ? 'CALLS' : 'PUTS'}</span></td>
+             <td class="py-1 pr-2 text-right ${t.dominant ? 'text-emerald-400 font-bold' : 'text-gray-600'}">${Number(t.dominance_pct || 0).toFixed(0)}%${t.dominant ? ' ✓' : ''}</td>
+             <td class="py-1 pr-2 text-right text-gray-400">${_vcEsc(t.open_interest)}</td>
+             <td class="py-1 text-right text-gray-400">${_vcEsc(t.volume)}</td></tr>`).join('');
         // El reparto call/put por vencimiento va en la tabla, no solo el total:
         // dos vencimientos con el mismo nocional pueden ser tesis opuestas.
         const exp = (st.expirations || []).map(e =>
@@ -3415,7 +3432,24 @@ function vcSubagentesHTML(d) {
                ${_vcMetric('Volumen &gt; OI', vo.pct == null ? '—' : Number(vo.pct).toFixed(0) + '%',
                            st.vol_oi_points, (vo.exceeded || 0) + ' de ' + (vo.considered || 0) + ' contratos')}
              </div>
-             ${exp ? `<div class="overflow-x-auto"><table class="w-full text-[10px] mt-1.5 min-w-[380px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
+             <div class="h-1.5 rounded-full overflow-hidden bg-red-500/40 mt-1.5 flex">
+               <div class="bg-emerald-500" style="width:${Number(sc.call_pct || 0).toFixed(1)}%"></div>
+               <div class="bg-red-500" style="width:${Number(sc.put_pct || 0).toFixed(1)}%"></div></div>
+             <div class="flex flex-wrap gap-x-3 text-[8px] mt-1">
+               <span class="text-emerald-400">● Calls ${Number(sc.call_pct || 0).toFixed(0)}%</span>
+               <span class="text-red-400">● Puts ${Number(sc.put_pct || 0).toFixed(0)}%</span>
+               <span class="font-bold ${sc.dominant_side === 'calls' ? 'text-emerald-400' : 'text-red-400'}">Dominan los ${sc.dominant_side === 'calls' ? 'CALLS' : 'PUTS'}</span>
+               <span class="text-gray-600">· nocional total ${fmtAbbr(st.notional.total)} · promedio ${fmtAbbr(sc.avg_notional)}/strike</span></div>
+             ${sc.low_liquidity ? `<p class="text-[9px] text-amber-400 mt-1">⚠ Baja liquidez — el nocional promedio por strike no llega a $25M.</p>` : ''}
+             ${tops ? `<p class="text-[9px] font-bold text-gray-500 uppercase mt-2 mb-0.5">🎯 Dónde se acumula — top strikes por nocional
+                <span class="text-[8px] font-normal normal-case text-gray-600">(nocional = strike × open interest × 100)</span></p>
+               <div class="overflow-x-auto"><table class="w-full text-[10px] min-w-[440px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
+                 <th class="text-left pb-0.5">Strike</th><th class="text-right pb-0.5 pr-2">Nocional</th>
+                 <th class="text-right pb-0.5 pr-2">% del total</th><th class="text-left pb-0.5 pr-2">Lado</th>
+                 <th class="text-right pb-0.5 pr-2">Dominio</th><th class="text-right pb-0.5 pr-2">Open Interest</th>
+                 <th class="text-right pb-0.5">Volumen</th></tr></thead><tbody>${tops}</tbody></table></div>` : ''}
+             ${exp ? `<p class="text-[9px] font-bold text-gray-500 uppercase mt-2 mb-0.5">Vencimientos más relevantes</p>
+               <div class="overflow-x-auto"><table class="w-full text-[10px] min-w-[380px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
                 <th class="text-left pb-0.5">Vencimiento</th><th class="text-right pb-0.5 pr-2">Nocional</th>
                 <th class="text-right pb-0.5 pr-2">Calls</th><th class="text-right pb-0.5 pr-2">Puts</th>
                 <th class="text-right pb-0.5 pr-2">%</th><th class="text-right pb-0.5">Contratos</th></tr></thead>
@@ -3566,24 +3600,56 @@ function renderVictorTargets(d) {
         <p class="text-[8px] text-gray-500 mt-1 leading-tight">${_vcEsc(s.driver)}</p></div>`;
 
     const warn = (d.warnings || []).map(w => `<p class="text-[9px] text-amber-400 leading-tight">⚠ ${_vcEsc(w)}</p>`).join('');
+    // El chip de calibración lleva SU tooltip completo: en qué dirección falla
+    // el agente históricamente y sobre CUÁNTAS predicciones vencidas se midió.
+    // Un "+2.1%" sin la muestra no se puede juzgar.
     const cal = p.calibration && p.calibration.applied
-        ? `<span class="text-[9px] text-purple-300">🧠 ajustado ${p.calibration.shift_pct >= 0 ? '+' : ''}${Number(p.calibration.shift_pct).toFixed(1)}%</span>` : '';
+        ? `<span class="text-[9px] text-purple-300" title="El agente históricamente apunta ${p.calibration.shift_pct >= 0 ? 'bajo' : 'alto'}; se ajustó el target ${p.calibration.shift_pct >= 0 ? '+' : ''}${Number(p.calibration.shift_pct).toFixed(1)}% con ${p.calibration.samples} predicciones vencidas.">🧠 ajustado ${p.calibration.shift_pct >= 0 ? '+' : ''}${Number(p.calibration.shift_pct).toFixed(1)}%</span>` : '';
+
+    // ── EL VEREDICTO — su `VeredictoCard`, con su regla de prioridad ──────
+    //
+    // La regla no es cosmética y es lo primero que hace su componente: si hay
+    // `caveat`, NO se da dirección. Se muestra el aviso y nada más. Aquí se
+    // pintaban los tres targets igual y el caveat quedaba de nota al pie en
+    // 9px debajo — que es exactamente lo contrario de lo que manda la regla
+    // del proyecto: la confianza nunca convierte un desconocido en un score
+    // favorable.
+    const DIR = { up:  ['📈', 'Probablemente SUBE', 'text-emerald-400'],
+                  down:['📉', 'Probablemente BAJA', 'text-red-400'],
+                  flat:['➡️', 'Se mueve LATERAL',  'text-gray-300'] };
+    // `confLabel` suyo, con sus cortes 66 / 33.
+    const confTxt = p.confidence >= 66 ? 'confianza alta'
+                  : p.confidence >= 33 ? 'confianza media' : 'confianza baja';
+    const confCls = p.confidence >= 66 ? 'text-emerald-400'
+                  : p.confidence >= 33 ? 'text-amber-400' : 'text-red-400';
+    const HZ_PROSA = { 10: '1 semana', 20: '2 semanas', 30: '4 semanas' };
+    const dd = DIR[p.direction] || DIR.flat;
+
+    const veredicto = p.caveat
+        ? `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-2 flex items-start gap-2.5">
+             <span class="text-lg leading-none">⚠</span>
+             <div><p class="text-sm font-black text-amber-300">Datos no fiables — no operar</p>
+               <p class="text-[10px] text-amber-200/80 leading-snug mt-0.5">${_vcEsc(p.caveat)}</p></div></div>`
+        : `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3 mb-2 flex items-start gap-2.5">
+             <span class="text-lg leading-none">${dd[0]}</span>
+             <div class="min-w-0">
+               <p class="text-sm font-black ${dd[2]}">${dd[1]} hacia <span class="text-white">$${Number(p.base.target).toFixed(2)}</span>
+                 <span class="text-[11px] font-bold ${p.base.change_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}">${(p.base.change_pct >= 0 ? '+' : '') + Number(p.base.change_pct).toFixed(1)}%</span></p>
+               <p class="text-[10px] mt-0.5"><span class="${confCls} font-bold">${confTxt}</span>
+                 <span class="text-gray-500">· en las próximas ~${HZ_PROSA[h] || (h + ' días')}</span> ${cal}</p>
+               <p class="text-[10px] text-gray-400 leading-snug mt-1">${_vcEsc(p.summary)}</p></div></div>`;
 
     el.innerHTML = `
       <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
         <div class="flex gap-1.5">${tabs}</div>
-        <div class="flex items-center gap-2">
-          <span class="text-[10px] text-gray-400">Score <b class="text-white">${d.score}</b>/100 · ${_vcEsc(d.verdict)}</span>
-          <span class="text-[10px] text-gray-500">confianza ${p.confidence}</span>${cal}
-        </div>
+        <span class="text-[10px] text-gray-400">Score <b class="text-white">${d.score}</b>/100 · ${_vcEsc(d.verdict)}</span>
       </div>
-      <div class="grid grid-cols-3 gap-2">
+      ${veredicto}
+      ${p.caveat ? '' : `<div class="grid grid-cols-3 gap-2">
         ${card(p.bear, 'Bajista', 'text-red-400')}
         ${card(p.base, 'Base', 'text-blue-400')}
         ${card(p.bull, 'Alcista', 'text-emerald-400')}
-      </div>
-      <p class="text-[10px] text-gray-300 mt-2 leading-snug">${_vcEsc(p.summary)}</p>
-      ${p.caveat ? `<p class="text-[9px] text-amber-400 mt-1">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
+      </div>`}
       ${vcGexHTML(d)}
       ${vcScorecardHTML(d)}
       ${vcSubagentesHTML(d)}
@@ -3708,9 +3774,15 @@ function renderProjGammaPorStrike(d) {
                 legend: { display: false },
                 tooltip: { callbacks: { label: c => {
                     const n = nodes[c.dataIndex];
+                    // `trade_premium` y `trade_count` son la parte del nodo que
+                    // viene del TAPE, no de la cadena: cuánto dinero real se
+                    // negoció en ese strike y en cuántas operaciones. Es lo que
+                    // distingue un muro de open interest viejo de uno que se
+                    // está construyendo hoy, y se servía sin que nadie lo leyera.
                     return [`GEX neto ${fmtAbbr(n.net_gex)}`,
                             `calls ${fmtAbbr(n.call_gex)} · puts ${fmtAbbr(n.put_gex)}`,
-                            `concentración ${(n.concentration * 100).toFixed(0)}%`];
+                            `concentración ${(n.concentration * 100).toFixed(0)}%`,
+                            `tape: ${fmtAbbr(n.trade_premium)} en ${n.trade_count} operaciones`];
                 } } },
             },
             scales: {

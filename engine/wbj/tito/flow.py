@@ -55,6 +55,7 @@ __all__ = [
     "aggression_of",
     "classify_flow",
     "CLUSTER_WINDOW_SEC",
+    "CLUSTER_WINDOW_MS",
     "CLUSTER_MIN_COUNT",
     "CLUSTER_MIN_PREMIUM",
     "Cluster",
@@ -531,7 +532,14 @@ def classify_flow(raw: Iterable[dict[str, Any]], now: datetime) -> ClassifiedFlo
 # ---- Detección de racimos (acumulación de trades) -------------------------------
 
 #: Gap máximo entre trades para que sigan siendo el mismo racimo.
-CLUSTER_WINDOW_SEC = 5 * 60
+#:
+#: Su nombre y su valor, en milisegundos, porque en JS los timestamps son ms.
+#: El port trabaja en segundos —`datetime.timestamp()`— así que deriva el suyo
+#: de éste en vez de escribir el número dos veces: si él cambia la ventana, aquí
+#: cambia sola. Sin la constante con SU nombre, el cotejo automático de
+#: constantes de `auditar_tito.py` no la encuentra y la da por ausente.
+CLUSTER_WINDOW_MS = 5 * 60 * 1000
+CLUSTER_WINDOW_SEC = CLUSTER_WINDOW_MS // 1000
 #: Mínimo de trades para contar como racimo.
 CLUSTER_MIN_COUNT = 3
 #: Premium acumulado mínimo del racimo.

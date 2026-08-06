@@ -46,6 +46,8 @@ from .occ import market_date_str
 
 __all__ = [
     "data_dir",
+    "HISTORY_DAYS",
+    "IV_HISTORY_DAYS",
     "CHAIN_DAYS",
     "IV_DAYS",
     "JOURNAL_DAYS",
@@ -67,8 +69,13 @@ __all__ = [
 
 #: Ventanas que guarda cada serie, en días. Son las de Víctor.
 #: Los trades NO llevan ventana: `store.ts` recorta por cantidad (MAX_PER_TICKER).
-CHAIN_DAYS = 45      # chainStore: el documento pide 45 días de cadena
-IV_DAYS = 365        # ivStore: ventana de 52 semanas para el rank
+# Los nombres son los SUYOS (`HISTORY_DAYS` de chainStore.ts, `IV_HISTORY_DAYS`
+# de ivStore.ts). Los alias cortos se quedan porque este módulo fusiona cuatro
+# stores suyos y "HISTORY_DAYS" a secas no dice de cuál historia habla.
+HISTORY_DAYS = 45     # chainStore: el documento pide 45 días de cadena
+IV_HISTORY_DAYS = 365  # ivStore: ventana de 52 semanas para el rank
+CHAIN_DAYS = HISTORY_DAYS
+IV_DAYS = IV_HISTORY_DAYS
 JOURNAL_DAYS = 120   # predictionStore
 
 

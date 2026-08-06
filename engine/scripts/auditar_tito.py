@@ -1015,6 +1015,100 @@ chk("_tito_clusters(trades, now)" in API and "detect_clusters" in API,
     "`detect_clusters` CABLEADA: `flow_clusters` (su FlowPriceChart)")
 
 # ─────────────────────────────────────────────────────────────────────
+sec("9-quater. Cobertura de SUS módulos y SUS constantes")
+#
+# Dos preguntas que ninguna ronda anterior hizo:
+#   1. ¿hay algún `web/lib/*.ts` suyo que nadie portó NI declaró?
+#   2. ¿coincide el VALOR de cada constante numérica que él exporta?
+#
+# La segunda no se puede hacer a ojo: son 32 constantes repartidas en 13
+# archivos, y una sola mal copiada mueve un score sin que ningún test lo note
+# —los tests portados usan la constante, no el literal, así que un 60 escrito
+# como 6 pasaría verde en los dos lados—.
+MODULOS_SUYOS = {
+    # ── portados ──
+    "flow":            ("py", "flow.py — sub-agentes 1, 2 y 3 + racimos"),
+    "structure":       ("py", "structure.py — sub-agente 4"),
+    "ivcontext":       ("py", "ivcontext.py — sub-agente 5"),
+    "validation":      ("py", "validation.py — sub-agente 6"),
+    "prediction":      ("py", "prediction.py — Prediction Pro"),
+    "gex":             ("py", "gex.py"),
+    "gexHeatmap":      ("py", "gex_heatmap.py"),
+    "levels":          ("py", "levels.py"),
+    "risk":            ("py", "risk.py"),
+    "occ":             ("py", "occ.py"),
+    "blackScholes":    ("py", "black_scholes.py"),
+    "expectedMove":    ("py", "expected_move.py"),
+    "conditions":      ("py", "conditions.py"),
+    "compute":         ("py", "compute.py"),
+    "news":            ("py", "news.py"),
+    "massive":         ("py", "massive.py"),
+    "marketsnack":     ("py", "marketsnack.py"),
+    "store":           ("py", "stores.py — los cuatro stores fusionados"),
+    "chainStore":      ("py", "stores.py"),
+    "ivStore":         ("py", "stores.py"),
+    "predictionStore": ("py", "stores.py"),
+    "barsStore":       ("py", "bars_store.py"),
+    "types":           ("py", "los dataclasses de cada módulo"),
+    "chartGeometry":   ("js", "renderVictorProjChart en el panel — lo mide diff_geo.sh"),
+    # ── declarados: NO se portan, con su motivo ──
+    "wheel":           ("no", "de su /wheel: venta de puts cubiertos, otra estrategia"),
+    "wheelAfford":     ("no", "de su /wheel"),
+    "wheelUniverse":   ("no", "de su /wheel"),
+    "earnings":        ("no", "solo lo importa su /api/wheel, que no se porta"),
+    "watchlist":       ("no", "su watchlist; Vertex tiene la suya y es de Kevin"),
+    "watchlistLocal":  ("no", "idem, la copia en localStorage de su navegador"),
+    "watchlistStore":  ("no", "idem, la persistencia de su watchlist"),
+    "outboxStore":     ("no", "cola de salida de su /api/watchlist, que no se porta"),
+}
+_mods_portados = [k for k, v in MODULOS_SUYOS.items() if v[0] != "no"]
+chk(all(m for _, m in MODULOS_SUYOS.values()),
+    f"los {len(MODULOS_SUYOS)} módulos de su web/lib están declarados")
+chk(len(_mods_portados) == 24, f"{len(_mods_portados)} de sus módulos están portados")
+if TITO and (TITO / "lib").is_dir():
+    _suyos_lib = {f.stem for f in (TITO / "lib").glob("*.ts") if not f.stem.endswith(".test")}
+    _suyos_lib = {m for m in _suyos_lib if not m.endswith(".test")}
+    _faltan_m = sorted(_suyos_lib - set(MODULOS_SUYOS))
+    chk(not _faltan_m, f"el registro cubre su web/lib entero{': faltan ' + str(_faltan_m) if _faltan_m else ''}")
+    _fant_m = sorted(set(MODULOS_SUYOS) - _suyos_lib)
+    chk(not _fant_m, f"el registro no inventa módulos{': ' + str(_fant_m) if _fant_m else ''}")
+
+    # ── El cotejo de constantes, valor a valor ──
+    import importlib
+    _MAPA_PY = {k: v[1].split(".py")[0] for k, v in MODULOS_SUYOS.items() if v[0] == "py"}
+    _MAPA_PY = {"flow": "flow", "structure": "structure", "ivcontext": "ivcontext",
+                "validation": "validation", "risk": "risk", "prediction": "prediction",
+                "gex": "gex", "gexHeatmap": "gex_heatmap", "levels": "levels", "occ": "occ",
+                "blackScholes": "black_scholes", "expectedMove": "expected_move",
+                "conditions": "conditions", "compute": "compute", "news": "news",
+                "massive": "massive", "marketsnack": "marketsnack", "store": "stores",
+                "chainStore": "stores", "ivStore": "stores", "predictionStore": "stores",
+                "barsStore": "bars_store"}
+    _NUM = re.compile(r"^export const ([A-Z][A-Z0-9_]*)\s*=\s*([0-9_.*\s+-]+?);\s*(//.*)?$", re.M)
+    _aus, _dif, _igual = [], [], 0
+    for _ts, _py in _MAPA_PY.items():
+        _f = TITO / "lib" / f"{_ts}.ts"
+        if not _f.exists():
+            continue
+        _mod = importlib.import_module(f"wbj.tito.{_py}")
+        for _n, _expr, _ in _NUM.findall(_f.read_text(encoding="utf-8")):
+            try:
+                _suyo = eval(_expr.replace("_", ""))      # noqa: S307 — literal numérico suyo
+            except Exception:
+                continue
+            if not hasattr(_mod, _n):
+                _aus.append(f"{_ts}.{_n}={_suyo}")
+            elif abs(float(getattr(_mod, _n)) - float(_suyo)) > 1e-9:
+                _dif.append(f"{_ts}.{_n}: él {_suyo} · nosotros {getattr(_mod, _n)}")
+            else:
+                _igual += 1
+    chk(not _dif, f"las {_igual} constantes numéricas suyas valen lo mismo aquí"
+                  + (f" — DIFIEREN: {_dif}" if _dif else ""))
+    chk(not _aus, "ninguna constante exportada suya falta en el port"
+                  + (f": {_aus}" if _aus else ""))
+else:
+    print("  · define TITO_ROOT para cotejar módulos y constantes contra su repo")
+
 sec("9-ter. Cobertura de SUS componentes")
 #
 # La ronda 5 destapó el hueco más caro hasta ahora: el motor calculaba el
