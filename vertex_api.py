@@ -11,6 +11,7 @@ import threading
 import traceback
 import numpy as np
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, Request
@@ -74,6 +75,17 @@ async def _vertex_lifespan(app: FastAPI):
     nombre ya está resuelto para entonces.
     """
     _vertex_startup()
+    # El índice de tickers se cargaba perezosamente, con la PRIMERA búsqueda.
+    # Tarda 1,8 s, así que las primeras teclas del usuario caían a FMP: 750-1000
+    # ms por pulsación justo en el momento en que estrena la página. En Render,
+    # donde el servicio se duerme, ese arranque frío es lo primero que ve cada
+    # vez. Se dispara aquí, en segundo plano, para que esté listo antes de que
+    # dé tiempo a escribir la primera letra.
+    try:
+        _indice_actual()
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "no se pudo precalentar el indice de tickers", exc_info=True)
     yield
 
 
@@ -2189,6 +2201,14 @@ Especulacion del agente: si todo va como la comunidad espera, donde puede estar 
 
 
 _BUSQUEDA_CACHE = {}          # q -> (ts, resultados)
+#: Cuántos resultados locales bastan para NO bajar a la cola larga de FMP. Con
+#: el umbral en el cupo entero (8) casi cada tecla disparaba dos peticiones
+#: HTTP: 750-1000 ms por pulsación. Tres buenos candidatos locales ya ponen
+#: arriba lo que estás buscando; por debajo de eso FMP sí aporta.
+_MIN_LOCAL_PARA_NO_PREGUNTAR = 3
+#: Un autocompletado que tarda 12 s ya perdió la carrera contra la siguiente
+#: tecla y su respuesta se descarta por vieja. Mejor contestar con el índice.
+_TIMEOUT_BUSQUEDA_S = 2.5
 _INDICE = {"ts": 0.0, "filas": {}, "cargando": False}
 _INDICE_LOCK = threading.Lock()
 _FONDO_MUTUO = re.compile(r"^[A-Z]{4}X$")     # AGTHX, TESIX: 5 letras terminando en X
@@ -2295,24 +2315,44 @@ def buscar_tickers(q: str, limite: int = 8):
         if rango is not None:
             candidatos[s] = (rango, nombre, bolsa, cap)
 
-    # El índice cubre lo grande; FMP cubre la cola larga. Se consulta solo cuando
-    # hace falta, para no gastar una llamada por tecla si ya hay de sobra.
-    if len(candidatos) < limite:
+    # El índice cubre lo grande; FMP cubre la cola larga.
+    #
+    # Antes se preguntaba a FMP en cuanto el índice no llenaba el cupo de 8, y
+    # eso convertía casi cada tecla en DOS peticiones HTTP secuenciales. Medido:
+    # 750-1000 ms por tecla, 3,3 s para escribir "NVDA" — mientras que una "Z",
+    # que sí llenaba el cupo local, contestaba en 11 ms. El autocompletado no
+    # necesita ocho resultados para ser útil: necesita que el que buscas esté
+    # arriba. Ahora sólo se baja a la cola larga cuando el índice se queda de
+    # verdad corto, que es cuando FMP aporta algo (ADRs, small caps, símbolos
+    # recién listados).
+    if len(candidatos) < _MIN_LOCAL_PARA_NO_PREGUNTAR:
         clave = (os.environ.get("FMP_API_KEY") or "").strip()
         if not clave and not indice:
             raise HTTPException(status_code=503,
                                 detail="Búsqueda no disponible: falta FMP_API_KEY.")
-        for ruta in ("search-symbol", "search-name"):
-            if not clave:
-                break
+
+        def _consultar(ruta: str) -> list:
+            # 12 s de timeout no tenían sentido aquí: a los 12 s el usuario ya
+            # escribió tres letras más y esta respuesta se descarta por vieja.
+            # Más vale contestar sólo con el índice local que hacer esperar.
             try:
                 r = requests.get(f"https://financialmodelingprep.com/stable/{ruta}",
                                  params={"query": termino, "limit": 50, "apikey": clave},
-                                 timeout=12)
+                                 timeout=_TIMEOUT_BUSQUEDA_S)
                 filas = r.json() if r.status_code == 200 else []
             except Exception:
                 filas = []
-            for f in (filas if isinstance(filas, list) else []):
+            return filas if isinstance(filas, list) else []
+
+        # Las dos rutas van A LA VEZ. Eran secuenciales y sumaban sus latencias
+        # sin necesidad: ninguna depende del resultado de la otra.
+        respuestas: list[list] = []
+        if clave:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                respuestas = list(pool.map(_consultar, ("search-symbol", "search-name")))
+
+        for filas in respuestas:
+            for f in filas:
                 if not isinstance(f, dict):
                     continue
                 s = (f.get("symbol") or "").upper().strip()
