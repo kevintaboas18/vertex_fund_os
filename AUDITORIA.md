@@ -2885,3 +2885,265 @@ Y de paso, lo que Kevin pedía sobre el plazo: el selector lleva el rótulo
 **"Horizonte"**, el bloque dice **"Targets a N días (Esta semana / 2 semanas /
 1 mes) · desde $X"**, y cada card repite **"a N días"** — un `$180` suelto no
 puede quedarse sin fecha.
+
+---
+
+# 41. Las cuatro pestañas de Víctor, dentro de Proyecciones (2026-08-06)
+
+Kevin: *"dentro de proyecciones aún no me das el tab de Ticker, Ideas, Wheel y
+Time & Sales"*. Tenía razón: iban dos de cuatro, y sin su navegación.
+
+## 41.1 Lo que faltaba
+
+Su `NavTabs.tsx` declara cuatro vistas. En su app son cuatro páginas
+(`/`, `/ideas`, `/wheel`, `/flow`); aquí son cuatro paneles del mismo tab, con
+el mismo orden y los mismos iconos.
+
+| Pestaña | Estaba | Ahora |
+|---|---|---|
+| 📈 **Ticker** | sí, pero mezclada con Ideas | panel propio |
+| 💡 **Ideas** | sí (ronda anterior) | panel propio |
+| 🎡 **Wheel** | **no** | `/api/tito-wheel` + `renderProjWheel` |
+| ⚡ **Time & Sales** | **no** | `/api/tito-tape` + `renderProjTape` |
+
+## 41.2 Wheel — 1.100 líneas suyas portadas
+
+Cuatro módulos nuevos, todos literales:
+
+- **`wheel.py`** — presets, cascada de prima, salvaguarda de liquidez, métricas
+  y el score 0-100 (rendimiento 30 · IV Rank 20 · colchón 25 · liquidez 15 ·
+  earnings 10).
+- **`wheel_universe.py`** — sus **40 símbolos curados** con su tier y su razón,
+  más `afford_of` / `sort_by_afford_then_score` de `wheelAfford.ts`.
+- **`earnings.py`** — el estimador del próximo reporte por cadencia de
+  `filing_date` (~91 días), porque el plan de Massive no trae calendario.
+- **`massive.fetch_wheel_chain`** — cadena de puts acotada al DTE del preset,
+  anclada al día de mercado **ET** y filtrada a **OTM** (un put ITM no es un
+  cash-secured put de Wheel: es otra cosa).
+
+**Dos cosas de este motor se leen al revés que el resto del agente**, y lo
+escribe él:
+
+- La banda de **IV Rank está invertida** respecto al sub-agente 5. Allí el pico
+  está en 16-30 porque el agente **compra** y quiere vega barata; la Wheel
+  **vende** y quiere la volatilidad cara. Hay un test que lo fija en las dos
+  direcciones a la vez.
+- Un **rendimiento anualizado alto se castiga** (>60% → 10/30). Un screener que
+  ordena por prima pone arriba justo las acciones a punto de desplomarse.
+
+**Lo que NO viaja:** su `wheelAfford.ts` corre en el cliente porque el saldo
+vive en localStorage. La ruta sirve el **colateral** de cada candidato; quién
+puede pagarlo lo decide quien tenga el saldo delante. Hay un test que registra
+el JSON entero buscando `affordable`, `shortfall`, `account_size` y `cash`.
+
+## 41.3 Time & Sales
+
+`/api/tito-tape` — la cinta cruda ya clasificada por los sub-agentes 1-3. A
+diferencia del scorecard, **no agrega nada**: cada operación con su hora, su
+lado de ejecución, su premium, sus griegos, su puntaje de inusualidad y las
+cinco marcas (repetido, multileg, sobre el ask, bajo el bid, volumen > OI).
+
+## 41.4 Carga bajo demanda
+
+Entrar a Proyecciones **no dispara cuatro escaneos**. Entre Wheel (40 tickers ×
+2 llamadas a Massive) e Ideas (el mercado entero) sería quemar la cuota de
+golpe. Cada pestaña carga la primera vez que se abre, y el buscador de ticker
+se esconde en Ideas y Wheel — que escanean el mercado entero, y un cuadro de
+símbolo ahí promete un filtro que no existe.
+
+## 41.5 Lo que destapó la auditoría al cerrar
+
+El registro de huérfanas falló, y bien:
+
+- `bs_delta`, `implied_vol` y `cached_daily_bars` estaban declaradas como *"solo
+  las llama su wheel.ts, que no se porta"*. **Ya no**: ahora las llama el port.
+- Aparecieron dos nuevas sin declarar. `sort_by_afford_then_score` es del
+  cliente (el saldo). `atm_iv` **está huérfana en su propio repo**: la exporta y
+  no la usa ni su `/api/wheel` ni su `wheel/page.tsx` — el escaneo saca su IV de
+  respaldo de la volatilidad **realizada**, no de la IV del strike ATM.
+
+Y el guardián de redondeo cazó un `round()` de Python en `wheel.py` que debía
+ser `js_round`: una fuerza de soporte de 34.5 se habría leído **34** aquí y
+**35** en su pantalla — el mismo soporte, descrito con dos números.
+
+## 41.6 Estado
+
+```
+2.721 tests del engine · 231 de la capa web · 277 checks · 0 fallos
+28 de sus 32 módulos portados · 34 constantes numéricas idénticas
+27 de sus 39 componentes con consumidor
+```
+
+## 41.7 Las pestañas no funcionaban, y el refresco pasa a ser continuo
+
+Kevin, probándolo: *"cuando presiono ideas, wheel o time and sales no me sale
+nada y sale todo como el fondo. Y se van las opciones de elegir otra opción"*.
+
+### El fallo: anidado
+
+`projNav` y los tres paneles nuevos quedaron **dentro** de `projPaneTicker`.
+Al abrir Ideas se ocultaba el padre — y con él la navegación, los otros tres
+paneles y todo lo demás. Pantalla en negro y sin forma de volver.
+
+Fue mío, del commit anterior: metí los paneles con un reemplazo de texto sobre
+un ancla que ya estaba dentro del panel Ticker, y ningún test miraba la
+**profundidad** del DOM. Ahora hay uno que la mide y exige que los cuatro
+paneles sean hermanos y que ni la navegación ni el buscador cuelguen de ellos.
+
+### Y de paso, su cabecera de verdad
+
+Su `HeaderBar.tsx` lleva `<NavTabs />` **dentro**, en este orden:
+
+```
+marca → NavTabs → tickers rápidos → buscador
+```
+
+Por eso en su app la navegación no desaparece nunca: vive en la barra de
+arriba, no en un panel. Reconstruida con ese orden, que además responde a lo
+otro que pedía Kevin — *"quiero que me salgan las opciones junto a poner un
+ticker"*: es exactamente donde él las tiene.
+
+### En vivo, sin botones
+
+Fuera el botón de recargar y la casilla "auto". Con una precisión que hay que
+decir en voz alta: **"tiempo real" no es posible aquí, y no por vagancia.**
+
+- **Massive** — REST. Snapshots de cadena, barras y precio. Sin websocket.
+- **MarketSnack** — REST. `/api/flow_feed` paginado. Sin websocket.
+- **Su propia app no refresca nada**: cero `setInterval`, cero sockets,
+  verificado sobre las cuatro páginas. Una búsqueda, una foto.
+
+Lo máximo que dan las dos APIs es **sondeo**, y eso es lo que hay. Por eso el
+indicador enseña la **hora del dato** (*"en vivo · hace 12s"*) en vez de un
+punto verde perpetuo: un punto verde sin hora prometería streaming.
+
+Tres reglas para que sondear no queme la cuota:
+
+| Regla | Por qué |
+|---|---|
+| Solo la pestaña **activa** | las otras tres se quedan con su foto hasta que vuelvas |
+| Solo con la pestaña del navegador **visible** | sondear en segundo plano gasta cuota para nadie |
+| Cadencia de **15 minutos** para las cuatro | decisión de Kevin, y encaja con la fuente |
+
+**Por qué 15 y no menos.** Los planes de datos de Massive sirven la cotización
+con hasta 15 minutos de retraso. Sondear más rápido no trae dato nuevo: trae el
+**mismo** dato otra vez y gasta cuota. El tooltip del indicador lo explica ahí
+mismo, para que 15 minutos no se lea como lentitud del panel.
+
+Conviene tener el número de la pestaña más cara: **Wheel son 40 tickers × 2
+llamadas a Massive**, ~80 por barrido, ~320 en una hora si te quedas mirándola.
+Las otras tres van de 1 a 3 llamadas. Como solo se refresca la pestaña ACTIVA y
+solo con el navegador visible, ese techo únicamente se toca si dejas Wheel
+abierta.
+
+Con el mercado cerrado todo baja a **3600s**: el dato no cambia en 16 horas,
+pero la vista despierta sola cerca de la apertura sin haber estado pidiendo
+datos idénticos toda la noche.
+
+## 41.8 El tab no se armaba al entrar por el menú
+
+Kevin mandó una captura de cómo debe verse —marca, las cuatro pestañas, los
+tickers rápidos y el buscador— y dijo: *"no quiero que cuando presione
+proyecciones salga solo entrar el ticker"*.
+
+**La causa:** la inicialización que pinta todo eso (`vcPintaNav`,
+`vcPintaQuick`, `vcAbreTab`, `vcArrancaVivo`) colgaba de **`cmdKey`, la barra
+de comandos (Cmd+K)**. Entrando por el menú —que es como se entra— no la
+llamaba nadie: quedaba el DOM crudo, con `projNav` y `projQuick` vacíos, y el
+único texto visible era *"Analiza un ticker"*. Todo el trabajo estaba hecho y
+sin llamador.
+
+Es el mismo patrón que la auditoría lleva seis rondas persiguiendo —código
+portado que nadie ejecuta— pero en el lado del navegador, donde el registro de
+huérfanas no llega.
+
+**Resuelto:** la inicialización vive ahora en `switchView`, por donde pasan las
+**cuatro** entradas al tab (menú de escritorio, dos del menú móvil vía
+`mobileGo`, y el atajo desde el reporte). Y es idempotente: entrar diez veces
+no relanza diez escaneos ni deja diez temporizadores.
+
+Cuatro tests nuevos lo fijan, incluido uno que prohíbe que nadie le quite el
+`hidden` al tab a mano sin pasar por `switchView` — que es justo el atajo que
+volvería a dejar el DOM crudo.
+
+## 41.9 Auditoría del área de Wheel — «0 de 40 · 40 sin cadena»
+
+Kevin mandó la captura: los **40** símbolos caídos. Cuarenta de cuarenta no es
+el mercado, es algo sistemático.
+
+### Fallo 1 (segunda vuelta) — faltaba el TERCER eslabón del spot
+
+`fetch_wheel_chain` saca el precio de `underlying_asset.price` **de la cadena
+de opciones**. La ronda 6 destapó justamente que ese campo no es fiable en esta
+cuenta —por eso el tab de Ticker pide el precio al snapshot del subyacente— y
+en Wheel se había quedado como fuente **única**. Si Massive lo omite:
+
+```
+chain.spot is None  →  los 40 al contador de fallos
+```
+
+El primer intento le puso `fetch_company` de respaldo. **No bastó**, y el
+propio desglose del fallo 2 lo destapó a la primera:
+
+```
+40  sin precio del subyacente
+    SPY: ni la cadena ni el snapshot del subyacente trajeron precio
+```
+
+O sea: en esta cuenta **`fetch_company` tampoco responde**. Su `page.tsx`
+resuelve el spot con **tres** eslabones, no dos:
+
+```
+company?.price ?? chainMeta?.underlyingPrice ?? bars[last].close
+```
+
+Faltaba el tercero — y es justo el que nunca falla, porque las barras ya se
+descargan aquí para los niveles y el IV Rank: **el último cierre sale gratis**.
+Reordenado el worker para bajar las barras antes del spot.
+
+Y `fetch_company` **sale** de este escaneo: son 40 peticiones extra cada 15
+minutos a un endpoint que en esta cuenta no responde. Donde sí compensa —el tab
+de Ticker, UNA petición— se mantiene su precedencia entera. Para strikes a
+30-45 días, una fracción de punto en el spot no mueve la banda de delta.
+
+**Reproducido el escenario exacto de Kevin** —cadena sin `underlying_asset` y
+snapshot devolviendo 403— y da **40/40**.
+
+> **Hallazgo colateral, y no menor:** que `fetch_company` no responda significa
+> que el tab de **Ticker** lleva tiempo usando su segundo eslabón (el precio de
+> la cadena) sin decirlo. Funciona, pero no con el mejor precio disponible. El
+> check `massive.snapshot` de `/api/tito-health` existe precisamente para ver
+> esto.
+
+### Fallo 2 — un contador para tres desenlaces, con la etiqueta equivocada
+
+*"40 sin cadena"* juntaba tres cosas que se arreglan de forma distinta:
+
+| Lo que pasó | Qué hay que hacer |
+|---|---|
+| la fuente rechazó (401/403/filtros) | mirar la cuenta o el plan |
+| la cadena vino vacía de verdad | nada, ese papel no tiene puts ahí |
+| cadena llena, ningún strike en la banda de delta | **cambiar de preset** |
+
+El tercero **ni siquiera es un fallo**: es el preset diciendo que no hay nada de
+su gusto en ese papel. Rotularlo "sin cadena" mandaba a revisar la API cuando
+había que tocar un botón.
+
+Ahora hay seis motivos con nombre, su conteo y **un ejemplo real de cada uno**
+—que es lo que dice si el 403 es del plan o de los filtros—, con el mismo
+contrato que el desglose de rechazos del screener de Ideas.
+
+### Fallo 3 — carrera entre hilos
+
+El worker mutaba `fallidos` y `todos` desde los **6 hilos** del pool. Un
+`contador += 1` concurrente pierde cuentas en silencio, y ese contador es justo
+lo que se enseña en pantalla. Ahora cada hilo **devuelve** su resultado y la
+suma se hace fuera, en un solo hilo.
+
+### Lo verificado y sano
+
+- La ventana de DTE se calcula bien: día de mercado **ET** + 30/45 días.
+- El motor puro corre entero sin lanzar, con la capa HTTP doblada.
+- Los tres presets llevan sus bandas literales, y el score castiga el anualizado
+  >60% e invierte la banda de IV Rank respecto al sub-agente 5.
+- El saldo del usuario sigue sin viajar.

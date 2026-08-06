@@ -1,6 +1,7 @@
 import os
 import sys
 import hashlib
+import concurrent.futures
 import json
 import logging
 import math
@@ -4269,6 +4270,294 @@ def tito_ideas():
         "saved_tickers": guardados, "rejected": rechazos,
         "min_premium": _IDEAS_MIN_PREMIUM, "moneyness_cap": MONEYNESS_CAP,
         "period": _IDEAS_PERIOD, "generated_at": now.isoformat(),
+    })
+
+
+#: Concurrencia del escaneo Wheel — su `CONCURRENCY`. Cada ticker son dos
+#: llamadas a Massive (cadena + financials); sin tope, 40 símbolos en paralelo
+#: se comen la cuota de un tirón.
+_WHEEL_CONCURRENCY = 6
+
+
+@app.get("/api/tito-wheel")
+def tito_wheel(preset: str = "balanceado"):
+    """Screener de la **Wheel** — su `/api/wheel`.
+
+    Vender *cash-secured puts* sobre su universo curado de 40 símbolos. Por cada
+    uno: cadena de puts acotada al DTE del preset, niveles del precio, IV Rank
+    propio (proxy de volatilidad realizada, porque no hay serie de IV por
+    ticker) y el flag de earnings. Después, `wheel_candidates` decide.
+
+    Dos cosas de este motor se leen **al revés** que el resto del agente, y no
+    es un error de copia — lo escribe él:
+
+    - La banda de IV Rank está **invertida** respecto al sub-agente 5. Ahí el
+      pico está en 16-30 porque el resto del agente COMPRA opciones y quiere
+      vega barata; la Wheel VENDE y quiere la volatilidad cara.
+    - Un rendimiento anualizado alto se **castiga**. Un screener que ordena por
+      prima pone arriba justo las acciones a punto de desplomarse.
+
+    **La asequibilidad no se calcula aquí.** Su `wheelAfford.ts` corre en el
+    cliente porque el saldo vive en localStorage y no llega al servidor. Esta
+    ruta devuelve el colateral de cada candidato; quién puede pagarlo es cosa
+    de quien tenga el saldo delante.
+    """
+    sc = _tito_mod()
+    if sc is None:
+        return {"ok": False, "error": "Motor de Víctor no disponible (engine/wbj/tito)."}
+    from wbj.tito.bars_store import cached_daily_bars
+    from wbj.tito.earnings import earnings_for_ticker
+    from wbj.tito.ivcontext import rank_within, realized_vol_series
+    from wbj.tito.levels import LvlBar, find_levels
+    from wbj.tito.massive import MassiveError, fetch_wheel_chain
+    from wbj.tito.wheel import WHEEL_PRESETS, CandidatesInput, wheel_candidates
+    from wbj.tito.wheel_universe import WHEEL_UNIVERSE
+
+    p = WHEEL_PRESETS.get(preset if preset in WHEEL_PRESETS else "balanceado")
+    now = datetime.now(timezone.utc)
+    todos, fallidos, pasos = [], 0, []
+
+    def _uno(sym):
+        """Un ticker. Devuelve (candidatos, motivo) — **sin tocar estado
+        compartido**: corren 6 hilos y un `contador += 1` desde varios pierde
+        cuentas en silencio.
+
+        El motivo importa tanto como los candidatos. La versión anterior metía
+        tres desenlaces muy distintos en el mismo contador y los rotulaba todos
+        "sin cadena": un 403 del plan, una cadena vacía de verdad y un ticker
+        con cadena llena cuyos strikes no caen en la banda de delta del preset
+        se veían idénticos en pantalla. Con 40 de 40 fallando, eso no dejaba
+        forma de saber si el problema era la cuenta, el mercado o el filtro.
+        """
+        try:
+            chain = fetch_wheel_chain(sym.ticker, p.dte_min, p.dte_max, now=now)
+        except MassiveError as e:
+            return [], ("fuente", str(e))
+        except Exception as e:                   # noqa: BLE001 — un ticker no tumba el escaneo
+            return [], ("error", f"{type(e).__name__}: {e}")
+
+        if not chain.quotes:
+            return [], ("sin_cadena",
+                        f"sin puts entre {p.dte_min} y {p.dte_max} días")
+
+        # Las barras van ANTES que el spot: hacen falta igual para los niveles
+        # y el IV Rank, y su último cierre es el respaldo que nunca falla.
+        try:
+            bars = cached_daily_bars(sym.ticker, 365, now)
+        except MassiveError as e:
+            return [], ("fuente", str(e))
+        except Exception as e:                   # noqa: BLE001
+            return [], ("error", f"{type(e).__name__}: {e}")
+        if not bars:
+            return [], ("sin_barras", "Massive no devolvió barras diarias")
+
+        # ── El SPOT, con la cadena de respaldo COMPLETA ──────────────────
+        #
+        # Su `page.tsx` lo resuelve así:
+        #
+        #     company?.price ?? chainMeta?.underlyingPrice ?? bars[last].close
+        #
+        # Aquí faltaba el TERCER eslabón, que es justo el que nunca falla: las
+        # barras ya están descargadas, así que el último cierre sale gratis.
+        # Sin él, un plan de Massive que no devuelva `underlying_asset.price`
+        # en la cadena tumbaba los 40 símbolos de golpe.
+        #
+        # `fetch_company` NO se llama en este escaneo, y es deliberado: son 40
+        # símbolos, o sea 40 peticiones extra cada 15 minutos, y el diagnóstico
+        # demostró que en esta cuenta ese endpoint no responde. Donde sí
+        # compensa —el tab de Ticker, UNA petición— se mantiene su precedencia
+        # entera. Para strikes a 30-45 días, una fracción de punto en el spot
+        # no mueve la banda de delta.
+        spot = chain.spot
+        if not isinstance(spot, (int, float)) or isinstance(spot, bool) or spot <= 0:
+            spot = bars[-1].close
+        if not isinstance(spot, (int, float)) or isinstance(spot, bool) or spot <= 0:
+            return [], ("sin_precio",
+                        "ni la cadena ni el último cierre dieron un precio utilizable")
+        # Solo puts OTM. `fetch_wheel_chain` filtra cuando la cadena trae su
+        # propio spot; si el precio vino de las barras, ese filtro no se aplicó.
+        if chain.spot is None:
+            chain.quotes = [q for q in chain.quotes if q.strike <= spot]
+            if not chain.quotes:
+                return [], ("sin_cadena", f"sin puts OTM bajo ${spot:.2f}")
+
+        try:
+            lvl = [LvlBar(time=b.time, high=b.high, low=b.low, close=b.close) for b in bars]
+            niveles = find_levels(bars=lvl, spot=spot, now=now)
+
+            # IV Rank propio: proxy de volatilidad realizada. No hay serie de IV
+            # por ticker en este escaneo, así que se mide la volatilidad que el
+            # precio REALIZÓ contra su propio año.
+            rv = realized_vol_series([b.close for b in bars], 30)
+            actual = rv[-1] if rv else None
+            iv_rank = rank_within(rv, actual) if actual is not None else None
+
+            # Earnings sobre el vencimiento más cercano de la ventana.
+            # `front_skew=None` a propósito: este escaneo no computa el
+            # sub-agente 5 por ticker, así que "dentro_confirmado" hoy nunca
+            # dispara. Es su limitación, declarada en `earnings.py`.
+            cerca = min(chain.quotes, key=lambda q: q.dte).expiration
+            flag = earnings_for_ticker(sym.ticker, cerca, None, now)
+
+            cands = wheel_candidates(CandidatesInput(
+                ticker=sym.ticker, spot=spot, quotes=chain.quotes, preset=p,
+                iv_rank=iv_rank, supports=niveles.supports, earnings=flag,
+                fallback_iv=(actual / 100) if actual is not None else 0.4))
+        except Exception as e:                   # noqa: BLE001
+            return [], ("error", f"{type(e).__name__}: {e}")
+
+        if not cands:
+            # La cadena estaba, pero NINGÚN strike cae en la banda de delta del
+            # preset. No es un fallo: es el preset diciendo que no hay nada de
+            # su gusto en ese papel. Confundirlo con "sin cadena" mandaba a
+            # revisar la API cuando había que cambiar de preset.
+            return [], ("fuera_de_banda",
+                        f"{len(chain.quotes)} puts, ninguno con delta "
+                        f"{p.delta_min}-{p.delta_max}")
+        return cands, None
+
+    # `mapLimit(WHEEL_UNIVERSE, CONCURRENCY, …)` — el mismo tope en vuelo.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=_WHEEL_CONCURRENCY) as ex:
+        resultados = list(ex.map(_uno, WHEEL_UNIVERSE))
+
+    _MOTIVO = {
+        "fuente":         "la fuente rechazó la petición",
+        "error":          "error inesperado",
+        "sin_precio":     "sin precio del subyacente",
+        "sin_cadena":     "sin puts en la ventana de DTE",
+        "sin_barras":     "sin barras diarias",
+        "fuera_de_banda": "cadena OK, pero ningún strike en la banda de delta",
+    }
+    motivos, ejemplos = {}, {}
+    for sym, (cands, motivo) in zip(WHEEL_UNIVERSE, resultados):
+        todos.extend(cands)
+        if motivo:
+            clave, detalle = motivo
+            motivos[clave] = motivos.get(clave, 0) + 1
+            ejemplos.setdefault(clave, f"{sym.ticker}: {detalle}")
+            pasos.append(f"{sym.ticker}: {detalle}")
+        else:
+            pasos.append(f"{sym.ticker}: {sum(1 for c in cands if not c.blocked)} candidatos")
+    fallidos = sum(motivos.values())
+
+    todos.sort(key=lambda c: (c.blocked, -(c.score.total if c.score else 0)))
+
+    def _parte(x):
+        return {"points": x.points, "max": x.max, "band": x.band, "why": x.why}
+
+    def _fila(c):
+        m, sc_ = c.metrics, c.score
+        return {
+            "ticker": c.ticker, "strike": c.strike, "expiration": c.expiration,
+            "dte": c.dte, "spot": _r(c.spot), "delta": _r(c.delta, 3),
+            "iv": _r(c.iv, 4), "iv_source": c.iv_source,
+            "open_interest": c.open_interest, "spread_pct": _r(c.spread_pct, 1),
+            "blocked": c.blocked, "block_reason": c.block_reason,
+            "premium": None if c.premium is None else {
+                "price": _r(c.premium.price), "source": c.premium.source,
+                "raw": _r(c.premium.raw)},
+            "metrics": None if m is None else {
+                "credit": _r(m.credit), "collateral": _r(m.collateral),
+                "return_pct": _r(m.return_pct, 2), "annualized_pct": _r(m.annualized_pct, 1),
+                "breakeven": _r(m.breakeven), "cushion_pct": _r(m.cushion_pct, 1),
+                "prob_expire_worthless": _r(m.prob_expire_worthless, 1)},
+            "score": None if sc_ is None else {
+                "total": sc_.total, "annualized": _parte(sc_.annualized),
+                "iv_rank": _parte(sc_.iv_rank), "cushion": _parte(sc_.cushion),
+                "liquidity": _parte(sc_.liquidity), "earnings": _parte(sc_.earnings)},
+        }
+
+    con_candidatos = len({c.ticker for c in todos if not c.blocked})
+    return _json_safe({
+        "ok": True, "engine": "victor/tito",
+        "candidates": [_fila(c) for c in todos[:120]],
+        "preset": p.label, "preset_id": p.id, "preset_explain": p.explain,
+        "presets": [{"id": q.id, "label": q.label, "explain": q.explain,
+                     "delta_min": q.delta_min, "delta_max": q.delta_max,
+                     "dte_min": q.dte_min, "dte_max": q.dte_max,
+                     "take_profit_pct": q.take_profit_pct, "roll_dte": q.roll_dte}
+                    for q in WHEEL_PRESETS.values()],
+        "scanned": len(WHEEL_UNIVERSE), "failed": fallidos,
+        "with_candidates": con_candidatos,
+        # El desglose de POR QUÉ se cayó cada ticker, con un ejemplo real de
+        # cada motivo. Es el mismo contrato que el screener de Ideas: sin esto,
+        # "0 de 40" y "el mercado no ofrece nada" se ven igual en pantalla.
+        "rejected": [{"motivo": k, "que_significa": _MOTIVO.get(k, k),
+                      "tickers": v, "ejemplo": ejemplos.get(k, "")}
+                     for k, v in sorted(motivos.items(), key=lambda x: -x[1])],
+        # Su `degraded`: más de la mitad del universo caído. El escaneo devuelve
+        # algo, pero decir "estos son los mejores" con medio universo sin mirar
+        # sería mentir por omisión.
+        "degraded": fallidos > len(WHEEL_UNIVERSE) / 2,
+        "generated_at": now.isoformat(),
+    })
+
+
+@app.get("/api/tito-tape")
+def tito_tape(ticker: str, period: str = "5d", min_premium: float = 100_000):
+    """Time & Sales de un ticker — su `/flow`.
+
+    Es la cinta cruda ya clasificada por los sub-agentes 1-3: cada operación con
+    su lado de ejecución, su premium, sus griegos y su puntaje de inusualidad.
+    A diferencia del scorecard, aquí **no se agrega nada**: se ve el flujo tal
+    como entró, que es justo para lo que sirve esta pestaña.
+    """
+    sc = _tito_mod()
+    if sc is None:
+        return {"ok": False, "error": "Motor de Víctor no disponible (engine/wbj/tito)."}
+    from wbj.tito.flow import aggression_score, classify_flow
+    from wbj.tito.marketsnack import MarketSnackError, fetch_flow
+
+    tk, err = _tito_ticker(ticker)
+    if err:
+        return {"ok": False, "error": err}
+    now = datetime.now(timezone.utc)
+    try:
+        res = fetch_flow(tk, period=period, min_premium=min_premium, max_pages=6)
+    except MarketSnackError as e:
+        return {"ok": False, "error": _error_de_fuente(e, "Cinta de MarketSnack"),
+                "source": "marketsnack"}
+    except Exception as e:                       # noqa: BLE001 — se reporta, no se traga
+        return {"ok": False, "error": _error_publico(e, "Cinta"), "source": "motor"}
+
+    try:
+        flow = classify_flow(res.trades, now)
+        agg = aggression_score(flow.interesting)
+    except Exception as e:                       # noqa: BLE001 — el port lanza donde él
+        return {"ok": False, "error": f"{type(e).__name__}: {e}", "source": "motor"}
+
+    def _fila(t):
+        return {
+            "id": t.id, "symbol": t.symbol, "underlying": t.underlying,
+            "type": t.type, "strike": t.strike, "expiration": t.expiration,
+            "dte": t.dte, "price": t.price, "size": t.size,
+            "premium": t.premium, "aggression": t.aggression, "side": t.side,
+            "bid": t.bid, "ask": t.ask, "delta": t.delta, "gamma": t.gamma,
+            "theta": t.theta, "vega": t.vega, "iv": t.iv,
+            "open_interest": t.open_interest, "volume": t.volume,
+            "timestamp": t.timestamp, "expiry_status": t.expiry_status,
+            "unusual": t.unusual, "unusual_score": getattr(t.scores, "total", 0),
+            "repeated": bool(getattr(t.flags, "repeated", False)),
+            "multileg": bool(getattr(t.flags, "multileg", False)),
+            "above_ask": bool(getattr(t.flags, "above_ask", False)),
+            "below_bid": bool(getattr(t.flags, "below_bid", False)),
+            "exceeded_oi": bool(getattr(t.flags, "exceeded_oi", False)),
+            "condition_name": t.condition_name,
+        }
+
+    filas = sorted(flow.interesting,
+                   key=lambda t: t.premium if isinstance(t.premium, (int, float)) else 0,
+                   reverse=True)[:120]
+    return _json_safe({
+        "ok": True, "engine": "victor/tito", "ticker": tk,
+        "trades": [_fila(t) for t in filas],
+        "notable": len(flow.interesting), "total": len(flow.rows),
+        "pages": res.pages, "truncated": res.truncated,
+        "period": period, "min_premium": min_premium,
+        "aggression": {"score": agg.score, "ratio": _r(agg.ratio, 4),
+                       "premium_ask": agg.premium_ask, "premium_bid": agg.premium_bid,
+                       "premium_mid": agg.premium_mid, "n": agg.n},
+        "generated_at": now.isoformat(),
     })
 
 

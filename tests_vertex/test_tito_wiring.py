@@ -12,6 +12,7 @@ verifica es el CABLEADO, no los datos.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import os
@@ -38,6 +39,47 @@ def client():
     import vertex_api as V
 
     return TestClient(V.app)
+
+
+@pytest.fixture
+def wheel_dobles(monkeypatch):
+    """Cadena de puts + barras + filings, sin tocar red."""
+    import wbj.tito.bars_store as BS
+    import wbj.tito.earnings as EA
+    import wbj.tito.massive as MASS
+    from wbj.tito.massive import DailyBar, WheelChainQuote, WheelChainResult
+
+    def chain(t, dmin, dmax, now=None, **k):
+        spot, q = 100.0, []
+        for s in range(70, 101, 5):
+            # Bid/ask coherentes con una IV del 35%: si no, la bisección da
+            # deltas fuera de la banda del preset y no sale ningún candidato.
+            from wbj.tito.black_scholes import bs_price
+            px = bs_price(spot, float(s), 38 / 365, 0.35, "put")
+            q.append(WheelChainQuote(strike=float(s), expiration="2026-09-18", dte=38,
+                                     bid=round(px * 0.97, 2), ask=round(px * 1.03, 2),
+                                     last_trade=None, open_interest=600))
+        return WheelChainResult(spot=spot,
+                                quotes=[x for x in q if dmin <= x.dte <= dmax])
+
+    def barras(t, days=365, now=None, **k):
+        out, seed = [], 7
+        for i in range(300):
+            seed = (seed * 1103515245 + 12345) % 2147483648
+            c = 92 + i * 0.02 + 7 * math.sin(i / 19) + (seed / 2147483648 - 0.5) * 1.4
+            out.append(DailyBar((NOW - timedelta(days=300 - i)).date().isoformat(),
+                                c, c + 1.5, c - 1.5, c))
+        # El último cierre ES el spot de la cadena doblada. Sin anclarlo, el
+        # respaldo por barras devuelve un precio distinto al de la cadena y la
+        # banda de delta se desplaza — el escenario que se prueba dejaría de
+        # ser "la cadena no trajo precio" y pasaría a ser "otro papel".
+        out[-1] = DailyBar(out[-1].time, 100.0, 101.5, 98.5, 100.0)
+        return out
+
+    monkeypatch.setattr(MASS, "fetch_wheel_chain", chain)
+    monkeypatch.setattr(BS, "cached_daily_bars", barras)
+    monkeypatch.setattr(EA, "fetch_filing_dates",
+                        lambda t, **k: ["2026-05-01", "2026-02-01", "2025-11-01"])
 
 
 @pytest.fixture
@@ -751,19 +793,100 @@ class TestElTabEsSoloDeVictor:
 
     def test_esta_su_cabecera_y_el_tab_no_exige_ticker(self):
         """Su app tiene cuatro pestañas y solo una —el dashboard— pide símbolo.
-        La de *Ideas* escanea el mercado entero sin que escribas nada. Aquí las
-        dos conviven: sin ticker manda Ideas, con ticker manda el scorecard."""
+        La de *Ideas* escanea el mercado entero sin que escribas nada, y el
+        vacío del panel Ticker apunta a ella."""
         dom = self._dom()
-        assert "Tito Metralleta" in dom and "AI Options Agent" in dom
-        assert "Ideas del mercado" in dom
-        assert "no hace falta escribir nada" in dom
+        # Sin logo ni nombre propio: la marca de la pantalla es Vertex, que ya
+        # está arriba. Queda la etiqueta de qué es esto.
+        assert "AI Options Agent" in dom
+        assert "Tito Metralleta" not in dom
+        assert "Analiza un ticker" in dom          # su copy, para el panel Ticker
+        assert "escanea el mercado entero y no pide nada" in dom
         assert 'id="projIdeas"' in dom
+
+    def test_la_navegacion_va_en_la_cabecera_y_NUNCA_se_esconde(self):
+        """El fallo: `projNav` y los tres paneles nuevos quedaron ANIDADOS
+        dentro de `projPaneTicker`. Al abrir Ideas se ocultaba el padre y con
+        él la navegación entera — la pantalla se quedaba en negro y sin forma
+        de volver. En su app la `NavTabs` vive en el `HeaderBar`, arriba y
+        siempre visible, junto al buscador.
+        """
+        import re as _re
+        dom = self._dom()
+        prof, nivel = 0, {}
+        for ln in dom.split("\n"):
+            m = _re.search(r'id="(projNav|projPane\w+|projBuscador)"', ln)
+            if m:
+                nivel[m.group(1)] = prof
+            prof += len(_re.findall(r"<div\b", ln)) - len(_re.findall(r"</div>", ln))
+        # Los cuatro paneles son HERMANOS, al mismo nivel.
+        paneles = [nivel[k] for k in ("projPaneTicker", "projPaneIdeas",
+                                      "projPaneWheel", "projPaneTape")]
+        assert len(set(paneles)) == 1, f"los paneles no son hermanos: {nivel}"
+        # …y ni la navegación ni el buscador cuelgan de ninguno de ellos.
+        assert nivel["projNav"] > paneles[0], "la navegación tiene que ir en la cabecera"
+        assert nivel["projBuscador"] > paneles[0]
+        assert prof == 0, "los <div> del tab no cierran"
+
+    def test_la_cabecera_lleva_SU_orden(self):
+        """`HeaderBar.tsx`: marca → NavTabs → tickers rápidos → buscador."""
+        dom = self._dom()
+        orden = [dom.index("AI Options Agent"), dom.index('id="projNav"'),
+                 dom.index('id="projQuick"'), dom.index('id="projTicker"')]
+        assert orden == sorted(orden), "la cabecera no sigue el orden de su HeaderBar"
 
     def test_al_abrir_el_tab_arranca_el_screener_no_un_cartel(self):
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
-        assert "loadProjIdeas()" in html
-        # …y en cuanto hay ticker, las ideas se retiran: manda el análisis.
-        assert "_ideas.classList.add('hidden')" in html
+        # Entra por Ideas, que no pide nada.
+        assert "let vcTabActiva = 'ideas';" in html
+        assert "vcAbreTab(vcTabActiva);" in html
+        # …y en cuanto hay ticker, manda el análisis.
+        assert "if (vcTabActiva !== 'tape') vcAbreTab('ticker');" in html
+
+    def test_estan_sus_cuatro_pestanas_con_su_orden(self):
+        """`NavTabs.tsx`: Ticker / Ideas / Wheel / Time & Sales, en ese orden."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("const VC_TABS = [")
+        bloque = html[i:html.index("];", i)]
+        orden = re.findall(r"\['(\w+)',", bloque)
+        assert orden == ["ticker", "ideas", "wheel", "tape"], orden
+        for texto in ("Ticker", "Ideas", "Wheel", "Time &amp; Sales"):
+            assert texto.replace("&amp;", "&") in bloque or texto in bloque
+        dom = self._dom()
+        for pane in ("projPaneTicker", "projPaneIdeas", "projPaneWheel", "projPaneTape"):
+            assert f'id="{pane}"' in dom, f"falta el panel {pane}"
+
+    def test_el_refresco_silencioso_no_te_saca_de_la_pestana(self):
+        """El auto-refresco entra por `loadProjections(..., {silent:true})`.
+        Sin guarda te arrancaría de Ideas o de Wheel cada minuto para
+        plantarte en el panel de Ticker."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("async function loadProjections(tickerArg, opts) {")
+        cuerpo = _sin_comentarios(html[i:i + 4000])
+        # El salto de panel tiene que estar DENTRO de un `if (!silent)`.
+        j = cuerpo.index("vcAbreTab('ticker')")
+        guarda = cuerpo.rindex("if (!silent) {", 0, j)
+        assert guarda > 0, "el salto de panel no está protegido"
+        # …y el bloque no se cierra antes de llegar al salto.
+        assert "}" not in cuerpo[guarda:j].split("vcTabActiva")[0]
+
+    def test_cada_pestana_carga_BAJO_DEMANDA(self):
+        """Entrar a Proyecciones no puede disparar cuatro escaneos: entre Wheel
+        (40 tickers × 2 llamadas) e Ideas (el mercado entero) sería quemar la
+        cuota de golpe."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcAbreTab(id) {")
+        cuerpo = _sin_comentarios(html[i:html.index("/* ── WHEEL", i)])
+        assert "if (vcTabCargada[id]) return;" in cuerpo
+        for fn in ("loadProjIdeas()", "loadProjWheel()", "loadProjTape()"):
+            assert fn in cuerpo, f"{fn} no se dispara al abrir su pestaña"
+
+    def test_el_buscador_se_esconde_donde_no_va(self):
+        """Ideas y Wheel escanean el mercado entero: un cuadro de ticker ahí
+        promete un filtro que no existe."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert 'id="projBuscador"' in self._dom()
+        assert "id !== 'ticker' && id !== 'tape'" in html
 
     def test_no_hay_que_teclear_estan_sus_cuatro_tickers(self):
         """Su `HeaderBar` lleva `QUICK = ["TSLA","NVDA","SPY","AAPL"]`: se hace
@@ -908,6 +1031,293 @@ class TestIdeasDelMercado:
         assert d["ok"] is False and d["source"] == "marketsnack"
         assert "cadu" in d["error"]          # el motivo nuestro pasa entero
         assert "ideas" not in d
+
+
+class TestElTabSeArmaAlEntrarPorElMENU:
+    """El fallo: la inicialización colgaba de la barra de comandos (Cmd+K).
+
+    Entrando por el menú —que es como se entra— no se pintaba ni la navegación
+    de pestañas ni los tickers rápidos: quedaba el DOM crudo y el único texto
+    visible era "Analiza un ticker". Todo el trabajo estaba hecho y no lo
+    llamaba nadie.
+    """
+
+    def test_switchView_arma_proyecciones(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function switchView(viewId) {")
+        cuerpo = _sin_comentarios(html[i:html.index("\n}", i)])
+        assert "viewId === 'projectionsView'" in cuerpo
+        assert "vcArrancaProyecciones()" in cuerpo
+
+    def test_el_arranque_pinta_las_cuatro_piezas(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcArrancaProyecciones() {")
+        cuerpo = _sin_comentarios(html[i:html.index("\n}", i)])
+        for pieza in ("vcPintaNav()", "vcPintaQuick(", "vcAbreTab(", "vcArrancaVivo()"):
+            assert pieza in cuerpo, f"el arranque no llama a {pieza}"
+
+    def test_TODAS_las_entradas_al_tab_pasan_por_switchView(self):
+        """Si mañana alguien añade otro botón que enseñe el tab sin pasar por
+        `switchView`, vuelve el DOM crudo. Aquí se fija que no hay atajos."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        sin_comentarios = _sin_comentarios(html)
+        # Nadie puede quitarle el `hidden` al tab a mano.
+        sospechosos = re.findall(
+            r"getElementById\(['\"]projectionsView['\"]\)[^;\n]*classList\.remove",
+            sin_comentarios)
+        assert not sospechosos, f"alguien enseña el tab sin pasar por switchView: {sospechosos}"
+        # Y el menú móvil también pasa por ahí.
+        i = html.index("function mobileGo(viewId){")
+        assert "switchView(viewId)" in html[i:i + 200]
+
+    def test_el_arranque_es_idempotente(self):
+        """Entrar diez veces al tab no puede relanzar diez veces el escaneo ni
+        dejar diez temporizadores corriendo."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcArrancaProyecciones() {")
+        cuerpo = _sin_comentarios(html[i:html.index("\n}", i)])
+        assert "!vcVivoTimer" in cuerpo, "el temporizador en vivo se duplicaría"
+        j = html.index("function vcAbreTab(id) {")
+        assert "if (vcTabCargada[id]) return;" in html[j:j + 900]
+
+
+class TestEnVivoSinBotones:
+    """Fuera el botón de recargar y la casilla "auto": el panel se mantiene solo."""
+
+    def test_no_queda_ningun_control_manual_de_refresco(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        dom = html[html.index('<main id="projectionsView"'):]
+        dom = re.sub(r"<!--.*?-->", "", dom[:dom.index("</main>")], flags=re.S)
+        for id_ in ("projRefreshBtn", "projAutoRefresh", "projAutoState", "projRefreshTs"):
+            assert id_ not in dom, f"{id_} sigue en el tab"
+        for fn in ("projToggleAuto", "projRefresh"):
+            assert f"function {fn}(" not in html and f"{fn}(" not in html
+
+    def test_el_indicador_dice_la_HORA_no_solo_un_punto_verde(self):
+        """Ni Massive ni MarketSnack empujan nada: las dos son REST y esto es
+        sondeo. Un punto verde sin hora prometería streaming."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcPintaVivo() {")
+        cuerpo = html[i:html.index("function vcRefrescaActiva", i)]
+        assert "hace ${seg}s" in cuerpo and "min" in cuerpo
+        assert "mercado cerrado" in cuerpo
+        assert "toLocaleTimeString()" in cuerpo   # la hora exacta, en el tooltip
+
+    def test_solo_se_refresca_la_pestana_ACTIVA_y_visible(self):
+        """Sondear las cuatro a la vez, o una pestaña de fondo, quema cuota
+        para nadie."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcArrancaVivo() {")
+        cuerpo = _sin_comentarios(html[i:i + 1800])
+        assert "document.visibilityState !== 'visible'" in cuerpo
+        assert "view.classList.contains('hidden')" in cuerpo
+        assert "vcVivoUltimo[vcTabActiva]" in cuerpo
+        # …y solo la activa vuelve a pedir.
+        j = html.index("function vcRefrescaActiva() {")
+        act = _sin_comentarios(html[j:html.index("function vcArrancaVivo", j)])
+        assert act.count("vcTabActiva ===") == 4
+
+    def test_la_cadencia_son_15_minutos_como_la_fuente(self):
+        """Decisión de Kevin, y encaja con Massive: sus planes sirven la
+        cotización con hasta 15 min de retraso, así que sondear más rápido
+        devuelve el MISMO dato y gasta cuota."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "const VC_VIVO_MIN = 15;" in html
+        i = html.index("const VC_VIVO_SEG = {")
+        bloque = html[i:html.index("};", i)]
+        assert set(re.findall(r"(\w+):\s*VC_VIVO_MIN", bloque)) == {
+            "tape", "ticker", "ideas", "wheel"}
+        # Con el mercado cerrado, más lento aún: el dato no cambia en 16 horas.
+        assert "const VC_VIVO_CERRADO_SEG = 3600;" in html
+        i2 = html.index("function vcArrancaVivo() {")
+        assert "projIsMarketOpen()" in html[i2:i2 + 1200]
+
+    def test_el_tooltip_explica_por_que_15_y_no_menos(self):
+        """Sin el motivo, 15 minutos parece lentitud del panel y no un límite
+        de la fuente."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcPintaVivo() {")
+        cuerpo = html[i:html.index("function vcRefrescaActiva", i)]
+        assert "15 min de retraso" in cuerpo and "Massive" in cuerpo
+
+
+class TestWheel:
+    """`/api/tito-wheel` — su `/api/wheel`, vender puts cash-secured."""
+
+    def test_escanea_su_universo_curado(self, client, wheel_dobles):
+        d = client.get("/api/tito-wheel").json()
+        from wbj.tito.wheel_universe import WHEEL_UNIVERSE
+        assert d["ok"] is True and d["scanned"] == len(WHEEL_UNIVERSE) == 40
+
+    def test_sirve_sus_tres_presets_con_sus_bandas(self, client, wheel_dobles):
+        d = client.get("/api/tito-wheel").json()
+        bandas = {p["id"]: (p["delta_min"], p["delta_max"], p["dte_min"], p["dte_max"])
+                  for p in d["presets"]}
+        assert bandas["conservador"] == (0.10, 0.20, 30, 45)
+        assert bandas["balanceado"] == (0.20, 0.30, 30, 45)
+        assert bandas["agresivo"] == (0.30, 0.40, 7, 21)
+        assert d["preset_id"] == "balanceado"      # su default
+
+    def test_un_candidato_bloqueado_NO_lleva_prima(self, client, wheel_dobles):
+        """Su regla crítica: ante la duda, no operar y avisar. No se enseña un
+        número que no puedes cobrar."""
+        d = client.get("/api/tito-wheel").json()
+        for c in d["candidates"]:
+            if c["blocked"]:
+                assert c["premium"] is None and c["metrics"] is None and c["score"] is None
+                assert c["block_reason"] in ("sin_bid", "spread_ancho", "oi_bajo")
+
+    def test_el_sizing_del_usuario_NO_viaja(self, client, wheel_dobles):
+        """`wheelAfford.ts` corre en su cliente porque el saldo vive en
+        localStorage. Aquí va el colateral; quién puede pagarlo, no."""
+        d = client.get("/api/tito-wheel").json()
+        crudo = json.dumps(d)
+        for prohibido in ("affordable", "shortfall", "account_size", "cash"):
+            assert prohibido not in crudo, f"el saldo se coló: {prohibido}"
+
+    @staticmethod
+    def _cadena_sin_precio(monkeypatch):
+        """La cadena llega sin `underlying_asset.price` — el escenario real."""
+        import wbj.tito.massive as MASS
+        from wbj.tito.massive import WheelChainResult
+        original = MASS.fetch_wheel_chain
+        monkeypatch.setattr(
+            MASS, "fetch_wheel_chain",
+            lambda t, a, b, now=None, **k: WheelChainResult(
+                spot=None, quotes=original(t, a, b, now=now).quotes))
+
+    def test_el_ultimo_CIERRE_rescata_el_escaneo(self, client, monkeypatch, wheel_dobles):
+        """El fallo real que dejó a Kevin con «0 de 40 · sin precio del subyacente».
+
+        Su `page.tsx` resuelve el spot con TRES eslabones:
+
+            company?.price ?? chainMeta?.underlyingPrice ?? bars[last].close
+
+        Wheel tenía los dos primeros y le faltaba el tercero — que es justo el
+        que nunca falla, porque las barras ya están descargadas para los
+        niveles y el IV Rank. Con la cadena sin precio y el snapshot del
+        subyacente rechazado por el plan, los 40 símbolos caían de golpe.
+        """
+        self._cadena_sin_precio(monkeypatch)
+        d = client.get("/api/tito-wheel").json()
+        assert d["with_candidates"] > 0, f"el último cierre no rescató: {d['rejected']}"
+        assert d["failed"] == 0
+
+    def test_el_escaneo_NO_gasta_40_peticiones_en_el_snapshot(self, client, monkeypatch,
+                                                              wheel_dobles):
+        """`fetch_company` son 40 peticiones extra cada 15 minutos, y en esta
+        cuenta ese endpoint no responde. Donde compensa —Ticker, UNA petición—
+        se mantiene su precedencia entera; aquí no."""
+        import wbj.tito.massive as MASS
+        llamadas = []
+        monkeypatch.setattr(MASS, "fetch_company",
+                            lambda t, **k: llamadas.append(t) or {"price": 100.0})
+        client.get("/api/tito-wheel")
+        assert not llamadas, f"el escaneo pidió el snapshot {len(llamadas)} veces"
+
+    def test_sin_NINGUNA_fuente_de_precio_lo_dice_por_su_nombre(self, client, monkeypatch,
+                                                                wheel_dobles):
+        import wbj.tito.bars_store as BS
+        self._cadena_sin_precio(monkeypatch)
+        monkeypatch.setattr(BS, "cached_daily_bars", lambda t, d=365, n=None, **k: [])
+        d = client.get("/api/tito-wheel").json()
+        assert {r["motivo"] for r in d["rejected"]} == {"sin_barras"}
+
+    def test_los_TRES_desenlaces_se_reportan_por_separado(self, client, monkeypatch,
+                                                          wheel_dobles):
+        """«0 de 40 · 40 sin cadena» juntaba tres cosas muy distintas: un 403
+        del plan, una cadena vacía de verdad, y una cadena llena cuyos strikes
+        no caen en la banda de delta del preset. Con 40 de 40 cayendo, eso no
+        dejaba forma de saber si el problema era la cuenta, el mercado o el
+        filtro."""
+        import wbj.tito.massive as MASS
+
+        def rechaza(t, a, b, now=None, **k):
+            raise MASS.MassiveError("el plan no lo cubre", 403)
+
+        monkeypatch.setattr(MASS, "fetch_wheel_chain", rechaza)
+        d = client.get("/api/tito-wheel").json()
+        assert [r["motivo"] for r in d["rejected"]] == ["fuente"]
+        assert d["rejected"][0]["tickers"] == 40
+        # …y con un EJEMPLO real, que es lo que dice si es 401, 403 o el filtro.
+        assert "el plan no lo cubre" in d["rejected"][0]["ejemplo"]
+
+    def test_el_desglose_llega_al_panel(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjWheel(d) {")
+        cuerpo = html[i:html.index("/* ── TIME & SALES", i)]
+        assert "d.rejected" in cuerpo and "que_significa" in cuerpo and "ejemplo" in cuerpo
+        # Y las dos pistas que convierten el desglose en algo accionable.
+        assert "Prueba otro preset" in cuerpo
+        assert "no es el mercado" in cuerpo
+        # "sin cadena" ya no puede rotular un 403.
+        assert "sin cadena" not in cuerpo
+
+    def test_el_escaneo_NO_muta_estado_compartido_entre_hilos(self):
+        """Corren 6 hilos. Un `contador += 1` desde varios pierde cuentas en
+        silencio, y el contador es justo lo que se enseña en pantalla."""
+        api = (ROOT / "vertex_api.py").read_text(encoding="utf-8")
+        i = api.index("    def _uno(sym):")
+        cuerpo = api[i:api.index("    # `mapLimit(WHEEL_UNIVERSE", i)]
+        assert "nonlocal" not in cuerpo, "el worker vuelve a mutar estado compartido"
+        assert "fallidos +=" not in cuerpo and "todos.extend" not in cuerpo
+        # Devuelve su resultado; la suma se hace fuera, en un solo hilo.
+        assert "return [], (" in cuerpo and "return cands, None" in cuerpo
+
+    def test_castiga_el_rendimiento_sospechosamente_alto(self):
+        """Un screener que ordena por prima pone arriba justo las acciones a
+        punto de desplomarse. Su banda >60% da 10/30, menos que la de 15-35%."""
+        from wbj.tito.wheel import ScoreInput, score_candidate
+        def _t(pct):
+            return score_candidate(ScoreInput(
+                annualized_pct=pct, iv_rank=60, strike=90, spot=100, cushion_pct=12,
+                supports=[], open_interest=600, spread_pct=5, earnings="fuera")).annualized
+        assert _t(80).points == 10 and _t(25).points == 30
+        assert _t(80).points < _t(25).points
+
+    def test_la_banda_de_IV_rank_va_INVERTIDA_respecto_al_subagente_5(self):
+        """La Wheel VENDE prima: quiere la volatilidad cara. El resto del
+        agente compra y quiere vega barata."""
+        from wbj.tito.wheel import ScoreInput, score_candidate
+        from wbj.tito.ivcontext import iv_rank_points
+        def _w(rank):
+            return score_candidate(ScoreInput(
+                annualized_pct=20, iv_rank=rank, strike=90, spot=100, cushion_pct=12,
+                supports=[], open_interest=600, spread_pct=5, earnings="fuera")).iv_rank.points
+        assert _w(85) > _w(20), "la Wheel debe premiar el IV Rank ALTO"
+        assert iv_rank_points(85).points < iv_rank_points(20).points, \
+            "el sub-agente 5 debe premiar el IV Rank BAJO"
+
+
+class TestTimeAndSales:
+    """`/api/tito-tape` — su `/flow`, la cinta cruda de un ticker."""
+
+    def test_devuelve_la_cinta_clasificada(self, client):
+        d = client.get("/api/tito-tape?ticker=DEMO").json()
+        assert d["ok"] is True and d["ticker"] == "DEMO"
+        assert d["trades"] and d["notable"] >= 1
+        assert 0 <= d["aggression"]["score"] <= 10
+
+    def test_cada_operacion_lleva_su_evidencia(self, client):
+        """A diferencia del scorecard, aquí NO se agrega nada: se ve el flujo
+        tal como entró."""
+        d = client.get("/api/tito-tape?ticker=DEMO").json()
+        t = d["trades"][0]
+        for campo in ("timestamp", "strike", "expiration", "dte", "size", "price",
+                      "premium", "aggression", "delta", "iv", "unusual_score",
+                      "repeated", "multileg", "above_ask", "below_bid", "exceeded_oi"):
+            assert campo in t, f"falta {campo} en la fila del tape"
+
+    def test_sin_cinta_lo_dice_y_no_inventa(self, client, monkeypatch):
+        import wbj.tito.marketsnack as MS
+
+        def boom(*a, **k):
+            raise MS.MarketSnackError("La cookie de MarketSnack caducó.")
+
+        monkeypatch.setattr(MS, "fetch_flow", boom)
+        d = client.get("/api/tito-tape?ticker=DEMO").json()
+        assert d["ok"] is False and d["source"] == "marketsnack"
+        assert "trades" not in d
 
 
 class TestElMotivoDeMassiveEsAccionable:

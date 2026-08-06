@@ -1233,6 +1233,25 @@ function switchView(viewId) {
     lucide.createIcons();
     if (viewId === 'reportsView') { renderFullReportsList(); syncReportsFromServer(); }
     if (viewId === 'homeView') renderRecentReports();
+    // Proyecciones se arma AQUÍ, en la navegación.
+    //
+    // Estaba colgado de la barra de comandos (Cmd+K), así que entrando por el
+    // menú —que es como se entra— no se pintaba ni la navegación de pestañas ni
+    // los tickers rápidos: quedaba el DOM crudo y el único texto visible era
+    // "Analiza un ticker". Todo el trabajo estaba hecho y no lo llamaba nadie.
+    if (viewId === 'projectionsView') vcArrancaProyecciones();
+}
+
+/** Deja el tab de Proyecciones listo: pestañas, tickers rápidos, panel activo
+ *  y el motor en vivo. Idempotente — entrar diez veces no relanza diez veces
+ *  el escaneo, de eso se encarga `vcTabCargada`. */
+function vcArrancaProyecciones() {
+    if (typeof vcPintaNav === 'function') vcPintaNav();
+    const inp = document.getElementById('projTicker');
+    if (typeof vcPintaQuick === 'function') vcPintaQuick(inp ? inp.value : null);
+    if (typeof vcAbreTab === 'function') vcAbreTab(vcTabActiva);
+    if (typeof vcArrancaVivo === 'function' && !vcVivoTimer) vcArrancaVivo();
+    if (window.lucide) lucide.createIcons();
 }
 function switchAnalysisTab(tabId, btn) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -2474,7 +2493,6 @@ let projGexChartObj = null, projData = null;
 // se retiraron: medían gamma en paralelo con otro proveedor y otra fórmula,
 // y en la misma pantalla eso son dos verdades sin forma de saber cuál manda.
 // `/api/options-gex` sigue vivo para la vista de Research, que no es este tab.
-let projAutoTimer = null;      // timer de auto-refresh mientras el mercado está abierto
 
 const DP_MIN_VALUE = 500e6;    // solo cruces de dark pool de $500M o más
 // ¿Mercado de EE.UU. abierto? (lun–vie 9:30–16:00 hora del Este; PR es UTC-4 todo el año)
@@ -2497,17 +2515,24 @@ async function loadProjections(tickerArg, opts) {
     if (!ticker) { if (inp) inp.focus(); return; }
     if (inp) inp.value = ticker;
     vcPintaQuick(ticker);
-    const _ideas = document.getElementById('projIdeas');
-    if (_ideas) _ideas.classList.add('hidden');   // manda el ticker
+    // Analizar un símbolo manda: se salta al panel Ticker, salvo que estés
+    // mirando su cinta, donde el ticker también aplica.
+    //
+    // …pero SOLO si lo pediste tú. El refresco en vivo entra por aquí con
+    // `silent`, y sin esta guarda te arrancaría de Ideas o de Wheel cada
+    // minuto para plantarte en el panel de Ticker.
+    if (!silent) {
+        if (vcTabActiva !== 'tape') vcAbreTab('ticker');
+        else { vcTabCargada.tape = true; loadProjTape(); }
+    }
     const empty = document.getElementById('projEmpty');
     const content = document.getElementById('projContent');
-    const btn = document.getElementById('projRefreshBtn');
     if (!silent) {
         empty.classList.remove('hidden');
         empty.innerHTML = `<i data-lucide="loader" class="w-8 h-8 text-blue-500 mx-auto mb-3 animate-spin"></i><p class="text-sm text-gray-400">Analizando el flujo de ${ticker}…</p>`;
         content.classList.add('hidden');
         if (window.lucide) lucide.createIcons();
-    } else if (btn) { btn.classList.add('animate-spin'); }
+    }
     try {
         // UNA sola fuente para todo el tab: el motor de Víctor. Antes había dos
         // —`/api/options-gex` (Quant Data, respaldo yfinance+BSM) alimentaba las
@@ -2537,10 +2562,8 @@ async function loadProjections(tickerArg, opts) {
                 const restore = () => window.scrollTo(0, _scrollY);
                 restore(); setTimeout(restore, 60); setTimeout(restore, 300);
             }
-            if (btn) setTimeout(() => btn.classList.remove('animate-spin'), 400);
         }
-        const ts = document.getElementById('projRefreshTs');
-        if (ts) ts.textContent = 'actualizado ' + new Date().toLocaleTimeString();
+        vcMarcaVivo('ticker');
     }
 }
 
@@ -2560,6 +2583,225 @@ function vcPintaQuick(activo) {
         return `<button onclick="loadProjections('${t}')" class="text-[10px] font-bold px-2 py-2 rounded-lg transition ${
             on ? 'bg-blue-500 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800 hover:text-white'}">${t}</button>`;
     }).join('');
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   LAS CUATRO PESTAÑAS — su `NavTabs.tsx`.
+
+   En su app son cuatro páginas separadas (`/`, `/ideas`, `/wheel`, `/flow`).
+   Aquí son cuatro paneles del mismo tab, con la misma navegación y el mismo
+   orden. Cada una carga BAJO DEMANDA: entrar a Proyecciones no dispara cuatro
+   escaneos, que entre Wheel (40 tickers × 2 llamadas) e Ideas (el mercado
+   entero) sería quemar la cuota de golpe.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const VC_TABS = [
+    ['ticker', '📈', 'Ticker',        'El análisis completo de una acción: los 6 sub-agentes, GEX, niveles y targets.'],
+    ['ideas',  '💡', 'Ideas',         'Flujo inusual operable de TODO el mercado. No pide ticker.'],
+    ['wheel',  '🎡', 'Wheel',         'Vender puts cash-secured sobre su universo curado de 40 símbolos.'],
+    ['tape',   '⚡', 'Time & Sales',  'La cinta cruda de un ticker, operación por operación.'],
+];
+let vcTabActiva = 'ideas';   // sin ticker manda Ideas, que no pide nada
+const vcTabCargada = {};
+
+function vcPintaNav() {
+    const nav = document.getElementById('projNav');
+    if (!nav) return;
+    nav.innerHTML = VC_TABS.map(([id, icono, texto, ayuda]) => {
+        const on = vcTabActiva === id;
+        return `<button onclick="vcAbreTab('${id}')" title="${_vcEsc(ayuda)}"
+            class="text-[11px] font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
+            on ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}">
+            <span>${icono}</span>${texto}</button>`;
+    }).join('');
+}
+
+function vcAbreTab(id) {
+    vcTabActiva = id;
+    vcPintaNav();
+    for (const [t] of VC_TABS) {
+        const pane = document.getElementById('projPane' + t[0].toUpperCase() + t.slice(1));
+        if (pane) pane.classList.toggle('hidden', t !== id);
+    }
+    // El buscador solo tiene sentido donde se analiza UN ticker.
+    const busca = document.getElementById('projBuscador');
+    if (busca) busca.classList.toggle('hidden', id !== 'ticker' && id !== 'tape');
+    vcPintaVivo();
+    if (vcTabCargada[id]) return;
+    if (id === 'ideas') { vcTabCargada.ideas = true; loadProjIdeas(); }
+    if (id === 'wheel') { vcTabCargada.wheel = true; loadProjWheel(); }
+    if (id === 'tape')  { const t = (document.getElementById('projTicker') || {}).value;
+                          if (t) { vcTabCargada.tape = true; loadProjTape(); } }
+}
+
+/* ── WHEEL ─────────────────────────────────────────────────────────────── */
+
+let vcWheelPreset = 'balanceado';
+
+async function loadProjWheel(preset) {
+    if (preset) vcWheelPreset = preset;
+    const caja = document.getElementById('projWheel');
+    if (!caja) return;
+    caja.innerHTML = `<p class="text-xs text-gray-500 italic flex items-center justify-center gap-2 py-6"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Escaneando 40 s&iacute;mbolos&hellip; (dos llamadas por ticker, tarda)</p>`;
+    if (window.lucide) lucide.createIcons();
+    let d;
+    try {
+        const r = await fetch(`${API_BASE}/api/tito-wheel?preset=${encodeURIComponent(vcWheelPreset)}`);
+        d = await r.json();
+    } catch (e) { d = { ok: false, error: e.message }; }
+    if (!d || !d.ok) {
+        caja.innerHTML = `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+            <p class="text-xs text-amber-300">${_vcEsc((d && d.error) || 'No se pudo escanear.')}</p></div>`;
+        return;
+    }
+    renderProjWheel(d);
+    vcMarcaVivo('wheel');
+}
+
+function renderProjWheel(d) {
+    const caja = document.getElementById('projWheel');
+    if (!caja) return;
+    const presets = (d.presets || []).map(q => `<button onclick="loadProjWheel('${q.id}')" title="${_vcEsc(q.explain)}"
+        class="text-[10px] font-bold px-2.5 py-1 rounded-lg transition ${q.id === d.preset_id
+        ? 'bg-blue-500 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800 hover:text-white'}">
+        ${_vcEsc(q.label)} <span class="font-normal opacity-70">&Delta;${q.delta_min}-${q.delta_max} · ${q.dte_min}-${q.dte_max}d</span></button>`).join(' ');
+
+    const BLOQ = { sin_bid: 'sin bid', spread_ancho: 'horquilla ancha', oi_bajo: 'poco open interest' };
+    const filas = (d.candidates || []).map(c => {
+        if (c.blocked) {
+            // Bloqueado: SIN número de prima. Su regla — no se enseña un
+            // número que no puedes cobrar.
+            return `<tr class="border-b border-gray-800/50 opacity-45">
+                <td class="py-2 pr-3 font-bold text-gray-400">${_vcEsc(c.ticker)}</td>
+                <td class="py-2 pr-3 text-gray-500">$${Number(c.strike).toFixed(2)}P</td>
+                <td class="py-2 pr-3 text-right text-gray-600">${c.dte}d</td>
+                <td class="py-2 pr-3 text-right text-gray-700" colspan="5">&mdash; bloqueado: ${_vcEsc(BLOQ[c.block_reason] || c.block_reason)}</td>
+                <td class="py-2 text-right text-gray-700">&mdash;</td></tr>`;
+        }
+        const m = c.metrics, sc = c.score;
+        const col = sc.total >= 70 ? 'text-emerald-400' : (sc.total >= 50 ? 'text-amber-400' : 'text-gray-400');
+        const porque = ['annualized', 'iv_rank', 'cushion', 'liquidity', 'earnings']
+            .map(k => `${sc[k].points}/${sc[k].max} ${sc[k].band}: ${sc[k].why}`).join('\n');
+        return `<tr class="border-b border-gray-800/50 hover:bg-white/[0.02]">
+            <td class="py-2 pr-3 font-bold text-white">${_vcEsc(c.ticker)}</td>
+            <td class="py-2 pr-3 text-gray-300">$${Number(c.strike).toFixed(2)}P <span class="text-[9px] text-gray-600">${_vcEsc(String(c.expiration).slice(5))}</span></td>
+            <td class="py-2 pr-3 text-right text-gray-400">${c.dte}d</td>
+            <td class="py-2 pr-3 text-right text-gray-200 font-bold" title="prima por acción, ya recortada por fuente (${_vcEsc(c.premium.source)}; bruto $${Number(c.premium.raw).toFixed(2)})">$${Number(c.premium.price).toFixed(2)}</td>
+            <td class="py-2 pr-3 text-right text-emerald-400 font-bold">$${fmtAbbr(m.credit)}</td>
+            <td class="py-2 pr-3 text-right text-gray-300" title="efectivo que queda inmovilizado hasta el vencimiento">${fmtAbbr(m.collateral)}</td>
+            <td class="py-2 pr-3 text-right ${m.annualized_pct > 60 ? 'text-amber-400' : 'text-gray-200'}" title="${m.annualized_pct > 60 ? 'Prima sospechosamente alta: el mercado descuenta una caída fuerte.' : ''}">${Number(m.annualized_pct).toFixed(1)}%</td>
+            <td class="py-2 pr-3 text-right text-gray-400" title="probabilidad de que expire sin valor y te quedes la prima">${Math.round(m.prob_expire_worthless)}%</td>
+            <td class="py-2 text-right font-bold ${col}" title="${_vcEsc(porque)}">${sc.total}/100</td></tr>`;
+    }).join('');
+
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+          <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="disc" class="w-4 h-4"></i> Wheel &mdash; vender puts cash-secured</h3>
+          <span class="text-[10px] text-gray-500">${d.with_candidates} de ${d.scanned} s&iacute;mbolos con candidatos${d.failed ? ` · ${d.failed} sin resultado` : ''}</span>
+        </div>
+        <div class="flex gap-1.5 flex-wrap my-2">${presets}</div>
+        <p class="text-[10px] text-gray-600 italic mb-3">${_vcEsc(d.preset_explain || '')} Un contrato son 100 acciones y el <b>colateral queda inmovilizado</b> hasta el vencimiento. El puntaje <b>castiga</b> el rendimiento anualizado por encima del 60%: un screener que ordena por prima pone arriba justo las acciones a punto de desplomarse.</p>
+        ${d.degraded ? `<p class="text-[10px] text-amber-400 mb-2">⚠ M&aacute;s de la mitad del universo no dio resultado: esta lista NO es "los mejores del mercado", es "los mejores de lo que se pudo mirar".</p>` : ''}
+        ${(d.rejected || []).length ? `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3 mb-3">
+          <p class="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Por qu&eacute; se cay&oacute; cada s&iacute;mbolo</p>
+          ${d.rejected.map(r => `<div class="flex items-start gap-2 text-[10px] mb-1">
+            <span class="font-bold ${r.motivo === 'fuente' || r.motivo === 'error' ? 'text-red-400' : 'text-gray-400'} w-8 text-right flex-shrink-0">${r.tickers}</span>
+            <span class="text-gray-400">${_vcEsc(r.que_significa)}
+              ${r.ejemplo ? `<span class="text-gray-600 block text-[9px] leading-snug">${_vcEsc(r.ejemplo)}</span>` : ''}</span></div>`).join('')}
+          ${d.rejected.some(r => r.motivo === 'fuera_de_banda') ? `<p class="text-[9px] text-gray-600 mt-1.5 leading-snug">&quot;Cadena OK pero ning&uacute;n strike en la banda&quot; no es un fallo: es el preset diciendo que no hay nada de su gusto en ese papel. Prueba otro preset arriba.</p>` : ''}
+          ${d.rejected.some(r => r.motivo === 'fuente') ? `<p class="text-[9px] text-amber-400 mt-1.5 leading-snug">Si el motivo es la fuente en TODOS, no es el mercado: mira el ejemplo &mdash; dice si es la credencial (401), el plan (403) o los filtros de la consulta.</p>` : ''}
+        </div>` : ''}
+        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[720px]"><thead>
+          <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+            <th class="text-left pb-1.5 pr-3">Ticker</th><th class="text-left pb-1.5 pr-3">Contrato</th>
+            <th class="text-right pb-1.5 pr-3">DTE</th><th class="text-right pb-1.5 pr-3">Prima</th>
+            <th class="text-right pb-1.5 pr-3">Cobras</th><th class="text-right pb-1.5 pr-3">Colateral</th>
+            <th class="text-right pb-1.5 pr-3">Anualizado</th><th class="text-right pb-1.5 pr-3">P(sin valor)</th>
+            <th class="text-right pb-1.5">Score</th></tr></thead><tbody>${filas}</tbody></table></div>
+        <p class="text-[9px] text-gray-600 mt-2 italic">La asequibilidad no se calcula aqu&iacute;: tu saldo no sale del navegador. Mira el colateral y decide t&uacute;. Research, no una orden.</p>
+      </div>`;
+    if (window.lucide) lucide.createIcons();
+}
+
+/* ── TIME & SALES ──────────────────────────────────────────────────────── */
+
+async function loadProjTape() {
+    const caja = document.getElementById('projTape');
+    const inp = document.getElementById('projTicker');
+    const ticker = ((inp && inp.value) || '').trim().toUpperCase();
+    if (!caja) return;
+    if (!ticker) {
+        caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5 text-center">
+            <p class="text-sm font-bold text-gray-300">La cinta es de un ticker</p>
+            <p class="text-[11px] text-gray-500 mt-1">Escribe un s&iacute;mbolo arriba (o usa los botones r&aacute;pidos) para ver su Time &amp; Sales.</p></div>`;
+        return;
+    }
+    caja.innerHTML = `<p class="text-xs text-gray-500 italic flex items-center justify-center gap-2 py-6"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Bajando la cinta de ${_vcEsc(ticker)}&hellip;</p>`;
+    if (window.lucide) lucide.createIcons();
+    let d;
+    try {
+        const r = await fetch(`${API_BASE}/api/tito-tape?ticker=${encodeURIComponent(ticker)}`);
+        d = await r.json();
+    } catch (e) { d = { ok: false, error: e.message }; }
+    if (!d || !d.ok) {
+        caja.innerHTML = `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+            <p class="text-xs text-amber-300">${_vcEsc((d && d.error) || 'No se pudo bajar la cinta.')}</p></div>`;
+        return;
+    }
+    renderProjTape(d);
+    vcMarcaVivo('tape');
+}
+
+function renderProjTape(d) {
+    const caja = document.getElementById('projTape');
+    if (!caja) return;
+    const a = d.aggression || {};
+    const denom = (a.premium_ask || 0) + (a.premium_bid || 0);
+    const pctAsk = denom > 0 ? (100 * a.premium_ask) / denom : 0;
+    const filas = (d.trades || []).map(t => {
+        const cp = t.type === 'call' ? 'C' : (t.type === 'put' ? 'P' : '?');
+        const lado = t.aggression === 'ask' ? '<span class="text-emerald-400">▲ Compra</span>'
+            : t.aggression === 'bid' ? '<span class="text-red-400">▼ Venta</span>'
+            : '<span class="text-gray-500">Mid</span>';
+        const marcas = [t.repeated ? '<span class="text-amber-400" title="contrato repetido">↻</span>' : '',
+                        t.multileg ? '<span class="text-gray-500" title="multileg">⛓</span>' : '',
+                        t.above_ask ? '<span class="text-emerald-300" title="sobre el ask">↑</span>' : '',
+                        t.below_bid ? '<span class="text-red-300" title="bajo el bid">↓</span>' : '',
+                        t.exceeded_oi ? '<span class="text-blue-300" title="volumen &gt; open interest">★</span>' : ''].join(' ');
+        return `<tr class="border-b border-gray-800/50 ${t.unusual ? 'bg-amber-500/[0.04]' : ''}">
+            <td class="py-1.5 pr-2 text-gray-500 text-[9px]">${_vcEsc(String(t.timestamp || '').slice(11, 19))}</td>
+            <td class="py-1.5 pr-2 font-bold text-white">${_vcEsc(t.underlying || '')} ${_vcEsc(t.strike)}${cp} ${marcas}</td>
+            <td class="py-1.5 pr-2 text-gray-400">${_vcEsc(String(t.expiration || '').slice(5))}${t.dte != null ? ` <span class="text-gray-600">(${Math.round(t.dte)}d)</span>` : ''}</td>
+            <td class="py-1.5 pr-2">${lado}</td>
+            <td class="py-1.5 pr-2 text-right text-gray-400">${_vcEsc(t.size)}</td>
+            <td class="py-1.5 pr-2 text-right text-gray-300">$${Number(t.price).toFixed(2)}</td>
+            <td class="py-1.5 pr-2 text-right text-gray-200 font-bold">${fmtAbbr(t.premium)}</td>
+            <td class="py-1.5 pr-2 text-right text-gray-500 text-[9px]">${t.delta != null ? 'δ' + Number(t.delta).toFixed(2) : ''} ${t.iv != null ? '· IV ' + Math.round(Number(t.iv) * 100) + '%' : ''}</td>
+            <td class="py-1.5 text-right font-bold ${t.unusual ? 'text-amber-400' : 'text-gray-600'}">${t.unusual_score}/30</td></tr>`;
+    }).join('');
+
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+          <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="activity" class="w-4 h-4"></i> Time &amp; Sales &mdash; ${_vcEsc(d.ticker)}</h3>
+          <span class="text-[10px] text-gray-500">${d.notable} notables de ${d.total} · ${_vcEsc(d.period)} · &ge; ${fmtAbbr(d.min_premium)}</span>
+        </div>
+        <div class="h-1.5 rounded-full overflow-hidden bg-red-500/30 my-2">
+          <div class="h-full bg-emerald-500" style="width:${pctAsk.toFixed(1)}%"></div></div>
+        <div class="flex flex-wrap gap-x-3 text-[10px] mb-3">
+          <span class="text-emerald-400">● Ask ${fmtAbbr(a.premium_ask)}</span>
+          <span class="text-red-400">● Bid ${fmtAbbr(a.premium_bid)}</span>
+          <span class="text-gray-600">Mid ${fmtAbbr(a.premium_mid)} (descartado)</span>
+          <span class="text-gray-400 font-bold">Agresividad ${a.score}/10</span></div>
+        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[700px]"><thead>
+          <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+            <th class="text-left pb-1.5 pr-2">Hora</th><th class="text-left pb-1.5 pr-2">Contrato</th>
+            <th class="text-left pb-1.5 pr-2">Vence</th><th class="text-left pb-1.5 pr-2">Lado</th>
+            <th class="text-right pb-1.5 pr-2">Tamaño</th><th class="text-right pb-1.5 pr-2">Precio</th>
+            <th class="text-right pb-1.5 pr-2">Dinero</th><th class="text-right pb-1.5 pr-2">Griegos</th>
+            <th class="text-right pb-1.5">Inusual</th></tr></thead><tbody>${filas}</tbody></table></div>
+        <p class="text-[9px] text-gray-600 mt-2">↻ repetido · ⛓ multileg · ↑ sobre el ask · ↓ bajo el bid · ★ volumen &gt; open interest. Fila resaltada = supera el umbral de inusualidad institucional (&ge;7/30).</p>
+      </div>`;
+    if (window.lucide) lucide.createIcons();
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -2609,6 +2851,7 @@ async function loadProjIdeas() {
     }
     if (empty) empty.classList.add('hidden');
     renderProjIdeas(d);
+    vcMarcaVivo('ideas');
 }
 
 function renderProjIdeas(d) {
@@ -3923,30 +4166,106 @@ function fmtAbbr(v) {
 }
 
 
-// Recarga COMPLETA y en vivo del área de proyecciones, sin spinner (no borra la vista). force=true salta
-// el cache de GEX en el backend. Reusa loadProjections para que TODO se actualice (paneles + chart + targets).
-function projRefresh(force) {
-    if (!projData || !projData.ticker) return;
-    loadProjections(projData.ticker, { silent: true, force: !!force });
+/* ══════════════════════════════════════════════════════════════════════════
+   EN VIVO — hasta donde las fuentes lo permiten.
+
+   Se quitaron el botón de recargar y la casilla "auto": el panel se mantiene
+   solo. Lo que NO se puede prometer es "tiempo real" en el sentido de push:
+
+     · Massive  — REST. Snapshots de cadena, barras y precio. Sin websocket.
+     · MarketSnack — REST. `/api/flow_feed` paginado. Sin websocket.
+
+   Su propia app no refresca NADA: cero `setInterval`, cero sockets. Una
+   búsqueda, una foto. Aquí se sondea, que es lo máximo que dan las dos APIs, y
+   el indicador enseña la HORA del dato en vez de un punto verde perpetuo.
+
+   Tres reglas para no quemar la cuota:
+
+   1. Solo la pestaña ACTIVA se refresca. Las otras tres se quedan con su foto
+      hasta que vuelvas a ellas.
+   2. Solo con la pestaña del navegador VISIBLE. Sondear una pestaña de fondo
+      gasta cuota para nadie.
+   3. Cadencia por coste real, no una sola para todo: la cinta es una llamada;
+      Wheel son 40 tickers × 2 llamadas a Massive.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+//: Cada cuánto se vuelve a pedir, en segundos. **15 minutos, decisión de
+//: Kevin**, y encaja con la fuente: los planes de datos de Massive sirven la
+//: cotización con hasta 15 minutos de retraso, así que sondear más rápido no
+//: trae dato nuevo — trae el MISMO dato otra vez y gasta cuota.
+//:
+//: Es una sola cadencia para las cuatro pestañas. Conviene saber lo que cuesta
+//: la más cara: **Wheel son 40 tickers × 2 llamadas a Massive**, o sea ~80 por
+//: barrido. Dejando esa pestaña abierta una hora son ~320 llamadas. Las otras
+//: tres son de 1 a 3 llamadas por barrido. Como solo se refresca la pestaña
+//: ACTIVA y solo con el navegador visible, ese techo solo se toca si te
+//: quedas mirando Wheel.
+const VC_VIVO_MIN = 15;
+const VC_VIVO_SEG = {
+    tape:   VC_VIVO_MIN * 60,
+    ticker: VC_VIVO_MIN * 60,
+    ideas:  VC_VIVO_MIN * 60,
+    wheel:  VC_VIVO_MIN * 60,
+};
+//: Con el mercado cerrado nada de esto se mueve durante 16 horas. Se sigue
+//: mirando de hora en hora, lo justo para que la vista despierte sola cerca de
+//: la apertura sin haber estado pidiendo datos idénticos toda la noche.
+const VC_VIVO_CERRADO_SEG = 3600;
+
+let vcVivoTimer = null;
+let vcVivoUltimo = {};     // por pestaña: cuándo se refrescó por última vez
+
+function vcMarcaVivo(tab) {
+    vcVivoUltimo[tab || vcTabActiva] = Date.now();
+    vcPintaVivo();
 }
 
-// Enciende/apaga el auto-refresh; solo corre con la vista de proyecciones visible y el mercado abierto.
-function projToggleAuto() {
-    const cb = document.getElementById('projAutoRefresh');
-    const on = cb ? cb.checked : false;
-    if (projAutoTimer) { clearInterval(projAutoTimer); projAutoTimer = null; }
-    const lbl = document.getElementById('projAutoState');
-    if (on) {
-        projAutoTimer = setInterval(() => {
-            const view = document.getElementById('projectionsView');
-            if (view && !view.classList.contains('hidden') && projData && projData.ticker && projIsMarketOpen()) {
-                projRefresh(true);
-            }
-        }, 90000);   // cada 90 s
-        if (lbl) lbl.textContent = projIsMarketOpen() ? 'auto · mercado abierto' : 'auto · espera apertura';
-    } else if (lbl) {
-        lbl.textContent = '';
+function vcPintaVivo() {
+    const el = document.getElementById('projVivo');
+    if (!el) return;
+    const t = vcVivoUltimo[vcTabActiva];
+    const abierto = projIsMarketOpen();
+    if (!t) {
+        el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-gray-700"></span>
+            <span class="text-gray-600">sin datos a&uacute;n</span>`;
+        return;
     }
+    const seg = Math.round((Date.now() - t) / 1000);
+    const edad = seg < 60 ? `hace ${seg}s` : `hace ${Math.round(seg / 60)} min`;
+    const cada = abierto ? (VC_VIVO_SEG[vcTabActiva] || 60) : VC_VIVO_CERRADO_SEG;
+    el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${abierto ? 'bg-emerald-500 animate-pulse' : 'bg-gray-600'}"></span>
+        <span class="${abierto ? 'text-emerald-400' : 'text-gray-500'}">${abierto ? 'en vivo' : 'mercado cerrado'}</span>
+        <span class="text-gray-600" title="Último dato: ${new Date(t).toLocaleTimeString()}. Se vuelve a pedir cada ${Math.round(cada / 60)} min. Massive sirve la cotización con hasta 15 min de retraso según el plan, así que sondear más rápido no traería dato nuevo.">&middot; ${edad}</span>`;
+}
+
+/** Vuelve a pedir SOLO lo de la pestaña que estás mirando. */
+function vcRefrescaActiva() {
+    if (vcTabActiva === 'ticker') {
+        if (projData && projData.ticker) loadProjections(projData.ticker, { silent: true });
+    } else if (vcTabActiva === 'ideas') { loadProjIdeas();
+    } else if (vcTabActiva === 'wheel') { loadProjWheel();
+    } else if (vcTabActiva === 'tape')  { loadProjTape(); }
+}
+
+function vcArrancaVivo() {
+    if (vcVivoTimer) clearInterval(vcVivoTimer);
+    // El tic es de 5 s solo para que la edad del dato se vea correr; la
+    // decisión de volver a pedir la toma la cadencia de cada pestaña.
+    vcVivoTimer = setInterval(() => {
+        vcPintaVivo();
+        const view = document.getElementById('projectionsView');
+        if (!view || view.classList.contains('hidden')) return;
+        if (document.visibilityState !== 'visible') return;
+        const cada = (projIsMarketOpen() ? (VC_VIVO_SEG[vcTabActiva] || 60)
+                                         : VC_VIVO_CERRADO_SEG) * 1000;
+        const t = vcVivoUltimo[vcTabActiva] || 0;
+        if (Date.now() - t >= cada) vcRefrescaActiva();
+    }, 5000);
+    // Al volver a la pestaña del navegador, refresca en cuanto toque en vez de
+    // esperar al siguiente tic con un dato viejo en pantalla.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') vcPintaVivo();
+    });
 }
 
 
@@ -5016,9 +5335,8 @@ function cmdKey(e) {
     if (e.shiftKey) {   // proyecciones GEX rápidas
         if (typeof switchView === 'function') switchView('projectionsView');
         const pt = document.getElementById('projTicker'); if (pt) pt.value = tk;
-        if (typeof vcPintaQuick === 'function') vcPintaQuick(null);
-        // Sin ticker el agente NO se queda esperando: escanea el mercado.
-        if (typeof loadProjIdeas === 'function') loadProjIdeas();
+        // `switchView` ya dejó el tab armado; con símbolo, se analiza.
+        if (typeof loadProjections === 'function') loadProjections(tk);
     } else {            // análisis completo del agente
         if (typeof analyzeTickerNow === 'function') analyzeTickerNow(tk);
     }
@@ -6716,40 +7034,45 @@ function analyzeTickerNow(tk) {
 
 <main id="projectionsView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4 space-y-5">
 
-    <div class="flex items-center justify-between mb-1 flex-wrap gap-3">
-        <div>
-            <h2 class="text-xl font-extrabold text-white flex items-center gap-2"><span class="w-6 h-6 rounded-lg bg-blue-500 text-white text-sm font-black flex items-center justify-center">T</span> Tito Metralleta
-              <span class="text-[9px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded px-1.5 py-0.5">AI Options Agent</span></h2>
-            <p class="text-xs text-gray-500 mt-0.5">Seis sub-agentes sobre la cadena de Massive y la cinta de MarketSnack: agresi&oacute;n, convicci&oacute;n, inusualidad, estructura, contexto IV y confirmaci&oacute;n de precio.</p>
+    <!-- Su `HeaderBar.tsx`, con su orden exacto: marca → NavTabs → tickers
+         rápidos → buscador. La navegación va AQUÍ, no dentro de un panel: en su
+         app vive en la barra superior y por eso nunca desaparece. -->
+    <div class="flex items-center gap-4 flex-wrap mb-1">
+        <!-- Sin logo ni nombre propio: la marca de esta pantalla es Vertex, que
+             ya está arriba. Queda la etiqueta de QUÉ es esto, que es lo único
+             que aporta información. -->
+        <div class="flex items-center">
+            <span class="text-[11px] text-gray-400 bg-white/5 border border-panel rounded-full px-2 py-0.5">AI Options Agent</span>
         </div>
-        <div class="flex items-center gap-2 flex-wrap">
-            <!-- Sus 4 tickers rápidos (`QUICK` de HeaderBar.tsx). En su app no
-                 hace falta teclear nada: se hace clic y ya. -->
-            <div id="projQuick" class="flex gap-1"></div>
+        <div id="projNav" class="flex gap-1.5 flex-wrap"></div>
+        <div id="projBuscador" class="flex items-center gap-2 flex-wrap">
+            <!-- Sus 4 tickers rápidos (`QUICK` de HeaderBar.tsx): se hace clic,
+                 no se teclea. Este bloque se oculta en Ideas y Wheel, que
+                 escanean el mercado entero y no van por símbolo. -->
+            <div id="projQuick" class="flex gap-1.5"></div>
             <input id="projTicker" type="text" placeholder="Buscar ticker&hellip;" onkeydown="if(event.key==='Enter')loadProjections()" spellcheck="false"
-                   class="bg-[#0B0E14] border border-gray-800 text-white text-sm rounded-lg px-3 py-2 w-36 uppercase focus:border-blue-500 outline-none" />
-            <button onclick="loadProjections()" class="text-xs font-bold px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-1.5">
-                <i data-lucide="search" class="w-3.5 h-3.5"></i> Analizar
-            </button>
-            <button onclick="projRefresh(true)" title="Volver a correr el motor ahora" class="text-xs font-bold p-2 rounded-lg bg-gray-700/50 text-gray-200 hover:bg-gray-700 transition flex items-center">
-                <i id="projRefreshBtn" data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-            </button>
-            <label class="flex items-center gap-1.5 text-[10px] text-gray-400 cursor-pointer select-none">
-                <input id="projAutoRefresh" type="checkbox" onchange="projToggleAuto()" class="accent-blue-500"> auto
-                <span id="projAutoState" class="text-[9px] text-emerald-400 font-bold"></span>
-            </label>
-            <span id="projRefreshTs" class="text-[9px] text-gray-600"></span>
+                   class="bg-[#0B0E14] border border-gray-800 text-white text-[13px] rounded-full px-3.5 py-2 w-[190px] uppercase focus:border-blue-500 outline-none" />
+        </div>
+        <!-- Sin botón de recargar y sin casilla "auto": el panel se mantiene
+             solo. El indicador dice la HORA REAL del último dato, porque ni
+             Massive ni MarketSnack empujan nada — las dos son REST y esto es
+             sondeo, no streaming. Un punto verde sin hora sería mentir. -->
+        <div class="flex items-center gap-2 ml-auto">
+            <span id="projVivo" class="flex items-center gap-1.5 text-[10px] text-gray-500"></span>
         </div>
     </div>
+    <p class="text-xs text-gray-500 -mt-3">Seis sub-agentes sobre la cadena de Massive y la cinta de MarketSnack: agresi&oacute;n, convicci&oacute;n, inusualidad, estructura, contexto IV y confirmaci&oacute;n de precio.</p>
 
+    <div id="projPaneTicker">
     <div id="projEmpty" class="text-center py-20 px-4">
         <i data-lucide="line-chart" class="w-12 h-12 text-gray-700 mx-auto mb-3"></i>
-        <p class="text-sm font-bold text-gray-300">Ideas del mercado</p>
-        <p class="text-[11px] text-gray-500 mt-1 max-w-lg mx-auto leading-relaxed">El agente escanea el flujo de opciones de <b class="text-gray-400">todo el mercado</b> &mdash; no hace falta escribir nada. Elige un ticker arriba si quieres el an&aacute;lisis completo de una acci&oacute;n concreta.</p>
+        <p class="text-sm font-bold text-gray-300">Analiza un ticker</p>
+        <p class="text-[11px] text-gray-500 mt-1 max-w-lg mx-auto leading-relaxed">Elige un ticker arriba (o b&uacute;scalo) y el agente armar&aacute; el sentiment score, el flujo inusual, los muros de strikes y el detalle completo de cada sub-agente.
+          <br><span class="text-gray-600">&iquest;Sin un s&iacute;mbolo en mente? Entra en <b class="text-blue-400">💡 Ideas</b>: escanea el mercado entero y no pide nada.</span></p>
     </div>
 
-    <div id="projIdeas" class="hidden"></div>
-
+    <!-- Sus cuatro pestañas — `NavTabs.tsx`: Ticker / Ideas / Wheel / Time & Sales.
+         En su app son cuatro páginas; aquí son cuatro paneles del mismo tab. -->
     <div id="projContent" class="hidden space-y-5">
         <!-- Big price chart with GEX levels -->
         <div class="bg-panel border border-panel rounded-2xl p-4">
@@ -6815,6 +7138,11 @@ function analyzeTickerNow(tk) {
     </div>
 
 
+    </div><!-- /projPaneTicker -->
+
+    <div id="projPaneIdeas" class="hidden"><div id="projIdeas"></div></div>
+    <div id="projPaneWheel" class="hidden"><div id="projWheel"></div></div>
+    <div id="projPaneTape" class="hidden"><div id="projTape"></div></div>
 </main>
 
 <main id="portfolioView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4">
