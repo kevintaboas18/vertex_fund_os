@@ -2694,7 +2694,7 @@ function renderProjWheel(d) {
             <td class="py-2 pr-3 font-bold text-white">${_vcEsc(c.ticker)}</td>
             <td class="py-2 pr-3 text-gray-300">$${Number(c.strike).toFixed(2)}P <span class="text-[9px] text-gray-600">${_vcEsc(String(c.expiration).slice(5))}</span></td>
             <td class="py-2 pr-3 text-right text-gray-400">${c.dte}d</td>
-            <td class="py-2 pr-3 text-right text-gray-200 font-bold" title="prima por acción, ya recortada por fuente (${_vcEsc(c.premium.source)}; bruto $${Number(c.premium.raw).toFixed(2)})">$${Number(c.premium.price).toFixed(2)}</td>
+            <td class="py-2 pr-3 text-right font-bold ${c.premium.source === 'bid' ? 'text-gray-200' : 'text-amber-300'}" title="Prima por acci&oacute;n, ya recortada seg&uacute;n su fuente. Fuente: ${_vcEsc(c.premium.source)} (bruto $${Number(c.premium.raw).toFixed(2)}, recorte ${c.premium.source === 'bid' ? '0%' : (c.premium.source === 'ultimo' ? '10%' : '15%')}). Vendes al BID: cualquier otra fuente es una estimaci&oacute;n.">$${Number(c.premium.price).toFixed(2)}${c.premium.source !== 'bid' ? '<span class="text-[8px] font-normal">*</span>' : ''}</td>
             <td class="py-2 pr-3 text-right text-emerald-400 font-bold">$${fmtAbbr(m.credit)}</td>
             <td class="py-2 pr-3 text-right text-gray-300" title="efectivo que queda inmovilizado hasta el vencimiento">${fmtAbbr(m.collateral)}</td>
             <td class="py-2 pr-3 text-right ${m.annualized_pct > 60 ? 'text-amber-400' : 'text-gray-200'}" title="${m.annualized_pct > 60 ? 'Prima sospechosamente alta: el mercado descuenta una caída fuerte.' : ''}">${Number(m.annualized_pct).toFixed(1)}%</td>
@@ -2720,6 +2720,11 @@ function renderProjWheel(d) {
           ${d.rejected.some(r => r.motivo === 'fuente') ? `<p class="text-[9px] text-amber-400 mt-1.5 leading-snug">Si el motivo es la fuente en TODOS, no es el mercado: mira el ejemplo &mdash; dice si es la credencial (401), el plan (403), el l&iacute;mite de tasa (429) o los filtros.</p>` : ''}
           ${d.rejected.some(r => r.motivo === 'sin_horquilla') ? `<p class="text-[9px] text-amber-400 mt-1.5 leading-snug"><b>Sin bid/ask no hay Wheel.</b> La prima que cobrar&iacute;as ES el bid: sin horquilla no se puede saber, y tampoco se puede despejar la IV para medir el delta. <code>last_quote</code> en el snapshot de opciones es un <b>a&ntilde;adido de plan</b> en Massive &mdash; no es la key y no mejora reintentando. Las dem&aacute;s pesta&ntilde;as no lo necesitan: Ticker e Ideas funcionan igual.</p>` : ''}
         </div>` : ''}
+        ${d.quotes_missing ? `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-3">
+          <p class="text-[10px] font-black text-amber-300">Prima estimada del &uacute;ltimo precio, no del bid &mdash; ${d.quotes_missing} de ${d.scanned} s&iacute;mbolos</p>
+          <p class="text-[10px] text-amber-200/80 leading-snug mt-1">El plan de Massive no sirve <code>last_quote</code> en la cadena de opciones. Sin horquilla, la prima sale de la cascada que el propio motor usa para la cadena &mdash; <b>&uacute;ltimo negociado &rarr; cierre del d&iacute;a &rarr; VWAP</b>, con recorte del 10%&mdash; en vez del bid.</p>
+          <p class="text-[10px] text-amber-200/70 leading-snug mt-1">La salvaguarda sigue puesta: como el spread <b>no se puede medir</b>, la parte de liquidez del score cobra <b>0 de 15</b>. Un contrato as&iacute; nunca puntuar&aacute; como uno con horquilla real. <b>Verifica la prima en tu br&oacute;ker antes de vender.</b></p>
+        </div>` : ''}
         ${(d.blocked_summary || []).length ? `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3 mb-3">
           <p class="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Contratos bloqueados &mdash; ${d.blocked_total} de ${(d.candidates || []).length}</p>
           ${d.blocked_summary.map(b => `<div class="text-[10px] mb-1.5">
@@ -2734,7 +2739,7 @@ function renderProjWheel(d) {
             <th class="text-right pb-1.5 pr-3">Cobras</th><th class="text-right pb-1.5 pr-3">Colateral</th>
             <th class="text-right pb-1.5 pr-3">Anualizado</th><th class="text-right pb-1.5 pr-3">P(sin valor)</th>
             <th class="text-right pb-1.5">Score</th></tr></thead><tbody>${filas}</tbody></table></div>
-        <p class="text-[9px] text-gray-600 mt-2 italic">La asequibilidad no se calcula aqu&iacute;: tu saldo no sale del navegador. Mira el colateral y decide t&uacute;. Research, no una orden.</p>
+        <p class="text-[9px] text-gray-600 mt-2 italic">${d.quotes_missing ? '* prima estimada del &uacute;ltimo precio, no del bid. ' : ''}La asequibilidad no se calcula aqu&iacute;: tu saldo no sale del navegador. Mira el colateral y decide t&uacute;. Research, no una orden.</p>
       </div>`;
     if (window.lucide) lucide.createIcons();
 }

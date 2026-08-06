@@ -56,23 +56,33 @@ def wheel_dobles(monkeypatch):
             # deltas fuera de la banda del preset y no sale ningún candidato.
             from wbj.tito.black_scholes import bs_price
             px = bs_price(spot, float(s), 38 / 365, 0.35, "put")
+            # `last_trade` va poblado a propósito: en la cadena real sale de
+            # SU cascada `last_trade → day.close → day.vwap`, y es el precio
+            # que sostiene la prima cuando no hay horquilla.
             q.append(WheelChainQuote(strike=float(s), expiration="2026-09-18", dte=38,
                                      bid=round(px * 0.97, 2), ask=round(px * 1.03, 2),
-                                     last_trade=None, open_interest=600))
+                                     last_trade=round(px, 2), open_interest=600))
         return WheelChainResult(spot=spot,
                                 quotes=[x for x in q if dmin <= x.dte <= dmax])
 
     def barras(t, days=365, now=None, **k):
-        out, seed = [], 7
+        """Camino aleatorio con volatilidad REALISTA (~28% anualizada).
+
+        No es un detalle del doble: sin horquilla, la IV implícita no se puede
+        despejar y el delta se calcula con la volatilidad **realizada** de
+        estas barras. Con una serie demasiado plana los deltas salen casi
+        cero, ningún strike cae en la banda del preset y el escenario que se
+        quiere probar se convierte en "fuera de banda".
+        """
+        out, seed, c = [], 7, 100.0
         for i in range(300):
             seed = (seed * 1103515245 + 12345) % 2147483648
-            c = 92 + i * 0.02 + 7 * math.sin(i / 19) + (seed / 2147483648 - 0.5) * 1.4
+            c *= 1 + ((seed / 2147483648) - 0.5) * 0.035
             out.append(DailyBar((NOW - timedelta(days=300 - i)).date().isoformat(),
-                                c, c + 1.5, c - 1.5, c))
+                                c, c * 1.01, c * 0.99, c))
         # El último cierre ES el spot de la cadena doblada. Sin anclarlo, el
         # respaldo por barras devuelve un precio distinto al de la cadena y la
-        # banda de delta se desplaza — el escenario que se prueba dejaría de
-        # ser "la cadena no trajo precio" y pasaría a ser "otro papel".
+        # banda de delta se desplaza.
         out[-1] = DailyBar(out[-1].time, 100.0, 101.5, 98.5, 100.0)
         return out
 
@@ -1262,17 +1272,10 @@ class TestWheel:
         assert "nonlocal" not in cuerpo, "el worker vuelve a mutar estado compartido"
         assert "fallidos +=" not in cuerpo and "todos.extend" not in cuerpo
         # Devuelve su resultado; la suma se hace fuera, en un solo hilo.
-        assert "return [], (" in cuerpo and "return cands, None" in cuerpo
+        assert "return [], (" in cuerpo and "return cands, (" in cuerpo
 
-    def test_sin_bid_ask_lo_dice_por_su_nombre(self, client, monkeypatch, wheel_dobles):
-        """Sin horquilla no hay Wheel, y el fallo se disfrazaba de otra cosa.
-
-        Sin `last_quote` pasan dos cosas y ninguna se nombra sola:
-        no hay `mid`, así que la IV implícita no se despeja y el delta sale de
-        la volatilidad realizada —los strikes se salen de la banda y el ticker
-        cae como "fuera_de_banda"—; y si alguno entra, `liquidity_block` lo
-        tumba por "sin_bid". Dos rutas, el mismo motivo, ninguna lo decía.
-        """
+    @staticmethod
+    def _sin_horquilla(monkeypatch):
         import wbj.tito.massive as MASS
         from wbj.tito.massive import WheelChainQuote, WheelChainResult
         original = MASS.fetch_wheel_chain
@@ -1285,9 +1288,73 @@ class TestWheel:
                                 open_interest=q.open_interest) for q in r.quotes])
 
         monkeypatch.setattr(MASS, "fetch_wheel_chain", sin_quote)
+
+    def test_sin_horquilla_el_screener_SIGUE_dando_candidatos(self, client, monkeypatch,
+                                                              wheel_dobles):
+        """Su plan de Massive tampoco sirve quotes — lo dice su `compute.ts`:
+
+            "La fórmula del agente pide BID, pero el plan actual de Massive NO
+             devuelve quotes, así que cae a last_trade → day.close → day.vwap."
+
+        Su `wheelCandidates` bloquea por `sin_bid` ANTES de llamar a
+        `pickPremium`, así que las ramas `ultimo` y `modelo` de esa cascada
+        —con sus recortes del 10% y 15%— son inalcanzables en su código. No se
+        escriben dos recortes que nunca se aplican: existen para esto.
+        """
+        self._sin_horquilla(monkeypatch)
         d = client.get("/api/tito-wheel").json()
-        assert [r["motivo"] for r in d["rejected"]] == ["sin_horquilla"]
-        assert "ninguno con bid/ask" in d["rejected"][0]["ejemplo"]
+        assert d["with_candidates"] > 0, f"sigue vacío: {d['rejected']}"
+        assert d["quotes_missing"] == d["scanned"]
+        operables = [c for c in d["candidates"] if not c["blocked"]]
+        assert operables, "ningún operable sin horquilla"
+        assert all(c["premium"]["source"] != "bid" for c in operables)
+
+    def test_sin_horquilla_el_SCORE_se_castiga_solo(self, client, monkeypatch, wheel_dobles):
+        """La salvaguarda no se pierde al dejar pasar el contrato: el spread
+        sigue sin poder medirse, y `_liquidity_part` ya trata ese `None` como
+        `inf` → banda "insuficiente" → **0 de 15**. El propio score castiga no
+        saber la liquidez, que es justo lo que el bloqueo protegía."""
+        self._sin_horquilla(monkeypatch)
+        d = client.get("/api/tito-wheel").json()
+        for c in d["candidates"]:
+            if c["blocked"]:
+                continue
+            assert c["spread_pct"] is None
+            assert c["score"]["liquidity"]["points"] == 0
+            assert c["score"]["liquidity"]["band"] == "insuficiente"
+
+    def test_su_comportamiento_LITERAL_sigue_siendo_el_default(self):
+        """La divergencia es opt-in: `allow_missing_quote=False` por defecto,
+        así que lo que se prueba contra su repo es su código tal cual."""
+        from wbj.tito.wheel import CandidatesInput
+        assert CandidatesInput.__dataclass_fields__["allow_missing_quote"].default is False
+
+    def test_la_cadena_de_precio_del_contrato_es_la_SUYA(self, monkeypatch):
+        """`fetch_wheel_chain` leía solo `last_trade.price`. Su `contractPrice`
+        —el que usa para la tabla de la cadena— tiene tres niveles, y el
+        segundo es el que salva un contrato que hoy no negoció: fuera de sesión
+        son todos."""
+        import wbj.tito.massive as MASS
+
+        def solo_close(url, key, ticker, timeout):
+            return {"results": [{
+                "details": {"strike_price": 90.0, "expiration_date": "2026-09-18"},
+                "underlying_asset": {"price": 100.0},
+                "day": {"close": 1.25},          # ← sin last_trade
+                "open_interest": 800}]}
+
+        monkeypatch.setattr(MASS, "_get", solo_close)
+        r = MASS.fetch_wheel_chain("NVDA", 0, 400, now=NOW)
+        assert r.quotes and r.quotes[0].last_trade == 1.25
+
+    def test_el_panel_avisa_de_que_la_prima_es_ESTIMADA(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjWheel(d) {")
+        cuerpo = html[i:html.index("/* ── TIME & SALES", i)]
+        assert "d.quotes_missing" in cuerpo
+        assert "no del bid" in cuerpo
+        assert "0 de 15" in cuerpo               # el castigo, dicho
+        assert "Verifica la prima en tu br" in cuerpo
 
     def test_el_429_se_reintenta_y_no_se_confunde_con_otro_error(self, monkeypatch):
         """40 tickers × 2 llamadas en 6 hilos es una ráfaga de ~80 peticiones, y
