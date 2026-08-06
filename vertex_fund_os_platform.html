@@ -2634,6 +2634,68 @@ function vcAbreTab(id) {
                           if (t) { vcTabCargada.tape = true; loadProjTape(); } }
 }
 
+/* ── DIAGNÓSTICO DE FUENTES ────────────────────────────────────────────
+   La pregunta "¿tengo los datos que necesito?" no la contesta la documentación
+   del proveedor —describe el plan más caro— ni un test —corre con dobles—.
+   Solo la contesta pedirle a TU cuenta cada endpoint y mirar qué viene.        */
+
+async function loadProjFuentes() {
+    const caja = document.getElementById('projFuentes');
+    if (!caja) return;
+    caja.classList.remove('hidden');
+    caja.innerHTML = `<p class="text-xs text-gray-500 italic flex items-center gap-2 py-4"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Probando cada endpoint contra tu cuenta&hellip;</p>`;
+    if (window.lucide) lucide.createIcons();
+    const t = ((document.getElementById('projTicker') || {}).value || 'AAPL').trim().toUpperCase();
+    let d;
+    try {
+        const r = await fetch(`${API_BASE}/api/tito-fuentes?ticker=${encodeURIComponent(t)}`);
+        d = await r.json();
+    } catch (e) { d = { ok: false, error: e.message }; }
+    if (!d || !d.ok) {
+        caja.innerHTML = `<p class="text-xs text-amber-300">${_vcEsc((d && d.error) || 'No se pudo diagnosticar.')}</p>`;
+        return;
+    }
+    const TONO = { ok: ['text-emerald-400', 'bg-emerald-500/10', 'border-emerald-500/25'],
+                   degradado: ['text-amber-400', 'bg-amber-500/10', 'border-amber-500/25'],
+                   roto: ['text-red-400', 'bg-red-500/10', 'border-red-500/25'] };
+    const NOMBRE = { ticker: '📈 Ticker', ideas: '💡 Ideas', wheel: '🎡 Wheel', tape: '⚡ Time & Sales' };
+
+    const veredicto = Object.entries(d.veredicto || {}).map(([k, v]) => {
+        const t2 = TONO[v.estado] || TONO.roto;
+        return `<div class="${t2[1]} border ${t2[2]} rounded-lg p-2.5">
+            <p class="text-[11px] font-black ${t2[0]}">${NOMBRE[k] || k} &middot; ${v.estado.toUpperCase()}</p>
+            <p class="text-[10px] text-gray-400 leading-snug mt-0.5">${_vcEsc(v.motivo)}</p>
+            ${v.arreglo ? `<p class="text-[10px] ${t2[0]} leading-snug mt-1">&rarr; ${_vcEsc(v.arreglo)}</p>` : ''}</div>`;
+    }).join('');
+
+    const eps = (d.endpoints || []).map(e => {
+        const faltan = e.campos.filter(c => !c.hay);
+        const col = e.status === 200 ? 'text-emerald-400' : (e.status ? 'text-red-400' : 'text-gray-500');
+        return `<div class="border-t border-gray-800 pt-2 mt-2">
+          <p class="text-[10px]"><b class="text-gray-200">${_vcEsc(e.proveedor)}/${_vcEsc(e.endpoint)}</b>
+            <span class="${col} font-bold ml-1">${e.status === null ? 'sin credencial' : 'HTTP ' + e.status}</span>
+            <span class="text-gray-600">&middot; ${e.campos.length - faltan.length}/${e.campos.length} campos</span></p>
+          <p class="text-[9px] text-gray-600 leading-snug">${_vcEsc(e.para_que)}</p>
+          ${e.error ? `<p class="text-[9px] text-red-400 leading-snug mt-0.5">${_vcEsc(e.error)}</p>` : ''}
+          ${faltan.length ? faltan.map(c => `<p class="text-[9px] text-amber-400/90 leading-snug mt-0.5">
+             ✗ <code>${_vcEsc(c.campo)}</code> &mdash; ${_vcEsc(c.que_es)}
+             <span class="text-gray-600 block ml-3">${_vcEsc(c.si_falta)}</span></p>`).join('')
+            : `<p class="text-[9px] text-emerald-400/80 mt-0.5">✓ todos los campos que el motor lee</p>`}
+        </div>`;
+    }).join('');
+
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+          <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="stethoscope" class="w-4 h-4"></i> Diagn&oacute;stico de fuentes &mdash; ${_vcEsc(d.ticker)}</h3>
+          <span class="text-[10px] text-gray-500">Massive ${d.credenciales.massive ? '✓' : '✗'} &middot; MarketSnack ${d.credenciales.marketsnack ? '✓' : '✗'}</span>
+        </div>
+        <p class="text-[10px] text-gray-600 italic mb-3">Qu&eacute; devuelve <b>tu</b> plan, campo por campo. Cada campo dice qu&eacute; se rompe si falta.</p>
+        <div class="grid grid-cols-2 gap-2 mb-3">${veredicto}</div>
+        ${eps}
+      </div>`;
+    if (window.lucide) lucide.createIcons();
+}
+
 /* ── WHEEL ─────────────────────────────────────────────────────────────── */
 
 let vcWheelPreset = 'balanceado';
@@ -7133,7 +7195,15 @@ function analyzeTickerNow(tk) {
     </div><!-- /projPaneTicker -->
 
     <div id="projPaneIdeas" class="hidden"><div id="projIdeas"></div></div>
-    <div id="projPaneWheel" class="hidden"><div id="projWheel"></div></div>
+    <div id="projPaneWheel" class="hidden space-y-3">
+        <div id="projWheel"></div>
+        <div class="text-center">
+            <button onclick="loadProjFuentes()" class="text-[10px] font-bold px-3 py-1.5 rounded-lg bg-[#0B0E14] text-gray-400 border border-gray-800 hover:text-white transition">
+                🩺 &iquest;Qu&eacute; datos me da mi plan?
+            </button>
+        </div>
+        <div id="projFuentes" class="hidden"></div>
+    </div>
     <div id="projPaneTape" class="hidden"><div id="projTape"></div></div>
 </main>
 
