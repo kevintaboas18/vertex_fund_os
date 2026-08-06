@@ -791,7 +791,10 @@ class TestElTabEsSoloDeVictor:
         La de *Ideas* escanea el mercado entero sin que escribas nada, y el
         vacío del panel Ticker apunta a ella."""
         dom = self._dom()
-        assert "Tito Metralleta" in dom and "AI Options Agent" in dom
+        # Sin logo ni nombre propio: la marca de la pantalla es Vertex, que ya
+        # está arriba. Queda la etiqueta de qué es esto.
+        assert "AI Options Agent" in dom
+        assert "Tito Metralleta" not in dom
         assert "Analiza un ticker" in dom          # su copy, para el panel Ticker
         assert "escanea el mercado entero y no pide nada" in dom
         assert 'id="projIdeas"' in dom
@@ -823,7 +826,7 @@ class TestElTabEsSoloDeVictor:
     def test_la_cabecera_lleva_SU_orden(self):
         """`HeaderBar.tsx`: marca → NavTabs → tickers rápidos → buscador."""
         dom = self._dom()
-        orden = [dom.index("Tito Metralleta"), dom.index('id="projNav"'),
+        orden = [dom.index("AI Options Agent"), dom.index('id="projNav"'),
                  dom.index('id="projQuick"'), dom.index('id="projTicker"')]
         assert orden == sorted(orden), "la cabecera no sigue el orden de su HeaderBar"
 
