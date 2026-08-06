@@ -23,5 +23,7 @@
     "wealth management",
     "commercial banking",
     "retail banking"
-  ]
+  ],
+  "_ingreso_relevante": "total",
+  "_ingreso_relevante_porque": "Los tres segmentos de un banco diversificado (banca de consumo, de inversion, gestion de patrimonio) son ingresos bancarios, que es justo la capa que mide el TAM."
 }

@@ -22,5 +22,7 @@
     "antidiabéticos",
     "metabólicas",
     "obesidad"
-  ]
+  ],
+  "_ingreso_relevante": "total",
+  "_ingreso_relevante_porque": "La facturacion de una farmaceutica general son ventas de medicamentos a precio de lista, que es la capa del TAM."
 }

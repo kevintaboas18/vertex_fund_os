@@ -22,5 +22,9 @@
     "ai",
     "platform",
     "software"
-  ]
+  ],
+  "_ingreso_relevante": [
+    "PLTR"
+  ],
+  "_ingreso_relevante_porque": "El TAM mide software de datos y analitica. Eso es PLTR entera, pero solo un trozo de MSFT, que esta en la misma industria de GICS: darle a MSFT el ingreso total contra este denominador seria un numerador que no compite ahi."
 }

@@ -24,5 +24,7 @@
     "supercenter",
     "hypermarket",
     "discount"
-  ]
+  ],
+  "_ingreso_relevante": "total",
+  "_ingreso_relevante_porque": "WMT factura por venta minorista en sus tres segmentos (Walmart U.S., International, Sam's Club): los tres compiten en el mismo mercado que mide el TAM."
 }

@@ -446,9 +446,48 @@ def _ingreso_en_el_ambito(fmp: Any, ticker: str) -> tuple[float, str] | None:
     return float(encajan[0][1]), encajan[0][0]
 
 
+def _ingreso_total_previo(ticker: str, fmp: Any) -> float | None:
+    """Los ingresos del ejercicio ANTERIOR, para el delta de participación.
+
+    El método es `income_annual`. La primera versión de esto llamó a
+    `income_statement`, que no existe: el `except` de arriba se lo tragó, la
+    función devolvió `None` y `share_history` quedó vacío sin que nada
+    fallara. Un nombre de método equivocado y un `except Exception` alrededor
+    se combinan en un hueco silencioso.
+    """
+    try:
+        filas = fmp.income_annual(ticker)
+    except Exception:  # noqa: BLE001
+        logger.info("%s: sin estado de resultados para el año previo",
+                    ticker, exc_info=True)
+        return None
+    if not isinstance(filas, list) or len(filas) < 2:
+        return None
+    try:
+        v = float((filas[1] or {}).get("revenue"))
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
+def _ingreso_total_reportado(packet: Any) -> float | None:
+    """Los ingresos del último ejercicio, tal como los reporta el emisor."""
+    anual = (getattr(packet, "fundamentals", None) or {}).get("annual") or []
+    if not anual:
+        return None
+    v = (anual[0] or {}).get("revenue")
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
 def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
                       tam: float | None, tam_history: Any,
-                      patrones: Any, ambito: str | None = None) -> dict[str, Any]:
+                      patrones: Any, ambito: str | None = None,
+                      ingreso_total: float | None = None,
+                      total_es_relevante: bool = False) -> dict[str, Any]:
     """Participación de mercado calculada SOLA, sin que nadie la declare.
 
     Es el paso que faltaba para que analizar un ticker nuevo no exigiera
@@ -480,6 +519,27 @@ def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
                         "sin participacion", ticker)
             return {}
         actual: tuple[str, float] = (dom[1], dom[0])
+    elif total_es_relevante:
+        # La clase que el mecanismo de patrones no sabía expresar: la empresa
+        # ENTERA compite en ese mercado.
+        #
+        # Los segmentos de Walmart son 'Walmart U.S.', 'International' y
+        # 'Sam's Club'; los de JPMorgan, 'Consumer & Community Banking',
+        # 'Commercial and Investment Bank' y 'Asset and Wealth Management'.
+        # Todos son comercio minorista y todos son banca respectivamente, así
+        # que ningún patrón elige uno — y elegir uno sería peor, porque
+        # dividiría un trozo del numerador entre el mercado completo.
+        #
+        # Esto NO es un valor por defecto: sin la declaración explícita en el
+        # archivo de industria el comportamiento es el de antes. Coca-Cola
+        # sigue sin participación a propósito, porque su TAM mide valor al
+        # público y ella factura concentrado — dos capas, y el numerador no
+        # se arregla cambiándolo por otro más grande.
+        if not ingreso_total:
+            logger.info("%s: la industria declara que compite entera pero no "
+                        "hay ingreso total reportado", ticker)
+            return {}
+        actual = ("total reportado", float(ingreso_total))
     else:
         encontrado = _segmento_del_mercado(segmentos, patrones)
         if not encontrado:
@@ -516,6 +576,17 @@ def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
         # numeradores distintos, y la variación —que es lo que de verdad mide
         # `MKT-SHDELTA-007`— saldría de restar peras y manzanas.
         domestico = (ambito or "").upper() == "US"
+        if total_es_relevante and not domestico:
+            # El año anterior del MISMO numerador: el ingreso total del
+            # ejercicio previo, no un segmento.
+            previo_total = _ingreso_total_previo(ticker, fmp)
+            tam_anterior = float(historia[-2])
+            if (previo_total and tam_anterior > 0
+                    and previo_total <= tam_anterior):
+                salida["share_history"] = [
+                    round(previo_total / tam_anterior, 6),
+                    round(actual[1] / float(tam), 6)]
+            return salida
         filas = (fmp.revenue_geographic_segmentation(ticker) if domestico
                  else fmp.revenue_product_segmentation(ticker))
         if not isinstance(filas, list) or len(filas) < 2:
@@ -891,6 +962,22 @@ def _overlay_industria(settings: Any, industria: str | None,
     # que compite en este mercado. Se rescata antes de barrer las notas.
     patrones = data.get("_segmento_patrones")
     ambito = data.get("_ambito")
+    # `_ingreso_relevante` dice que la capa del TAM cubre la facturación
+    # ENTERA de quien la hereda, así que el numerador es el ingreso reportado
+    # y no un segmento. Se declara archivo por archivo porque es un juicio
+    # sobre la capa, no algo deducible del ticker.
+    #
+    # Admite `"total"` —vale para toda la industria— o una LISTA de tickers,
+    # porque una industria de GICS puede mezclar los dos casos: el TAM de
+    # `software-infrastructure` mide software de datos y analítica, que es
+    # PLTR entera pero sólo un trozo de Microsoft. Con un campo binario había
+    # que elegir entre dejar a PLTR sin participación o darle a MSFT un
+    # numerador cuatro veces mayor que su negocio en ese mercado.
+    _rel = data.get("_ingreso_relevante")
+    if isinstance(_rel, list):
+        total_relevante = ticker.upper() in {str(t).upper() for t in _rel}
+    else:
+        total_relevante = str(_rel or "").lower() == "total"
 
     for key in [k for k in data if k.startswith("_")]:
         data.pop(key)
@@ -906,6 +993,8 @@ def _overlay_industria(settings: Any, industria: str | None,
         fuera["_segmento_patrones"] = patrones
     if ambito and fuera.get("tam"):
         fuera["_ambito"] = ambito
+    if total_relevante and fuera.get("tam"):
+        fuera["_ingreso_relevante"] = "total"
     return fuera
 
 
@@ -1848,16 +1937,23 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         # caso que cubre el TAM oficial: JPM, KO y PLTR salían sin
         # participación teniendo el denominador delante.
         domestico = str(overlay.get("_ambito") or "").upper() == "US"
-        if domestico or (isinstance(segmentos, dict) and segmentos):
+        # La empresa que compite ENTERA no necesita segmentación de producto
+        # para entrar: su numerador es el ingreso total. Exigirla dejaba fuera
+        # a WMT, JPM y LLY teniendo el denominador y el numerador en casa.
+        total_relevante = str(overlay.get("_ingreso_relevante") or "") == "total"
+        if domestico or total_relevante or (isinstance(segmentos, dict) and segmentos):
             auto = _share_automatico(
                 fmp, ticker, segmentos or {}, overlay.get("tam"),
                 overlay.get("tam_history"), overlay.pop("_segmento_patrones", None),
-                ambito=overlay.pop("_ambito", None))
+                ambito=overlay.pop("_ambito", None),
+                ingreso_total=_ingreso_total_reportado(packet),
+                total_es_relevante=total_relevante)
             for key, value in auto.items():
                 overlay.setdefault(key, value)
     except Exception:
         logger.warning("automatic market share unavailable", exc_info=True)
     overlay.pop("_segmento_patrones", None)
     overlay.pop("_ambito", None)
+    overlay.pop("_ingreso_relevante", None)
 
     return overlay

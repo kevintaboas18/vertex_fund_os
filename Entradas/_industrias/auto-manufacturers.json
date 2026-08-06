@@ -22,5 +22,7 @@
     "cars",
     "trucks",
     "manufacturing"
-  ]
+  ],
+  "_ingreso_relevante": "total",
+  "_ingreso_relevante_porque": "La facturacion de un fabricante de automoviles es venta de vehiculos, la capa del TAM."
 }
