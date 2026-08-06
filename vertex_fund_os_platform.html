@@ -4161,17 +4161,28 @@ function fmtAbbr(v) {
       Wheel son 40 tickers × 2 llamadas a Massive.
    ══════════════════════════════════════════════════════════════════════════ */
 
-//: Segundos entre sondeos, por pestaña. Salen del coste de cada una.
+//: Cada cuánto se vuelve a pedir, en segundos. **15 minutos, decisión de
+//: Kevin**, y encaja con la fuente: los planes de datos de Massive sirven la
+//: cotización con hasta 15 minutos de retraso, así que sondear más rápido no
+//: trae dato nuevo — trae el MISMO dato otra vez y gasta cuota.
+//:
+//: Es una sola cadencia para las cuatro pestañas. Conviene saber lo que cuesta
+//: la más cara: **Wheel son 40 tickers × 2 llamadas a Massive**, o sea ~80 por
+//: barrido. Dejando esa pestaña abierta una hora son ~320 llamadas. Las otras
+//: tres son de 1 a 3 llamadas por barrido. Como solo se refresca la pestaña
+//: ACTIVA y solo con el navegador visible, ese techo solo se toca si te
+//: quedas mirando Wheel.
+const VC_VIVO_MIN = 15;
 const VC_VIVO_SEG = {
-    tape:   30,    // 1 llamada a MarketSnack
-    ticker: 60,    // 2 de MarketSnack + la cadena de Massive
-    ideas: 120,    // el mercado entero
-    wheel: 600,    // 40 tickers × 2 llamadas — el más caro con diferencia
+    tape:   VC_VIVO_MIN * 60,
+    ticker: VC_VIVO_MIN * 60,
+    ideas:  VC_VIVO_MIN * 60,
+    wheel:  VC_VIVO_MIN * 60,
 };
-//: Fuera de sesión nada de esto se mueve. Se sigue sondeando, pero muy de
-//: tarde en tarde: lo justo para que al abrir el mercado la vista despierte
-//: sola sin haber estado pidiendo datos que no cambian durante 16 horas.
-const VC_VIVO_CERRADO_SEG = 900;
+//: Con el mercado cerrado nada de esto se mueve durante 16 horas. Se sigue
+//: mirando de hora en hora, lo justo para que la vista despierte sola cerca de
+//: la apertura sin haber estado pidiendo datos idénticos toda la noche.
+const VC_VIVO_CERRADO_SEG = 3600;
 
 let vcVivoTimer = null;
 let vcVivoUltimo = {};     // por pestaña: cuándo se refrescó por última vez
@@ -4196,7 +4207,7 @@ function vcPintaVivo() {
     const cada = abierto ? (VC_VIVO_SEG[vcTabActiva] || 60) : VC_VIVO_CERRADO_SEG;
     el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${abierto ? 'bg-emerald-500 animate-pulse' : 'bg-gray-600'}"></span>
         <span class="${abierto ? 'text-emerald-400' : 'text-gray-500'}">${abierto ? 'en vivo' : 'mercado cerrado'}</span>
-        <span class="text-gray-600" title="${new Date(t).toLocaleTimeString()} · se repite cada ${cada}s">&middot; ${edad}</span>`;
+        <span class="text-gray-600" title="Último dato: ${new Date(t).toLocaleTimeString()}. Se vuelve a pedir cada ${Math.round(cada / 60)} min. Massive sirve la cotización con hasta 15 min de retraso según el plan, así que sondear más rápido no traería dato nuevo.">&middot; ${edad}</span>`;
 }
 
 /** Vuelve a pedir SOLO lo de la pestaña que estás mirando. */

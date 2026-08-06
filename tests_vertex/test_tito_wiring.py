@@ -1061,20 +1061,28 @@ class TestEnVivoSinBotones:
         act = _sin_comentarios(html[j:html.index("function vcArrancaVivo", j)])
         assert act.count("vcTabActiva ===") == 4
 
-    def test_la_cadencia_sale_del_COSTE_de_cada_pestana(self):
-        """La cinta es una llamada; Wheel son 40 tickers × 2 a Massive. Una
-        sola cadencia para todo, o quema la cuota o va lenta sin motivo."""
+    def test_la_cadencia_son_15_minutos_como_la_fuente(self):
+        """Decisión de Kevin, y encaja con Massive: sus planes sirven la
+        cotización con hasta 15 min de retraso, así que sondear más rápido
+        devuelve el MISMO dato y gasta cuota."""
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "const VC_VIVO_MIN = 15;" in html
         i = html.index("const VC_VIVO_SEG = {")
         bloque = html[i:html.index("};", i)]
-        seg = {m.group(1): int(m.group(2))
-               for m in re.finditer(r"(\w+):\s*(\d+)", bloque)}
-        assert set(seg) == {"tape", "ticker", "ideas", "wheel"}
-        assert seg["tape"] < seg["ticker"] < seg["ideas"] < seg["wheel"], seg
-        # Y con el mercado cerrado, mucho más lento: el dato no cambia.
-        assert "const VC_VIVO_CERRADO_SEG = 900;" in html
+        assert set(re.findall(r"(\w+):\s*VC_VIVO_MIN", bloque)) == {
+            "tape", "ticker", "ideas", "wheel"}
+        # Con el mercado cerrado, más lento aún: el dato no cambia en 16 horas.
+        assert "const VC_VIVO_CERRADO_SEG = 3600;" in html
         i2 = html.index("function vcArrancaVivo() {")
         assert "projIsMarketOpen()" in html[i2:i2 + 1200]
+
+    def test_el_tooltip_explica_por_que_15_y_no_menos(self):
+        """Sin el motivo, 15 minutos parece lentitud del panel y no un límite
+        de la fuente."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcPintaVivo() {")
+        cuerpo = html[i:html.index("function vcRefrescaActiva", i)]
+        assert "15 min de retraso" in cuerpo and "Massive" in cuerpo
 
 
 class TestWheel:

@@ -3023,7 +3023,19 @@ Tres reglas para que sondear no queme la cuota:
 |---|---|
 | Solo la pestaña **activa** | las otras tres se quedan con su foto hasta que vuelvas |
 | Solo con la pestaña del navegador **visible** | sondear en segundo plano gasta cuota para nadie |
-| Cadencia **por coste**: cinta 30s · ticker 60s · ideas 120s · wheel 600s | la cinta es una llamada; Wheel son 40 tickers × 2 a Massive |
+| Cadencia de **15 minutos** para las cuatro | decisión de Kevin, y encaja con la fuente |
 
-Con el mercado cerrado, todo baja a 900s: el dato no cambia en 16 horas, pero
-la vista despierta sola en la apertura sin haber estado pidiendo nada.
+**Por qué 15 y no menos.** Los planes de datos de Massive sirven la cotización
+con hasta 15 minutos de retraso. Sondear más rápido no trae dato nuevo: trae el
+**mismo** dato otra vez y gasta cuota. El tooltip del indicador lo explica ahí
+mismo, para que 15 minutos no se lea como lentitud del panel.
+
+Conviene tener el número de la pestaña más cara: **Wheel son 40 tickers × 2
+llamadas a Massive**, ~80 por barrido, ~320 en una hora si te quedas mirándola.
+Las otras tres van de 1 a 3 llamadas. Como solo se refresca la pestaña ACTIVA y
+solo con el navegador visible, ese techo únicamente se toca si dejas Wheel
+abierta.
+
+Con el mercado cerrado todo baja a **3600s**: el dato no cambia en 16 horas,
+pero la vista despierta sola cerca de la apertura sin haber estado pidiendo
+datos idénticos toda la noche.
