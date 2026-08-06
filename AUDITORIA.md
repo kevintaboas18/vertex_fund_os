@@ -2885,3 +2885,91 @@ Y de paso, lo que Kevin pedía sobre el plazo: el selector lleva el rótulo
 **"Horizonte"**, el bloque dice **"Targets a N días (Esta semana / 2 semanas /
 1 mes) · desde $X"**, y cada card repite **"a N días"** — un `$180` suelto no
 puede quedarse sin fecha.
+
+---
+
+# 41. Las cuatro pestañas de Víctor, dentro de Proyecciones (2026-08-06)
+
+Kevin: *"dentro de proyecciones aún no me das el tab de Ticker, Ideas, Wheel y
+Time & Sales"*. Tenía razón: iban dos de cuatro, y sin su navegación.
+
+## 41.1 Lo que faltaba
+
+Su `NavTabs.tsx` declara cuatro vistas. En su app son cuatro páginas
+(`/`, `/ideas`, `/wheel`, `/flow`); aquí son cuatro paneles del mismo tab, con
+el mismo orden y los mismos iconos.
+
+| Pestaña | Estaba | Ahora |
+|---|---|---|
+| 📈 **Ticker** | sí, pero mezclada con Ideas | panel propio |
+| 💡 **Ideas** | sí (ronda anterior) | panel propio |
+| 🎡 **Wheel** | **no** | `/api/tito-wheel` + `renderProjWheel` |
+| ⚡ **Time & Sales** | **no** | `/api/tito-tape` + `renderProjTape` |
+
+## 41.2 Wheel — 1.100 líneas suyas portadas
+
+Cuatro módulos nuevos, todos literales:
+
+- **`wheel.py`** — presets, cascada de prima, salvaguarda de liquidez, métricas
+  y el score 0-100 (rendimiento 30 · IV Rank 20 · colchón 25 · liquidez 15 ·
+  earnings 10).
+- **`wheel_universe.py`** — sus **40 símbolos curados** con su tier y su razón,
+  más `afford_of` / `sort_by_afford_then_score` de `wheelAfford.ts`.
+- **`earnings.py`** — el estimador del próximo reporte por cadencia de
+  `filing_date` (~91 días), porque el plan de Massive no trae calendario.
+- **`massive.fetch_wheel_chain`** — cadena de puts acotada al DTE del preset,
+  anclada al día de mercado **ET** y filtrada a **OTM** (un put ITM no es un
+  cash-secured put de Wheel: es otra cosa).
+
+**Dos cosas de este motor se leen al revés que el resto del agente**, y lo
+escribe él:
+
+- La banda de **IV Rank está invertida** respecto al sub-agente 5. Allí el pico
+  está en 16-30 porque el agente **compra** y quiere vega barata; la Wheel
+  **vende** y quiere la volatilidad cara. Hay un test que lo fija en las dos
+  direcciones a la vez.
+- Un **rendimiento anualizado alto se castiga** (>60% → 10/30). Un screener que
+  ordena por prima pone arriba justo las acciones a punto de desplomarse.
+
+**Lo que NO viaja:** su `wheelAfford.ts` corre en el cliente porque el saldo
+vive en localStorage. La ruta sirve el **colateral** de cada candidato; quién
+puede pagarlo lo decide quien tenga el saldo delante. Hay un test que registra
+el JSON entero buscando `affordable`, `shortfall`, `account_size` y `cash`.
+
+## 41.3 Time & Sales
+
+`/api/tito-tape` — la cinta cruda ya clasificada por los sub-agentes 1-3. A
+diferencia del scorecard, **no agrega nada**: cada operación con su hora, su
+lado de ejecución, su premium, sus griegos, su puntaje de inusualidad y las
+cinco marcas (repetido, multileg, sobre el ask, bajo el bid, volumen > OI).
+
+## 41.4 Carga bajo demanda
+
+Entrar a Proyecciones **no dispara cuatro escaneos**. Entre Wheel (40 tickers ×
+2 llamadas a Massive) e Ideas (el mercado entero) sería quemar la cuota de
+golpe. Cada pestaña carga la primera vez que se abre, y el buscador de ticker
+se esconde en Ideas y Wheel — que escanean el mercado entero, y un cuadro de
+símbolo ahí promete un filtro que no existe.
+
+## 41.5 Lo que destapó la auditoría al cerrar
+
+El registro de huérfanas falló, y bien:
+
+- `bs_delta`, `implied_vol` y `cached_daily_bars` estaban declaradas como *"solo
+  las llama su wheel.ts, que no se porta"*. **Ya no**: ahora las llama el port.
+- Aparecieron dos nuevas sin declarar. `sort_by_afford_then_score` es del
+  cliente (el saldo). `atm_iv` **está huérfana en su propio repo**: la exporta y
+  no la usa ni su `/api/wheel` ni su `wheel/page.tsx` — el escaneo saca su IV de
+  respaldo de la volatilidad **realizada**, no de la IV del strike ATM.
+
+Y el guardián de redondeo cazó un `round()` de Python en `wheel.py` que debía
+ser `js_round`: una fuerza de soporte de 34.5 se habría leído **34** aquí y
+**35** en su pantalla — el mismo soporte, descrito con dos números.
+
+## 41.6 Estado
+
+```
+2.721 tests del engine · 231 de la capa web · 277 checks · 0 fallos
+28 de sus 32 módulos portados · 34 constantes numéricas idénticas
+27 de sus 39 componentes con consumidor
+```

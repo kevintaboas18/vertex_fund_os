@@ -913,18 +913,23 @@ sec("9. Funciones públicas sin llamador")
 # Y si aparece una huérfana nueva sin declarar, este check falla.
 HUERFANAS = {
     # ── pertenecen a funciones de su app que NO se portan (Wheel, Ideas) ──
-    "cached_daily_bars":
-        "solo la llama su /api/wheel. Wheel no se porta; aquí queda como el port "
-        "literal que verifica diff_bars.sh, y el panel usa daily_bars_for_panel",
-    "bs_delta":     "solo la llama su wheel.ts (elegir el strike por delta)",
-    "implied_vol":  "solo la llama su wheel.ts (IV del contrato a vender)",
+
     "size_flow":
         "el sizing NO se calcula en el servidor: el saldo de Kevin no sale del "
         "navegador, igual que en su /api/ideas. La ruta devuelve los griegos; "
         "el techo de contratos lo aplica quien tenga el perfil delante",
+    "sort_by_afford_then_score":
+        "su `wheelAfford.ts` corre en el CLIENTE: ordena por lo que CABE en la "
+        "cuenta, y el saldo vive en localStorage y no llega al servidor. La ruta "
+        "sirve el colateral de cada candidato; quién puede pagarlo lo decide "
+        "quien tenga el saldo delante",
     # ── huérfanas EN SU PROPIO REPO ──
     "add_days":
         "sin llamador también en su occ.ts: nadie la usa en agente-tito-metralleta",
+    "atm_iv":
+        "sin llamador también en su wheel.ts: la exporta y no la usa ni su "
+        "/api/wheel ni su wheel/page.tsx. El escaneo saca su IV de respaldo de "
+        "la volatilidad REALIZADA, no de la IV del strike ATM",
     "load_chain_history":
         "sin llamador también en su chainStore.ts. Aquí el sub-agente 4 puntúa "
         "sobre la cadena de HOY; la serie se acumula para poder usarla, no se lee",
@@ -1052,10 +1057,10 @@ MODULOS_SUYOS = {
     "types":           ("py", "los dataclasses de cada módulo"),
     "chartGeometry":   ("js", "renderVictorProjChart en el panel — lo mide diff_geo.sh"),
     # ── declarados: NO se portan, con su motivo ──
-    "wheel":           ("no", "de su /wheel: venta de puts cubiertos, otra estrategia"),
-    "wheelAfford":     ("no", "de su /wheel"),
-    "wheelUniverse":   ("no", "de su /wheel"),
-    "earnings":        ("no", "solo lo importa su /api/wheel, que no se porta"),
+    "wheel":           ("py", "wheel.py — el criterio de la Wheel"),
+    "wheelAfford":     ("py", "wheel_universe.py — afford_of / sort_by_afford_then_score"),
+    "wheelUniverse":   ("py", "wheel_universe.py — sus 40 símbolos curados"),
+    "earnings":        ("py", "earnings.py — el estimador del próximo reporte"),
     "watchlist":       ("no", "su watchlist; Vertex tiene la suya y es de Kevin"),
     "watchlistLocal":  ("no", "idem, la copia en localStorage de su navegador"),
     "watchlistStore":  ("no", "idem, la persistencia de su watchlist"),
@@ -1064,7 +1069,7 @@ MODULOS_SUYOS = {
 _mods_portados = [k for k, v in MODULOS_SUYOS.items() if v[0] != "no"]
 chk(all(m for _, m in MODULOS_SUYOS.values()),
     f"los {len(MODULOS_SUYOS)} módulos de su web/lib están declarados")
-chk(len(_mods_portados) == 24, f"{len(_mods_portados)} de sus módulos están portados")
+chk(len(_mods_portados) == 28, f"{len(_mods_portados)} de sus módulos están portados")
 if TITO and (TITO / "lib").is_dir():
     _suyos_lib = {f.stem for f in (TITO / "lib").glob("*.ts") if not f.stem.endswith(".test")}
     _suyos_lib = {m for m in _suyos_lib if not m.endswith(".test")}
@@ -1081,7 +1086,8 @@ if TITO and (TITO / "lib").is_dir():
                 "gex": "gex", "gexHeatmap": "gex_heatmap", "levels": "levels", "occ": "occ",
                 "blackScholes": "black_scholes", "expectedMove": "expected_move",
                 "conditions": "conditions", "compute": "compute", "news": "news",
-                "massive": "massive", "marketsnack": "marketsnack", "store": "stores",
+                "massive": "massive", "marketsnack": "marketsnack", "store": "stores", "wheel": "wheel",
+                "wheelUniverse": "wheel_universe", "earnings": "earnings",
                 "chainStore": "stores", "ivStore": "stores", "predictionStore": "stores",
                 "barsStore": "bars_store"}
     _NUM = re.compile(r"^export const ([A-Z][A-Z0-9_]*)\s*=\s*([0-9_.*\s+-]+?);\s*(//.*)?$", re.M)
@@ -1136,7 +1142,7 @@ COMPONENTES_SUYOS = {
     "NewsCard":              ("panel", "`vcNewsHTML` + /api/tito-news"),
     "ProWallsCard":          ("panel", "`vcGexHTML` + las cards de #projCards"),
     "GexHeatmapCard":        ("panel", "`vcHeatmapHTML`"),
-    "TradesFeed":            ("panel", "la tabla de #projUnusual"),
+    "TradesFeed":            ("panel", "la tabla de #projUnusual y renderProjTape"),
     "ScorecardPanel":        ("panel", "`vcScorecardHTML`"),
     # ── detalle de sub-agentes ──
     "AggressionScoreCard":   ("panel", "`vcSubagentesHTML` — sub-agente 1"),
@@ -1159,13 +1165,13 @@ COMPONENTES_SUYOS = {
     "OptionChainTable":      ("no", "navegador de la cadena completa (600+ filas). El tab "
                                     "muestra los top strikes, que es lo que puntúa"),
     "WatchlistCard":         ("no", "su watchlist; Vertex tiene la suya"),
-    "NavTabs":               ("no", "navegación de su app Next.js"),
+    "NavTabs":               ("panel", "vcPintaNav — Ticker / Ideas / Wheel / Time & Sales"),
     "RiskProfileCard":       ("no", "el perfil de riesgo es el de Kevin, no un slider suyo"),
-    "WheelPresetCard":       ("no", "de su /wheel, que no se porta"),
-    "WheelTable":            ("no", "de su /wheel, que no se porta"),
+    "WheelPresetCard":       ("panel", "renderProjWheel — los tres presets con sus bandas"),
+    "WheelTable":            ("panel", "renderProjWheel — la tabla de candidatos"),
     "IdeasTable":            ("panel", "renderProjIdeas — el screener de mercado del tab"),
     "RepeatBadge":           ("no", "insignia interna de otras tablas suyas"),
-    "NotableTable":          ("no", "tabla de notables de su /flow, que no se porta"),
+    "NotableTable":          ("panel", "renderProjTape — la cinta de Time & Sales"),
     "ChartPanel":            ("no", "su app/ChartPanel dibuja los top-5 contratos de la "
                                     "cadena sobre las barras; el tab tiene su gráfica "
                                     "principal con cono, niveles y escenarios"),
@@ -1179,7 +1185,7 @@ _portados = {k: v for k, v in COMPONENTES_SUYOS.items() if v[0] == "panel"}
 _sin_portar = {k: v for k, v in COMPONENTES_SUYOS.items() if v[0] != "panel"}
 chk(all(m for _, m in COMPONENTES_SUYOS.values()),
     f"los {len(COMPONENTES_SUYOS)} componentes de su app están declarados")
-chk(len(_portados) == 23, f"{len(_portados)} de sus componentes tienen consumidor en el tab")
+chk(len(_portados) == 27, f"{len(_portados)} de sus componentes tienen consumidor en el tab")
 chk(all(len(m) > 20 for _, m in _sin_portar.values()),
     f"los {len(_sin_portar)} no portados llevan MOTIVO escrito, no una excusa de una línea")
 # Y los que se declaran portados tienen que existir de verdad en el panel.
