@@ -2474,7 +2474,6 @@ let projGexChartObj = null, projData = null;
 // se retiraron: medían gamma en paralelo con otro proveedor y otra fórmula,
 // y en la misma pantalla eso son dos verdades sin forma de saber cuál manda.
 // `/api/options-gex` sigue vivo para la vista de Research, que no es este tab.
-let projAutoTimer = null;      // timer de auto-refresh mientras el mercado está abierto
 
 const DP_MIN_VALUE = 500e6;    // solo cruces de dark pool de $500M o más
 // ¿Mercado de EE.UU. abierto? (lun–vie 9:30–16:00 hora del Este; PR es UTC-4 todo el año)
@@ -2499,17 +2498,22 @@ async function loadProjections(tickerArg, opts) {
     vcPintaQuick(ticker);
     // Analizar un símbolo manda: se salta al panel Ticker, salvo que estés
     // mirando su cinta, donde el ticker también aplica.
-    if (vcTabActiva !== 'tape') vcAbreTab('ticker');
-    else { vcTabCargada.tape = true; loadProjTape(); }
+    //
+    // …pero SOLO si lo pediste tú. El refresco en vivo entra por aquí con
+    // `silent`, y sin esta guarda te arrancaría de Ideas o de Wheel cada
+    // minuto para plantarte en el panel de Ticker.
+    if (!silent) {
+        if (vcTabActiva !== 'tape') vcAbreTab('ticker');
+        else { vcTabCargada.tape = true; loadProjTape(); }
+    }
     const empty = document.getElementById('projEmpty');
     const content = document.getElementById('projContent');
-    const btn = document.getElementById('projRefreshBtn');
     if (!silent) {
         empty.classList.remove('hidden');
         empty.innerHTML = `<i data-lucide="loader" class="w-8 h-8 text-blue-500 mx-auto mb-3 animate-spin"></i><p class="text-sm text-gray-400">Analizando el flujo de ${ticker}…</p>`;
         content.classList.add('hidden');
         if (window.lucide) lucide.createIcons();
-    } else if (btn) { btn.classList.add('animate-spin'); }
+    }
     try {
         // UNA sola fuente para todo el tab: el motor de Víctor. Antes había dos
         // —`/api/options-gex` (Quant Data, respaldo yfinance+BSM) alimentaba las
@@ -2539,10 +2543,8 @@ async function loadProjections(tickerArg, opts) {
                 const restore = () => window.scrollTo(0, _scrollY);
                 restore(); setTimeout(restore, 60); setTimeout(restore, 300);
             }
-            if (btn) setTimeout(() => btn.classList.remove('animate-spin'), 400);
         }
-        const ts = document.getElementById('projRefreshTs');
-        if (ts) ts.textContent = 'actualizado ' + new Date().toLocaleTimeString();
+        vcMarcaVivo('ticker');
     }
 }
 
@@ -2605,6 +2607,7 @@ function vcAbreTab(id) {
     // El buscador solo tiene sentido donde se analiza UN ticker.
     const busca = document.getElementById('projBuscador');
     if (busca) busca.classList.toggle('hidden', id !== 'ticker' && id !== 'tape');
+    vcPintaVivo();
     if (vcTabCargada[id]) return;
     if (id === 'ideas') { vcTabCargada.ideas = true; loadProjIdeas(); }
     if (id === 'wheel') { vcTabCargada.wheel = true; loadProjWheel(); }
@@ -2633,6 +2636,7 @@ async function loadProjWheel(preset) {
         return;
     }
     renderProjWheel(d);
+    vcMarcaVivo('wheel');
 }
 
 function renderProjWheel(d) {
@@ -2717,6 +2721,7 @@ async function loadProjTape() {
         return;
     }
     renderProjTape(d);
+    vcMarcaVivo('tape');
 }
 
 function renderProjTape(d) {
@@ -2818,6 +2823,7 @@ async function loadProjIdeas() {
     }
     if (empty) empty.classList.add('hidden');
     renderProjIdeas(d);
+    vcMarcaVivo('ideas');
 }
 
 function renderProjIdeas(d) {
@@ -4132,30 +4138,95 @@ function fmtAbbr(v) {
 }
 
 
-// Recarga COMPLETA y en vivo del área de proyecciones, sin spinner (no borra la vista). force=true salta
-// el cache de GEX en el backend. Reusa loadProjections para que TODO se actualice (paneles + chart + targets).
-function projRefresh(force) {
-    if (!projData || !projData.ticker) return;
-    loadProjections(projData.ticker, { silent: true, force: !!force });
+/* ══════════════════════════════════════════════════════════════════════════
+   EN VIVO — hasta donde las fuentes lo permiten.
+
+   Se quitaron el botón de recargar y la casilla "auto": el panel se mantiene
+   solo. Lo que NO se puede prometer es "tiempo real" en el sentido de push:
+
+     · Massive  — REST. Snapshots de cadena, barras y precio. Sin websocket.
+     · MarketSnack — REST. `/api/flow_feed` paginado. Sin websocket.
+
+   Su propia app no refresca NADA: cero `setInterval`, cero sockets. Una
+   búsqueda, una foto. Aquí se sondea, que es lo máximo que dan las dos APIs, y
+   el indicador enseña la HORA del dato en vez de un punto verde perpetuo.
+
+   Tres reglas para no quemar la cuota:
+
+   1. Solo la pestaña ACTIVA se refresca. Las otras tres se quedan con su foto
+      hasta que vuelvas a ellas.
+   2. Solo con la pestaña del navegador VISIBLE. Sondear una pestaña de fondo
+      gasta cuota para nadie.
+   3. Cadencia por coste real, no una sola para todo: la cinta es una llamada;
+      Wheel son 40 tickers × 2 llamadas a Massive.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+//: Segundos entre sondeos, por pestaña. Salen del coste de cada una.
+const VC_VIVO_SEG = {
+    tape:   30,    // 1 llamada a MarketSnack
+    ticker: 60,    // 2 de MarketSnack + la cadena de Massive
+    ideas: 120,    // el mercado entero
+    wheel: 600,    // 40 tickers × 2 llamadas — el más caro con diferencia
+};
+//: Fuera de sesión nada de esto se mueve. Se sigue sondeando, pero muy de
+//: tarde en tarde: lo justo para que al abrir el mercado la vista despierte
+//: sola sin haber estado pidiendo datos que no cambian durante 16 horas.
+const VC_VIVO_CERRADO_SEG = 900;
+
+let vcVivoTimer = null;
+let vcVivoUltimo = {};     // por pestaña: cuándo se refrescó por última vez
+
+function vcMarcaVivo(tab) {
+    vcVivoUltimo[tab || vcTabActiva] = Date.now();
+    vcPintaVivo();
 }
 
-// Enciende/apaga el auto-refresh; solo corre con la vista de proyecciones visible y el mercado abierto.
-function projToggleAuto() {
-    const cb = document.getElementById('projAutoRefresh');
-    const on = cb ? cb.checked : false;
-    if (projAutoTimer) { clearInterval(projAutoTimer); projAutoTimer = null; }
-    const lbl = document.getElementById('projAutoState');
-    if (on) {
-        projAutoTimer = setInterval(() => {
-            const view = document.getElementById('projectionsView');
-            if (view && !view.classList.contains('hidden') && projData && projData.ticker && projIsMarketOpen()) {
-                projRefresh(true);
-            }
-        }, 90000);   // cada 90 s
-        if (lbl) lbl.textContent = projIsMarketOpen() ? 'auto · mercado abierto' : 'auto · espera apertura';
-    } else if (lbl) {
-        lbl.textContent = '';
+function vcPintaVivo() {
+    const el = document.getElementById('projVivo');
+    if (!el) return;
+    const t = vcVivoUltimo[vcTabActiva];
+    const abierto = projIsMarketOpen();
+    if (!t) {
+        el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-gray-700"></span>
+            <span class="text-gray-600">sin datos a&uacute;n</span>`;
+        return;
     }
+    const seg = Math.round((Date.now() - t) / 1000);
+    const edad = seg < 60 ? `hace ${seg}s` : `hace ${Math.round(seg / 60)} min`;
+    const cada = abierto ? (VC_VIVO_SEG[vcTabActiva] || 60) : VC_VIVO_CERRADO_SEG;
+    el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${abierto ? 'bg-emerald-500 animate-pulse' : 'bg-gray-600'}"></span>
+        <span class="${abierto ? 'text-emerald-400' : 'text-gray-500'}">${abierto ? 'en vivo' : 'mercado cerrado'}</span>
+        <span class="text-gray-600" title="${new Date(t).toLocaleTimeString()} · se repite cada ${cada}s">&middot; ${edad}</span>`;
+}
+
+/** Vuelve a pedir SOLO lo de la pestaña que estás mirando. */
+function vcRefrescaActiva() {
+    if (vcTabActiva === 'ticker') {
+        if (projData && projData.ticker) loadProjections(projData.ticker, { silent: true });
+    } else if (vcTabActiva === 'ideas') { loadProjIdeas();
+    } else if (vcTabActiva === 'wheel') { loadProjWheel();
+    } else if (vcTabActiva === 'tape')  { loadProjTape(); }
+}
+
+function vcArrancaVivo() {
+    if (vcVivoTimer) clearInterval(vcVivoTimer);
+    // El tic es de 5 s solo para que la edad del dato se vea correr; la
+    // decisión de volver a pedir la toma la cadencia de cada pestaña.
+    vcVivoTimer = setInterval(() => {
+        vcPintaVivo();
+        const view = document.getElementById('projectionsView');
+        if (!view || view.classList.contains('hidden')) return;
+        if (document.visibilityState !== 'visible') return;
+        const cada = (projIsMarketOpen() ? (VC_VIVO_SEG[vcTabActiva] || 60)
+                                         : VC_VIVO_CERRADO_SEG) * 1000;
+        const t = vcVivoUltimo[vcTabActiva] || 0;
+        if (Date.now() - t >= cada) vcRefrescaActiva();
+    }, 5000);
+    // Al volver a la pestaña del navegador, refresca en cuanto toque en vez de
+    // esperar al siguiente tic con un dato viejo en pantalla.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') vcPintaVivo();
+    });
 }
 
 
@@ -5200,6 +5271,7 @@ function cmdKey(e) {
         // Sin ticker el agente NO se queda esperando: entra por Ideas, que
         // escanea el mercado y no pide nada.
         if (typeof vcAbreTab === 'function') vcAbreTab(vcTabActiva);
+        if (typeof vcArrancaVivo === 'function' && !vcVivoTimer) vcArrancaVivo();
     } else {            // análisis completo del agente
         if (typeof analyzeTickerNow === 'function') analyzeTickerNow(tk);
     }
@@ -6897,48 +6969,44 @@ function analyzeTickerNow(tk) {
 
 <main id="projectionsView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4 space-y-5">
 
-    <div class="flex items-center justify-between mb-1 flex-wrap gap-3">
-        <div>
-            <h2 class="text-xl font-extrabold text-white flex items-center gap-2"><span class="w-6 h-6 rounded-lg bg-blue-500 text-white text-sm font-black flex items-center justify-center">T</span> Tito Metralleta
-              <span class="text-[9px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded px-1.5 py-0.5">AI Options Agent</span></h2>
-            <p class="text-xs text-gray-500 mt-0.5">Seis sub-agentes sobre la cadena de Massive y la cinta de MarketSnack: agresi&oacute;n, convicci&oacute;n, inusualidad, estructura, contexto IV y confirmaci&oacute;n de precio.</p>
+    <!-- Su `HeaderBar.tsx`, con su orden exacto: marca → NavTabs → tickers
+         rápidos → buscador. La navegación va AQUÍ, no dentro de un panel: en su
+         app vive en la barra superior y por eso nunca desaparece. -->
+    <div class="flex items-center gap-4 flex-wrap mb-1">
+        <div class="flex items-center gap-2.5">
+            <span class="w-[30px] h-[30px] rounded-lg bg-gradient-to-br from-blue-500 to-emerald-500 text-white text-sm font-bold flex items-center justify-center">T</span>
+            <span class="text-base font-bold text-white tracking-tight">Tito Metralleta</span>
+            <span class="text-[11px] text-gray-400 bg-white/5 border border-panel rounded-full px-2 py-0.5">AI Options Agent</span>
         </div>
+        <div id="projNav" class="flex gap-1.5 flex-wrap"></div>
         <div id="projBuscador" class="flex items-center gap-2 flex-wrap">
-            <!-- Sus 4 tickers rápidos (`QUICK` de HeaderBar.tsx). En su app no
-                 hace falta teclear nada: se hace clic y ya. Este bloque entero
-                 se oculta en Ideas y Wheel, que no van por ticker. -->
-            <div id="projQuick" class="flex gap-1"></div>
+            <!-- Sus 4 tickers rápidos (`QUICK` de HeaderBar.tsx): se hace clic,
+                 no se teclea. Este bloque se oculta en Ideas y Wheel, que
+                 escanean el mercado entero y no van por símbolo. -->
+            <div id="projQuick" class="flex gap-1.5"></div>
             <input id="projTicker" type="text" placeholder="Buscar ticker&hellip;" onkeydown="if(event.key==='Enter')loadProjections()" spellcheck="false"
-                   class="bg-[#0B0E14] border border-gray-800 text-white text-sm rounded-lg px-3 py-2 w-36 uppercase focus:border-blue-500 outline-none" />
-            <button onclick="loadProjections()" class="text-xs font-bold px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-1.5">
-                <i data-lucide="search" class="w-3.5 h-3.5"></i> Analizar
-            </button>
-            <button onclick="projRefresh(true)" title="Volver a correr el motor ahora" class="text-xs font-bold p-2 rounded-lg bg-gray-700/50 text-gray-200 hover:bg-gray-700 transition flex items-center">
-                <i id="projRefreshBtn" data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-            </button>
-            <label class="flex items-center gap-1.5 text-[10px] text-gray-400 cursor-pointer select-none">
-                <input id="projAutoRefresh" type="checkbox" onchange="projToggleAuto()" class="accent-blue-500"> auto
-                <span id="projAutoState" class="text-[9px] text-emerald-400 font-bold"></span>
-            </label>
-            <span id="projRefreshTs" class="text-[9px] text-gray-600"></span>
+                   class="bg-[#0B0E14] border border-gray-800 text-white text-[13px] rounded-full px-3.5 py-2 w-[190px] uppercase focus:border-blue-500 outline-none" />
+        </div>
+        <!-- Sin botón de recargar y sin casilla "auto": el panel se mantiene
+             solo. El indicador dice la HORA REAL del último dato, porque ni
+             Massive ni MarketSnack empujan nada — las dos son REST y esto es
+             sondeo, no streaming. Un punto verde sin hora sería mentir. -->
+        <div class="flex items-center gap-2 ml-auto">
+            <span id="projVivo" class="flex items-center gap-1.5 text-[10px] text-gray-500"></span>
         </div>
     </div>
+    <p class="text-xs text-gray-500 -mt-3">Seis sub-agentes sobre la cadena de Massive y la cinta de MarketSnack: agresi&oacute;n, convicci&oacute;n, inusualidad, estructura, contexto IV y confirmaci&oacute;n de precio.</p>
 
     <div id="projPaneTicker">
     <div id="projEmpty" class="text-center py-20 px-4">
         <i data-lucide="line-chart" class="w-12 h-12 text-gray-700 mx-auto mb-3"></i>
-        <p class="text-sm font-bold text-gray-300">Ideas del mercado</p>
-        <p class="text-[11px] text-gray-500 mt-1 max-w-lg mx-auto leading-relaxed">El agente escanea el flujo de opciones de <b class="text-gray-400">todo el mercado</b> &mdash; no hace falta escribir nada. Elige un ticker arriba si quieres el an&aacute;lisis completo de una acci&oacute;n concreta.</p>
+        <p class="text-sm font-bold text-gray-300">Analiza un ticker</p>
+        <p class="text-[11px] text-gray-500 mt-1 max-w-lg mx-auto leading-relaxed">Elige un ticker arriba (o b&uacute;scalo) y el agente armar&aacute; el sentiment score, el flujo inusual, los muros de strikes y el detalle completo de cada sub-agente.
+          <br><span class="text-gray-600">&iquest;Sin un s&iacute;mbolo en mente? Entra en <b class="text-blue-400">💡 Ideas</b>: escanea el mercado entero y no pide nada.</span></p>
     </div>
 
     <!-- Sus cuatro pestañas — `NavTabs.tsx`: Ticker / Ideas / Wheel / Time & Sales.
          En su app son cuatro páginas; aquí son cuatro paneles del mismo tab. -->
-    <div id="projNav" class="flex gap-1.5 flex-wrap border-b border-panel pb-2"></div>
-
-    <div id="projPaneIdeas" class="hidden"><div id="projIdeas"></div></div>
-    <div id="projPaneWheel" class="hidden"><div id="projWheel"></div></div>
-    <div id="projPaneTape" class="hidden"><div id="projTape"></div></div>
-
     <div id="projContent" class="hidden space-y-5">
         <!-- Big price chart with GEX levels -->
         <div class="bg-panel border border-panel rounded-2xl p-4">
@@ -7006,6 +7074,9 @@ function analyzeTickerNow(tk) {
 
     </div><!-- /projPaneTicker -->
 
+    <div id="projPaneIdeas" class="hidden"><div id="projIdeas"></div></div>
+    <div id="projPaneWheel" class="hidden"><div id="projWheel"></div></div>
+    <div id="projPaneTape" class="hidden"><div id="projTape"></div></div>
 </main>
 
 <main id="portfolioView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4">

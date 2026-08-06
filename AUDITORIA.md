@@ -2973,3 +2973,57 @@ ser `js_round`: una fuerza de soporte de 34.5 se habría leído **34** aquí y
 28 de sus 32 módulos portados · 34 constantes numéricas idénticas
 27 de sus 39 componentes con consumidor
 ```
+
+## 41.7 Las pestañas no funcionaban, y el refresco pasa a ser continuo
+
+Kevin, probándolo: *"cuando presiono ideas, wheel o time and sales no me sale
+nada y sale todo como el fondo. Y se van las opciones de elegir otra opción"*.
+
+### El fallo: anidado
+
+`projNav` y los tres paneles nuevos quedaron **dentro** de `projPaneTicker`.
+Al abrir Ideas se ocultaba el padre — y con él la navegación, los otros tres
+paneles y todo lo demás. Pantalla en negro y sin forma de volver.
+
+Fue mío, del commit anterior: metí los paneles con un reemplazo de texto sobre
+un ancla que ya estaba dentro del panel Ticker, y ningún test miraba la
+**profundidad** del DOM. Ahora hay uno que la mide y exige que los cuatro
+paneles sean hermanos y que ni la navegación ni el buscador cuelguen de ellos.
+
+### Y de paso, su cabecera de verdad
+
+Su `HeaderBar.tsx` lleva `<NavTabs />` **dentro**, en este orden:
+
+```
+marca → NavTabs → tickers rápidos → buscador
+```
+
+Por eso en su app la navegación no desaparece nunca: vive en la barra de
+arriba, no en un panel. Reconstruida con ese orden, que además responde a lo
+otro que pedía Kevin — *"quiero que me salgan las opciones junto a poner un
+ticker"*: es exactamente donde él las tiene.
+
+### En vivo, sin botones
+
+Fuera el botón de recargar y la casilla "auto". Con una precisión que hay que
+decir en voz alta: **"tiempo real" no es posible aquí, y no por vagancia.**
+
+- **Massive** — REST. Snapshots de cadena, barras y precio. Sin websocket.
+- **MarketSnack** — REST. `/api/flow_feed` paginado. Sin websocket.
+- **Su propia app no refresca nada**: cero `setInterval`, cero sockets,
+  verificado sobre las cuatro páginas. Una búsqueda, una foto.
+
+Lo máximo que dan las dos APIs es **sondeo**, y eso es lo que hay. Por eso el
+indicador enseña la **hora del dato** (*"en vivo · hace 12s"*) en vez de un
+punto verde perpetuo: un punto verde sin hora prometería streaming.
+
+Tres reglas para que sondear no queme la cuota:
+
+| Regla | Por qué |
+|---|---|
+| Solo la pestaña **activa** | las otras tres se quedan con su foto hasta que vuelvas |
+| Solo con la pestaña del navegador **visible** | sondear en segundo plano gasta cuota para nadie |
+| Cadencia **por coste**: cinta 30s · ticker 60s · ideas 120s · wheel 600s | la cinta es una llamada; Wheel son 40 tickers × 2 a Massive |
+
+Con el mercado cerrado, todo baja a 900s: el dato no cambia en 16 horas, pero
+la vista despierta sola en la apertura sin haber estado pidiendo nada.

@@ -788,13 +788,44 @@ class TestElTabEsSoloDeVictor:
 
     def test_esta_su_cabecera_y_el_tab_no_exige_ticker(self):
         """Su app tiene cuatro pestañas y solo una —el dashboard— pide símbolo.
-        La de *Ideas* escanea el mercado entero sin que escribas nada. Aquí las
-        dos conviven: sin ticker manda Ideas, con ticker manda el scorecard."""
+        La de *Ideas* escanea el mercado entero sin que escribas nada, y el
+        vacío del panel Ticker apunta a ella."""
         dom = self._dom()
         assert "Tito Metralleta" in dom and "AI Options Agent" in dom
-        assert "Ideas del mercado" in dom
-        assert "no hace falta escribir nada" in dom
+        assert "Analiza un ticker" in dom          # su copy, para el panel Ticker
+        assert "escanea el mercado entero y no pide nada" in dom
         assert 'id="projIdeas"' in dom
+
+    def test_la_navegacion_va_en_la_cabecera_y_NUNCA_se_esconde(self):
+        """El fallo: `projNav` y los tres paneles nuevos quedaron ANIDADOS
+        dentro de `projPaneTicker`. Al abrir Ideas se ocultaba el padre y con
+        él la navegación entera — la pantalla se quedaba en negro y sin forma
+        de volver. En su app la `NavTabs` vive en el `HeaderBar`, arriba y
+        siempre visible, junto al buscador.
+        """
+        import re as _re
+        dom = self._dom()
+        prof, nivel = 0, {}
+        for ln in dom.split("\n"):
+            m = _re.search(r'id="(projNav|projPane\w+|projBuscador)"', ln)
+            if m:
+                nivel[m.group(1)] = prof
+            prof += len(_re.findall(r"<div\b", ln)) - len(_re.findall(r"</div>", ln))
+        # Los cuatro paneles son HERMANOS, al mismo nivel.
+        paneles = [nivel[k] for k in ("projPaneTicker", "projPaneIdeas",
+                                      "projPaneWheel", "projPaneTape")]
+        assert len(set(paneles)) == 1, f"los paneles no son hermanos: {nivel}"
+        # …y ni la navegación ni el buscador cuelgan de ninguno de ellos.
+        assert nivel["projNav"] > paneles[0], "la navegación tiene que ir en la cabecera"
+        assert nivel["projBuscador"] > paneles[0]
+        assert prof == 0, "los <div> del tab no cierran"
+
+    def test_la_cabecera_lleva_SU_orden(self):
+        """`HeaderBar.tsx`: marca → NavTabs → tickers rápidos → buscador."""
+        dom = self._dom()
+        orden = [dom.index("Tito Metralleta"), dom.index('id="projNav"'),
+                 dom.index('id="projQuick"'), dom.index('id="projTicker"')]
+        assert orden == sorted(orden), "la cabecera no sigue el orden de su HeaderBar"
 
     def test_al_abrir_el_tab_arranca_el_screener_no_un_cartel(self):
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
@@ -816,6 +847,20 @@ class TestElTabEsSoloDeVictor:
         dom = self._dom()
         for pane in ("projPaneTicker", "projPaneIdeas", "projPaneWheel", "projPaneTape"):
             assert f'id="{pane}"' in dom, f"falta el panel {pane}"
+
+    def test_el_refresco_silencioso_no_te_saca_de_la_pestana(self):
+        """El auto-refresco entra por `loadProjections(..., {silent:true})`.
+        Sin guarda te arrancaría de Ideas o de Wheel cada minuto para
+        plantarte en el panel de Ticker."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("async function loadProjections(tickerArg, opts) {")
+        cuerpo = _sin_comentarios(html[i:i + 4000])
+        # El salto de panel tiene que estar DENTRO de un `if (!silent)`.
+        j = cuerpo.index("vcAbreTab('ticker')")
+        guarda = cuerpo.rindex("if (!silent) {", 0, j)
+        assert guarda > 0, "el salto de panel no está protegido"
+        # …y el bloque no se cierra antes de llegar al salto.
+        assert "}" not in cuerpo[guarda:j].split("vcTabActiva")[0]
 
     def test_cada_pestana_carga_BAJO_DEMANDA(self):
         """Entrar a Proyecciones no puede disparar cuatro escaneos: entre Wheel
@@ -978,6 +1023,58 @@ class TestIdeasDelMercado:
         assert d["ok"] is False and d["source"] == "marketsnack"
         assert "cadu" in d["error"]          # el motivo nuestro pasa entero
         assert "ideas" not in d
+
+
+class TestEnVivoSinBotones:
+    """Fuera el botón de recargar y la casilla "auto": el panel se mantiene solo."""
+
+    def test_no_queda_ningun_control_manual_de_refresco(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        dom = html[html.index('<main id="projectionsView"'):]
+        dom = re.sub(r"<!--.*?-->", "", dom[:dom.index("</main>")], flags=re.S)
+        for id_ in ("projRefreshBtn", "projAutoRefresh", "projAutoState", "projRefreshTs"):
+            assert id_ not in dom, f"{id_} sigue en el tab"
+        for fn in ("projToggleAuto", "projRefresh"):
+            assert f"function {fn}(" not in html and f"{fn}(" not in html
+
+    def test_el_indicador_dice_la_HORA_no_solo_un_punto_verde(self):
+        """Ni Massive ni MarketSnack empujan nada: las dos son REST y esto es
+        sondeo. Un punto verde sin hora prometería streaming."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcPintaVivo() {")
+        cuerpo = html[i:html.index("function vcRefrescaActiva", i)]
+        assert "hace ${seg}s" in cuerpo and "min" in cuerpo
+        assert "mercado cerrado" in cuerpo
+        assert "toLocaleTimeString()" in cuerpo   # la hora exacta, en el tooltip
+
+    def test_solo_se_refresca_la_pestana_ACTIVA_y_visible(self):
+        """Sondear las cuatro a la vez, o una pestaña de fondo, quema cuota
+        para nadie."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcArrancaVivo() {")
+        cuerpo = _sin_comentarios(html[i:i + 1800])
+        assert "document.visibilityState !== 'visible'" in cuerpo
+        assert "view.classList.contains('hidden')" in cuerpo
+        assert "vcVivoUltimo[vcTabActiva]" in cuerpo
+        # …y solo la activa vuelve a pedir.
+        j = html.index("function vcRefrescaActiva() {")
+        act = _sin_comentarios(html[j:html.index("function vcArrancaVivo", j)])
+        assert act.count("vcTabActiva ===") == 4
+
+    def test_la_cadencia_sale_del_COSTE_de_cada_pestana(self):
+        """La cinta es una llamada; Wheel son 40 tickers × 2 a Massive. Una
+        sola cadencia para todo, o quema la cuota o va lenta sin motivo."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("const VC_VIVO_SEG = {")
+        bloque = html[i:html.index("};", i)]
+        seg = {m.group(1): int(m.group(2))
+               for m in re.finditer(r"(\w+):\s*(\d+)", bloque)}
+        assert set(seg) == {"tape", "ticker", "ideas", "wheel"}
+        assert seg["tape"] < seg["ticker"] < seg["ideas"] < seg["wheel"], seg
+        # Y con el mercado cerrado, mucho más lento: el dato no cambia.
+        assert "const VC_VIVO_CERRADO_SEG = 900;" in html
+        i2 = html.index("function vcArrancaVivo() {")
+        assert "projIsMarketOpen()" in html[i2:i2 + 1200]
 
 
 class TestWheel:
