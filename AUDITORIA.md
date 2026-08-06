@@ -3071,7 +3071,7 @@ volvería a dejar el DOM crudo.
 Kevin mandó la captura: los **40** símbolos caídos. Cuarenta de cuarenta no es
 el mercado, es algo sistemático.
 
-### Fallo 1 — el spot salía de una fuente única que ya sabíamos que falla
+### Fallo 1 (segunda vuelta) — faltaba el TERCER eslabón del spot
 
 `fetch_wheel_chain` saca el precio de `underlying_asset.price` **de la cadena
 de opciones**. La ronda 6 destapó justamente que ese campo no es fiable en esta
@@ -3082,9 +3082,38 @@ en Wheel se había quedado como fuente **única**. Si Massive lo omite:
 chain.spot is None  →  los 40 al contador de fallos
 ```
 
-Resuelto con el mismo respaldo que ya funciona en Ticker: `fetch_company`. Y si
-el spot viene de ahí, se aplica a mano el filtro OTM que `fetch_wheel_chain`
-hace con el suyo. **Reproducido: 0/40 → 40/40.**
+El primer intento le puso `fetch_company` de respaldo. **No bastó**, y el
+propio desglose del fallo 2 lo destapó a la primera:
+
+```
+40  sin precio del subyacente
+    SPY: ni la cadena ni el snapshot del subyacente trajeron precio
+```
+
+O sea: en esta cuenta **`fetch_company` tampoco responde**. Su `page.tsx`
+resuelve el spot con **tres** eslabones, no dos:
+
+```
+company?.price ?? chainMeta?.underlyingPrice ?? bars[last].close
+```
+
+Faltaba el tercero — y es justo el que nunca falla, porque las barras ya se
+descargan aquí para los niveles y el IV Rank: **el último cierre sale gratis**.
+Reordenado el worker para bajar las barras antes del spot.
+
+Y `fetch_company` **sale** de este escaneo: son 40 peticiones extra cada 15
+minutos a un endpoint que en esta cuenta no responde. Donde sí compensa —el tab
+de Ticker, UNA petición— se mantiene su precedencia entera. Para strikes a
+30-45 días, una fracción de punto en el spot no mueve la banda de delta.
+
+**Reproducido el escenario exacto de Kevin** —cadena sin `underlying_asset` y
+snapshot devolviendo 403— y da **40/40**.
+
+> **Hallazgo colateral, y no menor:** que `fetch_company` no responda significa
+> que el tab de **Ticker** lleva tiempo usando su segundo eslabón (el precio de
+> la cadena) sin decirlo. Funciona, pero no con el mejor precio disponible. El
+> check `massive.snapshot` de `/api/tito-health` existe precisamente para ver
+> esto.
 
 ### Fallo 2 — un contador para tres desenlaces, con la etiqueta equivocada
 

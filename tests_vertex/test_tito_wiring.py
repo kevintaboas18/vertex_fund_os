@@ -69,6 +69,11 @@ def wheel_dobles(monkeypatch):
             c = 92 + i * 0.02 + 7 * math.sin(i / 19) + (seed / 2147483648 - 0.5) * 1.4
             out.append(DailyBar((NOW - timedelta(days=300 - i)).date().isoformat(),
                                 c, c + 1.5, c - 1.5, c))
+        # El último cierre ES el spot de la cadena doblada. Sin anclarlo, el
+        # respaldo por barras devuelve un precio distinto al de la cadena y la
+        # banda de delta se desplaza — el escenario que se prueba dejaría de
+        # ser "la cadena no trajo precio" y pasaría a ser "otro papel".
+        out[-1] = DailyBar(out[-1].time, 100.0, 101.5, 98.5, 100.0)
         return out
 
     monkeypatch.setattr(MASS, "fetch_wheel_chain", chain)
@@ -1170,43 +1175,53 @@ class TestWheel:
         for prohibido in ("affordable", "shortfall", "account_size", "cash"):
             assert prohibido not in crudo, f"el saldo se coló: {prohibido}"
 
-    def test_el_spot_tiene_respaldo_cuando_la_cadena_no_lo_trae(self, client, monkeypatch,
-                                                                wheel_dobles):
-        """El fallo que dejó a Kevin con «0 de 40 · 40 sin cadena».
-
-        `fetch_wheel_chain` saca el spot de `underlying_asset.price` de la
-        cadena de opciones. La ronda 6 ya destapó que ese campo no es fiable en
-        esta cuenta —por eso el tab de Ticker pide el precio al snapshot del
-        subyacente— y aquí se había quedado como fuente ÚNICA: si Massive lo
-        omite, los 40 símbolos caen de golpe.
-        """
+    @staticmethod
+    def _cadena_sin_precio(monkeypatch):
+        """La cadena llega sin `underlying_asset.price` — el escenario real."""
         import wbj.tito.massive as MASS
         from wbj.tito.massive import WheelChainResult
-
         original = MASS.fetch_wheel_chain
+        monkeypatch.setattr(
+            MASS, "fetch_wheel_chain",
+            lambda t, a, b, now=None, **k: WheelChainResult(
+                spot=None, quotes=original(t, a, b, now=now).quotes))
 
-        def sin_precio(t, dmin, dmax, now=None, **k):
-            r = original(t, dmin, dmax, now=now, **k)
-            return WheelChainResult(spot=None, quotes=r.quotes)   # ← sin underlying_asset
+    def test_el_ultimo_CIERRE_rescata_el_escaneo(self, client, monkeypatch, wheel_dobles):
+        """El fallo real que dejó a Kevin con «0 de 40 · sin precio del subyacente».
 
-        monkeypatch.setattr(MASS, "fetch_wheel_chain", sin_precio)
-        monkeypatch.setattr(MASS, "fetch_company", lambda t, **k: {"price": 100.0})
+        Su `page.tsx` resuelve el spot con TRES eslabones:
+
+            company?.price ?? chainMeta?.underlyingPrice ?? bars[last].close
+
+        Wheel tenía los dos primeros y le faltaba el tercero — que es justo el
+        que nunca falla, porque las barras ya están descargadas para los
+        niveles y el IV Rank. Con la cadena sin precio y el snapshot del
+        subyacente rechazado por el plan, los 40 símbolos caían de golpe.
+        """
+        self._cadena_sin_precio(monkeypatch)
         d = client.get("/api/tito-wheel").json()
-        assert d["with_candidates"] > 0, f"el respaldo no entró: {d['rejected']}"
+        assert d["with_candidates"] > 0, f"el último cierre no rescató: {d['rejected']}"
         assert d["failed"] == 0
+
+    def test_el_escaneo_NO_gasta_40_peticiones_en_el_snapshot(self, client, monkeypatch,
+                                                              wheel_dobles):
+        """`fetch_company` son 40 peticiones extra cada 15 minutos, y en esta
+        cuenta ese endpoint no responde. Donde compensa —Ticker, UNA petición—
+        se mantiene su precedencia entera; aquí no."""
+        import wbj.tito.massive as MASS
+        llamadas = []
+        monkeypatch.setattr(MASS, "fetch_company",
+                            lambda t, **k: llamadas.append(t) or {"price": 100.0})
+        client.get("/api/tito-wheel")
+        assert not llamadas, f"el escaneo pidió el snapshot {len(llamadas)} veces"
 
     def test_sin_NINGUNA_fuente_de_precio_lo_dice_por_su_nombre(self, client, monkeypatch,
                                                                 wheel_dobles):
-        import wbj.tito.massive as MASS
-        from wbj.tito.massive import WheelChainResult
-        original = MASS.fetch_wheel_chain
-        monkeypatch.setattr(MASS, "fetch_wheel_chain",
-                            lambda t, a, b, now=None, **k: WheelChainResult(
-                                spot=None, quotes=original(t, a, b, now=now).quotes))
-        monkeypatch.setattr(MASS, "fetch_company", lambda t, **k: None)
+        import wbj.tito.bars_store as BS
+        self._cadena_sin_precio(monkeypatch)
+        monkeypatch.setattr(BS, "cached_daily_bars", lambda t, d=365, n=None, **k: [])
         d = client.get("/api/tito-wheel").json()
-        motivos = {r["motivo"] for r in d["rejected"]}
-        assert motivos == {"sin_precio"}, motivos
+        assert {r["motivo"] for r in d["rejected"]} == {"sin_barras"}
 
     def test_los_TRES_desenlaces_se_reportan_por_separado(self, client, monkeypatch,
                                                           wheel_dobles):
