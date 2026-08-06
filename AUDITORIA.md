@@ -2829,3 +2829,59 @@ registro de §9 lo dice con ese motivo, no con el de antes.
 Con esto, **tres huérfanas dejan de serlo**: `fetch_market_flow`,
 `is_tradeable_idea` y `within_moneyness`, que llevaban desde la ronda 4
 portadas y sin nadie que las llamara.
+
+## 40.9 Cuatro síntomas, dos causas — y una es mía
+
+Kevin reportó cuatro cosas. Reproducidas corriendo el motor **sin cinta**, que
+es su estado real: `score 50 · activos 1/6 · caveat "Solo 1 de 6 sub-agentes"`.
+
+### Causa A — la cookie de MarketSnack no está sirviendo (no es un bug)
+
+`MARKETSNACK_COOKIE` **no es una API key**: es una cookie de sesión y **caduca**.
+Sin ella se apagan **4 de los 6** sub-agentes (Agresividad, Convicción,
+Inusualidad y Contexto IV), y con ellos el 6º (Confirmación) porque su historial
+se alimenta de esos mismos flows. Queda Estructura, que sale de la cadena.
+
+Eso explica dos de los cuatro síntomas:
+
+- **"solo funciona 1 de 6 sub-agentes"** — exacto, y es lo que toca.
+- **"me sigue pidiendo escribir un ticker"** — el screener de Ideas usa la
+  cinta, así que fallaba… y el mensaje de error **mandaba a escribir un
+  ticker**, que es un consejo falso: con la cinta caída el análisis por ticker
+  también sale cojo. Ahora dice el problema y cómo se arregla.
+
+Lo que sí era un defecto: el aviso viajaba dentro de `warnings`, que el panel
+pinta **en 9px al final**. El resultado era un scorecard que se ve entero
+—score, veredicto, targets— sostenido por UNA categoría de seis. Ahora
+`subagentes_apagados` nombra cada categoría, su fuente y el arreglo, y se pinta
+en un banner **antes que nada**.
+
+### Causa B — un fallo mío de la ronda 6
+
+Sus **dos** `caveat` no son el mismo aviso, aunque su archivo los meta en el
+mismo campo:
+
+```ts
+const caveat = lowLiquidity
+  ? "Cadena de baja liquidez: la predicción se marca como NO FIABLE y no debe usarse para operar."
+  : active < 6
+    ? `Solo ${active} de 6 sub-agentes tienen dato; la confianza está recortada.`
+    : null;
+```
+
+El primero es un **"no operes"**; el segundo dice que el número **vale menos**,
+no que no valga. La ronda 6 los colapsó en uno y escondía los targets también
+con cobertura parcial — que es **exactamente** el estado en el que deja el panel
+una cookie caducada. De ahí los otros dos síntomas: sin targets y sin horizonte.
+
+Ahora se separan con `gex.low_liquidity`, que el motor ya traía:
+
+| Caso | Veredicto | Targets |
+|---|---|---|
+| baja liquidez | rojo, *"Datos no fiables — no operar"* | **ocultos** |
+| cobertura parcial | lectura normal + línea ámbar con su caveat | **visibles** |
+
+Y de paso, lo que Kevin pedía sobre el plazo: el selector lleva el rótulo
+**"Horizonte"**, el bloque dice **"Targets a N días (Esta semana / 2 semanas /
+1 mes) · desde $X"**, y cada card repite **"a N días"** — un `$180` suelto no
+puede quedarse sin fecha.

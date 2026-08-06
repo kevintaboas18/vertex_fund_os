@@ -2594,9 +2594,17 @@ async function loadProjIdeas() {
         d = await r.json();
     } catch (e) { d = { ok: false, error: e.message }; }
     if (!d || !d.ok) {
-        caja.innerHTML = `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-center">
-            <p class="text-xs text-amber-300">${_vcEsc((d && d.error) || 'No se pudo escanear el mercado.')}</p>
-            <p class="text-[10px] text-amber-200/60 mt-1">Escribe un ticker arriba para el an&aacute;lisis completo de una acci&oacute;n.</p></div>`;
+        // Mandar a "escribe un ticker" cuando lo que falla es la CINTA es un
+        // consejo falso: con la cookie caída el análisis por ticker también
+        // sale cojo —4 de 6 sub-agentes apagados—, así que escribir el símbolo
+        // no arregla nada. Se dice el problema y qué hacer con él.
+        const esCinta = d && d.source === 'marketsnack';
+        caja.innerHTML = `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+            <p class="text-xs font-black text-amber-300 flex items-center gap-1.5"><i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> ${esCinta ? 'La cinta de MarketSnack no est&aacute; sirviendo' : 'No se pudo escanear el mercado'}</p>
+            <p class="text-[10px] text-amber-200/80 mt-1 leading-snug">${_vcEsc((d && d.error) || '')}</p>
+            ${esCinta ? `<p class="text-[10px] text-amber-200/70 mt-2 leading-snug"><b>MARKETSNACK_COOKIE no es una API key</b>: es una cookie de sesi&oacute;n y <b>caduca</b>. En un servidor no hay navegador que la refresque, as&iacute; que hay que re-pegarla a mano: DevTools &rarr; Network &rarr; <code>/api/flow_feed</code> &rarr; header <code>Cookie</code>.</p>
+            <p class="text-[10px] text-amber-200/60 mt-1.5 leading-snug">Mientras tanto el an&aacute;lisis por ticker sigue funcionando con la cadena de Massive (Estructura, GEX, niveles y escenarios), pero con 4 de los 6 sub-agentes apagados &mdash; y el panel te lo dir&aacute; arriba.</p>` : ''}</div>`;
+        if (window.lucide) lucide.createIcons();
         return;
     }
     if (empty) empty.classList.add('hidden');
@@ -3201,6 +3209,26 @@ const VC_CATS = [
     ['validation', 'Confirmación de Precio', 15, '¿El precio valida o absorbe?'],
 ];
 
+/** El aviso de sub-agentes apagados, ARRIBA del todo y con el arreglo.
+ *
+ *  Iba dentro de `warnings`, que se pintan en 9px al final del bloque. Con la
+ *  cookie de MarketSnack caducada el panel enseña un scorecard completo
+ *  —score, veredicto, targets— sostenido por UNA categoría de seis, y había
+ *  que saber leer esa línea para enterarse. */
+function vcApagadosHTML(d) {
+    const a = d.subagentes_apagados;
+    if (!a || !a.total) return '';
+    const grupos = (a.grupos || []).map(g => `<li class="mt-1">
+        <b class="text-amber-200">${g.categorias.map(_vcEsc).join(' · ')}</b>
+        <span class="text-amber-200/70"> — ${_vcEsc(g.arreglo)}</span></li>`).join('');
+    return `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-3">
+        <p class="text-xs font-black text-amber-300 flex items-center gap-1.5">
+          <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>
+          ${a.de - a.total} de ${a.de} sub-agentes con dato</p>
+        <p class="text-[10px] text-amber-200/80 leading-snug mt-1">El puntaje se renormaliza sobre el peso activo, as&iacute; que <b>no es comparable</b> con el de un ticker que tenga las seis. Lo que falta y c&oacute;mo se enciende:</p>
+        <ul class="text-[10px] leading-snug mt-0.5 list-disc list-inside">${grupos}</ul></div>`;
+}
+
 function vcScorecardHTML(d) {
     const sc = d.scores || {};
     const cats = VC_CATS.map(([k, name, weight, q]) => {
@@ -3653,7 +3681,8 @@ function renderVictorTargets(d) {
         <p class="text-[10px] uppercase font-bold mb-1 ${col}">${name}</p>
         <p class="text-lg font-black text-white">$${Number(s.target).toFixed(2)}</p>
         <p class="text-[9px] ${s.change_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}">${(s.change_pct >= 0 ? '+' : '') + Number(s.change_pct).toFixed(1)}% · toque ${Math.round(s.probability * 100)}%</p>
-        <p class="text-[8px] text-gray-500 mt-1 leading-tight">${_vcEsc(s.driver)}</p></div>`;
+        <p class="text-[8px] text-gray-500 mt-1 leading-tight">${_vcEsc(s.driver)}</p>
+        <p class="text-[8px] text-gray-600 mt-0.5">a ${h} días</p></div>`;
 
     const warn = (d.warnings || []).map(w => `<p class="text-[9px] text-amber-400 leading-tight">⚠ ${_vcEsc(w)}</p>`).join('');
     // El chip de calibración lleva SU tooltip completo: en qué dirección falla
@@ -3681,11 +3710,26 @@ function renderVictorTargets(d) {
     const HZ_PROSA = { 10: '1 semana', 20: '2 semanas', 30: '4 semanas' };
     const dd = DIR[p.direction] || DIR.flat;
 
-    const veredicto = p.caveat
-        ? `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 mb-2 flex items-start gap-2.5">
+    // SUS DOS `caveat` no son el mismo aviso, aunque su archivo los mete en el
+    // mismo campo y su `VeredictoCard` los trate igual:
+    //
+    //   · baja liquidez → "NO FIABLE y no debe usarse para operar"
+    //   · `active < 6`  → "la confianza está recortada"
+    //
+    // Lo escribe él en `prediction.ts`. El primero es un "no operes"; el
+    // segundo dice que el número vale menos, no que no valga. La ronda 6 los
+    // colapsó en uno y escondía los targets también con cobertura parcial —
+    // que es justo el estado en el que se queda el panel cuando la cookie de
+    // MarketSnack caduca: sin targets, sin horizonte y sin explicar por qué.
+    // La distinción no se adivina: `gex.low_liquidity` la trae el motor.
+    const noFiable = !!((d.gex || {}).low_liquidity);
+    const parcial = !!(p.caveat && !noFiable);
+
+    const veredicto = noFiable
+        ? `<div class="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-2 flex items-start gap-2.5">
              <span class="text-lg leading-none">⚠</span>
-             <div><p class="text-sm font-black text-amber-300">Datos no fiables — no operar</p>
-               <p class="text-[10px] text-amber-200/80 leading-snug mt-0.5">${_vcEsc(p.caveat)}</p></div></div>`
+             <div><p class="text-sm font-black text-red-300">Datos no fiables — no operar</p>
+               <p class="text-[10px] text-red-200/80 leading-snug mt-0.5">${_vcEsc(p.caveat || '')}</p></div></div>`
         : `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3 mb-2 flex items-start gap-2.5">
              <span class="text-lg leading-none">${dd[0]}</span>
              <div class="min-w-0">
@@ -3696,12 +3740,16 @@ function renderVictorTargets(d) {
                <p class="text-[10px] text-gray-400 leading-snug mt-1">${_vcEsc(p.summary)}</p></div></div>`;
 
     el.innerHTML = `
+      ${vcApagadosHTML(d)}
       <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
-        <div class="flex gap-1.5">${tabs}</div>
+        <div class="flex items-center gap-1.5"><span class="text-[9px] text-gray-500 uppercase font-bold tracking-wider mr-0.5">Horizonte</span>${tabs}</div>
         <span class="text-[10px] text-gray-400">Score <b class="text-white">${d.score}</b>/100 · ${_vcEsc(d.verdict)}</span>
       </div>
       ${veredicto}
-      ${p.caveat ? '' : `<div class="grid grid-cols-3 gap-2">
+      ${noFiable ? '' : `
+      ${parcial ? `<p class="text-[10px] text-amber-400 leading-snug mb-2">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
+      <p class="text-[9px] text-gray-500 uppercase font-bold tracking-wider mb-1">Targets a ${h} días <span class="text-gray-600 normal-case font-normal tracking-normal">(${_vcEsc(HZ_LABEL[h] || (h + ' días'))}) · desde $${Number(d.spot).toFixed(2)}</span></p>
+      <div class="grid grid-cols-3 gap-2">
         ${card(p.bear, 'Bajista', 'text-red-400')}
         ${card(p.base, 'Base', 'text-blue-400')}
         ${card(p.bull, 'Alcista', 'text-emerald-400')}
