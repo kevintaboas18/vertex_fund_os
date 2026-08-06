@@ -703,6 +703,74 @@ class TestElSpotSaleDeSuFuente:
             assert "score" not in d
 
 
+class TestElTabEsSoloDeVictor:
+    """Nada de la Vertex vieja puede quedar en la pantalla del tab."""
+
+    @staticmethod
+    def _dom():
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        dom = html[html.index('<main id="projectionsView"'):]
+        return re.sub(r"<!--.*?-->", "", dom[:dom.index("</main>")], flags=re.S)
+
+    def test_no_queda_copy_de_la_vertex_vieja(self):
+        """La cabecera decía "Proyecciones GEX", el vacío pedía "presiona
+        Proyectar" y el botón de refresco seguía prometiendo dark pool — de
+        Quant Data, que salió del tab hace tres rondas."""
+        for viejo in ("Proyecciones GEX", "presiona", "dark pool",
+                      "Generar tesis AI completa", "Plan de operación"):
+            assert viejo not in self._dom(), f"queda el copy viejo «{viejo}»"
+
+    def test_esta_su_cabecera_y_su_estado_vacio(self):
+        dom = self._dom()
+        assert "Tito Metralleta" in dom and "AI Options Agent" in dom
+        assert "Analiza un ticker" in dom
+        assert "el agente armar" in dom   # su frase, con la entidad HTML del acento
+
+    def test_no_hay_que_teclear_estan_sus_cuatro_tickers(self):
+        """Su `HeaderBar` lleva `QUICK = ["TSLA","NVDA","SPY","AAPL"]`: se hace
+        clic, no se teclea. El tab exigía escribir el símbolo antes de enseñar
+        nada."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "const VC_QUICK = ['TSLA', 'NVDA', 'SPY', 'AAPL'];" in html
+        assert 'id="projQuick"' in self._dom()
+        assert "vcPintaQuick(ticker);" in html   # se repinta al cargar
+
+    def test_el_plan_de_operacion_ya_no_vive_aqui(self):
+        """Era de `/api/analyze` —el agente de Vertex—, no suyo."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        for id_ in ("projOpPlan", "projOpPlanFor", "qtTradePlan", "qtTradePlanBody"):
+            assert id_ not in html, f"{id_} sigue en la página"
+        for fn in ("syncOpPlanVisibility", "projGenerarTesis"):
+            assert f"function {fn}(" not in html and f"{fn}(" not in html
+
+
+class TestElMotivoDeMassiveEsAccionable:
+    """401 y 403 son problemas distintos y se arreglan distinto."""
+
+    def test_el_401_habla_de_la_credencial_y_el_403_del_plan(self):
+        from wbj.tito.massive import _describe
+        uno = _describe(401, "NVDA", "", "/v3/snapshot/options/NVDA")
+        tres = _describe(403, "NVDA", "", "/v2/snapshot/locale/us/markets/stocks/tickers/NVDA")
+        assert "credencial" in uno and "MASSIVE_API_KEY" in uno
+        assert "plan no lo cubre" in tres and "Cambiar la key no lo arregla" in tres
+        assert uno != tres, "401 y 403 no pueden dar el mismo mensaje"
+
+    def test_el_motivo_dice_QUE_ruta_falló(self):
+        from wbj.tito.massive import _describe
+        for code in (401, 403, 404):
+            assert "/v2/aggs" in _describe(code, "NVDA", "", "/v2/aggs/ticker/NVDA")
+
+    def test_el_motivo_nunca_lleva_la_credencial(self):
+        """El centinela, también sobre la rama nueva: la key va en la cabecera,
+        no en la URL, y la ruta se recorta antes de la query."""
+        from wbj.tito.massive import _describe, _ruta
+        centinela = "sk_" + "z" * 40
+        url = f"https://api.massive.com/v2/aggs/ticker/NVDA?apiKey={centinela}"
+        assert centinela not in _ruta(url)
+        for code in (401, 403, 404, 429, 500):
+            assert centinela not in _describe(code, "NVDA", "cuerpo", _ruta(url))
+
+
 class TestSinTape:
     def test_el_motor_sigue_con_la_cadena_y_lo_declara(self, client, monkeypatch):
         import wbj.tito.marketsnack as MS

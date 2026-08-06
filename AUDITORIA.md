@@ -2751,3 +2751,47 @@ nadie pidió.
 - Tape: `/api/flow_feed` con `filter[scope]=all`, `filter[symbol][]`, `period`,
   `filter[premium][gte]` y `next_page_token`, en ese orden.
 - Noticias: sus 4 feeds RSS + `/v2/reference/news` de Massive.
+
+## 40.7 Lo viejo de Vertex que seguía en pantalla (y el motivo de Massive)
+
+Kevin reportó dos cosas al usarlo. Las dos eran reales.
+
+### El tab pedía teclear el ticker
+
+En su app **no hace falta**: su `HeaderBar` lleva `QUICK = ["TSLA","NVDA","SPY","AAPL"]`
+y se hace clic. Aquí había que escribir el símbolo antes de ver nada. Portados
+sus cuatro botones, con el resaltado del que está cargado.
+
+Y con ellos salió el resto del cascarón viejo, que ninguna ronda había mirado
+porque todas auditaron el **contenido** y no la **cabecera**:
+
+| Era | Ahora |
+|---|---|
+| "Proyecciones GEX · Niveles institucionales de opciones…" | **Tito Metralleta · AI Options Agent**, con los 6 sub-agentes en el subtítulo |
+| "Escribe un ticker y presiona **Proyectar**" | su copy: *"Analiza un ticker — Elige un ticker arriba (o búscalo) y el agente armará el sentiment score, el flujo inusual, los muros de strikes y el detalle completo de cada sub-agente."* |
+| Botón de refresco: *"Refrescar GEX y **dark pool** ahora"* | Quant Data salió del tab hace tres rondas; el rótulo seguía prometiéndolo |
+| Banner "Generar tesis AI completa" | fuera: es el agente de Vertex, no el suyo |
+| Panel "Plan de operación" (`/api/analyze`) | fuera: mismo motivo |
+
+### "Massive rechazó la API key"
+
+El mensaje juntaba **401** y **403**, que son dos problemas distintos y se
+arreglan distinto:
+
+- **401** — la credencial no vale: falta, está mal pegada o fue revocada.
+- **403** — la credencial **vale**, pero el plan no cubre ese endpoint. Cambiar
+  la key no arregla nada. Massive hereda el modelo de Polygon, donde el
+  snapshot de acciones, el de opciones y los aggregates se contratan aparte.
+
+Ahora cada uno dice lo suyo **y la ruta que falló**. Sin la ruta, el mensaje
+mandaba a revisar una credencial que puede estar perfecta.
+
+Además, `/api/tito-health` prueba ahora el snapshot **por separado**. Era el
+único fallo silencioso que quedaba: `fetch_company` se traga su error y
+devuelve `None`, así que si el plan no cubre `/v2/snapshot/...` el panel sigue
+funcionando con el precio de la cadena y nadie se entera de que el mejor precio
+disponible no se está usando.
+
+El centinela de credenciales se extendió a la rama nueva: la ruta se recorta
+antes de la query y la key va en la cabecera, así que no puede filtrarse por
+ahí.

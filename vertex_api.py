@@ -3830,7 +3830,21 @@ def tito_health(ticker: str = "AAPL"):
         None if key else "sin cadena: no hay Estructura, GEX, niveles ni escenarios")
     if key:
         try:
-            from wbj.tito.massive import fetch_daily_bars, fetch_option_chain
+            from wbj.tito.massive import (fetch_company, fetch_daily_bars,
+                                          fetch_option_chain)
+            # El SNAPSHOT del subyacente va PRIMERO y aparte, porque es el
+            # primer eslabón del spot y el único que falla en silencio:
+            # `fetch_company` se traga su error y devuelve None, así que si el
+            # plan no cubre `/v2/snapshot/...` el panel sigue funcionando con el
+            # precio de la cadena y nadie se entera de que el mejor precio
+            # disponible no se está usando. Aquí sí se ve.
+            _emp = fetch_company(tk)
+            _px = (_emp or {}).get("price")
+            add("massive.snapshot", isinstance(_px, (int, float)) and not isinstance(_px, bool) and _px > 0,
+                (f"precio {_px}" if _px else "sin precio")
+                + (" (el snapshot no respondió o el plan no lo cubre)" if not _emp else ""),
+                None if _px else "comprueba que tu plan de Massive incluya /v2/snapshot de acciones",
+                None if _px else "el spot cae al precio de la cadena, que puede ir por detrás del mercado")
             ch = fetch_option_chain(tk)
             add("massive.cadena", bool(ch.rows),
                 f"{len(ch.rows)} contratos en {ch.pages} página(s)"
@@ -3859,7 +3873,7 @@ def tito_health(ticker: str = "AAPL"):
                 None)
         except Exception as e:
             add("massive", False, str(e),
-                "revisa la key en el panel de Massive y que api.massive.com sea alcanzable",
+                "el mensaje dice si es la credencial (401) o el plan (403), y QUÉ ruta falló",
                 "sin cadena: Proyecciones devuelve error, no un número parcial")
 
     # 3. MarketSnack — el tape (5 de los 6 sub-agentes)

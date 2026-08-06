@@ -69,14 +69,45 @@ def _max_pages() -> int:
     return n if n > 0 else 40
 
 
-def _describe(status: int, ticker: str, body: str) -> str:
-    if status in (401, 403):
-        return "Massive rechazó la API key (revisa MASSIVE_API_KEY)."
+def _describe(status: int, ticker: str, body: str, ruta: str = "") -> str:
+    """El motivo, en palabras y con la ACCIÓN que toca.
+
+    401 y 403 iban en la misma rama y son dos problemas distintos que se
+    arreglan de forma distinta:
+
+    - **401** — la credencial no vale: falta, está mal pegada o fue revocada.
+      Se arregla cambiando la key.
+    - **403** — la credencial vale, pero **el plan no cubre ese endpoint**. La
+      key es correcta y cambiarla no arregla nada; hay que mirar QUÉ se pidió.
+      Massive hereda el modelo de planes de Polygon, donde el snapshot de
+      acciones, el de opciones y los aggregates se contratan por separado.
+
+    Por eso el mensaje lleva la RUTA. Sin ella, "Massive rechazó la API key"
+    manda a revisar una credencial que puede estar perfecta, mientras el
+    problema real es que ese endpoint concreto no está en el plan.
+    """
+    donde = f" al pedir {ruta}" if ruta else ""
+    if status == 401:
+        return ("Massive no aceptó la credencial" + donde +
+                ": la key falta, está mal pegada o fue revocada (MASSIVE_API_KEY).")
+    if status == 403:
+        return ("Massive aceptó la key pero no autoriza este endpoint" + donde +
+                ": el plan no lo cubre. Cambiar la key no lo arregla.")
     if status == 404:
-        return f"Massive no tiene datos para {ticker}."
+        return f"Massive no tiene datos para {ticker}{donde}."
     if status == 429:
         return "Límite de tasa de Massive; reintenta en unos segundos."
-    return f"Massive respondió {status}. {body[:200]}".strip()
+    return f"Massive respondió {status}{donde}. {body[:200]}".strip()
+
+
+def _ruta(url: str) -> str:
+    """El path de la URL, sin host ni query. La query lleva parámetros y jamás
+    la credencial —va en la cabecera— pero se recorta igual: lo que hace falta
+    para saber qué endpoint falló es el path."""
+    try:
+        return urllib.parse.urlsplit(url).path or ""
+    except Exception:
+        return ""
 
 
 def _get(url: str, key: str, ticker: str, timeout: float) -> dict[str, Any]:
@@ -86,7 +117,7 @@ def _get(url: str, key: str, ticker: str, timeout: float) -> dict[str, Any]:
             return _json.loads(res.read().decode("utf-8", errors="replace"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace") if e.fp else ""
-        raise MassiveError(_describe(e.code, ticker, body), e.code) from e
+        raise MassiveError(_describe(e.code, ticker, body, _ruta(url)), e.code) from e
     except urllib.error.URLError as e:
         raise MassiveError(f"No se pudo conectar con Massive: {e.reason}") from e
     except ValueError as e:
