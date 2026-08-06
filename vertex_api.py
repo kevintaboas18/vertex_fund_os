@@ -3870,7 +3870,21 @@ def tito_health(ticker: str = "AAPL"):
         None if key else "sin cadena: no hay Estructura, GEX, niveles ni escenarios")
     if key:
         try:
-            from wbj.tito.massive import fetch_daily_bars, fetch_option_chain
+            from wbj.tito.massive import (fetch_company, fetch_daily_bars,
+                                          fetch_option_chain)
+            # El SNAPSHOT del subyacente va PRIMERO y aparte, porque es el
+            # primer eslabón del spot y el único que falla en silencio:
+            # `fetch_company` se traga su error y devuelve None, así que si el
+            # plan no cubre `/v2/snapshot/...` el panel sigue funcionando con el
+            # precio de la cadena y nadie se entera de que el mejor precio
+            # disponible no se está usando. Aquí sí se ve.
+            _emp = fetch_company(tk)
+            _px = (_emp or {}).get("price")
+            add("massive.snapshot", isinstance(_px, (int, float)) and not isinstance(_px, bool) and _px > 0,
+                (f"precio {_px}" if _px else "sin precio")
+                + (" (el snapshot no respondió o el plan no lo cubre)" if not _emp else ""),
+                None if _px else "comprueba que tu plan de Massive incluya /v2/snapshot de acciones",
+                None if _px else "el spot cae al precio de la cadena, que puede ir por detrás del mercado")
             ch = fetch_option_chain(tk)
             add("massive.cadena", bool(ch.rows),
                 f"{len(ch.rows)} contratos en {ch.pages} página(s)"
@@ -3899,7 +3913,7 @@ def tito_health(ticker: str = "AAPL"):
                 None)
         except Exception as e:
             add("massive", False, str(e),
-                "revisa la key en el panel de Massive y que api.massive.com sea alcanzable",
+                "el mensaje dice si es la credencial (401) o el plan (403), y QUÉ ruta falló",
                 "sin cadena: Proyecciones devuelve error, no un número parcial")
 
     # 3. MarketSnack — el tape (5 de los 6 sub-agentes)
@@ -4011,6 +4025,159 @@ def tito_health(ticker: str = "AAPL"):
                          + ", ".join(c["check"] for c in faltan)),
         "checks": checks,
     }
+
+
+#: Parámetros del escaneo de ideas — los de su `/api/ideas/route.ts`, literales.
+_IDEAS_MIN_PREMIUM = 100_000   # piso server-side: flujo grande, no solo institucional
+_IDEAS_MAX_PAGES = 8
+_IDEAS_PERIOD = "1d"           # el sizing usa el precio del trade: cuanto más fresco, mejor
+_IDEAS_MAX = 60                # tope de filas devueltas
+_IDEAS_MAX_HISTORY_TICKERS = 25  # tope de llamadas a Massive por escaneo
+
+
+def _ideas_dedupe(rows):
+    """Un solo trade por contrato: el de mayor premium. Su `dedupeByContract`."""
+    mejor = {}
+    for r in rows:
+        prev = mejor.get(r.symbol)
+        if prev is None or r.premium > prev.premium:
+            mejor[r.symbol] = r
+    return list(mejor.values())
+
+
+@app.get("/api/tito-ideas")
+def tito_ideas():
+    """Screener de flujo inusual **en todo el mercado** — su `/api/ideas`.
+
+    Es la respuesta a "no quiero tener que escribir un ticker para que el agente
+    haga algo". En su app son cuatro pestañas: *Ticker* (el dashboard, que **sí**
+    pide símbolo), *Ideas* (esto: escanea el mercado entero y no pide nada),
+    *Wheel* y *Time & Sales*. Aquí las dos primeras conviven en el mismo tab —
+    sin ticker manda Ideas, con ticker manda el scorecard.
+
+    El pipeline es el suyo, en su orden:
+
+    1. `fetch_market_flow` — la cinta SIN filtro de símbolo, con el piso de
+       premium aplicado **server-side** para que el payload no explote.
+    2. `classify_flow` — los mismos sub-agentes 1-3 del scorecard.
+    3. Capa 1 de `risk.py`: `is_tradeable_idea` (calidad + inusualidad ≥5, el
+       umbral del SCREENER, no el 7 institucional) y `within_moneyness` (±25%).
+    4. El historial por ticker con `validation_score` — el sub-agente 6 como
+       evidencia de si ese patrón se ha desarrollado antes.
+
+    **El sizing NO se calcula aquí**, igual que en su ruta: el tamaño de cuenta
+    es de Kevin y no tiene por qué salir del navegador. Esta ruta devuelve los
+    griegos; quien quiera el techo de contratos aplica `size_flow` con su perfil.
+    """
+    sc = _tito_mod()
+    if sc is None:
+        return {"ok": False, "error": "Motor de Víctor no disponible (engine/wbj/tito)."}
+    from wbj.tito.flow import classify_flow
+    from wbj.tito.marketsnack import MarketSnackError, fetch_market_flow
+    from wbj.tito.massive import fetch_daily_bars
+    from wbj.tito.risk import (MONEYNESS_CAP, is_tradeable_idea,
+                               passes_quality_filter, within_moneyness)
+    from wbj.tito.stores import load_trades, save_trades
+    from wbj.tito.validation import FlowLite, validation_score
+
+    now = datetime.now(timezone.utc)
+    try:
+        res = fetch_market_flow(period=_IDEAS_PERIOD, min_premium=_IDEAS_MIN_PREMIUM,
+                                max_pages=_IDEAS_MAX_PAGES)
+    except MarketSnackError as e:
+        return {"ok": False, "error": _error_de_fuente(e, "Cinta de MarketSnack"),
+                "source": "marketsnack"}
+    except Exception as e:                       # noqa: BLE001 — se reporta, no se traga
+        return {"ok": False, "error": _error_publico(e, "Escaneo de ideas"), "source": "motor"}
+
+    try:
+        flow = classify_flow(res.trades, now)
+        filas = flow.rows
+    except Exception as e:                       # noqa: BLE001 — el port es literal y lanza donde él
+        return {"ok": False, "error": f"{type(e).__name__}: {e}", "source": "motor"}
+
+    # Por qué se cae cada contrato. Hace visible el trabajo de la capa 1: sin
+    # esto, "0 ideas" y "el mercado está tranquilo" se ven igual en pantalla.
+    rechazos = {"theta_alto": 0, "vencido": 0, "sin_theta": 0, "no_inusual": 0, "lejano": 0}
+    for r in _ideas_dedupe(filas):
+        q = passes_quality_filter(r)
+        if not q.ok:
+            rechazos[q.reason] = rechazos.get(q.reason, 0) + 1
+        elif not is_tradeable_idea(r):
+            rechazos["no_inusual"] += 1
+        elif not within_moneyness(r):
+            rechazos["lejano"] += 1
+
+    operables = sorted(
+        _ideas_dedupe([r for r in filas if is_tradeable_idea(r) and within_moneyness(r)]),
+        key=lambda r: r.premium if isinstance(r.premium, (int, float)) else 0,
+        reverse=True)[:_IDEAS_MAX]
+    tickers = list(dict.fromkeys(r.underlying for r in operables))
+
+    # Historial: SOLO para tickers que ya tienen flows guardados. Los demás
+    # salen "sin historial" sin gastar una llamada a Massive.
+    historial, con_guardado = {}, []
+    for tk in tickers:
+        try:
+            guardado = load_trades(tk)
+        except Exception:
+            continue
+        flows = [FlowLite(id=t.id, timestamp=t.timestamp, type=t.type, strike=t.strike,
+                          expiration=t.expiration, asset_price=t.asset_price,
+                          premium=t.premium, aggression=t.aggression)
+                 for t in (getattr(guardado, "trades", None) or [])
+                 if getattr(t, "asset_price", 0) and t.timestamp]
+        if flows:
+            con_guardado.append((tk, flows))
+    for tk, flows in con_guardado[:_IDEAS_MAX_HISTORY_TICKERS]:
+        try:
+            bars = fetch_daily_bars(tk, 200)
+        except Exception:
+            continue
+        if not bars:
+            continue
+        try:
+            rep = validation_score(flows=flows, bars=bars, now=now)
+        except Exception:
+            continue
+        historial[tk] = {"hit_rate": _r(rep.hit_rate["value"], 0),
+                         "median_sessions": rep.speed["median_sessions"],
+                         "resolved": rep.hit_rate["resolved"]}
+
+    ideas = [{
+        "id": r.id, "ticker": r.underlying, "symbol": r.symbol,
+        "type": "call" if r.type == "unknown" else r.type,
+        "strike": r.strike, "expiration": r.expiration, "dte": r.dte,
+        "price": r.price, "theta": r.theta, "theta_pct_daily": _r(r.theta_pct_daily, 2),
+        "delta": r.delta, "premium": r.premium, "size": r.size,
+        "aggression": r.aggression, "asset_price": r.asset_price, "iv": r.iv,
+        "open_interest": r.open_interest, "timestamp": r.timestamp,
+        "unusual_score": getattr(r.scores, "total", 0),
+        "repeated": bool(getattr(r.flags, "repeated", False)),
+        "history": historial.get(r.underlying),
+    } for r in operables]
+
+    # La cobertura del historial crece sola: cada escaneo guarda lo que vio,
+    # igual que ya hacen chainStore e ivStore.
+    guardados = 0
+    for tk in tickers:
+        propias = [r for r in filas if r.underlying == tk]
+        if not propias:
+            continue
+        try:
+            save_trades(tk, propias)
+            guardados += 1
+        except Exception:
+            pass
+
+    return _json_safe({
+        "ok": True, "engine": "victor/tito", "ideas": ideas,
+        "scanned": len(res.trades), "pages": res.pages, "truncated": res.truncated,
+        "tickers": len(tickers), "with_history": len(historial),
+        "saved_tickers": guardados, "rejected": rechazos,
+        "min_premium": _IDEAS_MIN_PREMIUM, "moneyness_cap": MONEYNESS_CAP,
+        "period": _IDEAS_PERIOD, "generated_at": now.isoformat(),
+    })
 
 
 @app.get("/api/tito-news")

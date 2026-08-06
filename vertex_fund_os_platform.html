@@ -1751,53 +1751,7 @@ function renderDashboard(data) {
     // 7d/30d/3m/6m que ya no existen (los targets son los de Victor, solo 12M), el
     // debate y la memoria tienen su propia pestaña y su propia tarjeta. Lo único sin
     // otro hogar era la coherencia, que ahora va en el strip de integridad de arriba.
-    // #2 + #5 Plan de Trade (probabilidades calibradas + Kelly sizing + stops)
-    const tp = a.trade_plan;
-    const tpc = document.getElementById('qtTradePlan');
-    if (tpc) {
-        if (tp) {
-            const pr = tp.probabilities || {}, rp = tp.risk_plan || {};
-            const tr = tp.targets_r || null, inval = tp.thesis_invalidation || [];
-            const chip = (lbl, v) => `<div class="bg-gray-900/60 rounded-lg px-2 py-1.5 text-center"><p class="text-[8px] text-gray-500 uppercase font-bold">${lbl}</p><p class="text-sm font-mono font-black text-white">${v != null ? v : '—'}%</p></div>`;
-            const sizeCol = tp.suggested_pct > 0 ? '#10b981' : '#6b7280';
-            const stopHtml = rp.is_a_grade
-                ? `<span class="text-emerald-400 font-bold">Sin stop fijo (A-grade)</span> · ${rp.equity_stop_note || ''}`
-                : `<span class="text-amber-400 font-bold">Stop $${rp.equity_stop}</span> · ${rp.equity_stop_note || ''}`;
-            document.getElementById('qtTradePlanBody').innerHTML = `
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-                    ${chip('Pos 12m', pr.p_positive_12m)}${chip('Bull 12m', pr.p_touch_bull_12m)}
-                    ${chip('Bear 12m', pr.p_touch_bear_12m)}${chip('+10% 3m', pr.p_up_10pct_3m)}
-                </div>
-                ${pr.rationale ? `<p class="text-[10px] text-gray-500 italic mb-3">${pr.rationale}</p>` : ''}
-                <div class="flex items-stretch gap-3 mb-2">
-                    <div class="flex-1 bg-gray-900/60 rounded-lg p-2.5">
-                        <p class="text-[8px] text-gray-500 uppercase font-bold mb-1">Reward / Risk</p>
-                        <p class="text-base font-mono font-black text-white">${tp.reward_risk}x</p>
-                        <p class="text-[9px] text-gray-600">+${tp.reward_pct}% / −${tp.risk_pct}%</p>
-                    </div>
-                    <div class="flex-1 bg-gray-900/60 rounded-lg p-2.5">
-                        <p class="text-[8px] text-gray-500 uppercase font-bold mb-1">Tamaño sugerido</p>
-                        <p class="text-base font-mono font-black" style="color:${sizeCol}">${tp.suggested_pct}%${tp.factor_haircut_pct > 0 ? ` <span class="text-[9px] text-red-400 align-middle font-bold">−${tp.factor_haircut_pct}% factor</span>` : ''}</p>
-                        <p class="text-[9px] text-gray-600">½-Kelly ${tp.kelly_half_pct}% · full ${tp.kelly_full_pct}%${tp.already_held_pct > 0 ? ' · ya: '+tp.already_held_pct+'%' : ''}</p>
-                    </div>
-                </div>
-                ${tp.cap_reason ? `<p class="text-[10px] text-amber-400/90 mb-2">⚠ ${tp.cap_reason}</p>` : ''}
-                <div class="border-t border-gray-900 pt-2 space-y-1 text-[10px] text-gray-400 leading-relaxed">
-                    ${tr ? `<p><span class="text-gray-600 font-bold">Targets en R:</span> Bull <b class="text-emerald-400">+${tr.bull_r}R</b> · Base <b class="text-gray-300">${tr.base_r >= 0 ? '+' : ''}${tr.base_r}R</b> · Bear <b class="text-red-400">−1R</b> <span class="text-gray-600">(1R = $${tr.r_unit})</span></p>` : ''}
-                    <p><span class="text-gray-600 font-bold">Equity:</span> ${stopHtml}</p>
-                    <p><span class="text-gray-600 font-bold">Quiebre de tesis:</span> $${rp.thesis_break_level}</p>
-                    <p><span class="text-gray-600 font-bold">Opciones:</span> ${rp.options_stop_rule || ''}</p>
-                </div>
-                ${inval.length ? `<div class="border-t border-gray-900 mt-2 pt-2">
-                    <p class="text-[9px] text-gray-500 uppercase font-bold mb-1.5 flex items-center gap-1"><i data-lucide="alert-octagon" class="w-3 h-3 text-amber-400"></i> Qu&eacute; me har&iacute;a cambiar de opini&oacute;n</p>
-                    <div class="space-y-1">${inval.map(iv => `<div class="flex items-start gap-1.5 text-[10px]"><span class="text-amber-400 mt-0.5">▸</span><span class="text-gray-400"><b class="text-gray-300">${iv.factor}:</b> ${iv.trigger}</span></div>`).join('')}</div>
-                </div>` : ''}
-                <p class="text-[9px] text-gray-600 mt-2 italic">Kelly fraccional (½) acotado por tu tope de concentración 25%. No es consejo de inversión.</p>`;
-            tpc.classList.remove('hidden');
-        } else { tpc.classList.add('hidden'); }
-    }
-
-    // Institutional Levels
+    // Institutional Levels    // Institutional Levels
     const fmtM = (v, prefix='$') => v ? `${prefix}${v}` : 'N/A';
     // El panel 'Volatilidad y valuación' (ATR/vol/DCF) fue eliminado del reporte.
     // DCF = el FCFF del especialista de valuación de Victor. El "Vertex DCF" que iba aquí era
@@ -2542,6 +2496,9 @@ async function loadProjections(tickerArg, opts) {
     let ticker = (tickerArg || (inp ? inp.value : '') || '').trim().toUpperCase();
     if (!ticker) { if (inp) inp.focus(); return; }
     if (inp) inp.value = ticker;
+    vcPintaQuick(ticker);
+    const _ideas = document.getElementById('projIdeas');
+    if (_ideas) _ideas.classList.add('hidden');   // manda el ticker
     const empty = document.getElementById('projEmpty');
     const content = document.getElementById('projContent');
     const btn = document.getElementById('projRefreshBtn');
@@ -2587,6 +2544,121 @@ async function loadProjections(tickerArg, opts) {
     }
 }
 
+/** Sus 4 tickers rápidos — el `QUICK` de su `HeaderBar.tsx`, literal.
+ *
+ *  Está aquí porque el tab pedía TECLEAR el ticker antes de enseñar nada, y en
+ *  su app no hace falta: los cuatro botones están siempre arriba y uno de ellos
+ *  suele ser el que buscas. El resaltado marca cuál está cargado.
+ */
+const VC_QUICK = ['TSLA', 'NVDA', 'SPY', 'AAPL'];
+
+function vcPintaQuick(activo) {
+    const cont = document.getElementById('projQuick');
+    if (!cont) return;
+    cont.innerHTML = VC_QUICK.map(t => {
+        const on = activo && String(activo).toUpperCase() === t;
+        return `<button onclick="loadProjections('${t}')" class="text-[10px] font-bold px-2 py-2 rounded-lg transition ${
+            on ? 'bg-blue-500 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800 hover:text-white'}">${t}</button>`;
+    }).join('');
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   IDEAS DEL MERCADO — su `/ideas`, la pestaña que NO pide ticker.
+
+   Su app tiene cuatro: *Ticker* (el dashboard, que sí exige símbolo), *Ideas*
+   (esto), *Wheel* y *Time & Sales*. Aquí las dos primeras conviven en el mismo
+   tab: sin ticker manda Ideas, con ticker manda el scorecard. Así el agente
+   hace algo desde que se abre, sin obligar a teclear nada.
+
+   El sizing NO se pide al servidor, igual que en su ruta: el tamaño de cuenta
+   es de Kevin y no tiene por qué salir del navegador.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** El ticker, saneado para poder ir dentro de un literal de JS en un atributo.
+ *  `_vcEsc` escapa para HTML, que no es lo mismo: una comilla se saldría del
+ *  string. Mismo juego de caracteres que su `fileFor`. */
+function _vcTicker(t) {
+    return String(t == null ? '' : t).toUpperCase().replace(/[^A-Z0-9._-]/g, '');
+}
+
+async function loadProjIdeas() {
+    const caja = document.getElementById('projIdeas');
+    const empty = document.getElementById('projEmpty');
+    if (!caja) return;
+    caja.classList.remove('hidden');
+    caja.innerHTML = `<p class="text-xs text-gray-500 italic flex items-center justify-center gap-2 py-6"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Escaneando el flujo de todo el mercado&hellip;</p>`;
+    if (window.lucide) lucide.createIcons();
+    let d;
+    try {
+        const r = await fetch(`${API_BASE}/api/tito-ideas`);
+        d = await r.json();
+    } catch (e) { d = { ok: false, error: e.message }; }
+    if (!d || !d.ok) {
+        caja.innerHTML = `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-center">
+            <p class="text-xs text-amber-300">${_vcEsc((d && d.error) || 'No se pudo escanear el mercado.')}</p>
+            <p class="text-[10px] text-amber-200/60 mt-1">Escribe un ticker arriba para el an&aacute;lisis completo de una acci&oacute;n.</p></div>`;
+        return;
+    }
+    if (empty) empty.classList.add('hidden');
+    renderProjIdeas(d);
+}
+
+function renderProjIdeas(d) {
+    const caja = document.getElementById('projIdeas');
+    if (!caja) return;
+    const ideas = d.ideas || [];
+    // Por qué se cayó cada contrato. Sin esto, "0 ideas" y "el mercado está
+    // tranquilo" se ven exactamente igual en pantalla.
+    const R = d.rejected || {};
+    const nota = `Escaneadas <b class="text-gray-400">${d.scanned}</b> operaciones &ge; ${fmtAbbr(d.min_premium)} en ${d.pages} p&aacute;gina(s)${d.truncated ? ' (truncado)' : ''}.
+        El filtro de calidad tumb&oacute; <b class="text-gray-400">${R.theta_alto || 0}</b> por theta alto (loter&iacute;a),
+        <b class="text-gray-400">${R.vencido || 0}</b> por vencer demasiado pronto,
+        <b class="text-gray-400">${R.sin_theta || 0}</b> sin theta en el feed,
+        <b class="text-gray-400">${R.no_inusual || 0}</b> por no ser flujo inusual y
+        <b class="text-gray-400">${R.lejano || 0}</b> por tener el strike a m&aacute;s de ${Math.round(Number(d.moneyness_cap) * 100)}% del precio.`;
+
+    if (!ideas.length) {
+        caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5 text-center">
+            <p class="text-sm font-bold text-gray-300">Sin ideas operables ahora mismo</p>
+            <p class="text-[10px] text-gray-500 mt-2 leading-relaxed max-w-xl mx-auto">${nota}</p></div>`;
+        return;
+    }
+
+    const filas = ideas.map(i => {
+        const h = i.history;
+        const t = i.type === 'call' ? 'C' : 'P';
+        return `<tr class="border-b border-gray-800/50 hover:bg-white/[0.02] cursor-pointer" onclick="loadProjections('${_vcTicker(i.ticker)}')">
+            <td class="py-2 pr-3 font-bold text-white">${_vcEsc(i.ticker)}${i.repeated ? ' <span class="text-amber-400 text-[9px]" title="contrato repetido">&#8635;</span>' : ''}</td>
+            <td class="py-2 pr-3"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${i.type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${_vcEsc(i.strike)}${t}</span></td>
+            <td class="py-2 pr-3 text-right text-gray-400">${i.dte != null ? Math.round(i.dte) + 'd' : '&mdash;'}</td>
+            <td class="py-2 pr-3 text-right text-gray-200 font-bold">${fmtAbbr(i.premium)}</td>
+            <td class="py-2 pr-3 text-right ${i.aggression === 'ask' ? 'text-emerald-400' : (i.aggression === 'bid' ? 'text-red-400' : 'text-gray-500')}">${i.aggression === 'ask' ? '&#9650; Compra' : (i.aggression === 'bid' ? '&#9660; Venta' : 'Mid')}</td>
+            <td class="py-2 pr-3 text-right text-gray-400" title="decaimiento diario en % de la prima">${i.theta_pct_daily != null ? Number(i.theta_pct_daily).toFixed(1) + '%' : '&mdash;'}</td>
+            <td class="py-2 pr-3 text-right text-amber-400 font-bold">${i.unusual_score}/30</td>
+            <td class="py-2 text-right text-[9px] ${h ? 'text-gray-300' : 'text-gray-600'}"
+                title="${h ? `${h.resolved} flows de este ticker ya juzgados por el sub-agente 6` : 'aún no hay historial guardado de este ticker'}">${
+                h && h.hit_rate != null ? `${Math.round(h.hit_rate)}% <span class="text-gray-600">(${h.resolved})</span>` : '&mdash;'}</td></tr>`;
+    }).join('');
+
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+          <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="lightbulb" class="w-4 h-4"></i> Ideas del mercado</h3>
+          <span class="text-[10px] text-gray-500">${ideas.length} operables en ${d.tickers} tickers &middot; ${d.with_history} con historial</span>
+        </div>
+        <p class="text-[10px] text-gray-600 italic mb-3">Flujo inusual de TODO el mercado, ya filtrado por lo que se puede operar: theta sano, no vencido, inusualidad &ge;5/30 y strike dentro del &plusmn;${Math.round(Number(d.moneyness_cap) * 100)}% del precio. Haz clic en una fila para el an&aacute;lisis completo de ese ticker.</p>
+        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[620px]"><thead>
+          <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+            <th class="text-left pb-1.5 pr-3">Ticker</th><th class="text-left pb-1.5 pr-3">Contrato</th>
+            <th class="text-right pb-1.5 pr-3">DTE</th><th class="text-right pb-1.5 pr-3">Dinero</th>
+            <th class="text-right pb-1.5 pr-3">Lado</th><th class="text-right pb-1.5 pr-3">Theta/d&iacute;a</th>
+            <th class="text-right pb-1.5 pr-3">Inusualidad</th><th class="text-right pb-1.5">Acierto hist.</th></tr></thead>
+          <tbody>${filas}</tbody></table></div>
+        <p class="text-[9px] text-gray-600 mt-2 leading-relaxed">${nota}</p>
+        <p class="text-[9px] text-gray-600 mt-1 italic">El tama&ntilde;o de posici&oacute;n no se calcula aqu&iacute;: tu saldo no sale del navegador. Esto es un screener de research, no una orden.</p>
+      </div>`;
+    if (window.lucide) lucide.createIcons();
+}
+
 /** La ÚNICA llamada de datos del tab.
  *
  *  Está separada a propósito: es el punto por el que `diff`/auditoría
@@ -2620,22 +2692,6 @@ function integrityStripHTML(intg){
         </div>
         <div class="flex flex-wrap gap-1.5">${chips}</div>
       </div>`;
-}
-
-/** El Plan de operación se llena desde /api/analyze, pero vive en Proyecciones.
- *  Solo se muestra si hay un análisis cargado, y si es de OTRO ticker se dice
- *  explícitamente — un plan de NVDA junto a un GEX de AMD sería engañoso. */
-function syncOpPlanVisibility(projTicker) {
-    const box = document.getElementById('projOpPlan');
-    const tag = document.getElementById('projOpPlanFor');
-    if (!box) return;
-    const has = !!(currentAnalysis && currentTicker);
-    box.classList.toggle('hidden', !has);
-    if (!has || !tag) return;
-    const mismatch = projTicker && currentTicker && projTicker.toUpperCase() !== currentTicker.toUpperCase();
-    tag.innerHTML = mismatch
-        ? `<span class="text-amber-400">⚠ plan de <b>${currentTicker}</b> — no de ${projTicker.toUpperCase()}</span>`
-        : `del análisis de <b class="text-gray-300">${currentTicker}</b>`;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -3666,7 +3722,6 @@ function renderVictorTargets(d) {
 }
 
 function renderProjections(d) {
-    syncOpPlanVisibility(d.ticker);
     const g = d.gex || {}, spot = Number(d.spot), pos = g.regime === 'positive';
 
     // ── Muros: el nodo de mayor magnitud de cada lado ────────────────────
@@ -3846,13 +3901,6 @@ function projToggleAuto() {
     }
 }
 
-
-function projGenerarTesis() {
-    if (!projData || !projData.ticker) return;
-    const inp = document.getElementById('tickerInput');
-    if (inp) inp.value = projData.ticker;
-    ejecutarAnalisisAPI();   // corre el análisis completo (ya incluye GEX) y cambia a la vista del reporte
-}
 
 // ── PANEL GEX EN LA VISTA DE ANÁLISIS (Quick Take) ───────────────────────────
 async function loadAnalysisGex(ticker) {
@@ -4891,7 +4939,9 @@ function cmdKey(e) {
     if (e.shiftKey) {   // proyecciones GEX rápidas
         if (typeof switchView === 'function') switchView('projectionsView');
         const pt = document.getElementById('projTicker'); if (pt) pt.value = tk;
-        if (typeof loadProjections === 'function') loadProjections();
+        if (typeof vcPintaQuick === 'function') vcPintaQuick(null);
+        // Sin ticker el agente NO se queda esperando: escanea el mercado.
+        if (typeof loadProjIdeas === 'function') loadProjIdeas();
     } else {            // análisis completo del agente
         if (typeof analyzeTickerNow === 'function') analyzeTickerNow(tk);
     }
@@ -6591,16 +6641,20 @@ function analyzeTickerNow(tk) {
 
     <div class="flex items-center justify-between mb-1 flex-wrap gap-3">
         <div>
-            <h2 class="text-xl font-extrabold text-white flex items-center gap-2"><i data-lucide="target" class="w-5 h-5 text-blue-500"></i> Proyecciones GEX</h2>
-            <p class="text-xs text-gray-500 mt-0.5">Niveles institucionales de opciones (gamma exposure) → soportes, resistencias y rango proyectado del precio.</p>
+            <h2 class="text-xl font-extrabold text-white flex items-center gap-2"><span class="w-6 h-6 rounded-lg bg-blue-500 text-white text-sm font-black flex items-center justify-center">T</span> Tito Metralleta
+              <span class="text-[9px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded px-1.5 py-0.5">AI Options Agent</span></h2>
+            <p class="text-xs text-gray-500 mt-0.5">Seis sub-agentes sobre la cadena de Massive y la cinta de MarketSnack: agresi&oacute;n, convicci&oacute;n, inusualidad, estructura, contexto IV y confirmaci&oacute;n de precio.</p>
         </div>
-        <div class="flex items-center gap-2">
-            <input id="projTicker" type="text" placeholder="Ticker (ej. NVDA)" onkeydown="if(event.key==='Enter')loadProjections()"
+        <div class="flex items-center gap-2 flex-wrap">
+            <!-- Sus 4 tickers rápidos (`QUICK` de HeaderBar.tsx). En su app no
+                 hace falta teclear nada: se hace clic y ya. -->
+            <div id="projQuick" class="flex gap-1"></div>
+            <input id="projTicker" type="text" placeholder="Buscar ticker&hellip;" onkeydown="if(event.key==='Enter')loadProjections()" spellcheck="false"
                    class="bg-[#0B0E14] border border-gray-800 text-white text-sm rounded-lg px-3 py-2 w-36 uppercase focus:border-blue-500 outline-none" />
             <button onclick="loadProjections()" class="text-xs font-bold px-4 py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition flex items-center gap-1.5">
-                <i data-lucide="search" class="w-3.5 h-3.5"></i> Proyectar
+                <i data-lucide="search" class="w-3.5 h-3.5"></i> Analizar
             </button>
-            <button onclick="projRefresh(true)" title="Refrescar GEX y dark pool ahora" class="text-xs font-bold p-2 rounded-lg bg-gray-700/50 text-gray-200 hover:bg-gray-700 transition flex items-center">
+            <button onclick="projRefresh(true)" title="Volver a correr el motor ahora" class="text-xs font-bold p-2 rounded-lg bg-gray-700/50 text-gray-200 hover:bg-gray-700 transition flex items-center">
                 <i id="projRefreshBtn" data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
             </button>
             <label class="flex items-center gap-1.5 text-[10px] text-gray-400 cursor-pointer select-none">
@@ -6613,17 +6667,13 @@ function analyzeTickerNow(tk) {
 
     <div id="projEmpty" class="text-center py-20 px-4">
         <i data-lucide="line-chart" class="w-12 h-12 text-gray-700 mx-auto mb-3"></i>
-        <p class="text-sm text-gray-400">Escribe un ticker y presiona <b class="text-gray-300">Proyectar</b>.</p>
-        <p class="text-[11px] text-gray-600 mt-1">Gráfica grande + proyecciones de precio basadas en el gamma exposure del libro de opciones.</p>
+        <p class="text-sm font-bold text-gray-300">Ideas del mercado</p>
+        <p class="text-[11px] text-gray-500 mt-1 max-w-lg mx-auto leading-relaxed">El agente escanea el flujo de opciones de <b class="text-gray-400">todo el mercado</b> &mdash; no hace falta escribir nada. Elige un ticker arriba si quieres el an&aacute;lisis completo de una acci&oacute;n concreta.</p>
     </div>
 
+    <div id="projIdeas" class="hidden"></div>
+
     <div id="projContent" class="hidden space-y-5">
-        <div class="flex items-center justify-between flex-wrap gap-2 bg-gradient-to-r from-blue-500/5 to-transparent border border-blue-500/20 rounded-xl px-4 py-2.5">
-            <p class="text-[11px] text-gray-400">¿Quieres la lectura completa del agente para este ticker (tesis, recomendación y plan, ya con el GEX integrado)?</p>
-            <button onclick="projGenerarTesis()" class="text-xs font-bold px-4 py-2 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition flex items-center gap-1.5 flex-shrink-0">
-                <i data-lucide="brain-circuit" class="w-3.5 h-3.5"></i> Generar tesis AI completa
-            </button>
-        </div>
         <!-- Big price chart with GEX levels -->
         <div class="bg-panel border border-panel rounded-2xl p-4">
             <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
@@ -6688,26 +6738,6 @@ function analyzeTickerNow(tk) {
     </div>
 
 
-    <!-- ══ PLAN DE OPERACIÓN — movido desde Full Research. Aquí es donde vive:
-         Full Research responde "¿cuánto vale y por qué?"; esto responde "¿cómo se
-         opera?", que es justo lo que hace el área de Proyecciones. ══ -->
-    <div id="projOpPlan" class="hidden space-y-4">
-        <div class="flex items-center justify-between gap-3 flex-wrap border-b border-panel pb-2">
-            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2">
-                <i data-lucide="clipboard-list" class="w-4 h-4"></i> Plan de operación
-            </h3>
-            <!-- De qué ticker es este plan. Sin esto verías el plan de NVDA mientras
-                 proyectas AMD, sin ninguna señal de que no corresponden. -->
-            <span id="projOpPlanFor" class="text-[10px] font-mono text-gray-500"></span>
-        </div>
-                    <div id="qtTradePlan" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3">
-                        <div class="flex items-center gap-2 mb-3">
-                            <i data-lucide="target" class="w-4 h-4 text-blue-400"></i>
-                            <span class="text-xs font-bold text-white uppercase tracking-wider">Plan de Trade &mdash; Probabilidades, Sizing &amp; Stops</span>
-                        </div>
-                        <div id="qtTradePlanBody"></div>
-                    </div>
-    </div>
 </main>
 
 <main id="portfolioView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4">

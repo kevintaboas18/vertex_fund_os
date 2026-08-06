@@ -2746,3 +2746,86 @@ nadie pidió.
   `filter[premium][gte]` y `next_page_token`, en ese orden.
 - Noticias: sus 4 feeds RSS + `/v2/reference/news` de Massive.
 
+## 40.7 Lo viejo de Vertex que seguía en pantalla (y el motivo de Massive)
+
+Kevin reportó dos cosas al usarlo. Las dos eran reales.
+
+### El tab pedía teclear el ticker
+
+En su app **no hace falta**: su `HeaderBar` lleva `QUICK = ["TSLA","NVDA","SPY","AAPL"]`
+y se hace clic. Aquí había que escribir el símbolo antes de ver nada. Portados
+sus cuatro botones, con el resaltado del que está cargado.
+
+Y con ellos salió el resto del cascarón viejo, que ninguna ronda había mirado
+porque todas auditaron el **contenido** y no la **cabecera**:
+
+| Era | Ahora |
+|---|---|
+| "Proyecciones GEX · Niveles institucionales de opciones…" | **Tito Metralleta · AI Options Agent**, con los 6 sub-agentes en el subtítulo |
+| "Escribe un ticker y presiona **Proyectar**" | su copy: *"Analiza un ticker — Elige un ticker arriba (o búscalo) y el agente armará el sentiment score, el flujo inusual, los muros de strikes y el detalle completo de cada sub-agente."* |
+| Botón de refresco: *"Refrescar GEX y **dark pool** ahora"* | Quant Data salió del tab hace tres rondas; el rótulo seguía prometiéndolo |
+| Banner "Generar tesis AI completa" | fuera: es el agente de Vertex, no el suyo |
+| Panel "Plan de operación" (`/api/analyze`) | fuera: mismo motivo |
+
+### "Massive rechazó la API key"
+
+El mensaje juntaba **401** y **403**, que son dos problemas distintos y se
+arreglan distinto:
+
+- **401** — la credencial no vale: falta, está mal pegada o fue revocada.
+- **403** — la credencial **vale**, pero el plan no cubre ese endpoint. Cambiar
+  la key no arregla nada. Massive hereda el modelo de Polygon, donde el
+  snapshot de acciones, el de opciones y los aggregates se contratan aparte.
+
+Ahora cada uno dice lo suyo **y la ruta que falló**. Sin la ruta, el mensaje
+mandaba a revisar una credencial que puede estar perfecta.
+
+Además, `/api/tito-health` prueba ahora el snapshot **por separado**. Era el
+único fallo silencioso que quedaba: `fetch_company` se traga su error y
+devuelve `None`, así que si el plan no cubre `/v2/snapshot/...` el panel sigue
+funcionando con el precio de la cadena y nadie se entera de que el mejor precio
+disponible no se está usando.
+
+El centinela de credenciales se extendió a la rama nueva: la ruta se recorta
+antes de la query y la key va en la cabecera, así que no puede filtrarse por
+ahí.
+
+## 40.8 El tab ya no exige un ticker para hacer algo
+
+Kevin preguntó si al entrar al agente de opciones Víctor tiene que analizar un
+ticker. **Comprobado en su código, no supuesto:** su `page.tsx` arranca con
+`useState<string | null>(null)` y enseña *"Analiza un ticker"*. O sea, **sí**
+lo pide… pero en **esa** pestaña.
+
+Su app tiene **cuatro**, en su `NavTabs`:
+
+| Pestaña | ¿Pide ticker? |
+|---|---|
+| **Ticker** (el dashboard) | sí — es lo que aquí era el tab entero |
+| **Ideas** | **no** — escanea el flujo de TODO el mercado |
+| Wheel | otra estrategia, no se porta |
+| Time & Sales | sí |
+
+Lo que Kevin recordaba es **Ideas**: la que aterriza con resultados sin que
+escribas nada. Portada como `/api/tito-ideas` + `renderProjIdeas`, y las dos
+conviven en el mismo tab: **sin ticker manda Ideas, con ticker manda el
+scorecard**, y un clic en cualquier fila abre el análisis completo de ese
+ticker.
+
+El pipeline es el suyo, en su orden y con sus parámetros del commit `53d5a20`:
+`fetch_market_flow` (sin filtro de símbolo, piso de $100K server-side, 8
+páginas, período `1d`) → `classify_flow` → capa 1 de `risk.py`
+(`is_tradeable_idea` con el umbral del **screener** ≥5, no el 7 institucional)
+→ `within_moneyness` (±25%) → el historial por ticker con `validation_score`.
+Y su desglose de rechazos con los cinco motivos, porque sin él *"0 ideas"* y
+*"el mercado está tranquilo"* se ven igual en pantalla.
+
+**El sizing no se calcula en el servidor**, igual que en su ruta: el saldo de
+Kevin no sale del navegador. La ruta devuelve los griegos; el techo de
+contratos lo aplica quien tenga el perfil delante. Es la única razón por la que
+`size_flow` sigue siendo una función declarada sin llamador — y ahora el
+registro de §9 lo dice con ese motivo, no con el de antes.
+
+Con esto, **tres huérfanas dejan de serlo**: `fetch_market_flow`,
+`is_tradeable_idea` y `within_moneyness`, que llevaban desde la ronda 4
+portadas y sin nadie que las llamara.
