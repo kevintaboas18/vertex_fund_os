@@ -408,7 +408,14 @@ def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
         return {}
 
     salida: dict[str, Any] = {
-        "share": {"company_sales": actual[1], "total_market_sales": float(tam)}}
+        "share": {"company_sales": actual[1], "total_market_sales": float(tam)},
+        # MKT-PEN-005 (penetración) divide ESTE MISMO numerador entre el mismo
+        # TAM. Estaba ausente para todo ticker que no lo trajera escrito a mano,
+        # y era gratis: el ingreso que compite en el mercado es justo el que se
+        # acaba de identificar y de validar de capa unas lineas mas arriba.
+        # Publicarlo aparte evita que alguien lo derive por su cuenta con otro
+        # criterio y acabe con dos numeradores distintos para el mismo mercado.
+        "company_relevant_revenue": actual[1]}
 
     # El historial necesita el MISMO segmento un año antes y el TAM de ese
     # año. Si falta cualquiera de los dos, se entrega sólo el nivel.
