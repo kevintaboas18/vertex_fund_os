@@ -3263,3 +3263,53 @@ lleva asterisco y color ámbar cuando su fuente no es el bid.
 **Reproducido de punta a punta** con una cadena sin `last_quote` y `day.close`
 poblado: **40 de 40 símbolos con candidatos**, prima de fuente `ultimo`,
 liquidez 0/15.
+
+## 41.12 «¿Cómo tenemos datos 100% reales?» — la sonda que lo contesta
+
+Kevin, tras pagar Massive: *"¿cómo hacemos para tener los datos que
+necesitamos y 100% confiables y reales? Verifica."*
+
+**Yo no puedo verificarlo desde aquí, y eso hay que decirlo primero.** El
+contenedor bloquea `api.massive.com`. Todo lo que llevo dicho sobre qué
+devuelve su plan es **inferencia** a partir de los síntomas de sus capturas —
+buena inferencia, pero inferencia.
+
+Así que en vez de seguir adivinando, la respuesta es una **sonda que él corre
+contra su propia cuenta**: `/api/tito-fuentes`, con botón en el panel de Wheel.
+
+### Qué hace
+
+Pide **cada endpoint** que el motor usa y comprueba **cada campo** que el motor
+lee. Por campo dice tres cosas: si está, de qué tipo, y **qué se rompe si
+falta**. La lista no sale de la documentación de Massive —esa describe el plan
+más caro— sino de leer quién consume qué en el código.
+
+| Endpoint | Sostiene |
+|---|---|
+| `/v3/snapshot/options` | Estructura, GEX, niveles, escenarios, Wheel |
+| `/v2/aggs/…/range/1/day` | niveles, IV Rank, sub-agente 6, la gráfica |
+| `/v2/snapshot/locale/us/…` | el spot en vivo (1er eslabón) |
+| `/v3/reference/tickers` | nombre para el matcher de noticias |
+| `/vX/reference/financials` | el proxy de earnings de Wheel |
+| MarketSnack `/api/flow_feed` | 4 de los 6 sub-agentes + Ideas + Time & Sales |
+
+Y termina con el **veredicto por pestaña**: ok / degradado / roto, con el motivo
+y el arreglo.
+
+### Lo que ya se puede afirmar sin la sonda
+
+Wheel es la **única** pestaña que depende de `last_quote`. Ticker, Ideas y Time
+& Sales sacan su bid/ask de **MarketSnack**, no de Massive. Por eso funcionan.
+
+Y "degradado" no es "roto": sin horquilla el motor puntúa igual con la cascada
+de precio que él mismo escribió, y el score cobra **0 de 15** en liquidez por no
+poder medir el spread. Un contrato sin bid **nunca** superará a uno con bid.
+
+### Honestidad sobre "100% real"
+
+Con `last_quote`, la prima **es** el bid: real y verificable. Sin él, la prima
+es una **estimación** del último precio con recorte del 10%, y el panel lo dice
+con asterisco, color ámbar y *"verifica la prima en tu bróker antes de vender"*.
+
+Lo que **no** se hará nunca es rellenar la columna con un Black-Scholes y
+callarlo. Ese sería exactamente el número que no puedes cobrar.

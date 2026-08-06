@@ -4679,6 +4679,212 @@ def tito_tape(ticker: str, period: str = "5d", min_premium: float = 100_000):
     })
 
 
+#: Qué campo necesita cada cosa. Es el contrato REAL del motor con Massive y
+#: MarketSnack, sacado de leer quién consume qué — no de la documentación del
+#: proveedor, que dice lo que el plan más caro devuelve.
+_FUENTES = [
+    ("massive", "cadena", "/v3/snapshot/options/{t}?limit=1",
+     "La cadena de opciones. Sostiene Estructura, GEX, niveles y escenarios.",
+     [("details.strike_price", "el strike", "sin esto no hay nada"),
+      ("details.expiration_date", "el vencimiento", "sin esto no hay nada"),
+      ("details.contract_type", "call o put", "sin esto no hay nada"),
+      ("details.shares_per_contract", "acciones por contrato",
+       "darlo por hecho en 100 infla el nocional de los ajustados hasta 10x"),
+      ("open_interest", "open interest", "es la mitad del GEX y del nocional"),
+      ("day.close", "cierre del día del contrato",
+       "2º nivel de la cascada de precio; sin él, un contrato que no negoció hoy no tiene prima"),
+      ("day.vwap", "VWAP del día", "3er nivel de la cascada"),
+      ("last_trade.price", "último negociado", "1er nivel de la cascada"),
+      ("last_quote.bid", "BID — lo que COBRAS al vender",
+       "SOLO Wheel. Sin él la prima es estimada y la liquidez cobra 0/15"),
+      ("last_quote.ask", "ask", "SOLO Wheel: sin ask no hay spread que medir"),
+      ("underlying_asset.price", "precio del subyacente",
+       "el spot; hay respaldo por barras, pero es el bueno")]),
+    ("massive", "barras", "/v2/aggs/ticker/{t}/range/1/day/2020-01-01/2030-01-01?limit=1",
+     "Barras diarias. Niveles, IV Rank, sub-agente 6 y la gráfica.",
+     [("results[].t", "timestamp", "sin esto no hay eje temporal"),
+      ("results[].o", "apertura", "sin ella las velas salen doji"),
+      ("results[].h", "máximo", "pivotes y ATR"),
+      ("results[].l", "mínimo", "pivotes y ATR"),
+      ("results[].c", "cierre", "todo lo demás")]),
+    ("massive", "snapshot", "/v2/snapshot/locale/us/markets/stocks/tickers/{t}",
+     "Precio del subyacente en vivo. Es el 1er eslabón del spot.",
+     [("ticker.day.c", "cierre de hoy", "1er nivel"),
+      ("ticker.min.c", "último minuto", "2º nivel"),
+      ("ticker.prevDay.c", "cierre previo", "3er nivel")]),
+    ("massive", "ficha", "/v3/reference/tickers/{t}",
+     "Nombre de la empresa. Lo usa el matcher de noticias macro.",
+     [("results.name", "nombre", "sin él, 'Tesla' en un titular no hace match con TSLA")]),
+    ("massive", "financials", "/vX/reference/financials?ticker={t}&limit=1",
+     "Fechas de reporte. Es el proxy de earnings de Wheel.",
+     [("results[].filing_date", "fecha de presentación",
+       "sin ella el flag de earnings sale 'no aplica' y regala 10/10")]),
+]
+
+
+@app.get("/api/tito-fuentes")
+def tito_fuentes(ticker: str = "AAPL"):
+    """Diagnóstico de FUENTES: qué devuelve tu plan, campo por campo.
+
+    Existe porque la pregunta "¿tengo los datos que necesito?" no la contesta
+    la documentación del proveedor —que describe el plan más caro— ni un test
+    —que corre con dobles—. Solo la contesta pedirle a TU cuenta cada endpoint
+    y mirar qué viene.
+
+    Por cada endpoint dice el HTTP que devolvió, y por cada campo que el motor
+    lee: si está, de qué tipo, y **qué se rompe si falta**. Al final, el
+    veredicto por pestaña: qué funciona entero, qué funciona degradado y qué no
+    funciona, con el motivo.
+
+    No imprime ninguna credencial.
+    """
+    import urllib.error
+    import urllib.request
+
+    tk, err = _tito_ticker(ticker)
+    if err:
+        return {"ok": False, "error": err}
+
+    key = os.environ.get("MASSIVE_API_KEY", "").strip()
+    cookie = os.environ.get("MARKETSNACK_COOKIE", "").strip()
+
+    def _cava(obj, ruta):
+        """Baja por `a.b[].c` y devuelve (encontrado, valor)."""
+        cur = obj
+        for parte in ruta.split("."):
+            if parte.endswith("[]"):
+                cur = (cur or {}).get(parte[:-2]) if isinstance(cur, dict) else None
+                if not isinstance(cur, list) or not cur:
+                    return False, None
+                cur = cur[0]
+            else:
+                if not isinstance(cur, dict) or parte not in cur:
+                    return False, None
+                cur = cur[parte]
+        return True, cur
+
+    def _pide(url, cabeceras):
+        req = urllib.request.Request(url, headers=cabeceras)
+        try:
+            with urllib.request.urlopen(req, timeout=20) as res:
+                return res.status, json.loads(res.read().decode("utf-8", "replace")), None
+        except urllib.error.HTTPError as e:
+            cuerpo = e.read().decode("utf-8", "replace")[:200] if e.fp else ""
+            return e.code, None, cuerpo
+        except Exception as e:                   # noqa: BLE001
+            return 0, None, f"{type(e).__name__}: {e}"
+
+    endpoints = []
+    for prov, nombre, plantilla, para_que, campos in _FUENTES:
+        if not key:
+            endpoints.append({"proveedor": prov, "endpoint": nombre, "para_que": para_que,
+                              "status": None, "error": "MASSIVE_API_KEY no está en el entorno",
+                              "campos": []})
+            continue
+        url = "https://api.massive.com" + plantilla.format(t=urllib.parse.quote(tk))
+        status, data, motivo = _pide(url, {"Authorization": f"Bearer {key}"})
+        fila = {"proveedor": prov, "endpoint": nombre, "ruta": plantilla.split("?")[0],
+                "para_que": para_que, "status": status, "error": motivo, "campos": []}
+        # `results` puede venir como lista o como objeto según el endpoint.
+        raiz = data
+        if isinstance(data, dict) and isinstance(data.get("results"), list) and data["results"]:
+            raiz = {"results": data["results"], **(data["results"][0] or {})}
+        for camino, que_es, si_falta in campos:
+            hay, val = _cava(raiz or {}, camino)
+            fila["campos"].append({"campo": camino, "que_es": que_es, "hay": hay,
+                                   "tipo": type(val).__name__ if hay else None,
+                                   "si_falta": si_falta})
+        endpoints.append(fila)
+
+    # ── MarketSnack ─────────────────────────────────────────────────────
+    ms = {"proveedor": "marketsnack", "endpoint": "cinta", "ruta": "/api/flow_feed",
+          "para_que": "El tape. Sostiene 4 de los 6 sub-agentes y el screener de Ideas.",
+          "status": None, "error": None, "campos": []}
+    if not cookie:
+        ms["error"] = "MARKETSNACK_COOKIE no está en el entorno (es una COOKIE y caduca)"
+    else:
+        try:
+            from wbj.tito.marketsnack import fetch_flow
+            res = fetch_flow(tk, period="5d", min_premium=100_000, max_pages=1)
+            ms["status"] = 200
+            crudo = res.trades[0] if res.trades else {}
+            ms["trades"] = len(res.trades)
+            for campo, que_es, si_falta in [
+                ("id", "identificador del trade", "sin él la memoria no deduplica"),
+                ("symbol", "símbolo OCC", "sin él no se sabe qué contrato es"),
+                ("side", "lado de ejecución", "es el sub-agente 1 entero"),
+                ("bid_price", "bid", "sin horquilla no hay convicción por spread"),
+                ("ask_price", "ask", "idem"),
+                ("premium", "dinero de la operación", "el peso de todo"),
+                ("delta", "delta", "inusualidad y dirección"),
+                ("gamma", "gamma", "ancla el GEX al tape real"),
+                ("theta", "theta", "filtro de calidad del contrato"),
+                ("implied_volatility", "IV", "el sub-agente 5 entero"),
+                ("open_interest", "open interest", "volumen contra OI"),
+                ("timestamp", "hora", "sin ella no hay ventana ni frescura"),
+                ("asset_price", "precio del subyacente", "sin él no hay moneyness"),
+            ]:
+                ms["campos"].append({"campo": campo, "que_es": que_es,
+                                     "hay": campo in (crudo or {}),
+                                     "tipo": type((crudo or {}).get(campo)).__name__
+                                             if campo in (crudo or {}) else None,
+                                     "si_falta": si_falta})
+        except Exception as e:                   # noqa: BLE001
+            ms["error"] = _error_de_fuente(e, "Cinta de MarketSnack")
+    endpoints.append(ms)
+
+    # ── Veredicto por pestaña ───────────────────────────────────────────
+    def _tiene(endpoint, campo):
+        for e in endpoints:
+            if e["endpoint"] == endpoint:
+                for c in e["campos"]:
+                    if c["campo"] == campo:
+                        return c["hay"]
+        return False
+
+    def _viva(endpoint):
+        return any(e["endpoint"] == endpoint and e.get("status") == 200 for e in endpoints)
+
+    cadena_ok = _viva("cadena") and _tiene("cadena", "details.strike_price")
+    barras_ok = _viva("barras") and _tiene("barras", "results[].c")
+    cinta_ok = _viva("cinta") and _tiene("cinta", "premium")
+    bid_ok = _tiene("cadena", "last_quote.bid")
+    precio_ok = (_tiene("cadena", "last_trade.price") or _tiene("cadena", "day.close")
+                 or _tiene("cadena", "day.vwap"))
+
+    def _v(estado, motivo, arreglo=None):
+        return {"estado": estado, "motivo": motivo, "arreglo": arreglo}
+
+    veredicto = {
+        "ticker": (_v("ok", "cadena, barras y cinta responden")
+                   if cadena_ok and barras_ok and cinta_ok
+                   else _v("degradado" if cadena_ok and barras_ok else "roto",
+                           "sin cinta: 4 de los 6 sub-agentes se apagan" if not cinta_ok
+                           else "falta la cadena o las barras",
+                           "vuelve a pegar MARKETSNACK_COOKIE" if not cinta_ok else None)),
+        "ideas": (_v("ok", "la cinta responde") if cinta_ok
+                  else _v("roto", "Ideas es 100% cinta de MarketSnack",
+                          "vuelve a pegar MARKETSNACK_COOKIE")),
+        "wheel": (_v("ok", "la cadena trae BID: prima real y liquidez medible") if bid_ok
+                  else _v("degradado" if (cadena_ok and precio_ok and barras_ok) else "roto",
+                          "la cadena no trae `last_quote`: la prima sale del último "
+                          "precio con recorte del 10% y la liquidez cobra 0/15"
+                          if precio_ok else "la cadena no trae ni bid ni precio de respaldo",
+                          "para prima real hace falta un plan de Massive con QUOTES de "
+                          "opciones; el snapshot sin quotes no lo da")),
+        "tape": (_v("ok", "la cinta responde") if cinta_ok
+                 else _v("roto", "Time & Sales es 100% cinta",
+                         "vuelve a pegar MARKETSNACK_COOKIE")),
+    }
+
+    return _json_safe({
+        "ok": True, "ticker": tk,
+        "credenciales": {"massive": bool(key), "marketsnack": bool(cookie)},
+        "endpoints": endpoints, "veredicto": veredicto,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
 @app.get("/api/tito-news")
 def tito_news(ticker: str, call_pct: float | None = None, name: str | None = None):
     """Tarea 7 — noticias en dos capas + bandera de contradicción.
