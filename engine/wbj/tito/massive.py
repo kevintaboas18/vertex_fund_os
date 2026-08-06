@@ -302,7 +302,12 @@ def fetch_daily_bars(ticker: str, days: int = 365, timeout: float = 25.0) -> lis
     clean = (ticker or "").strip().upper()
     if not clean:
         raise MassiveError("Ticker vacío.")
-    end = date.today()
+    # `const to = new Date()` y `toDateStr` = **UTC**. `date.today()` usa la
+    # zona LOCAL del servidor: al oeste de Greenwich pedía un día MENOS que él
+    # y al este uno más, así que la ventana de barras no era la misma. Es el
+    # mismo error que ya se corrigió al etiquetar cada barra, pero en el RANGO
+    # que se pide, que nadie había mirado.
+    end = datetime.now(timezone.utc).date()
     start = end - timedelta(days=days)
     url = (
         f"{BASE_URL}/v2/aggs/ticker/{urllib.parse.quote(clean)}/range/1/day/"
