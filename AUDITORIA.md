@@ -1318,3 +1318,67 @@ calib 182/182 · frescura 342/342 · reloj 223/223
 Targets por horizonte · Escenarios de precio (GEX) · Actividad inusual ·
 Plan de operación. **Fetches del tab:** `/api/projection-targets` y
 `/api/tito-news`. Nada más.
+
+---
+
+# 20. Auditoría del tab de Proyecciones — ronda 5 (2026-08-06)
+
+**Alcance:** el tab entero, atacando lo que las cuatro rondas anteriores no
+midieron. **Base comparada:** su repo en `53d5a20`.
+
+## 20.1 El hallazgo grande: seis números sin evidencia
+
+Todas las rondas anteriores preguntaban **"¿lo que se sirve, se pinta?"**.
+Ninguna preguntó **"¿se sirve lo que ÉL muestra?"**. Ahí estaba el hueco.
+
+El motor calcula el desglose completo de los 6 sub-agentes desde el primer día
+—el spread medio y la dominancia de Convicción, el promedio por parámetro de
+Inusualidad, el nocional por strike y el reparto por vencimiento de Estructura,
+el IV Rank **con su fuente** y el skew del frente, el MFE/MAE y la tasa de
+validación del backtest— y el payload servía **solo el titular 0-10**.
+
+Es exactamente lo que la regla innegociable del proyecto prohíbe:
+
+> *Sin evidencia, no hay número.*
+
+Seis cifras en pantalla y nada detrás. Resuelto: `subagents` en el payload
+(60 hojas) y `vcSubagentesHTML` en el panel, port de sus seis tarjetas —
+`AggressionScoreCard`, `ConvictionCard`, `UnusualityCard`, `StructureCard`,
+`IvContextCard`, `ValidationCard`— con sus veredictos y umbrales literales,
+dentro del mismo `<details>` colapsado que él usa.
+
+## 20.2 Los otros cuatro
+
+| # | Hallazgo | Resuelto |
+|---|---|---|
+| P5-02 | `conviction_trades` servía solo el **contador**. Esas filas son el universo sobre el que puntúan Convicción, Inusualidad y Contexto IV: tres de seis categorías sin nada que las respalde | `conviction_rows` (25 de mayor premium) + su `ConvictionTransactions` |
+| P5-03 | Mi propio renderizador nuevo tiraba 4 hojas: `by_expiration.trades`/`.premium` (la muestra que sostiene cada IV media) y `expirations.call_notional`/`.put_notional` (dos vencimientos con el mismo nocional pueden ser tesis opuestas) | pintadas — lo detectó el test de hojas, no yo |
+| P5-04 | `strike` y `size` llegan **crudos** de MarketSnack y se interpolaban sin escapar en las dos tablas de filas. El port es literal: no valida tipos | `_vcEsc` en los 4 puntos + test |
+| P5-05 | La flecha del `<details>` dependía de la variante `group-open:` de Tailwind, servida por CDN sin versión fijada. Si no resolviera, se verían las **dos** flechas | CSS propio, sin depender de nadie |
+
+## 20.3 Lo que ahora es auditable y antes no
+
+**Registro de sus 39 componentes** (`auditar_tito.py` §9-ter). Cada uno de los
+componentes que renderiza su `web/app/page.tsx` está mapeado: **22 con
+consumidor** en el tab, **17 declarados con motivo escrito**. Con `TITO_ROOT`
+apuntando a su clon, el registro se contrasta contra su carpeta real — un
+componente nuevo suyo que nadie declare hace **fallar** el check. Se probó: la
+primera versión inventó un `ChartPanel` en `chart/` y se le escaparon
+`ChartCrosshair` y `PriceChart`; el check lo dijo.
+
+**Cobertura por HOJA del payload** (`test_cada_hoja_del_detalle_de_subagentes_se_pinta`).
+El test viejo miraba claves raíz, y `subagents` es **una** clave con 60 hojas
+dentro. El nuevo recorre el árbol servido y exige que cada hoja se lea en el
+renderizador o esté declarada con su motivo (6 lo están).
+
+## 20.4 Estado
+
+```
+2.684 tests del engine · 159 de la capa web · 271 checks de auditoría · 0 fallos
+store 47/47 · compute 604/604 · bars 27/27 · primitivas · cono
+motor 1142/1142 · motor2 918/918 · motor3 348/349 · geo 274/274
+calib 182/182 · frescura 342/342 · reloj 223/223
+```
+
+Nada mío entra en el tab salvo lo que Kevin pidió: su email y su perfil de
+inversionista. Las fuentes son Massive (cadena + barras) y MarketSnack (cinta).

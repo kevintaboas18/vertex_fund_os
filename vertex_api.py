@@ -4891,6 +4891,107 @@ def _tito_json(r):
                      "size": t[1].size, "delta": t[1].delta, "theta": t[1].theta,
                      "gamma": t[1].gamma, "leg": t[1].leg, "expiry": t[1].expiry}
                     for t in r.unusuality.top[:12]],
+        # ── El DETALLE de los 6 sub-agentes — su `<details>` "Detalle de
+        # sub-agentes", que es donde se ve POR QUÉ cada categoría puntúa lo que
+        # puntúa. El motor lo calculaba entero desde el primer día y el payload
+        # servía solo el titular 0-10: un número sin su evidencia, que es
+        # justo lo que la regla innegociable del proyecto prohíbe.
+        "subagents": {
+            # 1 · Agresividad — cuánto premium fue al ask contra el bid.
+            "aggression": {
+                "score": r.aggression.score, "ratio": _r(r.aggression.ratio, 4),
+                "premium_ask": r.aggression.premium_ask,
+                "premium_bid": r.aggression.premium_bid,
+                "premium_mid": r.aggression.premium_mid, "n": r.aggression.n,
+            },
+            # 2 · Convicción — spread, dominancia y calidad de la ejecución.
+            "conviction": {
+                "score": r.conviction.score, "n": r.conviction.n,
+                "spread": {"avg_pct": _r(r.conviction.spread["avg_pct"], 2),
+                           "points": r.conviction.spread["points"],
+                           "wide_count": r.conviction.spread["wide_count"]},
+                "dominance": {"side": r.conviction.dominance["side"],
+                              "dominant_pct": _r(r.conviction.dominance["dominant_pct"], 1),
+                              "ask_pct": _r(r.conviction.dominance["ask_pct"], 1),
+                              "bid_pct": _r(r.conviction.dominance["bid_pct"], 1),
+                              "points": r.conviction.dominance["points"]},
+                "execution": {"points": _r(r.conviction.execution["points"], 1),
+                              "counts": r.conviction.execution["counts"]},
+            },
+            # 3 · Inusualidad — el promedio por parámetro, que es el desglose
+            # que su `UnusualityCard` pone bajo el 0-10.
+            "unusuality": {
+                "score": r.unusuality.score, "n": r.unusuality.n,
+                "unusual_count": r.unusuality.unusual_count,
+                "avg_by_param": {k: _r(v, 1) for k, v in r.unusuality.avg_by_param.items()},
+            },
+            # 4 · Estructura — nocional por strike, dominio y volumen>OI.
+            "structure": {
+                "score": r.structure.score,
+                "notional": {"avg_per_strike": r.structure.notional["avg_per_strike"],
+                             "total": r.structure.notional["total"],
+                             "strike_count": r.structure.notional["strike_count"],
+                             "points": r.structure.notional["points"]},
+                "strikes": {"dominant_count": r.structure.strikes["dominant_count"],
+                            "considered_count": r.structure.strikes["considered_count"],
+                            "points": r.structure.strikes["points"]},
+                "vol_oi_points": r.structure.vol_oi["points"],
+                "expirations": [{"expiration": e.expiration, "notional": e.notional,
+                                 "pct_of_total": _r(e.pct_of_total, 1),
+                                 "call_notional": e.call_notional,
+                                 "put_notional": e.put_notional,
+                                 "contracts": e.contracts}
+                                for e in r.structure.expirations[:6]],
+            },
+            # 5 · Contexto IV — la banda, el rank CON SU FUENTE y el skew.
+            # `rank.source` no es decorativo: dice si el IV Rank sale del
+            # historial propio o de un proxy de volatilidad realizada, y eso
+            # cambia cuánto vale el número.
+            "iv_context": {
+                "score": r.iv_context.score, "regime": r.iv_context.regime,
+                "note": r.iv_context.note,
+                "front_skew": _r(r.iv_context.front_skew, 1) if r.iv_context.front_skew is not None else None,
+                "iv": {"current": _r(r.iv_context.iv["current"], 1),
+                       "points": r.iv_context.iv["points"],
+                       "band": r.iv_context.iv["band"],
+                       "special": r.iv_context.iv["special"],
+                       "contracts": r.iv_context.iv["contracts"]},
+                "rank": {"value": _r(r.iv_context.rank["value"], 0),
+                         "points": r.iv_context.rank["points"],
+                         "band": r.iv_context.rank["band"],
+                         "source": r.iv_context.rank["source"],
+                         "days": r.iv_context.rank["days"],
+                         "low": _r(r.iv_context.rank["low"], 1),
+                         "high": _r(r.iv_context.rank["high"], 1)},
+                "by_expiration": [{"expiration": e.expiration, "dte": e.dte,
+                                   "trades": e.trades, "avg_iv": _r(e.avg_iv, 1),
+                                   "premium": e.premium}
+                                  for e in r.iv_context.by_expiration[:6]],
+            },
+            # 6 · Confirmación de precio — el backtest. `coverage.below_target`
+            # es la advertencia de "preliminar" que ya viajaba en `warnings`;
+            # aquí va con los números que la sostienen.
+            "validation": {
+                "score": r.validation.score, "verdict": r.validation.verdict,
+                "threshold_pct": _r(r.validation.threshold_pct, 1),
+                "weighted_hit_rate": _r(r.validation.weighted_hit_rate, 0),
+                "avg_mfe": _r(r.validation.avg_mfe, 1),
+                "avg_mae": _r(r.validation.avg_mae, 1),
+                "hit_rate": {"value": _r(r.validation.hit_rate["value"], 0),
+                             "points": r.validation.hit_rate["points"],
+                             "validated": r.validation.hit_rate["validated"],
+                             "resolved": r.validation.hit_rate["resolved"],
+                             "band": r.validation.hit_rate["band"]},
+                "speed": {"median_sessions": r.validation.speed["median_sessions"],
+                          "points": r.validation.speed["points"],
+                          "band": r.validation.speed["band"]},
+                "by_direction": r.validation.by_direction,
+                "coverage": {"days": r.validation.coverage["days"],
+                             "flows": r.validation.coverage["flows"],
+                             "pending": r.validation.coverage["pending"],
+                             "below_target": r.validation.coverage["below_target"]},
+            },
+        },
         "levels": {
             "supports": [lvl(l) for l in r.levels.supports],
             "resistances": [lvl(l) for l in r.levels.resistances],
@@ -4914,6 +5015,23 @@ def _tito_json(r):
         "notable_trades": len(r.flow.interesting),
         "conviction_trades": len(r.conviction_flow),
         "conviction_window": r.conviction_window,
+        # Las FILAS de convicción, no solo su contador — su
+        # `ConvictionTransactions`, "Transacciones revisadas". Estos trades son
+        # el universo sobre el que puntúan Convicción, Inusualidad y Contexto
+        # IV: servir únicamente el número dejaba tres de las seis categorías
+        # sin nada que las respalde en pantalla. Se mandan las 25 de mayor
+        # premium, que es lo que cabe leer sin paginar.
+        "conviction_rows": [
+            {"id": t.id, "underlying": t.underlying, "type": t.type,
+             "strike": t.strike, "expiration": t.expiration, "dte": t.dte,
+             "expiry_status": t.expiry_status, "premium": t.premium,
+             "size": t.size, "aggression": t.aggression,
+             "timestamp": t.timestamp, "repeated": t.flags.repeated,
+             "multileg": t.flags.multileg}
+            for t in sorted(r.conviction_flow,
+                            key=lambda t: t.premium if isinstance(t.premium, (int, float)) else 0,
+                            reverse=True)[:25]
+        ],
         # % del premium notable en calls. Es el mismo número que usa el resumen
         # de Prediction Pro, y el que /api/tito-news necesita para confrontar la
         # dirección del dinero contra la de los titulares.

@@ -1015,6 +1015,102 @@ chk("_tito_clusters(trades, now)" in API and "detect_clusters" in API,
     "`detect_clusters` CABLEADA: `flow_clusters` (su FlowPriceChart)")
 
 # ─────────────────────────────────────────────────────────────────────
+sec("9-ter. Cobertura de SUS componentes")
+#
+# La ronda 5 destapó el hueco más caro hasta ahora: el motor calculaba el
+# desglose completo de los 6 sub-agentes y el payload servía solo el titular
+# 0-10. Seis cifras sin evidencia detrás — justo lo que la regla innegociable
+# del proyecto prohíbe. No lo vio ningún test porque todos medían "¿lo que se
+# sirve se pinta?" y nadie medía "¿se sirve lo que ÉL muestra?".
+#
+# Este registro cierra esa pregunta. Es el mapa de los 29 componentes que
+# renderiza su `web/app/page.tsx`: cada uno o tiene consumidor aquí, o está
+# declarado con su motivo. Si él añade un componente nuevo, la lista se queda
+# corta y este check lo dice.
+COMPONENTES_SUYOS = {
+    # ── vista Estudiante ──
+    "VeredictoCard":         ("panel", "score/verdict/confianza en `renderVictorTargets`"),
+    "SimpleChart":           ("panel", "`renderVictorProjChart` sobre #projChart"),
+    "EscenariosCard":        ("panel", "las 3 cards bear/base/bull de `renderVictorTargets`"),
+    "NivelesSimples":        ("panel", "`vcLevelsHTML`"),
+    "MemoriaCard":           ("panel", "`vcMemoryHTML`"),
+    "ContextoLinea":         ("panel", "la línea de `call_pct` en `vcScorecardHTML`"),
+    # ── vista Pro ──
+    "SentimentCard":         ("panel", "`vcScorecardHTML` — las 6 categorías con sus pesos"),
+    "PredictionCard":        ("panel", "`renderVictorTargets` con el selector de horizonte"),
+    "LevelsCard":            ("panel", "`vcLevelsHTML`"),
+    "NewsCard":              ("panel", "`vcNewsHTML` + /api/tito-news"),
+    "ProWallsCard":          ("panel", "`vcGexHTML` + las cards de #projCards"),
+    "GexHeatmapCard":        ("panel", "`vcHeatmapHTML`"),
+    "TradesFeed":            ("panel", "la tabla de #projUnusual"),
+    "ScorecardPanel":        ("panel", "`vcScorecardHTML`"),
+    # ── detalle de sub-agentes ──
+    "AggressionScoreCard":   ("panel", "`vcSubagentesHTML` — sub-agente 1"),
+    "ConvictionCard":        ("panel", "`vcSubagentesHTML` — sub-agente 2"),
+    "UnusualityCard":        ("panel", "`vcSubagentesHTML` — sub-agente 3"),
+    "StructureCard":         ("panel", "`vcSubagentesHTML` — sub-agente 4"),
+    "IvContextCard":         ("panel", "`vcSubagentesHTML` — sub-agente 5"),
+    "ValidationCard":        ("panel", "`vcSubagentesHTML` — sub-agente 6"),
+    "ConvictionTransactions":("panel", "`vcSubagentesHTML` — transacciones revisadas"),
+    # ── declarados: NO se portan, con su motivo ──
+    "HeaderBar":             ("no", "la barra de Vertex ya existe y es de Vertex, no suya"),
+    "AnalysisLoader":        ("no", "Vertex tiene su propio indicador de carga"),
+    "CompanyHeader":         ("no", "el nombre y el precio van en la cabecera de la gráfica"),
+    "ActivityCard":          ("no", "resume las mismas filas que la tabla de transacciones "
+                                    "revisadas, que se pinta entera"),
+    "MoneyFlowCard":         ("no", "resume convicción + estructura, que ya salen con su "
+                                    "desglose completo en el detalle de sub-agentes"),
+    "FlowPriceChart":        ("no", "dibuja los notables sobre el precio; la gráfica del tab "
+                                    "es la suya (SimpleChart) y ya lleva niveles y cono"),
+    "OptionChainTable":      ("no", "navegador de la cadena completa (600+ filas). El tab "
+                                    "muestra los top strikes, que es lo que puntúa"),
+    "WatchlistCard":         ("no", "su watchlist; Vertex tiene la suya"),
+    "NavTabs":               ("no", "navegación de su app Next.js"),
+    "RiskProfileCard":       ("no", "el perfil de riesgo es el de Kevin, no un slider suyo"),
+    "WheelPresetCard":       ("no", "de su /wheel, que no se porta"),
+    "WheelTable":            ("no", "de su /wheel, que no se porta"),
+    "IdeasTable":            ("no", "de su /ideas, que no se porta"),
+    "RepeatBadge":           ("no", "insignia interna de otras tablas suyas"),
+    "NotableTable":          ("no", "tabla de notables de su /flow, que no se porta"),
+    "ChartPanel":            ("no", "su app/ChartPanel dibuja los top-5 contratos de la "
+                                    "cadena sobre las barras; el tab tiene su gráfica "
+                                    "principal con cono, niveles y escenarios"),
+    # ── chart/: el motor de la gráfica, que SÍ está portado ──
+    "PriceChart":            ("panel", "`renderVictorProjChart` — port de chartGeometry.ts "
+                                       "+ PriceChart.tsx, medido por `diff_geo.sh`"),
+    "ChartCrosshair":        ("no", "la cruz que sigue al cursor sobre su SVG; el tab "
+                                    "dibuja la gráfica sin interacción de puntero"),
+}
+_portados = {k: v for k, v in COMPONENTES_SUYOS.items() if v[0] == "panel"}
+_sin_portar = {k: v for k, v in COMPONENTES_SUYOS.items() if v[0] != "panel"}
+chk(all(m for _, m in COMPONENTES_SUYOS.values()),
+    f"los {len(COMPONENTES_SUYOS)} componentes de su app están declarados")
+chk(len(_portados) == 22, f"{len(_portados)} de sus componentes tienen consumidor en el tab")
+chk(all(len(m) > 20 for _, m in _sin_portar.values()),
+    f"los {len(_sin_portar)} no portados llevan MOTIVO escrito, no una excusa de una línea")
+# Y los que se declaran portados tienen que existir de verdad en el panel.
+_mentira = [k for k, (_, m) in _portados.items()
+            for fn in [m.split("`")[1] if "`" in m else ""]
+            if fn.startswith("vc") and f"function {fn}(" not in HTML]
+chk(not _mentira, f"ningún componente se declara portado sin estarlo{': ' + str(_mentira) if _mentira else ''}")
+# Con su repo a mano, el registro se contrasta contra la carpeta REAL: un
+# componente nuevo suyo que nadie declaró hace fallar este check.
+if TITO and (TITO / "app" / "components").is_dir():
+    _suyos = {f.stem for f in (TITO / "app" / "components").rglob("*.tsx")}
+    # `ChartPanel.tsx` cuelga de `app/`, no de `app/components/`.
+    _suyos |= {f.stem for f in (TITO / "app").glob("*.tsx")} - {"layout", "page"}
+    _faltan = sorted(_suyos - set(COMPONENTES_SUYOS))
+    chk(not _faltan, f"el registro cubre su carpeta de componentes entera{': faltan ' + str(_faltan) if _faltan else ''}")
+    _fantasma = sorted(set(COMPONENTES_SUYOS) - _suyos)
+    chk(not _fantasma, f"el registro no inventa componentes{': ' + str(_fantasma) if _fantasma else ''}")
+else:
+    print("  · define TITO_ROOT para contrastar el registro contra su carpeta real")
+# El detalle de sub-agentes: las 6 tarjetas + la tabla, servidas Y pintadas.
+chk('"subagents"' in API, "el payload sirve el DESGLOSE de los 6 sub-agentes")
+chk('"conviction_rows"' in API, "…y las filas de convicción, no solo su contador")
+chk("function vcSubagentesHTML(d) {" in HTML and "${vcSubagentesHTML(d)}" in HTML,
+    "…y el panel los pinta en su `<details>` de detalle")
+
 sec("9-bis. Rutas del servidor sin cliente")
 #
 # Al sacar Quant Data del tab, nueve rutas se quedaron sin nadie que las llame.

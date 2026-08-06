@@ -994,6 +994,141 @@ class TestElPanelNoTiraNadaDelPayload:
             f"el motor sirve {huerfanos} y el panel no los pinta. O se cablean, "
             f"o se declaran en `_NO_SE_PINTAN` con su motivo.")
 
+    #: Hojas de `subagents` que el panel no lee, con su motivo. El registro es
+    #: la única salida: o se pinta, o se declara aquí.
+    _SUB_NO_SE_PINTAN = {
+        "aggression.ratio": "no se pinta como número; decide la etiqueta "
+                            "('Compra agresiva' / 'Presión al bid' / 'Mixto') con sus cortes 0.66/0.34",
+        "conviction.dominance.ask_pct": "el desglose ask/bid ya se ve en la barra "
+                                        "de Agresividad; aquí se pinta la dominante",
+        "conviction.dominance.bid_pct": "idem",
+        "iv_context.iv.special": "marca de IV atípica; el aviso al usuario es "
+                                 "`iv.band`, que sí se pinta",
+        "iv_context.iv.contracts": "sobre cuántos contratos se promedió la IV; "
+                                   "la muestra ya la da `by_expiration`",
+        "structure.notional.total": "el total no se pinta: la métrica de su "
+                                    "StructureCard es el promedio POR STRIKE",
+    }
+
+    @staticmethod
+    def _hojas(d, prefijo=""):
+        """Las rutas hoja de un dict anidado, tipo `iv_context.rank.source`."""
+        for k, v in d.items():
+            ruta = f"{prefijo}{k}"
+            if isinstance(v, dict):
+                yield from TestElPanelNoTiraNadaDelPayload._hojas(v, ruta + ".")
+            elif isinstance(v, list) and v and isinstance(v[0], dict):
+                yield from TestElPanelNoTiraNadaDelPayload._hojas(v[0], ruta + ".")
+            else:
+                yield ruta
+
+    def test_cada_hoja_del_detalle_de_subagentes_se_pinta(self):
+        """El fallo que ESTE test existe para impedir, ya cometido una vez.
+
+        El motor calcula el desglose completo de los 6 sub-agentes —el spread
+        medio, la dominancia, el promedio por parámetro, el IV Rank con su
+        fuente, el MFE/MAE del backtest— y el payload servía solo el titular
+        0-10. Seis cifras sin evidencia detrás, que es exactamente lo que la
+        regla innegociable del proyecto prohíbe.
+
+        El test de arriba no lo habría visto: mira las claves RAÍZ, y
+        `subagents` es una sola clave con 60 hojas dentro.
+        """
+        import vertex_api as V
+        sys.path.insert(0, str(ROOT / "engine" / "tests"))
+        from tests.tito.test_scorecard import bars, chain, trades, NOW, SPOT
+        from wbj.tito.scorecard import run_scorecard
+
+        r = run_scorecard("DEMO", trades(), chain(), bars(), now=NOW, spot=SPOT)
+        sub = V._tito_json(r)["subagents"]
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        # La ventana arranca en el primer helper, no en `vcSubagentesHTML`:
+        # las tablas de etiquetas (`VC_EXEC_ORDER`, `VC_UNU_PARAMS`) viven fuera
+        # de la función y son las que pintan esas hojas. Recortar antes daba
+        # 13 huérfanas falsas.
+        render = _sin_comentarios(
+            html[html.index("function _vcCls(s) {"):
+                 html.index("function vcMemoryHTML(d) {")])
+
+        huerfanas = []
+        for ruta in sorted(set(self._hojas(sub))):
+            if ruta in self._SUB_NO_SE_PINTAN:
+                continue
+            hoja = ruta.rsplit(".", 1)[-1]
+            # Se busca el acceso real (`.avg_pct`, `['avg_pct']`) en el
+            # renderizador, o la clave suelta si va por tabla de constantes.
+            if not re.search(rf"\.{hoja}\b|'{hoja}'|\"{hoja}\"", render):
+                huerfanas.append(ruta)
+        assert not huerfanas, (
+            f"el motor sirve estas hojas del detalle y el panel no las pinta: "
+            f"{huerfanas}. O se cablean, o se declaran en `_SUB_NO_SE_PINTAN`.")
+
+    def test_el_registro_de_hojas_no_pintadas_no_miente(self):
+        import vertex_api as V
+        sys.path.insert(0, str(ROOT / "engine" / "tests"))
+        from tests.tito.test_scorecard import bars, chain, trades, NOW, SPOT
+        from wbj.tito.scorecard import run_scorecard
+
+        r = run_scorecard("DEMO", trades(), chain(), bars(), now=NOW, spot=SPOT)
+        reales = set(self._hojas(V._tito_json(r)["subagents"]))
+        sobran = sorted(set(self._SUB_NO_SE_PINTAN) - reales)
+        assert not sobran, f"declaradas como no pintadas pero ya no se sirven: {sobran}"
+
+    def test_los_seis_subagentes_tienen_tarjeta_de_detalle(self):
+        """Las seis, con el veredicto literal de sus componentes."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        render = _sin_comentarios(
+            html[html.index("function _vcCls(s) {"):
+                 html.index("function vcMemoryHTML(d) {")])
+        for clave in ("aggression", "conviction", "unusuality", "structure",
+                      "iv_context", "validation"):
+            assert f"S.{clave}" in render, f"falta la tarjeta de {clave}"
+        # Veredictos suyos, con sus cortes exactos.
+        for v in ("Compra agresiva (al ask)", "Presión al bid", "Mixto",
+                  "Convicción muy alta", "Convicción alta", "Convicción media",
+                  "Convicción baja", "Flujo muy anormal", "Flujo anormal",
+                  "Algo fuera de lo común", "Flujo normal",
+                  "Posicionamiento muy claro", "Posicionamiento claro",
+                  "Posicionamiento moderado", "Posicionamiento difuso"):
+            assert v in render, f"falta el veredicto {v!r} de su tarjeta"
+        # Y sus tres tablas de etiquetas, literales de su repo.
+        for etiqueta in ("Sobre el ask", "Bajo el bid", "En el ask", "En el bid",
+                         "Cerca del borde", "En el medio", "Sin claridad"):
+            assert etiqueta in html, f"falta {etiqueta!r} de su EXECUTION_LABEL"
+        for etiqueta in ("Acción dormida", "Volatilidad comprimida",
+                         "Volatilidad estirada", "Prima inflada",
+                         "Volatilidad normal", "Sin contexto"):
+            assert etiqueta in html, f"falta {etiqueta!r} de su REGIME_LABEL"
+
+    def test_las_tablas_de_filas_escapan_lo_que_viene_del_tape(self):
+        """`strike` y `size` llegan CRUDOS de MarketSnack, no los calcula el motor.
+
+        El port es literal: no valida tipos, así que un `strike` que el feed
+        mande como texto viaja intacto hasta el `innerHTML` del panel. Los
+        puntajes (0-10) y los contadores sí los produce el motor y son enteros
+        por construcción; estos dos no.
+        """
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        for bloque, campos in (
+            ("function vcSubagentesHTML(d) {", ("r.strike", "r.size")),
+            ("const ua = d.unusual || [];", ("u.strike", "u.size")),
+        ):
+            i = html.index(bloque)
+            trozo = html[i:i + 4000]
+            for campo in campos:
+                crudo = re.findall(rf"\$\{{[^}}]*\b{re.escape(campo)}\b[^}}]*\}}", trozo)
+                sin_escapar = [c for c in crudo if "_vcEsc" not in c and "Math." not in c]
+                assert not sin_escapar, (
+                    f"{campo} llega del tape y se interpola sin escapar: {sin_escapar}")
+
+    def test_el_detalle_va_colapsado_como_el_suyo(self):
+        """Es material de auditoría, no de primer vistazo: `<details>`, no
+        seis tarjetas más empujando los targets fuera de pantalla."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        render = html[html.index("function vcSubagentesHTML(d) {"):
+                      html.index("function vcMemoryHTML(d) {")]
+        assert "<details" in render and "Detalle de sub-agentes" in render
+
     def test_el_registro_de_no_pintados_no_miente(self):
         sobran = sorted(set(self._NO_SE_PINTAN) - self._payload_keys())
         assert not sobran, f"declarados como no pintados pero ya no se sirven: {sobran}"

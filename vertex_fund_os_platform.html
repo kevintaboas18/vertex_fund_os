@@ -132,6 +132,16 @@
         .tf-pill { padding: 4px 12px; font-size: 11px; font-weight: 700; border-radius: 20px; cursor: pointer; border: 1px solid #1F2532; background: transparent; color: #6b7280; transition: all 0.2s; }
         /* Regla visual de Victor: cita al pie de cada gráfica (unidades · fuente · timestamp). */
         .chart-cite { font-size: 9px; color: #4b5563; margin-top: 6px; line-height: 1.4; }
+        /* Flecha del `<details>` de "Detalle de sub-agentes". Va en CSS propio
+           y no con la variante `group-open:` de Tailwind: el CDN sirve la
+           versión que sirva, y si esa variante no resolviera se verían las DOS
+           flechas a la vez. Aquí no depende de nadie. */
+        .vc-det > summary { list-style: none; }
+        .vc-det > summary::-webkit-details-marker { display: none; }
+        .vc-det > summary .vc-cerrado { display: inline; }
+        .vc-det > summary .vc-abierto { display: none; }
+        .vc-det[open] > summary .vc-cerrado { display: none; }
+        .vc-det[open] > summary .vc-abierto { display: inline; }
         /* ══ Gráfica de Victor (precio y targets) — CSS portado de engine/scripts/webapp.py ══ */
         .c-chart { background:#0e1113; color:#e8eaed; border-radius:14px; padding:16px; border:1px solid #1F2532; }
         .c-chart h2 { color:#fff; font-size:16px; font-weight:700; }
@@ -3252,6 +3262,266 @@ function vcClustersHTML(d) {
 
 /** Memoria del agente — su `MemoriaCard`. Es lo que enciende el IV Rank real,
  *  el sub-agente 6 y la auto-calibración; sin verlo no se sabe si están vivos. */
+/* ══════════════════════════════════════════════════════════════════════════
+   DETALLE DE LOS 6 SUB-AGENTES — su `<details>` "Detalle de sub-agentes".
+
+   Port de sus seis tarjetas: AggressionScoreCard, ConvictionCard,
+   UnusualityCard, StructureCard, IvContextCard y ValidationCard.
+
+   Por qué existe: el Scorecard de arriba da el titular (0-10 por categoría) y
+   ESTO da la evidencia. La regla innegociable del proyecto —"sin evidencia no
+   hay número"— hacía que el panel enseñara justo lo prohibido: seis cifras sin
+   nada detrás. El motor calculaba el desglose entero desde el primer día; solo
+   faltaba servirlo y pintarlo.
+
+   Va colapsado, como él lo tiene: es material de auditoría, no de primer
+   vistazo. Los veredictos y sus umbrales son literales de sus componentes.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** El color por puntaje de sus tarjetas: `score >= 7 ? "up" : score <= 3 ? "down" : "neutral"`. */
+function _vcCls(s) {
+    return s == null ? 'text-gray-500' : (s >= 7 ? 'text-emerald-400' : (s <= 3 ? 'text-red-400' : 'text-amber-400'));
+}
+
+/** Una métrica de su `cv-metric`: etiqueta, valor, puntos /10 y pista. */
+function _vcMetric(label, value, points, hint) {
+    return `<div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-2">
+        <div class="text-[8px] text-gray-500 uppercase font-bold tracking-wider">${_vcEsc(label)}</div>
+        <div class="text-sm font-black text-white leading-tight">${value}</div>
+        <div class="text-[9px] text-blue-300 font-bold">${points == null ? '—' : points}<span class="text-gray-600 font-normal">/10</span></div>
+        ${hint ? `<div class="text-[8px] text-gray-600 leading-tight mt-0.5">${_vcEsc(hint)}</div>` : ''}</div>`;
+}
+
+/** La cabecera de su `score-main`: categoría, 0-10, pregunta y veredicto. */
+function _vcSubHead(cat, score, pregunta, veredicto) {
+    return `<div class="flex items-baseline justify-between gap-2 mb-1.5">
+        <div><span class="text-[10px] font-extrabold text-gray-200 uppercase tracking-wider">${_vcEsc(cat)}</span>
+          <span class="text-[8px] text-gray-600 ml-1.5">${_vcEsc(pregunta)}</span></div>
+        <div class="text-right whitespace-nowrap">
+          <span class="text-base font-black ${_vcCls(score)}">${score == null ? '—' : score}<span class="text-[9px] text-gray-600 font-normal">/10</span></span>
+          <span class="text-[9px] ${_vcCls(score)} ml-1.5">${_vcEsc(veredicto)}</span></div></div>`;
+}
+
+function _vcSubCard(cuerpo) {
+    return `<section class="bg-panel border border-panel rounded-xl p-3">${cuerpo}</section>`;
+}
+
+//: Etiquetas de nivel de ejecución — su `EXECUTION_LABEL` de flow.ts, literal.
+const VC_EXEC_LABEL = {
+    above_ask: 'Sobre el ask', below_bid: 'Bajo el bid', at_ask: 'En el ask',
+    at_bid: 'En el bid', near: 'Cerca del borde', mid: 'En el medio',
+    unclear: 'Sin claridad',
+};
+//: Orden de más a menos agresivo — su `LEVEL_ORDER` de ConvictionCard.
+const VC_EXEC_ORDER = ['above_ask', 'below_bid', 'at_ask', 'at_bid', 'near', 'mid', 'unclear'];
+//: Los 6 parámetros de inusualidad con su pista — su `PARAMS` de UnusualityCard.
+const VC_UNU_PARAMS = [
+    ['size', 'Tamaño', '$ de la orden'], ['delta', 'Delta', 'qué tan direccional'],
+    ['theta', 'Theta', 'decaimiento diario'], ['gamma', 'Gamma', 'zona institucional'],
+    ['leg', 'Condición', 'single vs multileg'], ['expiry', 'Vencimiento', 'plazo del contrato'],
+];
+//: Régimen de IV en palabras — su `REGIME_LABEL` de IvContextCard.
+const VC_IV_REGIME = {
+    dormida: 'Acción dormida', compresion: 'Volatilidad comprimida',
+    expansion: 'Volatilidad estirada', inflada: 'Prima inflada',
+    normal: 'Volatilidad normal', desconocido: 'Sin contexto',
+};
+
+function vcSubagentesHTML(d) {
+    const S = d.subagents;
+    if (!S) return '';
+    const P = []; // las seis tarjetas, en el orden de su `<details>`
+
+    // ── 1 · Agresividad ────────────────────────────────────────────────────
+    const a = S.aggression;
+    if (a) {
+        const denom = a.premium_ask + a.premium_bid;
+        // Su etiqueta, con sus mismos cortes 0.66 / 0.34.
+        const lbl = denom === 0 ? 'Sin flujo agresivo'
+            : a.ratio >= 0.66 ? 'Compra agresiva (al ask)'
+            : a.ratio <= 0.34 ? 'Presión al bid' : 'Mixto';
+        const pctAsk = denom > 0 ? (100 * a.premium_ask) / denom : 0;
+        P.push(_vcSubCard(
+            _vcSubHead('Agresividad', a.score, '¿Compran al ask con fuerza?', lbl) +
+            `<div class="h-1.5 rounded-full overflow-hidden bg-red-500/30 mb-1.5">
+               <div class="h-full bg-emerald-500" style="width:${pctAsk.toFixed(1)}%"></div></div>
+             <div class="flex flex-wrap gap-x-3 gap-y-0.5 text-[9px]">
+               <span class="text-emerald-400">● Ask ${fmtAbbr(a.premium_ask)}</span>
+               <span class="text-red-400">● Bid ${fmtAbbr(a.premium_bid)}</span>
+               <span class="text-gray-600">Mid ${fmtAbbr(a.premium_mid)} (descartado)</span>
+               <span class="text-gray-600">· ${a.n} notables</span></div>`));
+    }
+
+    // ── 2 · Convicción ─────────────────────────────────────────────────────
+    const c = S.conviction;
+    if (c) {
+        const v = c.n === 0 ? 'Sin datos' : c.score >= 8 ? 'Convicción muy alta'
+            : c.score >= 6 ? 'Convicción alta' : c.score >= 4 ? 'Convicción media'
+            : 'Convicción baja';
+        const cnt = (c.execution && c.execution.counts) || {};
+        const tot = VC_EXEC_ORDER.reduce((s, l) => s + (cnt[l] || 0), 0);
+        const niveles = VC_EXEC_ORDER.filter(l => cnt[l] > 0).map(l =>
+            `<span class="text-[8px] text-gray-500">${_vcEsc(VC_EXEC_LABEL[l])} <b class="text-gray-300">${cnt[l]}</b></span>`).join(' · ');
+        P.push(_vcSubCard(
+            _vcSubHead('Convicción', c.score, '¿Cuánto dinero real entró?', v) +
+            `<div class="grid grid-cols-3 gap-1.5">
+               ${_vcMetric('Spread medio', c.spread.avg_pct == null ? '—' : c.spread.avg_pct.toFixed(2) + '%',
+                           c.spread.points, c.spread.wide_count + ' con spread ancho')}
+               ${_vcMetric('Dominancia', Number(c.dominance.dominant_pct).toFixed(0) + '%',
+                           c.dominance.points, c.dominance.side === 'ask' ? 'lado compra' : 'lado venta')}
+               ${_vcMetric('Ejecución', tot + ' trades', c.execution.points, 'calidad del fill')}
+             </div>${niveles ? `<div class="mt-1.5 flex flex-wrap gap-x-2">${niveles}</div>` : ''}`));
+    }
+
+    // ── 3 · Inusualidad ────────────────────────────────────────────────────
+    const u = S.unusuality;
+    if (u) {
+        const v = u.n === 0 ? 'Sin datos' : u.score >= 8 ? 'Flujo muy anormal'
+            : u.score >= 6 ? 'Flujo anormal' : u.score >= 4 ? 'Algo fuera de lo común'
+            : 'Flujo normal';
+        const p = u.avg_by_param || {};
+        P.push(_vcSubCard(
+            _vcSubHead('Inusualidad', u.score, '¿Es flujo anormal?', v) +
+            `<div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+               ${VC_UNU_PARAMS.map(([k, lbl, hint]) =>
+                   _vcMetric(lbl, p[k] == null ? '—' : Number(p[k]).toFixed(1), null, hint)).join('')}
+             </div>
+             <p class="text-[9px] text-gray-600 mt-1.5">${u.unusual_count} de ${u.n} trades superan el umbral de inusualidad (≥7/30). Promedio por parámetro sobre la ventana de convicción.</p>`));
+    }
+
+    // ── 4 · Estructura ─────────────────────────────────────────────────────
+    const st = S.structure;
+    if (st) {
+        const v = st.notional.strike_count === 0 ? 'Sin datos'
+            : st.score >= 8 ? 'Posicionamiento muy claro' : st.score >= 6 ? 'Posicionamiento claro'
+            : st.score >= 4 ? 'Posicionamiento moderado' : 'Posicionamiento difuso';
+        const vo = (d.structure || {}).vol_oi || {};
+        // El reparto call/put por vencimiento va en la tabla, no solo el total:
+        // dos vencimientos con el mismo nocional pueden ser tesis opuestas.
+        const exp = (st.expirations || []).map(e =>
+            `<tr class="border-b border-gray-800/50"><td class="py-1 pr-2 text-gray-300">${_vcEsc(e.expiration)}</td>
+             <td class="py-1 pr-2 text-right text-gray-200">${fmtAbbr(e.notional)}</td>
+             <td class="py-1 pr-2 text-right text-emerald-400">${fmtAbbr(e.call_notional)}</td>
+             <td class="py-1 pr-2 text-right text-red-400">${fmtAbbr(e.put_notional)}</td>
+             <td class="py-1 pr-2 text-right text-gray-500">${Number(e.pct_of_total).toFixed(1)}%</td>
+             <td class="py-1 text-right text-gray-500">${e.contracts}</td></tr>`).join('');
+        P.push(_vcSubCard(
+            _vcSubHead('Estructura', st.score, '¿Dónde se acumula el posicionamiento?', v) +
+            `<div class="grid grid-cols-3 gap-1.5">
+               ${_vcMetric('Nocional promedio', fmtAbbr(st.notional.avg_per_strike), st.notional.points,
+                           'por strike · ' + st.notional.strike_count + ' strikes')}
+               ${_vcMetric('Strikes con dominio', st.strikes.dominant_count + '/' + st.strikes.considered_count,
+                           st.strikes.points, 'domina calls o puts (≥60%)')}
+               ${_vcMetric('Volumen &gt; OI', vo.pct == null ? '—' : Number(vo.pct).toFixed(0) + '%',
+                           st.vol_oi_points, (vo.exceeded || 0) + ' de ' + (vo.considered || 0) + ' contratos')}
+             </div>
+             ${exp ? `<div class="overflow-x-auto"><table class="w-full text-[10px] mt-1.5 min-w-[380px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
+                <th class="text-left pb-0.5">Vencimiento</th><th class="text-right pb-0.5 pr-2">Nocional</th>
+                <th class="text-right pb-0.5 pr-2">Calls</th><th class="text-right pb-0.5 pr-2">Puts</th>
+                <th class="text-right pb-0.5 pr-2">%</th><th class="text-right pb-0.5">Contratos</th></tr></thead>
+                <tbody>${exp}</tbody></table></div>` : ''}`));
+    }
+
+    // ── 5 · Contexto IV ────────────────────────────────────────────────────
+    const iv = S.iv_context;
+    if (iv) {
+        const v = VC_IV_REGIME[iv.regime] || iv.regime || '—';
+        // De dónde sale el IV Rank. No es decorativo: un rank de proxy no vale
+        // lo mismo que uno del historial propio, y su tarjeta lo dice siempre.
+        const fuente = iv.rank.source === 'iv-history'
+            ? `historial propio de IV — ${iv.rank.days} días acumulados`
+            : iv.rank.source === 'realized-proxy'
+              ? `proxy de volatilidad realizada (${iv.rank.days} días del subyacente)`
+              : 'sin fuente de rank';
+        // Su `IvContextCard` da IV media POR VENCIMIENTO con su muestra: cuántos
+        // trades y cuánto premium la sostienen. Un 80% de IV sobre un trade no
+        // es lo mismo que sobre cuarenta, y sin la muestra no se distingue.
+        const porVto = (iv.by_expiration || []).map(e =>
+            `<span class="text-[8px] text-gray-500">${_vcEsc(e.expiration)}${e.dte != null ? ` (${Math.round(e.dte)}d)` : ''}: <b class="text-gray-300">${Number(e.avg_iv).toFixed(1)}%</b> <span class="text-gray-600">· ${e.trades} trades · ${fmtAbbr(e.premium)}</span></span>`).join(' · ');
+        P.push(_vcSubCard(
+            _vcSubHead('Contexto IV', iv.score, '¿IV limpia o inflada?', v) +
+            `<div class="grid grid-cols-3 gap-1.5">
+               ${_vcMetric('IV actual', iv.iv.current == null ? '—' : Number(iv.iv.current).toFixed(1) + '%',
+                           iv.iv.points, iv.iv.band)}
+               ${_vcMetric('IV Rank', iv.rank.value == null ? '—' : Number(iv.rank.value).toFixed(0) + '%',
+                           iv.rank.points,
+                           iv.rank.band + (iv.rank.low != null && iv.rank.high != null
+                             ? ` · rango ${Number(iv.rank.low).toFixed(0)}-${Number(iv.rank.high).toFixed(0)}%` : ''))}
+               ${_vcMetric('Skew del frente', iv.front_skew == null ? '—'
+                           : (iv.front_skew >= 0 ? '+' : '') + Number(iv.front_skew).toFixed(1) + ' pts',
+                           null, iv.front_skew != null && iv.front_skew > 10 ? 'el frente paga miedo' : 'sin prima de evento')}
+             </div>
+             ${iv.note ? `<p class="text-[9px] text-gray-400 mt-1.5 leading-snug">${_vcEsc(iv.note)}</p>` : ''}
+             <p class="text-[8px] text-gray-600 mt-1">Rank medido con ${_vcEsc(fuente)}.</p>
+             ${porVto ? `<div class="mt-1 flex flex-wrap gap-x-2">${porVto}</div>` : ''}`));
+    }
+
+    // ── 6 · Confirmación de precio ─────────────────────────────────────────
+    const val = S.validation;
+    if (val) {
+        const dir = (val.by_direction || []).filter(x => x.total > 0).map(x =>
+            `<span class="text-[8px] text-gray-500">${_vcEsc(x.direction)}: <b class="text-gray-300">${x.hit_rate == null ? '—' : Number(x.hit_rate).toFixed(0) + '%'}</b> (${x.validated}/${x.total})</span>`).join(' · ');
+        P.push(_vcSubCard(
+            _vcSubHead('Confirmación de Precio', val.score, '¿El precio valida o absorbe?', val.verdict || '—') +
+            `<div class="grid grid-cols-3 gap-1.5">
+               ${_vcMetric('Tasa de validación', val.hit_rate.value == null ? '—' : Number(val.hit_rate.value).toFixed(0) + '%',
+                           val.hit_rate.points,
+                           `${val.hit_rate.validated} de ${val.hit_rate.resolved} flows juzgados`
+                           + (val.weighted_hit_rate != null ? ` · ${Number(val.weighted_hit_rate).toFixed(0)}% ponderado por dinero` : ''))}
+               ${_vcMetric('Velocidad', val.speed.median_sessions == null ? '—' : val.speed.median_sessions + ' ses',
+                           val.speed.points, val.speed.band)}
+               ${_vcMetric('Recorrido medio', (val.avg_mfe == null ? '—' : '+' + Number(val.avg_mfe).toFixed(1) + '%')
+                           + ' / ' + (val.avg_mae == null ? '—' : '−' + Number(val.avg_mae).toFixed(1) + '%'),
+                           null, 'a favor / en contra (MFE/MAE)')}
+             </div>
+             ${dir ? `<div class="mt-1.5 flex flex-wrap gap-x-2">${dir}</div>` : ''}
+             <p class="text-[9px] text-gray-600 mt-1.5 leading-snug">Un flow se da por validado cuando el precio recorre <b class="text-gray-400">${val.threshold_pct == null ? '—' : Number(val.threshold_pct).toFixed(1) + '%'}</b> a favor antes de irse en contra. El umbral se adapta a la volatilidad del subyacente.</p>
+             ${val.coverage.below_target ? `<p class="text-[9px] text-amber-400 mt-1 leading-snug">⚠ Historial preliminar: ${val.coverage.days} días acumulados de los 60 que pide el sub-agente 6 · ${val.coverage.flows} flows guardados${val.coverage.pending > 0 ? `, ${val.coverage.pending} aún sin juzgar` : ''}.</p>` : ''}`));
+    }
+
+    // ── Transacciones revisadas — su `ConvictionTransactions` ──────────────
+    // Es el universo sobre el que puntúan Convicción, Inusualidad y Contexto
+    // IV. Sin la tabla, esas tres categorías eran un número sin nada detrás.
+    const cr = d.conviction_rows || [];
+    if (cr.length) {
+        const EST = { expirado: 'Expirado', expira_hoy: 'Expira hoy', vigente: 'Vigente', desconocido: '—' };
+        const filas = cr.map(r => {
+            const t = r.type === 'call' ? 'C' : (r.type === 'put' ? 'P' : '?');
+            const lado = r.aggression === 'ask' ? '<span class="text-emerald-400">▲ Compra</span>'
+                : r.aggression === 'bid' ? '<span class="text-red-400">▼ Venta</span>'
+                : '<span class="text-gray-500">Mid</span>';
+            return `<tr class="border-b border-gray-800/50 ${r.expiry_status === 'expirado' ? 'opacity-50' : ''}">
+                <td class="py-1 pr-2 text-gray-500 text-[9px]">${_vcEsc(String(r.timestamp || '').slice(5, 16).replace('T', ' '))}</td>
+                <td class="py-1 pr-2 text-gray-200 font-bold">${_vcEsc(r.underlying || '')} ${r.strike != null ? _vcEsc(r.strike) : '?'}${t}${r.repeated ? ' <span class="text-amber-400" title="contrato repetido">↻</span>' : ''}${r.multileg ? ' <span class="text-gray-600" title="multileg">⛓</span>' : ''}</td>
+                <td class="py-1 pr-2 text-gray-400">${_vcEsc(r.expiration || '—')}${r.dte != null ? ` <span class="text-gray-600">(${r.dte >= 0 ? Math.round(r.dte) + 'd' : 'hace ' + Math.abs(Math.round(r.dte)) + 'd'})</span>` : ''}</td>
+                <td class="py-1 pr-2 text-gray-500 text-[9px]">${_vcEsc(EST[r.expiry_status] || '—')}</td>
+                <td class="py-1 pr-2">${lado}</td>
+                <td class="py-1 pr-2 text-right text-gray-400">${_vcEsc(r.size)}</td>
+                <td class="py-1 text-right text-gray-200 font-bold">${fmtAbbr(r.premium)}</td></tr>`;
+        }).join('');
+        P.push(_vcSubCard(
+            `<p class="text-[10px] font-extrabold text-gray-200 uppercase tracking-wider mb-0.5">📒 Transacciones revisadas
+               <span class="text-[8px] text-gray-600 normal-case font-normal tracking-normal">— últimos ${_vcEsc(d.conviction_window || '')} · ${d.conviction_trades} trades ≥ $1M${cr.length < d.conviction_trades ? `, mostrando ${cr.length}` : ''}</span></p>
+             <div class="overflow-x-auto"><table class="w-full text-[10px] min-w-[520px]"><thead>
+               <tr class="text-gray-600 text-[8px] uppercase border-b border-gray-800">
+                 <th class="text-left pb-0.5">Fecha · Hora</th><th class="text-left pb-0.5">Contrato</th>
+                 <th class="text-left pb-0.5">Vencimiento</th><th class="text-left pb-0.5">Estado</th>
+                 <th class="text-left pb-0.5">Lado</th><th class="text-right pb-0.5">Contratos</th>
+                 <th class="text-right pb-0.5">Dinero</th></tr></thead>
+               <tbody>${filas}</tbody></table></div>`));
+    }
+
+    if (!P.length) return '';
+    return `<details class="vc-det mt-3">
+        <summary class="cursor-pointer text-[10px] font-extrabold text-blue-400 uppercase tracking-wider select-none">
+          <span class="vc-cerrado">▸</span><span class="vc-abierto">▾</span>
+          Detalle de sub-agentes
+          <span class="text-[9px] text-gray-600 normal-case font-normal tracking-normal">— la evidencia detrás de cada puntaje</span>
+        </summary>
+        <div class="mt-2 space-y-2">${P.join('')}</div>
+      </details>`;
+}
+
 function vcMemoryHTML(d) {
     const m = d.memory;
     if (!m) return '';
@@ -3316,6 +3586,7 @@ function renderVictorTargets(d) {
       ${p.caveat ? `<p class="text-[9px] text-amber-400 mt-1">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
       ${vcGexHTML(d)}
       ${vcScorecardHTML(d)}
+      ${vcSubagentesHTML(d)}
       ${vcLevelsHTML(d)}
       ${vcHeatmapHTML(d)}
       ${vcClustersHTML(d)}
@@ -3395,11 +3666,11 @@ function renderProjections(d) {
             <tbody>${ua.map(u => `<tr class="border-b border-gray-800/50">
                 <td class="py-2 pr-3"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${u.type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${String(u.type || '').toUpperCase()}</span>
                     <span class="text-[8px] text-gray-500">${_vcEsc(u.aggression || '')}</span></td>
-                <td class="py-2 pr-3 text-right text-gray-300">${u.strike != null ? '$' + u.strike : '—'}</td>
+                <td class="py-2 pr-3 text-right text-gray-300">${u.strike != null ? '$' + _vcEsc(u.strike) : '—'}</td>
                 <td class="py-2 pr-3 text-right text-gray-400">${u.expiration ? String(u.expiration).slice(5) : '—'}</td>
                 <td class="py-2 pr-3 text-right text-gray-500">${u.dte != null ? u.dte + 'd' : '—'}</td>
                 <td class="py-2 pr-3 text-right text-gray-200 font-bold">${fmtAbbr(u.premium)}</td>
-                <td class="py-2 text-right text-amber-400 font-bold" title="tamaño ${u.size} · delta ${u.delta} · theta ${u.theta} · gamma ${u.gamma} · pata ${u.leg} · vencimiento ${u.expiry}">${u.total}/30</td></tr>`).join('')}</tbody></table></div>
+                <td class="py-2 text-right text-amber-400 font-bold" title="tamaño ${_vcEsc(u.size)} · delta ${_vcEsc(u.delta)} · theta ${u.theta} · gamma ${u.gamma} · pata ${u.leg} · vencimiento ${u.expiry}">${u.total}/30</td></tr>`).join('')}</tbody></table></div>
             ${st.vol_oi && st.vol_oi.exceeded ? `<p class="text-[9px] text-gray-600 mt-1.5">Y en la cadena, ${st.vol_oi.exceeded} de ${st.vol_oi.considered} contratos negociaron más que su open interest (${st.vol_oi.pct}%): posiciones ABIERTAS hoy, no rotación.</p>` : ''}`
             : `<p class="text-xs text-gray-500 italic">Sin trades inusuales en la ventana de 30 días.</p>`;
     }
