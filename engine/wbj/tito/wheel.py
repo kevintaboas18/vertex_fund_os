@@ -362,6 +362,25 @@ class CandidatesInput:
     earnings: EarningsFlag
     #: IV de respaldo (volatilidad realizada) cuando la bisección no converge.
     fallback_iv: float
+    #: **DIVERGENCIA DECLARADA.** Deja pasar el contrato sin `bid` usando la
+    #: cascada de prima que él mismo escribió.
+    #:
+    #: Su `wheelCandidates` bloquea por `sin_bid` ANTES de llamar a
+    #: `pickPremium`, así que las ramas `ultimo` y `modelo` de esa cascada
+    #: —con sus recortes del 10% y 15%— son **inalcanzables** en su código. No
+    #: tiene sentido escribir dos recortes que nunca se aplican, y su propio
+    #: `compute.ts` explica por qué existen::
+    #:
+    #:     "La fórmula del agente pide BID, pero el plan actual de Massive NO
+    #:      devuelve quotes, así que cae a last_trade → day.close → day.vwap."
+    #:
+    #: Sin esto, con una fuente sin horquilla el screener sale SIEMPRE vacío.
+    #: Con esto no se pierde la salvaguarda: el `spread_pct` sigue siendo
+    #: `None`, y `_liquidity_part` ya sabe tratarlo —`None` → `inf` → banda
+    #: "insuficiente", **0 de 15 puntos**—. O sea que el propio score castiga
+    #: no saber la liquidez, que es exactamente lo que el bloqueo protegía.
+    #: `False` por defecto: su comportamiento literal es el que se prueba.
+    allow_missing_quote: bool = False
 
 
 def atm_iv(rows: Sequence, spot: float) -> float | None:
@@ -401,6 +420,12 @@ def wheel_candidates(inp: CandidatesInput) -> list[WheelCandidate]:
 
         spread_pct = spread_pct_of(q.bid, q.ask)
         block_reason = liquidity_block(q.bid, q.ask, q.open_interest)
+
+        # Sin horquilla, pero con un precio real de la cascada: se deja pasar y
+        # el score se encarga. Ver `allow_missing_quote`.
+        if (block_reason == "sin_bid" and inp.allow_missing_quote
+                and _pos(q.last_trade)):
+            block_reason = None
 
         if block_reason:
             # Bloqueado: sin prima y sin métricas. No se enseña un número que

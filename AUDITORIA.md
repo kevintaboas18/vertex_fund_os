@@ -3211,3 +3211,55 @@ necesitan: **Ticker e Ideas funcionan igual**.
 Una fila bloqueada no lleva **ningún** número —esa es su regla—, así que cien
 seguidas son cien líneas vacías. Ahora se enseñan 8 como muestra y el resto se
 resume arriba, con el conteo por motivo y el porqué de cada uno.
+
+## 41.11 La solución al «sin bid»: verificado qué tiene Víctor de verdad
+
+El diagnóstico de §41.10 decía que sin `last_quote` no hay Wheel. **Estaba
+incompleto**, y la respuesta estaba en su propio código.
+
+### Lo que dice su repo, en dos sitios que se contradicen
+
+La cabecera de `massive.ts` afirma que su plan **sí** devuelve `last_quote`.
+Pero su `compute.ts` —el archivo que de verdad lee la cadena— dice lo
+contrario, y es el que manda:
+
+> *"La fórmula del agente pide **BID**, pero el plan actual de Massive **NO
+> devuelve quotes**, así que cae a `last_trade` → `day.close` → `day.vwap`."*
+
+O sea: **su plan tampoco sirve horquilla**, y esa cascada de tres niveles
+existe exactamente por eso.
+
+### Dos hallazgos que salen de ahí
+
+**1 · Un hueco real del port.** `fetch_wheel_chain` leía **solo**
+`last_trade.price`. Su `contract_price` tiene tres niveles, y el segundo
+—`day.close`— es el que salva cualquier contrato que hoy no haya negociado:
+fuera de sesión, todos. Ahora la cadena de Wheel usa **su** función.
+
+**2 · Su `pickPremium` tiene ramas inalcanzables.** La cascada `bid → último →
+modelo` lleva recortes del **0% / 10% / 15%**… pero `wheelCandidates` bloquea
+por `sin_bid` **antes** de llamarla. Nadie escribe dos recortes que nunca se
+aplican: existen para el caso que su propio `compute.ts` describe.
+
+### La solución, y por qué no rompe su salvaguarda
+
+`allow_missing_quote` — **divergencia declarada, `False` por defecto**, así que
+lo que se coteja contra su repo sigue siendo su código literal. Con ella, un
+contrato sin `bid` pero **con precio real de la cascada** deja de bloquearse y
+la prima sale por su rama `ultimo`, con su recorte del 10%.
+
+Lo importante: **la salvaguarda no se pierde, se traslada al score.** El
+`spread_pct` sigue sin poder medirse, y su `_liquidity_part` ya sabe qué hacer
+con ese `None`: lo trata como `inf` → banda *"insuficiente"* → **0 de 15
+puntos**. El propio puntaje castiga no conocer la liquidez, que es justo lo que
+el bloqueo protegía. Medido: el mismo contrato pasa de **74/100** con horquilla
+a **50/100** sin ella.
+
+En pantalla se dice entero: cuántos símbolos se puntuaron sin horquilla, que la
+prima sale del último precio y no del bid, que la liquidez cobra 0/15 por eso,
+y **«verifica la prima en tu bróker antes de vender»**. La columna de prima
+lleva asterisco y color ámbar cuando su fuente no es el bid.
+
+**Reproducido de punta a punta** con una cadena sin `last_quote` y `day.close`
+poblado: **40 de 40 símbolos con candidatos**, prima de fuente `ultimo`,
+liquidez 0/15.
