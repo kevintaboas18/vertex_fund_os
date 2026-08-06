@@ -1,0 +1,431 @@
+"""El TAM es MUNDIAL y viene del organismo que mide el mercado.
+
+Tres intentos hicieron falta para llegar aquí, y los dos primeros enseñaron
+algo que este archivo tiene escrito en las reglas:
+
+1. **Buscar en Google y aceptar lo que salga.** Devolvía el *comunicado de
+   prensa* sobre el dato en vez del dato, porque IDC, Omdia y Gartner venden
+   sus informes. Se citaba la nota que resume un número que nadie puede abrir.
+2. **Descargar del Census vía FRED.** Oficial y tier 1, pero **sólo EE.UU.** —
+   y `market.py::sam()` estrecha el TAM por geografía, o sea que espera uno
+   mundial. Un denominador doméstico bajo un numerador global le daba a AAPL
+   un 1.900% de participación.
+3. **Sumar los ingresos de todas las cotizadas del sector.** Mundial y
+   automático, pero apila capas de la cadena: NVDA factura $216.000M que ya
+   incluyen lo que le pagó a TSMC, y TSMC vuelve a entrar con $119.000M.
+   Medido en semiconductores: $921.000M contra los ~$790.000M reales, un 17%
+   de aire, con un sesgo que cambia de industria en industria.
+
+Lo que sí funciona es preguntarle **a quien mide el mercado**, en este orden:
+
+- **Asociación de industria** (tier 2, confianza 85). WSTS publica las ventas
+  mundiales de semiconductores —$630.500M en 2024, $791.700M en 2025— gratis y
+  en su propia web. Es el ORIGEN del dato, no un resumen. Y mide UNA capa:
+  facturación de chips, sin fabricantes de equipos ni fundiciones encima. Cada
+  industria tiene la suya: IFPI para música grabada, IATA para aerolíneas,
+  ACEA para automoción, SIFMA para valores.
+- **Casa de análisis** (tier 3, confianza 70) sólo si no hay asociación.
+
+Máximo dos fuentes, por decisión de Victor: una cifra con dos orígenes
+verificables vale más que cinco a medio comprobar.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import threading
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+VIGENCIA_DIAS = 90
+
+# Asociaciones de industria: miden su propio mercado, publican mundial y gratis,
+# y por construcción cubren UNA capa de la cadena. Es el tier más alto que un
+# mercado privado puede tener — por encima sólo hay estadística de gobierno, que
+# no existe a escala mundial por industria.
+ASOCIACIONES = (
+    "wsts", "world semiconductor trade statistics", "semiconductor industry association",
+    "sia ", "semi ", "sematech", "ifpi", "riaa", "iata", "acea", "oica", "sifma",
+    "swift", "gsma", "ctia", "iea ", "wind europe", "solarpower europe",
+    "world steel", "worldsteel", "icca", "cropLife", "ifa ", "phrma", "efpia",
+    "world gold council", "world bank", "oecd", "unctad", "wto", "who ",
+    "world travel", "wttc", "unwto", "insurance information institute",
+    "american banking association", "aba ", "fdic", "bis ",
+)
+
+# Casas de análisis, sólo cuando no hay asociación que cubra el mercado.
+CASAS = (
+    "idc", "omdia", "gartner", "mercury research", "counterpoint", "trendforce",
+    "dell'oro", "delloro", "canalys", "yole", "forrester", "ibisworld",
+    "euromonitor", "nielsen", "circana", "npd", "s&p global", "wood mackenzie",
+    "rystad", "bloombergnef", "bnef", "iqvia", "evaluate pharma", "gfk",
+    "frost & sullivan", "abi research", "techinsights", "strategy analytics",
+    "mckinsey", "boston consulting", "bain & company", "deloitte", "pwc",
+    "ernst & young", "kpmg", "accenture", "oliver wyman",
+)
+
+# Lo que NO cuenta como fuente. Recopilan cifras de terceros sin firmar la
+# metodología: tier 5, no puntuable. Se nombran en el prompt para que el modelo
+# no gaste una búsqueda entera en una respuesta que va a ser rechazada.
+AGREGADORES = ("mordor", "grand view", "precedence", "marketsandmarkets",
+               "fortune business insights", "verified market", "allied market",
+               "zion market", "polaris market", "straits research",
+               "imarc", "technavio", "researchandmarkets", "statista")
+
+
+def _tier_de_la_fuente(fuente: str) -> int | None:
+    """El tier sale de QUIÉN firma. `None` cuando no se reconoce, y ésa es la
+    respuesta correcta: sin casa identificable la cifra es tier 5."""
+    f = (fuente or "").lower()
+    if any(a in f for a in AGREGADORES):
+        return None
+    if any(a in f for a in ASOCIACIONES):
+        return 2
+    if any(c in f for c in CASAS):
+        return 3
+    return None
+
+
+def _fuentes_aceptadas() -> str:
+    """La lista, en texto, para meterla EN el prompt.
+
+    Va desde las mismas constantes que valida `_tier_de_la_fuente`, así que
+    prompt y validación no pueden separarse con el tiempo. Se filtra por el
+    espacio final, no por longitud: filtrar por longitud dejaba fuera a IDC,
+    BCG y PwC por tener tres letras.
+    """
+    def _limpias(xs):
+        return [x.strip().upper() if len(x.strip()) <= 4 else x.strip().title()
+                for x in xs if not x.endswith(" ")]
+    return ("ASOCIACIONES DE INDUSTRIA (preferidas): "
+            + ", ".join(_limpias(ASOCIACIONES))
+            + "\n   CASAS DE ANALISIS (solo si no hay asociacion): "
+            + ", ".join(_limpias(CASAS)))
+
+
+def _numero(v: Any) -> float | None:
+    if isinstance(v, bool) or v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v) if v > 0 else None
+    try:
+        n = float(re.sub(r"[,\s$]", "", str(v)))
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
+def _json_del_texto(texto: str) -> dict | None:
+    """El JSON que hay dentro de la respuesta. Los modelos con búsqueda lo
+    envuelven en prosa y vallas de código por mucho que se les pida lo
+    contrario, así que se recorta al primer `{` y al último `}`."""
+    if not texto:
+        return None
+    t = re.sub(r"```(?:json)?", "", texto.strip()) if "```" in texto else texto.strip()
+    i, j = t.find("{"), t.rfind("}")
+    if i < 0 or j <= i:
+        return None
+    try:
+        d = json.loads(t[i:j + 1])
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return d if isinstance(d, dict) else None
+
+
+PROMPT = """Eres un analista de research de inversiones. Necesito el tamaño
+MUNDIAL del mercado en el que compite {ticker}, una empresa de la industria
+"{industria}".
+
+REGLA 1 — QUIÉN LO FIRMA. Máximo DOS fuentes, de esta lista y de ninguna otra:
+   {fuentes}
+   Prefiere SIEMPRE la asociación de industria: mide su propio mercado, publica
+   mundial y gratis, y es el origen del dato en vez de un resumen. Ejemplo: para
+   semiconductores es WSTS / la Semiconductor Industry Association, que publica
+   las ventas mundiales de chips. NO valen agregadores tipo {agregadores}:
+   recopilan cifras de terceros sin firmar metodología.
+
+REGLA 2 — MUNDIAL. La cifra tiene que ser del mercado MUNDIAL. Una cifra de
+   EE.UU., de Europa o de un país suelto NO sirve: los ingresos de la empresa
+   son mundiales y el cociente compararía ámbitos distintos.
+
+REGLA 3 — UNA SOLA CAPA. Un mercado se mide en una capa concreta de la cadena
+   de valor. "Ventas mundiales de semiconductores" es UNA capa: facturación de
+   chips. Si sumaras además equipos de fabricación y fundiciones estarías
+   contando el mismo dólar dos veces, porque el precio del chip ya incluye lo
+   que su fabricante pagó por la máquina. La capa que des tiene que ser aquella
+   en la que {ticker} FACTURA.
+
+REGLA 4 — NO INTERPOLES. Sólo años que la fuente publique.
+
+Responde SOLO con este JSON, sin texto alrededor:
+{{
+  "tam": <mercado mundial del ultimo ano publicado, en USD, entero>,
+  "tam_anio": <ano de esa cifra>,
+  "tam_history": [<mercado del ano anterior, en USD>, <el mismo numero de "tam">],
+  "tam_source": "<asociacion o casa + nombre del dato + ano>",
+  "cita": "<URL exacta>",
+  "cita_textual": "<la frase de la fuente con la cifra>",
+  "segunda_fuente": "<opcional: otra de la lista que confirme la cifra, o null>",
+  "ambito": "<tiene que decir mundial/worldwide/global>",
+  "capa": "<que mide exactamente, ej. 'facturacion mundial de chips'>",
+  "capa_coincide": "<por que es la capa en la que {ticker} factura>",
+  "segmento_patrones": [<trozos de nombre en minuscula para reconocer, en la
+     segmentacion de un 10-K, el segmento que compite en ESTE mercado. Ej.
+     ["data center"]. Deben encajar con UN solo segmento por empresa>]
+}}
+Si ninguna fuente de la lista publica este mercado, responde {{"tam": null}}."""
+
+
+def _preguntar_gemini(settings: Any, prompt: str) -> tuple[str, str | None]:
+    key = getattr(settings, "gemini_api_key", None)
+    if not key:
+        return "", "GEMINI_API_KEY no configurada"
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        return "", "el SDK google-genai no esta instalado"
+    try:
+        cliente = genai.Client(api_key=key)
+        r = cliente.models.generate_content(
+            model="gemini-2.5-flash", contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())]))
+        return (r.text or ""), None
+    except Exception as e:  # noqa: BLE001 — el motivo se nombra, no se traga
+        return "", f"gemini: {type(e).__name__} {str(e)[:120]}"
+
+
+def _preguntar_openai(settings: Any, prompt: str) -> tuple[str, str | None]:
+    key = getattr(settings, "openai_api_key", None)
+    if not key:
+        return "", "OPENAI_API_KEY no configurada"
+    try:
+        from openai import OpenAI
+    except ImportError:
+        return "", "el SDK openai no esta instalado"
+    try:
+        r = OpenAI(api_key=key).responses.create(
+            model="gpt-4.1", tools=[{"type": "web_search"}], input=prompt)
+        return (getattr(r, "output_text", "") or ""), None
+    except Exception as e:  # noqa: BLE001
+        return "", f"openai: {type(e).__name__} {str(e)[:120]}"
+
+
+def _investigar(settings: Any, industria: str, ticker: str) -> tuple[dict | None, list[str]]:
+    """El primer JSON legible, y TODOS los fallos por el camino.
+
+    Un TAM ausente por cuota agotada y uno ausente porque ninguna asociación
+    publica ese mercado son problemas distintos, y el reporte tiene que poder
+    distinguirlos.
+    """
+    prompt = PROMPT.format(industria=industria, ticker=ticker,
+                           fuentes=_fuentes_aceptadas(),
+                           agregadores=", ".join(a.title() for a in AGREGADORES[:6]))
+    fallos: list[str] = []
+    for preguntar in (_preguntar_gemini, _preguntar_openai):
+        texto, error = preguntar(settings, prompt)
+        if error:
+            fallos.append(error)
+            continue
+        datos = _json_del_texto(texto)
+        if datos is None:
+            fallos.append(f"{preguntar.__name__}: respuesta sin JSON legible")
+            continue
+        return datos, fallos
+    return None, fallos
+
+
+_MUNDIAL = ("mundial", "worldwide", "global", "world")
+
+
+def _validar(datos: dict, industria: str) -> tuple[dict | None, str]:
+    """La respuesta convertida en overlay, o el motivo por el que no.
+
+    Todo motivo se devuelve escrito y acaba en el archivo: un TAM ausente tiene
+    que poder explicarse igual que uno presente.
+    """
+    tam = _numero(datos.get("tam"))
+    if tam is None:
+        return None, "ninguna asociacion ni casa de la lista publica este mercado"
+
+    fuente = str(datos.get("tam_source") or "").strip()
+    if not fuente:
+        return None, "la cifra vino sin nombre de fuente"
+    tier = _tier_de_la_fuente(fuente)
+    if tier is None:
+        return None, (f"fuente no aceptada: {fuente!r} — o es un agregador sin "
+                      "metodologia firmada, o no esta en la lista")
+
+    ambito = str(datos.get("ambito") or "").strip()
+    if not any(m in ambito.lower() for m in _MUNDIAL):
+        return None, (f"el ambito declarado es {ambito!r}, no mundial — un "
+                      "denominador regional bajo ingresos globales le daba a "
+                      "AAPL un 1.900% de participacion")
+
+    cita = str(datos.get("cita") or "").strip()
+    if not cita.startswith("http"):
+        return None, f"la fuente {fuente!r} vino sin URL verificable"
+    # Gemini envuelve sus citas en un redirect de grounding que caduca y no dice
+    # de quién es la página. Sirve para llegar hoy, no para auditar en seis
+    # meses: con el nombre de la fuente y la frase literal, la cifra se vuelve a
+    # encontrar aunque el enlace muera.
+    redirect = "vertexaisearch" in cita or "/grounding-api-" in cita
+    textual = str(datos.get("cita_textual") or "").strip()
+    if redirect and not textual:
+        return None, (f"{fuente!r} sólo trajo un enlace de redirect que caduca, "
+                      "y sin frase textual no hay forma de reencontrar la cifra")
+
+    capa = str(datos.get("capa") or "").strip()
+    if not capa:
+        return None, ("no declaro QUE capa de la cadena mide — es lo que dejo a "
+                      "NVDA con un TAM de gasto de usuario final durante semanas")
+
+    fuera: dict[str, Any] = {
+        "tam": int(tam),
+        "tam_source": fuente,
+        "tam_source_tier": tier,
+        "_ambito": "mundial",
+        "_capa": capa,
+        "_capa_coincide": str(datos.get("capa_coincide") or "").strip(),
+        "_cita": cita,
+        "_cita_textual": textual,
+    }
+    segunda = str(datos.get("segunda_fuente") or "").strip()
+    if segunda and segunda.lower() not in ("null", "none", "-"):
+        fuera["_segunda_fuente"] = segunda
+    if redirect:
+        fuera["_cita_es_redirect"] = ("Enlace de grounding: caduca. La cifra se "
+                                      "reencuentra por fuente + frase textual.")
+
+    historia = [n for n in (_numero(v) for v in (datos.get("tam_history") or []))
+                if n is not None][-2:]
+    if len(historia) == 2:
+        # Medido: para JPM el modelo devolvió `[2024, 2025]` — los AÑOS donde
+        # van los dólares. Nada aritmético lo delataba, y la participación
+        # habría salido de dividir los ingresos entre 2024. Un mercado no
+        # encoge a la décima parte ni se multiplica por diez en un año.
+        plausible = all(tam / 10 <= n <= tam * 10 for n in historia)
+        # El último punto ES el TAM: `_share_automatico` divide el año anterior
+        # entre `historia[-2]` y el actual entre `tam`. Si no cerrara, las dos
+        # mitades de la serie hablarían de mercados distintos.
+        if plausible and abs(historia[-1] - tam) <= tam * 0.02:
+            fuera["tam_history"] = [int(n) for n in historia]
+        else:
+            fuera["_sin_historia"] = (
+                f"la serie {[int(n) for n in historia]} no acompana a un TAM "
+                f"de {int(tam)}")
+
+    patrones = [str(p).lower().strip() for p in (datos.get("segmento_patrones") or [])
+                if str(p).strip()]
+    if patrones:
+        fuera["_segmento_patrones"] = patrones
+    return fuera, ""
+
+
+def _escribir(path: Path, contenido: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        tmp.write_text(json.dumps(contenido, ensure_ascii=False, indent=2) + "\n",
+                       encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def _vigente(data: dict, hoy: date) -> bool:
+    try:
+        d = datetime.fromisoformat(str(data.get("_resuelto_en"))).date()
+    except (ValueError, TypeError):
+        return False
+    return (hoy - d) < timedelta(days=VIGENCIA_DIAS)
+
+
+def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
+                           hoy: date | None = None, **_ignorado: Any) -> str:
+    """Deja `Entradas/_industrias/<slug>.json` con el TAM mundial resuelto.
+
+    Devuelve una frase con lo que pasó. Nunca levanta: un TAM que no se pudo
+    resolver deja la dimensión NOT_SCORABLE, que es la respuesta honesta.
+
+    Tres cosas que no hace, las tres a propósito: no toca un archivo escrito
+    por un analista (sin `_generado_por` es suyo y gana siempre), no vuelve a
+    preguntar mientras la respuesta siga vigente, y no borra un TAM que
+    funcionaba porque la búsqueda de hoy falló.
+    """
+    from wbj.overlay.from_packet import _slug_industria
+
+    slug = _slug_industria(industria)
+    if not slug:
+        return "el packet no trae industria: no hay TAM que resolver"
+
+    hoy = hoy or datetime.now(timezone.utc).date()
+    raiz = Path(getattr(settings, "inputs_dir", None)
+                or Path(getattr(settings, "repo_root", ".")) / "Entradas")
+    path = Path(raiz) / "_industrias" / f"{slug}.json"
+
+    previo: dict = {}
+    if path.exists():
+        try:
+            previo = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            previo = {}
+        if not previo.get("_generado_por"):
+            return f"{slug}: TAM escrito por un analista, no se toca"
+        if _vigente(previo, hoy):
+            return f"{slug}: TAM vigente desde {previo.get('_resuelto_en')}"
+
+    datos, fallos = _investigar(settings, industria or slug, ticker)
+    if datos is None:
+        motivo = "; ".join(fallos) or "sin respuesta de ningun proveedor"
+        logger.warning("TAM de %s no resuelto: %s", slug, motivo)
+        return f"{slug}: no se pudo resolver ({motivo})"
+
+    overlay, error = _validar(datos, industria or slug)
+    if overlay is None:
+        logger.info("TAM de %s rechazado: %s", slug, error)
+        if previo.get("tam"):
+            return f"{slug}: rechazado ({error}), se conserva el anterior"
+        try:
+            _escribir(path, {
+                "_generado_por": "vertex/tam_mundial",
+                "_resuelto_en": hoy.isoformat(),
+                "_sin_tam": error,
+                "_visto_al_analizar": ticker,
+                "_que_hacer": ("Escribe el TAM a mano en este archivo y borra "
+                               "`_generado_por`: eso lo vuelve tuyo y el sistema "
+                               "deja de tocarlo. Necesita `tam`, `tam_source` y "
+                               "`tam_source_tier` (1-4)."),
+            })
+        except OSError:
+            pass
+        return f"{slug}: sin TAM ({error})"
+
+    contenido = {
+        "_generado_por": "vertex/tam_mundial",
+        "_resuelto_en": hoy.isoformat(),
+        "_como_se_obtuvo": (f"Resuelto al analizar {ticker}. Se revisa cada "
+                            f"{VIGENCIA_DIAS} dias."),
+        "_para_hacerlo_tuyo": ("Borra `_generado_por` y el sistema no vuelve a "
+                               "tocar este archivo."),
+        **overlay,
+    }
+    if previo.get("_aplica_a"):
+        contenido["_aplica_a"] = previo["_aplica_a"]
+    try:
+        _escribir(path, contenido)
+    except OSError as e:
+        return f"{slug}: no se pudo guardar ({type(e).__name__})"
+    return (f"{slug}: TAM mundial ${int(overlay['tam']):,} de "
+            f"{overlay['tam_source']} (tier {overlay['tam_source_tier']})")
