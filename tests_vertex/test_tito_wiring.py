@@ -1481,6 +1481,71 @@ class TestTimeAndSales:
         assert "trades" not in d
 
 
+class TestCabeEnCualquierPantalla:
+    """El tab tenía 16 tablas con ancho mínimo de hasta 720px. En un teléfono
+    de 390px eso es scroll horizontal en todas, y el usuario no sabe que hay
+    más a la derecha."""
+
+    @staticmethod
+    def _tab():
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        dom = html[html.index('<main id="projectionsView"'):]
+        return html, dom[:dom.index("</main>")]
+
+    def test_ninguna_tabla_con_ancho_fijo_se_queda_sin_modo_tarjeta(self):
+        """Bajo 640px el CSS convierte `table.vc-t` en tarjetas. Una tabla con
+        `min-w` y sin esa clase es scroll horizontal garantizado."""
+        html, _ = self._tab()
+        desde = html.index("const VC_TABS = [")
+        sueltas = [m.group(1)[:70] for m in re.finditer(r'<table class="([^"]*)"', html[desde:])
+                   if "min-w" in m.group(1) and "vc-t" not in m.group(1)]
+        assert not sueltas, f"tablas con ancho fijo y sin modo tarjeta: {sueltas}"
+
+    def test_el_css_de_tarjeta_existe_y_apaga_el_ancho_minimo(self):
+        html, _ = self._tab()
+        assert "@media (max-width: 639px)" in html
+        i = html.index("@media (max-width: 639px)")
+        bloque = html[i:i + 1400]
+        assert "table.vc-t { min-width: 0 !important" in bloque
+        assert "table.vc-t thead { display: none; }" in bloque
+        assert "content: attr(data-th)" in bloque
+
+    def test_las_etiquetas_se_leen_del_THEAD_no_se_escriben_a_mano(self):
+        """Son ~150 celdas en 8 tablas generadas por plantilla: escritas a mano
+        se desincronizan con el primer cambio de columna."""
+        html, _ = self._tab()
+        assert "function vcTablaResponsive(raiz) {" in html
+        i = html.index("function vcTablaResponsive(raiz) {")
+        cuerpo = _sin_comentarios(html[i:html.index("\n}", i)])
+        assert "thead th" in cuerpo and "setAttribute('data-th'" in cuerpo
+        # Y se llama tras CADA render que pinta tablas.
+        for caja in ("projIdeas", "projWheel", "projTape", "projTargets", "projUnusual"):
+            assert f"vcTablaResponsive('{caja}')" in html, f"falta en {caja}"
+        # Un `colspan` (fila de aviso) no lleva etiqueta.
+        assert "hasAttribute('colspan')" in cuerpo
+
+    def test_no_quedan_alturas_fijas_en_pixeles(self):
+        """440px de gráfica en un teléfono apaisado ocupan la pantalla entera."""
+        _, dom = self._tab()
+        assert not re.findall(r"height:\s*\d+px", dom)
+        assert "h-[280px] sm:h-[360px] lg:h-[440px]" in dom
+
+    def test_el_contenedor_crece_en_monitores_grandes(self):
+        """`max-w-6xl` son 1152px: en un 27 pulgadas el tab usaba un tercio de
+        la pantalla y las tablas seguían con scroll."""
+        html, _ = self._tab()
+        clase = re.search(r'<main id="projectionsView"[^>]*class="([^"]*)"', html).group(1)
+        assert "xl:max-w-[1400px]" in clase and "2xl:max-w-[1760px]" in clase
+        # …y el relleno se encoge en móvil.
+        assert "p-3 sm:p-4" in clase
+
+    def test_la_navegacion_no_se_parte_en_dos_filas_en_movil(self):
+        html, dom = self._tab()
+        nav = re.search(r'<div id="projNav" class="([^"]*)"', dom).group(1)
+        assert "overflow-x-auto" in nav and "sm:flex-wrap" in nav
+        assert "flex-shrink-0 whitespace-nowrap" in html   # los botones no se encogen
+
+
 class TestDiagnosticoDeFuentes:
     """`/api/tito-fuentes` — qué devuelve TU plan, campo por campo."""
 

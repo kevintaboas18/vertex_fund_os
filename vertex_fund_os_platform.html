@@ -131,6 +131,41 @@
         .tab-content.active { display: block; }
         .tf-pill { padding: 4px 12px; font-size: 11px; font-weight: 700; border-radius: 20px; cursor: pointer; border: 1px solid #1F2532; background: transparent; color: #6b7280; transition: all 0.2s; }
         /* Regla visual de Victor: cita al pie de cada gráfica (unidades · fuente · timestamp). */
+        /* ── Tablas que caben en un teléfono ──────────────────────────────
+           Bajo 640px una tabla de 9 columnas no cabe: o la encoges hasta que no
+           se lee, o la mandas a scroll horizontal y el usuario no sabe que hay
+           más a la derecha. La tercera vía es dejar de dibujarla como tabla:
+           cada fila pasa a ser una tarjeta con `etiqueta ......... valor`.
+
+           La etiqueta sale de `data-th`, que NO se escribe a mano en cada `<td>`
+           —serían 150 celdas y se desincronizarían al primer cambio— sino que la
+           estampa `vcTablaResponsive` leyendo el propio `<thead>`. */
+        @media (max-width: 639px) {
+            table.vc-t { min-width: 0 !important; display: block; }
+            table.vc-t thead { display: none; }
+            table.vc-t tbody, table.vc-t tr, table.vc-t td { display: block; width: 100%; }
+            table.vc-t tr {
+                border: 1px solid rgba(255,255,255,.07); border-radius: 10px;
+                padding: 8px 10px; margin-bottom: 8px; background: rgba(255,255,255,.02);
+            }
+            table.vc-t td {
+                display: flex; align-items: baseline; justify-content: space-between;
+                gap: 12px; padding: 3px 0 !important; text-align: right !important;
+                border: 0 !important;
+            }
+            table.vc-t td::before {
+                content: attr(data-th); flex: 0 0 auto; text-align: left;
+                font-size: 9px; text-transform: uppercase; letter-spacing: .04em;
+                color: #5c6a85; font-weight: 700;
+            }
+            /* Una celda sin etiqueta (la primera, el identificador) manda sola. */
+            table.vc-t td[data-th=""]::before { content: none; }
+            table.vc-t td[data-th=""] { justify-content: flex-start; text-align: left !important; }
+            /* El contenedor deja de necesitar scroll: ya no hay nada que desbordar. */
+            .vc-scroll { overflow-x: visible !important; }
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .chart-cite { font-size: 9px; color: #4b5563; margin-top: 6px; line-height: 1.4; }
         /* Flecha del `<details>` de "Detalle de sub-agentes". Va en CSS propio
            y no con la variante `group-open:` de Tailwind: el CDN sirve la
@@ -2610,7 +2645,7 @@ function vcPintaNav() {
     nav.innerHTML = VC_TABS.map(([id, icono, texto, ayuda]) => {
         const on = vcTabActiva === id;
         return `<button onclick="vcAbreTab('${id}')" title="${_vcEsc(ayuda)}"
-            class="text-[11px] font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
+            class="text-[11px] font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 flex-shrink-0 whitespace-nowrap ${
             on ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}">
             <span>${icono}</span>${texto}</button>`;
     }).join('');
@@ -2632,6 +2667,35 @@ function vcAbreTab(id) {
     if (id === 'wheel') { vcTabCargada.wheel = true; loadProjWheel(); }
     if (id === 'tape')  { const t = (document.getElementById('projTicker') || {}).value;
                           if (t) { vcTabCargada.tape = true; loadProjTape(); } }
+}
+
+/** Hace que las tablas del tab quepan en un teléfono.
+ *
+ *  Bajo 640px el CSS las convierte en tarjetas `etiqueta ..... valor`, y la
+ *  etiqueta sale de `data-th`. Esto la estampa leyendo el `<thead>` de cada
+ *  tabla, en vez de escribirla a mano en cada celda: son ~150 celdas repartidas
+ *  en 8 tablas generadas por plantilla, y a mano se desincronizarían con el
+ *  primer cambio de columna. Leyéndola del encabezado, no pueden.
+ *
+ *  La primera columna se deja SIN etiqueta a propósito: es el identificador de
+ *  la fila (el ticker, la hora, el nivel) y manda sola, como el título de la
+ *  tarjeta.
+ */
+function vcTablaResponsive(raiz) {
+    const cont = typeof raiz === 'string' ? document.getElementById(raiz) : raiz;
+    if (!cont) return;
+    cont.querySelectorAll('table.vc-t').forEach(t => {
+        const ths = [...t.querySelectorAll('thead th')].map(th => (th.textContent || '').trim());
+        if (!ths.length) return;
+        t.querySelectorAll('tbody tr').forEach(tr => {
+            [...tr.children].forEach((td, i) => {
+                // `colspan` = fila de aviso (un bloqueado, un "sin datos"): no
+                // lleva etiqueta, ocupa el ancho entero y se lee tal cual.
+                if (td.hasAttribute('colspan')) { td.setAttribute('data-th', ''); return; }
+                td.setAttribute('data-th', i === 0 ? '' : (ths[i] || ''));
+            });
+        });
+    });
 }
 
 /* ── DIAGNÓSTICO DE FUENTES ────────────────────────────────────────────
@@ -2690,7 +2754,7 @@ async function loadProjFuentes() {
           <span class="text-[10px] text-gray-500">Massive ${d.credenciales.massive ? '✓' : '✗'} &middot; MarketSnack ${d.credenciales.marketsnack ? '✓' : '✗'}</span>
         </div>
         <p class="text-[10px] text-gray-600 italic mb-3">Qu&eacute; devuelve <b>tu</b> plan, campo por campo. Cada campo dice qu&eacute; se rompe si falta.</p>
-        <div class="grid grid-cols-2 gap-2 mb-3">${veredicto}</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 mb-3">${veredicto}</div>
         ${eps}
       </div>`;
     if (window.lucide) lucide.createIcons();
@@ -2794,7 +2858,7 @@ function renderProjWheel(d) {
             <span class="text-gray-400"> &middot; ${_vcEsc(b.que_significa)}</span>
             <span class="text-gray-600 block text-[9px] leading-snug mt-0.5">${_vcEsc(b.por_que)}</span></div>`).join('')}
         </div>` : ''}
-        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[720px]"><thead>
+        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[720px]"><thead>
           <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
             <th class="text-left pb-1.5 pr-3">Ticker</th><th class="text-left pb-1.5 pr-3">Contrato</th>
             <th class="text-right pb-1.5 pr-3">DTE</th><th class="text-right pb-1.5 pr-3">Prima</th>
@@ -2804,6 +2868,7 @@ function renderProjWheel(d) {
         <p class="text-[9px] text-gray-600 mt-2 italic">${d.quotes_missing ? '* prima estimada del &uacute;ltimo precio, no del bid. ' : ''}La asequibilidad no se calcula aqu&iacute;: tu saldo no sale del navegador. Mira el colateral y decide t&uacute;. Research, no una orden.</p>
       </div>`;
     if (window.lucide) lucide.createIcons();
+    vcTablaResponsive('projWheel');
 }
 
 /* ── TIME & SALES ──────────────────────────────────────────────────────── */
@@ -2875,7 +2940,7 @@ function renderProjTape(d) {
           <span class="text-red-400">● Bid ${fmtAbbr(a.premium_bid)}</span>
           <span class="text-gray-600">Mid ${fmtAbbr(a.premium_mid)} (descartado)</span>
           <span class="text-gray-400 font-bold">Agresividad ${a.score}/10</span></div>
-        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[700px]"><thead>
+        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[700px]"><thead>
           <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
             <th class="text-left pb-1.5 pr-2">Hora</th><th class="text-left pb-1.5 pr-2">Contrato</th>
             <th class="text-left pb-1.5 pr-2">Vence</th><th class="text-left pb-1.5 pr-2">Lado</th>
@@ -2885,6 +2950,7 @@ function renderProjTape(d) {
         <p class="text-[9px] text-gray-600 mt-2">↻ repetido · ⛓ multileg · ↑ sobre el ask · ↓ bajo el bid · ★ volumen &gt; open interest. Fila resaltada = supera el umbral de inusualidad institucional (&ge;7/30).</p>
       </div>`;
     if (window.lucide) lucide.createIcons();
+    vcTablaResponsive('projTape');
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -2980,7 +3046,7 @@ function renderProjIdeas(d) {
           <span class="text-[10px] text-gray-500">${ideas.length} operables en ${d.tickers} tickers &middot; ${d.with_history} con historial</span>
         </div>
         <p class="text-[10px] text-gray-600 italic mb-3">Flujo inusual de TODO el mercado, ya filtrado por lo que se puede operar: theta sano, no vencido, inusualidad &ge;5/30 y strike dentro del &plusmn;${Math.round(Number(d.moneyness_cap) * 100)}% del precio. Haz clic en una fila para el an&aacute;lisis completo de ese ticker.</p>
-        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[620px]"><thead>
+        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[620px]"><thead>
           <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
             <th class="text-left pb-1.5 pr-3">Ticker</th><th class="text-left pb-1.5 pr-3">Contrato</th>
             <th class="text-right pb-1.5 pr-3">DTE</th><th class="text-right pb-1.5 pr-3">Dinero</th>
@@ -2991,6 +3057,7 @@ function renderProjIdeas(d) {
         <p class="text-[9px] text-gray-600 mt-1 italic">El tama&ntilde;o de posici&oacute;n no se calcula aqu&iacute;: tu saldo no sale del navegador. Esto es un screener de research, no una orden.</p>
       </div>`;
     if (window.lucide) lucide.createIcons();
+    vcTablaResponsive('projIdeas');
 }
 
 /** La ÚNICA llamada de datos del tab.
@@ -3616,7 +3683,7 @@ function vcLevelsHTML(d) {
     const sup = filas('supports'), res = filas('resistances');
     if (!sup && !res) return '';
     const tabla = (t, cuerpo) => cuerpo ? `<p class="text-[9px] font-bold text-gray-500 uppercase mt-1.5 mb-0.5">${t}</p>
-        <table class="w-full text-[10px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
+        <table class="vc-t w-full text-[10px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
         <th class="text-left pb-0.5">Nivel</th><th class="text-right pb-0.5 pr-2">Fuerza</th>
         <th class="text-right pb-0.5 pr-2">Dist.</th><th class="text-left pb-0.5">Por qué</th></tr></thead>
         <tbody>${cuerpo}</tbody></table>` : '';
@@ -3645,7 +3712,7 @@ function vcHeatmapHTML(d) {
     const filas = strikes.map(st => `<tr><td class="pr-1.5 text-[9px] font-bold ${st.strike >= h.spot ? 'text-red-300' : 'text-emerald-300'}">$${st.strike}</td>${exps.map(e => celda(st, e)).join('')}</tr>`).join('');
     const cal = k => h[k] ? `${k === 'hottest_positive' ? '🟢' : '🔴'} $${h[k].strike} · ${h[k].expiration} (${fmtAbbr(h[k].net_gex)})` : '';
     return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider mb-1">Mapa de GEX · strike × vencimiento</p>
-        <div class="overflow-x-auto"><table class="text-[10px]"><thead><tr><th></th>${cab}</tr></thead><tbody>${filas}</tbody></table></div>
+        <div class="vc-scroll overflow-x-auto"><table class="text-[10px]"><thead><tr><th></th>${cab}</tr></thead><tbody>${filas}</tbody></table></div>
         <p class="text-[9px] text-gray-600 mt-1">${cal('hottest_positive')} ${cal('hottest_negative')} · GEX neto total ${fmtAbbr(h.total_net_gex)}</p></div>`;
 }
 
@@ -3657,7 +3724,7 @@ function vcClustersHTML(d) {
     if (!cl || !cl.length) return '';
     const hhmm = sec => new Date(sec * 1000).toISOString().slice(11, 16);
     return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider mb-1">Racimos del tape</p>
-      <table class="w-full text-[10px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
+      <table class="vc-t w-full text-[10px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
         <th class="text-left pb-0.5">Ventana (UTC)</th><th class="text-right pb-0.5 pr-2">Trades</th>
         <th class="text-right pb-0.5 pr-2">Premium</th><th class="text-right pb-0.5 pr-2">Calls / Puts</th>
         <th class="text-right pb-0.5 pr-2">Un solo lado</th><th class="text-right pb-0.5 pr-2">Score</th>
@@ -3853,13 +3920,13 @@ function vcSubagentesHTML(d) {
              ${sc.low_liquidity ? `<p class="text-[9px] text-amber-400 mt-1">⚠ Baja liquidez — el nocional promedio por strike no llega a $25M.</p>` : ''}
              ${tops ? `<p class="text-[9px] font-bold text-gray-500 uppercase mt-2 mb-0.5">🎯 Dónde se acumula — top strikes por nocional
                 <span class="text-[8px] font-normal normal-case text-gray-600">(nocional = strike × open interest × 100)</span></p>
-               <div class="overflow-x-auto"><table class="w-full text-[10px] min-w-[440px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
+               <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[10px] min-w-[440px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
                  <th class="text-left pb-0.5">Strike</th><th class="text-right pb-0.5 pr-2">Nocional</th>
                  <th class="text-right pb-0.5 pr-2">% del total</th><th class="text-left pb-0.5 pr-2">Lado</th>
                  <th class="text-right pb-0.5 pr-2">Dominio</th><th class="text-right pb-0.5 pr-2">Open Interest</th>
                  <th class="text-right pb-0.5">Volumen</th></tr></thead><tbody>${tops}</tbody></table></div>` : ''}
              ${exp ? `<p class="text-[9px] font-bold text-gray-500 uppercase mt-2 mb-0.5">Vencimientos más relevantes</p>
-               <div class="overflow-x-auto"><table class="w-full text-[10px] min-w-[380px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
+               <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[10px] min-w-[380px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
                 <th class="text-left pb-0.5">Vencimiento</th><th class="text-right pb-0.5 pr-2">Nocional</th>
                 <th class="text-right pb-0.5 pr-2">Calls</th><th class="text-right pb-0.5 pr-2">Puts</th>
                 <th class="text-right pb-0.5 pr-2">%</th><th class="text-right pb-0.5">Contratos</th></tr></thead>
@@ -3946,7 +4013,7 @@ function vcSubagentesHTML(d) {
         P.push(_vcSubCard(
             `<p class="text-[10px] font-extrabold text-gray-200 uppercase tracking-wider mb-0.5">📒 Transacciones revisadas
                <span class="text-[8px] text-gray-600 normal-case font-normal tracking-normal">— últimos ${_vcEsc(d.conviction_window || '')} · ${d.conviction_trades} trades ≥ $1M${cr.length < d.conviction_trades ? `, mostrando ${cr.length}` : ''}</span></p>
-             <div class="overflow-x-auto"><table class="w-full text-[10px] min-w-[520px]"><thead>
+             <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[10px] min-w-[520px]"><thead>
                <tr class="text-gray-600 text-[8px] uppercase border-b border-gray-800">
                  <th class="text-left pb-0.5">Fecha · Hora</th><th class="text-left pb-0.5">Contrato</th>
                  <th class="text-left pb-0.5">Vencimiento</th><th class="text-left pb-0.5">Estado</th>
@@ -4075,7 +4142,7 @@ function renderVictorTargets(d) {
       ${noFiable ? '' : `
       ${parcial ? `<p class="text-[10px] text-amber-400 leading-snug mb-2">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
       <p class="text-[9px] text-gray-500 uppercase font-bold tracking-wider mb-1">Targets a ${h} días <span class="text-gray-600 normal-case font-normal tracking-normal">(${_vcEsc(HZ_LABEL[h] || (h + ' días'))}) · desde $${Number(d.spot).toFixed(2)}</span></p>
-      <div class="grid grid-cols-3 gap-2">
+      <div class="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-2">
         ${card(p.bear, 'Bajista', 'text-red-400')}
         ${card(p.base, 'Base', 'text-blue-400')}
         ${card(p.bull, 'Alcista', 'text-emerald-400')}
@@ -4089,6 +4156,8 @@ function renderVictorTargets(d) {
       ${vcMemoryHTML(d)}
       <div id="vcNews">${d.news ? vcNewsHTML(d.news) : ''}</div>
       ${warn ? `<div class="mt-2 space-y-0.5">${warn}</div>` : ''}`;
+
+    vcTablaResponsive('projTargets');
 
     // Las noticias se cargan APARTE, como en la app de Víctor: 4 feeds RSS
     // lentos no pueden retrasar los targets, que es lo que de verdad importa.
@@ -4153,7 +4222,7 @@ function renderProjections(d) {
     const ua = d.unusual || [];
     const inu = document.getElementById('projUnusual');
     if (inu) {
-        inu.innerHTML = ua.length ? `<div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[520px]">
+        inu.innerHTML = ua.length ? `<div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[520px]">
             <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
                 <th class="text-left pb-1.5 pr-3">Tipo</th><th class="text-right pb-1.5 pr-3">Strike</th>
                 <th class="text-right pb-1.5 pr-3">Vence</th><th class="text-right pb-1.5 pr-3">DTE</th>
@@ -4171,6 +4240,7 @@ function renderProjections(d) {
     }
 
     renderProjGammaPorStrike(d);
+    vcTablaResponsive('projUnusual');
     if (window.lucide) lucide.createIcons();
 }
 
@@ -5673,7 +5743,7 @@ function renderPortfolioRisk(d) {
             <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-widest flex items-center gap-2 mb-3">
                 <i data-lucide="trending-down" class="w-3.5 h-3.5"></i> Value-at-Risk (pérdida potencial · 1 día)
             </h4>
-            <table class="w-full text-xs">
+            <table class="vc-t w-full text-xs">
                 <thead><tr class="border-b border-gray-800 text-gray-500 text-[10px] uppercase">
                     <th class="text-left py-1.5 font-bold">Método</th>
                     <th class="text-right py-1.5 font-bold">95% confianza</th>
@@ -5713,8 +5783,8 @@ function renderPortfolioRisk(d) {
             <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-widest flex items-center gap-2 mb-3">
                 <i data-lucide="list" class="w-3.5 h-3.5"></i> Contribución de Riesgo por Posición
             </h4>
-            <div class="overflow-x-auto">
-            <table class="w-full text-xs min-w-[520px]">
+            <div class="vc-scroll overflow-x-auto">
+            <table class="vc-t w-full text-xs min-w-[520px]">
                 <thead><tr class="border-b border-gray-800 text-gray-500 text-[10px] uppercase">
                     <th class="text-left py-1.5 font-bold pr-3">Ticker</th>
                     <th class="text-right py-1.5 font-bold pr-3">Peso</th>
@@ -5967,8 +6037,8 @@ function renderWhatif(d) {
         <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-widest flex items-center gap-2 mb-3">
             <i data-lucide="git-compare" class="w-3.5 h-3.5"></i> Impacto en tu Riesgo · Antes vs. Después
         </h4>
-        <div class="overflow-x-auto">
-        <table class="w-full text-xs min-w-[460px]">
+        <div class="vc-scroll overflow-x-auto">
+        <table class="vc-t w-full text-xs min-w-[460px]">
             <thead><tr class="border-b border-gray-800 text-gray-500 text-[10px] uppercase">
                 <th class="text-left py-1.5 font-bold pr-3">Métrica</th>
                 <th class="text-right py-1.5 font-bold pr-3">Antes</th>
@@ -6055,7 +6125,7 @@ function renderPortfolioAttribution(d) {
     const posTable = `<div class="bg-panel border border-panel rounded-2xl p-5">
         <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-widest flex items-center gap-2 mb-3">
             <i data-lucide="list-tree" class="w-3.5 h-3.5"></i> Contribución por Posición</h4>
-        <div class="overflow-x-auto"><table class="w-full text-xs min-w-[480px]">
+        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-xs min-w-[480px]">
             <thead><tr class="border-b border-gray-800 text-gray-500 text-[10px] uppercase">
                 <th class="text-left py-1.5 font-bold pr-3">Posición</th><th class="text-right py-1.5 font-bold pr-3">Peso</th>
                 <th class="text-right py-1.5 font-bold pr-3">Retorno</th><th class="text-left py-1.5 font-bold pl-3">Contribución al retorno</th>
@@ -6365,7 +6435,7 @@ function renderPortfolioOptimizer(d) {
     }).join('');
     const rebalance = `<div class="bg-panel border border-panel rounded-2xl p-5">
         <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-widest flex items-center gap-2 mb-3"><i data-lucide="arrow-left-right" class="w-3.5 h-3.5"></i> Sugerencia de Rebalanceo → Máx Sharpe</h4>
-        <div class="overflow-x-auto"><table class="w-full text-xs min-w-[460px]">
+        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-xs min-w-[460px]">
             <thead><tr class="border-b border-gray-800 text-gray-500 text-[10px] uppercase">
                 <th class="text-left py-1.5 font-bold pr-3">Activo</th><th class="text-right py-1.5 font-bold pr-3">Actual</th>
                 <th></th><th class="text-right py-1.5 font-bold pl-3">Óptimo</th>
@@ -6598,7 +6668,7 @@ function renderOptions(d) {
     }).join('');
     const ladder = `<div class="mb-5">
         <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-wider mb-2 flex items-center gap-1.5"><i data-lucide="layers" class="w-3.5 h-3.5"></i> Escalera de Vencimientos</h4>
-        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[480px]">
+        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[480px]">
             <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
                 <th class="text-left pb-1.5 pr-3">Vence</th><th class="text-right pb-1.5 pr-3">DTE</th>
                 <th class="text-right pb-1.5 pr-3">Contratos</th><th class="text-right pb-1.5 pr-3">Valor</th>
@@ -6616,7 +6686,7 @@ function renderOptions(d) {
         </tr>`).join('');
     const byU = `<div class="mb-5">
         <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-wider mb-2 flex items-center gap-1.5"><i data-lucide="pie-chart" class="w-3.5 h-3.5"></i> Por Subyacente</h4>
-        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[420px]">
+        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[420px]">
             <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
                 <th class="text-left pb-1.5 pr-3">Subyacente</th><th class="text-right pb-1.5 pr-3">Contratos</th>
                 <th class="text-right pb-1.5 pr-3">Δ$</th><th class="text-right pb-1.5 pr-3">Θ/día</th><th class="text-right pb-1.5">ν</th></tr></thead>
@@ -6640,7 +6710,7 @@ function renderOptions(d) {
     }).join('');
     const detail = `<div class="mb-4">
         <h4 class="text-[11px] font-extrabold text-gray-300 uppercase tracking-wider mb-2 flex items-center gap-1.5"><i data-lucide="list" class="w-3.5 h-3.5"></i> Detalle por Posición</h4>
-        <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[640px]">
+        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[640px]">
             <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
                 <th class="text-left pb-1.5 pr-2">Suby.</th><th class="text-left pb-1.5 pr-2">Tipo</th>
                 <th class="text-right pb-1.5 pr-2">Strike</th><th class="text-right pb-1.5 pr-2">Vence</th>
@@ -7115,7 +7185,7 @@ function analyzeTickerNow(tk) {
 
 </script>
 
-<main id="projectionsView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4 space-y-5">
+<main id="projectionsView" class="view-section hidden flex-grow w-full max-w-6xl xl:max-w-[1400px] 2xl:max-w-[1760px] mx-auto p-3 sm:p-4 space-y-4 sm:space-y-5">
 
     <!-- Su `HeaderBar.tsx`, con su orden exacto: marca → NavTabs → tickers
          rápidos → buscador. La navegación va AQUÍ, no dentro de un panel: en su
@@ -7127,20 +7197,20 @@ function analyzeTickerNow(tk) {
         <div class="flex items-center">
             <span class="text-[11px] text-gray-400 bg-white/5 border border-panel rounded-full px-2 py-0.5">AI Options Agent</span>
         </div>
-        <div id="projNav" class="flex gap-1.5 flex-wrap"></div>
-        <div id="projBuscador" class="flex items-center gap-2 flex-wrap">
+        <div id="projNav" class="flex gap-1.5 overflow-x-auto no-scrollbar -mx-1 px-1 sm:overflow-visible sm:flex-wrap w-full sm:w-auto"></div>
+        <div id="projBuscador" class="flex items-center gap-2 flex-wrap w-full sm:w-auto">
             <!-- Sus 4 tickers rápidos (`QUICK` de HeaderBar.tsx): se hace clic,
                  no se teclea. Este bloque se oculta en Ideas y Wheel, que
                  escanean el mercado entero y no van por símbolo. -->
             <div id="projQuick" class="flex gap-1.5"></div>
             <input id="projTicker" type="text" placeholder="Buscar ticker&hellip;" onkeydown="if(event.key==='Enter')loadProjections()" spellcheck="false"
-                   class="bg-[#0B0E14] border border-gray-800 text-white text-[13px] rounded-full px-3.5 py-2 w-[190px] uppercase focus:border-blue-500 outline-none" />
+                   class="bg-[#0B0E14] border border-gray-800 text-white text-[13px] rounded-full px-3.5 py-2 flex-1 min-w-[120px] sm:flex-none sm:w-[190px] uppercase focus:border-blue-500 outline-none" />
         </div>
         <!-- Sin botón de recargar y sin casilla "auto": el panel se mantiene
              solo. El indicador dice la HORA REAL del último dato, porque ni
              Massive ni MarketSnack empujan nada — las dos son REST y esto es
              sondeo, no streaming. Un punto verde sin hora sería mentir. -->
-        <div class="flex items-center gap-2 ml-auto">
+        <div class="flex items-center gap-2 w-full sm:w-auto sm:ml-auto">
             <span id="projVivo" class="flex items-center gap-1.5 text-[10px] text-gray-500"></span>
         </div>
     </div>
@@ -7166,7 +7236,7 @@ function analyzeTickerNow(tk) {
             </div>
             <!-- La gráfica la dibuja renderVictorProjChart (SVG). Un solo dueño de este
                  contenedor: velas + los tres escenarios salen del mismo payload. -->
-            <div id="projChart" style="height:440px;width:100%;position:relative"></div>
+            <div id="projChart" class="h-[280px] sm:h-[360px] lg:h-[440px] xl:h-[520px]" style="width:100%;position:relative"></div>
             <div class="flex flex-wrap gap-3 mt-2 text-[10px] text-gray-500">
                 <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:#98a2b3"></span> Precio histórico (sólido)</span>
                 <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:#12b76a"></span> Escenario alcista (punteado)</span>
@@ -7180,7 +7250,7 @@ function analyzeTickerNow(tk) {
         </div>
 
         <!-- Projection cards -->
-        <div id="projCards" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"></div>
+        <div id="projCards" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3"></div>
 
         <!-- La tira de integridad comprobaba el GEX de Quant Data. Con una sola
              fuente ya no hay dos números que cuadrar entre sí: lo que puede ir
@@ -7192,7 +7262,7 @@ function analyzeTickerNow(tk) {
             <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2 mb-1">
                 <i data-lucide="activity" class="w-4 h-4"></i> Gamma neto por strike</h3>
             <p class="text-[11px] text-gray-500 italic mb-3">Gamma neto del dealer por strike (call − put). Verde = el dealer estabiliza ahí; rojo = amplifica. El <b>gamma flip</b> es donde cambia de lado.</p>
-            <div style="height:240px;"><canvas id="projGammaCanvas"></canvas></div>
+            <div class="h-[180px] sm:h-[220px] lg:h-[260px]"><canvas id="projGammaCanvas"></canvas></div>
             <p id="projGammaSrc" class="chart-cite"></p>
         </div>
         <!-- Directional targets by horizon -->
@@ -7427,8 +7497,8 @@ function analyzeTickerNow(tk) {
             <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2 mb-4">
                 <i data-lucide="trending-up" class="w-4 h-4"></i> Posiciones en Acciones
             </h3>
-            <div class="overflow-x-auto">
-                <table class="w-full text-xs min-w-[700px]">
+            <div class="vc-scroll overflow-x-auto">
+                <table class="vc-t w-full text-xs min-w-[700px]">
                     <thead>
                         <tr class="border-b border-gray-800">
                             <th class="text-left text-gray-500 uppercase pb-2 font-bold text-[10px] pr-4">Ticker / Nombre</th>
@@ -7982,8 +8052,8 @@ function wlToggleAutoRefresh() {
             <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <i data-lucide="history" class="w-4 h-4"></i> Historial de Tesis Evaluadas
             </h3>
-            <div class="overflow-x-auto">
-                <table class="w-full text-xs min-w-[640px]">
+            <div class="vc-scroll overflow-x-auto">
+                <table class="vc-t w-full text-xs min-w-[640px]">
                     <thead><tr class="border-b border-gray-800 text-left">
                         <th class="text-gray-500 pb-2 font-bold text-[10px] pr-3">Ticker</th>
                         <th class="text-gray-500 pb-2 font-bold text-[10px] pr-3">Fecha</th>
@@ -8106,7 +8176,7 @@ async function loadPortfolioEdge() {
                 <td class="py-1.5 text-right">${flagPill(h.flag)}</td>
             </tr>`;
         }).join('');
-        document.getElementById('trkPfEdgeBody').innerHTML = `<table class="w-full text-[11px]">
+        document.getElementById('trkPfEdgeBody').innerHTML = `<table class="vc-t w-full text-[11px]">
             <thead><tr class="text-gray-600 text-[9px] uppercase"><th class="text-left pb-1">Ticker</th><th class="text-right pb-1 pr-3">Peso</th><th class="text-right pb-1 pr-3">n</th><th class="text-right pb-1 pr-3">Hit</th><th class="text-right pb-1 pr-3">Exp.%</th><th class="text-right pb-1 pr-3">Exp.R</th><th class="text-right pb-1">Veredicto</th></tr></thead>
             <tbody>${rRows}</tbody></table>`;
         document.getElementById('trkPfEdgeInsights').innerHTML = (d.insights || []).map(t =>
@@ -8279,7 +8349,7 @@ function renderTrackRecord(d) {
         }).join('');
         const tbl = (title, obj) => `<div>
             <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">${title}</p>
-            <table class="w-full text-[11px]">
+            <table class="vc-t w-full text-[11px]">
                 <thead><tr class="text-[8px] text-gray-600 uppercase border-b border-gray-800">
                     <th class="text-left pb-1">·</th><th class="text-right pb-1 pr-2">n</th>
                     <th class="text-right pb-1 pr-2">Hit</th><th class="text-right pb-1 pr-2">Expect.</th>
