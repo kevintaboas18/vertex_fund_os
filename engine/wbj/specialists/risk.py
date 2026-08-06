@@ -1313,9 +1313,17 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
             metric_id="thesis_killers",
             question="List at least three risks that could invalidate the thesis, each with "
             "probability_assumption, impact (low|medium|high|catastrophic), early_warning_metric, "
-            "trigger_level, time_horizon, and mitigant (DECISION_RULES.md, mandatory).",
+            "trigger_level, time_horizon, and mitigant (DECISION_RULES.md, mandatory). "
+            "Also give four explicit 0-1 assumptions per risk so RSK-THESIS-035 "
+            "(`Probability * Impact * (1-Detectability) * TimeUrgency`) can be "
+            "computed: `probability` (chance it happens), `impact_0_1` (severity "
+            "as a fraction of thesis value), `detectability` (how visible it "
+            "would be BEFORE it hurts -- higher means easier to see coming, so "
+            "it LOWERS priority), and `time_urgency` (how soon it could bite; "
+            "1.0 means imminent).",
             schema_hint="array of >=3 {risk, probability_assumption, impact, early_warning_metric, "
-            "trigger_level, time_horizon, mitigant}",
+            "trigger_level, time_horizon, mitigant, probability, impact_0_1, "
+            "detectability, time_urgency}",
         )
     )
 
