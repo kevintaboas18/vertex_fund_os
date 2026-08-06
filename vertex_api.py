@@ -2422,21 +2422,28 @@ def get_quick_quote(ticker: str):
             alto = float(rapido.get("dayHigh") or precio)
             bajo = float(rapido.get("dayLow") or precio)
             perfil = _fmp_perfil(ticker_clean) or {}
+            # EXACTAMENTE las mismas claves que la ruta larga de abajo. Se
+            # inventaron en ingles -- `price`, `volume`, `day_high` -- mientras
+            # la pantalla lee `precio`, `volumen` y `high`, asi que la tarjeta
+            # salio con "undefined" en todo salvo el VWAP, que fue la unica que
+            # coincidio por casualidad. Dos rutas que responden al mismo
+            # endpoint tienen que devolver la misma forma; si no, la mas rapida
+            # rompe a quien la consume.
             return {
                 "ticker": ticker_clean,
-                "name": rapido.get("name") or perfil.get("name") or ticker_clean,
-                "price": round(precio, 2),
-                "previous_close": round(previo, 2),
-                "change_pct": round((precio - previo) / previo * 100.0, 2) if previo else 0.0,
-                "volume": int(rapido.get("volume") or 0),
-                "day_high": round(alto, 2),
-                "day_low": round(bajo, 2),
+                "nombre_completo": rapido.get("name") or perfil.get("name") or ticker_clean,
+                "precio": round(precio, 2),
+                "cambio_pct": round((precio - previo) / previo * 100.0, 2) if previo else 0.0,
+                "volumen": format_volume(int(rapido.get("volume") or 0)),
                 # VWAP no viene en `quote`; el precio tipico (H+L+C)/3 es el
                 # mismo respaldo que ya usaba la ruta larga cuando faltaba.
                 "vwap": round((alto + bajo + precio) / 3, 2),
-                "logo_url": obtener_logo(ticker_clean, perfil.get("website") or ""),
+                "high": round(alto, 2),
+                "low": round(bajo, 2),
                 "after_hours": None,
-                "fuente": "fmp_quote",
+                "precio_fuente": "fmp",
+                "as_of": datetime.now().strftime("%I:%M:%S %p"),
+                "logo_url": obtener_logo(ticker_clean, perfil.get("website") or ""),
             }
         except (TypeError, ValueError, ZeroDivisionError):
             pass  # cae a la ruta completa
