@@ -2697,11 +2697,20 @@ function renderProjWheel(d) {
     caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
         <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
           <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="disc" class="w-4 h-4"></i> Wheel &mdash; vender puts cash-secured</h3>
-          <span class="text-[10px] text-gray-500">${d.with_candidates} de ${d.scanned} s&iacute;mbolos con candidatos${d.failed ? ` · ${d.failed} sin cadena` : ''}</span>
+          <span class="text-[10px] text-gray-500">${d.with_candidates} de ${d.scanned} s&iacute;mbolos con candidatos${d.failed ? ` · ${d.failed} sin resultado` : ''}</span>
         </div>
         <div class="flex gap-1.5 flex-wrap my-2">${presets}</div>
         <p class="text-[10px] text-gray-600 italic mb-3">${_vcEsc(d.preset_explain || '')} Un contrato son 100 acciones y el <b>colateral queda inmovilizado</b> hasta el vencimiento. El puntaje <b>castiga</b> el rendimiento anualizado por encima del 60%: un screener que ordena por prima pone arriba justo las acciones a punto de desplomarse.</p>
-        ${d.degraded ? `<p class="text-[10px] text-amber-400 mb-2">⚠ M&aacute;s de la mitad del universo no devolvi&oacute; cadena: esta lista NO es "los mejores del mercado", es "los mejores de lo que se pudo mirar".</p>` : ''}
+        ${d.degraded ? `<p class="text-[10px] text-amber-400 mb-2">⚠ M&aacute;s de la mitad del universo no dio resultado: esta lista NO es "los mejores del mercado", es "los mejores de lo que se pudo mirar".</p>` : ''}
+        ${(d.rejected || []).length ? `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3 mb-3">
+          <p class="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Por qu&eacute; se cay&oacute; cada s&iacute;mbolo</p>
+          ${d.rejected.map(r => `<div class="flex items-start gap-2 text-[10px] mb-1">
+            <span class="font-bold ${r.motivo === 'fuente' || r.motivo === 'error' ? 'text-red-400' : 'text-gray-400'} w-8 text-right flex-shrink-0">${r.tickers}</span>
+            <span class="text-gray-400">${_vcEsc(r.que_significa)}
+              ${r.ejemplo ? `<span class="text-gray-600 block text-[9px] leading-snug">${_vcEsc(r.ejemplo)}</span>` : ''}</span></div>`).join('')}
+          ${d.rejected.some(r => r.motivo === 'fuera_de_banda') ? `<p class="text-[9px] text-gray-600 mt-1.5 leading-snug">&quot;Cadena OK pero ning&uacute;n strike en la banda&quot; no es un fallo: es el preset diciendo que no hay nada de su gusto en ese papel. Prueba otro preset arriba.</p>` : ''}
+          ${d.rejected.some(r => r.motivo === 'fuente') ? `<p class="text-[9px] text-amber-400 mt-1.5 leading-snug">Si el motivo es la fuente en TODOS, no es el mercado: mira el ejemplo &mdash; dice si es la credencial (401), el plan (403) o los filtros de la consulta.</p>` : ''}
+        </div>` : ''}
         <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[720px]"><thead>
           <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
             <th class="text-left pb-1.5 pr-3">Ticker</th><th class="text-left pb-1.5 pr-3">Contrato</th>

@@ -3065,3 +3065,56 @@ no relanza diez escaneos ni deja diez temporizadores.
 Cuatro tests nuevos lo fijan, incluido uno que prohíbe que nadie le quite el
 `hidden` al tab a mano sin pasar por `switchView` — que es justo el atajo que
 volvería a dejar el DOM crudo.
+
+## 41.9 Auditoría del área de Wheel — «0 de 40 · 40 sin cadena»
+
+Kevin mandó la captura: los **40** símbolos caídos. Cuarenta de cuarenta no es
+el mercado, es algo sistemático.
+
+### Fallo 1 — el spot salía de una fuente única que ya sabíamos que falla
+
+`fetch_wheel_chain` saca el precio de `underlying_asset.price` **de la cadena
+de opciones**. La ronda 6 destapó justamente que ese campo no es fiable en esta
+cuenta —por eso el tab de Ticker pide el precio al snapshot del subyacente— y
+en Wheel se había quedado como fuente **única**. Si Massive lo omite:
+
+```
+chain.spot is None  →  los 40 al contador de fallos
+```
+
+Resuelto con el mismo respaldo que ya funciona en Ticker: `fetch_company`. Y si
+el spot viene de ahí, se aplica a mano el filtro OTM que `fetch_wheel_chain`
+hace con el suyo. **Reproducido: 0/40 → 40/40.**
+
+### Fallo 2 — un contador para tres desenlaces, con la etiqueta equivocada
+
+*"40 sin cadena"* juntaba tres cosas que se arreglan de forma distinta:
+
+| Lo que pasó | Qué hay que hacer |
+|---|---|
+| la fuente rechazó (401/403/filtros) | mirar la cuenta o el plan |
+| la cadena vino vacía de verdad | nada, ese papel no tiene puts ahí |
+| cadena llena, ningún strike en la banda de delta | **cambiar de preset** |
+
+El tercero **ni siquiera es un fallo**: es el preset diciendo que no hay nada de
+su gusto en ese papel. Rotularlo "sin cadena" mandaba a revisar la API cuando
+había que tocar un botón.
+
+Ahora hay seis motivos con nombre, su conteo y **un ejemplo real de cada uno**
+—que es lo que dice si el 403 es del plan o de los filtros—, con el mismo
+contrato que el desglose de rechazos del screener de Ideas.
+
+### Fallo 3 — carrera entre hilos
+
+El worker mutaba `fallidos` y `todos` desde los **6 hilos** del pool. Un
+`contador += 1` concurrente pierde cuentas en silencio, y ese contador es justo
+lo que se enseña en pantalla. Ahora cada hilo **devuelve** su resultado y la
+suma se hace fuera, en un solo hilo.
+
+### Lo verificado y sano
+
+- La ventana de DTE se calcula bien: día de mercado **ET** + 30/45 días.
+- El motor puro corre entero sin lanzar, con la capa HTTP doblada.
+- Los tres presets llevan sus bandas literales, y el score castiga el anualizado
+  >60% e invierte la banda de IV Rank respecto al sub-agente 5.
+- El saldo del usuario sigue sin viajar.

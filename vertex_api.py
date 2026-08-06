@@ -4214,7 +4214,8 @@ def tito_wheel(preset: str = "balanceado"):
     from wbj.tito.earnings import earnings_for_ticker
     from wbj.tito.ivcontext import rank_within, realized_vol_series
     from wbj.tito.levels import LvlBar, find_levels
-    from wbj.tito.massive import MassiveError, fetch_wheel_chain
+    from wbj.tito.massive import (MassiveError, fetch_company,
+                                  fetch_wheel_chain)
     from wbj.tito.wheel import WHEEL_PRESETS, CandidatesInput, wheel_candidates
     from wbj.tito.wheel_universe import WHEEL_UNIVERSE
 
@@ -4223,16 +4224,55 @@ def tito_wheel(preset: str = "balanceado"):
     todos, fallidos, pasos = [], 0, []
 
     def _uno(sym):
-        nonlocal fallidos
+        """Un ticker. Devuelve (candidatos, motivo) — **sin tocar estado
+        compartido**: corren 6 hilos y un `contador += 1` desde varios pierde
+        cuentas en silencio.
+
+        El motivo importa tanto como los candidatos. La versión anterior metía
+        tres desenlaces muy distintos en el mismo contador y los rotulaba todos
+        "sin cadena": un 403 del plan, una cadena vacía de verdad y un ticker
+        con cadena llena cuyos strikes no caen en la banda de delta del preset
+        se veían idénticos en pantalla. Con 40 de 40 fallando, eso no dejaba
+        forma de saber si el problema era la cuenta, el mercado o el filtro.
+        """
         try:
             chain = fetch_wheel_chain(sym.ticker, p.dte_min, p.dte_max, now=now)
-            if chain.spot is None or not chain.quotes:
-                fallidos += 1
-                pasos.append(f"{sym.ticker}: sin cadena")
-                return
+        except MassiveError as e:
+            return [], ("fuente", str(e))
+        except Exception as e:                   # noqa: BLE001 — un ticker no tumba el escaneo
+            return [], ("error", f"{type(e).__name__}: {e}")
+
+        # El spot. La cadena de opciones lo trae en `underlying_asset.price`…
+        # cuando lo trae. La ronda 6 ya destapó que ese campo no es fiable en
+        # esta cuenta —por eso el tab de Ticker pide el precio al snapshot del
+        # subyacente— y aquí se había quedado como fuente ÚNICA: si Massive lo
+        # omite, los 40 símbolos caen de golpe con un "sin cadena" que no
+        # explica nada. Se usa el mismo respaldo que ya funciona en Ticker.
+        spot = chain.spot
+        if spot is None:
+            try:
+                spot = (fetch_company(sym.ticker) or {}).get("price")
+            except Exception:                    # noqa: BLE001
+                spot = None
+        if not isinstance(spot, (int, float)) or isinstance(spot, bool) or spot <= 0:
+            return [], ("sin_precio",
+                        "ni la cadena ni el snapshot del subyacente trajeron precio")
+        # Solo puts OTM: `fetch_wheel_chain` ya filtra con el spot de la cadena,
+        # pero si vino del snapshot ese filtro no se aplicó.
+        if chain.spot is None:
+            chain.quotes = [q for q in chain.quotes if q.strike <= spot]
+            if not chain.quotes:
+                return [], ("sin_cadena", f"sin puts OTM bajo ${spot:.2f}")
+        if not chain.quotes:
+            return [], ("sin_cadena",
+                        f"sin puts entre {p.dte_min} y {p.dte_max} días")
+
+        try:
             bars = cached_daily_bars(sym.ticker, 365, now)
+            if not bars:
+                return [], ("sin_barras", "Massive no devolvió barras diarias")
             lvl = [LvlBar(time=b.time, high=b.high, low=b.low, close=b.close) for b in bars]
-            niveles = find_levels(bars=lvl, spot=chain.spot, now=now)
+            niveles = find_levels(bars=lvl, spot=spot, now=now)
 
             # IV Rank propio: proxy de volatilidad realizada. No hay serie de IV
             # por ticker en este escaneo, así que se mide la volatilidad que el
@@ -4249,18 +4289,45 @@ def tito_wheel(preset: str = "balanceado"):
             flag = earnings_for_ticker(sym.ticker, cerca, None, now)
 
             cands = wheel_candidates(CandidatesInput(
-                ticker=sym.ticker, spot=chain.spot, quotes=chain.quotes, preset=p,
+                ticker=sym.ticker, spot=spot, quotes=chain.quotes, preset=p,
                 iv_rank=iv_rank, supports=niveles.supports, earnings=flag,
                 fallback_iv=(actual / 100) if actual is not None else 0.4))
-            todos.extend(cands)
-            pasos.append(f"{sym.ticker}: {sum(1 for c in cands if not c.blocked)} candidatos")
-        except (MassiveError, Exception):        # noqa: BLE001 — un ticker no tumba el escaneo
-            fallidos += 1
-            pasos.append(f"{sym.ticker}: error")
+        except Exception as e:                   # noqa: BLE001
+            return [], ("error", f"{type(e).__name__}: {e}")
+
+        if not cands:
+            # La cadena estaba, pero NINGÚN strike cae en la banda de delta del
+            # preset. No es un fallo: es el preset diciendo que no hay nada de
+            # su gusto en ese papel. Confundirlo con "sin cadena" mandaba a
+            # revisar la API cuando había que cambiar de preset.
+            return [], ("fuera_de_banda",
+                        f"{len(chain.quotes)} puts, ninguno con delta "
+                        f"{p.delta_min}-{p.delta_max}")
+        return cands, None
 
     # `mapLimit(WHEEL_UNIVERSE, CONCURRENCY, …)` — el mismo tope en vuelo.
     with concurrent.futures.ThreadPoolExecutor(max_workers=_WHEEL_CONCURRENCY) as ex:
-        list(ex.map(_uno, WHEEL_UNIVERSE))
+        resultados = list(ex.map(_uno, WHEEL_UNIVERSE))
+
+    _MOTIVO = {
+        "fuente":         "la fuente rechazó la petición",
+        "error":          "error inesperado",
+        "sin_precio":     "sin precio del subyacente",
+        "sin_cadena":     "sin puts en la ventana de DTE",
+        "sin_barras":     "sin barras diarias",
+        "fuera_de_banda": "cadena OK, pero ningún strike en la banda de delta",
+    }
+    motivos, ejemplos = {}, {}
+    for sym, (cands, motivo) in zip(WHEEL_UNIVERSE, resultados):
+        todos.extend(cands)
+        if motivo:
+            clave, detalle = motivo
+            motivos[clave] = motivos.get(clave, 0) + 1
+            ejemplos.setdefault(clave, f"{sym.ticker}: {detalle}")
+            pasos.append(f"{sym.ticker}: {detalle}")
+        else:
+            pasos.append(f"{sym.ticker}: {sum(1 for c in cands if not c.blocked)} candidatos")
+    fallidos = sum(motivos.values())
 
     todos.sort(key=lambda c: (c.blocked, -(c.score.total if c.score else 0)))
 
@@ -4301,6 +4368,12 @@ def tito_wheel(preset: str = "balanceado"):
                     for q in WHEEL_PRESETS.values()],
         "scanned": len(WHEEL_UNIVERSE), "failed": fallidos,
         "with_candidates": con_candidatos,
+        # El desglose de POR QUÉ se cayó cada ticker, con un ejemplo real de
+        # cada motivo. Es el mismo contrato que el screener de Ideas: sin esto,
+        # "0 de 40" y "el mercado no ofrece nada" se ven igual en pantalla.
+        "rejected": [{"motivo": k, "que_significa": _MOTIVO.get(k, k),
+                      "tickers": v, "ejemplo": ejemplos.get(k, "")}
+                     for k, v in sorted(motivos.items(), key=lambda x: -x[1])],
         # Su `degraded`: más de la mitad del universo caído. El escaneo devuelve
         # algo, pero decir "estos son los mejores" con medio universo sin mirar
         # sería mentir por omisión.

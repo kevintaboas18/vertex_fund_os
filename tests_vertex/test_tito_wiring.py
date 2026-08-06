@@ -1170,6 +1170,85 @@ class TestWheel:
         for prohibido in ("affordable", "shortfall", "account_size", "cash"):
             assert prohibido not in crudo, f"el saldo se coló: {prohibido}"
 
+    def test_el_spot_tiene_respaldo_cuando_la_cadena_no_lo_trae(self, client, monkeypatch,
+                                                                wheel_dobles):
+        """El fallo que dejó a Kevin con «0 de 40 · 40 sin cadena».
+
+        `fetch_wheel_chain` saca el spot de `underlying_asset.price` de la
+        cadena de opciones. La ronda 6 ya destapó que ese campo no es fiable en
+        esta cuenta —por eso el tab de Ticker pide el precio al snapshot del
+        subyacente— y aquí se había quedado como fuente ÚNICA: si Massive lo
+        omite, los 40 símbolos caen de golpe.
+        """
+        import wbj.tito.massive as MASS
+        from wbj.tito.massive import WheelChainResult
+
+        original = MASS.fetch_wheel_chain
+
+        def sin_precio(t, dmin, dmax, now=None, **k):
+            r = original(t, dmin, dmax, now=now, **k)
+            return WheelChainResult(spot=None, quotes=r.quotes)   # ← sin underlying_asset
+
+        monkeypatch.setattr(MASS, "fetch_wheel_chain", sin_precio)
+        monkeypatch.setattr(MASS, "fetch_company", lambda t, **k: {"price": 100.0})
+        d = client.get("/api/tito-wheel").json()
+        assert d["with_candidates"] > 0, f"el respaldo no entró: {d['rejected']}"
+        assert d["failed"] == 0
+
+    def test_sin_NINGUNA_fuente_de_precio_lo_dice_por_su_nombre(self, client, monkeypatch,
+                                                                wheel_dobles):
+        import wbj.tito.massive as MASS
+        from wbj.tito.massive import WheelChainResult
+        original = MASS.fetch_wheel_chain
+        monkeypatch.setattr(MASS, "fetch_wheel_chain",
+                            lambda t, a, b, now=None, **k: WheelChainResult(
+                                spot=None, quotes=original(t, a, b, now=now).quotes))
+        monkeypatch.setattr(MASS, "fetch_company", lambda t, **k: None)
+        d = client.get("/api/tito-wheel").json()
+        motivos = {r["motivo"] for r in d["rejected"]}
+        assert motivos == {"sin_precio"}, motivos
+
+    def test_los_TRES_desenlaces_se_reportan_por_separado(self, client, monkeypatch,
+                                                          wheel_dobles):
+        """«0 de 40 · 40 sin cadena» juntaba tres cosas muy distintas: un 403
+        del plan, una cadena vacía de verdad, y una cadena llena cuyos strikes
+        no caen en la banda de delta del preset. Con 40 de 40 cayendo, eso no
+        dejaba forma de saber si el problema era la cuenta, el mercado o el
+        filtro."""
+        import wbj.tito.massive as MASS
+
+        def rechaza(t, a, b, now=None, **k):
+            raise MASS.MassiveError("el plan no lo cubre", 403)
+
+        monkeypatch.setattr(MASS, "fetch_wheel_chain", rechaza)
+        d = client.get("/api/tito-wheel").json()
+        assert [r["motivo"] for r in d["rejected"]] == ["fuente"]
+        assert d["rejected"][0]["tickers"] == 40
+        # …y con un EJEMPLO real, que es lo que dice si es 401, 403 o el filtro.
+        assert "el plan no lo cubre" in d["rejected"][0]["ejemplo"]
+
+    def test_el_desglose_llega_al_panel(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjWheel(d) {")
+        cuerpo = html[i:html.index("/* ── TIME & SALES", i)]
+        assert "d.rejected" in cuerpo and "que_significa" in cuerpo and "ejemplo" in cuerpo
+        # Y las dos pistas que convierten el desglose en algo accionable.
+        assert "Prueba otro preset" in cuerpo
+        assert "no es el mercado" in cuerpo
+        # "sin cadena" ya no puede rotular un 403.
+        assert "sin cadena" not in cuerpo
+
+    def test_el_escaneo_NO_muta_estado_compartido_entre_hilos(self):
+        """Corren 6 hilos. Un `contador += 1` desde varios pierde cuentas en
+        silencio, y el contador es justo lo que se enseña en pantalla."""
+        api = (ROOT / "vertex_api.py").read_text(encoding="utf-8")
+        i = api.index("    def _uno(sym):")
+        cuerpo = api[i:api.index("    # `mapLimit(WHEEL_UNIVERSE", i)]
+        assert "nonlocal" not in cuerpo, "el worker vuelve a mutar estado compartido"
+        assert "fallidos +=" not in cuerpo and "todos.extend" not in cuerpo
+        # Devuelve su resultado; la suma se hace fuera, en un solo hilo.
+        assert "return [], (" in cuerpo and "return cands, None" in cuerpo
+
     def test_castiga_el_rendimiento_sospechosamente_alto(self):
         """Un screener que ordena por prima pone arriba justo las acciones a
         punto de desplomarse. Su banda >60% da 10/30, menos que la de 15-35%."""
