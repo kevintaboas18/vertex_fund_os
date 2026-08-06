@@ -57,6 +57,21 @@ ASOCIACIONES = (
     "world gold council", "world bank", "oecd", "unctad", "wto", "who ",
     "world travel", "wttc", "unwto", "insurance information institute",
     "american banking association", "aba ", "fdic", "bis ",
+    # Energía: la IEA ya estaba, pero el mercado del petróleo lo publican
+    # tres cuerpos y sólo uno estaba en la lista. La EIA es una agencia
+    # estadística del gobierno de EE.UU. y su International Energy Outlook es
+    # mundial; la OPEP publica su Monthly Oil Market Report; y el Energy
+    # Institute heredó de BP el Statistical Review of World Energy, que es EL
+    # conjunto de datos canónico de energía mundial.
+    "opec", "eia ", "energy information administration", "energy institute",
+    "statistical review of world energy", "irena",
+    # Inmobiliario: NAREIT y EPRA son las asociaciones del sector cotizado, y
+    # MSCI Real Assets publica el tamaño del mercado profesional mundial.
+    # Sin ellas ninguna industria REIT podía resolver su mercado.
+    "nareit", "epra", "inrev", "anrev", "msci real assets", "msci real estate",
+    # Salud: la base de gasto sanitario mundial de la OMS y las estadísticas
+    # de la OCDE ya cubrían el gasto; faltaba quien publica el seguro.
+    "global health expenditure", "ahip", "iais",
 )
 
 # Casas de análisis, sólo cuando no hay asociación que cubra el mercado.
@@ -68,6 +83,15 @@ CASAS = (
     "frost & sullivan", "abi research", "techinsights", "strategy analytics",
     "mckinsey", "boston consulting", "bain & company", "deloitte", "pwc",
     "ernst & young", "kpmg", "accenture", "oliver wyman",
+    # Inmobiliario comercial: las cuatro casas que miden ese mercado y lo
+    # publican. Ninguna estaba, y sin ellas un REIT no tenía denominador ni
+    # por asociación ni por casa.
+    "jll", "jones lang lasalle", "cbre", "cushman", "colliers", "savills",
+    "green street", "real capital analytics",
+    # Electrónica de consumo: CTA mide el mercado y Circana/GfK/Counterpoint
+    # ya estaban, pero faltaba quien publica el agregado mundial de la
+    # categoría entera en vez de una línea de producto.
+    "consumer technology association", "cta ", "canalys", "idc worldwide",
 )
 
 # Lo que NO cuenta como fuente. Recopilan cifras de terceros sin firmar la
@@ -286,6 +310,31 @@ def _validar(datos: dict, industria: str) -> tuple[dict | None, str]:
     if not capa:
         return None, ("no declaro QUE capa de la cadena mide — es lo que dejo a "
                       "NVDA con un TAM de gasto de usuario final durante semanas")
+
+    # Un TAM es un FLUJO: cuánto factura ese mercado en un año. Lo que sigue
+    # son ACERVOS —valor acumulado en un instante— y ninguno divide ingresos.
+    #
+    # Nareit contestó a REIT-Retail con "$252.000M, retail sector market
+    # capitalization within the FTSE Nareit All Equity REITs index". Pasó los
+    # cuatro filtros anteriores: cifra, fuente de tier 2, ámbito declarado
+    # mundial y capa declarada. Y era la magnitud equivocada — capitalización
+    # bursátil, no facturación. Realty Income factura $5.500M al año: contra
+    # ese denominador su participación habría salido 2,2%, un número con
+    # aspecto razonable y sin ningún significado.
+    #
+    # La capa no se declara sólo para que exista: se declara para poder
+    # rechazarla cuando no es la que divide.
+    _ACERVOS = ("market capitalization", "market cap", "capitalizacion",
+                "capitalización", "enterprise value", "assets under management",
+                "aum", "asset value", "net asset value", "installed base value",
+                "total assets", "valor de los activos", "gdp",
+                "producto interno bruto", "outstanding")
+    _texto_capa = f"{capa} {fuente} {textual}".lower()
+    for acervo in _ACERVOS:
+        if acervo in _texto_capa:
+            return None, (f"la cifra mide {acervo!r}, que es un acervo y no un "
+                          "flujo anual: dividir ingresos de un año entre un "
+                          "valor acumulado no da participacion de mercado")
 
     fuera: dict[str, Any] = {
         "tam": int(tam),
