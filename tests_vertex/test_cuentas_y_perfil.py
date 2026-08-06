@@ -1026,3 +1026,248 @@ class TestLaPantallaDelModo:
         fn = h[h.index("async function pfGuardar()"):]
         fn = fn[:fn.index("\n}\n")]
         assert "modoCambia" in fn
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  EL PERFIL LLEGA AL AGENTE DE ACCIONES
+#
+#  Dos eslabones que estaban rotos y hacían que el perfil no cambiara nada de
+#  lo que el usuario ve:
+#
+#   · `profile_fit` tenía los hechos ESCRITOS A MANO (el capital y el universo
+#     de Kevin), así que le contaba a todo el mundo el perfil de otra persona.
+#   · La explicación en palabras —el único sitio donde entra el texto libre—
+#     vivía detrás de `?explain=1` y la pantalla nunca lo pedía.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestProfileFitUsaTuPerfil:
+
+    @staticmethod
+    def _dos(entorno):
+        from fastapi.testclient import TestClient
+        import vertex_api as V
+
+        kevin, ana = TestClient(V.app), TestClient(V.app)
+        _registra(kevin, "k@x.com", "Kevin", "clave-larga-1")
+        _registra(ana, "a@x.com", "Ana", "otra-clave-2")
+        kevin.post("/api/perfil", json={"modo": "personalizado", "respuestas": {
+            "capital": 1000, "tolerancia": "agresivo", "mercados": ["EE.UU."],
+            "max_posicion_pct": [20, 30]}})
+        ana.post("/api/perfil", json={"modo": "personalizado", "respuestas": {
+            "capital": 250000, "tolerancia": "conservador",
+            "mercados": ["Europa", "EE.UU."], "max_posicion_pct": [5, 10]}})
+        return kevin, ana
+
+    @staticmethod
+    def _fit(cli, info, reco="ESPECULATIVO"):
+        import vertex_api as V
+
+        conn = V._db()
+        u = V._CU.usuario_de_sesion(conn, cli.cookies.get("vertex_usuario"))
+        conn.close()
+        V._USUARIO_CTX.set(u)
+        try:
+            return V._wbj_profile_fit(info, reco)
+        finally:
+            V._USUARIO_CTX.set(None)
+
+    AAPL = {"exchange": "NMS", "country": "United States"}
+    SAP = {"exchange": "GER", "country": "Germany"}
+
+    def test_el_capital_ya_no_esta_escrito_a_mano(self, entorno):
+        """Decía «~$1,000 USD» literal en el código. Con cuentas, eso le
+        contaba a cada persona el capital de Kevin."""
+        kevin, ana = self._dos(entorno)
+        assert self._fit(kevin, self.AAPL)["capital"] == "$1,000"
+        assert self._fit(ana, self.AAPL)["capital"] == "$250,000"
+
+    def test_el_universo_es_EL_TUYO_no_EEUU_por_decreto(self, entorno):
+        """Decía «Kevin invierte solo en EE.UU.». A alguien que hubiera marcado
+        Europa se le decía que una acción alemana estaba fuera de su universo."""
+        kevin, ana = self._dos(entorno)
+        assert self._fit(kevin, self.SAP)["fit"] == "fuera-de-universo"
+        assert self._fit(ana, self.SAP)["fit"] != "fuera-de-universo"
+        assert self._fit(ana, self.AAPL)["fit"] != "fuera-de-universo"
+
+    def test_el_motivo_nombra_TUS_mercados(self, entorno):
+        kevin, _ = self._dos(entorno)
+        razon = self._fit(kevin, self.SAP)["fit_reason"]
+        assert "EE.UU." in razon and "Germany" in razon
+
+    def test_el_aviso_de_ruina_se_calibra_al_capital(self, entorno):
+        """Con $1.000 y opciones el riesgo de ruina es urgente; con $250.000 es
+        una nota al pie. Repetirlo igual lo convierte en ruido que se ignora."""
+        kevin, ana = self._dos(entorno)
+        assert "ruina" in self._fit(kevin, self.AAPL)["fit_reason"]
+        assert "ruina" not in self._fit(ana, self.AAPL)["fit_reason"]
+
+    def test_el_sizing_da_el_rango_en_DOLARES(self, entorno):
+        """Un tope del 20-30% no dice nada solo. En dólares, sí."""
+        kevin, ana = self._dos(entorno)
+        assert "$200" in self._fit(kevin, self.AAPL)["sizing_note"]
+        assert "$12,500" in self._fit(ana, self.AAPL)["sizing_note"]
+
+    def test_declara_cuando_el_perfil_es_el_de_referencia(self, entorno):
+        """El lector tiene derecho a saber que estos hechos no los declaró
+        nadie."""
+        from fastapi.testclient import TestClient
+        import vertex_api as V
+
+        nuevo = TestClient(V.app)
+        _registra(nuevo, "n@x.com", "Nuevo", "clave-larga-1")
+        assert self._fit(nuevo, self.AAPL)["es_por_defecto"] is True
+        nuevo.post("/api/perfil", json={"modo": "personalizado"})
+        assert self._fit(nuevo, self.AAPL)["es_por_defecto"] is False
+
+    def test_sin_mercados_marcados_no_inventa_un_universo(self, entorno):
+        """Afirmar que algo está «fuera de tu universo» sin saber cuál es tu
+        universo sería peor que no comprobarlo."""
+        import vertex_api as V
+
+        kevin, _ = self._dos(entorno)
+        conn = V._db()
+        u = V._CU.usuario_de_sesion(conn, kevin.cookies.get("vertex_usuario"))
+        conn.close()
+        V._USUARIO_CTX.set(u)
+        try:
+            V._perfil_leer()          # calienta el camino normal
+            base = V._perfil_leer()
+            import unittest.mock as M
+            with M.patch.object(V, "_perfil_leer", lambda request=None: {**base, "mercados": []}):
+                assert V._wbj_profile_fit(self.SAP, "FAVORABLE")["universe_ok"] is True
+        finally:
+            V._USUARIO_CTX.set(None)
+
+
+class TestLaExplicacionLlegaALaPantalla:
+
+    @staticmethod
+    def _con_reporte(entorno, texto="Trabajo en semiconductores."):
+        from fastapi.testclient import TestClient
+        import vertex_api as V
+
+        kevin, ana = TestClient(V.app), TestClient(V.app)
+        _registra(kevin, "k@x.com", "Kevin", "clave-larga-1")
+        _registra(ana, "a@x.com", "Ana", "otra-clave-2")
+        kevin.post("/api/perfil", json={"modo": "personalizado",
+                                        "respuestas": {"capital": 1000, "texto": texto}})
+        conn = V._db()
+        uid = V._CU.buscar_usuario(conn, email="k@x.com")["id"]
+        conn.execute("INSERT INTO reports (report_id,ticker,created_at,created_ts,"
+                     "payload,usuario_id) VALUES (?,?,?,?,?,?)",
+                     ("r-1", "NVDA", "hoy", time.time(), json.dumps({
+                         "ticker": "NVDA", "nombre_completo": "NVIDIA Corp",
+                         "precio_actual": 180.0, "wbj": {"profile": "CALIDAD",
+                                                         "raw_total": 78, "categories": {}},
+                         "profile_fit": {"fit": "apto", "fit_reason": "x",
+                                         "capital": "$1,000", "riesgo_por_operacion": "$150",
+                                         "max_posicion_pct": "20% – 30%",
+                                         "horizonte": "1-3 años", "universo": "EE.UU."}}), uid))
+        conn.commit()
+        conn.close()
+        return kevin, ana
+
+    def test_la_ruta_existe_y_solo_sirve_TU_reporte(self, entorno):
+        """De nada serviría un archivo privado si esta ruta explicara el de
+        otro. Y «no existe» y «no es tuyo» dan el mismo mensaje: distinguirlos
+        convertiría la ruta en un oráculo de qué ha analizado la gente."""
+        kevin, ana = self._con_reporte(entorno)
+        assert ana.get("/api/wbj-explicacion?report_id=r-1").json() == \
+            kevin.get("/api/wbj-explicacion?report_id=inventado").json()
+
+    def test_el_texto_libre_del_perfil_ENTRA_en_el_contexto(self, entorno):
+        """El eslabón que estaba roto. Si el texto no llega al prompt, la
+        pregunta «¿algo más que el agente deba saber de ti?» es decorativa."""
+        import vertex_api as V
+
+        kevin, _ = self._con_reporte(entorno, texto="Ya tengo el 40% en semiconductores.")
+        conn = V._db()
+        u = V._CU.usuario_de_sesion(conn, kevin.cookies.get("vertex_usuario"))
+        payload = json.loads(conn.execute(
+            "SELECT payload FROM reports WHERE report_id='r-1'").fetchone()[0])
+        conn.close()
+        V._USUARIO_CTX.set(u)
+        try:
+            ctx = V._wbj_explain_context("NVDA", "NVIDIA Corp", 180.0, payload)
+        finally:
+            V._USUARIO_CTX.set(None)
+        assert "Ya tengo el 40% en semiconductores." in ctx
+        assert "=== MI PERFIL" in ctx
+
+    def test_los_hechos_duros_van_EXPLICITOS_no_solo_en_la_prosa(self, entorno):
+        """Enterrados en el markdown se pierden. El LLM los necesita sueltos
+        para calibrar el tamaño de lo que describe."""
+        import vertex_api as V
+
+        kevin, _ = self._con_reporte(entorno)
+        conn = V._db()
+        u = V._CU.usuario_de_sesion(conn, kevin.cookies.get("vertex_usuario"))
+        payload = json.loads(conn.execute(
+            "SELECT payload FROM reports WHERE report_id='r-1'").fetchone()[0])
+        conn.close()
+        V._USUARIO_CTX.set(u)
+        try:
+            ctx = V._wbj_explain_context("NVDA", "NVIDIA Corp", 180.0, payload)
+        finally:
+            V._USUARIO_CTX.set(None)
+        assert "HECHOS DE TU PERFIL" in ctx
+        assert "$1,000" in ctx and "20% – 30%" in ctx
+
+    def test_avisa_al_LLM_cuando_el_perfil_es_el_de_referencia(self, entorno):
+        """Sin el aviso, el LLM le hablaría a alguien de «tu capital de $1.000»
+        cuando esa persona nunca declaró nada."""
+        import vertex_api as V
+
+        payload = {"profile_fit": {"fit": "apto", "fit_reason": "x", "capital": "$1,000",
+                                   "es_por_defecto": True, "riesgo_por_operacion": "$150",
+                                   "max_posicion_pct": "20% – 30%", "horizonte": "1-3 años",
+                                   "universo": "EE.UU."}, "wbj": {}}
+        ctx = V._wbj_explain_context("NVDA", "NVIDIA", 180.0, payload)
+        assert "NO ha personalizado" in ctx
+
+    def test_no_se_paga_dos_veces_por_el_mismo_texto(self, entorno, monkeypatch):
+        """Cuesta ~18 s. Si ya está en el reporte, se devuelve."""
+        import vertex_api as V
+
+        kevin, _ = self._con_reporte(entorno)
+        llamadas = []
+        monkeypatch.setattr(V, "_wbj_explain",
+                            lambda ctx, temp=0.3: (llamadas.append(1), ({"resumen": "hola"}, "test"))[1])
+        a = kevin.get("/api/wbj-explicacion?report_id=r-1").json()
+        assert a["ok"] is True and a["cacheada"] is False
+        b = kevin.get("/api/wbj-explicacion?report_id=r-1").json()
+        assert b["cacheada"] is True
+        assert len(llamadas) == 1, "generó la explicación dos veces"
+
+    def test_la_pantalla_la_pide_DESPUES_del_analisis(self):
+        """Meterla dentro de `/api/analyze` sumaría ~18 s a un endpoint que ya
+        roza el corte de Render — que es justo por lo que quedó desconectada."""
+        h = _html()
+        assert "API_BASE}/api/wbj-explicacion" in h
+        # El análisis se pide SIN `explain=1`.
+        assert "api/analyze?ticker=${ticker}&explain" not in h
+        # Y la llamada a la explicación no se espera con `await`.
+        i = h.index("cargaExplicacion(data.report_id);")
+        assert "await cargaExplicacion" not in h[i - 40:i + 40]
+
+    def test_el_panel_existe_y_dice_que_NO_calcula(self):
+        """Un texto de un LLM junto a unos números invita a creer que los
+        produjo. Tiene que decir que solo los explica."""
+        h = _html()
+        assert 'id="qtExplicacion"' in h
+        fn = h[h.index("function pintaExplicacion("):]
+        fn = fn[:fn.index("\n}")]
+        assert "no los calcula" in fn
+
+    def test_un_fallo_deja_el_panel_con_su_motivo(self):
+        """Esconderlo dejaría al usuario sin saber que esta parte existe y que
+        hoy falló."""
+        h = _html()
+        fn = h[h.index("async function cargaExplicacion("):]
+        fn = fn[:fn.index("\nfunction pintaExplicacion") if "\nfunction pintaExplicacion" in fn else 4000]
+        assert "d.error" in fn and "Reintentar" in fn
+
+    def test_el_id_del_reporte_no_va_dentro_de_un_onclick(self):
+        h = _html()
+        assert "cargaExplicacion('${" not in h
+        assert "data-reintentar=" in h and "dataset.reintentar" in h

@@ -39,7 +39,7 @@ globalThis.lucide = { createIcons(){} };
 
 // Se extraen las funciones que se quieren ejercitar, con sus dependencias.
 const api = new Function(src + `
-  return { renderProjIdeas, renderProjWheel, vcCabeceraPerfil, fmtMoney, pfPinta, pfTab, pfPreguntaHTML };`)();
+  return { renderProjIdeas, renderProjWheel, vcCabeceraPerfil, fmtMoney, pfPinta, pfTab, pfPreguntaHTML, pintaExplicacion };`)();
 
 let fallos = 0;
 const chk = (ok, msg) => { console.log((ok?'  \x1b[32m✓\x1b[0m ':'  \x1b[31m✗\x1b[0m ') + msg); if(!ok) fallos++; };
@@ -190,6 +190,24 @@ chk(cuenta.includes('$150'), 'muestra el riesgo por operación');
 chk(store['pfArchivos'].innerHTML.includes('Kevin-u1.md'), 'dice en qué archivo acaba TU perfil');
 
 // ── franja sin perfil ────────────────────────────────────────────────────
+// ── LA EXPLICACIÓN EN PALABRAS ───────────────────────────────────────────
+api.pintaExplicacion({
+  resumen: 'NVDA saca 78/100. Con tu capital de $1,000 y un tope del 30%, esto\nson $300 como mucho en una posición.',
+  riesgo_para_ti: 'Ya tienes exposición a semiconductores; esto no diversifica.',
+}, 'gemini-2.5-flash');
+const ex = store['qtExplicacion'].innerHTML;
+console.log('\n── Explicación en palabras ─────────────────────────────');
+chk(!store['qtExplicacion'].classList.contains('hidden'), 'el panel se muestra');
+chk(ex.includes('78/100') && ex.includes('$1,000'), 'pinta el texto del LLM');
+chk(/riesgo para ti/i.test(ex), 'la clave se lee como titulo, sin guiones bajos');
+chk(ex.includes('gemini-2.5-flash'), 'dice de qué proveedor salió');
+chk(/no los calcula/.test(ex), 'declara que solo EXPLICA, no calcula');
+
+// Un fallo de formato del proveedor no puede dejar el panel en blanco.
+api.pintaExplicacion('Texto suelto sin secciones.');
+chk(store['qtExplicacion'].innerHTML.includes('Texto suelto sin secciones.'),
+    'si el proveedor devuelve texto plano, se pinta igual');
+
 console.log('\n── Bordes ──────────────────────────────────────────────');
 chk(api.vcCabeceraPerfil(null, 0) === '', 'sin perfil no se pinta franja');
 chk(api.fmtMoney(1049) === '$1,049' && api.fmtMoney(null) === '—', 'fmtMoney exacto');

@@ -3672,3 +3672,85 @@ muerto que nadie lee bien.
 
 **2.787 tests del motor · 361 de la capa web · 248 checks · 29 del smoke de JS ·
 12 diferenciales · 0 fallos.**
+
+## 41.17 El perfil deja de ser decorativo en el agente de acciones
+
+Kevin preguntó qué hacía exactamente el texto libre del cuestionario. Rastrearlo
+dio dos respuestas incómodas, y las dos se arreglan aquí.
+
+### 1. `profile_fit` tenía los hechos escritos a mano
+
+```python
+"universo": "Estados Unidos", "tolerancia": "agresivo / especulativo",
+"capital": "~$1,000 USD",
+```
+
+Literales en el código. Con **un** usuario era correcto: era el perfil de todo
+el mundo. Con cuentas, le contaba a cada persona el perfil de Kevin — incluida
+la comprobación de universo, que estaba clavada a EE.UU.: a alguien que hubiera
+marcado **Europa** se le decía que una acción alemana estaba *«fuera de tu
+universo»*.
+
+Ahora todo sale de `_perfil_leer()`, y con ello:
+
+- **El universo se comprueba contra los mercados que marcaste.** Sin mercados
+  marcados no se afirma que nada esté fuera — inventar un universo es peor que
+  no tenerlo.
+- **El aviso de riesgo de ruina se calibra al capital.** Con $1.000 y opciones
+  es urgente; con $250.000 es una nota al pie, y repetirlo con las mismas
+  palabras lo convierte en ruido que se deja de leer.
+- **El sizing se da en dólares.** «Tope 20%–30%» no dice nada solo; «$200–$300
+  por posición» sí.
+- **Se declara si el perfil es el de referencia** (`es_por_defecto`). El lector
+  tiene derecho a saber que esos hechos no los declaró nadie.
+
+### 2. La explicación estaba desconectada
+
+El texto libre solo entra en un sitio: el **2º pase del LLM**, que recibe los
+números ya congelados y los traduce a palabras *«para el inversionista de MI
+PERFIL»*.
+
+Ese pase vivía detrás de `?explain=1`. Y la pantalla llamaba a
+`/api/analyze?ticker=X` — **sin ese parámetro, nunca**. El propio comentario del
+código lo decía: se puso detrás de una bandera porque costaba 18,4 s de los ~105
+que tarda el análisis, *«para un campo que la plataforma no lee en ningún
+sitio»*.
+
+Resultado: el texto viajaba hasta el prompt y ahí se paraba. **Escribieras lo
+que escribieras, no cambiaba una palabra de lo que veías.**
+
+### La solución no fue meterlo en el camino crítico
+
+Poner `explain=1` en la llamada habría sumado 18 s a un endpoint que ya roza el
+corte de Render — exactamente el problema que lo dejó desconectado. En su lugar:
+
+```
+/api/analyze  ──► ~105 s ──► el análisis aparece
+                                    │
+                                    └─► /api/wbj-explicacion (report_id)
+                                            ~18 s, y el panel se rellena solo
+```
+
+El contexto se **reconstruye desde el reporte ya guardado** — los mismos
+números, ninguno recalculado. Para eso hubo que extraer el constructor del
+contexto, que estaba escrito en línea dentro de `/api/analyze` y por eso solo
+podía generarse allí.
+
+Cuatro decisiones del diseño:
+
+1. **Solo tu propio reporte.** Se filtra por `usuario_id` igual que el archivo:
+   de nada serviría un archivo privado si esta ruta explicara el de otro. Y «no
+   existe» y «no es tuyo» dan el mismo mensaje.
+2. **No se paga dos veces.** La explicación se guarda en el reporte; volver a
+   abrirlo la sirve al instante.
+3. **Los hechos duros van explícitos** además del `.md`. Enterrados en la prosa
+   del archivo se pierden, y son justo los que el LLM necesita para calibrar el
+   tamaño de lo que describe. Si el perfil es el de referencia, el prompt lleva
+   un aviso: *«no le hables como si los hubiera declarado»*.
+4. **El panel dice que NO calcula.** Un texto de un LLM junto a unos números
+   invita a creer que los produjo. La nota al pie lo corta.
+
+### Batería
+
+**2.787 tests del motor · 377 de la capa web · 248 checks · 37 del smoke de JS ·
+12 diferenciales · 0 fallos.**

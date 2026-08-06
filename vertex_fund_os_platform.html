@@ -829,6 +829,12 @@
         <div id="quickTakeTab" class="tab-content active p-6 space-y-6">
             <!-- Integrity strip (sanity checks on the report's numbers) -->
             <div id="reportIntegrity"></div>
+            <!-- ══ EXPLICACIÓN EN PALABRAS ══
+                 El 2º pase del LLM: los números YA congelados, contados en simple
+                 y calibrados a TU perfil. Llega DESPUÉS del análisis —cuesta ~18 s—
+                 así que el panel aparece con su propio estado de carga en vez de
+                 retrasar todo lo demás. -->
+            <div id="qtExplicacion" class="hidden"></div>
             <!-- ══ AGENT MEMORY CARD ══ -->
             <div id="qtMemoryCard" class="hidden bg-gradient-to-br from-blue-500/10 to-purple-500/5 border border-blue-500/25 rounded-xl p-4">
                 <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -1518,6 +1524,10 @@ async function ejecutarAnalisisAPI() {
         renderDashboard(data);
         switchView('dashboardView');
         switchAnalysisTab('quickTakeTab', document.querySelector('.analysis-tab'));
+        // Sin `await`: la explicación tarda ~18 s y el análisis ya está en
+        // pantalla. Esperarla aquí sería volver a meterla en el camino crítico,
+        // que es justo lo que la había dejado desconectada.
+        cargaExplicacion(data.report_id);
     } catch(err) {
         clearInterval(interval); loading.classList.add('hidden');
         const msg = (err && err.message) ? String(err.message) : 'error desconocido';
@@ -1526,6 +1536,99 @@ async function ejecutarAnalisisAPI() {
             : '';
         alert(`No se pudo analizar ${ticker}.\n\nMotivo: ${msg}${red}`);
     }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   EXPLICACIÓN EN PALABRAS
+
+   El 2º pase del LLM existía desde hacía tiempo pero vivía detrás de
+   `?explain=1`, y esta pantalla nunca lo pedía. Consecuencia concreta: el
+   texto libre del perfil («¿algo más que el agente deba saber de ti?») viajaba
+   hasta el prompt y ahí se paraba — escribieras lo que escribieras, no
+   cambiaba una palabra de lo que veías.
+
+   No se pide dentro de `/api/analyze` porque cuesta ~18 s y ese endpoint ya
+   roza el corte de Render. Se pide DESPUÉS, con el análisis ya en pantalla, y
+   el panel se rellena solo cuando llega.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+async function cargaExplicacion(reportId, yaTengo) {
+    const caja = document.getElementById('qtExplicacion');
+    if (!caja || !reportId) return;
+
+    if (yaTengo) { pintaExplicacion(yaTengo); return; }
+
+    caja.classList.remove('hidden');
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-xl p-4">
+        <p class="text-[10px] font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2">
+            <i data-lucide="message-square-text" class="w-4 h-4"></i> Qu&eacute; significa esto para ti</p>
+        <p class="text-xs text-gray-500 italic flex items-center gap-2 mt-2">
+            <i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i>
+            Traduciendo los n&uacute;meros a palabras, con tu perfil delante&hellip;</p></div>`;
+    if (window.lucide) lucide.createIcons();
+
+    let d;
+    try {
+        d = await fetch(`${API_BASE}/api/wbj-explicacion?report_id=${encodeURIComponent(reportId)}`)
+                  .then(r => r.json());
+    } catch (e) { d = { ok: false, error: 'No se pudo contactar al servidor.' }; }
+
+    if (!d.ok) {
+        // Se dice el motivo y se deja el panel. Esconderlo dejaría al usuario
+        // sin saber que esta parte existe y que hoy falló.
+        caja.innerHTML = `<div class="bg-panel border border-panel rounded-xl p-4">
+            <p class="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-2">
+                <i data-lucide="message-square-text" class="w-4 h-4"></i> Qu&eacute; significa esto para ti</p>
+            <p class="text-xs text-amber-400/90 mt-2">${_vcEsc(d.error || 'No disponible.')}</p>
+            <button data-reintentar="${_vcEsc(reportId)}"
+                    class="mt-2 text-[10px] font-bold text-blue-400 hover:text-blue-300">Reintentar</button>
+            <p class="text-[9px] text-gray-600 mt-2">Los n&uacute;meros del an&aacute;lisis no dependen de esto:
+               la matem&aacute;tica ya est&aacute; hecha y congelada. Esto solo la explica.</p></div>`;
+        if (window.lucide) lucide.createIcons();
+        return;
+    }
+    // Se guarda en el reporte local para que abrirlo otra vez sea instantáneo.
+    if (currentAnalysis && currentAnalysis.report_id === reportId) {
+        currentAnalysis.wbj_explanation = d.explicacion;
+        try { saveNewReport(currentAnalysis); } catch (e) {}
+    }
+    pintaExplicacion(d.explicacion, d.fuente);
+}
+
+/* El id va en `data-`, no dentro del `onclick`. `_vcEsc` escapa para HTML, que
+   no es escapar para un literal de JavaScript, y `_vcTicker` —que sí sanea para
+   eso— está pensado para SÍMBOLOS: pasa por casualidad con el formato de id de
+   hoy y lo destrozaría en cuanto cambiara. */
+document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('[data-reintentar]');
+    if (b) cargaExplicacion(b.dataset.reintentar);
+});
+
+function pintaExplicacion(expl, fuente) {
+    const caja = document.getElementById('qtExplicacion');
+    if (!caja || !expl) return;
+    caja.classList.remove('hidden');
+
+    // El proveedor devuelve un objeto con secciones, pero un fallo de formato no
+    // puede dejar el panel en blanco: si viene texto suelto, se pinta tal cual.
+    const secciones = (typeof expl === 'object' && expl)
+        ? Object.entries(expl).filter(([, v]) => v && String(v).trim())
+        : [['', String(expl)]];
+
+    caja.innerHTML = `<div class="bg-gradient-to-br from-blue-500/10 to-transparent border border-blue-500/25 rounded-xl p-4 sm:p-5">
+        <div class="flex items-center justify-between gap-2 flex-wrap mb-3">
+            <p class="text-[10px] font-bold text-blue-300 uppercase tracking-widest flex items-center gap-2">
+                <i data-lucide="message-square-text" class="w-4 h-4"></i> Qu&eacute; significa esto para ti</p>
+            <span class="text-[9px] text-gray-600">${fuente ? _vcEsc(fuente) + ' &middot; ' : ''}ajustado a tu perfil</span>
+        </div>
+        <div class="space-y-3">${secciones.map(([k, v]) => `
+            ${k ? `<p class="text-[10px] font-bold text-gray-400 uppercase tracking-wider">${_vcEsc(k.replace(/_/g, ' '))}</p>` : ''}
+            <p class="text-xs text-gray-300 leading-relaxed whitespace-pre-line">${_vcEsc(v)}</p>`).join('')}</div>
+        <p class="text-[9px] text-gray-600 mt-3 leading-relaxed border-t border-gray-800 pt-2">
+            Esto <b>explica</b> los n&uacute;meros; no los calcula. El score, los gates y los niveles
+            salen de la matem&aacute;tica del Cerebro y no cambian por lo que diga este texto.</p>
+    </div>`;
+    if (window.lucide) lucide.createIcons();
 }
 
 // ── OPEN SAVED REPORT ────────────────────────────────────
@@ -1539,6 +1642,8 @@ function openReport(reportId) {
     switchView('dashboardView');
     switchAnalysisTab('quickTakeTab', document.querySelector('.analysis-tab'));
     fetchLivePriceComparison(data.ticker, data.precio_actual);
+    // Un reporte guardado ya suele traerla; si no, se genera al abrirlo.
+    cargaExplicacion(data.report_id, data.wbj_explanation);
 }
 async function fetchLivePriceComparison(ticker, reportPrice) {
     try {

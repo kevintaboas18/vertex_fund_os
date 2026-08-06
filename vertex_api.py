@@ -5348,6 +5348,75 @@ def _perfil_para_el_engine():
 #  no devuelve nunca quién analizó qué, solo cuánto hay y de cuántas personas.
 # ═══════════════════════════════════════════════════════════════════════════
 
+@app.get("/api/wbj-explicacion")
+def wbj_explicacion(request: Request, report_id: str):
+    """El 2º pase del LLM, a petición y DESPUÉS del análisis.
+
+    Es la mitad que faltaba. La explicación existía desde hacía tiempo pero
+    estaba detrás de `?explain=1`, y la pantalla nunca lo pedía: el texto libre
+    del perfil viajaba hasta el prompt y ahí se paraba, así que escribieras lo
+    que escribieras no cambiaba una palabra de lo que veías.
+
+    No se metió en `/api/analyze` porque cuesta ~18 s y ese endpoint ya roza el
+    corte de Render. Aquí se reconstruye el contexto desde el reporte YA
+    guardado —los mismos números, ninguno recalculado— y el navegador la pide
+    cuando el análisis ya está en pantalla.
+
+    **Solo tu propio reporte.** Se filtra por `usuario_id` igual que el archivo:
+    de nada serviría un archivo privado si esta ruta explicara el de otro.
+    """
+    u = _usuario_actual(request)
+    try:
+        conn = _db()
+        if u is not None:
+            fila = conn.execute(
+                "SELECT ticker, payload FROM reports WHERE report_id=? AND usuario_id=?",
+                (report_id, u["id"])).fetchone()
+        else:
+            fila = conn.execute(
+                "SELECT ticker, payload FROM reports WHERE report_id=? AND usuario_id IS NULL",
+                (report_id,)).fetchone()
+        conn.close()
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Leer el reporte")}
+
+    # No se distingue «no existe» de «no es tuyo»: distinguirlos convertiría la
+    # ruta en un oráculo de qué ha analizado la gente.
+    if fila is None or not fila["payload"]:
+        return {"ok": False, "error": "No se encontró ese reporte."}
+    try:
+        payload = json.loads(fila["payload"])
+    except Exception:                            # noqa: BLE001
+        return {"ok": False, "error": "El reporte guardado no se puede leer."}
+
+    if payload.get("wbj_explanation"):
+        # Ya se generó (p. ej. con `?explain=1`). Devolverla en vez de pagar
+        # otros 18 s por el mismo texto.
+        return _json_safe({"ok": True, "explicacion": payload["wbj_explanation"],
+                           "fuente": payload.get("wbj_explanation_source"),
+                           "cacheada": True})
+    try:
+        ctx = _wbj_explain_context(fila["ticker"],
+                                   payload.get("nombre_completo") or fila["ticker"],
+                                   payload.get("precio_actual"), payload)
+        expl, fuente = _wbj_explain(ctx)
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Generar la explicación")}
+    if not expl:
+        return {"ok": False, "error": "El proveedor de IA no devolvió la explicación."}
+
+    # Se guarda en el reporte: la próxima vez que abras este análisis, sale al
+    # instante y sin gastar otra llamada.
+    try:
+        payload["wbj_explanation"] = expl
+        payload["wbj_explanation_source"] = fuente
+        save_report_payload(report_id, payload)
+    except Exception:                            # noqa: BLE001
+        pass
+    return _json_safe({"ok": True, "explicacion": expl, "fuente": fuente,
+                       "cacheada": False})
+
+
 @app.get("/api/aprendizaje")
 def aprendizaje(request: Request):
     """Cuánto han aprendido los agentes del uso de TODOS, y cuánto aportaste tú."""
@@ -7084,39 +7153,116 @@ _US_EXCHANGES = {"NMS", "NGM", "NCM", "NIM", "NYQ", "NYS", "ASE", "PCX", "BATS",
                  "AMEX", "NASDAQ", "NYSE", "NASDAQGS", "NASDAQGM", "NASDAQCM"}
 
 
+def _fmt_usd_corto(v):
+    """Dólares con separador de miles, sin decimales.
+
+    El perfil habla de restricciones —capital, tope por posición— y ahí
+    «$1.0K» y «$1,049» son la diferencia entre que algo te quepa o no. Se
+    escribe entero.
+    """
+    try:
+        return f"${float(v or 0):,.0f}"
+    except (TypeError, ValueError):
+        return "$0"
+
+
+#: Los mercados que el cuestionario ofrece, y cómo se comprueba cada uno contra
+#: los datos del proveedor. Sin esto, «¿en qué mercados inviertes?» sería una
+#: pregunta decorativa: la respuesta no podría contrastarse con nada.
+_MERCADOS_CHEQUEO = {
+    "EE.UU.": lambda ex, pais: ex in _US_EXCHANGES or pais == "United States",
+    "Europa": lambda ex, pais: pais in {"Germany", "France", "Spain", "Italy",
+                                        "Netherlands", "Switzerland", "Sweden",
+                                        "United Kingdom", "Ireland", "Belgium",
+                                        "Denmark", "Norway", "Finland", "Portugal",
+                                        "Austria", "Poland"},
+    "Latinoamérica": lambda ex, pais: pais in {"Brazil", "Mexico", "Chile", "Colombia",
+                                               "Argentina", "Peru", "Uruguay", "Panama"},
+    "Asia": lambda ex, pais: pais in {"China", "Japan", "India", "South Korea", "Taiwan",
+                                      "Hong Kong", "Singapore", "Indonesia", "Thailand",
+                                      "Malaysia", "Vietnam", "Philippines", "Israel"},
+}
+
+
 def _wbj_profile_fit(info, recommendation):
-    """Filtro por perfil del ORQUESTADOR (CLAUDE.md paso 6): cruza la recomendación de
-    research con el perfil de Kevin (Perfil Inversionista/Kevin.md). NO cambia el scoring
-    (Kevin.md lo dice explícitamente); es una CLASIFICACIÓN de fit con evidencia del perfil.
-    Anclado SOLO en hechos del perfil: universo EE.UU., tolerancia agresiva/especulativa,
-    capital ~$1,000. Devuelve None si no hay perfil."""
-    name, text = _load_investor_profile()
-    if not text:
+    """Filtro por perfil del ORQUESTADOR (CLAUDE.md paso 6): cruza la recomendación
+    de research con el perfil de QUIEN pidió el análisis.
+
+    **NO cambia el scoring** — es una CLASIFICACIÓN de fit, y esa regla no se
+    toca. Lo que cambió es de dónde salen los hechos con los que se clasifica.
+
+    Antes estaban ESCRITOS A MANO: «Kevin invierte solo en EE.UU.», «~$1.000
+    USD», «agresivo / especulativo», «1-3 años». Con un solo usuario eso era
+    correcto — era el perfil de todo el mundo. Con cuentas, le contaba a cada
+    persona el perfil de Kevin, incluida la comprobación de universo: a alguien
+    que hubiera marcado Europa se le decía que una acción alemana estaba «fuera
+    de su universo». Ahora todo sale de `_perfil_leer()`.
+
+    Devuelve `None` si no hay perfil legible.
+    """
+    perfil = _perfil_leer()
+    if not perfil:
         return None
-    # Universo: Kevin invierte SOLO en EE.UU. → chequeo determinista del listado.
+    nombre, _texto = _load_investor_profile()
+
+    # ── Universo: chequeo determinista contra los mercados que TÚ marcaste ──
     _exch = (info.get("exchange") or "").upper()
     _country = info.get("country") or ""
-    universe_ok = (_exch in _US_EXCHANGES) or (_country == "United States")
+    mercados = list(perfil.get("mercados") or [])
+    # Sin mercados marcados no se puede afirmar que algo esté fuera: se deja
+    # pasar y se dice. Inventar un universo sería peor que no tenerlo.
+    universe_ok = (not mercados) or any(
+        _MERCADOS_CHEQUEO[m](_exch, _country) for m in mercados
+        if m in _MERCADOS_CHEQUEO)
+
+    tol = _CU.TOLERANCIAS.get(perfil.get("tolerancia"), _CU.TOLERANCIAS["agresivo"])
+    _lista = lambda k, v="sin especificar": ", ".join(perfil.get(k) or []) or v  # noqa: E731
     rec = _reco_norm(recommendation)
     if not universe_ok:
-        fit, reason = "fuera-de-universo", "Kevin invierte solo en EE.UU.; este valor no cotiza en EE.UU."
+        fit = "fuera-de-universo"
+        reason = (f"Tu perfil invierte en {_lista('mercados')}; este valor no cotiza ahí"
+                  + (f" ({_country})" if _country else "") + ".")
     elif rec == RESEARCH_FAVORABLE:
         fit, reason = "apto", "Clasificación favorable, dentro de tu universo y tolerancia."
     elif rec == RESEARCH_ESPECULATIVO:
-        fit, reason = "apto-especulativo", ("Especulativa, pero dentro de tu tolerancia agresiva/especulativa "
-                                            "— cuida el sizing (riesgo de ruina con ~$1,000 + opciones).")
+        # El aviso de riesgo de ruina se calibra al capital REAL. Con $1.000 y
+        # opciones es urgente; con $250.000 es una nota al pie, y repetirlo con
+        # las mismas palabras lo convertiría en ruido que se deja de leer.
+        _apretado = perfil.get("capital", 0) and perfil["capital"] < 10_000
+        fit = "apto-especulativo"
+        reason = (f"Especulativa, pero dentro de tu tolerancia {tol['label'].lower()}"
+                  + (" — cuida el sizing: con "
+                     f"{_fmt_usd_corto(perfil['capital'])} y opciones, el riesgo de "
+                     "ruina es real." if _apretado else " — dimensiona con tu tope por posición."))
     elif rec == RESEARCH_CONDICIONAL:
         fit, reason = "condicional", "Condicional — esperar confirmación antes de dimensionar."
     else:
         fit, reason = "evitar", "El research no favorece invertir ahora."
+
+    pos = perfil.get("max_posicion_pct") or [20, 30]
     return {
-        "profile_name": name, "universe_ok": bool(universe_ok),
-        "universo": "Estados Unidos", "tolerancia": "agresivo / especulativo",
-        "horizonte": "1-3 años (+ opciones semanas-meses; ingresos 5+ años)",
-        "instrumentos": "acciones / ETF / opciones (EE.UU.); sin forex ni cripto",
-        "capital": "~$1,000 USD",
-        "sizing_note": ("Capital pequeño + opciones → cuida el riesgo de ruina; prioriza "
-                        "probabilidad de éxito y puntos de entrada/salida (timing)."),
+        "profile_name": nombre or perfil.get("nombre") or "inversionista",
+        # Si el perfil es el de referencia, se DICE. El lector tiene derecho a
+        # saber que estos hechos no los declaró nadie.
+        "es_por_defecto": perfil.get("modo") == "default",
+        "universe_ok": bool(universe_ok),
+        "universo": _lista("mercados"),
+        "tolerancia": tol["label"].lower(),
+        "horizonte": perfil.get("horizonte") or "sin especificar",
+        "instrumentos": _lista("instrumentos")
+                        + (f"; sin {_lista('excluir', '')}" if perfil.get("excluir") else ""),
+        "capital": _fmt_usd_corto(perfil.get("capital") or 0),
+        "riesgo_por_operacion": _fmt_usd_corto(perfil.get("riesgo_por_trade") or 0),
+        "max_posicion_pct": f"{pos[0]}% – {pos[1]}%",
+        "sizing_note": (
+            f"Tope por posición {pos[0]}%–{pos[1]}% de "
+            f"{_fmt_usd_corto(perfil.get('capital') or 0)} "
+            f"({_fmt_usd_corto((perfil.get('capital') or 0) * pos[0] / 100)}–"
+            f"{_fmt_usd_corto((perfil.get('capital') or 0) * pos[1] / 100)} por posición). "
+            + ("Capital pequeño + opciones → cuida el riesgo de ruina; prioriza "
+               "probabilidad de éxito y puntos de entrada/salida."
+               if (perfil.get("capital") or 0) < 10_000 else
+               "Prioriza probabilidad de éxito y puntos de entrada/salida (timing).")),
         "fit": fit, "fit_reason": reason,
         "disclaimer": "Clasificación de research; nunca una orden automática. La ejecución es manual y tuya."}
 
@@ -7631,6 +7777,71 @@ class WBJExplanation(BaseModel):
     ajuste_a_mi_perfil: str = Field(..., description="Explica cómo encaja (o no) esta inversión con MI perfil (horizonte 1-3a + opciones corto plazo + ingresos, agresivo/especulativo, acciones/ETF/opciones, ~$1,000), incluido el riesgo de sizing con capital pequeño.")
     calibracion: str = Field(..., description="Explica en palabras qué dice mi track record/calibración histórica (si hay) y cómo tomar la confianza del veredicto. Si no hay historial, dilo.")
     conclusion: str = Field(..., description="La conclusión final en 1-2 frases, honesta y sin promesas de retorno.")
+
+
+def _wbj_explain_context(ticker, nombre_largo, precio, analisis_json):
+    """Arma el contexto del 2º pase: los números YA congelados + TU perfil.
+
+    Estaba escrito en línea dentro de `/api/analyze`, y por eso la explicación
+    solo podía generarse allí — pagando sus ~18 s dentro del camino crítico o
+    no generándose nunca. Extraído, el mismo contexto se puede reconstruir
+    después desde el reporte guardado, que es lo que hace
+    `/api/wbj-explicacion`.
+
+    El bloque `=== MI PERFIL ===` es el ÚNICO sitio donde entra el texto libre
+    del cuestionario. De ahí sale que el capital, el horizonte y lo que
+    escribiste cambien el TONO de la explicación — nunca los números.
+    """
+    _pname, _ptext = _load_investor_profile()
+    _wj = analisis_json.get("wbj") or {}
+    _cts = _wj.get("categories") or {}
+    _catl = []
+    for _ck in WBJ_ORDER:
+        _cc2 = _cts.get(_ck) or {}
+        _catl.append(f"- {_cc2.get('label', _ck)}: {_cc2.get('score10')}/10 "
+                     f"({_cc2.get('points')}/{_cc2.get('max')} pts, "
+                     f"cob {int((_cc2.get('coverage') or 0) * 100)}%, {_cc2.get('status')})")
+    _pf = analisis_json.get("profile_fit") or {}
+    # MEMORIA (CLAUDE.md): lee la tesis PREVIA para dar coherencia entre sesiones.
+    _prior_thesis = _wbj_read_thesis_md(ticker)
+    _prior_ctx = (f"\n=== TESIS PREVIA (Memoria) ===\n{_prior_thesis[:900]}\n"
+                  "Si esta llamada contradice la tesis previa, la explicación debe señalarlo.\n"
+                  if _prior_thesis else "")
+    # Re-ejecución: dile al LLM qué disparó reemplazar la tesis previa (si algo).
+    _rex = analisis_json.get("re_execution") or {}
+    if _rex.get("triggers"):
+        _prior_ctx += ("RE-EJECUCIÓN: la tesis previa quedó obsoleta por: "
+                       + "; ".join(t.get("detalle", "") for t in _rex["triggers"]) + "\n")
+    # Los hechos del perfil van EXPLÍCITOS además del `.md`: son los que el
+    # LLM tiene que usar para calibrar el tamaño de lo que describe, y
+    # enterrados en la prosa del archivo se pierden.
+    _perfil_duro = ""
+    if _pf:
+        _perfil_duro = (f"HECHOS DE TU PERFIL: capital {_pf.get('capital')} · "
+                        f"riesgo por operación {_pf.get('riesgo_por_operacion')} · "
+                        f"tope por posición {_pf.get('max_posicion_pct')} · "
+                        f"horizonte {_pf.get('horizonte')} · universo {_pf.get('universo')}\n")
+        if _pf.get("es_por_defecto"):
+            _perfil_duro += ("AVISO: esta persona NO ha personalizado su perfil. Son valores de "
+                             "referencia, no suyos — no le hables como si los hubiera declarado.\n")
+    return (
+        f"TICKER: {ticker} — {nombre_largo} | precio ${precio}\n"
+        f"PERFIL/BANDA: {_wj.get('profile')} — {_wj.get('band')}\n"
+        f"RAW TOTAL: {_wj.get('raw_total')}/100 | CONFIANZA TOTAL: {_wj.get('total_confidence')}\n"
+        "CATEGORÍAS (score de Victor, no cambiar):\n" + "\n".join(_catl) + "\n"
+        f"GATES PASADOS: {[g.get('gate') for g in _wj.get('passed_gates', []) if isinstance(g, dict)]}\n"
+        f"GATES FALLIDOS: {[g.get('gate') for g in _wj.get('failed_gates', []) if isinstance(g, dict)]}\n"
+        f"OVERRIDES ACTIVOS: {_wj.get('overrides')}\n"
+        f"WARNINGS: {_wj.get('warnings')}\n"
+        f"CONTRADICCIONES: {[c.get('combination') for c in (_wj.get('contradictions') or [])]}\n"
+        f"TARGETS 12m: bull ${analisis_json.get('target_bull_12m')} / base "
+        f"${analisis_json.get('target_base_12m')} / bear ${analisis_json.get('target_bear_12m')} "
+        f"| fair value ${analisis_json.get('fair_value')}\n"
+        f"NIVELES (synthesize_levels de Victor):\n"
+        f"{_wbj_levels_ctx(analisis_json.get('victor_levels'))}\n"
+        f"FIT DE PERFIL (determinista): {_pf.get('fit')} — {_pf.get('fit_reason')}\n"
+        + _perfil_duro + _prior_ctx +
+        f"\n=== MI PERFIL ({_pname or 'inversionista'}) ===\n{_ptext}")
 
 
 def _wbj_explain(context_text, temp=0.3):
@@ -10211,60 +10422,29 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
             finally:
                 if isinstance(_eng, dict):
                     _eng.pop("_victor_final", None)   # objeto interno: nunca al cliente
-            # ── EXPLICACIÓN EN PALABRAS (2º pase LLM): SOLO explica los números YA congelados
-            #    de Victor + su ajuste a tu perfil. NO cambia ningún cálculo (Kevin.md).
+            # ── EXPLICACIÓN EN PALABRAS (2º pase LLM) ──────────────────────
             #
-            #    Detrás de `?explain=1`. Medido: 18.4 s de los ~105 s que tardaba
-            #    /api/analyze, para un campo que la plataforma no lee en ningún
-            #    sitio (0 usos de `wbj_explanation` en el HTML). Pagarlo en cada
-            #    llamada acercaba el endpoint al corte de Render sin que nadie
-            #    viera el resultado. La capacidad sigue ahí; ahora se pide. ──
-            try:
-                _pname, _ptext = _load_investor_profile()
-                _wj = analisis_json.get("wbj") or {}
-                _cts = _wj.get("categories") or {}
-                _catl = []
-                for _ck in WBJ_ORDER:
-                    _cc2 = _cts.get(_ck) or {}
-                    _catl.append(f"- {_cc2.get('label', _ck)}: {_cc2.get('score10')}/10 "
-                                 f"({_cc2.get('points')}/{_cc2.get('max')} pts, "
-                                 f"cob {int((_cc2.get('coverage') or 0) * 100)}%, {_cc2.get('status')})")
-                _pf = analisis_json.get("profile_fit") or {}
-                # MEMORIA (CLAUDE.md): lee la tesis PREVIA para dar coherencia entre sesiones.
-                _prior_thesis = _wbj_read_thesis_md(ticker)
-                _prior_ctx = (f"\n=== TESIS PREVIA (Memoria) ===\n{_prior_thesis[:900]}\n"
-                              "Si esta llamada contradice la tesis previa, la explicación debe señalarlo.\n"
-                              if _prior_thesis else "")
-                # Re-ejecución: dile al LLM qué disparó reemplazar la tesis previa (si algo).
-                _rex = analisis_json.get("re_execution") or {}
-                if _rex.get("triggers"):
-                    _prior_ctx += ("RE-EJECUCIÓN: la tesis previa quedó obsoleta por: "
-                                   + "; ".join(t.get("detalle", "") for t in _rex["triggers"]) + "\n")
-                _ctx = (
-                    f"TICKER: {ticker} — {info.get('longName', ticker)} | precio ${precio_actual}\n"
-                    f"PERFIL/BANDA: {_wj.get('profile')} — {_wj.get('band')}\n"
-                    f"RAW TOTAL: {_wj.get('raw_total')}/100 | CONFIANZA TOTAL: {_wj.get('total_confidence')}\n"
-                    "CATEGORÍAS (score de Victor, no cambiar):\n" + "\n".join(_catl) + "\n"
-                    f"GATES PASADOS: {[g.get('gate') for g in _wj.get('passed_gates', []) if isinstance(g, dict)]}\n"
-                    f"GATES FALLIDOS: {[g.get('gate') for g in _wj.get('failed_gates', []) if isinstance(g, dict)]}\n"
-                    f"OVERRIDES ACTIVOS: {_wj.get('overrides')}\n"
-                    f"WARNINGS: {_wj.get('warnings')}\n"
-                    f"CONTRADICCIONES: {[c.get('combination') for c in (_wj.get('contradictions') or [])]}\n"
-                    f"TARGETS 12m: bull ${analisis_json.get('target_bull_12m')} / base "
-                    f"${analisis_json.get('target_base_12m')} / bear ${analisis_json.get('target_bear_12m')} "
-                    f"| fair value ${analisis_json.get('fair_value')}\n"
-                    f"NIVELES (synthesize_levels de Victor):\n{_wbj_levels_ctx(_eng.get('victor_levels'))}\n"
-                    f"FIT DE PERFIL (determinista): {_pf.get('fit')} — {_pf.get('fit_reason')}\n"
-                    + _prior_ctx +
-                    f"\n=== MI PERFIL ({_pname or 'Kevin'}) ===\n{_ptext}")
-                # La unica linea cara del bloque: ~18.4 s contra Gemini.
-                _expl, _expl_src = _wbj_explain(_ctx) if explain else (None, None)
-                if _expl:
-                    analisis_json["wbj_explanation"] = _expl
-                    analisis_json["wbj_explanation_source"] = _expl_src
-                    print(f"[analyze] {ticker}: explicación WBJ en palabras generada ({_expl_src})")
-            except Exception as _ee:
-                print(f"[analyze] explicación WBJ omitida: {str(_ee)[:120]}")
+            #  Solo explica los números YA congelados; no cambia ningún cálculo.
+            #  Cuesta ~18,4 s contra Gemini, así que NO se hace aquí salvo que se
+            #  pida con `?explain=1`: metida en el camino crítico acercaba
+            #  /api/analyze al corte de Render.
+            #
+            #  La pantalla ya no la pide por aquí — la pide después, al terminar
+            #  el análisis, contra `/api/wbj-explicacion`. El resultado es el
+            #  mismo texto; lo que cambia es que el análisis aparece a los ~105 s
+            #  en vez de a los ~123 s, y la explicación llega sola encima.
+            #  `?explain=1` se mantiene para quien llame la API desde un script.
+            if explain:
+                try:
+                    _ctx = _wbj_explain_context(ticker, info.get("longName", ticker),
+                                                precio_actual, analisis_json)
+                    _expl, _expl_src = _wbj_explain(_ctx)
+                    if _expl:
+                        analisis_json["wbj_explanation"] = _expl
+                        analisis_json["wbj_explanation_source"] = _expl_src
+                        print(f"[analyze] {ticker}: explicación WBJ en palabras generada ({_expl_src})")
+                except Exception as _ee:
+                    print(f"[analyze] explicación WBJ omitida: {str(_ee)[:120]}")
             # ── MEMORIA (protocolo CLAUDE.md): escribe la tesis + predicción con los números
             #    YA CONGELADOS de Victor. Corrige encima (apila historial); nunca borra. ──
             try:
