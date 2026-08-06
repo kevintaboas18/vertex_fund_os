@@ -86,6 +86,13 @@ _CATALYST_ANCHORS = (
 )
 _BACKLOG_ANCHORS = ("remaining performance obligation", "contracted backlog",
                     "total backlog")
+#: FIN-GR-004 sale del puente que el emisor concilia en su comunicado de
+#: resultados: `DATASET.md` lo llama "issuer reconciliation". Es una convención
+#: de consumo e industriales -- KO lo menciona 19 veces en el suyo, WMT, PLTR y
+#: JPM ninguna -- así que quien no lo use se queda sin la métrica, que es lo
+#: correcto: `organic_growth` está en PROHIBITED_IMPUTATION y no se deduce.
+_ORGANIC_ANCHORS = ("organic revenue", "organic growth", "organic sales",
+                    "comparable revenue", "organic net revenue")
 # DATASET.md's catalyst registry looks "forward 24 months".
 _CATALYST_HORIZON_MONTHS = 24.0
 _WINDOW = 1400
@@ -312,6 +319,72 @@ class _Backlog(BaseModel):
         None, description="Total remaining performance obligations / contracted "
                           "backlog, in USD (not millions or billions).")
     quote: str | None = Field(None, description="Verbatim sentence stating it.")
+
+
+class _Organic(BaseModel):
+    """El crecimiento orgánico tal como el emisor lo concilia."""
+
+    organic_growth_pct: float | None = Field(
+        None, description="Organic revenue growth for the period as a decimal "
+                          "(6% -> 0.06). Null unless the release states it.")
+    quote: str | None = Field(None, description="Verbatim sentence stating it.")
+
+
+def extract_organic_growth(release: dict, settings: Any,
+                           client: Any = None) -> float | None:
+    """El crecimiento orgánico que el emisor declara, verificado por cita.
+
+    `FIN-GR-004` divide crecimiento orgánico entre crecimiento total, y
+    `DATASET.md` nombra su fuente: "issuer reconciliation", que vive en el
+    comunicado de resultados y no en el 10-K.
+
+    **Esto no es la imputación que prohíbe `PROHIBITED_IMPUTATION`.** Ahí lo
+    vedado es DEDUCIR el orgánico de otros números reportados -- restar
+    adquisiciones del crecimiento total, por ejemplo. Aquí se transcribe la
+    cifra que la propia empresa concilia y publica, que es lo que el módulo de
+    financial ya admite como "explicitly disclosed assumption".
+
+    Devuelve `None` cuando el comunicado no lo menciona, que es el caso de la
+    mayoría: es una convención de consumo e industriales. Medido: KO lo
+    menciona 19 veces en su comunicado; WMT, PLTR y JPM, ninguna.
+    """
+    text = (release or {}).get("text") or ""
+    if not text:
+        return None
+    client = client or _client_for(settings)
+    if client is None:
+        return None
+
+    excerpts = _relevant_context(text, _ORGANIC_ANCHORS, budget=12_000)
+    if not excerpts:
+        logger.info("el comunicado no concilia crecimiento organico; no se pregunta")
+        return None
+
+    try:
+        parsed = _parsed(client.messages.parse(
+            model=getattr(settings, "extract_model", None) or "claude-sonnet-5",
+            max_tokens=2048,
+            system=_SYSTEM,
+            messages=[{"role": "user", "content":
+                       "What organic revenue growth does this earnings release "
+                       "state for the reported period? Give it as a decimal "
+                       "(6% -> 0.06). Return null unless the release states it "
+                       "plainly.\n\n" + excerpts}],
+            output_format=_Organic,
+        ), _Organic)
+    except Exception:
+        logger.warning("extraccion del crecimiento organico fallo", exc_info=True)
+        return FALLO
+
+    if parsed is None:
+        return FALLO
+    v = parsed.organic_growth_pct
+    if v is None or not parsed.quote or not -1.0 < v < 3.0:
+        return None
+    if _normalise(parsed.quote) not in _normalise(text):
+        logger.warning("la cita del crecimiento organico no esta en el comunicado")
+        return None
+    return v
 
 
 def extract_backlog(filing: dict, settings: Any, client: Any = None) -> float | None:

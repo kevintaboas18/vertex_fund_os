@@ -1518,6 +1518,47 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
                 logger.warning("no se pudo comprobar si %s declara RPO", ticker,
                                exc_info=True)
 
+            # ---- FIN-GR-004: el puente de crecimiento organico ----
+            # `DATASET.md` nombra su fuente: "issuer reconciliation", que vive
+            # en el COMUNICADO DE RESULTADOS y no en el 10-K. `organic_growth`
+            # esta en PROHIBITED_IMPUTATION, asi que no se deduce restando
+            # adquisiciones: se transcribe la cifra que la propia empresa
+            # concilia, verificada por cita, que es lo que `financial.py` ya
+            # admite como "explicitly disclosed assumption".
+            #
+            # Los dos crecimientos tienen que ser del MISMO periodo. El
+            # comunicado es trimestral, asi que el total se calcula contra el
+            # mismo trimestre del ano anterior -- no contra el ano fiscal, que
+            # compararia tres meses con doce.
+            try:
+                from wbj.extract.filing import extract_organic_growth
+
+                release = edgar.latest_earnings_release(cik)
+                if release:
+                    org = _cached_extract(
+                        Cache(settings.cache_dir), ticker,
+                        {"accession": release.get("accession")}, "organic",
+                        lambda: extract_organic_growth(release, settings))
+                    if isinstance(org, (int, float)):
+                        # `fmp` todavia no existe en este punto de la
+                        # funcion: se construye aqui, con el mismo cache.
+                        _fmp = FMPProvider(settings, Cache(settings.cache_dir))
+                        qs = _fmp.income_quarterly(ticker) or []
+                        rev = [float(q["revenue"]) for q in qs[:5]
+                               if isinstance(q, dict) and q.get("revenue")]
+                        if len(rev) >= 5 and rev[4]:
+                            total = (rev[0] - rev[4]) / abs(rev[4])
+                            if total != 0:
+                                overlay["organic_growth_bridge"] = {
+                                    "organic_growth": float(org),
+                                    "total_growth": total,
+                                    "_fuente": release.get("url"),
+                                    "_periodo": "trimestre contra el mismo del ano anterior",
+                                }
+            except Exception:
+                logger.warning("puente de crecimiento organico no disponible",
+                               exc_info=True)
+
             # Dividends per share, for VAL-DDM-024/VAL-HDDM-025. EDGAR is
             # tier 1 in SOURCE_HIERARCHY.md and FMP tier 5, and the figure is
             # tagged in XBRL, so the primary source is also the free one --
