@@ -1016,14 +1016,52 @@ class TestIdeasDelMercado:
         assert set(d["rejected"]) == {"theta_alto", "vencido", "sin_theta",
                                       "no_inusual", "lejano"}
 
-    def test_el_sizing_NO_viaja_en_la_respuesta(self, client, mercado):
-        """Igual que su ruta: el tamaño de cuenta es de Kevin y no sale del
-        navegador. Aquí van los griegos, no el techo de contratos."""
+    def test_el_sizing_sale_del_perfil_del_servidor(self, client, mercado):
+        """DIVERGENCIA DECLARADA: su ruta devuelve los griegos y nada más
+        porque su app no tiene perfil de inversionista. Esta sí lo tiene, en el
+        servidor, así que la capa 2 de su propio `risk.py` corre aquí.
+
+        El motor es el suyo: se comprueba que el techo de contratos coincide
+        con lo que `size_flow` devuelve para el mismo perfil. Si alguien cambia
+        el perfil por defecto o la fórmula, esto se cae.
+        """
+        import vertex_api as V
+        from wbj.tito.risk import RiskProfile, size_flow
+
         d = client.get("/api/tito-ideas").json()
-        for i in d["ideas"]:
-            for prohibido in ("max_contracts", "total_cost", "account_size",
-                              "binding", "suggested_pct"):
-                assert prohibido not in i, f"el sizing se coló: {prohibido}"
+        p = d["perfil"]
+        assert p["riesgo_por_trade"] == pytest.approx(
+            p["capital"] * p["riesgo_pct"] / 100, abs=0.01)
+        assert p["caben"] == sum(1 for i in d["ideas"]
+                                 if (i["sizing"] or {}).get("max_contracts"))
+        assert any(i["sizing"] for i in d["ideas"]), "ninguna idea trae sizing"
+
+    def test_lo_que_no_te_cabe_se_baja_pero_NO_se_esconde(self, client, mercado):
+        """Que una operación esté fuera de tu presupuesto es información, no
+        ruido. Se ordena —las que caben primero— y se marca; nunca se filtra."""
+        d = client.get("/api/tito-ideas").json()
+        caben = [bool((i["sizing"] or {}).get("max_contracts")) for i in d["ideas"]]
+        assert caben == sorted(caben, reverse=True), "las que caben no van primero"
+
+    def test_el_perfil_cambia_el_orden_y_el_techo(self, client, monkeypatch, mercado):
+        """La prueba de que el perfil MANDA: con $1,000 caben menos ideas que
+        con $250,000, sobre exactamente la misma cinta."""
+        import vertex_api as V
+
+        base = V._perfil_leer()
+        monkeypatch.setattr(V, "_perfil_leer",
+                            lambda: {**base, "capital": 1_000.0, "riesgo_pct": 15.0,
+                                     "riesgo_por_trade": 150.0})
+        pobre = client.get("/api/tito-ideas").json()
+        monkeypatch.setattr(V, "_perfil_leer",
+                            lambda: {**base, "capital": 250_000.0, "riesgo_pct": 15.0,
+                                     "riesgo_por_trade": 37_500.0})
+        rico = client.get("/api/tito-ideas").json()
+
+        assert pobre["perfil"]["capital"] == 1_000
+        assert rico["perfil"]["caben"] >= pobre["perfil"]["caben"]
+        assert len(rico["ideas"]) == len(pobre["ideas"]), \
+            "el perfil ordena y marca; no puede borrar ideas de la lista"
 
     def test_el_umbral_es_el_del_SCREENER_no_el_institucional(self):
         from wbj.tito.risk import IDEA_UNUSUAL_THRESHOLD
@@ -1177,13 +1215,43 @@ class TestWheel:
                 assert c["premium"] is None and c["metrics"] is None and c["score"] is None
                 assert c["block_reason"] in ("sin_bid", "spread_ancho", "oi_bajo")
 
-    def test_el_sizing_del_usuario_NO_viaja(self, client, wheel_dobles):
-        """`wheelAfford.ts` corre en su cliente porque el saldo vive en
-        localStorage. Aquí va el colateral; quién puede pagarlo, no."""
+    def test_la_asequibilidad_sale_del_perfil_del_servidor(self, client, wheel_dobles):
+        """DIVERGENCIA DECLARADA: `wheelAfford.ts` corre en su CLIENTE porque
+        allí el saldo vive en localStorage. Aquí el capital está en
+        `Perfil Inversionista/perfil.json`, en el servidor, así que su misma
+        función corre en la ruta.
+
+        Lo que se vigila no es que el número viaje —tiene que viajar— sino que
+        la fórmula siga siendo la suya: `affordable` es `colateral <= capital`,
+        y `shortfall` lo que falta. Un signo al revés aquí diría "sí te cabe"
+        sobre una operación que te deja la cuenta en negativo.
+        """
         d = client.get("/api/tito-wheel").json()
-        crudo = json.dumps(d)
-        for prohibido in ("affordable", "shortfall", "account_size", "cash"):
-            assert prohibido not in crudo, f"el saldo se coló: {prohibido}"
+        assert d["perfil"]["capital"] >= 0
+        cap = d["perfil"]["capital"]
+        vistos = 0
+        for c in d["candidates"]:
+            if c["blocked"]:
+                continue
+            a, col = c["afford"], c["metrics"]["collateral"]
+            assert a is not None, "un candidato vivo sin veredicto de asequibilidad"
+            assert a["affordable"] is (col <= cap), (
+                f"{c['ticker']} {c['strike']}P: colateral {col} vs capital {cap} "
+                f"→ affordable={a['affordable']}")
+            assert a["shortfall"] == (0 if a["affordable"] else pytest.approx(col - cap))
+            vistos += 1
+        assert vistos, "el doble no dejó ningún candidato vivo que comprobar"
+
+    def test_lo_que_no_te_cabe_se_baja_pero_NO_se_esconde(self, client, wheel_dobles):
+        """Su `sortByAffordThenScore`: bloqueado → no asequible → score.
+
+        Esconder lo que no te cabe te dejaría creyendo que el mercado no
+        ofrecía nada. Se ordena, no se filtra.
+        """
+        d = client.get("/api/tito-wheel").json()
+        vivos = [c for c in d["candidates"] if not c["blocked"]]
+        orden = [(not c["afford"]["affordable"], -c["score"]["total"]) for c in vivos]
+        assert orden == sorted(orden), "el orden no es asequible-primero-luego-score"
 
     @staticmethod
     def _cadena_sin_precio(monkeypatch):
@@ -2396,3 +2464,386 @@ class TestElPanelNoTiraNadaDelPayload:
                    "vcClustersHTML", "vcMemoryHTML"):
             assert f"function {fn}(" in html, f"{fn} no existe"
             assert f"{fn}(d)" in render, f"{fn} existe pero nadie lo llama"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  PERFIL DEL INVERSIONISTA
+#
+#  Un perfil que no cambia una recomendación es un formulario decorativo. Lo
+#  que se vigila aquí es el CAMINO completo: se escribe en la pantalla → se
+#  guarda en `perfil.json` → se regenera `Kevin.md` → y ese `.md` es el que
+#  Analyze y Explore ya leían. Ese último eslabón es el que permite que el
+#  perfil llegue a los tres agentes SIN tocar esas dos áreas.
+# ══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture
+def perfil_aislado(tmp_path, monkeypatch):
+    """Redirige el perfil a un directorio temporal.
+
+    Sin esto, correr los tests reescribiría el perfil real de Kevin — que es
+    justamente el archivo del que dependen los otros dos agentes.
+    """
+    import vertex_api as V
+
+    monkeypatch.setattr(V, "_PERFIL_DIR", str(tmp_path))
+    monkeypatch.setattr(V, "_PERFIL_JSON", str(tmp_path / "perfil.json"))
+    return tmp_path
+
+
+class TestPerfilDelInversionista:
+    """`GET/POST /api/perfil` — la cuenta y el perfil, en un solo sitio."""
+
+    def test_sin_archivo_devuelve_un_perfil_utilizable(self, client, perfil_aislado):
+        """Un usuario nuevo no tiene perfil. La ruta no puede reventar ni
+        devolver `null`: devuelve el defecto y el sistema sigue de pie."""
+        d = client.get("/api/perfil").json()
+        assert d["ok"] is True
+        assert d["perfil"]["tolerancia"] in {t["id"] for t in d["tolerancias"]}
+        assert d["perfil"]["riesgo_por_trade"] >= 0
+
+    def test_el_riesgo_por_trade_sale_de_la_tolerancia_no_del_usuario(
+            self, client, perfil_aislado):
+        """El % por operación NO es un campo libre: lo fija la banda. Si se
+        pudiera teclear, cualquiera pondría 100% y el sizing dejaría de ser
+        una restricción."""
+        import vertex_api as V
+
+        for banda, pct in [("conservador", 2.0), ("moderado", 5.0),
+                           ("agresivo", 15.0), ("especulativo", 30.0)]:
+            r = client.post("/api/perfil", json={"capital": 10_000,
+                                                 "tolerancia": banda}).json()
+            assert r["ok"] is True
+            assert r["perfil"]["riesgo_pct"] == pct
+            assert r["perfil"]["riesgo_por_trade"] == pytest.approx(10_000 * pct / 100)
+        assert V._TOLERANCIAS["conservador"]["riesgo_pct"] < \
+            V._TOLERANCIAS["especulativo"]["riesgo_pct"]
+
+    def test_guardar_regenera_el_md_QUE_YA_LEEN_analyze_y_explore(
+            self, client, perfil_aislado):
+        """El eslabón que hace que esto no sea un formulario decorativo.
+
+        `_load_investor_profile()` —la función que Analyze y Explore ya usaban
+        antes de este trabajo— lee `Perfil Inversionista/Kevin.md`. Guardar
+        aquí reescribe ESE archivo. Por eso el perfil llega al agente de
+        acciones sin tocar una línea de esas dos áreas.
+        """
+        import vertex_api as V
+
+        client.post("/api/perfil", json={
+            "nombre": "Kevin", "capital": 4_200, "tolerancia": "moderado",
+            "horizonte": "1-3 años",
+            "texto": "No toco cripto ni forex. Solo EE.UU."})
+
+        md = perfil_aislado / "Kevin.md"
+        assert md.exists(), "no se regeneró el .md que consumen los otros agentes"
+        texto = md.read_text(encoding="utf-8")
+        assert "4,200" in texto and "Moderado" in texto
+        assert "No toco cripto ni forex" in texto, "el texto libre no llegó al .md"
+
+    def test_el_editor_escribe_EXACTAMENTE_donde_lee_el_agente_de_acciones(self):
+        """`_load_investor_profile()` construye su ruta por su cuenta. Si las
+        dos rutas se separaran, el editor guardaría en un sitio y Analyze
+        seguiría leyendo el archivo viejo — sin que nada fallara.
+
+        Se comprueba el nombre del archivo y el directorio, por separado.
+        """
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._load_investor_profile)
+        assert '"Perfil Inversionista"' in fuente
+        assert '"Kevin.md"' in fuente, (
+            "el editor regenera Kevin.md; si el lector ya no lo busca primero, "
+            "el perfil no llega al agente de acciones")
+        assert V._PERFIL_DIR.endswith("Perfil Inversionista")
+
+    def test_el_md_se_regenera_desde_el_json_no_desde_el_formulario(
+            self, client, perfil_aislado):
+        """El `.md` se escribe releyendo el JSON recién guardado. Así no puede
+        desviarse del estructurado ni un decimal — que es justo el fallo que
+        haría que la pantalla dijera una cosa y el agente leyera otra."""
+        client.post("/api/perfil", json={"capital": 7_777, "tolerancia": "agresivo"})
+        j = json.loads((perfil_aislado / "perfil.json").read_text(encoding="utf-8"))
+        md = (perfil_aislado / "Kevin.md").read_text(encoding="utf-8")
+        assert f"{j['capital']:,.0f}" in md
+        # El 15% de 7.777 son 1.166,55 → el .md redondea a 1.167.
+        assert "1,167" in md
+
+    def test_rechaza_basura_sin_corromper_lo_guardado(self, client, perfil_aislado):
+        """Un capital que no es número o una banda inventada no pueden dejar
+        el perfil a medias: se rechazan ANTES de escribir."""
+        client.post("/api/perfil", json={"capital": 5_000, "tolerancia": "moderado"})
+        antes = client.get("/api/perfil").json()["perfil"]
+
+        for malo in ({"capital": "mucho"}, {"tolerancia": "kamikaze"},
+                     {"capital": -1}, {"instrumentos": "opciones"}):
+            r = client.post("/api/perfil", json=malo).json()
+            assert r["ok"] is False, f"aceptó basura: {malo}"
+
+        assert client.get("/api/perfil").json()["perfil"] == antes
+
+    def test_el_horizonte_de_texto_libre_se_traduce_a_dias(self):
+        """El campo lo escribe una persona ("1-3 años"), pero `size_flow`
+        quiere días. Se usa el extremo CORTO del rango, y está declarado."""
+        import vertex_api as V
+
+        assert V._perfil_horizonte_dias({"horizonte": "días"}) == 5
+        assert V._perfil_horizonte_dias({"horizonte": "semanas a meses"}) == 21
+        assert V._perfil_horizonte_dias({"horizonte": "1-3 años"}) == 90
+        assert V._perfil_horizonte_dias({"horizonte": ""}) == 30
+
+    def test_el_perfil_no_se_lee_de_API(self):
+        """El perfil vive en `Perfil Inversionista/`, nunca en `API/`. Es una
+        regla del proyecto: `API/` no se lee, no se imprime y no se commitea."""
+        import vertex_api as V
+
+        assert "Perfil Inversionista" in V._PERFIL_DIR
+        assert "API" not in Path(V._PERFIL_DIR).name
+
+
+class TestElMenuDeCuenta:
+    """El nombre de arriba a la derecha, que era una etiqueta muerta."""
+
+    @staticmethod
+    def _html():
+        return (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+
+    def test_el_nombre_abre_un_menu(self):
+        h = self._html()
+        assert 'id="navUserBtn"' in h and 'onclick="toggleUserMenu()"' in h
+        assert 'id="userMenu"' in h
+        for fn in ("function toggleUserMenu(", "function closeUserMenu(",
+                   "function vxTema(", "function vxIdioma("):
+            assert fn in h, f"{fn} no existe: el menú tendría botones muertos"
+
+    def test_el_menu_lleva_a_las_tres_cosas_pedidas(self):
+        h = _sin_comentarios(self._html())
+        assert "switchView('perfilView')" in h, "no se llega al perfil"
+        assert "vxTema('claro')" in h and "vxTema('oscuro')" in h
+        assert "vxIdioma('en')" in h and "vxIdioma('es')" in h
+
+    def test_el_tema_del_menu_es_EL_MISMO_ajuste_que_el_boton_flotante(self):
+        """Dos interruptores que mueven preferencias distintas es peor que uno
+        solo: el usuario cambia el tema y al recargar vuelve el otro."""
+        h = self._html()
+        cuerpo = _sin_comentarios(h[h.index("function vxTema(") :])
+        cuerpo = cuerpo[: cuerpo.index("\n}")]
+        assert "applyTheme(" in cuerpo, "vxTema no reutiliza el tema que ya existía"
+
+    def test_el_idioma_sobrevive_a_la_recarga(self):
+        h = _sin_comentarios(self._html())
+        assert "localStorage.setItem('vertex_idioma'" in h
+        assert "localStorage.getItem('vertex_idioma')" in h
+
+    def test_volver_a_espanol_no_depende_de_un_segundo_diccionario(self):
+        """El marcado ESTÁ en español. Si volver a `es` necesitara un
+        diccionario propio, cualquier texto nuevo que se añadiera al HTML sin
+        registrar se quedaría en inglés para siempre."""
+        h = self._html()
+        cuerpo = _sin_comentarios(h[h.index("function vxAplicaIdioma()") :])
+        cuerpo = cuerpo[: cuerpo.index("\n}")]
+        assert "i18nEs" in cuerpo, "no guarda el original español del marcado"
+
+    def test_cada_clave_i18n_del_marcado_existe_en_ingles(self):
+        """Una clave sin traducción se queda en español al pasar a English —
+        media pantalla en cada idioma es peor que una sola lengua."""
+        h = self._html()
+        claves = set(re.findall(r'data-i18n="([^"]+)"', h))
+        bloque = h[h.index("const VX_I18N = {") : h.index("let VX_IDIOMA")]
+        traducidas = set(re.findall(r"'([\w.]+)':", bloque))
+        faltan = claves - traducidas
+        assert not faltan, f"claves sin traducir al inglés: {sorted(faltan)}"
+
+
+class TestLaPantallaDePerfil:
+    """La vista con las dos pestañas: Información y Perfil."""
+
+    @staticmethod
+    def _html():
+        return (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+
+    def test_existe_la_vista_con_sus_dos_pestanas(self):
+        h = self._html()
+        assert 'id="perfilView"' in h
+        assert 'id="pfPaneInfo"' in h and 'id="pfPanePerfil"' in h
+        assert "function pfTab(" in h
+
+    def test_informacion_pide_nombre_y_email(self):
+        h = self._html()
+        for campo in ("pfNombre", "pfEmail"):
+            assert f'id="{campo}"' in h, f"falta el campo {campo}"
+
+    def test_perfil_tiene_los_datos_duros_y_el_texto_libre(self):
+        h = self._html()
+        for campo in ("pfCapital", "pfHorizonte", "pfTolerancias", "pfTexto"):
+            assert f'id="{campo}"' in h, f"falta {campo}"
+
+    def test_la_vista_habla_con_la_ruta_del_perfil(self):
+        h = _sin_comentarios(self._html())
+        assert h.count("API_BASE}/api/perfil") == 2, "no lee y guarda el perfil"
+        assert "method: 'POST'" in h
+
+    def test_entrar_a_la_vista_recarga_el_perfil(self):
+        """Se puede haber guardado desde otra pestaña del navegador: la
+        pantalla no puede enseñar un capital viejo."""
+        h = self._html()
+        sw = _sin_comentarios(h[h.index("function switchView(viewId) {") :])
+        sw = sw[: sw.index("\n}")]
+        assert "pfCargar()" in sw
+
+    def test_el_id_de_la_banda_no_va_dentro_de_un_onclick(self):
+        """`_vcEsc` escapa para HTML, que NO es escapar para un literal de JS:
+        una comilla se saldría del string. Se lee por delegación."""
+        h = self._html()
+        assert "pfEligeTolerancia('${" not in h
+        assert "data-tol=" in h and "dataset.tol" in h
+
+    def test_guardar_invalida_las_ideas_ya_pintadas(self):
+        """Las Ideas se ordenan CON el perfil. Si cambias el capital y la
+        tabla se queda igual, la pantalla está mintiendo."""
+        h = self._html()
+        g = _sin_comentarios(h[h.index("async function pfGuardar()") :])
+        g = g[: g.index("\n}\n")]
+        assert "vcTabCargada.ideas = false" in g
+
+
+class TestElPerfilSeVeEnProyecciones:
+    """De nada sirve guardar un perfil que la tabla no menciona."""
+
+    @staticmethod
+    def _html():
+        return (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+
+    def test_ideas_y_wheel_abren_con_la_franja_del_perfil(self):
+        h = _sin_comentarios(self._html())
+        assert "function vcCabeceraPerfil(" in h
+        for render in ("function renderProjIdeas(d) {", "function renderProjWheel(d) {"):
+            cuerpo = h[h.index(render):]
+            cuerpo = cuerpo[: cuerpo.index("\n}\n")]
+            assert "vcCabeceraPerfil(" in cuerpo, f"{render} no enseña el perfil"
+
+    def test_ideas_pinta_el_techo_de_contratos(self):
+        h = _sin_comentarios(self._html())
+        cuerpo = h[h.index("function renderProjIdeas(d) {"):]
+        cuerpo = cuerpo[: cuerpo.index("\n}\n")]
+        for campo in ("i.sizing", "max_contracts", "total_cost"):
+            assert campo in cuerpo, f"`{campo}` se sirve y no se pinta"
+
+    def test_wheel_pinta_si_te_cabe_el_colateral(self):
+        h = _sin_comentarios(self._html())
+        cuerpo = h[h.index("function renderProjWheel(d) {"):]
+        cuerpo = cuerpo[: cuerpo.index("\n}\n")]
+        assert "c.afford" in cuerpo and "shortfall" in cuerpo
+
+    def test_el_capital_se_enseña_entero_no_abreviado(self):
+        """"$1.0K" y "$1,049" son la diferencia entre que un contrato te quepa
+        o no. Donde el número es una restricción, va exacto."""
+        h = self._html()
+        assert "function fmtMoney(" in h
+        cab = _sin_comentarios(h[h.index("function vcCabeceraPerfil("):])
+        cab = cab[: cab.index("\n}")]
+        assert "fmtMoney(P.capital)" in cab
+        assert "fmtAbbr(P.capital)" not in cab
+
+    def test_la_franja_no_se_pinta_sin_perfil(self):
+        """Una franja que dice "capital $0" es peor que ninguna franja."""
+        h = self._html()
+        cab = _sin_comentarios(h[h.index("function vcCabeceraPerfil("):])
+        cab = cab[: cab.index("\n}")]
+        assert "if (!P) return ''" in cab
+
+
+class TestElMdSigueSiendoLegibleParaElEngine:
+    """El eslabón frágil de todo esto, y el único que falla EN SILENCIO.
+
+    `engine/wbj/specialists/risk.py::_load_profile` no lee el JSON: parsea el
+    `.md` con tres regex. Si el markdown generado deja de casar con alguno, ese
+    especialista cae a su valor por defecto sin avisar y el reporte pasa a
+    hablar del perfil de otra persona.
+
+    Estos tests corren la función REAL sobre el markdown REAL. No una copia del
+    regex — una copia se actualizaría sola y dejaría de proteger nada.
+    """
+
+    def test_el_md_generado_conserva_los_tres_campos(self, client, perfil_aislado,
+                                                     tmp_path, monkeypatch):
+        import vertex_api as V
+        import wbj.specialists.risk as R
+
+        client.post("/api/perfil", json={
+            "nombre": "Kevin", "capital": 1_000, "tolerancia": "agresivo",
+            "horizonte": "1-3 años", "max_posicion_pct": [20, 30]})
+        md = (perfil_aislado / "Kevin.md").read_text(encoding="utf-8")
+
+        # `_load_profile` sube tres directorios desde su propio archivo. Se le
+        # da un árbol falso con el .md dentro para correrlo tal cual.
+        raiz = tmp_path / "engine" / "wbj" / "specialists"
+        raiz.mkdir(parents=True)
+        (tmp_path / "Perfil Inversionista").mkdir()
+        (tmp_path / "Perfil Inversionista" / "Kevin.md").write_text(md, encoding="utf-8")
+        monkeypatch.setattr(R, "__file__", str(raiz / "risk.py"))
+        p = R._load_profile()
+
+        assert p["fields_defaulted"] == [], (
+            f"el especialista de riesgo cayó a valores por defecto: "
+            f"{p['fields_defaulted']} — el .md generado dejó de ser legible")
+        assert p["capital_usd"] == 1_000
+        assert p["horizon_years"] == (1, 3)
+        assert p["max_position_pct"] == (0.20, 0.30)
+
+    def test_un_horizonte_en_palabras_no_deja_mudo_al_especialista(
+            self, client, perfil_aislado, tmp_path, monkeypatch):
+        """«semanas a meses» no casa con "N a M años". En vez de callar, el
+        markdown declara el equivalente aproximado — un valor por defecto que
+        nadie escribió es peor que uno aproximado y dicho."""
+        import wbj.specialists.risk as R
+
+        client.post("/api/perfil", json={"capital": 2_000,
+                                         "horizonte": "semanas a meses"})
+        md = (perfil_aislado / "Kevin.md").read_text(encoding="utf-8")
+        assert "semanas a meses" in md, "se perdió lo que el inversionista escribió"
+
+        raiz = tmp_path / "engine" / "wbj" / "specialists"
+        raiz.mkdir(parents=True)
+        (tmp_path / "Perfil Inversionista").mkdir()
+        (tmp_path / "Perfil Inversionista" / "Kevin.md").write_text(md, encoding="utf-8")
+        monkeypatch.setattr(R, "__file__", str(raiz / "risk.py"))
+        assert "horizon_years" not in R._load_profile()["fields_defaulted"]
+
+    def test_el_capital_es_el_PRIMER_dolar_del_documento(self, client, perfil_aislado):
+        """El regex del engine coge el primer `$`. Si el texto libre trae un
+        importe antes que el capital, el especialista leería ese."""
+        client.post("/api/perfil", json={"capital": 3_000,
+                                         "texto": "Perdí $50,000 en 2022."})
+        md = (perfil_aislado / "Kevin.md").read_text(encoding="utf-8")
+        assert md.index("$3,000") < md.index("$50,000")
+
+    def test_el_primer_guardado_NO_borra_un_perfil_escrito_a_mano(
+            self, client, perfil_aislado):
+        """El fallo caro: abrir la pantalla sobre un `.md` redactado a mano y
+        pulsar Guardar con el formulario vacío. El texto se siembra, no se
+        pierde."""
+        import vertex_api as V
+
+        (perfil_aislado / "Kevin.md").write_text(
+            "# Perfil de Kevin\n\nCapital ~$1,000 USD. Horizonte de 1 a 3 años.\n"
+            "Máximo por posición: 20% – 30%.\nSin forex. Sin cripto.\n",
+            encoding="utf-8")
+
+        d = client.get("/api/perfil").json()["perfil"]
+        assert "Sin forex" in d["texto"], "no se sembró el perfil escrito a mano"
+        assert d["capital"] == 1_000
+        assert d["max_posicion_pct"] == [20, 30]
+
+        client.post("/api/perfil", json={"nombre": "Kevin"})
+        assert "Sin forex" in (perfil_aislado / "Kevin.md").read_text(encoding="utf-8")
+
+    def test_la_semilla_no_se_duplica_en_cada_guardado(self, client, perfil_aislado):
+        """Si el `.md` ya lo generamos nosotros, su contenido viene del JSON:
+        volver a sembrarlo lo metería dentro de sí mismo cada vez."""
+        client.post("/api/perfil", json={"capital": 1_000, "texto": "Solo EE.UU."})
+        (perfil_aislado / "perfil.json").unlink()          # se pierde el JSON
+        d = client.get("/api/perfil").json()["perfil"]
+        assert "Generado desde el editor" not in d["texto"]

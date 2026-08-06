@@ -58,6 +58,20 @@
         .custom-scroll::-webkit-scrollbar { width: 6px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #1F2532; border-radius: 4px; }
 
+        /* ══════════════ SELECCIÓN — menú de cuenta y perfil ══════════════
+           Un único estado `.activa` para los tres pares de opciones (tema,
+           idioma, pestañas del perfil) y para las bandas de tolerancia. Sin
+           esto, elegir no se ve: los botones quedan todos iguales. */
+        .vx-opt, .pf-tab { background: #0B0E14; border: 1px solid #1F2532; color: #9ca3af; }
+        .vx-opt:hover, .pf-tab:hover { color: #e5e7eb; }
+        .vx-opt.activa, .pf-tab.activa { background: rgba(59,130,246,.14); border-color: rgba(59,130,246,.45); color: #60a5fa; }
+        .pf-tab { border-color: transparent; background: transparent; }
+        .pf-tol { background: #0B0E14; border-color: #1F2532; color: #9ca3af; }
+        .pf-tol:hover { border-color: #374151; color: #e5e7eb; }
+        .pf-tol.activa { background: rgba(59,130,246,.12); border-color: rgba(59,130,246,.5); color: #60a5fa; }
+        html.light .vx-opt, html.light .pf-tol { background: #f4f6fa; border-color: #e5e8ee; color: #5b6270; }
+        html.light .vx-opt.activa, html.light .pf-tab.activa, html.light .pf-tol.activa { color: #2563eb; }
+
         /* ══════════════ RESPONSIVE — telefono / tablet / escritorio ══════════════
            La app es una sola pagina que tiene que servir en las tres. Reglas base:
            1) la pagina NUNCA hace scroll horizontal — lo ancho scrollea dentro de su caja
@@ -363,13 +377,13 @@
             <i data-lucide="chevron-down" class="w-4 h-4 text-gray-500 lg:hidden"></i>
         </button>
         <div class="hidden lg:flex gap-4 xl:gap-6 text-[13px] xl:text-sm text-gray-400 font-medium whitespace-nowrap">
-            <button onclick="switchView('homeView')" class="hover:text-white transition">Dashboard</button>
-            <button onclick="switchView('reportsView')" class="hover:text-white transition">Reports</button>
+            <button onclick="switchView('homeView')" class="hover:text-white transition" data-i18n="nav.dashboard">Dashboard</button>
+            <button onclick="switchView('reportsView')" class="hover:text-white transition" data-i18n="nav.reports">Reports</button>
             <button class="hidden xl:block hover:text-white transition">Vertex Credit Division</button>
-            <button onclick="switchView('portfolioView')" class="hover:text-white transition">Portfolio</button>
-            <button onclick="switchView('projectionsView')" class="hover:text-white transition">Proyecciones</button>
-            <button onclick="switchView('watchlistView')" class="hover:text-white transition">Watchlist</button>
-            <button onclick="switchView('trackRecordView')" class="hover:text-white transition">Track Record</button>
+            <button onclick="switchView('portfolioView')" class="hover:text-white transition" data-i18n="nav.portfolio">Portfolio</button>
+            <button onclick="switchView('projectionsView')" class="hover:text-white transition" data-i18n="nav.proyecciones">Proyecciones</button>
+            <button onclick="switchView('watchlistView')" class="hover:text-white transition" data-i18n="nav.watchlist">Watchlist</button>
+            <button onclick="switchView('trackRecordView')" class="hover:text-white transition" data-i18n="nav.track">Track Record</button>
         </div>
     </div>
     <div class="flex items-center gap-2 md:gap-3 shrink-0">
@@ -407,15 +421,44 @@
                     <p class="text-[8px] text-gray-600 px-3 py-2 border-t border-gray-800">Escanea tu watchlist cada 3 min · earnings, flujo Tipo A, precio pegado a muros</p>
                 </div>
             </div>
-            <div class="flex items-center gap-2 bg-panel border border-panel px-3 py-1.5 rounded-full">
-                <div class="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-[10px] font-black text-white" id="navUserAvatar">—</div>
-                <span class="text-xs text-gray-300 font-medium hidden xl:block" id="navUserName"></span>
+            <!-- El nombre abre el menú de cuenta: perfil, tema e idioma. Antes
+                 era una etiqueta muerta con un "Sign Out" suelto al lado. -->
+            <div class="relative">
+                <button onclick="toggleUserMenu()" id="navUserBtn"
+                    class="flex items-center gap-2 bg-panel border border-panel px-3 py-1.5 rounded-full hover:border-blue-500/40 transition">
+                    <div class="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-[10px] font-black text-white" id="navUserAvatar">—</div>
+                    <span class="text-xs text-gray-300 font-medium hidden xl:block" id="navUserName"></span>
+                    <i data-lucide="chevron-down" class="w-3 h-3 text-gray-500"></i>
+                </button>
+                <div id="userMenu" class="hidden absolute right-0 mt-2 w-64 max-w-[92vw] bg-[#0B0E14] border border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+                    <div class="px-3 py-2.5 border-b border-gray-800">
+                        <p class="text-xs font-bold text-white" id="umNombre">—</p>
+                        <p class="text-[10px] text-gray-500" id="umEmail"></p>
+                    </div>
+                    <button onclick="closeUserMenu(); switchView('perfilView');"
+                        class="w-full text-left px-3 py-2.5 text-xs text-gray-300 hover:bg-white/5 flex items-center gap-2 transition">
+                        <i data-lucide="user-circle" class="w-3.5 h-3.5 text-blue-400"></i> <span data-i18n="menu.perfil">Mi perfil</span>
+                    </button>
+                    <div class="px-3 py-2.5 border-t border-gray-800">
+                        <p class="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5" data-i18n="menu.tema">Tema</p>
+                        <div class="flex gap-1">
+                            <button onclick="vxTema('oscuro')" data-tema="oscuro" class="vx-opt flex-1 text-[10px] font-bold px-2 py-1.5 rounded-lg transition">🌙 <span data-i18n="menu.oscuro">Oscuro</span></button>
+                            <button onclick="vxTema('claro')" data-tema="claro" class="vx-opt flex-1 text-[10px] font-bold px-2 py-1.5 rounded-lg transition">☀️ <span data-i18n="menu.claro">Claro</span></button>
+                        </div>
+                    </div>
+                    <div class="px-3 py-2.5 border-t border-gray-800">
+                        <p class="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5" data-i18n="menu.idioma">Idioma</p>
+                        <div class="flex gap-1">
+                            <button onclick="vxIdioma('es')" data-idioma="es" class="vx-opt flex-1 text-[10px] font-bold px-2 py-1.5 rounded-lg transition">Español</button>
+                            <button onclick="vxIdioma('en')" data-idioma="en" class="vx-opt flex-1 text-[10px] font-bold px-2 py-1.5 rounded-lg transition">English</button>
+                        </div>
+                    </div>
+                    <button onclick="closeUserMenu(); authSignOut();"
+                        class="w-full text-left px-3 py-2.5 text-xs text-gray-500 hover:text-red-400 hover:bg-white/5 border-t border-gray-800 flex items-center gap-2 transition">
+                        <i data-lucide="log-out" class="w-3.5 h-3.5"></i> <span data-i18n="menu.salir">Cerrar sesión</span>
+                    </button>
+                </div>
             </div>
-            <button onclick="authSignOut()" title="Sign Out"
-                class="hidden lg:flex text-xs text-gray-500 hover:text-red-400 border border-[#1F2532] hover:border-red-500/30 px-2.5 py-1.5 rounded-full items-center gap-1.5 transition-all">
-                <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
-                <span class="hidden xl:inline">Sign Out</span>
-            </button>
         </div>
     </div>
 </nav>
@@ -1275,6 +1318,9 @@ function switchView(viewId) {
     // los tickers rápidos: quedaba el DOM crudo y el único texto visible era
     // "Analiza un ticker". Todo el trabajo estaba hecho y no lo llamaba nadie.
     if (viewId === 'projectionsView') vcArrancaProyecciones();
+    // El perfil se relee al entrar: puede haberse guardado desde otra pestaña
+    // del navegador, y la pantalla no debe mostrar un capital viejo.
+    if (viewId === 'perfilView' && typeof pfCargar === 'function') pfCargar();
 }
 
 /** Deja el tab de Proyecciones listo: pestañas, tickers rápidos, panel activo
@@ -2792,6 +2838,7 @@ function renderProjWheel(d) {
         ? 'bg-blue-500 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800 hover:text-white'}">
         ${_vcEsc(q.label)} <span class="font-normal opacity-70">&Delta;${q.delta_min}-${q.delta_max} · ${q.dte_min}-${q.dte_max}d</span></button>`).join(' ');
 
+    const cabeceraPerfil = vcCabeceraPerfil(d.perfil, (d.candidates || []).filter(c => !c.blocked).length);
     const BLOQ = { sin_bid: 'sin bid', spread_ancho: 'horquilla ancha', oi_bajo: 'poco open interest' };
     // Las filas bloqueadas no llevan ningún número —esa es su regla— así que
     // cien de ellas seguidas son cien líneas vacías. Se enseñan las primeras
@@ -2810,9 +2857,16 @@ function renderProjWheel(d) {
                 <td class="py-2 pr-3 text-gray-500">$${Number(c.strike).toFixed(2)}P</td>
                 <td class="py-2 pr-3 text-right text-gray-600">${c.dte}d</td>
                 <td class="py-2 pr-3 text-right text-gray-700" colspan="5">&mdash; bloqueado: ${_vcEsc(BLOQ[c.block_reason] || c.block_reason)}</td>
+                <td class="py-2 pr-3 text-right text-gray-700">&mdash;</td>
                 <td class="py-2 text-right text-gray-700">&mdash;</td></tr>`;
         }
         const m = c.metrics, sc = c.score;
+        // Con TU capital. El colateral de un put queda inmovilizado hasta el
+        // vencimiento: si no lo tienes, la operación no existe para ti.
+        const a = c.afford;
+        const cabe = !a ? `<span class="text-gray-600">&mdash;</span>`
+            : (a.affordable ? `<span class="text-emerald-400 font-bold" title="el colateral cabe en tu capital">S&iacute;</span>`
+               : `<span class="text-gray-500" title="te faltan ${fmtMoney(a.shortfall)} de colateral">faltan ${fmtMoney(a.shortfall)}</span>`);
         const col = sc.total >= 70 ? 'text-emerald-400' : (sc.total >= 50 ? 'text-amber-400' : 'text-gray-400');
         const porque = ['annualized', 'iv_rank', 'cushion', 'liquidity', 'earnings']
             .map(k => `${sc[k].points}/${sc[k].max} ${sc[k].band}: ${sc[k].why}`).join('\n');
@@ -2825,7 +2879,8 @@ function renderProjWheel(d) {
             <td class="py-2 pr-3 text-right text-gray-300" title="efectivo que queda inmovilizado hasta el vencimiento">${fmtAbbr(m.collateral)}</td>
             <td class="py-2 pr-3 text-right ${m.annualized_pct > 60 ? 'text-amber-400' : 'text-gray-200'}" title="${m.annualized_pct > 60 ? 'Prima sospechosamente alta: el mercado descuenta una caída fuerte.' : ''}">${Number(m.annualized_pct).toFixed(1)}%</td>
             <td class="py-2 pr-3 text-right text-gray-400" title="probabilidad de que expire sin valor y te quedes la prima">${Math.round(m.prob_expire_worthless)}%</td>
-            <td class="py-2 text-right font-bold ${col}" title="${_vcEsc(porque)}">${sc.total}/100</td></tr>`;
+            <td class="py-2 pr-3 text-right font-bold ${col}" title="${_vcEsc(porque)}">${sc.total}/100</td>
+            <td class="py-2 text-right text-[10px]">${cabe}</td></tr>`;
     }).join('');
 
     caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
@@ -2858,14 +2913,15 @@ function renderProjWheel(d) {
             <span class="text-gray-400"> &middot; ${_vcEsc(b.que_significa)}</span>
             <span class="text-gray-600 block text-[9px] leading-snug mt-0.5">${_vcEsc(b.por_que)}</span></div>`).join('')}
         </div>` : ''}
-        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[720px]"><thead>
+        ${cabeceraPerfil}
+        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[800px]"><thead>
           <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
             <th class="text-left pb-1.5 pr-3">Ticker</th><th class="text-left pb-1.5 pr-3">Contrato</th>
             <th class="text-right pb-1.5 pr-3">DTE</th><th class="text-right pb-1.5 pr-3">Prima</th>
             <th class="text-right pb-1.5 pr-3">Cobras</th><th class="text-right pb-1.5 pr-3">Colateral</th>
             <th class="text-right pb-1.5 pr-3">Anualizado</th><th class="text-right pb-1.5 pr-3">P(sin valor)</th>
-            <th class="text-right pb-1.5">Score</th></tr></thead><tbody>${filas}</tbody></table></div>
-        <p class="text-[9px] text-gray-600 mt-2 italic">${d.quotes_missing ? '* prima estimada del &uacute;ltimo precio, no del bid. ' : ''}La asequibilidad no se calcula aqu&iacute;: tu saldo no sale del navegador. Mira el colateral y decide t&uacute;. Research, no una orden.</p>
+            <th class="text-right pb-1.5 pr-3">Score</th><th class="text-right pb-1.5">Te cabe</th></tr></thead><tbody>${filas}</tbody></table></div>
+        <p class="text-[9px] text-gray-600 mt-2 italic">${d.quotes_missing ? '* prima estimada del &uacute;ltimo precio, no del bid. ' : ''}&laquo;Te cabe&raquo; compara el colateral con el capital de tu perfil &mdash; lo que no cabe no se esconde, se baja. Research, no una orden.</p>
       </div>`;
     if (window.lucide) lucide.createIcons();
     vcTablaResponsive('projWheel');
@@ -2961,8 +3017,10 @@ function renderProjTape(d) {
    tab: sin ticker manda Ideas, con ticker manda el scorecard. Así el agente
    hace algo desde que se abre, sin obligar a teclear nada.
 
-   El sizing NO se pide al servidor, igual que en su ruta: el tamaño de cuenta
-   es de Kevin y no tiene por qué salir del navegador.
+   El sizing SÍ viene del servidor —divergencia declarada frente a su ruta—
+   porque aquí el perfil del inversionista vive en el servidor
+   (`Perfil Inversionista/perfil.json`) y no en el navegador. Es su propio
+   `risk.size_flow`, con el capital y la tolerancia de quien mira la pantalla.
    ══════════════════════════════════════════════════════════════════════════ */
 
 /** El ticker, saneado para poder ir dentro de un literal de JS en un atributo.
@@ -2970,6 +3028,27 @@ function renderProjTape(d) {
  *  string. Mismo juego de caracteres que su `fileFor`. */
 function _vcTicker(t) {
     return String(t == null ? '' : t).toUpperCase().replace(/[^A-Z0-9._-]/g, '');
+}
+
+/** La franja de perfil que abre las tablas de Ideas y de Wheel.
+ *
+ *  Sin esto, las dos son listas de contratos genéricas. Con esto son «lo que
+ *  TÚ puedes operar con lo que TÚ tienes», y el enlace de editar está donde
+ *  aparece la duda. `total` es cuántas filas se están enseñando, para que el
+ *  «N de M te caben» no sea un número suelto.
+ *
+ *  Devuelve cadena vacía si el payload no trae perfil: una franja que dice
+ *  "capital $0" es peor que ninguna franja. */
+function vcCabeceraPerfil(P, total) {
+    if (!P) return '';
+    return `<div class="flex items-center flex-wrap gap-x-3 gap-y-1 text-[10px] mb-2 px-2.5 py-2 rounded-lg bg-blue-500/[0.06] border border-blue-500/20">
+        <span class="font-bold text-blue-400 uppercase tracking-wider text-[9px]">Tu perfil</span>
+        <span class="text-gray-400">Capital <b class="text-gray-200">${fmtMoney(P.capital)}</b></span>
+        <span class="text-gray-400">Tolerancia <b class="text-gray-200 capitalize">${_vcEsc(P.tolerancia)}</b></span>
+        <span class="text-gray-400">Riesgo/operaci&oacute;n <b class="text-gray-200">${fmtMoney(P.riesgo_por_trade)}</b> (${P.riesgo_pct}%)</span>
+        <span class="${P.caben ? 'text-emerald-400' : 'text-amber-400'} font-bold">${P.caben} de ${total} te caben</span>
+        <button onclick="switchView('perfilView')" class="ml-auto text-blue-400 hover:text-blue-300 font-bold">Editar perfil &rsaquo;</button>
+      </div>`;
 }
 
 async function loadProjIdeas() {
@@ -3024,10 +3103,19 @@ function renderProjIdeas(d) {
         return;
     }
 
+    const cabeceraPerfil = vcCabeceraPerfil(d.perfil, ideas.length);
+
     const filas = ideas.map(i => {
         const h = i.history;
         const t = i.type === 'call' ? 'C' : 'P';
-        return `<tr class="border-b border-gray-800/50 hover:bg-white/[0.02] cursor-pointer" onclick="loadProjections('${_vcTicker(i.ticker)}')">
+        // Cuántos contratos te caben. `null` = el motor no pudo dimensionar;
+        // 0 = no te cabe ninguno, y `binding` dice qué te frenó.
+        const s = i.sizing;
+        let cabe;
+        if (!s) cabe = `<span class="text-gray-600" title="el motor no pudo dimensionar este contrato">&mdash;</span>`;
+        else if (s.max_contracts) cabe = `<span class="text-emerald-400 font-bold" title="techo de ${s.max_contracts} contrato(s) &middot; ${fmtMoney(s.total_cost)} = ${s.cost_pct_of_account}% de la cuenta &middot; limita: ${_vcEsc(s.binding)}">${s.max_contracts}&times; <span class="text-gray-500 font-normal">${fmtMoney(s.total_cost)}</span></span>`;
+        else cabe = `<span class="text-gray-500" title="${_vcEsc(s.blocked || 'no cabe con tu perfil')} &middot; 1 contrato cuesta ${fmtMoney(s.cost_per_contract)}">no cabe</span>`;
+        return `<tr class="border-b border-gray-800/50 hover:bg-white/[0.02] cursor-pointer${s && !s.max_contracts ? ' opacity-60' : ''}" onclick="loadProjections('${_vcTicker(i.ticker)}')">
             <td class="py-2 pr-3 font-bold text-white">${_vcEsc(i.ticker)}${i.repeated ? ' <span class="text-amber-400 text-[9px]" title="contrato repetido">&#8635;</span>' : ''}</td>
             <td class="py-2 pr-3"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${i.type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${_vcEsc(i.strike)}${t}</span></td>
             <td class="py-2 pr-3 text-right text-gray-400">${i.dte != null ? Math.round(i.dte) + 'd' : '&mdash;'}</td>
@@ -3035,9 +3123,10 @@ function renderProjIdeas(d) {
             <td class="py-2 pr-3 text-right ${i.aggression === 'ask' ? 'text-emerald-400' : (i.aggression === 'bid' ? 'text-red-400' : 'text-gray-500')}">${i.aggression === 'ask' ? '&#9650; Compra' : (i.aggression === 'bid' ? '&#9660; Venta' : 'Mid')}</td>
             <td class="py-2 pr-3 text-right text-gray-400" title="decaimiento diario en % de la prima">${i.theta_pct_daily != null ? Number(i.theta_pct_daily).toFixed(1) + '%' : '&mdash;'}</td>
             <td class="py-2 pr-3 text-right text-amber-400 font-bold">${i.unusual_score}/30</td>
-            <td class="py-2 text-right text-[9px] ${h ? 'text-gray-300' : 'text-gray-600'}"
+            <td class="py-2 pr-3 text-right text-[9px] ${h ? 'text-gray-300' : 'text-gray-600'}"
                 title="${h ? `${h.resolved} flows de este ticker ya juzgados por el sub-agente 6` : 'aún no hay historial guardado de este ticker'}">${
-                h && h.hit_rate != null ? `${Math.round(h.hit_rate)}% <span class="text-gray-600">(${h.resolved})</span>` : '&mdash;'}</td></tr>`;
+                h && h.hit_rate != null ? `${Math.round(h.hit_rate)}% <span class="text-gray-600">(${h.resolved})</span>` : '&mdash;'}</td>
+            <td class="py-2 text-right text-[10px]">${cabe}</td></tr>`;
     }).join('');
 
     caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
@@ -3046,15 +3135,17 @@ function renderProjIdeas(d) {
           <span class="text-[10px] text-gray-500">${ideas.length} operables en ${d.tickers} tickers &middot; ${d.with_history} con historial</span>
         </div>
         <p class="text-[10px] text-gray-600 italic mb-3">Flujo inusual de TODO el mercado, ya filtrado por lo que se puede operar: theta sano, no vencido, inusualidad &ge;5/30 y strike dentro del &plusmn;${Math.round(Number(d.moneyness_cap) * 100)}% del precio. Haz clic en una fila para el an&aacute;lisis completo de ese ticker.</p>
-        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[620px]"><thead>
+        ${cabeceraPerfil}
+        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[700px]"><thead>
           <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
             <th class="text-left pb-1.5 pr-3">Ticker</th><th class="text-left pb-1.5 pr-3">Contrato</th>
             <th class="text-right pb-1.5 pr-3">DTE</th><th class="text-right pb-1.5 pr-3">Dinero</th>
             <th class="text-right pb-1.5 pr-3">Lado</th><th class="text-right pb-1.5 pr-3">Theta/d&iacute;a</th>
-            <th class="text-right pb-1.5 pr-3">Inusualidad</th><th class="text-right pb-1.5">Acierto hist.</th></tr></thead>
+            <th class="text-right pb-1.5 pr-3">Inusualidad</th><th class="text-right pb-1.5 pr-3">Acierto hist.</th>
+            <th class="text-right pb-1.5">Te cabe</th></tr></thead>
           <tbody>${filas}</tbody></table></div>
         <p class="text-[9px] text-gray-600 mt-2 leading-relaxed">${nota}</p>
-        <p class="text-[9px] text-gray-600 mt-1 italic">El tama&ntilde;o de posici&oacute;n no se calcula aqu&iacute;: tu saldo no sale del navegador. Esto es un screener de research, no una orden.</p>
+        <p class="text-[9px] text-gray-600 mt-1 italic">&laquo;Te cabe&raquo; es el TECHO de contratos que tu perfil aguanta &mdash; no una orden de compra. Sale del mismo <code>risk.py</code> que usa la Wheel: capital, tolerancia y quema de theta hasta tu horizonte. Esto sigue siendo un screener de research.</p>
       </div>`;
     if (window.lucide) lucide.createIcons();
     vcTablaResponsive('projIdeas');
@@ -4318,6 +4409,16 @@ function fmtAbbr(v) {
     return '$' + Math.round(v);
 }
 
+/** Dólares EXACTOS con separador de miles.
+ *
+ *  No usa `fmtAbbr` a propósito: para el perfil y el sizing, "$1.0K" y "$1,049"
+ *  son la diferencia entre que un contrato te quepa o no. Donde el número es
+ *  una restricción de tu cuenta se muestra entero. */
+function fmtMoney(v) {
+    if (v == null || isNaN(v)) return '—';
+    return '$' + Math.round(Number(v)).toLocaleString('en-US');
+}
+
 
 /* ══════════════════════════════════════════════════════════════════════════
    EN VIVO — hasta donde las fuentes lo permiten.
@@ -5176,6 +5277,9 @@ function authLogin(user) {
     badge.classList.remove('hidden');
     badge.classList.add('flex');
     lucide.createIcons();
+    // El menú de cuenta cuelga de este nombre: se rellena al entrar, no al
+    // abrirlo por primera vez.
+    if (typeof vxPintaMenu === 'function') vxPintaMenu();
     startNotifPolling();   // #4 — campana + escaneo de alertas de la watchlist
 }
 
@@ -7277,6 +7381,137 @@ function analyzeTickerNow(tk) {
     <div id="projPaneTape" class="hidden"><div id="projTape"></div></div>
 </main>
 
+<!-- ═══════════════════════════════════════════════════════════════════════
+     PERFIL — dos pestañas: Información (la cuenta) y Perfil (el inversionista).
+     Lo que se guarda aquí NO se queda aquí: `POST /api/perfil` regenera
+     `Perfil Inversionista/Kevin.md`, que es el archivo que el agente de
+     opciones (Proyecciones) y el de acciones (Analyze/Explore) YA leían. Por
+     eso el perfil llega a los tres sin tocar una línea de esas dos áreas.
+═══════════════════════════════════════════════════════════════════════════ -->
+<main id="perfilView" class="view-section hidden flex-grow w-full max-w-3xl mx-auto p-3 sm:p-4">
+
+    <div class="mb-5">
+        <h2 class="text-xl font-bold text-white flex items-center gap-2">
+            <i data-lucide="user-circle" class="w-5 h-5 text-blue-500"></i> <span data-i18n="perfil.titulo">Mi perfil</span>
+        </h2>
+        <p class="text-xs text-gray-500 mt-1" data-i18n="perfil.sub">Tu capital, tu tolerancia y tus palabras. Los tres agentes leen esto antes de recomendarte nada.</p>
+    </div>
+
+    <div class="flex gap-1 mb-4 p-1 rounded-xl bg-[#0B0E14] border border-panel w-fit max-w-full overflow-x-auto">
+        <button onclick="pfTab('info')" id="pfTabInfo"
+                class="pf-tab text-[11px] font-bold px-3.5 py-2 rounded-lg transition whitespace-nowrap"
+                data-i18n="perfil.tab.info">Informaci&oacute;n</button>
+        <button onclick="pfTab('perfil')" id="pfTabPerfil"
+                class="pf-tab text-[11px] font-bold px-3.5 py-2 rounded-lg transition whitespace-nowrap"
+                data-i18n="perfil.tab.perfil">Perfil</button>
+    </div>
+
+    <!-- ── INFORMACIÓN — los datos de la cuenta ───────────────────────── -->
+    <div id="pfPaneInfo" class="hidden space-y-4">
+        <div class="bg-panel border border-panel rounded-2xl p-4 sm:p-5">
+            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <i data-lucide="id-card" class="w-4 h-4"></i> <span data-i18n="perfil.cuenta">Datos de la cuenta</span>
+            </h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label class="block">
+                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider" data-i18n="perfil.nombre">Nombre</span>
+                    <input id="pfNombre" type="text" autocomplete="name"
+                           class="mt-1 w-full bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
+                </label>
+                <label class="block">
+                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider" data-i18n="perfil.email">Email</span>
+                    <input id="pfEmail" type="email" autocomplete="email"
+                           class="mt-1 w-full bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
+                </label>
+            </div>
+            <p class="text-[9px] text-gray-600 mt-3 leading-relaxed" data-i18n="perfil.cuenta.nota">
+                El email es lo &uacute;nico tuyo que el sistema necesita adem&aacute;s del perfil. No se env&iacute;a a ninguna
+                fuente de datos: Massive y MarketSnack solo reciben s&iacute;mbolos.
+            </p>
+        </div>
+
+        <div class="bg-panel border border-panel rounded-2xl p-4 sm:p-5">
+            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <i data-lucide="file-text" class="w-4 h-4"></i> <span data-i18n="perfil.donde">D&oacute;nde acaba esto</span>
+            </h3>
+            <div id="pfArchivos" class="space-y-1.5 text-[11px] text-gray-400"></div>
+        </div>
+    </div>
+
+    <!-- ── PERFIL — restricciones duras + el texto del inversionista ───── -->
+    <div id="pfPanePerfil" class="hidden space-y-4">
+        <div class="bg-panel border border-panel rounded-2xl p-4 sm:p-5">
+            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-2">
+                <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> <span data-i18n="perfil.duros">Datos duros</span>
+            </h3>
+            <p class="text-[10px] text-gray-600 italic mb-4" data-i18n="perfil.duros.nota">
+                Esto son restricciones, no preferencias: el sizing sale de aqu&iacute;.
+            </p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label class="block">
+                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider" data-i18n="perfil.capital">Capital disponible (USD)</span>
+                    <input id="pfCapital" type="number" min="0" step="100" inputmode="decimal"
+                           class="mt-1 w-full bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
+                </label>
+                <label class="block">
+                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider" data-i18n="perfil.horizonte">Horizonte</span>
+                    <input id="pfHorizonte" type="text" list="pfHorizontes" placeholder="1-3 a&ntilde;os"
+                           class="mt-1 w-full bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
+                    <datalist id="pfHorizontes">
+                        <option value="días"></option><option value="semanas a meses"></option>
+                        <option value="1-3 años"></option><option value="5+ años"></option>
+                    </datalist>
+                </label>
+            </div>
+            <div class="mt-4">
+                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider" data-i18n="perfil.tolerancia">Tolerancia al riesgo</span>
+                <div id="pfTolerancias" class="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-1.5"></div>
+            </div>
+            <!-- Distinto del riesgo por operación: aquel dice cuánto puedes
+                 PERDER, este cuánto puedes DESPLEGAR. El especialista de riesgo
+                 del engine lo lee del perfil, y lo quiere como rango. -->
+            <div class="mt-4">
+                <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider" data-i18n="perfil.posicion">M&aacute;ximo por posici&oacute;n individual</span>
+                <div class="flex items-center gap-2 mt-1.5">
+                    <input id="pfPosMin" type="number" min="1" max="100" step="1" inputmode="numeric"
+                           class="w-20 bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
+                    <span class="text-xs text-gray-500">%</span>
+                    <span class="text-xs text-gray-600">&ndash;</span>
+                    <input id="pfPosMax" type="number" min="1" max="100" step="1" inputmode="numeric"
+                           class="w-20 bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
+                    <span class="text-xs text-gray-500">% del capital</span>
+                </div>
+                <p class="text-[9px] text-gray-600 mt-1.5 leading-relaxed" data-i18n="perfil.posicion.nota">
+                    Cu&aacute;nto capital puede ocupar UNA posici&oacute;n. Con un tope del 30%, tres p&eacute;rdidas
+                    totales seguidas se llevan casi la cuenta entera &mdash; por eso el reporte declara
+                    siempre el nivel de invalidaci&oacute;n antes que el objetivo.
+                </p>
+            </div>
+            <div id="pfRiesgoNota" class="mt-3 text-[11px] px-3 py-2 rounded-lg bg-blue-500/[0.06] border border-blue-500/20 text-gray-300"></div>
+        </div>
+
+        <div class="bg-panel border border-panel rounded-2xl p-4 sm:p-5">
+            <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-2">
+                <i data-lucide="pen-line" class="w-4 h-4"></i> <span data-i18n="perfil.texto">En mis palabras</span>
+            </h3>
+            <p class="text-[10px] text-gray-600 italic mb-3" data-i18n="perfil.texto.nota">
+                Escribe tu perfil como se lo contar&iacute;as a un asesor: qu&eacute; buscas, qu&eacute; no tocas, qu&eacute; te quita
+                el sue&ntilde;o. Esto es CONTEXTO para la tesis &mdash; nunca se convierte en un score.
+            </p>
+            <textarea id="pfTexto" rows="9" spellcheck="true"
+                      class="w-full bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-gray-200 leading-relaxed focus:border-blue-500/50 focus:outline-none resize-y"></textarea>
+        </div>
+    </div>
+
+    <div class="flex items-center gap-3 flex-wrap mt-4">
+        <button onclick="pfGuardar()" id="pfBtnGuardar"
+                class="text-xs font-bold px-4 py-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-500 transition flex items-center gap-2">
+            <i data-lucide="save" class="w-3.5 h-3.5"></i> <span data-i18n="perfil.guardar">Guardar perfil</span>
+        </button>
+        <span id="pfEstado" class="text-[11px] text-gray-500"></span>
+    </div>
+</main>
+
 <main id="portfolioView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4">
 
     <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
@@ -8489,6 +8724,267 @@ document.addEventListener('keydown', e => {
 // Si el usuario rota la tablet a horizontal y aparece la barra de escritorio,
 // el panel deja de tener sentido: se cierra solo.
 window.matchMedia(_MQ_DESKTOP).addEventListener('change', e => { if (e.matches) closeMobileNav(); });
+</script>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   MENÚ DE CUENTA · TEMA · IDIOMA · PERFIL
+
+   El nombre de arriba a la derecha era una etiqueta muerta. Ahora abre el
+   menú de cuenta, y de ahí cuelgan las tres cosas que un usuario espera
+   encontrar detrás de su nombre: su perfil, el tema y el idioma.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── MENÚ ─────────────────────────────────────────────────────────────── */
+
+function toggleUserMenu(ev) {
+    if (ev) ev.stopPropagation();
+    const m = document.getElementById('userMenu');
+    if (!m) return;
+    const abierto = !m.classList.contains('hidden');
+    // Dos paneles abiertos a la vez se pisan: el de notificaciones cede.
+    document.getElementById('notifPanel')?.classList.add('hidden');
+    m.classList.toggle('hidden', abierto);
+    if (!abierto) vxPintaMenu();
+    if (window.lucide) lucide.createIcons();
+}
+function closeUserMenu() {
+    document.getElementById('userMenu')?.classList.add('hidden');
+}
+document.addEventListener('click', e => {
+    const m = document.getElementById('userMenu');
+    if (!m || m.classList.contains('hidden')) return;
+    if (m.contains(e.target) || document.getElementById('navUserBtn')?.contains(e.target)) return;
+    closeUserMenu();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeUserMenu(); });
+
+/** Nombre y email en la cabecera del menú, y el estado de tema/idioma.
+ *  La sesión es la del login; el perfil guardado la completa si el login
+ *  se hizo con un email suelto. */
+function vxPintaMenu() {
+    let s = null;
+    try { s = authGetSession(); } catch (e) {}
+    const n = document.getElementById('umNombre');
+    const em = document.getElementById('umEmail');
+    if (n) n.innerText = (s && (s.name || s.email)) || (VX_PERFIL && VX_PERFIL.nombre) || '—';
+    if (em) em.innerText = (s && s.email) || (VX_PERFIL && VX_PERFIL.email) || '';
+    vxPintaOpciones();
+}
+
+/** Marca cuál de los dos botones de cada par está activo. */
+function vxPintaOpciones() {
+    const claro = document.documentElement.classList.contains('light');
+    document.querySelectorAll('[data-tema]').forEach(b =>
+        b.classList.toggle('activa', (b.dataset.tema === 'claro') === claro));
+    document.querySelectorAll('[data-idioma]').forEach(b =>
+        b.classList.toggle('activa', b.dataset.idioma === VX_IDIOMA));
+}
+
+/** Tema desde el menú. Reutiliza el `applyTheme` que ya existía —el botón
+ *  flotante de abajo a la derecha y este menú mueven la MISMA preferencia,
+ *  no dos ajustes que se contradicen. */
+function vxTema(t) {
+    applyTheme(t === 'claro' ? 'light' : 'dark');
+    vxPintaOpciones();
+}
+
+/* ── IDIOMA ───────────────────────────────────────────────────────────── */
+
+/* Se traduce la navegación, el menú de cuenta y el perfil.
+ *
+ * NO se traducen Analyze ni Explore: son áreas que no se pueden tocar en este
+ * trabajo, y traducirlas exigiría editar su marcado. Se dice aquí en vez de
+ * dejar que el usuario lo descubra a medias. */
+const VX_I18N = {
+    en: {
+        'nav.dashboard': 'Dashboard', 'nav.reports': 'Reports',
+        'nav.portfolio': 'Portfolio', 'nav.proyecciones': 'Projections',
+        'nav.watchlist': 'Watchlist', 'nav.track': 'Track Record',
+        'menu.perfil': 'My profile', 'menu.tema': 'Theme',
+        'menu.oscuro': 'Dark', 'menu.claro': 'Light',
+        'menu.idioma': 'Language', 'menu.salir': 'Sign out',
+        'perfil.titulo': 'My profile',
+        'perfil.sub': 'Your capital, your tolerance and your own words. All three agents read this before recommending anything.',
+        'perfil.tab.info': 'Information', 'perfil.tab.perfil': 'Profile',
+        'perfil.cuenta': 'Account details', 'perfil.nombre': 'Name', 'perfil.email': 'Email',
+        'perfil.cuenta.nota': 'Your email is the only personal detail the system needs besides the profile. It is never sent to a data provider: Massive and MarketSnack only ever receive symbols.',
+        'perfil.donde': 'Where this ends up',
+        'perfil.duros': 'Hard constraints',
+        'perfil.duros.nota': 'These are constraints, not preferences: position sizing comes from here.',
+        'perfil.capital': 'Available capital (USD)', 'perfil.horizonte': 'Horizon',
+        'perfil.tolerancia': 'Risk tolerance',
+        'perfil.posicion': 'Maximum per single position',
+        'perfil.posicion.nota': 'How much capital a SINGLE position may take up. With a 30% cap, three total losses in a row wipe out almost the whole account — which is why every report states the invalidation level before the target.',
+        'perfil.texto': 'In my own words',
+        'perfil.texto.nota': 'Write your profile the way you would tell an advisor: what you are after, what you never touch, what keeps you up at night. This is CONTEXT for the thesis — it never becomes a score.',
+        'perfil.guardar': 'Save profile',
+    },
+    es: {},   // el marcado ya está en español: el diccionario `es` es el original
+};
+
+let VX_IDIOMA = 'es';
+try { VX_IDIOMA = localStorage.getItem('vertex_idioma') || 'es'; } catch (e) {}
+
+/** Guarda el texto original en `data-i18n-es` la primera vez, para que volver
+ *  a español no dependa de un segundo diccionario que se pueda desincronizar
+ *  del marcado. El HTML ES la traducción española. */
+function vxAplicaIdioma() {
+    const dic = VX_I18N[VX_IDIOMA] || {};
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        if (el.dataset.i18nEs == null) el.dataset.i18nEs = el.innerHTML;
+        const t = dic[el.dataset.i18n];
+        el.innerHTML = t != null ? t : el.dataset.i18nEs;
+    });
+    document.documentElement.lang = VX_IDIOMA;
+}
+
+function vxIdioma(l) {
+    VX_IDIOMA = (l === 'en') ? 'en' : 'es';
+    try { localStorage.setItem('vertex_idioma', VX_IDIOMA); } catch (e) {}
+    vxAplicaIdioma();
+    vxPintaOpciones();
+    if (window.lucide) lucide.createIcons();
+}
+
+/* ── PERFIL ───────────────────────────────────────────────────────────── */
+
+let VX_PERFIL = null;          // el perfil tal como lo devolvió el servidor
+let VX_TOLERANCIAS = [];       // las bandas, con su % y su explicación
+let pfTolSel = null;           // la tolerancia elegida en pantalla, sin guardar
+let pfTabActiva = 'info';
+
+function pfTab(cual) {
+    pfTabActiva = cual;
+    document.getElementById('pfPaneInfo')?.classList.toggle('hidden', cual !== 'info');
+    document.getElementById('pfPanePerfil')?.classList.toggle('hidden', cual !== 'perfil');
+    document.getElementById('pfTabInfo')?.classList.toggle('activa', cual === 'info');
+    document.getElementById('pfTabPerfil')?.classList.toggle('activa', cual === 'perfil');
+    if (window.lucide) lucide.createIcons();
+}
+
+async function pfCargar() {
+    pfTab(pfTabActiva);
+    const est = document.getElementById('pfEstado');
+    try {
+        const r = await fetch(`${API_BASE}/api/perfil`);
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'No se pudo leer el perfil.');
+        pfTolSel = d.perfil.tolerancia;
+        pfPinta(d);          // fija VX_PERFIL y VX_TOLERANCIAS
+        if (est) est.innerText = '';
+    } catch (e) {
+        if (est) { est.innerText = 'No se pudo cargar el perfil: ' + e.message; est.className = 'text-[11px] text-amber-400'; }
+    }
+}
+
+function pfPinta(d) {
+    const p = d.perfil;
+    // Las bandas se toman del payload que se está pintando, no de lo que
+    // dejara una llamada anterior: `pfPinta` tiene que poder pintar sola. Con
+    // la lista vacía, la nota del riesgo por operación salía en blanco.
+    VX_TOLERANCIAS = d.tolerancias || [];
+    VX_PERFIL = p;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v == null ? '' : v; };
+    // El nombre/email de la sesión rellenan el hueco si el perfil está vacío:
+    // es el mismo dato y pedirlo dos veces sería trabajo del usuario, no suyo.
+    let s = null; try { s = authGetSession(); } catch (e) {}
+    set('pfNombre', p.nombre || (s && s.name) || '');
+    set('pfEmail', p.email || (s && s.email) || '');
+    set('pfCapital', p.capital);
+    set('pfHorizonte', p.horizonte);
+    set('pfTexto', p.texto);
+    const pos = p.max_posicion_pct || [20, 30];
+    set('pfPosMin', pos[0]); set('pfPosMax', pos[1]);
+
+    const caja = document.getElementById('pfTolerancias');
+    if (caja) {
+        // El id de la banda va como `data-tol` y se lee por delegación, no
+        // dentro de un `onclick`: `_vcEsc` escapa para HTML, que no es lo
+        // mismo que escapar para un literal de JS — una comilla se saldría
+        // del string. Es el mismo cuidado que `_vcTicker` documenta.
+        caja.innerHTML = (d.tolerancias || []).map(t => `
+            <button type="button" data-tol="${_vcEsc(t.id)}"
+                    class="pf-tol text-left px-3 py-2.5 rounded-xl border transition">
+                <span class="block text-[11px] font-bold">${_vcEsc(t.label)}</span>
+                <span class="block text-[9px] opacity-70 mt-0.5">${t.riesgo_pct}% por operaci&oacute;n</span>
+            </button>`).join('');
+        caja.onclick = e => {
+            const b = e.target.closest('[data-tol]');
+            if (b) pfEligeTolerancia(b.dataset.tol);
+        };
+    }
+    pfEligeTolerancia(p.tolerancia);
+
+    const arch = document.getElementById('pfArchivos');
+    if (arch) {
+        const a = d.archivos || {};
+        arch.innerHTML = `
+            <p class="flex items-start gap-2"><code class="text-blue-400 shrink-0">${_vcEsc(a.estructurado || '')}</code>
+               <span class="text-gray-600">la verdad estructurada &mdash; n&uacute;meros, listas, fechas.</span></p>
+            <p class="flex items-start gap-2"><code class="text-blue-400 shrink-0">${_vcEsc(a.para_los_agentes || '')}</code>
+               <span class="text-gray-600">se regenera al guardar. Es el archivo que el agente de opciones (Proyecciones)
+               y el de acciones (Analyze, Explore) ya le&iacute;an, as&iacute; que tu perfil llega a los tres por el mismo camino.</span></p>
+            <p class="text-[9px] text-gray-700 mt-2">&Uacute;ltimo guardado: ${p.actualizado ? _vcEsc(String(p.actualizado).slice(0, 16).replace('T', ' ')) + ' UTC' : 'nunca'}</p>`;
+    }
+}
+
+function pfEligeTolerancia(id) {
+    pfTolSel = id;
+    document.querySelectorAll('[data-tol]').forEach(b => b.classList.toggle('activa', b.dataset.tol === id));
+    const t = VX_TOLERANCIAS.find(x => x.id === id);
+    const cap = Number(document.getElementById('pfCapital')?.value || 0);
+    const nota = document.getElementById('pfRiesgoNota');
+    if (nota && t) {
+        nota.innerHTML = `<b class="text-white">${_vcEsc(t.label)}</b> &mdash; ${_vcEsc(t.que_significa)}
+            <span class="block mt-1 text-gray-400">Riesgo m&aacute;ximo por operaci&oacute;n:
+            <b class="text-emerald-400">${fmtMoney(cap * t.riesgo_pct / 100)}</b> (${t.riesgo_pct}% de ${fmtMoney(cap)}).
+            Es el techo que ordena las Ideas y decide qu&eacute; colateral aguanta la Wheel.</span>`;
+    }
+}
+
+async function pfGuardar() {
+    const est = document.getElementById('pfEstado');
+    const btn = document.getElementById('pfBtnGuardar');
+    const val = id => document.getElementById(id)?.value;
+    if (btn) btn.disabled = true;
+    if (est) { est.innerText = 'Guardando…'; est.className = 'text-[11px] text-gray-500'; }
+    try {
+        const r = await fetch(`${API_BASE}/api/perfil`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                nombre: val('pfNombre'), email: val('pfEmail'),
+                capital: Number(val('pfCapital') || 0),
+                tolerancia: pfTolSel, horizonte: val('pfHorizonte'), texto: val('pfTexto'),
+                max_posicion_pct: [Number(val('pfPosMin') || 20), Number(val('pfPosMax') || 30)],
+            }),
+        });
+        const d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'El servidor rechazó el perfil.');
+        VX_PERFIL = d.perfil;
+        pfEligeTolerancia(d.perfil.tolerancia);
+        vxPintaMenu();
+        if (est) { est.innerText = 'Guardado. Los tres agentes ya lo leen.'; est.className = 'text-[11px] text-emerald-400'; }
+        // Las Ideas se ordenan CON el perfil: si están en pantalla, ya no valen.
+        if (typeof vcTabCargada === 'object' && vcTabCargada) vcTabCargada.ideas = false;
+    } catch (e) {
+        if (est) { est.innerText = e.message; est.className = 'text-[11px] text-amber-400'; }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+// El capital cambia el riesgo por operación: la nota se recalcula al teclear.
+document.addEventListener('input', e => {
+    if (e.target && e.target.id === 'pfCapital') pfEligeTolerancia(pfTolSel);
+});
+
+/* Arranque: idioma y perfil. El tema ya lo aplica su propio script. */
+document.addEventListener('DOMContentLoaded', () => {
+    vxAplicaIdioma();
+    vxPintaOpciones();
+    pfCargar();
+});
 </script>
 
 <!-- Toggle de tema claro/oscuro -->

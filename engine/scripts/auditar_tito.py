@@ -14,7 +14,7 @@ apúntalo con TITO_ROOT=/ruta/a/agente-tito-metralleta. Sin esa variable se
 salta esa sección y el resto corre igual.
 """
 from __future__ import annotations
-import ast, json, math, os, re, subprocess, sys, tempfile, time
+import ast, json, math, os, re, shutil, subprocess, sys, tempfile, time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -912,17 +912,12 @@ sec("9. Funciones públicas sin llamador")
 # repo. Si una función tiene consumidor en Proyecciones, no va aquí; se cablea.
 # Y si aparece una huérfana nueva sin declarar, este check falla.
 HUERFANAS = {
-    # ── pertenecen a funciones de su app que NO se portan (Wheel, Ideas) ──
+    # `size_flow` y `sort_by_afford_then_score` estuvieron aquí. Ya no: el
+    # perfil del inversionista vive en el servidor (`Perfil Inversionista/
+    # perfil.json`), no en localStorage como en su app, así que sus dos
+    # funciones de dimensionado corren en `/api/tito-ideas` y `/api/tito-wheel`.
+    # Es una divergencia declarada de CABLEADO, no de fórmula.
 
-    "size_flow":
-        "el sizing NO se calcula en el servidor: el saldo de Kevin no sale del "
-        "navegador, igual que en su /api/ideas. La ruta devuelve los griegos; "
-        "el techo de contratos lo aplica quien tenga el perfil delante",
-    "sort_by_afford_then_score":
-        "su `wheelAfford.ts` corre en el CLIENTE: ordena por lo que CABE en la "
-        "cuenta, y el saldo vive en localStorage y no llega al servidor. La ruta "
-        "sirve el colateral de cada candidato; quién puede pagarlo lo decide "
-        "quien tenga el saldo delante",
     # ── huérfanas EN SU PROPIO REPO ──
     "add_days":
         "sin llamador también en su occ.ts: nadie la usa en agente-tito-metralleta",
@@ -1272,6 +1267,22 @@ m = re.search(r"(\d+) passed", r.stdout)
 chk(r.returncode == 0, f"suite del motor verde ({m.group(1) if m else '?'} tests)")
 chk(len(list((VERTEX/"engine"/"tests"/"tito").glob("test_*.py"))) >= 12,
     f"{len(list((VERTEX/'engine'/'tests'/'tito').glob('test_*.py')))} archivos de test")
+
+# Los tests de Python leen el HTML como TEXTO: comprueban que una función
+# existe y que alguien la llama, pero no ejecutan una línea. El smoke sí corre
+# el JS vivo contra un DOM mínimo — y ya encontró un fallo que la lectura de
+# texto no podía ver (`pfPinta` dependía de una variable que solo llenaba
+# `pfCargar`, y la nota del riesgo salía en blanco).
+_smoke = VERTEX / "engine" / "scripts" / "_smoke_perfil.mjs"
+if shutil.which("node") and _smoke.is_file():
+    r = subprocess.run(["node", str(_smoke)], capture_output=True, text=True)
+    m = re.search(r"(\d+) fallos", r.stdout)
+    chk(r.returncode == 0,
+        "smoke del perfil: el JS del panel se EJECUTA y pinta lo del perfil"
+        + (f" · {m.group(0)}" if m and r.returncode else ""))
+else:
+    chk(False, "sin node: el smoke del perfil (JS vivo contra DOM) no se pudo correr",
+        warn_if_false=True)
 
 # Los diferenciales son lo único que compara contra SU archivo de verdad, así
 # que su ausencia es un agujero silencioso: la suite seguiría verde con el port
