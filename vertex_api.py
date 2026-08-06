@@ -4165,9 +4165,13 @@ def tito_ideas():
     4. El historial por ticker con `validation_score` — el sub-agente 6 como
        evidencia de si ese patrón se ha desarrollado antes.
 
-    **El sizing NO se calcula aquí**, igual que en su ruta: el tamaño de cuenta
-    es de Kevin y no tiene por qué salir del navegador. Esta ruta devuelve los
-    griegos; quien quiera el techo de contratos aplica `size_flow` con su perfil.
+    **DIVERGENCIA DECLARADA — el sizing sí se calcula aquí.** Su ruta devuelve
+    los griegos y nada más, porque su app no tiene perfil de inversionista. Esta
+    sí: `Perfil Inversionista/perfil.json` vive en el servidor, así que la capa 2
+    de su propio `risk.py` (`size_flow`) se aplica aquí con ese perfil. El motor
+    es el suyo, sin tocar; lo que cambia es que se le pasa un `RiskProfile` real
+    en vez de dejar el hueco. Las ideas que no caben **no se esconden**: se
+    marcan y se bajan al final.
     """
     sc = _tito_mod()
     if sc is None:
@@ -4244,6 +4248,44 @@ def tito_ideas():
                          "median_sessions": rep.speed["median_sessions"],
                          "resolved": rep.hit_rate["resolved"]}
 
+    # ── FILTRO POR PERFIL — lo mismo que hace Wheel con el colateral ─────
+    #
+    # El perfil da DOS números que aquí mandan:
+    #
+    #   · el capital, que decide si el contrato te cabe siquiera;
+    #   · el riesgo por operación, que decide cuántos te caben.
+    #
+    # `size_flow` es el mismo `risk.py` de Víctor que la Wheel usa: dice el
+    # TECHO de contratos, nunca "compra". Y su capa 1 ya bloquea theta de
+    # lotería, vencimientos cortos y cadenas ilíquidas.
+    #
+    # Lo que NO se hace: esconder las ideas que no te caben. Se marcan y se
+    # bajan al final. Que una operación esté fuera de tu presupuesto es
+    # información, no ruido — y ocultarla te dejaría creyendo que el mercado no
+    # ofrecía nada.
+    from wbj.tito.risk import RiskProfile, size_flow
+    _perfil = _perfil_leer()
+    _rp = RiskProfile(account_size=_perfil["capital"], tolerance_pct=_perfil["riesgo_pct"])
+    _sizing = {}
+    for r in operables:
+        try:
+            _sz = size_flow(r, _rp, _perfil_horizonte_dias(_perfil))
+            _sizing[r.id] = {
+                "max_contracts": _sz.max_contracts,
+                "cost_per_contract": _r(_sz.cost_per_contract),
+                "total_cost": _r(_sz.total_cost),
+                "cost_pct_of_account": _r(_sz.cost_pct_of_account, 1),
+                "binding": _sz.binding,
+                "blocked": _sz.blocked,
+            }
+        except Exception:                        # noqa: BLE001 — el port lanza donde él
+            _sizing[r.id] = None
+    # Las que caben primero; dentro de cada grupo, el premium manda.
+    operables = sorted(
+        operables,
+        key=lambda r: (0 if (_sizing.get(r.id) or {}).get("max_contracts") else 1,
+                       -(r.premium if isinstance(r.premium, (int, float)) else 0)))
+
     ideas = [{
         "id": r.id, "ticker": r.underlying, "symbol": r.symbol,
         "type": "call" if r.type == "unknown" else r.type,
@@ -4255,6 +4297,9 @@ def tito_ideas():
         "unusual_score": getattr(r.scores, "total", 0),
         "repeated": bool(getattr(r.flags, "repeated", False)),
         "history": historial.get(r.underlying),
+        # Cuántos contratos te caben CON TU perfil. `None` si el motor no pudo
+        # dimensionar; `max_contracts: 0` si no te cabe ninguno, y el motivo.
+        "sizing": _sizing.get(r.id),
     } for r in operables]
 
     # La cobertura del historial crece sola: cada escaneo guarda lo que vio,
@@ -4276,6 +4321,13 @@ def tito_ideas():
         "tickers": len(tickers), "with_history": len(historial),
         "saved_tickers": guardados, "rejected": rechazos,
         "min_premium": _IDEAS_MIN_PREMIUM, "moneyness_cap": MONEYNESS_CAP,
+        # El perfil con el que se ordenó. Va en el payload para que la pantalla
+        # pueda decir "con TU capital" en vez de dar una lista sin contexto.
+        "perfil": {"capital": _perfil["capital"], "tolerancia": _perfil["tolerancia"],
+                   "riesgo_pct": _perfil["riesgo_pct"],
+                   "riesgo_por_trade": _perfil["riesgo_por_trade"],
+                   "caben": sum(1 for v in _sizing.values()
+                                if (v or {}).get("max_contracts"))},
         "period": _IDEAS_PERIOD, "generated_at": now.isoformat(),
     })
 
@@ -4365,10 +4417,11 @@ def tito_wheel(preset: str = "balanceado"):
     - Un rendimiento anualizado alto se **castiga**. Un screener que ordena por
       prima pone arriba justo las acciones a punto de desplomarse.
 
-    **La asequibilidad no se calcula aquí.** Su `wheelAfford.ts` corre en el
-    cliente porque el saldo vive en localStorage y no llega al servidor. Esta
-    ruta devuelve el colateral de cada candidato; quién puede pagarlo es cosa
-    de quien tenga el saldo delante.
+    **DIVERGENCIA DECLARADA — la asequibilidad sí se calcula aquí.** Su
+    `wheelAfford.ts` corre en el cliente porque en su app el saldo vive en
+    localStorage. Aquí el capital está en `Perfil Inversionista/perfil.json`, en
+    el servidor, así que su misma función (`sort_by_afford_then_score`) corre en
+    esta ruta. La fórmula es la suya, intacta.
     """
     sc = _tito_mod()
     if sc is None:
@@ -4536,14 +4589,30 @@ def tito_wheel(preset: str = "balanceado"):
             pasos.append(f"{sym.ticker}: {sum(1 for c in cands if not c.blocked)} candidatos")
     fallidos = sum(motivos.values())
 
-    todos.sort(key=lambda c: (c.blocked, -(c.score.total if c.score else 0)))
+    # ── ASEQUIBILIDAD — su `sortByAffordThenScore`, con TU capital ────────
+    #
+    # **DIVERGENCIA DECLARADA.** Su `wheelAfford.ts` corre en el cliente porque
+    # en su app el saldo vive en localStorage. Aquí el capital está en
+    # `Perfil Inversionista/perfil.json`, en el servidor, así que su propia
+    # función corre aquí. La FÓRMULA es la suya, sin tocar: colateral ≤ caja, y
+    # el orden es bloqueado → no asequible → score.
+    #
+    # Lo que NO se hace: esconder lo que no te cabe. Un put de 100 acciones de
+    # NVDA no deja de existir porque tengas $1,000 — se marca y se baja.
+    from wbj.tito.wheel_universe import sort_by_afford_then_score
+    _perfil = _perfil_leer()
+    pares = sort_by_afford_then_score(todos, _perfil["capital"])
+    todos = [c for c, _ in pares]
 
     def _parte(x):
         return {"points": x.points, "max": x.max, "band": x.band, "why": x.why}
 
-    def _fila(c):
+    def _fila(c, a=None):
         m, sc_ = c.metrics, c.score
         return {
+            # Con TU capital: si el colateral cabe, y cuánto te falta si no.
+            "afford": None if a is None else {"affordable": a.affordable,
+                                              "shortfall": _r(a.shortfall)},
             "ticker": c.ticker, "strike": c.strike, "expiration": c.expiration,
             "dte": c.dte, "spot": _r(c.spot), "delta": _r(c.delta, 3),
             "iv": _r(c.iv, 4), "iv_source": c.iv_source,
@@ -4588,7 +4657,12 @@ def tito_wheel(preset: str = "balanceado"):
                 for k, v in sorted(_bloqueos.items(), key=lambda x: -x[1])]
     return _json_safe({
         "ok": True, "engine": "victor/tito",
-        "candidates": [_fila(c) for c in todos[:120]],
+        "candidates": [_fila(c, a) for c, a in pares[:120]],
+        # El perfil con el que se ordenó — el mismo bloque que devuelve Ideas.
+        "perfil": {"capital": _perfil["capital"], "tolerancia": _perfil["tolerancia"],
+                   "riesgo_pct": _perfil["riesgo_pct"],
+                   "riesgo_por_trade": _perfil["riesgo_por_trade"],
+                   "caben": sum(1 for c, a in pares if not c.blocked and a.affordable)},
         "preset": p.label, "preset_id": p.id, "preset_explain": p.explain,
         "presets": [{"id": q.id, "label": q.label, "explain": q.explain,
                      "delta_min": q.delta_min, "delta_max": q.delta_max,
@@ -4890,6 +4964,302 @@ def tito_fuentes(ticker: str = "AAPL"):
         "endpoints": endpoints, "veredicto": veredicto,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  PERFIL DEL INVERSIONISTA
+#
+#  Dos piezas, y la separación entre ellas es la regla del proyecto:
+#
+#   · **Campos estructurados** (capital, tolerancia, horizonte, instrumentos).
+#     Son NÚMEROS y listas cerradas, así que pueden alimentar un filtro
+#     determinista — el que ordena las Ideas y el que dimensiona la Wheel.
+#   · **Texto libre**, en palabras del inversionista. Va al prompt del agente
+#     como contexto y **jamás** se convierte en un score: "sin evidencia no hay
+#     número, sin número no hay score".
+#
+#  Se guarda en DOS archivos, a propósito:
+#
+#   · `Perfil Inversionista/perfil.json` — la verdad estructurada.
+#   · `Perfil Inversionista/<Nombre>.md` — GENERADO a partir del anterior.
+#
+#  El `.md` existe porque `_load_investor_profile()` ya lo lee, y con él lo leen
+#  Analyze y Explore **sin tocar una línea de esas dos áreas**. Escribiendo el
+#  archivo que ya consumen, el perfil llega a los tres agentes por el camino que
+#  el proyecto ya tenía montado.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_PERFIL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "Perfil Inversionista")
+_PERFIL_JSON = os.path.join(_PERFIL_DIR, "perfil.json")
+
+#: Bandas de tolerancia. El % es del CAPITAL por operación, y es lo que
+#: `risk.size_flow` usa como techo. Los nombres son los del perfil de Kevin.
+_TOLERANCIAS = {
+    "conservador": {"label": "Conservador", "riesgo_pct": 2.0,
+                    "que_significa": "Priorizas no perder. Posiciones pequeñas y muy filtradas."},
+    "moderado":    {"label": "Moderado", "riesgo_pct": 5.0,
+                    "que_significa": "Aceptas volatilidad a cambio de crecimiento."},
+    "agresivo":    {"label": "Agresivo", "riesgo_pct": 15.0,
+                    "que_significa": "Buscas crecimiento de capital y toleras drawdowns fuertes."},
+    "especulativo": {"label": "Especulativo", "riesgo_pct": 30.0,
+                     "que_significa": "Asumes riesgo de ruina real a cambio de asimetría."},
+}
+
+_PERFIL_DEFECTO = {
+    "nombre": "", "email": "", "capital": 1000.0, "tolerancia": "agresivo",
+    "horizonte": "1-3 años", "instrumentos": ["acciones", "etf", "opciones"],
+    "mercados": ["EE.UU."], "texto": "",
+    #: Tope por POSICIÓN, como rango. Es distinto del riesgo por operación:
+    #: aquel dice cuánto puedes perder, este cuánto puedes desplegar.
+    #: `engine/wbj/specialists/risk.py::_load_profile` lo saca del `.md` con
+    #: un regex que exige un RANGO en porcentaje ("20% – 30%"). Por eso vive
+    #: como par y por eso el markdown lo escribe con ese formato exacto.
+    "max_posicion_pct": [20, 30],
+    "excluir": [], "actualizado": None,
+}
+
+
+def _perfil_semilla_del_md():
+    """Lo que se pueda rescatar del `.md` escrito a mano, la primera vez.
+
+    Sin esto, abrir la pantalla de perfil y pulsar «Guardar» sobre un usuario
+    que nunca tuvo `perfil.json` reescribiría un `Kevin.md` redactado a mano
+    con un formulario vacío. El texto entero se conserva en «En mis palabras»:
+    no se pierde una línea, y el inversionista lo recorta si quiere.
+
+    Nunca lanza: sin `.md`, devuelve un diccionario vacío.
+    """
+    for nombre in ("Kevin.md", "Mi Perfil.md", "MiPerfil.md", "Perfil.md"):
+        ruta = os.path.join(_PERFIL_DIR, nombre)
+        if not os.path.isfile(ruta):
+            continue
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                texto = f.read().strip()
+        except Exception:                        # noqa: BLE001
+            return {}
+        if not texto:
+            return {}
+        # Si el `.md` ya lo generamos nosotros, su contenido sale del JSON:
+        # volver a meterlo como texto libre lo duplicaría en cada guardado.
+        if "Generado desde el editor de perfil de Vertex" in texto:
+            return {}
+        semilla = {"texto": texto, "nombre": nombre[:-3]}
+        m = re.search(r"\$\s?([\d.,]+)", texto)
+        if m:
+            try:
+                semilla["capital"] = float(m.group(1).replace(",", ""))
+            except ValueError:
+                pass
+        m = re.search(r"(\d+)\s*(?:a|-|–|—)\s*(\d+)\s*años", texto, re.I)
+        if m:
+            semilla["horizonte"] = f"{m.group(1)}-{m.group(2)} años"
+        m = re.search(r"(\d{1,3})\s*%\s*(?:a|-|–|—)\s*(\d{1,3})\s*%", texto)
+        if m:
+            semilla["max_posicion_pct"] = [int(m.group(1)), int(m.group(2))]
+        return semilla
+    return {}
+
+
+def _perfil_horizonte_dias(d):
+    """El horizonte del perfil en días, para la quema de theta de `size_flow`.
+
+    El campo es texto libre ("1-3 años", "semanas a meses") porque así lo
+    escribe una persona. Se traduce a días con el extremo CORTO del rango: un
+    horizonte corto quema menos theta y por tanto deja un techo más alto, así
+    que usar el largo sería el lado conservador… pero también el que esconde
+    operaciones que sí caben. Se usa el corto y se declara.
+    """
+    t = (d.get("horizonte") or "").lower()
+    if "día" in t or "dia" in t:
+        return 5
+    if "semana" in t:
+        return 21
+    if "mes" in t:
+        return 45
+    if "año" in t or "ano" in t:
+        return 90        # tope: `size_flow` no mira más allá del vencimiento
+    return 30
+
+
+def _perfil_leer():
+    """El perfil estructurado. Nunca lanza: sin archivo, devuelve el defecto."""
+    d = dict(_PERFIL_DEFECTO)
+    try:
+        with open(_PERFIL_JSON, "r", encoding="utf-8") as f:
+            guardado = json.load(f)
+        if isinstance(guardado, dict):
+            d.update({k: v for k, v in guardado.items() if k in _PERFIL_DEFECTO})
+    except Exception:                            # noqa: BLE001 — sin perfil se sigue
+        # Primera vez: no hay JSON todavía. Se siembra de lo que ya había
+        # escrito a mano, para que guardar no destruya el perfil de nadie.
+        d.update(_perfil_semilla_del_md())
+    if d.get("tolerancia") not in _TOLERANCIAS:
+        d["tolerancia"] = "agresivo"
+    try:
+        d["capital"] = float(d.get("capital") or 0) or 0.0
+    except (TypeError, ValueError):
+        d["capital"] = 0.0
+    d["riesgo_pct"] = _TOLERANCIAS[d["tolerancia"]]["riesgo_pct"]
+    #: Lo máximo que aceptas perder en UNA operación. Es el número que ordena
+    #: las Ideas y el que la Wheel usa para saber qué colateral te cabe.
+    d["riesgo_por_trade"] = _r(d["capital"] * d["riesgo_pct"] / 100)
+    return d
+
+
+def _perfil_a_markdown(d):
+    """Genera el `.md` que YA leen Analyze y Explore.
+
+    El formato importa por DOS motivos, y el segundo es el que muerde:
+
+    1. `_load_investor_profile()` devuelve el archivo entero como texto y lo
+       pega en el prompt. Tiene que leerse como un perfil escrito por una
+       persona, no como un volcado de JSON.
+    2. `engine/wbj/specialists/risk.py::_load_profile` **parsea este archivo
+       con tres regex**: el primer importe en dólares (capital), un rango
+       "N a M años" (horizonte) y un rango "N% – M%" (tope por posición). Si
+       alguna deja de casar, ese especialista cae al valor por defecto **en
+       silencio** y el reporte pasa a hablar del perfil de otro. Por eso:
+
+       · el capital es el PRIMER `$` del documento;
+       · el horizonte se escribe también como rango en años cuando se conoce;
+       · el tope por posición se escribe siempre como rango en porcentaje.
+
+    Los tests `TestElMdSigueSiendoLegibleParaElEngine` lo verifican contra la
+    función real, no contra una copia del regex.
+    """
+    tol = _TOLERANCIAS[d["tolerancia"]]
+    inst = ", ".join(d.get("instrumentos") or []) or "sin especificar"
+    merc = ", ".join(d.get("mercados") or []) or "sin especificar"
+    excl = ", ".join(d.get("excluir") or [])
+    pos = d.get("max_posicion_pct") or _PERFIL_DEFECTO["max_posicion_pct"]
+    horiz = d.get("horizonte") or "sin especificar"
+    # El regex del engine quiere "N a M años". Si el horizonte se escribió con
+    # palabras ("semanas a meses"), se añade el equivalente en años detrás en
+    # vez de callar: un horizonte por defecto no declarado es peor que uno
+    # aproximado y dicho.
+    if not re.search(r"\d+\s*(?:a|-|–|—)\s*\d+\s*años", horiz, re.I):
+        _dias = _perfil_horizonte_dias(d)
+        _a = max(1, round(_dias / 365)) if _dias >= 180 else 1
+        horiz = f"{horiz} (aprox. {_a} a {_a + 2} años para el especialista de riesgo)"
+    lineas = [
+        f"# Perfil de inversionista — {d.get('nombre') or 'sin nombre'}",
+        "",
+        "> Generado desde el editor de perfil de Vertex. Es la ÚNICA fuente del",
+        "> perfil: la edita el inversionista y la leen los tres agentes.",
+        "",
+        "## Datos duros",
+        "",
+        f"- **Capital disponible**: ${d['capital']:,.0f}",
+        f"- **Tolerancia al riesgo**: {tol['label']} — {tol['que_significa']}",
+        f"- **Riesgo máximo por operación**: {d['riesgo_pct']:.0f}% del capital "
+        f"(${d['riesgo_por_trade']:,.0f})",
+        f"- **Máximo por posición individual**: {pos[0]}% – {pos[1]}% del capital.",
+        f"- **Horizonte**: {horiz}",
+        f"- **Instrumentos**: {inst}",
+        f"- **Mercados**: {merc}",
+    ]
+    if excl:
+        lineas.append(f"- **Excluido a propósito**: {excl}")
+    lineas += [
+        "",
+        "## En mis palabras",
+        "",
+        (d.get("texto") or "_El inversionista aún no ha escrito su perfil._").strip(),
+        "",
+        "---",
+        "",
+        "**Cómo usar esto.** Los datos duros son restricciones: el sizing y el",
+        "universo salen de ahí. El texto es contexto para la tesis y **nunca**",
+        "se convierte en un score — sin evidencia no hay número.",
+        "",
+    ]
+    return "\n".join(lineas)
+
+
+def _perfil_guardar(d):
+    """Escribe el JSON y REGENERA el `.md` que consumen los otros agentes."""
+    os.makedirs(_PERFIL_DIR, exist_ok=True)
+    d = {k: v for k, v in d.items() if k in _PERFIL_DEFECTO}
+    d["actualizado"] = datetime.now(timezone.utc).isoformat()
+    tmp = _PERFIL_JSON + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, _PERFIL_JSON)               # atómico: nunca un JSON a medias
+
+    # El `.md` con el nombre que `_load_investor_profile` busca primero. Se
+    # regenera LEYENDO lo que se acaba de escribir, no el diccionario de
+    # entrada: así el markdown no puede desviarse del JSON ni un decimal.
+    md = os.path.join(_PERFIL_DIR, "Kevin.md")
+    tmp_md = md + ".tmp"
+    with open(tmp_md, "w", encoding="utf-8") as f:
+        f.write(_perfil_a_markdown(_perfil_leer()))
+    os.replace(tmp_md, md)
+    return d
+
+
+@app.get("/api/perfil")
+def perfil_get():
+    """El perfil del inversionista: cuenta + datos duros + texto."""
+    d = _perfil_leer()
+    return _json_safe({
+        "ok": True, "perfil": d,
+        "tolerancias": [{"id": k, **v} for k, v in _TOLERANCIAS.items()],
+        # Dónde acaba, para que no sea magia: el `.md` es lo que leen los otros
+        # dos agentes, y por eso editar aquí los cambia a ellos también.
+        "archivos": {"estructurado": "Perfil Inversionista/perfil.json",
+                     "para_los_agentes": "Perfil Inversionista/Kevin.md"},
+    })
+
+
+@app.post("/api/perfil")
+async def perfil_post(request: Request):
+    """Guarda el perfil. Valida lo que es número y respeta lo que es texto."""
+    try:
+        body = await request.json()
+    except Exception:                            # noqa: BLE001
+        return {"ok": False, "error": "Cuerpo no es JSON."}
+    if not isinstance(body, dict):
+        return {"ok": False, "error": "Cuerpo no es un objeto."}
+
+    d = _perfil_leer()
+    for campo in ("nombre", "email", "horizonte", "texto"):
+        if campo in body:
+            d[campo] = str(body[campo] or "")[:8000]
+    if "capital" in body:
+        try:
+            cap = float(body["capital"])
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "El capital tiene que ser un número."}
+        if cap < 0 or cap > 1e12:
+            return {"ok": False, "error": "Capital fuera de rango."}
+        d["capital"] = cap
+    if "tolerancia" in body:
+        if body["tolerancia"] not in _TOLERANCIAS:
+            return {"ok": False, "error": f"Tolerancia desconocida: {body['tolerancia']!r}"}
+        d["tolerancia"] = body["tolerancia"]
+    for campo in ("instrumentos", "mercados", "excluir"):
+        if campo in body:
+            v = body[campo]
+            if not isinstance(v, list):
+                return {"ok": False, "error": f"`{campo}` tiene que ser una lista."}
+            d[campo] = [str(x)[:60] for x in v][:40]
+    if "max_posicion_pct" in body:
+        v = body["max_posicion_pct"]
+        try:
+            lo, hi = int(v[0]), int(v[1])
+        except (TypeError, ValueError, IndexError, KeyError):
+            return {"ok": False, "error": "`max_posicion_pct` es un par [min, max]."}
+        if not 0 < lo <= hi <= 100:
+            return {"ok": False, "error": "El tope por posición va entre 1% y 100%, min ≤ max."}
+        d["max_posicion_pct"] = [lo, hi]
+
+    try:
+        _perfil_guardar(d)
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Guardar el perfil")}
+    return _json_safe({"ok": True, "perfil": _perfil_leer()})
 
 
 @app.get("/api/tito-news")

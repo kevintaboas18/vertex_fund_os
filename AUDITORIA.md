@@ -3356,3 +3356,118 @@ es el identificador de la fila y manda sola, como título de la tarjeta.
 Seis tests lo fijan, y uno de ellos es el que evita la regresión de verdad:
 **ninguna tabla puede llevar ancho mínimo sin el modo tarjeta**. Si mañana se
 añade una novena tabla y se olvida la clase, el test la caza.
+
+## 41.14 El perfil del inversionista manda
+
+Kevin: *"basado a mi perfil de inversionista el área de proyecciones me dé ideas
+igual que Wheel… en el área de perfil me salga información y perfil… basado a
+ese perfil el agente de opciones (proyecciones) y el agente de acciones (analyze
+y explore) te recomendarán en qué invertir… **no puedes tocar nada de analyze ni
+explore**."*
+
+### La restricción es la que decide el diseño
+
+No se puede tocar Analyze ni Explore. Pero el perfil tiene que llegar a los dos.
+La salida estaba ya en el repo: `_load_investor_profile()` —que esas dos áreas
+ya usaban antes de este trabajo— lee `Perfil Inversionista/Kevin.md`.
+
+Así que el editor **escribe ese archivo**. El perfil llega a los tres agentes
+por el camino que el proyecto ya tenía montado, sin editar una línea de Analyze
+ni de Explore.
+
+```
+pantalla → POST /api/perfil → perfil.json  (la verdad estructurada)
+                            → Kevin.md     (regenerado desde el JSON)
+                                 ↓
+              lo leen Analyze y Explore, sin tocarlos
+```
+
+### Divergencia declarada: el sizing pasa al servidor
+
+Sus dos rutas devuelven griegos y colateral, y nada más, **porque su app no
+tiene perfil de inversionista**: el saldo vive en `localStorage` y por eso
+`sizeFlow` y `wheelAfford.ts` corren en su cliente.
+
+Aquí el capital está en el servidor. Así que sus dos funciones corren en la
+ruta. **Las fórmulas son las suyas, intactas** — `diff_motor2.sh` las cubre,
+918/918 casos idénticos. Lo que cambia es dónde se ejecutan.
+
+Las dos estaban declaradas como huérfanas en el registro de la auditoría. Ya no:
+el registro dice quién las llama, y si alguien las descablea, el check falla.
+
+| | Antes | Ahora |
+|---|---|---|
+| **Ideas** | 25 contratos por premium | + `size_flow` con tu capital → columna «Te cabe», las que caben primero |
+| **Wheel** | 120 candidatos por score | + `sort_by_afford_then_score` → «Sí» / «faltan $8,500» |
+
+**Lo que no te cabe no se esconde: se marca y se baja.** Que una operación esté
+fuera de tu presupuesto es información. Ocultarla te dejaría creyendo que el
+mercado no ofrecía nada.
+
+### El fallo caro que casi se cuela: regenerar destruye
+
+`Kevin.md` estaba escrito a mano, con 2.384 caracteres de contexto real. Abrir
+la pantalla nueva y pulsar «Guardar» con el formulario vacío lo habría
+reemplazado por una plantilla. **Data loss silencioso.**
+
+Y hay un segundo lector que nadie ve: `engine/wbj/specialists/risk.py` **no lee
+el JSON — parsea el `.md` con tres regex**: el primer `$` (capital), un rango
+`N a M años` (horizonte) y un rango `N% – M%` (tope por posición). Si el
+markdown generado dejaba de casar con alguno, ese especialista caía a su valor
+por defecto **sin avisar** y el reporte pasaba a hablar del perfil de otra
+persona.
+
+Las dos respuestas:
+
+1. **Siembra.** Sin `perfil.json`, el perfil se rellena leyendo el `.md`
+   existente: el texto entero va a «En mis palabras», y capital, horizonte y
+   tope salen de sus mismos regex. No se pierde una línea. Y si el `.md` ya lo
+   generamos nosotros, no se re-siembra — se duplicaría en cada guardado.
+2. **El markdown se escribe para los dos lectores.** El capital es el primer
+   `$` del documento; el tope por posición se emite siempre como rango; y un
+   horizonte en palabras («semanas a meses») lleva detrás su equivalente en años
+   **declarado**, porque un valor por defecto que nadie escribió es peor que uno
+   aproximado y dicho.
+
+Cinco tests corren `_load_profile()` **de verdad** sobre el markdown generado.
+No una copia del regex: una copia se actualizaría sola y dejaría de proteger
+nada.
+
+### El menú de cuenta
+
+El nombre de arriba a la derecha era una etiqueta muerta con un «Sign Out» al
+lado. Ahora abre el menú: perfil, tema y idioma.
+
+- **Tema**: reutiliza el `applyTheme` que ya existía. Dos interruptores que
+  muevan preferencias distintas es peor que uno solo — el usuario cambia el tema
+  y al recargar vuelve el otro.
+- **Idioma**: el marcado **es** la traducción española. `vxAplicaIdioma` guarda
+  el original en `data-i18n-es` la primera vez, así que volver a español no
+  depende de un segundo diccionario que se pueda desincronizar. Un test exige
+  que toda clave `data-i18n` del marcado tenga entrada en inglés.
+- **Honestidad sobre el alcance**: se traducen la navegación, el menú y el
+  perfil. **Analyze y Explore no**, porque traducirlos exige editar su marcado y
+  esas dos áreas no se tocan. Está dicho en el código en vez de dejar que se
+  descubra a medias.
+
+### El smoke que encontró lo que la lectura de texto no podía
+
+Los tests de Python leen el HTML como **texto**: comprueban que una función
+existe y que alguien la llama. No ejecutan una línea.
+
+`engine/scripts/_smoke_perfil.mjs` monta un DOM mínimo y **corre el JS vivo**
+—`renderProjIdeas`, `renderProjWheel`, `pfPinta`— con payloads realistas, y mira
+el HTML que sale. 23 comprobaciones.
+
+Encontró un fallo real: `pfPinta` leía las bandas de tolerancia de una variable
+que solo llenaba `pfCargar`, así que la nota del riesgo por operación salía **en
+blanco**. Ninguna lectura de texto podía verlo. Corre dentro de la auditoría.
+
+### Batería
+
+**2.721 tests del motor · 303 de la capa web · 248 checks de auditoría · 23 del
+smoke · 12 diferenciales · 0 fallos.**
+
+Los diferenciales se volvieron a correr contra el clon actual de su repo
+(`53d5a20`): motor 1142/1142, motor2 918/918, compute 604/604, geo 274/274,
+reloj 223/223, calib 182/182, frescura 342/342, store 47/47, bars 27/27.
