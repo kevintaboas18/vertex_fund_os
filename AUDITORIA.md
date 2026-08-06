@@ -3039,3 +3039,29 @@ abierta.
 Con el mercado cerrado todo baja a **3600s**: el dato no cambia en 16 horas,
 pero la vista despierta sola cerca de la apertura sin haber estado pidiendo
 datos idénticos toda la noche.
+
+## 41.8 El tab no se armaba al entrar por el menú
+
+Kevin mandó una captura de cómo debe verse —marca, las cuatro pestañas, los
+tickers rápidos y el buscador— y dijo: *"no quiero que cuando presione
+proyecciones salga solo entrar el ticker"*.
+
+**La causa:** la inicialización que pinta todo eso (`vcPintaNav`,
+`vcPintaQuick`, `vcAbreTab`, `vcArrancaVivo`) colgaba de **`cmdKey`, la barra
+de comandos (Cmd+K)**. Entrando por el menú —que es como se entra— no la
+llamaba nadie: quedaba el DOM crudo, con `projNav` y `projQuick` vacíos, y el
+único texto visible era *"Analiza un ticker"*. Todo el trabajo estaba hecho y
+sin llamador.
+
+Es el mismo patrón que la auditoría lleva seis rondas persiguiendo —código
+portado que nadie ejecuta— pero en el lado del navegador, donde el registro de
+huérfanas no llega.
+
+**Resuelto:** la inicialización vive ahora en `switchView`, por donde pasan las
+**cuatro** entradas al tab (menú de escritorio, dos del menú móvil vía
+`mobileGo`, y el atajo desde el reporte). Y es idempotente: entrar diez veces
+no relanza diez escaneos ni deja diez temporizadores.
+
+Cuatro tests nuevos lo fijan, incluido uno que prohíbe que nadie le quite el
+`hidden` al tab a mano sin pasar por `switchView` — que es justo el atajo que
+volvería a dejar el DOM crudo.
