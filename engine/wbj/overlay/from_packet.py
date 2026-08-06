@@ -140,7 +140,68 @@ _MOS_FORECAST_YEARS = 5
 _MOS_TERMINAL_GROWTH = 0.025
 
 
-def _margin_of_safety_from_packet(packet: Any) -> float | None:
+def _margin_of_safety_adapter(packet: Any, overlay: dict | None = None) -> float | None:
+    """VAL-MOS-040 para bancos, aseguradoras y REITs, con SUS modelos.
+
+    Delega en `ve.valor_justo_por_adaptador`, la misma funcion que corre la
+    ruta de adaptador de `valuation.py`. Se deriva del packet COMUN y nunca de
+    la salida del otro agente, asi que la independencia entre especialistas se
+    mantiene: lo que cruza es un NUMERO, no un score.
+    """
+    from wbj.engines import valuation_engine as ve
+
+    overlay = overlay or {}
+    annual = (packet.fundamentals or {}).get("annual") or []
+    if not annual:
+        return None
+    latest, prior = annual[0], (annual[1] if len(annual) > 1 else annual[0])
+    facts = getattr(packet, "facts_table", None) or {}
+
+    def _f(key):
+        v = facts.get(key)
+        v = getattr(v, "value", None) if v is not None else None
+        return float(v) if isinstance(v, (int, float)) else None
+
+    def _n(row, key):
+        v = row.get(key)
+        return float(v) if isinstance(v, (int, float)) else None
+
+    price = _f("price")
+    if not price:
+        return None
+
+    caps = getattr(packet, "capital_structure", None) or {}
+    est = getattr(packet, "estimates", None) or {}
+    rf = overlay.get("risk_free_rate", est.get("risk_free_rate"))
+    beta = overlay.get("beta", caps.get("beta"))
+    ke = ve.cost_of_equity(float(rf), float(beta), 0.045) if rf is not None and beta is not None else None
+
+    dps = [float(x) for x in (overlay.get("dividends_per_share_history") or [])
+           if isinstance(x, (int, float)) and x > 0]
+    g_div = None
+    if len(dps) >= 2 and dps[0] > 0:
+        n = len(dps) - 1
+        g_div = (dps[-1] / dps[0]) ** (1 / n) - 1 if n else None
+
+    justo, _modelos = ve.valor_justo_por_adaptador(
+        adapter=getattr(getattr(packet, "analysis", None), "industry_adapter", None),
+        price=price,
+        shares=_f("diluted_shares") or _n(latest, "diluted_shares"),
+        net_income=_n(latest, "net_income"),
+        equity_now=_n(latest, "total_equity"),
+        equity_begin=_n(prior, "total_equity") or _n(latest, "total_equity"),
+        cost_of_equity_value=ke.value if (ke is not None and ke.is_valid) else None,
+        dividend_per_share=overlay.get("dividend_per_share"),
+        dividend_growth=g_div,
+        terminal_growth=float(overlay.get("tv_growth", 0.025)),
+        forecast_years=int(overlay.get("forecast_years", 5)))
+    if justo is None:
+        return None
+    mos = ve.margin_of_safety(justo, price)
+    return float(mos.value) if mos.is_valid else None
+
+
+def _margin_of_safety_from_packet(packet: Any, overlay: dict | None = None) -> float | None:
     """VAL-MOS-040 `(Estimated value - Price) / Estimated value`, from the
     common packet.
 
@@ -174,7 +235,17 @@ def _margin_of_safety_from_packet(packet: Any) -> float | None:
     # deposits.
     adapter = getattr(getattr(packet, "analysis", None), "industry_adapter", None)
     if _adapters.replaces_model(adapter):
-        return None
+        # El FCFF de abajo sigue prohibido para estos: sin ese freno esta
+        # derivacion llego a valorar a JPM con un +831% de margen, un flujo
+        # libre de un banco cuya "deuda" son depositos.
+        #
+        # Pero negarse en redondo dejaba a JPM y a O SIN margen de seguridad, y
+        # con ello su dimension `valuation_compression_risk` en 0,00 de 1,00 --
+        # castigados en RIESGO por una limitacion de esta funcion, no por nada
+        # suyo. Ahora corren los modelos que su matriz si les asigna, por la
+        # MISMA funcion del motor que usa el especialista de valuacion, asi que
+        # los dos no pueden dar numeros distintos para la misma empresa.
+        return _margin_of_safety_adapter(packet, overlay)
 
     wacc_value = _wacc_from_packet(packet)
     if wacc_value is None:
@@ -1628,7 +1699,7 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         # with the shared engine -- the same way `_wacc_from_packet` resolves
         # financial's cross-agent WACC -- so no specialist reads another's
         # output and Phase 2 stays parallel.
-        mos = _margin_of_safety_from_packet(packet)
+        mos = _margin_of_safety_from_packet(packet, overlay)
         if mos is not None:
             overlay["margin_of_safety"] = mos
 

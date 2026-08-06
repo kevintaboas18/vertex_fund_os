@@ -1055,10 +1055,21 @@ def _financial_adapter_output(packet: Packet, overlay: dict[str, Any]) -> Valuat
         )
 
     # ---- Fair value and margin of safety, off the models the matrix allows ----
-    candidates = [v for v in (riv_per_share,
-                              ddm_v.value if ddm_v.is_valid else None,
-                              hddm_v.value if hddm_v.is_valid else None) if v is not None]
-    fair_value = sum(candidates) / len(candidates) if candidates else None
+    # Por la funcion COMPARTIDA del motor, no con aritmetica local. El mismo
+    # valor justo lo necesita `overlay/from_packet.py` para derivar el margen
+    # de seguridad que consume el agente de riesgo, y calcularlo dos veces es
+    # lo que hacia que divergieran: reconstruido a mano, Realty Income salia
+    # con -81,2% de margen contra el -2,2% de aqui.
+    fair_value, _modelos = ve.valor_justo_por_adaptador(
+        adapter=packet.analysis.industry_adapter,
+        price=price, shares=shares, net_income=net_income,
+        equity_now=equity_now, equity_begin=equity_begin,
+        cost_of_equity_value=ke_v.value if ke_v.is_valid else None,
+        dividend_per_share=overlay.get("dividend_per_share"),
+        dividend_growth=div_growth,
+        terminal_growth=overlay_float(overlay, "tv_growth", 0.025),
+        forecast_years=int(overlay.get("forecast_years", 5)))
+    candidates = _modelos
     mos_v = (ve.margin_of_safety(fair_value, price)
              if fair_value is not None and price is not None
              else _null(NullState.MISSING, "pct", "MOS_INPUTS_UNAVAILABLE"))

@@ -1416,3 +1416,83 @@ def ensemble(models: Sequence[EnsembleModelInput]) -> EnsembleResult:
         dispersion=_ok(dispersion, "usd_per_share"),
         models=list(models),
     )
+
+
+# ---------------------------------------------------------------------------
+# Valor justo de un adaptador que reemplaza el modelo (bancos, aseguradoras,
+# REITs), en UN SOLO SITIO.
+#
+# Se calculaba dos veces: en `specialists/valuation.py` y otra vez en
+# `overlay/from_packet.py`, que deriva el margen de seguridad que consume el
+# agente de riesgo. Dos calculos del mismo numero divergen, y divergieron:
+# reconstruyendo el segundo a mano, Realty Income salia con -81,2% de margen
+# contra el -2,2% del agente. Cuarenta veces. Con eso, riesgo habria dicho que
+# la empresa esta carisima mientras valuacion decia que esta en precio, y una
+# contradiccion entre dos partes del sistema no se ve como se ve un hueco.
+#
+# Ahora hay una funcion y dos llamadores, asi que no pueden discrepar.
+# ---------------------------------------------------------------------------
+
+def valor_justo_por_adaptador(
+    *,
+    adapter: str | None,
+    price: float | None,
+    shares: float | None,
+    net_income: float | None,
+    equity_now: float | None,
+    equity_begin: float | None,
+    cost_of_equity_value: float | None,
+    dividend_per_share: float | None,
+    dividend_growth: float | None,
+    terminal_growth: float = 0.025,
+    forecast_years: int = 5,
+) -> tuple[float | None, list[str]]:
+    """El valor justo por accion y los modelos que lo produjeron.
+
+    `DECISION_RULES.md` asigna a bancos y aseguradoras renta residual / exceso
+    de retorno / DDM, y a los REITs el modelo de dividendos como chequeo
+    secundario; a todos les prohibe el DCF de empresa. Aqui corren esos
+    modelos y se promedian los que dieron numero, que es exactamente lo que
+    hace la ruta de adaptador del especialista.
+
+    Devuelve `(None, [])` en cuanto no haya ningun modelo con datos. Nunca una
+    estimacion.
+    """
+    candidatos: list[float] = []
+    usados: list[str] = []
+    ad = (adapter or "").lower()
+
+    # Renta residual: primaria para bancos y aseguradoras. Un REIT no la usa
+    # -- su matriz nombra NAV, AFFO y cap rates, y de los tres ninguno esta
+    # registrado, asi que le queda el modelo de dividendos.
+    if "reit" not in ad and None not in (net_income, equity_now, equity_begin,
+                                         cost_of_equity_value, shares) and shares:
+        ri = residual_income(net_income, cost_of_equity_value, equity_begin)
+        if ri.is_valid:
+            # `forecast_years` periodos, no uno: con un solo periodo el valor
+            # se trunca al libro y el margen sale absurdo (JPM -158,9%).
+            riv = residual_income_value(equity_now, [ri.value] * max(1, forecast_years),
+                                        cost_of_equity_value)
+            if riv.is_valid and riv.value > 0:
+                candidatos.append(riv.value / shares)
+                usados.append("residual income")
+
+    # Modelo de dividendos: primario para REITs, secundario para bancos.
+    if (isinstance(dividend_per_share, (int, float)) and dividend_per_share > 0
+            and cost_of_equity_value):
+        g_corto = dividend_growth if dividend_growth is not None else 0.0
+        ddm = gordon_dividend_value(float(dividend_per_share), terminal_growth,
+                                    cost_of_equity_value)
+        if ddm.is_valid and ddm.value > 0:
+            candidatos.append(ddm.value)
+            usados.append("Gordon DDM")
+        hddm = h_model_dividend_value(float(dividend_per_share), g_corto,
+                                      terminal_growth, max(1, forecast_years) / 2.0,
+                                      cost_of_equity_value)
+        if hddm.is_valid and hddm.value > 0:
+            candidatos.append(hddm.value)
+            usados.append("H-model")
+
+    if not candidatos:
+        return None, []
+    return sum(candidatos) / len(candidatos), usados
