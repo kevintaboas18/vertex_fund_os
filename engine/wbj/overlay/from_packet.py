@@ -308,6 +308,23 @@ def _margin_of_safety_from_packet(packet: Any, overlay: dict | None = None) -> f
     if growth_v.is_null:
         return None
 
+    # EL MISMO crecimiento que usa el especialista. Aqui se usaba siempre el
+    # fundamental (`reinvertido * ROIC`) mientras `valuation.py` prefiere el
+    # consenso de analistas cuando existe -- mismo modelo, distinto insumo, y
+    # por eso NVDA daba -437,6% de margen aqui contra -96,0% alli: un 355,9%
+    # de desvio para la misma empresa. La eleccion vive ahora en el motor.
+    from wbj.specialists.valuation import _consensus_revenue_cagr, _last_reported_date
+
+    try:
+        _cons = _consensus_revenue_cagr(
+            (getattr(packet, "estimates", None) or {}).get("fmp_analyst_estimates") or [],
+            revenue0, _last_reported_date(packet), _MOS_FORECAST_YEARS)
+    except Exception:
+        _cons = None
+    growth_base = ve.crecimiento_base(_cons, growth_v.value)
+    if growth_base is None:
+        return None
+
     # DECISION_RULES.md consistency rule 3: terminal growth must stay below
     # WACC. valuation.py clamps rather than refusing; do the same.
     tv_growth = _MOS_TERMINAL_GROWTH
@@ -318,7 +335,7 @@ def _margin_of_safety_from_packet(packet: Any, overlay: dict | None = None) -> f
 
     try:
         base_per_share = ve._constant_growth_per_share(
-            growth=growth_v.value, margin=ebit / revenue0, wacc_value=wacc_value,
+            growth=growth_base, margin=ebit / revenue0, wacc_value=wacc_value,
             tv_growth=tv_growth, revenue0=revenue0, tax_rate=tax_rate,
             roic_value=roic_v.value, years=_MOS_FORECAST_YEARS,
             shares=shares, net_debt=net_debt,

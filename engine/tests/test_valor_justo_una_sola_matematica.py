@@ -83,3 +83,32 @@ def test_without_inputs_there_is_no_estimate():
         equity_now=None, equity_begin=None, cost_of_equity_value=None,
         dividend_per_share=None, dividend_growth=None)
     assert justo is None and modelos == []
+
+
+# --- la ruta por defecto -----------------------------------------------------
+
+def test_the_base_growth_is_chosen_in_one_place():
+    """El escenario base usa el consenso de analistas cuando existe, y el
+    crecimiento fundamental cuando no.
+
+    `valuation.py` lo hacía así; el overlay usaba SIEMPRE el fundamental.
+    Mismo modelo, distinto insumo — y por eso NVDA salía con -437,6% de margen
+    en un sitio y -96,0% en el otro, un 355,9% de desvío para la misma
+    empresa. Con las anclas de RSK-MOS-030 los dos caían en la misma banda y
+    el score no cambiaba, así que el desacuerdo no se veía por ninguna parte.
+    """
+    assert ve.crecimiento_base({"cagr": 0.18}, 0.04) == pytest.approx(0.18), (
+        "el consenso manda cuando existe")
+    assert ve.crecimiento_base(None, 0.04) == pytest.approx(0.04), (
+        "sin consenso, el fundamental es el respaldo")
+    assert ve.crecimiento_base({"cagr": None}, 0.04) == pytest.approx(0.04)
+    assert ve.crecimiento_base(None, None) is None, "sin ninguno, no se inventa"
+
+
+def test_both_default_paths_choose_it_the_same_way():
+    import wbj.overlay.from_packet as fp
+    import wbj.specialists.valuation as val
+
+    for modulo, nombre in ((val, "valuation.py"), (fp, "from_packet.py")):
+        assert "crecimiento_base" in inspect.getsource(modulo), (
+            f"{nombre} volvio a elegir el crecimiento por su cuenta")
