@@ -2667,7 +2667,15 @@ function renderProjWheel(d) {
         ${_vcEsc(q.label)} <span class="font-normal opacity-70">&Delta;${q.delta_min}-${q.delta_max} · ${q.dte_min}-${q.dte_max}d</span></button>`).join(' ');
 
     const BLOQ = { sin_bid: 'sin bid', spread_ancho: 'horquilla ancha', oi_bajo: 'poco open interest' };
-    const filas = (d.candidates || []).map(c => {
+    // Las filas bloqueadas no llevan ningún número —esa es su regla— así que
+    // cien de ellas seguidas son cien líneas vacías. Se enseñan las primeras
+    // como muestra y el resto se resume arriba, en "contratos bloqueados".
+    let _bloqMostrados = 0;
+    const filas = (d.candidates || []).filter(c => {
+        if (!c.blocked) return true;
+        _bloqMostrados += 1;
+        return _bloqMostrados <= 8;
+    }).map(c => {
         if (c.blocked) {
             // Bloqueado: SIN número de prima. Su regla — no se enseña un
             // número que no puedes cobrar.
@@ -2709,7 +2717,15 @@ function renderProjWheel(d) {
             <span class="text-gray-400">${_vcEsc(r.que_significa)}
               ${r.ejemplo ? `<span class="text-gray-600 block text-[9px] leading-snug">${_vcEsc(r.ejemplo)}</span>` : ''}</span></div>`).join('')}
           ${d.rejected.some(r => r.motivo === 'fuera_de_banda') ? `<p class="text-[9px] text-gray-600 mt-1.5 leading-snug">&quot;Cadena OK pero ning&uacute;n strike en la banda&quot; no es un fallo: es el preset diciendo que no hay nada de su gusto en ese papel. Prueba otro preset arriba.</p>` : ''}
-          ${d.rejected.some(r => r.motivo === 'fuente') ? `<p class="text-[9px] text-amber-400 mt-1.5 leading-snug">Si el motivo es la fuente en TODOS, no es el mercado: mira el ejemplo &mdash; dice si es la credencial (401), el plan (403) o los filtros de la consulta.</p>` : ''}
+          ${d.rejected.some(r => r.motivo === 'fuente') ? `<p class="text-[9px] text-amber-400 mt-1.5 leading-snug">Si el motivo es la fuente en TODOS, no es el mercado: mira el ejemplo &mdash; dice si es la credencial (401), el plan (403), el l&iacute;mite de tasa (429) o los filtros.</p>` : ''}
+          ${d.rejected.some(r => r.motivo === 'sin_horquilla') ? `<p class="text-[9px] text-amber-400 mt-1.5 leading-snug"><b>Sin bid/ask no hay Wheel.</b> La prima que cobrar&iacute;as ES el bid: sin horquilla no se puede saber, y tampoco se puede despejar la IV para medir el delta. <code>last_quote</code> en el snapshot de opciones es un <b>a&ntilde;adido de plan</b> en Massive &mdash; no es la key y no mejora reintentando. Las dem&aacute;s pesta&ntilde;as no lo necesitan: Ticker e Ideas funcionan igual.</p>` : ''}
+        </div>` : ''}
+        ${(d.blocked_summary || []).length ? `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3 mb-3">
+          <p class="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Contratos bloqueados &mdash; ${d.blocked_total} de ${(d.candidates || []).length}</p>
+          ${d.blocked_summary.map(b => `<div class="text-[10px] mb-1.5">
+            <span class="font-bold ${b.contratos === (d.candidates || []).length ? 'text-amber-400' : 'text-gray-400'}">${b.contratos}</span>
+            <span class="text-gray-400"> &middot; ${_vcEsc(b.que_significa)}</span>
+            <span class="text-gray-600 block text-[9px] leading-snug mt-0.5">${_vcEsc(b.por_que)}</span></div>`).join('')}
         </div>` : ''}
         <div class="overflow-x-auto"><table class="w-full text-[11px] min-w-[720px]"><thead>
           <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">

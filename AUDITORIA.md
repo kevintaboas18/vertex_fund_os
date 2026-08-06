@@ -3147,3 +3147,67 @@ suma se hace fuera, en un solo hilo.
 - Los tres presets llevan sus bandas literales, y el score castiga el anualizado
   >60% e invierte la banda de IV Rank respecto al sub-agente 5.
 - El saldo del usuario sigue sin viajar.
+
+## 41.10 De dónde sale cada dato de Wheel — y por qué salía vacío
+
+Kevin: *"hay columnas vacías, Víctor no lo tiene así. Verifica de dónde saca
+cada información."* El mapa completo, columna por columna:
+
+| Columna | Fuente exacta |
+|---|---|
+| Ticker | `WHEEL_UNIVERSE` — sus 40 símbolos curados, lista suya, editada a mano |
+| Contrato (strike + vencimiento) | Massive `/v3/snapshot/options/{T}?contract_type=put&expiration_date.gte/lte` |
+| DTE | calculado: vencimiento − día de mercado **ET** |
+| **Prima** | `pick_premium`: **bid** → último → modelo, con recorte 0% / 10% / 15% |
+| Cobras | `prima × 100` |
+| Colateral | `strike × 100` |
+| Anualizado | `(cobras/colateral) × (365/DTE)` |
+| P(sin valor) | `prob_above(spot, strike, iv, dte)` |
+| Score | 5 partes: anualizado 30 · IV Rank 20 · colchón 25 · liquidez 15 · earnings 10 |
+| spot | `chain.underlying_price ?? bars[último].close` |
+| IV Rank | volatilidad **realizada** de las barras contra su propio año |
+| colchón | `find_levels` sobre las barras diarias |
+| earnings | cadencia de `filing_date` de `/vX/reference/financials` (~91 días) |
+
+**La columna que lo tumba todo es la Prima**, y su origen es el **bid**. De ahí
+las tres correcciones de esta ronda:
+
+### 1 · «35 sin barras diarias» era un límite de tasa
+
+`cached_daily_bars` hace `.catch(() => [])` —comportamiento suyo, y ahí está
+bien— pero eso convierte un 429, un 403 y un ticker sin datos en **la misma
+lista vacía**. En un escaneo de 40 símbolos esa es la diferencia entre "espera
+un momento" y "revisa tu plan".
+
+40 tickers × 2 llamadas en 6 hilos es una **ráfaga de ~80 peticiones en
+segundos**, y los planes de Massive limitan por minuto. La firma era
+inconfundible: 5 pasaron y 35 cayeron de golpe.
+
+Resuelto con reintento y espera creciente **solo ante 429** —un 403 no mejora
+esperando, y reintentarlo solo retrasa el diagnóstico— y capturando el motivo
+real por el parámetro `fetch` que el propio store expone.
+
+### 2 · «bloqueado: sin bid» en todas las filas
+
+La cadena de Massive **no está devolviendo `last_quote`** en esta cuenta. Sin
+horquilla pasan dos cosas, las dos malas y ninguna evidente:
+
+- no hay `mid`, así que la **IV implícita no se despeja** y el delta se calcula
+  con volatilidad realizada → los strikes se salen de la banda del preset;
+- y si alguno entra, `liquidity_block` lo tumba por `sin_bid`.
+
+Dos rutas, el mismo motivo, y ninguna lo nombraba. Ahora hay un motivo propio
+—`sin_horquilla`— que lo dice: `last_quote` es un **añadido de plan** en
+Massive, no es la key y no mejora reintentando. Las demás pestañas no lo
+necesitan: **Ticker e Ideas funcionan igual**.
+
+> La prima **no** se sustituye por el precio teórico. `pick_premium` tiene esa
+> cascada, pero `liquidity_block` corre **antes** y bloquea — es su diseño, y
+> es correcto: la prima que cobrarías ES el bid, y enseñar un Black-Scholes en
+> su lugar sería exactamente el número que no puedes cobrar.
+
+### 3 · La pared de filas vacías
+
+Una fila bloqueada no lleva **ningún** número —esa es su regla—, así que cien
+seguidas son cien líneas vacías. Ahora se enseñan 8 como muestra y el resto se
+resume arriba, con el conteo por motivo y el porqué de cada uno.
