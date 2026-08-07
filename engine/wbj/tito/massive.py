@@ -23,6 +23,7 @@ extracto del cuerpo, jamás la credencial.
 from __future__ import annotations
 
 import json as _json
+import math
 import os
 import urllib.error
 import urllib.parse
@@ -31,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 
+from .jsmath import js_number
 from .compute import (contract_price, count_expirations,
                       sort_by_open_interest_desc, to_row)
 from .levels import LvlBar
@@ -59,6 +61,15 @@ class MassiveError(RuntimeError):
 
 
 def _api_key() -> str:
+    # **DIVERGENCIA DECLARADA — mínima y a favor.** Él hace `if (!key)`, o sea
+    # solo cadena vacía; una clave con espacios alrededor la manda tal cual y
+    # Massive responde 401. Aquí se recorta antes, así que `" abc "` funciona
+    # y `"   "` falla al llamar con el motivo exacto en vez de con un 401
+    # genérico. Se declara porque el contrato de este port es que ninguna
+    # diferencia con su código sea silenciosa, ni siquiera una que ayuda.
+    #
+    # Su `marketsnack.ts` sí recorta (`!c || !c.trim()`), y ahí el port es
+    # literal: la asimetría entre sus dos módulos es suya, no mía.
     key = os.environ.get("MASSIVE_API_KEY", "").strip()
     if not key:
         raise MassiveError("Falta MASSIVE_API_KEY en el entorno.")
@@ -66,11 +77,20 @@ def _api_key() -> str:
 
 
 def _max_pages() -> int:
-    try:
-        n = int(os.environ.get("MASSIVE_MAX_PAGES", "40"))
-    except ValueError:
+    """Su `maxPages()`, con la MISMA lectura del entorno.
+
+        const n = Number(process.env.MASSIVE_MAX_PAGES);
+        return Number.isFinite(n) && n > 0 ? Math.floor(n) : 40;
+
+    `int()` no es `Number()`: rechaza la notación científica y el hexadecimal
+    que JavaScript sí acepta. Con `MASSIVE_MAX_PAGES=1e2` él paginaba hasta 100
+    páginas y aquí se cortaba en 40 — media cadena de opciones de menos, sin
+    que nada avisara. `js_number` es el port de `Number()` y ya estaba escrito.
+    """
+    n = js_number(os.environ.get("MASSIVE_MAX_PAGES", ""))
+    if n != n or n in (float("inf"), float("-inf")) or n <= 0:   # NaN/±∞/≤0
         return 40
-    return n if n > 0 else 40
+    return int(math.floor(n))
 
 
 def _describe(status: int, ticker: str, body: str, ruta: str = "") -> str:

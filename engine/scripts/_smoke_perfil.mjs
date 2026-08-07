@@ -96,6 +96,18 @@ chk(wheel.includes('Te cabe'), 'hay columna de asequibilidad');
 chk(wheel.includes('faltan $8,500'), 'dice cuánto falta para el colateral de NVDA');
 chk(wheel.indexOf('>F<') < wheel.indexOf('NVDA'), 'lo asequible va primero');
 chk(wheel.includes('NVDA'), 'lo que no cabe NO se esconde');
+// Su WheelPresetCard: las REGLAS de salida.
+chk(/Cierra al <b[^>]*>50%/.test(wheel), 'dice a qué % de la prima se cierra');
+chk(/Rola a los <b[^>]*>21 d/.test(wheel), 'dice a cuántos días se rola');
+chk(/Delta objetivo/.test(wheel) && /Vencimiento/.test(wheel), 'y la banda del preset');
+// Su wheel-grid + wheel-outcomes.
+chk(/Colch&oacute;n/.test(wheel), 'hay columna de colchón');
+chk(/Si expira sin valor/.test(wheel) && /Si te asignan/.test(wheel)
+    && /Si se desploma 20%/.test(wheel), 'los tres escenarios de qué pasa si');
+chk(/&Delta; <b[^>]*>-0.25/.test(wheel), 'el delta del contrato');
+chk(/IV <b[^>]*>35.0%/.test(wheel), 'la IV con su fuente');
+chk(/OI <b[^>]*>600/.test(wheel), 'el open interest');
+chk((wheel.match(/vc-esc/g) || []).length >= 2, 'cada candidato lleva su fila de escenarios');
 
 // ── EL CUESTIONARIO ──────────────────────────────────────────────────────
 // Las preguntas llegan del servidor, no están escritas en el HTML: el smoke

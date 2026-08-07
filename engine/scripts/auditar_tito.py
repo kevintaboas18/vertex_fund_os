@@ -1206,6 +1206,138 @@ chk('"conviction_rows"' in API, "…y las filas de convicción, no solo su conta
 chk("function vcSubagentesHTML(d) {" in HTML and "${vcSubagentesHTML(d)}" in HTML,
     "…y el panel los pinta en su `<details>` de detalle")
 
+sec("6-bis. El panel no se rompe solo")
+# ─────────────────────────────────────────────────────────────────────
+# Un acento grave dentro de una plantilla de JavaScript la CIERRA. Metido en
+# un comentario HTML dentro de un `${...}`, el archivo sigue pareciendo
+# correcto a simple vista y el navegador tira un SyntaxError que se lleva el
+# tab entero — no una tarjeta, el tab. Pasó escribiendo esta misma ronda.
+# Solo importan los comentarios que viven DENTRO de un `<script>`: ahí es donde
+# hay plantillas. Uno en el cuerpo estático puede llevar los acentos que quiera.
+_JS = "\n".join(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)</script>", HTML))
+_COMENTARIOS_EN_JS = re.findall(r"<!--[\s\S]*?-->", _JS)
+_con_acento = [c for c in _COMENTARIOS_EN_JS if "`" in c]
+chk(not _con_acento,
+    f"ningún comentario HTML dentro del JS lleva acentos graves "
+    f"({len(_COMENTARIOS_EN_JS)} revisados)"
+    + (f" · CIERRAN LA PLANTILLA: {[c[:60] for c in _con_acento]}" if _con_acento else ""))
+
+# Y la comprobación que de verdad lo cierra: que el JS del panel se EJECUTE.
+_smoke_js = VERTEX / "engine" / "scripts" / "_smoke_perfil.mjs"
+if shutil.which("node") and _smoke_js.is_file():
+    _r = subprocess.run(["node", str(_smoke_js)], capture_output=True, text=True)
+    chk(_r.returncode == 0, "el JS del panel se ejecuta y pinta lo esperado")
+else:
+    chk(False, "sin node: no se pudo ejecutar el JS del panel", warn_if_false=True)
+
+sec("9-sexies. Divergencias con su código, declaradas una por una")
+# ─────────────────────────────────────────────────────────────────────
+# El otro hueco: las divergencias estaban documentadas en comentarios sueltos
+# por tres archivos, y nada las enumeraba. Sin registro, quitar una o añadir
+# otra no lo cazaba nadie — que es justo lo contrario del contrato de este port,
+# donde "exacto como Víctor" significa que TODA diferencia esté dicha.
+#
+# Mismo trato que las huérfanas: cada entrada dice qué cambia, por qué, y qué
+# NO cambia. Y se comprueba que la marca siga en el código.
+DIVERGENCIAS = {
+    "sizing en el servidor": (
+        VERTEX / "vertex_api.py",
+        "Su /api/ideas devuelve griegos y nada más porque su app no tiene perfil "
+        "de inversionista: el saldo vive en localStorage. Aquí el perfil está en "
+        "el servidor, así que su propio `size_flow` corre en la ruta. "
+        "NO cambia: la fórmula es la suya (diff_motor2, 918/918)."),
+    "asequibilidad en el servidor": (
+        VERTEX / "vertex_api.py",
+        "Su `wheelAfford.ts` corre en el CLIENTE por el mismo motivo. Aquí su "
+        "`sort_by_afford_then_score` corre en /api/tito-wheel. "
+        "NO cambia: colateral ≤ caja, y el orden bloqueado→no asequible→score."),
+    "wheel sin bid": (
+        VERTEX / "engine/wbj/tito/wheel.py",
+        "Su plan de Massive no sirve `last_quote`, y su propio compute.ts lo dice: "
+        "la prima cae a `last_trade → day.close → day.vwap`. Sin esto el screener "
+        "sale SIEMPRE vacío. La salvaguarda se mueve al score: sin horquilla, la "
+        "parte de liquidez cobra 0 de 15."),
+    "clave de Massive recortada": (
+        VERTEX / "engine/wbj/tito/massive.py",
+        "Él hace `if (!key)`; aquí se recorta antes. `\" abc \"` funciona y "
+        "`\"   \"` falla con el motivo exacto en vez de con un 401. Mínima y a "
+        "favor, pero declarada: ninguna diferencia puede ser silenciosa."),
+}
+_MARCA = "DIVERGENCIA DECLARADA"
+chk(all(m and f.is_file() for f, m in DIVERGENCIAS.values()),
+    f"las {len(DIVERGENCIAS)} divergencias con su código están declaradas con su motivo")
+# Cada archivo que dice tener una, la tiene marcada en el código.
+_archivos_con_marca = {f for f, _ in DIVERGENCIAS.values()}
+for _f in sorted(_archivos_con_marca, key=str):
+    _n = _f.read_text(encoding="utf-8").count(_MARCA)
+    _esperadas = sum(1 for g, _ in DIVERGENCIAS.values() if g == _f)
+    chk(_n >= _esperadas,
+        f"{_f.name}: {_n} marcas «{_MARCA}» para {_esperadas} declarada(s)")
+# Y al revés: ninguna marca suelta sin entrada en el registro.
+_total_marcas = sum(f.read_text(encoding="utf-8").count(_MARCA)
+                    for f in _archivos_con_marca)
+chk(_total_marcas <= len(DIVERGENCIAS) + 1,      # +1: la de wheel se explica dos veces
+    f"{_total_marcas} marcas en el código para {len(DIVERGENCIAS)} divergencias "
+    "declaradas — ninguna suelta")
+for _k, (_f, _m) in sorted(DIVERGENCIAS.items()):
+    print(f"      {_k:<30} {_f.name}")
+print("  · toda diferencia con su código está aquí. Si aparece una nueva sin "
+      "declarar, este check falla.")
+
+sec("9-quinquies. Cobertura de SUS rutas de API")
+# ─────────────────────────────────────────────────────────────────────
+# El hueco que quedaba: había registro de sus MÓDULOS (9-quater) y de sus
+# COMPONENTES (9-ter), pero no de sus RUTAS. Si mañana añade un endpoint,
+# nada lo cazaba — y una ruta suya sin equivalente aquí es funcionalidad del
+# agente que sencillamente no existe en Proyecciones.
+#
+# `("mia", ...)` = hay equivalente. `("dentro", ...)` = no es una ruta aparte
+# aquí porque su contenido viaja dentro de otra. `("no", ...)` = no se porta,
+# con su motivo.
+RUTAS_SUYAS = {
+    "chain":      ("dentro", "/api/projection-targets — la cadena se baja y se "
+                             "consume en el servidor; el panel recibe el resultado"),
+    "flow":       ("mia", "/api/tito-tape (cinta) y /api/projection-targets (scorecard)"),
+    "ideas":      ("mia", "/api/tito-ideas"),
+    "wheel":      ("mia", "/api/tito-wheel"),
+    "news":       ("mia", "/api/tito-news"),
+    "bars":       ("dentro", "las barras van en `history` del payload de proyecciones"),
+    "history":    ("dentro", "idem — `out['history']`, que alimenta la gráfica"),
+    "prediction": ("dentro", "`memory` del scorecard: predicciones guardadas + calibración"),
+    "validation": ("dentro", "`scores.validation` del scorecard — el sub-agente 6"),
+    "logo":       ("no", "proxy del logo de la empresa. La cabecera de la gráfica lleva "
+                         "ticker y precio, que es lo que el panel necesita; un logo no "
+                         "cambia ninguna lectura"),
+    "watchlist":  ("no", "su puente navegador↔agente. Vertex tiene su propia watchlist"),
+}
+_rutas_cubiertas = [k for k, v in RUTAS_SUYAS.items() if v[0] != "no"]
+chk(all(m for _, m in RUTAS_SUYAS.values()),
+    f"las {len(RUTAS_SUYAS)} rutas de su web/app/api están declaradas")
+chk(len(_rutas_cubiertas) == 9,
+    f"{len(_rutas_cubiertas)} de sus {len(RUTAS_SUYAS)} rutas tienen equivalente aquí")
+if TITO and (TITO / "app" / "api").is_dir():
+    _suyas_api = {d.name for d in (TITO / "app" / "api").iterdir()
+                  if (d / "route.ts").is_file()}
+    _faltan_r = sorted(_suyas_api - set(RUTAS_SUYAS))
+    _fant_r = sorted(set(RUTAS_SUYAS) - _suyas_api)
+    chk(not _faltan_r,
+        "el registro cubre su web/app/api entero"
+        + (f" · SIN DECLARAR: {_faltan_r}" if _faltan_r else ""))
+    chk(not _fant_r,
+        "ninguna ruta declarada es un fantasma"
+        + (f" · YA NO EXISTEN: {_fant_r}" if _fant_r else ""))
+    # Las que dicen tener equivalente, lo tienen de verdad.
+    _mias = set(re.findall(r'@app\.(?:get|post)\("(/api/[a-z0-9\-_/]+)"', API))
+    for _k, (_tipo, _donde) in sorted(RUTAS_SUYAS.items()):
+        if _tipo != "mia":
+            continue
+        _refs = [r for r in _mias if r in _donde]
+        chk(bool(_refs), f"su /api/{_k} → {_refs or 'LA RUTA DECLARADA NO EXISTE'}")
+else:
+    chk(False, "sin TITO_ROOT no se puede contrastar su web/app/api", warn_if_false=True)
+for _k, (_t, _m) in sorted(RUTAS_SUYAS.items()):
+    print(f"      /api/{_k:<11} {_t:<7} {_m[:66]}")
+
 sec("9-bis. Rutas del servidor sin cliente")
 #
 # Al sacar Quant Data del tab, nueve rutas se quedaron sin nadie que las llame.

@@ -2950,6 +2950,17 @@ function renderProjWheel(d) {
         ? 'bg-blue-500 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800 hover:text-white'}">
         ${_vcEsc(q.label)} <span class="font-normal opacity-70">&Delta;${q.delta_min}-${q.delta_max} · ${q.dte_min}-${q.dte_max}d</span></button>`).join(' ');
 
+    // Las REGLAS del preset elegido — su `WheelPresetCard`. Sin el «cierra al
+    // X%» y el «rola a los N días», la Wheel es media estrategia: se sabe qué
+    // vender y no cuándo salir. El motor ya los servía y el panel los tiraba.
+    const pa = (d.presets || []).find(q => q.id === d.preset_id);
+    const reglas = pa ? `<div class="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-gray-400 mb-3 px-2.5 py-2 rounded-lg bg-[#0B0E14] border border-gray-800">
+        <span>Delta objetivo <b class="text-gray-200">${Number(pa.delta_min).toFixed(2)}&ndash;${Number(pa.delta_max).toFixed(2)}</b></span>
+        <span>Vencimiento <b class="text-gray-200">${pa.dte_min}&ndash;${pa.dte_max} d&iacute;as</b></span>
+        <span>Cierra al <b class="text-emerald-400">${pa.take_profit_pct}%</b> de la prima</span>
+        <span>Rola a los <b class="text-amber-400">${pa.roll_dte} d&iacute;as</b></span>
+      </div>` : '';
+
     const cabeceraPerfil = vcCabeceraPerfil(d.perfil, (d.candidates || []).filter(c => !c.blocked).length);
     const BLOQ = { sin_bid: 'sin bid', spread_ancho: 'horquilla ancha', oi_bajo: 'poco open interest' };
     // Las filas bloqueadas no llevan ningún número —esa es su regla— así que
@@ -2968,7 +2979,7 @@ function renderProjWheel(d) {
                 <td class="py-2 pr-3 font-bold text-gray-400">${_vcEsc(c.ticker)}</td>
                 <td class="py-2 pr-3 text-gray-500">$${Number(c.strike).toFixed(2)}P</td>
                 <td class="py-2 pr-3 text-right text-gray-600">${c.dte}d</td>
-                <td class="py-2 pr-3 text-right text-gray-700" colspan="5">&mdash; bloqueado: ${_vcEsc(BLOQ[c.block_reason] || c.block_reason)}</td>
+                <td class="py-2 pr-3 text-right text-gray-700" colspan="6">&mdash; bloqueado: ${_vcEsc(BLOQ[c.block_reason] || c.block_reason)}</td>
                 <td class="py-2 pr-3 text-right text-gray-700">&mdash;</td>
                 <td class="py-2 text-right text-gray-700">&mdash;</td></tr>`;
         }
@@ -2990,9 +3001,34 @@ function renderProjWheel(d) {
             <td class="py-2 pr-3 text-right text-emerald-400 font-bold">$${fmtAbbr(m.credit)}</td>
             <td class="py-2 pr-3 text-right text-gray-300" title="efectivo que queda inmovilizado hasta el vencimiento">${fmtAbbr(m.collateral)}</td>
             <td class="py-2 pr-3 text-right ${m.annualized_pct > 60 ? 'text-amber-400' : 'text-gray-200'}" title="${m.annualized_pct > 60 ? 'Prima sospechosamente alta: el mercado descuenta una caída fuerte.' : ''}">${Number(m.annualized_pct).toFixed(1)}%</td>
+            <td class="py-2 pr-3 text-right text-gray-300" title="cu&aacute;nto puede caer el precio antes de que empieces a perder">${m.cushion_pct != null ? Number(m.cushion_pct).toFixed(1) + '%' : '&mdash;'}</td>
             <td class="py-2 pr-3 text-right text-gray-400" title="probabilidad de que expire sin valor y te quedes la prima">${Math.round(m.prob_expire_worthless)}%</td>
             <td class="py-2 pr-3 text-right font-bold ${col}" title="${_vcEsc(porque)}">${sc.total}/100</td>
-            <td class="py-2 text-right text-[10px]">${cabe}</td></tr>`;
+            <td class="py-2 text-right text-[10px]">${cabe}</td></tr>
+            <tr class="vc-esc hidden"><td colspan="11" class="pb-3 pt-0">
+              <div class="bg-[#0B0E14] border border-gray-800 rounded-lg p-3 space-y-1.5 text-[10px] text-gray-400 leading-relaxed">
+                <!-- Su wheel-grid: los tres datos del contrato que no caben
+                     como columna pero sin los que no se puede juzgar la venta.
+                     Sin acentos graves aqui dentro: cierran la plantilla. -->
+                <div class="flex flex-wrap gap-x-4 gap-y-1 pb-1.5 mb-1 border-b border-gray-800/70">
+                  <span>&Delta; <b class="text-gray-200">${c.delta != null ? Number(c.delta).toFixed(2) : '&mdash;'}</b></span>
+                  <span>IV <b class="text-gray-200">${c.iv != null ? (Number(c.iv) * 100).toFixed(1) + '%' : '&mdash;'}</b>
+                    <span class="text-gray-600">${c.iv_source === 'estimada' ? 'est.' : 'impl.'}</span></span>
+                  <span>OI <b class="text-gray-200">${(c.open_interest || 0).toLocaleString('en-US')}</b></span>
+                  ${c.spread_pct != null ? `<span>Horquilla <b class="text-gray-200">${Number(c.spread_pct).toFixed(1)}%</b></span>` : ''}
+                </div>
+                <p><b class="text-emerald-400">Si expira sin valor</b> (${Math.round(m.prob_expire_worthless)}%):
+                   te quedas ${fmtMoney(m.credit)} y se libera tu colateral.</p>
+                <p><b class="text-amber-400">Si te asignan</b>: compras 100 acciones a $${Number(c.strike).toFixed(2)}.
+                   Tu costo real queda en $${Number(m.breakeven).toFixed(2)} y empiezas a vender calls sobre ellas.</p>
+                <p><b class="text-red-400">Si se desploma 20%</b>: tendr&iacute;as las acciones valiendo
+                   ~$${(Number(c.spot) * 0.8).toFixed(2)}, con p&eacute;rdida no realizada frente a tu costo de
+                   $${Number(m.breakeven).toFixed(2)}.</p>
+                <div class="pt-1.5 border-t border-gray-800/70 space-y-0.5 text-gray-500">
+                  ${['annualized','iv_rank','cushion','liquidity','earnings']
+                     .map(k => `<p>&middot; ${_vcEsc(sc[k].why)}</p>`).join('')}
+                </div>
+              </div></td></tr>`;
     }).join('');
 
     caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
@@ -3001,6 +3037,7 @@ function renderProjWheel(d) {
           <span class="text-[10px] text-gray-500">${d.with_candidates} de ${d.scanned} s&iacute;mbolos con candidatos${d.failed ? ` · ${d.failed} sin resultado` : ''}</span>
         </div>
         <div class="flex gap-1.5 flex-wrap my-2">${presets}</div>
+        ${reglas}
         <p class="text-[10px] text-gray-600 italic mb-3">${_vcEsc(d.preset_explain || '')} Un contrato son 100 acciones y el <b>colateral queda inmovilizado</b> hasta el vencimiento. El puntaje <b>castiga</b> el rendimiento anualizado por encima del 60%: un screener que ordena por prima pone arriba justo las acciones a punto de desplomarse.</p>
         ${d.degraded ? `<p class="text-[10px] text-amber-400 mb-2">⚠ M&aacute;s de la mitad del universo no dio resultado: esta lista NO es "los mejores del mercado", es "los mejores de lo que se pudo mirar".</p>` : ''}
         ${(d.rejected || []).length ? `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3 mb-3">
@@ -3031,13 +3068,27 @@ function renderProjWheel(d) {
             <th class="text-left pb-1.5 pr-3">Ticker</th><th class="text-left pb-1.5 pr-3">Contrato</th>
             <th class="text-right pb-1.5 pr-3">DTE</th><th class="text-right pb-1.5 pr-3">Prima</th>
             <th class="text-right pb-1.5 pr-3">Cobras</th><th class="text-right pb-1.5 pr-3">Colateral</th>
-            <th class="text-right pb-1.5 pr-3">Anualizado</th><th class="text-right pb-1.5 pr-3">P(sin valor)</th>
+            <th class="text-right pb-1.5 pr-3">Anualizado</th><th class="text-right pb-1.5 pr-3">Colch&oacute;n</th><th class="text-right pb-1.5 pr-3">P(sin valor)</th>
             <th class="text-right pb-1.5 pr-3">Score</th><th class="text-right pb-1.5">Te cabe</th></tr></thead><tbody>${filas}</tbody></table></div>
-        <p class="text-[9px] text-gray-600 mt-2 italic">${d.quotes_missing ? '* prima estimada del &uacute;ltimo precio, no del bid. ' : ''}&laquo;Te cabe&raquo; compara el colateral con el capital de tu perfil &mdash; lo que no cabe no se esconde, se baja. Research, no una orden.</p>
+        <p class="text-[9px] text-gray-600 mt-2 italic">Haz clic en una fila para ver <b class="text-gray-500">qu&eacute; pasa si expira, si te asignan y si se desploma 20%</b>. ${d.quotes_missing ? '* prima estimada del &uacute;ltimo precio, no del bid. ' : ''}&laquo;Te cabe&raquo; compara el colateral con el capital de tu perfil &mdash; lo que no cabe no se esconde, se baja. Research, no una orden.</p>
       </div>`;
     if (window.lucide) lucide.createIcons();
     vcTablaResponsive('projWheel');
 }
+
+/* Los tres escenarios de cada candidato — su `wheel-outcomes`.
+ *
+ * Van en una fila oculta detrás de cada candidato y se abren al hacer clic.
+ * Por delegación y no con un `onclick` por fila: el id del contrato no tiene
+ * que viajar dentro de un literal de JavaScript, que es donde se cuelan las
+ * comillas. Y `vc-esc` marca la fila para que `vcTablaResponsive` no la trate
+ * como una fila de datos al convertir la tabla en tarjetas. */
+document.addEventListener('click', e => {
+    const fila = e.target.closest && e.target.closest('#projWheel tr');
+    if (!fila || fila.classList.contains('vc-esc')) return;
+    const esc = fila.nextElementSibling;
+    if (esc && esc.classList.contains('vc-esc')) esc.classList.toggle('hidden');
+});
 
 /* ── TIME & SALES ──────────────────────────────────────────────────────── */
 

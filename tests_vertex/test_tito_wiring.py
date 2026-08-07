@@ -2468,3 +2468,149 @@ class TestElPanelNoTiraNadaDelPayload:
                    "vcClustersHTML", "vcMemoryHTML"):
             assert f"function {fn}(" in html, f"{fn} no existe"
             assert f"{fn}(d)" in render, f"{fn} existe pero nadie lo llama"
+
+
+class TestIdeasYWheelTampocoTiranNada:
+    """La cobertura de hojas, extendida a las otras dos pestañas.
+
+    `TestElPanelNoTiraNadaDelPayload` barre el scorecard entero: cada campo que
+    el motor sirve tiene que tener consumidor en el panel, o estar declarado con
+    su motivo. Ideas y Wheel no tenían ese barrido — sus campos nuevos estaban
+    cubiertos por tests escritos a mano, que solo cazan lo que alguien se
+    acordó de comprobar.
+
+    Sin esto, añadir un campo al payload y olvidar pintarlo no lo caza nadie:
+    el motor calcula algo que nunca llega a la pantalla y nada falla.
+    """
+
+    @staticmethod
+    def _hojas(d, prefijo=""):
+        for k, v in (d or {}).items():
+            ruta = f"{prefijo}{k}"
+            if isinstance(v, dict):
+                yield from TestIdeasYWheelTampocoTiranNada._hojas(v, ruta + ".")
+            elif isinstance(v, list) and v and isinstance(v[0], dict):
+                yield from TestIdeasYWheelTampocoTiranNada._hojas(v[0], ruta + ".")
+            else:
+                yield ruta
+
+    #: Hojas que el panel no lee, con su motivo. Mismo contrato que el barrido
+    #: del scorecard: o se pinta, o se declara aquí.
+    _NO_SE_PINTAN = {
+        # ── Ideas ──
+        "ok": "bandera de control; su ausencia ya dispara el mensaje de error",
+        "engine": "sello del motor, para depurar desde la API",
+        "generated_at": "marca de tiempo; el panel enseña la del poller en vivo",
+        "period": "la ventana del escaneo, fija en su `1d`",
+        "saved_tickers": "cuántos tickers se persistieron para el sub-agente 6; "
+                         "es contabilidad del store, no un dato de mercado",
+        "ideas.id": "identificador del contrato, para deduplicar",
+        "ideas.symbol": "el OCC completo; en pantalla va el strike + tipo, que "
+                        "es lo legible",
+        "ideas.expiration": "la fecha cruda; el panel pinta los DTE",
+        "ideas.price": "precio del contrato; la columna de dinero es el premium",
+        "ideas.delta": "no se pinta como número: el filtro de moneyness ya usó "
+                       "la distancia al strike, que sí se explica en la nota",
+        "ideas.iv": "la IV del contrato suelto no informa sin su rango; el rank "
+                    "vive en el scorecard del ticker",
+        "ideas.open_interest": "el OI se usa en el score de inusualidad, que sí "
+                               "se pinta como /30",
+        "ideas.timestamp": "hora del trade; la lista ya está ordenada por premium",
+        "ideas.asset_price": "el spot del subyacente; la fila lleva el strike",
+        "ideas.size": "número de contratos del trade; el dinero es lo comparable",
+        "ideas.theta": "theta absoluta; la columna es `theta_pct_daily`, que es "
+                       "la que se puede comparar entre contratos",
+        "ideas.history.median_sessions": "la mediana de sesiones hasta resolver; "
+                                         "la columna enseña el acierto y la muestra",
+        "ideas.sizing.cost_pct_of_account": "va en el `title` de la celda, no como "
+                                            "columna propia",
+        "perfil.riesgo_pct": "se pinta dentro de la franja como el % del riesgo "
+                             "por operación",
+        # ── Wheel ──
+        "preset_id": "el id del preset elegido; en pantalla va su etiqueta",
+        "candidates.iv_source": "de dónde salió la IV (implícita o de respaldo); "
+                                "el aviso al usuario es el bloque de `quotes_missing`",
+        "candidates.premium.raw": "la prima ANTES del recorte; va en el `title` "
+                                  "junto a la fuente y el porcentaje aplicado",
+        "candidates.metrics.return_pct": "el retorno del periodo; la columna es el "
+                                         "anualizado, que es lo comparable entre DTEs",
+        "candidates.metrics.breakeven": "el punto de equilibrio; el colchón (%) es "
+                                        "la misma información en la escala útil",
+        "candidates.score.annualized.band": "las bandas de cada parte del score van "
+                                            "en el `title` del total, no como columnas",
+        "candidates.score.annualized.why": "idem",
+        "candidates.score.annualized.max": "idem",
+        "candidates.score.annualized.points": "idem",
+        "blocked_total": "el total de bloqueados; el desglose por motivo es lo que "
+                         "se pinta, y ya lleva sus cuentas",
+        "preset": "la etiqueta del preset activo; los botones ya la pintan desde "
+                  "`presets[].label`, y el activo va resaltado",
+    }
+
+    #: Ayudantes que los renders llaman y que también pintan. Sin ellos, un
+    #: campo pintado por `vcCabeceraPerfil` saldría como huérfano.
+    _AYUDANTES = ("vcCabeceraPerfil",)
+
+    @staticmethod
+    def _cuerpo(render):
+        """El cuerpo de UNA función de render, no el archivo entero.
+
+        Buscar la hoja en todo el HTML era un colador: un `d.iv` de otro panel
+        daba por pintada la `iv` de la Wheel. Acotado a su render, la ausencia
+        significa lo que dice.
+        """
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index(f"function {render}(")
+        prof, j = 0, html.index("{", i)
+        k = j
+        while k < len(html):
+            if html[k] == "{":
+                prof += 1
+            elif html[k] == "}":
+                prof -= 1
+                if prof == 0:
+                    break
+            k += 1
+        return html[j:k]
+
+    def _barre(self, payload, nombre, render):
+        import re
+
+        cuerpo = self._cuerpo(render)
+        for h in self._AYUDANTES:
+            cuerpo += self._cuerpo(h)
+        huerfanas = []
+        for ruta in sorted(set(self._hojas(payload))):
+            if ruta in self._NO_SE_PINTAN:
+                continue
+            hoja = ruta.split(".")[-1]
+            # Tres formas de leerlo: `c.hoja`, `c['hoja']` y `sc[k].hoja` — esta
+            # última es acceso por corchetes, y el `\w+\.` de antes no la veía:
+            # daba por huérfano lo que el panel sí pinta en bucle.
+            patron = (rf"\b\w+\.{re.escape(hoja)}\b"
+                      rf"|\['{re.escape(hoja)}'\]"
+                      rf"|\]\.{re.escape(hoja)}\b")
+            if not re.search(patron, cuerpo):
+                huerfanas.append(ruta)
+        assert not huerfanas, (
+            f"{nombre}: el motor sirve {huerfanas} y `{render}` no los pinta. "
+            f"O se cablean, o se declaran en `_NO_SE_PINTAN` con su motivo.")
+
+    def test_ideas_no_sirve_nada_que_el_panel_tire(self, client, mercado):
+        self._barre(client.get("/api/tito-ideas").json(), "Ideas", "renderProjIdeas")
+
+    def test_wheel_no_sirve_nada_que_el_panel_tire(self, client, wheel_dobles):
+        self._barre(client.get("/api/tito-wheel").json(), "Wheel", "renderProjWheel")
+
+    def test_el_registro_no_miente(self, client, mercado, wheel_dobles):
+        """Una declaración para una hoja que ya no existe es documentación
+        podrida: dice que algo se decidió a propósito cuando ya no hay nada."""
+        vivas = set()
+        for r in ("/api/tito-ideas", "/api/tito-wheel"):
+            vivas |= set(self._hojas(client.get(r).json()))
+        # `ideas.history.*` solo aparece cuando ese ticker YA tiene flows
+        # guardados, y el doble arranca con el store vacío. Que no salga aquí no
+        # significa que no se sirva — significa que no hay historial todavía.
+        vivas |= {r for r in self._NO_SE_PINTAN if r.startswith("ideas.history.")}
+        fantasmas = sorted(set(self._NO_SE_PINTAN) - vivas)
+        assert not fantasmas, f"declaradas pero ya no se sirven: {fantasmas}"

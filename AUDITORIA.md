@@ -3832,3 +3832,102 @@ veces más datos para llegar al tope. Queda declarado, no arreglado.
 
 **2.787 tests del motor · 383 de la capa web · 248 checks · 37 del smoke de JS ·
 12 diferenciales · 0 fallos.**
+
+## 41.19 Ronda 7 — auditoría completa del tab, contra su repo en 53d5a20
+
+Kevin: *"audita el tab completo de Proyecciones y no puedes omitir una área, ni
+métrica, agentes, sub agente, cálculos, fuentes ni nada."*
+
+Primero: **su repo no ha cambiado**. Sigue en `53d5a20`, el mismo commit contra
+el que se hicieron las rondas anteriores.
+
+### Lo que ya estaba verde
+
+- **12 diferenciales** contra sus archivos reales: motor 1142/1142, motor2
+  918/918, compute 604/604, geo 274/274, reloj 223/223, calib 182/182, frescura
+  342/342, store 47/47, bars 27/27, cono (desvío 5.68e-14 %), primitivas,
+  motor3 348/349 con 1 declarado.
+- **278 checks** de auditoría con su repo adjunto, 0 fallos.
+- **28 de sus 30 módulos** portados; los 4 restantes declarados con motivo.
+- **39 componentes** suyos declarados uno a uno.
+
+### Los cuatro huecos que aparecieron
+
+**1. No había registro de sus RUTAS.** Había uno de módulos y otro de
+componentes, pero ninguno de sus 11 endpoints. Si mañana añade uno, nada lo
+cazaba — y una ruta suya sin equivalente aquí es funcionalidad que sencillamente
+no existe. Nuevo §9-quinquies: 9 de sus 11 rutas tienen equivalente, `logo` y
+`watchlist` declaradas con motivo, y se comprueba que la ruta declarada exista
+de verdad.
+
+**2. No había registro de DIVERGENCIAS.** Estaban documentadas en comentarios
+sueltos por tres archivos y nada las enumeraba: quitar una o añadir otra no lo
+veía nadie, que es lo contrario del contrato de este port. Nuevo §9-sexies: 4
+divergencias, cada una con qué cambia, por qué y **qué no cambia**.
+
+**3. `maxPages` no era su `maxPages`.** Él usa `Number(process.env...)`, que
+acepta notación científica y hexadecimal; `int()` de Python las rechaza. Con
+`MASSIVE_MAX_PAGES=1e2` él paginaba 100 páginas y aquí se cortaba en 40 —
+**media cadena de opciones de menos, sin que nada avisara**. Ahora usa
+`js_number`, el port de `Number()` que ya estaba escrito. Verificado en los 7
+casos borde.
+
+**4. La cobertura de hojas solo vigilaba el scorecard.** Ideas y Wheel no
+tenían barrido: sus campos estaban cubiertos por tests escritos a mano, que solo
+cazan lo que alguien se acordó de comprobar. El barrido nuevo, ya honesto
+(acotado a la función de render, no al archivo entero), encontró que **el panel
+de la Wheel tiraba lo que él sí pinta**.
+
+### Lo que faltaba de su Wheel, y era media estrategia
+
+Comparando `WheelPresetCard.tsx` y `WheelTable.tsx` línea a línea:
+
+| Suyo | Estaba |
+|---|---|
+| «Cierra al **50%** de la prima» | ❌ el motor lo servía, el panel lo tiraba |
+| «Rola a los **21 días**» | ❌ idem |
+| Colchón por candidato | ❌ |
+| Δ, IV (impl./est.), OI del contrato | ❌ |
+| **«Si expira sin valor / si te asignan / si se desploma 20%»** | ❌ |
+
+Las dos primeras son el **plan de salida**: sin ellas se sabe qué vender y no
+cuándo salir. Los tres escenarios son lo que hace legible una venta de put — qué
+pasa en cada desenlace, con números. Todo añadido: las reglas del preset en una
+tira bajo los botones, el colchón como columna, y los escenarios en una fila
+desplegable al hacer clic, con los cinco `why` del score debajo.
+
+### El error que casi se despliega
+
+Al escribir los escenarios metí un comentario HTML con **acentos graves** dentro
+de una plantilla de JavaScript. Un acento grave ahí **cierra la cadena**: el
+navegador tira un `SyntaxError` y se lleva **el tab entero**, no una tarjeta.
+
+Lo cazó el smoke que ejecuta el JS — los tests de Python leen el archivo como
+texto y no habrían visto nada. Nuevo §6-bis, con dos checks: ningún comentario
+dentro del `<script>` lleva acentos graves, y el JS del panel **se ejecuta**.
+
+### Checklist final del tab
+
+| Área | Estado |
+|---|---|
+| Sub-agentes 1-3 (agresividad, convicción, inusualidad) | ✅ diff_motor 1142/1142 |
+| Sub-agente 4 (estructura) | ✅ diff_motor |
+| Sub-agente 5 (contexto IV) | ✅ diff_motor2 918/918 |
+| Sub-agente 6 (confirmación de precio) | ✅ diff_motor · advertencia en cada reporte |
+| GEX + mapa de calor | ✅ diff_motor2 · diff_motor3 |
+| Niveles por confluencia | ✅ diff_motor · diff_frescura 342/342 |
+| Prediction Pro | ✅ diff_motor2 · diff_calib 182/182 |
+| Gráfica (cono + geometría) | ✅ diff_cono 5.68e-14 % · diff_geo 274/274 |
+| Cadena y barras | ✅ diff_compute 604/604 · diff_bars 27/27 |
+| Persistencia (4 stores) | ✅ diff_store 47/47 |
+| Pestaña Ticker | ✅ cobertura de hojas, 0 huérfanas |
+| Pestaña Ideas | ✅ barrido nuevo, 0 huérfanas |
+| Pestaña Wheel | ✅ **5 campos suyos que faltaban, añadidos** |
+| Pestaña Time & Sales | ✅ las dos ventanas de su `/api/flow` |
+| Fuentes (Massive, MarketSnack) | ✅ · `maxPages` corregido |
+| Perfil del inversionista | ✅ 4 divergencias declaradas |
+| Responsive | ✅ 5 tamaños |
+| En vivo | ✅ 15 min, sin botones |
+
+**2.787 tests del motor · 386 de la capa web · 293 checks · 47 del smoke de JS ·
+12 diferenciales · 0 fallos.**
