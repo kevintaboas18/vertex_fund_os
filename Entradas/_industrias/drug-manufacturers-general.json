@@ -16,13 +16,16 @@
     1460000000000,
     1590000000000
   ],
-  "_segmento_patrones": [
-    "oncología",
-    "inmunología",
-    "antidiabéticos",
-    "metabólicas",
-    "obesidad"
-  ],
   "_ingreso_relevante": "total",
-  "_ingreso_relevante_porque": "La facturacion de una farmaceutica general son ventas de medicamentos a precio de lista, que es la capa del TAM."
+  "_ingreso_relevante_porque": "La facturacion de una farmaceutica general son ventas de medicamentos a precio de lista, que es la capa del TAM.",
+  "_segmento_patrones_retirados": {
+    "eran": [
+      "oncología",
+      "inmunología",
+      "antidiabéticos",
+      "metabólicas",
+      "obesidad"
+    ],
+    "porque": "La empresa compite ENTERA en este mercado, asi que no hay segmento que elegir. Estos patrones no casaban con ningun segmento reportado -- los de Walmart son 'Walmart U.S.', 'International' y 'Sam's Club'; ninguno contiene 'retail' -- y por eso la participacion faltaba teniendo TAM e ingreso. Se guardan por si alguien acota el TAM a una capa mas fina."
+  }
 }

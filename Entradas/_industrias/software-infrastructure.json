@@ -26,5 +26,13 @@
   "_ingreso_relevante": [
     "PLTR"
   ],
-  "_ingreso_relevante_porque": "El TAM mide software de datos y analitica. Eso es PLTR entera, pero solo un trozo de MSFT, que esta en la misma industria de GICS: darle a MSFT el ingreso total contra este denominador seria un numerador que no compite ahi."
+  "_ingreso_relevante_porque": "El TAM mide software de datos y analitica. Eso es PLTR entera, pero solo un trozo de MSFT, que esta en la misma industria de GICS: darle a MSFT el ingreso total contra este denominador seria un numerador que no compite ahi.",
+  "_aplica_a": [
+    "PLTR",
+    "SNOW",
+    "DDOG",
+    "MDB",
+    "TDC"
+  ],
+  "_aplica_a_porque": "El TAM mide software de datos y analitica ($175.170M). 'Software - Infrastructure' es una industria de GICS mucho mas ancha: mete en la misma bolsa a Palantir, cuyo negocio ENTERO es ese mercado, y a Microsoft, que factura $331.800M -- casi el doble del TAM -- vendiendo sistemas operativos, ofimatica, nube, videojuegos y publicidad. Sin esta lista MSFT heredaba el denominador de otro mercado y puntuaba MKT-TAM-001 y MKT-CAGR-004 sobre el: el reporte leia 'el mercado crece al 16%' como viento de cola de Microsoft cuando ese 16% es de otro mercado. Un numero equivocado es peor que un hueco, porque el hueco se ve."
 }

@@ -16,14 +16,17 @@
     6100000000000,
     6400000000000
   ],
-  "_segmento_patrones": [
-    "banking",
-    "financial services",
-    "investment banking",
-    "wealth management",
-    "commercial banking",
-    "retail banking"
-  ],
   "_ingreso_relevante": "total",
-  "_ingreso_relevante_porque": "Los tres segmentos de un banco diversificado (banca de consumo, de inversion, gestion de patrimonio) son ingresos bancarios, que es justo la capa que mide el TAM."
+  "_ingreso_relevante_porque": "Los tres segmentos de un banco diversificado (banca de consumo, de inversion, gestion de patrimonio) son ingresos bancarios, que es justo la capa que mide el TAM.",
+  "_segmento_patrones_retirados": {
+    "eran": [
+      "banking",
+      "financial services",
+      "investment banking",
+      "wealth management",
+      "commercial banking",
+      "retail banking"
+    ],
+    "porque": "La empresa compite ENTERA en este mercado, asi que no hay segmento que elegir. Estos patrones no casaban con ningun segmento reportado -- los de Walmart son 'Walmart U.S.', 'International' y 'Sam's Club'; ninguno contiene 'retail' -- y por eso la participacion faltaba teniendo TAM e ingreso. Se guardan por si alguien acota el TAM a una capa mas fina."
+  }
 }

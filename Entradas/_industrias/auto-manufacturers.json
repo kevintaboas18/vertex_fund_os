@@ -16,13 +16,16 @@
     2600000000000,
     2600000000000
   ],
-  "_segmento_patrones": [
-    "automotive",
-    "vehicles",
-    "cars",
-    "trucks",
-    "manufacturing"
-  ],
   "_ingreso_relevante": "total",
-  "_ingreso_relevante_porque": "La facturacion de un fabricante de automoviles es venta de vehiculos, la capa del TAM."
+  "_ingreso_relevante_porque": "La facturacion de un fabricante de automoviles es venta de vehiculos, la capa del TAM.",
+  "_segmento_patrones_retirados": {
+    "eran": [
+      "automotive",
+      "vehicles",
+      "cars",
+      "trucks",
+      "manufacturing"
+    ],
+    "porque": "La empresa compite ENTERA en este mercado, asi que no hay segmento que elegir. Estos patrones no casaban con ningun segmento reportado -- los de Walmart son 'Walmart U.S.', 'International' y 'Sam's Club'; ninguno contiene 'retail' -- y por eso la participacion faltaba teniendo TAM e ingreso. Se guardan por si alguien acota el TAM a una capa mas fina."
+  }
 }

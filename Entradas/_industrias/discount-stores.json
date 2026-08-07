@@ -16,15 +16,18 @@
     18200000000000,
     18200000000000
   ],
-  "_segmento_patrones": [
-    "retail",
-    "merchandise",
-    "sales",
-    "general merchandise",
-    "supercenter",
-    "hypermarket",
-    "discount"
-  ],
   "_ingreso_relevante": "total",
-  "_ingreso_relevante_porque": "WMT factura por venta minorista en sus tres segmentos (Walmart U.S., International, Sam's Club): los tres compiten en el mismo mercado que mide el TAM."
+  "_ingreso_relevante_porque": "WMT factura por venta minorista en sus tres segmentos (Walmart U.S., International, Sam's Club): los tres compiten en el mismo mercado que mide el TAM.",
+  "_segmento_patrones_retirados": {
+    "eran": [
+      "retail",
+      "merchandise",
+      "sales",
+      "general merchandise",
+      "supercenter",
+      "hypermarket",
+      "discount"
+    ],
+    "porque": "La empresa compite ENTERA en este mercado, asi que no hay segmento que elegir. Estos patrones no casaban con ningun segmento reportado -- los de Walmart son 'Walmart U.S.', 'International' y 'Sam's Club'; ninguno contiene 'retail' -- y por eso la participacion faltaba teniendo TAM e ingreso. Se guardan por si alguien acota el TAM a una capa mas fina."
+  }
 }
