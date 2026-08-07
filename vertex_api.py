@@ -919,7 +919,28 @@ def save_report_payload(report_id, payload):
     """#4 — guarda el JSON COMPLETO del reporte en el servidor para un archivo durable y multi-dispositivo.
     save_report() ya insertó la fila; aquí solo rellenamos la columna payload. Best-effort."""
     try:
-        blob = json.dumps(_json_safe(payload))[:2_000_000]   # cap defensivo (~2MB)
+        # Tope de 2 MB. Antes se aplicaba con `[:2_000_000]`, y CORTAR un JSON
+        # por la mitad produce un JSON INVÁLIDO: la fila quedaba escrita pero
+        # ilegible, `/api/reports/list` la saltaba con su `except: continue` y
+        # el reporte desaparecía del archivo sin que nada avisara.
+        #
+        # Ahora, si no cabe, se guarda el reporte SIN las series de precio —que
+        # son lo que pesa y lo que la gráfica puede volver a pedir— en vez de
+        # guardar basura. Y si aun así no cabe, no se escribe nada: un payload
+        # ausente se nota y se puede regenerar; uno corrupto se lee como si no
+        # existiera el reporte.
+        _SERIES = ("historial_precios", "historial_fechas", "historial_ohlc",
+                   "historial_volumen", "chart_history")
+        blob = json.dumps(_json_safe(payload))
+        if len(blob) > 2_000_000:
+            _sin_series = {k: v for k, v in payload.items() if k not in _SERIES}
+            _sin_series["_series_omitidas"] = list(_SERIES)   # para que se sepa
+            blob = json.dumps(_json_safe(_sin_series))
+            print(f"[DB] payload de {report_id} pasaba de 2 MB: guardado sin las series")
+        if len(blob) > 2_000_000:
+            print(f"[DB] payload de {report_id} sigue pasando de 2 MB: NO se guarda "
+                  "(un JSON cortado no se puede leer)")
+            return
         conn = _db()
         conn.execute("UPDATE reports SET payload=? WHERE report_id=?", (blob, report_id))
         conn.commit()

@@ -3931,3 +3931,32 @@ dentro del `<script>` lleva acentos graves, y el JS del panel **se ejecuta**.
 
 **2.787 tests del motor · 386 de la capa web · 293 checks · 47 del smoke de JS ·
 12 diferenciales · 0 fallos.**
+
+## 41.20 El último cabo: un JSON cortado no es un JSON
+
+Quedaba declarado y sin arreglar desde §41.18. Al preguntar Kevin si todo lo
+señalado estaba resuelto, se cerró.
+
+`save_report_payload` aplicaba su tope de 2 MB con `json.dumps(...)[:2_000_000]`.
+Cortar un JSON por la mitad produce un JSON **inválido**: la fila quedaba
+escrita pero ilegible, `/api/reports/list` la saltaba con su `except: continue`
+y el reporte **desaparecía del archivo** sin que nada avisara.
+
+Tres desenlaces, verificados uno a uno:
+
+| Caso | Antes | Ahora |
+|---|---|---|
+| Normal (~36 KB) | se guarda entero | igual |
+| Pasa de 2 MB | JSON cortado = **ilegible** | se guarda **sin las series de precio**, que son lo que pesa y lo que la gráfica puede volver a pedir. El análisis —que no se puede regenerar— se queda, y `_series_omitidas` lo declara |
+| No cabe ni sin series | JSON cortado = ilegible | **no se escribe nada**. Un payload ausente se nota y se puede regenerar; uno corrupto se lee como si el reporte no existiera |
+
+Medido antes de tocarlo: las series de un reporte pesan ~36 KB, así que el tope
+está ~56× lejos. Es un fallo remoto — pero cortar un JSON nunca es correcto, y
+el endpoint de explicación añadió una segunda escritura al mismo payload.
+
+Cuatro tests lo fijan, y el último tuvo que aprender la regla de la casa: leía
+el comentario que EXPLICA el corte viejo citándolo, y fallaba por la
+documentación del propio arreglo. Se lee el código, no lo que dice de él.
+
+**2.787 tests del motor · 390 de la capa web · 293 checks · 47 del smoke ·
+12 diferenciales · 0 fallos.**

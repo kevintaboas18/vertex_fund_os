@@ -1376,3 +1376,67 @@ class TestMigracionAUnMundoConCuentas:
         fn = fn[:fn.index("\n}")]
         assert "localStorage.removeItem(STORAGE_KEY)" in fn
         assert "ARCHIVO_DUENO_KEY" in fn
+
+
+class TestElPayloadGuardadoSiempreSePuedeLEER:
+    """Un JSON cortado por la mitad no es un JSON.
+
+    `save_report_payload` aplicaba su tope de 2 MB con `[:2_000_000]`. La fila
+    quedaba escrita pero **ilegible**: `/api/reports/list` la saltaba con su
+    `except: continue` y el reporte desaparecía del archivo sin que nada
+    avisara. Es un fallo anterior a las cuentas, pero el endpoint de
+    explicación añade una segunda escritura al mismo payload.
+    """
+
+    @staticmethod
+    def _guarda_y_lee(entorno, payload):
+        import vertex_api as V
+
+        conn = V._db()
+        conn.execute("INSERT OR REPLACE INTO reports (report_id,ticker,created_at,"
+                     "created_ts) VALUES ('r','AAPL','hoy',1.0)")
+        conn.commit()
+        conn.close()
+        V.save_report_payload("r", payload)
+        conn = V._db()
+        fila = conn.execute("SELECT payload FROM reports WHERE report_id='r'").fetchone()[0]
+        conn.close()
+        return fila
+
+    def test_un_payload_normal_se_guarda_entero(self, entorno):
+        blob = self._guarda_y_lee(entorno, {
+            "ticker": "AAPL", "wbj": {"raw_total": 78},
+            "chart_history": [{"time": "2026-08-06", "value": 180.4}] * 252})
+        d = json.loads(blob)                      # no lanza = es JSON válido
+        assert d["wbj"]["raw_total"] == 78
+        assert len(d["chart_history"]) == 252
+
+    def test_uno_gigante_pierde_las_SERIES_no_la_legibilidad(self, entorno):
+        """Las series de precio son lo que pesa y lo que la gráfica puede
+        volver a pedir. El análisis —que no se puede regenerar— se queda."""
+        blob = self._guarda_y_lee(entorno, {
+            "ticker": "AAPL", "wbj": {"raw_total": 78}, "tesis": "importante",
+            "chart_history": [{"time": "2026-08-06", "value": 180.4}] * 40_000,
+            "historial_ohlc": [{"o": 1, "h": 2, "l": 3, "c": 4}] * 40_000})
+        d = json.loads(blob)                      # sigue siendo JSON válido
+        assert d["tesis"] == "importante", "se perdió lo que no se puede regenerar"
+        assert "chart_history" not in d
+        assert "_series_omitidas" in d, "no declara que quitó las series"
+
+    def test_si_ni_asi_cabe_NO_se_escribe_basura(self, entorno):
+        """Un payload ausente se nota y se puede regenerar; uno corrupto se lee
+        como si el reporte no existiera."""
+        blob = self._guarda_y_lee(entorno, {"ticker": "AAPL", "tesis": "z" * 3_000_000})
+        assert blob is None
+
+    def test_nunca_se_corta_un_json_a_lo_bruto(self):
+        import inspect
+
+        import vertex_api as V
+
+        # Sin comentarios: el de arriba EXPLICA el corte viejo citándolo, y un
+        # test que lea comentarios falla por la documentación del propio
+        # arreglo. Regla del proyecto: se lee el código, no lo que dice de él.
+        fuente = "\n".join(l for l in inspect.getsource(V.save_report_payload).splitlines()
+                           if not l.strip().startswith("#"))
+        assert "[:2_000_000]" not in fuente, "vuelve a cortar el JSON por la mitad"
