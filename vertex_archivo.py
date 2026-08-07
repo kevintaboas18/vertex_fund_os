@@ -311,8 +311,17 @@ def _md_opciones(ticker: str, d: dict) -> str:
     NOMBRE = {"aggression": "Agresividad", "conviction": "Convicción",
               "unusuality": "Inusualidad", "structure": "Estructura",
               "iv_context": "Contexto IV", "validation": "Confirmación de precio"}
-    PESO = {"aggression": 20, "conviction": 15, "unusuality": 20,
-            "structure": 20, "iv_context": 15, "validation": 10}
+    # Los pesos se LEEN DEL MOTOR, no se escriben aquí.
+    #
+    # Escritos a mano estaban mal: llevaban los del agente de ACCIONES
+    # (20/15/20/20/15/10) en vez de los de opciones (20/20/20/15/10/15), así que
+    # cuatro de los seis salían con el peso equivocado. Un resumen que dice qué
+    # pesa cada categoría y se equivoca es peor que uno que no lo diga —
+    # y leyéndolos de `prediction.WEIGHTS` no pueden volver a separarse.
+    try:
+        from wbj.tito.prediction import WEIGHTS as PESO
+    except Exception:                            # noqa: BLE001 — el motor puede faltar
+        PESO = {}
     filas = "\n".join(
         f"| {NOMBRE.get(k, k)} | {'—' if v is None else v}/10 | {PESO.get(k, '—')} pts |"
         for k, v in sc.items()) or "| — | — | _sin desglose_ |"

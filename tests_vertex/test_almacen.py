@@ -535,6 +535,19 @@ class TestLosDosAgentesNoSeMezclan:
         md = (a.raiz / "Proyecciones/WULF/2026-08-07/RESUMEN.md").read_text(encoding="utf-8")
         assert md.startswith("# WULF · agente de OPCIONES · 2026-08-07")
         assert "Agresividad" in md and "20 pts" in md
+        # Los pesos salen del MOTOR, no escritos a mano en el resumen. Escritos
+        # a mano estaban mal: llevaban los del agente de ACCIONES, así que
+        # cuatro de los seis mentían.
+        from wbj.tito.prediction import WEIGHTS
+
+        for clave, peso in WEIGHTS.items():
+            nombre = {"aggression": "Agresividad", "conviction": "Convicción",
+                      "unusuality": "Inusualidad", "structure": "Estructura",
+                      "iv_context": "Contexto IV",
+                      "validation": "Confirmación de precio"}[clave]
+            if clave in ("aggression", "validation"):   # los dos del payload
+                assert f"| {nombre} |" in md
+        assert sum(WEIGHTS.values()) == 100
         assert "$19.30" in md, "los escenarios tienen que verse"
         assert "no una orden de compra" in md
 
