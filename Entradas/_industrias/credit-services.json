@@ -1,0 +1,25 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-08-07",
+  "_como_se_obtuvo": "Resuelto al analizar V. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 2400000000000,
+  "tam_source": "McKinsey Global Payments Report 2024 (datos de 2023) y 2023 (datos de 2022)",
+  "tam_source_tier": 3,
+  "_ambito": "mundial",
+  "_capa": "Ingresos del sector global de pagos",
+  "_capa_coincide": "V (presumiblemente Visa) factura por el procesamiento de pagos, las tarifas de servicio y las tarifas de transacción internacional, que son componentes directos de los ingresos del sector global de pagos.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFBqlxWZyYb9k2i3MfEnsC-PmWC8pgx6_vRzzwe8aePI7LfYj__jCbi_EidvdWc28NSwYU99O9jGpbT2JGYtnCJPKPvRgXI3gluqHhEfc2lRIC2yC3z2bn5XwYNz_ohrwigtZB1YdeHN7Rd6bmhmnwts8rJ0NnoqPvDNdoyfZUdX84dSjIpWtPoGskKsnSKJdTq0jwWlWNdutzWGX1oeePwa1aGHw=, https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF0weDEwa71axXPTTHcT6t4hGl0v6T1maXtdfVnD7WDi8EFLNAPTW6gSsmgekScdsu0NvBbLNxeSEW3owxS3IFCrA7YgBjm4XySqCVhtAcVgzWfWTZKSbbHEl7FB9PFomnmm-FjQ1ZR6corbO_Vr7l5QTOPpQCX187toytUHQuG3hZphsDwViuQgtKWBp31hWQ35GjC8hpJS28CMg4qkjzO11g43875lzV7930Kc3hzI3XUNH0_LgKKc-swAYW3rNeVtzgA72M-x6yyJGSTBBb2TniDRZ-2GkDjmMrlB9oAq5a-Y5mt47ATv3Xr9mLY4778VM7uXDSNXpUzsj5fKcC1Ge7gbbdnHp-26FdI1swns72zjey5JnX-",
+  "_cita_textual": "In 2023, the global payments industry handled 3.4 trillion transactions, accounting for $1.8 quadrillion in value and a revenue pool of $2.4 trillion. Payments revenues grew at 11 percent in 2022—a double-digit rate for the second consecutive year—reaching more than $2.2 trillion, an all-time high (Exhibit 1).",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "tam_history": [
+    2200000000000,
+    2400000000000
+  ],
+  "_segmento_patrones": [
+    "payments",
+    "payment processing",
+    "digital payments",
+    "transaction services"
+  ]
+}

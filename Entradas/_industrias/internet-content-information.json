@@ -16,10 +16,12 @@
     673440285204,
     755600000000
   ],
-  "_segmento_patrones": [
-    "advertising",
-    "search",
-    "youtube ads",
-    "google network members' properties"
-  ]
+  "_segmentos_suma": {
+    "GOOGL": [
+      "Google Search & Other",
+      "YouTube Advertising Revenue",
+      "Google Network"
+    ]
+  },
+  "_segmentos_suma_porque": "El TAM mide publicidad en internet. De los siete segmentos de Alphabet, esos tres son publicidad; Google Cloud y Other Bets no. Ninguno solo es el numerador: Search es $224.500M de los $294.700M que compiten."
 }

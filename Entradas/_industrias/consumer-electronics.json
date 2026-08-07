@@ -12,19 +12,23 @@
   "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGBvhEJVOmviSKzdD8dTMFv1hecpW1UPjv6lKuppNsMOhy2W1D4LcmTYWgpLgOMsMrvhhWCRLv4MfSovJq7UosQFRWNnM5ee02uf3xXQ8QnFVIsRc1j8eCgJ0xZjcx7ti878zxz7qd6H-wMxZI8nGo2WfEvtzwSlqMU7jc=",
   "_cita_textual": "Global consumer electronics market revenue reached $1.06 trillion in 2023",
   "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
-  "_segmento_patrones": [
-    "telephony",
-    "computing",
-    "tv",
-    "radio",
-    "multimedia",
-    "tv peripheral devices",
-    "drones",
-    "smartphones",
-    "laptops",
-    "tablets",
-    "wearables",
-    "audio",
-    "home"
-  ]
+  "_segmento_patrones_retirados": {
+    "eran": [
+      "telephony",
+      "computing",
+      "tv",
+      "radio",
+      "multimedia",
+      "tv peripheral devices",
+      "drones",
+      "smartphones",
+      "laptops",
+      "tablets",
+      "wearables",
+      "audio",
+      "home"
+    ],
+    "porque": "Encajaban con UN solo segmento de Apple por accidente. Sus segmentos se llaman iPhone, Mac, iPad, Wearables Home and Accessories y Services; de esa lista solo 'wearables' y 'home' casaban, asi que el numerador salia $36.000M -- la linea de accesorios -- contra un TAM de $1,06 billones de electronica de consumo entera. Participacion 3,4% cuando Apple es la mayor empresa del sector. Un acierto falso es peor que ninguno: el hueco se ve y el 3,4% no.",
+    "y_por_que_no_total": "Tampoco vale `_ingreso_relevante: total`: los $100.000M de Services de Apple no son electronica de consumo, asi que su ingreso total tampoco es el numerador de esta capa. El motor rechaza a proposito sumar varios segmentos -- 'sumarlos o quedarse con el mayor seria inventar la respuesta' -- y esa disciplina se respeta."
+  }
 }

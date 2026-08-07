@@ -390,6 +390,43 @@ def _named_segment_revenue(rows: Any) -> dict[str, float] | None:
     return named if len(named) >= 2 else None
 
 
+def _suma_de_segmentos(segmentos: Any, nombres: Any) -> tuple[str, float] | None:
+    """La suma de los segmentos que un analista NOMBRA, uno por uno.
+
+    El tercer caso, y resultó ser el de casi toda empresa diversificada. Con
+    NVIDIA compite un segmento (`Data Center`) y con Walmart compite la empresa
+    entera; con Alphabet compiten TRES de sus siete —`Google Search & Other`
+    $224.500M, `YouTube Advertising` $40.400M y `Google Network` $29.800M— y
+    ninguno solo es el numerador de la publicidad en internet.
+
+    Va por NOMBRE EXACTO y no por patrón, y eso es la diferencia entre sumar y
+    adivinar. `_segmento_del_mercado` se niega cuando encajan varios porque
+    "sumarlos o quedarse con el mayor sería inventar la respuesta", y tiene
+    razón mientras la selección la haga una lista de palabras: a Apple le
+    encajó `Wearables, Home and Accessories` y sólo ése, dando un 3,4% de
+    participación en electrónica de consumo a la mayor empresa del sector.
+    Aquí no hay coincidencia posible — o el segmento se llama así o no entra.
+
+    Sumar cifras reportadas no es imputar. Es lo mismo que hace la propia
+    `MKT-TAM-001`: "sum(addressable customers_i * annual spend_i)".
+
+    Si falta cualquiera de los nombres declarados devuelve `None`: una suma a
+    la que le falta un sumando no es esa suma, y el emisor pudo renombrar sus
+    segmentos.
+    """
+    if not isinstance(segmentos, dict) or not isinstance(nombres, list) or not nombres:
+        return None
+    total = 0.0
+    for nombre in nombres:
+        v = segmentos.get(nombre)
+        if not isinstance(v, (int, float)) or v <= 0:
+            logger.info("el segmento declarado %r no esta en la segmentacion "
+                        "reportada: no se suma nada", nombre)
+            return None
+        total += float(v)
+    return (" + ".join(str(n) for n in nombres), total)
+
+
 def _segmento_del_mercado(segmentos: Any, patrones: Any) -> tuple[str, float] | None:
     """El segmento cuyo nombre encaja con el mercado del TAM.
 
@@ -491,7 +528,8 @@ def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
                       tam: float | None, tam_history: Any,
                       patrones: Any, ambito: str | None = None,
                       ingreso_total: float | None = None,
-                      total_es_relevante: bool = False) -> dict[str, Any]:
+                      total_es_relevante: bool = False,
+                      segmentos_declarados: Any = None) -> dict[str, Any]:
     """Participación de mercado calculada SOLA, sin que nadie la declare.
 
     Es el paso que faltaba para que analizar un ticker nuevo no exigiera
@@ -523,6 +561,11 @@ def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
                         "sin participacion", ticker)
             return {}
         actual: tuple[str, float] = (dom[1], dom[0])
+    elif segmentos_declarados:
+        sumado = _suma_de_segmentos(segmentos, segmentos_declarados)
+        if not sumado:
+            return {}
+        actual = sumado
     elif total_es_relevante:
         # La clase que el mecanismo de patrones no sabía expresar: la empresa
         # ENTERA compite en ese mercado.
@@ -601,6 +644,8 @@ def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
                        if isinstance(v, (int, float)) and v > 0
                        and any(r in str(n).lower() for r in _REGIONES_US)]
             anterior = (encajan[0][0], encajan[0][1]) if len(encajan) == 1 else None
+        elif segmentos_declarados:
+            anterior = _suma_de_segmentos(previos, segmentos_declarados)
         else:
             anterior = _segmento_del_mercado(previos, patrones)
         if not anterior:
@@ -977,6 +1022,7 @@ def _overlay_industria(settings: Any, industria: str | None,
     # PLTR entera pero sólo un trozo de Microsoft. Con un campo binario había
     # que elegir entre dejar a PLTR sin participación o darle a MSFT un
     # numerador cuatro veces mayor que su negocio en ese mercado.
+    suma = data.get("_segmentos_suma")
     _rel = data.get("_ingreso_relevante")
     if isinstance(_rel, list):
         total_relevante = ticker.upper() in {str(t).upper() for t in _rel}
@@ -999,6 +1045,13 @@ def _overlay_industria(settings: Any, industria: str | None,
         fuera["_ambito"] = ambito
     if total_relevante and fuera.get("tam"):
         fuera["_ingreso_relevante"] = "total"
+    if isinstance(suma, dict) and fuera.get("tam"):
+        # Por ticker: los segmentos que compiten en un mercado tienen nombres
+        # distintos en cada emisor, asi que la lista no puede ser de la
+        # industria entera.
+        propios = suma.get(ticker.upper())
+        if isinstance(propios, list) and propios:
+            fuera["_segmentos_suma"] = propios
     return fuera
 
 
@@ -1993,13 +2046,15 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         # para entrar: su numerador es el ingreso total. Exigirla dejaba fuera
         # a WMT, JPM y LLY teniendo el denominador y el numerador en casa.
         total_relevante = str(overlay.get("_ingreso_relevante") or "") == "total"
+        declarados = overlay.pop("_segmentos_suma", None)
         if domestico or total_relevante or (isinstance(segmentos, dict) and segmentos):
             auto = _share_automatico(
                 fmp, ticker, segmentos or {}, overlay.get("tam"),
                 overlay.get("tam_history"), overlay.pop("_segmento_patrones", None),
                 ambito=overlay.pop("_ambito", None),
                 ingreso_total=_ingreso_total_reportado(packet),
-                total_es_relevante=total_relevante)
+                total_es_relevante=total_relevante,
+                segmentos_declarados=declarados)
             for key, value in auto.items():
                 overlay.setdefault(key, value)
     except Exception:
@@ -2007,5 +2062,6 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
     overlay.pop("_segmento_patrones", None)
     overlay.pop("_ambito", None)
     overlay.pop("_ingreso_relevante", None)
+    overlay.pop("_segmentos_suma", None)
 
     return overlay

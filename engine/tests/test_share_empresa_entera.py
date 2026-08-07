@@ -173,3 +173,75 @@ def test_the_flag_does_not_travel_without_a_tam(tmp_path):
     declaración no tiene a dónde ir."""
     s = _industria(tmp_path, "reit-retail", {"_ingreso_relevante": "total"})
     assert fp._overlay_industria(s, "REIT - Retail", "O") == {}
+
+
+# --- el tercer caso: varios segmentos compiten -----------------------------
+
+_ALPHABET = {"Google Search & Other": 224.5, "Google Cloud": 58.7,
+             "YouTube Advertising Revenue": 40.4, "Google Network": 29.8,
+             "Other Bets": 1.5}
+_ADS = ["Google Search & Other", "YouTube Advertising Revenue", "Google Network"]
+
+
+def test_several_segments_can_be_the_numerator():
+    """Con NVIDIA compite un segmento y con Walmart la empresa entera. Con
+    Alphabet compiten TRES de sus siete, y ninguno solo es el numerador:
+    Search es $224.500M de los $294.700M que compiten en publicidad."""
+    salida = fp._share_automatico(
+        _FMP(), "GOOGL", _ALPHABET, tam=756.0, tam_history=None, patrones=None,
+        segmentos_declarados=_ADS)
+    assert salida["share"]["company_sales"] == pytest.approx(294.7)
+    assert salida["company_relevant_revenue"] == pytest.approx(294.7)
+
+
+def test_what_does_not_compete_stays_out():
+    """Google Cloud y Other Bets no son publicidad. Que la suma los deje
+    fuera es el punto: `_ingreso_relevante: total` los habria metido."""
+    salida = fp._share_automatico(
+        _FMP(), "GOOGL", _ALPHABET, tam=756.0, tam_history=None, patrones=None,
+        segmentos_declarados=_ADS)
+    assert salida["share"]["company_sales"] < sum(_ALPHABET.values())
+
+
+def test_the_names_are_exact_never_matched():
+    """Ahí está la diferencia entre sumar y adivinar. A Apple le encajó
+    `Wearables, Home and Accessories` —y sólo ése— con una lista de patrones
+    automáticos, dando 3,4% de participación en electrónica de consumo a la
+    mayor empresa del sector. Un nombre exacto no puede coincidir por
+    accidente."""
+    assert fp._suma_de_segmentos(_ALPHABET, ["google search"]) is None
+    assert fp._suma_de_segmentos(_ALPHABET, ["Google Search & Other"]) is not None
+
+
+def test_a_missing_declared_segment_sums_nothing():
+    """Una suma a la que le falta un sumando no es esa suma, y el emisor pudo
+    renombrar sus segmentos entre ejercicios."""
+    assert fp._suma_de_segmentos(
+        _ALPHABET, _ADS + ["Segmento Que Ya No Existe"]) is None
+
+
+def test_the_delta_sums_the_same_segments():
+    """`MKT-SHDELTA-007` mide si la empresa gana o pierde captura. Comparar
+    tres segmentos de este año contra uno del anterior restaría peras y
+    manzanas."""
+    class _F(_FMP):
+        def revenue_product_segmentation(self, ticker):
+            previo = {k: v * 0.9 for k, v in _ALPHABET.items()}
+            return [{"data": _ALPHABET}, {"data": previo}]
+
+    salida = fp._share_automatico(
+        _F(), "GOOGL", _ALPHABET, tam=756.0, tam_history=[700.0, 756.0],
+        patrones=None, segmentos_declarados=_ADS)
+    assert salida["share_history"] == [round(294.7 * 0.9 / 700.0, 6),
+                                       round(294.7 / 756.0, 6)]
+
+
+def test_the_declaration_is_per_ticker(tmp_path):
+    """Los segmentos que compiten en un mercado se llaman distinto en cada
+    emisor, así que la lista no puede ser de la industria entera."""
+    s = _industria(tmp_path, "internet-content-information",
+                   {**_TAM, "_segmentos_suma": {"GOOGL": _ADS}})
+    assert fp._overlay_industria(s, "Internet Content & Information", "GOOGL"
+                                 )["_segmentos_suma"] == _ADS
+    assert "_segmentos_suma" not in fp._overlay_industria(
+        s, "Internet Content & Information", "META")
