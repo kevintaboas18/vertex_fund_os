@@ -3960,3 +3960,44 @@ documentación del propio arreglo. Se lee el código, no lo que dice de él.
 
 **2.787 tests del motor · 390 de la capa web · 293 checks · 47 del smoke ·
 12 diferenciales · 0 fallos.**
+
+## 41.21 Subir el tope de 2 MB, sin que subirlo rompa nada
+
+Kevin: *"¿cómo hacer que sea más grande de 2 MB?"*
+
+### Dónde está el techo de verdad
+
+El 2 MB no lo impone SQLite —aguanta **1 GB** por columna—. Lo impone
+`/api/reports/list`, que devuelve hasta **60 payloads COMPLETOS en una sola
+respuesta**. El tope por reporte se multiplica por 60:
+
+| Tope por reporte | Respuesta de la lista |
+|---|---|
+| 2 MB | 120 MB |
+| 10 MB | **600 MB** |
+| 50 MB | **3.000 MB** |
+
+Y el navegador guarda ese archivo en `localStorage`, que son ~5 MB **en total**
+para todos los reportes juntos.
+
+O sea: subir el tope **solo** empeora las cosas. Hacen falta las dos piezas.
+
+### Las dos variables
+
+- **`VERTEX_PAYLOAD_MAX`** — cuánto puede pesar UN reporte. Default 2.000.000.
+- **`VERTEX_LISTA_MAX`** — cuánto puede pesar la RESPUESTA de la lista. Default
+  40.000.000 (40 MB).
+
+`/api/reports/list` ahora se corta **por peso**, no solo por número: para al
+llegar al tope, sirve los más recientes primero y **declara cuántos dejó
+fuera**. Un archivo recortado en silencio parece un archivo que perdió reportes.
+
+Con `VERTEX_PAYLOAD_MAX=10000000`, verificado: 20 reportes de 3 MB → sirve 13
+(39 MB) y declara `recortados: 7` con su motivo.
+
+Dos salvaguardas más: basura o `0` en cualquiera de las dos variables cae al
+default —un tope de 0 no guardaría nada—, y la lista devuelve **siempre al menos
+un reporte**, aunque ese solo pase del tope de la respuesta: dejar el archivo
+vacío por un reporte grande sería peor que servirlo.
+
+**2.787 tests del motor · 394 de la capa web · 293 checks · 0 fallos.**

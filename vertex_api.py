@@ -915,6 +915,34 @@ def consensus_snapshot(ticker, fiscal_date, eps_avg, revenue_avg, n_analysts, mi
     return prior
 
 
+#: Tope del payload de UN reporte, en bytes. `VERTEX_PAYLOAD_MAX` lo cambia.
+#:
+#: 2 MB no es un límite de SQLite —aguanta 1 GB por columna— sino el que hace
+#: que `/api/reports/list` siga siendo servible: devuelve hasta 60 payloads
+#: COMPLETOS de una vez, así que el tope por reporte multiplica por 60. A 2 MB
+#: son 120 MB de respuesta; a 10 MB, 600 MB, y Render se cae antes de acabar.
+#:
+#: Por eso subirlo solo no basta: hay que subirlo Y dejar que la lista devuelva
+#: menos. `_PAYLOAD_RESPUESTA_MAX` es el freno que hace las dos cosas
+#: compatibles — recorta cuántos reportes caben, no cuánto pesa cada uno.
+def _payload_max() -> int:
+    try:
+        n = int(os.environ.get("VERTEX_PAYLOAD_MAX", "2000000"))
+    except ValueError:
+        return 2_000_000
+    return n if n > 0 else 2_000_000
+
+
+#: Tope de la RESPUESTA de `/api/reports/list`, en bytes. Es lo que impide que
+#: subir el tope por reporte se convierta en una respuesta de cientos de MB.
+def _payload_respuesta_max() -> int:
+    try:
+        n = int(os.environ.get("VERTEX_LISTA_MAX", "40000000"))     # 40 MB
+    except ValueError:
+        return 40_000_000
+    return n if n > 0 else 40_000_000
+
+
 def save_report_payload(report_id, payload):
     """#4 — guarda el JSON COMPLETO del reporte en el servidor para un archivo durable y multi-dispositivo.
     save_report() ya insertó la fila; aquí solo rellenamos la columna payload. Best-effort."""
@@ -931,15 +959,17 @@ def save_report_payload(report_id, payload):
         # existiera el reporte.
         _SERIES = ("historial_precios", "historial_fechas", "historial_ohlc",
                    "historial_volumen", "chart_history")
+        _TOPE = _payload_max()
         blob = json.dumps(_json_safe(payload))
-        if len(blob) > 2_000_000:
+        if len(blob) > _TOPE:
             _sin_series = {k: v for k, v in payload.items() if k not in _SERIES}
             _sin_series["_series_omitidas"] = list(_SERIES)   # para que se sepa
             blob = json.dumps(_json_safe(_sin_series))
-            print(f"[DB] payload de {report_id} pasaba de 2 MB: guardado sin las series")
-        if len(blob) > 2_000_000:
-            print(f"[DB] payload de {report_id} sigue pasando de 2 MB: NO se guarda "
-                  "(un JSON cortado no se puede leer)")
+            print(f"[DB] payload de {report_id} pasaba de {_TOPE/1e6:.0f} MB: "
+                  "guardado sin las series")
+        if len(blob) > _TOPE:
+            print(f"[DB] payload de {report_id} sigue pasando de {_TOPE/1e6:.0f} MB: "
+                  "NO se guarda (un JSON cortado no se puede leer)")
             return
         conn = _db()
         conn.execute("UPDATE reports SET payload=? WHERE report_id=?", (blob, report_id))
@@ -11172,13 +11202,34 @@ def reports_list(request: Request, limit: int = 60):
                 "ORDER BY created_ts DESC LIMIT ?",
                 (int(max(1, min(limit, 200))),)).fetchall()
         conn.close()
-        out = []
+        # Se corta por PESO, no solo por número.
+        #
+        # `limit` acota cuántas filas se piden, pero no cuánto pesan: con el
+        # tope por reporte subido, 60 payloads pueden ser cientos de MB en una
+        # sola respuesta y tumbar el proceso. Aquí se para al llegar al tope y
+        # se dice cuántos se dejaron fuera — el archivo se hidrata con los más
+        # recientes, que es el orden en que vienen.
+        _TOPE = _payload_respuesta_max()
+        out, peso, recortados = [], 0, 0
         for r in rows:
             try:
-                out.append(json.loads(r["payload"]))
+                blob = r["payload"]
+                if peso + len(blob) > _TOPE and out:
+                    recortados = len(rows) - len(out)
+                    break
+                out.append(json.loads(blob))
+                peso += len(blob)
             except Exception:
                 continue
-        return {"ok": True, "reports": out}
+        if recortados:
+            print(f"[reports/list] {recortados} reportes fuera: la respuesta llegaba "
+                  f"al tope de {_TOPE/1e6:.0f} MB")
+        return {"ok": True, "reports": out,
+                # Se declara. Un archivo recortado en silencio parece un archivo
+                # que perdió reportes.
+                "recortados": recortados,
+                "motivo_recorte": (f"la respuesta llegaba al tope de {_TOPE/1e6:.0f} MB; "
+                                   "los más recientes van primero" if recortados else None)}
     except Exception as e:
         return {"ok": False, "error": _error_publico(e, "/api/reports/list"), "reports": []}
 

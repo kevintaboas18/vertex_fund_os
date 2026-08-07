@@ -1440,3 +1440,83 @@ class TestElPayloadGuardadoSiempreSePuedeLEER:
         fuente = "\n".join(l for l in inspect.getsource(V.save_report_payload).splitlines()
                            if not l.strip().startswith("#"))
         assert "[:2_000_000]" not in fuente, "vuelve a cortar el JSON por la mitad"
+
+
+class TestElTopeDelPayloadSeSubeSinRomperNada:
+    """Subir el tope por reporte sin freno en la lista es peor que no subirlo.
+
+    2 MB no es un límite de SQLite —aguanta 1 GB por columna—: es el que hace
+    servible a `/api/reports/list`, que devuelve hasta 60 payloads COMPLETOS de
+    una vez. El tope por reporte se multiplica por 60, así que a 10 MB serían
+    600 MB en una sola respuesta.
+    """
+
+    def test_el_tope_por_reporte_es_configurable(self, monkeypatch):
+        import vertex_api as V
+
+        assert V._payload_max() == 2_000_000, "el default cambió sin querer"
+        monkeypatch.setenv("VERTEX_PAYLOAD_MAX", "10000000")
+        assert V._payload_max() == 10_000_000
+        # Basura o cero → el default, nunca un tope de 0 que no guardaría nada.
+        monkeypatch.setenv("VERTEX_PAYLOAD_MAX", "muchos")
+        assert V._payload_max() == 2_000_000
+        monkeypatch.setenv("VERTEX_PAYLOAD_MAX", "0")
+        assert V._payload_max() == 2_000_000
+
+    def test_el_tope_nuevo_se_RESPETA_al_guardar(self, entorno, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setenv("VERTEX_PAYLOAD_MAX", "10000000")
+        conn = V._db()
+        conn.execute("INSERT INTO reports (report_id,ticker,created_at,created_ts) "
+                     "VALUES ('r','AAPL','hoy',1.0)")
+        conn.commit()
+        conn.close()
+        # 5 MB: pasaba del tope viejo, cabe en el nuevo, y las series se quedan.
+        V.save_report_payload("r", {"ticker": "AAPL", "relleno": "z" * 5_000_000,
+                                    "chart_history": [{"t": 1}] * 10})
+        conn = V._db()
+        blob = conn.execute("SELECT payload FROM reports WHERE report_id='r'").fetchone()[0]
+        conn.close()
+        d = json.loads(blob)
+        assert len(blob) > 2_000_000, "no aplicó el tope nuevo"
+        assert "chart_history" in d, "tiró las series aunque cabían"
+
+    def test_la_lista_se_corta_por_PESO_no_solo_por_numero(self, entorno, cliente,
+                                                           monkeypatch):
+        """`limit` acota cuántas filas se piden, no cuánto pesan. Sin este
+        freno, subir el tope por reporte tumba el proceso al hidratar."""
+        import vertex_api as V
+
+        _registra(cliente)
+        conn = V._db()
+        uid = V._CU.buscar_usuario(conn, email="kevin@x.com")["id"]
+        for i in range(20):
+            conn.execute("INSERT INTO reports (report_id,ticker,created_at,created_ts,"
+                         "payload,usuario_id) VALUES (?,?,?,?,?,?)",
+                         (f"r{i:02}", "AAPL", "hoy", 1000 - i,
+                          json.dumps({"ticker": "AAPL", "relleno": "z" * 3_000_000}), uid))
+        conn.commit()
+        conn.close()
+
+        d = cliente.get("/api/reports/list").json()
+        assert d["recortados"] > 0, "sirvió 60 MB de golpe"
+        assert len(d["reports"]) < 20
+        # Se DICE. Un archivo recortado en silencio parece uno que perdió cosas.
+        assert d["motivo_recorte"]
+
+    def test_siempre_devuelve_AL_MENOS_uno(self, entorno, cliente, monkeypatch):
+        """Un reporte más grande que el tope de la respuesta no puede dejar el
+        archivo vacío: se sirve igual y el freno actúa a partir del segundo."""
+        import vertex_api as V
+
+        monkeypatch.setenv("VERTEX_LISTA_MAX", "1000")      # tope absurdo
+        _registra(cliente)
+        conn = V._db()
+        uid = V._CU.buscar_usuario(conn, email="kevin@x.com")["id"]
+        conn.execute("INSERT INTO reports (report_id,ticker,created_at,created_ts,"
+                     "payload,usuario_id) VALUES ('r','AAPL','hoy',1.0,?,?)",
+                     (json.dumps({"ticker": "AAPL", "relleno": "z" * 50_000}), uid))
+        conn.commit()
+        conn.close()
+        assert len(cliente.get("/api/reports/list").json()["reports"]) == 1
