@@ -589,15 +589,43 @@ class TestDateParseSigueElEstandar:
         for v in ("2026-13-45T00:00:00Z", "2026-02-30", "2026-00-10", "2026-07-00"):
             assert math.isnan(_date_parse(v)), v
 
-    def test_el_legacy_de_V8_no_se_replica(self):
-        # `Date.parse("500")` es el año 500 y `Date.parse("$5")` es mayo de 2001.
-        # ECMA-262 lo declara implementation-defined: replicarlo sería copiar una
-        # peculiaridad de V8, no la lógica de Víctor.
+    def test_el_legacy_de_V8_SI_se_replica(self):
+        """El número suelto sigue la regla de V8, medida contra Node 22.
+
+        Estuvo sin replicar a propósito —ECMA-262 la declara
+        *implementation-defined*, así que copiarla es copiar una peculiaridad
+        del motor, no lógica de Víctor—. Se replica porque la instrucción es
+        que lo único distinto de su código sea el perfil y la Wheel.
+
+        La regla es arbitraria hasta el absurdo, y por eso está fijada aquí:
+        `"1".."12"` se leen como MES del año 2001, `"13".."31"` dan NaN.
+        """
         import math
+        from datetime import datetime, timezone
 
         from wbj.tito.stores import _date_parse
 
-        for v in ("500", "$5", "Jul 30 2026", "30/07/2026", "ayer"):
+        def dia(v):
+            ms = _date_parse(v)
+            if isinstance(ms, float) and math.isnan(ms):
+                return None
+            return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d")
+
+        assert dia("0") == "2000-01-01"
+        assert dia("5") == "2001-05-01"      # mes 5 del 2001, no el año 5
+        assert dia("12") == "2001-12-01"
+        assert dia("13") is None             # ni mes ni año de dos cifras
+        assert dia("31") is None
+        assert dia("32") == "2032-01-01"
+        assert dia("49") == "2049-01-01"
+        assert dia("50") == "1950-01-01"     # a partir de 50, siglo XX
+        assert dia("99") == "1999-01-01"
+        # `strftime` de Python no rellena el año con ceros como `toISOString`
+        # de JavaScript; el instante es el mismo, la comparación es de texto.
+        assert dia("500") in ("0500-01-01", "500-01-01")
+
+        # Lo que NO es un número suelto sigue siendo NaN: la fuente manda ISO.
+        for v in ("$5", "Jul 30 2026", "30/07/2026", "ayer", "1e3"):
             assert math.isnan(_date_parse(v)), v
 
     def test_las_variantes_ISO_que_si_se_parsean(self):

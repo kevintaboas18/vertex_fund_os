@@ -61,16 +61,17 @@ class MassiveError(RuntimeError):
 
 
 def _api_key() -> str:
-    # **DIVERGENCIA DECLARADA — mínima y a favor.** Él hace `if (!key)`, o sea
-    # solo cadena vacía; una clave con espacios alrededor la manda tal cual y
-    # Massive responde 401. Aquí se recorta antes, así que `" abc "` funciona
-    # y `"   "` falla al llamar con el motivo exacto en vez de con un 401
-    # genérico. Se declara porque el contrato de este port es que ninguna
-    # diferencia con su código sea silenciosa, ni siquiera una que ayuda.
+    # Su `apiKey()`, literal:
     #
-    # Su `marketsnack.ts` sí recorta (`!c || !c.trim()`), y ahí el port es
-    # literal: la asimetría entre sus dos módulos es suya, no mía.
-    key = os.environ.get("MASSIVE_API_KEY", "").strip()
+    #     const key = process.env.MASSIVE_API_KEY;
+    #     if (!key) throw new MassiveError("Falta MASSIVE_API_KEY…");
+    #
+    # `if (!key)` en JavaScript es solo la cadena VACÍA: una clave con espacios
+    # alrededor pasa y Massive responde 401. Estuvo recortada aquí —lo que era
+    # más útil— y se revirtió: la instrucción es que lo único distinto sea el
+    # perfil y la Wheel, así que esto vuelve a ser suyo aunque su versión
+    # falle más tarde y peor.
+    key = os.environ.get("MASSIVE_API_KEY", "")
     if not key:
         raise MassiveError("Falta MASSIVE_API_KEY en el entorno.")
     return key

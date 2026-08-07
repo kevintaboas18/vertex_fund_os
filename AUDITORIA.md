@@ -4001,3 +4001,71 @@ un reporte**, aunque ese solo pase del tope de la respuesta: dejar el archivo
 vacío por un reporte grande sería peor que servirlo.
 
 **2.787 tests del motor · 394 de la capa web · 293 checks · 0 fallos.**
+
+## 41.22 Solo dos diferencias con su código: tu perfil y que la Wheel funcione
+
+Kevin: *"todo lo que es diferente soluciónalo. Solo que use el perfil del
+usuario y que la Wheel funcione es lo único diferente… esto no lo quiero:
+/api/tito-fuentes."*
+
+### Divergencias cerradas
+
+**La clave de Massive vuelve a ser suya.** Él hace `if (!key)`, que en
+JavaScript es solo la cadena vacía: una clave con espacios alrededor pasa y
+Massive responde 401. Aquí se recortaba antes —lo que era más útil— y se
+revirtió. Su versión falla más tarde y peor, y aun así es la que queda.
+
+**`new Date("0")` ahora replica el parseo legacy de V8.** Medido contra Node 22,
+la regla es arbitraria hasta el absurdo:
+
+```
+"0"        → año 2000
+"1".."12"  → MES de ese número, del año 2001
+"13".."31" → NaN
+"32".."49" → año 20XX
+"50".."99" → año 19XX
+"100"+     → ese año tal cual
+```
+
+Se dijo en su momento y se repite aquí: esto es una peculiaridad del motor de
+JavaScript, no lógica de Víctor, y ningún timestamp real puede dispararla
+—MarketSnack y Massive mandan ISO—. Vive en el código para que el corpus de
+basura case al 100%. **`diff_motor3` pasa de 348/349 a 349/349**, y la línea
+base queda congelada en cero.
+
+### Fuera el diagnóstico de fuentes
+
+`/api/tito-fuentes` era mío, no suyo: 208 líneas de backend, su función de
+panel, su botón y sus 6 tests. Todo retirado.
+
+Al quitarlo pasó algo que merece quedar escrito. El primer corte se llevó **330
+líneas de más** —el bloque entero del perfil, que venía justo después— porque la
+guarda contaba `@app.get(` y los helpers del perfil no llevan decorador. Se
+restauró desde git y se rehízo **con el AST**, que da el final exacto de la
+función en vez de adivinarlo, y con dos aserciones nuevas: que el bloque no
+contenga `_PERFIL_DIR` ni `aprendizaje`.
+
+### Lo que la auditoría cazó sola
+
+Al cerrar la divergencia de la clave, el §9-sexies falló:
+
+```
+✗ massive.py: 0 marcas «DIVERGENCIA DECLARADA» para 1 declarada(s)
+```
+
+El registro seguía declarando una diferencia que ya no existía. Es exactamente
+para lo que se escribió una ronda antes.
+
+Y un test del motor afirmaba lo contrario de lo pedido
+(`test_el_legacy_de_V8_no_se_replica`). Invertido, y ahora fija la regla entera
+caso por caso — porque una regla así de arbitraria sin test es una bomba.
+
+### Quedan dos, y son las que Kevin quiere
+
+| Divergencia | Por qué se queda |
+|---|---|
+| Sizing y asequibilidad en el servidor | Su app no tiene perfil de inversionista; esta sí. **Las fórmulas son las suyas.** |
+| Wheel sin bid | Sin esto el screener sale siempre vacío con el plan actual de Massive. |
+
+**2.787 tests del motor · 388 de la capa web · 292 checks · 12 diferenciales,
+todos a cero divergencias.**

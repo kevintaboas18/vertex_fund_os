@@ -1257,11 +1257,6 @@ DIVERGENCIAS = {
         "la prima cae a `last_trade → day.close → day.vwap`. Sin esto el screener "
         "sale SIEMPRE vacío. La salvaguarda se mueve al score: sin horquilla, la "
         "parte de liquidez cobra 0 de 15."),
-    "clave de Massive recortada": (
-        VERTEX / "engine/wbj/tito/massive.py",
-        "Él hace `if (!key)`; aquí se recorta antes. `\" abc \"` funciona y "
-        "`\"   \"` falla con el motivo exacto en vez de con un 401. Mínima y a "
-        "favor, pero declarada: ninguna diferencia puede ser silenciosa."),
 }
 _MARCA = "DIVERGENCIA DECLARADA"
 chk(all(m and f.is_file() for f, m in DIVERGENCIAS.values()),
@@ -1276,7 +1271,7 @@ for _f in sorted(_archivos_con_marca, key=str):
 # Y al revés: ninguna marca suelta sin entrada en el registro.
 _total_marcas = sum(f.read_text(encoding="utf-8").count(_MARCA)
                     for f in _archivos_con_marca)
-chk(_total_marcas <= len(DIVERGENCIAS) + 1,      # +1: la de wheel se explica dos veces
+chk(_total_marcas <= len(DIVERGENCIAS) + 1,      # +1: el sizing se explica dos veces
     f"{_total_marcas} marcas en el código para {len(DIVERGENCIAS)} divergencias "
     "declaradas — ninguna suelta")
 for _k, (_f, _m) in sorted(DIVERGENCIAS.items()):

@@ -166,6 +166,49 @@ _ISO_JS = re.compile(
 )
 
 
+#: El parseo LEGACY de V8 para un número suelto, medido contra Node 22.
+#:
+#: No está en ninguna especificación: ES la define como *implementation-defined*,
+#: y la regla que sale al medirla es arbitraria hasta el absurdo —
+#:
+#:     "0"        → año 2000
+#:     "1".."12"  → MES de ese número, del año 2001
+#:     "13".."31" → NaN
+#:     "32".."49" → año 20XX
+#:     "50".."99" → año 19XX
+#:     "100"+     → ese año tal cual
+#:
+#: Se replica porque la instrucción es que lo único distinto de su código sea el
+#: perfil y la Wheel. Pero conviene saber qué es: una peculiaridad del motor de
+#: JavaScript, no lógica de Víctor, y que ningún timestamp real puede disparar
+#: —MarketSnack y Massive mandan ISO—. Vive aquí para que el corpus de basura
+#: de `diff_motor3` case al 100%, no porque el agente lo necesite.
+_SOLO_DIGITOS = re.compile(r"^\d+$")
+
+
+def _v8_legacy(txt: str) -> float:
+    if not _SOLO_DIGITOS.match(txt):
+        return math.nan
+    n = int(txt)
+    if len(txt) >= 3:                       # "100", "999" → ese año
+        anio, mes = n, 1
+    elif n == 0:
+        anio, mes = 2000, 1
+    elif 1 <= n <= 12:                      # se lee como MES, del año 2001
+        anio, mes = 2001, n
+    elif n <= 31:
+        return math.nan
+    elif n <= 49:
+        anio, mes = 2000 + n, 1
+    else:                                   # 50..99
+        anio, mes = 1900 + n, 1
+    try:
+        base = datetime(anio, mes, 1, tzinfo=timezone.utc)
+    except ValueError:
+        return math.nan
+    return base.timestamp() * 1000.0
+
+
 def js_date_parse(v: Any) -> float:
     """`Date.parse(v)` en milisegundos, o `NaN` si no se puede.
 
@@ -182,7 +225,7 @@ def js_date_parse(v: Any) -> float:
         return math.nan          # `Date.parse(undefined)`, `Date.parse(null)` → NaN
     m = _ISO_JS.match(v.strip())
     if not m:
-        return math.nan
+        return _v8_legacy(v.strip())
     y, mo, d, hh, mm, ss, ms, off = m.groups()
     # `"2026"` y `"2026-07"` son formatos válidos del estándar: el mes y el día
     # que falten valen 1. Sin esto, un timestamp truncado se ordenaba como
