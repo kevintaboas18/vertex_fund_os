@@ -63,6 +63,248 @@ except Exception:
 # de que se use para el scoring.
 _WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine")
 
+# ─────────────────────────────────────────────────────────────────────────────
+# EL ALMACÉN — dónde viven de verdad los datos
+#
+# Render en plan `free` no tiene disco persistente: cada redeploy y cada
+# despertar tras dormir borra el sistema de archivos entero. Da igual que sea
+# SQLite o JSON — se borran los dos. El almacén (`vertex_almacen.py`) resuelve
+# eso poniendo los archivos en un clon de la rama `datos` del repositorio, que
+# se restaura al arrancar y se respalda solo.
+#
+# Este bloque decide DÓNDE cae cada cosa. Las tres rutas de abajo se fijan
+# ANTES de que nadie las lea, porque los módulos que las usan las resuelven al
+# importarse.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _dir_almacen() -> str:
+    """La raíz del almacén. `VERTEX_ALMACEN` la manda; si no, junto al repo."""
+    return (os.environ.get("VERTEX_ALMACEN", "").strip()
+            or os.path.join(os.path.dirname(os.path.abspath(__file__)), "almacen"))
+
+
+def _arranca_almacen():
+    """Restaura lo guardado y deja el respaldo periódico corriendo.
+
+    Devuelve el estado para que `/api/almacen` y los logs digan la verdad
+    —incluido el caso de «no está respaldando y por qué»—, que es lo que separa
+    perder datos de saber que los estás perdiendo.
+    """
+    log = logging.getLogger(__name__)
+    try:
+        from vertex_almacen import DIR_SERIES, almacen as _alm
+
+        estado = _alm.restaura()
+
+        # Las series de mercado del motor de Víctor viven DENTRO del almacén.
+        # Es lo que hace que el sub-agente 6 (Confirmación), el IV Rank real y
+        # la auto-calibración sobrevivan a un redeploy: las tres necesitan
+        # DÍAS de historia acumulada, y hasta ahora empezaban de cero cada vez.
+        os.environ.setdefault("WBJ_TITO_DATA",
+                              str(_alm.ruta(DIR_SERIES, "tito")))
+
+        _restaura_privado(_alm)
+        # El paquete cifrado se regenera justo antes de cada respaldo, no
+        # cuando alguien crea una cuenta: así no hay que acordarse de llamarlo
+        # desde los cinco sitios que tocan la base, y nunca se sube una foto
+        # vieja de las cuentas.
+        if _respalda_privado not in _alm.antes_de_sincronizar:
+            _alm.antes_de_sincronizar.append(_respalda_privado)
+        _alm.arranca()
+
+        if estado.get("respalda"):
+            log.info("almacen: %s (rama %s)%s", _alm.raiz, _alm.rama,
+                     " · restaurado" if estado.get("restaurado") else "")
+        else:
+            # No es un detalle de log: sin respaldo, todo lo que se analice hoy
+            # desaparece en el próximo redeploy. Tiene que verse.
+            log.warning("ALMACEN SIN RESPALDO — %s", estado.get("motivo"))
+        return estado
+    except Exception as e:                       # noqa: BLE001
+        log.warning("no se pudo arrancar el almacen: %s", e, exc_info=True)
+        return {"respalda": False, "motivo": f"error al arrancar: {e}"}
+
+
+# ── Lo sensible: viaja CIFRADO o no viaja ────────────────────────────────────
+#
+# Los reportes, la memoria y los índices son texto plano y se leen en GitHub —
+# ese es el punto. Pero tres cosas no pueden ir así:
+#
+#   · los hashes de contraseña de las cuentas,
+#   · el token de Plaid (da lectura a cuentas bancarias reales),
+#   · los perfiles, que llevan el capital de cada persona.
+#
+# Van en UN archivo cifrado con Fernet (`VERTEX_DB_KEY`), la misma clave que ya
+# protege el token de Plaid en la base. Y la regla dura: **sin clave no se sube
+# nada de esto**. Un hash de contraseña en un repo, aunque sea privado, es un
+# objetivo de fuerza bruta offline; preferir «se pierde» a «se filtra» es la
+# decisión correcta, y se dice en voz alta en vez de hacerlo en silencio.
+#
+# `.enc` es lo único que el `.gitignore` del almacén deja salir de `Privado/`.
+
+#: Nombre del paquete cifrado y de su testigo de contenido.
+_PRIVADO_ENC = "privado.enc"
+#: El SHA-256 del contenido EN CLARO. Sin él no habría forma de saber si algo
+#: cambió: Fernet usa un IV aleatorio, así que cifrar dos veces lo mismo da dos
+#: bytes distintos y cada ciclo parecería un cambio. Con el testigo, un día sin
+#: actividad no genera ni un commit.
+_PRIVADO_SHA = "privado.sha256"
+
+
+def _privado_paquete() -> bytes:
+    """Un tar con la base y los perfiles. En memoria: no toca el disco en claro.
+
+    La base se copia con `VACUUM INTO`, no leyendo el archivo: leer un SQLite
+    en caliente puede capturar una escritura a medias y dar una copia corrupta
+    que solo se descubre el día que hace falta restaurarla.
+    """
+    import io
+    import sqlite3
+    import tarfile
+    import tempfile
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                copia = os.path.join(tmp, "vertex.db")
+                con = sqlite3.connect(DB_PATH, timeout=15)
+                try:
+                    con.execute("VACUUM INTO ?", (copia,))
+                finally:
+                    con.close()
+                tar.add(copia, arcname="vertex.db", filter=_tar_estable)
+        except Exception as e:                   # noqa: BLE001
+            logging.getLogger(__name__).warning("no se pudo copiar la base: %s", e)
+        if os.path.isdir(_PERFIL_DIR):
+            for nombre in sorted(os.listdir(_PERFIL_DIR)):
+                if nombre.endswith(".md"):
+                    tar.add(os.path.join(_PERFIL_DIR, nombre),
+                            arcname=f"perfiles/{nombre}", filter=_tar_estable)
+    return buf.getvalue()
+
+
+def _tar_estable(info):
+    """Borra del tar todo lo que cambia sin que cambie el contenido.
+
+    Sin esto, el mismo dato produce bytes distintos en cada empaquetado —el tar
+    guarda la fecha de modificación, el uid y el nombre de usuario— y entonces
+    el testigo SHA nunca coincide: se re-cifraría y se subiría un `privado.enc`
+    nuevo cada 20 segundos, para siempre, aunque nadie hubiera tocado nada.
+    """
+    info.mtime = 0
+    info.uid = info.gid = 0
+    info.uname = info.gname = ""
+    return info
+
+
+def _respalda_privado(alm=None) -> str:
+    """Cifra y guarda lo sensible. Devuelve por qué NO se hizo, o ''."""
+    import hashlib
+
+    from vertex_almacen import DIR_PRIVADO, almacen as _def
+
+    a = alm or _def
+    f = _fernet()
+    if f is None:
+        return ("Sin VERTEX_DB_KEY no se respaldan cuentas ni perfiles: un hash "
+                "de contraseña sin cifrar no se sube a un repositorio.")
+    try:
+        claro = _privado_paquete()
+        sha = hashlib.sha256(claro).hexdigest()
+        if (a.lee(f"{DIR_PRIVADO}/{_PRIVADO_SHA}") or b"").decode("utf-8", "replace").strip() == sha:
+            return ""                            # nada cambió: ni un commit
+        a.guarda(f"{DIR_PRIVADO}/{_PRIVADO_ENC}", f.encrypt(claro))
+        a.guarda(f"{DIR_PRIVADO}/{_PRIVADO_SHA}", sha)
+        return ""
+    except Exception as e:                       # noqa: BLE001
+        return f"no se pudo respaldar lo privado: {e}"
+
+
+def _base_con_datos() -> bool:
+    """¿Hay algo que perder en la base local?
+
+    Se mira si hay FILAS en las dos tablas que no se pueden regenerar: usuarios
+    y reportes. Un esquema recién creado no cuenta como datos — y ese es
+    justamente el estado en el que está la base cuando arranca un contenedor
+    nuevo, porque `init_db()` corre al importar.
+    """
+    import sqlite3
+
+    if not os.path.exists(DB_PATH):
+        return False
+    try:
+        con = sqlite3.connect(DB_PATH, timeout=5)
+        try:
+            for tabla in ("usuarios", "reports"):
+                try:
+                    if con.execute(f"SELECT 1 FROM {tabla} LIMIT 1").fetchone():
+                        return True
+                except sqlite3.Error:
+                    continue                     # la tabla aún no existe
+        finally:
+            con.close()
+    except Exception:                            # noqa: BLE001
+        # Si no se puede ni abrir, se prefiere NO restaurar encima: una base
+        # ilegible puede ser un problema temporal, y pisarla sería definitivo.
+        return True
+    return False
+
+
+def _restaura_privado(alm=None) -> str:
+    """Descifra y devuelve la base y los perfiles a su sitio.
+
+    Solo actúa si la base local está VACÍA de datos. Un contenedor que ya tiene
+    cuentas o reportes vivos no puede ser pisado por una foto del remoto.
+
+    Y «vacía» significa sin filas, no «el archivo no existe»: `init_db()` corre
+    al importar el módulo, así que para cuando esto se ejecuta el archivo SIEMPRE
+    existe, con 110 KB de esquema y cero datos. Comprobar el archivo hacía que la
+    restauración no actuara nunca — las cuentas se recuperaban en el almacén y
+    no llegaban a la base, y el usuario no podía entrar. Es el fallo que este
+    comentario existe para que no vuelva.
+    """
+    import io
+    import sqlite3
+    import tarfile
+
+    from vertex_almacen import DIR_PRIVADO, almacen as _def
+
+    a = alm or _def
+    if _base_con_datos():
+        return "la base local ya tiene datos; no se restaura encima"
+    cifrado = a.lee(f"{DIR_PRIVADO}/{_PRIVADO_ENC}")
+    if not cifrado:
+        return ""                                # primer arranque: no hay nada
+    f = _fernet()
+    if f is None:
+        return ("Hay un respaldo cifrado pero falta VERTEX_DB_KEY: las cuentas "
+                "no se pueden recuperar sin la clave con la que se guardaron.")
+    try:
+        claro = f.decrypt(cifrado)
+        with tarfile.open(fileobj=io.BytesIO(claro), mode="r") as tar:
+            for m in tar.getmembers():
+                if not m.isfile():
+                    continue
+                # El nombre viene del propio paquete, pero se comprueba igual:
+                # un tar con `../` en un nombre escribiría fuera del destino.
+                if m.name == "vertex.db":
+                    destino = DB_PATH
+                elif m.name.startswith("perfiles/") and "/" not in m.name[9:]:
+                    os.makedirs(_PERFIL_DIR, exist_ok=True)
+                    destino = os.path.join(_PERFIL_DIR, m.name[9:])
+                else:
+                    continue
+                datos = tar.extractfile(m)
+                if datos is None:
+                    continue
+                with open(destino, "wb") as fh:
+                    fh.write(datos.read())
+        return ""
+    except Exception as e:                       # noqa: BLE001
+        return f"no se pudo restaurar lo privado: {e}"
+
+
 @asynccontextmanager
 async def _vertex_lifespan(app: FastAPI):
     """Arranque de la aplicación: el planificador y el aviso de claves.
@@ -76,6 +318,19 @@ async def _vertex_lifespan(app: FastAPI):
     arranca: el cuerpo sólo se ejecuta al levantar el servidor, así que el
     nombre ya está resuelto para entonces.
     """
+    # ── EL ALMACÉN VA PRIMERO ────────────────────────────────────────────
+    #
+    # Antes que nada, porque todo lo demás lee de él. En un contenedor nuevo
+    # esto CLONA la rama de datos y recupera reportes, memoria, perfiles,
+    # cuentas y series; sin esto, un redeploy de Render arrancaría con el disco
+    # en blanco y el agente creería que nunca ha analizado nada.
+    #
+    # Es bloqueante a propósito: si `_vertex_startup` arrancara el planificador
+    # antes de que los datos estén, el primer ciclo escribiría sobre un
+    # directorio vacío y el `push` siguiente BORRARÍA lo que había en el
+    # remoto. La restauración tiene que terminar antes de que nadie escriba.
+    _arranca_almacen()
+
     _vertex_startup()
     # El índice de tickers se cargaba perezosamente, con la PRIMERA búsqueda.
     # Tarda 1,8 s, así que las primeras teclas del usuario caían a FMP: 750-1000
@@ -89,6 +344,18 @@ async def _vertex_lifespan(app: FastAPI):
         logging.getLogger(__name__).warning(
             "no se pudo precalentar el indice de tickers", exc_info=True)
     yield
+    # ── Y AL APAGAR, EL ÚLTIMO RESPALDO ──────────────────────────────────
+    #
+    # Render manda SIGTERM y espera unos segundos antes de matar el proceso.
+    # Esta es la ventana para salvar lo escrito desde el último ciclo. Sin
+    # ella, cada redeploy perdería hasta un ciclo entero de trabajo.
+    try:
+        from vertex_almacen import almacen as _alm
+
+        _alm.cierra()
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "no se pudo cerrar el almacen", exc_info=True)
 
 
 app = FastAPI(title="Vertex Fund OS Core", lifespan=_vertex_lifespan)
@@ -977,6 +1244,35 @@ def save_report_payload(report_id, payload):
         conn.close()
     except Exception as e:
         print(f"[DB] payload save error: {e}")
+    # Y AL ARCHIVO, que es lo que de verdad dura.
+    #
+    # La base es ahora CACHÉ: sirve para ordenar y filtrar rápido, y se borra
+    # con cada redeploy de Render. El archivo es la fuente de verdad, va al
+    # almacén y sobrevive. Por eso esto va fuera del `try` de arriba: que la
+    # base falle no puede impedir que el reporte se guarde de verdad.
+    #
+    # Ojo con la diferencia: al archivo va el payload ENTERO, sin el tope de
+    # arriba. Ese tope era un límite de la COLUMNA de SQLite, no del dato.
+    _archiva_acciones(payload)
+
+
+def _archiva_acciones(payload):
+    """El reporte del agente de ACCIONES → `Reportes/<TICKER>/<fecha>/`.
+
+    Best-effort y silencioso salvo en el log: un fallo del almacén no puede
+    tumbar un análisis que el usuario ya está viendo en pantalla. Pero se
+    registra, porque un archivo que no se escribe es un reporte que se pierde.
+    """
+    try:
+        import vertex_archivo as _ar
+
+        tk = (payload or {}).get("ticker") or (payload or {}).get("symbol")
+        if not tk:
+            return
+        _ar.guarda_reporte_acciones(tk, payload)
+    except Exception as e:                       # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "no se pudo archivar el reporte de acciones: %s", e)
 
 def get_prior_report(ticker, exclude_id=None):
     """Most recent PRIOR report for a ticker (for the agent's long-term memory)."""
@@ -3719,6 +4015,9 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     # ruta que come el panel. Servirlas aquí ahorra dos rondas de red más.
     out["company"] = _tito_company(tk, r.spot, _meta_cadena["empresa"])
     out.update(_tito_chain_json(chain or [], _meta_cadena["truncated"]))
+    # Al archivo, en SU carpeta. Es la ruta que come el panel, así que es la
+    # que ve el scorecard completo — con ficha de empresa, cadena y todo.
+    _archiva_opciones(out)
     # `_json_safe` = su `JSON.stringify`: NaN/Infinity → null. `_tito_json` ya
     # pasó por ahí, pero estos campos se añaden después.
     return _json_safe(out)
@@ -5552,6 +5851,69 @@ def tito_news(ticker: str, call_pct: float | None = None, name: str | None = Non
         return {"ok": False, "error": f"No se pudieron leer las noticias: {e}"}
 
 
+@app.get("/api/almacen")
+def almacen_estado():
+    """Dónde viven los datos y si de verdad se están respaldando.
+
+    Existe porque el modo degradado es SILENCIOSO: sin `VERTEX_GIT_TOKEN` todo
+    funciona igual, los reportes se ven, y nada avisa de que en el próximo
+    redeploy desaparecen. Esta ruta y la tira del panel son lo que convierte
+    «se perdió todo» en «llevas 3 días sin respaldo y lo sabías».
+    """
+    from vertex_almacen import almacen as _alm
+
+    e = _alm.estado()
+    e["privado"] = {
+        # Sin decir la clave ni nada de su contenido: solo si el candado existe.
+        "cifrado_disponible": _fernet() is not None,
+        "hay_respaldo": bool(_alm.lee(f"Privado/{_PRIVADO_ENC}")),
+    }
+    if not e["privado"]["cifrado_disponible"]:
+        e["privado"]["motivo"] = (
+            "Sin VERTEX_DB_KEY no se respaldan cuentas ni perfiles. Un hash de "
+            "contraseña sin cifrar no se sube a un repositorio, así que se "
+            "prefiere perderlos a filtrarlos.")
+    return e
+
+
+@app.post("/api/almacen/sincronizar")
+def almacen_sincronizar():
+    """Fuerza un respaldo AHORA, sin esperar al ciclo.
+
+    Para el día del despliegue y para cuando acabas un análisis que no quieres
+    arriesgar. No hace nada distinto del ciclo automático: solo lo adelanta.
+    """
+    from vertex_almacen import almacen as _alm
+
+    _alm.sincroniza(incluir_series=True, mensaje="respaldo a peticion")
+    return _alm.estado()
+
+
+@app.get("/api/archivo/{agente}")
+def archivo_lista(agente: str, ticker: str = ""):
+    """Los análisis guardados de un agente, LEÍDOS DEL DIRECTORIO.
+
+    No de la base: es la comprobación en vivo de que los archivos son la fuente
+    de verdad. Si SQLite desapareciera ahora mismo, esta ruta seguiría
+    contestando lo mismo.
+    """
+    import vertex_archivo as _ar
+
+    try:
+        filas = _ar.lista_reportes(agente, ticker)
+    except ValueError:
+        # El texto se escribe AQUÍ, no se reenvía el de la excepción. La regla
+        # del proyecto es que ninguna excepción cruda llega al navegador: hoy
+        # este `ValueError` trae un mensaje inofensivo, pero mañana podría
+        # traer una ruta del disco, y para entonces nadie se acordaría.
+        raise HTTPException(
+            status_code=400,
+            detail=(f"Agente desconocido. Los que hay son "
+                    f"'{_ar.ACCIONES}' (Reportes) y '{_ar.OPCIONES}' (Proyecciones)."))
+    return {"ok": True, "agente": agente, "carpeta": _ar.carpeta_de(agente),
+            "n": len(filas), "reportes": filas}
+
+
 @app.get("/api/tito-logo")
 def tito_logo(ticker: str):
     """Su `/api/logo` — el logo de la empresa, servido por proxy.
@@ -5796,6 +6158,57 @@ def _tito_remember(ticker, result, now):
             ))
     except Exception:
         pass  # la memoria es acumulativa: perder un día no rompe la corrida
+
+
+#: Lo que NO se archiva del scorecard, con su peso medido.
+#:
+#: Son datos DERIVADOS: se vuelven a bajar de Massive cuando hagan falta, y no
+#: participan en ninguna decisión que el archivo tenga que poder justificar
+#: después. Archivarlos costaría ~1,8 GB al año con 20 tickers —la cadena sola
+#: son 372 KB por reporte, 1.500 filas a 254 bytes— y el repositorio dejaría de
+#: caber en GitHub en meses.
+#:
+#: Lo que SÍ se queda es todo lo que sostiene el veredicto: los 6 scores con su
+#: desglose, los escenarios, los niveles, los muros del GEX, las filas de
+#: convicción, las advertencias y `chain_meta`/`top_contracts` —que dicen sobre
+#: cuántos contratos se calculó y cuáles pesaban más—. La regla del proyecto es
+#: que ningún número viaje sin su evidencia; ninguno de estos cinco campos es
+#: evidencia de nada, son la materia prima.
+_OPCIONES_NO_SE_ARCHIVA = ("chain", "history", "gex_heatmap", "levels_for_chart",
+                           "chart_geometry")
+
+
+def _sin_derivado(out):
+    """El scorecard sin la materia prima, listo para archivar."""
+    recortado = {k: v for k, v in out.items() if k not in _OPCIONES_NO_SE_ARCHIVA}
+    # Se declara lo que falta, en vez de que el archivo mienta por omisión.
+    recortado["_no_archivado"] = list(_OPCIONES_NO_SE_ARCHIVA)
+    return recortado
+
+
+def _archiva_opciones(out):
+    """El scorecard del agente de OPCIONES → `Proyecciones/<TICKER>/<fecha>/`.
+
+    Carpeta SEPARADA de la de acciones a propósito. Son dos productos
+    distintos: aquí un score de flujo 0-100 con escenarios a 10/20/30 días;
+    allí una tesis a 1-3 años con valuación y gates. Compartir carpeta
+    obligaría a abrir el archivo para saber de cuál es.
+
+    Se archiva **una vez al día por ticker**: el panel se auto-refresca cada
+    minuto, y guardar cada refresco llenaría el repositorio de fotos casi
+    idénticas del mismo día. La última del día pisa a la anterior, que es la
+    que vale — el `prediccion.json` del motor es lo que congela el histórico
+    intradía, y ese ya se guarda aparte.
+    """
+    try:
+        import vertex_archivo as _ar
+
+        if not (out or {}).get("ok") or not out.get("ticker"):
+            return                               # un error no es un reporte
+        _ar.guarda_reporte_opciones(out["ticker"], _sin_derivado(out))
+    except Exception as e:                       # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "no se pudo archivar el scorecard de opciones: %s", e)
 
 
 def _r(x, n=2):

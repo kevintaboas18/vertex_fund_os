@@ -43,3 +43,8 @@ Thumbs.db
 # repo: son datos de mercado acumulados (cadena, IV, trades, diario), no código.
 data/tito/
 *.json.lock
+
+# El ALMACÉN es un clon de la rama `datos`. No puede versionarse dentro de
+# `main`: sería un repo dentro de otro, y `main` acabaría con los datos que la
+# rama `datos` existe para separar.
+almacen/

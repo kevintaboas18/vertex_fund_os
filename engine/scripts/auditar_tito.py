@@ -510,9 +510,35 @@ with tempfile.TemporaryDirectory() as td:
     chk(con.scores["validation"] is not None, "sub-agente 6 se enciende con flows acumulados")
     chk(con.iv_context.rank["source"] == "iv-history", "IV Rank pasa de proxy a historia real")
     chk(con.predictions[20].calibration["applied"], "calibración aplicada con ≥5 vencidas")
-chk("WBJ_TITO_DATA" in RENDER and "/var/data/tito" in RENDER, "WBJ_TITO_DATA declarado en Render")
-chk("BORRA en cada reinicio" in RENDER.replace("\n","").replace("#","").replace("      "," "),
-    "el blueprint avisa de que el plan free borra la memoria")
+# Estos dos checks medían el mundo ANTERIOR al almacén: que el blueprint
+# declarara `WBJ_TITO_DATA=/var/data/tito` y que avisara de que el plan free
+# borra la memoria. Las dos cosas dejaron de ser ciertas a la vez.
+#
+# `/var/data` en plan free NO era un disco montado —se creaba como carpeta
+# normal en el sistema efímero—, así que la variable prometía persistencia que
+# no existía. Y el aviso ya no aplica: las series viven dentro del almacén, que
+# se restaura de la rama `datos` en cada arranque.
+#
+# Lo que se mide ahora es el invariante nuevo: que el blueprint pida el token
+# sin el cual no hay respaldo, y que diga la consecuencia de no ponerlo.
+# En minúsculas: lo que se mide es que el aviso ESTÉ, no cómo se escribió.
+_R = RENDER.replace("\n", " ").replace("#", " ").lower()
+chk("VERTEX_GIT_TOKEN" in RENDER,
+    "el blueprint pide VERTEX_GIT_TOKEN, sin el cual no se respalda nada")
+chk("rama `datos`" in RENDER or "rama datos" in _R,
+    "…y explica que los datos van a la rama `datos`, no a main")
+chk("no respalda" in _R,
+    "…y dice la CONSECUENCIA de no ponerlo, no solo que hace falta")
+chk("VERTEX_DB_KEY" in RENDER and "no se respaldan" in _R,
+    "…y que sin VERTEX_DB_KEY las cuentas no se respaldan (cifrar o no subir)")
+# La variable vieja no puede volver activa: definirla saca las series del
+# almacén y las devuelve al disco efímero, apagando el sub-agente 6, el IV Rank
+# real y la calibración sin que nada avise.
+_activas = [l for l in RENDER.splitlines()
+            if l.strip().startswith("- key:") and "WBJ_TITO_DATA" in l]
+chk(not _activas,
+    "WBJ_TITO_DATA NO está activa: las series viven dentro del almacén"
+    + (f" · {_activas}" if _activas else ""))
 
 # ── store.ts: la forma del almacén de trades es la suya, no una lista pelada ──
 from wbj.tito import stores as _ST

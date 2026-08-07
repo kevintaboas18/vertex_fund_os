@@ -4259,3 +4259,146 @@ Cobertura contra su repo (`53d5a20`), ya completa:
 Las **cuatro divergencias declaradas** siguen siendo las mismas y no ha
 aparecido ninguna nueva: el perfil del inversionista en el servidor, el sizing
 en el servidor, la Wheel sin bid, y el recorte de la clave de Massive.
+
+---
+
+## 41.25 Los datos dejan de vivir en un disco que se borra
+
+Pregunta: *«En vez de usar la base de datos o el disco de Render, ¿no es mejor
+hacerlo dentro de los archivos? ¿Como Víctor lo tiene? ¿Así no estamos limitados
+a Render?»*
+
+Dos cosas había que aclarar antes de responder, y las dos cambian la pregunta.
+
+### Víctor no despliega nada
+
+Su repo no tiene `vercel.json`, ni `render.yaml`, ni `Dockerfile`, ni workflows.
+Sus scripts son `next dev` y `next start`. Y su `.gitignore` dice:
+
+```
+# --- historial local del agente (datos de mercado acumulados) ---
+web/data/
+data/
+```
+
+Sus archivos JSON **nunca se suben**. Viven solo en su computadora. Los archivos
+le funcionan porque **corre el agente en su máquina** — no hay contenedor
+efímero que los borre. Copiar eso al pie de la letra habría significado matar el
+multiusuario.
+
+### Archivos vs base de datos NO era lo que ataba a Render
+
+Un `.json` y un `.db` escriben en el **mismo sistema de archivos** del
+contenedor. En plan `free` ese sistema es efímero: cada redeploy y cada
+despertar tras dormir lo borra entero. El problema nunca fue el FORMATO; era
+DÓNDE vive el archivo.
+
+### Lo que se hizo: el almacén
+
+`vertex_almacen.py`. Un **clon de la rama `datos`** de este mismo repositorio.
+Todo lo que el agente guarda cae ahí como archivo normal; un hilo de fondo hace
+`commit` y `push` cada 20 s; al arrancar, un contenedor nuevo clona esa rama y
+recupera todo.
+
+La rama es **huérfana**: no comparte historia con `main`, así que los cientos de
+commits de datos ni ensucian el historial del código ni disparan un despliegue
+nuevo cada vez que analizas un ticker.
+
+Resultado: nada se pierde aunque Render borre el disco o borres el servicio
+entero; los datos son archivos que se abren en GitHub; y mudarse a Fly, a
+Railway o a tu casa es copiar una variable de entorno.
+
+### Cada agente en SU carpeta
+
+Como se pidió — «cada uno guarda reportes diferente y en lugar diferente»:
+
+| | Agente de ACCIONES | Agente de OPCIONES |
+|---|---|---|
+| Carpeta | `Reportes/<TICKER>/<fecha>/` | `Proyecciones/<TICKER>/<fecha>/` |
+| Archivo | `reporte.json` | `scorecard.json` |
+| Además | `prediccion.json` · `RESUMEN.md` | `RESUMEN.md` |
+| Índice | `Reportes/INDICE.md` | `Proyecciones/INDICE.md` |
+
+`Reportes/` no se movió: es donde `CLAUDE.md` la define y de donde come
+`wbj track`. El de opciones estrena `Proyecciones/`. El mismo ticker analizado
+el mismo día por los dos agentes son dos archivos distintos que no se pisan.
+
+Cada carpeta lleva un `RESUMEN.md` legible sin abrir el JSON —con los 6 scores
+y sus pesos, los escenarios y las advertencias— y un `INDICE.md` que se
+**reconstruye entero** en cada guardado, para que no pueda citar reportes que ya
+no están.
+
+### Qué sube, y en qué forma
+
+| | Dónde | Cómo |
+|---|---|---|
+| Reportes de los dos agentes | `Reportes/`, `Proyecciones/` | texto plano |
+| Memoria y tesis | `Memoria/` | texto plano |
+| Series del motor de Víctor | `Series/tito/` | texto plano, ritmo lento |
+| Cuentas, contraseñas, Plaid, perfiles | `Privado/privado.enc` | **cifrado** |
+| Claves de API (`API/`) | — | **nunca** |
+
+Lo cifrado usa Fernet con `VERTEX_DB_KEY`. Y la regla dura: **sin esa clave no
+se sube**. Un hash de contraseña en un repositorio, aunque sea privado, es un
+objetivo de fuerza bruta offline; se prefiere perderlo a filtrarlo, y se dice en
+voz alta en `/api/almacen` en vez de hacerlo en silencio.
+
+Las series van a **otro ritmo** (6 h en vez de 20 s) porque cambian en cada
+consulta y pesan: el archivo de trades de un ticker llega a 1,7 MB, y
+reescribirlo 20 veces al día metería ~34 MB diarios de objetos en el repo.
+
+Del scorecard de opciones **no** se archivan `chain`, `history`, `gex_heatmap`,
+`levels_for_chart` ni `chart_geometry`: son 372 KB por reporte —1.500 filas a
+254 bytes— o ~1,8 GB al año con 20 tickers. Son materia prima que Massive vuelve
+a servir, no evidencia del veredicto. Lo que falta se **declara** en
+`_no_archivado`; el archivo no miente por omisión.
+
+### Lo que apareció al construirlo
+
+1. **`WBJ_TITO_DATA=/var/data/tito` en `render.yaml` era una promesa falsa.**
+   El bloque `disk:` estaba comentado, así que en plan free `/var/data` no era
+   un disco montado: se creaba como carpeta normal y se borraba igual. La
+   variable sugería persistencia donde no la había.
+2. **El diagnóstico salía al revés.** `restaura()` devolvía un estado sin el
+   campo `respalda`, así que el arranque leía `None` y avisaba de «ALMACÉN SIN
+   RESPALDO» justo cuando el respaldo funcionaba. Un diagnóstico invertido es
+   peor que no tenerlo.
+3. **La restauración no actuaba nunca.** La guarda era «¿existe el archivo de la
+   base?», pero `init_db()` corre **al importar el módulo**, así que para
+   entonces el archivo siempre existe con 110 KB de esquema vacío. Las cuentas
+   se recuperaban en el almacén y no llegaban a la base — el usuario no podía
+   entrar. Ahora se comprueba si hay **filas**.
+4. **`vertex_archivo` congelaba el almacén al importar.** Un proceso que
+   reemplazara la instancia seguiría escribiendo en el directorio viejo, que ya
+   no se respalda. Se resuelve en cada llamada.
+5. **El paquete cifrado se re-subía cada 20 s para siempre.** El tar guarda
+   fecha de modificación y uid, así que el mismo dato daba bytes distintos y el
+   testigo SHA nunca coincidía. Se normalizan los metadatos.
+6. **Un ticker largo se recortaba a 12 caracteres.** Dos símbolos distintos que
+   empezaran igual acabarían en la misma carpeta, mezclando dos historiales sin
+   que nada avisara. Ahora se rechaza en vez de recortarse.
+
+### Cómo se verifica
+
+- **`test_almacen.py`** — 48 tests. El que importa es `TestUnContenedorNuevo`:
+  se borra el disco entero, como hace Render, y se comprueba que vuelven los
+  reportes de los dos agentes, las cuentas —**con la contraseña todavía
+  sirviendo**— y las series del motor.
+- Dos workers empujando a la vez: ninguno pierde lo suyo (rebase + reintento).
+- El token no aparece ni en el estado público ni en un push fallido.
+- Solo los `.enc` salen de `Privado/`; un archivo en claro ahí se queda en el
+  disco efímero.
+- Sin `VERTEX_GIT_TOKEN` todo sigue funcionando y **se dice** — con la
+  consecuencia escrita, no solo el hecho.
+
+### Lo que hay que poner en Render
+
+| Variable | Para qué |
+|---|---|
+| `VERTEX_GIT_TOKEN` | Token de GitHub con `Contents: Read and write`. **Sin él no hay respaldo.** |
+| `VERTEX_DB_KEY` | Cifra cuentas y perfiles. Sin ella esos datos no se suben. Guárdala aparte: si la pierdes, el respaldo de las cuentas es irrecuperable — eso significa que está bien cifrado. |
+
+### Estado
+
+**2.850 tests del motor · 503 de la capa web · 303 checks de auditoría · 94 del
+smoke de componentes · 13 diferenciales a cero divergencias · 0 fallos.**

@@ -30,8 +30,13 @@ vertex_fund_os/
 ├── vertex_api.py              ← API web (FastAPI). Llama al engine; el LLM solo EXPLICA
 ├── vertex_fund_os_platform.html  ← interfaz de una sola página
 ├── tests_vertex/              ← tests de la capa web
+├── vertex_almacen.py          ← EL ALMACÉN: los datos viven en archivos y se
+│                                 respaldan solos a la rama `datos` del repo
+├── vertex_archivo.py          ← los reportes de los DOS agentes, cada uno en su carpeta
 ├── Entradas/                  ← inputs humanos por ticker (TAM, juicios, overrides de CIK)
-├── Reportes/                  ← salida por ticker/fecha + `prediccion.json` (track record)
+├── Reportes/                  ← agente de ACCIONES: por ticker/fecha, `reporte.json`
+│                                 + `prediccion.json` (track record) + `RESUMEN.md`
+├── Proyecciones/              ← agente de OPCIONES: por ticker/fecha, `scorecard.json`
 ├── Memoria/                   ← memoria entre sesiones: tesis, errores, calibración
 ├── Perfil Inversionista/      ← perfil de Kevin (leer SIEMPRE antes de recomendar)
 ├── Instrucciones/             ← instrucciones originales del agente (.pages)
@@ -101,6 +106,41 @@ Para datos de mercado usa: **FMP (Financial Modeling Prep)**, **FinnHub**, **FRE
 - **No** promete retornos ni convierte un nivel técnico o de valuación en una instrucción automática de compra/venta.
 - **Nunca** ejecutes trades ni movimientos de dinero: toda ejecución la hace Victor manualmente.
 - **Nunca** leas, imprimas ni commitees el contenido de `API/`.
+
+## Dónde viven los datos (y por qué no se pierden)
+
+Render en plan `free` **no tiene disco persistente**: cada redeploy y cada
+despertar tras dormir borra el sistema de archivos. Da igual el formato — un
+`.json` se borra igual que un `.db`.
+
+Por eso todo lo que hay que conservar vive en **el almacén** (`vertex_almacen.py`):
+un clon de la rama **`datos`** de este mismo repositorio, que se restaura al
+arrancar y se respalda solo cada 20 s. La rama es huérfana, así que los commits
+de datos ni ensucian el historial de `main` ni disparan un despliegue.
+
+**Cada agente guarda en SU carpeta**, que es lo que pidió Kevin:
+
+| | Agente de ACCIONES | Agente de OPCIONES |
+|---|---|---|
+| Carpeta | `Reportes/<TICKER>/<fecha>/` | `Proyecciones/<TICKER>/<fecha>/` |
+| Archivo | `reporte.json` | `scorecard.json` |
+| Además | `prediccion.json`, `RESUMEN.md` | `RESUMEN.md` |
+| Índice | `Reportes/INDICE.md` | `Proyecciones/INDICE.md` |
+
+También sobreviven `Memoria/`, los perfiles, las cuentas y las series del motor
+de Víctor (`Series/tito`, que es lo que enciende el sub-agente 6, el IV Rank
+real y la auto-calibración).
+
+Reglas que no se negocian:
+
+- **La base SQLite es CACHÉ.** Sirve para ordenar y filtrar rápido; si se borra,
+  se reconstruye. La fuente de verdad son los archivos.
+- **Lo sensible viaja cifrado o no viaja.** Cuentas, contraseñas, token de Plaid
+  y perfiles van en `Privado/privado.enc` (Fernet, `VERTEX_DB_KEY`). Sin esa
+  clave **no se suben**: se prefiere perderlos a filtrarlos.
+- **`API/` nunca sube.** Ni cifrado.
+- **Sin `VERTEX_GIT_TOKEN` no hay respaldo**, y se dice en `/api/almacen` y en la
+  barra superior. Nunca en silencio.
 
 ## Memoria del agente (protocolo obligatorio)
 

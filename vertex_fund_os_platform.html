@@ -393,6 +393,11 @@
         </div>
     </div>
     <div class="flex items-center gap-2 md:gap-3 shrink-0">
+        <!-- El estado del ALMACÉN. Solo aparece cuando hay algo que decir: si
+             el respaldo funciona no molesta, y si NO funciona no se puede
+             callar — sin respaldo, todo lo que analices hoy desaparece en el
+             próximo redeploy de Render y nada más te lo diría. -->
+        <button id="almacenPill" onclick="almacenAbre()" class="hidden text-xs px-3 py-1.5 rounded-full items-center gap-2 transition"></button>
         <div class="relative">
             <button id="dataHealthPill" onclick="toggleDataHealth(event)"
                 class="text-xs bg-panel border border-panel px-3 py-1.5 rounded-full flex items-center gap-2 hover:border-gray-600 transition">
@@ -6356,6 +6361,8 @@ async function authLogin(user, opciones) {
     // abrirlo por primera vez.
     if (typeof vxPintaMenu === 'function') vxPintaMenu();
     startNotifPolling();   // #4 — campana + escaneo de alertas de la watchlist
+    almacenPoll();         // ¿se está respaldando? Se pregunta al entrar…
+    setInterval(almacenPoll, 120000);   // …y cada 2 min, por si deja de hacerlo
 
     // El archivo local se limpia SOLO al cambiar de persona.
     //
@@ -6542,6 +6549,64 @@ document.addEventListener('click', (e) => {
     const pop = document.getElementById('dataHealthPop'), pill = document.getElementById('dataHealthPill');
     if (pop && !pop.classList.contains('hidden') && !pop.contains(e.target) && pill && !pill.contains(e.target)) pop.classList.add('hidden');
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EL ALMACÉN — ¿de verdad se está guardando esto?
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// Los datos viven en archivos dentro de un clon de la rama `datos` del repo, y
+// un hilo del servidor los sube solo. El modo degradado —sin token— es
+// SILENCIOSO: todo se ve igual y nada avisa de que en el próximo redeploy
+// desaparece. Esta píldora es lo que convierte «se perdió todo» en «llevas
+// tres días sin respaldo y lo sabías».
+let almacenUltimo = null;
+
+async function almacenPoll() {
+    let d;
+    try { d = await (await fetch(`${API_BASE}/api/almacen`)).json(); }
+    catch (e) { return; }
+    almacenUltimo = d;
+    const pill = document.getElementById('almacenPill');
+    if (!pill) return;
+    const roto = !d.respalda || d.ultimo_error;
+    if (!roto) {
+        // Todo bien: no se pinta nada. Una insignia verde permanente se vuelve
+        // invisible en una semana, y entonces la roja tampoco se ve.
+        pill.className = 'hidden text-xs px-3 py-1.5 rounded-full items-center gap-2 transition';
+        return;
+    }
+    pill.className = 'flex text-xs px-3 py-1.5 rounded-full items-center gap-2 transition '
+        + (d.respalda ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
+                      : 'bg-red-500/10 border border-red-500/30 text-red-300');
+    pill.innerHTML = `<span class="w-2 h-2 rounded-full ${d.respalda ? 'bg-amber-400' : 'bg-red-500 animate-pulse'}"></span>`
+        + `<span class="font-bold">${d.respalda ? 'Respaldo con errores' : 'Sin respaldo'}</span>`;
+    pill.title = d.motivo || d.ultimo_error || '';
+}
+
+function almacenAbre() {
+    const d = almacenUltimo;
+    if (!d) return;
+    const a = d.archivos || {};
+    const lineas = [
+        d.respalda ? 'El respaldo está configurado.' : '⚠ NO se está respaldando nada.',
+        d.motivo || '',
+        d.ultimo_error ? `Último error: ${d.ultimo_error}` : '',
+        '',
+        `Carpeta:  ${d.raiz}`,
+        `Rama:     ${d.rama}`,
+        `Último respaldo: ${d.ultimo_push || 'todavía ninguno'}`,
+        `Sin subir: ${d.pendientes} archivo(s)`,
+        `Peso:     ${d.peso_mb} MB`,
+        '',
+        `Reportes de acciones:  ${a.acciones || 0}`,
+        `Reportes de opciones:  ${a.opciones || 0}`,
+        `Memoria:               ${a.memoria || 0}`,
+        `Cuentas y perfiles:    ${(d.privado || {}).hay_respaldo ? 'respaldados (cifrados)' : 'SIN respaldo'}`,
+        (d.privado || {}).motivo || '',
+        d.aviso_peso || '',
+    ].filter(Boolean);
+    alert(lineas.join(String.fromCharCode(10)));
+}
 
 // ── #4 · NOTIFICACIONES (campana con historial + toast abajo-derecha + polling) ──
 const NOTIF_KEY = 'vertex_notifs_v1';        // historial persistente (sobrevive refresh)
