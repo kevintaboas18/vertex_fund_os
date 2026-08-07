@@ -392,9 +392,59 @@ _HEADER = [
 ]
 
 
+#: La forma INTERNA de las llaves que no llevan un escalar, para NOMBRARLA en
+#: los comentarios del archivo.
+#:
+#: Va en un comentario y no en el valor a proposito. Emitir
+#: `"sam_inputs": {"geography_share": null, ...}` documentaba la forma pero
+#: rompia el contrato que dos tests ya cuidaban: un esqueleto tiene que
+#: comportarse igual que no tener archivo. Medido -- ese diccionario sobrevive
+#: a `_manual_overlay` y pasa el `all(k in sam_inputs ...)` de market.py, que
+#: entonces llamaria a `sam(tam, None, None, None)`. El `null` pelado no
+#: prometia nada; un diccionario de nulos promete y encima entra.
+#:
+#: `sam_inputs: null` no dice nada. El propio `market.py` lo admite en un
+#: comentario -- "the inner keys were documented nowhere, so getting them wrong
+#: was the default outcome" -- y el esqueleto seguia emitiendo el null pelado,
+#: asi que el unico modo de acertar era leer el codigo fuente. Se verifico:
+#: escribir `eligible_geography_share` en vez de `geography_share` deja
+#: MKT-SAM-002 en MISSING sin que nada avise mas que el aviso de la metrica.
+#:
+#: Los nombres NO se teclean aqui: salen de las constantes del especialista que
+#: los consume (ver `test_esqueleto_documenta_la_forma.py`), asi que renombrar
+#: alli rompe el test en vez de dejar el esqueleto mintiendo.
+def _formas_internas() -> dict[str, object]:
+    from wbj.specialists import market as _mk
+
+    return {
+        # MKT-SAM-002: TAM * cada factor de elegibilidad, todos 0-1.
+        "sam_inputs": {k: None for k in _mk._SAM_KEYS_PUBLICAS},
+        # MKT-SOM-003: SAM * participacion objetivo defendible, 0-1.
+        "som_inputs": {"target_share": None},
+        # MKT-REVBR-011 (upward/total), MKT-REVMAG-012 (los dos consensos),
+        # MKT-DISP-013 (la lista individual) y MKT-SURP-014 (lo real contra
+        # el consenso congelado ANTES de publicar).
+        "estimates": {
+            "upward": None, "total": None, "active_estimates": None,
+            "current_consensus": None, "prior_consensus": None,
+            "individual_estimates": [],
+            "actual": None, "pre_release_consensus": None,
+            "snapshot_before_release": None,
+        },
+        # MKT-SCEN-025: pares [probabilidad, resultado_usd] que sumen 1.
+        "scenarios": [],
+        # MKT-CAT-019/MKT-TDEC-020. El motor ya los saca de los 8-K; lo que
+        # se escriba aqui GANA, porque un analista sabe cual importa.
+        "catalysts": [],
+        # MKT-HHI-008: la participacion de cada competidor, en decimales.
+        "competitor_shares": [],
+    }
+
+
 def render_skeleton(ticker: str) -> str:
     """The skeleton file's text for one ticker, values all `null`."""
     out: dict[str, object] = {}
+    _formas = _formas_internas()
     n = 0
 
     def note(line: str) -> None:
@@ -425,6 +475,9 @@ def render_skeleton(ticker: str) -> str:
                 alias = next((v for v, k in VICTOR_FIELD_ALIASES.items() if k == key), None)
                 note(f"`{key}` -> {where}"
                      + (f" -- tambien aceptado como `{alias}`" if alias else ""))
+            forma = _formas.get(key)
+            if forma is not None:
+                note(f"   forma: {key} = {forma}")
             out[key] = None
 
     if _REST:
@@ -433,6 +486,9 @@ def render_skeleton(ticker: str) -> str:
         note("Su forma y un ejemplo estan en Entradas/EJEMPLO.NVDA.json.")
         note("Todas opcionales: en null, su metrica queda MISSING y se dice.")
         for key in _REST:
+            forma = _formas.get(key)
+            if forma is not None:
+                note(f"   forma: {key} = {forma}")
             out[key] = None
 
     note("")

@@ -161,6 +161,13 @@ _VERSION = "2.0.0"
 AGENT_ID = "market_analysis"
 MAX_POINTS = 20.0
 
+#: Las llaves internas de `sam_inputs`. Publicas a proposito: el esqueleto de
+#: `Entradas/` las lee de aqui en vez de teclearlas, porque el comentario de
+#: mas abajo ya reconocia que "the inner keys were documented nowhere, so
+#: getting them wrong was the default outcome" -- y un esqueleto que las
+#: teclea por su cuenta se desincroniza en el primer renombrado.
+_SAM_KEYS_PUBLICAS = ("geography_share", "product_share", "reachable_share")
+
 DIM_TAM = "tam_and_industry_tailwind"
 DIM_REVISIONS = "earnings_and_revenue_revisions"
 DIM_CATALYSTS = "product_and_business_catalysts"
@@ -798,7 +805,7 @@ def _compute_all(
     # were documented nowhere, so getting them wrong was the default outcome.
     # A wrong shape now leaves the metric MISSING and names what it needed.
     sam_inputs = overlay.get("sam_inputs")
-    _SAM_KEYS = ("geography_share", "product_share", "reachable_share")
+    _SAM_KEYS = _SAM_KEYS_PUBLICAS
     if sam_inputs and v_tam.is_valid and all(k in sam_inputs for k in _SAM_KEYS):
         v_sam = sam(v_tam.value, *(sam_inputs[k] for k in _SAM_KEYS))
     elif sam_inputs and v_tam.is_valid:
