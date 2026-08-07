@@ -45,6 +45,11 @@ logger = logging.getLogger(__name__)
 
 VIGENCIA_DIAS = 90
 
+#: Cuántas veces se pregunta antes de concluir que nadie publica ese mercado.
+#: Medido: "Consumer Electronics" acertó en el 2º de 4 intentos y falló en los
+#: otros 3. Un solo `null` no es prueba de que el mercado no exista.
+INTENTOS = 4
+
 # Asociaciones de industria: miden su propio mercado, publican mundial y gratis,
 # y por construcción cubren UNA capa de la cadena. Es el tier más alto que un
 # mercado privado puede tener — por encima sólo hay estadística de gobierno, que
@@ -242,28 +247,91 @@ def _preguntar_openai(settings: Any, prompt: str) -> tuple[str, str | None]:
         return "", f"openai: {type(e).__name__} {str(e)[:120]}"
 
 
-def _investigar(settings: Any, industria: str, ticker: str) -> tuple[dict | None, list[str]]:
-    """El primer JSON legible, y TODOS los fallos por el camino.
+def _es_falta_de_cuota(error: str) -> bool:
+    """¿El proveedor dijo "no" por cuota, o por no encontrar nada?
 
-    Un TAM ausente por cuota agotada y uno ausente porque ninguna asociación
-    publica ese mercado son problemas distintos, y el reporte tiene que poder
-    distinguirlos.
+    Son fallos distintos y sólo uno mejora esperando. Reintentar una cuota
+    agotada gasta peticiones contra el contador que acaba de rechazarte.
+    """
+    e = (error or "").lower()
+    return any(x in e for x in (
+        "429", "resource_exhausted", "rate limit", "ratelimit", "quota",
+        "no credits", "insufficient_quota", "too many requests"))
+
+
+def _investigar(settings: Any, industria: str, ticker: str,
+                intentos: int = INTENTOS) -> tuple[dict | None, list[str]]:
+    """La MEJOR respuesta de varios intentos, y TODOS los fallos por el camino.
+
+    Antes preguntaba una vez a cada proveedor y se quedaba con la primera
+    respuesta legible. Dos problemas medidos, los dos con evidencia:
+
+    **Un `null` no era prueba.** El modelo lleva búsqueda web y no es
+    determinista: preguntando cuatro veces por "Consumer Electronics" —una
+    industria que llevaba semanas marcada "ninguna asociación publica este
+    mercado"— el segundo intento devolvió $783.000M de Gartner y validó. Los
+    otros tres fueron `null`. Con un solo intento, y con OpenAI sin créditos,
+    esa industria se declaraba imposible por una sola tirada de dados.
+
+    **La primera no es la mejor.** Preguntando dos veces por bebidas no
+    alcohólicas salieron $418.000M de NielsenIQ (tier 2) y $141.700M de Frost
+    & Sullivan (tier 3) — mercados distintos, ambos válidos por separado. Con
+    "la primera que llegue" el TAM de una industria dependía del orden de las
+    respuestas. Ahora gana el tier más bajo, que es el mejor: `DECISION_RULES.md`
+    pone la asociación de industria por encima de la casa de análisis porque
+    mide su propio mercado en vez de resumir el de otros.
+
+    Se corta en cuanto aparece un tier 2: por encima no hay nada que buscar.
     """
     prompt = PROMPT.format(industria=industria, ticker=ticker,
                            fuentes=_fuentes_aceptadas(),
                            agregadores=", ".join(a.title() for a in AGREGADORES[:6]))
     fallos: list[str] = []
-    for preguntar in (_preguntar_gemini, _preguntar_openai):
-        texto, error = preguntar(settings, prompt)
-        if error:
-            fallos.append(error)
-            continue
-        datos = _json_del_texto(texto)
-        if datos is None:
-            fallos.append(f"{preguntar.__name__}: respuesta sin JSON legible")
-            continue
-        return datos, fallos
-    return None, fallos
+    mejor: dict | None = None
+    mejor_tier = 99
+    agotados: set = set()
+    vueltas_reales = 0
+    for vuelta in range(max(1, intentos)):
+        proveedores = [f for f in (_preguntar_gemini, _preguntar_openai)
+                       if f not in agotados]
+        if not proveedores:
+            break
+        for preguntar in proveedores:
+            texto, error = preguntar(settings, prompt)
+            if error:
+                # Un proveedor caído se nombra UNA vez, no una por vuelta: si
+                # no, cuatro intentos dejan el motivo repetido cuatro veces y
+                # el archivo dice cuatro veces lo mismo.
+                if error not in fallos:
+                    fallos.append(error)
+                # Reintentar un límite de cuota lo empeora: cada vuelta gasta
+                # otra petición contra el mismo contador que ya dijo que no.
+                # Verificado en carne propia -- las pruebas de este reintento
+                # agotaron la cuota de Gemini y las tres industrias siguientes
+                # gastaron cuatro intentos cada una para recibir el mismo 429.
+                # Un fallo de CUOTA corta la vuelta; uno de contenido no.
+                if _es_falta_de_cuota(error):
+                    agotados.add(preguntar)
+                continue
+            datos = _json_del_texto(texto)
+            if datos is None:
+                continue
+            vueltas_reales += 1
+            candidato, _err = _validar(datos, industria)
+            if candidato is None:
+                continue
+            tier = int(candidato.get("tam_source_tier") or 99)
+            if tier < mejor_tier:
+                mejor, mejor_tier = datos, tier
+            if mejor_tier <= 2:
+                return mejor, fallos
+    if mejor is None and vueltas_reales:
+        # Sólo si de verdad hubo intentos que evaluar. Si la cuota cortó en la
+        # primera vuelta, decir "4 intentos" sería mentir sobre lo que pasó, y
+        # este archivo existe para distinguir "nadie publica ese mercado" de
+        # "no pude preguntar".
+        fallos.append(f"{vueltas_reales} respuestas sin cifra atribuible")
+    return mejor, fallos
 
 
 _MUNDIAL = ("mundial", "worldwide", "global", "world")

@@ -1,0 +1,170 @@
+"""Un `null` no era prueba de que el mercado no existiera.
+
+El resolutor preguntaba UNA vez a cada proveedor y se quedaba con la primera
+respuesta legible. Con OpenAI sin créditos eso es un único intento, y el modelo
+que queda lleva búsqueda web: no es determinista.
+
+Medido, preguntando cuatro veces seguidas por la misma industria:
+
+  - **Consumer Electronics** — marcada durante semanas como «ninguna asociación
+    ni casa de la lista publica este mercado». El 2º intento devolvió
+    $783.000M de Gartner (Worldwide Devices Market Spend) y pasó la validación
+    entera. Los otros tres fueron `null`. Esa industria estaba declarada
+    imposible por una sola tirada de dados.
+  - **Beverages - Non-Alcoholic** — dos intentos, dos mercados distintos:
+    $418.000M de NielsenIQ (tier 2) y $141.700M de Frost & Sullivan (tier 3).
+    Los dos válidos por separado. Con «la primera que llegue», el TAM de una
+    industria dependía del orden en que respondiera el modelo.
+
+De ahí las dos reglas que fijan estos tests: se pregunta varias veces, y gana
+el **tier más bajo**, no el primero — `DECISION_RULES.md` pone la asociación de
+industria por encima de la casa de análisis porque mide su propio mercado en
+vez de resumir el de otros.
+
+Y una tercera que salió de un error propio: reintentar un límite de cuota lo
+empeora. Las pruebas de este mismo reintento agotaron la cuota de Gemini, y las
+tres industrias siguientes gastaron cuatro peticiones cada una para recibir
+cuatro veces el mismo 429.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from wbj.overlay import tam_mundial as tm
+
+
+class _S:
+    inputs_dir = "."
+    gemini_api_key = "x"
+    openai_api_key = None
+
+
+def _respuesta(fuente: str, tam: float) -> str:
+    import json
+    return json.dumps({
+        "tam": tam, "tam_source": fuente, "ambito": "mundial",
+        "cita": "https://ejemplo.org/informe",
+        "capa": "ingresos anuales del mercado"})
+
+
+def _guion(monkeypatch, respuestas: list[tuple[str, str | None]]):
+    """`respuestas` es lo que devuelve Gemini en cada llamada sucesiva."""
+    turnos = iter(respuestas)
+
+    def _falso(settings, prompt):
+        try:
+            return next(turnos)
+        except StopIteration:
+            return "", "gemini: sin mas respuestas"
+
+    monkeypatch.setattr(tm, "_preguntar_gemini", _falso)
+    monkeypatch.setattr(tm, "_preguntar_openai",
+                        lambda s, p: ("", "openai: sin clave"))
+
+
+# --- un null no es prueba --------------------------------------------------
+
+def test_a_single_null_does_not_condemn_the_market(monkeypatch):
+    """El caso de Consumer Electronics: falla, falla, acierta. Con un intento
+    la industria se quedaba sin TAM para siempre."""
+    _guion(monkeypatch, [
+        ('{"tam": null}', None),
+        ('{"tam": null}', None),
+        (_respuesta("Gartner", 783_000_000_000), None),
+    ])
+    datos, _ = tm._investigar(_S(), "Consumer Electronics", "AAPL")
+    assert datos is not None and datos["tam"] == 783_000_000_000
+
+
+def test_all_nulls_still_mean_no(monkeypatch):
+    """Reintentar no es insistir hasta que salga algo: si las cuatro vueltas
+    vienen vacías, la respuesta sigue siendo que nadie lo publica."""
+    _guion(monkeypatch, [('{"tam": null}', None)] * 6)
+    datos, fallos = tm._investigar(_S(), "Oil & Gas Integrated", "XOM")
+    assert datos is None
+    assert any("sin cifra atribuible" in f for f in fallos)
+
+
+# --- gana el mejor tier, no el primero -------------------------------------
+
+def test_an_association_beats_a_research_house_whatever_the_order(monkeypatch):
+    """El caso de las bebidas. Si ganara la primera, el TAM de una industria
+    dependería del orden de las respuestas."""
+    _guion(monkeypatch, [
+        (_respuesta("Frost & Sullivan", 141_700_000_000), None),   # tier 3
+        (_respuesta("NielsenIQ", 418_000_000_000), None),          # tier 3
+        (_respuesta("WSTS", 630_500_000_000), None),               # tier 2
+    ])
+    datos, _ = tm._investigar(_S(), "Semiconductors", "NVDA")
+    assert datos["tam_source"] == "WSTS", (
+        "gano una casa de analisis teniendo la asociacion de industria detras")
+
+
+def test_it_stops_as_soon_as_an_association_answers(monkeypatch):
+    """Por encima del tier 2 no hay nada que buscar: seguir preguntando gasta
+    cuota para no mejorar."""
+    llamadas = {"n": 0}
+
+    def _falso(settings, prompt):
+        llamadas["n"] += 1
+        return _respuesta("WSTS", 630_500_000_000), None
+
+    monkeypatch.setattr(tm, "_preguntar_gemini", _falso)
+    monkeypatch.setattr(tm, "_preguntar_openai", lambda s, p: ("", "openai: sin clave"))
+    tm._investigar(_S(), "Semiconductors", "NVDA")
+    assert llamadas["n"] == 1
+
+
+def test_a_rejected_answer_never_wins(monkeypatch):
+    """El reintento no relaja la validación. Una capitalización bursátil sigue
+    siendo un acervo aunque llegue primera y aunque sea de un tier 2."""
+    _guion(monkeypatch, [
+        ('{"tam": 252000000000, "tam_source": "Nareit", "ambito": "mundial",'
+         ' "cita": "https://reit.com", "capa": "market capitalization"}', None),
+        (_respuesta("JLL", 1_800_000_000_000), None),
+    ])
+    datos, _ = tm._investigar(_S(), "REIT - Retail", "O")
+    assert datos is not None and datos["tam_source"] == "JLL"
+
+
+# --- la cuota corta, el contenido no ---------------------------------------
+
+@pytest.mark.parametrize("error", [
+    "gemini: ClientError 429 RESOURCE_EXHAUSTED",
+    "openai: RateLimitError You have no credits remaining",
+    "gemini: quota exceeded",
+])
+def test_a_quota_error_stops_the_retries(monkeypatch, error):
+    """Reintentar contra el contador que acaba de rechazarte lo empeora."""
+    llamadas = {"n": 0}
+
+    def _falso(settings, prompt):
+        llamadas["n"] += 1
+        return "", error
+
+    monkeypatch.setattr(tm, "_preguntar_gemini", _falso)
+    monkeypatch.setattr(tm, "_preguntar_openai", lambda s, p: ("", "openai: sin clave"))
+    tm._investigar(_S(), "Semiconductors", "NVDA")
+    assert llamadas["n"] == 1, (
+        f"con {error!r} se siguio preguntando {llamadas['n']} veces")
+
+
+def test_a_content_failure_does_not_stop_the_retries(monkeypatch):
+    """Una respuesta ilegible no es un límite de cuota: ahí sí vale insistir,
+    y es exactamente el caso que rescató a Consumer Electronics."""
+    _guion(monkeypatch, [
+        ("no soy json", None),
+        ("tampoco", None),
+        (_respuesta("Omdia", 207_000_000_000), None),
+    ])
+    datos, _ = tm._investigar(_S(), "Semiconductors", "NVDA")
+    assert datos is not None
+
+
+def test_a_dead_provider_is_named_once_not_once_per_round(monkeypatch):
+    """Cuatro vueltas dejaban el mismo motivo repetido cuatro veces, y el
+    archivo de la industria acababa diciendo cuatro veces lo mismo."""
+    _guion(monkeypatch, [('{"tam": null}', None)] * 6)
+    _, fallos = tm._investigar(_S(), "X", "Y")
+    assert fallos.count("openai: sin clave") == 1
