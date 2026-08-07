@@ -37,6 +37,7 @@ import logging
 import os
 import re
 import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,12 @@ VIGENCIA_DIAS = 90
 #: Medido: "Consumer Electronics" acertó en el 2º de 4 intentos y falló en los
 #: otros 3. Un solo `null` no es prueba de que el mercado no exista.
 INTENTOS = 4
+
+#: El tier gratuito de Gemini permite 20 peticiones por minuto y su propio
+#: error dice cuanto falta. Esperarlo cuesta segundos y sale UNA vez cada 90
+#: dias por industria; no esperarlo deja la industria sin TAM tres meses.
+ESPERA_MAXIMA_S = 65.0
+ESPERAS_MAXIMAS = 3
 
 # Asociaciones de industria: miden su propio mercado, publican mundial y gratis,
 # y por construcción cubren UNA capa de la cadena. Es el tier más alto que un
@@ -211,6 +218,21 @@ Responde SOLO con este JSON, sin texto alrededor:
 Si ninguna fuente de la lista publica este mercado, responde {{"tam": null}}."""
 
 
+def _error_legible(proveedor: str, e: Exception) -> str:
+    """El fallo recortado, pero SIN perder cuánto hay que esperar.
+
+    El recorte a 120 caracteres se comía justo el dato que decide qué hacer:
+    el 429 de Gemini pone su `"Please retry in 16.57s"` al final de un mensaje
+    largo, así que `_segundos_de_espera` no encontraba nada y una pausa de
+    diecisiete segundos se convertía en una industria sin TAM durante 90 días.
+    Se rescata la frase antes de recortar y se pega al final.
+    """
+    texto = str(e)
+    corto = f"{proveedor}: {type(e).__name__} {texto[:120]}"
+    m = re.search(r"retry in [0-9.]+\s*s", texto, re.I)
+    return f"{corto} — Please {m.group(0)}" if m else corto
+
+
 def _preguntar_gemini(settings: Any, prompt: str) -> tuple[str, str | None]:
     key = getattr(settings, "gemini_api_key", None)
     if not key:
@@ -228,7 +250,7 @@ def _preguntar_gemini(settings: Any, prompt: str) -> tuple[str, str | None]:
                 tools=[types.Tool(google_search=types.GoogleSearch())]))
         return (r.text or ""), None
     except Exception as e:  # noqa: BLE001 — el motivo se nombra, no se traga
-        return "", f"gemini: {type(e).__name__} {str(e)[:120]}"
+        return "", _error_legible("gemini", e)
 
 
 def _preguntar_openai(settings: Any, prompt: str) -> tuple[str, str | None]:
@@ -244,19 +266,41 @@ def _preguntar_openai(settings: Any, prompt: str) -> tuple[str, str | None]:
             model="gpt-4.1", tools=[{"type": "web_search"}], input=prompt)
         return (getattr(r, "output_text", "") or ""), None
     except Exception as e:  # noqa: BLE001
-        return "", f"openai: {type(e).__name__} {str(e)[:120]}"
+        return "", _error_legible("openai", e)
 
 
 def _es_falta_de_cuota(error: str) -> bool:
     """¿El proveedor dijo "no" por cuota, o por no encontrar nada?
 
-    Son fallos distintos y sólo uno mejora esperando. Reintentar una cuota
-    agotada gasta peticiones contra el contador que acaba de rechazarte.
+    Son fallos distintos y sólo uno mejora esperando.
     """
     e = (error or "").lower()
     return any(x in e for x in (
         "429", "resource_exhausted", "rate limit", "ratelimit", "quota",
         "no credits", "insufficient_quota", "too many requests"))
+
+
+def _segundos_de_espera(error: str) -> float | None:
+    """Cuánto pide esperar el proveedor, si lo dice y merece la pena.
+
+    Hay dos clases de "cuota agotada" y confundirlas cuesta caro en los dos
+    sentidos. El límite del tier gratuito de Gemini es de **20 peticiones por
+    minuto** y su propio error trae `"Please retry in 16.57s"`: eso se arregla
+    esperando. El de OpenAI es "You have no credits remaining", que no se
+    arregla esperando ni un dia.
+
+    Devuelve los segundos sólo cuando el proveedor los nombra y caben en
+    `ESPERA_MAXIMA_S`. Sin cifra, `None` — no se inventa una pausa, que es
+    justo lo que convierte un limite por minuto en un cuelgue.
+    """
+    m = re.search(r"retry in ([0-9.]+)\s*s", error or "", re.I)
+    if not m:
+        return None
+    try:
+        segundos = float(m.group(1))
+    except ValueError:
+        return None
+    return segundos + 1.0 if 0 < segundos <= ESPERA_MAXIMA_S else None
 
 
 def _investigar(settings: Any, industria: str, ticker: str,
@@ -291,6 +335,7 @@ def _investigar(settings: Any, industria: str, ticker: str,
     mejor_tier = 99
     agotados: set = set()
     vueltas_reales = 0
+    esperas_restantes = ESPERAS_MAXIMAS
     for vuelta in range(max(1, intentos)):
         proveedores = [f for f in (_preguntar_gemini, _preguntar_openai)
                        if f not in agotados]
@@ -311,6 +356,19 @@ def _investigar(settings: Any, industria: str, ticker: str,
                 # gastaron cuatro intentos cada una para recibir el mismo 429.
                 # Un fallo de CUOTA corta la vuelta; uno de contenido no.
                 if _es_falta_de_cuota(error):
+                    espera = _segundos_de_espera(error)
+                    if espera is not None and esperas_restantes > 0:
+                        # Un limite POR MINUTO: vuelve solo. Esperar lo que el
+                        # proveedor pide cuesta segundos y sale una vez cada
+                        # 90 dias por industria, que es cuando se resuelve.
+                        logger.info("cuota por minuto agotada; esperando %.0fs",
+                                    espera)
+                        time.sleep(espera)
+                        esperas_restantes -= 1
+                        continue
+                    # Sin cifra de espera —"no credits remaining"— o ya se
+                    # espero bastante: reintentar gasta peticiones contra el
+                    # contador que acaba de rechazarte.
                     agotados.add(preguntar)
                 continue
             datos = _json_del_texto(texto)

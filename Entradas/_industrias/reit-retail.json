@@ -1,7 +1,0 @@
-{
-  "_generado_por": "vertex/tam_mundial",
-  "_resuelto_en": "2026-11-25",
-  "_sin_tam": "la cifra mide 'market capitalization', que es un acervo y no un flujo anual: dividir ingresos de un año entre un valor acumulado no da participacion de mercado",
-  "_visto_al_analizar": "O",
-  "_que_hacer": "Escribe el TAM a mano en este archivo y borra `_generado_por`: eso lo vuelve tuyo y el sistema deja de tocarlo. Necesita `tam`, `tam_source` y `tam_source_tier` (1-4)."
-}

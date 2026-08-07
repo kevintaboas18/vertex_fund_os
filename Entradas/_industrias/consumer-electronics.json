@@ -1,7 +1,30 @@
 {
   "_generado_por": "vertex/tam_mundial",
-  "_resuelto_en": "2026-11-25",
-  "_sin_tam": "ninguna asociacion ni casa de la lista publica este mercado",
-  "_visto_al_analizar": "AAPL",
-  "_que_hacer": "Escribe el TAM a mano en este archivo y borra `_generado_por`: eso lo vuelve tuyo y el sistema deja de tocarlo. Necesita `tam`, `tam_source` y `tam_source_tier` (1-4)."
+  "_resuelto_en": "2026-08-07",
+  "_como_se_obtuvo": "Resuelto al analizar AAPL. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 1060000000000,
+  "tam_source": "Omdia - global consumer electronics market revenue 2023",
+  "tam_source_tier": 3,
+  "_ambito": "mundial",
+  "_capa": "facturación mundial de productos de electrónica de consumo",
+  "_capa_coincide": "AAPL factura por la venta de productos finales de electrónica de consumo como iPhones, Macs, iPads, Apple Watches, AirPods y Apple TV, lo que se alinea con la facturación de este mercado.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGBvhEJVOmviSKzdD8dTMFv1hecpW1UPjv6lKuppNsMOhy2W1D4LcmTYWgpLgOMsMrvhhWCRLv4MfSovJq7UosQFRWNnM5ee02uf3xXQ8QnFVIsRc1j8eCgJ0xZjcx7ti878zxz7qd6H-wMxZI8nGo2WfEvtzwSlqMU7jc=",
+  "_cita_textual": "Global consumer electronics market revenue reached $1.06 trillion in 2023",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "_segmento_patrones": [
+    "telephony",
+    "computing",
+    "tv",
+    "radio",
+    "multimedia",
+    "tv peripheral devices",
+    "drones",
+    "smartphones",
+    "laptops",
+    "tablets",
+    "wearables",
+    "audio",
+    "home"
+  ]
 }

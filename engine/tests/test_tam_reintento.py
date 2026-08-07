@@ -168,3 +168,68 @@ def test_a_dead_provider_is_named_once_not_once_per_round(monkeypatch):
     _guion(monkeypatch, [('{"tam": null}', None)] * 6)
     _, fallos = tm._investigar(_S(), "X", "Y")
     assert fallos.count("openai: sin clave") == 1
+
+
+# --- esperar es distinto de rendirse ---------------------------------------
+
+def test_the_retry_delay_survives_the_error_truncation():
+    """El fallo se recorta a 120 caracteres, y el 429 de Gemini pone su
+    `"Please retry in 16.57s"` al FINAL de un mensaje largo. El recorte se
+    comía justo el dato que decide qué hacer, así que una pausa de diecisiete
+    segundos se convertía en una industria sin TAM durante 90 días."""
+    largo = ("ClientError 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, "
+             "'message': 'You exceeded your current quota, please check your "
+             "plan and billing details. For more information on this error, "
+             "head to: https://ai.google.dev/gemini-api/docs/rate-limits. "
+             "Quota exceeded for metric: generate_content_free_tier_requests, "
+             "limit: 20, model: gemini-2.5-flash. Please retry in 16.57s.'}}")
+    mensaje = tm._error_legible("gemini", RuntimeError(largo))
+    assert len(mensaje) < 200, "el recorte tiene que seguir recortando"
+    assert tm._segundos_de_espera(mensaje) == pytest.approx(17.57, abs=0.01)
+
+
+@pytest.mark.parametrize("error,espera", [
+    # Limite POR MINUTO: vuelve solo, y el proveedor dice cuando.
+    ("gemini: 429 — Please retry in 16.57s", 17.57),
+    # Credito agotado: no se arregla esperando ni un dia.
+    ("openai: RateLimitError You have no credits remaining", None),
+    # Sin cifra no se inventa una pausa: eso convierte un limite por minuto
+    # en un cuelgue.
+    ("gemini: 429 RESOURCE_EXHAUSTED", None),
+    # Una espera absurda tampoco: hay un tope.
+    ("gemini: 429 — Please retry in 3600s", None),
+])
+def test_only_a_stated_and_bounded_delay_is_waited(error, espera):
+    got = tm._segundos_de_espera(error)
+    if espera is None:
+        assert got is None
+    else:
+        assert got == pytest.approx(espera, abs=0.01)
+
+
+def test_a_per_minute_limit_is_waited_out_not_abandoned(monkeypatch):
+    """La prueba de fondo: tras esperar, se vuelve a preguntar y el TAM sale.
+    Antes ese mismo 429 dejaba la industria marcada "nadie lo publica"."""
+    dormido = []
+    monkeypatch.setattr(tm.time, "sleep", lambda s: dormido.append(s))
+    turnos = iter([
+        ("", "gemini: 429 — Please retry in 16.57s"),
+        (_respuesta("WSTS", 630_500_000_000), None),
+    ])
+    monkeypatch.setattr(tm, "_preguntar_gemini",
+                        lambda s, p: next(turnos, ("", "gemini: fin")))
+    monkeypatch.setattr(tm, "_preguntar_openai", lambda s, p: ("", "openai: sin clave"))
+    datos, _ = tm._investigar(_S(), "Semiconductors", "NVDA")
+    assert datos is not None and datos["tam"] == 630_500_000_000
+    assert dormido and dormido[0] == pytest.approx(17.57, abs=0.01)
+
+
+def test_the_waiting_is_bounded(monkeypatch):
+    """Un proveedor que pide esperar en bucle no puede colgar un análisis."""
+    dormido = []
+    monkeypatch.setattr(tm.time, "sleep", lambda s: dormido.append(s))
+    monkeypatch.setattr(tm, "_preguntar_gemini",
+                        lambda s, p: ("", "gemini: 429 — Please retry in 20s"))
+    monkeypatch.setattr(tm, "_preguntar_openai", lambda s, p: ("", "openai: sin clave"))
+    tm._investigar(_S(), "Semiconductors", "NVDA")
+    assert len(dormido) <= tm.ESPERAS_MAXIMAS

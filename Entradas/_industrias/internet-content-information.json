@@ -1,0 +1,25 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-08-07",
+  "_como_se_obtuvo": "Resuelto al analizar GOOGL. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 755600000000,
+  "tam_source": "PwC Global Entertainment & Media Outlook 2026–30 (Internet Advertising Market)",
+  "tam_source_tier": 3,
+  "_ambito": "mundial",
+  "_capa": "Facturación mundial de publicidad en internet",
+  "_capa_coincide": "Google (GOOGL) genera una parte sustancial de sus ingresos a través de publicidad en sus plataformas de búsqueda, YouTube y la red de display, lo cual se alinea directamente con el mercado de la publicidad en internet. La capa mide el gasto total en publicidad online, que es la principal fuente de ingresos de GOOGL en este sector.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEGKuNv0M4WTeLSfVY97eVsyeTms5chV0-PSzWu_fqyBxbamAwQl2hJwj8Zmpaa8Mu4zqDkqAL47OMu9k5TVJ5hPvQ3UWvKREBg-saoq9bltTgUc0JefQJqceckmWlTB-spCDaDyxIxJ7vOx4c14RTdT1QR0nnp6s_ziVFmUEzxE1gcNCbBlfIc-27BjzDOhFyOy_7X7Oqsjipyshx9tOCrfloa8xdq6g==",
+  "_cita_textual": "The global internet advertising market accelerated 12.2 per cent in 2025 to US$755.6 billion.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "tam_history": [
+    673440285204,
+    755600000000
+  ],
+  "_segmento_patrones": [
+    "advertising",
+    "search",
+    "youtube ads",
+    "google network members' properties"
+  ]
+}
