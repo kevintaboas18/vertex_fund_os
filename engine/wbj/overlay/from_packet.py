@@ -34,6 +34,10 @@ from wbj.engines import valuation_engine as ve
 
 logger = logging.getLogger(__name__)
 
+#: Cuantos catalizadores viajan al overlay. Cada uno es una peticion al
+#: juez, y Realty Income presenta 40 eventos en 24 meses.
+_MAX_CATALIZADORES = 5
+
 #: Peer history depth, matching the packet's own.
 from wbj.packet.builder import _ANNUAL_HISTORY_YEARS
 
@@ -1694,6 +1698,54 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
             except Exception:
                 logger.warning("no se pudo comprobar si %s declara RPO", ticker,
                                exc_info=True)
+
+            # ---- MKT-CAT-019 / MKT-TDEC-020: el registro de catalizadores ----
+            # `DATASET.md` lo pide como "Product, capacity, regulatory,
+            # contract, pricing, and launch events ... official issuer/
+            # regulatory evidence", y nada lo poblaba: los catalizadores solo
+            # entraban si un analista los escribia a mano, asi que las dos
+            # metricas quedaban sin dato en 9 de 12 tickers.
+            #
+            # Un 8-K ES esa evidencia, y la SEC **numera el tipo de evento**:
+            # 1.01 contrato firmado, 2.01 adquisicion completada, 8.01 otros
+            # eventos materiales. El tipo viene en un campo -- no hay que
+            # interpretar prosa, que es donde fallaron dos intentos previos de
+            # extraccion en este motor.
+            #
+            # Verificado sobre emisores reales: la brecha de datos de fairlife
+            # en KO, la licencia de exportacion a China que el gobierno de
+            # EE.UU. impuso a NVIDIA, la fusion de redomiciliacion de XOM.
+            #
+            # Lo que NO sale de aqui: probabilidad, impacto y calidad de
+            # evidencia. FORMULAS.md es explicito -- "las probabilidades e
+            # impactos son asunciones; nunca disfrazarlas de hechos
+            # reportados" -- asi que market.py las pide al juez, una por
+            # catalizador, y `_rerun_market_with_judged_catalysts` vuelve a
+            # correr Market con ellas.
+            if "catalysts" not in overlay:
+                try:
+                    registro = edgar.catalyst_registry(cik) or []
+                except Exception:
+                    logger.warning("registro de catalizadores no disponible "
+                                   "para %s", ticker, exc_info=True)
+                    registro = []
+                # Solo los DESCRITOS: sin descripcion la fila dice "otros
+                # eventos materiales" y el juez no puede valorar lo que no
+                # sabe que es -- o se abstiene o se lo inventa.
+                #
+                # Y con tope: cada catalizador es una peticion al juez. Los
+                # mas recientes primero, que es lo que el decaimiento temporal
+                # prefiere de todas formas.
+                descritos = [c for c in registro if c.get("descripcion")]
+                descritos.sort(key=lambda c: c.get("filed") or "", reverse=True)
+                if descritos:
+                    overlay["catalysts"] = [
+                        {"event": f"{c['event']} — {c['descripcion'][:320]}",
+                         "category": c.get("category"),
+                         "months_to_event": c.get("months_to_event", 0.0),
+                         "evidence_source": c.get("url") or c.get("source"),
+                         "filed": c.get("filed")}
+                        for c in descritos[:_MAX_CATALIZADORES]]
 
             # ---- FIN-GR-004: el puente de crecimiento organico ----
             # `DATASET.md` nombra su fuente: "issuer reconciliation", que vive
