@@ -49,10 +49,12 @@ MAPA = {
     "compute.ts": "compute.py", "barsStore.ts": "bars_store.py",
     "types.ts": "(dataclasses)",
     "chartGeometry.ts": "(JS en el HTML)", "news.ts": "news.py",
+    "watchlist.ts": "watchlist.py", "outboxStore.ts": "outbox_store.py",
+    "watchlistStore.ts": "watchlist_store.py",
+    "watchlistLocal.ts": "(JS en el HTML)",
 }
 FUERA = {  # deferidos a propósito, no son del motor de análisis
     "wheel.ts", "wheelAfford.ts", "wheelUniverse.ts", "earnings.ts",
-    "watchlist.ts", "watchlistLocal.ts", "watchlistStore.ts", "outboxStore.ts",
 }
 libs = {p.name for p in TITO.glob("lib/*.ts") if ".test." not in p.name} if TITO and TITO.exists() else set()
 if not libs:
@@ -65,7 +67,8 @@ for lib in sorted(libs - FUERA):
         chk(True, f"{lib:<22} → {dest}")
     else:
         chk((TITO_DIR / dest).exists(), f"{lib:<22} → {dest}")
-print(f"  · {len(FUERA)} módulos fuera de alcance a propósito (Wheel, watchlist, broker)")
+print(f"  · {len(FUERA)} módulos fuera de alcance a propósito (Wheel y earnings, "
+      f"que tienen su propio panel)")
 
 # Los docstrings citan los documentos de metodología de Víctor (`SCOREDCARD/*`)
 # como fuente de cada tabla de puntuación. Esos archivos viven en SU repo, no en
@@ -928,6 +931,35 @@ HUERFANAS = {
     "load_chain_history":
         "sin llamador también en su chainStore.ts. Aquí el sub-agente 4 puntúa "
         "sobre la cadena de HOY; la serie se acumula para poder usarla, no se lee",
+
+    # ── watchlist: SU cliente es el navegador, aquí también ──
+    #
+    # No son código muerto ni un port a medias. En su app estas ocho corren en
+    # el CLIENTE (`ideas/page.tsx` + `WatchlistCard.tsx`), porque el watchlist
+    # vive en localStorage con tu saldo dentro y no sube al servidor. Aquí pasa
+    # exactamente lo mismo: el bloque `wlLocal*` del panel es su equivalente en
+    # el navegador. Se portan a Python igualmente por dos razones concretas:
+    #
+    #   1. `diff_watchlist.sh` las ejecuta las 19 contra SU archivo — 734 casos
+    #      a cero divergencias. Sin el port no habría con qué comparar, y la
+    #      versión del navegador quedaría sin verificar contra nada.
+    #   2. Son la referencia de la que se copió el JS. Cuando él cambie una
+    #      regla, el diferencial lo dice aquí antes que en pantalla.
+    #
+    # Borrarlas ahorraría 60 líneas y perdería la única medida objetiva de que
+    # el watchlist del panel hace lo que hace el suyo.
+    "build_entry":   "corre en el navegador (`wlMarca`); medida por diff_watchlist.sh",
+    "upsert":        "corre en el navegador (`wlUpsert`); medida por diff_watchlist.sh",
+    "remove":        "corre en el navegador (`wlQuita`); medida por diff_watchlist.sh",
+    "sort_entries":  "corre en el navegador (`wlOrdena`); medida por diff_watchlist.sh",
+    "mark_synced":   "la escribe el agente por MCP, no el servidor web; medida por "
+                     "diff_watchlist.sh",
+    "payload_for":   "qué mandar según la granularidad; el buzón ya recorta en "
+                     "`add_to_outbox`. Medida por diff_watchlist.sh",
+    "quote_link":    "el enlace al broker se arma en el navegador desde la plantilla "
+                     "`quoteUrl` que sirve /api/tito-watchlist; medida por diff_watchlist.sh",
+    "ticker_list":   "los tickers para pegar; corre en el navegador (`wlTickerList`). "
+                     "Medida por diff_watchlist.sh",
 }
 _pub, _prod = {}, set()
 for _f in sorted(TITO_DIR.glob("*.py")):
@@ -1056,15 +1088,21 @@ MODULOS_SUYOS = {
     "wheelAfford":     ("py", "wheel_universe.py — afford_of / sort_by_afford_then_score"),
     "wheelUniverse":   ("py", "wheel_universe.py — sus 40 símbolos curados"),
     "earnings":        ("py", "earnings.py — el estimador del próximo reporte"),
-    "watchlist":       ("no", "su watchlist; Vertex tiene la suya y es de Kevin"),
-    "watchlistLocal":  ("no", "idem, la copia en localStorage de su navegador"),
-    "watchlistStore":  ("no", "idem, la persistencia de su watchlist"),
-    "outboxStore":     ("no", "cola de salida de su /api/watchlist, que no se porta"),
+    # Los cuatro del watchlist. La de Vertex —tickers sueltos con alertas de
+    # precio— se ELIMINÓ: un ticker no se puede juzgar después, un contrato con
+    # la foto del día en que lo marcaste sí.
+    "watchlist":       ("py", "watchlist.py — las 19 funciones puras + BROKERS, "
+                              "medidas por diff_watchlist.sh"),
+    "watchlistLocal":  ("js", "el bloque `wlLocal*` del panel: vive en el navegador "
+                              "porque guarda tu saldo y tu sizing"),
+    "watchlistStore":  ("py", "watchlist_store.py — legado de solo lectura, para la "
+                              "importación única"),
+    "outboxStore":     ("py", "outbox_store.py — la cola de /api/tito-watchlist"),
 }
 _mods_portados = [k for k, v in MODULOS_SUYOS.items() if v[0] != "no"]
 chk(all(m for _, m in MODULOS_SUYOS.values()),
     f"los {len(MODULOS_SUYOS)} módulos de su web/lib están declarados")
-chk(len(_mods_portados) == 28, f"{len(_mods_portados)} de sus módulos están portados")
+chk(len(_mods_portados) == 32, f"{len(_mods_portados)} de sus módulos están portados")
 if TITO and (TITO / "lib").is_dir():
     _suyos_lib = {f.stem for f in (TITO / "lib").glob("*.ts") if not f.stem.endswith(".test")}
     _suyos_lib = {m for m in _suyos_lib if not m.endswith(".test")}
@@ -1147,46 +1185,54 @@ COMPONENTES_SUYOS = {
     "IvContextCard":         ("panel", "`vcSubagentesHTML` — sub-agente 5"),
     "ValidationCard":        ("panel", "`vcSubagentesHTML` — sub-agente 6"),
     "ConvictionTransactions":("panel", "`vcSubagentesHTML` — transacciones revisadas"),
-    # ── declarados: NO se portan, con su motivo ──
-    "HeaderBar":             ("no", "la barra de Vertex ya existe y es de Vertex, no suya"),
-    "AnalysisLoader":        ("no", "Vertex tiene su propio indicador de carga"),
-    "CompanyHeader":         ("no", "el nombre y el precio van en la cabecera de la gráfica"),
-    "ActivityCard":          ("no", "resume las mismas filas que la tabla de transacciones "
-                                    "revisadas, que se pinta entera"),
-    "MoneyFlowCard":         ("no", "resume convicción + estructura, que ya salen con su "
-                                    "desglose completo en el detalle de sub-agentes"),
-    "FlowPriceChart":        ("no", "dibuja los notables sobre el precio; la gráfica del tab "
-                                    "es la suya (SimpleChart) y ya lleva niveles y cono"),
-    "OptionChainTable":      ("no", "navegador de la cadena completa (600+ filas). El tab "
-                                    "muestra los top strikes, que es lo que puntúa"),
-    "WatchlistCard":         ("no", "su watchlist; Vertex tiene la suya"),
+    # ── los doce que faltaban, ya portados ──
+    #
+    # Estuvieron declarados como "no se portan, con su motivo". El motivo era
+    # razonable uno a uno y equivocado en conjunto: entre todos son la mitad de
+    # la evidencia que su panel enseña, y resumirla no es enseñarla. Se portan
+    # los doce. Lo único que NO se copia es su wordmark: la marca de esta
+    # pantalla es Vertex. El logo de la EMPRESA analizada sí — es información.
+    "HeaderBar":             ("panel", "la barra de Proyecciones: NavTabs + `vcPintaQuick` "
+                                       "+ buscador + el `hb-right` de `vcSyncCabecera`"),
+    "AnalysisLoader":        ("panel", "`vcLoaderHTML` — sus 4 fases y su curva asintótica "
+                                       "topada al 97%, arrancada por `vcLoaderArranca`"),
+    "CompanyHeader":         ("panel", "`vcCompanyHTML` + /api/tito-logo (su proxy del logo)"),
+    "ActivityCard":          ("panel", "`vcActivityHTML` — premium por día, calls vs puts"),
+    "MoneyFlowCard":         ("panel", "`vcMoneyFlowHTML` — el reparto del dinero y sus "
+                                       "cuatro azulejos"),
+    "FlowPriceChart":        ("panel", "`renderProjFlowMoney` (el panel del dinero, con su "
+                                       "escala log) + `vcClustersHTML` (los racimos)"),
+    "OptionChainTable":      ("panel", "`vcCadenaHTML` — la cadena entera, ordenable por sus "
+                                       "ocho columnas y con los nulos al final"),
+    "WatchlistCard":         ("panel", "`renderProjWatchlist` + /api/tito-watchlist"),
     "NavTabs":               ("panel", "vcPintaNav — Ticker / Ideas / Wheel / Time & Sales"),
-    "RiskProfileCard":       ("no", "el perfil de riesgo es el de Kevin, no un slider suyo"),
+    "RiskProfileCard":       ("panel", "`vcRiesgoHTML` — sus dos presupuestos, alimentados "
+                                       "por el cuestionario de la cuenta en vez de su slider"),
     "WheelPresetCard":       ("panel", "renderProjWheel — los tres presets con sus bandas"),
     "WheelTable":            ("panel", "renderProjWheel — la tabla de candidatos"),
     "IdeasTable":            ("panel", "renderProjIdeas — el screener de mercado del tab"),
-    "RepeatBadge":           ("no", "insignia interna de otras tablas suyas"),
+    "RepeatBadge":           ("panel", "`vcRepeatBadge` + `vcRepeatCounts`"),
     "NotableTable":          ("panel", "renderProjTape — la cinta de Time & Sales"),
-    "ChartPanel":            ("no", "su app/ChartPanel dibuja los top-5 contratos de la "
-                                    "cadena sobre las barras; el tab tiene su gráfica "
-                                    "principal con cono, niveles y escenarios"),
+    "ChartPanel":            ("panel", "`renderProjTop5` — los cinco strikes de más "
+                                       "nocional, punteados sobre el precio"),
     # ── chart/: el motor de la gráfica, que SÍ está portado ──
     "PriceChart":            ("panel", "`renderVictorProjChart` — port de chartGeometry.ts "
                                        "+ PriceChart.tsx, medido por `diff_geo.sh`"),
-    "ChartCrosshair":        ("no", "la cruz que sigue al cursor sobre su SVG; el tab "
-                                    "dibuja la gráfica sin interacción de puntero"),
+    "ChartCrosshair":        ("panel", "`vcCrosshairCablea` — cableada por "
+                                       "`renderVictorProjChart` con SUS mismas escalas"),
 }
 _portados = {k: v for k, v in COMPONENTES_SUYOS.items() if v[0] == "panel"}
 _sin_portar = {k: v for k, v in COMPONENTES_SUYOS.items() if v[0] != "panel"}
 chk(all(m for _, m in COMPONENTES_SUYOS.values()),
     f"los {len(COMPONENTES_SUYOS)} componentes de su app están declarados")
-chk(len(_portados) == 27, f"{len(_portados)} de sus componentes tienen consumidor en el tab")
-chk(all(len(m) > 20 for _, m in _sin_portar.values()),
-    f"los {len(_sin_portar)} no portados llevan MOTIVO escrito, no una excusa de una línea")
+chk(len(_portados) == 39, f"{len(_portados)} de sus componentes tienen consumidor en el tab")
+chk(not _sin_portar,
+    "no queda ni uno sin portar" + (f": {sorted(_sin_portar)}" if _sin_portar else ""))
 # Y los que se declaran portados tienen que existir de verdad en el panel.
 _mentira = [k for k, (_, m) in _portados.items()
             for fn in [m.split("`")[1] if "`" in m else ""]
-            if fn.startswith("vc") and f"function {fn}(" not in HTML]
+            if (fn.startswith("vc") or fn.startswith("renderProj") or fn.startswith("wl"))
+            and f"function {fn}(" not in HTML]
 chk(not _mentira, f"ningún componente se declara portado sin estarlo{': ' + str(_mentira) if _mentira else ''}")
 # Con su repo a mano, el registro se contrasta contra la carpeta REAL: un
 # componente nuevo suyo que nadie declaró hace fallar este check.
@@ -1227,8 +1273,17 @@ _smoke_js = VERTEX / "engine" / "scripts" / "_smoke_perfil.mjs"
 if shutil.which("node") and _smoke_js.is_file():
     _r = subprocess.run(["node", str(_smoke_js)], capture_output=True, text=True)
     chk(_r.returncode == 0, "el JS del panel se ejecuta y pinta lo esperado")
+# Y el de sus doce componentes: los ejecuta uno a uno con payloads realistas.
+# Ya cazó dos cosas que ningún test de texto podía ver — el racimo que caía en
+# 1970 por leer segundos como milisegundos, y el nocional con el formato que no
+# era el suyo.
+_smoke_comp = VERTEX / "engine" / "scripts" / "_smoke_componentes.mjs"
+if shutil.which("node") and _smoke_comp.is_file():
+    _rc = subprocess.run(["node", str(_smoke_comp)], capture_output=True, text=True)
+    chk(_rc.returncode == 0, "sus 12 componentes nuevos se ejecutan y pintan lo esperado")
 else:
     chk(False, "sin node: no se pudo ejecutar el JS del panel", warn_if_false=True)
+    chk(_smoke_comp.is_file(), "…pero el smoke de sus componentes está en su sitio")
 
 sec("9-sexies. Divergencias con su código, declaradas una por una")
 # ─────────────────────────────────────────────────────────────────────
@@ -1308,15 +1363,16 @@ RUTAS_SUYAS = {
     "history":    ("dentro", "idem — `out['history']`, que alimenta la gráfica"),
     "prediction": ("dentro", "`memory` del scorecard: predicciones guardadas + calibración"),
     "validation": ("dentro", "`scores.validation` del scorecard — el sub-agente 6"),
-    "logo":       ("no", "proxy del logo de la empresa. La cabecera de la gráfica lleva "
-                         "ticker y precio, que es lo que el panel necesita; un logo no "
-                         "cambia ninguna lectura"),
-    "watchlist":  ("no", "su puente navegador↔agente. Vertex tiene su propia watchlist"),
+    "logo":       ("mia", "/api/tito-logo — el proxy del logo. Existe porque la URL "
+                          "que da Massive EXIGE la Authorization: sin proxy la clave "
+                          "tendría que viajar al navegador"),
+    "watchlist":  ("mia", "/api/tito-watchlist — su puente navegador↔agente, GET/POST/"
+                          "DELETE. La watchlist de Vertex se eliminó"),
 }
 _rutas_cubiertas = [k for k, v in RUTAS_SUYAS.items() if v[0] != "no"]
 chk(all(m for _, m in RUTAS_SUYAS.values()),
     f"las {len(RUTAS_SUYAS)} rutas de su web/app/api están declaradas")
-chk(len(_rutas_cubiertas) == 9,
+chk(len(_rutas_cubiertas) == 11,
     f"{len(_rutas_cubiertas)} de sus {len(RUTAS_SUYAS)} rutas tienen equivalente aquí")
 if TITO and (TITO / "app" / "api").is_dir():
     _suyas_api = {d.name for d in (TITO / "app" / "api").iterdir()
@@ -1351,6 +1407,11 @@ sec("9-bis. Rutas del servidor sin cliente")
 # Mismo contrato que el registro de funciones huérfanas: cada una declarada con
 # su motivo, y si aparece una nueva sin declarar, este check falla.
 RUTAS_HUERFANAS = {
+    # ── se quedó sin cliente al eliminar la watchlist de Vertex ──
+    "watchlist-radar":   "el radar por ticker. Su cliente era la rejilla de la watchlist "
+                         "de Vertex, que se eliminó. NO se borra: `/api/alerts/scan` lo "
+                         "llama por dentro y es lo que alimenta la campana, que ahora "
+                         "vigila los subyacentes de la watchlist de contratos de Víctor",
     # ── se quedaron sin cliente al sacar Quant Data del tab ──
     "confluence":        "panel de confluencia (Quant Data), retirado del tab",
     "net-flow":          "drift de premium neto (Quant Data), retirado del tab",
@@ -1435,6 +1496,7 @@ DIFERENCIALES = {
     "diff_calib.sh":      "predictionStore.reviewPredictions — 182 diarios",
     "diff_frescura.sh":   "levels.recencyFactor — el peso por frescura",
     "diff_reloj.sh":      "las 5 funciones que cuentan tiempo",
+    "diff_watchlist.sh":  "watchlist.ts — BROKERS y sus 19 funciones, 734 casos",
 }
 #: Los TRES que llevan corpus MALFORMADO. Es lo que separa "coincide con datos
 #: buenos" de "coincide también cuando la fuente cambia de esquema", y fue donde

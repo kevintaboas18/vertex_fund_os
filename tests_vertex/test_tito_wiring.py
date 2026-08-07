@@ -2456,7 +2456,7 @@ class TestIdeasYWheelTampocoTiranNada:
 
     #: Ayudantes que los renders llaman y que también pintan. Sin ellos, un
     #: campo pintado por `vcCabeceraPerfil` saldría como huérfano.
-    _AYUDANTES = ("vcCabeceraPerfil",)
+    _AYUDANTES = ("vcCabeceraPerfil", "vcRiesgoHTML")
 
     @staticmethod
     def _cuerpo(render):

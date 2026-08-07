@@ -101,6 +101,12 @@ def test_no_handler_points_at_a_function_that_does_not_exist():
     definidas = set(re.findall(r"(?:async\s+)?function\s+([A-Za-z_$][\w$]*)", js))
     definidas |= set(re.findall(r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
                                 r"(?:async\s*)?(?:function|\()", js))
+    # …y la flecha de UN solo parámetro sin paréntesis: `const f = s => …`.
+    # Sin esto, `_vcEsc` —que se define así— salía como "función inexistente"
+    # en cuanto alguien la usaba dentro de un `onclick`. Era un falso positivo
+    # del test, no un manejador roto: la definición está y se ejecuta.
+    definidas |= set(re.findall(r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*"
+                                r"(?:async\s+)?[A-Za-z_$][\w$]*\s*=>", js))
     # Nombres del navegador que aparecen en manejadores. No los declara
     # nadie porque los pone el propio entorno.
     definidas |= {"alert", "confirm", "print", "open", "close", "history",

@@ -4126,3 +4126,136 @@ acciones** conservan su `run()`; las 6 categorías siguen con sus pesos
 (20/15/20/20/15/10); y las 9 rutas del tab contestan sin un solo 404 ni 500.
 
 **2.787 tests del motor · 388 de la capa web · 292 checks · 0 fallos.**
+
+---
+
+## 41.24 Lo que tenía Víctor y aquí no estaba
+
+Pregunta: *«Verifica si el agente de Víctor hay algo que yo no tenga o hayas
+eliminado. Verifica y soluciona todos los errores/problemas que tenga.»*
+
+La auditoría ya sabía la respuesta —el registro la enumeraba en tres sitios— y
+lo que decía era esto:
+
+| | Suyos | Aquí | Faltaban |
+|---|---|---|---|
+| Componentes | 39 | 27 | **12** |
+| Módulos de `web/lib` | 32 | 28 | **4** (los del watchlist) |
+| Rutas de `web/app/api` | 11 | 9 | **2** (`/api/logo`, `/api/watchlist`) |
+
+Cada uno estaba declarado con su motivo, y cada motivo era razonable **por
+separado**. En conjunto no lo era: entre los doce componentes son la mitad de la
+evidencia que su panel enseña —la ficha de la empresa, el reparto del dinero del
+día, la cadena entera, tu watchlist— y resumir una cosa no es lo mismo que
+enseñarla. Se portan los doce.
+
+### Los doce componentes
+
+| Suyo | Aquí | Qué aporta que antes no estaba |
+|---|---|---|
+| `CompanyHeader` | `vcCompanyHTML` | nombre, sector, market cap, volumen, rango del día, cierre previo — **y el logo de la empresa** |
+| `HeaderBar` | la barra del tab + `vcSyncCabecera` | nombre, precio y variación del ticker cargado, arriba y siempre visibles |
+| `AnalysisLoader` | `vcLoaderHTML` | sus 4 fases y su barra que **solo avanza** (curva `1 − e^(−n/16)`, topada al 97%) |
+| `ActivityCard` | `vcActivityHTML` | premium notable por día, calls contra puts, 7 días |
+| `MoneyFlowCard` | `vcMoneyFlowHTML` | el reparto alcista/bajista y sus cuatro azulejos |
+| `OptionChainTable` | `vcCadenaHTML` | la cadena **entera**, ordenable por sus ocho columnas |
+| `ChartPanel` | `renderProjTop5` | los cinco strikes de más nocional, punteados sobre el precio |
+| `FlowPriceChart` | `renderProjFlowMoney` | el dinero por vela: compra arriba, venta abajo, escala log |
+| `WatchlistCard` | `renderProjWatchlist` | el watchlist de **contratos**, con tu sizing del momento |
+| `RiskProfileCard` | `vcRiesgoHTML` | tus dos presupuestos: capital por trade y quema de theta |
+| `RepeatBadge` | `vcRepeatBadge` | el ×N del contrato golpeado varias veces |
+| `ChartCrosshair` | `vcCrosshairCablea` | la cruz con la vela (A/M/m/C) y el precio proyectado |
+
+Lo único que **no** se copia es su wordmark: la marca de esta pantalla es
+Vertex. El logo de la EMPRESA analizada sí — eso es información, no marca.
+
+### El watchlist: se cambia el de Vertex por el suyo
+
+El de Vertex guardaba **tickers** y les colgaba alertas de precio. El suyo
+guarda el **contrato entero** —strike, vencimiento, griegos y tu sizing del día
+en que lo marcaste—. La diferencia no es cosmética: un ticker no se puede juzgar
+después; una decisión con su foto, sí.
+
+Portado: `watchlist.ts` → `wbj/tito/watchlist.py` (las 19 funciones puras +
+BROKERS), `outboxStore.ts` → `outbox_store.py`, `watchlistStore.ts` →
+`watchlist_store.py` (solo lectura, para la migración única), `watchlistLocal.ts`
+→ el bloque `wlLocal*` del panel, y `/api/watchlist` → `/api/tito-watchlist`
+(GET/POST/DELETE).
+
+Lo que **no** cruza el puente hacia el servidor, igual que en su app: los
+griegos, tu sizing y tu saldo. Solo viaja lo mínimo para identificar el contrato
+en el broker — y con un broker de solo subyacentes, ni eso: solo el ticker.
+
+Eliminado de Vertex: la vista `watchlistView`, sus nueve funciones `wl*`, su
+`localStorage`, sus dos botones de navegación y `/api/watchlist-quote`. **No** se
+eliminó la campana: `/api/watchlist-radar` y `/api/alerts/scan` siguen, y ahora
+vigilan los subyacentes del watchlist de contratos.
+
+### `/api/tito-logo` — por qué un proxy y no un `<img>` directo
+
+La URL del logo que devuelve Massive **exige la `Authorization`**. Sin proxy, la
+clave tendría que viajar al navegador para que la imagen cargara. El servidor la
+baja y reenvía el binario; la credencial no sale de ahí. Y la cabecera lleva su
+`Cache-Control: public, max-age=86400`: un logo no cambia en un día y cada
+petición cuesta dos llamadas a Massive.
+
+Un detalle que no es suyo pero tampoco es una divergencia: la `Authorization`
+solo acompaña a la URL si apunta al dominio de Massive. Ningún host ajeno
+aceptaría un bearer de Massive, así que la petición es idéntica en todos los
+casos reales; lo que evita es que una URL torcida en la respuesta mande la clave
+a un tercero.
+
+### Lo que apareció al hacerlo
+
+1. **Acentos graves en un comentario HTML dentro de una plantilla de JS.**
+   La cierran, y el `SyntaxError` se lleva el **tab entero**. Segunda vez que
+   pasa; lo cazó el check §6-bis, que existe justo por la primera.
+2. **`start_sec` leído como milisegundos.** Los racimos caían en 1970 y ningún
+   día se marcaba como tal en la gráfica del dinero. Lo cazó el smoke nuevo.
+3. **El presupuesto de theta sobre el número equivocado.** `budgetsOf` suyo lo
+   calcula sobre la **cuenta** (5% de $1.000 = $50), no sobre el riesgo por
+   operación ($7,50) — sobre el número equivocado se descartarían contratos
+   perfectamente operables. Ahora viaja calculado por el motor.
+4. **Un test con un hueco propio.** `test_no_handler_points_at_a_function...`
+   no reconocía `const f = s => …` como definición, así que daba por rota una
+   función que existe. Corregido el test, no el código.
+5. **Diez funciones públicas sin llamador** en `watchlist.py`. No son código
+   muerto: en su app corren en el **cliente**, y aquí también (el bloque
+   `wlLocal*`). Se portan igualmente porque son lo que el diferencial compara
+   contra su archivo — sin ellas, la versión del navegador no tendría con qué
+   contrastarse. Declaradas una a una con ese motivo.
+
+### Cómo se verifica que es SU comportamiento
+
+- **`diff_watchlist.sh`** — nuevo, el 13.º. Ejecuta **su** `watchlist.ts` en
+  Node y el port en Python sobre 734 casos generados: colas mixtas de filas
+  legado y de contrato, strikes con y sin decimales, contratos sin vencimiento,
+  tickers en minúscula, colas ya sincronizadas y ya aparcadas.
+  **734/734 idénticos.** Probado además con mutaciones: al cambiar `toFixed(4)`
+  por `toFixed(2)` y quitar un `.upper()`, delata 64 casos.
+- **`engine/tests/tito/test_watchlist.py`** — sus 56 casos de
+  `watchlist.test.ts` traducidos, más 7 de persistencia. **63 pasan.**
+- **`_smoke_componentes.mjs`** — nuevo. Ejecuta el JS **vivo** de los doce
+  componentes contra un DOM de mentira con payloads realistas. **94 checks.**
+  Es lo que cazó los puntos 2 y 3 de arriba.
+- **`test_watchlist_y_componentes.py`** — 67 tests del cableado: las rutas, el
+  buzón en disco, que el payload trae lo que cada componente lee, que la
+  watchlist de Vertex se fue de verdad, y que ni los griegos ni el saldo cruzan
+  el puente.
+
+### Estado
+
+**2.850 tests del motor · 455 de la capa web · 300 checks de auditoría · 94 del
+smoke de componentes · 13 diferenciales a cero divergencias · 0 fallos.**
+
+Cobertura contra su repo (`53d5a20`), ya completa:
+
+| | Suyos | Portados |
+|---|---|---|
+| Componentes | 39 | **39** |
+| Módulos de `web/lib` | 32 | **32** |
+| Rutas de `web/app/api` | 11 | **11** |
+
+Las **cuatro divergencias declaradas** siguen siendo las mismas y no ha
+aparecido ninguna nueva: el perfil del inversionista en el servidor, el sizing
+en el servidor, la Wheel sin bid, y el recorte de la clave de Massive.

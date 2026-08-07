@@ -3624,7 +3624,7 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     trades, conviction_trades, flow_error = _tito_tape(tk)
 
     try:
-        chain, bars, spot = _tito_chain_and_bars(tk)
+        chain, bars, spot, _meta_cadena = _tito_chain_and_bars(tk)
     except Exception as e:
         # Sin cadena no hay Estructura, ni GEX, ni niveles, ni escenarios. Se
         # devuelve el motivo exacto de Massive en vez de un reporte a medias.
@@ -3713,6 +3713,12 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     out["gex_heatmap"] = _tito_heatmap(chain or [], r, trades, now)
     out["chart_geometry"] = _tito_chart_geometry(r)
     out["flow_clusters"] = _tito_clusters(trades, now)
+    # La ficha de la empresa (`CompanyHeader`) y la cadena entera
+    # (`OptionChainTable` + `ChartPanel`). El motor no las necesita —puntúa con
+    # `chain` ya normalizada— pero son tres de sus componentes, y esta es LA
+    # ruta que come el panel. Servirlas aquí ahorra dos rondas de red más.
+    out["company"] = _tito_company(tk, r.spot, _meta_cadena["empresa"])
+    out.update(_tito_chain_json(chain or [], _meta_cadena["truncated"]))
     # `_json_safe` = su `JSON.stringify`: NaN/Infinity → null. `_tito_json` ya
     # pasó por ahí, pero estos campos se añaden después.
     return _json_safe(out)
@@ -4085,7 +4091,12 @@ def _tito_chain_and_bars(ticker):
         raise MassiveError(
             f"Massive no devolvió un precio utilizable para {ticker} "
             f"(snapshot {empresa.get('price')!r} · cadena {chain_res.underlying_price!r}).")
-    return chain_res.rows, bars, float(spot)
+    # La ficha y el aviso de truncado salen por aquí porque ya están: pedir
+    # `fetch_company` otra vez desde el payload doblaba la latencia de cada
+    # scorecard sobre el MISMO dato. `truncated` es el tope de páginas de
+    # Massive — que la cadena llegó incompleta— y solo lo sabe esta función.
+    return chain_res.rows, bars, float(spot), {"empresa": empresa,
+                                               "truncated": chain_res.truncated}
 
 
 def _tito_memory(ticker, trades, chain, bars, now):
@@ -4640,10 +4651,26 @@ def tito_ideas(request: Request):
         "perfil": {"capital": _perfil["capital"], "tolerancia": _perfil["tolerancia"],
                    "riesgo_pct": _perfil["riesgo_pct"],
                    "riesgo_por_trade": _perfil["riesgo_por_trade"],
+                   # Los dos presupuestos de su `RiskProfileCard`. El de theta
+                   # es un % de la CUENTA (`budgetsOf`: account * 5 / 100), no
+                   # del riesgo por operación — con $1.000 al 15% son $50, no
+                   # $7,50, y sobre el número equivocado se descartarían
+                   # contratos perfectamente operables. Viaja calculado por el
+                   # motor para que la pantalla no vuelva a decidirlo.
+                   "theta_budget_pct": _THETA_BUDGET_PCT,
+                   "theta_budget": _r(_perfil["capital"] * _THETA_BUDGET_PCT / 100),
                    "caben": sum(1 for v in _sizing.values()
                                 if (v or {}).get("max_contracts"))},
         "period": _IDEAS_PERIOD, "generated_at": now.isoformat(),
     })
+
+
+#: `THETA_BUDGET_PCT` de su `risk.ts`, leído del motor y no escrito a mano:
+#: es el mismo 5% que usa el sizing, y dos copias se desincronizan a la primera.
+try:
+    from wbj.tito.risk import THETA_BUDGET_PCT as _THETA_BUDGET_PCT
+except Exception:                                # el motor puede no estar
+    _THETA_BUDGET_PCT = 5.0
 
 
 #: Concurrencia del escaneo Wheel — su `CONCURRENCY`. Cada ticker son dos
@@ -5525,6 +5552,229 @@ def tito_news(ticker: str, call_pct: float | None = None, name: str | None = Non
         return {"ok": False, "error": f"No se pudieron leer las noticias: {e}"}
 
 
+@app.get("/api/tito-logo")
+def tito_logo(ticker: str):
+    """Su `/api/logo` — el logo de la empresa, servido por proxy.
+
+    Existe porque la URL del logo que da Massive **exige la Authorization**:
+    sin este proxy la clave tendría que viajar al navegador. Aquí la petición
+    la hace el servidor y lo único que cruza es el binario.
+
+    Un ticker sin logo es 404, no 500: la cabecera cae a las iniciales y el
+    panel no se entera.
+    """
+    tk, err = _tito_ticker(ticker)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    try:
+        from wbj.tito.massive import fetch_logo_image
+
+        logo = fetch_logo_image(tk)
+    except Exception:
+        raise HTTPException(status_code=502, detail="error")
+    if not logo:
+        raise HTTPException(status_code=404, detail="sin logo")
+    datos, tipo = logo
+    # Su `Cache-Control: public, max-age=86400`. Un logo no cambia en un día y
+    # cada petición cuesta dos llamadas a Massive.
+    return Response(content=datos, media_type=tipo,
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
+# ── El puente watchlist ↔ agente (su `/api/watchlist`) ───────────────────────
+#
+#   GET                            → { broker, granularity, pending, failed, legacy }
+#   POST { contract, broker }      → encola un contrato para empujarlo al broker
+#   POST { synced: [...], broker }  → el agente confirma lo que entró
+#   DELETE ?symbol= | ?ticker=     → lo saca de la cola
+#
+# El watchlist en sí NO pasa por aquí: vive en localStorage (bloque `wlLocal*`
+# del panel). Por este puente viaja lo mínimo para identificar el contrato en el
+# broker —ticker y, si el broker acepta contratos, tipo/strike/vencimiento—. Los
+# griegos, tu sizing y tu saldo se quedan en el navegador. `add_to_outbox`
+# recorta según la granularidad, así que un broker que solo entiende subyacentes
+# recibe solo el ticker.
+#
+# La sincronización tampoco ocurre aquí: el MCP del broker lo conduce el agente,
+# no el servidor web. Esta ruta expone `pending` para que el agente sepa qué
+# falta. Nada de esto coloca una orden — igual que en su app.
+
+
+def _wl_item(i) -> dict:
+    """Un `OutboxItem` como lo serializa su ruta: los campos de contrato solo
+    cuando la fila los tiene.
+
+    Se añaden dos campos que su ruta no manda porque en su app los calcula el
+    cliente: `label` (`outboxLabel`) y `query` (`contractQuery`). El segundo no
+    es comodidad — es la búsqueda EXACTA con la que el agente resuelve el
+    contrato en el broker, con el strike a cuatro decimales. Reinventarla del
+    otro lado es la vía directa a una búsqueda vacía que no dice por qué.
+    """
+    from wbj.tito.watchlist import ContractRef, contract_query, outbox_label
+
+    d = {"ticker": i.ticker, "broker": i.broker,
+         "addedAt": i.addedAt, "syncedAt": i.syncedAt,
+         "label": outbox_label(i)}
+    if i.symbol:
+        d.update(symbol=i.symbol, type=i.type,
+                 strike=i.strike, expiration=i.expiration)
+        # `None` cuando falta strike o vencimiento: quien lo recibe cae al
+        # subyacente en vez de adivinar entre decenas de contratos.
+        d["query"] = contract_query(ContractRef(i.ticker, i.type, i.strike,
+                                                i.expiration))
+    if i.failedAt:
+        d.update(failedAt=i.failedAt, failReason=i.failReason)
+    return d
+
+
+def _wl_payload(items, broker: str) -> dict:
+    """Su `payload(items, broker)`, campo por campo."""
+    from wbj.tito.watchlist import broker_by_id, failed_outbox, pending_outbox
+
+    b = broker_by_id(broker)
+    sincronizados = sorted(
+        i.syncedAt for i in items if i.broker == broker and i.syncedAt
+    )
+    return {
+        "broker": broker,
+        "granularity": b.granularity if b else "none",
+        "pending": [_wl_item(i) for i in pending_outbox(items, broker)],
+        "failed": [_wl_item(i) for i in failed_outbox(items, broker)],
+        # Para que la UI diga cuándo pasó el drenador por última vez.
+        "lastSyncedAt": sincronizados[-1] if sincronizados else None,
+    }
+
+
+@app.get("/api/tito-watchlist")
+def tito_watchlist(broker: str = "robinhood"):
+    """`legacy` sirve a la migración única desde el viejo `watchlist.json`. En
+    cuanto el navegador lo importa y marca la bandera, deja de mirarlo."""
+    from dataclasses import asdict
+
+    from wbj.tito.outbox_store import load_outbox
+    from wbj.tito.watchlist import BROKERS
+    from wbj.tito.watchlist_store import load_watchlist
+
+    caja = load_outbox()
+    viejo = load_watchlist()
+    out = _wl_payload(caja["items"], broker)
+    out["legacy"] = {
+        "entries": [asdict(e) for e in viejo["entries"]],
+        "broker": viejo["broker"],
+    }
+    # Los brokers viajan con la respuesta porque el selector del panel se pinta
+    # desde aquí: añadir uno es añadir una entrada en `watchlist.py`, no tocar
+    # el HTML en dos sitios.
+    out["brokers"] = [
+        {"id": b.id, "name": b.name, "kind": b.kind,
+         "granularity": b.granularity, "caveat": b.caveat,
+         "quoteUrl": b.quote_url("__T__") if b.quote_url else None}
+        for b in BROKERS
+    ]
+    return out
+
+
+def _wl_contrato(crudo):
+    """Su `readContract`: un contrato válido trae al menos símbolo y ticker; el
+    resto puede faltar."""
+    from wbj.tito.watchlist import OutboxTarget
+
+    if not isinstance(crudo, dict):
+        return None
+    if not isinstance(crudo.get("symbol"), str) or not isinstance(crudo.get("ticker"), str):
+        return None
+    if crudo.get("type") not in ("call", "put"):
+        return None
+    strike = crudo.get("strike")
+    exp = crudo.get("expiration")
+    return OutboxTarget(
+        symbol=crudo["symbol"],
+        ticker=crudo["ticker"].upper(),
+        type=crudo["type"],
+        strike=strike if isinstance(strike, (int, float)) and not isinstance(strike, bool) else None,
+        expiration=exp if isinstance(exp, str) else None,
+    )
+
+
+@app.post("/api/tito-watchlist")
+async def tito_watchlist_post(request: Request):
+    from wbj.tito.outbox_store import load_outbox, save_outbox
+    from wbj.tito.watchlist import (add_to_outbox, broker_by_id,
+                                    mark_outbox_failed, mark_outbox_synced)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Cuerpo inválido."})
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={"error": "Cuerpo inválido."})
+
+    broker_id = body.get("broker") or "robinhood"
+    broker = broker_by_id(broker_id) if isinstance(broker_id, str) else None
+    if not broker:
+        return JSONResponse(status_code=400, content={"error": "Broker desconocido."})
+
+    ahora = datetime.now(timezone.utc)
+    items = load_outbox()["items"]
+
+    sincro = body.get("synced")
+    if isinstance(sincro, list) and sincro:
+        items = mark_outbox_synced(items, [str(k) for k in sincro], broker_id, ahora)
+
+    # El drenador aparca lo irresoluble para no reintentarlo cada 15 minutos
+    # para siempre.
+    fallidos = body.get("failed")
+    if isinstance(fallidos, list) and fallidos:
+        motivo = body.get("reason")
+        motivo = motivo.strip() if isinstance(motivo, str) and motivo.strip() \
+            else "No se pudo resolver el contrato en el broker."
+        items = mark_outbox_failed(items, [str(k) for k in fallidos],
+                                   broker_id, motivo, ahora)
+
+    if "contract" in body:
+        contrato = _wl_contrato(body.get("contract"))
+        if contrato is None:
+            return JSONResponse(status_code=400, content={"error": "Contrato inválido."})
+        # Con granularidad `contracts` el broker resuelve por subyacente+tipo+
+        # strike+vencimiento (ver `contract_query`). Sin strike o sin
+        # vencimiento el contrato es insincronizable, y aceptarlo solo aplaza el
+        # fallo hasta el drenador, donde ya no hay a quién avisar. Se rechaza en
+        # la puerta.
+        if broker.granularity == "contracts" and (
+                contrato.strike is None or not contrato.expiration):
+            return JSONResponse(status_code=400, content={
+                "error": "Faltan strike o vencimiento: sin ellos no se puede "
+                         "resolver en el broker."})
+        items = add_to_outbox(items, contrato, broker, ahora)
+
+    guardado = save_outbox(items)
+    return _wl_payload(guardado["items"], broker_id)
+
+
+@app.delete("/api/tito-watchlist")
+def tito_watchlist_delete(symbol: str | None = None, ticker: str | None = None,
+                          broker: str = "robinhood"):
+    """Desencola. Con `symbol` quita ese contrato; con `ticker` quita todo lo de
+    esa empresa —que es lo que corresponde cuando el broker solo guarda
+    subyacentes—.
+
+    Conviene mandar **ambos** con granularidad `contracts`: el `ticker` es lo
+    único que alcanza a las filas viejas de solo-tickers, que con `symbol` a
+    secas eran imborrables. El filtrado vive en `remove_from_outbox`, que es
+    puro y está cubierto por tests.
+    """
+    from wbj.tito.outbox_store import load_outbox, save_outbox
+    from wbj.tito.watchlist import remove_from_outbox
+
+    if not symbol and not ticker:
+        return JSONResponse(status_code=400,
+                            content={"error": "Falta el símbolo o el ticker."})
+    items = remove_from_outbox(load_outbox()["items"],
+                               {"symbol": symbol, "ticker": ticker}, broker)
+    guardado = save_outbox(items)
+    return _wl_payload(guardado["items"], broker)
+
+
 def _tito_remember(ticker, result, now):
     """Guarda la predicción del día para que el lazo de calibración cierre.
 
@@ -5851,7 +6101,7 @@ def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
         return {"ok": False, "error": flow_error, "source": "marketsnack"}
 
     try:
-        chain, bars, spot = _tito_chain_and_bars(tk)
+        chain, bars, spot, meta_cadena = _tito_chain_and_bars(tk)
     except Exception as e:
         return {"ok": False, "error": _error_de_fuente(e, "Cadena de Massive"),
                 "source": "massive"}
@@ -5869,7 +6119,97 @@ def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
                 "source": "motor"}
     out = _tito_json(r)
     out["chain_source"] = "massive"
+    # La ficha de la empresa (`CompanyHeader`) y la cadena entera
+    # (`OptionChainTable` + `ChartPanel`). El motor no las necesita —puntúa con
+    # `chain` ya normalizada— pero son dos de sus componentes, así que viajan
+    # con el payload en vez de pedir otra ronda de red desde el navegador.
+    out["company"] = _tito_company(tk, r.spot, meta_cadena["empresa"])
+    out.update(_tito_chain_json(chain or [], meta_cadena["truncated"]))
     return out
+
+
+#: Tope de filas de cadena que viajan al panel. Su tabla las pinta TODAS, y
+#: aquí también hasta este número: por encima el payload de un subyacente muy
+#: listado (SPY pasa de 10.000 contratos) se come el tope de guardado del
+#: reporte y se perdería lo demás. El recorte se declara en `chain_meta` y la
+#: tabla lo dice en pantalla — nunca se recorta en silencio. Las que se quedan
+#: son las de mayor open interest, que es el orden en que él las sirve.
+TITO_CHAIN_MAX = int(os.environ.get("VERTEX_CHAIN_MAX", "1500") or 1500)
+
+
+def _tito_company(ticker: str, spot, c: dict | None):
+    """La `CompanyInfo` de su `types.ts`, en snake_case.
+
+    Nunca lanza: la ficha es contexto de cabecera, y quedarse sin ella no puede
+    tumbar un scorecard que ya está calculado. Sin Massive devuelve lo mínimo
+    —ticker y el spot que el motor ya usó— para que la cabecera no salga vacía.
+    """
+    base = {"ticker": ticker, "name": None, "exchange": None, "sector": None,
+            "price": _r(spot), "change": None, "change_percent": None,
+            "market_cap": None, "day_volume": None, "day_low": None,
+            "day_high": None, "prev_close": None, "employees": None,
+            "has_logo": False}
+    if not c:
+        return base
+    base.update({
+        "name": c.get("name"),
+        "sector": c.get("sector"),
+        # El spot del motor manda sobre el del snapshot: es el que ancló los
+        # nodos del GEX, los niveles y los tres targets. Que la cabecera diga
+        # un precio y la gráfica otro es exactamente el fallo que la cadena de
+        # respaldo de su `page.tsx` evita.
+        "price": _r(spot) if spot else _r(c.get("price")),
+        "change": _r(c.get("change")),
+        "change_percent": _r(c.get("change_percent"), 2),
+        "market_cap": c.get("market_cap"),
+        "day_volume": c.get("day_volume"),
+        "day_low": _r(c.get("day_low")),
+        "day_high": _r(c.get("day_high")),
+        "prev_close": _r(c.get("prev_close")),
+        # `hasLogo` es una promesa, no una comprobación: pedir el binario aquí
+        # dobla la latencia de cada scorecard. La cabecera pinta la imagen y,
+        # si `/api/tito-logo` da 404, cae a las iniciales sin que se note.
+        "has_logo": True,
+    })
+    return base
+
+
+def _tito_chain_json(chain, truncada: bool):
+    """La cadena para su `OptionChainTable` y su `ChartPanel`.
+
+    Las filas van con los mismos nombres de columna que su tabla y en el mismo
+    orden en que él las sirve (open interest descendente). `chain_meta` lleva
+    los tres números de su cabecera —contratos, vencimientos, truncado— y
+    `top_contracts` los 5 de mayor nocional, que son las líneas que su
+    `ChartPanel` dibuja sobre las velas.
+    """
+    from wbj.tito.compute import count_expirations, sort_by_open_interest_desc
+
+    orden = sort_by_open_interest_desc(list(chain))
+    recortada = orden[:TITO_CHAIN_MAX]
+
+    def fila(x):
+        return {"option_ticker": x.option_ticker, "contract_type": x.contract_type,
+                "expiration": x.expiration, "strike": _r(x.strike),
+                "open_interest": x.open_interest, "volume": x.volume,
+                "price": _r(x.price), "open_premium": _r(x.open_premium),
+                "notional_value": _r(x.notional_value), "price_source": x.price_source}
+
+    top = sorted(orden, key=lambda x: x.notional_value or 0, reverse=True)[:5]
+    return {
+        "chain": [fila(x) for x in recortada],
+        "chain_meta": {
+            "contract_count": len(orden),
+            "expiration_count": count_expirations(orden),
+            # Dos verdades distintas: `truncated` es el tope de páginas de
+            # Massive (la cadena que llegó ya venía incompleta) y `capped` es
+            # este recorte. Fundirlas escondería cuál de los dos pasó.
+            "truncated": bool(truncada),
+            "capped": len(orden) > len(recortada),
+            "shown": len(recortada),
+        },
+        "top_contracts": [fila(x) for x in top],
+    }
 
 
 def _moneyness(K, spot, opt):
@@ -10619,55 +10959,10 @@ def alerts_scan(tickers: str = "", max_tickers: int = 12):
     return {"ok": True, "checked_at": now_ms, "n": len(alerts), "alerts": alerts}
 
 
-@app.get("/api/watchlist-quote")
-def get_watchlist_quote(ticker: str):
-    """Lightweight one-shot quote for the Watchlist: price, day change, next earnings,
-    Wall Street target, and an insider signal — everything a watchlist row needs."""
-    ticker_clean = ticker.upper().strip()
-    try:
-        stock = vertex_market.Ticker(ticker_clean)
-        try:
-            info = stock.info
-        except Exception:
-            info = {}
-
-        # Live price + previous close via fast_info
-        live_price = None
-        prev_close = None
-        try:
-            fi = stock.fast_info
-            live_price = getattr(fi, "last_price", None) or getattr(fi, "regular_market_price", None)
-            prev_close = getattr(fi, "previous_close", None) or getattr(fi, "regular_market_previous_close", None)
-        except Exception:
-            pass
-        if not live_price:
-            live_price = info.get("currentPrice") or info.get("regularMarketPrice")
-        if not prev_close:
-            prev_close = info.get("previousClose")
-
-        change_pct = None
-        if live_price and prev_close and prev_close > 0:
-            change_pct = round(((live_price - prev_close) / prev_close) * 100, 2)
-
-        earnings = fetch_earnings_info(stock, info)
-        logo_url = obtener_logo(ticker_clean, info.get("website", ""))
-
-        return {
-            "ticker": ticker_clean,
-            "name": info.get("longName", ticker_clean),
-            "logo_url": logo_url,
-            "price": round(float(live_price), 2) if live_price else None,
-            "prev_close": round(float(prev_close), 2) if prev_close else None,
-            "change_pct": change_pct,
-            "target_mean": info.get("targetMeanPrice"),
-            "target_upside_pct": round(((info.get("targetMeanPrice") - live_price) / live_price) * 100, 2)
-                                  if (info.get("targetMeanPrice") and live_price) else None,
-            "next_earnings_label": earnings.get("label"),
-            "next_earnings_days": earnings.get("days_until"),
-            "market_cap": info.get("marketCap"),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=_error_publico(e, "/api/watchlist-quote"))
+# `/api/watchlist-quote` se eliminó con la watchlist de Vertex: era la fila de
+# cotización de aquella rejilla de tickers y no la llamaba nadie más. El radar
+# (`/api/watchlist-radar`) y el escaneo (`/api/alerts/scan`) SIGUEN: son la
+# campana, y ahora leen los subyacentes de la watchlist de contratos de Víctor.
 def _dir_hit(rec, ret, flat=5.0):
     """Acierto direccional crudo (se usa para todos los buckets).
     M-09: normaliza primero, para que las filas guardadas con el esquema

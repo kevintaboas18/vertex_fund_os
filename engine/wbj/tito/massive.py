@@ -44,6 +44,7 @@ __all__ = [
     "ChainResult",
     "DailyBar",
     "fetch_company",
+    "fetch_logo_image",
     "fetch_wheel_chain",
     "WheelChainQuote",
     "WheelChainResult",
@@ -335,6 +336,59 @@ def fetch_company(ticker: str, timeout: float = 12.0) -> dict | None:
         "day_volume": (t.get("day") or {}).get("v"),
         "prev_close": (t.get("prevDay") or {}).get("c"),
     }
+
+
+def fetch_logo_image(
+    ticker: str, timeout: float = 12.0
+) -> tuple[bytes, str] | None:
+    """Port de su `fetchLogoImage` — el logo de la empresa, en bytes.
+
+    Su ruta ``/api/logo`` existe por una razón que no es estética: la URL del
+    logo que da Massive **exige la Authorization**, así que el navegador no
+    puede pedirla directamente sin que la clave viaje al cliente. El servidor
+    la baja y la reenvía; la credencial no sale de aquí.
+
+    Devuelve ``(bytes, content_type)`` o ``None``. Como en su código, cualquier
+    fallo es ``None`` y no una excepción: una empresa sin logo es lo normal,
+    no un error del panel.
+    """
+    try:
+        key = _api_key()
+    except MassiveError:
+        return None
+    clean = (ticker or "").strip().upper()
+    if not clean:
+        return None
+    try:
+        det = _get(
+            f"{BASE_URL}/v3/reference/tickers/{urllib.parse.quote(clean)}",
+            key, clean, timeout,
+        )
+    except MassiveError:
+        return None
+    marca = ((det or {}).get("results") or {}).get("branding") or {}
+    # Su `?? icon_url`: el logo ancho primero, el cuadrado de respaldo.
+    url = marca.get("logo_url") or marca.get("icon_url")
+    if not url or not isinstance(url, str):
+        return None
+    # La Authorization viaja SOLO si la URL apunta al propio dominio de Massive
+    # —que es de donde sirve el binario—. No es una diferencia con su código:
+    # ningún host ajeno aceptaría un bearer de Massive, así que la petición es
+    # la misma en todos los casos reales. Lo que evita es que una URL torcida
+    # en la respuesta mande la credencial a un tercero.
+    mismo = urllib.parse.urlparse(url).netloc == urllib.parse.urlparse(BASE_URL).netloc
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {key}"} if mismo else {}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            datos = res.read()
+            tipo = res.headers.get("content-type") or "image/png"
+    except Exception:
+        return None                    # su `if (!res.ok) return null`
+    if not datos:
+        return None
+    return datos, tipo
 
 
 @dataclass(frozen=True)

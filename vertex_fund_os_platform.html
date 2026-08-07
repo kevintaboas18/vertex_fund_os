@@ -389,7 +389,6 @@
             <button class="hidden xl:block hover:text-white transition">Vertex Credit Division</button>
             <button onclick="switchView('portfolioView')" class="hover:text-white transition" data-i18n="nav.portfolio">Portfolio</button>
             <button onclick="switchView('projectionsView')" class="hover:text-white transition" data-i18n="nav.proyecciones">Proyecciones</button>
-            <button onclick="switchView('watchlistView')" class="hover:text-white transition" data-i18n="nav.watchlist">Watchlist</button>
             <button onclick="switchView('trackRecordView')" class="hover:text-white transition" data-i18n="nav.track">Track Record</button>
         </div>
     </div>
@@ -425,7 +424,7 @@
                         </div>
                     </div>
                     <div id="notifList" class="max-h-80 overflow-y-auto p-2 space-y-1.5"></div>
-                    <p class="text-[8px] text-gray-600 px-3 py-2 border-t border-gray-800">Escanea tu watchlist cada 3 min · earnings, flujo Tipo A, precio pegado a muros</p>
+                    <p class="text-[8px] text-gray-600 px-3 py-2 border-t border-gray-800">Escanea los subyacentes que marcaste en Proyecciones cada 3 min · earnings, flujo Tipo A, precio pegado a muros</p>
                 </div>
             </div>
             <!-- El nombre abre el menú de cuenta: perfil, tema e idioma. Antes
@@ -525,7 +524,6 @@
             <button class="mnav-item" data-view="reportsView"     onclick="mobileGo('reportsView')"><i data-lucide="file-text" class="w-4 h-4"></i> Reports</button>
             <button class="mnav-item" data-view="portfolioView"   onclick="mobileGo('portfolioView')"><i data-lucide="briefcase" class="w-4 h-4"></i> Portfolio</button>
             <button class="mnav-item" data-view="projectionsView" onclick="mobileGo('projectionsView')"><i data-lucide="trending-up" class="w-4 h-4"></i> Proyecciones</button>
-            <button class="mnav-item" data-view="watchlistView"   onclick="mobileGo('watchlistView')"><i data-lucide="eye" class="w-4 h-4"></i> Watchlist</button>
             <button class="mnav-item" data-view="trackRecordView" onclick="mobileGo('trackRecordView')"><i data-lucide="target" class="w-4 h-4"></i> Track Record</button>
             <button class="mnav-item" disabled><i data-lucide="landmark" class="w-4 h-4"></i>
                 <span class="flex-1">Vertex Credit Division<span class="block text-[10px] font-normal text-gray-600">Proximamente</span></span>
@@ -2699,6 +2697,24 @@ function projIsMarketOpen() {
     } catch (e) { return false; }
 }
 
+let vcLoaderTimer = null;
+/** Hace avanzar el loader mientras la petición está en vuelo.
+ *
+ *  Su componente recibe los pasos reales de dos streams en paralelo; aquí la
+ *  ruta es UNA llamada que no informa de su progreso, así que el contador
+ *  avanza con el reloj. La curva y el tope del 97% son los suyos, que es lo
+ *  que garantiza que la barra no retroceda ni parpadee. */
+function vcLoaderArranca(ticker) {
+    vcLoaderPara();
+    let n = 0;
+    vcLoaderTimer = setInterval(() => {
+        const caja = document.getElementById('projEmpty');
+        if (!caja || caja.classList.contains('hidden')) return vcLoaderPara();
+        caja.innerHTML = vcLoaderHTML(ticker, ++n);
+    }, 450);
+}
+function vcLoaderPara() { if (vcLoaderTimer) { clearInterval(vcLoaderTimer); vcLoaderTimer = null; } }
+
 async function loadProjections(tickerArg, opts) {
     opts = opts || {};
     const silent = !!opts.silent;
@@ -2722,7 +2738,11 @@ async function loadProjections(tickerArg, opts) {
     const content = document.getElementById('projContent');
     if (!silent) {
         empty.classList.remove('hidden');
-        empty.innerHTML = `<i data-lucide="loader" class="w-8 h-8 text-blue-500 mx-auto mb-3 animate-spin"></i><p class="text-sm text-gray-400">Analizando el flujo de ${ticker}…</p>`;
+        // Su `AnalysisLoader`: cuatro fases y una barra que solo avanza. El
+        // contador sube mientras la petición está en vuelo, que es lo que su
+        // componente hace con el número de pasos del stream.
+        empty.innerHTML = vcLoaderHTML(ticker, 0);
+        vcLoaderArranca(ticker);
         content.classList.add('hidden');
         if (window.lucide) lucide.createIcons();
     }
@@ -2750,6 +2770,7 @@ async function loadProjections(tickerArg, opts) {
     } catch (e) {
         if (!silent) empty.innerHTML = `<p class="text-sm text-red-400">Error: ${e.message}</p>`;
     } finally {
+        vcLoaderPara();
         if (silent) {
             if (_scrollY != null) {
                 const restore = () => window.scrollTo(0, _scrollY);
@@ -2821,7 +2842,7 @@ function vcAbreTab(id) {
     if (busca) busca.classList.toggle('hidden', id !== 'ticker' && id !== 'tape');
     vcPintaVivo();
     if (vcTabCargada[id]) return;
-    if (id === 'ideas') { vcTabCargada.ideas = true; loadProjIdeas(); }
+    if (id === 'ideas') { vcTabCargada.ideas = true; wlArranca(); loadProjIdeas(); }
     if (id === 'wheel') { vcTabCargada.wheel = true; loadProjWheel(); }
     if (id === 'tape')  { const t = (document.getElementById('projTicker') || {}).value;
                           if (t) { vcTabCargada.tape = true; loadProjTape(); } }
@@ -3207,8 +3228,17 @@ function renderProjIdeas(d) {
     }
 
     const cabeceraPerfil = vcCabeceraPerfil(d.perfil, ideas.length);
+    // Su `RiskProfileCard` y su `WatchlistCard`, arriba del screener como en su
+    // página. La tabla de ideas guarda el payload para que ⭐ pueda construir la
+    // entrada con el sizing EXACTO de esta corrida.
+    window._vcIdeas = d;
+    const _riesgo = document.getElementById('projRiesgo');
+    if (_riesgo) _riesgo.innerHTML = vcRiesgoHTML(d.perfil);
+    renderProjWatchlist();
 
+    const _guardados = new Set(wlLocalCarga().map(e => e.symbol));
     const filas = ideas.map(i => {
+        const marcada = _guardados.has(i.symbol);
         const h = i.history;
         const t = i.type === 'call' ? 'C' : 'P';
         // Cuántos contratos te caben. `null` = el motor no pudo dimensionar;
@@ -3229,7 +3259,10 @@ function renderProjIdeas(d) {
             <td class="py-2 pr-3 text-right text-[9px] ${h ? 'text-gray-300' : 'text-gray-600'}"
                 title="${h ? `${h.resolved} flows de este ticker ya juzgados por el sub-agente 6` : 'aún no hay historial guardado de este ticker'}">${
                 h && h.hit_rate != null ? `${Math.round(h.hit_rate)}% <span class="text-gray-600">(${h.resolved})</span>` : '&mdash;'}</td>
-            <td class="py-2 text-right text-[10px]">${cabe}</td></tr>`;
+            <td class="py-2 pr-3 text-right text-[10px]">${cabe}</td>
+            <td class="py-2 text-right"><button onclick="event.stopPropagation();${marcada ? `wlQuita('${_vcEsc(i.symbol)}')` : `wlMarca('${_vcEsc(i.id)}')`}"
+                title="${marcada ? 'Quitar del watchlist' : 'Guardar en tu watchlist con el sizing de ahora'}"
+                class="${marcada ? 'text-amber-400' : 'text-gray-700 hover:text-amber-400'} text-sm leading-none">&#9733;</button></td></tr>`;
     }).join('');
 
     caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
@@ -3245,7 +3278,7 @@ function renderProjIdeas(d) {
             <th class="text-right pb-1.5 pr-3">DTE</th><th class="text-right pb-1.5 pr-3">Dinero</th>
             <th class="text-right pb-1.5 pr-3">Lado</th><th class="text-right pb-1.5 pr-3">Theta/d&iacute;a</th>
             <th class="text-right pb-1.5 pr-3">Inusualidad</th><th class="text-right pb-1.5 pr-3">Acierto hist.</th>
-            <th class="text-right pb-1.5">Te cabe</th></tr></thead>
+            <th class="text-right pb-1.5 pr-3">Te cabe</th><th class="text-right pb-1.5">&#9733;</th></tr></thead>
           <tbody>${filas}</tbody></table></div>
         <p class="text-[9px] text-gray-600 mt-2 leading-relaxed">${nota}</p>
         <p class="text-[9px] text-gray-600 mt-1 italic">&laquo;Te cabe&raquo; es el TECHO de contratos que tu perfil aguanta &mdash; no una orden de compra. Sale del mismo <code>risk.py</code> que usa la Wheel: capital, tolerancia y quema de theta hasta tu horizonte. Esto sigue siendo un screener de research.</p>
@@ -3647,6 +3680,36 @@ function renderVictorProjChart(containerId, d, horizon) {
 
     cont.innerHTML = `<svg width="100%" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" style="display:block">${parts.join('')}</svg>`
         + `<p class="chart-cite">US$/acción · histórico sólido · proyección punteada dentro del cono 1σ/2σ · simulación ilustrativa, no exacta — motor de Víctor (Tito)</p>`;
+
+    // Su `ChartCrosshair`: la cruz que sigue al cursor con el tooltip de la
+    // vela (A/M/m/C) dentro del histórico y el precio proyectado pasada la
+    // frontera AHORA. Se cablea con las MISMAS escalas con las que se dibujó —
+    // recalcularlas aparte era la vía rápida a dos sistemas de coordenadas
+    // peleándose, que es de donde venían el futuro comprimido y los targets
+    // encimados que este motor vino a arreglar.
+    //
+    // Las velas visibles pueden ser MENOS que el histórico: `vcBuildScales`
+    // recorta las que no caben con ancho legible. Se indexa contra `S.candles`,
+    // que es lo que de verdad se pintó, y se toma la barra por la cola.
+    const _vis = hist.slice(hist.length - S.candles.length);
+    vcCrosshairCablea(cont, {
+        width, height,
+        plotLeft: S.plotLeft, plotRight: S.plotRight, plotTop: S.plotTop, plotBottom: S.plotBottom,
+        bars: _vis,
+        priceAt: y => domain.min + ((S.plotBottom - y) / Math.max(1, S.plotBottom - S.plotTop)) * (domain.max - domain.min),
+        barAt: x => {
+            if (x > S.xNow || !S.candles.length) return null;
+            let mejor = 0, dist = Infinity;
+            for (let i = 0; i < S.candles.length; i++) {
+                const dd = Math.abs(S.candles[i].cx - x);
+                if (dd < dist) { dist = dd; mejor = i; }
+            }
+            const b = _vis[mejor];
+            return b ? Object.assign({ label: String(b.time || '').slice(5) }, b) : null;
+        },
+        daysAt: x => x <= S.xNow ? null
+            : ((x - S.xNow) / Math.max(1, S.plotRight - S.xNow)) * (horizon > 0 ? horizon : 1),
+    });
 }
 
 /** Noticias en dos capas + bandera de contradicción (Tarea 7).
@@ -3734,6 +3797,15 @@ async function vcLoadNews(d) {
 function vcSyncCabecera(d) {
     const t = document.getElementById('projChartTitle');
     if (t && d.spot != null) t.innerText = `${d.ticker} · $${Number(d.spot).toFixed(2)}`;
+    // El `hb-right` de su `HeaderBar`: nombre, precio y variación, arriba y
+    // siempre visibles. Lo único de esa barra que NO se copia es su wordmark.
+    const hb = document.getElementById('projHbRight');
+    if (hb) {
+        const c = d.company;
+        hb.innerHTML = !c ? '' : `<span class="text-[11px] text-gray-300 font-bold truncate max-w-[180px]">${_vcEsc(c.name || c.ticker)}</span>`
+            + (c.price != null ? `<span class="text-[12px] font-black text-white">$${VC_PX.format(c.price)}</span>` : '')
+            + (c.change_percent != null ? `<span class="text-[11px] font-bold" style="color:${c.change_percent >= 0 ? '#12b76a' : '#f04438'}">${VC_PCT.format(c.change_percent)}%</span>` : '');
+    }
     const b = document.getElementById('projRegimeBadge');
     if (!b || !d.gex) return;
     const pos = d.gex.regime === 'positive';
@@ -4328,6 +4400,7 @@ function renderVictorTargets(d) {
 
     el.innerHTML = `
       ${vcApagadosHTML(d)}
+      ${vcCompanyHTML(d)}
       <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
         <div class="flex items-center gap-1.5"><span class="text-[9px] text-gray-500 uppercase font-bold tracking-wider mr-0.5">Horizonte</span>${tabs}</div>
         <span class="text-[10px] text-gray-400">Score <b class="text-white">${d.score}</b>/100 · ${_vcEsc(d.verdict)}</span>
@@ -4348,10 +4421,20 @@ function renderVictorTargets(d) {
       ${vcHeatmapHTML(d)}
       ${vcClustersHTML(d)}
       ${vcMemoryHTML(d)}
+      <!-- El cierre de su bloque de detalle: el dinero por vela, los cinco
+           strikes de más nocional sobre el precio y la cadena entera. -->
+      <div id="projFlowMoney" class="mt-3"></div>
+      <div id="projTop5" class="mt-3"></div>
+      <div id="projChain" class="mt-3"></div>
       <div id="vcNews">${d.news ? vcNewsHTML(d.news) : ''}</div>
       ${warn ? `<div class="mt-2 space-y-0.5">${warn}</div>` : ''}`;
 
     vcTablaResponsive('projTargets');
+    // Estas tres pintan sobre `<canvas>`/`innerHTML` propios y por eso van
+    // DESPUÉS de escribir el HTML: Chart.js necesita el nodo ya en el DOM.
+    renderProjFlowMoney(d);
+    renderProjTop5(d);
+    vcPintaCadena(d);
 
     // Las noticias se cargan APARTE, como en la app de Víctor: 4 feeds RSS
     // lentos no pueden retrasar los targets, que es lo que de verdad importa.
@@ -4433,6 +4516,12 @@ function renderProjections(d) {
             : `<p class="text-xs text-gray-500 italic">Sin trades inusuales en la ventana de 30 días.</p>`;
     }
 
+    // Sus dos tarjetas de la fila de arriba, con SUS números.
+    const _act = document.getElementById('projActivity');
+    if (_act) _act.innerHTML = vcActivityHTML(d);
+    const _mf = document.getElementById('projMoneyFlow');
+    if (_mf) _mf.innerHTML = vcMoneyFlowHTML(d);
+
     renderProjGammaPorStrike(d);
     vcTablaResponsive('projUnusual');
     if (window.lucide) lucide.createIcons();
@@ -4490,6 +4579,816 @@ function renderProjGammaPorStrike(d) {
         + 'anclada con la gamma real del tape de MarketSnack'
         + (flip != null ? ` · gamma flip en $${Number(flip).toFixed(2)}` : '')
         + (spot ? ` · spot $${spot.toFixed(2)}` : '');
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SUS DOCE COMPONENTES QUE FALTABAN
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// Estaban declarados en el registro de la auditoría como "no portados, con su
+// motivo". El motivo era razonable uno a uno y equivocado en conjunto: entre
+// todos son la mitad de la evidencia que su panel enseña —la ficha de la
+// empresa, el reparto del dinero del día, la cadena entera, tu watchlist— y
+// resumirla no es lo mismo que enseñarla.
+//
+// Aquí están los doce, con SUS números y SU orden:
+//
+//   HeaderBar · AnalysisLoader · CompanyHeader · ActivityCard · MoneyFlowCard
+//   FlowPriceChart · OptionChainTable · WatchlistCard · RiskProfileCard
+//   RepeatBadge · ChartPanel · ChartCrosshair
+//
+// Lo único que NO se copia es su marca: el wordmark «Tito Metralleta» de
+// `HeaderBar` no va, porque esta pantalla es Vertex. El logo de la EMPRESA
+// analizada (el de AAPL) sí, que es información y no marca.
+
+// ── Sus formateadores (`format.ts`), uno a uno ───────────────────────────────
+// Son `Intl.NumberFormat` con SUS opciones. Importa que sean los suyos: su
+// `money` es notación compacta con 2 decimales ("$1.23M"), que no es lo mismo
+// que el `fmtAbbr` de Vertex ("$1.2M"), y las dos cifras se pintan juntas.
+const VC_INT   = new Intl.NumberFormat('en-US');
+const VC_MONEY = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 2 });
+const VC_MONEY0= new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+const VC_PX    = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const VC_PCT   = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'always' });
+const VC_ET    = 'America/New_York';
+
+/** `dateET` suyo: la fecha del MERCADO, no la del navegador. Un trade de las
+ *  22:00 UTC es del mismo día bursátil que uno de las 15:00 ET, y agruparlos
+ *  por la fecha local partiría el día en dos en media Europa. */
+function vcDateET(ts) {
+    try { return new Date(ts).toLocaleDateString('en-US', { timeZone: VC_ET, month: 'short', day: 'numeric' }); }
+    catch (e) { return ''; }
+}
+function vcTimeET(ts) {
+    try { return new Date(ts).toLocaleTimeString('en-US', { timeZone: VC_ET, hour12: false }); }
+    catch (e) { return ts; }
+}
+
+// ── CompanyHeader.tsx ────────────────────────────────────────────────────────
+/** La ficha de la empresa con SU logo.
+ *
+ *  El logo viene por `/api/tito-logo`, que es su `/api/logo`: la URL que da
+ *  Massive EXIGE la Authorization, así que el binario lo baja el servidor y la
+ *  clave no sale de ahí. Si no hay logo la etiqueta cae a las iniciales — un
+ *  `onerror` que se quita a sí mismo, no un hueco.
+ */
+function vcCompanyHTML(d) {
+    const c = d.company;
+    if (!c) return '';
+    const px = v => v == null ? '—' : '$' + VC_PX.format(v);
+    const sub = [c.exchange, c.sector].filter(Boolean).join(' · ') || '—';
+    const sube = c.change_percent != null && c.change_percent >= 0;
+    const iniciales = _vcEsc(String(c.ticker || '').slice(0, 2));
+    const logo = c.has_logo
+        ? `<img src="${API_BASE}/api/tito-logo?ticker=${encodeURIComponent(c.ticker)}" alt="Logo de ${_vcEsc(c.ticker)}"
+             class="w-9 h-9 rounded-lg object-contain bg-white/90 p-1 flex-shrink-0"
+             onerror="this.onerror=null;this.outerHTML='<div class=\\'w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center text-[11px] font-black text-gray-300 flex-shrink-0\\'>${iniciales}</div>'">`
+        : `<div class="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center text-[11px] font-black text-gray-300 flex-shrink-0">${iniciales}</div>`;
+    const stat = (lbl, val) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
+        <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">${lbl}</div>
+        <div class="text-[12px] font-bold text-gray-100">${val}</div></div>`;
+    return `<section class="bg-panel border border-panel rounded-2xl p-4 mb-3">
+      <div class="flex items-center gap-3 flex-wrap mb-3">
+        ${logo}
+        <div class="min-w-0">
+          <div class="text-sm font-black text-white flex items-center gap-2 flex-wrap">${_vcEsc(c.name || c.ticker)}
+            <span class="text-[10px] font-mono text-gray-500 bg-white/5 rounded px-1.5 py-0.5">${_vcEsc(c.ticker)}</span></div>
+          <div class="text-[10px] text-gray-500">${_vcEsc(sub)}</div>
+        </div>
+        ${c.price != null ? `<div class="ml-auto text-right">
+          <div class="text-lg font-black text-white">${px(c.price)}</div>
+          ${c.change_percent != null ? `<div class="text-[11px] font-bold ${sube ? 'text-emerald-400' : 'text-red-400'}">${
+            c.change != null ? px(c.change) + ' ' : ''}(${VC_PCT.format(c.change_percent)}%)</div>` : ''}
+        </div>` : ''}
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        ${stat('Stock Price', px(c.price))}
+        ${stat('Market Cap', c.market_cap != null ? VC_MONEY.format(c.market_cap) : '—')}
+        ${stat('Volumen (día)', c.day_volume != null ? VC_INT.format(c.day_volume) : '—')}
+        ${stat('Rango del día', (c.day_low != null && c.day_high != null) ? `${px(c.day_low)} – ${px(c.day_high)}` : '—')}
+        ${stat('Cierre previo', px(c.prev_close))}
+        ${stat('Empleados', c.employees != null ? VC_INT.format(c.employees) : '—')}
+      </div></section>`;
+}
+
+// ── AnalysisLoader.tsx ───────────────────────────────────────────────────────
+/** Sus cuatro fases con la barra que solo AVANZA.
+ *
+ *  Su comentario explica el porqué y aquí vale igual: el backend da decenas de
+ *  pasos técnicos que cambian a toda velocidad y se ven como un glitch. Se
+ *  colapsan en 4 fases y una curva asintótica —`1 - e^(-n/16)`, topada al
+ *  97%— que nunca retrocede ni parpadea.
+ */
+const VC_FASES = ['Conectando con el mercado', 'Leyendo el flujo de opciones',
+                  'Descargando la cadena de opciones', 'Calculando escenarios y niveles'];
+function vcLoaderHTML(ticker, pasos) {
+    const progreso = Math.min(0.97, 1 - Math.exp(-(pasos || 0) / 16));
+    const fase = progreso < 0.30 ? 0 : progreso < 0.60 ? 1 : progreso < 0.85 ? 2 : 3;
+    const pct = Math.round(progreso * 100);
+    const nodos = VC_FASES.map((lbl, i) => {
+        const cls = i < fase ? 'text-emerald-400' : i === fase ? 'text-blue-400' : 'text-gray-600';
+        const marca = i < fase ? '✓' : (i + 1);
+        return `<div class="flex items-center gap-1.5 ${cls}">
+            <span class="w-4 h-4 rounded-full border border-current text-[9px] flex items-center justify-center font-bold flex-shrink-0">${marca}</span>
+            <span class="text-[10px] font-bold whitespace-nowrap">${lbl}</span></div>`;
+    }).join('');
+    return `<div class="max-w-2xl mx-auto">
+      <div class="flex items-center justify-center gap-3 flex-wrap mb-3">${nodos}</div>
+      <div class="flex items-center gap-2">
+        <div class="flex-1 h-1.5 bg-[#0B0E14] border border-gray-800 rounded-full overflow-hidden">
+          <div class="h-full bg-blue-500 transition-all duration-500" style="width:${pct}%"></div></div>
+        <span class="text-[10px] font-mono text-gray-400 w-9 text-right">${pct}%</span></div>
+      <p class="text-[11px] text-gray-400 mt-2">Analizando ${_vcEsc(ticker || 'el ticker')} — ${VC_FASES[fase]}…</p></div>`;
+}
+
+// ── RepeatBadge.tsx ──────────────────────────────────────────────────────────
+/** `repeatKey` suyo: mismo subyacente, strike, tipo y vencimiento = mismo
+ *  contrato. El `?? ""` del vencimiento importa — dos filas sin vencimiento son
+ *  el mismo contrato, no dos distintos. */
+function vcRepeatKey(r) {
+    return `${r.underlying || r.ticker}|${r.strike}|${r.type}|${r.expiration == null ? '' : r.expiration}`;
+}
+/** Cuántas veces aparece cada contrato en el conjunto de filas. */
+function vcRepeatCounts(rows) {
+    const m = new Map();
+    for (const r of (rows || [])) { const k = vcRepeatKey(r); m.set(k, (m.get(k) || 0) + 1); }
+    return m;
+}
+/** Su burbuja. El `Math.max(count, 2)` es suyo: la insignia solo se pinta
+ *  cuando hay repetición, así que un 1 sería un contrasentido en pantalla. */
+function vcRepeatBadge(count) {
+    return `<span class="text-[9px] text-amber-400 ml-1" title="Contrato repetido — ${count} operaciones sobre el mismo strike">🔁 ×${Math.max(count, 2)}</span>`;
+}
+
+// ── ActivityCard.tsx ─────────────────────────────────────────────────────────
+/** Unusual Options Activity — premium notable por día, calls contra puts.
+ *
+ *  Los días se ordenan por el TIMESTAMP real del primer trade de cada uno, no
+ *  por la etiqueta: `dateET` da "Jul 23" y ordenar eso alfabéticamente pone
+ *  agosto antes que julio. Es su comentario y su bug evitado.
+ */
+function vcActivityHTML(d) {
+    const rows = d.conviction_rows || [];
+    if (!rows.length) return '';
+    const porDia = new Map(), primero = new Map();
+    for (const r of rows) {
+        const dia = vcDateET(r.timestamp);
+        if (!dia) continue;
+        const e = porDia.get(dia) || { call: 0, put: 0 };
+        if (r.type === 'call') e.call += Number(r.premium) || 0;
+        else if (r.type === 'put') e.put += Number(r.premium) || 0;
+        porDia.set(dia, e);
+        const t = Date.parse(r.timestamp);
+        if (!primero.has(dia) || t < primero.get(dia)) primero.set(dia, t);
+    }
+    const dias = [...porDia.entries()]
+        .sort((a, b) => (primero.get(a[0]) || 0) - (primero.get(b[0]) || 0))
+        .slice(-7)
+        .map(([dia, v]) => ({ dia, call: v.call, put: v.put }));
+    if (!dias.length) return '';
+    const maxV = Math.max(1, ...dias.map(x => Math.max(x.call, x.put)));
+    const hoy = dias[dias.length - 1];
+    const barras = dias.map(x => `<div class="flex-1 flex flex-col items-center gap-0.5"
+        title="${_vcEsc(x.dia)}: Calls ${VC_MONEY.format(x.call)} · Puts ${VC_MONEY.format(x.put)}">
+        <div class="w-full flex items-end justify-center gap-0.5" style="height:110px">
+          <div class="w-1/2 rounded-t" style="background:#12b76a;height:${Math.max(3, Math.round((x.call / maxV) * 110))}px"></div>
+          <div class="w-1/2 rounded-t" style="background:#f97066;height:${Math.max(3, Math.round((x.put / maxV) * 110))}px"></div>
+        </div></div>`).join('');
+    const etiquetas = dias.map((x, i) => `<div class="flex-1 text-center text-[8px] text-gray-500">${
+        i === dias.length - 1 ? 'Hoy' : _vcEsc(x.dia)}</div>`).join('');
+    const stat = (lbl, val, col) => `<div><div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold">${lbl}</div>
+        <div class="text-sm font-black ${col || 'text-gray-100'}">${val}</div></div>`;
+    return `<section class="bg-panel border border-panel rounded-2xl p-4">
+      <div class="flex items-start justify-between gap-3 flex-wrap mb-3">
+        <div><h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Unusual Options Activity</h3>
+          <p class="text-[10px] text-gray-500 italic mt-0.5">Dinero grande detectado cada día. Verde = apuestas a que sube (calls), rojo = a que baja (puts).</p></div>
+        <div class="flex gap-3 text-[10px] text-gray-500 whitespace-nowrap">
+          <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full inline-block" style="background:#12b76a"></span>Calls</span>
+          <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full inline-block" style="background:#f97066"></span>Puts</span></div>
+      </div>
+      <div class="flex items-end gap-1">${barras}</div>
+      <div class="flex gap-1 mt-1">${etiquetas}</div>
+      <div class="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-gray-800">
+        ${stat('Premium en calls (últ. día)', hoy ? VC_MONEY.format(hoy.call) : '—', 'text-emerald-400')}
+        ${stat('Premium en puts (últ. día)', hoy ? VC_MONEY.format(hoy.put) : '—', 'text-red-400')}
+        ${stat('Trades inusuales detectados', VC_INT.format((d.unusual || []).length))}
+      </div></section>`;
+}
+
+// ── MoneyFlowCard.tsx ────────────────────────────────────────────────────────
+/** Today's Money Flow — cuánto del dinero notable apuesta al alza vs a la baja,
+ *  más los cuatro azulejos de su tarjeta.
+ *
+ *  El `putPct` sale de `100 - Math.round(call/total*100)`, NO de redondear el
+ *  put por separado: así las dos mitades suman 100 siempre y la barra no deja
+ *  un pelo blanco en medio. Es suyo y es a propósito.
+ */
+function vcMoneyFlowHTML(d) {
+    const rows = d.conviction_rows || [];
+    if (!rows.length) return '';
+    let call = 0, put = 0, top = null;
+    for (const r of rows) {
+        const p = Number(r.premium) || 0;
+        if (r.type === 'call') call += p; else if (r.type === 'put') put += p;
+        if (!top || p > (Number(top.premium) || 0)) top = r;
+    }
+    const total = call + put;
+    const callPct = total > 0 ? Math.round((call / total) * 100) : 50;
+    const putPct  = total > 0 ? 100 - Math.round((call / total) * 100) : 50;
+    const pc = call > 0 ? put / call : null;
+    const conv = (d.subagents || {}).conviction, st = d.structure;
+    const azulejos = [];
+    if (top) azulejos.push({
+        lbl: 'Trade más grande', val: VC_MONEY.format(Number(top.premium) || 0),
+        sub: `${top.underlying || d.ticker} ${top.strike != null ? VC_PX.format(top.strike) : ''}${top.type === 'call' ? 'C' : 'P'} · vence ${top.expiration || '—'}`,
+        col: top.type === 'call' ? 'text-emerald-400' : 'text-red-400' });
+    if (pc != null) azulejos.push({
+        lbl: 'Ratio Put/Call', val: pc.toFixed(2),
+        sub: pc < 0.7 ? 'Alcista (< 0.7)' : pc > 1 ? 'Bajista (> 1.0)' : 'Equilibrado',
+        col: pc < 0.7 ? 'text-emerald-400' : pc > 1 ? 'text-red-400' : 'text-gray-100' });
+    if (conv && conv.spread) azulejos.push({
+        lbl: 'Spread promedio',
+        val: conv.spread.avg_pct != null ? Number(conv.spread.avg_pct).toFixed(2) + '%' : '—',
+        sub: (conv.spread.avg_pct != null && conv.spread.avg_pct < 2) ? 'Muy líquido' : 'Liquidez media',
+        col: 'text-gray-100' });
+    if (st && st.vol_oi) azulejos.push({
+        lbl: 'Volumen > Open Interest', val: Number(st.vol_oi.pct).toFixed(0) + '%',
+        sub: 'Posiciones nuevas abriéndose',
+        col: st.vol_oi.pct >= 50 ? 'text-emerald-400' : 'text-gray-100' });
+    return `<section class="bg-panel border border-panel rounded-2xl p-4">
+      <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Today's Money Flow</h3>
+      <p class="text-[10px] text-gray-500 italic mt-0.5 mb-3">De todo el dinero notable en opciones de ${_vcEsc(d.ticker)}, cuánto apuesta al alza vs a la baja.</p>
+      <div class="flex h-2.5 rounded-full overflow-hidden">
+        <div style="background:#12b76a;width:${callPct}%"></div>
+        <div style="background:#f97066;width:${putPct}%"></div></div>
+      <div class="flex justify-between mt-2 text-[11px] font-bold">
+        <span class="text-emerald-400">${callPct}% alcista</span>
+        <span class="text-red-400">${putPct}% bajista</span></div>
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3">
+        ${azulejos.map(t => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
+          <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">${t.lbl}</div>
+          <div class="text-sm font-black ${t.col}">${t.val}</div>
+          <div class="text-[8px] text-gray-600 mt-0.5 leading-tight">${_vcEsc(t.sub)}</div></div>`).join('')}
+      </div></section>`;
+}
+
+// ── OptionChainTable.tsx ─────────────────────────────────────────────────────
+/** La cadena ENTERA, ordenable por sus ocho columnas.
+ *
+ *  El orden replica el suyo, incluido lo que hace con los nulos: `null` cae
+ *  SIEMPRE al final, mire la columna que mire y sea ascendente o descendente
+ *  (`if (av === null) return 1`). Un precio ausente no es un precio bajo.
+ */
+let vcCadenaOrden = 'open_interest', vcCadenaDir = 'desc', vcCadenaAbierta = false;
+function vcOrdenaCadena(col) {
+    if (col === vcCadenaOrden) vcCadenaDir = vcCadenaDir === 'desc' ? 'asc' : 'desc';
+    else { vcCadenaOrden = col; vcCadenaDir = (col === 'expiration' || col === 'contract_type') ? 'asc' : 'desc'; }
+    vcPintaCadena(window._vcData);
+}
+function vcAbreCadena() { vcCadenaAbierta = !vcCadenaAbierta; vcPintaCadena(window._vcData); }
+function vcPintaCadena(d) {
+    const caja = document.getElementById('projChain');
+    if (caja) { caja.innerHTML = vcCadenaHTML(d); vcTablaResponsive('projChain'); }
+}
+function vcCadenaHTML(d) {
+    const filas = d && d.chain, meta = (d && d.chain_meta) || {};
+    if (!filas || !filas.length) return '';
+    const cab = `<h3 onclick="vcAbreCadena()" class="text-xs font-extrabold text-blue-500 uppercase tracking-widest cursor-pointer select-none flex items-center gap-2">
+        <span>${vcCadenaAbierta ? '▾' : '▸'}</span> Option Chain completo
+        <span class="text-gray-500 normal-case font-normal tracking-normal">— ${VC_INT.format(meta.contract_count || filas.length)} contratos</span></h3>`;
+    if (!vcCadenaAbierta) return `<section class="bg-panel border border-panel rounded-2xl p-4">${cab}</section>`;
+
+    const dir = vcCadenaDir === 'asc' ? 1 : -1;
+    const orden = filas.slice().sort((a, b) => {
+        const av = a[vcCadenaOrden], bv = b[vcCadenaOrden];
+        if (av === null || av === undefined) return 1;
+        if (bv === null || bv === undefined) return -1;
+        if (typeof av === 'string' && typeof bv === 'string') return av.localeCompare(bv) * dir;
+        return (av - bv) * dir;
+    });
+    const tot = filas.reduce((a, r) => {
+        a.open_interest += Number(r.open_interest) || 0;
+        a.volume += Number(r.volume) || 0;
+        a.open_premium += Number(r.open_premium) || 0;
+        a.notional_value += Number(r.notional_value) || 0;
+        return a;
+    }, { open_interest: 0, volume: 0, open_premium: 0, notional_value: 0 });
+    const flecha = k => k === vcCadenaOrden ? (vcCadenaDir === 'desc' ? ' ↓' : ' ↑') : '';
+    const th = (k, lbl, der) => `<th onclick="vcOrdenaCadena('${k}')" class="pb-1.5 pr-3 cursor-pointer select-none hover:text-gray-300 ${der ? 'text-right' : 'text-left'}">${lbl}${flecha(k)}</th>`;
+    const na = '<span class="text-gray-600">n/a</span>';
+    return `<section class="bg-panel border border-panel rounded-2xl p-4">
+      ${cab}
+      <div class="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-gray-500 mt-2 mb-2">
+        <span><b class="text-gray-300">${VC_INT.format(meta.contract_count || filas.length)}</b> contratos</span>
+        <span><b class="text-gray-300">${meta.expiration_count || 0}</b> vencimientos</span>
+        <span>Notional total <b class="text-gray-300" title="${VC_MONEY0.format(tot.notional_value)}">${VC_MONEY.format(tot.notional_value)}</b></span>
+        ${meta.truncated ? '<span class="text-amber-400">⚠ truncado (tope de páginas de Massive)</span>' : ''}
+        ${meta.capped ? `<span class="text-amber-400">⚠ se muestran las ${VC_INT.format(meta.shown)} de mayor open interest</span>` : ''}
+      </div>
+      <div class="vc-scroll overflow-x-auto max-h-[520px] overflow-y-auto"><table class="vc-t w-full text-[11px] min-w-[760px]">
+        <thead class="sticky top-0 bg-panel"><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+          ${th('expiration', 'Vencimiento')}${th('contract_type', 'Tipo')}${th('strike', 'Strike', 1)}
+          ${th('open_interest', 'Open Interest', 1)}${th('volume', 'Volumen', 1)}${th('price', 'Precio', 1)}
+          ${th('open_premium', 'Open Premium', 1)}${th('notional_value', 'Notional Value', 1)}</tr></thead>
+        <tbody>${orden.map(r => `<tr class="border-b border-gray-800/50">
+          <td class="py-1.5 pr-3 text-gray-400">${_vcEsc(r.expiration)}</td>
+          <td class="py-1.5 pr-3"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${r.contract_type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${_vcEsc(r.contract_type)}</span></td>
+          <td class="py-1.5 pr-3 text-right text-gray-200">${VC_PX.format(r.strike)}</td>
+          <td class="py-1.5 pr-3 text-right text-gray-300">${VC_INT.format(r.open_interest)}</td>
+          <td class="py-1.5 pr-3 text-right text-gray-300">${VC_INT.format(r.volume)}</td>
+          <td class="py-1.5 pr-3 text-right text-gray-300">${r.price != null ? VC_PX.format(r.price) : na}</td>
+          <td class="py-1.5 pr-3 text-right text-gray-300">${r.open_premium != null ? VC_MONEY.format(r.open_premium) : na}</td>
+          <td class="py-1.5 text-right text-gray-200 font-bold">${VC_MONEY.format(r.notional_value)}</td></tr>`).join('')}</tbody>
+        <tfoot><tr class="border-t border-gray-700 font-bold text-gray-200">
+          <td class="py-2 pr-3">TOTAL</td><td class="py-2 pr-3 text-gray-500 font-normal">${orden.length} filas</td>
+          <td class="py-2 pr-3 text-right text-gray-600">—</td>
+          <td class="py-2 pr-3 text-right">${VC_INT.format(tot.open_interest)}</td>
+          <td class="py-2 pr-3 text-right">${VC_INT.format(tot.volume)}</td>
+          <td class="py-2 pr-3 text-right text-gray-600">—</td>
+          <td class="py-2 pr-3 text-right">${VC_MONEY.format(tot.open_premium)}</td>
+          <td class="py-2 text-right" title="${VC_MONEY0.format(tot.notional_value)}">${VC_MONEY.format(tot.notional_value)}</td>
+        </tr></tfoot></table></div>
+      <p class="text-[9px] text-gray-600 mt-2">Precio = último trade / cierre (Massive no expone bid en este plan). Open Premium = OI × precio · Notional = OI × 100 × strike.</p>
+    </section>`;
+}
+
+// ── ChartPanel.tsx ───────────────────────────────────────────────────────────
+/** Top 5 por Notional Value: los cinco strikes con más dinero abierto,
+ *  dibujados COMO LÍNEAS sobre el precio del subyacente.
+ *
+ *  Él usa `lightweight-charts` y velas; aquí es Chart.js sobre los cierres,
+ *  que es la librería que este panel ya carga. Lo que se conserva es lo que el
+ *  gráfico DICE: dónde están los cinco strikes respecto al precio, con sus
+ *  colores y su leyenda. Sus cinco colores son literalmente los suyos.
+ */
+const VC_LINEAS = ['#4da3ff', '#3fd07a', '#ffb020', '#ff6b6b', '#b98cff'];
+function renderProjTop5(d) {
+    const caja = document.getElementById('projTop5');
+    if (!caja) return;
+    const top = (d && d.top_contracts) || [], barras = (d && d.history) || [];
+    if (!top.length || !barras.length) { caja.innerHTML = ''; return; }
+    const etiqueta = r => `${r.contract_type === 'call' ? 'C' : 'P'} ${VC_PX.format(r.strike)}`;
+    caja.innerHTML = `<section class="bg-panel border border-panel rounded-2xl p-4">
+      <div class="flex items-baseline justify-between flex-wrap gap-2 mb-1">
+        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Top 5 por Notional Value · ${_vcEsc(d.ticker)}</h3>
+        <span class="text-[10px] text-gray-500">Líneas dibujadas en cada strike sobre el precio del subyacente</span></div>
+      <div class="h-[200px] sm:h-[260px] mt-2"><canvas id="projTop5Canvas"></canvas></div>
+      <div class="space-y-1.5 mt-3">${top.map((c, i) => `<div class="flex items-start gap-2">
+        <span class="w-2.5 h-2.5 rounded-sm mt-1 flex-shrink-0" style="background:${VC_LINEAS[i % VC_LINEAS.length]}"></span>
+        <div class="min-w-0"><div class="text-[11px] font-bold text-gray-200">#${i + 1} · ${etiqueta(c)}
+            <span class="px-1.5 py-0.5 rounded text-[9px] font-bold ml-1 ${c.contract_type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${_vcEsc(c.contract_type)}</span></div>
+          <div class="text-[9px] text-gray-500">Vence ${_vcEsc(c.expiration)} · OI ${VC_INT.format(c.open_interest)} · Open Premium ${
+            c.open_premium != null ? VC_MONEY.format(c.open_premium) : 'n/a'} · Notional <b class="text-gray-400">${VC_MONEY.format(c.notional_value)}</b></div>
+        </div></div>`).join('')}</div></section>`;
+    const cv = document.getElementById('projTop5Canvas');
+    if (!cv || !window.Chart) return;
+    if (window._projTop5Chart) window._projTop5Chart.destroy();
+    const cierres = barras.map(b => Number(b.close));
+    window._projTop5Chart = new Chart(cv.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: barras.map(b => String(b.time || b.date || '').slice(5)),
+            datasets: [{ label: d.ticker, data: cierres, borderColor: '#98a2b3', borderWidth: 1.5,
+                         pointRadius: 0, tension: 0.15, fill: false }].concat(
+                top.map((c, i) => ({
+                    label: `#${i + 1} ${etiqueta(c)}`,
+                    data: cierres.map(() => Number(c.strike)),
+                    borderColor: VC_LINEAS[i % VC_LINEAS.length],
+                    borderWidth: 1.5, borderDash: [5, 4], pointRadius: 0, fill: false,
+                }))),
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#5c6a85', font: { size: 8 }, maxTicksLimit: 8 }, grid: { display: false } },
+                y: { ticks: { color: '#5c6a85', font: { size: 9 }, callback: v => '$' + v },
+                     grid: { color: 'rgba(255,255,255,0.055)' } },
+            },
+        },
+    });
+}
+
+// ── FlowPriceChart.tsx ───────────────────────────────────────────────────────
+/** El panel del DINERO por vela: compra hacia arriba, venta hacia abajo.
+ *
+ *  Su gráfica son dos paneles sincronizados (precio arriba, dinero abajo) sobre
+ *  `lightweight-charts` con timeframes intradía. Aquí el panel ya tiene su
+ *  gráfica de precio —la de `chartGeometry.ts`, con cono y niveles— así que lo
+ *  que faltaba y se porta es el SEGUNDO panel: el histograma espejo del dinero.
+ *
+ *  Se conserva su escala logarítmica y su motivo, que no es estético: sin ella
+ *  un solo día de $700M aplasta todas las demás barras hasta hacerlas invisibles.
+ *  Su fórmula, literal: `max(0.2, log10(max(v,1)) - 4.5)`.
+ *
+ *  Las velas de un racimo van en el color BRILLANTE, como en su gráfica.
+ */
+function renderProjFlowMoney(d) {
+    const caja = document.getElementById('projFlowMoney');
+    if (!caja) return;
+    const rows = (d && d.conviction_rows) || [];
+    if (!rows.length) { caja.innerHTML = ''; return; }
+    const aLog = v => Math.max(0.2, Math.log10(Math.max(v, 1)) - 4.5);
+    const deLog = v => Math.pow(10, Math.abs(v) + 4.5);
+    // Agregado por DÍA de mercado: es la resolución de las barras que trae el
+    // payload. Su versión intradía agrupa por vela de 5 min.
+    const porDia = new Map(), primero = new Map();
+    const enRacimo = new Set(((d.flow_clusters) || [])
+        .map(c => c.start_sec != null ? vcDateET(new Date(c.start_sec * 1000).toISOString()) : null)
+        .filter(Boolean));
+    for (const r of rows) {
+        const dia = vcDateET(r.timestamp);
+        if (!dia) continue;
+        const a = porDia.get(dia) || { ask: 0, bid: 0 };
+        const p = Number(r.premium) || 0;
+        if (r.aggression === 'ask') a.ask += p; else if (r.aggression === 'bid') a.bid += p;
+        porDia.set(dia, a);
+        const t = Date.parse(r.timestamp);
+        if (!primero.has(dia) || t < primero.get(dia)) primero.set(dia, t);
+    }
+    const dias = [...porDia.keys()].sort((a, b) => (primero.get(a) || 0) - (primero.get(b) || 0)).slice(-20);
+    if (!dias.length) { caja.innerHTML = ''; return; }
+    caja.innerHTML = `<section class="bg-panel border border-panel rounded-2xl p-4">
+      <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Flujo notable sobre el precio · ${_vcEsc(d.ticker)}</h3>
+      <p class="text-[10px] text-gray-500 italic mt-0.5 mb-2">El dinero de cada día — <b class="text-emerald-400">compra</b> hacia arriba,
+        <b class="text-red-400">venta</b> hacia abajo. Escala logarítmica: sin ella un solo día grande aplasta el resto. Barras brillantes = día con racimo.</p>
+      <div class="h-[170px] sm:h-[200px]"><canvas id="projFlowMoneyCanvas"></canvas></div></section>`;
+    const cv = document.getElementById('projFlowMoneyCanvas');
+    if (!cv || !window.Chart) return;
+    if (window._projFlowMoneyChart) window._projFlowMoneyChart.destroy();
+    const ask = dias.map(x => { const a = porDia.get(x); return a.ask > 0 ? aLog(a.ask) : null; });
+    const bid = dias.map(x => { const a = porDia.get(x); return a.bid > 0 ? -aLog(a.bid) : null; });
+    const col = (x, brillante, apagado) => enRacimo.has(x) ? brillante : apagado;
+    window._projFlowMoneyChart = new Chart(cv.getContext('2d'), {
+        type: 'bar',
+        data: { labels: dias, datasets: [
+            { label: 'Compra', data: ask, backgroundColor: dias.map(x => col(x, '#8cffbc', 'rgba(63,208,122,0.5)')), borderWidth: 0 },
+            { label: 'Venta',  data: bid, backgroundColor: dias.map(x => col(x, '#ffa8a8', 'rgba(255,107,107,0.5)')), borderWidth: 0 },
+        ] },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => {
+                const v = c.raw;
+                if (v == null) return '';
+                return (v >= 0 ? '▲ compra ' : '▼ venta ') + VC_MONEY.format(deLog(v));
+            } } } },
+            scales: {
+                x: { stacked: true, ticks: { color: '#5c6a85', font: { size: 8 }, maxTicksLimit: 10 }, grid: { display: false } },
+                y: { stacked: true, ticks: { color: '#5c6a85', font: { size: 9 },
+                       callback: v => Math.abs(v) < 0.05 ? '$0' : VC_MONEY.format(deLog(v)) },
+                     grid: { color: 'rgba(255,255,255,0.055)' } },
+            },
+        },
+    });
+}
+
+// ── watchlistLocal.ts + WatchlistCard.tsx ────────────────────────────────────
+//
+// El watchlist vive en el NAVEGADOR, por la misma razón que su perfil de riesgo:
+// la entrada guarda tu saldo y tu sizing del momento, y eso no tiene por qué
+// llegar al servidor. Contrapartida asumida, la suya: no cruza dispositivos y
+// limpiar el navegador lo borra.
+//
+// Al servidor solo sube el BUZÓN (`/api/tito-watchlist`), y por él viaja lo
+// mínimo para identificar el contrato en el broker: ticker y, si el broker
+// acepta contratos, tipo/strike/vencimiento. Ni griegos, ni sizing, ni saldo.
+//
+// Sustituye a la watchlist de Vertex, que guardaba tickers sueltos con alertas
+// de precio. Un ticker no se puede juzgar después; un contrato con la foto del
+// día en que lo marcaste, sí.
+const WL_LOCAL_KEY    = 'tito.watchlist';
+const WL_BROKER_KEY   = 'tito.watchlist.broker';
+const WL_MIGRADA_KEY  = 'tito.watchlist.migrated';
+let wlBrokers = [], wlPendientes = [], wlFallidos = [], wlUltimoPase = null, wlConectar = false;
+
+function wlLocalCarga() {
+    try {
+        const crudo = localStorage.getItem(WL_LOCAL_KEY);
+        if (!crudo) return [];
+        const p = JSON.parse(crudo);
+        return Array.isArray(p) ? wlOrdena(p) : [];
+    } catch (e) { return []; }   // JSON corrupto: preferimos vacío a romper la página
+}
+function wlLocalGuarda(entries) {
+    try { localStorage.setItem(WL_LOCAL_KEY, JSON.stringify(entries)); }
+    catch (e) { /* cuota llena o modo privado: sigue en memoria esta sesión */ }
+}
+function wlLocalBroker() { try { return localStorage.getItem(WL_BROKER_KEY) || 'none'; } catch (e) { return 'none'; } }
+function wlLocalGuardaBroker(id) { try { localStorage.setItem(WL_BROKER_KEY, id); } catch (e) {} }
+function wlMigrada() { try { return localStorage.getItem(WL_MIGRADA_KEY) === '1'; } catch (e) { return true; } }
+function wlMarcaMigrada() { try { localStorage.setItem(WL_MIGRADA_KEY, '1'); } catch (e) {} }
+
+/** `sortEntries`: las más recientes primero. */
+function wlOrdena(entries) { return entries.slice().sort((a, b) => String(b.addedAt).localeCompare(String(a.addedAt))); }
+/** `underlyings`: los tickers únicos, ordenados. Es lo que vigila la campana. */
+function wlUnderlyings() { return [...new Set(wlLocalCarga().map(e => e.ticker))].sort(); }
+/** `tickerList`: listos para pegar en el buscador del broker. */
+function wlTickerList(entries) { return [...new Set(entries.map(e => e.ticker))].sort().join(', '); }
+function wlBrokerPorId(id) { return wlBrokers.find(b => b.id === id) || null; }
+
+/** `upsert`: volver a marcar un contrato NO pisa la foto original —esa es la
+ *  que da valor al histórico— pero conserva el estado de sincronización. */
+function wlUpsert(entries, entry) {
+    const previa = entries.find(e => e.symbol === entry.symbol);
+    if (previa) return entries.map(e => e.symbol === entry.symbol ? Object.assign({}, previa, { brokerSync: e.brokerSync }) : e);
+    return [entry].concat(entries);
+}
+
+/** Marca una idea con ⭐: guarda el contrato CON tu sizing del momento y lo
+ *  encola hacia el broker. `buildEntry` suyo, campo por campo. */
+async function wlMarca(id) {
+    const d = window._vcIdeas || {};
+    const i = (d.ideas || []).find(x => String(x.id) === String(id));
+    if (!i) return;
+    const P = d.perfil || {};
+    const s = i.sizing || {};
+    const entry = {
+        symbol: i.symbol, ticker: i.ticker, type: i.type, strike: i.strike,
+        expiration: i.expiration, addedAt: new Date().toISOString(),
+        entrySpot: Number(i.asset_price) || 0, entryPrice: Number(i.price) || 0,
+        entryDte: i.dte, entryPremium: Number(i.premium) || 0,
+        entryThetaPctDaily: i.theta_pct_daily,
+        maxContracts: s.max_contracts || 0, binding: s.binding || null,
+        accountSizeAtEntry: Number(P.capital) || 0,
+        tolerancePctAtEntry: Number(P.riesgo_pct) || 0,
+        brokerSync: null,
+    };
+    const lista = wlUpsert(wlLocalCarga(), entry);
+    wlLocalGuarda(lista);
+    renderProjWatchlist();
+    renderProjIdeas(d);
+    // El buzón es el único puente hacia el agente. Un fallo aquí NO deshace lo
+    // guardado: el contrato ya está en tu watchlist local y la cola se
+    // reintenta al recargar.
+    try {
+        const r = await fetch(`${API_BASE}/api/tito-watchlist`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ broker: wlLocalBroker(), contract: {
+                symbol: i.symbol, ticker: i.ticker, type: i.type,
+                strike: i.strike, expiration: i.expiration } }),
+        });
+        wlAplica(await r.json());
+    } catch (e) { /* sin red: el watchlist local ya quedó guardado */ }
+}
+
+/** Desmarca: quita del watchlist y DESENCOLA.
+ *
+ *  Se mandan símbolo Y ticker a propósito: el ticker es lo único que alcanza a
+ *  las filas viejas de solo-tickers, que con el símbolo a secas eran
+ *  imborrables (`"WULF270115C00020000" !== "WULF"`). Está en su comentario de
+ *  `removeFromOutbox` y pasó de verdad con SPXW y SPY. */
+async function wlQuita(symbol) {
+    const lista = wlLocalCarga();
+    const e = lista.find(x => x.symbol === symbol);
+    wlLocalGuarda(lista.filter(x => x.symbol !== symbol));
+    renderProjWatchlist();
+    if (window._vcIdeas) renderProjIdeas(window._vcIdeas);
+    try {
+        const q = new URLSearchParams({ symbol: symbol, broker: wlLocalBroker() });
+        if (e) q.set('ticker', e.ticker);
+        wlAplica(await (await fetch(`${API_BASE}/api/tito-watchlist?${q}`, { method: 'DELETE' })).json());
+    } catch (err) { /* la cola se limpia en el próximo pase */ }
+}
+
+/** Toda respuesta del buzón trae el mismo trío; se aplica en un sitio. */
+function wlAplica(p) {
+    if (!p) return;
+    if (Array.isArray(p.brokers)) wlBrokers = p.brokers;
+    if (Array.isArray(p.pending)) wlPendientes = p.pending;
+    if (Array.isArray(p.failed)) wlFallidos = p.failed;
+    if ('lastSyncedAt' in p) wlUltimoPase = p.lastSyncedAt;
+    renderProjWatchlist();
+}
+
+async function wlCambiaBroker(id) {
+    wlLocalGuardaBroker(id);
+    renderProjWatchlist();
+    try { wlAplica(await (await fetch(`${API_BASE}/api/tito-watchlist?broker=${encodeURIComponent(id)}`)).json()); }
+    catch (e) {}
+}
+function wlAlternaConectar() { wlConectar = !wlConectar; renderProjWatchlist(); }
+
+async function wlCopia(texto, btn) {
+    try { await navigator.clipboard.writeText(texto); if (btn) { btn.textContent = '✓ copiado'; setTimeout(() => { btn.textContent = 'copiar'; }, 1800); } }
+    catch (e) { /* sin portapapeles (http, permisos): el texto está a la vista */ }
+}
+
+/** Carga inicial del buzón + la importación ÚNICA del watchlist viejo del
+ *  servidor, para no perder lo ya marcado. En cuanto se importa se marca la
+ *  bandera y no se vuelve a mirar. */
+async function wlArranca() {
+    renderProjWatchlist();
+    let p;
+    try { p = await (await fetch(`${API_BASE}/api/tito-watchlist?broker=${encodeURIComponent(wlLocalBroker())}`)).json(); }
+    catch (e) { return; }
+    if (p && p.legacy && !wlMigrada()) {
+        const viejas = p.legacy.entries || [];
+        if (viejas.length) {
+            let lista = wlLocalCarga();
+            for (const v of viejas) lista = wlUpsert(lista, v);
+            wlLocalGuarda(lista);
+        }
+        if (p.legacy.broker && p.legacy.broker !== 'none') wlLocalGuardaBroker(p.legacy.broker);
+        wlMarcaMigrada();
+    }
+    wlAplica(p);
+}
+
+/** `outboxLabel` suyo: el contrato entero si la fila lo trae, el ticker si es
+ *  de la cola vieja de solo-tickers. */
+function wlEtiquetaCola(i) {
+    if (!i.symbol || i.type == null) return i.ticker;
+    if (i.strike == null || !i.expiration) return i.ticker;
+    return `${i.ticker} $${i.strike} ${String(i.type).toUpperCase()} ${i.expiration}`;
+}
+
+const WL_MCP_CMD = 'claude mcp add robinhood-trading --transport http https://agent.robinhood.com/mcp/trading';
+
+function renderProjWatchlist() {
+    const caja = document.getElementById('projWatchlist');
+    if (!caja) return;
+    const entries = wlLocalCarga(), brokerId = wlLocalBroker(), b = wlBrokerPorId(brokerId);
+    const contrato = e => `$${e.strike != null ? VC_PX.format(e.strike) : '?'}${e.type === 'call' ? 'C' : 'P'}`;
+    const vence = e => {
+        if (!e.expiration) return '—';
+        try { return new Date(`${e.expiration}T00:00:00Z`).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }); }
+        catch (err) { return e.expiration; }
+    };
+    const marcada = iso => { try { return new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' }); } catch (e) { return ''; } };
+    const opciones = (wlBrokers.length ? wlBrokers : [{ id: 'none', name: 'Solo en Tito' }])
+        .map(x => `<option value="${_vcEsc(x.id)}" ${x.id === brokerId ? 'selected' : ''}>${_vcEsc(x.name)}</option>`).join('');
+
+    const aviso = (cls, cuerpo) => `<div class="rounded-xl p-2.5 mt-2 text-[10px] leading-snug ${cls}">${cuerpo}</div>`;
+    let bloques = '';
+    if (b && b.caveat) bloques += `<p class="text-[10px] text-amber-400 leading-snug mt-1.5">⚠️ ${_vcEsc(b.caveat)}</p>`;
+    if (wlConectar && b && b.kind === 'mcp') bloques += aviso('bg-blue-500/[0.06] border border-blue-500/20 text-gray-300',
+        `<p class="font-bold text-blue-300 mb-1">Conectar ${_vcEsc(b.name)} a tu Claude</p>
+         <p class="text-gray-400">La conexión se autoriza con OAuth dentro de Claude, no en esta página — <b>tu contraseña nunca pasa por aquí</b>.
+           Pega este comando en tu terminal y luego escribe <code class="text-gray-300">/mcp</code> para autenticarte:</p>
+         <div class="flex items-center gap-2 mt-1.5 flex-wrap"><code class="text-[9px] text-gray-300 bg-black/40 rounded px-1.5 py-1 break-all">${_vcEsc(WL_MCP_CMD)}</code>
+           <button onclick="wlCopia(${JSON.stringify(WL_MCP_CMD).replace(/"/g, '&quot;')}, this)" class="text-blue-400 hover:text-blue-300 font-bold">copiar</button></div>
+         <p class="text-gray-400 mt-1.5">Autorizar da a tu agente lectura de tus cuentas, posiciones e historial de órdenes.
+           <b>No es un permiso menor</b> — léelo antes de aceptar. Solo se usa para añadir contratos a tu watchlist: <b>nunca coloca una orden</b>.</p>`);
+    if (b && b.kind === 'mcp' && wlPendientes.length) bloques += aviso('bg-amber-500/[0.06] border border-amber-500/20 text-amber-200/80',
+        `<b class="text-amber-300">Pendiente de sincronizar con ${_vcEsc(b.name)}:</b>
+         <code class="text-gray-300">${wlPendientes.map(x => _vcEsc(wlEtiquetaCola(x))).join(' · ')}</code>
+         <p class="mt-1">${b.granularity === 'contracts'
+            ? 'Son los contratos completos, tal cual entrarán en tu watchlist de opciones.'
+            : 'Son los subyacentes, no los contratos — es lo que este broker acepta.'} Entran solos en el próximo pase.</p>
+         ${wlUltimoPase ? `<p class="mt-0.5 text-gray-500">Último pase: ${_vcEsc(new Date(wlUltimoPase).toLocaleString())}</p>` : ''}`);
+    if (b && b.kind === 'mcp' && wlFallidos.length) bloques += aviso('bg-red-500/[0.06] border border-red-500/20 text-red-200/80',
+        `<b class="text-red-300">No se pudieron sincronizar:</b>
+         <code class="text-gray-300">${wlFallidos.map(x => _vcEsc(wlEtiquetaCola(x))).join(' · ')}</code>
+         <p class="mt-1">${_vcEsc((wlFallidos[0] || {}).failReason || 'No se pudo resolver el contrato en el broker.')}
+           No se reintentan solos. Desmarca y vuelve a marcar ⭐ para reencolarlos con el contrato completo.</p>`);
+    if (b && b.kind === 'copy' && entries.length) bloques += aviso('bg-white/[0.03] border border-gray-800 text-gray-400',
+        `<b class="text-gray-200">Para ${_vcEsc(b.name)}:</b> <code class="text-gray-300">${_vcEsc(wlTickerList(entries))}</code>
+         <button onclick="wlCopia(${JSON.stringify(wlTickerList(entries)).replace(/"/g, '&quot;')}, this)" class="ml-2 text-blue-400 hover:text-blue-300 font-bold">copiar</button>`);
+
+    const tabla = !entries.length ? '' : `<div class="vc-scroll overflow-x-auto mt-3"><table class="vc-t w-full text-[11px] min-w-[720px]">
+      <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+        <th class="text-left pb-1.5 pr-3">Ticker</th><th class="text-left pb-1.5 pr-3">Contrato</th>
+        <th class="text-left pb-1.5 pr-3">Vencimiento</th><th class="text-left pb-1.5 pr-3">Marcada</th>
+        <th class="text-right pb-1.5 pr-3">Spot entrada</th><th class="text-right pb-1.5 pr-3">Precio entrada</th>
+        <th class="text-right pb-1.5 pr-3">Tu límite</th><th class="text-left pb-1.5 pr-3">${b && b.kind === 'link' ? 'Abrir' : 'Sync'}</th>
+        <th class="pb-1.5"></th></tr></thead>
+      <tbody>${entries.map(e => {
+        const enlace = (b && b.quoteUrl) ? b.quoteUrl.replace('__T__', encodeURIComponent(e.ticker)) : null;
+        const sync = (b && b.kind === 'link' && enlace)
+            ? `<a href="${_vcEsc(enlace)}" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 font-bold">${_vcEsc(b.name)} ↗</a>`
+            : (e.brokerSync && e.brokerSync.status === 'sincronizado')
+                ? `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/10 text-emerald-400">✓ ${_vcEsc(e.brokerSync.broker)}</span>`
+                : `<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-white/5 text-gray-400">solo aquí</span>`;
+        return `<tr class="border-b border-gray-800/50">
+          <td class="py-2 pr-3"><button onclick="loadProjections('${_vcTicker(e.ticker)}')" class="font-bold text-white hover:text-blue-400">${_vcEsc(e.ticker)}</button></td>
+          <td class="py-2 pr-3 text-gray-200">${contrato(e)}</td>
+          <td class="py-2 pr-3 text-gray-500">${_vcEsc(vence(e))}</td>
+          <td class="py-2 pr-3 text-gray-500">${_vcEsc(marcada(e.addedAt))}</td>
+          <td class="py-2 pr-3 text-right text-gray-300">$${VC_PX.format(e.entrySpot)}</td>
+          <td class="py-2 pr-3 text-right text-gray-300">$${VC_PX.format(e.entryPrice)}</td>
+          <td class="py-2 pr-3 text-right text-gray-300">${e.maxContracts}<span class="text-gray-600"> · ${VC_MONEY0.format(e.accountSizeAtEntry)} al ${e.tolerancePctAtEntry}%</span></td>
+          <td class="py-2 pr-3">${sync}</td>
+          <td class="py-2 text-right"><button onclick="wlQuita('${_vcEsc(e.symbol)}')" title="Quitar ${_vcEsc(e.ticker)} ${contrato(e)} del watchlist"
+            class="text-gray-600 hover:text-red-400 font-bold px-1">✕</button></td></tr>`;
+      }).join('')}</tbody></table></div>`;
+
+    caja.innerHTML = `<section class="bg-panel border border-panel rounded-2xl p-4">
+      <div class="flex items-baseline justify-between flex-wrap gap-2">
+        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">⭐ Mi watchlist</h3>
+        <span class="text-[10px] text-gray-500">${entries.length === 0
+          ? 'Marca una idea con ⭐ para guardarla con tu sizing del momento.'
+          : `${entries.length} ${entries.length === 1 ? 'contrato guardado' : 'contratos guardados'}`}</span></div>
+      <div class="flex items-center gap-2 flex-wrap mt-2">
+        <label class="text-[10px] text-gray-400 flex items-center gap-1.5">Broker
+          <select onchange="wlCambiaBroker(this.value)" aria-label="Broker donde sincronizar el watchlist"
+            class="bg-[#0B0E14] border border-gray-800 text-gray-200 text-[11px] rounded-lg px-2 py-1 outline-none focus:border-blue-500">${opciones}</select></label>
+        ${b && b.kind === 'mcp' ? `<button onclick="wlAlternaConectar()" class="text-[10px] font-bold text-blue-400 hover:text-blue-300">${
+          wlConectar ? 'Ocultar' : '🔗 Conectar ' + _vcEsc(b.name)}</button>` : ''}</div>
+      ${bloques}
+      ${tabla}
+      ${entries.length ? `<p class="text-[9px] text-gray-600 mt-2 leading-relaxed">Tu watchlist se guarda en este navegador, no en el servidor — igual que tu saldo.
+        Eso significa que no te sigue a otro dispositivo y que se borra si limpias el navegador. El agente <b>nunca coloca una orden</b> por ti.</p>` : ''}
+    </section>`;
+    vcTablaResponsive('projWatchlist');
+}
+
+// ── RiskProfileCard.tsx ──────────────────────────────────────────────────────
+/** Tu perfil de riesgo con sus dos presupuestos.
+ *
+ *  **Esta es una de las dos únicas diferencias con su código, y es la que se
+ *  pidió**: él edita el perfil aquí mismo, con un input de saldo y un slider de
+ *  1-50%, guardado en `localStorage`. Aquí el perfil sale del CUESTIONARIO de
+ *  tu cuenta, así que la tarjeta lo MUESTRA y manda a editarlo a su sitio en
+ *  vez de tener dos verdades sobre tu capital en dos pantallas distintas.
+ *
+ *  Los dos números de abajo son los suyos y salen del mismo `risk.py`: el techo
+ *  de capital por operación y el techo de quema de theta. `THETA_BUDGET_PCT`
+ *  viaja en el payload — no se escribe a mano aquí, que es como se desincroniza.
+ */
+function vcRiesgoHTML(P) {
+    if (!P) return '';
+    const theta = P.theta_budget_pct != null ? P.theta_budget_pct : 5;
+    return `<section class="bg-panel border border-panel rounded-2xl p-4 mb-3">
+      <div class="flex items-baseline justify-between flex-wrap gap-2">
+        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Tu perfil de riesgo</h3>
+        <span class="text-[10px] text-gray-500">Sale de tu cuenta, no de este navegador — el mismo que usan los seis sub-agentes.</span></div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+        <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
+          <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Tamaño de cuenta</div>
+          <div class="text-sm font-black text-gray-100">${fmtMoney(P.capital)}</div></div>
+        <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
+          <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Riesgo por trade</div>
+          <div class="text-sm font-black text-gray-100">${P.riesgo_pct}% <span class="text-[10px] font-normal text-gray-500 capitalize">${_vcEsc(P.tolerancia)}</span></div></div>
+        <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
+          <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Capital máximo por trade</div>
+          <div class="text-sm font-black text-emerald-400">${fmtMoney(P.riesgo_por_trade)}</div></div>
+        <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
+          <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Máxima quema de theta (${theta}%)</div>
+          <div class="text-sm font-black text-amber-400">${fmtMoney(P.theta_budget != null ? P.theta_budget : P.capital * theta / 100)}</div></div>
+      </div>
+      <p class="text-[9px] text-gray-600 mt-2 leading-relaxed">Estos números son un <b>techo</b>, no una sugerencia de compra. El límite de theta sale de la banda del
+        documento de Inusualidad: un contrato que pierde más del ${theta}% de su valor al día se descarta por lotería.
+        <button onclick="switchView('perfilView')" class="text-blue-400 hover:text-blue-300 font-bold ml-1">Editar perfil &rsaquo;</button></p>
+    </section>`;
+}
+
+// ── chart/ChartCrosshair.tsx ─────────────────────────────────────────────────
+/** La cruz que sigue al cursor sobre la gráfica, con su tooltip.
+ *
+ *  Es HTML y no SVG **a propósito, como en su archivo**: el tooltip necesita
+ *  fluir con el texto y VOLTEARSE de lado al acercarse al borde derecho. Su
+ *  regla de volteo es `hover.x > (plotLeft + plotRight) / 2`, y el tooltip se
+ *  fija verticalmente entre `plotTop` y `plotBottom - 90` para no salirse.
+ *
+ *  Dentro del histórico enseña la vela (A/M/m/C); pasada la frontera AHORA
+ *  enseña el precio proyectado y a cuántos días cae.
+ */
+function vcCrosshairCablea(host, geo) {
+    if (!host || !geo || !geo.bars || !geo.bars.length) return;
+    let cruz = host.querySelector('.vc-cross');
+    if (!cruz) {
+        cruz = document.createElement('div');
+        cruz.className = 'vc-cross';
+        cruz.style.cssText = 'position:absolute;inset:0;pointer-events:none;display:none';
+        host.appendChild(cruz);
+    }
+    const dentro = e => {
+        const r = host.getBoundingClientRect();
+        return { x: e.clientX - r.left, y: e.clientY - r.top, w: r.width, h: r.height };
+    };
+    host.onmousemove = e => {
+        const p = dentro(e);
+        // Las coordenadas de `geo` están en el viewBox del SVG; se escalan al
+        // tamaño real del contenedor, que es responsive.
+        const kx = p.w / geo.width, ky = p.h / geo.height;
+        const px = p.x / kx, py = p.y / ky;
+        if (px < geo.plotLeft || px > geo.plotRight || py < geo.plotTop || py > geo.plotBottom) {
+            cruz.style.display = 'none'; return;
+        }
+        const precio = geo.priceAt ? geo.priceAt(py) : null;
+        const vela = geo.barAt ? geo.barAt(px) : null;
+        const dias = geo.daysAt ? geo.daysAt(px) : null;
+        const voltea = px > (geo.plotLeft + geo.plotRight) / 2;
+        const topTip = Math.max(geo.plotTop, Math.min(py - 10, geo.plotBottom - 90));
+        const cabeza = vela ? _vcEsc(vela.label || vela.time)
+                     : (dias != null ? `en ${Math.round(dias)} días` : 'proyección');
+        const cuerpo = vela
+            ? `<div class="grid grid-cols-2 gap-x-2 gap-y-0.5 mt-1">
+                 <span class="text-gray-500">A</span><b class="text-gray-100">$${VC_PX.format(vela.open)}</b>
+                 <span class="text-gray-500">M</span><b class="text-gray-100">$${VC_PX.format(vela.high)}</b>
+                 <span class="text-gray-500">m</span><b class="text-gray-100">$${VC_PX.format(vela.low)}</b>
+                 <span class="text-gray-500">C</span><b class="text-gray-100">$${VC_PX.format(vela.close)}</b></div>`
+            : `<div class="text-sm font-black text-white mt-0.5">$${VC_PX.format(precio || 0)}</div>`;
+        cruz.style.display = 'block';
+        cruz.innerHTML =
+            `<div style="position:absolute;left:${px * kx}px;top:${geo.plotTop * ky}px;height:${(geo.plotBottom - geo.plotTop) * ky}px;width:1px;background:rgba(255,255,255,0.22)"></div>
+             <div style="position:absolute;left:${px * kx - 3}px;top:${p.y - 3}px;width:6px;height:6px;border-radius:9999px;background:#2f6bff"></div>
+             <div class="bg-[#0B0E14] border border-gray-700 rounded-lg px-2 py-1.5 text-[10px] shadow-xl" style="position:absolute;${
+               voltea ? `right:${(geo.width - px) * kx + 12}px` : `left:${px * kx + 12}px`};top:${topTip * ky}px;min-width:92px">
+               <div class="text-[9px] font-bold text-gray-400">${cabeza}</div>${cuerpo}</div>`;
+    };
+    host.onmouseleave = () => { cruz.style.display = 'none'; };
 }
 
 
@@ -5707,14 +6606,17 @@ function showToast(n) {
     el.innerHTML = `<i data-lucide="${NOTIF_ICON[n.type] || 'bell'}" class="w-4 h-4 mt-0.5 ${col} flex-shrink-0"></i>
         <div class="min-w-0"><p class="text-xs text-gray-100"><span class="font-bold">${n.ticker}</span> &middot; ${n.msg}</p>
         <p class="text-[8px] text-gray-600">${new Date(n.ts).toLocaleTimeString()}</p></div>`;
-    el.onclick = () => { if (typeof switchView === 'function') switchView('watchlistView'); el.remove(); };
+    el.onclick = () => { if (typeof switchView === 'function') switchView('projectionsView'); el.remove(); };
     c.appendChild(el);
     if (window.lucide) lucide.createIcons();
     setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 400); }, 8000);
 }
 
 async function notifPoll() {
-    const tks = (typeof wlGet === 'function' ? wlGet() : []);
+    // Los subyacentes de la watchlist de contratos (la suya). Un contrato de
+    // WULF y otro de WULF son un solo ticker que vigilar: `wlUnderlyings`
+    // deduplica, igual que su `underlyings()`.
+    const tks = (typeof wlUnderlyings === 'function' ? wlUnderlyings() : []);
     if (!tks.length) return;
     let data;
     try {
@@ -7499,6 +8401,8 @@ function analyzeTickerNow(tk) {
              Massive ni MarketSnack empujan nada — las dos son REST y esto es
              sondeo, no streaming. Un punto verde sin hora sería mentir. -->
         <div class="flex items-center gap-2 w-full sm:w-auto sm:ml-auto">
+            <!-- El `hb-right` suyo: nombre, precio y variación del ticker cargado. -->
+            <div id="projHbRight" class="flex items-center gap-2 flex-wrap"></div>
             <span id="projVivo" class="flex items-center gap-1.5 text-[10px] text-gray-500"></span>
         </div>
     </div>
@@ -7524,7 +8428,7 @@ function analyzeTickerNow(tk) {
             </div>
             <!-- La gráfica la dibuja renderVictorProjChart (SVG). Un solo dueño de este
                  contenedor: velas + los tres escenarios salen del mismo payload. -->
-            <div id="projChart" class="h-[280px] sm:h-[360px] lg:h-[440px] xl:h-[520px]" style="width:100%;position:relative"></div>
+            <div id="projChart" class="h-[280px] sm:h-[360px] lg:h-[440px] xl:h-[520px]" style="width:100%;position:relative;overflow:hidden"></div>
             <div class="flex flex-wrap gap-3 mt-2 text-[10px] text-gray-500">
                 <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:#98a2b3"></span> Precio histórico (sólido)</span>
                 <span class="flex items-center gap-1"><span class="inline-block w-3 h-0.5" style="background:#12b76a"></span> Escenario alcista (punteado)</span>
@@ -7539,6 +8443,14 @@ function analyzeTickerNow(tk) {
 
         <!-- Projection cards -->
         <div id="projCards" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3"></div>
+
+        <!-- Sus `ActivityCard` y `MoneyFlowCard`, en la misma fila de dos que
+             tiene su vista Pro. Salen de `conviction_rows` — los mismos trades
+             sobre los que puntúan Convicción, Inusualidad y Contexto IV. -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div id="projActivity"></div>
+            <div id="projMoneyFlow"></div>
+        </div>
 
         <!-- La tira de integridad comprobaba el GEX de Quant Data. Con una sola
              fuente ya no hay dos números que cuadrar entre sí: lo que puede ir
@@ -7581,7 +8493,13 @@ function analyzeTickerNow(tk) {
 
     </div><!-- /projPaneTicker -->
 
-    <div id="projPaneIdeas" class="hidden"><div id="projIdeas"></div></div>
+    <!-- Su página de Ideas, con su orden: perfil de riesgo → watchlist →
+         screener. Las dos primeras son `RiskProfileCard` y `WatchlistCard`. -->
+    <div id="projPaneIdeas" class="hidden space-y-3">
+        <div id="projRiesgo"></div>
+        <div id="projWatchlist"></div>
+        <div id="projIdeas"></div>
+    </div>
     <div id="projPaneWheel" class="hidden space-y-3">
         <div id="projWheel"></div>
     </div>
@@ -8025,243 +8943,10 @@ function analyzeTickerNow(tk) {
 <!-- ═══════════════════════════════════════════════════════════
      WATCHLIST VIEW — persistent tickers + client-side alerts
 ═══════════════════════════════════════════════════════════ -->
-<main id="watchlistView" class="view-section hidden flex-grow w-full max-w-5xl mx-auto p-4">
-
-    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div>
-            <h2 class="text-xl font-bold text-white flex items-center gap-2">
-                <i data-lucide="star" class="w-5 h-5 text-blue-500"></i> Watchlist
-            </h2>
-            <p class="text-xs text-gray-500 mt-0.5">Monitorea tus tickers — precio, cambio del día, próximo earnings y alertas automáticas.</p>
-        </div>
-        <div class="flex items-center gap-2 flex-wrap">
-            <label class="flex items-center gap-1.5 text-[10px] text-gray-400 cursor-pointer">
-                <input type="checkbox" id="wlAutoRefresh" onchange="wlToggleAutoRefresh()" class="accent-blue-500">
-                Auto-refresh 60s
-            </label>
-            <button onclick="loadWatchlist()" id="wlRefreshBtn"
-                class="bg-[#11141D] hover:bg-[#1a1f2e] border border-gray-800 text-gray-400 hover:text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-2 transition">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
-            </button>
-        </div>
-    </div>
-
-    <!-- Add ticker -->
-    <div class="flex items-center gap-2 mb-5 flex-wrap">
-        <input type="text" id="wlInput" placeholder="Añadir ticker (ej: NVDA)" onkeydown="if(event.key==='Enter')wlAddTicker()"
-            class="bg-[#11141D] border border-gray-800 focus:border-blue-500 text-white text-sm px-4 py-2.5 rounded-xl outline-none w-56 uppercase">
-        <button onclick="wlAddTicker()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-5 rounded-xl text-xs flex items-center gap-2 transition">
-            <i data-lucide="plus" class="w-3.5 h-3.5"></i> Añadir
-        </button>
-        <span id="wlCount" class="text-[10px] text-gray-500 font-mono ml-auto"></span>
-    </div>
-
-    <!-- Alerts -->
-    <div id="wlAlerts" class="hidden bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 mb-5">
-        <p class="text-[10px] font-bold text-amber-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-            <i data-lucide="bell-ring" class="w-3.5 h-3.5"></i> Alertas Activas
-        </p>
-        <div id="wlAlertsBody" class="space-y-2"></div>
-    </div>
-
-    <!-- Empty state -->
-    <div id="wlEmpty" class="bg-panel border border-panel rounded-2xl p-12 text-center">
-        <i data-lucide="star" class="w-10 h-10 text-gray-700 mx-auto mb-3"></i>
-        <p class="text-gray-500 text-sm">Tu watchlist está vacía. Añade tickers para monitorearlos.</p>
-    </div>
-
-    <!-- Loading -->
-    <div id="wlLoading" class="hidden bg-panel border border-panel rounded-2xl p-10 text-center">
-        <div class="flex items-center justify-center gap-2 mb-2">
-            <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay:0ms"></div>
-            <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay:150ms"></div>
-            <div class="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style="animation-delay:300ms"></div>
-        </div>
-        <p class="text-gray-400 text-sm">Cargando cotizaciones...</p>
-    </div>
-
-    <!-- Watchlist grid -->
-    <div id="wlGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
-
-    <p class="text-[10px] text-gray-600 mt-5 text-center">
-        Las alertas se calculan en el navegador: movimientos fuertes del día (±5%) y earnings dentro de 7 días.
-        Tu watchlist se guarda localmente en este dispositivo.
-    </p>
-</main>
-
-<script>
-// ══════════════════════════════════════════════════════════════════════════════
-// WATCHLIST — localStorage + client-side alerts
-// ══════════════════════════════════════════════════════════════════════════════
-const WL_KEY = 'vertex_watchlist_v1';
-const WL_MOVE_THRESHOLD = 5;     // % day move that triggers an alert
-const WL_EARNINGS_DAYS  = 7;     // earnings within N days triggers an alert
-let wlAutoTimer = null;
-
-function wlGet() {
-    try { return JSON.parse(localStorage.getItem(WL_KEY)) || []; }
-    catch(e) { return []; }
-}
-function wlSave(list) { localStorage.setItem(WL_KEY, JSON.stringify(list)); }
-
-function wlAddTicker() {
-    const input = document.getElementById('wlInput');
-    const tk = (input.value || '').trim().toUpperCase();
-    if (!tk) return;
-    const list = wlGet();
-    if (list.includes(tk)) { input.value = ''; return; }
-    list.push(tk);
-    wlSave(list);
-    input.value = '';
-    loadWatchlist();
-}
-
-function wlRemoveTicker(tk) {
-    wlSave(wlGet().filter(t => t !== tk));
-    loadWatchlist();
-}
-
-async function loadWatchlist() {
-    const list = wlGet();
-    document.getElementById('wlCount').innerText = `${list.length} ticker${list.length !== 1 ? 's' : ''}`;
-    const grid = document.getElementById('wlGrid');
-    const empty = document.getElementById('wlEmpty');
-    const loading = document.getElementById('wlLoading');
-
-    if (!list.length) {
-        grid.innerHTML = '';
-        empty.classList.remove('hidden');
-        document.getElementById('wlAlerts').classList.add('hidden');
-        return;
-    }
-    empty.classList.add('hidden');
-    loading.classList.remove('hidden');
-
-    const results = await Promise.all(list.map(async tk => {
-        try {
-            const [qres, rres] = await Promise.all([
-                fetch(`${API_BASE}/api/watchlist-quote?ticker=${tk}`).then(r=>r.ok?r.json():{ticker:tk,error:true}).catch(()=>({ticker:tk,error:true})),
-                fetch(`${API_BASE}/api/watchlist-radar?ticker=${tk}`).then(r=>r.ok?r.json():null).catch(()=>null)
-            ]);
-            if (qres && !qres.error && rres) { qres.signals = rres.signals || {}; qres.radar_alerts = rres.alerts || []; }
-            return qres;
-        } catch(e) { return { ticker: tk, error: true }; }
-    }));
-
-    loading.classList.add('hidden');
-    renderWatchlist(results);
-    computeWatchlistAlerts(results);
-}
-
-function renderWatchlist(rows) {
-    const grid = document.getElementById('wlGrid');
-    grid.innerHTML = rows.map(r => {
-        if (r.error) {
-            return `<div class="bg-panel border border-red-500/20 rounded-2xl p-4 flex items-center justify-between">
-                <span class="font-black text-white">${htmlEsc(r.ticker)}</span>
-                <div class="flex items-center gap-2">
-                    <span class="text-[10px] text-red-400">Error al cargar</span>
-                    <button onclick="wlRemoveTicker('${r.ticker}')" class="text-gray-600 hover:text-red-400"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
-                </div>
-            </div>`;
-        }
-        const chg = r.change_pct;
-        const chgCls = (chg >= 0) ? 'text-emerald-400' : 'text-red-400';
-        const chgStr = (chg !== null && chg !== undefined) ? `${chg >= 0 ? '+' : ''}${chg}%` : '—';
-        const bigMove = (chg !== null && chg !== undefined && Math.abs(chg) >= WL_MOVE_THRESHOLD);
-        const earnSoon = (r.next_earnings_days !== null && r.next_earnings_days !== undefined && r.next_earnings_days >= 0 && r.next_earnings_days <= WL_EARNINGS_DAYS);
-        const upside = (r.target_upside_pct !== null && r.target_upside_pct !== undefined) ? `${r.target_upside_pct >= 0 ? '+' : ''}${r.target_upside_pct}%` : '—';
-
-        return `<div class="bg-panel border ${bigMove ? (chg>=0?'border-emerald-500/40':'border-red-500/40') : 'border-panel'} rounded-2xl p-4 transition">
-            <div class="flex items-start justify-between gap-2 mb-3">
-                <div class="flex items-center gap-2.5 min-w-0">
-                    <div class="w-8 h-8 rounded-lg bg-[#0B0E14] border border-gray-800 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                        <img src="${r.logo_url||''}" class="w-full h-full object-contain" onerror="this.style.display='none'">
-                    </div>
-                    <div class="min-w-0">
-                        <p class="font-black text-white text-sm leading-tight">${htmlEsc(r.ticker)}</p>
-                        <p class="text-[10px] text-gray-500 truncate">${htmlEsc((r.name||'').slice(0,24))}</p>
-                    </div>
-                </div>
-                <button onclick="wlRemoveTicker('${r.ticker}')" class="text-gray-600 hover:text-red-400 flex-shrink-0"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
-            </div>
-            <div class="flex items-end justify-between mb-3">
-                <div>
-                    <p class="text-lg font-mono font-black text-white">${r.price !== null ? '$'+r.price.toFixed(2) : '—'}</p>
-                    <p class="text-xs font-mono font-bold ${chgCls}">${chgStr} ${bigMove ? '⚡' : ''}</p>
-                </div>
-                <div class="text-right">
-                    <p class="text-[9px] text-gray-500 uppercase font-bold">WS Target</p>
-                    <p class="text-xs font-mono text-blue-400">${r.target_mean ? '$'+Number(r.target_mean).toFixed(0) : '—'} <span class="text-gray-600">(${upside})</span></p>
-                </div>
-            </div>
-            ${(() => {
-                const sig = r.signals || {}; const ra = r.radar_alerts || [];
-                const badge = a => { const c = a.level==='hot'?'bg-red-500/20 text-red-300 border-red-500/30':a.level==='warn'?'bg-amber-500/20 text-amber-300 border-amber-500/30':'bg-gray-700/30 text-gray-300 border-gray-700'; return `<span class="text-[9px] px-1.5 py-0.5 rounded border ${c} font-bold">${a.msg}</span>`; };
-                const alertsHtml = ra.length ? `<div class="flex flex-wrap gap-1 mb-2">${ra.map(badge).join('')}</div>` : '';
-                const cv = sig.conviction; let convHtml = '';
-                if (cv && cv.bias) { const cc = cv.bias==='alcista'?'text-emerald-400':cv.bias==='bajista'?'text-red-400':'text-gray-400'; convHtml = `<span class="${cc} font-bold">${cv.bias}${cv.strength_pct!=null?' '+cv.strength_pct+'%':''}</span>`; }
-                const np = sig.net_premium; const npHtml = (np!=null)?`<span class="${np>=0?'text-emerald-400':'text-red-400'}">${np>=0?'+':''}$${(np/1e6).toFixed(1)}M</span>`:'';
-                const w = sig.walls||{}; const mp = sig.max_pain;
-                const lvlHtml = (w.call_wall||w.put_wall||mp)?`<span class="text-gray-500">${mp?'MP $'+Number(mp).toFixed(0)+' · ':''}${w.put_wall?'P $'+Number(w.put_wall).toFixed(0):''}${w.call_wall?' / C $'+Number(w.call_wall).toFixed(0):''}</span>`:'';
-                const strip = (convHtml||npHtml||lvlHtml) ? `<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono mb-2">${convHtml?'<span class="text-gray-600">flujo:</span>'+convHtml:''}${npHtml?'<span class="text-gray-600">neto:</span>'+npHtml:''}${lvlHtml}</div>` : '';
-                return alertsHtml + strip;
-            })()}
-            <div class="flex items-center justify-between gap-2 pt-2 border-t border-gray-900">
-                <span class="text-[10px] ${earnSoon ? 'text-amber-400 font-bold' : 'text-gray-500'}">
-                    ${ (r.next_earnings_days !== null && r.next_earnings_days !== undefined && r.next_earnings_days >= 0) ? `📅 Earnings en ${r.next_earnings_days}d ${earnSoon ? '⚠️' : ''}` : '📅 Earnings: N/A' }
-                </span>
-                <button onclick="wlAnalyze('${r.ticker}')" class="text-[10px] text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1">Analizar <i data-lucide="arrow-right" class="w-3 h-3"></i></button>
-            </div>
-        </div>`;
-    }).join('');
-    lucide.createIcons();
-}
-
-function computeWatchlistAlerts(rows) {
-    const alerts = [];
-    rows.forEach(r => {
-        if (r.error) return;
-        if (r.change_pct !== null && r.change_pct !== undefined && Math.abs(r.change_pct) >= WL_MOVE_THRESHOLD) {
-            const dir = r.change_pct >= 0 ? 'subió' : 'bajó';
-            alerts.push({ type: r.change_pct >= 0 ? 'up' : 'down', text: `<strong>${r.ticker}</strong> ${dir} ${r.change_pct >= 0 ? '+' : ''}${r.change_pct}% hoy` });
-        }
-        if (r.next_earnings_days !== null && r.next_earnings_days !== undefined && r.next_earnings_days >= 0 && r.next_earnings_days <= WL_EARNINGS_DAYS) {
-            alerts.push({ type: 'earn', text: `<strong>${r.ticker}</strong> reporta earnings en ${r.next_earnings_days} día${r.next_earnings_days !== 1 ? 's' : ''}${r.next_earnings_label ? ' ('+r.next_earnings_label+')' : ''}` });
-        }
-    });
-    const box = document.getElementById('wlAlerts');
-    const body = document.getElementById('wlAlertsBody');
-    if (!alerts.length) { box.classList.add('hidden'); return; }
-    box.classList.remove('hidden');
-    const icon = t => t === 'up' ? '🟢' : t === 'down' ? '🔴' : '📅';
-    body.innerHTML = alerts.map(a => `<div class="flex items-center gap-2 text-xs text-gray-300"><span>${icon(a.type)}</span><span>${a.text}</span></div>`).join('');
-}
-
-function wlAnalyze(ticker) {
-    switchView('homeView');
-    const input = document.getElementById('tickerInput');
-    if (input) { input.value = ticker; debounceQuoteFetch(); }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function wlToggleAutoRefresh() {
-    const on = document.getElementById('wlAutoRefresh').checked;
-    if (wlAutoTimer) { clearInterval(wlAutoTimer); wlAutoTimer = null; }
-    if (on) { wlAutoTimer = setInterval(() => {
-        if (!document.getElementById('watchlistView').classList.contains('hidden')) loadWatchlist();
-    }, 60000); }
-}
-
-// Load watchlist when entering the view
-(function() {
-    const _prevSwitch = window.switchView;
-    window.switchView = function(viewId) {
-        _prevSwitch(viewId);
-        if (viewId === 'watchlistView') loadWatchlist();
-    };
-})();
-</script>
+<!-- La watchlist de Vertex se ELIMINÓ: guardaba tickers y les colgaba alertas de
+     precio. La que hay ahora es la de Víctor y vive dentro de Proyecciones —guarda
+     el CONTRATO entero con tu sizing del momento, que es lo que se puede juzgar
+     después—. Ver el bloque `wlLocal*` y la tarjeta `renderProjWatchlist`. -->
 
 <!-- ═══════════════════════════════════════════════════════════
      TRACK RECORD VIEW — historical accuracy of the agent's calls
@@ -8438,14 +9123,7 @@ function wlToggleAutoRefresh() {
     <!-- El panel "Information Coefficient" fue eliminado: medía el poder predictivo de las 7
          señales del LLM, que se retiraron. El track record se desglosa por agente de Victor. -->
 
-    <p class="text-[10px] text-gray-600 mt-5 text-center">
-        Las alertas se calculan en el navegador: movimientos fuertes del día (±5%) y earnings dentro de 7 días.
-        Tu watchlist se guarda localmente en este dispositivo.
-    </p>
 </main>
-
-<!-- (Bloque JS de watchlist DUPLICADO eliminado: era byte-idéntico al anterior y
-     redefinía wlGet/loadWatchlist/renderWatchlist y seis funciones más.) -->
 
 <!-- ═══════════════════════════════════════════════════════════
      TRACK RECORD VIEW — historical accuracy of the agent's calls
@@ -8949,7 +9627,7 @@ const VX_I18N = {
     en: {
         'nav.dashboard': 'Dashboard', 'nav.reports': 'Reports',
         'nav.portfolio': 'Portfolio', 'nav.proyecciones': 'Projections',
-        'nav.watchlist': 'Watchlist', 'nav.track': 'Track Record',
+        'nav.track': 'Track Record',
         'menu.perfil': 'My profile', 'menu.tema': 'Theme',
         'menu.oscuro': 'Dark', 'menu.claro': 'Light',
         'menu.idioma': 'Language', 'menu.salir': 'Sign out',
