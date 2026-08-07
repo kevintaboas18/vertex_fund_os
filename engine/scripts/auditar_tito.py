@@ -1251,6 +1251,14 @@ DIVERGENCIAS = {
         "Su `wheelAfford.ts` corre en el CLIENTE por el mismo motivo. Aquí su "
         "`sort_by_afford_then_score` corre en /api/tito-wheel. "
         "NO cambia: colateral ≤ caja, y el orden bloqueado→no asequible→score."),
+    "clave de Massive recortada": (
+        VERTEX / "engine/wbj/tito/massive.py",
+        "Su `if (!key)` solo rechaza la cadena vacía: una clave con un salto de "
+        "línea alrededor pasa y Massive responde 401. En su despliegue la clave "
+        "vive en un `.env.local` que se edita; aquí vive en el panel de Render, "
+        "donde se pega con el ratón. Se restauró al confirmar Kevin que su clave "
+        "FUNCIONABA: una clave buena que muere por un carácter invisible es el "
+        "peor fallo, porque el 401 acusa a la credencial y no al espacio."),
     "wheel sin bid": (
         VERTEX / "engine/wbj/tito/wheel.py",
         "Su plan de Massive no sirve `last_quote`, y su propio compute.ts lo dice: "

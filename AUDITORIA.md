@@ -4069,3 +4069,60 @@ caso por caso — porque una regla así de arbitraria sin test es una bomba.
 
 **2.787 tests del motor · 388 de la capa web · 292 checks · 12 diferenciales,
 todos a cero divergencias.**
+
+## 41.23 La clave de Massive: cerrar una divergencia casi la rompe
+
+Kevin: *"verifica si mi clave de Massive está funcionando. Si no, arréglalo,
+porque ahorita sí estaba funcionando."*
+
+### Lo que había pasado
+
+Media hora antes, cerrando divergencias, se revirtió el recorte de la clave para
+dejar el código exacto al suyo:
+
+```python
+- key = os.environ.get("MASSIVE_API_KEY", "").strip()
++ key = os.environ.get("MASSIVE_API_KEY", "")
+```
+
+Su `if (!key)` solo rechaza la cadena vacía. Medido:
+
+| Clave en el entorno | Cabecera enviada | Resultado |
+|---|---|---|
+| `abc123` | `Bearer abc123` | OK |
+| `abc123\n` | `Bearer abc123\n` | **401** |
+| `abc123 ` | `Bearer abc123 ` | **401** |
+
+En **su** despliegue eso no pasa: la clave vive en un `.env.local` que se edita
+en un editor. Aquí vive en el panel de Render, **donde se pega con el ratón** —
+y pegar arrastra un salto de línea con una facilidad enorme.
+
+O sea: una clave que funcionaba podía dejar de funcionar por un carácter
+invisible, y el 401 acusaría a la credencial en vez de al espacio que sobra.
+
+**Restaurado y declarado** como cuarta divergencia, con ese motivo escrito. Si
+algún día se confirma que la clave no lleva blancos, la línea vuelve a la suya y
+el registro baja a tres.
+
+> No se puede probar contra la API real: este contenedor no tiene salida a
+> `api.massive.com`, y la regla del proyecto prohíbe leer `API/`. Lo verificado
+> es el comportamiento del código con claves de prueba.
+
+### ¿Se dañó algo de los dos agentes?
+
+Comparado el estado de hoy contra `be237a1` —el que Kevin usaba y funcionaba—:
+
+| | Antes | Ahora | Perdido |
+|---|---|---|---|
+| Rutas de la API | 72 | 71 | solo `/api/tito-fuentes` |
+| Funciones de `vertex_api.py` | 436 | 432 | `tito_fuentes` + sus 5 helpers **locales** (0 usos fuera) |
+| Motor de opciones (26 módulos) | — | — | **ninguna** |
+| Motor de acciones (8 especialistas) | — | — | **ninguna** |
+
+Y ejecutado, no solo leído: los **6 sub-agentes de opciones** (Agresividad,
+Convicción, Inusualidad, Estructura, Contexto IV, Confirmación) más GEX,
+Niveles, Predicción Pro, Wheel y Sizing responden; los **6 especialistas de
+acciones** conservan su `run()`; las 6 categorías siguen con sus pesos
+(20/15/20/20/15/10); y las 9 rutas del tab contestan sin un solo 404 ni 500.
+
+**2.787 tests del motor · 388 de la capa web · 292 checks · 0 fallos.**

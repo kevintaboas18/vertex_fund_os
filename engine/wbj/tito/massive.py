@@ -61,17 +61,24 @@ class MassiveError(RuntimeError):
 
 
 def _api_key() -> str:
-    # Su `apiKey()`, literal:
+    # **DIVERGENCIA DECLARADA — la tercera, y existe por Render.**
     #
-    #     const key = process.env.MASSIVE_API_KEY;
-    #     if (!key) throw new MassiveError("Falta MASSIVE_API_KEY…");
+    # Su `apiKey()` es `if (!key) throw`, que en JavaScript solo rechaza la
+    # cadena vacía: una clave con un espacio o un salto de línea alrededor pasa
+    # tal cual y Massive responde 401.
     #
-    # `if (!key)` en JavaScript es solo la cadena VACÍA: una clave con espacios
-    # alrededor pasa y Massive responde 401. Estuvo recortada aquí —lo que era
-    # más útil— y se revirtió: la instrucción es que lo único distinto sea el
-    # perfil y la Wheel, así que esto vuelve a ser suyo aunque su versión
-    # falle más tarde y peor.
-    key = os.environ.get("MASSIVE_API_KEY", "")
+    # En su despliegue eso no pasa: la clave vive en un `.env.local` que se
+    # edita en un editor. Aquí vive en el panel de Render, donde se pega con el
+    # ratón — y pegar arrastra un salto de línea con una facilidad enorme.
+    #
+    # Estuvo recortada, se revirtió para dejarlo exacto como él, y se restaura
+    # al confirmar Kevin que su clave FUNCIONABA antes: una clave buena que
+    # deja de servir por un carácter invisible es el peor fallo posible, porque
+    # el 401 apunta a la credencial y no al espacio que sobra.
+    #
+    # Si algún día se confirma que la clave no lleva blancos, esta línea puede
+    # volver a la suya y el registro de divergencias baja a dos.
+    key = os.environ.get("MASSIVE_API_KEY", "").strip()
     if not key:
         raise MassiveError("Falta MASSIVE_API_KEY en el entorno.")
     return key
