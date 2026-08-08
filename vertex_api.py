@@ -2932,7 +2932,22 @@ def buscar_tickers(q: str, limite: int = 8):
     # arriba. Ahora sólo se baja a la cola larga cuando el índice se queda de
     # verdad corto, que es cuando FMP aporta algo (ADRs, small caps, símbolos
     # recién listados).
-    if len(candidatos) < _MIN_LOCAL_PARA_NO_PREGUNTAR:
+    #
+    # Pero contar candidatos NO basta, y fallaba justo en el mejor caso. Escribir
+    # "NVD" deja UN solo candidato local (NVDA) y "NVDA" también, así que las dos
+    # últimas teclas del ticker más buscado seguían pagando dos peticiones HTTP
+    # —hasta 2×2,5 s de timeout— para no añadir nada: lo que buscabas ya estaba
+    # el primero. Se veía en el número: "escribir NVDA entero" no costaba 42 ms
+    # sino 42 ms más lo que tardaran cuatro llamadas a FMP.
+    #
+    # La regla correcta no es "¿hay pocos?" sino "¿hay una respuesta BUENA?".
+    # Un rango 0 (el símbolo exacto) o un rango 1 (el símbolo empieza por lo que
+    # tecleaste) ya es la respuesta: FMP solo puede añadir ruido por debajo. La
+    # cola larga se conserva entera para lo que de verdad la necesita —un ADR o
+    # una small cap que no está en el índice—, donde no hay ningún local que
+    # empiece por el término y esta condición no se cumple.
+    hay_simbolo_local = any(v[0] <= 1 for v in candidatos.values())
+    if len(candidatos) < _MIN_LOCAL_PARA_NO_PREGUNTAR and not hay_simbolo_local:
         clave = (os.environ.get("FMP_API_KEY") or "").strip()
         if not clave and not indice:
             raise HTTPException(status_code=503,

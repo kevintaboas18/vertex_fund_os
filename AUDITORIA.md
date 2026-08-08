@@ -4521,3 +4521,82 @@ Las cinco carpetas (`trades/`, `bars/`, `iv/`, `chain/`, `predictions/`) guardan
 ahora el formato de Víctor y son intercambiables con su app en las dos
 direcciones. Lo único distinto sigue siendo lo de Render: dónde vive el archivo
 (el almacén en la rama `datos`, porque él no despliega) y el perfil de Kevin.
+
+---
+
+## 41.27 Los 3 tests que se saltaban tapaban dos fallos reales
+
+Kevin: *"¿porque hace 2 skips? ¿de que son? soluciona todo, no quiero que omitas
+nada ni tenga ningun error ni nada."*
+
+Los tres skips eran **condicionales**, no marcas de "pendiente": el test se
+saltaba a sí mismo cuando el entorno no le daba lo que pedía. Y los dos que se
+saltaban en la capa web resultaron estar tapando un fallo del producto.
+
+### Los dos de `tests_vertex` — el autocompletado sí llamaba a la red
+
+El fixture esperaba hasta 60 s a que FMP cargara el índice de tickers y, si no
+llegaba, `pytest.skip`. Sin red o sin `FMP_API_KEY` eso es **siempre** —
+incluida cualquier integración continua. Un test que nunca corre no protege
+nada.
+
+Al quitarle la dependencia de la red (índice sembrado con las 21 empresas reales
+de EE.UU. cuyo símbolo o nombre empieza por N, que son las que compiten con NVDA
+en el buscador), el test falló a la primera. Con la clave de FMP puesta:
+
+```
+N     -> NVDA NFLX NVO NOW …     0 llamadas
+NV    -> NVDA NVO NVR NVT        0 llamadas
+NVD   -> NVDA                    2 llamadas HTTP   ← 
+NVDA  -> NVDA                    2 llamadas HTTP   ← 
+```
+
+**Las dos últimas teclas del ticker más buscado seguían bajando a la cola larga
+de FMP.** El umbral contaba CANDIDATOS (`< 3` → pregunta), y eso falla justo en
+el mejor caso: "NVD" y "NVDA" dejan un solo candidato local —NVDA— porque no hay
+más empresas cuyo símbolo empiece así. Dos peticiones por tecla, hasta 2×2,5 s de
+timeout, para no añadir nada: lo que buscabas ya salía el primero.
+
+La regla correcta no es *"¿hay pocos?"* sino *"¿hay una respuesta buena?"*. Si
+algún símbolo local empieza por lo que tecleaste (rango 0 o 1), FMP solo puede
+añadir ruido por debajo. La cola larga se conserva entera para lo que de verdad
+la necesita —un ADR o una small cap que no está en el índice—, donde ningún local
+empieza por el término.
+
+Y había un segundo motivo por el que esto no se veía: sin `FMP_API_KEY` la
+función que consulta ni se ejecuta, así que el test **pasaba sin probar nada**
+aunque el índice hubiera cargado. Ahora pone la clave a propósito.
+
+Dos tests nuevos que faltaban: que un término que el índice NO cubre sí baja a
+las dos rutas (cortar llamadas no puede cortar la cola larga), y que coincidir
+por símbolo gana a coincidir por nombre — NEM ($70B, empieza por "NE") va antes
+que NFLX ($500B, que solo coincide porque se llama "**Ne**tflix"). Siete veces
+más capitalización y detrás: eso es lo que hace que el orden sea el del rango y
+no el del market cap a secas.
+
+### El de `engine` — asertaba sobre una clave que nadie lee
+
+`test_the_dimension_lights_once_four_of_five_are_valid` comprobaba que
+`revenue_quality_and_growth` enciende al llegar a 4 de 5 métricas válidas. Para
+llenar el hueco pasaba `peer_revenue_growth` por el canal del analista… y esa
+clave **no la lee nadie**. FIN-GR-003 lee `packet.estimates["peer_panel"]`. Así
+que la dimensión se quedaba en 3/5 y el propio test se saltaba con
+`"fixture cannot reach 4/5 without a peer panel"`.
+
+Arreglado como lo llena la data real: el panel de pares va en el PAQUETE, con 8
+peers, que es el mínimo que exige `SCORING_ENGINE.md` antes de permitir una
+comparación contra pares. Y un test nuevo por el otro lado del umbral: con 7
+peers FIN-GR-003 se queda MISSING y la dimensión no puntúa — siete no es "casi
+ocho", es un número que se vería igual de creíble en el reporte sin serlo.
+
+### Estado
+
+**2.868 tests del motor · 507 de la capa web · 303 checks de auditoría · 94 del
+smoke de componentes · 14 diferenciales · 0 fallos y CERO skips.**
+
+De regalo, la capa web pasó de 207 s a 86 s: los dos fixtures que esperaban a
+FMP se llevaban 120 s de reloj por corrida para acabar saltándose el test.
+
+Quedan ~20 `pytest.skip` condicionales en el motor (fixtures de valuación,
+`Cerebro not present`) y 4 `skipif` de entorno (node, git). Ninguno se dispara
+en este repo — la corrida completa reporta `0 skipped`, no "skipped porque sí".
