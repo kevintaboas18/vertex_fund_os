@@ -405,6 +405,123 @@ class TestUnContenedorNuevo:
             conn.close()
 
 
+class TestElRemotoSeDeduceEnRender:
+    """El fallo que hacía que NADA se guardara teniendo el token puesto.
+
+    El almacén deducía el repositorio del `origin` del propio código, con
+    `git remote get-url`. Eso exige tres cosas que en local se cumplen siempre
+    y en Render pueden fallar todas: que el directorio desplegado traiga
+    `.git`, que `git` esté en el PATH del proceso, y que la URL sea `https://`
+    (una `git@github.com:…` se descartaba entera). Si cualquiera fallaba, la
+    URL salía vacía, `respalda` daba `False`, y el operador veía un aviso
+    genérico de «no se pudo deducir el repositorio» al lado de un token
+    perfectamente válido.
+
+    Resultado: se respaldaba en desarrollo y no en producción — que es el peor
+    reparto posible, porque el sitio donde el disco SÍ se borra es el segundo.
+    """
+
+    @staticmethod
+    def _alm(monkeypatch, **env):
+        import vertex_almacen as AL
+
+        for k in ("VERTEX_ALMACEN_REMOTO", "RENDER_GIT_REPO_SLUG", "VERTEX_GIT_TOKEN"):
+            monkeypatch.delenv(k, raising=False)
+        for k, v in env.items():
+            monkeypatch.setenv(k, v)
+        return AL.Almacen()
+
+    def test_render_lo_dice_en_el_entorno_y_con_eso_basta(self, monkeypatch):
+        """`RENDER_GIT_REPO_SLUG` no necesita `git`, ni `.git`, ni poder lanzar
+        subprocesos: es el propio servicio diciendo de qué repo salió."""
+        a = self._alm(monkeypatch, VERTEX_GIT_TOKEN="tok",
+                      RENDER_GIT_REPO_SLUG="kevintaboas18/vertex_fund_os")
+        assert a._repo_de_render() == "https://github.com/kevintaboas18/vertex_fund_os.git"
+        assert a.respalda is True
+
+    def test_no_construye_una_url_con_lo_que_venga(self, monkeypatch):
+        """El slug entra en una URL: si no son dos segmentos limpios, no se usa."""
+        for malo in ("", "solo-un-segmento", "a/b/c", "../../etc", "a b/c",
+                     "https://otro.com/x/y"):
+            a = self._alm(monkeypatch, VERTEX_GIT_TOKEN="tok",
+                          RENDER_GIT_REPO_SLUG=malo)
+            assert a._repo_de_render() == "", f"aceptó «{malo}»"
+
+    def test_la_variable_declarada_manda_sobre_render(self, monkeypatch):
+        a = self._alm(monkeypatch, VERTEX_GIT_TOKEN="tok",
+                      RENDER_GIT_REPO_SLUG="otro/repo",
+                      VERTEX_ALMACEN_REMOTO="https://github.com/mio/datos.git")
+        assert "mio/datos" in a._url()
+
+    @pytest.mark.parametrize("origin, esperado", [
+        ("git@github.com:kevintaboas18/vertex_fund_os.git",
+         "https://github.com/kevintaboas18/vertex_fund_os.git"),
+        ("git@github.com:owner/repo", "https://github.com/owner/repo.git"),
+        ("https://github.com/owner/repo.git", "https://github.com/owner/repo.git"),
+        # Las credenciales que traiga se van: las pone `_url` con el token que
+        # controla el operador.
+        ("https://alguien:secreto@github.com/owner/repo.git",
+         "https://github.com/owner/repo.git"),
+        ("", ""),
+    ])
+    def test_traduce_el_origin_venga_como_venga(self, monkeypatch, origin, esperado):
+        """La forma SSH se descartaba entera por no empezar con `https://`. Es
+        el MISMO repositorio escrito de otra manera, y es el `origin` de media
+        maquina de desarrollo."""
+        import subprocess
+
+        import vertex_almacen as AL
+
+        class _R:
+            stdout = origin + "\n"
+
+        monkeypatch.setattr(subprocess, "run", lambda *a, **k: _R())
+        assert AL.Almacen._origin_del_codigo() == esperado
+
+    def test_con_token_y_sin_remoto_el_motivo_dice_QUE_se_intento(self, monkeypatch):
+        """«No se pudo deducir el repositorio» al lado de un token puesto se
+        lee como una contradicción. Tiene que decir las tres fuentes que probó,
+        o el operador no tiene por dónde empezar."""
+        import vertex_almacen as AL
+
+        a = self._alm(monkeypatch, VERTEX_GIT_TOKEN="tok")
+        monkeypatch.setattr(AL.Almacen, "_origin_del_codigo", staticmethod(lambda: ""))
+        m = a._motivo_apagado()
+        assert "TIENES el token" in m
+        assert "RENDER_GIT_REPO_SLUG" in m and "VERTEX_ALMACEN_REMOTO" in m
+        assert "origin del código" in m
+
+    def test_sin_token_sigue_diciendo_lo_de_siempre(self, monkeypatch):
+        a = self._alm(monkeypatch)
+        assert "VERTEX_GIT_TOKEN" in a._motivo_apagado()
+        assert a.respalda is False
+
+
+class TestLasSeriesCaenDentroDelAlmacenPaseLoQuePase:
+    """`WBJ_TITO_DATA` se ponía DESPUÉS de restaurar.
+
+    Si la restauración fallaba —red, token, rama— el proceso seguía vivo y
+    sirviendo, pero todo lo que analizara a partir de ahí caía en
+    `./data/tito`, fuera de lo que se respalda, y se perdía entero. El aviso
+    que se pinta es el de la restauración, así que el segundo fallo viajaba
+    escondido detrás del primero.
+    """
+
+    def test_la_ruta_se_fija_antes_de_restaurar(self):
+        import pathlib
+        import re
+
+        raiz = pathlib.Path(__file__).resolve().parents[1]
+        src = (raiz / "vertex_api.py").read_text(encoding="utf-8")
+        i = src.index("def _arranca_almacen():")
+        cuerpo = src[i:src.index("\n# ──", i)]
+        i_var = cuerpo.index('os.environ.setdefault("WBJ_TITO_DATA"')
+        i_res = cuerpo.index("_alm.restaura()")
+        assert i_var < i_res, (
+            "`WBJ_TITO_DATA` vuelve a fijarse después de restaurar: si la "
+            "restauración falla, las series caen fuera del almacén y se pierden")
+
+
 class TestLasRutas:
     @pytest.fixture(autouse=True)
     def entorno(self, tmp_path, monkeypatch, remoto):

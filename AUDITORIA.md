@@ -5717,3 +5717,83 @@ ninguna.
 **2.925 tests del motor · 574 de la capa web · 317 checks de auditoría · 105 +
 62 del smoke · 16 diferenciales · preflight de Render en verde · 0 fallos,
 0 avisos, 0 skips.**
+
+## 41.42 El respaldo no funcionaba en Render — y solo en Render
+
+**Fecha:** 2026-08-08 · **Síntoma:** «Tengo el token y aun así no se guardan ni
+las cuentas ni los reportes ni nada».
+
+### La causa
+
+El almacén deducía a qué repositorio subir con `git remote get-url origin`
+sobre el directorio del propio código. Eso exige **tres** cosas que en una
+máquina de desarrollo se cumplen siempre y en Render pueden fallar todas:
+
+1. que el directorio desplegado traiga `.git` — Render exporta el árbol, no
+   siempre el repositorio;
+2. que `git` esté en el PATH **del proceso** (está en el build; en el runtime
+   no está garantizado);
+3. que la URL empiece por `https://` — una `git@github.com:owner/repo.git` se
+   descartaba entera.
+
+Si cualquiera fallaba, `_url()` devolvía cadena vacía, `respalda` daba `False`
+y el operador veía un aviso genérico de «no se pudo deducir el repositorio»
+**al lado de un token perfectamente válido**.
+
+El reparto era el peor posible: **se respaldaba en local y no en producción**,
+que es justo donde el disco sí se borra.
+
+### El arreglo
+
+Tres fuentes, en orden: `VERTEX_ALMACEN_REMOTO` → **`RENDER_GIT_REPO_SLUG`** →
+el `origin` del código. La de en medio la pone el propio Render en el entorno de
+todo servicio desplegado desde git, vale `owner/repo`, y **no necesita `git`, ni
+`.git`, ni poder lanzar subprocesos**: es el servicio diciendo de qué repo salió.
+El slug se valida contra `[A-Za-z0-9._-]+/[A-Za-z0-9._-]+` antes de construir
+una URL con él.
+
+Y la tercera fuente ya no descarta la forma SSH: es el mismo repositorio escrito
+de otra manera, y se traduce.
+
+### Dos cosas más que salieron al tirar del hilo
+
+**El orden en `_arranca_almacen`.** `WBJ_TITO_DATA` —que es lo que manda las
+series del motor DENTRO del almacén— se fijaba **después** de `restaura()`. Si
+la restauración fallaba (red, token, rama), el proceso seguía vivo y sirviendo,
+pero todo lo que analizara a partir de ahí caía en `./data/tito`, fuera de lo
+que se respalda, y se perdía entero. Y el segundo fallo viajaba escondido detrás
+del primero, porque el aviso que se pinta es el de la restauración. Ahora se fija
+**antes**: si la restauración falla, el primer respaldo que sí funcione se lo
+lleva igual.
+
+**El motivo, cuando el token SÍ está.** «No se pudo deducir el repositorio»
+junto a un token puesto se lee como una contradicción. Ahora dice las tres
+fuentes que probó y con qué resultado, y empieza por «TIENES el token, pero…».
+
+### Verificado de punta a punta
+
+Con un remoto real y el ciclo completo —arrancar, escribir, sincronizar— llegan
+a la rama `datos`:
+
+```
+Privado/privado.enc                      ← cuentas y perfiles, cifrados
+Proyecciones/WULF/2026-08-08/scorecard.json + RESUMEN.md + INDICE.md
+Reportes/NVDA/2026-08-08/reporte.json    + RESUMEN.md + INDICE.md
+Series/tito/trades/WULF.json             ← sub-agente 6
+Series/tito/predictions/WULF.json        ← calibración
+```
+
+Y `WBJ_TITO_DATA` apunta a `almacen/Series/tito`, que es lo que hace que esas
+dos últimas sobrevivan al redeploy.
+
+### Lo que impide que vuelva
+
+`TestElRemotoSeDeduceEnRender` (7 casos: el slug de Render, la validación del
+slug, la precedencia, las cinco formas de `origin`, y el motivo con y sin token)
+y `TestLasSeriesCaenDentroDelAlmacenPaseLoQuePase`, que comprueba en el código
+que `WBJ_TITO_DATA` se fija antes de restaurar. Mutados: 2 en rojo.
+
+### Estado
+
+**2.925 tests del motor · 585 de la capa web · 317 checks de auditoría ·
+16 diferenciales · preflight de Render en verde · 0 fallos, 0 avisos, 0 skips.**

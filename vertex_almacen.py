@@ -190,11 +190,28 @@ class Almacen:
     def _url(self) -> str:
         """La URL con el token incrustado, o '' si no se puede armar.
 
-        Si no se declara `VERTEX_ALMACEN_REMOTO`, se deduce del `origin` del
-        propio repo de código: los datos viven en el MISMO repositorio, en otra
-        rama. Así no hay que crear ni configurar un repo aparte.
+        Tres fuentes, en orden de fiabilidad:
+
+        1. `VERTEX_ALMACEN_REMOTO`, si el operador la declara;
+        2. **`RENDER_GIT_REPO_SLUG`**, que Render pone en el entorno del
+           servicio (`owner/repo`);
+        3. el `origin` del propio repo de código, con `git remote get-url`.
+
+        La 2 existe porque la 3 no vale en Render y ese era el fallo: se
+        respaldaba en local y NO en producción, teniendo el token puesto. El
+        directorio desplegado puede no traer `.git` —Render exporta el árbol,
+        no siempre el repositorio—, `git` puede no estar en el PATH del
+        proceso, y el `origin` puede venir en forma SSH (`git@github.com:…`),
+        que la función descartaba por no empezar por `https://`. Cualquiera de
+        los tres casos dejaba la URL vacía, `respalda` en `False`, y el aviso
+        genérico de «no se pudo deducir el repositorio» junto a un token
+        perfectamente válido.
+
+        Con la variable de Render no hace falta `git` ni `.git` para nada: el
+        propio servicio dice de qué repositorio salió.
         """
-        base = self._remoto_crudo or self._origin_del_codigo()
+        base = (self._remoto_crudo or self._repo_de_render()
+                or self._origin_del_codigo())
         if not base:
             return ""
         if not self._token:
@@ -202,6 +219,20 @@ class Almacen:
         if "@" in base.split("//", 1)[-1].split("/", 1)[0]:
             return base                                # ya trae credenciales
         return base.replace("https://", f"https://x-access-token:{self._token}@", 1)
+
+    @staticmethod
+    def _repo_de_render() -> str:
+        """El repositorio, tal como lo declara el propio Render.
+
+        `RENDER_GIT_REPO_SLUG` vale `owner/repo` y está en el entorno de todo
+        servicio desplegado desde git. No necesita `git`, ni `.git`, ni que el
+        proceso pueda ejecutar subprocesos: es la fuente que no se puede caer.
+        """
+        slug = (os.environ.get("RENDER_GIT_REPO_SLUG", "") or "").strip().strip("/")
+        # Dos segmentos y nada raro: no se construye una URL con lo que venga.
+        if not re.fullmatch(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+", slug):
+            return ""
+        return f"https://github.com/{slug}.git"
 
     @staticmethod
     def _origin_del_codigo() -> str:
@@ -212,6 +243,13 @@ class Almacen:
             url = (r.stdout or "").strip()
         except Exception:
             return ""
+        # La forma SSH es la del `origin` de media máquina de desarrollo y de
+        # varios despliegues, y se descartaba entera por no empezar por
+        # `https://`. Es el MISMO repositorio escrito de otra manera: se
+        # traduce en vez de tirarla.
+        m = re.fullmatch(r"git@([^:]+):(.+?)(?:\.git)?/?", url)
+        if m:
+            return f"https://{m.group(1)}/{m.group(2)}.git"
         if not url.startswith("https://"):
             return ""
         # Se le quitan las credenciales que traiga: las pone `_url` a partir de
@@ -475,8 +513,19 @@ class Almacen:
             return ("Sin VERTEX_GIT_TOKEN: se guarda en disco pero NO se respalda. "
                     "En Render eso significa que se borra en el próximo redeploy.")
         if not self._url():
-            return ("No se pudo deducir el repositorio de datos. Define "
-                    "VERTEX_ALMACEN_REMOTO con la URL https del repo.")
+            # El token está puesto y aun así no se respalda: hay que decir
+            # exactamente QUÉ se intentó, o el mensaje parece contradecir lo
+            # que el operador ve en su panel («pero si tengo el token»).
+            intentos = [
+                f"VERTEX_ALMACEN_REMOTO={'puesta' if self._remoto_crudo else 'sin definir'}",
+                f"RENDER_GIT_REPO_SLUG={os.environ.get('RENDER_GIT_REPO_SLUG') or 'sin definir'}",
+                f"origin del código={self._origin_del_codigo() or 'no se pudo leer'}",
+            ]
+            return ("TIENES el token, pero no se pudo deducir a qué repositorio "
+                    "subir, así que NO se respalda nada. Intentado → "
+                    + " · ".join(intentos)
+                    + ". Arréglalo definiendo VERTEX_ALMACEN_REMOTO con la URL "
+                      "https del repositorio (https://github.com/usuario/repo.git).")
         return ""
 
     # ── Hilo de fondo ───────────────────────────────────────────────────

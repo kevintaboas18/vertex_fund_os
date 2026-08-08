@@ -117,14 +117,22 @@ def _arranca_almacen():
     try:
         from vertex_almacen import DIR_SERIES, almacen as _alm
 
-        estado = _alm.restaura()
-
         # Las series de mercado del motor de Víctor viven DENTRO del almacén.
         # Es lo que hace que el sub-agente 6 (Confirmación), el IV Rank real y
         # la auto-calibración sobrevivan a un redeploy: las tres necesitan
         # DÍAS de historia acumulada, y hasta ahora empezaban de cero cada vez.
+        #
+        # Va ANTES de `restaura()`, no después. Si la restauración falla —red,
+        # token, rama— el proceso sigue vivo y sirviendo, y todo lo que analice
+        # a partir de ese momento tiene que caer DENTRO del almacén igualmente:
+        # así el primer respaldo que sí funcione se lo lleva. Con el orden
+        # anterior, un fallo al restaurar mandaba las series a `./data/tito`
+        # —fuera de lo que se respalda— y se perdían enteras sin que nada lo
+        # dijera, porque el aviso que se pinta es el de la restauración.
         os.environ.setdefault("WBJ_TITO_DATA",
                               str(_alm.ruta(DIR_SERIES, "tito")))
+
+        estado = _alm.restaura()
 
         # Los tres stores de series pasaron al formato exacto de Víctor
         # (`{ticker, updatedAt, snapshots}`, camelCase). Esto convierte lo que

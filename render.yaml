@@ -125,9 +125,19 @@ services:
       # superior y en /api/almacen — nunca en silencio.
       - key: VERTEX_GIT_TOKEN
         sync: false
-      # Opcional. Sin ella, el almacén deduce el repositorio del `origin` del
-      # propio código: los datos van al MISMO repo, en la rama `datos`.
-      # Ponla solo si quieres los datos en OTRO repositorio.
+      # Opcional, y ya casi nunca hace falta. El almacén deduce el
+      # repositorio en TRES pasos: esta variable → `RENDER_GIT_REPO_SLUG`
+      # (que Render pone solo en el entorno de todo servicio desplegado desde
+      # git) → el `origin` del propio código.
+      #
+      # El paso de en medio es el arreglo de un fallo real: se respaldaba en
+      # local y NO en Render, teniendo el token puesto. Deducirlo del `origin`
+      # exige que el directorio desplegado traiga `.git`, que `git` esté en el
+      # PATH del proceso y que la URL sea https — en Render puede fallar
+      # cualquiera de las tres, y entonces la URL salía vacía y no se subía
+      # nada. `RENDER_GIT_REPO_SLUG` no necesita ninguna de las tres.
+      #
+      # Descoméntala solo si quieres los datos en OTRO repositorio.
       # - key: VERTEX_ALMACEN_REMOTO
       #   value: https://github.com/kevintaboas18/vertex_fund_os.git
       #
