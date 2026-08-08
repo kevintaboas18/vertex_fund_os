@@ -269,6 +269,15 @@ def fetch_ticker_name(ticker: str, timeout: float = 12.0) -> str | None:
     return name if isinstance(name, str) and name.strip() else None
 
 
+#: `EXCHANGE_NAMES` suyo: el código MIC de Massive a un nombre legible. Sin
+#: esto la cabecera pondría "XNAS" donde él pone "Nasdaq", y un código
+#: desconocido se muestra tal cual (su `?? exchangeCode`).
+EXCHANGE_NAMES = {
+    "XNAS": "Nasdaq", "XNYS": "NYSE", "ARCX": "NYSE Arca",
+    "XASE": "NYSE American", "BATS": "Cboe BZX", "IEXG": "IEX",
+}
+
+
 def fetch_company(ticker: str, timeout: float = 12.0) -> dict | None:
     """Port de su `fetchCompany` — la ficha del subyacente **con su precio**.
 
@@ -322,9 +331,25 @@ def fetch_company(ticker: str, timeout: float = 12.0) -> dict | None:
                 return v
         return None
 
+    # `d.branding?.logo_url || d.branding?.icon_url` — su `hasLogo`. Decide si
+    # la cabecera pide el logo: sin él, `/api/tito-logo` no se llama nunca.
+    marca = d.get("branding") or {}
+    cod = d.get("primary_exchange")
     return {
         "ticker": clean,
         "name": d.get("name"),
+        # Los SEIS que faltaban. `_tito_company` ya los declaraba en su dict
+        # base y `vcCompanyHTML` ya los leía —`c.exchange`, `c.employees`,
+        # `c.has_logo`—, así que el panel pintaba "—" en la bolsa, no tenía la
+        # casilla de empleados y NUNCA pedía el logo: la ruta `/api/tito-logo`
+        # estaba viva y sin disparar. La cadena entera existía menos el eslabón
+        # que produce el dato.
+        "exchange": (EXCHANGE_NAMES.get(cod, cod) if cod else None),
+        "homepage_url": d.get("homepage_url"),
+        "employees": d.get("total_employees"),
+        "list_date": d.get("list_date"),
+        "description": d.get("description"),
+        "has_logo": bool(marca.get("logo_url") or marca.get("icon_url")),
         "market_cap": d.get("market_cap"),
         "sector": d.get("sic_description"),
         "price": _c(("day", "c"), ("min", "c"), ("prevDay", "c")),

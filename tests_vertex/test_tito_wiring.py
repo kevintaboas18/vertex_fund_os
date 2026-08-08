@@ -2696,3 +2696,56 @@ class TestTopFlowsNotables:
         assert "function vcTopFlowsHTML(" in html
         assert "${vcTopFlowsHTML(d)}" in html, "definida pero nadie la llama"
         assert "Top 3 flows notables" in html
+
+
+class TestElPanelNoLeeCamposQueNadieManda:
+    """Un campo que el frontend lee y el backend no envía **no rompe nada**:
+    se pinta "—" o no se pinta, y nadie se entera.
+
+    Pasó de verdad con la ficha de empresa: `vcCompanyHTML` leía `c.exchange` y
+    `c.employees`, `_tito_company` los declaraba en su dict base valiendo
+    `None`, y `fetch_company` no los pedía a Massive. El subtítulo de la
+    cabecera salía con el sector solo y la casilla de empleados vacía, durante
+    todas las rondas anteriores, sin un solo error.
+
+    Esto lo generaliza: se recogen TODOS los campos de primer nivel que leen
+    las funciones de render del panel y se cruzan con lo que sirve la ruta.
+    """
+
+    #: Lo que el panel lee y NO viene de `/api/projection-targets`, con su
+    #: procedencia. Se declara por nombre para que la lista no crezca sola.
+    DE_OTRAS_RUTAS = {
+        # /api/tito-ideas
+        "ideas", "scanned", "pages", "min_premium", "moneyness_cap", "rejected",
+        "blocked_summary", "blocked_total", "with_history", "perfil",
+        # /api/tito-wheel
+        "candidates", "presets", "preset_id", "preset_explain", "quotes_missing",
+        "with_candidates", "tickers", "failed",
+        # /api/tito-tape — `renderProjTape`
+        "trades", "notable", "total", "period", "aggression",
+        # /api/tito-ideas — `renderProjIdeas` (el aviso de escaneo truncado)
+        "truncated",
+        # sobres de error / degradación, comunes a todas
+        "ok", "error", "degraded",
+    }
+
+    def test_todo_lo_que_pinta_el_panel_llega_o_esta_declarado(self, client, mercado):
+        import pathlib
+        import re
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        fns = re.findall(r"function (vc[A-Za-z0-9_]+|renderProj[A-Za-z0-9_]+)\s*\(\s*d\b", html)
+        assert len(fns) >= 20, "el escaneo no encontró las funciones de render"
+        leidos = set()
+        for fn in fns:
+            i = html.index(f"function {fn}(")
+            j = html.find("\nfunction ", i + 10)
+            leidos |= set(re.findall(r"\bd\.([a-z_][a-z0-9_]*)",
+                                     html[i:j if j > 0 else i + 4000]))
+
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d.get("ok") is not False, f"la ruta degradó: {d.get('error')}"
+        huerfanos = sorted(leidos - set(d) - self.DE_OTRAS_RUTAS)
+        assert not huerfanos, (
+            f"el panel lee campos que ninguna ruta manda: {huerfanos}. "
+            "O el backend dejó de mandarlos, o el render quedó colgando.")

@@ -6698,6 +6698,13 @@ def _tito_company(ticker: str, spot, c: dict | None):
     base.update({
         "name": c.get("name"),
         "sector": c.get("sector"),
+        # `exchange` y `employees` estaban DECLARADOS en el dict base de arriba
+        # y `vcCompanyHTML` ya los leía —el subtítulo es `[exchange, sector]` y
+        # hay una casilla de empleados—, pero nadie los rellenaba: el eslabón
+        # que faltaba era `fetch_company`, que no los pedía. El subtítulo salía
+        # con el sector solo y la casilla vacía, sin que nada fallara.
+        "exchange": c.get("exchange"),
+        "employees": c.get("employees"),
         # El spot del motor manda sobre el del snapshot: es el que ancló los
         # nodos del GEX, los niveles y los tres targets. Que la cabecera diga
         # un precio y la gráfica otro es exactamente el fallo que la cadena de
@@ -6710,10 +6717,18 @@ def _tito_company(ticker: str, spot, c: dict | None):
         "day_low": _r(c.get("day_low")),
         "day_high": _r(c.get("day_high")),
         "prev_close": _r(c.get("prev_close")),
-        # `hasLogo` es una promesa, no una comprobación: pedir el binario aquí
-        # dobla la latencia de cada scorecard. La cabecera pinta la imagen y,
-        # si `/api/tito-logo` da 404, cae a las iniciales sin que se note.
-        "has_logo": True,
+        # `hasLogo` suyo: `Boolean(branding.logo_url || branding.icon_url)`.
+        #
+        # Antes iba forzado a `True` porque comprobarlo parecía costar otra
+        # llamada. No cuesta ninguna: la marca viene en el MISMO
+        # `/v3/reference/tickers/` que ya trae el nombre y el sector, así que
+        # ahora se usa el valor de verdad. La diferencia es un 404 de menos por
+        # cada ticker sin logo — y dejar de prometer una imagen que no existe.
+        #
+        # Si la ficha no llegó, se mantiene la promesa optimista: la cabecera
+        # pide el logo y cae a las iniciales si no está, que es mejor que
+        # esconderlo por no haber podido preguntar.
+        "has_logo": bool(c.get("has_logo")) if "has_logo" in c else True,
     })
     return base
 

@@ -584,3 +584,66 @@ class TestElPuenteNoTiraNadaDelPayload:
         js = HTML[HTML.index("async function wlCambiaBroker"):]
         js = js[:js.index("\nfunction ") if "\nfunction " in js else 400]
         assert "removeItem" not in js and "wlLocalGuarda([])" not in js
+
+
+class TestLaCabeceraRecibeLoQuePinta:
+    """El panel LEE `c.exchange`, `c.employees` y `c.has_logo`; el backend
+    tiene que MANDARLOS.
+
+    Un campo que el frontend lee y el backend no envía no rompe nada: se pinta
+    "—" y nadie se entera. Aquí pasó con la bolsa y con los empleados, y el
+    único síntoma era un subtítulo más corto de lo que él pone.
+    """
+
+    def test_el_panel_y_el_payload_hablan_de_los_mismos_campos(self):
+        import pathlib
+        import re
+
+        import vertex_api as V
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcCompanyHTML(")
+        lee = set(re.findall(r"\bc\.([a-z_]+)", html[i:i + 2600]))
+        manda = set(V._tito_company("DEMO", 100.0, {
+            "name": "X", "sector": "S", "exchange": "Nasdaq", "employees": 10,
+            "has_logo": True, "market_cap": 1, "price": 1, "change": 0,
+            "change_percent": 0, "day_volume": 1, "day_low": 1, "day_high": 1,
+            "prev_close": 1}))
+        faltan = lee - manda
+        assert not faltan, f"la cabecera lee campos que el payload no manda: {sorted(faltan)}"
+
+    def test_el_valor_LLEGA_no_solo_la_clave(self):
+        """La clave estaba: el dict base la declaraba como `None`. Lo que no
+        pasaba es el VALOR.
+
+        Comprobar solo la presencia de la clave no sirve — ese test pasaba
+        igual con el cableado borrado, porque `exchange` seguía existiendo
+        valiendo `None`. Un campo que existe y siempre vale nulo se pinta como
+        uno que no existe."""
+        import vertex_api as V
+
+        ficha = {"name": "X", "sector": "Semiconductores", "exchange": "Nasdaq",
+                 "employees": 29600, "has_logo": True}
+        out = V._tito_company("DEMO", 100.0, ficha)
+        assert out["exchange"] == "Nasdaq", "la bolsa no llega a la cabecera"
+        assert out["employees"] == 29600, "los empleados no llegan a la cabecera"
+        assert out["sector"] == "Semiconductores"
+
+    def test_sin_ficha_la_cabecera_sigue_teniendo_las_claves(self):
+        """Sin Massive se devuelve lo mínimo, pero con TODAS las claves: una
+        clave ausente y una clave nula se pintan igual, y solo una de las dos
+        es un estado que el panel sabe manejar."""
+        import vertex_api as V
+
+        base = V._tito_company("DEMO", 100.0, None)
+        for k in ("exchange", "employees", "has_logo", "name", "sector"):
+            assert k in base, k
+
+    def test_has_logo_deja_de_prometer_lo_que_no_hay(self):
+        import vertex_api as V
+
+        assert V._tito_company("D", 1.0, {"has_logo": False})["has_logo"] is False
+        assert V._tito_company("D", 1.0, {"has_logo": True})["has_logo"] is True
+        # Sin ficha se mantiene la promesa optimista: mejor pedirlo y caer a
+        # las iniciales que esconderlo por no haber podido preguntar.
+        assert V._tito_company("D", 1.0, {"name": "X"})["has_logo"] is True

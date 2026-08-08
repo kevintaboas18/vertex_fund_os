@@ -127,3 +127,63 @@ class TestBarrasDiarias:
         ahora = datetime(2026, 7, 31, 21, tzinfo=timezone.utc)
         save_bars("DEMO", [DailyBar("2026-07-31", 99.5, 101.0, 98.0, 100.0)], ahora)
         assert load_bars("DEMO").bars[0].open == 99.5
+
+
+class TestLaFichaDeEmpresaLlevaSusDieciochoCampos:
+    """`CompanyInfo` de su `types.ts`, entera.
+
+    `fetch_company` servía 12 de los 18. Los seis que faltaban no eran de
+    adorno: `_tito_company` YA los declaraba en su dict base y `vcCompanyHTML`
+    YA los leía —el subtítulo de la cabecera es `[exchange, sector]` y hay una
+    casilla de empleados—, así que el panel pintaba el subtítulo con el sector
+    solo y la casilla vacía. La cadena entera existía menos el eslabón que
+    produce el dato, y por eso no fallaba nada.
+    """
+
+    #: Los 18 de su interfaz, en snake_case.
+    SUYOS = ("ticker", "name", "exchange", "market_cap", "homepage_url",
+             "employees", "list_date", "sector", "description", "has_logo",
+             "price", "change", "change_percent", "day_open", "day_high",
+             "day_low", "day_volume", "prev_close")
+
+    def _ficha(self, monkeypatch, detalles=None, snap=None):
+        from wbj.tito import massive as M
+
+        monkeypatch.setattr(M, "_api_key", lambda: "k")
+
+        def _get(url, key, ticker, timeout):
+            if "/v3/reference/" in url:
+                return {"results": detalles if detalles is not None else {}}
+            return {"ticker": snap if snap is not None else {}}
+
+        monkeypatch.setattr(M, "_get", _get)
+        return M.fetch_company("DEMO")
+
+    def test_estan_los_dieciocho(self, monkeypatch):
+        f = self._ficha(monkeypatch)
+        faltan = [c for c in self.SUYOS if c not in f]
+        assert not faltan, f"faltan {faltan}"
+
+    def test_el_codigo_de_bolsa_se_traduce_como_el_suyo(self, monkeypatch):
+        """`EXCHANGE_NAMES[code] ?? code`: el conocido se traduce y el
+        desconocido se muestra tal cual, no se esconde."""
+        f = self._ficha(monkeypatch, {"primary_exchange": "XNAS"})
+        assert f["exchange"] == "Nasdaq"
+        assert self._ficha(monkeypatch, {"primary_exchange": "ZZZZ"})["exchange"] == "ZZZZ"
+        assert self._ficha(monkeypatch, {})["exchange"] is None
+
+    def test_has_logo_sale_de_la_marca_y_acepta_las_dos_claves(self, monkeypatch):
+        """`Boolean(branding.logo_url || branding.icon_url)` — cualquiera de
+        las dos vale, y sin marca es `False`."""
+        assert self._ficha(monkeypatch, {"branding": {"logo_url": "u"}})["has_logo"] is True
+        assert self._ficha(monkeypatch, {"branding": {"icon_url": "u"}})["has_logo"] is True
+        assert self._ficha(monkeypatch, {"branding": {}})["has_logo"] is False
+        assert self._ficha(monkeypatch, {})["has_logo"] is False
+
+    def test_los_cuatro_de_la_ficha_larga_llegan(self, monkeypatch):
+        f = self._ficha(monkeypatch, {"total_employees": 29600, "list_date": "1999-01-22",
+                                      "homepage_url": "https://x", "description": "texto"})
+        assert f["employees"] == 29600
+        assert f["list_date"] == "1999-01-22"
+        assert f["homepage_url"] == "https://x"
+        assert f["description"] == "texto"

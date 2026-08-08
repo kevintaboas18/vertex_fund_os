@@ -4948,3 +4948,75 @@ revés borrando los dos llamadores: sale en rojo con el nombre.
 
 **2.921 tests del motor · 519 de la capa web · 310 checks de auditoría · 94 del
 smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+---
+
+## 41.32 Ronda 10 — la cadena que existía menos un eslabón
+
+Kevin: *"verifica cada área una a una sin perder nada."*
+
+Esta ronda entró por `types.ts`, sus interfaces compartidas, comparando campo a
+campo contra lo que el port produce. Y ahí estaba el fallo, de un tipo nuevo:
+**la cadena entera montada menos el eslabón que produce el dato**.
+
+### `CompanyInfo`: se servían 12 de sus 18 campos
+
+`fetch_company` devolvía 12. Faltaban `exchange`, `homepage_url`, `employees`,
+`list_date`, `description` y `has_logo`.
+
+Lo que hace que esto sea grave y no cosmético es lo que había **alrededor**:
+
+- `_tito_company` ya **declaraba** `exchange` y `employees` en su dict base,
+  valiendo `None`.
+- `vcCompanyHTML` ya los **leía**: el subtítulo de la cabecera es
+  `[exchange, sector].filter(Boolean).join(' · ')` y hay una casilla de
+  empleados.
+
+O sea que el panel pedía la bolsa, el mapeador la declaraba, y nadie la
+buscaba. El subtítulo salía con el sector solo —donde él pone "Nasdaq ·
+Semiconductors"— y la casilla de empleados vacía. **Durante todas las rondas
+anteriores, sin un solo error.**
+
+También va su `EXCHANGE_NAMES` (XNAS→Nasdaq, XNYS→NYSE, …), con su regla: el
+código desconocido se muestra tal cual, no se esconde.
+
+Y `has_logo`, que estaba forzado a `True` "para no doblar la latencia": no la
+dobla. La marca viene en el MISMO `/v3/reference/tickers/` que ya trae el nombre
+y el sector. Ahora se usa el valor real — un 404 menos por cada ticker sin logo,
+y se deja de prometer una imagen que no existe.
+
+### El check que lo generaliza
+
+Un campo que el frontend lee y el backend no manda **no rompe nada**: se pinta
+"—" y nadie se entera. Así que se añadió el cruce entero:
+
+> se recogen TODOS los campos de primer nivel que leen las 23 funciones de
+> render del panel, y se cruzan contra lo que sirve la ruta.
+
+Encontró dos más al estrenarse (`aggression` y `truncated`), los dos legítimos
+—vienen de la cinta y de ideas—, ahora declarados por nombre y con su
+procedencia. Probado al revés renombrando `top_flows`: sale en rojo con el
+nombre del campo.
+
+### Y un test propio que era débil
+
+El primer test de paridad comprobaba que la **clave** existiera. Pasaba igual
+con el cableado borrado, porque `exchange` seguía existiendo valiendo `None`. Un
+campo que existe y siempre vale nulo se pinta igual que uno que no existe. Se
+reescribió para comprobar que el **valor llega**, y se verificó borrando la
+línea: ahora falla.
+
+### Verificado y correcto en esta ronda
+
+- **`watchlistLocal.ts`**: sus 6 exports están (`hasMigrated`/`markMigrated`
+  incluidos, con nombre en español — la importación única del watchlist viejo
+  funciona y es idempotente).
+- **`types.ts`**: `Row`, `ChainMeta`, `DailyBar`, `TfBar` y los eventos SSE,
+  campo a campo.
+- Las tres uniones de `page.tsx`, la calibración que mueve los targets y los
+  cinco caminos de aprendizaje siguen verdes (§41.31).
+
+### Estado
+
+**2.925 tests del motor · 524 de la capa web · 310 checks de auditoría · 94 del
+smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
