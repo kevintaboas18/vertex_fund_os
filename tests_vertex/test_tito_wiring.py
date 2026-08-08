@@ -1656,6 +1656,29 @@ class TestTimeAndSales:
             assert frase in cuerpo, f"falta el caso «{frase}»"
         assert "a.ratio >= 0.66" in cuerpo and "a.ratio <= 0.34" in cuerpo
 
+    def test_el_recorte_de_la_TABLA_se_dice_no_el_de_la_bajada(self):
+        """Su `meta.shown < meta.notableCount ? ", top N"`.
+
+        Aquí colgaba de `d.truncated`, que es otra cosa: `truncated` dice que
+        se cortó la BAJADA por el tope de páginas, y la tabla se recorta aparte
+        en `TABLE_CAP`. Con 140 notables en una sola página la bajada no truncó
+        nada y aun así solo se ven 100 — que es justo el caso en que callarlo
+        hace creer que se están viendo todos.
+        """
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjTape(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "d.truncated" not in cuerpo, "volvió a colgar del recorte de la bajada"
+        assert "_vistos < (d.notable" in cuerpo and "top ${_vistos}" in cuerpo
+
+    def test_el_tope_de_la_tabla_es_el_suyo(self):
+        """Y el tope que produce ese recorte es `TABLE_CAP`, importado de su
+        módulo por nombre — no un número escrito a mano en la ruta."""
+        from wbj.tito.scorecard import TABLE_CAP
+        api = (ROOT / "vertex_api.py").read_text(encoding="utf-8")
+        assert "TITO_TABLE_CAP]" in api
+        assert TABLE_CAP == 100
+
     def test_con_agresividad_desconocida_no_dice_Mid(self):
         """Su `sideLabel` tiene CUATRO ramas: ask, bid, mid… y `unknown`, que
         cae a `r.side`. Aquí el `else` se comía el desconocido y lo rotulaba
@@ -2107,6 +2130,7 @@ class TestElPanelNoTiraNadaDelPayload:
         "conviction.dominance.bid_pct": "idem",
         "iv_context.iv.special": "marca de IV atípica; el aviso al usuario es "
                                  "`iv.band`, que sí se pinta",
+        "validation.outcomes.id": "el id del flow, para la clave de la fila",
         "iv_context.iv.contracts": "sobre cuántos contratos se promedió la IV; "
                                    "la muestra ya la da `by_expiration`",
     }
@@ -2200,7 +2224,13 @@ class TestElPanelNoTiraNadaDelPayload:
         #: `iv_context.iv.contracts` es sobre cuántos contratos se promedió la
         #: IV, y no se pinta; `by_expiration[].contracts` es la muestra por
         #: vencimiento, y sí. Los dos nombres son los de su `IvContextScore`.
-        COLISIONES = {"iv_context.iv.contracts"}
+        COLISIONES = {
+            "iv_context.iv.contracts",
+            # `id` es la hoja más colisionada que hay: el panel accede a `.id`
+            # de ideas, de trades, de racimos… La de `outcomes` no se pinta —
+            # es la clave de la fila, como en su `key={o.id}`.
+            "validation.outcomes.id",
+        }
 
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
         mentiras = []
@@ -2515,6 +2545,21 @@ class TestElPanelNoTiraNadaDelPayload:
                       "confidence", "low_liquidity"):
             assert f"g.{campo}" in html, f"`gex.{campo}` se sirve y no se pinta"
 
+    def test_el_dashboard_lleva_su_disclaimer(self):
+        """Su `page.tsx` cierra con «Las predicciones son estimaciones de IA, no
+        consejo financiero» — DOS veces, una por vista.
+
+        Aquí las dos vistas están fundidas en una, así que va una vez; pero
+        faltaba entera. La Wheel y las Ideas ya tenían la suya, y la pantalla
+        que enseña los TARGETS —la que más se parece a una promesa— era justo
+        la que no decía nada.
+        """
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderVictorTargets(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "estimaciones de IA" in cuerpo
+        assert "no consejo financiero" in cuerpo
+
     def test_los_bloques_nuevos_se_llaman_desde_el_render(self):
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
         render = html[html.index("function renderVictorTargets(d) {"):]
@@ -2584,6 +2629,15 @@ class TestIdeasYWheelTampocoTiranNada:
                   "`presets[].label`, y el activo va resaltado",
         # ── Time & Sales ──
         "ticker": "el símbolo; va en el encabezado de la tarjeta, no en la tabla",
+        # OJO: `truncated` es raíz y lo sirven Ideas y la cinta. Ideas SÍ lo
+        # pinta («(truncado)» junto al conteo de páginas); la cinta no, a
+        # propósito —
+        "truncated": "en la CINTA no: dice que se cortó la bajada (tope de "
+                     "páginas), y lo que el usuario necesita saber es si se "
+                     "cortó la TABLA. Eso es `shown < notableCount`, su propia "
+                     "condición, que sí se pinta como «top N». En Ideas sí se "
+                     "pinta, porque allí el recorte de la bajada ES el recorte "
+                     "de la lista",
         "trades.id": "identificador del trade, para deduplicar y para el ×N de "
                      "los repetidos",
         "trades.symbol": "el OCC completo; la columna de contrato enseña "
@@ -2962,6 +3016,127 @@ class TestElPanelNoLeeCamposQueNadieManda:
             "O el backend dejó de mandarlos, o el render quedó colgando.")
 
 
+class TestElTabSeVeEnRender:
+    """Lo que decide si el tab se VE en el servidor, no solo si los tests pasan.
+
+    Tres cosas hunden un despliegue sin que ningún test de lógica se entere:
+    un acento grave mal puesto rompe el JS y el tab sale en blanco; una ruta que
+    el panel pide y el servidor no sirve da 404 en silencio; y una ruta que
+    revienta con 5xx en vez de degradar deja al usuario con un error de red en
+    vez de con una explicación.
+    """
+
+    def test_el_javascript_del_panel_es_valido(self):
+        """Un backtick dentro de un comentario HTML CIERRA la plantilla y se
+        lleva el tab entero — no una tarjeta, el tab. Ya pasó dos veces."""
+        import re
+        import shutil
+        import subprocess
+        import tempfile
+
+        if not shutil.which("node"):
+            pytest.skip("node no esta instalado")
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        bloques = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)</script>", html)
+        assert bloques, "el panel no tiene bloques de script"
+        with tempfile.NamedTemporaryFile("w", suffix=".mjs", delete=False,
+                                         encoding="utf-8") as f:
+            f.write(max(bloques, key=len))
+            ruta = f.name
+        r = subprocess.run(["node", "--check", ruta], capture_output=True, text=True)
+        assert r.returncode == 0, f"el JS del panel no compila:\n{r.stderr[:800]}"
+
+    def test_cada_ruta_que_el_panel_pide_existe(self, client):
+        """Un 404 en una pestaña no rompe las demás: se ve como «cargando» para
+        siempre. Se cruzan las 45 llamadas del panel con las rutas de la app."""
+        import re
+
+        import vertex_api as V
+
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        pedidas = sorted(set(re.findall(r"\$\{API_BASE\}(/api/[a-z0-9\-_/]+)", html)))
+        assert len(pedidas) >= 20, f"el escaneo solo vio {len(pedidas)} rutas"
+        servidas = {getattr(x, "path", "") for x in V.app.routes}
+        faltan = [p for p in pedidas if p not in servidas]
+        assert not faltan, f"el panel pide rutas que el servidor no sirve: {faltan}"
+
+    def test_el_html_llega_entero_por_la_raiz(self, client):
+        """Render sirve `/`. Si el panel no viaja ahí, no hay tab."""
+        r = client.get("/")
+        assert r.status_code == 200
+        for fn in ("renderProjTape", "renderProjWheel", "renderProjIdeas",
+                   "renderVictorTargets", "vcOutcomesHTML"):
+            assert fn in r.text, f"{fn} no llega al navegador"
+
+    def test_sin_claves_las_rutas_del_tab_degradan_en_vez_de_reventar(self, client,
+                                                                      monkeypatch):
+        """En un Render recién creado no hay `MASSIVE_API_KEY` ni cookie. Con
+        200 + `ok:false` el panel explica qué falta; con un 5xx el usuario ve un
+        error de red y no sabe si es el agente o su internet."""
+        for var in ("MASSIVE_API_KEY", "MARKETSNACK_COOKIE"):
+            monkeypatch.delenv(var, raising=False)
+        for ruta in ("/api/projection-targets?ticker=DEMO", "/api/tito-ideas",
+                     "/api/tito-tape?ticker=DEMO", "/api/tito-wheel"):
+            r = client.get(ruta)
+            assert r.status_code == 200, f"{ruta} devolvió {r.status_code}"
+            d = r.json()
+            if d.get("ok") is False:
+                assert d.get("error"), f"{ruta} degrada sin decir por qué"
+
+    def test_si_faltan_las_velas_la_grafica_de_dinero_lo_dice(self):
+        """`/api/tito-bars` responde 502 cuando Massive falla —como su ruta—, y
+        el consumidor se lo tragaba con tres `return` mudos. En un gráfico que
+        se llama «dinero contra precio», que falte el precio sin avisar se lee
+        como que no hubo movimiento."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("async function _projFlowPrecio(")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "_projFlowAviso(" in cuerpo, "los fallos vuelven a ser mudos"
+        assert 'id="projFlowMoneyAviso"' in html, "el aviso no tiene dónde pintarse"
+        assert "function _projFlowAviso(" in html
+
+
+class TestLaEvidenciaDelSubAgente6:
+    """«Sin evidencia, no hay número» — la regla del proyecto, aplicada al 6.
+
+    `validation.outcomes` es la tabla de su `ValidationCard`: cada flow pasado
+    con cuánto recorrió a favor, cuánto en contra, cuánto tardó y si acabó
+    validado o absorbido. Se calculaba ENTERA en `validation.py` y moría en el
+    servidor: al panel solo llegaba la tasa. Un 62% sin sus 25 filas no deja
+    ver si vino de tres aciertos grandes o de veinte pequeños, que se leen muy
+    distinto.
+    """
+
+    def test_los_outcomes_llegan_al_payload(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        v = d["subagents"]["validation"]
+        assert "outcomes" in v, "la evidencia del sub-agente 6 no sale de la ruta"
+        assert len(v["outcomes"]) <= 25, "su `outcomes.slice(0, 25)`"
+        if v["outcomes"]:
+            o = v["outcomes"][0]
+            for campo in ("timestamp", "type", "strike", "expiration", "premium",
+                          "direction", "mfe_pct", "mae_pct", "days_to_validate",
+                          "days_elapsed", "validated", "resolved"):
+                assert campo in o, f"falta {campo} en la fila de evidencia"
+
+    def test_la_tasa_y_las_filas_cuentan_lo_mismo(self, client):
+        """Si la tabla dice otra cosa que el titular, una de las dos miente."""
+        v = client.get("/api/projection-targets?ticker=DEMO").json()["subagents"]["validation"]
+        resueltos = [o for o in v["outcomes"] if o["resolved"]]
+        if not resueltos or v["hit_rate"]["resolved"] > 25:
+            return          # la tabla está recortada a 25: no es comparable
+        assert sum(1 for o in resueltos if o["validated"]) == v["hit_rate"]["validated"]
+        assert len(resueltos) == v["hit_rate"]["resolved"]
+
+    def test_el_panel_pinta_la_tabla(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "function vcOutcomesHTML(" in html
+        assert "${vcOutcomesHTML(val)}" in html, "definida pero nadie la llama"
+        assert "Qu&eacute; pas&oacute; despu&eacute;s de cada flow" in html
+        for etq in ("Validado", "Absorbido", "Muy reciente"):
+            assert etq in html, f"falta el resultado «{etq}»"
+
+
 class TestLaMemoriaFallaEnVozAlta:
     """La escritura de la que depende TODO el aprendizaje era la única muda.
 
@@ -3022,7 +3197,11 @@ class TestElTrackRecordSeVe:
         import pathlib
 
         html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
-        cuerpo = html.split("function vcMemoryHTML(")[1][:3000]
+        # La función ENTERA, no sus primeros 3.000 caracteres. Con el corte
+        # fijo, añadir dos líneas arriba empujaba la tabla fuera de la ventana
+        # y el test denunciaba como ausente algo que seguía ahí.
+        i = html.index("function vcMemoryHTML(")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
         assert "m.evals" in cuerpo, "la tabla no lee los evals"
         assert "vcErrColor(" in cuerpo, "el error no va coloreado"
         assert "acertó" in cuerpo, "no se dice qué escenario acertó"
@@ -3071,6 +3250,10 @@ class TestLaProbabilidadDeTocarElNivel:
         import pathlib
 
         html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
-        cuerpo = html.split("function vcLevelsHTML(")[1][:2200]
+        # La función ENTERA, no sus primeros 2.200 caracteres: con el corte fijo,
+        # añadirle texto arriba empujaba la cabecera fuera de la ventana y el
+        # test denunciaba como ausente algo que estaba tres líneas más abajo.
+        i = html.index("function vcLevelsHTML(")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
         assert "l.touch" in cuerpo, "la columna no lee el dato"
         assert "P(toque)" in cuerpo, "la columna no tiene cabecera"

@@ -14,7 +14,7 @@ apúntalo con TITO_ROOT=/ruta/a/agente-tito-metralleta. Sin esa variable se
 salta esa sección y el resto corre igual.
 """
 from __future__ import annotations
-import ast, json, math, os, re, shutil, subprocess, sys, tempfile, time
+import ast, html as _html, json, math, os, re, shutil, subprocess, sys, tempfile, time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -1403,6 +1403,181 @@ if TITO and (TITO / "app" / "components").is_dir():
     chk(not _fantasma, f"el registro no inventa componentes{': ' + str(_fantasma) if _fantasma else ''}")
 else:
     print("  · define TITO_ROOT para contrastar el registro contra su carpeta real")
+
+sec("9-septies. Sus PALABRAS, una por una")
+# ─────────────────────────────────────────────────────────────────────────────
+#  Las rondas 11 y 12 miraron los umbrales de sus componentes y las etiquetas
+#  de sus bandas. Lo que nadie enumeró nunca fue la PROSA: las frases que
+#  explican qué significa el número. «−$2.400M de GEX» no dice nada; «conviene
+#  seguir el movimiento» sí, y esa mitad de la tarjeta se perdía sin que
+#  fallara nada — un panel con todos los números y ninguna explicación pasa
+#  todos los tests de cableado.
+#
+#  Se extraen de sus .tsx las frases en español de 18-80 caracteres (literales
+#  y texto JSX suelto) y se exige que cada una esté en el panel o declarada
+#  aquí con su motivo. Es un cedazo grueso a propósito: si una frase suya nueva
+#  aparece, esto falla y hay que decidir — portarla o declarar por qué no.
+FRASES_DECLARADAS = {
+    "¿Dónde se acumula el dinero?":
+        "la variante de la pregunta de Estructura en su `page.tsx`. Él tiene "
+        "TRES para la misma casilla —ésta, «¿Strike/DTE de convicción o "
+        "lotería?» en `ScorecardPanel` y «¿Dónde se acumula el "
+        "posicionamiento?» en `StructureCard`— y aquí están las dos que "
+        "corresponden a las dos superficies portadas: la tabla resumen y la "
+        "tarjeta de detalle",
+    "Descargando página 3":
+        "es un EJEMPLO dentro del comentario de `AnalysisLoader`, no texto de "
+        "pantalla: describe los pasos que su loader decide NO enseñar",
+    "AI Options Agent — scorecard, flujo y predicción.":
+        "el `metadata.description` de su `layout.tsx` — el chrome de Next. "
+        "Aquí el tab vive dentro del layout de Vertex",
+    "Se cortó la conexión con el escáner.":
+        "el `onerror` de un `EventSource`. Aquí no hay SSE (divergencia "
+        "declarada «una respuesta, no un stream»): un fetch que falla da su "
+        "propio mensaje, con el motivo real",
+    "Si menciona la sesión de MarketSnack, hay que refrescar":
+        "aquí el aviso de la cookie es MÁS largo y dice dónde re-pegarla "
+        "(DevTools → Network → /api/flow_feed → header Cookie), porque en un "
+        "servidor no hay navegador que la refresque sola",
+    "Prediction Pro — próximamente.":
+        "su marcador de algo aún no construido en `TradesFeed`. Aquí "
+        "Prediction Pro está EN la pantalla, así que la frase sobra",
+    "Sin trades inusuales todavía — busca un ticker.":
+        "el vacío de su `TradesFeed`. Aquí la cinta tiene el suyo, que además "
+        "distingue «no hay ticker» de «hay ticker y no hay flujo»",
+    "Tamaño de cuenta en dólares":
+        "la etiqueta de su formulario de perfil, que en su app vive en "
+        "localStorage. Aquí el perfil es del servidor y lo edita el "
+        "cuestionario — divergencia declarada",
+    "Los números de abajo son un":
+        "idem: el pie de su `RiskProfileCard`",
+    "Categoría especial del documento:":
+        "su etiqueta para las IV atípicas de `ivcontext`. Aquí ese aviso llega "
+        "como `iv.note`, que el motor redacta y el panel pinta entero",
+    "Antes hacía de lo contrario":
+        "su glosa de «flipeado». Aquí la nota de niveles lo dice con sus "
+        "propias palabras de `LevelsCard`: «era techo y ahora hace de suelo»",
+    "Base (lo más probable)":
+        "la etiqueta del escenario base en su `EscenariosCard`. Aquí las tres "
+        "columnas van rotuladas Bajista/Base/Alcista con su probabilidad al "
+        "lado, que es el mismo dato sin el paréntesis",
+    "Las líneas de colores son las 3 rutas posibles:":
+        "la leyenda de su `SimpleChart`. La gráfica portada trae la suya "
+        "dibujada —cada ruta con su chip de escenario y su %— en vez de "
+        "describirla en prosa debajo",
+    "Las bandas son los precios donde está el dinero, con la":
+        "la nota de su `ProWallsCard`, que es su SEGUNDA vista de niveles. "
+        "Aquí hay una sola tabla de niveles, con la P(toque) por fila y su "
+        "explicación encima — misma información, una sola pantalla",
+    "Cómo quieres vender puts":
+        "el título de su `WheelPresetCard`. Aquí los tres presets llevan sus "
+        "bandas Δ y DTE en el propio botón, y debajo las reglas del elegido",
+    "Elige un perfil. No hay que tocar números — cada uno ya trae su delta y su plazo.":
+        "idem: su subtítulo",
+    "Si vendieras este put, cobrarías":
+        "el encabezado de su tarjeta Estudiante de la Wheel. Aquí la columna "
+        "«Cobras» lo dice con el número al lado, y la fila desplegable "
+        "desarrolla los tres escenarios",
+    "último precio −10%":
+        "su etiqueta de la fuente de prima. Aquí va en el `title` de la celda, "
+        "con el recorte exacto según la fuente (0% bid / 10% último / 15% VWAP)",
+    "Ilíquido — no operable":
+        "su etiqueta de fila bloqueada. Aquí la fila bloqueada dice el motivo "
+        "concreto —sin bid, horquilla ancha, poco open interest— con la frase "
+        "que lo explica, que es más que «ilíquido»",
+}
+if TITO and (TITO / "app").is_dir():
+    _ES = re.compile(r"[áéíóúñ¿¡]")
+    _LIT = re.compile(r'"([^"\\\n{}$<>]{18,80})"|\x27([^\x27\\\n{}$<>]{18,80})\x27')
+    _JSX = re.compile(r">\s*([A-ZÁÉÍÓÚÑ¿][^<>{}\n]{17,80})\s*<")
+    _HTML_TXT = _html.unescape(HTML)
+    _suyas, _ausentes = set(), []
+    for _f in sorted((TITO / "app").rglob("*.tsx")):
+        if ".test." in _f.name:
+            continue
+        _src = _f.read_text(encoding="utf-8")
+        _cand = set()
+        for _m in _LIT.finditer(_src):
+            _t = (_m.group(1) or _m.group(2)).strip()
+            if _ES.search(_t) and " " in _t and not _t.startswith(("http", "@/", "/")):
+                _cand.add(_t)
+        for _m in _JSX.finditer(_src):
+            _t = _m.group(1).strip()
+            if _ES.search(_t):
+                _cand.add(_t)
+        for _t in sorted(_cand):
+            _suyas.add(_t)
+            if _t not in _HTML_TXT and _t not in FRASES_DECLARADAS:
+                _ausentes.append(f"{_f.name}: {_t}")
+    chk(not _ausentes,
+        f"las {len(_suyas)} frases suyas están en el panel o declaradas"
+        + (f" · SIN PORTAR NI DECLARAR: {_ausentes}" if _ausentes else ""))
+    _fant_fr = sorted(set(FRASES_DECLARADAS) - _suyas)
+    chk(not _fant_fr,
+        "ninguna frase declarada es un fantasma"
+        + (f" · YA NO LAS DICE: {_fant_fr}" if _fant_fr else ""))
+    print(f"      {len(_suyas) - len(FRASES_DECLARADAS)} portadas · "
+          f"{len(FRASES_DECLARADAS)} declaradas con su motivo")
+else:
+    chk(False, "sin TITO_ROOT no se pueden contrastar sus frases", warn_if_false=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Sus PÁGINAS — la última clase de superficie sin registro.
+#
+#  El registro de componentes excluye `layout` y `page` a propósito (no son
+#  componentes), y las tres páginas de subcarpeta —`ideas/`, `wheel/`,
+#  `flow/`— ni siquiera entran en el glob de `app/*.tsx`. O sea que sus CUATRO
+#  pantallas eran la única superficie suya que nada enumeraba: se leyeron a
+#  mano en las rondas 9 y 14, y esa lectura no dejaba rastro comprobable. Si
+#  Víctor añade una quinta pantalla mañana, nada aquí se entera.
+#
+#  Cada una declara qué la cubre en este panel y qué de ella NO se porta, con
+#  su motivo. Mismo contrato que los otros cuatro registros.
+PAGINAS_SUYAS = {
+    "page": ("app/page.tsx", "el dashboard por ticker → `loadProjections` + "
+             "`renderProjections`. Sus 4 fases de `AnalysisLoader` van en "
+             "`vcLoaderHTML`; el toggle Estudiante/Pro no se porta — aquí las "
+             "dos vistas están fundidas en una sola pantalla, que es la "
+             "divergencia declarada de `LevelsCard`/`NivelesSimples`"),
+    "ideas/page": ("app/ideas/page.tsx", "el screener sin ticker → "
+                   "`loadProjIdeas` + `renderProjIdeas`. El selector de "
+                   "horizonte no se porta: aquí sale del PERFIL "
+                   "(`_perfil_horizonte_dias`) y se declara en la franja, "
+                   "porque el perfil vive en el servidor y no en localStorage"),
+    "wheel/page": ("app/wheel/page.tsx", "la Wheel → `loadProjWheel` + "
+                   "`renderProjWheel`, con sus tres presets, su ↻ y su aviso "
+                   "de cotización retrasada"),
+    "flow/page": ("app/flow/page.tsx", "la cinta → `loadProjTape` + "
+                  "`renderProjTape`, con su `ScoreCard` de agresividad, sus "
+                  "11 columnas y su «top N» cuando la tabla se recorta"),
+    "layout": ("app/layout.tsx", "el chrome de Next (html/body/metadata). No "
+               "aplica: aquí el tab vive dentro del layout de Vertex"),
+}
+chk(all(f and m for f, m in PAGINAS_SUYAS.values()),
+    f"las {len(PAGINAS_SUYAS)} páginas de su app están declaradas con su cobertura")
+if TITO and (TITO / "app").is_dir():
+    _suyas_pag = {str(f.relative_to(TITO / "app")).removesuffix(".tsx")
+                  for f in (TITO / "app").rglob("*.tsx")
+                  if f.stem in ("page", "layout")}
+    _faltan_p = sorted(_suyas_pag - set(PAGINAS_SUYAS))
+    chk(not _faltan_p,
+        "el registro cubre TODAS sus pantallas"
+        + (f" · SIN DECLARAR: {_faltan_p}" if _faltan_p else ""))
+    _fant_p = sorted(set(PAGINAS_SUYAS) - _suyas_pag)
+    chk(not _fant_p,
+        "ninguna pantalla declarada es un fantasma"
+        + (f" · YA NO EXISTEN: {_fant_p}" if _fant_p else ""))
+    # Y lo que dice cubrirlas, existe: cada función citada está en el panel.
+    _sin_fn = []
+    for _k, (_f, _m) in sorted(PAGINAS_SUYAS.items()):
+        for _fn in sorted(set(_FN_CITADA.findall(_m))):
+            if f"function {_fn}(" not in HTML:
+                _sin_fn.append(f"{_k} → {_fn}")
+    chk(not _sin_fn,
+        "cada función que las páginas citan existe en el panel"
+        + (f" · NO EXISTEN: {_sin_fn}" if _sin_fn else ""))
+for _k, (_f, _m) in sorted(PAGINAS_SUYAS.items()):
+    print(f"      {_k:<14} {_m[:74]}")
 # El detalle de sub-agentes: las 6 tarjetas + la tabla, servidas Y pintadas.
 chk('"subagents"' in API, "el payload sirve el DESGLOSE de los 6 sub-agentes")
 chk('"conviction_rows"' in API, "…y las filas de convicción, no solo su contador")

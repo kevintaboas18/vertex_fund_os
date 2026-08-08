@@ -4590,6 +4590,12 @@ def _tito_memory(ticker, trades, chain, bars, now):
                     and calibration.get("samples", 0) >= 5
                 ),
                 "dir_hit_rate": review.get("direction_hit_rate"),
+                # Su tercera `mem-stat`: «Tocó el target base — llegó al precio
+                # previsto». `review_predictions` la calcula y la ruta la
+                # tiraba. NO es lo mismo que el acierto de dirección: acertar
+                # que sube y no llegar al precio son dos fallos distintos, y
+                # con un solo número no se distinguen.
+                "base_touch_rate": review.get("base_touch_rate"),
                 "motivo": None,
                 # El TRACK RECORD fila a fila — su `MemoriaCard`, que no enseña
                 # un resumen sino una tabla: fecha, qué predijo, qué pasó de
@@ -6646,6 +6652,35 @@ def _tito_json(r):
                           "points": r.validation.speed["points"],
                           "band": r.validation.speed["band"]},
                 "by_direction": r.validation.by_direction,
+                # ── La EVIDENCIA del sub-agente 6, que no salía de la ruta ──
+                #
+                # Su `ValidationCard` no enseña solo la tasa: enseña la tabla
+                # «Qué pasó después de cada flow» — cada operación pasada con
+                # cuánto recorrió a favor, cuánto en contra, cuánto tardó y si
+                # acabó validada o absorbida. `outcomes` se calculaba entero en
+                # `validation.py` y moría en el servidor.
+                #
+                # Es justo lo que la regla del proyecto prohíbe perder: «sin
+                # evidencia, no hay número». El 62% de tasa de validación era un
+                # número sin las 25 filas que lo producen — y sin ellas no se
+                # puede ver si vino de tres aciertos grandes o de veinte
+                # pequeños, que se leen distinto.
+                #
+                # Las 25 más recientes, su `outcomes.slice(0, 25)`.
+                "outcomes": [
+                    {"id": o.id, "timestamp": o.timestamp, "type": o.type,
+                     "strike": o.strike, "expiration": o.expiration,
+                     "premium": o.premium, "direction": o.direction,
+                     "entry_price": _r(o.entry_price),
+                     "mfe_pct": _r(o.mfe_pct, 1), "mae_pct": _r(o.mae_pct, 1),
+                     "days_to_mfe": o.days_to_mfe, "days_to_mae": o.days_to_mae,
+                     "days_to_validate": o.days_to_validate,
+                     "days_to_invalidate": o.days_to_invalidate,
+                     "sessions_observed": o.sessions_observed,
+                     "days_elapsed": o.days_elapsed,
+                     "validated": o.validated, "resolved": o.resolved}
+                    for o in (r.validation.outcomes or [])[:25]
+                ],
                 "coverage": {"days": r.validation.coverage["days"],
                              "flows": r.validation.coverage["flows"],
                              "pending": r.validation.coverage["pending"],
@@ -6655,6 +6690,18 @@ def _tito_json(r):
         "levels": {
             "supports": [lvl(l) for l in r.levels.supports],
             "resistances": [lvl(l) for l in r.levels.resistances],
+            # Los tres campos de su `LevelsResult` que la ruta tiraba.
+            #
+            # `tolerance_pct` es lo que explica la nota de su `LevelsCard`
+            # —«$299 y $301 son el mismo techo, no dos»—: sin él la nota tenía
+            # que inventarse el número o callarlo. `key_support` y
+            # `key_resistance` son SU par elegido: los dos niveles que él
+            # destaca arriba del todo, que no son sin más el primero de cada
+            # lista (pesa la coincidencia precio ∩ opciones).
+            "tolerance_pct": r.levels.tolerance_pct,
+            "key_support": lvl(r.levels.key_support) if r.levels.key_support else None,
+            "key_resistance": (lvl(r.levels.key_resistance)
+                               if r.levels.key_resistance else None),
         },
         "predictions": {
             str(h): {

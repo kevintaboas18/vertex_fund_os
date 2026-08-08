@@ -2928,7 +2928,15 @@ function renderProjWheel(d) {
       </div>` : '';
 
     const cabeceraPerfil = vcCabeceraPerfil(d.perfil, (d.candidates || []).filter(c => !c.blocked).length);
-    const BLOQ = { sin_bid: 'sin bid', spread_ancho: 'horquilla ancha', oi_bajo: 'poco open interest' };
+    // Sus frases de `wheel-blocked-why`. «sin bid» es la etiqueta del motor;
+    // «nadie está poniendo precio de compra: no podrías vender» es lo que
+    // significa. Un bloqueo sin su porqué se lee como un fallo del agente en
+    // vez de como una propiedad del contrato.
+    const BLOQ = {
+        sin_bid: 'sin bid &mdash; Nadie está poniendo precio de compra: no podrías vender.',
+        spread_ancho: 'horquilla ancha &mdash; La horquilla es demasiado ancha: perderías dinero al entrar.',
+        oi_bajo: 'poco open interest &mdash; Muy pocos contratos abiertos: no hay con quién operar.',
+    };
     // Las filas bloqueadas no llevan ningún número —esa es su regla— así que
     // cien de ellas seguidas son cien líneas vacías. Se enseñan las primeras
     // como muestra y el resto se resume arriba, en "contratos bloqueados".
@@ -2945,7 +2953,7 @@ function renderProjWheel(d) {
                 <td class="py-2 pr-3 font-bold text-gray-400">${_vcEsc(c.ticker)}</td>
                 <td class="py-2 pr-3 text-gray-500">$${Number(c.strike).toFixed(2)}P</td>
                 <td class="py-2 pr-3 text-right text-gray-600">${c.dte}d</td>
-                <td class="py-2 pr-3 text-right text-gray-700" colspan="6">&mdash; bloqueado: ${_vcEsc(BLOQ[c.block_reason] || c.block_reason)}</td>
+                <td class="py-2 pr-3 text-right text-gray-700" colspan="6">&mdash; bloqueado: ${BLOQ[c.block_reason] || _vcEsc(c.block_reason)}</td>
                 <td class="py-2 pr-3 text-right text-gray-700">&mdash;</td>
                 <td class="py-2 text-right text-gray-700">&mdash;</td></tr>`;
         }
@@ -3108,6 +3116,13 @@ function renderProjTape(d) {
         : a.ratio <= 0.34 ? 'Presión al bid' : 'Mixto';
     const _cls = a.ratio >= 0.66 ? 'text-emerald-400'
         : a.ratio <= 0.34 ? 'text-red-400' : 'text-gray-300';
+    // Su `meta.shown < meta.notableCount ? ", top N"`. NO es `truncated`:
+    // `truncated` dice que se cortó la BAJADA (tope de páginas), y la tabla se
+    // recorta aparte en `TABLE_CAP`. Con 140 notables en una sola página la
+    // bajada no truncó nada y aun así solo se ven 100 — que es justo cuando
+    // callarlo hace creer que se están viendo todos.
+    const _vistos = (d.trades || []).length;
+    const _recorte = _vistos < (d.notable || 0) ? `, top ${_vistos}` : '';
     // `buildRepeatCounts(rows)` suyo: el ×N cuenta cuántas veces aparece ESE
     // contrato en la tabla. Sin él, la marca de repetido dice que lo hubo pero
     // no cuántas veces, que es la mitad de la señal — tres golpes al mismo
@@ -3151,7 +3166,7 @@ function renderProjTape(d) {
     caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
         <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
           <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="activity" class="w-4 h-4"></i> Time &amp; Sales &mdash; ${_vcEsc(d.ticker)}</h3>
-          <span class="text-[10px] text-gray-500">${d.notable} notables de ${d.total}${d.truncated ? `, top ${(d.trades || []).length}` : ''} · ${_vcEsc(d.period)}${d.pages ? ` · ${d.pages} p&aacute;g.` : ''} · &ge; ${fmtAbbr(d.min_premium)}</span>
+          <span class="text-[10px] text-gray-500">${d.notable} notables de ${d.total}${_recorte} · ${_vcEsc(d.period)}${d.pages ? ` · ${d.pages} p&aacute;g.` : ''} · &ge; ${fmtAbbr(d.min_premium)}</span>
         </div>
         <div class="h-1.5 rounded-full overflow-hidden bg-red-500/30 my-2">
           <div class="h-full bg-emerald-500" style="width:${pctAsk.toFixed(1)}%"></div></div>
@@ -4052,6 +4067,7 @@ function vcScorecardHTML(d) {
           <p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider">Options Flow Scorecard</p>
           <span class="text-[10px] text-gray-400">${total}${desfase}</span>
         </div>
+        <p class="text-[9px] text-gray-600 mb-1">Desglose por se&ntilde;al (promedios de cada sub-agente)</p>
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">${cats.map(celda).join('')}</div>
         ${d.verdict_meaning ? `<p class="text-[9px] text-gray-500 italic mt-1.5">${_vcEsc(d.verdict)}: ${_vcEsc(d.verdict_meaning)}</p>` : ''}
         ${meta.length ? `<p class="text-[9px] text-gray-600 mt-1">${meta.map(_vcEsc).join(' · ')}</p>` : ''}
@@ -4077,15 +4093,38 @@ function vcLevelsHTML(d) {
           l.touch == null ? '—' : Math.round(Number(l.touch) * 100) + '%'}</td>
         <td class="py-1 text-gray-500 text-[9px] leading-tight">${_vcEsc(l.why || '')}${l.flipped ? ' <span class="text-amber-400">· flipeado</span>' : ''}</td></tr>`).join('');
     const sup = filas('supports'), res = filas('resistances');
-    if (!sup && !res) return '';
+    // Su `feed-empty` de `LevelsCard`. Devolver '' hacía desaparecer la sección
+    // entera, y «no hay tarjeta» se lee como «el agente no la calcula». No es
+    // lo mismo: la calculó y no encontró nada en el rango operativo.
+    if (!sup && !res) return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider">Precios clave</p>
+        <p class="text-[10px] text-gray-500 mt-1 italic">Todav&iacute;a no hay soportes ni resistencias claros para este ticker.</p></div>`;
     const tabla = (t, cuerpo) => cuerpo ? `<p class="text-[9px] font-bold text-gray-500 uppercase mt-1.5 mb-0.5">${t}</p>
         <table class="vc-t w-full text-[10px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
         <th class="text-left pb-0.5">Nivel</th><th class="text-right pb-0.5 pr-2">Fuerza</th>
         <th class="text-right pb-0.5 pr-2">Dist.</th><th class="text-right pb-0.5 pr-2">P(toque)</th>
         <th class="text-left pb-0.5">Por qué</th></tr></thead>
         <tbody>${cuerpo}</tbody></table>` : '';
-    return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider">Niveles · precio ∩ opciones</p>
-        ${tabla('Resistencias', res)}${tabla('Soportes', sup)}</div>`;
+    // Los títulos y la nota son los suyos, de `LevelsCard` y `NivelesSimples`.
+    // «Resistencias» a secas obliga a saber qué es una resistencia; «techos por
+    // encima del precio» no. Y la nota del final es la que explica POR QUÉ un
+    // nivel vale más que otro, que es lo único que hace útil la columna Fuerza.
+    const _tol = (d.levels && d.levels.tolerance_pct) != null
+        ? Number(d.levels.tolerance_pct).toFixed(1) : null;
+    // Su `lvl-key`: el PAR elegido, arriba del todo. No es el primero de cada
+    // lista — el motor pesa la coincidencia precio ∩ opciones y elige uno de
+    // cada lado. Son los dos números que se miran antes que la tabla.
+    const _clave = (l, etq, col) => !l ? '' : `<div class="flex-1 min-w-[120px] bg-[#0B0E14] border border-gray-800 rounded-lg px-2.5 py-1.5">
+        <div class="text-[8px] uppercase tracking-wider font-bold ${col}">${etq}</div>
+        <div class="text-sm font-extrabold ${col}">$${Number(l.price).toFixed(2)}</div>
+        <div class="text-[8px] text-gray-600">${l.distance_pct >= 0 ? '+' : ''}${Number(l.distance_pct).toFixed(1)}% &middot; fuerza ${l.strength}/100</div></div>`;
+    const _par = (L.key_resistance || L.key_support)
+        ? `<div class="flex flex-wrap gap-2 my-1.5">${_clave(L.key_resistance, 'Resistencia clave', 'text-red-400')}${_clave(L.key_support, 'Soporte clave', 'text-emerald-400')}</div>`
+        : '';
+    return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider">Precios clave &mdash; &iquest;hasta d&oacute;nde puede llegar?</p>
+        ${_par}
+        <p class="text-[9px] text-gray-500 mb-1 leading-snug">Zonas donde el precio suele frenar. La probabilidad es qué tan factible es que lo <b>toque</b> en las próximas ~4 semanas.</p>
+        ${tabla('Resistencias &mdash; techos por encima del precio', res)}${tabla('Soportes &mdash; suelos por debajo del precio', sup)}
+        <p class="text-[9px] text-gray-600 mt-1 leading-snug">Un nivel vale m&aacute;s cuando <b>coincide</b> el precio y las opciones: que ya haya rebotado ah&iacute; <i>y</i> que adem&aacute;s haya dinero puesto.${_tol ? ` Se agrupan con una tolerancia del ${_tol}% &mdash; $299 y $301 son el mismo techo, no dos.` : ''} <b>Flipeado</b> = era techo y ahora hace de suelo (o al rev&eacute;s).</p></div>`;
 }
 
 /** Mapa de GEX por strike × vencimiento — su `GexHeatmapCard`.
@@ -4113,9 +4152,16 @@ function vcHeatmapHTML(d) {
     const cab = exps.map(e => `<th class="px-1 pb-0.5 text-[8px] text-gray-500 font-bold">${e.expiration.slice(5)}<br><span class="font-normal">${e.dte}d</span></th>`).join('');
     const filas = strikes.map(st => `<tr><td class="pr-1.5 text-[9px] font-bold ${st.strike >= h.spot ? 'text-red-300' : 'text-emerald-300'}">$${st.strike}</td>${exps.map(e => celda(st, e)).join('')}</tr>`).join('');
     const cal = k => h[k] ? `${k === 'hottest_positive' ? '🟢' : '🔴'} $${h[k].strike} · ${h[k].expiration} (${fmtAbbr(h[k].net_gex)})` : '';
-    return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider mb-1">Mapa de GEX · strike × vencimiento</p>
+    // Su `heat-foot`: el régimen NO es el signo del GEX, es lo que ese signo
+    // implica para operar. «−$2.400M» no dice nada; «conviene seguir el
+    // movimiento» sí, y es la mitad de por qué existe esta tarjeta.
+    const _reg = h.total_net_gex >= 0
+        ? 'γ+ (rango: conviene desvanecer extremos)'
+        : 'γ− (tendencia: conviene seguir el movimiento)';
+    return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider mb-1">GEX Heatmap &mdash; por strike y vencimiento</p>
+        <p class="text-[9px] text-gray-500 mb-1 leading-snug">Cada celda es el dinero de gamma en ese precio para esa fecha. <b class="text-emerald-400">Verde</b> = &gamma;+ estabiliza (frena el movimiento), <b class="text-red-400">rojo</b> = &gamma;&minus; amplifica (lo acelera). Pasa el cursor por una celda para ver el detalle.</p>
         <div class="vc-scroll overflow-x-auto"><table class="text-[10px]"><thead><tr><th></th>${cab}</tr></thead><tbody>${filas}</tbody></table></div>
-        <p class="text-[9px] text-gray-600 mt-1">${cal('hottest_positive')} ${cal('hottest_negative')} · GEX neto total ${fmtAbbr(h.total_net_gex)}</p></div>`;
+        <p class="text-[9px] text-gray-600 mt-1">${cal('hottest_positive')} ${cal('hottest_negative')} &middot; GEX neto total ${fmtAbbr(h.total_net_gex)} &mdash; r&eacute;gimen <b class="${h.total_net_gex >= 0 ? 'text-emerald-400' : 'text-purple-400'}">${_reg}</b></p></div>`;
 }
 
 /** Racimos del tape — su `FlowPriceChart` marca DÓNDE se concentró la agresión.
@@ -4214,6 +4260,49 @@ const VC_IV_REGIME = {
     normal: 'Volatilidad normal', desconocido: 'Sin contexto',
 };
 
+/** «Qué pasó después de cada flow» — la tabla de su `ValidationCard`.
+ *
+ *  Es la EVIDENCIA del sub-agente 6, y es lo que la regla del proyecto exige:
+ *  sin ella, «62% de tasa de validación» es un número sin las filas que lo
+ *  producen — y no se puede ver si vino de tres aciertos grandes o de veinte
+ *  pequeños, que se leen muy distinto. `outcomes` se calculaba entero en el
+ *  motor y moría en el servidor.
+ */
+function vcOutcomesHTML(val) {
+    const o = (val && val.outcomes) || [];
+    if (!o.length) return '';
+    const filas = o.map(x => {
+        const t = x.type === 'call' ? 'CALL' : (x.type === 'put' ? 'PUT' : '?');
+        const res = !x.resolved
+            ? '<span class="px-1 py-0.5 rounded text-[8px] font-bold bg-gray-500/10 text-gray-400">Muy reciente</span>'
+            : x.validated
+              ? '<span class="px-1 py-0.5 rounded text-[8px] font-bold bg-emerald-500/10 text-emerald-400">Validado</span>'
+              : '<span class="px-1 py-0.5 rounded text-[8px] font-bold bg-red-500/10 text-red-400">Absorbido</span>';
+        return `<tr class="border-b border-gray-800/50">
+            <td class="py-1 pr-2 text-gray-400">${_vcEsc(vcDateET(x.timestamp))} <span class="text-gray-600">(${x.days_elapsed}d atr&aacute;s)</span></td>
+            <td class="py-1 pr-2 text-gray-200"><b>$${x.strike != null ? Number(x.strike).toFixed(2) : '?'}</b>
+              <span class="px-1 rounded text-[8px] font-bold ${x.type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${t}</span>
+              <span class="block text-[8px] text-gray-600">vence ${_vcEsc(x.expiration || '—')}</span></td>
+            <td class="py-1 pr-2"><span class="px-1 rounded text-[8px] font-bold ${x.direction === 'alcista' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${_vcEsc(String(x.direction || '').toUpperCase())}</span></td>
+            <td class="py-1 pr-2 text-right text-gray-300">${fmtAbbr(x.premium)}</td>
+            <td class="py-1 pr-2 text-right text-emerald-400" title="Excursi&oacute;n m&aacute;xima a favor, medida desde el precio de entrada del contrato ($${Number(x.entry_price || 0).toFixed(2)})">+${Number(x.mfe_pct).toFixed(1)}%${x.days_to_mfe != null ? ` <span class="text-gray-600 text-[8px]">${x.days_to_mfe}d</span>` : ''}</td>
+            <td class="py-1 pr-2 text-right text-red-400">&minus;${Number(x.mae_pct).toFixed(1)}%${x.days_to_mae != null ? ` <span class="text-gray-600 text-[8px]">${x.days_to_mae}d</span>` : ''}</td>
+            <td class="py-1 pr-2 text-right text-gray-400">${x.days_to_validate != null ? x.days_to_validate + ' ses'
+                : (x.days_to_invalidate != null ? '<span class="text-red-400/70">' + x.days_to_invalidate + ' ses ✗</span>' : '&mdash;')}
+              <span class="block text-[8px] text-gray-600">${x.sessions_observed} obs.</span></td>
+            <td class="py-1 text-right">${res}</td></tr>`;
+    }).join('');
+    return `<p class="text-[9px] font-bold text-gray-500 uppercase mt-2 mb-0.5">Qu&eacute; pas&oacute; despu&eacute;s de cada flow
+        <span class="text-[8px] font-normal normal-case text-gray-600">&mdash; cu&aacute;nto tard&oacute; el movimiento en desarrollarse</span></p>
+      <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[10px] min-w-[560px]"><thead>
+        <tr class="text-gray-600 text-[8px] uppercase border-b border-gray-800">
+          <th class="text-left pb-0.5 pr-2">Fecha del flow</th><th class="text-left pb-0.5 pr-2">Contrato</th>
+          <th class="text-left pb-0.5 pr-2">Apuesta</th><th class="text-right pb-0.5 pr-2">Premium</th>
+          <th class="text-right pb-0.5 pr-2">A favor</th><th class="text-right pb-0.5 pr-2">En contra</th>
+          <th class="text-right pb-0.5 pr-2">Tard&oacute;</th><th class="text-right pb-0.5">Resultado</th></tr></thead>
+        <tbody>${filas}</tbody></table></div>`;
+}
+
 function vcSubagentesHTML(d) {
     const S = d.subagents;
     if (!S) return '';
@@ -4282,12 +4371,12 @@ function vcSubagentesHTML(d) {
             : 'Flujo normal';
         const p = u.avg_by_param || {};
         P.push(_vcSubCard(
-            _vcSubHead('Inusualidad', u.score, '¿Es flujo anormal?', v) +
+            _vcSubHead('Inusualidad', u.score, '¿Es flujo anormal? (griegos)', v) +
             `<div class="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                ${VC_UNU_PARAMS.map(([k, lbl, hint]) =>
                    _vcMetric(lbl, p[k] == null ? '—' : Number(p[k]).toFixed(1), null, hint)).join('')}
              </div>
-             <p class="text-[9px] text-gray-600 mt-1.5">${u.unusual_count} de ${u.n} trades superan el umbral de inusualidad (≥7/30). Promedio por parámetro sobre la ventana de convicción.</p>`));
+             <p class="text-[9px] text-gray-600 mt-1.5 leading-snug">Cada trade se puntúa en 6 parámetros (columnas <b>Tam · Δ · Θ · Γ · Leg · Venc</b>) y el promedio da su puntaje <b>Inusual</b>. ${u.unusual_count} de ${u.n} trades superan el umbral institucional (&ge;7/30) &mdash; son las filas resaltadas de la cinta. Promedio por par&aacute;metro sobre la ventana de convicci&oacute;n.</p>`));
     }
 
     // ── 4 · Estructura ─────────────────────────────────────────────────────
@@ -4380,7 +4469,7 @@ function vcSubagentesHTML(d) {
                              ? ` · rango ${Number(iv.rank.low).toFixed(0)}-${Number(iv.rank.high).toFixed(0)}%` : ''))}
                ${_vcMetric('Skew del frente', iv.front_skew == null ? '—'
                            : (iv.front_skew >= 0 ? '+' : '') + Number(iv.front_skew).toFixed(1) + ' pts',
-                           null, iv.front_skew != null && iv.front_skew > 10 ? 'el frente paga miedo' : 'sin prima de evento')}
+                           null, iv.front_skew != null && iv.front_skew > 10 ? 'el vencimiento cercano cotiza mucho más caro: evento encima' : 'sin prima de evento')}
              </div>
              ${iv.note ? `<p class="text-[9px] text-gray-400 mt-1.5 leading-snug">${_vcEsc(iv.note)}</p>` : ''}
              <p class="text-[8px] text-gray-600 mt-1">Rank medido con ${_vcEsc(fuente)}.</p>
@@ -4408,6 +4497,7 @@ function vcSubagentesHTML(d) {
              </div>
              ${dir ? `<div class="mt-1.5 flex flex-wrap gap-x-2">${dir}</div>` : ''}
              <p class="text-[9px] text-gray-600 mt-1.5 leading-snug">Un flow se da por validado cuando el precio recorre <b class="text-gray-400">${val.threshold_pct == null ? '—' : Number(val.threshold_pct).toFixed(1) + '%'}</b> a favor antes de irse en contra. El umbral se adapta a la volatilidad del subyacente.</p>
+             ${vcOutcomesHTML(val)}
              ${val.coverage.below_target ? `<p class="text-[9px] text-amber-400 mt-1 leading-snug">⚠ Historial preliminar: ${val.coverage.days} días acumulados de los 60 que pide el sub-agente 6 · ${val.coverage.flows} flows guardados${val.coverage.pending > 0 ? `, ${val.coverage.pending} aún sin juzgar` : ''}.</p>` : ''}`));
     }
 
@@ -4464,6 +4554,12 @@ function vcMemoryHTML(d) {
     if (!m.available) {
         return `<p class="text-[9px] text-amber-400 mt-2">🧠 Memoria apagada: ${_vcEsc(m.motivo || 'motivo no reportado')}</p>`;
     }
+    // Su `mem-empty`. Sin él, «0 predicciones vencidas» perdido entre las
+    // demás cifras se lee como un fallo; con él se lee como lo que es —
+    // todavía no ha pasado el horizonte de ninguna.
+    const _vacio = !m.predicciones_vencidas
+        ? `<p class="text-[9px] text-gray-500 mt-1 italic">Aún no hay predicciones <b>vencidas</b> para este ticker. Vuelve en unos días para ver qué tan cerca quedó.</p>`
+        : '';
     const bits = [
         `${m.iv_days} días de IV` + (m.iv_rank_real_en > 0 ? ` (rank real en ${m.iv_rank_real_en})` : ' · rank REAL activo'),
         `${m.flows_utilizables}/${m.flows_guardados} flows utilizables`,
@@ -4475,7 +4571,14 @@ function vcMemoryHTML(d) {
         m.calibracion_activa
             ? `calibración ACTIVA (sesgo ${Number(m.sesgo_pct).toFixed(1)}% — ${vcSesgoFrase(m.sesgo_pct)})`
             : 'calibración en espera',
-        m.dir_hit_rate != null ? `acierto direccional ${Math.round(m.dir_hit_rate)}%` : null,
+        // Sus dos `mem-stat` con su texto: acertar la DIRECCIÓN y llegar al
+        // PRECIO son dos cosas distintas, y con un solo número no se
+        // distinguen — «subió como dijo pero se quedó a mitad de camino» es
+        // medio acierto, no uno.
+        m.dir_hit_rate != null
+            ? `Acierto de dirección ${Math.round(m.dir_hit_rate)}% — ¿subió/bajó como dijo?` : null,
+        m.base_touch_rate != null
+            ? `Tocó el target base ${Math.round(m.base_touch_rate)}% — llegó al precio previsto` : null,
     ].filter(Boolean);
     const alerta = [];
     if (m.flows_corruptos) alerta.push(`${m.flows_corruptos} filas corruptas en disco`);
@@ -4486,7 +4589,7 @@ function vcMemoryHTML(d) {
     // existe esta sección —saber si el agente acierta— el resumen no basta.
     const BEST = { bear: 'bajista', base: 'base', bull: 'alcista' };
     const ev = (m.evals || []).filter(e => e && e.date);
-    const tabla = !ev.length ? '' : `
+    const tabla = !ev.length ? _vacio : `
       <table class="vc-t w-full text-[9px] mt-1"><thead>
         <tr class="text-gray-600 text-[8px] uppercase border-b border-gray-800">
           <th class="text-left pb-0.5">Fecha</th><th class="text-right pb-0.5 pr-2">Predijo</th>
@@ -4613,7 +4716,14 @@ function renderVictorTargets(d) {
       <div id="projTop5" class="mt-3"></div>
       <div id="projChain" class="mt-3"></div>
       <div id="vcNews">${d.news ? vcNewsHTML(d.news) : ''}</div>
-      ${warn ? `<div class="mt-2 space-y-0.5">${warn}</div>` : ''}`;
+      ${warn ? `<div class="mt-2 space-y-0.5">${warn}</div>` : ''}
+      <!-- Su disclaimer del dashboard, que aqui faltaba entero. El va DOS
+           veces: una al cerrar la vista Estudiante y otra al cerrar la Pro.
+           Aqui las dos vistas estan fundidas en una, asi que va una vez, al
+           final. La Wheel y las Ideas ya tenian el suyo; la pantalla que
+           enseña los TARGETS —que es la que mas se parece a una promesa— era
+           justo la que no decia nada. -->
+      <p class="text-[10px] text-gray-500 italic mt-3 pt-2 border-t border-gray-800">Las predicciones son estimaciones de IA, <b>no consejo financiero</b>. Son clasificaciones de research con sus supuestos declarados &mdash; no una orden de compra o venta, y ninguna promesa de retorno.</p>`;
 
     vcTablaResponsive('projTargets');
     // Estas tres pintan sobre `<canvas>`/`innerHTML` propios y por eso van
@@ -5354,17 +5464,35 @@ function renderProjTop5(d) {
  *  no pasa nada: la gráfica se queda con el dinero, que es lo que ya tenía.
  *  Un fallo de red no puede borrar lo que sí se pudo calcular.
  */
+/** El aviso de la gráfica de dinero: por qué falta la línea de precio.
+ *  Cadena vacía lo borra, para que un reintento con éxito no deje el aviso
+ *  viejo colgado contradiciendo lo que se ve. */
+function _projFlowAviso(txt) {
+    const el = document.getElementById('projFlowMoneyAviso');
+    if (!el) return;
+    el.innerHTML = txt
+        ? `<span class="text-amber-400">⚠ ${_vcEsc(txt)} La barra de dinero sigue siendo real; lo que falta es la l&iacute;nea de precio encima.</span>`
+        : '';
+}
+
 async function _projFlowPrecio(ticker, tf, etiquetas) {
     const g = window._projFlowMoneyChart;
     if (!g || !ticker) return;
     let velas;
+    // Su `/api/bars` responde 502 cuando Massive falla, y aquí eso se tragaba
+    // con tres `return` mudos: la línea de precio no aparecía y nada lo decía.
+    // En un gráfico que se llama «dinero contra precio», que falte el precio
+    // sin avisar es peor que no dibujarlo — se lee como que no hubo movimiento.
+    // El resto del panel explica sus caídas; ésta era la única que no.
     try {
         const r = await fetch(`${API_BASE}/api/tito-bars?ticker=${encodeURIComponent(ticker)}&tf=${encodeURIComponent(tf)}`,
                               { credentials: 'include' });
-        if (!r.ok) return;
+        if (!r.ok) return _projFlowAviso(`No se pudieron cargar las velas de precio (HTTP ${r.status}).`);
         velas = (await r.json()).bars || [];
-    } catch (e) { return; }
-    if (!velas.length || window._projFlowMoneyChart !== g) return;
+    } catch (e) { return _projFlowAviso('No se pudieron cargar las velas de precio: ' + e.message); }
+    if (window._projFlowMoneyChart !== g) return;
+    if (!velas.length) return _projFlowAviso('Massive no devolvió velas para este marco temporal.');
+    _projFlowAviso('');
     // Mismo cubo que el flujo: día de mercado + vela redondeada, en ET.
     const TF = { '1y': 0, '15m10d': 15, '5m5d': 5 };
     const min = TF[tf] || 0;
@@ -5490,7 +5618,8 @@ function renderProjFlowMoney(d) {
             title="${k === '1y' ? 'Un año, agregado por día de mercado'
                     : 'Velas de ' + TF[k] + ' minutos en hora del mercado (ET)'}"
             >${k === '1y' ? 'Diario' : TF[k] + 'm'}</button>`).join('')}</div>
-      <div class="h-[170px] sm:h-[200px]"><canvas id="projFlowMoneyCanvas"></canvas></div></section>`;
+      <div class="h-[170px] sm:h-[200px]"><canvas id="projFlowMoneyCanvas"></canvas></div>
+      <p id="projFlowMoneyAviso" class="text-[9px] mt-1"></p></section>`;
     // El selector cambia cómo se AGRUPA el flujo (que ya está en memoria) y, en
     // intradía, además baja las velas de precio de `/api/tito-bars` para
     // superponer la línea: es lo que hace su `FlowPriceChart`, y sin el precio

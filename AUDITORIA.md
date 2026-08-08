@@ -5464,3 +5464,101 @@ Estructura). Con una exención declarada por colisión de nombre:
 
 **2.925 tests del motor · 551 de la capa web · 311 checks de auditoría · 105 +
 62 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.39 Ronda 15 — sus PALABRAS, sus PÁGINAS, y la evidencia del sub-agente 6
+
+**Fecha:** 2026-08-08 · **Contra:** `infusionvictor/agente-tito-metralleta@53d5a20`
+
+Las catorce rondas anteriores compararon módulos, componentes, rutas, umbrales,
+formateadores y hojas de payload. Quedaban tres clases de superficie que nada
+enumeraba.
+
+### 1 · Sus páginas no estaban en ningún registro
+
+El registro de componentes excluye `layout` y `page` a propósito, y las tres
+páginas de subcarpeta (`ideas/`, `wheel/`, `flow/`) ni siquiera entran en el
+glob de `app/*.tsx`. Sus **cuatro pantallas** eran la única superficie suya que
+nada enumeraba: se leyeron a mano en las rondas 9 y 14, y esa lectura no dejaba
+rastro comprobable. `PAGINAS_SUYAS` las declara con qué las cubre aquí y qué de
+ellas no se porta; si añade una quinta, el check falla.
+
+### 2 · Sus palabras: 61 frases, una por una
+
+Las rondas 11 y 12 miraron los **umbrales** de sus componentes y las etiquetas
+de sus **bandas**. Nadie enumeró nunca la PROSA — las frases que explican qué
+significa el número. «−$2.400M de GEX» no dice nada; «γ− (tendencia: conviene
+seguir el movimiento)» sí, y esa mitad de la tarjeta se perdía sin que fallara
+nada: un panel con todos los números y ninguna explicación pasa todos los tests
+de cableado.
+
+`FRASES_DECLARADAS` extrae de sus `.tsx` las frases en español de 18-80
+caracteres y exige que cada una esté en el panel o declarada con su motivo. De
+las 61: **42 portadas, 19 declaradas**. Lo que faltaba y se añadió:
+
+- **El régimen del heatmap.** Mi tarjeta enseñaba el GEX neto y no lo que
+  implica. Ahora lleva sus dos frases y su leyenda verde/rojo.
+- **Los títulos de niveles.** «Resistencias» a secas obliga a saber qué es una
+  resistencia; «techos por encima del precio» no. Y su nota del final —la que
+  explica que un nivel vale más cuando coinciden precio y opciones, con la
+  tolerancia de agrupación— faltaba entera.
+- **El par de niveles clave** (`key_support` / `key_resistance`) y
+  `tolerance_pct`: tres campos de su `LevelsResult` que la ruta tiraba. Su
+  `lvl-key` son los dos números que se miran antes que la tabla.
+- **El vacío de `LevelsCard`.** Devolver `''` hacía desaparecer la sección, y
+  «no hay tarjeta» se lee como «el agente no la calcula». La calculó y no
+  encontró nada.
+- **Las tres frases de bloqueo de la Wheel.** «sin bid» es la etiqueta del
+  motor; «nadie está poniendo precio de compra: no podrías vender» es lo que
+  significa. Un bloqueo sin su porqué parece un fallo del agente.
+- **Las dos `mem-stat` del track record**, con `base_touch_rate` — otro campo
+  calculado y tirado. Acertar la DIRECCIÓN y llegar al PRECIO son dos cosas
+  distintas: «subió como dijo pero se quedó a mitad de camino» es medio
+  acierto, y con un solo número no se distingue.
+- **El vacío de `MemoriaCard`**, el desglose de los 6 parámetros de
+  Inusualidad, «Desglose por señal» del scorecard y la frase del skew.
+- **El disclaimer del dashboard.** Él lo pone DOS veces. La Wheel y las Ideas
+  ya tenían el suyo; la pantalla que enseña los TARGETS —la que más se parece a
+  una promesa— era justo la que no decía nada.
+- **Las preguntas de los sub-agentes.** Él tiene TRES redacciones para la
+  casilla de Estructura en tres archivos distintos; aquí están las dos que
+  corresponden a las dos superficies portadas, y la tercera queda declarada.
+
+### 3 · `validation.outcomes` — la evidencia del sub-agente 6
+
+Su `ValidationCard` no enseña solo la tasa: enseña la tabla **«Qué pasó después
+de cada flow»** — cada operación pasada con cuánto recorrió a favor, cuánto en
+contra, cuánto tardó y si acabó validada o absorbida. Se calculaba **entera** en
+`validation.py` y **moría en el servidor**.
+
+Es exactamente lo que la regla del proyecto prohíbe perder: *sin evidencia, no
+hay número*. Un 62% de tasa sin sus 25 filas no deja ver si vino de tres
+aciertos grandes o de veinte pequeños, que se leen muy distinto. El barrido de
+hojas no podía cazarlo porque el campo **no estaba en el payload**: solo mira lo
+que la ruta sirve.
+
+### 4 · Lo que decide si se VE en Render
+
+- **El JS del panel compila** (`node --check` sobre el bloque real). Un acento
+  grave dentro de un comentario HTML cierra la plantilla y se lleva el tab
+  entero — ya pasó dos veces.
+- **Las 45 rutas que el panel pide existen** en la app. Ninguna huérfana.
+- **Sin claves, las cuatro rutas del tab degradan a 200 + `ok:false` con su
+  motivo**, no a 5xx. El `/` sirve el panel completo (716 KB) con las cinco
+  funciones de render dentro.
+- **Menos una:** `/api/tito-bars` responde 502 cuando Massive falla —igual que
+  su ruta— y el consumidor se lo tragaba con **tres `return` mudos**. En un
+  gráfico que se llama «dinero contra precio», que falte el precio sin avisar
+  se lee como que no hubo movimiento. Ahora lo dice, y el aviso se borra solo
+  cuando el reintento va bien.
+
+### 5 · Dos tests que mentían por construcción
+
+`test_el_panel_pinta_la_columna` y `test_el_panel_pinta_la_tabla_con_el_color_del_error`
+cortaban la función a 2.200 y 3.000 caracteres fijos. Añadir texto arriba
+empujaba lo comprobado fuera de la ventana y el test denunciaba como ausente
+algo que seguía tres líneas más abajo. Ahora leen la función entera.
+
+### Estado
+
+**2.925 tests del motor · 562 de la capa web · 317 checks de auditoría · 105 +
+62 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
