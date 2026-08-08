@@ -2780,3 +2780,51 @@ class TestElTrackRecordSeVe:
         assert "m.evals" in cuerpo, "la tabla no lee los evals"
         assert "vcErrColor(" in cuerpo, "el error no va coloreado"
         assert "acertó" in cuerpo, "no se dice qué escenario acertó"
+
+
+class TestLaProbabilidadDeTocarElNivel:
+    """`probTouch(spot, l.price, iv, horizonDays)` de su `NivelesSimples`.
+
+    La tabla de niveles enseñaba precio, fuerza y distancia — y no cuán
+    probable era llegar. Un soporte de fuerza 80 al 15% de distancia y otro de
+    fuerza 50 al 2% se leían igual de "fuertes", que es justo lo que esta
+    columna desambigua. El motor ya trae `prob_touch`; solo faltaba llamarlo.
+    """
+
+    def test_cada_nivel_viaja_con_su_probabilidad(self, client, mercado):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        niveles = (d["levels"]["supports"] or []) + (d["levels"]["resistances"] or [])
+        assert niveles, "sin niveles no se prueba nada"
+        for l in niveles:
+            assert "touch" in l, "el nivel no lleva P(toque)"
+            if l["touch"] is not None:
+                assert 0.0 <= l["touch"] <= 1.0, l["touch"]
+
+    def test_mas_cerca_es_mas_probable(self):
+        """La comprobación que le da sentido: si la probabilidad no cae con la
+        distancia, la columna sería decorativa."""
+        from wbj.tito.expected_move import prob_touch
+
+        cerca = prob_touch(100.0, 98.0, 0.45, 20)
+        lejos = prob_touch(100.0, 80.0, 0.45, 20)
+        assert cerca > lejos
+
+    def test_usa_la_IV_del_GEX_como_el(self):
+        """Su `NivelesSimples` recibe `iv={gex?.iv ?? 0.4}`. Con otra IV la
+        columna diría otra cosa sin que nada fallara."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V)
+        i = fuente.index("_iv_niveles")
+        assert "r.gex.iv" in fuente[i:i + 200]
+        assert "0.4" in fuente[i:i + 200], "falta su respaldo de 0.4"
+
+    def test_el_panel_pinta_la_columna(self):
+        import pathlib
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        cuerpo = html.split("function vcLevelsHTML(")[1][:2200]
+        assert "l.touch" in cuerpo, "la columna no lee el dato"
+        assert "P(toque)" in cuerpo, "la columna no tiene cabecera"

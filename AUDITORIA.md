@@ -5158,3 +5158,58 @@ propiedad — un filtro mal calibrado denuncia ruido y esconde lo que importa.
 
 **2.925 tests del motor · 529 de la capa web · 311 checks de auditoría · 94 del
 smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+---
+
+## 41.35 Ronda 13 — la columna que decía cuán probable era llegar
+
+Entrada nueva: las **ordenaciones** de sus componentes y `conditions.ts`, que
+nunca se habían comparado directamente.
+
+### El hueco: `probTouch` no existía en ninguna parte
+
+Su `NivelesSimples` calcula, para CADA nivel,
+`probTouch(spot, l.price, iv, horizonDays)` con la IV del GEX — la probabilidad
+de que el precio **llegue** a ese nivel dentro del horizonte. En el panel esa
+columna no existía.
+
+No es un adorno. La tabla enseñaba precio, fuerza y distancia, y con eso un
+soporte de **fuerza 80 al 15%** y otro de **fuerza 50 al 2%** se leen igual de
+"fuertes". Medido sobre el fixture, con la IV del GEX (0,483) a 20 días:
+
+| nivel | fuerza | distancia | P(toque) |
+|---|---|---|---|
+| $99,73 | 34 | −0,3% | **100%** |
+| $97,15 | 25 | −2,9% | 84% |
+| $90,00 | 34 | −10,0% | **38%** |
+
+Los dos de fuerza 34 son el mismo número y **una probabilidad de llegar que se
+diferencia en 62 puntos**. Eso es lo que la columna desambigua.
+
+El motor ya traía `prob_touch` (de `expected_move.py`, portado y probado desde
+la primera ronda). Solo faltaba llamarlo y servirlo. Ahora cada nivel viaja con
+su `touch`, con su misma IV y su mismo respaldo de 0,4 cuando el GEX no la da.
+
+### Lo que estaba bien
+
+- **`conditions.ts`: 33 de 33.** Cada `id`, cada `code`, y los dos conjuntos
+  —`MULTI_LEG_CODES` y `CANCELED_CODES`— idénticos. Es el módulo que decide si
+  un trade se descarta por cancelado o se marca como pata de una estrategia
+  combinada, así que un código de más o de menos movería los seis scores.
+- **La tabla de cadena SÍ es ordenable** por columna (`vcOrdenaCadena`), como su
+  `OptionChainTable`.
+- **`ActivityCard`** ordena por el timestamp real del primer trade de cada día y
+  no por la etiqueta — su bug evitado, que ya estaba portado con su comentario.
+
+### Declarada
+
+Él tiene DOS vistas de niveles: `LevelsCard` (pro, soportes y resistencias
+separados) y `NivelesSimples` (estudiante, una lista fundida por cercanía con
+la P(toque)). El panel tiene UNA tabla, con la estructura de `LevelsCard` y la
+columna de `NivelesSimples`. Se queda la fusión: son los mismos datos y una
+sola pantalla no gana nada partiéndolos en dos vistas que dicen lo mismo.
+
+### Estado
+
+**2.925 tests del motor · 533 de la capa web · 311 checks de auditoría · 94 del
+smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**

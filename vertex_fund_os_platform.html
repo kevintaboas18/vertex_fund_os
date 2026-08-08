@@ -3971,13 +3971,16 @@ function vcLevelsHTML(d) {
         <td class="py-1 pr-2 text-right text-gray-300">${l.strength}
                  <span class="text-[8px] text-gray-600">${vcFuerzaLabel(l.strength)}</span></td>
         <td class="py-1 pr-2 text-right text-gray-500">${Number(l.distance_pct).toFixed(1)}%</td>
+        <td class="py-1 pr-2 text-right text-gray-400" title="Probabilidad de que el precio LLEGUE a este nivel en 20 días, con la IV del GEX">${
+          l.touch == null ? '—' : Math.round(Number(l.touch) * 100) + '%'}</td>
         <td class="py-1 text-gray-500 text-[9px] leading-tight">${_vcEsc(l.why || '')}${l.flipped ? ' <span class="text-amber-400">· flipeado</span>' : ''}</td></tr>`).join('');
     const sup = filas('supports'), res = filas('resistances');
     if (!sup && !res) return '';
     const tabla = (t, cuerpo) => cuerpo ? `<p class="text-[9px] font-bold text-gray-500 uppercase mt-1.5 mb-0.5">${t}</p>
         <table class="vc-t w-full text-[10px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
         <th class="text-left pb-0.5">Nivel</th><th class="text-right pb-0.5 pr-2">Fuerza</th>
-        <th class="text-right pb-0.5 pr-2">Dist.</th><th class="text-left pb-0.5">Por qué</th></tr></thead>
+        <th class="text-right pb-0.5 pr-2">Dist.</th><th class="text-right pb-0.5 pr-2">P(toque)</th>
+        <th class="text-left pb-0.5">Por qué</th></tr></thead>
         <tbody>${cuerpo}</tbody></table>` : '';
     return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider">Niveles · precio ∩ opciones</p>
         ${tabla('Resistencias', res)}${tabla('Soportes', sup)}</div>`;

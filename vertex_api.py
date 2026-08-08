@@ -6380,10 +6380,30 @@ def _tito_json(r):
         return {"target": _r(s.target), "change_pct": _r(s.change_pct, 1),
                 "probability": _r(s.probability, 3), "driver": s.driver}
 
+    # `probTouch(spot, l.price, iv, horizonDays)` de su `NivelesSimples`: la
+    # probabilidad de que el precio LLEGUE a ese nivel dentro del horizonte.
+    #
+    # Él la calcula en el componente, con la IV del GEX y el horizonte elegido.
+    # Aquí no existía: la tabla de niveles enseñaba precio, fuerza y distancia,
+    # y no cuán probable era llegar. Un soporte de fuerza 80 al 15% de distancia
+    # y otro de fuerza 50 al 2% se leían igual de "fuertes", que es justo lo que
+    # esta columna desambigua. El motor ya trae `prob_touch`; solo faltaba
+    # llamarlo.
+    from wbj.tito.expected_move import prob_touch as _prob_touch
+
+    _iv_niveles = r.gex.iv if r.gex and r.gex.iv else 0.4
+    #: El horizonte medio de los suyos (10/20/30) — su `NivelesSimples` usa el
+    #: que el usuario tenga elegido y el panel no tiene ese selector aquí.
+    _dias_niveles = 20
+
     def lvl(l):
+        try:
+            toque = _prob_touch(r.spot, l.price, _iv_niveles, _dias_niveles) if r.spot > 0 else None
+        except Exception:
+            toque = None
         return {"price": _r(l.price), "kind": l.kind, "strength": l.strength,
                 "distance_pct": _r(l.distance_pct, 1), "why": l.why,
-                "flipped": l.flipped}
+                "flipped": l.flipped, "touch": _r(toque, 3)}
 
     return _json_safe({
         "ok": True,
