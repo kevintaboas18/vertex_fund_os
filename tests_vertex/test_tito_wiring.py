@@ -2646,3 +2646,53 @@ class TestLasConstantesDeSuRutaDeFlujo:
         cinta = inspect.getsource(V.tito_tape)
         assert "[:120]" not in cinta and "TITO_TABLE_CAP" in cinta
         assert "max_pages=6" not in cinta and "TITO_LEAN_MAX_PAGES" in cinta
+
+
+class TestTopFlowsNotables:
+    """`topFlows` de su `page.tsx` — las 3 mayores de `convRows ∪ notable`.
+
+    Su `PredictionCard` las pinta debajo de los escenarios, y aquí faltaba el
+    bloque entero. Es el único sitio del panel donde los tres targets van
+    acompañados de las operaciones CONCRETAS que los sostienen: sin él los
+    números salen sin que se pueda ver de qué dinero se dedujeron.
+    """
+
+    def test_son_tres_como_mucho_y_ordenadas_por_premium(self, client, mercado):
+        tf = client.get("/api/projection-targets?ticker=DEMO").json()["top_flows"]
+        assert len(tf) <= 3
+        primas = [f["premium"] for f in tf]
+        assert primas == sorted(primas, reverse=True)
+
+    def test_la_union_es_conviccion_MAS_notable_no_solo_una(self):
+        """La ventana corta trae operaciones recientes que la de 30 días
+        todavía no tiene. Con una sola, el top 3 sale de otro universo."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V)
+        i = fuente.index('"top_flows"')
+        bloque = fuente[i:i + 900]
+        assert "_tito_unir(" in bloque
+        assert "conviction_flow" in bloque and "flow.interesting" in bloque
+
+    def test_la_marca_alcista_es_su_regla(self):
+        """`(call ∧ ask) ∨ (put ∧ bid)`: comprar calls y vender puts son la
+        MISMA apuesta, y las dos salen en verde."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V)
+        i = fuente.index('"alcista"')
+        bloque = fuente[i:i + 260]
+        assert '"call"' in bloque and '"ask"' in bloque
+        assert '"put"' in bloque and '"bid"' in bloque
+
+    def test_el_panel_lo_pinta(self):
+        import pathlib
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "function vcTopFlowsHTML(" in html
+        assert "${vcTopFlowsHTML(d)}" in html, "definida pero nadie la llama"
+        assert "Top 3 flows notables" in html

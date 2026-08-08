@@ -4178,9 +4178,17 @@ def _tito_heatmap(chain, r, trades, now):
 
     Las entradas se arman como en su `page.tsx`: los `HeatTrade` salen de unir
     los trades de convicción con los inusuales, deduplicados por `id`, y solo
-    aportan `strike`, `expiration`, `gamma` y `premium`. Esa unión ya la hizo el
-    motor —es la misma que ancla el GEX—, así que aquí se reusa en vez de
-    rehacerla sobre los 5 días, que era otro universo.
+    aportan `strike`, `expiration`, `gamma` y `premium`.
+
+    Aquí se pasa `conviction_flow` a secas, y es lo mismo **porque los inusuales
+    salen de ahí**: `unusuality_score(conviction_rows)`, así que la unión no
+    añade ninguna fila. Es un invariante, no una coincidencia, y lo fija
+    `TestLasTresUnionesDeSuPagina` — el día que la inusualidad se calcule sobre
+    otro universo, este heatmap dejaría de ver esas filas y el test lo dice.
+
+    Lo que NO se puede hacer es rehacerlo sobre los 5 días de `notable`: ése es
+    el universo de los NIVELES, que sí usa la unión ancha. Son tres conjuntos
+    distintos en su `page.tsx` y se parecen lo justo para confundirse.
     """
     try:
         from wbj.tito.gex_heatmap import HeatTrade, gex_heatmap
@@ -5016,6 +5024,7 @@ except Exception:                                # el motor puede no estar
 #: de convicción servía 25 filas donde él sirve 150. Con el nombre, el cotejo de
 #: constantes de la auditoría las ve; con el número suelto, no.
 from wbj.tito.scorecard import (                                # noqa: E402
+    _unir as _tito_unir,          # `[...a, ...b]` con dedupe por id, el suyo
     CONVICTION_TABLE_CAP as TITO_CONVICTION_TABLE_CAP,
     LEAN_MAX_PAGES as TITO_LEAN_MAX_PAGES,
     MIN_PREMIUM as TITO_MIN_PREMIUM,
@@ -6547,6 +6556,29 @@ def _tito_json(r):
         # última es la gráfica que dice "el dinero de CADA DÍA". Con las 25 de
         # mayor premium no es el dinero del día: es el de los 25 trades más
         # grandes, y un día entero de trades medianos desaparecía del gráfico.
+        # Las TRES mayores de `convRows ∪ notable`, dedupe por `id` y orden
+        # por premium — su `topFlows`, que `PredictionCard` pinta bajo los
+        # escenarios como "Top 3 flows notables".
+        #
+        # Faltaba entero. Es el único sitio del panel donde los escenarios de
+        # Prediction Pro van acompañados de las operaciones CONCRETAS que los
+        # sostienen: sin él, los tres targets salen sin que se pueda ver de qué
+        # dinero se dedujeron. La unión es la suya y no `conviction_flow` a
+        # secas: la ventana corta trae operaciones recientes que la de 30 días
+        # todavía no tiene.
+        "top_flows": [
+            {"id": t.id, "type": t.type, "strike": t.strike,
+             "expiration": t.expiration, "dte": t.dte, "premium": t.premium,
+             "aggression": t.aggression,
+             # `(call ∧ ask) ∨ (put ∧ bid)`, su regla literal: comprar calls y
+             # vender puts son la misma apuesta.
+             "alcista": (t.type == "call" and t.aggression == "ask")
+                        or (t.type == "put" and t.aggression == "bid")}
+            for t in sorted(
+                _tito_unir(r.conviction_flow or [], r.flow.interesting or []),
+                key=lambda x: x.premium if isinstance(x.premium, (int, float)) else 0,
+                reverse=True)[:3]
+        ],
         "conviction_rows": [
             {"id": t.id, "underlying": t.underlying, "type": t.type,
              "strike": t.strike, "expiration": t.expiration, "dte": t.dte,

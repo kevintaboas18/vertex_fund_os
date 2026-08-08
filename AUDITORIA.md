@@ -4868,3 +4868,83 @@ en la capa web, y falla si falta o si difiere. Encontró sola la quinta
 
 **2.918 tests del motor · 515 de la capa web · 310 checks de auditoría · 94 del
 smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+---
+
+## 41.31 Ronda 9 — `page.tsx`, la superficie que nadie había leído
+
+Kevin: *"verifica cada área del agente de opciones una a una sin perder nada."*
+
+Las rondas anteriores compararon sus **módulos** (`web/lib`), sus **rutas** y sus
+**componentes**. Faltaba el archivo que los une: `page.tsx`, 488 líneas donde él
+hace CÁLCULO, no solo maquetado. Nunca se había leído entero.
+
+### Sus tres uniones, que no son la misma
+
+`page.tsx` arma tres conjuntos de trades con dedupe por `id`, y son distintos:
+
+| destino | conjunto |
+|---|---|
+| GEX | `convRows ∪ unusualRows` |
+| heatmap | `convRows ∪ unusualRows` |
+| **niveles** | `convRows ∪ notable` ← otro |
+
+El port los tenía bien. Lo que no estaba bien era el comentario del heatmap en
+`vertex_api.py`: decía *"esa unión ya la hizo el motor, aquí se reusa"* y el
+código pasa `conviction_flow` a secas. Es equivalente **solo porque**
+`unusuality_score` se calcula sobre `conviction_rows`, así que la unión no añade
+filas. Eso es un **invariante**, no una coincidencia, y no lo comprobaba nadie:
+el día que la inusualidad salga de otro universo, el heatmap dejaría de ver esas
+filas en silencio. Ahora lo fija `TestLasTresUnionesDeSuPagina`, con un test por
+cada una de las tres.
+
+### `topFlows` — el bloque que faltaba entero
+
+Su `PredictionCard` pinta **"Top 3 flows notables"** debajo de los escenarios:
+las tres mayores de `convRows ∪ notable` por premium, con la marca alcista/bajista
+`(call ∧ ask) ∨ (put ∧ bid)` — comprar calls y vender puts son la misma apuesta.
+
+No existía. Es el único sitio del panel donde los tres targets de Prediction Pro
+van acompañados de las **operaciones concretas** que los sostienen: sin él los
+números salen sin que se pueda ver de qué dinero se dedujeron, que es lo
+contrario de la regla de la casa. Portado: `top_flows` en el payload (con el
+`_unir` del motor, no una copia) y `vcTopFlowsHTML` en el panel.
+
+### `RepeatBadge` — portado y muerto
+
+`vcRepeatBadge` y `vcRepeatCounts` estaban **definidas y sin un solo llamador**.
+Las tres tablas donde él usa la insignia —`TradesFeed`,
+`ConvictionTransactions`, `UnusualityCard`— pintaban un `↻` suelto **sin el ×N**:
+decían que hubo repetición pero no cuántas veces, que es la mitad de la señal.
+Tres golpes al mismo strike no es lo mismo que doce.
+
+Conectadas las tres, con `buildRepeatCounts` construido **dentro de cada tabla**
+como hace él: el ×N cuenta las apariciones AQUÍ, no en el mercado entero.
+
+### Por qué se coló: el check miraba de menos
+
+El auditor ya comprobaba que un componente declarado existiera… pero solo la
+**primera** función citada en su nota, y solo que estuviera **definida**. Con eso
+`RepeatBadge` pasaba como portado estando muerto.
+
+Ahora revisa TODAS las funciones que cada nota cita y las dos formas de mentir:
+citarla sin que exista, y que exista sin que nadie la llame. Son 32. Probado al
+revés borrando los dos llamadores: sale en rojo con el nombre.
+
+### Verificado además, área por área
+
+- **Los cinco caminos de aprendizaje**, ejecutados de punta a punta:
+  `trades/` (5 filas → sub-agente 6), `iv/` (60 fotos = el umbral exacto donde
+  el IV Rank real desplaza al proxy), `chain/`, `predictions/` (6 → calibración)
+  y `bars/`. El archivo lleva su sobre `{ticker, updatedAt, snapshots}`.
+- **La calibración mueve los targets de verdad**: con sesgo +6% y 9 muestras, la
+  base pasa de 105,00 a 108,00 en los tres horizontes. No es un campo que se
+  guarda y nadie lee.
+- **Las reglas de visualización en el tab**: los tres escenarios dan un RANGO
+  (nunca un valor único) y cada uno declara su `driver` y su probabilidad.
+- **Las 34 constantes de `web/lib` + las de sus rutas**, valor a valor.
+
+### Estado
+
+**2.921 tests del motor · 519 de la capa web · 310 checks de auditoría · 94 del
+smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**

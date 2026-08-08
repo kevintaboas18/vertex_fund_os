@@ -1301,12 +1301,32 @@ chk(all(m for _, m in COMPONENTES_SUYOS.values()),
 chk(len(_portados) == 39, f"{len(_portados)} de sus componentes tienen consumidor en el tab")
 chk(not _sin_portar,
     "no queda ni uno sin portar" + (f": {sorted(_sin_portar)}" if _sin_portar else ""))
-# Y los que se declaran portados tienen que existir de verdad en el panel.
-_mentira = [k for k, (_, m) in _portados.items()
-            for fn in [m.split("`")[1] if "`" in m else ""]
-            if (fn.startswith("vc") or fn.startswith("renderProj") or fn.startswith("wl"))
-            and f"function {fn}(" not in HTML]
-chk(not _mentira, f"ningún componente se declara portado sin estarlo{': ' + str(_mentira) if _mentira else ''}")
+# Y los que se declaran portados tienen que existir de verdad en el panel Y
+# tener quien los llame.
+#
+# Esto miraba SOLO la primera función citada y SOLO que estuviera definida. Con
+# eso, `RepeatBadge` pasó como portado estando muerto: `vcRepeatBadge` y
+# `vcRepeatCounts` definidas, cero llamadores, y las tres tablas donde él usa la
+# insignia pintando un `↻` suelto sin el ×N — diciendo que hubo repetición pero
+# no cuántas veces, que es la mitad de la señal.
+#
+# Ahora se revisan TODAS las funciones que cada nota cita, y las dos formas de
+# mentir: citarla sin que exista, y que exista sin que nadie la use.
+_FN_CITADA = re.compile(r"`(vc[A-Za-z0-9_]+|renderProj[A-Za-z0-9_]+|wl[A-Za-z0-9_]+)`")
+_mentira, _vivas = [], 0
+for _c, (_tipo, _nota) in _portados.items():
+    for _fn in sorted(set(_FN_CITADA.findall(_nota))):
+        _def = re.search(rf"\b(function {_fn}\b|const {_fn}\s*=)", HTML)
+        _usos = len(re.findall(rf"\b{_fn}\s*\(", HTML))
+        if not _def:
+            _mentira.append(f"{_c}: {_fn} citada y NO definida")
+        elif _usos <= 1:
+            _mentira.append(f"{_c}: {_fn} definida y SIN LLAMADOR")
+        else:
+            _vivas += 1
+chk(not _mentira,
+    f"las {_vivas} funciones que el registro cita están definidas Y se llaman"
+    + (f" · MUERTAS: {_mentira}" if _mentira else ""))
 # Con su repo a mano, el registro se contrasta contra la carpeta REAL: un
 # componente nuevo suyo que nadie declaró hace fallar este check.
 if TITO and (TITO / "app" / "components").is_dir():

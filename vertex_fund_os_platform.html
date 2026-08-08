@@ -3091,12 +3091,17 @@ function renderProjTape(d) {
     const a = d.aggression || {};
     const denom = (a.premium_ask || 0) + (a.premium_bid || 0);
     const pctAsk = denom > 0 ? (100 * a.premium_ask) / denom : 0;
+    // `buildRepeatCounts(rows)` suyo: el ×N cuenta cuántas veces aparece ESE
+    // contrato en la tabla. Sin él, la marca de repetido dice que lo hubo pero
+    // no cuántas veces, que es la mitad de la señal — tres golpes al mismo
+    // strike no es lo mismo que doce.
+    const _rep = vcRepeatCounts(d.trades || []);
     const filas = (d.trades || []).map(t => {
         const cp = t.type === 'call' ? 'C' : (t.type === 'put' ? 'P' : '?');
         const lado = t.aggression === 'ask' ? '<span class="text-emerald-400">▲ Compra</span>'
             : t.aggression === 'bid' ? '<span class="text-red-400">▼ Venta</span>'
             : '<span class="text-gray-500">Mid</span>';
-        const marcas = [t.repeated ? '<span class="text-amber-400" title="contrato repetido">↻</span>' : '',
+        const marcas = [t.repeated ? vcRepeatBadge(_rep.get(vcRepeatKey(t)) || 2) : '',
                         t.multileg ? '<span class="text-gray-500" title="multileg">⛓</span>' : '',
                         t.above_ask ? '<span class="text-emerald-300" title="sobre el ask">↑</span>' : '',
                         t.below_bid ? '<span class="text-red-300" title="bajo el bid">↓</span>' : '',
@@ -4268,6 +4273,10 @@ function vcSubagentesHTML(d) {
     // Es el universo sobre el que puntúan Convicción, Inusualidad y Contexto
     // IV. Sin la tabla, esas tres categorías eran un número sin nada detrás.
     const cr = d.conviction_rows || [];
+    // `buildRepeatCounts` suyo, sobre las filas de ESTA tabla — como él, que lo
+    // construye dentro de cada componente y no una vez para todos: el ×N dice
+    // cuántas veces aparece el contrato AQUÍ, no en el mercado entero.
+    const _repConv = vcRepeatCounts(cr);
     if (cr.length) {
         const EST = { expirado: 'Expirado', expira_hoy: 'Expira hoy', vigente: 'Vigente', desconocido: '—' };
         const filas = cr.map(r => {
@@ -4277,7 +4286,7 @@ function vcSubagentesHTML(d) {
                 : '<span class="text-gray-500">Mid</span>';
             return `<tr class="border-b border-gray-800/50 ${r.expiry_status === 'expirado' ? 'opacity-50' : ''}">
                 <td class="py-1 pr-2 text-gray-500 text-[9px]">${_vcEsc(vcDateOf(r.timestamp))} &middot; ${_vcEsc(vcTimeOf(r.timestamp))}</td>
-                <td class="py-1 pr-2 text-gray-200 font-bold">${_vcEsc(r.underlying || '')} ${r.strike != null ? _vcEsc(r.strike) : '?'}${t}${r.repeated ? ' <span class="text-amber-400" title="contrato repetido">↻</span>' : ''}${r.multileg ? ' <span class="text-gray-600" title="multileg">⛓</span>' : ''}</td>
+                <td class="py-1 pr-2 text-gray-200 font-bold">${_vcEsc(r.underlying || '')} ${r.strike != null ? _vcEsc(r.strike) : '?'}${t}${r.repeated ? ' ' + vcRepeatBadge(_repConv.get(vcRepeatKey(r)) || 2) : ''}${r.multileg ? ' <span class="text-gray-600" title="multileg">⛓</span>' : ''}</td>
                 <td class="py-1 pr-2 text-gray-400">${_vcEsc(r.expiration || '—')}${r.dte != null ? ` <span class="text-gray-600">(${r.dte >= 0 ? Math.round(r.dte) + 'd' : 'hace ' + Math.abs(Math.round(r.dte)) + 'd'})</span>` : ''}</td>
                 <td class="py-1 pr-2 text-gray-500 text-[9px]">${_vcEsc(EST[r.expiry_status] || '—')}</td>
                 <td class="py-1 pr-2">${lado}</td>
@@ -4428,6 +4437,7 @@ function renderVictorTargets(d) {
       ${vcLevelsHTML(d)}
       ${vcHeatmapHTML(d)}
       ${vcClustersHTML(d)}
+      ${vcTopFlowsHTML(d)}
       ${vcMemoryHTML(d)}
       <!-- El cierre de su bloque de detalle: el dinero por vela, los cinco
            strikes de más nocional sobre el precio y la cadena entera. -->
@@ -5082,6 +5092,41 @@ async function _projFlowPrecio(ticker, tf, etiquetas) {
                  callback: v => '$' + VC_PX.format(v) },
     };
     g.update('none');
+}
+
+/** "Top 3 flows notables" — el bloque que su `PredictionCard` pinta debajo de
+ *  los escenarios, y que aquí faltaba entero.
+ *
+ *  Es el único sitio del panel donde los tres targets de Prediction Pro van
+ *  acompañados de las operaciones CONCRETAS que los sostienen. Sin él los
+ *  números salen sin que se pueda ver de qué dinero se dedujeron, que es justo
+ *  lo contrario de la regla de la casa: sin evidencia, no hay número.
+ *
+ *  La marca alcista/bajista es la suya, literal: comprar calls al ask y vender
+ *  puts al bid son la MISMA apuesta, y por eso las dos salen en verde.
+ */
+function vcTopFlowsHTML(d) {
+    const tf = d.top_flows;
+    if (!tf || !tf.length) return '';
+    const LADO = { ask: 'Compra agresiva al ask', bid: 'Venta al bid' };
+    const filas = tf.slice(0, 3).map(f => `
+      <div class="flex items-center gap-2 py-1 border-b border-gray-800/40 last:border-0">
+        <span class="px-1.5 py-0.5 rounded text-[9px] font-extrabold ${f.type === 'call'
+            ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}"
+          >${f.type === 'call' ? 'CALL' : 'PUT'}</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-[11px] text-gray-200 font-bold truncate">$${f.strike != null ? VC_PX.format(f.strike) : '?'}
+            <span class="text-gray-600 font-normal">&middot; vence ${_vcEsc(f.expiration || '—')}${
+              f.dte != null ? ` (${Math.round(f.dte)}d)` : ''}</span></p>
+          <p class="text-[9px] text-gray-500">${_vcEsc(LADO[f.aggression] || 'Ejecutado al medio')}
+            &middot; <b class="${f.alcista ? 'text-emerald-400' : 'text-red-400'}"
+              >${f.alcista ? 'apuesta alcista' : 'apuesta bajista'}</b></p>
+        </div>
+        <span class="text-[11px] text-gray-200 font-bold shrink-0">${fmtAbbr(f.premium)}</span>
+      </div>`).join('');
+    return `<div class="mt-3 pt-2 border-t border-gray-800">
+      <p class="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider mb-1">Top 3 flows notables</p>
+      ${filas}</div>`;
 }
 
 function renderProjFlowMoney(d) {

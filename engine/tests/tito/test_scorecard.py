@@ -231,3 +231,55 @@ class TestLaVentanaAnchaDeConviccion:
         r = self._corre(conviction_trades=anchos)
         assert r.predictions[20].summary.startswith("A 20 días")
         assert "en puts" in r.predictions[20].summary
+
+
+class TestLasTresUnionesDeSuPagina:
+    """Su `page.tsx` construye TRES conjuntos de trades con `dedupe por id`, y
+    no son el mismo:
+
+        GEX      convRows ∪ unusualRows
+        heatmap  convRows ∪ unusualRows   (el mismo que el GEX)
+        niveles  convRows ∪ notable       (otro: la ventana corta también)
+
+    El port los arma bien, pero el del heatmap se recalcula en `vertex_api`
+    como `conviction_flow` a secas, con un comentario que decía "esa unión ya
+    la hizo el motor, aquí se reusa". Es verdad **solo porque** `unusuality_top`
+    sale de `conviction_rows`, así que la unión no añade nada. Es un invariante,
+    no una coincidencia, y hasta ahora no lo comprobaba nadie: el día que la
+    inusualidad se calcule sobre otro universo, el heatmap dejaría de ver esas
+    filas sin que ningún test se queje.
+    """
+
+    def _r(self):
+        return run_scorecard("DEMO", trades(), chain(), bars(), NOW, spot=SPOT)
+
+    def test_los_inusuales_salen_del_universo_de_conviccion(self):
+        from wbj.tito.flow import unusuality_score
+
+        r = self._r()
+        conv = r.conviction_flow or r.flow.interesting
+        ids_conv = {t.id for t in conv}
+        ids_unu = {fila.id for fila, _ in unusuality_score(conv).top}
+        assert ids_unu <= ids_conv, (
+            "la inusualidad dejó de salir de convicción: el heatmap de "
+            "`vertex_api` ya no ve las filas inusuales que caen fuera")
+
+    def test_niveles_usa_la_union_ANCHA_no_solo_conviccion(self):
+        """`convRows ∪ notable`. La ventana corta trae muros de esta semana que
+        la de 30 días todavía no tiene."""
+        import inspect
+
+        from wbj.tito import scorecard as S
+
+        fuente = inspect.getsource(S.run_scorecard)
+        i = fuente.index("find_levels(")
+        assert "_unir(conviction_rows, notable)" in fuente[i:i + 1400]
+
+    def test_gex_usa_la_union_de_conviccion_e_inusuales(self):
+        import inspect
+
+        from wbj.tito import scorecard as S
+
+        fuente = inspect.getsource(S.run_scorecard)
+        i = fuente.index("gex_analysis(")
+        assert "_unir(conviction_rows, [t[0] for t in unu.top])" in fuente[max(0, i - 400):i]
