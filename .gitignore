@@ -1,0 +1,12 @@
+# Generado por vertex_almacen.py — no editar a mano.
+#
+# Lo temporal de una escritura atómica a medias.
+*.tmp
+*.json.lock
+__pycache__/
+
+# Los secretos SOLO viajan cifrados, en Privado/*.enc. Cualquier
+# otra cosa dentro de Privado/ se queda en el disco efímero: es la
+# red de seguridad por si algún día alguien escribe ahí en claro.
+Privado/*
+!Privado/*.enc
