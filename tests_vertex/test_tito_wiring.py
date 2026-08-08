@@ -1084,6 +1084,42 @@ class TestIdeasDelMercado:
         assert "cadu" in d["error"]          # el motivo nuestro pasa entero
         assert "ideas" not in d
 
+    def test_el_titular_cuenta_las_que_CABEN_no_todas_las_filas(self):
+        """Su titular es `operables` = las que sí puedes operar, más «N
+        descartadas». Aquí decía «N operables» con N = la tabla entera,
+        incluidas las que el propio panel marca «no cabe» dos columnas más a la
+        derecha. Con $1.000 de capital eso no es cosmético: casi todas las filas
+        de una corrida caen del lado de «no cabe», así que el titular decía lo
+        contrario de lo que decía la tabla."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjIdeas(d) {")
+        cuerpo = html[i:html.index("\n/** La ÚNICA llamada de datos", i)]
+        assert "${ideas.length} operables" not in cuerpo
+        assert "d.perfil.caben" in cuerpo, "el titular tiene que salir del conteo del motor"
+        assert "no te caben" in cuerpo, "y las descartadas tienen que decirse"
+
+    def test_el_horizonte_del_sizing_se_declara(self, client, mercado):
+        """`size_flow` quema theta HASTA una fecha, así que el techo de
+        contratos cambia con el horizonte. Sin decir cuál se usó, «te caben 3»
+        es un número sin unidad. Su app lo elige con un botón; aquí sale del
+        perfil, que es la parte que sí es de Kevin — pero tiene que verse."""
+        p = client.get("/api/tito-ideas").json()["perfil"]
+        assert p["horizonte_dias"] > 0
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcCabeceraPerfil(")
+        assert "P.horizonte_dias" in html[i:html.index("\nasync function", i)]
+
+    def test_el_disclaimer_del_precio_de_ejecucion_esta(self):
+        """Su disclaimer de `/ideas`, que faltaba entero: el tamaño NO sale de
+        la cotización viva del contrato —el feed no la da— sino del precio al
+        que se ejecutó el flow. Sin decirlo, el número parece de ahora."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjIdeas(d) {")
+        cuerpo = html[i:html.index("\n/** La ÚNICA llamada de datos", i)]
+        assert "precio al que se ejecut" in cuerpo
+        assert "cotizaci&oacute;n viva" in cuerpo
+        assert "no es consejo financiero" in cuerpo
+
 
 class TestElTabSeArmaAlEntrarPorElMENU:
     """El fallo: la inicialización colgaba de la barra de comandos (Cmd+K).
@@ -2490,43 +2526,25 @@ class TestIdeasYWheelTampocoTiranNada:
         "period": "la ventana del escaneo, fija en su `1d`",
         "saved_tickers": "cuántos tickers se persistieron para el sub-agente 6; "
                          "es contabilidad del store, no un dato de mercado",
-        "ideas.id": "identificador del contrato, para deduplicar",
-        "ideas.symbol": "el OCC completo; en pantalla va el strike + tipo, que "
-                        "es lo legible",
-        "ideas.expiration": "la fecha cruda; el panel pinta los DTE",
-        "ideas.price": "precio del contrato; la columna de dinero es el premium",
         "ideas.delta": "no se pinta como número: el filtro de moneyness ya usó "
                        "la distancia al strike, que sí se explica en la nota",
         "ideas.iv": "la IV del contrato suelto no informa sin su rango; el rank "
                     "vive en el scorecard del ticker",
         "ideas.open_interest": "el OI se usa en el score de inusualidad, que sí "
                                "se pinta como /30",
-        "ideas.timestamp": "hora del trade; la lista ya está ordenada por premium",
         "ideas.asset_price": "el spot del subyacente; la fila lleva el strike",
         "ideas.size": "número de contratos del trade; el dinero es lo comparable",
         "ideas.theta": "theta absoluta; la columna es `theta_pct_daily`, que es "
                        "la que se puede comparar entre contratos",
-        "ideas.history.median_sessions": "la mediana de sesiones hasta resolver; "
-                                         "la columna enseña el acierto y la muestra",
-        "ideas.sizing.cost_pct_of_account": "va en el `title` de la celda, no como "
-                                            "columna propia",
+        "ideas.sizing.blocked_reason": "el CÓDIGO del bloqueo (`theta_alto`, "
+                                       "`vencido`…), para filtrar desde la API; "
+                                       "en pantalla va `blocked`, que es la frase",
         "perfil.riesgo_pct": "se pinta dentro de la franja como el % del riesgo "
                              "por operación",
         # ── Wheel ──
         "preset_id": "el id del preset elegido; en pantalla va su etiqueta",
-        "candidates.iv_source": "de dónde salió la IV (implícita o de respaldo); "
-                                "el aviso al usuario es el bloque de `quotes_missing`",
-        "candidates.premium.raw": "la prima ANTES del recorte; va en el `title` "
-                                  "junto a la fuente y el porcentaje aplicado",
         "candidates.metrics.return_pct": "el retorno del periodo; la columna es el "
                                          "anualizado, que es lo comparable entre DTEs",
-        "candidates.metrics.breakeven": "el punto de equilibrio; el colchón (%) es "
-                                        "la misma información en la escala útil",
-        "candidates.score.annualized.band": "las bandas de cada parte del score van "
-                                            "en el `title` del total, no como columnas",
-        "candidates.score.annualized.why": "idem",
-        "candidates.score.annualized.max": "idem",
-        "candidates.score.annualized.points": "idem",
         "blocked_total": "el total de bloqueados; el desglose por motivo es lo que "
                          "se pinta, y ya lleva sus cuentas",
         "preset": "la etiqueta del preset activo; los botones ya la pintan desde "
@@ -2551,8 +2569,6 @@ class TestIdeasYWheelTampocoTiranNada:
         "trades.leap": "señal, pintada por `vcSenalesHTML`",
         "trades.multileg": "señal, pintada por `vcSenalesHTML`",
         "trades.simultaneous": "señal, pintada por `vcSenalesHTML`",
-        "trades.condition_code": "el código OPRA; va dentro del `title` de la "
-                                 "señal de multileg, como en su `Flags`",
         "trades.condition_name": "el nombre de la condición; su `NotableTable` no "
                                  "lo enseña — el código ya está en el tooltip",
         "trades.expiry_status": "si el contrato ya venció; la cinta es del día y "
@@ -2561,7 +2577,8 @@ class TestIdeasYWheelTampocoTiranNada:
 
     #: Ayudantes que los renders llaman y que también pintan. Sin ellos, un
     #: campo pintado por `vcCabeceraPerfil` saldría como huérfano.
-    _AYUDANTES = ("vcCabeceraPerfil", "vcRiesgoHTML", "vcSenalesHTML")
+    _AYUDANTES = ("vcCabeceraPerfil", "vcRiesgoHTML", "vcSenalesHTML",
+                  "vcVenceLabel", "vcHistoriaHTML", "vcFrenoHTML", "vcQuemaHTML")
 
     @staticmethod
     def _cuerpo(render):
@@ -2639,6 +2656,49 @@ class TestIdeasYWheelTampocoTiranNada:
         vivas |= {r for r in self._NO_SE_PINTAN if r.startswith("ideas.history.")}
         fantasmas = sorted(set(self._NO_SE_PINTAN) - vivas)
         assert not fantasmas, f"declaradas pero ya no se sirven: {fantasmas}"
+
+    def test_el_registro_tampoco_miente_al_reves(self):
+        """La otra cara de la podredumbre: una entrada que dice «esto NO se
+        pinta» de algo que ahora **sí** se pinta.
+
+        Pasó con cuatro de Ideas a la vez. `ideas.expiration` estaba declarada
+        como «la fecha cruda; el panel pinta los DTE» — y su `expiryLabel` dice
+        literalmente «fecha real + días restantes, **nunca solo 57d**». Igual
+        con `price`, `timestamp` y `history.median_sessions`. El barrido de
+        huérfanas nunca lo caza: una hoja declarada se salta antes de mirar
+        nada, así que la declaración sobrevive a su propio motivo y queda como
+        documentación que afirma lo contrario de lo que hace el código.
+        """
+        import re
+
+        #: Colisiones de NOMBRE, no declaraciones podridas. El barrido busca la
+        #: hoja por su última palabra, así que dos hojas distintas que se llamen
+        #: igual son indistinguibles para él. `trades.volume` es el volumen del
+        #: contrato, que no se pinta; `unusual_parts.volume` es el sub-score de
+        #: tamaño de la orden, que sí — y los dos son «volume». Los nombres son
+        #: los de su `FlowRow` y su `TradeScores`; renombrarlos para que el test
+        #: no se confunda sería divergir de él por comodidad del test.
+        COLISIONES = {"trades.volume"}
+
+        for render, prefijo in (("renderProjIdeas", "ideas."),
+                                ("renderProjWheel", "candidates."),
+                                ("renderProjTape", "trades.")):
+            cuerpo = self._cuerpo(render)
+            for h in self._AYUDANTES:
+                cuerpo += self._cuerpo(h)
+            mentiras = []
+            for ruta in sorted(self._NO_SE_PINTAN):
+                if not ruta.startswith(prefijo) or ruta in COLISIONES:
+                    continue
+                hoja = ruta.split(".")[-1]
+                patron = (rf"\b\w+\.{re.escape(hoja)}\b"
+                          rf"|\['{re.escape(hoja)}'\]"
+                          rf"|\]\.{re.escape(hoja)}\b")
+                if re.search(patron, cuerpo):
+                    mentiras.append(ruta)
+            assert not mentiras, (
+                f"{render}: {mentiras} están declaradas como «no se pintan» y "
+                "el panel SÍ las pinta. Bórralas del registro.")
 
 
 class TestBarrasIntradia:

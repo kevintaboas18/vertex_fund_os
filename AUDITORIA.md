@@ -5331,3 +5331,82 @@ que ahora son cinco.
 
 **2.925 tests del motor · 543 de la capa web · 311 checks de auditoría · 105 +
 58 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.37 Ronda 14-bis — Ideas: la mitad de `size_flow` no salía del servidor
+
+**Fecha:** 2026-08-08 · **Contra:** `infusionvictor/agente-tito-metralleta@53d5a20`
+
+Cerrada la cinta, quedaba `ideas/page.tsx` (427 líneas) y su `IdeasTable.tsx`.
+Su tabla Pro tiene **trece** columnas; aquí había diez, y las que faltaban eran
+justo la historia del theta — que es para lo que existe `size_flow`.
+
+### Lo que estaba mal
+
+1. **El titular contaba mal.** Su `operables` son las que **sí puedes operar**,
+   más «N descartadas». Aquí decía «N operables» con N = **la tabla entera**,
+   incluidas las que el propio panel marca «no cabe» dos columnas más a la
+   derecha. Con $1.000 de capital eso no es cosmético: casi todas las filas de
+   una corrida caen del lado de «no cabe», así que el titular decía lo
+   contrario de lo que decía la tabla. Ahora sale de `perfil.caben`, que el
+   motor ya calculaba.
+
+2. **Seis campos de `Sizing` se calculaban y se tiraban en la ruta**:
+   `burn_days`, `theta_burn_per_contract`, `total_burn`, `burn_pct_of_account`
+   y `fully_decays`. Son la mitad de `size_flow` y la mitad de su `IdeaCard`:
+   «el theta se come $X al día por contrato: $Y en N días (Z% de la cuenta)»,
+   «te frenó el theta, no el capital» y el aviso de que **el contrato se
+   consume entero dentro del horizonte**. Sin eso, «te caben 3» es un techo sin
+   el precio de mantenerlos — que es exactamente lo que distingue una opción de
+   una acción.
+
+3. **`blocked` viajaba como `dict` y se pintaba como `[object Object]`.** El
+   motor devuelve `{reason, detail}`; el panel hacía `_vcEsc(s.blocked)`. Ahora
+   viaja `detail` (la frase) y `blocked_reason` (el código, para la API).
+
+4. **La columna de vencimiento enseñaba solo el DTE.** Su `expiryLabel` lleva
+   el comentario «fecha real + días restantes — **nunca solo “57d”**». Un «57d»
+   no dice si cae en un mensual, si cruza los earnings o si es el viernes que
+   viene.
+
+5. **El historial no llevaba ni su banda de color ni la mediana de sesiones.**
+   Su `HistoryCell` tiñe en 60 y 45 —no los 55/45 del hit rate de la Wheel— y
+   enseña «~N ses», que es cuánto tarda el patrón en resolverse.
+
+6. **`BindingChip` vivía dentro de un `title`**, que en un móvil no existe.
+   Ahora es un chip: «bloqueado» / «no alcanza» / «θ» / «prima».
+
+7. **Faltaban el precio del contrato, la hora del flow y el disclaimer de
+   `/ideas`** — el que dice que el tamaño sale del **precio al que se ejecutó
+   el flow**, no de la cotización viva, porque el feed no la entrega.
+
+8. **El horizonte del sizing no se declaraba.** `size_flow` quema theta *hasta*
+   una fecha, así que el techo de contratos cambia con ella. Su app la elige
+   con un botón (`HORIZON_LABELS`); aquí sale del perfil —la parte que sí es de
+   Kevin— pero no se veía, y un «te caben 3» sin horizonte es un número sin
+   unidad. Ahora va en la franja de perfil y en el encabezado de la columna.
+
+### Lo que apareció al ponerlo: catorce declaraciones podridas
+
+El registro `_NO_SE_PINTAN` dice, hoja por hoja, qué sirve el motor y el panel
+no pinta, con su motivo. Tenía un agujero de diseño: el barrido **salta** una
+hoja declarada antes de mirar nada, así que una declaración sobrevive a su
+propio motivo. Catorce afirmaban lo contrario de lo que hacía el código:
+
+- Cuatro de Ideas (`expiration`, `price`, `timestamp`, `history.median_sessions`)
+  quedaron obsoletas en esta misma ronda.
+- Tres más de Ideas (`id`, `symbol`, `sizing.cost_pct_of_account`) llevaban
+  rotas desde que la estrella del watchlist y el `title` del techo las usaron.
+- Siete de la Wheel (`iv_source`, `premium.raw`, `metrics.breakeven` y las
+  cuatro de `score.annualized`) desde que se añadió la fila desplegable.
+
+`test_el_registro_tampoco_miente_al_reves` cierra el agujero: para Ideas, Wheel
+y la cinta, ninguna entrada del registro puede referirse a algo que el panel sí
+pinta. Con una exención declarada: `trades.volume` colisiona por NOMBRE con
+`unusual_parts.volume` (el volumen del contrato contra el sub-score de tamaño
+de la orden). Los dos nombres son los suyos —`FlowRow` y `TradeScores`—; se
+exime la hoja en vez de renombrar su modelo para comodidad del test.
+
+### Estado
+
+**2.925 tests del motor · 547 de la capa web · 311 checks de auditoría · 105 +
+62 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**

@@ -4981,7 +4981,25 @@ def tito_ideas(request: Request):
                 "total_cost": _r(_sz.total_cost),
                 "cost_pct_of_account": _r(_sz.cost_pct_of_account, 1),
                 "binding": _sz.binding,
-                "blocked": _sz.blocked,
+                # El dict `{reason, detail}` de su `QualityResult`. Se manda el
+                # DETALLE, que es la frase legible; el dict entero llegaba a la
+                # pantalla y se pintaba como «[object Object]».
+                "blocked": (_sz.blocked or {}).get("detail") if _sz.blocked else None,
+                "blocked_reason": (_sz.blocked or {}).get("reason") if _sz.blocked else None,
+                # ── La quema de theta: seis campos que el motor calculaba y la
+                # ruta tiraba ──────────────────────────────────────────────────
+                #
+                # Es la mitad de `size_flow` y la mitad de su `IdeaCard`: «el
+                # theta se come $X al día por contrato: $Y en N días (Z% de la
+                # cuenta)», y el aviso de que el contrato se consume ENTERO
+                # dentro del horizonte. Sin esto, «te caben 3» es un techo sin
+                # el precio de mantenerlos, que es justo lo que distingue una
+                # opción de una acción.
+                "burn_days": _sz.burn_days,
+                "theta_burn_per_contract": _r(_sz.theta_burn_per_contract),
+                "total_burn": _r(_sz.total_burn),
+                "burn_pct_of_account": _r(_sz.burn_pct_of_account, 1),
+                "fully_decays": _sz.fully_decays,
             }
         except Exception:                        # noqa: BLE001 — el port lanza donde él
             _sizing[r.id] = None
@@ -5039,6 +5057,13 @@ def tito_ideas(request: Request):
                    # motor para que la pantalla no vuelva a decidirlo.
                    "theta_budget_pct": _THETA_BUDGET_PCT,
                    "theta_budget": _r(_perfil["capital"] * _THETA_BUDGET_PCT / 100),
+                   # El horizonte con el que se dimensionó. `size_flow` quema
+                   # theta hasta esta fecha, así que el «te cabe» CAMBIA con él:
+                   # sin decirlo, el techo de contratos es un número sin unidad.
+                   # Su app lo elige con un botón (`HORIZON_LABELS`); aquí sale
+                   # del perfil, que es la parte que sí es de Kevin.
+                   "horizonte": _perfil.get("horizonte"),
+                   "horizonte_dias": _perfil_horizonte_dias(_perfil),
                    "caben": sum(1 for v in _sizing.values()
                                 if (v or {}).get("max_contracts"))},
         "period": _IDEAS_PERIOD, "generated_at": now.isoformat(),
