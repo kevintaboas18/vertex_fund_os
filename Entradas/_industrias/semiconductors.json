@@ -15,16 +15,20 @@
   "_verificacion": "omdia.tech.informa.com devuelve HTTP 403 a WebFetch. Las cifras estan verificadas textualmente en cinco publicaciones independientes que citan el mismo comunicado y coinciden exacto: RCR Wireless, TechEdge AI, Nasdaq, Seeking Alpha y Yahoo Finance. Limitacion de fetch declarada, no un dato sin atribuir.",
   "_alcance_y_limite": "Cubre a quien vende ACELERADORES de datacenter. Un ticker de 'Semiconductors' que NO compita ahi -- analogico, memoria, equipos de fabricacion -- hereda un denominador que no es el suyo, y su participacion saldria absurdamente pequeña en vez de ausente. Cuando llegue el primero de esos, declara su propio `tam` en su archivo de ticker: eso pisa a este sin tocarlo. Candidatos a vigilar: TXN, ADI, MU, AMAT, LRCX, KLAC.",
   "_2026_excluido": "El pronostico salta de 2025 ($207B) a 2030 ($286B) sin publicar los años intermedios en el comunicado. No se interpola: una linea recta entre esos dos puntos seria un numero inventado con apariencia de dato.",
-  "tam": 207000000000,
-  "tam_history": [
-    123000000000,
-    207000000000
-  ],
-  "tam_source": "Omdia, AI Processors for Cloud and the Data Center Forecast — GPUs y aceleradores de IA para datacenter, vintage agosto 2025",
-  "tam_source_tier": 3,
   "_segmento_patrones_nota": "Como reconocer, en la segmentacion que publica FMP desde el 10-K, el segmento que compite en ESTE mercado. Se casa por patron y no por igualdad porque el nombre lo pone cada emisor: NVDA y AMD dicen Data Center, Intel dice Data Center Group. Si encajan DOS segmentos el sistema no elige ninguno: significa que el patron esta mal escrito, y sumarlos o quedarse con el mayor seria inventar la respuesta.",
   "_segmento_patrones_limite": "AVGO reporta Semiconductor Solutions, que mezcla aceleradores con conectividad, almacenamiento e inalambrico. Ese nombre NO encaja con el patron a proposito: preferir un hueco visible a una participacion inflada. Si algun dia desglosa, se anade su patron aqui.",
   "_segmento_patrones": [
     "data center"
-  ]
+  ],
+  "_sugerencia_sin_verificar": {
+    "tam": 207000000000,
+    "tam_source": "Omdia, AI Processors for Cloud and the Data Center Forecast — GPUs y aceleradores de IA para datacenter, vintage agosto 2025",
+    "tam_history": [
+      123000000000,
+      207000000000
+    ],
+    "cita": "$123 billion in GPUs and AI accelerators shipped in 2024, $207 billion is expected in 2025, and $286 billion by 2030 — https://omdia.tech.informa.com/pr/2025/aug/ai-data-center-chip-market-to-hit-286bn-growth-likely-peaking-as-custom-asics-gain-ground",
+    "por_que_no_puntua": "la cita no es una URL",
+    "para_aceptarla": "Comprueba la cifra en la publicacion del propio organismo, copia aqui `tam`, `tam_source` y `tam_source_tier` (1-4), y borra `_generado_por`. Eso lo hace tuyo."
+  }
 }

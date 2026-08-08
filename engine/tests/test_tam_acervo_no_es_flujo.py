@@ -21,7 +21,23 @@ from __future__ import annotations
 
 import pytest
 
+from wbj.overlay import tam_mundial as tm
 from wbj.overlay.tam_mundial import _validar
+
+@pytest.fixture(autouse=True)
+def _sin_red(monkeypatch):
+    """Los tests no salen a internet.
+
+    `_validar` comprueba la cifra contra la pagina de su fuente -- ver
+    `_verificar_en_la_fuente` y la regla del `judge.py` de Victor, "Nunca
+    inventes cifras". Eso es una descarga, y una suite que la hace deja de ser
+    determinista y tarda minuto y medio. Aqui se sustituye por un verificador
+    que acepta, para que cada test siga midiendo lo suyo; la verificacion
+    tiene sus propios tests en `test_tam_verificado_en_la_fuente.py`.
+    """
+    monkeypatch.setattr(tm, "_verificar_en_la_fuente",
+                        lambda cita, tam, fuente: (True, cita))
+
 
 _BASE = {"tam": 252_000_000_000, "ambito": "mundial",
          "cita": "https://www.reit.com/data-research"}

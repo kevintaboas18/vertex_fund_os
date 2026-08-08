@@ -3,19 +3,12 @@
   "_resuelto_en": "2026-08-05",
   "_como_se_obtuvo": "Resuelto al analizar JPM. Se revisa cada 90 dias.",
   "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
-  "tam": 6400000000000,
-  "tam_source": "McKinsey Global Banking Annual Review 2026 - Revenues before risk costs",
-  "tam_source_tier": 3,
   "_ambito": "mundial",
   "_capa": "ingresos antes de costos de riesgo de la industria bancaria global",
   "_capa_coincide": "JPM es una empresa de 'Banca Diversificada' y genera ingresos de una amplia gama de actividades bancarias (minorista, comercial, banca de inversión, gestión de activos). Los 'ingresos antes de costos de riesgo' representan la línea superior de ingresos generados por la industria bancaria en su conjunto, lo que directamente coincide con la capa en la que JPM factura por sus servicios.",
   "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHqqc_sIEEC5Ho6nlgfr1LYV-huJHDezuI6NnBAvasHTU5KOcP-6b0xTmb94Nf_egq6vRhkyPo84oA2Txnm4h_ND4GkHPN63wYP2tpxnRgslhIBOrT5yPAGbNlyVa7sWeOkP5ttOhCu_YPmGU-qe0Nx69eIrPPVaGRTgxnAiePJpSU7_pBDOfVI3OE5Ki3VTcsZ6foxtucnEacDUw==",
   "_cita_textual": "Revenues before risk costs rose from $6.1 trillion in 2024 to $6.4 trillion in 2025.",
   "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
-  "tam_history": [
-    6100000000000,
-    6400000000000
-  ],
   "_ingreso_relevante": "total",
   "_ingreso_relevante_porque": "Los tres segmentos de un banco diversificado (banca de consumo, de inversion, gestion de patrimonio) son ingresos bancarios, que es justo la capa que mide el TAM.",
   "_segmento_patrones_retirados": {
@@ -28,5 +21,16 @@
       "retail banking"
     ],
     "porque": "La empresa compite ENTERA en este mercado, asi que no hay segmento que elegir. Estos patrones no casaban con ningun segmento reportado -- los de Walmart son 'Walmart U.S.', 'International' y 'Sam's Club'; ninguno contiene 'retail' -- y por eso la participacion faltaba teniendo TAM e ingreso. Se guardan por si alguien acota el TAM a una capa mas fina."
+  },
+  "_sugerencia_sin_verificar": {
+    "tam": 6400000000000,
+    "tam_source": "McKinsey Global Banking Annual Review 2026 - Revenues before risk costs",
+    "tam_history": [
+      6100000000000,
+      6400000000000
+    ],
+    "cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHqqc_sIEEC5Ho6nlgfr1LYV-huJHDezuI6NnBAvasHTU5KOcP-6b0xTmb94Nf_egq6vRhkyPo84oA2Txnm4h_ND4GkHPN63wYP2tpxnRgslhIBOrT5yPAGbNlyVa7sWeOkP5ttOhCu_YPmGU-qe0Nx69eIrPPVaGRTgxnAiePJpSU7_pBDOfVI3OE5Ki3VTcsZ6foxtucnEacDUw==",
+    "por_que_no_puntua": "la cita no se pudo abrir: TimeoutError",
+    "para_aceptarla": "Comprueba la cifra en la publicacion del propio organismo, copia aqui `tam`, `tam_source` y `tam_source_tier` (1-4), y borra `_generado_por`. Eso lo hace tuyo."
   }
 }

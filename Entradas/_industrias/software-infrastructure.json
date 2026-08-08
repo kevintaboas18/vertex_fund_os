@@ -3,19 +3,12 @@
   "_resuelto_en": "2026-08-05",
   "_como_se_obtuvo": "Resuelto al analizar PLTR. Se revisa cada 90 dias.",
   "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
-  "tam": 175170000000,
-  "tam_source": "Gartner - Market Share: Data and Analytics Software, Worldwide, 2024",
-  "tam_source_tier": 3,
   "_ambito": "mundial",
   "_capa": "Facturación mundial de software de datos y análisis",
   "_capa_coincide": "Palantir factura por sus plataformas de software que proporcionan capacidades de integración de datos, análisis y operativos de inteligencia artificial, lo cual encaja directamente en el mercado de software de datos y análisis.",
   "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHpA_NTIDMiPhlaZUZ07LLd3XjKMWpPce7pV1Wgk_POK700G5Cqh9h7B06MyZ1cLkNKvpX8ddC7PvY9dFtYtEwJtJLkjV8cN5aptG-F6wwDPN6yWlbmwH3eL1MBytsL-t_F51soBjRY",
   "_cita_textual": "The overall data and analytics software market grew by 13.9% to $175.17 billion in 2024.",
   "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
-  "tam_history": [
-    150900000000,
-    175170000000
-  ],
   "_segmento_patrones": [
     "data",
     "analytics",
@@ -34,5 +27,16 @@
     "MDB",
     "TDC"
   ],
-  "_aplica_a_porque": "El TAM mide software de datos y analitica ($175.170M). 'Software - Infrastructure' es una industria de GICS mucho mas ancha: mete en la misma bolsa a Palantir, cuyo negocio ENTERO es ese mercado, y a Microsoft, que factura $331.800M -- casi el doble del TAM -- vendiendo sistemas operativos, ofimatica, nube, videojuegos y publicidad. Sin esta lista MSFT heredaba el denominador de otro mercado y puntuaba MKT-TAM-001 y MKT-CAGR-004 sobre el: el reporte leia 'el mercado crece al 16%' como viento de cola de Microsoft cuando ese 16% es de otro mercado. Un numero equivocado es peor que un hueco, porque el hueco se ve."
+  "_aplica_a_porque": "El TAM mide software de datos y analitica ($175.170M). 'Software - Infrastructure' es una industria de GICS mucho mas ancha: mete en la misma bolsa a Palantir, cuyo negocio ENTERO es ese mercado, y a Microsoft, que factura $331.800M -- casi el doble del TAM -- vendiendo sistemas operativos, ofimatica, nube, videojuegos y publicidad. Sin esta lista MSFT heredaba el denominador de otro mercado y puntuaba MKT-TAM-001 y MKT-CAGR-004 sobre el: el reporte leia 'el mercado crece al 16%' como viento de cola de Microsoft cuando ese 16% es de otro mercado. Un numero equivocado es peor que un hueco, porque el hueco se ve.",
+  "_sugerencia_sin_verificar": {
+    "tam": 175170000000,
+    "tam_source": "Gartner - Market Share: Data and Analytics Software, Worldwide, 2024",
+    "tam_history": [
+      150900000000,
+      175170000000
+    ],
+    "cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHpA_NTIDMiPhlaZUZ07LLd3XjKMWpPce7pV1Wgk_POK700G5Cqh9h7B06MyZ1cLkNKvpX8ddC7PvY9dFtYtEwJtJLkjV8cN5aptG-F6wwDPN6yWlbmwH3eL1MBytsL-t_F51soBjRY",
+    "por_que_no_puntua": "la cita no se pudo abrir: HTTPError",
+    "para_aceptarla": "Comprueba la cifra en la publicacion del propio organismo, copia aqui `tam`, `tam_source` y `tam_source_tier` (1-4), y borra `_generado_por`. Eso lo hace tuyo."
+  }
 }

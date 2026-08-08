@@ -57,6 +57,10 @@ INTENTOS = 4
 ESPERA_MAXIMA_S = 65.0
 ESPERAS_MAXIMAS = 3
 
+#: Para comprobar la cita contra su propia pagina.
+_AGENTE = "Vertex Research vertexholgroup@gmail.com"
+_MAX_BYTES_CITA = 600_000
+
 # Asociaciones de industria: miden su propio mercado, publican mundial y gratis,
 # y por construcción cubren UNA capa de la cadena. Es el tier más alto que un
 # mercado privado puede tener — por encima sólo hay estadística de gobierno, que
@@ -462,8 +466,18 @@ def _validar(datos: dict, industria: str) -> tuple[dict | None, str]:
                           "flujo anual: dividir ingresos de un año entre un "
                           "valor acumulado no da participacion de mercado")
 
+    # La cifra se LEE de la fuente, no se acepta de memoria. Es la regla del
+    # `judge.py` de Victor —"Nunca inventes cifras"— aplicada aqui, que era
+    # donde faltaba. Ver `_verificar_en_la_fuente`.
+    ok, detalle = _verificar_en_la_fuente(cita, tam, fuente)
+    if not ok:
+        return None, (f"la cifra no se pudo comprobar en su fuente: {detalle}. "
+                      "Un TAM que nadie puede abrir no es evidencia, es un "
+                      "recuerdo del modelo")
+
     fuera: dict[str, Any] = {
         "tam": int(tam),
+        "_cita_verificada": detalle,
         "tam_source": fuente,
         "tam_source_tier": tier,
         "_ambito": "mundial",
@@ -517,6 +531,81 @@ def _escribir(path: Path, contenido: dict) -> None:
         except OSError:
             pass
         raise
+
+
+def _verificar_en_la_fuente(cita: str, tam: float, fuente: str) -> tuple[bool, str]:
+    """Descarga la página citada y comprueba que la cifra ESTÁ ahí.
+
+    Esto es la regla de Victor aplicada donde faltaba. Su `judge.py` usa el
+    modelo para el TIER del TAM —clasificar la calidad de una fuente que ya
+    existe— y su prompt lo dice sin rodeos: **"Nunca inventes cifras"**. Este
+    módulo cruzaba esa línea: le pedía al modelo la cifra.
+
+    Auditado sobre lo que había guardado, y no aguantó una comprobación:
+
+      - `consumer-electronics` — $1,06 billones "de Omdia". El enlace daba 404
+        a UN día de escrito. Nadie podía comprobar nada.
+      - `credit-services` — la URL traía caracteres de control. Inservible.
+      - `internet-content-information` — resolvía y la cifra aparecía, pero el
+        destino era `bestmediainfo.com`, no PwC. Una nota de prensa *sobre* el
+        dato, que es justo lo que el encabezado de este archivo dice que vino
+        a evitar: "devolvía el comunicado de prensa sobre el dato en vez del
+        dato".
+
+    Nueve de diez citas eran redirects de grounding que caducan. Ni una
+    apuntaba a la página de la fuente.
+
+    Con esto, el modelo pasa a hacer lo que hace en el motor de Victor:
+    ENCONTRAR la fuente. La cifra se lee del documento, y si el documento no
+    la contiene, no hay número.
+    """
+    import urllib.request
+
+    if not cita.startswith("http"):
+        return False, "la cita no es una URL"
+    try:
+        req = urllib.request.Request(cita, headers={"User-Agent": _AGENTE})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            destino = r.geturl()
+            cuerpo = r.read(_MAX_BYTES_CITA).decode("utf-8", "replace")
+    except Exception as e:  # noqa: BLE001
+        return False, f"la cita no se pudo abrir: {type(e).__name__}"
+
+    texto = re.sub(r"<[^>]+>", " ", cuerpo)
+    texto = re.sub(r"\s+", " ", texto)
+    # La cifra se escribe de muchas formas: "$755.6 billion", "755,600",
+    # "0.76 trillion". Se aceptan las representaciones habituales de ESTE
+    # número, no un parecido cualquiera.
+    formas = {f"{tam/1e9:,.0f}", f"{tam/1e9:.1f}", f"{tam/1e9:.2f}",
+              f"{tam/1e12:.2f}", f"{tam/1e12:.1f}", f"{tam:,.0f}",
+              f"{tam/1e6:,.0f}"}
+    if not any(f in texto for f in formas if f and f != "0"):
+        return False, f"la cifra no aparece en {destino[:70]}"
+
+    # Y que la pagina sea de quien se dice. Sin esto, una nota de prensa de
+    # tercero pasaba como si fuera el informe de PwC.
+    # Y que la pagina sea DEL ORGANISMO, no de quien lo cuenta. Sin esta
+    # linea las tres citas que sobrevivian apuntaban a prensa sectorial
+    # -icaew.com, beveragedaily.com, bestmediainfo.com- y pasaban porque el
+    # articulo mencionaba a Omdia, NielsenIQ o PwC. Eso es exactamente lo que
+    # el encabezado de este archivo dice que vino a evitar: "el comunicado de
+    # prensa SOBRE el dato en vez del dato".
+    # Solo el nombre del ORGANISMO, no la descripcion del informe. La fuente
+    # se registra como "PwC Global Entertainment & Media Outlook 2026-30": si
+    # se buscan todas sus palabras, "media" encaja con `bestmediainfo.com` y
+    # una nota de prensa pasa como si fuera PwC. Se corta en el primer
+    # separador, que es donde acaba el nombre y empieza el titulo.
+    organismo = re.split(r"[+(\-–—:,]", fuente)[0]
+    partes = [w.lower() for w in re.split(r"[^A-Za-z]+", organismo) if len(w) > 2]
+    dominio = re.sub(r"^https?://(www\.)?", "", destino.lower()).split("/")[0]
+    # Solo la PRIMERA palabra: es el nombre del organismo. "PwC Global
+    # Entertainment & Media Outlook" partido en palabras deja "media", que
+    # encaja con `bestmediainfo.com` -- y una nota de prensa vuelve a colarse
+    # como si fuera PwC. "pwc" no esta en ese dominio, y ahi acaba la duda.
+    if not partes or partes[0] not in dominio:
+        return False, (f"{dominio} no es el dominio de {fuente[:34]!r}: es "
+                       "quien lo cuenta, no quien lo mide")
+    return True, destino
 
 
 def _vigente(data: dict, hoy: date) -> bool:

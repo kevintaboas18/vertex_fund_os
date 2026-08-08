@@ -3,19 +3,12 @@
   "_resuelto_en": "2026-08-06",
   "_como_se_obtuvo": "Resuelto al analizar WMT. Se revisa cada 90 dias.",
   "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
-  "tam": 18200000000000,
-  "tam_source": "Euromonitor International + Ventas globales de comercio minorista + 2023",
-  "tam_source_tier": 3,
   "_ambito": "mundial",
   "_capa": "facturación mundial de comercio minorista",
   "_capa_coincide": "Walmart (WMT) opera en el mercado minorista global, incluyendo tiendas de descuento, hipermercados y supercentros. Su facturación proviene de la venta de bienes a los consumidores en este mercado. Aunque la solicitud menciona específicamente 'Discount Stores', el mercado minorista global abarca las diversas operaciones de Walmart, incluidas sus ofertas de descuento, y es la capa más apropiada y con datos disponibles de una fuente aprobada.",
   "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGFR1mSxyGWPsL5dSRmkgKHwgvGRvMC9P3jC2cEr-_5uJXSPUlemwKlqT0_bdCrSma9mwAzkfazulIwGziRvNsj3u7A3YKqfoG0qnQC_6QJkwUcoqv8avotwB0q0n702SnXoYUhaX7pARxjuUJjstDdfjyctwHd6JM2mMi57Iy4XjjRY33CPAg",
   "_cita_textual": "in 2023 global retail sales recorded a slight recovery over the course of the year growing by 1% in constant terms. so that is after stripping out the effects of inflation. to reach $18.2 trillion",
   "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
-  "tam_history": [
-    18200000000000,
-    18200000000000
-  ],
   "_ingreso_relevante": "total",
   "_ingreso_relevante_porque": "WMT factura por venta minorista en sus tres segmentos (Walmart U.S., International, Sam's Club): los tres compiten en el mismo mercado que mide el TAM.",
   "_segmento_patrones_retirados": {
@@ -29,5 +22,16 @@
       "discount"
     ],
     "porque": "La empresa compite ENTERA en este mercado, asi que no hay segmento que elegir. Estos patrones no casaban con ningun segmento reportado -- los de Walmart son 'Walmart U.S.', 'International' y 'Sam's Club'; ninguno contiene 'retail' -- y por eso la participacion faltaba teniendo TAM e ingreso. Se guardan por si alguien acota el TAM a una capa mas fina."
+  },
+  "_sugerencia_sin_verificar": {
+    "tam": 18200000000000,
+    "tam_source": "Euromonitor International + Ventas globales de comercio minorista + 2023",
+    "tam_history": [
+      18200000000000,
+      18200000000000
+    ],
+    "cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGFR1mSxyGWPsL5dSRmkgKHwgvGRvMC9P3jC2cEr-_5uJXSPUlemwKlqT0_bdCrSma9mwAzkfazulIwGziRvNsj3u7A3YKqfoG0qnQC_6QJkwUcoqv8avotwB0q0n702SnXoYUhaX7pARxjuUJjstDdfjyctwHd6JM2mMi57Iy4XjjRY33CPAg",
+    "por_que_no_puntua": "la cifra no aparece en https://www.euromonitor.com/video/what-is-driving-global-retail-sales-",
+    "para_aceptarla": "Comprueba la cifra en la publicacion del propio organismo, copia aqui `tam`, `tam_source` y `tam_source_tier` (1-4), y borra `_generado_por`. Eso lo hace tuyo."
   }
 }

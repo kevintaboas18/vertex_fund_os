@@ -3,24 +3,28 @@
   "_resuelto_en": "2026-08-06",
   "_como_se_obtuvo": "Resuelto al analizar KO. Se revisa cada 90 dias.",
   "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
-  "tam": 418000000000,
-  "tam_source": "NielsenIQ + non-alcoholic drinks global value sales + 2025",
-  "tam_source_tier": 3,
   "_ambito": "mundial",
   "_capa": "facturación mundial de bebidas no alcohólicas",
   "_capa_coincide": "KO factura por la venta de bebidas no alcohólicas (refrescos, agua, zumos, etc.), lo que coincide directamente con la 'facturación mundial de bebidas no alcohólicas'.",
   "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG0jp2kO1ABPqcMgA6-L1A5W0vsMmlcrPikNx-UuwCwIGlRFn7XyyazaVJJpnMK0N4x4_cMim-kvNW0lN7Aq6Q6lwwTwT6aUnIY7vdE-wCbYoTuzjbOgK3Knp7T22nVP_O-La6jys9l5CqRoSvNduHhsNuppzZN7Qom_IrotIxIZFoUfIrENgSPEPUWBoSTtlLKZByt1e96mEyYd60ffdEZydJKyoVwDr6E9DRp5E0iT5DfLVQslLs2VQ==",
   "_cita_textual": "non-alcoholic drinks hit $418bn in global value sales, up +6.3%, with Latin America posting +11.8% and North America +8.1%.",
   "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
-  "tam_history": [
-    393226716839,
-    418000000000
-  ],
   "_segmento_patrones": [
     "non-alcoholic beverages",
     "soft drinks",
     "juices",
     "water",
     "energy drinks"
-  ]
+  ],
+  "_sugerencia_sin_verificar": {
+    "tam": 418000000000,
+    "tam_source": "NielsenIQ + non-alcoholic drinks global value sales + 2025",
+    "tam_history": [
+      393226716839,
+      418000000000
+    ],
+    "cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG0jp2kO1ABPqcMgA6-L1A5W0vsMmlcrPikNx-UuwCwIGlRFn7XyyazaVJJpnMK0N4x4_cMim-kvNW0lN7Aq6Q6lwwTwT6aUnIY7vdE-wCbYoTuzjbOgK3Knp7T22nVP_O-La6jys9l5CqRoSvNduHhsNuppzZN7Qom_IrotIxIZFoUfIrENgSPEPUWBoSTtlLKZByt1e96mEyYd60ffdEZydJKyoVwDr6E9DRp5E0iT5DfLVQslLs2VQ==",
+    "por_que_no_puntua": "beveragedaily.com no es el dominio de 'NielsenIQ + non-alcoholic drinks g': es quien lo cuenta, no quien lo mide",
+    "para_aceptarla": "Comprueba la cifra en la publicacion del propio organismo, copia aqui `tam`, `tam_source` y `tam_source_tier` (1-4), y borra `_generado_por`. Eso lo hace tuyo."
+  }
 }

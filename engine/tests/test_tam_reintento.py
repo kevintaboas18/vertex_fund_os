@@ -47,6 +47,21 @@ def _respuesta(fuente: str, tam: float) -> str:
         "cita": "https://ejemplo.org/informe",
         "capa": "ingresos anuales del mercado"})
 
+@pytest.fixture(autouse=True)
+def _sin_red(monkeypatch):
+    """Los tests no salen a internet.
+
+    `_validar` comprueba la cifra contra la pagina de su fuente -- ver
+    `_verificar_en_la_fuente` y la regla del `judge.py` de Victor, "Nunca
+    inventes cifras". Eso es una descarga, y una suite que la hace deja de ser
+    determinista y tarda minuto y medio. Aqui se sustituye por un verificador
+    que acepta, para que cada test siga midiendo lo suyo; la verificacion
+    tiene sus propios tests en `test_tam_verificado_en_la_fuente.py`.
+    """
+    monkeypatch.setattr(tm, "_verificar_en_la_fuente",
+                        lambda cita, tam, fuente: (True, cita))
+
+
 
 def _guion(monkeypatch, respuestas: list[tuple[str, str | None]]):
     """`respuestas` es lo que devuelve Gemini en cada llamada sucesiva."""

@@ -3,19 +3,12 @@
   "_resuelto_en": "2026-08-06",
   "_como_se_obtuvo": "Resuelto al analizar TSLA. Se revisa cada 90 dias.",
   "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
-  "tam": 2600000000000,
-  "tam_source": "IBISWorld + market valuation of the global automotive manufacturing industry + 2025",
-  "tam_source_tier": 3,
   "_ambito": "mundial",
   "_capa": "facturación mundial de la industria de fabricación de automóviles",
   "_capa_coincide": "TSLA factura por la venta de vehículos, y la valoración de mercado de la industria de fabricación de automóviles representa los ingresos totales generados por los fabricantes de vehículos en este mercado.",
   "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQExXKEPUe-DcJD3xgBzw1RzcC6LA4MgP1ytdUWVpXJtajebrF0KQwmxLI593yzdF3lG001CBP2lz-w2gNFTycPdzaqfUQpzwje5bUrWQB_2TcPcNle-_0S2pXEGKmEb_jPlBJScxbZVneJdUO_sUJn_QGeGKGmE5FbLT7jElDskVr4_wQ==",
   "_cita_textual": "The global automotive manufacturing industry is very large, with its market valuation sitting at USD $2.6tn in 2025, according to IBISWorld.",
   "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
-  "tam_history": [
-    2600000000000,
-    2600000000000
-  ],
   "_ingreso_relevante": "total",
   "_ingreso_relevante_porque": "La facturacion de un fabricante de automoviles es venta de vehiculos, la capa del TAM.",
   "_segmento_patrones_retirados": {
@@ -27,5 +20,16 @@
       "manufacturing"
     ],
     "porque": "La empresa compite ENTERA en este mercado, asi que no hay segmento que elegir. Estos patrones no casaban con ningun segmento reportado -- los de Walmart son 'Walmart U.S.', 'International' y 'Sam's Club'; ninguno contiene 'retail' -- y por eso la participacion faltaba teniendo TAM e ingreso. Se guardan por si alguien acota el TAM a una capa mas fina."
+  },
+  "_sugerencia_sin_verificar": {
+    "tam": 2600000000000,
+    "tam_source": "IBISWorld + market valuation of the global automotive manufacturing industry + 2025",
+    "tam_history": [
+      2600000000000,
+      2600000000000
+    ],
+    "cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQExXKEPUe-DcJD3xgBzw1RzcC6LA4MgP1ytdUWVpXJtajebrF0KQwmxLI593yzdF3lG001CBP2lz-w2gNFTycPdzaqfUQpzwje5bUrWQB_2TcPcNle-_0S2pXEGKmEb_jPlBJScxbZVneJdUO_sUJn_QGeGKGmE5FbLT7jElDskVr4_wQ==",
+    "por_que_no_puntua": "icaew.com no es el dominio de 'IBISWorld + market valuation of th': es quien lo cuenta, no quien lo mide",
+    "para_aceptarla": "Comprueba la cifra en la publicacion del propio organismo, copia aqui `tam`, `tam_source` y `tam_source_tier` (1-4), y borra `_generado_por`. Eso lo hace tuyo."
   }
 }

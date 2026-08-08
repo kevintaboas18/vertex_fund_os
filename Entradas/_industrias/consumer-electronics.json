@@ -3,9 +3,6 @@
   "_resuelto_en": "2026-08-07",
   "_como_se_obtuvo": "Resuelto al analizar AAPL. Se revisa cada 90 dias.",
   "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
-  "tam": 1060000000000,
-  "tam_source": "Omdia - global consumer electronics market revenue 2023",
-  "tam_source_tier": 3,
   "_ambito": "mundial",
   "_capa": "facturación mundial de productos de electrónica de consumo",
   "_capa_coincide": "AAPL factura por la venta de productos finales de electrónica de consumo como iPhones, Macs, iPads, Apple Watches, AirPods y Apple TV, lo que se alinea con la facturación de este mercado.",
@@ -30,5 +27,13 @@
     ],
     "porque": "Encajaban con UN solo segmento de Apple por accidente. Sus segmentos se llaman iPhone, Mac, iPad, Wearables Home and Accessories y Services; de esa lista solo 'wearables' y 'home' casaban, asi que el numerador salia $36.000M -- la linea de accesorios -- contra un TAM de $1,06 billones de electronica de consumo entera. Participacion 3,4% cuando Apple es la mayor empresa del sector. Un acierto falso es peor que ninguno: el hueco se ve y el 3,4% no.",
     "y_por_que_no_total": "Tampoco vale `_ingreso_relevante: total`: los $100.000M de Services de Apple no son electronica de consumo, asi que su ingreso total tampoco es el numerador de esta capa. El motor rechaza a proposito sumar varios segmentos -- 'sumarlos o quedarse con el mayor seria inventar la respuesta' -- y esa disciplina se respeta."
+  },
+  "_sugerencia_sin_verificar": {
+    "tam": 1060000000000,
+    "tam_source": "Omdia - global consumer electronics market revenue 2023",
+    "tam_history": null,
+    "cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGBvhEJVOmviSKzdD8dTMFv1hecpW1UPjv6lKuppNsMOhy2W1D4LcmTYWgpLgOMsMrvhhWCRLv4MfSovJq7UosQFRWNnM5ee02uf3xXQ8QnFVIsRc1j8eCgJ0xZjcx7ti878zxz7qd6H-wMxZI8nGo2WfEvtzwSlqMU7jc=",
+    "por_que_no_puntua": "la cita no se pudo abrir: HTTPError",
+    "para_aceptarla": "Comprueba la cifra en la publicacion del propio organismo, copia aqui `tam`, `tam_source` y `tam_source_tier` (1-4), y borra `_generado_por`. Eso lo hace tuyo."
   }
 }

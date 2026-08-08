@@ -48,8 +48,14 @@ def test_every_industry_file_is_coherent(path: Path):
     if rel is not None:
         assert rel == "total" or (isinstance(rel, list) and rel), (
             f"{path.stem}: _ingreso_relevante es 'total' o una lista de tickers")
-        assert tam is not None, (
-            f"{path.stem}: declara como se usa un TAM que no tiene")
+        # La declaracion puede quedar DORMIDA: dice como se usara el TAM en
+        # cuanto haya uno. Es lo que pasa cuando la cifra bajo a
+        # `_sugerencia_sin_verificar` por no poderse comprobar contra la
+        # pagina de su fuente -- el juicio sobre la capa sigue siendo valido y
+        # borrarlo obligaria a rehacerlo cuando el analista confirme el
+        # numero. Lo que no vale es declararlo sin TAM y sin nada esperando.
+        assert tam is not None or d.get("_sugerencia_sin_verificar"), (
+            f"{path.stem}: declara como se usa un TAM que no tiene ni espera")
         assert d.get("_ingreso_relevante_porque"), (
             f"{path.stem}: decir que la empresa compite entera es un juicio "
             "sobre la capa del TAM y tiene que venir razonado")
@@ -81,13 +87,23 @@ def test_a_segment_and_the_whole_company_are_exclusive(path: Path):
 
 @pytest.mark.skipif(not _ARCHIVOS, reason="sin archivos de industria")
 def test_an_unresolved_industry_says_why():
-    """Un archivo sin TAM tiene que explicar la ausencia. `oil-gas-integrated`,
-    `consumer-electronics` y `reit-retail` están así hoy: el resolutor corrió,
-    no encontró fuente que atestiguara la cifra, y dejó dicho qué pasó y qué
-    hacer. Un archivo vacío y mudo se lee como un error del sistema."""
+    """Un archivo sin TAM tiene que explicar la ausencia. Un archivo vacío y
+    mudo se lee como un error del sistema.
+
+    Hay dos formas de no tener TAM y las dos explican:
+
+    - `_sin_tam` — el resolutor corrió y no encontró fuente que lo publicara.
+    - `_sugerencia_sin_verificar` — encontró una cifra y NO se pudo comprobar
+      contra la página de su propia fuente. La investigación se guarda entera
+      (cifra, fuente, cita y el motivo del rechazo) para que un analista pueda
+      confirmarla a mano, pero no puntúa. Es la regla del `judge.py` de Victor
+      —"Nunca inventes cifras"— aplicada al TAM: el modelo encuentra la
+      fuente, la cifra se lee del documento.
+    """
     for path in _ARCHIVOS:
         d = json.loads(path.read_text(encoding="utf-8"))
         if d.get("tam") is not None:
             continue
-        assert d.get("_sin_tam") or d.get("_que_hacer"), (
+        assert (d.get("_sin_tam") or d.get("_que_hacer")
+                or d.get("_sugerencia_sin_verificar")), (
             f"{path.stem}: sin TAM y sin explicar por que")
