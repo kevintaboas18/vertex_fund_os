@@ -2964,7 +2964,7 @@ function renderProjWheel(d) {
             <td class="py-2 pr-3 text-gray-300">$${Number(c.strike).toFixed(2)}P <span class="text-[9px] text-gray-600">${_vcEsc(String(c.expiration).slice(5))}</span></td>
             <td class="py-2 pr-3 text-right text-gray-400">${c.dte}d</td>
             <td class="py-2 pr-3 text-right font-bold ${c.premium.source === 'bid' ? 'text-gray-200' : 'text-amber-300'}" title="Prima por acci&oacute;n, ya recortada seg&uacute;n su fuente. Fuente: ${_vcEsc(c.premium.source)} (bruto $${Number(c.premium.raw).toFixed(2)}, recorte ${c.premium.source === 'bid' ? '0%' : (c.premium.source === 'ultimo' ? '10%' : '15%')}). Vendes al BID: cualquier otra fuente es una estimaci&oacute;n.">$${Number(c.premium.price).toFixed(2)}${c.premium.source !== 'bid' ? '<span class="text-[8px] font-normal">*</span>' : ''}</td>
-            <td class="py-2 pr-3 text-right text-emerald-400 font-bold">$${fmtAbbr(m.credit)}</td>
+            <td class="py-2 pr-3 text-right text-emerald-400 font-bold">${fmtAbbr(m.credit)}</td>
             <td class="py-2 pr-3 text-right text-gray-300" title="efectivo que queda inmovilizado hasta el vencimiento">${fmtAbbr(m.collateral)}</td>
             <td class="py-2 pr-3 text-right ${m.annualized_pct > 60 ? 'text-amber-400' : 'text-gray-200'}" title="${m.annualized_pct > 60 ? 'Prima sospechosamente alta: el mercado descuenta una caída fuerte.' : ''}">${Number(m.annualized_pct).toFixed(1)}%</td>
             <td class="py-2 pr-3 text-right text-gray-300" title="cu&aacute;nto puede caer el precio antes de que empieces a perder">${m.cushion_pct != null ? Number(m.cushion_pct).toFixed(1) + '%' : '&mdash;'}</td>
@@ -3993,10 +3993,13 @@ function vcHeatmapHTML(d) {
 function vcClustersHTML(d) {
     const cl = d.flow_clusters;
     if (!cl || !cl.length) return '';
-    const hhmm = sec => new Date(sec * 1000).toISOString().slice(11, 16);
+    // Su `hmET`: hora del MERCADO. Esto era `toISOString().slice(11,16)`, o sea
+    // UTC, y obligaba a restar cinco horas en la única tabla que existe para
+    // decir CUÁNDO se concentró el dinero.
+    const hhmm = sec => vcHmET(sec);
     return `<div class="mt-3"><p class="text-[10px] font-extrabold text-blue-400 uppercase tracking-wider mb-1">Racimos del tape</p>
       <table class="vc-t w-full text-[10px]"><thead><tr class="text-gray-600 text-[8px] uppercase">
-        <th class="text-left pb-0.5">Ventana (UTC)</th><th class="text-right pb-0.5 pr-2">Trades</th>
+        <th class="text-left pb-0.5">Ventana (ET)</th><th class="text-right pb-0.5 pr-2">Trades</th>
         <th class="text-right pb-0.5 pr-2">Premium</th><th class="text-right pb-0.5 pr-2">Calls / Puts</th>
         <th class="text-right pb-0.5 pr-2">Un solo lado</th><th class="text-right pb-0.5 pr-2">Score</th>
         <th class="text-left pb-0.5">Apuesta neta</th></tr></thead><tbody>
@@ -4273,7 +4276,7 @@ function vcSubagentesHTML(d) {
                 : r.aggression === 'bid' ? '<span class="text-red-400">▼ Venta</span>'
                 : '<span class="text-gray-500">Mid</span>';
             return `<tr class="border-b border-gray-800/50 ${r.expiry_status === 'expirado' ? 'opacity-50' : ''}">
-                <td class="py-1 pr-2 text-gray-500 text-[9px]">${_vcEsc(String(r.timestamp || '').slice(5, 16).replace('T', ' '))}</td>
+                <td class="py-1 pr-2 text-gray-500 text-[9px]">${_vcEsc(vcDateOf(r.timestamp))} &middot; ${_vcEsc(vcTimeOf(r.timestamp))}</td>
                 <td class="py-1 pr-2 text-gray-200 font-bold">${_vcEsc(r.underlying || '')} ${r.strike != null ? _vcEsc(r.strike) : '?'}${t}${r.repeated ? ' <span class="text-amber-400" title="contrato repetido">↻</span>' : ''}${r.multileg ? ' <span class="text-gray-600" title="multileg">⛓</span>' : ''}</td>
                 <td class="py-1 pr-2 text-gray-400">${_vcEsc(r.expiration || '—')}${r.dte != null ? ` <span class="text-gray-600">(${r.dte >= 0 ? Math.round(r.dte) + 'd' : 'hace ' + Math.abs(Math.round(r.dte)) + 'd'})</span>` : ''}</td>
                 <td class="py-1 pr-2 text-gray-500 text-[9px]">${_vcEsc(EST[r.expiry_status] || '—')}</td>
@@ -4607,10 +4610,28 @@ function renderProjGammaPorStrike(d) {
 // `HeaderBar` no va, porque esta pantalla es Vertex. El logo de la EMPRESA
 // analizada (el de AAPL) sí, que es información y no marca.
 
-// ── Sus formateadores (`format.ts`), uno a uno ───────────────────────────────
-// Son `Intl.NumberFormat` con SUS opciones. Importa que sean los suyos: su
-// `money` es notación compacta con 2 decimales ("$1.23M"), que no es lo mismo
-// que el `fmtAbbr` de Vertex ("$1.2M"), y las dos cifras se pintan juntas.
+// ── Sus formateadores (`format.ts`), los DIEZ ────────────────────────────────
+//
+// Son `Intl.NumberFormat` con SUS opciones, no aproximaciones. Importa más de
+// lo que parece: `format.ts` es el único módulo suyo que no vive en `web/lib`,
+// y por eso se quedó fuera de los tres registros de la auditoría —módulos,
+// rutas y componentes— durante siete rondas. Nadie lo comparó nunca.
+//
+// Cuando por fin se comparó, `fmtAbbr` divergía en **14 de 14** casos medidos:
+//
+//     valor          él          Vertex
+//     2.440.000      $2.44M      $2.4M      ← su `money` lleva 2 decimales
+//     332.000        $332.00K    $332.0K
+//     0              $0.00       $0
+//     -2.440.000     -$2.44M     $-2.4M     ← hasta el signo iba en otro sitio
+//     1e12           $1.00T      $1000.0B   ← `fmtAbbr` no conocía "T"
+//
+// Y no era solo contra él: el panel pintaba las dos cosas A LA VEZ, porque los
+// componentes portados en §41.24 ya usaban `VC_MONEY` y el panel viejo seguía
+// con `fmtAbbr`. La misma pantalla, el mismo dólar, dos formatos.
+//
+// `Intl` está en todos los navegadores que este panel soporta, así que la
+// forma literal de portar `format.ts` es usar `Intl`, no reimplementarlo.
 const VC_INT   = new Intl.NumberFormat('en-US');
 const VC_MONEY = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 2 });
 const VC_MONEY0= new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
@@ -4628,6 +4649,29 @@ function vcDateET(ts) {
 function vcTimeET(ts) {
     try { return new Date(ts).toLocaleTimeString('en-US', { timeZone: VC_ET, hour12: false }); }
     catch (e) { return ts; }
+}
+/** `hmET` suyo: HH:MM en ET desde un UNIX en SEGUNDOS. Es el que rotula la
+ *  ventana de cada racimo y el eje de su gráfica intradía. Faltaba, y el panel
+ *  rotulaba los racimos con `toISOString().slice(11,16)` — o sea en UTC, con
+ *  la cabecera diciéndolo. Leer "14:30" cuando el reloj del mercado marca
+ *  10:30 obliga a restar cinco horas mentalmente en la única tabla que existe
+ *  para decirte CUÁNDO se concentró el dinero. */
+function vcHmET(unixSec) {
+    return new Date(unixSec * 1000).toLocaleTimeString('en-US',
+        { timeZone: VC_ET, hour: '2-digit', minute: '2-digit', hour12: false });
+}
+/** `timeOf`/`dateOf` suyos: la hora del NAVEGADOR, sin zona forzada. Él las usa
+ *  en las tablas de transacciones (`NotableTable`, `UnusualityCard`,
+ *  `ConvictionTransactions`) y reserva las `*ET` para la gráfica y el feed. Se
+ *  respeta la separación: son dos preguntas distintas —"¿a qué hora lo viste
+ *  tú?" contra "¿a qué hora del mercado pasó?"— y él las contesta aparte. */
+function vcTimeOf(ts) {
+    try { return new Date(ts).toLocaleTimeString('en-US', { hour12: false }); }
+    catch (e) { return ts; }
+}
+function vcDateOf(ts) {
+    try { return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
+    catch (e) { return ''; }
 }
 
 // ── CompanyHeader.tsx ────────────────────────────────────────────────────────
@@ -4989,6 +5033,57 @@ function renderProjTop5(d) {
  *
  *  Las velas de un racimo van en el color BRILLANTE, como en su gráfica.
  */
+/** Superpone el precio sobre las barras de dinero, en el marco elegido.
+ *
+ *  Baja las velas de `/api/tito-bars` (su `/api/bars`) y las mete en los MISMOS
+ *  cubos que el flujo, así que las dos series comparten eje. Si la fuente falla
+ *  no pasa nada: la gráfica se queda con el dinero, que es lo que ya tenía.
+ *  Un fallo de red no puede borrar lo que sí se pudo calcular.
+ */
+async function _projFlowPrecio(ticker, tf, etiquetas) {
+    const g = window._projFlowMoneyChart;
+    if (!g || !ticker) return;
+    let velas;
+    try {
+        const r = await fetch(`${API_BASE}/api/tito-bars?ticker=${encodeURIComponent(ticker)}&tf=${encodeURIComponent(tf)}`,
+                              { credentials: 'include' });
+        if (!r.ok) return;
+        velas = (await r.json()).bars || [];
+    } catch (e) { return; }
+    if (!velas.length || window._projFlowMoneyChart !== g) return;
+    // Mismo cubo que el flujo: día de mercado + vela redondeada, en ET.
+    const TF = { '1y': 0, '15m10d': 15, '5m5d': 5 };
+    const min = TF[tf] || 0;
+    const cierre = new Map();
+    for (const v of velas) {
+        const iso = new Date(v.time * 1000).toISOString();
+        const dia = vcDateET(iso);
+        if (!dia) continue;
+        let k = dia;
+        if (min) {
+            const [h, m] = vcHmET(v.time).split(':').map(Number);
+            if (isFinite(h) && isFinite(m)) {
+                const mm = Math.floor(m / min) * min;
+                k = `${dia} ${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+            }
+        }
+        cierre.set(k, Number(v.close));   // la última de cada cubo manda
+    }
+    const serie = etiquetas.map(x => (cierre.has(x) ? cierre.get(x) : null));
+    if (!serie.some(v => v != null)) return;
+    g.data.datasets.push({
+        label: 'Precio', data: serie, type: 'line', yAxisID: 'y2',
+        borderColor: '#9db4d4', borderWidth: 1.5, pointRadius: 0,
+        tension: 0.25, spanGaps: true, order: -1,
+    });
+    g.options.scales.y2 = {
+        position: 'right', grid: { display: false },
+        ticks: { color: '#5c6a85', font: { size: 9 },
+                 callback: v => '$' + VC_PX.format(v) },
+    };
+    g.update('none');
+}
+
 function renderProjFlowMoney(d) {
     const caja = document.getElementById('projFlowMoney');
     if (!caja) return;
@@ -4996,14 +5091,35 @@ function renderProjFlowMoney(d) {
     if (!rows.length) { caja.innerHTML = ''; return; }
     const aLog = v => Math.max(0.2, Math.log10(Math.max(v, 1)) - 4.5);
     const deLog = v => Math.pow(10, Math.abs(v) + 4.5);
-    // Agregado por DÍA de mercado: es la resolución de las barras que trae el
-    // payload. Su versión intradía agrupa por vela de 5 min.
+    // Marco temporal, el suyo (`TF` de su `/api/bars`): día, 15 min o 5 min.
+    //
+    // Antes esto agregaba SIEMPRE por día, con la nota de que "su versión
+    // intradía agrupa por vela de 5 min" — o sea, la divergencia estaba escrita
+    // y no cerrada. La diferencia no es de resolución: agregado por día se ve
+    // QUÉ día entró el dinero grande; en velas de 5 minutos se ve si el precio
+    // se movió ANTES o DESPUÉS de que entrara, que es justo lo que mide el
+    // sub-agente 6.
+    const TF = { '1y': 0, '15m10d': 15, '5m5d': 5 };
+    const tf = window._projFlowTf || '1y';
+    const minutos = TF[tf] || 0;
+    // La clave del cubo: el día de mercado, o el día + la vela redondeada
+    // hacia abajo. Se redondea en ET y no en UTC porque una vela de las 09:35
+    // ET es la misma esté quien la mire donde esté.
+    const cubo = ts => {
+        const dia = vcDateET(ts);
+        if (!minutos || !dia) return dia;
+        const hm = vcHmET(Date.parse(ts) / 1000);
+        const [h, m] = hm.split(':').map(Number);
+        if (!isFinite(h) || !isFinite(m)) return dia;
+        const mm = Math.floor(m / minutos) * minutos;
+        return `${dia} ${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    };
     const porDia = new Map(), primero = new Map();
     const enRacimo = new Set(((d.flow_clusters) || [])
-        .map(c => c.start_sec != null ? vcDateET(new Date(c.start_sec * 1000).toISOString()) : null)
+        .map(c => c.start_sec != null ? cubo(new Date(c.start_sec * 1000).toISOString()) : null)
         .filter(Boolean));
     for (const r of rows) {
-        const dia = vcDateET(r.timestamp);
+        const dia = cubo(r.timestamp);
         if (!dia) continue;
         const a = porDia.get(dia) || { ask: 0, bid: 0 };
         const p = Number(r.premium) || 0;
@@ -5018,7 +5134,23 @@ function renderProjFlowMoney(d) {
       <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Flujo notable sobre el precio · ${_vcEsc(d.ticker)}</h3>
       <p class="text-[10px] text-gray-500 italic mt-0.5 mb-2">El dinero de cada día — <b class="text-emerald-400">compra</b> hacia arriba,
         <b class="text-red-400">venta</b> hacia abajo. Escala logarítmica: sin ella un solo día grande aplasta el resto. Barras brillantes = día con racimo.</p>
+      <div class="flex gap-1 mb-1">${Object.keys(TF).map(k =>
+          `<button data-tf="${k}" class="px-2 py-0.5 rounded text-[9px] font-bold border ${k === tf
+            ? 'bg-blue-500/20 border-blue-500/60 text-blue-300'
+            : 'border-gray-800 text-gray-500 hover:text-gray-300'}"
+            title="${k === '1y' ? 'Un año, agregado por día de mercado'
+                    : 'Velas de ' + TF[k] + ' minutos en hora del mercado (ET)'}"
+            >${k === '1y' ? 'Diario' : TF[k] + 'm'}</button>`).join('')}</div>
       <div class="h-[170px] sm:h-[200px]"><canvas id="projFlowMoneyCanvas"></canvas></div></section>`;
+    // El selector cambia cómo se AGRUPA el flujo (que ya está en memoria) y, en
+    // intradía, además baja las velas de precio de `/api/tito-bars` para
+    // superponer la línea: es lo que hace su `FlowPriceChart`, y sin el precio
+    // encima el dinero por vela no dice si el movimiento vino antes o después.
+    caja.querySelectorAll('button[data-tf]').forEach(b => b.addEventListener('click', () => {
+        window._projFlowTf = b.getAttribute('data-tf');
+        renderProjFlowMoney(d);
+    }));
+    if (minutos) _projFlowPrecio(d.ticker, tf, dias);
     const cv = document.getElementById('projFlowMoneyCanvas');
     if (!cv || !window.Chart) return;
     if (window._projFlowMoneyChart) window._projFlowMoneyChart.destroy();
@@ -5407,23 +5539,34 @@ let backfillPoll = null;
 
 
 // Abbreviated dollar formatter ($3.4B / $55.7M / $12.0K).
+/** Su `money` de `format.ts`: `Intl` compacto en USD con 2 decimales.
+ *
+ *  Era una reimplementación a mano con `toFixed(1)` y divergía en los 14 casos
+ *  medidos (ver el bloque de `VC_MONEY`): "$2.4M" donde él pone "$2.44M", el
+ *  signo menos del lado equivocado y sin escalón "T". Ahora delega en el mismo
+ *  `Intl` que usan sus componentes, así que el panel entero habla un idioma.
+ *
+ *  DIVERGENCIA declarada, la única: el nulo. Su `money.format(undefined)` pinta
+ *  "$NaN"; aquí sale "—". Un "$NaN" en la columna de premium se lee como un
+ *  dato roto del mercado y no como un dato que no llegó, y este panel tiene la
+ *  regla de que sin evidencia no hay número. */
 function fmtAbbr(v) {
     if (v == null || isNaN(v)) return '—';
-    const a = Math.abs(v);
-    if (a >= 1e9) return '$' + (v / 1e9).toFixed(1) + 'B';
-    if (a >= 1e6) return '$' + (v / 1e6).toFixed(1) + 'M';
-    if (a >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'K';
-    return '$' + Math.round(v);
+    return VC_MONEY.format(Number(v));
 }
 
-/** Dólares EXACTOS con separador de miles.
+/** Su `money0` de `format.ts`: dólares EXACTOS, sin decimales.
  *
- *  No usa `fmtAbbr` a propósito: para el perfil y el sizing, "$1.0K" y "$1,049"
- *  son la diferencia entre que un contrato te quepa o no. Donde el número es
- *  una restricción de tu cuenta se muestra entero. */
+ *  No usa `fmtAbbr` a propósito, y él tampoco: para el perfil y el sizing,
+ *  "$1.0K" y "$1,049" son la diferencia entre que un contrato te quepa o no.
+ *  Donde el número es una restricción de tu cuenta se muestra entero.
+ *
+ *  Era `'$' + Math.round(v).toLocaleString()`, que coincide con el suyo en los
+ *  positivos y NO en los negativos: "$-1,049" contra su "-$1,049". Un saldo en
+ *  rojo es justo donde peor sienta un signo fuera de sitio. */
 function fmtMoney(v) {
     if (v == null || isNaN(v)) return '—';
-    return '$' + Math.round(Number(v)).toLocaleString('en-US');
+    return VC_MONEY0.format(Number(v));
 }
 
 

@@ -4666,3 +4666,151 @@ comandos de la auditoría y de los 14 diferenciales, que no estaban.
 smoke de componentes · 14 diferenciales · 0 fallos, 0 avisos y CERO skips** —
 y a partir de ahora el cero de skips no es una observación, es una condición de
 la corrida.
+
+---
+
+## 41.29 Ronda 8 — el tab entero, área por área, contra `53d5a20`
+
+Kevin: *"no puedes omitir una área, ni métrica, agentes, sub agente, cálculos,
+fuentes ni nada."*
+
+Las siete rondas anteriores auditaron contra **tres registros**: módulos de
+`web/lib`, rutas de `web/app/api` y componentes `.tsx`. Esta ronda empezó
+preguntando qué queda FUERA de esos tres registros — y ahí estaban los agujeros.
+
+### Inventario completo de su repo (53d5a20, sin cambios desde la ronda 7)
+
+| | Él | Vertex | Cómo se verifica |
+|---|---|---|---|
+| Módulos `web/lib/*.ts` | 32 | 32 portados | 16 diferenciales |
+| Rutas `web/app/api` | 11 | 11 | registro + `test_route_safety` |
+| Componentes `.tsx` | 39 | 39 | registro + smoke de 94 checks |
+| **TS fuera de `web/lib`** | **3** | **1 sin comparar** | ← el agujero |
+| Páginas Next (`page`/`layout`) | 5 | n/a (Vertex no es Next) | — |
+
+Los tres de fuera son `app/format.ts`, `app/ideas/types.ts` y
+`app/wheel/types.ts`. Los dos `types.ts` son solo interfaces —cero código
+ejecutable, comprobado—. `format.ts` no.
+
+### Hallazgo 1 — `format.ts`: 14 de 14 cifras mal, en cada pantalla
+
+`format.ts` es el único módulo suyo que no vive en `web/lib`, así que ningún
+registro lo cubría. **Nunca se comparó, en siete rondas.** Al compararlo:
+
+| valor | él | Vertex |
+|---|---|---|
+| 2.440.000 | `$2.44M` | `$2.4M` |
+| 332.000 | `$332.00K` | `$332.0K` |
+| 0 | `$0.00` | `$0` |
+| −2.440.000 | `-$2.44M` | `$-2.4M` |
+| 1e12 | `$1.00T` | `$1000.0B` |
+
+Y no era solo contra él: **el panel pintaba las dos cosas a la vez**. Los
+componentes portados en §41.24 ya usaban `VC_MONEY` (su `Intl`) y el panel
+viejo seguía con `fmtAbbr`. La misma pantalla, el mismo dólar, dos formatos.
+
+Cerrado: `fmtAbbr` es ahora su `money` y `fmtMoney` su `money0`; se añadieron
+los tres que faltaban (`hmET`, `timeOf`, `dateOf`). **`diff_format.sh`** lo fija
+con 1.870 comparaciones y 4 divergencias declaradas (el ausente y el `NaN` se
+pintan «—», no «$0.00» ni «$NaN»).
+
+De paso salieron tres cosas más al leer los sitios de uso:
+
+- **`$${fmtAbbr(...)}`** en la columna de crédito de la Wheel: `fmtAbbr` ya trae
+  el símbolo, así que se leía **`$$2.44M`**.
+- **Los racimos del tape se rotulaban en UTC** (`toISOString().slice(11,16)`,
+  con la cabecera diciendo "(UTC)"). Él usa `hmET`. Leer "14:30" cuando el reloj
+  del mercado marca 10:30, en la única tabla que existe para decir CUÁNDO entró
+  el dinero.
+- **La fecha·hora de las transacciones era un corte del ISO** (`slice(5,16)`),
+  también en UTC, donde él usa `dateOf`+`timeOf` formateados.
+
+### Hallazgo 2 — la Wheel entera, sin diferencial y sin un solo test
+
+`wheel.ts` (421 líneas, 11 exports), `wheelAfford.ts`, `wheelUniverse.ts` y
+`earnings.ts` estaban **portados** y no los medía nada:
+
+- ningún diferencial los tocaba;
+- los 13 tests que respondían a `-k "wheel or earnings"` eran **todos del agente
+  de ACCIONES** (`test_brief`, `test_technical`…), nada que ver con la Wheel.
+
+O sea: la estrategia que decide qué put vender, con cuánto colateral, con qué
+probabilidad de expirar sin valor y en qué orden se listan los candidatos no
+tenía ni test ni comparación. **`diff_wheel.sh`** (1.072 casos, incluidas las
+constantes: presets, recortes, umbrales y los 41 símbolos del universo) y el
+port de sus 48 casos de test.
+
+Encontró dos divergencias reales a la primera:
+
+1. **`"fuerza 83.0"` donde él pone `"fuerza 83"`.** El port ya usaba `js_round`
+   para redondear, pero interpolaba con una f-string de Python. En JS `${83}` es
+   `"83"`. 60 de 200 casos. Es texto que el usuario lee en el tooltip del score.
+2. **Una fecha de reporte ilegible ABSOLVÍA en vez de penalizar.** Su
+   `getTime()` da `NaN`, toda comparación con `NaN` es falsa y cae en `"dentro"`
+   → el candidato pierde 7 de sus 10 puntos. El port devolvía `"no_aplica"` →
+   **10 de 10**. Un dato corrupto pasaba de penalizar a absolver, justo en la
+   guarda que existe para que no te pille un reporte dentro del vencimiento. Se
+   adopta el suyo, que además es el prudente.
+
+### Hallazgo 3 — `fetchBars`: el intradía no existía
+
+De los 6 exports de `massive.ts`, `fetchBars` era el único sin portar, y con él
+faltaba el selector de marco temporal de su gráfica de flujo. Dos de sus tres
+consumidores piden `tf=1y` (diario), que el payload ya servía por otro camino;
+el tercero —`FlowPriceChart`— es el del intradía.
+
+La diferencia no es de resolución: **agregado por día se ve QUÉ día entró el
+dinero grande; en velas de 5 minutos se ve si el precio se movió ANTES o DESPUÉS
+de que entrara**, que es exactamente lo que mide el sub-agente 6. La divergencia
+estaba escrita en un comentario del panel ("su versión intradía agrupa por vela
+de 5 min") y llevaba ahí desde entonces.
+
+Cerrado: `fetch_bars` + `TfBar` en `massive.py`, `/api/tito-bars` con su tabla
+de marcos literal (`1y`, `15m10d`, `5m5d`, y un `tf` desconocido cae al de por
+defecto como en su ruta), y el selector en el panel — que además superpone la
+línea de precio sobre las barras de dinero, como su `FlowPriceChart`.
+
+La auditoría cazó sola la ruta nueva cuando todavía no tenía cliente
+(`SIN DECLARAR: ['tito-bars']`), que es para lo que existe ese registro.
+
+### Checklist del tab, área por área
+
+| Área | Estado | Cómo se sabe |
+|---|---|---|
+| Sub-agente 1 · Agresividad | ✅ | `diff_motor` (1.142 casos, con basura) |
+| Sub-agente 2 · Convicción | ✅ | `diff_motor` |
+| Sub-agente 3 · Inusualidad | ✅ | `diff_motor` |
+| Sub-agente 4 · Estructura | ✅ | `diff_motor` + `diff_series` (su foto) |
+| Sub-agente 5 · Contexto IV | ✅ | `diff_motor2` (918) + `diff_series` |
+| Sub-agente 6 · Confirmación | ✅ | `diff_motor` + `store.ts` acumulado |
+| Prediction Pro | ✅ | `diff_motor2` + `diff_calib` (182 diarios) |
+| GEX / heatmap | ✅ | `diff_motor2` + `diff_motor3` (349) |
+| Niveles por confluencia | ✅ | `diff_motor` + `diff_frescura` (342) |
+| Riesgo y sizing | ✅ | `diff_motor2` · el perfil es de Kevin (declarado) |
+| **Wheel** (4 módulos) | ✅ **nuevo** | `diff_wheel` (1.072) + 50 tests |
+| Noticias | ✅ | `diff_motor3` |
+| Cadena (`compute.ts`) | ✅ | `diff_compute` (604 filas) |
+| Cono / movimiento esperado | ✅ | `diff_cono` |
+| Geometría de la gráfica | ✅ | `diff_geo` (274) |
+| Watchlist (4 módulos) | ✅ | `diff_watchlist` (734) |
+| **Formateadores de pantalla** | ✅ **nuevo** | `diff_format` (1.870) |
+| Reloj / fechas de mercado | ✅ | `diff_reloj` (223) + `diff_primitivas` |
+| Persistencia `trades/` | ✅ | `diff_store` (47) |
+| Persistencia `bars/` | ✅ | `diff_bars` (27) |
+| Persistencia `iv`/`chain`/`predictions` | ✅ | `diff_series` — ida y vuelta con su TS |
+| Fuente Massive (6 exports) | ✅ | `test_massive_shape` + `preflight_vivo` · **`fetch_bars` portado en esta ronda** |
+| Fuente MarketSnack (2) | ✅ | idem |
+| Las 11 rutas | ✅ | registro + `test_route_safety` |
+| Los 39 componentes | ✅ | registro + smoke de 94 checks sobre el JS vivo |
+| Memoria entre sesiones | ✅ | §41.26 · el archivo es intercambiable con su app |
+| Almacén durable | ✅ | §41.25 · 48 tests, contenedor nuevo recupera todo |
+
+**Lo único que NO es suyo, y es deliberado:** el perfil de inversionista de
+Kevin (`Perfil Inversionista/Kevin.md`, que lee `risk.py`), su email, y dónde
+vive el archivo — la rama `datos` del almacén, porque Víctor no despliega y su
+`data/` está en `.gitignore`.
+
+### Estado
+
+**2.918 tests del motor · 512 de la capa web · 308 checks de auditoría · 94 del
+smoke de componentes · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**

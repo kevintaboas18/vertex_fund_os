@@ -1389,7 +1389,10 @@ RUTAS_SUYAS = {
     "ideas":      ("mia", "/api/tito-ideas"),
     "wheel":      ("mia", "/api/tito-wheel"),
     "news":       ("mia", "/api/tito-news"),
-    "bars":       ("dentro", "las barras van en `history` del payload de proyecciones"),
+    "bars":       ("mia", "/api/tito-bars — sus tres marcos (1y, 15m10d, 5m5d). El "
+                          "diario también viaja en `history` del payload, que es lo que "
+                          "piden dos de sus tres consumidores; el intradía es del "
+                          "selector de la gráfica de flujo"),
     "history":    ("dentro", "idem — `out['history']`, que alimenta la gráfica"),
     "prediction": ("dentro", "`memory` del scorecard: predicciones guardadas + calibración"),
     "validation": ("dentro", "`scores.validation` del scorecard — el sub-agente 6"),
@@ -1550,6 +1553,8 @@ DIFERENCIALES = {
     "diff_reloj.sh":      "las 5 funciones que cuentan tiempo",
     "diff_watchlist.sh":  "watchlist.ts — BROKERS y sus 19 funciones, 734 casos",
     "diff_series.sh":     "chain/iv/predictionStore — EL ARCHIVO, ida y vuelta",
+    "diff_wheel.sh":      "wheel + wheelAfford + wheelUniverse + earnings, 1.072 casos",
+    "diff_format.sh":     "format.ts — lo que se LEE en pantalla, 1.870 comparaciones",
 }
 #: Los TRES que llevan corpus MALFORMADO. Es lo que separa "coincide con datos
 #: buenos" de "coincide también cuando la fuente cambia de esquema", y fue donde

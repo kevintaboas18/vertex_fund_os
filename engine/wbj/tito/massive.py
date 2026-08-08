@@ -505,6 +505,70 @@ def fetch_wheel_chain(ticker: str, dte_min: int, dte_max: int,
     return WheelChainResult(spot=spot, quotes=otm)
 
 
+
+@dataclass(frozen=True)
+class TfBar:
+    """Su `TfBar`: barra con el tiempo en UNIX/**segundos**, no en fecha.
+
+    `DailyBar` lleva `time` como "YYYY-MM-DD" porque una barra diaria ES un día.
+    Una de 5 minutos no: hacen falta el instante y la zona, y por eso él cambia
+    de tipo en vez de reutilizar el mismo.
+    """
+
+    time: int
+    open: float
+    high: float
+    low: float
+    close: float
+
+
+def fetch_bars(ticker: str, multiplier: int, timespan: str, days: int,
+               timeout: float = 25.0) -> list[TfBar]:
+    """Barras del subyacente, diarias o **intradía**. Port de su `fetchBars`.
+
+    Era el único export de `massive.ts` sin portar, y con él faltaba el selector
+    de marco temporal de su gráfica de flujo: `1y` (diario), `15m10d` y `5m5d`.
+    Los dos primeros consumidores suyos (`SimpleChart`, `ProWallsCard`) piden
+    `1y`, que el payload de proyecciones ya servía por otro camino; el tercero
+    —`FlowPriceChart`— es el que ofrece el intradía, y sin esto el panel solo
+    podía agregar por día. Ver qué hizo el precio DENTRO de la sesión en que
+    entró el dinero grande es justo lo que el sub-agente 6 mide.
+
+    Diferencias con `fetch_daily_bars`, las suyas: `limit=50000` en vez de 500
+    —una sesión de 5 minutos son 78 velas y diez días de 15 minutos son 260, y
+    el tope de 500 se quedaría corto en cuanto se pidan más días— y el tiempo
+    en segundos UNIX en vez de fecha.
+    """
+    key = _api_key()
+    clean = (ticker or "").strip().upper()
+    if not clean:
+        raise MassiveError("Ticker vacío.")
+    if timespan not in ("day", "minute"):
+        raise MassiveError(f"Marco temporal no soportado: {timespan!r}.")
+    # Mismo motivo que en `fetch_daily_bars`: su `new Date()` + `toDateStr` son
+    # UTC, y `date.today()` es la zona local del servidor.
+    end = datetime.now(timezone.utc).date()
+    start = end - timedelta(days=days)
+    url = (
+        f"{BASE_URL}/v2/aggs/ticker/{urllib.parse.quote(clean)}/"
+        f"range/{int(multiplier)}/{timespan}/"
+        f"{start.isoformat()}/{end.isoformat()}?adjusted=true&sort=asc&limit=50000"
+    )
+    data = _get(url, key, clean, timeout)
+    out: list[TfBar] = []
+    for b in data.get("results") or []:
+        ts = b.get("t")
+        if not isinstance(ts, (int, float)):
+            continue
+        # `Math.floor(b.t / 1000)` suyo: los milisegundos se truncan, no se
+        # redondean. Con `round` una barra de las 09:59:59.7 saltaría al minuto
+        # siguiente y se colocaría en la vela equivocada.
+        out.append(TfBar(
+            time=math.floor(ts / 1000), open=_num(b.get("o")), high=_num(b.get("h")),
+            low=_num(b.get("l")), close=_num(b.get("c")),
+        ))
+    return out
+
 def fetch_daily_bars(ticker: str, days: int = 365, timeout: float = 25.0) -> list[DailyBar]:
     """Barras diarias del subyacente (`/v2/aggs/...`), de más vieja a más nueva."""
     key = _api_key()

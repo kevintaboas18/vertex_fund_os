@@ -5976,6 +5976,47 @@ def tito_logo(ticker: str):
                     headers={"Cache-Control": "public, max-age=86400"})
 
 
+#: Su tabla de marcos temporales de `/api/bars`, literal. `5m5d` es el valor por
+#: defecto también en su ruta: un `tf` desconocido no es un error, cae aquí.
+_TITO_TF = {
+    "1y":     (1, "day", 365),
+    "15m10d": (15, "minute", 10),
+    "5m5d":   (5, "minute", 5),
+}
+
+
+@app.get("/api/tito-bars")
+def tito_bars(ticker: str, tf: str = "5m5d"):
+    """Su `/api/bars` — barras del subyacente para la gráfica de flujo.
+
+    Era la única de sus once rutas cuyo equivalente estaba a medias: el payload
+    de proyecciones ya traía el diario (`history`), que es lo que piden dos de
+    sus tres consumidores (`SimpleChart` y `ProWallsCard`, los dos con `tf=1y`),
+    pero el tercero —`FlowPriceChart`— ofrece **intradía** y eso no existía.
+
+    La diferencia no es cosmética: agregado por día se ve QUÉ día entró el
+    dinero grande; en velas de 5 minutos se ve si el precio se movió ANTES o
+    DESPUÉS de que entrara, que es exactamente lo que mide el sub-agente 6.
+    """
+    tk, err = _tito_ticker(ticker)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    # `TF[tf] ?? TF["5m5d"]` suyo: un marco desconocido cae al de por defecto.
+    mult, span, days = _TITO_TF.get(tf, _TITO_TF["5m5d"])
+    try:
+        from wbj.tito.massive import fetch_bars
+
+        barras = fetch_bars(tk, mult, span, days)
+    except Exception:
+        # Su ruta responde 502 con el mensaje de `MassiveError`. Aquí el
+        # mensaje NO viaja: `_describe` puede citar el cuerpo de la respuesta de
+        # Massive, y eso es superficie de fuga (lo fija `test_route_safety`).
+        raise HTTPException(status_code=502, detail="Error al cargar barras.")
+    return {"ticker": tk, "tf": tf if tf in _TITO_TF else "5m5d",
+            "bars": [{"time": b.time, "open": b.open, "high": b.high,
+                      "low": b.low, "close": b.close} for b in barras]}
+
+
 # ── El puente watchlist ↔ agente (su `/api/watchlist`) ───────────────────────
 #
 #   GET                            → { broker, granularity, pending, failed, legacy }

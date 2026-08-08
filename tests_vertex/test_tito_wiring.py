@@ -2521,3 +2521,78 @@ class TestIdeasYWheelTampocoTiranNada:
         vivas |= {r for r in self._NO_SE_PINTAN if r.startswith("ideas.history.")}
         fantasmas = sorted(set(self._NO_SE_PINTAN) - vivas)
         assert not fantasmas, f"declaradas pero ya no se sirven: {fantasmas}"
+
+
+class TestBarrasIntradia:
+    """`/api/tito-bars` — su `/api/bars`, la última de sus once rutas que
+    estaba a medias.
+
+    El payload de proyecciones ya traía el diario (`history`), que es lo que
+    piden dos de sus tres consumidores. El tercero, `FlowPriceChart`, ofrece
+    INTRADÍA, y eso no existía: agregado por día se ve qué día entró el dinero
+    grande; en velas de 5 minutos se ve si el precio se movió antes o después
+    de que entrara, que es lo que mide el sub-agente 6.
+    """
+
+    def test_la_tabla_de_marcos_es_la_suya(self):
+        import vertex_api as V
+
+        assert V._TITO_TF == {"1y": (1, "day", 365),
+                              "15m10d": (15, "minute", 10),
+                              "5m5d": (5, "minute", 5)}
+
+    def test_un_marco_desconocido_cae_al_de_por_defecto(self, monkeypatch):
+        """`TF[tf] ?? TF["5m5d"]` suyo: no es un error, es el de por defecto."""
+        import vertex_api as V
+
+        pedido = {}
+
+        def _fake(tk, mult, span, days, **kw):
+            pedido.update(tk=tk, mult=mult, span=span, days=days)
+            return []
+
+        monkeypatch.setattr("wbj.tito.massive.fetch_bars", _fake)
+        d = self._get("DEMO", tf="no-existe")
+        assert pedido["mult"] == 5 and pedido["span"] == "minute" and pedido["days"] == 5
+        assert d["tf"] == "5m5d", "el eco del tf tiene que ser el que se usó"
+
+    def _get(self, ticker, tf=None):
+        from fastapi.testclient import TestClient
+
+        import vertex_api as V
+
+        q = f"/api/tito-bars?ticker={ticker}" + (f"&tf={tf}" if tf else "")
+        r = TestClient(V.app).get(q)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_sirve_las_velas_con_el_tiempo_en_segundos(self, monkeypatch):
+        from wbj.tito.massive import TfBar
+
+        monkeypatch.setattr("wbj.tito.massive.fetch_bars",
+                            lambda *a, **k: [TfBar(1_770_000_000, 1.0, 2.0, 0.5, 1.5)])
+        d = self._get("DEMO", tf="5m5d")
+        assert d["bars"] == [{"time": 1_770_000_000, "open": 1.0, "high": 2.0,
+                              "low": 0.5, "close": 1.5}]
+
+    def test_un_ticker_invalido_es_400_no_500(self):
+        from fastapi.testclient import TestClient
+
+        import vertex_api as V
+
+        assert TestClient(V.app).get("/api/tito-bars?ticker=").status_code == 400
+
+    def test_un_fallo_de_la_fuente_no_filtra_el_mensaje(self, monkeypatch):
+        """`_describe` de `massive.py` puede citar el cuerpo de la respuesta, y
+        eso es superficie de fuga. Su ruta sí lo devuelve; aquí no."""
+        from fastapi.testclient import TestClient
+
+        import vertex_api as V
+
+        def _revienta(*a, **k):
+            raise RuntimeError("apikey=SECRETO-123 rechazada")
+
+        monkeypatch.setattr("wbj.tito.massive.fetch_bars", _revienta)
+        r = TestClient(V.app).get("/api/tito-bars?ticker=DEMO&tf=1y")
+        assert r.status_code == 502
+        assert "SECRETO" not in r.text

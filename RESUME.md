@@ -40,14 +40,14 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 ## Tests
 
 ```bash
-cd engine && python -m pytest tests/ -q    # 2868 pasan, 0 skips
-python -m pytest tests_vertex/ -q          # 507 pasan, 0 skips
+cd engine && python -m pytest tests/ -q    # 2918 pasan, 0 skips
+python -m pytest tests_vertex/ -q          # 512 pasan, 0 skips
 
 # Auditoría del tab de Proyecciones (303 checks). Con TITO_ROOT usa tu clon de
 # su repo en vez de GitHub, y así cubre también su web/app/api.
 TITO_ROOT=/ruta/a/agente-tito-metralleta python engine/scripts/auditar_tito.py
 
-# Los 14 diferenciales: ejecutan SU TypeScript y comparan contra el port.
+# Los 16 diferenciales: ejecutan SU TypeScript y comparan contra el port.
 for d in engine/scripts/diff_*.sh; do TITO_ROOT=/ruta/a/su/repo "$d"; done
 ```
 

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Literal, Sequence
 
 from .black_scholes import bs_delta, bs_price, implied_vol
-from .jsmath import js_round
+from .jsmath import js_round, js_string
 from .expected_move import prob_above
 from .levels import Level
 
@@ -260,9 +260,15 @@ def _cushion_part(inp: ScoreInput) -> ScorePart:
         # `Math.round(...)` de JS, no el redondeo de Python: el suyo va medio
         # arriba y el nuestro es bancario. Una fuerza de 34.5 se leería 34 aquí
         # y 35 en su pantalla — el mismo soporte, descrito con dos números.
+        #
+        # Y `js_string` porque el número va DENTRO de un texto que se lee: su
+        # `${Math.round(83)}` pinta "83" y una f-string de Python pinta "83.0".
+        # Lo cazó `diff_wheel.sh` en 60 de 200 casos — el mismo soporte descrito
+        # con dos números otra vez, ahora por la conversión a texto.
         return ScorePart(25, 25, "bajo soporte fuerte",
-                         f"El strike queda bajo un soporte de fuerza {js_round(strongest.strength)}: "
-                         f"el precio ya rebotó ahí antes.")
+                         "El strike queda bajo un soporte de fuerza "
+                         f"{js_string(js_round(strongest.strength))}: "
+                         "el precio ya rebotó ahí antes.")
     if strongest is not None:
         return ScorePart(15, 25, "bajo soporte débil",
                          "El strike queda bajo un soporte, pero flojo.")
