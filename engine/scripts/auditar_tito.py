@@ -1312,7 +1312,11 @@ chk(not _sin_portar,
 #
 # Ahora se revisan TODAS las funciones que cada nota cita, y las dos formas de
 # mentir: citarla sin que exista, y que exista sin que nadie la use.
-_FN_CITADA = re.compile(r"`(vc[A-Za-z0-9_]+|renderProj[A-Za-z0-9_]+|wl[A-Za-z0-9_]+)`")
+# `render[A-Za-z...]` y no `renderProj...`: media docena de sus componentes
+# caen en `renderVictorTargets` y `renderVictorChart`, y con el prefijo corto el
+# check las daba por no portadas. Un chequeo que se equivoca de nombre denuncia
+# lo que sí está y calla lo que no.
+_FN_CITADA = re.compile(r"`(vc[A-Za-z0-9_]+|render[A-Za-z0-9_]+|wl[A-Za-z0-9_]+|pf[A-Za-z0-9_]+)`")
 _mentira, _vivas = [], 0
 for _c, (_tipo, _nota) in _portados.items():
     for _fn in sorted(set(_FN_CITADA.findall(_nota))):
@@ -1327,6 +1331,66 @@ for _c, (_tipo, _nota) in _portados.items():
 chk(not _mentira,
     f"las {_vivas} funciones que el registro cita están definidas Y se llaman"
     + (f" · MUERTAS: {_mentira}" if _mentira else ""))
+
+# Que la función exista y se llame no dice que haga lo MISMO. Sus componentes
+# llevan umbrales propios —que no están en el motor— y esos deciden texto y
+# color: `strengthLabel` (70/50/30) pone "Muy fuerte" o "Débil" al lado de cada
+# nivel, `ivColor` (90/61/40) tiñe la IV, el hit rate va verde ≥55 y rojo <45,
+# la frase de sesgo tiene una banda muerta de ±1%, y `intensity > 0.12` decide
+# si una celda del heatmap enseña su número o solo el color.
+#
+# Ninguno estaba portado: siete rondas comparando que la función existiera y
+# ni una mirando lo que decide por dentro. Se compara el conjunto de umbrales
+# de CADA componente suyo contra los números que aparecen en su función.
+if TITO and (TITO / "app" / "components").is_dir():
+    _UMBRAL = re.compile(r"[<>]=?\s*(-?\d+(?:\.\d+)?)")
+
+    def _cuerpo_fn(fn):
+        i = HTML.find(f"function {fn}(")
+        if i < 0:
+            return ""
+        j = HTML.find("\nfunction ", i + 10)
+        return HTML[i:j if j > 0 else i + 6000]
+
+    #: (componente, umbral) → por qué NO está, con su motivo.
+    _UMBRAL_DECLARADO = {
+        # Él tiene DOS gráficas de niveles —`SimpleChart` (fuerza ≥25) y la de
+        # `ProWallsCard` (≥35)— y el panel de Vertex tiene UNA. Se usa la de
+        # `SimpleChart`, que es la más permisiva: con ≥35 la gráfica única se
+        # quedaría sin los niveles medios, que son los que él sí enseña en la
+        # otra vista. El 35 no tiene dónde aplicarse sin inventar una segunda
+        # gráfica que nadie pidió.
+        ("ProWallsCard", 35.0): "una sola gráfica de niveles, con el ≥25 de SimpleChart",
+    }
+    _sin_umbral, _con = [], 0
+    for _c, (_tipo, _nota) in _portados.items():
+        _f = TITO / "app" / "components" / f"{_c}.tsx"
+        if not _f.is_file():
+            continue
+        _suyos = sorted({float(x) for x in _UMBRAL.findall(_f.read_text(encoding="utf-8"))})
+        if not _suyos:
+            continue
+        _fns = sorted(set(_FN_CITADA.findall(_nota)))
+        # Los helpers de banda viven fuera de la función que los usa.
+        # Los helpers de banda viven fuera de la función que los usa, así que
+        # se concatenan todos: si no, el check denuncia como ausente un umbral
+        # que sí está, solo que en su propio helper.
+        _HELPERS = ("vcFuerzaLabel", "vcIvColor", "vcHitRateColor", "vcSesgoFrase",
+                    "vcConfLabel", "vcErrColor", "vcHaceCuanto", "vcDolares",
+                    "vcScoreColor")
+        _mio = ("".join(_cuerpo_fn(x) for x in _fns)
+                + "".join(_cuerpo_fn(x) for x in _HELPERS))
+        if not _mio:
+            continue
+        _nums = {float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", _mio)}
+        _faltan = [u for u in _suyos if u not in _nums and (_c, u) not in _UMBRAL_DECLARADO]
+        if _faltan:
+            _sin_umbral.append(f"{_c}: {_faltan}")
+        else:
+            _con += 1
+    chk(not _sin_umbral,
+        f"los umbrales de {_con} de sus componentes están en el panel"
+        + (f" · FALTAN: {_sin_umbral}" if _sin_umbral else ""))
 # Con su repo a mano, el registro se contrasta contra la carpeta REAL: un
 # componente nuevo suyo que nadie declaró hace fallar este check.
 if TITO and (TITO / "app" / "components").is_dir():

@@ -5020,3 +5020,74 @@ línea: ahora falla.
 
 **2.925 tests del motor · 524 de la capa web · 310 checks de auditoría · 94 del
 smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+---
+
+## 41.33 Ronda 11 — lo que sus componentes deciden por dentro
+
+Las rondas 8-10 compararon módulos, rutas, `format.ts`, `page.tsx` y `types.ts`.
+Del lado de los componentes se había comprobado que la función **existiera** y
+que alguien la **llamara** (§41.31). Nunca lo que decide **por dentro**.
+
+Sus 39 componentes llevan **172 umbrales propios** que no están en el motor. Son
+los que convierten un número en texto y en color.
+
+### Once reglas suyas que no estaban
+
+| componente | regla | qué decide |
+|---|---|---|
+| `LevelsCard` | `strengthLabel` 70/50/30 | "Muy fuerte" · "Fuerte" · "Moderado" · "Débil" |
+| `IvContextCard` | `ivColor` 90/61/40 | el color de la IV |
+| `ValidationCard` | ≥55 verde · <45 rojo | el color del hit rate (y **un decimal**, no cero) |
+| `MemoriaCard` | sesgo ±1% | "suele apuntar bajo" · "alto" · "bien calibrado" |
+| `MemoriaCard` | error ±3% / ±7% | el color de cada predicción del track record |
+| `GexHeatmapCard` | `intensity > 0.12` | si la celda enseña su número o solo color |
+| `NewsCard` | 60m / 24h | "hace 12m" · "hace 3h" · "hace 2d" |
+| `TradesFeed` | score ≥80 / ≥60 | el color del score de cada trade |
+| `NivelesSimples` | `strength >= 20` | qué niveles entran en la lista |
+| `SimpleChart` | `strength >= 25` | qué niveles se dibujan (ya estaba) |
+| `IdeasTable` | `|n| < 10` → céntimos | un theta de $0,25/día salía "$0" |
+
+Ninguna rompe si falta: **la pantalla simplemente dice menos**. `strengthLabel`
+es texto que se lee —el número 62 no dice si es mucho o poco—; la frase de sesgo
+es la que te hace mirar los targets con reserva; y el 0,12 del heatmap es lo que
+evita que una rejilla de 10×N se llene de cifras y tape las tres celdas que
+importan.
+
+### El track record no se veía
+
+Al portar el color del error de `MemoriaCard` apareció el hueco de verdad: **su
+tarjeta no enseña un resumen, enseña una TABLA** — fecha, qué predijo, qué pasó
+de verdad, cuánto se equivocó y qué escenario acertó.
+
+`review_predictions` **ya se llamaba** en el servidor y sus `evals` se tiraban:
+solo viajaban los agregados. El panel decía *"6 predicciones vencidas, sesgo
++2%"* y **no había forma de ver ninguna**. Para lo único que existe esa sección
+—saber si el agente acierta— el resumen es justo lo que no basta.
+
+Ahora viajan las 12 más recientes y se pintan con el color de su error.
+
+### Dos fallos en el propio auditor
+
+1. **El regex de nombres se equivocaba.** Buscaba `vc*`, `renderProj*` y `wl*`,
+   pero media docena de sus componentes caen en `renderVictorTargets` y
+   `renderVictorChart`. Con el prefijo corto, el check daba por no portado lo
+   que sí estaba (`VeredictoCard`) — un chequeo que se equivoca de nombre
+   denuncia lo bueno y calla lo malo. Ampliado a `render*`: de 32 funciones
+   comprobadas se pasó a **38**.
+2. **El check de umbrales no miraba los helpers.** Los umbrales viven en su
+   propio helper, fuera de la función que los usa, así que denunciaba como
+   ausentes cinco que sí estaban.
+
+### La única declarada
+
+`ProWallsCard` filtra los niveles del gráfico con `strength >= 35`; él tiene DOS
+gráficas de niveles (`SimpleChart` con ≥25 y ésta con ≥35) y el panel de Vertex
+tiene UNA. Se usa el ≥25, el más permisivo: con ≥35 la gráfica única perdería
+los niveles medios, que él sí enseña en la otra vista. Declarado por nombre en
+`_UMBRAL_DECLARADO`.
+
+### Estado
+
+**2.925 tests del motor · 529 de la capa web · 311 checks de auditoría · 94 del
+smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**

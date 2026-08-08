@@ -4585,6 +4585,28 @@ def _tito_memory(ticker, trades, chain, bars, now):
                 ),
                 "dir_hit_rate": review.get("direction_hit_rate"),
                 "motivo": None,
+                # El TRACK RECORD fila a fila — su `MemoriaCard`, que no enseña
+                # un resumen sino una tabla: fecha, qué predijo, qué pasó de
+                # verdad, cuánto se equivocó y qué escenario acertó.
+                #
+                # `review_predictions` ya se llamaba aquí arriba y sus `evals`
+                # se tiraban: solo viajaban los agregados. O sea que el panel
+                # decía "6 predicciones vencidas, sesgo +2%" y no había forma de
+                # ver NINGUNA. Para lo único que existe esta sección —saber si
+                # el agente acierta— el resumen es justo lo que no basta.
+                #
+                # Las 12 más recientes: `review.evals` ya viene ordenado con la
+                # más nueva primero, y más de una docena no se lee.
+                "evals": [
+                    {"date": e.get("date"), "horizon_days": e.get("horizon_days"),
+                     "matured": e.get("matured"), "spot": _r(e.get("spot")),
+                     "base": _r(e.get("base")),
+                     "actual_close": _r(e.get("actual_close")),
+                     "error_pct": _r(e.get("base_error_pct"), 2),
+                     "best": e.get("best"),
+                     "direction_hit": e.get("direction_hit")}
+                    for e in (review.get("evals") or [])[:12]
+                ],
             },
         }
     except Exception as e:

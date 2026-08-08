@@ -3113,6 +3113,8 @@ function renderProjTape(d) {
             <td class="py-1.5 pr-2">${lado}</td>
             <td class="py-1.5 pr-2 text-right text-gray-400">${_vcEsc(t.size)}</td>
             <td class="py-1.5 pr-2 text-right text-gray-300">$${Number(t.price).toFixed(2)}</td>
+            <td class="py-1.5 pr-2 text-right text-[9px] font-bold ${vcScoreColor(t.score)}"
+                title="Score del trade — su TradesFeed lo tiñe: ≥80 rojo, ≥60 ámbar">${t.score != null ? Math.round(t.score) : ''}</td>
             <td class="py-1.5 pr-2 text-right text-gray-200 font-bold">${fmtAbbr(t.premium)}</td>
             <td class="py-1.5 pr-2 text-right text-gray-500 text-[9px]">${t.delta != null ? 'δ' + Number(t.delta).toFixed(2) : ''} ${t.iv != null ? '· IV ' + Math.round(Number(t.iv) * 100) + '%' : ''}</td>
             <td class="py-1.5 text-right font-bold ${t.unusual ? 'text-amber-400' : 'text-gray-600'}">${t.unusual_score}/30</td></tr>`;
@@ -3743,7 +3745,9 @@ function vcNewsHTML(n) {
           <span class="flex-1">
             <a href="${_vcEsc(x.url)}" target="_blank" rel="noopener"
                class="text-gray-300 hover:text-white">${_vcEsc(x.title)}</a>
-            <span class="text-gray-600"> · ${_vcEsc(x.publisher)}</span>
+            <span class="text-gray-600"> · ${_vcEsc(x.publisher)}${
+              x.published_utc || x.published_at
+                ? ' · ' + _vcEsc(vcHaceCuanto(x.published_utc || x.published_at)) : ''}</span>
             ${x.matched_by ? `<span class="text-purple-400"> · RSS · ${_vcEsc(x.matched_by)}</span>` : ''}
           </span>
         </li>`).join('');
@@ -3951,9 +3955,15 @@ function vcScorecardHTML(d) {
  *  números sin respaldo. */
 function vcLevelsHTML(d) {
     const L = d.levels || {};
-    const filas = k => (L[k] || []).slice(0, 5).map(l => `<tr class="border-b border-gray-800/50">
+    // `strength >= 20` de su `NivelesSimples`: un nivel de fuerza 8 es ruido y
+    // ocupa una de las cinco filas que sí valen. El motor los devuelve todos —
+    // el que filtra es el componente, y ese filtro no estaba.
+    const filas = k => (L[k] || [])
+        .filter(l => Number(l.strength) >= VC_MIN_FUERZA_LISTA)
+        .slice(0, 5).map(l => `<tr class="border-b border-gray-800/50">
         <td class="py-1 pr-2 font-bold ${k === 'supports' ? 'text-emerald-400' : 'text-red-400'}">$${Number(l.price).toFixed(2)}</td>
-        <td class="py-1 pr-2 text-right text-gray-300">${l.strength}</td>
+        <td class="py-1 pr-2 text-right text-gray-300">${l.strength}
+                 <span class="text-[8px] text-gray-600">${vcFuerzaLabel(l.strength)}</span></td>
         <td class="py-1 pr-2 text-right text-gray-500">${Number(l.distance_pct).toFixed(1)}%</td>
         <td class="py-1 text-gray-500 text-[9px] leading-tight">${_vcEsc(l.why || '')}${l.flipped ? ' <span class="text-amber-400">· flipeado</span>' : ''}</td></tr>`).join('');
     const sup = filas('supports'), res = filas('resistances');
@@ -3979,10 +3989,15 @@ function vcHeatmapHTML(d) {
     const celda = (st, ex) => {
         const c = (h.cells || []).find(x => x.strike === st.strike && x.expiration === ex.expiration);
         if (!c) return `<td class="px-1 py-0.5"></td>`;
+        // `intensity > 0.12` suyo: por debajo la celda enseña SOLO color. Con
+        // el número siempre puesto, una rejilla de 10×N se llena de cifras que
+        // no aportan y tapa las tres celdas que sí importan. El `title` sigue
+        // llevándolo entero, así que el dato no se pierde: deja de gritar.
         const pos = c.net_gex >= 0, a = Math.min(0.85, Math.max(0.06, Number(c.intensity) || 0));
         return `<td class="px-1 py-0.5 text-center text-[8px] font-mono"
             style="background:${pos ? `rgba(18,183,106,${a})` : `rgba(240,68,56,${a})`}"
-            title="${st.strike} · ${ex.expiration} · GEX ${fmtAbbr(c.net_gex)} · OI ${c.open_interest}">${fmtAbbr(c.net_gex)}</td>`;
+            title="${st.strike} · ${ex.expiration} · GEX ${fmtAbbr(c.net_gex)} · OI ${c.open_interest}"
+            >${a > 0.12 ? fmtAbbr(c.net_gex) : ''}</td>`;
     };
     const cab = exps.map(e => `<th class="px-1 pb-0.5 text-[8px] text-gray-500 font-bold">${e.expiration.slice(5)}<br><span class="font-normal">${e.dte}d</span></th>`).join('');
     const filas = strikes.map(st => `<tr><td class="pr-1.5 text-[9px] font-bold ${st.strike >= h.spot ? 'text-red-300' : 'text-emerald-300'}">$${st.strike}</td>${exps.map(e => celda(st, e)).join('')}</tr>`).join('');
@@ -4231,7 +4246,8 @@ function vcSubagentesHTML(d) {
         P.push(_vcSubCard(
             _vcSubHead('Contexto IV', iv.score, '¿IV limpia o inflada?', v) +
             `<div class="grid grid-cols-3 gap-1.5">
-               ${_vcMetric('IV actual', iv.iv.current == null ? '—' : Number(iv.iv.current).toFixed(1) + '%',
+               ${_vcMetric('IV actual', iv.iv.current == null ? '—'
+                             : `<span class="${vcIvColor(iv.iv.current)}">${Number(iv.iv.current).toFixed(1)}%</span>`,
                            iv.iv.points, iv.iv.band)}
                ${_vcMetric('IV Rank', iv.rank.value == null ? '—' : Number(iv.rank.value).toFixed(0) + '%',
                            iv.rank.points,
@@ -4254,7 +4270,8 @@ function vcSubagentesHTML(d) {
         P.push(_vcSubCard(
             _vcSubHead('Confirmación de Precio', val.score, '¿El precio valida o absorbe?', val.verdict || '—') +
             `<div class="grid grid-cols-3 gap-1.5">
-               ${_vcMetric('Tasa de validación', val.hit_rate.value == null ? '—' : Number(val.hit_rate.value).toFixed(0) + '%',
+               ${_vcMetric('Tasa de validación', val.hit_rate.value == null ? '—'
+                             : `<span class="${vcHitRateColor(val.hit_rate.value)}">${Number(val.hit_rate.value).toFixed(1)}%</span>`,
                            val.hit_rate.points,
                            `${val.hit_rate.validated} de ${val.hit_rate.resolved} flows juzgados`
                            + (val.weighted_hit_rate != null ? ` · ${Number(val.weighted_hit_rate).toFixed(0)}% ponderado por dinero` : ''))}
@@ -4327,15 +4344,41 @@ function vcMemoryHTML(d) {
         `${m.flows_utilizables}/${m.flows_guardados} flows utilizables`,
         m.memoria_desde ? `desde ${String(m.memoria_desde).slice(0, 10)}` : null,
         `${m.predicciones_vencidas} predicciones vencidas`,
-        m.calibracion_activa ? `calibración ACTIVA (sesgo ${Number(m.sesgo_pct).toFixed(1)}%)` : 'calibración en espera',
+        // Su `MemoriaCard` no enseña el sesgo a secas: lo traduce. "+6,2%" no
+        // dice nada; "suele apuntar bajo" sí, y es la frase que te hace mirar
+        // los targets con reserva.
+        m.calibracion_activa
+            ? `calibración ACTIVA (sesgo ${Number(m.sesgo_pct).toFixed(1)}% — ${vcSesgoFrase(m.sesgo_pct)})`
+            : 'calibración en espera',
         m.dir_hit_rate != null ? `acierto direccional ${Math.round(m.dir_hit_rate)}%` : null,
     ].filter(Boolean);
     const alerta = [];
     if (m.flows_corruptos) alerta.push(`${m.flows_corruptos} filas corruptas en disco`);
     if (m.flows_sin_id) alerta.push(`${m.flows_sin_id} flows sin id (se funden en uno)`);
     if (m.escrituras_fallidas) alerta.push(`escrituras fallidas: ${m.escrituras_fallidas.join(', ')}`);
+    // El TRACK RECORD fila a fila — su `MemoriaCard` no enseña un resumen, enseña
+    // una tabla: qué predijo, qué pasó y cuánto se equivocó. Para lo único que
+    // existe esta sección —saber si el agente acierta— el resumen no basta.
+    const BEST = { bear: 'bajista', base: 'base', bull: 'alcista' };
+    const ev = (m.evals || []).filter(e => e && e.date);
+    const tabla = !ev.length ? '' : `
+      <table class="vc-t w-full text-[9px] mt-1"><thead>
+        <tr class="text-gray-600 text-[8px] uppercase border-b border-gray-800">
+          <th class="text-left pb-0.5">Fecha</th><th class="text-right pb-0.5 pr-2">Predijo</th>
+          <th class="text-right pb-0.5 pr-2">Real</th><th class="text-right pb-0.5 pr-2">Error</th>
+          <th class="text-left pb-0.5">&nbsp;</th></tr></thead><tbody>
+        ${ev.map(e => `<tr class="border-b border-gray-800/40">
+          <td class="py-0.5 text-gray-500">${_vcEsc(e.date)}<span class="text-gray-700"> ${e.horizon_days}d</span></td>
+          <td class="py-0.5 text-right text-gray-300">$${VC_PX.format(e.base)}</td>
+          <td class="py-0.5 text-right text-gray-300">${e.actual_close == null ? '—' : '$' + VC_PX.format(e.actual_close)}${
+            e.matured ? '' : '<span class="text-gray-600 text-[8px]"> · en curso</span>'}</td>
+          <td class="py-0.5 text-right font-bold ${vcErrColor(e.error_pct)}">${
+            e.error_pct == null ? '—' : (e.error_pct >= 0 ? '+' : '') + Number(e.error_pct).toFixed(1) + '%'}</td>
+          <td class="py-0.5 text-gray-600">${e.matured && e.best ? 'acertó ' + BEST[e.best] : ''}</td></tr>`).join('')}
+        </tbody></table>`;
     return `<div class="mt-2"><p class="text-[9px] text-gray-500">🧠 ${bits.map(_vcEsc).join(' · ')}</p>
-      ${alerta.length ? `<p class="text-[9px] text-amber-400">⚠ ${alerta.map(_vcEsc).join(' · ')}</p>` : ''}</div>`;
+      ${alerta.length ? `<p class="text-[9px] text-amber-400">⚠ ${alerta.map(_vcEsc).join(' · ')}</p>` : ''}
+      ${tabla}</div>`;
 }
 
 /** Panel de targets — tres escenarios por horizonte, no un nivel por horizonte. */
@@ -4779,6 +4822,97 @@ function vcRepeatCounts(rows) {
 function vcRepeatBadge(count) {
     return `<span class="text-[9px] text-amber-400 ml-1" title="Contrato repetido — ${count} operaciones sobre el mismo strike">🔁 ×${Math.max(count, 2)}</span>`;
 }
+
+// ── Bandas de sus componentes ────────────────────────────────────────────────
+//
+// Son umbrales que viven en el COMPONENTE, no en el motor: `strengthLabel` de
+// `LevelsCard`, `ivColor` de `IvContextCard`, el color del hit rate de
+// `ValidationCard`, la frase de sesgo de `MemoriaCard` y el `intensity > 0.12`
+// de `GexHeatmapCard`. Ninguno estaba portado, porque las rondas anteriores
+// compararon que la función existiera y no lo que decide por dentro.
+//
+// No son adorno. `strengthLabel` es TEXTO que se lee, la frase de sesgo es la
+// que dice si el agente apunta alto o bajo, y el 0,12 decide si una celda del
+// heatmap enseña su número o solo el color.
+
+/** `strengthLabel` suyo: el número solo no dice si 62 es mucho o poco. */
+function vcFuerzaLabel(s) {
+    const n = Number(s);
+    if (!isFinite(n)) return '';
+    if (n >= 70) return 'Muy fuerte';
+    if (n >= 50) return 'Fuerte';
+    if (n >= 30) return 'Moderado';
+    return 'Débil';
+}
+/** `ivColor` suyo: rojo ≥90, ámbar ≥61, verde ≥40, gris por debajo. */
+function vcIvColor(ivPct) {
+    const n = Number(ivPct);
+    if (!isFinite(n)) return 'text-gray-400';
+    if (n >= 90) return 'text-red-400';
+    if (n >= 61) return 'text-amber-400';
+    if (n >= 40) return 'text-emerald-400';
+    return 'text-gray-400';
+}
+/** El color del hit rate de su `ValidationCard`: ≥55 bueno, <45 malo. */
+function vcHitRateColor(hr) {
+    const n = Number(hr);
+    if (!isFinite(n)) return 'text-gray-300';
+    if (n >= 55) return 'text-emerald-400';
+    if (n < 45) return 'text-red-400';
+    return 'text-gray-300';
+}
+/** La frase de sesgo de su `MemoriaCard`. La banda muerta ±1% importa: sin
+ *  ella, un sesgo de 0,3% se leería como una tendencia cuando es ruido. */
+function vcSesgoFrase(bias) {
+    const n = Number(bias);
+    if (bias == null || !isFinite(n)) return '';
+    return n > 1 ? 'suele apuntar bajo' : n < -1 ? 'suele apuntar alto' : 'bien calibrado';
+}
+
+/** `confLabel` suyo: la confianza en palabras. Un 41% no dice si fiarse; "media"
+ *  sí, y es lo que él pone al lado del veredicto. */
+function vcConfLabel(c) {
+    const n = Number(c);
+    if (!isFinite(n)) return '';
+    return n >= 66 ? 'confianza alta' : n >= 33 ? 'confianza media' : 'confianza baja';
+}
+/** El color del error de cada predicción en su `MemoriaCard`: ±3% bien, ±7%
+ *  aceptable, más allá mal. Es lo que hace legible de un vistazo si el agente
+ *  está acertando o no. */
+function vcErrColor(err) {
+    const n = Math.abs(Number(err));
+    if (err == null || !isFinite(n)) return 'text-gray-500';
+    return n <= 3 ? 'text-emerald-400' : n <= 7 ? 'text-amber-400' : 'text-red-400';
+}
+/** `timeAgo` suyo, con sus tres tramos: minutos, horas y días. */
+function vcHaceCuanto(iso) {
+    const min = Math.round((Date.now() - Date.parse(iso)) / 60000);
+    if (!isFinite(min) || min < 0) return '';
+    if (min < 60) return `hace ${min}m`;
+    const h = Math.round(min / 60);
+    return h < 24 ? `hace ${h}h` : `hace ${Math.round(h / 24)}d`;
+}
+/** `dollars` de su `IdeasTable`: con céntimos cuando la cifra es chica. Sin
+ *  esto un theta de $0,25/día se pinta "$0" y parece que no cuesta nada. */
+function vcDolares(n) {
+    const v = Number(n);
+    if (!isFinite(v)) return '—';
+    return Math.abs(v) < 10 ? '$' + VC_PX.format(v) : VC_MONEY.format(v);
+}
+/** El color del score de un trade en su `TradesFeed`: ≥80 rojo (lo más
+ *  llamativo), ≥60 ámbar, el resto gris. */
+function vcScoreColor(s) {
+    const n = Number(s);
+    if (!isFinite(n)) return 'text-gray-500';
+    return n >= 80 ? 'text-red-400' : n >= 60 ? 'text-amber-400' : 'text-gray-500';
+}
+//: Fuerza mínima para que un nivel se DIBUJE, por sitio. Son tres umbrales
+//: distintos suyos y cada uno responde a cuánto sitio hay: la gráfica simple
+//: (25), la lista de niveles simples (20) y los muros pro (35). Con uno solo,
+//: o la gráfica se llena de rayas o la lista se queda coja.
+const VC_MIN_FUERZA_GRAFICA = 25;
+const VC_MIN_FUERZA_LISTA = 20;
+const VC_MIN_FUERZA_MUROS = 35;
 
 // ── ActivityCard.tsx ─────────────────────────────────────────────────────────
 /** Unusual Options Activity — premium notable por día, calls contra puts.

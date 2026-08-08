@@ -647,3 +647,65 @@ class TestLaCabeceraRecibeLoQuePinta:
         # Sin ficha se mantiene la promesa optimista: mejor pedirlo y caer a
         # las iniciales que esconderlo por no haber podido preguntar.
         assert V._tito_company("D", 1.0, {"name": "X"})["has_logo"] is True
+
+
+class TestLosUmbralesQueVivenEnElComponente:
+    """Sus componentes llevan umbrales PROPIOS, que no están en el motor.
+
+    Siete rondas comparando que la función existiera y ni una mirando lo que
+    decide por dentro. `strengthLabel` (70/50/30) pone "Muy fuerte" o "Débil"
+    al lado de cada nivel, `ivColor` (90/61/40) tiñe la IV, el hit rate va
+    verde ≥55 y rojo <45, la frase de sesgo tiene una banda muerta de ±1%, y
+    `intensity > 0.12` decide si una celda del heatmap enseña su número.
+
+    Nada de esto rompe si falta: la pantalla simplemente dice menos.
+    """
+
+    def _html(self):
+        import pathlib
+
+        return pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+
+    def test_los_nueve_helpers_de_banda_existen_y_se_usan(self):
+        import re
+
+        html = self._html()
+        for fn in ("vcFuerzaLabel", "vcIvColor", "vcHitRateColor", "vcSesgoFrase",
+                   "vcConfLabel", "vcErrColor", "vcHaceCuanto", "vcDolares",
+                   "vcScoreColor"):
+            assert f"function {fn}(" in html, f"{fn} no existe"
+        # Los que tienen sitio en el panel se llaman de verdad.
+        for fn in ("vcFuerzaLabel", "vcIvColor", "vcHitRateColor", "vcSesgoFrase",
+                   "vcErrColor", "vcHaceCuanto", "vcScoreColor"):
+            assert len(re.findall(rf"\b{fn}\s*\(", html)) > 1, f"{fn} sin llamador"
+
+    def test_las_bandas_son_las_suyas_valor_a_valor(self):
+        html = self._html()
+        # `strengthLabel`: 70 / 50 / 30
+        fuerza = html.split("function vcFuerzaLabel(")[1][:400]
+        for u, etq in ((70, "Muy fuerte"), (50, "Fuerte"), (30, "Moderado")):
+            assert f"n >= {u}" in fuerza and etq in fuerza, (u, etq)
+        assert "Débil" in fuerza
+        # `ivColor`: 90 / 61 / 40
+        ivc = html.split("function vcIvColor(")[1][:400]
+        for u in (90, 61, 40):
+            assert f"n >= {u}" in ivc, u
+        # hit rate: ≥55 bueno, <45 malo
+        hr = html.split("function vcHitRateColor(")[1][:400]
+        assert "n >= 55" in hr and "n < 45" in hr
+        # sesgo: banda muerta ±1
+        sg = html.split("function vcSesgoFrase(")[1][:400]
+        assert "n > 1 ?" in sg and "n < -1 ?" in sg
+        assert "bien calibrado" in sg
+        # heatmap: el número solo por encima de 0,12
+        assert "a > 0.12 ?" in html
+
+    def test_los_tres_minimos_de_fuerza_son_tres_y_distintos(self):
+        """25 en la gráfica, 20 en la lista y 35 en los muros. Con uno solo, o
+        la gráfica se llena de rayas o la lista se queda coja."""
+        html = self._html()
+        assert "VC_MIN_FUERZA_GRAFICA = 25" in html
+        assert "VC_MIN_FUERZA_LISTA = 20" in html
+        assert "VC_MIN_FUERZA_MUROS = 35" in html
+        assert "VC_MIN_FUERZA_LISTA" in html.split("function vcLevelsHTML(")[1][:900], \
+            "la lista de niveles no aplica su filtro de fuerza"

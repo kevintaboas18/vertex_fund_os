@@ -2749,3 +2749,34 @@ class TestElPanelNoLeeCamposQueNadieManda:
         assert not huerfanos, (
             f"el panel lee campos que ninguna ruta manda: {huerfanos}. "
             "O el backend dejó de mandarlos, o el render quedó colgando.")
+
+
+class TestElTrackRecordSeVe:
+    """Su `MemoriaCard` no enseña un resumen: enseña una TABLA con qué predijo,
+    qué pasó de verdad y cuánto se equivocó.
+
+    `review_predictions` ya se llamaba en el servidor y sus `evals` se
+    tiraban — solo viajaban los agregados. O sea que el panel decía "6
+    predicciones vencidas, sesgo +2%" y no había forma de ver ninguna. Para lo
+    único que existe esa sección —saber si el agente acierta— el resumen es
+    justo lo que no basta.
+    """
+
+    def test_el_payload_lleva_las_predicciones_una_a_una(self, client, mercado):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        m = (d.get("memory") or {})
+        assert "evals" in m, "el track record no viaja"
+        assert isinstance(m["evals"], list)
+        for e in m["evals"]:
+            for k in ("date", "horizon_days", "matured", "base",
+                      "actual_close", "error_pct", "best"):
+                assert k in e, k
+
+    def test_el_panel_pinta_la_tabla_con_el_color_del_error(self):
+        import pathlib
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        cuerpo = html.split("function vcMemoryHTML(")[1][:3000]
+        assert "m.evals" in cuerpo, "la tabla no lee los evals"
+        assert "vcErrColor(" in cuerpo, "el error no va coloreado"
+        assert "acertó" in cuerpo, "no se dice qué escenario acertó"
