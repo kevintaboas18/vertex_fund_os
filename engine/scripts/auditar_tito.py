@@ -1493,6 +1493,21 @@ m = re.search(r"(\d+) passed", r.stdout)
 chk(r.returncode == 0, f"suite del motor verde ({m.group(1) if m else '?'} tests)")
 chk(len(list((VERTEX/"engine"/"tests"/"tito").glob("test_*.py"))) >= 12,
     f"{len(list((VERTEX/'engine'/'tests'/'tito').glob('test_*.py')))} archivos de test")
+chk(" skipped" not in (r.stdout or ""), "la suite del motor no se salta ni un test")
+
+# Un test que se salta a sí mismo no protege nada y NO se nota: pytest lo pone
+# en una línea de resumen y sale con código 0. Costó dos veces (el panel de
+# pares de FIN-GR-003 y los dos del buscador, §41.27), así que ahora un salto
+# que no sea "falta node/git" tumba la corrida. Se comprueba que la regla sigue
+# instalada en las DOS suites, porque quitarla no rompe nada visible.
+for _sub, _cf in (("engine/tests", "engine/tests/conftest.py"),
+                  ("tests_vertex", "tests_vertex/conftest.py")):
+    _t = (VERTEX / _cf).read_text(encoding="utf-8") if (VERTEX/_cf).is_file() else ""
+    chk("_saltos.instala" in _t,
+        f"{_sub}: un salto que no sea del entorno tumba la corrida")
+_ent = VERTEX / "engine" / "tests" / "_saltos.py"
+chk(_ent.is_file() and "ENTORNO" in _ent.read_text(encoding="utf-8"),
+    "los motivos de salto permitidos están declarados por nombre, no por defecto")
 
 # Los tests de Python leen el HTML como TEXTO: comprueban que una función
 # existe y que alguien la llama, pero no ejecutan una línea. El smoke sí corre

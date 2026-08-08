@@ -85,9 +85,11 @@ def test_the_analyst_input_file_reaches_the_web_layer():
     settings, packet = _settings_y_packet()
     overlay = build_overlay(packet, settings)
 
+    # `Entradas/NVDA.json` está EN GIT, así que existe en cualquier clon. Aquí
+    # había un `pytest.skip` por si faltaba: código muerto que solo servía para
+    # que este test pudiera dejar de comprobar sin decirlo.
     entradas = _RAIZ / "Entradas" / "NVDA.json"
-    if not entradas.exists():
-        pytest.skip("sin Entradas/NVDA.json en este entorno")
+    assert entradas.exists(), "Entradas/NVDA.json esta versionado y no aparece"
 
     import json
     declarado = {k for k in json.loads(entradas.read_text(encoding="utf-8"))

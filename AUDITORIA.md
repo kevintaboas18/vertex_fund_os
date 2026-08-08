@@ -239,7 +239,9 @@ Encontrados al re-auditar el estado actual — dos los introduje yo en C-02.
 | 25 | ~~M-14~~ | ✅ Resuelto | "Elite" bloqueado por override 2 | §6 |
 | 26 | ~~M-15~~ | ✅ Resuelto | Movido a `docs/archive/` con README | §6 |
 
-**Orden de arreglo sugerido:** ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → ~~C-02~~ → ~~C-03~~ → ~~C-04~~ → ~~A-01~~ → A-02 → A-03 → A-04 → A-05 → A-06 → ~~A-07~~ → el resto de M.
+**Orden de arreglo sugerido** (histórico): ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → ~~C-02~~ → ~~C-03~~ → ~~C-04~~ → ~~A-01~~ → ~~A-02~~ → ~~A-03~~ → ~~A-04~~ → ~~A-05~~ → ~~A-06~~ → ~~A-07~~ → el resto de M.
+
+**Los 26 están cerrados.** Esta línea dejó A-02..A-06 sin tachar mucho después de resolverlos, contradiciendo a la tabla de arriba en el mismo documento: quien leyera solo el orden sugerido creería que quedan cinco abiertos.
 
 ---
 
@@ -4600,3 +4602,67 @@ FMP se llevaban 120 s de reloj por corrida para acabar saltándose el test.
 Quedan ~20 `pytest.skip` condicionales en el motor (fixtures de valuación,
 `Cerebro not present`) y 4 `skipif` de entorno (node, git). Ninguno se dispara
 en este repo — la corrida completa reporta `0 skipped`, no "skipped porque sí".
+
+---
+
+## 41.28 Que no se pueda volver a esconder un test, y tres papeles que mentían
+
+Kevin: *"solucionalo todo y que este perfecto."*
+
+Arreglar los 3 skips de §41.27 uno a uno no cierra nada: el problema no eran
+esos tres, es que **saltarse un test no hace ruido**. `pytest` lo pone en una
+línea de resumen que nadie lee y sale con código 0. Ya había costado dos veces.
+
+### El guardián
+
+`engine/tests/_saltos.py` + los dos `conftest.py`: un salto es un **fallo**,
+salvo que el motivo diga literalmente que falta una herramienta del entorno
+(`node`, `git`). Esa distinción es la que importa:
+
+- *"no tengo node instalado"* → limitación de la máquina; se lee y se decide.
+- *"el fixture no llega a 4 de 5"* → un test que dejó de medir; se arregla.
+
+Los motivos permitidos van en una tupla `ENTORNO` **por nombre**: añadir uno
+nuevo es un acto deliberado que queda escrito, no un descuido que se cuela.
+
+Vive fuera de los dos `conftest.py` porque los dos lo usan y `conftest` es un
+nombre que pytest ya ocupa — importarlo desde el otro conftest resuelve al
+propio archivo. Se carga por ruta.
+
+Probado en las dos direcciones y en las dos suites: un `skip("el fixture no
+llega a 4 de 5")` tumba la corrida con código 1 y nombra el test y el motivo; un
+`skip("node no esta instalado")` sale con 0. Y la auditoría comprueba que la
+regla sigue instalada en las dos, porque quitarla no rompe nada visible.
+
+### Un skip que era código muerto
+
+`test_overlay_parity.py` se saltaba "sin `Entradas/NVDA.json` en este entorno".
+Ese archivo **está en git**: existe en cualquier clon. El skip no protegía de
+nada; solo daba permiso a ese test para dejar de comprobar sin decirlo. Ahora es
+un `assert`.
+
+### Tres papeles que mentían
+
+Barriendo la documentación contra el código:
+
+1. **`RESUME.md` señalaba un fallo que ya no existía.** Decía *"Siguiente: A-02
+   — dos funciones llaman `load_settings()` sin inyectar `FMP_API_KEY`"*, y
+   A-02 está resuelto desde el 2026-07-30 (§99 de este mismo archivo). Peor que
+   el dato viejo: daba a entender que los demás seguían abiertos.
+2. **Este archivo se contradecía a sí mismo.** La tabla del §5 marca los 26
+   hallazgos resueltos; la línea de "orden de arreglo sugerido", tres párrafos
+   más abajo, dejaba A-02..A-06 sin tachar. Quien leyera solo esa línea contaría
+   cinco abiertos.
+3. **`RESUME.md` decía "no hay remoto configurado"** y lo hay
+   (`github.com/kevintaboas18/vertex_fund_os`), que además es donde vive la rama
+   `datos` del almacén. También declaraba *"1959 pasan, 1 skip"* y *"47 pasan"*.
+
+Los tres corregidos con los números medidos hoy, y `RESUME.md` lleva ahora los
+comandos de la auditoría y de los 14 diferenciales, que no estaban.
+
+### Estado
+
+**2.868 tests del motor · 507 de la capa web · 307 checks de auditoría · 94 del
+smoke de componentes · 14 diferenciales · 0 fallos, 0 avisos y CERO skips** —
+y a partir de ahora el cero de skips no es una observación, es una condición de
+la corrida.
