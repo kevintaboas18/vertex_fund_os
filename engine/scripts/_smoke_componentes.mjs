@@ -61,7 +61,7 @@ const api = new Function(src + `
            vcRepeatKey, vcRepeatCounts, vcRepeatBadge,
            wlLocalCarga, wlLocalGuarda, wlUpsert, wlUnderlyings, wlTickerList,
            wlEtiquetaCola, renderProjWatchlist, wlAplica, vcCrosshairCablea,
-           vcSyncCabecera, renderProjections };`)();
+           vcSyncCabecera, renderProjections, renderProjTape };`)();
 
 let fallos = 0;
 const chk = (ok, msg) => { console.log((ok ? '  \x1b[32m✓\x1b[0m ' : '  \x1b[31m✗\x1b[0m ') + msg); if (!ok) fallos++; };
@@ -330,6 +330,79 @@ chk(hb.includes('+3.42%'), '…y la variación con signo');
 chk(!/Tito Metralleta/i.test(hb), 'y NO lleva su marca: esta pantalla es Vertex');
 api.vcSyncCabecera({ ticker: 'X', spot: 1 });
 chk(store['projHbRight'].innerHTML === '', 'sin ficha, la barra se vacía en vez de quedarse con la anterior');
+
+// ── NotableTable · la cinta ──────────────────────────────────────────────
+sec('NotableTable (Time & Sales)');
+const TAPE = {
+  ok: true, ticker: 'WULF', notable: 4, total: 91, period: '1d', pages: 2,
+  truncated: true, min_premium: 100000,
+  aggression: { score: 8, ratio: 0.81, premium_ask: 3.3e6, premium_bid: 0.8e6, premium_mid: 4e5, n: 4 },
+  trades: [
+    { id: 1, underlying: 'WULF', symbol: 'O:WULF270115C00020000', type: 'call', strike: 20,
+      expiration: '2027-01-15', dte: 160, price: 4.15, size: 500, premium: 2_075_000,
+      aggression: 'ask', side: 'buy', bid: 4.10, ask: 4.20, delta: 0.62, iv: 0.55,
+      unusual: true, unusual_score: 21, unusual_parts: { volume: 9, timing: 5, repetition: 7 },
+      repeated: true, multileg: false, above_ask: true, below_bid: false, exceeded_oi: true,
+      big: true, conv_delta: true, leap: true, simultaneous: false,
+      condition_code: null, timestamp: DIA(5, 14) },
+    { id: 2, underlying: 'WULF', symbol: 'O:WULF261218P00015000', type: 'put', strike: 15,
+      expiration: '2026-12-18', dte: 132, price: 1.02, size: 200, premium: 20_400,
+      aggression: 'unknown', side: 'sell', bid: 1.00, ask: 1.05, delta: -0.21, iv: 0.61,
+      unusual: false, unusual_score: 4, unusual_parts: { volume: 2, timing: 1, repetition: 1 },
+      repeated: false, multileg: true, above_ask: false, below_bid: true, exceeded_oi: false,
+      big: false, conv_delta: false, leap: false, simultaneous: true,
+      condition_code: 'A', timestamp: DIA(6, 16) },
+  ],
+};
+api.renderProjTape(TAPE);
+const tp = store['projTape'].innerHTML;
+chk(tp.includes('Compra agresiva (al ask)'), 'el veredicto de agresividad se pinta, no solo la barra');
+chk(tp.includes('4 notables'), 'el `n` del score sale en la leyenda (su `split-legend`)');
+chk(tp.includes('top 2'), 'si la cinta viene truncada lo dice');
+chk(/Volumen 9\/10 · Horario 5\/10 · Repetición 7\/10/.test(tp), 'los Puntos llevan su desglose en el tooltip');
+chk(tp.includes('4.10/4.20'), 'la horquilla del print se ve: sin ella el ↑ no dice cuánto');
+chk(tp.includes('>sell<'), 'con agresividad desconocida cae al lado crudo, no inventa «Mid»');
+chk(tp.includes('$1M+') && tp.includes('Delta fuerte') && tp.includes('Vol &gt; OI'), 'sus señales');
+chk(tp.includes('&times;N') || tp.includes('×2') || tp.includes('&#128257;'), 'el ×N del repetido');
+
+// ── Tablas cuadradas ─────────────────────────────────────────────────────
+//
+// `vcTablaResponsive` copia la etiqueta de la columna N del `<thead>` a la
+// celda N de cada fila. Si sobran celdas, en el móvil TODAS las de la derecha
+// salen con el nombre de la columna de al lado — el Score se llamaba «Dinero»,
+// el Dinero «Griegos» y el último no llevaba nada. Nadie lo veía porque en
+// escritorio la tabla se ve bien: es solo la etiqueta de la tarjeta.
+sec('Tablas cuadradas (encabezado = celdas)');
+function cuadra(html, nombre) {
+  const tablas = [...html.matchAll(/<table class="vc-t[\s\S]*?<\/table>/g)].map(m => m[0]);
+  tablas.forEach((t, i) => {
+    const ths = (t.match(/<th\b/g) || []).length;
+    const cuerpo = t.slice(t.indexOf('<tbody'));
+    const filas = [...cuerpo.matchAll(/<tr\b([^>]*)>([\s\S]*?)<\/tr>/g)]
+      .filter(m => !/vc-esc/.test(m[1]));
+    if (!filas.length) { chk(false, `${nombre}[${i}]: la tabla salió sin filas`); return; }
+    const malas = filas.map(m => {
+      let n = 0;
+      for (const c of m[2].matchAll(/<td\b([^>]*)>/g)) {
+        const cs = /colspan="(\d+)"/.exec(c[1]);
+        n += cs ? Number(cs[1]) : 1;
+      }
+      return n;
+    }).filter(n => n !== ths);
+    chk(!malas.length,
+        `${nombre}[${i}]: ${ths} encabezados y ${malas.length ? malas.join('/') : ths} celdas por fila`);
+  });
+}
+// Se barre TODO lo que este smoke haya pintado, no una lista escrita a mano:
+// así una tabla nueva entra sola en la comprobación.
+let _conTabla = 0;
+for (const [id, el] of Object.entries(store)) {
+  const h = el.innerHTML || '';
+  if (!h.includes('<table class="vc-t')) continue;
+  _conTabla++;
+  cuadra(h, id);
+}
+chk(_conTabla >= 2, `se revisaron ${_conTabla} contenedores con tabla`);
 
 console.log('\n' + (fallos ? `\x1b[31m${fallos} FALLO(S)\x1b[0m` : '\x1b[32mtodo verde\x1b[0m'));
 process.exit(fallos ? 1 : 0);

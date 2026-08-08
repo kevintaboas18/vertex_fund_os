@@ -4832,6 +4832,24 @@ def _ideas_dedupe(rows):
     return list(mejor.values())
 
 
+# ── DIVERGENCIA DECLARADA · una respuesta, no un stream ─────────────────────
+#
+# Sus cuatro rutas largas (`/api/analyze`, `/api/flow`, `/api/ideas`,
+# `/api/wheel`) son SSE: emiten entre 40 y 100 eventos `{type:"step", label}` y
+# el navegador los va enseñando («Conectando con Massive…», «Revisando flujo —
+# página 5», «NVDA: 3 candidatos»). Aquí las cuatro devuelven UN JSON al final.
+#
+# El motivo es el despliegue, no el gusto: esto corre detrás del proxy de Render
+# en plan free, que no garantiza el paso de `text/event-stream` sin buffering —
+# un stream a medio bufferizar es PEOR que ninguno, porque la pantalla se queda
+# congelada en el paso 3 y parece colgada.
+#
+# Lo que NO cambia: el usuario no se queda mirando un punto fijo. Su propio
+# `AnalysisLoader` ya COLAPSA los ~100 pasos en cuatro fases y su comentario lo
+# dice — «no leemos el texto de cada paso, solo cuántos han llegado». Esa es la
+# pantalla que se portó (`vcLoaderHTML`), con su curva asintótica y su tope del
+# 97%; el contador avanza con el reloj en vez de con los eventos. La etiqueta
+# fina («página 5 de 6») es lo único que se pierde, y solo mientras carga.
 @app.get("/api/tito-ideas")
 def tito_ideas(request: Request):
     """Screener de flujo inusual **en todo el mercado** — su `/api/ideas`.
@@ -5456,6 +5474,16 @@ def tito_tape(ticker: str, period: str = "5d",
             "open_interest": t.open_interest, "volume": t.volume,
             "timestamp": t.timestamp, "expiry_status": t.expiry_status,
             "unusual": t.unusual, "unusual_score": getattr(t.scores, "total", 0),
+            # Su `desglose` de `NotableTable`: «Volumen X/10 · Horario Y/10 ·
+            # Repetición Z/10», que va en el `title` de la columna de Puntos.
+            # Solo viajaba el total, y un 21/30 sin desglose no dice si vino del
+            # tamaño de la orden, de la hora a la que entró o de cuántas veces se
+            # repitió el contrato — que son tres señales distintas.
+            "unusual_parts": {
+                "volume": getattr(t.scores, "volume", 0),
+                "timing": getattr(t.scores, "timing", 0),
+                "repetition": getattr(t.scores, "repetition", 0),
+            },
             "repeated": bool(getattr(t.flags, "repeated", False)),
             "multileg": bool(getattr(t.flags, "multileg", False)),
             "above_ask": bool(getattr(t.flags, "above_ask", False)),

@@ -1497,6 +1497,39 @@ class TestWheel:
         assert "d.blocked_summary" in cuerpo and "Contratos bloqueados" in cuerpo
         assert "a&ntilde;adido de plan" in cuerpo   # el porqué del sin_bid
 
+    def test_el_aviso_de_cotizacion_retrasada_va_siempre(self):
+        """Su `wheel-disclaimer` no está dentro de ningún `if`.
+
+        Aquí el «confirma el precio en tu bróker» vivía SOLO dentro del bloque
+        de `quotes_missing`, o sea justo en el caso en que el usuario ya sabía
+        que la prima era estimada. Cuando Massive SÍ sirve horquilla la
+        cotización sigue siendo retrasada, y ahí no se decía nada.
+        """
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjWheel(d) {")
+        cuerpo = html[i:html.index("/* ── TIME & SALES", i)]
+        j = cuerpo.index("retrasadas")
+        # El aviso está en la plantilla base, ANTES del primer `${d.quotes_missing`
+        # y de cualquier otro condicional de degradación.
+        assert j < cuerpo.index("${d.quotes_missing"), \
+            "el aviso volvió a quedar colgando de que falte la horquilla"
+        assert "confirma el precio en tu br&oacute;ker" in cuerpo
+
+    def test_se_puede_volver_a_escanear_sin_cambiar_de_preset(self):
+        """Su `↻ Volver a escanear`. Sin él, la única forma de repetir el
+        escaneo es irse a otro preset y volver — que además tira el resultado
+        bueno por el camino. Y un escaneo degradado se repite: las
+        cotizaciones cambian."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjWheel(d) {")
+        cuerpo = html[i:html.index("/* ── TIME & SALES", i)]
+        assert "Volver a escanear" in cuerpo
+        assert "loadProjWheel()" in cuerpo, \
+            "el botón tiene que llamar SIN preset, para que conserve el elegido"
+        # …y `loadProjWheel` sin argumento conserva el preset en curso.
+        lp = html[html.index("async function loadProjWheel(preset)"):]
+        assert "if (preset) vcWheelPreset = preset;" in lp[:400]
+
     def test_castiga_el_rendimiento_sospechosamente_alto(self):
         """Un screener que ordena por prima pone arriba justo las acciones a
         punto de desplomarse. Su banda >60% da 10/30, menos que la de 15-35%."""
@@ -1551,6 +1584,52 @@ class TestTimeAndSales:
         d = client.get("/api/tito-tape?ticker=DEMO").json()
         assert d["ok"] is False and d["source"] == "marketsnack"
         assert "trades" not in d
+
+    def test_los_puntos_de_inusualidad_llevan_su_desglose(self, client):
+        """Su `NotableTable` pone «Volumen X/10 · Horario Y/10 · Repetición
+        Z/10» en el `title` de la columna de Puntos. Solo viajaba el total, y
+        un 21/30 sin desglose no dice si vino del tamaño de la orden, de la
+        hora a la que entró o de cuántas veces se repitió el contrato — que son
+        tres señales distintas y se leen distinto."""
+        d = client.get("/api/tito-tape?ticker=DEMO").json()
+        p = d["trades"][0]["unusual_parts"]
+        assert set(p) == {"volume", "timing", "repetition"}
+        assert p["volume"] + p["timing"] + p["repetition"] == d["trades"][0]["unusual_score"], \
+            "el desglose tiene que sumar el total, o uno de los dos miente"
+
+    def test_la_cinta_lleva_la_horquilla_del_momento(self, client):
+        """Las flechas ↑/↓ dicen que el print salió FUERA de la horquilla. Sin
+        la horquilla no se sabe por cuánto — un centavo sobre el ask y un dólar
+        sobre el ask son la misma flecha."""
+        d = client.get("/api/tito-tape?ticker=DEMO").json()
+        t = d["trades"][0]
+        assert t["bid"] is not None and t["ask"] is not None
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjTape(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "t.bid" in cuerpo and "t.ask" in cuerpo
+
+    def test_el_veredicto_de_agresividad_se_pinta_en_la_cinta(self):
+        """Su `AggressionScoreCard` va con la cinta, no solo en el scorecard.
+        La barra sola no separa un 55/45 de un 90/10: eso lo hace la frase."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjTape(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        for frase in ("Sin flujo agresivo", "Compra agresiva (al ask)",
+                      "Presión al bid", "Mixto"):
+            assert frase in cuerpo, f"falta el caso «{frase}»"
+        assert "a.ratio >= 0.66" in cuerpo and "a.ratio <= 0.34" in cuerpo
+
+    def test_con_agresividad_desconocida_no_dice_Mid(self):
+        """Su `sideLabel` tiene CUATRO ramas: ask, bid, mid… y `unknown`, que
+        cae a `r.side`. Aquí el `else` se comía el desconocido y lo rotulaba
+        «Mid», que es afirmar una lectura de la horquilla que el motor declaró
+        que no pudo hacer."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjTape(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "t.aggression === 'mid' ?" in cuerpo, "el mid tiene que ser explícito"
+        assert "t.side" in cuerpo, "el desconocido tiene que caer al lado crudo"
 
 
 class TestCabeEnCualquierPantalla:
@@ -2452,11 +2531,37 @@ class TestIdeasYWheelTampocoTiranNada:
                          "se pinta, y ya lleva sus cuentas",
         "preset": "la etiqueta del preset activo; los botones ya la pintan desde "
                   "`presets[].label`, y el activo va resaltado",
+        # ── Time & Sales ──
+        "ticker": "el símbolo; va en el encabezado de la tarjeta, no en la tabla",
+        "trades.id": "identificador del trade, para deduplicar y para el ×N de "
+                     "los repetidos",
+        "trades.symbol": "el OCC completo; la columna de contrato enseña "
+                         "subyacente + strike + tipo, que es lo legible",
+        "trades.gamma": "su `NotableTable` pinta delta y ya; gamma, theta y vega "
+                        "de un trade suelto no se comparan entre contratos",
+        "trades.theta": "idem gamma",
+        "trades.vega": "idem gamma",
+        "trades.volume": "el volumen del contrato; lo que informa es si SUPERÓ el "
+                         "open interest, y eso es la señal «Vol > OI»",
+        "trades.open_interest": "idem volumen: la señal es la comparación, no el "
+                                "número suelto",
+        "trades.exceeded_oi": "es una de las siete señales; la pinta `vcSenalesHTML`",
+        "trades.big": "señal, pintada por `vcSenalesHTML`",
+        "trades.conv_delta": "señal, pintada por `vcSenalesHTML`",
+        "trades.leap": "señal, pintada por `vcSenalesHTML`",
+        "trades.multileg": "señal, pintada por `vcSenalesHTML`",
+        "trades.simultaneous": "señal, pintada por `vcSenalesHTML`",
+        "trades.condition_code": "el código OPRA; va dentro del `title` de la "
+                                 "señal de multileg, como en su `Flags`",
+        "trades.condition_name": "el nombre de la condición; su `NotableTable` no "
+                                 "lo enseña — el código ya está en el tooltip",
+        "trades.expiry_status": "si el contrato ya venció; la cinta es del día y "
+                                "la columna de vencimiento lleva los DTE",
     }
 
     #: Ayudantes que los renders llaman y que también pintan. Sin ellos, un
     #: campo pintado por `vcCabeceraPerfil` saldría como huérfano.
-    _AYUDANTES = ("vcCabeceraPerfil", "vcRiesgoHTML")
+    _AYUDANTES = ("vcCabeceraPerfil", "vcRiesgoHTML", "vcSenalesHTML")
 
     @staticmethod
     def _cuerpo(render):
@@ -2509,11 +2614,24 @@ class TestIdeasYWheelTampocoTiranNada:
     def test_wheel_no_sirve_nada_que_el_panel_tire(self, client, wheel_dobles):
         self._barre(client.get("/api/tito-wheel").json(), "Wheel", "renderProjWheel")
 
+    def test_la_cinta_no_sirve_nada_que_el_panel_tire(self, client):
+        """La tercera pestaña, que era el agujero que quedaba.
+
+        Ideas y Wheel tenían barrido; la cinta no. Y ahí es donde más duele:
+        `_fila` sirve 27 campos por operación y la tabla enseñaba nueve
+        columnas. `bid` y `ask` viajaban en cada fila desde el primer día y
+        nadie los pintaba — su `NotableTable` tiene columna «Bid/Ask» justo
+        para eso: las flechas ↑/↓ dicen que el print salió fuera de la
+        horquilla, y sin la horquilla no se sabe por cuánto.
+        """
+        self._barre(client.get("/api/tito-tape?ticker=DEMO").json(),
+                    "Time & Sales", "renderProjTape")
+
     def test_el_registro_no_miente(self, client, mercado, wheel_dobles):
         """Una declaración para una hoja que ya no existe es documentación
         podrida: dice que algo se decidió a propósito cuando ya no hay nada."""
         vivas = set()
-        for r in ("/api/tito-ideas", "/api/tito-wheel"):
+        for r in ("/api/tito-ideas", "/api/tito-wheel", "/api/tito-tape?ticker=DEMO"):
             vivas |= set(self._hojas(client.get(r).json()))
         # `ideas.history.*` solo aparece cuando ese ticker YA tiene flows
         # guardados, y el doble arranca con el store vacío. Que no salga aquí no

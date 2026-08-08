@@ -5213,3 +5213,121 @@ sola pantalla no gana nada partiéndolos en dos vistas que dicen lo mismo.
 
 **2.925 tests del motor · 533 de la capa web · 311 checks de auditoría · 94 del
 smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.36 Ronda 14 — la cinta, que era la pestaña sin barrido
+
+**Fecha:** 2026-08-08 · **Contra:** `infusionvictor/agente-tito-metralleta@53d5a20`
+
+Las rondas 11, 12 y 13 barrieron el scorecard, Ideas y la Wheel. La cinta
+—**Time & Sales**, la tercera pestaña— nunca se barrió, y ahí estaba lo gordo:
+`_fila` sirve 27 campos por operación y la tabla enseñaba nueve columnas.
+
+### Lo que estaba mal
+
+1. **`bid` y `ask` viajaban en cada fila y nadie los pintaba.** Desde el primer
+   día. Las flechas ↑/↓ dicen que el print salió **fuera** de la horquilla; sin
+   la horquilla, un centavo sobre el ask y un dólar sobre el ask son la misma
+   flecha. Su `/flow` tiene columna «Bid/Ask» justo para eso. Ahora va bajo el
+   precio, y en el `title` de la celda.
+
+2. **La columna «Score» no tenía encabezado.** Diez `<th>` para once `<td>`.
+   En escritorio no se nota; en el móvil `vcTablaResponsive` copia la etiqueta
+   de la columna N a la celda N, así que **todas las de la derecha salían con
+   el nombre de la de al lado**: el Score se llamaba «Dinero», el Dinero
+   «Griegos», y la última no llevaba nada. Llevaba así desde que se añadió el
+   Score.
+
+3. **El desglose de los Puntos no existía.** Su `NotableTable` pone «Volumen
+   X/10 · Horario Y/10 · Repetición Z/10» en el `title`. Solo viajaba el total,
+   y un 21/30 sin desglose no dice si vino del tamaño de la orden, de la hora a
+   la que entró o de cuántas veces se repitió el contrato — tres señales que se
+   leen distinto. `_fila` ahora manda `unusual_parts`.
+
+4. **`sideLabel` tiene cuatro ramas y aquí había tres.** Su cuarta —
+   `aggression === "unknown"`— cae a `r.side`, el lado crudo de la cinta. Aquí
+   el `else` se comía el desconocido y lo rotulaba **«Mid»**, que es afirmar una
+   lectura de la horquilla que el motor declaró que no pudo hacer.
+
+5. **El veredicto de agresividad no salía en la cinta.** Su
+   `AggressionScoreCard` va con ella: la barra sola no separa un 55/45 de un
+   90/10 — eso lo hace la frase («Sin flujo agresivo» / «Compra agresiva (al
+   ask)» / «Presión al bid» / «Mixto»). Estaba portado, pero solo en el
+   scorecard del ticker. Faltaban también el `n` de notables y el aviso de
+   cinta truncada.
+
+6. **La nota al pie de la cinta describía símbolos que ya no existían.** Decía
+   «↻ repetido · ⛓ multileg · ★ volumen > OI» cuando las señales se pintan con
+   texto desde que se portó `VC_SENALES`. Ahora es la suya: qué son los Puntos,
+   qué significa una fila resaltada y qué es cada lado.
+
+7. **El aviso de cotización retrasada de la Wheel vivía dentro de un `if`.**
+   Solo se enseñaba con `quotes_missing`, o sea justo en el caso en que el
+   usuario ya sabía que la prima era estimada. Cuando Massive **sí** sirve
+   horquilla la cotización **sigue siendo retrasada**, y ahí no se decía nada.
+   Su `wheel-disclaimer` no está dentro de ningún condicional. Ahora tampoco.
+
+8. **No se podía repetir un escaneo de la Wheel.** Su `↻ Volver a escanear` no
+   estaba: la única forma era irse a otro preset y volver, que además tira el
+   resultado bueno por el camino. Un escaneo degradado se repite.
+
+9. **El `RESUMEN.md` del agente de opciones callaba tres cosas que el
+   `scorecard.json` ya traía**: los niveles con su P(toque), los tres flujos
+   más grandes y el track record. Un resumen es lo que se lee dentro de tres
+   meses; con el score y los escenarios solos no se decide nada. Y al
+   escribirlo apareció el fallo de siempre en pequeño: la primera versión leía
+   `horizon`, `predicted` y `actual` — nombres **parecidos** a los que sirve la
+   ruta (`horizon_days`, `base`, `actual_close`) pero distintos. Un nombre
+   equivocado no rompe nada: pinta «—» y el archivo se ve bien para siempre.
+   Igual con `touch`, que es una fracción 0-1: sin el ×100 el resumen escribía
+   «1%» donde el motor dice 81%.
+
+### Lo que estaba bien
+
+- **El trío de la gráfica** (`buildScales`/`packLabels`/`smartDomain`) está
+  portado y medido por `diff_geo` (274 casos), que los **extrae del HTML** en
+  vez de copiarlos. El `PADDING` de su `PriceChart.tsx` coincide al píxel.
+- **Cero funciones públicas sin llamador** en `engine/wbj/tito/*.py`, cruzando
+  un recorrido del AST contra todos los tests, `vertex_api.py`,
+  `vertex_archivo.py` y `engine/scripts/*.py`.
+- **La degradación no revienta**: con la cadena caída, `/api/projection-targets`
+  responde 200 con `ok:false` y un mensaje, no un 500.
+- **El archivo declara lo que no guarda**: `_sin_derivado` recorta la materia
+  prima y añade `_no_archivado`, para que el archivo no mienta por omisión.
+- **`VC_SENALES`** son sus siete señales con su texto y su `tip`, incluido el
+  código OPRA dentro del tooltip de multileg.
+
+### Lo que se añadió para que no vuelva a pasar
+
+- **Barrido de hojas de la cinta** (`test_la_cinta_no_sirve_nada_que_el_panel_tire`):
+  el tercer barrido, el que faltaba. Cada campo que sirve `/api/tito-tape` tiene
+  que tener consumidor en `renderProjTape` o estar declarado con su motivo. Es
+  el que cazó `bid`/`ask`. Y `test_el_registro_no_miente` ahora también mira la
+  cinta, para que una declaración no sobreviva al campo que declara.
+- **Tablas cuadradas**, en los dos smokes: para **cada** tabla `vc-t` que el
+  panel produzca de verdad, `<th>` del encabezado == `<td>` por fila (contando
+  `colspan`). Se barre todo lo pintado, no una lista escrita a mano, así que una
+  tabla nueva entra sola. Mutado: quitar el `<th>` de «Score» lo pone en rojo.
+- **Los nombres del resumen contra los de la ruta**: cada clave que
+  `_md_opciones` lee tiene que existir en `vertex_api.py`. Mutado con
+  `horizon_days`→`horizon` y `actual_close`→`actual`: falla. Y la fila del track
+  record se comprueba **entera**, no a trozos, que es lo que hace que un «—» de
+  más no pase por normal.
+
+### Declarada
+
+**Una respuesta, no un stream.** Sus cuatro rutas largas (`analyze`, `flow`,
+`ideas`, `wheel`) son SSE y emiten entre 40 y 100 eventos `{type:"step",label}`.
+Aquí devuelven un JSON al final: esto corre detrás del proxy de Render en plan
+free, que no garantiza `text/event-stream` sin buffering, y un stream a medio
+bufferizar es **peor** que ninguno — la pantalla se congela en el paso 3 y
+parece colgada. Lo que no cambia: su propio `AnalysisLoader` ya **colapsa** los
+~100 pasos en cuatro fases y su comentario lo dice —«no leemos el texto de cada
+paso, solo cuántos han llegado»—; esa es la pantalla portada (`vcLoaderHTML`),
+con su curva asintótica y su tope del 97%. Se pierde la etiqueta fina («página 5
+de 6»), y solo mientras carga. Queda en el registro de divergencias del auditor,
+que ahora son cinco.
+
+### Estado
+
+**2.925 tests del motor · 543 de la capa web · 311 checks de auditoría · 105 +
+58 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**

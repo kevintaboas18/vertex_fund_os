@@ -336,6 +336,65 @@ def _md_opciones(ticker: str, d: dict) -> str:
                    f"{p.get('confidence', '—')} |")
     g = d.get("gex") or {}
     avisos = "\n".join(f"- ⚠ {w}" for w in (d.get("warnings") or [])) or "_ninguno_"
+
+    # ── Lo que el JSON archivado ya traía y el resumen callaba ──────────────
+    #
+    # Un `RESUMEN.md` es lo que se lee dentro de tres meses para saber qué dijo
+    # el agente. Tenía el score y los escenarios, y nada de las tres cosas que
+    # convierten un escenario en algo con lo que decidir: dónde están los
+    # niveles, qué dinero se movió y —sobre todo— si este agente ha acertado.
+    # Estaban en el `scorecard.json` desde hace rondas; el resumen no las leía.
+
+    # Niveles, con su probabilidad de toque. `touch` viaja como FRACCIÓN 0-1
+    # (`prob_touch`), igual que la lee el panel — escribirlo sin el ×100 pinta
+    # "1%" donde el motor dice 81%, que es peor que no ponerlo.
+    def _lvl(l):
+        f, toca = l.get("strength"), l.get("touch")
+        return (f"| {_n(l.get('price'), 2, '$')} | {l.get('kind') or '—'} | "
+                f"{'—' if f is None else round(f)} | "
+                f"{'—' if toca is None else str(round(toca * 100)) + '%'} | "
+                f"{l.get('why') or ''} |")
+    niveles = "\n".join(_lvl(l) for l in (d.get("levels") or [])[:12])
+
+    # Los tres flujos más grandes del día. El score dice «convicción 8/10»; esto
+    # dice de qué contratos salió ese 8. Sin `underlying`: son del ticker de la
+    # carpeta, y el motor no lo repite en cada fila.
+    def _flow(t):
+        cp = "C" if t.get("type") == "call" else ("P" if t.get("type") == "put" else "?")
+        dte = t.get("dte")
+        vence = str(t.get("expiration") or "—")
+        if dte is not None:
+            vence += f" ({round(dte)}d)"
+        return (f"| {ticker} {_n(t.get('strike'), 2, '$')}{cp} | {vence} | "
+                f"{_n(t.get('premium'), 0, '$')} | "
+                f"{'alcista' if t.get('alcista') else 'bajista'} |")
+    flujos = "\n".join(_flow(t) for t in (d.get("top_flows") or [])[:3])
+
+    # El track record. Es lo que separa «el agente dice 78» de «el agente dice
+    # 78 y las últimas seis veces se pasó un 6% de largo». Los nombres son los
+    # que sirve la ruta, no unos parecidos: `horizon_days`, `base` (el escenario
+    # base que se predijo), `actual_close` y `error_pct`.
+    st = (d.get("memory") or {}).get("stats") or {}
+
+    def _ev(e):
+        err = e.get("error_pct")
+        return (f"| {e.get('date') or '—'} | {e.get('horizon_days', '—')}d | "
+                f"{_n(e.get('base'), 2, '$')} | {_n(e.get('actual_close'), 2, '$')} | "
+                f"{'—' if err is None else format(err, '+.1f') + '%'} | "
+                f"{e.get('best') or '—'} |")
+    ev_filas = "\n".join(_ev(e) for e in (st.get("evals") or [])[:8])
+    _venc = st.get("predicciones_vencidas")
+    if _venc:
+        _dir, _ses = st.get("dir_hit_rate"), st.get("sesgo_pct")
+        calib = (f"**{_venc}** predicciones vencidas · acierto de dirección "
+                 f"**{'—' if _dir is None else str(round(_dir)) + '%'}** · sesgo medio "
+                 f"**{'—' if _ses is None else format(_ses, '+.1f') + '%'}**")
+        if _ses is not None and abs(_ses) > 10:
+            calib += ("\n\n> ⚠ El sesgo medio pasa de ±10%: los targets de arriba "
+                      "se leen con la confianza a la baja.")
+    else:
+        calib = "_todavía no hay predicciones vencidas: el track record se llena solo_"
+
     return f"""# {ticker} · agente de OPCIONES · {d.get('fecha', '')}
 
 | | |
@@ -359,6 +418,26 @@ def _md_opciones(ticker: str, d: dict) -> str:
 | Horizonte | Bajista | Base | Alcista | Confianza |
 |---|---|---|---|---|
 {chr(10).join(esc) or '| — | — | — | — | _sin escenarios_ |'}
+
+## Niveles importantes
+
+| Precio | Tipo | Fuerza | P(toque) | Por qué |
+|---|---|---|---|---|
+{niveles or '| — | — | — | — | _sin niveles_ |'}
+
+## Los 3 flujos más grandes
+
+| Contrato | Vence | Prima | Apuesta |
+|---|---|---|---|
+{flujos or '| — | — | — | _sin flujos notables_ |'}
+
+## Track record de este agente
+
+{calib}
+
+| Fecha | Horizonte | Predijo (base) | Pasó | Error | Escenario que acertó |
+|---|---|---|---|---|---|
+{ev_filas or '| — | — | — | — | — | _sin predicciones vencidas_ |'}
 
 ## Advertencias
 

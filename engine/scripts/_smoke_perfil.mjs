@@ -220,6 +220,35 @@ api.pintaExplicacion('Texto suelto sin secciones.');
 chk(store['qtExplicacion'].innerHTML.includes('Texto suelto sin secciones.'),
     'si el proveedor devuelve texto plano, se pinta igual');
 
+// ── Tablas cuadradas ─────────────────────────────────────────────────────
+//
+// Mismo control que en `_smoke_componentes.mjs`, aquí para Ideas y Wheel, que
+// son las dos tablas que este smoke sí pinta. `vcTablaResponsive` copia la
+// etiqueta de la columna N a la celda N: si sobran celdas, en el móvil todas
+// las de la derecha salen con el nombre de la columna equivocada.
+console.log('\n── Tablas cuadradas (encabezado = celdas) ───────────────');
+for (const id of ['projIdeas', 'projWheel']) {
+  const h = (store[id] && store[id].innerHTML) || '';
+  const tablas = [...h.matchAll(/<table class="vc-t[\s\S]*?<\/table>/g)].map(m => m[0]);
+  chk(tablas.length > 0, `${id}: pinta al menos una tabla`);
+  tablas.forEach((t, i) => {
+    const ths = (t.match(/<th\b/g) || []).length;
+    const cuerpo = t.slice(t.indexOf('<tbody'));
+    const filas = [...cuerpo.matchAll(/<tr\b([^>]*)>([\s\S]*?)<\/tr>/g)]
+      .filter(m => !/vc-esc/.test(m[1]));
+    const malas = filas.map(m => {
+      let n = 0;
+      for (const c of m[2].matchAll(/<td\b([^>]*)>/g)) {
+        const cs = /colspan="(\d+)"/.exec(c[1]);
+        n += cs ? Number(cs[1]) : 1;
+      }
+      return n;
+    }).filter(n => n !== ths);
+    chk(!malas.length && filas.length > 0,
+        `${id}[${i}]: ${ths} encabezados y ${malas.length ? malas.join('/') : ths} celdas por fila`);
+  });
+}
+
 console.log('\n── Bordes ──────────────────────────────────────────────');
 chk(api.vcCabeceraPerfil(null, 0) === '', 'sin perfil no se pinta franja');
 chk(api.fmtMoney(1049) === '$1,049' && api.fmtMoney(null) === '—', 'fmtMoney exacto');

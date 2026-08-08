@@ -3002,7 +3002,16 @@ function renderProjWheel(d) {
           <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="disc" class="w-4 h-4"></i> Wheel &mdash; vender puts cash-secured</h3>
           <span class="text-[10px] text-gray-500">${d.with_candidates} de ${d.scanned} s&iacute;mbolos con candidatos${d.failed ? ` · ${d.failed} sin resultado` : ''}</span>
         </div>
-        <div class="flex gap-1.5 flex-wrap my-2">${presets}</div>
+        <div class="flex gap-1.5 flex-wrap items-center my-2">${presets}
+          <button onclick="loadProjWheel()" class="ml-auto text-[10px] font-bold px-2.5 py-1 rounded-lg bg-[#0B0E14] text-gray-400 border border-gray-800 hover:text-white transition"
+            title="Vuelve a escanear el mismo preset. Las cotizaciones cambian: un candidato de hace veinte minutos puede haber dejado de serlo.">&#8635; Volver a escanear</button></div>
+        <!-- Su wheel-disclaimer, que va SIEMPRE y no solo cuando falta la
+             horquilla. Massive sirve cotizaciones retrasadas incluso cuando
+             las sirve: la prima de la tabla es una referencia, no lo que te
+             van a pagar. Antes esto solo se decia dentro del bloque de
+             quotes_missing, o sea justo en el caso en que ya se sabia.
+             Sin acentos graves aqui dentro: cierran la plantilla. -->
+        <p class="text-[10px] text-amber-200/70 mb-2 leading-snug">Las cotizaciones de Massive son <b>retrasadas</b>. Estos son candidatos, no &oacute;rdenes: <b>confirma el precio en tu br&oacute;ker antes de vender</b>.</p>
         ${reglas}
         <p class="text-[10px] text-gray-600 italic mb-3">${_vcEsc(d.preset_explain || '')} Un contrato son 100 acciones y el <b>colateral queda inmovilizado</b> hasta el vencimiento. El puntaje <b>castiga</b> el rendimiento anualizado por encima del 60%: un screener que ordena por prima pone arriba justo las acciones a punto de desplomarse.</p>
         ${d.degraded ? `<p class="text-[10px] text-amber-400 mb-2">⚠ M&aacute;s de la mitad del universo no dio resultado: esta lista NO es "los mejores del mercado", es "los mejores de lo que se pudo mirar".</p>` : ''}
@@ -3091,6 +3100,14 @@ function renderProjTape(d) {
     const a = d.aggression || {};
     const denom = (a.premium_ask || 0) + (a.premium_bid || 0);
     const pctAsk = denom > 0 ? (100 * a.premium_ask) / denom : 0;
+    // Su `AggressionScoreCard`: la barra sola no dice nada sin el veredicto.
+    // Un 55/45 y un 90/10 pintan barras distintas, pero solo la frase separa
+    // "Mixto" de "Compra agresiva (al ask)".
+    const _lbl = denom === 0 ? 'Sin flujo agresivo'
+        : a.ratio >= 0.66 ? 'Compra agresiva (al ask)'
+        : a.ratio <= 0.34 ? 'Presión al bid' : 'Mixto';
+    const _cls = a.ratio >= 0.66 ? 'text-emerald-400'
+        : a.ratio <= 0.34 ? 'text-red-400' : 'text-gray-300';
     // `buildRepeatCounts(rows)` suyo: el ×N cuenta cuántas veces aparece ESE
     // contrato en la tabla. Sin él, la marca de repetido dice que lo hubo pero
     // no cuántas veces, que es la mitad de la señal — tres golpes al mismo
@@ -3098,9 +3115,17 @@ function renderProjTape(d) {
     const _rep = vcRepeatCounts(d.trades || []);
     const filas = (d.trades || []).map(t => {
         const cp = t.type === 'call' ? 'C' : (t.type === 'put' ? 'P' : '?');
+        // Su `sideLabel`: los tres casos conocidos llevan flecha, y el CUARTO
+        // —`unknown`— cae a `r.side`, el lado crudo que trajo la cinta. Aquí
+        // salía "Mid" también para el desconocido, que es afirmar una lectura
+        // de la horquilla que el motor no pudo hacer.
         const lado = t.aggression === 'ask' ? '<span class="text-emerald-400">▲ Compra</span>'
             : t.aggression === 'bid' ? '<span class="text-red-400">▼ Venta</span>'
-            : '<span class="text-gray-500">Mid</span>';
+            : t.aggression === 'mid' ? '<span class="text-gray-500">Mid</span>'
+            : `<span class="text-gray-600">${_vcEsc(t.side || '—')}</span>`;
+        // Su `desglose`: de dónde salen los puntos de inusualidad.
+        const up = t.unusual_parts || {};
+        const desglose = `Volumen ${up.volume || 0}/10 · Horario ${up.timing || 0}/10 · Repetición ${up.repetition || 0}/10`;
         // Sus siete señales con su texto, más el ×N del contrato repetido y las
         // dos de ejecución fuera de horquilla, que son suyas de `flow.ts`.
         const marcas = [vcSenalesHTML(t),
@@ -3109,39 +3134,44 @@ function renderProjTape(d) {
                         t.below_bid ? '<span class="text-red-300" title="ejecutado BAJO el bid">↓</span>' : ''
                        ].filter(Boolean).join(' ');
         return `<tr class="border-b border-gray-800/50 ${t.unusual ? 'bg-amber-500/[0.04]' : ''}">
-            <td class="py-1.5 pr-2 text-gray-500 text-[9px]">${_vcEsc(String(t.timestamp || '').slice(11, 19))}</td>
+            <td class="py-1.5 pr-2 text-gray-500 text-[9px]">${_vcEsc(vcDateET(t.timestamp))}</td>
+            <td class="py-1.5 pr-2 text-gray-500 text-[9px]">${_vcEsc(vcTimeET(t.timestamp))}</td>
             <td class="py-1.5 pr-2 font-bold text-white">${_vcEsc(t.underlying || '')} ${_vcEsc(t.strike)}${cp} ${marcas}</td>
             <td class="py-1.5 pr-2 text-gray-400">${_vcEsc(String(t.expiration || '').slice(5))}${t.dte != null ? ` <span class="text-gray-600">(${Math.round(t.dte)}d)</span>` : ''}</td>
             <td class="py-1.5 pr-2">${lado}</td>
             <td class="py-1.5 pr-2 text-right text-gray-400">${_vcEsc(t.size)}</td>
-            <td class="py-1.5 pr-2 text-right text-gray-300">$${Number(t.price).toFixed(2)}</td>
+            <td class="py-1.5 pr-2 text-right text-gray-300" title="Horquilla en el momento del print — bid ${VC_PX.format(Number(t.bid) || 0)} / ask ${VC_PX.format(Number(t.ask) || 0)}">$${Number(t.price).toFixed(2)}<span class="block text-[8px] text-gray-600 font-normal">${VC_PX.format(Number(t.bid) || 0)}/${VC_PX.format(Number(t.ask) || 0)}</span></td>
             <td class="py-1.5 pr-2 text-right text-[9px] font-bold ${vcScoreColor(t.score)}"
                 title="Score del trade — su TradesFeed lo tiñe: ≥80 rojo, ≥60 ámbar">${t.score != null ? Math.round(t.score) : ''}</td>
             <td class="py-1.5 pr-2 text-right text-gray-200 font-bold">${fmtAbbr(t.premium)}</td>
             <td class="py-1.5 pr-2 text-right text-gray-500 text-[9px]">${t.delta != null ? 'δ' + Number(t.delta).toFixed(2) : ''} ${t.iv != null ? '· IV ' + Math.round(Number(t.iv) * 100) + '%' : ''}</td>
-            <td class="py-1.5 text-right font-bold ${t.unusual ? 'text-amber-400' : 'text-gray-600'}">${t.unusual_score}/30</td></tr>`;
+            <td class="py-1.5 text-right font-bold ${t.unusual ? 'text-amber-400' : 'text-gray-600'}" title="${_vcEsc(desglose)}">${t.unusual_score}/30</td></tr>`;
     }).join('');
 
     caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
         <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
           <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="activity" class="w-4 h-4"></i> Time &amp; Sales &mdash; ${_vcEsc(d.ticker)}</h3>
-          <span class="text-[10px] text-gray-500">${d.notable} notables de ${d.total} · ${_vcEsc(d.period)} · &ge; ${fmtAbbr(d.min_premium)}</span>
+          <span class="text-[10px] text-gray-500">${d.notable} notables de ${d.total}${d.truncated ? `, top ${(d.trades || []).length}` : ''} · ${_vcEsc(d.period)}${d.pages ? ` · ${d.pages} p&aacute;g.` : ''} · &ge; ${fmtAbbr(d.min_premium)}</span>
         </div>
         <div class="h-1.5 rounded-full overflow-hidden bg-red-500/30 my-2">
           <div class="h-full bg-emerald-500" style="width:${pctAsk.toFixed(1)}%"></div></div>
         <div class="flex flex-wrap gap-x-3 text-[10px] mb-3">
+          <span class="font-bold ${_cls}">${_vcEsc(_lbl)}</span>
           <span class="text-emerald-400">● Ask ${fmtAbbr(a.premium_ask)}</span>
           <span class="text-red-400">● Bid ${fmtAbbr(a.premium_bid)}</span>
           <span class="text-gray-600">Mid ${fmtAbbr(a.premium_mid)} (descartado)</span>
+          <span class="text-gray-600">· ${VC_INT.format(a.n || 0)} notables</span>
           <span class="text-gray-400 font-bold">Agresividad ${a.score}/10</span></div>
-        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[700px]"><thead>
+        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[760px]"><thead>
           <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+            <th class="text-left pb-1.5 pr-2">Fecha</th>
             <th class="text-left pb-1.5 pr-2">Hora</th><th class="text-left pb-1.5 pr-2">Contrato</th>
             <th class="text-left pb-1.5 pr-2">Vence</th><th class="text-left pb-1.5 pr-2">Lado</th>
             <th class="text-right pb-1.5 pr-2">Tamaño</th><th class="text-right pb-1.5 pr-2">Precio</th>
+            <th class="text-right pb-1.5 pr-2">Score</th>
             <th class="text-right pb-1.5 pr-2">Dinero</th><th class="text-right pb-1.5 pr-2">Griegos</th>
             <th class="text-right pb-1.5">Inusual</th></tr></thead><tbody>${filas}</tbody></table></div>
-        <p class="text-[9px] text-gray-600 mt-2">↻ repetido · ⛓ multileg · ↑ sobre el ask · ↓ bajo el bid · ★ volumen &gt; open interest. Fila resaltada = supera el umbral de inusualidad institucional (&ge;7/30).</p>
+        <p class="text-[9px] text-gray-600 mt-2 leading-relaxed"><b>Inusual</b> = tama&ntilde;o de la orden + momento del d&iacute;a + cu&aacute;ntas veces se repite el contrato (m&aacute;ximo 30; pasa el cursor sobre el n&uacute;mero para ver el desglose). Las <span class="bg-amber-500/[0.12] px-1 rounded">filas resaltadas</span> son trades con puntaje inusual (&ge;7/30). <b>Lado</b>: &#9650; Compra = pagaron el precio del vendedor (agresivo) &middot; &#9660; Venta = aceptaron el precio del comprador. &#8593; ejecutado sobre el ask &middot; &#8595; bajo el bid &middot; &#128257; &times;N = veces que se repiti&oacute; ese contrato.</p>
       </div>`;
     if (window.lucide) lucide.createIcons();
     vcTablaResponsive('projTape');

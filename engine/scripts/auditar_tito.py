@@ -1471,6 +1471,15 @@ DIVERGENCIAS = {
         "donde se pega con el ratón. Se restauró al confirmar Kevin que su clave "
         "FUNCIONABA: una clave buena que muere por un carácter invisible es el "
         "peor fallo, porque el 401 acusa a la credencial y no al espacio."),
+    "una respuesta, no un stream": (
+        VERTEX / "vertex_api.py",
+        "Sus cuatro rutas largas (analyze, flow, ideas, wheel) son SSE y emiten "
+        "40-100 pasos con etiqueta. Aquí devuelven un JSON al final: detrás del "
+        "proxy de Render en free no se garantiza `text/event-stream` sin "
+        "buffering, y un stream a medias congela la pantalla en el paso 3. "
+        "NO cambia: su propio AnalysisLoader ya colapsa los ~100 pasos en cuatro "
+        "fases y no lee el texto de ninguno — esa pantalla está portada "
+        "(`vcLoaderHTML`), con su curva y su tope del 97%."),
     "wheel sin bid": (
         VERTEX / "engine/wbj/tito/wheel.py",
         "Su plan de Massive no sirve `last_quote`, y su propio compute.ts lo dice: "

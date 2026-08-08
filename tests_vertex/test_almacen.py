@@ -551,6 +551,94 @@ class TestLosDosAgentesNoSeMezclan:
         assert "$19.30" in md, "los escenarios tienen que verse"
         assert "no una orden de compra" in md
 
+    def test_el_resumen_lleva_niveles_flujos_y_track_record(self, a):
+        """Las tres cosas que el `scorecard.json` ya traía y el resumen callaba.
+
+        Un `RESUMEN.md` es lo que se lee dentro de tres meses. Con el score y
+        los escenarios solos no se puede decidir nada: falta dónde están los
+        niveles, de qué contratos salió el flujo y —lo que más pesa— si este
+        agente ha acertado antes. Los tres campos viajaban en el archivo desde
+        hacía rondas; el resumen no los leía.
+        """
+        import vertex_archivo as AR
+
+        AR.guarda_reporte_opciones("WULF", {
+            "verdict": "Alcista", "score": 74, "spot": 18.42,
+            # Los NOMBRES son los que sirve `/api/projection-targets`, no unos
+            # parecidos — ese fue el fallo que este test existe para cazar. Y
+            # `touch` es una FRACCIÓN 0-1, como la manda `prob_touch`.
+            "levels": [{"price": 17.5, "kind": "soporte", "strength": 62,
+                        "touch": 0.81, "why": "muro de puts", "flipped": False,
+                        "distance_pct": -5.0},
+                       {"price": 21.0, "kind": "resistencia", "strength": 38,
+                        "touch": None, "why": "gamma flip", "flipped": False,
+                        "distance_pct": 14.0}],
+            "top_flows": [{"id": 1, "type": "call", "strike": 20, "dte": 160,
+                           "expiration": "2027-01-15", "premium": 2_075_000,
+                           "aggression": "ask", "alcista": True}],
+            "memory": {"stats": {
+                "predicciones_vencidas": 12, "dir_hit_rate": 58, "sesgo_pct": 6.1,
+                "evals": [{"date": "2026-07-10", "horizon_days": 20, "spot": 16.4,
+                           "base": 17.0, "actual_close": 18.1, "error_pct": -6.1,
+                           "best": "bull", "direction_hit": True, "matured": True}],
+            }},
+        }, cuando="2026-08-07", alm=a)
+        md = (a.raiz / "Proyecciones/WULF/2026-08-07/RESUMEN.md").read_text(encoding="utf-8")
+        # Niveles, CON su probabilidad de toque: una fuerza de 62 al 81% y otra
+        # al 38% no son el mismo dato, y sin la columna se leen igual.
+        assert "Niveles importantes" in md
+        assert "$17.50" in md and "muro de puts" in md
+        assert "81%" in md, "`touch` es 0-1: sin el ×100 el resumen escribe «1%»"
+        # Un nivel sin P(toque) dice «—», no un número inventado.
+        assert "| 38 | — |" in md
+        # Los flujos que sostienen el score.
+        assert "WULF $20.00C" in md and "2027-01-15 (160d)" in md and "alcista" in md
+        assert "$2,075,000" in md
+        # Y el track record, que es lo que calibra la confianza en el resto.
+        assert "Track record" in md and "58%" in md and "+6.1%" in md
+        # La FILA entera, no sus trozos sueltos: así un nombre de clave
+        # equivocado (`horizon` por `horizon_days`, `actual` por `actual_close`)
+        # cambia la fila y esto falla, en vez de dejar un «—» que se ve normal.
+        assert "| 2026-07-10 | 20d | $17.00 | $18.10 | -6.1% | bull |" in md
+
+    def test_los_nombres_del_resumen_son_los_que_sirve_la_ruta(self):
+        """El resumen lee del payload archivado por NOMBRE. Un nombre parecido
+        pero distinto (`horizon` por `horizon_days`, `actual` por
+        `actual_close`) no rompe nada: pinta «—» y el archivo se ve bien.
+
+        Esto ata las claves que `_md_opciones` lee a las que `vertex_api`
+        escribe, mirando el código de las dos partes. Si una de las dos cambia
+        de nombre, esto falla en vez de dejar una columna muda para siempre.
+        """
+        import pathlib
+        import re
+
+        raiz = pathlib.Path(__file__).resolve().parents[1]
+        arch = (raiz / "vertex_archivo.py").read_text(encoding="utf-8")
+        api = (raiz / "vertex_api.py").read_text(encoding="utf-8")
+        cuerpo = arch[arch.index("def _md_opciones("):arch.index("_RESUMEN[ACCIONES]")]
+        # Las dos formas de citar la clave: `.get("x")` y `.get('x')`. Con solo
+        # una, este test pasaba sin mirar nada — el resumen usa comillas simples
+        # dentro de las f-strings.
+        leidas = set(re.findall(r"""\.get\(["']([a-z_]+)["']""", cuerpo))
+        assert len(leidas) >= 15, f"el escaneo solo vio {len(leidas)} claves"
+        # `fecha` la pone el propio archivo al guardar, no la ruta.
+        for clave in sorted(leidas - {"fecha"}):
+            assert f'"{clave}"' in api, (
+                f"`_md_opciones` lee «{clave}» y `vertex_api.py` no lo escribe "
+                "en ningún sitio: la columna saldría muda para siempre")
+
+    def test_el_resumen_sin_track_record_lo_dice_en_vez_de_callarse(self, a):
+        """Un reporte del primer día no tiene predicciones vencidas. La tabla
+        vacía sin frase se lee como «el agente no se mide»."""
+        import vertex_archivo as AR
+
+        AR.guarda_reporte_opciones("WULF", {"verdict": "Neutral", "score": 50},
+                                   cuando="2026-08-07", alm=a)
+        md = (a.raiz / "Proyecciones/WULF/2026-08-07/RESUMEN.md").read_text(encoding="utf-8")
+        assert "todavía no hay predicciones vencidas" in md
+        assert "sin niveles" in md and "sin flujos notables" in md
+
     @pytest.mark.parametrize("malo", ["", "   ", "!!!", "../etc", "a" * 40])
     def test_un_ticker_imposible_se_rechaza(self, a, malo):
         import vertex_archivo as AR
