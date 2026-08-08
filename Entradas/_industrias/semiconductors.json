@@ -1,22 +1,28 @@
 {
   "_generado_por": "vertex/tam_mundial",
-  "_verificado_por": "vertex/tam_revision",
-  "_verificado_en": "2026-08-08",
-  "_revisar_cada_dias": 90,
-  "_como_se_obtuvo": "Leido de la pagina de WSTS, la asociacion que MIDE este mercado. Frase textual: 'the global semiconductor market is now projected to grow 90 percent in 2026, reaching USD 1.51 trillion'.",
-  "tam": 1510000000000,
-  "tam_history": [
-    791700000000,
-    1510000000000
-  ],
-  "tam_source": "WSTS Spring 2026 semiconductor market forecast",
+  "_resuelto_en": "2026-08-08",
+  "_como_se_obtuvo": "Resuelto al analizar NVDA. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 1655000000000,
+  "_cita_verificada": "https://www.wsts.org/76/Global-Semiconductor-Market-records-exceptional-growth-in-Q2-2026",
+  "tam_source": "WSTS / Semiconductor Industry Association - ventas mundiales de semiconductores (2026)",
   "tam_source_tier": 2,
   "_ambito": "mundial",
-  "_capa": "facturacion mundial de semiconductores",
-  "_cita": "https://www.wsts.org/76/Recent-News-Release",
-  "_cita_textual": "the global semiconductor market is now projected to grow 90 percent in 2026, reaching USD 1.51 trillion",
-  "_ingreso_relevante": "total",
-  "_ingreso_relevante_porque": "WSTS mide la facturacion de semiconductores entera. NVDA, AMD, INTC y AVGO venden semiconductores y nada mas, asi que su ingreso total es lo que compite en ese mercado. El TAM anterior era de Omdia y media solo aceleradores de datacenter: otra capa, mas estrecha, y de tier 3.",
+  "_capa": "facturación mundial de chips",
+  "_capa_coincide": "NVDA factura por la venta de chips (GPUs) y el mercado de semiconductores mide la facturación de estos componentes.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGB8EgSoNa-jp-yKvP8Aa0hI-xXmTeNSKAWGdCmzBZtpUwKIdQs6PKDgFx7o-gPFg6bvYOl0o5lvRdkJghbsJ0yFSfT_z6qxGQQrhpTR4o4-4zqN-JkzcRy2-YHM6bEggd3wwkszE8zlVl0qe-LuPNqNfp2Ozr0o5D52o57hIgj_askFNYWFEC_Q4ZEs0mgSPCVERTl",
+  "_cita_textual": "The semiconductor market is now calculated to reach approximately $1.655 trillion in 2026, representing annual growth of around 108 percent. Based on the incorporation of actual Q2 data, the calculation for the full-year 2026 market reaches 1,655 billion US dollars, corresponding to annual growth of approximately 108 percent. Global semiconductor sales reached USD 795.6 billion in 2025.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "tam_history": [
+    795600000000,
+    1655000000000
+  ],
+  "_segmento_patrones": [
+    "data center",
+    "gaming",
+    "professional visualization",
+    "automotive"
+  ],
   "_aplica_a": [
     "NVDA",
     "AMD",
@@ -29,15 +35,9 @@
     "ADI",
     "NXPI"
   ],
-  "_sugerencia_anterior": {
-    "tam": 207000000000,
-    "tam_source": "Omdia, AI Processors for Cloud and the Data Center Forecast — GPUs y aceleradores de IA para datacenter, vintage agosto 2025",
-    "tam_history": [
-      123000000000,
-      207000000000
-    ],
-    "cita": "$123 billion in GPUs and AI accelerators shipped in 2024, $207 billion is expected in 2025, and $286 billion by 2030 — https://omdia.tech.informa.com/pr/2025/aug/ai-data-center-chip-market-to-hit-286bn-growth-likely-peaking-as-custom-asics-gain-ground",
-    "por_que_no_puntua": "la cita no es una URL",
-    "para_aceptarla": "Comprueba la cifra en la publicacion del propio organismo, copia aqui `tam`, `tam_source` y `tam_source_tier` (1-4), y borra `_generado_por`. Eso lo hace tuyo."
-  }
+  "_verificado_por": "vertex/tam_revision",
+  "_verificado_en": "2026-08-08",
+  "_revisar_cada_dias": 90,
+  "_ingreso_relevante": "total",
+  "_ingreso_relevante_porque": "WSTS mide la facturacion de semiconductores entera. NVDA, AMD, INTC y AVGO venden semiconductores y nada mas, asi que su ingreso total es lo que compite en ese mercado."
 }

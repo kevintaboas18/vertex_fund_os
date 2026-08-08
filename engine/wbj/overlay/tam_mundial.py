@@ -803,11 +803,22 @@ def _toca_revisar(data: dict, hoy: "date") -> bool:
 
 
 def _vigente(data: dict, hoy: date) -> bool:
-    try:
-        d = datetime.fromisoformat(str(data.get("_resuelto_en"))).date()
-    except (ValueError, TypeError):
+    """Sigue fresco, mirando la fecha mas reciente que el archivo tenga.
+
+    Antes solo leia `_resuelto_en`. Un archivo escrito a mano y verificado
+    lleva `_verificado_en` en su lugar, asi que salia "no vigente" y el
+    barrido lo re-resolvia -- medido: sobrescribio el TAM de WSTS que se habia
+    puesto y leido de su fuente esa misma tarde.
+    """
+    fechas = []
+    for clave in ("_verificado_en", "_resuelto_en"):
+        try:
+            fechas.append(datetime.fromisoformat(str(data.get(clave))).date())
+        except (ValueError, TypeError):
+            continue
+    if not fechas:
         return False
-    return (hoy - d) < timedelta(days=VIGENCIA_DIAS)
+    return (hoy - max(fechas)) < timedelta(days=VIGENCIA_DIAS)
 
 
 def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
@@ -850,6 +861,16 @@ def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
         logger.warning("TAM de %s no resuelto: %s", slug, motivo)
         return f"{slug}: no se pudo resolver ({motivo})"
 
+    # Los juicios sobre la CAPA sobreviven a un cambio de cifra. Que WSTS
+    # revise sus ventas no cambia que un fabricante de chips compita entero en
+    # ese mercado, ni a quien cubre el archivo. Sin esto, el barrido borro
+    # `_ingreso_relevante` al re-resolver y AMD perdio su numerador: su
+    # cobertura de Market cayo de 0,71 a 0,46 sin que nadie tocara una formula.
+    _juicios = {k: previo[k] for k in
+                ("_ingreso_relevante", "_ingreso_relevante_porque",
+                 "_aplica_a", "_segmento_patrones", "_revisar_cada_dias")
+                if previo.get(k) is not None}
+
     overlay, error = _validar(datos, industria or slug)
     if overlay is None:
         logger.info("TAM de %s rechazado: %s", slug, error)
@@ -878,9 +899,10 @@ def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
         "_para_hacerlo_tuyo": ("Borra `_generado_por` y el sistema no vuelve a "
                                "tocar este archivo."),
         **overlay,
+        # Los juicios sobre la capa van DESPUES del overlay: son del archivo,
+        # no de la respuesta, y una cifra nueva no los revoca.
+        **_juicios,
     }
-    if previo.get("_aplica_a"):
-        contenido["_aplica_a"] = previo["_aplica_a"]
     try:
         _escribir(path, contenido)
     except OSError as e:
