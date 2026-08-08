@@ -65,6 +65,27 @@ class FMPProvider(Provider):
             "profile", t, max_age_days=_MAX_AGE_REFERENCE,
         )
 
+    def screener_us(self, min_market_cap: int = 2_000_000_000,
+                    limit: int = 3000) -> list | dict | None:
+        """El universo cotizado de EE.UU., con su industria.
+
+        Lo usa el barrido de TAM para saber QUE industrias existen y cuantas
+        empresas cubre cada una. El orden importa: cada TAM cuesta peticiones
+        al proveedor de busqueda y su cuota es finita, asi que resolver
+        primero una industria de 54 empresas rinde mas que una de dos.
+
+        Se cachea un dia: el censo de industrias no cambia de una hora a otra
+        y bajar 3.000 filas por corrida seria gratuito solo en apariencia.
+        """
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/company-screener",
+            self._params(exchange="NASDAQ,NYSE",
+                         marketCapMoreThan=min_market_cap, limit=limit),
+            "screener_us", "_universo", max_age_days=1,
+        )
+
     def income_annual(self, t: str, limit: int = 6) -> list | dict | None:
         """Annual income statements, most recent `limit` fiscal years."""
         if not self.available:

@@ -613,6 +613,70 @@ def _verificar_en_la_fuente(cita: str, tam: float, fuente: str) -> tuple[bool, s
     return True, destino
 
 
+def industrias_del_mercado(fmp: Any, minimo_empresas: int = 2) -> list[tuple[str, int]]:
+    """Las industrias del mercado de EE.UU., ordenadas por cuantas empresas
+    cubren.
+
+    El orden importa porque cada TAM cuesta peticiones y el tier gratuito de
+    Gemini da 20 por minuto: resolver primero `Semiconductors` (54 empresas)
+    antes que una industria con dos deja mas cobertura por peticion gastada.
+
+    Se excluyen ETF y fondos. Sin ese filtro, "Asset Management" salia con
+    1.110 entradas y ninguna es una empresa operativa con un mercado que
+    medir -- son vehiculos que cotizan, y su "industria" es una etiqueta del
+    proveedor, no un mercado.
+    """
+    from collections import Counter
+
+    filas = fmp.screener_us()
+    if not isinstance(filas, list):
+        return []
+    cuenta: Counter = Counter()
+    for f in filas:
+        if not isinstance(f, dict) or f.get("isEtf") or f.get("isFund"):
+            continue
+        if f.get("isActivelyTrading") is False:
+            continue
+        ind = (f.get("industry") or "").strip()
+        if ind:
+            cuenta[ind] += 1
+    return [(n, c) for n, c in cuenta.most_common() if c >= minimo_empresas]
+
+
+def resolver_todas_las_industrias(settings: Any, fmp: Any, *,
+                                  limite: int = 0,
+                                  minimo_empresas: int = 2) -> list[dict]:
+    """Intenta resolver el TAM de cada industria del mercado que no lo tenga.
+
+    Va en orden de cobertura -- primero las industrias con mas empresas --
+    porque cada intento cuesta peticiones y la cuota es finita. Se corta sola
+    en cuanto un proveedor dice que se acabo la cuota: seguir preguntando
+    contra un contador agotado no resuelve nada y retrasa el resto.
+
+    No repite lo ya resuelto ni toca lo de un analista. Lo que no verifique
+    contra la pagina de su fuente NO se guarda como TAM -- eso es lo que
+    distingue este barrido de la version que llenaba archivos con cifras que
+    nadie podia abrir.
+    """
+    filas: list[dict] = []
+    industrias = industrias_del_mercado(fmp, minimo_empresas)
+    if limite:
+        industrias = industrias[:limite]
+    for nombre, empresas in industrias:
+        mensaje = asegurar_tam_industria(settings, nombre, "")
+        estado = ("resuelto" if "TAM mundial" in mensaje
+                  else "ya estaba" if "vigente" in mensaje or "analista" in mensaje
+                  else "sin fuente")
+        filas.append({"industria": nombre, "empresas": empresas,
+                      "estado": estado, "detalle": mensaje})
+        if _es_falta_de_cuota(mensaje):
+            filas.append({"industria": "(corte)", "empresas": 0,
+                          "estado": "cuota agotada",
+                          "detalle": "el resto queda para la proxima corrida"})
+            break
+    return filas
+
+
 def revisar_tam_industrias(settings: Any, hoy: "date | None" = None,
                            forzar: bool = False) -> list[dict]:
     """Vuelve a comprobar cada TAM guardado contra la pagina de su fuente.

@@ -306,6 +306,40 @@ def entradas(
     typer.echo(f"{wrote}/{len(tickers)} escritos en {directory}")
 
 
+@app.command("tam-todas")
+def tam_todas(
+    limite: int = typer.Option(0, help="Cuantas industrias intentar (0 = todas)."),
+    minimo: int = typer.Option(2, help="Empresas minimas para que cuente."),
+) -> None:
+    """Resuelve el TAM de cada industria del mercado de EE.UU. que no lo tenga.
+
+    Va en orden de cobertura -- primero las industrias con mas empresas --
+    porque cada intento cuesta peticiones y la cuota del proveedor de busqueda
+    es finita. Se corta sola en cuanto la cuota se agota y lo dice.
+
+    Lo que no se pueda comprobar en la pagina de su propia fuente NO se guarda
+    como TAM: queda como sugerencia sin puntuar. Eso es lo que separa este
+    barrido de la version que llenaba archivos con cifras que nadie podia
+    abrir.
+    """
+    from wbj.overlay.tam_mundial import resolver_todas_las_industrias
+
+    settings, _, fmp = _providers()
+    filas = resolver_todas_las_industrias(settings, fmp, limite=limite,
+                                          minimo_empresas=minimo)
+    if not filas:
+        typer.echo("No se pudo enumerar el universo.")
+        return
+    marca = {"resuelto": "  ok", "ya estaba": "  = ", "sin fuente": "  - ",
+             "cuota agotada": "  !!"}
+    for f in filas:
+        typer.echo(f"{marca.get(f['estado'], '   ')} {f['industria'][:34]:36} "
+                   f"{f['empresas']:>4} empresas  {f['estado']}")
+    hechas = sum(1 for f in filas if f["estado"] == "resuelto")
+    typer.echo("")
+    typer.echo(f"{hechas} industrias resueltas y verificadas contra su fuente.")
+
+
 @app.command("tam-revisar")
 def tam_revisar(
     forzar: bool = typer.Option(False, "--forzar",
