@@ -585,6 +585,21 @@ def maturity_wall_coverage(cash: float, expected_fcf_before_maturity: float, com
     return _ok((cash + expected_fcf_before_maturity + committed_liquidity) / debt_due, unit="ratio")
 
 
+def _sin_cliente_sobre_el_umbral(overlay: dict) -> bool:
+    """Consta que NINGUN cliente llega al umbral de divulgacion.
+
+    Se declara en `Entradas/<TICKER>.json`, que es por donde entran tanto lo
+    que escribe un analista como lo que el juez responde tras leer el 10-K.
+    Gemelo del de `business.py`: las dos metricas leen el mismo hecho del
+    mismo filing, y separarlas dejaria una diciendo que no hay concentracion
+    mientras la otra la cobra como ausente.
+    """
+    if not isinstance(overlay, dict):
+        return False
+    return any(overlay.get(k) is True for k in
+               ("no_customer_above_threshold", "sin_cliente_sobre_umbral"))
+
+
 # ============================================================================
 # RSK-CUST-017..GEO-019: concentration
 # ============================================================================
@@ -1113,6 +1128,22 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     customer_shares = overlay.get("customer_shares")
     if customer_shares:
         v_cust = customer_hhi(customer_shares)
+    elif _sin_cliente_sobre_el_umbral(overlay):
+        # El mismo arreglo que ya se hizo en `business.py`, por la misma
+        # razon: `DATASET.md` tipa las participaciones de clientes como
+        # "required WHEN DISCLOSED", y un emisor que declara que ninguno llega
+        # al umbral no esta ocultando un dato -- esta diciendo que no hay
+        # concentracion.
+        #
+        # Cobrarlo como MISSING hacia que NO tener el riesgo costara
+        # cobertura, que es exactamente al reves de lo que esta dimension
+        # mide. Medido en business antes de corregirlo: Coca-Cola declaraba un
+        # embotellador sobre el 10% y sacaba 0,929; Microsoft, sin ningun
+        # cliente concentrado, sacaba 0,583.
+        v_cust = _null(NullState.NOT_APPLICABLE, "ratio",
+                       "NO_CUSTOMER_AT_OR_ABOVE_DISCLOSURE_THRESHOLD: el "
+                       "filing declara que ninguno llega al umbral, asi que "
+                       "no hay concentracion que medir")
     else:
         v_cust = _null(NullState.MISSING, "ratio", "CUSTOMER_HHI_UNAVAILABLE")
     add("RSK-CUST-017", v_cust, None)
