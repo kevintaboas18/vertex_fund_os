@@ -149,7 +149,7 @@ def run_scorecard(
     Los tres argumentos de memoria son los que sacan al motor de su versión
     mínima; sin ellos tres piezas nunca arrancan:
 
-    - `iv_history` — ``[{date, avg_iv}, …]`` acumulado. A los 60 días el IV Rank
+    - `iv_history` — ``[{date, avgIv}, …]`` acumulado. A los 60 días el IV Rank
       real desplaza al proxy de volatilidad realizada (sub-agente 5).
     - `past_flows` — flows de sesiones anteriores. **Sin esto el sub-agente 6
       sale `None` aunque haya tape**, porque un flow de hoy todavía no tiene

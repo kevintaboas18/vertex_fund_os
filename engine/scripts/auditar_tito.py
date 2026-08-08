@@ -503,7 +503,11 @@ with tempfile.TemporaryDirectory() as td:
     viejos = [{"id":900+i,"timestamp":(NOW-timedelta(days=40-i)).isoformat(),"type":"call",
                "strike":100.0,"expiration":"2026-12-18","asset_price":95.0,
                "premium":500_000,"aggression":"ask"} for i in range(12)]
-    ivh = [{"date":(NOW-timedelta(days=d)).date().isoformat(),"avg_iv":40+d*.15} for d in range(65)]
+    # `avgIv` es la clave de SU archivo, la que escribe `save_iv_snapshot` y la
+    # que lee `ivcontext`. Aquí decía `avg_iv` y esta comprobación se cayó al
+    # alinear el formato: es exactamente su trabajo — el rank volviendo al proxy
+    # en silencio es el fallo que no se ve en ningún otro sitio.
+    ivh = [{"date":(NOW-timedelta(days=d)).date().isoformat(),"avgIv":40+d*.15} for d in range(65)]
     con = run_scorecard("DEMO", trades(), chain(), bars(), NOW, spot=SPOT,
                         iv_history=ivh, past_flows=viejos, calibration={"bias_pct":2.0,"samples":8})
     chk(con.active == 6, f"con memoria: {con.active}/6 categorías activas")
@@ -1509,6 +1513,13 @@ else:
 # Los diferenciales son lo único que compara contra SU archivo de verdad, así
 # que su ausencia es un agujero silencioso: la suite seguiría verde con el port
 # divergiendo. Se comprueba que están y que la lista no encoge.
+#
+# Trece comparan NÚMEROS. `diff_series.sh` es el raro y compara EL ARCHIVO —los
+# tres stores que son la memoria del agente—, en las dos direcciones: que los
+# dos lados escriban lo mismo, y que cada uno pueda abrir el del otro. Ahí el
+# fallo no se ve de ninguna otra forma: con un formato distinto nada revienta,
+# solo que el IV Rank se queda en el proxy para siempre y la calibración nunca
+# junta cinco muestras.
 DIFERENCIALES = {
     "diff_store.sh":      "store.ts — 47 casos de persistencia de trades",
     "diff_compute.sh":    "compute.ts — 604 filas de cadena",
@@ -1523,6 +1534,7 @@ DIFERENCIALES = {
     "diff_frescura.sh":   "levels.recencyFactor — el peso por frescura",
     "diff_reloj.sh":      "las 5 funciones que cuentan tiempo",
     "diff_watchlist.sh":  "watchlist.ts — BROKERS y sus 19 funciones, 734 casos",
+    "diff_series.sh":     "chain/iv/predictionStore — EL ARCHIVO, ida y vuelta",
 }
 #: Los TRES que llevan corpus MALFORMADO. Es lo que separa "coincide con datos
 #: buenos" de "coincide también cuando la fuente cambia de esquema", y fue donde

@@ -190,7 +190,7 @@ class TestIvContextScore:
 
     def test_la_historia_propia_desplaza_al_proxy_a_los_60_dias(self):
         iv_history = [
-            {"date": f"2026-05-{(i % 28) + 1:02d}", "avg_iv": 30 + i} for i in range(60)
+            {"date": f"2026-05-{(i % 28) + 1:02d}", "avgIv": 30 + i} for i in range(60)
         ]
         s = iv_context_score([row(iv=0.60)], CLOSES, iv_history)
         assert s.rank["source"] == "iv-history"
@@ -199,7 +199,7 @@ class TestIvContextScore:
         assert s.rank["value"] == pytest.approx(50.8, abs=0.1)
 
     def test_con_poca_historia_se_queda_con_el_proxy(self):
-        iv_history = [{"date": f"d{i}", "avg_iv": 40 + i} for i in range(10)]
+        iv_history = [{"date": f"d{i}", "avgIv": 40 + i} for i in range(10)]
         s = iv_context_score([row(iv=0.5)], CLOSES, iv_history)
         assert s.rank["source"] == "realized-proxy"
 
@@ -210,7 +210,7 @@ class TestIvContextScore:
         assert "IV crush" in s.note
 
     def test_el_score_es_el_promedio_de_los_dos_parametros(self):
-        iv_history = [{"date": f"d{i}", "avg_iv": 40 + i} for i in range(60)]
+        iv_history = [{"date": f"d{i}", "avgIv": 40 + i} for i in range(60)]
         s = iv_context_score([row(iv=0.85)], CLOSES, iv_history)
         assert s.iv["points"] == 8  # 85% -> 61-89%
         # `js_round`, no `round`: su `Math.round((iv.points + rank.points) / 2)`

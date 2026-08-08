@@ -228,7 +228,8 @@ def iv_context_score(
 ) -> IvContextScore:
     """Contexto IV (0-10) = promedio de los puntos de IV actual y de IV Rank.
 
-    `iv_history` es la historia propia acumulada día a día (``{date, avg_iv}``);
+    `iv_history` es la historia propia acumulada día a día (``{date, avgIv}``,
+    su formato exacto — ver `stores.save_iv_snapshot`);
     cuando alcanza `MIN_IV_HISTORY_DAYS` desplaza sola al proxy de volatilidad
     realizada, sin que nadie tenga que cambiar nada.
     """
@@ -321,7 +322,12 @@ def iv_context_score(
         # Python es subclase de `int`—. Y `h.avgIv` sobre `null` lanza en JS:
         # `_prop` reproduce eso en vez de tragárselo, porque una historia de IV
         # con agujeros es un fallo del store, no un dato pobre.
-        series = [v for v in (_prop(h, "avg_iv") for h in iv_history)
+        # La clave es `avgIv`, la SUYA. El port la leía como `avg_iv` y el
+        # archivo del disco la escribía igual: coherente consigo mismo, pero
+        # entonces el historial no era el suyo y ninguno de los dos podía leer
+        # el archivo del otro. Ahora el archivo es su formato exacto y esta
+        # línea lee la clave que hay dentro.
+        series = [v for v in (_prop(h, "avgIv") for h in iv_history)
                   if isinstance(v, (int, float)) and not isinstance(v, bool)
                   and math.isfinite(v) and v > 0]
         rank_value = rank_within(series, current)

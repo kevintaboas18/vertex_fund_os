@@ -4402,3 +4402,122 @@ a servir, no evidencia del veredicto. Lo que falta se **declara** en
 
 **2.850 tests del motor · 503 de la capa web · 303 checks de auditoría · 94 del
 smoke de componentes · 13 diferenciales a cero divergencias · 0 fallos.**
+
+---
+
+## 41.26 Las tres series no guardaban como Víctor, y eso no se veía
+
+Kevin lo pidió así: *"se supone que se guarde todo lo que Victor guarda y como
+él lo hace. Lo único diferente es lo que yo implemente por render."*
+
+Al comprobarlo con SU TypeScript leyendo los archivos del port —escribir con
+Python, abrir con `node --experimental-strip-types`— salieron dos verdes y tres
+rojos:
+
+| Carpeta | Su app abría el archivo del port |
+|---|---|
+| `trades/` | ✅ `loadTrades → 1 fila · WULF270115C00020000 · premium 332000 · lado ask · delta 0.62` |
+| `bars/` | ✅ |
+| `iv/` | ❌ |
+| `chain/` | ❌ |
+| `predictions/` | ❌ |
+
+### Por qué no se veía
+
+Los tres son la MEMORIA del agente: el IV Rank real, el historial de cadena del
+sub-agente 4 y el diario que cierra el lazo de calibración. Con un formato
+distinto **no falla nada**. No hay excepción, no hay log, el reporte sale igual
+de creíble. Simplemente el rank se queda para siempre en el proxy de volatilidad
+realizada y la calibración nunca junta cinco muestras. Es el peor tipo de fallo:
+el que se paga en calidad durante meses sin que nada lo diga.
+
+### Qué estaba mal, y no era solo el nombre de las claves
+
+1. **El sobre.** Él escribe `{ticker, updatedAt, snapshots:[…]}`; el port
+   escribía una lista pelada. Su `load*` hace
+   `Array.isArray(parsed.snapshots) ? parsed : null` — ante una lista devuelve
+   `null`, o sea "no hay historial".
+2. **Las claves.** `avg_iv` contra `avgIv`, `saved_at` contra `savedAt`,
+   `horizon_days` contra `horizonDays`.
+3. **Los DATOS de la cadena eran otros.** Esto era lo gordo. El port guardaba
+   `{date, strikes:[{strike, call_oi, put_oi, volume}]}`; él persiste el
+   **`StructureScore` aplanado** — `score`, `avgNotionalPerStrike`,
+   `totalNotional`, `strikeCount`, `notionalPoints`, `dominantCount`,
+   `strikePoints`, `volOIPct`, `volOIPoints`, `callPct`, `putPct`,
+   `dominantSide`, `lowLiquidity` y los 5 `topStrikes`. Sin `score` ni `points`
+   no se puede reconstruir **por qué** el sub-agente 4 puntuó lo que puntuó un
+   día concreto, que es exactamente para lo que existe ese historial.
+4. **El recorte.** Él corta por CANTIDAD (`.slice(0, N)`); el port cortaba por
+   ventana de fecha. La diferencia importa: un ticker sin mirar durante seis
+   meses conserva sus 365 fotos con su regla y las pierde TODAS con la otra.
+
+### Lo que se hizo
+
+- `stores.py`: `_sobre`, `_iso` (el `toISOString()` con milisegundos y `Z`),
+  `_lee_sobre` (su guarda literal) y `_fusiona` (Map → `sort` descendente →
+  `slice`). `save_chain_snapshot` y `save_iv_snapshot` reciben ahora el objeto
+  entero (`StructureScore`, `IvContextScore`) como los suyos, no un resumen.
+- `ivcontext.py` lee `avgIv`, la clave que hay en el archivo.
+- **`migra_series()`**, que corre en cada arranque del almacén: convierte los
+  archivos viejos en sitio, es idempotente y **dice lo que descarta**. La cadena
+  vieja no se puede convertir —los datos que él guarda no estaban ahí— así que
+  esos días se pierden y se cuentan aparte, en vez de dejar un archivo medio
+  traducido que parezca completo.
+
+### `diff_series.sh` — el diferencial número 14
+
+Los otros trece comparan NÚMEROS. Este compara **el archivo**, y en las dos
+direcciones, porque una sola no basta:
+
+1. los dos lados guardan los mismos casos → ¿sale el mismo archivo?
+2. SU TypeScript abre el archivo del port → ¿ve los mismos días?
+3. el port abre el archivo de SU app → ¿ve los mismos días?
+
+Se ejecutan SUS `chainStore.ts`, `ivStore.ts`, `predictionStore.ts`,
+`structure.ts`, `ivcontext.ts` y `occ.ts` sin tocar, con el quitado de tipos
+nativo de Node. Como sus `DATA_DIR` son `process.cwd()` fijados al cargar el
+módulo, el lado Node se invoca dos veces con directorios de trabajo distintos:
+es la única forma de que el mismo código suyo mire los dos árboles.
+
+**27 casos · 767 fotos · 1 divergencia declarada.** La declarada es el dedupe
+del diario por `(fecha, horizonte)` en vez de solo por fecha: su UI muestra un
+horizonte a la vez, Vertex sirve los tres en la misma respuesta, y con su clave
+dos de cada tres se perderían en silencio.
+
+Que un diferencial no pueda fallar no vale nada, así que se probó al revés con
+tres mutaciones: la clave en snake_case (9 casos rojos), el recorte por ventana
+(25) y quitar el sobre (25). Las tres salieron con código 1.
+
+### Lo que apareció al hacerlo
+
+- **El comparador se inventaba una diferencia.** Redondear a 6 decimales, que es
+  lo que hacen los otros diferenciales, rompe con nocionales de 1e9: `Math.round`
+  de JS desempata hacia arriba y el `round` de Python hacia el par, así que el
+  mismo double salía `1794425266.850001` en un lado y `...85` en el otro. En un
+  diferencial de ARCHIVO no hay nada que redondear — se compara entero.
+- **`diff_motor2.sh` tapaba el fallo original.** Su comparador traducía `avgIv`
+  → `avg_iv` antes de llamar al port, así que los dos lados coincidían mientras
+  el archivo era ilegible para la app del otro. Traducción fuera.
+- **La auditoría se cayó sola.** El check "IV Rank pasa de proxy a historia real"
+  construía el historial con `avg_iv`. Es exactamente su trabajo: en cuanto la
+  clave dejó de ser la del archivo, la comprobación se puso roja.
+- **Cuatro tests tenían la premisa invertida.** Estaban escritos para el formato
+  viejo: afirmaban que el sobre de SU app se leía como vacío. Ahora el sobre es
+  el formato y el archivo extraño es la lista pelada — que recupera
+  `migra_series`, no `load_*`.
+- **Un caso que no llega al tope no prueba el recorte.** Los casos avanzaban por
+  días de calendario y el fin de semana empujaba tres fechas al mismo lunes, así
+  que ninguna serie llegaba a su límite. El comparador ahora falla si algún
+  bloque no toca su tope: un diferencial que no ejercita el `.slice` no está
+  midiendo la regla que dice medir.
+
+### Estado
+
+**2.866 tests del motor · 503 de la capa web · 303 checks de auditoría (261 sin
+`TITO_ROOT`, que es lo que se puede correr sin su clon) · 94 del smoke de
+componentes · 14 diferenciales a cero divergencias no declaradas · 0 fallos.**
+
+Las cinco carpetas (`trades/`, `bars/`, `iv/`, `chain/`, `predictions/`) guardan
+ahora el formato de Víctor y son intercambiables con su app en las dos
+direcciones. Lo único distinto sigue siendo lo de Render: dónde vive el archivo
+(el almacén en la rama `datos`, porque él no despliega) y el perfil de Kevin.

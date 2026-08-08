@@ -103,6 +103,20 @@ def _arranca_almacen():
         os.environ.setdefault("WBJ_TITO_DATA",
                               str(_alm.ruta(DIR_SERIES, "tito")))
 
+        # Los tres stores de series pasaron al formato exacto de Víctor
+        # (`{ticker, updatedAt, snapshots}`, camelCase). Esto convierte lo que
+        # se hubiera guardado con el formato anterior; sin ello se leería como
+        # vacío y se perderían los días acumulados — el dato que más tarda en
+        # recuperarse, porque solo crece a una foto por día de mercado.
+        try:
+            from wbj.tito.stores import migra_series
+
+            hecho = migra_series()
+            if any(hecho.values()):
+                log.info("series migradas al formato de Víctor: %s", hecho)
+        except Exception as e:                   # noqa: BLE001
+            log.warning("no se pudieron migrar las series: %s", e)
+
         _restaura_privado(_alm)
         # El paquete cifrado se regenera justo antes de cada respaldo, no
         # cuando alguien crea una cuenta: así no hay que acordarse de llamarlo
@@ -4421,6 +4435,7 @@ def _tito_memory(ticker, trades, chain, bars, now):
         from wbj.tito import stores as st
         from wbj.tito.flow import classify_flow
         from wbj.tito.ivcontext import iv_context_score
+        from wbj.tito.structure import structure_score
     except Exception as e:
         return _empty(f"el motor no carga: {type(e).__name__}")
 
@@ -4443,7 +4458,12 @@ def _tito_memory(ticker, trades, chain, bars, now):
             return None
 
     if chain:
-        _guarda("cadena", lambda: st.save_chain_snapshot(ticker, chain, now))
+        # Su `/api/chain` hace `saveChainSnapshot(ticker, structure)`: guarda el
+        # StructureScore ya calculado, no los miles de contratos que lo
+        # produjeron. Es lo que permite reconstruir después POR QUÉ el
+        # sub-agente 4 puntuó lo que puntuó un día concreto.
+        _guarda("cadena",
+                lambda: st.save_chain_snapshot(ticker, structure_score(chain), now))
         # Cada ticker que alguien mira alimenta al agente de OPCIONES. Su forma
         # de aprender no es la del agente de acciones: no hay calibración de
         # aciertos aquí, hay ACUMULACIÓN HACIA ADELANTE. La IV histórica, las
@@ -4473,13 +4493,11 @@ def _tito_memory(ticker, trades, chain, bars, now):
         # se hacía un promedio simple, que es el número que su propio módulo
         # descarta por dejarse dominar por los cientos de tickets de 0DTE. Ese
         # número es el que alimenta el IV Rank real durante meses.
+        # `saveIvSnapshot(ticker, ivContext)` — el objeto entero, como él. La
+        # guarda de «hay IV o no» vive DENTRO del store, que es donde su código
+        # la tiene (`if (s.iv.current == null) return existing`).
         ivc = iv_context_score(notable, [], None)
-        if ivc.iv["current"] is not None:
-            _guarda("iv", lambda: st.save_iv_snapshot(ticker, ivc.iv["current"], now,
-                                                      min_iv=ivc.iv["min"],
-                                                      max_iv=ivc.iv["max"],
-                                                      contracts=ivc.iv["contracts"],
-                                                      front_skew=ivc.front_skew))
+        _guarda("iv", lambda: st.save_iv_snapshot(ticker, ivc, now))
 
     try:
         # 2. Leer lo acumulado. El filtro por asset_price/timestamp es el de su
