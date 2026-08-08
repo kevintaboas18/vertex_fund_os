@@ -5091,3 +5091,70 @@ los niveles medios, que él sí enseña en la otra vista. Declarado por nombre e
 
 **2.925 tests del motor · 529 de la capa web · 311 checks de auditoría · 94 del
 smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+---
+
+## 41.34 Ronda 12 — las palabras, no solo los números
+
+La ronda 11 comparó los **172 umbrales** de sus componentes. Quedaban sus
+**1.185 cadenas de texto**, que es lo que de verdad se lee.
+
+Filtrando el ruido (nombres de clase CSS, `use client`, identificadores como
+`contractType` o `next/link`) quedaban **~20 etiquetas reales suyas** ausentes.
+
+### El panel hablaba en enum
+
+`NewsCard` pintaba `noticias bullish (3)` donde él pone **"Noticias positivas"**.
+Sus dos mapas —`BIAS_LABEL` y `SENT_LABEL`— no estaban. Y `neutral` tiene DOS
+textos suyos según dónde salga: *"Sin dirección clara"* en la tarjeta (el sesgo
+no se decanta) y *"Sin noticias marcadas"* en la línea de contexto (no hubo
+titulares). No es lo mismo no encontrar señal que no tener nada que mirar, y él
+lo distingue.
+
+De paso, cada titular lleva ahora su palabra POSITIVA/NEGATIVA/NEUTRAL —él no se
+fía solo del punto de color— y su `reasoning`, que explica POR QUÉ el titular es
+positivo o negativo y ya viajaba en el payload sin pintarse.
+
+### Cuatro de sus siete señales
+
+Su `NotableTable` marca cada trade con hasta siete chips, cada uno con su texto
+y su explicación. El panel pintaba **cuatro símbolos sueltos** —`↻ ⛓ ↑ ↓`— sin
+decir qué significaban, y le faltaban **las dos calientes**:
+
+- **`$1M+`** — trade de más de un millón.
+- **`Delta fuerte`** — más de $100K con delta > 0,60.
+
+Justo las dos que marcan una apuesta direccional de tamaño, que es lo que este
+tab existe para encontrar. Faltaban también `LEAP` y `simultáneo`. Los cuatro
+campos existían en `FlowFlags` del motor y no viajaban en el payload.
+
+### "Fuerza de ejecución" y la banda del spread
+
+Su `ConvictionCard` enseña `execution.avgRaw` con un decimal bajo el rótulo
+**"Fuerza de ejecución"** y el pie *"qué tan agresivas fueron las órdenes"*. El
+panel ponía "Ejecución · N trades · calidad del fill": el número que él enseña
+—el promedio sin redondear— **no viajaba**, aunque el motor lo calcula.
+
+Y el pie del spread era un recuento (*"3 con spread ancho"*) donde él pone una
+banda (*"muy líquido" / "aceptable" / "ancho"*). El recuento no dice si el
+spread MEDIO es bueno, que es lo que la métrica mide. Ahora van los dos.
+
+### El test contrario hizo su trabajo
+
+Al sustituir el pie del spread, `TestElPanelNoTiraNadaDelPayload` se puso rojo:
+`conviction.spread.wide_count` dejaba de pintarse. Es el check simétrico del de
+la ronda 10 —aquél busca lo que el panel lee y nadie manda; éste, lo que el
+motor manda y nadie pinta— y cazó la regresión en la misma sesión que la
+introdujo.
+
+### Lo que NO era un hueco
+
+`"Bear case" / "Base case" / "Bull case"` salen como **"Bajista / Base /
+Alcista"**: es su etiqueta traducida, no una que falte. Y de las 84 "cadenas
+ausentes" del primer barrido, 45 eran nombres de clase CSS e identificadores de
+propiedad — un filtro mal calibrado denuncia ruido y esconde lo que importa.
+
+### Estado
+
+**2.925 tests del motor · 529 de la capa web · 311 checks de auditoría · 94 del
+smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**

@@ -5461,6 +5461,17 @@ def tito_tape(ticker: str, period: str = "5d",
             "above_ask": bool(getattr(t.flags, "above_ask", False)),
             "below_bid": bool(getattr(t.flags, "below_bid", False)),
             "exceeded_oi": bool(getattr(t.flags, "exceeded_oi", False)),
+            # Las tres que faltaban de su `Flags` de `NotableTable`. `big` y
+            # `conv_delta` son las dos "calientes" —$1M+ y delta fuerte— y
+            # `simultaneous` marca que otros contratos del mismo subyacente se
+            # ejecutaron a la misma hora, que es lo que distingue una pata de
+            # una apuesta suelta. Sin ellas la cinta enseñaba cuatro de sus
+            # siete señales.
+            "big": bool(getattr(t.flags, "big", False)),
+            "conv_delta": bool(getattr(t.flags, "conv_delta", False)),
+            "leap": bool(getattr(t.flags, "leap", False)),
+            "simultaneous": bool(getattr(t.flags, "simultaneous", False)),
+            "condition_code": t.condition_code,
             "condition_name": t.condition_name,
         }
 
@@ -6466,7 +6477,13 @@ def _tito_json(r):
                               "ask_pct": _r(r.conviction.dominance["ask_pct"], 1),
                               "bid_pct": _r(r.conviction.dominance["bid_pct"], 1),
                               "points": r.conviction.dominance["points"]},
+                # `avg_raw` es la "Fuerza de ejecución" de su `ConvictionCard`:
+                # el promedio SIN redondear de lo agresivas que fueron las
+                # órdenes. `points` es el mismo número ya redondeado a la
+                # escala del sub-agente, así que servir solo `points` perdía la
+                # métrica que él enseña con un decimal.
                 "execution": {"points": _r(r.conviction.execution["points"], 1),
+                              "avg_raw": _r(r.conviction.execution["avg_raw"], 2),
                               "counts": r.conviction.execution["counts"]},
             },
             # 3 · Inusualidad — el promedio por parámetro, que es el desglose

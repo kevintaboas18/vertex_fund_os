@@ -3101,11 +3101,13 @@ function renderProjTape(d) {
         const lado = t.aggression === 'ask' ? '<span class="text-emerald-400">▲ Compra</span>'
             : t.aggression === 'bid' ? '<span class="text-red-400">▼ Venta</span>'
             : '<span class="text-gray-500">Mid</span>';
-        const marcas = [t.repeated ? vcRepeatBadge(_rep.get(vcRepeatKey(t)) || 2) : '',
-                        t.multileg ? '<span class="text-gray-500" title="multileg">⛓</span>' : '',
-                        t.above_ask ? '<span class="text-emerald-300" title="sobre el ask">↑</span>' : '',
-                        t.below_bid ? '<span class="text-red-300" title="bajo el bid">↓</span>' : '',
-                        t.exceeded_oi ? '<span class="text-blue-300" title="volumen &gt; open interest">★</span>' : ''].join(' ');
+        // Sus siete señales con su texto, más el ×N del contrato repetido y las
+        // dos de ejecución fuera de horquilla, que son suyas de `flow.ts`.
+        const marcas = [vcSenalesHTML(t),
+                        t.repeated ? vcRepeatBadge(_rep.get(vcRepeatKey(t)) || 2) : '',
+                        t.above_ask ? '<span class="text-emerald-300" title="ejecutado SOBRE el ask">↑</span>' : '',
+                        t.below_bid ? '<span class="text-red-300" title="ejecutado BAJO el bid">↓</span>' : ''
+                       ].filter(Boolean).join(' ');
         return `<tr class="border-b border-gray-800/50 ${t.unusual ? 'bg-amber-500/[0.04]' : ''}">
             <td class="py-1.5 pr-2 text-gray-500 text-[9px]">${_vcEsc(String(t.timestamp || '').slice(11, 19))}</td>
             <td class="py-1.5 pr-2 font-bold text-white">${_vcEsc(t.underlying || '')} ${_vcEsc(t.strike)}${cp} ${marcas}</td>
@@ -3741,14 +3743,17 @@ function vcNewsHTML(n) {
 
     const lista = (arr, tag) => (arr || []).slice(0, 4).map(x => `
         <li class="flex items-start gap-1.5 leading-tight">
-          <span class="${SENT[x.sentiment] || 'text-gray-600'} mt-[3px]">●</span>
+          <span class="${SENT[x.sentiment] || 'text-gray-600'} mt-[3px]"
+                title="${_vcEsc(VC_SENT_LABEL[x.sentiment] || '')}">●</span>
           <span class="flex-1">
             <a href="${_vcEsc(x.url)}" target="_blank" rel="noopener"
                class="text-gray-300 hover:text-white">${_vcEsc(x.title)}</a>
-            <span class="text-gray-600"> · ${_vcEsc(x.publisher)}${
+            ${x.sentiment ? `<span class="text-[8px] font-bold ${SENT[x.sentiment] || 'text-gray-600'}"
+              >${_vcEsc(VC_SENT_LABEL[x.sentiment] || '')}</span> ` : ''}<span class="text-gray-600">· ${_vcEsc(x.publisher)}${
               x.published_utc || x.published_at
                 ? ' · ' + _vcEsc(vcHaceCuanto(x.published_utc || x.published_at)) : ''}</span>
             ${x.matched_by ? `<span class="text-purple-400"> · RSS · ${_vcEsc(x.matched_by)}</span>` : ''}
+            ${x.reasoning ? `<span class="block text-[8px] text-gray-600 italic leading-tight">${_vcEsc(x.reasoning)}</span>` : ''}
           </span>
         </li>`).join('');
 
@@ -3760,7 +3765,8 @@ function vcNewsHTML(n) {
         <div class="flex items-center justify-between flex-wrap gap-1 mb-1.5">
           <span class="text-[11px] font-extrabold ${txt}">${ico} ${_vcEsc(n.flag.title)}</span>
           <span class="text-[9px] text-gray-500">
-            flujo ${_vcEsc(n.flow_bias)} · noticias ${_vcEsc(n.bias.bias)} (${n.bias.score})
+            flujo ${_vcEsc(VC_BIAS_LABEL[n.flow_bias] || n.flow_bias)} · ${
+              _vcEsc(VC_BIAS_LABEL[n.bias.bias] || n.bias.bias)} (${n.bias.score})
             · ${n.feeds_ok}/${n.feeds_total} feeds
           </span>
         </div>
@@ -4141,11 +4147,25 @@ function vcSubagentesHTML(d) {
         P.push(_vcSubCard(
             _vcSubHead('Convicción', c.score, '¿Cuánto dinero real entró?', v) +
             `<div class="grid grid-cols-3 gap-1.5">
-               ${_vcMetric('Spread medio', c.spread.avg_pct == null ? '—' : c.spread.avg_pct.toFixed(2) + '%',
-                           c.spread.points, c.spread.wide_count + ' con spread ancho')}
+               ${_vcMetric('Spread', c.spread.avg_pct == null ? '—' : c.spread.avg_pct.toFixed(2) + '%',
+                           c.spread.points,
+                           // Su banda: <2% "muy líquido", ≤5% "aceptable", más "ancho".
+                           // El recuento de spreads anchos no dice si el spread
+                           // MEDIO es bueno, que es lo que la métrica mide.
+                           // Su banda, y detrás el recuento de spreads anchos
+                           // que el motor sirve: la banda dice si el spread
+                           // MEDIO es bueno, el recuento cuántos contratos
+                           // concretos lo estropean. Las dos cosas, no una.
+                           (c.spread.avg_pct == null ? 'sin quotes'
+                             : c.spread.avg_pct < 2 ? 'muy líquido'
+                             : c.spread.avg_pct <= 5 ? 'aceptable' : 'ancho')
+                           + (c.spread.wide_count ? ` · ${c.spread.wide_count} anchos` : ''))}
                ${_vcMetric('Dominancia', Number(c.dominance.dominant_pct).toFixed(0) + '%',
                            c.dominance.points, c.dominance.side === 'ask' ? 'lado compra' : 'lado venta')}
-               ${_vcMetric('Ejecución', tot + ' trades', c.execution.points, 'calidad del fill')}
+               ${_vcMetric('Fuerza de ejecución',
+                           c.execution.avg_raw == null ? tot + ' trades'
+                             : Number(c.execution.avg_raw).toFixed(1),
+                           c.execution.points, 'qué tan agresivas fueron las órdenes')}
              </div>${niveles ? `<div class="mt-1.5 flex flex-wrap gap-x-2">${niveles}</div>` : ''}`));
     }
 
@@ -4913,6 +4933,51 @@ function vcScoreColor(s) {
 const VC_MIN_FUERZA_GRAFICA = 25;
 const VC_MIN_FUERZA_LISTA = 20;
 const VC_MIN_FUERZA_MUROS = 35;
+
+//: `BIAS_LABEL` de su `NewsCard` y `SENT_LABEL` de su `Article`. El panel
+//: pintaba el enum crudo —"noticias bullish (3)"— donde él pone "Noticias
+//: positivas". Es el mismo dato, pero uno se lee y el otro hay que traducirlo
+//: mentalmente. `neutral` tiene DOS textos suyos según dónde salga: en la
+//: tarjeta de noticias es "Sin dirección clara" (el sesgo no se decanta) y en
+//: la línea de contexto es "Sin noticias marcadas" (no hubo titulares), y esa
+//: distinción vale la pena — no es lo mismo no encontrar señal que no tener
+//: nada que mirar.
+const VC_BIAS_LABEL = {
+    bullish: 'Noticias positivas', bearish: 'Noticias negativas',
+    mixed: 'Noticias mixtas', neutral: 'Sin dirección clara',
+};
+const VC_BIAS_LINEA = { ...VC_BIAS_LABEL, neutral: 'Sin noticias marcadas' };
+const VC_SENT_LABEL = { positive: 'POSITIVA', negative: 'NEGATIVA', neutral: 'NEUTRAL' };
+//: `flowBias` suyo: ≥60% en calls es alcista, ≤40% bajista, en medio neutral.
+//: Es el lado del flujo que la bandera de contradicción confronta con la prensa.
+function vcFlowBias(callPct) {
+    const n = Number(callPct);
+    if (!isFinite(n)) return 'neutral';
+    return n >= 60 ? 'bullish' : n <= 40 ? 'bearish' : 'neutral';
+}
+
+//: Las SIETE señales de su `NotableTable`, con su texto y su explicación.
+//:
+//: El panel pintaba cuatro (repetido, multileg, sobre-ask, bajo-bid) como
+//: símbolos sueltos —↻ ⛓ ↑ ↓— sin decir qué significaban, y le faltaban las
+//: dos CALIENTES: "$1M+" y "Delta fuerte". Justamente las dos que marcan una
+//: apuesta direccional de tamaño, que es lo que este tab existe para encontrar.
+const VC_SENALES = [
+    ['big',        '$1M+',         'text-red-400',     'Trade de más de $1 millón'],
+    ['conv_delta', 'Delta fuerte', 'text-red-400',     'Más de $100K con delta mayor a 0.60 (apuesta direccional)'],
+    ['exceeded_oi','Vol > OI',     'text-red-400',     'El volumen de hoy supera el interés abierto: posiciones nuevas'],
+    ['leap',       'LEAP',         'text-gray-500',    'Vencimiento largo (90+ días)'],
+    ['repeated',   'repetido',     'text-amber-400',   'El mismo contrato se operó varias veces en 5 minutos'],
+    ['multileg',   'multileg',     'text-gray-500',    'Condición OPRA de estrategia combinada'],
+    ['simultaneous','simultáneo',  'text-gray-500',    'Otros contratos del mismo subyacente se ejecutaron a la misma hora'],
+];
+/** Su `Flags`: las señales que lleva un trade, en el orden en que él las pone. */
+function vcSenalesHTML(t) {
+    return VC_SENALES.filter(([k]) => t[k]).map(([k, etq, col, tip]) =>
+        `<span class="text-[8px] font-bold ${col}" title="${_vcEsc(
+            k === 'multileg' && t.condition_code ? `${tip} (${t.condition_code})` : tip
+        )}">${_vcEsc(etq)}</span>`).join(' ');
+}
 
 // ── ActivityCard.tsx ─────────────────────────────────────────────────────────
 /** Unusual Options Activity — premium notable por día, calls contra puts.
