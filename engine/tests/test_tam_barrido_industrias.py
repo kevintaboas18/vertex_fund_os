@@ -113,16 +113,42 @@ def test_an_analyst_file_counts_as_done(monkeypatch):
     assert tm.resolver_todas_las_industrias(fmp=fmp, settings=None)[0]["estado"] == "ya estaba"
 
 
-def test_the_sweep_stops_when_the_quota_runs_out(monkeypatch):
-    """Con 132 industrias por delante, seguir preguntando contra un contador
-    agotado desperdicia la corrida entera."""
-    fmp = _FMP([_empresa("Primera")] * 9 + [_empresa("Segunda")] * 5
-               + [_empresa("Tercera")] * 3)
+def test_a_permanent_quota_stops_the_sweep(monkeypatch):
+    """"No credits remaining" no trae segundos porque no se arregla
+    esperando. Ahi si vale rendirse: seguir preguntando contra un contador
+    muerto desperdicia la corrida entera."""
+    fmp = _FMP([_empresa("Primera")] * 9 + [_empresa("Segunda")] * 5)
     vistas = _asegura(monkeypatch, {
-        "Primera": "primera: no se pudo resolver (gemini: 429 RESOURCE_EXHAUSTED)"})
+        "Primera": "primera: no se pudo resolver (openai: You have no credits remaining)"})
     filas = tm.resolver_todas_las_industrias(fmp=fmp, settings=None)
-    assert vistas == ["Primera"], f"siguio preguntando tras el 429: {vistas}"
+    assert vistas == ["Primera"], f"siguio preguntando: {vistas}"
     assert filas[-1]["estado"] == "cuota agotada"
+
+
+def test_a_per_minute_limit_paces_the_sweep_instead_of_killing_it(monkeypatch):
+    """El fallo que costo una corrida entera: el tier gratuito de Gemini da 20
+    peticiones por minuto, y unas pruebas previas habian gastado la del
+    minuto. El barrido de 132 industrias murio en la PRIMERA.
+
+    Un limite por minuto trae sus segundos en el propio error. Se espera y se
+    sigue."""
+    dormido = []
+    monkeypatch.setattr(tm.time, "sleep", lambda s: dormido.append(s))
+    fmp = _FMP([_empresa("Primera")] * 9 + [_empresa("Segunda")] * 5)
+    intentos = {"n": 0}
+
+    def _falso(settings, industria, ticker, **kw):
+        intentos["n"] += 1
+        if industria == "Primera" and intentos["n"] == 1:
+            return ("primera: no se pudo resolver (gemini: 429 "
+                    "RESOURCE_EXHAUSTED — Please retry in 16.5s)")
+        return "sin TAM (ninguna asociacion)"
+
+    monkeypatch.setattr(tm, "asegurar_tam_industria", _falso)
+    filas = tm.resolver_todas_las_industrias(fmp=fmp, settings=None)
+    assert dormido, "no espero: la cuota del minuto mato el barrido"
+    assert {f["industria"] for f in filas} >= {"Primera", "Segunda"}, (
+        "no llego a la segunda industria tras esperar")
 
 
 def test_the_limit_bounds_a_run(monkeypatch):

@@ -62,6 +62,11 @@ INTENTOS = 4
 ESPERA_MAXIMA_S = 65.0
 ESPERAS_MAXIMAS = 3
 
+#: Cuantas pausas por cuota aguanta un barrido completo antes de rendirse. A
+#: 20 peticiones por minuto, 132 industrias necesitan esperar muchas veces;
+#: rendirse a la primera dejaba el barrido muerto en la industria 1.
+PAUSAS_MAXIMAS_BARRIDO = 200
+
 #: Para comprobar la cita contra su propia pagina.
 _AGENTE = "Vertex Research vertexholgroup@gmail.com"
 _MAX_BYTES_CITA = 600_000
@@ -659,6 +664,7 @@ def resolver_todas_las_industrias(settings: Any, fmp: Any, *,
     nadie podia abrir.
     """
     filas: list[dict] = []
+    pausas = 0
     industrias = industrias_del_mercado(fmp, minimo_empresas)
     if limite:
         industrias = industrias[:limite]
@@ -670,6 +676,21 @@ def resolver_todas_las_industrias(settings: Any, fmp: Any, *,
         filas.append({"industria": nombre, "empresas": empresas,
                       "estado": estado, "detalle": mensaje})
         if _es_falta_de_cuota(mensaje):
+            # Un limite POR MINUTO no aborta un barrido de 132 industrias: le
+            # marca el ritmo. El tier gratuito de Gemini da 20 peticiones por
+            # minuto y su error dice cuanto falta, asi que se espera y se
+            # sigue. Medido: sin esto la corrida entera moria en la PRIMERA
+            # industria porque unas pruebas anteriores habian gastado la
+            # cuota del minuto.
+            #
+            # Lo que si aborta es la cuota sin vuelta -- "no credits
+            # remaining" no trae segundos porque no se arregla esperando.
+            espera = _segundos_de_espera(mensaje)
+            if espera is not None and pausas < PAUSAS_MAXIMAS_BARRIDO:
+                logger.info("barrido en pausa %.0fs por cuota del minuto", espera)
+                time.sleep(espera)
+                pausas += 1
+                continue
             filas.append({"industria": "(corte)", "empresas": 0,
                           "estado": "cuota agotada",
                           "detalle": "el resto queda para la proxima corrida"})
