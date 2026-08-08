@@ -1,26 +1,35 @@
 {
-  "_que_es_este_archivo": "TAM compartido por INDUSTRIA. Lo hereda todo ticker cuyo `security.industry` del packet sea 'Semiconductors', y el archivo del ticker gana en cualquier clave que repita. El TAM no es propiedad de una empresa: es del mercado en el que compite, y el comunicado de Omdia nombra a NVIDIA, AMD, Google, Huawei, Groq y Cerebras en el mismo denominador.",
-  "_por_que_existia_el_problema": "Este TAM estaba SOLO en Entradas/NVDA.json. Medido el 2026-08-05: NVDA sacaba Market 4.87/20 y AMD 1.82/20 con tam=ninguno, vendiendo Instinct al MISMO mercado. No faltaba el dato: estaba escrito en el archivo de otra empresa.",
-  "_aplica_a_nota": "Lista EXPLICITA de a quien cubre este TAM. La industria 'Semiconductors' de GICS mete en la misma bolsa a NVIDIA (aceleradores) y a Micron (memoria): sin esta lista MU heredaba un denominador que no es el suyo, y su participacion habria salido absurdamente pequena en vez de ausente. Un numero equivocado es peor que un hueco, porque el hueco se ve. Para anadir un ticker, comprueba primero que compita DE VERDAD en aceleradores de datacenter. Sin esta clave, el archivo cubriria a toda la industria.",
+  "_generado_por": "vertex/tam_mundial",
+  "_verificado_por": "vertex/tam_revision",
+  "_verificado_en": "2026-08-08",
+  "_revisar_cada_dias": 90,
+  "_como_se_obtuvo": "Leido de la pagina de WSTS, la asociacion que MIDE este mercado. Frase textual: 'the global semiconductor market is now projected to grow 90 percent in 2026, reaching USD 1.51 trillion'.",
+  "tam": 1510000000000,
+  "tam_history": [
+    791700000000,
+    1510000000000
+  ],
+  "tam_source": "WSTS Spring 2026 semiconductor market forecast",
+  "tam_source_tier": 2,
+  "_ambito": "mundial",
+  "_capa": "facturacion mundial de semiconductores",
+  "_cita": "https://www.wsts.org/76/Recent-News-Release",
+  "_cita_textual": "the global semiconductor market is now projected to grow 90 percent in 2026, reaching USD 1.51 trillion",
+  "_ingreso_relevante": "total",
+  "_ingreso_relevante_porque": "WSTS mide la facturacion de semiconductores entera. NVDA, AMD, INTC y AVGO venden semiconductores y nada mas, asi que su ingreso total es lo que compite en ese mercado. El TAM anterior era de Omdia y media solo aceleradores de datacenter: otra capa, mas estrecha, y de tier 3.",
   "_aplica_a": [
     "NVDA",
     "AMD",
     "AVGO",
     "MRVL",
-    "INTC"
+    "INTC",
+    "MU",
+    "TXN",
+    "QCOM",
+    "ADI",
+    "NXPI"
   ],
-  "_fuente": "Omdia, AI Processors for Cloud and the Data Center Forecast — GPUs y aceleradores de IA embarcados para datacenter, mundial. Vintage: comunicado de agosto 2025.",
-  "_cita": "$123 billion in GPUs and AI accelerators shipped in 2024, $207 billion is expected in 2025, and $286 billion by 2030 — https://omdia.tech.informa.com/pr/2025/aug/ai-data-center-chip-market-to-hit-286bn-growth-likely-peaking-as-custom-asics-gain-ground",
-  "_tier": "3 = research independiente con metodologia divulgada (confianza 70, sobre el umbral de 60, asi que NO capea la dimension en 6).",
-  "_verificacion": "omdia.tech.informa.com devuelve HTTP 403 a WebFetch. Las cifras estan verificadas textualmente en cinco publicaciones independientes que citan el mismo comunicado y coinciden exacto: RCR Wireless, TechEdge AI, Nasdaq, Seeking Alpha y Yahoo Finance. Limitacion de fetch declarada, no un dato sin atribuir.",
-  "_alcance_y_limite": "Cubre a quien vende ACELERADORES de datacenter. Un ticker de 'Semiconductors' que NO compita ahi -- analogico, memoria, equipos de fabricacion -- hereda un denominador que no es el suyo, y su participacion saldria absurdamente pequeña en vez de ausente. Cuando llegue el primero de esos, declara su propio `tam` en su archivo de ticker: eso pisa a este sin tocarlo. Candidatos a vigilar: TXN, ADI, MU, AMAT, LRCX, KLAC.",
-  "_2026_excluido": "El pronostico salta de 2025 ($207B) a 2030 ($286B) sin publicar los años intermedios en el comunicado. No se interpola: una linea recta entre esos dos puntos seria un numero inventado con apariencia de dato.",
-  "_segmento_patrones_nota": "Como reconocer, en la segmentacion que publica FMP desde el 10-K, el segmento que compite en ESTE mercado. Se casa por patron y no por igualdad porque el nombre lo pone cada emisor: NVDA y AMD dicen Data Center, Intel dice Data Center Group. Si encajan DOS segmentos el sistema no elige ninguno: significa que el patron esta mal escrito, y sumarlos o quedarse con el mayor seria inventar la respuesta.",
-  "_segmento_patrones_limite": "AVGO reporta Semiconductor Solutions, que mezcla aceleradores con conectividad, almacenamiento e inalambrico. Ese nombre NO encaja con el patron a proposito: preferir un hueco visible a una participacion inflada. Si algun dia desglosa, se anade su patron aqui.",
-  "_segmento_patrones": [
-    "data center"
-  ],
-  "_sugerencia_sin_verificar": {
+  "_sugerencia_anterior": {
     "tam": 207000000000,
     "tam_source": "Omdia, AI Processors for Cloud and the Data Center Forecast — GPUs y aceleradores de IA para datacenter, vintage agosto 2025",
     "tam_history": [

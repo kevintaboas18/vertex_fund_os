@@ -46,6 +46,11 @@ logger = logging.getLogger(__name__)
 
 VIGENCIA_DIAS = 90
 
+#: Cada cuantos dias se vuelve a leer un TAM en la pagina de su fuente. WSTS
+#: revisa sus ventas mundiales cada trimestre y la IEA su demanda cada mes: un
+#: numero correcto en agosto puede estar viejo en noviembre.
+REVISION_DIAS = 90
+
 #: Cuántas veces se pregunta antes de concluir que nadie publica ese mercado.
 #: Medido: "Consumer Electronics" acertó en el 2º de 4 intentos y falló en los
 #: otros 3. Un solo `null` no es prueba de que el mercado no exista.
@@ -606,6 +611,94 @@ def _verificar_en_la_fuente(cita: str, tam: float, fuente: str) -> tuple[bool, s
         return False, (f"{dominio} no es el dominio de {fuente[:34]!r}: es "
                        "quien lo cuenta, no quien lo mide")
     return True, destino
+
+
+def revisar_tam_industrias(settings: Any, hoy: "date | None" = None,
+                           forzar: bool = False) -> list[dict]:
+    """Vuelve a comprobar cada TAM guardado contra la pagina de su fuente.
+
+    Un TAM no es un hecho permanente: WSTS revisa sus ventas mundiales cada
+    trimestre y la IEA su demanda cada mes. Un numero correcto en agosto puede
+    estar viejo en noviembre, y el archivo no se entera solo.
+
+    Esto es lo que hace posible que un TAM lo escriba el agente en vez del
+    analista **sin volver a caer en el problema de origen**: la cifra no se
+    recuerda, se vuelve a leer. Si sigue en la pagina, se refresca la fecha de
+    revision. Si ya no esta, se dice -- y se dice fuerte, porque una cifra que
+    su propia fuente ya no publica es exactamente lo que hay que revisar a
+    mano.
+
+    Tres cosas que NO hace, las tres a proposito:
+
+    - **No borra un TAM porque la pagina fallara hoy.** Un timeout no es una
+      correccion. Se anota el intento y se conserva el numero.
+    - **No toca lo que escribio un analista sin verificar.** Un archivo sin
+      `_verificado_por` es de su autor.
+    - **No inventa el numero nuevo.** Si la cifra cambio, no adivina cual la
+      sustituye: marca el archivo para revision y deja el anterior, que al
+      menos se sabe de donde salio.
+
+    Devuelve una fila por industria con lo que paso, para que la CLI y el
+    reporte digan lo mismo.
+    """
+    from datetime import date as _date
+
+    hoy = hoy or _date.today()
+    raiz = Path(getattr(settings, "inputs_dir", None)
+                or Path(getattr(settings, "repo_root", ".")) / "Entradas")
+    carpeta = Path(raiz) / "_industrias"
+    if not carpeta.is_dir():
+        return []
+
+    filas: list[dict] = []
+    for path in sorted(carpeta.glob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            filas.append({"slug": path.stem, "estado": "ilegible"})
+            continue
+        if not isinstance(data, dict) or not data.get("tam"):
+            continue
+        # Solo lo que este motor verifico. Lo de un analista es suyo.
+        if not data.get("_verificado_por"):
+            filas.append({"slug": path.stem, "estado": "de un analista, no se toca"})
+            continue
+        if not forzar and not _toca_revisar(data, hoy):
+            filas.append({"slug": path.stem, "estado": "vigente",
+                          "desde": data.get("_verificado_en")})
+            continue
+
+        url = str(data.get("_cita_verificada") or data.get("_cita") or "")
+        ok, detalle = _verificar_en_la_fuente(
+            url, float(data["tam"]), str(data.get("tam_source") or ""))
+        if ok:
+            data["_verificado_en"] = hoy.isoformat()
+            data.pop("_revisar_a_mano", None)
+            filas.append({"slug": path.stem, "estado": "confirmado", "url": detalle})
+        elif "no se pudo abrir" in detalle:
+            # La fuente no respondio. Eso no corrige nada.
+            data["_ultimo_intento"] = f"{hoy.isoformat()}: {detalle}"
+            filas.append({"slug": path.stem, "estado": "fuente inaccesible",
+                          "detalle": detalle})
+        else:
+            data["_revisar_a_mano"] = (
+                f"{hoy.isoformat()}: {detalle}. La cifra guardada ya no aparece "
+                "en la pagina de su fuente. Comprueba si el organismo la "
+                "revisó y actualiza `tam` y `tam_history` a mano.")
+            filas.append({"slug": path.stem, "estado": "CAMBIO", "detalle": detalle})
+        _escribir(path, data)
+    return filas
+
+
+def _toca_revisar(data: dict, hoy: "date") -> bool:
+    """Han pasado ya los dias que el archivo pide entre revisiones."""
+    cada = int(data.get("_revisar_cada_dias") or REVISION_DIAS)
+    try:
+        ultima = datetime.fromisoformat(
+            str(data.get("_verificado_en") or data.get("_resuelto_en"))).date()
+    except (ValueError, TypeError):
+        return True
+    return (hoy - ultima) >= timedelta(days=cada)
 
 
 def _vigente(data: dict, hoy: date) -> bool:
