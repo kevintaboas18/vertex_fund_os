@@ -318,6 +318,23 @@ _SUBSCRIPTION_INDUSTRIES = _adapters.SUBSCRIPTION_INDUSTRIES
 _SUBSCRIPTION_ADAPTERS = ("saas", "subscription")
 
 
+def _sin_cliente_sobre_el_umbral(overlay: dict) -> bool:
+    """Consta que NINGUN cliente llega al umbral de divulgacion.
+
+    Se declara en `Entradas/<TICKER>.json`, que es por donde entran tanto lo
+    que escribe un analista como lo que el juez responde tras leer el 10-K
+    -- `merge_overlay` deja su respuesta en el overlay como una clave mas, no
+    en un contenedor aparte, asi que aqui se lee igual que cualquier entrada.
+    Dos nombres porque el resto del archivo mezcla ingles y espanol.
+    """
+    if not isinstance(overlay, dict):
+        return False
+    for clave in ("no_customer_above_threshold", "sin_cliente_sobre_umbral"):
+        if overlay.get(clave) is True:
+            return True
+    return False
+
+
 def _subscription_business(packet: Packet, overlay: dict) -> bool:
     """True when a security's customer economics are subscription-shaped,
     so BUS-NRR-020..BUS-PAYBACK-026 are applicable rather than absent.
@@ -1189,6 +1206,30 @@ def _compute_all(
     largest_customer_share = _overlay_number(overlay, "largest_customer_share", input_warnings)
     if largest_customer_share is not None:
         v = largest_customer_concentration(largest_customer_share * 100.0, 100.0)
+    elif _sin_cliente_sobre_el_umbral(overlay):
+        # El filing declara que NINGUN cliente llega al umbral. Eso no es un
+        # dato que falte: es un hallazgo, y el mas favorable de esta metrica
+        # -- no hay concentracion que medir porque no la hay.
+        #
+        # `DATASET.md` tipa `customer_revenue_shares` como "required WHEN
+        # DISCLOSED". Si no se divulga porque no hay nada que divulgar, la
+        # condicion no se cumple, y cobrarlo como MISSING castiga a la empresa
+        # por NO tener el problema.
+        #
+        # Medido, y es la razon por la que Kevin pregunto por que difieren las
+        # coberturas: Coca-Cola declara un embotellador sobre el 10% y saca
+        # 0,93 en business; Microsoft no tiene ninguno y saca 0,58.
+        #
+        # El motor solo no puede deducirlo -- por eso el comentario de abajo
+        # decia que MISSING era el estado final correcto -- pero el juez SI
+        # lee el filing, y se verifico que distingue la frase afirmativa de KO
+        # ("one bottler accounted for 10% of our net operating revenues") de
+        # la negativa ("No bottlers or customers represented 10% or more"),
+        # que es donde fallaba un patron de texto.
+        v = _null(NullState.NOT_APPLICABLE, "pct",
+                  "NO_CUSTOMER_AT_OR_ABOVE_DISCLOSURE_THRESHOLD: el filing "
+                  "declara que ninguno llega al umbral, asi que no hay "
+                  "concentracion que reportar")
     else:
         # A bare token told the reader the number was absent but not what to
         # do about it, and not that "absent" has two very different causes:
@@ -1762,6 +1803,12 @@ _OVERLAY_LINEAGE: dict[str, str] = {
     # pregunta: si ese campo aplica a esta empresa.
     "recurring_revenue_applies": "recurring_revenue_5y",
     "largest_customer_share": "customer_revenue_shares",
+    # El otro lado de la misma fila de DATASET.md. `customer_revenue_shares`
+    # es "required WHEN DISCLOSED": estas dos claves dicen que NO se divulga
+    # porque no hay nada que divulgar, y ese hallazgo tiene el mismo origen
+    # -- la nota de concentracion del filing -- que la cifra cuando la hay.
+    "no_customer_above_threshold": "customer_revenue_shares",
+    "sin_cliente_sobre_umbral": "customer_revenue_shares",
     "customer_shares": "customer_revenue_shares",
     "retention": "retention_churn_cohorts",
     "churn": "retention_churn_cohorts",
