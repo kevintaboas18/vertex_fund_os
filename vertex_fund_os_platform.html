@@ -2819,6 +2819,7 @@ const VC_TABS = [
     ['ideas',  '💡', 'Ideas',         'Flujo inusual operable de TODO el mercado. No pide ticker.'],
     ['wheel',  '🎡', 'Wheel',         'Vender puts cash-secured sobre su universo curado de 40 símbolos.'],
     ['tape',   '⚡', 'Time & Sales',  'La cinta cruda de un ticker, operación por operación.'],
+    ['salud',  '🩺', 'Cobertura',     'Qué dato tiene cada sub-agente y qué le falta para puntuar con confianza.'],
 ];
 let vcTabActiva = 'ideas';   // sin ticker manda Ideas, que no pide nada
 const vcTabCargada = {};
@@ -2851,6 +2852,7 @@ function vcAbreTab(id) {
     if (id === 'wheel') { vcTabCargada.wheel = true; loadProjWheel(); }
     if (id === 'tape')  { const t = (document.getElementById('projTicker') || {}).value;
                           if (t) { vcTabCargada.tape = true; loadProjTape(); } }
+    if (id === 'salud') { vcTabCargada.salud = true; loadProjSalud(); }
 }
 
 /** Hace que las tablas del tab quepan en un teléfono.
@@ -3072,6 +3074,92 @@ document.addEventListener('click', e => {
     const esc = fila.nextElementSibling;
     if (esc && esc.classList.contains('vc-esc')) esc.classList.toggle('hidden');
 });
+
+/* ── COBERTURA DE LOS SUB-AGENTES ───────────────────────────────────────────
+   `/api/tito-health`, que existía en el servidor y no lo llamaba nadie.
+
+   Es la respuesta a la única pregunta que el scorecard NO contesta: «¿con qué
+   dato salió este número?». Un 62/100 sostenido por dos categorías de seis se
+   ve idéntico a uno sostenido por las seis — el veredicto es el mismo tamaño de
+   letra. Aquí se ve qué tiene cada sub-agente, qué le falta, qué se rompe si
+   falta, y cómo arreglarlo.
+
+   Va en su propia pestaña y no dentro del scorecard a propósito: el scorecard
+   es de UN ticker y esto también mide cosas del servicio (las credenciales, el
+   disco, el respaldo) que no cambian de un símbolo a otro.
+   ────────────────────────────────────────────────────────────────────────── */
+
+//: De qué sub-agente depende cada check. Sin esto la lista es una tira de
+//: diagnósticos de sistema; con esto dice a quién le duele cada uno.
+const VC_SALUD_QUIEN = {
+    'MASSIVE_API_KEY':        'Estructura · GEX · niveles · escenarios',
+    'massive.snapshot':       'el spot de todo el tab',
+    'massive.cadena':         'Estructura (sub-agente 4)',
+    'massive.barras':         'niveles, escenarios y el backtest del 6',
+    'massive.barras.cache':   'velocidad, no exactitud',
+    'MARKETSNACK_COOKIE':     'Agresividad · Convicción · Inusualidad · Contexto IV',
+    'marketsnack.tape':       'los 4 sub-agentes del flujo',
+    'memoria.disco':          'todo lo que se acumula',
+    'memoria.iv':             'Contexto IV (sub-agente 5) — el IV Rank REAL',
+    'memoria.flows':          'Confirmación de precio (sub-agente 6)',
+    'memoria.flows.corrupto': 'Confirmación de precio (sub-agente 6)',
+    'memoria.flows.sin_id':   'Confirmación de precio (sub-agente 6)',
+    'memoria.flows.formato':  'Confirmación de precio (sub-agente 6)',
+    'memoria.predicciones':   'la calibración de los targets',
+    'memoria.cadenas':        'poder comparar la estructura con la de hace un mes',
+    'memoria.respaldo':       'que nada de lo anterior se pierda en un redeploy',
+};
+
+async function loadProjSalud() {
+    const caja = document.getElementById('projSalud');
+    if (!caja) return;
+    const t = ((document.getElementById('projTicker') || {}).value || 'AAPL').trim().toUpperCase();
+    caja.innerHTML = `<p class="text-xs text-gray-500 italic flex items-center justify-center gap-2 py-6"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Tocando cada fuente de ${_vcEsc(t)}&hellip;</p>`;
+    if (window.lucide) lucide.createIcons();
+    let d;
+    try {
+        const r = await fetch(`${API_BASE}/api/tito-health?ticker=${encodeURIComponent(t)}`);
+        d = await r.json();
+    } catch (e) { d = { ok: false, error: e.message, checks: [] }; }
+    renderProjSalud(d);
+    vcMarcaVivo('salud');
+}
+
+function renderProjSalud(d) {
+    const caja = document.getElementById('projSalud');
+    if (!caja) return;
+    const checks = d.checks || [];
+    if (!checks.length) {
+        caja.innerHTML = `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+            <p class="text-xs text-amber-300">No se pudo diagnosticar: ${_vcEsc(d.error || 'sin respuesta')}</p></div>`;
+        return;
+    }
+    const malos = checks.filter(c => !c.ok).length;
+    const filas = checks.map(c => `<tr class="border-b border-gray-800/50 ${c.ok ? '' : 'bg-amber-500/[0.04]'}">
+        <td class="py-1.5 pr-2 text-center">${c.ok ? '<span class="text-emerald-400">&#10003;</span>' : '<span class="text-amber-400">&#9888;</span>'}</td>
+        <td class="py-1.5 pr-2 font-bold ${c.ok ? 'text-gray-300' : 'text-amber-300'}">${_vcEsc(c.check)}</td>
+        <td class="py-1.5 pr-2 text-gray-400">${_vcEsc(c.detalle || '')}</td>
+        <td class="py-1.5 pr-2 text-[9px] text-gray-500">${_vcEsc(VC_SALUD_QUIEN[c.check] || '&mdash;')}</td>
+        <td class="py-1.5 text-[9px] ${c.ok ? 'text-gray-600' : 'text-amber-200/80'}">${
+            c.ok ? '' : `${_vcEsc(c.impacto || '')}${c.arreglo ? ` <span class="text-blue-300">&rarr; ${_vcEsc(c.arreglo)}</span>` : ''}`}</td></tr>`).join('');
+
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+          <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="activity" class="w-4 h-4"></i> Cobertura de los sub-agentes &mdash; ${_vcEsc(d.ticker || '')}</h3>
+          <span class="text-[10px] ${malos ? 'text-amber-400' : 'text-emerald-400'} font-bold">${checks.length - malos} de ${checks.length} en verde</span>
+        </div>
+        <p class="text-[10px] text-gray-600 italic mb-3 leading-snug">La pregunta que el scorecard no contesta: <b>&iquest;con qu&eacute; dato sali&oacute; ese n&uacute;mero?</b> Un 62/100 sostenido por dos categor&iacute;as de seis se ve igual que uno sostenido por las seis. Las dos series que se acumulan &mdash;IV y flows&mdash; empiezan vac&iacute;as y crecen solas: <b>mirar un ticker ya es aportar</b>.</p>
+        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[720px]"><thead>
+          <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+            <th class="pb-1.5 pr-2">&nbsp;</th><th class="text-left pb-1.5 pr-2">Qu&eacute;</th>
+            <th class="text-left pb-1.5 pr-2">Estado</th><th class="text-left pb-1.5 pr-2">A qui&eacute;n afecta</th>
+            <th class="text-left pb-1.5">Si falta</th></tr></thead><tbody>${filas}</tbody></table></div>
+        <button onclick="loadProjSalud()" class="mt-2 text-[10px] font-bold px-2.5 py-1 rounded-lg bg-[#0B0E14] text-gray-400 border border-gray-800 hover:text-white transition">&#8635; Volver a comprobar</button>
+        <p class="text-[9px] text-gray-600 mt-2 leading-relaxed">Los sub-agentes 1 a 4 puntúan sobre el dato de HOY: si la fuente responde, tienen cobertura completa. Los que necesitan historia son el <b>5</b> (60 días de IV para el rank real; mientras tanto usa el proxy de volatilidad realizada, que no es peor, es otra cosa) y el <b>6</b> (flujo pasado con precio del subyacente, para medir qué hizo el precio después). Nada de esto se puede comprar hecho: se acumula.</p>
+      </div>`;
+    if (window.lucide) lucide.createIcons();
+    vcTablaResponsive('projSalud');
+}
 
 /* ── TIME & SALES ──────────────────────────────────────────────────────── */
 
@@ -9190,6 +9278,7 @@ function analyzeTickerNow(tk) {
         <div id="projWheel"></div>
     </div>
     <div id="projPaneTape" class="hidden"><div id="projTape"></div></div>
+    <div id="projPaneSalud" class="hidden"><div id="projSalud"></div></div>
 </main>
 
 <!-- ═══════════════════════════════════════════════════════════════════════

@@ -855,12 +855,19 @@ class TestElTabEsSoloDeVictor:
         assert "if (vcTabActiva !== 'tape') vcAbreTab('ticker');" in html
 
     def test_estan_sus_cuatro_pestanas_con_su_orden(self):
-        """`NavTabs.tsx`: Ticker / Ideas / Wheel / Time & Sales, en ese orden."""
+        """`NavTabs.tsx`: Ticker / Ideas / Wheel / Time & Sales, en ese orden.
+
+        Las SUYAS van primero y en su orden. La quinta —Cobertura— es de
+        Vertex y va al final: su app no la tiene porque su despliegue es local
+        y él ve el log; aquí el agente corre en un servidor que nadie mira, y
+        «¿con qué dato salió este número?» no se puede contestar de otra forma.
+        """
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
         i = html.index("const VC_TABS = [")
         bloque = html[i:html.index("];", i)]
         orden = re.findall(r"\['(\w+)',", bloque)
-        assert orden == ["ticker", "ideas", "wheel", "tape"], orden
+        assert orden[:4] == ["ticker", "ideas", "wheel", "tape"], orden
+        assert orden[4:] == ["salud"], f"pestaña de más sin declarar: {orden[4:]}"
         for texto in ("Ticker", "Ideas", "Wheel", "Time &amp; Sales"):
             assert texto.replace("&amp;", "&") in bloque or texto in bloque
         dom = self._dom()
@@ -2991,6 +2998,8 @@ class TestElPanelNoLeeCamposQueNadieManda:
         "trades", "notable", "total", "period", "aggression",
         # /api/tito-ideas — `renderProjIdeas` (el aviso de escaneo truncado)
         "truncated",
+        # /api/tito-health — `renderProjSalud`, la pestaña de Cobertura
+        "checks",
         # sobres de error / degradación, comunes a todas
         "ok", "error", "degraded",
     }
@@ -3177,6 +3186,95 @@ class TestElTabSeVeEnRender:
         assert "_projFlowAviso(" in cuerpo, "los fallos vuelven a ser mudos"
         assert 'id="projFlowMoneyAviso"' in html, "el aviso no tiene dónde pintarse"
         assert "function _projFlowAviso(" in html
+
+
+class TestLaCoberturaDeLosSubAgentes:
+    """`/api/tito-health` existía en el servidor y no lo llamaba NADIE.
+
+    Es la única respuesta a la pregunta que el scorecard no contesta: «¿con qué
+    dato salió este número?». Un 62/100 sostenido por dos categorías de seis se
+    ve idéntico a uno sostenido por las seis — el veredicto lleva el mismo
+    tamaño de letra. El diagnóstico estaba escrito, tocaba cada fuente una por
+    una, decía el impacto y el arreglo… y vivía declarado como «se consulta a
+    mano al desplegar», o sea nunca.
+    """
+
+    #: Lo que tiene que mirar. Las tres últimas faltaban: son las que deciden si
+    #: el agente MEJORA con el tiempo o se estrena cada semana.
+    OBLIGATORIOS = ("ticker", "motor", "MASSIVE_API_KEY", "MARKETSNACK_COOKIE",
+                    "memoria.disco", "memoria.iv", "memoria.flows",
+                    "memoria.predicciones", "memoria.cadenas", "memoria.respaldo")
+
+    def test_diagnostica_las_tres_series_y_el_respaldo(self, client):
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        nombres = [c["check"] for c in d["checks"]]
+        for k in self.OBLIGATORIOS:
+            assert k in nombres, f"el diagnóstico no mira «{k}»"
+
+    def test_cada_fallo_dice_el_impacto_y_el_arreglo(self, client):
+        """Un diagnóstico que dice «falta X» y no dice qué se rompe ni cómo
+        arreglarlo obliga a leer el código para usarlo."""
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        for c in d["checks"]:
+            if c["ok"]:
+                continue
+            assert c.get("impacto"), f"«{c['check']}» falla y no dice qué se rompe"
+            assert c.get("arreglo"), f"«{c['check']}» falla y no dice cómo arreglarlo"
+
+    def test_la_calibracion_se_declara_con_sus_muestras(self, client):
+        """El lazo que corrige los targets. Sin él el agente puede llevar seis
+        meses apuntando un 8% de más y seguir apuntando lo mismo."""
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        pred = next(c for c in d["checks"] if c["check"] == "memoria.predicciones")
+        assert "muestras" in pred["detalle"] and "vencidas" in pred["detalle"]
+
+    def test_el_respaldo_dice_que_sin_el_todo_vuelve_a_cero(self, client):
+        """En Render free el disco se borra en cada redeploy. Sin respaldo, los
+        contadores de arriba vuelven a cero solos y el agente se estrena otra
+        vez sin que nadie lo note: los números que enseña son correctos,
+        simplemente empiezan de nuevo."""
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        r = next(c for c in d["checks"] if c["check"] == "memoria.respaldo")
+        if not r["ok"]:
+            assert "VERTEX_GIT_TOKEN" in (r["arreglo"] or "")
+            assert "redeploy" in (r["impacto"] or "")
+
+    def test_no_imprime_credenciales(self, client, monkeypatch):
+        """Dice si la clave está y cuánto mide. Nunca lo que vale."""
+        monkeypatch.setenv("MASSIVE_API_KEY", "clave-secreta-de-verdad-123")
+        monkeypatch.setenv("MARKETSNACK_COOKIE", "cookie-secreta-de-verdad-456")
+        cuerpo = client.get("/api/tito-health?ticker=DEMO").text
+        assert "clave-secreta-de-verdad" not in cuerpo
+        assert "cookie-secreta-de-verdad" not in cuerpo
+
+    def test_la_pestana_existe_y_lo_pinta(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "'salud'" in html and "Cobertura" in html
+        assert "function loadProjSalud(" in html and "function renderProjSalud(" in html
+        assert "loadProjSalud();" in html, "la pestaña existe y nadie la carga"
+        assert 'id="projPaneSalud"' in html and 'id="projSalud"' in html
+        assert "/api/tito-health?ticker=" in html, "el panel no llama a la ruta"
+
+    def test_cada_check_dice_a_que_sub_agente_afecta(self):
+        """La tabla traduce el diagnóstico de sistema a la pregunta del
+        usuario: no «falta MARKETSNACK_COOKIE», sino «Agresividad, Convicción,
+        Inusualidad y Contexto IV se quedan sin dato»."""
+        import re
+
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("const VC_SALUD_QUIEN = {")
+        mapa = html[i:html.index("};", i)]
+        for k in self.OBLIGATORIOS:
+            if k in ("ticker", "motor"):
+                continue           # no son de ningún sub-agente: son el arranque
+            assert f"'{k}'" in mapa, f"«{k}» no dice a quién afecta"
+
+    def test_la_ruta_ya_no_esta_declarada_como_huerfana(self):
+        """Tenía cliente cero y estaba declarada así. Ahora lo tiene, y dejar
+        la declaración sería documentación que afirma lo contrario del código."""
+        aud = (ROOT / "engine" / "scripts" / "auditar_tito.py").read_text(encoding="utf-8")
+        i = aud.index("RUTAS_HUERFANAS = {")
+        assert '"tito-health"' not in aud[i:aud.index("\n}", i)]
 
 
 class TestLaEvidenciaDelSubAgente6:

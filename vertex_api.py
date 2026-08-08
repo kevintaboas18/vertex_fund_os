@@ -4362,11 +4362,20 @@ def _tito_tape(ticker):
     """
     from wbj.tito.marketsnack import MarketSnackError, fetch_flow
     from wbj.tito.scorecard import (CONVICTION_DAYS, CONVICTION_MAX_PAGES,
-                                    CONVICTION_MIN_PREMIUM)
+                                    CONVICTION_MIN_PREMIUM, LEAN_MAX_PAGES,
+                                    MIN_PREMIUM)
 
+    # Los dos de la ventana corta iban a mano —`100_000` y `6`— teniendo el
+    # nombre a un import de distancia. Coincidían con los suyos, así que no
+    # cambiaba ningún número; lo que fallaba era el ACOPLE: `/api/tito-tape`
+    # baja exactamente esta misma ventana y sí los usa por nombre, así que si
+    # Víctor sube `LEAN_MAX_PAGES` a 10, la cinta bajaría 10 páginas y el
+    # scorecard seguiría en 6 — las dos pantallas puntuando sobre universos
+    # distintos sin que nada lo dijera. Y el cotejo de constantes de la
+    # auditoría solo ve los nombres: un número suelto le es invisible.
     try:
-        trades = fetch_flow(ticker, period="5d", min_premium=100_000,
-                            max_pages=6).trades
+        trades = fetch_flow(ticker, period="5d", min_premium=MIN_PREMIUM,
+                            max_pages=LEAN_MAX_PAGES).trades
         error = None
     except MarketSnackError as e:
         # Sin tape el motor sigue corriendo con la cadena (GEX + estructura),
@@ -4832,6 +4841,65 @@ def tito_health(ticker: str = "AAPL"):
                 "el tape de MarketSnack cambió de esquema: revisa que cada trade traiga "
                 "`asset_price` y `timestamp`",
                 "el archivo crece pero el sub-agente 6 no puede puntuar nada")
+
+        # ── Las tres coberturas que faltaban ────────────────────────────────
+        #
+        # Este diagnóstico cubría las fuentes (Massive, MarketSnack) y dos de
+        # las tres series que se acumulan (IV y flows). Las otras tres piezas
+        # del aprendizaje no las miraba nadie, y son justo las que deciden si
+        # el agente MEJORA con el tiempo o se queda estrenándose cada día.
+
+        # 1. Predicciones — el lazo de calibración. Sin ellas los targets nunca
+        #    se corrigen: el agente puede llevar seis meses apuntando un 8% de
+        #    más y seguir apuntando lo mismo.
+        _journal = st.load_journal(tk)
+        _preds = len(_journal)
+        _rev = st.review_predictions(_journal, [], datetime.now(timezone.utc))
+        _venc = _rev.get("matured_count", 0)
+        _cal = st.calibration_from_review(_rev)
+        _muestras = _cal.get("samples", 0) or 0
+        add("memoria.predicciones", _preds > 0,
+            f"{_preds} guardadas · {_venc} vencidas · calibración "
+            + (f"ACTIVA con {_muestras} muestras (sesgo {_cal.get('bias_pct')}%)"
+               if _muestras >= 5 else f"en espera ({_muestras}/5 muestras)"),
+            None if _preds else "se guardan solas en cada análisis de este ticker",
+            None if _preds else "sin predicciones no hay track record ni calibración: "
+                                "los targets nunca se corrigen solos")
+
+        # 2. Cadenas — la serie que permite reconstruir POR QUÉ el sub-agente 4
+        #    puntuó lo que puntuó un día concreto. Es la única evidencia que no
+        #    se puede recomprar: Massive vende la cadena de HOY, no la del
+        #    martes pasado.
+        _cad = len(st.load_chain_history(tk))
+        add("memoria.cadenas", _cad > 0,
+            f"{_cad} fotos diarias de la estructura de la cadena",
+            None if _cad else "se acumulan solas con cada análisis",
+            None if _cad else "no se podrá comparar la estructura de hoy con la de "
+                              "hace un mes: esa serie no se puede comprar después")
+
+        # 3. EL ALMACÉN — el que decide si todo lo anterior sobrevive.
+        #    En Render free el disco se borra en cada redeploy y cada vez que el
+        #    servicio despierta. Sin respaldo, los tres contadores de arriba
+        #    vuelven a cero solos y el agente se estrena cada semana sin que
+        #    nadie lo note: los números que enseña son correctos, simplemente
+        #    empiezan de nuevo.
+        try:
+            import vertex_almacen as _AL
+            _foto = _AL.almacen.estado()    # `almacen` es la instancia, no una fábrica
+            _resp = bool(_foto.get("respalda"))
+            add("memoria.respaldo", _resp,
+                (f"activo · rama `{_foto.get('rama')}` · {_foto.get('commits')} commits"
+                 + (f" · último push {_foto.get('ultimo_push')}" if _foto.get("ultimo_push") else "")
+                 ) if _resp else (_foto.get("motivo") or "sin respaldo"),
+                None if _resp else "pon VERTEX_GIT_TOKEN en Render (fine-grained, "
+                                   "Contents → Read and write sobre este repositorio)",
+                None if _resp else "en Render free el disco se borra en cada redeploy: "
+                                   "IV, flows, cadenas y predicciones vuelven a cero y "
+                                   "el agente se estrena otra vez")
+        except Exception as e:                       # noqa: BLE001
+            add("memoria.respaldo", False, f"no se pudo leer el almacén: {e}",
+                "revisa vertex_almacen.py",
+                "sin respaldo, la memoria no sobrevive a un redeploy")
     except Exception as e:
         add("memoria.disco", False, str(e),
             "en Render el plan free NO tiene disco: sube a starter y monta el volumen "

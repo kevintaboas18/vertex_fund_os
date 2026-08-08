@@ -958,9 +958,6 @@ HUERFANAS = {
         "sin llamador también en su wheel.ts: la exporta y no la usa ni su "
         "/api/wheel ni su wheel/page.tsx. El escaneo saca su IV de respaldo de "
         "la volatilidad REALIZADA, no de la IV del strike ATM",
-    "load_chain_history":
-        "sin llamador también en su chainStore.ts. Aquí el sub-agente 4 puntúa "
-        "sobre la cadena de HOY; la serie se acumula para poder usarla, no se lee",
 
     # ── watchlist: SU cliente es el navegador, aquí también ──
     #
@@ -1768,7 +1765,6 @@ RUTAS_HUERFANAS = {
     "collect-signals":   "captura del snapshot diario para ese backtest",
     "signal-history":    "histórico de ese backtest",
     # ── nunca tuvieron cliente en el panel, a propósito ──
-    "tito-health":       "diagnóstico del motor: se consulta a mano al desplegar",
     "tito-scorecard":    "el scorecard suelto, sin memoria ni gráfica (API pública)",
     # ── anteriores a este trabajo ──
     "finnhub-quote":     "cotización suelta; la usa el flujo de análisis, no el panel",

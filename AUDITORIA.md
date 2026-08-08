@@ -5636,3 +5636,84 @@ suelto vuelva a depender del orden.
 
 **2.925 tests del motor · 566 de la capa web · 317 checks de auditoría · 105 +
 62 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.41 Ronda 16 — la cobertura: qué lee cada sub-agente y qué le falta
+
+**Fecha:** 2026-08-08 · **Contra:** `infusionvictor/agente-tito-metralleta@53d5a20`
+
+Las quince rondas anteriores compararon el CÓDIGO contra el suyo. Esta mira otra
+cosa: **con qué dato salen los números**.
+
+### Lo que estaba bien (medido, no supuesto)
+
+El lazo de memoria cierra en los cuatro caminos. Verificado ejecutando el ciclo
+real —guardar, leer, filtrar, puntuar— y no con diccionarios inventados:
+
+| Camino | Medido |
+|---|---|
+| `save_trades` → `load_trades` → `trades_utiles` → sub-agente 6 | 5 guardados → 5 leídos → 5 pasan el filtro → **flows=5** |
+| El mismo, con flujo de hace 40 días | 5 outcomes **resueltos**, score 10, hit rate 100%, umbral 3,38% |
+| IV Rank sin historia propia | `realized-proxy` sobre **220 días** de barras |
+| IV Rank con 70 días acumulados | cambia solo a `iv-history` |
+| Barras del panel | 365 días, cacheadas por día de mercado |
+
+Y la Wheel, sin proponérselo, **calienta el cache de barras de sus 41 símbolos**
+en cada escaneo (`cached_daily_bars` guarda), así que cualquier análisis
+posterior de esos tickers arranca con el proxy de IV completo.
+
+**Lo que NO se hizo, a propósito:** guardar las cadenas del escaneo de la Wheel
+como fotos de estructura. Su cadena está filtrada a puts dentro de la banda de
+DTE del preset — un `structure_score` sobre ese subconjunto no es comparable con
+el de una cadena entera, y mezclarlos en la misma serie la corrompería. Más
+datos no es mejor si no son comparables.
+
+### Lo que estaba mal
+
+**1. `/api/tito-health` no lo llamaba nadie.** El diagnóstico existía: tocaba
+Massive, MarketSnack, el disco, la IV y los flows uno por uno, y decía el
+impacto y el arreglo de cada fallo. Estaba declarado como «se consulta a mano al
+desplegar», o sea nunca. Es la única respuesta a la pregunta que el scorecard no
+contesta: **un 62/100 sostenido por dos categorías de seis se ve idéntico a uno
+sostenido por las seis.**
+
+**2. Le faltaban tres coberturas** — justo las que deciden si el agente mejora
+con el tiempo o se estrena cada semana:
+
+- **`memoria.predicciones`**: el lazo de calibración. Sin él los targets nunca
+  se corrigen; el agente puede llevar seis meses apuntando un 8% de más y
+  seguir apuntando lo mismo.
+- **`memoria.cadenas`**: la única evidencia que no se puede recomprar. Massive
+  vende la cadena de HOY, no la del martes pasado.
+- **`memoria.respaldo`**: el que decide si los otros tres sobreviven. En Render
+  free el disco se borra en cada redeploy; sin `VERTEX_GIT_TOKEN` los contadores
+  vuelven a cero solos y el agente se estrena otra vez **sin que nadie lo note**
+  — los números que enseña son correctos, simplemente empiezan de nuevo.
+
+**3. Dos constantes de la ventana corta iban a mano** (`100_000` y `6`) teniendo
+el nombre a un import de distancia. Coincidían con los suyos, así que no cambiaba
+ningún número; lo que fallaba era el ACOPLE: `/api/tito-tape` baja exactamente
+esa misma ventana y sí los usa por nombre. Si Víctor sube `LEAN_MAX_PAGES` a 10,
+la cinta bajaría 10 páginas y el scorecard seguiría en 6 — dos pantallas
+puntuando sobre universos distintos sin que nada lo dijera. Y el cotejo de
+constantes de la auditoría solo ve los nombres: un número suelto le es invisible.
+
+### La pestaña de Cobertura
+
+Quinta pestaña del tab, después de las cuatro suyas. Por cada check: qué es, en
+qué estado está, **a qué sub-agente afecta** y qué se rompe si falta, con el
+arreglo. La traducción importa: no «falta MARKETSNACK_COOKIE», sino «Agresividad,
+Convicción, Inusualidad y Contexto IV se quedan sin dato».
+
+Es de Vertex, no suya, y se declara así: su despliegue es local y él ve el log.
+Aquí el agente corre en un servidor que nadie mira.
+
+Al cablearla, el registro de huérfanas del auditor cazó que `load_chain_history`
+—declarada «sin llamador, también en su chainStore.ts»— ahora sí tiene uno. La
+declaración se retira: una que afirma lo contrario del código es peor que
+ninguna.
+
+### Estado
+
+**2.925 tests del motor · 574 de la capa web · 317 checks de auditoría · 105 +
+62 del smoke · 16 diferenciales · preflight de Render en verde · 0 fallos,
+0 avisos, 0 skips.**
