@@ -3984,7 +3984,13 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     # tiene en su propia ruta y su propio panel. Acoplarlas al scorecard haría
     # que 4 feeds RSS lentos retrasaran los targets, que es lo que de verdad
     # importa — y un feed caído no debe hacer esperar a nadie.
-    _tito_remember(tk, r, now)
+    # Si la predicción no se pudo guardar, entra en la MISMA lista que las otras
+    # tres escrituras. El panel ya la pinta; lo que faltaba era que ésta llegara.
+    _falla_pred = _tito_remember(tk, r, now)
+    if _falla_pred:
+        _st = out.get("memory") or {}
+        _st["escrituras_fallidas"] = (_st.get("escrituras_fallidas") or []) + [_falla_pred]
+        out["memory"] = _st
     if flow_error:
         out["flow_error"] = flow_error
         out["warnings"] = [f"Sin tape de MarketSnack: {flow_error}"] + out.get("warnings", [])
@@ -6330,6 +6336,14 @@ def _tito_remember(ticker, result, now):
 
     Solo se guardan las fiables: archivar una predicción marcada NO FIABLE
     contaminaría el sesgo histórico con ruido que el agente ya sabía malo.
+
+    Devuelve `None` si todo fue bien, o el motivo del fallo. **No se traga el
+    error en silencio**: las otras tres escrituras del panel (cadena, trades,
+    IV) ya se contaban en `escrituras_fallidas`, y justo ésta —de la que
+    depende TODA la calibración, o sea lo único que hace que el agente mejore
+    con el tiempo— fallaba muda. Un disco lleno o un permiso mal puesto podían
+    dejar el track record congelado durante meses sin que nada lo dijera, y el
+    panel seguiría enseñando «0 predicciones vencidas» como si fuera pronto.
     """
     try:
         from wbj.tito import stores as st
@@ -6344,8 +6358,13 @@ def _tito_remember(ticker, result, now):
                 saved_at=now.astimezone(timezone.utc).strftime(
                     "%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z",
             ))
-    except Exception:
-        pass  # la memoria es acumulativa: perder un día no rompe la corrida
+    except Exception as e:                           # noqa: BLE001
+        # La memoria es acumulativa: perder un día no rompe la corrida — pero
+        # sí se dice, que es la diferencia entre degradarse y mentir.
+        logging.getLogger(__name__).warning(
+            "no se pudo guardar la predicción de %s: %s", ticker, e)
+        return f"predicciones: {type(e).__name__}"
+    return None
 
 
 #: Lo que NO se archiva del scorecard, con su peso medido.

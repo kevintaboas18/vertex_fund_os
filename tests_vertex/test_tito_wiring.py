@@ -2102,8 +2102,6 @@ class TestElPanelNoTiraNadaDelPayload:
     #: Hojas de `subagents` que el panel no lee, con su motivo. El registro es
     #: la única salida: o se pinta, o se declara aquí.
     _SUB_NO_SE_PINTAN = {
-        "aggression.ratio": "no se pinta como número; decide la etiqueta "
-                            "('Compra agresiva' / 'Presión al bid' / 'Mixto') con sus cortes 0.66/0.34",
         "conviction.dominance.ask_pct": "el desglose ask/bid ya se ve en la barra "
                                         "de Agresividad; aquí se pinta la dominante",
         "conviction.dominance.bid_pct": "idem",
@@ -2111,8 +2109,6 @@ class TestElPanelNoTiraNadaDelPayload:
                                  "`iv.band`, que sí se pinta",
         "iv_context.iv.contracts": "sobre cuántos contratos se promedió la IV; "
                                    "la muestra ya la da `by_expiration`",
-        "structure.notional.total": "el total no se pinta: la métrica de su "
-                                    "StructureCard es el promedio POR STRIKE",
     }
 
     @staticmethod
@@ -2132,8 +2128,6 @@ class TestElPanelNoTiraNadaDelPayload:
     _HOJAS_NO_SE_PINTAN = {
         "gex_heatmap.max_abs_cell": "el normalizador de la escala de color; lo "
                                     "consume el propio degradado, no es un dato de mercado",
-        "structure.avg_notional": "duplicado del `notional.avg_per_strike` que "
-                                  "pinta la tarjeta de Estructura con sus puntos",
     }
 
     @staticmethod
@@ -2183,6 +2177,45 @@ class TestElPanelNoTiraNadaDelPayload:
         reales = set(self._hojas(self._payload_completo()))
         sobran = sorted(set(self._HOJAS_NO_SE_PINTAN) - reales)
         assert not sobran, f"declaradas como no pintadas pero ya no se sirven: {sobran}"
+
+    def test_ninguna_declaracion_del_scorecard_miente_al_reves(self):
+        """La otra cara: una entrada que dice «esto NO se pinta» de algo que el
+        panel **sí** pinta.
+
+        El barrido salta una hoja declarada **antes** de mirar el HTML, así que
+        la declaración sobrevive a su propio motivo y se queda como
+        documentación que afirma lo contrario del código. En Ideas y la Wheel
+        pasó con catorce a la vez. Este es el mismo control para los tres
+        registros del scorecard.
+
+        Nota: las hojas de `_NO_SE_PINTAN` con nombre de infraestructura
+        (`ok`, `ticker`, `history`…) SÍ aparecen en el HTML por otras vías —el
+        `if (!d.ok)`, el título del panel— y por eso se comprueban solo las dos
+        listas de hojas, que son las que hablan de datos de mercado.
+        """
+        import re
+
+        #: Colisiones de NOMBRE, no declaraciones podridas: dos hojas distintas
+        #: que se llaman igual son indistinguibles para el barrido.
+        #: `iv_context.iv.contracts` es sobre cuántos contratos se promedió la
+        #: IV, y no se pinta; `by_expiration[].contracts` es la muestra por
+        #: vencimiento, y sí. Los dos nombres son los de su `IvContextScore`.
+        COLISIONES = {"iv_context.iv.contracts"}
+
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        mentiras = []
+        for ruta in sorted(set(self._HOJAS_NO_SE_PINTAN) | set(self._SUB_NO_SE_PINTAN)):
+            if ruta in COLISIONES:
+                continue
+            hoja = ruta.rsplit(".", 1)[-1]
+            # Se busca el acceso por la hoja, igual que el barrido — con la
+            # misma limitación: dos hojas homónimas son indistinguibles. Aquí
+            # no hay ninguna, y si apareciera este test lo diría.
+            if re.search(rf"\.{re.escape(hoja)}\b|\['{re.escape(hoja)}'\]", html):
+                mentiras.append(ruta)
+        assert not mentiras, (
+            f"{mentiras} están declaradas como «no se pintan» y el panel SÍ las "
+            "pinta. Bórralas del registro en vez de dejarlas mintiendo.")
 
     def test_cada_hoja_del_detalle_de_subagentes_se_pinta(self):
         """El fallo que ESTE test existe para impedir, ya cometido una vez.
@@ -2927,6 +2960,41 @@ class TestElPanelNoLeeCamposQueNadieManda:
         assert not huerfanos, (
             f"el panel lee campos que ninguna ruta manda: {huerfanos}. "
             "O el backend dejó de mandarlos, o el render quedó colgando.")
+
+
+class TestLaMemoriaFallaEnVozAlta:
+    """La escritura de la que depende TODO el aprendizaje era la única muda.
+
+    El panel ya contaba las escrituras fallidas de cadena, trades e IV en
+    `memory.escrituras_fallidas`, y las pinta. La de PREDICCIONES —la que cierra
+    el lazo de calibración, o sea lo único que hace que el agente mejore con el
+    tiempo— vivía en un `except Exception: pass`. Un disco lleno o un permiso
+    mal puesto dejaban el track record congelado durante meses mientras el panel
+    seguía diciendo «0 predicciones vencidas», que es lo que se ve el primer día.
+    """
+
+    def test_si_no_se_puede_guardar_la_prediccion_se_dice(self, client, monkeypatch):
+        import wbj.tito.stores as ST
+
+        def boom(*a, **k):
+            raise OSError("No space left on device")
+
+        monkeypatch.setattr(ST, "save_prediction", boom)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["ok"] is True, "un fallo de ESCRITURA no puede tumbar el análisis"
+        fallidas = (d.get("memory") or {}).get("escrituras_fallidas") or []
+        assert any("predicciones" in f for f in fallidas), \
+            f"la escritura falló y el panel no se entera: {fallidas}"
+
+    def test_cuando_se_guarda_bien_no_inventa_una_alerta(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        fallidas = (d.get("memory") or {}).get("escrituras_fallidas") or []
+        assert not any("predicciones" in f for f in fallidas)
+
+    def test_el_panel_pinta_esa_lista(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "m.escrituras_fallidas" in html, \
+            "el campo viaja y nadie lo enseña: volvería a fallar en silencio"
 
 
 class TestElTrackRecordSeVe:

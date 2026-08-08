@@ -5410,3 +5410,57 @@ exime la hoja en vez de renombrar su modelo para comodidad del test.
 
 **2.925 tests del motor · 547 de la capa web · 311 checks de auditoría · 105 +
 62 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.38 Ronda 14-ter — la escritura de la que depende el aprendizaje era la única muda
+
+**Fecha:** 2026-08-08
+
+Auditando lo que se guarda —que es la parte que hace que el agente mejore con
+el tiempo— aparecieron dos cosas.
+
+### Lo que estaba bien
+
+Las **quince** funciones de sus cinco stores (`barsStore`, `chainStore`,
+`ivStore`, `predictionStore`, `outboxStore`, `watchlistStore`, `store`) están
+portadas y llamadas desde las rutas. Las dos que no tienen llamador —`save_bars`
+(la llama `cached_daily_bars` por dentro) y `load_chain_history` (**tampoco lo
+tiene en su `chainStore.ts`**)— están declaradas con su motivo en el registro
+de huérfanas del auditor. El lazo entero cierra:
+
+| Se escribe | Se lee | Para qué |
+|---|---|---|
+| `save_chain_snapshot` | `load_chain_history` | reconstruir por qué el sub-agente 4 puntuó lo que puntuó |
+| `save_trades` | `load_trades` | el backtest del sub-agente 6 |
+| `save_iv_snapshot` | `load_iv_history` | el IV Rank REAL, a los 60 días |
+| `save_prediction` | `review_predictions` → `calibration_from_review` | el sesgo que corrige los targets |
+
+### Lo que estaba mal
+
+**`_tito_remember` se tragaba su error en un `except Exception: pass`.**
+
+Las otras tres escrituras pasan por `_guarda`, que apunta el fallo en
+`memory.escrituras_fallidas`, y el panel lo pinta. La de predicciones —la que
+cierra el lazo de calibración, o sea **lo único que hace que el agente mejore
+con el tiempo**— era la única muda. Un disco lleno o un permiso mal puesto
+dejaban el track record congelado durante meses mientras el panel seguía
+diciendo «0 predicciones vencidas», que es exactamente lo que se ve el primer
+día: la degradación se disfrazaba de estreno.
+
+Ahora devuelve el motivo, entra en la misma lista y se registra en el log.
+`TestLaMemoriaFallaEnVozAlta` lo comprueba en las dos direcciones —falla y se
+dice, va bien y no inventa alerta— y que el panel siga pintando la lista.
+Mutado (descartar el valor de retorno): falla.
+
+### Y catorce declaraciones podridas más, en los registros del scorecard
+
+El mismo control inverso de 41.37, aplicado a `_HOJAS_NO_SE_PINTAN` y
+`_SUB_NO_SE_PINTAN`. Tres mentían: `aggression.ratio` (se pinta desde que el
+veredicto de agresividad llegó a la cinta), `structure.notional.total` y
+`structure.avg_notional` (los dos se pintan en la misma línea de la tarjeta de
+Estructura). Con una exención declarada por colisión de nombre:
+`iv_context.iv.contracts` contra `by_expiration[].contracts`.
+
+### Estado
+
+**2.925 tests del motor · 551 de la capa web · 311 checks de auditoría · 105 +
+62 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
