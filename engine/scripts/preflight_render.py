@@ -12,9 +12,16 @@ corren en local y cada una dice si pasa o no:
   1. El Blueprint es YAML válido y declara build, start y health check.
   2. El repositorio no tiene nada que rompa un checkout en Linux.
   3. `pip install -r requirements.txt` resuelve.
-  4. `uvicorn vertex_api:app` arranca y BINDEA el puerto.
-  5. El health check (`GET /`) responde 200 con el panel dentro, y las rutas
+  4. `import vertex_api` funciona en un proceso limpio — CON y SIN las
+     variables de entorno de Render.
+  5. `uvicorn vertex_api:app` arranca y BINDEA el puerto.
+  6. El health check (`GET /`) responde 200 con el panel dentro, y las rutas
      del tab degradan en vez de reventar cuando faltan las claves.
+
+El paso 4 existe por un despliegue caído de verdad: el arranque moría con
+`EDGAR_USER_AGENT` DEFINIDA —una configuración correcta— y en local no se veía
+porque nadie define esa variable para desarrollar. La ausencia de configuración
+salvaba el arranque, que es exactamente al revés de lo que se asume al probar.
 
 Con `--remoto` clona `origin/main` en un temporal y corre lo mismo ahí: es la
 diferencia entre «funciona en mi árbol» y «funciona lo que Render va a bajar»,
@@ -173,11 +180,53 @@ def paso_deps(raiz: Path, instalar: bool) -> None:
 
 
 # ── 4 y 5 · El arranque y el health check ────────────────────────────────────
+#: Lo que Render tiene puesto y una máquina de desarrollo no.
+#:
+#: Esta lista es la lección del despliegue caído: el arranque moría con
+#: `EDGAR_USER_AGENT` DEFINIDA, y aquí no se veía porque nadie define esa
+#: variable para desarrollar. O sea que una configuración CORRECTA rompía el
+#: servicio y la falta de configuración lo salvaba — al revés de lo que todo el
+#: mundo asume al probar. Cada variable es una rama de código que en local no
+#: se ejecuta nunca; el preflight las enciende todas.
+ENTORNO_RENDER = {
+    "EDGAR_USER_AGENT": "Vertex Fund OS preflight@ejemplo.com",
+    "VERTEX_API_TOKEN": "token-de-preflight-largo",
+    "VERTEX_ORIGIN": "https://ejemplo.onrender.com",
+    "VERTEX_DB_KEY": "clave-de-preflight-para-fernet-0123456789",
+    "VERTEX_GIT_TOKEN": "ghp_tokenDePreflightQueNoSirve",
+    "MASSIVE_MAX_PAGES": "40",
+    "PLAID_ENV": "sandbox",
+    "JUDGE_MODEL": "claude-sonnet-4",
+}
+
+
+def paso_import(raiz: Path, py: str) -> None:
+    """`import vertex_api` en un proceso NUEVO, con y sin configuración.
+
+    Va antes que uvicorn porque es donde de verdad se cae: uvicorn no hace más
+    que importar el módulo, y si eso lanza, el proceso sale con código 1 y
+    Render dice «Exited with status 1 while running your code» sin más pista.
+    """
+    sec("4. import vertex_api — en un proceso limpio")
+    base = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": os.environ.get("HOME", "/tmp")}
+    for nombre, extra in (("sin ninguna variable", {}),
+                          ("con el entorno de Render", ENTORNO_RENDER)):
+        env = dict(base)
+        env.update(extra)
+        r = subprocess.run([py, "-c", "import vertex_api"], cwd=str(raiz),
+                           env=env, capture_output=True, text=True, timeout=300)
+        ok = chk(r.returncode == 0, f"importa {nombre}")
+        if not ok:
+            print("      " + (r.stdout + r.stderr).strip()[-900:].replace("\n", "\n      "))
+
+
 def paso_arranque(raiz: Path, py: str) -> None:
-    sec("4. uvicorn vertex_api:app — arranque y health check")
+    sec("5. uvicorn vertex_api:app — arranque y health check")
     puerto = 8791
     env = dict(os.environ)
-    # Render arranca SIN nada configurado la primera vez. Que las rutas
+    env.update(ENTORNO_RENDER)
+    # Render arranca SIN las claves de datos la primera vez. Que las rutas
     # degraden en vez de reventar es parte del contrato, no un detalle.
     for k in ("MASSIVE_API_KEY", "MARKETSNACK_COOKIE"):
         env.pop(k, None)
@@ -209,13 +258,19 @@ def paso_arranque(raiz: Path, py: str) -> None:
                    "renderVictorTargets"):
             chk(fn in cuerpo, f"…con {fn} dentro")
 
-        sec("5. Las rutas del tab, sin claves puestas")
+        sec("6. Las rutas del tab, sin claves de datos")
+        # Con `VERTEX_API_TOKEN` definida —y en Render lo está— la API EXIGE
+        # credencial: un 401 aquí es la seguridad C-02 funcionando, no un
+        # fallo. Se manda el token, que es lo que hace el navegador con su
+        # cookie de sesión; sin él este paso mediría la puerta, no las rutas.
+        cab = {"X-Vertex-Token": env.get("VERTEX_API_TOKEN", "")}
         for ruta in ("/api/projection-targets?ticker=DEMO", "/api/tito-ideas",
                      "/api/tito-tape?ticker=DEMO", "/api/tito-wheel",
                      "/api/almacen"):
             try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{puerto}{ruta}",
-                                            timeout=30) as r:
+                pet = urllib.request.Request(f"http://127.0.0.1:{puerto}{ruta}",
+                                             headers=cab)
+                with urllib.request.urlopen(pet, timeout=30) as r:
                     d = json.loads(r.read())
                     cod = r.status
             except urllib.error.HTTPError as e:
@@ -267,6 +322,7 @@ def main() -> int:
         paso_blueprint(raiz)
         paso_checkout(raiz)
         paso_deps(raiz, a.instalar)
+        paso_import(raiz, sys.executable)
         paso_arranque(raiz, sys.executable)
     finally:
         if tmp:

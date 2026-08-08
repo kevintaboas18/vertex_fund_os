@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import inspect
 import os
 import sys
 import tempfile
@@ -3014,6 +3015,88 @@ class TestElPanelNoLeeCamposQueNadieManda:
         assert not huerfanos, (
             f"el panel lee campos que ninguna ruta manda: {huerfanos}. "
             "O el backend dejó de mandarlos, o el render quedó colgando.")
+
+
+class TestElArranqueNoDependeDeQueFalteConfiguracion:
+    """El despliegue caído: una variable BIEN configurada rompía el arranque.
+
+    `engine/` llegaba a `sys.path` solo como EFECTO SECUNDARIO de
+    `_sec_user_agent()`, que lo insertaba dentro de su rama de respaldo. Con
+    `EDGAR_USER_AGENT` definida —el caso de Render, y el que la SEC exige— esa
+    función devuelve el valor y retorna ANTES de insertar nada. El
+    `from wbj.tito.scorecard import ...` de nivel de módulo moría entonces con
+    `ModuleNotFoundError: No module named 'wbj'`, uvicorn salía con código 1, y
+    Render lo reportaba como «Exited with status 1 while running your code».
+
+    En local nunca se veía: nadie define `EDGAR_USER_AGENT` para desarrollar,
+    así que la función caía al respaldo, insertaba el path de paso y todo lo
+    demás importaba. La AUSENCIA de configuración salvaba el arranque.
+
+    Los tests normales tampoco: corren dentro de un pytest que ya tiene el
+    `engine/` en el path por su propio conftest. Hay que importar en un proceso
+    NUEVO, con el entorno de Render, para ver lo que ve Render.
+    """
+
+    #: Las que Render tiene puestas y esta máquina no. Cada una es una rama del
+    #: código que en local no se ejecuta nunca.
+    ENTORNO_RENDER = {
+        "EDGAR_USER_AGENT": "Vertex Fund OS research@ejemplo.com",
+        "VERTEX_API_TOKEN": "un-token-largo-de-prueba",
+        "VERTEX_ORIGIN": "https://ejemplo.onrender.com",
+        "VERTEX_DB_KEY": "clave-de-prueba-para-fernet-0123456789",
+        "MASSIVE_API_KEY": "falsa",
+        "MARKETSNACK_COOKIE": "sesion=falsa",
+        "MASSIVE_MAX_PAGES": "40",
+        "PORT": "10000",
+    }
+
+    def _importa(self, extra: dict) -> tuple[int, str]:
+        import subprocess
+
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+               "HOME": os.environ.get("HOME", "/tmp")}
+        env.update(extra)
+        r = subprocess.run(
+            [sys.executable, "-c", "import vertex_api; print('IMPORT OK')"],
+            cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=180)
+        return r.returncode, (r.stdout + r.stderr)
+
+    def test_importa_con_el_entorno_de_render(self):
+        cod, salida = self._importa(self.ENTORNO_RENDER)
+        assert cod == 0, (
+            "`import vertex_api` falla con las variables de Render puestas — "
+            f"eso es el «Exited with status 1» del panel:\n{salida[-1500:]}")
+        assert "IMPORT OK" in salida
+
+    def test_importa_tambien_sin_ninguna_variable(self):
+        """La otra mitad: que arreglarlo para Render no lo rompa en local."""
+        cod, salida = self._importa({})
+        assert cod == 0, f"falla sin configuración:\n{salida[-1500:]}"
+
+    def test_el_motor_esta_en_el_path_antes_del_primer_import(self):
+        """El arreglo, en el código: `engine/` entra en `sys.path` donde se
+        define la ruta, no donde a alguien le hizo falta. Un import de nivel de
+        módulo no puede depender de qué función se ejecutó antes."""
+        fuente = (ROOT / "vertex_api.py").read_text(encoding="utf-8")
+        i_def = fuente.index("_WBJ_ENGINE_PATH = os.path.join(")
+        i_ins = fuente.index("sys.path.insert(0, _WBJ_ENGINE_PATH)", i_def)
+        # La inserción va pegada a la definición, y a nivel de módulo (sin
+        # indentar dentro de una función).
+        entre = fuente[i_def:i_ins]
+        assert "def " not in entre, "la inserción volvió a quedar dentro de una función"
+        # Y ocurre ANTES del primer `from wbj` de nivel de módulo.
+        i_wbj = fuente.index("\nfrom wbj.")
+        assert i_ins < i_wbj, "el path se inserta después del primer import de wbj"
+
+    def test_sec_user_agent_usa_la_variable_cuando_esta(self):
+        """Y el atajo de `_sec_user_agent` sigue ahí: con la variable puesta no
+        toca el motor para nada. Lo que se arregló es que ya no sea ÉL quien
+        pone el path."""
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._sec_user_agent)
+        assert 'os.environ.get("EDGAR_USER_AGENT")' in fuente
+        assert fuente.index("return ua") < fuente.index("_WBJ_ENGINE_PATH")
 
 
 class TestElTabSeVeEnRender:

@@ -62,6 +62,29 @@ except Exception:
 # `_sec_user_agent()` (A-01) la necesita al importar el módulo, mucho antes
 # de que se use para el scoring.
 _WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine")
+# …y se pone en `sys.path` AQUÍ, al importar el módulo, no cuando a alguien le
+# haga falta.
+#
+# Esta línea es el arreglo de un despliegue caído. `engine/` llegaba al path
+# solo como EFECTO SECUNDARIO de `_sec_user_agent()`, que lo insertaba dentro
+# de su rama de respaldo. Con `EDGAR_USER_AGENT` definida —que es el caso en
+# Render, y el que la SEC exige— esa función devuelve el valor y RETORNA ANTES
+# de insertar nada. El `from wbj.tito.scorecard import ...` de más abajo, que
+# es de nivel de módulo, moría entonces con `ModuleNotFoundError: No module
+# named 'wbj'` y uvicorn salía con código 1: «Exited with status 1 while
+# running your code».
+#
+# En local no se veía porque nadie define `EDGAR_USER_AGENT` para desarrollar:
+# sin ella la función caía al respaldo, insertaba el path de paso, y todo lo
+# demás importaba. Una variable de entorno CORRECTAMENTE configurada rompía el
+# arranque; la ausencia de configuración lo salvaba.
+#
+# El path de un motor que vive dentro del repositorio no puede depender de a
+# quién se le ocurra tocarlo primero. Los `sys.path.insert` que quedan repartidos
+# por el archivo son inocuos —todos preguntan `if not in sys.path`— y se dejan
+# para que ningún import suelto vuelva a depender del orden.
+if _WBJ_ENGINE_PATH not in sys.path:
+    sys.path.insert(0, _WBJ_ENGINE_PATH)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # EL ALMACÉN — dónde viven de verdad los datos

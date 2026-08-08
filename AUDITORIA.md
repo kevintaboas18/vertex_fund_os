@@ -5562,3 +5562,77 @@ algo que seguía tres líneas más abajo. Ahora leen la función entera.
 
 **2.925 tests del motor · 562 de la capa web · 317 checks de auditoría · 105 +
 62 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.40 El despliegue caído: una variable BIEN configurada rompía el arranque
+
+**Fecha:** 2026-08-08 · **Síntoma en Render:** «Exited with status 1 while
+running your code»
+
+### La causa
+
+`vertex_api.py` importa el motor de Víctor a NIVEL DE MÓDULO:
+
+```python
+from wbj.tito.scorecard import (_unir, CONVICTION_TABLE_CAP, LEAN_MAX_PAGES,
+                                MIN_PREMIUM, TABLE_CAP)
+```
+
+Pero `engine/` llegaba a `sys.path` **solo como efecto secundario** de
+`_sec_user_agent()`, que lo insertaba dentro de su rama de respaldo:
+
+```python
+def _sec_user_agent():
+    ua = (os.environ.get("EDGAR_USER_AGENT") or "").strip()
+    if ua:
+        return ua                       # ← retorna SIN insertar el path
+    try:
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)   # ← el único que lo ponía
+```
+
+Con `EDGAR_USER_AGENT` **definida** —que es el caso en Render, y el que la
+política de fair-access de la SEC exige— la función devuelve el valor y retorna
+antes de tocar el path. El import de arriba muere entonces con
+`ModuleNotFoundError: No module named 'wbj'`, uvicorn sale con código 1, y
+Render lo reporta con esa frase que no dice nada.
+
+### Por qué no se veía
+
+**La ausencia de configuración salvaba el arranque.** Nadie define
+`EDGAR_USER_AGENT` para desarrollar, así que en local la función caía siempre al
+respaldo, insertaba el path de paso, y todo lo demás importaba. Es al revés de
+lo que se asume al probar: no era una variable faltante lo que rompía, era una
+variable correctamente puesta.
+
+Los tests tampoco lo veían: corren dentro de un pytest cuyo `conftest` ya tiene
+`engine/` en el path, así que el import de nivel de módulo nunca se ejercitaba
+en frío.
+
+Y el `preflight_render.py` de la ronda anterior **tampoco**: probaba el arranque
+*sin* claves —para comprobar que las rutas degradan— y esa es exactamente la
+condición bajo la que el fallo no ocurre. Un preflight que solo prueba el caso
+sin configurar mide medio despliegue.
+
+### El arreglo
+
+`sys.path.insert(0, _WBJ_ENGINE_PATH)` va **donde se define la ruta**, a nivel
+de módulo. El path de un motor que vive dentro del repositorio no puede depender
+de a quién se le ocurra tocarlo primero. Los `sys.path.insert` repartidos por el
+archivo se quedan —todos preguntan `if not in sys.path`— para que ningún import
+suelto vuelva a depender del orden.
+
+### Lo que impide que vuelva
+
+- **`TestElArranqueNoDependeDeQueFalteConfiguracion`**: importa `vertex_api` en
+  un proceso NUEVO, con el entorno de Render y sin él. Mutado (quitando la
+  línea del arreglo): 2 de 4 en rojo.
+- **El preflight ahora enciende las variables de Render** (`ENTORNO_RENDER`) y
+  añade un paso 4 que importa el módulo en frío, con y sin ellas. Y se
+  autentica con `X-Vertex-Token`: con `VERTEX_API_TOKEN` puesta, un 401 es la
+  seguridad C-02 funcionando, no un fallo — antes el preflight lo contaba como
+  error y medía la puerta en vez de las rutas.
+
+### Estado
+
+**2.925 tests del motor · 566 de la capa web · 317 checks de auditoría · 105 +
+62 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
