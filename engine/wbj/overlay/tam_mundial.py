@@ -681,7 +681,17 @@ def resolver_todas_las_industrias(settings: Any, fmp: Any, *,
                   else "sin fuente")
         filas.append({"industria": nombre, "empresas": empresas,
                       "estado": estado, "detalle": mensaje})
-        if _es_falta_de_cuota(mensaje):
+        # Que el mensaje NOMBRE una cuota no significa que el barrido este
+        # bloqueado. Con dos proveedores, el fallo de uno viaja en el mismo
+        # texto que las respuestas del otro.
+        #
+        # Medido: el barrido murio en la industria 8 de 137 por el "no credits
+        # remaining" de OpenAI -- mientras Gemini contestaba, y el propio
+        # mensaje lo decia: "3 respuestas sin cifra atribuible". Tres
+        # respuestas son tres respuestas. Lo que faltaba era una fuente, no
+        # cuota.
+        respondio_alguien = "respuestas sin cifra atribuible" in mensaje
+        if _es_falta_de_cuota(mensaje) and not respondio_alguien:
             # Un limite POR MINUTO no aborta un barrido de 132 industrias: le
             # marca el ritmo. El tier gratuito de Gemini da 20 peticiones por
             # minuto y su error dice cuanto falta, asi que se espera y se

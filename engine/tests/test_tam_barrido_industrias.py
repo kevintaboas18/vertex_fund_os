@@ -157,3 +157,22 @@ def test_the_limit_bounds_a_run(monkeypatch):
     vistas = _asegura(monkeypatch, {})
     tm.resolver_todas_las_industrias(fmp=fmp, settings=None, limite=2)
     assert len(vistas) == 2
+
+
+def test_one_dead_provider_does_not_kill_the_sweep(monkeypatch):
+    """El barrido murio en la industria 8 de 137 por el "no credits
+    remaining" de OpenAI -- mientras Gemini contestaba, y el propio mensaje lo
+    decia: "3 respuestas sin cifra atribuible".
+
+    Tres respuestas son tres respuestas. Con dos proveedores, el fallo de uno
+    viaja en el mismo texto que el trabajo del otro, y leer solo la palabra
+    "cuota" confunde "no pude preguntar" con "pregunte y no hay fuente".
+    """
+    fmp = _FMP([_empresa("Primera")] * 9 + [_empresa("Segunda")] * 5
+               + [_empresa("Tercera")] * 3)
+    vistas = _asegura(monkeypatch, {
+        "Primera": ("primera: no se pudo resolver (openai: RateLimitError You "
+                    "have no credits remaining; 3 respuestas sin cifra atribuible)")})
+    tm.resolver_todas_las_industrias(fmp=fmp, settings=None)
+    assert vistas == ["Primera", "Segunda", "Tercera"], (
+        f"un proveedor muerto corto el barrido: solo llego a {vistas}")
