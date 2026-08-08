@@ -127,6 +127,29 @@ CONVICTION_DAYS = 30
 CONVICTION_MIN_PREMIUM = 1_000_000
 CONVICTION_MAX_PAGES = 15
 
+# Las otras cuatro de su `/api/flow`, que faltaban. Tres de ellas existían en
+# `vertex_api.py` como números sueltos dentro de la llamada —el mismo valor,
+# pero sin nombre y sin nadie que los cotejara contra los suyos— y la cuarta
+# tenía OTRO valor.
+#
+#: Piso de premium del tape, aplicado server-side (`MIN_PREMIUM` suyo).
+MIN_PREMIUM = 100_000
+#: Tope de páginas del escaneo ligero (`LEAN_MAX_PAGES`): ~300 trades notables
+#: recientes, no miles.
+LEAN_MAX_PAGES = 6
+#: Cuántas notables se sirven en la tabla del reporte (`TABLE_CAP`). Vertex
+#: servía 120.
+TABLE_CAP = 100
+#: Cuántas filas de convicción se sirven (`CONVICTION_TABLE_CAP`).
+#:
+#: Vertex servía **25**, y no era solo una tabla más corta: esas filas alimentan
+#: tres cosas suyas —`ConvictionTransactions`, `ActivityCard` y `MoneyFlowCard`—
+#: y la última es la gráfica que dice "el dinero de CADA DÍA". Con las 25 de
+#: mayor premium no es el dinero del día: es el de los 25 trades más grandes,
+#: y los días que solo tienen trades medianos desaparecían del gráfico. Seis
+#: veces menos evidencia en pantalla para tres de las seis categorías.
+CONVICTION_TABLE_CAP = 150
+
 
 def run_scorecard(
     ticker: str,

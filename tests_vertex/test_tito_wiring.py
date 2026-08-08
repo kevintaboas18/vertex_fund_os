@@ -2596,3 +2596,53 @@ class TestBarrasIntradia:
         r = TestClient(V.app).get("/api/tito-bars?ticker=DEMO&tf=1y")
         assert r.status_code == 502
         assert "SECRETO" not in r.text
+
+
+class TestLasConstantesDeSuRutaDeFlujo:
+    """Sus siete `const` de `/api/flow`, con SU valor.
+
+    Cuatro faltaban. Tres estaban aquí como números sueltos dentro de la
+    llamada —el mismo valor, pero sin nombre, así que el cotejo de constantes
+    de la auditoría no podía verlas— y la cuarta tenía otro valor.
+
+    La cuarta importa de verdad: `CONVICTION_TABLE_CAP` decide cuántas filas de
+    convicción viajan al panel, y de esas filas comen sus TRES tarjetas
+    (`ConvictionTransactions`, `ActivityCard` y `MoneyFlowCard`). La última es
+    la gráfica que dice "el dinero de CADA DÍA": con 25 filas no es el dinero
+    del día, es el de los 25 trades más grandes, y un día entero de trades
+    medianos no aparecía.
+    """
+
+    def test_las_siete_valen_lo_que_las_suyas(self):
+        from wbj.tito import scorecard as S
+
+        assert S.MIN_PREMIUM == 100_000
+        assert S.LEAN_MAX_PAGES == 6
+        assert S.TABLE_CAP == 100
+        assert S.CONVICTION_DAYS == 30
+        assert S.CONVICTION_MIN_PREMIUM == 1_000_000
+        assert S.CONVICTION_MAX_PAGES == 15
+        assert S.CONVICTION_TABLE_CAP == 150
+
+    def test_la_capa_web_usa_las_del_motor_no_copias(self):
+        """Un número escrito a mano en la llamada se queda atrás en silencio el
+        día que él cambie el suyo."""
+        from wbj.tito import scorecard as S
+
+        import vertex_api as V
+
+        assert V.TITO_MIN_PREMIUM is S.MIN_PREMIUM
+        assert V.TITO_LEAN_MAX_PAGES is S.LEAN_MAX_PAGES
+        assert V.TITO_TABLE_CAP is S.TABLE_CAP
+        assert V.TITO_CONVICTION_TABLE_CAP is S.CONVICTION_TABLE_CAP
+
+    def test_ningun_tope_suelto_quedo_en_las_dos_rutas(self):
+        """El 120 de la cinta y el 25 de convicción, que eran los dos que no
+        coincidían con los suyos."""
+        import inspect
+
+        import vertex_api as V
+
+        cinta = inspect.getsource(V.tito_tape)
+        assert "[:120]" not in cinta and "TITO_TABLE_CAP" in cinta
+        assert "max_pages=6" not in cinta and "TITO_LEAN_MAX_PAGES" in cinta

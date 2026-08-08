@@ -4814,3 +4814,57 @@ vive el archivo — la rama `datos` del almacén, porque Víctor no despliega y 
 
 **2.918 tests del motor · 512 de la capa web · 308 checks de auditoría · 94 del
 smoke de componentes · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+---
+
+## 41.30 Las constantes de sus RUTAS, que el cotejo no miraba
+
+Kevin: *"¿lo solucionaste todo? ¿ya está al 100%?"*
+
+En vez de contestar, se volvió a buscar. Y apareció otra cosa, del mismo tipo
+que `format.ts`: **un sitio entero que ningún registro cubría por construcción**.
+
+El cotejo de constantes de la auditoría (§9-quater) compara `export const`
+numéricas de `web/lib/*.ts` — 34 valores. Sus **rutas** (`web/app/api/*/route.ts`)
+tienen las suyas propias y quedaban fuera:
+
+| ruta | constante | él | Vertex |
+|---|---|---|---|
+| `/api/flow` | `MIN_PREMIUM` | 100.000 | 100.000, **sin nombre** |
+| `/api/flow` | `LEAN_MAX_PAGES` | 6 | 6, **sin nombre** |
+| `/api/flow` | `TABLE_CAP` | 100 | **120** |
+| `/api/flow` | `CONVICTION_TABLE_CAP` | 150 | **25** |
+| `/api/ideas` | `MAX_IDEAS` | 60 | 60, con otro nombre |
+
+Tres eran números sueltos escritos dentro de la llamada: el mismo valor que el
+suyo, pero sin nombre, así que nada podía cotejarlos y el día que él cambie uno
+no se enteraría nadie.
+
+### La que sí cambiaba lo que se ve
+
+`CONVICTION_TABLE_CAP` valía **25** contra sus **150**, y no era "una tabla más
+corta". De esas filas comen sus TRES tarjetas —`ConvictionTransactions`,
+`ActivityCard` y `MoneyFlowCard`— y la última es la gráfica que dice *"el dinero
+de CADA DÍA"*.
+
+Con las 25 de mayor premium eso no es el dinero del día: es el de los 25 trades
+más grandes. Un día entero cuyo flujo fuera de tamaño medio **desaparecía del
+gráfico**, y las tres categorías que se apoyan en esas filas —Convicción,
+Inusualidad y Contexto IV— se quedaban con una sexta parte de la evidencia en
+pantalla.
+
+`TABLE_CAP` iba al revés: 120 filas donde él sirve 100.
+
+### Cerrado
+
+Las cuatro viven ahora en `scorecard.py` con SU nombre, y `vertex_api.py` las
+importa por nombre en vez de escribir el número. Y —lo que cierra la clase y no
+el caso— **el cotejo de la auditoría ahora escanea también sus rutas**: recorre
+`web/app/api/*/route.ts`, busca cada `const` numérica por nombre en el motor y
+en la capa web, y falla si falta o si difiere. Encontró sola la quinta
+(`MAX_IDEAS`, que aquí se llamaba `_IDEAS_MAX`).
+
+### Estado
+
+**2.918 tests del motor · 515 de la capa web · 310 checks de auditoría · 94 del
+smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**

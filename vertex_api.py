@@ -4788,7 +4788,7 @@ def tito_health(ticker: str = "AAPL"):
 _IDEAS_MIN_PREMIUM = 100_000   # piso server-side: flujo grande, no solo institucional
 _IDEAS_MAX_PAGES = 8
 _IDEAS_PERIOD = "1d"           # el sizing usa el precio del trade: cuanto más fresco, mejor
-_IDEAS_MAX = 60                # tope de filas devueltas
+_IDEAS_MAX_IDEAS = 60          # tope de filas devueltas (`MAX_IDEAS` suyo)
 _IDEAS_MAX_HISTORY_TICKERS = 25  # tope de llamadas a Massive por escaneo
 
 
@@ -4872,7 +4872,7 @@ def tito_ideas(request: Request):
     operables = sorted(
         _ideas_dedupe([r for r in filas if is_tradeable_idea(r) and within_moneyness(r)]),
         key=lambda r: r.premium if isinstance(r.premium, (int, float)) else 0,
-        reverse=True)[:_IDEAS_MAX]
+        reverse=True)[:_IDEAS_MAX_IDEAS]
     tickers = list(dict.fromkeys(r.underlying for r in operables))
 
     # Historial: SOLO para tickers que ya tienen flows guardados. Los demás
@@ -5008,6 +5008,20 @@ except Exception:                                # el motor puede no estar
 #: Concurrencia del escaneo Wheel — su `CONCURRENCY`. Cada ticker son dos
 #: llamadas a Massive (cadena + barras); sin tope, 40 símbolos en paralelo se
 #: comen la cuota de un tirón.
+#: Las cuatro constantes de su `/api/flow` que faltaban, importadas POR NOMBRE
+#: desde el motor en vez de escritas a mano en la llamada.
+#:
+#: Tres estaban aquí como números sueltos —el mismo valor que el suyo, pero sin
+#: nombre y sin nadie que los cotejara— y la cuarta tenía otro valor: la tabla
+#: de convicción servía 25 filas donde él sirve 150. Con el nombre, el cotejo de
+#: constantes de la auditoría las ve; con el número suelto, no.
+from wbj.tito.scorecard import (                                # noqa: E402
+    CONVICTION_TABLE_CAP as TITO_CONVICTION_TABLE_CAP,
+    LEAN_MAX_PAGES as TITO_LEAN_MAX_PAGES,
+    MIN_PREMIUM as TITO_MIN_PREMIUM,
+    TABLE_CAP as TITO_TABLE_CAP,
+)
+
 _WHEEL_CONCURRENCY = 6
 
 #: Reintentos ante un 429 de Massive, con espera creciente.
@@ -5366,7 +5380,8 @@ def tito_wheel(request: Request, preset: str = "balanceado"):
 
 
 @app.get("/api/tito-tape")
-def tito_tape(ticker: str, period: str = "5d", min_premium: float = 100_000):
+def tito_tape(ticker: str, period: str = "5d",
+              min_premium: float = TITO_MIN_PREMIUM):
     """Time & Sales de un ticker — su `/flow`.
 
     Es la cinta cruda ya clasificada por los sub-agentes 1-3: cada operación con
@@ -5385,7 +5400,8 @@ def tito_tape(ticker: str, period: str = "5d", min_premium: float = 100_000):
         return {"ok": False, "error": err}
     now = datetime.now(timezone.utc)
     try:
-        res = fetch_flow(tk, period=period, min_premium=min_premium, max_pages=6)
+        res = fetch_flow(tk, period=period, min_premium=min_premium,
+                         max_pages=TITO_LEAN_MAX_PAGES)
     except MarketSnackError as e:
         return {"ok": False, "error": _error_de_fuente(e, "Cinta de MarketSnack"),
                 "source": "marketsnack"}
@@ -5417,9 +5433,12 @@ def tito_tape(ticker: str, period: str = "5d", min_premium: float = 100_000):
             "condition_name": t.condition_name,
         }
 
+    # `interesting.slice(0, TABLE_CAP)` suyo. Su `classifyFlow` ya devuelve
+    # `interesting` ordenado por premium descendente, así que el `sorted` es
+    # redundante y se queda por si la fuente cambia el orden. El tope era 120.
     filas = sorted(flow.interesting,
                    key=lambda t: t.premium if isinstance(t.premium, (int, float)) else 0,
-                   reverse=True)[:120]
+                   reverse=True)[:TITO_TABLE_CAP]
     return _json_safe({
         "ok": True, "engine": "victor/tito", "ticker": tk,
         "trades": [_fila(t) for t in filas],
@@ -6520,8 +6539,14 @@ def _tito_json(r):
         # `ConvictionTransactions`, "Transacciones revisadas". Estos trades son
         # el universo sobre el que puntúan Convicción, Inusualidad y Contexto
         # IV: servir únicamente el número dejaba tres de las seis categorías
-        # sin nada que las respalde en pantalla. Se mandan las 25 de mayor
-        # premium, que es lo que cabe leer sin paginar.
+        # sin nada que las respalde en pantalla.
+        #
+        # Se mandaban 25 y él manda `CONVICTION_TABLE_CAP` = 150. No era solo
+        # una tabla más corta: estas filas alimentan sus TRES tarjetas
+        # —`ConvictionTransactions`, `ActivityCard` y `MoneyFlowCard`— y la
+        # última es la gráfica que dice "el dinero de CADA DÍA". Con las 25 de
+        # mayor premium no es el dinero del día: es el de los 25 trades más
+        # grandes, y un día entero de trades medianos desaparecía del gráfico.
         "conviction_rows": [
             {"id": t.id, "underlying": t.underlying, "type": t.type,
              "strike": t.strike, "expiration": t.expiration, "dte": t.dte,
@@ -6531,7 +6556,7 @@ def _tito_json(r):
              "multileg": t.flags.multileg}
             for t in sorted(r.conviction_flow,
                             key=lambda t: t.premium if isinstance(t.premium, (int, float)) else 0,
-                            reverse=True)[:25]
+                            reverse=True)[:TITO_CONVICTION_TABLE_CAP]
         ],
         # % del premium notable en calls. Es el mismo número que usa el resumen
         # de Prediction Pro, y el que /api/tito-news necesita para confrontar la

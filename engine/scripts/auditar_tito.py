@@ -1175,6 +1175,49 @@ if TITO and (TITO / "lib").is_dir():
                   + (f" — DIFIEREN: {_dif}" if _dif else ""))
     chk(not _aus, "ninguna constante exportada suya falta en el port"
                   + (f": {_aus}" if _aus else ""))
+
+    # Y las de sus RUTAS, que este cotejo no miraba.
+    #
+    # Sólo escaneaba `web/lib/*.ts`, así que las siete `const` de su
+    # `/api/flow` y las de `/api/ideas` y `/api/wheel` quedaban fuera por
+    # construcción. Ahí estaban cuatro sin portar: tres existían en
+    # `vertex_api.py` como números sueltos dentro de la llamada —el mismo valor,
+    # pero sin nombre que cotejar— y `CONVICTION_TABLE_CAP` valía 25 en vez de
+    # 150, lo que recortaba a una sexta parte las filas que alimentan sus tres
+    # tarjetas de convicción.
+    #
+    # No son `export const` sino `const` de módulo, así que llevan su propio
+    # patrón. Se buscan por NOMBRE en el motor y en la capa web: donde estén,
+    # pero con el nombre puesto.
+    _NUM_RUTA = re.compile(r"^const ([A-Z][A-Z0-9_]*)\s*=\s*([0-9_.*\s+-]+?);", re.M)
+    _r_aus, _r_dif, _r_ig = [], [], 0
+    import importlib as _il
+    _SC = _il.import_module("wbj.tito.scorecard")
+    _API_TXT = (VERTEX / "vertex_api.py").read_text(encoding="utf-8")
+    for _rd in sorted((TITO / "app" / "api").iterdir()):
+        _rf = _rd / "route.ts"
+        if not _rf.is_file():
+            continue
+        for _n, _expr in _NUM_RUTA.findall(_rf.read_text(encoding="utf-8")):
+            try:
+                _suyo = eval(_expr.replace("_", ""))      # noqa: S307
+            except Exception:
+                continue
+            _mio = getattr(_SC, _n, None)
+            if _mio is None:
+                # Puede vivir en la capa web con prefijo (`_IDEAS_`, `_WHEEL_`).
+                _m = re.search(rf"^_?[A-Z]*_?{_n}\s*=\s*([0-9_.]+)", _API_TXT, re.M)
+                _mio = float(_m.group(1).replace("_", "")) if _m else None
+            if _mio is None:
+                _r_aus.append(f"{_rd.name}.{_n}={_suyo}")
+            elif abs(float(_mio) - float(_suyo)) > 1e-9:
+                _r_dif.append(f"{_rd.name}.{_n}: él {_suyo} · nosotros {_mio}")
+            else:
+                _r_ig += 1
+    chk(not _r_dif, f"las {_r_ig} constantes de sus RUTAS valen lo mismo aquí"
+                    + (f" — DIFIEREN: {_r_dif}" if _r_dif else ""))
+    chk(not _r_aus, "ninguna constante de sus rutas falta en el port"
+                    + (f": {_r_aus}" if _r_aus else ""))
 else:
     print("  · define TITO_ROOT para cotejar módulos y constantes contra su repo")
 
