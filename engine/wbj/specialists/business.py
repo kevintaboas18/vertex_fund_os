@@ -1645,8 +1645,29 @@ def _compute_all(
     # ---- BUS-NRR-020 / BUS-GRR-021 / BUS-CHURN-022: customer economics (overlay only) ----
     subscription = _subscription_business(packet, overlay)
     ctx["customer_economics_applicable"] = subscription
-    _absent = (NullState.MISSING if subscription else NullState.NOT_APPLICABLE)
-    _why = ("_NO_OVERLAY" if subscription else "_NOT_A_SUBSCRIPTION_BUSINESS")
+    # `DATASET.md` tipa `retention_churn_cohorts` -- NRR, GRR, churn, cohortes
+    # -- como **conditional**, y su fuente como "issuer KPI / validated
+    # dataset". Es decir: solo forma parte del paquete esperado cuando el
+    # emisor PUBLICA ese KPI. Microsoft no publica NRR ni churn ni CAC; nadie
+    # los tiene por no haberlos buscado.
+    #
+    # Cobrarlos como MISSING hacia que el modelo de negocio decidiera la
+    # cobertura en vez de los datos. Medido: las siete salian NOT_APPLICABLE
+    # para Coca-Cola y un banco -- fuera del denominador, gratis -- y MISSING
+    # para Microsoft y Palantir. Ser una empresa de suscripcion costaba los 3
+    # puntos enteros de esta dimension que un refresquero no paga, y por eso
+    # KO sacaba 0,929 en business contra 0,583 de MSFT.
+    #
+    # Es el mismo defecto que ya se corrigio en la concentracion de clientes:
+    # no tener el dato porque la condicion no se cumple no es lo mismo que
+    # tenerlo ausente.
+    #
+    # El aviso SIGUE nombrando la clave que hay que escribir, asi que un
+    # analista que quiera puntuarlas ve exactamente que suministrar -- lo que
+    # cambia es que su ausencia deja de restar.
+    _absent = NullState.NOT_APPLICABLE
+    _why = ("_ISSUER_DOES_NOT_PUBLISH_THIS_KPI" if subscription
+            else "_NOT_A_SUBSCRIPTION_BUSINESS")
 
     retention = _overlay_mapping(overlay, "retention", input_warnings)
     if {"begin", "expansion", "contraction", "churn"} <= retention.keys():
