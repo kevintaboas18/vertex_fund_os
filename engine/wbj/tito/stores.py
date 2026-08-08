@@ -217,9 +217,20 @@ def _write(path: Path, payload: Any) -> None:
 
 
 def _prune(rows: list[dict], days: int, key: str = "date") -> list[dict]:
-    """Recorta a la ventana y ordena. Sin esto el fichero crece sin fin."""
+    """Recorta a la ventana y ordena. Sin esto el fichero crece sin fin.
+
+    Las filas que no son objetos se IGNORAN en vez de reventar. No es
+    defensa preventiva: con un archivo cuyo contenido no es una lista de
+    diccionarios —el formato de SU app, o un archivo a medio escribir— esto
+    lanzaba `AttributeError: 'str' object has no attribute 'get'`, mientras
+    que su `loadIvHistory` devuelve `null` y sigue. El motor degradaba a
+    «sin historial», que es correcto, pero por el camino equivocado: una
+    excepción atrapada arriba en vez de un archivo descartado aquí.
+    """
     cutoff = (date.today() - timedelta(days=days)).isoformat()
-    return sorted((r for r in rows if str(r.get(key, "")) >= cutoff), key=lambda r: r[key])
+    limpias = [r for r in rows if isinstance(r, dict)]
+    return sorted((r for r in limpias if str(r.get(key, "")) >= cutoff),
+                  key=lambda r: str(r.get(key, "")))
 
 
 def _upsert(rows: list[dict], row: dict, key: str = "date") -> list[dict]:

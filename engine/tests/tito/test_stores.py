@@ -718,3 +718,66 @@ def test_escritura_atomica_no_deja_json_truncado(tmp_path, monkeypatch):
     # No debe quedar ningun .tmp suelto tras una escritura correcta.
     assert not list((tmp_path / "iv").glob("*.tmp"))
     assert load_iv_history("DEMO")[0]["avg_iv"] == 45
+
+
+class TestUnArchivoQueNoEsElNuestroNoRevienta:
+    """Su `loadIvHistory` devuelve `null` ante un archivo que no reconoce.
+
+    El port lanzaba `AttributeError` con el MISMO archivo — el formato de su
+    app, que lleva el sobre `{ticker, updatedAt, snapshots}` y no una lista
+    pelada. El motor acababa degradando igual porque `_tito_memory` atrapa
+    todo, pero por el camino equivocado: una excepción que sube tres capas en
+    vez de un archivo descartado donde se lee.
+    """
+
+    @pytest.fixture(autouse=True)
+    def disco(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("WBJ_TITO_DATA", str(tmp_path))
+        self.dir = tmp_path
+
+    def _escribe(self, sub, contenido):
+        import json as _json
+
+        d = self.dir / sub
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "WULF.json").write_text(_json.dumps(contenido), encoding="utf-8")
+
+    def test_el_formato_de_SU_app_no_lanza(self):
+        from wbj.tito import stores as st
+
+        self._escribe("iv", {"ticker": "WULF", "updatedAt": "2026-08-07T15:30:00.000Z",
+                             "snapshots": [{"date": "2026-08-07", "avgIv": 0.55}]})
+        assert st.load_iv_history("WULF") == []
+
+    def test_una_lista_de_textos_no_lanza(self):
+        from wbj.tito import stores as st
+
+        self._escribe("iv", ["esto", "no", "son", "filas"])
+        assert st.load_iv_history("WULF") == []
+
+    def test_las_filas_buenas_sobreviven_a_las_malas(self):
+        """Descartar la basura no puede llevarse por delante lo que sí vale."""
+        from datetime import date
+
+        from wbj.tito import stores as st
+
+        hoy = date.today().isoformat()
+        self._escribe("iv", ["basura", {"date": hoy, "avg_iv": 0.55}, 42, None])
+        assert st.load_iv_history("WULF") == [{"date": hoy, "avg_iv": 0.55}]
+
+    def test_el_diario_de_predicciones_tambien(self):
+        from wbj.tito import stores as st
+
+        self._escribe("predictions", {"ticker": "WULF", "snapshots": [{"date": "2026-08-07"}]})
+        assert st.load_journal("WULF") == []
+
+    def test_una_fila_sin_fecha_no_rompe_el_orden(self):
+        """El `sorted` ordenaba por `r[key]` y reventaba con `KeyError` en una
+        fila sin `date`, aunque el filtro anterior ya la hubiera dejado pasar."""
+        from datetime import date
+
+        from wbj.tito import stores as st
+
+        hoy = date.today().isoformat()
+        self._escribe("iv", [{"avg_iv": 0.4}, {"date": hoy, "avg_iv": 0.55}])
+        assert st.load_iv_history("WULF") == [{"date": hoy, "avg_iv": 0.55}]
