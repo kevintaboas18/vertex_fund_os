@@ -2,7 +2,7 @@
 
 Hasta aquí una industria sólo intentaba resolverse cuando alguien analizaba un
 ticker suyo. Eso deja el mercado cubierto en el orden en que Kevin escribe
-tickers, y las 132 industrias operativas de NASDAQ+NYSE no se llenan nunca.
+tickers, y las 132 industrias operativas del mercado mundial no se llenan nunca.
 
 Dos cosas que este barrido tiene que hacer bien, y las dos son economía de
 cuota:
@@ -33,7 +33,7 @@ class _FMP:
     def __init__(self, filas):
         self._filas = filas
 
-    def screener_us(self, **kw):
+    def screener_universo(self, **kw):
         return self._filas
 
 

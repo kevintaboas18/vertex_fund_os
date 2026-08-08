@@ -619,8 +619,14 @@ def _verificar_en_la_fuente(cita: str, tam: float, fuente: str) -> tuple[bool, s
 
 
 def industrias_del_mercado(fmp: Any, minimo_empresas: int = 2) -> list[tuple[str, int]]:
-    """Las industrias del mercado de EE.UU., ordenadas por cuantas empresas
+    """Las industrias del mercado MUNDIAL, ordenadas por cuantas empresas
     cubren.
+
+    Mundial y no solo EE.UU. a proposito: el TAM que este censo dispara
+    tambien lo es. Con el universo limitado a NASDAQ+NYSE quedaban fuera
+    industrias enteras -- automocion sin Toyota ni VW, lujo sin LVMH -- y por
+    tanto sus TAM sin resolver, aunque un ticker americano de esa industria
+    los necesitara igual.
 
     El orden importa porque cada TAM cuesta peticiones y el tier gratuito de
     Gemini da 20 por minuto: resolver primero `Semiconductors` (54 empresas)
@@ -633,7 +639,7 @@ def industrias_del_mercado(fmp: Any, minimo_empresas: int = 2) -> list[tuple[str
     """
     from collections import Counter
 
-    filas = fmp.screener_us()
+    filas = fmp.screener_universo()
     if not isinstance(filas, list):
         return []
     cuenta: Counter = Counter()
