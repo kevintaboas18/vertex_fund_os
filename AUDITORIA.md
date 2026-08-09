@@ -5857,3 +5857,67 @@ Ahora extrae los BLOQUES cuyo selector menciona `vc-t` y busca dentro. Mutado
 **2.925 tests del motor · 592 de la capa web · 323 checks de auditoría · 105 +
 62 del smoke · 16 diferenciales · preflight de Render en verde · 0 fallos,
 0 avisos, 0 skips.**
+
+## 41.44 Ronda 18 — el tema claro literal, y un panel que se moría con el CDN
+
+**Fecha:** 2026-08-08
+
+Kevin pidió dos temas: en **oscuro**, el suyo de siempre con los tonos de
+Víctor; en **claro**, el diseño de Víctor entero. Al montarlo hubo que abrir la
+página en un navegador de verdad, y ahí apareció algo bastante peor que un color.
+
+### El fallo que solo se ve renderizando
+
+```js
+Chart.register(targetLineLabelsPlugin);   // a pelo, a nivel de módulo
+```
+
+Con el CDN de Chart.js caído eso lanza y **aborta el bloque de script entero**.
+Con él se van `_vcEsc`, las 38 funciones de render del tab, `VC_SENALES` y todo
+lo declarado más abajo. El resultado no es «el panel sin gráficas»: es el panel
+**muerto**, con las tablas en blanco y sin un mensaje que lo explique. Medido:
+**3 errores de página y todo el tab sin declarar**.
+
+Ni un test lo veía, y por buenas razones:
+
+- el smoke de Node **define** `window.Chart` y `window.lucide`, así que un
+  `register` sin guarda le pasa por delante sin despeinarse;
+- `node --check` valida la SINTAXIS, y un `ReferenceError` en ejecución es
+  sintaxis perfecta.
+
+Se guardaron los tres puntos de contacto con CDN: `Chart.register`,
+`tailwind.config` y las **66** llamadas sueltas a `lucide.createIcons()`, que
+pasan por un `vcIconos()` con `try`. Después: **0 errores con los tres CDN
+caídos** y las nueve piezas del tab declaradas.
+
+`tests_vertex/test_navegador.py` abre el panel en Chromium y lo comprueba.
+Mutado —devolviendo el `Chart.register` sin guarda— caen 2 de 3.
+
+### El tema claro
+
+`html.light #projectionsView` con sus hexadecimales, no con aproximaciones. El
+`#eef1f6` genérico de Vertex y su `#f3f4f6` son dos grises distintos, y sus
+fondos teñidos no existen en la capa clara general. Verificado con
+`getComputedStyle`, o sea el color que el navegador pinta de verdad:
+
+| | Suyo | Medido en pantalla |
+|---|---|---|
+| fondo | `--bg #f3f4f6` | `rgb(243,244,246)` ✓ |
+| encabezado de tabla | `--panel-2 #f8f9fb` | `rgb(248,249,251)` ✓ |
+| fila inusual | `tr.unusual #fff3c9` | `rgb(255,243,201)` ✓ |
+| pill de call, fondo | `--green-bg #e7f8f0` | `rgb(231,248,240)` ✓ |
+| pill de call, texto | `--green-dark #0e9f5f` | `rgb(14,159,95)` ✓ |
+
+Y lo que **no** depende del tema: `tabular-nums` y las mayúsculas de sus pills
+valen en los dos, porque son estructura y no color.
+
+### Un defecto que solo se vio mirando la captura
+
+La regla de la gráfica oscura cogía **todos** los `canvas` del tab y pintaba un
+rectángulo negro donde no había nada dibujado. Acotada a `#projChart:not(:empty)`.
+Eso no lo encuentra ningún test: hay que mirar la foto.
+
+### Estado
+
+**2.925 tests del motor · 599 de la capa web (7 de ellos en un navegador real) ·
+323 checks de auditoría · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**

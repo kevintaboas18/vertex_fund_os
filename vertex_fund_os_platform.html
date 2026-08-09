@@ -22,6 +22,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
+        // Guardado por el mismo motivo: sin CDN, `tailwind` no existe y este
+        // bloque lanza. Aquí solo se pierde la config de fuentes, pero el
+        // error queda en la consola tapando el que sí importe.
+        if (typeof tailwind !== 'undefined')
         tailwind.config = { theme: { extend: { fontFamily: {
             sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
             mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'] } } } };
@@ -275,6 +279,103 @@
         /* Su `--space-lg` entre secciones distintas: es la regla de
            proximidad, y sin ella las tarjetas del tab se leen como una sola. */
         #projectionsView .vc-stack > * + * { margin-top: var(--vc-md); }
+
+        /* ══════════════════════════════════════════════════════════════════
+           SU PALETA CLARA, LITERAL — `html.light #projectionsView`
+
+           En oscuro el tab lleva los TONOS de Víctor sobre el fondo de Vertex.
+           En claro lleva su diseño ENTERO: sus mismos hexadecimales, sus
+           mismos fondos de tabla, sus mismos rellenos de pill. Es su
+           `globals.css` tal cual, no una aproximación — el `#eef1f6` genérico
+           de Vertex y su `#f3f4f6` son dos grises distintos, y sus fondos
+           teñidos (`#e7f8f0` para calls, `#fee9e7` para puts, `#fff3c9` para
+           la fila inusual) no existen en la capa clara general.
+
+           Va DESPUÉS de la capa `html.light` de Vertex y es más específica
+           (`html.light #projectionsView` gana a `html.light`), así que dentro
+           del tab manda él y fuera manda Vertex. Sin `!important` salvo donde
+           hay que vencer a un `!important` de la capa de arriba.
+           ══════════════════════════════════════════════════════════════════ */
+        html.light #projectionsView {
+            --vc-bg:       #f3f4f6;   /* su --bg */
+            --vc-panel:    #ffffff;   /* su --panel */
+            --vc-panel-2:  #f8f9fb;   /* su --panel-2 */
+            --vc-border:   #e6e8ec;   /* su --border */
+            --vc-border-s: #f2f4f7;   /* su --border-soft */
+            --vc-text:     #101828;   /* su --text */
+            --vc-muted:    #667085;   /* su --muted */
+            --vc-faint:    #98a2b3;   /* su --faint */
+            --vc-green-d:  #0e9f5f;   /* su --green-dark, el verde legible sobre claro */
+            --vc-green-bg: #e7f8f0;   /* su --green-bg */
+            --vc-red-d:    #d92d20;   /* el rojo de su `.pill.put` */
+            --vc-red-bg:   #fee9e7;   /* su --red-bg */
+            --vc-amber-bg: #fff7e6;   /* su --amber-bg */
+            --vc-amber-tx: #b54708;   /* su --amber-text */
+            --vc-accent-d: #dbe6ff;   /* su --accent-dim */
+            background: var(--vc-bg);
+            color: var(--vc-text);
+        }
+        /* Superficies: su `--panel` blanco sobre su `--bg` gris. */
+        html.light #projectionsView .bg-panel { background-color: var(--vc-panel) !important; }
+        html.light #projectionsView [class*="bg-[#0B0E14]"] { background-color: var(--vc-panel-2) !important; }
+        html.light #projectionsView .border-panel,
+        html.light #projectionsView [class*="border-gray-800"],
+        html.light #projectionsView [class*="border-[#1F2532]"] { border-color: var(--vc-border) !important; }
+        /* Su escala de grises de texto: --text / --muted / --faint. */
+        html.light #projectionsView .text-white,
+        html.light #projectionsView .text-gray-200 { color: var(--vc-text) !important; }
+        html.light #projectionsView .text-gray-300,
+        html.light #projectionsView .text-gray-400 { color: var(--vc-muted) !important; }
+        html.light #projectionsView .text-gray-500,
+        html.light #projectionsView .text-gray-600,
+        html.light #projectionsView .text-gray-700 { color: var(--vc-faint) !important; }
+        /* Sus acentos, en la versión legible sobre blanco. El verde de #12b76a
+           sobre blanco pierde contraste: él usa --green-dark (#0e9f5f) en
+           texto y deja #12b76a para los rellenos. */
+        html.light #projectionsView .text-emerald-400,
+        html.light #projectionsView .text-emerald-300 { color: var(--vc-green-d) !important; }
+        html.light #projectionsView .text-red-400,
+        html.light #projectionsView .text-red-300 { color: var(--vc-red-d) !important; }
+        html.light #projectionsView .text-amber-400,
+        html.light #projectionsView .text-amber-300 { color: var(--vc-amber-tx) !important; }
+        html.light #projectionsView .text-blue-400,
+        html.light #projectionsView .text-blue-500,
+        html.light #projectionsView .text-blue-300 { color: var(--vc-accent) !important; }
+        html.light #projectionsView .text-purple-400 { color: #7a5af8 !important; }
+        /* Sus fondos teñidos. Un `bg-emerald-500/10` sobre blanco es casi
+           invisible; su `--green-bg` está hecho para este fondo. */
+        html.light #projectionsView [class*="bg-emerald-500/1"] { background-color: var(--vc-green-bg) !important; }
+        html.light #projectionsView [class*="bg-red-500/1"] { background-color: var(--vc-red-bg) !important; }
+        html.light #projectionsView [class*="bg-amber-500/1"],
+        html.light #projectionsView [class*="bg-amber-500/3"] { background-color: var(--vc-amber-bg) !important; }
+        html.light #projectionsView [class*="bg-blue-500/"] { background-color: var(--vc-accent-d) !important; }
+        html.light #projectionsView [class*="bg-gray-500/1"] { background-color: var(--vc-border-s) !important; }
+        /* Sus tablas, con sus cuatro fondos exactos. */
+        html.light #projectionsView table.vc-t thead th {
+            background: var(--vc-panel-2); color: var(--vc-muted);
+            border-bottom: 1px solid var(--vc-border);
+        }
+        html.light #projectionsView table.vc-t tbody tr:nth-child(odd) { background: #fcfcfd; }
+        html.light #projectionsView table.vc-t tbody tr:hover { background: #f2f6ff; }
+        html.light #projectionsView table.vc-t tbody tr.vc-unusual td { background: #fff3c9; }
+        html.light #projectionsView table.vc-t tbody tr.vc-unusual:hover td { background: #ffedb0; }
+        html.light #projectionsView table.vc-t tbody tr { border-color: var(--vc-border-s) !important; }
+        /* Sus pills, con sus rellenos de claro. */
+        html.light #projectionsView .vc-pill-call { background: var(--vc-green-bg); color: var(--vc-green-d); }
+        html.light #projectionsView .vc-pill-put  { background: var(--vc-red-bg);  color: var(--vc-red-d); }
+        html.light #projectionsView .vc-pill-mid  { background: var(--vc-border-s); color: var(--vc-muted); }
+        /* Su `.pro-chart { background:#070a12 }`: la gráfica se queda OSCURA
+           incluso en claro. Es suyo y es correcto — una serie de precios con
+           velas y bandas se lee mejor sobre fondo oscuro, y él lo mantiene. */
+        /* Su `.pro-chart { background:#070a12 }`: la gráfica se queda OSCURA
+           incluso en claro — una serie de precios con velas y bandas se lee
+           mejor así, y él lo mantiene. Acotado al contenedor de la gráfica y
+           con `:not(:empty)`: la regla anterior cogía TODOS los canvas del
+           tab y pintaba un rectángulo negro donde no había nada dibujado.
+           Se vio en la captura, no en un test. */
+        html.light #projectionsView #projChart:not(:empty) {
+            background: #070a12; border-radius: 10px;
+        }
 
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -1416,13 +1517,23 @@ const targetLineLabelsPlugin = {
         });
     }
 };
-Chart.register(targetLineLabelsPlugin);
+// Un `Chart.register` a pelo tumba el BLOQUE ENTERO cuando el CDN de
+// Chart.js no carga —y con él todo lo que se declara más abajo: `_vcEsc`, las
+// 38 funciones de render del tab, `VC_SENALES`…—. El resultado no es «el panel
+// sin gráficas», es el panel MUERTO, con las tablas en blanco y sin un mensaje.
+// Se vio renderizando la página de verdad con un navegador; ningún test de
+// sintaxis ni de humo puede verlo, porque los dos simulan `Chart`.
+//
+// Los CDN fallan: una red de hotel, un bloqueador, un DNS lento. La gráfica es
+// prescindible por un minuto; el scorecard no.
+if (typeof Chart !== 'undefined') Chart.register(targetLineLabelsPlugin);
+else console.warn('[vertex] Chart.js no cargó: las gráficas no se dibujan, el resto del panel sí.');
 
 // ── NAVIGATION ───────────────────────────────────────────
 function switchView(viewId) {
     document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
     document.getElementById(viewId)?.classList.remove('hidden');
-    lucide.createIcons();
+    vcIconos();
     if (viewId === 'reportsView') { renderFullReportsList(); syncReportsFromServer(); }
     if (viewId === 'homeView') renderRecentReports();
     // Proyecciones se arma AQUÍ, en la navegación.
@@ -1446,14 +1557,14 @@ function vcArrancaProyecciones() {
     if (typeof vcPintaQuick === 'function') vcPintaQuick(inp ? inp.value : null);
     if (typeof vcAbreTab === 'function') vcAbreTab(vcTabActiva);
     if (typeof vcArrancaVivo === 'function' && !vcVivoTimer) vcArrancaVivo();
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 function switchAnalysisTab(tabId, btn) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.analysis-tab').forEach(el => el.classList.remove('active'));
     document.getElementById(tabId)?.classList.add('active');
     btn.classList.add('active');
-    lucide.createIcons();
+    vcIconos();
     if (tabId === 'noticesTab' && currentTicker) loadNotices(currentTicker);
     // La gráfica de Victor es SVG responsivo (viewBox): no necesita re-dimensionado manual.
     if (tabId === 'fullResearchTab' && currentAnalysis) fetchAndRenderFrChart(currentTimeframe);
@@ -1591,7 +1702,7 @@ async function fetchQuote(ticker) {
         const srcEl = document.getElementById('previewSource');
         if (srcEl) srcEl.innerText = (d.precio_fuente ? `fuente: ${d.precio_fuente}` : '') + (d.as_of ? ` · ${d.as_of}` : '');
         document.getElementById('previewCard').classList.remove('hidden');
-        lucide.createIcons();
+        vcIconos();
     } catch(e) {
         document.getElementById('previewCard').classList.add('hidden');
         setQuoteHint('No se pudo contactar al servidor para la vista previa.');
@@ -1666,7 +1777,7 @@ async function cargaExplicacion(reportId, yaTengo) {
         <p class="text-xs text-gray-500 italic flex items-center gap-2 mt-2">
             <i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i>
             Traduciendo los n&uacute;meros a palabras, con tu perfil delante&hellip;</p></div>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 
     let d;
     try {
@@ -1685,7 +1796,7 @@ async function cargaExplicacion(reportId, yaTengo) {
                     class="mt-2 text-[10px] font-bold text-blue-400 hover:text-blue-300">Reintentar</button>
             <p class="text-[9px] text-gray-600 mt-2">Los n&uacute;meros del an&aacute;lisis no dependen de esto:
                la matem&aacute;tica ya est&aacute; hecha y congelada. Esto solo la explica.</p></div>`;
-        if (window.lucide) lucide.createIcons();
+        if (window.lucide) vcIconos();
         return;
     }
     // Se guarda en el reporte local para que abrirlo otra vez sea instantáneo.
@@ -1729,7 +1840,7 @@ function pintaExplicacion(expl, fuente) {
             Esto <b>explica</b> los n&uacute;meros; no los calcula. El score, los gates y los niveles
             salen de la matem&aacute;tica del Cerebro y no cambian por lo que diga este texto.</p>
     </div>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 // ── OPEN SAVED REPORT ────────────────────────────────────
@@ -1853,7 +1964,7 @@ function renderWBJVisual(data){
              <div><span style="color:#a78bfa">●</span> Bruto: <b class="text-white">${gm!=null?gm+'%':'—'}</b></div>`;
     } else { document.getElementById('wbjMarginsLegend').innerHTML='<span class="text-gray-500">Sin datos de márgenes.</span>'; }
     _chartCite('wbjMarginsSrc', '% (último año fiscal)', 'FMP / SEC EDGAR');
-    if(window.lucide) lucide.createIcons();
+    if(window.lucide) vcIconos();
 }
 
 function renderDashboard(data) {
@@ -2109,7 +2220,7 @@ function renderDashboard(data) {
     document.getElementById('thesisCalculations').innerText = a.calculos_y_crecimiento_ai || '';
     document.getElementById('thesisWS').innerText           = a.analistas_consenso || '';
     document.getElementById('theBottomLine').innerText      = a.the_bottom_line || '';
-    lucide.createIcons();
+    vcIconos();
     try { const _gc = document.getElementById('qtGexCard'); if (_gc) _gc.classList.add('hidden'); loadAnalysisGex(data.ticker); } catch(e) {}
 }
 
@@ -2847,7 +2958,7 @@ async function loadProjections(tickerArg, opts) {
         empty.innerHTML = vcLoaderHTML(ticker, 0);
         vcLoaderArranca(ticker);
         content.classList.add('hidden');
-        if (window.lucide) lucide.createIcons();
+        if (window.lucide) vcIconos();
     }
     try {
         // UNA sola fuente para todo el tab: el motor de Víctor. Antes había dos
@@ -2859,7 +2970,7 @@ async function loadProjections(tickerArg, opts) {
         if (!d || !d.ok) {
             if (!silent) {
                 empty.innerHTML = `<i data-lucide="alert-triangle" class="w-8 h-8 text-amber-500 mx-auto mb-3"></i><p class="text-sm text-amber-400">${(d && d.error) || 'No se pudo analizar ' + ticker + '.'}</p>`;
-                if (window.lucide) lucide.createIcons();
+                if (window.lucide) vcIconos();
             }
             return;
         }
@@ -2993,7 +3104,7 @@ async function loadProjWheel(preset) {
     const caja = document.getElementById('projWheel');
     if (!caja) return;
     caja.innerHTML = `<p class="text-xs text-gray-500 italic flex items-center justify-center gap-2 py-6"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Escaneando 40 s&iacute;mbolos&hellip; (dos llamadas por ticker, tarda)</p>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     let d;
     try {
         const r = await fetch(`${API_BASE}/api/tito-wheel?preset=${encodeURIComponent(vcWheelPreset)}`);
@@ -3155,7 +3266,7 @@ function renderProjWheel(d) {
             <th class="text-right pb-1.5 pr-3">Score</th><th class="text-right pb-1.5">Te cabe</th></tr></thead><tbody>${filas}</tbody></table></div>
         <p class="text-[9px] text-gray-600 mt-2 italic">Haz clic en una fila para ver <b class="text-gray-500">qu&eacute; pasa si expira, si te asignan y si se desploma 20%</b>. ${d.quotes_missing ? '* prima estimada del &uacute;ltimo precio, no del bid. ' : ''}&laquo;Te cabe&raquo; compara el colateral con el capital de tu perfil &mdash; lo que no cabe no se esconde, se baja. Research, no una orden.</p>
       </div>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     vcTablaResponsive('projWheel');
 }
 
@@ -3213,7 +3324,7 @@ async function loadProjSalud() {
     if (!caja) return;
     const t = ((document.getElementById('projTicker') || {}).value || 'AAPL').trim().toUpperCase();
     caja.innerHTML = `<p class="text-xs text-gray-500 italic flex items-center justify-center gap-2 py-6"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Tocando cada fuente de ${_vcEsc(t)}&hellip;</p>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     let d;
     try {
         const r = await fetch(`${API_BASE}/api/tito-health?ticker=${encodeURIComponent(t)}`);
@@ -3255,7 +3366,7 @@ function renderProjSalud(d) {
         <button onclick="loadProjSalud()" class="mt-2 text-[10px] font-bold px-2.5 py-1 rounded-lg bg-[#0B0E14] text-gray-400 border border-gray-800 hover:text-white transition">&#8635; Volver a comprobar</button>
         <p class="text-[9px] text-gray-600 mt-2 leading-relaxed">Los sub-agentes 1 a 4 puntúan sobre el dato de HOY: si la fuente responde, tienen cobertura completa. Los que necesitan historia son el <b>5</b> (60 días de IV para el rank real; mientras tanto usa el proxy de volatilidad realizada, que no es peor, es otra cosa) y el <b>6</b> (flujo pasado con precio del subyacente, para medir qué hizo el precio después). Nada de esto se puede comprar hecho: se acumula.</p>
       </div>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     vcTablaResponsive('projSalud');
 }
 
@@ -3273,7 +3384,7 @@ async function loadProjTape() {
         return;
     }
     caja.innerHTML = `<p class="text-xs text-gray-500 italic flex items-center justify-center gap-2 py-6"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Bajando la cinta de ${_vcEsc(ticker)}&hellip;</p>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     let d;
     try {
         const r = await fetch(`${API_BASE}/api/tito-tape?ticker=${encodeURIComponent(ticker)}`);
@@ -3374,7 +3485,7 @@ function renderProjTape(d) {
             <th class="text-right pb-1.5">Inusual</th></tr></thead><tbody>${filas}</tbody></table></div>
         <p class="text-[9px] text-gray-600 mt-2 leading-relaxed"><b>Inusual</b> = tama&ntilde;o de la orden + momento del d&iacute;a + cu&aacute;ntas veces se repite el contrato (m&aacute;ximo 30; pasa el cursor sobre el n&uacute;mero para ver el desglose). Las <span class="bg-amber-500/[0.12] px-1 rounded">filas resaltadas</span> son trades con puntaje inusual (&ge;7/30). <b>Lado</b>: &#9650; Compra = pagaron el precio del vendedor (agresivo) &middot; &#9660; Venta = aceptaron el precio del comprador. &#8593; ejecutado sobre el ask &middot; &#8595; bajo el bid &middot; &#128257; &times;N = veces que se repiti&oacute; ese contrato.</p>
       </div>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     vcTablaResponsive('projTape');
 }
 
@@ -3479,7 +3590,7 @@ async function loadProjIdeas() {
     if (!caja) return;
     caja.classList.remove('hidden');
     caja.innerHTML = `<p class="text-xs text-gray-500 italic flex items-center justify-center gap-2 py-6"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Escaneando el flujo de todo el mercado&hellip;</p>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     let d;
     try {
         const r = await fetch(`${API_BASE}/api/tito-ideas`);
@@ -3496,7 +3607,7 @@ async function loadProjIdeas() {
             <p class="text-[10px] text-amber-200/80 mt-1 leading-snug">${_vcEsc((d && d.error) || '')}</p>
             ${esCinta ? `<p class="text-[10px] text-amber-200/70 mt-2 leading-snug"><b>MARKETSNACK_COOKIE no es una API key</b>: es una cookie de sesi&oacute;n y <b>caduca</b>. En un servidor no hay navegador que la refresque, as&iacute; que hay que re-pegarla a mano: DevTools &rarr; Network &rarr; <code>/api/flow_feed</code> &rarr; header <code>Cookie</code>.</p>
             <p class="text-[10px] text-amber-200/60 mt-1.5 leading-snug">Mientras tanto el an&aacute;lisis por ticker sigue funcionando con la cadena de Massive (Estructura, GEX, niveles y escenarios), pero con 4 de los 6 sub-agentes apagados &mdash; y el panel te lo dir&aacute; arriba.</p>` : ''}</div>`;
-        if (window.lucide) lucide.createIcons();
+        if (window.lucide) vcIconos();
         return;
     }
     if (empty) empty.classList.add('hidden');
@@ -3600,7 +3711,7 @@ function renderProjIdeas(d) {
              numero parece un precio de ahora. Sin acentos graves aqui dentro. -->
         <p class="text-[9px] text-gray-600 mt-1 leading-relaxed">El tama&ntilde;o se calcula sobre el <b>precio al que se ejecut&oacute; cada flow</b>, no sobre la cotizaci&oacute;n viva del contrato &mdash; el feed no la entrega. Los flows son del d&iacute;a, as&iacute; que la diferencia es peque&ntilde;a, pero el n&uacute;mero es una referencia, no una orden. Material educativo: <b>no es consejo financiero</b>.</p>
       </div>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     vcTablaResponsive('projIdeas');
 }
 
@@ -3832,6 +3943,12 @@ function vcPackLabels(items, { top, bottom, labelH, gap }) {
     for (const w of work) out[w.idx] = Object.assign({}, items[w.idx], { y: w.y, yAnchor: w.yAnchor });
     return out;
 }
+
+/** `lucide.createIcons()` con guarda. Sin ella, un CDN caído lanza en el
+ *  primer `DOMContentLoaded` y se lleva por delante lo que venga después: no
+ *  se quedan sin iconos, se queda sin panel. Se vio renderizando la página en
+ *  un navegador de verdad — el smoke la simula, así que ahí nunca falla. */
+function vcIconos() { try { if (window.lucide) window.lucide.createIcons(); } catch (e) {} }
 
 const _vcEsc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -5006,7 +5123,7 @@ function renderProjections(d) {
 
     renderProjGammaPorStrike(d);
     vcTablaResponsive('projUnusual');
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 /** Gamma neto por strike — el mismo gráfico de antes, con SUS nodos.
@@ -6344,7 +6461,7 @@ async function loadAnalysisGex(ticker) {
     if (!card || !body || !ticker) return;
     card.classList.remove('hidden');
     body.innerHTML = `<p class="text-[11px] text-gray-500 italic flex items-center gap-2"><i data-lucide="loader" class="w-3 h-3 animate-spin"></i> Calculando gamma exposure…</p>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     try {
         const r = await fetch(`${API_BASE}/api/options-gex?ticker=${encodeURIComponent(ticker)}`);
         const d = await r.json();
@@ -6377,7 +6494,7 @@ function renderAnalysisGex(d) {
             ${pos ? 'Gamma positivo: el precio tiende a anclarse / mean-revertir dentro del rango.' : 'Gamma negativo: los movimientos se amplifican; mayor riesgo de tramos direccionales.'}
         </p>
         <p class="text-[10px] text-gray-500 italic mt-1.5">${uaTxt}</p>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 async function exportReportPDF() {   // async: el snapshot SVG→PNG de la gráfica de Victor espera al Image.onload
@@ -6580,7 +6697,7 @@ function renderRecentReports() {
     if (!el) return;
     if (!reports.length) { el.innerHTML = '<p class="text-gray-600 text-xs text-center py-4">No reports yet. Run your first analysis above.</p>'; return; }
     el.innerHTML = reports.slice(0,5).map(r => reportRowHTML(r)).join('');
-    lucide.createIcons();
+    vcIconos();
 }
 function renderFullReportsList() {
     const all = getAllReports();
@@ -6610,7 +6727,7 @@ function renderFullReportsList() {
         html += '</div>';
     });
     el.innerHTML = html;
-    lucide.createIcons();
+    vcIconos();
 }
 function filterReports() { renderFullReportsList(); }
 function reportRowHTML(r) {
@@ -6885,14 +7002,14 @@ async function connectPlaid() {
                 } catch(e2) { showPfError('Error al conectar: ' + e2.message); }
             },
             onExit: (err) => {
-                btn.disabled = false; btn.innerHTML = '<i data-lucide="link" class="w-3.5 h-3.5"></i> Conectar con Plaid'; lucide.createIcons();
+                btn.disabled = false; btn.innerHTML = '<i data-lucide="link" class="w-3.5 h-3.5"></i> Conectar con Plaid'; vcIconos();
                 if (err) showPfError('Plaid cerrado: ' + (err.display_message || err.error_message || JSON.stringify(err)));
             }
         });
         handler.open();
     } catch(e) {
         showPfError('Error iniciando Plaid Link: ' + e.message);
-        btn.disabled = false; btn.innerHTML = '<i data-lucide="link" class="w-3.5 h-3.5"></i> Conectar con Plaid'; lucide.createIcons();
+        btn.disabled = false; btn.innerHTML = '<i data-lucide="link" class="w-3.5 h-3.5"></i> Conectar con Plaid'; vcIconos();
     }
 }
 
@@ -6980,7 +7097,7 @@ function renderPortfolio(d) {
         </div>`).join('');
     }
 
-    lucide.createIcons();
+    vcIconos();
 }
 
 function renderPfAiSections(rawText, container) {
@@ -7163,7 +7280,7 @@ async function authLogin(user, opciones) {
     const badge = document.getElementById('navUserBadge');
     badge.classList.remove('hidden');
     badge.classList.add('flex');
-    lucide.createIcons();
+    vcIconos();
     // El menú de cuenta cuelga de este nombre: se rellena al entrar, no al
     // abrirlo por primera vez.
     if (typeof vxPintaMenu === 'function') vxPintaMenu();
@@ -7288,7 +7405,7 @@ function vertexShowGate(msg) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    lucide.createIcons();
+    vcIconos();
     // Si el servidor exige clave y aún no hay sesión, se pide antes de arrancar
     // nada: así no se disparan 20 llamadas que sólo devolverían 401.
     if (!(await vertexGateCheck())) return;
@@ -7448,7 +7565,7 @@ function notifRenderList() {
             </div>
             ${n.read ? '' : '<span class="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1 flex-shrink-0"></span>'}
         </div>`).join('');
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 function toggleNotifPanel(ev) {
     if (ev) ev.stopPropagation();
@@ -7480,7 +7597,7 @@ function showToast(n) {
         <p class="text-[8px] text-gray-600">${new Date(n.ts).toLocaleTimeString()}</p></div>`;
     el.onclick = () => { if (typeof switchView === 'function') switchView('projectionsView'); el.remove(); };
     c.appendChild(el);
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 400); }, 8000);
 }
 
@@ -7538,7 +7655,7 @@ function openCmdBar() {
     b.classList.remove('hidden');
     const i = document.getElementById('cmdInput');
     if (i) { i.value = ''; setTimeout(() => i.focus(), 20); }
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 function closeCmdBar() { const b = document.getElementById('cmdBar'); if (b) b.classList.add('hidden'); }
 function cmdKey(e) {
@@ -7678,7 +7795,7 @@ function switchPortfolioTab(tabId, btn) {
     if (tabId === 'pfGuardTab' && !pfGuardLoaded) loadPortfolioGuardrails();
     if (tabId === 'pfOptTab' && !pfOptLoaded) loadPortfolioOptimizer();
     if (tabId === 'pfOptionsTab' && !pfOptionsLoaded) loadOptions();
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 function pfUSD(v) {
@@ -7874,7 +7991,7 @@ function renderPortfolioRisk(d) {
         ${posTable}
         ${meta}
     </div>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 // ── END PORTFOLIO RISK ENGINE ──────────────────────────────
 
@@ -8028,7 +8145,7 @@ function renderPortfolioStress(d) {
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">${cvarCard}${hypCard}</div>
         ${meta}
     </div>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 // ── END PORTFOLIO STRESS TEST ──────────────────────────────
 
@@ -8121,7 +8238,7 @@ function renderWhatif(d) {
     </div>`;
 
     body.innerHTML = headline + table;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 // ── END PORTFOLIO WHAT-IF ──────────────────────────────
 
@@ -8210,7 +8327,7 @@ function renderPortfolioAttribution(d) {
 
     const meta = `<div class="text-[9px] text-gray-600 px-1 text-right">${d.positions_analyzed} posiciones · ${d.generated_at||''}</div>`;
     body.innerHTML = `<div class="space-y-5">${head}${posTable}${secCard}${meta}</div>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 
@@ -8270,7 +8387,7 @@ function renderPortfolioGuardrails(d) {
     }).join('');
     const meta2 = `<div class="text-[9px] text-gray-600 px-1 text-right">${pfUSD(d.total_value)} · ${d.generated_at||''}</div>`;
     body.innerHTML = `<div class="space-y-4">${summary}<div class="space-y-2.5">${cards}</div>${meta2}</div>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 // ── END ATTRIBUTION + GUARDRAILS ─────────────────────────────────────────────────────────────────────────
 
@@ -8288,7 +8405,7 @@ function toggleImportPanel() {
     const p = document.getElementById('importPanel');
     if (p) p.classList.toggle('hidden');
     if (p && !p.classList.contains('hidden')) refreshSnapshotStatus();
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 // Estado del snapshot guardado en el servidor: decide si el dashboard puede correr.
@@ -8533,7 +8650,7 @@ function renderPortfolioOptimizer(d) {
         <p class="text-[10px] text-gray-500 italic mb-3"><b class="text-emerald-400">Compras nuevas</b> — tickers que <b class="text-gray-400">no tienes ni has analizado</b>, para diversificar tu concentración en IA, con % sugerido. (Lo de arriba — vender/reducir/aumentar — es sobre lo que <b class="text-gray-400">ya tienes</b>.) Toca los <b>⋮</b> para ver el <b>porqué</b> o <b>analizarla con el agente</b>.</p>
         <div id="pfIdeasBody"><p class="text-[11px] text-gray-500 italic flex items-center gap-2"><i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Generando ideas con búsqueda en vivo…</p></div></div>`;
     body.innerHTML = `<div class="space-y-5">${cards}${mandateCard}${frontier}${rebalance}${ideasSection}${meta}</div>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     loadPortfolioIdeas(false);
 }
 // ── END IMPORT + OPTIMIZER ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -8546,7 +8663,7 @@ async function loadPortfolioIdeas(force) {
     if (!host) return;
     if (pfIdeasLoaded && !force) { renderPfIdeas(); return; }
     host.innerHTML = `<p class="text-[11px] text-gray-500 italic flex items-center gap-2"><i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Generando ideas con búsqueda en vivo…</p>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     try {
         const r = await fetch(`${API_BASE}/api/portfolio-ideas?n=5`);
         const d = await r.json();
@@ -8585,7 +8702,7 @@ function renderPfIdeas() {
             </div>
         </div>`;
     }).join('');
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     if (!pfKebabBound) {   // cerrar los menús al tocar fuera
         document.addEventListener('click', (ev) => {
             if (ev.target.closest && ev.target.closest('[id^=pfKebab]')) return;
@@ -8639,7 +8756,7 @@ function pfIdeaWhy(i) {
             </div>
             <button onclick="pfIdeaAnalyze('${it.ticker}')" class="mt-4 w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-2"><i data-lucide="cpu" class="w-4 h-4"></i> Analizar ${it.ticker} con el agente</button>
         </div></div>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 function closePfWhy(ev) {
@@ -8665,7 +8782,7 @@ async function loadOptions(force) {
     if (!body) return;
     if (pfOptionsLoaded && !force) return;
     body.innerHTML = `<p class="text-xs text-gray-500 italic p-4 flex items-center gap-2"><i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Calculando griegas (spot + IV en vivo)…</p>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     try {
         const r = await fetch(`${API_BASE}/api/portfolio-options`);
         const d = await r.json();
@@ -8683,7 +8800,7 @@ function renderOptions(d) {
             <i data-lucide="inbox" class="w-8 h-8 text-gray-600 mx-auto mb-2"></i>
             <p class="text-xs text-gray-400">${d.note || 'No se detectaron opciones.'}</p>
             <p class="text-[10px] text-gray-600 mt-1.5">Conecta Plaid con una cuenta que reporte opciones, o cárgalas en <b>Importar portafolio</b>.</p></div>`;
-        if (window.lucide) lucide.createIcons();
+        if (window.lucide) vcIconos();
         return;
     }
     const g = d.greeks || {};
@@ -8792,7 +8909,7 @@ function renderOptions(d) {
     const note = `<p class="text-[10px] text-gray-600 italic mt-3 flex items-start gap-1.5"><i data-lucide="info" class="w-3 h-3 mt-0.5 flex-shrink-0"></i>${d.note || ''}</p>`;
 
     body.innerHTML = cards + tot + alerts + ladder + byU + detail + note;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 
@@ -8985,7 +9102,7 @@ function renderExploreBuzz() {
             </div>
         </div>`;
     }).join('');
-    lucide.createIcons();
+    vcIconos();
 }
 
 function openExploreDeep(idx) {
@@ -9052,7 +9169,7 @@ function openExploreDeep(idx) {
 
     // ── Show modal with card data immediately ──────────────────────────────
     document.getElementById('exploreDeepModal').classList.remove('hidden');
-    lucide.createIcons();
+    vcIconos();
 
     // ── Then load Grok deep dive async ────────────────────────────────────
     loadGrokDeepDive(s.ticker, s.name || s.companyName || s.ticker);
@@ -9111,7 +9228,7 @@ async function loadGrokDeepDive(ticker, companyName) {
             </div>`;
         }
         deepGrokEl.classList.remove('hidden');
-        lucide.createIcons();
+        vcIconos();
 
     } catch(e) {
         deepLoadEl.classList.add('hidden');
@@ -9198,7 +9315,7 @@ async function loadExploreScreens() {
     const host = document.getElementById('exploreScreensBody');
     if (!host) return;
     host.innerHTML = `<p class="text-[11px] text-gray-500 italic flex items-center gap-2"><i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i> Cargando screens fundamentales…</p>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
     try {
         const r = await fetch(`${API_BASE}/api/explore-screens?n=6`);
         const d = await r.json();
@@ -9232,7 +9349,7 @@ function renderExploreScreens() {
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">${chips}</div></div>`;
     }).join('');
     host.innerHTML = html || `<p class="text-[11px] text-gray-500 italic">Sin resultados de screens por ahora.</p>`;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 function analyzeTickerNow(tk) {
@@ -10092,7 +10209,7 @@ async function loadPortfolioEdge() {
         document.getElementById('trkPfEdgeBest').innerHTML = be.length
             ? `<p class="text-[10px] text-gray-500"><span class="font-bold text-gray-400">Tu mejor edge medido:</span> ${be.map(b => `${b.ticker} ${b.expectancy_r >= 0 ? '+' : ''}${b.expectancy_r}R (n=${b.n})`).join(' · ')}</p>`
             : '';
-        if (window.lucide) lucide.createIcons();
+        if (window.lucide) vcIconos();
     } catch (e) { card.classList.add('hidden'); }
 }
 
@@ -10135,13 +10252,13 @@ async function loadSchedulerStatus() {
 
 async function schedulerRunNow() {
     const btn = document.getElementById('schedRunBtn');
-    btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="w-3 h-3 animate-spin"></i> Colectando…'; lucide.createIcons();
+    btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" class="w-3 h-3 animate-spin"></i> Colectando…'; vcIconos();
     try {
         await fetch(`${API_BASE}/api/scheduler/run-now`, {method:"POST"});
         setTimeout(loadSchedulerStatus, 1500);
         setTimeout(loadSchedulerStatus, 8000);
     } catch(e) {}
-    setTimeout(()=>{ btn.disabled=false; btn.innerHTML='<i data-lucide="zap" class="w-3 h-3"></i> Colectar ahora'; lucide.createIcons(); }, 2000);
+    setTimeout(()=>{ btn.disabled=false; btn.innerHTML='<i data-lucide="zap" class="w-3 h-3"></i> Colectar ahora'; vcIconos(); }, 2000);
 }
 
 let trkEqMode = 'pct';   // Batch R · modo de la curva de equity: '%' o 'R'
@@ -10266,7 +10383,7 @@ function renderTrackRecord(d) {
             tbl('Por ticker', bd.by_ticker) + tbl('Por tipo de setup', bd.by_setup) +
             tbl('Por régimen GEX', bd.by_regime) + tbl('Por convicción', bd.by_conviction);
     } else if (bdCard) { bdCard.classList.add('hidden'); }
-    lucide.createIcons();
+    vcIconos();
 }
 
 // ── #4 RÉGIMEN DE MERCADO ──────────────────────────────────────────────────────
@@ -10302,7 +10419,7 @@ function renderRegime(d) {
     // La tabla de pesos por señal era del motor de convicción ponderado (eliminado):
     // este panel ahora solo clasifica el régimen de mercado.
     body.innerHTML = chips;
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 // ── #3 INFORMATION COEFFICIENT ────────────────────────────────────────────────
@@ -10336,7 +10453,7 @@ function openListModal(title, sub, rowsHtml) {
     document.getElementById('listModalBody').innerHTML = rowsHtml || '';
     el.classList.remove('hidden');
     document.body.style.overflow = 'hidden';   // congela el fondo
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 function closeListModal() {
@@ -10380,7 +10497,7 @@ function openMobileNav(){
     document.getElementById('navBrand')?.setAttribute('aria-expanded', 'true');
     // Congela el scroll del fondo mientras el panel esta abierto
     document.body.style.overflow = 'hidden';
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 function closeMobileNav(){
@@ -10446,7 +10563,7 @@ function toggleUserMenu(ev) {
     document.getElementById('notifPanel')?.classList.add('hidden');
     m.classList.toggle('hidden', abierto);
     if (!abierto) vxPintaMenu();
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 function closeUserMenu() {
     document.getElementById('userMenu')?.classList.add('hidden');
@@ -10538,7 +10655,7 @@ function vxIdioma(l) {
     try { localStorage.setItem('vertex_idioma', VX_IDIOMA); } catch (e) {}
     vxAplicaIdioma();
     vxPintaOpciones();
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 /* ── PERFIL — el cuestionario ─────────────────────────────────────────────
@@ -10564,7 +10681,7 @@ function pfTab(cual) {
     document.getElementById('pfTabPerfil')?.classList.toggle('activa', cual === 'perfil');
     // Guardar solo tiene sentido en el cuestionario.
     document.getElementById('pfBtnGuardar')?.classList.toggle('hidden', cual !== 'perfil');
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 async function pfCargar() {
@@ -10646,7 +10763,7 @@ function pfPinta(d) {
             <p class="text-[9px] text-gray-700 mt-2">&Uacute;ltimo guardado: ${p.actualizado
                 ? _vcEsc(String(p.actualizado).slice(0, 16).replace('T', ' ')) + ' UTC' : 'nunca'}</p>`;
     }
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 /** El modo del perfil: por defecto o personalizado.
@@ -10698,7 +10815,7 @@ function pfPintaModo() {
         ? VX_PREGUNTAS.map(pfPreguntaHTML).join('') : '';
     document.getElementById('pfProgreso')?.classList.toggle('hidden', !personalizado);
     if (personalizado) pfPintaProgreso();
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 document.addEventListener('click', e => {
@@ -10840,7 +10957,7 @@ function pfRepintaPregunta(preg) {
     if (!nodo) return;
     nodo.outerHTML = pfPreguntaHTML(preg);
     pfPintaProgreso();
-    if (window.lucide) lucide.createIcons();
+    if (window.lucide) vcIconos();
 }
 
 function pfActualizaInsignia(preg) {
@@ -10949,7 +11066,7 @@ document.addEventListener('DOMContentLoaded', () => {
 </button>
 <script>
     function applyTheme(t){ document.documentElement.classList.toggle('light', t === 'light');
-        try{ localStorage.setItem('vertex_theme', t); }catch(e){} if(window.lucide) lucide.createIcons(); }
+        try{ localStorage.setItem('vertex_theme', t); }catch(e){} if(window.lucide) vcIconos(); }
     function toggleTheme(){ const cur = document.documentElement.classList.contains('light') ? 'light' : 'dark';
         applyTheme(cur === 'light' ? 'dark' : 'light'); }
     (function(){ let t='dark'; try{ t = localStorage.getItem('vertex_theme') || 'dark'; }catch(e){}
