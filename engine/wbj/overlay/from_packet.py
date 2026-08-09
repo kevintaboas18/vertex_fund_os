@@ -1976,11 +1976,21 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         from wbj.overlay.amplitud_sector import amplitud_de_sector
 
         _sec = getattr(getattr(packet, "security", None), "sector", None)
-        # SOLO CACHE. Ver el docstring de `amplitud_de_sector`: pedirla por red
-        # aqui agotaba el limite de FMP y los 429 caian sobre las llamadas del
-        # propio ticker. Se calienta aparte; si no esta, la metrica queda
-        # NOT_SCORABLE, que cuesta 3 puntos y no el analisis entero.
-        _amp = amplitud_de_sector(fmp, _sec, permitir_red=False)
+        # Se pide por RED cuando no esta en cache. Antes era solo-cache, y esa
+        # decision tenia una consecuencia que Kevin nombro: el PRIMER ticker de
+        # cada sector nunca tenia amplitud. La metrica funcionaba "para algunos
+        # si y otros no", que es justo lo que no puede pasar.
+        #
+        # El motivo original era real -- 405 peticiones por sector agotaban el
+        # limite de FMP y los 429 caian sobre las llamadas del propio ticker --
+        # pero ese numero ya no existe: el tope bajo a 120 miembros. Medido
+        # hoy sobre Technology y Financial Services: 11 segundos, 120 de 120
+        # con media publicada, cero 429.
+        #
+        # Y el coste se paga UNA vez por sector y dia, no por ticker: el
+        # resultado se cachea por sector, asi que el segundo ticker del mismo
+        # sector no gasta ni una peticion.
+        _amp = amplitud_de_sector(fmp, _sec, permitir_red=True)
         if _amp:
             overlay["sector_breadth"] = _amp
             logger.info("amplitud de %s: %d/%d sobre su media de 50",
