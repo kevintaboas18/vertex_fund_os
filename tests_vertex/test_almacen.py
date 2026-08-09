@@ -405,6 +405,125 @@ class TestUnContenedorNuevo:
             conn.close()
 
 
+class TestLaCuentaSobreviveOLoDICE:
+    """«Creo una cuenta, cierro sesión, y al volver no me deja entrar».
+
+    Es el fallo más caro del despliegue y el único que no se nota hasta que ya
+    pasó. Las cuentas viajan en `Privado/privado.enc`, cifradas con
+    `VERTEX_DB_KEY`. **Sin esa clave no se suben**, a propósito: un hash de
+    contraseña en un repositorio —aunque sea privado— es un objetivo de fuerza
+    bruta offline, y se prefiere perderlo a filtrarlo.
+
+    Esa decisión es correcta. Lo que estaba mal es que se tomaba EN SILENCIO,
+    justo en el instante en que el usuario cree lo contrario: registras, entra,
+    funciona… y cuando Render se duerme —el plan free borra el disco al
+    despertar— la cuenta se fue con él y el mensaje que recibes es «email o
+    contraseña incorrectos».
+    """
+
+    @pytest.fixture(autouse=True)
+    def entorno(self, tmp_path, monkeypatch, remoto):
+        self.dir = tmp_path
+        self.remoto = remoto
+        _aisla(tmp_path, monkeypatch, remoto)
+
+    def _cliente(self):
+        from fastapi.testclient import TestClient
+
+        import vertex_api as V
+
+        V._arranca_almacen()
+        V.init_db()
+        return TestClient(V.app), V
+
+    def test_con_la_clave_la_cuenta_sobrevive_al_borrado(self, monkeypatch):
+        monkeypatch.setenv("VERTEX_DB_KEY", "clave-de-prueba-suficientemente-larga")
+        c, V = self._cliente()
+        r = c.post("/api/auth/registro", json={
+            "email": "Kevin@Ejemplo.com ", "nombre": "Kevin",
+            "password": "ClaveLarga123!"})
+        assert r.json().get("ok") is True, r.json()
+        from vertex_almacen import almacen
+        almacen.sincroniza()
+
+        # El disco se borra entero, como en un redeploy de Render.
+        import shutil
+        shutil.rmtree(self.dir / "almacen", ignore_errors=True)
+        (self.dir / "vertex.db").unlink(missing_ok=True)
+        import vertex_almacen as VA
+        monkeypatch.setattr(VA, "almacen", VA.Almacen())
+        c2, V2 = self._cliente()
+
+        r2 = c2.post("/api/auth/entrar", json={
+            "email": "kevin@ejemplo.com", "password": "ClaveLarga123!"})
+        assert r2.json().get("ok") is True, (
+            "la cuenta no sobrevivió al borrado del disco: " + str(r2.json()))
+
+    def test_sin_la_clave_se_AVISA_al_crear_la_cuenta(self, monkeypatch):
+        """Sin `VERTEX_DB_KEY` la cuenta no se respalda. Se puede vivir con
+        eso; lo que no se puede es no decirlo."""
+        monkeypatch.delenv("VERTEX_DB_KEY", raising=False)
+        c, V = self._cliente()
+        d = c.post("/api/auth/registro", json={
+            "email": "kevin@ejemplo.com", "nombre": "Kevin",
+            "password": "ClaveLarga123!"}).json()
+        assert d.get("ok") is True
+        aviso = d.get("aviso_persistencia") or ""
+        assert aviso, "la cuenta no se respalda y no se avisa de nada"
+        assert "VERTEX_DB_KEY" in aviso, "no dice qué falta"
+        assert "registrarte de nuevo" in aviso, "no dice la consecuencia"
+
+    def test_con_la_clave_no_inventa_un_aviso(self, monkeypatch):
+        monkeypatch.setenv("VERTEX_DB_KEY", "clave-de-prueba-suficientemente-larga")
+        c, V = self._cliente()
+        d = c.post("/api/auth/registro", json={
+            "email": "kevin@ejemplo.com", "nombre": "Kevin",
+            "password": "ClaveLarga123!"}).json()
+        assert not d.get("aviso_persistencia"), d.get("aviso_persistencia")
+
+    def test_el_aviso_llega_ANTES_de_registrarse(self, monkeypatch):
+        """`/api/auth/status` lo consulta la pantalla al cargar. Decirlo
+        después de crear la cuenta llega tarde."""
+        monkeypatch.delenv("VERTEX_DB_KEY", raising=False)
+        c, V = self._cliente()
+        d = c.get("/api/auth/status").json()
+        assert d.get("aviso_persistencia"), "el login no avisa antes de registrar"
+
+    def test_el_email_no_se_puede_repetir_ni_cambiando_mayusculas(self, monkeypatch):
+        monkeypatch.setenv("VERTEX_DB_KEY", "clave-de-prueba-suficientemente-larga")
+        c, V = self._cliente()
+        assert c.post("/api/auth/registro", json={
+            "email": "kevin@ejemplo.com", "nombre": "Kevin",
+            "password": "ClaveLarga123!"}).json().get("ok") is True
+        for repetido in ("kevin@ejemplo.com", "KEVIN@EJEMPLO.COM",
+                         "  Kevin@Ejemplo.Com  "):
+            d = c.post("/api/auth/registro", json={
+                "email": repetido, "nombre": "Otro",
+                "password": "OtraClave123!"}).json()
+            assert d.get("ok") is False, f"aceptó el email repetido «{repetido}»"
+            assert "Ya existe una cuenta" in (d.get("error") or "")
+
+    def test_se_entra_escribiendo_el_email_como_sea(self, monkeypatch):
+        monkeypatch.setenv("VERTEX_DB_KEY", "clave-de-prueba-suficientemente-larga")
+        c, V = self._cliente()
+        c.post("/api/auth/registro", json={
+            "email": "kevin@ejemplo.com", "nombre": "Kevin",
+            "password": "ClaveLarga123!"})
+        for variante in ("kevin@ejemplo.com", "KEVIN@EJEMPLO.COM",
+                         " Kevin@Ejemplo.Com "):
+            d = c.post("/api/auth/entrar", json={
+                "email": variante, "password": "ClaveLarga123!"}).json()
+            assert d.get("ok") is True, f"no deja entrar con «{variante}»"
+
+    def test_la_pantalla_pinta_el_aviso(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "d.aviso_persistencia" in html, "el registro no lee el aviso"
+        assert "function vxAvisoPersistencia(" in html
+        assert "vxAvisoPersistencia(st.aviso_persistencia)" in html, \
+            "el login no lo pinta antes de registrar"
+        assert 'id="authPersistAviso"' in html
+
+
 class TestElRemotoSeDeduceEnRender:
     """El fallo que hacía que NADA se guardara teniendo el token puesto.
 

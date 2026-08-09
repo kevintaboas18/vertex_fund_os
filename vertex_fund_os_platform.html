@@ -305,13 +305,36 @@
             --vc-text:     #101828;   /* su --text */
             --vc-muted:    #667085;   /* su --muted */
             --vc-faint:    #98a2b3;   /* su --faint */
-            --vc-green-d:  #0e9f5f;   /* su --green-dark, el verde legible sobre claro */
             --vc-green-bg: #e7f8f0;   /* su --green-bg */
-            --vc-red-d:    #d92d20;   /* el rojo de su `.pill.put` */
             --vc-red-bg:   #fee9e7;   /* su --red-bg */
             --vc-amber-bg: #fff7e6;   /* su --amber-bg */
-            --vc-amber-tx: #b54708;   /* su --amber-text */
             --vc-accent-d: #dbe6ff;   /* su --accent-dim */
+            /* ── LOS MISMOS TONOS, LEGIBLES ──────────────────────────────
+               Sus colores están hechos para RELLENOS (una pastilla, una
+               barra, una celda), donde el contraste lo da el área. Como
+               TEXTO sobre blanco no llegan, y se mide:
+
+                   --green  #12b76a → 2.62:1     --amber #f79009 → 2.35:1
+                   --put    #f97066 → 2.79:1     --faint #98a2b3 → 2.58:1
+
+               WCAG pide 4.5:1 para texto normal. Por debajo de 3 no es
+               «poco contraste»: es que no se lee, y en el móvil de Kevin
+               había cifras que directamente no aparecían.
+
+               Estos son SUS MISMOS MATICES bajados de luminosidad hasta
+               4.6:1 CONTRA SU PROPIO FONDO (#f3f4f6, no blanco puro:
+               medir contra blanco daba 4.2:1 en pantalla) — no son
+               colores nuevos, es su paleta a la altura que
+               el texto necesita. Los FONDOS de las pastillas siguen siendo
+               los suyos (#e7f8f0, #fee9e7, #fff7e6); lo que cambia es el
+               color del texto ENCIMA — su relleno verde es tan claro que su
+               propio --green-dark sobre él da 3,11:1, así que el mismo tono
+               oscurecido sirve para la pastilla y para la página. */
+            --vc-green-d:  #0b7e4b;   /* su --green-dark: 4,65:1 en la pastilla Y en la página */
+            --vc-red-d:    #d11c10;   /* su rojo: 4,64:1 en la pastilla y 4,91:1 en la página */
+            --vc-red-tx:   #d11c10;   /* el mismo: un solo rojo vale para los dos fondos */
+            --vc-amber-tx: #a25e06;   /* su --amber: 4,76:1 en la pastilla y 4,61:1 en la página */
+            --vc-accent-t: #1d5fff;   /* su --accent a 4.62:1 (era 4.50) */
             background: var(--vc-bg);
             color: var(--vc-text);
         }
@@ -322,25 +345,36 @@
         html.light #projectionsView [class*="border-gray-800"],
         html.light #projectionsView [class*="border-[#1F2532]"] { border-color: var(--vc-border) !important; }
         /* Su escala de grises de texto: --text / --muted / --faint. */
+        /* `text-gray-100` es el VALOR de cada tarjeta de estadística y no lo
+           cubría ninguna capa: se quedaba en #f3f4f6 sobre blanco, 1,10:1, o
+           sea invisible. Era lo que hacía desaparecer «1.64%», «15%», «12»,
+           el precio de la acción y los empleados en las capturas de Kevin. */
         html.light #projectionsView .text-white,
+        html.light #projectionsView .text-gray-100,
         html.light #projectionsView .text-gray-200 { color: var(--vc-text) !important; }
+        /* Los cuatro niveles de gris intermedio van a `--muted` (4,97:1) y no a
+           `--faint` (2,58:1): en oscuro `gray-500/600` es texto secundario que
+           SE LEE, y mandarlo al gris más claro de su paleta lo borraba. */
         html.light #projectionsView .text-gray-300,
-        html.light #projectionsView .text-gray-400 { color: var(--vc-muted) !important; }
+        html.light #projectionsView .text-gray-400,
         html.light #projectionsView .text-gray-500,
-        html.light #projectionsView .text-gray-600,
-        html.light #projectionsView .text-gray-700 { color: var(--vc-faint) !important; }
+        html.light #projectionsView .text-gray-600 { color: var(--vc-muted) !important; }
+        /* `text-gray-700` marca los «—» de «sin dato» y las filas bloqueadas de
+           la Wheel. A 2,34:1 esos guiones no se ven, y un «sin dato» invisible
+           se lee como un hueco de maquetación, no como información. */
+        html.light #projectionsView .text-gray-700 { color: #626f85 !important; }
         /* Sus acentos, en la versión legible sobre blanco. El verde de #12b76a
            sobre blanco pierde contraste: él usa --green-dark (#0e9f5f) en
            texto y deja #12b76a para los rellenos. */
         html.light #projectionsView .text-emerald-400,
         html.light #projectionsView .text-emerald-300 { color: var(--vc-green-d) !important; }
-        html.light #projectionsView .text-red-400,
-        html.light #projectionsView .text-red-300 { color: var(--vc-red-d) !important; }
+        html.light #projectionsView .text-red-400 { color: var(--vc-red-d) !important; }
+        html.light #projectionsView .text-red-300 { color: var(--vc-red-tx) !important; }
         html.light #projectionsView .text-amber-400,
         html.light #projectionsView .text-amber-300 { color: var(--vc-amber-tx) !important; }
         html.light #projectionsView .text-blue-400,
         html.light #projectionsView .text-blue-500,
-        html.light #projectionsView .text-blue-300 { color: var(--vc-accent) !important; }
+        html.light #projectionsView .text-blue-300 { color: var(--vc-accent-t) !important; }
         html.light #projectionsView .text-purple-400 { color: #7a5af8 !important; }
         /* Sus fondos teñidos. Un `bg-emerald-500/10` sobre blanco es casi
            invisible; su `--green-bg` está hecho para este fondo. */
@@ -525,6 +559,15 @@
 
             <div id="authError" class="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 mb-4">
                 <p id="authErrorText" class="text-red-400 text-xs"></p>
+            </div>
+
+            <!-- El aviso de que las cuentas de este despliegue NO sobreviven a
+                 un reinicio. Va ANTES de que nadie escriba un email: decirlo
+                 después de crear la cuenta llega tarde. Lo rellena
+                 `vertexGateCheck` con lo que responde /api/auth/status. -->
+            <div id="authPersistAviso" class="hidden bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 mb-4">
+                <p class="text-amber-300 text-[11px] font-bold mb-0.5">&#9888; Este servidor no est&aacute; guardando las cuentas</p>
+                <p id="authPersistTexto" class="text-amber-200/80 text-[10px] leading-snug"></p>
             </div>
 
             <div id="authNameField" class="mb-3 hidden">
@@ -7261,6 +7304,15 @@ async function authSubmit() {
         });
         const d = await r.json();
         if (!d.ok) { authShowError(d.error || 'No se pudo completar.'); return; }
+        // Si esta cuenta NO va a sobrevivir a un reinicio del servidor, se dice
+        // AHORA. Es el fallo más caro del despliegue y el único que no se nota
+        // hasta que ya pasó: creas la cuenta, funciona, cierras sesión, y al
+        // volver «no existe» — porque en medio Render se durmió y el plan free
+        // borra el disco al despertar.
+        if (d.aviso_persistencia) {
+            alert('⚠ ' + d.aviso_persistencia);
+            console.warn('[vertex] cuenta sin respaldo:', d.aviso_persistencia);
+        }
         // La cookie ya viene puesta en la respuesta. No se guarda ningún token
         // aquí: es HttpOnly a propósito y el JavaScript no debe poder leerla.
         await authLogin(d.usuario, { nuevo: !!d.nuevo });
@@ -7355,9 +7407,23 @@ async function vertexGateCheck() {
     } catch (e) {
         return true;   // servidor caído: que la app cargue y falle con su propio aviso
     }
+    // El aviso de persistencia se pinta SIEMPRE que llegue, esté o no la
+    // puerta cerrada: quien va a registrarse tiene que saber antes de escribir
+    // su email que la cuenta puede no estar mañana.
+    vxAvisoPersistencia(st.aviso_persistencia);
     if (!st.auth_required || st.authenticated) return true;
     vertexShowGate();
     return false;
+}
+
+/** Pinta (o esconde) el aviso de que las cuentas no se respaldan. */
+function vxAvisoPersistencia(texto) {
+    const caja = document.getElementById('authPersistAviso');
+    const p = document.getElementById('authPersistTexto');
+    if (!caja || !p) return;
+    if (!texto) { caja.classList.add('hidden'); return; }
+    p.textContent = texto;
+    caja.classList.remove('hidden');
 }
 
 function vertexShowGate(msg) {

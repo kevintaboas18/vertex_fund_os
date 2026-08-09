@@ -221,7 +221,11 @@ class TestLosDosTemasSonLosQueTocan:
             assert e["th_bg"] == "rgb(248, 249, 251)", "su --panel-2 es #f8f9fb"
             assert e["unusual"] == "rgb(255, 243, 201)", "su tr.unusual es #fff3c9"
             assert e["pill_bg"] == "rgb(231, 248, 240)", "su --green-bg es #e7f8f0"
-            assert e["pill_color"] == "rgb(14, 159, 95)", "su --green-dark es #0e9f5f"
+            # Su `--green-dark` (#0e9f5f) sobre su propio relleno (#e7f8f0) da
+            # 3,11:1: su fondo teñido es tan claro que el texto encima necesita
+            # el mismo tono oscurecido. #0b7e4b = 4,65:1 en la pastilla y en la
+            # página. El FONDO sigue siendo el suyo, exacto.
+            assert e["pill_color"] == "rgb(11, 126, 75)", "el verde legible de su --green-dark"
         finally:
             pg.close()
 
@@ -245,5 +249,96 @@ class TestLosDosTemasSonLosQueTocan:
             assert "tabular-nums" in (e["tabular"] or ""), \
                 "sin tabular-nums los dígitos no alinean entre filas"
             assert e["pill_caja"] == "uppercase", "sus pills van en mayúsculas"
+        finally:
+            pg.close()
+
+
+def _lum(c):
+    c = [x / 255 for x in c]
+    c = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+
+def _contraste(a, b):
+    l1, l2 = sorted([_lum(a), _lum(b)], reverse=True)
+    return (l1 + 0.05) / (l2 + 0.05)
+
+
+def _rgb(s):
+    import re
+    return tuple(int(x) for x in re.findall(r"\d+", s)[:3])
+
+
+class TestEnClaroTodoSeLee:
+    """El contraste MEDIDO, no mirado.
+
+    En el móvil de Kevin había cifras que directamente no aparecían: el valor
+    de cada tarjeta de estadística usa `text-gray-100`, que ninguna capa clara
+    cubría — se quedaba en `#f3f4f6` sobre un fondo `#f3f4f6`, o sea **1,10:1**.
+    «1.64%», «15%», «12», el precio de la acción y los empleados eran texto
+    blanco sobre blanco.
+
+    Y tres niveles de gris caían en su `--faint` (2,58:1), que es lo que hacía
+    ilegible la letra pequeña.
+
+    Sus colores están hechos para RELLENOS —una pastilla, una barra, una
+    celda—, donde el contraste lo da el área. Como texto sobre claro no
+    llegaban: `--green` 2,62:1, `--amber` 2,35:1, `--put` 2,79:1. Lo que se
+    pinta ahora son sus mismos matices bajados de luminosidad hasta 4,6:1
+    contra SU PROPIO fondo (`#f3f4f6`, no blanco puro: medir contra blanco daba
+    4,2:1 en pantalla, que es lo que pasa por bueno y luego no se ve).
+    """
+
+    #: Todas las clases de texto que el panel usa de verdad.
+    CLASES = ["text-white", "text-gray-100", "text-gray-200", "text-gray-300",
+              "text-gray-400", "text-gray-500", "text-gray-600", "text-gray-700",
+              "text-emerald-400", "text-emerald-300", "text-red-400",
+              "text-red-300", "text-amber-400", "text-amber-300",
+              "text-blue-400", "text-blue-500", "text-blue-300"]
+
+    def test_ninguna_clase_de_texto_baja_de_4_5_a_1(self, navegador, servidor):
+        pg, _ = _abre(navegador, servidor, tema="light")
+        try:
+            d = pg.evaluate("""(clases) => {
+                const m = document.getElementById('projectionsView');
+                m.classList.remove('hidden');
+                const o = {};
+                for (const c of clases) {
+                    const e = document.createElement('span');
+                    e.className = c; e.textContent = 'x';
+                    m.appendChild(e); o[c] = getComputedStyle(e).color; e.remove();
+                }
+                o.__fondo = getComputedStyle(m).backgroundColor;
+                return o;
+            }""", self.CLASES)
+            fondo = _rgb(d.pop("__fondo"))
+            flojas = {k: round(_contraste(_rgb(v), fondo), 2)
+                      for k, v in d.items() if _contraste(_rgb(v), fondo) < 4.5}
+            assert not flojas, (
+                f"sobre el fondo claro rgb{fondo} no se leen: {flojas} "
+                "(WCAG pide 4.5:1 para texto normal)")
+        finally:
+            pg.close()
+
+    def test_en_oscuro_tambien_se_lee(self, navegador, servidor):
+        """Arreglar el claro no puede estropear el oscuro."""
+        pg, _ = _abre(navegador, servidor, tema="dark")
+        try:
+            d = pg.evaluate("""(clases) => {
+                const m = document.getElementById('projectionsView');
+                m.classList.remove('hidden');
+                const o = {};
+                for (const c of clases) {
+                    const e = document.createElement('span');
+                    e.className = c; e.textContent = 'x';
+                    m.appendChild(e); o[c] = getComputedStyle(e).color; e.remove();
+                }
+                return o;
+            }""", self.CLASES)
+            # El fondo oscuro del panel de Vertex.
+            fondo = (11, 14, 20)
+            flojas = {k: round(_contraste(_rgb(v), fondo), 2)
+                      for k, v in d.items() if _contraste(_rgb(v), fondo) < 3.0}
+            assert not flojas, f"en oscuro no se leen: {flojas}"
         finally:
             pg.close()

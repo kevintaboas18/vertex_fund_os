@@ -5921,3 +5921,66 @@ Eso no lo encuentra ningún test: hay que mirar la foto.
 
 **2.925 tests del motor · 599 de la capa web (7 de ellos en un navegador real) ·
 323 checks de auditoría · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.45 Ronda 19 — el contraste medido, y la cuenta que desaparecía sin avisar
+
+**Fecha:** 2026-08-08 · **Origen:** capturas del móvil de Kevin
+
+### 1 · En claro había texto que no existía
+
+`text-gray-100` es el VALOR de cada tarjeta de estadística —el precio, el
+spread, el % de volumen sobre open interest, los empleados— y **ninguna capa
+clara lo cubría**. Se quedaba en `#f3f4f6` sobre un fondo `#f3f4f6`: **1,10:1**,
+o sea texto blanco sobre blanco. En las capturas se ven los rótulos («SPREAD
+PROMEDIO») y debajo, nada.
+
+Y tres niveles de gris caían todos en su `--faint` (**2,58:1**), que es lo que
+hacía ilegible la letra pequeña.
+
+**Sus colores están hechos para RELLENOS** —una pastilla, una barra, una
+celda—, donde el contraste lo da el área. Como texto sobre claro no llegan, y
+se mide: `--green` 2,62:1 · `--amber` 2,35:1 · `--put` 2,79:1.
+
+Lo que se pinta ahora son **sus mismos matices bajados de luminosidad hasta
+4,6:1**, no colores nuevos. Dos precisiones que cambiaron el resultado:
+
+- **Contra su propio fondo, no contra blanco.** El tab es `#f3f4f6`; medir
+  contra blanco daba 4,2:1 en pantalla, que pasa por bueno y luego no se ve.
+- **Los rellenos también.** Su relleno verde `#e7f8f0` es tan claro que su
+  propio `--green-dark` encima da 3,11:1. Los FONDOS de las pastillas siguen
+  siendo los suyos exactos; lo que cambia es el color del texto encima.
+
+Medido en Chromium sobre el panel servido, las 17 clases de texto del tab:
+**ninguna por debajo de 4,5:1**, y el oscuro sin tocar.
+
+### 2 · La cuenta desaparecía sin decir nada
+
+«Creo una cuenta, cierro sesión, y al volver no me deja entrar.»
+
+Las cuentas viajan en `Privado/privado.enc`, cifradas con `VERTEX_DB_KEY`. **Sin
+esa clave no se suben**, a propósito: un hash de contraseña en un repositorio
+—aunque sea privado— es un objetivo de fuerza bruta offline, y se prefiere
+perderlo a filtrarlo. Esa decisión es correcta.
+
+Lo que estaba mal es que se tomaba **en silencio**, justo en el instante en que
+el usuario cree lo contrario. Medido: sin la clave, `POST /api/auth/registro`
+devuelve `ok: true` sin una palabra, y al remoto solo sube `.gitignore`. Cuando
+Render se duerme —el plan free borra el disco al despertar— la cuenta se va con
+él y lo que recibes es «email o contraseña incorrectos».
+
+Ahora `_aviso_persistencia()` dice **qué falta y qué va a pasar**, y viaja en
+dos sitios: en la respuesta del registro (alerta inmediata) y en
+`/api/auth/status`, que la pantalla de login consulta **antes** de que nadie
+escriba un email.
+
+**Lo que sí funciona, verificado borrando el disco entero:** con `VERTEX_DB_KEY`
+puesta, la cuenta sobrevive a un contenedor nuevo y se entra igual. El email no
+se puede repetir ni cambiando mayúsculas ni con espacios alrededor, y se entra
+escribiéndolo de cualquiera de esas formas — `normaliza_email` corre en los dos
+lados.
+
+### Estado
+
+**2.925 tests del motor · 608 de la capa web (9 en un navegador real) ·
+323 checks de auditoría · 16 diferenciales · preflight de Render en verde ·
+0 fallos, 0 avisos, 0 skips.**

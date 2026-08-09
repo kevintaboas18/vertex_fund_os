@@ -598,7 +598,10 @@ def api_auth_status(request: Request):
     """Pública a propósito: el frontend la consulta al cargar para saber si debe
     pedir contraseña. No revela el token, sólo si hace falta y si ya hay sesión."""
     return {"ok": True, "auth_required": bool(VERTEX_API_TOKEN),
-            "authenticated": _auth_ok(request)}
+            "authenticated": _auth_ok(request),
+            # Antes de que nadie escriba un email: si las cuentas no se
+            # respaldan, avisarlo después de crearla llega tarde.
+            "aviso_persistencia": _aviso_persistencia()}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -630,6 +633,40 @@ def _publico(usuario):
     if not usuario:
         return None
     return {"id": usuario["id"], "email": usuario["email"], "nombre": usuario["nombre"]}
+
+
+def _aviso_persistencia() -> str:
+    """Por qué esta cuenta puede desaparecer, o cadena vacía si no puede.
+
+    Es el fallo que más caro sale de todos los que tiene este despliegue, y el
+    único que no se nota hasta que ya pasó: creas la cuenta, funciona, cierras
+    sesión, y al volver «no existe». En medio, Render se durmió —el plan free
+    borra el disco al despertar— y la cuenta se fue con él.
+
+    Las cuentas viajan en `Privado/privado.enc`, cifradas con `VERTEX_DB_KEY`.
+    Sin esa clave NO se suben: un hash de contraseña en un repositorio, aunque
+    sea privado, es un objetivo de fuerza bruta offline, y se prefiere perderlo
+    a filtrarlo. Esa decisión es correcta; lo que estaba mal es que se tomaba
+    EN SILENCIO, justo en el momento en que el usuario cree lo contrario.
+    """
+    try:
+        import vertex_almacen as _AL
+        respalda = bool(_AL.almacen.estado().get("respalda"))
+    except Exception:                             # noqa: BLE001
+        return ("No se pudo comprobar el respaldo: da por hecho que esta cuenta "
+                "NO sobrevive a un reinicio del servidor.")
+    if not respalda:
+        return ("Esta cuenta NO se está respaldando: falta VERTEX_GIT_TOKEN. "
+                "Si el servidor se reinicia o se duerme, tendrás que volver a "
+                "registrarte — y el email quedará libre otra vez.")
+    if _fernet() is None:
+        return ("Esta cuenta se guarda en disco pero NO se respalda: falta "
+                "VERTEX_DB_KEY, la clave con la que se cifran las cuentas antes "
+                "de subirlas. Sin ella no se suben a propósito (un hash de "
+                "contraseña sin cifrar no se sube a ningún repositorio), así que "
+                "si el servidor se reinicia tendrás que registrarte de nuevo. "
+                "Ponla en Render: openssl rand -hex 32")
+    return ""
 
 
 @app.post("/api/auth/registro")
@@ -677,6 +714,9 @@ async def auth_registro(request: Request):
 
     return _pon_cookie_usuario(
         JSONResponse(content={"ok": True, "usuario": _publico(usuario), "nuevo": True,
+                              # Si esta cuenta no va a sobrevivir a un reinicio,
+                              # se dice AQUÍ y no cuando ya no se pueda entrar.
+                              "aviso_persistencia": _aviso_persistencia(),
                               # Para que la pantalla pueda decirlo en vez de que
                               # el usuario descubra solo que su archivo cambió.
                               "primera_cuenta": bool(usuario.get("primera_cuenta")),
