@@ -5797,3 +5797,63 @@ que `WBJ_TITO_DATA` se fija antes de restaurar. Mutados: 2 en rojo.
 
 **2.925 tests del motor · 585 de la capa web · 317 checks de auditoría ·
 16 diferenciales · preflight de Render en verde · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.43 Ronda 17 — su DISEÑO, que nadie había mirado en dieciséis rondas
+
+**Fecha:** 2026-08-08 · **Contra:** `web/app/globals.css` de `53d5a20` (1.041 líneas)
+
+Dieciséis rondas comparando su lógica, sus textos, sus umbrales, sus constantes
+y sus payloads. **Su hoja de estilos no la había abierto nadie.** El tab se
+dibujó con utilidades sueltas de Tailwind, y ahí dentro hay decisiones suyas que
+no son adorno.
+
+### La que más se nota: `tabular-nums`
+
+Su CSS lo pone en `table`, o sea en TODAS. Las veinte tablas del tab no lo
+tenían. Sin él cada dígito lleva su propio ancho —un `1` ocupa menos que un
+`8`— así que `$1.111` y `$8.888` no acaban en la misma columna. En una pantalla
+que es casi toda números, eso no es tipografía fina: es si se pueden comparar
+dos precios de un vistazo o hay que leerlos.
+
+### Lo demás que se portó
+
+| Suyo | Qué hace |
+|---|---|
+| `tbody tr:nth-child(odd)` | la cebra, para no saltar de fila al recorrer una tabla ancha |
+| `tbody tr:hover` | la fila bajo el cursor se distingue |
+| `thead th { position: sticky }` | en 25 filas con scroll, el encabezado no se va justo cuando hace falta |
+| `tr.unusual td` | la fila inusual se tiñe **entera**, no solo su celda de puntaje |
+| `.pill` 999px/700/MAYÚSCULAS/tracking .5 | lo que las separa del texto de al lado sin necesitar más color |
+| `--space-*` 8/14/24/32 | con su regla escrita: *«el gap ENTRE cards (lg) tiene que superar al padding DENTRO (md), si no la proximidad se invierte y las cards se leen pegadas»* |
+| `@media (max-width:640px)` → md 16, lg 22 | *«en móvil el aire de sección se recorta: ahí el scroll pesa más que el agrupamiento»* |
+
+Y **sus tonos exactos**, que no son los de Tailwind: su verde es `#12b76a` y el
+`emerald-400` es `#34d399`. Parecidos en la cabeza, distintos en pantalla.
+`--accent #2f6bff` · `--green #12b76a` · `--red #f04438` · `--put #f97066` ·
+`--amber #f79009`.
+
+### Divergencia declarada: la luminosidad
+
+Su paleta es **clara** (`--bg:#f3f4f6`, `--panel:#fff`, `--text:#101828`) porque
+su app es una página suelta. Este tab vive dentro de Vertex, que es oscuro:
+meterle un bloque blanco no sería «igual que él», sería un parche. Se portan sus
+**tonos, sus proporciones y sus reglas**; se invierte la luminosidad. Está dicho
+en el propio CSS, no dejado a la interpretación.
+
+### Dos cosas que salieron al escribirlo
+
+**Un selector con el id equivocado es CSS muerto.** El primer bloque colgaba de
+`#view-proyecciones` y el contenedor se llama `projectionsView`. No falla, no se
+ve, y parece que el diseño está puesto. Hay un test que lo comprueba ahora.
+
+**El check del auditor medía la cadena, no la regla.** Buscaba
+`font-variant-numeric: tabular-nums` en todo el HTML, y aparece suelto en otras
+partes del panel: con la regla borrada de las tablas, el check seguía en verde.
+Ahora extrae los BLOQUES cuyo selector menciona `vc-t` y busca dentro. Mutado
+—quitando la regla— pasa a rojo.
+
+### Estado
+
+**2.925 tests del motor · 592 de la capa web · 323 checks de auditoría · 105 +
+62 del smoke · 16 diferenciales · preflight de Render en verde · 0 fallos,
+0 avisos, 0 skips.**

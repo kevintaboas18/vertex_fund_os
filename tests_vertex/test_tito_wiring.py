@@ -3188,6 +3188,93 @@ class TestElTabSeVeEnRender:
         assert "function _projFlowAviso(" in html
 
 
+class TestSuDisenoNoSoloSuLogica:
+    """Su `globals.css` no lo había mirado nadie en dieciséis rondas.
+
+    Se portó su lógica, sus textos, sus umbrales y sus constantes. El diseño se
+    dibujó con utilidades sueltas de Tailwind, y eso deja fuera decisiones suyas
+    que no son adorno — la que más se nota es `tabular-nums`: sin ella cada
+    dígito lleva su propio ancho, así que $1.111 y $8.888 no acaban en la misma
+    columna y la vista no puede comparar dos precios sin leerlos. En una
+    pantalla que es casi toda números, eso no es tipografía fina.
+    """
+
+    #: Sus tonos, de `:root` de su CSS. El `emerald-400` de Tailwind es #34d399
+    #: y su verde es #12b76a: parecidos en la cabeza, distintos en pantalla.
+    TONOS = {"--vc-accent": "#2f6bff", "--vc-green": "#12b76a",
+             "--vc-red": "#f04438", "--vc-put": "#f97066",
+             "--vc-amber": "#f79009"}
+
+    @staticmethod
+    def _css():
+        return (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+
+    def test_sus_tonos_exactos(self):
+        # Por regex y no por cadena literal: el bloque alinea los valores con
+        # espacios y el test debe medir el VALOR, no el formato.
+        import re
+
+        html = self._css()
+        for var, hexa in self.TONOS.items():
+            assert re.search(rf"{re.escape(var)}:\s*{hexa}\b", html, re.I), \
+                f"{var} no es el suyo ({hexa})"
+
+    def test_las_cuatro_reglas_de_tabla(self):
+        html = self._css()
+        for regla in ("font-variant-numeric: tabular-nums",
+                      "tbody tr:nth-child(odd)", "tbody tr:hover",
+                      "position: sticky"):
+            assert regla in html, f"falta «{regla}» de sus tablas"
+
+    def test_su_escala_de_espaciado_con_su_recorte_de_movil(self):
+        """Su regla, escrita en su propio CSS: «el gap ENTRE cards (lg) tiene
+        que superar al padding DENTRO (md), si no la proximidad se invierte y
+        las cards se leen pegadas». Y en móvil las recorta, porque «ahí el
+        scroll pesa más que el agrupamiento»."""
+        html = self._css()
+        for var, px in (("--vc-xs", 8), ("--vc-sm", 14), ("--vc-md", 24), ("--vc-lg", 32)):
+            assert f"{var}: {px}px" in html, f"{var} no vale {px}px"
+        assert "--vc-md: 16px; --vc-lg: 22px" in html, "falta su recorte de móvil"
+
+    def test_la_fila_inusual_se_tine_ENTERA(self):
+        """Su `tbody tr.unusual td { background }` tiñe la fila, no la celda del
+        puntaje. Una fila inusual entre cien es lo que hay que poder encontrar
+        de un vistazo."""
+        html = self._css()
+        assert "tr.vc-unusual td" in html
+        i = html.index("function renderProjTape(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "'vc-unusual'" in cuerpo, "la clase no llega a la fila"
+
+    def test_el_lado_va_en_su_pill(self):
+        """`.pill`: 999px, 700, MAYÚSCULAS y letter-spacing. Es lo que las
+        separa del texto de al lado sin necesitar más color."""
+        html = self._css()
+        assert "text-transform: uppercase" in html and ".vc-pill" in html
+        i = html.index("function renderProjTape(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "vc-pill-call" in cuerpo and "vc-pill-put" in cuerpo
+
+    def test_el_css_cuelga_del_contenedor_que_existe(self):
+        """Un selector con el id equivocado es CSS muerto: no falla, no se ve,
+        y parece que el diseño está puesto. Pasó al escribir esto — el
+        contenedor se llama `projectionsView`, no `view-proyecciones`."""
+        html = self._css()
+        assert 'id="projectionsView"' in html
+        assert "#projectionsView" in html
+        assert "#view-proyecciones" not in html, "quedó un selector muerto"
+
+    def test_la_divergencia_de_luminosidad_esta_declarada(self):
+        """Su paleta es CLARA y este tab vive dentro de Vertex, que es oscuro.
+        Lo que se porta son sus tonos y sus proporciones, no su fondo — y eso
+        se dice en el sitio, no se deja a la interpretación."""
+        html = self._css()
+        i = html.index("EL SISTEMA DE DISEÑO DE VÍCTOR")
+        bloque = html[i:i + 1400]
+        assert "DIVERGENCIA DECLARADA" in bloque
+        assert "#f3f4f6" in bloque, "no cita su fondo real"
+
+
 class TestLaCoberturaDeLosSubAgentes:
     """`/api/tito-health` existía en el servidor y no lo llamaba NADIE.
 

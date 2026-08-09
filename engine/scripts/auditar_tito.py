@@ -1401,6 +1401,89 @@ if TITO and (TITO / "app" / "components").is_dir():
 else:
     print("  · define TITO_ROOT para contrastar el registro contra su carpeta real")
 
+sec("9-octies. Su DISEÑO: los tonos y las reglas de tabla")
+# ─────────────────────────────────────────────────────────────────────────────
+#  Se portó su lógica, sus textos, sus umbrales y sus constantes. Su
+#  `globals.css` no lo había mirado nadie, y ahí viven decisiones que no son
+#  adorno: `tabular-nums` en TODAS las tablas, la cebra, el encabezado pegajoso
+#  y la fila entera teñida cuando un trade es inusual.
+#
+#  Se comparan sus TONOS (los hexadecimales de sus variables) y sus reglas de
+#  tabla contra el panel. La luminosidad NO se compara: su paleta es clara y
+#  este tab vive dentro de Vertex, que es oscuro — está declarado como
+#  divergencia en el propio CSS.
+_CSS_SUYO = (TITO / "app" / "globals.css") if TITO else None
+if _CSS_SUYO and _CSS_SUYO.is_file():
+    _css = _CSS_SUYO.read_text(encoding="utf-8")
+
+    def _var(nombre):
+        m = re.search(rf"--{nombre}:\s*(#[0-9a-fA-F]{{3,8}})", _css)
+        return m.group(1).lower() if m else ""
+
+    # Sus hues, uno por uno. El `emerald-400` de Tailwind es #34d399 y su verde
+    # es #12b76a: parecidos en la cabeza, distintos en pantalla.
+    _tonos = {n: _var(n) for n in ("accent", "green", "red", "put", "amber")}
+    _faltan_t = [f"--{n}={v}" for n, v in _tonos.items()
+                 if v and v not in HTML.lower()]
+    chk(not _faltan_t,
+        f"sus {len(_tonos)} tonos están en el panel"
+        + (f" · FALTAN: {_faltan_t}" if _faltan_t else ""))
+
+    # Sus reglas de tabla. `tabular-nums` es la que más se nota: sin ella cada
+    # dígito lleva su propio ancho y dos precios no acaban en la misma columna.
+    _reglas = {
+        "font-variant-numeric: tabular-nums": "los dígitos alinean entre filas",
+        "nth-child(odd)": "la cebra, para no saltar de fila al recorrerla",
+        "tbody tr:hover": "la fila bajo el cursor se distingue",
+        "position: sticky": "el encabezado no se va al hacer scroll",
+    }
+    # Acotado al bloque que estiliza SUS tablas (`table.vc-t`), no al archivo
+    # entero: `tabular-nums` aparece suelto en otras partes del panel, así que
+    # buscarlo en todo el HTML daba el check por bueno con la regla borrada —
+    # medía que la cadena existiera, no que la tabla la aplicara.
+    # Los BLOQUES enteros cuyo selector menciona `vc-t`, no sus líneas de
+    # selector: `position: sticky` vive en la línea siguiente a
+    # `table.vc-t thead th {`, y un filtro por línea la perdía.
+    _mio_t = "".join(m.group(0) for m in
+                     re.finditer(r"[^{}\n]*\.vc-t[^{}]*\{[^}]*\}", HTML))
+    _sin_regla = [f"{k} ({v})" for k, v in _reglas.items()
+                  if k in _css and k not in _mio_t]
+    chk(not _sin_regla,
+        f"sus {len(_reglas)} reglas de tabla están portadas"
+        + (f" · FALTAN: {_sin_regla}" if _sin_regla else ""))
+
+    # Su escala de espaciado, con su regla escrita: el gap ENTRE cards tiene
+    # que superar al padding DENTRO, o la proximidad se invierte.
+    # El `:root` de ESCRITORIO. `findall` sobre el archivo entero se traía
+    # también su override de móvil —`@media (max-width:640px)` redefine `md` y
+    # `lg`— y el último ganaba: el check comparaba la escala de teléfono con la
+    # de escritorio y denunciaba una diferencia que no existía.
+    _raiz = _css[_css.index(":root {"):_css.index("}", _css.index(":root {"))]
+    _vals = {k: int(v) for k, v in
+             re.findall(r"--space-(xs|sm|md|lg):\s*(\d+)px", _raiz)}
+    chk(_vals.get("lg", 0) > _vals.get("md", 0) > _vals.get("sm", 0) > _vals.get("xs", 0),
+        f"su escala de espaciado es creciente: {_vals}")
+    chk(all(f"--vc-{k}: {v}px" in HTML for k, v in _vals.items()),
+        "…y la misma escala está en el panel, con sus mismos valores")
+    # Y su recorte de móvil, que es una decisión suya y no un descuido: «ahí el
+    # scroll pesa más que el agrupamiento».
+    _movil = re.search(r"@media \(max-width: 640px\) \{\s*:root \{([^}]*)\}", _css)
+    if _movil:
+        _mv = {k: int(v) for k, v in
+               re.findall(r"--space-(xs|sm|md|lg):\s*(\d+)px", _movil.group(1))}
+        chk(all(f"--vc-{k}: {v}px" in HTML for k, v in _mv.items()),
+            f"…y su recorte de espaciado en móvil {_mv}")
+
+    # `.pill`: 999px + 700 + MAYÚSCULAS. Es lo que las separa del texto de al
+    # lado sin necesitar más color.
+    _pill = _css[_css.index(".pill {"):_css.index("}", _css.index(".pill {"))]
+    if "uppercase" in _pill:
+        chk("text-transform: uppercase" in HTML and ".vc-pill" in HTML,
+            "sus pills van en mayúsculas, como él")
+    print(f"      tonos {list(_tonos.values())} · espaciado {_vals}")
+else:
+    chk(False, "sin TITO_ROOT no se puede contrastar su globals.css", warn_if_false=True)
+
 sec("9-septies. Sus PALABRAS, una por una")
 # ─────────────────────────────────────────────────────────────────────────────
 #  Las rondas 11 y 12 miraron los umbrales de sus componentes y las etiquetas

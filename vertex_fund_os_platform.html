@@ -178,6 +178,104 @@
             /* El contenedor deja de necesitar scroll: ya no hay nada que desbordar. */
             .vc-scroll { overflow-x: visible !important; }
         }
+        /* ══════════════════════════════════════════════════════════════════
+           EL SISTEMA DE DISEÑO DE VÍCTOR (`web/app/globals.css`)
+
+           Hasta ahora se portó su lógica, sus textos y sus umbrales. Su DISEÑO
+           no: las tablas del tab estaban dibujadas con utilidades sueltas de
+           Tailwind, y eso deja fuera decisiones suyas que no son adorno.
+
+           DIVERGENCIA DECLARADA — la luminosidad. Su paleta es CLARA
+           (`--bg:#f3f4f6`, `--panel:#fff`, `--text:#101828`) porque su app es
+           una página suelta. Este tab vive dentro de Vertex, que es oscuro:
+           meterle un bloque blanco no sería «igual que él», sería un parche.
+           Lo que se porta es todo lo demás —sus TONOS exactos, sus
+           proporciones, su escala de espaciado y sus reglas de tabla—, con la
+           luminosidad invertida. Los hues son los suyos, no los de Tailwind:
+           su verde es #12b76a y el `emerald-400` es #34d399, que es otro color.
+           ══════════════════════════════════════════════════════════════════ */
+        #projectionsView, .vc-ds {
+            --vc-accent: #2f6bff;   /* su --accent */
+            --vc-green:  #12b76a;   /* su --green / --call */
+            --vc-red:    #f04438;   /* su --red */
+            --vc-put:    #f97066;   /* su --put */
+            --vc-amber:  #f79009;   /* su --amber */
+            --vc-muted:  #98a2b3;   /* su --faint, que en oscuro hace de --muted */
+            --vc-faint:  #667085;   /* su --muted, que en oscuro hace de --faint */
+            /* Su escala de espaciado, con su regla escrita al lado:
+               «el gap ENTRE cards (lg) tiene que superar al padding DENTRO
+               (md=24px), si no la proximidad se invierte y las cards se leen
+               pegadas». */
+            --vc-xs: 8px; --vc-sm: 14px; --vc-md: 24px; --vc-lg: 32px;
+        }
+        /* Su override de móvil, con su motivo: «en móvil el aire de sección se
+           recorta: ahí el scroll pesa más que el agrupamiento». Sin él, la
+           misma escala que agrupa bien en escritorio obliga a cuatro dedos de
+           scroll en un teléfono para pasar de una tarjeta a la siguiente. */
+        @media (max-width: 640px) {
+            #projectionsView, .vc-ds { --vc-md: 16px; --vc-lg: 22px; }
+        }
+
+        /* ── Sus tablas ──────────────────────────────────────────────────
+           `font-variant-numeric: tabular-nums` es la línea que más se nota y
+           la que faltaba en las 20 tablas del tab. Sin ella cada dígito lleva
+           su propio ancho: un 1 ocupa menos que un 8, así que $1.111 y $8.888
+           no acaban en la misma columna y la vista no puede comparar dos
+           precios sin leerlos. En una pantalla que es casi toda números, eso
+           no es tipografía fina, es si se puede leer o no. */
+        table.vc-t { font-variant-numeric: tabular-nums; border-collapse: collapse; }
+        table.vc-t th, table.vc-t td { white-space: nowrap; }
+        /* Su `tbody tr:nth-child(odd)` y su `tr:hover`. La cebra es lo que
+           impide saltar de fila al recorrer una tabla ancha con la mirada. */
+        table.vc-t tbody tr:nth-child(odd) { background: rgba(255,255,255,.018); }
+        table.vc-t tbody tr:hover { background: rgba(47,107,255,.07); }
+        /* Su `tr.unusual`: la fila que supera el umbral institucional se tiñe
+           entera, no solo su celda de puntaje. */
+        table.vc-t tbody tr.vc-unusual td { background: rgba(247,144,9,.10); }
+        table.vc-t tbody tr.vc-unusual:hover td { background: rgba(247,144,9,.16); }
+        /* Su `thead th { position: sticky }`: en una tabla de 25 filas dentro
+           de un contenedor con scroll, el encabezado se va y las columnas se
+           quedan sin nombre justo cuando hace falta. */
+        table.vc-t thead th {
+            position: sticky; top: 0; z-index: 1;
+            background: #0B0E14; border-bottom: 1px solid rgba(255,255,255,.09);
+        }
+        /* Su padding de celda (9px 12px), en la escala de este tab. */
+        table.vc-t th, table.vc-t td { padding-top: 6px; padding-bottom: 6px; }
+
+        /* ── Sus pills y sus chips ───────────────────────────────────────
+           `.pill`: 999px, 700, MAYÚSCULAS y letter-spacing .5 — es lo que las
+           separa del texto de al lado sin necesitar más color. */
+        .vc-pill {
+            display: inline-block; padding: 1px 8px; border-radius: 999px;
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .5px; line-height: 1.5;
+        }
+        .vc-pill-call { background: rgba(18,183,106,.14); color: #34d39a; }
+        .vc-pill-put  { background: rgba(249,112,102,.14); color: #f9a8a2; }
+        .vc-pill-mid  { background: rgba(255,255,255,.06); color: var(--vc-muted); }
+        .vc-chip {
+            display: inline-block; padding: 1px 6px; border-radius: 5px;
+            font-size: 10px; font-weight: 700; letter-spacing: .3px;
+        }
+
+        /* ── Su escala de tipos ──────────────────────────────────────────
+           Su base es 14px y sus tablas 13. Aquí el tab estaba en 9-11px, que
+           es media escala por debajo: cabe más, pero la jerarquía se aplana y
+           todo pesa lo mismo. Se sube el cuerpo de tabla y las notas al pie
+           SIN tocar las clases, para no reescribir 20 plantillas. */
+        #projectionsView table.vc-t { font-size: 11.5px; }
+        #projectionsView table.vc-t thead th { font-size: 9px; }
+        @media (min-width: 640px) {
+            #projectionsView table.vc-t { font-size: 12px; }
+        }
+        /* Su `.card-title` (15/600) y su `.card-sub` (12, muted). */
+        #projectionsView .vc-card-title { font-size: 13px; font-weight: 700; }
+        #projectionsView .vc-card-sub { font-size: 11px; color: var(--vc-muted); }
+        /* Su `--space-lg` entre secciones distintas: es la regla de
+           proximidad, y sin ella las tarjetas del tab se leen como una sola. */
+        #projectionsView .vc-stack > * + * { margin-top: var(--vc-md); }
+
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .chart-cite { font-size: 9px; color: #4b5563; margin-top: 6px; line-height: 1.4; }
@@ -3222,10 +3320,10 @@ function renderProjTape(d) {
         // —`unknown`— cae a `r.side`, el lado crudo que trajo la cinta. Aquí
         // salía "Mid" también para el desconocido, que es afirmar una lectura
         // de la horquilla que el motor no pudo hacer.
-        const lado = t.aggression === 'ask' ? '<span class="text-emerald-400">▲ Compra</span>'
-            : t.aggression === 'bid' ? '<span class="text-red-400">▼ Venta</span>'
-            : t.aggression === 'mid' ? '<span class="text-gray-500">Mid</span>'
-            : `<span class="text-gray-600">${_vcEsc(t.side || '—')}</span>`;
+        const lado = t.aggression === 'ask' ? '<span class="vc-pill vc-pill-call">&#9650; Compra</span>'
+            : t.aggression === 'bid' ? '<span class="vc-pill vc-pill-put">&#9660; Venta</span>'
+            : t.aggression === 'mid' ? '<span class="vc-pill vc-pill-mid">Mid</span>'
+            : `<span class="vc-pill vc-pill-mid">${_vcEsc(t.side || '—')}</span>`;
         // Su `desglose`: de dónde salen los puntos de inusualidad.
         const up = t.unusual_parts || {};
         const desglose = `Volumen ${up.volume || 0}/10 · Horario ${up.timing || 0}/10 · Repetición ${up.repetition || 0}/10`;
@@ -3236,7 +3334,7 @@ function renderProjTape(d) {
                         t.above_ask ? '<span class="text-emerald-300" title="ejecutado SOBRE el ask">↑</span>' : '',
                         t.below_bid ? '<span class="text-red-300" title="ejecutado BAJO el bid">↓</span>' : ''
                        ].filter(Boolean).join(' ');
-        return `<tr class="border-b border-gray-800/50 ${t.unusual ? 'bg-amber-500/[0.04]' : ''}">
+        return `<tr class="border-b border-gray-800/50 ${t.unusual ? 'vc-unusual' : ''}">
             <td class="py-1.5 pr-2 text-gray-500 text-[9px]">${_vcEsc(vcDateET(t.timestamp))}</td>
             <td class="py-1.5 pr-2 text-gray-500 text-[9px]">${_vcEsc(vcTimeET(t.timestamp))}</td>
             <td class="py-1.5 pr-2 font-bold text-white">${_vcEsc(t.underlying || '')} ${_vcEsc(t.strike)}${cp} ${marcas}</td>
