@@ -1816,6 +1816,21 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
                 from wbj.extract.filing import extract_organic_growth
 
                 release = edgar.latest_earnings_release(cik)
+                # `DATASET.md` nombra la fuente de `management_guidance_history`
+                # sin ambiguedad -- "earnings releases" -- y la tipa
+                # **conditional**. Hay emisores que no usan ese canal: NVIDIA,
+                # Lilly y Exxon publican sus resultados en su propia sala de
+                # prensa y su 8-K es una caratula.
+                #
+                # Verificado el 2026-08-09 sobre seis emisores: KO, WMT y PLTR
+                # presentan comunicado, con 17, 12 y 13 menciones de guidance
+                # respectivamente. NVDA, LLY y XOM no presentan ninguno.
+                #
+                # Para los primeros el dato ESTA y no haberlo leido es un hueco
+                # real. Para los segundos no hay documento que leer por la via
+                # que el Cerebro declara, y esa diferencia es exactamente la
+                # que separa MISSING de NOT_APPLICABLE.
+                overlay["_sin_comunicado_de_resultados"] = not release
                 if release:
                     org = _cached_extract(
                         Cache(settings.cache_dir), ticker,

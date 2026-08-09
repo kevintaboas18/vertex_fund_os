@@ -1734,6 +1734,21 @@ def _compute_all(
         v_guide = _ok(sum(accuracies) / len(accuracies), unit="ratio") if accuracies else _null(
             NullState.MISSING, "ratio", "GUIDANCE_ACCURACY_NO_VALID_ROWS"
         )
+    elif overlay.get("_sin_comunicado_de_resultados"):
+        # El emisor no presenta comunicado de resultados ante la SEC, que es
+        # la fuente que `DATASET.md` declara para este campo. No es que no se
+        # haya leido: no existe por esa via.
+        #
+        # Verificado sobre seis emisores: KO, WMT y PLTR si lo presentan --
+        # ahi el dato esta y su ausencia SIGUE contando como hueco real, con
+        # la clave nombrada en el aviso. NVDA, LLY y XOM no, y publican en su
+        # propia sala de prensa.
+        v_guide = _null(NullState.NOT_APPLICABLE, "ratio",
+                        "NO_EARNINGS_RELEASE_FILED: el emisor no presenta "
+                        "comunicado de resultados ante la SEC, que es la "
+                        "fuente que DATASET.md declara para el guidance. "
+                        "Suministra `guidance_history` en "
+                        "Entradas/<TICKER>.json si lo publica por otra via")
     else:
         v_guide = _null(NullState.MISSING, "ratio", "GUIDANCE_ACCURACY_UNAVAILABLE")
     add("BUS-GUIDE-027", v_guide, _score_from_anchor(v_guide, [(0.0, 0), (0.7, 4), (0.9, 7), (1.0, 10)]), source=analyst_source, period=_guidance_period(guidance_history))
@@ -1824,6 +1839,10 @@ _OVERLAY_LINEAGE: dict[str, str] = {
     # pregunta: si ese campo aplica a esta empresa.
     "recurring_revenue_applies": "recurring_revenue_5y",
     "largest_customer_share": "customer_revenue_shares",
+    # No es un dato: dice si la FUENTE que DATASET.md declara para el guidance
+    # existe para este emisor. Sin el, no haber presentado comunicado y no
+    # haberlo leido se leian igual.
+    "_sin_comunicado_de_resultados": "management_guidance_history",
     # El otro lado de la misma fila de DATASET.md. `customer_revenue_shares`
     # es "required WHEN DISCLOSED": estas dos claves dicen que NO se divulga
     # porque no hay nada que divulgar, y ese hallazgo tiene el mismo origen

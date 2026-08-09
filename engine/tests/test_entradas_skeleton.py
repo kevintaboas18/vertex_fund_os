@@ -95,7 +95,13 @@ def test_the_skeleton_covers_every_key_the_engine_names():
                     "company_series", "earnings_dates", "depreciation", "ppe"}
     _DEFAULTS = {"erp", "terminal_growth", "tv_growth", "forecast_years"}
     _INTERNAL = {"analyst_input_warnings", "period", "estimates", "judgments",
-                 "debt_due"}
+                 "debt_due",
+        # Lo calcula el MOTOR, no lo escribe un analista: dice si el emisor
+        # presenta comunicado de resultados ante la SEC, que es la fuente
+        # que DATASET.md declara para el guidance. Pedirlo en el esqueleto
+        # invitaria a declarar a mano un hecho que EDGAR ya responde.
+        "_sin_comunicado_de_resultados",
+    }
     _NESTED = {"above_50dma", "above_50dma_count", "committed_liquidity"}
     asked = (_keys_the_engine_asks_for() - {"share"} - _COMPUTED
              - _FROM_PACKET - _DEFAULTS - _INTERNAL - _NESTED)
