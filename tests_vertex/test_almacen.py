@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -62,6 +63,16 @@ def _aisla(tmp_path, monkeypatch, remoto):
     # configurado por el operador tiene que ganar—, así que se quita para medir
     # el comportamiento por defecto.
     monkeypatch.delenv("WBJ_TITO_DATA", raising=False)
+    # Registrar una cuenta ESCRIBE su `.md` en `_PERFIL_DIR`. Sin esta línea el
+    # archivo caía en el repositorio de verdad, y cada corrida de la suite
+    # dejaba un `Perfil Inversionista/usuarios/Kevin-<id>.md` sin versionar.
+    # Se copia el `Kevin.md` real para que el respaldo siga existiendo.
+    perfiles = tmp_path / "Perfil Inversionista"
+    perfiles.mkdir(exist_ok=True)
+    real = Path(V.__file__).parent / "Perfil Inversionista" / "Kevin.md"
+    if real.exists():
+        shutil.copy2(real, perfiles / "Kevin.md")
+    monkeypatch.setattr(V, "_PERFIL_DIR", str(perfiles))
     monkeypatch.setattr(VA, "almacen", VA.Almacen())
 
 
@@ -522,6 +533,149 @@ class TestLaCuentaSobreviveOLoDICE:
         assert "vxAvisoPersistencia(st.aviso_persistencia)" in html, \
             "el login no lo pinta antes de registrar"
         assert 'id="authPersistAviso"' in html
+
+
+class TestElPerfilDeCadaUnoTambienSobrevive:
+    """La cuenta volvía del borrado; SU PERFIL no.
+
+    El `.md` de cada usuario vive en `Perfil Inversionista/usuarios/`, un nivel
+    más abajo que `Kevin.md`. El empaquetado usaba `os.listdir`, que no baja, así
+    que el respaldo cifrado llevaba la base y el perfil de referencia — nunca el
+    de la persona. Al reiniciar Render volvía la cuenta con su capital en la
+    base, pero el archivo que `_load_investor_profile()` lee no estaba, y esa
+    función cae a `Kevin.md` SIN DECIR NADA.
+
+    El daño no es una pantalla fea: `engine/wbj/specialists/risk.py` saca el
+    capital y el tope por posición de ese texto con tres regex. El reporte salía
+    dimensionado para $1.000 de Kevin aunque la persona tuviera otra cosa, y
+    nada en el reporte lo delataba.
+    """
+
+    @pytest.fixture(autouse=True)
+    def entorno(self, tmp_path, monkeypatch, remoto):
+        self.dir = tmp_path
+        _aisla(tmp_path, monkeypatch, remoto)
+
+    def _con_perfil_propio(self):
+        import vertex_api as V
+        import vertex_cuentas as C
+
+        V.init_db()
+        conn = V._db()
+        try:
+            u = C.crear_usuario(conn, "ana@ejemplo.com", "Ana", "ClaveLarga123!")
+            perfil = C.leer_perfil(conn, u["id"])
+            perfil["capital"] = 47500
+            perfil["modo"] = "personalizado"      # si no, hereda los de Kevin
+            C.guardar_perfil(conn, V._PERFIL_DIR, u, perfil)
+        finally:
+            conn.close()
+        return V, C, u
+
+    def test_el_perfil_del_usuario_viaja_en_el_paquete_cifrado(self):
+        import io
+        import tarfile
+
+        V, C, u = self._con_perfil_propio()
+        with tarfile.open(fileobj=io.BytesIO(V._privado_paquete())) as tar:
+            nombres = tar.getnames()
+        propio = os.path.basename(C.ruta_md_de(V._PERFIL_DIR, u))
+        assert f"perfiles/usuarios/{propio}" in nombres, (
+            "el perfil del usuario no viaja en el respaldo; volvería a caerse "
+            f"a Kevin.md tras un reinicio. Iba: {nombres}")
+
+    def test_vuelve_del_borrado_diciendo_SU_capital(self, monkeypatch):
+        import shutil
+
+        monkeypatch.setenv("VERTEX_DB_KEY", "clave-de-prueba-suficientemente-larga")
+        V, C, u = self._con_perfil_propio()
+        assert V._respalda_privado() == ""
+
+        # El disco se borra entero, como en un redeploy de Render: el `.md` y la
+        # base. Borrar solo el `.md` no vale — `_restaura_privado` se niega, con
+        # razón, a pisar una base local que todavía tiene datos.
+        propio = C.ruta_md_de(V._PERFIL_DIR, u)
+        shutil.rmtree(os.path.join(V._PERFIL_DIR, "usuarios"))
+        os.remove(V.DB_PATH)
+        assert not os.path.exists(propio)
+
+        assert V._restaura_privado() == ""
+        assert os.path.exists(propio), "el respaldo no devolvió el perfil"
+        assert "47,500" in open(propio, encoding="utf-8").read(), \
+            "volvió el archivo pero con el capital de otra persona"
+
+    def test_el_paquete_no_escribe_fuera_de_su_carpeta(self, monkeypatch):
+        """Un tar con `../` en el nombre no puede tocar nada de fuera."""
+        import io
+        import tarfile
+
+        monkeypatch.setenv("VERTEX_DB_KEY", "clave-de-prueba-suficientemente-larga")
+        import vertex_api as V
+
+        # SIN crear usuarios: `_restaura_privado` se niega a pisar una base que
+        # ya tiene datos, y con un usuario dentro este test pasaría sin llegar
+        # nunca a abrir el tar.
+        V.init_db()
+        os.makedirs(V._PERFIL_DIR, exist_ok=True)
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            for nombre in ("perfiles/usuarios/../../fuera.md",
+                           "perfiles/usuarios/otra/cosa.md",
+                           "perfiles/usuarios/"):
+                datos = b"# no deberia escribirse\n"
+                info = tarfile.TarInfo(nombre)
+                info.size = len(datos)
+                tar.addfile(info, io.BytesIO(datos))
+
+        from vertex_almacen import DIR_PRIVADO, almacen
+        f = V._fernet()
+        assert f is not None
+        almacen.guarda(f"{DIR_PRIVADO}/{V._PRIVADO_ENC}", f.encrypt(buf.getvalue()))
+        assert V._restaura_privado() == "", "el paquete ni se llegó a abrir"
+
+        raiz = os.path.dirname(V._PERFIL_DIR)
+        assert not os.path.exists(os.path.join(raiz, "fuera.md")), \
+            "un `../` en el tar escribió fuera de Perfil Inversionista"
+        assert not os.path.exists(
+            os.path.join(V._PERFIL_DIR, "usuarios", "otra")), \
+            "el tar creó una subcarpeta que nadie lee"
+
+    def test_sin_archivo_se_regenera_desde_la_base_y_no_cae_a_Kevin(self):
+        """La segunda red: aunque no hubiera respaldo, el `.md` es CACHÉ."""
+        V, C, u = self._con_perfil_propio()
+        os.remove(C.ruta_md_de(V._PERFIL_DIR, u))
+
+        testigo = V._USUARIO_CTX.set(u)
+        try:
+            quien, texto = V._load_investor_profile()
+        finally:
+            V._USUARIO_CTX.reset(testigo)
+
+        assert quien == "Ana", f"el agente creyó estar hablando con «{quien}»"
+        assert "47,500" in texto, \
+            "cayó al perfil de referencia en vez de regenerar el de la persona"
+
+    def test_los_perfiles_de_usuario_no_se_versionan(self):
+        """Son datos de la gente, no código.
+
+        Su sitio es el respaldo cifrado. En `main`, en claro, serían el capital
+        y la tolerancia de cada persona a la vista de cualquiera con acceso al
+        repositorio — y además la suite ensuciaba el árbol en cada corrida.
+        """
+        versionados = subprocess.run(
+            ["git", "ls-files", "Perfil Inversionista/usuarios/"],
+            cwd=ROOT, capture_output=True, text=True).stdout.split()
+        assert not versionados, (
+            f"hay {len(versionados)} perfiles de usuario versionados en el "
+            f"repositorio: {versionados[:3]}")
+
+        ignorado = subprocess.run(
+            ["git", "check-ignore", "-q",
+             "Perfil Inversionista/usuarios/Alguien-0123456789ab.md"],
+            cwd=ROOT).returncode
+        assert ignorado == 0, \
+            "`Perfil Inversionista/usuarios/` no está en .gitignore"
 
 
 class TestElRemotoSeDeduceEnRender:

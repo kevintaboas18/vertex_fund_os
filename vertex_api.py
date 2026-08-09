@@ -226,6 +226,20 @@ def _privado_paquete() -> bytes:
                 if nombre.endswith(".md"):
                     tar.add(os.path.join(_PERFIL_DIR, nombre),
                             arcname=f"perfiles/{nombre}", filter=_tar_estable)
+        # …y los de CADA usuario, que viven un nivel más abajo. Esto faltaba y
+        # no se notaba: `os.listdir` no baja a `usuarios/`, así que el único
+        # `.md` que viajaba era el de referencia. Al reiniciar Render volvía la
+        # base con el perfil de todo el mundo, pero NO el archivo que
+        # `_load_investor_profile()` lee — y esa función, al no encontrarlo,
+        # cae a `Kevin.md` sin decir nada. Resultado: el análisis de otra
+        # persona contado con el capital y la tolerancia de Kevin.
+        _usuarios = os.path.join(_PERFIL_DIR, "usuarios")
+        if os.path.isdir(_usuarios):
+            for nombre in sorted(os.listdir(_usuarios)):
+                if nombre.endswith(".md"):
+                    tar.add(os.path.join(_usuarios, nombre),
+                            arcname=f"perfiles/usuarios/{nombre}",
+                            filter=_tar_estable)
     return buf.getvalue()
 
 
@@ -335,6 +349,13 @@ def _restaura_privado(alm=None) -> str:
                 # un tar con `../` en un nombre escribiría fuera del destino.
                 if m.name == "vertex.db":
                     destino = DB_PATH
+                elif m.name.startswith("perfiles/usuarios/"):
+                    hoja = m.name[len("perfiles/usuarios/"):]
+                    if not hoja or "/" in hoja or hoja.startswith("."):
+                        continue          # `..`, subcarpetas y ocultos, fuera
+                    os.makedirs(os.path.join(_PERFIL_DIR, "usuarios"),
+                                exist_ok=True)
+                    destino = os.path.join(_PERFIL_DIR, "usuarios", hoja)
                 elif m.name.startswith("perfiles/") and "/" not in m.name[9:]:
                     os.makedirs(_PERFIL_DIR, exist_ok=True)
                     destino = os.path.join(_PERFIL_DIR, m.name[9:])
@@ -8195,6 +8216,21 @@ def _load_investor_profile():
     u = _usuario_actual()
     if u is not None:
         propio = _CU.ruta_md_de(base, u)
+        # El `.md` es CACHÉ: la fuente de verdad es la fila del usuario. Si el
+        # archivo no está —disco nuevo, respaldo viejo, alguien lo borró— se
+        # regenera desde la base con el MISMO escritor que lo creó, en vez de
+        # seguir de largo. Seguir de largo caía a `Kevin.md` sin decir nada, y
+        # el reporte hablaba del capital de otra persona: el fallo silencioso
+        # que este archivo entero existe para evitar.
+        if not os.path.exists(propio):
+            try:
+                conn = _db()
+                try:
+                    _CU.guardar_perfil(conn, base, u, _CU.leer_perfil(conn, u["id"]))
+                finally:
+                    conn.close()
+            except Exception:                     # noqa: BLE001
+                pass                              # un análisis no se cae por esto
         if os.path.exists(propio):
             try:
                 with open(propio, "r", encoding="utf-8") as f:

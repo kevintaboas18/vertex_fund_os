@@ -5979,8 +5979,52 @@ se puede repetir ni cambiando mayúsculas ni con espacios alrededor, y se entra
 escribiéndolo de cualquiera de esas formas — `normaliza_email` corre en los dos
 lados.
 
+## 41.46 · Ronda 20 — la cuenta volvía del borrado; su PERFIL no
+
+Lo destapó una tontería: la suite dejaba archivos sin versionar en el árbol.
+Eran `Perfil Inversionista/usuarios/Kevin-<id>.md`, uno por corrida, y ya había
+**15 commiteados por error** de rondas anteriores. Tirando del hilo apareció un
+fallo de datos de verdad.
+
+**El agujero.** El `.md` de cada usuario vive en `Perfil Inversionista/usuarios/`,
+un nivel más abajo que `Kevin.md`. `_privado_paquete()` recorría el directorio
+con `os.listdir`, que **no baja**. Medido: en el tar cifrado viajaban
+`vertex.db` y `perfiles/Kevin.md` — nunca el perfil de la persona.
+
+**Por qué importaba, y por qué no se veía.** Al reiniciar Render volvía la
+cuenta con su capital dentro de la base… pero el archivo que
+`_load_investor_profile()` lee no estaba, y esa función, al no encontrarlo,
+**cae a `Kevin.md` sin decir nada**. Y `engine/wbj/specialists/risk.py` saca el
+capital, el horizonte y el tope por posición de ese texto con tres regex. O sea:
+el reporte salía dimensionado para los $1.000 de Kevin aunque la persona tuviera
+otra cosa, y nada en el reporte lo delataba. Es exactamente el fallo silencioso
+contra el que se escribió la regla del proyecto.
+
+**Arreglado en tres capas**, porque una sola no basta:
+
+1. **Se respalda.** El paquete cifrado lleva ahora `perfiles/usuarios/<archivo>`.
+   Al restaurar se acepta esa ruta con el mismo cuidado que la otra: se rechaza
+   `..`, subcarpetas y ocultos, para que un tar manipulado no escriba fuera.
+2. **Se regenera.** El `.md` es **caché**; la fuente de verdad es la fila del
+   usuario. Si el archivo falta, `_load_investor_profile()` lo reconstruye desde
+   la base **con el mismo escritor que lo creó** (`guardar_perfil`) en vez de
+   seguir de largo. Un segundo generador de markdown se habría desincronizado.
+3. **No se versiona.** `Perfil Inversionista/usuarios/` va al `.gitignore` y los
+   15 archivos se sacaron del repositorio. Son el capital y la tolerancia de
+   personas: en `main` estaban en claro para cualquiera con acceso al repo. Su
+   sitio es `Privado/privado.enc`. Los de referencia —`Kevin.md` y el de
+   Víctor— siguen versionados, que para eso son la referencia.
+
+Y la causa de la basura: `_aisla()` parcheaba `DB_PATH` pero no `_PERFIL_DIR`,
+así que registrar una cuenta en un test escribía en el repositorio de verdad.
+Ya apunta a `tmp_path`, con una copia del `Kevin.md` real para no cambiar el
+comportamiento del respaldo.
+
+**Comprobado que los tests nuevos fallan sin el arreglo** (3 de 5 en rojo contra
+el código viejo): un test que pasa en los dos lados no prueba nada.
+
 ### Estado
 
-**2.925 tests del motor · 608 de la capa web (9 en un navegador real) ·
+**2.925 tests del motor · 613 de la capa web (9 en un navegador real) ·
 323 checks de auditoría · 16 diferenciales · preflight de Render en verde ·
 0 fallos, 0 avisos, 0 skips.**
