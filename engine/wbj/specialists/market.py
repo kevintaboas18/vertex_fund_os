@@ -941,8 +941,22 @@ def _compute_all(
             int(upward), int(total),
             active_estimates=int(active) if active is not None else None)
     else:
+        # MISSING y no NOT_SCORABLE. `DATASET.md` tipa
+        # `consensus_estimates_history` como **required**: la fuente SI esta
+        # obligada a reportarlo, asi que se cumple el paso 2 del arbol de
+        # `MISSING_DATA_POLICY.md` -- "is the source expected to report it? if
+        # yes but absent, use MISSING" -- y no hay que caer al paso 5.
+        #
+        # Importa porque su gemela MKT-DISP-013 sale del MISMO campo required,
+        # falta por la MISMA razon y ya decia MISSING. La misma ausencia se
+        # reportaba de dos formas distintas.
+        #
+        # Y es la diferencia con las otras tres corregidas hoy -- economia de
+        # cliente, crecimiento organico y guidance --: aquellas leen campos
+        # **conditional**, donde la fuente no esta obligada, y por eso
+        # cobrarlas era un error de clasificacion. Esta no: es un hueco real.
         v_revbr = _null(
-            NullState.NOT_SCORABLE, "pct",
+            NullState.MISSING, "pct",
             "REVISION_BREADTH_UNAVAILABLE: needs counts of upward vs downward "
             "*estimate* revisions. No primary source serves them — FMP has no "
             "revision-count endpoint and FinnHub's estimate endpoints are 403 "
