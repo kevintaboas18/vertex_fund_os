@@ -2919,6 +2919,39 @@ def _run_once(packet: Packet, overlay: dict[str, Any],
             schema_hint="one of Wide|Narrow|None",
         )
     )
+    # La concentracion de clientes es de las cinco que el `judge.py` de Victor
+    # nombra como suyas -- "moat classification, catalyst probability, thesis
+    # killers, TAM tier, customer concentration" -- pero su `business.py` no
+    # emitia la peticion, asi que en su motor la metrica quedaba MISSING para
+    # todos, siempre. Aqui estaba igual: `_FILING_TOPICS` ya recopilaba los
+    # pasajes del filing donde se divulga, y nadie hacia la pregunta
+    # (`judge.py`: `if not requests: return []`).
+    #
+    # Se pregunta por BANDA y no por porcentaje porque `merge_overlay` usa una
+    # respuesta numerica DIRECTAMENTE como puntaje 0-10: un "40%" se habria
+    # convertido en un 10, la mejor nota para la peor concentracion.
+    #
+    # Y se pregunta solo cuando no hay cifra: si un analista la escribio en
+    # `Entradas/`, esa gana y gastar una pregunta seria tirar cuota.
+    #  lo deja el bloque de BUS-CONC-003 con el
+    # valor cuando puntuo y con None cuando no: es el mismo hecho, y viaja
+    # entre funciones donde la variable local no llega.
+    if ctx.get("largest_customer_share") is None:
+        judgment_requests.append(
+            JudgmentRequest(
+                request_id="business_analysis:customer_concentration_band",
+                agent_id=AGENT_ID,
+                metric_id="BUS-CONC-003",
+                question="Del 10-K adjunto, clasifica la concentracion de clientes "
+                "segun las bandas de DECISION_RULES.md. Un filing que declara que "
+                "NINGUN cliente alcanza el umbral de divulgacion (tipicamente 10% "
+                "de los ingresos) es BELOW_10: eso es un hallazgo, no un dato "
+                "ausente. Responde INSUFFICIENT solo si el filing no dice nada del "
+                "asunto.",
+                schema_hint="one of ABOVE_30|BETWEEN_10_AND_30|BELOW_10",
+            )
+        )
+
     judgment_requests.append(
         JudgmentRequest(
             request_id="business_analysis:moat_quantitative_effects_count",

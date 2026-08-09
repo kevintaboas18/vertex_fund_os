@@ -140,12 +140,26 @@ _CONFIDENCE_BY_EVIDENCE_CLASS: dict[EvidenceClass, float] = {
 # does is convert a qualitative call into points.
 _ENUM_SCORE_TABLE: dict[frozenset[str], dict[str, float]] = {
     frozenset({"BAD", "GOOD", "EXCELLENT"}): {"BAD": 0.0, "GOOD": 5.0, "EXCELLENT": 10.0},
+    # Concentracion de clientes. Los puntos NO se inventan aqui: son el punto
+    # medio de las bandas que `DECISION_RULES.md` ya escribio -- "largest
+    # customer >30% (0-3), 10-30% (4-6), <10%/diversified (7-10)".
+    #
+    # Se pregunta como escalera y no como porcentaje a proposito: una
+    # respuesta numerica se usa DIRECTAMENTE como puntaje 0-10, asi que un
+    # "40%" se habria convertido en un 10 -- la mejor nota para la peor
+    # concentracion. La escalera deja el mapeo en la tabla, que es donde se
+    # puede auditar.
+    frozenset({"ABOVE_30", "BETWEEN_10_AND_30", "BELOW_10"}): {
+        "ABOVE_30": 1.5, "BETWEEN_10_AND_30": 5.0, "BELOW_10": 8.5},
 }
 
 #: The Cerebro rule authorising each ladder above, for the audit trail.
 _ENUM_SCORE_AUTHORITY: dict[frozenset[str], str] = {
     frozenset({"BAD", "GOOD", "EXCELLENT"}):
         "02_financial_analysis/DECISION_RULES.md, core 27-metric diagnostic",
+    frozenset({"ABOVE_30", "BETWEEN_10_AND_30", "BELOW_10"}):
+        "05_risk_analysis/DECISION_RULES.md: largest customer >30% (0-3), "
+        "10-30% (4-6), <10%/diversified (7-10)",
 }
 
 
