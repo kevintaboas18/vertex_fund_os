@@ -213,13 +213,27 @@ REGLA 3 — UNA SOLA CAPA. Un mercado se mide en una capa concreta de la cadena
 
 REGLA 4 — NO INTERPOLES. Sólo años que la fuente publique.
 
+REGLA 5 — LA CITA ES DE LA FUENTE, NO DE QUIEN LA CUENTA. El enlace tiene que
+   ser una página del PROPIO organismo: wsts.org para WSTS, iea.org para la
+   IEA, pwc.com para PwC. Una nota de prensa de un medio que menciona la cifra
+   NO sirve, aunque la cifra sea correcta.
+
+   Esto no es una preferencia: el motor DESCARGA esa página y comprueba dos
+   cosas antes de aceptar el número —que la cifra aparezca en el texto y que
+   el dominio sea el del organismo—. Una cita de un tercero se rechaza
+   automáticamente y el trabajo se pierde.
+
+   Si sólo encuentras la cifra en prensa y no en la web del organismo,
+   responde {{"tam": null}}: es preferible a una atribución que nadie puede
+   comprobar.
+
 Responde SOLO con este JSON, sin texto alrededor:
 {{
   "tam": <mercado mundial del ultimo ano publicado, en USD, entero>,
   "tam_anio": <ano de esa cifra>,
   "tam_history": [<mercado del ano anterior, en USD>, <el mismo numero de "tam">],
   "tam_source": "<asociacion o casa + nombre del dato + ano>",
-  "cita": "<URL exacta>",
+  "cita": "<URL de una pagina DEL PROPIO organismo, no de prensa>",
   "cita_textual": "<la frase de la fuente con la cifra>",
   "segunda_fuente": "<opcional: otra de la lista que confirme la cifra, o null>",
   "ambito": "<tiene que decir mundial/worldwide/global>",
