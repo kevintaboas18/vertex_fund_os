@@ -57,13 +57,33 @@ def test_a_business_without_users_does_not_owe_an_arpu(metric_id):
 
 
 @pytest.mark.parametrize("metric_id", ["MKT-ARPU-022", "MKT-ADOPT-021"])
-def test_a_subscription_business_still_owes_it(metric_id):
-    """El otro lado del mismo cuidado: un SaaS que no publica su ARPU tiene un
-    hueco REAL y tiene que verse. Sacarlo del denominador seria premiarlo por
-    no divulgar."""
+def test_being_a_saas_does_not_cost_coverage(metric_id):
+    """Este test decia antes lo contrario, y su argumento era bueno: "sacarlo
+    del denominador seria premiarlo por no divulgar".
+
+    Lo que ese argumento pasaba por alto es el tipado. `DATASET.md` marca
+    `unit_economics` -- ARPU, churn, NRR, CAC -- como **conditional**, con
+    fuente "issuer KPI / validated dataset": solo forma parte del paquete
+    esperado cuando el emisor PUBLICA ese indicador. Microsoft no publica ARPU
+    ni unidades adoptadas. Nadie los tiene por no haberlos buscado.
+
+    Y la consecuencia medida era peor que el mal que evitaba: las dos salian
+    NOT_APPLICABLE para diez tickers -- gratis -- y MISSING para MSFT y PLTR,
+    los dos unicos de suscripcion. El MODELO DE NEGOCIO decidia la cobertura
+    en vez de los datos, y un refresquero salia mejor cubierto que Microsoft.
+
+    Es el mismo defecto que ya se corrigio en `business.py` para las siete
+    metricas de economia de cliente, con la misma regla y la misma cita. Este
+    archivo se habia quedado fuera, que es exactamente lo que Kevin pidio que
+    no pasara: un arreglo tiene que alcanzar a todos los tickers que usan la
+    misma regla.
+
+    El aviso sigue nombrando la clave: quien publique el KPI lo suministra y
+    puntua.
+    """
     fuera = mkt.run(_packet(industry="Software - Infrastructure",
                             adapter="saas_subscriptions"))
-    assert _estado(fuera, metric_id) is NullState.MISSING
+    assert _estado(fuera, metric_id) is NullState.NOT_APPLICABLE
 
 
 def test_both_specialists_answer_it_the_same_way():

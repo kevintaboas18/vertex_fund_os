@@ -1118,7 +1118,24 @@ def _compute_all(
     # suscripcion; este modulo no la contestaba en absoluto. Ahora las dos usan
     # la misma definicion, en `core/adapters.py`.
     _suscripcion = _adapters.is_subscription_business(packet, overlay)
-    _sin_modelo = (NullState.MISSING if _suscripcion else NullState.NOT_APPLICABLE)
+    # Mismo arreglo que ya se hizo en `business.py` para las siete metricas de
+    # economia de cliente, y por la misma razon -- este archivo se habia
+    # quedado fuera.
+    #
+    # `DATASET.md` tipa los KPI de unidad como **conditional**, con fuente
+    # "issuer KPI": solo forman parte del paquete esperado cuando el emisor
+    # PUBLICA ese indicador. Microsoft no publica unidades adoptadas ni ARPU.
+    #
+    # Cobrarlos hacia que el MODELO DE NEGOCIO decidiera la cobertura en vez
+    # de los datos. Medido en esta auditoria: las dos salian NOT_APPLICABLE
+    # para diez tickers -- fuera del denominador, gratis -- y MISSING para
+    # MSFT y PLTR, los dos unicos de suscripcion. Ser SaaS costaba cobertura
+    # en Market igual que la costaba en Business antes de corregirlo alli.
+    #
+    # El aviso sigue nombrando la clave, asi que un analista con el KPI
+    # delante lo suministra y puntua; lo que cambia es que su ausencia deja de
+    # restar.
+    _sin_modelo = NullState.NOT_APPLICABLE
 
     if adoption and {"current_units", "eventual_units"} <= adoption.keys():
         v_adopt = adoption_penetration(adoption["current_units"], adoption["eventual_units"])
