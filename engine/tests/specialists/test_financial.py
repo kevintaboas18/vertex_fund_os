@@ -387,12 +387,34 @@ def test_run_judgment_requests_for_organic_growth_and_market_share():
         assert jr.question
 
 
-def test_run_gr004_gr005_rows_are_not_scorable():
+def test_run_gr004_gr005_rows_do_not_charge_a_conditional_field():
+    """Las dos leen campos que `DATASET.md` tipa **conditional**:
+    `organic_growth_bridge` ("issuer reconciliation") y `market_share_series`
+    ("industry source"). Existen cuando la fuente los PRODUCE.
+
+    Antes salian NOT_SCORABLE, que cuenta en el denominador, y eso hacia que
+    NO hacer adquisiciones costara cobertura: una empresa que crece sola no
+    tiene nada que conciliar, asi que nunca emite el puente. Medido, faltaba
+    en 5 de 6 tickers -- y el unico que puntuaba era Coca-Cola, que si publica
+    su crecimiento organico.
+
+    Tampoco se pueden deducir: `MISSING_DATA_POLICY.md` pone "organic growth"
+    y "market share" por su nombre en la lista de imputacion prohibida.
+    """
     out = fin.run(_minimal_nvda_like_packet())
     for mid in ("FIN-GR-004", "FIN-GR-005"):
         row = next(r for r in out.metrics if r.metric_id == mid)
-        assert row.score == "NOT_SCORABLE"
-        assert row.state == NullState.NOT_SCORABLE
+        assert row.state == NullState.NOT_APPLICABLE, (
+            f"{mid} sigue cobrando un campo conditional que el emisor no "
+            "publica")
+
+
+def test_gr004_gr005_are_still_offered_to_the_judge():
+    """No cobrarlas no es dejar de pedirlas. Un analista con la conciliacion
+    del emisor delante tiene que poder suministrarla y que puntue."""
+    out = fin.run(_minimal_nvda_like_packet())
+    ids = {jr.metric_id for jr in out.judgment_requests}
+    assert {"FIN-GR-004", "FIN-GR-005"} <= ids
 
 
 # ============================================================================
