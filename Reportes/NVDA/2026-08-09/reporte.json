@@ -1,5 +1,5 @@
 {
-  "report_id": "20260809_000622_NVDA",
+  "report_id": "20260809_000642_NVDA",
   "ticker": "NVDA",
   "nombre_completo": "NVIDIA Corporation",
   "precio_actual": 223.96,
@@ -7,7 +7,7 @@
   "precio_as_of": "08/09/2026, 12:06:39 AM",
   "pe_ratio": 34.140243902439025,
   "logo_url": "https://logo.clearbit.com/nvidia.com",
-  "fecha_analisis": "08/09/2026, 12:06:22 AM",
+  "fecha_analisis": "08/09/2026, 12:06:42 AM",
   "historial_precios": [
     202.78,
     210.96,
@@ -1739,7 +1739,7 @@
   },
   "memory_comparison": {
     "has_prior": true,
-    "prior_date": "2026-08-09 00:06:18",
+    "prior_date": "2026-08-09 00:06:39",
     "days_ago": 0,
     "prior_price": 223.96,
     "prior_fair_value": 313.54,
@@ -1754,9 +1754,9 @@
     "recommendation_changed": false
   },
   "deep_memory": {
-    "n_prior": 1,
+    "n_prior": 2,
     "hist_hit_rate": 0.0,
-    "n_scored": 1
+    "n_scored": 2
   },
   "open_options": [],
   "portfolio_fit": null,
@@ -4039,7 +4039,7 @@
         "note": "Roster factual. FMP no expone ejecutivos; yfinance sí (companyOfficers).",
         "track_record": {
           "status": "no_evaluado",
-          "note": "Respuesta del LLM no parseable."
+          "note": "El historial cualitativo no se pudo evaluar (el roster factual sí está)."
         }
       },
       "edgar": {
@@ -4190,7 +4190,18 @@
     },
     "scores_source": "victor"
   },
+  "wbj_explanation": {
+    "resumen_simple": "En este momento, el sistema no ha podido generar un análisis completo y puntuado para NVIDIA (NVDA), por lo que no hay un veredicto de inversión claro. La última tesis disponible, que es anterior a este análisis, sugería un perfil de 'Evitar / Esperar' debido a una valoración muy alta, a pesar de que la empresa es un líder fuerte en inteligencia artificial. Esto significa que, aunque la empresa es buena, su precio actual podría ser demasiado elevado para una inversión atractiva según ese análisis previo.",
+    "por_categoria": "Para esta revisión específica de NVIDIA, el sistema no ha podido calcular puntuaciones para ninguna de las seis categorías: negocio (business), finanzas (financial), mercado (market), técnico (technical), riesgo (risk) y valoración (valuation). Todas aparecen como 'None/10'. Esto significa que no podemos explicar por qué una categoría está alta o baja, ya que no se generaron los datos para evaluarlas en este análisis. Por lo tanto, no hay notas específicas que citar para justificar un puntaje.",
+    "gates_y_perfil": "En este análisis, el sistema no ha asignado un perfil específico (como Momentum, Quality, Value, etc.) a NVIDIA, y tampoco se han pasado ni fallado 'gates' (filtros de entrada). Esto indica que el proceso de evaluación no llegó a una conclusión sobre qué tipo de inversión es NVDA según la metodología. Sin embargo, la tesis previa, que es una referencia anterior, había asignado un perfil de 'Avoid / Wait' (Evitar / Esperar), lo que implicaba que la acción no cumplía con los criterios para ser una inversión activa en ese momento, principalmente por su valoración.",
+    "overrides_y_coherencia": "Para este análisis de NVIDIA, no se activaron overrides (ajustes manuales que modifican el resultado automático), ni se detectaron warnings (advertencias) o contradicciones. Esto significa que no hay factores externos o inconsistencias internas que el sistema haya identificado y que deban ser vigilados por el inversionista. La ausencia de estos elementos es neutra, ya que no hay un análisis completo que puedan modificar o contradecir.",
+    "niveles_y_confluencia": "En este análisis, el sistema no ha podido identificar niveles importantes (ni técnicos ni de valuación) ni zonas de confluencia para NVIDIA. Esto significa que no hay puntos de precio específicos que el sistema considere cruciales para la toma de decisiones, ni áreas donde los análisis técnico y de valuación se superpongan para ofrecer una señal más fuerte. La tesis previa sí menciona targets a 12 meses (Bull $360.58, Base $313.54, Bear $221.72) y un fair value de $313.54, pero estos son de un análisis anterior y no se han sintetizado como 'niveles' o 'confluencias' en esta revisión actual. Es importante recordar que los niveles no se promedian.",
+    "ajuste_a_mi_perfil": "Dado que este análisis no ha generado un perfil o puntuaciones para NVIDIA, es difícil determinar un ajuste directo con tu perfil de inversionista. Sin embargo, si consideramos la tesis previa que asignaba un perfil de 'Avoid / Wait' (Evitar / Esperar), esto no encajaría bien con tu objetivo de crecimiento de capital a 1-3 años con un enfoque agresivo/especulativo, ya que 'Evitar' sugiere no invertir activamente. Para tu capital de ~$1,000 y tu interés en opciones de corto plazo, la falta de un veredicto actual y la advertencia de 'Avoid' previa son críticas. Invertir en una acción sin una guía clara del sistema, especialmente con opciones, aumenta significativamente el riesgo de ruina, ya que una posición mal dimensionada podría agotar una parte considerable de tu capital. Con tu límite de 20-30% por posición ($200-$300), la probabilidad de éxito y los puntos de entrada/salida son vitales, y este análisis no los proporciona.",
+    "calibracion": "No se ha proporcionado un historial o track record de calibración para este análisis específico. Por lo tanto, no podemos usar datos históricos para evaluar la confianza en el veredicto actual. Debes tomar esta falta de información en cuenta al considerar cualquier acción futura.",
+    "conclusion": "Este análisis de NVIDIA no ha producido un veredicto completo ni puntuaciones, por lo que no hay una recomendación de inversión actual; la última tesis disponible sugería 'Evitar / Esperar' debido a una valoración elevada."
+  },
+  "wbj_explanation_source": "gemini",
   "fecha": "2026-08-09",
   "agente": "acciones",
-  "guardado_en": "2026-08-09T00:06:39+00:00"
+  "guardado_en": "2026-08-09T00:07:12+00:00"
 }
