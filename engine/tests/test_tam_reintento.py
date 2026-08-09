@@ -312,3 +312,23 @@ def test_an_existing_file_is_not_replaced_by_a_stamp(tmp_path, monkeypatch):
     monkeypatch.setattr(tm, "_investigar", lambda *a, **k: (None, ["sin fuente"]))
     tm.asegurar_tam_industria(_SS(tmp_path), "Semiconductors", "NVDA")
     assert _sello(tmp_path)["tam"] == 1_655_000_000_000
+
+
+def test_a_stamp_survives_a_dead_second_provider(tmp_path, monkeypatch):
+    """El sello no llegaba a escribirse NUNCA.
+
+    Con OpenAI sin creditos, todos los motivos llevan su "no credits
+    remaining" dentro, asi que `_es_falta_de_cuota(motivo)` daba True siempre
+    y la condicion del sello nunca se cumplia. Medido: el barrido resolvio 8
+    industrias, 5 de ellas sin fuente, y el contador de archivos no se movio.
+
+    Lo que decide es si ALGUIEN respondio, no si el texto nombra una cuota.
+    """
+    monkeypatch.setattr(tm, "_investigar", lambda *a, **k: (None, [
+        "openai: RateLimitError You have no credits remaining",
+        "4 respuestas sin cifra atribuible"]))
+    tm.asegurar_tam_industria(_SS(tmp_path), "Biotechnology", "")
+    f = tmp_path / "_industrias" / "biotechnology.json"
+    assert f.exists(), (
+        "el proveedor muerto de OpenAI impidio sellar una industria que "
+        "Gemini si contesto cuatro veces")

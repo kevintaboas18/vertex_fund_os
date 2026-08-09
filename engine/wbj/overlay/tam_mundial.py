@@ -936,7 +936,22 @@ def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
         # TAM por un limite de veinte peticiones por minuto que se pasa en
         # diecisiete segundos. Se distingue con el mismo `_es_falta_de_cuota`
         # que usa el barrido para decidir si esperar o rendirse.
-        if not previo and not _es_falta_de_cuota(motivo):
+        # "Nadie respondio" es lo que decide, no que el texto NOMBRE una
+        # cuota. Con dos proveedores el fallo de uno viaja en el mismo mensaje
+        # que el trabajo del otro: con OpenAI sin creditos, TODOS los motivos
+        # llevan su "no credits remaining" dentro, asi que
+        # `_es_falta_de_cuota(motivo)` daba True siempre y no se sellaba nunca
+        # nada.
+        #
+        # Medido: el barrido resolvio 8 industrias -- 5 de ellas "sin fuente"
+        # -- y el contador de archivos no se movio de 13. El sello que se
+        # anadio para poder observar el barrido no llego a escribirse ni una
+        # vez.
+        #
+        # Es el mismo error que ya se corrigio en el corte del barrido, y se
+        # arregla con la misma frase: si hubo respuestas, hubo pregunta.
+        _respondieron = "respuestas sin cifra atribuible" in motivo
+        if not previo and (_respondieron or not _es_falta_de_cuota(motivo)):
             try:
                 _escribir(path, {
                     "_generado_por": "vertex/tam_mundial",
