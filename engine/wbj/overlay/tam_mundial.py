@@ -873,6 +873,31 @@ def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
     if datos is None:
         motivo = "; ".join(fallos) or "sin respuesta de ningun proveedor"
         logger.warning("TAM de %s no resuelto: %s", slug, motivo)
+        # Sellar el intento, para que el barrido de 137 industrias sea
+        # OBSERVABLE mientras corre. Antes esta rama no escribia nada: una
+        # industria que no conseguia respuesta no dejaba rastro en disco, solo
+        # en el JSON final. Medido: nueve minutos de barrido sin un solo
+        # archivo nuevo, sin forma de saber si avanzaba o estaba colgado.
+        #
+        # PERO no se sella un fallo de CUOTA. Un sello lleva fecha, y la fecha
+        # hace que `_vigente` salte esa industria 90 dias -- tres meses sin
+        # TAM por un limite de veinte peticiones por minuto que se pasa en
+        # diecisiete segundos. Se distingue con el mismo `_es_falta_de_cuota`
+        # que usa el barrido para decidir si esperar o rendirse.
+        if not previo and not _es_falta_de_cuota(motivo):
+            try:
+                _escribir(path, {
+                    "_generado_por": "vertex/tam_mundial",
+                    "_resuelto_en": hoy.isoformat(),
+                    "_sin_tam": motivo,
+                    "_visto_al_analizar": ticker,
+                    "_que_hacer": ("Escribe el TAM a mano en este archivo y borra "
+                                   "`_generado_por`: eso lo vuelve tuyo y el sistema "
+                                   "deja de tocarlo. Necesita `tam`, `tam_source` y "
+                                   "`tam_source_tier` (1-4)."),
+                })
+            except OSError:
+                pass
         return f"{slug}: no se pudo resolver ({motivo})"
 
     # Los juicios sobre la CAPA sobreviven a un cambio de cifra. Que WSTS

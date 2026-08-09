@@ -248,3 +248,67 @@ def test_the_waiting_is_bounded(monkeypatch):
     monkeypatch.setattr(tm, "_preguntar_openai", lambda s, p: ("", "openai: sin clave"))
     tm._investigar(_S(), "Semiconductors", "NVDA")
     assert len(dormido) <= tm.ESPERAS_MAXIMAS
+
+
+# --- el barrido tiene que poder observarse mientras corre -------------------
+
+class _SS:
+    """Settings con una raiz de disco real, para ver los sellos."""
+
+    def __init__(self, raiz):
+        self.inputs_dir = str(raiz)
+        self.gemini_api_key = "x"
+        self.openai_api_key = None
+
+
+def _sello(tmp_path, slug="semiconductors"):
+    import json
+    f = tmp_path / "_industrias" / f"{slug}.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
+
+
+def test_an_industry_with_no_answer_leaves_its_stamp(tmp_path, monkeypatch):
+    """El barrido de 137 industrias tiene que ser observable MIENTRAS corre.
+
+    Esta rama no escribia nada: una industria que no conseguia respuesta no
+    dejaba rastro en disco, solo en el JSON final que se escribe al terminar.
+    Medido: nueve minutos de barrido sin un solo archivo nuevo, sin forma de
+    saber si avanzaba o estaba colgado.
+    """
+    monkeypatch.setattr(tm, "_investigar",
+                        lambda *a, **k: (None, ["4 respuestas sin cifra atribuible"]))
+    tm.asegurar_tam_industria(_SS(tmp_path), "Semiconductors", "NVDA")
+    d = _sello(tmp_path)
+    assert d is not None, "la industria no dejo rastro"
+    assert "sin cifra atribuible" in d["_sin_tam"]
+    assert d["_que_hacer"], "un sello mudo no dice como cerrarlo a mano"
+
+
+def test_a_quota_failure_leaves_no_stamp(tmp_path, monkeypatch):
+    """Y esta es la mitad que importa mas. Un sello lleva fecha, y la fecha
+    hace que `_vigente` salte esa industria 90 dias.
+
+    Sellar un 429 seria tres meses sin TAM por un limite de veinte peticiones
+    por minuto que se pasa en diecisiete segundos -- y el barrido entero se
+    autoenvenenaria en su primera corrida contra una cuota agotada.
+    """
+    monkeypatch.setattr(tm, "_investigar", lambda *a, **k: (
+        None, ["gemini: ClientError 429 RESOURCE_EXHAUSTED"]))
+    tm.asegurar_tam_industria(_SS(tmp_path), "Semiconductors", "NVDA")
+    assert _sello(tmp_path) is None, (
+        "sello un fallo de cuota: esa industria queda saltada 90 dias por un "
+        "limite que se pasa en segundos")
+
+
+def test_an_existing_file_is_not_replaced_by_a_stamp(tmp_path, monkeypatch):
+    """Un TAM que funcionaba no se pierde porque la busqueda de hoy fallara."""
+    import json
+    d = tmp_path / "_industrias"
+    d.mkdir(parents=True)
+    (d / "semiconductors.json").write_text(json.dumps({
+        "_generado_por": "vertex/tam_mundial", "_resuelto_en": "2020-01-01",
+        "tam": 1_655_000_000_000, "tam_source": "WSTS", "tam_source_tier": 2}),
+        encoding="utf-8")
+    monkeypatch.setattr(tm, "_investigar", lambda *a, **k: (None, ["sin fuente"]))
+    tm.asegurar_tam_industria(_SS(tmp_path), "Semiconductors", "NVDA")
+    assert _sello(tmp_path)["tam"] == 1_655_000_000_000
