@@ -62,6 +62,11 @@ INTENTOS = 4
 ESPERA_MAXIMA_S = 65.0
 ESPERAS_MAXIMAS = 3
 
+#: Hueco minimo entre peticiones al proveedor de busqueda. 20 por minuto es
+#: una cada 3 segundos: respetarlo por adelantado es mas rapido que chocar con
+#: el limite y dormir 65 segundos despues.
+SEGUNDOS_ENTRE_LLAMADAS = 3.1
+
 #: Cuantas pausas por cuota aguanta un barrido completo antes de rendirse. A
 #: 20 peticiones por minuto, 132 industrias necesitan esperar muchas veces;
 #: rendirse a la primera dejaba el barrido muerto en la industria 1.
@@ -261,6 +266,35 @@ def _error_legible(proveedor: str, e: Exception) -> str:
     return f"{corto} — Please {m.group(0)}" if m else corto
 
 
+#: Reloj compartido del ritmo. Una sola llamada en vuelo a la vez y un hueco
+#: minimo entre ellas: es lo que convierte el limite en una cadencia en vez de
+#: en un choque.
+_RITMO = threading.Lock()
+_ULTIMA_LLAMADA = [0.0]
+
+
+def _esperar_turno() -> None:
+    """Espacia las llamadas para NO chocar con el limite, en vez de chocar y
+    dormir despues.
+
+    El tier gratuito da 20 peticiones por minuto = una cada 3 segundos. El
+    codigo llamaba a toda velocidad, se comia el 429 y entonces dormia hasta
+    65 segundos -- y esas esperas se componen, 3 por intento y 4 intentos por
+    industria.
+
+    Medido: el barrido de 146 industrias pasaba nueve minutos sin resolver
+    UNA. Su coste teorico a 20/min es de unos 30 minutos en total.
+
+    Esperar 3 segundos ANTES de llamar cuesta lo mismo que la cuota permite y
+    no gasta peticiones en respuestas que van a fallar.
+    """
+    with _RITMO:
+        falta = SEGUNDOS_ENTRE_LLAMADAS - (time.monotonic() - _ULTIMA_LLAMADA[0])
+        if falta > 0:
+            time.sleep(falta)
+        _ULTIMA_LLAMADA[0] = time.monotonic()
+
+
 def _preguntar_gemini(settings: Any, prompt: str) -> tuple[str, str | None]:
     key = getattr(settings, "gemini_api_key", None)
     if not key:
@@ -270,6 +304,7 @@ def _preguntar_gemini(settings: Any, prompt: str) -> tuple[str, str | None]:
         from google.genai import types
     except ImportError:
         return "", "el SDK google-genai no esta instalado"
+    _esperar_turno()
     try:
         cliente = genai.Client(api_key=key)
         r = cliente.models.generate_content(
