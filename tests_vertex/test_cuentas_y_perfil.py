@@ -691,8 +691,49 @@ class TestLaPantallaDelCuestionario:
         cargar = h[h.index("async function pfCargar()"):]
         cargar = cargar[:cargar.index("\n}")]
         assert "d.preguntas" in cargar
-        # Ni un enunciado a mano.
-        assert "¿Qué buscas con este dinero?" not in h
+        # Ni un enunciado a mano. Los enunciados SÍ aparecen ahora dentro de
+        # `VX_ES2EN`, y eso es otra cosa: allí son la CLAVE de una traducción,
+        # no una segunda definición del cuestionario. Se comprueba que fuera del
+        # diccionario no hay ninguna copia.
+        dic = h.split("const VX_ES2EN = {", 1)[1].split("\n};", 1)[0]
+        assert "¿Qué buscas con este dinero?" in dic, (
+            "el enunciado no está ni en el diccionario: en inglés saldría en español")
+        assert "¿Qué buscas con este dinero?" not in h.replace(dic, "")
+
+    def test_cada_pregunta_del_servidor_tiene_su_traduccion(self):
+        """El acoplamiento que crea el diccionario, vigilado.
+
+        La clave de `VX_ES2EN` es la frase española LITERAL. Si alguien cambia
+        el enunciado de una pregunta en `vertex_cuentas.py` y no toca el
+        diccionario, la clave deja de casar y esa pregunta vuelve al español —
+        sin error, sin aviso, solo media pantalla en el idioma equivocado. Este
+        test es lo único que lo convierte en un fallo ruidoso.
+        """
+        import vertex_cuentas as C
+
+        # Se escriben igual en los dos idiomas, así que no tienen entrada —y no
+        # pueden tenerla: otro test prohíbe las traducciones que no traducen
+        # nada. Van declaradas para que una pregunta NUEVA no se cuele aquí por
+        # descuido: lo que no esté en esta lista tiene que estar en el
+        # diccionario.
+        IGUALES = {"Capital", "ETFs", "Forex", "Penny stocks", "Asia",
+                   "NYSE, NASDAQ, AMEX."}
+
+        dic = _html().split("const VX_ES2EN = {", 1)[1].split("\n};", 1)[0]
+        faltan = []
+        for p in C.PREGUNTAS:
+            textos = [p.get("seccion"), p.get("pregunta"), p.get("ayuda")]
+            for o in p.get("opciones") or []:
+                textos += [o.get("label"), o.get("detalle")]
+            for t in textos:
+                if not t or t in IGUALES:
+                    continue
+                # `json.dumps` porque en el archivo están escapadas.
+                if json.dumps(t, ensure_ascii=False) + ":" not in dic:
+                    faltan.append(t)
+        assert not faltan, (
+            f"{len(faltan)} textos del cuestionario sin traducir; en inglés saldrían "
+            f"en español: {faltan[:4]}")
 
     def test_pinta_cada_tipo_de_pregunta(self):
         h = _sin_comentarios(_html())
@@ -708,7 +749,32 @@ class TestLaPantallaDelCuestionario:
         h = _sin_comentarios(_html())
         fn = h[h.index("function pfPreguntaHTML(preg)"):]
         fn = fn[:fn.index("\nfunction ")]
-        assert "heredada" in fn and "respondidas" in fn
+        assert "heredada" in fn
+        # `respondidas` ya no se lee aquí: la pregunta «¿contestó ESTA persona?»
+        # se mudó a `pfContestada`, porque la usan el pintado, el manejador de
+        # clics y la insignia, y tres copias de la misma regla acaban
+        # divergiendo. Se comprueba en su sitio nuevo.
+        assert "pfContestada(preg)" in fn
+        helper = h[h.index("function pfContestada(preg)"):]
+        helper = helper[:helper.index("\n}") + 2]
+        assert "respondidas" in helper and "pfRespuestas" in helper
+
+    def test_el_formulario_sale_EN_BLANCO_hasta_que_contestas(self):
+        """Lo heredado se dice con la etiqueta, no premarcando la respuesta de
+        Kevin. Ver `TestElCuestionarioNoEligePorTi` en test_navegador.py, que lo
+        mide en un navegador; esto vigila que el cableado siga en su sitio."""
+        h = _sin_comentarios(_html())
+        fn = h[h.index("function pfPreguntaHTML(preg)"):]
+        fn = fn[:fn.index("\nfunction ")]
+        assert "pfValorEnBlanco(preg)" in fn, (
+            "el formulario volvió a leer el valor efectivo: saldría con las "
+            "respuestas de Kevin ya elegidas")
+        assert "const val = pfValor(preg)" not in fn
+        # Y el gemelo: el clic en una múltiple no puede partir de lo heredado.
+        clic = h[h.index("if (preg.tipo === 'multi')"):]
+        clic = clic[:clic.index("} else {")]
+        assert "pfValorEnBlanco(preg)" in clic, (
+            "el primer clic quitaría una opción de Kevin en vez de añadir la tuya")
 
     def test_el_id_de_pregunta_no_va_dentro_de_un_onclick(self):
         """`_vcEsc` escapa para HTML, que no es escapar para un literal de JS:

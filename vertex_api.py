@@ -494,6 +494,37 @@ def _client_host(request) -> str:
 _USUARIO_CTX: contextvars.ContextVar = contextvars.ContextVar("vertex_usuario",
                                                               default=None)
 
+#: El idioma de la sesión, por el mismo camino y por el mismo motivo.
+#:
+#: La pantalla la traduce el panel con su diccionario, pero hay un texto que
+#: ningún diccionario alcanza: el que ESCRIBE el modelo. Esa prosa no existe
+#: hasta que se pide, así que el idioma tiene que viajar hasta el prompt. Va en
+#: una cabecera y llega aquí, para no hilar `request` por Analyze y Explore.
+_IDIOMA_CTX: contextvars.ContextVar = contextvars.ContextVar("vertex_idioma",
+                                                             default="es")
+#: Cabecera que manda el panel en cada petición.
+_IDIOMA_HEADER = "X-Vertex-Idioma"
+
+
+def _idioma_actual() -> str:
+    """`es` o `en`. Nunca otra cosa: un valor raro cae a español."""
+    return "en" if _IDIOMA_CTX.get() == "en" else "es"
+
+
+def _instruccion_idioma() -> str:
+    """La frase que se le pone al modelo para fijar el idioma de la respuesta.
+
+    Se declara en el idioma de destino a propósito: pedir en español que
+    responda en inglés funciona peor que pedírselo en inglés.
+    """
+    if _idioma_actual() == "en":
+        return ("\n\nLANGUAGE: write EVERY field of your answer in English. "
+                "Do not use Spanish anywhere, not even for headings, labels or "
+                "quoted terms. Numbers, tickers and proper names stay as they are.")
+    return ("\n\nIDIOMA: escribe TODOS los campos de tu respuesta en español. "
+            "No uses inglés en ninguna parte, ni en títulos ni en etiquetas. "
+            "Los números, los tickers y los nombres propios se quedan igual.")
+
 
 def _usuario_actual(request=None):
     """El usuario de la sesión, o `None`. Nunca lanza.
@@ -550,6 +581,7 @@ async def _require_auth(request, call_next):
     #
     # Sin cookie no hay consulta: `_usuario_actual` sale en la primera línea.
     _USUARIO_CTX.set(_usuario_actual(request))
+    _IDIOMA_CTX.set((request.headers.get(_IDIOMA_HEADER) or "es").strip().lower())
     if (path in _PUBLIC_PATHS or path.startswith("/assets/")
             or request.method == "OPTIONS"          # preflight de CORS
             or _auth_ok(request)):
@@ -2779,7 +2811,8 @@ def get_explore_deep(ticker: str):
         f"y {today_str} (ultimos 90 dias). Ignora absolutamente todo lo anterior a {three_months_ago}. "
         "Eres extremadamente detallado, especifico, con ejemplos reales, citas con fecha aproximada, "
         "fuentes concretas, cifras y datos. Ademas de describir el sentimiento, ESPECULAS con tu propia "
-        "tesis de inversion basada en lo que la comunidad esta diciendo. Respondes SIEMPRE en espanol."
+        "tesis de inversion basada en lo que la comunidad esta diciendo."
+        + _instruccion_idioma()
     )
 
     # Antes decia "usa tu conocimiento general". Reddit bloquea las peticiones sin
@@ -8868,7 +8901,7 @@ def _wbj_write_prediccion(ticker, report_id, price, fair_value, profile, raw, ta
 
 
 class WBJExplanation(BaseModel):
-    resumen_simple: str = Field(..., description="En 3-5 frases y en español MUY simple: qué es esta empresa como inversión y qué dice el veredicto. Para alguien sin conocimientos financieros.")
+    resumen_simple: str = Field(..., description="En 3-5 frases y en lenguaje MUY simple: qué es esta empresa como inversión y qué dice el veredicto. Para alguien sin conocimientos financieros.")
     por_categoria: str = Field(..., description="Explica en palabras qué significa el puntaje de CADA una de las 6 categorías (business, financial, market, technical, risk, valuation) y por qué está alto o bajo, citando las notas. Detallado pero simple.")
     gates_y_perfil: str = Field(..., description="Explica qué significa el perfil asignado (Momentum/Quality/Value/Conditional/Speculative/Avoid), qué gates pasaron o fallaron y qué implican, en palabras llanas.")
     overrides_y_coherencia: str = Field(..., description="Explica qué significan los overrides activados y los flags de coherencia (contradicciones) listados, y qué debería vigilar el inversionista.")
@@ -8947,13 +8980,16 @@ def _wbj_explain(context_text, temp=0.3):
     """2º PASE: el LLM SOLO explica el paquete ya calculado en palabras simples.
     Recibe los números FINALES (matemática de Victor) y NO los cambia. Respaldo de
     proveedor igual que el análisis. Devuelve (dict, fuente) o (None, None) si falla."""
+    # La instrucción de idioma va AL FINAL, después del contexto: el esquema de
+    # respuesta (`WBJExplanation`) trae «en español» escrito en la descripción
+    # de un campo, y lo último que lee el modelo es lo que manda.
     prompt = (
         "Eres un divulgador financiero. Abajo tienes un análisis WBJ YA CALCULADO con la "
         "metodología de Victor (los números son FINALES y correctos). Tu ÚNICO trabajo es "
-        "EXPLICARLO en español simple, claro y detallado para el inversionista de 'MI PERFIL'. "
+        "EXPLICARLO de forma simple, clara y detallada para el inversionista de 'MI PERFIL'. "
         "NO recalcules, NO cambies, NO reduzcas ni 'corrijas' ningún número, score, gate ni nivel. "
         "Si algo no tiene datos (NOT_SCORABLE), explícalo con honestidad. No prometas retornos ni "
-        "des órdenes de compra/venta.\n\n" + context_text)
+        "des órdenes de compra/venta.\n\n" + context_text + _instruccion_idioma())
     # Por qué falló CADA proveedor, en orden. Antes sólo se propagaba el
     # último error de la cadena, así que un 429 de cuota en Gemini —el
     # proveedor PRINCIPAL— se reportaba como "Grok no configurado
@@ -12658,8 +12694,8 @@ def get_sentiment(ticker: str):
         "basada en lo que la gente esta diciendo: si el consenso emocional de la comunidad tiene "
         "fundamento, hacia donde podria ir el precio si esa narrativa se cumple, y que escenario es "
         "mas probable. SIEMPRE das datos especificos, porcentajes estimados, ejemplos reales y citas "
-        "de lo que dice la gente con fecha aproximada. Eres directo, detallado, exhaustivo y objetivo. "
-        "Respondes SIEMPRE en espanol."
+        "de lo que dice la gente con fecha aproximada. Eres directo, detallado, exhaustivo y objetivo."
+        + _instruccion_idioma()
     )
 
     # Misma correccion que en el prompt profundo: sin posts NO se sustituye con

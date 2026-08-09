@@ -29,6 +29,33 @@
         tailwind.config = { theme: { extend: { fontFamily: {
             sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
             mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'] } } } };
+
+        /* El idioma viaja en CADA petición.
+         *
+         * La pantalla la traduce el diccionario del panel, pero la prosa que
+         * escribe el modelo no existe hasta que se pide: el idioma tiene que
+         * llegar al prompt. Se envuelve `fetch` aquí arriba, antes que nada,
+         * para que ninguna llamada se quede sin la cabecera — envolverlo abajo
+         * dejaba fuera justo las de arranque.
+         *
+         * Se lee de `localStorage` en cada llamada, no de una variable: así
+         * funciona igual aunque este bloque corra antes de que el resto del
+         * panel se haya definido. */
+        (function () {
+            const original = window.fetch;
+            if (!original) return;
+            window.fetch = function (recurso, opciones) {
+                let idioma = 'es';
+                try { idioma = localStorage.getItem('vertex_idioma') || 'es'; } catch (e) {}
+                const o = Object.assign({}, opciones || {});
+                // Se respeta un Headers ya montado: sobrescribirlo con un
+                // objeto plano tiraría el Content-Type de los POST.
+                const h = new Headers((o.headers) || (recurso instanceof Request ? recurso.headers : undefined));
+                h.set('X-Vertex-Idioma', idioma === 'en' ? 'en' : 'es');
+                o.headers = h;
+                return original.call(this, recurso, o);
+            };
+        })();
     </script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -10674,11 +10701,31 @@ function vxTema(t) {
 
 /* ── IDIOMA ───────────────────────────────────────────────────────────── */
 
-/* Se traduce la navegación, el menú de cuenta y el perfil.
+/* En inglés, TODO en inglés. No queda media pantalla en español.
  *
- * NO se traducen Analyze ni Explore: son áreas que no se pueden tocar en este
- * trabajo, y traducirlas exigiría editar su marcado. Se dice aquí en vez de
- * dejar que el usuario lo descubra a medias. */
+ * Traducir a mano cada `innerHTML` habría sido tocar ~900 sitios y olvidar
+ * unos cuantos —y lo que se olvida no se ve hasta que el usuario lo encuentra.
+ * Así que la traducción no vive en los sitios que pintan: vive en un
+ * diccionario, y una pasada sobre el DOM cambia lo que reconoce.
+ *
+ * Tres consecuencias que importan:
+ *
+ *  · **También traduce lo que manda el servidor.** El texto llega al DOM igual,
+ *    así que un motivo de bloqueo o una razón de degradación se traducen sin
+ *    que el servidor sepa que existe un segundo idioma.
+ *  · **Lo que no está en el diccionario NO se toca.** Un ticker, un nombre o un
+ *    número nunca casan con una frase española entera, así que no hay riesgo de
+ *    traducir datos. Lo que sí queda en español es lo que falte en el
+ *    diccionario, y para eso está el test que barre la pantalla en inglés.
+ *  · **El español es el original.** Se guarda el texto de partida por nodo, de
+ *    modo que volver a español no depende de un segundo diccionario inverso que
+ *    se pueda desincronizar.
+ *
+ * Lo que este mecanismo NO puede traducir es la prosa que escribe el modelo.
+ * Eso se resuelve en el prompt: `/api/analyze` y compañía reciben el idioma y
+ * el agente responde en él. Un diccionario no puede traducir texto que no
+ * existía cuando se escribió.
+ */
 const VX_I18N = {
     en: {
         'nav.dashboard': 'Dashboard', 'nav.reports': 'Reports',
@@ -10700,8 +10747,1072 @@ const VX_I18N = {
     es: {},   // el marcado ya está en español: el diccionario `es` es el original
 };
 
+/* ── El diccionario ───────────────────────────────────────────────────────
+ *
+ * Clave: la frase EN ESPAÑOL tal como queda en pantalla, con el espacio
+ * interior ya colapsado (así la busca `vxFrase`). Valor: la inglesa.
+ *
+ * No se escribe a mano contra el archivo: se saca del DOM real —el navegador
+ * ya resolvió entidades, plantillas y todo lo demás— para que la clave sea
+ * exactamente lo que se va a buscar. Una clave escrita a ojo casa con nada y
+ * el fallo es invisible: la pantalla se queda en español sin avisar.
+ * ─────────────────────────────────────────────────────────────────────── */
+const VX_ES2EN = {
+    "Días": "Days",
+    "Europa": "Europe",
+    "Cripto": "Crypto",
+    "Sobre ti": "About you",
+    "Universo": "Universe",
+    "Objetivos": "Objectives",
+    "1 a 3 años": "1 to 3 years",
+    "5 años o más": "5 years or more",
+    "Instrumentos": "Instruments",
+    "Moderado · 5%": "Moderate · 5%",
+    "Ya he operado": "I have traded before",
+    "Latinoamérica": "Latin America",
+    "Estados Unidos": "United States",
+    "Agresivo · 15%": "Aggressive · 15%",
+    "En mis palabras": "In my own words",
+    "Semanas a meses": "Weeks to months",
+    "Estoy empezando": "I am just starting",
+    "Con experiencia": "Experienced",
+    "Conservador · 2%": "Conservative · 2%",
+    "ETFs apalancados": "Leveraged ETFs",
+    "Muy corto plazo.": "Very short term.",
+    "Bonos / renta fija": "Bonds / fixed income",
+    "Especulativo · 30%": "Speculative · 30%",
+    "Tolerancia al riesgo": "Risk tolerance",
+    "Magnitud del retorno": "Size of the return",
+    "Acciones individuales": "Individual stocks",
+    "Preservar lo que tengo": "Preserve what I have",
+    "Crecimiento de capital": "Capital growth",
+    "Generación de ingresos": "Income generation",
+    "¿Qué instrumentos usas?": "Which instruments do you use?",
+    "Explícame cada término.": "Explain every term to me.",
+    "Un equilibrio de los dos": "A balance of the two",
+    "Calls, puts y estrategias.": "Calls, puts and strategies.",
+    "Reglas de dimensionamiento": "Sizing rules",
+    "¿En qué mercados inviertes?": "Which markets do you invest in?",
+    "¿Qué buscas con este dinero?": "What are you after with this money?",
+    "Ve al grano con los números.": "Get straight to the numbers.",
+    "No perder pesa más que ganar.": "Not losing matters more than winning.",
+    "Probabilidad de éxito y timing": "Probability of success and timing",
+    "Entiendo lo básico de opciones.": "I understand the basics of options.",
+    "¿Qué NO tocas, pase lo que pase?": "What do you NOT touch, no matter what?",
+    "El horizonte principal de Kevin.": "Kevin's main horizon.",
+    "Trades de opciones de corto plazo": "Short-term options trades",
+    "Largo plazo, generación de ingresos.": "Long term, income generation.",
+    "Cuando hay que elegir, ¿qué pesa más?": "When you have to choose, what matters more?",
+    "¿Con cuánto capital vas a operar? (USD)": "How much capital will you trade with? (USD)",
+    "¿Cuánta experiencia tienes invirtiendo?": "How much investing experience do you have?",
+    "¿Algo más que el agente deba saber de ti?": "Anything else the agent should know about you?",
+    "Semanas a meses, aprovechando el momento.": "Weeks to months, riding the momentum.",
+    "¿En cuánto tiempo esperas usar este dinero?": "How soon do you expect to use this money?",
+    "Flujo constante en el largo plazo (5+ años).": "Steady cash flow over the long run (5+ years).",
+    "Aceptas volatilidad a cambio de crecimiento.": "You accept volatility in exchange for growth.",
+    "Prefiero pocas grandes aunque falle más veces.": "I prefer a few big ones even if I am wrong more often.",
+    "Swing trading, opciones de vencimiento cercano.": "Swing trading, near-dated options.",
+    "¿Cuánto capital puede ocupar UNA sola posición?": "How much capital can ONE single position take up?",
+    "Asumes riesgo de ruina real a cambio de asimetría.": "You take real risk of ruin in exchange for asymmetry.",
+    "Que la cuenta crezca, aunque el camino sea volátil.": "Growing the account, even if the road is volatile.",
+    "Prefiero acertar seguido aunque cada acierto sea menor.": "I prefer to be right often even if each win is smaller.",
+    "Priorizas no perder. Posiciones pequeñas y muy filtradas.": "You prioritise not losing. Small, heavily filtered positions.",
+    "Buscas crecimiento de capital y toleras drawdowns fuertes.": "You are after capital growth and tolerate heavy drawdowns.",
+    "¿Cuánto puedes perder en UNA operación sin perder el sueño?": "How much can you lose on ONE trade without losing sleep?",
+    "El agente no te propondrá nada fuera de lo que marques aquí.": "The agent will not propose anything outside what you tick here.",
+    "No cambia ningún cálculo. Cambia cuánto se explica cada número.": "It changes no calculation. It changes how much each number is explained.",
+    "Solo el dinero destinado a esto. Es lo que decide si un contrato te cabe siquiera.": "Only the money set aside for this. It is what decides whether a contract even fits you.",
+    "Cambia el orden en que se te presentan las oportunidades, no la matemática con la que se calculan.": "It changes the order in which opportunities are presented to you, not the maths they are computed with.",
+    "Un veto es más fuerte que una preferencia: el agente lo respeta aunque el análisis salga favorable.": "A veto is stronger than a preference: the agent honours it even when the analysis comes out favourable.",
+    "Puedes marcar más de uno. Es lo primero que el agente mira para decidir si una acción encaja contigo o no.": "You can tick more than one. It is the first thing the agent looks at to decide whether a stock fits you or not.",
+    "Escríbelo como se lo contarías a un asesor. Esto es CONTEXTO para la tesis — nunca se convierte en un score.": "Write it as you would tell an adviser. This is CONTEXT for the thesis — it never becomes a score.",
+    "El horizonte decide cuánta quema de theta aguanta una posición y qué tan lejos puede estar un objetivo de precio.": "The horizon decides how much theta burn a position can take and how far away a price target can be.",
+    "El chequeo del universo es determinista: si una acción cotiza fuera de lo que marques, sale del universo sin discusión.": "The universe check is deterministic: if a stock trades outside what you tick, it leaves the universe with no discussion.",
+    "No es una preferencia: es el techo que decide cuántos contratos te caben. Un número alto aquí no te hace ganar más, te hace arriesgar más.": "This is not a preference: it is the ceiling that decides how many contracts fit you. A high number here does not make you earn more, it makes you risk more.",
+    "Distinto de lo anterior: aquel dice cuánto puedes PERDER, este cuánto puedes DESPLEGAR. Con un tope del 30%, tres pérdidas totales seguidas se llevan casi la cuenta entera.": "Different from the previous one: that one says how much you can LOSE, this one how much you can DEPLOY. With a 30% cap, three total losses in a row take almost the whole account.",
+    "Analizar Cuenta": "Analyse account",
+    "Buscar ticker…": "Search ticker…",
+    "Cambiar cuenta": "Switch account",
+    "Cambiar tema": "Change theme",
+    "Cambiar tema claro/oscuro": "Toggle light/dark theme",
+    "Cargando screens fundamentales…": "Loading fundamental screens…",
+    "Cargando…": "Loading…",
+    "Cash Disponible": "Available cash",
+    "Cerrar": "Close",
+    "Cerrar menu": "Close menu",
+    "Cerrar sesion": "Sign out",
+    "Colectar ahora": "Collect now",
+    "Confianza:": "Confidence:",
+    "Cono 1σ / 2σ": "1σ / 2σ cone",
+    "Cuenta": "Account",
+    "DCF ponderado": "Weighted DCF",
+    "Datos:": "Data:",
+    "Dinero Ganado / Perdido": "Money made / lost",
+    "El": "The",
+    "Entrar": "Sign in",
+    "Escenario alcista (punteado)": "Bullish scenario (dashed)",
+    "Escenario bajista (punteado)": "Bearish scenario (dashed)",
+    "Escenario base (punteado)": "Base scenario (dashed)",
+    "Falta FINNHUB_API_KEY": "FINNHUB_API_KEY missing",
+    "Falta FMP_API_KEY": "FMP_API_KEY missing",
+    "Falta GEMINI_API_KEY": "GEMINI_API_KEY missing",
+    "Fecha": "Date",
+    "Hoy": "Today",
+    "Importar": "Import",
+    "Importar portafolio": "Import portfolio",
+    "Juicio AI": "AI judgement",
+    "Limpiar": "Clear",
+    "Monto $": "Amount $",
+    "Nombre": "Name",
+    "Notificaciones": "Notifications",
+    "Nunca:": "Never:",
+    "Opciones": "Options",
+    "Optimizador": "Optimiser",
+    "Optimizador Media-Varianza": "Mean-variance optimiser",
+    "Optimizar": "Optimise",
+    "Personalizado": "Custom",
+    "Peso actual": "Current weight",
+    "Portafolio × Edge medido": "Portfolio × measured edge",
+    "Posiciones en Acciones": "Stock positions",
+    "Precio": "Price",
+    "Proximamente": "Coming soon",
+    "Proyecciones": "Projections",
+    "Proyecciones GEX": "GEX projections",
+    "proyecciones GEX": "GEX projections",
+    "Re-auditar": "Re-audit",
+    "Recalcular": "Recompute",
+    "Recortar": "Trim",
+    "Refrescar": "Refresh",
+    "Rendimiento Hoy": "Today's performance",
+    "Requiere": "Requires",
+    "Resistencia": "Resistance",
+    "Riesgo": "Risk",
+    "Screens fundamentales": "Fundamental screens",
+    "Secciones": "Sections",
+    "Simulador Pre-Trade (What-If)": "Pre-trade simulator (what-if)",
+    "Simular": "Simulate",
+    "Soporte": "Support",
+    "Stress Test & Escenarios": "Stress test & scenarios",
+    "Ticker / Nombre": "Ticker / name",
+    "Tope 15%": "Cap 15%",
+    "Tope 20%": "Cap 20%",
+    "Tope 25%": "Cap 25%",
+    "Tope 30%": "Cap 30%",
+    "Tope 50%": "Cap 50%",
+    "Ventas anuales + crecimiento": "Annual revenue + growth",
+    "borrar snapshot": "delete snapshot",
+    "configurada": "configured",
+    "desempate (opc.)": "tiebreaker (opt.)",
+    "determinista": "deterministic",
+    "es el": "is the",
+    "oficial": "official",
+    "personas": "people",
+    "portafolio": "portfolio",
+    "reuniendo datos": "gathering data",
+    "revisar": "review",
+    "superaron a SPY": "beat SPY",
+    "θ%/día": "θ%/day",
+    "precio al que se ejecutó cada flow": "price at which each flow was executed",
+    "Guardar en tu watchlist con el sizing de ahora": "Save to your watchlist with your current sizing",
+    "no cabe: el colateral supera tu tope por posición": "does not fit: the collateral exceeds your per-position cap",
+    ", no una sugerencia de compra. El límite de theta sale de la banda del documento de Inusualidad: un contrato que pierde más del 5% de su valor al día se descarta por lotería.": ", not a buy suggestion. The theta limit comes from the band in the Unusualness document: a contract losing more than 5% of its value per day is discarded as a lottery ticket.",
+    ": ▲ Compra = pagaron el precio del vendedor (agresivo) · ▼ Venta = aceptaron el precio del comprador. ↑ ejecutado sobre el ask · ↓ bajo el bid · 🔁 ×N = veces que se repitió ese contrato.": ": ▲ Buy = they paid the seller's price (aggressive) · ▼ Sell = they accepted the buyer's price. ↑ filled above the ask · ↓ below the bid · 🔁 ×N = how many times that contract repeated.",
+    ", no sobre la cotización viva del contrato — el feed no la entrega. Los flows son del día, así que la diferencia es pequeña, pero el número es una referencia, no una orden. Material educativo:": ", not on the contract's live quote — the feed does not provide it. The flows are same-day, so the difference is small, but the number is a reference, not an order. Educational material:",
+    "10d / 20d / 30d, los horizontes de su Prediction Pro. El puntaje que los mueve es el de sus 6 sub-agentes (agresión 20 · convicción 20 · inusualidad 20 · estructura 15 · contexto IV 10 · validación 15) y el ancho sale del movimiento esperado. Bear / Base / Bull — nunca un solo precio.": "10d / 20d / 30d, the horizons of his Prediction Pro. The score that moves them is that of his 6 sub-agents (aggression 20 · conviction 20 · unusualness 20 · structure 15 · IV context 10 · validation 15) and the width comes from the expected move. Bear / base / bull — never a single price.",
+    ". La IV histórica, las cadenas y el flujo pasado no los vende ninguna fuente: se juntan una foto por día de mercado. Mirar un ticker YA aporta, aunque no salga ningún reporte — la foto de hoy es la que hará posible el IV Rank real más adelante.": ". No source sells historical IV, the chains or past flow: they are gathered one snapshot per market day. Looking at a ticker ALREADY contributes, even if no report comes out — today's snapshot is what will make the real IV rank possible later on.",
+    ". Cada reporte guarda su convicción y sus objetivos. Cuando pasa el horizonte, el precio real dice si acertó. Con más reportes de más gente, la curva de fiabilidad tiene más puntos — y se puede comprobar si un «70%» acierta el 70%.": ". Every report stores its conviction and its targets. When the horizon passes, the real price says whether it was right. With more reports from more people the reliability curve has more points — and you can check whether a \"70%\" really hits 70%.",
+    "Se regenera cada vez que guardas. Es el archivo que lee el agente de acciones (Analyze, Explore) y del que sale el sizing del agente de opciones (Proyecciones): tu perfil llega a los tres por el mismo camino.": "It is regenerated every time you save. It is the file the stock agent reads (Analyze, Explore) and the one the options agent's sizing comes from (Projections): your profile reaches all three by the same path.",
+    "Se muestran los niveles dentro de ±3 ATR — los que están en juego al precio actual. Los demás (incluidos los valores intrínsecos) están en la lista completa. Fuente: síntesis de niveles de Victor.": "Only levels within ±3 ATR are shown — the ones in play at the current price. The rest (including the intrinsic values) are in the full list. Source: Victor's level synthesis.",
+    "responde lo cualitativo que el código no puede medir (moat, catalizadores, concentración, thesis-killers) y se re-corre la MISMA agregación de Victor, para comparar el mismo tablero": "answers the qualitative part the code cannot measure (moat, catalysts, concentration, thesis killers) and Victor's SAME aggregation is re-run, so you compare the same board",
+    "Análisis corriendo sobre el snapshot guardado en el servidor — sin llamar a Plaid. Si las posiciones se cargaron sin costo base, la regla de stop-loss en Guardrails queda inactiva.": "Analysis running on the snapshot stored on the server — without calling Plaid. If the positions were loaded without a cost basis, the stop-loss rule in Guardrails stays inactive.",
+    "Estrategia 30/70 · Growth exponencial (no-Mag7) + Estables · Lista maestra de oportunidades · Tesis AI por sector · Proyecciones 1/3/5 años · Google Search en tiempo real.": "30/70 strategy · exponential growth (non-Mag7) + stables · master opportunity list · AI thesis by sector · 1/3/5-year projections · real-time Google Search.",
+    "Una categoría quedó por debajo del 70% de cobertura, así que no se puede evaluar de verdad. Techo: especulativa. No es que la empresa esté mal — es que falta información.": "One category came in below 70% coverage, so it cannot really be evaluated. Ceiling: speculative. It is not that the company is bad — it is that information is missing.",
+    "Esta cuenta NO se está respaldando: falta VERTEX_GIT_TOKEN. Si el servidor se reinicia o se duerme, tendrás que volver a registrarte — y el email quedará libre otra vez.": "This account is NOT being backed up: VERTEX_GIT_TOKEN is missing. If the server restarts or goes to sleep you will have to register again — and the email will be free once more.",
+    "Lo que gana sobre el capital invertido (ROIC) es menor que lo que ese capital le cuesta (WACC). Cada dólar reinvertido vale menos. No puede calificar como calidad élite.": "What it earns on invested capital (ROIC) is less than what that capital costs it (WACC). Every reinvested dollar is worth less. It cannot qualify as elite quality.",
+    "Aún no hay reportes con ≥90d de maduración para puntuar la calibración. La curva se dibuja sola conforme tus reportes cumplan el horizonte (se alimenta hacia adelante).": "There are no reports with ≥90d of maturity yet to score calibration. The curve draws itself as your reports reach their horizon (it feeds forward).",
+    "Un 62/100 sostenido por dos categorías de seis se ve igual que uno sostenido por las seis. Las dos series que se acumulan —IV y flows— empiezan vacías y crecen solas:": "A 62/100 held up by two categories out of six looks the same as one held up by all six. The two series that accumulate —IV and flows— start empty and grow on their own:",
+    "Un dato material (acciones, deuda, caja o precio) difiere entre EDGAR y FMP. El valor por acción se suprime hasta resolverlo — mejor sin número que con uno dudoso.": "A material figure (shares, debt, cash or price) differs between EDGAR and FMP. The per-share value is suppressed until it is resolved — better no number than a doubtful one.",
+    "Delta · Gamma · Theta · Vega netos del libro · Escalera de vencimientos · Exposición direccional total (opciones + acciones) · Black-Scholes con IV de yfinance.": "Net delta · gamma · theta · vega of the book · expiration ladder · total directional exposure (options + shares) · Black-Scholes with yfinance IV.",
+    "Si el motivo es la fuente en TODOS, no es el mercado: mira el ejemplo — dice si es la credencial (401), el plan (403), el límite de tasa (429) o los filtros.": "If the reason is the source in ALL of them, it is not the market: look at the example — it says whether it is the credential (401), the plan (403), the rate limit (429) or the filters.",
+    "Seis sub-agentes sobre la cadena de Massive y la cinta de MarketSnack: agresión, convicción, inusualidad, estructura, contexto IV y confirmación de precio.": "Six sub-agents over the Massive chain and the MarketSnack tape: aggression, conviction, unusualness, structure, IV context and price confirmation.",
+    "Elige un ticker arriba (o búscalo) y el agente armará el sentiment score, el flujo inusual, los muros de strikes y el detalle completo de cada sub-agente.": "Pick a ticker above (or search for one) and the agent will build the sentiment score, the unusual flow, the strike walls and the full breakdown of every sub-agent.",
+    "Carga tus posiciones a mano cuando no quieras conectar un broker. Escribe el mismo snapshot que usa Plaid, así que el dashboard de análisis corre igual.": "Load your positions by hand when you do not want to connect a broker. It writes the same snapshot Plaid uses, so the analysis dashboard runs just the same.",
+    "Tu email es lo único tuyo que el sistema necesita además del perfil. No se envía a ninguna fuente de datos: Massive y MarketSnack solo reciben símbolos.": "Your email is the only personal detail the system needs besides the profile. It is never sent to a data source: Massive and MarketSnack only ever receive symbols.",
+    "US$/acción · histórico en sólido, escenarios proyectados en punteado dentro del cono de 1σ/2σ · Fuente: Massive (cadena + barras) + MarketSnack (cinta)": "US$/share · history solid, projected scenarios dashed inside the 1σ/2σ cone · source: Massive (chain + bars) + MarketSnack (tape)",
+    "La contribución de riesgo suma 100%. Una posición con peso bajo pero contribución alta es un riesgo desproporcionado (vol alta o muy correlacionada).": "Risk contribution sums to 100%. A position with a low weight but a high contribution is a disproportionate risk (high vol or heavily correlated).",
+    "Lo que no contestes usa la respuesta de Kevin — el perfil de referencia. Funciona, pero recomienda con SU capital y SU tolerancia, no con los tuyos.": "Whatever you leave unanswered uses Kevin's answer — the reference profile. It works, but it recommends with HIS capital and HIS tolerance, not yours.",
+    "= tamaño de la orden + momento del día + cuántas veces se repite el contrato (máximo 30; pasa el cursor sobre el número para ver el desglose). Las": "= order size + time of day + how many times the contract repeats (maximum 30; hover the number to see the breakdown). The",
+    "los números; no los calcula. El score, los gates y los niveles salen de la matemática del Cerebro y no cambian por lo que diga este texto.": "the numbers; it does not compute them. The score, the gates and the levels come from the Brain's maths and do not change because of what this text says.",
+    "Flujo inusual de TODO el mercado, ya filtrado por lo que se puede operar: theta sano, no vencido, inusualidad ≥5/30 y strike dentro del ±": "Unusual flow from the WHOLE market, already filtered down to what is tradable: healthy theta, not expired, unusualness ≥5/30 and strike within ±",
+    "Clasifica el entorno de mercado (VIX, SPY vs medias 50/200, amplitud RSP, tasas TLT). El track record agrupa los resultados por régimen.": "Classifies the market environment (VIX, SPY vs 50/200 averages, RSP breadth, TLT rates). The track record groups results by regime.",
+    "El analisis de Victor (6 especialistas, gates, targets y niveles) esta completo y es valido. Lo unico que falta es la narrativa del LLM.": "Victor's analysis (6 specialists, gates, targets and levels) is complete and valid. The only thing missing is the LLM's narrative.",
+    "Los sub-agentes 1 a 4 puntúan sobre el dato de HOY: si la fuente responde, tienen cobertura completa. Los que necesitan historia son el": "Sub-agents 1 to 4 score on TODAY's data: if the source responds, they have full coverage. The ones that need history are",
+    "Volatilidad anualizada · Value-at-Risk · Beta de mercado · Exposición por factor · Concentración · Contribución de riesgo por posición.": "Annualised volatility · value-at-risk · market beta · exposure by factor · concentration · risk contribution by position.",
+    "US$/acción · histórico sólido · proyección punteada dentro del cono 1σ/2σ · simulación ilustrativa, no exacta — motor de Víctor (Tito)": "US$/share · solid history · dashed projection inside the 1σ/2σ cone · illustrative simulation, not exact — Victor's engine (Tito)",
+    "VAL-SCEN-036: suma de probabilidad x valor de los tres escenarios. El Cerebro exige mostrarlo junto a cada escenario, no solo el base.": "VAL-SCEN-036: sum of probability × value across the three scenarios. The Brain requires showing it next to every scenario, not just the base one.",
+    "el rendimiento anualizado por encima del 60%: un screener que ordena por prima pone arriba justo las acciones a punto de desplomarse.": "annualised yield above 60%: a screener sorted by premium puts exactly the stocks about to collapse at the top.",
+    "Frontera eficiente por Monte Carlo: la cartera de máximo Sharpe y mínima volatilidad dado tu universo, con sugerencia de rebalanceo.": "Efficient frontier by Monte Carlo: the maximum-Sharpe and minimum-volatility portfolio given your universe, with a rebalance suggestion.",
+    "en ese horizonte. Es lo que de verdad mide tu edge (un BUY que sube +3% mientras SPY sube +9% acierta dirección pero pierde alpha).": "over that horizon. That is what really measures your edge (a BUY that rises +3% while SPY rises +9% gets the direction right but loses alpha).",
+    "(flujo pasado con precio del subyacente, para medir qué hizo el precio después). Nada de esto se puede comprar hecho: se acumula.": "(past flow with the underlying's price, to measure what price did afterwards). None of this can be bought ready-made: it accumulates.",
+    "El costo base es opcional, pero sin él la regla de stop-loss de Guardrails queda inactiva. Contratos negativos = posición corta.": "Cost basis is optional, but without it the Guardrails stop-loss rule stays inactive. Negative contracts = short position.",
+    "(crecimiento/estable) y al tope por posición. ▲ = crecimiento · ⬢ = estable. Cruza con la pestaña Guardrails antes de ejecutar.": "(growth/stable) and to the per-position cap. ▲ = growth · ⬢ = stable. Cross-check with the Guardrails tab before executing.",
+    "Cada análisis que hace cualquiera mejora al agente para todos. Tus reportes, en cambio, son tuyos: nadie más ve qué analizaste.": "Every analysis anyone runs makes the agent better for everyone. Your reports, though, are yours: nobody else sees what you analysed.",
+    "Precio = último trade / cierre (Massive no expone bid en este plan). Open Premium = OI × precio · Notional = OI × 100 × strike.": "Price = last trade / close (Massive does not expose the bid on this plan). Open premium = OI × price · notional = OI × 100 × strike.",
+    "Vuelve a escanear el mismo preset. Las cotizaciones cambian: un candidato de hace veinte minutos puede haber dejado de serlo.": "Re-scan the same preset. Quotes change: a candidate from twenty minutes ago may no longer be one.",
+    "Replay de crisis históricas · Monte Carlo · Expected Shortfall (CVaR) · Métricas ajustadas por riesgo · Shocks hipotéticos.": "Historical crisis replay · Monte Carlo · expected shortfall (CVaR) · risk-adjusted metrics · hypothetical shocks.",
+    "«Te cabe» compara el colateral con el capital de tu perfil — lo que no cabe no se esconde, se baja. Research, no una orden.": "\"Fits you\" compares the collateral with your profile's capital — what does not fit is not hidden, it is lowered. Research, not an order.",
+    "(60 días de IV para el rank real; mientras tanto usa el proxy de volatilidad realizada, que no es peor, es otra cosa) y el": "(60 days of IV for the real rank; meanwhile it uses the realised-volatility proxy, which is not worse, it is a different thing) and the",
+    "La prima que cobrarías ES el bid: sin horquilla no se puede saber, y tampoco se puede despejar la IV para medir el delta.": "The premium you would collect IS the bid: without a spread it cannot be known, and IV cannot be solved for to measure delta either.",
+    "Valuación ≤4/10 Y técnico ≤8/20 a la vez: el precio no lo justifica ni el valor ni la estructura de precio. Fuerza AVOID.": "Valuation ≤4/10 AND technicals ≤8/20 at the same time: neither value nor price structure justifies the price. Forces AVOID.",
+    "Análisis psicológico y conductual del sentimiento colectivo — xAI Grok con acceso en tiempo real a X/Twitter y la web.": "Psychological and behavioural analysis of collective sentiment — xAI Grok with real-time access to X/Twitter and the web.",
+    "Audita tu book contra tus reglas: concentración, mandato 30/70, stop-loss y correlación. Te alerta cuando las violas.": "Audits your book against your rules: concentration, 30/70 mandate, stop-loss and correlation. It alerts you when you break them.",
+    "que usa la Wheel: capital, tolerancia y quema de theta hasta tu horizonte. Esto sigue siendo un screener de research.": "that the Wheel uses: capital, tolerance and theta burn out to your horizon. This is still a research screener.",
+    "Victor (targets.py): EPS × (1+crecimiento) × (P/E actual × factor) · horizonte único 12M · Fair Value = target Base": "Victor (targets.py): EPS × (1+growth) × (current P/E × factor) · single 12M horizon · fair value = base target",
+    "con crédito disponible. El score determinista de Victor (Full Research) no depende de esto y se muestra siempre.": "with credit available. Victor's deterministic score (Full Research) does not depend on this and is always shown.",
+    "Escanea los subyacentes que marcaste en Proyecciones cada 3 min · earnings, flujo Tipo A, precio pegado a muros": "Scans the underlyings you flagged in Projections every 3 min · earnings, Type A flow, price pinned to walls",
+    "Usas el perfil de referencia tal cual. No hay nada que contestar y el sistema funciona desde el primer minuto.": "You use the reference profile as is. There is nothing to answer and the system works from the first minute.",
+    "Los números del análisis no dependen de esto: la matemática ya está hecha y congelada. Esto solo la explica.": "The analysis numbers do not depend on this: the maths is already done and frozen. This only explains it.",
+    "Ej.: VaR 95% = con 95% de confianza, no perderás más de ese monto en un solo día bajo condiciones normales.": "E.g. VaR 95% = with 95% confidence you will not lose more than that amount in a single day under normal conditions.",
+    "Cuánto gana/pierde el libro completo por cada $1 de movimiento del subyacente (acciones tienen delta = 1).": "How much the whole book gains/loses per $1 move in the underlying (shares have delta = 1).",
+    "Contestas el cuestionario y los tres agentes recomiendan con tu capital, tu tolerancia y tu horizonte.": "You answer the questionnaire and all three agents recommend using your capital, your tolerance and your horizon.",
+    "ATR). Es donde el riesgo se define mejor: perder el nivel invalida la lectura alcista de corto plazo.": "ATR). This is where risk is best defined: losing the level invalidates the short-term bullish read.",
+    "Gamma neto del dealer por strike (call − put). Verde = el dealer estabiliza ahí; rojo = amplifica. El": "Net dealer gamma per strike (call − put). Green = the dealer stabilises there; red = it amplifies. The",
+    "Tasa de acierto histórica de las tesis del agente, medida contra el precio real a 30 / 90 / 180 días.": "Historical hit rate of the agent's theses, measured against the real price at 30 / 90 / 180 days.",
+    "Qué le pasaría a tu portafolio actual si estos episodios se repitieran hoy, con tus pesos exactos.": "What would happen to your current portfolio if these episodes repeated today, with your exact weights.",
+    "Corriendo stress test, Monte Carlo y replay de crisis sobre tu book… (puede tardar unos segundos)": "Running stress test, Monte Carlo and crisis replay on your book… (this can take a few seconds)",
+    "Es el nivel al que tira la concentración de gamma; el escenario base de los targets se ancla ahí.": "It is the level the gamma concentration pulls toward; the targets' base scenario anchors there.",
+    "Valuación por acción suprimida (Override 7: conflicto no resuelto de acciones/deuda/caja/precio).": "Per-share valuation suppressed (Override 7: unresolved conflict in shares/debt/cash/price).",
+    "«Te cabe» es el TECHO de contratos que tu perfil aguanta — no una orden de compra. Sale del mismo": "\"Fits you\" is the CEILING of contracts your profile can take — not a buy order. It comes from the same",
+    "ATR). Aquí es donde la subida se frena o se confirma: sin ruptura sostenida, es zona de rechazo.": "ATR). This is where the rally stalls or confirms: without a sustained break, it is a rejection zone.",
+    "Dinero grande detectado cada día. Verde = apuestas a que sube (calls), rojo = a que baja (puts).": "Big money detected each day. Green = bets it goes up (calls), red = bets it goes down (puts).",
+    "No se reintentan solos. Desmarca y vuelve a marcar ⭐ para reencolarlos con el contrato completo.": "They do not retry on their own. Unstar and re-star ⭐ to requeue them with the full contract.",
+    "Tu capital, tu tolerancia y tus palabras. Los tres agentes leen esto antes de recomendarte nada.": "Your capital, your tolerance and your own words. All three agents read this before recommending anything.",
+    "El CVaR mide cuánto pierdes EN PROMEDIO cuando el VaR se rompe — la severidad real de la cola.": "CVaR measures how much you lose ON AVERAGE when VaR breaks — the tail's real severity.",
+    "Simula añadir o recortar una posición y mira cómo cambia tu riesgo ANTES de ejecutar el trade.": "Simulate adding or trimming a position and see how your risk changes BEFORE you place the trade.",
+    "Conecta tu broker a través de Plaid para ver análisis en tiempo real de tu portafolio con AI.": "Connect your broker through Plaid to see real-time AI analysis of your portfolio.",
+    "ATR de la resistencia. Tierra de nadie: los bordes son las referencias, no el precio actual.": "ATR from resistance. No man's land: the edges are the references, not the current price.",
+    "El techo de contratos sale de quemar theta hasta aquí. Con otro horizonte, el número cambia.": "The contract ceiling comes from burning theta up to here. With another horizon, the number changes.",
+    "Qué posiciones y sectores generaron (o restaron) tu retorno — contribución = peso × retorno.": "Which positions and sectors produced (or subtracted from) your return — contribution = weight × return.",
+    "Alto crecimiento — más agresiva (mayor valoración/riesgo, pero el crecimiento lo justifica)": "High growth — more aggressive (higher valuation/risk, but growth justifies it)",
+    "aún no hay reportes con 90 días cumplidos: la calibración necesita tiempo, no solo volumen": "no reports have reached 90 days yet: calibration needs time, not just volume",
+    "Contribución = peso × retorno. La suma de contribuciones = retorno total del portafolio.": "Contribution = weight × return. The sum of contributions = the portfolio's total return.",
+    "Vista previa no disponible ahora mismo (fuentes de precio caidas). Igual puedes analizar": "Preview not available right now (price sources down). You can still analyse",
+    "El especialista de valuación de Victor no produjo un DCF publicable para este ticker.": "Victor's valuation specialist did not produce a publishable DCF for this ticker.",
+    "Suma de probabilidad x valor de los tres escenarios (VAL-SCEN-036). El base solo es $": "Sum of probability × value across the three scenarios (VAL-SCEN-036). The base alone is $",
+    "Gamma negativo: los movimientos se amplifican; mayor riesgo de tramos direccionales.": "Negative gamma: moves get amplified; higher risk of directional legs.",
+    "Sin acciones diluidas no hay valor por acción posible. El DCF por acción se suprime.": "Without diluted shares no per-share value is possible. The per-share DCF is suppressed.",
+    "Autorizar da a tu agente lectura de tus cuentas, posiciones e historial de órdenes.": "Authorising gives your agent read access to your accounts, positions and order history.",
+    "Generado por Vertex Fund OS · Solo para uso informativo. No es asesoría financiera.": "Generated by Vertex Fund OS · for information only. This is not financial advice.",
+    "La empresa necesita financiarse para operar. Techo: no puede pasar de especulativa.": "The company needs financing to operate. Ceiling: it cannot go above speculative.",
+    "No has iniciado sesión. Puedes ver el cuestionario, pero no guardar tus respuestas.": "You are not signed in. You can view the questionnaire, but not save your answers.",
+    "No se pudo contactar al servidor. Revisa que el backend este corriendo y accesible.": "Could not reach the server. Check that the backend is running and reachable.",
+    "¿Tu capital está donde tienes ventaja? Cruza tu libro con tu expectancy por ticker.": "Is your capital where your edge is? Cross your book with your expectancy per ticker.",
+    "El agente recuerda su análisis previo y explica su evolución en la tesis completa.": "The agent remembers its previous analysis and explains how it evolved in the full thesis.",
+    "A medida que tus análisis maduren, aquí verás la tasa de acierto real del agente.": "As your analyses mature, you will see the agent's real hit rate here.",
+    "Sale de tu cuenta, no de este navegador — el mismo que usan los seis sub-agentes.": "It comes from your account, not from this browser — the same one the six sub-agents use.",
+    "Zonas donde el precio suele frenar. La probabilidad es qué tan factible es que lo": "Zones where price tends to stall. The probability is how feasible it is that it",
+    "de Victor (pestaña Full Research — regla \"sin evidencia, no hay número\"). Aquí el": "of Victor's (Full Research tab — the \"no evidence, no number\" rule). Here the",
+    "La barra de dinero sigue siendo real; lo que falta es la línea de precio encima.": "The money bar is still real; what is missing is the price line on top.",
+    "Escribe un símbolo arriba (o usa los botones rápidos) para ver su Time & Sales.": "Type a symbol above (or use the quick buttons) to see its Time & Sales.",
+    "Probabilidad de que el precio LLEGUE a este nivel en 20 días, con la IV del GEX": "Probability that price REACHES this level within 20 days, using the GEX IV",
+    "= γ− amplifica (lo acelera). Pasa el cursor por una celda para ver el detalle.": "= γ− amplifies (speeds it up). Hover a cell to see the detail.",
+    "Distribución de resultados posibles remuestreando tus retornos diarios reales.": "Distribution of possible outcomes by resampling your real daily returns.",
+    "[vertex] Chart.js no cargó: las gráficas no se dibujan, el resto del panel sí.": "[vertex] Chart.js did not load: the charts are not drawn, the rest of the panel is.",
+    "horquilla ancha — La horquilla es demasiado ancha: perderías dinero al entrar.": "wide spread — the spread is too wide: you would lose money just getting in.",
+    "Aún no hay reportes con suficiente antigüedad (30+ días) para medir aciertos.": "There are no reports old enough (30+ days) yet to measure hit rates.",
+    "Gamma positivo: el precio tiende a anclarse / mean-revertir dentro del rango.": "Positive gamma: price tends to anchor / mean-revert inside the range.",
+    "Sin resistencia confirmada por encima. La referencia más cercana es soporte:": "No confirmed resistance above. The nearest reference is support:",
+    "Sin soporte confirmado por debajo. La referencia más cercana es resistencia:": "No confirmed support below. The nearest reference is resistance:",
+    "Conecta tu cuenta de inversiones via Plaid para ver análisis en tiempo real": "Connect your investment account via Plaid to see real-time analysis",
+    "Esta ruta no devuelve quién analizó qué. Solo cuánto hay y de cuánta gente.": "This route does not return who analysed what. Only how much there is and from how many people.",
+    "Son los contratos completos, tal cual entrarán en tu watchlist de opciones.": "These are the full contracts, exactly as they will enter your options watchlist.",
+    "poco open interest — Muy pocos contratos abiertos: no hay con quién operar.": "thin open interest — very few contracts open: there is nobody to trade with.",
+    "Calidad fundamental en vivo · toca un ticker para analizarlo con el agente": "Live fundamental quality · tap a ticker to analyse it with the agent",
+    "el código en gris es el identificador interno de cada regla, para auditar.": "the grey code is each rule's internal identifier, for auditing.",
+    "El perfil es tuyo entero. Los tres agentes recomiendan con estos números.": "The profile is entirely yours. All three agents recommend using these numbers.",
+    "Sin Plaid: el portafolio usa el snapshot guardado (/api/portfolio/import)": "Without Plaid: the portfolio uses the stored snapshot (/api/portfolio/import)",
+    "Backend no devolvió link_token. Verifica PLAID_CLIENT_ID y PLAID_SECRET.": "The backend returned no link_token. Check PLAID_CLIENT_ID and PLAID_SECRET.",
+    "con el de un ticker que tenga las seis. Lo que falta y cómo se enciende:": "with one from a ticker that has all six. What is missing and how to turn it on:",
+    "El agente de Riesgo puntuó 4 o menos sobre 15. Piso de riesgo activado.": "The Risk agent scored 4 or less out of 15. Risk floor triggered.",
+    "Gamma neto del dealer por strike (call − put), de la cadena de Massive": "Net dealer gamma per strike (call − put), from the Massive chain",
+    "La conexión se autoriza con OAuth dentro de Claude, no en esta página": "The connection is authorised with OAuth inside Claude, not on this page",
+    "La estructura de deuda pide vigilancia. Se marca de forma prominente.": "The debt structure calls for watching. It is flagged prominently.",
+    "Los escenarios no fueron computables, así que no hay valor ponderado.": "The scenarios were not computable, so there is no weighted value.",
+    "Mínimo 8 caracteres. Se guarda cifrada — ni el servidor puede leerla.": "Minimum 8 characters. Stored encrypted — not even the server can read it.",
+    "Son los subyacentes, no los contratos — es lo que este broker acepta.": "These are the underlyings, not the contracts — it is what this broker accepts.",
+    "Accediendo a X/Twitter, Reddit y la web. Puede tomar 20–40 segundos.": "Reaching X/Twitter, Reddit and the web. This can take 20–40 seconds.",
+    "Analizando con Grok AI — sentimiento, convicción y tesis... (20-60s)": "Analysing with Grok AI — sentiment, conviction and thesis… (20-60s)",
+    "(inusualidad /30 — tamaño, delta, theta, gamma, pata y vencimiento)": "(unusualness /30 — size, delta, theta, gamma, leg and expiry)",
+    "Las series y el track record agregados: es lo que mejora al agente.": "The aggregated series and track record: that is what improves the agent.",
+    "para este ticker. Vuelve en unos días para ver qué tan cerca quedó.": "for this ticker. Come back in a few days to see how close it landed.",
+    "⚠️ A este ritmo el contrato se consume entero dentro del horizonte.": "⚠️ At this rate the contract is fully consumed within the horizon.",
+    ". Asegúrate que el backend esté corriendo en http://localhost:8000": ". Make sure the backend is running at http://localhost:8000",
+    "Corriendo optimización media-varianza (Monte Carlo, ~8k carteras)…": "Running mean-variance optimisation (Monte Carlo, ~8k portfolios)…",
+    "Otros contratos del mismo subyacente se ejecutaron a la misma hora": "Other contracts on the same underlying traded at the same time",
+    "Sin datos suficientes para un fair value (p.ej. sin EPS positivo).": "Not enough data for a fair value (e.g. no positive EPS).",
+    "Target a 12 meses por múltiplo. No es el valor intrínseco del DCF.": "12-month target by multiple. This is not the DCF's intrinsic value.",
+    "sin bid — Nadie está poniendo precio de compra: no podrías vender.": "no bid — nobody is quoting a buy price: you could not sell.",
+    "Conecta Plaid con una cuenta que reporte opciones, o cárgalas en": "Connect Plaid with an account that reports options, or load them in",
+    "Todavía no hay soportes ni resistencias claros para este ticker.": "There are no clear supports or resistances for this ticker yet.",
+    "Encriptación bancaria · Read-only · No almacenamos credenciales": "Bank-grade encryption · read-only · we store no credentials",
+    "Ningún insider con transacciones que excedan $1M en el periodo.": "No insider with transactions exceeding $1M in the period.",
+    "Cada celda es el dinero de gamma en ese precio para esa fecha.": "Each cell is the gamma money at that price for that date.",
+    "El volumen de hoy supera el interés abierto: posiciones nuevas": "Today's volume exceeds open interest: new positions",
+    "Líneas dibujadas en cada strike sobre el precio del subyacente": "Lines drawn at each strike over the underlying's price",
+    "Marca una idea con ⭐ para guardarla con tu sizing del momento.": "Star an idea with ⭐ to save it with your sizing at that moment.",
+    "US$/acción · cierres diarios (sólido) + targets 12M (punteado)": "US$/share · daily closes (solid) + 12M targets (dashed)",
+    "El agente analizó esta acción considerando tu cartera actual.": "The agent analysed this stock taking your current portfolio into account.",
+    "Niveles institucionales de opciones (calculados de la cadena)": "Institutional options levels (computed from the chain)",
+    "Tu cartera actual ya está cerca de la frontera óptima (Sharpe": "Your current portfolio is already near the optimal frontier (Sharpe",
+    "Esta instancia está protegida. Introduce tu clave de acceso.": "This instance is protected. Enter your access key.",
+    "Score del trade — su TradesFeed lo tiñe: ≥80 rojo, ≥60 ámbar": "Trade score — his TradesFeed colours it: ≥80 red, ≥60 amber",
+    "Calculando riesgo cuantitativo sobre tus posiciones reales…": "Computing quantitative risk on your real positions…",
+    "Obteniendo precios en vivo · Ejecutando análisis Gemini CIO": "Fetching live prices · running Gemini CIO analysis",
+    "el vencimiento cercano cotiza mucho más caro: evento encima": "the near expiry trades much richer: an event is coming",
+    "Traduciendo los números a palabras, con tu perfil delante…": "Turning the numbers into words, with your profile in view…",
+    "Tus reportes. Nadie más ve qué analizaste ni qué te salió.": "Your reports. Nobody else sees what you analysed or what you got.",
+    "cuánto puede caer el precio antes de que empieces a perder": "how far price can fall before you start losing",
+    "el target asume que el múltiplo actual aguanta; el DCF no.": "the target assumes the current multiple holds; the DCF does not.",
+    "(cadena de Massive + gamma real del tape de MarketSnack).": "(Massive chain + real gamma from the MarketSnack tape).",
+    "Más de $100K con delta mayor a 0.60 (apuesta direccional)": "Over $100K with delta above 0.60 (directional bet)",
+    "probabilidad de que expire sin valor y te quedes la prima": "probability it expires worthless and you keep the premium",
+    "qué parte del premium del racimo va en una sola dirección": "how much of the cluster's premium goes one way",
+    "Escaneando 40 símbolos… (dos llamadas por ticker, tarda)": "Scanning 40 symbols… (two calls per ticker, this takes a while)",
+    "Último año · targets a 12 meses con supuestos declarados": "Last year · 12-month targets with stated assumptions",
+    "Calculando atribución de retorno por posición y sector…": "Computing return attribution by position and sector…",
+    "El puntaje se renormaliza sobre el peso activo, así que": "The score is renormalised over the active weight, so",
+    "Calibración · ¿tu convicción acierta a esa frecuencia?": "Calibration · does your conviction hit at that rate?",
+    "Monte Carlo (5,000 simulaciones · bootstrap histórico)": "Monte Carlo (5,000 simulations · historical bootstrap)",
+    "No se pudo contactar al servidor para la vista previa.": "Could not reach the server for the preview.",
+    "No se pudo hablar con el servidor. Revisa tu conexión.": "Could not talk to the server. Check your connection.",
+    "Cargando portafolio y analizando posiciones con AI...": "Loading portfolio and analysing positions with AI…",
+    "El horizonte se elige en el panel de targets, debajo.": "The horizon is chosen in the targets panel below.",
+    "Agresividad · Convicción · Inusualidad · Contexto IV": "Aggression · conviction · unusualness · IV context",
+    "El Cerebro pide al menos 3 riesgos; el juez devolvió": "The Brain requires at least 3 risks; the judge returned",
+    "El mismo contrato se operó varias veces en 5 minutos": "The same contract traded several times within 5 minutes",
+    "Los factores clave que mueven la accion ahora mismo.": "The key factors moving the stock right now.",
+    "efectivo que queda inmovilizado hasta el vencimiento": "cash locked up until expiry",
+    "👑 Contenido obligatorio — insiders, 13F y management": "👑 Mandatory content — insiders, 13F and management",
+    "Massive no devolvió velas para este marco temporal.": "Massive returned no candles for this timeframe.",
+    "Un flow se da por validado cuando el precio recorre": "A flow counts as validated when price travels",
+    "Valor intrínseco por acción del FCFF DCF de Victor.": "Intrinsic value per share from Victor's FCFF DCF.",
+    "Elige una cuenta específica o analiza todas juntas": "Pick a specific account or analyse them all together",
+    "Replay de Crisis Históricas (sobre tu book actual)": "Replay of historical crises (on your current book)",
+    "el precio y las opciones: que ya haya rebotado ahí": "price and options: that it has already bounced there",
+    "poder comparar la estructura con la de hace un mes": "being able to compare the structure with a month ago",
+    "5. Sentimiento vs Fundamentales (Últimos 3 Meses)": "5. Sentiment vs fundamentals (last 3 months)",
+    "6. Qué Vender y Por Qué — Reasignación de Capital": "6. What to sell and why — capital reallocation",
+    "Desglose por señal (promedios de cada sub-agente)": "Breakdown by signal (each sub-agent's averages)",
+    "Noticias extraidas directamente de Yahoo Finance.": "News pulled directly from Yahoo Finance.",
+    "anclada con la gamma real del tape de MarketSnack": "anchored to the real gamma from the MarketSnack tape",
+    "🔢 Cómo salen los números — aritmética del reporte": "🔢 How the numbers are produced — the report's arithmetic",
+    "que nada de lo anterior se pierda en un redeploy": "that none of the above is lost in a redeploy",
+    "📊 Wall Street vs Victor — contraste del consenso": "📊 Wall Street vs Victor — consensus contrast",
+    "* prima estimada del último precio, no del bid.": "* premium estimated from the last price, not the bid.",
+    "= era techo y ahora hace de suelo (o al revés).": "= it was a ceiling and now acts as a floor (or the other way round).",
+    "Evaluando reportes contra precios históricos...": "Evaluating reports against historical prices…",
+    "No se pudieron cargar las velas de precio (HTTP": "Price candles could not be loaded (HTTP",
+    "Cada trade se puntúa en 6 parámetros (columnas": "Each trade is scored on 6 parameters (columns",
+    "No disponibles: requieren el juez cualitativo.": "Not available: they require the qualitative judge.",
+    "Sin trades inusuales en la ventana de 30 días.": "No unusual trades in the 30-day window.",
+    "Cadena ilíquida: la lectura de gamma se marca": "Illiquid chain: the gamma reading is flagged",
+    "Gamma de dealer negativo → los movimientos se": "Negative dealer gamma → moves get",
+    "Gamma de dealer positivo → el precio tiende a": "Positive dealer gamma → price tends to",
+    "La contraseña necesita al menos 8 caracteres.": "The password needs at least 8 characters.",
+    "No se pudo resolver el contrato en el broker.": "The contract could not be resolved at the broker.",
+    "Régimen de gamma del dealer — motor de Víctor": "Dealer gamma regime — Victor's engine",
+    "predicciones guardadas del agente (wbj track)": "the agent's stored predictions (wbj track)",
+    "γ− (tendencia: conviene seguir el movimiento)": "γ− (trending: better to follow the move)",
+    "⚠ Este servidor no está guardando las cuentas": "⚠ This server is not saving accounts",
+    "🏦 Consenso de Wall Street vs el DCF de Victor": "🏦 Wall Street consensus vs Victor's DCF",
+    "Contexto IV (sub-agente 5) — el IV Rank REAL": "IV context (sub-agent 5) — the REAL IV rank",
+    "aún no hay historial guardado de este ticker": "there is no stored history for this ticker yet",
+    ": escanea el mercado entero y no pide nada.": ": it scans the whole market and asks for nothing.",
+    "Curva de Equity (siguiendo cada call a 90d)": "Equity curve (following each call to 90d)",
+    "Resistencias — techos por encima del precio": "Resistances — ceilings above the price",
+    "Sin key · identifícate con EDGAR_USER_AGENT": "No key · identify yourself with EDGAR_USER_AGENT",
+    "No se pudieron cargar las velas de precio:": "Price candles could not be loaded:",
+    "Precios clave — ¿hasta dónde puede llegar?": "Key prices — how far can it go?",
+    "el motor no pudo dimensionar este contrato": "the engine could not size this contract",
+    "🧠 Tablero con judge (paralelo, no oficial)": "🧠 Board with judge (parallel, unofficial)",
+    "Análisis WBJ — Warren Buffett Jr (Victor)": "WBJ analysis — Warren Buffett Jr (Victor)",
+    "La cinta de MarketSnack no está sirviendo": "The MarketSnack tape is not serving",
+    "La pregunta que el scorecard no contesta:": "The question the scorecard does not answer:",
+    "No se pudo leer el estado de los agentes.": "Could not read the agents' status.",
+    "Recalculando tu riesgo antes vs. después…": "Recomputing your risk before vs after…",
+    "Value-at-Risk (pérdida potencial · 1 día)": "Value-at-risk (potential loss · 1 day)",
+    "☠️ Thesis killers — qué rompería la tesis": "☠️ Thesis killers — what would break the thesis",
+    "Analisis completo de los 6 especialistas": "Full analysis from the 6 specialists",
+    "Análisis Psicológico Completo — xAI Grok": "Full psychological analysis — xAI Grok",
+    "De todo el dinero notable en opciones de": "Of all the notable options money in",
+    "Impacto en tu Riesgo · Antes vs. Después": "Impact on your risk · before vs after",
+    "Las predicciones son estimaciones de IA,": "Predictions are AI estimates,",
+    "Se superaron todos los gates aplicables.": "All applicable gates were passed.",
+    "🧠 Sentiment AI — Psicología del Inversor": "🧠 Sentiment AI — investor psychology",
+    "El servidor no pudo guardar la conexión": "The server could not save the connection",
+    "Escaneando el flujo de todo el mercado…": "Scanning the flow of the whole market…",
+    "Exposición por Factor (beta univariada)": "Exposure by factor (univariate beta)",
+    "Futuro de la acción vs futuro del mundo": "The stock's future vs the world's future",
+    "Mientras el precio se mantenga entre el": "As long as price stays between the",
+    "Shocks Hipotéticos (vía beta de factor)": "Hypothetical shocks (via factor beta)",
+    "Sin historial de precio disponible para": "No price history available for",
+    "Soportes — suelos por debajo del precio": "Supports — floors below the price",
+    "con antigüedad suficiente para evaluar.": "old enough to be evaluated.",
+    "niveles, escenarios y el backtest del 6": "levels, scenarios and sub-agent 6's backtest",
+    "son trades con puntaje inusual (≥7/30).": "are trades with an unusual score (≥7/30).",
+    "📏 Niveles de precio — dónde está parado": "📏 Price levels — where it stands",
+    "= γ+ estabiliza (frena el movimiento),": "= γ+ stabilises (dampens the move),",
+    "Condición OPRA de estrategia combinada": "OPRA condition for a combined strategy",
+    "Datos insuficientes en un área crítica": "Insufficient data in a critical area",
+    "Exposición Direccional Total del Libro": "Total directional exposure of the book",
+    "GEX Heatmap — por strike y vencimiento": "GEX heatmap — by strike and expiry",
+    "Guardado. Los tres agentes ya lo leen.": "Saved. All three agents now read it.",
+    "y empiezas a vender calls sobre ellas.": "and you start selling calls against them.",
+    "Broker donde sincronizar el watchlist": "Broker to sync the watchlist with",
+    "Confirmación de precio (sub-agente 6)": "Price confirmation (sub-agent 6)",
+    "Correlación promedio entre posiciones": "Average correlation between positions",
+    "Explicacion en palabras no disponible": "Plain-words explanation not available",
+    "Generando ideas con búsqueda en vivo…": "Generating ideas with live search…",
+    "Puntajes de los 6 agentes (con judge)": "Scores of the 6 agents (with judge)",
+    "Sugerencia de Rebalanceo → Máx Sharpe": "Rebalance suggestion → max Sharpe",
+    "¿Dónde se acumula el posicionamiento?": "Where is positioning building up?",
+    "Auditando tu book contra tus reglas…": "Auditing your book against your rules…",
+    "DCF (valor intrínseco, FCFF base): $": "DCF (intrinsic value, FCFF base): $",
+    "Muros de gamma y niveles de opciones": "Gamma walls and options levels",
+    "No altera los 100 pts del scorecard.": "It does not alter the scorecard's 100 pts.",
+    "No hay ideas nuevas en este momento.": "There are no new ideas right now.",
+    "Régimen de Mercado & pesos dinámicos": "Market regime & dynamic weights",
+    "Sin resultados de screens por ahora.": "No screen results for now.",
+    "Sin roster de ejecutivos disponible.": "No executive roster available.",
+    "Teclea un ticker (ej. NVDA) y Enter…": "Type a ticker (e.g. NVDA) and press Enter…",
+    "qué tan agresivas fueron las órdenes": "how aggressive the orders were",
+    "ventana corta: la ancha no respondió": "short window: the wide one did not respond",
+    "¿Strike/DTE de convicción o lotería?": "Conviction strike/DTE or lottery ticket?",
+    "⚠ Concentra tu factor ya dominante (": "⚠ It concentrates your already dominant factor (",
+    "🔄 Actualizar Análisis de Sentimiento": "🔄 Refresh sentiment analysis",
+    "Contribución de Riesgo por Posición": "Risk contribution by position",
+    "Entra a tu cuenta de Vertex Fund OS": "Sign in to your Vertex Fund OS account",
+    "Riesgo de Factores (estilo Aladdin)": "Factor risk (Aladdin style)",
+    "Tu perfil, tu archivo y tus agentes": "Your profile, your archive and your agents",
+    "Un año, agregado por día de mercado": "One year, aggregated by market day",
+    "decaimiento diario en % de la prima": "daily decay as % of premium",
+    "la evidencia detrás de cada puntaje": "the evidence behind each score",
+    "los mejores de lo que se pudo mirar": "the best of what could be looked at",
+    "y el mínimo para pasar este gate es": "and the minimum to pass this gate is",
+    "Gamma del dealer · motor de Víctor": "Dealer gamma · Victor's engine",
+    "No se pudieron cargar los screens.": "Screens could not be loaded.",
+    "No se pudo calcular la atribución.": "Could not compute attribution.",
+    "¿Sin un símbolo en mente? Entra en": "No symbol in mind? Go to",
+    "Descargando la cadena de opciones": "Downloading the options chain",
+    "ES 95% (pérdida media en la cola)": "ES 95% (average loss in the tail)",
+    "El mínimo para pasar este gate es": "The minimum to pass this gate is",
+    "Escribe tu email y tu contraseña.": "Enter your email and your password.",
+    "Expected Shortfall (CVaR · 1 día)": "Expected shortfall (CVaR · 1 day)",
+    "GEX neto ($ por 1% de movimiento)": "Net GEX ($ per 1% move)",
+    "Ningún proveedor de IA respondió.": "No AI provider responded.",
+    "No se pudo contactar al servidor.": "Could not reach the server.",
+    "No se pudo correr el stress test.": "Could not run the stress test.",
+    "R acumulado (múltiplos de riesgo)": "Cumulative R (risk multiples)",
+    "Targets Proyectados por Horizonte": "Projected targets by horizon",
+    "Te frenó el capital, no el theta.": "Capital stopped you, not theta.",
+    "Te frenó el theta, no el capital.": "Theta stopped you, not capital.",
+    "Un contrato son 100 acciones y el": "One contract is 100 shares and the",
+    "la confianza del análisis técnico": "the confidence of the technical analysis",
+    "Conecta tu cuenta de inversiones": "Connect your investment account",
+    "Desglose · hit-rate y expectancy": "Breakdown · hit rate and expectancy",
+    "Entran solos en el próximo pase.": "They come in on their own next pass.",
+    "Error cargando análisis profundo": "Error loading deep analysis",
+    "Qué dicen los números, sin jerga": "What the numbers say, without jargon",
+    "Riesgos de crecimiento y mercado": "Growth and market risks",
+    "Sin actividad inusual destacada.": "No notable unusual activity.",
+    "Te frenó el capital, no el theta": "Capital stopped you, not theta",
+    "Te frenó el theta, no el capital": "Theta stopped you, not capital",
+    "hora a la que se ejecutó el flow": "time at which the flow was executed",
+    "minutos en hora del mercado (ET)": "minutes in market time (ET)",
+    "⚠ Error al conectar con xAI Grok": "⚠ Error connecting to xAI Grok",
+    "Calculando escenarios y niveles": "Computing scenarios and levels",
+    "Factor dominante del candidato:": "Candidate's dominant factor:",
+    "Juicio AI — scorecard con judge": "AI judgement — scorecard with judge",
+    "Las cotizaciones de Massive son": "Massive quotes are",
+    "Selecciona la Cuenta a Analizar": "Select the account to analyse",
+    "Sin ideas operables ahora mismo": "No tradable ideas right now",
+    "Sin posiciones 13F disponibles.": "No 13F positions available.",
+    "el colateral cabe en tu capital": "the collateral fits your capital",
+    "¿con qué dato salió ese número?": "which data produced that number?",
+    "El servidor rechazó el perfil.": "The server rejected the profile.",
+    "Inteligencia de Opciones (GEX)": "Options intelligence (GEX)",
+    "No se pudo calcular el riesgo.": "Could not compute risk.",
+    "No se pudo escanear el mercado": "Could not scan the market",
+    "Snapshot borrado del servidor.": "Snapshot deleted from the server.",
+    "⚠ NO se está respaldando nada.": "⚠ Nothing is being backed up.",
+    "Actividad Inusual de Opciones": "Unusual options activity",
+    "Cargando análisis profundo...": "Loading deep analysis…",
+    "El respaldo está configurado.": "The backup is configured.",
+    "El tamaño se calcula sobre el": "Size is computed on the",
+    "Flujo notable sobre el precio": "Notable flow over price",
+    "Griegas del Libro de Opciones": "Options book greeks",
+    "Haz clic en una fila para ver": "Click a row to see",
+    "Motor de Riesgo de Portafolio": "Portfolio risk engine",
+    "No hay reporte para exportar.": "There is no report to export.",
+    "No se pudieron generar ideas.": "Ideas could not be generated.",
+    "Qué pasó después de cada flow": "What happened after each flow",
+    "[vertex] cuenta sin respaldo:": "[vertex] account without backup:",
+    "la calibración de los targets": "the calibration of the targets",
+    "no corrió para este análisis.": "did not run for this analysis.",
+    "Cobertura de los sub-agentes": "Sub-agent coverage",
+    "Datos no fiables — no operar": "Unreliable data — do not trade",
+    "Estado Emocional del Mercado": "Emotional state of the market",
+    "Historial de Tesis Evaluadas": "History of evaluated theses",
+    "Leyendo el flujo de opciones": "Reading the options flow",
+    "No se pudo cargar el perfil:": "Could not load the profile:",
+    "No se pudo leer el snapshot:": "Could not read the snapshot:",
+    "Pendiente de sincronizar con": "Pending sync with",
+    "Posiciones nuevas abriéndose": "New positions opening",
+    "Sin datos guardados todavía.": "No data stored yet.",
+    "Vencimiento largo (90+ días)": "Long expiry (90+ days)",
+    "análisis completo del agente": "the agent's full analysis",
+    "macro · tasa libre de riesgo": "macro · risk-free rate",
+    "por tener el strike a más de": "for having the strike more than",
+    "por vencer demasiado pronto,": "for expiring too soon,",
+    "¿El precio valida o absorbe?": "Does price validate or absorb?",
+    "¿Es flujo anormal? (griegos)": "Is this abnormal flow? (greeks)",
+    "Cuánto está creciendo (hoy)": "How fast it is growing (today)",
+    "Cuánto se espera que crezca": "How fast it is expected to grow",
+    "Depende de levantar capital": "Depends on raising capital",
+    "Ese email no parece válido.": "That email does not look valid.",
+    "Falta el conteo de acciones": "Share count missing",
+    "Librería PDF no disponible.": "PDF library not available.",
+    "Lo que aprenden los agentes": "What the agents are learning",
+    "No se pudieron sincronizar:": "Could not be synced:",
+    "Premium en calls (últ. día)": "Call premium (last day)",
+    "Todos los niveles de precio": "All price levels",
+    "Ver gráfica de Proyecciones": "See Projections chart",
+    "los 4 sub-agentes del flujo": "the 4 flow sub-agents",
+    "¿Compran al ask con fuerza?": "Are they buying hard at the ask?",
+    "Análisis AI del Portafolio": "AI portfolio analysis",
+    "Cara y sin soporte técnico": "Expensive and technically unsupported",
+    "Escenarios de Precio (GEX)": "Price scenarios (GEX)",
+    "No se detectaron opciones.": "No options detected.",
+    "No se pudo bajar la cinta.": "Could not pull the tape.",
+    "No se pudo leer el perfil.": "Could not read the profile.",
+    "Premium en puts (últ. día)": "Put premium (last day)",
+    "Qué significa esto para ti": "What this means for you",
+    "Valor Total del Portafolio": "Total portfolio value",
+    "acumulación hacia adelante": "forward accumulation",
+    "de los umbrales de Victor.": "of Victor's thresholds.",
+    "domina calls o puts (≥60%)": "calls or puts dominate (≥60%)",
+    "el decaimiento te favorece": "decay works in your favour",
+    "no tienes ni has analizado": "you neither hold nor have analysed",
+    "por no ser flujo inusual y": "for not being unusual flow and",
+    "¿Cuánto dinero real entró?": "How much real money came in?",
+    "Alpha = % de llamadas que": "Alpha = % of calls that",
+    "Conectando con el mercado": "Connecting to the market",
+    "Contribución por Posición": "Contribution by position",
+    "Las fuentes no concuerdan": "The sources disagree",
+    "No hay nada que importar.": "There is nothing to import.",
+    "Opcional · sin configurar": "Optional · not configured",
+    "Por qué seguirá creciendo": "Why it will keep growing",
+    "Posición en tu Portafolio": "Position in your portfolio",
+    "Precio histórico (sólido)": "Historical price (solid)",
+    "Puntajes de los 6 agentes": "Scores of the 6 agents",
+    "Resistencia — hasta 3 ATR": "Resistance — up to 3 ATR",
+    "Sin bid/ask no hay Wheel.": "Without bid/ask there is no Wheel.",
+    "Trade de más de $1 millón": "Trade over $1 million",
+    "por nocional de la cadena": "by chain notional",
+    "por theta alto (lotería),": "by high theta (lottery),",
+    "y se libera tu colateral.": "and your collateral is released.",
+    "⚖️ Por qué este veredicto": "⚖️ Why this verdict",
+    "/100 puntos de evidencia": "/100 points of evidence",
+    "Capital máximo por trade": "Maximum capital per trade",
+    "Escalera de Vencimientos": "Expiration ladder",
+    "La cinta es de un ticker": "The tape is for one ticker",
+    "No se pudo diagnosticar:": "Could not diagnose:",
+    "Noticias no disponibles.": "News not available.",
+    "Qué significa el puntaje": "What the score means",
+    "Ratio de diversificación": "Diversification ratio",
+    "Restringido a tu mandato": "Restricted to your mandate",
+    "Top 5 por Notional Value": "Top 5 by notional value",
+    "Un nivel vale más cuando": "A level counts for more when",
+    "es donde cambia de lado.": "is where it flips sides.",
+    "no es consejo financiero": "not financial advice",
+    "Atribución de Desempeño": "Performance attribution",
+    "Aún no hay predicciones": "No predictions yet",
+    "Cierre confirmado sobre": "Confirmed close above",
+    "Contribución al retorno": "Contribution to return",
+    "Error de red o backend:": "Network or backend error:",
+    "Guardrails — Tus Reglas": "Guardrails — your rules",
+    "HHI (índice Herfindahl)": "HHI (Herfindahl index)",
+    "Máxima quema de theta (": "Maximum theta burn (",
+    "QD se reprueba cada 90s": "QD is re-tested every 90s",
+    "Track Record del Agente": "Agent track record",
+    "Una posición por línea.": "One position per line.",
+    "contra el determinista.": "against the deterministic one.",
+    "de su rango operativo (": "of its operating range (",
+    "los mejores del mercado": "the best in the market",
+    "velocidad, no exactitud": "speed, not precision",
+    "— Esperando análisis...": "— waiting for analysis…",
+    "Algo fuera de lo común": "Something out of the ordinary",
+    "Análisis no disponible": "Analysis not available",
+    "Compra agresiva al ask": "Aggressive buy at the ask",
+    "Confirmación de Precio": "Price confirmation",
+    "Contribución al riesgo": "Contribution to risk",
+    "Creciendo año-tras-año": "Growing year over year",
+    "Detalle de sub-agentes": "Sub-agent breakdown",
+    "Horizonte 1 año (252d)": "1-year horizon (252d)",
+    "Más correlacionado con": "Most correlated with",
+    "No es un permiso menor": "This is not a minor permission",
+    "Puntaje de los agentes": "Agent scores",
+    "Sin targets de Victor:": "No Victor targets:",
+    "Tocando cada fuente de": "Touching every source of",
+    "el agente de Valuación": "the Valuation agent",
+    "el spot de todo el tab": "the spot for the whole tab",
+    "strikes cerca del spot": "strikes near spot",
+    "todo lo que se acumula": "everything that builds up",
+    "Último guardado: nunca": "Last saved: never",
+    "% (último año fiscal)": "% (last fiscal year)",
+    "Atribución por Sector": "Attribution by sector",
+    "Cerca de rentabilidad": "Close to profitability",
+    "Contratos de Opciones": "Options contracts",
+    "Dónde acaba tu perfil": "Where your profile ends up",
+    "ES 99% (cola extrema)": "ES 99% (extreme tail)",
+    "El dinero de cada día": "The money of each day",
+    "Gamma neto por strike": "Net gamma per strike",
+    "Márgenes (último año)": "Margins (last year)",
+    "No has cambiado nada.": "You have not changed anything.",
+    "No se pudo completar.": "Could not complete.",
+    "No se pudo optimizar.": "Could not optimise.",
+    "Por debajo del precio": "Below the price",
+    "Por encima del precio": "Above the price",
+    "Precio desde entonces": "Price since then",
+    "Reportes de acciones:": "Stock reports:",
+    "Reportes de opciones:": "Options reports:",
+    "Sin noticias marcadas": "No flagged news",
+    "Soporte — hasta 3 ATR": "Support — up to 3 ATR",
+    "Tu mejor edge medido:": "Your best measured edge:",
+    "calibración en espera": "calibration pending",
+    "no consejo financiero": "not financial advice",
+    "por debajo del mínimo": "below the minimum",
+    "sin theta en el feed,": "no theta in the feed,",
+    "una regla obligatoria": "a mandatory rule",
+    "¿IV limpia o inflada?": "Clean IV or inflated?",
+    "Acierto de dirección": "Directional hit rate",
+    "Colector automático:": "Automatic collector:",
+    "Correlación promedio": "Average correlation",
+    "Código de invitación": "Invitation code",
+    "Detalle por Posición": "Breakdown by position",
+    "Deuda y rentabilidad": "Debt and profitability",
+    "Estos números son un": "These numbers are a",
+    "No se pudo calcular.": "Could not compute.",
+    "No se pudo escanear.": "Could not scan.",
+    "Respaldo con errores": "Backup with errors",
+    "Riesgo por operación": "Risk per trade",
+    "Ver qué hay guardado": "See what is stored",
+    "Vistas BL del agente": "Agent's BL views",
+    "el agente Financiero": "the Financial agent",
+    "el agente de Mercado": "the Market agent",
+    "el agente de Negocio": "the Business agent",
+    "Asignación sugerida": "Suggested allocation",
+    "Bajando la cinta de": "Pulling the tape for",
+    "Convicción muy alta": "Very high conviction",
+    "Cuentas y perfiles:": "Accounts and profiles:",
+    "Fuerza de ejecución": "Execution strength",
+    "Margen de seguridad": "Margin of safety",
+    "No se pudo analizar": "Could not analyse",
+    "No se pudo auditar.": "Could not audit.",
+    "No se pudo simular.": "Could not simulate.",
+    "Posición más grande": "Largest position",
+    "Retorno del periodo": "Period return",
+    "Retornos históricos": "Historical returns",
+    "Riesgos del negocio": "Business risks",
+    "Si expira sin valor": "If it expires worthless",
+    "Sin dirección clara": "No clear direction",
+    "Strikes con dominio": "Dominant strikes",
+    "Tocó el target base": "Hit the base target",
+    "Tu perfil de riesgo": "Your risk profile",
+    "Valoración / riesgo": "Valuation / risk",
+    "el agente de Riesgo": "the Risk agent",
+    "motivo no reportado": "reason not reported",
+    "qué tan direccional": "how directional",
+    "sin prima de evento": "no event premium",
+    "1–10 por categoría": "1–10 per category",
+    "Agente de acciones": "Stock agent",
+    "Agente de opciones": "Options agent",
+    "Analizar un ticker": "Analyse a ticker",
+    "Aviso de solvencia": "Solvency warning",
+    "Batió a SPY · 180d": "Beat SPY · 180d",
+    "Conectar con Plaid": "Connect with Plaid",
+    "Datos de la cuenta": "Account details",
+    "Ejecutado al medio": "Filled at the mid",
+    "Error al conectar:": "Connection error:",
+    "Error al importar.": "Import failed.",
+    "Escribe tu nombre.": "Enter your name.",
+    "FCFF DCF de Victor": "Victor's FCFF DCF",
+    "Gates no superados": "Gates not passed",
+    "Memoria del Agente": "Agent memory",
+    "Menu de navegacion": "Navigation menu",
+    "Perfil por defecto": "Default profile",
+    "Riesgo en el suelo": "Risk floor",
+    "Si se desploma 20%": "If it drops 20%",
+    "Sin flujo agresivo": "No aggressive flow",
+    "Tasa de validación": "Validation rate",
+    "Tesis de Inversión": "Investment thesis",
+    "para autenticarte:": "to authenticate:",
+    "plazo del contrato": "contract term",
+    "sin fuente de rank": "no rank source",
+    "¿Es flujo anormal?": "Is this abnormal flow?",
+    "¿No tienes cuenta?": "No account yet?",
+    "¿Ya tienes cuenta?": "Already have an account?",
+    "🔴 Pánico / Bearish": "🔴 Panic / bearish",
+    "(últimos 3 meses)": "(last 3 months)",
+    "ATR del soporte y": "ATR from support and",
+    "Analiza un ticker": "Analyse a ticker",
+    "Batió a SPY · 30d": "Beat SPY · 30d",
+    "Batió a SPY · 90d": "Beat SPY · 90d",
+    "Configura tu key:": "Set your key:",
+    "Cuándo revisitar:": "When to revisit:",
+    "Del uso de todos:": "From everyone's use:",
+    "Gráfica y targets": "Chart and targets",
+    "Ideas del mercado": "Market ideas",
+    "Menu de secciones": "Sections menu",
+    "Por tipo de setup": "By setup type",
+    "Próximo Earnings:": "Next earnings:",
+    "Próximo earnings:": "Next earnings:",
+    "Rendimiento 1 Año": "1-year performance",
+    "Todas las cuentas": "All accounts",
+    "Tu cartera actual": "Your current portfolio",
+    "costo de mantener": "cost of carry",
+    "el agente Técnico": "the Technical agent",
+    "en el tercio alto": "in the top third",
+    "en el tercio bajo": "in the bottom third",
+    "/10 · Repetición": "/10 · Repetition",
+    "Acierto 180 días": "180-day hit rate",
+    "Convicción media": "Medium conviction",
+    "Corr con tu book": "Corr. to your book",
+    "Correr el agente": "Run the agent",
+    "El theta se come": "Theta eats",
+    "Por qué invertir": "Why invest",
+    "Racimos del tape": "Tape clusters",
+    "Riesgo por trade": "Risk per trade",
+    "Riesgo/operación": "Risk per trade",
+    "Salud de fuentes": "Source health",
+    "Se mueve LATERAL": "Moving SIDEWAYS",
+    "Tamaño de cuenta": "Account size",
+    "Trade más grande": "Largest trade",
+    "Valor intrínseco": "Intrinsic value",
+    "el puntaje total": "the total score",
+    "empuja a la baja": "pushes down",
+    "no es comparable": "not comparable",
+    "sin colectas aún": "no collections yet",
+    "Último guardado:": "Last saved:",
+    "Último respaldo:": "Last backup:",
+    "A qué se dedica": "What it does",
+    "Acción sugerida": "Suggested action",
+    "Acierto 30 días": "30-day hit rate",
+    "Acierto 90 días": "90-day hit rate",
+    "Beta de Mercado": "Market beta",
+    "Beta de mercado": "Market beta",
+    "Cerca del borde": "Near the edge",
+    "Clave de acceso": "Access key",
+    "Convicción alta": "High conviction",
+    "Convicción baja": "Low conviction",
+    "Diversificación": "Diversification",
+    "Gap de earnings": "Earnings gap",
+    "Mín Volatilidad": "Min volatility",
+    "No se superaron": "Not passed",
+    "Por régimen GEX": "By GEX regime",
+    "Rank medido con": "Rank measured with",
+    "Skew del frente": "Front skew",
+    "VaR 95% (1 día)": "VaR 95% (1 day)",
+    "VaR 95% · 1 día": "VaR 95% · 1 day",
+    "de convicción (": "of conviction (",
+    "gates de Victor": "Victor's gates",
+    "judge de Claude": "Claude judge",
+    "spot por debajo": "spot below",
+    "spot por encima": "spot above",
+    "todavía ninguno": "none yet",
+    "Óptima sugerida": "Suggested optimum",
+    "○ NO EN TU BOOK": "○ NOT IN YOUR BOOK",
+    "● YA EN TU BOOK": "● ALREADY IN YOUR BOOK",
+    "A quién afecta": "Who it affects",
+    "Acción dormida": "Dormant stock",
+    "Analizado hace": "Analysed",
+    "Beta a tu book": "Beta to your book",
+    "El precio está": "Price is",
+    "Fecha del flow": "Flow date",
+    "Iniciar sesión": "Sign in",
+    "No disponible.": "Not available.",
+    "Por Subyacente": "By underlying",
+    "Por convicción": "By conviction",
+    "Presión al bid": "Bid-side pressure",
+    "Recomendación:": "Recommendation:",
+    "Señal temprana": "Early signal",
+    "empuja al alza": "pushes up",
+    "sin configurar": "not configured",
+    "$ de la orden": "$ of the order",
+    "Cerrar sesión": "Sign out",
+    "Concentración": "Concentration",
+    "Error de red:": "Network error:",
+    "Inicia sesión": "Sign in",
+    "Marcar leídas": "Mark as read",
+    "Muro de calls": "Call wall",
+    "Prob. pérdida": "Loss prob.",
+    "Rango del día": "Day range",
+    "Recomendación": "Recommendation",
+    "Si te asignan": "If you get assigned",
+    "Tú aportaste:": "You contributed:",
+    "Volumen (día)": "Volume (day)",
+    "con el agente": "with the agent",
+    "con juicio AI": "with AI judgement",
+    "por +1% de IV": "per +1% of IV",
+    "sin datos aún": "no data yet",
+    "sin respuesta": "no answer",
+    "Último error:": "Last error:",
+    "▸ Nodo imán $": "▸ Magnet node $",
+    "▸ Régimen γ+:": "▸ γ+ regime:",
+    "▸ Régimen γ−:": "▸ γ− regime:",
+    "Catastrófico": "Catastrophic",
+    "Muro de puts": "Put wall",
+    "SIN respaldo": "NOT backed up",
+    "Se comparte:": "Shared:",
+    "Sin claridad": "No clarity",
+    "Sin contexto": "No context",
+    "Sin respaldo": "No backup",
+    "Sobre el ask": "Above the ask",
+    "Solo en Tito": "Tito only",
+    "Tipo de idea": "Idea type",
+    "Un solo lado": "One-sided",
+    "Venta al bid": "Sold at the bid",
+    "Ver período:": "View period:",
+    "Zona de flip": "Flip zone",
+    "— Obténla en": "— get it at",
+    "Aprende por": "Learns from",
+    "Bajo el bid": "Below the bid",
+    "En el medio": "At the mid",
+    "Esta semana": "This week",
+    "Información": "Information",
+    "Media móvil": "Moving average",
+    "Muy líquido": "Very liquid",
+    "Paramétrico": "Parametric",
+    "calibración": "calibration",
+    "de la prima": "of the premium",
+    "de tu book:": "of your book:",
+    "en el medio": "at the mid",
+    "muy líquido": "very liquid",
+    "no evaluado": "not assessed",
+    "para ver el": "to see the",
+    "Atribución": "Attribution",
+    "Contraseña": "Password",
+    "Convicción": "Conviction",
+    "INFRACCIÓN": "BREACH",
+    "Máx Sharpe": "Max Sharpe",
+    "Por ticker": "By ticker",
+    "Pérdida de": "Loss of",
+    "Rola a los": "Roll at",
+    "Sin subir:": "Not uploaded:",
+    "análisis ·": "analyses ·",
+    "de ancho).": "wide).",
+    "no alcanza": "not enough",
+    "por strike": "per strike",
+    "proyección": "projection",
+    "simultáneo": "simultaneous",
+    "sin quotes": "no quotes",
+    "Cierra al": "Closes at",
+    "Condición": "Condition",
+    "En el ask": "At the ask",
+    "En el bid": "At the bid",
+    "Histórico": "Historical",
+    "NO FIABLE": "NOT RELIABLE",
+    "Nodo imán": "Magnet node",
+    "Sin datos": "No data",
+    "Tu límite": "Your limit",
+    "Tu nombre": "Your name",
+    "Tu perfil": "Your profile",
+    "el ticker": "the ticker",
+    "sin datos": "no data",
+    "¿Por qué?": "Why?",
+    "Crea una": "Create one",
+    "El score": "The score",
+    "Es tuyo:": "Yours:",
+    "Posición": "Position",
+    "Si falta": "If missing",
+    "Velas de": "Candles of",
+    "Acción:": "Stock:",
+    "Colchón": "Cushion",
+    "Después": "After",
+    "Español": "Spanish",
+    "Métrica": "Metric",
+    "Opción:": "Option:",
+    "Por qué": "Why",
+    "Régimen": "Regime",
+    "Íntegro": "Intact",
+    "Acción": "Stock",
+    "Añadir": "Add",
+    "Método": "Method",
+    "Tamaño": "Size",
+    "acertó": "was right",
+    "estrés": "stress",
+    "Óptimo": "Optimal",
+    "Débil": "Weak",
+    "Línea": "Line",
+    "Tardó": "Took",
+    "caída": "drawdown",
+    "Θ/día": "Θ/day",
+    "/día": "/day",
+    "Para": "For",
+    "Sacó": "Returned",
+    "días": "days",
+    "Qué": "What",
+};
+
+/* Las frases que llevan un número dentro no pueden estar en el diccionario:
+ * cada valor sería una entrada distinta. Van aquí, con `$1`, `$2`… en el
+ * lugar de lo que se conserva tal cual. */
+const VX_PAT = [
+    [/^faltan (\d+) días de mercado para el IV Rank real; hasta entonces se usa el proxy de volatilidad realizada$/,
+     '$1 market days short of the real IV rank; until then the realised-volatility proxy is used'],
+    [/^Chequeado (.+) · QD se reprueba cada 90s$/,
+     'Checked $1 · QD is re-tested every 90s'],
+    [/^\((.+) años\)$/, '($1 years)'],
+    [/^Máxima quema de theta \((.+)\)$/, 'Maximum theta burn ($1)'],
+    [/^No se pudo diagnosticar: (.+)$/, 'Could not diagnose: $1'],
+    [/^(\d+) notables de (\d+) · (.+) · (\d+) pág\. · ≥ (.+)$/,
+     '$1 notable of $2 · $3 · $4 page(s) · ≥ $5'],
+    [/^Volumen (\S+) · Horario (\S+) · Repetición (\S+)$/,
+     'Volume $1 · Timing $2 · Repetition $3'],
+    [/^por tener el strike a más de (.+)% del precio\.$/,
+     'for having the strike more than $1% away from the price.'],
+    [/^Horquilla en el momento del print — bid (\S+) \/ ask (\S+)$/,
+     'Spread at the time of the print — bid $1 / ask $2'],
+    [/^operaciones ≥ (.*) en (.+) página\(s\)\. El filtro de calidad tumbó$/,
+     'trades ≥ $1 across $2 page(s). The quality filter knocked out'],
+    [/^no cabe: el colateral supera tu tope por posición · (\d+) contratos? cuesta (.+)$/,
+     'does not fit: the collateral exceeds your per-position cap · $1 contract(s) cost $2'],
+    [/^Flujo inusual de TODO el mercado, ya filtrado por lo que se puede operar: theta sano, no vencido, inusualidad ≥5\/30 y strike dentro del ±(.+)% del precio\. Haz clic en una fila para el análisis completo de ese ticker\.$/,
+     'Unusual flow from the WHOLE market, already filtered down to what is tradable: healthy theta, not expired, unusualness ≥5/30 and strike within ±$1% of the price. Click a row for the full analysis of that ticker.'],
+    [/^(\d+) de (\d+) preguntas contestadas$/, '$1 of $2 questions answered'],
+    [/^(\d+) de (\d+) fuentes$/, '$1 of $2 sources'],
+    [/^Analizado hace (.+)$/, 'Analysed $1 ago'],
+    [/^Último respaldo: (.+)$/, 'Last backup: $1'],
+    [/^Último guardado: (.+)$/, 'Last saved: $1'],
+    [/^Último error: (.+)$/, 'Last error: $1'],
+    [/^Reportes de acciones: (.+)$/, 'Stock reports: $1'],
+    [/^Reportes de opciones: (.+)$/, 'Options reports: $1'],
+    [/^Cuentas y perfiles: (.+)$/, 'Accounts and profiles: $1'],
+];
+
 let VX_IDIOMA = 'es';
 try { VX_IDIOMA = localStorage.getItem('vertex_idioma') || 'es'; } catch (e) {}
+
+/* ── El barrido ───────────────────────────────────────────────────────────
+ *
+ * `VX_ES2EN` (frases exactas) y `VX_PAT` (las que llevan números dentro) se
+ * definen más abajo, en su propio bloque: son datos, no lógica, y mezclarlos
+ * aquí haría ilegible el mecanismo.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+//: nodo de texto → su español original. Se guarda al traducirlo por primera
+//: vez para poder deshacer sin diccionario inverso.
+const VX_ORIGEN = new WeakMap();
+//: lo último que escribimos nosotros, para no volver a mirar lo ya traducido
+//: cuando el observador nos avisa de nuestro propio cambio.
+const VX_PUESTO = new WeakMap();
+
+/** La traducción de una frase suelta, o `null` si no la conocemos.
+ *
+ *  Devolver `null` —y no la frase original— es lo que permite al test
+ *  distinguir «esto está traducido» de «esto pasó de largo». */
+function vxFrase(s) {
+    // El espacio interior se colapsa para buscar: en el marcado una misma frase
+    // aparece partida en varias líneas con sangría, y sin normalizar cada
+    // sangría distinta sería una entrada distinta del diccionario.
+    const t = String(s == null ? '' : s).trim().replace(/\s+/g, ' ');
+    if (!t) return null;
+    const exacta = VX_ES2EN[t];
+    if (exacta != null) return exacta;
+    for (let i = 0; i < VX_PAT.length; i++) {
+        const m = t.match(VX_PAT[i][0]);
+        if (m) return VX_PAT[i][1].replace(/\$(\d)/g, (_, n) => m[Number(n)] ?? '');
+    }
+    return null;
+}
+
+/** Traducción para texto generado en JS. El barrido ya alcanza casi todo, pero
+ *  un `alert()` o un `document.title` no pasan por el DOM. */
+function vxT(s) {
+    if (VX_IDIOMA !== 'en') return s;
+    const t = vxFrase(s);
+    return t == null ? s : t;
+}
+
+//: No se entra aquí: dentro no hay texto de interfaz, o lo que hay es del
+//: usuario (lo que escribió en su perfil) y traducirlo sería reescribirlo.
+const VX_NO_TOCAR = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'CODE', 'PRE']);
+
+function vxTraduceTexto(nodo) {
+    const bruto = nodo.nodeValue;
+    if (!bruto || !/[A-Za-zÁÉÍÓÚáéíóúñÑ]/.test(bruto)) return;
+    const padre = nodo.parentNode;
+    if (padre && (VX_NO_TOCAR.has(padre.nodeName) || padre.closest('[data-no-i18n]'))) return;
+
+    if (VX_IDIOMA !== 'en') {                    // volver al original
+        const orig = VX_ORIGEN.get(nodo);
+        if (orig != null && orig !== bruto) {
+            nodo.nodeValue = orig;
+            VX_PUESTO.set(nodo, orig);
+        }
+        return;
+    }
+    // «Ya está hecho» solo vale traduciendo. Esta guarda estuvo arriba, antes
+    // de mirar el idioma, y entonces el nodo que acabábamos de traducir se
+    // saltaba también la vuelta: al volver a español la mitad de la pantalla
+    // se quedaba en inglés.
+    if (VX_PUESTO.get(nodo) === bruto) return;
+    const base = VX_ORIGEN.has(nodo) ? VX_ORIGEN.get(nodo) : bruto;
+    const t = vxFrase(base);
+    if (t == null) return;
+    // Se respeta el espacio de alrededor: quitarlo pega palabras cuando la
+    // frase convive con un icono o con otro `<span>` en la misma línea.
+    const izq = base.match(/^\s*/)[0], der = base.match(/\s*$/)[0];
+    VX_ORIGEN.set(nodo, base);
+    nodo.nodeValue = izq + t + der;
+    VX_PUESTO.set(nodo, nodo.nodeValue);
+}
+
+const VX_ATRIBUTOS = ['placeholder', 'title', 'aria-label', 'alt'];
+
+function vxTraduceAtributos(el) {
+    for (let i = 0; i < VX_ATRIBUTOS.length; i++) {
+        const a = VX_ATRIBUTOS[i];
+        if (!el.hasAttribute || !el.hasAttribute(a)) continue;
+        const clave = 'i18nOrig' + a.replace(/-/g, '');
+        const actual = el.getAttribute(a);
+        if (VX_IDIOMA !== 'en') {
+            if (el.dataset[clave] != null) el.setAttribute(a, el.dataset[clave]);
+            continue;
+        }
+        const base = el.dataset[clave] != null ? el.dataset[clave] : actual;
+        const t = vxFrase(base);
+        if (t == null) continue;
+        el.dataset[clave] = base;
+        el.setAttribute(a, t);
+    }
+}
+
+/** Barre un subárbol: los textos y los atributos que se leen. */
+function vxBarre(raiz) {
+    if (!raiz) return;
+    if (raiz.nodeType === Node.TEXT_NODE) { vxTraduceTexto(raiz); return; }
+    if (raiz.nodeType !== Node.ELEMENT_NODE && raiz.nodeType !== Node.DOCUMENT_NODE) return;
+    if (raiz.nodeType === Node.ELEMENT_NODE) vxTraduceAtributos(raiz);
+    const it = document.createTreeWalker(raiz, NodeFilter.SHOW_TEXT);
+    const textos = [];
+    for (let n = it.nextNode(); n; n = it.nextNode()) textos.push(n);
+    for (let i = 0; i < textos.length; i++) vxTraduceTexto(textos[i]);
+    if (raiz.querySelectorAll) {
+        const sel = VX_ATRIBUTOS.map(a => `[${a}]`).join(',');
+        raiz.querySelectorAll(sel).forEach(vxTraduceAtributos);
+    }
+}
 
 /** Guarda el texto original en `data-i18n-es` la primera vez, para que volver
  *  a español no dependa de un segundo diccionario que se pueda desincronizar
@@ -10713,7 +11824,31 @@ function vxAplicaIdioma() {
         const t = dic[el.dataset.i18n];
         el.innerHTML = t != null ? t : el.dataset.i18nEs;
     });
+    vxBarre(document.body);
     document.documentElement.lang = VX_IDIOMA;
+}
+
+/* El observador es lo que hace que esto no se olvide de nada.
+ *
+ * Cada tabla, cada tarjeta y cada estado vacío se pintan con `innerHTML` desde
+ * decenas de funciones distintas. Llamar al barrido en cada una habría sido
+ * volver al problema original: el que se olvida no avisa. El observador se
+ * entera de CUALQUIER cambio del DOM, venga de donde venga. */
+let VX_OBS = null;
+
+function vxObserva() {
+    if (VX_OBS || typeof MutationObserver === 'undefined') return;
+    VX_OBS = new MutationObserver(muts => {
+        if (VX_IDIOMA !== 'en') return;          // en español no hay nada que hacer
+        for (let i = 0; i < muts.length; i++) {
+            const m = muts[i];
+            if (m.type === 'characterData') { vxTraduceTexto(m.target); continue; }
+            for (let j = 0; j < m.addedNodes.length; j++) vxBarre(m.addedNodes[j]);
+        }
+    });
+    VX_OBS.observe(document.body, {
+        childList: true, subtree: true, characterData: true,
+    });
 }
 
 function vxIdioma(l) {
@@ -10784,6 +11919,24 @@ function pfValor(preg) {
         return guardadas[preg.campo];
     }
     return (VX_PERFIL || {})[preg.campo];
+}
+
+/** ¿Contestó ESTA persona esta pregunta? No vale que exista un valor: el perfil
+ *  de referencia siempre tiene uno. */
+function pfContestada(preg) {
+    if (Object.prototype.hasOwnProperty.call(pfRespuestas, preg.id)) return true;
+    return (((VX_PERFIL || {}).respondidas) || []).includes(preg.id);
+}
+
+/** Lo que va EN EL FORMULARIO. Vacío mientras no hayas contestado.
+ *
+ *  `pfValor` cae al valor efectivo —el de Kevin— y eso está bien para calcular,
+ *  pero pintarlo en el cuestionario dejaba el botón de Kevin ya marcado y el
+ *  capital de Kevin ya escrito. Parecía que habías elegido tú, y la etiqueta
+ *  «valor heredado» al lado no alcanzaba a desmentir lo que se veía. Eliges tú,
+ *  desde cero, y hasta que lo hagas la pregunta se ve en blanco. */
+function pfValorEnBlanco(preg) {
+    return pfContestada(preg) ? pfValor(preg) : undefined;
 }
 
 function pfPinta(d) {
@@ -10895,13 +12048,14 @@ document.addEventListener('click', e => {
  *  Kevin y DICE que es suyo, en vez de presentarlo como si lo hubieras
  *  elegido tú. */
 function pfPreguntaHTML(preg) {
-    const contestada = ((VX_PERFIL || {}).respondidas || []).includes(preg.id)
-                       || Object.prototype.hasOwnProperty.call(pfRespuestas, preg.id);
+    const contestada = pfContestada(preg);
     // Una OPCIONAL en blanco no es un valor heredado: es una respuesta valida.
     // El contexto personal de otra persona no es contexto tuyo, asi que no hay
     // nada que heredar y el perfil esta completo sin ella.
     const heredada = !contestada && !preg.opcional;
-    const val = pfValor(preg);
+    // En blanco mientras no contestes: nada sale premarcado. Lo que se hereda
+    // se dice con la etiqueta, no dejando el botón de Kevin ya pulsado.
+    const val = pfValorEnBlanco(preg);
     let control = '';
 
     if (preg.tipo === 'opcion' || preg.tipo === 'multi') {
@@ -10918,7 +12072,10 @@ function pfPreguntaHTML(preg) {
             value="${val == null ? '' : _vcEsc(val)}"
             class="pf-in mt-2.5 w-full sm:w-56 bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">`;
     } else if (preg.tipo === 'rango_pct') {
-        const r = Array.isArray(val) ? val : [20, 30];
+        // Sin contestar, las DOS casillas van vacías. Traer aquí el 20–30 de
+        // referencia era premarcar con otro nombre: se veía escrito y parecía
+        // tuyo.
+        const r = Array.isArray(val) ? val : ['', ''];
         control = `<div class="flex items-center gap-2 mt-2.5">
             <input type="number" min="1" max="100" data-preg="${_vcEsc(preg.id)}" data-parte="0" value="${_vcEsc(r[0])}"
                    class="pf-in w-20 bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
@@ -10988,10 +12145,18 @@ document.addEventListener('click', e => {
     const preg = VX_PREGUNTAS.find(p => p.id === b.dataset.preg);
     if (!preg) return;
     if (preg.tipo === 'multi') {
-        const actual = Array.isArray(pfValor(preg)) ? [...pfValor(preg)] : [];
+        // Se parte de lo que TÚ llevas marcado, no de la lista heredada. Con
+        // `pfValor` el primer clic caía sobre las opciones de Kevin y QUITABA
+        // la que acababas de pulsar: elegías «crecimiento» y se marcaban
+        // «timing» e «ingresos». Justo lo contrario de elegir.
+        const previo = pfValorEnBlanco(preg);
+        const actual = Array.isArray(previo) ? [...previo] : [];
         const i = actual.indexOf(b.dataset.opt);
         if (i >= 0) actual.splice(i, 1); else actual.push(b.dataset.opt);
-        pfRespuestas[preg.id] = actual;
+        // Desmarcar hasta dejarla vacía es volver a «sin contestar», no
+        // contestar «ninguna»: si no, el perfil guardaría una lista vacía.
+        if (actual.length) pfRespuestas[preg.id] = actual;
+        else delete pfRespuestas[preg.id];
     } else {
         pfRespuestas[preg.id] = b.dataset.opt;
     }
@@ -11004,11 +12169,22 @@ document.addEventListener('input', e => {
     const preg = VX_PREGUNTAS.find(p => p.id === el.dataset.preg);
     if (!preg) return;
     if (preg.tipo === 'numero') {
-        pfRespuestas[preg.id] = Number(el.value || 0);
+        // Vaciar la casilla NO es contestar «0»: es no haber contestado. Con
+        // `Number('' || 0)` un borrado se guardaba como un capital de cero.
+        if (String(el.value).trim() === '') delete pfRespuestas[preg.id];
+        else pfRespuestas[preg.id] = Number(el.value);
     } else if (preg.tipo === 'rango_pct') {
-        const base = Array.isArray(pfValor(preg)) ? [...pfValor(preg)] : [20, 30];
-        base[Number(el.dataset.parte)] = Number(el.value || 0);
-        pfRespuestas[preg.id] = base;
+        // Las dos casillas se leen del DOM, no de un valor de referencia: el
+        // rango solo cuenta como contestado cuando has escrito los dos
+        // extremos. Media respuesta no es una respuesta.
+        const caja = el.closest('[data-pregunta]') || document;
+        const partes = [0, 1].map(i => {
+            const inp = caja.querySelector(
+                `[data-preg="${CSS.escape(preg.id)}"][data-parte="${i}"]`);
+            return inp ? String(inp.value).trim() : '';
+        });
+        if (partes.some(v => v === '')) delete pfRespuestas[preg.id];
+        else pfRespuestas[preg.id] = partes.map(Number);
     } else {
         pfRespuestas[preg.id] = el.value;
     }
@@ -11029,13 +12205,18 @@ function pfRepintaPregunta(preg) {
 function pfActualizaInsignia(preg) {
     const nodo = document.querySelector(`[data-pregunta="${CSS.escape(preg.id)}"] .pf-badge`);
     if (!nodo) return;
-    // Borrar lo escrito en una opcional la devuelve a «opcional», no la deja
-    // marcada como contestada con el campo vacio.
-    const vacia = preg.opcional && !String(pfValor(preg) || '').trim();
+    // Borrar lo escrito la devuelve a donde estaba —heredada u opcional—, no la
+    // deja marcada como contestada con el campo vacío. La regla es la MISMA que
+    // pinta `pfPreguntaHTML`: si divergen, la insignia miente en cuanto tocas
+    // una tecla.
+    const contestada = pfContestada(preg)
+        && !(preg.opcional && !String(pfValor(preg) || '').trim());
+    const heredada = !contestada && !preg.opcional;
     nodo.className = 'pf-badge text-[9px] font-bold px-2 py-1 rounded-full shrink-0 '
-        + (vacia ? 'bg-white/5 text-gray-500 border border-gray-700'
-                 : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25');
-    nodo.innerText = vacia ? 'opcional' : 'contestada';
+        + (heredada ? 'bg-amber-500/10 text-amber-400 border border-amber-500/25'
+           : contestada ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/25'
+                        : 'bg-white/5 text-gray-500 border border-gray-700');
+    nodo.innerText = heredada ? 'valor heredado' : (contestada ? 'contestada' : 'opcional');
 }
 
 async function pfGuardar() {
@@ -11118,8 +12299,13 @@ async function pfCargaAprendizaje() {
         <b class="text-gray-500">Nunca:</b> ${_vcEsc(d.privacidad.nunca)}</p>`;
 }
 
-/* Arranque: idioma y perfil. El tema ya lo aplica su propio script. */
+/* Arranque: idioma y perfil. El tema ya lo aplica su propio script.
+ *
+ * El observador se enciende ANTES del primer barrido: si se encendiera después,
+ * lo que se pinte entre una cosa y la otra se quedaría en español para siempre,
+ * porque nadie volvería a mirarlo. */
 document.addEventListener('DOMContentLoaded', () => {
+    vxObserva();
     vxAplicaIdioma();
     vxPintaOpciones();
     pfCargar();

@@ -342,3 +342,91 @@ class TestEnClaroTodoSeLee:
             assert not flojas, f"en oscuro no se leen: {flojas}"
         finally:
             pg.close()
+
+
+class TestElCuestionarioNoEligePorTi:
+    """«Si presiono Personalizado me salen ya opciones elegidas.»
+
+    El formulario leía `pfValor`, que cae al valor EFECTIVO — el de Kevin — así
+    que las once preguntas aparecían con la respuesta de otra persona ya
+    marcada, el capital de otra persona ya escrito y el rango 20–30 ya puesto.
+    La insignia decía «valor heredado» al lado, pero lo que se ve manda sobre lo
+    que se lee: parecía que lo habías elegido tú.
+
+    Peor era el gemelo: el manejador de las preguntas de opción múltiple también
+    partía del valor heredado, así que el PRIMER clic **quitaba** una opción de
+    Kevin en vez de añadir la tuya. Pulsabas «crecimiento» y se quedaban
+    marcadas «timing» e «ingresos».
+    """
+
+    def _perfil(self, navegador, servidor):
+        pg, errores = _abre(navegador, servidor)
+        pg.evaluate("""async () => {
+            await fetch('/api/auth/registro', {method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({email:'cuestionario@ejemplo.com',
+                                      nombre:'Prueba', password:'ClaveLarga123!'})});
+        }""")
+        pg.reload(wait_until="load")
+        pg.wait_for_timeout(2500)
+        pg.evaluate("switchView('perfilView'); pfCargar();")
+        pg.wait_for_timeout(1800)
+        pg.evaluate("pfTab('perfil'); pfModoSel='personalizado'; pfPintaModo();")
+        pg.wait_for_timeout(900)
+        return pg, errores
+
+    def test_al_entrar_no_hay_nada_elegido(self, navegador, servidor):
+        pg, errores = self._perfil(navegador, servidor)
+        try:
+            d = pg.evaluate("""() => ({
+                preguntas: document.querySelectorAll('#pfPreguntas [data-pregunta]').length,
+                marcadas: [...document.querySelectorAll('#pfPreguntas .pf-opt.activa')]
+                            .map(b => b.dataset.preg + '=' + b.dataset.opt),
+                llenas: [...document.querySelectorAll('#pfPreguntas .pf-in')]
+                            .filter(i => String(i.value).trim() !== '')
+                            .map(i => i.dataset.preg + '=' + i.value),
+            })""")
+            assert d["preguntas"] >= 10, f"el cuestionario no se pintó: {d}"
+            assert not d["marcadas"], f"salen opciones ya elegidas: {d['marcadas']}"
+            assert not d["llenas"], f"salen casillas ya rellenas: {d['llenas']}"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_primer_clic_AÑADE_lo_que_pulsas(self, navegador, servidor):
+        pg, errores = self._perfil(navegador, servidor)
+        try:
+            d = pg.evaluate("""() => {
+                const b = document.querySelector('#pfPreguntas .pf-opt');
+                const pulsado = b.dataset.preg + '=' + b.dataset.opt;
+                b.click();
+                return {pulsado,
+                        marcadas: [...document.querySelectorAll('#pfPreguntas .pf-opt.activa')]
+                                    .map(x => x.dataset.preg + '=' + x.dataset.opt)};
+            }""")
+            assert d["marcadas"] == [d["pulsado"]], (
+                f"pulsaste {d['pulsado']} y quedó marcado {d['marcadas']}: el clic "
+                "está operando sobre la lista heredada")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_borrar_una_casilla_no_la_deja_contestada_con_un_cero(self, navegador, servidor):
+        pg, errores = self._perfil(navegador, servidor)
+        try:
+            d = pg.evaluate("""() => {
+                const i = document.querySelector('#pfPreguntas input[type=number]');
+                const pon = v => { i.value = v;
+                                   i.dispatchEvent(new Event('input', {bubbles:true})); };
+                pon('5000');
+                const escrito = pfRespuestas[i.dataset.preg];
+                pon('');
+                return {escrito, tras_borrar: pfRespuestas[i.dataset.preg] ?? null};
+            }""")
+            assert d["escrito"] == 5000
+            assert d["tras_borrar"] is None, (
+                "vaciar la casilla se guardó como una respuesta: el capital quedaría "
+                f"en {d['tras_borrar']}")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()

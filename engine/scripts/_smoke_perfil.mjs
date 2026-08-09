@@ -179,11 +179,27 @@ chk(/Kevin/.test(prog), 'explica de quién es el valor heredado');
 
 // El formulario enseña lo que TÚ escribiste, no lo efectivo. En modo por
 // defecto los dos difieren, y confundirlos haría desaparecer tus respuestas.
+//
+// `respondidas` va poblado a propósito: es lo que manda el servidor
+// (`perfil_desde_respuestas` mete ahí cada id que contestas) y es lo que
+// distingue «esto lo escribí yo» de «esto es el valor de Kevin». `respuestas`
+// no sirve para distinguirlo: trae UNA entrada por pregunta siempre, contestada
+// o no, así que mirarlo a él daba por contestado todo el cuestionario.
 api.pfPinta(PERFIL({ capital:1000, respuestas:{ capital:250000, tolerancia:'moderado',
                      objetivos:['ingresos'], max_posicion_pct:[5,10], texto:'' },
+                     respondidas:['capital','tolerancia','objetivos','max_posicion_pct'],
                      modo:'personalizado' }));
 chk(store['pfPreguntas'].innerHTML.includes('value="250000"'),
     'en modo por defecto, el formulario sigue enseñando TUS respuestas guardadas');
+
+// La otra mitad de la misma regla: lo que NO has contestado sale en blanco.
+// Antes salía con la respuesta de Kevin ya marcada y parecía elegida por ti.
+api.pfPinta(PERFIL({ modo:'personalizado', respondidas:[] }));
+const _blanco = store['pfPreguntas'].innerHTML;
+chk(!/class="[^"]*pf-opt[^"]*activa/.test(_blanco),
+    'sin contestar, ninguna opción sale premarcada');
+chk(!/type="number"[^>]*value="(?!")[^"]+"/.test(_blanco),
+    'sin contestar, ninguna casilla sale rellena');
 
 // Contestar las obligatorias deja el perfil COMPLETO aunque la opcional siga
 // en blanco. Si contara en el denominador, no se llegaria nunca al 100%.

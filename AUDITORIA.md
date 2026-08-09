@@ -6023,8 +6023,62 @@ comportamiento del respaldo.
 **Comprobado que los tests nuevos fallan sin el arreglo** (3 de 5 en rojo contra
 el código viejo): un test que pasa en los dos lados no prueba nada.
 
+## 41.47 · Ronda 21 — el cuestionario que elegía por ti, y el idioma entero
+
+**1. «Si presiono Personalizado me salen ya opciones elegidas.»** El formulario
+leía `pfValor`, que cae al valor EFECTIVO —el de Kevin—, así que las once
+preguntas aparecían con la respuesta de otra persona ya marcada, su capital ya
+escrito y el rango 20–30 ya puesto. La etiqueta «valor heredado» al lado no
+alcanzaba: lo que se ve manda sobre lo que se lee.
+
+Peor era el gemelo, que solo apareció al probarlo en un navegador: el manejador
+de las preguntas de opción múltiple también partía de lo heredado, así que el
+PRIMER clic **quitaba** una opción de Kevin en vez de añadir la tuya. Pulsabas
+«crecimiento» y quedaban marcadas «timing» e «ingresos».
+
+Ahora el formulario lee `pfValorEnBlanco`: vacío hasta que contestas. Y de paso,
+vaciar una casilla vuelve a ser «sin contestar» en lugar de guardarse como un
+capital de cero.
+
+**2. El idioma, completo.** Elegir inglés traducía 21 frases —la navegación y
+poco más— y dejaba el resto en español. Traducir a mano cada `innerHTML` habría
+sido tocar unos 900 sitios y olvidar unos cuantos, y lo que se olvida no lo
+encuentra quien lo escribió: lo encuentra el usuario.
+
+Así que la traducción no vive en los sitios que pintan. Vive en un diccionario,
+y un barrido del DOM cambia lo que reconoce; un `MutationObserver` lo re-aplica
+en cada render, venga de donde venga. Tres consecuencias:
+
+- **También traduce lo que manda el servidor.** El cuestionario del perfil llega
+  en español desde `/api/perfil` y sale en inglés en pantalla, sin que el
+  servidor sepa que hay un segundo idioma.
+- **Los datos no corren peligro.** Un ticker o un nombre nunca casan con una
+  frase española entera, así que el barrido no los toca.
+- **Lo que falte se mide, no se supone.** El test abre la pantalla en un
+  navegador real, la recorre entera y **falla si queda español**.
+
+Las claves salen del DOM real, no del archivo: el navegador ya resolvió
+entidades y plantillas, y una clave escrita a ojo no casa con nada — sin error,
+sin aviso, solo media pantalla en el idioma equivocado.
+
+Lo que ningún diccionario alcanza es la prosa que escribe el modelo, que no
+existe hasta que se pide. Para eso el idioma viaja en una cabecera
+(`X-Vertex-Idioma`) desde un envoltorio de `fetch` puesto arriba del todo, y
+llega al prompt por `_instruccion_idioma()`. Los tres prompts que decían
+«Respondes SIEMPRE en espanol» ya no clavan el idioma.
+
+**Lo que encontraron los tests nuevos**, que es la parte que importa:
+una clave con espacio doble (venía de un `&#160;`) que no habría casado nunca;
+una frase con «57 días» escrita como entrada fija cuando el número es variable;
+y la guarda de «ya está hecho», que aplicada también a la vuelta dejaba media
+pantalla en inglés al volver a español.
+
+Medido al final: 436 nodos en el armazón y 599 con los paneles cargados de
+datos, **0 en español**; el interruptor va y vuelve sin dejar restos; y la
+cabecera llega en las 8 peticiones de arranque.
+
 ### Estado
 
-**2.925 tests del motor · 613 de la capa web (9 en un navegador real) ·
+**2.925 tests del motor · 633 de la capa web (24 en un navegador real) ·
 323 checks de auditoría · 16 diferenciales · preflight de Render en verde ·
 0 fallos, 0 avisos, 0 skips.**
