@@ -67,6 +67,12 @@ ESPERAS_MAXIMAS = 3
 #: el limite y dormir 65 segundos despues.
 SEGUNDOS_ENTRE_LLAMADAS = 3.1
 
+#: Industrias en vuelo a la vez. Cada busqueda con grounding tarda 15-30s, asi
+#: que en serie se gastaban 4 peticiones por minuto de las 20 permitidas. Con
+#: 8 en paralelo se llena la cuota que ya estaba pagada, y `_esperar_turno()`
+#: impide pasarse por mucho que empujen los hilos.
+HILOS_BARRIDO = 8
+
 #: Cuantas pausas por cuota aguanta un barrido completo antes de rendirse. A
 #: 20 peticiones por minuto, 132 industrias necesitan esperar muchas veces;
 #: rendirse a la primera dejaba el barrido muerto en la industria 1.
@@ -703,65 +709,76 @@ def industrias_del_mercado(fmp: Any, minimo_empresas: int = 2) -> list[tuple[str
     return [(n, c) for n, c in cuenta.most_common() if c >= minimo_empresas]
 
 
+def _clasificar(mensaje: str) -> str:
+    """El estado que resume lo que `asegurar_tam_industria` acaba de decir."""
+    if "TAM mundial" in mensaje:
+        return "resuelto"
+    if "vigente" in mensaje or "analista" in mensaje:
+        return "ya estaba"
+    return "sin fuente"
+
+
 def resolver_todas_las_industrias(settings: Any, fmp: Any, *,
                                   limite: int = 0,
-                                  minimo_empresas: int = 2) -> list[dict]:
-    """Intenta resolver el TAM de cada industria del mercado que no lo tenga.
+                                  minimo_empresas: int = 2,
+                                  hilos: int = 0) -> list[dict]:
+    """Resuelve el TAM de cada industria del mercado que no lo tenga.
 
     Va en orden de cobertura -- primero las industrias con mas empresas --
-    porque cada intento cuesta peticiones y la cuota es finita. Se corta sola
-    en cuanto un proveedor dice que se acabo la cuota: seguir preguntando
-    contra un contador agotado no resuelve nada y retrasa el resto.
+    porque `Banks - Regional` cubre 115 acciones y una industria de dos cubre
+    dos. Lo ya resuelto no se repite y lo de un analista no se toca.
 
-    No repite lo ya resuelto ni toca lo de un analista. Lo que no verifique
-    contra la pagina de su fuente NO se guarda como TAM -- eso es lo que
-    distingue este barrido de la version que llenaba archivos con cifras que
-    nadie podia abrir.
+    **En paralelo, y esa es la diferencia entre media hora y dos horas y
+    media.** Medido: dos industrias tardaron 113 segundos, o sea ~1 minuto
+    cada una... gastando 4 peticiones por minuto de las 20 que el proveedor
+    permite. El cuello no era la cuota sino la LATENCIA: cada busqueda con
+    grounding tarda entre 15 y 30 segundos, y se hacian de una en una.
+
+    Con varias en vuelo se usa la cuota que ya estaba pagada. Lo que impide
+    pasarse es `_esperar_turno()`, que serializa la salida de cada peticion
+    con un hueco de `SEGUNDOS_ENTRE_LLAMADAS` bajo un lock compartido: da
+    igual cuantos hilos empujen, por el cuello sale una cada 3,1 segundos.
+
+    Lo que no se pierde al paralelizar: el orden de cobertura se conserva en
+    el resultado, y una cuota SIN VUELTA -- "no credits remaining" -- sigue
+    abortando, ahora con una bandera compartida para que los hilos que quedan
+    no gasten peticiones contra un contador muerto.
     """
-    filas: list[dict] = []
-    pausas = 0
+    from concurrent.futures import ThreadPoolExecutor
+
     industrias = industrias_del_mercado(fmp, minimo_empresas)
     if limite:
         industrias = industrias[:limite]
-    for nombre, empresas in industrias:
-        mensaje = asegurar_tam_industria(settings, nombre, "")
-        estado = ("resuelto" if "TAM mundial" in mensaje
-                  else "ya estaba" if "vigente" in mensaje or "analista" in mensaje
-                  else "sin fuente")
-        filas.append({"industria": nombre, "empresas": empresas,
-                      "estado": estado, "detalle": mensaje})
-        # Que el mensaje NOMBRE una cuota no significa que el barrido este
-        # bloqueado. Con dos proveedores, el fallo de uno viaja en el mismo
-        # texto que las respuestas del otro.
-        #
-        # Medido: el barrido murio en la industria 8 de 137 por el "no credits
-        # remaining" de OpenAI -- mientras Gemini contestaba, y el propio
-        # mensaje lo decia: "3 respuestas sin cifra atribuible". Tres
-        # respuestas son tres respuestas. Lo que faltaba era una fuente, no
-        # cuota.
-        respondio_alguien = "respuestas sin cifra atribuible" in mensaje
-        if _es_falta_de_cuota(mensaje) and not respondio_alguien:
-            # Un limite POR MINUTO no aborta un barrido de 132 industrias: le
-            # marca el ritmo. El tier gratuito de Gemini da 20 peticiones por
-            # minuto y su error dice cuanto falta, asi que se espera y se
-            # sigue. Medido: sin esto la corrida entera moria en la PRIMERA
-            # industria porque unas pruebas anteriores habian gastado la
-            # cuota del minuto.
-            #
-            # Lo que si aborta es la cuota sin vuelta -- "no credits
-            # remaining" no trae segundos porque no se arregla esperando.
-            espera = _segundos_de_espera(mensaje)
-            if espera is not None and pausas < PAUSAS_MAXIMAS_BARRIDO:
-                logger.info("barrido en pausa %.0fs por cuota del minuto", espera)
-                time.sleep(espera)
-                pausas += 1
-                continue
-            filas.append({"industria": "(corte)", "empresas": 0,
-                          "estado": "cuota agotada",
-                          "detalle": "el resto queda para la proxima corrida"})
-            break
-    return filas
+    if not industrias:
+        return []
 
+    n = hilos or HILOS_BARRIDO
+    abortado = threading.Event()
+
+    def _una(par: tuple[str, int]) -> dict:
+        nombre, empresas = par
+        if abortado.is_set():
+            return {"industria": nombre, "empresas": empresas,
+                    "estado": "no intentada", "detalle": "corte por cuota"}
+        mensaje = asegurar_tam_industria(settings, nombre, "")
+        # Que el mensaje NOMBRE una cuota no significa que el barrido este
+        # bloqueado: con dos proveedores, el fallo de uno viaja en el mismo
+        # texto que las respuestas del otro. Solo aborta si NADIE respondio.
+        if (_es_falta_de_cuota(mensaje)
+                and "respuestas sin cifra atribuible" not in mensaje
+                and _segundos_de_espera(mensaje) is None):
+            abortado.set()
+        return {"industria": nombre, "empresas": empresas,
+                "estado": _clasificar(mensaje), "detalle": mensaje}
+
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        filas = list(pool.map(_una, industrias))
+
+    if abortado.is_set():
+        filas.append({"industria": "(corte)", "empresas": 0,
+                      "estado": "cuota agotada",
+                      "detalle": "el resto queda para la proxima corrida"})
+    return filas
 
 def revisar_tam_industrias(settings: Any, hoy: "date | None" = None,
                            forzar: bool = False) -> list[dict]:

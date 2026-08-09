@@ -132,8 +132,6 @@ def test_a_per_minute_limit_paces_the_sweep_instead_of_killing_it(monkeypatch):
 
     Un limite por minuto trae sus segundos en el propio error. Se espera y se
     sigue."""
-    dormido = []
-    monkeypatch.setattr(tm.time, "sleep", lambda s: dormido.append(s))
     fmp = _FMP([_empresa("Primera")] * 9 + [_empresa("Segunda")] * 5)
     intentos = {"n": 0}
 
@@ -145,10 +143,15 @@ def test_a_per_minute_limit_paces_the_sweep_instead_of_killing_it(monkeypatch):
         return "sin TAM (ninguna asociacion)"
 
     monkeypatch.setattr(tm, "asegurar_tam_industria", _falso)
-    filas = tm.resolver_todas_las_industrias(fmp=fmp, settings=None)
-    assert dormido, "no espero: la cuota del minuto mato el barrido"
+    filas = tm.resolver_todas_las_industrias(fmp=fmp, settings=None, hilos=1)
+    # Lo que importa es la INTENCION, no el mecanismo: el barrido llega hasta
+    # el final. Donde se espera cambio al paralelizar -- ahora la pausa vive
+    # en `_esperar_turno()`, que espacia cada peticion 3,1s ANTES de hacerla
+    # en vez de chocar con el limite y dormir despues.
     assert {f["industria"] for f in filas} >= {"Primera", "Segunda"}, (
-        "no llego a la segunda industria tras esperar")
+        "la cuota del minuto mato el barrido en vez de marcarle el ritmo")
+    assert not any(f["estado"] == "cuota agotada" for f in filas), (
+        "un limite por minuto no es una cuota sin vuelta")
 
 
 def test_the_limit_bounds_a_run(monkeypatch):
