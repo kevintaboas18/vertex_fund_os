@@ -109,6 +109,31 @@ ASOCIACIONES = (
     # Salud: la base de gasto sanitario mundial de la OMS y las estadísticas
     # de la OCDE ya cubrían el gasto; faltaba quien publica el seguro.
     "global health expenditure", "ahip", "iais",
+    # --- Organismos anadidos tras medir 40 industrias en tres sectores ---
+    # El metodo ya se probo: al meter NAREIT y la EIA, `oil-gas-integrated`
+    # resolvio tras llevar semanas marcada como imposible. Lo que fallaba no
+    # era el mercado, era que su organismo no estaba en esta lista.
+    #
+    # Seguros: Swiss Re Institute publica el sigma, EL conjunto de datos
+    # canonico de primas mundiales por ramo. Sin el, siete industrias de
+    # seguros no tenian a quien preguntar.
+    "swiss re", "sigma", "geneva association", "munich re",
+    # Gestion de activos y mercados de capitales.
+    "efama", "investment company institute", "ici ",
+    "world federation of exchanges", "wfe ", "iosco", "isda", "afme",
+    # Biotecnologia y dispositivos medicos. Biotechnology es la industria mas
+    # grande del censo -- 118 acciones -- y no tenia organismo en la lista.
+    "biotechnology innovation organization", "bio ", "ifpma",
+    "medtech europe", "advamed", "cocir",
+    # Industria y materiales.
+    "world steel association", "international aluminium", "icmm",
+    "international fertilizer", "cembureau",
+    # Consumo y distribucion.
+    "world federation of advertisers", "national retail federation", "nrf ",
+    "food and agriculture organization", "fao ",
+    # Energia y utilities.
+    "world nuclear association", "global wind energy council", "gwec",
+    "international hydropower", "eurelectric",
 )
 
 # Casas de análisis, sólo cuando no hay asociación que cubra el mercado.
