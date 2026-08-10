@@ -80,7 +80,16 @@ PAUSAS_MAXIMAS_BARRIDO = 200
 
 #: Para comprobar la cita contra su propia pagina.
 _AGENTE = "Vertex Research vertexholgroup@gmail.com"
-_MAX_BYTES_CITA = 600_000
+#: Un PDF cortado a la mitad es ILEGIBLE, no parcialmente legible: su tabla de
+#: objetos vive al final del fichero, asi que truncarlo rompe el documento
+#: entero. Medido con el informe `Electricity2025` de la IEA -- a 6 MB daba
+#: "incorrect startxref pointer" y 0 caracteres extraidos.
+_MAX_BYTES_CITA = 40_000_000
+
+#: Paginas del PDF que se leen. La cifra de cabecera de un informe va en el
+#: resumen ejecutivo; leer 300 paginas para encontrarla cuesta segundos y no
+#: mejora nada.
+_MAX_PAGINAS_PDF = 25
 
 # Asociaciones de industria: miden su propio mercado, publican mundial y gratis,
 # y por construcción cubren UNA capa de la cadena. Es el tier más alto que un
@@ -623,6 +632,39 @@ def _escribir(path: Path, contenido: dict) -> None:
         raise
 
 
+def _texto_del_documento(crudo: bytes, url: str) -> str:
+    """El texto de la pagina, sea HTML o PDF.
+
+    Los organismos publican sus cifras en PDF mas de lo que parece: la IEA
+    enlaza `Electricity2025.pdf`, EFAMA su Fact Book, IQVIA sus informes del
+    Institute. Sin leerlos, "la cifra no aparece en la pagina" era verdad y
+    enganaba -- estaba en el documento que la pagina enlaza.
+
+    Se detecta por la cabecera del propio archivo (`%PDF-`) y no por la
+    extension de la URL, porque muchos CDN sirven PDFs desde rutas sin `.pdf`.
+    """
+    if crudo[:5] == b"%PDF-":
+        try:
+            import io
+
+            from pypdf import PdfReader
+
+            lector = PdfReader(io.BytesIO(crudo))
+            partes = []
+            for pagina in lector.pages[:_MAX_PAGINAS_PDF]:
+                try:
+                    partes.append(pagina.extract_text() or "")
+                except Exception:  # noqa: BLE001 -- una pagina rota no anula el resto
+                    continue
+            texto = " ".join(partes)
+        except Exception as e:  # noqa: BLE001
+            logger.info("PDF ilegible en %s: %s", url[:60], type(e).__name__)
+            return ""
+    else:
+        texto = re.sub(r"<[^>]+>", " ", crudo.decode("utf-8", "replace"))
+    return re.sub(r"\s+", " ", texto).strip()
+
+
 def _verificar_en_la_fuente(cita: str, tam: float, fuente: str) -> tuple[bool, str]:
     """Descarga la página citada y comprueba que la cifra ESTÁ ahí.
 
@@ -657,12 +699,13 @@ def _verificar_en_la_fuente(cita: str, tam: float, fuente: str) -> tuple[bool, s
         req = urllib.request.Request(cita, headers={"User-Agent": _AGENTE})
         with urllib.request.urlopen(req, timeout=30) as r:
             destino = r.geturl()
-            cuerpo = r.read(_MAX_BYTES_CITA).decode("utf-8", "replace")
+            cuerpo = r.read(_MAX_BYTES_CITA)
     except Exception as e:  # noqa: BLE001
         return False, f"la cita no se pudo abrir: {type(e).__name__}"
 
-    texto = re.sub(r"<[^>]+>", " ", cuerpo)
-    texto = re.sub(r"\s+", " ", texto)
+    texto = _texto_del_documento(cuerpo, destino)
+    if not texto:
+        return False, f"no se pudo leer el documento en {destino[:60]}"
     # La cifra se escribe de muchas formas: "$755.6 billion", "755,600",
     # "0.76 trillion". Se aceptan las representaciones habituales de ESTE
     # número, no un parecido cualquiera.
@@ -692,7 +735,17 @@ def _verificar_en_la_fuente(cita: str, tam: float, fuente: str) -> tuple[bool, s
     # Entertainment & Media Outlook" partido en palabras deja "media", que
     # encaja con `bestmediainfo.com` -- y una nota de prensa vuelve a colarse
     # como si fuera PwC. "pwc" no esta en ese dominio, y ahi acaba la duda.
-    if not partes or partes[0] not in dominio:
+    # El CDN del organismo cuenta como suyo. La IEA sirve su informe desde
+    # `iea.blob.core.windows.net` y EFAMA desde su propio almacen: la cifra es
+    # de ellos, el fichero es su publicacion oficial, y rechazarla por donde
+    # esta alojada habria tirado el dato correcto. Se admite cuando el nombre
+    # del organismo aparece en CUALQUIER parte del enlace -- ruta incluida --
+    # y no solo en el dominio.
+    #
+    # Sigue sin colar una nota de prensa: `bestmediainfo.com/insights/...` no
+    # lleva "pwc" ni en el dominio ni en la ruta.
+    _enlace = destino.lower()
+    if not partes or (partes[0] not in dominio and partes[0] not in _enlace):
         return False, (f"{dominio} no es el dominio de {fuente[:34]!r}: es "
                        "quien lo cuenta, no quien lo mide")
     return True, destino
