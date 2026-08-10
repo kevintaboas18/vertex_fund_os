@@ -585,9 +585,9 @@
     "avg_notional": 658867644.0677966,
     "low_liquidity": false,
     "vol_oi": {
-      "pct": 12.0,
-      "exceeded": 475,
-      "considered": 3969
+      "pct": 12.1,
+      "exceeded": 481,
+      "considered": 3971
     },
     "top_strikes": [
       {
@@ -598,7 +598,7 @@
         "dominant": true,
         "dominance_pct": 90.2,
         "open_interest": 112184.0,
-        "volume": 4057.0
+        "volume": 4348.0
       },
       {
         "strike": 350.0,
@@ -608,7 +608,7 @@
         "dominant": false,
         "dominance_pct": 56.0,
         "open_interest": 117792.0,
-        "volume": 9797.0
+        "volume": 9849.0
       },
       {
         "strike": 410.0,
@@ -618,7 +618,7 @@
         "dominant": true,
         "dominance_pct": 97.4,
         "open_interest": 95516.0,
-        "volume": 1139.0
+        "volume": 993.0
       },
       {
         "strike": 800.0,
@@ -638,7 +638,7 @@
         "dominant": true,
         "dominance_pct": 64.0,
         "open_interest": 123303.0,
-        "volume": 2695.0
+        "volume": 2516.0
       },
       {
         "strike": 450.0,
@@ -648,7 +648,7 @@
         "dominant": true,
         "dominance_pct": 98.8,
         "open_interest": 80158.0,
-        "volume": 1001.0
+        "volume": 828.0
       },
       {
         "strike": 360.0,
@@ -658,7 +658,7 @@
         "dominant": true,
         "dominance_pct": 62.8,
         "open_interest": 98401.0,
-        "volume": 15082.0
+        "volume": 18584.0
       },
       {
         "strike": 390.0,
@@ -668,7 +668,7 @@
         "dominant": true,
         "dominance_pct": 87.8,
         "open_interest": 73905.0,
-        "volume": 1579.0
+        "volume": 1435.0
       }
     ]
   },
@@ -881,9 +881,9 @@
   "subagents": {
     "aggression": {
       "score": 5.0,
-      "ratio": 0.4541,
+      "ratio": 0.4533,
       "premium_ask": 42320343.0,
-      "premium_bid": 50873802.0,
+      "premium_bid": 51046039.0,
       "premium_mid": 0,
       "n": 278
     },
@@ -1094,6 +1094,46 @@
         }
       ],
       "outcomes": [
+        {
+          "id": 3226651643,
+          "timestamp": "2026-08-10T14:39:09.492Z",
+          "type": "call",
+          "strike": 370.0,
+          "expiration": "2026-09-18",
+          "premium": 445000,
+          "direction": "bajista",
+          "entry_price": 355.92,
+          "mfe_pct": 0.0,
+          "mae_pct": 0.0,
+          "days_to_mfe": null,
+          "days_to_mae": null,
+          "days_to_validate": null,
+          "days_to_invalidate": null,
+          "sessions_observed": 0,
+          "days_elapsed": 0,
+          "validated": false,
+          "resolved": false
+        },
+        {
+          "id": 3226642247,
+          "timestamp": "2026-08-10T14:38:59.357Z",
+          "type": "put",
+          "strike": 285.0,
+          "expiration": "2027-12-17",
+          "premium": 126000,
+          "direction": "alcista",
+          "entry_price": 355.95,
+          "mfe_pct": 0.0,
+          "mae_pct": 0.0,
+          "days_to_mfe": null,
+          "days_to_mae": null,
+          "days_to_validate": null,
+          "days_to_invalidate": null,
+          "sessions_observed": 0,
+          "days_elapsed": 0,
+          "validated": false,
+          "resolved": false
+        },
         {
           "id": 3226322347,
           "timestamp": "2026-08-10T14:30:44.551Z",
@@ -1543,46 +1583,6 @@
           "premium": 156000,
           "direction": "bajista",
           "entry_price": 353.51,
-          "mfe_pct": 0.0,
-          "mae_pct": 0.0,
-          "days_to_mfe": null,
-          "days_to_mae": null,
-          "days_to_validate": null,
-          "days_to_invalidate": null,
-          "sessions_observed": 0,
-          "days_elapsed": 0,
-          "validated": false,
-          "resolved": false
-        },
-        {
-          "id": 3224220986,
-          "timestamp": "2026-08-10T13:43:49.921Z",
-          "type": "call",
-          "strike": 225.0,
-          "expiration": "2027-06-17",
-          "premium": 380700,
-          "direction": "bajista",
-          "entry_price": 353.87,
-          "mfe_pct": 0.0,
-          "mae_pct": 0.0,
-          "days_to_mfe": null,
-          "days_to_mae": null,
-          "days_to_validate": null,
-          "days_to_invalidate": null,
-          "sessions_observed": 0,
-          "days_elapsed": 0,
-          "validated": false,
-          "resolved": false
-        },
-        {
-          "id": 3224219908,
-          "timestamp": "2026-08-10T13:43:48.488Z",
-          "type": "put",
-          "strike": 325.0,
-          "expiration": "2026-09-18",
-          "premium": 161820,
-          "direction": "bajista",
-          "entry_price": 353.85,
           "mfe_pct": 0.0,
           "mae_pct": 0.0,
           "days_to_mfe": null,
@@ -4337,9 +4337,9 @@
       "expiration": "2026-10-16",
       "strike": 410.0,
       "open_interest": 55005.0,
-      "volume": 32.0,
-      "price": 4.15,
-      "open_premium": 228270.75,
+      "volume": 33.0,
+      "price": 4.6,
+      "open_premium": 253023.0,
       "notional_value": 2255205000.0,
       "price_source": "day_close"
     },
@@ -4349,9 +4349,9 @@
       "expiration": "2028-01-21",
       "strike": 650.0,
       "open_interest": 23045.0,
-      "volume": 19.0,
-      "price": 10.85,
-      "open_premium": 250038.25,
+      "volume": 36.0,
+      "price": 11.0,
+      "open_premium": 253495.0,
       "notional_value": 1497925000.0,
       "price_source": "day_close"
     },
@@ -4361,9 +4361,9 @@
       "expiration": "2026-08-21",
       "strike": 450.0,
       "open_interest": 23356.0,
-      "volume": 180.0,
-      "price": 0.06,
-      "open_premium": 1401.36,
+      "volume": 2.0,
+      "price": 0.05,
+      "open_premium": 1167.8,
       "notional_value": 1051020000.0,
       "price_source": "day_close"
     },
@@ -4373,9 +4373,9 @@
       "expiration": "2026-08-21",
       "strike": 400.0,
       "open_interest": 26023.0,
-      "volume": 222.0,
-      "price": 0.28,
-      "open_premium": 7286.44,
+      "volume": 237.0,
+      "price": 0.32,
+      "open_premium": 8327.36,
       "notional_value": 1040920000.0,
       "price_source": "day_close"
     },
@@ -4401,5 +4401,5 @@
   ],
   "fecha": "2026-08-10",
   "agente": "opciones",
-  "guardado_en": "2026-08-10T14:34:08+00:00"
+  "guardado_en": "2026-08-10T14:39:53+00:00"
 }
