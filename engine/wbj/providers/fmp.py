@@ -67,7 +67,8 @@ class FMPProvider(Provider):
 
     def screener_universo(self, min_market_cap: int = 2_000_000_000,
                           limit: int = 6000,
-                          exchange: str | None = None) -> list | dict | None:
+                          exchange: str | None = None,
+                          sector: str | None = None) -> list | dict | None:
         """El universo cotizado MUNDIAL, con la industria de cada empresa.
 
         Lo usa el barrido de TAM para saber QUE industrias existen y cuantas
@@ -85,11 +86,19 @@ class FMPProvider(Provider):
         # que la de Nueva York. Limitarlo a NASDAQ+NYSE dejaba fuera
         # industrias enteras -- automocion sin Toyota ni VW, lujo sin LVMH --
         # y por tanto sus TAM sin resolver.
-        extra = {"exchange": exchange} if exchange else {}
+        extra: dict[str, Any] = {}
+        if exchange:
+            extra["exchange"] = exchange
+        # Filtrar por SECTOR permite resolver el TAM por tandas -- las 14
+        # industrias de Technology de una vez -- en vez de un barrido de 149
+        # que la cuota corta a la mitad.
+        if sector:
+            extra["sector"] = sector
         return self.get_json(
             f"{BASE_URL}/company-screener",
             self._params(marketCapMoreThan=min_market_cap, limit=limit, **extra),
-            "screener_universo", f"_universo_{exchange or 'mundial'}",
+            "screener_universo",
+            f"_universo_{sector or 'todo'}_{exchange or 'mundial'}",
             max_age_days=1,
         )
 

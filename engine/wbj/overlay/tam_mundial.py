@@ -673,7 +673,8 @@ def _verificar_en_la_fuente(cita: str, tam: float, fuente: str) -> tuple[bool, s
     return True, destino
 
 
-def industrias_del_mercado(fmp: Any, minimo_empresas: int = 2) -> list[tuple[str, int]]:
+def industrias_del_mercado(fmp: Any, minimo_empresas: int = 2,
+                           sector: str | None = None) -> list[tuple[str, int]]:
     """Las industrias del mercado MUNDIAL, ordenadas por cuantas empresas
     cubren.
 
@@ -694,7 +695,7 @@ def industrias_del_mercado(fmp: Any, minimo_empresas: int = 2) -> list[tuple[str
     """
     from collections import Counter
 
-    filas = fmp.screener_universo()
+    filas = fmp.screener_universo(sector=sector)
     if not isinstance(filas, list):
         return []
     cuenta: Counter = Counter()
@@ -721,7 +722,8 @@ def _clasificar(mensaje: str) -> str:
 def resolver_todas_las_industrias(settings: Any, fmp: Any, *,
                                   limite: int = 0,
                                   minimo_empresas: int = 2,
-                                  hilos: int = 0) -> list[dict]:
+                                  hilos: int = 0,
+                                  sector: str | None = None) -> list[dict]:
     """Resuelve el TAM de cada industria del mercado que no lo tenga.
 
     Va en orden de cobertura -- primero las industrias con mas empresas --
@@ -746,7 +748,7 @@ def resolver_todas_las_industrias(settings: Any, fmp: Any, *,
     """
     from concurrent.futures import ThreadPoolExecutor
 
-    industrias = industrias_del_mercado(fmp, minimo_empresas)
+    industrias = industrias_del_mercado(fmp, minimo_empresas, sector)
     if limite:
         industrias = industrias[:limite]
     if not industrias:

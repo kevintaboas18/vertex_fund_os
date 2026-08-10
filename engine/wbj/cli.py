@@ -310,8 +310,15 @@ def entradas(
 def tam_todas(
     limite: int = typer.Option(0, help="Cuantas industrias intentar (0 = todas)."),
     minimo: int = typer.Option(2, help="Empresas minimas para que cuente."),
+    sector: str = typer.Option(None, "--sector",
+                               help="Solo las industrias de ese sector, "
+                                    "p.ej. 'Technology' o 'Financial Services'."),
 ) -> None:
     """Resuelve el TAM de cada industria del mercado de EE.UU. que no lo tenga.
+
+    Con `--sector` se hace por tandas: las 12 industrias de Technology de una
+    vez, luego Financial Services, y asi. Es lo que evita que la cuota corte un
+    barrido de 149 a la mitad y deje 126 sin intentar.
 
     Va en orden de cobertura -- primero las industrias con mas empresas --
     porque cada intento cuesta peticiones y la cuota del proveedor de busqueda
@@ -326,7 +333,7 @@ def tam_todas(
 
     settings, _, fmp = _providers()
     filas = resolver_todas_las_industrias(settings, fmp, limite=limite,
-                                          minimo_empresas=minimo)
+                                          minimo_empresas=minimo, sector=sector)
     if not filas:
         typer.echo("No se pudo enumerar el universo.")
         return
