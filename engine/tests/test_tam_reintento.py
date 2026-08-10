@@ -332,3 +332,51 @@ def test_a_stamp_survives_a_dead_second_provider(tmp_path, monkeypatch):
     assert f.exists(), (
         "el proveedor muerto de OpenAI impidio sellar una industria que "
         "Gemini si contesto cuatro veces")
+
+
+# --- un "no hay fuente" caduca cuando la lista de organismos crece ---------
+
+def test_a_no_source_verdict_expires_when_the_list_grows(tmp_path, monkeypatch):
+    """Se anadieron 37 organismos -- Swiss Re, BIO, EFAMA, GWEC... -- y las
+    industrias que ya habian fallado seguian diciendo "ya lo intente" durante
+    90 dias, contra una lista que ya no era la misma.
+
+    El sello lleva ahora cuantos organismos conocia el resolutor cuando se
+    escribio. Si hoy conoce mas, el veredicto caduca.
+    """
+    import json
+    d = tmp_path / "_industrias"
+    d.mkdir(parents=True)
+    (d / "biotechnology.json").write_text(json.dumps({
+        "_generado_por": "vertex/tam_mundial",
+        "_resuelto_en": "2026-08-09",
+        "_sin_tam": "4 respuestas sin cifra atribuible",
+        "_fuentes_conocidas": 10}), encoding="utf-8")
+    llamado = {"n": 0}
+
+    def _falso(*a, **k):
+        llamado["n"] += 1
+        return None, ["sin fuente"]
+
+    monkeypatch.setattr(tm, "_investigar", _falso)
+    tm.asegurar_tam_industria(_SS(tmp_path), "Biotechnology", "")
+    assert llamado["n"] == 1, (
+        "no reintento: el sello viejo bloqueo una lista de fuentes mas grande")
+
+
+def test_a_resolved_tam_is_not_reopened_by_a_new_source(tmp_path, monkeypatch):
+    """Solo caducan los sellos SIN TAM. Una cifra que resolvio sigue siendo
+    buena porque aparezca otro organismo -- para releerla esta
+    `revisar_tam_industrias`, que la comprueba contra su propia fuente."""
+    import json
+    d = tmp_path / "_industrias"
+    d.mkdir(parents=True)
+    (d / "semiconductors.json").write_text(json.dumps({
+        "_generado_por": "vertex/tam_mundial", "_resuelto_en": "2026-08-09",
+        "tam": 1_655_000_000_000, "tam_source": "WSTS", "tam_source_tier": 2,
+        "_fuentes_conocidas": 10}), encoding="utf-8")
+    llamado = {"n": 0}
+    monkeypatch.setattr(tm, "_investigar",
+                        lambda *a, **k: (llamado.__setitem__("n", 1), (None, []))[1])
+    tm.asegurar_tam_industria(_SS(tmp_path), "Semiconductors", "")
+    assert llamado["n"] == 0, "reabrio un TAM que ya estaba resuelto"

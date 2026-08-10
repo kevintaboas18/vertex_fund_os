@@ -895,6 +895,17 @@ def _toca_revisar(data: dict, hoy: "date") -> bool:
     return (hoy - ultima) >= timedelta(days=cada)
 
 
+def _version_de_fuentes() -> int:
+    """Cuantos organismos conoce el resolutor ahora mismo.
+
+    Va en cada sello para que un "no hay fuente" caduque cuando la lista
+    crece. Es el numero de nombres, no un hash del contenido: lo que invalida
+    un veredicto es que haya MAS sitios donde preguntar, y quitar uno no
+    resucita una industria que ya fallo con el.
+    """
+    return len(ASOCIACIONES) + len(CASAS)
+
+
 def _vigente(data: dict, hoy: date) -> bool:
     """Sigue fresco, mirando la fecha mas reciente que el archivo tenga.
 
@@ -903,6 +914,20 @@ def _vigente(data: dict, hoy: date) -> bool:
     barrido lo re-resolvia -- medido: sobrescribio el TAM de WSTS que se habia
     puesto y leido de su fuente esa misma tarde.
     """
+    # Un "sin fuente" caduca en cuanto la lista de organismos crece. Sin
+    # esto, anadir Swiss Re, BIO o EFAMA no servia de nada durante 90 dias:
+    # las industrias que ya habian fallado seguian diciendo "ya lo intente"
+    # contra una lista que ya no era la misma, y habia que borrar los
+    # archivos a mano para que se reintentaran.
+    #
+    # Solo afecta a los sellos SIN TAM. Uno que resolvio no se reabre porque
+    # aparezca otro organismo: la cifra que tiene sigue siendo buena, y para
+    # eso esta `revisar_tam_industrias`.
+    if not data.get("tam"):
+        antes = data.get("_fuentes_conocidas")
+        if not isinstance(antes, int) or antes < _version_de_fuentes():
+            return False
+
     fechas = []
     for clave in ("_verificado_en", "_resuelto_en"):
         try:
@@ -984,6 +1009,7 @@ def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
                     "_generado_por": "vertex/tam_mundial",
                     "_resuelto_en": hoy.isoformat(),
                     "_sin_tam": motivo,
+                    "_fuentes_conocidas": _version_de_fuentes(),
                     "_visto_al_analizar": ticker,
                     "_que_hacer": ("Escribe el TAM a mano en este archivo y borra "
                                    "`_generado_por`: eso lo vuelve tuyo y el sistema "
@@ -1014,6 +1040,7 @@ def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
                 "_generado_por": "vertex/tam_mundial",
                 "_resuelto_en": hoy.isoformat(),
                 "_sin_tam": error,
+                "_fuentes_conocidas": _version_de_fuentes(),
                 "_visto_al_analizar": ticker,
                 "_que_hacer": ("Escribe el TAM a mano en este archivo y borra "
                                "`_generado_por`: eso lo vuelve tuyo y el sistema "
