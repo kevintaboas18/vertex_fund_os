@@ -881,9 +881,9 @@
   "subagents": {
     "aggression": {
       "score": 5.0,
-      "ratio": 0.4577,
-      "premium_ask": 43779869.0,
-      "premium_bid": 51873785.0,
+      "ratio": 0.4589,
+      "premium_ask": 44223239.0,
+      "premium_bid": 52136945.0,
       "premium_mid": 0,
       "n": 278
     },
@@ -1094,6 +1094,46 @@
         }
       ],
       "outcomes": [
+        {
+          "id": 3223581515,
+          "timestamp": "2026-08-10T13:32:00.747Z",
+          "type": "call",
+          "strike": 300.0,
+          "expiration": "2027-01-15",
+          "premium": 691800,
+          "direction": "alcista",
+          "entry_price": 354.33,
+          "mfe_pct": 0.0,
+          "mae_pct": 0.0,
+          "days_to_mfe": null,
+          "days_to_mae": null,
+          "days_to_validate": null,
+          "days_to_invalidate": null,
+          "sessions_observed": 0,
+          "days_elapsed": 0,
+          "validated": false,
+          "resolved": false
+        },
+        {
+          "id": 3223471662,
+          "timestamp": "2026-08-10T13:30:22.401Z",
+          "type": "call",
+          "strike": 375.0,
+          "expiration": "2027-01-15",
+          "premium": 263160,
+          "direction": "bajista",
+          "entry_price": 355.43,
+          "mfe_pct": 0.0,
+          "mae_pct": 0.0,
+          "days_to_mfe": null,
+          "days_to_mae": null,
+          "days_to_validate": null,
+          "days_to_invalidate": null,
+          "sessions_observed": 0,
+          "days_elapsed": 0,
+          "validated": false,
+          "resolved": false
+        },
         {
           "id": 3223212230,
           "timestamp": "2026-08-07T19:57:51.784Z",
@@ -1553,50 +1593,10 @@
           "days_elapsed": 2,
           "validated": false,
           "resolved": false
-        },
-        {
-          "id": 3222654739,
-          "timestamp": "2026-08-07T19:39:45.111Z",
-          "type": "call",
-          "strike": 455.0,
-          "expiration": "2027-12-17",
-          "premium": 147210,
-          "direction": "bajista",
-          "entry_price": 354.4,
-          "mfe_pct": 0.0,
-          "mae_pct": 0.0,
-          "days_to_mfe": null,
-          "days_to_mae": null,
-          "days_to_validate": null,
-          "days_to_invalidate": null,
-          "sessions_observed": 0,
-          "days_elapsed": 2,
-          "validated": false,
-          "resolved": false
-        },
-        {
-          "id": 3222654737,
-          "timestamp": "2026-08-07T19:39:45.110Z",
-          "type": "call",
-          "strike": 455.0,
-          "expiration": "2027-12-17",
-          "premium": 175250,
-          "direction": "bajista",
-          "entry_price": 354.4,
-          "mfe_pct": 0.0,
-          "mae_pct": 0.0,
-          "days_to_mfe": null,
-          "days_to_mae": null,
-          "days_to_validate": null,
-          "days_to_invalidate": null,
-          "sessions_observed": 0,
-          "days_elapsed": 2,
-          "validated": false,
-          "resolved": false
         }
       ],
       "coverage": {
-        "days": 36,
+        "days": 38,
         "flows": 602,
         "pending": 287,
         "below_target": true
@@ -1826,7 +1826,7 @@
     }
   },
   "warnings": [
-    "El backtest de Confirmación de Precio cubre 36 días; el documento pide 60. La tasa de acierto es provisional.",
+    "El backtest de Confirmación de Precio cubre 38 días; el documento pide 60. La tasa de acierto es provisional.",
     "Las bandas de puntos del sub-agente 6 (Confirmación de Precio) son una PROPUESTA: su PDF no trae tabla de puntuación."
   ],
   "notable_trades": 278,
@@ -4129,7 +4129,7 @@
     "flows_corruptos": 0,
     "flows_sin_id": 0,
     "escrituras_fallidas": null,
-    "flows_nuevos": 334,
+    "flows_nuevos": 0,
     "memoria_desde": "2026-07-02T19:21:58.001Z",
     "predicciones_vencidas": 0,
     "sesgo_pct": null,
@@ -4137,7 +4137,41 @@
     "dir_hit_rate": null,
     "base_touch_rate": null,
     "motivo": null,
-    "evals": []
+    "evals": [
+      {
+        "date": "2026-08-10",
+        "horizon_days": null,
+        "matured": true,
+        "spot": 354.3,
+        "base": 375.0,
+        "actual_close": null,
+        "error_pct": null,
+        "best": null,
+        "direction_hit": null
+      },
+      {
+        "date": "2026-08-10",
+        "horizon_days": null,
+        "matured": true,
+        "spot": 354.3,
+        "base": 375.0,
+        "actual_close": null,
+        "error_pct": null,
+        "best": null,
+        "direction_hit": null
+      },
+      {
+        "date": "2026-08-10",
+        "horizon_days": null,
+        "matured": true,
+        "spot": 354.3,
+        "base": 375.0,
+        "actual_close": null,
+        "error_pct": null,
+        "best": null,
+        "direction_hit": null
+      }
+    ]
   },
   "flow_clusters": [
     {
@@ -4163,14 +4197,14 @@
     {
       "start_sec": 1786026214,
       "end_sec": 1786027389,
-      "count": 22,
-      "premium": 9724434.0,
+      "count": 20,
+      "premium": 9476004.0,
       "direction": "ask",
       "score": 9.0,
-      "unidirectionality": 0.5338,
+      "unidirectionality": 0.5216,
       "bet": "bajista",
       "bet_label": "Compraron PUTS",
-      "call_premium": 736144.0,
+      "call_premium": 487714.0,
       "put_premium": 8988290.0,
       "strikes": [
         325.0,
@@ -4366,5 +4400,5 @@
   ],
   "fecha": "2026-08-10",
   "agente": "opciones",
-  "guardado_en": "2026-08-10T13:06:57+00:00"
+  "guardado_en": "2026-08-10T13:33:20+00:00"
 }
