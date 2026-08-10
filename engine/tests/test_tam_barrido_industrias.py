@@ -39,7 +39,14 @@ class _FMP:
 
 def _empresa(industria, **extra):
     return {"industry": industria, "isEtf": False, "isFund": False,
-            "isActivelyTrading": True, **extra}
+            "isActivelyTrading": True, "symbol": extra.pop("symbol", "X"),
+            "marketCap": extra.pop("marketCap", 1e9), **extra}
+
+
+def _sin_ticker(filas):
+    """El censo devuelve (industria, empresas, ticker_mayor). Los tests de
+    conteo solo miran los dos primeros -- el tercero tiene el suyo."""
+    return [(n, c) for n, c, _ in filas]
 
 
 # --- que industrias cuentan ------------------------------------------------
@@ -51,27 +58,27 @@ def test_funds_and_etfs_are_not_an_industry():
     fmp = _FMP([_empresa("Semiconductors"), _empresa("Semiconductors"),
                 _empresa("Asset Management", isEtf=True),
                 _empresa("Asset Management", isFund=True)])
-    assert tm.industrias_del_mercado(fmp) == [("Semiconductors", 2)]
+    assert _sin_ticker(tm.industrias_del_mercado(fmp)) == [("Semiconductors", 2)]
 
 
 def test_delisted_companies_do_not_count():
     fmp = _FMP([_empresa("Semiconductors"), _empresa("Semiconductors"),
                 _empresa("Semiconductors", isActivelyTrading=False)])
-    assert tm.industrias_del_mercado(fmp) == [("Semiconductors", 2)]
+    assert _sin_ticker(tm.industrias_del_mercado(fmp)) == [("Semiconductors", 2)]
 
 
 def test_the_biggest_industries_come_first():
     """El orden ES la economía de cuota: más mercado cubierto por petición."""
     fmp = _FMP([_empresa("Chica"), _empresa("Chica")]
                + [_empresa("Grande")] * 9)
-    assert [n for n, _ in tm.industrias_del_mercado(fmp)] == ["Grande", "Chica"]
+    assert [n for n, _, _ in tm.industrias_del_mercado(fmp)] == ["Grande", "Chica"]
 
 
 def test_a_one_company_industry_is_skipped_by_default():
     """Gastar cuatro peticiones en una industria de una sola empresa es
     exactamente lo que el orden por cobertura existe para evitar."""
     fmp = _FMP([_empresa("Grande"), _empresa("Grande"), _empresa("Unica")])
-    assert [n for n, _ in tm.industrias_del_mercado(fmp)] == ["Grande"]
+    assert [n for n, _, _ in tm.industrias_del_mercado(fmp)] == ["Grande"]
 
 
 def test_an_unreadable_universe_yields_nothing_not_a_crash():
@@ -179,3 +186,16 @@ def test_one_dead_provider_does_not_kill_the_sweep(monkeypatch):
     tm.resolver_todas_las_industrias(fmp=fmp, settings=None)
     assert vistas == ["Primera", "Segunda", "Tercera"], (
         f"un proveedor muerto corto el barrido: solo llego a {vistas}")
+
+
+def test_the_census_names_the_biggest_ticker_of_each_industry():
+    """El juez de la capa necesita una empresa contra la que contrastar. Sin
+    ella respondia "sin ticker de referencia" y no opinaba -- justo en el
+    barrido, que es donde mas se usa.
+
+    Se elige el de mayor capitalizacion porque es el que mejor representa
+    donde factura la industria.
+    """
+    fmp = _FMP([_empresa("Semis", symbol="CHICA", marketCap=1e9),
+                _empresa("Semis", symbol="NVDA", marketCap=4e12)])
+    assert tm.industrias_del_mercado(fmp) == [("Semis", 2, "NVDA")]

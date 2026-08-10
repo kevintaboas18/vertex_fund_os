@@ -868,15 +868,28 @@ def industrias_del_mercado(fmp: Any, minimo_empresas: int = 2,
     if not isinstance(filas, list):
         return []
     cuenta: Counter = Counter()
+    # El ticker MAYOR de cada industria, para que el juez de capa tenga contra
+    # que contrastar. Sin el respondia "sin ticker de referencia" y no opinaba
+    # -- justo en el barrido, que es donde mas se usa. `consumer-electronics`
+    # resolvio asi con "ventas minoristas mundiales", que es valor al publico
+    # cuando Apple factura a canal: la misma forma del error de Coca-Cola que
+    # el juez SI atrapa cuando se le da la empresa.
+    mayor: dict[str, tuple[float, str]] = {}
     for f in filas:
         if not isinstance(f, dict) or f.get("isEtf") or f.get("isFund"):
             continue
         if f.get("isActivelyTrading") is False:
             continue
         ind = (f.get("industry") or "").strip()
-        if ind:
-            cuenta[ind] += 1
-    return [(n, c) for n, c in cuenta.most_common() if c >= minimo_empresas]
+        if not ind:
+            continue
+        cuenta[ind] += 1
+        cap = float(f.get("marketCap") or 0)
+        sim = str(f.get("symbol") or "")
+        if sim and cap > mayor.get(ind, (0.0, ""))[0]:
+            mayor[ind] = (cap, sim)
+    return [(n, c, mayor.get(n, (0.0, ""))[1])
+            for n, c in cuenta.most_common() if c >= minimo_empresas]
 
 
 def _clasificar(mensaje: str) -> str:
@@ -926,12 +939,13 @@ def resolver_todas_las_industrias(settings: Any, fmp: Any, *,
     n = hilos or HILOS_BARRIDO
     abortado = threading.Event()
 
-    def _una(par: tuple[str, int]) -> dict:
-        nombre, empresas = par
+    def _una(par: tuple) -> dict:
+        nombre, empresas = par[0], par[1]
+        referencia = par[2] if len(par) > 2 else ""
         if abortado.is_set():
             return {"industria": nombre, "empresas": empresas,
                     "estado": "no intentada", "detalle": "corte por cuota"}
-        mensaje = asegurar_tam_industria(settings, nombre, "")
+        mensaje = asegurar_tam_industria(settings, nombre, referencia)
         # Que el mensaje NOMBRE una cuota no significa que el barrido este
         # bloqueado: con dos proveedores, el fallo de uno viaja en el mismo
         # texto que las respuestas del otro. Solo aborta si NADIE respondio.
