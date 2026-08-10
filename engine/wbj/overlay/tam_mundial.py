@@ -498,6 +498,97 @@ def _investigar(settings: Any, industria: str, ticker: str,
 _MUNDIAL = ("mundial", "worldwide", "global", "world")
 
 
+PROMPT_CAPA = """Eres un analista de research. Tengo un tamano de mercado y
+necesito saber si mide LA CAPA en la que {ticker} factura.
+
+Cifra:      {tam}
+Fuente:     {fuente}
+Capa que declara medir: {capa}
+Ingresos anuales reportados por {ticker}: {ingresos}
+
+Una capa es un eslabon de la cadena de valor. El error que buscamos es este:
+
+  - Gartner dio "gasto mundial en dispositivos" para NVIDIA. Cifra correcta,
+    pero mide lo que paga el USUARIO FINAL, y NVIDIA vende chips a fabricantes.
+  - NielsenIQ dio "valor de venta al publico de bebidas" para Coca-Cola.
+    Correcta, pero KO factura CONCENTRADO a embotelladores.
+  - SIPRI dio "gasto militar mundial" para una empresa de defensa. Correcta,
+    pero incluye salarios y operaciones; la empresa factura ARMAMENTO.
+
+En los tres la cifra era buena y la capa estaba equivocada, y el denominador
+salia varias veces mas grande de lo que corresponde.
+
+Responde SOLO con este JSON:
+{{
+  "veredicto": "<COINCIDE | CAPA_DISTINTA | NO_SE_PUEDE_SABER>",
+  "porque": "<una frase: que mide la cifra y donde factura la empresa>"
+}}
+
+COINCIDE       si la cifra mide el eslabon donde la empresa cobra.
+CAPA_DISTINTA  si mide otro eslabon -- gasto del usuario final cuando la
+               empresa vende a fabricantes, o al reves, o un agregado mucho
+               mas ancho que lo que la empresa vende.
+NO_SE_PUEDE_SABER si la descripcion no basta. No adivines."""
+
+
+def _ingresos_del_ticker(settings: Any, ticker: str) -> float | None:
+    """Los ingresos anuales del ticker, para contrastarlos con la cifra.
+
+    Sin ellos el juez decide sobre descripciones; con ellos ve que una empresa
+    que factura $5.500M contra un mercado de $252.000M o bien tiene el 2% o
+    bien esta comparando dos cosas distintas.
+    """
+    if not ticker:
+        return None
+    try:
+        from wbj.providers.cache import Cache
+        from wbj.providers.fmp import FMPProvider
+
+        filas = FMPProvider(settings, Cache(settings.cache_dir)).income_annual(ticker)
+        if isinstance(filas, list) and filas:
+            v = (filas[0] or {}).get("revenue")
+            return float(v) if v else None
+    except Exception:  # noqa: BLE001 -- sin ingresos el juez sigue pudiendo opinar
+        logger.info("sin ingresos de %s para contrastar la capa", ticker)
+    return None
+
+
+def _juzgar_capa(settings: Any, datos: dict, ticker: str,
+                 ingresos: float | None) -> tuple[bool, str]:
+    """Pregunta si la cifra mide la capa donde la empresa factura.
+
+    Es lo que ninguna comprobacion mecanica alcanza. Los cuatro errores de
+    capa que ha tenido este modulo -- Gartner con NVDA, NAREIT con O,
+    NielsenIQ con KO, SIPRI con defensa -- tenian TODOS la cifra correcta,
+    verificada en la pagina de su organismo, con ambito mundial y capa
+    declarada. Lo que fallaba era si esa capa es donde la empresa cobra, y eso
+    es una pregunta cualitativa.
+
+    La lista de acervos prohibidos (`market capitalization`, `AUM`, `GDP`...)
+    cubre los casos que ya conocemos y no habria atrapado el de SIPRI: "gasto
+    militar mundial" no es un acervo, es un flujo -- pero de otra capa.
+
+    Ante la duda NO se rechaza. Un `NO_SE_PUEDE_SABER` deja pasar la cifra con
+    su capa declarada a la vista, que es como estaba antes de existir esto:
+    el juez solo puede quitar TAM malos, nunca bloquear buenos por timidez.
+    """
+    if not ticker:
+        return True, "sin ticker de referencia, no hay capa que contrastar"
+    prompt = PROMPT_CAPA.format(
+        ticker=ticker, tam=f"${int(datos.get('tam') or 0):,}",
+        fuente=datos.get("tam_source"), capa=datos.get("capa"),
+        ingresos=f"${int(ingresos):,}" if ingresos else "no disponibles")
+    texto, error = _preguntar_gemini(settings, prompt)
+    if error:
+        return True, f"no se pudo consultar la capa ({error[:40]})"
+    r = _json_del_texto(texto) or {}
+    veredicto = str(r.get("veredicto") or "").strip().upper()
+    porque = str(r.get("porque") or "").strip()
+    if veredicto == "CAPA_DISTINTA":
+        return False, porque or "el juez leyo otra capa"
+    return True, porque
+
+
 def _validar(datos: dict, industria: str) -> tuple[dict | None, str]:
     """La respuesta convertida en overlay, o el motivo por el que no.
 
@@ -1084,6 +1175,21 @@ def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
                 if previo.get(k) is not None}
 
     overlay, error = _validar(datos, industria or slug)
+
+    # El juez de la capa va DESPUES de la validacion mecanica y solo sobre el
+    # candidato que la paso: es una llamada mas al modelo, y gastarla en cifras
+    # que ya se van a rechazar seria tirar cuota. Ver `_juzgar_capa`.
+    if overlay is not None:
+        _ok_capa, _porque = _juzgar_capa(settings, datos, ticker,
+                                         _ingresos_del_ticker(settings, ticker))
+        if not _ok_capa:
+            logger.info("TAM de %s rechazado por capa: %s", slug, _porque)
+            if previo.get("tam"):
+                return (f"{slug}: rechazado por capa ({_porque[:70]}), "
+                        "se conserva el anterior")
+            overlay, error = None, f"capa distinta: {_porque}"
+        elif _porque:
+            overlay["_capa_juzgada"] = _porque
     if overlay is None:
         logger.info("TAM de %s rechazado: %s", slug, error)
         if previo.get("tam"):

@@ -103,3 +103,63 @@ def test_no_figure_at_all_keeps_its_own_reason():
     salida, motivo = _validar({"tam": None}, "Consumer Electronics")
     assert salida is None
     assert "ninguna asociacion" in motivo and "acervo" not in motivo
+
+
+# --- el juez de la capa ----------------------------------------------------
+
+def test_the_judge_rejects_a_different_layer(monkeypatch):
+    """El caso real de Coca-Cola, verificado contra el modelo: "La cifra mide
+    el valor de venta al publico de bebidas no alcoholicas, mientras que
+    Coca-Cola factura concentrado".
+
+    Es justo el que la lista de acervos NO atrapa -- "valor al publico" es un
+    flujo anual, no una capitalizacion. Lo que falla es la CAPA, y eso es una
+    pregunta cualitativa.
+    """
+    monkeypatch.setattr(tm, "_preguntar_gemini", lambda s, p: (
+        '{"veredicto": "CAPA_DISTINTA", "porque": "mide valor al publico y KO '
+        'factura concentrado"}', None))
+    ok, porque = tm._juzgar_capa(None, {"tam": 418e9, "tam_source": "NielsenIQ",
+                                        "capa": "valor al publico"}, "KO", 47e9)
+    assert ok is False and "concentrado" in porque
+
+
+def test_the_judge_accepts_a_matching_layer(monkeypatch):
+    monkeypatch.setattr(tm, "_preguntar_gemini", lambda s, p: (
+        '{"veredicto": "COINCIDE", "porque": "WSTS mide facturacion de chips y '
+        'NVDA vende chips"}', None))
+    ok, _ = tm._juzgar_capa(None, {"tam": 1655e9, "tam_source": "WSTS",
+                                   "capa": "facturacion de semiconductores"},
+                            "NVDA", 216e9)
+    assert ok is True
+
+
+@pytest.mark.parametrize("respuesta", [
+    ('{"veredicto": "NO_SE_PUEDE_SABER", "porque": "la descripcion no basta"}', None),
+    ("", "gemini: ServerError 503 UNAVAILABLE"),
+    ("no soy json", None),
+])
+def test_the_judge_never_blocks_on_doubt(respuesta):
+    """Ante la duda NO se rechaza, y eso es deliberado. El juez solo puede
+    QUITAR TAM malos; bloquear uno bueno por timidez -- o por un 503 pasajero
+    -- dejaria la industria sin denominador tres meses.
+
+    Verificado en vivo: de cuatro consultas, tres devolvieron 503 o 429. Si
+    esos errores rechazaran, un mal minuto de la API borraria TAM correctos.
+    """
+    import pytest as _p
+    tm._preguntar_gemini_original = tm._preguntar_gemini
+    tm._preguntar_gemini = lambda s, p: respuesta
+    try:
+        ok, _ = tm._juzgar_capa(None, {"tam": 1e9, "tam_source": "X",
+                                       "capa": "y"}, "NVDA", 1e9)
+        assert ok is True
+    finally:
+        tm._preguntar_gemini = tm._preguntar_gemini_original
+
+
+def test_without_a_ticker_there_is_no_layer_to_contrast():
+    """El barrido resuelve industrias sin ticker de referencia. Sin empresa
+    contra la que contrastar, la pregunta no tiene sentido."""
+    ok, porque = tm._juzgar_capa(None, {"tam": 1e9}, "", None)
+    assert ok is True and "sin ticker" in porque
