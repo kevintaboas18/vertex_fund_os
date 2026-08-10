@@ -598,7 +598,7 @@
         "dominant": true,
         "dominance_pct": 90.2,
         "open_interest": 112184.0,
-        "volume": 4043.0
+        "volume": 4057.0
       },
       {
         "strike": 350.0,
@@ -658,7 +658,7 @@
         "dominant": true,
         "dominance_pct": 62.8,
         "open_interest": 98401.0,
-        "volume": 15081.0
+        "volume": 15082.0
       },
       {
         "strike": 390.0,
@@ -4401,5 +4401,5 @@
   ],
   "fecha": "2026-08-10",
   "agente": "opciones",
-  "guardado_en": "2026-08-10T14:33:56+00:00"
+  "guardado_en": "2026-08-10T14:34:08+00:00"
 }
