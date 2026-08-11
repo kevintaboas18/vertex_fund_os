@@ -1148,35 +1148,23 @@ class DebateVerdict(BaseModel):
     synthesis: str = Field(..., description="Síntesis equilibrada que reconcilia ambos casos en un veredicto accionable, sin sesgo de confirmación.")
     p_bull_correct: int = Field(..., description="Probabilidad 0-100 de que el caso TORO resulte correcto a 12 meses, anclada en base-rates.")
 
-# Modelos para la sección Explore
-class CommentRecord(BaseModel):
-    platform: str
-    text: str
-    sentiment: str
-
-class SourceRecord(BaseModel):
-    twitter: int
-    reddit: int
-    news: int
-    google: int
-    yahoo: int
-    seeking: int
-
-class BuzzStock(BaseModel):
+# Modelos para la sección Explore — «descubrir empresas»
+class DiscoveredCompany(BaseModel):
     ticker: str
     name: str
-    sentiment: str
-    sentimentScore: int
-    totalMentions: int
-    sources: SourceRecord
-    summary: str
-    keyThemes: list[str]
-    comments: list[CommentRecord]
-    aiThesis: str
-    priceContext: str
+    revenue: float
+    growth: float
+    margin: float
+    score10: float
+    evidence: int | None = None
+    price: float | None = None
+    target_base: float | None = None
+    upside_base: float | None = None
 
 class ExploreResponse(BaseModel):
-    buzz_stocks: list[BuzzStock]
+    companies: list[DiscoveredCompany]
+    prefilter: dict
+    generated_at: str
 
 
 def get_clean_domain(url_string):
@@ -1854,351 +1842,41 @@ def format_insiders_context(ins):
 # ENDPOINTS
 # ─────────────────────────────────────────────────────────────────────────────
 
-@app.get("/api/explore")
-def get_market_buzz():
-    """
-    Real-time market buzz: ALL stocks mentioned 5+ times across X/Twitter, Reddit,
-    Google, Yahoo Finance, news and web. Returns bullish/neutral/bearish with scores.
-    Uses Gemini + Google Search grounding.
+@app.get("/api/explore", response_model=ExploreResponse)
+def get_explore(limit: int = 15):
+    """Descubrir empresas — el screener del engine (`wbj.screener`), tal cual.
+
+    Antes esto era el «Market Buzz Explorer»: ordenaba acciones por cuántas
+    veces se las menciona en X, Reddit y foros. Eso mide popularidad, no
+    evidencia, y la regla del proyecto es que sin número no hay score. Aquí
+    el orden lo pone el puntaje del engine sobre datos de la SEC.
+
+    Dos etapas, la barata primero:
+
+    1. Prefiltro sobre TODO el universo de declarantes de la SEC — las
+       «frames» XBRL traen ventas de dos años y utilidad neta del mercado
+       entero en ~4 peticiones. Se queda con las medianas ($0.8B-$30B:
+       grandes de verdad, pero probablemente desconocidas), rentables
+       (margen neto > 8%) y creciendo (> 5%).
+    2. Scorecard rápido de los 6 agentes sólo para los mejores candidatos.
+
+    La primera corrida tarda 1-2 min: construye un packet por candidato. Las
+    siguientes van sobre la caché de EDGAR.
+
+    Es una clasificación de research, nunca una orden de compra.
     """
     try:
-        today_str = datetime.now().strftime("%A, %B %d, %Y")
-        prompt = f"""You are a real-time market intelligence analyst for Vertex AI. Today is {today_str}.
-
-TASK: Search X/Twitter, Reddit (r/wallstreetbets, r/stocks, r/investing, r/options, r/stockmarket),
-StockTwits, Google Finance, Yahoo Finance, financial news (Bloomberg, Reuters, CNBC, MarketWatch,
-Seeking Alpha, Barron's, TheStreet) and Google Trends RIGHT NOW.
-
-Find EVERY stock ticker (equities, ETFs, crypto) that has been mentioned or discussed MORE THAN 5 TIMES
-across these platforms in the last 24-72 hours. Do NOT limit the list — include ALL of them.
-Expect between 20 and 40 tickers. Miss none. Include speculative plays, meme stocks, large caps,
-small caps, ETFs, anything actively discussed.
-
-For EACH ticker return EXACTLY this JSON structure (no markdown, no backticks, just raw JSON):
-
-{{
-  "buzz_stocks": [
-    {{
-      "ticker": "AAPL",
-      "name": "Apple Inc.",
-      "sector": "Technology",
-      "totalMentions": 312,
-      "sentiment": "bullish",
-      "sentimentScore": 72,
-      "change": "+1.23%",
-      "summary": "2-3 sentences explaining WHY this is trending RIGHT NOW with specific details.",
-      "keyThemes": ["AI chips", "earnings beat", "buyback"],
-      "sources": {{
-        "twitter": 120,
-        "reddit": 85,
-        "news": 60,
-        "google": 30,
-        "yahoo": 17
-      }},
-      "comments": [
-        {{"user": "@handle", "platform": "X/Twitter", "text": "Specific realistic comment about this stock", "sentiment": "bullish", "likes": 245}},
-        {{"user": "u/handle", "platform": "Reddit", "text": "Specific realistic comment about this stock", "sentiment": "bullish", "likes": 189}},
-        {{"user": "StockTwits", "platform": "StockTwits", "text": "Specific realistic comment about this stock", "sentiment": "neutral", "likes": 44}}
-      ],
-      "aiThesis": "2-3 sentence AI investment thesis and speculation based on current buzz.",
-      "priceContext": "Price action context: current price, recent move, key levels."
-    }}
-  ]
-}}
-
-CRITICAL RULES:
-1. sentiment MUST be exactly one of: "bullish", "neutral", "bearish" (lowercase only)
-2. sentimentScore: integer 0-100 (0=extremely bearish, 50=neutral, 100=extremely bullish)
-3. Include ALL tickers with 5+ mentions — do NOT cap at 12 or any number
-4. Be specific: real tickers, real reasons, real sentiment based on what people actually say today
-5. Return ONLY the raw JSON object — absolutely no markdown, no ```json, no explanation text"""
-
-        response = client_gemini.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.4,
-                tools=[types.Tool(google_search=types.GoogleSearch())]
-            )
-        )
-
-        raw = response.text.strip()
-        if raw.startswith("```"):
-            raw = re.sub(r'^```[a-z]*\n?', '', raw)
-            raw = re.sub(r'\n?```$', '', raw)
-        raw = raw.strip()
-
-        data = json.loads(raw)
-        stocks = data.get("buzz_stocks", [])
-
-        # Normalize sentiment values to strict lowercase bullish/neutral/bearish
-        for s in stocks:
-            sent = str(s.get("sentiment", "neutral")).lower().strip()
-            if any(x in sent for x in ["bull", "positiv", "alcist"]):
-                s["sentiment"] = "bullish"
-            elif any(x in sent for x in ["bear", "negativ", "bajist"]):
-                s["sentiment"] = "bearish"
-            else:
-                s["sentiment"] = "neutral"
-            # Ensure sentimentScore aligns with label
-            score = int(s.get("sentimentScore", 50))
-            if s["sentiment"] == "bullish"  and score < 55: score = max(score, 60)
-            if s["sentiment"] == "bearish"  and score > 45: score = min(score, 40)
-            if s["sentiment"] == "neutral"  and (score < 40 or score > 60): score = 50
-            s["sentimentScore"] = score
-
-        return stocks
-
-    except json.JSONDecodeError:
-        # Fallback without google_search
-        try:
-            today_str2 = datetime.now().strftime("%A, %B %d, %Y")
-            prompt2 = f"""Today is {today_str2}. Generate a list of 25 stocks currently trending in financial social media and news.
-Include large caps, growth stocks, meme stocks, and ETFs. Mix of bullish, neutral, and bearish.
-Return ONLY valid JSON: {{"buzz_stocks":[{{"ticker":"","name":"","sector":"","totalMentions":0,"sentiment":"bullish","sentimentScore":70,"change":"","summary":"","keyThemes":[],"sources":{{"twitter":0,"reddit":0,"news":0,"google":0,"yahoo":0}},"comments":[{{"user":"","platform":"","text":"","sentiment":"bullish","likes":0}}],"aiThesis":"","priceContext":""}}]}}"""
-            resp2 = client_gemini.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt2,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.5
-                )
-            )
-            raw2 = resp2.text.strip()
-            if raw2.startswith("```"):
-                raw2 = re.sub(r'^```[a-z]*\n?', '', raw2)
-                raw2 = re.sub(r'\n?```$', '', raw2)
-            data2 = json.loads(raw2.strip())
-            return data2.get("buzz_stocks", [])
-        except Exception as ex2:
-            raise HTTPException(status_code=500, detail=f"Explore error: {str(ex2)}")
+        from wbj.screener import (screen as run_screen,
+                                  REV_MIN, REV_MAX, MARGIN_MIN, GROWTH_MIN)
+        filas = run_screen(limit=limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=_error_publico(e, "/api/explore"))
-
-
-@app.get("/api/explore-screens")
-def get_explore_screens(n: int = 6):
-    """#Explore screens — pantallas fundamentales EN VIVO (Gemini + búsqueda) que complementan
-    el Market Buzz (lo más mencionado) con calidad fundamental:
-      • growing_yoy: creciendo año-tras-año
-      • reducing_debt: reduciendo deuda
-      • approaching_profitability: a punto de volverse rentables."""
-    if not API_KEY:
-        return {"ok": False, "error": "Falta GEMINI_API_KEY para los screens fundamentales."}
-    try:
-        n = max(3, min(int(n), 10))
-        prompt = f"""Eres un analista cuantitativo. Usando datos REALES y recientes (BÚSCALOS con la herramienta
-de búsqueda), arma CUATRO pantallas de acciones de EE.UU. (tickers reales), {n} por pantalla, priorizando nombres
-líquidos y reconocibles:
-1) "growing_yoy": empresas con crecimiento de ingresos/utilidades año-tras-año fuerte y sostenido.
-2) "reducing_debt": empresas que están REDUCIENDO su deuda neta de forma notable.
-3) "approaching_profitability": empresas a punto de volverse rentables (pérdidas que se achican rápido o breakeven cercano), o que cruzaron a rentabilidad recientemente.
-4) "high_growth": empresas de ALTO crecimiento AUNQUE tengan valoración alta (caras/múltiplos elevados) — momentum de ingresos muy fuerte que justifica el precio.
-Devuelve SOLO un objeto JSON crudo (sin markdown, sin ```), con esta forma EXACTA:
-{{"growing_yoy":[{{"ticker":"","name":"","sector":"","metric":"cifra clave corta, ej. 'Ingresos +32% YoY'","note":"una frase de por qué"}}],
-"reducing_debt":[{{"ticker":"","name":"","sector":"","metric":"ej. 'Deuda neta -$4B en 12m'","note":"una frase"}}],
-"approaching_profitability":[{{"ticker":"","name":"","sector":"","metric":"ej. 'Margen op. -3% → +2% est.'","note":"una frase"}}],
-"high_growth":[{{"ticker":"","name":"","sector":"","metric":"ej. 'Ingresos +55% YoY · P/S 18x'","note":"una frase de por qué vale aunque sea cara"}}]}}
-Reglas duras: tickers reales; cifras reales y recientes; 'metric' corto (<= 6 palabras); 'note' una sola frase."""
-        resp = client_gemini.models.generate_content(
-            model='gemini-2.5-flash', contents=prompt,
-            config=types.GenerateContentConfig(temperature=0.45,
-                tools=[types.Tool(google_search=types.GoogleSearch())]))
-        raw = (resp.text or "").strip()
-        if raw.startswith("```"):
-            raw = re.sub(r'^```[a-z]*\n?', '', raw)
-            raw = re.sub(r'\n?```$', '', raw)
-        data = json.loads(raw.strip())
-
-        def _clean(lst):
-            out = []
-            for it in (lst or []):
-                tk = str(it.get("ticker", "")).upper().strip()
-                if tk:
-                    it["ticker"] = tk
-                    out.append(it)
-            return out
-
-        screens = {
-            "growing_yoy": _clean(data.get("growing_yoy")),
-            "reducing_debt": _clean(data.get("reducing_debt")),
-            "approaching_profitability": _clean(data.get("approaching_profitability")),
-            "high_growth": _clean(data.get("high_growth")),
-        }
-        return {"ok": True, "screens": screens,
-                "generated_at": datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')}
-    except HTTPException:
-        raise
-    except Exception as e:
-        return {"ok": False, "error": f"No se pudieron generar los screens: {e}"}
-
-
-@app.get("/api/explore-deep")
-def get_explore_deep(ticker: str):
-    """
-    Deep dive on a trending ticker: usa Gemini/OpenAI para leer lo que se dice
-    on X/Twitter, Reddit, web, news + AI thesis and speculation. Same 3-month window.
-    """
-    ticker_clean = ticker.upper().strip()
-    company_name = ticker_clean
-    ctx_str = f"Accion: {ticker_clean}"
-    try:
-        info = vertex_market.Ticker(ticker_clean).info
-        company_name = info.get("longName", ticker_clean)
-        sector   = info.get("sector",   "N/A")
-        industry = info.get("industry", "N/A")
-        price    = info.get("currentPrice") or info.get("regularMarketPrice") or "N/A"
-        mktcap   = info.get("marketCap")
-        pe       = info.get("trailingPE") or "N/A"
-        tgt      = info.get("targetMeanPrice")
-        analysts = info.get("numberOfAnalystOpinions", 0)
-        ctx_str  = (
-            f"{company_name} ({ticker_clean}) | Sector: {sector} | Industry: {industry} | "
-            f"Precio actual: ${price} | Market Cap: {'$'+str(round(mktcap/1e9,1))+'B' if mktcap else 'N/A'} | "
-            f"P/E: {pe} | Target WS: {'$'+str(tgt) if tgt else 'N/A'} | Analistas: {analysts}"
-        )
-    except Exception:
-        pass
-
-    # Fetch REAL Reddit posts para dárselos al LLM como contexto literal
-    reddit_posts   = fetch_reddit_posts(ticker_clean, limit=8)
-    reddit_context = format_reddit_context(reddit_posts)
-
-    three_months_ago = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
-    today_str        = datetime.now().strftime("%Y-%m-%d")
-
-    _meses = ["enero","febrero","marzo","abril","mayo","junio","julio",
-              "agosto","septiembre","octubre","noviembre","diciembre"]
-    _s = datetime.now() - timedelta(days=90)
-    _e = datetime.now()
-    date_label = (f"{_s.day} de {_meses[_s.month-1]} de {_s.year} "
-                  f"— {_e.day} de {_meses[_e.month-1]} de {_e.year}")
-
-    system_msg = (
-        "Eres el maximo analista de inteligencia de mercado y psicologia del inversor de Vertex AI. "
-        "Tienes acceso en tiempo real a X/Twitter, Reddit, StockTwits, noticias financieras y la web. "
-        f"REGLA CRITICA DE TIEMPO: SOLO analiza publicaciones, posts, tweets y noticias entre {three_months_ago} "
-        f"y {today_str} (ultimos 90 dias). Ignora absolutamente todo lo anterior a {three_months_ago}. "
-        "Eres extremadamente detallado, especifico, con ejemplos reales, citas con fecha aproximada, "
-        "fuentes concretas, cifras y datos. Ademas de describir el sentimiento, ESPECULAS con tu propia "
-        "tesis de inversion basada en lo que la comunidad esta diciendo. Respondes SIEMPRE en espanol."
-    )
-
-    # Antes decia "usa tu conocimiento general". Reddit bloquea las peticiones sin
-    # autenticar (403 "Blocked") desde hace tiempo, asi que esa rama es la UNICA
-    # que corre -- y le pedia al modelo que sustituyera la fuente por lo que
-    # recuerda de su entrenamiento. Sentimiento de hace anos presentado como el
-    # de hoy es exactamente lo que DATA_POLICY.md prohibe: "Do not convert an
-    # unverified web statement into a score". Si no hay posts, se dice que no hay.
-    reddit_block = reddit_context if reddit_context else (
-        "(SIN DATOS de Reddit: la fuente no respondio. NO sustituyas esto con lo "
-        "que recuerdes de tu entrenamiento -- seria sentimiento de otra epoca "
-        "presentado como actual. Declara el sentimiento de foros como NO "
-        "DISPONIBLE y no lo uses para ninguna conclusion.)")
-    user_msg = f"""Haz un analisis PROFUNDO, EXHAUSTIVO y COMPLETO de {ticker_clean} ({company_name}).
-Datos del activo: {ctx_str}
-Periodo de analisis: {three_months_ago} a {today_str} (ultimos 3 meses UNICAMENTE).
-
-POSTS REALES DE REDDIT (extraidos en vivo de r/wallstreetbets, r/stocks, r/investing, r/options, r/StockMarket — ordenados por upvotes para ponderar credibilidad). USA ESTOS POSTS REALES como evidencia principal de lo que la comunidad dice AHORA; citalos y analizalos especificamente:
-{reddit_block}
-
-Responde con EXACTAMENTE estas 7 secciones. Cada seccion debe ser MUY DETALLADA con datos reales,
-ejemplos especificos, citas con fecha, cifras concretas y profundidad de analisis institucional:
-
-**1. SENTIMIENTO ACTUAL — X/TWITTER, REDDIT, WEB (ULTIMOS 3 MESES)**
-Cual es el estado emocional dominante de la comunidad sobre {ticker_clean} en este momento?
-Da el % estimado Bulls vs Bears en cada plataforma (X/Twitter, Reddit, StockTwits, Web).
-Como ha evolucionado el sentimiento semana a semana dentro de este periodo? Con fechas.
-Que eventos de los ultimos 3 meses dispararon cambios de sentimiento especificos?
-
-**2. QUE DICE LA GENTE — NARRATIVAS Y COMENTARIOS REALES**
-Que narrativas y "stories" estan circulando sobre {ticker_clean} en X/Twitter, Reddit r/wallstreetbets,
-r/investing, r/stocks y StockTwits en los ultimos 90 dias?
-Cita o parafrasea comentarios y posts REALES y RECIENTES con fecha aproximada y plataforma.
-Que argumentos concretos usan los bulls y los bears? Que frases se repiten mas?
-Identifica si hay voces o cuentas influyentes moviendo la narrativa recientemente.
-
-**3. NOTICIAS RECIENTES Y SU IMPACTO EN EL SENTIMIENTO**
-Cuales son las noticias mas relevantes sobre {ticker_clean} en los ultimos 3 meses?
-Para cada noticia relevante: titulo, fuente, fecha aproximada, y cual fue la reaccion emocional
-de la comunidad (subida de optimismo, panico, confusion, etc.)
-Que noticias proximas o eventos pendientes estan anticipando los inversores?
-
-**4. CONVICCION DE LA COMUNIDAD Y SESGOS COGNITIVOS**
-Que tan alta es la conviccion de los bulls y bears en este momento (0-100) y por que?
-Que sesgos psicologicos dominan: FOMO, Efecto Manada, Sesgo de Confirmacion, Anclaje, Aversion a Perdida?
-Hay capitulacion de bajistas, acumulacion silenciosa de institucionales, o euforia retail?
-Cuanta "piel en el juego" parece tener la comunidad (posiciones grandes, opciones, etc.)?
-
-**5. SENTIMIENTO vs FUNDAMENTALES**
-El sentimiento actual esta alineado o desconectado de los fundamentales reales de {company_name}?
-Esta el mercado siendo mas emocional que racional con {ticker_clean}?
-Hay oportunidad contrarian (comprar cuando todos venden o vender cuando todos compran)?
-Que dice el Fear & Greed Index del mercado y como aplica especificamente a {ticker_clean}?
-
-**6. TESIS DE INVERSION — BASADA EN EL SENTIR COLECTIVO**
-Basandote en TODA la actividad de la comunidad en los ultimos 3 meses, construye una tesis especulativa:
-- Donde podria estar el precio en 3-6 meses si la narrativa actual se cumple?
-- Cual es el escenario base, bull y bear segun lo que dice la gente?
-- Que catalista especifico confirmaria o invalidaria la narrativa dominante?
-- Que esta viendo la comunidad que Wall Street aun no ha valorado completamente?
-- Es esto una señal de alerta por euforia excesiva, o una oportunidad de entrada temprana?
-
-**7. VEREDICTO DEL AGENTE AI — ESPECULACION Y RECOMENDACION**
-Como el maximo experto de Vertex AI: cual es tu evaluacion DEFINITIVA?
-El momento psicologico actual favorece entrar, salir o esperar en {ticker_clean}?
-Nivel de conviccion del agente AI (0-100) y por que.
-La trampa psicologica mas grande que ve el agente en como la gente percibe a {ticker_clean} ahora.
-Especulacion del agente: si todo va como la comunidad espera, donde puede estar el precio en 12 meses?
-"""
-
-    # Igual que en `/api/sentiment`: esto llamaba a `api.x.ai` sin respaldo.
-    # Ahora, los dos proveedores del sistema — Gemini y OpenAI.
-    llm_text, _fuente, llm_error = _texto_llm(system_msg, user_msg,
-                                                temp=0.45, max_tokens=5000)
-    llm_ok = bool(llm_text)
-    if not llm_ok:
-        print(f"[explore-deep] ningún proveedor respondió — {llm_error}")
-
-    # Puntaje de sentimiento a partir de llm_text (mismo algoritmo que /api/sentiment)
-    score, label, color = 50, "NEUTRAL", "amber"
-    if llm_ok and llm_text:
-        txt = llm_text.lower()
-        bulls = ["bullish","alcist","optimism","euforia","compra","subir","sube","rally","positiv",
-                 "esperanza","confianza","buy","strong","crecimiento","potencial","conviction"]
-        bears = ["bearish","bajist","pesimism","panico","miedo","venta","bajar","baja","negativ",
-                 "ansiedad","temor","sell","riesgo","caida","preocupacion"]
-        bc = sum(txt.count(w) for w in bulls)
-        nc = sum(txt.count(w) for w in bears)
-        tot = bc + nc
-        if tot > 0:
-            p = (bc / tot) * 100
-            score = round(p)
-            if   p >= 70: label, color = "MUY BULLISH", "emerald"
-            elif p >= 55: label, color = "BULLISH",      "emerald"
-            elif p >= 45: label, color = "NEUTRAL",      "amber"
-            elif p >= 30: label, color = "BEARISH",      "red"
-            else:         label, color = "MUY BEARISH",  "red"
-
     return {
-        "ticker":            ticker_clean,
-        "company_name":      company_name,
-        "context":           ctx_str,
-        "overall_score":     score,
-        "overall_label":     label,
-        "overall_color":     color,
-        "llm_ok":           llm_ok,
-        "llm_text":         llm_text,
-        "llm_error":        llm_error,
-        "date_range_label":  date_label,
-        "window_start":      three_months_ago,
-        "window_end":        today_str,
-        "reddit_posts_count": len(reddit_posts),
-        "reddit_posts":      reddit_posts,
-        "generated_at":      datetime.now().strftime('%m/%d/%Y, %I:%M:%S %p')
+        "companies": filas,
+        "prefilter": {"revenue_min": REV_MIN, "revenue_max": REV_MAX,
+                      "margin_min": MARGIN_MIN, "growth_min": GROWTH_MIN},
+        "generated_at": datetime.now().strftime("%m/%d/%Y, %I:%M:%S %p"),
     }
-
-
 
 
 _BUSQUEDA_CACHE = {}          # q -> (ts, resultados)
