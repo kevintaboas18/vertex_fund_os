@@ -348,3 +348,62 @@ def test_un_cuerpo_que_no_es_json_tampoco_se_tira(monkeypatch):
     motivos = []
     pm.send_resend("s", "t", "h", ["ana@x.com"], motivos)
     assert "502" in motivos[0] and "upstream timeout" in motivos[0]
+
+
+def test_toda_peticion_saliente_se_identifica(monkeypatch):
+    """Cloudflare atiende delante de la API de Resend y rechaza el
+    `Python-urllib/3.11` que urllib manda por defecto: "403, error code: 1010",
+    acceso bloqueado por la firma del cliente.
+
+    Ni la clave, ni el destinatario, ni el remitente llegaban a evaluarse -- y
+    el fallo se veia igual que "Resend no acepta tu correo", que mando a
+    revisar tres cosas que estaban bien. A FMP y al almacen ya se les mandaba
+    User-Agent; aqui faltaba.
+    """
+    import premarket_email as pm
+    vistos = []
+
+    class _Ok:
+        def __init__(self, req):
+            vistos.append(dict(req.headers))
+            self.status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"{}"
+
+    monkeypatch.setenv("RESEND_API_KEY", "x")
+    monkeypatch.setattr(pm.urllib.request, "urlopen", lambda req, timeout=0: _Ok(req))
+    pm.send_resend("s", "t", "h", ["ana@x.com"])
+    # urllib normaliza las cabeceras a Capitalizado.
+    assert any(k.lower() == "user-agent" for k in vistos[0]), (
+        f"peticion sin identificar: {list(vistos[0])}")
+
+
+def test_fmp_tambien_se_identifica(monkeypatch):
+    """El mismo cuidado en la otra salida a internet, para que no se repita."""
+    import premarket_email as pm
+    vistos = []
+
+    class _Ok:
+        def __init__(self, req):
+            vistos.append(dict(req.headers))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"[]"
+
+    monkeypatch.setattr(pm, "FMP_API_KEY", "x")
+    monkeypatch.setattr(pm.urllib.request, "urlopen", lambda req, timeout=0: _Ok(req))
+    pm.fetch_json("biggest-gainers")
+    assert any(k.lower() == "user-agent" for k in vistos[0])

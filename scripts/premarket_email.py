@@ -296,7 +296,17 @@ def send_resend(subject: str, text: str, htmlbody: str, para: list[str],
         req = urllib.request.Request(
             "https://api.resend.com/emails", data=payload, method="POST",
             headers={"Authorization": f"Bearer {key}",
-                     "Content-Type": "application/json"},
+                     "Content-Type": "application/json",
+                     # Sin esto urllib manda "Python-urllib/3.11" y Cloudflare
+                     # --que es quien atiende delante de la API de Resend-- lo
+                     # rechaza con "403, error code: 1010": acceso bloqueado
+                     # por la firma del cliente. Ni la clave ni el destinatario
+                     # ni el remitente llegaban a evaluarse, asi que el fallo
+                     # se veia identico a "Resend no te acepta el correo" y
+                     # mando a revisar tres cosas que estaban bien.
+                     #
+                     # A FMP y al almacen ya se les mandaba; aqui faltaba.
+                     "User-Agent": "vertex-fund-os"},
         )
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
