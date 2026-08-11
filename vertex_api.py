@@ -2609,6 +2609,95 @@ def get_explore(limit: int = 15):
     }
 
 
+@app.post("/api/premarket/enviar")
+def premarket_enviar(request: Request, forzar: bool = False, seco: bool = False):
+    """Manda el correo pre-market desde AQUI, no desde el runner de GitHub.
+
+    GitHub Actions no ve las variables de Render: son dos entornos distintos, y
+    tener las claves puestas en el dashboard no hacia nada por el workflow --
+    llegaban vacias y el envio moria antes de empezar. La alternativa era
+    duplicar cada clave en los secrets del repositorio y mantener las dos
+    copias sincronizadas para siempre.
+
+    Asi que el envio vive donde ya viven las claves. El workflow queda como lo
+    unico que GitHub sabe hacer bien aqui: un despertador. Sus efectos de lado
+    son buenos -- la peticion despierta al servicio dormido del plan free.
+
+    Y aqui la base esta VIVA, asi que los destinatarios salen de `usuarios`
+    directamente: sin descifrar el respaldo, sin `cryptography`, sin bajar la
+    rama `datos`.
+
+    `forzar` salta la ventana horaria (para probar a mano). `seco` arma el
+    correo y dice a quien iria SIN mandarlo.
+    """
+    import sys as _sys
+    _dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
+    if _dir not in _sys.path:
+        _sys.path.insert(0, _dir)
+    try:
+        import premarket_email as _pm
+    except Exception as e:                        # noqa: BLE001
+        raise HTTPException(status_code=500,
+                            detail=f"no pude cargar el guion: {type(e).__name__}")
+
+    ahora = datetime.now(_pm.ET)
+    if not forzar:
+        if ahora.hour not in _pm.VENTANA_ET:
+            return {"ok": True, "enviados": 0, "motivo": (
+                f"son las {ahora.strftime('%H:%M')} ET, fuera de la ventana "
+                f"{_pm.VENTANA_ET.start}-{_pm.VENTANA_ET.stop - 1}")}
+        if ahora.weekday() >= 5 or ahora.strftime("%Y-%m-%d") in _pm.MARKET_HOLIDAYS:
+            return {"ok": True, "enviados": 0, "motivo": "mercado cerrado hoy"}
+
+    try:
+        gainers, losers = _pm.movers(_pm.GAINERS), _pm.movers(_pm.LOSERS)
+    except Exception as e:                        # noqa: BLE001
+        raise HTTPException(status_code=502,
+                            detail=f"FMP no contesto: {_error_publico(e, 'premarket')}")
+    if not gainers and not losers:
+        raise HTTPException(status_code=502, detail="FMP contesto sin movers utilizables.")
+
+    # La base esta viva: el email de cada cuenta sale de aqui. Si todavia no hay
+    # cuentas, se cae a EMAIL_TO y se dice cual de los dos caminos se uso.
+    correos, fuente = [], "cuentas"
+    try:
+        conn = _db()
+        try:
+            correos = [c for (c,) in conn.execute(
+                "SELECT email FROM usuarios WHERE email IS NOT NULL AND email <> '' "
+                "ORDER BY creado_ts").fetchall() if (c or "").strip()]
+        finally:
+            conn.close()
+    except Exception:                             # noqa: BLE001
+        correos = []
+    if not correos:
+        correos, fuente = [d.strip() for d in _pm.EMAIL_TO.split(",") if d.strip()], "EMAIL_TO"
+
+    asunto, texto, html = _pm.build_email(ahora, gainers, losers)
+    if seco:
+        return {"ok": True, "seco": True, "para": correos, "fuente": fuente,
+                "asunto": asunto}
+    try:
+        enviados = _pm.send_resend(asunto, texto, html, correos)
+    except RuntimeError:
+        # El unico RuntimeError que `send_resend` levanta es la clave ausente,
+        # y el texto se escribe aqui en vez de reenviar el de la excepcion:
+        # reenviar el texto de la excepcion es justo lo que prohibe
+        # `test_route_safety` --y con razon: un dia esa excepcion trae una ruta
+        # del servidor o un trozo de clave, y va derecha al navegador.
+        raise HTTPException(status_code=500, detail=(
+            "Falta RESEND_API_KEY en el entorno del servidor. Ponla en las "
+            "variables de Render, junto a las demas claves."))
+    # Cero de N no es un exito: quien dispare esto tiene que verlo en rojo.
+    if not enviados:
+        raise HTTPException(status_code=502, detail=(
+            f"ninguno de los {len(correos)} destinatarios acepto el correo. "
+            "El remitente de pruebas de Resend solo escribe al dueno de la "
+            "cuenta: verifica un dominio propio para mandar a los demas."))
+    return {"ok": True, "enviados": enviados, "de": len(correos),
+            "fuente": fuente, "asunto": asunto}
+
+
 _BUSQUEDA_CACHE = {}          # q -> (ts, resultados)
 #: Cuántos resultados locales bastan para NO bajar a la cola larga de FMP. Con
 #: el umbral en el cupo entero (8) casi cada tecla disparaba dos peticiones

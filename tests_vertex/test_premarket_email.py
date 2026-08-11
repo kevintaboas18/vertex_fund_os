@@ -175,3 +175,106 @@ def test_si_no_sale_ni_uno_el_workflow_tiene_que_salir_en_rojo(monkeypatch):
     monkeypatch.setenv("FORCE", "1")
     monkeypatch.delenv("DRY_RUN", raising=False)
     assert pe.main() == 1
+
+
+# --- el envio desde la app -------------------------------------------------
+#
+# GitHub Actions no ve las variables de Render. Tenerlas puestas en el
+# dashboard no hacia nada por el workflow, y el arreglo no era duplicarlas en
+# los secrets del repositorio para siempre: era mover el envio a donde ya
+# viven. Estos tests cubren el endpoint que lo hace.
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+sys.path.insert(0, str(RAIZ))
+sys.path.insert(0, str(RAIZ / "engine"))
+import vertex_api as V  # noqa: E402
+
+_cliente = TestClient(V.app)
+class _FalsaDB:
+    """`_db()` entrega una conexion cuyo `execute` devuelve un CURSOR. Devolver
+    la lista directamente hacia que `.fetchall()` reventara, el endpoint se
+    cayera a EMAIL_TO por su `except`, y el test midiera el camino equivocado
+    creyendo que medía el bueno."""
+
+    def __init__(self, filas):
+        self._filas = filas
+
+    def execute(self, *a):
+        return self
+
+    def fetchall(self):
+        return self._filas
+
+    def close(self):
+        pass
+
+
+_FILA = {"ticker": "AAA", "name": "Alfa", "pct": 5.0, "price": "10.00", "mcap": 2e10}
+
+
+@pytest.fixture
+def app_lista(monkeypatch):
+    """FMP y Resend sustituidos; la ventana horaria se salta con `forzar`."""
+    import premarket_email as pm
+    monkeypatch.setattr(pm, "movers", lambda cual, limit=10: [dict(_FILA)])
+    enviados = []
+
+    def _enviar(asunto, texto, html, para):
+        enviados.extend(para)
+        return len(para)
+
+    monkeypatch.setattr(pm, "send_resend", _enviar)
+    return enviados
+
+
+def test_el_endpoint_manda_al_email_de_cada_cuenta(app_lista, monkeypatch):
+    """La base esta VIVA aqui: los correos salen de `usuarios`, sin descifrar
+    el respaldo ni bajar la rama `datos`."""
+    _conn = _FalsaDB([("ana@ejemplo.com",), ("bea@ejemplo.com",)])
+
+    monkeypatch.setattr(V, "_db", lambda: _conn)
+    r = _cliente.post("/api/premarket/enviar?forzar=true")
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["enviados"] == 2 and d["fuente"] == "cuentas"
+    assert app_lista == ["ana@ejemplo.com", "bea@ejemplo.com"]
+
+
+def test_sin_cuentas_todavia_se_cae_a_email_to(app_lista, monkeypatch):
+    _conn = _FalsaDB([])
+
+    monkeypatch.setattr(V, "_db", lambda: _conn)
+    d = _cliente.post("/api/premarket/enviar?forzar=true").json()
+    assert d["fuente"] == "EMAIL_TO" and d["enviados"] == 1
+
+
+def test_en_seco_dice_a_quien_iria_sin_mandarlo(app_lista, monkeypatch):
+    _conn = _FalsaDB([("ana@ejemplo.com",)])
+
+    monkeypatch.setattr(V, "_db", lambda: _conn)
+    d = _cliente.post("/api/premarket/enviar?forzar=true&seco=true").json()
+    assert d["para"] == ["ana@ejemplo.com"]
+    assert app_lista == [], "el modo seco mando el correo de verdad"
+
+
+def test_cero_enviados_contesta_error_no_exito(monkeypatch):
+    """Un 200 con cero correos deja el workflow en verde. Ese es el fallo
+    original, y no puede volver por la puerta de atras."""
+    import premarket_email as pm
+    monkeypatch.setattr(pm, "movers", lambda cual, limit=10: [dict(_FILA)])
+    monkeypatch.setattr(pm, "send_resend", lambda *a, **k: 0)
+
+    _conn = _FalsaDB([("ana@ejemplo.com",)])
+
+    monkeypatch.setattr(V, "_db", lambda: _conn)
+    assert _cliente.post("/api/premarket/enviar?forzar=true").status_code == 502
+
+
+def test_fuera_de_la_ventana_no_manda_pero_no_es_un_error(monkeypatch):
+    """Que no toque no es un fallo: no debe pintar el workflow de rojo."""
+    import premarket_email as pm
+    monkeypatch.setattr(pm, "VENTANA_ET", range(3, 4))
+    r = _cliente.post("/api/premarket/enviar")
+    assert r.status_code == 200 and r.json()["enviados"] == 0
+    assert "ventana" in r.json()["motivo"] or "cerrado" in r.json()["motivo"]
