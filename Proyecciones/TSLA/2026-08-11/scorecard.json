@@ -4099,7 +4099,7 @@
     "flows_corruptos": 0,
     "flows_sin_id": 0,
     "escrituras_fallidas": null,
-    "flows_nuevos": 722,
+    "flows_nuevos": 0,
     "memoria_desde": "2026-07-17T15:06:05.791Z",
     "predicciones_vencidas": 0,
     "sesgo_pct": null,
@@ -4107,7 +4107,41 @@
     "dir_hit_rate": null,
     "base_touch_rate": null,
     "motivo": null,
-    "evals": []
+    "evals": [
+      {
+        "date": "2026-08-10",
+        "horizon_days": null,
+        "matured": true,
+        "spot": 328.58,
+        "base": 335.0,
+        "actual_close": null,
+        "error_pct": null,
+        "best": null,
+        "direction_hit": null
+      },
+      {
+        "date": "2026-08-10",
+        "horizon_days": null,
+        "matured": true,
+        "spot": 328.58,
+        "base": 300.0,
+        "actual_close": null,
+        "error_pct": null,
+        "best": null,
+        "direction_hit": null
+      },
+      {
+        "date": "2026-08-10",
+        "horizon_days": null,
+        "matured": true,
+        "spot": 328.58,
+        "base": 300.0,
+        "actual_close": null,
+        "error_pct": null,
+        "best": null,
+        "direction_hit": null
+      }
+    ]
   },
   "flow_clusters": [
     {
@@ -4373,5 +4407,5 @@
   ],
   "fecha": "2026-08-11",
   "agente": "opciones",
-  "guardado_en": "2026-08-11T01:59:37+00:00"
+  "guardado_en": "2026-08-11T03:49:01+00:00"
 }
