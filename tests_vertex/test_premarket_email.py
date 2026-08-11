@@ -24,10 +24,29 @@ sobre el codigo:
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 from pathlib import Path
 
 import pytest
+
+class _Respuesta:
+    """Lo minimo que `urlopen` devuelve como gestor de contexto, apuntando el
+    cuerpo enviado para poder mirarlo despues."""
+
+    def __init__(self, apuntes, req):
+        apuntes.append(json.loads(req.data.decode()))
+        self.status = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return b"{}"
+
 
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "scripts"))
@@ -93,4 +112,66 @@ def test_sin_clave_de_resend_el_error_dice_donde_ponerla(monkeypatch):
     """Antes era un KeyError pelado en el log del runner."""
     pe = _modulo(monkeypatch)
     with pytest.raises(RuntimeError, match="Secrets"):
-        pe.send_resend("s", "t", "<p>h</p>")
+        pe.send_resend("s", "t", "<p>h</p>", ["ana@ejemplo.com"])
+
+
+# --- a quien se le manda ---------------------------------------------------
+
+def test_cada_cuenta_recibe_en_su_propio_correo(monkeypatch):
+    """Lo que pidio Victor: si tu cuenta es la tuya, el correo va a tu email."""
+    pe = _modulo(monkeypatch)
+    monkeypatch.setattr(pe, "_emails_de_las_cuentas",
+                        lambda: ["ana@ejemplo.com", "bea@ejemplo.com"])
+    assert pe.destinatarios() == ["ana@ejemplo.com", "bea@ejemplo.com"]
+
+
+def test_sin_cuentas_legibles_se_cae_a_email_to(monkeypatch):
+    """Sin VERTEX_DB_KEY, sin respaldo o sin `cryptography` no se pierde el
+    correo: se manda a donde se mandaba siempre."""
+    pe = _modulo(monkeypatch, EMAIL_TO="uno@ejemplo.com, dos@ejemplo.com")
+    monkeypatch.setattr(pe, "_emails_de_las_cuentas", lambda: [])
+    assert pe.destinatarios() == ["uno@ejemplo.com", "dos@ejemplo.com"]
+
+
+def test_nadie_ve_el_correo_de_los_demas(monkeypatch):
+    """Un solo envio con todos en el `to` le enseña a cada usuario los emails
+    del resto. Son cuentas de desconocidos entre si: eso es una fuga."""
+    pe = _modulo(monkeypatch, RESEND_API_KEY="x")
+    envios = []
+    monkeypatch.setattr(pe.urllib.request, "urlopen",
+                        lambda req, timeout=0: _Respuesta(envios, req))
+    n = pe.send_resend("s", "t", "<p>h</p>", ["ana@x.com", "bea@x.com"])
+    assert n == 2
+    for cuerpo in envios:
+        assert len(cuerpo["to"]) == 1, f"varios destinatarios en un envio: {cuerpo['to']}"
+    assert [c["to"][0] for c in envios] == ["ana@x.com", "bea@x.com"]
+
+
+def test_un_destinatario_que_rebota_no_deja_sin_correo_a_los_demas(monkeypatch):
+    """El remitente de pruebas de Resend solo puede escribirle al dueño de la
+    cuenta, asi que los rebotes son el caso NORMAL hasta verificar un dominio.
+    Uno no puede cancelar a los otros."""
+    pe = _modulo(monkeypatch, RESEND_API_KEY="x")
+    envios = []
+
+    def _urlopen(req, timeout=0):
+        cuerpo = json.loads(req.data.decode())
+        if cuerpo["to"][0].startswith("mala"):
+            raise RuntimeError("422 no puedes escribir a ese destinatario")
+        return _Respuesta(envios, req)
+
+    monkeypatch.setattr(pe.urllib.request, "urlopen", _urlopen)
+    assert pe.send_resend("s", "t", "h", ["mala@x.com", "buena@x.com"]) == 1
+    assert [c["to"][0] for c in envios] == ["buena@x.com"]
+
+
+def test_si_no_sale_ni_uno_el_workflow_tiene_que_salir_en_rojo(monkeypatch):
+    """Cero de N enviados en verde es el fallo que costo meses de silencio."""
+    pe = _modulo(monkeypatch, RESEND_API_KEY="x", FMP_API_KEY="y")
+    monkeypatch.setattr(pe, "movers", lambda cual, limit=10: [
+        {"ticker": "AAA", "name": "A", "pct": 5.0, "price": "10.00", "mcap": 2e10}])
+    monkeypatch.setattr(pe, "destinatarios", lambda: ["ana@x.com"])
+    monkeypatch.setattr(pe, "send_resend", lambda *a, **k: 0)
+    monkeypatch.setenv("FORCE", "1")
+    monkeypatch.delenv("DRY_RUN", raising=False)
+    assert pe.main() == 1

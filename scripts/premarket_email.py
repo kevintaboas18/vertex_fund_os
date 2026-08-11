@@ -188,27 +188,125 @@ Warren Buffett Jr 🎩📈
     return subject, text, htmlbody
 
 
-def send_resend(subject: str, text: str, htmlbody: str) -> None:
-    # Un KeyError pelado en el log del runner no dice que hay que ir a
-    # Settings > Secrets. Esto si.
+def _emails_de_las_cuentas() -> list[str]:
+    """El email de CADA cuenta, sacado del respaldo cifrado.
+
+    Los correos viven en la fila de cada usuario, y esa base sólo existe fuera
+    de Render en `Privado/privado.enc` de la rama `datos` — un tar cifrado con
+    Fernet y `VERTEX_DB_KEY`.
+
+    Se lee de ahí y no de un endpoint del servidor por dos razones: Render en
+    plan free duerme, y una ruta que devuelva la lista de correos de todo el
+    mundo es exactamente lo que no conviene exponer para ahorrarse un `git
+    fetch`.
+
+    Nunca lanza. Sin clave, sin respaldo o sin `cryptography` se devuelve la
+    lista vacía y quien llama cae a `EMAIL_TO`: quedarse sin lista no puede
+    costar el correo.
+    """
+    clave = os.environ.get("VERTEX_DB_KEY", "").strip()
+    if not clave:
+        return []
+    try:
+        import base64
+        import hashlib
+        import io
+        import sqlite3
+        import tarfile
+        import tempfile
+
+        from cryptography.fernet import Fernet
+
+        repo = os.environ.get("GITHUB_REPOSITORY") or "kevintaboas18/vertex_fund_os"
+        url = f"https://raw.githubusercontent.com/{repo}/datos/Privado/privado.enc"
+        req = urllib.request.Request(url, headers={"User-Agent": "vertex-fund-os"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            cifrado = r.read()
+
+        # La misma derivacion que usa la app: cualquier cadena vale como clave.
+        f = Fernet(base64.urlsafe_b64encode(hashlib.sha256(clave.encode()).digest()))
+        claro = f.decrypt(cifrado)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = os.path.join(tmp, "vertex.db")
+            with tarfile.open(fileobj=io.BytesIO(claro), mode="r") as tar:
+                m = next((x for x in tar.getmembers()
+                          if x.isfile() and x.name == "vertex.db"), None)
+                if m is None:
+                    return []
+                datos = tar.extractfile(m)
+                if datos is None:
+                    return []
+                with open(db, "wb") as fh:
+                    fh.write(datos.read())
+            conn = sqlite3.connect(db)
+            try:
+                filas = conn.execute(
+                    "SELECT email FROM usuarios WHERE email IS NOT NULL "
+                    "AND email <> '' ORDER BY creado_ts").fetchall()
+            finally:
+                conn.close()
+        # Se normaliza y se deduplica conservando el orden de registro.
+        vistos, salida = set(), []
+        for (correo,) in filas:
+            c = (correo or "").strip().lower()
+            if c and c not in vistos:
+                vistos.add(c)
+                salida.append(c)
+        return salida
+    except Exception as e:                       # noqa: BLE001
+        print(f"[destinatarios] no pude leer las cuentas ({type(e).__name__}: "
+              f"{str(e)[:90]}); se usa EMAIL_TO")
+        return []
+
+
+def destinatarios() -> list[str]:
+    """A quién se le manda. Cada cuenta a SU email; si no hay cuentas legibles,
+    lo que diga `EMAIL_TO`."""
+    return _emails_de_las_cuentas() or [
+        d.strip() for d in EMAIL_TO.split(",") if d.strip()]
+
+
+def send_resend(subject: str, text: str, htmlbody: str, para: list[str]) -> int:
+    """Un envío POR PERSONA, no uno con todos en el `to`.
+
+    Meter a todo el mundo en el mismo `to` le enseña a cada usuario los correos
+    de los demás. Son cuentas de desconocidos entre sí: eso es una fuga, no una
+    comodidad.
+
+    Devuelve cuántos salieron. Un fallo con un destinatario no cancela los
+    otros — que uno tenga el buzón lleno no puede dejar a los demás sin correo.
+    """
     key = os.environ.get("RESEND_API_KEY") or ""
     if not key:
+        # Un KeyError pelado en el log del runner no dice que hay que ir a
+        # Settings > Secrets. Esto sí.
         raise RuntimeError(
             "Falta RESEND_API_KEY. Definela en Settings > Secrets and "
             "variables > Actions del repositorio.")
-    payload = json.dumps({
-        "from": EMAIL_FROM,
-        "to": [d.strip() for d in EMAIL_TO.split(",") if d.strip()],
-        "subject": subject,
-        "text": text,
-        "html": htmlbody,
-    }).encode()
-    req = urllib.request.Request(
-        "https://api.resend.com/emails", data=payload, method="POST",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=30) as r:
-        print(f"Resend: {r.status} {r.read().decode()}")
+    enviados = 0
+    for uno in para:
+        payload = json.dumps({
+            "from": EMAIL_FROM, "to": [uno], "subject": subject,
+            "text": text, "html": htmlbody,
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.resend.com/emails", data=payload, method="POST",
+            headers={"Authorization": f"Bearer {key}",
+                     "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                print(f"Resend {r.status} -> {uno}")
+            enviados += 1
+        except Exception as e:                   # noqa: BLE001
+            # El remitente `onboarding@resend.dev` SOLO puede escribirle al
+            # dueño de la cuenta de Resend. Con varios usuarios hay que
+            # verificar un dominio propio; hasta entonces los demas rebotan
+            # aqui, uno a uno y dicho en el log.
+            print(f"Resend FALLO -> {uno}: {type(e).__name__}: {str(e)[:120]}",
+                  file=sys.stderr)
+    return enviados
 
 
 def main() -> int:
@@ -234,13 +332,16 @@ def main() -> int:
         return 1
 
     subject, text, htmlbody = build_email(now, gainers, losers)
+    para = destinatarios()
 
     if os.environ.get("DRY_RUN") == "1":
-        print(f"[DRY RUN] to={EMAIL_TO}\nsubject={subject}\n\n{text}")
+        print(f"[DRY RUN] to={', '.join(para)}\nsubject={subject}\n\n{text}")
         return 0
-    send_resend(subject, text, htmlbody)
-    print(f"Enviado a {EMAIL_TO}: {subject}")
-    return 0
+    enviados = send_resend(subject, text, htmlbody, para)
+    print(f"Enviado a {enviados}/{len(para)} destinatarios: {subject}")
+    # Cero de N es un fallo: el workflow tiene que salir en rojo. Que salieran
+    # algunos y otros no ya se dijo, linea a linea, en stderr.
+    return 0 if enviados else 1
 
 
 if __name__ == "__main__":

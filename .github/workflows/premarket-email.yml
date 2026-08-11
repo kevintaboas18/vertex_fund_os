@@ -30,12 +30,20 @@ jobs:
         with:
           python-version: "3.11"
 
+      # `cryptography` para descifrar `Privado/privado.enc` y sacar el email
+      # de cada cuenta. Sin ella el guion no falla: cae a EMAIL_TO.
+      - run: pip install --quiet cryptography
+
       - name: Enviar resumen pre-market
         env:
           # Configura RESEND_API_KEY en Settings > Secrets and variables > Actions.
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           # Los movers salen de FMP: stockanalysis.com devolvía 403 al runner.
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          # La MISMA clave con la que la app cifra las cuentas. Es lo que
+          # permite mandarle a cada usuario a SU correo en vez de a una lista
+          # fija. Sin ella se usa EMAIL_TO y se dice en el log.
+          VERTEX_DB_KEY: ${{ secrets.VERTEX_DB_KEY }}
           EMAIL_TO: ${{ vars.EMAIL_TO }}
           # workflow_dispatch: por defecto NO envía, para poder probar sin ruido.
           # El cron deja ambas vacías, así que envía de verdad.
