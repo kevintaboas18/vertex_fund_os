@@ -312,16 +312,29 @@ def send_resend(subject: str, text: str, htmlbody: str, para: list[str],
             # la excepcion --que solo dice "HTTP Error 403: Forbidden"--. Sin
             # leer el cuerpo, quien dispara esto ve "no se acepto" y tiene que
             # irse a los logs del servidor a adivinar por que.
-            porque = f"{type(e).__name__}"
+            # El CODIGO va siempre por delante, y esta es la segunda vuelta de
+            # esto: la primera version solo intentaba leer el cuerpo JSON, y
+            # cuando ese `read()` no daba nada el log quedaba en "HTTPError" a
+            # secas -- que no distingue un 403 (no puedes escribir a ese
+            # destinatario) de un 422 (remitente invalido) ni de un 429
+            # (cuota), que se arreglan de tres formas distintas.
+            codigo = getattr(e, "code", None)
+            detalle = ""
             cuerpo = getattr(e, "read", None)
             if callable(cuerpo):
                 try:
-                    d = json.loads(cuerpo().decode("utf-8", errors="replace"))
-                    porque = str(d.get("message") or d.get("error") or d)[:200]
+                    crudo = cuerpo().decode("utf-8", errors="replace").strip()
+                    try:
+                        d = json.loads(crudo)
+                        detalle = str(d.get("message") or d.get("error") or d)
+                    except Exception:            # noqa: BLE001
+                        detalle = crudo          # no era JSON: vale igual
                 except Exception:                # noqa: BLE001
                     pass
-            elif isinstance(e, (TimeoutError, OSError)):
-                porque = f"{type(e).__name__}: {str(e)[:120]}"
+            if not detalle:
+                detalle = str(getattr(e, "reason", "") or e) or type(e).__name__
+            porque = (f"HTTP {codigo} — {detalle}"[:220] if codigo
+                      else f"{type(e).__name__}: {detalle}"[:220])
             print(f"Resend FALLO -> {uno}: {porque}", file=sys.stderr)
             if motivos is not None:
                 motivos.append(f"{uno}: {porque}")

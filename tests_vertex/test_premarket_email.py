@@ -303,3 +303,48 @@ def test_el_motivo_del_rechazo_llega_a_quien_dispara(monkeypatch):
     assert "ana@x.com" in motivos[0]
     assert "your own email address" in motivos[0], (
         f"el motivo de Resend se perdio: {motivos}")
+
+
+def test_el_codigo_http_sale_aunque_el_cuerpo_venga_vacio(monkeypatch):
+    """Lo que dejo el diagnostico a ciegas: el log decia "HTTPError" a secas.
+
+    Un 403 (no puedes escribir a ese destinatario), un 422 (remitente
+    invalido) y un 429 (cuota) se arreglan de tres formas distintas, y sin el
+    codigo son indistinguibles. El cuerpo puede fallar; el codigo siempre esta.
+    """
+    import premarket_email as pm
+
+    class _SinCuerpo(Exception):
+        code = 403
+        reason = "Forbidden"
+
+        def read(self):
+            return b""
+
+    monkeypatch.setenv("RESEND_API_KEY", "x")
+    monkeypatch.setattr(pm.urllib.request, "urlopen",
+                        lambda req, timeout=0: (_ for _ in ()).throw(_SinCuerpo()))
+    motivos = []
+    pm.send_resend("s", "t", "h", ["ana@x.com"], motivos)
+    assert "403" in motivos[0], f"se perdio el codigo: {motivos}"
+    assert "Forbidden" in motivos[0]
+
+
+def test_un_cuerpo_que_no_es_json_tampoco_se_tira(monkeypatch):
+    """Un proxy o un balanceador puede contestar HTML. Sirve igual: dice mas
+    que el nombre de la clase de la excepcion."""
+    import premarket_email as pm
+
+    class _Html(Exception):
+        code = 502
+        reason = "Bad Gateway"
+
+        def read(self):
+            return b"<html>upstream timeout</html>"
+
+    monkeypatch.setenv("RESEND_API_KEY", "x")
+    monkeypatch.setattr(pm.urllib.request, "urlopen",
+                        lambda req, timeout=0: (_ for _ in ()).throw(_Html()))
+    motivos = []
+    pm.send_resend("s", "t", "h", ["ana@x.com"], motivos)
+    assert "502" in motivos[0] and "upstream timeout" in motivos[0]
