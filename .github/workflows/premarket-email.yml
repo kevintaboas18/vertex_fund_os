@@ -3,12 +3,15 @@ name: Pre-market movers
 # M-03: scripts/premarket_email.py decía "corre en GitHub Actions cada mañana
 # de mercado", pero no existía ningún workflow — era código muerto.
 #
-# Cron en UTC: 11:30 UTC = 7:30 ET en horario de verano (EDT, UTC-4) y 6:30 ET
-# en invierno (EST, UTC-5). GitHub no admite husos horarios, así que el propio
-# script comprueba la hora ET y los feriados y se salta el envío si no toca.
+# Cron en UTC: 11:00 UTC = 7:00 ET en verano (EDT, UTC-4) y 6:00 ET en invierno
+# (EST, UTC-5). GitHub no admite husos horarios y ADEMÁS no es puntual: con
+# `30 11` se le ha visto disparar a las 12:08 y a las 13:52 UTC. Por eso el
+# script acepta una ventana (6-10 ET) en vez de una hora exacta — antes exigía
+# las 8 en punto, no se cumplía nunca, y como saltarse el envío devuelve 0 el
+# workflow salía en verde sin haber mandado un solo correo.
 on:
   schedule:
-    - cron: "30 11 * * 1-5"
+    - cron: "0 11 * * 1-5"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -31,6 +34,8 @@ jobs:
         env:
           # Configura RESEND_API_KEY en Settings > Secrets and variables > Actions.
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # Los movers salen de FMP: stockanalysis.com devolvía 403 al runner.
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
           EMAIL_TO: ${{ vars.EMAIL_TO }}
           # workflow_dispatch: por defecto NO envía, para poder probar sin ruido.
           # El cron deja ambas vacías, así que envía de verdad.
