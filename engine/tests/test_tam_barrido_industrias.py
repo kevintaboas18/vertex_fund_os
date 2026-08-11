@@ -199,3 +199,25 @@ def test_the_census_names_the_biggest_ticker_of_each_industry():
     fmp = _FMP([_empresa("Semis", symbol="CHICA", marketCap=1e9),
                 _empresa("Semis", symbol="NVDA", marketCap=4e12)])
     assert tm.industrias_del_mercado(fmp) == [("Semis", 2, "NVDA")]
+
+
+def test_a_fresh_empty_stamp_is_not_a_resolved_industry(monkeypatch):
+    """Lo que inflo TODOS los conteos de la sesion.
+
+    Un sello vigente SIN TAM y un TAM vigente se saltan igual -- no se vuelve
+    a preguntar -- pero significan cosas opuestas: uno tiene denominador y el
+    otro dice que no se encontro. `_clasificar` leia "vigente" en los dos y
+    devolvia "ya estaba".
+
+    Resultado: `Software - Application`, `Software - Services` y `Solar` se
+    reportaron como resueltas sin tener TAM, y hubo que corregir el numero a
+    la baja tres veces.
+    """
+    fmp = _FMP([_empresa("Vacia")] * 3 + [_empresa("Buena")] * 2)
+    _asegura(monkeypatch, {
+        "Vacia": "vacia: sin TAM, intentado el 2026-08-09 (ninguna asociacion)",
+        "Buena": "buena: TAM vigente desde 2026-08-09"})
+    por = {f["industria"]: f["estado"]
+           for f in tm.resolver_todas_las_industrias(fmp=fmp, settings=None)}
+    assert por["Vacia"] == "sin fuente", "un sello vacio se conto como resuelto"
+    assert por["Buena"] == "ya estaba"

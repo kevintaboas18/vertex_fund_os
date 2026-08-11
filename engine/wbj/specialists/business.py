@@ -1198,8 +1198,27 @@ def _compute_all(
         declarado = overlay.get("recurring_revenue_applies")
         aplica = (bool(declarado) if declarado is not None
                   else _subscription_business(packet, overlay))
-        v = _null(NullState.MISSING if aplica else NullState.NOT_APPLICABLE,
-                  "pct", "RECURRING_REVENUE_UNAVAILABLE")
+        # Ni siquiera cuando SI aplica se cobra, y esto cambio hoy.
+        #
+        # El razonamiento de arriba —"un SaaS que no publica su porcentaje
+        # tiene un hueco real"— es el mismo que defendia el test de
+        # MKT-ARPU-022, y cae por la misma razon: `DATASET.md` tipa
+        # `recurring_revenue_5y` como **conditional**, con fuente "issuer
+        # filing / KPI reconciliation". Solo forma parte del paquete esperado
+        # cuando el emisor PUBLICA ese KPI.
+        #
+        # Medido en los 12 tickers: esta fila salia NOT_APPLICABLE para 9 y
+        # MISSING para 3 -- los tres de suscripcion. El MODELO DE NEGOCIO
+        # decidia la cobertura en vez de los datos, que es el defecto que ya
+        # se corrigio en las siete metricas de economia de cliente y en el
+        # ARPU de Market. Esta fila se habia quedado fuera de las dos veces.
+        #
+        # `aplica` sigue vivo y sigue importando: cambia el MOTIVO que se
+        # escribe, y por tanto lo que un analista sabe que puede suministrar.
+        _por = ("_ISSUER_DOES_NOT_PUBLISH_THIS_KPI" if aplica
+                else "_NOT_A_RECURRING_REVENUE_BUSINESS")
+        v = _null(NullState.NOT_APPLICABLE, "pct",
+                  "RECURRING_REVENUE_UNAVAILABLE" + _por)
     add("BUS-REC-002", v, _score_from_anchor(v, [(0.0, 0), (0.30, 4), (0.70, 7), (1.0, 10)]), source=analyst_source)
 
     # ---- BUS-CONC-003: largest customer concentration (overlay only; PROHIBITED_IMPUTATION) ----

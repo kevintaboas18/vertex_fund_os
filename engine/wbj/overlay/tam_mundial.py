@@ -896,6 +896,11 @@ def _clasificar(mensaje: str) -> str:
     """El estado que resume lo que `asegurar_tam_industria` acaba de decir."""
     if "TAM mundial" in mensaje:
         return "resuelto"
+    # "sin TAM" gana sobre "vigente": un sello vigente SIN denominador no es
+    # una industria resuelta, y llamarla "ya estaba" es lo que inflaba los
+    # conteos.
+    if "sin TAM" in mensaje:
+        return "sin fuente"
     if "vigente" in mensaje or "analista" in mensaje:
         return "ya estaba"
     return "sin fuente"
@@ -1129,7 +1134,19 @@ def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
         if not previo.get("_generado_por"):
             return f"{slug}: TAM escrito por un analista, no se toca"
         if _vigente(previo, hoy):
-            return f"{slug}: TAM vigente desde {previo.get('_resuelto_en')}"
+            # Distinguir un TAM vigente de un SELLO vigente. Los dos se saltan
+            # -- no se vuelve a preguntar -- pero significan cosas opuestas:
+            # uno tiene denominador y el otro dice que no se encontro.
+            #
+            # Decir "vigente" a los dos inflo TODOS los conteos de esta
+            # sesion. `Software - Application`, `Software - Services` y `Solar`
+            # se reportaron como "ya estaba" sin tener TAM, y hubo que
+            # corregir el numero a la baja tres veces -- en Healthcare, en
+            # Technology y en el total.
+            if previo.get("tam"):
+                return f"{slug}: TAM vigente desde {previo.get('_resuelto_en')}"
+            return (f"{slug}: sin TAM, intentado el {previo.get('_resuelto_en')} "
+                    f"({str(previo.get('_sin_tam'))[:60]})")
 
     datos, fallos = _investigar(settings, industria or slug, ticker)
     if datos is None:
