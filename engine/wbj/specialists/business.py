@@ -1426,7 +1426,48 @@ def _compute_all(
         v_ic = _null(NullState.MISSING, "usd", "AVERAGE_INVESTED_CAPITAL_INPUTS_UNAVAILABLE")
     add("BUS-IC-012", v_ic, None)
 
-    if nopat_latest is not None and v_ic.is_valid:
+    # ---- El adaptador puede REEMPLAZAR el modelo de retorno sobre capital ----
+    #
+    # `INDUSTRY_ADAPTERS.md`, para bancos: "Replace ROIC with ROE, ROTCE, net
+    # interest margin, efficiency ratio, CET1...". Para aseguradoras: "Use ROE,
+    # combined ratio, reserve development...". Reemplazar, no reportar como
+    # faltante -- y hasta aqui a BAC se le calculaban y PUNTUABAN ROIC, spread
+    # y EVA, tres numeros que el documento dice no usar para un banco.
+    #
+    # Por que NOT_APPLICABLE y no MISSING: `MISSING_DATA_POLICY.md` abre su
+    # arbol preguntando si la metrica aplica. A un banco el capital invertido
+    # de la vista de financiacion no le mide nada --sus depositos no son
+    # financiacion, son su materia prima-- asi que la respuesta es "no aplica",
+    # y solo ese estado sale del denominador de la cobertura. Cobrarle a un
+    # banco por no tener un ROIC util es cobrarle por ser un banco.
+    #
+    # Victor NO hace esto: calcula el modelo por defecto para todo y cuelga un
+    # aviso ("should not be trusted for this security type without a sector
+    # adapter") bajando `model_fit` a 40. Declara el problema en vez de
+    # resolverlo. Aqui se sigue al Cerebro, que si especifica el reemplazo.
+    _retorno_reemplazado = (
+        (getattr(packet.analysis, "industry_adapter", "") or "").lower()
+        in _adapters.RETURN_MODEL_REPLACED)
+
+    def _reemplazada(unidad: str) -> Value:
+        return _null(NullState.NOT_APPLICABLE, unidad,
+                     "RETURN_ON_CAPITAL_MODEL_REPLACED_BY_INDUSTRY_ADAPTER")
+
+    if _retorno_reemplazado:
+        assumptions.append(
+            f"industry_adapter={packet.analysis.industry_adapter!r}: "
+            "INDUSTRY_ADAPTERS.md reemplaza el retorno sobre capital invertido "
+            "(ROE/ROTCE/NIM para bancos, ROE/combined ratio para aseguradoras), "
+            "asi que BUS-ROIC-013, BUS-SPREAD-014, BUS-EVA-015, BUS-IROIC-016 y "
+            "BUS-ALLOC-029 salen NOT_APPLICABLE en vez de puntuar un modelo que "
+            "el documento no admite para este emisor. Las metricas de reemplazo "
+            "todavia NO estan implementadas: la dimension de management queda "
+            "con menos evidencia detras y eso se declara aqui, no se esconde."
+        )
+
+    if _retorno_reemplazado:
+        v_roic = _reemplazada("pct")
+    elif nopat_latest is not None and v_ic.is_valid:
         v_roic = roic(nopat_latest, v_ic.value)
         # CALCULATION_CONVENTIONS.md labels "the result" — the return ratio —
         # END_BALANCE_PROXY, so ROIC inherits it (and its per-warning confidence
@@ -1441,7 +1482,9 @@ def _compute_all(
     ctx["roic_latest"] = roic_latest
 
     # ---- BUS-SPREAD-014 / BUS-EVA-015 ----
-    if roic_latest is not None and wacc_value is not None:
+    if _retorno_reemplazado:
+        v_spread = _reemplazada("pct")
+    elif roic_latest is not None and wacc_value is not None:
         v_spread = spread(roic_latest, wacc_value)
         # Both are return-ratio results, so an ending-balance ROIC carries
         # END_BALANCE_PROXY through to the spread (CALCULATION_CONVENTIONS.md).
@@ -1461,7 +1504,9 @@ def _compute_all(
     # valuation engine's VAL-EVA-020 base (IC_(t-1)), disagreeing with ROIC's
     # capital base, and gated on two years so it vanished for a single-year
     # company whose IC is now an ending-balance proxy.
-    if nopat_latest is not None and wacc_value is not None and v_ic.is_valid:
+    if _retorno_reemplazado:
+        v_eva = _reemplazada("usd")
+    elif nopat_latest is not None and wacc_value is not None and v_ic.is_valid:
         v_eva = eva(nopat_latest, wacc_value, v_ic.value)
         if WARN_END_BALANCE_PROXY in (v_ic.warnings or []) and v_eva.is_valid:
             v_eva = v_eva.model_copy(update={
@@ -1522,14 +1567,18 @@ def _compute_all(
     else:
         delta_ic = None
 
-    if delta_nopat is not None and delta_ic is not None:
+    if _retorno_reemplazado:
+        v_iroic = _reemplazada("pct")
+    elif delta_nopat is not None and delta_ic is not None:
         v_iroic = incremental_roic(delta_nopat, delta_ic)
     else:
         v_iroic = _null(NullState.MISSING, "pct", "INCREMENTAL_ROIC_INPUTS_UNAVAILABLE")
     add("BUS-IROIC-016", v_iroic, None)
     iroic_value = v_iroic.value if v_iroic.is_valid else None
 
-    if iroic_value is not None and wacc_value is not None:
+    if _retorno_reemplazado:
+        v_alloc = _reemplazada("pct")
+    elif iroic_value is not None and wacc_value is not None:
         v_alloc = capital_allocation_spread(iroic_value, wacc_value)
     else:
         v_alloc = _null(NullState.MISSING, "pct", "CAPITAL_ALLOCATION_SPREAD_INPUTS_UNAVAILABLE")
@@ -3279,13 +3328,31 @@ def _run_once(packet: Packet, overlay: dict[str, Any],
     )
     if value_destruction:
         mandatory_flags.append("VALUE_DESTRUCTION")
-    elif value_destruction_adapter and value_destruction_triggered(
-        ctx["roic_latest"], ctx["wacc_value"]
+    # Dos formas de llegar aqui, y las dos tienen que DECIRSE:
+    #
+    #   · El ROIC convencional se calculo y habria disparado la bandera, pero
+    #     el adaptador dice que no es la medida (REITs, biotech).
+    #   · El ROIC convencional ya no se calcula, porque para bancos y
+    #     aseguradoras el adaptador reemplaza el modelo entero.
+    #
+    # El segundo caso es nuevo y por poco se queda mudo: al dejar `roic_latest`
+    # en None, `value_destruction_triggered` devuelve False y esta rama no
+    # entraba. El reporte habria dejado de explicar por que no hay veredicto
+    # --que es justo lo que este bloque existe para no hacer.
+    _sin_roic_convencional = (
+        (getattr(packet.analysis, "industry_adapter", "") or "").lower()
+        in _adapters.RETURN_MODEL_REPLACED)
+    if value_destruction_adapter and (
+        _sin_roic_convencional
+        or value_destruction_triggered(ctx["roic_latest"], ctx["wacc_value"])
     ):
+        _porque = ("el ROIC convencional ni siquiera se calcula para este emisor"
+                   if _sin_roic_convencional
+                   else "a conventional ROIC-below-WACC read is not the measure")
         assumptions.append(
             f"VALUE_DESTRUCTION withheld: the {packet.analysis.industry_adapter} adapter "
-            "replaces ROIC (INDUSTRY_ADAPTERS.md), so a conventional ROIC-below-WACC read is "
-            "not the measure this flag rests on for this security type. The sector-adapter "
+            f"replaces ROIC (INDUSTRY_ADAPTERS.md), so {_porque} "
+            "this flag rests on for this security type. The sector-adapter "
             "return (ROE/ROTCE, FFO/AFFO) is not registered in FORMULAS.md, so no substitute "
             "verdict is issued."
         )

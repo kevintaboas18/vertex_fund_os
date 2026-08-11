@@ -349,9 +349,19 @@ def test_an_unclassified_adapter_is_not_scored_a_perfect_model_fit():
 
     unknown = confidence_with("utilities")            # in no classification set
     additive = confidence_with("default_nonfinancial")
-    replacing = confidence_with("banks")
+    # El comparador era `banks`, y dejo de servir: desde que el adaptador
+    # bancario retira la familia ROIC del denominador (RETURN_MODEL_REPLACED),
+    # su COBERTURA ya no es la de un ticker cualquiera, y la confianza --que
+    # mezcla cobertura con model_fit-- dejo de ser un sustituto limpio del
+    # segundo. `reits` tambien reemplaza el modelo y conserva la cobertura
+    # completa, asi que aisla lo que este test quiere medir.
+    replacing = confidence_with("reits")
     assert unknown < additive     # not scored a perfect model fit
     assert unknown == replacing   # floored, as a model-replacing adapter is
+    # Y lo nuevo, que es la otra cara de lo mismo: a un banco no se le cobran
+    # las cinco metricas que su adaptador reemplaza, asi que sale MEJOR que un
+    # adaptador desconocido aunque los dos tengan el model_fit al suelo.
+    assert confidence_with("banks") > unknown
 
 
 def test_a_distorted_tax_rate_substitution_is_disclosed_not_silent():

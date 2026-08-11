@@ -38,6 +38,23 @@ MODEL_REPLACING: frozenset[str] = frozenset({"banks", "insurers", "reits", "biot
 #: inputs. The analysis runs; it carries a caveat.
 MODEL_NORMALIZING: frozenset[str] = frozenset({"commodities_cyclicals"})
 
+#: Adaptadores donde `INDUSTRY_ADAPTERS.md` reemplaza EXPLÍCITAMENTE el
+#: retorno sobre capital invertido. Son dos, y sus palabras exactas:
+#:
+#:   Banks     — "Replace ROIC with ROE, ROTCE, net interest margin,
+#:                efficiency ratio, CET1, loan-loss reserves..."
+#:   Insurers  — "Use ROE, combined ratio, reserve development, solvency
+#:                capital, book-value growth, and excess-return valuation."
+#:
+#: Es un subconjunto ESTRICTO de `MODEL_REPLACING`, y la diferencia importa.
+#: A los REITs el documento les reemplaza el EPS (por FFO/AFFO) y el
+#: apalancamiento (net debt/EBITDAre), no el ROIC; a biotech le dice que no
+#: puntúe P/E, FCF yield ni calidad de margen "cuando no sea significativo".
+#: Meter esos dos aquí sería extender la regla más allá de lo que el
+#: documento dice -- y una métrica que se retira sin autoridad es tan
+#: inventada como un número sin fuente.
+RETURN_MODEL_REPLACED: frozenset[str] = frozenset({"banks", "insurers"})
+
 #: Adapters that only add metrics. Nothing about the core formulas
 #: changes, so no caveat and no confidence penalty.
 MODEL_ADDITIVE: frozenset[str] = frozenset({DEFAULT_ADAPTER, "saas_subscriptions"})
