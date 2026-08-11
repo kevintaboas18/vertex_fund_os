@@ -2677,8 +2677,9 @@ def premarket_enviar(request: Request, forzar: bool = False, seco: bool = False)
     if seco:
         return {"ok": True, "seco": True, "para": correos, "fuente": fuente,
                 "asunto": asunto}
+    motivos: list[str] = []
     try:
-        enviados = _pm.send_resend(asunto, texto, html, correos)
+        enviados = _pm.send_resend(asunto, texto, html, correos, motivos)
     except RuntimeError:
         # El unico RuntimeError que `send_resend` levanta es la clave ausente,
         # y el texto se escribe aqui en vez de reenviar el de la excepcion:
@@ -2690,10 +2691,11 @@ def premarket_enviar(request: Request, forzar: bool = False, seco: bool = False)
             "variables de Render, junto a las demas claves."))
     # Cero de N no es un exito: quien dispare esto tiene que verlo en rojo.
     if not enviados:
+        # El motivo lo dice Resend, no yo. Adivinarlo aqui («sera el dominio»)
+        # manda a Victor a arreglar lo que no esta roto.
         raise HTTPException(status_code=502, detail=(
             f"ninguno de los {len(correos)} destinatarios acepto el correo. "
-            "El remitente de pruebas de Resend solo escribe al dueno de la "
-            "cuenta: verifica un dominio propio para mandar a los demas."))
+            + " | ".join(motivos[:3])))
     return {"ok": True, "enviados": enviados, "de": len(correos),
             "fuente": fuente, "asunto": asunto}
 

@@ -220,7 +220,7 @@ def app_lista(monkeypatch):
     monkeypatch.setattr(pm, "movers", lambda cual, limit=10: [dict(_FILA)])
     enviados = []
 
-    def _enviar(asunto, texto, html, para):
+    def _enviar(asunto, texto, html, para, motivos=None):
         enviados.extend(para)
         return len(para)
 
@@ -278,3 +278,28 @@ def test_fuera_de_la_ventana_no_manda_pero_no_es_un_error(monkeypatch):
     r = _cliente.post("/api/premarket/enviar")
     assert r.status_code == 200 and r.json()["enviados"] == 0
     assert "ventana" in r.json()["motivo"] or "cerrado" in r.json()["motivo"]
+
+
+def test_el_motivo_del_rechazo_llega_a_quien_dispara(monkeypatch):
+    """Resend explica el rechazo en el CUERPO del 4xx; la excepcion solo dice
+    "HTTP Error 403: Forbidden". Sin leer el cuerpo, quien dispara el workflow
+    ve "no se acepto" y tiene que irse a los logs del servidor a adivinar.
+
+    Paso real: el envio salio 502 y el motivo -- que el remitente de pruebas
+    solo escribe al dueño de la cuenta -- se quedo en Render.
+    """
+    import premarket_email as pm
+
+    class _Http(Exception):
+        def read(self):
+            return json.dumps({"message": "You can only send testing emails "
+                                          "to your own email address"}).encode()
+
+    monkeypatch.setenv("RESEND_API_KEY", "x")
+    monkeypatch.setattr(pm.urllib.request, "urlopen",
+                        lambda req, timeout=0: (_ for _ in ()).throw(_Http()))
+    motivos = []
+    assert pm.send_resend("s", "t", "h", ["ana@x.com"], motivos) == 0
+    assert "ana@x.com" in motivos[0]
+    assert "your own email address" in motivos[0], (
+        f"el motivo de Resend se perdio: {motivos}")

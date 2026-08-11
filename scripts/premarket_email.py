@@ -267,7 +267,8 @@ def destinatarios() -> list[str]:
         d.strip() for d in EMAIL_TO.split(",") if d.strip()]
 
 
-def send_resend(subject: str, text: str, htmlbody: str, para: list[str]) -> int:
+def send_resend(subject: str, text: str, htmlbody: str, para: list[str],
+                motivos: list[str] | None = None) -> int:
     """Un envío POR PERSONA, no uno con todos en el `to`.
 
     Meter a todo el mundo en el mismo `to` le enseña a cada usuario los correos
@@ -276,6 +277,8 @@ def send_resend(subject: str, text: str, htmlbody: str, para: list[str]) -> int:
 
     Devuelve cuántos salieron. Un fallo con un destinatario no cancela los
     otros — que uno tenga el buzón lleno no puede dejar a los demás sin correo.
+    Si se pasa `motivos`, se le añade el porqué de cada rechazo para que quien
+    llama pueda decirlo sin obligar a nadie a leer los logs del servidor.
     """
     key = os.environ.get("RESEND_API_KEY") or ""
     if not key:
@@ -303,9 +306,25 @@ def send_resend(subject: str, text: str, htmlbody: str, para: list[str]) -> int:
             # El remitente `onboarding@resend.dev` SOLO puede escribirle al
             # dueño de la cuenta de Resend. Con varios usuarios hay que
             # verificar un dominio propio; hasta entonces los demas rebotan
-            # aqui, uno a uno y dicho en el log.
-            print(f"Resend FALLO -> {uno}: {type(e).__name__}: {str(e)[:120]}",
-                  file=sys.stderr)
+            # aqui, uno a uno.
+            #
+            # El motivo lo da Resend en el CUERPO del 4xx, no en el mensaje de
+            # la excepcion --que solo dice "HTTP Error 403: Forbidden"--. Sin
+            # leer el cuerpo, quien dispara esto ve "no se acepto" y tiene que
+            # irse a los logs del servidor a adivinar por que.
+            porque = f"{type(e).__name__}"
+            cuerpo = getattr(e, "read", None)
+            if callable(cuerpo):
+                try:
+                    d = json.loads(cuerpo().decode("utf-8", errors="replace"))
+                    porque = str(d.get("message") or d.get("error") or d)[:200]
+                except Exception:                # noqa: BLE001
+                    pass
+            elif isinstance(e, (TimeoutError, OSError)):
+                porque = f"{type(e).__name__}: {str(e)[:120]}"
+            print(f"Resend FALLO -> {uno}: {porque}", file=sys.stderr)
+            if motivos is not None:
+                motivos.append(f"{uno}: {porque}")
     return enviados
 
 
