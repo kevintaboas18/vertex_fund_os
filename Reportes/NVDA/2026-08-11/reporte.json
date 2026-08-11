@@ -1,13 +1,13 @@
 {
-  "report_id": "20260811_114833_NVDA",
+  "report_id": "20260811_121710_NVDA",
   "ticker": "NVDA",
   "nombre_completo": "NVIDIA Corporation",
   "precio_actual": 217.55,
   "precio_fuente": "yfinance",
-  "precio_as_of": "08/11/2026, 11:49:25 AM",
+  "precio_as_of": "08/11/2026, 12:18:07 PM",
   "pe_ratio": 33.16310975609756,
   "logo_url": "https://logo.clearbit.com/nvidia.com",
-  "fecha_analisis": "08/11/2026, 11:48:33 AM",
+  "fecha_analisis": "08/11/2026, 12:17:10 PM",
   "historial_precios": [
     203.53,
     211.8,
@@ -1724,9 +1724,26 @@
     }
   },
   "memory_comparison": {
-    "has_prior": false
+    "has_prior": true,
+    "prior_date": "2026-08-11 11:49:25",
+    "days_ago": 0,
+    "prior_price": 217.55,
+    "prior_fair_value": 304.57,
+    "prior_recommendation": "ESPECULATIVO",
+    "prior_conviction": 57,
+    "current_price": 217.55,
+    "current_fair_value": 304.57,
+    "current_recommendation": "ESPECULATIVO",
+    "current_conviction": 57,
+    "price_change_pct": 0.0,
+    "fair_value_change_pct": 0.0,
+    "recommendation_changed": false
   },
-  "deep_memory": null,
+  "deep_memory": {
+    "n_prior": 1,
+    "hist_hit_rate": 100.0,
+    "n_scored": 1
+  },
   "open_options": [],
   "portfolio_fit": null,
   "noticias_reales": [
@@ -1786,38 +1803,38 @@
     "analyst_median": 300.0
   },
   "analisis": {
-    "biggest_pro": "El liderazgo indiscutible de NVIDIA en el mercado de GPUs para inteligencia artificial y centros de datos, impulsado por una innovación constante y una demanda creciente, posicionándola como un pilar fundamental en la infraestructura tecnológica global.",
-    "biggest_risk": "El riesgo más severo es la alta valoración actual y la intensa competencia futura en el sector de semiconductores, lo que podría limitar el crecimiento de los márgenes o la capacidad de mantener su cuota de mercado.",
-    "watch_for": "Monitorear de cerca el próximo reporte de ganancias en 15 días (26 de agosto de 2026), con un EPS estimado de $9.0, ya que históricamente ha mostrado una fuerte reacción del precio post-earnings.",
-    "company_summary_simple": "NVIDIA es una empresa que diseña y fabrica chips gráficos (GPUs) de alto rendimiento, que son como los 'cerebros' de las computadoras para tareas complejas. Gana dinero vendiendo estos chips a gamers, diseñadores profesionales y, crucialmente, a empresas que construyen centros de datos para inteligencia artificial y computación en la nube. Es importante para el inversor promedio porque está en el corazón de las tendencias tecnológicas más grandes, como la IA y el metaverso, lo que le da un enorme potencial de crecimiento, aunque también conlleva una alta volatilidad.",
-    "analisis_numeros_actuales": "NVIDIA ostenta una capitalización de mercado masiva de $5.27 billones de USD. Su valoración actual es elevada, con un P/E de 33.16 y un Forward P/E de 24.18, reflejando las altas expectativas de crecimiento. La compañía exhibe márgenes operativos excepcionales, con un Margen Bruto del 74.15% y un Margen EBITDA del 76.12%, lo que subraya su poder de fijación de precios y eficiencia operativa. No se dispone de datos de crecimiento de ingresos interanual ni de Free Cash Flow en este momento.",
-    "crecimiento_yoy": "No se proporcionó el crecimiento de ingresos interanual (Revenue Growth YoY) para un análisis histórico reciente. Sin embargo, los márgenes brutos y EBITDA consistentemente altos (74.15% y 76.12% respectivamente) sugieren una fuerte rentabilidad y eficiencia operativa sostenida a lo largo del tiempo, indicando un negocio con un poder de fijación de precios robusto.",
-    "crecimiento_proyectado": "Se proyecta que NVIDIA continúe su fuerte crecimiento en los próximos años, impulsado por la expansión de la demanda de chips para inteligencia artificial, la adopción de sus plataformas en centros de datos y la innovación en nuevas áreas como el metaverso. Los recientes catalizadores, incluyendo acuerdos estratégicos y calificaciones positivas de analistas, refuerzan estas expectativas de crecimiento.",
-    "sec_filing_10k": "El último reporte anual 10-K de NVIDIA probablemente detalla factores de riesgo inherentes a la industria de semiconductores, como la volatilidad de la demanda, la intensa competencia, los desafíos de la cadena de suministro y la dependencia de un número limitado de clientes. Los estados financieros auditados reflejarían la sólida posición de la compañía, sus altos márgenes y su inversión continua en I+D, aunque con una valoración que ya incorpora gran parte de este potencial.",
-    "sec_filing_10q": "El último reporte trimestral 10-Q probablemente mostraría un rendimiento financiero robusto, con ingresos y ganancias superando las expectativas, impulsados por la fuerte demanda en sus segmentos clave de centros de datos y gaming. Los balances reflejarían una posición de liquidez sólida y una gestión eficiente del capital, aunque con la presión de mantener el ritmo de inversión para sostener su liderazgo tecnológico.",
-    "sec_filing_8k": "Recientemente, NVIDIA ha reportado dos eventos materiales a través de formularios 8-K: un cambio de directivos/junta (CEO/CFO/director) el 2 de julio de 2026 y los resultados de la votación de accionistas el 30 de junio de 2026. Estos eventos son importantes para la gobernanza corporativa y la dirección estratégica de la empresa.",
+    "biggest_pro": "El liderazgo indiscutible de NVIDIA en el mercado de GPUs para centros de datos y soluciones de inteligencia artificial, posicionándola como el habilitador clave de la próxima ola tecnológica.",
+    "biggest_risk": "El riesgo más severo es la alta valoración actual, que deja poco margen para errores de ejecución o una desaceleración en el crecimiento de la demanda de chips de IA, exacerbado por la significativa venta de acciones por parte de insiders.",
+    "watch_for": "Monitorear de cerca el próximo reporte de earnings el 26 de agosto de 2026, con un EPS estimado de $9.0, ya que históricamente las reacciones del precio han sido volátiles post-resultados.",
+    "company_summary_simple": "NVIDIA es una empresa que diseña y fabrica chips gráficos (GPUs) de alto rendimiento, que son esenciales no solo para videojuegos, sino, y cada vez más, para la inteligencia artificial y los centros de datos. Gana dinero vendiendo estos chips y las plataformas de software asociadas a empresas tecnológicas, investigadores y consumidores. Importa al inversor promedio porque está en el corazón de la revolución de la IA, lo que le da un potencial de crecimiento enorme, aunque también viene con una valoración elevada.",
+    "analisis_numeros_actuales": "Con una capitalización de mercado de $5.27 billones, NVIDIA cotiza a un P/E actual de 33.16 y un Forward P/E de 24.18, lo que indica expectativas de crecimiento robustas. Sus márgenes brutos del 74.15% y EBITDA del 76.12% son excepcionalmente altos, reflejando su poder de fijación de precios y eficiencia operativa.",
+    "crecimiento_yoy": "El crecimiento de ingresos interanual no fue proporcionado en los datos actuales. Sin embargo, la compañía mantiene márgenes brutos del 74.15% y márgenes EBITDA del 76.12%, lo que sugiere una fuerte rentabilidad y eficiencia operativa sostenida.",
+    "crecimiento_proyectado": "Se proyecta un crecimiento significativo para los próximos años, impulsado por la continua expansión en el mercado de centros de datos, la creciente demanda de chips para inteligencia artificial y los recientes acuerdos estratégicos que consolidan su posición en la industria. El próximo EPS estimado de $9.0 para el 26 de agosto de 2026 subraya estas expectativas.",
+    "sec_filing_10k": "El último reporte anual 10-K de NVIDIA probablemente destacaría riesgos relacionados con la intensa competencia en el sector de semiconductores, la dependencia de cadenas de suministro complejas y la rápida evolución tecnológica. Los estados auditados reflejarían una sólida posición financiera, con altos márgenes y una fuerte generación de efectivo, aunque el Free Cash Flow específico no fue proporcionado.",
+    "sec_filing_10q": "El último reporte trimestral 10-Q probablemente mostraría un rendimiento financiero robusto, con ingresos y rentabilidad impulsados por la demanda de sus GPUs para IA y centros de datos. Los balances reflejarían una gestión de capital eficiente, aunque la alta valoración del mercado sugiere que gran parte de este crecimiento futuro ya está descontado.",
+    "sec_filing_8k": "Recientemente, se reportaron dos eventos materiales en los 8-K: un cambio de directivos/junta (CEO/CFO/director) el 2026-07-02 y los resultados de votación de accionistas el 2026-06-30. Estos eventos son importantes para la gobernanza y la dirección estratégica de la compañía, pero no indican un cambio fundamental en la tesis de negocio.",
     "fair_value": 304.57,
     "upside_pct": 40.0,
     "recommendation": "ESPECULATIVO",
     "conviccion_score": 57,
-    "conviccion_porque": "La puntuación de convicción de 56.9 (57 redondeado) refleja un perfil 'Especulativo' según los agentes de Victor. El agente de Business y Market probablemente empujan al alza debido al liderazgo de NVIDIA en IA y su fuerte posición en el mercado. Sin embargo, los agentes de Risk y Valuation tiran a la baja, influenciados por la alta beta (2.215), la elevada valoración (P/E de 33.16) y la significativa actividad de venta por parte de insiders, lo que introduce cautela a pesar del potencial de crecimiento.",
-    "recomendacion_porque": "La recomendación 'ESPECULATIVO' se basa en el significativo potencial de crecimiento proyectado a 1 año, con un Fair Value de $304.57 que representa un upside del 40.00% desde el precio spot actual. Sin embargo, esta oportunidad viene acompañada de una alta volatilidad (Beta de 2.215) y una valoración premium, lo que exige una gestión de riesgo cuidadosa y un tamaño de posición ajustado. La tesis se apoya en el liderazgo tecnológico y la expansión de mercados, pero se modera por los riesgos inherentes a una acción de alto crecimiento y la actividad de insiders.",
-    "tesis_inversion_completa": "La tesis de inversión en NVIDIA se centra en su posición dominante como líder tecnológico en el mercado de unidades de procesamiento gráfico (GPU), esenciales para la inteligencia artificial, el aprendizaje automático y los centros de datos. La compañía ha demostrado una capacidad excepcional para innovar y capitalizar las megatendencias tecnológicas, lo que se refleja en sus robustos márgenes operativos y su historial de superar las expectativas de ganancias. El Fair Value de $304.57, que implica un 40.00% de upside, sugiere un potencial alcista considerable a 12 meses. Sin embargo, la inversión es de naturaleza 'ESPECULATIVA' debido a la alta valoración actual, la volatilidad inherente del sector de semiconductores y la significativa actividad de venta por parte de insiders. Aunque el régimen de mercado actual es alcista, la alta beta de NVIDIA (2.215) amplifica tanto las ganancias como las pérdidas. La inversión se justifica por el potencial de crecimiento a largo plazo en mercados en expansión, pero requiere una asignación de capital prudente y una vigilancia constante de los fundamentales y el sentimiento del mercado.",
-    "tesis_riesgos": "Los riesgos inherentes a la tesis de inversión en NVIDIA incluyen la intensa competencia de rivales como AMD e Intel, así como el surgimiento de soluciones de chips personalizadas por parte de grandes clientes tecnológicos. La alta valoración actual (P/E de 33.16) deja poco margen para errores o desaceleraciones en el crecimiento. La dependencia de la cadena de suministro global de semiconductores expone a la empresa a interrupciones y fluctuaciones de costos. Además, la alta beta (2.215) significa que la acción es susceptible a movimientos amplificados del mercado. La reciente actividad de venta por parte de insiders, con un neto de -$322 millones, es una señal bajista que no debe ignorarse. Finalmente, cualquier cambio regulatorio o geopolítico que afecte el comercio de tecnología o la fabricación de semiconductores podría impactar negativamente a la compañía.",
-    "analistas_consenso": "El consenso de Wall Street sitúa el precio objetivo medio en $319.48, lo que es ligeramente superior al Fair Value de Victor de $304.57. Esta pequeña divergencia podría explicarse por la metodología de Victor, que incorpora un DCF (FCFF) de $111.38 por acción, significativamente más conservador en su valoración intrínseca, aunque el target final se ancla en proyecciones futuras. Mientras que Wall Street podría estar asignando un múltiplo ligeramente más optimista o un crecimiento a corto plazo más agresivo, Victor mantiene una perspectiva de crecimiento robusta pero con una base de valoración más anclada en la realidad de los flujos de caja descontados, resultando en un target futuro muy similar pero con una clasificación 'ESPECULATIVO' debido a los riesgos asociados a la valoración y la volatilidad.",
-    "calculos_y_crecimiento_ai": "Los targets de Victor a 12 meses se calculan utilizando una fórmula que considera el EPS proyectado, una tasa de crecimiento y un múltiplo P/E ajustado por el escenario. Para el Fair Value (Target Base de Victor) de $304.57, se utiliza un EPS estimado (probablemente anclado al $9.0 proyectado para el próximo earnings y un crecimiento futuro) multiplicado por un múltiplo P/E que refleja el P/E actual (33.16) ajustado por un factor de escenario. La tasa de crecimiento utilizada se ancla al CAGR de utilidades a 5 años, aunque el valor específico de este CAGR no fue proporcionado. El Fair Value de $304.57 ES el target base de Victor. El especialista de valuación de Victor calculó un DCF (FCFF) de $111.38 por acción, lo que indica un valor intrínseco significativamente menor que el target futuro, sugiriendo que el target de Victor incorpora un fuerte premio por crecimiento. El puntaje de convicción de 56.9 es impulsado positivamente por los agentes de Business y Market debido al liderazgo y las perspectivas de crecimiento de NVIDIA, pero es mitigado por los agentes de Risk y Valuation debido a la alta beta, la valoración y la actividad de insiders.",
-    "posicion_competitiva": "NVIDIA posee un 'moat' o ventaja competitiva muy fuerte, principalmente a través de su liderazgo tecnológico en GPUs y su ecosistema de software (CUDA). Esta combinación crea altas barreras de entrada para los competidores, especialmente en el segmento de IA y centros de datos, donde sus chips son el estándar de facto. Su capacidad de innovación y la lealtad de sus desarrolladores refuerzan su posición dominante.",
-    "principales_competidores": "Los principales competidores de NVIDIA incluyen a Advanced Micro Devices (AMD) en GPUs y CPUs, Intel Corporation en CPUs y soluciones de centros de datos, y potencialmente empresas que desarrollan sus propios chips personalizados (ASICs) para IA, como Google o Amazon.",
-    "porque_mejor_peor_inversion": "NVIDIA se destaca como una inversión potencialmente superior debido a sus márgenes brutos (74.15%) y EBITDA (76.12%) excepcionalmente altos, que superan a muchos de sus pares y reflejan su poder de fijación de precios y eficiencia. Sus retornos de capital son robustos, impulsados por la demanda de sus productos de alto valor añadido. Sin embargo, su múltiplo P/E actual de 33.16 es significativamente más alto que el promedio del mercado y de algunos competidores, lo que la convierte en una inversión 'peor' en términos de valoración relativa, ya que gran parte de su crecimiento futuro ya está descontado en el precio actual. La justificación de esta prima radica en su liderazgo en mercados de alto crecimiento como la IA.",
-    "in_simple_terms": "Imagina que NVIDIA es como el fabricante de los motores más potentes y especializados para los coches de carreras del futuro. Estos 'coches' son la inteligencia artificial, los videojuegos más realistas y los grandes centros de datos que procesan información a velocidades increíbles. NVIDIA no fabrica los coches completos, sino el componente más crítico que les permite ir más rápido y hacer cosas que otros motores no pueden. Gana dinero vendiendo estos motores a quienes construyen esos 'coches', y es importante porque sin sus motores, la carrera tecnológica no avanzaría tan rápido.",
-    "should_you_buy_now": "Dada la recomendación 'ESPECULATIVO' y la alta volatilidad de NVIDIA, una compra agresiva en los niveles de cotización actuales debe ser abordada con extrema cautela. Si bien el potencial de upside a 12 meses es considerable (40.00%), la elevada valoración y la actividad de venta de insiders sugieren que los inversores deben considerar un tamaño de posición conservador y estar preparados para la volatilidad. Es prudente esperar a un punto de entrada más favorable o construir una posición gradualmente, siempre alineado con una estrategia de inversión a largo plazo en tecnologías disruptivas.",
-    "the_bottom_line": "NVIDIA es una inversión especulativa con un alto potencial de crecimiento impulsado por su liderazgo en IA, pero con una valoración premium y riesgos inherentes que exigen una gestión de capital prudente.",
+    "conviccion_porque": "La puntuación de convicción de 57/100 refleja un perfil de inversión ESPECULATIVO. El agente de Business y Financial contribuyen positivamente debido al liderazgo de mercado de NVIDIA en IA y sus excepcionales márgenes. Sin embargo, el agente de Valuation y Risk tiran la puntuación a la baja, dada la alta valoración actual (P/E de 33.16) y el significativo riesgo de ejecución, la alta volatilidad (Beta de 2.215) y la señal bajista de la actividad insider.",
+    "recomendacion_porque": "La recomendación ESPECULATIVO se mantiene coherente con nuestra tesis previa y el veredicto de Victor. Aunque el Fair Value de $304.57 sugiere un upside considerable del 40.01% desde el precio actual de $217.55, la naturaleza de esta inversión es de alto riesgo y alta recompensa. La lógica financiera se basa en las proyecciones futuras de crecimiento en IA y centros de datos, pero la valoración ya incorpora gran parte de este optimismo, haciendo que la inversión sea sensible a cualquier desviación de las expectativas. La actividad de venta de insiders y la alta volatilidad añaden un componente especulativo significativo.",
+    "tesis_inversion_completa": "Mi visión sobre NVIDIA se mantiene consistente con el reporte anterior, donde mi Fair Value fue de $304.57 y la recomendación ESPECULATIVO, con una convicción de 57/100. El precio actual de $217.55 es idéntico al de entonces, y no se han presentado datos fundamentales que alteren significativamente el target a 12 meses. La tesis central sigue siendo que NVIDIA es el líder indiscutible en el diseño de GPUs, esenciales para el avance de la inteligencia artificial y la infraestructura de centros de datos. Su posición dominante le permite mantener márgenes brutos y EBITDA excepcionalmente altos, lo que se traduce en una fuerte rentabilidad. Los catalizadores como los recientes acuerdos y la continua demanda de chips de IA respaldan un crecimiento futuro robusto. Sin embargo, la valoración actual es exigente, con un P/E de 33.16, lo que implica que gran parte del crecimiento futuro ya está descontado en el precio. La actividad de venta por parte de insiders, que asciende a más de $322 millones netos, es una señal de cautela que no debe ignorarse. El próximo reporte de earnings en 15 días es un evento clave que podría generar volatilidad. En un régimen de mercado alcista con tasas subiendo y VIX normal, el flujo institucional y los técnicos suelen pesar más, pero la alta beta de 2.215 y la valoración exigen prudencia. La inversión en NVDA, por tanto, sigue siendo una apuesta de alto potencial pero con riesgos significativos, justificando la clasificación de ESPECULATIVO.",
+    "tesis_riesgos": "Los riesgos inherentes que podrían destruir la tesis incluyen una desaceleración en el gasto de capital en centros de datos o en la adopción de IA, una intensificación de la competencia por parte de AMD, Intel o nuevos actores con soluciones ASIC, y disrupciones en la cadena de suministro global. La alta valoración actual (P/E de 33.16) hace que la acción sea particularmente vulnerable a cualquier noticia negativa o a un crecimiento menor al esperado. La elevada beta (2.215) implica una mayor sensibilidad a las fluctuaciones del mercado. Además, la significativa venta de acciones por parte de insiders ($322M neto) es una señal de advertencia que sugiere que aquellos con mayor conocimiento interno ven un riesgo o una valoración completa en los niveles actuales.",
+    "analistas_consenso": "El consenso de Wall Street tiene un precio objetivo medio de $319.48, lo que implica un upside similar al Fair Value de Victor de $304.57. Ambos coinciden en un potencial alcista significativo para NVIDIA a 12 meses, impulsado por su liderazgo en IA y centros de datos. La principal divergencia radica en la recomendación final: mientras que muchos analistas de Wall Street podrían tener una recomendación de 'BUY' o 'Strong Buy', Victor la clasifica como 'ESPECULATIVO'. Esta diferencia se explicaría por la metodología de Victor, que pondera fuertemente la valoración actual, el riesgo de ejecución y la actividad insider, factores que, a pesar del potencial de crecimiento, elevan el perfil de riesgo a un nivel que requiere una asignación de capital más cautelosa y dimensionada.",
+    "calculos_y_crecimiento_ai": "Los targets de Victor a 12 meses son Bull $350.26, Base $304.57 y Bear $215.37. El Fair Value de este reporte es el target Base de Victor, $304.57. La fórmula general de Victor para estos targets es EPS × (1+crecimiento) × (P/E actual × factor del escenario). Para NVIDIA, se utilizó un EPS estimado de $9.0 y el P/E actual de 33.16. El crecimiento se ancla al CAGR de utilidades a 5 años, aunque el valor específico de este CAGR no fue proporcionado en los datos. El DCF (FCFF) del especialista de valuación de Victor arroja un valor de $111.38 por acción, lo que es significativamente inferior al precio de mercado y a los targets, indicando que el mercado está valorando un crecimiento futuro muy agresivo. El puntaje raw de 56.9/100 es impulsado positivamente por los agentes de Business (liderazgo en IA) y Financial (márgenes elevados), pero es mitigado por los agentes de Valuation (alta prima sobre DCF) y Risk (alta beta, ventas de insiders).",
+    "posicion_competitiva": "NVIDIA posee un 'moat' o ventaja competitiva muy fuerte, derivado de su liderazgo tecnológico en GPUs, su ecosistema de software CUDA, y su capacidad para innovar rápidamente en el espacio de la inteligencia artificial. Esta posición le permite dominar el mercado de chips de alto rendimiento para IA y centros de datos, creando altas barreras de entrada para competidores y manteniendo márgenes de beneficio superiores.",
+    "principales_competidores": "Los principales competidores de NVIDIA incluyen a Advanced Micro Devices (AMD) en el mercado de GPUs y CPUs, Intel Corporation (INTC) en CPUs y con incursiones en GPUs y chips de IA, y empresas emergentes o especializadas en ASICs para IA como Google (TPUs) o Amazon (Inferentia).",
+    "porque_mejor_peor_inversion": "NVIDIA se destaca como una inversión potencialmente superior debido a sus excepcionales márgenes brutos (74.15%) y EBITDA (76.12%), que superan a muchos de sus pares y reflejan su poder de fijación de precios y eficiencia. Sus retornos de capital son probablemente muy altos, aunque no se proporcionaron datos específicos. Sin embargo, su P/E actual de 33.16 y Forward P/E de 24.18 son múltiplos elevados, lo que la hace una inversión 'peor' en términos de valoración relativa, ya que el inversor paga una prima sustancial por el crecimiento futuro. Comparativamente, otras empresas con múltiplos más bajos podrían ofrecer un mejor 'valor' si su crecimiento es sostenible, aunque probablemente no igualen los márgenes de NVIDIA.",
+    "in_simple_terms": "Imagina que la inteligencia artificial es un coche de carreras y NVIDIA es el fabricante del motor más potente y avanzado del mundo. Sin su motor, los coches de IA no podrían ir tan rápido ni tan lejos. Por eso, todas las grandes empresas que quieren construir coches de IA (centros de datos, empresas de software) compran sus motores a NVIDIA. Gana dinero vendiendo estos motores y las herramientas para usarlos. Es una empresa crucial para el futuro, pero su motor ya es tan famoso y deseado que su precio es muy alto, lo que significa que si el coche no corre tan rápido como se espera, el inversor podría perder dinero.",
+    "should_you_buy_now": "Dada la recomendación ESPECULATIVO y la alta valoración actual, la prudencia es clave. Si bien el potencial de upside es significativo, la compra agresiva en los niveles de cotización actuales conlleva un riesgo considerable. Se sugiere un tamaño de posición de riesgo muy controlado y una alta tolerancia a la volatilidad, especialmente con el próximo reporte de earnings en el horizonte.",
+    "the_bottom_line": "NVIDIA es un líder tecnológico con un potencial de crecimiento masivo en IA, pero su alta valoración y los riesgos inherentes la convierten en una inversión especulativa que requiere cautela y una gestión de riesgo estricta.",
     "probabilities": {
-      "p_positive_12m": 70,
-      "p_touch_bull_12m": 35,
-      "p_touch_bear_12m": 85,
+      "p_positive_12m": 65,
+      "p_touch_bull_12m": 45,
+      "p_touch_bear_12m": 75,
       "p_up_10pct_3m": 55,
-      "rationale": "Estas probabilidades se anclan en la alta volatilidad histórica de NVDA (38.55% anual), su consistente historial de superar las expectativas de ganancias, y el actual régimen de mercado alcista, aunque la proximidad del target Bear al precio spot actual aumenta la probabilidad de tocar ese nivel."
+      "rationale": "La alta volatilidad anual (38.55%) y el beta elevado (2.215) sugieren movimientos de precio significativos. El historial de beats en earnings es positivo, pero la reacción post-earnings ha sido mixta, y el target Bear ($215.37) está muy cerca del precio actual ($217.55), aumentando la probabilidad de ser tocado."
     },
     "regime": {
       "vol": "normal",
@@ -1837,17 +1854,17 @@
     "prob_anchoring": null,
     "trade_plan": {
       "probabilities": {
-        "p_positive_12m": 70,
-        "p_touch_bull_12m": 35,
-        "p_touch_bear_12m": 85,
+        "p_positive_12m": 65,
+        "p_touch_bull_12m": 45,
+        "p_touch_bear_12m": 75,
         "p_up_10pct_3m": 55,
-        "rationale": "Estas probabilidades se anclan en la alta volatilidad histórica de NVDA (38.55% anual), su consistente historial de superar las expectativas de ganancias, y el actual régimen de mercado alcista, aunque la proximidad del target Bear al precio spot actual aumenta la probabilidad de tocar ese nivel."
+        "rationale": "La alta volatilidad anual (38.55%) y el beta elevado (2.215) sugieren movimientos de precio significativos. El historial de beats en earnings es positivo, pero la reacción post-earnings ha sido mixta, y el target Bear ($215.37) está muy cerca del precio actual ($217.55), aumentando la probabilidad de ser tocado."
       },
       "reward_pct": 61.0,
       "risk_pct": 1.0,
       "reward_risk": 60.88,
-      "kelly_full_pct": 69.5,
-      "kelly_half_pct": 34.8,
+      "kelly_full_pct": 64.4,
+      "kelly_half_pct": 32.2,
       "suggested_pct": 25.0,
       "cap_reason": "Limitado por tope de concentración 25%.",
       "factor_haircut_pct": 0.0,
@@ -4047,10 +4064,12 @@
       }
     },
     "re_execution": {
-      "status": "sin_analisis_previo",
+      "status": "evaluado",
       "recalc_required": false,
+      "prior_report_date": "2026-08-11",
+      "prior_report_age_days": 0,
       "triggers": [],
-      "note": "Primer análisis de este ticker; no hay tesis previa que revisitar."
+      "note": "Sin disparadores desde el análisis previo: la tesis anterior sigue vigente."
     },
     "final_report": {
       "report_version": "2.0.0",
@@ -4058,8 +4077,8 @@
         "ticker": "NVDA",
         "exchange": "NASDAQ",
         "currency": "USD",
-        "analysis_timestamp": "2026-08-11T11:49:25.246815+00:00",
-        "knowledge_timestamp": "2026-08-11T11:48:33.127479+00:00"
+        "analysis_timestamp": "2026-08-11T12:18:07.523596+00:00",
+        "knowledge_timestamp": "2026-08-11T12:17:14.912484+00:00"
       },
       "profile": {
         "label": "Speculative",
@@ -4118,13 +4137,13 @@
         }
       },
       "executive_thesis": {
-        "business_quality": "NVIDIA es una empresa que diseña y fabrica chips gráficos (GPUs) de alto rendimiento, que son como los 'cerebros' de las computadoras para tareas complejas. Gana dinero vendiendo estos chips a gamers, diseñadores profesionales y, crucialmente, a empresas que construyen centros de datos para inteligencia artificial y computación en la nube. Es importante para el inversor promedio porque está en el corazón de las tendencias tecnológicas más grandes, como la IA y el metaverso, lo que le da un enorme potencial de crecimiento, aunque también conlleva una alta volatilidad.",
-        "value_creation_durability": "NVIDIA posee un 'moat' o ventaja competitiva muy fuerte, principalmente a través de su liderazgo tecnológico en GPUs y su ecosistema de software (CUDA). Esta combinación crea altas barreras de entrada para los competidores, especialmente en el segmento de IA y centros de datos, donde sus chips son el estándar de facto. Su capacidad de innovación y la lealtad de sus desarrolladores refuerzan su posición dominante.",
-        "growth_engine": "Los targets de Victor a 12 meses se calculan utilizando una fórmula que considera el EPS proyectado, una tasa de crecimiento y un múltiplo P/E ajustado por el escenario. Para el Fair Value (Target Base de Victor) de $304.57, se utiliza un EPS estimado (probablemente anclado al $9.0 proyectado para el próximo earnings y un crecimiento futuro) multiplicado por un múltiplo P/E que refleja el P/E actual (33.16) ajustado por un factor de escenario. La tasa de crecimiento utilizada se ancla al CAGR de utilidades a 5 años, aunque el valor específico de este CAGR no fue proporcionado. El Fair Value de",
-        "market_validation": "El consenso de Wall Street sitúa el precio objetivo medio en $319.48, lo que es ligeramente superior al Fair Value de Victor de $304.57. Esta pequeña divergencia podría explicarse por la metodología de Victor, que incorpora un DCF (FCFF) de $111.38 por acción, significativamente más conservador en su valoración intrínseca, aunque el target final se ancla en proyecciones futuras. Mientras que Wall Street podría estar asignando un múltiplo ligeramente más optimista o un crecimiento a corto plazo más agresivo, Victor mantiene una perspectiva de crecimiento robusta pero con una base de valoración ",
-        "valuation_message": "NVIDIA ostenta una capitalización de mercado masiva de $5.27 billones de USD. Su valoración actual es elevada, con un P/E de 33.16 y un Forward P/E de 24.18, reflejando las altas expectativas de crecimiento. La compañía exhibe márgenes operativos excepcionales, con un Margen Bruto del 74.15% y un Margen EBITDA del 76.12%, lo que subraya su poder de fijación de precios y eficiencia operativa. No se dispone de datos de crecimiento de ingresos interanual ni de Free Cash Flow en este momento.",
+        "business_quality": "NVIDIA es una empresa que diseña y fabrica chips gráficos (GPUs) de alto rendimiento, que son esenciales no solo para videojuegos, sino, y cada vez más, para la inteligencia artificial y los centros de datos. Gana dinero vendiendo estos chips y las plataformas de software asociadas a empresas tecnológicas, investigadores y consumidores. Importa al inversor promedio porque está en el corazón de la revolución de la IA, lo que le da un potencial de crecimiento enorme, aunque también viene con una valoración elevada.",
+        "value_creation_durability": "NVIDIA posee un 'moat' o ventaja competitiva muy fuerte, derivado de su liderazgo tecnológico en GPUs, su ecosistema de software CUDA, y su capacidad para innovar rápidamente en el espacio de la inteligencia artificial. Esta posición le permite dominar el mercado de chips de alto rendimiento para IA y centros de datos, creando altas barreras de entrada para competidores y manteniendo márgenes de beneficio superiores.",
+        "growth_engine": "Los targets de Victor a 12 meses son Bull $350.26, Base $304.57 y Bear $215.37. El Fair Value de este reporte es el target Base de Victor, $304.57. La fórmula general de Victor para estos targets es EPS × (1+crecimiento) × (P/E actual × factor del escenario). Para NVIDIA, se utilizó un EPS estimado de $9.0 y el P/E actual de 33.16. El crecimiento se ancla al CAGR de utilidades a 5 años, aunque el valor específico de este CAGR no fue proporcionado en los datos. El DCF (FCFF) del especialista de valuación de Victor arroja un valor de $111.38 por acción, lo que es significativamente inferior al p",
+        "market_validation": "El consenso de Wall Street tiene un precio objetivo medio de $319.48, lo que implica un upside similar al Fair Value de Victor de $304.57. Ambos coinciden en un potencial alcista significativo para NVIDIA a 12 meses, impulsado por su liderazgo en IA y centros de datos. La principal divergencia radica en la recomendación final: mientras que muchos analistas de Wall Street podrían tener una recomendación de 'BUY' o 'Strong Buy', Victor la clasifica como 'ESPECULATIVO'. Esta diferencia se explicaría por la metodología de Victor, que pondera fuertemente la valoración actual, el riesgo de ejecución",
+        "valuation_message": "Con una capitalización de mercado de $5.27 billones, NVIDIA cotiza a un P/E actual de 33.16 y un Forward P/E de 24.18, lo que indica expectativas de crecimiento robustas. Sus márgenes brutos del 74.15% y EBITDA del 76.12% son excepcionalmente altos, reflejando su poder de fijación de precios y eficiencia operativa.",
         "key_levels_summary": "Current adjusted close $217.55; Nearest support zone (daily-support-188.88) $186.0211292925838-191.7388707074162; Nearest resistance zone (weekly-resistance-232.28) $224.28094129592137-240.27905870407864; Failed-breakout level (weekly-resistance-232.28) $224.28094129592137-240.27905870407864",
-        "primary_risk": "El riesgo más severo es la alta valoración actual y la intensa competencia futura en el sector de semiconductores, lo que podría limitar el crecimiento de los márgenes o la capacidad de mantener su cuota de mercado."
+        "primary_risk": "El riesgo más severo es la alta valoración actual, que deja poco margen para errores de ejecución o una desaceleración en el crecimiento de la demanda de chips de IA, exacerbado por la significativa venta de acciones por parte de insiders."
       },
       "important_levels": [
         {
@@ -4772,7 +4791,7 @@
       ],
       "audit": {
         "packet_hashes": {
-          "packet": "3c0947baf5a2a0707b2cbf31538f6006a398044b595cc8c3fb56bc91e0dfa947"
+          "packet": "90b9d497532ddc56ac953dba0a2fe56214aaff025b838764a507d8962587f8c6"
         },
         "formula_versions": [
           "BUS-ALLOC-029@2026.1",
@@ -5023,18 +5042,7 @@
     },
     "scores_source": "victor"
   },
-  "wbj_explanation": {
-    "resumen_simple": "This analysis for NVIDIA (NVDA) is currently incomplete, as the system could not generate a full investment verdict or score. Therefore, a simple summary of its investment potential or a definitive recommendation cannot be provided at this time. While NVIDIA is known for its leadership in GPUs for AI and data centers, this specific report does not offer a current assessment of its investment profile.",
-    "por_categoria": "The analysis for NVIDIA shows 'None/10' for all six categories: Business, Financial, Market, Technical, Risk, and Valuation. This means that the system was unable to score or provide an assessment for any of these crucial aspects. Typically, the Business category evaluates a company's competitive advantages and industry position, Financial assesses its health and profitability, Market looks at its stock's behavior relative to the broader market, Technical analyzes price charts and patterns, Risk identifies potential downsides, and Valuation determines if the stock is under or overvalued. Since all scores are 'None', no specific insights can be drawn from these categories in this report.",
-    "gates_y_perfil": "The system did not assign a specific investment profile (like Momentum, Quality, Value, Conditional, Speculative, or Avoid) for NVIDIA, as indicated by 'None — None'. This means the analysis could not categorize the investment based on its characteristics. Furthermore, no 'gates' were passed or failed. Gates are fundamental criteria or checkpoints that an investment must meet to proceed in the analysis. Since no gates were evaluated, the system could not determine if NVIDIA meets even the basic requirements for a potential investment according to the methodology. This implies the analysis is incomplete.",
-    "overrides_y_coherencia": "There are no active overrides, warnings, or contradictions listed in this analysis for NVIDIA. Overrides are special conditions that can alter the standard scoring or verdict based on specific criteria. Warnings highlight potential issues that an investor should be aware of. Contradictions would indicate inconsistencies or conflicting signals within the data. The absence of these means that while the analysis is incomplete, no specific red flags or special adjustments were triggered by the data that was processed.",
-    "niveles_y_confluencia": "This analysis does not provide any specific important price levels, either technical or valuation-based, for NVIDIA. Technical levels typically represent support and resistance zones derived from price charts, while valuation levels indicate prices based on intrinsic value calculations. Consequently, no 'confluence zones' were detected. Confluence zones are critical price ranges where technical and valuation levels overlap, suggesting a stronger area of interest for investors. Since neither individual levels nor overlapping zones were identified, this report cannot offer guidance on potential entry or exit points based on these metrics.",
-    "ajuste_a_mi_perfil": "Given that the current analysis for NVIDIA is incomplete and provides no scores, profile, or verdict ('None — None'), it's impossible to determine how this specific investment fits with your profile. Your profile indicates a speculative approach, a 1-3 year horizon, interest in growth, timing, and income, and a willingness to use stocks, options, and ETFs with a $100,000 capital and a maximum 30% risk per operation ($30,000). Normally, the system would assess if NVIDIA's risk/reward, volatility, and fundamental characteristics align with these preferences. However, without a completed analysis, no such fit can be determined, and therefore, no guidance on sizing or suitability can be provided from this report.",
-    "calibracion": "There is no historical track record or calibration data available for your past performance. Therefore, the confidence in any verdict (which is currently 'None' for NVIDIA) cannot be assessed against your personal investment history.",
-    "conclusion": "Based on the current, incomplete analysis, a comprehensive investment verdict for NVIDIA cannot be provided, and therefore, no actionable insights or definitive conclusions can be drawn from this specific report."
-  },
-  "wbj_explanation_source": "gemini",
   "fecha": "2026-08-11",
   "agente": "acciones",
-  "guardado_en": "2026-08-11T11:49:41+00:00"
+  "guardado_en": "2026-08-11T12:18:07+00:00"
 }
