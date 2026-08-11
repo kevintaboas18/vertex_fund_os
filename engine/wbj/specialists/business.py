@@ -1458,14 +1458,54 @@ def _compute_all(
             f"industry_adapter={packet.analysis.industry_adapter!r}: "
             "INDUSTRY_ADAPTERS.md reemplaza el retorno sobre capital invertido "
             "(ROE/ROTCE/NIM para bancos, ROE/combined ratio para aseguradoras), "
-            "asi que BUS-ROIC-013, BUS-SPREAD-014, BUS-EVA-015, BUS-IROIC-016 y "
-            "BUS-ALLOC-029 salen NOT_APPLICABLE en vez de puntuar un modelo que "
-            "el documento no admite para este emisor. Las metricas de reemplazo "
-            "todavia NO estan implementadas: la dimension de management queda "
-            "con menos evidencia detras y eso se declara aqui, no se esconde."
+            "asi que BUS-SPREAD-014, BUS-EVA-015, BUS-IROIC-016 y BUS-ALLOC-029 "
+            "salen NOT_APPLICABLE en vez de puntuar un modelo que el documento no "
+            "admite para este emisor. BUS-ROIC-013 SI puntua, pero lleva ROE "
+            "(FIN-EF-023: net income / average shareholders equity, banda BAD <8% "
+            "/ GOOD 8-15% / EXCELLENT >15%) en lugar de ROIC -- el documento dice "
+            "reemplazar, no retirar. Las otras tres sustitutas (ROTCE, NIM, ratio "
+            "de eficiencia) necesitan campos que el packet no trae hoy: goodwill, "
+            "intangibles, ingreso por intereses y gasto no financiero."
         )
 
+    # El hueco NO se queda vacio: lo ocupa la metrica de reemplazo.
+    #
+    # "Replace ROIC with ROE" dice reemplazar, no retirar, y el Cerebro ya
+    # registra la sustituta con formula, banda y autoridad propia:
+    #
+    #   FORMULAS.md, FIN-EF-023 -- "ROE | Net income / Average shareholders
+    #   equity | BAD <8%; GOOD 8-15%; EXCELLENT >15%; high leverage may
+    #   distort."
+    #
+    # Asi que no se inventa nada: se reusa `financial.roe`, que ya la
+    # implementa registrada, con SU banda. Importada dentro de la funcion para
+    # no crear una dependencia de modulo entre dos especialistas que corren en
+    # paralelo y no deben verse.
+    #
+    # El coste, aceptado con los ojos abiertos: `BUS-ROIC-013` significa cosas
+    # distintas segun el emisor. Por eso el aviso viaja EN EL VALOR
+    # (`SLOT_CARRIES_ROE_...`), no solo en las assumptions -- quien lea el
+    # track record dentro de dos años tiene que poder ver que ese numero no
+    # era un ROIC sin reconstruir el contexto.
+    _roe_reemplazo = None
     if _retorno_reemplazado:
+        from wbj.specialists.financial import roe as _roe
+        # "Average shareholders equity", literal. Con un solo año no hay media
+        # que calcular y se usa el saldo final, declarandolo.
+        _eq = [e for e in equity_hist[-2:] if e is not None]
+        if ni_hist and ni_hist[-1] is not None and _eq:
+            _avg_eq = sum(_eq) / len(_eq)
+            _roe_reemplazo = _roe(ni_hist[-1], _avg_eq)
+            if _roe_reemplazo.is_valid:
+                _sello = ["SLOT_CARRIES_ROE_FIN_EF_023_NOT_ROIC"]
+                if len(_eq) == 1:
+                    _sello.append("ROE_END_BALANCE_EQUITY_SINGLE_YEAR")
+                _roe_reemplazo = _roe_reemplazo.model_copy(update={
+                    "warnings": sorted({*_sello, *(_roe_reemplazo.warnings or [])})})
+
+    if _roe_reemplazo is not None:
+        v_roic = _roe_reemplazo
+    elif _retorno_reemplazado:
         v_roic = _reemplazada("pct")
     elif nopat_latest is not None and v_ic.is_valid:
         v_roic = roic(nopat_latest, v_ic.value)
@@ -1477,8 +1517,27 @@ def _compute_all(
                 "warnings": sorted({WARN_END_BALANCE_PROXY, *(v_roic.warnings or [])})})
     else:
         v_roic = _null(NullState.MISSING, "pct", "ROIC_INPUTS_UNAVAILABLE")
-    add("BUS-ROIC-013", v_roic, _score_from_anchor(v_roic, [(0.0, 0), (0.08, 3), (0.15, 7), (0.25, 10)]))
-    roic_latest = v_roic.value if v_roic.is_valid else None
+    # Las MISMAS anclas para ROE que para ROIC, y no por comodidad: FORMULAS.md
+    # le asigna a las dos la banda identica -- FIN-EF-023 (ROE) y FIN-EF-024
+    # (ROIC) dicen palabra por palabra "BAD <8%; GOOD 8-15%; EXCELLENT >15%".
+    # La curva de anclas de este modulo codifica esos mismos cortes (8%->3,
+    # 15%->7) en la escala 0-10 que usa business.
+    #
+    # Lo que NO se puede hacer es reusar `band_roe` de financial.py, que fue el
+    # primer intento: devuelve 0/1/2 (BAD/GOOD/EXCELLENT) porque ese
+    # especialista puntua en esa escala. Un ROE del 10,2% --GOOD-- salia con un
+    # 1 sobre 10 y habria hundido la dimension de management de todos los
+    # bancos sin que nada lo delatara.
+    add("BUS-ROIC-013", v_roic,
+        _score_from_anchor(v_roic, [(0.0, 0), (0.08, 3), (0.15, 7), (0.25, 10)]))
+    # `roic_latest` NO se queda con el ROE, aunque el hueco lo lleve. Alimenta
+    # la puerta de moat y VALUE_DESTRUCTION, que comparan contra el WACC -- y
+    # un ROE se compara contra el COSTE DE CAPITAL PROPIO, no contra el WACC.
+    # Mezclarlos daria un veredicto de destruccion de valor calculado con dos
+    # magnitudes que no se restan, que es justo el error que el filtro de
+    # acervos del TAM existe para atrapar en el otro lado del sistema.
+    roic_latest = (None if _roe_reemplazo is not None
+                   else (v_roic.value if v_roic.is_valid else None))
     ctx["roic_latest"] = roic_latest
 
     # ---- BUS-SPREAD-014 / BUS-EVA-015 ----

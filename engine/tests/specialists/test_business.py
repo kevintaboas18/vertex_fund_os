@@ -1073,3 +1073,66 @@ def test_recurring_revenue_is_the_third_durability_slot():
     dim_a = next(d for d in without.dimensions if d.name == "business_durability")
     dim_b = next(d for d in with_rec.dimensions if d.name == "business_durability")
     assert dim_b.valid_weight() > dim_a.valid_weight()
+
+
+# --- el adaptador reemplaza el modelo de retorno ---------------------------
+
+def _paquete_banco(**kw):
+    return _minimal_packet(_five_year_rows(), industry_adapter="banks", **kw)
+
+
+def test_a_bank_is_not_charged_for_lacking_a_useful_roic():
+    """INDUSTRY_ADAPTERS.md: "Banks -- Replace ROIC with ROE, ROTCE...".
+
+    A un banco el capital invertido de la vista de financiacion no le mide
+    nada: sus depositos no son financiacion, son su materia prima. Cobrarle
+    cobertura por eso es cobrarle por ser un banco, y por eso las cuatro que
+    no tienen sustituta salen NOT_APPLICABLE -- el unico estado que sale del
+    denominador (MISSING_DATA_POLICY.md).
+    """
+    out = bus.run(_paquete_banco(), overlay={"wacc": 0.09})
+    por_id = {r.metric_id: r for r in out.metrics}
+    for mid in ("BUS-SPREAD-014", "BUS-EVA-015", "BUS-IROIC-016", "BUS-ALLOC-029"):
+        assert por_id[mid].state == NullState.NOT_APPLICABLE, mid
+
+
+def test_the_roic_slot_carries_roe_for_a_bank():
+    """"Replace", no "retire": el hueco lo ocupa la sustituta registrada."""
+    out = bus.run(_paquete_banco(), overlay={"wacc": 0.09})
+    fila = {r.metric_id: r for r in out.metrics}["BUS-ROIC-013"]
+    assert fila.value is not None, "el hueco se quedo vacio en vez de llevar ROE"
+    assert "SLOT_CARRIES_ROE_FIN_EF_023_NOT_ROIC" in (fila.warnings or []), (
+        "sin este sello, dentro de dos años nadie sabra que ese numero no era "
+        f"un ROIC: {fila.warnings}")
+
+
+def test_a_good_roe_is_not_scored_as_if_it_were_a_band_index():
+    """El fallo que casi entra: `band_roe` de financial.py devuelve 0/1/2
+    porque ese especialista puntua en esa escala, y business puntua 0-10. Un
+    ROE del 10,2% --GOOD para FORMULAS.md-- salia con un 1 sobre 10 y hundia
+    la dimension de management de TODOS los bancos sin delatarse.
+
+    FIN-EF-023 y FIN-EF-024 llevan la banda identica ("BAD <8%; GOOD 8-15%;
+    EXCELLENT >15%"), asi que las anclas del hueco valen para las dos.
+    """
+    fila = {r.metric_id: r for r in bus.run(
+        _paquete_banco(), overlay={"wacc": 0.09}).metrics}["BUS-ROIC-013"]
+    if fila.value is not None and fila.value >= 0.08:
+        assert fila.score is not None and fila.score > 2.0, (
+            f"un ROE de {fila.value:.2%} (GOOD) puntuo {fila.score}: escala cruzada")
+
+
+def test_a_bank_roe_never_feeds_the_wacc_comparison():
+    """Un ROE se compara contra el coste de capital PROPIO, no contra el WACC.
+    Si el hueco alimentara `roic_latest`, VALUE_DESTRUCTION restaria dos
+    magnitudes que no se restan."""
+    out = bus.run(_paquete_banco(), overlay={"wacc": 0.09})
+    assert "VALUE_DESTRUCTION" not in out.mandatory_flags
+    assert any("VALUE_DESTRUCTION withheld" in a for a in out.assumptions)
+
+
+def test_a_non_bank_is_untouched():
+    """El cambio es del adaptador, no global."""
+    out = bus.run(_minimal_packet(_five_year_rows()), overlay={"wacc": 0.09})
+    fila = {r.metric_id: r for r in out.metrics}["BUS-ROIC-013"]
+    assert "SLOT_CARRIES_ROE_FIN_EF_023_NOT_ROIC" not in (fila.warnings or [])
