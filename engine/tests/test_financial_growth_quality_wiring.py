@@ -28,8 +28,27 @@ from wbj.schemas.packet import Packet
 _FIXTURE = Path(__file__).parent / "fixtures" / "packet" / "NVDA_packet.json"
 
 
-def _run(overlay=None):
+#: A peer panel the way the packet builder assembles it (DATASET.md's
+#: `peer_growth_margin_returns`). Eight rows because SCORING_ENGINE.md refuses a
+#: peer comparison below that -- fewer would leave FIN-GR-003 MISSING, which is
+#: the state the fixture is already in.
+_PEER_PANEL = [{"ticker": t, "revenue_growth": g} for t, g in
+               (("AMD", 0.14), ("INTC", -0.02), ("QCOM", 0.09), ("AVGO", 0.22),
+                ("TXN", 0.04), ("MU", 0.17), ("ADI", 0.06), ("MRVL", 0.11))]
+
+
+def _run(overlay=None, peer_panel=None):
+    """The specialist over the NVDA fixture.
+
+    `peer_panel` goes into the PACKET, not the overlay, because that is where
+    FIN-GR-003 reads it (`packet.estimates["peer_panel"]`). The test that needs
+    4 of 5 used to pass a `peer_revenue_growth` overlay key that nothing reads,
+    so the dimension stayed at 3/5 and the test skipped itself -- it had been
+    asserting nothing for as long as it existed.
+    """
     packet = Packet.model_validate(json.loads(_FIXTURE.read_text()))
+    if peer_panel is not None:
+        packet.estimates = {**(packet.estimates or {}), "peer_panel": peer_panel}
     out = fin.run(packet, overlay or {})
     rows = {r.metric_id: r for r in out.metrics}
     dim = next(d for d in out.dimensions if d.name == "revenue_quality_and_growth")
@@ -108,13 +127,31 @@ def test_supplying_the_share_series_adds_a_valid_metric():
 
 def test_the_dimension_lights_once_four_of_five_are_valid():
     """The threshold itself, with the peer gap filled the way live data fills
-    it."""
-    _, _, dim = _run({"share_history": [0.28, 0.33, 0.396],
-                      "peer_revenue_growth": [0.10, 0.12, 0.08]})
-    if dim.valid_weight() < 0.8 - 1e-9:
-        import pytest as _pt
-        _pt.skip("fixture cannot reach 4/5 without a peer panel")
+    it: `share_history` through the analyst channel and a real peer panel in
+    the packet.
+
+    FIN-GR-004 stays dark on purpose -- FORMULAS.md gives it no numeric cutoff,
+    so its score comes from the judge, not from here. 4 of 5 is the whole
+    margin this dimension has, which is why the fifth one going missing takes
+    it from 10.00/10 to nothing at all.
+    """
+    _, rows, dim = _run({"share_history": [0.28, 0.33, 0.396]},
+                        peer_panel=_PEER_PANEL)
+    assert rows["FIN-GR-003"].value is not None, "the peer panel did not land"
+    assert dim.valid_weight() >= 0.8 - 1e-9, f"only {dim.valid_weight():.0%} valid"
     assert not dim.score10_value().is_null
+
+
+def test_a_thin_peer_panel_is_refused_rather_than_averaged():
+    """SCORING_ENGINE.md's floor of 8 valid peers, both sides of it.
+
+    Seven peers is not "almost enough": comparing against a thin sample is the
+    kind of number that looks the same in the report and is not.
+    """
+    _, rows, dim = _run({"share_history": [0.28, 0.33, 0.396]},
+                        peer_panel=_PEER_PANEL[:7])
+    assert rows["FIN-GR-003"].value is None
+    assert dim.score10_value().is_null, "3 of 5 must not score"
 
 
 def test_the_judgment_requests_survive_for_when_nobody_supplied_them():

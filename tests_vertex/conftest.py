@@ -45,3 +45,26 @@ def _sin_token_de_api():
         yield
     finally:
         vertex_api.VERTEX_API_TOKEN = previo
+
+
+# ── Un salto es un fallo, salvo que falte una herramienta del entorno ────────
+#
+# La regla, y los dos casos que costó, están en `engine/tests/_saltos.py`. Aquí
+# se paga en los tests del buscador: esperaban 60 s a que FMP cargara el índice
+# y se saltaban si no llegaba —o sea SIEMPRE sin red—, y al quitarles la
+# dependencia uno falló a la primera y destapó que el autocompletado seguía
+# haciendo dos peticiones HTTP por tecla.
+#
+# Se carga por RUTA y no por nombre: `conftest` es un nombre que pytest ya
+# ocupa, e importarlo desde el otro conftest resuelve al propio archivo.
+
+import importlib.util  # noqa: E402
+import pathlib  # noqa: E402
+
+_RUTA = pathlib.Path(__file__).resolve().parent.parent / "engine" / "tests" / "_saltos.py"
+_spec = importlib.util.spec_from_file_location("wbj_tests_saltos", _RUTA)
+_saltos = importlib.util.module_from_spec(_spec)
+sys.modules["wbj_tests_saltos"] = _saltos
+_spec.loader.exec_module(_saltos)
+
+_saltos.instala(sys.modules[__name__])

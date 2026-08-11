@@ -14,7 +14,7 @@ apúntalo con TITO_ROOT=/ruta/a/agente-tito-metralleta. Sin esa variable se
 salta esa sección y el resto corre igual.
 """
 from __future__ import annotations
-import ast, json, math, os, re, shutil, subprocess, sys, tempfile, time
+import ast, html as _html, json, math, os, re, shutil, subprocess, sys, tempfile, time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -49,10 +49,12 @@ MAPA = {
     "compute.ts": "compute.py", "barsStore.ts": "bars_store.py",
     "types.ts": "(dataclasses)",
     "chartGeometry.ts": "(JS en el HTML)", "news.ts": "news.py",
+    "watchlist.ts": "watchlist.py", "outboxStore.ts": "outbox_store.py",
+    "watchlistStore.ts": "watchlist_store.py",
+    "watchlistLocal.ts": "(JS en el HTML)",
 }
 FUERA = {  # deferidos a propósito, no son del motor de análisis
     "wheel.ts", "wheelAfford.ts", "wheelUniverse.ts", "earnings.ts",
-    "watchlist.ts", "watchlistLocal.ts", "watchlistStore.ts", "outboxStore.ts",
 }
 libs = {p.name for p in TITO.glob("lib/*.ts") if ".test." not in p.name} if TITO and TITO.exists() else set()
 if not libs:
@@ -65,7 +67,8 @@ for lib in sorted(libs - FUERA):
         chk(True, f"{lib:<22} → {dest}")
     else:
         chk((TITO_DIR / dest).exists(), f"{lib:<22} → {dest}")
-print(f"  · {len(FUERA)} módulos fuera de alcance a propósito (Wheel, watchlist, broker)")
+print(f"  · {len(FUERA)} módulos fuera de alcance a propósito (Wheel y earnings, "
+      f"que tienen su propio panel)")
 
 # Los docstrings citan los documentos de metodología de Víctor (`SCOREDCARD/*`)
 # como fuente de cada tabla de puntuación. Esos archivos viven en SU repo, no en
@@ -500,16 +503,46 @@ with tempfile.TemporaryDirectory() as td:
     viejos = [{"id":900+i,"timestamp":(NOW-timedelta(days=40-i)).isoformat(),"type":"call",
                "strike":100.0,"expiration":"2026-12-18","asset_price":95.0,
                "premium":500_000,"aggression":"ask"} for i in range(12)]
-    ivh = [{"date":(NOW-timedelta(days=d)).date().isoformat(),"avg_iv":40+d*.15} for d in range(65)]
+    # `avgIv` es la clave de SU archivo, la que escribe `save_iv_snapshot` y la
+    # que lee `ivcontext`. Aquí decía `avg_iv` y esta comprobación se cayó al
+    # alinear el formato: es exactamente su trabajo — el rank volviendo al proxy
+    # en silencio es el fallo que no se ve en ningún otro sitio.
+    ivh = [{"date":(NOW-timedelta(days=d)).date().isoformat(),"avgIv":40+d*.15} for d in range(65)]
     con = run_scorecard("DEMO", trades(), chain(), bars(), NOW, spot=SPOT,
                         iv_history=ivh, past_flows=viejos, calibration={"bias_pct":2.0,"samples":8})
     chk(con.active == 6, f"con memoria: {con.active}/6 categorías activas")
     chk(con.scores["validation"] is not None, "sub-agente 6 se enciende con flows acumulados")
     chk(con.iv_context.rank["source"] == "iv-history", "IV Rank pasa de proxy a historia real")
     chk(con.predictions[20].calibration["applied"], "calibración aplicada con ≥5 vencidas")
-chk("WBJ_TITO_DATA" in RENDER and "/var/data/tito" in RENDER, "WBJ_TITO_DATA declarado en Render")
-chk("BORRA en cada reinicio" in RENDER.replace("\n","").replace("#","").replace("      "," "),
-    "el blueprint avisa de que el plan free borra la memoria")
+# Estos dos checks medían el mundo ANTERIOR al almacén: que el blueprint
+# declarara `WBJ_TITO_DATA=/var/data/tito` y que avisara de que el plan free
+# borra la memoria. Las dos cosas dejaron de ser ciertas a la vez.
+#
+# `/var/data` en plan free NO era un disco montado —se creaba como carpeta
+# normal en el sistema efímero—, así que la variable prometía persistencia que
+# no existía. Y el aviso ya no aplica: las series viven dentro del almacén, que
+# se restaura de la rama `datos` en cada arranque.
+#
+# Lo que se mide ahora es el invariante nuevo: que el blueprint pida el token
+# sin el cual no hay respaldo, y que diga la consecuencia de no ponerlo.
+# En minúsculas: lo que se mide es que el aviso ESTÉ, no cómo se escribió.
+_R = RENDER.replace("\n", " ").replace("#", " ").lower()
+chk("VERTEX_GIT_TOKEN" in RENDER,
+    "el blueprint pide VERTEX_GIT_TOKEN, sin el cual no se respalda nada")
+chk("rama `datos`" in RENDER or "rama datos" in _R,
+    "…y explica que los datos van a la rama `datos`, no a main")
+chk("no respalda" in _R,
+    "…y dice la CONSECUENCIA de no ponerlo, no solo que hace falta")
+chk("VERTEX_DB_KEY" in RENDER and "no se respaldan" in _R,
+    "…y que sin VERTEX_DB_KEY las cuentas no se respaldan (cifrar o no subir)")
+# La variable vieja no puede volver activa: definirla saca las series del
+# almacén y las devuelve al disco efímero, apagando el sub-agente 6, el IV Rank
+# real y la calibración sin que nada avise.
+_activas = [l for l in RENDER.splitlines()
+            if l.strip().startswith("- key:") and "WBJ_TITO_DATA" in l]
+chk(not _activas,
+    "WBJ_TITO_DATA NO está activa: las series viven dentro del almacén"
+    + (f" · {_activas}" if _activas else ""))
 
 # ── store.ts: la forma del almacén de trades es la suya, no una lista pelada ──
 from wbj.tito import stores as _ST
@@ -925,9 +958,35 @@ HUERFANAS = {
         "sin llamador también en su wheel.ts: la exporta y no la usa ni su "
         "/api/wheel ni su wheel/page.tsx. El escaneo saca su IV de respaldo de "
         "la volatilidad REALIZADA, no de la IV del strike ATM",
-    "load_chain_history":
-        "sin llamador también en su chainStore.ts. Aquí el sub-agente 4 puntúa "
-        "sobre la cadena de HOY; la serie se acumula para poder usarla, no se lee",
+
+    # ── watchlist: SU cliente es el navegador, aquí también ──
+    #
+    # No son código muerto ni un port a medias. En su app estas ocho corren en
+    # el CLIENTE (`ideas/page.tsx` + `WatchlistCard.tsx`), porque el watchlist
+    # vive en localStorage con tu saldo dentro y no sube al servidor. Aquí pasa
+    # exactamente lo mismo: el bloque `wlLocal*` del panel es su equivalente en
+    # el navegador. Se portan a Python igualmente por dos razones concretas:
+    #
+    #   1. `diff_watchlist.sh` las ejecuta las 19 contra SU archivo — 734 casos
+    #      a cero divergencias. Sin el port no habría con qué comparar, y la
+    #      versión del navegador quedaría sin verificar contra nada.
+    #   2. Son la referencia de la que se copió el JS. Cuando él cambie una
+    #      regla, el diferencial lo dice aquí antes que en pantalla.
+    #
+    # Borrarlas ahorraría 60 líneas y perdería la única medida objetiva de que
+    # el watchlist del panel hace lo que hace el suyo.
+    "build_entry":   "corre en el navegador (`wlMarca`); medida por diff_watchlist.sh",
+    "upsert":        "corre en el navegador (`wlUpsert`); medida por diff_watchlist.sh",
+    "remove":        "corre en el navegador (`wlQuita`); medida por diff_watchlist.sh",
+    "sort_entries":  "corre en el navegador (`wlOrdena`); medida por diff_watchlist.sh",
+    "mark_synced":   "la escribe el agente por MCP, no el servidor web; medida por "
+                     "diff_watchlist.sh",
+    "payload_for":   "qué mandar según la granularidad; el buzón ya recorta en "
+                     "`add_to_outbox`. Medida por diff_watchlist.sh",
+    "quote_link":    "el enlace al broker se arma en el navegador desde la plantilla "
+                     "`quoteUrl` que sirve /api/tito-watchlist; medida por diff_watchlist.sh",
+    "ticker_list":   "los tickers para pegar; corre en el navegador (`wlTickerList`). "
+                     "Medida por diff_watchlist.sh",
 }
 _pub, _prod = {}, set()
 for _f in sorted(TITO_DIR.glob("*.py")):
@@ -1056,15 +1115,21 @@ MODULOS_SUYOS = {
     "wheelAfford":     ("py", "wheel_universe.py — afford_of / sort_by_afford_then_score"),
     "wheelUniverse":   ("py", "wheel_universe.py — sus 40 símbolos curados"),
     "earnings":        ("py", "earnings.py — el estimador del próximo reporte"),
-    "watchlist":       ("no", "su watchlist; Vertex tiene la suya y es de Kevin"),
-    "watchlistLocal":  ("no", "idem, la copia en localStorage de su navegador"),
-    "watchlistStore":  ("no", "idem, la persistencia de su watchlist"),
-    "outboxStore":     ("no", "cola de salida de su /api/watchlist, que no se porta"),
+    # Los cuatro del watchlist. La de Vertex —tickers sueltos con alertas de
+    # precio— se ELIMINÓ: un ticker no se puede juzgar después, un contrato con
+    # la foto del día en que lo marcaste sí.
+    "watchlist":       ("py", "watchlist.py — las 19 funciones puras + BROKERS, "
+                              "medidas por diff_watchlist.sh"),
+    "watchlistLocal":  ("js", "el bloque `wlLocal*` del panel: vive en el navegador "
+                              "porque guarda tu saldo y tu sizing"),
+    "watchlistStore":  ("py", "watchlist_store.py — legado de solo lectura, para la "
+                              "importación única"),
+    "outboxStore":     ("py", "outbox_store.py — la cola de /api/tito-watchlist"),
 }
 _mods_portados = [k for k, v in MODULOS_SUYOS.items() if v[0] != "no"]
 chk(all(m for _, m in MODULOS_SUYOS.values()),
     f"los {len(MODULOS_SUYOS)} módulos de su web/lib están declarados")
-chk(len(_mods_portados) == 28, f"{len(_mods_portados)} de sus módulos están portados")
+chk(len(_mods_portados) == 32, f"{len(_mods_portados)} de sus módulos están portados")
 if TITO and (TITO / "lib").is_dir():
     _suyos_lib = {f.stem for f in (TITO / "lib").glob("*.ts") if not f.stem.endswith(".test")}
     _suyos_lib = {m for m in _suyos_lib if not m.endswith(".test")}
@@ -1107,6 +1172,49 @@ if TITO and (TITO / "lib").is_dir():
                   + (f" — DIFIEREN: {_dif}" if _dif else ""))
     chk(not _aus, "ninguna constante exportada suya falta en el port"
                   + (f": {_aus}" if _aus else ""))
+
+    # Y las de sus RUTAS, que este cotejo no miraba.
+    #
+    # Sólo escaneaba `web/lib/*.ts`, así que las siete `const` de su
+    # `/api/flow` y las de `/api/ideas` y `/api/wheel` quedaban fuera por
+    # construcción. Ahí estaban cuatro sin portar: tres existían en
+    # `vertex_api.py` como números sueltos dentro de la llamada —el mismo valor,
+    # pero sin nombre que cotejar— y `CONVICTION_TABLE_CAP` valía 25 en vez de
+    # 150, lo que recortaba a una sexta parte las filas que alimentan sus tres
+    # tarjetas de convicción.
+    #
+    # No son `export const` sino `const` de módulo, así que llevan su propio
+    # patrón. Se buscan por NOMBRE en el motor y en la capa web: donde estén,
+    # pero con el nombre puesto.
+    _NUM_RUTA = re.compile(r"^const ([A-Z][A-Z0-9_]*)\s*=\s*([0-9_.*\s+-]+?);", re.M)
+    _r_aus, _r_dif, _r_ig = [], [], 0
+    import importlib as _il
+    _SC = _il.import_module("wbj.tito.scorecard")
+    _API_TXT = (VERTEX / "vertex_api.py").read_text(encoding="utf-8")
+    for _rd in sorted((TITO / "app" / "api").iterdir()):
+        _rf = _rd / "route.ts"
+        if not _rf.is_file():
+            continue
+        for _n, _expr in _NUM_RUTA.findall(_rf.read_text(encoding="utf-8")):
+            try:
+                _suyo = eval(_expr.replace("_", ""))      # noqa: S307
+            except Exception:
+                continue
+            _mio = getattr(_SC, _n, None)
+            if _mio is None:
+                # Puede vivir en la capa web con prefijo (`_IDEAS_`, `_WHEEL_`).
+                _m = re.search(rf"^_?[A-Z]*_?{_n}\s*=\s*([0-9_.]+)", _API_TXT, re.M)
+                _mio = float(_m.group(1).replace("_", "")) if _m else None
+            if _mio is None:
+                _r_aus.append(f"{_rd.name}.{_n}={_suyo}")
+            elif abs(float(_mio) - float(_suyo)) > 1e-9:
+                _r_dif.append(f"{_rd.name}.{_n}: él {_suyo} · nosotros {_mio}")
+            else:
+                _r_ig += 1
+    chk(not _r_dif, f"las {_r_ig} constantes de sus RUTAS valen lo mismo aquí"
+                    + (f" — DIFIEREN: {_r_dif}" if _r_dif else ""))
+    chk(not _r_aus, "ninguna constante de sus rutas falta en el port"
+                    + (f": {_r_aus}" if _r_aus else ""))
 else:
     print("  · define TITO_ROOT para cotejar módulos y constantes contra su repo")
 
@@ -1147,47 +1255,139 @@ COMPONENTES_SUYOS = {
     "IvContextCard":         ("panel", "`vcSubagentesHTML` — sub-agente 5"),
     "ValidationCard":        ("panel", "`vcSubagentesHTML` — sub-agente 6"),
     "ConvictionTransactions":("panel", "`vcSubagentesHTML` — transacciones revisadas"),
-    # ── declarados: NO se portan, con su motivo ──
-    "HeaderBar":             ("no", "la barra de Vertex ya existe y es de Vertex, no suya"),
-    "AnalysisLoader":        ("no", "Vertex tiene su propio indicador de carga"),
-    "CompanyHeader":         ("no", "el nombre y el precio van en la cabecera de la gráfica"),
-    "ActivityCard":          ("no", "resume las mismas filas que la tabla de transacciones "
-                                    "revisadas, que se pinta entera"),
-    "MoneyFlowCard":         ("no", "resume convicción + estructura, que ya salen con su "
-                                    "desglose completo en el detalle de sub-agentes"),
-    "FlowPriceChart":        ("no", "dibuja los notables sobre el precio; la gráfica del tab "
-                                    "es la suya (SimpleChart) y ya lleva niveles y cono"),
-    "OptionChainTable":      ("no", "navegador de la cadena completa (600+ filas). El tab "
-                                    "muestra los top strikes, que es lo que puntúa"),
-    "WatchlistCard":         ("no", "su watchlist; Vertex tiene la suya"),
+    # ── los doce que faltaban, ya portados ──
+    #
+    # Estuvieron declarados como "no se portan, con su motivo". El motivo era
+    # razonable uno a uno y equivocado en conjunto: entre todos son la mitad de
+    # la evidencia que su panel enseña, y resumirla no es enseñarla. Se portan
+    # los doce. Lo único que NO se copia es su wordmark: la marca de esta
+    # pantalla es Vertex. El logo de la EMPRESA analizada sí — es información.
+    "HeaderBar":             ("panel", "la barra de Proyecciones: NavTabs + `vcPintaQuick` "
+                                       "+ buscador + el `hb-right` de `vcSyncCabecera`"),
+    "AnalysisLoader":        ("panel", "`vcLoaderHTML` — sus 4 fases y su curva asintótica "
+                                       "topada al 97%, arrancada por `vcLoaderArranca`"),
+    "CompanyHeader":         ("panel", "`vcCompanyHTML` + /api/tito-logo (su proxy del logo)"),
+    "ActivityCard":          ("panel", "`vcActivityHTML` — premium por día, calls vs puts"),
+    "MoneyFlowCard":         ("panel", "`vcMoneyFlowHTML` — el reparto del dinero y sus "
+                                       "cuatro azulejos"),
+    "FlowPriceChart":        ("panel", "`renderProjFlowMoney` (el panel del dinero, con su "
+                                       "escala log) + `vcClustersHTML` (los racimos)"),
+    "OptionChainTable":      ("panel", "`vcCadenaHTML` — la cadena entera, ordenable por sus "
+                                       "ocho columnas y con los nulos al final"),
+    "WatchlistCard":         ("panel", "`renderProjWatchlist` + /api/tito-watchlist"),
     "NavTabs":               ("panel", "vcPintaNav — Ticker / Ideas / Wheel / Time & Sales"),
-    "RiskProfileCard":       ("no", "el perfil de riesgo es el de Kevin, no un slider suyo"),
+    "RiskProfileCard":       ("panel", "`vcRiesgoHTML` — sus dos presupuestos, alimentados "
+                                       "por el cuestionario de la cuenta en vez de su slider"),
     "WheelPresetCard":       ("panel", "renderProjWheel — los tres presets con sus bandas"),
     "WheelTable":            ("panel", "renderProjWheel — la tabla de candidatos"),
     "IdeasTable":            ("panel", "renderProjIdeas — el screener de mercado del tab"),
-    "RepeatBadge":           ("no", "insignia interna de otras tablas suyas"),
+    "RepeatBadge":           ("panel", "`vcRepeatBadge` + `vcRepeatCounts`"),
     "NotableTable":          ("panel", "renderProjTape — la cinta de Time & Sales"),
-    "ChartPanel":            ("no", "su app/ChartPanel dibuja los top-5 contratos de la "
-                                    "cadena sobre las barras; el tab tiene su gráfica "
-                                    "principal con cono, niveles y escenarios"),
+    "ChartPanel":            ("panel", "`renderProjTop5` — los cinco strikes de más "
+                                       "nocional, punteados sobre el precio"),
     # ── chart/: el motor de la gráfica, que SÍ está portado ──
     "PriceChart":            ("panel", "`renderVictorProjChart` — port de chartGeometry.ts "
                                        "+ PriceChart.tsx, medido por `diff_geo.sh`"),
-    "ChartCrosshair":        ("no", "la cruz que sigue al cursor sobre su SVG; el tab "
-                                    "dibuja la gráfica sin interacción de puntero"),
+    "ChartCrosshair":        ("panel", "`vcCrosshairCablea` — cableada por "
+                                       "`renderVictorProjChart` con SUS mismas escalas"),
 }
 _portados = {k: v for k, v in COMPONENTES_SUYOS.items() if v[0] == "panel"}
 _sin_portar = {k: v for k, v in COMPONENTES_SUYOS.items() if v[0] != "panel"}
 chk(all(m for _, m in COMPONENTES_SUYOS.values()),
     f"los {len(COMPONENTES_SUYOS)} componentes de su app están declarados")
-chk(len(_portados) == 27, f"{len(_portados)} de sus componentes tienen consumidor en el tab")
-chk(all(len(m) > 20 for _, m in _sin_portar.values()),
-    f"los {len(_sin_portar)} no portados llevan MOTIVO escrito, no una excusa de una línea")
-# Y los que se declaran portados tienen que existir de verdad en el panel.
-_mentira = [k for k, (_, m) in _portados.items()
-            for fn in [m.split("`")[1] if "`" in m else ""]
-            if fn.startswith("vc") and f"function {fn}(" not in HTML]
-chk(not _mentira, f"ningún componente se declara portado sin estarlo{': ' + str(_mentira) if _mentira else ''}")
+chk(len(_portados) == 39, f"{len(_portados)} de sus componentes tienen consumidor en el tab")
+chk(not _sin_portar,
+    "no queda ni uno sin portar" + (f": {sorted(_sin_portar)}" if _sin_portar else ""))
+# Y los que se declaran portados tienen que existir de verdad en el panel Y
+# tener quien los llame.
+#
+# Esto miraba SOLO la primera función citada y SOLO que estuviera definida. Con
+# eso, `RepeatBadge` pasó como portado estando muerto: `vcRepeatBadge` y
+# `vcRepeatCounts` definidas, cero llamadores, y las tres tablas donde él usa la
+# insignia pintando un `↻` suelto sin el ×N — diciendo que hubo repetición pero
+# no cuántas veces, que es la mitad de la señal.
+#
+# Ahora se revisan TODAS las funciones que cada nota cita, y las dos formas de
+# mentir: citarla sin que exista, y que exista sin que nadie la use.
+# `render[A-Za-z...]` y no `renderProj...`: media docena de sus componentes
+# caen en `renderVictorTargets` y `renderVictorChart`, y con el prefijo corto el
+# check las daba por no portadas. Un chequeo que se equivoca de nombre denuncia
+# lo que sí está y calla lo que no.
+_FN_CITADA = re.compile(r"`(vc[A-Za-z0-9_]+|render[A-Za-z0-9_]+|wl[A-Za-z0-9_]+|pf[A-Za-z0-9_]+)`")
+_mentira, _vivas = [], 0
+for _c, (_tipo, _nota) in _portados.items():
+    for _fn in sorted(set(_FN_CITADA.findall(_nota))):
+        _def = re.search(rf"\b(function {_fn}\b|const {_fn}\s*=)", HTML)
+        _usos = len(re.findall(rf"\b{_fn}\s*\(", HTML))
+        if not _def:
+            _mentira.append(f"{_c}: {_fn} citada y NO definida")
+        elif _usos <= 1:
+            _mentira.append(f"{_c}: {_fn} definida y SIN LLAMADOR")
+        else:
+            _vivas += 1
+chk(not _mentira,
+    f"las {_vivas} funciones que el registro cita están definidas Y se llaman"
+    + (f" · MUERTAS: {_mentira}" if _mentira else ""))
+
+# Que la función exista y se llame no dice que haga lo MISMO. Sus componentes
+# llevan umbrales propios —que no están en el motor— y esos deciden texto y
+# color: `strengthLabel` (70/50/30) pone "Muy fuerte" o "Débil" al lado de cada
+# nivel, `ivColor` (90/61/40) tiñe la IV, el hit rate va verde ≥55 y rojo <45,
+# la frase de sesgo tiene una banda muerta de ±1%, y `intensity > 0.12` decide
+# si una celda del heatmap enseña su número o solo el color.
+#
+# Ninguno estaba portado: siete rondas comparando que la función existiera y
+# ni una mirando lo que decide por dentro. Se compara el conjunto de umbrales
+# de CADA componente suyo contra los números que aparecen en su función.
+if TITO and (TITO / "app" / "components").is_dir():
+    _UMBRAL = re.compile(r"[<>]=?\s*(-?\d+(?:\.\d+)?)")
+
+    def _cuerpo_fn(fn):
+        i = HTML.find(f"function {fn}(")
+        if i < 0:
+            return ""
+        j = HTML.find("\nfunction ", i + 10)
+        return HTML[i:j if j > 0 else i + 6000]
+
+    #: (componente, umbral) → por qué NO está, con su motivo.
+    _UMBRAL_DECLARADO = {
+        # Él tiene DOS gráficas de niveles —`SimpleChart` (fuerza ≥25) y la de
+        # `ProWallsCard` (≥35)— y el panel de Vertex tiene UNA. Se usa la de
+        # `SimpleChart`, que es la más permisiva: con ≥35 la gráfica única se
+        # quedaría sin los niveles medios, que son los que él sí enseña en la
+        # otra vista. El 35 no tiene dónde aplicarse sin inventar una segunda
+        # gráfica que nadie pidió.
+        ("ProWallsCard", 35.0): "una sola gráfica de niveles, con el ≥25 de SimpleChart",
+    }
+    _sin_umbral, _con = [], 0
+    for _c, (_tipo, _nota) in _portados.items():
+        _f = TITO / "app" / "components" / f"{_c}.tsx"
+        if not _f.is_file():
+            continue
+        _suyos = sorted({float(x) for x in _UMBRAL.findall(_f.read_text(encoding="utf-8"))})
+        if not _suyos:
+            continue
+        _fns = sorted(set(_FN_CITADA.findall(_nota)))
+        # Los helpers de banda viven fuera de la función que los usa.
+        # Los helpers de banda viven fuera de la función que los usa, así que
+        # se concatenan todos: si no, el check denuncia como ausente un umbral
+        # que sí está, solo que en su propio helper.
+        _HELPERS = ("vcFuerzaLabel", "vcIvColor", "vcHitRateColor", "vcSesgoFrase",
+                    "vcConfLabel", "vcErrColor", "vcHaceCuanto", "vcDolares",
+                    "vcScoreColor")
+        _mio = ("".join(_cuerpo_fn(x) for x in _fns)
+                + "".join(_cuerpo_fn(x) for x in _HELPERS))
+        if not _mio:
+            continue
+        _nums = {float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", _mio)}
+        _faltan = [u for u in _suyos if u not in _nums and (_c, u) not in _UMBRAL_DECLARADO]
+        if _faltan:
+            _sin_umbral.append(f"{_c}: {_faltan}")
+        else:
+            _con += 1
+    chk(not _sin_umbral,
+        f"los umbrales de {_con} de sus componentes están en el panel"
+        + (f" · FALTAN: {_sin_umbral}" if _sin_umbral else ""))
 # Con su repo a mano, el registro se contrasta contra la carpeta REAL: un
 # componente nuevo suyo que nadie declaró hace fallar este check.
 if TITO and (TITO / "app" / "components").is_dir():
@@ -1200,11 +1400,426 @@ if TITO and (TITO / "app" / "components").is_dir():
     chk(not _fantasma, f"el registro no inventa componentes{': ' + str(_fantasma) if _fantasma else ''}")
 else:
     print("  · define TITO_ROOT para contrastar el registro contra su carpeta real")
+
+sec("9-octies. Su DISEÑO: los tonos y las reglas de tabla")
+# ─────────────────────────────────────────────────────────────────────────────
+#  Se portó su lógica, sus textos, sus umbrales y sus constantes. Su
+#  `globals.css` no lo había mirado nadie, y ahí viven decisiones que no son
+#  adorno: `tabular-nums` en TODAS las tablas, la cebra, el encabezado pegajoso
+#  y la fila entera teñida cuando un trade es inusual.
+#
+#  Se comparan sus TONOS (los hexadecimales de sus variables) y sus reglas de
+#  tabla contra el panel. La luminosidad NO se compara: su paleta es clara y
+#  este tab vive dentro de Vertex, que es oscuro — está declarado como
+#  divergencia en el propio CSS.
+_CSS_SUYO = (TITO / "app" / "globals.css") if TITO else None
+if _CSS_SUYO and _CSS_SUYO.is_file():
+    _css = _CSS_SUYO.read_text(encoding="utf-8")
+
+    def _var(nombre):
+        m = re.search(rf"--{nombre}:\s*(#[0-9a-fA-F]{{3,8}})", _css)
+        return m.group(1).lower() if m else ""
+
+    # Sus hues, uno por uno. El `emerald-400` de Tailwind es #34d399 y su verde
+    # es #12b76a: parecidos en la cabeza, distintos en pantalla.
+    _tonos = {n: _var(n) for n in ("accent", "green", "red", "put", "amber")}
+    _faltan_t = [f"--{n}={v}" for n, v in _tonos.items()
+                 if v and v not in HTML.lower()]
+    chk(not _faltan_t,
+        f"sus {len(_tonos)} tonos están en el panel"
+        + (f" · FALTAN: {_faltan_t}" if _faltan_t else ""))
+
+    # Sus reglas de tabla. `tabular-nums` es la que más se nota: sin ella cada
+    # dígito lleva su propio ancho y dos precios no acaban en la misma columna.
+    _reglas = {
+        "font-variant-numeric: tabular-nums": "los dígitos alinean entre filas",
+        "nth-child(odd)": "la cebra, para no saltar de fila al recorrerla",
+        "tbody tr:hover": "la fila bajo el cursor se distingue",
+        "position: sticky": "el encabezado no se va al hacer scroll",
+    }
+    # Acotado al bloque que estiliza SUS tablas (`table.vc-t`), no al archivo
+    # entero: `tabular-nums` aparece suelto en otras partes del panel, así que
+    # buscarlo en todo el HTML daba el check por bueno con la regla borrada —
+    # medía que la cadena existiera, no que la tabla la aplicara.
+    # Los BLOQUES enteros cuyo selector menciona `vc-t`, no sus líneas de
+    # selector: `position: sticky` vive en la línea siguiente a
+    # `table.vc-t thead th {`, y un filtro por línea la perdía.
+    _mio_t = "".join(m.group(0) for m in
+                     re.finditer(r"[^{}\n]*\.vc-t[^{}]*\{[^}]*\}", HTML))
+    _sin_regla = [f"{k} ({v})" for k, v in _reglas.items()
+                  if k in _css and k not in _mio_t]
+    chk(not _sin_regla,
+        f"sus {len(_reglas)} reglas de tabla están portadas"
+        + (f" · FALTAN: {_sin_regla}" if _sin_regla else ""))
+
+    # Su escala de espaciado, con su regla escrita: el gap ENTRE cards tiene
+    # que superar al padding DENTRO, o la proximidad se invierte.
+    # El `:root` de ESCRITORIO. `findall` sobre el archivo entero se traía
+    # también su override de móvil —`@media (max-width:640px)` redefine `md` y
+    # `lg`— y el último ganaba: el check comparaba la escala de teléfono con la
+    # de escritorio y denunciaba una diferencia que no existía.
+    _raiz = _css[_css.index(":root {"):_css.index("}", _css.index(":root {"))]
+    _vals = {k: int(v) for k, v in
+             re.findall(r"--space-(xs|sm|md|lg):\s*(\d+)px", _raiz)}
+    chk(_vals.get("lg", 0) > _vals.get("md", 0) > _vals.get("sm", 0) > _vals.get("xs", 0),
+        f"su escala de espaciado es creciente: {_vals}")
+    chk(all(f"--vc-{k}: {v}px" in HTML for k, v in _vals.items()),
+        "…y la misma escala está en el panel, con sus mismos valores")
+    # Y su recorte de móvil, que es una decisión suya y no un descuido: «ahí el
+    # scroll pesa más que el agrupamiento».
+    _movil = re.search(r"@media \(max-width: 640px\) \{\s*:root \{([^}]*)\}", _css)
+    if _movil:
+        _mv = {k: int(v) for k, v in
+               re.findall(r"--space-(xs|sm|md|lg):\s*(\d+)px", _movil.group(1))}
+        chk(all(f"--vc-{k}: {v}px" in HTML for k, v in _mv.items()),
+            f"…y su recorte de espaciado en móvil {_mv}")
+
+    # `.pill`: 999px + 700 + MAYÚSCULAS. Es lo que las separa del texto de al
+    # lado sin necesitar más color.
+    _pill = _css[_css.index(".pill {"):_css.index("}", _css.index(".pill {"))]
+    if "uppercase" in _pill:
+        chk("text-transform: uppercase" in HTML and ".vc-pill" in HTML,
+            "sus pills van en mayúsculas, como él")
+    print(f"      tonos {list(_tonos.values())} · espaciado {_vals}")
+else:
+    chk(False, "sin TITO_ROOT no se puede contrastar su globals.css", warn_if_false=True)
+
+sec("9-septies. Sus PALABRAS, una por una")
+# ─────────────────────────────────────────────────────────────────────────────
+#  Las rondas 11 y 12 miraron los umbrales de sus componentes y las etiquetas
+#  de sus bandas. Lo que nadie enumeró nunca fue la PROSA: las frases que
+#  explican qué significa el número. «−$2.400M de GEX» no dice nada; «conviene
+#  seguir el movimiento» sí, y esa mitad de la tarjeta se perdía sin que
+#  fallara nada — un panel con todos los números y ninguna explicación pasa
+#  todos los tests de cableado.
+#
+#  Se extraen de sus .tsx las frases en español de 18-80 caracteres (literales
+#  y texto JSX suelto) y se exige que cada una esté en el panel o declarada
+#  aquí con su motivo. Es un cedazo grueso a propósito: si una frase suya nueva
+#  aparece, esto falla y hay que decidir — portarla o declarar por qué no.
+FRASES_DECLARADAS = {
+    "¿Dónde se acumula el dinero?":
+        "la variante de la pregunta de Estructura en su `page.tsx`. Él tiene "
+        "TRES para la misma casilla —ésta, «¿Strike/DTE de convicción o "
+        "lotería?» en `ScorecardPanel` y «¿Dónde se acumula el "
+        "posicionamiento?» en `StructureCard`— y aquí están las dos que "
+        "corresponden a las dos superficies portadas: la tabla resumen y la "
+        "tarjeta de detalle",
+    "Descargando página 3":
+        "es un EJEMPLO dentro del comentario de `AnalysisLoader`, no texto de "
+        "pantalla: describe los pasos que su loader decide NO enseñar",
+    "AI Options Agent — scorecard, flujo y predicción.":
+        "el `metadata.description` de su `layout.tsx` — el chrome de Next. "
+        "Aquí el tab vive dentro del layout de Vertex",
+    "Se cortó la conexión con el escáner.":
+        "el `onerror` de un `EventSource`. Aquí no hay SSE (divergencia "
+        "declarada «una respuesta, no un stream»): un fetch que falla da su "
+        "propio mensaje, con el motivo real",
+    "Si menciona la sesión de MarketSnack, hay que refrescar":
+        "aquí el aviso de la cookie es MÁS largo y dice dónde re-pegarla "
+        "(DevTools → Network → /api/flow_feed → header Cookie), porque en un "
+        "servidor no hay navegador que la refresque sola",
+    "Prediction Pro — próximamente.":
+        "su marcador de algo aún no construido en `TradesFeed`. Aquí "
+        "Prediction Pro está EN la pantalla, así que la frase sobra",
+    "Sin trades inusuales todavía — busca un ticker.":
+        "el vacío de su `TradesFeed`. Aquí la cinta tiene el suyo, que además "
+        "distingue «no hay ticker» de «hay ticker y no hay flujo»",
+    "Tamaño de cuenta en dólares":
+        "la etiqueta de su formulario de perfil, que en su app vive en "
+        "localStorage. Aquí el perfil es del servidor y lo edita el "
+        "cuestionario — divergencia declarada",
+    "Los números de abajo son un":
+        "idem: el pie de su `RiskProfileCard`",
+    "Categoría especial del documento:":
+        "su etiqueta para las IV atípicas de `ivcontext`. Aquí ese aviso llega "
+        "como `iv.note`, que el motor redacta y el panel pinta entero",
+    "Antes hacía de lo contrario":
+        "su glosa de «flipeado». Aquí la nota de niveles lo dice con sus "
+        "propias palabras de `LevelsCard`: «era techo y ahora hace de suelo»",
+    "Base (lo más probable)":
+        "la etiqueta del escenario base en su `EscenariosCard`. Aquí las tres "
+        "columnas van rotuladas Bajista/Base/Alcista con su probabilidad al "
+        "lado, que es el mismo dato sin el paréntesis",
+    "Las líneas de colores son las 3 rutas posibles:":
+        "la leyenda de su `SimpleChart`. La gráfica portada trae la suya "
+        "dibujada —cada ruta con su chip de escenario y su %— en vez de "
+        "describirla en prosa debajo",
+    "Las bandas son los precios donde está el dinero, con la":
+        "la nota de su `ProWallsCard`, que es su SEGUNDA vista de niveles. "
+        "Aquí hay una sola tabla de niveles, con la P(toque) por fila y su "
+        "explicación encima — misma información, una sola pantalla",
+    "Cómo quieres vender puts":
+        "el título de su `WheelPresetCard`. Aquí los tres presets llevan sus "
+        "bandas Δ y DTE en el propio botón, y debajo las reglas del elegido",
+    "Elige un perfil. No hay que tocar números — cada uno ya trae su delta y su plazo.":
+        "idem: su subtítulo",
+    "Si vendieras este put, cobrarías":
+        "el encabezado de su tarjeta Estudiante de la Wheel. Aquí la columna "
+        "«Cobras» lo dice con el número al lado, y la fila desplegable "
+        "desarrolla los tres escenarios",
+    "último precio −10%":
+        "su etiqueta de la fuente de prima. Aquí va en el `title` de la celda, "
+        "con el recorte exacto según la fuente (0% bid / 10% último / 15% VWAP)",
+    "Ilíquido — no operable":
+        "su etiqueta de fila bloqueada. Aquí la fila bloqueada dice el motivo "
+        "concreto —sin bid, horquilla ancha, poco open interest— con la frase "
+        "que lo explica, que es más que «ilíquido»",
+}
+if TITO and (TITO / "app").is_dir():
+    _ES = re.compile(r"[áéíóúñ¿¡]")
+    _LIT = re.compile(r'"([^"\\\n{}$<>]{18,80})"|\x27([^\x27\\\n{}$<>]{18,80})\x27')
+    _JSX = re.compile(r">\s*([A-ZÁÉÍÓÚÑ¿][^<>{}\n]{17,80})\s*<")
+    _HTML_TXT = _html.unescape(HTML)
+    _suyas, _ausentes = set(), []
+    for _f in sorted((TITO / "app").rglob("*.tsx")):
+        if ".test." in _f.name:
+            continue
+        _src = _f.read_text(encoding="utf-8")
+        _cand = set()
+        for _m in _LIT.finditer(_src):
+            _t = (_m.group(1) or _m.group(2)).strip()
+            if _ES.search(_t) and " " in _t and not _t.startswith(("http", "@/", "/")):
+                _cand.add(_t)
+        for _m in _JSX.finditer(_src):
+            _t = _m.group(1).strip()
+            if _ES.search(_t):
+                _cand.add(_t)
+        for _t in sorted(_cand):
+            _suyas.add(_t)
+            if _t not in _HTML_TXT and _t not in FRASES_DECLARADAS:
+                _ausentes.append(f"{_f.name}: {_t}")
+    chk(not _ausentes,
+        f"las {len(_suyas)} frases suyas están en el panel o declaradas"
+        + (f" · SIN PORTAR NI DECLARAR: {_ausentes}" if _ausentes else ""))
+    _fant_fr = sorted(set(FRASES_DECLARADAS) - _suyas)
+    chk(not _fant_fr,
+        "ninguna frase declarada es un fantasma"
+        + (f" · YA NO LAS DICE: {_fant_fr}" if _fant_fr else ""))
+    print(f"      {len(_suyas) - len(FRASES_DECLARADAS)} portadas · "
+          f"{len(FRASES_DECLARADAS)} declaradas con su motivo")
+else:
+    chk(False, "sin TITO_ROOT no se pueden contrastar sus frases", warn_if_false=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Sus PÁGINAS — la última clase de superficie sin registro.
+#
+#  El registro de componentes excluye `layout` y `page` a propósito (no son
+#  componentes), y las tres páginas de subcarpeta —`ideas/`, `wheel/`,
+#  `flow/`— ni siquiera entran en el glob de `app/*.tsx`. O sea que sus CUATRO
+#  pantallas eran la única superficie suya que nada enumeraba: se leyeron a
+#  mano en las rondas 9 y 14, y esa lectura no dejaba rastro comprobable. Si
+#  Víctor añade una quinta pantalla mañana, nada aquí se entera.
+#
+#  Cada una declara qué la cubre en este panel y qué de ella NO se porta, con
+#  su motivo. Mismo contrato que los otros cuatro registros.
+PAGINAS_SUYAS = {
+    "page": ("app/page.tsx", "el dashboard por ticker → `loadProjections` + "
+             "`renderProjections`. Sus 4 fases de `AnalysisLoader` van en "
+             "`vcLoaderHTML`; el toggle Estudiante/Pro no se porta — aquí las "
+             "dos vistas están fundidas en una sola pantalla, que es la "
+             "divergencia declarada de `LevelsCard`/`NivelesSimples`"),
+    "ideas/page": ("app/ideas/page.tsx", "el screener sin ticker → "
+                   "`loadProjIdeas` + `renderProjIdeas`. El selector de "
+                   "horizonte no se porta: aquí sale del PERFIL "
+                   "(`_perfil_horizonte_dias`) y se declara en la franja, "
+                   "porque el perfil vive en el servidor y no en localStorage"),
+    "wheel/page": ("app/wheel/page.tsx", "la Wheel → `loadProjWheel` + "
+                   "`renderProjWheel`, con sus tres presets, su ↻ y su aviso "
+                   "de cotización retrasada"),
+    "flow/page": ("app/flow/page.tsx", "la cinta → `loadProjTape` + "
+                  "`renderProjTape`, con su `ScoreCard` de agresividad, sus "
+                  "11 columnas y su «top N» cuando la tabla se recorta"),
+    "layout": ("app/layout.tsx", "el chrome de Next (html/body/metadata). No "
+               "aplica: aquí el tab vive dentro del layout de Vertex"),
+}
+chk(all(f and m for f, m in PAGINAS_SUYAS.values()),
+    f"las {len(PAGINAS_SUYAS)} páginas de su app están declaradas con su cobertura")
+if TITO and (TITO / "app").is_dir():
+    _suyas_pag = {str(f.relative_to(TITO / "app")).removesuffix(".tsx")
+                  for f in (TITO / "app").rglob("*.tsx")
+                  if f.stem in ("page", "layout")}
+    _faltan_p = sorted(_suyas_pag - set(PAGINAS_SUYAS))
+    chk(not _faltan_p,
+        "el registro cubre TODAS sus pantallas"
+        + (f" · SIN DECLARAR: {_faltan_p}" if _faltan_p else ""))
+    _fant_p = sorted(set(PAGINAS_SUYAS) - _suyas_pag)
+    chk(not _fant_p,
+        "ninguna pantalla declarada es un fantasma"
+        + (f" · YA NO EXISTEN: {_fant_p}" if _fant_p else ""))
+    # Y lo que dice cubrirlas, existe: cada función citada está en el panel.
+    _sin_fn = []
+    for _k, (_f, _m) in sorted(PAGINAS_SUYAS.items()):
+        for _fn in sorted(set(_FN_CITADA.findall(_m))):
+            if f"function {_fn}(" not in HTML:
+                _sin_fn.append(f"{_k} → {_fn}")
+    chk(not _sin_fn,
+        "cada función que las páginas citan existe en el panel"
+        + (f" · NO EXISTEN: {_sin_fn}" if _sin_fn else ""))
+for _k, (_f, _m) in sorted(PAGINAS_SUYAS.items()):
+    print(f"      {_k:<14} {_m[:74]}")
 # El detalle de sub-agentes: las 6 tarjetas + la tabla, servidas Y pintadas.
 chk('"subagents"' in API, "el payload sirve el DESGLOSE de los 6 sub-agentes")
 chk('"conviction_rows"' in API, "…y las filas de convicción, no solo su contador")
 chk("function vcSubagentesHTML(d) {" in HTML and "${vcSubagentesHTML(d)}" in HTML,
     "…y el panel los pinta en su `<details>` de detalle")
+
+sec("6-bis. El panel no se rompe solo")
+# ─────────────────────────────────────────────────────────────────────
+# Un acento grave dentro de una plantilla de JavaScript la CIERRA. Metido en
+# un comentario HTML dentro de un `${...}`, el archivo sigue pareciendo
+# correcto a simple vista y el navegador tira un SyntaxError que se lleva el
+# tab entero — no una tarjeta, el tab. Pasó escribiendo esta misma ronda.
+# Solo importan los comentarios que viven DENTRO de un `<script>`: ahí es donde
+# hay plantillas. Uno en el cuerpo estático puede llevar los acentos que quiera.
+_JS = "\n".join(re.findall(r"<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)</script>", HTML))
+_COMENTARIOS_EN_JS = re.findall(r"<!--[\s\S]*?-->", _JS)
+_con_acento = [c for c in _COMENTARIOS_EN_JS if "`" in c]
+chk(not _con_acento,
+    f"ningún comentario HTML dentro del JS lleva acentos graves "
+    f"({len(_COMENTARIOS_EN_JS)} revisados)"
+    + (f" · CIERRAN LA PLANTILLA: {[c[:60] for c in _con_acento]}" if _con_acento else ""))
+
+# Y la comprobación que de verdad lo cierra: que el JS del panel se EJECUTE.
+_smoke_js = VERTEX / "engine" / "scripts" / "_smoke_perfil.mjs"
+if shutil.which("node") and _smoke_js.is_file():
+    _r = subprocess.run(["node", str(_smoke_js)], capture_output=True, text=True)
+    chk(_r.returncode == 0, "el JS del panel se ejecuta y pinta lo esperado")
+# Y el de sus doce componentes: los ejecuta uno a uno con payloads realistas.
+# Ya cazó dos cosas que ningún test de texto podía ver — el racimo que caía en
+# 1970 por leer segundos como milisegundos, y el nocional con el formato que no
+# era el suyo.
+_smoke_comp = VERTEX / "engine" / "scripts" / "_smoke_componentes.mjs"
+if shutil.which("node") and _smoke_comp.is_file():
+    _rc = subprocess.run(["node", str(_smoke_comp)], capture_output=True, text=True)
+    chk(_rc.returncode == 0, "sus 12 componentes nuevos se ejecutan y pintan lo esperado")
+else:
+    chk(False, "sin node: no se pudo ejecutar el JS del panel", warn_if_false=True)
+    chk(_smoke_comp.is_file(), "…pero el smoke de sus componentes está en su sitio")
+
+sec("9-sexies. Divergencias con su código, declaradas una por una")
+# ─────────────────────────────────────────────────────────────────────
+# El otro hueco: las divergencias estaban documentadas en comentarios sueltos
+# por tres archivos, y nada las enumeraba. Sin registro, quitar una o añadir
+# otra no lo cazaba nadie — que es justo lo contrario del contrato de este port,
+# donde "exacto como Víctor" significa que TODA diferencia esté dicha.
+#
+# Mismo trato que las huérfanas: cada entrada dice qué cambia, por qué, y qué
+# NO cambia. Y se comprueba que la marca siga en el código.
+DIVERGENCIAS = {
+    "sizing en el servidor": (
+        VERTEX / "vertex_api.py",
+        "Su /api/ideas devuelve griegos y nada más porque su app no tiene perfil "
+        "de inversionista: el saldo vive en localStorage. Aquí el perfil está en "
+        "el servidor, así que su propio `size_flow` corre en la ruta. "
+        "NO cambia: la fórmula es la suya (diff_motor2, 918/918)."),
+    "asequibilidad en el servidor": (
+        VERTEX / "vertex_api.py",
+        "Su `wheelAfford.ts` corre en el CLIENTE por el mismo motivo. Aquí su "
+        "`sort_by_afford_then_score` corre en /api/tito-wheel. "
+        "NO cambia: colateral ≤ caja, y el orden bloqueado→no asequible→score."),
+    "clave de Massive recortada": (
+        VERTEX / "engine/wbj/tito/massive.py",
+        "Su `if (!key)` solo rechaza la cadena vacía: una clave con un salto de "
+        "línea alrededor pasa y Massive responde 401. En su despliegue la clave "
+        "vive en un `.env.local` que se edita; aquí vive en el panel de Render, "
+        "donde se pega con el ratón. Se restauró al confirmar Kevin que su clave "
+        "FUNCIONABA: una clave buena que muere por un carácter invisible es el "
+        "peor fallo, porque el 401 acusa a la credencial y no al espacio."),
+    "una respuesta, no un stream": (
+        VERTEX / "vertex_api.py",
+        "Sus cuatro rutas largas (analyze, flow, ideas, wheel) son SSE y emiten "
+        "40-100 pasos con etiqueta. Aquí devuelven un JSON al final: detrás del "
+        "proxy de Render en free no se garantiza `text/event-stream` sin "
+        "buffering, y un stream a medias congela la pantalla en el paso 3. "
+        "NO cambia: su propio AnalysisLoader ya colapsa los ~100 pasos en cuatro "
+        "fases y no lee el texto de ninguno — esa pantalla está portada "
+        "(`vcLoaderHTML`), con su curva y su tope del 97%."),
+    "wheel sin bid": (
+        VERTEX / "engine/wbj/tito/wheel.py",
+        "Su plan de Massive no sirve `last_quote`, y su propio compute.ts lo dice: "
+        "la prima cae a `last_trade → day.close → day.vwap`. Sin esto el screener "
+        "sale SIEMPRE vacío. La salvaguarda se mueve al score: sin horquilla, la "
+        "parte de liquidez cobra 0 de 15."),
+}
+_MARCA = "DIVERGENCIA DECLARADA"
+chk(all(m and f.is_file() for f, m in DIVERGENCIAS.values()),
+    f"las {len(DIVERGENCIAS)} divergencias con su código están declaradas con su motivo")
+# Cada archivo que dice tener una, la tiene marcada en el código.
+_archivos_con_marca = {f for f, _ in DIVERGENCIAS.values()}
+for _f in sorted(_archivos_con_marca, key=str):
+    _n = _f.read_text(encoding="utf-8").count(_MARCA)
+    _esperadas = sum(1 for g, _ in DIVERGENCIAS.values() if g == _f)
+    chk(_n >= _esperadas,
+        f"{_f.name}: {_n} marcas «{_MARCA}» para {_esperadas} declarada(s)")
+# Y al revés: ninguna marca suelta sin entrada en el registro.
+_total_marcas = sum(f.read_text(encoding="utf-8").count(_MARCA)
+                    for f in _archivos_con_marca)
+chk(_total_marcas <= len(DIVERGENCIAS) + 1,      # +1: el sizing se explica dos veces
+    f"{_total_marcas} marcas en el código para {len(DIVERGENCIAS)} divergencias "
+    "declaradas — ninguna suelta")
+for _k, (_f, _m) in sorted(DIVERGENCIAS.items()):
+    print(f"      {_k:<30} {_f.name}")
+print("  · toda diferencia con su código está aquí. Si aparece una nueva sin "
+      "declarar, este check falla.")
+
+sec("9-quinquies. Cobertura de SUS rutas de API")
+# ─────────────────────────────────────────────────────────────────────
+# El hueco que quedaba: había registro de sus MÓDULOS (9-quater) y de sus
+# COMPONENTES (9-ter), pero no de sus RUTAS. Si mañana añade un endpoint,
+# nada lo cazaba — y una ruta suya sin equivalente aquí es funcionalidad del
+# agente que sencillamente no existe en Proyecciones.
+#
+# `("mia", ...)` = hay equivalente. `("dentro", ...)` = no es una ruta aparte
+# aquí porque su contenido viaja dentro de otra. `("no", ...)` = no se porta,
+# con su motivo.
+RUTAS_SUYAS = {
+    "chain":      ("dentro", "/api/projection-targets — la cadena se baja y se "
+                             "consume en el servidor; el panel recibe el resultado"),
+    "flow":       ("mia", "/api/tito-tape (cinta) y /api/projection-targets (scorecard)"),
+    "ideas":      ("mia", "/api/tito-ideas"),
+    "wheel":      ("mia", "/api/tito-wheel"),
+    "news":       ("mia", "/api/tito-news"),
+    "bars":       ("mia", "/api/tito-bars — sus tres marcos (1y, 15m10d, 5m5d). El "
+                          "diario también viaja en `history` del payload, que es lo que "
+                          "piden dos de sus tres consumidores; el intradía es del "
+                          "selector de la gráfica de flujo"),
+    "history":    ("dentro", "idem — `out['history']`, que alimenta la gráfica"),
+    "prediction": ("dentro", "`memory` del scorecard: predicciones guardadas + calibración"),
+    "validation": ("dentro", "`scores.validation` del scorecard — el sub-agente 6"),
+    "logo":       ("mia", "/api/tito-logo — el proxy del logo. Existe porque la URL "
+                          "que da Massive EXIGE la Authorization: sin proxy la clave "
+                          "tendría que viajar al navegador"),
+    "watchlist":  ("mia", "/api/tito-watchlist — su puente navegador↔agente, GET/POST/"
+                          "DELETE. La watchlist de Vertex se eliminó"),
+}
+_rutas_cubiertas = [k for k, v in RUTAS_SUYAS.items() if v[0] != "no"]
+chk(all(m for _, m in RUTAS_SUYAS.values()),
+    f"las {len(RUTAS_SUYAS)} rutas de su web/app/api están declaradas")
+chk(len(_rutas_cubiertas) == 11,
+    f"{len(_rutas_cubiertas)} de sus {len(RUTAS_SUYAS)} rutas tienen equivalente aquí")
+if TITO and (TITO / "app" / "api").is_dir():
+    _suyas_api = {d.name for d in (TITO / "app" / "api").iterdir()
+                  if (d / "route.ts").is_file()}
+    _faltan_r = sorted(_suyas_api - set(RUTAS_SUYAS))
+    _fant_r = sorted(set(RUTAS_SUYAS) - _suyas_api)
+    chk(not _faltan_r,
+        "el registro cubre su web/app/api entero"
+        + (f" · SIN DECLARAR: {_faltan_r}" if _faltan_r else ""))
+    chk(not _fant_r,
+        "ninguna ruta declarada es un fantasma"
+        + (f" · YA NO EXISTEN: {_fant_r}" if _fant_r else ""))
+    # Las que dicen tener equivalente, lo tienen de verdad.
+    _mias = set(re.findall(r'@app\.(?:get|post)\("(/api/[a-z0-9\-_/]+)"', API))
+    for _k, (_tipo, _donde) in sorted(RUTAS_SUYAS.items()):
+        if _tipo != "mia":
+            continue
+        _refs = [r for r in _mias if r in _donde]
+        chk(bool(_refs), f"su /api/{_k} → {_refs or 'LA RUTA DECLARADA NO EXISTE'}")
+else:
+    chk(False, "sin TITO_ROOT no se puede contrastar su web/app/api", warn_if_false=True)
+for _k, (_t, _m) in sorted(RUTAS_SUYAS.items()):
+    print(f"      /api/{_k:<11} {_t:<7} {_m[:66]}")
 
 sec("9-bis. Rutas del servidor sin cliente")
 #
@@ -1216,6 +1831,11 @@ sec("9-bis. Rutas del servidor sin cliente")
 # Mismo contrato que el registro de funciones huérfanas: cada una declarada con
 # su motivo, y si aparece una nueva sin declarar, este check falla.
 RUTAS_HUERFANAS = {
+    # ── se quedó sin cliente al eliminar la watchlist de Vertex ──
+    "watchlist-radar":   "el radar por ticker. Su cliente era la rejilla de la watchlist "
+                         "de Vertex, que se eliminó. NO se borra: `/api/alerts/scan` lo "
+                         "llama por dentro y es lo que alimenta la campana, que ahora "
+                         "vigila los subyacentes de la watchlist de contratos de Víctor",
     # ── se quedaron sin cliente al sacar Quant Data del tab ──
     "confluence":        "panel de confluencia (Quant Data), retirado del tab",
     "net-flow":          "drift de premium neto (Quant Data), retirado del tab",
@@ -1228,7 +1848,6 @@ RUTAS_HUERFANAS = {
     "collect-signals":   "captura del snapshot diario para ese backtest",
     "signal-history":    "histórico de ese backtest",
     # ── nunca tuvieron cliente en el panel, a propósito ──
-    "tito-health":       "diagnóstico del motor: se consulta a mano al desplegar",
     "tito-scorecard":    "el scorecard suelto, sin memoria ni gráfica (API pública)",
     # ── anteriores a este trabajo ──
     "finnhub-quote":     "cotización suelta; la usa el flujo de análisis, no el panel",
@@ -1267,6 +1886,21 @@ m = re.search(r"(\d+) passed", r.stdout)
 chk(r.returncode == 0, f"suite del motor verde ({m.group(1) if m else '?'} tests)")
 chk(len(list((VERTEX/"engine"/"tests"/"tito").glob("test_*.py"))) >= 12,
     f"{len(list((VERTEX/'engine'/'tests'/'tito').glob('test_*.py')))} archivos de test")
+chk(" skipped" not in (r.stdout or ""), "la suite del motor no se salta ni un test")
+
+# Un test que se salta a sí mismo no protege nada y NO se nota: pytest lo pone
+# en una línea de resumen y sale con código 0. Costó dos veces (el panel de
+# pares de FIN-GR-003 y los dos del buscador, §41.27), así que ahora un salto
+# que no sea "falta node/git" tumba la corrida. Se comprueba que la regla sigue
+# instalada en las DOS suites, porque quitarla no rompe nada visible.
+for _sub, _cf in (("engine/tests", "engine/tests/conftest.py"),
+                  ("tests_vertex", "tests_vertex/conftest.py")):
+    _t = (VERTEX / _cf).read_text(encoding="utf-8") if (VERTEX/_cf).is_file() else ""
+    chk("_saltos.instala" in _t,
+        f"{_sub}: un salto que no sea del entorno tumba la corrida")
+_ent = VERTEX / "engine" / "tests" / "_saltos.py"
+chk(_ent.is_file() and "ENTORNO" in _ent.read_text(encoding="utf-8"),
+    "los motivos de salto permitidos están declarados por nombre, no por defecto")
 
 # Los tests de Python leen el HTML como TEXTO: comprueban que una función
 # existe y que alguien la llama, pero no ejecutan una línea. El smoke sí corre
@@ -1287,6 +1921,13 @@ else:
 # Los diferenciales son lo único que compara contra SU archivo de verdad, así
 # que su ausencia es un agujero silencioso: la suite seguiría verde con el port
 # divergiendo. Se comprueba que están y que la lista no encoge.
+#
+# Trece comparan NÚMEROS. `diff_series.sh` es el raro y compara EL ARCHIVO —los
+# tres stores que son la memoria del agente—, en las dos direcciones: que los
+# dos lados escriban lo mismo, y que cada uno pueda abrir el del otro. Ahí el
+# fallo no se ve de ninguna otra forma: con un formato distinto nada revienta,
+# solo que el IV Rank se queda en el proxy para siempre y la calibración nunca
+# junta cinco muestras.
 DIFERENCIALES = {
     "diff_store.sh":      "store.ts — 47 casos de persistencia de trades",
     "diff_compute.sh":    "compute.ts — 604 filas de cadena",
@@ -1300,6 +1941,10 @@ DIFERENCIALES = {
     "diff_calib.sh":      "predictionStore.reviewPredictions — 182 diarios",
     "diff_frescura.sh":   "levels.recencyFactor — el peso por frescura",
     "diff_reloj.sh":      "las 5 funciones que cuentan tiempo",
+    "diff_watchlist.sh":  "watchlist.ts — BROKERS y sus 19 funciones, 734 casos",
+    "diff_series.sh":     "chain/iv/predictionStore — EL ARCHIVO, ida y vuelta",
+    "diff_wheel.sh":      "wheel + wheelAfford + wheelUniverse + earnings, 1.072 casos",
+    "diff_format.sh":     "format.ts — lo que se LEE en pantalla, 1.870 comparaciones",
 }
 #: Los TRES que llevan corpus MALFORMADO. Es lo que separa "coincide con datos
 #: buenos" de "coincide también cuando la fuente cambia de esquema", y fue donde

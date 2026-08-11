@@ -4,16 +4,22 @@ services:
   - type: web
     name: vertex-fund-os
     runtime: python
-    # ⚠ M-12: 'free' NO tiene disco persistente. `vertex.db` vive en un sistema de
-    # archivos efímero, así que CADA redeploy (y cada despertar tras dormir por
-    # inactividad) BORRA reportes, snapshots de consenso, historial de señales,
-    # la conexión de Plaid y las predicciones — es decir, destruye el track
-    # record del que dependen `wbj track` y toda la calibración.
+    # 'free' NO tiene disco persistente: cada redeploy y cada despertar tras
+    # dormir borra el sistema de archivos entero.
     #
-    # Si el aprendizaje entre sesiones te importa (el protocolo de memoria de
-    # CLAUDE.md dice que sí), sube a 'starter' y descomenta el bloque `disk` de
-    # abajo + la variable VERTEX_DB. Mientras sigas en 'free', trata la base
-    # como caché: lo que quieras conservar, commitéalo en Memoria/ y Reportes/.
+    # Eso YA NO IMPORTA. Los datos viven en EL ALMACÉN (`vertex_almacen.py`):
+    # un clon de la rama `datos` de este mismo repositorio, que se restaura al
+    # arrancar y se respalda solo. Reportes de los dos agentes, memoria,
+    # perfiles, cuentas (cifradas) y las series del motor sobreviven a que
+    # Render borre el disco — y a que borres el servicio entero.
+    #
+    # Lo único obligatorio para que funcione es VERTEX_GIT_TOKEN, abajo. Sin
+    # él la app corre igual pero NO respalda, y lo dice en `/api/almacen` y en
+    # la barra superior.
+    #
+    # El disco de pago sigue disponible (bloque `disk` de abajo) y no estorba:
+    # si lo activas, el almacén vive ahí y se respalda igual, pero deja de ser
+    # imprescindible.
     plan: free
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn vertex_api:app --host 0.0.0.0 --port $PORT"
@@ -48,8 +54,16 @@ services:
       # (https://...onrender.com). Sin ella, CORS solo admite localhost.
       - key: VERTEX_ORIGIN
         sync: false
-      # C-03: cifra el access_token de Plaid guardado en la DB. Opcional pero
-      # recomendado: protege el token si alguien obtiene una copia del .db.
+      # C-03: cifra el access_token de Plaid guardado en la DB.
+      #
+      # Ahora es MÁS que recomendada: es la clave con la que el almacén cifra
+      # las cuentas, las contraseñas y los perfiles antes de subirlos. SIN ELLA
+      # esos datos NO se respaldan — un hash de contraseña sin cifrar no se
+      # sube a un repositorio, ni siquiera privado, así que se prefiere
+      # perderlos a filtrarlos. Genera una larga: `openssl rand -hex 32`.
+      #
+      # Guárdala aparte. Si la pierdes, el respaldo de las cuentas es
+      # irrecuperable: eso es lo que significa que esté bien cifrado.
       - key: VERTEX_DB_KEY
         sync: false
       - key: GEMINI_API_KEY
@@ -95,15 +109,49 @@ services:
       # consulta.
       - key: MASSIVE_MAX_PAGES
         value: "40"
-      # Dónde acumula el motor sus series diarias. CRÍTICO: en plan `free` no
-      # hay disco, así que este directorio se BORRA en cada reinicio y tres
-      # piezas nunca arrancan — el sub-agente 6 (Confirmación) sale siempre
-      # sin score, el IV Rank se queda para siempre en el proxy, y la
-      # auto-calibración nunca junta las 5 predicciones vencidas que necesita.
-      # Con plan starter+ y el bloque `disk` activo, apúntalo al disco:
-      #     WBJ_TITO_DATA=/var/data/tito
-      - key: WBJ_TITO_DATA
-        value: "/var/data/tito"
+      # ── EL ALMACÉN: por qué ya no se pierde nada ────────────────────────
+      #
+      # OBLIGATORIA para que los datos sobrevivan. Es un token de GitHub con
+      # permiso de ESCRITURA de contenido sobre este repositorio (fine-grained:
+      # Contents → Read and write). Con él, el servidor commitea y empuja a la
+      # rama `datos`.
+      #
+      # La rama es HUÉRFANA: no comparte historia con `main`, así que los
+      # cientos de commits de datos no ensucian el historial del código y NO
+      # disparan un despliegue nuevo cada vez que analizas un ticker.
+      #
+      # Sin esta variable la app funciona igual, pero NO respalda: lo que
+      # analices hoy desaparece en el próximo redeploy. Se avisa en la barra
+      # superior y en /api/almacen — nunca en silencio.
+      - key: VERTEX_GIT_TOKEN
+        sync: false
+      # Opcional, y ya casi nunca hace falta. El almacén deduce el
+      # repositorio en TRES pasos: esta variable → `RENDER_GIT_REPO_SLUG`
+      # (que Render pone solo en el entorno de todo servicio desplegado desde
+      # git) → el `origin` del propio código.
+      #
+      # El paso de en medio es el arreglo de un fallo real: se respaldaba en
+      # local y NO en Render, teniendo el token puesto. Deducirlo del `origin`
+      # exige que el directorio desplegado traiga `.git`, que `git` esté en el
+      # PATH del proceso y que la URL sea https — en Render puede fallar
+      # cualquiera de las tres, y entonces la URL salía vacía y no se subía
+      # nada. `RENDER_GIT_REPO_SLUG` no necesita ninguna de las tres.
+      #
+      # Descoméntala solo si quieres los datos en OTRO repositorio.
+      # - key: VERTEX_ALMACEN_REMOTO
+      #   value: https://github.com/kevintaboas18/vertex_fund_os.git
+      #
+      # Dónde vive el clon dentro del contenedor. Con `disk` activo, apúntalo
+      # ahí (/var/data/almacen) y el arranque será instantáneo en vez de clonar.
+      # - key: VERTEX_ALMACEN
+      #   value: /var/data/almacen
+      #
+      # Las series diarias del motor de Víctor caen DENTRO del almacén, así que
+      # esta variable ya no hace falta. Definirla la saca de ahí y vuelve a
+      # perderlas en cada reinicio — con ellas se apagan el sub-agente 6, el IV
+      # Rank real y la auto-calibración. Se deja comentada a propósito.
+      # - key: WBJ_TITO_DATA
+      #   value: /var/data/tito
       - key: PLAID_CLIENT_ID
         sync: false
       - key: PLAID_SECRET

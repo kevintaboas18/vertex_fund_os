@@ -31,8 +31,16 @@ from wbj.tito.flow import FlowFlags, FlowRow, TradeScores
 NOW = datetime(2026, 7, 30, 16, 30, tzinfo=timezone.utc)  # 12:30 ET
 
 
+#: El directorio de la corrida actual. Lo llena `_tmp_data`; sirve para leer el
+#: archivo CRUDO y comprobar que lleva el sobre de Víctor, no solo que el
+#: `load_*` lo entienda — que es lo que dejaba pasar el formato equivocado.
+DIR = None
+
+
 @pytest.fixture(autouse=True)
 def _tmp_data(tmp_path, monkeypatch):
+    global DIR
+    DIR = tmp_path
     """Cada test escribe en su propio directorio."""
     monkeypatch.setenv("WBJ_TITO_DATA", str(tmp_path))
 
@@ -59,53 +67,135 @@ def _flow_row(id_: int, ts: str) -> FlowRow:
 
 
 class TestChainStore:
+    """Port de `chainStore.ts`. El archivo es el SUYO: sobre
+    `{ticker, updatedAt, snapshots}` y el `StructureScore` aplanado dentro."""
+
+    def _foto(self, cuando=NOW):
+        from wbj.tito.structure import structure_score
+
+        return save_chain_snapshot("DEMO", structure_score(_chain_rows()), cuando)
+
     def test_guarda_y_recupera_una_foto(self):
-        n = save_chain_snapshot("DEMO", _chain_rows(), NOW)
-        assert n == 1
+        assert self._foto() == 1
         hist = load_chain_history("DEMO")
         assert hist[0]["date"] == "2026-07-30"
-        assert hist[0]["strikes"][0]["call_oi"] == 500
-        assert hist[0]["strikes"][0]["put_oi"] == 300
+        assert hist[0]["savedAt"].endswith("Z")
+
+    def test_guarda_el_RESULTADO_del_subagente_4_no_los_contratos(self):
+        """Su `saveChainSnapshot(ticker, structure)` persiste el score y sus
+        puntos. Sin ellos no se puede reconstruir por qué el sub-agente 4
+        puntuó lo que puntuó ese día, que es para lo que existe el historial."""
+        self._foto()
+        f = load_chain_history("DEMO")[0]
+        for campo in ("score", "avgNotionalPerStrike", "totalNotional",
+                      "strikeCount", "notionalPoints", "dominantCount",
+                      "strikePoints", "volOIPct", "volOIPoints", "callPct",
+                      "putPct", "dominantSide", "lowLiquidity", "topStrikes"):
+            assert campo in f, campo
+
+    def test_los_topStrikes_son_cinco_como_mucho_y_con_tres_campos(self):
+        self._foto()
+        top = load_chain_history("DEMO")[0]["topStrikes"]
+        assert len(top) <= 5
+        assert set(top[0]) == {"strike", "notional", "side"}
+
+    def test_el_archivo_lleva_SU_sobre(self):
+        import json
+
+        self._foto()
+        crudo = json.loads((DIR / "chain" / "DEMO.json").read_text(encoding="utf-8"))
+        assert set(crudo) == {"ticker", "updatedAt", "snapshots"}
+        assert crudo["ticker"] == "DEMO"
 
     def test_dedupe_por_dia_de_mercado(self):
-        save_chain_snapshot("DEMO", _chain_rows(), NOW)
-        save_chain_snapshot("DEMO", _chain_rows(), NOW)
+        self._foto()
+        self._foto()
         assert len(load_chain_history("DEMO")) == 1
 
-    def test_dias_distintos_se_acumulan(self):
-        save_chain_snapshot("DEMO", _chain_rows(), NOW)
-        save_chain_snapshot("DEMO", _chain_rows(), NOW - timedelta(days=1))
-        assert len(load_chain_history("DEMO")) == 2
+    def test_dias_distintos_se_acumulan_y_el_reciente_va_primero(self):
+        self._foto(NOW - timedelta(days=1))
+        self._foto(NOW)
+        hist = load_chain_history("DEMO")
+        assert len(hist) == 2
+        assert hist[0]["date"] > hist[1]["date"], "más reciente primero, como él"
 
     def test_sin_historial_devuelve_vacio(self):
         assert load_chain_history("NUNCA") == []
 
 
 class TestIvStore:
+    """Port de `ivStore.ts`. Recibe el `IvContextScore` entero, como él."""
+
+    def _iv(self, valor, cuando=NOW, minimo=None, maximo=None):
+        from wbj.tito.ivcontext import IvContextScore
+
+        s = IvContextScore(score=0, iv={"current": valor, "min": minimo,
+                                        "max": maximo, "contracts": 7},
+                           rank={}, by_expiration=[], top_contracts=[],
+                           front_skew=1.5, regime="normal", note="")
+        return save_iv_snapshot("DEMO", s, cuando)
+
     def test_acumula_una_muestra_por_dia(self):
         for i in range(5):
-            save_iv_snapshot("DEMO", 40 + i, NOW - timedelta(days=i))
+            self._iv(40 + i, NOW - timedelta(days=i))
         hist = load_iv_history("DEMO")
         assert len(hist) == 5
-        assert hist[0]["date"] < hist[-1]["date"]  # ordenado
+        assert hist[0]["date"] > hist[-1]["date"], "más reciente primero"
 
-    def test_formato_compatible_con_iv_context_score(self):
-        save_iv_snapshot("DEMO", 47.5, NOW)
+    def test_guarda_SUS_siete_campos(self):
+        self._iv(47.5, minimo=30.0, maximo=60.0)
         h = load_iv_history("DEMO")[0]
-        assert set(h) == {"date", "avg_iv"}
-        assert h["avg_iv"] == 47.5
+        assert set(h) == {"date", "savedAt", "avgIv", "minIv", "maxIv",
+                          "contracts", "frontSkew"}
+        assert h["avgIv"] == 47.5
+        assert h["minIv"] == 30.0 and h["maxIv"] == 60.0
 
-    def test_ignora_iv_no_positiva(self):
-        save_iv_snapshot("DEMO", 0, NOW)
+    def test_la_clave_es_la_que_lee_el_IV_Rank(self):
+        """`iv_context_score` lee `avgIv`. Si el store escribiera otra cosa, el
+        rank nunca pasaría del proxy y nada lo diría.
+
+        El historial solo se consulta si hay cadena que puntuar: sin filas con
+        `iv > 0` el sub-agente sale `_EMPTY` en la primera línea y no llega al
+        bloque del rank. Por eso aquí van filas de verdad."""
+        from wbj.tito.ivcontext import MIN_IV_HISTORY_DAYS, iv_context_score
+
+        for i in range(MIN_IV_HISTORY_DAYS):
+            self._iv(40 + i * 0.1, NOW - timedelta(days=i))
+        hist = load_iv_history("DEMO")
+        assert len(hist) >= MIN_IV_HISTORY_DAYS
+        s = iv_context_score([_flow_row(1, "2026-07-30T15:00:00Z")], [], hist)
+        assert s.rank["source"] == "iv-history", "el rank real no se encendió"
+        assert s.rank["days"] == len(hist), "leyó otra clave y perdió muestras"
+
+    def test_si_el_store_escribiera_snake_case_el_rank_se_apagaria(self):
+        """El fallo que esto fija no se ve: el rank se queda en el proxy para
+        siempre y el reporte no dice nada raro. Por eso se prueba al revés."""
+        from wbj.tito.ivcontext import MIN_IV_HISTORY_DAYS, iv_context_score
+
+        viejo = [{"date": f"2026-05-{i % 28 + 1:02d}", "avg_iv": 40 + i * 0.1}
+                 for i in range(MIN_IV_HISTORY_DAYS)]
+        s = iv_context_score([_flow_row(1, "2026-07-30T15:00:00Z")], [], viejo)
+        assert s.rank["source"] != "iv-history"
+
+    def test_sin_IV_no_escribe_nada(self):
+        """Su guarda es `if (s.iv.current == null) return existing`."""
+        self._iv(None)
         assert load_iv_history("DEMO") == []
 
-    def test_a_los_60_dias_desplaza_al_proxy(self):
-        # El umbral vive en ivcontext.MIN_IV_HISTORY_DAYS; aqui se comprueba que
-        # el store puede alcanzarlo.
-        from wbj.tito.ivcontext import MIN_IV_HISTORY_DAYS
-        for i in range(MIN_IV_HISTORY_DAYS):
-            save_iv_snapshot("DEMO", 40 + i * 0.1, NOW - timedelta(days=i))
-        assert len(load_iv_history("DEMO")) >= MIN_IV_HISTORY_DAYS
+    def test_una_IV_de_CERO_si_se_guarda(self):
+        """Su guarda es `== null`, solo el nulo. El 0 entra al archivo y se
+        filtra AL LEER (`Number.isFinite(v) && v > 0`). Rechazarlo al escribir
+        cambiaría qué días existen en el historial."""
+        self._iv(0)
+        assert len(load_iv_history("DEMO")) == 1
+        assert load_iv_history("DEMO")[0]["avgIv"] == 0
+
+    def test_el_archivo_lleva_SU_sobre(self):
+        import json
+
+        self._iv(47.5)
+        crudo = json.loads((DIR / "iv" / "DEMO.json").read_text(encoding="utf-8"))
+        assert set(crudo) == {"ticker", "updatedAt", "snapshots"}
 
 
 class TestTradesStore:
@@ -589,15 +679,43 @@ class TestDateParseSigueElEstandar:
         for v in ("2026-13-45T00:00:00Z", "2026-02-30", "2026-00-10", "2026-07-00"):
             assert math.isnan(_date_parse(v)), v
 
-    def test_el_legacy_de_V8_no_se_replica(self):
-        # `Date.parse("500")` es el año 500 y `Date.parse("$5")` es mayo de 2001.
-        # ECMA-262 lo declara implementation-defined: replicarlo sería copiar una
-        # peculiaridad de V8, no la lógica de Víctor.
+    def test_el_legacy_de_V8_SI_se_replica(self):
+        """El número suelto sigue la regla de V8, medida contra Node 22.
+
+        Estuvo sin replicar a propósito —ECMA-262 la declara
+        *implementation-defined*, así que copiarla es copiar una peculiaridad
+        del motor, no lógica de Víctor—. Se replica porque la instrucción es
+        que lo único distinto de su código sea el perfil y la Wheel.
+
+        La regla es arbitraria hasta el absurdo, y por eso está fijada aquí:
+        `"1".."12"` se leen como MES del año 2001, `"13".."31"` dan NaN.
+        """
         import math
+        from datetime import datetime, timezone
 
         from wbj.tito.stores import _date_parse
 
-        for v in ("500", "$5", "Jul 30 2026", "30/07/2026", "ayer"):
+        def dia(v):
+            ms = _date_parse(v)
+            if isinstance(ms, float) and math.isnan(ms):
+                return None
+            return datetime.fromtimestamp(ms / 1000, timezone.utc).strftime("%Y-%m-%d")
+
+        assert dia("0") == "2000-01-01"
+        assert dia("5") == "2001-05-01"      # mes 5 del 2001, no el año 5
+        assert dia("12") == "2001-12-01"
+        assert dia("13") is None             # ni mes ni año de dos cifras
+        assert dia("31") is None
+        assert dia("32") == "2032-01-01"
+        assert dia("49") == "2049-01-01"
+        assert dia("50") == "1950-01-01"     # a partir de 50, siglo XX
+        assert dia("99") == "1999-01-01"
+        # `strftime` de Python no rellena el año con ceros como `toISOString`
+        # de JavaScript; el instante es el mismo, la comparación es de texto.
+        assert dia("500") in ("0500-01-01", "500-01-01")
+
+        # Lo que NO es un número suelto sigue siendo NaN: la fuente manda ISO.
+        for v in ("$5", "Jul 30 2026", "30/07/2026", "ayer", "1e3"):
             assert math.isnan(_date_parse(v)), v
 
     def test_las_variantes_ISO_que_si_se_parsean(self):
@@ -685,8 +803,134 @@ class TestPredictionStore:
 
 
 def test_escritura_atomica_no_deja_json_truncado(tmp_path, monkeypatch):
+    from wbj.tito.ivcontext import IvContextScore
+
     monkeypatch.setenv("WBJ_TITO_DATA", str(tmp_path))
-    save_iv_snapshot("DEMO", 45, NOW)
+    save_iv_snapshot("DEMO", IvContextScore(
+        score=0, iv={"current": 45, "min": None, "max": None, "contracts": 1},
+        rank={}, by_expiration=[], top_contracts=[], front_skew=None,
+        regime="normal", note=""), NOW)
     # No debe quedar ningun .tmp suelto tras una escritura correcta.
     assert not list((tmp_path / "iv").glob("*.tmp"))
-    assert load_iv_history("DEMO")[0]["avg_iv"] == 45
+    assert load_iv_history("DEMO")[0]["avgIv"] == 45
+
+
+class TestUnArchivoQueNoEsElNuestroNoRevienta:
+    """`Array.isArray(parsed.snapshots) ? parsed : null` — su guarda al leer.
+
+    Un archivo con otra forma NO es un historial vacío, es un archivo que no
+    reconocemos. Él devuelve `null` y el llamador lo trata como «todavía no
+    hay nada»; el port tiene que hacer lo mismo y no lanzar, porque una
+    excepción aquí sube tres capas y sale por `_tito_memory` como un fallo del
+    motor en vez de como un archivo descartado donde se lee.
+
+    Ahora que el archivo es el SUYO —sobre `{ticker, updatedAt, snapshots}`—,
+    el archivo extraño es el contrario: la lista pelada que escribía el port
+    viejo. Esa la recupera `migra_series`, no `load_*`.
+    """
+
+    @pytest.fixture(autouse=True)
+    def disco(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("WBJ_TITO_DATA", str(tmp_path))
+        self.dir = tmp_path
+
+    def _escribe(self, sub, contenido):
+        import json as _json
+
+        d = self.dir / sub
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "WULF.json").write_text(_json.dumps(contenido), encoding="utf-8")
+
+    def test_el_formato_de_SU_app_se_lee_entero(self):
+        from wbj.tito import stores as st
+
+        self._escribe("iv", {"ticker": "WULF", "updatedAt": "2026-08-07T15:30:00.000Z",
+                             "snapshots": [{"date": "2026-08-07", "avgIv": 0.55}]})
+        assert st.load_iv_history("WULF") == [{"date": "2026-08-07", "avgIv": 0.55}]
+
+    def test_una_lista_pelada_no_lanza(self):
+        """El formato viejo del port. Sin sobre no hay historial que leer."""
+        from datetime import date
+
+        from wbj.tito import stores as st
+
+        hoy = date.today().isoformat()
+        self._escribe("iv", [{"date": hoy, "avg_iv": 0.55}])
+        assert st.load_iv_history("WULF") == []
+
+    def test_una_lista_de_textos_no_lanza(self):
+        from wbj.tito import stores as st
+
+        self._escribe("iv", ["esto", "no", "son", "filas"])
+        assert st.load_iv_history("WULF") == []
+
+    def test_un_json_corrupto_no_lanza(self):
+        from wbj.tito import stores as st
+
+        d = self.dir / "iv"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "WULF.json").write_text("{esto no es json", encoding="utf-8")
+        assert st.load_iv_history("WULF") == []
+
+    def test_snapshots_que_no_es_lista_no_lanza(self):
+        from wbj.tito import stores as st
+
+        self._escribe("iv", {"ticker": "WULF", "snapshots": {"date": "2026-08-07"}})
+        assert st.load_iv_history("WULF") == []
+
+    def test_el_diario_de_predicciones_tambien(self):
+        from wbj.tito import stores as st
+
+        self._escribe("predictions", {"ticker": "WULF", "snapshots": [{"date": "2026-08-07"}]})
+        assert st.load_journal("WULF") == [{"date": "2026-08-07"}]
+        self._escribe("predictions", [{"date": "2026-08-07"}])
+        assert st.load_journal("WULF") == []
+
+    def test_la_cadena_tambien(self):
+        from wbj.tito import stores as st
+
+        self._escribe("chain", [{"date": "2026-08-07", "strikes": []}])
+        assert st.load_chain_history("WULF") == []
+
+    def test_las_filas_buenas_sobreviven_a_las_malas_al_guardar(self):
+        """La basura DENTRO del sobre no puede llevarse por delante lo bueno.
+
+        Él no filtra al leer —`parsed.snapshots` sale tal cual—, pero al
+        fusionar sí se descarta lo que no es una fila con fecha; si no, el
+        `Map` reventaría y se perdería el historial entero al guardar."""
+        from wbj.tito import stores as st
+        from wbj.tito.ivcontext import IvContextScore
+
+        self._escribe("iv", {"ticker": "WULF", "snapshots": [
+            "basura", {"date": "2026-07-29", "avgIv": 0.55}, 42, None,
+            {"sin": "fecha"}]})
+        st.save_iv_snapshot("WULF", IvContextScore(
+            score=0, iv={"current": 47.0, "min": None, "max": None, "contracts": 3},
+            rank={}, by_expiration=[], top_contracts=[], front_skew=None,
+            regime="normal", note=""), NOW)
+        hist = st.load_iv_history("WULF")
+        assert [h["date"] for h in hist] == ["2026-07-30", "2026-07-29"]
+
+    def test_una_fila_sin_fecha_no_rompe_el_orden(self):
+        """El `sorted` ordenaba por `r[key]` y reventaba con `KeyError` en una
+        fila sin `date`, aunque el filtro anterior ya la hubiera dejado pasar."""
+        from wbj.tito import stores as st
+
+        self._escribe("predictions", {"ticker": "WULF", "snapshots": [
+            {"spot": 20.0}, {"date": "2026-08-07", "spot": 21.0}]})
+        assert st.load_journal("WULF") == [{"spot": 20.0},
+                                           {"date": "2026-08-07", "spot": 21.0}]
+
+    def test_la_migracion_recupera_la_lista_pelada(self):
+        """Lo que `load_*` ya no entiende no se pierde: se convierte."""
+        from datetime import date
+
+        from wbj.tito import stores as st
+
+        hoy = date.today().isoformat()
+        self._escribe("iv", [{"date": hoy, "avg_iv": 0.55, "front_skew": 1.2}])
+        assert st.migra_series()["iv"] == 1
+        hist = st.load_iv_history("WULF")
+        assert hist == [{"date": hoy, "avgIv": 0.55, "frontSkew": 1.2,
+                         "savedAt": f"{hoy}T00:00:00.000Z"}]
+        assert st.migra_series()["iv"] == 0, "idempotente"

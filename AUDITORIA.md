@@ -239,7 +239,9 @@ Encontrados al re-auditar el estado actual — dos los introduje yo en C-02.
 | 25 | ~~M-14~~ | ✅ Resuelto | "Elite" bloqueado por override 2 | §6 |
 | 26 | ~~M-15~~ | ✅ Resuelto | Movido a `docs/archive/` con README | §6 |
 
-**Orden de arreglo sugerido:** ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → ~~C-02~~ → ~~C-03~~ → ~~C-04~~ → ~~A-01~~ → A-02 → A-03 → A-04 → A-05 → A-06 → ~~A-07~~ → el resto de M.
+**Orden de arreglo sugerido** (histórico): ~~M-07~~ (git, para poder revertir) → ~~C-01~~ → ~~C-02~~ → ~~C-03~~ → ~~C-04~~ → ~~A-01~~ → ~~A-02~~ → ~~A-03~~ → ~~A-04~~ → ~~A-05~~ → ~~A-06~~ → ~~A-07~~ → el resto de M.
+
+**Los 26 están cerrados.** Esta línea dejó A-02..A-06 sin tachar mucho después de resolverlos, contradiciendo a la tabla de arriba en el mismo documento: quien leyera solo el orden sugerido creería que quedan cinco abiertos.
 
 ---
 
@@ -3471,3 +3473,2612 @@ smoke · 12 diferenciales · 0 fallos.**
 Los diferenciales se volvieron a correr contra el clon actual de su repo
 (`53d5a20`): motor 1142/1142, motor2 918/918, compute 604/604, geo 274/274,
 reloj 223/223, calib 182/182, frescura 342/342, store 47/47, bars 27/27.
+
+## 41.15 Cuentas de verdad, el cuestionario y el aprendizaje compartido
+
+Kevin: *"en mi documento de Kevin.md hay unas preguntas que yo contesto. Cada
+usuario que se cree una cuenta debe contestar esas mismas preguntas… si no
+contesta usará las default que son las mías. También cada cuenta que se cree
+debe guardarse y puede iniciar sesión usando su email y contraseña. También todo
+lo que analicen cada usuario alimenta los agentes en general."*
+
+### Lo que había: un login que no era un login
+
+`vertex_users_db` en `localStorage`, con esta línea marcada en el propio código
+como *«demo only — not secure for production»*:
+
+```js
+users[email] = { email, name, password };   // contraseña EN TEXTO PLANO
+```
+
+Tres cosas rotas a la vez, y ninguna era obvia desde la pantalla:
+
+1. Cualquiera con la consola del navegador abierta leía la contraseña de todos.
+2. **Entrar desde el móvil era imposible**: la cuenta no existía fuera de aquel
+   Chrome. No es que fallara — es que el registro creaba otra cuenta distinta.
+3. «Cerrar sesión» borraba una clave local. No había nada que cerrar.
+
+Ahora: SQLite, **PBKDF2-HMAC-SHA256 con 600.000 iteraciones y sal por usuario**,
+y una sesión cuyo **hash** es lo único que toca el disco — llevarse la base de
+datos no es llevarse sesiones vivas. La cookie es HttpOnly (un XSS no se la
+lleva) y SameSite=Strict (la defensa contra CSRF).
+
+Y un detalle que no es cosmético: *«no existe»* y *«contraseña incorrecta»*
+devuelven **el mismo mensaje**. Distinguirlos convierte el login en un
+directorio de qué emails tienen cuenta.
+
+### El cuestionario sale de Kevin.md, no de la imaginación
+
+Doce preguntas, una por apartado que Kevin contestó en prosa: objetivos,
+horizonte, tolerancia, capital, instrumentos, vetos, universo, tope por
+posición, prioridad, experiencia, texto libre y qué espera del sistema.
+
+**Su respuesta es el `defecto` de cada una.** Y el perfil por defecto se
+construye DESDE la lista de preguntas, no como una segunda copia: una copia se
+desincronizaría con el primer cambio, y el default que se enseña en pantalla y
+el que se guarda serían distintos.
+
+Lo que no se contesta se hereda **y se declara**. La pantalla dice «4 de 12
+contestadas», cada pregunta lleva su insignia de *valor heredado*, y el propio
+`.md` que lee el agente abre diciendo cuántas siguen sin contestar. Un perfil
+heredado presentado como propio hace que el reporte hable con una confianza que
+no tiene.
+
+### Dos fallos silenciosos que el smoke y el parser real cazaron
+
+**El capital que valía $150.** El `.md` se reordenó y la sección de Tolerancia
+quedó delante de la de Capital. `risk._load_profile` toma el **primer** importe
+en dólares del documento como capital — y el primero pasó a ser el riesgo por
+operación, «$150». El especialista concluía que la cuenta entera eran $150. Lo
+cazó correr el parser REAL sobre el markdown REAL, no una copia del regex.
+
+**El horizonte que nadie eligió.** El rango en años estaba DERIVADO de los días,
+y «5+ años» acababa impreso como «1 a 3 años» porque la derivación redondeaba 90
+días a 0. Ahora cada opción declara su rango a mano: lo declarado no puede
+derivar mal.
+
+**Y dos veces el mismo patrón en el JavaScript**: una función de pintado que
+leía sus datos de una variable que solo llenaba el cargador. La primera vez dejó
+en blanco la nota del riesgo; la segunda, el cuestionario entero. Ningún test de
+texto puede ver eso — lo vio `_smoke_perfil.mjs`, que ejecuta el JS contra un DOM.
+
+### Un perfil por usuario, y cómo llega a los tres agentes
+
+| Camino | Qué cambió |
+|---|---|
+| Proyecciones | `_perfil_leer(request)` → el sizing de Ideas y la Wheel usan TU capital |
+| Prompt de Analyze/Explore | `_load_investor_profile()` resuelve TU `.md`; su firma y sus dos llamadores no cambian |
+| Especialista de riesgo | `risk.PROFILE` se resolvía **al importar**: era el de Kevin para todo el proceso |
+
+Ese tercero era el peor. La misma posición del 25% es válida para Kevin (tope
+30%) e incumplimiento para Ana (tope 10%) — sin arreglarlo, las dos veían el
+veredicto de Kevin. Se resolvió con un `ContextVar` en `risk.py`: por contexto
+asíncrono, no un global mutable que dos peticiones concurrentes se pisarían.
+
+También se arregló una deriva latente: `_load_investor_profile` calculaba el
+directorio de perfiles por su cuenta en vez de usar `_PERFIL_DIR`. Dos funciones
+resolviendo la misma ruta acaban en rutas distintas — el editor escribe en una y
+el agente lee de la otra, sin que nada falle porque el archivo viejo existe.
+
+### Archivo privado, aprendizaje compartido
+
+`/api/reports/list` devolvía **todos** los reportes a **cualquiera**. Con un solo
+usuario era lo mismo que devolver los suyos; con cuentas, es el análisis de una
+persona leído por las demás. Alimentar al agente y publicar tu trabajo no son lo
+mismo.
+
+- **Tuyo**: tus reportes. Filtrados por `usuario_id`, y `report-delete` solo
+  alcanza lo tuyo (los `report_id` llevan ticker y fecha: adivinarlos es fácil).
+- **De todos**: las series y el track record. `/api/aprendizaje` nunca devuelve
+  quién analizó qué — solo cuánto hay y de cuánta gente.
+
+**Los dos agentes aprenden distinto, y por eso se cuentan aparte:**
+
+| | Cómo aprende | Qué necesita |
+|---|---|---|
+| **Acciones** (Analyze/Explore) | **Calibración** — un lazo cerrado. Cada reporte guarda convicción y objetivos; el tiempo dice si acertó. | Reportes ya vencidos. Necesita **tiempo**, no solo volumen. |
+| **Opciones** (Proyecciones) | **Acumulación hacia adelante** — no hay nada que acertar. La IV histórica, las cadenas y el flujo no los vende nadie: se juntan una foto por día. | `MIN_IV_HISTORY_DAYS` del propio motor. Mirar un ticker YA aporta, aunque no salga ningún reporte. |
+
+El umbral se lee del módulo, no de un número copiado: una copia diría «ya está
+listo» mientras el motor sigue usando el proxy de volatilidad realizada.
+
+### Una decisión de seguridad que conviene saber
+
+`VERTEX_REGISTRO` controla quién puede crear cuenta: `abierto` (por defecto),
+`invitacion` (con `VERTEX_INVITE_CODE`) o `cerrado`. Está en `abierto` porque lo
+pedido era que la gente se registrara — pero en un despliegue público eso
+significa que **cualquiera con la URL puede crear una cuenta**. Cambiar la
+variable lo cierra sin tocar código.
+
+### Batería
+
+**2.779 tests del motor · 338 de la capa web · 248 checks de auditoría · 27 del
+smoke de JS · 12 diferenciales · 0 fallos.**
+
+## 41.16 Perfil por defecto o personalizado, y una pregunta que sobraba
+
+Kevin, sobre la pantalla de perfil: *"lo que dice que espero del sistema, no
+quiero que eso exista: siempre será el mismo sistema y agentes… lo de ¿algo más
+que el agente deba saber de ti? quiero que sea opcional… no quiero que salga lo
+del perfil de inversionista cuando entre en la cuenta, quiero que salga en el
+dashboard regular… tiene la opción de Default o personalizado. Si presiona
+personalizado salen las preguntas."*
+
+### Una pregunta que no era una pregunta
+
+«¿Qué esperas que el sistema haga por ti?» era el **contrato del sistema
+disfrazado de preferencia**. La matemática es determinista y el LLM solo
+explica; eso no cambia porque alguien conteste otra cosa, así que preguntarlo
+insinuaba una elección que no existe.
+
+Se quitó del cuestionario. El contrato **sigue** en el `.md` que leen los
+agentes —quitar la pregunta no puede quitarle al agente el contexto de cómo
+trabaja— pero como lo que es: una sección constante, **idéntica para todos**, y
+un test lo comprueba comparando el bloque entre dos perfiles distintos.
+
+### Opcional significa que en blanco es una respuesta
+
+El texto libre lleva ahora `opcional: True`, y eso cambia tres cosas:
+
+- **No cuenta en el denominador.** Con las once en el denominador, el perfil se
+  quedaba eternamente incompleto por no escribir un texto que nadie tiene que
+  escribir — y la advertencia de *«usa el perfil de Kevin»* seguía saliendo
+  cuando ya no heredaba nada. Son **10 obligatorias**.
+- **La insignia dice «opcional»**, no «valor heredado». No hay nada que heredar:
+  el contexto personal de otra persona no es contexto tuyo.
+- **Borrar lo escrito la devuelve a «opcional»**, en vez de dejarla marcada como
+  contestada con el campo vacío.
+
+### Default o personalizado
+
+Entrar ya no secuestra al cuestionario. Once preguntas como puerta de entrada
+son una barrera antes de haber visto nada, así que **registrarse lleva al
+dashboard** y al perfil se llega por el menú de cuenta.
+
+Y dentro del perfil, primero se elige:
+
+| Modo | Qué pasa |
+|---|---|
+| **Por defecto** | Usas el perfil de referencia tal cual. **No salen las preguntas**, y no hay nada «pendiente» — elegir no es dejar un formulario a medias. |
+| **Personalizado** | Aparece el cuestionario y los tres agentes recomiendan con tus números. |
+
+Tres decisiones que hacen que esto no sea un interruptor decorativo:
+
+1. **Cambiar de modo no borra lo contestado.** Volver a personalizado recupera
+   tus respuestas tal cual. Borrarlas castigaría la curiosidad de quien solo
+   quiso ver cómo era el otro modo.
+2. **El payload devuelve las dos caras**: `respuestas` es lo que escribiste, el
+   nivel de arriba es lo EFECTIVO con el modo aplicado. Sin separarlas, el
+   formulario en modo por defecto enseñaría los valores de Kevin como si fueran
+   tuyos, y guardarlos los volvería tuyos sin quererlo.
+3. **El `.md` declara el modo.** En por defecto abre diciendo *«esta persona NO
+   ha personalizado su perfil: estos valores son los de referencia, no los
+   suyos»*. El agente tiene que poder distinguir «este es su capital» de «este
+   es el de referencia».
+
+El modo llega hasta el final: lo efectivo es lo que dimensiona Ideas y la Wheel,
+lo que va al prompt y lo que lee el especialista de riesgo del engine.
+
+### Lo que encontró el smoke esta vez
+
+La clase que marca el modo elegido se aplicaba en una **segunda pasada** con
+`querySelectorAll` en vez de ir en la plantilla. Funcionaba en el navegador,
+pero el marcado generado no decía cuál estaba elegido — depende de que alguien
+recuerde recorrerlo después. Ahora va dentro de la plantilla.
+
+También se limpiaron once comentarios donde habían quedado secuencias `é`
+literales: dentro de una cadena de JS se decodifican, en un comentario son texto
+muerto que nadie lee bien.
+
+### Batería
+
+**2.787 tests del motor · 361 de la capa web · 248 checks · 29 del smoke de JS ·
+12 diferenciales · 0 fallos.**
+
+## 41.17 El perfil deja de ser decorativo en el agente de acciones
+
+Kevin preguntó qué hacía exactamente el texto libre del cuestionario. Rastrearlo
+dio dos respuestas incómodas, y las dos se arreglan aquí.
+
+### 1. `profile_fit` tenía los hechos escritos a mano
+
+```python
+"universo": "Estados Unidos", "tolerancia": "agresivo / especulativo",
+"capital": "~$1,000 USD",
+```
+
+Literales en el código. Con **un** usuario era correcto: era el perfil de todo
+el mundo. Con cuentas, le contaba a cada persona el perfil de Kevin — incluida
+la comprobación de universo, que estaba clavada a EE.UU.: a alguien que hubiera
+marcado **Europa** se le decía que una acción alemana estaba *«fuera de tu
+universo»*.
+
+Ahora todo sale de `_perfil_leer()`, y con ello:
+
+- **El universo se comprueba contra los mercados que marcaste.** Sin mercados
+  marcados no se afirma que nada esté fuera — inventar un universo es peor que
+  no tenerlo.
+- **El aviso de riesgo de ruina se calibra al capital.** Con $1.000 y opciones
+  es urgente; con $250.000 es una nota al pie, y repetirlo con las mismas
+  palabras lo convierte en ruido que se deja de leer.
+- **El sizing se da en dólares.** «Tope 20%–30%» no dice nada solo; «$200–$300
+  por posición» sí.
+- **Se declara si el perfil es el de referencia** (`es_por_defecto`). El lector
+  tiene derecho a saber que esos hechos no los declaró nadie.
+
+### 2. La explicación estaba desconectada
+
+El texto libre solo entra en un sitio: el **2º pase del LLM**, que recibe los
+números ya congelados y los traduce a palabras *«para el inversionista de MI
+PERFIL»*.
+
+Ese pase vivía detrás de `?explain=1`. Y la pantalla llamaba a
+`/api/analyze?ticker=X` — **sin ese parámetro, nunca**. El propio comentario del
+código lo decía: se puso detrás de una bandera porque costaba 18,4 s de los ~105
+que tarda el análisis, *«para un campo que la plataforma no lee en ningún
+sitio»*.
+
+Resultado: el texto viajaba hasta el prompt y ahí se paraba. **Escribieras lo
+que escribieras, no cambiaba una palabra de lo que veías.**
+
+### La solución no fue meterlo en el camino crítico
+
+Poner `explain=1` en la llamada habría sumado 18 s a un endpoint que ya roza el
+corte de Render — exactamente el problema que lo dejó desconectado. En su lugar:
+
+```
+/api/analyze  ──► ~105 s ──► el análisis aparece
+                                    │
+                                    └─► /api/wbj-explicacion (report_id)
+                                            ~18 s, y el panel se rellena solo
+```
+
+El contexto se **reconstruye desde el reporte ya guardado** — los mismos
+números, ninguno recalculado. Para eso hubo que extraer el constructor del
+contexto, que estaba escrito en línea dentro de `/api/analyze` y por eso solo
+podía generarse allí.
+
+Cuatro decisiones del diseño:
+
+1. **Solo tu propio reporte.** Se filtra por `usuario_id` igual que el archivo:
+   de nada serviría un archivo privado si esta ruta explicara el de otro. Y «no
+   existe» y «no es tuyo» dan el mismo mensaje.
+2. **No se paga dos veces.** La explicación se guarda en el reporte; volver a
+   abrirlo la sirve al instante.
+3. **Los hechos duros van explícitos** además del `.md`. Enterrados en la prosa
+   del archivo se pierden, y son justo los que el LLM necesita para calibrar el
+   tamaño de lo que describe. Si el perfil es el de referencia, el prompt lleva
+   un aviso: *«no le hables como si los hubiera declarado»*.
+4. **El panel dice que NO calcula.** Un texto de un LLM junto a unos números
+   invita a creer que los produjo. La nota al pie lo corta.
+
+### Batería
+
+**2.787 tests del motor · 377 de la capa web · 248 checks · 37 del smoke de JS ·
+12 diferenciales · 0 fallos.**
+
+## 41.18 Verificación: ¿esto tocó los agentes? Y lo que apareció al comprobarlo
+
+Kevin preguntó si el trabajo de cuentas y perfiles había afectado a los agentes,
+sub-agentes, cálculos, métricas, fuentes o cobertura.
+
+### La respuesta, verificada
+
+De todo el trabajo, **un solo archivo del motor**:
+`engine/wbj/specialists/risk.py`, y el diff entero cae **dentro de
+`profile_fit()`**. `engine/wbj/tito/` (los 6 sub-agentes de opciones),
+`providers/` y `packet/` (todas las fuentes): cero cambios.
+
+**Prueba estática.** En el especialista de riesgo, `awarded_points` sale en la
+línea 1468 y `coverage` en la 1470; `profile_fit` se pega en la 1522, 54 líneas
+después, como campo de reporte. Y `PROFILE` no aparece en ninguna otra línea del
+archivo: el perfil no tiene por dónde llegar al cálculo.
+
+**Prueba empírica, que es la que vale.** Se inyectó un perfil absurdo en todo el
+motor —capital ×1.000, tope de posición 100× más estrecho, horizonte al otro
+extremo— y se corrió la suite entera:
+
+```
+7 failed, 2780 passed
+```
+
+Los siete fallos son exactamente las pruebas de `profile_fit` en sí
+(`test_profile_fit_within_cap`, las cinco de semántica del tope,
+`test_run_nvda_fixture_profile_fit_populated`). **Cero fallos en scores,
+cobertura, métricas, gates u overrides.** Con el perfil cambiado mil veces, el
+resto del motor no se movió un decimal.
+
+**Concurrencia.** 30 peticiones simultáneas de 3 usuarios con capitales
+distintos: ninguna fuga. Y el especialista de riesgo en 3 hilos a la vez, cada
+uno con su capital correcto — el `ContextVar` hace lo que promete.
+
+### Pero al comprobarlo aparecieron dos formas de perder el archivo
+
+Simulando la base que de verdad hay en Render —con reportes de antes de que
+existieran cuentas— salieron dos fallos silenciosos, y el segundo destruye datos.
+
+**1. El archivo huérfano.** Los reportes anteriores tienen `usuario_id` NULL, así
+que al registrarte tu archivo salía **vacío**. Tu historial entero desaparecía de
+la vista sin que nada fallara ni avisara.
+
+Ahora **la primera cuenta del despliegue adopta los huérfanos**: quien se
+registra primero es quien los generó, porque era el único usuario que había. La
+segunda ya no puede — para entonces tienen dueño, y regalárselos a cualquiera
+que se registre sería entregarle el archivo de otro.
+
+**2. El borrado local, que sí perdía datos.** `authLogin` borraba el archivo del
+navegador en **cada** login. Los reportes cuyo `payload` nunca llegó al servidor
+—los anteriores a que existiera esa columna— **solo viven ahí**, y el
+`syncReportsFromServer` de después no puede devolverlos porque en el servidor no
+están. La primera vez que alguien entrara tras estrenar las cuentas, ese
+historial se habría ido para siempre.
+
+Ahora se recuerda de quién es lo guardado (`vertex_archivo_dueno`) y se limpia
+**solo al cambiar de persona**. Un archivo sin dueño es de antes de las cuentas
+—de la única persona que había, que es la que está entrando— así que se
+conserva. Al **salir** sí se borra sin condiciones: es una salida deliberada y lo
+que se pierde ya está en el servidor bajo su cuenta.
+
+### Un riesgo medido y no arreglado
+
+`save_report_payload` corta el JSON a 2 MB con `[:2_000_000]`. Cortar un JSON a
+la mitad produce un JSON **inválido**, y ese reporte desaparecería en silencio
+del archivo (`/api/reports/list` lo salta con un `except: continue`). Es anterior
+a este trabajo, pero el endpoint de explicación añade una segunda escritura al
+mismo payload.
+
+Medido: las series de precio de un reporte pesan **~36 KB**. Harían falta ~56
+veces más datos para llegar al tope. Queda declarado, no arreglado.
+
+### Batería
+
+**2.787 tests del motor · 383 de la capa web · 248 checks · 37 del smoke de JS ·
+12 diferenciales · 0 fallos.**
+
+## 41.19 Ronda 7 — auditoría completa del tab, contra su repo en 53d5a20
+
+Kevin: *"audita el tab completo de Proyecciones y no puedes omitir una área, ni
+métrica, agentes, sub agente, cálculos, fuentes ni nada."*
+
+Primero: **su repo no ha cambiado**. Sigue en `53d5a20`, el mismo commit contra
+el que se hicieron las rondas anteriores.
+
+### Lo que ya estaba verde
+
+- **12 diferenciales** contra sus archivos reales: motor 1142/1142, motor2
+  918/918, compute 604/604, geo 274/274, reloj 223/223, calib 182/182, frescura
+  342/342, store 47/47, bars 27/27, cono (desvío 5.68e-14 %), primitivas,
+  motor3 348/349 con 1 declarado.
+- **278 checks** de auditoría con su repo adjunto, 0 fallos.
+- **28 de sus 30 módulos** portados; los 4 restantes declarados con motivo.
+- **39 componentes** suyos declarados uno a uno.
+
+### Los cuatro huecos que aparecieron
+
+**1. No había registro de sus RUTAS.** Había uno de módulos y otro de
+componentes, pero ninguno de sus 11 endpoints. Si mañana añade uno, nada lo
+cazaba — y una ruta suya sin equivalente aquí es funcionalidad que sencillamente
+no existe. Nuevo §9-quinquies: 9 de sus 11 rutas tienen equivalente, `logo` y
+`watchlist` declaradas con motivo, y se comprueba que la ruta declarada exista
+de verdad.
+
+**2. No había registro de DIVERGENCIAS.** Estaban documentadas en comentarios
+sueltos por tres archivos y nada las enumeraba: quitar una o añadir otra no lo
+veía nadie, que es lo contrario del contrato de este port. Nuevo §9-sexies: 4
+divergencias, cada una con qué cambia, por qué y **qué no cambia**.
+
+**3. `maxPages` no era su `maxPages`.** Él usa `Number(process.env...)`, que
+acepta notación científica y hexadecimal; `int()` de Python las rechaza. Con
+`MASSIVE_MAX_PAGES=1e2` él paginaba 100 páginas y aquí se cortaba en 40 —
+**media cadena de opciones de menos, sin que nada avisara**. Ahora usa
+`js_number`, el port de `Number()` que ya estaba escrito. Verificado en los 7
+casos borde.
+
+**4. La cobertura de hojas solo vigilaba el scorecard.** Ideas y Wheel no
+tenían barrido: sus campos estaban cubiertos por tests escritos a mano, que solo
+cazan lo que alguien se acordó de comprobar. El barrido nuevo, ya honesto
+(acotado a la función de render, no al archivo entero), encontró que **el panel
+de la Wheel tiraba lo que él sí pinta**.
+
+### Lo que faltaba de su Wheel, y era media estrategia
+
+Comparando `WheelPresetCard.tsx` y `WheelTable.tsx` línea a línea:
+
+| Suyo | Estaba |
+|---|---|
+| «Cierra al **50%** de la prima» | ❌ el motor lo servía, el panel lo tiraba |
+| «Rola a los **21 días**» | ❌ idem |
+| Colchón por candidato | ❌ |
+| Δ, IV (impl./est.), OI del contrato | ❌ |
+| **«Si expira sin valor / si te asignan / si se desploma 20%»** | ❌ |
+
+Las dos primeras son el **plan de salida**: sin ellas se sabe qué vender y no
+cuándo salir. Los tres escenarios son lo que hace legible una venta de put — qué
+pasa en cada desenlace, con números. Todo añadido: las reglas del preset en una
+tira bajo los botones, el colchón como columna, y los escenarios en una fila
+desplegable al hacer clic, con los cinco `why` del score debajo.
+
+### El error que casi se despliega
+
+Al escribir los escenarios metí un comentario HTML con **acentos graves** dentro
+de una plantilla de JavaScript. Un acento grave ahí **cierra la cadena**: el
+navegador tira un `SyntaxError` y se lleva **el tab entero**, no una tarjeta.
+
+Lo cazó el smoke que ejecuta el JS — los tests de Python leen el archivo como
+texto y no habrían visto nada. Nuevo §6-bis, con dos checks: ningún comentario
+dentro del `<script>` lleva acentos graves, y el JS del panel **se ejecuta**.
+
+### Checklist final del tab
+
+| Área | Estado |
+|---|---|
+| Sub-agentes 1-3 (agresividad, convicción, inusualidad) | ✅ diff_motor 1142/1142 |
+| Sub-agente 4 (estructura) | ✅ diff_motor |
+| Sub-agente 5 (contexto IV) | ✅ diff_motor2 918/918 |
+| Sub-agente 6 (confirmación de precio) | ✅ diff_motor · advertencia en cada reporte |
+| GEX + mapa de calor | ✅ diff_motor2 · diff_motor3 |
+| Niveles por confluencia | ✅ diff_motor · diff_frescura 342/342 |
+| Prediction Pro | ✅ diff_motor2 · diff_calib 182/182 |
+| Gráfica (cono + geometría) | ✅ diff_cono 5.68e-14 % · diff_geo 274/274 |
+| Cadena y barras | ✅ diff_compute 604/604 · diff_bars 27/27 |
+| Persistencia (4 stores) | ✅ diff_store 47/47 |
+| Pestaña Ticker | ✅ cobertura de hojas, 0 huérfanas |
+| Pestaña Ideas | ✅ barrido nuevo, 0 huérfanas |
+| Pestaña Wheel | ✅ **5 campos suyos que faltaban, añadidos** |
+| Pestaña Time & Sales | ✅ las dos ventanas de su `/api/flow` |
+| Fuentes (Massive, MarketSnack) | ✅ · `maxPages` corregido |
+| Perfil del inversionista | ✅ 4 divergencias declaradas |
+| Responsive | ✅ 5 tamaños |
+| En vivo | ✅ 15 min, sin botones |
+
+**2.787 tests del motor · 386 de la capa web · 293 checks · 47 del smoke de JS ·
+12 diferenciales · 0 fallos.**
+
+## 41.20 El último cabo: un JSON cortado no es un JSON
+
+Quedaba declarado y sin arreglar desde §41.18. Al preguntar Kevin si todo lo
+señalado estaba resuelto, se cerró.
+
+`save_report_payload` aplicaba su tope de 2 MB con `json.dumps(...)[:2_000_000]`.
+Cortar un JSON por la mitad produce un JSON **inválido**: la fila quedaba
+escrita pero ilegible, `/api/reports/list` la saltaba con su `except: continue`
+y el reporte **desaparecía del archivo** sin que nada avisara.
+
+Tres desenlaces, verificados uno a uno:
+
+| Caso | Antes | Ahora |
+|---|---|---|
+| Normal (~36 KB) | se guarda entero | igual |
+| Pasa de 2 MB | JSON cortado = **ilegible** | se guarda **sin las series de precio**, que son lo que pesa y lo que la gráfica puede volver a pedir. El análisis —que no se puede regenerar— se queda, y `_series_omitidas` lo declara |
+| No cabe ni sin series | JSON cortado = ilegible | **no se escribe nada**. Un payload ausente se nota y se puede regenerar; uno corrupto se lee como si el reporte no existiera |
+
+Medido antes de tocarlo: las series de un reporte pesan ~36 KB, así que el tope
+está ~56× lejos. Es un fallo remoto — pero cortar un JSON nunca es correcto, y
+el endpoint de explicación añadió una segunda escritura al mismo payload.
+
+Cuatro tests lo fijan, y el último tuvo que aprender la regla de la casa: leía
+el comentario que EXPLICA el corte viejo citándolo, y fallaba por la
+documentación del propio arreglo. Se lee el código, no lo que dice de él.
+
+**2.787 tests del motor · 390 de la capa web · 293 checks · 47 del smoke ·
+12 diferenciales · 0 fallos.**
+
+## 41.21 Subir el tope de 2 MB, sin que subirlo rompa nada
+
+Kevin: *"¿cómo hacer que sea más grande de 2 MB?"*
+
+### Dónde está el techo de verdad
+
+El 2 MB no lo impone SQLite —aguanta **1 GB** por columna—. Lo impone
+`/api/reports/list`, que devuelve hasta **60 payloads COMPLETOS en una sola
+respuesta**. El tope por reporte se multiplica por 60:
+
+| Tope por reporte | Respuesta de la lista |
+|---|---|
+| 2 MB | 120 MB |
+| 10 MB | **600 MB** |
+| 50 MB | **3.000 MB** |
+
+Y el navegador guarda ese archivo en `localStorage`, que son ~5 MB **en total**
+para todos los reportes juntos.
+
+O sea: subir el tope **solo** empeora las cosas. Hacen falta las dos piezas.
+
+### Las dos variables
+
+- **`VERTEX_PAYLOAD_MAX`** — cuánto puede pesar UN reporte. Default 2.000.000.
+- **`VERTEX_LISTA_MAX`** — cuánto puede pesar la RESPUESTA de la lista. Default
+  40.000.000 (40 MB).
+
+`/api/reports/list` ahora se corta **por peso**, no solo por número: para al
+llegar al tope, sirve los más recientes primero y **declara cuántos dejó
+fuera**. Un archivo recortado en silencio parece un archivo que perdió reportes.
+
+Con `VERTEX_PAYLOAD_MAX=10000000`, verificado: 20 reportes de 3 MB → sirve 13
+(39 MB) y declara `recortados: 7` con su motivo.
+
+Dos salvaguardas más: basura o `0` en cualquiera de las dos variables cae al
+default —un tope de 0 no guardaría nada—, y la lista devuelve **siempre al menos
+un reporte**, aunque ese solo pase del tope de la respuesta: dejar el archivo
+vacío por un reporte grande sería peor que servirlo.
+
+**2.787 tests del motor · 394 de la capa web · 293 checks · 0 fallos.**
+
+## 41.22 Solo dos diferencias con su código: tu perfil y que la Wheel funcione
+
+Kevin: *"todo lo que es diferente soluciónalo. Solo que use el perfil del
+usuario y que la Wheel funcione es lo único diferente… esto no lo quiero:
+/api/tito-fuentes."*
+
+### Divergencias cerradas
+
+**La clave de Massive vuelve a ser suya.** Él hace `if (!key)`, que en
+JavaScript es solo la cadena vacía: una clave con espacios alrededor pasa y
+Massive responde 401. Aquí se recortaba antes —lo que era más útil— y se
+revirtió. Su versión falla más tarde y peor, y aun así es la que queda.
+
+**`new Date("0")` ahora replica el parseo legacy de V8.** Medido contra Node 22,
+la regla es arbitraria hasta el absurdo:
+
+```
+"0"        → año 2000
+"1".."12"  → MES de ese número, del año 2001
+"13".."31" → NaN
+"32".."49" → año 20XX
+"50".."99" → año 19XX
+"100"+     → ese año tal cual
+```
+
+Se dijo en su momento y se repite aquí: esto es una peculiaridad del motor de
+JavaScript, no lógica de Víctor, y ningún timestamp real puede dispararla
+—MarketSnack y Massive mandan ISO—. Vive en el código para que el corpus de
+basura case al 100%. **`diff_motor3` pasa de 348/349 a 349/349**, y la línea
+base queda congelada en cero.
+
+### Fuera el diagnóstico de fuentes
+
+`/api/tito-fuentes` era mío, no suyo: 208 líneas de backend, su función de
+panel, su botón y sus 6 tests. Todo retirado.
+
+Al quitarlo pasó algo que merece quedar escrito. El primer corte se llevó **330
+líneas de más** —el bloque entero del perfil, que venía justo después— porque la
+guarda contaba `@app.get(` y los helpers del perfil no llevan decorador. Se
+restauró desde git y se rehízo **con el AST**, que da el final exacto de la
+función en vez de adivinarlo, y con dos aserciones nuevas: que el bloque no
+contenga `_PERFIL_DIR` ni `aprendizaje`.
+
+### Lo que la auditoría cazó sola
+
+Al cerrar la divergencia de la clave, el §9-sexies falló:
+
+```
+✗ massive.py: 0 marcas «DIVERGENCIA DECLARADA» para 1 declarada(s)
+```
+
+El registro seguía declarando una diferencia que ya no existía. Es exactamente
+para lo que se escribió una ronda antes.
+
+Y un test del motor afirmaba lo contrario de lo pedido
+(`test_el_legacy_de_V8_no_se_replica`). Invertido, y ahora fija la regla entera
+caso por caso — porque una regla así de arbitraria sin test es una bomba.
+
+### Quedan dos, y son las que Kevin quiere
+
+| Divergencia | Por qué se queda |
+|---|---|
+| Sizing y asequibilidad en el servidor | Su app no tiene perfil de inversionista; esta sí. **Las fórmulas son las suyas.** |
+| Wheel sin bid | Sin esto el screener sale siempre vacío con el plan actual de Massive. |
+
+**2.787 tests del motor · 388 de la capa web · 292 checks · 12 diferenciales,
+todos a cero divergencias.**
+
+## 41.23 La clave de Massive: cerrar una divergencia casi la rompe
+
+Kevin: *"verifica si mi clave de Massive está funcionando. Si no, arréglalo,
+porque ahorita sí estaba funcionando."*
+
+### Lo que había pasado
+
+Media hora antes, cerrando divergencias, se revirtió el recorte de la clave para
+dejar el código exacto al suyo:
+
+```python
+- key = os.environ.get("MASSIVE_API_KEY", "").strip()
++ key = os.environ.get("MASSIVE_API_KEY", "")
+```
+
+Su `if (!key)` solo rechaza la cadena vacía. Medido:
+
+| Clave en el entorno | Cabecera enviada | Resultado |
+|---|---|---|
+| `abc123` | `Bearer abc123` | OK |
+| `abc123\n` | `Bearer abc123\n` | **401** |
+| `abc123 ` | `Bearer abc123 ` | **401** |
+
+En **su** despliegue eso no pasa: la clave vive en un `.env.local` que se edita
+en un editor. Aquí vive en el panel de Render, **donde se pega con el ratón** —
+y pegar arrastra un salto de línea con una facilidad enorme.
+
+O sea: una clave que funcionaba podía dejar de funcionar por un carácter
+invisible, y el 401 acusaría a la credencial en vez de al espacio que sobra.
+
+**Restaurado y declarado** como cuarta divergencia, con ese motivo escrito. Si
+algún día se confirma que la clave no lleva blancos, la línea vuelve a la suya y
+el registro baja a tres.
+
+> No se puede probar contra la API real: este contenedor no tiene salida a
+> `api.massive.com`, y la regla del proyecto prohíbe leer `API/`. Lo verificado
+> es el comportamiento del código con claves de prueba.
+
+### ¿Se dañó algo de los dos agentes?
+
+Comparado el estado de hoy contra `be237a1` —el que Kevin usaba y funcionaba—:
+
+| | Antes | Ahora | Perdido |
+|---|---|---|---|
+| Rutas de la API | 72 | 71 | solo `/api/tito-fuentes` |
+| Funciones de `vertex_api.py` | 436 | 432 | `tito_fuentes` + sus 5 helpers **locales** (0 usos fuera) |
+| Motor de opciones (26 módulos) | — | — | **ninguna** |
+| Motor de acciones (8 especialistas) | — | — | **ninguna** |
+
+Y ejecutado, no solo leído: los **6 sub-agentes de opciones** (Agresividad,
+Convicción, Inusualidad, Estructura, Contexto IV, Confirmación) más GEX,
+Niveles, Predicción Pro, Wheel y Sizing responden; los **6 especialistas de
+acciones** conservan su `run()`; las 6 categorías siguen con sus pesos
+(20/15/20/20/15/10); y las 9 rutas del tab contestan sin un solo 404 ni 500.
+
+**2.787 tests del motor · 388 de la capa web · 292 checks · 0 fallos.**
+
+---
+
+## 41.24 Lo que tenía Víctor y aquí no estaba
+
+Pregunta: *«Verifica si el agente de Víctor hay algo que yo no tenga o hayas
+eliminado. Verifica y soluciona todos los errores/problemas que tenga.»*
+
+La auditoría ya sabía la respuesta —el registro la enumeraba en tres sitios— y
+lo que decía era esto:
+
+| | Suyos | Aquí | Faltaban |
+|---|---|---|---|
+| Componentes | 39 | 27 | **12** |
+| Módulos de `web/lib` | 32 | 28 | **4** (los del watchlist) |
+| Rutas de `web/app/api` | 11 | 9 | **2** (`/api/logo`, `/api/watchlist`) |
+
+Cada uno estaba declarado con su motivo, y cada motivo era razonable **por
+separado**. En conjunto no lo era: entre los doce componentes son la mitad de la
+evidencia que su panel enseña —la ficha de la empresa, el reparto del dinero del
+día, la cadena entera, tu watchlist— y resumir una cosa no es lo mismo que
+enseñarla. Se portan los doce.
+
+### Los doce componentes
+
+| Suyo | Aquí | Qué aporta que antes no estaba |
+|---|---|---|
+| `CompanyHeader` | `vcCompanyHTML` | nombre, sector, market cap, volumen, rango del día, cierre previo — **y el logo de la empresa** |
+| `HeaderBar` | la barra del tab + `vcSyncCabecera` | nombre, precio y variación del ticker cargado, arriba y siempre visibles |
+| `AnalysisLoader` | `vcLoaderHTML` | sus 4 fases y su barra que **solo avanza** (curva `1 − e^(−n/16)`, topada al 97%) |
+| `ActivityCard` | `vcActivityHTML` | premium notable por día, calls contra puts, 7 días |
+| `MoneyFlowCard` | `vcMoneyFlowHTML` | el reparto alcista/bajista y sus cuatro azulejos |
+| `OptionChainTable` | `vcCadenaHTML` | la cadena **entera**, ordenable por sus ocho columnas |
+| `ChartPanel` | `renderProjTop5` | los cinco strikes de más nocional, punteados sobre el precio |
+| `FlowPriceChart` | `renderProjFlowMoney` | el dinero por vela: compra arriba, venta abajo, escala log |
+| `WatchlistCard` | `renderProjWatchlist` | el watchlist de **contratos**, con tu sizing del momento |
+| `RiskProfileCard` | `vcRiesgoHTML` | tus dos presupuestos: capital por trade y quema de theta |
+| `RepeatBadge` | `vcRepeatBadge` | el ×N del contrato golpeado varias veces |
+| `ChartCrosshair` | `vcCrosshairCablea` | la cruz con la vela (A/M/m/C) y el precio proyectado |
+
+Lo único que **no** se copia es su wordmark: la marca de esta pantalla es
+Vertex. El logo de la EMPRESA analizada sí — eso es información, no marca.
+
+### El watchlist: se cambia el de Vertex por el suyo
+
+El de Vertex guardaba **tickers** y les colgaba alertas de precio. El suyo
+guarda el **contrato entero** —strike, vencimiento, griegos y tu sizing del día
+en que lo marcaste—. La diferencia no es cosmética: un ticker no se puede juzgar
+después; una decisión con su foto, sí.
+
+Portado: `watchlist.ts` → `wbj/tito/watchlist.py` (las 19 funciones puras +
+BROKERS), `outboxStore.ts` → `outbox_store.py`, `watchlistStore.ts` →
+`watchlist_store.py` (solo lectura, para la migración única), `watchlistLocal.ts`
+→ el bloque `wlLocal*` del panel, y `/api/watchlist` → `/api/tito-watchlist`
+(GET/POST/DELETE).
+
+Lo que **no** cruza el puente hacia el servidor, igual que en su app: los
+griegos, tu sizing y tu saldo. Solo viaja lo mínimo para identificar el contrato
+en el broker — y con un broker de solo subyacentes, ni eso: solo el ticker.
+
+Eliminado de Vertex: la vista `watchlistView`, sus nueve funciones `wl*`, su
+`localStorage`, sus dos botones de navegación y `/api/watchlist-quote`. **No** se
+eliminó la campana: `/api/watchlist-radar` y `/api/alerts/scan` siguen, y ahora
+vigilan los subyacentes del watchlist de contratos.
+
+### `/api/tito-logo` — por qué un proxy y no un `<img>` directo
+
+La URL del logo que devuelve Massive **exige la `Authorization`**. Sin proxy, la
+clave tendría que viajar al navegador para que la imagen cargara. El servidor la
+baja y reenvía el binario; la credencial no sale de ahí. Y la cabecera lleva su
+`Cache-Control: public, max-age=86400`: un logo no cambia en un día y cada
+petición cuesta dos llamadas a Massive.
+
+Un detalle que no es suyo pero tampoco es una divergencia: la `Authorization`
+solo acompaña a la URL si apunta al dominio de Massive. Ningún host ajeno
+aceptaría un bearer de Massive, así que la petición es idéntica en todos los
+casos reales; lo que evita es que una URL torcida en la respuesta mande la clave
+a un tercero.
+
+### Lo que apareció al hacerlo
+
+1. **Acentos graves en un comentario HTML dentro de una plantilla de JS.**
+   La cierran, y el `SyntaxError` se lleva el **tab entero**. Segunda vez que
+   pasa; lo cazó el check §6-bis, que existe justo por la primera.
+2. **`start_sec` leído como milisegundos.** Los racimos caían en 1970 y ningún
+   día se marcaba como tal en la gráfica del dinero. Lo cazó el smoke nuevo.
+3. **El presupuesto de theta sobre el número equivocado.** `budgetsOf` suyo lo
+   calcula sobre la **cuenta** (5% de $1.000 = $50), no sobre el riesgo por
+   operación ($7,50) — sobre el número equivocado se descartarían contratos
+   perfectamente operables. Ahora viaja calculado por el motor.
+4. **Un test con un hueco propio.** `test_no_handler_points_at_a_function...`
+   no reconocía `const f = s => …` como definición, así que daba por rota una
+   función que existe. Corregido el test, no el código.
+5. **Diez funciones públicas sin llamador** en `watchlist.py`. No son código
+   muerto: en su app corren en el **cliente**, y aquí también (el bloque
+   `wlLocal*`). Se portan igualmente porque son lo que el diferencial compara
+   contra su archivo — sin ellas, la versión del navegador no tendría con qué
+   contrastarse. Declaradas una a una con ese motivo.
+
+### Cómo se verifica que es SU comportamiento
+
+- **`diff_watchlist.sh`** — nuevo, el 13.º. Ejecuta **su** `watchlist.ts` en
+  Node y el port en Python sobre 734 casos generados: colas mixtas de filas
+  legado y de contrato, strikes con y sin decimales, contratos sin vencimiento,
+  tickers en minúscula, colas ya sincronizadas y ya aparcadas.
+  **734/734 idénticos.** Probado además con mutaciones: al cambiar `toFixed(4)`
+  por `toFixed(2)` y quitar un `.upper()`, delata 64 casos.
+- **`engine/tests/tito/test_watchlist.py`** — sus 56 casos de
+  `watchlist.test.ts` traducidos, más 7 de persistencia. **63 pasan.**
+- **`_smoke_componentes.mjs`** — nuevo. Ejecuta el JS **vivo** de los doce
+  componentes contra un DOM de mentira con payloads realistas. **94 checks.**
+  Es lo que cazó los puntos 2 y 3 de arriba.
+- **`test_watchlist_y_componentes.py`** — 67 tests del cableado: las rutas, el
+  buzón en disco, que el payload trae lo que cada componente lee, que la
+  watchlist de Vertex se fue de verdad, y que ni los griegos ni el saldo cruzan
+  el puente.
+
+### Estado
+
+**2.850 tests del motor · 455 de la capa web · 300 checks de auditoría · 94 del
+smoke de componentes · 13 diferenciales a cero divergencias · 0 fallos.**
+
+Cobertura contra su repo (`53d5a20`), ya completa:
+
+| | Suyos | Portados |
+|---|---|---|
+| Componentes | 39 | **39** |
+| Módulos de `web/lib` | 32 | **32** |
+| Rutas de `web/app/api` | 11 | **11** |
+
+Las **cuatro divergencias declaradas** siguen siendo las mismas y no ha
+aparecido ninguna nueva: el perfil del inversionista en el servidor, el sizing
+en el servidor, la Wheel sin bid, y el recorte de la clave de Massive.
+
+---
+
+## 41.25 Los datos dejan de vivir en un disco que se borra
+
+Pregunta: *«En vez de usar la base de datos o el disco de Render, ¿no es mejor
+hacerlo dentro de los archivos? ¿Como Víctor lo tiene? ¿Así no estamos limitados
+a Render?»*
+
+Dos cosas había que aclarar antes de responder, y las dos cambian la pregunta.
+
+### Víctor no despliega nada
+
+Su repo no tiene `vercel.json`, ni `render.yaml`, ni `Dockerfile`, ni workflows.
+Sus scripts son `next dev` y `next start`. Y su `.gitignore` dice:
+
+```
+# --- historial local del agente (datos de mercado acumulados) ---
+web/data/
+data/
+```
+
+Sus archivos JSON **nunca se suben**. Viven solo en su computadora. Los archivos
+le funcionan porque **corre el agente en su máquina** — no hay contenedor
+efímero que los borre. Copiar eso al pie de la letra habría significado matar el
+multiusuario.
+
+### Archivos vs base de datos NO era lo que ataba a Render
+
+Un `.json` y un `.db` escriben en el **mismo sistema de archivos** del
+contenedor. En plan `free` ese sistema es efímero: cada redeploy y cada
+despertar tras dormir lo borra entero. El problema nunca fue el FORMATO; era
+DÓNDE vive el archivo.
+
+### Lo que se hizo: el almacén
+
+`vertex_almacen.py`. Un **clon de la rama `datos`** de este mismo repositorio.
+Todo lo que el agente guarda cae ahí como archivo normal; un hilo de fondo hace
+`commit` y `push` cada 20 s; al arrancar, un contenedor nuevo clona esa rama y
+recupera todo.
+
+La rama es **huérfana**: no comparte historia con `main`, así que los cientos de
+commits de datos ni ensucian el historial del código ni disparan un despliegue
+nuevo cada vez que analizas un ticker.
+
+Resultado: nada se pierde aunque Render borre el disco o borres el servicio
+entero; los datos son archivos que se abren en GitHub; y mudarse a Fly, a
+Railway o a tu casa es copiar una variable de entorno.
+
+### Cada agente en SU carpeta
+
+Como se pidió — «cada uno guarda reportes diferente y en lugar diferente»:
+
+| | Agente de ACCIONES | Agente de OPCIONES |
+|---|---|---|
+| Carpeta | `Reportes/<TICKER>/<fecha>/` | `Proyecciones/<TICKER>/<fecha>/` |
+| Archivo | `reporte.json` | `scorecard.json` |
+| Además | `prediccion.json` · `RESUMEN.md` | `RESUMEN.md` |
+| Índice | `Reportes/INDICE.md` | `Proyecciones/INDICE.md` |
+
+`Reportes/` no se movió: es donde `CLAUDE.md` la define y de donde come
+`wbj track`. El de opciones estrena `Proyecciones/`. El mismo ticker analizado
+el mismo día por los dos agentes son dos archivos distintos que no se pisan.
+
+Cada carpeta lleva un `RESUMEN.md` legible sin abrir el JSON —con los 6 scores
+y sus pesos, los escenarios y las advertencias— y un `INDICE.md` que se
+**reconstruye entero** en cada guardado, para que no pueda citar reportes que ya
+no están.
+
+### Qué sube, y en qué forma
+
+| | Dónde | Cómo |
+|---|---|---|
+| Reportes de los dos agentes | `Reportes/`, `Proyecciones/` | texto plano |
+| Memoria y tesis | `Memoria/` | texto plano |
+| Series del motor de Víctor | `Series/tito/` | texto plano, ritmo lento |
+| Cuentas, contraseñas, Plaid, perfiles | `Privado/privado.enc` | **cifrado** |
+| Claves de API (`API/`) | — | **nunca** |
+
+Lo cifrado usa Fernet con `VERTEX_DB_KEY`. Y la regla dura: **sin esa clave no
+se sube**. Un hash de contraseña en un repositorio, aunque sea privado, es un
+objetivo de fuerza bruta offline; se prefiere perderlo a filtrarlo, y se dice en
+voz alta en `/api/almacen` en vez de hacerlo en silencio.
+
+Las series van a **otro ritmo** (6 h en vez de 20 s) porque cambian en cada
+consulta y pesan: el archivo de trades de un ticker llega a 1,7 MB, y
+reescribirlo 20 veces al día metería ~34 MB diarios de objetos en el repo.
+
+Del scorecard de opciones **no** se archivan `chain`, `history`, `gex_heatmap`,
+`levels_for_chart` ni `chart_geometry`: son 372 KB por reporte —1.500 filas a
+254 bytes— o ~1,8 GB al año con 20 tickers. Son materia prima que Massive vuelve
+a servir, no evidencia del veredicto. Lo que falta se **declara** en
+`_no_archivado`; el archivo no miente por omisión.
+
+### Lo que apareció al construirlo
+
+1. **`WBJ_TITO_DATA=/var/data/tito` en `render.yaml` era una promesa falsa.**
+   El bloque `disk:` estaba comentado, así que en plan free `/var/data` no era
+   un disco montado: se creaba como carpeta normal y se borraba igual. La
+   variable sugería persistencia donde no la había.
+2. **El diagnóstico salía al revés.** `restaura()` devolvía un estado sin el
+   campo `respalda`, así que el arranque leía `None` y avisaba de «ALMACÉN SIN
+   RESPALDO» justo cuando el respaldo funcionaba. Un diagnóstico invertido es
+   peor que no tenerlo.
+3. **La restauración no actuaba nunca.** La guarda era «¿existe el archivo de la
+   base?», pero `init_db()` corre **al importar el módulo**, así que para
+   entonces el archivo siempre existe con 110 KB de esquema vacío. Las cuentas
+   se recuperaban en el almacén y no llegaban a la base — el usuario no podía
+   entrar. Ahora se comprueba si hay **filas**.
+4. **`vertex_archivo` congelaba el almacén al importar.** Un proceso que
+   reemplazara la instancia seguiría escribiendo en el directorio viejo, que ya
+   no se respalda. Se resuelve en cada llamada.
+5. **El paquete cifrado se re-subía cada 20 s para siempre.** El tar guarda
+   fecha de modificación y uid, así que el mismo dato daba bytes distintos y el
+   testigo SHA nunca coincidía. Se normalizan los metadatos.
+6. **Un ticker largo se recortaba a 12 caracteres.** Dos símbolos distintos que
+   empezaran igual acabarían en la misma carpeta, mezclando dos historiales sin
+   que nada avisara. Ahora se rechaza en vez de recortarse.
+
+### Cómo se verifica
+
+- **`test_almacen.py`** — 48 tests. El que importa es `TestUnContenedorNuevo`:
+  se borra el disco entero, como hace Render, y se comprueba que vuelven los
+  reportes de los dos agentes, las cuentas —**con la contraseña todavía
+  sirviendo**— y las series del motor.
+- Dos workers empujando a la vez: ninguno pierde lo suyo (rebase + reintento).
+- El token no aparece ni en el estado público ni en un push fallido.
+- Solo los `.enc` salen de `Privado/`; un archivo en claro ahí se queda en el
+  disco efímero.
+- Sin `VERTEX_GIT_TOKEN` todo sigue funcionando y **se dice** — con la
+  consecuencia escrita, no solo el hecho.
+
+### Lo que hay que poner en Render
+
+| Variable | Para qué |
+|---|---|
+| `VERTEX_GIT_TOKEN` | Token de GitHub con `Contents: Read and write`. **Sin él no hay respaldo.** |
+| `VERTEX_DB_KEY` | Cifra cuentas y perfiles. Sin ella esos datos no se suben. Guárdala aparte: si la pierdes, el respaldo de las cuentas es irrecuperable — eso significa que está bien cifrado. |
+
+### Estado
+
+**2.850 tests del motor · 503 de la capa web · 303 checks de auditoría · 94 del
+smoke de componentes · 13 diferenciales a cero divergencias · 0 fallos.**
+
+---
+
+## 41.26 Las tres series no guardaban como Víctor, y eso no se veía
+
+Kevin lo pidió así: *"se supone que se guarde todo lo que Victor guarda y como
+él lo hace. Lo único diferente es lo que yo implemente por render."*
+
+Al comprobarlo con SU TypeScript leyendo los archivos del port —escribir con
+Python, abrir con `node --experimental-strip-types`— salieron dos verdes y tres
+rojos:
+
+| Carpeta | Su app abría el archivo del port |
+|---|---|
+| `trades/` | ✅ `loadTrades → 1 fila · WULF270115C00020000 · premium 332000 · lado ask · delta 0.62` |
+| `bars/` | ✅ |
+| `iv/` | ❌ |
+| `chain/` | ❌ |
+| `predictions/` | ❌ |
+
+### Por qué no se veía
+
+Los tres son la MEMORIA del agente: el IV Rank real, el historial de cadena del
+sub-agente 4 y el diario que cierra el lazo de calibración. Con un formato
+distinto **no falla nada**. No hay excepción, no hay log, el reporte sale igual
+de creíble. Simplemente el rank se queda para siempre en el proxy de volatilidad
+realizada y la calibración nunca junta cinco muestras. Es el peor tipo de fallo:
+el que se paga en calidad durante meses sin que nada lo diga.
+
+### Qué estaba mal, y no era solo el nombre de las claves
+
+1. **El sobre.** Él escribe `{ticker, updatedAt, snapshots:[…]}`; el port
+   escribía una lista pelada. Su `load*` hace
+   `Array.isArray(parsed.snapshots) ? parsed : null` — ante una lista devuelve
+   `null`, o sea "no hay historial".
+2. **Las claves.** `avg_iv` contra `avgIv`, `saved_at` contra `savedAt`,
+   `horizon_days` contra `horizonDays`.
+3. **Los DATOS de la cadena eran otros.** Esto era lo gordo. El port guardaba
+   `{date, strikes:[{strike, call_oi, put_oi, volume}]}`; él persiste el
+   **`StructureScore` aplanado** — `score`, `avgNotionalPerStrike`,
+   `totalNotional`, `strikeCount`, `notionalPoints`, `dominantCount`,
+   `strikePoints`, `volOIPct`, `volOIPoints`, `callPct`, `putPct`,
+   `dominantSide`, `lowLiquidity` y los 5 `topStrikes`. Sin `score` ni `points`
+   no se puede reconstruir **por qué** el sub-agente 4 puntuó lo que puntuó un
+   día concreto, que es exactamente para lo que existe ese historial.
+4. **El recorte.** Él corta por CANTIDAD (`.slice(0, N)`); el port cortaba por
+   ventana de fecha. La diferencia importa: un ticker sin mirar durante seis
+   meses conserva sus 365 fotos con su regla y las pierde TODAS con la otra.
+
+### Lo que se hizo
+
+- `stores.py`: `_sobre`, `_iso` (el `toISOString()` con milisegundos y `Z`),
+  `_lee_sobre` (su guarda literal) y `_fusiona` (Map → `sort` descendente →
+  `slice`). `save_chain_snapshot` y `save_iv_snapshot` reciben ahora el objeto
+  entero (`StructureScore`, `IvContextScore`) como los suyos, no un resumen.
+- `ivcontext.py` lee `avgIv`, la clave que hay en el archivo.
+- **`migra_series()`**, que corre en cada arranque del almacén: convierte los
+  archivos viejos en sitio, es idempotente y **dice lo que descarta**. La cadena
+  vieja no se puede convertir —los datos que él guarda no estaban ahí— así que
+  esos días se pierden y se cuentan aparte, en vez de dejar un archivo medio
+  traducido que parezca completo.
+
+### `diff_series.sh` — el diferencial número 14
+
+Los otros trece comparan NÚMEROS. Este compara **el archivo**, y en las dos
+direcciones, porque una sola no basta:
+
+1. los dos lados guardan los mismos casos → ¿sale el mismo archivo?
+2. SU TypeScript abre el archivo del port → ¿ve los mismos días?
+3. el port abre el archivo de SU app → ¿ve los mismos días?
+
+Se ejecutan SUS `chainStore.ts`, `ivStore.ts`, `predictionStore.ts`,
+`structure.ts`, `ivcontext.ts` y `occ.ts` sin tocar, con el quitado de tipos
+nativo de Node. Como sus `DATA_DIR` son `process.cwd()` fijados al cargar el
+módulo, el lado Node se invoca dos veces con directorios de trabajo distintos:
+es la única forma de que el mismo código suyo mire los dos árboles.
+
+**27 casos · 767 fotos · 1 divergencia declarada.** La declarada es el dedupe
+del diario por `(fecha, horizonte)` en vez de solo por fecha: su UI muestra un
+horizonte a la vez, Vertex sirve los tres en la misma respuesta, y con su clave
+dos de cada tres se perderían en silencio.
+
+Que un diferencial no pueda fallar no vale nada, así que se probó al revés con
+tres mutaciones: la clave en snake_case (9 casos rojos), el recorte por ventana
+(25) y quitar el sobre (25). Las tres salieron con código 1.
+
+### Lo que apareció al hacerlo
+
+- **El comparador se inventaba una diferencia.** Redondear a 6 decimales, que es
+  lo que hacen los otros diferenciales, rompe con nocionales de 1e9: `Math.round`
+  de JS desempata hacia arriba y el `round` de Python hacia el par, así que el
+  mismo double salía `1794425266.850001` en un lado y `...85` en el otro. En un
+  diferencial de ARCHIVO no hay nada que redondear — se compara entero.
+- **`diff_motor2.sh` tapaba el fallo original.** Su comparador traducía `avgIv`
+  → `avg_iv` antes de llamar al port, así que los dos lados coincidían mientras
+  el archivo era ilegible para la app del otro. Traducción fuera.
+- **La auditoría se cayó sola.** El check "IV Rank pasa de proxy a historia real"
+  construía el historial con `avg_iv`. Es exactamente su trabajo: en cuanto la
+  clave dejó de ser la del archivo, la comprobación se puso roja.
+- **Cuatro tests tenían la premisa invertida.** Estaban escritos para el formato
+  viejo: afirmaban que el sobre de SU app se leía como vacío. Ahora el sobre es
+  el formato y el archivo extraño es la lista pelada — que recupera
+  `migra_series`, no `load_*`.
+- **Un caso que no llega al tope no prueba el recorte.** Los casos avanzaban por
+  días de calendario y el fin de semana empujaba tres fechas al mismo lunes, así
+  que ninguna serie llegaba a su límite. El comparador ahora falla si algún
+  bloque no toca su tope: un diferencial que no ejercita el `.slice` no está
+  midiendo la regla que dice medir.
+
+### Estado
+
+**2.866 tests del motor · 503 de la capa web · 303 checks de auditoría (261 sin
+`TITO_ROOT`, que es lo que se puede correr sin su clon) · 94 del smoke de
+componentes · 14 diferenciales a cero divergencias no declaradas · 0 fallos.**
+
+Las cinco carpetas (`trades/`, `bars/`, `iv/`, `chain/`, `predictions/`) guardan
+ahora el formato de Víctor y son intercambiables con su app en las dos
+direcciones. Lo único distinto sigue siendo lo de Render: dónde vive el archivo
+(el almacén en la rama `datos`, porque él no despliega) y el perfil de Kevin.
+
+---
+
+## 41.27 Los 3 tests que se saltaban tapaban dos fallos reales
+
+Kevin: *"¿porque hace 2 skips? ¿de que son? soluciona todo, no quiero que omitas
+nada ni tenga ningun error ni nada."*
+
+Los tres skips eran **condicionales**, no marcas de "pendiente": el test se
+saltaba a sí mismo cuando el entorno no le daba lo que pedía. Y los dos que se
+saltaban en la capa web resultaron estar tapando un fallo del producto.
+
+### Los dos de `tests_vertex` — el autocompletado sí llamaba a la red
+
+El fixture esperaba hasta 60 s a que FMP cargara el índice de tickers y, si no
+llegaba, `pytest.skip`. Sin red o sin `FMP_API_KEY` eso es **siempre** —
+incluida cualquier integración continua. Un test que nunca corre no protege
+nada.
+
+Al quitarle la dependencia de la red (índice sembrado con las 21 empresas reales
+de EE.UU. cuyo símbolo o nombre empieza por N, que son las que compiten con NVDA
+en el buscador), el test falló a la primera. Con la clave de FMP puesta:
+
+```
+N     -> NVDA NFLX NVO NOW …     0 llamadas
+NV    -> NVDA NVO NVR NVT        0 llamadas
+NVD   -> NVDA                    2 llamadas HTTP   ← 
+NVDA  -> NVDA                    2 llamadas HTTP   ← 
+```
+
+**Las dos últimas teclas del ticker más buscado seguían bajando a la cola larga
+de FMP.** El umbral contaba CANDIDATOS (`< 3` → pregunta), y eso falla justo en
+el mejor caso: "NVD" y "NVDA" dejan un solo candidato local —NVDA— porque no hay
+más empresas cuyo símbolo empiece así. Dos peticiones por tecla, hasta 2×2,5 s de
+timeout, para no añadir nada: lo que buscabas ya salía el primero.
+
+La regla correcta no es *"¿hay pocos?"* sino *"¿hay una respuesta buena?"*. Si
+algún símbolo local empieza por lo que tecleaste (rango 0 o 1), FMP solo puede
+añadir ruido por debajo. La cola larga se conserva entera para lo que de verdad
+la necesita —un ADR o una small cap que no está en el índice—, donde ningún local
+empieza por el término.
+
+Y había un segundo motivo por el que esto no se veía: sin `FMP_API_KEY` la
+función que consulta ni se ejecuta, así que el test **pasaba sin probar nada**
+aunque el índice hubiera cargado. Ahora pone la clave a propósito.
+
+Dos tests nuevos que faltaban: que un término que el índice NO cubre sí baja a
+las dos rutas (cortar llamadas no puede cortar la cola larga), y que coincidir
+por símbolo gana a coincidir por nombre — NEM ($70B, empieza por "NE") va antes
+que NFLX ($500B, que solo coincide porque se llama "**Ne**tflix"). Siete veces
+más capitalización y detrás: eso es lo que hace que el orden sea el del rango y
+no el del market cap a secas.
+
+### El de `engine` — asertaba sobre una clave que nadie lee
+
+`test_the_dimension_lights_once_four_of_five_are_valid` comprobaba que
+`revenue_quality_and_growth` enciende al llegar a 4 de 5 métricas válidas. Para
+llenar el hueco pasaba `peer_revenue_growth` por el canal del analista… y esa
+clave **no la lee nadie**. FIN-GR-003 lee `packet.estimates["peer_panel"]`. Así
+que la dimensión se quedaba en 3/5 y el propio test se saltaba con
+`"fixture cannot reach 4/5 without a peer panel"`.
+
+Arreglado como lo llena la data real: el panel de pares va en el PAQUETE, con 8
+peers, que es el mínimo que exige `SCORING_ENGINE.md` antes de permitir una
+comparación contra pares. Y un test nuevo por el otro lado del umbral: con 7
+peers FIN-GR-003 se queda MISSING y la dimensión no puntúa — siete no es "casi
+ocho", es un número que se vería igual de creíble en el reporte sin serlo.
+
+### Estado
+
+**2.868 tests del motor · 507 de la capa web · 303 checks de auditoría · 94 del
+smoke de componentes · 14 diferenciales · 0 fallos y CERO skips.**
+
+De regalo, la capa web pasó de 207 s a 86 s: los dos fixtures que esperaban a
+FMP se llevaban 120 s de reloj por corrida para acabar saltándose el test.
+
+Quedan ~20 `pytest.skip` condicionales en el motor (fixtures de valuación,
+`Cerebro not present`) y 4 `skipif` de entorno (node, git). Ninguno se dispara
+en este repo — la corrida completa reporta `0 skipped`, no "skipped porque sí".
+
+---
+
+## 41.28 Que no se pueda volver a esconder un test, y tres papeles que mentían
+
+Kevin: *"solucionalo todo y que este perfecto."*
+
+Arreglar los 3 skips de §41.27 uno a uno no cierra nada: el problema no eran
+esos tres, es que **saltarse un test no hace ruido**. `pytest` lo pone en una
+línea de resumen que nadie lee y sale con código 0. Ya había costado dos veces.
+
+### El guardián
+
+`engine/tests/_saltos.py` + los dos `conftest.py`: un salto es un **fallo**,
+salvo que el motivo diga literalmente que falta una herramienta del entorno
+(`node`, `git`). Esa distinción es la que importa:
+
+- *"no tengo node instalado"* → limitación de la máquina; se lee y se decide.
+- *"el fixture no llega a 4 de 5"* → un test que dejó de medir; se arregla.
+
+Los motivos permitidos van en una tupla `ENTORNO` **por nombre**: añadir uno
+nuevo es un acto deliberado que queda escrito, no un descuido que se cuela.
+
+Vive fuera de los dos `conftest.py` porque los dos lo usan y `conftest` es un
+nombre que pytest ya ocupa — importarlo desde el otro conftest resuelve al
+propio archivo. Se carga por ruta.
+
+Probado en las dos direcciones y en las dos suites: un `skip("el fixture no
+llega a 4 de 5")` tumba la corrida con código 1 y nombra el test y el motivo; un
+`skip("node no esta instalado")` sale con 0. Y la auditoría comprueba que la
+regla sigue instalada en las dos, porque quitarla no rompe nada visible.
+
+### Un skip que era código muerto
+
+`test_overlay_parity.py` se saltaba "sin `Entradas/NVDA.json` en este entorno".
+Ese archivo **está en git**: existe en cualquier clon. El skip no protegía de
+nada; solo daba permiso a ese test para dejar de comprobar sin decirlo. Ahora es
+un `assert`.
+
+### Tres papeles que mentían
+
+Barriendo la documentación contra el código:
+
+1. **`RESUME.md` señalaba un fallo que ya no existía.** Decía *"Siguiente: A-02
+   — dos funciones llaman `load_settings()` sin inyectar `FMP_API_KEY`"*, y
+   A-02 está resuelto desde el 2026-07-30 (§99 de este mismo archivo). Peor que
+   el dato viejo: daba a entender que los demás seguían abiertos.
+2. **Este archivo se contradecía a sí mismo.** La tabla del §5 marca los 26
+   hallazgos resueltos; la línea de "orden de arreglo sugerido", tres párrafos
+   más abajo, dejaba A-02..A-06 sin tachar. Quien leyera solo esa línea contaría
+   cinco abiertos.
+3. **`RESUME.md` decía "no hay remoto configurado"** y lo hay
+   (`github.com/kevintaboas18/vertex_fund_os`), que además es donde vive la rama
+   `datos` del almacén. También declaraba *"1959 pasan, 1 skip"* y *"47 pasan"*.
+
+Los tres corregidos con los números medidos hoy, y `RESUME.md` lleva ahora los
+comandos de la auditoría y de los 14 diferenciales, que no estaban.
+
+### Estado
+
+**2.868 tests del motor · 507 de la capa web · 307 checks de auditoría · 94 del
+smoke de componentes · 14 diferenciales · 0 fallos, 0 avisos y CERO skips** —
+y a partir de ahora el cero de skips no es una observación, es una condición de
+la corrida.
+
+---
+
+## 41.29 Ronda 8 — el tab entero, área por área, contra `53d5a20`
+
+Kevin: *"no puedes omitir una área, ni métrica, agentes, sub agente, cálculos,
+fuentes ni nada."*
+
+Las siete rondas anteriores auditaron contra **tres registros**: módulos de
+`web/lib`, rutas de `web/app/api` y componentes `.tsx`. Esta ronda empezó
+preguntando qué queda FUERA de esos tres registros — y ahí estaban los agujeros.
+
+### Inventario completo de su repo (53d5a20, sin cambios desde la ronda 7)
+
+| | Él | Vertex | Cómo se verifica |
+|---|---|---|---|
+| Módulos `web/lib/*.ts` | 32 | 32 portados | 16 diferenciales |
+| Rutas `web/app/api` | 11 | 11 | registro + `test_route_safety` |
+| Componentes `.tsx` | 39 | 39 | registro + smoke de 94 checks |
+| **TS fuera de `web/lib`** | **3** | **1 sin comparar** | ← el agujero |
+| Páginas Next (`page`/`layout`) | 5 | n/a (Vertex no es Next) | — |
+
+Los tres de fuera son `app/format.ts`, `app/ideas/types.ts` y
+`app/wheel/types.ts`. Los dos `types.ts` son solo interfaces —cero código
+ejecutable, comprobado—. `format.ts` no.
+
+### Hallazgo 1 — `format.ts`: 14 de 14 cifras mal, en cada pantalla
+
+`format.ts` es el único módulo suyo que no vive en `web/lib`, así que ningún
+registro lo cubría. **Nunca se comparó, en siete rondas.** Al compararlo:
+
+| valor | él | Vertex |
+|---|---|---|
+| 2.440.000 | `$2.44M` | `$2.4M` |
+| 332.000 | `$332.00K` | `$332.0K` |
+| 0 | `$0.00` | `$0` |
+| −2.440.000 | `-$2.44M` | `$-2.4M` |
+| 1e12 | `$1.00T` | `$1000.0B` |
+
+Y no era solo contra él: **el panel pintaba las dos cosas a la vez**. Los
+componentes portados en §41.24 ya usaban `VC_MONEY` (su `Intl`) y el panel
+viejo seguía con `fmtAbbr`. La misma pantalla, el mismo dólar, dos formatos.
+
+Cerrado: `fmtAbbr` es ahora su `money` y `fmtMoney` su `money0`; se añadieron
+los tres que faltaban (`hmET`, `timeOf`, `dateOf`). **`diff_format.sh`** lo fija
+con 1.870 comparaciones y 4 divergencias declaradas (el ausente y el `NaN` se
+pintan «—», no «$0.00» ni «$NaN»).
+
+De paso salieron tres cosas más al leer los sitios de uso:
+
+- **`$${fmtAbbr(...)}`** en la columna de crédito de la Wheel: `fmtAbbr` ya trae
+  el símbolo, así que se leía **`$$2.44M`**.
+- **Los racimos del tape se rotulaban en UTC** (`toISOString().slice(11,16)`,
+  con la cabecera diciendo "(UTC)"). Él usa `hmET`. Leer "14:30" cuando el reloj
+  del mercado marca 10:30, en la única tabla que existe para decir CUÁNDO entró
+  el dinero.
+- **La fecha·hora de las transacciones era un corte del ISO** (`slice(5,16)`),
+  también en UTC, donde él usa `dateOf`+`timeOf` formateados.
+
+### Hallazgo 2 — la Wheel entera, sin diferencial y sin un solo test
+
+`wheel.ts` (421 líneas, 11 exports), `wheelAfford.ts`, `wheelUniverse.ts` y
+`earnings.ts` estaban **portados** y no los medía nada:
+
+- ningún diferencial los tocaba;
+- los 13 tests que respondían a `-k "wheel or earnings"` eran **todos del agente
+  de ACCIONES** (`test_brief`, `test_technical`…), nada que ver con la Wheel.
+
+O sea: la estrategia que decide qué put vender, con cuánto colateral, con qué
+probabilidad de expirar sin valor y en qué orden se listan los candidatos no
+tenía ni test ni comparación. **`diff_wheel.sh`** (1.072 casos, incluidas las
+constantes: presets, recortes, umbrales y los 41 símbolos del universo) y el
+port de sus 48 casos de test.
+
+Encontró dos divergencias reales a la primera:
+
+1. **`"fuerza 83.0"` donde él pone `"fuerza 83"`.** El port ya usaba `js_round`
+   para redondear, pero interpolaba con una f-string de Python. En JS `${83}` es
+   `"83"`. 60 de 200 casos. Es texto que el usuario lee en el tooltip del score.
+2. **Una fecha de reporte ilegible ABSOLVÍA en vez de penalizar.** Su
+   `getTime()` da `NaN`, toda comparación con `NaN` es falsa y cae en `"dentro"`
+   → el candidato pierde 7 de sus 10 puntos. El port devolvía `"no_aplica"` →
+   **10 de 10**. Un dato corrupto pasaba de penalizar a absolver, justo en la
+   guarda que existe para que no te pille un reporte dentro del vencimiento. Se
+   adopta el suyo, que además es el prudente.
+
+### Hallazgo 3 — `fetchBars`: el intradía no existía
+
+De los 6 exports de `massive.ts`, `fetchBars` era el único sin portar, y con él
+faltaba el selector de marco temporal de su gráfica de flujo. Dos de sus tres
+consumidores piden `tf=1y` (diario), que el payload ya servía por otro camino;
+el tercero —`FlowPriceChart`— es el del intradía.
+
+La diferencia no es de resolución: **agregado por día se ve QUÉ día entró el
+dinero grande; en velas de 5 minutos se ve si el precio se movió ANTES o DESPUÉS
+de que entrara**, que es exactamente lo que mide el sub-agente 6. La divergencia
+estaba escrita en un comentario del panel ("su versión intradía agrupa por vela
+de 5 min") y llevaba ahí desde entonces.
+
+Cerrado: `fetch_bars` + `TfBar` en `massive.py`, `/api/tito-bars` con su tabla
+de marcos literal (`1y`, `15m10d`, `5m5d`, y un `tf` desconocido cae al de por
+defecto como en su ruta), y el selector en el panel — que además superpone la
+línea de precio sobre las barras de dinero, como su `FlowPriceChart`.
+
+La auditoría cazó sola la ruta nueva cuando todavía no tenía cliente
+(`SIN DECLARAR: ['tito-bars']`), que es para lo que existe ese registro.
+
+### Checklist del tab, área por área
+
+| Área | Estado | Cómo se sabe |
+|---|---|---|
+| Sub-agente 1 · Agresividad | ✅ | `diff_motor` (1.142 casos, con basura) |
+| Sub-agente 2 · Convicción | ✅ | `diff_motor` |
+| Sub-agente 3 · Inusualidad | ✅ | `diff_motor` |
+| Sub-agente 4 · Estructura | ✅ | `diff_motor` + `diff_series` (su foto) |
+| Sub-agente 5 · Contexto IV | ✅ | `diff_motor2` (918) + `diff_series` |
+| Sub-agente 6 · Confirmación | ✅ | `diff_motor` + `store.ts` acumulado |
+| Prediction Pro | ✅ | `diff_motor2` + `diff_calib` (182 diarios) |
+| GEX / heatmap | ✅ | `diff_motor2` + `diff_motor3` (349) |
+| Niveles por confluencia | ✅ | `diff_motor` + `diff_frescura` (342) |
+| Riesgo y sizing | ✅ | `diff_motor2` · el perfil es de Kevin (declarado) |
+| **Wheel** (4 módulos) | ✅ **nuevo** | `diff_wheel` (1.072) + 50 tests |
+| Noticias | ✅ | `diff_motor3` |
+| Cadena (`compute.ts`) | ✅ | `diff_compute` (604 filas) |
+| Cono / movimiento esperado | ✅ | `diff_cono` |
+| Geometría de la gráfica | ✅ | `diff_geo` (274) |
+| Watchlist (4 módulos) | ✅ | `diff_watchlist` (734) |
+| **Formateadores de pantalla** | ✅ **nuevo** | `diff_format` (1.870) |
+| Reloj / fechas de mercado | ✅ | `diff_reloj` (223) + `diff_primitivas` |
+| Persistencia `trades/` | ✅ | `diff_store` (47) |
+| Persistencia `bars/` | ✅ | `diff_bars` (27) |
+| Persistencia `iv`/`chain`/`predictions` | ✅ | `diff_series` — ida y vuelta con su TS |
+| Fuente Massive (6 exports) | ✅ | `test_massive_shape` + `preflight_vivo` · **`fetch_bars` portado en esta ronda** |
+| Fuente MarketSnack (2) | ✅ | idem |
+| Las 11 rutas | ✅ | registro + `test_route_safety` |
+| Los 39 componentes | ✅ | registro + smoke de 94 checks sobre el JS vivo |
+| Memoria entre sesiones | ✅ | §41.26 · el archivo es intercambiable con su app |
+| Almacén durable | ✅ | §41.25 · 48 tests, contenedor nuevo recupera todo |
+
+**Lo único que NO es suyo, y es deliberado:** el perfil de inversionista de
+Kevin (`Perfil Inversionista/Kevin.md`, que lee `risk.py`), su email, y dónde
+vive el archivo — la rama `datos` del almacén, porque Víctor no despliega y su
+`data/` está en `.gitignore`.
+
+### Estado
+
+**2.918 tests del motor · 512 de la capa web · 308 checks de auditoría · 94 del
+smoke de componentes · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+---
+
+## 41.30 Las constantes de sus RUTAS, que el cotejo no miraba
+
+Kevin: *"¿lo solucionaste todo? ¿ya está al 100%?"*
+
+En vez de contestar, se volvió a buscar. Y apareció otra cosa, del mismo tipo
+que `format.ts`: **un sitio entero que ningún registro cubría por construcción**.
+
+El cotejo de constantes de la auditoría (§9-quater) compara `export const`
+numéricas de `web/lib/*.ts` — 34 valores. Sus **rutas** (`web/app/api/*/route.ts`)
+tienen las suyas propias y quedaban fuera:
+
+| ruta | constante | él | Vertex |
+|---|---|---|---|
+| `/api/flow` | `MIN_PREMIUM` | 100.000 | 100.000, **sin nombre** |
+| `/api/flow` | `LEAN_MAX_PAGES` | 6 | 6, **sin nombre** |
+| `/api/flow` | `TABLE_CAP` | 100 | **120** |
+| `/api/flow` | `CONVICTION_TABLE_CAP` | 150 | **25** |
+| `/api/ideas` | `MAX_IDEAS` | 60 | 60, con otro nombre |
+
+Tres eran números sueltos escritos dentro de la llamada: el mismo valor que el
+suyo, pero sin nombre, así que nada podía cotejarlos y el día que él cambie uno
+no se enteraría nadie.
+
+### La que sí cambiaba lo que se ve
+
+`CONVICTION_TABLE_CAP` valía **25** contra sus **150**, y no era "una tabla más
+corta". De esas filas comen sus TRES tarjetas —`ConvictionTransactions`,
+`ActivityCard` y `MoneyFlowCard`— y la última es la gráfica que dice *"el dinero
+de CADA DÍA"*.
+
+Con las 25 de mayor premium eso no es el dinero del día: es el de los 25 trades
+más grandes. Un día entero cuyo flujo fuera de tamaño medio **desaparecía del
+gráfico**, y las tres categorías que se apoyan en esas filas —Convicción,
+Inusualidad y Contexto IV— se quedaban con una sexta parte de la evidencia en
+pantalla.
+
+`TABLE_CAP` iba al revés: 120 filas donde él sirve 100.
+
+### Cerrado
+
+Las cuatro viven ahora en `scorecard.py` con SU nombre, y `vertex_api.py` las
+importa por nombre en vez de escribir el número. Y —lo que cierra la clase y no
+el caso— **el cotejo de la auditoría ahora escanea también sus rutas**: recorre
+`web/app/api/*/route.ts`, busca cada `const` numérica por nombre en el motor y
+en la capa web, y falla si falta o si difiere. Encontró sola la quinta
+(`MAX_IDEAS`, que aquí se llamaba `_IDEAS_MAX`).
+
+### Estado
+
+**2.918 tests del motor · 515 de la capa web · 310 checks de auditoría · 94 del
+smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+---
+
+## 41.31 Ronda 9 — `page.tsx`, la superficie que nadie había leído
+
+Kevin: *"verifica cada área del agente de opciones una a una sin perder nada."*
+
+Las rondas anteriores compararon sus **módulos** (`web/lib`), sus **rutas** y sus
+**componentes**. Faltaba el archivo que los une: `page.tsx`, 488 líneas donde él
+hace CÁLCULO, no solo maquetado. Nunca se había leído entero.
+
+### Sus tres uniones, que no son la misma
+
+`page.tsx` arma tres conjuntos de trades con dedupe por `id`, y son distintos:
+
+| destino | conjunto |
+|---|---|
+| GEX | `convRows ∪ unusualRows` |
+| heatmap | `convRows ∪ unusualRows` |
+| **niveles** | `convRows ∪ notable` ← otro |
+
+El port los tenía bien. Lo que no estaba bien era el comentario del heatmap en
+`vertex_api.py`: decía *"esa unión ya la hizo el motor, aquí se reusa"* y el
+código pasa `conviction_flow` a secas. Es equivalente **solo porque**
+`unusuality_score` se calcula sobre `conviction_rows`, así que la unión no añade
+filas. Eso es un **invariante**, no una coincidencia, y no lo comprobaba nadie:
+el día que la inusualidad salga de otro universo, el heatmap dejaría de ver esas
+filas en silencio. Ahora lo fija `TestLasTresUnionesDeSuPagina`, con un test por
+cada una de las tres.
+
+### `topFlows` — el bloque que faltaba entero
+
+Su `PredictionCard` pinta **"Top 3 flows notables"** debajo de los escenarios:
+las tres mayores de `convRows ∪ notable` por premium, con la marca alcista/bajista
+`(call ∧ ask) ∨ (put ∧ bid)` — comprar calls y vender puts son la misma apuesta.
+
+No existía. Es el único sitio del panel donde los tres targets de Prediction Pro
+van acompañados de las **operaciones concretas** que los sostienen: sin él los
+números salen sin que se pueda ver de qué dinero se dedujeron, que es lo
+contrario de la regla de la casa. Portado: `top_flows` en el payload (con el
+`_unir` del motor, no una copia) y `vcTopFlowsHTML` en el panel.
+
+### `RepeatBadge` — portado y muerto
+
+`vcRepeatBadge` y `vcRepeatCounts` estaban **definidas y sin un solo llamador**.
+Las tres tablas donde él usa la insignia —`TradesFeed`,
+`ConvictionTransactions`, `UnusualityCard`— pintaban un `↻` suelto **sin el ×N**:
+decían que hubo repetición pero no cuántas veces, que es la mitad de la señal.
+Tres golpes al mismo strike no es lo mismo que doce.
+
+Conectadas las tres, con `buildRepeatCounts` construido **dentro de cada tabla**
+como hace él: el ×N cuenta las apariciones AQUÍ, no en el mercado entero.
+
+### Por qué se coló: el check miraba de menos
+
+El auditor ya comprobaba que un componente declarado existiera… pero solo la
+**primera** función citada en su nota, y solo que estuviera **definida**. Con eso
+`RepeatBadge` pasaba como portado estando muerto.
+
+Ahora revisa TODAS las funciones que cada nota cita y las dos formas de mentir:
+citarla sin que exista, y que exista sin que nadie la llame. Son 32. Probado al
+revés borrando los dos llamadores: sale en rojo con el nombre.
+
+### Verificado además, área por área
+
+- **Los cinco caminos de aprendizaje**, ejecutados de punta a punta:
+  `trades/` (5 filas → sub-agente 6), `iv/` (60 fotos = el umbral exacto donde
+  el IV Rank real desplaza al proxy), `chain/`, `predictions/` (6 → calibración)
+  y `bars/`. El archivo lleva su sobre `{ticker, updatedAt, snapshots}`.
+- **La calibración mueve los targets de verdad**: con sesgo +6% y 9 muestras, la
+  base pasa de 105,00 a 108,00 en los tres horizontes. No es un campo que se
+  guarda y nadie lee.
+- **Las reglas de visualización en el tab**: los tres escenarios dan un RANGO
+  (nunca un valor único) y cada uno declara su `driver` y su probabilidad.
+- **Las 34 constantes de `web/lib` + las de sus rutas**, valor a valor.
+
+### Estado
+
+**2.921 tests del motor · 519 de la capa web · 310 checks de auditoría · 94 del
+smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+---
+
+## 41.32 Ronda 10 — la cadena que existía menos un eslabón
+
+Kevin: *"verifica cada área una a una sin perder nada."*
+
+Esta ronda entró por `types.ts`, sus interfaces compartidas, comparando campo a
+campo contra lo que el port produce. Y ahí estaba el fallo, de un tipo nuevo:
+**la cadena entera montada menos el eslabón que produce el dato**.
+
+### `CompanyInfo`: se servían 12 de sus 18 campos
+
+`fetch_company` devolvía 12. Faltaban `exchange`, `homepage_url`, `employees`,
+`list_date`, `description` y `has_logo`.
+
+Lo que hace que esto sea grave y no cosmético es lo que había **alrededor**:
+
+- `_tito_company` ya **declaraba** `exchange` y `employees` en su dict base,
+  valiendo `None`.
+- `vcCompanyHTML` ya los **leía**: el subtítulo de la cabecera es
+  `[exchange, sector].filter(Boolean).join(' · ')` y hay una casilla de
+  empleados.
+
+O sea que el panel pedía la bolsa, el mapeador la declaraba, y nadie la
+buscaba. El subtítulo salía con el sector solo —donde él pone "Nasdaq ·
+Semiconductors"— y la casilla de empleados vacía. **Durante todas las rondas
+anteriores, sin un solo error.**
+
+También va su `EXCHANGE_NAMES` (XNAS→Nasdaq, XNYS→NYSE, …), con su regla: el
+código desconocido se muestra tal cual, no se esconde.
+
+Y `has_logo`, que estaba forzado a `True` "para no doblar la latencia": no la
+dobla. La marca viene en el MISMO `/v3/reference/tickers/` que ya trae el nombre
+y el sector. Ahora se usa el valor real — un 404 menos por cada ticker sin logo,
+y se deja de prometer una imagen que no existe.
+
+### El check que lo generaliza
+
+Un campo que el frontend lee y el backend no manda **no rompe nada**: se pinta
+"—" y nadie se entera. Así que se añadió el cruce entero:
+
+> se recogen TODOS los campos de primer nivel que leen las 23 funciones de
+> render del panel, y se cruzan contra lo que sirve la ruta.
+
+Encontró dos más al estrenarse (`aggression` y `truncated`), los dos legítimos
+—vienen de la cinta y de ideas—, ahora declarados por nombre y con su
+procedencia. Probado al revés renombrando `top_flows`: sale en rojo con el
+nombre del campo.
+
+### Y un test propio que era débil
+
+El primer test de paridad comprobaba que la **clave** existiera. Pasaba igual
+con el cableado borrado, porque `exchange` seguía existiendo valiendo `None`. Un
+campo que existe y siempre vale nulo se pinta igual que uno que no existe. Se
+reescribió para comprobar que el **valor llega**, y se verificó borrando la
+línea: ahora falla.
+
+### Verificado y correcto en esta ronda
+
+- **`watchlistLocal.ts`**: sus 6 exports están (`hasMigrated`/`markMigrated`
+  incluidos, con nombre en español — la importación única del watchlist viejo
+  funciona y es idempotente).
+- **`types.ts`**: `Row`, `ChainMeta`, `DailyBar`, `TfBar` y los eventos SSE,
+  campo a campo.
+- Las tres uniones de `page.tsx`, la calibración que mueve los targets y los
+  cinco caminos de aprendizaje siguen verdes (§41.31).
+
+### Estado
+
+**2.925 tests del motor · 524 de la capa web · 310 checks de auditoría · 94 del
+smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+---
+
+## 41.33 Ronda 11 — lo que sus componentes deciden por dentro
+
+Las rondas 8-10 compararon módulos, rutas, `format.ts`, `page.tsx` y `types.ts`.
+Del lado de los componentes se había comprobado que la función **existiera** y
+que alguien la **llamara** (§41.31). Nunca lo que decide **por dentro**.
+
+Sus 39 componentes llevan **172 umbrales propios** que no están en el motor. Son
+los que convierten un número en texto y en color.
+
+### Once reglas suyas que no estaban
+
+| componente | regla | qué decide |
+|---|---|---|
+| `LevelsCard` | `strengthLabel` 70/50/30 | "Muy fuerte" · "Fuerte" · "Moderado" · "Débil" |
+| `IvContextCard` | `ivColor` 90/61/40 | el color de la IV |
+| `ValidationCard` | ≥55 verde · <45 rojo | el color del hit rate (y **un decimal**, no cero) |
+| `MemoriaCard` | sesgo ±1% | "suele apuntar bajo" · "alto" · "bien calibrado" |
+| `MemoriaCard` | error ±3% / ±7% | el color de cada predicción del track record |
+| `GexHeatmapCard` | `intensity > 0.12` | si la celda enseña su número o solo color |
+| `NewsCard` | 60m / 24h | "hace 12m" · "hace 3h" · "hace 2d" |
+| `TradesFeed` | score ≥80 / ≥60 | el color del score de cada trade |
+| `NivelesSimples` | `strength >= 20` | qué niveles entran en la lista |
+| `SimpleChart` | `strength >= 25` | qué niveles se dibujan (ya estaba) |
+| `IdeasTable` | `|n| < 10` → céntimos | un theta de $0,25/día salía "$0" |
+
+Ninguna rompe si falta: **la pantalla simplemente dice menos**. `strengthLabel`
+es texto que se lee —el número 62 no dice si es mucho o poco—; la frase de sesgo
+es la que te hace mirar los targets con reserva; y el 0,12 del heatmap es lo que
+evita que una rejilla de 10×N se llene de cifras y tape las tres celdas que
+importan.
+
+### El track record no se veía
+
+Al portar el color del error de `MemoriaCard` apareció el hueco de verdad: **su
+tarjeta no enseña un resumen, enseña una TABLA** — fecha, qué predijo, qué pasó
+de verdad, cuánto se equivocó y qué escenario acertó.
+
+`review_predictions` **ya se llamaba** en el servidor y sus `evals` se tiraban:
+solo viajaban los agregados. El panel decía *"6 predicciones vencidas, sesgo
++2%"* y **no había forma de ver ninguna**. Para lo único que existe esa sección
+—saber si el agente acierta— el resumen es justo lo que no basta.
+
+Ahora viajan las 12 más recientes y se pintan con el color de su error.
+
+### Dos fallos en el propio auditor
+
+1. **El regex de nombres se equivocaba.** Buscaba `vc*`, `renderProj*` y `wl*`,
+   pero media docena de sus componentes caen en `renderVictorTargets` y
+   `renderVictorChart`. Con el prefijo corto, el check daba por no portado lo
+   que sí estaba (`VeredictoCard`) — un chequeo que se equivoca de nombre
+   denuncia lo bueno y calla lo malo. Ampliado a `render*`: de 32 funciones
+   comprobadas se pasó a **38**.
+2. **El check de umbrales no miraba los helpers.** Los umbrales viven en su
+   propio helper, fuera de la función que los usa, así que denunciaba como
+   ausentes cinco que sí estaban.
+
+### La única declarada
+
+`ProWallsCard` filtra los niveles del gráfico con `strength >= 35`; él tiene DOS
+gráficas de niveles (`SimpleChart` con ≥25 y ésta con ≥35) y el panel de Vertex
+tiene UNA. Se usa el ≥25, el más permisivo: con ≥35 la gráfica única perdería
+los niveles medios, que él sí enseña en la otra vista. Declarado por nombre en
+`_UMBRAL_DECLARADO`.
+
+### Estado
+
+**2.925 tests del motor · 529 de la capa web · 311 checks de auditoría · 94 del
+smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+---
+
+## 41.34 Ronda 12 — las palabras, no solo los números
+
+La ronda 11 comparó los **172 umbrales** de sus componentes. Quedaban sus
+**1.185 cadenas de texto**, que es lo que de verdad se lee.
+
+Filtrando el ruido (nombres de clase CSS, `use client`, identificadores como
+`contractType` o `next/link`) quedaban **~20 etiquetas reales suyas** ausentes.
+
+### El panel hablaba en enum
+
+`NewsCard` pintaba `noticias bullish (3)` donde él pone **"Noticias positivas"**.
+Sus dos mapas —`BIAS_LABEL` y `SENT_LABEL`— no estaban. Y `neutral` tiene DOS
+textos suyos según dónde salga: *"Sin dirección clara"* en la tarjeta (el sesgo
+no se decanta) y *"Sin noticias marcadas"* en la línea de contexto (no hubo
+titulares). No es lo mismo no encontrar señal que no tener nada que mirar, y él
+lo distingue.
+
+De paso, cada titular lleva ahora su palabra POSITIVA/NEGATIVA/NEUTRAL —él no se
+fía solo del punto de color— y su `reasoning`, que explica POR QUÉ el titular es
+positivo o negativo y ya viajaba en el payload sin pintarse.
+
+### Cuatro de sus siete señales
+
+Su `NotableTable` marca cada trade con hasta siete chips, cada uno con su texto
+y su explicación. El panel pintaba **cuatro símbolos sueltos** —`↻ ⛓ ↑ ↓`— sin
+decir qué significaban, y le faltaban **las dos calientes**:
+
+- **`$1M+`** — trade de más de un millón.
+- **`Delta fuerte`** — más de $100K con delta > 0,60.
+
+Justo las dos que marcan una apuesta direccional de tamaño, que es lo que este
+tab existe para encontrar. Faltaban también `LEAP` y `simultáneo`. Los cuatro
+campos existían en `FlowFlags` del motor y no viajaban en el payload.
+
+### "Fuerza de ejecución" y la banda del spread
+
+Su `ConvictionCard` enseña `execution.avgRaw` con un decimal bajo el rótulo
+**"Fuerza de ejecución"** y el pie *"qué tan agresivas fueron las órdenes"*. El
+panel ponía "Ejecución · N trades · calidad del fill": el número que él enseña
+—el promedio sin redondear— **no viajaba**, aunque el motor lo calcula.
+
+Y el pie del spread era un recuento (*"3 con spread ancho"*) donde él pone una
+banda (*"muy líquido" / "aceptable" / "ancho"*). El recuento no dice si el
+spread MEDIO es bueno, que es lo que la métrica mide. Ahora van los dos.
+
+### El test contrario hizo su trabajo
+
+Al sustituir el pie del spread, `TestElPanelNoTiraNadaDelPayload` se puso rojo:
+`conviction.spread.wide_count` dejaba de pintarse. Es el check simétrico del de
+la ronda 10 —aquél busca lo que el panel lee y nadie manda; éste, lo que el
+motor manda y nadie pinta— y cazó la regresión en la misma sesión que la
+introdujo.
+
+### Lo que NO era un hueco
+
+`"Bear case" / "Base case" / "Bull case"` salen como **"Bajista / Base /
+Alcista"**: es su etiqueta traducida, no una que falte. Y de las 84 "cadenas
+ausentes" del primer barrido, 45 eran nombres de clase CSS e identificadores de
+propiedad — un filtro mal calibrado denuncia ruido y esconde lo que importa.
+
+### Estado
+
+**2.925 tests del motor · 529 de la capa web · 311 checks de auditoría · 94 del
+smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+---
+
+## 41.35 Ronda 13 — la columna que decía cuán probable era llegar
+
+Entrada nueva: las **ordenaciones** de sus componentes y `conditions.ts`, que
+nunca se habían comparado directamente.
+
+### El hueco: `probTouch` no existía en ninguna parte
+
+Su `NivelesSimples` calcula, para CADA nivel,
+`probTouch(spot, l.price, iv, horizonDays)` con la IV del GEX — la probabilidad
+de que el precio **llegue** a ese nivel dentro del horizonte. En el panel esa
+columna no existía.
+
+No es un adorno. La tabla enseñaba precio, fuerza y distancia, y con eso un
+soporte de **fuerza 80 al 15%** y otro de **fuerza 50 al 2%** se leen igual de
+"fuertes". Medido sobre el fixture, con la IV del GEX (0,483) a 20 días:
+
+| nivel | fuerza | distancia | P(toque) |
+|---|---|---|---|
+| $99,73 | 34 | −0,3% | **100%** |
+| $97,15 | 25 | −2,9% | 84% |
+| $90,00 | 34 | −10,0% | **38%** |
+
+Los dos de fuerza 34 son el mismo número y **una probabilidad de llegar que se
+diferencia en 62 puntos**. Eso es lo que la columna desambigua.
+
+El motor ya traía `prob_touch` (de `expected_move.py`, portado y probado desde
+la primera ronda). Solo faltaba llamarlo y servirlo. Ahora cada nivel viaja con
+su `touch`, con su misma IV y su mismo respaldo de 0,4 cuando el GEX no la da.
+
+### Lo que estaba bien
+
+- **`conditions.ts`: 33 de 33.** Cada `id`, cada `code`, y los dos conjuntos
+  —`MULTI_LEG_CODES` y `CANCELED_CODES`— idénticos. Es el módulo que decide si
+  un trade se descarta por cancelado o se marca como pata de una estrategia
+  combinada, así que un código de más o de menos movería los seis scores.
+- **La tabla de cadena SÍ es ordenable** por columna (`vcOrdenaCadena`), como su
+  `OptionChainTable`.
+- **`ActivityCard`** ordena por el timestamp real del primer trade de cada día y
+  no por la etiqueta — su bug evitado, que ya estaba portado con su comentario.
+
+### Declarada
+
+Él tiene DOS vistas de niveles: `LevelsCard` (pro, soportes y resistencias
+separados) y `NivelesSimples` (estudiante, una lista fundida por cercanía con
+la P(toque)). El panel tiene UNA tabla, con la estructura de `LevelsCard` y la
+columna de `NivelesSimples`. Se queda la fusión: son los mismos datos y una
+sola pantalla no gana nada partiéndolos en dos vistas que dicen lo mismo.
+
+### Estado
+
+**2.925 tests del motor · 533 de la capa web · 311 checks de auditoría · 94 del
+smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.36 Ronda 14 — la cinta, que era la pestaña sin barrido
+
+**Fecha:** 2026-08-08 · **Contra:** `infusionvictor/agente-tito-metralleta@53d5a20`
+
+Las rondas 11, 12 y 13 barrieron el scorecard, Ideas y la Wheel. La cinta
+—**Time & Sales**, la tercera pestaña— nunca se barrió, y ahí estaba lo gordo:
+`_fila` sirve 27 campos por operación y la tabla enseñaba nueve columnas.
+
+### Lo que estaba mal
+
+1. **`bid` y `ask` viajaban en cada fila y nadie los pintaba.** Desde el primer
+   día. Las flechas ↑/↓ dicen que el print salió **fuera** de la horquilla; sin
+   la horquilla, un centavo sobre el ask y un dólar sobre el ask son la misma
+   flecha. Su `/flow` tiene columna «Bid/Ask» justo para eso. Ahora va bajo el
+   precio, y en el `title` de la celda.
+
+2. **La columna «Score» no tenía encabezado.** Diez `<th>` para once `<td>`.
+   En escritorio no se nota; en el móvil `vcTablaResponsive` copia la etiqueta
+   de la columna N a la celda N, así que **todas las de la derecha salían con
+   el nombre de la de al lado**: el Score se llamaba «Dinero», el Dinero
+   «Griegos», y la última no llevaba nada. Llevaba así desde que se añadió el
+   Score.
+
+3. **El desglose de los Puntos no existía.** Su `NotableTable` pone «Volumen
+   X/10 · Horario Y/10 · Repetición Z/10» en el `title`. Solo viajaba el total,
+   y un 21/30 sin desglose no dice si vino del tamaño de la orden, de la hora a
+   la que entró o de cuántas veces se repitió el contrato — tres señales que se
+   leen distinto. `_fila` ahora manda `unusual_parts`.
+
+4. **`sideLabel` tiene cuatro ramas y aquí había tres.** Su cuarta —
+   `aggression === "unknown"`— cae a `r.side`, el lado crudo de la cinta. Aquí
+   el `else` se comía el desconocido y lo rotulaba **«Mid»**, que es afirmar una
+   lectura de la horquilla que el motor declaró que no pudo hacer.
+
+5. **El veredicto de agresividad no salía en la cinta.** Su
+   `AggressionScoreCard` va con ella: la barra sola no separa un 55/45 de un
+   90/10 — eso lo hace la frase («Sin flujo agresivo» / «Compra agresiva (al
+   ask)» / «Presión al bid» / «Mixto»). Estaba portado, pero solo en el
+   scorecard del ticker. Faltaban también el `n` de notables y el aviso de
+   cinta truncada.
+
+6. **La nota al pie de la cinta describía símbolos que ya no existían.** Decía
+   «↻ repetido · ⛓ multileg · ★ volumen > OI» cuando las señales se pintan con
+   texto desde que se portó `VC_SENALES`. Ahora es la suya: qué son los Puntos,
+   qué significa una fila resaltada y qué es cada lado.
+
+7. **El aviso de cotización retrasada de la Wheel vivía dentro de un `if`.**
+   Solo se enseñaba con `quotes_missing`, o sea justo en el caso en que el
+   usuario ya sabía que la prima era estimada. Cuando Massive **sí** sirve
+   horquilla la cotización **sigue siendo retrasada**, y ahí no se decía nada.
+   Su `wheel-disclaimer` no está dentro de ningún condicional. Ahora tampoco.
+
+8. **No se podía repetir un escaneo de la Wheel.** Su `↻ Volver a escanear` no
+   estaba: la única forma era irse a otro preset y volver, que además tira el
+   resultado bueno por el camino. Un escaneo degradado se repite.
+
+9. **El `RESUMEN.md` del agente de opciones callaba tres cosas que el
+   `scorecard.json` ya traía**: los niveles con su P(toque), los tres flujos
+   más grandes y el track record. Un resumen es lo que se lee dentro de tres
+   meses; con el score y los escenarios solos no se decide nada. Y al
+   escribirlo apareció el fallo de siempre en pequeño: la primera versión leía
+   `horizon`, `predicted` y `actual` — nombres **parecidos** a los que sirve la
+   ruta (`horizon_days`, `base`, `actual_close`) pero distintos. Un nombre
+   equivocado no rompe nada: pinta «—» y el archivo se ve bien para siempre.
+   Igual con `touch`, que es una fracción 0-1: sin el ×100 el resumen escribía
+   «1%» donde el motor dice 81%.
+
+### Lo que estaba bien
+
+- **El trío de la gráfica** (`buildScales`/`packLabels`/`smartDomain`) está
+  portado y medido por `diff_geo` (274 casos), que los **extrae del HTML** en
+  vez de copiarlos. El `PADDING` de su `PriceChart.tsx` coincide al píxel.
+- **Cero funciones públicas sin llamador** en `engine/wbj/tito/*.py`, cruzando
+  un recorrido del AST contra todos los tests, `vertex_api.py`,
+  `vertex_archivo.py` y `engine/scripts/*.py`.
+- **La degradación no revienta**: con la cadena caída, `/api/projection-targets`
+  responde 200 con `ok:false` y un mensaje, no un 500.
+- **El archivo declara lo que no guarda**: `_sin_derivado` recorta la materia
+  prima y añade `_no_archivado`, para que el archivo no mienta por omisión.
+- **`VC_SENALES`** son sus siete señales con su texto y su `tip`, incluido el
+  código OPRA dentro del tooltip de multileg.
+
+### Lo que se añadió para que no vuelva a pasar
+
+- **Barrido de hojas de la cinta** (`test_la_cinta_no_sirve_nada_que_el_panel_tire`):
+  el tercer barrido, el que faltaba. Cada campo que sirve `/api/tito-tape` tiene
+  que tener consumidor en `renderProjTape` o estar declarado con su motivo. Es
+  el que cazó `bid`/`ask`. Y `test_el_registro_no_miente` ahora también mira la
+  cinta, para que una declaración no sobreviva al campo que declara.
+- **Tablas cuadradas**, en los dos smokes: para **cada** tabla `vc-t` que el
+  panel produzca de verdad, `<th>` del encabezado == `<td>` por fila (contando
+  `colspan`). Se barre todo lo pintado, no una lista escrita a mano, así que una
+  tabla nueva entra sola. Mutado: quitar el `<th>` de «Score» lo pone en rojo.
+- **Los nombres del resumen contra los de la ruta**: cada clave que
+  `_md_opciones` lee tiene que existir en `vertex_api.py`. Mutado con
+  `horizon_days`→`horizon` y `actual_close`→`actual`: falla. Y la fila del track
+  record se comprueba **entera**, no a trozos, que es lo que hace que un «—» de
+  más no pase por normal.
+
+### Declarada
+
+**Una respuesta, no un stream.** Sus cuatro rutas largas (`analyze`, `flow`,
+`ideas`, `wheel`) son SSE y emiten entre 40 y 100 eventos `{type:"step",label}`.
+Aquí devuelven un JSON al final: esto corre detrás del proxy de Render en plan
+free, que no garantiza `text/event-stream` sin buffering, y un stream a medio
+bufferizar es **peor** que ninguno — la pantalla se congela en el paso 3 y
+parece colgada. Lo que no cambia: su propio `AnalysisLoader` ya **colapsa** los
+~100 pasos en cuatro fases y su comentario lo dice —«no leemos el texto de cada
+paso, solo cuántos han llegado»—; esa es la pantalla portada (`vcLoaderHTML`),
+con su curva asintótica y su tope del 97%. Se pierde la etiqueta fina («página 5
+de 6»), y solo mientras carga. Queda en el registro de divergencias del auditor,
+que ahora son cinco.
+
+### Estado
+
+**2.925 tests del motor · 543 de la capa web · 311 checks de auditoría · 105 +
+58 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.37 Ronda 14-bis — Ideas: la mitad de `size_flow` no salía del servidor
+
+**Fecha:** 2026-08-08 · **Contra:** `infusionvictor/agente-tito-metralleta@53d5a20`
+
+Cerrada la cinta, quedaba `ideas/page.tsx` (427 líneas) y su `IdeasTable.tsx`.
+Su tabla Pro tiene **trece** columnas; aquí había diez, y las que faltaban eran
+justo la historia del theta — que es para lo que existe `size_flow`.
+
+### Lo que estaba mal
+
+1. **El titular contaba mal.** Su `operables` son las que **sí puedes operar**,
+   más «N descartadas». Aquí decía «N operables» con N = **la tabla entera**,
+   incluidas las que el propio panel marca «no cabe» dos columnas más a la
+   derecha. Con $1.000 de capital eso no es cosmético: casi todas las filas de
+   una corrida caen del lado de «no cabe», así que el titular decía lo
+   contrario de lo que decía la tabla. Ahora sale de `perfil.caben`, que el
+   motor ya calculaba.
+
+2. **Seis campos de `Sizing` se calculaban y se tiraban en la ruta**:
+   `burn_days`, `theta_burn_per_contract`, `total_burn`, `burn_pct_of_account`
+   y `fully_decays`. Son la mitad de `size_flow` y la mitad de su `IdeaCard`:
+   «el theta se come $X al día por contrato: $Y en N días (Z% de la cuenta)»,
+   «te frenó el theta, no el capital» y el aviso de que **el contrato se
+   consume entero dentro del horizonte**. Sin eso, «te caben 3» es un techo sin
+   el precio de mantenerlos — que es exactamente lo que distingue una opción de
+   una acción.
+
+3. **`blocked` viajaba como `dict` y se pintaba como `[object Object]`.** El
+   motor devuelve `{reason, detail}`; el panel hacía `_vcEsc(s.blocked)`. Ahora
+   viaja `detail` (la frase) y `blocked_reason` (el código, para la API).
+
+4. **La columna de vencimiento enseñaba solo el DTE.** Su `expiryLabel` lleva
+   el comentario «fecha real + días restantes — **nunca solo “57d”**». Un «57d»
+   no dice si cae en un mensual, si cruza los earnings o si es el viernes que
+   viene.
+
+5. **El historial no llevaba ni su banda de color ni la mediana de sesiones.**
+   Su `HistoryCell` tiñe en 60 y 45 —no los 55/45 del hit rate de la Wheel— y
+   enseña «~N ses», que es cuánto tarda el patrón en resolverse.
+
+6. **`BindingChip` vivía dentro de un `title`**, que en un móvil no existe.
+   Ahora es un chip: «bloqueado» / «no alcanza» / «θ» / «prima».
+
+7. **Faltaban el precio del contrato, la hora del flow y el disclaimer de
+   `/ideas`** — el que dice que el tamaño sale del **precio al que se ejecutó
+   el flow**, no de la cotización viva, porque el feed no la entrega.
+
+8. **El horizonte del sizing no se declaraba.** `size_flow` quema theta *hasta*
+   una fecha, así que el techo de contratos cambia con ella. Su app la elige
+   con un botón (`HORIZON_LABELS`); aquí sale del perfil —la parte que sí es de
+   Kevin— pero no se veía, y un «te caben 3» sin horizonte es un número sin
+   unidad. Ahora va en la franja de perfil y en el encabezado de la columna.
+
+### Lo que apareció al ponerlo: catorce declaraciones podridas
+
+El registro `_NO_SE_PINTAN` dice, hoja por hoja, qué sirve el motor y el panel
+no pinta, con su motivo. Tenía un agujero de diseño: el barrido **salta** una
+hoja declarada antes de mirar nada, así que una declaración sobrevive a su
+propio motivo. Catorce afirmaban lo contrario de lo que hacía el código:
+
+- Cuatro de Ideas (`expiration`, `price`, `timestamp`, `history.median_sessions`)
+  quedaron obsoletas en esta misma ronda.
+- Tres más de Ideas (`id`, `symbol`, `sizing.cost_pct_of_account`) llevaban
+  rotas desde que la estrella del watchlist y el `title` del techo las usaron.
+- Siete de la Wheel (`iv_source`, `premium.raw`, `metrics.breakeven` y las
+  cuatro de `score.annualized`) desde que se añadió la fila desplegable.
+
+`test_el_registro_tampoco_miente_al_reves` cierra el agujero: para Ideas, Wheel
+y la cinta, ninguna entrada del registro puede referirse a algo que el panel sí
+pinta. Con una exención declarada: `trades.volume` colisiona por NOMBRE con
+`unusual_parts.volume` (el volumen del contrato contra el sub-score de tamaño
+de la orden). Los dos nombres son los suyos —`FlowRow` y `TradeScores`—; se
+exime la hoja en vez de renombrar su modelo para comodidad del test.
+
+### Estado
+
+**2.925 tests del motor · 547 de la capa web · 311 checks de auditoría · 105 +
+62 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.38 Ronda 14-ter — la escritura de la que depende el aprendizaje era la única muda
+
+**Fecha:** 2026-08-08
+
+Auditando lo que se guarda —que es la parte que hace que el agente mejore con
+el tiempo— aparecieron dos cosas.
+
+### Lo que estaba bien
+
+Las **quince** funciones de sus cinco stores (`barsStore`, `chainStore`,
+`ivStore`, `predictionStore`, `outboxStore`, `watchlistStore`, `store`) están
+portadas y llamadas desde las rutas. Las dos que no tienen llamador —`save_bars`
+(la llama `cached_daily_bars` por dentro) y `load_chain_history` (**tampoco lo
+tiene en su `chainStore.ts`**)— están declaradas con su motivo en el registro
+de huérfanas del auditor. El lazo entero cierra:
+
+| Se escribe | Se lee | Para qué |
+|---|---|---|
+| `save_chain_snapshot` | `load_chain_history` | reconstruir por qué el sub-agente 4 puntuó lo que puntuó |
+| `save_trades` | `load_trades` | el backtest del sub-agente 6 |
+| `save_iv_snapshot` | `load_iv_history` | el IV Rank REAL, a los 60 días |
+| `save_prediction` | `review_predictions` → `calibration_from_review` | el sesgo que corrige los targets |
+
+### Lo que estaba mal
+
+**`_tito_remember` se tragaba su error en un `except Exception: pass`.**
+
+Las otras tres escrituras pasan por `_guarda`, que apunta el fallo en
+`memory.escrituras_fallidas`, y el panel lo pinta. La de predicciones —la que
+cierra el lazo de calibración, o sea **lo único que hace que el agente mejore
+con el tiempo**— era la única muda. Un disco lleno o un permiso mal puesto
+dejaban el track record congelado durante meses mientras el panel seguía
+diciendo «0 predicciones vencidas», que es exactamente lo que se ve el primer
+día: la degradación se disfrazaba de estreno.
+
+Ahora devuelve el motivo, entra en la misma lista y se registra en el log.
+`TestLaMemoriaFallaEnVozAlta` lo comprueba en las dos direcciones —falla y se
+dice, va bien y no inventa alerta— y que el panel siga pintando la lista.
+Mutado (descartar el valor de retorno): falla.
+
+### Y catorce declaraciones podridas más, en los registros del scorecard
+
+El mismo control inverso de 41.37, aplicado a `_HOJAS_NO_SE_PINTAN` y
+`_SUB_NO_SE_PINTAN`. Tres mentían: `aggression.ratio` (se pinta desde que el
+veredicto de agresividad llegó a la cinta), `structure.notional.total` y
+`structure.avg_notional` (los dos se pintan en la misma línea de la tarjeta de
+Estructura). Con una exención declarada por colisión de nombre:
+`iv_context.iv.contracts` contra `by_expiration[].contracts`.
+
+### Estado
+
+**2.925 tests del motor · 551 de la capa web · 311 checks de auditoría · 105 +
+62 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.39 Ronda 15 — sus PALABRAS, sus PÁGINAS, y la evidencia del sub-agente 6
+
+**Fecha:** 2026-08-08 · **Contra:** `infusionvictor/agente-tito-metralleta@53d5a20`
+
+Las catorce rondas anteriores compararon módulos, componentes, rutas, umbrales,
+formateadores y hojas de payload. Quedaban tres clases de superficie que nada
+enumeraba.
+
+### 1 · Sus páginas no estaban en ningún registro
+
+El registro de componentes excluye `layout` y `page` a propósito, y las tres
+páginas de subcarpeta (`ideas/`, `wheel/`, `flow/`) ni siquiera entran en el
+glob de `app/*.tsx`. Sus **cuatro pantallas** eran la única superficie suya que
+nada enumeraba: se leyeron a mano en las rondas 9 y 14, y esa lectura no dejaba
+rastro comprobable. `PAGINAS_SUYAS` las declara con qué las cubre aquí y qué de
+ellas no se porta; si añade una quinta, el check falla.
+
+### 2 · Sus palabras: 61 frases, una por una
+
+Las rondas 11 y 12 miraron los **umbrales** de sus componentes y las etiquetas
+de sus **bandas**. Nadie enumeró nunca la PROSA — las frases que explican qué
+significa el número. «−$2.400M de GEX» no dice nada; «γ− (tendencia: conviene
+seguir el movimiento)» sí, y esa mitad de la tarjeta se perdía sin que fallara
+nada: un panel con todos los números y ninguna explicación pasa todos los tests
+de cableado.
+
+`FRASES_DECLARADAS` extrae de sus `.tsx` las frases en español de 18-80
+caracteres y exige que cada una esté en el panel o declarada con su motivo. De
+las 61: **42 portadas, 19 declaradas**. Lo que faltaba y se añadió:
+
+- **El régimen del heatmap.** Mi tarjeta enseñaba el GEX neto y no lo que
+  implica. Ahora lleva sus dos frases y su leyenda verde/rojo.
+- **Los títulos de niveles.** «Resistencias» a secas obliga a saber qué es una
+  resistencia; «techos por encima del precio» no. Y su nota del final —la que
+  explica que un nivel vale más cuando coinciden precio y opciones, con la
+  tolerancia de agrupación— faltaba entera.
+- **El par de niveles clave** (`key_support` / `key_resistance`) y
+  `tolerance_pct`: tres campos de su `LevelsResult` que la ruta tiraba. Su
+  `lvl-key` son los dos números que se miran antes que la tabla.
+- **El vacío de `LevelsCard`.** Devolver `''` hacía desaparecer la sección, y
+  «no hay tarjeta» se lee como «el agente no la calcula». La calculó y no
+  encontró nada.
+- **Las tres frases de bloqueo de la Wheel.** «sin bid» es la etiqueta del
+  motor; «nadie está poniendo precio de compra: no podrías vender» es lo que
+  significa. Un bloqueo sin su porqué parece un fallo del agente.
+- **Las dos `mem-stat` del track record**, con `base_touch_rate` — otro campo
+  calculado y tirado. Acertar la DIRECCIÓN y llegar al PRECIO son dos cosas
+  distintas: «subió como dijo pero se quedó a mitad de camino» es medio
+  acierto, y con un solo número no se distingue.
+- **El vacío de `MemoriaCard`**, el desglose de los 6 parámetros de
+  Inusualidad, «Desglose por señal» del scorecard y la frase del skew.
+- **El disclaimer del dashboard.** Él lo pone DOS veces. La Wheel y las Ideas
+  ya tenían el suyo; la pantalla que enseña los TARGETS —la que más se parece a
+  una promesa— era justo la que no decía nada.
+- **Las preguntas de los sub-agentes.** Él tiene TRES redacciones para la
+  casilla de Estructura en tres archivos distintos; aquí están las dos que
+  corresponden a las dos superficies portadas, y la tercera queda declarada.
+
+### 3 · `validation.outcomes` — la evidencia del sub-agente 6
+
+Su `ValidationCard` no enseña solo la tasa: enseña la tabla **«Qué pasó después
+de cada flow»** — cada operación pasada con cuánto recorrió a favor, cuánto en
+contra, cuánto tardó y si acabó validada o absorbida. Se calculaba **entera** en
+`validation.py` y **moría en el servidor**.
+
+Es exactamente lo que la regla del proyecto prohíbe perder: *sin evidencia, no
+hay número*. Un 62% de tasa sin sus 25 filas no deja ver si vino de tres
+aciertos grandes o de veinte pequeños, que se leen muy distinto. El barrido de
+hojas no podía cazarlo porque el campo **no estaba en el payload**: solo mira lo
+que la ruta sirve.
+
+### 4 · Lo que decide si se VE en Render
+
+- **El JS del panel compila** (`node --check` sobre el bloque real). Un acento
+  grave dentro de un comentario HTML cierra la plantilla y se lleva el tab
+  entero — ya pasó dos veces.
+- **Las 45 rutas que el panel pide existen** en la app. Ninguna huérfana.
+- **Sin claves, las cuatro rutas del tab degradan a 200 + `ok:false` con su
+  motivo**, no a 5xx. El `/` sirve el panel completo (716 KB) con las cinco
+  funciones de render dentro.
+- **Menos una:** `/api/tito-bars` responde 502 cuando Massive falla —igual que
+  su ruta— y el consumidor se lo tragaba con **tres `return` mudos**. En un
+  gráfico que se llama «dinero contra precio», que falte el precio sin avisar
+  se lee como que no hubo movimiento. Ahora lo dice, y el aviso se borra solo
+  cuando el reintento va bien.
+
+### 5 · Dos tests que mentían por construcción
+
+`test_el_panel_pinta_la_columna` y `test_el_panel_pinta_la_tabla_con_el_color_del_error`
+cortaban la función a 2.200 y 3.000 caracteres fijos. Añadir texto arriba
+empujaba lo comprobado fuera de la ventana y el test denunciaba como ausente
+algo que seguía tres líneas más abajo. Ahora leen la función entera.
+
+### Estado
+
+**2.925 tests del motor · 562 de la capa web · 317 checks de auditoría · 105 +
+62 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.40 El despliegue caído: una variable BIEN configurada rompía el arranque
+
+**Fecha:** 2026-08-08 · **Síntoma en Render:** «Exited with status 1 while
+running your code»
+
+### La causa
+
+`vertex_api.py` importa el motor de Víctor a NIVEL DE MÓDULO:
+
+```python
+from wbj.tito.scorecard import (_unir, CONVICTION_TABLE_CAP, LEAN_MAX_PAGES,
+                                MIN_PREMIUM, TABLE_CAP)
+```
+
+Pero `engine/` llegaba a `sys.path` **solo como efecto secundario** de
+`_sec_user_agent()`, que lo insertaba dentro de su rama de respaldo:
+
+```python
+def _sec_user_agent():
+    ua = (os.environ.get("EDGAR_USER_AGENT") or "").strip()
+    if ua:
+        return ua                       # ← retorna SIN insertar el path
+    try:
+        if _WBJ_ENGINE_PATH not in sys.path:
+            sys.path.insert(0, _WBJ_ENGINE_PATH)   # ← el único que lo ponía
+```
+
+Con `EDGAR_USER_AGENT` **definida** —que es el caso en Render, y el que la
+política de fair-access de la SEC exige— la función devuelve el valor y retorna
+antes de tocar el path. El import de arriba muere entonces con
+`ModuleNotFoundError: No module named 'wbj'`, uvicorn sale con código 1, y
+Render lo reporta con esa frase que no dice nada.
+
+### Por qué no se veía
+
+**La ausencia de configuración salvaba el arranque.** Nadie define
+`EDGAR_USER_AGENT` para desarrollar, así que en local la función caía siempre al
+respaldo, insertaba el path de paso, y todo lo demás importaba. Es al revés de
+lo que se asume al probar: no era una variable faltante lo que rompía, era una
+variable correctamente puesta.
+
+Los tests tampoco lo veían: corren dentro de un pytest cuyo `conftest` ya tiene
+`engine/` en el path, así que el import de nivel de módulo nunca se ejercitaba
+en frío.
+
+Y el `preflight_render.py` de la ronda anterior **tampoco**: probaba el arranque
+*sin* claves —para comprobar que las rutas degradan— y esa es exactamente la
+condición bajo la que el fallo no ocurre. Un preflight que solo prueba el caso
+sin configurar mide medio despliegue.
+
+### El arreglo
+
+`sys.path.insert(0, _WBJ_ENGINE_PATH)` va **donde se define la ruta**, a nivel
+de módulo. El path de un motor que vive dentro del repositorio no puede depender
+de a quién se le ocurra tocarlo primero. Los `sys.path.insert` repartidos por el
+archivo se quedan —todos preguntan `if not in sys.path`— para que ningún import
+suelto vuelva a depender del orden.
+
+### Lo que impide que vuelva
+
+- **`TestElArranqueNoDependeDeQueFalteConfiguracion`**: importa `vertex_api` en
+  un proceso NUEVO, con el entorno de Render y sin él. Mutado (quitando la
+  línea del arreglo): 2 de 4 en rojo.
+- **El preflight ahora enciende las variables de Render** (`ENTORNO_RENDER`) y
+  añade un paso 4 que importa el módulo en frío, con y sin ellas. Y se
+  autentica con `X-Vertex-Token`: con `VERTEX_API_TOKEN` puesta, un 401 es la
+  seguridad C-02 funcionando, no un fallo — antes el preflight lo contaba como
+  error y medía la puerta en vez de las rutas.
+
+### Estado
+
+**2.925 tests del motor · 566 de la capa web · 317 checks de auditoría · 105 +
+62 del smoke · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.41 Ronda 16 — la cobertura: qué lee cada sub-agente y qué le falta
+
+**Fecha:** 2026-08-08 · **Contra:** `infusionvictor/agente-tito-metralleta@53d5a20`
+
+Las quince rondas anteriores compararon el CÓDIGO contra el suyo. Esta mira otra
+cosa: **con qué dato salen los números**.
+
+### Lo que estaba bien (medido, no supuesto)
+
+El lazo de memoria cierra en los cuatro caminos. Verificado ejecutando el ciclo
+real —guardar, leer, filtrar, puntuar— y no con diccionarios inventados:
+
+| Camino | Medido |
+|---|---|
+| `save_trades` → `load_trades` → `trades_utiles` → sub-agente 6 | 5 guardados → 5 leídos → 5 pasan el filtro → **flows=5** |
+| El mismo, con flujo de hace 40 días | 5 outcomes **resueltos**, score 10, hit rate 100%, umbral 3,38% |
+| IV Rank sin historia propia | `realized-proxy` sobre **220 días** de barras |
+| IV Rank con 70 días acumulados | cambia solo a `iv-history` |
+| Barras del panel | 365 días, cacheadas por día de mercado |
+
+Y la Wheel, sin proponérselo, **calienta el cache de barras de sus 41 símbolos**
+en cada escaneo (`cached_daily_bars` guarda), así que cualquier análisis
+posterior de esos tickers arranca con el proxy de IV completo.
+
+**Lo que NO se hizo, a propósito:** guardar las cadenas del escaneo de la Wheel
+como fotos de estructura. Su cadena está filtrada a puts dentro de la banda de
+DTE del preset — un `structure_score` sobre ese subconjunto no es comparable con
+el de una cadena entera, y mezclarlos en la misma serie la corrompería. Más
+datos no es mejor si no son comparables.
+
+### Lo que estaba mal
+
+**1. `/api/tito-health` no lo llamaba nadie.** El diagnóstico existía: tocaba
+Massive, MarketSnack, el disco, la IV y los flows uno por uno, y decía el
+impacto y el arreglo de cada fallo. Estaba declarado como «se consulta a mano al
+desplegar», o sea nunca. Es la única respuesta a la pregunta que el scorecard no
+contesta: **un 62/100 sostenido por dos categorías de seis se ve idéntico a uno
+sostenido por las seis.**
+
+**2. Le faltaban tres coberturas** — justo las que deciden si el agente mejora
+con el tiempo o se estrena cada semana:
+
+- **`memoria.predicciones`**: el lazo de calibración. Sin él los targets nunca
+  se corrigen; el agente puede llevar seis meses apuntando un 8% de más y
+  seguir apuntando lo mismo.
+- **`memoria.cadenas`**: la única evidencia que no se puede recomprar. Massive
+  vende la cadena de HOY, no la del martes pasado.
+- **`memoria.respaldo`**: el que decide si los otros tres sobreviven. En Render
+  free el disco se borra en cada redeploy; sin `VERTEX_GIT_TOKEN` los contadores
+  vuelven a cero solos y el agente se estrena otra vez **sin que nadie lo note**
+  — los números que enseña son correctos, simplemente empiezan de nuevo.
+
+**3. Dos constantes de la ventana corta iban a mano** (`100_000` y `6`) teniendo
+el nombre a un import de distancia. Coincidían con los suyos, así que no cambiaba
+ningún número; lo que fallaba era el ACOPLE: `/api/tito-tape` baja exactamente
+esa misma ventana y sí los usa por nombre. Si Víctor sube `LEAN_MAX_PAGES` a 10,
+la cinta bajaría 10 páginas y el scorecard seguiría en 6 — dos pantallas
+puntuando sobre universos distintos sin que nada lo dijera. Y el cotejo de
+constantes de la auditoría solo ve los nombres: un número suelto le es invisible.
+
+### La pestaña de Cobertura
+
+Quinta pestaña del tab, después de las cuatro suyas. Por cada check: qué es, en
+qué estado está, **a qué sub-agente afecta** y qué se rompe si falta, con el
+arreglo. La traducción importa: no «falta MARKETSNACK_COOKIE», sino «Agresividad,
+Convicción, Inusualidad y Contexto IV se quedan sin dato».
+
+Es de Vertex, no suya, y se declara así: su despliegue es local y él ve el log.
+Aquí el agente corre en un servidor que nadie mira.
+
+Al cablearla, el registro de huérfanas del auditor cazó que `load_chain_history`
+—declarada «sin llamador, también en su chainStore.ts»— ahora sí tiene uno. La
+declaración se retira: una que afirma lo contrario del código es peor que
+ninguna.
+
+### Estado
+
+**2.925 tests del motor · 574 de la capa web · 317 checks de auditoría · 105 +
+62 del smoke · 16 diferenciales · preflight de Render en verde · 0 fallos,
+0 avisos, 0 skips.**
+
+## 41.42 El respaldo no funcionaba en Render — y solo en Render
+
+**Fecha:** 2026-08-08 · **Síntoma:** «Tengo el token y aun así no se guardan ni
+las cuentas ni los reportes ni nada».
+
+### La causa
+
+El almacén deducía a qué repositorio subir con `git remote get-url origin`
+sobre el directorio del propio código. Eso exige **tres** cosas que en una
+máquina de desarrollo se cumplen siempre y en Render pueden fallar todas:
+
+1. que el directorio desplegado traiga `.git` — Render exporta el árbol, no
+   siempre el repositorio;
+2. que `git` esté en el PATH **del proceso** (está en el build; en el runtime
+   no está garantizado);
+3. que la URL empiece por `https://` — una `git@github.com:owner/repo.git` se
+   descartaba entera.
+
+Si cualquiera fallaba, `_url()` devolvía cadena vacía, `respalda` daba `False`
+y el operador veía un aviso genérico de «no se pudo deducir el repositorio»
+**al lado de un token perfectamente válido**.
+
+El reparto era el peor posible: **se respaldaba en local y no en producción**,
+que es justo donde el disco sí se borra.
+
+### El arreglo
+
+Tres fuentes, en orden: `VERTEX_ALMACEN_REMOTO` → **`RENDER_GIT_REPO_SLUG`** →
+el `origin` del código. La de en medio la pone el propio Render en el entorno de
+todo servicio desplegado desde git, vale `owner/repo`, y **no necesita `git`, ni
+`.git`, ni poder lanzar subprocesos**: es el servicio diciendo de qué repo salió.
+El slug se valida contra `[A-Za-z0-9._-]+/[A-Za-z0-9._-]+` antes de construir
+una URL con él.
+
+Y la tercera fuente ya no descarta la forma SSH: es el mismo repositorio escrito
+de otra manera, y se traduce.
+
+### Dos cosas más que salieron al tirar del hilo
+
+**El orden en `_arranca_almacen`.** `WBJ_TITO_DATA` —que es lo que manda las
+series del motor DENTRO del almacén— se fijaba **después** de `restaura()`. Si
+la restauración fallaba (red, token, rama), el proceso seguía vivo y sirviendo,
+pero todo lo que analizara a partir de ahí caía en `./data/tito`, fuera de lo
+que se respalda, y se perdía entero. Y el segundo fallo viajaba escondido detrás
+del primero, porque el aviso que se pinta es el de la restauración. Ahora se fija
+**antes**: si la restauración falla, el primer respaldo que sí funcione se lo
+lleva igual.
+
+**El motivo, cuando el token SÍ está.** «No se pudo deducir el repositorio»
+junto a un token puesto se lee como una contradicción. Ahora dice las tres
+fuentes que probó y con qué resultado, y empieza por «TIENES el token, pero…».
+
+### Verificado de punta a punta
+
+Con un remoto real y el ciclo completo —arrancar, escribir, sincronizar— llegan
+a la rama `datos`:
+
+```
+Privado/privado.enc                      ← cuentas y perfiles, cifrados
+Proyecciones/WULF/2026-08-08/scorecard.json + RESUMEN.md + INDICE.md
+Reportes/NVDA/2026-08-08/reporte.json    + RESUMEN.md + INDICE.md
+Series/tito/trades/WULF.json             ← sub-agente 6
+Series/tito/predictions/WULF.json        ← calibración
+```
+
+Y `WBJ_TITO_DATA` apunta a `almacen/Series/tito`, que es lo que hace que esas
+dos últimas sobrevivan al redeploy.
+
+### Lo que impide que vuelva
+
+`TestElRemotoSeDeduceEnRender` (7 casos: el slug de Render, la validación del
+slug, la precedencia, las cinco formas de `origin`, y el motivo con y sin token)
+y `TestLasSeriesCaenDentroDelAlmacenPaseLoQuePase`, que comprueba en el código
+que `WBJ_TITO_DATA` se fija antes de restaurar. Mutados: 2 en rojo.
+
+### Estado
+
+**2.925 tests del motor · 585 de la capa web · 317 checks de auditoría ·
+16 diferenciales · preflight de Render en verde · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.43 Ronda 17 — su DISEÑO, que nadie había mirado en dieciséis rondas
+
+**Fecha:** 2026-08-08 · **Contra:** `web/app/globals.css` de `53d5a20` (1.041 líneas)
+
+Dieciséis rondas comparando su lógica, sus textos, sus umbrales, sus constantes
+y sus payloads. **Su hoja de estilos no la había abierto nadie.** El tab se
+dibujó con utilidades sueltas de Tailwind, y ahí dentro hay decisiones suyas que
+no son adorno.
+
+### La que más se nota: `tabular-nums`
+
+Su CSS lo pone en `table`, o sea en TODAS. Las veinte tablas del tab no lo
+tenían. Sin él cada dígito lleva su propio ancho —un `1` ocupa menos que un
+`8`— así que `$1.111` y `$8.888` no acaban en la misma columna. En una pantalla
+que es casi toda números, eso no es tipografía fina: es si se pueden comparar
+dos precios de un vistazo o hay que leerlos.
+
+### Lo demás que se portó
+
+| Suyo | Qué hace |
+|---|---|
+| `tbody tr:nth-child(odd)` | la cebra, para no saltar de fila al recorrer una tabla ancha |
+| `tbody tr:hover` | la fila bajo el cursor se distingue |
+| `thead th { position: sticky }` | en 25 filas con scroll, el encabezado no se va justo cuando hace falta |
+| `tr.unusual td` | la fila inusual se tiñe **entera**, no solo su celda de puntaje |
+| `.pill` 999px/700/MAYÚSCULAS/tracking .5 | lo que las separa del texto de al lado sin necesitar más color |
+| `--space-*` 8/14/24/32 | con su regla escrita: *«el gap ENTRE cards (lg) tiene que superar al padding DENTRO (md), si no la proximidad se invierte y las cards se leen pegadas»* |
+| `@media (max-width:640px)` → md 16, lg 22 | *«en móvil el aire de sección se recorta: ahí el scroll pesa más que el agrupamiento»* |
+
+Y **sus tonos exactos**, que no son los de Tailwind: su verde es `#12b76a` y el
+`emerald-400` es `#34d399`. Parecidos en la cabeza, distintos en pantalla.
+`--accent #2f6bff` · `--green #12b76a` · `--red #f04438` · `--put #f97066` ·
+`--amber #f79009`.
+
+### Divergencia declarada: la luminosidad
+
+Su paleta es **clara** (`--bg:#f3f4f6`, `--panel:#fff`, `--text:#101828`) porque
+su app es una página suelta. Este tab vive dentro de Vertex, que es oscuro:
+meterle un bloque blanco no sería «igual que él», sería un parche. Se portan sus
+**tonos, sus proporciones y sus reglas**; se invierte la luminosidad. Está dicho
+en el propio CSS, no dejado a la interpretación.
+
+### Dos cosas que salieron al escribirlo
+
+**Un selector con el id equivocado es CSS muerto.** El primer bloque colgaba de
+`#view-proyecciones` y el contenedor se llama `projectionsView`. No falla, no se
+ve, y parece que el diseño está puesto. Hay un test que lo comprueba ahora.
+
+**El check del auditor medía la cadena, no la regla.** Buscaba
+`font-variant-numeric: tabular-nums` en todo el HTML, y aparece suelto en otras
+partes del panel: con la regla borrada de las tablas, el check seguía en verde.
+Ahora extrae los BLOQUES cuyo selector menciona `vc-t` y busca dentro. Mutado
+—quitando la regla— pasa a rojo.
+
+### Estado
+
+**2.925 tests del motor · 592 de la capa web · 323 checks de auditoría · 105 +
+62 del smoke · 16 diferenciales · preflight de Render en verde · 0 fallos,
+0 avisos, 0 skips.**
+
+## 41.44 Ronda 18 — el tema claro literal, y un panel que se moría con el CDN
+
+**Fecha:** 2026-08-08
+
+Kevin pidió dos temas: en **oscuro**, el suyo de siempre con los tonos de
+Víctor; en **claro**, el diseño de Víctor entero. Al montarlo hubo que abrir la
+página en un navegador de verdad, y ahí apareció algo bastante peor que un color.
+
+### El fallo que solo se ve renderizando
+
+```js
+Chart.register(targetLineLabelsPlugin);   // a pelo, a nivel de módulo
+```
+
+Con el CDN de Chart.js caído eso lanza y **aborta el bloque de script entero**.
+Con él se van `_vcEsc`, las 38 funciones de render del tab, `VC_SENALES` y todo
+lo declarado más abajo. El resultado no es «el panel sin gráficas»: es el panel
+**muerto**, con las tablas en blanco y sin un mensaje que lo explique. Medido:
+**3 errores de página y todo el tab sin declarar**.
+
+Ni un test lo veía, y por buenas razones:
+
+- el smoke de Node **define** `window.Chart` y `window.lucide`, así que un
+  `register` sin guarda le pasa por delante sin despeinarse;
+- `node --check` valida la SINTAXIS, y un `ReferenceError` en ejecución es
+  sintaxis perfecta.
+
+Se guardaron los tres puntos de contacto con CDN: `Chart.register`,
+`tailwind.config` y las **66** llamadas sueltas a `lucide.createIcons()`, que
+pasan por un `vcIconos()` con `try`. Después: **0 errores con los tres CDN
+caídos** y las nueve piezas del tab declaradas.
+
+`tests_vertex/test_navegador.py` abre el panel en Chromium y lo comprueba.
+Mutado —devolviendo el `Chart.register` sin guarda— caen 2 de 3.
+
+### El tema claro
+
+`html.light #projectionsView` con sus hexadecimales, no con aproximaciones. El
+`#eef1f6` genérico de Vertex y su `#f3f4f6` son dos grises distintos, y sus
+fondos teñidos no existen en la capa clara general. Verificado con
+`getComputedStyle`, o sea el color que el navegador pinta de verdad:
+
+| | Suyo | Medido en pantalla |
+|---|---|---|
+| fondo | `--bg #f3f4f6` | `rgb(243,244,246)` ✓ |
+| encabezado de tabla | `--panel-2 #f8f9fb` | `rgb(248,249,251)` ✓ |
+| fila inusual | `tr.unusual #fff3c9` | `rgb(255,243,201)` ✓ |
+| pill de call, fondo | `--green-bg #e7f8f0` | `rgb(231,248,240)` ✓ |
+| pill de call, texto | `--green-dark #0e9f5f` | `rgb(14,159,95)` ✓ |
+
+Y lo que **no** depende del tema: `tabular-nums` y las mayúsculas de sus pills
+valen en los dos, porque son estructura y no color.
+
+### Un defecto que solo se vio mirando la captura
+
+La regla de la gráfica oscura cogía **todos** los `canvas` del tab y pintaba un
+rectángulo negro donde no había nada dibujado. Acotada a `#projChart:not(:empty)`.
+Eso no lo encuentra ningún test: hay que mirar la foto.
+
+### Estado
+
+**2.925 tests del motor · 599 de la capa web (7 de ellos en un navegador real) ·
+323 checks de auditoría · 16 diferenciales · 0 fallos, 0 avisos, 0 skips.**
+
+## 41.45 Ronda 19 — el contraste medido, y la cuenta que desaparecía sin avisar
+
+**Fecha:** 2026-08-08 · **Origen:** capturas del móvil de Kevin
+
+### 1 · En claro había texto que no existía
+
+`text-gray-100` es el VALOR de cada tarjeta de estadística —el precio, el
+spread, el % de volumen sobre open interest, los empleados— y **ninguna capa
+clara lo cubría**. Se quedaba en `#f3f4f6` sobre un fondo `#f3f4f6`: **1,10:1**,
+o sea texto blanco sobre blanco. En las capturas se ven los rótulos («SPREAD
+PROMEDIO») y debajo, nada.
+
+Y tres niveles de gris caían todos en su `--faint` (**2,58:1**), que es lo que
+hacía ilegible la letra pequeña.
+
+**Sus colores están hechos para RELLENOS** —una pastilla, una barra, una
+celda—, donde el contraste lo da el área. Como texto sobre claro no llegan, y
+se mide: `--green` 2,62:1 · `--amber` 2,35:1 · `--put` 2,79:1.
+
+Lo que se pinta ahora son **sus mismos matices bajados de luminosidad hasta
+4,6:1**, no colores nuevos. Dos precisiones que cambiaron el resultado:
+
+- **Contra su propio fondo, no contra blanco.** El tab es `#f3f4f6`; medir
+  contra blanco daba 4,2:1 en pantalla, que pasa por bueno y luego no se ve.
+- **Los rellenos también.** Su relleno verde `#e7f8f0` es tan claro que su
+  propio `--green-dark` encima da 3,11:1. Los FONDOS de las pastillas siguen
+  siendo los suyos exactos; lo que cambia es el color del texto encima.
+
+Medido en Chromium sobre el panel servido, las 17 clases de texto del tab:
+**ninguna por debajo de 4,5:1**, y el oscuro sin tocar.
+
+### 2 · La cuenta desaparecía sin decir nada
+
+«Creo una cuenta, cierro sesión, y al volver no me deja entrar.»
+
+Las cuentas viajan en `Privado/privado.enc`, cifradas con `VERTEX_DB_KEY`. **Sin
+esa clave no se suben**, a propósito: un hash de contraseña en un repositorio
+—aunque sea privado— es un objetivo de fuerza bruta offline, y se prefiere
+perderlo a filtrarlo. Esa decisión es correcta.
+
+Lo que estaba mal es que se tomaba **en silencio**, justo en el instante en que
+el usuario cree lo contrario. Medido: sin la clave, `POST /api/auth/registro`
+devuelve `ok: true` sin una palabra, y al remoto solo sube `.gitignore`. Cuando
+Render se duerme —el plan free borra el disco al despertar— la cuenta se va con
+él y lo que recibes es «email o contraseña incorrectos».
+
+Ahora `_aviso_persistencia()` dice **qué falta y qué va a pasar**, y viaja en
+dos sitios: en la respuesta del registro (alerta inmediata) y en
+`/api/auth/status`, que la pantalla de login consulta **antes** de que nadie
+escriba un email.
+
+**Lo que sí funciona, verificado borrando el disco entero:** con `VERTEX_DB_KEY`
+puesta, la cuenta sobrevive a un contenedor nuevo y se entra igual. El email no
+se puede repetir ni cambiando mayúsculas ni con espacios alrededor, y se entra
+escribiéndolo de cualquiera de esas formas — `normaliza_email` corre en los dos
+lados.
+
+## 41.46 · Ronda 20 — la cuenta volvía del borrado; su PERFIL no
+
+Lo destapó una tontería: la suite dejaba archivos sin versionar en el árbol.
+Eran `Perfil Inversionista/usuarios/Kevin-<id>.md`, uno por corrida, y ya había
+**15 commiteados por error** de rondas anteriores. Tirando del hilo apareció un
+fallo de datos de verdad.
+
+**El agujero.** El `.md` de cada usuario vive en `Perfil Inversionista/usuarios/`,
+un nivel más abajo que `Kevin.md`. `_privado_paquete()` recorría el directorio
+con `os.listdir`, que **no baja**. Medido: en el tar cifrado viajaban
+`vertex.db` y `perfiles/Kevin.md` — nunca el perfil de la persona.
+
+**Por qué importaba, y por qué no se veía.** Al reiniciar Render volvía la
+cuenta con su capital dentro de la base… pero el archivo que
+`_load_investor_profile()` lee no estaba, y esa función, al no encontrarlo,
+**cae a `Kevin.md` sin decir nada**. Y `engine/wbj/specialists/risk.py` saca el
+capital, el horizonte y el tope por posición de ese texto con tres regex. O sea:
+el reporte salía dimensionado para los $1.000 de Kevin aunque la persona tuviera
+otra cosa, y nada en el reporte lo delataba. Es exactamente el fallo silencioso
+contra el que se escribió la regla del proyecto.
+
+**Arreglado en tres capas**, porque una sola no basta:
+
+1. **Se respalda.** El paquete cifrado lleva ahora `perfiles/usuarios/<archivo>`.
+   Al restaurar se acepta esa ruta con el mismo cuidado que la otra: se rechaza
+   `..`, subcarpetas y ocultos, para que un tar manipulado no escriba fuera.
+2. **Se regenera.** El `.md` es **caché**; la fuente de verdad es la fila del
+   usuario. Si el archivo falta, `_load_investor_profile()` lo reconstruye desde
+   la base **con el mismo escritor que lo creó** (`guardar_perfil`) en vez de
+   seguir de largo. Un segundo generador de markdown se habría desincronizado.
+3. **No se versiona.** `Perfil Inversionista/usuarios/` va al `.gitignore` y los
+   15 archivos se sacaron del repositorio. Son el capital y la tolerancia de
+   personas: en `main` estaban en claro para cualquiera con acceso al repo. Su
+   sitio es `Privado/privado.enc`. Los de referencia —`Kevin.md` y el de
+   Víctor— siguen versionados, que para eso son la referencia.
+
+Y la causa de la basura: `_aisla()` parcheaba `DB_PATH` pero no `_PERFIL_DIR`,
+así que registrar una cuenta en un test escribía en el repositorio de verdad.
+Ya apunta a `tmp_path`, con una copia del `Kevin.md` real para no cambiar el
+comportamiento del respaldo.
+
+**Comprobado que los tests nuevos fallan sin el arreglo** (3 de 5 en rojo contra
+el código viejo): un test que pasa en los dos lados no prueba nada.
+
+## 41.47 · Ronda 21 — el cuestionario que elegía por ti, y el idioma entero
+
+**1. «Si presiono Personalizado me salen ya opciones elegidas.»** El formulario
+leía `pfValor`, que cae al valor EFECTIVO —el de Kevin—, así que las once
+preguntas aparecían con la respuesta de otra persona ya marcada, su capital ya
+escrito y el rango 20–30 ya puesto. La etiqueta «valor heredado» al lado no
+alcanzaba: lo que se ve manda sobre lo que se lee.
+
+Peor era el gemelo, que solo apareció al probarlo en un navegador: el manejador
+de las preguntas de opción múltiple también partía de lo heredado, así que el
+PRIMER clic **quitaba** una opción de Kevin en vez de añadir la tuya. Pulsabas
+«crecimiento» y quedaban marcadas «timing» e «ingresos».
+
+Ahora el formulario lee `pfValorEnBlanco`: vacío hasta que contestas. Y de paso,
+vaciar una casilla vuelve a ser «sin contestar» en lugar de guardarse como un
+capital de cero.
+
+**2. El idioma, completo.** Elegir inglés traducía 21 frases —la navegación y
+poco más— y dejaba el resto en español. Traducir a mano cada `innerHTML` habría
+sido tocar unos 900 sitios y olvidar unos cuantos, y lo que se olvida no lo
+encuentra quien lo escribió: lo encuentra el usuario.
+
+Así que la traducción no vive en los sitios que pintan. Vive en un diccionario,
+y un barrido del DOM cambia lo que reconoce; un `MutationObserver` lo re-aplica
+en cada render, venga de donde venga. Tres consecuencias:
+
+- **También traduce lo que manda el servidor.** El cuestionario del perfil llega
+  en español desde `/api/perfil` y sale en inglés en pantalla, sin que el
+  servidor sepa que hay un segundo idioma.
+- **Los datos no corren peligro.** Un ticker o un nombre nunca casan con una
+  frase española entera, así que el barrido no los toca.
+- **Lo que falte se mide, no se supone.** El test abre la pantalla en un
+  navegador real, la recorre entera y **falla si queda español**.
+
+Las claves salen del DOM real, no del archivo: el navegador ya resolvió
+entidades y plantillas, y una clave escrita a ojo no casa con nada — sin error,
+sin aviso, solo media pantalla en el idioma equivocado.
+
+Lo que ningún diccionario alcanza es la prosa que escribe el modelo, que no
+existe hasta que se pide. Para eso el idioma viaja en una cabecera
+(`X-Vertex-Idioma`) desde un envoltorio de `fetch` puesto arriba del todo, y
+llega al prompt por `_instruccion_idioma()`. Los tres prompts que decían
+«Respondes SIEMPRE en espanol» ya no clavan el idioma.
+
+**Lo que encontraron los tests nuevos**, que es la parte que importa:
+una clave con espacio doble (venía de un `&#160;`) que no habría casado nunca;
+una frase con «57 días» escrita como entrada fija cuando el número es variable;
+y la guarda de «ya está hecho», que aplicada también a la vuelta dejaba media
+pantalla en inglés al volver a español.
+
+Medido al final: 436 nodos en el armazón y 599 con los paneles cargados de
+datos, **0 en español**; el interruptor va y vuelve sin dejar restos; y la
+cabecera llega en las 8 peticiones de arranque.
+
+### Estado
+
+**2.925 tests del motor · 633 de la capa web (24 en un navegador real) ·
+323 checks de auditoría · 16 diferenciales · preflight de Render en verde ·
+0 fallos, 0 avisos, 0 skips.**

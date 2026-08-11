@@ -1,6 +1,8 @@
 # Estado del proyecto — Vertex Fund OS
 
-**Actualizado:** 2026-07-30 · **Rama:** `main` · **Estado:** engine completo; auditoría en curso.
+**Actualizado:** 2026-08-08 · **Rama:** `main` · **Estado:** engine completo; los 26
+hallazgos de la auditoría inicial, cerrados; el tab de Proyecciones portado del
+repo de Víctor y verificado contra su archivo.
 
 > Este archivo describía en qué punto quedó la construcción del engine en julio de
 > 2026. Esa construcción **terminó**, así que el contenido anterior había quedado
@@ -38,9 +40,21 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 ## Tests
 
 ```bash
-cd engine && python -m pytest tests/ -q    # 1959 pasan, 1 skip (documentado)
-python -m pytest tests_vertex/ -q          # 47 pasan
+cd engine && python -m pytest tests/ -q    # 2918 pasan, 0 skips
+python -m pytest tests_vertex/ -q          # 512 pasan, 0 skips
+
+# Auditoría del tab de Proyecciones (303 checks). Con TITO_ROOT usa tu clon de
+# su repo en vez de GitHub, y así cubre también su web/app/api.
+TITO_ROOT=/ruta/a/agente-tito-metralleta python engine/scripts/auditar_tito.py
+
+# Los 16 diferenciales: ejecutan SU TypeScript y comparan contra el port.
+for d in engine/scripts/diff_*.sh; do TITO_ROOT=/ruta/a/su/repo "$d"; done
 ```
+
+**Cero skips no es casualidad: está forzado.** `engine/tests/_saltos.py` hace
+que un test que se salta a sí mismo tumbe la corrida, salvo que el motivo sea
+que falta `node` o `git`. Un test que no corre no protege nada, y dos veces
+tapó un fallo real (`AUDITORIA.md §41.27`).
 
 ## Variables de entorno
 
@@ -56,19 +70,22 @@ la tabla completa. Las que **no pueden faltar** en un despliegue público:
 
 ## Auditoría en curso
 
-`AUDITORIA.md` tiene los 26 hallazgos con su diagnóstico y solución. Cada
-arreglo va en su propio commit; `git log` es el historial real.
+`AUDITORIA.md` tiene los 26 hallazgos de la auditoría inicial con su
+diagnóstico y solución, y a partir de §41 las rondas posteriores sobre el tab de
+Proyecciones. Cada arreglo va en su propio commit; `git log` es el historial
+real.
 
-**Cerrados:** C-01 a C-04 (los 4 críticos), A-01, A-07, M-07.
-**Siguiente:** A-02 — dos funciones llaman `load_settings()` sin inyectar
-`FMP_API_KEY` desde el entorno, así que en Render devuelven vacío en silencio y
-los items obligatorios 4 y 5 del reporte salen en blanco.
+**Los 26 están cerrados**, los 4 críticos incluidos. Este bloque decía
+"Siguiente: A-02" mucho después de que A-02 se resolviera: apuntaba a un fallo
+que ya no existía y, peor, daba a entender que los otros seguían abiertos.
 
 ## Notas
 
 - La identidad de git está configurada **local a este repo**
   (`Kevin Taboas <kevintaboas02@gmail.com>`). No hace falta tocar `--global`.
-- No hay remoto configurado. Si lo añades, que sea **privado**: el código maneja
-  credenciales de Plaid.
+- El remoto es `origin` → `github.com/kevintaboas18/vertex_fund_os`. Que siga
+  siendo **privado**: el código maneja credenciales de Plaid. La rama `datos`
+  del mismo repo es el almacén (huérfana, no dispara despliegues) — ver
+  `vertex_almacen.py` y `AUDITORIA.md §41.25`.
 - `docs/archive/` guarda los planes de diseño de la construcción del engine —
   histórico, ya implementado. No son instrucciones vigentes.

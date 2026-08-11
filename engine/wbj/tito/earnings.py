@@ -67,9 +67,15 @@ def earnings_flag(next_earnings: str | None, expiration: str,
     if not next_earnings:
         return "no_aplica"
     e, x = _t(next_earnings), _t(expiration)
-    if e is None or x is None:
-        return "no_aplica"
-    if e > x:
+    # Una fecha ilegible NO da vía libre. Su `getTime()` devuelve `NaN` y toda
+    # comparación con `NaN` es falsa, así que `earnings > exp` no se cumple y
+    # cae en "dentro": el candidato pierde 7 de sus 10 puntos de reporte.
+    #
+    # El port devolvía "no_aplica", que son 10 de 10 — o sea que un dato
+    # corrupto pasaba de penalizar a absolver, en la única guarda que existe
+    # para que no te pille un reporte dentro del vencimiento. Lo cazó
+    # `diff_wheel.sh`. Se adopta el suyo, que además es el prudente.
+    if e is not None and x is not None and e > x:
         return "fuera"
     # Cae dentro del vencimiento. ¿Lo confirma el mercado?
     return "dentro_confirmado" if (front_skew or 0) > 10 else "dentro"

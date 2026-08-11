@@ -43,3 +43,15 @@ Thumbs.db
 # repo: son datos de mercado acumulados (cadena, IV, trades, diario), no código.
 data/tito/
 *.json.lock
+
+# El ALMACÉN es un clon de la rama `datos`. No puede versionarse dentro de
+# `main`: sería un repo dentro de otro, y `main` acabaría con los datos que la
+# rama `datos` existe para separar.
+almacen/
+
+# El perfil de CADA usuario. `Kevin.md` y el de Víctor sí se versionan —son los
+# de referencia—, pero `usuarios/<nombre>-<id>.md` lo genera la aplicación al
+# registrarse alguien: es el capital, el horizonte y la tolerancia de una
+# persona. En `main` estaría en claro para cualquiera con acceso al repo. Su
+# sitio es `Privado/privado.enc`, cifrado, en la rama `datos`.
+Perfil Inversionista/usuarios/

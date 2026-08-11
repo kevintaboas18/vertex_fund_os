@@ -23,6 +23,7 @@ extracto del cuerpo, jamás la credencial.
 from __future__ import annotations
 
 import json as _json
+import math
 import os
 import urllib.error
 import urllib.parse
@@ -31,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable
 
+from .jsmath import js_number
 from .compute import (contract_price, count_expirations,
                       sort_by_open_interest_desc, to_row)
 from .levels import LvlBar
@@ -42,6 +44,7 @@ __all__ = [
     "ChainResult",
     "DailyBar",
     "fetch_company",
+    "fetch_logo_image",
     "fetch_wheel_chain",
     "WheelChainQuote",
     "WheelChainResult",
@@ -59,6 +62,23 @@ class MassiveError(RuntimeError):
 
 
 def _api_key() -> str:
+    # **DIVERGENCIA DECLARADA — la tercera, y existe por Render.**
+    #
+    # Su `apiKey()` es `if (!key) throw`, que en JavaScript solo rechaza la
+    # cadena vacía: una clave con un espacio o un salto de línea alrededor pasa
+    # tal cual y Massive responde 401.
+    #
+    # En su despliegue eso no pasa: la clave vive en un `.env.local` que se
+    # edita en un editor. Aquí vive en el panel de Render, donde se pega con el
+    # ratón — y pegar arrastra un salto de línea con una facilidad enorme.
+    #
+    # Estuvo recortada, se revirtió para dejarlo exacto como él, y se restaura
+    # al confirmar Kevin que su clave FUNCIONABA antes: una clave buena que
+    # deja de servir por un carácter invisible es el peor fallo posible, porque
+    # el 401 apunta a la credencial y no al espacio que sobra.
+    #
+    # Si algún día se confirma que la clave no lleva blancos, esta línea puede
+    # volver a la suya y el registro de divergencias baja a dos.
     key = os.environ.get("MASSIVE_API_KEY", "").strip()
     if not key:
         raise MassiveError("Falta MASSIVE_API_KEY en el entorno.")
@@ -66,11 +86,20 @@ def _api_key() -> str:
 
 
 def _max_pages() -> int:
-    try:
-        n = int(os.environ.get("MASSIVE_MAX_PAGES", "40"))
-    except ValueError:
+    """Su `maxPages()`, con la MISMA lectura del entorno.
+
+        const n = Number(process.env.MASSIVE_MAX_PAGES);
+        return Number.isFinite(n) && n > 0 ? Math.floor(n) : 40;
+
+    `int()` no es `Number()`: rechaza la notación científica y el hexadecimal
+    que JavaScript sí acepta. Con `MASSIVE_MAX_PAGES=1e2` él paginaba hasta 100
+    páginas y aquí se cortaba en 40 — media cadena de opciones de menos, sin
+    que nada avisara. `js_number` es el port de `Number()` y ya estaba escrito.
+    """
+    n = js_number(os.environ.get("MASSIVE_MAX_PAGES", ""))
+    if n != n or n in (float("inf"), float("-inf")) or n <= 0:   # NaN/±∞/≤0
         return 40
-    return n if n > 0 else 40
+    return int(math.floor(n))
 
 
 def _describe(status: int, ticker: str, body: str, ruta: str = "") -> str:
@@ -240,6 +269,15 @@ def fetch_ticker_name(ticker: str, timeout: float = 12.0) -> str | None:
     return name if isinstance(name, str) and name.strip() else None
 
 
+#: `EXCHANGE_NAMES` suyo: el código MIC de Massive a un nombre legible. Sin
+#: esto la cabecera pondría "XNAS" donde él pone "Nasdaq", y un código
+#: desconocido se muestra tal cual (su `?? exchangeCode`).
+EXCHANGE_NAMES = {
+    "XNAS": "Nasdaq", "XNYS": "NYSE", "ARCX": "NYSE Arca",
+    "XASE": "NYSE American", "BATS": "Cboe BZX", "IEXG": "IEX",
+}
+
+
 def fetch_company(ticker: str, timeout: float = 12.0) -> dict | None:
     """Port de su `fetchCompany` — la ficha del subyacente **con su precio**.
 
@@ -293,9 +331,25 @@ def fetch_company(ticker: str, timeout: float = 12.0) -> dict | None:
                 return v
         return None
 
+    # `d.branding?.logo_url || d.branding?.icon_url` — su `hasLogo`. Decide si
+    # la cabecera pide el logo: sin él, `/api/tito-logo` no se llama nunca.
+    marca = d.get("branding") or {}
+    cod = d.get("primary_exchange")
     return {
         "ticker": clean,
         "name": d.get("name"),
+        # Los SEIS que faltaban. `_tito_company` ya los declaraba en su dict
+        # base y `vcCompanyHTML` ya los leía —`c.exchange`, `c.employees`,
+        # `c.has_logo`—, así que el panel pintaba "—" en la bolsa, no tenía la
+        # casilla de empleados y NUNCA pedía el logo: la ruta `/api/tito-logo`
+        # estaba viva y sin disparar. La cadena entera existía menos el eslabón
+        # que produce el dato.
+        "exchange": (EXCHANGE_NAMES.get(cod, cod) if cod else None),
+        "homepage_url": d.get("homepage_url"),
+        "employees": d.get("total_employees"),
+        "list_date": d.get("list_date"),
+        "description": d.get("description"),
+        "has_logo": bool(marca.get("logo_url") or marca.get("icon_url")),
         "market_cap": d.get("market_cap"),
         "sector": d.get("sic_description"),
         "price": _c(("day", "c"), ("min", "c"), ("prevDay", "c")),
@@ -307,6 +361,59 @@ def fetch_company(ticker: str, timeout: float = 12.0) -> dict | None:
         "day_volume": (t.get("day") or {}).get("v"),
         "prev_close": (t.get("prevDay") or {}).get("c"),
     }
+
+
+def fetch_logo_image(
+    ticker: str, timeout: float = 12.0
+) -> tuple[bytes, str] | None:
+    """Port de su `fetchLogoImage` — el logo de la empresa, en bytes.
+
+    Su ruta ``/api/logo`` existe por una razón que no es estética: la URL del
+    logo que da Massive **exige la Authorization**, así que el navegador no
+    puede pedirla directamente sin que la clave viaje al cliente. El servidor
+    la baja y la reenvía; la credencial no sale de aquí.
+
+    Devuelve ``(bytes, content_type)`` o ``None``. Como en su código, cualquier
+    fallo es ``None`` y no una excepción: una empresa sin logo es lo normal,
+    no un error del panel.
+    """
+    try:
+        key = _api_key()
+    except MassiveError:
+        return None
+    clean = (ticker or "").strip().upper()
+    if not clean:
+        return None
+    try:
+        det = _get(
+            f"{BASE_URL}/v3/reference/tickers/{urllib.parse.quote(clean)}",
+            key, clean, timeout,
+        )
+    except MassiveError:
+        return None
+    marca = ((det or {}).get("results") or {}).get("branding") or {}
+    # Su `?? icon_url`: el logo ancho primero, el cuadrado de respaldo.
+    url = marca.get("logo_url") or marca.get("icon_url")
+    if not url or not isinstance(url, str):
+        return None
+    # La Authorization viaja SOLO si la URL apunta al propio dominio de Massive
+    # —que es de donde sirve el binario—. No es una diferencia con su código:
+    # ningún host ajeno aceptaría un bearer de Massive, así que la petición es
+    # la misma en todos los casos reales. Lo que evita es que una URL torcida
+    # en la respuesta mande la credencial a un tercero.
+    mismo = urllib.parse.urlparse(url).netloc == urllib.parse.urlparse(BASE_URL).netloc
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {key}"} if mismo else {}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            datos = res.read()
+            tipo = res.headers.get("content-type") or "image/png"
+    except Exception:
+        return None                    # su `if (!res.ok) return null`
+    if not datos:
+        return None
+    return datos, tipo
 
 
 @dataclass(frozen=True)
@@ -422,6 +529,70 @@ def fetch_wheel_chain(ticker: str, dte_min: int, dte_max: int,
     otm = [q for q in quotes if q.strike <= spot] if spot is not None else quotes
     return WheelChainResult(spot=spot, quotes=otm)
 
+
+
+@dataclass(frozen=True)
+class TfBar:
+    """Su `TfBar`: barra con el tiempo en UNIX/**segundos**, no en fecha.
+
+    `DailyBar` lleva `time` como "YYYY-MM-DD" porque una barra diaria ES un día.
+    Una de 5 minutos no: hacen falta el instante y la zona, y por eso él cambia
+    de tipo en vez de reutilizar el mismo.
+    """
+
+    time: int
+    open: float
+    high: float
+    low: float
+    close: float
+
+
+def fetch_bars(ticker: str, multiplier: int, timespan: str, days: int,
+               timeout: float = 25.0) -> list[TfBar]:
+    """Barras del subyacente, diarias o **intradía**. Port de su `fetchBars`.
+
+    Era el único export de `massive.ts` sin portar, y con él faltaba el selector
+    de marco temporal de su gráfica de flujo: `1y` (diario), `15m10d` y `5m5d`.
+    Los dos primeros consumidores suyos (`SimpleChart`, `ProWallsCard`) piden
+    `1y`, que el payload de proyecciones ya servía por otro camino; el tercero
+    —`FlowPriceChart`— es el que ofrece el intradía, y sin esto el panel solo
+    podía agregar por día. Ver qué hizo el precio DENTRO de la sesión en que
+    entró el dinero grande es justo lo que el sub-agente 6 mide.
+
+    Diferencias con `fetch_daily_bars`, las suyas: `limit=50000` en vez de 500
+    —una sesión de 5 minutos son 78 velas y diez días de 15 minutos son 260, y
+    el tope de 500 se quedaría corto en cuanto se pidan más días— y el tiempo
+    en segundos UNIX en vez de fecha.
+    """
+    key = _api_key()
+    clean = (ticker or "").strip().upper()
+    if not clean:
+        raise MassiveError("Ticker vacío.")
+    if timespan not in ("day", "minute"):
+        raise MassiveError(f"Marco temporal no soportado: {timespan!r}.")
+    # Mismo motivo que en `fetch_daily_bars`: su `new Date()` + `toDateStr` son
+    # UTC, y `date.today()` es la zona local del servidor.
+    end = datetime.now(timezone.utc).date()
+    start = end - timedelta(days=days)
+    url = (
+        f"{BASE_URL}/v2/aggs/ticker/{urllib.parse.quote(clean)}/"
+        f"range/{int(multiplier)}/{timespan}/"
+        f"{start.isoformat()}/{end.isoformat()}?adjusted=true&sort=asc&limit=50000"
+    )
+    data = _get(url, key, clean, timeout)
+    out: list[TfBar] = []
+    for b in data.get("results") or []:
+        ts = b.get("t")
+        if not isinstance(ts, (int, float)):
+            continue
+        # `Math.floor(b.t / 1000)` suyo: los milisegundos se truncan, no se
+        # redondean. Con `round` una barra de las 09:59:59.7 saltaría al minuto
+        # siguiente y se colocaría en la vela equivocada.
+        out.append(TfBar(
+            time=math.floor(ts / 1000), open=_num(b.get("o")), high=_num(b.get("h")),
+            low=_num(b.get("l")), close=_num(b.get("c")),
+        ))
+    return out
 
 def fetch_daily_bars(ticker: str, days: int = 365, timeout: float = 25.0) -> list[DailyBar]:
     """Barras diarias del subyacente (`/v2/aggs/...`), de más vieja a más nueva."""

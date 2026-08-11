@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import inspect
 import os
 import sys
 import tempfile
@@ -854,12 +855,19 @@ class TestElTabEsSoloDeVictor:
         assert "if (vcTabActiva !== 'tape') vcAbreTab('ticker');" in html
 
     def test_estan_sus_cuatro_pestanas_con_su_orden(self):
-        """`NavTabs.tsx`: Ticker / Ideas / Wheel / Time & Sales, en ese orden."""
+        """`NavTabs.tsx`: Ticker / Ideas / Wheel / Time & Sales, en ese orden.
+
+        Las SUYAS van primero y en su orden. La quinta —Cobertura— es de
+        Vertex y va al final: su app no la tiene porque su despliegue es local
+        y él ve el log; aquí el agente corre en un servidor que nadie mira, y
+        «¿con qué dato salió este número?» no se puede contestar de otra forma.
+        """
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
         i = html.index("const VC_TABS = [")
         bloque = html[i:html.index("];", i)]
         orden = re.findall(r"\['(\w+)',", bloque)
-        assert orden == ["ticker", "ideas", "wheel", "tape"], orden
+        assert orden[:4] == ["ticker", "ideas", "wheel", "tape"], orden
+        assert orden[4:] == ["salud"], f"pestaña de más sin declarar: {orden[4:]}"
         for texto in ("Ticker", "Ideas", "Wheel", "Time &amp; Sales"):
             assert texto.replace("&amp;", "&") in bloque or texto in bloque
         dom = self._dom()
@@ -1049,13 +1057,17 @@ class TestIdeasDelMercado:
         import vertex_api as V
 
         base = V._perfil_leer()
+        # `_perfil_leer` recibe el `request` desde que el perfil es por usuario:
+        # el doble tiene que aceptarlo o la ruta revienta al llamarlo.
         monkeypatch.setattr(V, "_perfil_leer",
-                            lambda: {**base, "capital": 1_000.0, "riesgo_pct": 15.0,
-                                     "riesgo_por_trade": 150.0})
+                            lambda request=None: {**base, "capital": 1_000.0,
+                                                  "riesgo_pct": 15.0,
+                                                  "riesgo_por_trade": 150.0})
         pobre = client.get("/api/tito-ideas").json()
         monkeypatch.setattr(V, "_perfil_leer",
-                            lambda: {**base, "capital": 250_000.0, "riesgo_pct": 15.0,
-                                     "riesgo_por_trade": 37_500.0})
+                            lambda request=None: {**base, "capital": 250_000.0,
+                                                  "riesgo_pct": 15.0,
+                                                  "riesgo_por_trade": 37_500.0})
         rico = client.get("/api/tito-ideas").json()
 
         assert pobre["perfil"]["capital"] == 1_000
@@ -1079,6 +1091,42 @@ class TestIdeasDelMercado:
         assert d["ok"] is False and d["source"] == "marketsnack"
         assert "cadu" in d["error"]          # el motivo nuestro pasa entero
         assert "ideas" not in d
+
+    def test_el_titular_cuenta_las_que_CABEN_no_todas_las_filas(self):
+        """Su titular es `operables` = las que sí puedes operar, más «N
+        descartadas». Aquí decía «N operables» con N = la tabla entera,
+        incluidas las que el propio panel marca «no cabe» dos columnas más a la
+        derecha. Con $1.000 de capital eso no es cosmético: casi todas las filas
+        de una corrida caen del lado de «no cabe», así que el titular decía lo
+        contrario de lo que decía la tabla."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjIdeas(d) {")
+        cuerpo = html[i:html.index("\n/** La ÚNICA llamada de datos", i)]
+        assert "${ideas.length} operables" not in cuerpo
+        assert "d.perfil.caben" in cuerpo, "el titular tiene que salir del conteo del motor"
+        assert "no te caben" in cuerpo, "y las descartadas tienen que decirse"
+
+    def test_el_horizonte_del_sizing_se_declara(self, client, mercado):
+        """`size_flow` quema theta HASTA una fecha, así que el techo de
+        contratos cambia con el horizonte. Sin decir cuál se usó, «te caben 3»
+        es un número sin unidad. Su app lo elige con un botón; aquí sale del
+        perfil, que es la parte que sí es de Kevin — pero tiene que verse."""
+        p = client.get("/api/tito-ideas").json()["perfil"]
+        assert p["horizonte_dias"] > 0
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function vcCabeceraPerfil(")
+        assert "P.horizonte_dias" in html[i:html.index("\nasync function", i)]
+
+    def test_el_disclaimer_del_precio_de_ejecucion_esta(self):
+        """Su disclaimer de `/ideas`, que faltaba entero: el tamaño NO sale de
+        la cotización viva del contrato —el feed no la da— sino del precio al
+        que se ejecutó el flow. Sin decirlo, el número parece de ahora."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjIdeas(d) {")
+        cuerpo = html[i:html.index("\n/** La ÚNICA llamada de datos", i)]
+        assert "precio al que se ejecut" in cuerpo
+        assert "cotizaci&oacute;n viva" in cuerpo
+        assert "no es consejo financiero" in cuerpo
 
 
 class TestElTabSeArmaAlEntrarPorElMENU:
@@ -1493,6 +1541,39 @@ class TestWheel:
         assert "d.blocked_summary" in cuerpo and "Contratos bloqueados" in cuerpo
         assert "a&ntilde;adido de plan" in cuerpo   # el porqué del sin_bid
 
+    def test_el_aviso_de_cotizacion_retrasada_va_siempre(self):
+        """Su `wheel-disclaimer` no está dentro de ningún `if`.
+
+        Aquí el «confirma el precio en tu bróker» vivía SOLO dentro del bloque
+        de `quotes_missing`, o sea justo en el caso en que el usuario ya sabía
+        que la prima era estimada. Cuando Massive SÍ sirve horquilla la
+        cotización sigue siendo retrasada, y ahí no se decía nada.
+        """
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjWheel(d) {")
+        cuerpo = html[i:html.index("/* ── TIME & SALES", i)]
+        j = cuerpo.index("retrasadas")
+        # El aviso está en la plantilla base, ANTES del primer `${d.quotes_missing`
+        # y de cualquier otro condicional de degradación.
+        assert j < cuerpo.index("${d.quotes_missing"), \
+            "el aviso volvió a quedar colgando de que falte la horquilla"
+        assert "confirma el precio en tu br&oacute;ker" in cuerpo
+
+    def test_se_puede_volver_a_escanear_sin_cambiar_de_preset(self):
+        """Su `↻ Volver a escanear`. Sin él, la única forma de repetir el
+        escaneo es irse a otro preset y volver — que además tira el resultado
+        bueno por el camino. Y un escaneo degradado se repite: las
+        cotizaciones cambian."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjWheel(d) {")
+        cuerpo = html[i:html.index("/* ── TIME & SALES", i)]
+        assert "Volver a escanear" in cuerpo
+        assert "loadProjWheel()" in cuerpo, \
+            "el botón tiene que llamar SIN preset, para que conserve el elegido"
+        # …y `loadProjWheel` sin argumento conserva el preset en curso.
+        lp = html[html.index("async function loadProjWheel(preset)"):]
+        assert "if (preset) vcWheelPreset = preset;" in lp[:400]
+
     def test_castiga_el_rendimiento_sospechosamente_alto(self):
         """Un screener que ordena por prima pone arriba justo las acciones a
         punto de desplomarse. Su banda >60% da 10/30, menos que la de 15-35%."""
@@ -1547,6 +1628,75 @@ class TestTimeAndSales:
         d = client.get("/api/tito-tape?ticker=DEMO").json()
         assert d["ok"] is False and d["source"] == "marketsnack"
         assert "trades" not in d
+
+    def test_los_puntos_de_inusualidad_llevan_su_desglose(self, client):
+        """Su `NotableTable` pone «Volumen X/10 · Horario Y/10 · Repetición
+        Z/10» en el `title` de la columna de Puntos. Solo viajaba el total, y
+        un 21/30 sin desglose no dice si vino del tamaño de la orden, de la
+        hora a la que entró o de cuántas veces se repitió el contrato — que son
+        tres señales distintas y se leen distinto."""
+        d = client.get("/api/tito-tape?ticker=DEMO").json()
+        p = d["trades"][0]["unusual_parts"]
+        assert set(p) == {"volume", "timing", "repetition"}
+        assert p["volume"] + p["timing"] + p["repetition"] == d["trades"][0]["unusual_score"], \
+            "el desglose tiene que sumar el total, o uno de los dos miente"
+
+    def test_la_cinta_lleva_la_horquilla_del_momento(self, client):
+        """Las flechas ↑/↓ dicen que el print salió FUERA de la horquilla. Sin
+        la horquilla no se sabe por cuánto — un centavo sobre el ask y un dólar
+        sobre el ask son la misma flecha."""
+        d = client.get("/api/tito-tape?ticker=DEMO").json()
+        t = d["trades"][0]
+        assert t["bid"] is not None and t["ask"] is not None
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjTape(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "t.bid" in cuerpo and "t.ask" in cuerpo
+
+    def test_el_veredicto_de_agresividad_se_pinta_en_la_cinta(self):
+        """Su `AggressionScoreCard` va con la cinta, no solo en el scorecard.
+        La barra sola no separa un 55/45 de un 90/10: eso lo hace la frase."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjTape(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        for frase in ("Sin flujo agresivo", "Compra agresiva (al ask)",
+                      "Presión al bid", "Mixto"):
+            assert frase in cuerpo, f"falta el caso «{frase}»"
+        assert "a.ratio >= 0.66" in cuerpo and "a.ratio <= 0.34" in cuerpo
+
+    def test_el_recorte_de_la_TABLA_se_dice_no_el_de_la_bajada(self):
+        """Su `meta.shown < meta.notableCount ? ", top N"`.
+
+        Aquí colgaba de `d.truncated`, que es otra cosa: `truncated` dice que
+        se cortó la BAJADA por el tope de páginas, y la tabla se recorta aparte
+        en `TABLE_CAP`. Con 140 notables en una sola página la bajada no truncó
+        nada y aun así solo se ven 100 — que es justo el caso en que callarlo
+        hace creer que se están viendo todos.
+        """
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjTape(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "d.truncated" not in cuerpo, "volvió a colgar del recorte de la bajada"
+        assert "_vistos < (d.notable" in cuerpo and "top ${_vistos}" in cuerpo
+
+    def test_el_tope_de_la_tabla_es_el_suyo(self):
+        """Y el tope que produce ese recorte es `TABLE_CAP`, importado de su
+        módulo por nombre — no un número escrito a mano en la ruta."""
+        from wbj.tito.scorecard import TABLE_CAP
+        api = (ROOT / "vertex_api.py").read_text(encoding="utf-8")
+        assert "TITO_TABLE_CAP]" in api
+        assert TABLE_CAP == 100
+
+    def test_con_agresividad_desconocida_no_dice_Mid(self):
+        """Su `sideLabel` tiene CUATRO ramas: ask, bid, mid… y `unknown`, que
+        cae a `r.side`. Aquí el `else` se comía el desconocido y lo rotulaba
+        «Mid», que es afirmar una lectura de la horquilla que el motor declaró
+        que no pudo hacer."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderProjTape(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "t.aggression === 'mid' ?" in cuerpo, "el mid tiene que ser explícito"
+        assert "t.side" in cuerpo, "el desconocido tiene que caer al lado crudo"
 
 
 class TestCabeEnCualquierPantalla:
@@ -1612,99 +1762,6 @@ class TestCabeEnCualquierPantalla:
         nav = re.search(r'<div id="projNav" class="([^"]*)"', dom).group(1)
         assert "overflow-x-auto" in nav and "sm:flex-wrap" in nav
         assert "flex-shrink-0 whitespace-nowrap" in html   # los botones no se encogen
-
-
-class TestDiagnosticoDeFuentes:
-    """`/api/tito-fuentes` — qué devuelve TU plan, campo por campo."""
-
-    @staticmethod
-    def _sonda(monkeypatch, sin_quote=True, snapshot_403=True):
-        import io
-        import json as _j
-        import urllib.error
-        import urllib.request
-
-        class _Res(io.BytesIO):
-            status = 200
-            def __enter__(self): return self
-            def __exit__(self, *a): pass
-
-        def fake(req, timeout=None):
-            u = req.full_url
-            if "/v2/snapshot/locale" in u and snapshot_403:
-                raise urllib.error.HTTPError(u, 403, "Forbidden", {},
-                                             io.BytesIO(b'{"error":"NOT_AUTHORIZED"}'))
-            if "/v3/snapshot/options" in u:
-                c = {"details": {"strike_price": 180.0, "expiration_date": "2026-09-18",
-                                 "contract_type": "put", "shares_per_contract": 100,
-                                 "ticker": "O:X"},
-                     "open_interest": 900, "day": {"volume": 1, "close": 2.35, "vwap": 2.31},
-                     "last_trade": {"price": 2.34},
-                     "underlying_asset": {"price": 190.0}}
-                if not sin_quote:
-                    c["last_quote"] = {"bid": 2.30, "ask": 2.40}
-                d = {"results": [c]}
-            elif "/v2/aggs/" in u:
-                d = {"results": [{"t": 1, "o": 1, "h": 2, "l": 0.5, "c": 1.5}]}
-            elif "/v3/reference/tickers/" in u:
-                d = {"results": {"name": "X Inc."}}
-            elif "/vX/reference/financials" in u:
-                d = {"results": [{"filing_date": "2026-05-01"}]}
-            else:
-                d = {"results": []}
-            return _Res(_j.dumps(d).encode())
-
-        monkeypatch.setattr(urllib.request, "urlopen", fake)
-
-    def test_dice_campo_por_campo_que_falta_y_que_rompe(self, client, monkeypatch):
-        self._sonda(monkeypatch)
-        d = client.get("/api/tito-fuentes?ticker=AAPL").json()
-        cadena = next(e for e in d["endpoints"] if e["endpoint"] == "cadena")
-        faltan = {c["campo"] for c in cadena["campos"] if not c["hay"]}
-        assert faltan == {"last_quote.bid", "last_quote.ask"}
-        # …y cada campo ausente explica su consecuencia, no solo que falta.
-        bid = next(c for c in cadena["campos"] if c["campo"] == "last_quote.bid")
-        assert "0/15" in bid["si_falta"] and "COBRAS" in bid["que_es"]
-
-    def test_distingue_el_403_del_plan_del_resto(self, client, monkeypatch):
-        self._sonda(monkeypatch)
-        d = client.get("/api/tito-fuentes?ticker=AAPL").json()
-        snap = next(e for e in d["endpoints"] if e["endpoint"] == "snapshot")
-        assert snap["status"] == 403
-        assert any(e["status"] == 200 for e in d["endpoints"])   # no todo está roto
-
-    def test_el_veredicto_por_pestana_es_el_que_toca(self, client, monkeypatch):
-        """Sin bid, Wheel queda DEGRADADO —no roto—: el motor puntúa con la
-        cascada de precio y el score cobra 0/15 en liquidez. Las otras tres no
-        dependen de la horquilla de Massive."""
-        self._sonda(monkeypatch)
-        d = client.get("/api/tito-fuentes?ticker=AAPL").json()
-        assert d["veredicto"]["wheel"]["estado"] == "degradado"
-        assert "quotes" in d["veredicto"]["wheel"]["arreglo"].lower()
-        for tab in ("ticker", "ideas", "tape"):
-            assert d["veredicto"][tab]["estado"] == "ok", tab
-
-    def test_con_bid_el_veredicto_de_wheel_pasa_a_ok(self, client, monkeypatch):
-        self._sonda(monkeypatch, sin_quote=False)
-        d = client.get("/api/tito-fuentes?ticker=AAPL").json()
-        assert d["veredicto"]["wheel"]["estado"] == "ok"
-
-    def test_no_filtra_la_credencial(self, client, monkeypatch):
-        """Dice SI están puestas, nunca cuáles."""
-        self._sonda(monkeypatch)
-        crudo = json.dumps(client.get("/api/tito-fuentes?ticker=AAPL").json())
-        assert "x" * 32 not in crudo and "y" * 32 not in crudo
-        d = client.get("/api/tito-fuentes?ticker=AAPL").json()
-        assert d["credenciales"] == {"massive": True, "marketsnack": True}
-
-    def test_el_panel_lo_pinta(self):
-        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
-        assert "async function loadProjFuentes()" in html
-        assert 'id="projFuentes"' in html
-        assert "loadProjFuentes()" in html          # el botón lo llama
-        i = html.index("async function loadProjFuentes()")
-        cuerpo = html[i:html.index("/* ── WHEEL", i)]
-        assert "si_falta" in cuerpo and "veredicto" in cuerpo
 
 
 class TestElMotivoDeMassiveEsAccionable:
@@ -2076,17 +2133,14 @@ class TestElPanelNoTiraNadaDelPayload:
     #: Hojas de `subagents` que el panel no lee, con su motivo. El registro es
     #: la única salida: o se pinta, o se declara aquí.
     _SUB_NO_SE_PINTAN = {
-        "aggression.ratio": "no se pinta como número; decide la etiqueta "
-                            "('Compra agresiva' / 'Presión al bid' / 'Mixto') con sus cortes 0.66/0.34",
         "conviction.dominance.ask_pct": "el desglose ask/bid ya se ve en la barra "
                                         "de Agresividad; aquí se pinta la dominante",
         "conviction.dominance.bid_pct": "idem",
         "iv_context.iv.special": "marca de IV atípica; el aviso al usuario es "
                                  "`iv.band`, que sí se pinta",
+        "validation.outcomes.id": "el id del flow, para la clave de la fila",
         "iv_context.iv.contracts": "sobre cuántos contratos se promedió la IV; "
                                    "la muestra ya la da `by_expiration`",
-        "structure.notional.total": "el total no se pinta: la métrica de su "
-                                    "StructureCard es el promedio POR STRIKE",
     }
 
     @staticmethod
@@ -2106,8 +2160,6 @@ class TestElPanelNoTiraNadaDelPayload:
     _HOJAS_NO_SE_PINTAN = {
         "gex_heatmap.max_abs_cell": "el normalizador de la escala de color; lo "
                                     "consume el propio degradado, no es un dato de mercado",
-        "structure.avg_notional": "duplicado del `notional.avg_per_strike` que "
-                                  "pinta la tarjeta de Estructura con sus puntos",
     }
 
     @staticmethod
@@ -2157,6 +2209,51 @@ class TestElPanelNoTiraNadaDelPayload:
         reales = set(self._hojas(self._payload_completo()))
         sobran = sorted(set(self._HOJAS_NO_SE_PINTAN) - reales)
         assert not sobran, f"declaradas como no pintadas pero ya no se sirven: {sobran}"
+
+    def test_ninguna_declaracion_del_scorecard_miente_al_reves(self):
+        """La otra cara: una entrada que dice «esto NO se pinta» de algo que el
+        panel **sí** pinta.
+
+        El barrido salta una hoja declarada **antes** de mirar el HTML, así que
+        la declaración sobrevive a su propio motivo y se queda como
+        documentación que afirma lo contrario del código. En Ideas y la Wheel
+        pasó con catorce a la vez. Este es el mismo control para los tres
+        registros del scorecard.
+
+        Nota: las hojas de `_NO_SE_PINTAN` con nombre de infraestructura
+        (`ok`, `ticker`, `history`…) SÍ aparecen en el HTML por otras vías —el
+        `if (!d.ok)`, el título del panel— y por eso se comprueban solo las dos
+        listas de hojas, que son las que hablan de datos de mercado.
+        """
+        import re
+
+        #: Colisiones de NOMBRE, no declaraciones podridas: dos hojas distintas
+        #: que se llaman igual son indistinguibles para el barrido.
+        #: `iv_context.iv.contracts` es sobre cuántos contratos se promedió la
+        #: IV, y no se pinta; `by_expiration[].contracts` es la muestra por
+        #: vencimiento, y sí. Los dos nombres son los de su `IvContextScore`.
+        COLISIONES = {
+            "iv_context.iv.contracts",
+            # `id` es la hoja más colisionada que hay: el panel accede a `.id`
+            # de ideas, de trades, de racimos… La de `outcomes` no se pinta —
+            # es la clave de la fila, como en su `key={o.id}`.
+            "validation.outcomes.id",
+        }
+
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        mentiras = []
+        for ruta in sorted(set(self._HOJAS_NO_SE_PINTAN) | set(self._SUB_NO_SE_PINTAN)):
+            if ruta in COLISIONES:
+                continue
+            hoja = ruta.rsplit(".", 1)[-1]
+            # Se busca el acceso por la hoja, igual que el barrido — con la
+            # misma limitación: dos hojas homónimas son indistinguibles. Aquí
+            # no hay ninguna, y si apareciera este test lo diría.
+            if re.search(rf"\.{re.escape(hoja)}\b|\['{re.escape(hoja)}'\]", html):
+                mentiras.append(ruta)
+        assert not mentiras, (
+            f"{mentiras} están declaradas como «no se pintan» y el panel SÍ las "
+            "pinta. Bórralas del registro en vez de dejarlas mintiendo.")
 
     def test_cada_hoja_del_detalle_de_subagentes_se_pinta(self):
         """El fallo que ESTE test existe para impedir, ya cometido una vez.
@@ -2456,6 +2553,21 @@ class TestElPanelNoTiraNadaDelPayload:
                       "confidence", "low_liquidity"):
             assert f"g.{campo}" in html, f"`gex.{campo}` se sirve y no se pinta"
 
+    def test_el_dashboard_lleva_su_disclaimer(self):
+        """Su `page.tsx` cierra con «Las predicciones son estimaciones de IA, no
+        consejo financiero» — DOS veces, una por vista.
+
+        Aquí las dos vistas están fundidas en una, así que va una vez; pero
+        faltaba entera. La Wheel y las Ideas ya tenían la suya, y la pantalla
+        que enseña los TARGETS —la que más se parece a una promesa— era justo
+        la que no decía nada.
+        """
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("function renderVictorTargets(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "estimaciones de IA" in cuerpo
+        assert "no consejo financiero" in cuerpo
+
     def test_los_bloques_nuevos_se_llaman_desde_el_render(self):
         html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
         render = html[html.index("function renderVictorTargets(d) {"):]
@@ -2466,384 +2578,950 @@ class TestElPanelNoTiraNadaDelPayload:
             assert f"{fn}(d)" in render, f"{fn} existe pero nadie lo llama"
 
 
-# ══════════════════════════════════════════════════════════════════════════
-#  PERFIL DEL INVERSIONISTA
-#
-#  Un perfil que no cambia una recomendación es un formulario decorativo. Lo
-#  que se vigila aquí es el CAMINO completo: se escribe en la pantalla → se
-#  guarda en `perfil.json` → se regenera `Kevin.md` → y ese `.md` es el que
-#  Analyze y Explore ya leían. Ese último eslabón es el que permite que el
-#  perfil llegue a los tres agentes SIN tocar esas dos áreas.
-# ══════════════════════════════════════════════════════════════════════════
+class TestIdeasYWheelTampocoTiranNada:
+    """La cobertura de hojas, extendida a las otras dos pestañas.
 
+    `TestElPanelNoTiraNadaDelPayload` barre el scorecard entero: cada campo que
+    el motor sirve tiene que tener consumidor en el panel, o estar declarado con
+    su motivo. Ideas y Wheel no tenían ese barrido — sus campos nuevos estaban
+    cubiertos por tests escritos a mano, que solo cazan lo que alguien se
+    acordó de comprobar.
 
-@pytest.fixture
-def perfil_aislado(tmp_path, monkeypatch):
-    """Redirige el perfil a un directorio temporal.
-
-    Sin esto, correr los tests reescribiría el perfil real de Kevin — que es
-    justamente el archivo del que dependen los otros dos agentes.
+    Sin esto, añadir un campo al payload y olvidar pintarlo no lo caza nadie:
+    el motor calcula algo que nunca llega a la pantalla y nada falla.
     """
-    import vertex_api as V
 
-    monkeypatch.setattr(V, "_PERFIL_DIR", str(tmp_path))
-    monkeypatch.setattr(V, "_PERFIL_JSON", str(tmp_path / "perfil.json"))
-    return tmp_path
+    @staticmethod
+    def _hojas(d, prefijo=""):
+        for k, v in (d or {}).items():
+            ruta = f"{prefijo}{k}"
+            if isinstance(v, dict):
+                yield from TestIdeasYWheelTampocoTiranNada._hojas(v, ruta + ".")
+            elif isinstance(v, list) and v and isinstance(v[0], dict):
+                yield from TestIdeasYWheelTampocoTiranNada._hojas(v[0], ruta + ".")
+            else:
+                yield ruta
+
+    #: Hojas que el panel no lee, con su motivo. Mismo contrato que el barrido
+    #: del scorecard: o se pinta, o se declara aquí.
+    _NO_SE_PINTAN = {
+        # ── Ideas ──
+        "ok": "bandera de control; su ausencia ya dispara el mensaje de error",
+        "engine": "sello del motor, para depurar desde la API",
+        "generated_at": "marca de tiempo; el panel enseña la del poller en vivo",
+        "period": "la ventana del escaneo, fija en su `1d`",
+        "saved_tickers": "cuántos tickers se persistieron para el sub-agente 6; "
+                         "es contabilidad del store, no un dato de mercado",
+        "ideas.delta": "no se pinta como número: el filtro de moneyness ya usó "
+                       "la distancia al strike, que sí se explica en la nota",
+        "ideas.iv": "la IV del contrato suelto no informa sin su rango; el rank "
+                    "vive en el scorecard del ticker",
+        "ideas.open_interest": "el OI se usa en el score de inusualidad, que sí "
+                               "se pinta como /30",
+        "ideas.asset_price": "el spot del subyacente; la fila lleva el strike",
+        "ideas.size": "número de contratos del trade; el dinero es lo comparable",
+        "ideas.theta": "theta absoluta; la columna es `theta_pct_daily`, que es "
+                       "la que se puede comparar entre contratos",
+        "ideas.sizing.blocked_reason": "el CÓDIGO del bloqueo (`theta_alto`, "
+                                       "`vencido`…), para filtrar desde la API; "
+                                       "en pantalla va `blocked`, que es la frase",
+        "perfil.riesgo_pct": "se pinta dentro de la franja como el % del riesgo "
+                             "por operación",
+        # ── Wheel ──
+        "preset_id": "el id del preset elegido; en pantalla va su etiqueta",
+        "candidates.metrics.return_pct": "el retorno del periodo; la columna es el "
+                                         "anualizado, que es lo comparable entre DTEs",
+        "blocked_total": "el total de bloqueados; el desglose por motivo es lo que "
+                         "se pinta, y ya lleva sus cuentas",
+        "preset": "la etiqueta del preset activo; los botones ya la pintan desde "
+                  "`presets[].label`, y el activo va resaltado",
+        # ── Time & Sales ──
+        "ticker": "el símbolo; va en el encabezado de la tarjeta, no en la tabla",
+        # OJO: `truncated` es raíz y lo sirven Ideas y la cinta. Ideas SÍ lo
+        # pinta («(truncado)» junto al conteo de páginas); la cinta no, a
+        # propósito —
+        "truncated": "en la CINTA no: dice que se cortó la bajada (tope de "
+                     "páginas), y lo que el usuario necesita saber es si se "
+                     "cortó la TABLA. Eso es `shown < notableCount`, su propia "
+                     "condición, que sí se pinta como «top N». En Ideas sí se "
+                     "pinta, porque allí el recorte de la bajada ES el recorte "
+                     "de la lista",
+        "trades.id": "identificador del trade, para deduplicar y para el ×N de "
+                     "los repetidos",
+        "trades.symbol": "el OCC completo; la columna de contrato enseña "
+                         "subyacente + strike + tipo, que es lo legible",
+        "trades.gamma": "su `NotableTable` pinta delta y ya; gamma, theta y vega "
+                        "de un trade suelto no se comparan entre contratos",
+        "trades.theta": "idem gamma",
+        "trades.vega": "idem gamma",
+        "trades.volume": "el volumen del contrato; lo que informa es si SUPERÓ el "
+                         "open interest, y eso es la señal «Vol > OI»",
+        "trades.open_interest": "idem volumen: la señal es la comparación, no el "
+                                "número suelto",
+        "trades.exceeded_oi": "es una de las siete señales; la pinta `vcSenalesHTML`",
+        "trades.big": "señal, pintada por `vcSenalesHTML`",
+        "trades.conv_delta": "señal, pintada por `vcSenalesHTML`",
+        "trades.leap": "señal, pintada por `vcSenalesHTML`",
+        "trades.multileg": "señal, pintada por `vcSenalesHTML`",
+        "trades.simultaneous": "señal, pintada por `vcSenalesHTML`",
+        "trades.condition_name": "el nombre de la condición; su `NotableTable` no "
+                                 "lo enseña — el código ya está en el tooltip",
+        "trades.expiry_status": "si el contrato ya venció; la cinta es del día y "
+                                "la columna de vencimiento lleva los DTE",
+    }
+
+    #: Ayudantes que los renders llaman y que también pintan. Sin ellos, un
+    #: campo pintado por `vcCabeceraPerfil` saldría como huérfano.
+    _AYUDANTES = ("vcCabeceraPerfil", "vcRiesgoHTML", "vcSenalesHTML",
+                  "vcVenceLabel", "vcHistoriaHTML", "vcFrenoHTML", "vcQuemaHTML")
+
+    @staticmethod
+    def _cuerpo(render):
+        """El cuerpo de UNA función de render, no el archivo entero.
+
+        Buscar la hoja en todo el HTML era un colador: un `d.iv` de otro panel
+        daba por pintada la `iv` de la Wheel. Acotado a su render, la ausencia
+        significa lo que dice.
+        """
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index(f"function {render}(")
+        prof, j = 0, html.index("{", i)
+        k = j
+        while k < len(html):
+            if html[k] == "{":
+                prof += 1
+            elif html[k] == "}":
+                prof -= 1
+                if prof == 0:
+                    break
+            k += 1
+        return html[j:k]
+
+    def _barre(self, payload, nombre, render):
+        import re
+
+        cuerpo = self._cuerpo(render)
+        for h in self._AYUDANTES:
+            cuerpo += self._cuerpo(h)
+        huerfanas = []
+        for ruta in sorted(set(self._hojas(payload))):
+            if ruta in self._NO_SE_PINTAN:
+                continue
+            hoja = ruta.split(".")[-1]
+            # Tres formas de leerlo: `c.hoja`, `c['hoja']` y `sc[k].hoja` — esta
+            # última es acceso por corchetes, y el `\w+\.` de antes no la veía:
+            # daba por huérfano lo que el panel sí pinta en bucle.
+            patron = (rf"\b\w+\.{re.escape(hoja)}\b"
+                      rf"|\['{re.escape(hoja)}'\]"
+                      rf"|\]\.{re.escape(hoja)}\b")
+            if not re.search(patron, cuerpo):
+                huerfanas.append(ruta)
+        assert not huerfanas, (
+            f"{nombre}: el motor sirve {huerfanas} y `{render}` no los pinta. "
+            f"O se cablean, o se declaran en `_NO_SE_PINTAN` con su motivo.")
+
+    def test_ideas_no_sirve_nada_que_el_panel_tire(self, client, mercado):
+        self._barre(client.get("/api/tito-ideas").json(), "Ideas", "renderProjIdeas")
+
+    def test_wheel_no_sirve_nada_que_el_panel_tire(self, client, wheel_dobles):
+        self._barre(client.get("/api/tito-wheel").json(), "Wheel", "renderProjWheel")
+
+    def test_la_cinta_no_sirve_nada_que_el_panel_tire(self, client):
+        """La tercera pestaña, que era el agujero que quedaba.
+
+        Ideas y Wheel tenían barrido; la cinta no. Y ahí es donde más duele:
+        `_fila` sirve 27 campos por operación y la tabla enseñaba nueve
+        columnas. `bid` y `ask` viajaban en cada fila desde el primer día y
+        nadie los pintaba — su `NotableTable` tiene columna «Bid/Ask» justo
+        para eso: las flechas ↑/↓ dicen que el print salió fuera de la
+        horquilla, y sin la horquilla no se sabe por cuánto.
+        """
+        self._barre(client.get("/api/tito-tape?ticker=DEMO").json(),
+                    "Time & Sales", "renderProjTape")
+
+    def test_el_registro_no_miente(self, client, mercado, wheel_dobles):
+        """Una declaración para una hoja que ya no existe es documentación
+        podrida: dice que algo se decidió a propósito cuando ya no hay nada."""
+        vivas = set()
+        for r in ("/api/tito-ideas", "/api/tito-wheel", "/api/tito-tape?ticker=DEMO"):
+            vivas |= set(self._hojas(client.get(r).json()))
+        # `ideas.history.*` solo aparece cuando ese ticker YA tiene flows
+        # guardados, y el doble arranca con el store vacío. Que no salga aquí no
+        # significa que no se sirva — significa que no hay historial todavía.
+        vivas |= {r for r in self._NO_SE_PINTAN if r.startswith("ideas.history.")}
+        fantasmas = sorted(set(self._NO_SE_PINTAN) - vivas)
+        assert not fantasmas, f"declaradas pero ya no se sirven: {fantasmas}"
+
+    def test_el_registro_tampoco_miente_al_reves(self):
+        """La otra cara de la podredumbre: una entrada que dice «esto NO se
+        pinta» de algo que ahora **sí** se pinta.
+
+        Pasó con cuatro de Ideas a la vez. `ideas.expiration` estaba declarada
+        como «la fecha cruda; el panel pinta los DTE» — y su `expiryLabel` dice
+        literalmente «fecha real + días restantes, **nunca solo 57d**». Igual
+        con `price`, `timestamp` y `history.median_sessions`. El barrido de
+        huérfanas nunca lo caza: una hoja declarada se salta antes de mirar
+        nada, así que la declaración sobrevive a su propio motivo y queda como
+        documentación que afirma lo contrario de lo que hace el código.
+        """
+        import re
+
+        #: Colisiones de NOMBRE, no declaraciones podridas. El barrido busca la
+        #: hoja por su última palabra, así que dos hojas distintas que se llamen
+        #: igual son indistinguibles para él. `trades.volume` es el volumen del
+        #: contrato, que no se pinta; `unusual_parts.volume` es el sub-score de
+        #: tamaño de la orden, que sí — y los dos son «volume». Los nombres son
+        #: los de su `FlowRow` y su `TradeScores`; renombrarlos para que el test
+        #: no se confunda sería divergir de él por comodidad del test.
+        COLISIONES = {"trades.volume"}
+
+        for render, prefijo in (("renderProjIdeas", "ideas."),
+                                ("renderProjWheel", "candidates."),
+                                ("renderProjTape", "trades.")):
+            cuerpo = self._cuerpo(render)
+            for h in self._AYUDANTES:
+                cuerpo += self._cuerpo(h)
+            mentiras = []
+            for ruta in sorted(self._NO_SE_PINTAN):
+                if not ruta.startswith(prefijo) or ruta in COLISIONES:
+                    continue
+                hoja = ruta.split(".")[-1]
+                patron = (rf"\b\w+\.{re.escape(hoja)}\b"
+                          rf"|\['{re.escape(hoja)}'\]"
+                          rf"|\]\.{re.escape(hoja)}\b")
+                if re.search(patron, cuerpo):
+                    mentiras.append(ruta)
+            assert not mentiras, (
+                f"{render}: {mentiras} están declaradas como «no se pintan» y "
+                "el panel SÍ las pinta. Bórralas del registro.")
 
 
-class TestPerfilDelInversionista:
-    """`GET/POST /api/perfil` — la cuenta y el perfil, en un solo sitio."""
+class TestBarrasIntradia:
+    """`/api/tito-bars` — su `/api/bars`, la última de sus once rutas que
+    estaba a medias.
 
-    def test_sin_archivo_devuelve_un_perfil_utilizable(self, client, perfil_aislado):
-        """Un usuario nuevo no tiene perfil. La ruta no puede reventar ni
-        devolver `null`: devuelve el defecto y el sistema sigue de pie."""
-        d = client.get("/api/perfil").json()
-        assert d["ok"] is True
-        assert d["perfil"]["tolerancia"] in {t["id"] for t in d["tolerancias"]}
-        assert d["perfil"]["riesgo_por_trade"] >= 0
+    El payload de proyecciones ya traía el diario (`history`), que es lo que
+    piden dos de sus tres consumidores. El tercero, `FlowPriceChart`, ofrece
+    INTRADÍA, y eso no existía: agregado por día se ve qué día entró el dinero
+    grande; en velas de 5 minutos se ve si el precio se movió antes o después
+    de que entrara, que es lo que mide el sub-agente 6.
+    """
 
-    def test_el_riesgo_por_trade_sale_de_la_tolerancia_no_del_usuario(
-            self, client, perfil_aislado):
-        """El % por operación NO es un campo libre: lo fija la banda. Si se
-        pudiera teclear, cualquiera pondría 100% y el sizing dejaría de ser
-        una restricción."""
+    def test_la_tabla_de_marcos_es_la_suya(self):
         import vertex_api as V
 
-        for banda, pct in [("conservador", 2.0), ("moderado", 5.0),
-                           ("agresivo", 15.0), ("especulativo", 30.0)]:
-            r = client.post("/api/perfil", json={"capital": 10_000,
-                                                 "tolerancia": banda}).json()
-            assert r["ok"] is True
-            assert r["perfil"]["riesgo_pct"] == pct
-            assert r["perfil"]["riesgo_por_trade"] == pytest.approx(10_000 * pct / 100)
-        assert V._TOLERANCIAS["conservador"]["riesgo_pct"] < \
-            V._TOLERANCIAS["especulativo"]["riesgo_pct"]
+        assert V._TITO_TF == {"1y": (1, "day", 365),
+                              "15m10d": (15, "minute", 10),
+                              "5m5d": (5, "minute", 5)}
 
-    def test_guardar_regenera_el_md_QUE_YA_LEEN_analyze_y_explore(
-            self, client, perfil_aislado):
-        """El eslabón que hace que esto no sea un formulario decorativo.
-
-        `_load_investor_profile()` —la función que Analyze y Explore ya usaban
-        antes de este trabajo— lee `Perfil Inversionista/Kevin.md`. Guardar
-        aquí reescribe ESE archivo. Por eso el perfil llega al agente de
-        acciones sin tocar una línea de esas dos áreas.
-        """
+    def test_un_marco_desconocido_cae_al_de_por_defecto(self, monkeypatch):
+        """`TF[tf] ?? TF["5m5d"]` suyo: no es un error, es el de por defecto."""
         import vertex_api as V
 
-        client.post("/api/perfil", json={
-            "nombre": "Kevin", "capital": 4_200, "tolerancia": "moderado",
-            "horizonte": "1-3 años",
-            "texto": "No toco cripto ni forex. Solo EE.UU."})
+        pedido = {}
 
-        md = perfil_aislado / "Kevin.md"
-        assert md.exists(), "no se regeneró el .md que consumen los otros agentes"
-        texto = md.read_text(encoding="utf-8")
-        assert "4,200" in texto and "Moderado" in texto
-        assert "No toco cripto ni forex" in texto, "el texto libre no llegó al .md"
+        def _fake(tk, mult, span, days, **kw):
+            pedido.update(tk=tk, mult=mult, span=span, days=days)
+            return []
 
-    def test_el_editor_escribe_EXACTAMENTE_donde_lee_el_agente_de_acciones(self):
-        """`_load_investor_profile()` construye su ruta por su cuenta. Si las
-        dos rutas se separaran, el editor guardaría en un sitio y Analyze
-        seguiría leyendo el archivo viejo — sin que nada fallara.
+        monkeypatch.setattr("wbj.tito.massive.fetch_bars", _fake)
+        d = self._get("DEMO", tf="no-existe")
+        assert pedido["mult"] == 5 and pedido["span"] == "minute" and pedido["days"] == 5
+        assert d["tf"] == "5m5d", "el eco del tf tiene que ser el que se usó"
 
-        Se comprueba el nombre del archivo y el directorio, por separado.
-        """
+    def _get(self, ticker, tf=None):
+        from fastapi.testclient import TestClient
+
+        import vertex_api as V
+
+        q = f"/api/tito-bars?ticker={ticker}" + (f"&tf={tf}" if tf else "")
+        r = TestClient(V.app).get(q)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_sirve_las_velas_con_el_tiempo_en_segundos(self, monkeypatch):
+        from wbj.tito.massive import TfBar
+
+        monkeypatch.setattr("wbj.tito.massive.fetch_bars",
+                            lambda *a, **k: [TfBar(1_770_000_000, 1.0, 2.0, 0.5, 1.5)])
+        d = self._get("DEMO", tf="5m5d")
+        assert d["bars"] == [{"time": 1_770_000_000, "open": 1.0, "high": 2.0,
+                              "low": 0.5, "close": 1.5}]
+
+    def test_un_ticker_invalido_es_400_no_500(self):
+        from fastapi.testclient import TestClient
+
+        import vertex_api as V
+
+        assert TestClient(V.app).get("/api/tito-bars?ticker=").status_code == 400
+
+    def test_un_fallo_de_la_fuente_no_filtra_el_mensaje(self, monkeypatch):
+        """`_describe` de `massive.py` puede citar el cuerpo de la respuesta, y
+        eso es superficie de fuga. Su ruta sí lo devuelve; aquí no."""
+        from fastapi.testclient import TestClient
+
+        import vertex_api as V
+
+        def _revienta(*a, **k):
+            raise RuntimeError("apikey=SECRETO-123 rechazada")
+
+        monkeypatch.setattr("wbj.tito.massive.fetch_bars", _revienta)
+        r = TestClient(V.app).get("/api/tito-bars?ticker=DEMO&tf=1y")
+        assert r.status_code == 502
+        assert "SECRETO" not in r.text
+
+
+class TestLasConstantesDeSuRutaDeFlujo:
+    """Sus siete `const` de `/api/flow`, con SU valor.
+
+    Cuatro faltaban. Tres estaban aquí como números sueltos dentro de la
+    llamada —el mismo valor, pero sin nombre, así que el cotejo de constantes
+    de la auditoría no podía verlas— y la cuarta tenía otro valor.
+
+    La cuarta importa de verdad: `CONVICTION_TABLE_CAP` decide cuántas filas de
+    convicción viajan al panel, y de esas filas comen sus TRES tarjetas
+    (`ConvictionTransactions`, `ActivityCard` y `MoneyFlowCard`). La última es
+    la gráfica que dice "el dinero de CADA DÍA": con 25 filas no es el dinero
+    del día, es el de los 25 trades más grandes, y un día entero de trades
+    medianos no aparecía.
+    """
+
+    def test_las_siete_valen_lo_que_las_suyas(self):
+        from wbj.tito import scorecard as S
+
+        assert S.MIN_PREMIUM == 100_000
+        assert S.LEAN_MAX_PAGES == 6
+        assert S.TABLE_CAP == 100
+        assert S.CONVICTION_DAYS == 30
+        assert S.CONVICTION_MIN_PREMIUM == 1_000_000
+        assert S.CONVICTION_MAX_PAGES == 15
+        assert S.CONVICTION_TABLE_CAP == 150
+
+    def test_la_capa_web_usa_las_del_motor_no_copias(self):
+        """Un número escrito a mano en la llamada se queda atrás en silencio el
+        día que él cambie el suyo."""
+        from wbj.tito import scorecard as S
+
+        import vertex_api as V
+
+        assert V.TITO_MIN_PREMIUM is S.MIN_PREMIUM
+        assert V.TITO_LEAN_MAX_PAGES is S.LEAN_MAX_PAGES
+        assert V.TITO_TABLE_CAP is S.TABLE_CAP
+        assert V.TITO_CONVICTION_TABLE_CAP is S.CONVICTION_TABLE_CAP
+
+    def test_ningun_tope_suelto_quedo_en_las_dos_rutas(self):
+        """El 120 de la cinta y el 25 de convicción, que eran los dos que no
+        coincidían con los suyos."""
         import inspect
 
         import vertex_api as V
 
-        fuente = inspect.getsource(V._load_investor_profile)
-        assert '"Perfil Inversionista"' in fuente
-        assert '"Kevin.md"' in fuente, (
-            "el editor regenera Kevin.md; si el lector ya no lo busca primero, "
-            "el perfil no llega al agente de acciones")
-        assert V._PERFIL_DIR.endswith("Perfil Inversionista")
-
-    def test_el_md_se_regenera_desde_el_json_no_desde_el_formulario(
-            self, client, perfil_aislado):
-        """El `.md` se escribe releyendo el JSON recién guardado. Así no puede
-        desviarse del estructurado ni un decimal — que es justo el fallo que
-        haría que la pantalla dijera una cosa y el agente leyera otra."""
-        client.post("/api/perfil", json={"capital": 7_777, "tolerancia": "agresivo"})
-        j = json.loads((perfil_aislado / "perfil.json").read_text(encoding="utf-8"))
-        md = (perfil_aislado / "Kevin.md").read_text(encoding="utf-8")
-        assert f"{j['capital']:,.0f}" in md
-        # El 15% de 7.777 son 1.166,55 → el .md redondea a 1.167.
-        assert "1,167" in md
-
-    def test_rechaza_basura_sin_corromper_lo_guardado(self, client, perfil_aislado):
-        """Un capital que no es número o una banda inventada no pueden dejar
-        el perfil a medias: se rechazan ANTES de escribir."""
-        client.post("/api/perfil", json={"capital": 5_000, "tolerancia": "moderado"})
-        antes = client.get("/api/perfil").json()["perfil"]
-
-        for malo in ({"capital": "mucho"}, {"tolerancia": "kamikaze"},
-                     {"capital": -1}, {"instrumentos": "opciones"}):
-            r = client.post("/api/perfil", json=malo).json()
-            assert r["ok"] is False, f"aceptó basura: {malo}"
-
-        assert client.get("/api/perfil").json()["perfil"] == antes
-
-    def test_el_horizonte_de_texto_libre_se_traduce_a_dias(self):
-        """El campo lo escribe una persona ("1-3 años"), pero `size_flow`
-        quiere días. Se usa el extremo CORTO del rango, y está declarado."""
-        import vertex_api as V
-
-        assert V._perfil_horizonte_dias({"horizonte": "días"}) == 5
-        assert V._perfil_horizonte_dias({"horizonte": "semanas a meses"}) == 21
-        assert V._perfil_horizonte_dias({"horizonte": "1-3 años"}) == 90
-        assert V._perfil_horizonte_dias({"horizonte": ""}) == 30
-
-    def test_el_perfil_no_se_lee_de_API(self):
-        """El perfil vive en `Perfil Inversionista/`, nunca en `API/`. Es una
-        regla del proyecto: `API/` no se lee, no se imprime y no se commitea."""
-        import vertex_api as V
-
-        assert "Perfil Inversionista" in V._PERFIL_DIR
-        assert "API" not in Path(V._PERFIL_DIR).name
+        cinta = inspect.getsource(V.tito_tape)
+        assert "[:120]" not in cinta and "TITO_TABLE_CAP" in cinta
+        assert "max_pages=6" not in cinta and "TITO_LEAN_MAX_PAGES" in cinta
 
 
-class TestElMenuDeCuenta:
-    """El nombre de arriba a la derecha, que era una etiqueta muerta."""
+class TestTopFlowsNotables:
+    """`topFlows` de su `page.tsx` — las 3 mayores de `convRows ∪ notable`.
 
-    @staticmethod
-    def _html():
-        return (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
-
-    def test_el_nombre_abre_un_menu(self):
-        h = self._html()
-        assert 'id="navUserBtn"' in h and 'onclick="toggleUserMenu()"' in h
-        assert 'id="userMenu"' in h
-        for fn in ("function toggleUserMenu(", "function closeUserMenu(",
-                   "function vxTema(", "function vxIdioma("):
-            assert fn in h, f"{fn} no existe: el menú tendría botones muertos"
-
-    def test_el_menu_lleva_a_las_tres_cosas_pedidas(self):
-        h = _sin_comentarios(self._html())
-        assert "switchView('perfilView')" in h, "no se llega al perfil"
-        assert "vxTema('claro')" in h and "vxTema('oscuro')" in h
-        assert "vxIdioma('en')" in h and "vxIdioma('es')" in h
-
-    def test_el_tema_del_menu_es_EL_MISMO_ajuste_que_el_boton_flotante(self):
-        """Dos interruptores que mueven preferencias distintas es peor que uno
-        solo: el usuario cambia el tema y al recargar vuelve el otro."""
-        h = self._html()
-        cuerpo = _sin_comentarios(h[h.index("function vxTema(") :])
-        cuerpo = cuerpo[: cuerpo.index("\n}")]
-        assert "applyTheme(" in cuerpo, "vxTema no reutiliza el tema que ya existía"
-
-    def test_el_idioma_sobrevive_a_la_recarga(self):
-        h = _sin_comentarios(self._html())
-        assert "localStorage.setItem('vertex_idioma'" in h
-        assert "localStorage.getItem('vertex_idioma')" in h
-
-    def test_volver_a_espanol_no_depende_de_un_segundo_diccionario(self):
-        """El marcado ESTÁ en español. Si volver a `es` necesitara un
-        diccionario propio, cualquier texto nuevo que se añadiera al HTML sin
-        registrar se quedaría en inglés para siempre."""
-        h = self._html()
-        cuerpo = _sin_comentarios(h[h.index("function vxAplicaIdioma()") :])
-        cuerpo = cuerpo[: cuerpo.index("\n}")]
-        assert "i18nEs" in cuerpo, "no guarda el original español del marcado"
-
-    def test_cada_clave_i18n_del_marcado_existe_en_ingles(self):
-        """Una clave sin traducción se queda en español al pasar a English —
-        media pantalla en cada idioma es peor que una sola lengua."""
-        h = self._html()
-        claves = set(re.findall(r'data-i18n="([^"]+)"', h))
-        bloque = h[h.index("const VX_I18N = {") : h.index("let VX_IDIOMA")]
-        traducidas = set(re.findall(r"'([\w.]+)':", bloque))
-        faltan = claves - traducidas
-        assert not faltan, f"claves sin traducir al inglés: {sorted(faltan)}"
-
-
-class TestLaPantallaDePerfil:
-    """La vista con las dos pestañas: Información y Perfil."""
-
-    @staticmethod
-    def _html():
-        return (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
-
-    def test_existe_la_vista_con_sus_dos_pestanas(self):
-        h = self._html()
-        assert 'id="perfilView"' in h
-        assert 'id="pfPaneInfo"' in h and 'id="pfPanePerfil"' in h
-        assert "function pfTab(" in h
-
-    def test_informacion_pide_nombre_y_email(self):
-        h = self._html()
-        for campo in ("pfNombre", "pfEmail"):
-            assert f'id="{campo}"' in h, f"falta el campo {campo}"
-
-    def test_perfil_tiene_los_datos_duros_y_el_texto_libre(self):
-        h = self._html()
-        for campo in ("pfCapital", "pfHorizonte", "pfTolerancias", "pfTexto"):
-            assert f'id="{campo}"' in h, f"falta {campo}"
-
-    def test_la_vista_habla_con_la_ruta_del_perfil(self):
-        h = _sin_comentarios(self._html())
-        assert h.count("API_BASE}/api/perfil") == 2, "no lee y guarda el perfil"
-        assert "method: 'POST'" in h
-
-    def test_entrar_a_la_vista_recarga_el_perfil(self):
-        """Se puede haber guardado desde otra pestaña del navegador: la
-        pantalla no puede enseñar un capital viejo."""
-        h = self._html()
-        sw = _sin_comentarios(h[h.index("function switchView(viewId) {") :])
-        sw = sw[: sw.index("\n}")]
-        assert "pfCargar()" in sw
-
-    def test_el_id_de_la_banda_no_va_dentro_de_un_onclick(self):
-        """`_vcEsc` escapa para HTML, que NO es escapar para un literal de JS:
-        una comilla se saldría del string. Se lee por delegación."""
-        h = self._html()
-        assert "pfEligeTolerancia('${" not in h
-        assert "data-tol=" in h and "dataset.tol" in h
-
-    def test_guardar_invalida_las_ideas_ya_pintadas(self):
-        """Las Ideas se ordenan CON el perfil. Si cambias el capital y la
-        tabla se queda igual, la pantalla está mintiendo."""
-        h = self._html()
-        g = _sin_comentarios(h[h.index("async function pfGuardar()") :])
-        g = g[: g.index("\n}\n")]
-        assert "vcTabCargada.ideas = false" in g
-
-
-class TestElPerfilSeVeEnProyecciones:
-    """De nada sirve guardar un perfil que la tabla no menciona."""
-
-    @staticmethod
-    def _html():
-        return (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
-
-    def test_ideas_y_wheel_abren_con_la_franja_del_perfil(self):
-        h = _sin_comentarios(self._html())
-        assert "function vcCabeceraPerfil(" in h
-        for render in ("function renderProjIdeas(d) {", "function renderProjWheel(d) {"):
-            cuerpo = h[h.index(render):]
-            cuerpo = cuerpo[: cuerpo.index("\n}\n")]
-            assert "vcCabeceraPerfil(" in cuerpo, f"{render} no enseña el perfil"
-
-    def test_ideas_pinta_el_techo_de_contratos(self):
-        h = _sin_comentarios(self._html())
-        cuerpo = h[h.index("function renderProjIdeas(d) {"):]
-        cuerpo = cuerpo[: cuerpo.index("\n}\n")]
-        for campo in ("i.sizing", "max_contracts", "total_cost"):
-            assert campo in cuerpo, f"`{campo}` se sirve y no se pinta"
-
-    def test_wheel_pinta_si_te_cabe_el_colateral(self):
-        h = _sin_comentarios(self._html())
-        cuerpo = h[h.index("function renderProjWheel(d) {"):]
-        cuerpo = cuerpo[: cuerpo.index("\n}\n")]
-        assert "c.afford" in cuerpo and "shortfall" in cuerpo
-
-    def test_el_capital_se_enseña_entero_no_abreviado(self):
-        """"$1.0K" y "$1,049" son la diferencia entre que un contrato te quepa
-        o no. Donde el número es una restricción, va exacto."""
-        h = self._html()
-        assert "function fmtMoney(" in h
-        cab = _sin_comentarios(h[h.index("function vcCabeceraPerfil("):])
-        cab = cab[: cab.index("\n}")]
-        assert "fmtMoney(P.capital)" in cab
-        assert "fmtAbbr(P.capital)" not in cab
-
-    def test_la_franja_no_se_pinta_sin_perfil(self):
-        """Una franja que dice "capital $0" es peor que ninguna franja."""
-        h = self._html()
-        cab = _sin_comentarios(h[h.index("function vcCabeceraPerfil("):])
-        cab = cab[: cab.index("\n}")]
-        assert "if (!P) return ''" in cab
-
-
-class TestElMdSigueSiendoLegibleParaElEngine:
-    """El eslabón frágil de todo esto, y el único que falla EN SILENCIO.
-
-    `engine/wbj/specialists/risk.py::_load_profile` no lee el JSON: parsea el
-    `.md` con tres regex. Si el markdown generado deja de casar con alguno, ese
-    especialista cae a su valor por defecto sin avisar y el reporte pasa a
-    hablar del perfil de otra persona.
-
-    Estos tests corren la función REAL sobre el markdown REAL. No una copia del
-    regex — una copia se actualizaría sola y dejaría de proteger nada.
+    Su `PredictionCard` las pinta debajo de los escenarios, y aquí faltaba el
+    bloque entero. Es el único sitio del panel donde los tres targets van
+    acompañados de las operaciones CONCRETAS que los sostienen: sin él los
+    números salen sin que se pueda ver de qué dinero se dedujeron.
     """
 
-    def test_el_md_generado_conserva_los_tres_campos(self, client, perfil_aislado,
-                                                     tmp_path, monkeypatch):
-        import vertex_api as V
-        import wbj.specialists.risk as R
+    def test_son_tres_como_mucho_y_ordenadas_por_premium(self, client, mercado):
+        tf = client.get("/api/projection-targets?ticker=DEMO").json()["top_flows"]
+        assert len(tf) <= 3
+        primas = [f["premium"] for f in tf]
+        assert primas == sorted(primas, reverse=True)
 
-        client.post("/api/perfil", json={
-            "nombre": "Kevin", "capital": 1_000, "tolerancia": "agresivo",
-            "horizonte": "1-3 años", "max_posicion_pct": [20, 30]})
-        md = (perfil_aislado / "Kevin.md").read_text(encoding="utf-8")
+    def test_la_union_es_conviccion_MAS_notable_no_solo_una(self):
+        """La ventana corta trae operaciones recientes que la de 30 días
+        todavía no tiene. Con una sola, el top 3 sale de otro universo."""
+        import inspect
 
-        # `_load_profile` sube tres directorios desde su propio archivo. Se le
-        # da un árbol falso con el .md dentro para correrlo tal cual.
-        raiz = tmp_path / "engine" / "wbj" / "specialists"
-        raiz.mkdir(parents=True)
-        (tmp_path / "Perfil Inversionista").mkdir()
-        (tmp_path / "Perfil Inversionista" / "Kevin.md").write_text(md, encoding="utf-8")
-        monkeypatch.setattr(R, "__file__", str(raiz / "risk.py"))
-        p = R._load_profile()
-
-        assert p["fields_defaulted"] == [], (
-            f"el especialista de riesgo cayó a valores por defecto: "
-            f"{p['fields_defaulted']} — el .md generado dejó de ser legible")
-        assert p["capital_usd"] == 1_000
-        assert p["horizon_years"] == (1, 3)
-        assert p["max_position_pct"] == (0.20, 0.30)
-
-    def test_un_horizonte_en_palabras_no_deja_mudo_al_especialista(
-            self, client, perfil_aislado, tmp_path, monkeypatch):
-        """«semanas a meses» no casa con "N a M años". En vez de callar, el
-        markdown declara el equivalente aproximado — un valor por defecto que
-        nadie escribió es peor que uno aproximado y dicho."""
-        import wbj.specialists.risk as R
-
-        client.post("/api/perfil", json={"capital": 2_000,
-                                         "horizonte": "semanas a meses"})
-        md = (perfil_aislado / "Kevin.md").read_text(encoding="utf-8")
-        assert "semanas a meses" in md, "se perdió lo que el inversionista escribió"
-
-        raiz = tmp_path / "engine" / "wbj" / "specialists"
-        raiz.mkdir(parents=True)
-        (tmp_path / "Perfil Inversionista").mkdir()
-        (tmp_path / "Perfil Inversionista" / "Kevin.md").write_text(md, encoding="utf-8")
-        monkeypatch.setattr(R, "__file__", str(raiz / "risk.py"))
-        assert "horizon_years" not in R._load_profile()["fields_defaulted"]
-
-    def test_el_capital_es_el_PRIMER_dolar_del_documento(self, client, perfil_aislado):
-        """El regex del engine coge el primer `$`. Si el texto libre trae un
-        importe antes que el capital, el especialista leería ese."""
-        client.post("/api/perfil", json={"capital": 3_000,
-                                         "texto": "Perdí $50,000 en 2022."})
-        md = (perfil_aislado / "Kevin.md").read_text(encoding="utf-8")
-        assert md.index("$3,000") < md.index("$50,000")
-
-    def test_el_primer_guardado_NO_borra_un_perfil_escrito_a_mano(
-            self, client, perfil_aislado):
-        """El fallo caro: abrir la pantalla sobre un `.md` redactado a mano y
-        pulsar Guardar con el formulario vacío. El texto se siembra, no se
-        pierde."""
         import vertex_api as V
 
-        (perfil_aislado / "Kevin.md").write_text(
-            "# Perfil de Kevin\n\nCapital ~$1,000 USD. Horizonte de 1 a 3 años.\n"
-            "Máximo por posición: 20% – 30%.\nSin forex. Sin cripto.\n",
-            encoding="utf-8")
+        fuente = inspect.getsource(V)
+        i = fuente.index('"top_flows"')
+        bloque = fuente[i:i + 900]
+        assert "_tito_unir(" in bloque
+        assert "conviction_flow" in bloque and "flow.interesting" in bloque
 
-        d = client.get("/api/perfil").json()["perfil"]
-        assert "Sin forex" in d["texto"], "no se sembró el perfil escrito a mano"
-        assert d["capital"] == 1_000
-        assert d["max_posicion_pct"] == [20, 30]
+    def test_la_marca_alcista_es_su_regla(self):
+        """`(call ∧ ask) ∨ (put ∧ bid)`: comprar calls y vender puts son la
+        MISMA apuesta, y las dos salen en verde."""
+        import inspect
 
-        client.post("/api/perfil", json={"nombre": "Kevin"})
-        assert "Sin forex" in (perfil_aislado / "Kevin.md").read_text(encoding="utf-8")
+        import vertex_api as V
 
-    def test_la_semilla_no_se_duplica_en_cada_guardado(self, client, perfil_aislado):
-        """Si el `.md` ya lo generamos nosotros, su contenido viene del JSON:
-        volver a sembrarlo lo metería dentro de sí mismo cada vez."""
-        client.post("/api/perfil", json={"capital": 1_000, "texto": "Solo EE.UU."})
-        (perfil_aislado / "perfil.json").unlink()          # se pierde el JSON
-        d = client.get("/api/perfil").json()["perfil"]
-        assert "Generado desde el editor" not in d["texto"]
+        fuente = inspect.getsource(V)
+        i = fuente.index('"alcista"')
+        bloque = fuente[i:i + 260]
+        assert '"call"' in bloque and '"ask"' in bloque
+        assert '"put"' in bloque and '"bid"' in bloque
+
+    def test_el_panel_lo_pinta(self):
+        import pathlib
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "function vcTopFlowsHTML(" in html
+        assert "${vcTopFlowsHTML(d)}" in html, "definida pero nadie la llama"
+        assert "Top 3 flows notables" in html
+
+
+class TestElPanelNoLeeCamposQueNadieManda:
+    """Un campo que el frontend lee y el backend no envía **no rompe nada**:
+    se pinta "—" o no se pinta, y nadie se entera.
+
+    Pasó de verdad con la ficha de empresa: `vcCompanyHTML` leía `c.exchange` y
+    `c.employees`, `_tito_company` los declaraba en su dict base valiendo
+    `None`, y `fetch_company` no los pedía a Massive. El subtítulo de la
+    cabecera salía con el sector solo y la casilla de empleados vacía, durante
+    todas las rondas anteriores, sin un solo error.
+
+    Esto lo generaliza: se recogen TODOS los campos de primer nivel que leen
+    las funciones de render del panel y se cruzan con lo que sirve la ruta.
+    """
+
+    #: Lo que el panel lee y NO viene de `/api/projection-targets`, con su
+    #: procedencia. Se declara por nombre para que la lista no crezca sola.
+    DE_OTRAS_RUTAS = {
+        # /api/tito-ideas
+        "ideas", "scanned", "pages", "min_premium", "moneyness_cap", "rejected",
+        "blocked_summary", "blocked_total", "with_history", "perfil",
+        # /api/tito-wheel
+        "candidates", "presets", "preset_id", "preset_explain", "quotes_missing",
+        "with_candidates", "tickers", "failed",
+        # /api/tito-tape — `renderProjTape`
+        "trades", "notable", "total", "period", "aggression",
+        # /api/tito-ideas — `renderProjIdeas` (el aviso de escaneo truncado)
+        "truncated",
+        # /api/tito-health — `renderProjSalud`, la pestaña de Cobertura
+        "checks",
+        # sobres de error / degradación, comunes a todas
+        "ok", "error", "degraded",
+    }
+
+    def test_todo_lo_que_pinta_el_panel_llega_o_esta_declarado(self, client, mercado):
+        import pathlib
+        import re
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        fns = re.findall(r"function (vc[A-Za-z0-9_]+|renderProj[A-Za-z0-9_]+)\s*\(\s*d\b", html)
+        assert len(fns) >= 20, "el escaneo no encontró las funciones de render"
+        leidos = set()
+        for fn in fns:
+            i = html.index(f"function {fn}(")
+            j = html.find("\nfunction ", i + 10)
+            leidos |= set(re.findall(r"\bd\.([a-z_][a-z0-9_]*)",
+                                     html[i:j if j > 0 else i + 4000]))
+
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d.get("ok") is not False, f"la ruta degradó: {d.get('error')}"
+        huerfanos = sorted(leidos - set(d) - self.DE_OTRAS_RUTAS)
+        assert not huerfanos, (
+            f"el panel lee campos que ninguna ruta manda: {huerfanos}. "
+            "O el backend dejó de mandarlos, o el render quedó colgando.")
+
+
+class TestElArranqueNoDependeDeQueFalteConfiguracion:
+    """El despliegue caído: una variable BIEN configurada rompía el arranque.
+
+    `engine/` llegaba a `sys.path` solo como EFECTO SECUNDARIO de
+    `_sec_user_agent()`, que lo insertaba dentro de su rama de respaldo. Con
+    `EDGAR_USER_AGENT` definida —el caso de Render, y el que la SEC exige— esa
+    función devuelve el valor y retorna ANTES de insertar nada. El
+    `from wbj.tito.scorecard import ...` de nivel de módulo moría entonces con
+    `ModuleNotFoundError: No module named 'wbj'`, uvicorn salía con código 1, y
+    Render lo reportaba como «Exited with status 1 while running your code».
+
+    En local nunca se veía: nadie define `EDGAR_USER_AGENT` para desarrollar,
+    así que la función caía al respaldo, insertaba el path de paso y todo lo
+    demás importaba. La AUSENCIA de configuración salvaba el arranque.
+
+    Los tests normales tampoco: corren dentro de un pytest que ya tiene el
+    `engine/` en el path por su propio conftest. Hay que importar en un proceso
+    NUEVO, con el entorno de Render, para ver lo que ve Render.
+    """
+
+    #: Las que Render tiene puestas y esta máquina no. Cada una es una rama del
+    #: código que en local no se ejecuta nunca.
+    ENTORNO_RENDER = {
+        "EDGAR_USER_AGENT": "Vertex Fund OS research@ejemplo.com",
+        "VERTEX_API_TOKEN": "un-token-largo-de-prueba",
+        "VERTEX_ORIGIN": "https://ejemplo.onrender.com",
+        "VERTEX_DB_KEY": "clave-de-prueba-para-fernet-0123456789",
+        "MASSIVE_API_KEY": "falsa",
+        "MARKETSNACK_COOKIE": "sesion=falsa",
+        "MASSIVE_MAX_PAGES": "40",
+        "PORT": "10000",
+    }
+
+    def _importa(self, extra: dict) -> tuple[int, str]:
+        import subprocess
+
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+               "HOME": os.environ.get("HOME", "/tmp")}
+        env.update(extra)
+        r = subprocess.run(
+            [sys.executable, "-c", "import vertex_api; print('IMPORT OK')"],
+            cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=180)
+        return r.returncode, (r.stdout + r.stderr)
+
+    def test_importa_con_el_entorno_de_render(self):
+        cod, salida = self._importa(self.ENTORNO_RENDER)
+        assert cod == 0, (
+            "`import vertex_api` falla con las variables de Render puestas — "
+            f"eso es el «Exited with status 1» del panel:\n{salida[-1500:]}")
+        assert "IMPORT OK" in salida
+
+    def test_importa_tambien_sin_ninguna_variable(self):
+        """La otra mitad: que arreglarlo para Render no lo rompa en local."""
+        cod, salida = self._importa({})
+        assert cod == 0, f"falla sin configuración:\n{salida[-1500:]}"
+
+    def test_el_motor_esta_en_el_path_antes_del_primer_import(self):
+        """El arreglo, en el código: `engine/` entra en `sys.path` donde se
+        define la ruta, no donde a alguien le hizo falta. Un import de nivel de
+        módulo no puede depender de qué función se ejecutó antes."""
+        fuente = (ROOT / "vertex_api.py").read_text(encoding="utf-8")
+        i_def = fuente.index("_WBJ_ENGINE_PATH = os.path.join(")
+        i_ins = fuente.index("sys.path.insert(0, _WBJ_ENGINE_PATH)", i_def)
+        # La inserción va pegada a la definición, y a nivel de módulo (sin
+        # indentar dentro de una función).
+        entre = fuente[i_def:i_ins]
+        assert "def " not in entre, "la inserción volvió a quedar dentro de una función"
+        # Y ocurre ANTES del primer `from wbj` de nivel de módulo.
+        i_wbj = fuente.index("\nfrom wbj.")
+        assert i_ins < i_wbj, "el path se inserta después del primer import de wbj"
+
+    def test_sec_user_agent_usa_la_variable_cuando_esta(self):
+        """Y el atajo de `_sec_user_agent` sigue ahí: con la variable puesta no
+        toca el motor para nada. Lo que se arregló es que ya no sea ÉL quien
+        pone el path."""
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._sec_user_agent)
+        assert 'os.environ.get("EDGAR_USER_AGENT")' in fuente
+        assert fuente.index("return ua") < fuente.index("_WBJ_ENGINE_PATH")
+
+
+class TestElTabSeVeEnRender:
+    """Lo que decide si el tab se VE en el servidor, no solo si los tests pasan.
+
+    Tres cosas hunden un despliegue sin que ningún test de lógica se entere:
+    un acento grave mal puesto rompe el JS y el tab sale en blanco; una ruta que
+    el panel pide y el servidor no sirve da 404 en silencio; y una ruta que
+    revienta con 5xx en vez de degradar deja al usuario con un error de red en
+    vez de con una explicación.
+    """
+
+    def test_el_javascript_del_panel_es_valido(self):
+        """Un backtick dentro de un comentario HTML CIERRA la plantilla y se
+        lleva el tab entero — no una tarjeta, el tab. Ya pasó dos veces."""
+        import re
+        import shutil
+        import subprocess
+        import tempfile
+
+        if not shutil.which("node"):
+            pytest.skip("node no esta instalado")
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        bloques = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)</script>", html)
+        assert bloques, "el panel no tiene bloques de script"
+        with tempfile.NamedTemporaryFile("w", suffix=".mjs", delete=False,
+                                         encoding="utf-8") as f:
+            f.write(max(bloques, key=len))
+            ruta = f.name
+        r = subprocess.run(["node", "--check", ruta], capture_output=True, text=True)
+        assert r.returncode == 0, f"el JS del panel no compila:\n{r.stderr[:800]}"
+
+    def test_cada_ruta_que_el_panel_pide_existe(self, client):
+        """Un 404 en una pestaña no rompe las demás: se ve como «cargando» para
+        siempre. Se cruzan las 45 llamadas del panel con las rutas de la app."""
+        import re
+
+        import vertex_api as V
+
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        pedidas = sorted(set(re.findall(r"\$\{API_BASE\}(/api/[a-z0-9\-_/]+)", html)))
+        assert len(pedidas) >= 20, f"el escaneo solo vio {len(pedidas)} rutas"
+        servidas = {getattr(x, "path", "") for x in V.app.routes}
+        faltan = [p for p in pedidas if p not in servidas]
+        assert not faltan, f"el panel pide rutas que el servidor no sirve: {faltan}"
+
+    def test_el_html_llega_entero_por_la_raiz(self, client):
+        """Render sirve `/`. Si el panel no viaja ahí, no hay tab."""
+        r = client.get("/")
+        assert r.status_code == 200
+        for fn in ("renderProjTape", "renderProjWheel", "renderProjIdeas",
+                   "renderVictorTargets", "vcOutcomesHTML"):
+            assert fn in r.text, f"{fn} no llega al navegador"
+
+    def test_sin_claves_las_rutas_del_tab_degradan_en_vez_de_reventar(self, client,
+                                                                      monkeypatch):
+        """En un Render recién creado no hay `MASSIVE_API_KEY` ni cookie. Con
+        200 + `ok:false` el panel explica qué falta; con un 5xx el usuario ve un
+        error de red y no sabe si es el agente o su internet."""
+        for var in ("MASSIVE_API_KEY", "MARKETSNACK_COOKIE"):
+            monkeypatch.delenv(var, raising=False)
+        for ruta in ("/api/projection-targets?ticker=DEMO", "/api/tito-ideas",
+                     "/api/tito-tape?ticker=DEMO", "/api/tito-wheel"):
+            r = client.get(ruta)
+            assert r.status_code == 200, f"{ruta} devolvió {r.status_code}"
+            d = r.json()
+            if d.get("ok") is False:
+                assert d.get("error"), f"{ruta} degrada sin decir por qué"
+
+    def test_si_faltan_las_velas_la_grafica_de_dinero_lo_dice(self):
+        """`/api/tito-bars` responde 502 cuando Massive falla —como su ruta—, y
+        el consumidor se lo tragaba con tres `return` mudos. En un gráfico que
+        se llama «dinero contra precio», que falte el precio sin avisar se lee
+        como que no hubo movimiento."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("async function _projFlowPrecio(")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "_projFlowAviso(" in cuerpo, "los fallos vuelven a ser mudos"
+        assert 'id="projFlowMoneyAviso"' in html, "el aviso no tiene dónde pintarse"
+        assert "function _projFlowAviso(" in html
+
+
+class TestSuDisenoNoSoloSuLogica:
+    """Su `globals.css` no lo había mirado nadie en dieciséis rondas.
+
+    Se portó su lógica, sus textos, sus umbrales y sus constantes. El diseño se
+    dibujó con utilidades sueltas de Tailwind, y eso deja fuera decisiones suyas
+    que no son adorno — la que más se nota es `tabular-nums`: sin ella cada
+    dígito lleva su propio ancho, así que $1.111 y $8.888 no acaban en la misma
+    columna y la vista no puede comparar dos precios sin leerlos. En una
+    pantalla que es casi toda números, eso no es tipografía fina.
+    """
+
+    #: Sus tonos, de `:root` de su CSS. El `emerald-400` de Tailwind es #34d399
+    #: y su verde es #12b76a: parecidos en la cabeza, distintos en pantalla.
+    TONOS = {"--vc-accent": "#2f6bff", "--vc-green": "#12b76a",
+             "--vc-red": "#f04438", "--vc-put": "#f97066",
+             "--vc-amber": "#f79009"}
+
+    @staticmethod
+    def _css():
+        return (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+
+    def test_sus_tonos_exactos(self):
+        # Por regex y no por cadena literal: el bloque alinea los valores con
+        # espacios y el test debe medir el VALOR, no el formato.
+        import re
+
+        html = self._css()
+        for var, hexa in self.TONOS.items():
+            assert re.search(rf"{re.escape(var)}:\s*{hexa}\b", html, re.I), \
+                f"{var} no es el suyo ({hexa})"
+
+    def test_las_cuatro_reglas_de_tabla(self):
+        html = self._css()
+        for regla in ("font-variant-numeric: tabular-nums",
+                      "tbody tr:nth-child(odd)", "tbody tr:hover",
+                      "position: sticky"):
+            assert regla in html, f"falta «{regla}» de sus tablas"
+
+    def test_su_escala_de_espaciado_con_su_recorte_de_movil(self):
+        """Su regla, escrita en su propio CSS: «el gap ENTRE cards (lg) tiene
+        que superar al padding DENTRO (md), si no la proximidad se invierte y
+        las cards se leen pegadas». Y en móvil las recorta, porque «ahí el
+        scroll pesa más que el agrupamiento»."""
+        html = self._css()
+        for var, px in (("--vc-xs", 8), ("--vc-sm", 14), ("--vc-md", 24), ("--vc-lg", 32)):
+            assert f"{var}: {px}px" in html, f"{var} no vale {px}px"
+        assert "--vc-md: 16px; --vc-lg: 22px" in html, "falta su recorte de móvil"
+
+    def test_la_fila_inusual_se_tine_ENTERA(self):
+        """Su `tbody tr.unusual td { background }` tiñe la fila, no la celda del
+        puntaje. Una fila inusual entre cien es lo que hay que poder encontrar
+        de un vistazo."""
+        html = self._css()
+        assert "tr.vc-unusual td" in html
+        i = html.index("function renderProjTape(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "'vc-unusual'" in cuerpo, "la clase no llega a la fila"
+
+    def test_el_lado_va_en_su_pill(self):
+        """`.pill`: 999px, 700, MAYÚSCULAS y letter-spacing. Es lo que las
+        separa del texto de al lado sin necesitar más color."""
+        html = self._css()
+        assert "text-transform: uppercase" in html and ".vc-pill" in html
+        i = html.index("function renderProjTape(d) {")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "vc-pill-call" in cuerpo and "vc-pill-put" in cuerpo
+
+    def test_el_css_cuelga_del_contenedor_que_existe(self):
+        """Un selector con el id equivocado es CSS muerto: no falla, no se ve,
+        y parece que el diseño está puesto. Pasó al escribir esto — el
+        contenedor se llama `projectionsView`, no `view-proyecciones`."""
+        html = self._css()
+        assert 'id="projectionsView"' in html
+        assert "#projectionsView" in html
+        assert "#view-proyecciones" not in html, "quedó un selector muerto"
+
+    def test_la_divergencia_de_luminosidad_esta_declarada(self):
+        """Su paleta es CLARA y este tab vive dentro de Vertex, que es oscuro.
+        Lo que se porta son sus tonos y sus proporciones, no su fondo — y eso
+        se dice en el sitio, no se deja a la interpretación."""
+        html = self._css()
+        i = html.index("EL SISTEMA DE DISEÑO DE VÍCTOR")
+        bloque = html[i:i + 1400]
+        assert "DIVERGENCIA DECLARADA" in bloque
+        assert "#f3f4f6" in bloque, "no cita su fondo real"
+
+
+class TestLaCoberturaDeLosSubAgentes:
+    """`/api/tito-health` existía en el servidor y no lo llamaba NADIE.
+
+    Es la única respuesta a la pregunta que el scorecard no contesta: «¿con qué
+    dato salió este número?». Un 62/100 sostenido por dos categorías de seis se
+    ve idéntico a uno sostenido por las seis — el veredicto lleva el mismo
+    tamaño de letra. El diagnóstico estaba escrito, tocaba cada fuente una por
+    una, decía el impacto y el arreglo… y vivía declarado como «se consulta a
+    mano al desplegar», o sea nunca.
+    """
+
+    #: Lo que tiene que mirar. Las tres últimas faltaban: son las que deciden si
+    #: el agente MEJORA con el tiempo o se estrena cada semana.
+    OBLIGATORIOS = ("ticker", "motor", "MASSIVE_API_KEY", "MARKETSNACK_COOKIE",
+                    "memoria.disco", "memoria.iv", "memoria.flows",
+                    "memoria.predicciones", "memoria.cadenas", "memoria.respaldo")
+
+    def test_diagnostica_las_tres_series_y_el_respaldo(self, client):
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        nombres = [c["check"] for c in d["checks"]]
+        for k in self.OBLIGATORIOS:
+            assert k in nombres, f"el diagnóstico no mira «{k}»"
+
+    def test_cada_fallo_dice_el_impacto_y_el_arreglo(self, client):
+        """Un diagnóstico que dice «falta X» y no dice qué se rompe ni cómo
+        arreglarlo obliga a leer el código para usarlo."""
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        for c in d["checks"]:
+            if c["ok"]:
+                continue
+            assert c.get("impacto"), f"«{c['check']}» falla y no dice qué se rompe"
+            assert c.get("arreglo"), f"«{c['check']}» falla y no dice cómo arreglarlo"
+
+    def test_la_calibracion_se_declara_con_sus_muestras(self, client):
+        """El lazo que corrige los targets. Sin él el agente puede llevar seis
+        meses apuntando un 8% de más y seguir apuntando lo mismo."""
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        pred = next(c for c in d["checks"] if c["check"] == "memoria.predicciones")
+        assert "muestras" in pred["detalle"] and "vencidas" in pred["detalle"]
+
+    def test_el_respaldo_dice_que_sin_el_todo_vuelve_a_cero(self, client):
+        """En Render free el disco se borra en cada redeploy. Sin respaldo, los
+        contadores de arriba vuelven a cero solos y el agente se estrena otra
+        vez sin que nadie lo note: los números que enseña son correctos,
+        simplemente empiezan de nuevo."""
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        r = next(c for c in d["checks"] if c["check"] == "memoria.respaldo")
+        if not r["ok"]:
+            assert "VERTEX_GIT_TOKEN" in (r["arreglo"] or "")
+            assert "redeploy" in (r["impacto"] or "")
+
+    def test_no_imprime_credenciales(self, client, monkeypatch):
+        """Dice si la clave está y cuánto mide. Nunca lo que vale."""
+        monkeypatch.setenv("MASSIVE_API_KEY", "clave-secreta-de-verdad-123")
+        monkeypatch.setenv("MARKETSNACK_COOKIE", "cookie-secreta-de-verdad-456")
+        cuerpo = client.get("/api/tito-health?ticker=DEMO").text
+        assert "clave-secreta-de-verdad" not in cuerpo
+        assert "cookie-secreta-de-verdad" not in cuerpo
+
+    def test_la_pestana_existe_y_lo_pinta(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "'salud'" in html and "Cobertura" in html
+        assert "function loadProjSalud(" in html and "function renderProjSalud(" in html
+        assert "loadProjSalud();" in html, "la pestaña existe y nadie la carga"
+        assert 'id="projPaneSalud"' in html and 'id="projSalud"' in html
+        assert "/api/tito-health?ticker=" in html, "el panel no llama a la ruta"
+
+    def test_cada_check_dice_a_que_sub_agente_afecta(self):
+        """La tabla traduce el diagnóstico de sistema a la pregunta del
+        usuario: no «falta MARKETSNACK_COOKIE», sino «Agresividad, Convicción,
+        Inusualidad y Contexto IV se quedan sin dato»."""
+        import re
+
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = html.index("const VC_SALUD_QUIEN = {")
+        mapa = html[i:html.index("};", i)]
+        for k in self.OBLIGATORIOS:
+            if k in ("ticker", "motor"):
+                continue           # no son de ningún sub-agente: son el arranque
+            assert f"'{k}'" in mapa, f"«{k}» no dice a quién afecta"
+
+    def test_la_ruta_ya_no_esta_declarada_como_huerfana(self):
+        """Tenía cliente cero y estaba declarada así. Ahora lo tiene, y dejar
+        la declaración sería documentación que afirma lo contrario del código."""
+        aud = (ROOT / "engine" / "scripts" / "auditar_tito.py").read_text(encoding="utf-8")
+        i = aud.index("RUTAS_HUERFANAS = {")
+        assert '"tito-health"' not in aud[i:aud.index("\n}", i)]
+
+
+class TestLaEvidenciaDelSubAgente6:
+    """«Sin evidencia, no hay número» — la regla del proyecto, aplicada al 6.
+
+    `validation.outcomes` es la tabla de su `ValidationCard`: cada flow pasado
+    con cuánto recorrió a favor, cuánto en contra, cuánto tardó y si acabó
+    validado o absorbido. Se calculaba ENTERA en `validation.py` y moría en el
+    servidor: al panel solo llegaba la tasa. Un 62% sin sus 25 filas no deja
+    ver si vino de tres aciertos grandes o de veinte pequeños, que se leen muy
+    distinto.
+    """
+
+    def test_los_outcomes_llegan_al_payload(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        v = d["subagents"]["validation"]
+        assert "outcomes" in v, "la evidencia del sub-agente 6 no sale de la ruta"
+        assert len(v["outcomes"]) <= 25, "su `outcomes.slice(0, 25)`"
+        if v["outcomes"]:
+            o = v["outcomes"][0]
+            for campo in ("timestamp", "type", "strike", "expiration", "premium",
+                          "direction", "mfe_pct", "mae_pct", "days_to_validate",
+                          "days_elapsed", "validated", "resolved"):
+                assert campo in o, f"falta {campo} en la fila de evidencia"
+
+    def test_la_tasa_y_las_filas_cuentan_lo_mismo(self, client):
+        """Si la tabla dice otra cosa que el titular, una de las dos miente."""
+        v = client.get("/api/projection-targets?ticker=DEMO").json()["subagents"]["validation"]
+        resueltos = [o for o in v["outcomes"] if o["resolved"]]
+        if not resueltos or v["hit_rate"]["resolved"] > 25:
+            return          # la tabla está recortada a 25: no es comparable
+        assert sum(1 for o in resueltos if o["validated"]) == v["hit_rate"]["validated"]
+        assert len(resueltos) == v["hit_rate"]["resolved"]
+
+    def test_el_panel_pinta_la_tabla(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "function vcOutcomesHTML(" in html
+        assert "${vcOutcomesHTML(val)}" in html, "definida pero nadie la llama"
+        assert "Qu&eacute; pas&oacute; despu&eacute;s de cada flow" in html
+        for etq in ("Validado", "Absorbido", "Muy reciente"):
+            assert etq in html, f"falta el resultado «{etq}»"
+
+
+class TestLaMemoriaFallaEnVozAlta:
+    """La escritura de la que depende TODO el aprendizaje era la única muda.
+
+    El panel ya contaba las escrituras fallidas de cadena, trades e IV en
+    `memory.escrituras_fallidas`, y las pinta. La de PREDICCIONES —la que cierra
+    el lazo de calibración, o sea lo único que hace que el agente mejore con el
+    tiempo— vivía en un `except Exception: pass`. Un disco lleno o un permiso
+    mal puesto dejaban el track record congelado durante meses mientras el panel
+    seguía diciendo «0 predicciones vencidas», que es lo que se ve el primer día.
+    """
+
+    def test_si_no_se_puede_guardar_la_prediccion_se_dice(self, client, monkeypatch):
+        import wbj.tito.stores as ST
+
+        def boom(*a, **k):
+            raise OSError("No space left on device")
+
+        monkeypatch.setattr(ST, "save_prediction", boom)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["ok"] is True, "un fallo de ESCRITURA no puede tumbar el análisis"
+        fallidas = (d.get("memory") or {}).get("escrituras_fallidas") or []
+        assert any("predicciones" in f for f in fallidas), \
+            f"la escritura falló y el panel no se entera: {fallidas}"
+
+    def test_cuando_se_guarda_bien_no_inventa_una_alerta(self, client):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        fallidas = (d.get("memory") or {}).get("escrituras_fallidas") or []
+        assert not any("predicciones" in f for f in fallidas)
+
+    def test_el_panel_pinta_esa_lista(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "m.escrituras_fallidas" in html, \
+            "el campo viaja y nadie lo enseña: volvería a fallar en silencio"
+
+
+class TestElTrackRecordSeVe:
+    """Su `MemoriaCard` no enseña un resumen: enseña una TABLA con qué predijo,
+    qué pasó de verdad y cuánto se equivocó.
+
+    `review_predictions` ya se llamaba en el servidor y sus `evals` se
+    tiraban — solo viajaban los agregados. O sea que el panel decía "6
+    predicciones vencidas, sesgo +2%" y no había forma de ver ninguna. Para lo
+    único que existe esa sección —saber si el agente acierta— el resumen es
+    justo lo que no basta.
+    """
+
+    def test_el_payload_lleva_las_predicciones_una_a_una(self, client, mercado):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        m = (d.get("memory") or {})
+        assert "evals" in m, "el track record no viaja"
+        assert isinstance(m["evals"], list)
+        for e in m["evals"]:
+            for k in ("date", "horizon_days", "matured", "base",
+                      "actual_close", "error_pct", "best"):
+                assert k in e, k
+
+    def test_el_panel_pinta_la_tabla_con_el_color_del_error(self):
+        import pathlib
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        # La función ENTERA, no sus primeros 3.000 caracteres. Con el corte
+        # fijo, añadir dos líneas arriba empujaba la tabla fuera de la ventana
+        # y el test denunciaba como ausente algo que seguía ahí.
+        i = html.index("function vcMemoryHTML(")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "m.evals" in cuerpo, "la tabla no lee los evals"
+        assert "vcErrColor(" in cuerpo, "el error no va coloreado"
+        assert "acertó" in cuerpo, "no se dice qué escenario acertó"
+
+
+class TestLaProbabilidadDeTocarElNivel:
+    """`probTouch(spot, l.price, iv, horizonDays)` de su `NivelesSimples`.
+
+    La tabla de niveles enseñaba precio, fuerza y distancia — y no cuán
+    probable era llegar. Un soporte de fuerza 80 al 15% de distancia y otro de
+    fuerza 50 al 2% se leían igual de "fuertes", que es justo lo que esta
+    columna desambigua. El motor ya trae `prob_touch`; solo faltaba llamarlo.
+    """
+
+    def test_cada_nivel_viaja_con_su_probabilidad(self, client, mercado):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        niveles = (d["levels"]["supports"] or []) + (d["levels"]["resistances"] or [])
+        assert niveles, "sin niveles no se prueba nada"
+        for l in niveles:
+            assert "touch" in l, "el nivel no lleva P(toque)"
+            if l["touch"] is not None:
+                assert 0.0 <= l["touch"] <= 1.0, l["touch"]
+
+    def test_mas_cerca_es_mas_probable(self):
+        """La comprobación que le da sentido: si la probabilidad no cae con la
+        distancia, la columna sería decorativa."""
+        from wbj.tito.expected_move import prob_touch
+
+        cerca = prob_touch(100.0, 98.0, 0.45, 20)
+        lejos = prob_touch(100.0, 80.0, 0.45, 20)
+        assert cerca > lejos
+
+    def test_usa_la_IV_del_GEX_como_el(self):
+        """Su `NivelesSimples` recibe `iv={gex?.iv ?? 0.4}`. Con otra IV la
+        columna diría otra cosa sin que nada fallara."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V)
+        i = fuente.index("_iv_niveles")
+        assert "r.gex.iv" in fuente[i:i + 200]
+        assert "0.4" in fuente[i:i + 200], "falta su respaldo de 0.4"
+
+    def test_el_panel_pinta_la_columna(self):
+        import pathlib
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        # La función ENTERA, no sus primeros 2.200 caracteres: con el corte fijo,
+        # añadirle texto arriba empujaba la cabecera fuera de la ventana y el
+        # test denunciaba como ausente algo que estaba tres líneas más abajo.
+        i = html.index("function vcLevelsHTML(")
+        cuerpo = html[i:html.index("\nfunction ", i + 10)]
+        assert "l.touch" in cuerpo, "la columna no lee el dato"
+        assert "P(toque)" in cuerpo, "la columna no tiene cabecera"

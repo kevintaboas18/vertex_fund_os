@@ -198,16 +198,14 @@ def compara(bloque, i, mio, suyo_full):
 # ─────────────────────────────── ivcontext ────────────────────────────────
 for i, (c, v) in enumerate(zip(C["ivcontext"], V["ivcontext"])):
     def _caso(c=c):
-        # `avgIv` → `avg_iv`: el corpus habla el idioma de SU archivo y el port
-        # el de `stores.py`. Traducir aquí es lo correcto; el port leyendo
-        # `avgIv` sería el port hablando camelCase, que no es su convención.
-        # Solo se renombra la clave — el valor viaja intacto, basura incluida,
-        # y una entrada que no es objeto pasa tal cual para que ambos lados
-        # tropiecen con lo mismo.
+        # El corpus habla el idioma de SU archivo y NO se traduce, porque el
+        # archivo del port ahora es el mismo: `stores.save_iv_snapshot` escribe
+        # `avgIv` y `ivcontext` lee `avgIv`. Antes aquí se renombraba a
+        # `avg_iv`, y ese renombre tapaba el fallo que costó el historial: los
+        # dos lados coincidían en el diferencial mientras el archivo del port
+        # era ilegible para su app y viceversa. La compatibilidad del archivo
+        # la mide `diff_series.sh`; aquí solo se le pasa lo que hay dentro.
         hist = c.get("ivHistory", UNDEFINED)
-        if isinstance(hist, list):
-            hist = [{("avg_iv" if k == "avgIv" else k): w for k, w in h.items()}
-                    if isinstance(h, dict) else h for h in hist]
         r = iv_context_score([_fila(x) for x in c["rows"]], c["closes"], hist)
         return {
             "score": r.score,

@@ -40,8 +40,8 @@ from functools import cmp_to_key
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
-from .jsmath import (RangeError, UNDEFINED, js_abs, js_date_parse, js_gt, js_le, js_max, js_min,
-                     js_number, js_orden, js_string)
+from .jsmath import (RangeError, UNDEFINED, es_nulo, js_abs, js_date_parse, js_gt, js_le,
+                     js_max, js_min, js_number, js_orden, js_string)
 from .occ import market_date_str
 
 __all__ = [
@@ -53,6 +53,7 @@ __all__ = [
     "JOURNAL_DAYS",
     "MAX_PER_TICKER",
     "save_chain_snapshot",
+    "migra_series",
     "load_chain_history",
     "save_iv_snapshot",
     "load_iv_history",
@@ -217,9 +218,20 @@ def _write(path: Path, payload: Any) -> None:
 
 
 def _prune(rows: list[dict], days: int, key: str = "date") -> list[dict]:
-    """Recorta a la ventana y ordena. Sin esto el fichero crece sin fin."""
+    """Recorta a la ventana y ordena. Sin esto el fichero crece sin fin.
+
+    Las filas que no son objetos se IGNORAN en vez de reventar. No es
+    defensa preventiva: con un archivo cuyo contenido no es una lista de
+    diccionarios —el formato de SU app, o un archivo a medio escribir— esto
+    lanzaba `AttributeError: 'str' object has no attribute 'get'`, mientras
+    que su `loadIvHistory` devuelve `null` y sigue. El motor degradaba a
+    «sin historial», que es correcto, pero por el camino equivocado: una
+    excepción atrapada arriba en vez de un archivo descartado aquí.
+    """
     cutoff = (date.today() - timedelta(days=days)).isoformat()
-    return sorted((r for r in rows if str(r.get(key, "")) >= cutoff), key=lambda r: r[key])
+    limpias = [r for r in rows if isinstance(r, dict)]
+    return sorted((r for r in limpias if str(r.get(key, "")) >= cutoff),
+                  key=lambda r: str(r.get(key, "")))
 
 
 def _upsert(rows: list[dict], row: dict, key: str = "date") -> list[dict]:
@@ -229,85 +241,175 @@ def _upsert(rows: list[dict], row: dict, key: str = "date") -> list[dict]:
     return out
 
 
+# ── El SOBRE de sus tres series diarias ─────────────────────────────────────
+#
+# Los tres —cadena, IV y predicciones— comparten forma en su repo:
+#
+#     { ticker, updatedAt, snapshots: [ … ] }   // más reciente primero
+#
+# Y comparten reglas: una foto por día de mercado (la del día se REEMPLAZA en
+# cada corrida), orden descendente por fecha, y recorte **por cantidad** con
+# `.slice(0, N)` — no por ventana de fechas.
+#
+# La diferencia entre las dos formas de recortar importa: si un ticker se deja
+# de mirar seis meses, su recorte conserva las 365 fotos que hay y el de fecha
+# las tira todas. El IV Rank se quedaría sin historia justo en el ticker que más
+# tiempo lleva acumulándola.
+#
+# Todo esto se escribe en **camelCase**, que es como lo escribe él. Los objetos
+# de Python siguen en snake_case, como el resto del port: la traducción ocurre
+# aquí, en el borde del disco, igual que `massive.py` traduce su API. El archivo
+# que queda es intercambiable con el de su app — se comprueba en
+# `diff_series.sh`, que lo lee con SU TypeScript.
+
+
+def _sobre(ticker: str, snapshots: list[dict], now: datetime) -> dict:
+    """`{ ticker, updatedAt, snapshots }` — su envoltorio, literal."""
+    return {"ticker": ticker.strip().upper(),
+            "updatedAt": _iso(now), "snapshots": snapshots}
+
+
+def _iso(d: datetime) -> str:
+    """`Date.toISOString()`: UTC, milisegundos y `Z`."""
+    u = d.astimezone(timezone.utc) if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    return u.strftime("%Y-%m-%dT%H:%M:%S.") + f"{u.microsecond // 1000:03d}Z"
+
+
+def _lee_sobre(path) -> dict | None:
+    """Su `load*`: el objeto si trae `snapshots`, `None` si no.
+
+    `Array.isArray(parsed.snapshots) ? parsed : null` — un archivo con otra
+    forma NO es un historial vacío, es un archivo que no reconocemos, y
+    devolver `None` es lo que deja al llamador distinguir «aún no hay nada» de
+    «hay algo que no sé leer».
+    """
+    crudo = _read(path)
+    if not isinstance(crudo, dict) or not isinstance(crudo.get("snapshots"), list):
+        return None
+    return crudo
+
+
+def _fusiona(previas: list[dict], nueva: dict, tope: int) -> list[dict]:
+    """Dedupe por fecha + orden descendente + recorte por CANTIDAD.
+
+    Es su bloque de `new Map()` → `sort(b.date.localeCompare(a.date))` →
+    `.slice(0, N)`, en ese orden. El `Map` hace que la foto de hoy pise a la de
+    hoy: en cada corrida se actualiza, no se acumulan varias del mismo día.
+    """
+    por_fecha: dict[str, dict] = {}
+    for s in previas:
+        if isinstance(s, dict) and s.get("date"):
+            por_fecha[s["date"]] = s
+    por_fecha[nueva["date"]] = nueva
+    ordenadas = sorted(por_fecha.values(), key=lambda s: str(s.get("date", "")),
+                       reverse=True)
+    return ordenadas[:tope]
+
+
 # ─────────────────────────────── cadena (sub-agente 4) ──────────────────────
 
 
-def save_chain_snapshot(ticker: str, rows: Sequence[Any], now: datetime) -> int:
-    """Guarda una foto diaria de la cadena. Devuelve los días acumulados.
+def save_chain_snapshot(ticker: str, s: Any, now: datetime) -> int:
+    """Guarda la foto del día de la cadena. Devuelve los días acumulados.
 
-    Solo se guarda el agregado por strike, no la cadena entera: lo que el
-    sub-agente 4 mira es cómo se mueve el open interest, y guardar miles de
-    contratos por día haría el fichero inmanejable sin aportar nada.
+    Port de su `saveChainSnapshot`. Recibe el **StructureScore ya calculado**,
+    no la cadena cruda: lo que él persiste es el resultado del sub-agente 4 —
+    su score, sus puntos por cada parte y los 5 strikes de más nocional—, no
+    los miles de contratos que lo produjeron.
+
+    Antes aquí se guardaba `{date, strikes:[{strike, call_oi, put_oi, volume}]}`,
+    que no era su formato **ni sus datos**: sin `score` ni `points` no se puede
+    reconstruir por qué el sub-agente 4 puntuó lo que puntuó un día concreto,
+    que es justo para lo que existe este historial.
     """
-    by_strike: dict[float, dict] = {}
-    for r in rows:
-        s = by_strike.setdefault(r.strike, {"strike": r.strike, "call_oi": 0, "put_oi": 0, "volume": 0})
-        if r.contract_type == "call":
-            s["call_oi"] += r.open_interest
-        else:
-            s["put_oi"] += r.open_interest
-        s["volume"] += r.volume
-
+    fecha = market_date_str(now)
+    n, k, v = s.notional, s.strikes, s.vol_oi
+    foto = {
+        "date": fecha,
+        "savedAt": _iso(now),
+        "score": s.score,
+        "avgNotionalPerStrike": n["avg_per_strike"],
+        "totalNotional": n["total"],
+        "strikeCount": n["strike_count"],
+        "notionalPoints": n["points"],
+        "dominantCount": k["dominant_count"],
+        "strikePoints": k["points"],
+        "volOIPct": v["pct"],
+        "volOIPoints": v["points"],
+        "callPct": k["call_pct"],
+        "putPct": k["put_pct"],
+        "dominantSide": k["dominant_side"],
+        "lowLiquidity": n["low_liquidity"],
+        # `.slice(0, 5)` suyo: los cinco de más nocional, con tres campos.
+        "topStrikes": [{"strike": x.strike, "notional": x.notional, "side": x.side}
+                       for x in k["top"][:5]],
+    }
     path = _path("chain", ticker)
     with _exclusive(path):   # mismo motivo que en save_trades: leer-fusionar-escribir
-        hist = _read(path) or []
-        hist = _upsert(hist, {"date": market_date_str(now), "strikes": list(by_strike.values())})
-        hist = _prune(hist, CHAIN_DAYS)
-        _write(path, hist)
-    return len(hist)
+        previo = _lee_sobre(path)
+        fotos = _fusiona((previo or {}).get("snapshots", []), foto, CHAIN_DAYS)
+        _write(path, _sobre(ticker, fotos, now))
+    return len(fotos)
 
 
 def load_chain_history(ticker: str) -> list[dict]:
-    return _prune(_read(_path("chain", ticker)) or [], CHAIN_DAYS)
+    """Las fotos guardadas, más reciente primero. Lista vacía si no hay nada.
+
+    Devuelve el ARRAY y no el sobre porque es lo que consume el motor; sus
+    rutas hacen lo mismo (`hist?.snapshots ?? []`). El sobre vive en el
+    archivo, que es donde tiene que estar para que sea el suyo.
+    """
+    return (_lee_sobre(_path("chain", ticker)) or {}).get("snapshots", [])
 
 
 # ─────────────────────────────── IV (sub-agente 5) ──────────────────────────
 
 
-def save_iv_snapshot(
-    ticker: str,
-    avg_iv: float,
-    now: datetime,
-    min_iv: float | None = None,
-    max_iv: float | None = None,
-    contracts: int | None = None,
-    front_skew: float | None = None,
-) -> int:
-    """Guarda la foto de IV del día (en %). Alimenta el IV Rank real.
+def save_iv_snapshot(ticker: str, s: Any, now: datetime) -> int:
+    """Guarda la foto de IV del día. Alimenta el IV Rank real.
+
+    Port de su `saveIvSnapshot`. Recibe el **IvContextScore** entero, como él:
+    de ahí salen `avgIv` (la IV ponderada por premium — el dinero grande define
+    el contexto, no los cientos de tickets de 0DTE), y los cuatro campos que
+    permiten auditar después por qué la IV de un día salió como salió.
+
+    Su guarda es `if (s.iv.current == null)`: solo el nulo. Un `current` de 0 SÍ
+    se guarda, y se filtra al leer (`Number.isFinite(v) && v > 0`). Aquí se hace
+    igual — rechazarlo al escribir cambiaría qué días existen en el historial.
 
     A partir de `MIN_IV_HISTORY_DAYS` (60) muestras, `iv_context_score` deja de
     usar el proxy de volatilidad realizada y pasa al rank de verdad, solo.
-
-    `avg_iv` tiene que ser la IV **ponderada por premium** (`iv.current` de
-    `iv_context_score`), que es lo que guarda su `saveIvSnapshot`. Un promedio
-    simple lo dominan los cientos de tickets pequeños de 0DTE, y ese número
-    queda escrito para siempre: el IV Rank de dentro de seis meses se calcula
-    sobre lo que se guarde hoy.
-
-    Los cuatro campos opcionales son los que su snapshot también persiste
-    (`minIv`, `maxIv`, `contracts`, `frontSkew`). El rank NO los usa —solo lee
-    `avgIv`—, pero sin ellos no se puede auditar hacia atrás por qué la IV de
-    un día concreto salió como salió.
     """
-    if not (avg_iv and avg_iv > 0):
-        return len(load_iv_history(ticker))
+    actual = s.iv.get("current") if isinstance(s.iv, dict) else None
     path = _path("iv", ticker)
-    fila = {"date": market_date_str(now), "avg_iv": round(float(avg_iv), 4)}
-    for k, v in (("min_iv", min_iv), ("max_iv", max_iv),
-                 ("contracts", contracts), ("front_skew", front_skew)):
-        if v is not None:
-            fila[k] = round(float(v), 4) if k != "contracts" else int(v)
+    if es_nulo(actual):
+        # Su `return existing ?? {…, snapshots: []}`: no se escribe nada.
+        return len(load_iv_history(ticker))
+    foto = {
+        "date": market_date_str(now),
+        "savedAt": _iso(now),
+        "avgIv": actual,
+        "minIv": s.iv.get("min"),
+        "maxIv": s.iv.get("max"),
+        "contracts": s.iv.get("contracts"),
+        "frontSkew": s.front_skew,
+    }
     with _exclusive(path):
-        hist = _read(path) or []
-        hist = _upsert(hist, fila)
-        hist = _prune(hist, IV_DAYS)
-        _write(path, hist)
-    return len(hist)
+        previo = _lee_sobre(path)
+        fotos = _fusiona((previo or {}).get("snapshots", []), foto, IV_DAYS)
+        _write(path, _sobre(ticker, fotos, now))
+    return len(fotos)
 
 
 def load_iv_history(ticker: str) -> list[dict]:
-    """Formato que consume `iv_context_score`: ``[{date, avg_iv}, …]``."""
-    return _prune(_read(_path("iv", ticker)) or [], IV_DAYS)
+    """Las fotos de IV, más reciente primero.
+
+    `iv_context_score` lee `avgIv` de cada una — la clave que hay en el archivo
+    y en el suyo. Un historial viejo en snake_case NO cuenta: el rank se
+    quedaría en el proxy de volatilidad realizada sin decir nada. Por eso
+    `migra_series()` corre en el arranque y no cuando alguien se acuerde.
+    """
+    return (_lee_sobre(_path("iv", ticker)) or {}).get("snapshots", [])
 
 
 # ─────────────────────────── trades (sub-agente 6) ──────────────────────────
@@ -581,23 +683,59 @@ def save_prediction(ticker: str, snap: PredictionSnapshot) -> int:
     ya venció, así que un diario con tres horizontes por día lo procesa sin
     tocar nada — la clave es lo único que cambia.
     """
+    foto = {
+        "date": snap.date,
+        "savedAt": snap.saved_at,
+        "spot": snap.spot,
+        "horizonDays": snap.horizon_days,
+        "bear": snap.bear,
+        "base": snap.base,
+        "bull": snap.bull,
+        "direction": snap.direction,
+        "confidence": snap.confidence,
+    }
     path = _path("predictions", ticker)
     with _exclusive(path):
         # Se llama una vez POR HORIZONTE. Sin cerrojo, dos peticiones a la vez
         # se pisan el diario y la calibración se queda con huecos.
-        rows = _read(path) or []
-        rows = [
-            r for r in rows
-            if not (r.get("date") == snap.date and r.get("horizon_days") == snap.horizon_days)
-        ]
-        rows.append(asdict(snap))
-        rows = _prune(rows, JOURNAL_DAYS)
-        _write(path, rows)
-    return len(rows)
+        previo = _lee_sobre(path)
+        previas = (previo or {}).get("snapshots", [])
+        # La clave de dedupe es la divergencia declarada arriba: (fecha,
+        # horizonte) en vez de solo la fecha. `_fusiona` deduplica por fecha, así
+        # que las otras del mismo día se apartan antes y se vuelven a meter.
+        del_dia = [r for r in previas
+                   if isinstance(r, dict) and r.get("date") == snap.date
+                   and r.get("horizonDays") != snap.horizon_days]
+        resto = [r for r in previas
+                 if isinstance(r, dict) and r.get("date") != snap.date]
+        fotos = _fusiona(resto, foto, JOURNAL_DAYS)
+        fotos = sorted(fotos + del_dia,
+                       key=lambda r: (str(r.get("date", "")),
+                                      -int(r.get("horizonDays") or 0)),
+                       reverse=True)[:JOURNAL_DAYS]
+        _write(path, _sobre(ticker, fotos, _fecha_de(snap.saved_at)))
+    return len(fotos)
+
+
+def _fecha_de(iso: str | None) -> datetime:
+    """El `savedAt` de la foto como `datetime`, para que el `updatedAt` del
+    sobre sea el mismo instante y no el reloj de pared de otra línea."""
+    try:
+        return datetime.strptime(iso or "", "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+            tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        return datetime.now(timezone.utc)
 
 
 def load_journal(ticker: str) -> list[dict]:
-    return _prune(_read(_path("predictions", ticker)) or [], JOURNAL_DAYS)
+    """El diario, más reciente primero. Lista vacía si no hay nada.
+
+    `review_predictions` lee `horizonDays` y `savedAt` de cada fila — las
+    claves que hay en el archivo, que son las suyas. Su propio
+    `reviewPredictions` lee exactamente esas, así que el mismo archivo lo
+    procesan los dos sin tocar nada.
+    """
+    return (_lee_sobre(_path("predictions", ticker)) or {}).get("snapshots", [])
 
 
 def _touched(target: float, spot: float, high: float, low: float) -> bool:
@@ -746,3 +884,70 @@ def review_predictions(
 def calibration_from_review(review: dict) -> dict:
     """Empaqueta el review en lo que espera `predict_pro(calibration=…)`."""
     return {"bias_pct": review.get("bias_pct"), "samples": review.get("matured_count", 0)}
+
+
+# ── Migración de los archivos que se escribieron con el formato viejo ────────
+#
+# Los tres stores de arriba escribían una LISTA PELADA con las claves en
+# snake_case. Ahora escriben su sobre `{ticker, updatedAt, snapshots}` con las
+# claves en camelCase, que es lo que hace el archivo intercambiable con el de
+# su app.
+#
+# Esto convierte lo que ya estuviera guardado. Va aquí y no dentro de los
+# `load_*` a propósito: esos son port literal de su código, y su código no sabe
+# nada de un formato anterior. La conversión es política de Vertex, corre una
+# vez al arrancar, y después los stores no vuelven a verla.
+#
+# Sin esto, un historial viejo se leería como vacío —`_lee_sobre` devuelve
+# `None` ante una lista— y se perderían los días acumulados: justo el dato que
+# más tarda en recuperarse, porque solo crece a una foto por día de mercado.
+
+#: Cómo se llamaba cada campo antes y cómo se llama ahora.
+_RENOMBRES = {
+    "avg_iv": "avgIv", "min_iv": "minIv", "max_iv": "maxIv",
+    "front_skew": "frontSkew", "saved_at": "savedAt",
+    "horizon_days": "horizonDays",
+}
+
+
+def migra_series(ticker: str = "") -> dict[str, int]:
+    """Convierte los archivos viejos al formato de Víctor. Idempotente.
+
+    Devuelve cuántos archivos migró por carpeta. Un archivo que ya está en el
+    formato nuevo no se toca, así que llamarla en cada arranque no cuesta nada
+    ni reescribe historia.
+
+    La cadena es el caso raro: el formato viejo guardaba `{date, strikes:[…]}`,
+    que no son los datos de su foto —él persiste el `StructureScore`, con su
+    score y sus puntos—. Esos días no se pueden convertir porque la información
+    no está; se descartan y se cuentan aparte. Es una pérdida real y por eso se
+    dice, en vez de dejar un archivo medio traducido que parezca completo.
+    """
+    hecho = {"iv": 0, "predictions": 0, "chain_descartados": 0}
+    ahora = datetime.now(timezone.utc)
+    for carpeta in ("iv", "predictions", "chain"):
+        base = data_dir() / carpeta
+        if not base.is_dir():
+            continue
+        for archivo in sorted(base.glob("*.json")):
+            crudo = _read(archivo)
+            if not isinstance(crudo, list):
+                continue                          # ya está en el formato nuevo
+            tk = archivo.stem
+            if carpeta == "chain":
+                # Sin `score` ni `points` no hay foto que reconstruir.
+                _write(archivo, _sobre(tk, [], ahora))
+                hecho["chain_descartados"] += 1
+                continue
+            fotos = []
+            for fila in crudo:
+                if not isinstance(fila, dict) or not fila.get("date"):
+                    continue
+                nueva = {_RENOMBRES.get(k, k): v for k, v in fila.items()}
+                nueva.setdefault("savedAt", f"{nueva['date']}T00:00:00.000Z")
+                fotos.append(nueva)
+            fotos.sort(key=lambda s: str(s.get("date", "")), reverse=True)
+            tope = IV_DAYS if carpeta == "iv" else JOURNAL_DAYS
+            _write(archivo, _sobre(tk, fotos[:tope], ahora))
+            hecho[carpeta] += 1
+    return hecho

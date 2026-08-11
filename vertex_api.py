@@ -1,5 +1,6 @@
 import os
 import sys
+import contextvars
 import hashlib
 import concurrent.futures
 import json
@@ -61,6 +62,314 @@ except Exception:
 # `_sec_user_agent()` (A-01) la necesita al importar el módulo, mucho antes
 # de que se use para el scoring.
 _WBJ_ENGINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "engine")
+# …y se pone en `sys.path` AQUÍ, al importar el módulo, no cuando a alguien le
+# haga falta.
+#
+# Esta línea es el arreglo de un despliegue caído. `engine/` llegaba al path
+# solo como EFECTO SECUNDARIO de `_sec_user_agent()`, que lo insertaba dentro
+# de su rama de respaldo. Con `EDGAR_USER_AGENT` definida —que es el caso en
+# Render, y el que la SEC exige— esa función devuelve el valor y RETORNA ANTES
+# de insertar nada. El `from wbj.tito.scorecard import ...` de más abajo, que
+# es de nivel de módulo, moría entonces con `ModuleNotFoundError: No module
+# named 'wbj'` y uvicorn salía con código 1: «Exited with status 1 while
+# running your code».
+#
+# En local no se veía porque nadie define `EDGAR_USER_AGENT` para desarrollar:
+# sin ella la función caía al respaldo, insertaba el path de paso, y todo lo
+# demás importaba. Una variable de entorno CORRECTAMENTE configurada rompía el
+# arranque; la ausencia de configuración lo salvaba.
+#
+# El path de un motor que vive dentro del repositorio no puede depender de a
+# quién se le ocurra tocarlo primero. Los `sys.path.insert` que quedan repartidos
+# por el archivo son inocuos —todos preguntan `if not in sys.path`— y se dejan
+# para que ningún import suelto vuelva a depender del orden.
+if _WBJ_ENGINE_PATH not in sys.path:
+    sys.path.insert(0, _WBJ_ENGINE_PATH)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EL ALMACÉN — dónde viven de verdad los datos
+#
+# Render en plan `free` no tiene disco persistente: cada redeploy y cada
+# despertar tras dormir borra el sistema de archivos entero. Da igual que sea
+# SQLite o JSON — se borran los dos. El almacén (`vertex_almacen.py`) resuelve
+# eso poniendo los archivos en un clon de la rama `datos` del repositorio, que
+# se restaura al arrancar y se respalda solo.
+#
+# Este bloque decide DÓNDE cae cada cosa. Las tres rutas de abajo se fijan
+# ANTES de que nadie las lea, porque los módulos que las usan las resuelven al
+# importarse.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _dir_almacen() -> str:
+    """La raíz del almacén. `VERTEX_ALMACEN` la manda; si no, junto al repo."""
+    return (os.environ.get("VERTEX_ALMACEN", "").strip()
+            or os.path.join(os.path.dirname(os.path.abspath(__file__)), "almacen"))
+
+
+def _arranca_almacen():
+    """Restaura lo guardado y deja el respaldo periódico corriendo.
+
+    Devuelve el estado para que `/api/almacen` y los logs digan la verdad
+    —incluido el caso de «no está respaldando y por qué»—, que es lo que separa
+    perder datos de saber que los estás perdiendo.
+    """
+    log = logging.getLogger(__name__)
+    try:
+        from vertex_almacen import DIR_SERIES, almacen as _alm
+
+        # Las series de mercado del motor de Víctor viven DENTRO del almacén.
+        # Es lo que hace que el sub-agente 6 (Confirmación), el IV Rank real y
+        # la auto-calibración sobrevivan a un redeploy: las tres necesitan
+        # DÍAS de historia acumulada, y hasta ahora empezaban de cero cada vez.
+        #
+        # Va ANTES de `restaura()`, no después. Si la restauración falla —red,
+        # token, rama— el proceso sigue vivo y sirviendo, y todo lo que analice
+        # a partir de ese momento tiene que caer DENTRO del almacén igualmente:
+        # así el primer respaldo que sí funcione se lo lleva. Con el orden
+        # anterior, un fallo al restaurar mandaba las series a `./data/tito`
+        # —fuera de lo que se respalda— y se perdían enteras sin que nada lo
+        # dijera, porque el aviso que se pinta es el de la restauración.
+        os.environ.setdefault("WBJ_TITO_DATA",
+                              str(_alm.ruta(DIR_SERIES, "tito")))
+
+        estado = _alm.restaura()
+
+        # Los tres stores de series pasaron al formato exacto de Víctor
+        # (`{ticker, updatedAt, snapshots}`, camelCase). Esto convierte lo que
+        # se hubiera guardado con el formato anterior; sin ello se leería como
+        # vacío y se perderían los días acumulados — el dato que más tarda en
+        # recuperarse, porque solo crece a una foto por día de mercado.
+        try:
+            from wbj.tito.stores import migra_series
+
+            hecho = migra_series()
+            if any(hecho.values()):
+                log.info("series migradas al formato de Víctor: %s", hecho)
+        except Exception as e:                   # noqa: BLE001
+            log.warning("no se pudieron migrar las series: %s", e)
+
+        _restaura_privado(_alm)
+        # El paquete cifrado se regenera justo antes de cada respaldo, no
+        # cuando alguien crea una cuenta: así no hay que acordarse de llamarlo
+        # desde los cinco sitios que tocan la base, y nunca se sube una foto
+        # vieja de las cuentas.
+        if _respalda_privado not in _alm.antes_de_sincronizar:
+            _alm.antes_de_sincronizar.append(_respalda_privado)
+        _alm.arranca()
+
+        if estado.get("respalda"):
+            log.info("almacen: %s (rama %s)%s", _alm.raiz, _alm.rama,
+                     " · restaurado" if estado.get("restaurado") else "")
+        else:
+            # No es un detalle de log: sin respaldo, todo lo que se analice hoy
+            # desaparece en el próximo redeploy. Tiene que verse.
+            log.warning("ALMACEN SIN RESPALDO — %s", estado.get("motivo"))
+        return estado
+    except Exception as e:                       # noqa: BLE001
+        log.warning("no se pudo arrancar el almacen: %s", e, exc_info=True)
+        return {"respalda": False, "motivo": f"error al arrancar: {e}"}
+
+
+# ── Lo sensible: viaja CIFRADO o no viaja ────────────────────────────────────
+#
+# Los reportes, la memoria y los índices son texto plano y se leen en GitHub —
+# ese es el punto. Pero tres cosas no pueden ir así:
+#
+#   · los hashes de contraseña de las cuentas,
+#   · el token de Plaid (da lectura a cuentas bancarias reales),
+#   · los perfiles, que llevan el capital de cada persona.
+#
+# Van en UN archivo cifrado con Fernet (`VERTEX_DB_KEY`), la misma clave que ya
+# protege el token de Plaid en la base. Y la regla dura: **sin clave no se sube
+# nada de esto**. Un hash de contraseña en un repo, aunque sea privado, es un
+# objetivo de fuerza bruta offline; preferir «se pierde» a «se filtra» es la
+# decisión correcta, y se dice en voz alta en vez de hacerlo en silencio.
+#
+# `.enc` es lo único que el `.gitignore` del almacén deja salir de `Privado/`.
+
+#: Nombre del paquete cifrado y de su testigo de contenido.
+_PRIVADO_ENC = "privado.enc"
+#: El SHA-256 del contenido EN CLARO. Sin él no habría forma de saber si algo
+#: cambió: Fernet usa un IV aleatorio, así que cifrar dos veces lo mismo da dos
+#: bytes distintos y cada ciclo parecería un cambio. Con el testigo, un día sin
+#: actividad no genera ni un commit.
+_PRIVADO_SHA = "privado.sha256"
+
+
+def _privado_paquete() -> bytes:
+    """Un tar con la base y los perfiles. En memoria: no toca el disco en claro.
+
+    La base se copia con `VACUUM INTO`, no leyendo el archivo: leer un SQLite
+    en caliente puede capturar una escritura a medias y dar una copia corrupta
+    que solo se descubre el día que hace falta restaurarla.
+    """
+    import io
+    import sqlite3
+    import tarfile
+    import tempfile
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                copia = os.path.join(tmp, "vertex.db")
+                con = sqlite3.connect(DB_PATH, timeout=15)
+                try:
+                    con.execute("VACUUM INTO ?", (copia,))
+                finally:
+                    con.close()
+                tar.add(copia, arcname="vertex.db", filter=_tar_estable)
+        except Exception as e:                   # noqa: BLE001
+            logging.getLogger(__name__).warning("no se pudo copiar la base: %s", e)
+        if os.path.isdir(_PERFIL_DIR):
+            for nombre in sorted(os.listdir(_PERFIL_DIR)):
+                if nombre.endswith(".md"):
+                    tar.add(os.path.join(_PERFIL_DIR, nombre),
+                            arcname=f"perfiles/{nombre}", filter=_tar_estable)
+        # …y los de CADA usuario, que viven un nivel más abajo. Esto faltaba y
+        # no se notaba: `os.listdir` no baja a `usuarios/`, así que el único
+        # `.md` que viajaba era el de referencia. Al reiniciar Render volvía la
+        # base con el perfil de todo el mundo, pero NO el archivo que
+        # `_load_investor_profile()` lee — y esa función, al no encontrarlo,
+        # cae a `Kevin.md` sin decir nada. Resultado: el análisis de otra
+        # persona contado con el capital y la tolerancia de Kevin.
+        _usuarios = os.path.join(_PERFIL_DIR, "usuarios")
+        if os.path.isdir(_usuarios):
+            for nombre in sorted(os.listdir(_usuarios)):
+                if nombre.endswith(".md"):
+                    tar.add(os.path.join(_usuarios, nombre),
+                            arcname=f"perfiles/usuarios/{nombre}",
+                            filter=_tar_estable)
+    return buf.getvalue()
+
+
+def _tar_estable(info):
+    """Borra del tar todo lo que cambia sin que cambie el contenido.
+
+    Sin esto, el mismo dato produce bytes distintos en cada empaquetado —el tar
+    guarda la fecha de modificación, el uid y el nombre de usuario— y entonces
+    el testigo SHA nunca coincide: se re-cifraría y se subiría un `privado.enc`
+    nuevo cada 20 segundos, para siempre, aunque nadie hubiera tocado nada.
+    """
+    info.mtime = 0
+    info.uid = info.gid = 0
+    info.uname = info.gname = ""
+    return info
+
+
+def _respalda_privado(alm=None) -> str:
+    """Cifra y guarda lo sensible. Devuelve por qué NO se hizo, o ''."""
+    import hashlib
+
+    from vertex_almacen import DIR_PRIVADO, almacen as _def
+
+    a = alm or _def
+    f = _fernet()
+    if f is None:
+        return ("Sin VERTEX_DB_KEY no se respaldan cuentas ni perfiles: un hash "
+                "de contraseña sin cifrar no se sube a un repositorio.")
+    try:
+        claro = _privado_paquete()
+        sha = hashlib.sha256(claro).hexdigest()
+        if (a.lee(f"{DIR_PRIVADO}/{_PRIVADO_SHA}") or b"").decode("utf-8", "replace").strip() == sha:
+            return ""                            # nada cambió: ni un commit
+        a.guarda(f"{DIR_PRIVADO}/{_PRIVADO_ENC}", f.encrypt(claro))
+        a.guarda(f"{DIR_PRIVADO}/{_PRIVADO_SHA}", sha)
+        return ""
+    except Exception as e:                       # noqa: BLE001
+        return f"no se pudo respaldar lo privado: {e}"
+
+
+def _base_con_datos() -> bool:
+    """¿Hay algo que perder en la base local?
+
+    Se mira si hay FILAS en las dos tablas que no se pueden regenerar: usuarios
+    y reportes. Un esquema recién creado no cuenta como datos — y ese es
+    justamente el estado en el que está la base cuando arranca un contenedor
+    nuevo, porque `init_db()` corre al importar.
+    """
+    import sqlite3
+
+    if not os.path.exists(DB_PATH):
+        return False
+    try:
+        con = sqlite3.connect(DB_PATH, timeout=5)
+        try:
+            for tabla in ("usuarios", "reports"):
+                try:
+                    if con.execute(f"SELECT 1 FROM {tabla} LIMIT 1").fetchone():
+                        return True
+                except sqlite3.Error:
+                    continue                     # la tabla aún no existe
+        finally:
+            con.close()
+    except Exception:                            # noqa: BLE001
+        # Si no se puede ni abrir, se prefiere NO restaurar encima: una base
+        # ilegible puede ser un problema temporal, y pisarla sería definitivo.
+        return True
+    return False
+
+
+def _restaura_privado(alm=None) -> str:
+    """Descifra y devuelve la base y los perfiles a su sitio.
+
+    Solo actúa si la base local está VACÍA de datos. Un contenedor que ya tiene
+    cuentas o reportes vivos no puede ser pisado por una foto del remoto.
+
+    Y «vacía» significa sin filas, no «el archivo no existe»: `init_db()` corre
+    al importar el módulo, así que para cuando esto se ejecuta el archivo SIEMPRE
+    existe, con 110 KB de esquema y cero datos. Comprobar el archivo hacía que la
+    restauración no actuara nunca — las cuentas se recuperaban en el almacén y
+    no llegaban a la base, y el usuario no podía entrar. Es el fallo que este
+    comentario existe para que no vuelva.
+    """
+    import io
+    import sqlite3
+    import tarfile
+
+    from vertex_almacen import DIR_PRIVADO, almacen as _def
+
+    a = alm or _def
+    if _base_con_datos():
+        return "la base local ya tiene datos; no se restaura encima"
+    cifrado = a.lee(f"{DIR_PRIVADO}/{_PRIVADO_ENC}")
+    if not cifrado:
+        return ""                                # primer arranque: no hay nada
+    f = _fernet()
+    if f is None:
+        return ("Hay un respaldo cifrado pero falta VERTEX_DB_KEY: las cuentas "
+                "no se pueden recuperar sin la clave con la que se guardaron.")
+    try:
+        claro = f.decrypt(cifrado)
+        with tarfile.open(fileobj=io.BytesIO(claro), mode="r") as tar:
+            for m in tar.getmembers():
+                if not m.isfile():
+                    continue
+                # El nombre viene del propio paquete, pero se comprueba igual:
+                # un tar con `../` en un nombre escribiría fuera del destino.
+                if m.name == "vertex.db":
+                    destino = DB_PATH
+                elif m.name.startswith("perfiles/usuarios/"):
+                    hoja = m.name[len("perfiles/usuarios/"):]
+                    if not hoja or "/" in hoja or hoja.startswith("."):
+                        continue          # `..`, subcarpetas y ocultos, fuera
+                    os.makedirs(os.path.join(_PERFIL_DIR, "usuarios"),
+                                exist_ok=True)
+                    destino = os.path.join(_PERFIL_DIR, "usuarios", hoja)
+                elif m.name.startswith("perfiles/") and "/" not in m.name[9:]:
+                    os.makedirs(_PERFIL_DIR, exist_ok=True)
+                    destino = os.path.join(_PERFIL_DIR, m.name[9:])
+                else:
+                    continue
+                datos = tar.extractfile(m)
+                if datos is None:
+                    continue
+                with open(destino, "wb") as fh:
+                    fh.write(datos.read())
+        return ""
+    except Exception as e:                       # noqa: BLE001
+        return f"no se pudo restaurar lo privado: {e}"
+
 
 @asynccontextmanager
 async def _vertex_lifespan(app: FastAPI):
@@ -75,6 +384,19 @@ async def _vertex_lifespan(app: FastAPI):
     arranca: el cuerpo sólo se ejecuta al levantar el servidor, así que el
     nombre ya está resuelto para entonces.
     """
+    # ── EL ALMACÉN VA PRIMERO ────────────────────────────────────────────
+    #
+    # Antes que nada, porque todo lo demás lee de él. En un contenedor nuevo
+    # esto CLONA la rama de datos y recupera reportes, memoria, perfiles,
+    # cuentas y series; sin esto, un redeploy de Render arrancaría con el disco
+    # en blanco y el agente creería que nunca ha analizado nada.
+    #
+    # Es bloqueante a propósito: si `_vertex_startup` arrancara el planificador
+    # antes de que los datos estén, el primer ciclo escribiría sobre un
+    # directorio vacío y el `push` siguiente BORRARÍA lo que había en el
+    # remoto. La restauración tiene que terminar antes de que nadie escriba.
+    _arranca_almacen()
+
     _vertex_startup()
     # El índice de tickers se cargaba perezosamente, con la PRIMERA búsqueda.
     # Tarda 1,8 s, así que las primeras teclas del usuario caían a FMP: 750-1000
@@ -88,6 +410,18 @@ async def _vertex_lifespan(app: FastAPI):
         logging.getLogger(__name__).warning(
             "no se pudo precalentar el indice de tickers", exc_info=True)
     yield
+    # ── Y AL APAGAR, EL ÚLTIMO RESPALDO ──────────────────────────────────
+    #
+    # Render manda SIGTERM y espera unos segundos antes de matar el proceso.
+    # Esta es la ventana para salvar lo escrito desde el último ciclo. Sin
+    # ella, cada redeploy perdería hasta un ciclo entero de trabajo.
+    try:
+        from vertex_almacen import almacen as _alm
+
+        _alm.cierra()
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "no se pudo cerrar el almacen", exc_info=True)
 
 
 app = FastAPI(title="Vertex Fund OS Core", lifespan=_vertex_lifespan)
@@ -116,19 +450,118 @@ VERTEX_API_TOKEN = os.environ.get("VERTEX_API_TOKEN", "").strip()
 _AUTH_COOKIE = "vertex_session"
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
+#: Cookie de la sesión de USUARIO. Es distinta de `_AUTH_COOKIE`, que es la
+#: puerta del despliegue entero (un secreto compartido). Aquí va el token de
+#: una persona concreta, y de él sale su perfil y su archivo de reportes.
+_USER_COOKIE = "vertex_usuario"
+
+#: Quién puede crear cuenta:
+#:   · `abierto`     — cualquiera con la URL (por defecto: Kevin quiere que la
+#:                     gente se registre).
+#:   · `invitacion`  — hace falta `VERTEX_INVITE_CODE`.
+#:   · `cerrado`     — nadie; solo entran las cuentas que ya existen.
+#: Se declara aquí, arriba, porque es la decisión de seguridad más consecuente
+#: del archivo y no puede quedar enterrada en una ruta.
+VERTEX_REGISTRO = (os.environ.get("VERTEX_REGISTRO", "abierto").strip().lower()
+                   or "abierto")
+VERTEX_INVITE_CODE = os.environ.get("VERTEX_INVITE_CODE", "").strip()
+
 #: Rutas sin autenticación: el HTML de la app (que por sí solo no expone datos —
 #: todo lo pinta vía /api/*), los iconos del PWA y el propio login.
+#:
+#: Las de cuentas son públicas por necesidad: quien aún no tiene sesión no puede
+#: pasar la puerta, y sin poder llamarlas nunca la tendría.
 _PUBLIC_PATHS = {"/", "/legacy", "/wbj", "/manifest.webmanifest",
-                 "/api/login", "/api/auth/status", "/favicon.ico"}
+                 "/api/login", "/api/auth/status", "/favicon.ico",
+                 "/api/auth/registro", "/api/auth/entrar", "/api/auth/salir",
+                 "/api/auth/yo"}
 
 
 def _client_host(request) -> str:
     return (request.client.host if request.client else "") or ""
 
 
+#: El usuario de ESTA petición.
+#:
+#: Es un `ContextVar` y no un global a propósito. Un global sería el último que
+#: entró contestándole a todos los demás en cuanto hubiera dos peticiones a la
+#: vez. Un `ContextVar` es por contexto asíncrono, y Starlette copia el contexto
+#: al hilo donde corre cada ruta síncrona, así que cada petición ve el suyo.
+#:
+#: Existe para que `_load_investor_profile()` sepa de quién es el perfil sin
+#: tener que hilar `request` por media docena de capas de Analyze y Explore —
+#: que son justo las que no se pueden tocar.
+_USUARIO_CTX: contextvars.ContextVar = contextvars.ContextVar("vertex_usuario",
+                                                              default=None)
+
+#: El idioma de la sesión, por el mismo camino y por el mismo motivo.
+#:
+#: La pantalla la traduce el panel con su diccionario, pero hay un texto que
+#: ningún diccionario alcanza: el que ESCRIBE el modelo. Esa prosa no existe
+#: hasta que se pide, así que el idioma tiene que viajar hasta el prompt. Va en
+#: una cabecera y llega aquí, para no hilar `request` por Analyze y Explore.
+_IDIOMA_CTX: contextvars.ContextVar = contextvars.ContextVar("vertex_idioma",
+                                                             default="es")
+#: Cabecera que manda el panel en cada petición.
+_IDIOMA_HEADER = "X-Vertex-Idioma"
+
+
+def _idioma_actual() -> str:
+    """`es` o `en`. Nunca otra cosa: un valor raro cae a español."""
+    return "en" if _IDIOMA_CTX.get() == "en" else "es"
+
+
+def _instruccion_idioma() -> str:
+    """La frase que se le pone al modelo para fijar el idioma de la respuesta.
+
+    Se declara en el idioma de destino a propósito: pedir en español que
+    responda en inglés funciona peor que pedírselo en inglés.
+    """
+    if _idioma_actual() == "en":
+        return ("\n\nLANGUAGE: write EVERY field of your answer in English. "
+                "Do not use Spanish anywhere, not even for headings, labels or "
+                "quoted terms. Numbers, tickers and proper names stay as they are.")
+    return ("\n\nIDIOMA: escribe TODOS los campos de tu respuesta en español. "
+            "No uses inglés en ninguna parte, ni en títulos ni en etiquetas. "
+            "Los números, los tickers y los nombres propios se quedan igual.")
+
+
+def _usuario_actual(request=None):
+    """El usuario de la sesión, o `None`. Nunca lanza.
+
+    Con `request`, resuelve desde su cookie. Sin él, devuelve el que el
+    middleware dejó en el contexto — que es cómo lo consultan las capas
+    profundas.
+    """
+    if request is None:
+        return _USUARIO_CTX.get()
+    tok = request.cookies.get(_USER_COOKIE, "")
+    if not tok:
+        return None
+    try:
+        conn = _db()
+        try:
+            return _CU.usuario_de_sesion(conn, tok)
+        finally:
+            conn.close()
+    except Exception:                             # noqa: BLE001
+        return None
+
+
 def _auth_ok(request) -> bool:
     """¿Esta petición puede pasar? Comparación en tiempo constante para no
-    filtrar el token por diferencias de tiempo de respuesta."""
+    filtrar el token por diferencias de tiempo de respuesta.
+
+    Tres llaves, en orden de preferencia:
+
+    1. **Sesión de usuario** — la normal desde que hay cuentas.
+    2. **`VERTEX_API_TOKEN`** — la puerta compartida. Sigue valiendo para
+       scripts y cron, y es la única forma de entrar antes de que exista la
+       primera cuenta.
+    3. **Localhost sin token configurado** — desarrollo local.
+    """
+    if _usuario_actual(request) is not None:
+        return True
     if not VERTEX_API_TOKEN:                      # sin token configurado → sólo local
         return _client_host(request) in _LOCAL_HOSTS
     cookie = request.cookies.get(_AUTH_COOKIE, "")
@@ -141,6 +574,14 @@ def _auth_ok(request) -> bool:
 @app.middleware("http")
 async def _require_auth(request, call_next):
     path = request.url.path
+    # Se resuelve el usuario ANTES de decidir, y se deja en el contexto de la
+    # petición. Sin esto, las capas profundas (el perfil que lee el agente de
+    # acciones) no tendrían forma de saber de quién es la sesión sin recibir el
+    # `request`, y recibirlo obligaría a tocar Analyze y Explore.
+    #
+    # Sin cookie no hay consulta: `_usuario_actual` sale en la primera línea.
+    _USUARIO_CTX.set(_usuario_actual(request))
+    _IDIOMA_CTX.set((request.headers.get(_IDIOMA_HEADER) or "es").strip().lower())
     if (path in _PUBLIC_PATHS or path.startswith("/assets/")
             or request.method == "OPTIONS"          # preflight de CORS
             or _auth_ok(request)):
@@ -210,7 +651,191 @@ def api_auth_status(request: Request):
     """Pública a propósito: el frontend la consulta al cargar para saber si debe
     pedir contraseña. No revela el token, sólo si hace falta y si ya hay sesión."""
     return {"ok": True, "auth_required": bool(VERTEX_API_TOKEN),
-            "authenticated": _auth_ok(request)}
+            "authenticated": _auth_ok(request),
+            # Antes de que nadie escriba un email: si las cuentas no se
+            # respaldan, avisarlo después de crearla llega tarde.
+            "aviso_persistencia": _aviso_persistencia()}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  CUENTAS DE USUARIO
+#
+#  Antes de esto, "iniciar sesión" era una ficción del navegador: el usuario y
+#  su contraseña **en texto plano** vivían en `localStorage`, o sea una base de
+#  datos por Chrome. Entrar desde el móvil era imposible porque la cuenta no
+#  existía fuera de aquel portátil, y cualquiera con la consola abierta leía la
+#  contraseña de todos.
+#
+#  Ahora la cuenta vive en SQLite y la sesión es una cookie HttpOnly. Ver
+#  `vertex_cuentas.py` para el hashing y el modelo.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _pon_cookie_usuario(resp, request, token):
+    """Cookie de sesión. `Secure` sale del esquema REAL de la petición, no de
+    que alguien se acuerde de definir una variable."""
+    is_https = (request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+                or request.url.scheme) == "https"
+    resp.set_cookie(_USER_COOKIE, token, httponly=True, samesite="strict",
+                    secure=is_https, max_age=60 * 60 * 24 * 30, path="/")
+    return resp
+
+
+def _publico(usuario):
+    """Lo que se le devuelve al navegador de un usuario. Sin `pass_hash`,
+    obviamente, y sin el perfil entero: eso tiene su propia ruta."""
+    if not usuario:
+        return None
+    return {"id": usuario["id"], "email": usuario["email"], "nombre": usuario["nombre"]}
+
+
+def _aviso_persistencia() -> str:
+    """Por qué esta cuenta puede desaparecer, o cadena vacía si no puede.
+
+    Es el fallo que más caro sale de todos los que tiene este despliegue, y el
+    único que no se nota hasta que ya pasó: creas la cuenta, funciona, cierras
+    sesión, y al volver «no existe». En medio, Render se durmió —el plan free
+    borra el disco al despertar— y la cuenta se fue con él.
+
+    Las cuentas viajan en `Privado/privado.enc`, cifradas con `VERTEX_DB_KEY`.
+    Sin esa clave NO se suben: un hash de contraseña en un repositorio, aunque
+    sea privado, es un objetivo de fuerza bruta offline, y se prefiere perderlo
+    a filtrarlo. Esa decisión es correcta; lo que estaba mal es que se tomaba
+    EN SILENCIO, justo en el momento en que el usuario cree lo contrario.
+    """
+    try:
+        import vertex_almacen as _AL
+        respalda = bool(_AL.almacen.estado().get("respalda"))
+    except Exception:                             # noqa: BLE001
+        return ("No se pudo comprobar el respaldo: da por hecho que esta cuenta "
+                "NO sobrevive a un reinicio del servidor.")
+    if not respalda:
+        return ("Esta cuenta NO se está respaldando: falta VERTEX_GIT_TOKEN. "
+                "Si el servidor se reinicia o se duerme, tendrás que volver a "
+                "registrarte — y el email quedará libre otra vez.")
+    if _fernet() is None:
+        return ("Esta cuenta se guarda en disco pero NO se respalda: falta "
+                "VERTEX_DB_KEY, la clave con la que se cifran las cuentas antes "
+                "de subirlas. Sin ella no se suben a propósito (un hash de "
+                "contraseña sin cifrar no se sube a ningún repositorio), así que "
+                "si el servidor se reinicia tendrás que registrarte de nuevo. "
+                "Ponla en Render: openssl rand -hex 32")
+    return ""
+
+
+@app.post("/api/auth/registro")
+async def auth_registro(request: Request):
+    """Crea la cuenta y deja la sesión abierta."""
+    host = _client_host(request)
+    if _login_rate_limited(host):
+        return JSONResponse(status_code=429, content={
+            "ok": False, "error": "Demasiados intentos. Espera 5 minutos."})
+    try:
+        body = await request.json()
+    except Exception:                             # noqa: BLE001
+        return {"ok": False, "error": "Cuerpo no es JSON."}
+    if not isinstance(body, dict):
+        return {"ok": False, "error": "Cuerpo no es un objeto."}
+
+    if VERTEX_REGISTRO == "cerrado":
+        return {"ok": False, "error": "El registro está cerrado en este despliegue."}
+    if VERTEX_REGISTRO == "invitacion":
+        codigo = str(body.get("invitacion") or "")
+        if not VERTEX_INVITE_CODE or not secrets.compare_digest(codigo, VERTEX_INVITE_CODE):
+            _LOGIN_ATTEMPTS.setdefault(host, []).append(time.time())
+            return {"ok": False, "error": "Código de invitación incorrecto."}
+
+    conn = _db()
+    try:
+        usuario = _CU.crear_usuario(conn, str(body.get("email") or ""),
+                                    str(body.get("nombre") or ""),
+                                    str(body.get("password") or ""))
+        # El `.md` se escribe YA, con los defaults de Kevin. Así el agente de
+        # acciones tiene un perfil que leer desde el primer análisis, aunque la
+        # persona no haya contestado todavía — y el propio archivo declara
+        # cuántas preguntas siguen heredadas.
+        _CU.guardar_perfil(conn, _PERFIL_DIR, usuario, _CU.leer_perfil(conn, usuario["id"]))
+        token = _CU.abrir_sesion(conn, usuario["id"])
+    except _CU.ErrorDeCuenta as e:
+        # `e.publico`, no `str(e)`: el mensaje se redactó en el `raise` para que
+        # lo lea una persona («Ya existe una cuenta con ese email»). Ver
+        # `vertex_cuentas.ErrorDeCuenta`.
+        return {"ok": False, "error": e.publico}
+    except Exception as e:                        # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Crear la cuenta")}
+    finally:
+        conn.close()
+
+    return _pon_cookie_usuario(
+        JSONResponse(content={"ok": True, "usuario": _publico(usuario), "nuevo": True,
+                              # Si esta cuenta no va a sobrevivir a un reinicio,
+                              # se dice AQUÍ y no cuando ya no se pueda entrar.
+                              "aviso_persistencia": _aviso_persistencia(),
+                              # Para que la pantalla pueda decirlo en vez de que
+                              # el usuario descubra solo que su archivo cambió.
+                              "primera_cuenta": bool(usuario.get("primera_cuenta")),
+                              "reportes_adoptados": usuario.get("reportes_adoptados") or 0}),
+        request, token)
+
+
+@app.post("/api/auth/entrar")
+async def auth_entrar(request: Request):
+    """Email + contraseña. Mismo mensaje para «no existe» y «contraseña mala»:
+    distinguirlos convierte el login en un directorio de emails registrados."""
+    host = _client_host(request)
+    if _login_rate_limited(host):
+        return JSONResponse(status_code=429, content={
+            "ok": False, "error": "Demasiados intentos. Espera 5 minutos."})
+    try:
+        body = await request.json()
+    except Exception:                             # noqa: BLE001
+        return {"ok": False, "error": "Cuerpo no es JSON."}
+
+    conn = _db()
+    try:
+        usuario = _CU.autenticar(conn, str((body or {}).get("email") or ""),
+                                 str((body or {}).get("password") or ""))
+        token = _CU.abrir_sesion(conn, usuario["id"])
+    except _CU.CredencialInvalida as e:
+        _LOGIN_ATTEMPTS.setdefault(host, []).append(time.time())
+        return JSONResponse(status_code=401,
+                            content={"ok": False, "error": e.publico})
+    except Exception as e:                        # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Iniciar sesión")}
+    finally:
+        conn.close()
+
+    _LOGIN_ATTEMPTS.pop(host, None)               # acierto: se limpia el contador
+    return _pon_cookie_usuario(
+        JSONResponse(content={"ok": True, "usuario": _publico(usuario)}),
+        request, token)
+
+
+@app.post("/api/auth/salir")
+def auth_salir(request: Request):
+    """Cierra la sesión **en el servidor**, no solo en el navegador.
+
+    Borrar la cookie y dejar la fila viva dejaría el token válido para siempre
+    en cualquier sitio donde se hubiera copiado."""
+    tok = request.cookies.get(_USER_COOKIE, "")
+    if tok:
+        conn = _db()
+        try:
+            _CU.cerrar_sesion(conn, tok)
+        finally:
+            conn.close()
+    resp = JSONResponse(content={"ok": True})
+    resp.delete_cookie(_USER_COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/auth/yo")
+def auth_yo(request: Request):
+    """Quién está dentro. El frontend la consulta al cargar para saber si tiene
+    que enseñar el formulario o la app."""
+    u = _usuario_actual(request)
+    return {"ok": True, "usuario": _publico(u),
+            "registro": VERTEX_REGISTRO,
+            "necesita_invitacion": VERTEX_REGISTRO == "invitacion"}
 
 
 # CORS (C-04): con una cookie de sesión en juego, `allow_origins=["*"]` +
@@ -326,6 +951,11 @@ def serve_frontend_legacy():
 # PERSISTENCE — SQLite (long-term agent memory + accuracy tracker)
 # ─────────────────────────────────────────────────────────────────────────────
 import sqlite3
+
+#: Cuentas, perfiles por usuario y el cuestionario. Vive aparte porque no
+#: depende de nada de este archivo y así se puede probar solo.
+import vertex_cuentas as _CU
+
 DB_PATH = os.environ.get("VERTEX_DB",
                          os.path.join(os.path.dirname(os.path.abspath(__file__)), "vertex.db"))
 
@@ -385,6 +1015,16 @@ def init_db():
             PRIMARY KEY (ticker, taken_ts)
         )""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_cons_ticker ON consensus_snapshots(ticker, taken_ts)")
+        # Cuentas, sesiones y el registro de contribuciones al pool común.
+        _CU.crear_tablas(conn)
+        # `usuario_id` en reports: el archivo pasa a ser PRIVADO de cada quien.
+        # Las filas anteriores se quedan en NULL — son de la época de un solo
+        # usuario y se tratan como de nadie, no como de todos.
+        try:
+            conn.execute("ALTER TABLE reports ADD COLUMN usuario_id TEXT")
+        except Exception:
+            pass
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_reports_usuario ON reports(usuario_id, created_ts)")
         conn.commit()
         conn.close()
     except Exception as e:
@@ -622,17 +1262,27 @@ def save_report(report_id, ticker, price, fair_value, upside_pct, recommendation
         def _hb(k):
             return ((targets or {}).get(k, {}) or {}).get("base")
         vc_json = json.dumps(victor_categories) if victor_categories else None
+        # De quién es este reporte. El archivo es PRIVADO: cada quien ve el
+        # suyo. Lo que se comparte es el APRENDIZAJE —la calibración, las
+        # series—, no el análisis de nadie. Ver `/api/aprendizaje`.
+        _u = _usuario_actual()
         conn = _db()
         conn.execute("""INSERT OR REPLACE INTO reports
             (report_id,ticker,created_at,created_ts,price_at_analysis,fair_value,upside_pct,
              recommendation,conviction,target_bull,target_base,target_bear,thesis,victor_categories,
-             target_7d,target_30d,target_3m,target_6m)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             target_7d,target_30d,target_3m,target_6m,usuario_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (report_id, ticker,
              datetime.now().strftime("%Y-%m-%d %H:%M:%S"), datetime.now().timestamp(),
              price, fair_value, upside_pct, recommendation, conviction,
              t12.get("bull"), t12.get("base"), t12.get("bear"), (thesis or "")[:4000], vc_json,
-             _hb("7d"), _hb("30d"), _hb("3m"), _hb("6m")))
+             _hb("7d"), _hb("30d"), _hb("3m"), _hb("6m"),
+             (_u or {}).get("id")))
+        # Cada análisis alimenta al agente de ACCIONES. Su forma de aprender es
+        # la calibración: guarda convicción y objetivos, y el tiempo dice si
+        # acertó. Más reportes de más gente = una curva de fiabilidad con más
+        # puntos, para todos.
+        _CU.registrar_contribucion(conn, "acciones", ticker, (_u or {}).get("id"))
         conn.commit()
         conn.close()
     except Exception as e:
@@ -670,17 +1320,97 @@ def consensus_snapshot(ticker, fiscal_date, eps_avg, revenue_avg, n_analysts, mi
     return prior
 
 
+#: Tope del payload de UN reporte, en bytes. `VERTEX_PAYLOAD_MAX` lo cambia.
+#:
+#: 2 MB no es un límite de SQLite —aguanta 1 GB por columna— sino el que hace
+#: que `/api/reports/list` siga siendo servible: devuelve hasta 60 payloads
+#: COMPLETOS de una vez, así que el tope por reporte multiplica por 60. A 2 MB
+#: son 120 MB de respuesta; a 10 MB, 600 MB, y Render se cae antes de acabar.
+#:
+#: Por eso subirlo solo no basta: hay que subirlo Y dejar que la lista devuelva
+#: menos. `_PAYLOAD_RESPUESTA_MAX` es el freno que hace las dos cosas
+#: compatibles — recorta cuántos reportes caben, no cuánto pesa cada uno.
+def _payload_max() -> int:
+    try:
+        n = int(os.environ.get("VERTEX_PAYLOAD_MAX", "2000000"))
+    except ValueError:
+        return 2_000_000
+    return n if n > 0 else 2_000_000
+
+
+#: Tope de la RESPUESTA de `/api/reports/list`, en bytes. Es lo que impide que
+#: subir el tope por reporte se convierta en una respuesta de cientos de MB.
+def _payload_respuesta_max() -> int:
+    try:
+        n = int(os.environ.get("VERTEX_LISTA_MAX", "40000000"))     # 40 MB
+    except ValueError:
+        return 40_000_000
+    return n if n > 0 else 40_000_000
+
+
 def save_report_payload(report_id, payload):
     """#4 — guarda el JSON COMPLETO del reporte en el servidor para un archivo durable y multi-dispositivo.
     save_report() ya insertó la fila; aquí solo rellenamos la columna payload. Best-effort."""
     try:
-        blob = json.dumps(_json_safe(payload))[:2_000_000]   # cap defensivo (~2MB)
+        # Tope de 2 MB. Antes se aplicaba con `[:2_000_000]`, y CORTAR un JSON
+        # por la mitad produce un JSON INVÁLIDO: la fila quedaba escrita pero
+        # ilegible, `/api/reports/list` la saltaba con su `except: continue` y
+        # el reporte desaparecía del archivo sin que nada avisara.
+        #
+        # Ahora, si no cabe, se guarda el reporte SIN las series de precio —que
+        # son lo que pesa y lo que la gráfica puede volver a pedir— en vez de
+        # guardar basura. Y si aun así no cabe, no se escribe nada: un payload
+        # ausente se nota y se puede regenerar; uno corrupto se lee como si no
+        # existiera el reporte.
+        _SERIES = ("historial_precios", "historial_fechas", "historial_ohlc",
+                   "historial_volumen", "chart_history")
+        _TOPE = _payload_max()
+        blob = json.dumps(_json_safe(payload))
+        if len(blob) > _TOPE:
+            _sin_series = {k: v for k, v in payload.items() if k not in _SERIES}
+            _sin_series["_series_omitidas"] = list(_SERIES)   # para que se sepa
+            blob = json.dumps(_json_safe(_sin_series))
+            print(f"[DB] payload de {report_id} pasaba de {_TOPE/1e6:.0f} MB: "
+                  "guardado sin las series")
+        if len(blob) > _TOPE:
+            print(f"[DB] payload de {report_id} sigue pasando de {_TOPE/1e6:.0f} MB: "
+                  "NO se guarda (un JSON cortado no se puede leer)")
+            return
         conn = _db()
         conn.execute("UPDATE reports SET payload=? WHERE report_id=?", (blob, report_id))
         conn.commit()
         conn.close()
     except Exception as e:
         print(f"[DB] payload save error: {e}")
+    # Y AL ARCHIVO, que es lo que de verdad dura.
+    #
+    # La base es ahora CACHÉ: sirve para ordenar y filtrar rápido, y se borra
+    # con cada redeploy de Render. El archivo es la fuente de verdad, va al
+    # almacén y sobrevive. Por eso esto va fuera del `try` de arriba: que la
+    # base falle no puede impedir que el reporte se guarde de verdad.
+    #
+    # Ojo con la diferencia: al archivo va el payload ENTERO, sin el tope de
+    # arriba. Ese tope era un límite de la COLUMNA de SQLite, no del dato.
+    _archiva_acciones(payload)
+
+
+def _archiva_acciones(payload):
+    """El reporte del agente de ACCIONES → `Reportes/<TICKER>/<fecha>/`.
+
+    Best-effort y silencioso salvo en el log: un fallo del almacén no puede
+    tumbar un análisis que el usuario ya está viendo en pantalla. Pero se
+    registra, porque un archivo que no se escribe es un reporte que se pierde.
+    """
+    try:
+        import vertex_archivo as _ar
+
+        tk = (payload or {}).get("ticker") or (payload or {}).get("symbol")
+        if not tk:
+            return
+        _ar.guarda_reporte_acciones(tk, payload)
+    except Exception as e:                       # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "no se pudo archivar el reporte de acciones: %s", e)
 
 def get_prior_report(ticker, exclude_id=None):
     """Most recent PRIOR report for a ticker (for the agent's long-term memory)."""
@@ -2004,7 +2734,22 @@ def buscar_tickers(q: str, limite: int = 8):
     # arriba. Ahora sólo se baja a la cola larga cuando el índice se queda de
     # verdad corto, que es cuando FMP aporta algo (ADRs, small caps, símbolos
     # recién listados).
-    if len(candidatos) < _MIN_LOCAL_PARA_NO_PREGUNTAR:
+    #
+    # Pero contar candidatos NO basta, y fallaba justo en el mejor caso. Escribir
+    # "NVD" deja UN solo candidato local (NVDA) y "NVDA" también, así que las dos
+    # últimas teclas del ticker más buscado seguían pagando dos peticiones HTTP
+    # —hasta 2×2,5 s de timeout— para no añadir nada: lo que buscabas ya estaba
+    # el primero. Se veía en el número: "escribir NVDA entero" no costaba 42 ms
+    # sino 42 ms más lo que tardaran cuatro llamadas a FMP.
+    #
+    # La regla correcta no es "¿hay pocos?" sino "¿hay una respuesta BUENA?".
+    # Un rango 0 (el símbolo exacto) o un rango 1 (el símbolo empieza por lo que
+    # tecleaste) ya es la respuesta: FMP solo puede añadir ruido por debajo. La
+    # cola larga se conserva entera para lo que de verdad la necesita —un ADR o
+    # una small cap que no está en el índice—, donde no hay ningún local que
+    # empiece por el término y esta condición no se cumple.
+    hay_simbolo_local = any(v[0] <= 1 for v in candidatos.values())
+    if len(candidatos) < _MIN_LOCAL_PARA_NO_PREGUNTAR and not hay_simbolo_local:
         clave = (os.environ.get("FMP_API_KEY") or "").strip()
         if not clave and not indice:
             raise HTTPException(status_code=503,
@@ -3006,7 +3751,7 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     trades, conviction_trades, flow_error = _tito_tape(tk)
 
     try:
-        chain, bars, spot = _tito_chain_and_bars(tk)
+        chain, bars, spot, _meta_cadena = _tito_chain_and_bars(tk)
     except Exception as e:
         # Sin cadena no hay Estructura, ni GEX, ni niveles, ni escenarios. Se
         # devuelve el motivo exacto de Massive en vez de un reporte a medias.
@@ -3041,7 +3786,13 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     # tiene en su propia ruta y su propio panel. Acoplarlas al scorecard haría
     # que 4 feeds RSS lentos retrasaran los targets, que es lo que de verdad
     # importa — y un feed caído no debe hacer esperar a nadie.
-    _tito_remember(tk, r, now)
+    # Si la predicción no se pudo guardar, entra en la MISMA lista que las otras
+    # tres escrituras. El panel ya la pinta; lo que faltaba era que ésta llegara.
+    _falla_pred = _tito_remember(tk, r, now)
+    if _falla_pred:
+        _st = out.get("memory") or {}
+        _st["escrituras_fallidas"] = (_st.get("escrituras_fallidas") or []) + [_falla_pred]
+        out["memory"] = _st
     if flow_error:
         out["flow_error"] = flow_error
         out["warnings"] = [f"Sin tape de MarketSnack: {flow_error}"] + out.get("warnings", [])
@@ -3095,6 +3846,15 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     out["gex_heatmap"] = _tito_heatmap(chain or [], r, trades, now)
     out["chart_geometry"] = _tito_chart_geometry(r)
     out["flow_clusters"] = _tito_clusters(trades, now)
+    # La ficha de la empresa (`CompanyHeader`) y la cadena entera
+    # (`OptionChainTable` + `ChartPanel`). El motor no las necesita —puntúa con
+    # `chain` ya normalizada— pero son tres de sus componentes, y esta es LA
+    # ruta que come el panel. Servirlas aquí ahorra dos rondas de red más.
+    out["company"] = _tito_company(tk, r.spot, _meta_cadena["empresa"])
+    out.update(_tito_chain_json(chain or [], _meta_cadena["truncated"]))
+    # Al archivo, en SU carpeta. Es la ruta que come el panel, así que es la
+    # que ve el scorecard completo — con ficha de empresa, cadena y todo.
+    _archiva_opciones(out)
     # `_json_safe` = su `JSON.stringify`: NaN/Infinity → null. `_tito_json` ya
     # pasó por ahí, pero estos campos se añaden después.
     return _json_safe(out)
@@ -3226,9 +3986,17 @@ def _tito_heatmap(chain, r, trades, now):
 
     Las entradas se arman como en su `page.tsx`: los `HeatTrade` salen de unir
     los trades de convicción con los inusuales, deduplicados por `id`, y solo
-    aportan `strike`, `expiration`, `gamma` y `premium`. Esa unión ya la hizo el
-    motor —es la misma que ancla el GEX—, así que aquí se reusa en vez de
-    rehacerla sobre los 5 días, que era otro universo.
+    aportan `strike`, `expiration`, `gamma` y `premium`.
+
+    Aquí se pasa `conviction_flow` a secas, y es lo mismo **porque los inusuales
+    salen de ahí**: `unusuality_score(conviction_rows)`, así que la unión no
+    añade ninguna fila. Es un invariante, no una coincidencia, y lo fija
+    `TestLasTresUnionesDeSuPagina` — el día que la inusualidad se calcule sobre
+    otro universo, este heatmap dejaría de ver esas filas y el test lo dice.
+
+    Lo que NO se puede hacer es rehacerlo sobre los 5 días de `notable`: ése es
+    el universo de los NIVELES, que sí usa la unión ancha. Son tres conjuntos
+    distintos en su `page.tsx` y se parecen lo justo para confundirse.
     """
     try:
         from wbj.tito.gex_heatmap import HeatTrade, gex_heatmap
@@ -3373,11 +4141,20 @@ def _tito_tape(ticker):
     """
     from wbj.tito.marketsnack import MarketSnackError, fetch_flow
     from wbj.tito.scorecard import (CONVICTION_DAYS, CONVICTION_MAX_PAGES,
-                                    CONVICTION_MIN_PREMIUM)
+                                    CONVICTION_MIN_PREMIUM, LEAN_MAX_PAGES,
+                                    MIN_PREMIUM)
 
+    # Los dos de la ventana corta iban a mano —`100_000` y `6`— teniendo el
+    # nombre a un import de distancia. Coincidían con los suyos, así que no
+    # cambiaba ningún número; lo que fallaba era el ACOPLE: `/api/tito-tape`
+    # baja exactamente esta misma ventana y sí los usa por nombre, así que si
+    # Víctor sube `LEAN_MAX_PAGES` a 10, la cinta bajaría 10 páginas y el
+    # scorecard seguiría en 6 — las dos pantallas puntuando sobre universos
+    # distintos sin que nada lo dijera. Y el cotejo de constantes de la
+    # auditoría solo ve los nombres: un número suelto le es invisible.
     try:
-        trades = fetch_flow(ticker, period="5d", min_premium=100_000,
-                            max_pages=6).trades
+        trades = fetch_flow(ticker, period="5d", min_premium=MIN_PREMIUM,
+                            max_pages=LEAN_MAX_PAGES).trades
         error = None
     except MarketSnackError as e:
         # Sin tape el motor sigue corriendo con la cadena (GEX + estructura),
@@ -3467,7 +4244,12 @@ def _tito_chain_and_bars(ticker):
         raise MassiveError(
             f"Massive no devolvió un precio utilizable para {ticker} "
             f"(snapshot {empresa.get('price')!r} · cadena {chain_res.underlying_price!r}).")
-    return chain_res.rows, bars, float(spot)
+    # La ficha y el aviso de truncado salen por aquí porque ya están: pedir
+    # `fetch_company` otra vez desde el payload doblaba la latencia de cada
+    # scorecard sobre el MISMO dato. `truncated` es el tope de páginas de
+    # Massive — que la cadena llegó incompleta— y solo lo sabe esta función.
+    return chain_res.rows, bars, float(spot), {"empresa": empresa,
+                                               "truncated": chain_res.truncated}
 
 
 def _tito_memory(ticker, trades, chain, bars, now):
@@ -3493,6 +4275,7 @@ def _tito_memory(ticker, trades, chain, bars, now):
         from wbj.tito import stores as st
         from wbj.tito.flow import classify_flow
         from wbj.tito.ivcontext import iv_context_score
+        from wbj.tito.structure import structure_score
     except Exception as e:
         return _empty(f"el motor no carga: {type(e).__name__}")
 
@@ -3515,7 +4298,30 @@ def _tito_memory(ticker, trades, chain, bars, now):
             return None
 
     if chain:
-        _guarda("cadena", lambda: st.save_chain_snapshot(ticker, chain, now))
+        # Su `/api/chain` hace `saveChainSnapshot(ticker, structure)`: guarda el
+        # StructureScore ya calculado, no los miles de contratos que lo
+        # produjeron. Es lo que permite reconstruir después POR QUÉ el
+        # sub-agente 4 puntuó lo que puntuó un día concreto.
+        _guarda("cadena",
+                lambda: st.save_chain_snapshot(ticker, structure_score(chain), now))
+        # Cada ticker que alguien mira alimenta al agente de OPCIONES. Su forma
+        # de aprender no es la del agente de acciones: no hay calibración de
+        # aciertos aquí, hay ACUMULACIÓN HACIA ADELANTE. La IV histórica, las
+        # cadenas y el flujo pasado no se pueden comprar en ningún sitio — se
+        # juntan una foto por día de mercado, y sin ellas el IV Rank real y el
+        # sub-agente 6 se quedan apagados para siempre.
+        #
+        # Por eso mirar un ticker YA es aportar, aunque no salga ningún reporte:
+        # la foto de hoy es lo que hará posible el rank de dentro de un año.
+        try:
+            _c = _db()
+            try:
+                _CU.registrar_contribucion(_c, "opciones", ticker,
+                                           (_usuario_actual() or {}).get("id"))
+            finally:
+                _c.close()
+        except Exception:                            # noqa: BLE001 — nunca rompe el panel
+            pass
     # `trades` es la VENTANA ANCHA (30 d / ≥$1M) — los `convictionRows` que su
     # `/api/flow` persiste (`saveTrades(ticker, convictionRows)`), no los 5 días
     # de Agresividad.
@@ -3527,13 +4333,11 @@ def _tito_memory(ticker, trades, chain, bars, now):
         # se hacía un promedio simple, que es el número que su propio módulo
         # descarta por dejarse dominar por los cientos de tickets de 0DTE. Ese
         # número es el que alimenta el IV Rank real durante meses.
+        # `saveIvSnapshot(ticker, ivContext)` — el objeto entero, como él. La
+        # guarda de «hay IV o no» vive DENTRO del store, que es donde su código
+        # la tiene (`if (s.iv.current == null) return existing`).
         ivc = iv_context_score(notable, [], None)
-        if ivc.iv["current"] is not None:
-            _guarda("iv", lambda: st.save_iv_snapshot(ticker, ivc.iv["current"], now,
-                                                      min_iv=ivc.iv["min"],
-                                                      max_iv=ivc.iv["max"],
-                                                      contracts=ivc.iv["contracts"],
-                                                      front_skew=ivc.front_skew))
+        _guarda("iv", lambda: st.save_iv_snapshot(ticker, ivc, now))
 
     try:
         # 2. Leer lo acumulado. El filtro por asset_price/timestamp es el de su
@@ -3597,7 +4401,35 @@ def _tito_memory(ticker, trades, chain, bars, now):
                     and calibration.get("samples", 0) >= 5
                 ),
                 "dir_hit_rate": review.get("direction_hit_rate"),
+                # Su tercera `mem-stat`: «Tocó el target base — llegó al precio
+                # previsto». `review_predictions` la calcula y la ruta la
+                # tiraba. NO es lo mismo que el acierto de dirección: acertar
+                # que sube y no llegar al precio son dos fallos distintos, y
+                # con un solo número no se distinguen.
+                "base_touch_rate": review.get("base_touch_rate"),
                 "motivo": None,
+                # El TRACK RECORD fila a fila — su `MemoriaCard`, que no enseña
+                # un resumen sino una tabla: fecha, qué predijo, qué pasó de
+                # verdad, cuánto se equivocó y qué escenario acertó.
+                #
+                # `review_predictions` ya se llamaba aquí arriba y sus `evals`
+                # se tiraban: solo viajaban los agregados. O sea que el panel
+                # decía "6 predicciones vencidas, sesgo +2%" y no había forma de
+                # ver NINGUNA. Para lo único que existe esta sección —saber si
+                # el agente acierta— el resumen es justo lo que no basta.
+                #
+                # Las 12 más recientes: `review.evals` ya viene ordenado con la
+                # más nueva primero, y más de una docena no se lee.
+                "evals": [
+                    {"date": e.get("date"), "horizon_days": e.get("horizon_days"),
+                     "matured": e.get("matured"), "spot": _r(e.get("spot")),
+                     "base": _r(e.get("base")),
+                     "actual_close": _r(e.get("actual_close")),
+                     "error_pct": _r(e.get("base_error_pct"), 2),
+                     "best": e.get("best"),
+                     "direction_hit": e.get("direction_hit")}
+                    for e in (review.get("evals") or [])[:12]
+                ],
             },
         }
     except Exception as e:
@@ -3788,6 +4620,65 @@ def tito_health(ticker: str = "AAPL"):
                 "el tape de MarketSnack cambió de esquema: revisa que cada trade traiga "
                 "`asset_price` y `timestamp`",
                 "el archivo crece pero el sub-agente 6 no puede puntuar nada")
+
+        # ── Las tres coberturas que faltaban ────────────────────────────────
+        #
+        # Este diagnóstico cubría las fuentes (Massive, MarketSnack) y dos de
+        # las tres series que se acumulan (IV y flows). Las otras tres piezas
+        # del aprendizaje no las miraba nadie, y son justo las que deciden si
+        # el agente MEJORA con el tiempo o se queda estrenándose cada día.
+
+        # 1. Predicciones — el lazo de calibración. Sin ellas los targets nunca
+        #    se corrigen: el agente puede llevar seis meses apuntando un 8% de
+        #    más y seguir apuntando lo mismo.
+        _journal = st.load_journal(tk)
+        _preds = len(_journal)
+        _rev = st.review_predictions(_journal, [], datetime.now(timezone.utc))
+        _venc = _rev.get("matured_count", 0)
+        _cal = st.calibration_from_review(_rev)
+        _muestras = _cal.get("samples", 0) or 0
+        add("memoria.predicciones", _preds > 0,
+            f"{_preds} guardadas · {_venc} vencidas · calibración "
+            + (f"ACTIVA con {_muestras} muestras (sesgo {_cal.get('bias_pct')}%)"
+               if _muestras >= 5 else f"en espera ({_muestras}/5 muestras)"),
+            None if _preds else "se guardan solas en cada análisis de este ticker",
+            None if _preds else "sin predicciones no hay track record ni calibración: "
+                                "los targets nunca se corrigen solos")
+
+        # 2. Cadenas — la serie que permite reconstruir POR QUÉ el sub-agente 4
+        #    puntuó lo que puntuó un día concreto. Es la única evidencia que no
+        #    se puede recomprar: Massive vende la cadena de HOY, no la del
+        #    martes pasado.
+        _cad = len(st.load_chain_history(tk))
+        add("memoria.cadenas", _cad > 0,
+            f"{_cad} fotos diarias de la estructura de la cadena",
+            None if _cad else "se acumulan solas con cada análisis",
+            None if _cad else "no se podrá comparar la estructura de hoy con la de "
+                              "hace un mes: esa serie no se puede comprar después")
+
+        # 3. EL ALMACÉN — el que decide si todo lo anterior sobrevive.
+        #    En Render free el disco se borra en cada redeploy y cada vez que el
+        #    servicio despierta. Sin respaldo, los tres contadores de arriba
+        #    vuelven a cero solos y el agente se estrena cada semana sin que
+        #    nadie lo note: los números que enseña son correctos, simplemente
+        #    empiezan de nuevo.
+        try:
+            import vertex_almacen as _AL
+            _foto = _AL.almacen.estado()    # `almacen` es la instancia, no una fábrica
+            _resp = bool(_foto.get("respalda"))
+            add("memoria.respaldo", _resp,
+                (f"activo · rama `{_foto.get('rama')}` · {_foto.get('commits')} commits"
+                 + (f" · último push {_foto.get('ultimo_push')}" if _foto.get("ultimo_push") else "")
+                 ) if _resp else (_foto.get("motivo") or "sin respaldo"),
+                None if _resp else "pon VERTEX_GIT_TOKEN en Render (fine-grained, "
+                                   "Contents → Read and write sobre este repositorio)",
+                None if _resp else "en Render free el disco se borra en cada redeploy: "
+                                   "IV, flows, cadenas y predicciones vuelven a cero y "
+                                   "el agente se estrena otra vez")
+        except Exception as e:                       # noqa: BLE001
+            add("memoria.respaldo", False, f"no se pudo leer el almacén: {e}",
+                "revisa vertex_almacen.py",
+                "sin respaldo, la memoria no sobrevive a un redeploy")
     except Exception as e:
         add("memoria.disco", False, str(e),
             "en Render el plan free NO tiene disco: sube a starter y monta el volumen "
@@ -3809,7 +4700,7 @@ def tito_health(ticker: str = "AAPL"):
 _IDEAS_MIN_PREMIUM = 100_000   # piso server-side: flujo grande, no solo institucional
 _IDEAS_MAX_PAGES = 8
 _IDEAS_PERIOD = "1d"           # el sizing usa el precio del trade: cuanto más fresco, mejor
-_IDEAS_MAX = 60                # tope de filas devueltas
+_IDEAS_MAX_IDEAS = 60          # tope de filas devueltas (`MAX_IDEAS` suyo)
 _IDEAS_MAX_HISTORY_TICKERS = 25  # tope de llamadas a Massive por escaneo
 
 
@@ -3823,8 +4714,26 @@ def _ideas_dedupe(rows):
     return list(mejor.values())
 
 
+# ── DIVERGENCIA DECLARADA · una respuesta, no un stream ─────────────────────
+#
+# Sus cuatro rutas largas (`/api/analyze`, `/api/flow`, `/api/ideas`,
+# `/api/wheel`) son SSE: emiten entre 40 y 100 eventos `{type:"step", label}` y
+# el navegador los va enseñando («Conectando con Massive…», «Revisando flujo —
+# página 5», «NVDA: 3 candidatos»). Aquí las cuatro devuelven UN JSON al final.
+#
+# El motivo es el despliegue, no el gusto: esto corre detrás del proxy de Render
+# en plan free, que no garantiza el paso de `text/event-stream` sin buffering —
+# un stream a medio bufferizar es PEOR que ninguno, porque la pantalla se queda
+# congelada en el paso 3 y parece colgada.
+#
+# Lo que NO cambia: el usuario no se queda mirando un punto fijo. Su propio
+# `AnalysisLoader` ya COLAPSA los ~100 pasos en cuatro fases y su comentario lo
+# dice — «no leemos el texto de cada paso, solo cuántos han llegado». Esa es la
+# pantalla que se portó (`vcLoaderHTML`), con su curva asintótica y su tope del
+# 97%; el contador avanza con el reloj en vez de con los eventos. La etiqueta
+# fina («página 5 de 6») es lo único que se pierde, y solo mientras carga.
 @app.get("/api/tito-ideas")
-def tito_ideas():
+def tito_ideas(request: Request):
     """Screener de flujo inusual **en todo el mercado** — su `/api/ideas`.
 
     Es la respuesta a "no quiero tener que escribir un ticker para que el agente
@@ -3893,7 +4802,7 @@ def tito_ideas():
     operables = sorted(
         _ideas_dedupe([r for r in filas if is_tradeable_idea(r) and within_moneyness(r)]),
         key=lambda r: r.premium if isinstance(r.premium, (int, float)) else 0,
-        reverse=True)[:_IDEAS_MAX]
+        reverse=True)[:_IDEAS_MAX_IDEAS]
     tickers = list(dict.fromkeys(r.underlying for r in operables))
 
     # Historial: SOLO para tickers que ya tienen flows guardados. Los demás
@@ -3942,7 +4851,7 @@ def tito_ideas():
     # información, no ruido — y ocultarla te dejaría creyendo que el mercado no
     # ofrecía nada.
     from wbj.tito.risk import RiskProfile, size_flow
-    _perfil = _perfil_leer()
+    _perfil = _perfil_leer(request)
     _rp = RiskProfile(account_size=_perfil["capital"], tolerance_pct=_perfil["riesgo_pct"])
     _sizing = {}
     for r in operables:
@@ -3954,7 +4863,25 @@ def tito_ideas():
                 "total_cost": _r(_sz.total_cost),
                 "cost_pct_of_account": _r(_sz.cost_pct_of_account, 1),
                 "binding": _sz.binding,
-                "blocked": _sz.blocked,
+                # El dict `{reason, detail}` de su `QualityResult`. Se manda el
+                # DETALLE, que es la frase legible; el dict entero llegaba a la
+                # pantalla y se pintaba como «[object Object]».
+                "blocked": (_sz.blocked or {}).get("detail") if _sz.blocked else None,
+                "blocked_reason": (_sz.blocked or {}).get("reason") if _sz.blocked else None,
+                # ── La quema de theta: seis campos que el motor calculaba y la
+                # ruta tiraba ──────────────────────────────────────────────────
+                #
+                # Es la mitad de `size_flow` y la mitad de su `IdeaCard`: «el
+                # theta se come $X al día por contrato: $Y en N días (Z% de la
+                # cuenta)», y el aviso de que el contrato se consume ENTERO
+                # dentro del horizonte. Sin esto, «te caben 3» es un techo sin
+                # el precio de mantenerlos, que es justo lo que distingue una
+                # opción de una acción.
+                "burn_days": _sz.burn_days,
+                "theta_burn_per_contract": _r(_sz.theta_burn_per_contract),
+                "total_burn": _r(_sz.total_burn),
+                "burn_pct_of_account": _r(_sz.burn_pct_of_account, 1),
+                "fully_decays": _sz.fully_decays,
             }
         except Exception:                        # noqa: BLE001 — el port lanza donde él
             _sizing[r.id] = None
@@ -4004,15 +4931,53 @@ def tito_ideas():
         "perfil": {"capital": _perfil["capital"], "tolerancia": _perfil["tolerancia"],
                    "riesgo_pct": _perfil["riesgo_pct"],
                    "riesgo_por_trade": _perfil["riesgo_por_trade"],
+                   # Los dos presupuestos de su `RiskProfileCard`. El de theta
+                   # es un % de la CUENTA (`budgetsOf`: account * 5 / 100), no
+                   # del riesgo por operación — con $1.000 al 15% son $50, no
+                   # $7,50, y sobre el número equivocado se descartarían
+                   # contratos perfectamente operables. Viaja calculado por el
+                   # motor para que la pantalla no vuelva a decidirlo.
+                   "theta_budget_pct": _THETA_BUDGET_PCT,
+                   "theta_budget": _r(_perfil["capital"] * _THETA_BUDGET_PCT / 100),
+                   # El horizonte con el que se dimensionó. `size_flow` quema
+                   # theta hasta esta fecha, así que el «te cabe» CAMBIA con él:
+                   # sin decirlo, el techo de contratos es un número sin unidad.
+                   # Su app lo elige con un botón (`HORIZON_LABELS`); aquí sale
+                   # del perfil, que es la parte que sí es de Kevin.
+                   "horizonte": _perfil.get("horizonte"),
+                   "horizonte_dias": _perfil_horizonte_dias(_perfil),
                    "caben": sum(1 for v in _sizing.values()
                                 if (v or {}).get("max_contracts"))},
         "period": _IDEAS_PERIOD, "generated_at": now.isoformat(),
     })
 
 
+#: `THETA_BUDGET_PCT` de su `risk.ts`, leído del motor y no escrito a mano:
+#: es el mismo 5% que usa el sizing, y dos copias se desincronizan a la primera.
+try:
+    from wbj.tito.risk import THETA_BUDGET_PCT as _THETA_BUDGET_PCT
+except Exception:                                # el motor puede no estar
+    _THETA_BUDGET_PCT = 5.0
+
+
 #: Concurrencia del escaneo Wheel — su `CONCURRENCY`. Cada ticker son dos
 #: llamadas a Massive (cadena + barras); sin tope, 40 símbolos en paralelo se
 #: comen la cuota de un tirón.
+#: Las cuatro constantes de su `/api/flow` que faltaban, importadas POR NOMBRE
+#: desde el motor en vez de escritas a mano en la llamada.
+#:
+#: Tres estaban aquí como números sueltos —el mismo valor que el suyo, pero sin
+#: nombre y sin nadie que los cotejara— y la cuarta tenía otro valor: la tabla
+#: de convicción servía 25 filas donde él sirve 150. Con el nombre, el cotejo de
+#: constantes de la auditoría las ve; con el número suelto, no.
+from wbj.tito.scorecard import (                                # noqa: E402
+    _unir as _tito_unir,          # `[...a, ...b]` con dedupe por id, el suyo
+    CONVICTION_TABLE_CAP as TITO_CONVICTION_TABLE_CAP,
+    LEAN_MAX_PAGES as TITO_LEAN_MAX_PAGES,
+    MIN_PREMIUM as TITO_MIN_PREMIUM,
+    TABLE_CAP as TITO_TABLE_CAP,
+)
+
 _WHEEL_CONCURRENCY = 6
 
 #: Reintentos ante un 429 de Massive, con espera creciente.
@@ -4078,7 +5043,7 @@ def _wheel_barras(ticker, now):
 
 
 @app.get("/api/tito-wheel")
-def tito_wheel(preset: str = "balanceado"):
+def tito_wheel(request: Request, preset: str = "balanceado"):
     """Screener de la **Wheel** — su `/api/wheel`.
 
     Vender *cash-secured puts* sobre su universo curado de 40 símbolos. Por cada
@@ -4278,7 +5243,7 @@ def tito_wheel(preset: str = "balanceado"):
     # Lo que NO se hace: esconder lo que no te cabe. Un put de 100 acciones de
     # NVDA no deja de existir porque tengas $1,000 — se marca y se baja.
     from wbj.tito.wheel_universe import sort_by_afford_then_score
-    _perfil = _perfil_leer()
+    _perfil = _perfil_leer(request)
     pares = sort_by_afford_then_score(todos, _perfil["capital"])
     todos = [c for c, _ in pares]
 
@@ -4371,7 +5336,8 @@ def tito_wheel(preset: str = "balanceado"):
 
 
 @app.get("/api/tito-tape")
-def tito_tape(ticker: str, period: str = "5d", min_premium: float = 100_000):
+def tito_tape(ticker: str, period: str = "5d",
+              min_premium: float = TITO_MIN_PREMIUM):
     """Time & Sales de un ticker — su `/flow`.
 
     Es la cinta cruda ya clasificada por los sub-agentes 1-3: cada operación con
@@ -4390,7 +5356,8 @@ def tito_tape(ticker: str, period: str = "5d", min_premium: float = 100_000):
         return {"ok": False, "error": err}
     now = datetime.now(timezone.utc)
     try:
-        res = fetch_flow(tk, period=period, min_premium=min_premium, max_pages=6)
+        res = fetch_flow(tk, period=period, min_premium=min_premium,
+                         max_pages=TITO_LEAN_MAX_PAGES)
     except MarketSnackError as e:
         return {"ok": False, "error": _error_de_fuente(e, "Cinta de MarketSnack"),
                 "source": "marketsnack"}
@@ -4414,17 +5381,41 @@ def tito_tape(ticker: str, period: str = "5d", min_premium: float = 100_000):
             "open_interest": t.open_interest, "volume": t.volume,
             "timestamp": t.timestamp, "expiry_status": t.expiry_status,
             "unusual": t.unusual, "unusual_score": getattr(t.scores, "total", 0),
+            # Su `desglose` de `NotableTable`: «Volumen X/10 · Horario Y/10 ·
+            # Repetición Z/10», que va en el `title` de la columna de Puntos.
+            # Solo viajaba el total, y un 21/30 sin desglose no dice si vino del
+            # tamaño de la orden, de la hora a la que entró o de cuántas veces se
+            # repitió el contrato — que son tres señales distintas.
+            "unusual_parts": {
+                "volume": getattr(t.scores, "volume", 0),
+                "timing": getattr(t.scores, "timing", 0),
+                "repetition": getattr(t.scores, "repetition", 0),
+            },
             "repeated": bool(getattr(t.flags, "repeated", False)),
             "multileg": bool(getattr(t.flags, "multileg", False)),
             "above_ask": bool(getattr(t.flags, "above_ask", False)),
             "below_bid": bool(getattr(t.flags, "below_bid", False)),
             "exceeded_oi": bool(getattr(t.flags, "exceeded_oi", False)),
+            # Las tres que faltaban de su `Flags` de `NotableTable`. `big` y
+            # `conv_delta` son las dos "calientes" —$1M+ y delta fuerte— y
+            # `simultaneous` marca que otros contratos del mismo subyacente se
+            # ejecutaron a la misma hora, que es lo que distingue una pata de
+            # una apuesta suelta. Sin ellas la cinta enseñaba cuatro de sus
+            # siete señales.
+            "big": bool(getattr(t.flags, "big", False)),
+            "conv_delta": bool(getattr(t.flags, "conv_delta", False)),
+            "leap": bool(getattr(t.flags, "leap", False)),
+            "simultaneous": bool(getattr(t.flags, "simultaneous", False)),
+            "condition_code": t.condition_code,
             "condition_name": t.condition_name,
         }
 
+    # `interesting.slice(0, TABLE_CAP)` suyo. Su `classifyFlow` ya devuelve
+    # `interesting` ordenado por premium descendente, así que el `sorted` es
+    # redundante y se queda por si la fuente cambia el orden. El tope era 120.
     filas = sorted(flow.interesting,
                    key=lambda t: t.premium if isinstance(t.premium, (int, float)) else 0,
-                   reverse=True)[:120]
+                   reverse=True)[:TITO_TABLE_CAP]
     return _json_safe({
         "ok": True, "engine": "victor/tito", "ticker": tk,
         "trades": [_fila(t) for t in filas],
@@ -4437,215 +5428,8 @@ def tito_tape(ticker: str, period: str = "5d", min_premium: float = 100_000):
         "generated_at": now.isoformat(),
     })
 
-
-#: Qué campo necesita cada cosa. Es el contrato REAL del motor con Massive y
-#: MarketSnack, sacado de leer quién consume qué — no de la documentación del
-#: proveedor, que dice lo que el plan más caro devuelve.
-_FUENTES = [
-    ("massive", "cadena", "/v3/snapshot/options/{t}?limit=1",
-     "La cadena de opciones. Sostiene Estructura, GEX, niveles y escenarios.",
-     [("details.strike_price", "el strike", "sin esto no hay nada"),
-      ("details.expiration_date", "el vencimiento", "sin esto no hay nada"),
-      ("details.contract_type", "call o put", "sin esto no hay nada"),
-      ("details.shares_per_contract", "acciones por contrato",
-       "darlo por hecho en 100 infla el nocional de los ajustados hasta 10x"),
-      ("open_interest", "open interest", "es la mitad del GEX y del nocional"),
-      ("day.close", "cierre del día del contrato",
-       "2º nivel de la cascada de precio; sin él, un contrato que no negoció hoy no tiene prima"),
-      ("day.vwap", "VWAP del día", "3er nivel de la cascada"),
-      ("last_trade.price", "último negociado", "1er nivel de la cascada"),
-      ("last_quote.bid", "BID — lo que COBRAS al vender",
-       "SOLO Wheel. Sin él la prima es estimada y la liquidez cobra 0/15"),
-      ("last_quote.ask", "ask", "SOLO Wheel: sin ask no hay spread que medir"),
-      ("underlying_asset.price", "precio del subyacente",
-       "el spot; hay respaldo por barras, pero es el bueno")]),
-    ("massive", "barras", "/v2/aggs/ticker/{t}/range/1/day/2020-01-01/2030-01-01?limit=1",
-     "Barras diarias. Niveles, IV Rank, sub-agente 6 y la gráfica.",
-     [("results[].t", "timestamp", "sin esto no hay eje temporal"),
-      ("results[].o", "apertura", "sin ella las velas salen doji"),
-      ("results[].h", "máximo", "pivotes y ATR"),
-      ("results[].l", "mínimo", "pivotes y ATR"),
-      ("results[].c", "cierre", "todo lo demás")]),
-    ("massive", "snapshot", "/v2/snapshot/locale/us/markets/stocks/tickers/{t}",
-     "Precio del subyacente en vivo. Es el 1er eslabón del spot.",
-     [("ticker.day.c", "cierre de hoy", "1er nivel"),
-      ("ticker.min.c", "último minuto", "2º nivel"),
-      ("ticker.prevDay.c", "cierre previo", "3er nivel")]),
-    ("massive", "ficha", "/v3/reference/tickers/{t}",
-     "Nombre de la empresa. Lo usa el matcher de noticias macro.",
-     [("results.name", "nombre", "sin él, 'Tesla' en un titular no hace match con TSLA")]),
-    ("massive", "financials", "/vX/reference/financials?ticker={t}&limit=1",
-     "Fechas de reporte. Es el proxy de earnings de Wheel.",
-     [("results[].filing_date", "fecha de presentación",
-       "sin ella el flag de earnings sale 'no aplica' y regala 10/10")]),
-]
-
-
-@app.get("/api/tito-fuentes")
-def tito_fuentes(ticker: str = "AAPL"):
-    """Diagnóstico de FUENTES: qué devuelve tu plan, campo por campo.
-
-    Existe porque la pregunta "¿tengo los datos que necesito?" no la contesta
-    la documentación del proveedor —que describe el plan más caro— ni un test
-    —que corre con dobles—. Solo la contesta pedirle a TU cuenta cada endpoint
-    y mirar qué viene.
-
-    Por cada endpoint dice el HTTP que devolvió, y por cada campo que el motor
-    lee: si está, de qué tipo, y **qué se rompe si falta**. Al final, el
-    veredicto por pestaña: qué funciona entero, qué funciona degradado y qué no
-    funciona, con el motivo.
-
-    No imprime ninguna credencial.
-    """
-    import urllib.error
-    import urllib.request
-
-    tk, err = _tito_ticker(ticker)
-    if err:
-        return {"ok": False, "error": err}
-
-    key = os.environ.get("MASSIVE_API_KEY", "").strip()
-    cookie = os.environ.get("MARKETSNACK_COOKIE", "").strip()
-
-    def _cava(obj, ruta):
-        """Baja por `a.b[].c` y devuelve (encontrado, valor)."""
-        cur = obj
-        for parte in ruta.split("."):
-            if parte.endswith("[]"):
-                cur = (cur or {}).get(parte[:-2]) if isinstance(cur, dict) else None
-                if not isinstance(cur, list) or not cur:
-                    return False, None
-                cur = cur[0]
-            else:
-                if not isinstance(cur, dict) or parte not in cur:
-                    return False, None
-                cur = cur[parte]
-        return True, cur
-
-    def _pide(url, cabeceras):
-        req = urllib.request.Request(url, headers=cabeceras)
-        try:
-            with urllib.request.urlopen(req, timeout=20) as res:
-                return res.status, json.loads(res.read().decode("utf-8", "replace")), None
-        except urllib.error.HTTPError as e:
-            cuerpo = e.read().decode("utf-8", "replace")[:200] if e.fp else ""
-            return e.code, None, cuerpo
-        except Exception as e:                   # noqa: BLE001
-            return 0, None, f"{type(e).__name__}: {e}"
-
-    endpoints = []
-    for prov, nombre, plantilla, para_que, campos in _FUENTES:
-        if not key:
-            endpoints.append({"proveedor": prov, "endpoint": nombre, "para_que": para_que,
-                              "status": None, "error": "MASSIVE_API_KEY no está en el entorno",
-                              "campos": []})
-            continue
-        url = "https://api.massive.com" + plantilla.format(t=urllib.parse.quote(tk))
-        status, data, motivo = _pide(url, {"Authorization": f"Bearer {key}"})
-        fila = {"proveedor": prov, "endpoint": nombre, "ruta": plantilla.split("?")[0],
-                "para_que": para_que, "status": status, "error": motivo, "campos": []}
-        # `results` puede venir como lista o como objeto según el endpoint.
-        raiz = data
-        if isinstance(data, dict) and isinstance(data.get("results"), list) and data["results"]:
-            raiz = {"results": data["results"], **(data["results"][0] or {})}
-        for camino, que_es, si_falta in campos:
-            hay, val = _cava(raiz or {}, camino)
-            fila["campos"].append({"campo": camino, "que_es": que_es, "hay": hay,
-                                   "tipo": type(val).__name__ if hay else None,
-                                   "si_falta": si_falta})
-        endpoints.append(fila)
-
-    # ── MarketSnack ─────────────────────────────────────────────────────
-    ms = {"proveedor": "marketsnack", "endpoint": "cinta", "ruta": "/api/flow_feed",
-          "para_que": "El tape. Sostiene 4 de los 6 sub-agentes y el screener de Ideas.",
-          "status": None, "error": None, "campos": []}
-    if not cookie:
-        ms["error"] = "MARKETSNACK_COOKIE no está en el entorno (es una COOKIE y caduca)"
-    else:
-        try:
-            from wbj.tito.marketsnack import fetch_flow
-            res = fetch_flow(tk, period="5d", min_premium=100_000, max_pages=1)
-            ms["status"] = 200
-            crudo = res.trades[0] if res.trades else {}
-            ms["trades"] = len(res.trades)
-            for campo, que_es, si_falta in [
-                ("id", "identificador del trade", "sin él la memoria no deduplica"),
-                ("symbol", "símbolo OCC", "sin él no se sabe qué contrato es"),
-                ("side", "lado de ejecución", "es el sub-agente 1 entero"),
-                ("bid_price", "bid", "sin horquilla no hay convicción por spread"),
-                ("ask_price", "ask", "idem"),
-                ("premium", "dinero de la operación", "el peso de todo"),
-                ("delta", "delta", "inusualidad y dirección"),
-                ("gamma", "gamma", "ancla el GEX al tape real"),
-                ("theta", "theta", "filtro de calidad del contrato"),
-                ("implied_volatility", "IV", "el sub-agente 5 entero"),
-                ("open_interest", "open interest", "volumen contra OI"),
-                ("timestamp", "hora", "sin ella no hay ventana ni frescura"),
-                ("asset_price", "precio del subyacente", "sin él no hay moneyness"),
-            ]:
-                ms["campos"].append({"campo": campo, "que_es": que_es,
-                                     "hay": campo in (crudo or {}),
-                                     "tipo": type((crudo or {}).get(campo)).__name__
-                                             if campo in (crudo or {}) else None,
-                                     "si_falta": si_falta})
-        except Exception as e:                   # noqa: BLE001
-            ms["error"] = _error_de_fuente(e, "Cinta de MarketSnack")
-    endpoints.append(ms)
-
-    # ── Veredicto por pestaña ───────────────────────────────────────────
-    def _tiene(endpoint, campo):
-        for e in endpoints:
-            if e["endpoint"] == endpoint:
-                for c in e["campos"]:
-                    if c["campo"] == campo:
-                        return c["hay"]
-        return False
-
-    def _viva(endpoint):
-        return any(e["endpoint"] == endpoint and e.get("status") == 200 for e in endpoints)
-
-    cadena_ok = _viva("cadena") and _tiene("cadena", "details.strike_price")
-    barras_ok = _viva("barras") and _tiene("barras", "results[].c")
-    cinta_ok = _viva("cinta") and _tiene("cinta", "premium")
-    bid_ok = _tiene("cadena", "last_quote.bid")
-    precio_ok = (_tiene("cadena", "last_trade.price") or _tiene("cadena", "day.close")
-                 or _tiene("cadena", "day.vwap"))
-
-    def _v(estado, motivo, arreglo=None):
-        return {"estado": estado, "motivo": motivo, "arreglo": arreglo}
-
-    veredicto = {
-        "ticker": (_v("ok", "cadena, barras y cinta responden")
-                   if cadena_ok and barras_ok and cinta_ok
-                   else _v("degradado" if cadena_ok and barras_ok else "roto",
-                           "sin cinta: 4 de los 6 sub-agentes se apagan" if not cinta_ok
-                           else "falta la cadena o las barras",
-                           "vuelve a pegar MARKETSNACK_COOKIE" if not cinta_ok else None)),
-        "ideas": (_v("ok", "la cinta responde") if cinta_ok
-                  else _v("roto", "Ideas es 100% cinta de MarketSnack",
-                          "vuelve a pegar MARKETSNACK_COOKIE")),
-        "wheel": (_v("ok", "la cadena trae BID: prima real y liquidez medible") if bid_ok
-                  else _v("degradado" if (cadena_ok and precio_ok and barras_ok) else "roto",
-                          "la cadena no trae `last_quote`: la prima sale del último "
-                          "precio con recorte del 10% y la liquidez cobra 0/15"
-                          if precio_ok else "la cadena no trae ni bid ni precio de respaldo",
-                          "para prima real hace falta un plan de Massive con QUOTES de "
-                          "opciones; el snapshot sin quotes no lo da")),
-        "tape": (_v("ok", "la cinta responde") if cinta_ok
-                 else _v("roto", "Time & Sales es 100% cinta",
-                         "vuelve a pegar MARKETSNACK_COOKIE")),
-    }
-
-    return _json_safe({
-        "ok": True, "ticker": tk,
-        "credenciales": {"massive": bool(key), "marketsnack": bool(cookie)},
-        "endpoints": endpoints, "veredicto": veredicto,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-    })
-
-
 # ═══════════════════════════════════════════════════════════════════════════
-#  PERFIL DEL INVERSIONISTA
+#  PERFIL DEL INVERSIONISTA — UNO POR USUARIO
 #
 #  Dos piezas, y la separación entre ellas es la regla del proyecto:
 #
@@ -4656,288 +5440,391 @@ def tito_fuentes(ticker: str = "AAPL"):
 #     como contexto y **jamás** se convierte en un score: "sin evidencia no hay
 #     número, sin número no hay score".
 #
-#  Se guarda en DOS archivos, a propósito:
+#  Antes había UN perfil global (`perfil.json`) y un solo `Kevin.md`. Con
+#  cuentas de verdad eso ya no vale: dos personas compartirían capital y
+#  tolerancia. Ahora el perfil vive en la fila del usuario, y su `.md` en
+#  `Perfil Inversionista/usuarios/<nombre>-<id>.md`.
 #
-#   · `Perfil Inversionista/perfil.json` — la verdad estructurada.
-#   · `Perfil Inversionista/<Nombre>.md` — GENERADO a partir del anterior.
+#  El `.md` existe porque `_load_investor_profile()` ya lo leía, y con él lo
+#  leen Analyze y Explore. Lo único que cambió en esa función es CUÁL archivo
+#  resuelve — el del usuario de la sesión, con `Kevin.md` de respaldo. Su
+#  lógica, su prompt y su pantalla no se han tocado.
 #
-#  El `.md` existe porque `_load_investor_profile()` ya lo lee, y con él lo leen
-#  Analyze y Explore **sin tocar una línea de esas dos áreas**. Escribiendo el
-#  archivo que ya consumen, el perfil llega a los tres agentes por el camino que
-#  el proyecto ya tenía montado.
+#  Las preguntas y el hashing viven en `vertex_cuentas.py`.
 # ═══════════════════════════════════════════════════════════════════════════
 
 _PERFIL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                            "Perfil Inversionista")
-_PERFIL_JSON = os.path.join(_PERFIL_DIR, "perfil.json")
 
-#: Bandas de tolerancia. El % es del CAPITAL por operación, y es lo que
-#: `risk.size_flow` usa como techo. Los nombres son los del perfil de Kevin.
-_TOLERANCIAS = {
-    "conservador": {"label": "Conservador", "riesgo_pct": 2.0,
-                    "que_significa": "Priorizas no perder. Posiciones pequeñas y muy filtradas."},
-    "moderado":    {"label": "Moderado", "riesgo_pct": 5.0,
-                    "que_significa": "Aceptas volatilidad a cambio de crecimiento."},
-    "agresivo":    {"label": "Agresivo", "riesgo_pct": 15.0,
-                    "que_significa": "Buscas crecimiento de capital y toleras drawdowns fuertes."},
-    "especulativo": {"label": "Especulativo", "riesgo_pct": 30.0,
-                     "que_significa": "Asumes riesgo de ruina real a cambio de asimetría."},
-}
-
-_PERFIL_DEFECTO = {
-    "nombre": "", "email": "", "capital": 1000.0, "tolerancia": "agresivo",
-    "horizonte": "1-3 años", "instrumentos": ["acciones", "etf", "opciones"],
-    "mercados": ["EE.UU."], "texto": "",
-    #: Tope por POSICIÓN, como rango. Es distinto del riesgo por operación:
-    #: aquel dice cuánto puedes perder, este cuánto puedes desplegar.
-    #: `engine/wbj/specialists/risk.py::_load_profile` lo saca del `.md` con
-    #: un regex que exige un RANGO en porcentaje ("20% – 30%"). Por eso vive
-    #: como par y por eso el markdown lo escribe con ese formato exacto.
-    "max_posicion_pct": [20, 30],
-    "excluir": [], "actualizado": None,
-}
+#: El `.md` de referencia: el que Kevin escribió a mano. Es el respaldo cuando
+#: no hay sesión (scripts, cron, el preflight) y el que da los valores por
+#: defecto que hereda quien no contesta el cuestionario.
+_PERFIL_MD_DEFECTO = os.path.join(_PERFIL_DIR, "Kevin.md")
 
 
-def _perfil_semilla_del_md():
-    """Lo que se pueda rescatar del `.md` escrito a mano, la primera vez.
+def _perfil_leer(request=None):
+    """El perfil del usuario de la sesión, o el de Kevin si no hay sesión.
 
-    Sin esto, abrir la pantalla de perfil y pulsar «Guardar» sobre un usuario
-    que nunca tuvo `perfil.json` reescribiría un `Kevin.md` redactado a mano
-    con un formulario vacío. El texto entero se conserva en «En mis palabras»:
-    no se pierde una línea, y el inversionista lo recorta si quiere.
-
-    Nunca lanza: sin `.md`, devuelve un diccionario vacío.
+    Devuelve siempre un diccionario utilizable: sin sesión y sin archivo, los
+    valores por defecto del cuestionario. Nunca lanza — un análisis no puede
+    caerse por un archivo de contexto.
     """
-    for nombre in ("Kevin.md", "Mi Perfil.md", "MiPerfil.md", "Perfil.md"):
-        ruta = os.path.join(_PERFIL_DIR, nombre)
-        if not os.path.isfile(ruta):
-            continue
+    # Sin `request` NO se cae al defecto: se mira el contexto que dejó el
+    # middleware. Guardar aquí un `if request is not None` dejaba mudo justo al
+    # camino que usa el engine —que no recibe `request`— y el especialista de
+    # riesgo volvía a contarle a todo el mundo el capital por defecto.
+    u = _usuario_actual(request)
+    if u is not None:
         try:
-            with open(ruta, "r", encoding="utf-8") as f:
-                texto = f.read().strip()
-        except Exception:                        # noqa: BLE001
-            return {}
-        if not texto:
-            return {}
-        # Si el `.md` ya lo generamos nosotros, su contenido sale del JSON:
-        # volver a meterlo como texto libre lo duplicaría en cada guardado.
-        if "Generado desde el editor de perfil de Vertex" in texto:
-            return {}
-        semilla = {"texto": texto, "nombre": nombre[:-3]}
-        m = re.search(r"\$\s?([\d.,]+)", texto)
-        if m:
+            conn = _db()
             try:
-                semilla["capital"] = float(m.group(1).replace(",", ""))
-            except ValueError:
-                pass
-        m = re.search(r"(\d+)\s*(?:a|-|–|—)\s*(\d+)\s*años", texto, re.I)
-        if m:
-            semilla["horizonte"] = f"{m.group(1)}-{m.group(2)} años"
-        m = re.search(r"(\d{1,3})\s*%\s*(?:a|-|–|—)\s*(\d{1,3})\s*%", texto)
-        if m:
-            semilla["max_posicion_pct"] = [int(m.group(1)), int(m.group(2))]
-        return semilla
-    return {}
+                return _CU.leer_perfil(conn, u["id"])
+            finally:
+                conn.close()
+        except Exception:                        # noqa: BLE001
+            pass
+    base = _CU.perfil_por_defecto()
+    base.update(_CU.derivados(base))
+    base["sin_contestar"] = _CU.preguntas_sin_contestar(base)
+    return base
 
 
 def _perfil_horizonte_dias(d):
-    """El horizonte del perfil en días, para la quema de theta de `size_flow`.
+    """El horizonte del perfil en días, para la quema de theta de `size_flow`."""
+    return _CU.horizonte_dias(d)
 
-    El campo es texto libre ("1-3 años", "semanas a meses") porque así lo
-    escribe una persona. Se traduce a días con el extremo CORTO del rango: un
-    horizonte corto quema menos theta y por tanto deja un techo más alto, así
-    que usar el largo sería el lado conservador… pero también el que esconde
-    operaciones que sí caben. Se usa el corto y se declara.
+
+def _perfil_para_el_engine():
+    """Traduce el perfil de la sesión al diccionario que espera `risk.py`.
+
+    Son dos vocabularios distintos —el cuestionario habla en español y en
+    porcentajes enteros, el especialista en inglés y en fracciones— y traducir
+    aquí es lo que evita que el engine tenga que saber del cuestionario.
+
+    `fields_parsed` va relleno a propósito: estos campos NO se adivinaron de un
+    markdown, los contestó una persona. `fields_defaulted` lleva las preguntas
+    que siguen heredadas, para que el reporte pueda decir "este tope no lo
+    fijaste tú" en vez de presentarlo como si sí.
     """
-    t = (d.get("horizonte") or "").lower()
-    if "día" in t or "dia" in t:
-        return 5
-    if "semana" in t:
-        return 21
-    if "mes" in t:
-        return 45
-    if "año" in t or "ano" in t:
-        return 90        # tope: `size_flow` no mira más allá del vencimiento
-    return 30
+    d = _perfil_leer()
+    pos = d.get("max_posicion_pct") or [20, 30]
+    anios = _CU._anios_de_horizonte(d.get("horizonte"))
+    heredadas = list(d.get("sin_contestar") or [])
+    _CAMPOS = {"capital": "capital_usd", "horizonte": "horizon_years",
+               "max_posicion_pct": "max_position_pct"}
+    return {
+        "objective": ",".join(d.get("objetivos") or []) or "capital_growth",
+        "horizon_years": (anios[0], anios[1]),
+        "max_loss_tolerance": d.get("tolerancia") or "agresivo",
+        "style": d.get("tolerancia") or "aggressive_speculative",
+        "capital_usd": float(d.get("capital") or 0),
+        "max_position_pct": (pos[0] / 100.0, pos[1] / 100.0),
+        "geography": ",".join(d.get("mercados") or []) or "us_only",
+        "excludes": tuple(d.get("excluir") or ()),
+        "source": f"cuestionario de {d.get('nombre') or 'el inversionista'}",
+        "fields_parsed": [v for k, v in _CAMPOS.items() if k not in heredadas],
+        "fields_defaulted": [v for k, v in _CAMPOS.items() if k in heredadas],
+    }
 
 
-def _perfil_leer():
-    """El perfil estructurado. Nunca lanza: sin archivo, devuelve el defecto."""
-    d = dict(_PERFIL_DEFECTO)
-    try:
-        with open(_PERFIL_JSON, "r", encoding="utf-8") as f:
-            guardado = json.load(f)
-        if isinstance(guardado, dict):
-            d.update({k: v for k, v in guardado.items() if k in _PERFIL_DEFECTO})
-    except Exception:                            # noqa: BLE001 — sin perfil se sigue
-        # Primera vez: no hay JSON todavía. Se siembra de lo que ya había
-        # escrito a mano, para que guardar no destruya el perfil de nadie.
-        d.update(_perfil_semilla_del_md())
-    if d.get("tolerancia") not in _TOLERANCIAS:
-        d["tolerancia"] = "agresivo"
-    try:
-        d["capital"] = float(d.get("capital") or 0) or 0.0
-    except (TypeError, ValueError):
-        d["capital"] = 0.0
-    d["riesgo_pct"] = _TOLERANCIAS[d["tolerancia"]]["riesgo_pct"]
-    #: Lo máximo que aceptas perder en UNA operación. Es el número que ordena
-    #: las Ideas y el que la Wheel usa para saber qué colateral te cabe.
-    d["riesgo_por_trade"] = _r(d["capital"] * d["riesgo_pct"] / 100)
-    return d
+# ═══════════════════════════════════════════════════════════════════════════
+#  APRENDIZAJE COMPARTIDO
+#
+#  «Todo lo que analice cada usuario alimenta a los agentes en general.»
+#
+#  Los dos agentes aprenden de forma DISTINTA, y contarlos juntos escondería
+#  precisamente lo que los diferencia:
+#
+#   · **Acciones** (Analyze/Explore) aprende por CALIBRACIÓN. Cada reporte
+#     guarda convicción y objetivos de precio; el tiempo dice si acertó. Más
+#     reportes de más gente = una curva de fiabilidad con más puntos. Es un
+#     lazo cerrado: se puede comprobar si un «70%» acierta el 70% de las veces.
+#
+#   · **Opciones** (Proyecciones) aprende por ACUMULACIÓN HACIA ADELANTE. La IV
+#     histórica, las cadenas y el flujo pasado no los vende nadie; se juntan
+#     una foto por día de mercado. No hay nada que "acertar" aquí: hay serie o
+#     no la hay. Sin ella el IV Rank real (sub-agente 5) y la confirmación de
+#     precio (sub-agente 6) se quedan apagados.
+#
+#  Lo que se comparte es ESO. El análisis de cada quien es privado — esta ruta
+#  no devuelve nunca quién analizó qué, solo cuánto hay y de cuántas personas.
+# ═══════════════════════════════════════════════════════════════════════════
 
+@app.get("/api/wbj-explicacion")
+def wbj_explicacion(request: Request, report_id: str):
+    """El 2º pase del LLM, a petición y DESPUÉS del análisis.
 
-def _perfil_a_markdown(d):
-    """Genera el `.md` que YA leen Analyze y Explore.
+    Es la mitad que faltaba. La explicación existía desde hacía tiempo pero
+    estaba detrás de `?explain=1`, y la pantalla nunca lo pedía: el texto libre
+    del perfil viajaba hasta el prompt y ahí se paraba, así que escribieras lo
+    que escribieras no cambiaba una palabra de lo que veías.
 
-    El formato importa por DOS motivos, y el segundo es el que muerde:
+    No se metió en `/api/analyze` porque cuesta ~18 s y ese endpoint ya roza el
+    corte de Render. Aquí se reconstruye el contexto desde el reporte YA
+    guardado —los mismos números, ninguno recalculado— y el navegador la pide
+    cuando el análisis ya está en pantalla.
 
-    1. `_load_investor_profile()` devuelve el archivo entero como texto y lo
-       pega en el prompt. Tiene que leerse como un perfil escrito por una
-       persona, no como un volcado de JSON.
-    2. `engine/wbj/specialists/risk.py::_load_profile` **parsea este archivo
-       con tres regex**: el primer importe en dólares (capital), un rango
-       "N a M años" (horizonte) y un rango "N% – M%" (tope por posición). Si
-       alguna deja de casar, ese especialista cae al valor por defecto **en
-       silencio** y el reporte pasa a hablar del perfil de otro. Por eso:
-
-       · el capital es el PRIMER `$` del documento;
-       · el horizonte se escribe también como rango en años cuando se conoce;
-       · el tope por posición se escribe siempre como rango en porcentaje.
-
-    Los tests `TestElMdSigueSiendoLegibleParaElEngine` lo verifican contra la
-    función real, no contra una copia del regex.
+    **Solo tu propio reporte.** Se filtra por `usuario_id` igual que el archivo:
+    de nada serviría un archivo privado si esta ruta explicara el de otro.
     """
-    tol = _TOLERANCIAS[d["tolerancia"]]
-    inst = ", ".join(d.get("instrumentos") or []) or "sin especificar"
-    merc = ", ".join(d.get("mercados") or []) or "sin especificar"
-    excl = ", ".join(d.get("excluir") or [])
-    pos = d.get("max_posicion_pct") or _PERFIL_DEFECTO["max_posicion_pct"]
-    horiz = d.get("horizonte") or "sin especificar"
-    # El regex del engine quiere "N a M años". Si el horizonte se escribió con
-    # palabras ("semanas a meses"), se añade el equivalente en años detrás en
-    # vez de callar: un horizonte por defecto no declarado es peor que uno
-    # aproximado y dicho.
-    if not re.search(r"\d+\s*(?:a|-|–|—)\s*\d+\s*años", horiz, re.I):
-        _dias = _perfil_horizonte_dias(d)
-        _a = max(1, round(_dias / 365)) if _dias >= 180 else 1
-        horiz = f"{horiz} (aprox. {_a} a {_a + 2} años para el especialista de riesgo)"
-    lineas = [
-        f"# Perfil de inversionista — {d.get('nombre') or 'sin nombre'}",
-        "",
-        "> Generado desde el editor de perfil de Vertex. Es la ÚNICA fuente del",
-        "> perfil: la edita el inversionista y la leen los tres agentes.",
-        "",
-        "## Datos duros",
-        "",
-        f"- **Capital disponible**: ${d['capital']:,.0f}",
-        f"- **Tolerancia al riesgo**: {tol['label']} — {tol['que_significa']}",
-        f"- **Riesgo máximo por operación**: {d['riesgo_pct']:.0f}% del capital "
-        f"(${d['riesgo_por_trade']:,.0f})",
-        f"- **Máximo por posición individual**: {pos[0]}% – {pos[1]}% del capital.",
-        f"- **Horizonte**: {horiz}",
-        f"- **Instrumentos**: {inst}",
-        f"- **Mercados**: {merc}",
-    ]
-    if excl:
-        lineas.append(f"- **Excluido a propósito**: {excl}")
-    lineas += [
-        "",
-        "## En mis palabras",
-        "",
-        (d.get("texto") or "_El inversionista aún no ha escrito su perfil._").strip(),
-        "",
-        "---",
-        "",
-        "**Cómo usar esto.** Los datos duros son restricciones: el sizing y el",
-        "universo salen de ahí. El texto es contexto para la tesis y **nunca**",
-        "se convierte en un score — sin evidencia no hay número.",
-        "",
-    ]
-    return "\n".join(lineas)
+    u = _usuario_actual(request)
+    try:
+        conn = _db()
+        if u is not None:
+            fila = conn.execute(
+                "SELECT ticker, payload FROM reports WHERE report_id=? AND usuario_id=?",
+                (report_id, u["id"])).fetchone()
+        else:
+            fila = conn.execute(
+                "SELECT ticker, payload FROM reports WHERE report_id=? AND usuario_id IS NULL",
+                (report_id,)).fetchone()
+        conn.close()
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Leer el reporte")}
+
+    # No se distingue «no existe» de «no es tuyo»: distinguirlos convertiría la
+    # ruta en un oráculo de qué ha analizado la gente.
+    if fila is None or not fila["payload"]:
+        return {"ok": False, "error": "No se encontró ese reporte."}
+    try:
+        payload = json.loads(fila["payload"])
+    except Exception:                            # noqa: BLE001
+        return {"ok": False, "error": "El reporte guardado no se puede leer."}
+
+    if payload.get("wbj_explanation"):
+        # Ya se generó (p. ej. con `?explain=1`). Devolverla en vez de pagar
+        # otros 18 s por el mismo texto.
+        return _json_safe({"ok": True, "explicacion": payload["wbj_explanation"],
+                           "fuente": payload.get("wbj_explanation_source"),
+                           "cacheada": True})
+    try:
+        ctx = _wbj_explain_context(fila["ticker"],
+                                   payload.get("nombre_completo") or fila["ticker"],
+                                   payload.get("precio_actual"), payload)
+        expl, fuente = _wbj_explain(ctx)
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Generar la explicación")}
+    if not expl:
+        return {"ok": False, "error": "El proveedor de IA no devolvió la explicación."}
+
+    # Se guarda en el reporte: la próxima vez que abras este análisis, sale al
+    # instante y sin gastar otra llamada.
+    try:
+        payload["wbj_explanation"] = expl
+        payload["wbj_explanation_source"] = fuente
+        save_report_payload(report_id, payload)
+    except Exception:                            # noqa: BLE001
+        pass
+    return _json_safe({"ok": True, "explicacion": expl, "fuente": fuente,
+                       "cacheada": False})
 
 
-def _perfil_guardar(d):
-    """Escribe el JSON y REGENERA el `.md` que consumen los otros agentes."""
-    os.makedirs(_PERFIL_DIR, exist_ok=True)
-    d = {k: v for k, v in d.items() if k in _PERFIL_DEFECTO}
-    d["actualizado"] = datetime.now(timezone.utc).isoformat()
-    tmp = _PERFIL_JSON + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(d, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, _PERFIL_JSON)               # atómico: nunca un JSON a medias
+@app.get("/api/aprendizaje")
+def aprendizaje(request: Request):
+    """Cuánto han aprendido los agentes del uso de TODOS, y cuánto aportaste tú."""
+    u = _usuario_actual(request)
+    ahora = time.time()
+    salida = {"ok": True, "agentes": {}, "tuyo": {}, "generado": ahora}
 
-    # El `.md` con el nombre que `_load_investor_profile` busca primero. Se
-    # regenera LEYENDO lo que se acaba de escribir, no el diccionario de
-    # entrada: así el markdown no puede desviarse del JSON ni un decimal.
-    md = os.path.join(_PERFIL_DIR, "Kevin.md")
-    tmp_md = md + ".tmp"
-    with open(tmp_md, "w", encoding="utf-8") as f:
-        f.write(_perfil_a_markdown(_perfil_leer()))
-    os.replace(tmp_md, md)
-    return d
+    try:
+        conn = _db()
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Abrir la base")}
+    try:
+        # ── Lo aportado, por agente ────────────────────────────────────
+        for agente in _CU.AGENTES:
+            fila = conn.execute(
+                "SELECT COUNT(*) n, COUNT(DISTINCT ticker) tk, "
+                "       COUNT(DISTINCT usuario_id) us, MAX(creado_ts) ult "
+                "FROM contribuciones WHERE agente=?", (agente,)).fetchone()
+            recientes = conn.execute(
+                "SELECT COUNT(*) FROM contribuciones WHERE agente=? AND creado_ts > ?",
+                (agente, ahora - 30 * 86400)).fetchone()[0]
+            salida["agentes"][agente] = {
+                "analisis": fila["n"] or 0,
+                "tickers": fila["tk"] or 0,
+                # Cuántas personas han aportado. Es un conteo, nunca una lista.
+                "personas": fila["us"] or 0,
+                "ultimo": fila["ult"],
+                "ultimos_30d": recientes,
+            }
+            if u is not None:
+                mio = conn.execute(
+                    "SELECT COUNT(*) n, COUNT(DISTINCT ticker) tk FROM contribuciones "
+                    "WHERE agente=? AND usuario_id=?", (agente, u["id"])).fetchone()
+                salida["tuyo"][agente] = {"analisis": mio["n"] or 0,
+                                          "tickers": mio["tk"] or 0}
+
+        # ── Cómo aprende cada uno, con la cifra que lo demuestra ───────
+        #
+        # ACCIONES: la calibración necesita reportes ya VENCIDOS. Un reporte de
+        # ayer no dice nada todavía; el lazo se cierra cuando pasa el horizonte.
+        cerrados = conn.execute(
+            "SELECT COUNT(*) FROM reports WHERE created_ts < ?",
+            (ahora - 90 * 86400,)).fetchone()[0]
+        total_rep = conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0]
+        salida["agentes"]["acciones"].update({
+            "como_aprende": "calibración",
+            "explicacion": ("Cada reporte guarda su convicción y sus objetivos. Cuando "
+                            "pasa el horizonte, el precio real dice si acertó. Con más "
+                            "reportes de más gente, la curva de fiabilidad tiene más "
+                            "puntos — y se puede comprobar si un «70%» acierta el 70%."),
+            "reportes": total_rep,
+            "reportes_vencidos": cerrados,
+            "listo": cerrados >= 5,
+            "falta": ("aún no hay reportes con 90 días cumplidos: la calibración "
+                      "necesita tiempo, no solo volumen" if cerrados < 5 else None),
+        })
+    except Exception as e:                       # noqa: BLE001
+        return {"ok": False, "error": _error_publico(e, "Leer el aprendizaje")}
+    finally:
+        conn.close()
+
+    # OPCIONES: la serie vive en disco (`WBJ_TITO_DATA`), no en SQLite. Se mide
+    # lo que de verdad importa — cuántos días de historia hay— porque el IV Rank
+    # real necesita 52 semanas y hasta entonces usa un proxy.
+    try:
+        from wbj.tito import stores as _st
+        # El umbral sale de SU módulo, no de un número escrito aquí. Si mañana
+        # cambia el mínimo de historia, este panel se entera solo; una copia se
+        # quedaría diciendo "ya está listo" cuando el motor sigue con el proxy.
+        from wbj.tito.ivcontext import MIN_IV_HISTORY_DAYS as _MIN_IV
+        _dir = str(_st.data_dir())
+        _tickers_iv, _dias_max = 0, 0
+        _iv_dir = os.path.join(_dir, "iv")
+        if os.path.isdir(_iv_dir):
+            for _f in os.listdir(_iv_dir):
+                if not _f.endswith(".json"):
+                    continue
+                _tickers_iv += 1
+                try:
+                    with open(os.path.join(_iv_dir, _f), "r", encoding="utf-8") as fh:
+                        _dias_max = max(_dias_max, len(json.load(fh) or []))
+                except Exception:                # noqa: BLE001
+                    continue
+        salida["agentes"]["opciones"].update({
+            "como_aprende": "acumulación hacia adelante",
+            "explicacion": ("La IV histórica, las cadenas y el flujo pasado no los vende "
+                            "ninguna fuente: se juntan una foto por día de mercado. Mirar "
+                            "un ticker YA aporta, aunque no salga ningún reporte — la foto "
+                            "de hoy es la que hará posible el IV Rank real más adelante."),
+            "tickers_con_serie": _tickers_iv,
+            "dias_de_serie": _dias_max,
+            "dias_necesarios": _MIN_IV,
+            "listo": _dias_max >= _MIN_IV,
+            "falta": (f"faltan {_MIN_IV - _dias_max} días de mercado para el IV Rank "
+                      "real; hasta entonces se usa el proxy de volatilidad realizada"
+                      if _dias_max < _MIN_IV else None),
+        })
+    except Exception:                            # noqa: BLE001 — el bloque de acciones ya vale
+        salida["agentes"]["opciones"].setdefault("como_aprende", "acumulación hacia adelante")
+
+    # Dicho sin ambigüedad, porque es la pregunta que se hace cualquiera que
+    # comparte una herramienta: qué sale de aquí y qué no.
+    salida["privacidad"] = {
+        "compartido": "Las series y el track record agregados: es lo que mejora al agente.",
+        "privado": "Tus reportes. Nadie más ve qué analizaste ni qué te salió.",
+        "nunca": "Esta ruta no devuelve quién analizó qué. Solo cuánto hay y de cuánta gente.",
+    }
+    return _json_safe(salida)
 
 
 @app.get("/api/perfil")
-def perfil_get():
-    """El perfil del inversionista: cuenta + datos duros + texto."""
-    d = _perfil_leer()
+def perfil_get(request: Request):
+    """El cuestionario, tus respuestas y lo que el sistema deriva de ellas.
+
+    Devuelve las preguntas ENTERAS —enunciado, ayuda, opciones y el valor por
+    defecto de cada una— para que la pantalla no tenga que llevar una copia. Una
+    copia en el HTML se desincronizaría con la primera pregunta que se añada, y
+    entonces el formulario preguntaría una cosa y el servidor guardaría otra.
+    """
+    u = _usuario_actual(request)
+    perfil = _perfil_leer(request)
     return _json_safe({
-        "ok": True, "perfil": d,
-        "tolerancias": [{"id": k, **v} for k, v in _TOLERANCIAS.items()],
-        # Dónde acaba, para que no sea magia: el `.md` es lo que leen los otros
-        # dos agentes, y por eso editar aquí los cambia a ellos también.
-        "archivos": {"estructurado": "Perfil Inversionista/perfil.json",
-                     "para_los_agentes": "Perfil Inversionista/Kevin.md"},
+        "ok": True,
+        "perfil": perfil,
+        "usuario": _publico(u),
+        "preguntas": _CU.PREGUNTAS,
+        "tolerancias": [{"id": k, **v} for k, v in _CU.TOLERANCIAS.items()],
+        # Cuántas ha contestado esta persona y cuántas hereda de Kevin. Un
+        # perfil heredado presentado como propio haría que el reporte hable con
+        # una confianza que no tiene.
+        # El denominador son las OBLIGATORIAS, no todas. Contar las opcionales
+        # dejaría el perfil eternamente incompleto por no escribir un texto que
+        # nadie tiene que escribir, y la advertencia de «hereda el perfil de
+        # Kevin» sería falsa justo cuando ya no hereda nada.
+        "progreso": {"total": len(_CU.OBLIGATORIAS),
+                     "contestadas": len([q for q in (perfil.get("respondidas") or [])
+                                         if q in _CU.OBLIGATORIAS]),
+                     "opcionales": len(_CU.PREGUNTAS) - len(_CU.OBLIGATORIAS),
+                     "sin_contestar": perfil.get("sin_contestar") or []},
+        "archivos": {
+            "para_los_agentes": (
+                os.path.relpath(_CU.ruta_md_de(_PERFIL_DIR, u), os.path.dirname(_PERFIL_DIR))
+                if u else "Perfil Inversionista/Kevin.md (defaults)"),
+        },
+        # Sin sesión no se puede guardar: no habría dónde. Se dice aquí para que
+        # la pantalla enseñe el formulario en modo lectura en vez de fallar al
+        # pulsar el botón.
+        "editable": u is not None,
     })
 
 
 @app.post("/api/perfil")
 async def perfil_post(request: Request):
-    """Guarda el perfil. Valida lo que es número y respeta lo que es texto."""
+    """Guarda las respuestas del cuestionario.
+
+    El cuerpo es `{"respuestas": {"<id de pregunta>": valor, ...}}`. Solo entran
+    en `respondidas` los ids presentes: mandar el formulario sin tocar una
+    pregunta la deja heredada, y la pantalla lo puede decir.
+    """
+    u = _usuario_actual(request)
+    if u is None:
+        return JSONResponse(status_code=401, content={
+            "ok": False, "error": "Inicia sesión para guardar tu perfil."})
     try:
         body = await request.json()
     except Exception:                            # noqa: BLE001
         return {"ok": False, "error": "Cuerpo no es JSON."}
     if not isinstance(body, dict):
         return {"ok": False, "error": "Cuerpo no es un objeto."}
+    respuestas = body.get("respuestas")
+    modo = body.get("modo")
+    if modo is not None and modo not in _CU.MODOS:
+        return {"ok": False, "error": f"Modo desconocido: {modo!r}"}
+    if respuestas is None and modo is None:
+        return {"ok": False, "error": "Falta `respuestas` o `modo`."}
+    if respuestas is not None and not isinstance(respuestas, dict):
+        return {"ok": False, "error": "`respuestas` tiene que ser un objeto."}
 
-    d = _perfil_leer()
-    for campo in ("nombre", "email", "horizonte", "texto"):
-        if campo in body:
-            d[campo] = str(body[campo] or "")[:8000]
-    if "capital" in body:
-        try:
-            cap = float(body["capital"])
-        except (TypeError, ValueError):
-            return {"ok": False, "error": "El capital tiene que ser un número."}
-        if cap < 0 or cap > 1e12:
-            return {"ok": False, "error": "Capital fuera de rango."}
-        d["capital"] = cap
-    if "tolerancia" in body:
-        if body["tolerancia"] not in _TOLERANCIAS:
-            return {"ok": False, "error": f"Tolerancia desconocida: {body['tolerancia']!r}"}
-        d["tolerancia"] = body["tolerancia"]
-    for campo in ("instrumentos", "mercados", "excluir"):
-        if campo in body:
-            v = body[campo]
-            if not isinstance(v, list):
-                return {"ok": False, "error": f"`{campo}` tiene que ser una lista."}
-            d[campo] = [str(x)[:60] for x in v][:40]
-    if "max_posicion_pct" in body:
-        v = body["max_posicion_pct"]
-        try:
-            lo, hi = int(v[0]), int(v[1])
-        except (TypeError, ValueError, IndexError, KeyError):
-            return {"ok": False, "error": "`max_posicion_pct` es un par [min, max]."}
-        if not 0 < lo <= hi <= 100:
-            return {"ok": False, "error": "El tope por posición va entre 1% y 100%, min ≤ max."}
-        d["max_posicion_pct"] = [lo, hi]
-
+    conn = _db()
     try:
-        _perfil_guardar(d)
+        # Se parte de lo GUARDADO, no de lo efectivo: en modo `default` lo
+        # efectivo son los valores de Kevin, y usarlo como base convertiría sus
+        # respuestas en las tuyas en cuanto guardaras cualquier cosa.
+        guardadas = _CU.leer_perfil(conn, u["id"])
+        base = {**guardadas, **(guardadas.get("respuestas") or {})}
+        if modo is not None:
+            base["modo"] = modo
+        perfil, error = _CU.perfil_desde_respuestas(respuestas or {}, base)
+        if error:
+            # Una sola respuesta inválida aborta el guardado entero: un perfil a
+            # medias es peor que uno viejo, porque nadie sabría qué parte es suya.
+            return {"ok": False, "error": error}
+        _CU.guardar_perfil(conn, _PERFIL_DIR, u, perfil)
+        guardado = _CU.leer_perfil(conn, u["id"])
     except Exception as e:                       # noqa: BLE001
         return {"ok": False, "error": _error_publico(e, "Guardar el perfil")}
-    return _json_safe({"ok": True, "perfil": _perfil_leer()})
+    finally:
+        conn.close()
+
+    return _json_safe({"ok": True, "perfil": guardado,
+                       "progreso": {"total": len(_CU.OBLIGATORIAS),
+                                    "contestadas": len([q for q in (guardado.get("respondidas") or [])
+                                                        if q in _CU.OBLIGATORIAS]),
+                                    "opcionales": len(_CU.PREGUNTAS) - len(_CU.OBLIGATORIAS),
+                                    "sin_contestar": guardado.get("sin_contestar") or []}})
+
 
 
 @app.get("/api/tito-news")
@@ -4993,11 +5880,346 @@ def tito_news(ticker: str, call_pct: float | None = None, name: str | None = Non
         return {"ok": False, "error": f"No se pudieron leer las noticias: {e}"}
 
 
+@app.get("/api/almacen")
+def almacen_estado():
+    """Dónde viven los datos y si de verdad se están respaldando.
+
+    Existe porque el modo degradado es SILENCIOSO: sin `VERTEX_GIT_TOKEN` todo
+    funciona igual, los reportes se ven, y nada avisa de que en el próximo
+    redeploy desaparecen. Esta ruta y la tira del panel son lo que convierte
+    «se perdió todo» en «llevas 3 días sin respaldo y lo sabías».
+    """
+    from vertex_almacen import almacen as _alm
+
+    e = _alm.estado()
+    e["privado"] = {
+        # Sin decir la clave ni nada de su contenido: solo si el candado existe.
+        "cifrado_disponible": _fernet() is not None,
+        "hay_respaldo": bool(_alm.lee(f"Privado/{_PRIVADO_ENC}")),
+    }
+    if not e["privado"]["cifrado_disponible"]:
+        e["privado"]["motivo"] = (
+            "Sin VERTEX_DB_KEY no se respaldan cuentas ni perfiles. Un hash de "
+            "contraseña sin cifrar no se sube a un repositorio, así que se "
+            "prefiere perderlos a filtrarlos.")
+    return e
+
+
+@app.post("/api/almacen/sincronizar")
+def almacen_sincronizar():
+    """Fuerza un respaldo AHORA, sin esperar al ciclo.
+
+    Para el día del despliegue y para cuando acabas un análisis que no quieres
+    arriesgar. No hace nada distinto del ciclo automático: solo lo adelanta.
+    """
+    from vertex_almacen import almacen as _alm
+
+    _alm.sincroniza(incluir_series=True, mensaje="respaldo a peticion")
+    return _alm.estado()
+
+
+@app.get("/api/archivo/{agente}")
+def archivo_lista(agente: str, ticker: str = ""):
+    """Los análisis guardados de un agente, LEÍDOS DEL DIRECTORIO.
+
+    No de la base: es la comprobación en vivo de que los archivos son la fuente
+    de verdad. Si SQLite desapareciera ahora mismo, esta ruta seguiría
+    contestando lo mismo.
+    """
+    import vertex_archivo as _ar
+
+    try:
+        filas = _ar.lista_reportes(agente, ticker)
+    except ValueError:
+        # El texto se escribe AQUÍ, no se reenvía el de la excepción. La regla
+        # del proyecto es que ninguna excepción cruda llega al navegador: hoy
+        # este `ValueError` trae un mensaje inofensivo, pero mañana podría
+        # traer una ruta del disco, y para entonces nadie se acordaría.
+        raise HTTPException(
+            status_code=400,
+            detail=(f"Agente desconocido. Los que hay son "
+                    f"'{_ar.ACCIONES}' (Reportes) y '{_ar.OPCIONES}' (Proyecciones)."))
+    return {"ok": True, "agente": agente, "carpeta": _ar.carpeta_de(agente),
+            "n": len(filas), "reportes": filas}
+
+
+@app.get("/api/tito-logo")
+def tito_logo(ticker: str):
+    """Su `/api/logo` — el logo de la empresa, servido por proxy.
+
+    Existe porque la URL del logo que da Massive **exige la Authorization**:
+    sin este proxy la clave tendría que viajar al navegador. Aquí la petición
+    la hace el servidor y lo único que cruza es el binario.
+
+    Un ticker sin logo es 404, no 500: la cabecera cae a las iniciales y el
+    panel no se entera.
+    """
+    tk, err = _tito_ticker(ticker)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    try:
+        from wbj.tito.massive import fetch_logo_image
+
+        logo = fetch_logo_image(tk)
+    except Exception:
+        raise HTTPException(status_code=502, detail="error")
+    if not logo:
+        raise HTTPException(status_code=404, detail="sin logo")
+    datos, tipo = logo
+    # Su `Cache-Control: public, max-age=86400`. Un logo no cambia en un día y
+    # cada petición cuesta dos llamadas a Massive.
+    return Response(content=datos, media_type=tipo,
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
+#: Su tabla de marcos temporales de `/api/bars`, literal. `5m5d` es el valor por
+#: defecto también en su ruta: un `tf` desconocido no es un error, cae aquí.
+_TITO_TF = {
+    "1y":     (1, "day", 365),
+    "15m10d": (15, "minute", 10),
+    "5m5d":   (5, "minute", 5),
+}
+
+
+@app.get("/api/tito-bars")
+def tito_bars(ticker: str, tf: str = "5m5d"):
+    """Su `/api/bars` — barras del subyacente para la gráfica de flujo.
+
+    Era la única de sus once rutas cuyo equivalente estaba a medias: el payload
+    de proyecciones ya traía el diario (`history`), que es lo que piden dos de
+    sus tres consumidores (`SimpleChart` y `ProWallsCard`, los dos con `tf=1y`),
+    pero el tercero —`FlowPriceChart`— ofrece **intradía** y eso no existía.
+
+    La diferencia no es cosmética: agregado por día se ve QUÉ día entró el
+    dinero grande; en velas de 5 minutos se ve si el precio se movió ANTES o
+    DESPUÉS de que entrara, que es exactamente lo que mide el sub-agente 6.
+    """
+    tk, err = _tito_ticker(ticker)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    # `TF[tf] ?? TF["5m5d"]` suyo: un marco desconocido cae al de por defecto.
+    mult, span, days = _TITO_TF.get(tf, _TITO_TF["5m5d"])
+    try:
+        from wbj.tito.massive import fetch_bars
+
+        barras = fetch_bars(tk, mult, span, days)
+    except Exception:
+        # Su ruta responde 502 con el mensaje de `MassiveError`. Aquí el
+        # mensaje NO viaja: `_describe` puede citar el cuerpo de la respuesta de
+        # Massive, y eso es superficie de fuga (lo fija `test_route_safety`).
+        raise HTTPException(status_code=502, detail="Error al cargar barras.")
+    return {"ticker": tk, "tf": tf if tf in _TITO_TF else "5m5d",
+            "bars": [{"time": b.time, "open": b.open, "high": b.high,
+                      "low": b.low, "close": b.close} for b in barras]}
+
+
+# ── El puente watchlist ↔ agente (su `/api/watchlist`) ───────────────────────
+#
+#   GET                            → { broker, granularity, pending, failed, legacy }
+#   POST { contract, broker }      → encola un contrato para empujarlo al broker
+#   POST { synced: [...], broker }  → el agente confirma lo que entró
+#   DELETE ?symbol= | ?ticker=     → lo saca de la cola
+#
+# El watchlist en sí NO pasa por aquí: vive en localStorage (bloque `wlLocal*`
+# del panel). Por este puente viaja lo mínimo para identificar el contrato en el
+# broker —ticker y, si el broker acepta contratos, tipo/strike/vencimiento—. Los
+# griegos, tu sizing y tu saldo se quedan en el navegador. `add_to_outbox`
+# recorta según la granularidad, así que un broker que solo entiende subyacentes
+# recibe solo el ticker.
+#
+# La sincronización tampoco ocurre aquí: el MCP del broker lo conduce el agente,
+# no el servidor web. Esta ruta expone `pending` para que el agente sepa qué
+# falta. Nada de esto coloca una orden — igual que en su app.
+
+
+def _wl_item(i) -> dict:
+    """Un `OutboxItem` como lo serializa su ruta: los campos de contrato solo
+    cuando la fila los tiene.
+
+    Se añaden dos campos que su ruta no manda porque en su app los calcula el
+    cliente: `label` (`outboxLabel`) y `query` (`contractQuery`). El segundo no
+    es comodidad — es la búsqueda EXACTA con la que el agente resuelve el
+    contrato en el broker, con el strike a cuatro decimales. Reinventarla del
+    otro lado es la vía directa a una búsqueda vacía que no dice por qué.
+    """
+    from wbj.tito.watchlist import ContractRef, contract_query, outbox_label
+
+    d = {"ticker": i.ticker, "broker": i.broker,
+         "addedAt": i.addedAt, "syncedAt": i.syncedAt,
+         "label": outbox_label(i)}
+    if i.symbol:
+        d.update(symbol=i.symbol, type=i.type,
+                 strike=i.strike, expiration=i.expiration)
+        # `None` cuando falta strike o vencimiento: quien lo recibe cae al
+        # subyacente en vez de adivinar entre decenas de contratos.
+        d["query"] = contract_query(ContractRef(i.ticker, i.type, i.strike,
+                                                i.expiration))
+    if i.failedAt:
+        d.update(failedAt=i.failedAt, failReason=i.failReason)
+    return d
+
+
+def _wl_payload(items, broker: str) -> dict:
+    """Su `payload(items, broker)`, campo por campo."""
+    from wbj.tito.watchlist import broker_by_id, failed_outbox, pending_outbox
+
+    b = broker_by_id(broker)
+    sincronizados = sorted(
+        i.syncedAt for i in items if i.broker == broker and i.syncedAt
+    )
+    return {
+        "broker": broker,
+        "granularity": b.granularity if b else "none",
+        "pending": [_wl_item(i) for i in pending_outbox(items, broker)],
+        "failed": [_wl_item(i) for i in failed_outbox(items, broker)],
+        # Para que la UI diga cuándo pasó el drenador por última vez.
+        "lastSyncedAt": sincronizados[-1] if sincronizados else None,
+    }
+
+
+@app.get("/api/tito-watchlist")
+def tito_watchlist(broker: str = "robinhood"):
+    """`legacy` sirve a la migración única desde el viejo `watchlist.json`. En
+    cuanto el navegador lo importa y marca la bandera, deja de mirarlo."""
+    from dataclasses import asdict
+
+    from wbj.tito.outbox_store import load_outbox
+    from wbj.tito.watchlist import BROKERS
+    from wbj.tito.watchlist_store import load_watchlist
+
+    caja = load_outbox()
+    viejo = load_watchlist()
+    out = _wl_payload(caja["items"], broker)
+    out["legacy"] = {
+        "entries": [asdict(e) for e in viejo["entries"]],
+        "broker": viejo["broker"],
+    }
+    # Los brokers viajan con la respuesta porque el selector del panel se pinta
+    # desde aquí: añadir uno es añadir una entrada en `watchlist.py`, no tocar
+    # el HTML en dos sitios.
+    out["brokers"] = [
+        {"id": b.id, "name": b.name, "kind": b.kind,
+         "granularity": b.granularity, "caveat": b.caveat,
+         "quoteUrl": b.quote_url("__T__") if b.quote_url else None}
+        for b in BROKERS
+    ]
+    return out
+
+
+def _wl_contrato(crudo):
+    """Su `readContract`: un contrato válido trae al menos símbolo y ticker; el
+    resto puede faltar."""
+    from wbj.tito.watchlist import OutboxTarget
+
+    if not isinstance(crudo, dict):
+        return None
+    if not isinstance(crudo.get("symbol"), str) or not isinstance(crudo.get("ticker"), str):
+        return None
+    if crudo.get("type") not in ("call", "put"):
+        return None
+    strike = crudo.get("strike")
+    exp = crudo.get("expiration")
+    return OutboxTarget(
+        symbol=crudo["symbol"],
+        ticker=crudo["ticker"].upper(),
+        type=crudo["type"],
+        strike=strike if isinstance(strike, (int, float)) and not isinstance(strike, bool) else None,
+        expiration=exp if isinstance(exp, str) else None,
+    )
+
+
+@app.post("/api/tito-watchlist")
+async def tito_watchlist_post(request: Request):
+    from wbj.tito.outbox_store import load_outbox, save_outbox
+    from wbj.tito.watchlist import (add_to_outbox, broker_by_id,
+                                    mark_outbox_failed, mark_outbox_synced)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Cuerpo inválido."})
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={"error": "Cuerpo inválido."})
+
+    broker_id = body.get("broker") or "robinhood"
+    broker = broker_by_id(broker_id) if isinstance(broker_id, str) else None
+    if not broker:
+        return JSONResponse(status_code=400, content={"error": "Broker desconocido."})
+
+    ahora = datetime.now(timezone.utc)
+    items = load_outbox()["items"]
+
+    sincro = body.get("synced")
+    if isinstance(sincro, list) and sincro:
+        items = mark_outbox_synced(items, [str(k) for k in sincro], broker_id, ahora)
+
+    # El drenador aparca lo irresoluble para no reintentarlo cada 15 minutos
+    # para siempre.
+    fallidos = body.get("failed")
+    if isinstance(fallidos, list) and fallidos:
+        motivo = body.get("reason")
+        motivo = motivo.strip() if isinstance(motivo, str) and motivo.strip() \
+            else "No se pudo resolver el contrato en el broker."
+        items = mark_outbox_failed(items, [str(k) for k in fallidos],
+                                   broker_id, motivo, ahora)
+
+    if "contract" in body:
+        contrato = _wl_contrato(body.get("contract"))
+        if contrato is None:
+            return JSONResponse(status_code=400, content={"error": "Contrato inválido."})
+        # Con granularidad `contracts` el broker resuelve por subyacente+tipo+
+        # strike+vencimiento (ver `contract_query`). Sin strike o sin
+        # vencimiento el contrato es insincronizable, y aceptarlo solo aplaza el
+        # fallo hasta el drenador, donde ya no hay a quién avisar. Se rechaza en
+        # la puerta.
+        if broker.granularity == "contracts" and (
+                contrato.strike is None or not contrato.expiration):
+            return JSONResponse(status_code=400, content={
+                "error": "Faltan strike o vencimiento: sin ellos no se puede "
+                         "resolver en el broker."})
+        items = add_to_outbox(items, contrato, broker, ahora)
+
+    guardado = save_outbox(items)
+    return _wl_payload(guardado["items"], broker_id)
+
+
+@app.delete("/api/tito-watchlist")
+def tito_watchlist_delete(symbol: str | None = None, ticker: str | None = None,
+                          broker: str = "robinhood"):
+    """Desencola. Con `symbol` quita ese contrato; con `ticker` quita todo lo de
+    esa empresa —que es lo que corresponde cuando el broker solo guarda
+    subyacentes—.
+
+    Conviene mandar **ambos** con granularidad `contracts`: el `ticker` es lo
+    único que alcanza a las filas viejas de solo-tickers, que con `symbol` a
+    secas eran imborrables. El filtrado vive en `remove_from_outbox`, que es
+    puro y está cubierto por tests.
+    """
+    from wbj.tito.outbox_store import load_outbox, save_outbox
+    from wbj.tito.watchlist import remove_from_outbox
+
+    if not symbol and not ticker:
+        return JSONResponse(status_code=400,
+                            content={"error": "Falta el símbolo o el ticker."})
+    items = remove_from_outbox(load_outbox()["items"],
+                               {"symbol": symbol, "ticker": ticker}, broker)
+    guardado = save_outbox(items)
+    return _wl_payload(guardado["items"], broker)
+
+
 def _tito_remember(ticker, result, now):
     """Guarda la predicción del día para que el lazo de calibración cierre.
 
     Solo se guardan las fiables: archivar una predicción marcada NO FIABLE
     contaminaría el sesgo histórico con ruido que el agente ya sabía malo.
+
+    Devuelve `None` si todo fue bien, o el motivo del fallo. **No se traga el
+    error en silencio**: las otras tres escrituras del panel (cadena, trades,
+    IV) ya se contaban en `escrituras_fallidas`, y justo ésta —de la que
+    depende TODA la calibración, o sea lo único que hace que el agente mejore
+    con el tiempo— fallaba muda. Un disco lleno o un permiso mal puesto podían
+    dejar el track record congelado durante meses sin que nada lo dijera, y el
+    panel seguiría enseñando «0 predicciones vencidas» como si fuera pronto.
     """
     try:
         from wbj.tito import stores as st
@@ -5012,8 +6234,64 @@ def _tito_remember(ticker, result, now):
                 saved_at=now.astimezone(timezone.utc).strftime(
                     "%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z",
             ))
-    except Exception:
-        pass  # la memoria es acumulativa: perder un día no rompe la corrida
+    except Exception as e:                           # noqa: BLE001
+        # La memoria es acumulativa: perder un día no rompe la corrida — pero
+        # sí se dice, que es la diferencia entre degradarse y mentir.
+        logging.getLogger(__name__).warning(
+            "no se pudo guardar la predicción de %s: %s", ticker, e)
+        return f"predicciones: {type(e).__name__}"
+    return None
+
+
+#: Lo que NO se archiva del scorecard, con su peso medido.
+#:
+#: Son datos DERIVADOS: se vuelven a bajar de Massive cuando hagan falta, y no
+#: participan en ninguna decisión que el archivo tenga que poder justificar
+#: después. Archivarlos costaría ~1,8 GB al año con 20 tickers —la cadena sola
+#: son 372 KB por reporte, 1.500 filas a 254 bytes— y el repositorio dejaría de
+#: caber en GitHub en meses.
+#:
+#: Lo que SÍ se queda es todo lo que sostiene el veredicto: los 6 scores con su
+#: desglose, los escenarios, los niveles, los muros del GEX, las filas de
+#: convicción, las advertencias y `chain_meta`/`top_contracts` —que dicen sobre
+#: cuántos contratos se calculó y cuáles pesaban más—. La regla del proyecto es
+#: que ningún número viaje sin su evidencia; ninguno de estos cinco campos es
+#: evidencia de nada, son la materia prima.
+_OPCIONES_NO_SE_ARCHIVA = ("chain", "history", "gex_heatmap", "levels_for_chart",
+                           "chart_geometry")
+
+
+def _sin_derivado(out):
+    """El scorecard sin la materia prima, listo para archivar."""
+    recortado = {k: v for k, v in out.items() if k not in _OPCIONES_NO_SE_ARCHIVA}
+    # Se declara lo que falta, en vez de que el archivo mienta por omisión.
+    recortado["_no_archivado"] = list(_OPCIONES_NO_SE_ARCHIVA)
+    return recortado
+
+
+def _archiva_opciones(out):
+    """El scorecard del agente de OPCIONES → `Proyecciones/<TICKER>/<fecha>/`.
+
+    Carpeta SEPARADA de la de acciones a propósito. Son dos productos
+    distintos: aquí un score de flujo 0-100 con escenarios a 10/20/30 días;
+    allí una tesis a 1-3 años con valuación y gates. Compartir carpeta
+    obligaría a abrir el archivo para saber de cuál es.
+
+    Se archiva **una vez al día por ticker**: el panel se auto-refresca cada
+    minuto, y guardar cada refresco llenaría el repositorio de fotos casi
+    idénticas del mismo día. La última del día pisa a la anterior, que es la
+    que vale — el `prediccion.json` del motor es lo que congela el histórico
+    intradía, y ese ya se guarda aparte.
+    """
+    try:
+        import vertex_archivo as _ar
+
+        if not (out or {}).get("ok") or not out.get("ticker"):
+            return                               # un error no es un reporte
+        _ar.guarda_reporte_opciones(out["ticker"], _sin_derivado(out))
+    except Exception as e:                       # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "no se pudo archivar el scorecard de opciones: %s", e)
 
 
 def _r(x, n=2):
@@ -5050,10 +6328,30 @@ def _tito_json(r):
         return {"target": _r(s.target), "change_pct": _r(s.change_pct, 1),
                 "probability": _r(s.probability, 3), "driver": s.driver}
 
+    # `probTouch(spot, l.price, iv, horizonDays)` de su `NivelesSimples`: la
+    # probabilidad de que el precio LLEGUE a ese nivel dentro del horizonte.
+    #
+    # Él la calcula en el componente, con la IV del GEX y el horizonte elegido.
+    # Aquí no existía: la tabla de niveles enseñaba precio, fuerza y distancia,
+    # y no cuán probable era llegar. Un soporte de fuerza 80 al 15% de distancia
+    # y otro de fuerza 50 al 2% se leían igual de "fuertes", que es justo lo que
+    # esta columna desambigua. El motor ya trae `prob_touch`; solo faltaba
+    # llamarlo.
+    from wbj.tito.expected_move import prob_touch as _prob_touch
+
+    _iv_niveles = r.gex.iv if r.gex and r.gex.iv else 0.4
+    #: El horizonte medio de los suyos (10/20/30) — su `NivelesSimples` usa el
+    #: que el usuario tenga elegido y el panel no tiene ese selector aquí.
+    _dias_niveles = 20
+
     def lvl(l):
+        try:
+            toque = _prob_touch(r.spot, l.price, _iv_niveles, _dias_niveles) if r.spot > 0 else None
+        except Exception:
+            toque = None
         return {"price": _r(l.price), "kind": l.kind, "strength": l.strength,
                 "distance_pct": _r(l.distance_pct, 1), "why": l.why,
-                "flipped": l.flipped}
+                "flipped": l.flipped, "touch": _r(toque, 3)}
 
     return _json_safe({
         "ok": True,
@@ -5147,7 +6445,13 @@ def _tito_json(r):
                               "ask_pct": _r(r.conviction.dominance["ask_pct"], 1),
                               "bid_pct": _r(r.conviction.dominance["bid_pct"], 1),
                               "points": r.conviction.dominance["points"]},
+                # `avg_raw` es la "Fuerza de ejecución" de su `ConvictionCard`:
+                # el promedio SIN redondear de lo agresivas que fueron las
+                # órdenes. `points` es el mismo número ya redondeado a la
+                # escala del sub-agente, así que servir solo `points` perdía la
+                # métrica que él enseña con un decimal.
                 "execution": {"points": _r(r.conviction.execution["points"], 1),
+                              "avg_raw": _r(r.conviction.execution["avg_raw"], 2),
                               "counts": r.conviction.execution["counts"]},
             },
             # 3 · Inusualidad — el promedio por parámetro, que es el desglose
@@ -5218,6 +6522,35 @@ def _tito_json(r):
                           "points": r.validation.speed["points"],
                           "band": r.validation.speed["band"]},
                 "by_direction": r.validation.by_direction,
+                # ── La EVIDENCIA del sub-agente 6, que no salía de la ruta ──
+                #
+                # Su `ValidationCard` no enseña solo la tasa: enseña la tabla
+                # «Qué pasó después de cada flow» — cada operación pasada con
+                # cuánto recorrió a favor, cuánto en contra, cuánto tardó y si
+                # acabó validada o absorbida. `outcomes` se calculaba entero en
+                # `validation.py` y moría en el servidor.
+                #
+                # Es justo lo que la regla del proyecto prohíbe perder: «sin
+                # evidencia, no hay número». El 62% de tasa de validación era un
+                # número sin las 25 filas que lo producen — y sin ellas no se
+                # puede ver si vino de tres aciertos grandes o de veinte
+                # pequeños, que se leen distinto.
+                #
+                # Las 25 más recientes, su `outcomes.slice(0, 25)`.
+                "outcomes": [
+                    {"id": o.id, "timestamp": o.timestamp, "type": o.type,
+                     "strike": o.strike, "expiration": o.expiration,
+                     "premium": o.premium, "direction": o.direction,
+                     "entry_price": _r(o.entry_price),
+                     "mfe_pct": _r(o.mfe_pct, 1), "mae_pct": _r(o.mae_pct, 1),
+                     "days_to_mfe": o.days_to_mfe, "days_to_mae": o.days_to_mae,
+                     "days_to_validate": o.days_to_validate,
+                     "days_to_invalidate": o.days_to_invalidate,
+                     "sessions_observed": o.sessions_observed,
+                     "days_elapsed": o.days_elapsed,
+                     "validated": o.validated, "resolved": o.resolved}
+                    for o in (r.validation.outcomes or [])[:25]
+                ],
                 "coverage": {"days": r.validation.coverage["days"],
                              "flows": r.validation.coverage["flows"],
                              "pending": r.validation.coverage["pending"],
@@ -5227,6 +6560,18 @@ def _tito_json(r):
         "levels": {
             "supports": [lvl(l) for l in r.levels.supports],
             "resistances": [lvl(l) for l in r.levels.resistances],
+            # Los tres campos de su `LevelsResult` que la ruta tiraba.
+            #
+            # `tolerance_pct` es lo que explica la nota de su `LevelsCard`
+            # —«$299 y $301 son el mismo techo, no dos»—: sin él la nota tenía
+            # que inventarse el número o callarlo. `key_support` y
+            # `key_resistance` son SU par elegido: los dos niveles que él
+            # destaca arriba del todo, que no son sin más el primero de cada
+            # lista (pesa la coincidencia precio ∩ opciones).
+            "tolerance_pct": r.levels.tolerance_pct,
+            "key_support": lvl(r.levels.key_support) if r.levels.key_support else None,
+            "key_resistance": (lvl(r.levels.key_resistance)
+                               if r.levels.key_resistance else None),
         },
         "predictions": {
             str(h): {
@@ -5251,8 +6596,37 @@ def _tito_json(r):
         # `ConvictionTransactions`, "Transacciones revisadas". Estos trades son
         # el universo sobre el que puntúan Convicción, Inusualidad y Contexto
         # IV: servir únicamente el número dejaba tres de las seis categorías
-        # sin nada que las respalde en pantalla. Se mandan las 25 de mayor
-        # premium, que es lo que cabe leer sin paginar.
+        # sin nada que las respalde en pantalla.
+        #
+        # Se mandaban 25 y él manda `CONVICTION_TABLE_CAP` = 150. No era solo
+        # una tabla más corta: estas filas alimentan sus TRES tarjetas
+        # —`ConvictionTransactions`, `ActivityCard` y `MoneyFlowCard`— y la
+        # última es la gráfica que dice "el dinero de CADA DÍA". Con las 25 de
+        # mayor premium no es el dinero del día: es el de los 25 trades más
+        # grandes, y un día entero de trades medianos desaparecía del gráfico.
+        # Las TRES mayores de `convRows ∪ notable`, dedupe por `id` y orden
+        # por premium — su `topFlows`, que `PredictionCard` pinta bajo los
+        # escenarios como "Top 3 flows notables".
+        #
+        # Faltaba entero. Es el único sitio del panel donde los escenarios de
+        # Prediction Pro van acompañados de las operaciones CONCRETAS que los
+        # sostienen: sin él, los tres targets salen sin que se pueda ver de qué
+        # dinero se dedujeron. La unión es la suya y no `conviction_flow` a
+        # secas: la ventana corta trae operaciones recientes que la de 30 días
+        # todavía no tiene.
+        "top_flows": [
+            {"id": t.id, "type": t.type, "strike": t.strike,
+             "expiration": t.expiration, "dte": t.dte, "premium": t.premium,
+             "aggression": t.aggression,
+             # `(call ∧ ask) ∨ (put ∧ bid)`, su regla literal: comprar calls y
+             # vender puts son la misma apuesta.
+             "alcista": (t.type == "call" and t.aggression == "ask")
+                        or (t.type == "put" and t.aggression == "bid")}
+            for t in sorted(
+                _tito_unir(r.conviction_flow or [], r.flow.interesting or []),
+                key=lambda x: x.premium if isinstance(x.premium, (int, float)) else 0,
+                reverse=True)[:3]
+        ],
         "conviction_rows": [
             {"id": t.id, "underlying": t.underlying, "type": t.type,
              "strike": t.strike, "expiration": t.expiration, "dte": t.dte,
@@ -5262,7 +6636,7 @@ def _tito_json(r):
              "multileg": t.flags.multileg}
             for t in sorted(r.conviction_flow,
                             key=lambda t: t.premium if isinstance(t.premium, (int, float)) else 0,
-                            reverse=True)[:25]
+                            reverse=True)[:TITO_CONVICTION_TABLE_CAP]
         ],
         # % del premium notable en calls. Es el mismo número que usa el resumen
         # de Prediction Pro, y el que /api/tito-news necesita para confrontar la
@@ -5319,7 +6693,7 @@ def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
         return {"ok": False, "error": flow_error, "source": "marketsnack"}
 
     try:
-        chain, bars, spot = _tito_chain_and_bars(tk)
+        chain, bars, spot, meta_cadena = _tito_chain_and_bars(tk)
     except Exception as e:
         return {"ok": False, "error": _error_de_fuente(e, "Cadena de Massive"),
                 "source": "massive"}
@@ -5337,7 +6711,112 @@ def tito_scorecard(ticker: str, horizons: str = "10,20,30"):
                 "source": "motor"}
     out = _tito_json(r)
     out["chain_source"] = "massive"
+    # La ficha de la empresa (`CompanyHeader`) y la cadena entera
+    # (`OptionChainTable` + `ChartPanel`). El motor no las necesita —puntúa con
+    # `chain` ya normalizada— pero son dos de sus componentes, así que viajan
+    # con el payload en vez de pedir otra ronda de red desde el navegador.
+    out["company"] = _tito_company(tk, r.spot, meta_cadena["empresa"])
+    out.update(_tito_chain_json(chain or [], meta_cadena["truncated"]))
     return out
+
+
+#: Tope de filas de cadena que viajan al panel. Su tabla las pinta TODAS, y
+#: aquí también hasta este número: por encima el payload de un subyacente muy
+#: listado (SPY pasa de 10.000 contratos) se come el tope de guardado del
+#: reporte y se perdería lo demás. El recorte se declara en `chain_meta` y la
+#: tabla lo dice en pantalla — nunca se recorta en silencio. Las que se quedan
+#: son las de mayor open interest, que es el orden en que él las sirve.
+TITO_CHAIN_MAX = int(os.environ.get("VERTEX_CHAIN_MAX", "1500") or 1500)
+
+
+def _tito_company(ticker: str, spot, c: dict | None):
+    """La `CompanyInfo` de su `types.ts`, en snake_case.
+
+    Nunca lanza: la ficha es contexto de cabecera, y quedarse sin ella no puede
+    tumbar un scorecard que ya está calculado. Sin Massive devuelve lo mínimo
+    —ticker y el spot que el motor ya usó— para que la cabecera no salga vacía.
+    """
+    base = {"ticker": ticker, "name": None, "exchange": None, "sector": None,
+            "price": _r(spot), "change": None, "change_percent": None,
+            "market_cap": None, "day_volume": None, "day_low": None,
+            "day_high": None, "prev_close": None, "employees": None,
+            "has_logo": False}
+    if not c:
+        return base
+    base.update({
+        "name": c.get("name"),
+        "sector": c.get("sector"),
+        # `exchange` y `employees` estaban DECLARADOS en el dict base de arriba
+        # y `vcCompanyHTML` ya los leía —el subtítulo es `[exchange, sector]` y
+        # hay una casilla de empleados—, pero nadie los rellenaba: el eslabón
+        # que faltaba era `fetch_company`, que no los pedía. El subtítulo salía
+        # con el sector solo y la casilla vacía, sin que nada fallara.
+        "exchange": c.get("exchange"),
+        "employees": c.get("employees"),
+        # El spot del motor manda sobre el del snapshot: es el que ancló los
+        # nodos del GEX, los niveles y los tres targets. Que la cabecera diga
+        # un precio y la gráfica otro es exactamente el fallo que la cadena de
+        # respaldo de su `page.tsx` evita.
+        "price": _r(spot) if spot else _r(c.get("price")),
+        "change": _r(c.get("change")),
+        "change_percent": _r(c.get("change_percent"), 2),
+        "market_cap": c.get("market_cap"),
+        "day_volume": c.get("day_volume"),
+        "day_low": _r(c.get("day_low")),
+        "day_high": _r(c.get("day_high")),
+        "prev_close": _r(c.get("prev_close")),
+        # `hasLogo` suyo: `Boolean(branding.logo_url || branding.icon_url)`.
+        #
+        # Antes iba forzado a `True` porque comprobarlo parecía costar otra
+        # llamada. No cuesta ninguna: la marca viene en el MISMO
+        # `/v3/reference/tickers/` que ya trae el nombre y el sector, así que
+        # ahora se usa el valor de verdad. La diferencia es un 404 de menos por
+        # cada ticker sin logo — y dejar de prometer una imagen que no existe.
+        #
+        # Si la ficha no llegó, se mantiene la promesa optimista: la cabecera
+        # pide el logo y cae a las iniciales si no está, que es mejor que
+        # esconderlo por no haber podido preguntar.
+        "has_logo": bool(c.get("has_logo")) if "has_logo" in c else True,
+    })
+    return base
+
+
+def _tito_chain_json(chain, truncada: bool):
+    """La cadena para su `OptionChainTable` y su `ChartPanel`.
+
+    Las filas van con los mismos nombres de columna que su tabla y en el mismo
+    orden en que él las sirve (open interest descendente). `chain_meta` lleva
+    los tres números de su cabecera —contratos, vencimientos, truncado— y
+    `top_contracts` los 5 de mayor nocional, que son las líneas que su
+    `ChartPanel` dibuja sobre las velas.
+    """
+    from wbj.tito.compute import count_expirations, sort_by_open_interest_desc
+
+    orden = sort_by_open_interest_desc(list(chain))
+    recortada = orden[:TITO_CHAIN_MAX]
+
+    def fila(x):
+        return {"option_ticker": x.option_ticker, "contract_type": x.contract_type,
+                "expiration": x.expiration, "strike": _r(x.strike),
+                "open_interest": x.open_interest, "volume": x.volume,
+                "price": _r(x.price), "open_premium": _r(x.open_premium),
+                "notional_value": _r(x.notional_value), "price_source": x.price_source}
+
+    top = sorted(orden, key=lambda x: x.notional_value or 0, reverse=True)[:5]
+    return {
+        "chain": [fila(x) for x in recortada],
+        "chain_meta": {
+            "contract_count": len(orden),
+            "expiration_count": count_expirations(orden),
+            # Dos verdades distintas: `truncated` es el tope de páginas de
+            # Massive (la cadena que llegó ya venía incompleta) y `capped` es
+            # este recorte. Fundirlas escondería cuál de los dos pasó.
+            "truncated": bool(truncada),
+            "capped": len(orden) > len(recortada),
+            "shown": len(recortada),
+        },
+        "top_contracts": [fila(x) for x in top],
+    }
 
 
 def _moneyness(K, spot, opt):
@@ -6422,10 +7901,52 @@ probabilidades calibradas. El fair_value debe ser el escenario Base. Lenguaje de
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _load_investor_profile():
-    """Lee el perfil del inversionista (el mío). Prioriza 'Mi Perfil.md'.
-    Devuelve (nombre, texto) o (None, '') si no existe. Solo contexto para la
-    explicación; nunca cambia el scoring."""
-    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Perfil Inversionista")
+    """Lee el perfil del inversionista de la sesión.
+
+    Devuelve `(nombre, texto)` o `(None, "")` si no hay ninguno. Solo contexto
+    para la explicación; nunca cambia el scoring.
+
+    **Lo único que cambió al haber cuentas.** Antes leía siempre `Kevin.md`, que
+    con un solo usuario era correcto: era el perfil de todo el mundo. Con varias
+    cuentas eso significaba contarle a cada persona su análisis con el capital y
+    la tolerancia de Kevin.
+
+    Ahora resuelve el `.md` del usuario de la sesión —lo deja el middleware en
+    `_USUARIO_CTX`— y cae a `Kevin.md` cuando no hay sesión (scripts, cron,
+    preflight). La firma, el valor de retorno y sus dos llamadores siguen
+    exactamente igual: Analyze y Explore no saben que esto cambió, solo reciben
+    el perfil correcto.
+    """
+    # `_PERFIL_DIR`, no una ruta calculada aparte. Estuvo calculada aquí y era
+    # exactamente el fallo que se documentaba en el test: dos funciones
+    # resolviendo el mismo directorio por su cuenta acaban en directorios
+    # distintos, el editor escribe en uno y el agente lee del otro, y nadie se
+    # entera porque el archivo viejo sigue existiendo.
+    base = _PERFIL_DIR
+    u = _usuario_actual()
+    if u is not None:
+        propio = _CU.ruta_md_de(base, u)
+        # El `.md` es CACHÉ: la fuente de verdad es la fila del usuario. Si el
+        # archivo no está —disco nuevo, respaldo viejo, alguien lo borró— se
+        # regenera desde la base con el MISMO escritor que lo creó, en vez de
+        # seguir de largo. Seguir de largo caía a `Kevin.md` sin decir nada, y
+        # el reporte hablaba del capital de otra persona: el fallo silencioso
+        # que este archivo entero existe para evitar.
+        if not os.path.exists(propio):
+            try:
+                conn = _db()
+                try:
+                    _CU.guardar_perfil(conn, base, u, _CU.leer_perfil(conn, u["id"]))
+                finally:
+                    conn.close()
+            except Exception:                     # noqa: BLE001
+                pass                              # un análisis no se cae por esto
+        if os.path.exists(propio):
+            try:
+                with open(propio, "r", encoding="utf-8") as f:
+                    return (u.get("nombre") or "inversionista"), f.read().strip()
+            except Exception:
+                pass
     for fn in ("Kevin.md", "Mi Perfil.md", "MiPerfil.md", "Perfil.md"):
         p = os.path.join(base, fn)
         if os.path.exists(p):
@@ -6441,39 +7962,116 @@ _US_EXCHANGES = {"NMS", "NGM", "NCM", "NIM", "NYQ", "NYS", "ASE", "PCX", "BATS",
                  "AMEX", "NASDAQ", "NYSE", "NASDAQGS", "NASDAQGM", "NASDAQCM"}
 
 
+def _fmt_usd_corto(v):
+    """Dólares con separador de miles, sin decimales.
+
+    El perfil habla de restricciones —capital, tope por posición— y ahí
+    «$1.0K» y «$1,049» son la diferencia entre que algo te quepa o no. Se
+    escribe entero.
+    """
+    try:
+        return f"${float(v or 0):,.0f}"
+    except (TypeError, ValueError):
+        return "$0"
+
+
+#: Los mercados que el cuestionario ofrece, y cómo se comprueba cada uno contra
+#: los datos del proveedor. Sin esto, «¿en qué mercados inviertes?» sería una
+#: pregunta decorativa: la respuesta no podría contrastarse con nada.
+_MERCADOS_CHEQUEO = {
+    "EE.UU.": lambda ex, pais: ex in _US_EXCHANGES or pais == "United States",
+    "Europa": lambda ex, pais: pais in {"Germany", "France", "Spain", "Italy",
+                                        "Netherlands", "Switzerland", "Sweden",
+                                        "United Kingdom", "Ireland", "Belgium",
+                                        "Denmark", "Norway", "Finland", "Portugal",
+                                        "Austria", "Poland"},
+    "Latinoamérica": lambda ex, pais: pais in {"Brazil", "Mexico", "Chile", "Colombia",
+                                               "Argentina", "Peru", "Uruguay", "Panama"},
+    "Asia": lambda ex, pais: pais in {"China", "Japan", "India", "South Korea", "Taiwan",
+                                      "Hong Kong", "Singapore", "Indonesia", "Thailand",
+                                      "Malaysia", "Vietnam", "Philippines", "Israel"},
+}
+
+
 def _wbj_profile_fit(info, recommendation):
-    """Filtro por perfil del ORQUESTADOR (CLAUDE.md paso 6): cruza la recomendación de
-    research con el perfil de Kevin (Perfil Inversionista/Kevin.md). NO cambia el scoring
-    (Kevin.md lo dice explícitamente); es una CLASIFICACIÓN de fit con evidencia del perfil.
-    Anclado SOLO en hechos del perfil: universo EE.UU., tolerancia agresiva/especulativa,
-    capital ~$1,000. Devuelve None si no hay perfil."""
-    name, text = _load_investor_profile()
-    if not text:
+    """Filtro por perfil del ORQUESTADOR (CLAUDE.md paso 6): cruza la recomendación
+    de research con el perfil de QUIEN pidió el análisis.
+
+    **NO cambia el scoring** — es una CLASIFICACIÓN de fit, y esa regla no se
+    toca. Lo que cambió es de dónde salen los hechos con los que se clasifica.
+
+    Antes estaban ESCRITOS A MANO: «Kevin invierte solo en EE.UU.», «~$1.000
+    USD», «agresivo / especulativo», «1-3 años». Con un solo usuario eso era
+    correcto — era el perfil de todo el mundo. Con cuentas, le contaba a cada
+    persona el perfil de Kevin, incluida la comprobación de universo: a alguien
+    que hubiera marcado Europa se le decía que una acción alemana estaba «fuera
+    de su universo». Ahora todo sale de `_perfil_leer()`.
+
+    Devuelve `None` si no hay perfil legible.
+    """
+    perfil = _perfil_leer()
+    if not perfil:
         return None
-    # Universo: Kevin invierte SOLO en EE.UU. → chequeo determinista del listado.
+    nombre, _texto = _load_investor_profile()
+
+    # ── Universo: chequeo determinista contra los mercados que TÚ marcaste ──
     _exch = (info.get("exchange") or "").upper()
     _country = info.get("country") or ""
-    universe_ok = (_exch in _US_EXCHANGES) or (_country == "United States")
+    mercados = list(perfil.get("mercados") or [])
+    # Sin mercados marcados no se puede afirmar que algo esté fuera: se deja
+    # pasar y se dice. Inventar un universo sería peor que no tenerlo.
+    universe_ok = (not mercados) or any(
+        _MERCADOS_CHEQUEO[m](_exch, _country) for m in mercados
+        if m in _MERCADOS_CHEQUEO)
+
+    tol = _CU.TOLERANCIAS.get(perfil.get("tolerancia"), _CU.TOLERANCIAS["agresivo"])
+    _lista = lambda k, v="sin especificar": ", ".join(perfil.get(k) or []) or v  # noqa: E731
     rec = _reco_norm(recommendation)
     if not universe_ok:
-        fit, reason = "fuera-de-universo", "Kevin invierte solo en EE.UU.; este valor no cotiza en EE.UU."
+        fit = "fuera-de-universo"
+        reason = (f"Tu perfil invierte en {_lista('mercados')}; este valor no cotiza ahí"
+                  + (f" ({_country})" if _country else "") + ".")
     elif rec == RESEARCH_FAVORABLE:
         fit, reason = "apto", "Clasificación favorable, dentro de tu universo y tolerancia."
     elif rec == RESEARCH_ESPECULATIVO:
-        fit, reason = "apto-especulativo", ("Especulativa, pero dentro de tu tolerancia agresiva/especulativa "
-                                            "— cuida el sizing (riesgo de ruina con ~$1,000 + opciones).")
+        # El aviso de riesgo de ruina se calibra al capital REAL. Con $1.000 y
+        # opciones es urgente; con $250.000 es una nota al pie, y repetirlo con
+        # las mismas palabras lo convertiría en ruido que se deja de leer.
+        _apretado = perfil.get("capital", 0) and perfil["capital"] < 10_000
+        fit = "apto-especulativo"
+        reason = (f"Especulativa, pero dentro de tu tolerancia {tol['label'].lower()}"
+                  + (" — cuida el sizing: con "
+                     f"{_fmt_usd_corto(perfil['capital'])} y opciones, el riesgo de "
+                     "ruina es real." if _apretado else " — dimensiona con tu tope por posición."))
     elif rec == RESEARCH_CONDICIONAL:
         fit, reason = "condicional", "Condicional — esperar confirmación antes de dimensionar."
     else:
         fit, reason = "evitar", "El research no favorece invertir ahora."
+
+    pos = perfil.get("max_posicion_pct") or [20, 30]
     return {
-        "profile_name": name, "universe_ok": bool(universe_ok),
-        "universo": "Estados Unidos", "tolerancia": "agresivo / especulativo",
-        "horizonte": "1-3 años (+ opciones semanas-meses; ingresos 5+ años)",
-        "instrumentos": "acciones / ETF / opciones (EE.UU.); sin forex ni cripto",
-        "capital": "~$1,000 USD",
-        "sizing_note": ("Capital pequeño + opciones → cuida el riesgo de ruina; prioriza "
-                        "probabilidad de éxito y puntos de entrada/salida (timing)."),
+        "profile_name": nombre or perfil.get("nombre") or "inversionista",
+        # Si el perfil es el de referencia, se DICE. El lector tiene derecho a
+        # saber que estos hechos no los declaró nadie.
+        "es_por_defecto": perfil.get("modo") == "default",
+        "universe_ok": bool(universe_ok),
+        "universo": _lista("mercados"),
+        "tolerancia": tol["label"].lower(),
+        "horizonte": perfil.get("horizonte") or "sin especificar",
+        "instrumentos": _lista("instrumentos")
+                        + (f"; sin {_lista('excluir', '')}" if perfil.get("excluir") else ""),
+        "capital": _fmt_usd_corto(perfil.get("capital") or 0),
+        "riesgo_por_operacion": _fmt_usd_corto(perfil.get("riesgo_por_trade") or 0),
+        "max_posicion_pct": f"{pos[0]}% – {pos[1]}%",
+        "sizing_note": (
+            f"Tope por posición {pos[0]}%–{pos[1]}% de "
+            f"{_fmt_usd_corto(perfil.get('capital') or 0)} "
+            f"({_fmt_usd_corto((perfil.get('capital') or 0) * pos[0] / 100)}–"
+            f"{_fmt_usd_corto((perfil.get('capital') or 0) * pos[1] / 100)} por posición). "
+            + ("Capital pequeño + opciones → cuida el riesgo de ruina; prioriza "
+               "probabilidad de éxito y puntos de entrada/salida."
+               if (perfil.get("capital") or 0) < 10_000 else
+               "Prioriza probabilidad de éxito y puntos de entrada/salida (timing).")),
         "fit": fit, "fit_reason": reason,
         "disclaimer": "Clasificación de research; nunca una orden automática. La ejecución es manual y tuya."}
 
@@ -6980,7 +8578,7 @@ def _wbj_write_prediccion(ticker, report_id, price, fair_value, profile, raw, ta
 
 
 class WBJExplanation(BaseModel):
-    resumen_simple: str = Field(..., description="En 3-5 frases y en español MUY simple: qué es esta empresa como inversión y qué dice el veredicto. Para alguien sin conocimientos financieros.")
+    resumen_simple: str = Field(..., description="En 3-5 frases y en lenguaje MUY simple: qué es esta empresa como inversión y qué dice el veredicto. Para alguien sin conocimientos financieros.")
     por_categoria: str = Field(..., description="Explica en palabras qué significa el puntaje de CADA una de las 6 categorías (business, financial, market, technical, risk, valuation) y por qué está alto o bajo, citando las notas. Detallado pero simple.")
     gates_y_perfil: str = Field(..., description="Explica qué significa el perfil asignado (Momentum/Quality/Value/Conditional/Speculative/Avoid), qué gates pasaron o fallaron y qué implican, en palabras llanas.")
     overrides_y_coherencia: str = Field(..., description="Explica qué significan los overrides activados y los flags de coherencia (contradicciones) listados, y qué debería vigilar el inversionista.")
@@ -6990,17 +8588,85 @@ class WBJExplanation(BaseModel):
     conclusion: str = Field(..., description="La conclusión final en 1-2 frases, honesta y sin promesas de retorno.")
 
 
+def _wbj_explain_context(ticker, nombre_largo, precio, analisis_json):
+    """Arma el contexto del 2º pase: los números YA congelados + TU perfil.
+
+    Estaba escrito en línea dentro de `/api/analyze`, y por eso la explicación
+    solo podía generarse allí — pagando sus ~18 s dentro del camino crítico o
+    no generándose nunca. Extraído, el mismo contexto se puede reconstruir
+    después desde el reporte guardado, que es lo que hace
+    `/api/wbj-explicacion`.
+
+    El bloque `=== MI PERFIL ===` es el ÚNICO sitio donde entra el texto libre
+    del cuestionario. De ahí sale que el capital, el horizonte y lo que
+    escribiste cambien el TONO de la explicación — nunca los números.
+    """
+    _pname, _ptext = _load_investor_profile()
+    _wj = analisis_json.get("wbj") or {}
+    _cts = _wj.get("categories") or {}
+    _catl = []
+    for _ck in WBJ_ORDER:
+        _cc2 = _cts.get(_ck) or {}
+        _catl.append(f"- {_cc2.get('label', _ck)}: {_cc2.get('score10')}/10 "
+                     f"({_cc2.get('points')}/{_cc2.get('max')} pts, "
+                     f"cob {int((_cc2.get('coverage') or 0) * 100)}%, {_cc2.get('status')})")
+    _pf = analisis_json.get("profile_fit") or {}
+    # MEMORIA (CLAUDE.md): lee la tesis PREVIA para dar coherencia entre sesiones.
+    _prior_thesis = _wbj_read_thesis_md(ticker)
+    _prior_ctx = (f"\n=== TESIS PREVIA (Memoria) ===\n{_prior_thesis[:900]}\n"
+                  "Si esta llamada contradice la tesis previa, la explicación debe señalarlo.\n"
+                  if _prior_thesis else "")
+    # Re-ejecución: dile al LLM qué disparó reemplazar la tesis previa (si algo).
+    _rex = analisis_json.get("re_execution") or {}
+    if _rex.get("triggers"):
+        _prior_ctx += ("RE-EJECUCIÓN: la tesis previa quedó obsoleta por: "
+                       + "; ".join(t.get("detalle", "") for t in _rex["triggers"]) + "\n")
+    # Los hechos del perfil van EXPLÍCITOS además del `.md`: son los que el
+    # LLM tiene que usar para calibrar el tamaño de lo que describe, y
+    # enterrados en la prosa del archivo se pierden.
+    _perfil_duro = ""
+    if _pf:
+        _perfil_duro = (f"HECHOS DE TU PERFIL: capital {_pf.get('capital')} · "
+                        f"riesgo por operación {_pf.get('riesgo_por_operacion')} · "
+                        f"tope por posición {_pf.get('max_posicion_pct')} · "
+                        f"horizonte {_pf.get('horizonte')} · universo {_pf.get('universo')}\n")
+        if _pf.get("es_por_defecto"):
+            _perfil_duro += ("AVISO: esta persona NO ha personalizado su perfil. Son valores de "
+                             "referencia, no suyos — no le hables como si los hubiera declarado.\n")
+    return (
+        f"TICKER: {ticker} — {nombre_largo} | precio ${precio}\n"
+        f"PERFIL/BANDA: {_wj.get('profile')} — {_wj.get('band')}\n"
+        f"RAW TOTAL: {_wj.get('raw_total')}/100 | CONFIANZA TOTAL: {_wj.get('total_confidence')}\n"
+        "CATEGORÍAS (score de Victor, no cambiar):\n" + "\n".join(_catl) + "\n"
+        f"GATES PASADOS: {[g.get('gate') for g in _wj.get('passed_gates', []) if isinstance(g, dict)]}\n"
+        f"GATES FALLIDOS: {[g.get('gate') for g in _wj.get('failed_gates', []) if isinstance(g, dict)]}\n"
+        f"OVERRIDES ACTIVOS: {_wj.get('overrides')}\n"
+        f"WARNINGS: {_wj.get('warnings')}\n"
+        f"CONTRADICCIONES: {[c.get('combination') for c in (_wj.get('contradictions') or [])]}\n"
+        f"TARGETS 12m: bull ${analisis_json.get('target_bull_12m')} / base "
+        f"${analisis_json.get('target_base_12m')} / bear ${analisis_json.get('target_bear_12m')} "
+        f"| fair value ${analisis_json.get('fair_value')}\n"
+        f"NIVELES (synthesize_levels de Victor):\n"
+        f"{_wbj_levels_ctx(analisis_json.get('victor_levels'))}\n"
+        f"FIT DE PERFIL (determinista): {_pf.get('fit')} — {_pf.get('fit_reason')}\n"
+        + _perfil_duro + _prior_ctx +
+        f"\n=== MI PERFIL ({_pname or 'inversionista'}) ===\n{_ptext}")
+
+
 def _wbj_explain(context_text, temp=0.3):
     """2º PASE: el LLM SOLO explica el paquete ya calculado en palabras simples.
     Recibe los números FINALES (matemática de Victor) y NO los cambia. Respaldo de
     proveedor igual que el análisis. Devuelve (dict, fuente) o (None, None) si falla."""
+    # La instrucción de idioma va AL FINAL, después del contexto: el esquema de
+    # respuesta (`WBJExplanation`) trae «en español» escrito en la descripción
+    # de un campo, y lo último que lee el modelo es lo que manda.
     prompt = (
         "Eres un divulgador financiero. Abajo tienes un análisis WBJ YA CALCULADO con la "
         "metodología de Victor (los números son FINALES y correctos). Tu ÚNICO trabajo es "
-        "EXPLICARLO en español simple, claro y detallado para el inversionista de 'MI PERFIL'. "
+        "EXPLICARLO de forma simple, clara y detallada para el inversionista de 'MI PERFIL'. "
         "NO recalcules, NO cambies, NO reduzcas ni 'corrijas' ningún número, score, gate ni nivel. "
         "Si algo no tiene datos (NOT_SCORABLE), explícalo con honestidad. No prometas retornos ni "
-        "des órdenes de compra/venta.\n\n" + context_text)
+        "des órdenes de compra/venta.\n\n" + context_text + _instruccion_idioma())
     # Por qué falló CADA proveedor, en orden. Antes sólo se propagaba el
     # último error de la cadena, así que un 429 de cuota en Gemini —el
     # proveedor PRINCIPAL— se reportaba como "Grok no configurado
@@ -8157,6 +9823,12 @@ def _engine_scorecard(ticker, info, price):
         _qual_prov = _qual.get("__provenance__") or {}
 
         # ── Fase A: correr los 6 especialistas (con overlay wacc/peer_roic) y recoger sus outputs ──
+        #
+        # El perfil de QUIEN pidió el análisis, para el especialista de riesgo.
+        # Su `PROFILE` se resuelve al importar el módulo y por tanto es el mismo
+        # para todo el proceso: sin esto, `profile_fit` le contaría a cada
+        # usuario su análisis con el capital y el horizonte de Kevin.
+        _rsk.PERFIL_ACTUAL.set(_perfil_para_el_engine())
         _outputs = []                       # [(key, output)] en orden, para el judge y el merge
         for key, mod in _MODS:
             try:
@@ -9562,60 +11234,29 @@ coinciden, dónde divergen y qué explicaría la diferencia. El consenso es cont
             finally:
                 if isinstance(_eng, dict):
                     _eng.pop("_victor_final", None)   # objeto interno: nunca al cliente
-            # ── EXPLICACIÓN EN PALABRAS (2º pase LLM): SOLO explica los números YA congelados
-            #    de Victor + su ajuste a tu perfil. NO cambia ningún cálculo (Kevin.md).
+            # ── EXPLICACIÓN EN PALABRAS (2º pase LLM) ──────────────────────
             #
-            #    Detrás de `?explain=1`. Medido: 18.4 s de los ~105 s que tardaba
-            #    /api/analyze, para un campo que la plataforma no lee en ningún
-            #    sitio (0 usos de `wbj_explanation` en el HTML). Pagarlo en cada
-            #    llamada acercaba el endpoint al corte de Render sin que nadie
-            #    viera el resultado. La capacidad sigue ahí; ahora se pide. ──
-            try:
-                _pname, _ptext = _load_investor_profile()
-                _wj = analisis_json.get("wbj") or {}
-                _cts = _wj.get("categories") or {}
-                _catl = []
-                for _ck in WBJ_ORDER:
-                    _cc2 = _cts.get(_ck) or {}
-                    _catl.append(f"- {_cc2.get('label', _ck)}: {_cc2.get('score10')}/10 "
-                                 f"({_cc2.get('points')}/{_cc2.get('max')} pts, "
-                                 f"cob {int((_cc2.get('coverage') or 0) * 100)}%, {_cc2.get('status')})")
-                _pf = analisis_json.get("profile_fit") or {}
-                # MEMORIA (CLAUDE.md): lee la tesis PREVIA para dar coherencia entre sesiones.
-                _prior_thesis = _wbj_read_thesis_md(ticker)
-                _prior_ctx = (f"\n=== TESIS PREVIA (Memoria) ===\n{_prior_thesis[:900]}\n"
-                              "Si esta llamada contradice la tesis previa, la explicación debe señalarlo.\n"
-                              if _prior_thesis else "")
-                # Re-ejecución: dile al LLM qué disparó reemplazar la tesis previa (si algo).
-                _rex = analisis_json.get("re_execution") or {}
-                if _rex.get("triggers"):
-                    _prior_ctx += ("RE-EJECUCIÓN: la tesis previa quedó obsoleta por: "
-                                   + "; ".join(t.get("detalle", "") for t in _rex["triggers"]) + "\n")
-                _ctx = (
-                    f"TICKER: {ticker} — {info.get('longName', ticker)} | precio ${precio_actual}\n"
-                    f"PERFIL/BANDA: {_wj.get('profile')} — {_wj.get('band')}\n"
-                    f"RAW TOTAL: {_wj.get('raw_total')}/100 | CONFIANZA TOTAL: {_wj.get('total_confidence')}\n"
-                    "CATEGORÍAS (score de Victor, no cambiar):\n" + "\n".join(_catl) + "\n"
-                    f"GATES PASADOS: {[g.get('gate') for g in _wj.get('passed_gates', []) if isinstance(g, dict)]}\n"
-                    f"GATES FALLIDOS: {[g.get('gate') for g in _wj.get('failed_gates', []) if isinstance(g, dict)]}\n"
-                    f"OVERRIDES ACTIVOS: {_wj.get('overrides')}\n"
-                    f"WARNINGS: {_wj.get('warnings')}\n"
-                    f"CONTRADICCIONES: {[c.get('combination') for c in (_wj.get('contradictions') or [])]}\n"
-                    f"TARGETS 12m: bull ${analisis_json.get('target_bull_12m')} / base "
-                    f"${analisis_json.get('target_base_12m')} / bear ${analisis_json.get('target_bear_12m')} "
-                    f"| fair value ${analisis_json.get('fair_value')}\n"
-                    f"NIVELES (synthesize_levels de Victor):\n{_wbj_levels_ctx(_eng.get('victor_levels'))}\n"
-                    f"FIT DE PERFIL (determinista): {_pf.get('fit')} — {_pf.get('fit_reason')}\n"
-                    + _prior_ctx +
-                    f"\n=== MI PERFIL ({_pname or 'Kevin'}) ===\n{_ptext}")
-                # La unica linea cara del bloque: ~18.4 s contra Gemini.
-                _expl, _expl_src = _wbj_explain(_ctx) if explain else (None, None)
-                if _expl:
-                    analisis_json["wbj_explanation"] = _expl
-                    analisis_json["wbj_explanation_source"] = _expl_src
-                    print(f"[analyze] {ticker}: explicación WBJ en palabras generada ({_expl_src})")
-            except Exception as _ee:
-                print(f"[analyze] explicación WBJ omitida: {str(_ee)[:120]}")
+            #  Solo explica los números YA congelados; no cambia ningún cálculo.
+            #  Cuesta ~18,4 s contra Gemini, así que NO se hace aquí salvo que se
+            #  pida con `?explain=1`: metida en el camino crítico acercaba
+            #  /api/analyze al corte de Render.
+            #
+            #  La pantalla ya no la pide por aquí — la pide después, al terminar
+            #  el análisis, contra `/api/wbj-explicacion`. El resultado es el
+            #  mismo texto; lo que cambia es que el análisis aparece a los ~105 s
+            #  en vez de a los ~123 s, y la explicación llega sola encima.
+            #  `?explain=1` se mantiene para quien llame la API desde un script.
+            if explain:
+                try:
+                    _ctx = _wbj_explain_context(ticker, info.get("longName", ticker),
+                                                precio_actual, analisis_json)
+                    _expl, _expl_src = _wbj_explain(_ctx)
+                    if _expl:
+                        analisis_json["wbj_explanation"] = _expl
+                        analisis_json["wbj_explanation_source"] = _expl_src
+                        print(f"[analyze] {ticker}: explicación WBJ en palabras generada ({_expl_src})")
+                except Exception as _ee:
+                    print(f"[analyze] explicación WBJ omitida: {str(_ee)[:120]}")
             # ── MEMORIA (protocolo CLAUDE.md): escribe la tesis + predicción con los números
             #    YA CONGELADOS de Victor. Corrige encima (apila historial); nunca borra. ──
             try:
@@ -9743,10 +11384,10 @@ def _texto_llm(system_msg, user_msg, temp=0.4, max_tokens=4000):
     criterio que `_wbj_explain`, donde propagar sólo el último fallo hacía
     que un 429 de cuota se reportara como una variable de entorno ausente.
 
-    Sustituye las llamadas directas a `api.x.ai` que había en
-    `/api/sentiment` y `/api/explore-deep`. Victor no usa Grok en ninguna
-    parte de su repo, y su ausencia dejaba esas dos rutas sin ningún
-    respaldo: una sola clave sin configurar las apagaba enteras.
+    Sustituye las llamadas directas a `api.x.ai` que había en `/api/sentiment`
+    y en el desaparecido `/api/explore-deep`. Victor no usa Grok en ninguna
+    parte de su repo, y su ausencia dejaba esas rutas sin ningún respaldo:
+    una sola clave sin configurar las apagaba enteras.
     """
     fallos = []
     if client_gemini is not None:
@@ -9943,55 +11584,10 @@ def alerts_scan(tickers: str = "", max_tickers: int = 12):
     return {"ok": True, "checked_at": now_ms, "n": len(alerts), "alerts": alerts}
 
 
-@app.get("/api/watchlist-quote")
-def get_watchlist_quote(ticker: str):
-    """Lightweight one-shot quote for the Watchlist: price, day change, next earnings,
-    Wall Street target, and an insider signal — everything a watchlist row needs."""
-    ticker_clean = ticker.upper().strip()
-    try:
-        stock = vertex_market.Ticker(ticker_clean)
-        try:
-            info = stock.info
-        except Exception:
-            info = {}
-
-        # Live price + previous close via fast_info
-        live_price = None
-        prev_close = None
-        try:
-            fi = stock.fast_info
-            live_price = getattr(fi, "last_price", None) or getattr(fi, "regular_market_price", None)
-            prev_close = getattr(fi, "previous_close", None) or getattr(fi, "regular_market_previous_close", None)
-        except Exception:
-            pass
-        if not live_price:
-            live_price = info.get("currentPrice") or info.get("regularMarketPrice")
-        if not prev_close:
-            prev_close = info.get("previousClose")
-
-        change_pct = None
-        if live_price and prev_close and prev_close > 0:
-            change_pct = round(((live_price - prev_close) / prev_close) * 100, 2)
-
-        earnings = fetch_earnings_info(stock, info)
-        logo_url = obtener_logo(ticker_clean, info.get("website", ""))
-
-        return {
-            "ticker": ticker_clean,
-            "name": info.get("longName", ticker_clean),
-            "logo_url": logo_url,
-            "price": round(float(live_price), 2) if live_price else None,
-            "prev_close": round(float(prev_close), 2) if prev_close else None,
-            "change_pct": change_pct,
-            "target_mean": info.get("targetMeanPrice"),
-            "target_upside_pct": round(((info.get("targetMeanPrice") - live_price) / live_price) * 100, 2)
-                                  if (info.get("targetMeanPrice") and live_price) else None,
-            "next_earnings_label": earnings.get("label"),
-            "next_earnings_days": earnings.get("days_until"),
-            "market_cap": info.get("marketCap"),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=_error_publico(e, "/api/watchlist-quote"))
+# `/api/watchlist-quote` se eliminó con la watchlist de Vertex: era la fila de
+# cotización de aquella rejilla de tickers y no la llamaba nadie más. El radar
+# (`/api/watchlist-radar`) y el escaneo (`/api/alerts/scan`) SIGUEN: son la
+# campana, y ahora leen los subyacentes de la watchlist de contratos de Víctor.
 def _dir_hit(rec, ret, flat=5.0):
     """Acierto direccional crudo (se usa para todos los buckets).
     M-09: normaliza primero, para que las filas guardadas con el esquema
@@ -10291,28 +11887,68 @@ def get_regime():
 
 
 @app.get("/api/reports/list")
-def reports_list(limit: int = 60):
+def reports_list(request: Request, limit: int = 60):
     """#4 — Lista de reportes DURABLES desde el servidor (payload completo) para hidratar el archivo
-    multi-dispositivo. Cae en silencio si no hay payloads (DBs viejas sin la columna llena)."""
+    multi-dispositivo. Cae en silencio si no hay payloads (DBs viejas sin la columna llena).
+
+    **El archivo es privado.** Devolvía TODOS los reportes a CUALQUIERA, que con
+    un solo usuario era lo mismo que devolver los suyos. Con cuentas es otra
+    cosa: el análisis de una persona lo leerían las demás. Alimentar al agente y
+    publicar tu trabajo no son lo mismo — lo que se comparte está en
+    `/api/aprendizaje`, y ahí no aparece quién analizó qué.
+
+    Las filas sin `usuario_id` son de la época de un solo usuario. Se tratan
+    como de nadie, no como de todos: solo las ve quien entre sin sesión (la
+    puerta del token compartido, que es el propio Kevin o un script suyo).
+    """
+    u = _usuario_actual(request)
     try:
         conn = _db()
-        rows = conn.execute(
-            "SELECT payload FROM reports WHERE payload IS NOT NULL ORDER BY created_ts DESC LIMIT ?",
-            (int(max(1, min(limit, 200))),)).fetchall()
+        if u is not None:
+            rows = conn.execute(
+                "SELECT payload FROM reports WHERE payload IS NOT NULL AND usuario_id=? "
+                "ORDER BY created_ts DESC LIMIT ?",
+                (u["id"], int(max(1, min(limit, 200))))).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT payload FROM reports WHERE payload IS NOT NULL AND usuario_id IS NULL "
+                "ORDER BY created_ts DESC LIMIT ?",
+                (int(max(1, min(limit, 200))),)).fetchall()
         conn.close()
-        out = []
+        # Se corta por PESO, no solo por número.
+        #
+        # `limit` acota cuántas filas se piden, pero no cuánto pesan: con el
+        # tope por reporte subido, 60 payloads pueden ser cientos de MB en una
+        # sola respuesta y tumbar el proceso. Aquí se para al llegar al tope y
+        # se dice cuántos se dejaron fuera — el archivo se hidrata con los más
+        # recientes, que es el orden en que vienen.
+        _TOPE = _payload_respuesta_max()
+        out, peso, recortados = [], 0, 0
         for r in rows:
             try:
-                out.append(json.loads(r["payload"]))
+                blob = r["payload"]
+                if peso + len(blob) > _TOPE and out:
+                    recortados = len(rows) - len(out)
+                    break
+                out.append(json.loads(blob))
+                peso += len(blob)
             except Exception:
                 continue
-        return {"ok": True, "reports": out}
+        if recortados:
+            print(f"[reports/list] {recortados} reportes fuera: la respuesta llegaba "
+                  f"al tope de {_TOPE/1e6:.0f} MB")
+        return {"ok": True, "reports": out,
+                # Se declara. Un archivo recortado en silencio parece un archivo
+                # que perdió reportes.
+                "recortados": recortados,
+                "motivo_recorte": (f"la respuesta llegaba al tope de {_TOPE/1e6:.0f} MB; "
+                                   "los más recientes van primero" if recortados else None)}
     except Exception as e:
         return {"ok": False, "error": _error_publico(e, "/api/reports/list"), "reports": []}
 
 
 @app.post("/api/report-delete")
-def report_delete(report_id: str):
+def report_delete(request: Request, report_id: str):
     """#4 — borra un reporte del archivo del servidor (sincroniza el borrado entre dispositivos).
 
     POST, no GET. Un GET tiene que ser SEGURO: la especificación de HTTP
@@ -10323,11 +11959,23 @@ def report_delete(report_id: str):
     lo disparaba. La cookie es `SameSite=Strict`, que corta el caso entre
     sitios, pero la reemisión dentro del propio sitio no depende de eso.
     """
+    # Solo lo tuyo. Sin este filtro, cualquiera con una cuenta podría borrar el
+    # archivo de otro con solo acertar un `report_id` — y los ids llevan ticker
+    # y fecha, así que adivinarlos no es difícil.
+    u = _usuario_actual(request)
     try:
         conn = _db()
-        conn.execute("DELETE FROM reports WHERE report_id=?", (report_id,))
+        if u is not None:
+            cur = conn.execute("DELETE FROM reports WHERE report_id=? AND usuario_id=?",
+                               (report_id, u["id"]))
+        else:
+            cur = conn.execute("DELETE FROM reports WHERE report_id=? AND usuario_id IS NULL",
+                               (report_id,))
+        borradas = cur.rowcount
         conn.commit(); conn.close()
-        return {"ok": True}
+        # No se distingue "no existe" de "no es tuyo": distinguirlos convertiría
+        # la ruta en un oráculo de qué reportes tienen los demás.
+        return {"ok": True, "borrado": bool(borradas)}
     except Exception:
         # El texto de la excepción puede llevar rutas del servidor o SQL;
         # va al log, no al navegador.
@@ -10723,8 +12371,8 @@ def get_sentiment(ticker: str):
         "basada en lo que la gente esta diciendo: si el consenso emocional de la comunidad tiene "
         "fundamento, hacia donde podria ir el precio si esa narrativa se cumple, y que escenario es "
         "mas probable. SIEMPRE das datos especificos, porcentajes estimados, ejemplos reales y citas "
-        "de lo que dice la gente con fecha aproximada. Eres directo, detallado, exhaustivo y objetivo. "
-        "Respondes SIEMPRE en espanol."
+        "de lo que dice la gente con fecha aproximada. Eres directo, detallado, exhaustivo y objetivo."
+        + _instruccion_idioma()
     )
 
     # Misma correccion que en el prompt profundo: sin posts NO se sustituye con

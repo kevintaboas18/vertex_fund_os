@@ -2,6 +2,30 @@
 # major con cambios incompatibles y romper el scoring en silencio.
 # Los techos son de MAJOR: 2006 tests pasan con pandas 3.0.3 y numpy 2.5.1,
 # asi que fijar <3 habria forzado un downgrade sin motivo.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+#  POR QUE IMPORTAN LOS TECHOS: un despliegue no toca el codigo y falla igual
+#
+#  Render corre `pip install -r requirements.txt` EN CADA DESPLIEGUE, sin
+#  lockfile. Una dependencia sin techo resuelve a lo mas nuevo que exista ESE
+#  DIA, asi que el mismo commit puede instalar cosas distintas el martes y el
+#  jueves. Cuando eso rompe algo, el sintoma es exactamente «antes funcionaba y
+#  ahora sale failed» sin que nadie haya tocado una linea — y el commit
+#  culpable no existe, porque el cambio ocurrio fuera del repositorio.
+#
+#  Tres dependencias estaban sin techo pese a que este mismo archivo dice en su
+#  primera linea que todas lo llevan: `anthropic`, `matplotlib` y
+#  `cryptography`. Las tres tienen ahora el techo de su siguiente major.
+#
+#  Verificado el 2026-08-08 en un venv limpio, con la resolucion que Render
+#  obtiene hoy: fastapi 0.141.1 · starlette 1.6.0 · pandas 3.0.5 · numpy 2.4.6
+#  · scipy 1.17.1 · matplotlib 3.11.1 · anthropic 0.121.0 · cryptography 50.0.0
+#  · yfinance 1.5.2. Build OK, arranque OK, health check 200 en 4 s, y los
+#  3.487 tests en verde.
+#
+#  Para reproducir el despliegue entero sin esperar a Render:
+#      python engine/scripts/preflight_render.py --remoto --instalar
+# ─────────────────────────────────────────────────────────────────────────────
 fastapi>=0.115,<1
 uvicorn>=0.30,<1
 numpy>=1.26,<3
@@ -13,16 +37,21 @@ scipy>=1.13,<2
 httpx>=0.27,<1
 typer>=0.12,<1
 pandas>=2.2,<4
-anthropic>=0.40
+# Judge cualitativo (`wbj/judge.py`, `extract/filing.py`, `report/`). El techo
+# es de major: la 0.x de Anthropic cambia de API entre minors con menos aviso
+# que el resto, y sin `<1` un salto a la 1.0 entraria solo en un despliegue.
+anthropic>=0.40,<1
 # Suplente del TAM mundial (`overlay/tam_mundial.py`). Sin esto, cuando Gemini
 # devuelve 429 la resolucion del TAM se queda sin segunda opcion: medido el
 # 2026-08-06, la cuota se agoto y beverages y consumer-electronics quedaron sin
 # denominador teniendo un suplente configurado pero no instalable.
 openai>=1.40,<3
 # Graficos del reporte (report/charts.py). Import diferido, headless (Agg).
-matplotlib>=3.8
+matplotlib>=3.8,<4
 # C-03: cifrado en reposo del access_token de Plaid (opcional, via VERTEX_DB_KEY)
-cryptography>=42
+# y del bloque privado del almacen. Su ritmo de releases es alto —va por la 50—
+# asi que sin techo el salto de major llega antes que cualquier otro.
+cryptography>=42,<51
 # Solo para las CADENAS DE OPCIONES de Proyecciones. El analisis de acciones
 # no lo toca: sus fuentes son FMP, FinnHub, FRED y EDGAR.
 yfinance>=0.2,<2
