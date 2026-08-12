@@ -804,3 +804,34 @@ def test_los_dos_especialistas_preguntan_lo_mismo():
     for adaptador in ("banks", "insurers", "reits", "biotech", "default_nonfinancial"):
         # El predicado es uno solo; si alguien vuelve a partirlo, esto cae.
         assert ad.replaces_return_model(adaptador) == (adaptador in ("banks", "insurers"))
+
+
+# --- una fila mal parseada no cuesta dos metricas ---------------------------
+
+def test_un_trimestre_con_pasivo_corriente_cero_no_borra_el_ratio():
+    """Lo que dejaba a Realty Income en 0,667 de `balance_and_liquidity`.
+
+    Su trimestre a 2026-06-30 llegaba con `total_current_liabilities` en 0 --y
+    un gasto financiero NEGATIVO en la misma fila, que es la firma de un filing
+    que el proveedor no leyo bien-- mientras el trimestre anterior estaba
+    completo. `_latest_balance_row` cogia el ultimo sin mirarlo, el ratio salia
+    NOT_MEANINGFUL por division por cero, y con el se iba tambien el quick
+    ratio: dos metricas por una fila rota.
+    """
+    filas = [_row(2025), _row(2024)]
+    filas[0] = {**filas[0], "total_current_liabilities": 0}
+    pk = _minimal_packet(filas)
+    out = fin.run(pk, overlay={"wacc": 0.09})
+    por_id = {r.metric_id: r for r in out.metrics}
+    assert por_id["FIN-BS-017"].value is not None, "se perdio el ratio corriente"
+    assert por_id["FIN-BS-018"].value is not None, "se perdio el quick ratio"
+
+
+def test_si_ninguna_fila_lo_trae_la_metrica_declina_igual():
+    """El retroceso busca un dato, no lo inventa. Un emisor que NUNCA clasifica
+    su balance --bancos y REITs presentan balances sin corriente/no corriente--
+    no tiene ratio corriente, y decirlo es la respuesta honesta."""
+    filas = [{**_row(y), "total_current_liabilities": 0} for y in (2025, 2024, 2023)]
+    out = fin.run(_minimal_packet(filas), overlay={"wacc": 0.09})
+    por_id = {r.metric_id: r for r in out.metrics}
+    assert por_id["FIN-BS-017"].state == NullState.NOT_MEANINGFUL

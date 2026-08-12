@@ -1138,14 +1138,36 @@ def _num(row: dict, key: str) -> float | None:
 
 
 def _latest_balance_row(packet: Packet) -> dict | None:
-    """Most recent balance-sheet snapshot: latest quarterly row if present
-    (FORMULAS.md marks current/quick ratio "quarterly" frequency), else
-    the latest annual row."""
+    """Most recent balance-sheet snapshot USABLE para el ratio corriente.
+
+    `FORMULAS.md` marca current/quick ratio como "quarterly", asi que se
+    prefiere el ultimo trimestre; si no hay trimestres, el ultimo anual.
+
+    Lo nuevo es "usable". Se cogia el ultimo sin mirarlo, y una sola fila mal
+    parseada costaba dos metricas: Realty Income traia el trimestre a
+    2026-06-30 con `total_current_liabilities` en 0 --y un gasto financiero
+    NEGATIVO en la misma fila, que es la firma de un filing que el proveedor
+    no leyo bien-- mientras el trimestre anterior estaba completo. El ratio
+    salia NOT_MEANINGFUL por division por cero y `balance_and_liquidity` caia
+    a 0,667 con todo lo demas calculado.
+
+    Un pasivo corriente de CERO no es un dato: o el emisor no clasifica su
+    balance --bancos y REITs presentan balances sin corriente/no corriente-- o
+    el proveedor fallo. En los dos casos, retroceder a la ultima fila que si
+    trae el dato dice mas que declinar. Si NINGUNA lo trae, se devuelve la
+    ultima igual y la metrica declina como antes: eso si es "este emisor no
+    tiene ratio corriente", y es la respuesta honesta.
+    """
+    def _sirve(row: dict) -> bool:
+        return bool(row.get("total_current_liabilities"))
+
     q = _quarterly_rows(packet)
     if q:
-        return q[-1]
+        return next((r for r in reversed(q) if _sirve(r)), q[-1])
     a = _annual_rows(packet)
-    return a[-1] if a else None
+    if a:
+        return next((r for r in reversed(a) if _sirve(r)), a[-1])
+    return None
 
 
 def _compute_all(
