@@ -829,3 +829,108 @@ def test_el_camino_normal_no_revienta_por_la_cache(monkeypatch):
 
     filas = fp._rs_universe(_FMP(), _pkt_rs([f"C{i}" for i in range(10)]))
     assert filas is not None and len(filas) >= 8
+
+
+# --- comparables de la misma INDUSTRIA cuando el proveedor da pocos ---------
+
+def _pkt_ind(peers, industria="Banks - Diversified", sector="Financial Services",
+             ticker="BAC"):
+    from wbj.schemas.packet import OHLCVRow
+    bench = [OHLCVRow(date=f"2025-01-{d:02d}", open=1, high=1, low=1,
+                      close=1.0 + d / 100, adj_close=1.0 + d / 100, volume=1)
+             for d in range(1, 29)] * 3
+    return SimpleNamespace(
+        security=SimpleNamespace(ticker=ticker, sector=sector, industry=industria),
+        market_data=SimpleNamespace(benchmark=bench),
+        estimates={"peers": [{"symbol": s} for s in peers]},
+    )
+
+
+class _CacheMem:
+    def __init__(self):
+        self.d = {}
+
+    def age_days(self, t, k):
+        return 0.0 if (t, k) in self.d else None
+
+    def get(self, t, k):
+        return self.d.get((t, k))
+
+    def put(self, t, k, payload):
+        self.d[(t, k)] = payload
+
+
+def test_pocos_comparables_se_completan_con_la_industria():
+    """Lo que dejaba a BAC en 0,500 de `competitive_position` con todo lo demas
+    calculado: `_peer_economics` exige 8 comparables --SCORING_ENGINE.md-- y
+    FMP le daba 7, asi que no habia `peer_roic` ni `peer_operating_margin` y la
+    mitad de la dimension quedaba NOT_SCORABLE.
+    """
+    from wbj.overlay import from_packet as fp
+
+    pedido = {}
+
+    class _FMP:
+        cache = _CacheMem()
+        settings = SimpleNamespace(fmp_api_key="x")
+
+        def get_json(self, url, params, clave, ticker, **k):
+            pedido.update(params)
+            return [{"symbol": f"B{i}", "marketCap": 1e11 - i} for i in range(30)]
+
+    extra = fp._companeras_de_industria(_FMP(), _pkt_ind([f"C{i}" for i in range(7)]),
+                                        [f"C{i}" for i in range(7)])
+    assert len(extra) >= 1
+    assert pedido.get("industry") == "Banks - Diversified", (
+        "se filtro por sector y no por industria: mezclaria aseguradoras y "
+        f"gestoras con los bancos ({pedido})")
+
+
+def test_no_se_mezcla_el_sector_con_la_industria():
+    """La diferencia con `_rs_universe`, y es deliberada. Aquel se rellena por
+    SECTOR porque FORMULAS.md le pide un "point-in-time universe" y el precio
+    se compara contra el mercado. Este pide "peer ROIC/margins": comparar el
+    margen de un banco con el de una gestora de activos es comparar dos
+    modelos de negocio."""
+    from wbj.overlay import from_packet as fp
+    import inspect
+    src = inspect.getsource(fp._companeras_de_industria)
+    assert '"industry": industria' in src
+    assert '"sector"' not in src
+
+
+def test_la_lista_de_industria_se_pide_una_vez_al_dia():
+    """Es de la INDUSTRIA, no del ticker: sin cache, cada banco la volveria a
+    pedir."""
+    from wbj.overlay import from_packet as fp
+
+    llamadas = []
+
+    class _FMP:
+        cache = _CacheMem()
+        settings = SimpleNamespace(fmp_api_key="x")
+
+        def get_json(self, url, params, clave, ticker, **k):
+            llamadas.append(clave)
+            return [{"symbol": f"B{i}", "marketCap": 1e11 - i} for i in range(30)]
+
+    fmp = _FMP()
+    fp._companeras_de_industria(fmp, _pkt_ind(["C0"], ticker="BAC"), ["C0"])
+    n = len(llamadas)
+    fp._companeras_de_industria(fmp, _pkt_ind(["C0"], ticker="WFC"), ["C0"])
+    assert len(llamadas) == n, "el segundo banco volvio a pedir la industria"
+
+
+def test_la_empresa_no_es_comparable_de_si_misma():
+    from wbj.overlay import from_packet as fp
+
+    class _FMP:
+        cache = _CacheMem()
+        settings = SimpleNamespace(fmp_api_key="x")
+
+        def get_json(self, url, params, clave, ticker, **k):
+            return [{"symbol": s, "marketCap": 1e11}
+                    for s in ("BAC", "JPM", "WFC", "C", "USB", "PNC", "TFC", "COF", "MTB")]
+
+    extra = fp._companeras_de_industria(_FMP(), _pkt_ind(["C0"], ticker="BAC"), ["C0"])
+    assert "BAC" not in extra

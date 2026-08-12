@@ -1590,13 +1590,76 @@ def _recession_margin_drawdown(rows: list[dict], recession_years: list[int]) -> 
     return max(drops) if drops else None
 
 
+def _companeras_de_industria(fmp: Any, packet: Any, ya: list[str]) -> list[str]:
+    """Mas comparables de la MISMA industria, cuando el proveedor da pocos.
+
+    `SCORING_ENGINE.md` exige "a minimum of 8 valid peers" y FMP no siempre
+    llega: BAC traia 7 --uno por debajo-- y se quedaba sin `peer_roic` ni
+    `peer_operating_margin`, lo que dejaba `competitive_position` en 0,500 con
+    todo lo demas calculado.
+
+    INDUSTRIA y no sector, que es la diferencia que importa aqui. El universo
+    del percentil de fuerza relativa (`_rs_universe`) si se rellena por sector,
+    porque `FORMULAS.md` le pide un "point-in-time universe" y el precio se
+    compara contra el mercado. Esto es otra cosa: el Cerebro pide "peer
+    ROIC/margins", y «Financial Services» mete aseguradoras y gestoras de
+    activos junto a los bancos. Comparar el margen de un banco con el de una
+    gestora es comparar dos modelos de negocio -- exactamente lo que
+    `INDUSTRY_ADAPTERS.md` existe para no hacer.
+
+    Se cachea un dia por industria: la lista es de la INDUSTRIA, no del ticker
+    que se analiza, y sin esto cada banco de la misma industria la pediria otra
+    vez.
+    """
+    industria = getattr(getattr(packet, "security", None), "industry", "") or ""
+    if not industria:
+        return []
+    clave = "companeras_" + "".join(
+        c if c.isalnum() else "-" for c in industria.lower()).strip("-")
+    try:
+        edad = fmp.cache.age_days("_sector", clave)
+        if edad is not None and edad <= 1.0:
+            guardado = (fmp.cache.get("_sector", clave) or {}).get("simbolos")
+            if guardado:
+                return list(guardado)
+    except Exception:                             # noqa: BLE001
+        pass
+    try:
+        filas = fmp.get_json(
+            "https://financialmodelingprep.com/stable/company-screener",
+            {"industry": industria, "exchange": "NASDAQ,NYSE", "isEtf": "false",
+             "isFund": "false", "marketCapMoreThan": 2_000_000_000, "limit": 200,
+             "apikey": fmp.settings.fmp_api_key},
+            clave, "_sector", max_age_days=1)
+    except Exception:                             # noqa: BLE001
+        logger.warning("no pude listar la industria %s", industria, exc_info=True)
+        return []
+    if not isinstance(filas, list):
+        return []
+    propio = getattr(getattr(packet, "security", None), "ticker", None)
+    conocidas = [f for f in filas
+                 if isinstance(f, dict) and f.get("symbol") and f.get("marketCap")]
+    conocidas.sort(key=lambda f: -float(f["marketCap"]))
+    fuera = set(ya) | {propio}
+    simbolos = [f["symbol"] for f in conocidas if f["symbol"] not in fuera]
+    simbolos = simbolos[:_TOPE_UNIVERSO_SECTOR]
+    try:
+        fmp.cache.put("_sector", clave, {"simbolos": simbolos})
+    except Exception:                             # noqa: BLE001
+        pass
+    return simbolos
+
+
 def _peer_economics(fmp: Any, packet: Any,
                     recession_years: list[int] | None = None
                     ) -> dict[str, list[float]] | None:
     peers = (packet.estimates or {}).get("peers") or []
     symbols = [p.get("symbol") for p in peers if isinstance(p, dict) and p.get("symbol")]
     if len(symbols) < _MIN_PEERS:
-        return None
+        # Los del proveedor primero: son los que considera mas cercanos.
+        symbols = symbols + _companeras_de_industria(fmp, packet, symbols)
+        if len(symbols) < _MIN_PEERS:
+            return None
 
     out: list[float] = []
     margins: list[float] = []
