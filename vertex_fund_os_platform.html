@@ -519,17 +519,10 @@
         .home-mode-btn:hover:not(.active) { color:#e5e7eb; }
 
 
-        /* ── BUZZ CARD ── */
-        .buzz-card { background:#11141D; border:1px solid #1F2532; border-radius:16px; padding:18px 20px; cursor:pointer; transition:all 0.2s; }
-        .buzz-card:hover { border-color:#3b82f6; background:#0e1220; }
-        .buzz-tag { font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; border:1px solid; }
-        .buzz-source-badge { font-size:9px; font-weight:700; padding:2px 7px; border-radius:10px; background:#0B0E14; border:1px solid #1F2532; color:#9ca3af; }
 
         /* ── DEEP MODAL SOURCE CHIPS ── */
-        .deep-source-chip { background:#0B0E14; border:1px solid #1F2532; border-radius:10px; padding:8px 12px; text-align:center; }
 
         /* ── DEEP COMMENT CARD ── */
-        .deep-comment { background:#0B0E14; border:1px solid #1F2532; border-radius:10px; padding:10px 12px; }
 
         /* ── AUTH MODAL ── */
         #authOverlay { background: rgba(7,9,13,0.97); backdrop-filter: blur(12px); }
@@ -9023,14 +9016,6 @@ function switchHomeTab(tab) {
 // ══════════════════════════════════════════════════════════════════════════════
 let exploreData = [];
 
-function exploreMiles(v) {
-    if (v == null) return '—';
-    if (v >= 1e12) return '$' + (v / 1e12).toFixed(1) + 'T';
-    if (v >= 1e9)  return '$' + (v / 1e9).toFixed(1) + 'B';
-    if (v >= 1e6)  return '$' + (v / 1e6).toFixed(0) + 'M';
-    return '$' + v.toFixed(0);
-}
-
 function explorePct(x) {
     return x == null ? '—' : (x * 100).toFixed(0) + '%';
 }
@@ -9053,7 +9038,7 @@ async function loadExploreStocks() {
         const pf = data.prefilter || {};
         const crit = document.getElementById('exploreCriteria');
         if (crit && pf.revenue_min != null) {
-            crit.textContent = `Ventas ${exploreMiles(pf.revenue_min)}–${exploreMiles(pf.revenue_max)}`
+            crit.textContent = `Ventas ${fmtAbbr(pf.revenue_min)}–${fmtAbbr(pf.revenue_max)}`
                 + ` · margen neto > ${(pf.margin_min * 100).toFixed(0)}%`
                 + ` · crecimiento > ${(pf.growth_min * 100).toFixed(0)}%`;
         }
@@ -9087,7 +9072,7 @@ function renderExplore() {
                     class="font-black text-blue-400 hover:text-blue-300 uppercase tracking-wider transition">${x.ticker}</button>
             </td>
             <td class="px-4 py-3 text-gray-300 font-sans">${x.name}</td>
-            <td class="px-4 py-3 text-right text-gray-400">${exploreMiles(x.revenue)}</td>
+            <td class="px-4 py-3 text-right text-gray-400">${fmtAbbr(x.revenue)}</td>
             <td class="px-4 py-3 text-right text-gray-400">${explorePct(x.growth)}</td>
             <td class="px-4 py-3 text-right text-gray-400">${explorePct(x.margin)}</td>
             <td class="px-4 py-3 text-right text-gray-300">${target}</td>

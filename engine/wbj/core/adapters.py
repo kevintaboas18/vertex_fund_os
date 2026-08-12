@@ -70,6 +70,25 @@ _MODEL_FIT: dict[str, float] = {
 }
 
 
+def replaces_return_model(adapter: str | None) -> bool:
+    """True cuando el adaptador reemplaza el retorno sobre capital invertido.
+
+    Predicado y no consulta directa al frozenset, por dos razones. La primera
+    es consistencia: TODA pregunta sobre adaptadores en el engine se hace por
+    aqui --`replaces_model`, `normalizes_inputs`, `is_classified`,
+    `needs_caveat`-- y `RETURN_MODEL_REPLACED` era el unico set que los
+    llamadores abrian a pelo, en dos sitios, copiando la expresion.
+
+    La segunda es que esa copia normalizaba con `.lower()` y `replaces_model`
+    no, asi que dos sets del mismo modulo se preguntaban de dos maneras a tres
+    lineas de distancia. `valuation.py` documenta lo que eso cuesta: un
+    `industry_adapter="bank_adapter"` --la ortografia de Victor-- valoro un
+    banco por FCFF DCF. La normalizacion vive aqui dentro, como ya hace
+    `is_subscription_business`, no en quien pregunta.
+    """
+    return (adapter or "").strip().lower() in RETURN_MODEL_REPLACED
+
+
 def replaces_model(adapter: str | None) -> bool:
     """True when the adapter's methodology calls for a different primary
     model than the conventional non-financial formulas."""

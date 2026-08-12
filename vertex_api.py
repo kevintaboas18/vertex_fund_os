@@ -2642,12 +2642,11 @@ def premarket_enviar(request: Request, forzar: bool = False, seco: bool = False)
 
     ahora = datetime.now(_pm.ET)
     if not forzar:
-        if ahora.hour not in _pm.VENTANA_ET:
-            return {"ok": True, "enviados": 0, "motivo": (
-                f"son las {ahora.strftime('%H:%M')} ET, fuera de la ventana "
-                f"{_pm.VENTANA_ET.start}-{_pm.VENTANA_ET.stop - 1}")}
-        if ahora.weekday() >= 5 or ahora.strftime("%Y-%m-%d") in _pm.MARKET_HOLIDAYS:
-            return {"ok": True, "enviados": 0, "motivo": "mercado cerrado hoy"}
+        # La regla vive en UN sitio. Estaba escrita aqui y otra vez en el
+        # `main()` del guion: un feriado de 2028 habria que ponerlo en los dos.
+        motivo = _pm.motivo_para_saltar(ahora)
+        if motivo:
+            return {"ok": True, "enviados": 0, "motivo": motivo}
 
     try:
         gainers, losers = _pm.movers(_pm.GAINERS), _pm.movers(_pm.LOSERS)

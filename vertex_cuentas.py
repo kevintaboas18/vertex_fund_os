@@ -926,7 +926,11 @@ def guardar_perfil(conn, dir_perfiles: str, usuario: dict, perfil: dict) -> dict
     # Solo los campos que son del perfil: lo derivado (`riesgo_pct`,
     # `sin_contestar`, `respuestas`) se recalcula al leer y guardarlo dejaría
     # copias que envejecen y contradicen al original.
-    perfil = {k: v for k, v in dict(perfil).items() if k in perfil_por_defecto()}
+    # `perfil_por_defecto()` FUERA de la comprension: dentro se evaluaba una
+    # vez por cada clave --unas trece por guardado-- y desde que lee `Kevin.md`
+    # cada evaluacion importa el engine, construye un set y recorre PREGUNTAS.
+    _campos = perfil_por_defecto()
+    perfil = {k: v for k, v in dict(perfil).items() if k in _campos}
     perfil["actualizado"] = datetime.now(timezone.utc).isoformat()
     perfil.setdefault("nombre", usuario.get("nombre", ""))
     perfil.setdefault("email", usuario.get("email", ""))

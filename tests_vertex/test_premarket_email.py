@@ -117,20 +117,33 @@ def test_sin_clave_de_resend_el_error_dice_donde_ponerla(monkeypatch):
 
 # --- a quien se le manda ---------------------------------------------------
 
-def test_cada_cuenta_recibe_en_su_propio_correo(monkeypatch):
-    """Lo que pidio Victor: si tu cuenta es la tuya, el correo va a tu email."""
-    pe = _modulo(monkeypatch)
-    monkeypatch.setattr(pe, "_emails_de_las_cuentas",
-                        lambda: ["ana@ejemplo.com", "bea@ejemplo.com"])
-    assert pe.destinatarios() == ["ana@ejemplo.com", "bea@ejemplo.com"]
+def test_la_corrida_manual_manda_a_email_to(monkeypatch):
+    """El envio POR USUARIO no vive aqui: vive en `/api/premarket/enviar`, que
+    lee `usuarios` de la base VIVA (ver `test_el_endpoint_manda_al_email_de_
+    cada_cuenta` mas abajo).
 
-
-def test_sin_cuentas_legibles_se_cae_a_email_to(monkeypatch):
-    """Sin VERTEX_DB_KEY, sin respaldo o sin `cryptography` no se pierde el
-    correo: se manda a donde se mandaba siempre."""
+    Este guion solo se corre a mano, asi que su lista es `EMAIL_TO`. Hubo aqui
+    65 lineas que bajaban `Privado/privado.enc`, lo desciframban con Fernet,
+    extraian un tar y abrian SQLite para llegar a la misma lista de correos --
+    un camino que ningun disparador recorria desde que el envio se mudo a la
+    app, y que ningun test ejecutaba porque todos lo sustituian."""
     pe = _modulo(monkeypatch, EMAIL_TO="uno@ejemplo.com, dos@ejemplo.com")
-    monkeypatch.setattr(pe, "_emails_de_las_cuentas", lambda: [])
     assert pe.destinatarios() == ["uno@ejemplo.com", "dos@ejemplo.com"]
+    assert not hasattr(pe, "_emails_de_las_cuentas"), (
+        "volvio el descifrado del respaldo a un guion que nadie automatiza")
+
+
+def test_la_regla_de_cuando_mandar_esta_en_UN_sitio(monkeypatch):
+    """Estaba escrita dos veces --aqui y en el endpoint-- y son la misma
+    politica. Un feriado de 2028 habria que ponerlo en los dos."""
+    from datetime import datetime
+    pe = _modulo(monkeypatch)
+    fuera = datetime(2026, 8, 11, 15, 0, tzinfo=pe.ET)      # martes, 15:00 ET
+    dentro = datetime(2026, 8, 11, 8, 0, tzinfo=pe.ET)      # martes, 8:00 ET
+    finde = datetime(2026, 8, 15, 8, 0, tzinfo=pe.ET)       # sabado
+    assert "ventana" in (pe.motivo_para_saltar(fuera) or "")
+    assert pe.motivo_para_saltar(dentro) is None
+    assert "cerrado" in (pe.motivo_para_saltar(finde) or "")
 
 
 def test_nadie_ve_el_correo_de_los_demas(monkeypatch):

@@ -1445,9 +1445,8 @@ def _compute_all(
     # aviso ("should not be trusted for this security type without a sector
     # adapter") bajando `model_fit` a 40. Declara el problema en vez de
     # resolverlo. Aqui se sigue al Cerebro, que si especifica el reemplazo.
-    _retorno_reemplazado = (
-        (getattr(packet.analysis, "industry_adapter", "") or "").lower()
-        in _adapters.RETURN_MODEL_REPLACED)
+    _retorno_reemplazado = _adapters.replaces_return_model(
+        getattr(packet.analysis, "industry_adapter", None))
 
     def _reemplazada(unidad: str) -> Value:
         return _null(NullState.NOT_APPLICABLE, unidad,
@@ -1536,7 +1535,7 @@ def _compute_all(
     # Mezclarlos daria un veredicto de destruccion de valor calculado con dos
     # magnitudes que no se restan, que es justo el error que el filtro de
     # acervos del TAM existe para atrapar en el otro lado del sistema.
-    roic_latest = (None if _roe_reemplazo is not None
+    roic_latest = (None if _retorno_reemplazado
                    else (v_roic.value if v_roic.is_valid else None))
     ctx["roic_latest"] = roic_latest
 
@@ -3398,9 +3397,8 @@ def _run_once(packet: Packet, overlay: dict[str, Any],
     # en None, `value_destruction_triggered` devuelve False y esta rama no
     # entraba. El reporte habria dejado de explicar por que no hay veredicto
     # --que es justo lo que este bloque existe para no hacer.
-    _sin_roic_convencional = (
-        (getattr(packet.analysis, "industry_adapter", "") or "").lower()
-        in _adapters.RETURN_MODEL_REPLACED)
+    _sin_roic_convencional = _adapters.replaces_return_model(
+        getattr(packet.analysis, "industry_adapter", None))
     if value_destruction_adapter and (
         _sin_roic_convencional
         or value_destruction_triggered(ctx["roic_latest"], ctx["wacc_value"])

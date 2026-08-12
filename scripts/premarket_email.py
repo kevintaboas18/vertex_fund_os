@@ -188,83 +188,16 @@ Warren Buffett Jr 🎩📈
     return subject, text, htmlbody
 
 
-def _emails_de_las_cuentas() -> list[str]:
-    """El email de CADA cuenta, sacado del respaldo cifrado.
-
-    Los correos viven en la fila de cada usuario, y esa base sólo existe fuera
-    de Render en `Privado/privado.enc` de la rama `datos` — un tar cifrado con
-    Fernet y `VERTEX_DB_KEY`.
-
-    Se lee de ahí y no de un endpoint del servidor por dos razones: Render en
-    plan free duerme, y una ruta que devuelva la lista de correos de todo el
-    mundo es exactamente lo que no conviene exponer para ahorrarse un `git
-    fetch`.
-
-    Nunca lanza. Sin clave, sin respaldo o sin `cryptography` se devuelve la
-    lista vacía y quien llama cae a `EMAIL_TO`: quedarse sin lista no puede
-    costar el correo.
-    """
-    clave = os.environ.get("VERTEX_DB_KEY", "").strip()
-    if not clave:
-        return []
-    try:
-        import base64
-        import hashlib
-        import io
-        import sqlite3
-        import tarfile
-        import tempfile
-
-        from cryptography.fernet import Fernet
-
-        repo = os.environ.get("GITHUB_REPOSITORY") or "kevintaboas18/vertex_fund_os"
-        url = f"https://raw.githubusercontent.com/{repo}/datos/Privado/privado.enc"
-        req = urllib.request.Request(url, headers={"User-Agent": "vertex-fund-os"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            cifrado = r.read()
-
-        # La misma derivacion que usa la app: cualquier cadena vale como clave.
-        f = Fernet(base64.urlsafe_b64encode(hashlib.sha256(clave.encode()).digest()))
-        claro = f.decrypt(cifrado)
-
-        with tempfile.TemporaryDirectory() as tmp:
-            db = os.path.join(tmp, "vertex.db")
-            with tarfile.open(fileobj=io.BytesIO(claro), mode="r") as tar:
-                m = next((x for x in tar.getmembers()
-                          if x.isfile() and x.name == "vertex.db"), None)
-                if m is None:
-                    return []
-                datos = tar.extractfile(m)
-                if datos is None:
-                    return []
-                with open(db, "wb") as fh:
-                    fh.write(datos.read())
-            conn = sqlite3.connect(db)
-            try:
-                filas = conn.execute(
-                    "SELECT email FROM usuarios WHERE email IS NOT NULL "
-                    "AND email <> '' ORDER BY creado_ts").fetchall()
-            finally:
-                conn.close()
-        # Se normaliza y se deduplica conservando el orden de registro.
-        vistos, salida = set(), []
-        for (correo,) in filas:
-            c = (correo or "").strip().lower()
-            if c and c not in vistos:
-                vistos.add(c)
-                salida.append(c)
-        return salida
-    except Exception as e:                       # noqa: BLE001
-        print(f"[destinatarios] no pude leer las cuentas ({type(e).__name__}: "
-              f"{str(e)[:90]}); se usa EMAIL_TO")
-        return []
-
-
 def destinatarios() -> list[str]:
-    """A quién se le manda. Cada cuenta a SU email; si no hay cuentas legibles,
-    lo que diga `EMAIL_TO`."""
-    return _emails_de_las_cuentas() or [
-        d.strip() for d in EMAIL_TO.split(",") if d.strip()]
+    """A quien se le manda en una corrida MANUAL: lo que diga `EMAIL_TO`.
+
+    El envio automatico no pasa por aqui. Vive en `/api/premarket/enviar`, que
+    lee `usuarios` de la base VIVA y le manda a cada cuenta a su correo. Aqui
+    hubo 65 lineas que bajaban `Privado/privado.enc`, lo desciframban con
+    Fernet, extraian un tar y abrian SQLite para llegar a la misma lista --un
+    camino que ningun disparador recorria y que ningun test ejecutaba, porque
+    todos lo sustituian. Se borro."""
+    return [d.strip() for d in EMAIL_TO.split(",") if d.strip()]
 
 
 def send_resend(subject: str, text: str, htmlbody: str, para: list[str],
@@ -351,17 +284,30 @@ def send_resend(subject: str, text: str, htmlbody: str, para: list[str],
     return enviados
 
 
+def motivo_para_saltar(ahora: datetime) -> str | None:
+    """Por que NO toca mandar ahora, o `None` si si toca.
+
+    Una sola definicion de la regla. Estaba escrita dos veces --aqui y en
+    `/api/premarket/enviar`-- y son la misma politica: un feriado de 2028 o un
+    cambio de ventana habria que ponerlo en los dos sitios, que es como las
+    copias se separan.
+    """
+    if ahora.hour not in VENTANA_ET:
+        return (f"son las {ahora.strftime('%H:%M')} ET, fuera de la ventana "
+                f"{VENTANA_ET.start}-{VENTANA_ET.stop - 1}")
+    if ahora.weekday() >= 5 or ahora.strftime("%Y-%m-%d") in MARKET_HOLIDAYS:
+        return "mercado cerrado hoy"
+    return None
+
+
 def main() -> int:
     now = datetime.now(ET)
     force = os.environ.get("FORCE") == "1"
 
     if not force:
-        if now.hour not in VENTANA_ET:
-            print(f"Son las {now.strftime('%H:%M')} ET, fuera de la ventana "
-                  f"{VENTANA_ET.start}-{VENTANA_ET.stop - 1} — skip.")
-            return 0
-        if now.weekday() >= 5 or now.strftime("%Y-%m-%d") in MARKET_HOLIDAYS:
-            print("Mercado cerrado hoy — skip.")
+        motivo = motivo_para_saltar(now)
+        if motivo:
+            print(f"{motivo} — skip.")
             return 0
 
     try:
