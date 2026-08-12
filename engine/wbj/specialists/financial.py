@@ -1761,10 +1761,27 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> FinancialOutpu
     by_id = {r.metric_id: r for r in results}
 
     _adapter = packet.analysis.industry_adapter
-    if _adapters.replaces_model(_adapter):
-        # DECISION_RULES.md Override 5: "conventional FCF/ROIC scoring is not
-        # allowed" for a bank/insurer (INDUSTRY_ADAPTERS.md extends it to
-        # REITs and biotech). Mark that family NOT_APPLICABLE so the scoring
+    if _adapters.replaces_return_model(_adapter):
+        # DECISION_RULES.md Override 5, textual: "**Banks and insurers** must
+        # use the financial-sector adapter; conventional FCF/ROIC scoring is
+        # not allowed." Dos emisores, nombrados. No cuatro.
+        #
+        # Esto decia `replaces_model` --los cuatro de MODEL_REPLACING-- con el
+        # comentario "INDUSTRY_ADAPTERS.md extends it to REITs and biotech".
+        # No lo extiende. Leido entero: a los REITs les reemplaza el EPS (por
+        # FFO/AFFO) y el apalancamiento (net debt/EBITDAre), y no nombra ni el
+        # ROIC ni el FCF; a biotech le dice "Do not score P/E, FCF yield, or
+        # margin quality WHEN NOT MEANINGFUL", que es condicional y aqui se
+        # aplicaba en bloque.
+        #
+        # El coste de pasarse no era teorico: `business.py` retiraba la familia
+        # ROIC solo a bancos y aseguradoras --lo que el documento dice-- y este
+        # modulo se la retiraba tambien a un REIT. El mismo emisor salia con
+        # "ROIC no aplica" en Financial y con un ROIC puntuado en Business, en
+        # el mismo reporte auditable. Ahora los dos preguntan lo mismo, con el
+        # mismo predicado.
+        #
+        # Mark that family NOT_APPLICABLE so the scoring
         # engine excludes it from coverage and rescales it out of the
         # weighted score, rather than scoring a prohibited number with only a
         # warning. ROE (FIN-EF-023) and ROA (FIN-EF-025) stay -- the adapters

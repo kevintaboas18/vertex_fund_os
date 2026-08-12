@@ -760,3 +760,47 @@ def test_fin_gr_003_refuses_below_the_eight_peer_minimum():
     row = next(r for r in out.metrics if r.metric_id == "FIN-GR-003")
     assert row.state == NullState.MISSING
     assert any("PEER_PANEL_BELOW_8_VALID_PEERS" in a for a in out.assumptions)
+
+# --- Override 5 nombra dos emisores, no cuatro ------------------------------
+
+def test_override_5_retira_la_familia_a_bancos_y_aseguradoras():
+    """`DECISION_RULES.md` Override 5, textual: "**Banks and insurers** must
+    use the financial-sector adapter; conventional FCF/ROIC scoring is not
+    allowed"."""
+    for adaptador in ("banks", "insurers"):
+        out = fin.run(_minimal_packet([_row(y) for y in (2025, 2024, 2023, 2022, 2021)],
+                      industry_adapter=adaptador),
+                      overlay={"wacc": 0.09})
+        por_id = {r.metric_id: r for r in out.metrics}
+        for mid in ("FIN-CF-012", "FIN-EF-024", "FIN-EF-026", "FIN-EF-027"):
+            assert por_id[mid].state == NullState.NOT_APPLICABLE, f"{adaptador}/{mid}"
+
+
+def test_un_reit_conserva_su_familia_fcf_roic():
+    """El documento NO se la quita. A los REITs les reemplaza el EPS (por
+    FFO/AFFO) y el apalancamiento (net debt/EBITDAre); no nombra ni el ROIC ni
+    el FCF.
+
+    Esto estaba puesto en `replaces_model` --los cuatro de MODEL_REPLACING--
+    con el comentario "INDUSTRY_ADAPTERS.md extends it to REITs and biotech",
+    que no lo hace. El coste era una contradiccion visible: `business.py`
+    retiraba la familia ROIC solo a bancos y aseguradoras, asi que el mismo
+    REIT salia con "ROIC no aplica" en Financial y con un ROIC puntuado en
+    Business, en el mismo reporte auditable.
+    """
+    out = fin.run(_minimal_packet([_row(y) for y in (2025, 2024, 2023, 2022, 2021)],
+                  industry_adapter="reits"),
+                  overlay={"wacc": 0.09})
+    por_id = {r.metric_id: r for r in out.metrics}
+    retiradas = [m for m in ("FIN-CF-012", "FIN-EF-024", "FIN-EF-026", "FIN-EF-027")
+                 if por_id[m].state == NullState.NOT_APPLICABLE]
+    assert not retiradas, f"se le retiraron sin autoridad: {retiradas}"
+
+
+def test_los_dos_especialistas_preguntan_lo_mismo():
+    """La contradiccion no puede volver por la puerta de atras: Business y
+    Financial tienen que usar el MISMO predicado."""
+    from wbj.core import adapters as ad
+    for adaptador in ("banks", "insurers", "reits", "biotech", "default_nonfinancial"):
+        # El predicado es uno solo; si alguien vuelve a partirlo, esto cae.
+        assert ad.replaces_return_model(adaptador) == (adaptador in ("banks", "insurers"))
