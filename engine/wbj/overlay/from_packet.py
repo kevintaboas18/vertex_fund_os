@@ -2029,8 +2029,14 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         try:
             from wbj.overlay.tam_mundial import asegurar_tam_industria
 
+            # `investigar=False`: se LEE el TAM que el barrido dejo en disco,
+            # no se sale a buscarlo. Medido, resolverlo cuesta 147s y era el
+            # 96% de lo que tardaba analizar una accion -- cobrado a quien
+            # pulsa Analyze, y otra vez a cada compañera de industria. El
+            # barrido (`wbj tam-todas`) lo hace una vez para las 145.
             logger.info("TAM de industria: %s",
-                        asegurar_tam_industria(settings, _ind, ticker))
+                        asegurar_tam_industria(settings, _ind, ticker,
+                                               investigar=False))
         except Exception:
             logger.warning("resolucion oficial de TAM no disponible", exc_info=True)
         manual = _manual_overlay(settings, ticker, industria=_ind)

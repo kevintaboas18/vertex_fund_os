@@ -221,3 +221,48 @@ def test_a_fresh_empty_stamp_is_not_a_resolved_industry(monkeypatch):
            for f in tm.resolver_todas_las_industrias(fmp=fmp, settings=None)}
     assert por["Vacia"] == "sin fuente", "un sello vacio se conto como resuelto"
     assert por["Buena"] == "ya estaba"
+
+
+# --- el TAM no se resuelve dentro de un analisis ---------------------------
+
+def test_un_analisis_lee_el_tam_pero_no_sale_a_buscarlo(monkeypatch, tmp_path):
+    """Lo que hacia que analizar una accion tardara casi tres minutos.
+
+    Medido sobre BWA: `_run_specialists` tardaba 170,9s y `asegurar_tam_industria`
+    se llevaba 147,2 -- el 96%. Y no eran los modelos: Gemini y OpenAI sumaban
+    7,6s de esos 147. El resto era el verificador abriendo la pagina de cada
+    fuente candidata para comprobar que la cifra esta ahi.
+
+    Resolver un TAM es trabajo de INDUSTRIA, no de ticker. El barrido existe
+    para eso y lo hace una vez para las 145; hacerlo dentro de un analisis se
+    lo cobra a quien pulso Analyze, y otra vez a cada compañera de industria
+    que llegue despues.
+    """
+    salio = []
+    monkeypatch.setattr(tm, "_investigar",
+                        lambda *a, **k: (salio.append(1), (None, ["no deberia"]))[1])
+
+    class _S:
+        inputs_dir = str(tmp_path)
+
+    frase = tm.asegurar_tam_industria(_S(), "Semiconductors", "NVDA", investigar=False)
+    assert not salio, "salio a investigar durante un analisis"
+    assert "no se investiga" in frase and "tam-todas" in frase, frase
+
+
+def test_el_barrido_si_investiga(monkeypatch, tmp_path):
+    """La otra cara: quitarle la busqueda al analisis no puede quitarsela al
+    barrido, que es quien tiene que hacerla."""
+    salio = []
+
+    def _falso(*a, **k):
+        salio.append(1)
+        return None, ["sin fuente"]
+
+    monkeypatch.setattr(tm, "_investigar", _falso)
+
+    class _S:
+        inputs_dir = str(tmp_path)
+
+    tm.asegurar_tam_industria(_S(), "Semiconductors", "NVDA")
+    assert salio, "el barrido dejo de investigar"

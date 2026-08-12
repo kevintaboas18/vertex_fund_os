@@ -1103,7 +1103,8 @@ def _vigente(data: dict, hoy: date) -> bool:
 
 
 def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
-                           hoy: date | None = None, **_ignorado: Any) -> str:
+                           hoy: date | None = None, *, investigar: bool = True,
+                           **_ignorado: Any) -> str:
     """Deja `Entradas/_industrias/<slug>.json` con el TAM mundial resuelto.
 
     Devuelve una frase con lo que pasó. Nunca levanta: un TAM que no se pudo
@@ -1113,6 +1114,18 @@ def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
     por un analista (sin `_generado_por` es suyo y gana siempre), no vuelve a
     preguntar mientras la respuesta siga vigente, y no borra un TAM que
     funcionaba porque la búsqueda de hoy falló.
+
+    `investigar=False` LEE lo que haya en disco y no sale a buscar. Es lo que
+    usa un análisis interactivo, y la razón está medida: resolver un TAM tarda
+    **147 segundos** —cuatro intentos, y sobre todo el verificador abriendo la
+    página de cada fuente candidata para comprobar que la cifra está ahí— y eso
+    era el 96% de lo que tardaba analizar una acción. Las llamadas a Gemini y
+    OpenAI son sólo 7,6 s de esos 147; el resto es descarga.
+
+    Resolver el TAM es trabajo de INDUSTRIA, no de ticker: el barrido
+    (`wbj tam-todas`) existe justo para eso y lo hace una vez para las 145.
+    Hacerlo dentro de un análisis se lo cobra a quien pulsó Analyze, y se lo
+    vuelve a cobrar a cada compañera de industria que llegue después.
     """
     from wbj.overlay.from_packet import _slug_industria
 
@@ -1147,6 +1160,12 @@ def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
                 return f"{slug}: TAM vigente desde {previo.get('_resuelto_en')}"
             return (f"{slug}: sin TAM, intentado el {previo.get('_resuelto_en')} "
                     f"({str(previo.get('_sin_tam'))[:60]})")
+
+    if not investigar:
+        # No hay archivo (o caduco) y no se puede salir a buscar: se dice, y la
+        # dimension queda sin denominador. Es la respuesta honesta y cuesta 0s.
+        return (f"{slug}: sin TAM en disco; no se investiga durante un analisis "
+                f"(corre `wbj tam-todas` para resolver las industrias)")
 
     datos, fallos = _investigar(settings, industria or slug, ticker)
     if datos is None:
