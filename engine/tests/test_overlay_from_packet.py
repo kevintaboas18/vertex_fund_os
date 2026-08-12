@@ -757,3 +757,75 @@ def test_la_empresa_no_se_compara_consigo_misma(monkeypatch):
 
     fp._rs_universe(_FMP(), _pkt_rs(["C0"], ticker="BAC"))
     assert "BAC" not in bajadas
+
+
+def test_el_universo_de_sector_se_calcula_una_vez_y_lo_reusan_todos(monkeypatch):
+    """El universo es del SECTOR y del DIA, no del ticker que se analiza.
+
+    Sin cache, analizar BAC y luego WFC --misma industria, los dos con lista
+    corta de comparables-- recalculaba el mismo universo dos veces: 24 lecturas
+    y su aritmetica, repetidas por analisis. Las DESCARGAS ya se compartian (la
+    cache del proveedor es de disco y va por simbolo); lo que faltaba era
+    compartir el CALCULO.
+    """
+    from wbj.overlay import from_packet as fp
+
+    monkeypatch.setattr("wbj.overlay.amplitud_sector._miembros",
+                        lambda fmp, sector: [f"P{i}" for i in range(30)])
+    bajadas = []
+    guardado: dict = {}
+
+    class _Cache:
+        def age_days(self, t, k):
+            return 0.0 if (t, k) in guardado else None
+
+        def get(self, t, k):
+            return guardado.get((t, k))
+
+        def put(self, t, k, payload):
+            guardado[(t, k)] = payload
+
+    class _FMP:
+        cache = _Cache()
+
+        def ohlcv_daily(self, sym):
+            bajadas.append(sym)
+            return [{"date": f"2025-01-{d:02d}", "close": 10.0 + d}
+                    for d in range(1, 29)] * 3
+
+    fmp = _FMP()
+    primero = fp._rs_universe(fmp, _pkt_rs(["C0"], ticker="BAC"))
+    tras_el_primero = len(bajadas)
+    segundo = fp._rs_universe(fmp, _pkt_rs(["C0"], ticker="WFC"))
+
+    assert primero and segundo
+    assert segundo == primero, "el segundo del sector obtuvo otro universo"
+    assert len(bajadas) == tras_el_primero, (
+        f"recalculo: {len(bajadas) - tras_el_primero} descargas de mas")
+
+
+def test_el_camino_normal_no_revienta_por_la_cache(monkeypatch):
+    """`clave_sector` solo se define entrando por la rama del sector, y el
+    guardado del final la lee pase lo que pase. Sin inicializarla, un ticker
+    con comparables de sobra --el caso de casi todos-- daba NameError."""
+    from wbj.overlay import from_packet as fp
+
+    class _Cache:
+        def age_days(self, t, k):
+            return None
+
+        def get(self, t, k):
+            return None
+
+        def put(self, t, k, payload):
+            raise AssertionError("no deberia cachear por sector sin usar el sector")
+
+    class _FMP:
+        cache = _Cache()
+
+        def ohlcv_daily(self, sym):
+            return [{"date": f"2025-01-{d:02d}", "close": 10.0 + d}
+                    for d in range(1, 29)] * 3
+
+    filas = fp._rs_universe(_FMP(), _pkt_rs([f"C{i}" for i in range(10)]))
+    assert filas is not None and len(filas) >= 8

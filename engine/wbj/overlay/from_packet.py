@@ -789,6 +789,10 @@ def _rs_universe(fmp: Any, packet: Any) -> list[dict] | None:
     symbols = [p.get("symbol") for p in peers if isinstance(p, dict) and p.get("symbol")]
     if len(bench) < 64:
         return None
+    # Vacia salvo que se entre por la rama del sector. El guardado del final la
+    # lee pase lo que pase, y sin esto un ticker con comparables de sobra
+    # --el camino normal, el de casi todos-- reventaria con NameError.
+    clave_sector = ""
 
     # Si los comparables no llegan al piso, el universo lo pone el SECTOR.
     #
@@ -810,6 +814,17 @@ def _rs_universe(fmp: Any, packet: Any) -> list[dict] | None:
         sector = getattr(getattr(packet, "security", None), "sector", "") or ""
         if not sector:
             return None
+        clave_sector = "rs_universe_" + "".join(
+            c if c.isalnum() else "-" for c in sector.lower()).strip("-")
+        try:
+            edad = fmp.cache.age_days("_sector", clave_sector)
+            if edad is not None and edad <= 1.0:
+                guardado = (fmp.cache.get("_sector", clave_sector) or {}).get("filas")
+                if guardado and len(guardado) >= _MIN_PEERS:
+                    return guardado
+        except Exception:                         # noqa: BLE001
+            pass
+
         try:
             from wbj.overlay.amplitud_sector import _miembros
 
@@ -826,6 +841,14 @@ def _rs_universe(fmp: Any, packet: Any) -> list[dict] | None:
         symbols = symbols[:_TOPE_UNIVERSO_SECTOR]
         if len(symbols) < _MIN_PEERS:
             return None
+        # El universo es del SECTOR y del DIA, no del ticker que se analiza.
+        # Sin esto, analizar BAC y luego WFC --misma industria, los dos con
+        # lista corta-- recalcula el mismo universo dos veces: 24 lecturas de
+        # cache y su aritmetica, repetidas por analisis. Las DESCARGAS ya se
+        # compartian (la cache del proveedor es de disco y va por simbolo);
+        # lo que faltaba era compartir el CALCULO.
+        clave_sector = "rs_universe_" + "".join(
+            c if c.isalnum() else "-" for c in sector.lower()).strip("-")
 
     bench_close = pd.Series([r.close for r in sorted(bench, key=lambda r: r.date)])
     rows: list[dict] = []
@@ -847,7 +870,13 @@ def _rs_universe(fmp: Any, packet: Any) -> list[dict] | None:
         except Exception:
             logger.warning("peer RS failed for %s; skipping peer", sym, exc_info=True)
 
-    return rows if len(rows) >= _MIN_PEERS else None
+    salida = rows if len(rows) >= _MIN_PEERS else None
+    if salida is not None and clave_sector:
+        try:
+            fmp.cache.put("_sector", clave_sector, {"filas": salida})
+        except Exception:                         # noqa: BLE001
+            pass                                  # cachear es opcional, nunca un fallo
+    return salida
 
 
 
