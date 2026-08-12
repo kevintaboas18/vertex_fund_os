@@ -716,6 +716,33 @@ def _reit_adapter_output(packet: Packet, overlay: dict[str, Any]) -> ValuationOu
     # y no NOT_APPLICABLE, que lo sacaria del denominador y lo escondería.
     sin_affo = Value.null(NullState.NOT_SCORABLE, unit="score",
                           warnings=["P_AFFO_NEEDS_ISSUER_AFFO_IN_ENTRADAS"])
+
+    # Y cuando el analista SI lo transcribe, el numero tiene que llegar aqui.
+    #
+    # No llegaba: `p_affo` se calculaba doscientas lineas mas arriba, se
+    # escribia en una frase de `assumptions` y se tiraba. Medido con el AFFO de
+    # Realty Income puesto a mano: `valuation` seguia en 0,400 y las tres
+    # dimensiones en 0,0. La metrica pedia un dato, se le daba, y no pasaba
+    # nada -- el mismo fallo que la penetracion de mercado, donde el numerador
+    # estaba calculado y validado una linea antes de no publicarse.
+    #
+    # La banda NO se inventa. `INDUSTRY_ADAPTERS.md` dice "Replace EPS with
+    # FFO/AFFO": sustituye el INSUMO, no la regla. Asi que el rendimiento de
+    # AFFO --AFFO sobre capitalizacion, el analogo directo del rendimiento de
+    # utilidades-- entra con las anclas que el Cerebro ya le dio a VAL-EY-029,
+    # las mismas que usa la rama normal. Es lo mismo que se hizo con ROE
+    # ocupando el hueco del ROIC en un banco.
+    _affo_score = None
+    if affo and source and price and shares:
+        # Capitalizacion = precio x acciones, las dos ya resueltas arriba para
+        # el propio P/AFFO. Pedir `market_cap` aparte seria un tercer camino al
+        # mismo numero.
+        _y = float(affo) / (float(price) * float(shares))
+        _affo_score = _score_from_anchor(
+            _ok(_y, unit="pct"), [(0.0, 0), (0.03, 4), (0.06, 7), (0.10, 10)])
+    con_affo = (Value.of(_affo_score, unit="score",
+                         warnings=["SLOT_CARRIES_AFFO_YIELD_NOT_EARNINGS_YIELD"])
+                if _affo_score is not None else sin_affo)
     por_dimension = {
         DIM_MOS: scored,
         DIM_FAIR_VALUE_SCENARIOS: ([(1.0, Value.of(mos_score, unit="score"))]
@@ -724,7 +751,7 @@ def _reit_adapter_output(packet: Packet, overlay: dict[str, Any]) -> ValuationOu
         # AFFO falta. Los dos estados, cada uno donde corresponde.
         DIM_MULTIPLES: [(0.5, na), (0.5, sin_affo)],
         DIM_HIST_PEER: [(1.0, sin_affo)],
-        DIM_CF_YIELD: [(0.5, na), (0.5, sin_affo)],
+        DIM_CF_YIELD: [(0.5, na), (0.5, con_affo)],
     }
     dims = [Dimension(name=n, max_points=DIMENSION_MAX_POINTS[n],
                       metric_scores=por_dimension[n])
