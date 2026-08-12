@@ -46,6 +46,12 @@ from wbj.packet.builder import _ANNUAL_HISTORY_YEARS
 _ERP = 0.045
 # `wbj.core.scoring.peer_score` needs at least this many peers to engage.
 _MIN_PEERS = 8
+#: Techo del universo cuando hay que rellenarlo con el sector. Cada miembro
+#: cuesta una descarga de precios, asi que el numero es un equilibrio: 24 da un
+#: percentil con sentido --tres veces el piso del documento-- sin acercarse a
+#: los 120 que `amplitud_sector` usa para contar cuantos estan sobre su media,
+#: que es una cuenta y no una descarga por nombre.
+_TOPE_UNIVERSO_SECTOR = 24
 # DATASET.md asks for eight quarters of backlog/RPO history.
 _BACKLOG_QUARTERS = 8
 # Bump when the extractor's logic or schema changes, so cached answers
@@ -781,8 +787,45 @@ def _rs_universe(fmp: Any, packet: Any) -> list[dict] | None:
     bench = packet.market_data.benchmark or []
     peers = (packet.estimates or {}).get("peers") or []
     symbols = [p.get("symbol") for p in peers if isinstance(p, dict) and p.get("symbol")]
-    if len(bench) < 64 or len(symbols) < _MIN_PEERS:
+    if len(bench) < 64:
         return None
+
+    # Si los comparables no llegan al piso, el universo lo pone el SECTOR.
+    #
+    # `SCORING_ENGINE.md` da dos salidas cuando hay menos de 8: "use absolute
+    # rules or mark the peer component NOT_SCORABLE". Para un percentil no
+    # existe la primera --un percentil sin universo no es nada-- pero el
+    # documento tampoco dice que el universo tengan que ser los comparables:
+    # `FORMULAS.md` pide "point-in-time UNIVERSE RS values", y una lista de
+    # siete nombres apenas lo es. Rankear contra el sector es mas fiel a lo
+    # que la metrica mide.
+    #
+    # Medido: BAC traia 7 comparables de FMP --uno por debajo del piso-- y era
+    # el unico de los doce sin percentil. Los demas traen 9 o 10.
+    #
+    # Acotado a `_TOPE_UNIVERSO_SECTOR` y SOLO cuando hace falta: el camino
+    # normal no paga nada. Analizar bajo de 171s a 6,7s esta misma sesion y no
+    # se le devuelve peso a todos para arreglar a uno.
+    if len(symbols) < _MIN_PEERS:
+        sector = getattr(getattr(packet, "security", None), "sector", "") or ""
+        if not sector:
+            return None
+        try:
+            from wbj.overlay.amplitud_sector import _miembros
+
+            propio = getattr(getattr(packet, "security", None), "ticker", None)
+            del_sector = [x for x in _miembros(fmp, sector) if x and x != propio]
+        except Exception:                         # noqa: BLE001
+            logger.warning("universo de sector no disponible para %s", sector, exc_info=True)
+            return None
+        # Los comparables primero: son los que el proveedor considera mas
+        # cercanos. El sector rellena hasta el tope, sin repetir.
+        vistos = set(symbols)
+        symbols = symbols + [x for x in del_sector
+                             if not (x in vistos or vistos.add(x))]
+        symbols = symbols[:_TOPE_UNIVERSO_SECTOR]
+        if len(symbols) < _MIN_PEERS:
+            return None
 
     bench_close = pd.Series([r.close for r in sorted(bench, key=lambda r: r.date)])
     rows: list[dict] = []

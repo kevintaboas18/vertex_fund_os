@@ -653,3 +653,107 @@ def test_too_little_price_history_yields_nothing():
     bars = [_Bar2("2025-01-01", 100.0)]
     annual = [{"date": "2024-12-31", "net_income": 100.0, "diluted_shares": 10.0}]
     assert _historical_multiples(_pkt_with_prices(bars, annual)) is None
+
+
+# --- el universo del percentil de fuerza relativa ---------------------------
+
+def _pkt_rs(peers, sector="Financial Services", ticker="BAC"):
+    from wbj.schemas.packet import OHLCVRow
+    bench = [OHLCVRow(date=f"2025-01-{d:02d}", open=1, high=1, low=1,
+                      close=1.0 + d / 100, adj_close=1.0 + d / 100, volume=1)
+             for d in range(1, 29)] * 3                             # >=64 barras
+    return SimpleNamespace(
+        security=SimpleNamespace(ticker=ticker, sector=sector),
+        market_data=SimpleNamespace(benchmark=bench),
+        estimates={"peers": [{"symbol": s} for s in peers]},
+    )
+
+
+def test_con_pocos_comparables_el_universo_lo_pone_el_sector(monkeypatch):
+    """Lo que dejaba a BAC sin percentil.
+
+    FMP le daba 7 comparables y el piso son 8, asi que TECH-RSC-013 salia
+    NOT_SCORABLE y arrastraba la dimension entera a 0,667 --2 de 3-- aunque RS
+    y RS de sector se calcularan bien. Los otros once tickers traian 9 o 10.
+
+    `SCORING_ENGINE.md` da dos salidas por debajo del piso, y para un percentil
+    no existe la primera ("absolute rules"): un percentil sin universo no es
+    nada. Pero el documento tampoco dice que el universo tengan que ser los
+    comparables -- `FORMULAS.md` pide "point-in-time UNIVERSE RS values", y
+    siete nombres apenas lo son.
+    """
+    from wbj.overlay import from_packet as fp
+
+    pedidos = []
+
+    def _miembros(fmp, sector):
+        pedidos.append(sector)
+        return [f"P{i}" for i in range(30)]
+
+    monkeypatch.setattr("wbj.overlay.amplitud_sector._miembros", _miembros)
+
+    class _FMP:
+        def ohlcv_daily(self, sym):
+            return [{"date": f"2025-01-{d:02d}", "close": 10.0 + d}
+                    for d in range(1, 29)] * 3
+
+    filas = fp._rs_universe(_FMP(), _pkt_rs([f"C{i}" for i in range(7)]))
+    assert pedidos == ["Financial Services"], "no se pidio el sector"
+    assert filas is not None and len(filas) >= 8
+
+
+def test_con_comparables_suficientes_no_se_toca_el_sector(monkeypatch):
+    """El camino normal no paga nada: analizar bajo de 171s a 6,7s esta misma
+    sesion y no se le devuelve peso a todos para arreglar a uno."""
+    from wbj.overlay import from_packet as fp
+
+    pedidos = []
+    monkeypatch.setattr("wbj.overlay.amplitud_sector._miembros",
+                        lambda fmp, sector: pedidos.append(sector) or [])
+
+    class _FMP:
+        def ohlcv_daily(self, sym):
+            return [{"date": f"2025-01-{d:02d}", "close": 10.0 + d}
+                    for d in range(1, 29)] * 3
+
+    fp._rs_universe(_FMP(), _pkt_rs([f"C{i}" for i in range(10)]))
+    assert pedidos == [], "se pidio el sector teniendo comparables de sobra"
+
+
+def test_el_universo_de_sector_esta_acotado(monkeypatch):
+    """Cada miembro cuesta una descarga de precios. Sin tope, un sector de 120
+    nombres devolveria al analisis el peso que se le acaba de quitar."""
+    from wbj.overlay import from_packet as fp
+
+    monkeypatch.setattr("wbj.overlay.amplitud_sector._miembros",
+                        lambda fmp, sector: [f"P{i}" for i in range(200)])
+
+    bajadas = []
+
+    class _FMP:
+        def ohlcv_daily(self, sym):
+            bajadas.append(sym)
+            return [{"date": f"2025-01-{d:02d}", "close": 10.0 + d}
+                    for d in range(1, 29)] * 3
+
+    fp._rs_universe(_FMP(), _pkt_rs(["C0"]))
+    assert len(bajadas) <= fp._TOPE_UNIVERSO_SECTOR, f"{len(bajadas)} descargas"
+
+
+def test_la_empresa_no_se_compara_consigo_misma(monkeypatch):
+    """Meterse en su propio universo desplaza el percentil hacia la mediana."""
+    from wbj.overlay import from_packet as fp
+
+    monkeypatch.setattr("wbj.overlay.amplitud_sector._miembros",
+                        lambda fmp, sector: ["BAC", "JPM", "WFC", "C", "GS", "MS",
+                                             "USB", "PNC", "TFC", "COF"])
+    bajadas = []
+
+    class _FMP:
+        def ohlcv_daily(self, sym):
+            bajadas.append(sym)
+            return [{"date": f"2025-01-{d:02d}", "close": 10.0 + d}
+                    for d in range(1, 29)] * 3
+
+    fp._rs_universe(_FMP(), _pkt_rs(["C0"], ticker="BAC"))
+    assert "BAC" not in bajadas
