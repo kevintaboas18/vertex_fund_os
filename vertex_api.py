@@ -4331,9 +4331,25 @@ def _tito_chain_and_bars(ticker):
         return None
     spot = _nn(empresa.get("price"), chain_res.underlying_price, bars[-1].close)
     if not isinstance(spot, (int, float)) or isinstance(spot, bool) or spot <= 0:
+        # El mensaje SI mejora: un 0 y una clave mala se veian igual, y se
+        # arreglan en sitios distintos. `snapshot 0` significa que Massive
+        # CONTESTO --la credencial vale-- y devolvio el bloque `day` en ceros,
+        # que es lo que Polygon --de quien Massive hereda el modelo-- manda
+        # cuando el plan no cubre el intradia. Mandar a revisar la clave por
+        # eso es mandar a arreglar lo que no esta roto.
+        #
+        # Lo que NO cambia es la decision de cortar. Se intento bajar al cierre
+        # anterior y `test_el_nulo_baja_pero_el_cero_NO_baja` lo atrapo, con
+        # razon: en un panel de opciones el spot ancla los nodos del GEX, la
+        # ventana de strikes, los niveles, el cono y los tres targets. El cierre
+        # de ayer no degrada el panel, lo coloca mal entero y lo presenta como
+        # actual.
         raise MassiveError(
             f"Massive no devolvió un precio utilizable para {ticker} "
-            f"(snapshot {empresa.get('price')!r} · cadena {chain_res.underlying_price!r}).")
+            f"(snapshot {empresa.get('price')!r} · cadena {chain_res.underlying_price!r})."
+            + (" Un 0 en el snapshot significa que la clave SÍ funciona y el plan "
+               "no cubre el intradía: mira /api/tito-health."
+               if empresa.get("price") == 0 else ""))
     # La ficha y el aviso de truncado salen por aquí porque ya están: pedir
     # `fetch_company` otra vez desde el payload doblaba la latencia de cada
     # scorecard sobre el MISMO dato. `truncated` es el tope de páginas de
