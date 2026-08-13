@@ -1528,7 +1528,26 @@ def _compute_all(
     interest_expense = overlay.get("interest_expense")
     if interest_expense is None and annual:
         interest_expense = _num(annual[-1], "interest_expense")
-    if interest_expense is not None and ebit_latest is not None:
+    # `_adapter` se define mas abajo (linea ~1800) para el bloque de
+    # adaptadores; aqui se lee del packet directamente en vez de mover aquel,
+    # que arrastra media funcion.
+    _adaptador_aqui = packet.analysis.industry_adapter
+    if _adapters.replaces_return_model(_adaptador_aqui):
+        # El mismo motivo que en risk.py RSK-ICOV-011: para un banco el gasto
+        # por intereses es su costo de fondeo, no una carga de deuda, y la
+        # tabla de anclas de DECISION_RULES.md se declara "default
+        # non-financial-company anchors". Se excluye aqui tambien porque esta
+        # fila alimenta el override 3 -- si solo se arreglara en risk, el
+        # banco seguiria sacando la alarma falsa por el lado financiero.
+        v = _null(NullState.NOT_APPLICABLE, "ratio",
+                  "INTEREST_COVERAGE_NOT_APPLICABLE_FINANCIAL_ADAPTER")
+        assumptions.append(
+            f"FIN-BS-020 (interest coverage) NOT_APPLICABLE under industry_adapter="
+            f"{_adaptador_aqui!r}: a bank's interest expense is its cost of funds. Override 5 "
+            "sends banks and insurers to the financial-sector adapter, and the coverage "
+            "anchors are declared non-financial-company defaults."
+        )
+    elif interest_expense is not None and ebit_latest is not None:
         v = interest_coverage(ebit_latest, float(interest_expense))
     else:
         v = _null(NullState.MISSING, "ratio", "INTEREST_EXPENSE_UNAVAILABLE")

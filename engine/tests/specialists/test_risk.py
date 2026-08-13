@@ -605,3 +605,147 @@ def test_every_dimension_slot_goes_through_the_state_preserving_helper():
     assert not a_mano, (
         f"{len(a_mano)} slot(s) construidos a mano: usa `_dimension_slot`, "
         "que conserva el estado de la metrica")
+
+
+# ============================================================================
+# Un chequeo obligatorio que no corre no puede leerse como uno que paso
+# ============================================================================
+
+
+def test_sin_gasto_financiero_y_CON_deuda_se_avisa_que_el_chequeo_no_corrio():
+    """SCORING_AND_GATES.md hace de la solvencia un override obligatorio.
+
+    El override 3 solo se dispara si esta la advertencia, asi que sin
+    `interest_expense` el reporte salia identico al de una empresa que aprobo
+    el chequeo: `mandatory_flags` vacio y nada en la seccion de huecos.
+
+    No es un caso inventado -- FMP dejo de reportar `interest_expense` para
+    AAPL y PLTR desde FY2024 (lo tiene hasta FY2023, y para NVDA/KO/JPM lo
+    tiene todos los anos, tambien en los trimestres, asi que no lo salva el
+    TTM).
+    """
+    rows = [_row(2025), _row(2024)]          # sin interest_expense, total_debt=200
+    out = risk.run(_minimal_packet(rows))
+
+    icov = next(r for r in out.metrics if r.metric_id == "RSK-ICOV-011")
+    assert icov.state is not None, "el supuesto del test: la metrica queda sin valor"
+    assert risk.SOLVENCY_NOT_EVALUATED in out.mandatory_flags
+
+
+def test_el_aviso_NO_afirma_que_haya_problema_de_solvencia():
+    """Son cosas distintas: uno dice 'por debajo de 1,5x', el otro 'no se sabe'.
+
+    Afirmar lo primero sin el dato seria imputar la cifra que
+    MISSING_DATA_POLICY.md prohibe.
+    """
+    out = risk.run(_minimal_packet([_row(2025), _row(2024)]))
+    assert risk.SOLVENCY_WARNING not in out.mandatory_flags
+    assert "did not run, it did not pass" in risk.SOLVENCY_NOT_EVALUATED
+
+
+def test_sin_deuda_no_hay_nada_que_cubrir_y_no_se_avisa():
+    """Sin deuda no hay interes que cubrir: el silencio es la respuesta
+    correcta, y un flag aqui seria ruido en cada empresa sin apalancar."""
+    rows = [_row(2025, total_debt=0.0), _row(2024, total_debt=0.0)]
+    out = risk.run(_minimal_packet(rows))
+    assert risk.SOLVENCY_NOT_EVALUATED not in out.mandatory_flags
+
+
+def test_con_el_dato_presente_no_se_avisa_de_nada():
+    rows = [_row(2025, interest_expense=40.0), _row(2024, interest_expense=38.0)]
+    out = risk.run(_minimal_packet(rows))
+    icov = next(r for r in out.metrics if r.metric_id == "RSK-ICOV-011")
+    assert icov.value is not None
+    assert risk.SOLVENCY_NOT_EVALUATED not in out.mandatory_flags
+
+
+def test_la_advertencia_de_solvencia_real_sigue_saliendo_con_su_nombre():
+    """`mandatory_flags` se construia como `[SOLVENCY_WARNING] if
+    mandatory_warnings else []`: etiquetaba por posicion, no por contenido.
+    Con dos avisos posibles, el segundo habria salido con el nombre del
+    primero."""
+    rows = [_row(2025, ebit=10.0, interest_expense=40.0),
+            _row(2024, ebit=10.0, interest_expense=38.0)]
+    out = risk.run(_minimal_packet(rows))
+    assert risk.SOLVENCY_WARNING in out.mandatory_flags
+    assert risk.SOLVENCY_NOT_EVALUATED not in out.mandatory_flags
+
+
+
+
+# ============================================================================
+# A un banco no se le cobra por no tener el problema que la metrica mide
+# ============================================================================
+
+
+def _banco(**kw):
+    rows = [_row(2025, ebit=10.0, interest_expense=40.0, **kw),
+            _row(2024, ebit=10.0, interest_expense=38.0, **kw)]
+    return _minimal_packet(rows, industry_adapter="banks")
+
+
+def test_un_banco_no_dispara_la_alarma_de_solvencia_por_pagar_depositos():
+    """JPM daba 0,74x de cobertura y disparaba el SOLVENCY_WARNING obligatorio.
+
+    DECISION_RULES.md encabeza esa tabla de anclas diciendo que son "default
+    non-financial-company anchors and require sector context". El gasto por
+    intereses de un banco es su costo de fondeo, no una carga de deuda: con
+    esa formula, todo banco sano sale insolvente.
+    """
+    out = risk.run(_banco())
+    icov = next(r for r in out.metrics if r.metric_id == "RSK-ICOV-011")
+    assert icov.state == "NOT_APPLICABLE"
+    assert risk.SOLVENCY_WARNING not in out.mandatory_flags
+
+
+def test_tampoco_se_cambia_la_alarma_falsa_por_un_aviso_falso():
+    """No aplica no es lo mismo que no se pudo evaluar."""
+    out = risk.run(_banco())
+    assert risk.SOLVENCY_NOT_EVALUATED not in out.mandatory_flags
+
+
+def test_las_tres_metricas_del_marco_EBIT_sobre_intereses_salen_juntas():
+    """ICOV y FCC comparten la frase; net-debt/EBITDA la nombra
+    INDUSTRY_ADAPTERS.md con todas las letras ("Do not use ... net-debt/EBITDA").
+    """
+    out = risk.run(_banco())
+    by_id = {r.metric_id: r for r in out.metrics}
+    for mid in ("RSK-ICOV-011", "RSK-FCC-012", "RSK-ND-013"):
+        assert by_id[mid].state == "NOT_APPLICABLE", mid
+
+
+def test_inaplicable_SALE_del_denominador_no_cuesta_cobertura():
+    """La diferencia que hace todo el trabajo: NOT_APPLICABLE se va del
+    denominador (MISSING_DATA_POLICY.md), MISSING se queda dentro."""
+    banco = risk.run(_banco())
+    dim = next(d for d in banco.dimensions if d.name == risk.DIM_FINANCING)
+    assert dim.applicable_weight() < sum(w for w, _ in dim.metric_scores)
+
+
+def test_un_REIT_conserva_las_tres_porque_su_adaptador_manda_lo_contrario():
+    """Un REIT si paga intereses sobre deuda de verdad, y INDUSTRY_ADAPTERS.md
+    le manda "use net debt/EBITDAre". El predicado es `replaces_return_model`
+    (bancos + aseguradoras), no `replaces_model`, justo para no arrastrarlo."""
+    rows = [_row(2025, interest_expense=40.0), _row(2024, interest_expense=38.0)]
+    out = risk.run(_minimal_packet(rows, industry_adapter="reits"))
+    by_id = {r.metric_id: r for r in out.metrics}
+    for mid in ("RSK-ICOV-011", "RSK-FCC-012", "RSK-ND-013"):
+        assert by_id[mid].state != "NOT_APPLICABLE", mid
+
+
+def test_una_aseguradora_va_con_el_banco():
+    out = risk.run(_minimal_packet(
+        [_row(2025, ebit=10.0, interest_expense=40.0),
+         _row(2024, ebit=10.0, interest_expense=38.0)],
+        industry_adapter="insurers"))
+    icov = next(r for r in out.metrics if r.metric_id == "RSK-ICOV-011")
+    assert icov.state == "NOT_APPLICABLE"
+    assert risk.SOLVENCY_WARNING not in out.mandatory_flags
+
+
+def test_una_empresa_normal_con_cobertura_baja_sigue_disparando_la_alarma():
+    """El arreglo no puede apagar la alarma donde SI significa algo."""
+    rows = [_row(2025, ebit=10.0, interest_expense=40.0),
+            _row(2024, ebit=10.0, interest_expense=38.0)]
+    out = risk.run(_minimal_packet(rows))          # default_nonfinancial
+    assert risk.SOLVENCY_WARNING in out.mandatory_flags

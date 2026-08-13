@@ -32,6 +32,10 @@ CLASSIFICATIONS = [
     ("O", "Real Estate", "REIT - Retail", "reits"),
     ("MRNA", "Healthcare", "Biotechnology", "biotech"),
     ("XOM", "Energy", "Oil & Gas Integrated", "commodities_cyclicals"),
+    # Las excepciones: industrias ENTERAS que el substring capturaba mal.
+    ("AJG", "Financial Services", "Insurance - Brokers", "default_nonfinancial"),
+    ("CBRE", "Real Estate", "Real Estate - Services", "default_nonfinancial"),
+    ("JOE", "Real Estate", "Real Estate - Development", "default_nonfinancial"),
 ]
 
 
@@ -303,3 +307,66 @@ def test_analyst_input_warnings_reach_the_report():
 
     clean = business.run(packet, {})
     assert warning not in clean.assumptions
+
+
+# ============================================================================
+# Excepciones: el substring capturaba industrias enteras que no son eso
+# ============================================================================
+
+
+def test_un_corredor_de_seguros_no_es_una_aseguradora():
+    """Un corredor no suscribe ningun riesgo: cobra comision.
+
+    INDUSTRY_ADAPTERS.md le pide a un asegurador "combined ratio, reserve
+    development, solvency capital" -- un corredor no tiene ninguna de las
+    tres, y en cambio si tiene deuda corriente, asi que su ROIC y su
+    cobertura de intereses significan lo mismo que en cualquier empresa de
+    servicios. Con el adaptador de aseguradora se le suprimian.
+    """
+    for corredor in ("Insurance - Brokers", "insurance - brokers"):
+        assert _industry_adapter_for(
+            {"sector": "Financial Services", "industry": corredor}
+        ) == "default_nonfinancial"
+
+
+def test_una_aseguradora_de_verdad_sigue_siendo_aseguradora():
+    """La excepcion es de una industria, no del substring entero."""
+    for real in ("Insurance - Life", "Insurance - Property & Casualty",
+                 "Insurance - Reinsurance", "Insurance - Diversified",
+                 "Insurance - Specialty"):
+        assert _industry_adapter_for(
+            {"sector": "Financial Services", "industry": real}
+        ) == "insurers"
+
+
+def test_una_corredora_inmobiliaria_no_es_un_REIT():
+    """La regla por SECTOR mandaba todo "real estate" a `reits`, y con eso a
+    CBRE o JLL se les sustituia el EPS por un FFO/AFFO que no reportan ni
+    tienen por que reportar. En la taxonomia de FMP un REIT siempre se llama
+    "REIT - X"."""
+    for no_reit in ("Real Estate - Services", "Real Estate - Development",
+                    "Real Estate - General", "Real Estate - Diversified"):
+        assert _industry_adapter_for(
+            {"sector": "Real Estate", "industry": no_reit}
+        ) == "default_nonfinancial"
+
+
+def test_un_REIT_de_verdad_sigue_siendo_REIT():
+    for reit in ("REIT - Retail", "REIT - Industrial", "REIT - Mortgage",
+                 "REIT - Office", "REIT - Healthcare Facilities",
+                 "REIT - Hotel & Motel", "REIT - Diversified",
+                 "REIT - Residential", "REIT - Specialty"):
+        assert _industry_adapter_for(
+            {"sector": "Real Estate", "industry": reit}
+        ) == "reits"
+
+
+def test_la_excepcion_gana_ANTES_de_que_el_substring_mire():
+    """El orden es lo unico que hace que funcione: "insurance - brokers"
+    contiene "insurance", y "real estate - services" cae en la regla por
+    sector. Si las excepciones se consultaran despues, no harian nada."""
+    from wbj.packet.builder import _ADAPTER_BY_INDUSTRY, _ADAPTER_EXCEPTIONS
+
+    for aguja, _ in _ADAPTER_EXCEPTIONS:
+        assert any(n in aguja for n, _ in _ADAPTER_BY_INDUSTRY) or "real estate" in aguja, (
+            f"{aguja!r} no la capturaba ninguna regla: la excepcion sobra")
