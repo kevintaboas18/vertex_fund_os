@@ -143,15 +143,64 @@ def test_the_dimension_lights_once_four_of_five_are_valid():
 
 
 def test_a_thin_peer_panel_is_refused_rather_than_averaged():
-    """SCORING_ENGINE.md's floor of 8 valid peers, both sides of it.
+    """SCORING_ENGINE.md's floor of 8 valid peers.
 
     Seven peers is not "almost enough": comparing against a thin sample is the
-    kind of number that looks the same in the report and is not.
+    kind of number that looks the same in the report and is not. The metric is
+    refused, and the refusal names the count so the report can say why.
+    """
+    _, rows, _ = _run({"share_history": [0.28, 0.33, 0.396]},
+                      peer_panel=_PEER_PANEL[:7])
+    assert rows["FIN-GR-003"].value is None
+    assert any("PEER_PANEL_BELOW_8_VALID_PEERS" in w
+               for w in rows["FIN-GR-003"].warnings), rows["FIN-GR-003"].warnings
+
+
+def test_a_thin_panel_takes_the_dimension_dark_on_the_usual_filing():
+    """The protection the peer floor exists for, on the shape real filings have.
+
+    This case used to be asserted inside the test above as "3 of 5 must not
+    score", and it stopped holding when FIN-GR-004 began reporting
+    NOT_APPLICABLE instead of NOT_SCORABLE for an issuer that publishes no
+    organic-growth bridge ("not having the problem cannot cost coverage").
+    That was the right call for the metric and it moved something else: a
+    NOT_APPLICABLE metric leaves the DENOMINATOR, so the dimension's coverage
+    is now measured over the metrics that apply, not over all five.
+
+    So the floor is unchanged at 70% and the arithmetic under it is different,
+    and the honest thing is to test both shapes rather than the old count:
+
+      · **The usual filing** — no bridge, no market-share series. Three metrics
+        apply; a thin panel kills the peer one; 2 of 3 is 67% and the dimension
+        goes dark. This is the case that protects almost every ticker.
+      · **An analyst supplied the share series** (the test below). Four apply,
+        three are valid, 75% clears the floor and the dimension scores — on
+        revenue growth, growth durability and a real share trend, with the peer
+        comparison openly refused. That is coverage doing its job, not evading
+        it.
+    """
+    _, rows, dim = _run(peer_panel=_PEER_PANEL[:7])
+    assert rows["FIN-GR-003"].value is None
+    assert dim.applicable_weight() == pytest.approx(0.6), (
+        "FIN-GR-004/005 should be OUT of the denominator on a filing that "
+        "publishes neither")
+    assert dim.valid_weight() / dim.applicable_weight() < 0.70
+    assert dim.score10_value().is_null, "2 of 3 applicable must not score"
+
+
+def test_the_thin_panel_still_scores_when_the_share_series_fills_the_gap():
+    """The other side of the same arithmetic, stated out loud.
+
+    Not an accident and not a hole: 3 of 4 applicable is 75%, above
+    SCORING_ENGINE.md's 70% floor. The peer metric is still refused and still
+    says so — what changed is that there is enough else that applies.
     """
     _, rows, dim = _run({"share_history": [0.28, 0.33, 0.396]},
                         peer_panel=_PEER_PANEL[:7])
     assert rows["FIN-GR-003"].value is None
-    assert dim.score10_value().is_null, "3 of 5 must not score"
+    assert dim.applicable_weight() == pytest.approx(0.8)
+    assert dim.valid_weight() / dim.applicable_weight() == pytest.approx(0.75)
+    assert not dim.score10_value().is_null
 
 
 def test_the_judgment_requests_survive_for_when_nobody_supplied_them():

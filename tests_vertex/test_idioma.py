@@ -13,6 +13,7 @@ Es la única forma de medir «no falta nada» sin ir preguntando cadena por cade
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -34,12 +35,29 @@ CHROMIUM = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
 # Dos señales, no una: el acento basta por sí solo, pero una palabra gramatical
 # suelta no —«no», «de» y «es» también son inglesas—, así que se piden dos.
 ESP = re.compile(
-    r"(?:^|\s)(?:del|los|las|una|que|con|para|sin|por|sus|tus|más|ya|cada|toda|"
+    r"(?:^|\s)(?:de|del|los|las|una|que|con|para|sin|por|sus|tus|más|ya|cada|toda|"
     r"todos|todas|pero|cuando|aún|hay|sobre|entre|desde|hasta|donde|qué|cómo|porque|"
     r"está|están|puede|tiene|hace|dice|usa|solo|nada|algo|esta|este|estos|estas|"
-    r"tienes|puedes|eres|se|es|son|su|tu|el|la|lo|un)(?:\s|$)", re.I)
+    r"tienes|puedes|eres|se|es|son|su|tu|el|la|lo|un|al|en|ni|"
+    r"cuánto|cuándo|quién|dónde|cuál|otro|otra|otros|otras|mismo|misma)(?:\s|$)", re.I)
+#
+# `no`, `si`, `y` y `o` NO entran: son palabras inglesas también, y una frase
+# inglesa con dos «no» dentro se marcaba como española. Un guardián que grita
+# con lo que está bien deja de servir para lo que está mal.
 ACENTO = re.compile(r"[áéíóúÁÉÍÓÚñÑ¿¡]")
 LETRAS = re.compile(r"[A-Za-zÁÉÍÓÚáéíóúñÑ]{3}")
+
+# Terminaciones que en inglés no existen o son rarísimas. Es lo único que
+# delata a una etiqueta corta sin acentos ni palabras gramaticales —
+# «Estructura · GEX · niveles», que no tiene ni una— y esas etiquetas son
+# justo las cabeceras de tabla y los nombres de pestaña.
+#
+# Podadas a conciencia: `-arios` marcaba «scenarios», `-ales` marcaba «sales» y
+# `-ones` marcaba «zones». Una terminación que también es inglesa convierte el
+# guardián en ruido, y un guardián ruidoso se acaba desactivando.
+MORFOLOGIA = re.compile(
+    r"\b\w{3,}(?:ción|ciones|miento|mientos|idad|idades|ancia|encia|aje|eza|"
+    r"ura|uras|anza|ando|endo)\b", re.I)
 
 #: Se quedan igual en los dos idiomas: nombres propios y marcas.
 BLANCA = {"Vertex Fund OS", "Warren Buffett Jr", "Victor", "Víctor", "Kevin",
@@ -52,7 +70,13 @@ def suena_a_espanol(s: str) -> bool:
         return False
     if ACENTO.search(s):
         return True
-    return len(ESP.findall(" " + s + " ")) >= 2
+    if len(ESP.findall(" " + s + " ")) >= 2:
+        return True
+    # Una palabra gramatical suelta no basta (`no` y `de` también son
+    # inglesas), pero una gramatical MÁS una terminación española sí, y una
+    # etiqueta hecha solo de sustantivos españoles se delata por la
+    # terminación aunque no tenga ninguna gramatical.
+    return bool(MORFOLOGIA.search(s))
 
 
 # ── Lo que se puede comprobar sin navegador ─────────────────────────────────
@@ -105,6 +129,99 @@ class TestElDiccionarioEstaSano:
                 "lo que no se devuelve desaparece de la pantalla")
 
 
+class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
+    """El guardián que mira el CÓDIGO, no la pantalla.
+
+    El barrido del navegador solo ve lo que se pintó: una frase que solo aparece
+    cuando una fuente falla, o cuando una tabla viene vacía, o en la pestaña que
+    ese test no abrió, se le escapa entera. Este caso lee el archivo, saca cada
+    cadena que puede acabar en pantalla y falla si alguna no tiene traducción.
+
+    Es lo que convierte «añadir texto nuevo lo deja en español» en un fallo que
+    salta antes de desplegar, y no en algo que encuentra el usuario. Ya cazó
+    catorce, entre ellas las descripciones de las cuatro pestañas.
+    """
+
+    #: Se quedan sin entrada, con su motivo. Nada más entra aquí sin uno.
+    DECLARADAS = {
+        # Trozo de plantilla que el extractor corta en el `${`: la frase entera
+        # lleva el precio del flip dentro y va por `VX_PAT`, no por el
+        # diccionario. La versión pintada sí la mide el test del navegador.
+        "(sobre todo si se pierde el gamma flip $",
+    }
+
+    @staticmethod
+    def _decodifica(x):
+        x = html.unescape(x)
+        return re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), x)
+
+    @staticmethod
+    def _entera(s):
+        """Un literal de JS solo cuenta si se sostiene solo.
+
+        Los trozos de plantilla (`, no una orden de`) no aparecen nunca sueltos
+        en pantalla, así que exigirles traducción sería ruido.
+        """
+        if not s or re.search(r'["\'`<>{}]', s):
+            return False
+        if re.match(r"^[)\].,;:%·—–+]", s):
+            return False
+        if s[0].islower() and not re.match(
+                r"^(el|la|los|las|un|una|de|del|sin|con|por|para|no|y|o|se|es|son|que|su|tu)\b",
+                s, re.I):
+            return False
+        return True
+
+    def test_toda_cadena_del_panel_tiene_su_traduccion(self):
+        h = PANEL.read_text(encoding="utf-8")
+        dic = h.split("const VX_ES2EN = {", 1)[1].split("\n};", 1)[0]
+        pat = h.split("const VX_PAT = [", 1)[1].split("\n];", 1)[0]
+
+        # marcado visible y atributos que se leen
+        cuerpo = re.sub(r"<script\b.*?</script>", "", h, flags=re.S | re.I)
+        cuerpo = re.sub(r"<style\b.*?</style>", "", cuerpo, flags=re.S | re.I)
+        cuerpo = re.sub(r"<!--.*?-->", "", cuerpo, flags=re.S)
+        cand = list(re.split(r"<[^>]+>", cuerpo))
+        for a in ("placeholder", "title", "aria-label", "alt"):
+            cand += re.findall(rf'{a}="([^"]+)"', h)
+
+        # literales del JS, quitando el diccionario (sus claves SON español)
+        js = "\n".join(re.findall(r"<script\b[^>]*>(.*?)</script>", h, flags=re.S | re.I))
+        js = js.replace(dic, "").replace(pat, "")
+        js = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
+        js = re.sub(r"^\s*//.*$", "", js, flags=re.M)
+        lit = []
+        for m in re.finditer(r"'((?:[^'\\\n]|\\.){4,300})'|\"((?:[^\"\\\n]|\\.){4,300})\"", js):
+            lit.append(m.group(1) or m.group(2))
+        for m in re.finditer(r"`((?:[^`\\]|\\.){4,6000})`", js, flags=re.S):
+            for trozo in re.split(r"\$\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", m.group(1)):
+                cand += [t for t in re.split(r"<[^>]*>", trozo)
+                         if self._entera(re.sub(r"\s+", " ", t).strip())]
+        cand += [s for s in lit if self._entera(re.sub(r"\s+", " ", s).strip())]
+
+        vistos, huecos = set(), []
+        for s in cand:
+            s = self._decodifica(s)
+            if "${" in s or "\\n" in s:
+                continue                       # trozo de plantilla: lo mide el navegador
+            s = re.sub(r"\s+", " ", s).strip().strip("·—–|")
+            s = re.sub(r"\s+", " ", s).strip()
+            if not s or s in vistos or not suena_a_espanol(s):
+                continue
+            vistos.add(s)
+            if json.dumps(s, ensure_ascii=False) + ":" in dic:
+                continue
+            if s in self.DECLARADAS:
+                continue
+            huecos.append(s)
+
+        assert len(vistos) > 350, (
+            f"solo {len(vistos)} candidatas: el extractor dejó de ver el archivo")
+        assert not huecos, (
+            f"{len(huecos)} cadena(s) que se verían en español al elegir inglés:\n  "
+            + "\n  ".join(h[:110] for h in huecos[:12]))
+
+
 class TestElMecanismoEstaCableado:
     """Traducir bien y no llamar al barrido es lo mismo que no traducir."""
 
@@ -149,8 +266,87 @@ class TestElServidorHablaElIdiomaDeLaSesion:
                         "en español MUY simple"):
             assert clavado not in fuente, (
                 f"«{clavado}» deja al agente hablando español aunque elijas inglés")
-        assert fuente.count("_instruccion_idioma()") >= 3, (
-            "hay prompts que no reciben el idioma")
+
+    def test_nadie_habla_con_un_modelo_por_fuera_del_envoltorio(self):
+        """El guardián que hace que esto no dependa de acordarse.
+
+        Ponerle el idioma a cada prompt en su sitio de llamada es exactamente el
+        error que este trabajo vino a arreglar: eran ocho, y el noveno que
+        alguien añada saldría en español sin que nadie se entere hasta que lo
+        encuentre el usuario. Todas las peticiones pasan por `_gemini_genera` /
+        `_claude_crea`, y este caso falla si aparece una que no.
+        """
+        fuente = (ROOT / "vertex_api.py").read_text(encoding="utf-8")
+
+        # La única llamada cruda permitida es la que hace el propio envoltorio.
+        cuerpo_gemini = fuente.split("def _gemini_genera(", 1)[1].split("\ndef ", 1)[0]
+        assert "client_gemini.models.generate_content(**kw)" in cuerpo_gemini
+        crudas = fuente.count("client_gemini.models.generate_content(")
+        assert crudas == 1, (
+            f"{crudas - 1} llamada(s) a Gemini saltándose `_gemini_genera`: "
+            "esos prompts no reciben el idioma")
+
+        cuerpo_claude = fuente.split("def _claude_crea(", 1)[1].split("\ndef ", 1)[0]
+        assert "cliente.messages.create(**kw)" in cuerpo_claude
+        sueltas = fuente.count(".messages.create(") - 1
+        assert sueltas == 0, (
+            f"{sueltas} llamada(s) a Anthropic saltándose `_claude_crea`")
+
+        # OpenAI entra por dos rutas y las dos mandan un `system`.
+        for marca in ("_con_idioma(system_msg)", "sysmsg = _con_idioma("):
+            assert marca in fuente, f"la ruta de OpenAI sin idioma: falta {marca}"
+
+    def test_el_idioma_va_al_FINAL_del_prompt(self):
+        """Lo último que lee el modelo es lo que manda. El esquema de respuesta
+        lleva «en español» escrito en la descripción de un campo, así que la
+        instrucción tiene que ir detrás para ganarle."""
+        import vertex_api as V
+
+        tok = V._IDIOMA_CTX.set("en")
+        try:
+            t = V._con_idioma("Responde en español lo que quieras.")
+        finally:
+            V._IDIOMA_CTX.reset(tok)
+        assert t.startswith("Responde en español")
+        assert t.rstrip().endswith("stay as they are.")
+
+    def test_el_envoltorio_le_pone_el_idioma_a_lo_que_de_verdad_se_envia(self,
+                                                                        monkeypatch):
+        """No basta con que la función exista: tiene que llegar al proveedor."""
+        import vertex_api as V
+
+        visto = {}
+
+        class _Modelos:
+            @staticmethod
+            def generate_content(**kw):
+                visto.update(kw)
+                return "ok"
+
+        monkeypatch.setattr(V, "client_gemini",
+                            type("C", (), {"models": _Modelos})())
+        tok = V._IDIOMA_CTX.set("en")
+        try:
+            V._gemini_genera(model="m", contents="Analiza WULF.")
+        finally:
+            V._IDIOMA_CTX.reset(tok)
+        assert "in English" in visto["contents"], visto["contents"][:120]
+        assert visto["contents"].startswith("Analiza WULF.")
+
+        class _Mensajes:
+            @staticmethod
+            def create(**kw):
+                visto.clear()
+                visto.update(kw)
+                return "ok"
+
+        tok = V._IDIOMA_CTX.set("es")
+        try:
+            V._claude_crea(type("A", (), {"messages": _Mensajes})(),
+                           system="Eres un analista.", messages=[])
+        finally:
+            V._IDIOMA_CTX.reset(tok)
+        assert "IDIOMA" in visto["system"] and "español" in visto["system"]
 
     def test_la_cabecera_manda_y_un_valor_raro_cae_a_español(self, monkeypatch):
         import vertex_api as V
