@@ -1641,6 +1641,89 @@ class TestTimeAndSales:
         assert p["volume"] + p["timing"] + p["repetition"] == d["trades"][0]["unusual_score"], \
             "el desglose tiene que sumar el total, o uno de los dos miente"
 
+    def test_la_tabla_de_inusualidad_llega_entera_como_la_suya(self, client):
+        """Su `unusualRows`: los seis sub-puntajes pegados a CADA trade.
+
+        Aquí solo viajaban los seis promedios. Un promedio no dice qué contrato
+        disparó la señal, y es justo lo que se mira: «inusualidad 7,4» no se
+        opera, «el call de $210 que vence en tres días puntúa 9,2 por tamaño y
+        gamma» sí.
+        """
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        filas = d.get("unusual_rows")
+        assert filas, "el motor no sirve las filas de inusualidad"
+        r = filas[0]
+        for campo in ("id", "underlying", "strike", "expiration", "dte",
+                      "timestamp", "premium", "delta", "gamma",
+                      "theta_pct_daily", "condition_code", "condition_name",
+                      "multileg", "confirmed_by_aggression", "unusual_scores"):
+            assert campo in r, f"falta {campo}: su tabla no se puede montar"
+        assert set(r["unusual_scores"]) == {"size", "delta", "theta", "gamma",
+                                            "leg", "expiry", "total"}
+
+    def test_el_cruce_con_agresividad_es_el_suyo(self, client):
+        """`agresividadIds.has(row.id)` — y su nota: verifica, no puntúa."""
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        u = d["subagents"]["unusuality"]
+        assert "confirmed_count" in u, "sin el recuento, la columna no se resume"
+        marcadas = sum(1 for r in d["unusual_rows"]
+                       if r["confirmed_by_aggression"])
+        assert u["confirmed_count"] == marcadas, (
+            f"el recuento ({u['confirmed_count']}) no cuadra con las filas "
+            f"marcadas ({marcadas})")
+        assert u["confirmed_count"] <= len(d["unusual_rows"])
+
+    def test_las_filas_no_se_archivan_pero_la_evidencia_si(self, client):
+        """150 trades con griegos por reporte llenarían el repositorio.
+
+        Lo que sostiene el score —los promedios y los recuentos— sí se archiva;
+        la materia prima de pantalla se vuelve a bajar cuando haga falta.
+        """
+        import vertex_api as V
+
+        assert "unusual_rows" in V._OPCIONES_NO_SE_ARCHIVA
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        recortado = V._sin_derivado(d)
+        assert "unusual_rows" not in recortado
+        assert "unusual_rows" in recortado["_no_archivado"], (
+            "se recorta en silencio: el archivo tiene que decir qué le falta")
+        assert recortado["subagents"]["unusuality"]["avg_by_param"], (
+            "la evidencia del score no puede irse con la materia prima")
+
+    def test_el_panel_monta_SU_tabla_con_sus_columnas(self):
+        import pathlib
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "vcUnusualTablaHTML" in html
+        for col in ("Theta/día", "Condición", "Validación", "Inusual",
+                    "Tam", "Venc"):
+            assert col in html, f"falta la columna «{col}» de su UnusualityCard"
+        assert "Solo inusuales" in html and "también en Agresividad" in html
+
+    def test_el_recorte_al_cono_se_avisa_en_el_escenario(self, client):
+        """Su «· recortado al cono 2σ», que el motor servía y nadie pintaba.
+
+        `clamped` no es un detalle de dibujo: dice que el escenario pedía MÁS
+        de lo que la volatilidad da en ese plazo, así que ese target es el
+        techo del cono y no una previsión. Sin el aviso, un target recortado se
+        lee igual que uno que salió solo — «puede llegar aquí» contra «aquí es
+        donde le dejamos parar».
+        """
+        import pathlib
+
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        geo = d.get("chart_geometry") or {}
+        assert geo, "el motor dejó de servir la geometría"
+        alguno = next(iter(geo.values()))
+        for clave in ("bear", "base", "bull"):
+            ruta = (alguno.get("paths") or {}).get(clave)
+            if ruta is not None:
+                assert "clamped" in ruta, f"{clave} sin el flag de recorte"
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "recortado al cono" in html, "el aviso no llega a la pantalla"
+        assert "_recortado" in html and ".clamped" in html
+
     def test_cada_trade_lleva_los_SEIS_parametros_del_sub_agente_3(self, client):
         """Las dos escalas de inusualidad, y por qué hacen falta las dos.
 
@@ -3602,3 +3685,70 @@ class TestLaProbabilidadDeTocarElNivel:
         cuerpo = html[i:html.index("\nfunction ", i + 10)]
         assert "l.touch" in cuerpo, "la columna no lee el dato"
         assert "P(toque)" in cuerpo, "la columna no tiene cabecera"
+
+
+class TestLasIndustriasEstanEscritasDOSVecesYCUADRAN:
+    """La tabla de industrias vive en dos sitios, y es a propósito.
+
+    En `engine/wbj/sectores.py` porque el servidor decide qué tickers bajar, y
+    en el panel porque pulsar XLK tiene que enseñar sus cinco industrias AL
+    INSTANTE, con sus nombres, sin esperar a nadie: es una lista que no cambia
+    nunca y hacerla viajar dejaba la pantalla medio segundo en blanco.
+
+    Duplicar es una decisión, no un descuido — pero solo se sostiene si algo
+    vigila que las dos copias no se separen. Esto es ese algo: tocar una y no
+    la otra hace fallar el test.
+    """
+
+    @staticmethod
+    def _tabla_del_panel():
+        import json
+        import pathlib
+        import re
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        crudo = html.split("const VX_INDUSTRIAS = {", 1)[1].split("\n};", 1)[0]
+        salida = {}
+        for sector, cuerpo in re.findall(r"(\w+):\s*\[(.*?)\],\s*$", crudo, re.M):
+            salida[sector] = [tuple(x) for x in
+                              json.loads("[" + cuerpo.replace("'", '"') + "]")]
+        return salida
+
+    @staticmethod
+    def _nombres_del_panel():
+        import pathlib
+        import re
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        crudo = html.split("const VX_SECTOR_NOMBRE = {", 1)[1].split("\n};", 1)[0]
+        return dict(re.findall(r"(\w+):\s*'([^']+)'", crudo))
+
+    def test_los_mismos_sectores_en_las_dos(self):
+        from wbj.sectores import INDUSTRIAS, SECTORES
+
+        panel = self._tabla_del_panel()
+        assert set(panel) == {t for t, _ in SECTORES}, (
+            f"el panel declara {sorted(panel)} y el motor {sorted(t for t, _ in SECTORES)}")
+        # `XLU` está en las dos con la lista vacía: el sector existe y no tiene
+        # desglose honesto, que no es lo mismo que no existir.
+        for sector in panel:
+            assert list(panel[sector]) == list(INDUSTRIAS.get(sector, ())), (
+                f"{sector}: el panel dice {panel[sector]} y el motor "
+                f"{INDUSTRIAS.get(sector, ())}")
+
+    def test_los_nombres_de_sector_tambien_cuadran(self):
+        from wbj.sectores import SECTORES
+
+        assert self._nombres_del_panel() == dict(SECTORES)
+
+    def test_el_panel_no_se_inventa_una_industria_que_el_motor_no_baja(self):
+        """Si el panel escribe un ticker que el servidor no pide, esa fila se
+        queda en puntos suspensivos para siempre y nadie sabría por qué."""
+        from wbj.sectores import INDUSTRIAS
+
+        del_motor = {t for filas in INDUSTRIAS.values() for t, _ in filas}
+        del_panel = {t for filas in self._tabla_del_panel().values() for t, _ in filas}
+        assert del_panel - del_motor == set(), (
+            f"el panel enseña {sorted(del_panel - del_motor)} y el motor no los baja")
+        assert del_motor - del_panel == set(), (
+            f"el motor baja {sorted(del_motor - del_panel)} y el panel no los enseña")

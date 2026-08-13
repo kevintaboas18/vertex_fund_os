@@ -642,7 +642,8 @@
             <i data-lucide="chevron-down" class="w-4 h-4 text-gray-500 lg:hidden"></i>
         </button>
         <div class="hidden lg:flex gap-4 xl:gap-6 text-[13px] xl:text-sm text-gray-400 font-medium whitespace-nowrap">
-            <button onclick="switchView('homeView')" class="hover:text-white transition" data-i18n="nav.dashboard">Dashboard</button>
+            <button onclick="switchView('sectorsView')" class="hover:text-white transition" data-i18n="nav.dashboard">Dashboard</button>
+            <button onclick="switchView('homeView')" class="hover:text-white transition" data-i18n="nav.analyze">Analyze</button>
             <button onclick="switchView('reportsView')" class="hover:text-white transition" data-i18n="nav.reports">Reports</button>
             <button class="hidden xl:block hover:text-white transition">Vertex Credit Division</button>
             <button onclick="switchView('portfolioView')" class="hover:text-white transition" data-i18n="nav.portfolio">Portfolio</button>
@@ -783,7 +784,8 @@
 
         <div class="px-3 pt-4">
             <p class="text-[10px] font-bold text-gray-600 uppercase tracking-wider px-2 mb-1.5">Secciones</p>
-            <button class="mnav-item" data-view="homeView"        onclick="mobileGo('homeView')"><i data-lucide="layout-dashboard" class="w-4 h-4"></i> Dashboard</button>
+            <button class="mnav-item" data-view="sectorsView"     onclick="mobileGo('sectorsView')"><i data-lucide="layout-dashboard" class="w-4 h-4"></i> Dashboard</button>
+            <button class="mnav-item" data-view="homeView"        onclick="mobileGo('homeView')"><i data-lucide="zap" class="w-4 h-4"></i> Analyze</button>
             <button class="mnav-item" data-view="reportsView"     onclick="mobileGo('reportsView')"><i data-lucide="file-text" class="w-4 h-4"></i> Reports</button>
             <button class="mnav-item" data-view="portfolioView"   onclick="mobileGo('portfolioView')"><i data-lucide="briefcase" class="w-4 h-4"></i> Portfolio</button>
             <button class="mnav-item" data-view="projectionsView" onclick="mobileGo('projectionsView')"><i data-lucide="trending-up" class="w-4 h-4"></i> Proyecciones</button>
@@ -954,6 +956,26 @@
         </div>
 
     </div></main>
+
+<main id="sectorsView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4 space-y-4">
+    <div class="flex items-baseline justify-between flex-wrap gap-2">
+        <h1 class="text-xl font-black text-white">Sectores</h1>
+        <span id="sectoresSello" class="text-[10px] text-gray-600"></span>
+    </div>
+    <p class="text-[11px] text-gray-500 -mt-2 leading-snug">El mapa del mercado antes de elegir un ticker: d&oacute;nde est&aacute; entrando el dinero y d&oacute;nde est&aacute; saliendo. Pulsa un sector para ver sus industrias.</p>
+    <div id="sectoresParrilla"></div>
+    <div id="sectoresRotacion"></div>
+</main>
+
+<main id="sectorView" class="view-section hidden flex-grow w-full max-w-5xl mx-auto p-4 space-y-4">
+    <nav class="flex items-center gap-1.5 text-[11px] flex-wrap" aria-label="Migas de pan">
+        <button onclick="switchView('sectorsView')" class="text-blue-400 hover:text-blue-300 font-bold">Dashboard</button>
+        <span class="text-gray-700">&rsaquo;</span>
+        <span id="sectorMiga" class="text-gray-300 font-bold">—</span>
+    </nav>
+    <div id="sectorCabecera"></div>
+    <div id="sectorIndustrias"></div>
+</main>
 
 <main id="reportsView" class="view-section hidden flex-grow w-full max-w-5xl mx-auto p-4">
     <div class="flex items-center justify-between mb-4">
@@ -1562,6 +1584,10 @@ function switchView(viewId) {
     vcIconos();
     if (viewId === 'reportsView') { renderFullReportsList(); syncReportsFromServer(); }
     if (viewId === 'homeView') renderRecentReports();
+    // La parrilla se pide AQUÍ, al entrar: cachearla en el servidor dos
+    // minutos hace que volver al panel sea instantáneo sin enseñar precios
+    // de hace media hora.
+    if (viewId === 'sectorsView' && typeof cargaSectores === 'function') cargaSectores();
     // Proyecciones se arma AQUÍ, en la navegación.
     //
     // Estaba colgado de la barra de comandos (Cmd+K), así que entrando por el
@@ -1635,6 +1661,360 @@ function vxLogoHTML(ticker, clases) {
     return `<img src="${API_BASE}/api/tito-logo?ticker=${encodeURIComponent(tk)}"
         alt="Logo de ${ini}" class="${c} object-contain bg-white/90 p-1 flex-shrink-0"
         onerror="this.onerror=null;this.outerHTML='<div class=\\'${caja}\\'>${ini}</div>'">`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SECTORES — el mapa del mercado
+//
+//  Catorce casillas: SPY, RSP y QQQ arriba, y debajo los once sectores. Al
+//  pulsar un sector se despliegan sus industrias.
+//
+//  Los colores del RSI y del cambio son los MISMOS en toda la pantalla, y por
+//  eso viven en dos funciones y no repartidos por el marcado: un verde que
+//  significa una cosa en la parrilla y otra en las industrias es peor que no
+//  tener color.
+// ═══════════════════════════════════════════════════════════════════════
+
+//: 70 y 30 son los cortes de Wilder. Entre medias no se tiñe: la mayoría de
+//: los días la mayoría de los ETF están ahí, y pintarlo todo de colores hace
+//: que el color deje de significar nada.
+function vxRsiColor(v) {
+    if (v == null) return 'text-gray-600';
+    return v >= 70 ? 'text-red-400' : v <= 30 ? 'text-emerald-400' : 'text-gray-400';
+}
+function vxCambioColor(v) {
+    if (v == null) return 'text-gray-600';
+    return v > 0 ? 'text-emerald-400' : v < 0 ? 'text-red-400' : 'text-gray-400';
+}
+const vxPct = v => v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+const vxUsd = v => v == null ? '—' : '$' + Number(v).toFixed(2);
+
+//: Las industrias de cada sector, ESCRITAS AQUÍ.
+//:
+//: Están duplicadas —viven también en `engine/wbj/sectores.py`— y es a
+//: propósito. Pulsar XLK tiene que enseñar sus cinco industrias AL INSTANTE,
+//: con sus nombres puestos, y dejar que solo los números lleguen después. Si
+//: la lista viniera del servidor, la pantalla estaría medio segundo en blanco
+//: esperando a saber algo que no cambia nunca.
+//:
+//: Que las dos copias no se separen no se confía a la memoria de nadie: un
+//: test compara esta tabla contra la de Python y falla si alguien toca una y
+//: no la otra.
+const VX_INDUSTRIAS = {
+    XLK: [['SMH', 'Semiconductores'], ['IGV', 'Software'], ['CIBR', 'Ciberseguridad'], ['SKYY', 'Nube'], ['XSD', 'Semiconductores equiponderado']],
+    XLF: [['KRE', 'Bancos regionales'], ['KBE', 'Bancos'], ['KCE', 'Mercados de capitales'], ['IAK', 'Seguros']],
+    XLV: [['XBI', 'Biotecnología equiponderado'], ['IBB', 'Biotecnología'], ['IHI', 'Dispositivos médicos'], ['IHF', 'Proveedores de salud'], ['PPH', 'Farmacéuticas']],
+    XLY: [['XRT', 'Minoristas'], ['XHB', 'Construcción de vivienda'], ['ITB', 'Constructoras'], ['PEJ', 'Ocio y viajes']],
+    XLC: [['FDN', 'Internet'], ['SOCL', 'Redes sociales'], ['ESPO', 'Videojuegos'], ['PBS', 'Medios y entretenimiento']],
+    XLI: [['ITA', 'Aeroespacial y defensa'], ['IYT', 'Transporte'], ['PAVE', 'Infraestructura'], ['JETS', 'Aerolíneas']],
+    XLP: [['PBJ', 'Alimentos y bebidas'], ['FTXG', 'Alimentación']],
+    XLE: [['XOP', 'Exploración y producción'], ['OIH', 'Servicios petroleros'], ['AMLP', 'Midstream y oleoductos'], ['FCG', 'Gas natural']],
+    XLU: [],
+    XLRE: [['REZ', 'Residencial'], ['REM', 'Hipotecarios'], ['INDS', 'Industrial y logística']],
+    XLB: [['GDX', 'Mineras de oro'], ['COPX', 'Cobre'], ['LIT', 'Litio y baterías'], ['WOOD', 'Madera y papel']],
+};
+
+//: El nombre del sector, también aquí, por lo mismo: la cabecera de la sección
+//: se pinta antes de que conteste nadie.
+const VX_SECTOR_NOMBRE = {
+    XLK: 'Tecnología', XLF: 'Financiero', XLV: 'Salud', XLY: 'Consumo discrecional',
+    XLC: 'Comunicaciones', XLI: 'Industrial', XLP: 'Consumo básico', XLE: 'Energía',
+    XLU: 'Servicios públicos', XLRE: 'Inmobiliario', XLB: 'Materiales',
+};
+
+//: Las seis ventanas del selector. Las etiquetas son de calendario y el
+//: cálculo va en sesiones de mercado — lo hace el servidor, aquí solo se elige.
+const VX_VENTANAS = ['1D', '7D', '1M', '3M', '6M', '1A'];
+
+//: La ventana elegida vive en `localStorage`: si miras el mercado a 3 meses,
+//: al volver mañana lo quieres a 3 meses, no otra vez a un día.
+function vxVentana() {
+    try {
+        const v = localStorage.getItem('vertex_ventana');
+        if (VX_VENTANAS.includes(v)) return v;
+    } catch (e) {}
+    return '1D';
+}
+function vxPonVentana(v) {
+    try { localStorage.setItem('vertex_ventana', v); } catch (e) {}
+    pintaSectores(window._sectoresData);
+    // Si el selector se tocó DENTRO de la sección de un sector, se repinta esa;
+    // si no, la parrilla ya quedó al día con la línea de arriba.
+    const dentro = !document.getElementById('sectorView').classList.contains('hidden');
+    if (dentro && window._sectorAbierto) abreSector(window._sectorAbierto);
+}
+//: El cambio de la ventana elegida, con respaldo al del día. El respaldo
+//: importa: un ETF sin un año de historia no tiene «1A», y sin él la casilla
+//: se quedaría muda cuando el resto de la parrilla sí tiene número.
+function vxCambioDe(f) {
+    const v = vxVentana();
+    const c = (f && f.cambios) || {};
+    return Object.prototype.hasOwnProperty.call(c, v) ? c[v] : f.cambio_pct;
+}
+
+//: Por encima o por debajo de la media de 200. No es una media más: es la
+//: línea que separa «esto está en tendencia» de «esto está roto». Un RSI de 65
+//: por encima de la 200 es fuerza; el mismo RSI por debajo suele ser un rebote
+//: dentro de una caída.
+function vxSma200HTML(f) {
+    if (f.sma200 == null) {
+        return '<span class="text-gray-700">SMA200 —</span>';
+    }
+    const d = f.sma200_dist;
+    const col = d == null ? 'text-gray-600' : d >= 0 ? 'text-emerald-400' : 'text-red-400';
+    const signo = d == null ? '' : (d >= 0 ? '▲ ' : '▼ ');
+    return `<span class="text-gray-600" title="Media simple de 200 sesiones: $${Number(f.sma200).toFixed(2)}">SMA200 </span><span
+      class="font-bold ${col}" title="Distancia del precio a su media de 200 sesiones">${
+      signo}${d == null ? '—' : (d >= 0 ? '+' : '') + Number(d).toFixed(1) + '%'}</span>`;
+}
+
+//: La casilla de la parrilla. `pulsable` es falso para SPY/RSP/QQQ: son
+//: índices y no tienen industrias que desplegar, así que no invitan al clic.
+function vxSectorCaja(f, pulsable, abierto) {
+    const rsi = f.rsi == null ? '—' : Number(f.rsi).toFixed(0);
+    const cambio = vxCambioDe(f);
+    return `<button ${pulsable ? `onclick="abreSector('${_vcEsc(f.ticker)}')"` : 'disabled'}
+        class="text-left w-full bg-[#11141D] border rounded-xl p-3 transition ${
+          abierto ? 'border-blue-500/60 bg-blue-500/5' : 'border-[#1F2532]'} ${
+          pulsable ? 'hover:border-blue-500/40 cursor-pointer' : 'cursor-default'}">
+        <div class="flex items-baseline gap-1.5 flex-wrap">
+          <span class="text-sm font-black text-white">${_vcEsc(f.ticker)}</span>
+          <span class="text-[10px] text-gray-500 truncate">${_vcEsc(f.nombre)}</span>
+        </div>
+        <div class="flex items-baseline gap-2 mt-1.5 flex-wrap">
+          <span class="text-base font-bold text-white">${vxUsd(f.precio)}</span>
+          <span class="text-xs font-bold ${vxCambioColor(cambio)}">${vxPct(cambio)}</span>
+          <span class="text-[9px] text-gray-700">${vxVentana()}</span>
+        </div>
+        <div class="text-[10px] mt-0.5 flex items-baseline gap-2 flex-wrap">
+          <span><span class="text-gray-600">RSI </span><span
+            class="font-bold ${vxRsiColor(f.rsi)}">${rsi}</span></span>
+          <span>${vxSma200HTML(f)}</span>
+        </div>
+      </button>`;
+}
+
+//: La botonera del selector. Cambia QUÉ porcentaje se lee en toda la pantalla
+//: —parrilla e industrias—, no dos sitios con dos ventanas distintas.
+function vxSelectorVentanaHTML() {
+    const actual = vxVentana();
+    return `<div class="flex items-center gap-1 flex-wrap mb-3">
+      <span class="text-[10px] text-gray-600 mr-1">Cambio en</span>
+      ${VX_VENTANAS.map(v => `<button onclick="vxPonVentana('${v}')"
+        class="px-2 py-0.5 rounded text-[10px] font-bold border transition ${v === actual
+          ? 'bg-blue-500/20 border-blue-500/60 text-blue-300'
+          : 'border-gray-800 text-gray-500 hover:text-gray-300'}">${v}</button>`).join('')}
+    </div>`;
+}
+
+async function cargaSectores(forzar) {
+    const parrilla = document.getElementById('sectoresParrilla');
+    if (!parrilla) return;
+    if (window._sectoresData && !forzar) { pintaSectores(window._sectoresData); return; }
+    parrilla.innerHTML = '<p class="text-xs text-gray-500 py-8 text-center">Leyendo el mercado…</p>';
+    try {
+        const r = await fetch(`${API_BASE}/api/sectores`);
+        // El estado HTTP se mira ANTES de leer el cuerpo. Un 404 —panel nuevo
+        // contra servidor viejo, que es lo que pasa entre el despliegue del
+        // navegador y el del backend— devuelve `{"detail": "Not Found"}`: un
+        // JSON válido, sin `ok` y sin `filas`. Sin esta comprobación se pintaba
+        // una parrilla VACÍA sin un solo mensaje, que es la peor forma de
+        // fallar: parece que el mercado no existe.
+        if (!r.ok) {
+            parrilla.innerHTML = `<p class="text-xs text-amber-400 py-8 text-center">El servidor todavía no tiene la pantalla de sectores (HTTP ${r.status}). Si acabas de desplegar, espera a que termine y recarga.</p>`;
+            return;
+        }
+        const d = await r.json();
+        window._sectoresData = d;
+        pintaSectores(d);
+    } catch (e) {
+        parrilla.innerHTML = '<p class="text-xs text-amber-400 py-8 text-center">No se pudo leer el mercado. Vuelve a intentarlo.</p>';
+    }
+}
+
+function pintaSectores(d) {
+    const parrilla = document.getElementById('sectoresParrilla');
+    if (!parrilla) return;
+    // `ok === false` es la degradación declarada (sin clave de FMP, por
+    // ejemplo). Pero una respuesta SIN `filas` tampoco se puede pintar, y
+    // caerse por el hueco dejaba la pantalla muda. Nunca en blanco: o hay
+    // parrilla, o hay motivo.
+    if (!d || d.ok === false || !Array.isArray(d.filas) || !d.filas.length) {
+        parrilla.innerHTML = `<p class="text-xs text-amber-400 py-8 text-center">${_vcEsc(
+            (d && d.error) || 'Sin datos de mercado.')}</p>`;
+        return;
+    }
+    const por = {};
+    (d.filas || []).forEach(f => { por[f.ticker] = f; });
+    const refs = d.referencias || [];
+    const secs = d.sectores || [];
+    const caja = (t, pulsable) => por[t]
+        ? vxSectorCaja(por[t], pulsable, window._sectorAbierto === t)
+        : '';
+    // Las referencias en su propia fila de tres: SPY, RSP y QQQ se leen juntos
+    // o no se leen. Los sectores, en rejilla — la misma en móvil y en escritorio
+    // salvo por cuántos caben.
+    parrilla.innerHTML = `
+      ${vxSelectorVentanaHTML()}
+      <div class="grid grid-cols-3 gap-2 mb-3">${refs.map(t => caja(t, false)).join('')}</div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">${secs.map(t => caja(t, true)).join('')}</div>`;
+    const sello = document.getElementById('sectoresSello');
+    if (sello) sello.innerText = d.cacheado ? 'foto de hace menos de 2 min' : 'al momento';
+    pintaRotacion(d.rotacion);
+}
+
+//: Una fila de industria. `f` puede ser solo `{ticker, nombre}` —lo que ya
+//: sabemos sin preguntar a nadie— o traer además los números.
+function vxIndustriaFila(f) {
+    const hay = f && f.precio != null;
+    return `<div class="flex items-center gap-3 py-2" data-ind="${_vcEsc(f.ticker)}">
+      <div class="min-w-0 flex-1">
+        <span class="text-xs font-black text-white">${_vcEsc(f.ticker)}</span>
+        <span class="text-[10px] text-gray-500 ml-1.5">${_vcEsc(f.nombre)}</span>
+      </div>
+      <span class="text-xs font-bold text-white w-20 text-right">${hay ? vxUsd(f.precio) : '<span class="text-gray-700">···</span>'}</span>
+      <span class="text-xs font-bold w-16 text-right ${vxCambioColor(hay ? vxCambioDe(f) : null)}">${hay ? vxPct(vxCambioDe(f)) : '···'}</span>
+      <span class="text-[10px] w-14 text-right"><span class="text-gray-600">RSI </span><span
+        class="font-bold ${vxRsiColor(hay ? f.rsi : null)}">${hay && f.rsi != null ? Number(f.rsi).toFixed(0) : '···'}</span></span>
+      <span class="text-[10px] w-24 text-right">${hay ? vxSma200HTML(f) : '<span class="text-gray-700">SMA200 ···</span>'}</span>
+    </div>`;
+}
+
+/** Abre la sección de UN sector.
+ *
+ *  La lista de industrias NO se espera: sus tickers y sus nombres están
+ *  escritos en el panel (`VX_INDUSTRIAS`), así que la sección aparece completa
+ *  al instante y solo los números llegan después. Antes esto era un despliegue
+ *  debajo de la parrilla que empezaba con «Leyendo las industrias de…» y no
+ *  enseñaba nada durante un segundo largo — y lo que estaba esperando era una
+ *  lista que no cambia nunca.
+ *
+ *  Los números sí se piden, porque son los de hoy. Y se cachean por sector:
+ *  entrar en XLK, volver al Dashboard y entrar otra vez no vuelve a pagarlos.
+ */
+async function abreSector(ticker) {
+    const tk = String(ticker || '').toUpperCase();
+    const industrias = VX_INDUSTRIAS[tk] || [];
+    window._sectorAbierto = tk;
+    switchView('sectorView');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+
+    const miga = document.getElementById('sectorMiga');
+    if (miga) miga.innerText = tk;
+    // La cabecera con los números del propio sector: ya los tenemos de la
+    // parrilla, así que no se pide nada para pintarla.
+    const dela = ((window._sectoresData || {}).filas || []).find(x => x.ticker === tk);
+    const cab = document.getElementById('sectorCabecera');
+    if (cab) {
+        cab.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+          <div class="flex items-baseline gap-2 flex-wrap">
+            <h1 class="text-xl font-black text-white">${_vcEsc(tk)}</h1>
+            <span class="text-xs text-gray-500">${_vcEsc(VX_SECTOR_NOMBRE[tk] || tk)}</span>
+          </div>
+          ${dela ? `<div class="flex items-baseline gap-3 mt-1.5 flex-wrap">
+            <span class="text-lg font-bold text-white">${vxUsd(dela.precio)}</span>
+            <span class="text-sm font-bold ${vxCambioColor(vxCambioDe(dela))}">${vxPct(vxCambioDe(dela))}</span>
+            <span class="text-[10px] text-gray-700">${vxVentana()}</span>
+            <span class="text-[10px]"><span class="text-gray-600">RSI </span><span
+              class="font-bold ${vxRsiColor(dela.rsi)}">${dela.rsi == null ? '—' : Number(dela.rsi).toFixed(0)}</span></span>
+            <span class="text-[10px]">${vxSma200HTML(dela)}</span>
+          </div>` : ''}
+          ${vxSelectorVentanaHTML()}
+        </div>`;
+    }
+
+    const caja = document.getElementById('sectorIndustrias');
+    if (!caja) return;
+    if (!industrias.length) {
+        caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+          <p class="text-xs text-gray-500">Este sector no tiene desglose por industrias.</p></div>`;
+        return;
+    }
+    // Paso 1: la lista ENTERA, con nombres, sin haber pedido nada.
+    const pinta = (filas) => {
+        caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+          <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-2">Industrias</h3>
+          <div class="divide-y divide-gray-800/60">${filas.map(vxIndustriaFila).join('')}</div>
+          <p class="text-[9px] text-gray-600 mt-2">Precio en vivo &middot; cambio en la ventana elegida arriba &middot; RSI de Wilder de 14 sesiones y media simple de 200, las dos sobre velas diarias.</p></div>`;
+    };
+    pinta(industrias.map(([t, n]) => ({ ticker: t, nombre: n })));
+
+    // Paso 2: los números, que son lo único que hay que ir a buscar.
+    window._sectorCache = window._sectorCache || {};
+    if (window._sectorCache[tk]) { pinta(window._sectorCache[tk]); return; }
+    try {
+        const r = await fetch(`${API_BASE}/api/sectores?etf=${encodeURIComponent(tk)}`);
+        if (!r.ok) return;                    // se quedan los nombres, que ya es algo
+        const d = await r.json();
+        if (window._sectorAbierto !== tk) return;   // te fuiste a otro sector
+        if (d && Array.isArray(d.filas) && d.filas.length) {
+            window._sectorCache[tk] = d.filas;
+            pinta(d.filas);
+        }
+    } catch (e) { /* se quedan los nombres */ }
+}
+
+//: El informe de rotación. Cuatro bloques, y ninguno se inventa una frase
+//: cuando no hay nada que decir: un día sin rotación citable se dice así.
+function pintaRotacion(rot) {
+    const caja = document.getElementById('sectoresRotacion');
+    if (!caja) return;
+    if (!rot || !rot.disponible) {
+        caja.innerHTML = rot && rot.motivo
+            ? `<p class="text-[10px] text-gray-600">${_vcEsc(rot.motivo)}</p>` : '';
+        return;
+    }
+    const CUAD = {
+        leading:   ['Liderando',    'text-emerald-400', 'fuerza alta y subiendo — el dinero est&aacute; entrando'],
+        improving: ['Despertando',  'text-blue-400',    'fuerza baja pero girando al alza — acumulaci&oacute;n temprana'],
+        weakening: ['Agot&aacute;ndose', 'text-amber-400', 'fuerza alta pero perdiendo impulso'],
+        lagging:   ['Rezagados',    'text-red-400',     'fuerza baja y cayendo — sin inter&eacute;s o venta activa'],
+    };
+    const chip = t => `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/5 text-gray-200">${_vcEsc(t)}</span>`;
+    const bloque = (clave) => {
+        const [lbl, col, expl] = CUAD[clave];
+        const ts = (rot.matriz || {})[clave] || [];
+        return `<div class="py-1.5">
+          <div class="flex items-baseline gap-2 flex-wrap">
+            <span class="text-[11px] font-black ${col}">${lbl}</span>
+            <span class="text-[9px] text-gray-600">${expl}</span>
+          </div>
+          <div class="flex flex-wrap gap-1 mt-1">${ts.length ? ts.map(chip).join('') : '<span class="text-[10px] text-gray-700">ninguno</span>'}</div>
+        </div>`;
+    };
+    const salud = rot.salud || {};
+    const flujo = [];
+    if ((rot.entrando || []).length) flujo.push(`<span class="text-emerald-400">Entra en</span> ${rot.entrando.map(_vcEsc).join(', ')}`);
+    if ((rot.saliendo || []).length) flujo.push(`<span class="text-red-400">Sale de</span> ${rot.saliendo.map(_vcEsc).join(', ')}`);
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4 space-y-3">
+      <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Rotaci&oacute;n sectorial</h3>
+
+      <div>
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide">Salud del mercado &middot; RSP contra SPY</p>
+        <p class="text-xs text-gray-200 mt-0.5">${_vcEsc(salud.frase || '—')}</p>
+      </div>
+
+      <div class="border-t border-gray-800 pt-2">
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Matriz de rotaci&oacute;n</p>
+        ${['leading', 'improving', 'weakening', 'lagging'].map(bloque).join('')}
+      </div>
+
+      ${flujo.length ? `<div class="border-t border-gray-800 pt-2">
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide">Flujo de capital <span class="text-gray-700 normal-case">&mdash; con volumen sobre su media de 20 sesiones</span></p>
+        <p class="text-xs text-gray-300 mt-0.5">${flujo.join(' &middot; ')}</p></div>` : ''}
+
+      ${(rot.dia_rojo || []).length ? `<div class="border-t border-gray-800 pt-2">
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide">Aguantan el d&iacute;a rojo</p>
+        <p class="text-xs text-gray-300 mt-0.5">${rot.dia_rojo.map(x => `${_vcEsc(x.ticker)} ${vxPct(x.cambio_pct)}`).join(' &middot; ')}</p>
+        <p class="text-[9px] text-gray-600">El sector que no cae cuando todo cae es el que tiene demanda debajo.</p></div>` : ''}
+
+      ${(rot.diagnostico || []).length ? `<div class="border-t border-gray-800 pt-2">
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Diagn&oacute;stico</p>
+        ${rot.diagnostico.map(f => `<p class="text-xs text-gray-200 leading-snug">&#9656; ${_vcEsc(f)}</p>`).join('')}</div>` : ''}
+
+      ${rot.dispersion != null ? `<p class="text-[9px] text-gray-600 border-t border-gray-800 pt-2">Dispersi&oacute;n entre sectores hoy: <b class="text-gray-400">${Number(rot.dispersion).toFixed(2)}</b> &mdash; alta significa rotaci&oacute;n de verdad; baja, que todo se mueve en bloque.</p>` : ''}
+    </div>`;
 }
 
 // ── AUTOCOMPLETADO ───────────────────────────────────────
@@ -4819,6 +5199,76 @@ const VC_UNU_PARAMS = [
     ['theta', 'Theta', 'decaimiento diario'], ['gamma', 'Gamma', 'zona institucional'],
     ['leg', 'Condición', 'single vs multileg'], ['expiry', 'Vencimiento', 'plazo del contrato'],
 ];
+/** La tabla de su `UnusualityCard`, trade a trade.
+ *
+ *  Aquí solo estaban los seis PROMEDIOS. Un promedio no dice qué contrato
+ *  disparó la señal, y es justo lo que se va a mirar: «inusualidad 7,4» no se
+ *  puede operar, «el call de $210 que vence en tres días puntúa 9,2 por tamaño
+ *  y gamma» sí.
+ *
+ *  Sus mismas columnas y su mismo cruce: la de <b>Validación</b> dice si el
+ *  sub-agente 1 vio el MISMO trade. Él lo deja escrito y conviene repetirlo —
+ *  «es una verificación aparte y NO altera el puntaje».
+ *
+ *  El interruptor «Solo inusuales / Todas» es el suyo. Arranca en inusuales
+ *  porque son las que importan, y con 150 filas la tabla entera es un muro.
+ */
+function vcUnusualTablaHTML(d) {
+    const filas = (d && d.unusual_rows) || [];
+    if (!filas.length) return '';
+    const soloInusuales = window._vcUnuSolo !== false;
+    const UMBRAL = 7;   // su `UNUSUAL_TRADE_THRESHOLD`, sobre 10
+    const vistas = soloInusuales
+        ? filas.filter(r => ((r.unusual_scores || {}).total || 0) >= UMBRAL)
+        : filas;
+    const btn = (on, txt, val) => `<button onclick="window._vcUnuSolo=${val};renderVictorTargets(window._vcData)"
+        class="px-2 py-0.5 rounded text-[9px] font-bold border ${on
+          ? 'bg-blue-500/20 border-blue-500/60 text-blue-300'
+          : 'border-gray-800 text-gray-500 hover:text-gray-300'}">${txt}</button>`;
+    const cabecera = ['Fecha · Hora', 'Contrato', 'Vencimiento', 'Dinero', 'Delta',
+                      'Theta/día', 'Gamma', 'Condición', 'Tam', 'Δ', 'Θ', 'Γ',
+                      'Leg', 'Venc', 'Inusual', 'Validación'];
+    const _n = (v, dec) => v == null ? '—' : Number(v).toFixed(dec);
+    const cuerpo = vistas.map(r => {
+        const s = r.unusual_scores || {};
+        const cp = r.type === 'call' ? 'C' : (r.type === 'put' ? 'P' : '?');
+        return `<tr class="border-b border-gray-800/40 ${s.total >= UMBRAL ? 'vc-unusual' : ''}">
+          <td class="py-0.5 pr-2 text-gray-500">${_vcEsc(vcDateET(r.timestamp))} · ${_vcEsc(vcTimeET(r.timestamp))}</td>
+          <td class="py-0.5 pr-2 font-bold text-white">${_vcEsc(r.underlying || '')} ${_vcEsc(r.strike)}${cp}${
+            r.repeated ? ' ' + vcRepeatBadge(2) : ''}</td>
+          <td class="py-0.5 pr-2 text-gray-400">${_vcEsc(String(r.expiration || '—').slice(5))}${
+            r.dte != null ? ` <span class="text-gray-600">(${Math.round(r.dte)}d)</span>` : ''}</td>
+          <td class="py-0.5 pr-2 text-right text-gray-200 font-bold">${fmtAbbr(r.premium)}</td>
+          <td class="py-0.5 pr-2 text-right text-gray-400">${_n(r.delta, 2)}</td>
+          <td class="py-0.5 pr-2 text-right text-gray-400">${r.theta_pct_daily == null ? '—' : _n(r.theta_pct_daily, 2) + '%'}</td>
+          <td class="py-0.5 pr-2 text-right text-gray-400">${_n(r.gamma, 4)}</td>
+          <td class="py-0.5 pr-2 text-gray-500" title="${_vcEsc(r.condition_name || '')}">${
+            _vcEsc(r.condition_code || '—')} <span class="${r.multileg ? 'text-amber-400' : 'text-gray-700'}">${
+            r.multileg ? 'multi' : 'single'}</span></td>
+          <td class="py-0.5 pr-1 text-right text-gray-600">${s.size ?? '—'}</td>
+          <td class="py-0.5 pr-1 text-right text-gray-600">${s.delta ?? '—'}</td>
+          <td class="py-0.5 pr-1 text-right text-gray-600">${s.theta ?? '—'}</td>
+          <td class="py-0.5 pr-1 text-right text-gray-600">${s.gamma ?? '—'}</td>
+          <td class="py-0.5 pr-1 text-right text-gray-600">${s.leg ?? '—'}</td>
+          <td class="py-0.5 pr-1 text-right text-gray-600">${s.expiry ?? '—'}</td>
+          <td class="py-0.5 pr-2 text-right font-bold ${s.total >= UMBRAL ? 'text-amber-400' : 'text-gray-400'}">${
+            _n(s.total, 1)}<span class="text-gray-700">/10</span></td>
+          <td class="py-0.5 text-[8px]">${r.confirmed_by_aggression
+            ? '<span class="text-emerald-400">✓ también en Agresividad</span>'
+            : '<span class="text-gray-700">—</span>'}</td></tr>`;
+    }).join('');
+    return `<div class="mt-2">
+      <div class="flex gap-1 mb-1">
+        ${btn(soloInusuales, `Solo inusuales (${filas.filter(r => ((r.unusual_scores || {}).total || 0) >= UMBRAL).length})`, 'true')}
+        ${btn(!soloInusuales, `Todas (${filas.length})`, 'false')}
+      </div>
+      <div class="overflow-x-auto max-h-72 overflow-y-auto"><table class="vc-t w-full text-[9px]">
+        <thead><tr class="text-gray-600 text-[8px] uppercase border-b border-gray-800">
+          ${cabecera.map((h, i) => `<th class="${i <= 2 || i === 7 || i === 15 ? 'text-left' : 'text-right'} pb-0.5 ${i >= 8 && i <= 13 ? 'pr-1' : 'pr-2'}">${h}</th>`).join('')}
+        </tr></thead><tbody>${cuerpo}</tbody></table></div>
+      <p class="text-[8px] text-gray-600 mt-1 leading-snug">Las filas resaltadas superan ${UMBRAL}/10 &mdash; perfil institucional. La columna <b>Validaci&oacute;n</b> cruza con lo que reporta el agente de Agresividad; es una verificaci&oacute;n aparte y <b>no altera el puntaje</b>.</p></div>`;
+}
+
 //: Régimen de IV en palabras — su `REGIME_LABEL` de IvContextCard.
 const VC_IV_REGIME = {
     dormida: 'Acción dormida', compresion: 'Volatilidad comprimida',
@@ -4949,7 +5399,9 @@ function vcSubagentesHTML(d) {
                ${VC_UNU_PARAMS.map(([k, lbl, hint]) =>
                    _vcMetric(lbl, p[k] == null ? '—' : Number(p[k]).toFixed(1), null, hint)).join('')}
              </div>
-             <p class="text-[9px] text-gray-600 mt-1.5 leading-snug">Cada trade se puntúa en 6 parámetros (columnas <b>Tam · Δ · Θ · Γ · Leg · Venc</b>) y el promedio da su puntaje <b>Inusual</b>. ${u.unusual_count} de ${u.n} trades superan el umbral institucional (&ge;7/10). Promedio por par&aacute;metro sobre la ventana de convicci&oacute;n. <b>No</b> son las filas resaltadas de la cinta: aquella se ti&ntilde;e con el otro puntaje, el de 0-30 (tama&ntilde;o + horario + repetici&oacute;n), y son dos conjuntos distintos de trades.</p>`));
+             <p class="text-[9px] text-gray-600 mt-1.5 leading-snug">Cada trade se puntúa en 6 parámetros (columnas <b>Tam · Δ · Θ · Γ · Leg · Venc</b>) y el promedio da su puntaje <b>Inusual</b>. ${u.unusual_count} de ${u.n} trades superan el umbral institucional (&ge;7/10)${
+                 u.confirmed_count ? ` · <span class="text-emerald-400">✓ ${u.confirmed_count} confirmadas por el agente de Agresividad</span>` : ''}. Promedio por par&aacute;metro sobre la ventana de convicci&oacute;n. <b>No</b> son las filas resaltadas de la cinta: aquella se ti&ntilde;e con el otro puntaje, el de 0-30 (tama&ntilde;o + horario + repetici&oacute;n), y son dos conjuntos distintos de trades.</p>
+             ${vcUnusualTablaHTML(d)}`));
     }
 
     // ── 4 · Estructura ─────────────────────────────────────────────────────
@@ -5212,10 +5664,21 @@ function renderVictorTargets(d) {
     const tabs = hz.map(x => `<button onclick="window._vcHz=${x};renderVictorTargets(window._vcData);renderVictorProjChart('projChart',window._vcData,${x});"
         class="px-2.5 py-1 rounded-lg text-[10px] font-bold ${x === h ? 'bg-blue-600 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800'}">${HZ_LABEL[x] || (x + 'd')}</button>`).join(' ');
 
-    const card = (s, name, col) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
+    // Su «· recortado al cono 2σ» de `ProWallsCard`. El motor lo sirve por
+    // escenario (`chart_geometry[h].paths[x].clamped`) y no se pintaba en
+    // ningún sitio: un target recortado se leía igual que uno que salió solo.
+    //
+    // Y no es un detalle de dibujo. `clamped` dice que el escenario pedía MÁS
+    // de lo que la volatilidad da en ese plazo, así que ese target es el techo
+    // del cono y no una previsión — la diferencia entre «puede llegar aquí» y
+    // «aquí es donde le dejamos parar».
+    const _geo = (d.chart_geometry || {})[String(h)] || null;
+    const _recortado = clave => !!(((_geo || {}).paths || {})[clave] || {}).clamped;
+    const card = (s, name, col, clave) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
         <p class="text-[10px] uppercase font-bold mb-1 ${col}">${name}</p>
         <p class="text-lg font-black text-white">$${Number(s.target).toFixed(2)}</p>
         <p class="text-[9px] ${s.change_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}">${(s.change_pct >= 0 ? '+' : '') + Number(s.change_pct).toFixed(1)}% · toque ${Math.round(s.probability * 100)}%</p>
+        ${_recortado(clave) ? `<p class="text-[8px] text-amber-400 mt-0.5" title="El escenario pedía más de lo que la volatilidad da a este plazo: el target se topó en el borde del cono de 2σ.">recortado al cono 2&sigma;</p>` : ''}
         <p class="text-[8px] text-gray-500 mt-1 leading-tight">${_vcEsc(s.driver)}</p>
         <p class="text-[8px] text-gray-600 mt-0.5">a ${h} días</p></div>`;
 
@@ -5286,9 +5749,9 @@ function renderVictorTargets(d) {
       ${parcial ? `<p class="text-[10px] text-amber-400 leading-snug mb-2">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
       <p class="text-[9px] text-gray-500 uppercase font-bold tracking-wider mb-1">Targets a ${h} días <span class="text-gray-600 normal-case font-normal tracking-normal">(${_vcEsc(HZ_LABEL[h] || (h + ' días'))}) · desde $${Number(d.spot).toFixed(2)}</span></p>
       <div class="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-2">
-        ${card(p.bear, 'Bajista', 'text-red-400')}
-        ${card(p.base, 'Base', 'text-blue-400')}
-        ${card(p.bull, 'Alcista', 'text-emerald-400')}
+        ${card(p.bear, 'Bajista', 'text-red-400', 'bear')}
+        ${card(p.base, 'Base', 'text-blue-400', 'base')}
+        ${card(p.bull, 'Alcista', 'text-emerald-400', 'bull')}
       </div>`}
       ${vcGexHTML(d)}
       ${vcScorecardHTML(d)}
@@ -11021,6 +11484,105 @@ const VX_ES2EN = {
     "Volatilidad normal": "Normal volatility",
     "Dominancia": "Dominance",
     "Rango extremo · 2σ": "Extreme range · 2σ",
+    "Sectores": "Sectors",
+    "Este sector no tiene desglose por industrias.": "This sector has no industry breakdown.",
+    "Industrias": "Industries",
+    "Tecnología": "Technology",
+    "Financiero": "Financials",
+    "Salud": "Health Care",
+    "Consumo discrecional": "Consumer Discretionary",
+    "Comunicaciones": "Communication Services",
+    "Industrial": "Industrials",
+    "Consumo básico": "Consumer Staples",
+    "Energía": "Energy",
+    "Servicios públicos": "Utilities",
+    "Inmobiliario": "Real Estate",
+    "Materiales": "Materials",
+    "S&P 500 equiponderado": "S&P 500 equal weight",
+    "Semiconductores": "Semiconductors",
+    "Semiconductores equiponderado": "Semiconductors equal weight",
+    "Ciberseguridad": "Cybersecurity",
+    "Nube": "Cloud",
+    "Bancos regionales": "Regional banks",
+    "Bancos": "Banks",
+    "Mercados de capitales": "Capital markets",
+    "Seguros": "Insurance",
+    "Biotecnología": "Biotechnology",
+    "Biotecnología equiponderado": "Biotechnology equal weight",
+    "Dispositivos médicos": "Medical devices",
+    "Proveedores de salud": "Health providers",
+    "Farmacéuticas": "Pharmaceuticals",
+    "Minoristas": "Retail",
+    "Construcción de vivienda": "Homebuilding",
+    "Constructoras": "Homebuilders",
+    "Ocio y viajes": "Leisure and travel",
+    "Redes sociales": "Social media",
+    "Videojuegos": "Video games",
+    "Medios y entretenimiento": "Media and entertainment",
+    "Aeroespacial y defensa": "Aerospace and defense",
+    "Transporte": "Transportation",
+    "Infraestructura": "Infrastructure",
+    "Aerolíneas": "Airlines",
+    "Alimentos y bebidas": "Food and beverage",
+    "Alimentación": "Food",
+    "Exploración y producción": "Exploration and production",
+    "Servicios petroleros": "Oil services",
+    "Midstream y oleoductos": "Midstream and pipelines",
+    "Gas natural": "Natural gas",
+    "Residencial": "Residential",
+    "Hipotecarios": "Mortgage REITs",
+    "Industrial y logística": "Industrial and logistics",
+    "Mineras de oro": "Gold miners",
+    "Cobre": "Copper",
+    "Litio y baterías": "Lithium and batteries",
+    "Madera y papel": "Timber and paper",
+    "Cambio en": "Change over",
+    "Distancia del precio a su media de 200 sesiones": "Distance from price to its 200-session average",
+    "Precio en vivo · cambio en la ventana elegida arriba · RSI de Wilder de 14 sesiones y media simple de 200, las dos sobre velas diarias.": "Live price · change over the window selected above · Wilder RSI over 14 sessions and simple 200-session average, both on daily candles.",
+    "El mapa del mercado antes de elegir un ticker: dónde está entrando el dinero y dónde está saliendo. Pulsa un sector para ver sus industrias.": "The market map before picking a ticker: where money is coming in and where it is going out. Tap a sector to see its industries.",
+    "Leyendo el mercado…": "Reading the market…",
+    "No se pudo leer el mercado. Vuelve a intentarlo.": "Could not read the market. Try again.",
+    "Sin datos de mercado.": "No market data.",
+    "No se pudieron leer las industrias.": "Could not read the industries.",
+    "Sin datos.": "No data.",
+    "Este ETF no tiene desglose por industrias.": "This ETF has no industry breakdown.",
+    "cerrar": "close",
+    "Precio y cambio del día en vivo · RSI de Wilder de 14 sesiones sobre velas diarias.": "Live price and daily change · Wilder RSI over 14 daily candles.",
+    "Rotación sectorial": "Sector rotation",
+    "Salud del mercado · RSP contra SPY": "Market health · RSP against SPY",
+    "Matriz de rotación": "Rotation matrix",
+    "Flujo de capital": "Capital flow",
+    "— con volumen sobre su media de 20 sesiones": "— with volume above its 20-session average",
+    "Aguantan el día rojo": "Holding up on the red day",
+    "El sector que no cae cuando todo cae es el que tiene demanda debajo.": "The sector that does not fall when everything falls is the one with demand underneath.",
+    "Diagnóstico": "Diagnosis",
+    "Liderando": "Leading",
+    "Despertando": "Waking up",
+    "Agotándose": "Fading",
+    "Rezagados": "Lagging",
+    "fuerza alta y subiendo — el dinero está entrando": "high strength and rising — money is coming in",
+    "fuerza baja pero girando al alza — acumulación temprana": "low strength but turning up — early accumulation",
+    "fuerza alta pero perdiendo impulso": "high strength but losing momentum",
+    "fuerza baja y cayendo — sin interés o venta activa": "low strength and falling — no interest or active selling",
+    "ninguno": "none",
+    "Entra en": "Into",
+    "Sale de": "Out of",
+    "alta significa rotación de verdad; baja, que todo se mueve en bloque.": "high means real rotation; low means everything moves as one block.",
+    "al momento": "live",
+    "foto de hace menos de 2 min": "snapshot under 2 min old",
+    "Contrato": "Contract",
+    "Dinero": "Money",
+    "Theta/día": "Theta/day",
+    "Tam": "Size",
+    "Venc": "Expiry",
+    "Inusual": "Unusual",
+    "Validación": "Validation",
+    "Condición": "Condition",
+    "✓ también en Agresividad": "✓ also in Aggressiveness",
+    "cruza con lo que reporta el agente de Agresividad; es una verificación aparte y": "cross-checks what the Aggressiveness agent reports; it is a separate verification and",
+    "no altera el puntaje": "does not alter the score",
+    "recortado al cono 2σ": "capped at the 2σ cone",
+    "El escenario pedía más de lo que la volatilidad da a este plazo: el target se topó en el borde del cono de 2σ.": "The scenario asked for more than volatility allows over this horizon: the target was capped at the edge of the 2σ cone.",
     "calibración en espera": "calibration on hold",
     "suele apuntar bajo": "it usually aims low",
     "suele apuntar alto": "it usually aims high",
@@ -11989,6 +12551,22 @@ const VX_ES2EN = {
  * cada valor sería una entrada distinta. Van aquí, con `$1`, `$2`… en el
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
+    // Los sectores: llevan el ticker o un número dentro de la frase.
+    [/^El servidor todavía no tiene la pantalla de sectores \(HTTP (\d+)\)\. Si acabas de desplegar, espera a que termine y recarga\.$/,
+     'The server does not have the sectors screen yet (HTTP $1). If you just deployed, wait for it to finish and reload.'],
+    [/^Media simple de 200 sesiones: (\S+)$/, 'Simple 200-session average: $1'],
+    [/^Leyendo las industrias de (\S+)…$/, 'Reading the industries of $1…'],
+    [/^Industrias de (\S+) · (.+)$/, 'Industries of $1 · $2'],
+    [/^Dispersión entre sectores hoy:$/, 'Dispersion across sectors today:'],
+    // La tabla de inusualidad: los dos botones llevan el recuento dentro, y la
+    // nota lleva el umbral. Los `<b>` de la nota la parten en varios nodos de
+    // texto, así que cada trozo va por su lado — el barrido traduce nodo a nodo.
+    [/^Las filas resaltadas superan (\S+) — perfil institucional\. La columna$/,
+     'Highlighted rows are above $1 — institutional profile. The'],
+    [/^Solo inusuales \((\d+)\)$/, 'Unusual only ($1)'],
+    [/^Todas \((\d+)\)$/, 'All ($1)'],
+    [/^✓ (\d+) confirmadas por el agente de Agresividad$/,
+     '✓ $1 confirmed by the Aggressiveness agent'],
     // ── La línea de memoria del tab de Proyecciones ──────────────────────
     //
     // Sus nueve datos llevan números dentro, así que ninguno cabe en el

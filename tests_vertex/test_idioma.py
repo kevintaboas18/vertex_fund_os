@@ -152,6 +152,13 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
         # así que la frase entera va por `VX_PAT`. El extractor la corta en el
         # `${` y ve solo la mitad de delante.
         "⚠ TUS DATOS ESTÁN EN RIESGO: hay",
+        # El aviso de «servidor sin la ruta todavía»: lleva el código HTTP
+        # dentro, así que el extractor lo corta en el `${`. Va por `VX_PAT`.
+        "El servidor todavía no tiene la pantalla de sectores (HTTP",
+        # El cargador de las industrias: lleva el ticker dentro, así que el
+        # extractor lo corta en el `${` y ve solo la mitad. La frase entera va
+        # por `VX_PAT` y se ve un instante mientras baja la lista.
+        "Leyendo las industrias de",
         # Y la leyenda de la cinta: el corte de inusualidad lo sirve ahora el
         # motor (`unusual_cut`) en vez de estar escrito a mano —decía 7/30 y el
         # corte real es 24/30—, así que el número va dentro de la frase y la
