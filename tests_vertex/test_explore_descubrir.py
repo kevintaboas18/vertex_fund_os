@@ -82,3 +82,42 @@ def test_el_buzz_de_redes_ya_no_existe():
     no quedaron colgando sirviendo datos que la interfaz ya no pinta."""
     for ruta in ("/api/explore-screens", "/api/explore-deep?ticker=NVDA"):
         assert cliente.get(ruta).status_code == 404, ruta
+
+
+# ============================================================================
+# Dos numeros distintos para la misma accion, y ninguno decia por que
+# ============================================================================
+
+
+def test_explore_declara_que_su_puntaje_no_es_el_del_analisis(_screener):
+    """APH salia 7,9 en Descubrir y 5,7 en el analisis, y las dos columnas se
+    llamaban "Puntaje".
+
+    Los dos numeros son correctos para lo que miden -- el rapido puntua cada
+    categoria con unas pocas metricas de EDGAR para barrer miles de
+    declarantes en segundos; el completo corre las 208 y aplica el piso de
+    cobertura del 70%. Casi todo el hueco de APH es UNA categoria: market,
+    17,2 puntos contra 1,82, porque el completo le pide TAM/SAM/SOM y se
+    queda en 0,355 de cobertura.
+
+    Lo que estaba mal era dejar que parecieran comparables.
+    """
+    cuerpo = cliente.get("/api/explore?limit=1").json()
+    assert "metodologia" in cuerpo, (
+        "la respuesta tiene que declarar que su puntaje es el rapido -- y el "
+        "response_model tiene que nombrarlo, o FastAPI lo descarta")
+    m = cuerpo["metodologia"]
+    assert m["tipo"] == "rapido"
+    assert "208" in m["vs_analisis_completo"]
+    assert "70" in m["vs_analisis_completo"]
+
+
+def test_la_tabla_no_llama_Puntaje_a_secas_al_rapido():
+    """La columna decia exactamente la misma palabra que el analisis completo,
+    que es de donde venia la confusion."""
+    from pathlib import Path
+
+    html = Path(__file__).parent.parent / "vertex_fund_os_platform.html"
+    texto = html.read_text(encoding="utf-8")
+    assert "Puntaje rápido</th>" in texto
+    assert "no es el del análisis completo" in texto

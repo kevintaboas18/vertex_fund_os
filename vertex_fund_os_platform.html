@@ -931,7 +931,7 @@
                             <th class="text-right font-bold px-4 py-3">Crec.</th>
                             <th class="text-right font-bold px-4 py-3">Margen</th>
                             <th class="text-right font-bold px-4 py-3">Target medio</th>
-                            <th class="text-left font-bold px-4 py-3">Puntaje</th>
+                            <th class="text-left font-bold px-4 py-3">Puntaje rápido</th>
                         </tr>
                     </thead>
                     <tbody id="exploreTableBody" class="font-mono"></tbody>
@@ -940,6 +940,14 @@
             <p class="text-[10px] text-gray-600 px-4 py-3 border-t border-[#1F2532] leading-relaxed">
                 Datos de SEC EDGAR. Es una <b>clasificación de research</b>, no una orden de compra.
                 Toca un ticker para analizarlo con el agente.
+                <br><br>
+                <b>El «puntaje rápido» no es el del análisis completo, y casi nunca coincide.</b>
+                Aquí cada categoría se puntúa con unas pocas métricas de EDGAR para poder
+                barrer miles de declarantes en segundos. El análisis completo corre las
+                <b>208 métricas</b> de los 6 agentes y aplica el piso de cobertura del 70%:
+                una categoría sin datos suficientes aporta pocos puntos y deja el perfil
+                fuera de los gates. Por eso el número del análisis suele ser
+                <b>más bajo y más exigente</b> — es el que manda.
             </p>
         </div>
 
@@ -10721,6 +10729,13 @@ const VX_ES2EN = {
     ". Tu costo real queda en $": ". Your real cost comes to $",
     "Top 5 por Notional Value ·": "Top 5 by notional value ·",
     "Puntaje": "Score",
+    "Puntaje rápido": "Quick score",
+    "El «puntaje rápido» no es el del análisis completo, y casi nunca coincide.": "The «quick score» is not the full analysis score, and they rarely match.",
+    "Aquí cada categoría se puntúa con unas pocas métricas de EDGAR para poder barrer miles de declarantes en segundos. El análisis completo corre las": "Here each category is scored from a handful of EDGAR metrics so thousands of filers can be swept in seconds. The full analysis runs the",
+    "de los 6 agentes y aplica el piso de cobertura del 70%: una categoría sin datos suficientes aporta pocos puntos y deja el perfil fuera de los gates. Por eso el número del análisis suele ser": "of the 6 agents and applies the 70% coverage floor: a category without enough data contributes few points and leaves the profile out of the gates. That is why the analysis number is usually",
+    "más bajo y más exigente": "lower and stricter",
+    "208 métricas": "208 metrics",
+    "es el que manda.": "it is the one that counts.",
     "Consultando xAI Grok en tiempo real...": "Querying xAI Grok in real time…",
     "/100 evidencia": "/100 evidence",
     "Operativo:": "Operational:",

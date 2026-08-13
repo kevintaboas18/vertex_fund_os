@@ -1946,6 +1946,9 @@ class DiscoveredCompany(BaseModel):
 class ExploreResponse(BaseModel):
     companies: list[DiscoveredCompany]
     prefilter: dict
+    # Sin declararlo aqui, FastAPI lo descarta del cuerpo: el response_model
+    # filtra. Un campo que la ruta pone y el modelo no nombra no llega nunca.
+    metodologia: dict
     generated_at: str
 
 
@@ -2657,6 +2660,26 @@ def get_explore(limit: int = 15):
         "companies": filas,
         "prefilter": {"revenue_min": REV_MIN, "revenue_max": REV_MAX,
                       "margin_min": MARGIN_MIN, "growth_min": GROWTH_MIN},
+        # El puntaje de aqui NO es el del analisis completo, y la respuesta lo
+        # dice en vez de dejar que la interfaz lo suponga.
+        #
+        # Medido en APH: 7,9 aqui contra 5,7 en el analisis. Casi todo el
+        # hueco es UNA categoria -- market 17,2 puntos contra 1,82 -- porque
+        # el rapido la puntua con crecimiento adelantado y amplitud de
+        # analistas, mientras el agente completo le pide TAM/SAM/SOM y se
+        # queda en 0,355 de cobertura. Con eso el override 6 deja el perfil
+        # fuera de los gates, que es justo lo que el rapido no puede ver.
+        #
+        # Los dos numeros son correctos para lo que miden. Lo que estaba mal
+        # era llamar "Puntaje" a los dos y dejar que parecieran comparables.
+        "metodologia": {
+            "tipo": "rapido",
+            "metricas_por_categoria": "unas pocas de EDGAR companyfacts",
+            "vs_analisis_completo": (
+                "El analisis completo corre las 208 metricas de los 6 agentes "
+                "y aplica el piso de cobertura del 70%. Suele dar un numero "
+                "mas bajo y es el que manda."),
+        },
         "generated_at": datetime.now().strftime("%m/%d/%Y, %I:%M:%S %p"),
     }
 
