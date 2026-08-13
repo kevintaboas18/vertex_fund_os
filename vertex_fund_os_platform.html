@@ -2591,13 +2591,60 @@ function renderVictorWhy() {
   };
   const sec = (title, items, cls) => items.length
     ? `<div class="mb-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">${title}</p>${items.map(i => row(i, cls)).join('')}</div>` : '';
+
+  // Los "13 gates no superados" no eran 13 fallos: eran TRES puertas, cada
+  // una con sus propias condiciones. `apply_gates` de Victor devuelve
+  // `momentum_reasons + quality_reasons + value_reasons` en una sola lista
+  // (gates.py:365), asi que "raw_total<78", "raw_total<80" y "raw_total<75"
+  // salian como tres tarjetas distintas siendo el MISMO puntaje medido
+  // contra tres umbrales.
+  //
+  // El par (metrica, umbral) identifica la puerta sin ambiguedad, porque
+  // ninguna comparte dos veces el mismo umbral para la misma metrica. No es
+  // adivinar: es la tabla de gates de Victor leida al reves.
+  const _GATE_DE = {
+    'raw_total<78':'Momentum Candidate','technical<17':'Momentum Candidate',
+    'market<16':'Momentum Candidate','business+financial<28':'Momentum Candidate',
+    'risk<8':'Momentum Candidate','technical_confidence<70':'Momentum Candidate',
+    'raw_total<80':'Quality Opportunity','business<16':'Quality Opportunity',
+    'financial<11':'Quality Opportunity','valuation<5':'Quality Opportunity',
+    'technical<12':'Quality Opportunity',
+    'raw_total<75':'Value Opportunity','valuation<8':'Value Opportunity',
+    'business<13':'Value Opportunity','technical<9':'Value Opportunity',
+  };
+  // `risk<10` lo piden Quality Y Value con el mismo umbral, asi que es la
+  // unica ambigua: se reparte por orden de aparicion.
+  function _agrupaGates(lista) {
+    const grupos = new Map(); let vistoRisk10 = 0;
+    (lista || []).forEach(txt => {
+      const s = String(txt);
+      const clave = (s.match(/^([a-z_+]+<[0-9.]+)/) || [])[1];
+      let gate = _GATE_DE[clave];
+      if (clave === 'risk<10') gate = (vistoRisk10++ === 0) ? 'Quality Opportunity' : 'Value Opportunity';
+      gate = gate || 'Otras condiciones';
+      if (!grupos.has(gate)) grupos.set(gate, []);
+      grupos.get(gate).push(s);
+    });
+    return grupos;
+  }
+  const secGates = (title, items, cls) => {
+    if (!items.length) return '';
+    const g = _agrupaGates(items);
+    const bloques = [...g.entries()].map(([gate, razones]) =>
+      `<div class="mb-2">
+         <p class="text-[10px] font-extrabold text-gray-300 mb-1">${gate}
+           <span class="font-normal text-gray-500">— le faltan ${razones.length}</span></p>
+         ${razones.map(r => row(r, cls)).join('')}
+       </div>`).join('');
+    return `<div class="mb-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">${title}</p>${bloques}</div>`;
+  };
   const contraHtml = contra.length
     ? `<div class="mb-3"><p class="text-[9px] text-gray-500 uppercase font-bold mb-1">Contradicciones detectadas</p>` +
       contra.map(c => `<div class="text-[10px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-2 mb-1.5 leading-snug">
         <b>${c.label || c.combination || ''}</b>${c.interpretation ? ` — ${c.interpretation}` : ''}</div>`).join('') + `</div>` : '';
 
   // Resumen en una frase: qué mandó sobre el veredicto.
-  const nOv = ovr.length, nFail = failed.length;
+  const nOv = ovr.length, nFail = _agrupaGates(failed).size;
   const resumen = nOv
     ? `El veredicto lo fijó ${nOv === 1 ? 'una regla obligatoria' : `${nOv} reglas obligatorias`} del Cerebro${nFail ? ` y ${nFail} gate${nFail > 1 ? 's' : ''} no superado${nFail > 1 ? 's' : ''}` : ''}. Las reglas mandan sobre el puntaje: aunque el total fuera alto, cualquiera de estas lo topa.`
     : (nFail ? `No se superaron ${nFail} gate${nFail > 1 ? 's' : ''} de los umbrales de Victor.` : `Se superaron todos los gates aplicables.`);
@@ -2609,7 +2656,7 @@ function renderVictorWhy() {
     </div>
     <p class="text-[11px] text-gray-400 leading-relaxed mb-3">${resumen}</p>
     ${sec('Gates superados', passed, 'text-emerald-300 bg-emerald-500/10 border border-emerald-500/20')}
-    ${sec('Gates no superados', failed, 'text-red-300 bg-red-500/10 border border-red-500/20')}
+    ${secGates('Gates no superados', failed, 'text-red-300 bg-red-500/10 border border-red-500/20')}
     ${sec('Reglas obligatorias aplicadas', ovr, 'text-amber-300 bg-amber-500/10 border border-amber-500/20')}
     ${contraHtml}
     ${sec('Advertencias', warn, 'text-gray-300 bg-gray-500/10 border border-gray-700')}
@@ -10817,6 +10864,8 @@ const VX_ES2EN = {
     "Puntaje": "Score",
     "Puntaje rápido": "Quick score",
     "Puntaje quick": "Quick score",
+    "Otras condiciones": "Other conditions",
+    "— le faltan": "— missing",
     "motor completo — sin packet EDGAR para el quick": "full engine — no EDGAR packet for the quick score",
     "el mismo de Descubrir empresas ·": "the same one as Discover companies ·",
     "puntos de evidencia": "points of evidence",

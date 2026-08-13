@@ -113,3 +113,46 @@ def test_el_rotulo_dice_cual_de_los_dos_es():
     h = _html()
     assert "Puntaje quick" in h
     assert "_es_deep" in h, "la interfaz tiene que distinguir el respaldo"
+
+
+# ============================================================================
+# "13 gates no superados" eran TRES puertas
+# ============================================================================
+
+
+def test_las_condiciones_se_agrupan_por_puerta():
+    """`apply_gates` de Victor devuelve
+    `momentum_reasons + quality_reasons + value_reasons` en UNA lista
+    (gates.py:365), asi que el panel pintaba 13 tarjetas: "raw_total<78",
+    "raw_total<80" y "raw_total<75" salian como tres fallos distintos siendo
+    el MISMO puntaje medido contra tres umbrales.
+
+    No eran 13 fallos: eran 3 puertas con sus condiciones.
+    """
+    h = _html()
+    assert "_agrupaGates" in h
+    assert "_GATE_DE" in h
+    # El par (metrica, umbral) identifica la puerta: es la tabla de gates de
+    # Victor leida al reves, no una adivinanza.
+    for clave, puerta in (("raw_total<78", "Momentum Candidate"),
+                          ("raw_total<80", "Quality Opportunity"),
+                          ("raw_total<75", "Value Opportunity"),
+                          ("valuation<5", "Quality Opportunity"),
+                          ("valuation<8", "Value Opportunity")):
+        i = h.index(f"'{clave}':")
+        assert h[i:i + 60].split("'")[3] == puerta, clave
+
+
+def test_risk_10_es_la_unica_ambigua_y_se_dice():
+    """Quality y Value piden los DOS `risk<10` con el mismo umbral, asi que
+    el par no la identifica. Se reparte por orden y queda escrito."""
+    h = _html()
+    assert "vistoRisk10" in h
+    i = h.index("vistoRisk10")
+    assert "unica ambigua" in h[max(0, i - 400):i]
+
+
+def test_el_resumen_cuenta_puertas_y_no_condiciones():
+    """Decia "13 gates no superados" cuando eran 3."""
+    h = _html()
+    assert "_agrupaGates(failed).size" in h
