@@ -6226,6 +6226,37 @@ JavaScript. Uno solo la cierra, y el bloque entero dejó de definirse —
 Es exactamente lo que vigila el check «ningún comentario HTML dentro del JS lleva
 acentos graves», escrito la primera vez que pasó.
 
+## 41.52 · Ronda 27 — «¿siempre que presiono deploy se borra?»
+
+Sí. Render en plan gratuito borra el disco en **cada** despliegue, y un archivo
+de base de datos no lo arregla porque el archivo vive en ese mismo disco: un
+`.db` se borra igual que un `.json`. Para eso está el almacén — el deploy borra,
+el contenedor nuevo clona la rama `datos` y todo vuelve. Doce casos lo prueban
+borrando el disco a propósito.
+
+Pero quedaba un agujero, y es el que explica que a Kevin se le perdieran cosas
+incluso con el respaldo funcionando: **el hilo de fondo sincroniza cada 20 s, y
+nada forzaba un respaldo al hacer lo que importa**. Una cuenta creada quince
+segundos antes de pulsar «Deploy» no llegaba a subir nunca, y al volver «no
+existía». Lo mismo con el perfil y con los reportes.
+
+Ahora lo que la persona acaba de hacer se sube **antes de que la respuesta
+llegue a su pantalla**: `_respalda_ya()` en el registro y en el guardado del
+perfil, y `sincroniza()` al archivar un reporte. Un análisis tarda un minuto
+largo en producirse; esperar un segundo más a que quede guardado no se nota, y
+perderlo sí.
+
+El test lo mide sin esperar nada: registra una cuenta y exige que el commit ya
+esté hecho; archiva un reporte y lo busca **en el remoto**, no solo en el commit
+local.
+
+Y un test viejo que dejó de valer al hacerlo: `test_sincronizar_a_peticion`
+exigía `ultimo_error is None`, y desde que archivar sincroniza en el acto llega
+siempre el aviso de que sin `VERTEX_DB_KEY` no se respaldan cuentas ni perfiles.
+No es un fallo de la sincronización — es la condición de siempre en un entorno
+sin clave — así que el caso lo acepta nombrándolo, en vez de exigir un silencio
+que ya no existe.
+
 ## 41.51 · Ronda 25 — el camino de vuelta: inglés → español
 
 El panel está escrito en **dos** idiomas: Proyecciones y el perfil en español,

@@ -825,7 +825,13 @@ class TestLasRutas:
         V._archiva_acciones({"ticker": "AAPL", "recommendation": "Comprar",
                              "total_score": 78})
         d = client.post("/api/almacen/sincronizar").json()
-        assert d["ultimo_error"] is None
+        # Sin `VERTEX_DB_KEY` el preparativo de lo cifrado devuelve su aviso, y
+        # ese aviso viaja en `ultimo_error`. No es un fallo de la sincronización
+        # —es la condición de siempre en un entorno sin clave— y desde que
+        # archivar un reporte sincroniza EN EL ACTO, llega aquí sin falta.
+        SIN_CLAVE = "Sin VERTEX_DB_KEY"
+        assert d["ultimo_error"] is None or SIN_CLAVE in d["ultimo_error"], (
+            d["ultimo_error"])
         assert d["pendientes"] == 0
 
     def test_la_lista_sale_del_DIRECTORIO_no_de_la_base(self, client):
@@ -1202,3 +1208,56 @@ class TestUnConflictoNoParaElRespaldoParaSiempre:
         assert (b.raiz / "Reportes/MSFT/2026-01-02/reporte.json").is_file(), (
             "lo que estaba sin subir no llegó al remoto")
         assert (b.raiz / "Memoria/tesis/MSFT.md").is_file()
+
+
+class TestNadaEsperaAlHiloDeFondo:
+    """«¿Siempre que presiono deploy se borra?»
+
+    En Render, sí: el disco se borra en cada despliegue. Por eso existe el
+    almacén — pero el hilo de fondo sincroniza cada `SEGUNDOS_RAPIDO`, y esa
+    ventana ERA el agujero. Una cuenta creada quince segundos antes de pulsar
+    «Deploy» no llegaba a subir, y al volver «no existía».
+
+    Lo que se guarda porque la persona acaba de hacerlo —su cuenta, su perfil,
+    su reporte— no puede depender de que dé tiempo a un temporizador.
+    """
+
+    def test_una_cuenta_nueva_sube_en_el_acto(self, tmp_path, monkeypatch, remoto):
+        from fastapi.testclient import TestClient
+
+        import vertex_almacen as VA
+        import vertex_api as V
+
+        _aisla(tmp_path, monkeypatch, remoto)
+        V._arranca_almacen()
+        V.init_db()
+        VA.almacen.restaura()
+        antes = VA.almacen.estado().get("commits", 0)
+
+        c = TestClient(V.app)
+        r = c.post("/api/auth/registro", json={"email": "ya@ejemplo.com",
+                                               "nombre": "Ya", "password": "ClaveLarga123!"})
+        assert r.json().get("ok"), r.text
+        # Sin esperar NADA: el commit ya tiene que estar hecho.
+        assert VA.almacen.estado().get("commits", 0) > antes, (
+            "la cuenta se quedó esperando al hilo de fondo: un deploy en los "
+            "próximos 20 s la habría borrado")
+
+    def test_un_reporte_sube_en_el_acto(self, tmp_path, monkeypatch, remoto):
+        import vertex_almacen as VA
+        import vertex_archivo as VAR
+
+        _aisla(tmp_path, monkeypatch, remoto)
+        VA.almacen.restaura()
+        antes = VA.almacen.estado().get("commits", 0)
+
+        VAR.guarda_reporte_opciones("WULF", {"score": 71})
+        assert VA.almacen.estado().get("commits", 0) > antes, (
+            "el reporte se quedó esperando al hilo de fondo")
+
+        # Y de verdad llegó al remoto, no solo al commit local.
+        from vertex_almacen import Almacen
+        otro = Almacen(raiz=tmp_path / "otro", remoto=remoto, token="x")
+        otro.restaura()
+        assert list((otro.raiz / "Proyecciones").rglob("scorecard.json")), (
+            "el reporte no está en el remoto")
