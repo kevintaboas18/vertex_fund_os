@@ -642,7 +642,8 @@
             <i data-lucide="chevron-down" class="w-4 h-4 text-gray-500 lg:hidden"></i>
         </button>
         <div class="hidden lg:flex gap-4 xl:gap-6 text-[13px] xl:text-sm text-gray-400 font-medium whitespace-nowrap">
-            <button onclick="switchView('homeView')" class="hover:text-white transition" data-i18n="nav.dashboard">Dashboard</button>
+            <button onclick="switchView('sectorsView')" class="hover:text-white transition" data-i18n="nav.dashboard">Dashboard</button>
+            <button onclick="switchView('homeView')" class="hover:text-white transition" data-i18n="nav.analyze">Analyze</button>
             <button onclick="switchView('reportsView')" class="hover:text-white transition" data-i18n="nav.reports">Reports</button>
             <button class="hidden xl:block hover:text-white transition">Vertex Credit Division</button>
             <button onclick="switchView('portfolioView')" class="hover:text-white transition" data-i18n="nav.portfolio">Portfolio</button>
@@ -954,6 +955,17 @@
         </div>
 
     </div></main>
+
+<main id="sectorsView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4 space-y-4">
+    <div class="flex items-baseline justify-between flex-wrap gap-2">
+        <h1 class="text-xl font-black text-white">Sectores</h1>
+        <span id="sectoresSello" class="text-[10px] text-gray-600"></span>
+    </div>
+    <p class="text-[11px] text-gray-500 -mt-2 leading-snug">El mapa del mercado antes de elegir un ticker: d&oacute;nde est&aacute; entrando el dinero y d&oacute;nde est&aacute; saliendo. Pulsa un sector para ver sus industrias.</p>
+    <div id="sectoresParrilla"></div>
+    <div id="sectoresIndustrias"></div>
+    <div id="sectoresRotacion"></div>
+</main>
 
 <main id="reportsView" class="view-section hidden flex-grow w-full max-w-5xl mx-auto p-4">
     <div class="flex items-center justify-between mb-4">
@@ -1562,6 +1574,10 @@ function switchView(viewId) {
     vcIconos();
     if (viewId === 'reportsView') { renderFullReportsList(); syncReportsFromServer(); }
     if (viewId === 'homeView') renderRecentReports();
+    // La parrilla se pide AQUÍ, al entrar: cachearla en el servidor dos
+    // minutos hace que volver al panel sea instantáneo sin enseñar precios
+    // de hace media hora.
+    if (viewId === 'sectorsView' && typeof cargaSectores === 'function') cargaSectores();
     // Proyecciones se arma AQUÍ, en la navegación.
     //
     // Estaba colgado de la barra de comandos (Cmd+K), así que entrando por el
@@ -1635,6 +1651,207 @@ function vxLogoHTML(ticker, clases) {
     return `<img src="${API_BASE}/api/tito-logo?ticker=${encodeURIComponent(tk)}"
         alt="Logo de ${ini}" class="${c} object-contain bg-white/90 p-1 flex-shrink-0"
         onerror="this.onerror=null;this.outerHTML='<div class=\\'${caja}\\'>${ini}</div>'">`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SECTORES — el mapa del mercado
+//
+//  Catorce casillas: SPY, RSP y QQQ arriba, y debajo los once sectores. Al
+//  pulsar un sector se despliegan sus industrias.
+//
+//  Los colores del RSI y del cambio son los MISMOS en toda la pantalla, y por
+//  eso viven en dos funciones y no repartidos por el marcado: un verde que
+//  significa una cosa en la parrilla y otra en las industrias es peor que no
+//  tener color.
+// ═══════════════════════════════════════════════════════════════════════
+
+//: 70 y 30 son los cortes de Wilder. Entre medias no se tiñe: la mayoría de
+//: los días la mayoría de los ETF están ahí, y pintarlo todo de colores hace
+//: que el color deje de significar nada.
+function vxRsiColor(v) {
+    if (v == null) return 'text-gray-600';
+    return v >= 70 ? 'text-red-400' : v <= 30 ? 'text-emerald-400' : 'text-gray-400';
+}
+function vxCambioColor(v) {
+    if (v == null) return 'text-gray-600';
+    return v > 0 ? 'text-emerald-400' : v < 0 ? 'text-red-400' : 'text-gray-400';
+}
+const vxPct = v => v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+const vxUsd = v => v == null ? '—' : '$' + Number(v).toFixed(2);
+
+//: La casilla de la parrilla. `pulsable` es falso para SPY/RSP/QQQ: son
+//: índices y no tienen industrias que desplegar, así que no invitan al clic.
+function vxSectorCaja(f, pulsable, abierto) {
+    const rsi = f.rsi == null ? '—' : Number(f.rsi).toFixed(0);
+    return `<button ${pulsable ? `onclick="abreSector('${_vcEsc(f.ticker)}')"` : 'disabled'}
+        class="text-left w-full bg-[#11141D] border rounded-xl p-3 transition ${
+          abierto ? 'border-blue-500/60 bg-blue-500/5' : 'border-[#1F2532]'} ${
+          pulsable ? 'hover:border-blue-500/40 cursor-pointer' : 'cursor-default'}">
+        <div class="flex items-baseline gap-1.5 flex-wrap">
+          <span class="text-sm font-black text-white">${_vcEsc(f.ticker)}</span>
+          <span class="text-[10px] text-gray-500 truncate">${_vcEsc(f.nombre)}</span>
+        </div>
+        <div class="flex items-baseline gap-2 mt-1.5 flex-wrap">
+          <span class="text-base font-bold text-white">${vxUsd(f.precio)}</span>
+          <span class="text-xs font-bold ${vxCambioColor(f.cambio_pct)}">${vxPct(f.cambio_pct)}</span>
+        </div>
+        <div class="text-[10px] mt-0.5"><span class="text-gray-600">RSI </span><span
+          class="font-bold ${vxRsiColor(f.rsi)}">${rsi}</span></div>
+      </button>`;
+}
+
+async function cargaSectores(forzar) {
+    const parrilla = document.getElementById('sectoresParrilla');
+    if (!parrilla) return;
+    if (window._sectoresData && !forzar) { pintaSectores(window._sectoresData); return; }
+    parrilla.innerHTML = '<p class="text-xs text-gray-500 py-8 text-center">Leyendo el mercado…</p>';
+    try {
+        const r = await fetch(`${API_BASE}/api/sectores`);
+        const d = await r.json();
+        window._sectoresData = d;
+        pintaSectores(d);
+    } catch (e) {
+        parrilla.innerHTML = '<p class="text-xs text-amber-400 py-8 text-center">No se pudo leer el mercado. Vuelve a intentarlo.</p>';
+    }
+}
+
+function pintaSectores(d) {
+    const parrilla = document.getElementById('sectoresParrilla');
+    if (!parrilla) return;
+    if (!d || d.ok === false) {
+        parrilla.innerHTML = `<p class="text-xs text-amber-400 py-8 text-center">${_vcEsc((d && d.error) || 'Sin datos de mercado.')}</p>`;
+        return;
+    }
+    const por = {};
+    (d.filas || []).forEach(f => { por[f.ticker] = f; });
+    const refs = d.referencias || [];
+    const secs = d.sectores || [];
+    const caja = (t, pulsable) => por[t]
+        ? vxSectorCaja(por[t], pulsable, window._sectorAbierto === t)
+        : '';
+    // Las referencias en su propia fila de tres: SPY, RSP y QQQ se leen juntos
+    // o no se leen. Los sectores, en rejilla — la misma en móvil y en escritorio
+    // salvo por cuántos caben.
+    parrilla.innerHTML = `
+      <div class="grid grid-cols-3 gap-2 mb-3">${refs.map(t => caja(t, false)).join('')}</div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">${secs.map(t => caja(t, true)).join('')}</div>`;
+    const sello = document.getElementById('sectoresSello');
+    if (sello) sello.innerText = d.cacheado ? 'foto de hace menos de 2 min' : 'al momento';
+    pintaRotacion(d.rotacion);
+    if (window._sectorAbierto) abreSector(window._sectorAbierto, true);
+}
+
+//: Las industrias: una debajo de otra, con el precio, el cambio y el RSI a la
+//: derecha. Es una LISTA y no una rejilla a propósito — aquí se comparan pocas
+//: filas entre sí, y en columna el ojo baja recto por los números.
+async function abreSector(ticker, silencioso) {
+    const caja = document.getElementById('sectoresIndustrias');
+    if (!caja) return;
+    if (window._sectorAbierto === ticker && !silencioso) {
+        window._sectorAbierto = null; caja.innerHTML = '';
+        pintaSectores(window._sectoresData); return;
+    }
+    window._sectorAbierto = ticker;
+    if (!silencioso) pintaSectores(window._sectoresData);
+    caja.innerHTML = `<p class="text-xs text-gray-500 py-4 text-center">Leyendo las industrias de ${_vcEsc(ticker)}…</p>`;
+    let d;
+    try {
+        const r = await fetch(`${API_BASE}/api/sectores?etf=${encodeURIComponent(ticker)}`);
+        d = await r.json();
+    } catch (e) {
+        caja.innerHTML = '<p class="text-xs text-amber-400 py-4 text-center">No se pudieron leer las industrias.</p>';
+        return;
+    }
+    if (!d || d.ok === false) {
+        caja.innerHTML = `<p class="text-xs text-amber-400 py-4 text-center">${_vcEsc((d && d.error) || 'Sin datos.')}</p>`;
+        return;
+    }
+    if (!(d.filas || []).length) {
+        caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+          <p class="text-xs text-gray-500">${_vcEsc(d.motivo || 'Este ETF no tiene desglose por industrias.')}</p></div>`;
+        return;
+    }
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+      <div class="flex items-baseline justify-between mb-2">
+        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Industrias de ${_vcEsc(d.etf)} &middot; ${_vcEsc(d.nombre)}</h3>
+        <button onclick="abreSector('${_vcEsc(d.etf)}')" class="text-[10px] text-gray-500 hover:text-gray-300">cerrar</button>
+      </div>
+      <div class="divide-y divide-gray-800/60">
+        ${(d.filas || []).map(f => `<div class="flex items-center gap-3 py-2">
+          <div class="min-w-0 flex-1">
+            <span class="text-xs font-black text-white">${_vcEsc(f.ticker)}</span>
+            <span class="text-[10px] text-gray-500 ml-1.5">${_vcEsc(f.nombre)}</span>
+          </div>
+          <span class="text-xs font-bold text-white w-20 text-right">${vxUsd(f.precio)}</span>
+          <span class="text-xs font-bold w-16 text-right ${vxCambioColor(f.cambio_pct)}">${vxPct(f.cambio_pct)}</span>
+          <span class="text-[10px] w-14 text-right"><span class="text-gray-600">RSI </span><span
+            class="font-bold ${vxRsiColor(f.rsi)}">${f.rsi == null ? '—' : Number(f.rsi).toFixed(0)}</span></span>
+        </div>`).join('')}
+      </div>
+      <p class="text-[9px] text-gray-600 mt-2">Precio y cambio del d&iacute;a en vivo &middot; RSI de Wilder de 14 sesiones sobre velas diarias.</p></div>`;
+}
+
+//: El informe de rotación. Cuatro bloques, y ninguno se inventa una frase
+//: cuando no hay nada que decir: un día sin rotación citable se dice así.
+function pintaRotacion(rot) {
+    const caja = document.getElementById('sectoresRotacion');
+    if (!caja) return;
+    if (!rot || !rot.disponible) {
+        caja.innerHTML = rot && rot.motivo
+            ? `<p class="text-[10px] text-gray-600">${_vcEsc(rot.motivo)}</p>` : '';
+        return;
+    }
+    const CUAD = {
+        leading:   ['Liderando',    'text-emerald-400', 'fuerza alta y subiendo — el dinero est&aacute; entrando'],
+        improving: ['Despertando',  'text-blue-400',    'fuerza baja pero girando al alza — acumulaci&oacute;n temprana'],
+        weakening: ['Agot&aacute;ndose', 'text-amber-400', 'fuerza alta pero perdiendo impulso'],
+        lagging:   ['Rezagados',    'text-red-400',     'fuerza baja y cayendo — sin inter&eacute;s o venta activa'],
+    };
+    const chip = t => `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/5 text-gray-200">${_vcEsc(t)}</span>`;
+    const bloque = (clave) => {
+        const [lbl, col, expl] = CUAD[clave];
+        const ts = (rot.matriz || {})[clave] || [];
+        return `<div class="py-1.5">
+          <div class="flex items-baseline gap-2 flex-wrap">
+            <span class="text-[11px] font-black ${col}">${lbl}</span>
+            <span class="text-[9px] text-gray-600">${expl}</span>
+          </div>
+          <div class="flex flex-wrap gap-1 mt-1">${ts.length ? ts.map(chip).join('') : '<span class="text-[10px] text-gray-700">ninguno</span>'}</div>
+        </div>`;
+    };
+    const salud = rot.salud || {};
+    const flujo = [];
+    if ((rot.entrando || []).length) flujo.push(`<span class="text-emerald-400">Entra en</span> ${rot.entrando.map(_vcEsc).join(', ')}`);
+    if ((rot.saliendo || []).length) flujo.push(`<span class="text-red-400">Sale de</span> ${rot.saliendo.map(_vcEsc).join(', ')}`);
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4 space-y-3">
+      <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Rotaci&oacute;n sectorial</h3>
+
+      <div>
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide">Salud del mercado &middot; RSP contra SPY</p>
+        <p class="text-xs text-gray-200 mt-0.5">${_vcEsc(salud.frase || '—')}</p>
+      </div>
+
+      <div class="border-t border-gray-800 pt-2">
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Matriz de rotaci&oacute;n</p>
+        ${['leading', 'improving', 'weakening', 'lagging'].map(bloque).join('')}
+      </div>
+
+      ${flujo.length ? `<div class="border-t border-gray-800 pt-2">
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide">Flujo de capital <span class="text-gray-700 normal-case">&mdash; con volumen sobre su media de 20 sesiones</span></p>
+        <p class="text-xs text-gray-300 mt-0.5">${flujo.join(' &middot; ')}</p></div>` : ''}
+
+      ${(rot.dia_rojo || []).length ? `<div class="border-t border-gray-800 pt-2">
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide">Aguantan el d&iacute;a rojo</p>
+        <p class="text-xs text-gray-300 mt-0.5">${rot.dia_rojo.map(x => `${_vcEsc(x.ticker)} ${vxPct(x.cambio_pct)}`).join(' &middot; ')}</p>
+        <p class="text-[9px] text-gray-600">El sector que no cae cuando todo cae es el que tiene demanda debajo.</p></div>` : ''}
+
+      ${(rot.diagnostico || []).length ? `<div class="border-t border-gray-800 pt-2">
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Diagn&oacute;stico</p>
+        ${rot.diagnostico.map(f => `<p class="text-xs text-gray-200 leading-snug">&#9656; ${_vcEsc(f)}</p>`).join('')}</div>` : ''}
+
+      ${rot.dispersion != null ? `<p class="text-[9px] text-gray-600 border-t border-gray-800 pt-2">Dispersi&oacute;n entre sectores hoy: <b class="text-gray-400">${Number(rot.dispersion).toFixed(2)}</b> &mdash; alta significa rotaci&oacute;n de verdad; baja, que todo se mueve en bloque.</p>` : ''}
+    </div>`;
 }
 
 // ── AUTOCOMPLETADO ───────────────────────────────────────
@@ -11104,6 +11321,38 @@ const VX_ES2EN = {
     "Volatilidad normal": "Normal volatility",
     "Dominancia": "Dominance",
     "Rango extremo · 2σ": "Extreme range · 2σ",
+    "Sectores": "Sectors",
+    "El mapa del mercado antes de elegir un ticker: dónde está entrando el dinero y dónde está saliendo. Pulsa un sector para ver sus industrias.": "The market map before picking a ticker: where money is coming in and where it is going out. Tap a sector to see its industries.",
+    "Leyendo el mercado…": "Reading the market…",
+    "No se pudo leer el mercado. Vuelve a intentarlo.": "Could not read the market. Try again.",
+    "Sin datos de mercado.": "No market data.",
+    "No se pudieron leer las industrias.": "Could not read the industries.",
+    "Sin datos.": "No data.",
+    "Este ETF no tiene desglose por industrias.": "This ETF has no industry breakdown.",
+    "cerrar": "close",
+    "Precio y cambio del día en vivo · RSI de Wilder de 14 sesiones sobre velas diarias.": "Live price and daily change · Wilder RSI over 14 daily candles.",
+    "Rotación sectorial": "Sector rotation",
+    "Salud del mercado · RSP contra SPY": "Market health · RSP against SPY",
+    "Matriz de rotación": "Rotation matrix",
+    "Flujo de capital": "Capital flow",
+    "— con volumen sobre su media de 20 sesiones": "— with volume above its 20-session average",
+    "Aguantan el día rojo": "Holding up on the red day",
+    "El sector que no cae cuando todo cae es el que tiene demanda debajo.": "The sector that does not fall when everything falls is the one with demand underneath.",
+    "Diagnóstico": "Diagnosis",
+    "Liderando": "Leading",
+    "Despertando": "Waking up",
+    "Agotándose": "Fading",
+    "Rezagados": "Lagging",
+    "fuerza alta y subiendo — el dinero está entrando": "high strength and rising — money is coming in",
+    "fuerza baja pero girando al alza — acumulación temprana": "low strength but turning up — early accumulation",
+    "fuerza alta pero perdiendo impulso": "high strength but losing momentum",
+    "fuerza baja y cayendo — sin interés o venta activa": "low strength and falling — no interest or active selling",
+    "ninguno": "none",
+    "Entra en": "Into",
+    "Sale de": "Out of",
+    "alta significa rotación de verdad; baja, que todo se mueve en bloque.": "high means real rotation; low means everything moves as one block.",
+    "al momento": "live",
+    "foto de hace menos de 2 min": "snapshot under 2 min old",
     "Contrato": "Contract",
     "Dinero": "Money",
     "Theta/día": "Theta/day",
@@ -12085,6 +12334,10 @@ const VX_ES2EN = {
  * cada valor sería una entrada distinta. Van aquí, con `$1`, `$2`… en el
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
+    // Los sectores: llevan el ticker o un número dentro de la frase.
+    [/^Leyendo las industrias de (\S+)…$/, 'Reading the industries of $1…'],
+    [/^Industrias de (\S+) · (.+)$/, 'Industries of $1 · $2'],
+    [/^Dispersión entre sectores hoy:$/, 'Dispersion across sectors today:'],
     // La tabla de inusualidad: los dos botones llevan el recuento dentro, y la
     // nota lleva el umbral. Los `<b>` de la nota la parten en varios nodos de
     // texto, así que cada trozo va por su lado — el barrido traduce nodo a nodo.

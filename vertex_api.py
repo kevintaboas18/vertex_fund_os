@@ -6214,6 +6214,228 @@ def archivo_lista(agente: str, ticker: str = ""):
             "n": len(filas), "reportes": filas}
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  EL MAPA DE SECTORES — la pantalla de arranque del panel
+#
+#  Catorce casillas: tres referencias (SPY, RSP, QQQ) y los once sectores del
+#  S&P, cada una con precio, cambio del día y RSI. Al pulsar un sector se
+#  despliegan sus industrias.
+#
+#  Dos datos por ticker y dos orígenes distintos, a propósito:
+#
+#   · **Precio y cambio** de `/stable/quote` — es intradía. Un mapa del mercado
+#     con el cierre de ayer no sirve para mirar el mercado de hoy.
+#   · **RSI** de las velas DIARIAS, que es lo que significa «RSI de 1 día». Se
+#     calcula aquí con la fórmula de Wilder (`wbj.sectores`), no se pide a
+#     ningún proveedor: así el número no depende de qué suavizado use cada uno.
+#
+#  Son 14 tickers × 2 peticiones. En serie eso es medio minuto; se piden en
+#  paralelo y se cachean, porque los catorce son los MISMOS para todo el mundo
+#  y el mercado no se mueve tanto en dos minutos.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Cuánto vale una foto del mapa. Dos minutos: lo bastante fresco para mirar el
+#: mercado y lo bastante largo para que abrir el panel diez veces no gaste diez
+#: veces la cuota de FMP.
+_SECTORES_TTL = 120
+_SECTORES_CACHE: dict[str, tuple[float, dict]] = {}
+_SECTORES_LOCK = threading.Lock()
+
+#: Cuántos tickers se piden a la vez. Seis es el mismo tope que usa el escaneo
+#: de la Wheel: suficiente para que catorce tarden ~2 s y poco para no hacer
+#: que FMP nos limite por ráfaga.
+_SECTORES_CONCURRENCIA = 6
+
+#: Los once, cargados una vez. Se resuelve perezosamente para que importar
+#: `vertex_api` sin el engine en el path no reviente el arranque.
+try:
+    from wbj.sectores import SECTORES as _SECTORES_LISTA
+except Exception:                                # noqa: BLE001
+    _SECTORES_LISTA = ()
+
+
+def _sector_fila(ticker: str) -> dict:
+    """Precio, cambio, RSI y la serie diaria de UN ticker. Nunca lanza.
+
+    Lo que falte va a `None`: una casilla sin dato se pinta «—» y el resto del
+    mapa se ve igual. Que un ETF raro no responda no puede dejar la pantalla en
+    blanco.
+
+    Los `cierres` y `volumenes` viajan dentro de la fila —no se pintan— porque
+    la rotación los necesita: el RS Ratio de un sector se calcula contra la
+    serie del SPY, así que hace falta tener las dos a la vez.
+    """
+    from wbj.sectores import cambio_pct, nombre_de, rsi
+
+    tk = str(ticker).upper().strip()
+    fila = {"ticker": tk, "nombre": nombre_de(tk), "precio": None,
+            "cambio_pct": None, "rsi": None, "cierres": [], "volumenes": []}
+    try:
+        q = _quote_rapido_fmp(tk) or {}
+        precio = q.get("price")
+        if isinstance(precio, (int, float)) and precio > 0:
+            fila["precio"] = round(float(precio), 2)
+            # `previousClose` y no `change`: el cambio se calcula con la misma
+            # fórmula para todos, venga el campo que venga del proveedor.
+            c = cambio_pct(precio, q.get("previousClose"))
+            fila["cambio_pct"] = None if c is None else round(c, 2)
+    except Exception:                            # noqa: BLE001 — se degrada, no se cae
+        pass
+    try:
+        # 6 meses: ~125 sesiones. El RSI de 14 se conforma con 15 cierres, pero
+        # la pendiente larga del RS Ratio mira 50 sesiones ATRÁS sobre una serie
+        # que ya es un cociente — con tres meses justos, el ROC de 50 sale en
+        # blanco y medio mapa se queda sin cuadrante.
+        barras = _fmp_daily_bars(tk, "6mo")
+        fila["cierres"] = [b[4] for b in barras]
+        fila["volumenes"] = [b[5] for b in barras]
+        v = rsi(fila["cierres"])
+        fila["rsi"] = None if v is None else round(v, 1)
+    except Exception:                            # noqa: BLE001
+        pass
+    return fila
+
+
+def _sectores_rotacion(filas: dict) -> dict:
+    """Las tres capas de la rotación sobre las filas ya bajadas.
+
+    `filas` es `{ticker: fila}`. Devuelve el bloque entero —salud, matriz,
+    flujo y diagnóstico— o lo que se pueda de él. Nunca lanza: si falta el SPY
+    no hay contra qué medir, y eso se dice en vez de devolver ceros.
+    """
+    from wbj.sectores import (CATEGORIAS, CUADRANTES, categoria_de,
+                              clasifica_sector, diagnostico, dispersion,
+                              lideres_del_dia_rojo, salud_del_mercado, serie_rs)
+
+    spy = filas.get("SPY") or {}
+    rsp = filas.get("RSP") or {}
+    cierres_spy = spy.get("cierres") or []
+    ret_spy = spy.get("cambio_pct")
+    if not cierres_spy:
+        return {"disponible": False,
+                "motivo": "Sin la serie del SPY no hay contra qué medir la "
+                          "fuerza relativa de los sectores."}
+
+    # 1 · Salud: RSP contra SPY. La distancia entre los dos es la amplitud.
+    salud_clave, salud_frase, salud_pend = salud_del_mercado(
+        serie_rs(rsp.get("cierres") or [], cierres_spy), ret_spy)
+
+    # 2 · Matriz: cada sector contra el SPY.
+    por_sector, retornos = {}, {}
+    for tk, _ in _SECTORES_LISTA:
+        f = filas.get(tk) or {}
+        d = clasifica_sector(f.get("cierres") or [], f.get("volumenes") or [],
+                             cierres_spy, f.get("cambio_pct"), ret_spy)
+        d["categoria"] = categoria_de(tk)
+        por_sector[tk] = d
+        if f.get("cambio_pct") is not None:
+            retornos[tk] = f["cambio_pct"]
+
+    matriz = {c: sorted(t for t, d in por_sector.items() if d.get("cuadrante") == c)
+              for c in CUADRANTES}
+
+    def _r6(v):
+        return None if v is None else round(float(v), 4)
+
+    return {
+        "disponible": True,
+        "salud": {"clave": salud_clave, "frase": salud_frase,
+                  "pendiente": _r6(salud_pend)},
+        "matriz": matriz,
+        "cuadrantes": CUADRANTES,
+        "categorias": [{"clave": c, "nombre": n, "sectores": list(ts)}
+                       for c, n, ts in CATEGORIAS],
+        "sectores": {t: {k: (_r6(v) if isinstance(v, (int, float)) else v)
+                         for k, v in d.items()}
+                     for t, d in por_sector.items()},
+        "entrando": sorted(t for t, d in por_sector.items() if d.get("flujo") == "entrada"),
+        "saliendo": sorted(t for t, d in por_sector.items() if d.get("flujo") == "salida"),
+        "dispersion": _r6(dispersion(list(retornos.values()))),
+        "dia_rojo": [{"ticker": t, "cambio_pct": r}
+                     for t, r in lideres_del_dia_rojo(ret_spy, retornos)],
+        "diagnostico": diagnostico(por_sector, salud_clave),
+    }
+
+
+def _sectores_filas(tickers) -> list[dict]:
+    """Las filas de varios tickers, en paralelo y EN EL ORDEN pedido.
+
+    El orden importa: la parrilla se lee como un mapa —SPY, RSP y QQQ arriba,
+    los sectores debajo— y si las casillas se colocaran según quién conteste
+    antes, cambiarían de sitio en cada carga.
+    """
+    tickers = list(tickers)
+    if not tickers:
+        return []
+    with ThreadPoolExecutor(max_workers=_SECTORES_CONCURRENCIA) as ex:
+        return list(ex.map(_sector_fila, tickers))
+
+
+@app.get("/api/sectores")
+def api_sectores(etf: str = ""):
+    """El mapa entero, o las industrias de UN sector si se pasa `etf`.
+
+    Sin `etf`: las catorce casillas de la parrilla.
+    Con `etf`: las industrias de ese sector. SPY, RSP y QQQ no se despliegan —
+    son índices, y desglosarlos sería inventarles unas industrias que no
+    tienen; se contesta con la lista vacía y el motivo, no con un error.
+    """
+    from wbj.sectores import ES_REFERENCIA, REFERENCIAS, SECTORES
+    from wbj.sectores import industrias_de, nombre_de, universo
+
+    tk = str(etf or "").upper().strip()
+    clave = tk or "_parrilla"
+    ahora = time.time()
+    with _SECTORES_LOCK:
+        guardado = _SECTORES_CACHE.get(clave)
+        if guardado and ahora - guardado[0] < _SECTORES_TTL:
+            return {**guardado[1], "cacheado": True}
+
+    if not (os.environ.get("FMP_API_KEY") or "").strip():
+        # Se dice cuál falta y qué se deja de ver. Un mapa vacío sin motivo se
+        # lee como «el mercado no existe hoy».
+        return {"ok": False, "error": "Falta FMP_API_KEY: sin ella no hay "
+                                      "precio ni RSI de los sectores.",
+                "filas": [], "etf": tk}
+
+    if tk:
+        filas_def = industrias_de(tk)
+        if not filas_def:
+            motivo = ("SPY, RSP y QQQ son índices, no sectores: no tienen "
+                      "industrias que desplegar."
+                      if tk in ES_REFERENCIA else
+                      f"{tk} no tiene desglose por industrias.")
+            salida = {"ok": True, "etf": tk, "nombre": nombre_de(tk),
+                      "filas": [], "motivo": motivo}
+        else:
+            salida = {"ok": True, "etf": tk, "nombre": nombre_de(tk),
+                      "filas": [{k: v for k, v in f.items()
+                                 if k not in ("cierres", "volumenes")}
+                                for f in _sectores_filas([t for t, _ in filas_def])],
+                      "motivo": None}
+    else:
+        filas = _sectores_filas(universo())
+        por_ticker = {f["ticker"]: f for f in filas}
+        rotacion = _sectores_rotacion(por_ticker)
+        salida = {
+            "ok": True, "etf": "",
+            "referencias": [t for t, _ in REFERENCIAS],
+            "sectores": [t for t, _ in SECTORES],
+            # Las series se quitan de la respuesta: son ~125 cierres y 125
+            # volúmenes por ticker —cerca de un megabyte para catorce— y ya
+            # cumplieron su función al calcular la rotación. La pantalla pinta
+            # números, no series.
+            "filas": [{k: v for k, v in f.items()
+                       if k not in ("cierres", "volumenes")} for f in filas],
+            "rotacion": rotacion,
+            "motivo": None,
+        }
+    salida["generado"] = datetime.now(timezone.utc).isoformat()
+    with _SECTORES_LOCK:
+        _SECTORES_CACHE[clave] = (ahora, salida)
+    return {**salida, "cacheado": False}
+
+
 @app.get("/api/tito-logo")
 def tito_logo(ticker: str):
     """Su `/api/logo` — el logo de la empresa, servido por proxy.
