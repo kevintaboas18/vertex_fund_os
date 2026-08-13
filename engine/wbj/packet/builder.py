@@ -186,6 +186,33 @@ CANONICAL_FIELD_MAP: dict[str, str] = {
 # adapter: marking a subscription business as generic would let it skip
 # the customer-economics dimension entirely, which flatters it, while
 # the reverse only costs coverage on a dimension it should be answering.
+#: Industrias que el substring de arriba capturaria por accidente.
+#:
+#: Se consultan ANTES que `_ADAPTER_BY_INDUSTRY` y ganan. Cada una es un caso
+#: donde la industria ENTERA esta mal enrutada -- no una empresa dudosa:
+#:
+#: - "Insurance - Brokers" (MMC, AJG, BRO): un corredor no suscribe ningun
+#:   riesgo. Cobra comision y lleva deuda corriente, asi que su ROIC y su
+#:   cobertura de intereses significan exactamente lo que significan en
+#:   cualquier empresa de servicios. INDUSTRY_ADAPTERS.md le pide a un
+#:   asegurador "combined ratio, reserve development, solvency capital": un
+#:   corredor no tiene ninguna de las tres.
+#: - "Real Estate - Services/Development/General/Diversified" (CBRE, JLL,
+#:   HHH, JOE): la regla por SECTOR mandaba todo "real estate" a `reits`, y
+#:   con eso a una corredora inmobiliaria se le sustituia el EPS por FFO/AFFO
+#:   que no reporta ni tiene por que reportar. En la taxonomia de FMP un REIT
+#:   siempre se llama "REIT - X"; nada mas en ese sector lo es.
+#:
+#: Los dos casos mueven empresas DESDE un adaptador que reemplaza el modelo
+#: HACIA el generico, que devuelve metricas en vez de suprimirlas.
+_ADAPTER_EXCEPTIONS: tuple[tuple[str, str], ...] = (
+    ("insurance - brokers", "default_nonfinancial"),
+    ("real estate - services", "default_nonfinancial"),
+    ("real estate - development", "default_nonfinancial"),
+    ("real estate - general", "default_nonfinancial"),
+    ("real estate - diversified", "default_nonfinancial"),
+)
+
 _ADAPTER_BY_INDUSTRY: tuple[tuple[str, str], ...] = (
     ("reit", "reits"),
     ("insurance", "insurers"),
@@ -221,6 +248,9 @@ def _industry_adapter_for(profile: dict) -> str:
     """
     industry = (profile.get("industry") or "").lower()
     sector = (profile.get("sector") or "").lower()
+    for needle, adapter in _ADAPTER_EXCEPTIONS:
+        if needle in industry:
+            return adapter
     for needle, adapter in _ADAPTER_BY_INDUSTRY:
         if needle in industry:
             return adapter
