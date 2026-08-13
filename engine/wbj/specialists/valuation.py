@@ -743,14 +743,66 @@ def _reit_adapter_output(packet: Packet, overlay: dict[str, Any]) -> ValuationOu
     con_affo = (Value.of(_affo_score, unit="score",
                          warnings=["SLOT_CARRIES_AFFO_YIELD_NOT_EARNINGS_YIELD"])
                 if _affo_score is not None else sin_affo)
+
+    # --- P/AFFO contra su propia historia -> DIM_HIST_PEER ---
+    #
+    # `SCORING.md` para esta dimension: "Minimum 8 valid peers **or use history
+    # only**". La historia sola basta, y el Cerebro lo dice.
+    #
+    # Lo que NO sirve es la historia que ya existe: `historical_multiples` trae
+    # el P/E, y para O son ~40x mientras su P/AFFO ronda 13x. El adaptador
+    # reemplaza el EPS, asi que puntuar a un REIT contra su historia de P/E es
+    # puntuarlo con el multiplo que el documento retira. Por eso hace falta el
+    # AFFO EN EL TIEMPO, no una sola cifra.
+    #
+    # La banda tampoco se inventa: `hist_zscore` mide "cuan lejos esta el
+    # multiplo de su propia mediana" y esa pregunta no depende de QUE multiplo
+    # sea. Entra con las anclas que VAL-ZHIST-035 ya tiene.
+    _affo_hist = [float(x) for x in (overlay.get("affo_history") or [])
+                  if isinstance(x, (int, float)) and x > 0]
+    con_affo_hist = sin_affo
+    if _affo_hist and affo and source and price and shares:
+        _pa_actual = float(price) / (float(affo) / float(shares))
+        _pa_hist = [float(price) / (a / float(shares)) for a in _affo_hist]
+        _z = ve.hist_zscore(_pa_actual, _pa_hist)
+        _zs = _score_from_anchor(_z, [(2.0, 0), (0.5, 5), (0.0, 7), (-1.0, 10)])
+        if _zs is not None:
+            con_affo_hist = Value.of(
+                _zs, unit="score",
+                warnings=["SLOT_CARRIES_P_AFFO_ZSCORE_NOT_P_E"])
+
+    # --- P/AFFO ajustado por crecimiento -> DIM_MULTIPLES ---
+    #
+    # La misma serie da el crecimiento, asi que el analogo del PEG de un REIT
+    # sale sin pedir nada mas: P/AFFO dividido por el crecimiento anualizado
+    # del AFFO. Tercera sustitucion del mismo tipo --insumo distinto, regla
+    # intacta-- con las anclas que VAL-PEG-028 ya tiene.
+    #
+    # El crecimiento se anualiza sobre la serie ENTERA, no el ultimo salto: un
+    # ano bueno no es una tendencia, y `SCORING.md` pide "normalized, not
+    # peak-cycle".
+    con_affo_peg = sin_affo
+    if _affo_hist and affo and source and price and shares and len(_affo_hist) >= 2:
+        _viejo = _affo_hist[-1]
+        _anios = len(_affo_hist)
+        if _viejo > 0 and float(affo) > 0:
+            _g = (float(affo) / _viejo) ** (1.0 / _anios) - 1.0
+            if _g > 0:
+                _pa = float(price) / (float(affo) / float(shares))
+                _pg = _score_from_anchor(_ok(_pa / (_g * 100.0), unit=""),
+                                         [(0.5, 10), (1.0, 7), (2.0, 3), (3.5, 0)])
+                if _pg is not None:
+                    con_affo_peg = Value.of(
+                        _pg, unit="score",
+                        warnings=["SLOT_CARRIES_P_AFFO_OVER_AFFO_GROWTH"])
     por_dimension = {
         DIM_MOS: scored,
         DIM_FAIR_VALUE_SCENARIOS: ([(1.0, Value.of(mos_score, unit="score"))]
                                    if mos_score is not None else [(1.0, sin_affo)]),
         # Multiplos e historico: el de EPS no aplica (queda reemplazado), el de
         # AFFO falta. Los dos estados, cada uno donde corresponde.
-        DIM_MULTIPLES: [(0.5, na), (0.5, sin_affo)],
-        DIM_HIST_PEER: [(1.0, sin_affo)],
+        DIM_MULTIPLES: [(0.5, na), (0.5, con_affo_peg)],
+        DIM_HIST_PEER: [(1.0, con_affo_hist)],
         DIM_CF_YIELD: [(0.5, na), (0.5, con_affo)],
     }
     dims = [Dimension(name=n, max_points=DIMENSION_MAX_POINTS[n],
