@@ -284,6 +284,10 @@ def _run_pipeline(fn, *args, **kwargs):
 def entradas(
     tickers: list[str] = typer.Argument(..., help="Uno o varios tickers."),
     force: bool = typer.Option(False, "--force", help="Sobrescribe un archivo existente."),
+    completar: bool = typer.Option(
+        False, "--completar",
+        help="En vez de escribir, agrega a un archivo existente las llaves que "
+             "el motor pide y el archivo no nombra. No toca ningun valor."),
 ) -> None:
     """Escribe el esqueleto de `Entradas/<TICKER>.json` para cada ticker.
 
@@ -291,19 +295,32 @@ def entradas(
     archivo -- el esqueleto documenta las llaves, nunca inventa cifras. Un
     archivo que ya existe no se toca salvo `--force`: lo que hay ahi es
     captura hecha a mano que ningun proveedor puede devolver.
+
+    `--completar` es el punto medio que faltaba. El motor gana llaves con el
+    tiempo, y un archivo escrito antes no vuelve a mencionarlas nunca: sin
+    `--force` no se abre, y con `--force` se borra la captura. Completar agrega
+    SOLO lo ausente, siempre en null, y deja intacto todo valor ya escrito.
     """
-    from wbj.entradas import write_skeleton
+    from wbj.entradas import top_up_skeleton, write_skeleton
 
     settings, _, _ = _providers()
     directory = getattr(settings, "inputs_dir", None) or (
         Path(settings.reports_dir).parent / "Entradas")
+    if completar and force:
+        typer.echo("--completar y --force se contradicen: uno conserva lo escrito "
+                   "y el otro lo borra. Elige uno.")
+        raise typer.Exit(1)
     wrote = 0
     for ticker in tickers:
-        ok, message = write_skeleton(directory, ticker, force=force)
+        if completar:
+            ok, message = top_up_skeleton(Path(directory) / f"{ticker.upper()}.json")
+        else:
+            ok, message = write_skeleton(directory, ticker, force=force)
         wrote += 1 if ok else 0
         typer.echo(("  " if ok else "  - ") + message)
     typer.echo("")
-    typer.echo(f"{wrote}/{len(tickers)} escritos en {directory}")
+    verbo = "completados" if completar else "escritos"
+    typer.echo(f"{wrote}/{len(tickers)} {verbo} en {directory}")
 
 
 @app.command("tam-todas")

@@ -497,6 +497,91 @@ def render_skeleton(ticker: str) -> str:
     return json.dumps(out, indent=2, ensure_ascii=True) + "\n"
 
 
+def top_up_skeleton(path: Path) -> tuple[bool, str]:
+    """Add to an existing file the keys the engine grew AFTER it was written.
+
+    The third state between "no se toca" and `--force`. A file created before a
+    key existed never mentions it again: `write_skeleton` refuses to reopen it
+    and `--force` would erase the capture. So the analyst's only notice that the
+    engine now reads something new is the metric's own MISSING warning -- and
+    only if they run the ticker and read it.
+
+    Measured, not hypothetical: `affo_history` landed with the REIT valuation
+    fix, and the four files already on disk kept describing a fourteen-key
+    contract that had grown. For a REIT that is the exact key that carries two
+    of its three valuation dimensions, silently absent from the only document
+    the analyst reads.
+
+    What it does NOT do, because both would destroy hand capture:
+
+    - **A captured value is never touched.** Only keys ABSENT from the file are
+      added, and always as `null`. A `null` already on disk stays `null`.
+    - **A key the engine no longer names is kept**, moved to the tail under a
+      note. Dropping it would delete a figure someone typed, and the engine
+      ignoring a key is not the same as the key being wrong.
+
+    The notes are re-rendered, so the file's documentation matches today's
+    engine instead of the day it was created.
+    """
+    path = Path(path)
+    if not path.exists():
+        return False, f"{path.name}: no existe, nada que completar"
+    try:
+        viejo = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return False, f"{path.name}: no se pudo leer ({type(exc).__name__}), no se toca"
+    if not isinstance(viejo, dict):
+        return False, f"{path.name}: no es un objeto JSON, no se toca"
+
+    # `Entradas/` no contiene solo archivos de ticker: tambien vive ahi
+    # `cik_overrides.json`, que es configuracion. Sin este guard, completar lo
+    # trataba como un esqueleto de la empresa "CIK_OVERRIDES" y le escribia
+    # encima el contrato entero. Se probo: paso -- y el archivo de overrides
+    # quedo con 79 llaves en null y el mapa de CIKs mudado al tramo de
+    # huerfanas. Un archivo de ticker se nombra como un ticker Y ya habla el
+    # vocabulario del contrato; cualquier otra cosa se deja en paz.
+    ticker = path.stem.upper()
+    if not (ticker.replace("-", "").replace(".", "").isalnum()
+            and ticker == path.stem.upper() and len(ticker) <= 6
+            and not path.stem.startswith("_")):
+        return False, f"{path.name}: no parece un archivo de ticker, no se toca"
+    _contrato = set(SKELETON_KEYS)
+    _propias = {k for k in viejo if not k.startswith("_")}
+    if _propias and not (_propias & _contrato):
+        return False, (f"{path.name}: no nombra ninguna llave del contrato "
+                       "-- no es un esqueleto de entradas, no se toca")
+
+    nuevo = json.loads(render_skeleton(ticker))
+    # `_NN` son las lineas de comentario del render, no datos del analista.
+    capturado = {k: v for k, v in viejo.items() if not k.startswith("_")}
+
+    faltaban = [k for k in nuevo if not k.startswith("_") and k not in capturado]
+    for clave, valor in capturado.items():
+        if clave in nuevo:
+            nuevo[clave] = valor
+
+    huerfanas = [k for k in capturado if k not in nuevo]
+    if huerfanas:
+        n = max((int(k[1:]) for k in nuevo if k.startswith("_") and k[1:].isdigit()),
+                default=0)
+        nuevo[f"_{n + 1:02d}"] = ("--- Llaves que este motor ya no nombra ---")
+        nuevo[f"_{n + 2:02d}"] = (
+            "Se conservan porque las escribio alguien. El motor no las lee.")
+        for clave in huerfanas:
+            nuevo[clave] = capturado[clave]
+
+    if not faltaban and not huerfanas and nuevo == viejo:
+        return False, f"{path.name}: ya esta al dia"
+    path.write_text(json.dumps(nuevo, indent=2, ensure_ascii=True) + "\n",
+                    encoding="utf-8")
+    partes = []
+    if faltaban:
+        partes.append(f"+{len(faltaban)} llaves ({', '.join(sorted(faltaban))})")
+    if huerfanas:
+        partes.append(f"{len(huerfanas)} huerfanas conservadas")
+    return True, f"{path.name}: " + ("; ".join(partes) or "notas actualizadas")
+
+
 def write_skeleton(directory: Path, ticker: str, *, force: bool = False) -> tuple[bool, str]:
     """Write `<TICKER>.json` into `directory`. Returns (written, message).
 
