@@ -1251,10 +1251,15 @@
                                 <span id="wbjBand" class="text-[10px] font-bold mt-0.5"></span></div></div>
                         <span class="text-[10px] text-gray-500 mt-1">Confianza: <b id="wbjConf" class="text-gray-300"></b></span>
                     </div>
-                    <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 lg:col-span-2">
-                        <div class="flex justify-between items-center mb-2"><span class="text-[10px] text-gray-500 uppercase font-bold">Puntajes de los 6 agentes</span>
-                            <span id="wbjEvidence" class="text-[10px] text-gray-500"></span></div>
-                        <div id="wbjScorecard" class="space-y-2.5"></div>
+                    <div class="bg-[#0B0E14] rounded-xl border border-gray-900 p-4 lg:col-span-2 flex items-center">
+                        <p class="text-[11px] text-gray-500 leading-relaxed">
+                            Los puntajes por agente y la cobertura de cada uno están arriba, en
+                            <b class="text-gray-400">«Puntaje de los agentes»</b> — salían dos veces
+                            con los mismos números. El puntaje <b class="text-gray-400">con juez</b>
+                            vive en su propia pestaña, <b class="text-gray-400">Juicio AI</b>.
+                        </p>
+                        <span id="wbjEvidence" class="hidden"></span>
+                        <span id="wbjScorecard" class="hidden"></span>
                     </div>
                 </div>
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
@@ -1896,6 +1901,40 @@ async function fetchLivePriceComparison(ticker, reportPrice) {
 }
 
 // ── RENDER DASHBOARD ─────────────────────────────────────
+// ══ COLOR DE LA RECOMENDACIÓN — uno solo, para que no se contradigan ══
+//
+// El badge salía GRIS. Había dos mapas de color distintos, los dos con las
+// cuatro claves en inglés (BUY/HOLD/SELL/AVOID), y el motor dejó de emitir
+// esas palabras hace tiempo: hoy devuelve FAVORABLE / CONDICIONAL /
+// ESPECULATIVO / DESFAVORABLE (ver `_WBJ_PROFILE_TO_RECO` en vertex_api.py).
+// Ninguna casaba, así que todo caía al `|| gris` — incluido DESFAVORABLE, que
+// es justo el que tenía que gritar en rojo.
+//
+// Verde = favorable · Ámbar = condicional o especulativo (hay que decidir) ·
+// Rojo = desfavorable. Los nombres viejos siguen mapeados porque los reportes
+// guardados en disco los conservan.
+const _REC_VERDE  = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+const _REC_AMBAR  = 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+const _REC_ROJO   = 'text-red-400 bg-red-500/10 border-red-500/30';
+const _REC_GRIS   = 'text-gray-400 border-gray-700';
+const _REC_COLOR = {
+  FAVORABLE: _REC_VERDE,      BUY: _REC_VERDE,        COMPRAR: _REC_VERDE,
+  CONDICIONAL: _REC_AMBAR,    HOLD: _REC_AMBAR,       AGUANTAR: _REC_AMBAR,
+  ESPECULATIVO: _REC_AMBAR,   SPECULATIVE: _REC_AMBAR,
+  DESFAVORABLE: _REC_ROJO,    AVOID: _REC_ROJO,       SELL: _REC_ROJO,
+  VENDER: _REC_ROJO,          EVITAR: _REC_ROJO,
+};
+function recClass(rec) {
+  const k = String(rec || '').toUpperCase().trim();
+  if (_REC_COLOR[k]) return _REC_COLOR[k];
+  // Un perfil compuesto ("EVITAR / ESPERAR") no cae en el mapa por igualdad.
+  // Se decide por lo que dice, y ante la duda queda gris en vez de fingir.
+  if (/EVITAR|AVOID|VENDER|SELL|DESFAVOR/.test(k)) return _REC_ROJO;
+  if (/ESPECULAT|SPECULAT|CONDICION|ESPERAR|WAIT|HOLD|AGUANT/.test(k)) return _REC_AMBAR;
+  if (/FAVORABLE|COMPRAR|BUY|ACUMULAR/.test(k)) return _REC_VERDE;
+  return _REC_GRIS;
+}
+
 // ══ ANÁLISIS WBJ (VICTOR) — visualizaciones dentro del dashboard principal ══
 let _wbjGaugeC=null, _wbjFinC=null, _wbjMargC=null;
 const _wbjBn=(v)=>{ if(v==null||isNaN(v)) return "—"; const x=Math.abs(v);
@@ -2003,8 +2042,7 @@ function renderDashboard(data) {
     const targets = data.targets || {};
     const meth = data.methodology || {};
     const price = data.precio_actual;
-    const recColors = {BUY:'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',HOLD:'text-amber-400 bg-amber-500/10 border-amber-500/30',SELL:'text-red-400 bg-red-500/10 border-red-500/30',AVOID:'text-red-400 bg-red-500/10 border-red-500/30'};
-    const rc = recColors[a.recommendation] || 'text-gray-400 border-gray-700';
+    const rc = recClass(a.recommendation);
 
     // Header
     document.getElementById('dashLogo').src = data.logo_url;
@@ -6834,8 +6872,7 @@ function filterReports() { renderFullReportsList(); }
 function reportRowHTML(r) {
     const a = r.analisis || {};
     const rec = a.recommendation || '?';
-    const rcMap = {BUY:'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',HOLD:'text-amber-400 bg-amber-500/10 border-amber-500/20',SELL:'text-red-400 bg-red-500/10 border-red-500/20',AVOID:'text-red-400 bg-red-500/10 border-red-500/20'};
-    const rc = rcMap[rec]||'text-gray-400 border-gray-700';
+    const rc = recClass(rec);
     const t12 = r.targets?.['12m'] || {};
     const upside = a.upside_pct ? `+${(+a.upside_pct).toFixed(1)}%` : pctDiff(r.precio_actual, t12.base);
     const upsideColor = (parseFloat(a.upside_pct)||0) >= 0 ? 'text-blue-400' : 'text-red-400';
@@ -10730,6 +10767,12 @@ const VX_ES2EN = {
     "Top 5 por Notional Value ·": "Top 5 by notional value ·",
     "Puntaje": "Score",
     "Puntaje rápido": "Quick score",
+    "Los puntajes por agente y la cobertura de cada uno están arriba, en": "The per-agent scores and each one’s coverage are above, in",
+    "«Puntaje de los agentes»": "«Agent scores»",
+    "salían dos veces con los mismos números. El puntaje": "they appeared twice with the same numbers. The",
+    "con juez": "with judge",
+    "vive en su propia pestaña,": "score lives in its own tab,",
+    "Juicio AI": "AI Judgment",
     "El «puntaje rápido» no es el del análisis completo, y casi nunca coincide.": "The «quick score» is not the full analysis score, and they rarely match.",
     "Aquí cada categoría se puntúa con unas pocas métricas de EDGAR para poder barrer miles de declarantes en segundos. El análisis completo corre las": "Here each category is scored from a handful of EDGAR metrics so thousands of filers can be swept in seconds. The full analysis runs the",
     "de los 6 agentes y aplica el piso de cobertura del 70%: una categoría sin datos suficientes aporta pocos puntos y deja el perfil fuera de los gates. Por eso el número del análisis suele ser": "of the 6 agents and applies the 70% coverage floor: a category without enough data contributes few points and leaves the profile out of the gates. That is why the analysis number is usually",
