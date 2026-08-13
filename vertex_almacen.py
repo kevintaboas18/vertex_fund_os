@@ -436,6 +436,42 @@ class Almacen:
                 f"git {args[0]}: {(r.stderr or r.stdout or '').strip()[:300]}"))
         return r
 
+    def _sanea(self) -> None:
+        """Deja el clon en un estado en el que se PUEDA commitear.
+
+        Un `rebase` que choca no falla y ya: deja el árbol con archivos sin
+        fusionar. A partir de ahí **todo** commit muere con «Committing is not
+        possible because you have unmerged files», y como nadie entra a ese
+        directorio a mano, se queda así para siempre. Le pasó a la instancia de
+        Render: 18 archivos parados y el último respaldo con fecha del día que
+        chocó por primera vez. El panel decía «Respaldo con errores» —lo decía
+        bien— pero el error no se curaba solo.
+
+        Así que antes de cada ciclo se limpia lo que haya quedado a medias. Es
+        barato (tres comprobaciones de archivo) y convierte un atasco eterno en
+        un ciclo perdido.
+
+        En los choques manda **el disco**: son datos que el agente acaba de
+        escribir, y el remoto no tiene nada que el disco no vaya a volver a
+        generar.
+        """
+        if not (self.raiz / ".git").is_dir():
+            return
+        g = self.raiz / ".git"
+        if (g / "rebase-merge").exists() or (g / "rebase-apply").exists():
+            self._git("rebase", "--abort", tolera=True)
+        if (g / "MERGE_HEAD").exists():
+            self._git("merge", "--abort", tolera=True)
+        if (g / "CHERRY_PICK_HEAD").exists():
+            self._git("cherry-pick", "--abort", tolera=True)
+        # Y si aún quedan archivos sin fusionar —un abort que no pudo, o un
+        # conflicto que no venía de ninguna de las tres— se dan por resueltos
+        # con lo que hay en el árbol de trabajo, que es el dato bueno.
+        sin_fusionar = self._git("diff", "--name-only", "--diff-filter=U",
+                                 tolera=True).stdout or ""
+        if sin_fusionar.strip():
+            self._git("add", "-A", tolera=True)
+
     def _hay_cambios(self, incluir_series: bool) -> bool:
         args = ["status", "--porcelain"]
         if not incluir_series:
@@ -463,6 +499,8 @@ class Almacen:
                 self._estado["motivo"] = self._motivo_apagado()
                 return self._foto()
             try:
+                # Lo PRIMERO: que el clon no venga roto del ciclo anterior.
+                self._sanea()
                 if not self._hay_cambios(incluir_series):
                     return self._foto()
                 if incluir_series:
@@ -504,7 +542,23 @@ class Almacen:
                 # se trae lo suyo y se reaplica lo nuestro encima.
                 self._git("fetch", "--depth", "1", "origin", self.rama,
                           timeout=60, tolera=True)
-                self._git("rebase", f"origin/{self.rama}", timeout=60, tolera=True)
+                # `-X theirs`: dentro de un rebase, «theirs» son LOS COMMITS
+                # QUE SE REAPLICAN, o sea los nuestros. En un choque manda el
+                # dato que el agente acaba de escribir.
+                reb = self._git("rebase", "-X", "theirs", f"origin/{self.rama}",
+                                timeout=60, tolera=True)
+                if reb.returncode:
+                    # Aquí estaba la avería. Un rebase que falla NO deja las
+                    # cosas como estaban: deja archivos sin fusionar, y desde
+                    # ese momento todo commit muere con «Committing is not
+                    # possible because you have unmerged files» — para siempre,
+                    # porque nadie entra a ese directorio a arreglarlo. Con
+                    # `tolera=True` y sin abortar, el fallo de un ciclo se
+                    # convertía en el fallo de todos los siguientes.
+                    self._git("rebase", "--abort", tolera=True)
+                    self._git("merge", "-q", "-X", "ours", f"origin/{self.rama}",
+                              "-m", "juntar lo del remoto", timeout=60, tolera=True)
+                    self._sanea()
                 time.sleep(2 ** intento)
         raise RuntimeError(f"push falló tras {REINTENTOS_PUSH} intentos: {ultimo}")
 
