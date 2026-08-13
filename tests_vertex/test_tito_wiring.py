@@ -2133,9 +2133,6 @@ class TestElPanelNoTiraNadaDelPayload:
     #: Hojas de `subagents` que el panel no lee, con su motivo. El registro es
     #: la única salida: o se pinta, o se declara aquí.
     _SUB_NO_SE_PINTAN = {
-        "conviction.dominance.ask_pct": "el desglose ask/bid ya se ve en la barra "
-                                        "de Agresividad; aquí se pinta la dominante",
-        "conviction.dominance.bid_pct": "idem",
         "iv_context.iv.special": "marca de IV atípica; el aviso al usuario es "
                                  "`iv.band`, que sí se pinta",
         "validation.outcomes.id": "el id del flow, para la clave de la fila",
@@ -2664,8 +2661,6 @@ class TestIdeasYWheelTampocoTiranNada:
         "trades.leap": "señal, pintada por `vcSenalesHTML`",
         "trades.multileg": "señal, pintada por `vcSenalesHTML`",
         "trades.simultaneous": "señal, pintada por `vcSenalesHTML`",
-        "trades.condition_name": "el nombre de la condición; su `NotableTable` no "
-                                 "lo enseña — el código ya está en el tooltip",
         "trades.expiry_status": "si el contrato ya venció; la cinta es del día y "
                                 "la columna de vencimiento lleva los DTE",
     }
@@ -2996,6 +2991,9 @@ class TestElPanelNoLeeCamposQueNadieManda:
         "with_candidates", "tickers", "failed",
         # /api/tito-tape — `renderProjTape`
         "trades", "notable", "total", "period", "aggression",
+        # …y el corte con el que se tiñe una fila, servido en vez de repetido
+        # en el panel: la leyenda decía «≥7/30» y el corte real es 24/30.
+        "unusual_cut",
         # /api/tito-ideas — `renderProjIdeas` (el aviso de escaneo truncado)
         "truncated",
         # /api/tito-health — `renderProjSalud`, la pestaña de Cobertura

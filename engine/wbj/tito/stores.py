@@ -523,6 +523,30 @@ def _prop(obj: Any, name: str) -> Any:
     return None
 
 
+def _prop_seam(obj: Any, name: str, suyo: str) -> Any:
+    """`_prop`, pero mirando también el nombre que tiene el campo EN EL ARCHIVO.
+
+    Esta función existe por una costura real, no por gusto. El archivo del
+    diario se escribe con SU formato —`horizonDays`, camelCase— a propósito:
+    es lo que lo hace intercambiable con el de su app. El port, en cambio,
+    habla snake_case, y `review_predictions` leía `horizon_days`.
+
+    Las dos decisiones son correctas por separado y juntas rompían la cadena:
+    `load_journal` devolvía `horizonDays`, `_prop` no lo encontraba y daba
+    `None`, el vencimiento se calculaba contra una fecha inválida y **ninguna
+    predicción vencía nunca**. `matured_count` salía 0 con meses de historial,
+    el sesgo se quedaba en `None` y la auto-calibración no se activaba jamás.
+
+    Ningún test lo vio: los unitarios construyen las fotos a mano en
+    snake_case, y `_diffcalib_compara.py` **traduce** `horizonDays` a
+    `horizon_days` antes de llamar. O sea que la traducción existía en el banco
+    de pruebas y no en producción — el modo exacto de que 182/182 casos estén
+    verdes con el lazo abierto.
+    """
+    v = _prop(obj, name)
+    return _prop(obj, suyo) if v is None else v
+
+
 #: `Date.parse` de JS. Vivía aquí; subió a `jsmath` al descubrir que
 #: `levels.recency_factor` también cuenta el tiempo con la aritmética de JS. El
 #: alias conserva el nombre privado que usan los tests y el diferencial.
@@ -790,7 +814,8 @@ def review_predictions(
     for s in snapshots:
         # `addCalendarDays` puede lanzar, y en su archivo eso se lleva la
         # revisión ENTERA (no hay try dentro del bucle). Literal.
-        end = _add_calendar_days(_prop(s, "date"), _prop(s, "horizon_days"))
+        end = _add_calendar_days(_prop(s, "date"),
+                                 _prop_seam(s, "horizon_days", "horizonDays"))
         matured = today >= end
         fecha = _prop(s, "date")
         # `b.time > s.date && b.time <= end`: comparación de TEXTO cuando los dos
@@ -798,7 +823,8 @@ def review_predictions(
         window = [b for b in bars
                   if not js_le(b.time, fecha) and js_le(b.time, end)]
         base = {
-            "date": fecha, "horizon_days": _prop(s, "horizon_days"),
+            "date": fecha,
+            "horizon_days": _prop_seam(s, "horizon_days", "horizonDays"),
             "spot": _prop(s, "spot"), "bear": _prop(s, "bear"),
             "base": _prop(s, "base"), "bull": _prop(s, "bull"),
             "direction": _prop(s, "direction"),
