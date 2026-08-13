@@ -4009,7 +4009,7 @@
     "flows_corruptos": 0,
     "flows_sin_id": 0,
     "escrituras_fallidas": null,
-    "flows_nuevos": 34,
+    "flows_nuevos": 0,
     "memoria_desde": "2026-07-02T19:46:12.864Z",
     "predicciones_vencidas": 0,
     "sesgo_pct": null,
@@ -4022,7 +4022,7 @@
         "date": "2026-08-12",
         "horizon_days": null,
         "matured": true,
-        "spot": 303.27,
+        "spot": 302.25,
         "base": 310.0,
         "actual_close": null,
         "error_pct": null,
@@ -4033,7 +4033,7 @@
         "date": "2026-08-12",
         "horizon_days": null,
         "matured": true,
-        "spot": 303.27,
+        "spot": 302.25,
         "base": 310.0,
         "actual_close": null,
         "error_pct": null,
@@ -4044,7 +4044,7 @@
         "date": "2026-08-12",
         "horizon_days": null,
         "matured": true,
-        "spot": 303.27,
+        "spot": 302.25,
         "base": 310.0,
         "actual_close": null,
         "error_pct": null,
@@ -4312,5 +4312,5 @@
   ],
   "fecha": "2026-08-13",
   "agente": "opciones",
-  "guardado_en": "2026-08-13T03:50:47+00:00"
+  "guardado_en": "2026-08-13T03:51:47+00:00"
 }
