@@ -751,6 +751,21 @@ def _aviso_persistencia() -> str:
     return ""
 
 
+
+def _respalda_ya(motivo: str) -> None:
+    """Sube lo que haya, ahora. Nunca lanza.
+
+    Existe para lo que NO puede esperar al hilo de fondo: una cuenta nueva, un
+    perfil guardado, un reporte. Todo eso son cosas que la persona acaba de
+    hacer y da por hechas, y perderlas por veinte segundos de retraso es
+    indistinguible de que el sistema no guarde nada.
+    """
+    try:
+        import vertex_almacen as _AL              # el módulo, no una copia:
+        _AL.almacen.sincroniza(mensaje=motivo)    # `almacen` se reemplaza en tests
+    except Exception:                             # noqa: BLE001
+        pass                                      # el hilo de fondo lo reintenta
+
 @app.post("/api/auth/registro")
 async def auth_registro(request: Request):
     """Crea la cuenta y deja la sesión abierta."""
@@ -794,6 +809,14 @@ async def auth_registro(request: Request):
     finally:
         conn.close()
 
+    # La cuenta se sube AHORA mismo, no dentro de veinte segundos.
+    #
+    # Es el hueco por el que se perdían: el hilo de fondo sincroniza cada
+    # `SEGUNDOS_RAPIDO`, y en Render pulsar «Deploy» mata el contenedor y borra
+    # el disco. Una cuenta creada quince segundos antes no llegaba a subir, y al
+    # volver «no existía». Registrarse una vez puede costar un segundo más;
+    # tener que registrarse otra vez cuesta mucho más que eso.
+    _respalda_ya(f"cuenta nueva: {usuario.get('email', '')}")
     return _pon_cookie_usuario(
         JSONResponse(content={"ok": True, "usuario": _publico(usuario), "nuevo": True,
                               # Si esta cuenta no va a sobrevivir a un reinicio,
@@ -5959,6 +5982,9 @@ async def perfil_post(request: Request):
     finally:
         conn.close()
 
+    # El perfil también se sube al momento: es lo que leen los tres agentes, y
+    # perderlo devuelve al usuario a los valores de Kevin sin decírselo.
+    _respalda_ya("perfil guardado")
     return _json_safe({"ok": True, "perfil": guardado,
                        "progreso": {"total": len(_CU.OBLIGATORIAS),
                                     "contestadas": len([q for q in (guardado.get("respondidas") or [])
@@ -8774,6 +8800,19 @@ def _wbj_explain_context(ticker, nombre_largo, precio, analisis_json):
         if _pf.get("es_por_defecto"):
             _perfil_duro += ("AVISO: esta persona NO ha personalizado su perfil. Son valores de "
                              "referencia, no suyos — no le hables como si los hubiera declarado.\n")
+    # La memoria: qué dijo el agente de ESTE ticker la última vez y qué ha hecho
+    # el precio desde entonces. Va al prompt porque una memoria que no cambia
+    # ninguna decisión no es memoria, es un archivo.
+    try:
+        import vertex_almacen as _AL2
+        import vertex_memoria as _MEM
+        _memoria_ctx = _MEM.contexto_para_el_agente(
+            analisis_json.get("ticker") or "", _AL2.almacen,
+            precio_hoy=analisis_json.get("precio_actual"))
+        if _memoria_ctx:
+            _memoria_ctx = "\n" + _memoria_ctx + "\n"
+    except Exception:                              # noqa: BLE001
+        _memoria_ctx = ""
     return (
         f"TICKER: {ticker} — {nombre_largo} | precio ${precio}\n"
         f"PERFIL/BANDA: {_wj.get('profile')} — {_wj.get('band')}\n"
@@ -8790,7 +8829,7 @@ def _wbj_explain_context(ticker, nombre_largo, precio, analisis_json):
         f"NIVELES (synthesize_levels de Victor):\n"
         f"{_wbj_levels_ctx(analisis_json.get('victor_levels'))}\n"
         f"FIT DE PERFIL (determinista): {_pf.get('fit')} — {_pf.get('fit_reason')}\n"
-        + _perfil_duro + _prior_ctx +
+        + _perfil_duro + _prior_ctx + _memoria_ctx +
         f"\n=== MI PERFIL ({_pname or 'inversionista'}) ===\n{_ptext}")
 
 

@@ -144,8 +144,14 @@ Reglas que no se negocian:
 
 ## Memoria del agente (protocolo obligatorio)
 
-La memoria vive en `Memoria/` (índice: `Memoria/MEMORIA.md`). El aprendizaje
-entre sesiones NO es automático — depende de este protocolo:
+La memoria vive en `Memoria/` (índice: `Memoria/MEMORIA.md`).
+
+**Desde el panel es automático** (`vertex_memoria.py`): archivar un reporte
+escribe `Memoria/tesis/<TICKER>.md`, actualiza el índice, apunta en
+`Memoria/errores.md` si el veredicto se dio la vuelta, y mete la tesis anterior
+en el prompt del siguiente análisis con lo que hizo el precio desde entonces.
+
+Cuando trabajas TÚ sobre el repositorio, el protocolo sigue siendo tuyo:
 
 **Antes de analizar un ticker:**
 1. Lee `Memoria/MEMORIA.md` y, si existe, `Memoria/tesis/<TICKER>.md`

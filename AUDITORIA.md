@@ -6226,6 +6226,37 @@ JavaScript. Uno solo la cierra, y el bloque entero dejó de definirse —
 Es exactamente lo que vigila el check «ningún comentario HTML dentro del JS lleva
 acentos graves», escrito la primera vez que pasó.
 
+## 41.52 · Ronda 27 — «¿siempre que presiono deploy se borra?»
+
+Sí. Render en plan gratuito borra el disco en **cada** despliegue, y un archivo
+de base de datos no lo arregla porque el archivo vive en ese mismo disco: un
+`.db` se borra igual que un `.json`. Para eso está el almacén — el deploy borra,
+el contenedor nuevo clona la rama `datos` y todo vuelve. Doce casos lo prueban
+borrando el disco a propósito.
+
+Pero quedaba un agujero, y es el que explica que a Kevin se le perdieran cosas
+incluso con el respaldo funcionando: **el hilo de fondo sincroniza cada 20 s, y
+nada forzaba un respaldo al hacer lo que importa**. Una cuenta creada quince
+segundos antes de pulsar «Deploy» no llegaba a subir nunca, y al volver «no
+existía». Lo mismo con el perfil y con los reportes.
+
+Ahora lo que la persona acaba de hacer se sube **antes de que la respuesta
+llegue a su pantalla**: `_respalda_ya()` en el registro y en el guardado del
+perfil, y `sincroniza()` al archivar un reporte. Un análisis tarda un minuto
+largo en producirse; esperar un segundo más a que quede guardado no se nota, y
+perderlo sí.
+
+El test lo mide sin esperar nada: registra una cuenta y exige que el commit ya
+esté hecho; archiva un reporte y lo busca **en el remoto**, no solo en el commit
+local.
+
+Y un test viejo que dejó de valer al hacerlo: `test_sincronizar_a_peticion`
+exigía `ultimo_error is None`, y desde que archivar sincroniza en el acto llega
+siempre el aviso de que sin `VERTEX_DB_KEY` no se respaldan cuentas ni perfiles.
+No es un fallo de la sincronización — es la condición de siempre en un entorno
+sin clave — así que el caso lo acepta nombrándolo, en vez de exigir un silencio
+que ya no existe.
+
 ## 41.51 · Ronda 25 — el camino de vuelta: inglés → español
 
 El panel está escrito en **dos** idiomas: Proyecciones y el perfil en español,
@@ -6280,6 +6311,48 @@ Lo que **no** se recupera: las series empiezan de cero desde ahora. El IV Rank
 real necesita 60 sesiones de mercado y no hay forma de comprarlas hechas. Eso no
 es trabajo pendiente, es tiempo que hay que dejar correr — lo que se arregló es
 que dejen de volver a cero en cada reinicio.
+
+## 41.52 · Ronda 26 — el daño de verdad del atasco, y la memoria que no existía
+
+**1. Las marcas de conflicto llegaban DENTRO del JSON.** Mirando la rama `datos`
+real apareció lo que ningún test veía: **27 series commiteadas con
+`<<<<<<< HEAD` / `=======` / `>>>>>>>` dentro**. El archivo estaba, con sus
+datos, y el motor no podía leerlo — el panel decía «0/60 días de IV» y «0
+predicciones» teniéndolos delante. Eso, y no otra cosa, era «el agente no
+mejora».
+
+El mecanismo era el saneo de la ronda anterior. `git add -A` sobre un archivo en
+conflicto estadía el **árbol de trabajo**, que es justo el que lleva las marcas.
+Ahora cada archivo sin fusionar se resuelve con `checkout --ours` —la versión
+limpia— y solo entonces se estadía. Y `_repara_marcas()` corre al restaurar:
+separa los dos lados, se queda con el que más datos tenga (estas series solo
+crecen) y, si no se rescata ninguno, borra el archivo — mejor una serie que
+empieza hoy que una que rompe al sub-agente cada vez que la abre. Probado contra
+la rama real: **27 reparados, 0 JSON ilegibles**.
+
+**2. Nada esperaba ya al hilo de fondo.** El respaldo corría cada 20 s y esa
+ventana era el hueco: una cuenta creada justo antes de pulsar «Deploy» no subía
+nunca. Cuenta, perfil y reporte se respaldan ahora **en el acto**, antes de que
+la respuesta llegue a la pantalla.
+
+**3. `Memoria/` no existía.** `CLAUDE.md` describe el protocolo —leer la tesis
+antes de analizar, escribirla después, apuntar la lección al contradecirse— y
+decía con todas sus letras que **no es automático**. No lo era: la carpeta no
+estaba ni en la rama de datos. Cada análisis empezaba sin saber qué se había
+dicho del mismo ticker la semana pasada.
+
+`vertex_memoria.py` lo hace automático. Al archivar un reporte —de cualquiera de
+los dos agentes— se escribe `Memoria/tesis/<TICKER>.md`, se actualiza el índice
+y, si el veredicto se dio la vuelta, se apunta en `Memoria/errores.md` con lo
+que hizo el precio entre las dos. Y lo que decide si esto es memoria o solo un
+archivo bonito: `contexto_para_el_agente()` mete la tesis anterior **en el
+prompt**, con el movimiento del precio desde entonces y la orden de decir si el
+análisis de hoy la contradice o la confirma.
+
+Tres decisiones: la tesis vieja **no se borra** (se apila debajo, como pide el
+Cerebro); los dos agentes escriben en el **mismo** archivo por ticker (es el
+mismo ticker y el mismo lector); y confirmar el veredicto **no** cuenta como
+contradicción.
 
 ### Estado
 

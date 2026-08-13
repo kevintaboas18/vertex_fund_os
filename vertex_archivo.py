@@ -142,6 +142,29 @@ def _guarda(agente: str, ticker: str, payload: dict,
     a.guarda(f"{base}/{_ARCHIVO[agente]}", entero)
     a.guarda(f"{base}/RESUMEN.md", _RESUMEN[agente](tk, entero))
     reconstruye_indice(agente, alm=a)
+    # Y la MEMORIA: qué se dijo de este ticker, para que el próximo análisis
+    # llegue sabiéndolo. Sin esto, `Memoria/` no existía y cada análisis
+    # empezaba sin saber qué se había dicho la semana pasada.
+    #
+    # Falla en silencio a propósito: perder la memoria de un ticker es malo,
+    # perder el REPORTE por no poder escribirla sería peor.
+    try:
+        import vertex_memoria as _MEM
+        entero["memoria_cambio"] = _MEM.escribe_tesis(agente, tk, entero, a)
+    except Exception:                              # noqa: BLE001
+        pass
+    # Se sube AHORA, no dentro de veinte segundos.
+    #
+    # El hilo de fondo sincroniza cada `SEGUNDOS_RAPIDO`, y esa ventana es
+    # exactamente el hueco por el que se pierden cosas: en Render, pulsar
+    # «Deploy» mata el contenedor y borra el disco, así que un reporte escrito
+    # hace quince segundos no llega a subir nunca. Un análisis tarda un minuto
+    # largo en producirse; esperar un segundo más a que quede guardado no se
+    # nota, y perderlo sí.
+    try:
+        a.sincroniza(mensaje=f"reporte de {agente}: {tk}")
+    except Exception:                          # noqa: BLE001
+        pass                                   # el hilo de fondo lo reintenta
     return {"json": f"{base}/{_ARCHIVO[agente]}", "md": f"{base}/RESUMEN.md"}
 
 

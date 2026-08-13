@@ -825,7 +825,13 @@ class TestLasRutas:
         V._archiva_acciones({"ticker": "AAPL", "recommendation": "Comprar",
                              "total_score": 78})
         d = client.post("/api/almacen/sincronizar").json()
-        assert d["ultimo_error"] is None
+        # Sin `VERTEX_DB_KEY` el preparativo de lo cifrado devuelve su aviso, y
+        # ese aviso viaja en `ultimo_error`. No es un fallo de la sincronización
+        # —es la condición de siempre en un entorno sin clave— y desde que
+        # archivar un reporte sincroniza EN EL ACTO, llega aquí sin falta.
+        SIN_CLAVE = "Sin VERTEX_DB_KEY"
+        assert d["ultimo_error"] is None or SIN_CLAVE in d["ultimo_error"], (
+            d["ultimo_error"])
         assert d["pendientes"] == 0
 
     def test_la_lista_sale_del_DIRECTORIO_no_de_la_base(self, client):
@@ -1202,3 +1208,122 @@ class TestUnConflictoNoParaElRespaldoParaSiempre:
         assert (b.raiz / "Reportes/MSFT/2026-01-02/reporte.json").is_file(), (
             "lo que estaba sin subir no llegó al remoto")
         assert (b.raiz / "Memoria/tesis/MSFT.md").is_file()
+
+
+class TestNadaEsperaAlHiloDeFondo:
+    """«¿Siempre que presiono deploy se borra?»
+
+    En Render, sí: el disco se borra en cada despliegue. Por eso existe el
+    almacén — pero el hilo de fondo sincroniza cada `SEGUNDOS_RAPIDO`, y esa
+    ventana ERA el agujero. Una cuenta creada quince segundos antes de pulsar
+    «Deploy» no llegaba a subir, y al volver «no existía».
+
+    Lo que se guarda porque la persona acaba de hacerlo —su cuenta, su perfil,
+    su reporte— no puede depender de que dé tiempo a un temporizador.
+    """
+
+    def test_una_cuenta_nueva_sube_en_el_acto(self, tmp_path, monkeypatch, remoto):
+        from fastapi.testclient import TestClient
+
+        import vertex_almacen as VA
+        import vertex_api as V
+
+        _aisla(tmp_path, monkeypatch, remoto)
+        V._arranca_almacen()
+        V.init_db()
+        VA.almacen.restaura()
+        antes = VA.almacen.estado().get("commits", 0)
+
+        c = TestClient(V.app)
+        r = c.post("/api/auth/registro", json={"email": "ya@ejemplo.com",
+                                               "nombre": "Ya", "password": "ClaveLarga123!"})
+        assert r.json().get("ok"), r.text
+        # Sin esperar NADA: el commit ya tiene que estar hecho.
+        assert VA.almacen.estado().get("commits", 0) > antes, (
+            "la cuenta se quedó esperando al hilo de fondo: un deploy en los "
+            "próximos 20 s la habría borrado")
+
+    def test_un_reporte_sube_en_el_acto(self, tmp_path, monkeypatch, remoto):
+        import vertex_almacen as VA
+        import vertex_archivo as VAR
+
+        _aisla(tmp_path, monkeypatch, remoto)
+        VA.almacen.restaura()
+        antes = VA.almacen.estado().get("commits", 0)
+
+        VAR.guarda_reporte_opciones("WULF", {"score": 71})
+        assert VA.almacen.estado().get("commits", 0) > antes, (
+            "el reporte se quedó esperando al hilo de fondo")
+
+        # Y de verdad llegó al remoto, no solo al commit local.
+        from vertex_almacen import Almacen
+        otro = Almacen(raiz=tmp_path / "otro", remoto=remoto, token="x")
+        otro.restaura()
+        assert list((otro.raiz / "Proyecciones").rglob("scorecard.json")), (
+            "el reporte no está en el remoto")
+
+
+class TestLasMarcasDeConflictoNoLLEGANaLosDatos:
+    """El daño real del atasco, y el que explicaba «el agente no mejora».
+
+    En un conflicto, el archivo del árbol de trabajo lleva dentro las marcas
+    `<<<<<<< HEAD` / `=======` / `>>>>>>>`. El saneo hacía `git add -A`, así que
+    las COMMITEABA. Así acabaron 27 series de mercado con marcas de git dentro
+    del JSON: el archivo existía, el motor no podía leerlo, y el panel decía
+    «0/60 días de IV» y «0 predicciones» con los datos delante.
+    """
+
+    def test_un_conflicto_no_deja_marcas_dentro_del_json(self, tmp_path, remoto):
+        from vertex_almacen import Almacen
+
+        a = Almacen(raiz=tmp_path / "a", remoto=remoto, token="x")
+        a.restaura()
+        ruta = "Series/tito/iv/AAPL.json"
+        a.guarda(ruta, [{"d": 1}])
+        a.sincroniza()
+
+        # Dos ramas que tocan la misma línea: el conflicto de verdad.
+        a._git("checkout", "-q", "-b", "otra")
+        (a.raiz / ruta).write_text('[{"d": 2}]', encoding="utf-8")
+        a._git("add", "-A"); a._git("commit", "-q", "-m", "otro")
+        a._git("checkout", "-q", a.rama)
+        (a.raiz / ruta).write_text('[{"d": 1}, {"d": 3}]', encoding="utf-8")
+        a._git("add", "-A"); a._git("commit", "-q", "-m", "mío")
+        a._git("merge", "otra", tolera=True)
+
+        a.sincroniza()
+
+        texto = (a.raiz / ruta).read_text(encoding="utf-8")
+        for marca in ("<<<<<<<", "=======", ">>>>>>>"):
+            assert marca not in texto, f"quedó «{marca}» dentro del JSON"
+        json.loads(texto)                       # y es JSON válido
+
+    def test_lo_que_YA_llego_roto_se_repara_al_restaurar(self, tmp_path, remoto):
+        """Los 27 archivos ya están en el repositorio de Kevin. Se limpian al
+        traerlos, no cuando alguien se dé cuenta."""
+        from vertex_almacen import Almacen
+
+        a = Almacen(raiz=tmp_path / "a", remoto=remoto, token="x")
+        a.restaura()
+        roto = ('<<<<<<< HEAD\n[{"dia": "2026-08-01"}, {"dia": "2026-08-02"}]\n'
+                '=======\n[{"dia": "2026-08-01"}]\n>>>>>>> otro\n')
+        (a.raiz / "Series").mkdir(parents=True, exist_ok=True)
+        (a.raiz / "Series/iv.json").write_text(roto, encoding="utf-8")
+
+        assert a._repara_marcas() == 1
+        salvado = json.loads((a.raiz / "Series/iv.json").read_text(encoding="utf-8"))
+        assert salvado == [{"dia": "2026-08-01"}, {"dia": "2026-08-02"}], (
+            "se quedó con el lado que MENOS datos tenía")
+
+    def test_si_no_se_puede_rescatar_ninguno_el_archivo_se_va(self, tmp_path, remoto):
+        """Mejor una serie que empieza hoy que una que rompe al sub-agente."""
+        from vertex_almacen import Almacen
+
+        a = Almacen(raiz=tmp_path / "a", remoto=remoto, token="x")
+        a.restaura()
+        (a.raiz / "Series").mkdir(parents=True, exist_ok=True)
+        (a.raiz / "Series/x.json").write_text(
+            "<<<<<<< HEAD\nno es json\n=======\ntampoco\n>>>>>>> otro\n",
+            encoding="utf-8")
+        assert a._repara_marcas() == 1
+        assert not (a.raiz / "Series/x.json").exists()
