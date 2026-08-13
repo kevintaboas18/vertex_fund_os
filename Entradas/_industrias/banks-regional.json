@@ -1,0 +1,28 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-08-09",
+  "_como_se_obtuvo": "Resuelto al analizar . Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 3900000000000,
+  "_cita_verificada": "https://www.ibisworld.com/global/industry/global-commercial-banks/1750/",
+  "tam_source": "IBISWorld Global Commercial Banks industry revenue 2026",
+  "tam_source_tier": 3,
+  "_ambito": "mundial",
+  "_capa": "ingresos de la banca comercial mundial",
+  "_capa_coincide": "Las empresas de la industria 'Banks - Regional' operan principalmente ofreciendo préstamos comerciales, industriales y de consumo, así como facilidades de depósito, lo cual está cubierto por la definición de la industria de la banca comercial de la fuente.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF57Aqyq62ITp2MEO4xmlokzdLoLWrgzhDcNfADuBcY5XnGzCzAbDZX9ohAN0klF-k4LYq12rj2KnHHoh7arjTpOj_pm3bIfzu3Pr6jWIsPlYRFqx6I5E_-Ww7GzXyUj4SzktrPuYjDyMqsXF4NtXRVfipAWXN8CO8rfAo5R_0GPym2",
+  "_cita_textual": "The market size of the Global Commercial Banks industry is $3.9tr in 2026.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "tam_history": [
+    3900000000000,
+    3900000000000
+  ],
+  "_segmento_patrones": [
+    "commercial banking",
+    "retail banking",
+    "consumer banking",
+    "lending",
+    "deposits",
+    "loans"
+  ]
+}

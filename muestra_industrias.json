@@ -1,0 +1,872 @@
+[
+ {
+  "sector": "Healthcare",
+  "industria": "Biotechnology",
+  "empresas": 100,
+  "ticker": "VRTX"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Banks - Regional",
+  "empresas": 91,
+  "ticker": "PNC"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Software - Application",
+  "empresas": 79,
+  "ticker": "CRM"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Semiconductors",
+  "empresas": 53,
+  "ticker": "NVDA"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Software - Infrastructure",
+  "empresas": 49,
+  "ticker": "MSFT"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Industrial - Machinery",
+  "empresas": 48,
+  "ticker": "PH"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Aerospace & Defense",
+  "empresas": 45,
+  "ticker": "SPCX"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Asset Management",
+  "empresas": 45,
+  "ticker": "BX"
+ },
+ {
+  "sector": "Utilities",
+  "industria": "Regulated Electric",
+  "empresas": 44,
+  "ticker": "NEE"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Hardware, Equipment & Parts",
+  "empresas": 31,
+  "ticker": "APH"
+ },
+ {
+  "sector": "Energy",
+  "industria": "Oil & Gas Exploration & Production",
+  "empresas": 28,
+  "ticker": "COP"
+ },
+ {
+  "sector": "Basic Materials",
+  "industria": "Chemicals - Specialty",
+  "empresas": 28,
+  "ticker": "SHW"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Financial - Credit Services",
+  "empresas": 27,
+  "ticker": "V"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Financial - Capital Markets",
+  "empresas": 25,
+  "ticker": "MS"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Specialty Retail",
+  "empresas": 24,
+  "ticker": "AMZN"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Information Technology Services",
+  "empresas": 24,
+  "ticker": "IBM"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Insurance - Property & Casualty",
+  "empresas": 24,
+  "ticker": "PGR"
+ },
+ {
+  "sector": "Energy",
+  "industria": "Oil & Gas Midstream",
+  "empresas": 23,
+  "ticker": "WMB"
+ },
+ {
+  "sector": "Healthcare",
+  "industria": "Medical - Diagnostics & Research",
+  "empresas": 22,
+  "ticker": "TMO"
+ },
+ {
+  "sector": "Healthcare",
+  "industria": "Medical - Devices",
+  "empresas": 22,
+  "ticker": "ABT"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Engineering & Construction",
+  "empresas": 22,
+  "ticker": "PWR"
+ },
+ {
+  "sector": "Communication Services",
+  "industria": "Entertainment",
+  "empresas": 20,
+  "ticker": "NFLX"
+ },
+ {
+  "sector": "Energy",
+  "industria": "Oil & Gas Equipment & Services",
+  "empresas": 20,
+  "ticker": "SLB"
+ },
+ {
+  "sector": "Communication Services",
+  "industria": "Telecommunications Services",
+  "empresas": 18,
+  "ticker": "VZ"
+ },
+ {
+  "sector": "Healthcare",
+  "industria": "Medical - Instruments & Supplies",
+  "empresas": 17,
+  "ticker": "ISRG"
+ },
+ {
+  "sector": "Healthcare",
+  "industria": "Medical - Care Facilities",
+  "empresas": 17,
+  "ticker": "HCA"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Communication Equipment",
+  "empresas": 16,
+  "ticker": "CSCO"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Insurance - Life",
+  "empresas": 16,
+  "ticker": "MET"
+ },
+ {
+  "sector": "Consumer Defensive",
+  "industria": "Packaged Foods",
+  "empresas": 16,
+  "ticker": "KHC"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Restaurants",
+  "empresas": 15,
+  "ticker": "MCD"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Specialty Business Services",
+  "empresas": 15,
+  "ticker": "CTAS"
+ },
+ {
+  "sector": "Communication Services",
+  "industria": "Internet Content & Information",
+  "empresas": 14,
+  "ticker": "GOOG"
+ },
+ {
+  "sector": "Consumer Defensive",
+  "industria": "Household & Personal Products",
+  "empresas": 14,
+  "ticker": "PG"
+ },
+ {
+  "sector": "Real Estate",
+  "industria": "REIT - Specialty",
+  "empresas": 14,
+  "ticker": "EQIX"
+ },
+ {
+  "sector": "Real Estate",
+  "industria": "REIT - Retail",
+  "empresas": 14,
+  "ticker": "SPG"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Industrial - Distribution",
+  "empresas": 14,
+  "ticker": "GWW"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Gambling, Resorts & Casinos",
+  "empresas": 14,
+  "ticker": "LVS"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Electrical Equipment & Parts",
+  "empresas": 13,
+  "ticker": "VRT"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Rental & Leasing Services",
+  "empresas": 13,
+  "ticker": "URI"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Residential Construction",
+  "empresas": 13,
+  "ticker": "DHI"
+ },
+ {
+  "sector": "Basic Materials",
+  "industria": "Construction Materials",
+  "empresas": 13,
+  "ticker": "VMC"
+ },
+ {
+  "sector": "Utilities",
+  "industria": "Regulated Gas",
+  "empresas": 13,
+  "ticker": "ATO"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Insurance - Diversified",
+  "empresas": 12,
+  "ticker": "BRK-B"
+ },
+ {
+  "sector": "Real Estate",
+  "industria": "REIT - Industrial",
+  "empresas": 12,
+  "ticker": "PLD"
+ },
+ {
+  "sector": "Energy",
+  "industria": "Oil & Gas Refining & Marketing",
+  "empresas": 12,
+  "ticker": "MPC"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Auto - Dealerships",
+  "empresas": 12,
+  "ticker": "CVNA"
+ },
+ {
+  "sector": "Healthcare",
+  "industria": "Medical - Healthcare Information Services",
+  "empresas": 12,
+  "ticker": "GEHC"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Auto - Parts",
+  "empresas": 12,
+  "ticker": "BWA"
+ },
+ {
+  "sector": "Healthcare",
+  "industria": "Drug Manufacturers - General",
+  "empresas": 11,
+  "ticker": "LLY"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Computer Hardware",
+  "empresas": 11,
+  "ticker": "DELL"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Investment - Banking & Investment Services",
+  "empresas": 11,
+  "ticker": "IBKR"
+ },
+ {
+  "sector": "Real Estate",
+  "industria": "REIT - Residential",
+  "empresas": 11,
+  "ticker": "AVB"
+ },
+ {
+  "sector": "Healthcare",
+  "industria": "Medical - Healthcare Plans",
+  "empresas": 10,
+  "ticker": "UNH"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Apparel - Retail",
+  "empresas": 10,
+  "ticker": "TJX"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Integrated Freight & Logistics",
+  "empresas": 10,
+  "ticker": "UPS"
+ },
+ {
+  "sector": "Consumer Defensive",
+  "industria": "Beverages - Non-Alcoholic",
+  "empresas": 9,
+  "ticker": "KO"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Travel Services",
+  "empresas": 9,
+  "ticker": "BKNG"
+ },
+ {
+  "sector": "Real Estate",
+  "industria": "REIT - Healthcare Facilities",
+  "empresas": 9,
+  "ticker": "WELL"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Financial - Data & Stock Exchanges",
+  "empresas": 9,
+  "ticker": "SPGI"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Airlines, Airports & Air Services",
+  "empresas": 9,
+  "ticker": "DAL"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Apparel - Manufacturers",
+  "empresas": 9,
+  "ticker": "RL"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Leisure",
+  "empresas": 9,
+  "ticker": "HAS"
+ },
+ {
+  "sector": "Consumer Defensive",
+  "industria": "Discount Stores",
+  "empresas": 8,
+  "ticker": "WMT"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Trucking",
+  "empresas": 8,
+  "ticker": "ODFL"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Packaging & Containers",
+  "empresas": 8,
+  "ticker": "PKG"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Auto - Manufacturers",
+  "empresas": 7,
+  "ticker": "TSLA"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Banks - Diversified",
+  "empresas": 7,
+  "ticker": "JPM"
+ },
+ {
+  "sector": "Utilities",
+  "industria": "Renewable Utilities",
+  "empresas": 7,
+  "ticker": "GEV"
+ },
+ {
+  "sector": "Basic Materials",
+  "industria": "Gold",
+  "empresas": 7,
+  "ticker": "NEM"
+ },
+ {
+  "sector": "Real Estate",
+  "industria": "Real Estate - Services",
+  "empresas": 7,
+  "ticker": "CBRE"
+ },
+ {
+  "sector": "Consumer Defensive",
+  "industria": "Food Distribution",
+  "empresas": 7,
+  "ticker": "SYY"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Furnishings, Fixtures & Appliances",
+  "empresas": 7,
+  "ticker": "SN"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Manufacturing - Tools & Accessories",
+  "empresas": 7,
+  "ticker": "SNA"
+ },
+ {
+  "sector": "Real Estate",
+  "industria": "REIT - Mortgage",
+  "empresas": 7,
+  "ticker": "NLY"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Insurance - Specialty",
+  "empresas": 7,
+  "ticker": "AIZ"
+ },
+ {
+  "sector": "Real Estate",
+  "industria": "REIT - Office",
+  "empresas": 7,
+  "ticker": "BXP"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Insurance - Brokers",
+  "empresas": 6,
+  "ticker": "MRSH"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Travel Lodging",
+  "empresas": 6,
+  "ticker": "MAR"
+ },
+ {
+  "sector": "Basic Materials",
+  "industria": "Steel",
+  "empresas": 6,
+  "ticker": "NUE"
+ },
+ {
+  "sector": "Healthcare",
+  "industria": "Drug Manufacturers - Specialty & Generic",
+  "empresas": 6,
+  "ticker": "VTRS"
+ },
+ {
+  "sector": "Consumer Defensive",
+  "industria": "Education & Training Services",
+  "empresas": 6,
+  "ticker": "GHC"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Railroads",
+  "empresas": 5,
+  "ticker": "UNP"
+ },
+ {
+  "sector": "Healthcare",
+  "industria": "Medical - Distribution",
+  "empresas": 5,
+  "ticker": "MCK"
+ },
+ {
+  "sector": "Utilities",
+  "industria": "Independent Power Producers",
+  "empresas": 5,
+  "ticker": "CEG"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Conglomerates",
+  "empresas": 5,
+  "ticker": "MMM"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Waste Management",
+  "empresas": 5,
+  "ticker": "WM"
+ },
+ {
+  "sector": "Utilities",
+  "industria": "Diversified Utilities",
+  "empresas": 5,
+  "ticker": "SRE"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Staffing & Employment Services",
+  "empresas": 5,
+  "ticker": "PAYX"
+ },
+ {
+  "sector": "Utilities",
+  "industria": "Regulated Water",
+  "empresas": 5,
+  "ticker": "AWK"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Software - Services",
+  "empresas": 5,
+  "ticker": "VRSK"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Consulting Services",
+  "empresas": 5,
+  "ticker": "EFX"
+ },
+ {
+  "sector": "Communication Services",
+  "industria": "Publishing",
+  "empresas": 5,
+  "ticker": "NWS"
+ },
+ {
+  "sector": "Real Estate",
+  "industria": "REIT - Hotel & Motel",
+  "empresas": 5,
+  "ticker": "HST"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Security & Protection Services",
+  "empresas": 5,
+  "ticker": "MSA"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Apparel - Footwear & Accessories",
+  "empresas": 4,
+  "ticker": "NKE"
+ },
+ {
+  "sector": "Basic Materials",
+  "industria": "Agricultural Inputs",
+  "empresas": 4,
+  "ticker": "CTVA"
+ },
+ {
+  "sector": "Consumer Defensive",
+  "industria": "Agricultural Farm Products",
+  "empresas": 4,
+  "ticker": "ADM"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Manufacturing - Metal Fabrication",
+  "empresas": 4,
+  "ticker": "ATI"
+ },
+ {
+  "sector": "Real Estate",
+  "industria": "REIT - Diversified",
+  "empresas": 4,
+  "ticker": "VICI"
+ },
+ {
+  "sector": "Communication Services",
+  "industria": "Advertising Agencies",
+  "empresas": 4,
+  "ticker": "OMC"
+ },
+ {
+  "sector": "Basic Materials",
+  "industria": "Chemicals",
+  "empresas": 4,
+  "ticker": "DOW"
+ },
+ {
+  "sector": "Basic Materials",
+  "industria": "Paper, Lumber & Forest Products",
+  "empresas": 4,
+  "ticker": "IP"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Technology Distributors",
+  "empresas": 4,
+  "ticker": "SNX"
+ },
+ {
+  "sector": "Basic Materials",
+  "industria": "Industrial Materials",
+  "empresas": 4,
+  "ticker": "MP"
+ },
+ {
+  "sector": "Energy",
+  "industria": "Uranium",
+  "empresas": 4,
+  "ticker": "UEC"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Auto - Recreational Vehicles",
+  "empresas": 4,
+  "ticker": "BC"
+ },
+ {
+  "sector": "Energy",
+  "industria": "Coal",
+  "empresas": 4,
+  "ticker": "HCC"
+ },
+ {
+  "sector": "Energy",
+  "industria": "Oil & Gas Integrated",
+  "empresas": 3,
+  "ticker": "XOM"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Agricultural - Machinery",
+  "empresas": 3,
+  "ticker": "CAT"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Home Improvement",
+  "empresas": 3,
+  "ticker": "HD"
+ },
+ {
+  "sector": "Consumer Defensive",
+  "industria": "Food Confectioners",
+  "empresas": 3,
+  "ticker": "MDLZ"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Electronic Gaming & Multimedia",
+  "empresas": 3,
+  "ticker": "EA"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Financial - Mortgages",
+  "empresas": 3,
+  "ticker": "RKT"
+ },
+ {
+  "sector": "Consumer Defensive",
+  "industria": "Grocery Stores",
+  "empresas": 3,
+  "ticker": "KR"
+ },
+ {
+  "sector": "Healthcare",
+  "industria": "Medical - Pharmaceuticals",
+  "empresas": 3,
+  "ticker": "RPRX"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Solar",
+  "empresas": 3,
+  "ticker": "FSLR"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Industrial - Pollution & Treatment Controls",
+  "empresas": 3,
+  "ticker": "VLTO"
+ },
+ {
+  "sector": "Communication Services",
+  "industria": "Broadcasting",
+  "empresas": 3,
+  "ticker": "CCZ"
+ },
+ {
+  "sector": "Basic Materials",
+  "industria": "Aluminum",
+  "empresas": 3,
+  "ticker": "AA"
+ },
+ {
+  "sector": "Basic Materials",
+  "industria": "Other Precious Metals",
+  "empresas": 3,
+  "ticker": "HL"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Personal Products & Services",
+  "empresas": 3,
+  "ticker": "SCI"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Construction",
+  "empresas": 3,
+  "ticker": "WMS"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Department Stores",
+  "empresas": 3,
+  "ticker": "DDS"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Marine Shipping",
+  "empresas": 3,
+  "ticker": "KEX"
+ },
+ {
+  "sector": "Energy",
+  "industria": "Oil & Gas Drilling",
+  "empresas": 3,
+  "ticker": "NE"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Consumer Electronics",
+  "empresas": 2,
+  "ticker": "AAPL"
+ },
+ {
+  "sector": "Consumer Defensive",
+  "industria": "Tobacco",
+  "empresas": 2,
+  "ticker": "PM"
+ },
+ {
+  "sector": "Basic Materials",
+  "industria": "Copper",
+  "empresas": 2,
+  "ticker": "SCCO"
+ },
+ {
+  "sector": "Consumer Defensive",
+  "industria": "Beverages - Alcoholic",
+  "empresas": 2,
+  "ticker": "STZ"
+ },
+ {
+  "sector": "Healthcare",
+  "industria": "Medical - Equipment & Services",
+  "empresas": 2,
+  "ticker": "HIMS"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Financial - Diversified",
+  "empresas": 2,
+  "ticker": "RITM"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Industrial - Specialties",
+  "empresas": 2,
+  "ticker": "CSW"
+ },
+ {
+  "sector": "Real Estate",
+  "industria": "Real Estate - Development",
+  "empresas": 2,
+  "ticker": "HHH"
+ },
+ {
+  "sector": "Consumer Cyclical",
+  "industria": "Luxury Goods",
+  "empresas": 1,
+  "ticker": "TPR"
+ },
+ {
+  "sector": "Technology",
+  "industria": "Industrial - Machinery",
+  "empresas": 1,
+  "ticker": "FTV"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Environmental Services",
+  "empresas": 1,
+  "ticker": "ROL"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Insurance - Reinsurance",
+  "empresas": 1,
+  "ticker": "RGA"
+ },
+ {
+  "sector": "Consumer Defensive",
+  "industria": "Beverages - Wineries & Distilleries",
+  "empresas": 1,
+  "ticker": "BF-B"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Industrial - Infrastructure Operations",
+  "empresas": 1,
+  "ticker": "ACA"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Financial - Conglomerates",
+  "empresas": 1,
+  "ticker": "BIPH"
+ },
+ {
+  "sector": "Energy",
+  "industria": "Solar",
+  "empresas": 1,
+  "ticker": "ENPH"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Shell Companies",
+  "empresas": 1,
+  "ticker": "CCXIW"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Asset Management - Cryptocurrency",
+  "empresas": 1,
+  "ticker": "CLSK"
+ },
+ {
+  "sector": "Financial Services",
+  "industria": "Asset Management - Income",
+  "empresas": 1,
+  "ticker": "ACP-PA"
+ },
+ {
+  "sector": "Industrials",
+  "industria": "Manufacturing - Miscellaneous",
+  "empresas": 1,
+  "ticker": "PRLB"
+ }
+]

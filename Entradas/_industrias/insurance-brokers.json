@@ -1,0 +1,19 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-08-10",
+  "_como_se_obtuvo": "Resuelto al analizar . Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 641800000000,
+  "_cita_verificada": "https://www.ibisworld.com/global/market-size/global-insurance-brokers-agencies/1850/",
+  "tam_source": "IBISWorld, Global Insurance Brokers & Agencies Market Size 2025",
+  "tam_source_tier": 3,
+  "_ambito": "mundial",
+  "_capa": "Ingresos por comisiones y tarifas de intermediación de seguros",
+  "_capa_coincide": "Una empresa de la industria 'Insurance - Brokers' factura a través de comisiones y tarifas por intermediar pólizas de seguros y ofrecer servicios de consultoría de riesgo. La cifra de IBISWorld mide el ingreso por comisiones y tarifas de los brokers y agencias de seguros.",
+  "_cita": "https://www.ibisworld.com/global/market-size/global-insurance-brokers-agencies/",
+  "_cita_textual": "The market size of the Global Insurance Brokers & Agencies is $641.8bn in 2025.",
+  "_segmento_patrones": [
+    "insurance brokers",
+    "agencies"
+  ]
+}

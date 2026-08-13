@@ -1,0 +1,23 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-08-08",
+  "_como_se_obtuvo": "Resuelto al analizar XOM. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 4000000000000,
+  "_cita_verificada": "https://www.ibisworld.com/global/industry/global-oil-gas-exploration-production/190/",
+  "tam_source": "Ibisworld - Global Oil & Gas Exploration & Production Industry Analysis, 2025",
+  "tam_source_tier": 3,
+  "_ambito": "mundial",
+  "_capa": "ingresos totales de la industria mundial de exploración y producción de petróleo y gas",
+  "_capa_coincide": "XOM factura una parte significativa de sus ingresos en la exploración y producción de petróleo y gas, que es el segmento que mide esta cifra.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFNFvuQySHqkDNlwqesP62X8gpjpeLEQ_c698s-kJvtc8Gv54wyihMrF-T6-BnwCCzzKCsl3r_KsfYLyJG4RSmgiOA9LXdgKCSv9xJkoHTbLmF8LAjWMke_L84eLmjrLZuoSHs_LmLmHdmxx60F2E2f1D8w82qn7cNPINfT4xkLhROnWKFH-Rib1rIjm6Cd9w==",
+  "_cita_textual": "Overall revenue has pushed up at a CAGR of 11.7% to $4.0 trillion through the end of 2025, including a slight 7.3% dip in 2025 alone.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "_segmento_patrones": [
+    "upstream",
+    "exploration",
+    "production",
+    "crude",
+    "natural gas"
+  ]
+}
