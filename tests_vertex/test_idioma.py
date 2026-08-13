@@ -176,6 +176,11 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
         h = PANEL.read_text(encoding="utf-8")
         dic = h.split("const VX_ES2EN = {", 1)[1].split("\n};", 1)[0]
         pat = h.split("const VX_PAT = [", 1)[1].split("\n];", 1)[0]
+        # El diccionario de VUELTA lleva español en los VALORES. Si no se quita,
+        # el escáner lo lee como texto de pantalla sin traducir y grita con las
+        # traducciones mismas.
+        dic_es = h.split("const VX_EN2ES = {", 1)[1].split("\n};", 1)[0]
+        pat_es = h.split("const VX_PAT_ES = [", 1)[1].split("\n];", 1)[0]
 
         # marcado visible y atributos que se leen
         cuerpo = re.sub(r"<script\b.*?</script>", "", h, flags=re.S | re.I)
@@ -187,7 +192,8 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
 
         # literales del JS, quitando el diccionario (sus claves SON español)
         js = "\n".join(re.findall(r"<script\b[^>]*>(.*?)</script>", h, flags=re.S | re.I))
-        js = js.replace(dic, "").replace(pat, "")
+        for _fuera in (dic, pat, dic_es, pat_es):
+            js = js.replace(_fuera, "")
         js = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
         js = re.sub(r"^\s*//.*$", "", js, flags=re.M)
         lit = []
@@ -554,6 +560,69 @@ class TestElInterruptorVaYVuelve:
                 assert EN not in es, (
                     "quedó inglés colado al volver: la guarda de «ya está hecho» "
                     "no puede aplicarse también a la vuelta")
+                assert not errores, errores[:3]
+                b.close()
+        finally:
+            proc.kill()
+
+
+@pytest.mark.skipif(not Path(CHROMIUM).exists(), reason="sin Chromium")
+class TestEnEspanolTampocoQuedaIngles:
+    """La dirección de vuelta.
+
+    El panel está escrito en DOS idiomas: Proyecciones y el perfil en español,
+    Analyze / Explore / Portfolio en inglés. Con un solo diccionario, elegir
+    español dejaba esas áreas en inglés — la mitad de la aplicación.
+
+    Por eso el barrido es simétrico: se parte SIEMPRE del original, esté en el
+    idioma que esté, y se escribe su versión en el idioma de ahora. Si no hay
+    traducción se escribe el original, que es a la vez «traducir» y «deshacer»
+    según de dónde se venga.
+    """
+
+    def test_lo_escrito_en_ingles_se_ve_en_espanol_y_aguanta_el_vaiven(self, tmp_path):
+        from playwright.sync_api import sync_playwright
+
+        #: Escritas en inglés en el marcado; en español deben cambiar.
+        EN = ["What would you like to analyze?", "Recent Reports", "Dashboard"]
+        ES = ["¿Qué quieres analizar?", "Reportes recientes", "Panel"]
+
+        proc = _servidor(8125, tmp_path)
+        try:
+            with sync_playwright() as pw:
+                b = pw.chromium.launch(executable_path=CHROMIUM)
+                pg = b.new_page(viewport={"width": 1280, "height": 1000})
+                errores = []
+                pg.on("pageerror", lambda e: errores.append(str(e)))
+                pg.goto("http://127.0.0.1:8125/", wait_until="domcontentloaded")
+                pg.wait_for_timeout(3000)
+
+                def texto():
+                    return pg.evaluate("""() => {
+                        document.querySelectorAll('.view-section')
+                            .forEach(v => v.classList.remove('hidden'));
+                        return document.body.innerText;
+                    }""")
+
+                # Tres vueltas: el fallo del vaivén solo aparecía a partir de la
+                # segunda, y solo en los nodos que traduce el barrido.
+                for vuelta in range(3):
+                    pg.evaluate("vxIdioma('es')")
+                    pg.wait_for_timeout(500)
+                    t = texto()
+                    faltan = [s for s in ES if s not in t]
+                    quedan = [s for s in EN if s in t]
+                    assert not faltan, f"vuelta {vuelta}: no llegó al español {faltan}"
+                    assert not quedan, f"vuelta {vuelta}: sigue en inglés {quedan}"
+
+                    pg.evaluate("vxIdioma('en')")
+                    pg.wait_for_timeout(500)
+                    t = texto()
+                    faltan = [s for s in EN if s not in t]
+                    colado = [s for s in ES if s in t]
+                    assert not faltan, f"vuelta {vuelta}: no volvió al inglés {faltan}"
+                    assert not colado, f"vuelta {vuelta}: español colado {colado}"
+
                 assert not errores, errores[:3]
                 b.close()
         finally:

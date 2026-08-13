@@ -6226,6 +6226,27 @@ JavaScript. Uno solo la cierra, y el bloque entero dejó de definirse —
 Es exactamente lo que vigila el check «ningún comentario HTML dentro del JS lleva
 acentos graves», escrito la primera vez que pasó.
 
+## 41.51 · Ronda 25 — el camino de vuelta: inglés → español
+
+El panel está escrito en **dos** idiomas: Proyecciones y el perfil en español,
+Analyze / Explore / Portfolio en inglés. Con un solo diccionario, elegir español
+dejaba esas áreas en inglés — la mitad de la aplicación.
+
+Lo que cambió no es solo un segundo diccionario: es que el barrido **dejó de ser
+asimétrico**. Antes tenía dos ramas —«traducir» si el idioma era inglés,
+«deshacer» si no— y solo una miraba el diccionario, así que el texto nacido en
+inglés no tenía forma de volverse español. Ahora se parte SIEMPRE del original,
+esté en el idioma que esté, y se escribe su versión en el idioma de ahora; si no
+hay traducción se escribe el original, que es a la vez traducir y deshacer según
+de dónde se venga.
+
+`VX_EN2ES` y `VX_PAT_ES` son el camino de vuelta. Lo que ya está en el idioma de
+destino no casa con nada y se queda igual — que es exactamente lo que se quiere.
+
+Un detalle que costó un fallo: el escáner de código lee los diccionarios como si
+fueran texto de pantalla. El de vuelta lleva **español en los valores**, así que
+gritaba con las traducciones mismas. Se excluye, igual que ya se excluía el otro.
+
 ### Estado
 
 **2.925 tests del motor · 658 de la capa web (28 en un navegador real) ·
