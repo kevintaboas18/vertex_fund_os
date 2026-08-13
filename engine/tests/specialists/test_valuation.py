@@ -659,3 +659,53 @@ def test_sin_fuente_el_affo_se_ignora_igual():
                   {"affo_reported": 3_770_000_000})
     d = [x for x in out.dimensions if x.name == "cash_flow_and_earnings_yield"][0]
     assert (d.valid_weight() / d.applicable_weight()) == 0.0
+
+
+def test_la_historia_de_affo_cierra_las_otras_dos_dimensiones():
+    """`SCORING.md` para historial/comparables: "Minimum 8 valid peers **or use
+    history only**". La historia sola basta y el Cerebro lo dice.
+
+    Lo que NO servia es la historia que ya existe: `historical_multiples` trae
+    el P/E, y para Realty Income son ~40x mientras su P/AFFO ronda 13x. El
+    adaptador reemplaza el EPS, asi que puntuar a un REIT contra su historia de
+    P/E es puntuarlo con el multiplo que el documento retira.
+    """
+    pk = _minimal_packet([_row(2025), _row(2024)], industry_adapter="reits")
+    base = val.run(pk)
+    todo = val.run(pk, {
+        "affo_reported": 3_770_000_000, "ffo_source": "10-K 2025",
+        "affo_history": [3_470_000_000, 3_180_000_000, 2_760_000_000,
+                         2_310_000_000, 1_950_000_000]})
+
+    def _d(out, nombre):
+        d = [x for x in out.dimensions if x.name == nombre][0]
+        return d.valid_weight() / d.applicable_weight() if d.applicable_weight() else None
+
+    for nombre in ("historical_and_peer_comparison", "growth_adjusted_multiples"):
+        assert _d(base, nombre) == 0.0, nombre
+        assert _d(todo, nombre) == 1.0, f"la historia de AFFO no llego a {nombre}"
+    assert todo.coverage > base.coverage
+
+
+def test_los_slots_declaran_que_multiplo_llevan():
+    """Tres sustituciones del mismo tipo --insumo distinto, regla intacta-- y
+    las tres tienen que decirlo en el VALOR: un mismo slot con dos significados
+    segun el emisor no se explica solo en la prosa."""
+    out = val.run(_minimal_packet([_row(2025), _row(2024)], industry_adapter="reits"),
+                  {"affo_reported": 3_770_000_000, "ffo_source": "10-K 2025",
+                   "affo_history": [3_470_000_000, 3_180_000_000, 2_760_000_000]})
+    sellos = {w for d in out.dimensions for _, v in d.metric_scores
+              for w in (v.warnings or [])}
+    assert any("AFFO_YIELD" in w for w in sellos)
+    assert any("P_AFFO_ZSCORE" in w for w in sellos)
+    assert any("P_AFFO_OVER_AFFO_GROWTH" in w for w in sellos)
+
+
+def test_un_crecimiento_no_positivo_no_puntua_el_peg():
+    """`SCORING.md`: "No score from PEG when earnings/growth are not
+    meaningful". Un AFFO que cae no produce un PEG bajo y bonito."""
+    out = val.run(_minimal_packet([_row(2025), _row(2024)], industry_adapter="reits"),
+                  {"affo_reported": 1_000_000_000, "ffo_source": "10-K",
+                   "affo_history": [2_000_000_000, 2_500_000_000, 3_000_000_000]})
+    d = [x for x in out.dimensions if x.name == "growth_adjusted_multiples"][0]
+    assert (d.valid_weight() / d.applicable_weight()) == 0.0
