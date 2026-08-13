@@ -80,6 +80,67 @@ COST_OF_FUNDS_IS_INTEREST: frozenset[str] = frozenset({"banks"})
 #: changes, so no caveat and no confidence penalty.
 MODEL_ADDITIVE: frozenset[str] = frozenset({DEFAULT_ADAPTER, "saas_subscriptions"})
 
+#: La casa de bolsa (SIC 6211), que NO esta en ninguno de los tres sets de
+#: arriba -- y esa ausencia es la decision, no un olvido.
+#:
+#: `INDUSTRY_ADAPTERS.md` abre diciendo que "the default formulas are designed
+#: for NON-FINANCIAL operating companies", y da adaptador a bancos,
+#: aseguradoras, REITs, SaaS, biotech, ciclicas y pre-ingresos. Una casa de
+#: bolsa no es ninguna de las siete. Quedaba entonces con
+#: `default_nonfinancial`, o sea valorada por FCFF DCF con las mismas formulas
+#: que Coca-Cola -- exactamente lo que esa primera linea niega.
+#:
+#: Las dos salidas faciles estaban mal, y se midieron las dos:
+#:
+#: - Meterla con los BANCOS afirmaria que su interes es costo de fondeo y que
+#:   le aplican CET1, reservas de credito y cartera vencida. El SIC 6211
+#:   mezcla mesas de trading (GS 0,33x de cobertura, MS 0,45x) con corredores
+#:   (IBKR 2,09x, SCHW 3,05x) y gestoras (BLK 11,20x): 7 de 17 bajo 1,5x. No
+#:   es una clase, y suprimir la metrica en las diez que la tienen sana es el
+#:   mismo error que ya costo a las aseguradoras.
+#: - Dejarla en el DEFECTO afirma que las formulas convencionales le sirven,
+#:   que es lo que el documento niega en su primera frase.
+#:
+#: La tercera es la unica cierta y el motor ya la implementa: un nombre que
+#: `is_classified()` no reconoce es "one nobody has checked the conventional
+#: formulas against". Con eso `business.py` hunde la confianza de modelo a 40
+#: y `valuation.py` se NIEGA a poner precio en vez de fabricar uno. No afirma
+#: que ninguna metrica sea inaplicable --el dato no lo respalda-- ni que el
+#: modelo encaje. Dice lo unico que se sabe: empresa financiera, sin modelo
+#: validado. Es el mismo sitio donde ya cae un REIT sin NAV/AFFO capturados.
+#:
+#: Registrarla en `MODEL_REPLACING` la volveria "clasificada" y desharia todo
+#: esto. Si algun dia el Cerebro publica un adaptador de casas de bolsa, se
+#: registra AHI y esta constante desaparece.
+BROKER_DEALERS: str = "broker_dealers"
+assert BROKER_DEALERS not in (MODEL_REPLACING | MODEL_NORMALIZING | MODEL_ADDITIVE), (
+    "broker_dealers debe quedar SIN clasificar: registrarlo afirma un modelo "
+    "que INDUSTRY_ADAPTERS.md no publica para una casa de bolsa.")
+
+#: Adaptadores donde NO corren Beneish, Altman ni Piotroski.
+#:
+#: `DECISION_RULES.md` de riesgo: "Exclude financial companies and other
+#: inapplicable industries". Son las DOS cosas, y por eso este set no es
+#: `MODEL_REPLACING` a secas: los REITs y biotech entran por "otras industrias
+#: inaplicables", y la casa de bolsa entra por "financial companies" aunque a
+#: proposito no tenga modelo registrado.
+#:
+#: Sin esto, el Altman Z'' corria sobre GS y daba -0,30, sobre MS 0,90 y sobre
+#: SCHW -1,98 -- lecturas de quiebra inminente en firmas sanas, que es la
+#: misma alarma falsa que la cobertura de intereses en un banco. Un balance de
+#: casa de bolsa es capital de trabajo ajeno: el Z'' lo lee como insolvencia.
+FORENSIC_SCREENS_EXCLUDED: frozenset[str] = MODEL_REPLACING | frozenset({BROKER_DEALERS})
+
+
+def excludes_forensic_screens(adapter: str | None) -> bool:
+    """True cuando Beneish/Altman/Piotroski no aplican a este negocio.
+
+    Distinto de `replaces_model`, a proposito: una casa de bolsa no tiene
+    modelo de valuacion registrado --no esta en `MODEL_REPLACING`-- y aun asi
+    es una empresa financiera, que es lo que `DECISION_RULES.md` excluye.
+    """
+    return (adapter or "").strip().lower() in FORENSIC_SCREENS_EXCLUDED
+
 _MODEL_FIT: dict[str, float] = {
     DEFAULT_ADAPTER: 90.0,
     "saas_subscriptions": 90.0,      # additive; core formulas unchanged

@@ -217,9 +217,14 @@ def test_no_test_fixture_invents_an_adapter_name():
     import re
     from pathlib import Path
 
-    from wbj.packet.builder import _ADAPTER_BY_INDUSTRY, _ADAPTER_BY_SECTOR
+    # Las CUATRO fuentes del constructor, no dos. El guard leia solo el
+    # string comercial y se quedo obsoleto en cuanto el SIC empezo a mandar:
+    # marcaba como inventado un `broker_dealers` que el builder si emite.
+    from wbj.packet.builder import (_ADAPTER_BY_INDUSTRY, _ADAPTER_BY_SECTOR,
+                                    _ADAPTER_BY_SIC, _ADAPTER_EXCEPTIONS)
 
-    real = {a for _, a in (*_ADAPTER_BY_INDUSTRY, *_ADAPTER_BY_SECTOR)}
+    real = {a for _, a in (*_ADAPTER_BY_INDUSTRY, *_ADAPTER_BY_SECTOR,
+                           *_ADAPTER_BY_SIC, *_ADAPTER_EXCEPTIONS)}
     real.add("default_nonfinancial")
 
     # The one file whose whole subject is the unrecognised name: A-06 asks
@@ -439,3 +444,58 @@ def test_biotech_y_commodities_NO_se_deciden_por_SIC_a_proposito():
 
     for sic in ("8731", "2836", "7372", "1311"):
         assert _adapter_por_sic(sic) is None, sic
+
+
+# ============================================================================
+# La casa de bolsa: sin modelo registrado, y esa ausencia ES la decision
+# ============================================================================
+
+
+def test_una_casa_de_bolsa_sale_del_defecto():
+    """SIC 6211. Antes caia en `default_nonfinancial`, o sea se valoraba por
+    FCFF DCF con las mismas formulas que Coca-Cola -- lo que la primera linea
+    de INDUSTRY_ADAPTERS.md niega: "the default formulas are designed for
+    NON-FINANCIAL operating companies"."""
+    perfil = {"sector": "Financial Services", "industry": "Financial - Capital Markets"}
+    assert _industry_adapter_for(perfil) == "default_nonfinancial"      # sin SIC
+    assert _industry_adapter_for(perfil, "6211") == "broker_dealers"
+
+
+def test_la_casa_de_bolsa_NO_queda_clasificada_y_eso_es_el_punto():
+    """Registrarla en cualquiera de los tres tratamientos afirmaria un modelo
+    que el Cerebro no publica para ella. `is_classified()` en False es lo que
+    hace que valuation se niegue a poner precio en vez de fabricar uno."""
+    from wbj.core import adapters
+
+    assert adapters.is_classified("broker_dealers") is False
+    assert adapters.model_fit("broker_dealers") == 40.0
+    assert "broker_dealers" not in adapters.MODEL_REPLACING
+    assert "broker_dealers" not in adapters.MODEL_NORMALIZING
+    assert "broker_dealers" not in adapters.MODEL_ADDITIVE
+
+
+def test_la_casa_de_bolsa_NO_va_con_los_bancos():
+    """El SIC 6211 no es una clase: mezcla mesas de trading (GS 0,33x de
+    cobertura, MS 0,45x) con corredores (IBKR 2,09x, SCHW 3,05x) y gestoras
+    (BLK 11,20x) -- 7 de 17 bajo 1,5x, medido sobre las 290 financieras del
+    mercado. Suprimir la cobertura en las diez sanas seria repetir el error
+    que ya costo a las aseguradoras."""
+    from wbj.core import adapters
+
+    assert adapters.cost_of_funds_is_interest("broker_dealers") is False
+    assert adapters.replaces_return_model("broker_dealers") is False
+
+
+def test_a_la_casa_de_bolsa_SI_se_le_excluyen_las_pantallas_forenses():
+    """DECISION_RULES.md: "Exclude financial companies AND other inapplicable
+    industries" -- son dos cosas. `replaces_model` solo cubria la segunda, asi
+    que el Altman Z'' corria sobre GS (-0,30), MS (0,90) y SCHW (-1,98):
+    lecturas de quiebra inminente en firmas sanas."""
+    from wbj.core import adapters
+
+    assert adapters.excludes_forensic_screens("broker_dealers") is True
+    # Y sigue cubriendo a quienes ya cubria por "otras industrias inaplicables"
+    for a in ("banks", "insurers", "reits", "biotech"):
+        assert adapters.excludes_forensic_screens(a) is True, a
+    assert adapters.excludes_forensic_screens("default_nonfinancial") is False
+    assert adapters.excludes_forensic_screens("saas_subscriptions") is False

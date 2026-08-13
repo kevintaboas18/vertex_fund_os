@@ -1486,7 +1486,13 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     by_id = {r.metric_id: r for r in rows}
 
     _adapter = packet.analysis.industry_adapter
-    if _adapters.replaces_model(_adapter):
+    # `excludes_forensic_screens`, no `replaces_model`: la regla del Cerebro
+    # son DOS cosas --"financial companies AND other inapplicable industries"--
+    # y `replaces_model` solo cubre la segunda. Una casa de bolsa es de la
+    # primera y a proposito no tiene modelo registrado, asi que caia fuera y
+    # el Altman Z'' corria sobre ella: GS -0,30, MS 0,90, SCHW -1,98, lecturas
+    # de quiebra inminente en firmas sanas.
+    if _adapters.excludes_forensic_screens(_adapter):
         # DECISION_RULES.md: "Exclude financial companies and other inapplicable
         # industries." Mark the Beneish/Altman/Piotroski family NOT_APPLICABLE
         # so the scoring engine drops it from the coverage denominator and
