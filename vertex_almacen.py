@@ -154,6 +154,29 @@ def _sin_secretos(texto: str) -> str:
     return texto
 
 
+
+def _lados_del_conflicto(texto: str) -> list[str]:
+    """Los dos textos que git dejó pegados, cada uno por su cuenta.
+
+    Un conflicto anidado deja varias capas de marcas; se quitan todas las
+    líneas de marca y se devuelven las dos lecturas posibles —quedarse con lo
+    de arriba de cada `=======` o con lo de abajo—, que es lo que git habría
+    escrito si alguien hubiera resuelto a mano.
+    """
+    arriba, abajo, cual = [], [], "arriba"
+    for linea in texto.splitlines():
+        if linea.startswith("<<<<<<< "):
+            cual = "arriba"
+        elif linea.startswith("======="):
+            cual = "abajo"
+        elif linea.startswith(">>>>>>> "):
+            cual = "arriba"
+        elif cual == "arriba":
+            arriba.append(linea)
+        else:
+            abajo.append(linea)
+    return ["\n".join(arriba), "\n".join(abajo)]
+
 class Almacen:
     """Un directorio que es un clon de la rama de datos y se respalda solo."""
 
@@ -321,8 +344,17 @@ class Almacen:
                               timeout=timeout, tolera=True)
             self._identidad()
             self._gitignore()
+            # Lo que llega del remoto puede venir roto: durante el atasco se
+            # commitearon 27 series con marcas de conflicto dentro del JSON. Se
+            # limpian AQUÍ, nada más traerlas, para que ningún sub-agente se
+            # encuentre un archivo ilegible.
+            reparados = self._repara_marcas()
             self._estado.update(activo=True, restaurado=True, motivo="",
                                 ultimo_error=None)
+            if reparados:
+                self._estado["motivo"] = (
+                    f"{reparados} archivo(s) venían con marcas de conflicto "
+                    "dentro y se repararon al restaurar.")
         except Exception as e:
             # Un fallo aquí NO puede tumbar el arranque del servidor: se sigue
             # en modo local y se dice por qué. Perder el respaldo es grave;
@@ -464,13 +496,70 @@ class Almacen:
             self._git("merge", "--abort", tolera=True)
         if (g / "CHERRY_PICK_HEAD").exists():
             self._git("cherry-pick", "--abort", tolera=True)
-        # Y si aún quedan archivos sin fusionar —un abort que no pudo, o un
-        # conflicto que no venía de ninguna de las tres— se dan por resueltos
-        # con lo que hay en el árbol de trabajo, que es el dato bueno.
-        sin_fusionar = self._git("diff", "--name-only", "--diff-filter=U",
-                                 tolera=True).stdout or ""
-        if sin_fusionar.strip():
-            self._git("add", "-A", tolera=True)
+        # Y si aún quedan archivos sin fusionar, se resuelven tomando NUESTRO
+        # lado limpio — nunca el árbol de trabajo.
+        #
+        # Aquí había un `git add -A`, y era el mecanismo exacto que rompió los
+        # datos: en un conflicto, el archivo del árbol de trabajo lleva dentro
+        # las marcas `<<<<<<< HEAD` / `=======` / `>>>>>>>`, así que `add -A`
+        # las COMMITEA. Así acabaron 27 series de mercado con marcas de git
+        # dentro del JSON, ilegibles para el motor: el IV Rank se quedó en 0/60
+        # y las predicciones en 0 aunque los archivos estuvieran ahí.
+        #
+        # `checkout --ours` escribe la versión nuestra tal cual, sin marcas.
+        sin_fusionar = [l.strip() for l in
+                        (self._git("diff", "--name-only", "--diff-filter=U",
+                                   tolera=True).stdout or "").splitlines() if l.strip()]
+        for ruta in sin_fusionar:
+            r = self._git("checkout", "--ours", "--", ruta, tolera=True)
+            if r.returncode:                      # no había lado nuestro
+                self._git("checkout", "--theirs", "--", ruta, tolera=True)
+            self._git("add", "--", ruta, tolera=True)
+        self._repara_marcas()
+
+    #: Las tres marcas que git deja dentro de un archivo en conflicto.
+    _MARCAS = ("<<<<<<< ", "=======", ">>>>>>> ")
+
+    def _repara_marcas(self) -> int:
+        """Limpia los archivos que YA tienen marcas de conflicto dentro.
+
+        No es teórico: 27 archivos de `Series/` llegaron así al repositorio y el
+        motor no podía leer ninguno. Un JSON con marcas dentro no es un JSON, y
+        una serie que no se puede leer es una serie que no existe — el panel
+        decía «0/60 días de IV» con el archivo delante.
+
+        Se intenta rescatar el JSON de UNO de los dos lados; el que más datos
+        tenga gana, porque estas series solo crecen. Si no se puede rescatar
+        ninguno, el archivo se borra: se vuelve a acumular desde hoy, y eso es
+        mejor que un archivo que rompe al sub-agente cada vez que lo abre.
+        """
+        arreglados = 0
+        for ruta in self.raiz.rglob("*.json"):
+            if ".git" in ruta.parts:
+                continue
+            try:
+                texto = ruta.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if not any(m in texto for m in self._MARCAS):
+                continue
+            mejor = None
+            for lado in _lados_del_conflicto(texto):
+                try:
+                    dato = json.loads(lado)
+                except (ValueError, TypeError):
+                    continue
+                if mejor is None or len(str(dato)) > len(str(mejor)):
+                    mejor = dato
+            if mejor is None:
+                ruta.unlink(missing_ok=True)
+            else:
+                ruta.write_text(json.dumps(mejor, ensure_ascii=False), encoding="utf-8")
+            arreglados += 1
+        if arreglados:
+            self._estado["marcas_reparadas"] = (
+                self._estado.get("marcas_reparadas", 0) + arreglados)
+        return arreglados
 
     def _reconstruye(self) -> None:
         """Última red: si el clon no hay forma de arreglarlo, se rehace.

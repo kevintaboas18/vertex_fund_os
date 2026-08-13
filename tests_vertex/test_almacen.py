@@ -1261,3 +1261,69 @@ class TestNadaEsperaAlHiloDeFondo:
         otro.restaura()
         assert list((otro.raiz / "Proyecciones").rglob("scorecard.json")), (
             "el reporte no está en el remoto")
+
+
+class TestLasMarcasDeConflictoNoLLEGANaLosDatos:
+    """El daño real del atasco, y el que explicaba «el agente no mejora».
+
+    En un conflicto, el archivo del árbol de trabajo lleva dentro las marcas
+    `<<<<<<< HEAD` / `=======` / `>>>>>>>`. El saneo hacía `git add -A`, así que
+    las COMMITEABA. Así acabaron 27 series de mercado con marcas de git dentro
+    del JSON: el archivo existía, el motor no podía leerlo, y el panel decía
+    «0/60 días de IV» y «0 predicciones» con los datos delante.
+    """
+
+    def test_un_conflicto_no_deja_marcas_dentro_del_json(self, tmp_path, remoto):
+        from vertex_almacen import Almacen
+
+        a = Almacen(raiz=tmp_path / "a", remoto=remoto, token="x")
+        a.restaura()
+        ruta = "Series/tito/iv/AAPL.json"
+        a.guarda(ruta, [{"d": 1}])
+        a.sincroniza()
+
+        # Dos ramas que tocan la misma línea: el conflicto de verdad.
+        a._git("checkout", "-q", "-b", "otra")
+        (a.raiz / ruta).write_text('[{"d": 2}]', encoding="utf-8")
+        a._git("add", "-A"); a._git("commit", "-q", "-m", "otro")
+        a._git("checkout", "-q", a.rama)
+        (a.raiz / ruta).write_text('[{"d": 1}, {"d": 3}]', encoding="utf-8")
+        a._git("add", "-A"); a._git("commit", "-q", "-m", "mío")
+        a._git("merge", "otra", tolera=True)
+
+        a.sincroniza()
+
+        texto = (a.raiz / ruta).read_text(encoding="utf-8")
+        for marca in ("<<<<<<<", "=======", ">>>>>>>"):
+            assert marca not in texto, f"quedó «{marca}» dentro del JSON"
+        json.loads(texto)                       # y es JSON válido
+
+    def test_lo_que_YA_llego_roto_se_repara_al_restaurar(self, tmp_path, remoto):
+        """Los 27 archivos ya están en el repositorio de Kevin. Se limpian al
+        traerlos, no cuando alguien se dé cuenta."""
+        from vertex_almacen import Almacen
+
+        a = Almacen(raiz=tmp_path / "a", remoto=remoto, token="x")
+        a.restaura()
+        roto = ('<<<<<<< HEAD\n[{"dia": "2026-08-01"}, {"dia": "2026-08-02"}]\n'
+                '=======\n[{"dia": "2026-08-01"}]\n>>>>>>> otro\n')
+        (a.raiz / "Series").mkdir(parents=True, exist_ok=True)
+        (a.raiz / "Series/iv.json").write_text(roto, encoding="utf-8")
+
+        assert a._repara_marcas() == 1
+        salvado = json.loads((a.raiz / "Series/iv.json").read_text(encoding="utf-8"))
+        assert salvado == [{"dia": "2026-08-01"}, {"dia": "2026-08-02"}], (
+            "se quedó con el lado que MENOS datos tenía")
+
+    def test_si_no_se_puede_rescatar_ninguno_el_archivo_se_va(self, tmp_path, remoto):
+        """Mejor una serie que empieza hoy que una que rompe al sub-agente."""
+        from vertex_almacen import Almacen
+
+        a = Almacen(raiz=tmp_path / "a", remoto=remoto, token="x")
+        a.restaura()
+        (a.raiz / "Series").mkdir(parents=True, exist_ok=True)
+        (a.raiz / "Series/x.json").write_text(
+            "<<<<<<< HEAD\nno es json\n=======\ntampoco\n>>>>>>> otro\n",
+            encoding="utf-8")
+        assert a._repara_marcas() == 1
+        assert not (a.raiz / "Series/x.json").exists()
