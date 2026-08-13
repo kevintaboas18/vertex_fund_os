@@ -150,7 +150,14 @@ def _build_packet(ticker: str) -> dict:
         # quick.py. Missing sub-keys keep the dependent category N/S.
         packet["market_data"] = {
             "price": prof0.get("price"),
-            "market_cap": prof0.get("mktCap"),
+            # `marketCap` primero: el endpoint `/stable` de FMP renombro el
+            # campo y `mktCap` es el nombre de la v3. Pedir solo el viejo
+            # devolvia None SIEMPRE, y con eso el P/FCF no se calculaba
+            # nunca -- la valuacion del quick quedaba colgando de un solo
+            # multiplo, el P/E, contra un docstring que promete los dos.
+            # `packet/builder.py` ya leia los dos nombres; este se quedo
+            # atras.
+            "market_cap": prof0.get("marketCap") or prof0.get("mktCap"),
             "ohlcv": fmp.ohlcv_daily(ticker, years=1, today=date.today()),
             "estimates": fmp.analyst_estimates(ticker),
             "earnings": fmp.earnings_calendar(ticker),
