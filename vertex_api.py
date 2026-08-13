@@ -8800,6 +8800,19 @@ def _wbj_explain_context(ticker, nombre_largo, precio, analisis_json):
         if _pf.get("es_por_defecto"):
             _perfil_duro += ("AVISO: esta persona NO ha personalizado su perfil. Son valores de "
                              "referencia, no suyos — no le hables como si los hubiera declarado.\n")
+    # La memoria: qué dijo el agente de ESTE ticker la última vez y qué ha hecho
+    # el precio desde entonces. Va al prompt porque una memoria que no cambia
+    # ninguna decisión no es memoria, es un archivo.
+    try:
+        import vertex_almacen as _AL2
+        import vertex_memoria as _MEM
+        _memoria_ctx = _MEM.contexto_para_el_agente(
+            analisis_json.get("ticker") or "", _AL2.almacen,
+            precio_hoy=analisis_json.get("precio_actual"))
+        if _memoria_ctx:
+            _memoria_ctx = "\n" + _memoria_ctx + "\n"
+    except Exception:                              # noqa: BLE001
+        _memoria_ctx = ""
     return (
         f"TICKER: {ticker} — {nombre_largo} | precio ${precio}\n"
         f"PERFIL/BANDA: {_wj.get('profile')} — {_wj.get('band')}\n"
@@ -8816,7 +8829,7 @@ def _wbj_explain_context(ticker, nombre_largo, precio, analisis_json):
         f"NIVELES (synthesize_levels de Victor):\n"
         f"{_wbj_levels_ctx(analisis_json.get('victor_levels'))}\n"
         f"FIT DE PERFIL (determinista): {_pf.get('fit')} — {_pf.get('fit_reason')}\n"
-        + _perfil_duro + _prior_ctx +
+        + _perfil_duro + _prior_ctx + _memoria_ctx +
         f"\n=== MI PERFIL ({_pname or 'inversionista'}) ===\n{_ptext}")
 
 

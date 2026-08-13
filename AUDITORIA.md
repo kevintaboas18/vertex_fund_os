@@ -6312,6 +6312,48 @@ real necesita 60 sesiones de mercado y no hay forma de comprarlas hechas. Eso no
 es trabajo pendiente, es tiempo que hay que dejar correr — lo que se arregló es
 que dejen de volver a cero en cada reinicio.
 
+## 41.52 · Ronda 26 — el daño de verdad del atasco, y la memoria que no existía
+
+**1. Las marcas de conflicto llegaban DENTRO del JSON.** Mirando la rama `datos`
+real apareció lo que ningún test veía: **27 series commiteadas con
+`<<<<<<< HEAD` / `=======` / `>>>>>>>` dentro**. El archivo estaba, con sus
+datos, y el motor no podía leerlo — el panel decía «0/60 días de IV» y «0
+predicciones» teniéndolos delante. Eso, y no otra cosa, era «el agente no
+mejora».
+
+El mecanismo era el saneo de la ronda anterior. `git add -A` sobre un archivo en
+conflicto estadía el **árbol de trabajo**, que es justo el que lleva las marcas.
+Ahora cada archivo sin fusionar se resuelve con `checkout --ours` —la versión
+limpia— y solo entonces se estadía. Y `_repara_marcas()` corre al restaurar:
+separa los dos lados, se queda con el que más datos tenga (estas series solo
+crecen) y, si no se rescata ninguno, borra el archivo — mejor una serie que
+empieza hoy que una que rompe al sub-agente cada vez que la abre. Probado contra
+la rama real: **27 reparados, 0 JSON ilegibles**.
+
+**2. Nada esperaba ya al hilo de fondo.** El respaldo corría cada 20 s y esa
+ventana era el hueco: una cuenta creada justo antes de pulsar «Deploy» no subía
+nunca. Cuenta, perfil y reporte se respaldan ahora **en el acto**, antes de que
+la respuesta llegue a la pantalla.
+
+**3. `Memoria/` no existía.** `CLAUDE.md` describe el protocolo —leer la tesis
+antes de analizar, escribirla después, apuntar la lección al contradecirse— y
+decía con todas sus letras que **no es automático**. No lo era: la carpeta no
+estaba ni en la rama de datos. Cada análisis empezaba sin saber qué se había
+dicho del mismo ticker la semana pasada.
+
+`vertex_memoria.py` lo hace automático. Al archivar un reporte —de cualquiera de
+los dos agentes— se escribe `Memoria/tesis/<TICKER>.md`, se actualiza el índice
+y, si el veredicto se dio la vuelta, se apunta en `Memoria/errores.md` con lo
+que hizo el precio entre las dos. Y lo que decide si esto es memoria o solo un
+archivo bonito: `contexto_para_el_agente()` mete la tesis anterior **en el
+prompt**, con el movimiento del precio desde entonces y la orden de decir si el
+análisis de hoy la contradice o la confirma.
+
+Tres decisiones: la tesis vieja **no se borra** (se apila debajo, como pide el
+Cerebro); los dos agentes escriben en el **mismo** archivo por ticker (es el
+mismo ticker y el mismo lector); y confirmar el veredicto **no** cuenta como
+contradicción.
+
 ### Estado
 
 **2.925 tests del motor · 658 de la capa web (28 en un navegador real) ·
