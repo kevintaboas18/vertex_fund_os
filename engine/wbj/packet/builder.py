@@ -240,12 +240,69 @@ _ADAPTER_BY_SECTOR: tuple[tuple[str, str], ...] = (
 )
 
 
-def _industry_adapter_for(profile: dict) -> str:
+#: El SIC que el emisor declara ante la SEC -> adaptador, para las familias
+#: donde se verifico que el string comercial se equivoca.
+#:
+#: `SOURCE_HIERARCHY.md` pone en el rango 1 la "regulatory filing and filing
+#: acceptance metadata"; una etiqueta de industria de un proveedor de datos es
+#: rango 5. Cuando discrepan, el Cerebro ya dijo cual gana, asi que esto no es
+#: un criterio nuevo: es aplicar el orden que ya estaba escrito.
+#:
+#: Medido contra la SEC, el SIC separa exactamente lo que el string no separaba:
+#:
+#:   COF  6021 National Commercial Banks   <- FMP decia "Credit Services"
+#:   ALLY 6022 State Commercial Banks      <- FMP decia "Credit Services"
+#:   V/MA 7389 Services-Business Services  <- correctamente fuera
+#:   AJG  6411 Insurance Agents, Brokers   <- distinto de PGR 6331 (underwriter)
+#:   CBRE 6500 Real Estate                 <- distinto de O 6798 (REIT)
+#:
+#: Los dos ultimos confirman con autoridad de rango 1 las excepciones que
+#: `_ADAPTER_EXCEPTIONS` habia deducido: la propia SEC le da codigo distinto a
+#: un corredor que a un asegurador, y a una inmobiliaria que a un REIT.
+#:
+#: Deliberadamente NO cubre biotech/software/commodities. Ahi el string de FMP
+#: acierta y el SIC es mas turbio -- 8731 "Commercial Physical & Biological
+#: Research" mezcla biotecnologicas con laboratorios de ensayo y consultoras de
+#: ingenieria. Se cambia donde se midio el fallo, no donde se puede.
+_ADAPTER_BY_SIC: tuple[tuple[range, str], ...] = (
+    # 6021 nacional, 6022 estatal, 6035/6036 cajas de ahorro.
+    (range(6020, 6037), "banks"),
+    # Aseguradoras que SUSCRIBEN: vida, salud, incendio/maritimo/danos,
+    # fianzas, titulos. 6411 (agentes y corredores) queda fuera a proposito.
+    (range(6310, 6400), "insurers"),
+    (range(6798, 6799), "reits"),
+)
+
+
+def _adapter_por_sic(sic: str | None) -> str | None:
+    """El adaptador que manda el SIC, o None si no lo cubre."""
+    if not sic:
+        return None
+    try:
+        n = int(str(sic).strip())
+    except (TypeError, ValueError):
+        return None
+    if n == 6411:            # agentes y corredores de seguros: no suscriben
+        return "default_nonfinancial"
+    for tramo, adapter in _ADAPTER_BY_SIC:
+        if n in tramo:
+            return adapter
+    return None
+
+
+def _industry_adapter_for(profile: dict, sic: str | None = None) -> str:
     """Victor's adapter for this security, from its reported classification.
 
     Returns `default_nonfinancial` when nothing matches, which is the
     documented default for "non-financial operating companies".
+
+    `sic` es opcional a proposito: si EDGAR no contesta, no hay CIK, o el
+    emisor es extranjero, se cae al string comercial de siempre en vez de
+    romper el packet. Una clasificacion peor es mucho mejor que ninguna.
     """
+    por_sic = _adapter_por_sic(sic)
+    if por_sic is not None:
+        return por_sic
     industry = (profile.get("industry") or "").lower()
     sector = (profile.get("sector") or "").lower()
     for needle, adapter in _ADAPTER_EXCEPTIONS:
@@ -1200,10 +1257,24 @@ def build_packet(ticker: str, providers: Providers, now: datetime) -> Packet:
         sector=profile.get("sector") or "",
         industry=profile.get("industry") or "",
     )
+    # El SIC va PRIMERO, y si no llega manda el string de FMP como siempre.
+    # `sic_for` reusa el `submissions.json` que ya esta en cache para los
+    # filings, asi que no cuesta una peticion extra a la SEC.
+    _sic: str | None = None
+    try:
+        _cik_sic = edgar.cik_for(ticker) if edgar is not None else None
+        if _cik_sic is not None:
+            _par = edgar.sic_for(_cik_sic)
+            _sic = _par[0] if _par else None
+    except Exception:                                     # noqa: BLE001
+        # Un emisor extranjero sin CIK, EDGAR caido o sin User-Agent no puede
+        # costar el packet entero: se sigue con la clasificacion comercial.
+        _sic = None
+
     analysis = AnalysisMeta(
         knowledge_timestamp=now.isoformat(),
         market_timestamp=market_timestamp,
-        industry_adapter=_industry_adapter_for(profile),
+        industry_adapter=_industry_adapter_for(profile, _sic),
     )
 
     packet = Packet(

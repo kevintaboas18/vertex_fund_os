@@ -370,3 +370,72 @@ def test_la_excepcion_gana_ANTES_de_que_el_substring_mire():
     for aguja, _ in _ADAPTER_EXCEPTIONS:
         assert any(n in aguja for n, _ in _ADAPTER_BY_INDUSTRY) or "real estate" in aguja, (
             f"{aguja!r} no la capturaba ninguna regla: la excepcion sobra")
+
+
+# ============================================================================
+# El SIC de la SEC manda sobre el string comercial (SOURCE_HIERARCHY.md)
+# ============================================================================
+
+
+def test_el_SIC_gana_cuando_el_string_comercial_se_equivoca():
+    """Capital One y Ally son "National/State Commercial Banks" para la SEC y
+    "Financial - Credit Services" para FMP -- la misma casilla donde vive
+    Visa, para la que la cobertura de intereses SI significa algo.
+
+    `SOURCE_HIERARCHY.md` pone la metadata del filing en el rango 1 y una
+    etiqueta de proveedor en el 5. Esto no es un criterio nuevo: es aplicar
+    el orden que ya estaba escrito.
+    """
+    perfil = {"sector": "Financial Services", "industry": "Financial - Credit Services"}
+    assert _industry_adapter_for(perfil) == "default_nonfinancial"      # sin SIC
+    assert _industry_adapter_for(perfil, "6021") == "banks"             # COF
+    assert _industry_adapter_for(perfil, "6022") == "banks"             # ALLY
+
+
+def test_el_SIC_tambien_deja_FUERA_a_quien_no_es_banco():
+    """Visa y Mastercard son 7389 (Services-Business Services): el SIC las
+    saca igual que las dejaba fuera el string. Un cambio que solo supiera
+    incluir seria peor que el que habia."""
+    perfil = {"sector": "Financial Services", "industry": "Financial - Credit Services"}
+    assert _industry_adapter_for(perfil, "7389") == "default_nonfinancial"
+
+
+def test_la_SEC_distingue_al_corredor_del_asegurador():
+    """6411 "Insurance Agents, Brokers & Service" es un codigo DISTINTO de
+    6331 "Fire, Marine & Casualty Insurance". La excepcion que se habia
+    deducido queda confirmada por la autoridad de rango 1."""
+    perfil = {"sector": "Financial Services", "industry": "Insurance - Diversified"}
+    assert _industry_adapter_for(perfil, "6331") == "insurers"      # PGR, suscribe
+    assert _industry_adapter_for(perfil, "6411") == "default_nonfinancial"  # AJG
+
+
+def test_la_SEC_distingue_la_inmobiliaria_del_REIT():
+    """6500 "Real Estate" no es 6798 "Real Estate Investment Trusts"."""
+    perfil = {"sector": "Real Estate", "industry": "Real Estate - Services"}
+    assert _industry_adapter_for(perfil, "6798") == "reits"
+    assert _industry_adapter_for(perfil, "6500") == "default_nonfinancial"
+
+
+def test_un_SIC_que_no_cubre_el_mapa_cae_al_string_de_siempre():
+    """El mapa es deliberadamente parcial: cubre las familias donde se MIDIO
+    el fallo. Un SIC de semiconductores no debe secuestrar la decision."""
+    perfil = {"sector": "Technology", "industry": "Software - Application"}
+    assert _industry_adapter_for(perfil, "3674") == "saas_subscriptions"
+    assert _industry_adapter_for(perfil, None) == "saas_subscriptions"
+
+
+def test_un_SIC_ilegible_no_rompe_nada():
+    """Un emisor extranjero, EDGAR caido o un valor raro: se sigue con la
+    clasificacion comercial. Una peor es mucho mejor que ninguna."""
+    perfil = {"sector": "Financial Services", "industry": "Banks - Diversified"}
+    for basura in ("", "  ", "N/A", None, "60x1"):
+        assert _industry_adapter_for(perfil, basura) == "banks"
+
+
+def test_biotech_y_commodities_NO_se_deciden_por_SIC_a_proposito():
+    """8731 mezcla biotecnologicas con laboratorios de ensayo y consultoras
+    de ingenieria. Se cambia donde se midio el fallo, no donde se puede."""
+    from wbj.packet.builder import _adapter_por_sic
+
+    for sic in ("8731", "2836", "7372", "1311"):
+        assert _adapter_por_sic(sic) is None, sic

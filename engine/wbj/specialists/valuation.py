@@ -680,7 +680,13 @@ def _reit_adapter_output(packet: Packet, overlay: dict[str, Any]) -> ValuationOu
         )
     sup = overlay.get("reit_supplement")
     if sup:
-        docs = ", ".join(f"{c['name']} [{c['match']}]" for c in sup.get("candidates", [])[:3])
+        # La URL, no solo el nombre del archivo. `latest_reit_supplement` ya la
+        # arma; citar `pld-ex99_1.htm` a secas deja al analista buscando en
+        # EDGAR el documento que este modulo ya tenia localizado, y el AFFO
+        # solo entra al motor si alguien lo transcribe de ahi.
+        docs = ", ".join(
+            f"{c['name']} [{c['match']}]" + (f" {c['url']}" if c.get("url") else "")
+            for c in sup.get("candidates", [])[:3])
         assumptions.append(
             f"Quarterly supplement located: 8-K {sup['accession']} filed {sup['filing_date']} "
             f"-- {docs}. That is where the issuer states FFO, AFFO, NOI and its cap rates. "
