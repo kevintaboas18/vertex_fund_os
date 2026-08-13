@@ -7618,9 +7618,24 @@ async function almacenPoll() {
     pill.className = 'flex text-xs px-3 py-1.5 rounded-full items-center gap-2 transition '
         + (d.respalda ? 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
                       : 'bg-red-500/10 border border-red-500/30 text-red-300');
-    pill.innerHTML = `<span class="w-2 h-2 rounded-full ${d.respalda ? 'bg-amber-400' : 'bg-red-500 animate-pulse'}"></span>`
-        + `<span class="font-bold">${d.respalda ? 'Respaldo con errores' : 'Sin respaldo'}</span>`;
-    pill.title = d.motivo || d.ultimo_error || '';
+    // Decir «Respaldo con errores» es verdad y no sirve: quien lo lee no sabe
+    // que significa «tus cuentas y tus reportes desaparecen en el próximo
+    // reinicio». Cuando hay archivos esperando, la insignia dice la
+    // CONSECUENCIA y se pone roja — el estado en el que se pierden datos no
+    // puede verse igual que uno del que se sale solo.
+    const enRiesgo = (d.pendientes || 0) > 0 && (d.ultimo_error || !d.respalda);
+    if (enRiesgo) {
+        pill.className = 'flex text-xs px-3 py-1.5 rounded-full items-center gap-2 transition '
+            + 'bg-red-500/10 border border-red-500/30 text-red-300';
+    }
+    pill.innerHTML = `<span class="w-2 h-2 rounded-full ${
+        enRiesgo || !d.respalda ? 'bg-red-500 animate-pulse' : 'bg-amber-400'}"></span>`
+        + `<span class="font-bold">${
+            enRiesgo ? `NO se está guardando · ${d.pendientes} en riesgo`
+                     : (d.respalda ? 'Respaldo con errores' : 'Sin respaldo')}</span>`;
+    pill.title = (enRiesgo
+        ? `Tus cuentas y tus reportes NO se están respaldando. Si el servidor se reinicia ahora, se pierde lo que no haya subido. `
+        : '') + (d.motivo || d.ultimo_error || '');
 }
 
 function almacenAbre() {
@@ -7629,6 +7644,8 @@ function almacenAbre() {
     const a = d.archivos || {};
     const lineas = [
         d.respalda ? 'El respaldo está configurado.' : '⚠ NO se está respaldando nada.',
+        ((d.pendientes || 0) > 0 && (d.ultimo_error || !d.respalda))
+            ? `⚠ TUS DATOS ESTÁN EN RIESGO: hay ${d.pendientes} archivo(s) sin subir. Si el servidor se reinicia ahora, las cuentas y los reportes que no hayan subido desaparecen.` : '',
         d.motivo || '',
         d.ultimo_error ? `Último error: ${d.ultimo_error}` : '',
         '',
@@ -10499,6 +10516,7 @@ const VX_I18N = {
  * el fallo es invisible: la pantalla se queda en español sin avisar.
  * ─────────────────────────────────────────────────────────────────────── */
 const VX_ES2EN = {
+    "Tus cuentas y tus reportes NO se están respaldando. Si el servidor se reinicia ahora, se pierde lo que no haya subido.": "Your accounts and your reports are NOT being backed up. If the server restarts now, whatever has not been uploaded is lost.",
     "techo": "ceiling",
     "especulativo": "speculative",
     "conservador": "conservative",
@@ -11706,6 +11724,9 @@ const VX_ES2EN = {
  * cada valor sería una entrada distinta. Van aquí, con `$1`, `$2`… en el
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
+    [/^NO se está guardando · (\d+) en riesgo$/, 'NOT being saved · $1 at risk'],
+    [/^⚠ TUS DATOS ESTÁN EN RIESGO: hay (\d+) archivo\(s\) sin subir\. Si el servidor se reinicia ahora, las cuentas y los reportes que no hayan subido desaparecen\.$/,
+     '⚠ YOUR DATA IS AT RISK: there are $1 file(s) not uploaded. If the server restarts now, the accounts and reports that have not been uploaded disappear.'],
     [/^Capital por posición \((\S+)–(\S+)%\)$/, 'Capital per position ($1–$2%)'],
     [/^\(sobre todo si se pierde el gamma flip \$(\S+)\)$/,
      '(especially if the gamma flip $$1 gives way)'],

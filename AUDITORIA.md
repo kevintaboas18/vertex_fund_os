@@ -6247,6 +6247,40 @@ Un detalle que costó un fallo: el escáner de código lee los diccionarios como
 fueran texto de pantalla. El de vuelta lleva **español en los valores**, así que
 gritaba con las traducciones mismas. Se excluye, igual que ya se excluía el otro.
 
+## 41.52 · Ronda 26 — la última red del respaldo, y un aviso que ahora dice la consecuencia
+
+Kevin preguntó dos cosas que parecían distintas y eran **una sola**: por qué las
+cuatro series de memoria marcaban 0 (IV, flows, predicciones, cadenas) y por qué
+a veces su cuenta «no existía» y sus reportes desaparecían.
+
+La cadena entera: el respaldo llevaba atascado desde el 13 de agosto (41.50) →
+la rama `datos` se quedó congelada en esa foto → Render no tiene disco
+persistente, así que cada reinicio **clona esa foto** → la cuenta creada después
+no está en ella y los reportes tampoco → y las series, que se acumulan una foto
+por día de mercado, volvían a cero antes de poder acumular nada. Los cuatro ⚠ no
+eran un fallo del agente: eran el síntoma de que nada persistía.
+
+Lo de 41.50 arregla la causa. Aquí van las dos cosas que hacen que no vuelva:
+
+**1. Una última red.** `_sanea()` cubre lo previsible. Si tras sanearlo el commit
+SIGUE muriendo, el clon está roto de una forma que no se previó, y antes eso era
+quedarse atascado para siempre. Ahora `_reconstruye()` aparta lo que hay en
+disco, clona de cero y lo devuelve encima: **el clon se puede rehacer, los datos
+no**. El test rompe el `.git` a propósito y comprueba que los archivos sin subir
+sobreviven Y llegan al remoto.
+
+**2. El aviso deja de ser críptico.** «Respaldo con errores» era verdad y no
+servía: se vio en pantalla durante semanas y nadie supo que significaba «tus
+cuentas y tus reportes desaparecen en el próximo reinicio». Cuando hay archivos
+esperando, la insignia se pone **roja** y dice la consecuencia —«NO se está
+guardando · N en riesgo»—, porque un estado en el que se pierden datos no puede
+verse igual que uno del que se sale solo.
+
+Lo que **no** se recupera: las series empiezan de cero desde ahora. El IV Rank
+real necesita 60 sesiones de mercado y no hay forma de comprarlas hechas. Eso no
+es trabajo pendiente, es tiempo que hay que dejar correr — lo que se arregló es
+que dejen de volver a cero en cada reinicio.
+
 ### Estado
 
 **2.925 tests del motor · 658 de la capa web (28 en un navegador real) ·
