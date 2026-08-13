@@ -6077,8 +6077,42 @@ Medido al final: 436 nodos en el armazón y 599 con los paneles cargados de
 datos, **0 en español**; el interruptor va y vuelve sin dejar restos; y la
 cabecera llega en las 8 peticiones de arranque.
 
+## 41.48 · Ronda 22 — el rango que no decía nada, y el ticker que se quedaba pegado
+
+**1. La pregunta del rango por posición.** Salían dos casillas vacías con una
+raya en medio y nada explicaba qué iba dentro. Los dos extremos no son
+decorativos y el motor los usa distinto: el **máximo** es el tope —pasarse
+cuenta como infracción (`within_position_cap`)— y el **mínimo** es el suelo de
+despliegue —quedarse por debajo se reporta como información, no como falta
+(`below_intended_sizing`)—. El servidor ya validaba `0 < mín ≤ máx ≤ 100`.
+
+Ahora cada casilla lleva su rótulo (mín / máx), un ejemplo dentro, y debajo el
+rango se traduce a dinero sobre TU capital: «Cada posición irá entre el 30% y el
+70% de tu capital: $300 – $700 de $1,000». El porcentaje se entiende; el dinero
+se siente. El capital que se usa es el que declaraste tú — nunca el de Kevin,
+porque enseñar la cifra de otro justo en la casilla donde decides cuánto
+arriesgar es peor que no enseñar ninguna.
+
+**2. El dato viejo que se quedaba en pantalla.** Dos sitios:
+
+- **Al volver al tab.** Analizabas WULF, te ibas al Dashboard y al regresar
+  seguía todo puesto: cabecera, escenarios, niveles y cinta de un momento que ya
+  pasó. Un precio de hace media hora no se distingue en pantalla de uno de hace
+  un segundo. Ahora salir de Proyecciones borra el análisis y se vuelve a la
+  pantalla vacía.
+- **Al pedir otro ticker.** La cabecera de arriba a la derecha (`projHbRight`)
+  vive FUERA de `projContent`, así que esconder el contenido nunca la tocaba:
+  mientras cargaba NVDA se leían el nombre y el precio de WULF, como si el
+  cargador estuviera trabajando sobre esa.
+
+Los dos comparten `vcLimpiaTicker()`, que corre ANTES de abrir pestaña, de pedir
+la cinta nueva y de pintar el cargador — el orden importa: más tarde borraba la
+cinta que se acababa de pedir. Ideas y Wheel no se tocan: escanean el mercado
+entero, no dependen del símbolo, y rehacer ese escaneo cuesta llamadas de
+verdad.
+
 ### Estado
 
-**2.925 tests del motor · 633 de la capa web (24 en un navegador real) ·
+**2.925 tests del motor · 637 de la capa web (28 en un navegador real) ·
 323 checks de auditoría · 16 diferenciales · preflight de Render en verde ·
 0 fallos, 0 avisos, 0 skips.**

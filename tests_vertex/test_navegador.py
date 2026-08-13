@@ -430,3 +430,161 @@ class TestElCuestionarioNoEligePorTi:
             assert not errores, errores[:3]
         finally:
             pg.close()
+
+
+class TestNoSeArrastraElTickerViejo:
+    """Un precio de hace media hora no se distingue de uno de hace un segundo.
+
+    Dos sitios dejaban dato viejo en pantalla:
+
+    · **Al volver al tab.** Analizabas WULF, te ibas al Dashboard y al regresar
+      seguía todo puesto: cabecera, escenarios, niveles y cinta de un momento
+      que ya pasó.
+    · **Al pedir otro ticker.** La cabecera de arriba a la derecha vive FUERA de
+      `projContent`, así que esconder el contenido nunca la tocaba: mientras
+      cargaba NVDA se leían el nombre y el precio de WULF, como si el cargador
+      estuviera trabajando sobre esa.
+    """
+
+    #: Lo mínimo que `vcSyncCabecera` necesita para pintar la cabecera.
+    @staticmethod
+    def _payload(tk, nombre, precio):
+        return {"ok": True, "ticker": tk, "spot": precio,
+                "company": {"ticker": tk, "name": nombre, "price": precio,
+                            "change_percent": 1.9},
+                "gex": {"regime": "positive"}}
+
+    @staticmethod
+    def _pinta_analisis(pg, payload):
+        pg.evaluate("""(p) => {
+            document.getElementById('projTicker').value = p.ticker;
+            projData = p;
+            document.getElementById('projEmpty').classList.add('hidden');
+            document.getElementById('projContent').classList.remove('hidden');
+            document.getElementById('projTape').innerHTML = '<b>cinta</b>';
+            vcTabCargada.tape = true;
+            vcSyncCabecera(p);
+        }""", payload)
+
+    @staticmethod
+    def _estado(pg):
+        return pg.evaluate("""() => ({
+            entrada: (document.getElementById('projTicker')||{}).value,
+            cabecera: (document.getElementById('projHbRight')||{}).innerText.trim(),
+            vacio_visible: !document.getElementById('projEmpty').classList.contains('hidden'),
+            contenido_oculto: document.getElementById('projContent').classList.contains('hidden'),
+            cinta: (document.getElementById('projTape')||{}).innerHTML.length,
+            datos: !!projData,
+        })""")
+
+    def test_salir_del_tab_borra_el_analisis(self, navegador, servidor):
+        pg, errores = _abre(navegador, servidor)
+        try:
+            pg.evaluate("switchView('projectionsView')")
+            pg.wait_for_timeout(500)
+            self._pinta_analisis(pg, self._payload("WULF", "TeraWulf Inc.", 12.34))
+            pg.wait_for_timeout(300)
+            antes = self._estado(pg)
+            assert "TeraWulf" in antes["cabecera"], antes
+
+            pg.evaluate("switchView('homeView')")
+            pg.wait_for_timeout(300)
+            pg.evaluate("switchView('projectionsView')")
+            pg.wait_for_timeout(500)
+            d = self._estado(pg)
+            assert d["entrada"] == "", f"el ticker sigue escrito: {d}"
+            assert d["cabecera"] == "", f"la cabecera sigue con lo viejo: {d}"
+            assert d["vacio_visible"] and d["contenido_oculto"], d
+            assert d["cinta"] == 0, "la cinta del ticker viejo sigue puesta"
+            assert not d["datos"], "`projData` no se soltó"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_al_pedir_otro_ticker_la_cabecera_no_se_queda_con_el_anterior(
+            self, navegador, servidor):
+        pg, errores = _abre(navegador, servidor)
+        try:
+            pg.evaluate("switchView('projectionsView')")
+            pg.wait_for_timeout(500)
+            self._pinta_analisis(pg, self._payload("WULF", "TeraWulf Inc.", 12.34))
+            pg.wait_for_timeout(300)
+            assert "TeraWulf" in self._estado(pg)["cabecera"]
+
+            # Se mira CON LA PETICIÓN EN VUELO, que es cuando se veía el fallo.
+            pg.evaluate("loadProjections('NVDA')")
+            pg.wait_for_timeout(250)
+            d = self._estado(pg)
+            assert d["cabecera"] == "", (
+                f"mientras carga NVDA se sigue leyendo lo de antes: {d['cabecera']!r}")
+            assert d["entrada"] == "NVDA", f"la entrada no siguió al nuevo: {d}"
+            assert d["contenido_oculto"], d
+            assert not d["datos"], "`projData` viejo seguiría alimentando los paneles"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+
+class TestElRangoPorPosicionSeEntiende:
+    """«Salen (_-_), o sea en blanco - en blanco.»
+
+    Los dos extremos no son decorativos y el motor los usa distinto: el MÁXIMO
+    es el tope —pasarse cuenta como infracción (`within_position_cap`)— y el
+    MÍNIMO es el suelo de despliegue —quedarse por debajo se reporta como
+    información, no como falta (`below_intended_sizing`)—. Dos casillas vacías
+    con una raya en medio no dicen nada de eso.
+    """
+
+    def _abre_perfil(self, navegador, servidor, correo):
+        pg, errores = _abre(navegador, servidor)
+        pg.evaluate("""async (c) => {
+            await fetch('/api/auth/registro', {method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({email:c, nombre:'R', password:'ClaveLarga123!'})});
+        }""", correo)
+        pg.reload(wait_until="load")
+        pg.wait_for_timeout(2500)
+        pg.evaluate("switchView('perfilView'); pfCargar();")
+        pg.wait_for_timeout(1800)
+        pg.evaluate("pfTab('perfil'); pfModoSel='personalizado'; pfPintaModo();")
+        pg.wait_for_timeout(800)
+        return pg, errores
+
+    def test_cada_casilla_dice_cual_es_y_enseña_un_ejemplo(self, navegador, servidor):
+        pg, errores = self._abre_perfil(navegador, servidor, "rango1@ejemplo.com")
+        try:
+            d = pg.evaluate("""() => {
+                const n = document.querySelector('[data-pregunta="max_posicion_pct"]');
+                const ins = [...n.querySelectorAll('input')];
+                return {rotulos: [...n.querySelectorAll('label span')].map(s => s.innerText.trim()),
+                        ejemplos: ins.map(i => i.placeholder),
+                        valores: ins.map(i => i.value),
+                        nota: n.querySelector('.pf-rango').innerText};
+            }""")
+            assert d["rotulos"] == ["mín", "máx"], d
+            assert all(d["ejemplos"]), "sin ejemplo, la casilla vacía no sugiere nada"
+            assert d["valores"] == ["", ""], "no puede salir premarcado"
+            assert "mínimo" in d["nota"] and "máximo" in d["nota"], d["nota"]
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_porcentaje_se_traduce_a_dolares_de_TU_capital(self, navegador, servidor):
+        """«30 – 70» no es una decisión hasta que se lee «$300 – $700»."""
+        pg, errores = self._abre_perfil(navegador, servidor, "rango2@ejemplo.com")
+        try:
+            nota = pg.evaluate("""() => {
+                const cap = document.querySelector('[data-pregunta="capital"] input');
+                cap.value = '1000'; cap.dispatchEvent(new Event('input', {bubbles:true}));
+                const ins = document.querySelectorAll('[data-pregunta="max_posicion_pct"] input');
+                ins[0].value = '30'; ins[0].dispatchEvent(new Event('input', {bubbles:true}));
+                ins[1].value = '70'; ins[1].dispatchEvent(new Event('input', {bubbles:true}));
+                return document.querySelector(
+                    '[data-pregunta="max_posicion_pct"] .pf-rango').innerText;
+            }""")
+            assert "30%" in nota and "70%" in nota, nota
+            assert "$300" in nota and "$700" in nota, (
+                f"el rango no se tradujo a dinero: {nota!r}")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
