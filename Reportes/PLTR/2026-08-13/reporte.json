@@ -1,13 +1,13 @@
 {
-  "report_id": "20260813_145507_PLTR",
+  "report_id": "20260813_154303_PLTR",
   "ticker": "PLTR",
   "nombre_completo": "Palantir Technologies Inc.",
-  "precio_actual": 175.29,
+  "precio_actual": 174.75,
   "precio_fuente": "yfinance",
-  "precio_as_of": "08/13/2026, 02:56:19 PM",
-  "pe_ratio": 138.90088095238093,
+  "precio_as_of": "08/13/2026, 03:44:19 PM",
+  "pe_ratio": 138.61507936507937,
   "logo_url": "https://logo.clearbit.com/palantir.com",
-  "fecha_analisis": "08/13/2026, 02:55:07 PM",
+  "fecha_analisis": "08/13/2026, 03:43:03 PM",
   "historial_precios": [
     130.04,
     133.72,
@@ -32,7 +32,7 @@
     175.23,
     174.94,
     171.04,
-    175.29
+    174.75
   ],
   "historial_fechas": [
     "Jul 13",
@@ -227,7 +227,7 @@
       "open": 173.68,
       "high": 176.8,
       "low": 172.33,
-      "close": 175.29
+      "close": 174.75
     }
   ],
   "chart_history": [
@@ -1237,7 +1237,7 @@
     },
     {
       "time": "2026-08-13",
-      "value": 175.02
+      "value": 174.64
     }
   ],
   "historial_volumen": [
@@ -1358,7 +1358,7 @@
     },
     {
       "time": "2026-08-13",
-      "value": 11306597,
+      "value": 14007887,
       "up": true
     }
   ],
@@ -1771,28 +1771,34 @@
   },
   "memory_comparison": {
     "has_prior": true,
-    "prior_date": "2026-08-13 14:26:32",
+    "prior_date": "2026-08-13 14:56:18",
     "days_ago": 0,
-    "prior_price": 176.12,
+    "prior_price": 175.29,
     "prior_fair_value": 223.25,
     "prior_recommendation": "DESFAVORABLE",
     "prior_conviction": 45,
-    "current_price": 175.29,
+    "current_price": 174.75,
     "current_fair_value": 223.25,
     "current_recommendation": "DESFAVORABLE",
     "current_conviction": 45,
-    "price_change_pct": -0.5,
+    "price_change_pct": -0.3,
     "fair_value_change_pct": 0.0,
     "recommendation_changed": false
   },
   "deep_memory": {
-    "n_prior": 1,
+    "n_prior": 2,
     "hist_hit_rate": 100.0,
-    "n_scored": 1
+    "n_scored": 2
   },
   "open_options": [],
   "portfolio_fit": null,
   "noticias_reales": [
+    {
+      "title": "Palantir AIP Could Deliver a Powerful Shift in the Company's Growth Trajectory",
+      "publisher": "Fool - Investing News",
+      "publish_time": "2026-08-13 10:40 AM",
+      "summary": "Palantir's AI opportunity is expanding rapidly, but its valuation still demands exceptional results. See which growth drivers could shape the stock's next chapter."
+    },
     {
       "title": "If You Invested $10,000 in Palantir Before It Released Its AIP Platform, Here's What Your Stake Would Be Worth Today",
       "publisher": "The Motley Fool",
@@ -1822,12 +1828,6 @@
       "publisher": "24/7 Wall Street",
       "publish_time": "2026-08-13 05:01 AM",
       "summary": "The Direxion Daily PLTR Bull 2X ETF (NASDAQ:PLTU) gives investors an opportunity to amplify their exposure to one of the stock market's biggest artificial intelligence winners."
-    },
-    {
-      "title": "Michael Burry Is Short Nebius and Palantir. Both Are Now Soaring & His Short Thesis Looks Broken.",
-      "publisher": "24/7 Wall Street",
-      "publish_time": "2026-08-12 05:10 PM",
-      "summary": "Shares of Nebius Group (NASDAQ:NBIS | NBIS Price Prediction) surged Wednesday afternoon, up 34% to $259.20 following a blowout second-quarter report."
     }
   ],
   "targets": {
@@ -1840,8 +1840,8 @@
   "targets_source": "victor",
   "targets_horizon_note": "Metodología de Victor: EPS × (1+crecimiento) × (P/E actual × factor). Un solo horizonte: 12 meses. Fair Value = target Base.",
   "methodology": {
-    "annual_volatility_pct": 64.55,
-    "daily_vol_pct": 4.066,
+    "annual_volatility_pct": 64.53,
+    "daily_vol_pct": 4.065,
     "atr_14": 6.75,
     "analyst_high": 215.0,
     "analyst_low": 80.0,
@@ -1849,50 +1849,50 @@
     "analyst_median": 200.0
   },
   "analisis": {
-    "biggest_pro": "La plataforma de Inteligencia Artificial (AIP) de Palantir es un catalizador determinante, impulsando el crecimiento y la adopción de su tecnología en nuevos acuerdos comerciales y gubernamentales, lo que se refleja en un aumento significativo del valor de la acción desde su lanzamiento.",
-    "biggest_risk": "El riesgo más severo es la extrema valoración actual de la compañía, con un P/E de 138.9, lo que la hace muy susceptible a correcciones ante cualquier desaceleración del crecimiento o cambio en el sentimiento del mercado.",
-    "watch_for": "Se debe monitorear la reacción del precio post-earnings en los próximos 81 días (2 de noviembre de 2026), así como la evolución del flujo institucional calificado, que actualmente es nulo.",
-    "company_summary_simple": "Palantir Technologies es una empresa de software que construye plataformas de análisis de datos para ayudar a organizaciones complejas (gobiernos, grandes corporaciones) a tomar decisiones. Gana dinero vendiendo licencias y servicios de sus plataformas Gotham (para el sector público) y Foundry (para el sector comercial), y más recientemente con su plataforma de IA (AIP). Importa al inversor promedio porque es un actor clave en el creciente campo de la inteligencia artificial y el análisis de datos, con el potencial de transformar cómo operan las grandes entidades.",
-    "analisis_numeros_actuales": "Palantir presenta una capitalización de mercado de aproximadamente $401.85 mil millones de USD. Su valoración actual es extremadamente alta, con un P/E de 138.9 y un Forward P/E de 110.14, lo que sugiere expectativas de crecimiento muy elevadas. La compañía muestra márgenes brutos robustos del 84.8% y márgenes EBITDA del 50.35%, indicando una fuerte eficiencia operativa, aunque el Free Cash Flow no está disponible en los datos proporcionados.",
-    "crecimiento_yoy": "El crecimiento de ingresos interanual (YoY) no está disponible en los datos proporcionados. Sin embargo, la compañía mantiene márgenes brutos del 84.8% y márgenes EBITDA del 50.35%, lo que sugiere una estructura de costos eficiente y una capacidad sólida para generar ganancias operativas.",
-    "crecimiento_proyectado": "Las estimaciones de crecimiento se centran en la expansión de la plataforma AIP y la consecución de nuevos contratos. El EPS estimado para los próximos earnings es de $1.59, lo que indica expectativas de rentabilidad futura. Los targets de Victor a 12 meses implican un crecimiento significativo desde el precio actual, impulsado por la adopción de sus soluciones de IA.",
-    "sec_filing_10k": "No se proporcionaron detalles específicos del último reporte anual 10-K. Para un análisis completo, sería necesario revisar los factores de riesgo detallados y los estados financieros auditados declarados en dicho informe.",
-    "sec_filing_10q": "No se proporcionaron detalles específicos del último reporte trimestral 10-Q. Para un análisis completo, sería necesario revisar el rendimiento y los balances del último informe trimestral.",
-    "sec_filing_8k": "El 3 de agosto de 2026, Palantir reportó un 8-K relacionado con sus resultados de operación (earnings), divulgación Reg FD, y la presentación de estados financieros y exhibits, lo que constituye un evento material reciente.",
+    "biggest_pro": "La plataforma de Inteligencia Artificial (AIP) de Palantir representa el catalizador de crecimiento más significativo, expandiendo rápidamente su oportunidad de mercado y transformando la compañía de un proveedor gubernamental a un actor clave en el sector comercial.",
+    "biggest_risk": "La valoración actual de PLTR es extremadamente exigente, con múltiplos muy elevados que demandan resultados excepcionales y un crecimiento sostenido para justificarse, lo que introduce un riesgo de ejecución severo si no se cumplen las expectativas.",
+    "watch_for": "Se debe monitorear de cerca la adopción y monetización de la plataforma AIP en el sector comercial, así como el comportamiento de los márgenes operativos y el flujo de caja libre en los próximos reportes trimestrales, especialmente el próximo earnings en 81 días con un EPS estimado de $1.59.",
+    "company_summary_simple": "Palantir Technologies es una empresa de software que construye plataformas de análisis de datos para organizaciones gubernamentales y comerciales. Su tecnología ayuda a procesar grandes volúmenes de datos para tomar decisiones complejas, desde operaciones de seguridad nacional hasta optimización de cadenas de suministro. Gana dinero a través de licencias de software y servicios de implementación. Importa al inversor promedio por su posición en el creciente mercado de la inteligencia artificial y el análisis de datos, ofreciendo una exposición a tecnologías de vanguardia.",
+    "analisis_numeros_actuales": "Palantir ostenta una capitalización de mercado de aproximadamente $401 mil millones. Sus múltiplos de valoración son muy elevados, con un P/E actual de 138.62 y un Forward P/E de 109.91, lo que indica altas expectativas de crecimiento futuro. La compañía muestra márgenes brutos robustos del 84.80% y márgenes EBITDA del 50.35%, reflejando una fuerte eficiencia operativa en su modelo de negocio de software.",
+    "crecimiento_yoy": "Los datos específicos de crecimiento de ingresos interanual (Revenue Growth YoY) y Free Cash Flow no están disponibles en la información proporcionada. Sin embargo, Palantir ha demostrado una consistencia notable en sus reportes de ganancias, superando las expectativas (beats) en los últimos 8 trimestres, con una reacción positiva promedio del precio del +7.4% post-earnings, lo que sugiere un historial de crecimiento y gestión efectiva de expectativas.",
+    "crecimiento_proyectado": "El crecimiento proyectado para los próximos años estará impulsado principalmente por la expansión de su plataforma AIP en el sector comercial, la firma de nuevos contratos gubernamentales y la monetización de sus soluciones de IA. El próximo EPS estimado es de $1.59, lo que sugiere expectativas de rentabilidad creciente. La oportunidad de la IA se considera un motor clave para su trayectoria de crecimiento.",
+    "sec_filing_10k": "El último reporte anual 10-K de Palantir detallaría factores de riesgo como la dependencia de contratos gubernamentales, la competencia en el sector de análisis de datos y IA, la protección de la propiedad intelectual, y la capacidad de escalar su negocio comercial. Los estados financieros auditados proporcionarían una visión exhaustiva de su salud financiera y rendimiento anual.",
+    "sec_filing_10q": "El último reporte trimestral 10-Q ofrecería una actualización sobre el rendimiento financiero reciente de la compañía, incluyendo ingresos, gastos, ganancias y balances. Este documento es crucial para evaluar la tracción de sus iniciativas comerciales y la gestión de costos en el corto plazo.",
+    "sec_filing_8k": "El 8-K más reciente, reportado el 3 de agosto de 2026, corresponde a la divulgación de resultados de operación (earnings), información bajo la Regulación FD, y la presentación de estados financieros y exhibits. Este evento material confirma la publicación de sus resultados trimestrales y cualquier información relevante asociada.",
     "fair_value": 223.25,
-    "upside_pct": 27.36,
+    "upside_pct": 27.75,
     "recommendation": "DESFAVORABLE",
     "conviccion_score": 45,
-    "conviccion_porque": "La puntuación de convicción de 45/100 es baja y refleja la cautela del motor de Victor. Esta puntuación se ve afectada negativamente por la ausencia de flujo institucional calificado, la alta valoración (agente financiero), la señal bajista de insiders (agente de riesgo), y la volatilidad del mercado (agente de mercado), a pesar de los catalizadores positivos del negocio (agente de negocio) y un Fair Value que sugiere upside (agente de valuación).",
-    "recomendacion_porque": "La recomendación 'DESFAVORABLE (Evitar / esperar)' se mantiene coherente con mi análisis previo de hace 0 días, donde el Fair Value también fue de $223.25 y la recomendación desfavorable con una convicción de 45/100. A pesar de que el Fair Value de Victor ($223.25) sugiere un potencial de crecimiento del 27.36% desde el precio spot actual ($175.29), la decisión del gate determinista de Victor de 'Avoid / Wait' prevalece. Esta prudencia se justifica por la extrema valoración de la compañía (P/E de 138.9), la ausencia de flujo institucional calificado, y la significativa actividad de venta por parte de insiders ($-34.47M neto), lo que indica una falta de confianza interna a los niveles actuales. Aunque el negocio tiene catalizadores fuertes como la plataforma AIP y un historial consistente de superar las expectativas de earnings, los riesgos asociados a la valoración y el sentimiento de los insiders superan el potencial de upside a corto plazo, haciendo que la asignación de capital sea imprudente en este momento.",
-    "tesis_inversion_completa": "Mi tesis de inversión para PLTR se mantiene sin cambios desde el reporte anterior de hace 0 días, donde mi Fair Value fue de $223.25 y la recomendación 'DESFAVORABLE' con una convicción de 45/100. El precio actual de $175.29 representa una ligera disminución del 0.5% desde entonces, lo que valida la cautela inicial. La compañía presenta un negocio fundamentalmente sólido, impulsado por su plataforma de Inteligencia Artificial (AIP) que ha generado un crecimiento sustancial y ha sido un catalizador clave. Los márgenes brutos y EBITDA son excelentes, demostrando la rentabilidad inherente de su modelo de software. Sin embargo, la valoración actual es el principal obstáculo. Un P/E de casi 139x es extremadamente exigente y deja poco margen para errores o desaceleraciones. A esto se suma la ausencia de flujo institucional calificado y una señal 'BEARISH' por parte de los insiders, quienes han vendido más de $34 millones en acciones recientemente. Aunque el Fair Value de Victor de $223.25 sugiere un upside del 27.36%, este potencial debe sopesarse contra los riesgos de una valoración estirada y la falta de respaldo institucional y de insiders. En un régimen de mercado alcista con volatilidad calma, el momentum y el flujo suelen ser importantes, pero la ausencia de este último y la alta valoración justifican la prudencia. Por lo tanto, a pesar del potencial de crecimiento a largo plazo y la innovación en IA, la asignación de capital en los niveles actuales no se considera óptima debido a los riesgos de valoración y la falta de señales de compra por parte de actores clave.",
-    "tesis_riesgos": "Los riesgos inherentes que podrían destruir la tesis incluyen: 1) **Valoración Extrema:** Un P/E de 138.9x hace a PLTR extremadamente vulnerable a cualquier decepción en el crecimiento o cambio en el sentimiento del mercado. 2) **Dependencia de Contratos Gubernamentales:** Aunque diversificándose, una parte significativa de sus ingresos proviene de contratos gubernamentales, que pueden ser volátiles o sujetos a cambios políticos. 3) **Competencia Intensa:** El espacio de la IA y el análisis de datos es altamente competitivo, con gigantes tecnológicos y startups innovadoras. 4) **Ejecución de AIP:** Aunque prometedora, la adopción y monetización a gran escala de la plataforma AIP requiere una ejecución impecable. 5) **Venta de Insiders:** La venta neta de acciones por parte de insiders por más de $34 millones es una señal de alarma sobre la confianza interna en la valoración actual. 6) **Alta Volatilidad:** Con una Beta de 1.563 y una volatilidad anual del 64.55%, la acción es propensa a grandes oscilaciones de precio.",
-    "analistas_consenso": "El consenso de Wall Street tiene un precio objetivo medio de $176.33, lo que está muy cerca del precio spot actual de $175.29. Esto sugiere que los analistas de Wall Street ven un potencial de upside muy limitado o nulo desde los niveles actuales. En contraste, el veredicto de Victor, aunque emite una recomendación 'DESFAVORABLE', establece un Fair Value de $223.25, lo que implica un potencial de crecimiento del 27.36%. La divergencia se explica por la metodología de Victor que, si bien reconoce el potencial de crecimiento a 12 meses, pondera fuertemente factores como la valoración actual, el flujo institucional y la actividad de insiders, lo que lleva a una recomendación cautelosa a pesar de un target de precio más alto. Wall Street parece estar más anclado en la valoración actual y los riesgos a corto plazo.",
-    "calculos_y_crecimiento_ai": "La aritmética de este reporte se basa en los siguientes cálculos y datos proporcionados: Los targets a 12 meses de Victor son: Bull $266.57, Base $223.25 y Bear $157.18. El Fair Value de este análisis es el target Base de Victor, fijado en $223.25. La fórmula general para los targets de Victor es EPS × (1+crecimiento) × (P/E actual × factor del escenario). Aunque los valores específicos de EPS, crecimiento (anclado al CAGR de utilidades a 5 años) y el factor del escenario para cada target no se detallan en los datos proporcionados, se utilizan para derivar estos objetivos. El DCF (FCFF) calculado por el especialista de valuación de Victor es de $32.43 por acción, lo que indica que el valor intrínseco basado en flujos de caja descontados es significativamente inferior al precio de mercado y a los targets de Victor, sugiriendo que gran parte del valor actual es atribuible a expectativas de crecimiento futuro. El puntaje raw de los 6 agentes de Victor es 45.3/100. Este puntaje bajo es impulsado negativamente por el agente financiero (debido a la alta valoración P/E y la ausencia de FCF), el agente de riesgo (por la alta volatilidad y la venta de insiders), y el agente de mercado (por la falta de flujo institucional calificado). El agente de negocio, con catalizadores como AIP, podría empujar al alza, pero no lo suficiente para contrarrestar los otros factores.",
-    "posicion_competitiva": "Palantir posee un foso competitivo (moat) significativo, especialmente en el sector gubernamental, debido a la complejidad y la naturaleza crítica de sus soluciones de análisis de datos, que a menudo implican integraciones profundas y personalizadas. Su plataforma AIP refuerza esta ventaja al ofrecer capacidades avanzadas de IA. Sin embargo, en el sector comercial, enfrenta una competencia más directa de grandes empresas tecnológicas y startups de IA, aunque su experiencia en manejar datos sensibles y complejos le otorga una diferenciación.",
-    "principales_competidores": "Los principales competidores de Palantir en la industria de análisis de datos e inteligencia artificial incluyen a empresas como Microsoft (con Azure AI/Synapse), Google (con Google Cloud AI/BigQuery), Amazon (con AWS AI/ML), IBM (con Watson), Salesforce (con Tableau/Einstein AI), C3.ai y Snowflake.",
-    "porque_mejor_peor_inversion": "Palantir se destaca por sus excelentes márgenes brutos (84.8%) y EBITDA (50.35%), que son superiores a muchas empresas de software. Sin embargo, como inversión, su valoración actual (P/E de 138.9x) la hace una opción menos atractiva en comparación con empresas que ofrecen retornos de capital sólidos a múltiplos más razonables. La ausencia de datos de Free Cash Flow y la señal de venta de insiders también la posicionan peor frente a compañías con métricas de flujo de caja claras y un respaldo más fuerte de la dirección.",
-    "in_simple_terms": "Imagina que Palantir es como el 'detective de datos' más avanzado del mundo. En lugar de resolver un crimen, resuelve problemas complejos para gobiernos y grandes empresas. Toma todas las pistas (datos) que existen, las organiza y las analiza con inteligencia artificial para encontrar patrones ocultos y ayudar a tomar decisiones cruciales, ya sea para la seguridad nacional o para optimizar la cadena de suministro de una corporación. Es una apuesta por la capacidad de la IA para dar sentido a un mundo lleno de información.",
-    "should_you_buy_now": "Dado el veredicto 'DESFAVORABLE (Evitar / esperar)' y la alta valoración, no se recomienda una compra agresiva en los niveles de cotización actuales. La prudencia es clave, y sería aconsejable esperar una corrección en el precio o señales más claras de flujo institucional y un cambio en el sentimiento de los insiders antes de considerar una asignación de capital.",
-    "the_bottom_line": "A pesar de un negocio innovador en IA y un potencial de crecimiento a 12 meses, la extrema valoración de Palantir y la falta de respaldo institucional y de insiders justifican una postura de cautela y espera.",
+    "conviccion_porque": "La puntuación de convicción de 45/100 es baja y refleja una combinación de factores. El agente de 'Valuation' ejerce una presión significativa a la baja debido a los múltiplos de P/E extremadamente altos y un DCF (FCFF) de $32.43, muy por debajo del precio spot. El agente de 'Risk' también contribuye negativamente por la alta volatilidad (Beta de 1.563, Volatilidad Anual del 64.53%) y la señal 'BEARISH' de la actividad de insiders (ventas netas de $34.4M). El agente de 'Market' es cauteloso por la ausencia de flujo institucional calificado. Aunque el agente de 'Business' podría ser positivo por la plataforma AIP y los beats de earnings, no es suficiente para compensar los riesgos de valoración y ejecución.",
+    "recomendacion_porque": "Mi recomendación se mantiene DESFAVORABLE (Evitar / esperar), coherente con mi análisis previo. Aunque el Fair Value de Victor a 12 meses ($223.25) sugiere un potencial alcista del 27.75% desde el precio spot actual, la lógica financiera subyacente, impulsada por los agentes de Victor, indica que el riesgo de asignación de capital es elevado en los niveles de cotización actuales. La valoración es excesivamente optimista, y la actividad de insiders, junto con la falta de un flujo institucional calificado, sugiere cautela. La tesis se basa en que, a pesar del potencial de crecimiento de la IA, el precio ya descuenta gran parte de ese futuro, dejando poco margen de seguridad.",
+    "tesis_inversion_completa": "Mi visión sobre PLTR se mantiene consistente con mi reporte anterior, donde mi Fair Value era $223.25 y mi recomendación DESFAVORABLE, con una convicción de 45/100. El precio actual de $174.75 ha variado marginalmente (-0.3%) desde entonces, y los datos fundamentales no han alterado la tesis central. Sigo viendo a Palantir como una empresa con un enorme potencial tecnológico, especialmente con su plataforma AIP que está demostrando ser un catalizador de crecimiento significativo, como lo evidencian las noticias de expansión y los constantes beats de earnings. Sin embargo, como CIO, mi principal preocupación sigue siendo la valoración. Los múltiplos actuales (P/E de 138.62) son extremadamente elevados y ya incorporan un crecimiento futuro muy agresivo. El DCF de nuestro especialista de valuación, en $32.43, subraya la desconexión entre el valor intrínseco fundamental y el precio de mercado. Además, la persistente venta por parte de insiders y la ausencia de un flujo institucional calificado hoy, en un régimen de mercado alcista pero con amplitud neutral, sugieren que el apetito por el riesgo en esta valoración es limitado. Por lo tanto, a pesar de que nuestro target base de $223.25 implica un upside, la recomendación se mantiene DESFAVORABLE, ya que el riesgo de una corrección por no cumplir con las expectativas o por una contracción de múltiplos es considerable. No hemos subido ni bajado el Fair Value, y la recomendación se mantiene, justificada por la persistencia de una valoración estirada y señales de riesgo que no se han disipado.",
+    "tesis_riesgos": "Los riesgos inherentes a la tesis de inversión de Palantir son múltiples y podrían destruir el valor para el inversor. El riesgo de ejecución es primordial: la capacidad de la compañía para escalar su negocio comercial y monetizar plenamente su plataforma AIP es crucial. Cualquier desaceleración en la adopción o en la conversión de pruebas a contratos a largo plazo podría impactar negativamente el crecimiento. La competencia en el espacio de la IA y el análisis de datos es intensa, con gigantes tecnológicos y startups innovadoras. La dependencia de contratos gubernamentales, aunque históricamente estable, puede ser volátil y sujeta a cambios políticos o presupuestarios. Además, la alta valoración actual significa que cualquier decepción en los resultados o en las proyecciones de crecimiento podría llevar a una fuerte contracción de múltiplos y, consecuentemente, a una caída significativa del precio de la acción. La elevada Beta de 1.563 y la volatilidad anual del 64.53% exponen a los inversores a movimientos de precio bruscos.",
+    "analistas_consenso": "El consenso de Wall Street, con un precio objetivo medio de $176.33, se sitúa muy cerca del precio spot actual de $174.75, lo que implica una visión mayormente neutral o de 'mantener' por parte de los analistas. Esto contrasta con el veredicto de Victor, que, aunque calcula un Fair Value (target base) de $223.25 que sugiere un potencial alcista considerable, emite una recomendación final de 'DESFAVORABLE (Evitar / esperar)'. La divergencia se explica porque, si bien el modelo cuantitativo de Victor identifica un valor potencial futuro, la recomendación final es modulada por otros agentes (riesgo, valoración, flujo de mercado) que perciben un perfil de riesgo-recompensa desfavorable en los niveles actuales, a pesar del upside teórico. Wall Street podría estar enfocándose más en el crecimiento a largo plazo sin ponderar tan fuertemente los riesgos de valoración y el flujo institucional como lo hace Victor.",
+    "calculos_y_crecimiento_ai": "Los targets a 12 meses de Victor se calculan utilizando una metodología propietaria que considera el EPS futuro, una tasa de crecimiento y un múltiplo ajustado. Para PLTR, los targets son: Bull $266.57, Base $223.25 y Bear $157.18. El Fair Value de este reporte ES el target base de Victor, fijado en $223.25. La fórmula general de Victor para los targets es EPS × (1+crecimiento) × (P/E actual × factor del escenario). Aunque no se proporciona el CAGR específico de utilidades a 5 años ni el factor del escenario, el EPS estimado para el próximo earnings es de $1.59 y el P/E actual es de 138.62, componentes clave en la derivación de estos targets. El análisis de Victor también incorpora un modelo de Descuento de Flujos de Caja Libres a la Firma (DCF FCFF) realizado por su especialista de valuación, que arroja un valor de $32.43 por acción. Este valor, significativamente inferior al precio spot, es un factor determinante que empuja el puntaje del agente de 'Valuation' a la baja. El puntaje de convicción de 45/100 es fuertemente influenciado negativamente por los agentes de 'Valuation' (debido al alto P/E y el bajo DCF) y 'Risk' (por la alta volatilidad y la venta de insiders), mientras que el agente de 'Business' podría aportar positivamente por el potencial de AIP, pero no lo suficiente para compensar.",
+    "posicion_competitiva": "Palantir posee un foso competitivo (moat) significativo, especialmente en el sector gubernamental, donde sus plataformas de análisis de datos son profundamente integradas y difíciles de reemplazar, generando altos costos de cambio. Su tecnología propietaria, como AIP, ofrece capacidades únicas de integración y análisis de datos a escala, lo que le confiere una ventaja en la gestión de datos complejos y la toma de decisiones críticas. La experiencia acumulada en proyectos de alta seguridad y complejidad también es un diferenciador clave.",
+    "principales_competidores": "Los principales competidores de Palantir incluyen empresas de consultoría y servicios de TI como Accenture y IBM, proveedores de software de análisis de datos como Splunk y Tableau (parte de Salesforce), y otras empresas de IA y defensa que compiten por contratos gubernamentales y comerciales de alto valor.",
+    "porque_mejor_peor_inversion": "A pesar de sus impresionantes márgenes brutos del 84.8% y márgenes EBITDA del 50.35%, que demuestran una excelente eficiencia operativa, Palantir se considera una inversión menos atractiva en los niveles actuales debido a sus múltiplos de valoración extremadamente altos. Un P/E de 138.62 es significativamente superior al promedio del mercado y de sus pares, lo que implica que el mercado ya ha descontado un crecimiento futuro excepcional. Esto reduce el margen de seguridad y aumenta el riesgo de una corrección si el crecimiento no cumple con las expectativas más optimistas, haciendo que, a pesar de la calidad del negocio, el precio actual no justifique la asignación de capital frente a otras oportunidades con valoraciones más razonables y retornos de capital comparables o superiores.",
+    "in_simple_terms": "Imagina que Palantir es como un 'cerebro' gigante para empresas y gobiernos. Recopila y organiza toda la información que tienen (desde datos de ventas hasta inteligencia militar) y la analiza para encontrar patrones ocultos o problemas antes de que ocurran. Es como tener un detective superinteligente que te ayuda a tomar mejores decisiones. Gana dinero vendiendo este 'cerebro' y sus servicios. Para los inversores, es una forma de apostar por el futuro de la inteligencia artificial y el análisis de datos, pero a un precio que ya asume que este 'cerebro' será el mejor y más exitoso del mundo.",
+    "should_you_buy_now": "Dada la recomendación DESFAVORABLE (Evitar / esperar) y la alta valoración actual, se aconseja prudencia. A pesar del potencial de crecimiento a largo plazo y el upside teórico al Fair Value de Victor, el perfil de riesgo-recompensa en los niveles de cotización actuales no justifica una compra agresiva. Es preferible esperar una corrección de precios o una confirmación más clara de la monetización de AIP que justifique la prima actual.",
+    "the_bottom_line": "Palantir es una empresa con tecnología innovadora y un gran potencial de crecimiento en IA, pero su valoración actual es excesivamente optimista y presenta un perfil de riesgo-recompensa desfavorable para una nueva asignación de capital.",
     "probabilities": {
-      "p_positive_12m": 55,
+      "p_positive_12m": 45,
       "p_touch_bull_12m": 25,
-      "p_touch_bear_12m": 40,
+      "p_touch_bear_12m": 55,
       "p_up_10pct_3m": 35,
-      "rationale": "Las probabilidades se anclan en la alta volatilidad histórica de la acción (64.55% anual) y el régimen de mercado alcista, que permite movimientos significativos. Sin embargo, la valoración extrema y la señal bajista de insiders moderan la probabilidad de un retorno positivo fuerte, mientras que la posibilidad de tocar el target bear es considerable dada la sensibilidad a las noticias y el sentimiento."
+      "rationale": "Estas probabilidades se anclan en la alta volatilidad histórica (64.53%) y la valoración estirada. La probabilidad de un retorno positivo a 12 meses es moderada debido a la incertidumbre de la valoración. La probabilidad de tocar el target Bear es mayor que el Bull, reflejando el veredicto 'DESFAVORABLE' y el riesgo de contracción de múltiplos. Un movimiento del +10% en 3 meses es posible dada la volatilidad, pero no altamente probable en este contexto de valoración."
     },
     "regime": {
       "vol": "calmo",
       "trend": "alcista",
       "breadth": "neutral",
       "rates": "estable",
-      "vix": 14.5,
-      "spy_vs_200d_pct": 10.3,
+      "vix": 14.7,
+      "spy_vs_200d_pct": 10.1,
       "detail": {
-        "spy_20d_pct": 3.6,
-        "rsp_minus_spy_20d_pct": -0.4,
-        "tlt_20d_pct": -1.6
+        "spy_20d_pct": 3.4,
+        "rsp_minus_spy_20d_pct": -0.3,
+        "tlt_20d_pct": -1.9
       },
       "label": "Tendencia alcista · vol calmo · amplitud neutral · tasas estable"
     },
@@ -1900,34 +1900,34 @@
     "prob_anchoring": null,
     "trade_plan": {
       "probabilities": {
-        "p_positive_12m": 55,
+        "p_positive_12m": 45,
         "p_touch_bull_12m": 25,
-        "p_touch_bear_12m": 40,
+        "p_touch_bear_12m": 55,
         "p_up_10pct_3m": 35,
-        "rationale": "Las probabilidades se anclan en la alta volatilidad histórica de la acción (64.55% anual) y el régimen de mercado alcista, que permite movimientos significativos. Sin embargo, la valoración extrema y la señal bajista de insiders moderan la probabilidad de un retorno positivo fuerte, mientras que la posibilidad de tocar el target bear es considerable dada la sensibilidad a las noticias y el sentimiento."
+        "rationale": "Estas probabilidades se anclan en la alta volatilidad histórica (64.53%) y la valoración estirada. La probabilidad de un retorno positivo a 12 meses es moderada debido a la incertidumbre de la valoración. La probabilidad de tocar el target Bear es mayor que el Bull, reflejando el veredicto 'DESFAVORABLE' y el riesgo de contracción de múltiplos. Un movimiento del +10% en 3 meses es posible dada la volatilidad, pero no altamente probable en este contexto de valoración."
       },
-      "reward_pct": 52.1,
-      "risk_pct": 10.3,
-      "reward_risk": 5.04,
-      "kelly_full_pct": 46.1,
-      "kelly_half_pct": 23.0,
-      "suggested_pct": 23.0,
+      "reward_pct": 52.5,
+      "risk_pct": 10.1,
+      "reward_risk": 5.23,
+      "kelly_full_pct": 34.5,
+      "kelly_half_pct": 17.2,
+      "suggested_pct": 17.2,
       "cap_reason": "",
       "factor_haircut_pct": 0.0,
       "already_held_pct": 0.0,
       "risk_plan": {
         "is_a_grade": false,
-        "equity_stop": 161.79,
-        "equity_stop_note": "No A-grade: stop sugerido en $161.79 (2×ATR-14 bajo el spot).",
+        "equity_stop": 161.25,
+        "equity_stop_note": "No A-grade: stop sugerido en $161.25 (2×ATR-14 bajo el spot).",
         "thesis_break_level": 157.18,
         "options_stop_rule": "Opciones: stop −20% a −30% de la prima pagada."
       },
       "targets_r": {
-        "entry": 175.29,
+        "entry": 174.75,
         "stop": 157.18,
-        "r_unit": 18.11,
-        "bull_r": 5.04,
-        "base_r": 2.65,
+        "r_unit": 17.57,
+        "bull_r": 5.23,
+        "base_r": 2.76,
         "bear_r": -1.0
       },
       "thesis_invalidation": [
@@ -2046,6 +2046,7 @@
       "divulgación Reg FD",
       "earnings",
       "estados financieros y exhibits",
+      "product",
       "regulatory",
       "resultados de operación (earnings)"
     ],
@@ -2104,7 +2105,7 @@
           "label": "Market & Growth",
           "max": 20.0,
           "score10": 1.1,
-          "points": 2.16,
+          "points": 2.15,
           "coverage": 0.39,
           "status": "scored",
           "confidence": 67,
@@ -2116,7 +2117,7 @@
           "label": "Technical & Momentum",
           "max": 20.0,
           "score10": 6.3,
-          "points": 12.66,
+          "points": 12.68,
           "coverage": 1.0,
           "status": "scored",
           "confidence": 94,
@@ -2159,7 +2160,7 @@
       "classification": "Evitar / esperar",
       "passed_gates": [],
       "failed_gates": [
-        "raw_total<50 (got 45.33250326788892)"
+        "raw_total<50 (got 45.34727205824527)"
       ],
       "overrides": [
         "OVERRIDE_6_COVERAGE_GATE_INELIGIBLE"
@@ -2227,97 +2228,97 @@
       "For every $100 in sales, $37 is net profit — very profitable.",
       "Generates real cash: $2.2B of free cash flow per year.",
       "Owes $0.00 for every $1 of equity — low debt.",
-      "Quick score: 4.5/10, computed from 85 of 100 evidence points — categories without FMP data stay N/S (never fabricated).",
+      "Quick score: 7.1/10, computed from 100 of 100 evidence points — full coverage of all 6 categories.",
       "If it keeps growing as it has and the market pays the same multiple, the stock would be worth ~$223.25 in 12 months (31% above the current price of $171.04)."
     ],
     "victor_scorecard": {
-      "overall_10": 4.5,
-      "evidence_points_covered": 85,
+      "overall_10": 7.1,
+      "evidence_points_covered": 100,
       "categories": [
         {
           "key": "business",
-          "label": "Business",
-          "score10": 4.6,
+          "label": "Business (quick)",
+          "score10": 7.1,
           "status": "scored",
           "reason": null
         },
         {
           "key": "financial",
-          "label": "Financial",
-          "score10": 9.4,
+          "label": "Financial (quick)",
+          "score10": 10.0,
           "status": "scored",
           "reason": null
         },
         {
           "key": "market",
-          "label": "Market & Growth",
-          "score10": 1.1,
+          "label": "Market & Growth (quick)",
+          "score10": 9.0,
           "status": "scored",
           "reason": null
         },
         {
           "key": "technical",
-          "label": "Technical & Momentum",
-          "score10": 6.3,
+          "label": "Technical & Momentum (quick)",
+          "score10": 8.3,
           "status": "scored",
           "reason": null
         },
         {
           "key": "risk",
-          "label": "Risk & Resilience",
-          "score10": 3.1,
+          "label": "Risk & Resilience (quick)",
+          "score10": 5.0,
           "status": "scored",
           "reason": null
         },
         {
           "key": "valuation",
-          "label": "Valuation",
-          "score10": 2.7,
+          "label": "Valuation (quick)",
+          "score10": 0.0,
           "status": "scored",
           "reason": null
         }
       ]
     },
     "victor_interpretation": {
-      "overall_10": 4.5,
-      "classification": "avoid",
-      "classification_label": "the analysis favors avoiding for now (research classification)",
-      "revisit": "revisit at the next 10-K/10-Q or a material change in estimates",
+      "overall_10": 7.1,
+      "classification": "favors",
+      "classification_label": "the analysis favors investing (research classification)",
+      "revisit": null,
       "categories": [
         {
           "key": "business",
-          "label": "Business",
-          "score10": 4.6,
-          "meaning": "weak"
+          "label": "Business (quick)",
+          "score10": 7.1,
+          "meaning": "solid"
         },
         {
           "key": "financial",
-          "label": "Financial",
-          "score10": 9.4,
+          "label": "Financial (quick)",
+          "score10": 10.0,
           "meaning": "very strong"
         },
         {
           "key": "market",
-          "label": "Market & Growth",
-          "score10": 1.1,
-          "meaning": "troubled"
+          "label": "Market & Growth (quick)",
+          "score10": 9.0,
+          "meaning": "very strong"
         },
         {
           "key": "technical",
-          "label": "Technical & Momentum",
-          "score10": 6.3,
-          "meaning": "mixed"
+          "label": "Technical & Momentum (quick)",
+          "score10": 8.3,
+          "meaning": "very strong"
         },
         {
           "key": "risk",
-          "label": "Risk & Resilience",
-          "score10": 3.1,
-          "meaning": "troubled"
+          "label": "Risk & Resilience (quick)",
+          "score10": 5.0,
+          "meaning": "mixed"
         },
         {
           "key": "valuation",
-          "label": "Valuation",
-          "score10": 2.7,
+          "label": "Valuation (quick)",
+          "score10": 0.0,
           "meaning": "troubled"
         }
       ]
@@ -2383,7 +2384,7 @@
       ]
     },
     "victor_levels": {
-      "current_price": 175.29,
+      "current_price": 174.75,
       "atr14": 8.541679161079232,
       "levels": [
         {
@@ -2392,7 +2393,7 @@
           "source": "current_price",
           "zone_low": null,
           "zone_high": null,
-          "value": 175.29,
+          "value": 174.75,
           "distance_percent": 0.0,
           "distance_atr": 0.0,
           "strength_or_confidence": null,
@@ -2498,8 +2499,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 133.8142,
-          "distance_percent": -23.6612470762736,
-          "distance_atr": -4.855696311913403,
+          "distance_percent": -23.425350500715307,
+          "distance_atr": -4.792476892193151,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2513,8 +2514,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 152.1969,
-          "distance_percent": -13.174225569056988,
-          "distance_atr": -2.703578484336586,
+          "distance_percent": -12.905922746781116,
+          "distance_atr": -2.6403590646163346,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2528,8 +2529,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 163.81079355498628,
-          "distance_percent": -6.54869441782972,
-          "distance_atr": -1.3439051301902718,
+          "distance_percent": -6.259917851223877,
+          "distance_atr": -1.2806857104700204,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2543,8 +2544,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 151.14979194657917,
-          "distance_percent": -13.771583121353656,
-          "distance_atr": -2.826166564932267,
+          "distance_percent": -13.50512621082737,
+          "distance_atr": -2.762947145212016,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2558,8 +2559,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 87.57825506988429,
-          "distance_percent": -50.03807686126744,
-          "distance_atr": -10.268677068764243,
+          "distance_percent": -49.883688085903124,
+          "distance_atr": -10.205457649043991,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2573,8 +2574,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 17.48,
-          "distance_percent": -90.02795367676423,
-          "distance_atr": -18.475290048246308,
+          "distance_percent": -89.99713876967095,
+          "distance_atr": -18.412070628526056,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -2588,8 +2589,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 18.3,
-          "distance_percent": -89.56015745336299,
-          "distance_atr": -18.379290188671106,
+          "distance_percent": -89.52789699570815,
+          "distance_atr": -18.316070768950855,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -2603,8 +2604,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 17.2101,
-          "distance_percent": -90.18192709224712,
-          "distance_atr": -18.506888050806484,
+          "distance_percent": -90.15158798283261,
+          "distance_atr": -18.443668631086233,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -2618,8 +2619,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 16.2,
-          "distance_percent": -90.75817217182954,
-          "distance_atr": -18.625143487583202,
+          "distance_percent": -90.7296137339056,
+          "distance_atr": -18.56192406786295,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -2633,8 +2634,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 20.3,
-          "distance_percent": -88.41919105482343,
-          "distance_atr": -18.14514418970721,
+          "distance_percent": -88.38340486409155,
+          "distance_atr": -18.08192476998696,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -2648,8 +2649,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 22.18,
-          "distance_percent": -87.34668264019624,
-          "distance_atr": -17.925046950681146,
+          "distance_percent": -87.30758226037196,
+          "distance_atr": -17.861827530960895,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -2663,8 +2664,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 19.76,
-          "distance_percent": -88.72725198242912,
-          "distance_atr": -18.208363609427465,
+          "distance_percent": -88.69241773962806,
+          "distance_atr": -18.145144189707214,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -2678,8 +2679,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 18.509999999999998,
-          "distance_percent": -89.44035598151635,
-          "distance_atr": -18.3547048587799,
+          "distance_percent": -89.40772532188842,
+          "distance_atr": -18.29148543905965,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -2693,8 +2694,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 21.99,
-          "distance_percent": -87.4550744480575,
-          "distance_atr": -17.947290820582715,
+          "distance_percent": -87.41630901287553,
+          "distance_atr": -17.884071400862467,
           "strength_or_confidence": null,
           "status": "fully_filled",
           "confirmation": null,
@@ -2708,8 +2709,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 22.7,
-          "distance_percent": -87.05003137657596,
-          "distance_atr": -17.864168990950535,
+          "distance_percent": -87.01001430615165,
+          "distance_atr": -17.800949571230284,
           "strength_or_confidence": null,
           "status": "fully_filled",
           "confirmation": null,
@@ -2723,8 +2724,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 21.35,
-          "distance_percent": -87.82018369559017,
-          "distance_atr": -18.022217540251166,
+          "distance_percent": -87.78254649499286,
+          "distance_atr": -17.958998120530914,
           "strength_or_confidence": null,
           "status": "fully_filled",
           "confirmation": null,
@@ -2738,8 +2739,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 23.6,
-          "distance_percent": -86.53659649723315,
-          "distance_atr": -17.758803291416783,
+          "distance_percent": -86.49499284692418,
+          "distance_atr": -17.69558387169653,
           "strength_or_confidence": null,
           "status": "fully_filled",
           "confirmation": null,
@@ -2753,8 +2754,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 27.05,
-          "distance_percent": -84.56842945975241,
-          "distance_atr": -17.354901443204056,
+          "distance_percent": -84.52074391988555,
+          "distance_atr": -17.291682023483805,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -2768,8 +2769,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 27.42,
-          "distance_percent": -84.3573506760226,
-          "distance_atr": -17.311584433395737,
+          "distance_percent": -84.30901287553647,
+          "distance_atr": -17.248365013675485,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -2783,8 +2784,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 25.57,
-          "distance_percent": -85.41274459467168,
-          "distance_atr": -17.52816948243734,
+          "distance_percent": -85.36766809728184,
+          "distance_atr": -17.46495006271709,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -2798,8 +2799,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 25.57,
-          "distance_percent": -85.41274459467168,
-          "distance_atr": -17.52816948243734,
+          "distance_percent": -85.36766809728184,
+          "distance_atr": -17.46495006271709,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -2813,8 +2814,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 47.86,
-          "distance_percent": -72.69667408294825,
-          "distance_atr": -14.918612323984709,
+          "distance_percent": -72.61230329041489,
+          "distance_atr": -14.855392904264457,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -2828,8 +2829,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 51.58,
-          "distance_percent": -70.57447658166467,
-          "distance_atr": -14.483100765911859,
+          "distance_percent": -70.48354792560801,
+          "distance_atr": -14.419881346191609,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -2843,8 +2844,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 46.86,
-          "distance_percent": -73.26715728221804,
-          "distance_atr": -15.035685323466659,
+          "distance_percent": -73.18454935622317,
+          "distance_atr": -14.972465903746405,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -2858,8 +2859,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 44.635,
-          "distance_percent": -74.5364824005933,
-          "distance_atr": -15.296172747313994,
+          "distance_percent": -74.45779685264664,
+          "distance_atr": -15.232953327593743,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -2873,8 +2874,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 102.8,
-          "distance_percent": -41.35432711506646,
-          "distance_atr": -8.486621732446453,
+          "distance_percent": -41.17310443490701,
+          "distance_atr": -8.423402312726202,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2888,8 +2889,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 106.91,
-          "distance_percent": -39.00964116606766,
-          "distance_atr": -8.005451704575645,
+          "distance_percent": -38.821173104434905,
+          "distance_atr": -7.942232284855393,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2903,8 +2904,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 100.51,
-          "distance_percent": -42.66073364139425,
-          "distance_atr": -8.754718901260114,
+          "distance_percent": -42.48354792560801,
+          "distance_atr": -8.691499481539863,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2918,8 +2919,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 93.27,
-          "distance_percent": -46.79103200410748,
-          "distance_atr": -9.602327417509423,
+          "distance_percent": -46.626609442060094,
+          "distance_atr": -9.539107997789172,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2933,8 +2934,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 112.71,
-          "distance_percent": -35.700838610302924,
-          "distance_atr": -7.3264283075803425,
+          "distance_percent": -35.502145922746784,
+          "distance_atr": -7.263208887860091,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2948,8 +2949,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 113.91,
-          "distance_percent": -35.01625877117919,
-          "distance_atr": -7.185940708202004,
+          "distance_percent": -34.81545064377683,
+          "distance_atr": -7.122721288481753,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2963,8 +2964,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 105.32,
-          "distance_percent": -39.91670945290661,
-          "distance_atr": -8.191597773751942,
+          "distance_percent": -39.7310443490701,
+          "distance_atr": -8.12837835403169,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2978,8 +2979,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 118.24,
-          "distance_percent": -32.546066518341036,
-          "distance_atr": -6.679014620445167,
+          "distance_percent": -32.3376251788269,
+          "distance_atr": -6.615795200724915,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2993,8 +2994,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 171.81,
-          "distance_percent": -1.9852815334588338,
-          "distance_atr": -0.4074140381971799,
+          "distance_percent": -1.6824034334763938,
+          "distance_atr": -0.3441946184769286,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -3008,8 +3009,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 176.33,
-          "distance_percent": 0.5933025272405845,
-          "distance_atr": 0.12175591946122893,
+          "distance_percent": 0.9041487839771174,
+          "distance_atr": 0.18497533918148024,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -3023,8 +3024,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 169.22,
-          "distance_percent": -3.4628330195675696,
-          "distance_atr": -0.7106331068554271,
+          "distance_percent": -3.164520743919886,
+          "distance_atr": -0.6474136871351759,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -3038,8 +3039,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 166.235,
-          "distance_percent": -5.165725369387859,
-          "distance_atr": -1.060096010309042,
+          "distance_percent": -4.872675250357646,
+          "distance_atr": -0.9968765905887906,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -3053,8 +3054,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 192.07,
-          "distance_percent": 9.572708083746935,
-          "distance_atr": 1.9644849313070976,
+          "distance_percent": 9.911301859799709,
+          "distance_atr": 2.027704351027349,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -3068,8 +3069,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 195.7,
-          "distance_percent": 11.64356209709624,
-          "distance_atr": 2.3894599194265704,
+          "distance_percent": 11.988555078683827,
+          "distance_atr": 2.4526793391468216,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -3083,8 +3084,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 185.56,
-          "distance_percent": 5.858862456500662,
-          "distance_atr": 1.2023397046796132,
+          "distance_percent": 6.185979971387698,
+          "distance_atr": 1.2655591243998645,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -3098,8 +3099,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 199.625,
-          "distance_percent": 13.88270865423014,
-          "distance_atr": 2.84897144239322,
+          "distance_percent": 14.234620886981403,
+          "distance_atr": 2.912190862113471,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -3113,8 +3114,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 165.05,
-          "distance_percent": -5.841747960522552,
-          "distance_atr": -1.1988275146951513,
+          "distance_percent": -5.550786838340479,
+          "distance_atr": -1.1356080949749,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -3128,8 +3129,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 165.08,
-          "distance_percent": -5.8246334645444575,
-          "distance_atr": -1.1953153247106927,
+          "distance_percent": -5.53361945636623,
+          "distance_atr": -1.1320959049904413,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -3143,8 +3144,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 153.12,
-          "distance_percent": -12.64761252781105,
-          "distance_atr": -2.5955083985147986,
+          "distance_percent": -12.377682403433473,
+          "distance_atr": -2.5322889787945475,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -3158,8 +3159,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 156.405,
-          "distance_percent": -10.77357521820982,
-          "distance_atr": -2.210923595216598,
+          "distance_percent": -10.49785407725322,
+          "distance_atr": -2.147704175496347,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -3173,8 +3174,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 145.15,
-          "distance_percent": -17.19436362599121,
-          "distance_atr": -3.528580204385929,
+          "distance_percent": -16.938483547925603,
+          "distance_atr": -3.4653607846656778,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -3188,8 +3189,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 164.52,
-          "distance_percent": -6.144104056135537,
-          "distance_atr": -1.2608762044205841,
+          "distance_percent": -5.854077253218878,
+          "distance_atr": -1.197656784700333,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -3203,8 +3204,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 143.28,
-          "distance_percent": -18.2611672086257,
-          "distance_atr": -3.7475067134171733,
+          "distance_percent": -18.008583690987123,
+          "distance_atr": -3.684287293696922,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -3218,8 +3219,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 135.4,
-          "distance_percent": -22.756574818871577,
-          "distance_atr": -4.6700419493349274,
+          "distance_percent": -22.517882689556508,
+          "distance_atr": -4.606822529614677,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -3247,9 +3248,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 23.64471030209056,
-          "distance_percent": -86.51109002105622,
-          "distance_atr": -17.753568922243296,
+          "value": 23.64473783961046,
+          "distance_percent": -86.46939179421433,
+          "distance_atr": -17.69034627862299,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -3262,9 +3263,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 32.43395216515559,
-          "distance_percent": -81.49697520385898,
-          "distance_atr": -16.72458601416196,
+          "value": 32.43399172882435,
+          "distance_percent": -81.43977583472139,
+          "distance_atr": -16.661361962604335,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -3277,9 +3278,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 46.49345288472296,
-          "distance_percent": -73.4762662532244,
-          "distance_atr": -15.078598093703595,
+          "value": 46.49351337759168,
+          "distance_percent": -73.39426988406771,
+          "distance_atr": -15.015371591901756,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -3292,9 +3293,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 27.56885934038225,
-          "distance_percent": -84.27242892328013,
-          "distance_atr": -17.29415702391628,
+          "value": 27.5688929695007,
+          "distance_percent": -84.22380945951319,
+          "distance_atr": -17.230933667134266,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -3307,9 +3308,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 24.32546412386669,
-          "distance_percent": -86.12273140289425,
-          "distance_atr": -17.673871030419164,
+          "value": 24.325493796618264,
+          "distance_percent": -86.07983187604104,
+          "distance_atr": -17.61064813682088,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -3972,7 +3973,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 17.48,
-          "high": 23.64471030209056,
+          "high": 23.64473783961046,
           "note": "Confluence reference: 'Earnings gap 2023-11-02 gap open' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -3981,7 +3982,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 17.48,
-          "high": 24.32546412386669,
+          "high": 24.325493796618264,
           "note": "Confluence reference: 'Earnings gap 2023-11-02 gap open' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4098,7 +4099,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 18.3,
-          "high": 23.64471030209056,
+          "high": 23.64473783961046,
           "note": "Confluence reference: 'Earnings gap 2023-11-02 gap high' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4107,7 +4108,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 18.3,
-          "high": 24.32546412386669,
+          "high": 24.325493796618264,
           "note": "Confluence reference: 'Earnings gap 2023-11-02 gap high' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4215,7 +4216,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 17.2101,
-          "high": 23.64471030209056,
+          "high": 23.64473783961046,
           "note": "Confluence reference: 'Earnings gap 2023-11-02 gap low' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4224,7 +4225,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 17.2101,
-          "high": 24.32546412386669,
+          "high": 24.325493796618264,
           "note": "Confluence reference: 'Earnings gap 2023-11-02 gap low' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4305,7 +4306,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 16.2,
-          "high": 23.64471030209056,
+          "high": 23.64473783961046,
           "note": "Confluence reference: 'Earnings gap 2023-11-02 gap midpoint' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4314,7 +4315,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 16.2,
-          "high": 24.32546412386669,
+          "high": 24.325493796618264,
           "note": "Confluence reference: 'Earnings gap 2023-11-02 gap midpoint' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4422,7 +4423,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 20.3,
-          "high": 23.64471030209056,
+          "high": 23.64473783961046,
           "note": "Confluence reference: 'Earnings gap 2024-02-06 gap open' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4431,7 +4432,7 @@
             "Margin-of-safety reference band (15%)"
           ],
           "low": 20.3,
-          "high": 27.56885934038225,
+          "high": 27.5688929695007,
           "note": "Confluence reference: 'Earnings gap 2024-02-06 gap open' and 'Margin-of-safety reference band (15%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4440,7 +4441,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 20.3,
-          "high": 24.32546412386669,
+          "high": 24.325493796618264,
           "note": "Confluence reference: 'Earnings gap 2024-02-06 gap open' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4539,7 +4540,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 22.18,
-          "high": 23.64471030209056,
+          "high": 23.64473783961046,
           "note": "Confluence reference: 'Earnings gap 2024-02-06 gap high' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4548,7 +4549,7 @@
             "Margin-of-safety reference band (15%)"
           ],
           "low": 22.18,
-          "high": 27.56885934038225,
+          "high": 27.5688929695007,
           "note": "Confluence reference: 'Earnings gap 2024-02-06 gap high' and 'Margin-of-safety reference band (15%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4557,7 +4558,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 22.18,
-          "high": 24.32546412386669,
+          "high": 24.325493796618264,
           "note": "Confluence reference: 'Earnings gap 2024-02-06 gap high' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4647,7 +4648,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 19.76,
-          "high": 23.64471030209056,
+          "high": 23.64473783961046,
           "note": "Confluence reference: 'Earnings gap 2024-02-06 gap low' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4656,7 +4657,7 @@
             "Margin-of-safety reference band (15%)"
           ],
           "low": 19.76,
-          "high": 27.56885934038225,
+          "high": 27.5688929695007,
           "note": "Confluence reference: 'Earnings gap 2024-02-06 gap low' and 'Margin-of-safety reference band (15%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4665,7 +4666,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 19.76,
-          "high": 24.32546412386669,
+          "high": 24.325493796618264,
           "note": "Confluence reference: 'Earnings gap 2024-02-06 gap low' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4737,7 +4738,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 18.509999999999998,
-          "high": 23.64471030209056,
+          "high": 23.64473783961046,
           "note": "Confluence reference: 'Earnings gap 2024-02-06 gap midpoint' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4746,7 +4747,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 18.509999999999998,
-          "high": 24.32546412386669,
+          "high": 24.325493796618264,
           "note": "Confluence reference: 'Earnings gap 2024-02-06 gap midpoint' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4818,7 +4819,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 21.99,
-          "high": 23.64471030209056,
+          "high": 23.64473783961046,
           "note": "Confluence reference: 'Earnings gap 2024-05-07 gap open' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4827,7 +4828,7 @@
             "Margin-of-safety reference band (15%)"
           ],
           "low": 21.99,
-          "high": 27.56885934038225,
+          "high": 27.5688929695007,
           "note": "Confluence reference: 'Earnings gap 2024-05-07 gap open' and 'Margin-of-safety reference band (15%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4836,7 +4837,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 21.99,
-          "high": 24.32546412386669,
+          "high": 24.325493796618264,
           "note": "Confluence reference: 'Earnings gap 2024-05-07 gap open' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4899,7 +4900,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 22.7,
-          "high": 23.64471030209056,
+          "high": 23.64473783961046,
           "note": "Confluence reference: 'Earnings gap 2024-05-07 gap high' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4908,7 +4909,7 @@
             "Margin-of-safety reference band (15%)"
           ],
           "low": 22.7,
-          "high": 27.56885934038225,
+          "high": 27.5688929695007,
           "note": "Confluence reference: 'Earnings gap 2024-05-07 gap high' and 'Margin-of-safety reference band (15%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4917,7 +4918,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 22.7,
-          "high": 24.32546412386669,
+          "high": 24.325493796618264,
           "note": "Confluence reference: 'Earnings gap 2024-05-07 gap high' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4971,7 +4972,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 21.35,
-          "high": 23.64471030209056,
+          "high": 23.64473783961046,
           "note": "Confluence reference: 'Earnings gap 2024-05-07 gap low' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4980,7 +4981,7 @@
             "Margin-of-safety reference band (15%)"
           ],
           "low": 21.35,
-          "high": 27.56885934038225,
+          "high": 27.5688929695007,
           "note": "Confluence reference: 'Earnings gap 2024-05-07 gap low' and 'Margin-of-safety reference band (15%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -4989,7 +4990,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 21.35,
-          "high": 24.32546412386669,
+          "high": 24.325493796618264,
           "note": "Confluence reference: 'Earnings gap 2024-05-07 gap low' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5034,7 +5035,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 23.6,
-          "high": 23.64471030209056,
+          "high": 23.64473783961046,
           "note": "Confluence reference: 'Earnings gap 2024-05-07 gap midpoint' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5043,7 +5044,7 @@
             "Margin-of-safety reference band (15%)"
           ],
           "low": 23.6,
-          "high": 27.56885934038225,
+          "high": 27.5688929695007,
           "note": "Confluence reference: 'Earnings gap 2024-05-07 gap midpoint' and 'Margin-of-safety reference band (15%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5052,7 +5053,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 23.6,
-          "high": 24.32546412386669,
+          "high": 24.325493796618264,
           "note": "Confluence reference: 'Earnings gap 2024-05-07 gap midpoint' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5087,7 +5088,7 @@
             "Earnings gap 2024-08-06 gap open",
             "Bear-case intrinsic-value reference (scenario value)"
           ],
-          "low": 23.64471030209056,
+          "low": 23.64473783961046,
           "high": 27.05,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap open' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
@@ -5097,7 +5098,7 @@
             "Base-case intrinsic-value reference (scenario value)"
           ],
           "low": 27.05,
-          "high": 32.43395216515559,
+          "high": 32.43399172882435,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap open' and 'Base-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5106,7 +5107,7 @@
             "Margin-of-safety reference band (15%)"
           ],
           "low": 27.05,
-          "high": 27.56885934038225,
+          "high": 27.5688929695007,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap open' and 'Margin-of-safety reference band (15%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5114,7 +5115,7 @@
             "Earnings gap 2024-08-06 gap open",
             "Margin-of-safety reference band (25%)"
           ],
-          "low": 24.32546412386669,
+          "low": 24.325493796618264,
           "high": 27.05,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap open' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
@@ -5141,7 +5142,7 @@
             "Earnings gap 2024-08-06 gap high",
             "Bear-case intrinsic-value reference (scenario value)"
           ],
-          "low": 23.64471030209056,
+          "low": 23.64473783961046,
           "high": 27.42,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap high' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
@@ -5151,7 +5152,7 @@
             "Base-case intrinsic-value reference (scenario value)"
           ],
           "low": 27.42,
-          "high": 32.43395216515559,
+          "high": 32.43399172882435,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap high' and 'Base-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5160,7 +5161,7 @@
             "Margin-of-safety reference band (15%)"
           ],
           "low": 27.42,
-          "high": 27.56885934038225,
+          "high": 27.5688929695007,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap high' and 'Margin-of-safety reference band (15%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5168,7 +5169,7 @@
             "Earnings gap 2024-08-06 gap high",
             "Margin-of-safety reference band (25%)"
           ],
-          "low": 24.32546412386669,
+          "low": 24.325493796618264,
           "high": 27.42,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap high' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
@@ -5186,7 +5187,7 @@
             "Earnings gap 2024-08-06 gap low",
             "Bear-case intrinsic-value reference (scenario value)"
           ],
-          "low": 23.64471030209056,
+          "low": 23.64473783961046,
           "high": 25.57,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap low' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
@@ -5196,7 +5197,7 @@
             "Base-case intrinsic-value reference (scenario value)"
           ],
           "low": 25.57,
-          "high": 32.43395216515559,
+          "high": 32.43399172882435,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap low' and 'Base-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5205,7 +5206,7 @@
             "Margin-of-safety reference band (15%)"
           ],
           "low": 25.57,
-          "high": 27.56885934038225,
+          "high": 27.5688929695007,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap low' and 'Margin-of-safety reference band (15%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5213,7 +5214,7 @@
             "Earnings gap 2024-08-06 gap low",
             "Margin-of-safety reference band (25%)"
           ],
-          "low": 24.32546412386669,
+          "low": 24.325493796618264,
           "high": 25.57,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap low' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
@@ -5222,7 +5223,7 @@
             "Earnings gap 2024-08-06 gap midpoint",
             "Bear-case intrinsic-value reference (scenario value)"
           ],
-          "low": 23.64471030209056,
+          "low": 23.64473783961046,
           "high": 25.57,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap midpoint' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
@@ -5232,7 +5233,7 @@
             "Base-case intrinsic-value reference (scenario value)"
           ],
           "low": 25.57,
-          "high": 32.43395216515559,
+          "high": 32.43399172882435,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap midpoint' and 'Base-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5241,7 +5242,7 @@
             "Margin-of-safety reference band (15%)"
           ],
           "low": 25.57,
-          "high": 27.56885934038225,
+          "high": 27.5688929695007,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap midpoint' and 'Margin-of-safety reference band (15%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5249,7 +5250,7 @@
             "Earnings gap 2024-08-06 gap midpoint",
             "Margin-of-safety reference band (25%)"
           ],
-          "low": 24.32546412386669,
+          "low": 24.325493796618264,
           "high": 25.57,
           "note": "Confluence reference: 'Earnings gap 2024-08-06 gap midpoint' and 'Margin-of-safety reference band (25%)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
@@ -5285,7 +5286,7 @@
             "Earnings gap 2024-11-05 gap open",
             "Bull-case intrinsic-value reference (scenario value)"
           ],
-          "low": 46.49345288472296,
+          "low": 46.49351337759168,
           "high": 47.86,
           "note": "Confluence reference: 'Earnings gap 2024-11-05 gap open' and 'Bull-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
@@ -5312,7 +5313,7 @@
             "Earnings gap 2024-11-05 gap high",
             "Bull-case intrinsic-value reference (scenario value)"
           ],
-          "low": 46.49345288472296,
+          "low": 46.49351337759168,
           "high": 51.58,
           "note": "Confluence reference: 'Earnings gap 2024-11-05 gap high' and 'Bull-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
@@ -5330,7 +5331,7 @@
             "Earnings gap 2024-11-05 gap low",
             "Bull-case intrinsic-value reference (scenario value)"
           ],
-          "low": 46.49345288472296,
+          "low": 46.49351337759168,
           "high": 46.86,
           "note": "Confluence reference: 'Earnings gap 2024-11-05 gap low' and 'Bull-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
@@ -5340,7 +5341,7 @@
             "Bull-case intrinsic-value reference (scenario value)"
           ],
           "low": 44.635,
-          "high": 46.49345288472296,
+          "high": 46.49351337759168,
           "note": "Confluence reference: 'Earnings gap 2024-11-05 gap midpoint' and 'Bull-case intrinsic-value reference (scenario value)' overlap within tolerance (4.2708); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -5742,7 +5743,7 @@
           "assumptions": {
             "growth": 0.712254364919338,
             "margin": 0.29594951653980406,
-            "wacc": 0.1273031824627193,
+            "wacc": 0.1273031260453815,
             "tv_growth": 0.025
           }
         },
@@ -5752,7 +5753,7 @@
           "assumptions": {
             "growth": 0.7338041505785244,
             "margin": 0.3159495165398041,
-            "wacc": 0.11730318246271929,
+            "wacc": 0.11730312604538148,
             "tv_growth": 0.025
           }
         },
@@ -5762,7 +5763,7 @@
           "assumptions": {
             "growth": 0.7717228767953701,
             "margin": 0.3359495165398041,
-            "wacc": 0.10730318246271929,
+            "wacc": 0.10730312604538149,
             "tv_growth": 0.025
           }
         }
@@ -6243,16 +6244,16 @@
         "ticker": "PLTR",
         "exchange": "NASDAQ",
         "currency": "USD",
-        "analysis_timestamp": "2026-08-13T14:56:18.942016+00:00",
-        "knowledge_timestamp": "2026-08-13T14:55:08.960389+00:00"
+        "analysis_timestamp": "2026-08-13T15:44:19.425384+00:00",
+        "knowledge_timestamp": "2026-08-13T15:43:05.424238+00:00"
       },
       "profile": {
         "label": "Avoid / Wait",
-        "raw_score": 45.33250326788892,
+        "raw_score": 45.34727205824527,
         "total_confidence": 85.80853096179185,
         "passed_gates": [],
         "failed_gates": [
-          "raw_total<50 (got 45.33250326788892)"
+          "raw_total<50 (got 45.34727205824527)"
         ],
         "overrides": [
           "OVERRIDE_6_COVERAGE_GATE_INELIGIBLE"
@@ -6270,12 +6271,12 @@
           "confidence": 93.91304347826087
         },
         "market": {
-          "points": 2.1562382269288305,
+          "points": 2.146863226928831,
           "max": 20.0,
           "confidence": 66.91666666666667
         },
         "technical": {
-          "points": 12.660496137009027,
+          "points": 12.68445447034236,
           "max": 20.0,
           "confidence": 93.5
         },
@@ -6285,19 +6286,19 @@
           "confidence": 89.83333333333333
         },
         "valuation": {
-          "points": 2.6509765342557654,
+          "points": 2.6511619912787796,
           "max": 10.0,
           "confidence": 91.5
         }
       },
       "executive_thesis": {
-        "business_quality": "Palantir Technologies es una empresa de software que construye plataformas de análisis de datos para ayudar a organizaciones complejas (gobiernos, grandes corporaciones) a tomar decisiones. Gana dinero vendiendo licencias y servicios de sus plataformas Gotham (para el sector público) y Foundry (para el sector comercial), y más recientemente con su plataforma de IA (AIP). Importa al inversor promedio porque es un actor clave en el creciente campo de la inteligencia artificial y el análisis de datos, con el potencial de transformar cómo operan las grandes entidades.",
-        "value_creation_durability": "Palantir posee un foso competitivo (moat) significativo, especialmente en el sector gubernamental, debido a la complejidad y la naturaleza crítica de sus soluciones de análisis de datos, que a menudo implican integraciones profundas y personalizadas. Su plataforma AIP refuerza esta ventaja al ofrecer capacidades avanzadas de IA. Sin embargo, en el sector comercial, enfrenta una competencia más directa de grandes empresas tecnológicas y startups de IA, aunque su experiencia en manejar datos sensibles y complejos le otorga una diferenciación.",
-        "growth_engine": "La aritmética de este reporte se basa en los siguientes cálculos y datos proporcionados: Los targets a 12 meses de Victor son: Bull $266.57, Base $223.25 y Bear $157.18. El Fair Value de este análisis es el target Base de Victor, fijado en $223.25. La fórmula general para los targets de Victor es EPS × (1+crecimiento) × (P/E actual × factor del escenario). Aunque los valores específicos de EPS, crecimiento (anclado al CAGR de utilidades a 5 años) y el factor del escenario para cada target no se detallan en los datos proporcionados, se utilizan para derivar estos objetivos. El DCF (FCFF) calcul",
-        "market_validation": "El consenso de Wall Street tiene un precio objetivo medio de $176.33, lo que está muy cerca del precio spot actual de $175.29. Esto sugiere que los analistas de Wall Street ven un potencial de upside muy limitado o nulo desde los niveles actuales. En contraste, el veredicto de Victor, aunque emite una recomendación 'DESFAVORABLE', establece un Fair Value de $223.25, lo que implica un potencial de crecimiento del 27.36%. La divergencia se explica por la metodología de Victor que, si bien reconoce el potencial de crecimiento a 12 meses, pondera fuertemente factores como la valoración actual, el ",
-        "valuation_message": "Palantir presenta una capitalización de mercado de aproximadamente $401.85 mil millones de USD. Su valoración actual es extremadamente alta, con un P/E de 138.9 y un Forward P/E de 110.14, lo que sugiere expectativas de crecimiento muy elevadas. La compañía muestra márgenes brutos robustos del 84.8% y márgenes EBITDA del 50.35%, indicando una fuerte eficiencia operativa, aunque el Free Cash Flow no está disponible en los datos proporcionados.",
-        "key_levels_summary": "Current adjusted close $175.29; Nearest support zone (daily-support-156.75) $153.25062667679333-160.24937332320667; Nearest resistance zone (weekly-resistance-198.88) $189.85331575227232-207.90668424772767; Failed-breakout level (weekly-resistance-198.88) $189.85331575227232-207.90668424772767",
-        "primary_risk": "El riesgo más severo es la extrema valoración actual de la compañía, con un P/E de 138.9, lo que la hace muy susceptible a correcciones ante cualquier desaceleración del crecimiento o cambio en el sentimiento del mercado."
+        "business_quality": "Palantir Technologies es una empresa de software que construye plataformas de análisis de datos para organizaciones gubernamentales y comerciales. Su tecnología ayuda a procesar grandes volúmenes de datos para tomar decisiones complejas, desde operaciones de seguridad nacional hasta optimización de cadenas de suministro. Gana dinero a través de licencias de software y servicios de implementación. Importa al inversor promedio por su posición en el creciente mercado de la inteligencia artificial y el análisis de datos, ofreciendo una exposición a tecnologías de vanguardia.",
+        "value_creation_durability": "Palantir posee un foso competitivo (moat) significativo, especialmente en el sector gubernamental, donde sus plataformas de análisis de datos son profundamente integradas y difíciles de reemplazar, generando altos costos de cambio. Su tecnología propietaria, como AIP, ofrece capacidades únicas de integración y análisis de datos a escala, lo que le confiere una ventaja en la gestión de datos complejos y la toma de decisiones críticas. La experiencia acumulada en proyectos de alta seguridad y complejidad también es un diferenciador clave.",
+        "growth_engine": "Los targets a 12 meses de Victor se calculan utilizando una metodología propietaria que considera el EPS futuro, una tasa de crecimiento y un múltiplo ajustado. Para PLTR, los targets son: Bull $266.57, Base $223.25 y Bear $157.18. El Fair Value de este reporte ES el target base de Victor, fijado en $223.25. La fórmula general de Victor para los targets es EPS × (1+crecimiento) × (P/E actual × factor del escenario). Aunque no se proporciona el CAGR específico de utilidades a 5 años ni el factor del escenario, el EPS estimado para el próximo earnings es de $1.59 y el P/E actual es de 138.62, co",
+        "market_validation": "El consenso de Wall Street, con un precio objetivo medio de $176.33, se sitúa muy cerca del precio spot actual de $174.75, lo que implica una visión mayormente neutral o de 'mantener' por parte de los analistas. Esto contrasta con el veredicto de Victor, que, aunque calcula un Fair Value (target base) de $223.25 que sugiere un potencial alcista considerable, emite una recomendación final de 'DESFAVORABLE (Evitar / esperar)'. La divergencia se explica porque, si bien el modelo cuantitativo de Victor identifica un valor potencial futuro, la recomendación final es modulada por otros agentes (ries",
+        "valuation_message": "Palantir ostenta una capitalización de mercado de aproximadamente $401 mil millones. Sus múltiplos de valoración son muy elevados, con un P/E actual de 138.62 y un Forward P/E de 109.91, lo que indica altas expectativas de crecimiento futuro. La compañía muestra márgenes brutos robustos del 84.80% y márgenes EBITDA del 50.35%, reflejando una fuerte eficiencia operativa en su modelo de negocio de software.",
+        "key_levels_summary": "Current adjusted close $174.75; Nearest support zone (daily-support-156.75) $153.25062667679333-160.24937332320667; Nearest resistance zone (weekly-resistance-198.88) $189.85331575227232-207.90668424772767; Failed-breakout level (weekly-resistance-198.88) $189.85331575227232-207.90668424772767",
+        "primary_risk": "La valoración actual de PLTR es extremadamente exigente, con múltiplos muy elevados que demandan resultados excepcionales y un crecimiento sostenido para justificarse, lo que introduce un riesgo de ejecución severo si no se cumplen las expectativas."
       },
       "important_levels": [
         {
@@ -6306,7 +6307,7 @@
           "source": "current_price",
           "zone_low": null,
           "zone_high": null,
-          "value": 175.29,
+          "value": 174.75,
           "distance_percent": 0.0,
           "distance_atr": 0.0,
           "strength_or_confidence": null,
@@ -6412,8 +6413,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 133.8142,
-          "distance_percent": -23.6612470762736,
-          "distance_atr": -4.855696311913403,
+          "distance_percent": -23.425350500715307,
+          "distance_atr": -4.792476892193151,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -6427,8 +6428,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 152.1969,
-          "distance_percent": -13.174225569056988,
-          "distance_atr": -2.703578484336586,
+          "distance_percent": -12.905922746781116,
+          "distance_atr": -2.6403590646163346,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -6442,8 +6443,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 163.81079355498628,
-          "distance_percent": -6.54869441782972,
-          "distance_atr": -1.3439051301902718,
+          "distance_percent": -6.259917851223877,
+          "distance_atr": -1.2806857104700204,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -6457,8 +6458,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 151.14979194657917,
-          "distance_percent": -13.771583121353656,
-          "distance_atr": -2.826166564932267,
+          "distance_percent": -13.50512621082737,
+          "distance_atr": -2.762947145212016,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -6472,8 +6473,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 87.57825506988429,
-          "distance_percent": -50.03807686126744,
-          "distance_atr": -10.268677068764243,
+          "distance_percent": -49.883688085903124,
+          "distance_atr": -10.205457649043991,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -6487,8 +6488,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 17.48,
-          "distance_percent": -90.02795367676423,
-          "distance_atr": -18.475290048246308,
+          "distance_percent": -89.99713876967095,
+          "distance_atr": -18.412070628526056,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -6502,8 +6503,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 18.3,
-          "distance_percent": -89.56015745336299,
-          "distance_atr": -18.379290188671106,
+          "distance_percent": -89.52789699570815,
+          "distance_atr": -18.316070768950855,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -6517,8 +6518,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 17.2101,
-          "distance_percent": -90.18192709224712,
-          "distance_atr": -18.506888050806484,
+          "distance_percent": -90.15158798283261,
+          "distance_atr": -18.443668631086233,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -6532,8 +6533,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 16.2,
-          "distance_percent": -90.75817217182954,
-          "distance_atr": -18.625143487583202,
+          "distance_percent": -90.7296137339056,
+          "distance_atr": -18.56192406786295,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -6547,8 +6548,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 20.3,
-          "distance_percent": -88.41919105482343,
-          "distance_atr": -18.14514418970721,
+          "distance_percent": -88.38340486409155,
+          "distance_atr": -18.08192476998696,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -6562,8 +6563,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 22.18,
-          "distance_percent": -87.34668264019624,
-          "distance_atr": -17.925046950681146,
+          "distance_percent": -87.30758226037196,
+          "distance_atr": -17.861827530960895,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -6577,8 +6578,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 19.76,
-          "distance_percent": -88.72725198242912,
-          "distance_atr": -18.208363609427465,
+          "distance_percent": -88.69241773962806,
+          "distance_atr": -18.145144189707214,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -6592,8 +6593,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 18.509999999999998,
-          "distance_percent": -89.44035598151635,
-          "distance_atr": -18.3547048587799,
+          "distance_percent": -89.40772532188842,
+          "distance_atr": -18.29148543905965,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -6607,8 +6608,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 21.99,
-          "distance_percent": -87.4550744480575,
-          "distance_atr": -17.947290820582715,
+          "distance_percent": -87.41630901287553,
+          "distance_atr": -17.884071400862467,
           "strength_or_confidence": null,
           "status": "fully_filled",
           "confirmation": null,
@@ -6622,8 +6623,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 22.7,
-          "distance_percent": -87.05003137657596,
-          "distance_atr": -17.864168990950535,
+          "distance_percent": -87.01001430615165,
+          "distance_atr": -17.800949571230284,
           "strength_or_confidence": null,
           "status": "fully_filled",
           "confirmation": null,
@@ -6637,8 +6638,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 21.35,
-          "distance_percent": -87.82018369559017,
-          "distance_atr": -18.022217540251166,
+          "distance_percent": -87.78254649499286,
+          "distance_atr": -17.958998120530914,
           "strength_or_confidence": null,
           "status": "fully_filled",
           "confirmation": null,
@@ -6652,8 +6653,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 23.6,
-          "distance_percent": -86.53659649723315,
-          "distance_atr": -17.758803291416783,
+          "distance_percent": -86.49499284692418,
+          "distance_atr": -17.69558387169653,
           "strength_or_confidence": null,
           "status": "fully_filled",
           "confirmation": null,
@@ -6667,8 +6668,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 27.05,
-          "distance_percent": -84.56842945975241,
-          "distance_atr": -17.354901443204056,
+          "distance_percent": -84.52074391988555,
+          "distance_atr": -17.291682023483805,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -6682,8 +6683,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 27.42,
-          "distance_percent": -84.3573506760226,
-          "distance_atr": -17.311584433395737,
+          "distance_percent": -84.30901287553647,
+          "distance_atr": -17.248365013675485,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -6697,8 +6698,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 25.57,
-          "distance_percent": -85.41274459467168,
-          "distance_atr": -17.52816948243734,
+          "distance_percent": -85.36766809728184,
+          "distance_atr": -17.46495006271709,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -6712,8 +6713,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 25.57,
-          "distance_percent": -85.41274459467168,
-          "distance_atr": -17.52816948243734,
+          "distance_percent": -85.36766809728184,
+          "distance_atr": -17.46495006271709,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -6727,8 +6728,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 47.86,
-          "distance_percent": -72.69667408294825,
-          "distance_atr": -14.918612323984709,
+          "distance_percent": -72.61230329041489,
+          "distance_atr": -14.855392904264457,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -6742,8 +6743,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 51.58,
-          "distance_percent": -70.57447658166467,
-          "distance_atr": -14.483100765911859,
+          "distance_percent": -70.48354792560801,
+          "distance_atr": -14.419881346191609,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -6757,8 +6758,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 46.86,
-          "distance_percent": -73.26715728221804,
-          "distance_atr": -15.035685323466659,
+          "distance_percent": -73.18454935622317,
+          "distance_atr": -14.972465903746405,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -6772,8 +6773,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 44.635,
-          "distance_percent": -74.5364824005933,
-          "distance_atr": -15.296172747313994,
+          "distance_percent": -74.45779685264664,
+          "distance_atr": -15.232953327593743,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -6787,8 +6788,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 102.8,
-          "distance_percent": -41.35432711506646,
-          "distance_atr": -8.486621732446453,
+          "distance_percent": -41.17310443490701,
+          "distance_atr": -8.423402312726202,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -6802,8 +6803,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 106.91,
-          "distance_percent": -39.00964116606766,
-          "distance_atr": -8.005451704575645,
+          "distance_percent": -38.821173104434905,
+          "distance_atr": -7.942232284855393,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -6817,8 +6818,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 100.51,
-          "distance_percent": -42.66073364139425,
-          "distance_atr": -8.754718901260114,
+          "distance_percent": -42.48354792560801,
+          "distance_atr": -8.691499481539863,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -6832,8 +6833,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 93.27,
-          "distance_percent": -46.79103200410748,
-          "distance_atr": -9.602327417509423,
+          "distance_percent": -46.626609442060094,
+          "distance_atr": -9.539107997789172,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -6847,8 +6848,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 112.71,
-          "distance_percent": -35.700838610302924,
-          "distance_atr": -7.3264283075803425,
+          "distance_percent": -35.502145922746784,
+          "distance_atr": -7.263208887860091,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -6862,8 +6863,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 113.91,
-          "distance_percent": -35.01625877117919,
-          "distance_atr": -7.185940708202004,
+          "distance_percent": -34.81545064377683,
+          "distance_atr": -7.122721288481753,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -6877,8 +6878,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 105.32,
-          "distance_percent": -39.91670945290661,
-          "distance_atr": -8.191597773751942,
+          "distance_percent": -39.7310443490701,
+          "distance_atr": -8.12837835403169,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -6892,8 +6893,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 118.24,
-          "distance_percent": -32.546066518341036,
-          "distance_atr": -6.679014620445167,
+          "distance_percent": -32.3376251788269,
+          "distance_atr": -6.615795200724915,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -6907,8 +6908,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 171.81,
-          "distance_percent": -1.9852815334588338,
-          "distance_atr": -0.4074140381971799,
+          "distance_percent": -1.6824034334763938,
+          "distance_atr": -0.3441946184769286,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -6922,8 +6923,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 176.33,
-          "distance_percent": 0.5933025272405845,
-          "distance_atr": 0.12175591946122893,
+          "distance_percent": 0.9041487839771174,
+          "distance_atr": 0.18497533918148024,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -6937,8 +6938,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 169.22,
-          "distance_percent": -3.4628330195675696,
-          "distance_atr": -0.7106331068554271,
+          "distance_percent": -3.164520743919886,
+          "distance_atr": -0.6474136871351759,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -6952,8 +6953,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 166.235,
-          "distance_percent": -5.165725369387859,
-          "distance_atr": -1.060096010309042,
+          "distance_percent": -4.872675250357646,
+          "distance_atr": -0.9968765905887906,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -6967,8 +6968,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 192.07,
-          "distance_percent": 9.572708083746935,
-          "distance_atr": 1.9644849313070976,
+          "distance_percent": 9.911301859799709,
+          "distance_atr": 2.027704351027349,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -6982,8 +6983,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 195.7,
-          "distance_percent": 11.64356209709624,
-          "distance_atr": 2.3894599194265704,
+          "distance_percent": 11.988555078683827,
+          "distance_atr": 2.4526793391468216,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -6997,8 +6998,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 185.56,
-          "distance_percent": 5.858862456500662,
-          "distance_atr": 1.2023397046796132,
+          "distance_percent": 6.185979971387698,
+          "distance_atr": 1.2655591243998645,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -7012,8 +7013,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 199.625,
-          "distance_percent": 13.88270865423014,
-          "distance_atr": 2.84897144239322,
+          "distance_percent": 14.234620886981403,
+          "distance_atr": 2.912190862113471,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -7027,8 +7028,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 165.05,
-          "distance_percent": -5.841747960522552,
-          "distance_atr": -1.1988275146951513,
+          "distance_percent": -5.550786838340479,
+          "distance_atr": -1.1356080949749,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -7042,8 +7043,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 165.08,
-          "distance_percent": -5.8246334645444575,
-          "distance_atr": -1.1953153247106927,
+          "distance_percent": -5.53361945636623,
+          "distance_atr": -1.1320959049904413,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -7057,8 +7058,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 153.12,
-          "distance_percent": -12.64761252781105,
-          "distance_atr": -2.5955083985147986,
+          "distance_percent": -12.377682403433473,
+          "distance_atr": -2.5322889787945475,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -7072,8 +7073,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 156.405,
-          "distance_percent": -10.77357521820982,
-          "distance_atr": -2.210923595216598,
+          "distance_percent": -10.49785407725322,
+          "distance_atr": -2.147704175496347,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -7087,8 +7088,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 145.15,
-          "distance_percent": -17.19436362599121,
-          "distance_atr": -3.528580204385929,
+          "distance_percent": -16.938483547925603,
+          "distance_atr": -3.4653607846656778,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -7102,8 +7103,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 164.52,
-          "distance_percent": -6.144104056135537,
-          "distance_atr": -1.2608762044205841,
+          "distance_percent": -5.854077253218878,
+          "distance_atr": -1.197656784700333,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -7117,8 +7118,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 143.28,
-          "distance_percent": -18.2611672086257,
-          "distance_atr": -3.7475067134171733,
+          "distance_percent": -18.008583690987123,
+          "distance_atr": -3.684287293696922,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -7132,8 +7133,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 135.4,
-          "distance_percent": -22.756574818871577,
-          "distance_atr": -4.6700419493349274,
+          "distance_percent": -22.517882689556508,
+          "distance_atr": -4.606822529614677,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -7161,9 +7162,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 23.64471030209056,
-          "distance_percent": -86.51109002105622,
-          "distance_atr": -17.753568922243296,
+          "value": 23.64473783961046,
+          "distance_percent": -86.46939179421433,
+          "distance_atr": -17.69034627862299,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -7176,9 +7177,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 32.43395216515559,
-          "distance_percent": -81.49697520385898,
-          "distance_atr": -16.72458601416196,
+          "value": 32.43399172882435,
+          "distance_percent": -81.43977583472139,
+          "distance_atr": -16.661361962604335,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -7191,9 +7192,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 46.49345288472296,
-          "distance_percent": -73.4762662532244,
-          "distance_atr": -15.078598093703595,
+          "value": 46.49351337759168,
+          "distance_percent": -73.39426988406771,
+          "distance_atr": -15.015371591901756,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -7206,9 +7207,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 27.56885934038225,
-          "distance_percent": -84.27242892328013,
-          "distance_atr": -17.29415702391628,
+          "value": 27.5688929695007,
+          "distance_percent": -84.22380945951319,
+          "distance_atr": -17.230933667134266,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -7221,9 +7222,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 24.32546412386669,
-          "distance_percent": -86.12273140289425,
-          "distance_atr": -17.673871030419164,
+          "value": 24.325493796618264,
+          "distance_percent": -86.07983187604104,
+          "distance_atr": -17.61064813682088,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -7238,12 +7239,12 @@
           "assumptions": {
             "growth": 0.712254364919338,
             "margin": 0.29594951653980406,
-            "wacc": 0.1273031824627193,
+            "wacc": 0.1273031260453815,
             "tv_growth": 0.025
           },
           "enterprise_value": null,
           "equity_value": null,
-          "per_share_value": 23.64471030209056
+          "per_share_value": 23.64473783961046
         },
         {
           "name": "Base",
@@ -7251,12 +7252,12 @@
           "assumptions": {
             "growth": 0.7338041505785244,
             "margin": 0.3159495165398041,
-            "wacc": 0.11730318246271929,
+            "wacc": 0.11730312604538148,
             "tv_growth": 0.025
           },
           "enterprise_value": null,
           "equity_value": null,
-          "per_share_value": 32.43395216515559
+          "per_share_value": 32.43399172882435
         },
         {
           "name": "Bull",
@@ -7264,17 +7265,17 @@
           "assumptions": {
             "growth": 0.7717228767953701,
             "margin": 0.3359495165398041,
-            "wacc": 0.10730318246271929,
+            "wacc": 0.10730312604538149,
             "tv_growth": 0.025
           },
           "enterprise_value": null,
           "equity_value": null,
-          "per_share_value": 46.49345288472296
+          "per_share_value": 46.49351337759168
         }
       ],
-      "valuation_weighted_value": 33.751516879281176,
-      "terminal_value_share": 1.5570935386853344,
-      "implied_exit_multiple": 10.035894934327883,
+      "valuation_weighted_value": 33.75155866871271,
+      "terminal_value_share": 1.5570929564874214,
+      "implied_exit_multiple": 10.035901068448133,
       "reverse_dcf": {
         "current_price": 171.04,
         "implied_revenue_cagr": null,
@@ -7291,7 +7292,7 @@
       ],
       "audit": {
         "packet_hashes": {
-          "packet": "00c7a26f7c18763b9ff8ab5c92953e4747330b3dece1800c86d1e61efb964c77"
+          "packet": "3c1523e8a56de4ca731993780bf073460204a676f9b8e6be062d51a551d306b8"
         },
         "formula_versions": [
           "BUS-ALLOC-029@2026.1",
@@ -7506,7 +7507,7 @@
         "validation_summary": {
           "passed_gates": [],
           "failed_gates": [
-            "raw_total<50 (got 45.33250326788892)"
+            "raw_total<50 (got 45.34727205824527)"
           ],
           "overrides": [
             "OVERRIDE_6_COVERAGE_GATE_INELIGIBLE"
@@ -7528,18 +7529,7 @@
     },
     "scores_source": "victor"
   },
-  "wbj_explanation": {
-    "resumen_simple": "Palantir Technologies (PLTR) es una empresa que ayuda a gobiernos y grandes compañías a analizar datos complejos con inteligencia artificial. Sin embargo, el análisis actual está incompleto y no pudo generar un veredicto o puntaje. Basado en una evaluación previa, la inversión fue considerada 'DESFAVORABLE' con un puntaje de 45, y el precio actual de $175.29 se mantiene por debajo de su valor justo base anterior de $223.25.",
-    "por_categoria": "En este análisis, ninguna de las seis categorías (business, financial, market, technical, risk, valuation) tiene un puntaje asignado. Todas aparecen como 'None/10'. Esto significa que el sistema no pudo evaluar los aspectos fundamentales del negocio, la salud financiera, el comportamiento en el mercado, la acción del precio, los riesgos inherentes o la valoración de la empresa en esta ocasión. Por lo tanto, no podemos saber si PLTR destaca positiva o negativamente en alguna de estas áreas según la metodología de Victor.",
-    "gates_y_perfil": "El sistema no pudo asignar un perfil de inversión específico (como Momentum, Quality, Value, Conditional, Speculative o Avoid) para PLTR en este análisis, por lo que aparece como 'None'. Tampoco se evaluaron ni pasaron ni fallaron 'gates' o filtros de inversión. Esto implica que no tenemos una clasificación clara de la empresa ni una indicación de si cumple con criterios básicos de calidad o momentum, lo que deja una gran incertidumbre sobre su naturaleza como inversión.",
-    "overrides_y_coherencia": "En este análisis, no hay overrides activos, warnings o contradicciones listadas. Esto significa que no se aplicaron ajustes manuales que alteren el resultado automático, no se detectaron alertas importantes ni inconsistencias internas en los datos. Sin embargo, la ausencia de estos también se debe a que la mayoría de los cálculos y evaluaciones no se pudieron completar en esta ocasión.",
-    "niveles_y_confluencia": "El análisis actual no pudo identificar ningún nivel importante (ni técnico ni de valuación) para PLTR, por lo que se indica 'sin niveles'. Consecuentemente, tampoco se detectaron zonas de confluencia, que son rangos de precio donde los niveles técnicos y de valuación se solapan. Esto significa que no hay puntos de referencia de precio claros que el sistema considere relevantes para la toma de decisiones de entrada o salida en este momento. La tesis previa sí mencionaba targets (bear $157.18, base $223.25, bull $266.57), pero estos no son 'niveles' en el sentido de la síntesis actual.",
-    "ajuste_a_mi_perfil": "Kevin, para tu perfil agresivo/especulativo, que busca crecimiento y timing con un horizonte de 1-3 años, la falta de un análisis completo para PLTR es un obstáculo significativo. Aunque estás dispuesto a asumir riesgo de ruina real y buscas asimetría, no tener puntajes por categoría, un perfil asignado, ni niveles claros hace muy difícil evaluar el potencial de crecimiento o el riesgo específico. La evaluación previa 'DESFAVORABLE' sugiere cautela. Con tu capital de $10,000 y un riesgo máximo del 30% ($3,000), una posición en acciones (precio $175.29) es manejable en tamaño. Sin embargo, la ausencia de un veredicto claro y niveles de referencia aumenta la incertidumbre para el timing y la gestión del riesgo, especialmente si consideras opciones a corto plazo. El riesgo de sizing con capital pequeño se exacerba al no tener puntos de referencia claros para la entrada o salida, lo que dificulta una estrategia de inversión informada.",
-    "calibracion": "No se proporcionó un track record o datos de calibración histórica para este veredicto específico ('RAW TOTAL: None/100 | CONFIANZA TOTAL: None'). Por lo tanto, no podemos evaluar la fiabilidad histórica de este análisis en particular ni la confianza que se le puede dar al resultado actual.",
-    "conclusion": "El análisis actual de PLTR está incompleto, sin puntajes ni un veredicto claro. Aunque una evaluación previa la consideró 'DESFAVORABLE', la falta de datos actual impide una recomendación informada en este momento."
-  },
-  "wbj_explanation_source": "gemini",
   "fecha": "2026-08-13",
   "agente": "acciones",
-  "guardado_en": "2026-08-13T14:56:49+00:00"
+  "guardado_en": "2026-08-13T15:44:19+00:00"
 }
