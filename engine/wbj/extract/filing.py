@@ -93,6 +93,21 @@ _BACKLOG_ANCHORS = ("remaining performance obligation", "contracted backlog",
 #: correcto: `organic_growth` está en PROHIBITED_IMPUTATION y no se deduce.
 _ORGANIC_ANCHORS = ("organic revenue", "organic growth", "organic sales",
                     "comparable revenue", "organic net revenue")
+
+#: Donde un comunicado enuncia el guidance del periodo siguiente.
+#:
+#: `BUS-GUIDE-027` compara el punto medio del guidance contra lo reportado, y
+#: `DATASET.md` nombra la fuente: "earnings releases". NINGUNA API lo tiene --
+#: se verificaron FMP (`stable/guidance` y `financial-guidance` no existen;
+#: `earnings` da `revenueEstimated`, que es CONSENSO DE ANALISTAS) y FinnHub
+#: (igual). Y esa diferencia no es un detalle: la metrica mide si la gerencia
+#: cumple SUS PROPIAS metas, que es una senal de calidad del management. El
+#: consenso mide otra cosa -- que tan bien la calle modela la empresa-- y
+#: sustituir uno por otro daria un numero verosimil de algo que nadie pidio.
+_GUIDANCE_ANCHORS = ("guidance", "we expect", "expects revenue", "outlook",
+                     "full year", "fourth quarter", "third quarter",
+                     "second quarter", "first quarter", "expected to be",
+                     "anticipates", "forecast")
 # DATASET.md's catalyst registry looks "forward 24 months".
 _CATALYST_HORIZON_MONTHS = 24.0
 _WINDOW = 1400
@@ -321,6 +336,29 @@ class _Backlog(BaseModel):
     quote: str | None = Field(None, description="Verbatim sentence stating it.")
 
 
+class _Guidance(BaseModel):
+    """El guidance que el emisor enuncia, con la cita que lo dice."""
+
+    metric: str | None = Field(
+        None, description="What the guidance is for: 'revenue', 'eps', or "
+                          "'other'. Null if the release states none.")
+    period_label: str | None = Field(
+        None, description="The period guided, exactly as the release words it "
+                          "(e.g. 'first quarter of fiscal 2027').")
+    low: float | None = Field(
+        None, description="Low end of the guided range, in the release's own "
+                          "units. Null if only a single point is given.")
+    high: float | None = Field(
+        None, description="High end of the guided range. Null if a single point.")
+    midpoint: float | None = Field(
+        None, description="Midpoint of the range, or the single point when the "
+                          "release gives one. Same units as low/high.")
+    unit: str | None = Field(
+        None, description="Units as stated: 'billions_usd', 'millions_usd', "
+                          "'usd_per_share', or 'percent'.")
+    quote: str | None = Field(None, description="Verbatim sentence stating it.")
+
+
 class _Organic(BaseModel):
     """El crecimiento orgánico tal como el emisor lo concilia."""
 
@@ -385,6 +423,83 @@ def extract_organic_growth(release: dict, settings: Any,
         logger.warning("la cita del crecimiento organico no esta en el comunicado")
         return None
     return v
+
+
+def extract_guidance(release: dict, settings: Any,
+                     client: Any = None) -> dict | None:
+    """El guidance que el emisor enuncia en su comunicado, verificado por cita.
+
+    Es la unica fuente que existe. Se comprobo: FMP no tiene endpoint de
+    guidance (`stable/guidance` y `stable/financial-guidance` devuelven 404) y
+    lo que si tiene --`revenueEstimated`, `epsEstimated`-- es CONSENSO DE
+    ANALISTAS. FinnHub, igual. Sustituir uno por otro cambiaria lo que la
+    metrica mide: BUS-GUIDE-027 juzga si la gerencia cumple sus propias metas,
+    no si la calle acierta.
+
+    Mismo contrato que `extract_organic_growth`, incluida la defensa que
+    importa: la cita tiene que aparecer LITERAL en el comunicado o se
+    descarta. Un modelo no puede inventar una cifra que no este escrita.
+
+    Ademas se exige que el rango sea coherente --low <= midpoint <= high-- y
+    que el punto medio sea de verdad el medio cuando hay rango. Un `midpoint`
+    que no cae entre sus extremos no es un punto medio: es otro numero.
+
+    Devuelve el dict del guidance o None. `None` es la respuesta correcta y
+    frecuente: hay emisores que no presentan comunicado ante la SEC (NVIDIA,
+    Lilly y Exxon publican en su propia sala de prensa) y otros que no guian.
+    """
+    text = (release or {}).get("text") or ""
+    if not text:
+        return None
+    client = client or _client_for(settings)
+    if client is None:
+        return None
+
+    excerpts = _relevant_context(text, _GUIDANCE_ANCHORS, budget=14_000)
+    if not excerpts:
+        logger.info("el comunicado no enuncia guidance; no se pregunta")
+        return None
+
+    try:
+        parsed = _parsed(client.messages.parse(
+            model=getattr(settings, "extract_model", None) or "claude-sonnet-5",
+            max_tokens=2048,
+            system=_SYSTEM,
+            messages=[{"role": "user", "content":
+                       "What forward guidance does this earnings release give "
+                       "for the NEXT period? Transcribe the range and its "
+                       "midpoint in the release's own units and words. Return "
+                       "null unless the release states it plainly. Do not use "
+                       "analyst estimates or consensus figures if the release "
+                       "mentions them -- only what the company itself "
+                       "guides.\n\n" + excerpts}],
+            output_format=_Guidance,
+        ), _Guidance)
+    except Exception:
+        logger.warning("extraccion del guidance fallo", exc_info=True)
+        return FALLO
+
+    if parsed is None:
+        return FALLO
+    mid = parsed.midpoint
+    if mid is None or not parsed.quote:
+        return None
+    if _normalise(parsed.quote) not in _normalise(text):
+        logger.warning("la cita del guidance no esta en el comunicado")
+        return None
+    lo, hi = parsed.low, parsed.high
+    if lo is not None and hi is not None:
+        if not lo <= mid <= hi:
+            # Un punto medio fuera de su propio rango no es un punto medio.
+            logger.warning("guidance incoherente: %r no cae en [%r, %r]", mid, lo, hi)
+            return None
+    return {
+        "metric": parsed.metric, "period_label": parsed.period_label,
+        "low": lo, "high": hi, "guidance_midpoint": mid,
+        "unidad": parsed.unit, "fuente_guidance": parsed.quote,
+        "url": (release or {}).get("url"),
+        "accession": (release or {}).get("accession"),
+    }
 
 
 def extract_backlog(filing: dict, settings: Any, client: Any = None) -> float | None:

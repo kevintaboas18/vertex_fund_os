@@ -1957,7 +1957,8 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
             # mismo trimestre del ano anterior -- no contra el ano fiscal, que
             # compararia tres meses con doce.
             try:
-                from wbj.extract.filing import extract_organic_growth
+                from wbj.extract.filing import (extract_guidance,
+                                                extract_organic_growth)
 
                 release = edgar.latest_earnings_release(cik)
                 # `DATASET.md` nombra la fuente de `management_guidance_history`
@@ -1996,6 +1997,24 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
                                     "_fuente": release.get("url"),
                                     "_periodo": "trimestre contra el mismo del ano anterior",
                                 }
+                    # El MISMO comunicado, la otra cifra que DATASET.md le
+                    # atribuye. `management_guidance_history` es la fuente de
+                    # BUS-GUIDE-027, que fallaba en 7 de 12 tickers por no
+                    # leerse -- y no hay endpoint que la de: FMP no tiene
+                    # `guidance` y lo que si tiene (`revenueEstimated`) es
+                    # CONSENSO DE ANALISTAS, que mide otra cosa.
+                    #
+                    # El emparejamiento con lo REPORTADO no se hace aqui: el
+                    # comunicado guia el trimestre SIGUIENTE, cuyo real aun no
+                    # existe. Se guarda el guidance con su periodo y su cita, y
+                    # el historico se cierra cuando ese trimestre reporta.
+                    if "management_guidance_history" not in overlay:
+                        g = _cached_extract(
+                            Cache(settings.cache_dir), ticker,
+                            {"accession": release.get("accession")}, "guidance",
+                            lambda: extract_guidance(release, settings))
+                        if isinstance(g, dict) and g.get("guidance_midpoint") is not None:
+                            overlay["guidance_disclosed"] = g
             except Exception:
                 logger.warning("puente de crecimiento organico no disponible",
                                exc_info=True)
