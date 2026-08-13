@@ -493,6 +493,29 @@ class TestEnInglesNoQuedaEspanol:
         resto = [t for t in textos if ACENTO.search(t)]
         assert not resto, f"preguntas todavía en español: {resto[:5]}"
 
+    def test_un_guion_pegado_no_deja_la_frase_en_espanol(self, pagina):
+        """Un `<b>` en medio de un párrafo parte el texto en trozos, y al de la
+        derecha le queda pegado el guión de separación. «— es el que manda.» no
+        casa con la clave «es el que manda.» y la frase se quedaba en español
+        aunque su traducción estuviera escrita — que es como llegó esto.
+
+        El adorno se aparta, se traduce el centro y se vuelve a poner. Lo que no
+        tiene traducción sigue devolviendo `null`: apartar el guión no puede
+        convertirse en una excusa para inventarse una.
+        """
+        d = pagina.evaluate("""() => ({
+            pelada: vxFrase('es el que manda.'),
+            con_guion: vxFrase('— es el que manda.'),
+            con_vineta: vxFrase('· es el que manda.'),
+            sin_traduccion: vxFrase('— esto no está en el diccionario ni lo estará'),
+            numero: vxFrase('-0.87%'),
+        })""")
+        assert d["pelada"], "la clave pelada tiene que casar (si no, el test no mide nada)"
+        assert d["con_guion"] == "— " + d["pelada"], d
+        assert d["con_vineta"] == "· " + d["pelada"], d
+        assert d["sin_traduccion"] is None, d
+        assert d["numero"] is None, "un número con signo no es una frase"
+
 
 @pytest.mark.skipif(not Path(CHROMIUM).exists(), reason="sin Chromium")
 class TestElInterruptorVaYVuelve:

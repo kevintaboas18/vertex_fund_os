@@ -12082,6 +12082,25 @@ function vxFrase(s) {
     // que es justo lo que se quiere.
     const dic = (VX_IDIOMA === 'en') ? VX_ES2EN : VX_EN2ES;
     const pats = (VX_IDIOMA === 'en') ? VX_PAT : VX_PAT_ES;
+    const t2 = vxBusca(t, dic, pats);
+    if (t2 != null) return t2;
+    // Guiones y viñetas de adorno alrededor de la frase. Un `<b>` en medio de un
+    // párrafo parte el texto en trozos, y al trozo de la derecha le queda pegado
+    // el guión: «— es el que manda.» no casa con «es el que manda.», que es lo
+    // que hay en el diccionario, y la frase se quedaba en español aunque su
+    // traducción existiera. Se aparta el adorno, se traduce el centro y se
+    // vuelve a poner tal cual estaba. Si el centro tampoco casa no se toca nada.
+    const p = t.match(/^([\s—–·•|·•-]*)(.*?)([\s—–·•|·•]*)$/);
+    if (p && p[2] && (p[1] || p[3])) {
+        const centro = vxBusca(p[2], dic, pats);
+        if (centro != null) return p[1] + centro + p[3];
+    }
+    return null;
+}
+
+/** El diccionario primero, los patrones después. Sin esto habría que repetir
+ *  las dos búsquedas cada vez que se quiere probar una variante de la frase. */
+function vxBusca(t, dic, pats) {
     const exacta = dic[t];
     if (exacta != null) return exacta;
     for (let i = 0; i < pats.length; i++) {
