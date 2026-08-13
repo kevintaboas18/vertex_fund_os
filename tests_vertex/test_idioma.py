@@ -148,6 +148,10 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
         # lleva el precio del flip dentro y va por `VX_PAT`, no por el
         # diccionario. La versión pintada sí la mide el test del navegador.
         "(sobre todo si se pierde el gamma flip $",
+        # Igual: el aviso de datos en riesgo lleva el número de archivos dentro,
+        # así que la frase entera va por `VX_PAT`. El extractor la corta en el
+        # `${` y ve solo la mitad de delante.
+        "⚠ TUS DATOS ESTÁN EN RIESGO: hay",
     }
 
     @staticmethod

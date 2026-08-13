@@ -1160,3 +1160,45 @@ class TestUnConflictoNoParaElRespaldoParaSiempre:
         alm._sanea()
         assert alm._git("rev-parse", "HEAD", tolera=True).stdout.strip() == antes
         assert not alm._git("status", "--porcelain", tolera=True).stdout.strip()
+
+    def test_si_el_clon_no_hay_forma_de_arreglarlo_se_rehace_SIN_perder_datos(
+            self, tmp_path, remoto):
+        """La última red, y la que responde a «eso no puede volver a pasar».
+
+        `_sanea()` cubre lo previsible. Si aun así el commit sigue muriendo, el
+        clon está roto de una forma que no se previó — y antes eso significaba
+        quedarse atascado para siempre y perder en el siguiente reinicio todo lo
+        que hubiera en disco sin subir. Que es justo lo que se vio: cuentas que
+        dejaban de existir y reportes que desaparecían.
+
+        Ahora se aparta lo que hay en disco, se clona de cero y se devuelve
+        encima: el clon se puede rehacer, los datos no.
+        """
+        from vertex_almacen import Almacen
+
+        a = Almacen(raiz=tmp_path / "a", remoto=remoto, token="x")
+        a.restaura()
+        a.guarda("Reportes/AAPL/2026-01-01/reporte.json", {"v": "viejo"})
+        a.sincroniza()
+
+        # Se rompe el clon de una forma que `_sanea` no contempla: sin `.git`
+        # utilizable, pero con los datos en disco.
+        (a.raiz / ".git" / "index").write_bytes(b"basura que git no entiende")
+        a.guarda("Reportes/MSFT/2026-01-02/reporte.json", {"v": "nuevo"})
+        a.guarda("Memoria/tesis/MSFT.md", "la tesis")
+
+        a._reconstruye()
+
+        # Los datos siguen en disco…
+        assert (a.raiz / "Reportes/MSFT/2026-01-02/reporte.json").is_file()
+        assert (a.raiz / "Memoria/tesis/MSFT.md").is_file()
+        assert (a.raiz / "Reportes/AAPL/2026-01-01/reporte.json").is_file()
+        # …y el clon vuelve a servir: commitea y sube.
+        estado = a.sincroniza()
+        assert not (estado.get("ultimo_error") or ""), estado.get("ultimo_error")
+
+        b = Almacen(raiz=tmp_path / "b", remoto=remoto, token="x")
+        b.restaura()
+        assert (b.raiz / "Reportes/MSFT/2026-01-02/reporte.json").is_file(), (
+            "lo que estaba sin subir no llegó al remoto")
+        assert (b.raiz / "Memoria/tesis/MSFT.md").is_file()

@@ -472,6 +472,38 @@ class Almacen:
         if sin_fusionar.strip():
             self._git("add", "-A", tolera=True)
 
+    def _reconstruye(self) -> None:
+        """Última red: si el clon no hay forma de arreglarlo, se rehace.
+
+        `_sanea()` deshace lo que quedó a medias, pero si aun así el commit
+        sigue fallando el clon está roto de una forma que no se prevé. Antes eso
+        significaba quedarse atascado para siempre y perder todo lo que hubiera
+        en disco sin subir — que es exactamente lo que le pasó a Kevin: cuentas
+        que dejaban de existir y reportes que desaparecían en el siguiente
+        reinicio.
+
+        Aquí se aparta lo que hay en disco, se clona de cero y se devuelve
+        encima. Los datos ganan al clon: el clon se puede rehacer y los datos no.
+        """
+        if not self.respalda:
+            return
+        aparte = self.raiz.parent / (self.raiz.name + ".rescate")
+        shutil.rmtree(aparte, ignore_errors=True)
+        shutil.copytree(self.raiz, aparte,
+                        ignore=shutil.ignore_patterns(".git"))
+        shutil.rmtree(self.raiz, ignore_errors=True)
+        self.restaura()                       # clona limpio
+        # Y se devuelve lo que había, machacando lo que trajo el remoto: en
+        # disco está lo más nuevo.
+        for origen in aparte.rglob("*"):
+            if not origen.is_file():
+                continue
+            destino = self.raiz / origen.relative_to(aparte)
+            destino.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(origen, destino)
+        shutil.rmtree(aparte, ignore_errors=True)
+        self._estado["reconstrucciones"] = self._estado.get("reconstrucciones", 0) + 1
+
     def _hay_cambios(self, incluir_series: bool) -> bool:
         args = ["status", "--porcelain"]
         if not incluir_series:
@@ -521,6 +553,15 @@ class Almacen:
                                     activo=True, motivo="")
             except Exception as e:
                 self._estado["ultimo_error"] = _sin_secretos(str(e))[:300]
+                # Un clon que sigue sin dejar commitear después de sanearlo no
+                # se arregla esperando: se rehace. Un intento por ciclo, y si
+                # tampoco puede se dice en el estado en vez de callar.
+                if "unmerged" in str(e).lower() or "conflict" in str(e).lower():
+                    try:
+                        self._reconstruye()
+                    except Exception as e2:      # noqa: BLE001
+                        self._estado["ultimo_error"] = _sin_secretos(
+                            f"no se pudo reconstruir el clon: {e2}")[:300]
             return self._foto()
 
     def _empuja(self) -> None:
