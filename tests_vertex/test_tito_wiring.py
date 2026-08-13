@@ -3687,68 +3687,190 @@ class TestLaProbabilidadDeTocarElNivel:
         assert "P(toque)" in cuerpo, "la columna no tiene cabecera"
 
 
-class TestLasIndustriasEstanEscritasDOSVecesYCUADRAN:
-    """La tabla de industrias vive en dos sitios, y es a propósito.
+class TestLaTablaDeIndustriasVIVEENUNSOLOSITIO:
+    """Estuvo duplicada —panel y motor— con un test vigilando las dos copias.
 
-    En `engine/wbj/sectores.py` porque el servidor decide qué tickers bajar, y
-    en el panel porque pulsar XLK tiene que enseñar sus cinco industrias AL
-    INSTANTE, con sus nombres, sin esperar a nadie: es una lista que no cambia
-    nunca y hacerla viajar dejaba la pantalla medio segundo en blanco.
+    La copia se borró: el servidor ya no decide qué industrias tiene un sector,
+    cotiza los tickers que el panel le manda. Una copia vigilada sigue siendo
+    una copia que alguien puede olvidar, y el vigilante era trabajo que no hacía
+    falta hacer.
 
-    Duplicar es una decisión, no un descuido — pero solo se sostiene si algo
-    vigila que las dos copias no se separen. Esto es ese algo: tocar una y no
-    la otra hace fallar el test.
+    Lo que queda por comprobar es lo contrario de antes: que la segunda copia
+    NO haya vuelto.
     """
 
-    @staticmethod
-    def _tabla_del_panel():
-        import json
+    def test_el_motor_no_guarda_industrias(self):
+        import wbj.sectores as S
+
+        assert not hasattr(S, "INDUSTRIAS"), (
+            "volvió la segunda copia de la tabla al motor")
+        assert not hasattr(S, "industrias_de")
+
+    def test_el_panel_es_el_unico_que_las_tiene(self):
+        import pathlib
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "const VX_INDUSTRIAS = {" in html
+        assert "VX_SECTOR_NOMBRE" not in html, (
+            "el nombre del sector ya viene en la fila de la parrilla; una tabla "
+            "aparte volvería a ser una copia que puede quedarse atrás")
+
+    def test_la_ruta_cotiza_lo_que_le_pidan_EN_SU_ORDEN(self, client,
+                                                        monkeypatch):
+        """El orden importa: la sección enseña las industrias en el orden en
+        que están escritas, y devolverlas barajadas movería las filas de sitio.
+
+        Se sustituye la bajada por una fila de mentira — aquí se mide el
+        CONTRATO de la ruta, no que FMP conteste.
+        """
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        monkeypatch.setattr(V, "_sector_fila", lambda t: {
+            "ticker": t, "nombre": t, "precio": 1.0, "cambio_pct": 0.0,
+            "rsi": 50.0, "sma200": 1.0, "sma200_dist": 0.0, "cambios": {},
+            "cierres": [1.0], "volumenes": [1]})
+        d = client.get("/api/sectores?tickers=SMH,IGV,CIBR").json()
+        assert d["ok"] is True, d
+        assert d["tickers"] == ["SMH", "IGV", "CIBR"], d
+        assert [f["ticker"] for f in d["filas"]] == ["SMH", "IGV", "CIBR"], d
+        assert all("cierres" not in f for f in d["filas"]), (
+            "las series no se mandan a la pantalla: son casi un mega y ya "
+            "cumplieron su función")
+
+    def test_sin_clave_de_FMP_lo_dice_en_vez_de_callarse(self, client):
+        d = client.get("/api/sectores?tickers=SMH").json()
+        if d.get("ok") is False:
+            assert "FMP_API_KEY" in d["error"], d
+            assert d["filas"] == []
+
+    def test_la_basura_no_se_convierte_en_una_fila_muerta(self):
+        """`../etc/passwd` pasaba el saneador general como «ETCPASSWD»: un
+        ticker que no existe, que FMP no conoce y que se quedaría en la pantalla
+        con sus puntos suspensivos para siempre."""
+        import vertex_api as V
+
+        assert V._sectores_pedidos("../etc/passwd") == []
+        assert V._sectores_pedidos("smh, igv ,SMH") == ["SMH", "IGV"], "sin repetir"
+        assert V._sectores_pedidos("DEMASIADOLARGO") == []
+
+    def test_pedir_doscientos_no_gasta_la_cuota_de_FMP(self):
+        """Una ruta que cotiza lo que le manden necesita un borde."""
+        import vertex_api as V
+
+        muchos = ",".join(f"AA{chr(65 + i % 26)}" for i in range(200))
+        assert len(V._sectores_pedidos(muchos)) <= V._SECTORES_MAX_PEDIDOS
+
+
+class TestLaLecturaDelMercadoEXPLICAyNoDECIDE:
+    """El modelo cuenta lo que el motor ya decidió, y nada más.
+
+    Es la regla del proyecto y aquí importa el doble: un párrafo bien escrito
+    suena a análisis aunque los números digan lo contrario. Por eso al prompt
+    van los datos YA CLASIFICADOS —la matriz, el flujo, la amplitud— con la
+    prohibición explícita de recalcularlos.
+    """
+
+    _ROT = {
+        "disponible": True,
+        "salud": {"clave": "estrecho", "frase": "Rally estrecho: pocas mega-caps."},
+        "matriz": {"leading": ["XLE", "XLF"], "improving": ["XLI"],
+                   "weakening": ["XLK"], "lagging": ["XLRE"]},
+        "sectores": {"XLK": {"cuadrante": "weakening", "flujo": "salida",
+                             "volumen_rel": 1.44},
+                     "XLE": {"cuadrante": "leading", "flujo": "entrada",
+                             "volumen_rel": 1.62}},
+        "entrando": ["XLE"], "saliendo": ["XLK"], "dispersion": 1.18,
+        "dia_rojo": [{"ticker": "XLE", "cambio_pct": 1.4}],
+        "diagnostico": ["Rotación hacia la economía real."],
+    }
+    _FILAS = [{"ticker": "SPY", "nombre": "S&P 500", "cambio_pct": -1.35,
+               "rsi": 44.0, "sma200_dist": 2.1},
+              {"ticker": "XLK", "nombre": "Tecnología", "cambio_pct": -2.1,
+               "rsi": 36.0, "sma200_dist": -3.4},
+              {"ticker": "XLE", "nombre": "Energía", "cambio_pct": 1.4,
+               "rsi": 63.0, "sma200_dist": 7.7}]
+
+    def test_los_datos_llegan_al_modelo_ya_clasificados(self):
+        import vertex_api as V
+
+        txt = V._lectura_datos(self._ROT, self._FILAS)
+        for esperado in ("Liderando: XLE, XLF", "Agotándose: XLK",
+                         "ENTRA DINERO", "SALE DINERO",
+                         "Rally estrecho", "AGUANTAN EL DÍA ROJO"):
+            assert esperado in txt, f"falta «{esperado}» en:\n{txt}"
+        assert "no la recalcules" in txt, (
+            "sin esa instrucción el modelo puede rehacer la matriz a ojo")
+        assert "media de 200" in txt and "RSI" in txt
+
+    def test_el_prompt_le_PROHIBE_decidir(self):
+        import vertex_api as V
+
+        sistema = V._LECTURA_SYSTEM.lower()
+        assert "no recalcules" in sistema
+        assert "no inventes números" in sistema
+        assert "compra" in sistema and "venta" in sistema, (
+            "tiene que prohibir explícitamente recomendar operar")
+        for seccion in ("qué está pasando", "dónde está entrando el dinero",
+                        "de dónde está saliendo", "dónde dejó de entrar",
+                        "qué esperar de cada uno"):
+            assert seccion in sistema, f"el formato no pide «{seccion}»"
+
+    def test_sin_rotacion_no_se_inventa_una_lectura(self, client, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setattr(V, "_LECTURA_CACHE", {})
+        monkeypatch.setattr(V, "api_sectores", lambda *a, **k: {
+            "ok": True, "filas": [], "rotacion": {"disponible": False,
+                                                  "motivo": "Sin serie del SPY."}})
+        d = client.get("/api/sectores/lectura").json()
+        assert d["ok"] is False and d["texto"] == ""
+        assert "SPY" in d["error"], d
+
+    def test_si_ningun_modelo_contesta_se_dice_POR_QUE(self, client, monkeypatch):
+        """Un 429 de cuota reportado como «falta la clave» manda a mirar donde
+        no es. El error de CADA proveedor, no el del último."""
+        import vertex_api as V
+
+        monkeypatch.setattr(V, "_LECTURA_CACHE", {})
+        monkeypatch.setattr(V, "api_sectores", lambda *a, **k: {
+            "ok": True, "filas": self._FILAS, "rotacion": self._ROT})
+        monkeypatch.setattr(V, "_texto_llm",
+                            lambda *a, **k: ("", "", "gemini: 429 cuota"))
+        d = client.get("/api/sectores/lectura").json()
+        assert d["ok"] is False
+        assert "429" in d["error"], d
+
+    def test_la_lectura_sale_de_la_MISMA_foto_que_la_pantalla(self, client,
+                                                              monkeypatch):
+        """Pedir los datos dos veces con dos minutos de diferencia haría que lo
+        que se lee y lo que se ve se contradijeran."""
+        import vertex_api as V
+
+        vistos = []
+        monkeypatch.setattr(V, "_LECTURA_CACHE", {})
+        monkeypatch.setattr(V, "api_sectores", lambda *a, **k: (
+            vistos.append(1) or {"ok": True, "filas": self._FILAS,
+                                 "rotacion": self._ROT}))
+        monkeypatch.setattr(V, "_texto_llm",
+                            lambda *a, **k: ("**Qué está pasando** — texto.",
+                                             "gemini", ""))
+        d = client.get("/api/sectores/lectura").json()
+        assert d["ok"] is True and d["texto"]
+        assert len(vistos) == 1, "se pidieron los datos más de una vez"
+
+    def test_el_panel_escapa_ANTES_de_marcar_las_negritas(self):
+        """Al revés de como suele hacerse, y la única forma de que un
+        `<img onerror>` en la respuesta del modelo no acabe ejecutándose."""
         import pathlib
         import re
 
         html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
-        crudo = html.split("const VX_INDUSTRIAS = {", 1)[1].split("\n};", 1)[0]
-        salida = {}
-        for sector, cuerpo in re.findall(r"(\w+):\s*\[(.*?)\],\s*$", crudo, re.M):
-            salida[sector] = [tuple(x) for x in
-                              json.loads("[" + cuerpo.replace("'", '"') + "]")]
-        return salida
-
-    @staticmethod
-    def _nombres_del_panel():
-        import pathlib
-        import re
-
-        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
-        crudo = html.split("const VX_SECTOR_NOMBRE = {", 1)[1].split("\n};", 1)[0]
-        return dict(re.findall(r"(\w+):\s*'([^']+)'", crudo))
-
-    def test_los_mismos_sectores_en_las_dos(self):
-        from wbj.sectores import INDUSTRIAS, SECTORES
-
-        panel = self._tabla_del_panel()
-        assert set(panel) == {t for t, _ in SECTORES}, (
-            f"el panel declara {sorted(panel)} y el motor {sorted(t for t, _ in SECTORES)}")
-        # `XLU` está en las dos con la lista vacía: el sector existe y no tiene
-        # desglose honesto, que no es lo mismo que no existir.
-        for sector in panel:
-            assert list(panel[sector]) == list(INDUSTRIAS.get(sector, ())), (
-                f"{sector}: el panel dice {panel[sector]} y el motor "
-                f"{INDUSTRIAS.get(sector, ())}")
-
-    def test_los_nombres_de_sector_tambien_cuadran(self):
-        from wbj.sectores import SECTORES
-
-        assert self._nombres_del_panel() == dict(SECTORES)
-
-    def test_el_panel_no_se_inventa_una_industria_que_el_motor_no_baja(self):
-        """Si el panel escribe un ticker que el servidor no pide, esa fila se
-        queda en puntos suspensivos para siempre y nadie sabría por qué."""
-        from wbj.sectores import INDUSTRIAS
-
-        del_motor = {t for filas in INDUSTRIAS.values() for t, _ in filas}
-        del_panel = {t for filas in self._tabla_del_panel().values() for t, _ in filas}
-        assert del_panel - del_motor == set(), (
-            f"el panel enseña {sorted(del_panel - del_motor)} y el motor no los baja")
-        assert del_motor - del_panel == set(), (
-            f"el motor baja {sorted(del_motor - del_panel)} y el panel no los enseña")
+        cuerpo = html.split("async function cargaLecturaMercado", 1)[1][:2600]
+        i_esc = cuerpo.index("_vcEsc(d.texto)")
+        i_neg = cuerpo.index("replace(/\\*\\*")
+        assert i_esc < i_neg, (
+            "se marcan las negritas antes de escapar: el HTML del modelo "
+            "entraría vivo")
+        assert not re.search(r"innerHTML\s*=\s*[`'\"]?\s*\$\{d\.texto\}", cuerpo)

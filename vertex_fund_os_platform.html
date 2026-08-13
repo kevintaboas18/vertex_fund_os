@@ -965,6 +965,7 @@
     <p class="text-[11px] text-gray-500 -mt-2 leading-snug">El mapa del mercado antes de elegir un ticker: d&oacute;nde est&aacute; entrando el dinero y d&oacute;nde est&aacute; saliendo. Pulsa un sector para ver sus industrias.</p>
     <div id="sectoresParrilla"></div>
     <div id="sectoresRotacion"></div>
+    <div id="sectoresLectura"></div>
 </main>
 
 <main id="sectorView" class="view-section hidden flex-grow w-full max-w-5xl mx-auto p-4 space-y-4">
@@ -1715,14 +1716,6 @@ const VX_INDUSTRIAS = {
     XLB: [['GDX', 'Mineras de oro'], ['COPX', 'Cobre'], ['LIT', 'Litio y baterías'], ['WOOD', 'Madera y papel']],
 };
 
-//: El nombre del sector, también aquí, por lo mismo: la cabecera de la sección
-//: se pinta antes de que conteste nadie.
-const VX_SECTOR_NOMBRE = {
-    XLK: 'Tecnología', XLF: 'Financiero', XLV: 'Salud', XLY: 'Consumo discrecional',
-    XLC: 'Comunicaciones', XLI: 'Industrial', XLP: 'Consumo básico', XLE: 'Energía',
-    XLU: 'Servicios públicos', XLRE: 'Inmobiliario', XLB: 'Materiales',
-};
-
 //: Las seis ventanas del selector. Las etiquetas son de calendario y el
 //: cálculo va en sesiones de mercado — lo hace el servidor, aquí solo se elige.
 const VX_VENTANAS = ['1D', '7D', '1M', '3M', '6M', '1A'];
@@ -1910,7 +1903,7 @@ async function abreSector(ticker) {
         cab.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
           <div class="flex items-baseline gap-2 flex-wrap">
             <h1 class="text-xl font-black text-white">${_vcEsc(tk)}</h1>
-            <span class="text-xs text-gray-500">${_vcEsc(VX_SECTOR_NOMBRE[tk] || tk)}</span>
+            <span class="text-xs text-gray-500">${_vcEsc((dela && dela.nombre) || tk)}</span>
           </div>
           ${dela ? `<div class="flex items-baseline gap-3 mt-1.5 flex-wrap">
             <span class="text-lg font-bold text-white">${vxUsd(dela.precio)}</span>
@@ -1944,7 +1937,12 @@ async function abreSector(ticker) {
     window._sectorCache = window._sectorCache || {};
     if (window._sectorCache[tk]) { pinta(window._sectorCache[tk]); return; }
     try {
-        const r = await fetch(`${API_BASE}/api/sectores?etf=${encodeURIComponent(tk)}`);
+        // Se mandan LOS TICKERS, no el sector: la lista la tenemos aquí y el
+        // servidor solo cotiza lo que le pidan. Antes él guardaba una segunda
+        // copia de la tabla para poder contestar «las industrias de XLK», y
+        // dos copias de algo que no cambia es una que puede quedarse atrás.
+        const lista = industrias.map(x => x[0]).join(',');
+        const r = await fetch(`${API_BASE}/api/sectores?tickers=${encodeURIComponent(lista)}`);
         if (!r.ok) return;                    // se quedan los nombres, que ya es algo
         const d = await r.json();
         if (window._sectorAbierto !== tk) return;   // te fuiste a otro sector
@@ -1953,6 +1951,53 @@ async function abreSector(ticker) {
             pinta(d.filas);
         }
     } catch (e) { /* se quedan los nombres */ }
+}
+
+
+/** La rotación del día, contada en palabras por el modelo.
+ *
+ *  No se pide sola al entrar: son unos segundos de espera y un coste de API
+ *  para algo que no todo el mundo quiere leer cada vez. Se pide al pulsar, y
+ *  entonces se guarda — el servidor la cachea un cuarto de hora, así que
+ *  volver a entrar la enseña al instante.
+ *
+ *  El modelo NO decide nada aquí: la matriz, el flujo y la amplitud ya las
+ *  calculó el motor con los números. Esto las cuenta.
+ */
+async function cargaLecturaMercado(refrescar) {
+    const caja = document.getElementById('sectoresLectura');
+    if (!caja) return;
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+      <p class="text-xs text-gray-500">Leyendo el mercado y escribiendo la explicación…</p></div>`;
+    let d;
+    try {
+        const r = await fetch(`${API_BASE}/api/sectores/lectura${refrescar ? '?refrescar=1' : ''}`);
+        d = await r.json();
+    } catch (e) {
+        d = { ok: false, error: 'No se pudo pedir la lectura.' };
+    }
+    if (!d || !d.ok || !d.texto) {
+        caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+          <p class="text-xs text-amber-400">${_vcEsc((d && d.error) || 'Sin lectura disponible.')}</p>
+          <button onclick="cargaLecturaMercado(1)" class="text-[10px] text-blue-400 hover:text-blue-300 mt-1">Reintentar</button></div>`;
+        return;
+    }
+    // Markdown mínimo: los cinco titulares en negrita y los párrafos. No entra
+    // HTML del modelo — se escapa TODO y solo después se marcan las negritas,
+    // que es al revés de como suele hacerse y la única forma de que un `<img
+    // onerror>` en la respuesta no acabe ejecutándose.
+    const cuerpo = _vcEsc(d.texto)
+        .replace(/\*\*(.+?)\*\*/g, '<b class="text-white">$1</b>')
+        .split(/\n{2,}/)
+        .map(p => `<p class="text-xs text-gray-300 leading-relaxed mb-2">${p.replace(/\n/g, '<br>')}</p>`)
+        .join('');
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+      <div class="flex items-baseline justify-between mb-2 gap-2 flex-wrap">
+        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Qué está pasando en el mercado</h3>
+        <button onclick="cargaLecturaMercado(1)" class="text-[10px] text-gray-500 hover:text-gray-300">actualizar</button>
+      </div>
+      ${cuerpo}
+      <p class="text-[9px] text-gray-600 mt-2 pt-2 border-t border-gray-800">Escrito por el modelo a partir de los números de arriba, que los calcula el motor. Es una lectura de lo que pasa, <b>no</b> una recomendación de compra o venta.</p></div>`;
 }
 
 //: El informe de rotación. Cuatro bloques, y ninguno se inventa una frase
@@ -2012,6 +2057,10 @@ function pintaRotacion(rot) {
       ${(rot.diagnostico || []).length ? `<div class="border-t border-gray-800 pt-2">
         <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Diagn&oacute;stico</p>
         ${rot.diagnostico.map(f => `<p class="text-xs text-gray-200 leading-snug">&#9656; ${_vcEsc(f)}</p>`).join('')}</div>` : ''}
+
+      <div class="border-t border-gray-800 pt-2">
+        <button onclick="cargaLecturaMercado()" class="text-[11px] font-bold text-blue-400 hover:text-blue-300">Explícame qué está pasando &rsaquo;</button>
+      </div>
 
       ${rot.dispersion != null ? `<p class="text-[9px] text-gray-600 border-t border-gray-800 pt-2">Dispersi&oacute;n entre sectores hoy: <b class="text-gray-400">${Number(rot.dispersion).toFixed(2)}</b> &mdash; alta significa rotaci&oacute;n de verdad; baja, que todo se mueve en bloque.</p>` : ''}
     </div>`;
@@ -11485,6 +11534,15 @@ const VX_ES2EN = {
     "Dominancia": "Dominance",
     "Rango extremo · 2σ": "Extreme range · 2σ",
     "Sectores": "Sectors",
+    "Leyendo el mercado y escribiendo la explicación…": "Reading the market and writing the explanation…",
+    "Qué está pasando en el mercado": "What is happening in the market",
+    "No se pudo pedir la lectura.": "Could not request the reading.",
+    "Sin lectura disponible.": "No reading available.",
+    "Reintentar": "Retry",
+    "actualizar": "refresh",
+    "Explícame qué está pasando ›": "Explain what is happening ›",
+    "Escrito por el modelo a partir de los números de arriba, que los calcula el motor. Es una lectura de lo que pasa,": "Written by the model from the numbers above, which the engine calculates. It is a reading of what is happening,",
+    "una recomendación de compra o venta.": "a buy or sell recommendation.",
     "Este sector no tiene desglose por industrias.": "This sector has no industry breakdown.",
     "Industrias": "Industries",
     "Tecnología": "Technology",

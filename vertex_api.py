@@ -6254,6 +6254,43 @@ except Exception:                                # noqa: BLE001
     _SECTORES_LISTA = ()
 
 
+#: Cuántos tickers se aceptan de una vez. El sector más poblado tiene cinco
+#: industrias, así que 25 es holgado con margen para crecer — y es el tope que
+#: impide que alguien pida doscientos y nos gaste la cuota de FMP en una
+#: petición. Una ruta que cotiza lo que le manden necesita un borde.
+_SECTORES_MAX_PEDIDOS = 25
+
+
+def _sectores_pedidos(crudo: str) -> list[str]:
+    """La lista de tickers de la query, saneada y sin repetidos.
+
+    El panel es quien sabe qué industrias tiene cada sector, así que es él quien
+    los pide. Pero «el panel los pide» y «cualquiera puede pedir lo que sea» son
+    lo mismo desde el servidor, y por eso esto no se fía: se valida cada ticker
+    con el mismo saneador de las demás rutas y se corta en `_SECTORES_MAX_PEDIDOS`.
+
+    Se conserva el ORDEN pedido: la sección enseña las industrias en el orden en
+    que están escritas, y devolverlas barajadas movería las filas de sitio.
+    """
+    fuera = []
+    for parte in str(crudo or "").split(","):
+        bruto = str(parte).strip().upper()
+        # El saneador general limpia los caracteres raros, y por eso solo no
+        # basta aquí: «../etc/passwd» sale como «ETCPASSWD», un ticker que no
+        # existe pero que pasa el filtro y acaba siendo una fila muerta en
+        # pantalla, con sus puntos suspensivos para siempre. Un símbolo de
+        # verdad son de una a seis letras y nada más.
+        if not re.fullmatch(r"[A-Z]{1,6}", bruto):
+            continue
+        tk, err = _tito_ticker(bruto)
+        if err or not tk or tk in fuera:
+            continue
+        fuera.append(tk)
+        if len(fuera) >= _SECTORES_MAX_PEDIDOS:
+            break
+    return fuera
+
+
 def _sector_fila(ticker: str) -> dict:
     """Precio, cambio, RSI y la serie diaria de UN ticker. Nunca lanza.
 
@@ -6382,19 +6419,22 @@ def _sectores_filas(tickers) -> list[dict]:
 
 
 @app.get("/api/sectores")
-def api_sectores(etf: str = ""):
-    """El mapa entero, o las industrias de UN sector si se pasa `etf`.
+def api_sectores(tickers: str = ""):
+    """El mapa entero, o los tickers que se le pidan.
 
-    Sin `etf`: las catorce casillas de la parrilla.
-    Con `etf`: las industrias de ese sector. SPY, RSP y QQQ no se despliegan —
-    son índices, y desglosarlos sería inventarles unas industrias que no
-    tienen; se contesta con la lista vacía y el motivo, no con un error.
+    Sin `tickers`: las catorce casillas de la parrilla.
+    Con `tickers`: cotiza EXACTAMENTE esos, en ese orden.
+
+    El segundo modo existe porque el panel ya sabe qué industrias tiene cada
+    sector —esa lista no cambia nunca y por eso vive allí, para poder pintarla
+    sin esperar a nadie—. Tenerla también aquí era una segunda copia que había
+    que vigilar para nada: el servidor no necesita saber qué industria es cuál,
+    solo cotizar lo que le pidan. Una tabla, un sitio.
     """
-    from wbj.sectores import ES_REFERENCIA, REFERENCIAS, SECTORES
-    from wbj.sectores import industrias_de, nombre_de, universo
+    from wbj.sectores import REFERENCIAS, SECTORES, universo
 
-    tk = str(etf or "").upper().strip()
-    clave = tk or "_parrilla"
+    pedidos = _sectores_pedidos(tickers)
+    clave = ",".join(pedidos) if pedidos else "_parrilla"
     ahora = time.time()
     with _SECTORES_LOCK:
         guardado = _SECTORES_CACHE.get(clave)
@@ -6406,29 +6446,20 @@ def api_sectores(etf: str = ""):
         # lee como «el mercado no existe hoy».
         return {"ok": False, "error": "Falta FMP_API_KEY: sin ella no hay "
                                       "precio ni RSI de los sectores.",
-                "filas": [], "etf": tk}
+                "filas": []}
 
-    if tk:
-        filas_def = industrias_de(tk)
-        if not filas_def:
-            motivo = ("SPY, RSP y QQQ son índices, no sectores: no tienen "
-                      "industrias que desplegar."
-                      if tk in ES_REFERENCIA else
-                      f"{tk} no tiene desglose por industrias.")
-            salida = {"ok": True, "etf": tk, "nombre": nombre_de(tk),
-                      "filas": [], "motivo": motivo}
-        else:
-            salida = {"ok": True, "etf": tk, "nombre": nombre_de(tk),
-                      "filas": [{k: v for k, v in f.items()
-                                 if k not in ("cierres", "volumenes")}
-                                for f in _sectores_filas([t for t, _ in filas_def])],
-                      "motivo": None}
+    if pedidos:
+        salida = {"ok": True, "tickers": pedidos,
+                  "filas": [{k: v for k, v in f.items()
+                             if k not in ("cierres", "volumenes")}
+                            for f in _sectores_filas(pedidos)],
+                  "motivo": None}
     else:
         filas = _sectores_filas(universo())
         por_ticker = {f["ticker"]: f for f in filas}
         rotacion = _sectores_rotacion(por_ticker)
         salida = {
-            "ok": True, "etf": "",
+            "ok": True,
             "referencias": [t for t, _ in REFERENCIAS],
             "sectores": [t for t, _ in SECTORES],
             # Las series se quitan de la respuesta: son ~125 cierres y 125
@@ -6443,6 +6474,145 @@ def api_sectores(etf: str = ""):
     salida["generado"] = datetime.now(timezone.utc).isoformat()
     with _SECTORES_LOCK:
         _SECTORES_CACHE[clave] = (ahora, salida)
+    return {**salida, "cacheado": False}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  LA LECTURA DEL MERCADO EN PALABRAS
+#
+#  El modelo NO puntúa nada aquí. La matriz, los cuadrantes, el flujo y la
+#  salud ya los decidió `wbj/sectores.py` con los números; esto solo los cuenta
+#  en un párrafo que se entiende sin saber qué es un RS Ratio.
+#
+#  Es la regla del proyecto y aquí importa el doble: un párrafo bien escrito
+#  suena a análisis aunque los números digan otra cosa, así que el prompt lleva
+#  los datos YA DECIDIDOS y prohíbe explícitamente inventar un veredicto.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_LECTURA_TTL = 900          # 15 min: el diagnóstico no cambia cada minuto
+_LECTURA_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+def _lectura_datos(rot: dict, filas: list) -> str:
+    """Los números, ordenados para que el modelo no tenga que adivinar nada.
+
+    Va como texto y no como JSON crudo a propósito: un JSON con veinte claves
+    invita a describir la estructura («el campo cuadrante indica…») en vez de
+    contar lo que pasa.
+    """
+    por = (rot or {}).get("sectores") or {}
+    matriz = (rot or {}).get("matriz") or {}
+    salud = (rot or {}).get("salud") or {}
+    idx = {f["ticker"]: f for f in (filas or [])}
+
+    def _linea(t):
+        f, d = idx.get(t) or {}, por.get(t) or {}
+        trozos = [f"{t} ({f.get('nombre', t)})",
+                  f"cambio hoy {f.get('cambio_pct')}%",
+                  f"RSI {f.get('rsi')}"]
+        if f.get("sma200_dist") is not None:
+            trozos.append(f"{f['sma200_dist']:+.1f}% respecto a su media de 200")
+        if d.get("cuadrante"):
+            trozos.append(f"cuadrante {d['cuadrante']}")
+        if d.get("flujo"):
+            trozos.append(f"flujo {d['flujo']}")
+        if d.get("volumen_rel") is not None:
+            trozos.append(f"volumen {d['volumen_rel']:.2f}x su media de 20")
+        return " · ".join(str(x) for x in trozos)
+
+    partes = ["REFERENCIAS DEL MERCADO"]
+    partes += [f"  {_linea(t)}" for t in ("SPY", "RSP", "QQQ") if t in idx]
+    partes.append("")
+    partes.append(f"AMPLITUD (RSP contra SPY): {salud.get('frase', 'sin dato')}")
+    partes.append("")
+    partes.append("SECTORES")
+    partes += [f"  {_linea(t)}" for t in por]
+    partes.append("")
+    partes.append("MATRIZ DE ROTACIÓN (ya calculada, no la recalcules)")
+    for clave, etiqueta in (("leading", "Liderando"), ("improving", "Despertando"),
+                            ("weakening", "Agotándose"), ("lagging", "Rezagados")):
+        partes.append(f"  {etiqueta}: {', '.join(matriz.get(clave) or []) or 'ninguno'}")
+    partes.append("")
+    partes.append(f"ENTRA DINERO (con volumen alto): {', '.join((rot or {}).get('entrando') or []) or 'ninguno'}")
+    partes.append(f"SALE DINERO (con volumen alto): {', '.join((rot or {}).get('saliendo') or []) or 'ninguno'}")
+    if (rot or {}).get("dispersion") is not None:
+        partes.append(f"DISPERSIÓN entre sectores hoy: {rot['dispersion']:.2f}")
+    if (rot or {}).get("dia_rojo"):
+        aguantan = ", ".join(f"{x['ticker']} {x['cambio_pct']}%"
+                             for x in rot["dia_rojo"])
+        partes.append(f"AGUANTAN EL DÍA ROJO: {aguantan}")
+    if (rot or {}).get("diagnostico"):
+        partes.append("REGLAS QUE YA SE DISPARARON: "
+                      + " | ".join(rot["diagnostico"]))
+    return "\n".join(partes)
+
+
+_LECTURA_SYSTEM = (
+    "Eres un analista de mercado explicando la rotación sectorial a alguien "
+    "que sabe invertir pero no habla en jerga. Te dan números YA CALCULADOS y "
+    "clasificaciones YA DECIDIDAS por un motor determinista.\n\n"
+    "REGLAS INNEGOCIABLES:\n"
+    "1. No recalcules ni contradigas la matriz, el flujo ni la amplitud. Son "
+    "datos, no sugerencias. Si un sector está en 'lagging', está rezagado.\n"
+    "2. No inventes números. Si algo no está en los datos, no existe: dilo o "
+    "cállatelo. Ni un precio, ni un porcentaje, ni un nivel.\n"
+    "3. Nada de recomendaciones de compra o venta, ni objetivos de precio. "
+    "Esto explica lo que ESTÁ pasando y qué suele seguir; la decisión no es "
+    "tuya.\n"
+    "4. Frases cortas. Sin 'cabe destacar', sin 'en el actual entorno "
+    "macroeconómico'. Si una frase no dice un hecho, sobra.\n"
+    "5. Si los datos no dan para una sección, escribe una línea diciendo que "
+    "hoy no hay nada claro ahí. Rellenar es peor que dejarlo corto.\n\n"
+    "FORMATO exacto, con estos cinco titulares en negrita markdown y nada más:\n"
+    "**Qué está pasando** — dos o tres frases: el estado del mercado hoy y si "
+    "la subida (o caída) es amplia o de unos pocos.\n"
+    "**Dónde está entrando el dinero** — qué sectores y por qué se sabe "
+    "(cuadrante, volumen). Nombra los tickers.\n"
+    "**De dónde está saliendo** — igual, al revés.\n"
+    "**Dónde dejó de entrar** — los que estaban fuertes y pierden impulso "
+    "('agotándose'). Esta es la sección que más se ignora y la que más avisa.\n"
+    "**Qué esperar de cada uno** — una línea por familia (crecimiento, "
+    "cíclicos, defensivos) con lo que suele venir después de este patrón, "
+    "dicho como probabilidad y no como certeza."
+)
+
+
+@app.get("/api/sectores/lectura")
+def api_sectores_lectura(refrescar: int = 0):
+    """La rotación del día contada en palabras.
+
+    Se apoya en la MISMA foto que pinta la pantalla (la cache de `/api/sectores`
+    o una nueva), así que lo que se lee y lo que se ve nunca se contradicen —
+    que es lo que pasaría pidiendo los datos dos veces con dos minutos de
+    diferencia.
+    """
+    ahora = time.time()
+    guardado = _LECTURA_CACHE.get(_idioma_actual())
+    if guardado and not refrescar and ahora - guardado[0] < _LECTURA_TTL:
+        return {**guardado[1], "cacheado": True}
+
+    base = api_sectores()
+    if not base.get("ok"):
+        return {"ok": False, "error": base.get("error") or "Sin datos de mercado.",
+                "texto": ""}
+    rot = base.get("rotacion") or {}
+    if not rot.get("disponible"):
+        return {"ok": False, "texto": "",
+                "error": rot.get("motivo") or "Sin rotación que explicar."}
+
+    texto, fuente, err = _texto_llm(
+        _LECTURA_SYSTEM,
+        "Estos son los datos de hoy. Explícalos siguiendo el formato:\n\n"
+        + _lectura_datos(rot, base.get("filas") or []),
+        temp=0.3, max_tokens=1400)
+    if not texto:
+        # El motivo de CADA proveedor, no solo el del último. Un 429 de cuota
+        # reportado como «falta la clave» manda a mirar donde no es.
+        return {"ok": False, "texto": "",
+                "error": f"Ningún modelo pudo escribir la lectura ({err})."}
+    salida = {"ok": True, "texto": texto, "fuente": fuente,
+              "generado": datetime.now(timezone.utc).isoformat()}
+    _LECTURA_CACHE[_idioma_actual()] = (ahora, salida)
     return {**salida, "cacheado": False}
 
 

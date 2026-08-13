@@ -12,6 +12,12 @@ un mercado estrecho, y eso cambia cómo se lee todo lo demás.
 
 Todo lo de aquí es **puro**: recibe cierres, devuelve números. Ni red ni disco.
 Lo que sale por pantalla lo arma `vertex_api.py`.
+
+**Las industrias de cada sector no están aquí, y es a propósito.** Viven en el
+panel, porque pulsar XLK tiene que enseñar sus cinco industrias al instante y
+esa lista no cambia nunca. Tenerlas también aquí era una segunda copia que
+había que vigilar con un test para nada: el servidor no necesita saber qué
+industria es cuál, solo cotizar los tickers que le pidan. Así hay UNA tabla.
 """
 
 from __future__ import annotations
@@ -22,13 +28,11 @@ __all__ = [
     "cambio_pct",
     "REFERENCIAS",
     "SECTORES",
-    "INDUSTRIAS",
     "CATEGORIAS",
     "CATEGORIA_DE",
     "ES_REFERENCIA",
     "universo",
     "nombre_de",
-    "industrias_de",
     "categoria_de",
     # ── rotación ──
     "VENTANAS_ROC",
@@ -142,89 +146,15 @@ SECTORES = (
     ("XLB", "Materiales"),
 )
 
-#: Las industrias DENTRO de cada sector, con el ETF que mejor la representa.
-#:
-#: Esta lista es curada, y conviene decirlo: no existe un desglose oficial de
-#: «industrias de XLE» en formato ETF. Se eligieron los más líquidos y más
-#: puros de cada industria, evitando los apalancados y los de menos de ~$100M
-#: bajo gestión —un ETF que casi no se negocia da un RSI que no representa a
-#: nadie—. Añadir o quitar uno es una línea de aquí y nada más.
-#:
-#: `XLU` no aparece: los ETF que se venden como «industrias de utilities» son
-#: en realidad temáticos de energía limpia, que es otra cosa. Antes que meter
-#: un desglose falso, el sector se queda sin desplegar y la pantalla lo dice.
-INDUSTRIAS = {
-    "XLK": (
-        ("SMH", "Semiconductores"),
-        ("IGV", "Software"),
-        ("CIBR", "Ciberseguridad"),
-        ("SKYY", "Nube"),
-        ("XSD", "Semiconductores equiponderado"),
-    ),
-    "XLF": (
-        ("KRE", "Bancos regionales"),
-        ("KBE", "Bancos"),
-        ("KCE", "Mercados de capitales"),
-        ("IAK", "Seguros"),
-    ),
-    "XLV": (
-        ("XBI", "Biotecnología equiponderado"),
-        ("IBB", "Biotecnología"),
-        ("IHI", "Dispositivos médicos"),
-        ("IHF", "Proveedores de salud"),
-        ("PPH", "Farmacéuticas"),
-    ),
-    "XLY": (
-        ("XRT", "Minoristas"),
-        ("XHB", "Construcción de vivienda"),
-        ("ITB", "Constructoras"),
-        ("PEJ", "Ocio y viajes"),
-    ),
-    "XLC": (
-        ("FDN", "Internet"),
-        ("SOCL", "Redes sociales"),
-        ("ESPO", "Videojuegos"),
-        ("PBS", "Medios y entretenimiento"),
-    ),
-    "XLI": (
-        ("ITA", "Aeroespacial y defensa"),
-        ("IYT", "Transporte"),
-        ("PAVE", "Infraestructura"),
-        ("JETS", "Aerolíneas"),
-    ),
-    "XLP": (
-        ("PBJ", "Alimentos y bebidas"),
-        ("FTXG", "Alimentación"),
-    ),
-    "XLE": (
-        ("XOP", "Exploración y producción"),
-        ("OIH", "Servicios petroleros"),
-        ("AMLP", "Midstream y oleoductos"),
-        ("FCG", "Gas natural"),
-    ),
-    "XLRE": (
-        ("REZ", "Residencial"),
-        ("REM", "Hipotecarios"),
-        ("INDS", "Industrial y logística"),
-    ),
-    "XLB": (
-        ("GDX", "Mineras de oro"),
-        ("COPX", "Cobre"),
-        ("LIT", "Litio y baterías"),
-        ("WOOD", "Madera y papel"),
-    ),
-}
-
 #: Los que NO se despliegan, y por qué se pregunta con un `in` y no con una
 #: lista suelta en el panel: si mañana entra un cuarto índice, el sitio donde
 #: se declara es este.
 ES_REFERENCIA = frozenset(t for t, _ in REFERENCIAS)
 
-#: Nombre por ticker, para no repetir la tabla en tres sitios.
+#: Nombre por ticker de la parrilla. Las industrias NO están aquí: sus nombres
+#: los pone el panel, que es donde viven, y el servidor las trata como lo que
+#: son para él — tickers que hay que cotizar.
 _NOMBRES = {t: n for t, n in REFERENCIAS + SECTORES}
-for _sector, _filas in INDUSTRIAS.items():
-    for _t, _n in _filas:
-        _NOMBRES.setdefault(_t, _n)
 
 
 def universo() -> tuple[str, ...]:
@@ -235,15 +165,6 @@ def universo() -> tuple[str, ...]:
 def nombre_de(ticker: str) -> str:
     """«XLE» → «Energía». El propio ticker si no se conoce."""
     return _NOMBRES.get(str(ticker).upper().strip(), str(ticker).upper().strip())
-
-
-def industrias_de(ticker: str) -> tuple[tuple[str, str], ...]:
-    """Las industrias de un sector. Vacío para SPY/RSP/QQQ y para lo que no sea
-    uno de los once — preguntarlo no es un error, y devolver vacío deja que la
-    pantalla diga «este no se despliega» en vez de reventar."""
-    return tuple(INDUSTRIAS.get(str(ticker).upper().strip(), ()))
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 #  ROTACIÓN SECTORIAL
 #

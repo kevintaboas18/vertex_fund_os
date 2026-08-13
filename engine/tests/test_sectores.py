@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from wbj.sectores import (INDUSTRIAS, REFERENCIAS, RSI_PERIODO, SECTORES,
-                          cambio_pct, industrias_de, nombre_de, rsi, universo)
+from wbj.sectores import (REFERENCIAS, RSI_PERIODO, SECTORES, cambio_pct,
+                          nombre_de, rsi, universo)
 
 #: La serie de Wilder («New Concepts in Technical Trading Systems», tabla del
 #: capítulo del RSI). Es el patrón con el que se comprueba cualquier RSI: si
@@ -106,49 +106,25 @@ class TestLasTablas:
         for t, n in SECTORES + REFERENCIAS:
             assert n and n.upper() != t, f"{t} sin nombre de sector"
 
-    def test_las_industrias_cuelgan_de_un_sector_que_existe(self):
-        for sector in INDUSTRIAS:
-            assert sector in dict(SECTORES), f"{sector} no es uno de los once"
-
-    def test_ningun_ETF_de_industria_se_repite_entre_sectores(self):
-        """El mismo ETF en dos sectores significaría que uno de los dos está mal
-        clasificado, y la pantalla lo enseñaría dos veces sin decir por qué."""
-        vistos = {}
-        for sector, filas in INDUSTRIAS.items():
-            for t, _ in filas:
-                assert t not in vistos, f"{t} está en {vistos[t]} y en {sector}"
-                vistos[t] = sector
-
-    def test_ninguna_industria_repite_el_ticker_de_su_sector(self):
-        for sector, filas in INDUSTRIAS.items():
-            assert sector not in {t for t, _ in filas}
-
-    def test_los_tres_indices_NO_se_despliegan(self):
-        """SPY, RSP y QQQ son índices, no sectores: desglosarlos sería
-        inventarse unas industrias que no tienen."""
-        for t, _ in REFERENCIAS:
-            assert industrias_de(t) == ()
-
-    def test_un_sector_sin_desglose_honesto_se_queda_sin_el(self):
-        """XLU: los ETF que se venden como «industrias de utilities» son
-        temáticos de energía limpia, que es otra cosa."""
-        assert industrias_de("XLU") == ()
-        assert "XLU" in dict(SECTORES), "pero el sector sí está en la parrilla"
-
-    def test_preguntar_por_algo_raro_no_revienta(self):
-        assert industrias_de("NOEXISTE") == ()
-        assert industrias_de("") == ()
-
-    def test_el_nombre_se_resuelve_en_los_tres_niveles(self):
+    def test_el_nombre_se_resuelve_para_la_parrilla(self):
         assert nombre_de("XLE") == "Energía"
         assert nombre_de("spy") == "S&P 500"
-        assert nombre_de("SMH") == "Semiconductores"
         assert nombre_de("ZZZZ") == "ZZZZ", "lo desconocido se dice como es"
 
-    def test_cada_sector_con_desglose_tiene_al_menos_dos_industrias(self):
-        """Una industria sola no es un desglose: es el mismo sector otra vez."""
-        for sector, filas in INDUSTRIAS.items():
-            assert len(filas) >= 2, f"{sector} tiene {len(filas)}"
+    def test_el_motor_ya_NO_sabe_de_industrias(self):
+        """La tabla vive en el panel y en un solo sitio.
+
+        El servidor no necesita saber qué industria es cuál: cotiza los tickers
+        que le pidan. Tenerla también aquí era una segunda copia que había que
+        vigilar con un test para nada — y una copia vigilada sigue siendo una
+        copia que alguien puede olvidar.
+        """
+        import wbj.sectores as S
+
+        assert not hasattr(S, "INDUSTRIAS")
+        assert not hasattr(S, "industrias_de")
+        assert "SMH" not in S.__all__ and nombre_de("SMH") == "SMH", (
+            "el nombre de una industria ya no se resuelve aquí")
 
 
 # ═══════════════════════════════════════════════════════════════════════════

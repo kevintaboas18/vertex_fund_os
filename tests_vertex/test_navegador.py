@@ -947,12 +947,12 @@ class TestElSectorSeAbreComoSECCION:
             # El orden de `route` no decide: se mira la URL dentro. Playwright
             # da prioridad a la ÚLTIMA registrada, y con dos rutas la genérica
             # se comía la del sector.
-            if "etf=" in r.request.url:
+            if "tickers=" in r.request.url:
                 if matar_industrias:
                     r.abort()
                 else:
                     r.fulfill(status=200, json={
-                        "ok": True, "etf": "XLK", "nombre": "Tecnología",
+                        "ok": True, "tickers": ["SMH", "IGV"],
                         "filas": [self._fila("SMH", "Semiconductores"),
                                   self._fila("IGV", "Software")]})
             else:
