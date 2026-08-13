@@ -18,6 +18,7 @@ from statistics import pstdev
 from wbj.core.formulas import yoy
 from wbj.i18n import L
 from wbj.core.nullstates import EvidenceClass, NullState, Value
+from wbj.core import adapters as _adapters
 from wbj.core.scoring import CATEGORY_WEIGHTS, Category, Dimension, anchor_score
 
 # --- Anchors aligned with Cerebro FIN/BUS band cutoffs (quick defaults) ---
@@ -57,6 +58,13 @@ _NS_REASON = {
     "market": ("no analyst coverage (FMP)", "sin cobertura de analistas (FMP)"),
     "technical": ("insufficient price history (FMP)", "historial de precio insuficiente (FMP)"),
     "valuation": ("no market price (FMP)", "sin precio de mercado (FMP)"),
+    # `risk` faltaba en este mapa y era un KeyError esperando: la categoria
+    # no podia quedar N/S mientras las anclas industriales le daban un cero a
+    # cualquiera. Con el adaptador si puede, y un banco es justo el caso.
+    "risk": ("leverage/coverage do not apply to this business and it reports "
+             "no capex, so free cash flow is not computable either",
+             "el apalancamiento y la cobertura no aplican a este negocio, y no "
+             "reporta capex, así que tampoco hay flujo de caja libre"),
 }
 
 
@@ -265,6 +273,10 @@ def quick_scorecard(packet: dict, lang: str = "en") -> dict:
     gp = a.get("gross_profit", [])
     interest = a.get("interest_expense", [])
 
+    # Solo bancos: ver el comentario en la categoria de riesgo.
+    _interes_es_costo = _adapters.cost_of_funds_is_interest(
+        packet.get("industry_adapter"))
+
     rev_l, ni_l = _latest(rev), _latest(ni)
     ocf_l, capex_l = _latest(ocf), _latest(capex)
     debt_l, eq_l = _latest(debt), _latest(eq)
@@ -309,8 +321,27 @@ def quick_scorecard(packet: dict, lang: str = "en") -> dict:
                                                 _scored(roe, _A_ROE)]),
         ]),
         "risk": Category(name="risk", max_points=15.0, dimensions=[
-            _dim("Solvency", 7.5, [_scored(d_e, _A_DEBT_EQUITY),
-                                   _scored(coverage, _A_INT_COVERAGE)]),
+            # Un banco esta apalancado POR DISENO y su gasto por intereses es
+            # su costo de fondeo, no una carga: con las anclas industriales
+            # sacaba deuda/patrimonio 0 y cobertura 0, y la categoria entera
+            # se hundia. Medido antes de esto: JPM 0,0 de 10 en riesgo.
+            #
+            # Es el mismo fallo que el motor profundo ya corrigio --no se le
+            # cobra a una empresa por no tener el problema que la metrica
+            # mide-- y `quick.py` nunca lo recibio. Se reusa el MISMO
+            # predicado, `cost_of_funds_is_interest`, que es solo bancos: una
+            # aseguradora cobra primas y pide prestado como cualquiera, y su
+            # cobertura significa lo de siempre (PGR 51x, UNH 4,7x).
+            #
+            # NOT_APPLICABLE y no cero: `Dimension.applicable_weight` lo saca
+            # del denominador y reescala. Un cero diria que el banco esta mal.
+            _dim("Solvency", 7.5, ([_scored(d_e, _A_DEBT_EQUITY),
+                                    _scored(coverage, _A_INT_COVERAGE)]
+                                   if not _interes_es_costo
+                                   else [Value.null(NullState.NOT_APPLICABLE, unit="score",
+                                                    warnings=["LEVERAGE_NOT_APPLICABLE_BANK_ADAPTER"]),
+                                         Value.null(NullState.NOT_APPLICABLE, unit="score",
+                                                    warnings=["INTEREST_COVERAGE_NOT_APPLICABLE_BANK_ADAPTER"])])),
             _dim("Cash generation", 7.5, [_scored(fcf_positive, [(0.0, 2.0), (1.0, 10.0)]),
                                           _scored(fcf_margin, _A_FCF_MARGIN)]),
         ]),
@@ -342,16 +373,28 @@ def quick_scorecard(packet: dict, lang: str = "en") -> dict:
             if score10 is not None:
                 covered_pts += max_pts
                 weighted += max_pts * score10
+            # `status` se decide por si HAY puntaje, no por si la categoria
+            # se construyo. Un banco entra aqui --el diccionario se llena
+            # antes de saber si algo puntua-- y salia con status "scored" y
+            # score10 None: una fila que dice puntuada sin puntaje, que es
+            # justo lo que la interfaz no sabe pintar.
             rows.append({
                 "key": key, "label": L(lang, *_QUICK_LABEL[key]), "max_points": max_pts,
                 "score10": score10, "points": round(cat.points(), 2),
-                "coverage": round(cov, 2), "status": "scored",
+                "coverage": round(cov, 2),
+                "status": "scored" if score10 is not None else "not_scorable",
+                **({} if score10 is not None else {"reason": L(lang, *_NS_REASON.get(
+                    key, ("no usable data for this category",
+                          "sin datos utilizables para esta categoría")))}),
             })
         else:
             rows.append({
                 "key": key, "label": L(lang, *_QUICK_LABEL[key]), "max_points": max_pts,
                 "score10": None, "points": None, "coverage": 0.0,
-                "status": "not_scorable", "reason": L(lang, *_NS_REASON[key]),
+                "status": "not_scorable",
+                "reason": L(lang, *_NS_REASON.get(
+                    key, ("no usable data for this category",
+                          "sin datos utilizables para esta categoría"))),
             })
 
     overall = round(weighted / covered_pts, 1) if covered_pts else None

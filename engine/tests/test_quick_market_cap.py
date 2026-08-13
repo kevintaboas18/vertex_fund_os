@@ -138,3 +138,86 @@ def test_el_precio_viene_ajustado_por_SPLITS_pero_no_por_dividendos():
     contexto = src[max(0, i - 1600):i]
     assert "SPLITS" in contexto, "hay que decir que los splits SI estan cubiertos"
     assert "DIVIDENDOS" in contexto, "y que los dividendos NO"
+
+
+# ============================================================================
+# El quick puntuaba a un banco con las formulas de un industrial
+# ============================================================================
+
+
+def _packet_riesgo(adapter):
+    """Un packet minimo con los datos que la categoria de riesgo mira."""
+    def serie(v):
+        return [{"end": "2025-12-31", "val": v}]
+    return {
+        "ticker": "TEST", "annual": {
+            "revenue": serie(100.0), "net_income": serie(10.0),
+            "operating_cash_flow": serie(20.0), "capex": serie(5.0),
+            "long_term_debt": serie(900.0), "equity": serie(100.0),
+            "operating_income": serie(12.0), "gross_profit": serie(40.0),
+            "interest_expense": serie(30.0), "diluted_shares": serie(10.0),
+        },
+        "industry_adapter": adapter,
+    }
+
+
+def _fila(packet, key="risk"):
+    from wbj.quick import quick_scorecard
+    return next(r for r in quick_scorecard(packet)["categories"] if r["key"] == key)
+
+
+def test_un_banco_no_se_puntua_con_las_anclas_industriales():
+    """Deuda/patrimonio 9x y cobertura 0,4x: con las anclas de un industrial
+    eso es un cero redondo. Medido antes de esto, JPM sacaba 0,0 de 10 en
+    riesgo -- y un banco esta apalancado POR DISENO, su interes es costo de
+    fondeo.
+
+    Es el mismo fallo que el motor profundo ya corrigio; `quick.py` nunca lo
+    recibio.
+    """
+    industrial = _fila(_packet_riesgo("default_nonfinancial"))
+    banco = _fila(_packet_riesgo("banks"))
+
+    # Con el mismo balance, el industrial arrastra el cero de solvencia y el
+    # banco no: ahi no se le cobra por estar apalancado.
+    assert banco["score10"] > industrial["score10"], (
+        f"banco {banco['score10']} deberia superar al industrial "
+        f"{industrial['score10']}: su solvencia no aplica, no vale cero")
+
+
+def test_no_aplica_SALE_del_denominador_y_no_hunde_la_cobertura():
+    """La diferencia entre NOT_APPLICABLE y un cero, medida.
+
+    Un cero contaria como metrica valida y mala. NOT_APPLICABLE sale del
+    denominador y la categoria REESCALA sobre lo que si aplica -- por eso el
+    banco conserva cobertura plena sobre sus metricas aplicables en vez de
+    caer a la mitad. Es lo mismo que hace el motor profundo.
+    """
+    banco = _fila(_packet_riesgo("banks"))
+    assert banco["coverage"] == 1.0, (
+        "lo aplicable esta todo cubierto: la solvencia no cuenta como hueco")
+    assert banco["score10"] is not None
+
+
+def test_una_aseguradora_NO_entra_aqui():
+    """Mismo predicado que el motor profundo, `cost_of_funds_is_interest`, que
+    es solo bancos: una aseguradora cobra primas y pide prestado como
+    cualquiera (PGR da 51x de cobertura, UNH 4,7x)."""
+    from wbj.core import adapters
+
+    assert adapters.cost_of_funds_is_interest("insurers") is False
+    aseg = _fila(_packet_riesgo("insurers"))
+    ind = _fila(_packet_riesgo("default_nonfinancial"))
+    assert aseg["score10"] == ind["score10"]
+
+
+def test_una_fila_sin_puntaje_no_dice_que_esta_puntuada():
+    """El `status` se decidia por si la categoria se habia construido, no por
+    si HABIA puntaje: un banco salia con status "scored" y score10 None."""
+    sin_caja = _packet_riesgo("banks")
+    sin_caja["annual"]["capex"] = []          # los bancos no etiquetan capex
+    sin_caja["annual"]["operating_cash_flow"] = []
+    fila = _fila(sin_caja)
+    assert fila["score10"] is None
+    assert fila["status"] == "not_scorable"
+    assert fila.get("reason"), "y tiene que decir POR QUE"

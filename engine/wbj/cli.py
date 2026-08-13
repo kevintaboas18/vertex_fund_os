@@ -27,6 +27,7 @@ from wbj.core.formulas import yoy
 from wbj.providers.cache import Cache
 from wbj.providers.edgar import EdgarProvider
 from wbj.providers.fmp import FMPProvider
+from wbj.packet.builder import _industry_adapter_for
 from wbj.quick import quick_scorecard
 
 app = typer.Typer()
@@ -140,6 +141,18 @@ def _build_packet(ticker: str) -> dict:
             "diluted_shares": _annual_series(facts, _SHARES_TAGS),
         },
     }
+    # El adaptador de industria, para que el quick tampoco puntue a un banco
+    # con las formulas de un industrial. Se resuelve como en el packet
+    # profundo: SIC de la SEC primero --rango 1 de SOURCE_HIERARCHY.md-- y el
+    # string comercial de respaldo. `sic_for` reusa el `submissions.json` que
+    # ya esta en cache, asi que no cuesta una peticion extra.
+    _sic = None
+    try:
+        _par = edgar.sic_for(cik)
+        _sic = _par[0] if _par else None
+    except Exception:                                     # noqa: BLE001
+        _sic = None
+
     if fmp.available:
         profile = fmp.profile(ticker)
         packet["fmp_profile"] = profile
@@ -163,6 +176,12 @@ def _build_packet(ticker: str) -> dict:
             "earnings": fmp.earnings_calendar(ticker),
             "insiders": fmp.insider_trades(ticker),
         }
+        packet["industry_adapter"] = _industry_adapter_for(
+            {"industry": prof0.get("industry"), "sector": prof0.get("sector")}, _sic)
+    else:
+        # Sin FMP no hay perfil comercial, pero el SIC solo basta y sobra
+        # para las familias que importan aqui (bancos y aseguradoras).
+        packet["industry_adapter"] = _industry_adapter_for({}, _sic)
     return packet
 
 
