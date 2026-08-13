@@ -35,6 +35,11 @@ _AUTO_POPULATED = {
     "reit_supplement",
     # Derived by the packet builder from the earnings calendar and price
     # evidence; the overlay read is an override, not the normal path.
+    # Derivada por el overlay desde EDGAR, no tecleada: cuando consta que
+    # ningun cliente llega al 10% de los ingresos (ASC 280-10-50-42), el HHI
+    # queda acotado por arriba. El analista suministra `customer_shares`; esta
+    # cota la calcula el motor y por eso no va en la plantilla.
+    "customer_hhi_upper_bound",
     "earnings_dates",
 }
 

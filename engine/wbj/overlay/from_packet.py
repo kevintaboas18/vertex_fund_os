@@ -34,6 +34,15 @@ from wbj.engines import valuation_engine as ve
 
 logger = logging.getLogger(__name__)
 
+#: El umbral de divulgacion obligatoria de US GAAP (ASC 280-10-50-42): todo
+#: cliente que llegue al 10% de los ingresos hay que declararlo.
+#:
+#: Se usa como COTA SUPERIOR cuando consta que nadie lo alcanza, no como una
+#: estimacion. Es el peor caso compatible con la evidencia, y el peor caso es
+#: el conservador: mas concentracion puntua peor, asi que la cota nunca
+#: favorece a la empresa por encima de lo que se sabe.
+_UMBRAL_DIVULGACION = 0.10
+
 #: Cuantos catalizadores viajan al overlay. Cada uno es una peticion al
 #: juez, y Realty Income presenta 40 eventos en 24 meses.
 _MAX_CATALIZADORES = 5
@@ -2041,6 +2050,33 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
                         "url": conc["url"], "accession": conc["accession"],
                         "period": conc["period"], "customers": conc["customers"],
                     }
+                else:
+                    # Sin etiqueta, la ausencia NO se lee sola. US GAAP (ASC
+                    # 280-10-50-42) obliga a divulgar todo cliente que llegue
+                    # al 10% de los ingresos, asi que el silencio significa
+                    # algo -- pero una empresa puede divulgarlo en el texto y
+                    # no etiquetarlo, y ahi el silencio diria lo contrario de
+                    # la verdad. Por eso hacen falta las DOS senales.
+                    #
+                    # Lo que se escribe es una COTA SUPERIOR, no un numero
+                    # inventado: 0,10 es el peor caso compatible con la
+                    # evidencia, y el peor caso es el conservador aqui porque
+                    # mas concentracion puntua peor. Eli Lilly es el ejemplo
+                    # de por que hace falta la guarda: dice "No OTHER customer
+                    # accounted for more than 10 percent" teniendo sus tres
+                    # mayoristas al 24%, y ahi esto devuelve None a proposito.
+                    sin = edgar.no_customer_reaches_threshold(cik)
+                    if sin:
+                        overlay["largest_customer_share"] = _UMBRAL_DIVULGACION
+                        # Si toda cuota <= 0,10 y suman 1, HHI <= 0,10.
+                        overlay["customer_hhi_upper_bound"] = _UMBRAL_DIVULGACION
+                        overlay["customer_concentration_bound"] = {
+                            "tipo": "cota_superior",
+                            "confirmado_por": sin["confirmado_por"],
+                            "frase": sin.get("frase"),
+                            "url": sin.get("url"),
+                            "filing_date": sin.get("filing_date"),
+                        }
     except Exception:
         logger.warning("filing disclosures unavailable", exc_info=True)
 

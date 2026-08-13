@@ -101,6 +101,13 @@ def test_the_skeleton_covers_every_key_the_engine_names():
         # que DATASET.md declara para el guidance. Pedirlo en el esqueleto
         # invitaria a declarar a mano un hecho que EDGAR ya responde.
         "_sin_comunicado_de_resultados",
+        # Igual: la calcula el OVERLAY desde EDGAR. Cuando consta que ningun
+        # cliente llega al 10% de los ingresos (ASC 280-10-50-42), el HHI
+        # queda acotado por arriba, y esa cota se DEMUESTRA -- si toda cuota
+        # <= 0,10 y suman 1, sum(s^2) <= 0,10. No se teclea. Lo que el
+        # analista si suministra es `customer_shares`, que ya esta en el
+        # esqueleto.
+        "customer_hhi_upper_bound",
     }
     _NESTED = {"above_50dma", "above_50dma_count", "committed_liquidity"}
     asked = (_keys_the_engine_asks_for() - {"share"} - _COMPUTED

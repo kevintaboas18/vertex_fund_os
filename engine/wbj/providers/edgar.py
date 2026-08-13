@@ -975,6 +975,106 @@ class EdgarProvider(Provider):
             "accession": accession,
         }
 
+    #: Frases del 10-K que hablan de un cliente y del umbral del 10%.
+    _FRASE_UMBRAL = re.compile(
+        r"[^.]{0,200}\b(?:customer|client|bottler|distributor|reseller)s?\b"
+        r"[^.]{0,200}?\b10\s*(?:%|percent)[^.]{0,150}\.", re.IGNORECASE)
+    #: La frase niega que alguien llegue al umbral.
+    _NIEGA = re.compile(
+        r"\b(?:no|none|not|never|nor)\b[^.]{0,80}?"
+        r"\b(?:customer|client|bottler|distributor|reseller|sales|revenue)",
+        re.IGNORECASE)
+    #: "No OTHER customer..." no niega: presupone que ya hay uno que si llega.
+    #:
+    #: Medido en Eli Lilly -- "No other customer accounted for more than 10
+    #: percent of our consolidated revenue" -- que tiene divulgados sus tres
+    #: mayores mayoristas al 24%. Leer eso como "ningun cliente llega al 10%"
+    #: invierte el hecho: convierte una concentracion declarada en su
+    #: contrario, que es peor que dejar la metrica en MISSING.
+    _NIEGA_PARCIAL = re.compile(
+        r"\bno\s+(?:other|additional|further|single\s+other)\b", re.IGNORECASE)
+    #: La frase habla de INGRESOS (la base que pide BUS-CONC-003).
+    _BASE_INGRESOS = re.compile(
+        r"\b(?:revenue|revenues|net sales|sales|turnover)\b", re.IGNORECASE)
+    #: La frase habla de CUENTAS POR COBRAR, que es otra cosa.
+    _BASE_COBRAR = re.compile(
+        r"\b(?:receivable|receivables|accounts receivable)\b", re.IGNORECASE)
+
+    @staticmethod
+    def _recortar(frase: str) -> str:
+        """La frase desde su negacion, sin el arrastre de la tabla anterior.
+
+        El texto del 10-K llega sin puntos entre las celdas de una tabla, asi
+        que "la oracion anterior" puede ser media cuenta de resultados. La
+        cita empieza en el `No`/`None` que abre la negacion.
+        """
+        m = re.search(r"\b(?:No|None|Not|Never|Nor)\b", frase)
+        return (frase[m.start():] if m else frase).strip()
+
+    def no_customer_reaches_threshold(self, cik: int) -> dict | None:
+        """¿Consta que NINGÚN cliente llega al 10% de los ingresos?
+
+        La contrapartida de `customer_concentration`. US GAAP (ASC
+        280-10-50-42) obliga a divulgar todo cliente que llegue al 10% de los
+        ingresos, así que "no hay etiqueta" no es un dato ausente: es un
+        régimen de divulgación obligatoria donde la ausencia significa algo.
+
+        Pero la ausencia SOLA no basta, y por eso esto pide DOS señales: una
+        empresa puede divulgarlo en el texto y no etiquetarlo en XBRL, y
+        entonces el silencio de la etiqueta diría lo contrario de la verdad.
+
+        Se devuelve algo solo cuando:
+
+        1. no hay hecho etiquetado de cliente sobre ingresos (lo comprueba
+           quien llama, con `customer_concentration`), y
+        2. el texto del 10-K o bien lo NIEGA expresamente sobre ingresos, o
+           bien no menciona el umbral sobre esa base en absoluto.
+
+        Y se devuelve None --o sea, la métrica se queda MISSING-- si el texto
+        AFIRMA que alguien lo supera. Ese es el caso peligroso: divulgado
+        pero sin etiquetar, y concluir "no hay concentración" ahí sería
+        exactamente el error que las dos señales existen para evitar.
+
+        La base importa tanto como la cifra. Medido: Apple dice "one customer
+        that represented 10% or more of total trade RECEIVABLES", que no
+        habla de ingresos; Palantir dice "no customer represented 10% or more
+        of total REVENUE", que sí. Una frase sobre cuentas por cobrar no
+        confirma ni desmiente nada sobre la base que pide BUS-CONC-003.
+
+        Devuelve `{"confirmado_por", "frase", "url", "filing_date"}` o None.
+        """
+        doc = self.latest_10k_text(cik)
+        if not doc or not doc.get("text"):
+            return None
+        texto = re.sub(r"\s+", " ", doc["text"])
+
+        niega_ingresos = None
+        for m in self._FRASE_UMBRAL.finditer(texto):
+            frase = m.group(0).strip()
+            if not self._BASE_INGRESOS.search(frase):
+                # Solo habla de cuentas por cobrar: no dice nada de la base
+                # que interesa, ni a favor ni en contra.
+                continue
+            if self._NIEGA_PARCIAL.search(frase):
+                # "No OTRO cliente llega al 10%" presupone que ya hay uno.
+                return None
+            if self._NIEGA.search(frase):
+                # Se guarda la frase limpia: el trozo capturado puede arrastrar
+                # numeros de una tabla vecina, y una cita ilegible en el
+                # reporte vale menos que ninguna.
+                niega_ingresos = niega_ingresos or self._recortar(frase)
+                continue
+            # Afirma sobre ingresos y no hay etiqueta: divulgado sin etiquetar.
+            # No se concluye nada -- la metrica se queda MISSING y lo dice.
+            return None
+
+        return {
+            "confirmado_por": "declaracion_expresa" if niega_ingresos else "ausencia_total",
+            "frase": niega_ingresos,
+            "url": doc.get("url"),
+            "filing_date": doc.get("filing_date"),
+        }
+
     def sic_for(self, cik: int) -> tuple[str, str] | None:
         """El código SIC que el emisor declara ante la SEC, y su descripción.
 

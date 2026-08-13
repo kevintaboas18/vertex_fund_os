@@ -1283,6 +1283,26 @@ def _compute_all(
                 "The HHI is therefore a lower bound on true customer concentration, per "
                 "FORMULAS.md."
             )
+    elif overlay.get("customer_hhi_upper_bound") is not None:
+        # El caso simetrico del de arriba, y hasta ahora no existia. Cuando
+        # consta que NINGUN cliente llega al umbral de divulgacion, el HHI no
+        # es desconocido: esta acotado por arriba, y la cota se demuestra --
+        # si toda cuota s_i <= u y las cuotas suman 1, entonces
+        # HHI = sum(s_i^2) <= u * sum(s_i) = u.
+        #
+        # Con u = 0,10 (ASC 280-10-50-42) el HHI no puede pasar de 0,10. Eso
+        # no es una estimacion ni una imputacion: es el PEOR caso compatible
+        # con la evidencia, y el peor caso es el conservador porque mas
+        # concentracion puntua peor.
+        _cota = float(overlay["customer_hhi_upper_bound"])
+        v = _ok(_cota, unit="ratio", warnings=[WARN_HHI_UPPER_BOUND])
+        assumptions.append(
+            f"BUS-HHI-004 = {_cota:.2f}, cota SUPERIOR y no el valor observado. "
+            "Consta que ningun cliente alcanza el umbral de divulgacion "
+            "obligatoria del 10% de ingresos (ASC 280-10-50-42), y con toda "
+            "cuota <= 0,10 el HHI no puede exceder 0,10: sum(s^2) <= 0,10 * "
+            "sum(s) = 0,10. La concentracion real es esta o menor."
+        )
     else:
         v = _null(NullState.MISSING, "ratio", "CUSTOMER_HHI_UNAVAILABLE")
     add("BUS-HHI-004", v, None, source=analyst_source)
@@ -1976,6 +1996,11 @@ _OVERLAY_LINEAGE: dict[str, str] = {
     "no_customer_above_threshold": "customer_revenue_shares",
     "sin_cliente_sobre_umbral": "customer_revenue_shares",
     "customer_shares": "customer_revenue_shares",
+    # Misma fuente que las cuotas, leida por su ausencia: cuando el emisor
+    # deja constancia de que ningun cliente llega al 10% de los ingresos, el
+    # HHI queda acotado por arriba. No es otro campo del DATASET, es el mismo
+    # respondido en negativo.
+    "customer_hhi_upper_bound": "customer_revenue_shares",
     "retention": "retention_churn_cohorts",
     "churn": "retention_churn_cohorts",
     "customer_economics": "customer_economics",
@@ -3813,6 +3838,11 @@ _TOP_QUARTILE_SCORE = 7.5
 
 WARN_SHARES_INCOMPLETE = "SEGMENT_SHARES_DO_NOT_SUM_TO_100PCT"
 WARN_HHI_LOWER_BOUND = "HHI_IS_A_LOWER_BOUND_PARTIAL_DISCLOSURE"
+#: El simetrico de la cota inferior, que no existia. Cuando consta que NADIE
+#: llega al umbral de divulgacion, el HHI no es desconocido: esta acotado por
+#: arriba. Etiquetarlo importa igual -- quien lo lea tiene que saber que no es
+#: el valor observado sino el peor caso compatible con la evidencia.
+WARN_HHI_UPPER_BOUND = "HHI_UPPER_BOUND_NO_CUSTOMER_AT_DISCLOSURE_THRESHOLD"
 WARN_NOPAT_NEAR_ZERO = "REINVESTMENT_RATE_UNSTABLE_NOPAT_NEAR_ZERO"
 
 #: CALCULATION_CONVENTIONS.md: "Use average balance-sheet values for
