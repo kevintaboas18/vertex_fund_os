@@ -10485,6 +10485,13 @@ const VX_I18N = {
  * el fallo es invisible: la pantalla se queda en español sin avisar.
  * ─────────────────────────────────────────────────────────────────────── */
 const VX_ES2EN = {
+    ", no una orden de compra. Toca un ticker para analizarlo con el agente.": ", not a buy order. Tap a ticker to analyse it with the agent.",
+    "Empresas que puntúan bien y probablemente no conoces — barrido de todo el universo de la SEC": "Companies that score well and you probably do not know — a sweep of the whole SEC universe",
+    "Escaneando todo el universo de la SEC…": "Scanning the whole SEC universe…",
+    "Ningún declarante pasó el prefiltro. Vuelve a intentarlo.": "No filer passed the pre-filter. Try again.",
+    "Prefiltro sobre las frames XBRL y luego el scorecard de los 6 agentes · la primera vez tarda 1-2 min": "Pre-filter over the XBRL frames and then the 6 agents' scorecard · the first run takes 1-2 min",
+    "clasificación de research": "research classification",
+    "Datos de SEC EDGAR. Es una": "Data from SEC EDGAR. It is a",
     "mín": "min",
     "máx": "max",
     "% del capital": "% of capital",
@@ -11399,6 +11406,9 @@ const VX_ES2EN = {
  * cada valor sería una entrada distinta. Van aquí, con `$1`, `$2`… en el
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
+    [/^(\d+) empresas · ordenadas por puntaje$/, '$1 companies · sorted by score'],
+    [/^· crecimiento > (\S+)$/, '· growth > $1'],
+    [/^· margen neto > (\S+)$/, '· net margin > $1'],
     [/^Cada posición irá entre el (\S+)% y el (\S+)% de tu capital\.$/,
      'Each position will sit between $1% and $2% of your capital.'],
     [/^Cada posición irá entre el (\S+)% y el (\S+)% de tu capital: (\S+) – (\S+) de (\S+)\.$/,
