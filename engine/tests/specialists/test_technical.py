@@ -569,3 +569,28 @@ def test_an_overlay_panel_still_scores_breadth():
     )
     by_id = {r.metric_id: r for r in out.metrics}
     assert by_id["TECH-BREAD-039"].score != "NOT_SCORABLE"
+
+
+def test_sin_resistencia_ARRIBA_no_es_lo_mismo_que_sin_zonas():
+    """«No hay resistencia» significaba dos cosas y las dos se cobraban igual.
+
+    Si no se construyo ninguna zona, falta dato de verdad. Si hay zonas y
+    ninguna queda POR ENCIMA del precio, la accion ya despejo lo que tenia
+    arriba -- eso es un hecho sobre la accion, y encima alcista. Preguntar
+    "¿esta rota la resistencia mas cercana?" cuando no queda ninguna no tiene
+    respuesta porque no hay nada que romper, no porque el dato se perdiera.
+
+    Medido en los 12: JPM, BAC y LLY construyen zonas y no tienen ninguna
+    arriba; O no construye ninguna, y ahi MISSING sigue siendo correcto.
+    """
+    import inspect
+
+    from wbj.specialists import technical as tech
+
+    src = inspect.getsource(tech)
+    assert "_sin_nada_arriba" in src
+    assert "NO_RESISTANCE_ABOVE_PRICE" in src
+    # La distincion cuelga de que HAYA zonas: sin ellas se queda en MISSING.
+    i = src.index("_sin_nada_arriba = ")
+    assert "bool(all_zones)" in src[i:i + 120], (
+        "sin zonas no puede decir 'no aplica': ahi si falta el dato")

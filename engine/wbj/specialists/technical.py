@@ -723,9 +723,37 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> TechnicalOutpu
     )
     touches_all = [t for z in all_zones for t in z.touches]
 
-    def _lvl(mid: str, value: float | None, unit: str, why: str) -> None:
-        add(mid, _ok(value, unit=unit) if value is not None
-            else _null(NullState.MISSING, unit, why), None)
+    def _lvl(mid: str, value: float | None, unit: str, why: str,
+             no_aplica: bool = False) -> None:
+        if value is not None:
+            add(mid, _ok(value, unit=unit), None)
+        elif no_aplica:
+            add(mid, _null(NullState.NOT_APPLICABLE, unit, why), None)
+        else:
+            add(mid, _null(NullState.MISSING, unit, why), None)
+
+    # "No hay resistencia" significa DOS cosas distintas, y hasta ahora las
+    # dos se cobraban igual:
+    #
+    #   - no se construyo ninguna zona -> falta dato de verdad (MISSING)
+    #   - hay zonas, pero NINGUNA por encima del precio -> la accion ya
+    #     despejo todo lo que tenia arriba
+    #
+    # Lo segundo no es un hueco: es un HECHO sobre la accion, y encima
+    # alcista. Preguntar "¿esta rota la resistencia mas cercana?" cuando no
+    # queda ninguna no tiene respuesta porque no hay nada que romper, no
+    # porque el dato se haya perdido.
+    #
+    # Medido en los 12: JPM, BAC y LLY construyen zonas y no tienen ninguna
+    # arriba; O no construye ninguna, y ahi MISSING sigue siendo lo correcto.
+    #
+    # Es el mismo patron que los bancos: no se le cobra a una empresa por no
+    # tener el problema que la metrica mide.
+    _sin_nada_arriba = bool(all_zones) and nearest_resistance is None
+    _POR_QUE_SIN_RESISTENCIA = (
+        "NO_RESISTANCE_ABOVE_PRICE: hay zonas construidas y ninguna queda por "
+        "encima del precio -- la accion ya despejo lo que tenia arriba, asi "
+        "que no hay resistencia que romper")
 
     _lvl("TECH-PIV-022", float(len(touches_all)) if all_zones else None,
          "count", "NO_ZONES_NO_PIVOTS")
@@ -750,15 +778,18 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> TechnicalOutpu
     _lvl("TECH-BRK-030",
          (1.0 if nearest_resistance.status == "broken" else 0.0)
          if nearest_resistance is not None else None,
-         "bool", "NO_RESISTANCE_ZONE")
+         "bool", _POR_QUE_SIN_RESISTENCIA if _sin_nada_arriba else "NO_RESISTANCE_ZONE",
+         no_aplica=_sin_nada_arriba)
     _lvl("TECH-FBRK-032",
          (1.0 if nearest_resistance.status == "failed_breakout" else 0.0)
          if nearest_resistance is not None else None,
-         "bool", "NO_RESISTANCE_ZONE")
+         "bool", _POR_QUE_SIN_RESISTENCIA if _sin_nada_arriba else "NO_RESISTANCE_ZONE",
+         no_aplica=_sin_nada_arriba)
     _lvl("TECH-ROLE-033",
          (1.0 if nearest_resistance.status == "role_reversed" else 0.0)
          if nearest_resistance is not None else None,
-         "bool", "NO_RESISTANCE_ZONE")
+         "bool", _POR_QUE_SIN_RESISTENCIA if _sin_nada_arriba else "NO_RESISTANCE_ZONE",
+         no_aplica=_sin_nada_arriba)
     _lvl("TECH-AVWAP-034",
          levels_output.avwaps[0].value if levels_output.avwaps else None,
          "usd_per_share", "NO_ANCHORED_VWAP")
