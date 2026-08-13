@@ -92,6 +92,7 @@ __all__ = [
     "DIM_VOLATILITY_DRAWDOWN",
     "DIMENSION_NAMES",
     "SOLVENCY_WARNING",
+    "SOLVENCY_NOT_EVALUATED",
     "PROFILE",
     "RiskOutput",
     "verdict",
@@ -159,6 +160,19 @@ DIMENSION_MAX_POINTS: dict[str, float] = {
 assert sum(DIMENSION_MAX_POINTS.values()) == MAX_POINTS
 
 SOLVENCY_WARNING = "SOLVENCY_WARNING: Operating earnings do not provide a comfortable interest buffer."
+
+#: El chequeo de solvencia no se pudo correr, habiendo deuda que cubrir.
+#:
+#: No es un SOLVENCY_WARNING mas suave: son cosas distintas. Aquel afirma que
+#: la cobertura esta por debajo de 1,5x; este afirma que NO SE SABE. Decir lo
+#: primero sin el dato seria imputar la cifra que MISSING_DATA_POLICY.md pone
+#: entre las prohibidas; callarse deja el reporte igual al de una empresa que
+#: aprobo el chequeo, que es peor todavia.
+SOLVENCY_NOT_EVALUATED = (
+    "SOLVENCY_CHECK_NOT_EVALUATED: interest coverage could not be computed "
+    "(no interest expense reported) while the company carries debt -- the "
+    "mandatory solvency check did not run, it did not pass."
+)
 
 # FORMULAS.md RSK-DIL-032 frequency: "3y / 5y". The diluted-share CAGR is
 # measured over the last 5 fiscal years (clamped to what the packet carries),
@@ -1083,6 +1097,29 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     add("RSK-ICOV-011", v_icov, _score_from_anchor(v_icov, [(1.5, 0), (3.0, 6), (5.0, 10)]))
     mandatory_warnings: list[str] = [SOLVENCY_WARNING] if SOLVENCY_WARNING in v_icov.warnings else []
 
+    # Un chequeo obligatorio que no corre se lee igual que uno que paso.
+    #
+    # SCORING_AND_GATES.md hace de la solvencia un override obligatorio: por
+    # debajo de 1,5x "always appears prominently". El override 3 se dispara
+    # SOLO si esta la advertencia, asi que sin `interest_expense` el reporte
+    # sale identico al de una empresa que aprobo el chequeo -- ningun flag,
+    # ninguna nota en `mandatory_flags`, nada.
+    #
+    # Y el hueco no es teorico: FMP dejo de reportar `interest_expense` para
+    # AAPL y PLTR desde FY2024 (esta hasta FY2023, y para NVDA/KO/JPM esta
+    # todos los anos). No es TTM: tampoco viene en los trimestres. En esas dos
+    # da igual -- AAPL cubre 112 mil millones de deuda con 133 mil millones de
+    # EBIT-- pero la misma laguna en una empresa apalancada apaga en silencio
+    # la unica alarma de solvencia del sistema.
+    #
+    # Esto NO afirma que haya problema de solvencia: afirmar 'coverage < 1.5x'
+    # sin el dato seria inventar el numero que MISSING_DATA_POLICY.md prohibe
+    # imputar. Afirma lo que si es evidenciable -- que el chequeo no se pudo
+    # correr-- y solo cuando hay deuda que cubrir. Sin deuda no hay interes
+    # que cubrir y el silencio es la respuesta correcta.
+    if not v_icov.is_valid and debt_t is not None and debt_t > 0:
+        mandatory_warnings.append(SOLVENCY_NOT_EVALUATED)
+
     lease_charge = overlay_float(overlay, "lease_charge", 0.0)
     if interest_expense is not None and ebit is not None:
         v_fcc = fixed_charge_coverage(ebit, float(interest_expense), lease_charge)
@@ -1533,7 +1570,13 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
         coverage=coverage,
         dimensions=dimensions,
         metrics=metric_rows,
-        mandatory_flags=([SOLVENCY_WARNING] if mandatory_warnings else []) + (["RISK_OVERRIDE_SPECULATIVE_CAP"] if awarded_points <= 4.0 else []),
+        # `mandatory_warnings` se pasa TAL CUAL. Antes decia
+        # `[SOLVENCY_WARNING] if mandatory_warnings else []`, que convertia
+        # cualquier aviso obligatorio en el de solvencia: mientras la lista
+        # tuvo un solo elemento daba lo mismo, pero etiquetaba por posicion en
+        # vez de por contenido, y el segundo aviso habria salido con el nombre
+        # del primero.
+        mandatory_flags=list(mandatory_warnings) + (["RISK_OVERRIDE_SPECULATIVE_CAP"] if awarded_points <= 4.0 else []),
         assumptions=assumptions,
         judgment_requests=judgment_requests,
         source_lineage=["packet.fundamentals.annual", "packet.market_data.daily", "packet.market_data.benchmark"],

@@ -605,3 +605,69 @@ def test_every_dimension_slot_goes_through_the_state_preserving_helper():
     assert not a_mano, (
         f"{len(a_mano)} slot(s) construidos a mano: usa `_dimension_slot`, "
         "que conserva el estado de la metrica")
+
+
+# ============================================================================
+# Un chequeo obligatorio que no corre no puede leerse como uno que paso
+# ============================================================================
+
+
+def test_sin_gasto_financiero_y_CON_deuda_se_avisa_que_el_chequeo_no_corrio():
+    """SCORING_AND_GATES.md hace de la solvencia un override obligatorio.
+
+    El override 3 solo se dispara si esta la advertencia, asi que sin
+    `interest_expense` el reporte salia identico al de una empresa que aprobo
+    el chequeo: `mandatory_flags` vacio y nada en la seccion de huecos.
+
+    No es un caso inventado -- FMP dejo de reportar `interest_expense` para
+    AAPL y PLTR desde FY2024 (lo tiene hasta FY2023, y para NVDA/KO/JPM lo
+    tiene todos los anos, tambien en los trimestres, asi que no lo salva el
+    TTM).
+    """
+    rows = [_row(2025), _row(2024)]          # sin interest_expense, total_debt=200
+    out = risk.run(_minimal_packet(rows))
+
+    icov = next(r for r in out.metrics if r.metric_id == "RSK-ICOV-011")
+    assert icov.state is not None, "el supuesto del test: la metrica queda sin valor"
+    assert risk.SOLVENCY_NOT_EVALUATED in out.mandatory_flags
+
+
+def test_el_aviso_NO_afirma_que_haya_problema_de_solvencia():
+    """Son cosas distintas: uno dice 'por debajo de 1,5x', el otro 'no se sabe'.
+
+    Afirmar lo primero sin el dato seria imputar la cifra que
+    MISSING_DATA_POLICY.md prohibe.
+    """
+    out = risk.run(_minimal_packet([_row(2025), _row(2024)]))
+    assert risk.SOLVENCY_WARNING not in out.mandatory_flags
+    assert "did not run, it did not pass" in risk.SOLVENCY_NOT_EVALUATED
+
+
+def test_sin_deuda_no_hay_nada_que_cubrir_y_no_se_avisa():
+    """Sin deuda no hay interes que cubrir: el silencio es la respuesta
+    correcta, y un flag aqui seria ruido en cada empresa sin apalancar."""
+    rows = [_row(2025, total_debt=0.0), _row(2024, total_debt=0.0)]
+    out = risk.run(_minimal_packet(rows))
+    assert risk.SOLVENCY_NOT_EVALUATED not in out.mandatory_flags
+
+
+def test_con_el_dato_presente_no_se_avisa_de_nada():
+    rows = [_row(2025, interest_expense=40.0), _row(2024, interest_expense=38.0)]
+    out = risk.run(_minimal_packet(rows))
+    icov = next(r for r in out.metrics if r.metric_id == "RSK-ICOV-011")
+    assert icov.value is not None
+    assert risk.SOLVENCY_NOT_EVALUATED not in out.mandatory_flags
+
+
+def test_la_advertencia_de_solvencia_real_sigue_saliendo_con_su_nombre():
+    """`mandatory_flags` se construia como `[SOLVENCY_WARNING] if
+    mandatory_warnings else []`: etiquetaba por posicion, no por contenido.
+    Con dos avisos posibles, el segundo habria salido con el nombre del
+    primero."""
+    rows = [_row(2025, ebit=10.0, interest_expense=40.0),
+            _row(2024, ebit=10.0, interest_expense=38.0)]
+    out = risk.run(_minimal_packet(rows))
+    assert risk.SOLVENCY_WARNING in out.mandatory_flags
+    assert risk.SOLVENCY_NOT_EVALUATED not in out.mandatory_flags
+
+

@@ -235,3 +235,26 @@ def test_the_same_gap_is_not_listed_twice():
     gap = "judge: QUALITATIVE_JUDGE_UNAVAILABLE (out of credit)"
     report = _build(_aggregate_inputs(), data_gaps=[gap, gap])
     assert report.missing_or_conflicted_data.count(gap) == 1
+
+
+def test_el_chequeo_de_solvencia_que_no_corrio_llega_al_reporte():
+    """Un flag que no llega a `missing_or_conflicted_data` no existe para
+    quien lee el reporte.
+
+    SCORING_AND_GATES.md hace de la solvencia un override obligatorio, pero el
+    override 3 solo se dispara con la advertencia presente. Sin
+    `interest_expense` -- lo que le pasa a AAPL y PLTR en FMP desde FY2024 --
+    no hay advertencia, y el reporte salia identico al de una empresa que
+    aprobo el chequeo.
+    """
+    from wbj.specialists.risk import SOLVENCY_NOT_EVALUATED
+
+    base = _aggregate_inputs()
+    inputs = AggregateInputs(
+        business=base.business, financial=base.financial, market=base.market,
+        technical=base.technical, valuation=base.valuation,
+        risk=make_risk(points=9.0, mandatory_flags=[SOLVENCY_NOT_EVALUATED]),
+    )
+    report = _build(inputs)
+    assert any(SOLVENCY_NOT_EVALUATED in linea
+               for linea in report.missing_or_conflicted_data)
