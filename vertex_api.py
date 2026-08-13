@@ -526,6 +526,35 @@ def _instruccion_idioma() -> str:
             "Los números, los tickers y los nombres propios se quedan igual.")
 
 
+def _con_idioma(texto) -> str:
+    """El texto que se le manda a un modelo, con el idioma pegado al final.
+
+    Va al FINAL a propósito: es lo último que lee el modelo, y gana sobre
+    cualquier «responde en X» que venga escrito más arriba en el prompt o en la
+    descripción de un campo del esquema.
+    """
+    return f"{texto or ''}{_instruccion_idioma()}"
+
+
+def _gemini_genera(**kw):
+    """TODA petición a Gemini pasa por aquí.
+
+    Ponerle el idioma en cada sitio de llamada es exactamente el error que este
+    trabajo vino a arreglar: son ocho, y el noveno que alguien añada saldrá en
+    español sin que nadie se entere. Aquí no hay nada que recordar — y un test
+    prohíbe llamar al cliente por fuera.
+    """
+    kw["contents"] = _con_idioma(kw.get("contents"))
+    return client_gemini.models.generate_content(**kw)
+
+
+def _claude_crea(cliente, **kw):
+    """Lo mismo para Anthropic. El idioma se pega al `system`, que es el que
+    manda sobre el tono y la forma de la respuesta."""
+    kw["system"] = _con_idioma(kw.get("system"))
+    return cliente.messages.create(**kw)
+
+
 def _usuario_actual(request=None):
     """El usuario de la sesión, o `None`. Nunca lanza.
 
@@ -8409,7 +8438,7 @@ def _wbj_management_track_record(info, settings=None):
                    '"prior_companies": [{"company": string, "role": string, "outcome": string}], '
                    '"assessment": "verificable"|"no_verificable", "note": string}], '
                    '"overall": string}')
-        _msg = _client.messages.create(
+        _msg = _claude_crea(_client,
             model=getattr(settings, "judge_model", "claude-opus-5") if settings else "claude-opus-5",
             max_tokens=1024, system=_sys,
             messages=[{"role": "user", "content":
@@ -8772,7 +8801,7 @@ def _wbj_explain(context_text, temp=0.3):
         "EXPLICARLO de forma simple, clara y detallada para el inversionista de 'MI PERFIL'. "
         "NO recalcules, NO cambies, NO reduzcas ni 'corrijas' ningún número, score, gate ni nivel. "
         "Si algo no tiene datos (NOT_SCORABLE), explícalo con honestidad. No prometas retornos ni "
-        "des órdenes de compra/venta.\n\n" + context_text + _instruccion_idioma())
+        "des órdenes de compra/venta.\n\n" + context_text)
     # Por qué falló CADA proveedor, en orden. Antes sólo se propagaba el
     # último error de la cadena, así que un 429 de cuota en Gemini —el
     # proveedor PRINCIPAL— se reportaba como "Grok no configurado
@@ -8782,7 +8811,7 @@ def _wbj_explain(context_text, temp=0.3):
     fallos: list[str] = []
     for attempt in range(2):
         try:
-            r = client_gemini.models.generate_content(
+            r = _gemini_genera(
                 model="gemini-2.5-flash", contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json", response_schema=WBJExplanation, temperature=temp))
@@ -8974,7 +9003,7 @@ def _wbj_qual_from_10k_llm(ticker, cik, settings, revenue_hint=None, skip=()):
             ' "new_customers": number|null,          // clientes nuevos adquiridos en el periodo\n'
             ' "guidance_history": [{"actual": number, "guidance_midpoint": number}]|null}'
         )
-        _msg = _client.messages.create(
+        _msg = _claude_crea(_client,
             model=_extraction_model(settings),      # modelo BARATO: aquí manda el volumen, no el criterio
             max_tokens=1024, system=_sys,
             messages=[{"role": "user", "content":
@@ -11466,8 +11495,9 @@ def _openai_json(prompt, keys, temp=0.3, model="gpt-4o"):
     """Fallback de proveedor (ChatGPT): pide JSON estricto a OpenAI con response_format json_object."""
     if not OPENAI_API_KEY:
         raise RuntimeError("OpenAI no configurado (OPENAI_API_KEY vacío).")
-    sysmsg = ("Devuelve EXCLUSIVAMENTE un objeto JSON válido (sin markdown, sin ```), "
-              "con exactamente estas claves (string salvo las numéricas obvias): " + ", ".join(keys) + ".")
+    sysmsg = _con_idioma(
+        "Devuelve EXCLUSIVAMENTE un objeto JSON válido (sin markdown, sin ```), "
+        "con exactamente estas claves (string salvo las numéricas obvias): " + ", ".join(keys) + ".")
     resp = requests.post(
         "https://api.openai.com/v1/chat/completions",
         headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
@@ -11498,7 +11528,7 @@ def _texto_llm(system_msg, user_msg, temp=0.4, max_tokens=4000):
     fallos = []
     if client_gemini is not None:
         try:
-            r = client_gemini.models.generate_content(
+            r = _gemini_genera(
                 model="gemini-2.5-flash",
                 contents=f"{system_msg}\n\n{user_msg}",
                 config=types.GenerateContentConfig(
@@ -11519,7 +11549,7 @@ def _texto_llm(system_msg, user_msg, temp=0.4, max_tokens=4000):
                 headers={"Content-Type": "application/json",
                          "Authorization": f"Bearer {OPENAI_API_KEY}"},
                 json={"model": "gpt-4o",
-                      "messages": [{"role": "system", "content": system_msg},
+                      "messages": [{"role": "system", "content": _con_idioma(system_msg)},
                                    {"role": "user", "content": user_msg}],
                       "max_tokens": max_tokens, "temperature": temp},
                 timeout=120)
@@ -11550,7 +11580,7 @@ def _analyze_structured(prompt, temp=0.2):
     last = None
     for attempt in range(2):
         try:
-            r = client_gemini.models.generate_content(
+            r = _gemini_genera(
                 model="gemini-2.5-flash", contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json", response_schema=VertexDeepAnalysis, temperature=temp))
@@ -12478,7 +12508,6 @@ def get_sentiment(ticker: str):
         "fundamento, hacia donde podria ir el precio si esa narrativa se cumple, y que escenario es "
         "mas probable. SIEMPRE das datos especificos, porcentajes estimados, ejemplos reales y citas "
         "de lo que dice la gente con fecha aproximada. Eres directo, detallado, exhaustivo y objetivo."
-        + _instruccion_idioma()
     )
 
     # Misma correccion que en el prompt profundo: sin posts NO se sustituye con
@@ -13347,7 +13376,7 @@ Partiendo de ${round(live_total,2)}: valor proyectado implementando este plan en
 
         ai_response = ""
         try:
-            gemini_resp = client_gemini.models.generate_content(
+            gemini_resp = _gemini_genera(
                 model='gemini-2.5-flash',
                 contents=ai_prompt,
                 config=types.GenerateContentConfig(
@@ -13359,7 +13388,7 @@ Partiendo de ${round(live_total,2)}: valor proyectado implementando este plan en
             ai_response = gemini_resp.text
         except Exception:
             try:
-                gemini_resp = client_gemini.models.generate_content(
+                gemini_resp = _gemini_genera(
                     model='gemini-2.5-flash',
                     contents=ai_prompt,
                     config=types.GenerateContentConfig(temperature=0.35, max_output_tokens=10000)
@@ -14664,7 +14693,7 @@ Devuelve SOLO un objeto JSON crudo (sin markdown, sin ```), con esta forma EXACT
 Reglas duras: tickers reales que NO estén en [{held_txt}]; al menos la MITAD deben ser growth_tier 'alto';
 suggested_pct realista (en conjunto las ideas suman <= 40% — son ideas que se suman a un book existente, no el
 book entero); todas las cifras deben ser reales y recientes."""
-        resp = client_gemini.models.generate_content(
+        resp = _gemini_genera(
             model='gemini-2.5-flash', contents=prompt,
             config=types.GenerateContentConfig(temperature=0.5,
                 tools=[types.Tool(google_search=types.GoogleSearch())]))

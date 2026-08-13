@@ -6111,8 +6111,71 @@ cinta que se acababa de pedir. Ideas y Wheel no se tocan: escanean el mercado
 entero, no dependen del símbolo, y rehacer ese escaneo cuesta llamadas de
 verdad.
 
+## 41.49 · Ronda 23 — el suelo de cobertura, y el idioma que ya no depende de acordarse
+
+**1. `test_a_thin_peer_panel_is_refused_rather_than_averaged`.** Fallaba en
+`main` desde otra línea de trabajo. No era el suelo del 70 %, que sigue donde
+estaba: era el DENOMINADOR. Cuando FIN-GR-004 pasó a reportar `NOT_APPLICABLE`
+en vez de `NOT_SCORABLE` para un emisor que no publica el puente de crecimiento
+orgánico —«no tener el problema no puede costar cobertura», y es la decisión
+correcta— esa métrica salió del denominador. La dimensión pasó a medirse sobre
+las que aplican, no sobre las cinco.
+
+Con eso, la aritmética cambió y la vieja aserción («3 de 5 no puede puntuar»)
+dejó de describir nada. Lo honesto no era borrarla: era medir las dos formas.
+
+- **El expediente habitual** — sin puente y sin serie de participación. Aplican
+  tres; una muestra fina mata la de comparables; 2 de 3 es 67 % y la dimensión
+  se apaga. Es el caso que protege a casi todos los tickers, y sigue protegido.
+- **Con la serie que suministra un analista.** Aplican cuatro, tres son válidas,
+  75 % supera el suelo y la dimensión puntúa — sobre crecimiento, durabilidad y
+  una participación real, con la comparación de pares rechazada y dicha en voz
+  alta. Eso es la cobertura haciendo su trabajo, no esquivándolo.
+
+**2. El idioma deja de depender de la memoria.** Quedaban dos agujeros:
+
+- **La prosa del modelo.** Yo había cableado el idioma en tres prompts. Había
+  **ocho**. Ahora ninguna petición habla con un proveedor por su cuenta: todas
+  pasan por `_gemini_genera` / `_claude_crea`, que le pegan la instrucción al
+  final —lo último que lee el modelo gana sobre el «en español» que trae escrito
+  la descripción de un campo del esquema—. Un test cuenta las llamadas crudas y
+  falla si aparece una novena.
+- **El texto nuevo.** El barrido del navegador solo ve lo que se pintó: una
+  frase que solo sale cuando una fuente falla, o en la pestaña que ese test no
+  abrió, se le escapaba entera. El guardián nuevo lee **el archivo**, saca cada
+  cadena que puede acabar en pantalla y falla si alguna no tiene traducción.
+
+Ese segundo guardián cazó **83** cadenas, entre ellas las descripciones de las
+cuatro pestañas de Proyecciones, «Puntaje», «Vencimiento», «Agresividad»,
+«Tolerancia», el aviso de baja liquidez y «tu contraseña nunca pasa por aquí».
+Ninguna se veía en el barrido de pantalla porque ninguna se pinta sin datos.
+
+Afinarlo costó dos vueltas, y las dos merecen quedar escritas porque son el
+mismo error por los dos lados:
+
+- El detector solo miraba acentos y palabras gramaticales, así que **las
+  etiquetas cortas se le escapaban enteras** — «Cobertura», «Estructura · GEX ·
+  niveles», «Puntaje» no tienen ni una. Se le añadió la morfología del español
+  (`-ción`, `-idad`, `-miento`, `-ura`, `-ancia`…), que es lo único que delata a
+  un sustantivo suelto.
+- Y ampliarlo de más lo volvió ruidoso: `-arios` marcaba «scenarios», `-ales`
+  marcaba «sales», y dos «no» dentro de una frase **inglesa** la daban por
+  española. Podado. Un guardián que grita con lo que está bien deja de servir
+  para lo que está mal, porque se acaba desactivando.
+
+Al cierre: **998 entradas y 27 patrones**; 591 nodos con los paneles cargados de
+datos y **0 en español**.
+
+**Lo que NO cambia de idioma, y por qué.** Los `RESUMEN.md` que se guardan en
+`Reportes/` y `Proyecciones/` siguen en español pase lo que pase. No se sirven
+al panel —no son pantalla, son archivo— y los lee el agente como memoria. El
+archivo es además COMPARTIDO: si cada quien lo escribiera en su idioma, la
+carpeta de un ticker acabaría mezclando los dos y ninguna búsqueda posterior
+encontraría la mitad. Un solo idioma en el archivo, el de la pantalla en la
+pantalla.
+
 ### Estado
 
-**2.925 tests del motor · 637 de la capa web (28 en un navegador real) ·
+**2.925 tests del motor · 658 de la capa web (28 en un navegador real) ·
 323 checks de auditoría · 16 diferenciales · preflight de Render en verde ·
 0 fallos, 0 avisos, 0 skips.**
