@@ -4058,7 +4058,8 @@ def _tito_chart_geometry(r):
     su fórmula local. Ilustra, no decide.
     """
     try:
-        from wbj.tito.expected_move import cone_points, prediction_path
+        from wbj.tito.expected_move import (cone_points, expected_move,
+                                            prediction_path)
     except Exception:
         return None
     spot = r.spot
@@ -4091,8 +4092,21 @@ def _tito_chart_geometry(r):
                 }
         except Exception:
             continue
+        # Las tres `wall-stat` de su `ProWallsCard`: el cono se DIBUJABA pero
+        # no se escribía. Se veía la banda y no había forma de leer cuánto
+        # valía — «±6,4% · $184 – $209 · 68% de los escenarios» es el número
+        # con el que se decide un strike, y solo estaba como forma en un SVG.
+        # Es su misma `expectedMove`, ya portada y medida por `diff_cono.sh`.
+        try:
+            em = expected_move(spot, iv, float(dias))
+            banda = {"sigma_pct": round(em.sigma_pct, 4),
+                     "lower1": round(em.lower1, 4), "upper1": round(em.upper1, 4),
+                     "lower2": round(em.lower2, 4), "upper2": round(em.upper2, 4)}
+        except Exception:
+            banda = None
         geo[str(dias)] = {
             "iv": round(iv, 6),
+            "em": banda,
             "cone": [{"t": round(c.t, 4),
                       "upper1": round(c.upper1, 4), "lower1": round(c.lower1, 4),
                       "upper2": round(c.upper2, 4), "lower2": round(c.lower2, 4)}
@@ -4576,6 +4590,14 @@ def _tito_memory(ticker, trades, chain, bars, now):
                     min((t.get("timestamp") for t in past if t.get("timestamp")),
                         default=None)),
                 "predicciones_vencidas": review.get("matured_count", 0),
+                # La PRIMERA `mem-stat` de su `MemoriaCard`: «Error medio del
+                # target ±X% sobre N predicciones». `review_predictions` la
+                # calcula y aquí se tiraba, así que el panel enseñaba el sesgo
+                # —hacia dónde falla— sin enseñar CUÁNTO falla. Y no son lo
+                # mismo: +0,2% de sesgo con ±14% de error medio es un agente
+                # descalibrado que parece calibrado, porque los fallos hacia
+                # arriba y hacia abajo se cancelan en el promedio con signo.
+                "error_medio_pct": review.get("mean_abs_error_pct"),
                 "sesgo_pct": review.get("bias_pct"),
                 "calibracion_activa": bool(
                     calibration.get("bias_pct") is not None
@@ -5535,7 +5557,7 @@ def tito_tape(ticker: str, period: str = "5d",
     sc = _tito_mod()
     if sc is None:
         return {"ok": False, "error": "Motor de Víctor no disponible (engine/wbj/tito)."}
-    from wbj.tito.flow import aggression_score, classify_flow
+    from wbj.tito.flow import UNUSUAL_TOTAL, aggression_score, classify_flow
     from wbj.tito.marketsnack import MarketSnackError, fetch_flow
 
     tk, err = _tito_ticker(ticker)
@@ -5612,6 +5634,12 @@ def tito_tape(ticker: str, period: str = "5d",
         "aggression": {"score": agg.score, "ratio": _r(agg.ratio, 4),
                        "premium_ask": agg.premium_ask, "premium_bid": agg.premium_bid,
                        "premium_mid": agg.premium_mid, "n": agg.n},
+        # El corte con el que se tiñe una fila, servido en vez de repetido en
+        # el panel. La leyenda decía «≥7/30» y el corte real es 24/30: el 7 es
+        # de la OTRA escala de inusualidad —la de 0-10 por trade del sub-agente
+        # 3— y con los dos números escritos en sitios distintos, uno se quedó
+        # atrás. Ahora sale del motor, así que no puede volver a desfasarse.
+        "unusual_cut": UNUSUAL_TOTAL,
         "generated_at": now.isoformat(),
     })
 

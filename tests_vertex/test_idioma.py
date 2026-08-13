@@ -152,6 +152,12 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
         # así que la frase entera va por `VX_PAT`. El extractor la corta en el
         # `${` y ve solo la mitad de delante.
         "⚠ TUS DATOS ESTÁN EN RIESGO: hay",
+        # Y la leyenda de la cinta: el corte de inusualidad lo sirve ahora el
+        # motor (`unusual_cut`) en vez de estar escrito a mano —decía 7/30 y el
+        # corte real es 24/30—, así que el número va dentro de la frase y la
+        # traducción es un patrón. Que el patrón funcione lo mide
+        # `test_el_patron_de_la_cinta_traduce_con_el_corte_que_venga`.
+        "son trades con puntaje inusual (≥",
     }
 
     @staticmethod
@@ -492,6 +498,70 @@ class TestEnInglesNoQuedaEspanol:
         assert len(textos) > 30, f"el cuestionario no se pintó ({len(textos)} textos)"
         resto = [t for t in textos if ACENTO.search(t)]
         assert not resto, f"preguntas todavía en español: {resto[:5]}"
+
+    def test_la_linea_de_memoria_del_tab_se_traduce_ENTERA(self, pagina):
+        """Nueve datos unidos en una frase no casan con nada.
+
+        El barrido traduce nodo de texto a nodo de texto. La línea de memoria
+        de Proyecciones los juntaba todos en uno —«60 días de IV · 40/50 flows
+        utilizables · …»— y se quedaba en español entera con el panel en
+        inglés, aunque cada dato por separado tuviera su patrón. Ahora cada uno
+        va en su `<span>`, y esto lo mide pintando la tarjeta de verdad.
+        """
+        resto = pagina.evaluate("""() => {
+            const host = document.createElement('div');
+            host.id = 'sondaMemoria';
+            host.innerHTML = vcMemoryHTML({memory:{available:true, iv_days:60,
+                iv_rank_real_en:0, flows_utilizables:40, flows_guardados:50,
+                memoria_desde:'2026-05-01', predicciones_vencidas:7,
+                calibracion_activa:true, sesgo_pct:-6.2, error_medio_pct:6.4,
+                dir_hit_rate:57, base_touch_rate:43, evals:[]}});
+            document.body.appendChild(host);
+            return null;
+        }""")
+        pagina.wait_for_timeout(900)
+        txt = pagina.evaluate(
+            "() => document.getElementById('sondaMemoria').innerText")
+        pagina.evaluate("() => document.getElementById('sondaMemoria').remove()")
+        for palabra in ("días de IV", "flows utilizables", "desde",
+                        "predicciones vencidas", "calibración",
+                        "Error medio", "Acierto de dirección", "Tocó"):
+            assert palabra not in txt, (
+                f"«{palabra}» sigue en español con el panel en inglés:\n{txt}")
+        assert "Mean target error" in txt and "matured predictions" in txt, txt
+
+    def test_el_movimiento_esperado_bajo_la_grafica_tambien(self, pagina):
+        """Los números del cono: se dibujaba y no se escribía; ahora se escribe."""
+        txt = pagina.evaluate("""() => {
+            const h = document.createElement('div');
+            h.id = 'sondaEm';
+            h.innerHTML = vcMovEsperadoHTML(
+                {em:{sigma_pct:6.4, lower1:184.2, upper1:209.9,
+                     lower2:172.1, upper2:224.6}},
+                {lower:184.2, upper:209.9}, {lower:172.1, upper:224.6}, 196.5, 20);
+            document.body.appendChild(h);
+            return null;
+        }""") or pagina.wait_for_timeout(900)
+        txt = pagina.evaluate("() => document.getElementById('sondaEm').innerText")
+        pagina.evaluate("() => document.getElementById('sondaEm').remove()")
+        assert "Movimiento esperado" not in txt and "escenarios" not in txt, txt
+        assert "Expected move" in txt and "68% of scenarios" in txt, txt
+        assert "Extreme range" in txt, txt
+
+    def test_el_patron_de_la_cinta_traduce_con_el_corte_que_venga(self, pagina):
+        """La frase lleva el número dentro, así que el escáner solo ve la mitad.
+
+        Declararla en `DECLARADAS` la saca del escáner de código; esto la vuelve
+        a medir por el otro lado — con el corte que sirva el motor, sea 24 hoy
+        o el que ponga él mañana.
+        """
+        d = pagina.evaluate("""() => ({
+            veinticuatro: vxFrase('son trades con puntaje inusual (≥24/30).'),
+            otro: vxFrase('son trades con puntaje inusual (≥18/30).'),
+        })""")
+        assert d["veinticuatro"] == "are trades with an unusual score (≥24/30)."
+        assert d["otro"] == "are trades with an unusual score (≥18/30).", (
+            "el patrón fija el número en vez de conservarlo")
 
     def test_un_guion_pegado_no_deja_la_frase_en_espanol(self, pagina):
         """Un `<b>` en medio de un párrafo parte el texto en trozos, y al de la

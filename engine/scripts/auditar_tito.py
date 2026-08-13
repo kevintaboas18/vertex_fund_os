@@ -1013,10 +1013,20 @@ chk(not _ya_cableadas,
 for _n in sorted(_huerfanas):
     print(f"      {_pub[_n] + '::' + _n:<40} {HUERFANAS.get(_n, '')[:80]}")
 # Y las que SÍ se cablearon en esta pasada, con su consumidor.
-chk("_tito_chart_geometry(r)" in API and "cone_points, prediction_path" in API,
+# Se buscan los NOMBRES, no el renglón del import: con el texto literal, poner
+# una tercera función en la misma línea y que `black` la partiera en dos hacía
+# fallar el check sin que nada estuviera mal.
+chk("_tito_chart_geometry(r)" in API
+    and all(f in API for f in ("cone_points", "prediction_path")),
     "`cone_points`/`prediction_path` CABLEADAS: el motor sirve `chart_geometry`")
 chk("d.chart_geometry" in HTML and "geo.cone" in HTML,
     "…y la gráfica dibuja SUS puntos en vez de recalcular la fórmula")
+# La TERCERA de `expectedMove.ts`, la que da los números del cono en vez de su
+# forma. Estaba portada y medida por `diff_cono.sh`, y no la llamaba nadie: el
+# cono se dibujaba y no se escribía, así que se veía la banda abrirse sin poder
+# leer cuánto valía — que es el número con el que se elige un strike.
+chk("expected_move" in API and "vcMovEsperadoHTML" in HTML,
+    "`expected_move` CABLEADA: sus tres `wall-stat` bajo la gráfica")
 # La geometría del panel es la ÚNICA pieza del port escrita a mano en JS (la
 # ejecuta el navegador). `diff_geo.sh` la extrae del HTML y la corre al lado de
 # su `chartGeometry.ts`; estos checks son la red de seguridad de esa extracción.

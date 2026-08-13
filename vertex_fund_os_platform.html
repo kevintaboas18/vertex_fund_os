@@ -3706,7 +3706,7 @@ function renderProjTape(d) {
             <th class="text-right pb-1.5 pr-2">Score</th>
             <th class="text-right pb-1.5 pr-2">Dinero</th><th class="text-right pb-1.5 pr-2">Griegos</th>
             <th class="text-right pb-1.5">Inusual</th></tr></thead><tbody>${filas}</tbody></table></div>
-        <p class="text-[9px] text-gray-600 mt-2 leading-relaxed"><b>Inusual</b> = tama&ntilde;o de la orden + momento del d&iacute;a + cu&aacute;ntas veces se repite el contrato (m&aacute;ximo 30; pasa el cursor sobre el n&uacute;mero para ver el desglose). Las <span class="bg-amber-500/[0.12] px-1 rounded">filas resaltadas</span> son trades con puntaje inusual (&ge;7/30). <b>Lado</b>: &#9650; Compra = pagaron el precio del vendedor (agresivo) &middot; &#9660; Venta = aceptaron el precio del comprador. &#8593; ejecutado sobre el ask &middot; &#8595; bajo el bid &middot; &#128257; &times;N = veces que se repiti&oacute; ese contrato.</p>
+        <p class="text-[9px] text-gray-600 mt-2 leading-relaxed"><b>Inusual</b> = tama&ntilde;o de la orden + momento del d&iacute;a + cu&aacute;ntas veces se repite el contrato (m&aacute;ximo 30; pasa el cursor sobre el n&uacute;mero para ver el desglose). Las <span class="bg-amber-500/[0.12] px-1 rounded">filas resaltadas</span> son trades con puntaje inusual (&ge;${d.unusual_cut != null ? d.unusual_cut : 24}/30). <b>Lado</b>: &#9650; Compra = pagaron el precio del vendedor (agresivo) &middot; &#9660; Venta = aceptaron el precio del comprador. &#8593; ejecutado sobre el ask &middot; &#8595; bajo el bid &middot; &#128257; &times;N = veces que se repiti&oacute; ese contrato.</p>
       </div>`;
     if (window.lucide) vcIconos();
     vcTablaResponsive('projTape');
@@ -4175,6 +4175,39 @@ function vcIconos() { try { if (window.lucide) window.lucide.createIcons(); } ca
 
 const _vcEsc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+/** El movimiento esperado en NÚMEROS — sus tres `wall-stat` de `ProWallsCard`.
+ *
+ *  El cono se dibujaba y no se escribía: se veía la banda abrirse y no había
+ *  forma de leer cuánto valía. «±6,4% · $184 – $209 · 68% de los escenarios»
+ *  es el número con el que se elige un strike, y estaba solo como una forma
+ *  dentro de un SVG.
+ *
+ *  Los toma del motor (`geo.em`, que es su `expectedMove` portada y medida por
+ *  `diff_cono.sh`). Si el motor no los manda —motor viejo, IV sin dato— se
+ *  sacan del borde del cono que ya se dibujó, para no enseñar un hueco: son
+ *  las mismas bandas, y el porcentaje sale de ellas contra el spot.
+ */
+function vcMovEsperadoHTML(geo, sigma1, sigma2, spot, horizon) {
+    const em = (geo && geo.em) || null;
+    if (!(spot > 0) || !sigma1 || !sigma2) return '';
+    const pct1 = em && em.sigma_pct != null
+        ? Number(em.sigma_pct)
+        : (100 * (sigma1.upper - sigma1.lower)) / (2 * spot);
+    const b1 = em ? { lower: em.lower1, upper: em.upper1 } : sigma1;
+    const b2 = em ? { lower: em.lower2, upper: em.upper2 } : sigma2;
+    if (!isFinite(pct1)) return '';
+    const caja = (rot, val, sub) => `<div class="flex-1 min-w-[140px]">
+        <p class="text-[9px] text-gray-500 uppercase tracking-wide">${rot}</p>
+        <p class="text-sm font-black text-white leading-tight">${val}</p>
+        <p class="text-[9px] text-gray-500">${sub}</p></div>`;
+    return `<div class="flex flex-wrap gap-3 mt-2 pt-2 border-t border-gray-800">
+        ${caja(`Movimiento esperado · 1&sigma; · ${horizon}d`, '&plusmn;' + pct1.toFixed(1) + '%',
+               `$${VC_PX.format(b1.lower)} &ndash; $${VC_PX.format(b1.upper)} &middot; 68% de los escenarios`)}
+        ${caja('Rango extremo · 2&sigma;', '&plusmn;' + (pct1 * 2).toFixed(1) + '%',
+               `$${VC_PX.format(b2.lower)} &ndash; $${VC_PX.format(b2.upper)} &middot; 95%`)}
+      </div>`;
+}
+
 /** Dibuja la gráfica de Víctor dentro de `containerId`, desde el payload de
  *  /api/projection-targets. `horizon` es 10 | 20 | 30.
  *
@@ -4336,6 +4369,7 @@ function renderVictorProjChart(containerId, d, horizon) {
     }
 
     cont.innerHTML = `<svg width="100%" height="${height}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" style="display:block">${parts.join('')}</svg>`
+        + vcMovEsperadoHTML(geo, sigma1, sigma2, spot, horizon)
         + `<p class="chart-cite">US$/acción · histórico sólido · proyección punteada dentro del cono 1σ/2σ · simulación ilustrativa, no exacta — motor de Víctor (Tito)</p>`;
 
     // Su `ChartCrosshair`: la cruz que sigue al cursor con el tooltip de la
@@ -4881,7 +4915,14 @@ function vcSubagentesHTML(d) {
                              : c.spread.avg_pct <= 5 ? 'aceptable' : 'ancho')
                            + (c.spread.wide_count ? ` · ${c.spread.wide_count} anchos` : ''))}
                ${_vcMetric('Dominancia', Number(c.dominance.dominant_pct).toFixed(0) + '%',
-                           c.dominance.points, c.dominance.side === 'ask' ? 'lado compra' : 'lado venta')}
+                           // Su pista es el REPARTO, no el lado: «63% compra ·
+                           // 37% venta». Con «lado compra» a secas, un 51/49 y
+                           // un 90/10 se leen igual — y son cosas muy
+                           // distintas. Los dos porcentajes ya viajaban en la
+                           // respuesta; solo no se pintaban.
+                           c.dominance.ask_pct == null
+                             ? (c.dominance.side === 'ask' ? 'lado compra' : 'lado venta')
+                             : `${Number(c.dominance.ask_pct).toFixed(0)}% compra · ${Number(c.dominance.bid_pct).toFixed(0)}% venta`)}
                ${_vcMetric('Fuerza de ejecución',
                            c.execution.avg_raw == null ? tot + ' trades'
                              : Number(c.execution.avg_raw).toFixed(1),
@@ -4902,7 +4943,7 @@ function vcSubagentesHTML(d) {
                ${VC_UNU_PARAMS.map(([k, lbl, hint]) =>
                    _vcMetric(lbl, p[k] == null ? '—' : Number(p[k]).toFixed(1), null, hint)).join('')}
              </div>
-             <p class="text-[9px] text-gray-600 mt-1.5 leading-snug">Cada trade se puntúa en 6 parámetros (columnas <b>Tam · Δ · Θ · Γ · Leg · Venc</b>) y el promedio da su puntaje <b>Inusual</b>. ${u.unusual_count} de ${u.n} trades superan el umbral institucional (&ge;7/30) &mdash; son las filas resaltadas de la cinta. Promedio por par&aacute;metro sobre la ventana de convicci&oacute;n.</p>`));
+             <p class="text-[9px] text-gray-600 mt-1.5 leading-snug">Cada trade se puntúa en 6 parámetros (columnas <b>Tam · Δ · Θ · Γ · Leg · Venc</b>) y el promedio da su puntaje <b>Inusual</b>. ${u.unusual_count} de ${u.n} trades superan el umbral institucional (&ge;7/10). Promedio por par&aacute;metro sobre la ventana de convicci&oacute;n. <b>No</b> son las filas resaltadas de la cinta: aquella se ti&ntilde;e con el otro puntaje, el de 0-30 (tama&ntilde;o + horario + repetici&oacute;n), y son dos conjuntos distintos de trades.</p>`));
     }
 
     // ── 4 · Estructura ─────────────────────────────────────────────────────
@@ -5101,6 +5142,14 @@ function vcMemoryHTML(d) {
         // PRECIO son dos cosas distintas, y con un solo número no se
         // distinguen — «subió como dijo pero se quedó a mitad de camino» es
         // medio acierto, no uno.
+        // Su PRIMERA `mem-stat`, y la que faltaba: cuánto se equivoca. El
+        // sesgo dice hacia DÓNDE falla y este cuánto — un sesgo de +0,2% con
+        // ±14% de error medio es un agente descalibrado que parece calibrado,
+        // porque los fallos hacia arriba y hacia abajo se cancelan al promediar
+        // con signo. Sin este número, el de al lado engaña.
+        m.error_medio_pct != null
+            ? `Error medio del target ±${Number(m.error_medio_pct).toFixed(1)}% sobre ${m.predicciones_vencidas} ${m.predicciones_vencidas === 1 ? 'predicción' : 'predicciones'}`
+            : null,
         m.dir_hit_rate != null
             ? `Acierto de dirección ${Math.round(m.dir_hit_rate)}% — ¿subió/bajó como dijo?` : null,
         m.base_touch_rate != null
@@ -5130,7 +5179,14 @@ function vcMemoryHTML(d) {
             e.error_pct == null ? '—' : (e.error_pct >= 0 ? '+' : '') + Number(e.error_pct).toFixed(1) + '%'}</td>
           <td class="py-0.5 text-gray-600">${e.matured && e.best ? 'acertó ' + BEST[e.best] : ''}</td></tr>`).join('')}
         </tbody></table>`;
-    return `<div class="mt-2"><p class="text-[9px] text-gray-500">🧠 ${bits.map(_vcEsc).join(' · ')}</p>
+    // Cada dato en SU propio `<span>`, y no una frase larga con todo dentro.
+    // No es cosmético: el barrido de idioma traduce nodo de texto a nodo de
+    // texto, así que los nueve datos unidos en uno solo no casaban con nada y
+    // la línea entera se quedaba en español con el panel en inglés. Separados,
+    // cada uno encuentra su patrón — y el separador, que no lleva letras, ni
+    // se mira.
+    return `<div class="mt-2"><p class="text-[9px] text-gray-500">🧠 ${
+        bits.map(b => `<span>${_vcEsc(b)}</span>`).join(' · ')}</p>
       ${alerta.length ? `<p class="text-[9px] text-amber-400">⚠ ${alerta.map(_vcEsc).join(' · ')}</p>` : ''}
       ${tabla}</div>`;
 }
@@ -5714,9 +5770,13 @@ const VC_SENALES = [
 ];
 /** Su `Flags`: las señales que lleva un trade, en el orden en que él las pone. */
 function vcSenalesHTML(t) {
+    // Su tabla pone el NOMBRE de la condición OPRA en el `title` de la columna
+    // y deja el código a la vista. El código solo —"IsoWithSpread"— no dice
+    // nada; el nombre sí, y viajaba en la respuesta sin que nadie lo leyera.
+    const cond = t.condition_name || t.condition_code;
     return VC_SENALES.filter(([k]) => t[k]).map(([k, etq, col, tip]) =>
         `<span class="text-[8px] font-bold ${col}" title="${_vcEsc(
-            k === 'multileg' && t.condition_code ? `${tip} (${t.condition_code})` : tip
+            k === 'multileg' && cond ? `${tip} — ${cond}` : tip
         )}">${_vcEsc(etq)}</span>`).join(' ');
 }
 
@@ -10919,6 +10979,11 @@ const VX_ES2EN = {
     "Volatilidad estirada": "Stretched volatility",
     "Volatilidad normal": "Normal volatility",
     "Dominancia": "Dominance",
+    "Rango extremo · 2σ": "Extreme range · 2σ",
+    "calibración en espera": "calibration on hold",
+    "suele apuntar bajo": "it usually aims low",
+    "suele apuntar alto": "it usually aims high",
+    "bien calibrado": "well calibrated",
     "Posicionamiento muy claro": "Very clear positioning",
     "Posicionamiento claro": "Clear positioning",
     "Posicionamiento moderado": "Moderate positioning",
@@ -11375,7 +11440,6 @@ const VX_ES2EN = {
     "Soportes — suelos por debajo del precio": "Supports — floors below the price",
     "con antigüedad suficiente para evaluar.": "old enough to be evaluated.",
     "niveles, escenarios y el backtest del 6": "levels, scenarios and sub-agent 6's backtest",
-    "son trades con puntaje inusual (≥7/30).": "are trades with an unusual score (≥7/30).",
     "📏 Niveles de precio — dónde está parado": "📏 Price levels — where it stands",
     "= γ+ estabiliza (frena el movimiento),": "= γ+ stabilises (dampens the move),",
     "Condición OPRA de estrategia combinada": "OPRA condition for a combined strategy",
@@ -11884,6 +11948,49 @@ const VX_ES2EN = {
  * cada valor sería una entrada distinta. Van aquí, con `$1`, `$2`… en el
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
+    // ── La línea de memoria del tab de Proyecciones ──────────────────────
+    //
+    // Sus nueve datos llevan números dentro, así que ninguno cabe en el
+    // diccionario: van por patrón, y por eso cada uno se pinta en su propio
+    // `<span>` (unidos en una sola frase no casaban con nada y la línea entera
+    // se quedaba en español).
+    [/^(\d+) días de IV · rank REAL activo$/, '$1 days of IV · REAL rank active'],
+    [/^(\d+) días de IV \(rank real en (\d+)\)$/,
+     '$1 days of IV (real rank at $2)'],
+    [/^(\d+)\/(\d+) flows utilizables$/, '$1/$2 usable flows'],
+    [/^desde (\S+)$/, 'since $1'],
+    [/^(\d+) predicciones vencidas$/, '$1 matured predictions'],
+    // Las TRES frases de sesgo, una a una: un patrón con `(.+)` captura la
+    // frase y la devuelve tal cual, así que «suele apuntar alto» se quedaba en
+    // español dentro de una línea ya traducida. Los patrones no traducen lo
+    // que capturan — por eso aquí se enumeran.
+    [/^calibración ACTIVA \(sesgo (\S+) — suele apuntar bajo\)$/,
+     'calibration ACTIVE (bias $1 — it usually aims low)'],
+    [/^calibración ACTIVA \(sesgo (\S+) — suele apuntar alto\)$/,
+     'calibration ACTIVE (bias $1 — it usually aims high)'],
+    [/^calibración ACTIVA \(sesgo (\S+) — bien calibrado\)$/,
+     'calibration ACTIVE (bias $1 — well calibrated)'],
+    [/^Error medio del target ±(\S+) sobre (\d+) predicciones$/,
+     'Mean target error ±$1 over $2 predictions'],
+    [/^Error medio del target ±(\S+) sobre (\d+) predicción$/,
+     'Mean target error ±$1 over $2 prediction'],
+    [/^Acierto de dirección (\d+)% — ¿subió\/bajó como dijo\?$/,
+     'Direction hit rate $1% — did it go up/down as it said?'],
+    [/^Tocó el target base (\d+)% — llegó al precio previsto$/,
+     'Touched the base target $1% — it reached the expected price'],
+    [/^(\d+) filas corruptas en disco$/, '$1 corrupt rows on disk'],
+    [/^(\d+) flows sin id \(se funden en uno\)$/,
+     '$1 flows without an id (they merge into one)'],
+    // ── El movimiento esperado, bajo la gráfica ──────────────────────────
+    [/^Movimiento esperado · 1σ · (\d+)d$/, 'Expected move · 1σ · $1d'],
+    [/^(\S+) – (\S+) · 68% de los escenarios$/, '$1 – $2 · 68% of scenarios'],
+    // ── La pista de Dominancia, en Convicción ────────────────────────────
+    [/^(\S+)% compra · (\S+)% venta$/, '$1% buy · $2% sell'],
+    // El corte de la cinta ya no es un 7 escrito a mano: lo sirve el motor
+    // (`unusual_cut`), así que la frase lleva el número dentro y necesita
+    // patrón en vez de clave fija.
+    [/^son trades con puntaje inusual \(≥(\d+)\/30\)\.$/,
+     'are trades with an unusual score (≥$1/30).'],
     [/^NO se está guardando · (\d+) en riesgo$/, 'NOT being saved · $1 at risk'],
     [/^⚠ TUS DATOS ESTÁN EN RIESGO: hay (\d+) archivo\(s\) sin subir\. Si el servidor se reinicia ahora, las cuentas y los reportes que no hayan subido desaparecen\.$/,
      '⚠ YOUR DATA IS AT RISK: there are $1 file(s) not uploaded. If the server restarts now, the accounts and reports that have not been uploaded disappear.'],
