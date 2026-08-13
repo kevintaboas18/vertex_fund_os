@@ -1,9 +1,15 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 980c72b (cierre del servicio · 2026-08-13T04:00:32+00:00)
 {"ticker":"AAPL","updatedAt":"2026-08-13T03:51:44.857Z","snapshots":[{"date":"2026-08-12","savedAt":"2026-08-13T03:51:44.857Z","spot":302.25,"horizonDays":10,"bear":300.0,"base":310.0,"bull":320.0,"direction":"up","confidence":57.0},{"date":"2026-08-12","savedAt":"2026-08-13T03:51:44.857Z","spot":302.25,"horizonDays":20,"bear":300.0,"base":310.0,"bull":320.0,"direction":"up","confidence":54.0},{"date":"2026-08-12","savedAt":"2026-08-13T03:51:44.857Z","spot":302.25,"horizonDays":30,"bear":285.0,"base":310.0,"bull":320.0,"direction":"up","confidence":53.0},{"date":"2026-08-11","savedAt":"2026-08-11T14:39:22.736Z","spot":306.415,"horizonDays":30,"bear":300.0,"base":320.0,"bull":341.08254044965946,"direction":"up","confidence":56.0}]}
 =======
 {"ticker":"AAPL","updatedAt":"2026-08-12T14:14:43.268Z","snapshots":[{"date":"2026-08-12","savedAt":"2026-08-12T14:14:43.268Z","spot":303.265,"horizonDays":10,"bear":300.0,"base":310.0,"bull":320.0,"direction":"up","confidence":58.0},{"date":"2026-08-12","savedAt":"2026-08-12T14:14:43.268Z","spot":303.265,"horizonDays":20,"bear":300.0,"base":310.0,"bull":320.0,"direction":"up","confidence":56.0},{"date":"2026-08-12","savedAt":"2026-08-12T14:14:43.268Z","spot":303.265,"horizonDays":30,"bear":285.0,"base":310.0,"bull":320.0,"direction":"up","confidence":54.0},{"date":"2026-08-11","savedAt":"2026-08-11T14:39:22.736Z","spot":306.415,"horizonDays":30,"bear":300.0,"base":320.0,"bull":341.08254044965946,"direction":"up","confidence":56.0}]}
 >>>>>>> e1d112c (datos del agente · 2026-08-13T03:52:00+00:00)
+<<<<<<< HEAD
 =======
 {"ticker":"AAPL","updatedAt":"2026-08-13T03:51:44.857Z","snapshots":[{"date":"2026-08-12","savedAt":"2026-08-13T03:51:44.857Z","spot":302.25,"horizonDays":10,"bear":300.0,"base":310.0,"bull":320.0,"direction":"up","confidence":57.0},{"date":"2026-08-12","savedAt":"2026-08-13T03:51:44.857Z","spot":302.25,"horizonDays":20,"bear":300.0,"base":310.0,"bull":320.0,"direction":"up","confidence":54.0},{"date":"2026-08-12","savedAt":"2026-08-13T03:51:44.857Z","spot":302.25,"horizonDays":30,"bear":285.0,"base":310.0,"bull":320.0,"direction":"up","confidence":53.0},{"date":"2026-08-11","savedAt":"2026-08-11T14:39:22.736Z","spot":306.415,"horizonDays":30,"bear":300.0,"base":320.0,"bull":341.08254044965946,"direction":"up","confidence":56.0}]}
 >>>>>>> a5cf5f1 (cierre del servicio · 2026-08-13T03:56:55+00:00)
+=======
+>>>>>>> 980c72b (cierre del servicio · 2026-08-13T04:00:32+00:00)
