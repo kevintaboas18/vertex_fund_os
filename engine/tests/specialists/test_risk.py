@@ -733,14 +733,37 @@ def test_un_REIT_conserva_las_tres_porque_su_adaptador_manda_lo_contrario():
         assert by_id[mid].state != "NOT_APPLICABLE", mid
 
 
-def test_una_aseguradora_va_con_el_banco():
-    out = risk.run(_minimal_packet(
-        [_row(2025, ebit=10.0, interest_expense=40.0),
-         _row(2024, ebit=10.0, interest_expense=38.0)],
-        industry_adapter="insurers"))
-    icov = next(r for r in out.metrics if r.metric_id == "RSK-ICOV-011")
-    assert icov.state == "NOT_APPLICABLE"
-    assert risk.SOLVENCY_WARNING not in out.mandatory_flags
+def test_una_aseguradora_NO_va_con_el_banco():
+    """La primera version metia aqui a las aseguradoras y estaba mal.
+
+    Un banco y una aseguradora comparten que el ROIC no les aplica, y NO
+    comparten como se financian: la aseguradora cobra primas --el float-- y
+    lo que pide prestado es deuda corporativa corriente. Su cobertura da
+    numeros normales, no rotos:
+
+        bancos        JPM 0,74   BAC 0,48   COF 0,14
+        aseguradoras  PGR 51,2   UNH 4,7    CI 6,6     (KO da 8,3)
+
+    `INDUSTRY_ADAPTERS.md` dice lo mismo: la prohibicion explicita esta bajo
+    **Banks** y bajo nadie mas. Suprimirla costaba una metrica que funciona
+    en 65 empresas del mercado, UnitedHealth incluida.
+    """
+    rows = [_row(2025, interest_expense=40.0), _row(2024, interest_expense=38.0)]
+    out = risk.run(_minimal_packet(rows, industry_adapter="insurers"))
+    by_id = {r.metric_id: r for r in out.metrics}
+    for mid in ("RSK-ICOV-011", "RSK-FCC-012", "RSK-ND-013"):
+        assert by_id[mid].state != "NOT_APPLICABLE", mid
+
+
+def test_a_la_aseguradora_SI_se_le_reemplaza_el_ROIC():
+    """Lo que si comparte con el banco, y que INDUSTRY_ADAPTERS.md nombra
+    para las dos: "Use ROE...". Son dos preguntas distintas y por eso hay
+    dos predicados."""
+    from wbj.core import adapters
+
+    assert adapters.replaces_return_model("insurers") is True
+    assert adapters.cost_of_funds_is_interest("insurers") is False
+    assert adapters.cost_of_funds_is_interest("banks") is True
 
 
 def test_una_empresa_normal_con_cobertura_baja_sigue_disparando_la_alarma():

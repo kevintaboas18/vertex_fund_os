@@ -1532,7 +1532,7 @@ def _compute_all(
     # adaptadores; aqui se lee del packet directamente en vez de mover aquel,
     # que arrastra media funcion.
     _adaptador_aqui = packet.analysis.industry_adapter
-    if _adapters.replaces_return_model(_adaptador_aqui):
+    if _adapters.cost_of_funds_is_interest(_adaptador_aqui):
         # El mismo motivo que en risk.py RSK-ICOV-011: para un banco el gasto
         # por intereses es su costo de fondeo, no una carga de deuda, y la
         # tabla de anclas de DECISION_RULES.md se declara "default
