@@ -3685,3 +3685,70 @@ class TestLaProbabilidadDeTocarElNivel:
         cuerpo = html[i:html.index("\nfunction ", i + 10)]
         assert "l.touch" in cuerpo, "la columna no lee el dato"
         assert "P(toque)" in cuerpo, "la columna no tiene cabecera"
+
+
+class TestLasIndustriasEstanEscritasDOSVecesYCUADRAN:
+    """La tabla de industrias vive en dos sitios, y es a propósito.
+
+    En `engine/wbj/sectores.py` porque el servidor decide qué tickers bajar, y
+    en el panel porque pulsar XLK tiene que enseñar sus cinco industrias AL
+    INSTANTE, con sus nombres, sin esperar a nadie: es una lista que no cambia
+    nunca y hacerla viajar dejaba la pantalla medio segundo en blanco.
+
+    Duplicar es una decisión, no un descuido — pero solo se sostiene si algo
+    vigila que las dos copias no se separen. Esto es ese algo: tocar una y no
+    la otra hace fallar el test.
+    """
+
+    @staticmethod
+    def _tabla_del_panel():
+        import json
+        import pathlib
+        import re
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        crudo = html.split("const VX_INDUSTRIAS = {", 1)[1].split("\n};", 1)[0]
+        salida = {}
+        for sector, cuerpo in re.findall(r"(\w+):\s*\[(.*?)\],\s*$", crudo, re.M):
+            salida[sector] = [tuple(x) for x in
+                              json.loads("[" + cuerpo.replace("'", '"') + "]")]
+        return salida
+
+    @staticmethod
+    def _nombres_del_panel():
+        import pathlib
+        import re
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        crudo = html.split("const VX_SECTOR_NOMBRE = {", 1)[1].split("\n};", 1)[0]
+        return dict(re.findall(r"(\w+):\s*'([^']+)'", crudo))
+
+    def test_los_mismos_sectores_en_las_dos(self):
+        from wbj.sectores import INDUSTRIAS, SECTORES
+
+        panel = self._tabla_del_panel()
+        assert set(panel) == {t for t, _ in SECTORES}, (
+            f"el panel declara {sorted(panel)} y el motor {sorted(t for t, _ in SECTORES)}")
+        # `XLU` está en las dos con la lista vacía: el sector existe y no tiene
+        # desglose honesto, que no es lo mismo que no existir.
+        for sector in panel:
+            assert list(panel[sector]) == list(INDUSTRIAS.get(sector, ())), (
+                f"{sector}: el panel dice {panel[sector]} y el motor "
+                f"{INDUSTRIAS.get(sector, ())}")
+
+    def test_los_nombres_de_sector_tambien_cuadran(self):
+        from wbj.sectores import SECTORES
+
+        assert self._nombres_del_panel() == dict(SECTORES)
+
+    def test_el_panel_no_se_inventa_una_industria_que_el_motor_no_baja(self):
+        """Si el panel escribe un ticker que el servidor no pide, esa fila se
+        queda en puntos suspensivos para siempre y nadie sabría por qué."""
+        from wbj.sectores import INDUSTRIAS
+
+        del_motor = {t for filas in INDUSTRIAS.values() for t, _ in filas}
+        del_panel = {t for filas in self._tabla_del_panel().values() for t, _ in filas}
+        assert del_panel - del_motor == set(), (
+            f"el panel enseña {sorted(del_panel - del_motor)} y el motor no los baja")
+        assert del_motor - del_panel == set(), (
+            f"el motor baja {sorted(del_motor - del_panel)} y el panel no los enseña")

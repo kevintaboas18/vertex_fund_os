@@ -906,3 +906,136 @@ class TestTodoLoDelEscritorioSeAlcanzaEnElMOVIL:
             assert not errores, errores[:3]
         finally:
             pg.close()
+
+
+class TestElSectorSeAbreComoSECCION:
+    """«Que si presiono XLK ya esté escrito todo y solo extraiga los números.»
+
+    Dos cosas en una. La primera es de navegación: XLK abre su propia sección
+    con `Dashboard › XLK` arriba, no un despliegue debajo de la parrilla.
+
+    La segunda es la que se nota: los tickers y los nombres de las industrias
+    NO se piden. Están escritos en el panel, porque no cambian nunca, así que
+    la sección aparece entera al instante y solo los números viajan. Antes la
+    lista empezaba con «Leyendo las industrias de…» y se quedaba un segundo
+    largo en blanco esperando a saber algo que ya sabíamos.
+    """
+
+    _CAMBIOS = {"1D": 0.5, "7D": 1.0, "1M": 2.0, "3M": 3.0, "6M": 4.0, "1A": 5.0}
+
+    @classmethod
+    def _fila(cls, t, n="—"):
+        return {"ticker": t, "nombre": n, "precio": 100.0, "cambio_pct": 0.5,
+                "rsi": 50.0, "sma200": 95.0, "sma200_dist": 5.26,
+                "cambios": dict(cls._CAMBIOS)}
+
+    @classmethod
+    def _parrilla(cls):
+        secs = ["XLK", "XLF", "XLV", "XLY", "XLC", "XLI",
+                "XLP", "XLE", "XLU", "XLRE", "XLB"]
+        return {"ok": True, "etf": "", "cacheado": False,
+                "referencias": ["SPY", "RSP", "QQQ"], "sectores": secs,
+                "filas": [cls._fila(t, t) for t in ["SPY", "RSP", "QQQ"] + secs],
+                "rotacion": {"disponible": False, "motivo": ""}}
+
+    def _abre(self, navegador, servidor, matar_industrias=False):
+        pg = navegador.new_page(viewport={"width": 390, "height": 844})
+        errores: list[str] = []
+        pg.on("pageerror", lambda e: errores.append(str(e)))
+
+        def enruta(r):
+            # El orden de `route` no decide: se mira la URL dentro. Playwright
+            # da prioridad a la ÚLTIMA registrada, y con dos rutas la genérica
+            # se comía la del sector.
+            if "etf=" in r.request.url:
+                if matar_industrias:
+                    r.abort()
+                else:
+                    r.fulfill(status=200, json={
+                        "ok": True, "etf": "XLK", "nombre": "Tecnología",
+                        "filas": [self._fila("SMH", "Semiconductores"),
+                                  self._fila("IGV", "Software")]})
+            else:
+                r.fulfill(status=200, json=self._parrilla())
+
+        pg.route("**/api/sectores*", enruta)
+        pg.goto(servidor, wait_until="load")
+        pg.wait_for_timeout(2400)
+        pg.evaluate("switchView('sectorsView')")
+        pg.wait_for_timeout(1200)
+        return pg, errores
+
+    def test_XLK_abre_su_propia_seccion_y_esconde_la_parrilla(self, navegador,
+                                                              servidor):
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            pg.evaluate("abreSector('XLK')")
+            pg.wait_for_timeout(900)
+            d = pg.evaluate("""() => ({
+                seccion: !document.getElementById('sectorView').classList.contains('hidden'),
+                parrilla: !document.getElementById('sectorsView').classList.contains('hidden'),
+                miga: document.querySelector('#sectorView nav').innerText,
+                cabecera: document.getElementById('sectorCabecera').innerText,
+            })""")
+            assert d["seccion"], "XLK no abrió su sección"
+            assert not d["parrilla"], "la parrilla tiene que quedarse detrás"
+            assert "XLK" in d["miga"], d["miga"]
+            assert "XLK" in d["cabecera"], d["cabecera"]
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_la_miga_devuelve_al_Dashboard(self, navegador, servidor):
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            pg.evaluate("abreSector('XLE')")
+            pg.wait_for_timeout(800)
+            pg.click("#sectorView nav button")
+            pg.wait_for_timeout(800)
+            d = pg.evaluate("""() => ({
+                parrilla: !document.getElementById('sectorsView').classList.contains('hidden'),
+                seccion: !document.getElementById('sectorView').classList.contains('hidden'),
+            })""")
+            assert d["parrilla"] and not d["seccion"], d
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_las_industrias_salen_AUNQUE_el_servidor_no_conteste(self, navegador,
+                                                                 servidor):
+        """La prueba de que no se espera a nadie: se TUMBA la petición.
+
+        Una pausa no serviría — el driver síncrono la cuenta antes de devolver
+        el control y el test se engañaría solo. Con la petición muerta, si los
+        nombres están, es que nunca dependieron de ella.
+        """
+        pg, errores = self._abre(navegador, servidor, matar_industrias=True)
+        try:
+            pg.evaluate("abreSector('XLK')")
+            pg.wait_for_timeout(1200)
+            filas = pg.evaluate(
+                "() => [...document.querySelectorAll('#sectorIndustrias [data-ind]')]"
+                ".map(x => x.innerText.replace(/\\n/g, ' '))")
+            assert len(filas) == 5, f"XLK tiene 5 industrias, salieron {len(filas)}"
+            texto = " ".join(filas)
+            for esperado in ("SMH", "IGV", "CIBR", "SKYY", "XSD"):
+                assert esperado in texto, f"falta {esperado}: {texto}"
+            assert "Semiconductores" in texto and "Software" in texto
+            assert "···" in texto, (
+                "los números tendrían que quedarse en puntos suspensivos")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_un_sector_sin_desglose_lo_dice_en_su_seccion(self, navegador,
+                                                          servidor):
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            pg.evaluate("abreSector('XLU')")
+            pg.wait_for_timeout(800)
+            txt = pg.evaluate("() => document.getElementById('sectorIndustrias').innerText")
+            assert txt.strip(), "ni lista ni motivo: la sección se queda muda"
+            assert "desglose" in txt, txt
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
