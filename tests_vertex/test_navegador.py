@@ -588,3 +588,136 @@ class TestElRangoPorPosicionSeEntiende:
             assert not errores, errores[:3]
         finally:
             pg.close()
+
+
+class TestNoSeAnalizaSinElegirEmpresa:
+    """«No quiero que me aparezca correr análisis sin yo elegir una acción.»
+
+    Tecleando "AAPL" salían DOS cosas a la vez: la lista de empresas arriba y,
+    500 ms después, la ficha con el precio y el botón «Correr el análisis»
+    debajo. Mientras leías la lista para elegir, ya tenías bajo el cursor un
+    botón que analizaba lo que hubiera escrito —una empresa que nunca elegiste—.
+
+    El orden que se pidió es el de un buscador: escribes, eliges, y SOLO
+    entonces aparece la acción con su precio y la opción de analizarla.
+    """
+
+    _SUG = {"q": "AAPL", "resultados": [
+        {"ticker": "AAPL", "nombre": "Apple Inc.", "bolsa": "NASDAQ"},
+        {"ticker": "AAP", "nombre": "Advance Auto Parts", "bolsa": "NYSE"}]}
+    _QUOTE = {"ticker": "AAPL", "nombre_completo": "Apple Inc.",
+              "precio": "302.25", "cambio_pct": -0.87, "volumen": "38.82M",
+              "vwap": "302.83", "high": "305.66", "low": "300.57",
+              "fuente": "fmp", "logo_url": ""}
+
+    def _abre(self, navegador, servidor):
+        pg, errores = _abre(navegador, servidor)
+        pg.route("**/api/search*", lambda r: r.fulfill(status=200, json=self._SUG))
+        pg.route("**/api/quote*", lambda r: r.fulfill(status=200, json=self._QUOTE))
+        pg.route("**/api/tito-logo*", lambda r: r.fulfill(
+            status=200, content_type="image/svg+xml",
+            body='<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8">'
+                 '<circle cx="4" cy="4" r="3" fill="#3b82f6"/></svg>'))
+        pg.evaluate("switchView('homeView')")
+        return pg, errores
+
+    @staticmethod
+    def _estado(pg):
+        return pg.evaluate("""() => ({
+            sugerencias: !document.getElementById('tickerSuggest')
+                            .classList.contains('hidden'),
+            n_sug: document.querySelectorAll('#tickerSuggest .sugg').length,
+            ficha: !document.getElementById('previewCard').classList.contains('hidden'),
+            ticker: (document.getElementById('previewTicker') || {}).innerText,
+            precio: (document.getElementById('previewPrice') || {}).innerText,
+            logo: (document.getElementById('previewLogo') || {}).innerHTML,
+        })""")
+
+    def test_tecleando_salen_las_empresas_pero_no_el_boton_de_analizar(
+            self, navegador, servidor):
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            pg.fill("#tickerInput", "AAPL")
+            pg.dispatch_event("#tickerInput", "keyup")
+            pg.wait_for_timeout(1500)          # más que los 500 ms de antes
+            d = self._estado(pg)
+            assert d["sugerencias"] and d["n_sug"] == 2, d
+            assert not d["ficha"], (
+                "la ficha con el botón «Correr el análisis» salió sin elegir")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_al_elegir_sale_la_accion_con_su_precio_y_su_logo(
+            self, navegador, servidor):
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            pg.fill("#tickerInput", "AAPL")
+            pg.dispatch_event("#tickerInput", "keyup")
+            pg.wait_for_timeout(900)
+            pg.evaluate("pickSuggest(0)")
+            pg.wait_for_timeout(1200)
+            d = self._estado(pg)
+            assert d["ficha"], "elegir una empresa no enseñó su ficha"
+            assert "AAPL" in (d["ticker"] or ""), d
+            assert "302.25" in (d["precio"] or ""), d
+            assert not d["sugerencias"], "la lista se quedó abierta"
+            assert "tito-logo" in (d["logo"] or ""), (
+                "el logo no sale de nuestro servidor: " + (d["logo"] or "")[:120])
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_enter_elige_la_primera_en_vez_de_lanzar_el_analisis(
+            self, navegador, servidor):
+        """Enter con la lista abierta era «analiza ya»; ahora es «elijo esta»."""
+        pg, errores = self._abre(navegador, servidor)
+        lanzados = []
+        pg.route("**/api/analyze*", lambda r: (lanzados.append(r.request.url),
+                                               r.fulfill(status=200, json={})))
+        try:
+            pg.fill("#tickerInput", "AAPL")
+            pg.dispatch_event("#tickerInput", "keyup")
+            pg.wait_for_timeout(900)
+            pg.press("#tickerInput", "Enter")
+            pg.wait_for_timeout(1200)
+            d = self._estado(pg)
+            assert d["ficha"] and "AAPL" in (d["ticker"] or ""), d
+            assert not lanzados, f"Enter lanzó el análisis solo: {lanzados}"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+
+class TestElLogoSaleEnLasTresAreas:
+    """El logo roto de la captura: Analyze pedía a `logo.clearbit.com`.
+
+    Ese tercero cerró su API gratuita, así que el `<img>` daba 404 y quedaba el
+    recuadro vacío. Proyecciones no se enteró porque siempre pidió a
+    `/api/tito-logo`, que lo sirve nuestro propio servidor. Ahora las tres áreas
+    —Analyze, Proyecciones y los reportes— pasan por la misma función.
+    """
+
+    def test_ninguna_area_pide_el_logo_a_un_tercero(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        vivos = [ln for ln in html.splitlines()
+                 if "clearbit" in ln and not ln.lstrip().startswith("*")]
+        assert not vivos, f"queda una petición a un tercero: {vivos[:2]}"
+
+    def test_hay_iniciales_de_repuesto_cuando_no_existe_el_logo(self, navegador,
+                                                               servidor):
+        """Un ticker sin logo devuelve 404: sin repuesto quedaría un hueco."""
+        pg, errores = _abre(navegador, servidor)
+        try:
+            d = pg.evaluate("""() => {
+                const c = document.createElement('div');
+                c.innerHTML = vxLogoHTML('WULF');
+                const img = c.querySelector('img');
+                img.dispatchEvent(new Event('error'));
+                return {html: c.innerHTML.trim(), texto: c.innerText.trim()};
+            }""")
+            assert "<img" not in d["html"], d
+            assert d["texto"] == "WU", d
+            assert not errores, errores[:3]
+        finally:
+            pg.close()

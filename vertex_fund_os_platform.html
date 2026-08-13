@@ -854,9 +854,7 @@
         <div id="previewCard" class="w-full bg-[#11141D] border border-panel rounded-2xl p-6 mb-8 hidden">
             <div class="flex justify-between items-start mb-6">
                 <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-xl bg-gray-800 border border-gray-700 overflow-hidden flex items-center justify-center">
-                        <img id="previewLogo" src="" alt="logo" class="w-full h-full object-contain">
-                    </div>
+                    <div id="previewLogo" class="flex items-center justify-center"></div>
                     <div>
                         <div class="flex items-center gap-2">
                             <h3 id="previewTicker" class="text-xl font-bold text-white tracking-wide"></h3>
@@ -1001,7 +999,7 @@
     <div class="bg-panel border border-panel p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div class="flex items-center gap-4">
             <div class="w-14 h-14 rounded-xl bg-[#0B0E14] border border-panel overflow-hidden flex-shrink-0 flex items-center justify-center">
-                <img id="dashLogo" src="" alt="logo" class="w-full h-full object-contain">
+                <span id="dashLogo" class="w-full h-full flex items-center justify-center"></span>
             </div>
             <div>
                 <div class="flex items-center gap-2 flex-wrap">
@@ -1617,6 +1615,28 @@ function setQuoteHint(msg) {
     if (msg) { el.innerText = msg; el.classList.remove('hidden'); }
     else { el.innerText = ''; el.classList.add('hidden'); }
 }
+/** El logo de una empresa, con las iniciales de repuesto.
+ *
+ *  UN solo sitio para las tres áreas —Analyze, Proyecciones y los reportes—
+ *  porque antes cada una lo resolvía a su manera y solo una funcionaba:
+ *  Proyecciones pedía `/api/tito-logo`, que lo sirve NUESTRO servidor, mientras
+ *  que Analyze apuntaba a `logo.clearbit.com`, un tercero que cerró su API
+ *  gratuita. El resultado era el icono roto de la captura.
+ *
+ *  `onerror` no es adorno: un ticker sin logo devuelve 404 y sin esto se
+ *  quedaría el recuadro vacío. Con las iniciales, la ficha se lee igual.
+ */
+function vxLogoHTML(ticker, clases) {
+    const tk = String(ticker || '').toUpperCase();
+    const ini = _vcEsc(tk.slice(0, 2) || '?');
+    const c = clases || 'w-12 h-12 rounded-xl';
+    const caja = `${c} bg-white/10 flex items-center justify-center text-sm font-black text-gray-300 flex-shrink-0`;
+    if (!tk) return `<div class="${caja}">?</div>`;
+    return `<img src="${API_BASE}/api/tito-logo?ticker=${encodeURIComponent(tk)}"
+        alt="Logo de ${ini}" class="${c} object-contain bg-white/90 p-1 flex-shrink-0"
+        onerror="this.onerror=null;this.outerHTML='<div class=\\'${caja}\\'>${ini}</div>'">`;
+}
+
 // ── AUTOCOMPLETADO ───────────────────────────────────────
 // Escribes "A" y salen AAPL, AMZN, AMD con su nombre. El backend ordena por
 // market cap real, no alfabeticamente, porque alfabeticamente lo primero son
@@ -1655,8 +1675,17 @@ function navSuggest(e) {
     const abierto = !document.getElementById('tickerSuggest').classList.contains('hidden');
     if (e.key === 'Escape') { hideSuggest(); return; }
     if (e.key === 'Enter') {
-        if (abierto && suggestIdx >= 0) { e.preventDefault(); pickSuggest(suggestIdx); }
-        else { hideSuggest(); ejecutarAnalisisAPI(); }
+        e.preventDefault();
+        // Enter elige: la primera de la lista si no has bajado con las flechas.
+        // Antes lanzaba el análisis directamente, que es justo lo que se pidió
+        // que no pasara sin elegir una empresa.
+        if (abierto && suggestItems.length) {
+            pickSuggest(suggestIdx >= 0 ? suggestIdx : 0);
+        } else {
+            hideSuggest();
+            const val = document.getElementById('tickerInput').value.trim();
+            if (val) fetchQuote(val);      // enseña la ficha; analizar lo decides tú
+        }
         return;
     }
     if (!abierto || !suggestItems.length) return;
@@ -1690,7 +1719,15 @@ function debounceQuoteFetch() {
         setQuoteHint(''); hideSuggest(); return;
     }
     suggestTimer = setTimeout(() => fetchSuggest(val), 160);
-    debounceTimer = setTimeout(() => fetchQuote(val), 500);
+    // La ficha con el precio y el botón «Correr el análisis» NO sale por
+    // teclear. Salía a los 500 ms, así que mientras elegías entre las empresas
+    // de la lista ya tenías debajo la ficha de otra y un botón para analizarla
+    // — se podía lanzar un análisis sin haber elegido nada.
+    //
+    // Ahora aparece SOLO al elegir (clic o Enter sobre una sugerencia), que es
+    // lo que se pidió: eliges, sale la acción con su precio, y entonces
+    // decides si la analizas.
+    document.getElementById('previewCard').classList.add('hidden');
 }
 
 document.addEventListener('click', (e) => {
@@ -1708,7 +1745,7 @@ async function fetchQuote(ticker) {
         }
         setQuoteHint('');
         const d = await res.json();
-        document.getElementById('previewLogo').src = d.logo_url;
+        document.getElementById('previewLogo').innerHTML = vxLogoHTML(d.ticker);
         document.getElementById('previewTicker').innerText = d.ticker;
         document.getElementById('previewName').innerText = d.nombre_completo;
         document.getElementById('previewPrice').innerText = `$${d.precio}`;
@@ -2051,7 +2088,7 @@ function renderDashboard(data) {
     const rc = recClass(a.recommendation);
 
     // Header
-    document.getElementById('dashLogo').src = data.logo_url;
+    document.getElementById('dashLogo').innerHTML = vxLogoHTML(data.ticker);
     document.getElementById('dashHeaderTitle').innerText = `${data.ticker} — ${data.nombre_completo}`;
     document.getElementById('dashAnalysisTime').innerText = `Report ID: ${data.report_id || data.fecha_analisis}  ·  ${data.fecha_analisis}` + (data.precio_fuente ? `  ·  precio vía ${data.precio_fuente}${data.precio_as_of ? ' @ ' + data.precio_as_of : ''}` : '');
     document.getElementById('dashBreadcrumb').innerText = `${data.ticker} · ${data.fecha_analisis}`;
@@ -6871,7 +6908,7 @@ function renderFullReportsList() {
     let html = '';
     Object.entries(groups).forEach(([ticker, reps]) => {
         html += `<div class="mb-5"><div class="flex items-center gap-2 mb-2 px-1">
-            <img src="${reps[0].logo_url}" class="w-6 h-6 rounded object-contain bg-gray-900" onerror="this.style.display='none'">
+            ${vxLogoHTML(ticker, 'w-6 h-6 rounded')}
             <span class="text-xs font-bold text-white">${ticker}</span>
             <span class="text-[10px] text-gray-500">${reps[0].nombre_completo||''}</span>
             <span class="text-[10px] text-blue-500 font-mono ml-auto">${reps.length} report${reps.length>1?'s':''}</span>
@@ -6891,9 +6928,7 @@ function reportRowHTML(r) {
     const upside = a.upside_pct ? `+${(+a.upside_pct).toFixed(1)}%` : pctDiff(r.precio_actual, t12.base);
     const upsideColor = (parseFloat(a.upside_pct)||0) >= 0 ? 'text-blue-400' : 'text-red-400';
     return `<div class="report-row flex items-center gap-3 mb-2" onclick="openReport('${r.report_id}')">
-        <div class="flex-shrink-0 w-9 h-9 rounded-lg bg-gray-900 border border-gray-800 overflow-hidden flex items-center justify-center">
-            <img src="${r.logo_url}" class="w-full h-full object-contain" onerror="this.style.opacity='0'">
-        </div>
+        ${vxLogoHTML(r.ticker, 'w-9 h-9 rounded-lg')}
         <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-sm font-bold text-white">${r.ticker}</span>
@@ -11853,6 +11888,7 @@ const VX_PAT = [
  * colapsado, y lo que no esté aquí se queda como está.
  * ─────────────────────────────────────────────────────────────────────── */
 const VX_EN2ES = {
+    "View all History >": "Ver todo el historial >",
     "Sign In": "Iniciar sesión",
     "Sign in": "Iniciar sesión",
     "Sign out": "Cerrar sesión",
