@@ -138,8 +138,23 @@ CANONICAL_FIELD_MAP: dict[str, str] = {
     "capitalExpenditure": "capex",
     "freeCashFlow": "fcf",
     "acquisitionsNet": "acquisitions_net",
+    # Los nombres de `/stable` van PRIMERO; los de la v3 se conservan para no
+    # romper un payload cacheado. FMP renombro los dos, y como el mapa fallaba
+    # en silencio --la clave no aparece, el campo queda ausente-- nadie se
+    # entero: se descubrio comparando el mapa contra la respuesta real.
+    #
+    # `netDebtIssuance` es el nombre nuevo de `debtRepayment` Y comparte su
+    # convencion: negativo = deuda neta repagada, positivo = deuda nueva. Que
+    # es exactamente lo que `financial.py` documenta al leerlo, asi que la
+    # semantica no cambia. NO se usa `longTermNetDebtIssuance` ni
+    # `shortTermNetDebtIssuance`: son los dos tramos por separado, no el neto.
+    "netDebtIssuance": "debt_repayment",
     "debtRepayment": "debt_repayment",
     "commonStockRepurchased": "common_stock_repurchased",
+    # `netDividendsPaid` incluye los preferentes; `commonDividendsPaid` solo
+    # los comunes. FIN-CF-016 suma "usos de caja", y un dividendo preferente
+    # es caja que sale igual, asi que va el neto.
+    "netDividendsPaid": "dividends_paid",
     "dividendsPaid": "dividends_paid",
     "stockBasedCompensation": "stock_based_compensation",
     # --- additional statement fields (task: fuller FMP statement mapping) --
