@@ -30,7 +30,11 @@ def _capturing_handler(fixture_name, captured):
     """Return a handler that records the request and replies with a fixture."""
 
     def handler(request):
+        # `ohlcv_daily` hace DOS peticiones desde que fusiona el cierre
+        # ajustado por dividendos: la cruda y la ajustada. Guardar solo la
+        # ultima hacia que los asserts miraran la segunda.
         captured["request"] = request
+        captured.setdefault("requests", []).append(request)
         return httpx.Response(200, json=_load_fixture(fixture_name))
 
     return handler
@@ -204,14 +208,24 @@ def test_ohlcv_daily_url_params_and_returns_flat_list(tmp_path):
 
     result = p.ohlcv_daily("NVDA", years=3, today=date(2026, 7, 16))
 
-    req = captured["request"]
-    assert req.url.path == "/stable/historical-price-eod/full"
+    reqs = captured["requests"]
+    # Dos peticiones: la serie cruda (OHLC para gaps y ATR) y la ajustada
+    # por dividendos, que es la unica que trae `adjClose`.
+    assert [r.url.path for r in reqs] == [
+        "/stable/historical-price-eod/full",
+        "/stable/historical-price-eod/dividend-adjusted"]
+    req = reqs[0]
     assert req.url.params.get("symbol") == "NVDA"
     assert req.url.params.get("from") == "2023-07-16"
     assert req.url.params.get("to") == "2026-07-16"
+    # La ventana tiene que ser la MISMA en las dos, o la fusion por fecha
+    # dejaria barras sin ajustar en un extremo.
+    assert reqs[1].url.params.get("from") == reqs[0].url.params.get("from")
+    assert reqs[1].url.params.get("to") == reqs[0].url.params.get("to")
     # /stable/historical-price-eod/full returns a top-level JSON array (not
     # a {"historical": [...]} wrapper); the provider returns it as-is.
-    assert result == _load_fixture("ohlcv_daily")
+    esperado = _load_fixture("ohlcv_daily")
+    assert [r["date"] for r in result] == [r["date"] for r in esperado]
 
 
 def test_ohlcv_daily_default_years_is_3(tmp_path):
@@ -234,7 +248,10 @@ def test_ohlcv_daily_windows_do_not_share_a_cache_entry(tmp_path):
     calls = []
 
     def handler(request):
-        calls.append(request.url.params.get("from"))
+        # Solo la cruda: la ajustada usa su propia clave de cache y aqui lo
+        # que se prueba es que las VENTANAS no se pisen entre si.
+        if request.url.path.endswith("/full"):
+            calls.append(request.url.params.get("from"))
         return httpx.Response(200, json=_load_fixture("ohlcv_daily"))
 
     p = _make_provider(tmp_path, handler)
@@ -451,3 +468,69 @@ def test_key_executives_none_without_api_key(tmp_path):
 
     p = _make_provider(tmp_path, handler, fmp_api_key=None)
     assert p.key_executives("NVDA") is None
+
+
+def test_el_cierre_ajustado_se_fusiona_por_FECHA(tmp_path):
+    """`historical-price-eod/full` no devuelve `adjClose` -- verificado
+    contra la respuesta real de FMP-- asi que `adj_close` caia SIEMPRE al
+    cierre crudo.
+
+    Los splits no eran el problema: el crudo ya viene ajustado (NVDA el
+    2024-06-07, tres dias antes de su split 10:1, cotiza a 120,89 y no a los
+    ~1.208 que valia). Los dividendos si: KO a un ano daba 70,46 crudo
+    contra 68,53 ajustado, un 2,7% que sesgaba momentum y fuerza relativa en
+    contra de quien paga dividendo.
+    """
+    def handler(request):
+        if request.url.path.endswith("/dividend-adjusted"):
+            return httpx.Response(200, json=[
+                {"date": "2026-07-16", "adjClose": 98.0},
+                {"date": "2026-07-15", "adjClose": 97.0},
+            ])
+        return httpx.Response(200, json=[
+            {"date": "2026-07-16", "open": 100.0, "high": 101.0, "low": 99.0,
+             "close": 100.0, "volume": 1},
+            {"date": "2026-07-15", "open": 99.0, "high": 100.0, "low": 98.0,
+             "close": 99.0, "volume": 1},
+        ])
+
+    p = _make_provider(tmp_path, handler)
+    barras = p.ohlcv_daily("KO", years=1, today=date(2026, 7, 16))
+
+    por_fecha = {b["date"]: b for b in barras}
+    assert por_fecha["2026-07-16"]["adjClose"] == 98.0
+    assert por_fecha["2026-07-15"]["adjClose"] == 97.0
+    # El OHLC crudo NO se toca: gaps y ATR se miden sobre el precio al que
+    # la accion cotizo de verdad.
+    assert por_fecha["2026-07-16"]["close"] == 100.0
+    assert por_fecha["2026-07-16"]["high"] == 101.0
+
+
+def test_una_fecha_sin_ajustado_se_queda_sin_adjClose_y_no_se_inventa(tmp_path):
+    def handler(request):
+        if request.url.path.endswith("/dividend-adjusted"):
+            return httpx.Response(200, json=[{"date": "2026-07-16", "adjClose": 98.0}])
+        return httpx.Response(200, json=[
+            {"date": "2026-07-16", "open": 1.0, "high": 1.0, "low": 1.0, "close": 100.0, "volume": 1},
+            {"date": "2026-07-15", "open": 1.0, "high": 1.0, "low": 1.0, "close": 99.0, "volume": 1},
+        ])
+
+    p = _make_provider(tmp_path, handler)
+    por_fecha = {b["date"]: b for b in p.ohlcv_daily("KO", years=1, today=date(2026, 7, 16))}
+    assert por_fecha["2026-07-16"]["adjClose"] == 98.0
+    assert "adjClose" not in por_fecha["2026-07-15"]
+
+
+def test_si_la_serie_ajustada_falla_se_devuelven_las_crudas(tmp_path):
+    """Una serie que no llega no puede costar las barras crudas: el consumidor
+    cae al cierre crudo, que es peor pero no falso."""
+    def handler(request):
+        if request.url.path.endswith("/dividend-adjusted"):
+            return httpx.Response(500)
+        return httpx.Response(200, json=[
+            {"date": "2026-07-16", "open": 1.0, "high": 1.0, "low": 1.0, "close": 100.0, "volume": 1}])
+
+    p = _make_provider(tmp_path, handler)
+    barras = p.ohlcv_daily("KO", years=1, today=date(2026, 7, 16))
+    assert len(barras) == 1
+    assert barras[0]["close"] == 100.0

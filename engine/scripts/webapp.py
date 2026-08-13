@@ -212,7 +212,10 @@ def analyze(ticker: str, lang: str = "en") -> dict:
     result["narrative"] = narrative(packet, result["scorecard"], targets, lang)
     result["brief"] = company_brief(packet, result["scorecard"], targets, lang)
     result["history"] = _history(packet)
-    result["chart"] = price_history(ticker)
+    # La serie ya no viene de Yahoo: se pide a FMP con la misma clave que el
+    # precio. Sin clave devuelve vacio y la grafica no se dibuja, que es
+    # preferible a dibujarla desde una fuente que el sistema no declara.
+    result["chart"] = price_history(ticker, fmp_api_key=settings.fmp_api_key)
     return result
 
 

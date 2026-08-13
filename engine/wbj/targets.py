@@ -18,8 +18,20 @@ import httpx
 from wbj.i18n import L
 
 _FMP_QUOTE_URL = "https://financialmodelingprep.com/stable/quote-short"
-_YAHOO_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{t}"
-_YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh) warren-buffett-jr"}
+_FMP_EOD_URL = "https://financialmodelingprep.com/stable/historical-price-eod/full"
+
+# Yahoo se retiro de las dos funciones de este modulo.
+#
+# `SOURCE_HIERARCHY.md` no lo lista, y la regla de este despliegue es
+# explicita: las fuentes son FMP, FinnHub, FRED y EDGAR, y sin sustituto la
+# metrica queda NOT_SCORABLE con la razon escrita. Yahoo entraba como
+# respaldo SIN CLAVE, asi que un precio podia venir de una fuente no
+# aprobada y nada en el reporte lo decia -- que es la sustitucion silenciosa
+# que el resto del motor pasa el dia entero evitando.
+#
+# Ahora `live_price` devuelve None cuando FMP no contesta (los targets caen a
+# NOT_SCORABLE, que es la respuesta honesta) y `price_history` pide la serie
+# a FMP con la misma clave.
 
 # Scenario definitions: (growth delta vs base, multiple factor, label)
 _SCENARIOS = {
@@ -35,8 +47,11 @@ def live_price(
     fmp_api_key: str | None = None,
     client: httpx.Client | None = None,
 ) -> float | None:
-    """Latest market price. FMP stable API first (key), Yahoo chart fallback
-    (keyless). None on total failure — targets then degrade to NOT_SCORABLE."""
+    """Latest market price, de FMP. None si no llega.
+
+    Sin respaldo a proposito: un precio de una fuente no aprobada, y encima
+    sin decirlo, es peor que no tener precio. Con None los targets caen a
+    NOT_SCORABLE, que es lo que manda la politica de datos."""
     own = client is None
     client = client or httpx.Client(timeout=8.0)
     try:
@@ -49,19 +64,7 @@ def live_price(
                         return float(rows[0]["price"])
             except (httpx.HTTPError, ValueError):
                 pass
-        try:
-            r = client.get(
-                _YAHOO_URL.format(t=ticker.upper()),
-                params={"range": "1d", "interval": "1d"},
-                headers=_YAHOO_HEADERS,
-            )
-            if r.status_code != 200:
-                return None
-            meta = r.json()["chart"]["result"][0]["meta"]
-            price = meta.get("regularMarketPrice")
-            return float(price) if isinstance(price, (int, float)) else None
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-            return None
+        return None
     finally:
         if own:
             client.close()
@@ -130,30 +133,41 @@ def price_targets(packet: dict, price: float | None, lang: str = "en") -> dict:
 
 def price_history(
     ticker: str,
+    fmp_api_key: str | None = None,
     client: httpx.Client | None = None,
 ) -> list[dict]:
-    """Daily closes for the last year (Yahoo, keyless) for the chart:
-    [{"time": "YYYY-MM-DD", "value": close}, ...]. Empty list on failure."""
-    from datetime import datetime, timezone
+    """Daily closes for the last year, de FMP, para la grafica:
+    [{"time": "YYYY-MM-DD", "value": close}, ...]. Lista vacia si no llega.
 
+    Era Yahoo sin clave. Ahora pide la misma serie EOD que ya usa el packet,
+    con la clave de FMP: sin clave devuelve vacio y la grafica no se dibuja,
+    que es preferible a dibujarla con datos de una fuente que este sistema no
+    declara."""
+    from datetime import date, timedelta
+
+    if not fmp_api_key:
+        return []
     own = client is None
     client = client or httpx.Client(timeout=8.0)
     try:
-        r = client.get(
-            _YAHOO_URL.format(t=ticker.upper()),
-            params={"range": "1y", "interval": "1d"},
-            headers=_YAHOO_HEADERS,
-        )
+        hoy = date.today()
+        r = client.get(_FMP_EOD_URL, params={
+            "symbol": ticker.upper(), "apikey": fmp_api_key,
+            "from": (hoy - timedelta(days=370)).isoformat(), "to": hoy.isoformat()})
         if r.status_code != 200:
             return []
-        result = r.json()["chart"]["result"][0]
-        stamps = result.get("timestamp") or []
-        closes = result["indicators"]["quote"][0].get("close") or []
+        filas = r.json()
+        if isinstance(filas, dict):
+            filas = filas.get("historical") or []
         out = []
-        for ts, c in zip(stamps, closes):
-            if isinstance(c, (int, float)):
-                day = datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat()
-                out.append({"time": day, "value": round(float(c), 2)})
+        for f in filas if isinstance(filas, list) else []:
+            if not isinstance(f, dict):
+                continue
+            c = f.get("close")
+            if isinstance(c, (int, float)) and f.get("date"):
+                out.append({"time": str(f["date"])[:10], "value": round(float(c), 2)})
+        # FMP entrega de mas nueva a mas vieja; la grafica se lee al reves.
+        out.sort(key=lambda x: x["time"])
         return out
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
         return []

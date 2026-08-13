@@ -21,6 +21,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from wbj.providers.base import Provider
 
 BASE_URL = "https://financialmodelingprep.com/stable"
@@ -165,12 +169,33 @@ class FMPProvider(Provider):
     def ohlcv_daily(
         self, t: str, years: int = 3, today: date | None = None
     ) -> list | None:
-        """Split/dividend-adjusted daily EOD bars for the past `years` years.
+        """Daily EOD bars for the past `years` years, ajustadas de verdad.
 
         `/stable/historical-price-eod/full` returns a flat list of
         `{symbol, date, open, high, low, close, volume, ...}` (newest
         first). `today` anchors the window and must be supplied by the
         caller so this stays deterministic under test.
+
+        Ese endpoint NO devuelve `adjClose`, y el docstring decia
+        "Split/dividend-adjusted" siendo falso a medias. Medido contra la
+        respuesta real:
+
+        - Splits: SI vienen ajustados en el cierre crudo. NVDA el
+          2024-06-07, tres dias antes de su split 10:1, cotiza a 120,89 y no
+          a los ~1.208 que valia. Nunca hubo roturas de serie.
+        - Dividendos: NO. KO a un ano daba 70,46 crudo contra 68,53
+          ajustado -- un 2,7%, exactamente su dividendo. Eso sesgaba momentum
+          y fuerza relativa EN CONTRA de quien paga dividendo.
+
+        Por eso se pide tambien `historical-price-eod/dividend-adjusted` y se
+        fusiona su `adjClose` por fecha. Hacen falta las dos series y no
+        vale quedarse con la segunda: trae el OHLC ajustado pero el motor
+        necesita el CRUDO para gaps y ATR, que se miden sobre el precio al
+        que la accion cotizo de verdad.
+
+        Si la segunda peticion falla, se devuelven las barras crudas sin
+        `adjClose` y se deja dicho en el log: el consumidor cae al cierre
+        crudo, que es peor pero no falso -- lo falso seria callarlo.
 
         The cache key carries `years`. It used to be a bare
         "ohlcv_daily", so the 1-year MVP fetch (`cli.py`) and the 3-year
@@ -189,12 +214,45 @@ class FMPProvider(Provider):
             self._params(symbol=t, **{"from": from_date.isoformat(), "to": today.isoformat()}),
             f"ohlcv_daily_{years}y", t, max_age_days=_MAX_AGE_OHLCV,
         )
+        barras = None
         if isinstance(payload, list):
-            return payload
-        # Some plans wrap the series; tolerate both shapes.
-        if isinstance(payload, dict):
-            return payload.get("historical")
-        return None
+            barras = payload
+        elif isinstance(payload, dict):
+            # Some plans wrap the series; tolerate both shapes.
+            barras = payload.get("historical")
+        if not barras:
+            return barras
+
+        try:
+            ajust = self.get_json(
+                f"{BASE_URL}/historical-price-eod/dividend-adjusted",
+                self._params(symbol=t, **{"from": from_date.isoformat(),
+                                          "to": today.isoformat()}),
+                f"ohlcv_adj_{years}y", t, max_age_days=_MAX_AGE_OHLCV,
+            )
+            filas = ajust if isinstance(ajust, list) else (
+                (ajust or {}).get("historical") if isinstance(ajust, dict) else None)
+            por_fecha = {r["date"]: r.get("adjClose") for r in (filas or [])
+                         if isinstance(r, dict) and r.get("date") is not None}
+            if por_fecha:
+                puestos = 0
+                for b in barras:
+                    if not isinstance(b, dict):
+                        continue
+                    a = por_fecha.get(b.get("date"))
+                    if isinstance(a, (int, float)):
+                        b["adjClose"] = float(a)
+                        puestos += 1
+                logger.debug("%s: adjClose fusionado en %d/%d barras",
+                             t, puestos, len(barras))
+            else:
+                logger.warning("%s: sin serie ajustada por dividendos; "
+                               "adj_close caera al cierre crudo", t)
+        except Exception:                                     # noqa: BLE001
+            # Una serie ajustada que no llega no puede costar las barras
+            # crudas: se sigue con lo que hay y se dice.
+            logger.warning("%s: no se pudo fusionar adjClose", t, exc_info=True)
+        return barras
 
     def peers(self, t: str) -> list | dict | None:
         """Peer tickers for `t`."""

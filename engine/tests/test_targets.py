@@ -69,16 +69,51 @@ def test_live_price_fmp_primary():
     assert live_price("AAPL", fmp_api_key="k", client=c) == 212.5
 
 
-def test_live_price_falls_back_to_yahoo_then_none():
+def test_live_price_NO_cae_a_yahoo_devuelve_None():
+    """Yahoo era el respaldo SIN CLAVE de esta funcion, y por ahi podia
+    entrar un precio de una fuente que este sistema no declara -- sin que
+    nada en el reporte lo dijera.
+
+    `SOURCE_HIERARCHY.md` no lista Yahoo, y la regla del despliegue es que
+    las fuentes son FMP, FinnHub, FRED y EDGAR: sin sustituto, NOT_SCORABLE
+    con la razon escrita. Un None aqui hace que los targets caigan a
+    NOT_SCORABLE, que es exactamente eso.
+    """
     calls = []
+
     def handler(request):
         calls.append(request.url.host)
         if "financialmodelingprep" in request.url.host:
             return httpx.Response(403)
-        return httpx.Response(200, json={"chart": {"result": [{"meta": {"regularMarketPrice": 74.35}}]}})
+        raise AssertionError(f"se llamo a una fuente no aprobada: {request.url.host}")
+
     c = httpx.Client(transport=httpx.MockTransport(handler))
-    assert live_price("NFLX", fmp_api_key="k", client=c) == 74.35
-    assert len(calls) == 2  # FMP tried first, then Yahoo
+    assert live_price("NFLX", fmp_api_key="k", client=c) is None
+    assert calls == ["financialmodelingprep.com"], "solo FMP, y una vez"
 
     dead = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
     assert live_price("NFLX", fmp_api_key=None, client=dead) is None
+
+
+def test_la_serie_de_la_grafica_tambien_es_de_FMP():
+    """`price_history` era Yahoo sin clave. Sin clave ahora devuelve vacio:
+    no se dibuja, que es preferible a dibujar desde una fuente no declarada.
+    """
+    from wbj.targets import price_history
+
+    def handler(request):
+        assert "financialmodelingprep" in request.url.host, (
+            f"fuente no aprobada: {request.url.host}")
+        return httpx.Response(200, json=[
+            {"date": "2026-08-12", "close": 101.5},
+            {"date": "2026-08-11", "close": 100.0},
+        ])
+
+    c = httpx.Client(transport=httpx.MockTransport(handler))
+    filas = price_history("NFLX", fmp_api_key="k", client=c)
+    assert [f["time"] for f in filas] == ["2026-08-11", "2026-08-12"], (
+        "FMP entrega de mas nueva a mas vieja; la grafica se lee al reves")
+    assert filas[-1]["value"] == 101.5
+
+    muerto = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
+    assert price_history("NFLX", fmp_api_key=None, client=muerto) == []
