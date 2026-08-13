@@ -772,3 +772,24 @@ def test_una_empresa_normal_con_cobertura_baja_sigue_disparando_la_alarma():
             _row(2024, ebit=10.0, interest_expense=38.0)]
     out = risk.run(_minimal_packet(rows))          # default_nonfinancial
     assert risk.SOLVENCY_WARNING in out.mandatory_flags
+
+
+def test_una_casa_de_bolsa_no_recibe_una_lectura_de_quiebra_del_Altman():
+    """El Z'' lee un balance de casa de bolsa --capital de trabajo ajeno--
+    como insolvencia. GS daba -0,30 y SCHW -1,98 estando sanas."""
+    rows = [_row(2025, retained_earnings=500.0), _row(2024)]
+    out = risk.run(_minimal_packet(rows, industry_adapter="broker_dealers"),
+                   overlay={"retained_earnings": 500.0})
+    by_id = {r.metric_id: r for r in out.metrics}
+    for mid in ("RSK-MSCR-029", "RSK-ALT-030", "RSK-PIO-031"):
+        assert by_id[mid].state == NullState.NOT_APPLICABLE, mid
+
+
+def test_pero_conserva_la_cobertura_de_intereses():
+    """No es un banco: 7 de 17 del SIC 6211 bajo 1,5x, mediana 2,47. Quitarsela
+    a BLK (11,2x) o SCHW (3,05x) seria suprimir una metrica que funciona."""
+    rows = [_row(2025, interest_expense=40.0), _row(2024, interest_expense=38.0)]
+    out = risk.run(_minimal_packet(rows, industry_adapter="broker_dealers"))
+    icov = next(r for r in out.metrics if r.metric_id == "RSK-ICOV-011")
+    assert icov.value is not None
+    assert icov.state is None

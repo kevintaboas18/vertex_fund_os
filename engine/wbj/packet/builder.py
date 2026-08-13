@@ -266,7 +266,25 @@ _ADAPTER_BY_SECTOR: tuple[tuple[str, str], ...] = (
 #: ingenieria. Se cambia donde se midio el fallo, no donde se puede.
 _ADAPTER_BY_SIC: tuple[tuple[range, str], ...] = (
     # 6021 nacional, 6022 estatal, 6035/6036 cajas de ahorro.
+    #
+    # Medido sobre las 290 acciones del sector financiero del mercado, y son
+    # el unico grupo homogeneo: 6021 37/40 por debajo de 1,5x de cobertura,
+    # 6022 44/48, 6035 6/6, 6036 2/2, con medianas de 0,73 / 0,82 / 0,44 /
+    # 0,37. No es que esos bancos esten mal -- es que la formula no mide nada
+    # en ellos. El rango cubre exactamente esos cuatro.
     (range(6020, 6037), "banks"),
+    # 6211 "Security Brokers, Dealers & Flotation Companies": la casa de
+    # bolsa. NO va con los bancos, y el dato es la razon -- 7 de 17 por
+    # debajo de 1,5x, mediana 2,47: el codigo mezcla mesas de trading (GS
+    # 0,33, MS 0,45) con corredores (IBKR 2,09, SCHW 3,05) y gestoras (BLK
+    # 11,20). Tratarlo como un banco suprimiria una metrica que funciona en
+    # la mayoria, que es el error que ya se cometio una vez con las
+    # aseguradoras.
+    #
+    # Va a un adaptador que a proposito NO se registra en ninguno de los tres
+    # tratamientos de INDUSTRY_ADAPTERS.md -- ver `broker_dealers` en
+    # `core/adapters.py`.
+    (range(6211, 6212), "broker_dealers"),
     # Aseguradoras que SUSCRIBEN: vida, salud, incendio/maritimo/danos,
     # fianzas, titulos. 6411 (agentes y corredores) queda fuera a proposito.
     (range(6310, 6400), "insurers"),
