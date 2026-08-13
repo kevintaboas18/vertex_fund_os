@@ -166,23 +166,73 @@ def _fila(packet, key="risk"):
     return next(r for r in quick_scorecard(packet)["categories"] if r["key"] == key)
 
 
-def test_un_banco_no_se_puntua_con_las_anclas_industriales():
-    """Deuda/patrimonio 9x y cobertura 0,4x: con las anclas de un industrial
-    eso es un cero redondo. Medido antes de esto, JPM sacaba 0,0 de 10 en
-    riesgo -- y un banco esta apalancado POR DISENO, su interes es costo de
-    fondeo.
+def test_a_un_banco_se_le_retira_la_COBERTURA_pero_NO_el_apalancamiento():
+    """La primera version retiro las DOS y era pasarse.
 
-    Es el mismo fallo que el motor profundo ya corrigio; `quick.py` nunca lo
-    recibio.
+    Medido: la deuda/patrimonio de JPM es 0,74 y puntua 7,04/10 -- MEJOR que
+    Coca-Cola (1,11 -> 5,67) y que Apple (1,06 -> 5,82). El apalancamiento de
+    un banco no vive en `long_term_debt`, vive en los DEPOSITOS, y EDGAR no
+    los mete en esa etiqueta: ese ratio mide deuda corporativa corriente y
+    significa lo de siempre. El cero de JPM salia entero de la cobertura.
+
+    Retirar una metrica que funciona es el mismo error que puntuar una que no
+    aplica, solo que en la otra direccion.
     """
-    industrial = _fila(_packet_riesgo("default_nonfinancial"))
-    banco = _fila(_packet_riesgo("banks"))
+    from wbj.quick import quick_scorecard
 
-    # Con el mismo balance, el industrial arrastra el cero de solvencia y el
-    # banco no: ahi no se le cobra por estar apalancado.
-    assert banco["score10"] > industrial["score10"], (
-        f"banco {banco['score10']} deberia superar al industrial "
-        f"{industrial['score10']}: su solvencia no aplica, no vale cero")
+    pk = _packet_riesgo("banks")
+    filas = {r["key"]: r for r in quick_scorecard(pk)["categories"]}
+    assert filas["risk"]["status"] == "scored"
+    # El apalancamiento sigue puntuando: con D/E 9x este packet da bajo, pero
+    # da -- no queda fuera.
+    assert filas["risk"]["score10"] is not None
+
+
+def test_al_banco_se_le_retira_el_FCF_porque_el_Cerebro_lo_dice():
+    """INDUSTRY_ADAPTERS.md, Banks: "Do not use enterprise-value/EBITDA,
+    net-debt/EBITDA, or conventional FCFF". Con todas las letras, y solo bajo
+    Banks.
+
+    No es una laguna de datos: JPM y BAC no etiquetan capex porque un banco no
+    tiene ciclo de reinversion en activo fijo. Dejarlo MISSING lo mantenia en
+    el denominador y hundia la categoria a la mitad.
+    """
+    banco = _fila(_packet_riesgo("banks"))
+    ind = _fila(_packet_riesgo("default_nonfinancial"))
+    assert banco["coverage"] == 1.0, (
+        "lo aplicable esta cubierto: ni la cobertura ni el FCF cuentan como hueco")
+    assert ind["coverage"] == 1.0
+
+
+def test_a_una_casa_de_bolsa_NO_se_le_retira_el_apalancamiento():
+    """Aunque su balance parezca de banco. El SIC 6211 va de SEIC 0,00 y
+    RJF 0,10 a MS 3,06: no es una clase, igual que no lo era para la
+    cobertura de intereses. Retirarselo a las nueve sanas para tapar a GS
+    seria el error de las aseguradoras otra vez."""
+    from wbj.core import adapters
+
+    assert adapters.cost_of_funds_is_interest("broker_dealers") is False
+    casa = _fila(_packet_riesgo("broker_dealers"))
+    ind = _fila(_packet_riesgo("default_nonfinancial"))
+    assert casa["score10"] == ind["score10"]
+
+
+def test_el_cero_de_JPM_venia_de_la_COBERTURA_y_ya_no():
+    """JPM sacaba 0,0 de 10 en riesgo. Ese cero salia entero de la cobertura
+    de intereses (0,4x): su apalancamiento real es 0,74 y puntua 7,04.
+
+    Con la cobertura y el FCF retirados y el apalancamiento intacto, un banco
+    con deuda/patrimonio NORMAL --0,74, el de JPM-- puntua bien. Antes ese
+    mismo banco sacaba cero.
+    """
+    from wbj.quick import quick_scorecard
+
+    pk = _packet_riesgo("banks")
+    # D/E 0,74 como JPM: patrimonio 100, deuda 74.
+    pk["annual"]["long_term_debt"] = [{"end": "2025-12-31", "val": 74.0}]
+    fila = next(r for r in quick_scorecard(pk)["categories"] if r["key"] == "risk")
+    assert fila["score10"] > 6.0, (
+        f"un banco con apalancamiento corriente no puede sacar {fila['score10']}")
 
 
 def test_no_aplica_SALE_del_denominador_y_no_hunde_la_cobertura():
@@ -212,12 +262,15 @@ def test_una_aseguradora_NO_entra_aqui():
 
 
 def test_una_fila_sin_puntaje_no_dice_que_esta_puntuada():
-    """El `status` se decidia por si la categoria se habia construido, no por
-    si HABIA puntaje: un banco salia con status "scored" y score10 None."""
-    sin_caja = _packet_riesgo("banks")
-    sin_caja["annual"]["capex"] = []          # los bancos no etiquetan capex
-    sin_caja["annual"]["operating_cash_flow"] = []
-    fila = _fila(sin_caja)
+    """El `status` se decidia por si la categoria se habia CONSTRUIDO, no por
+    si habia puntaje: salia "scored" con score10 None, que es justo lo que la
+    interfaz no sabe pintar."""
+    sin_nada = _packet_riesgo("banks")
+    # Sin patrimonio no hay apalancamiento, y al banco ya no le aplican ni la
+    # cobertura ni el FCF: no queda una sola metrica.
+    sin_nada["annual"]["equity"] = []
+    sin_nada["annual"]["long_term_debt"] = []
+    fila = _fila(sin_nada)
     assert fila["score10"] is None
     assert fila["status"] == "not_scorable"
     assert fila.get("reason"), "y tiene que decir POR QUE"

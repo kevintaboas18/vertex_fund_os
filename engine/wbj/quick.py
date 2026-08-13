@@ -321,29 +321,45 @@ def quick_scorecard(packet: dict, lang: str = "en") -> dict:
                                                 _scored(roe, _A_ROE)]),
         ]),
         "risk": Category(name="risk", max_points=15.0, dimensions=[
-            # Un banco esta apalancado POR DISENO y su gasto por intereses es
-            # su costo de fondeo, no una carga: con las anclas industriales
-            # sacaba deuda/patrimonio 0 y cobertura 0, y la categoria entera
-            # se hundia. Medido antes de esto: JPM 0,0 de 10 en riesgo.
+            # SOLO la cobertura de intereses, no el apalancamiento.
             #
-            # Es el mismo fallo que el motor profundo ya corrigio --no se le
-            # cobra a una empresa por no tener el problema que la metrica
-            # mide-- y `quick.py` nunca lo recibio. Se reusa el MISMO
-            # predicado, `cost_of_funds_is_interest`, que es solo bancos: una
-            # aseguradora cobra primas y pide prestado como cualquiera, y su
-            # cobertura significa lo de siempre (PGR 51x, UNH 4,7x).
+            # La primera version marco las DOS y era pasarse. Medido:
+            # deuda/patrimonio de JPM es 0,74 y puntua 7,04/10 -- MEJOR que
+            # Coca-Cola (1,11 -> 5,67) y que Apple (1,06 -> 5,82). El
+            # apalancamiento de un banco no vive en `long_term_debt`, vive en
+            # los DEPOSITOS, y EDGAR no los mete en esa etiqueta. Asi que ese
+            # ratio mide deuda corporativa corriente y significa lo de
+            # siempre. El cero de JPM salia entero de la cobertura (0,4x).
             #
-            # NOT_APPLICABLE y no cero: `Dimension.applicable_weight` lo saca
-            # del denominador y reescala. Un cero diria que el banco esta mal.
-            _dim("Solvency", 7.5, ([_scored(d_e, _A_DEBT_EQUITY),
-                                    _scored(coverage, _A_INT_COVERAGE)]
-                                   if not _interes_es_costo
-                                   else [Value.null(NullState.NOT_APPLICABLE, unit="score",
-                                                    warnings=["LEVERAGE_NOT_APPLICABLE_BANK_ADAPTER"]),
-                                         Value.null(NullState.NOT_APPLICABLE, unit="score",
-                                                    warnings=["INTEREST_COVERAGE_NOT_APPLICABLE_BANK_ADAPTER"])])),
-            _dim("Cash generation", 7.5, [_scored(fcf_positive, [(0.0, 2.0), (1.0, 10.0)]),
-                                          _scored(fcf_margin, _A_FCF_MARGIN)]),
+            # Retirar una metrica que funciona es el mismo error que puntuar
+            # una que no aplica, solo que en la otra direccion.
+            #
+            # Tampoco se retira para las casas de bolsa, aunque su balance
+            # parezca de banco: el SIC 6211 va de SEIC 0,00 y RJF 0,10 a MS
+            # 3,06 -- no es una clase, igual que no lo era para la cobertura.
+            _dim("Solvency", 7.5, [
+                _scored(d_e, _A_DEBT_EQUITY),
+                _scored(coverage, _A_INT_COVERAGE) if not _interes_es_costo
+                else Value.null(NullState.NOT_APPLICABLE, unit="score",
+                                warnings=["INTEREST_COVERAGE_NOT_APPLICABLE_BANK_ADAPTER"]),
+            ]),
+            # El flujo de caja libre tampoco: INDUSTRY_ADAPTERS.md, Banks --
+            # "Do not use enterprise-value/EBITDA, net-debt/EBITDA, or
+            # conventional FCFF". Con todas las letras, y solo bajo Banks.
+            #
+            # No es una laguna de datos: JPM y BAC no etiquetan capex porque
+            # un banco no tiene ciclo de reinversion en activo fijo. Dejarlo
+            # como MISSING lo mantenia en el denominador y hundia la
+            # categoria a la mitad -- JPM salia 3,5 teniendo 7,04 en lo unico
+            # que si le aplica.
+            _dim("Cash generation", 7.5, (
+                [_scored(fcf_positive, [(0.0, 2.0), (1.0, 10.0)]),
+                 _scored(fcf_margin, _A_FCF_MARGIN)]
+                if not _interes_es_costo
+                else [Value.null(NullState.NOT_APPLICABLE, unit="score",
+                                 warnings=["FCF_NOT_APPLICABLE_BANK_ADAPTER"]),
+                      Value.null(NullState.NOT_APPLICABLE, unit="score",
+                                 warnings=["FCF_MARGIN_NOT_APPLICABLE_BANK_ADAPTER"])])),
         ]),
     }
 
