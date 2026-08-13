@@ -55,6 +55,27 @@ MODEL_NORMALIZING: frozenset[str] = frozenset({"commodities_cyclicals"})
 #: inventada como un número sin fuente.
 RETURN_MODEL_REPLACED: frozenset[str] = frozenset({"banks", "insurers"})
 
+#: Adaptadores donde el gasto por intereses ES el costo de la materia prima,
+#: no una carga de deuda -- y por eso EBIT/intereses no mide nada.
+#:
+#: SOLO bancos, y la diferencia con `RETURN_MODEL_REPLACED` no es un detalle.
+#: `INDUSTRY_ADAPTERS.md` pone la prohibicion explicita --"Do not use
+#: enterprise-value/EBITDA, net-debt/EBITDA, or conventional FCFF"-- bajo
+#: **Banks** y bajo nadie mas. A las aseguradoras el documento solo les dice
+#: que USEN ROE, combined ratio, reserve development y solvency capital: dice
+#: que anadir, nunca que retirar la cobertura.
+#:
+#: Y el dato dice lo mismo. Una aseguradora se financia con PRIMAS --el
+#: float-- no con deuda; lo que pide prestado es deuda corporativa corriente:
+#:
+#:   bancos        JPM 0,74   BAC 0,48   COF 0,14   <- roto por construccion
+#:   aseguradoras  PGR 51,2   UNH 4,7    CI 6,6     <- normal (KO da 8,3)
+#:
+#: Este set nacio como `RETURN_MODEL_REPLACED` reutilizado por comodidad, y
+#: suprimia una metrica que funciona en 65 empresas, UnitedHealth incluida.
+#: Lo destapo el barrido del mercado entero, no los 12 tickers de siempre.
+COST_OF_FUNDS_IS_INTEREST: frozenset[str] = frozenset({"banks"})
+
 #: Adapters that only add metrics. Nothing about the core formulas
 #: changes, so no caveat and no confidence penalty.
 MODEL_ADDITIVE: frozenset[str] = frozenset({DEFAULT_ADAPTER, "saas_subscriptions"})
@@ -87,6 +108,19 @@ def replaces_return_model(adapter: str | None) -> bool:
     `is_subscription_business`, no en quien pregunta.
     """
     return (adapter or "").strip().lower() in RETURN_MODEL_REPLACED
+
+
+def cost_of_funds_is_interest(adapter: str | None) -> bool:
+    """True cuando el gasto por intereses es la materia prima del negocio.
+
+    Distinto de `replaces_return_model`, a proposito: un banco y una
+    aseguradora comparten que el ROIC no les aplica, y NO comparten como se
+    financian. El banco toma depositos --el interes es su costo de ventas--;
+    la aseguradora cobra primas y pide prestado como cualquiera.
+
+    Ver `COST_OF_FUNDS_IS_INTEREST` para la cita del Cerebro y las cifras.
+    """
+    return (adapter or "").strip().lower() in COST_OF_FUNDS_IS_INTEREST
 
 
 def replaces_model(adapter: str | None) -> bool:

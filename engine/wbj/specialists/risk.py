@@ -1102,13 +1102,25 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     # ahi sale una alarma obligatoria falsa en cada banco del mercado.
     #
     # Es la misma familia del ROIC: no se le cobra a una empresa por no tener
-    # el problema que la metrica mide. Por eso reusa el mismo predicado
-    # (`replaces_return_model` = bancos + aseguradoras) y NO alcanza a REITs ni
-    # biotech: un REIT si paga intereses sobre deuda de verdad, y su adaptador
-    # manda usar "net debt/EBITDAre", asi que conserva las tres.
-    _reemplaza_retorno = _adapters.replaces_return_model(packet.analysis.industry_adapter)
+    # el problema que la metrica mide.
+    #
+    # El predicado es `cost_of_funds_is_interest` -- SOLO bancos-- y no
+    # `replaces_return_model`, que ademas trae aseguradoras. La primera version
+    # reuso ese por comodidad y estaba mal: un banco y una aseguradora
+    # comparten que el ROIC no les aplica, y NO comparten como se financian.
+    # La aseguradora cobra primas --el float-- y lo que pide prestado es deuda
+    # corporativa corriente, asi que su cobertura significa lo de siempre:
+    # UNH 4,7x, CI 6,6x, PGR 51,2x, del mismo orden que los 8,3x de Coca-Cola.
+    # `INDUSTRY_ADAPTERS.md` dice lo mismo: la prohibicion explicita esta bajo
+    # **Banks** y bajo nadie mas; a las aseguradoras solo les dice que USEN
+    # ROE, combined ratio y solvency capital -- que anadir, nunca que retirar.
+    #
+    # Tampoco alcanza a REITs ni biotech: un REIT paga intereses sobre deuda
+    # de verdad y su adaptador manda usar "net debt/EBITDAre".
+    _interes_es_costo_de_ventas = _adapters.cost_of_funds_is_interest(
+        packet.analysis.industry_adapter)
 
-    if _reemplaza_retorno:
+    if _interes_es_costo_de_ventas:
         v_icov = _null(NullState.NOT_APPLICABLE, "ratio",
                        "INTEREST_COVERAGE_NOT_APPLICABLE_FINANCIAL_ADAPTER")
         assumptions.append(
@@ -1147,15 +1159,15 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
     # imputar. Afirma lo que si es evidenciable -- que el chequeo no se pudo
     # correr-- y solo cuando hay deuda que cubrir. Sin deuda no hay interes
     # que cubrir y el silencio es la respuesta correcta.
-    # `not _reemplaza_retorno`: en un banco el chequeo no es que no se pudo
+    # `not _interes_es_costo_de_ventas`: en un banco el chequeo no es que no se pudo
     # correr, es que no aplica. Avisar ahi seria cambiar una alarma falsa por
     # un aviso falso.
-    if (not _reemplaza_retorno and not v_icov.is_valid
+    if (not _interes_es_costo_de_ventas and not v_icov.is_valid
             and debt_t is not None and debt_t > 0):
         mandatory_warnings.append(SOLVENCY_NOT_EVALUATED)
 
     lease_charge = overlay_float(overlay, "lease_charge", 0.0)
-    if _reemplaza_retorno:
+    if _interes_es_costo_de_ventas:
         # Misma frase de EBIT sobre intereses que RSK-ICOV-011, mas el
         # arrendamiento. Si el denominador no aplica, la variante tampoco.
         v_fcc = _null(NullState.NOT_APPLICABLE, "ratio",
@@ -1176,7 +1188,7 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> RiskOutput:
         da_t = _num(latest, "depreciation_and_amortization")
         ebitda_t = ebit + da_t if ebit is not None and da_t is not None else None
     net_debt_nd = (debt_t or 0.0) - (cash_t or 0.0) if debt_t is not None else None
-    if _reemplaza_retorno:
+    if _interes_es_costo_de_ventas:
         # La unica de las tres que el Cerebro nombra con todas las letras:
         # INDUSTRY_ADAPTERS.md, Banks -- "Do not use enterprise-value/EBITDA,
         # net-debt/EBITDA, or conventional FCFF". Un banco no tiene "deuda
