@@ -793,3 +793,24 @@ def test_pero_conserva_la_cobertura_de_intereses():
     icov = next(r for r in out.metrics if r.metric_id == "RSK-ICOV-011")
     assert icov.value is not None
     assert icov.state is None
+
+
+def test_la_doble_senal_del_umbral_llega_TAMBIEN_a_risk():
+    """`RSK-CUST-017` fallaba en 9 de 12 tickers leyendo el MISMO hecho del
+    MISMO filing que `BUS-HHI-004` ya resolvia.
+
+    `risk.py` tenia la rama correcta desde antes --`_sin_cliente_sobre_el_
+    umbral`-- y esperaba el booleano `no_customer_above_threshold`. El overlay
+    escribia la cota para business y no levantaba la bandera: dos metricas
+    gemelas discrepando por una llave.
+    """
+    rows = [_row(2025), _row(2024)]
+    sin = risk.run(_minimal_packet(rows))
+    con = risk.run(_minimal_packet(rows), overlay={"no_customer_above_threshold": True})
+
+    m_sin = next(r for r in sin.metrics if r.metric_id == "RSK-CUST-017")
+    m_con = next(r for r in con.metrics if r.metric_id == "RSK-CUST-017")
+    assert m_sin.state == NullState.MISSING
+    # NOT_APPLICABLE, no un cero: no tener concentracion no es un hueco.
+    assert m_con.state == NullState.NOT_APPLICABLE
+    assert con.coverage > sin.coverage

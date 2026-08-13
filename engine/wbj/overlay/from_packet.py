@@ -2089,6 +2089,19 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
                         overlay["largest_customer_share"] = _UMBRAL_DIVULGACION
                         # Si toda cuota <= 0,10 y suman 1, HHI <= 0,10.
                         overlay["customer_hhi_upper_bound"] = _UMBRAL_DIVULGACION
+                        # Y la bandera que RISK ya sabia leer.
+                        #
+                        # `risk.py` tenia desde antes la rama correcta --
+                        # `_sin_cliente_sobre_el_umbral`, con su comentario
+                        # explicando que cobrar como MISSING el NO tener
+                        # concentracion es al reves de lo que la dimension
+                        # mide-- y esperaba este booleano. La doble senal
+                        # escribia la cota para business y no levantaba la
+                        # bandera, asi que RSK-CUST-017 seguia en MISSING en
+                        # 9 de 12 tickers leyendo el MISMO hecho del MISMO
+                        # filing. Dos metricas gemelas discrepando por una
+                        # llave.
+                        overlay["no_customer_above_threshold"] = True
                         overlay["customer_concentration_bound"] = {
                             "tipo": "cota_superior",
                             "confirmado_por": sin["confirmado_por"],
