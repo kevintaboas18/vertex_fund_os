@@ -6174,6 +6174,58 @@ carpeta de un ticker acabaría mezclando los dos y ninguna búsqueda posterior
 encontraría la mitad. Un solo idioma en el archivo, el de la pantalla en la
 pantalla.
 
+## 41.50 · Ronda 24 — el respaldo atascado, el vaivén que congelaba, y un rótulo que mentía
+
+**1. El respaldo llevaba parado desde el 13 de agosto.** El panel decía
+«Respaldo con errores · 18 archivos sin subir», y decía la verdad:
+
+```
+git commit: error: Committing is not possible because you have unmerged files.
+fatal: Exiting because of an unresolved conflict.
+```
+
+La causa: cuando el `push` se rechaza porque otro proceso escribió antes, el
+código traía lo del remoto y hacía `rebase` **con el error tolerado**. Un rebase
+que choca no deja las cosas como estaban: deja archivos sin fusionar. Desde ese
+momento **todo** commit muere, y como nadie entra a ese directorio a mano, se
+queda así para siempre. Un fallo de un ciclo se convertía en el fallo de todos
+los siguientes.
+
+Ahora: `_sanea()` corre al principio de cada ciclo y deshace lo que haya quedado
+a medias (rebase, merge o cherry-pick), el rebase lleva `-X theirs` —dentro de un
+rebase «theirs» son los commits que se reaplican, o sea los nuestros— y si aun
+así falla, se aborta y se junta por `merge -X ours`. En los choques manda el
+disco: es el dato que el agente acaba de escribir.
+
+El test reproduce el atasco con dos ramas que tocan la misma línea —no con
+`rebase HEAD~n`, que según la versión de git se resuelve solo y entonces el test
+no vigila nada— y comprueba que el archivo nuevo **llega al remoto**.
+
+**2. Cambiar de idioma y volver dejaba 131 cadenas en español.** Con las tablas
+cargadas, ir y volver una vez bastaba. No era lentitud —20 cambios seguidos van
+a 6 ms de media y no se degradan— sino que la traducción se apagaba.
+
+La guarda de «esto ya lo escribimos nosotros» no llevaba el idioma dentro. Al
+restaurar se guardaba el español como «lo último que pusimos», y al volver a
+inglés la comparación daba igual y el nodo se saltaba la traducción. «Lo que
+pusimos» y «en qué idioma lo pusimos» son dos cosas; compararlas como una sola
+congela el nodo en el idioma en que se tocó por última vez. La marca lleva ahora
+el idioma pegado.
+
+**3. «Capital máximo por trade» enseñaba el riesgo.** Con un perfil de $10.000 y
+un tope por posición del 10–70 %, la tarjeta decía **$3.000** — que es el 30 % de
+riesgo por operación, el mismo número que ya salía en la tarjeta de al lado.
+Aquel dice cuánto puedes PERDER; este, cuánto puedes DESPLEGAR. Ahora hay dos
+tarjetas y cada una dice lo suyo: «Pérdida máxima por trade $3.000» y «Capital
+por posición (10–70 %) $1.000 – $7.000».
+
+**Y una lección de la propia auditoría, cobrada en directo:** el arreglo anterior
+metía un comentario HTML con acentos graves DENTRO de una plantilla de
+JavaScript. Uno solo la cierra, y el bloque entero dejó de definirse —
+`vcRiesgoHTML` y `renderProjIdeas` pasaron a `undefined` y el tab quedó muerto.
+Es exactamente lo que vigila el check «ningún comentario HTML dentro del JS lleva
+acentos graves», escrito la primera vez que pasó.
+
 ### Estado
 
 **2.925 tests del motor · 658 de la capa web (28 en un navegador real) ·

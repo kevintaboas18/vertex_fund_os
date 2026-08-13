@@ -6310,7 +6310,7 @@ function vcRiesgoHTML(P) {
       <div class="flex items-baseline justify-between flex-wrap gap-2">
         <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Tu perfil de riesgo</h3>
         <span class="text-[10px] text-gray-500">Sale de tu cuenta, no de este navegador — el mismo que usan los seis sub-agentes.</span></div>
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-3">
         <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
           <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Tamaño de cuenta</div>
           <div class="text-sm font-black text-gray-100">${fmtMoney(P.capital)}</div></div>
@@ -6318,8 +6318,22 @@ function vcRiesgoHTML(P) {
           <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Riesgo por trade</div>
           <div class="text-sm font-black text-gray-100">${P.riesgo_pct}% <span class="text-[10px] font-normal text-gray-500 capitalize">${_vcEsc(P.tolerancia)}</span></div></div>
         <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
-          <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Capital máximo por trade</div>
+          <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Pérdida máxima por trade</div>
           <div class="text-sm font-black text-emerald-400">${fmtMoney(P.riesgo_por_trade)}</div></div>
+        <!-- El tope POR POSICIÓN. Esta tarjeta decía «Capital máximo por
+             trade» y enseñaba el riesgo por operación, que es lo que puedes
+             PERDER, no lo que puedes DESPLEGAR: repetía en dólares el mismo 30%
+             de la tarjeta de al lado, y no había forma de ver el 10–70% que
+             contestaste. (Sin acentos graves aquí dentro: este comentario vive
+             DENTRO de una plantilla de JavaScript y uno solo la cierra.) -->
+        ${(() => {
+          const mp = Array.isArray(P.max_posicion_pct) ? P.max_posicion_pct : null;
+          if (!mp) return '';
+          const d = n => fmtMoney(Math.round((P.capital || 0) * Number(n) / 100));
+          return `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
+          <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Capital por posición (${mp[0]}–${mp[1]}%)</div>
+          <div class="text-sm font-black text-gray-100">${d(mp[0])} – ${d(mp[1])}</div></div>`;
+        })()}
         <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
           <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Máxima quema de theta (${theta}%)</div>
           <div class="text-sm font-black text-amber-400">${fmtMoney(P.theta_budget != null ? P.theta_budget : P.capital * theta / 100)}</div></div>
@@ -10485,6 +10499,209 @@ const VX_I18N = {
  * el fallo es invisible: la pantalla se queda en español sin avisar.
  * ─────────────────────────────────────────────────────────────────────── */
 const VX_ES2EN = {
+    "techo": "ceiling",
+    "especulativo": "speculative",
+    "conservador": "conservative",
+    "moderado": "moderate",
+    "agresivo": "aggressive",
+    "Especulativo": "Speculative",
+    "Conservador": "Conservative",
+    "Moderado": "Moderate",
+    "Agresivo": "Aggressive",
+    "Pérdida máxima por trade": "Maximum loss per trade",
+    "de $": "of $",
+    "% con": "% with",
+    "1 mes": "1 month",
+    "días)": "days)",
+    "· cob": "· cov",
+    "% y el": "% and the",
+    "días (": "days (",
+    "leve ·": "mild ·",
+    "vs máx": "vs max",
+    "Γ Neto": "Net Γ",
+    "Θ Neto": "Net Θ",
+    "ν Neto": "Net ν",
+    "A favor": "In favour",
+    "Abajo (": "Down (",
+    "R total": "Total R",
+    "Te cabe": "Fits you",
+    "meses (": "months (",
+    "· vence": "· expires",
+    "▼ Venta": "▼ Sell",
+    "▼ venta": "▼ sell",
+    "% · peor": "% · worst",
+    "(bruto $": "(gross $",
+    "1 semana": "1 week",
+    "Arriba (": "Up (",
+    "GEX neto": "Net GEX",
+    "P(toque)": "P(touch)",
+    "R acum (": "Cum. R (",
+    "activo ·": "asset ·",
+    "d atrás)": "d ago)",
+    "▲ Compra": "▲ Buy",
+    "▲ compra": "▲ buy",
+    "% alcista": "% bullish",
+    "% bajista": "% bearish",
+    "% · toque": "% · touch",
+    ", recorte": ", trim",
+    "2 semanas": "2 weeks",
+    "4 semanas": "4 weeks",
+    "70% crec.": "70% growth",
+    "En contra": "Against",
+    "IV actual": "Current IV",
+    "Mi perfil": "My profile",
+    "Vol anual": "Annual vol",
+    "página(s)": "page(s)",
+    "· mejor +": "· best +",
+    "· próxima": "· next",
+    "· ventana": "· window",
+    "— últimos": "— last",
+    "→ lateral": "→ sideways",
+    "▲ compras": "▲ buys",
+    "✓ copiado": "✓ copied",
+    "% gana · +": "% win · +",
+    "% · fuerza": "% · strength",
+    "(truncado)": "(truncated)",
+    "Expira hoy": "Expires today",
+    "Muy fuerte": "Very strong",
+    "Prima flow": "Flow premium",
+    "archivo(s)": "file(s)",
+    "días de IV": "days of IV",
+    "· promedio": "· average",
+    "🔗 Conectar": "🔗 Connect",
+    "30% estable": "30% stable",
+    "Contexto IV": "IV context",
+    "DCF inverso": "Reverse DCF",
+    "DD esperado": "Expected DD",
+    "Margen neto": "Net margin",
+    "Valor total": "Total value",
+    "colectando…": "collecting…",
+    "· confianza": "· confidence",
+    "🧠 Juicio AI": "🧠 AI judgement",
+    "% aciertos ·": "% hit rate ·",
+    "(descartado)": "(discarded)",
+    "(sin cambio)": "(no change)",
+    "Apuesta neta": "Net bet",
+    "Crear cuenta": "Create account",
+    "Delta fuerte": "Strong delta",
+    "Fecha · Hora": "Date · Time",
+    "Flujo normal": "Normal flow",
+    "GEX+ anclado": "GEX+ pinned",
+    "Margen bruto": "Gross margin",
+    "Mayor lastre": "Biggest drag",
+    "P(sin valor)": "P(worthless)",
+    "Spot entrada": "Entry spot",
+    "Target medio": "Mean target",
+    "VWAP anclado": "Anchored VWAP",
+    "Ventana (ET)": "Window (ET)",
+    "por strike ·": "per strike ·",
+    "posiciones ·": "positions ·",
+    "· precio vía": "· price via",
+    "γ− amplifica": "γ− amplifies",
+    "⚡ ALTO CREC.": "⚡ HIGH GROWTH",
+    "🔄 Reintentar": "🔄 Retry",
+    "% del precio.": "% of the price.",
+    "%): te quedas": "%): you keep",
+    "(rank real en": "(real rank in",
+    "/10 · Horario": "/10 · Timing",
+    "Cierre previo": "Previous close",
+    "Flujo anormal": "Abnormal flow",
+    "Nivel gatillo": "Trigger level",
+    "Precio actual": "Current price",
+    "Precios clave": "Key prices",
+    "Prima inflada": "Inflated premium",
+    "Retorno Anual": "Annual return",
+    "Soporte clave": "Key support",
+    "contrato(s) ·": "contract(s) ·",
+    "hacia arriba,": "upward,",
+    "operaciones ≥": "trades ≥",
+    "γ+ estabiliza": "γ+ stabilises",
+    "— tickers que": "— tickers that",
+    "↓ hacia abajo": "↓ downward",
+    "% · P/E actual": "% · current P/E",
+    "Cartera actual": "Current portfolio",
+    "Compras nuevas": "New buys",
+    "Destruye valor": "Destroys value",
+    "Fair Value hoy": "Fair value today",
+    "Guardar perfil": "Save profile",
+    "Liquidez media": "Median liquidity",
+    "Peor caso (p5)": "Worst case (p5)",
+    "Precio entrada": "Entry price",
+    "activos · tope": "assets · cap",
+    "aún sin juzgar": "not yet judged",
+    "muro de puts $": "put wall $",
+    "↑ hacia arriba": "↑ upward",
+    "● Desconectado": "● Disconnected",
+    "⭐ Mi watchlist": "⭐ My watchlist",
+    "% de tu capital": "% of your capital",
+    "Editar perfil ›": "Edit profile ›",
+    "Gates superados": "Gates passed",
+    "Noticias mixtas": "Mixed news",
+    "Recorrido medio": "Average travel",
+    "Spread promedio": "Average spread",
+    "añadido de plan": "plan add-on",
+    "días acumulados": "days accumulated",
+    "muro de calls $": "call wall $",
+    "· media perdida": "· average lost",
+    "— Analizando...": "— Analysing…",
+    "🔴 Sesgo Bajista": "🔴 Bearish bias",
+    "🟢 Sesgo Alcista": "🟢 Bullish bias",
+    "Fair Value antes": "Fair value before",
+    "GEX− amplificado": "GEX− amplified",
+    "Tiempo bajo agua": "Time under water",
+    "· GEX neto total": "· total net GEX",
+    "· nocional total": "· total notional",
+    "Capital declarado": "Declared capital",
+    "Clave incorrecta.": "Wrong key.",
+    "Error desconocido": "Unknown error",
+    "Flujo muy anormal": "Very abnormal flow",
+    "Nocional promedio": "Average notional",
+    "Rendimiento 1 Mes": "1-month performance",
+    "vs determinista (": "vs deterministic (",
+    "· gamma flip en $": "· gamma flip at $",
+    "/100 · IV estimada": "/100 · estimated IV",
+    "Descubrir empresas": "Discover companies",
+    "Frontera Eficiente": "Efficient frontier",
+    "Inversionistas 13F": "13F investors",
+    "Mejor contribuidor": "Best contributor",
+    "Target Base 12M: $": "Base target 12M: $",
+    "categorías activas": "active categories",
+    "· rank REAL activo": "· REAL rank active",
+    "— precio y targets": "— price and targets",
+    "En palabras simples": "In simple terms",
+    "Rendimiento 3 Meses": "3-month performance",
+    "Rendimiento 6 Meses": "6-month performance",
+    "· 1 contrato cuesta": "· 1 contract costs",
+    "· contrib. marginal": "· marginal contrib.",
+    "· en las próximas ~": "· in the next ~",
+    "↻ Volver a escanear": "↻ Scan again",
+    "1–10 por categoría ·": "1–10 per category ·",
+    "Negocio + Financiero": "Business + Financial",
+    "Rendimiento 1 Semana": "1-week performance",
+    "Rendimiento All Time": "All-time performance",
+    "Rendimiento Hoy (1D)": "Today's performance (1D)",
+    "Top 3 flows notables": "Top 3 notable flows",
+    "días del subyacente)": "days of the underlying)",
+    "reportes guardados ·": "saved reports ·",
+    "↻ Volver a comprobar": "↻ Check again",
+    "Horizonte 1 mes (21d)": "1-month horizon (21d)",
+    "Option Chain completo": "Full option chain",
+    "Raw Score (con judge)": "Raw score (with judge)",
+    "ejecutado BAJO el bid": "filled BELOW the bid",
+    "% del premium en calls": "% of premium in calls",
+    "ejecutado SOBRE el ask": "filled ABOVE the ask",
+    "notables (5d · ≥$100K)": "notable (5d · ≥$100K)",
+    "respaldados (cifrados)": "backed up (encrypted)",
+    "tickers · historial en": "tickers · history in",
+    "El dinero de cada día —": "The money of each day —",
+    "posiciones analizadas ·": "positions analysed ·",
+    ". Se vuelve a pedir cada": ". It is re-requested every",
+    "historial propio de IV —": "own IV history —",
+    "calibración ACTIVA (sesgo": "calibration ACTIVE (bias",
+    "📒 Transacciones revisadas": "📒 Transactions reviewed",
+    "% — ¿subió/bajó como dijo?": "% — did it move as it said?",
+    ". Tu costo real queda en $": ". Your real cost comes to $",
+    "Top 5 por Notional Value ·": "Top 5 by notional value ·",
     "Puntaje": "Score",
     "Consultando xAI Grok en tiempo real...": "Querying xAI Grok in real time…",
     "/100 evidencia": "/100 evidence",
@@ -11489,6 +11706,7 @@ const VX_ES2EN = {
  * cada valor sería una entrada distinta. Van aquí, con `$1`, `$2`… en el
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
+    [/^Capital por posición \((\S+)–(\S+)%\)$/, 'Capital per position ($1–$2%)'],
     [/^\(sobre todo si se pierde el gamma flip \$(\S+)\)$/,
      '(especially if the gamma flip $$1 gives way)'],
     [/^(\d+) empresas · ordenadas por puntaje$/, '$1 companies · sorted by score'],
@@ -11547,6 +11765,11 @@ const VX_ORIGEN = new WeakMap();
 //: cuando el observador nos avisa de nuestro propio cambio.
 const VX_PUESTO = new WeakMap();
 
+/** La marca lleva el idioma pegado: sin él, «esto ya lo escribimos nosotros» y
+ *  «esto ya está en el idioma de ahora» se confunden, y el nodo se queda
+ *  congelado en el idioma en que se tocó por última vez. */
+function vxMarca(valor) { return VX_IDIOMA + '\u0000' + valor; }
+
 /** La traducción de una frase suelta, o `null` si no la conocemos.
  *
  *  Devolver `null` —y no la frase original— es lo que permite al test
@@ -11588,15 +11811,24 @@ function vxTraduceTexto(nodo) {
         const orig = VX_ORIGEN.get(nodo);
         if (orig != null && orig !== bruto) {
             nodo.nodeValue = orig;
-            VX_PUESTO.set(nodo, orig);
+            VX_PUESTO.set(nodo, vxMarca(orig));
         }
         return;
     }
-    // «Ya está hecho» solo vale traduciendo. Esta guarda estuvo arriba, antes
-    // de mirar el idioma, y entonces el nodo que acabábamos de traducir se
-    // saltaba también la vuelta: al volver a español la mitad de la pantalla
-    // se quedaba en inglés.
-    if (VX_PUESTO.get(nodo) === bruto) return;
+    // «Ya está hecho» solo vale traduciendo, y solo si se hizo EN ESTE IDIOMA.
+    //
+    // Aquí estaban los dos fallos del vaivén, y son el mismo por los dos lados.
+    // Primero la guarda vivía arriba, antes de mirar el idioma, y al volver a
+    // español media pantalla se quedaba en inglés. Se bajó aquí — y entonces
+    // apareció el otro: al restaurar se guardaba el español como «lo último que
+    // pusimos», así que al volver a inglés esta comparación daba igual y el
+    // nodo se saltaba la traducción. Ir y volver dejaba 131 cadenas en español,
+    // varias de ellas con su entrada en el diccionario.
+    //
+    // Por eso la marca lleva el idioma dentro: «lo que pusimos» y «en qué
+    // idioma lo pusimos» son dos cosas, y compararlas como una sola congela el
+    // nodo en el idioma en que lo tocamos por última vez.
+    if (VX_PUESTO.get(nodo) === vxMarca(bruto)) return;
     const base = VX_ORIGEN.has(nodo) ? VX_ORIGEN.get(nodo) : bruto;
     const t = vxFrase(base);
     if (t == null) return;
@@ -11605,7 +11837,7 @@ function vxTraduceTexto(nodo) {
     const izq = base.match(/^\s*/)[0], der = base.match(/\s*$/)[0];
     VX_ORIGEN.set(nodo, base);
     nodo.nodeValue = izq + t + der;
-    VX_PUESTO.set(nodo, nodo.nodeValue);
+    VX_PUESTO.set(nodo, vxMarca(nodo.nodeValue));
 }
 
 const VX_ATRIBUTOS = ['placeholder', 'title', 'aria-label', 'alt'];

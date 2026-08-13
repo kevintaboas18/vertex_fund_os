@@ -1078,3 +1078,85 @@ class TestElArchivoNoPesaDeMas:
         AR.guarda_reporte_acciones("AAPL", gordo, cuando="2026-08-07", alm=a)
         leido = AR.lee_reporte(AR.ACCIONES, "AAPL", "2026-08-07", a)
         assert len(leido["thesis"]) == 3_000_000
+
+
+class TestUnConflictoNoParaElRespaldoParaSiempre:
+    """El fallo que dejó la instancia de Render sin respaldar 18 archivos.
+
+    Dos procesos escriben en la rama `datos` y el segundo se encuentra el push
+    rechazado. El código traía lo del remoto y hacía `rebase` — con `tolera=True`,
+    o sea tragándose el error. Un rebase que choca **no deja las cosas como
+    estaban**: deja archivos sin fusionar. Desde ese momento cada `git commit`
+    muere con «Committing is not possible because you have unmerged files», y
+    como nadie entra a ese directorio a mano, se queda así para siempre.
+
+    El panel lo decía —«Respaldo con errores»— y decía la verdad. Lo que no
+    hacía nadie era curarlo.
+    """
+
+    @staticmethod
+    def _atasca(a):
+        """Deja el clon exactamente como estaba el de Render: con archivos sin
+        fusionar y un merge a medias.
+
+        Se construye con dos ramas que tocan la MISMA línea, que es lo que pasa
+        cuando dos workers regeneran el mismo reporte. No con `rebase HEAD~n`:
+        según la versión de git eso puede resolverse solo, y un test que a veces
+        no reproduce el fallo no vigila nada.
+        """
+        ruta = "Reportes/AAPL/2026-01-01/reporte.json"
+        a.guarda(ruta, {"v": "base"})
+        a.sincroniza()
+        a._git("checkout", "-q", "-b", "otra")
+        (a.raiz / ruta).write_text('{"v": "de otro worker"}', encoding="utf-8")
+        a._git("add", "-A")
+        a._git("commit", "-q", "-m", "otro worker")
+        a._git("checkout", "-q", a.rama)
+        (a.raiz / ruta).write_text('{"v": "mío"}', encoding="utf-8")
+        a._git("add", "-A")
+        a._git("commit", "-q", "-m", "mío")
+        a._git("merge", "otra", tolera=True)      # choca y deja el árbol roto
+        return a
+
+    def test_el_clon_atascado_se_cura_solo_en_el_siguiente_ciclo(self, tmp_path, remoto):
+        from vertex_almacen import Almacen
+
+        a = Almacen(raiz=tmp_path / "a", remoto=remoto, token="x")
+        a.restaura()
+        self._atasca(a)
+
+        # Se comprueba que de verdad quedó atascado: así el test mide el fallo,
+        # no una situación cualquiera.
+        roto = (a.raiz / ".git" / "rebase-merge").exists() \
+            or (a.raiz / ".git" / "rebase-apply").exists() \
+            or bool(a._git("diff", "--name-only", "--diff-filter=U",
+                           tolera=True).stdout.strip())
+        if not roto:
+            pytest.skip("esta versión de git no dejó el rebase a medias")
+
+        a.guarda("Reportes/MSFT/2026-01-02/reporte.json", {"v": 1})
+        estado = a.sincroniza()
+
+        assert not (a.raiz / ".git" / "rebase-merge").exists(), (
+            "el rebase sigue a medias: el próximo commit volverá a morir")
+        assert not a._git("diff", "--name-only", "--diff-filter=U",
+                          tolera=True).stdout.strip(), "quedan archivos sin fusionar"
+        assert not (estado.get("ultimo_error") or ""), estado.get("ultimo_error")
+
+        # Y lo que importa: el archivo nuevo LLEGÓ al remoto.
+        b = Almacen(raiz=tmp_path / "b", remoto=remoto, token="x")
+        b.restaura()
+        crudo = b.lee("Reportes/MSFT/2026-01-02/reporte.json")
+        if isinstance(crudo, (bytes, bytearray)):
+            crudo = json.loads(crudo.decode("utf-8"))
+        assert crudo == {"v": 1}, "el respaldo sigue parado: el dato nuevo no subió"
+
+    def test_sanear_es_barato_cuando_no_hay_nada_roto(self, alm):
+        """Corre en cada ciclo, cada 20 s: no puede costar ni ensuciar."""
+        alm.guarda("Reportes/X/2026-01-01/reporte.json", {"v": 1})
+        alm.sincroniza()
+        antes = alm._git("rev-parse", "HEAD", tolera=True).stdout.strip()
+        alm._sanea()
+        alm._sanea()
+        assert alm._git("rev-parse", "HEAD", tolera=True).stdout.strip() == antes
+        assert not alm._git("status", "--porcelain", tolera=True).stdout.strip()

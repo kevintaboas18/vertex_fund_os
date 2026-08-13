@@ -522,6 +522,34 @@ class TestElInterruptorVaYVuelve:
                 pg.evaluate("vxIdioma('es')")
                 pg.wait_for_timeout(700)
                 es = texto()
+                # Ir y volver VARIAS veces, que es como se usa de verdad, y
+                # sobre una frase que traduce el BARRIDO — no una de
+                # `data-i18n`, que se repinta entera con `innerHTML` y por eso
+                # nunca sufrió el fallo.
+                #
+                # El fallo: al restaurar se guardaba el español como «lo último
+                # que pusimos», y al volver a inglés la guarda de «ya está
+                # hecho» daba igual y el nodo se saltaba la traducción. Medido
+                # con las tablas cargadas: 131 cadenas se quedaban en español,
+                # varias con su entrada en el diccionario. La marca lleva ahora
+                # el idioma dentro.
+                BARRIDO_ES = "Analiza un ticker"
+                BARRIDO_EN = "Analyse a ticker"
+                for _ in range(3):
+                    pg.evaluate("vxIdioma('en')")
+                    pg.wait_for_timeout(400)
+                    t = texto()
+                    assert BARRIDO_EN in t and BARRIDO_ES not in t, (
+                        "el barrido dejó de traducir tras un vaivén")
+                    pg.evaluate("vxIdioma('es')")
+                    pg.wait_for_timeout(400)
+                    t = texto()
+                    assert BARRIDO_ES in t and BARRIDO_EN not in t, (
+                        "el barrido dejó de deshacer tras un vaivén")
+
+                pg.evaluate("vxIdioma('es')")
+                pg.wait_for_timeout(500)
+                es = texto()
                 assert ES in es, "no se deshizo la traducción"
                 assert EN not in es, (
                     "quedó inglés colado al volver: la guarda de «ya está hecho» "

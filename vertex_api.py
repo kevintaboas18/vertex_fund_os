@@ -5066,6 +5066,12 @@ def tito_ideas(request: Request):
         "perfil": {"capital": _perfil["capital"], "tolerancia": _perfil["tolerancia"],
                    "riesgo_pct": _perfil["riesgo_pct"],
                    "riesgo_por_trade": _perfil["riesgo_por_trade"],
+                   # El tope POR POSICIÓN, que es otra cosa que el riesgo por
+                   # operación: aquel dice cuánto puedes PERDER, este cuánto
+                   # puedes DESPLEGAR. La pantalla enseñaba el primero con el
+                   # rótulo del segundo, así que «capital máximo por trade»
+                   # repetía el mismo $3.000 que ya salía arriba como 30%.
+                   "max_posicion_pct": list(_perfil.get("max_posicion_pct") or [20, 30]),
                    # Los dos presupuestos de su `RiskProfileCard`. El de theta
                    # es un % de la CUENTA (`budgetsOf`: account * 5 / 100), no
                    # del riesgo por operación — con $1.000 al 15% son $50, no
