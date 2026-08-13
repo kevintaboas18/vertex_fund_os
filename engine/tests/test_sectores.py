@@ -385,3 +385,62 @@ class TestElDiagnostico:
         vuelva a leer esta sección."""
         assert diagnostico({"XLK": {"cuadrante": "leading"}}) == []
         assert diagnostico({}) == []
+
+
+from wbj.sectores import (SMA_LARGA, VENTANAS_CAMBIO,  # noqa: E402
+                          cambios_por_ventana, distancia_sma, sma)
+
+
+class TestLaMediaDe200:
+    def test_es_la_media_simple_de_las_ultimas_200(self):
+        serie = list(range(1, 301))          # 1..300
+        assert sma(serie) == pytest.approx(sum(range(101, 301)) / 200)
+
+    def test_con_menos_de_200_sesiones_NO_se_inventa_una_media_corta(self):
+        """Una «SMA de 200» calculada sobre 80 sesiones no es una SMA de 200, y
+        diría lo contrario de la de verdad justo cuando más importa."""
+        assert sma(list(range(80))) is None
+        assert sma(list(range(SMA_LARGA - 1))) is None, "199 no bastan"
+        assert sma(list(range(SMA_LARGA))) is not None, "200 justas sí valen"
+
+    def test_la_distancia_lleva_signo(self):
+        assert distancia_sma(110, 100) == pytest.approx(10.0)
+        assert distancia_sma(90, 100) == pytest.approx(-10.0)
+
+    def test_una_media_de_cero_no_da_infinito(self):
+        assert distancia_sma(10, 0) is None
+        assert distancia_sma(None, 100) is None
+
+
+class TestLasVentanasDelSelector:
+    def test_son_las_seis_pedidas_y_en_orden(self):
+        assert [e for e, _ in VENTANAS_CAMBIO] == ["1D", "7D", "1M", "3M", "6M", "1A"]
+
+    def test_1D_viene_de_la_cotizacion_EN_VIVO_no_de_los_cierres(self):
+        """Con el mercado abierto, el cambio del día es contra el cierre de
+        ayer: el de hoy todavía no existe."""
+        cambios = cambios_por_ventana([100.0] * 300, -1.35)
+        assert cambios["1D"] == -1.35
+        assert cambios["7D"] == pytest.approx(0.0), "los demás sí salen de la serie"
+
+    def test_sin_cotizacion_el_1D_queda_en_blanco(self):
+        assert cambios_por_ventana([100.0] * 300, None)["1D"] is None
+
+    def test_cada_ventana_mide_SU_ventana(self):
+        serie = [100.0] * 300
+        serie[-6] = 50.0                     # justo 5 sesiones atrás
+        c = cambios_por_ventana(serie, 0.0)
+        assert c["7D"] == pytest.approx(100.0), "5 sesiones: de 50 a 100"
+        assert c["1M"] == pytest.approx(0.0), "21 sesiones atrás no se movió"
+
+    def test_lo_que_no_alcanza_queda_en_None(self):
+        """Un ETF con ocho meses de vida no tiene cambio a un año, y rellenarlo
+        con el de todo su historial sería llamar «1A» a otra cosa."""
+        c = cambios_por_ventana([100.0 + i for i in range(70)], 1.0)
+        assert c["1M"] is not None and c["3M"] is not None
+        assert c["6M"] is None and c["1A"] is None
+
+    def test_las_seis_claves_salen_siempre(self):
+        c = cambios_por_ventana([], None)
+        assert set(c) == {e for e, _ in VENTANAS_CAMBIO}
+        assert all(v is None for v in c.values())

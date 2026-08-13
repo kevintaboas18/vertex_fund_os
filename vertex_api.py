@@ -6265,11 +6265,13 @@ def _sector_fila(ticker: str) -> dict:
     la rotación los necesita: el RS Ratio de un sector se calcula contra la
     serie del SPY, así que hace falta tener las dos a la vez.
     """
-    from wbj.sectores import cambio_pct, nombre_de, rsi
+    from wbj.sectores import (cambio_pct, cambios_por_ventana, distancia_sma,
+                              nombre_de, rsi, sma)
 
     tk = str(ticker).upper().strip()
     fila = {"ticker": tk, "nombre": nombre_de(tk), "precio": None,
-            "cambio_pct": None, "rsi": None, "cierres": [], "volumenes": []}
+            "cambio_pct": None, "rsi": None, "sma200": None,
+            "sma200_dist": None, "cambios": {}, "cierres": [], "volumenes": []}
     try:
         q = _quote_rapido_fmp(tk) or {}
         precio = q.get("price")
@@ -6282,15 +6284,23 @@ def _sector_fila(ticker: str) -> dict:
     except Exception:                            # noqa: BLE001 — se degrada, no se cae
         pass
     try:
-        # 6 meses: ~125 sesiones. El RSI de 14 se conforma con 15 cierres, pero
-        # la pendiente larga del RS Ratio mira 50 sesiones ATRÁS sobre una serie
-        # que ya es un cociente — con tres meses justos, el ROC de 50 sale en
-        # blanco y medio mapa se queda sin cuadrante.
-        barras = _fmp_daily_bars(tk, "6mo")
+        # UN AÑO: ~252 sesiones, y hacen falta las dos cosas que lo piden.
+        # La SMA de 200 necesita 200 sesiones o no es una SMA de 200, y el
+        # cambio a «1A» necesita el cierre de hace un año. Con seis meses las
+        # dos salían en blanco. El RSI de 14 y la pendiente de 50 caben de
+        # sobra dentro.
+        barras = _fmp_daily_bars(tk, "1y")
         fila["cierres"] = [b[4] for b in barras]
         fila["volumenes"] = [b[5] for b in barras]
         v = rsi(fila["cierres"])
         fila["rsi"] = None if v is None else round(v, 1)
+        m = sma(fila["cierres"])
+        fila["sma200"] = None if m is None else round(m, 2)
+        # La distancia se mide contra el precio EN VIVO, no contra el último
+        # cierre: es la que dice si ahora mismo está por encima o por debajo.
+        d = distancia_sma(fila["precio"], m) if fila["precio"] else None
+        fila["sma200_dist"] = None if d is None else round(d, 2)
+        fila["cambios"] = cambios_por_ventana(fila["cierres"], fila["cambio_pct"])
     except Exception:                            # noqa: BLE001
         pass
     return fila

@@ -1680,10 +1680,54 @@ function vxCambioColor(v) {
 const vxPct = v => v == null ? '—' : (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
 const vxUsd = v => v == null ? '—' : '$' + Number(v).toFixed(2);
 
+//: Las seis ventanas del selector. Las etiquetas son de calendario y el
+//: cálculo va en sesiones de mercado — lo hace el servidor, aquí solo se elige.
+const VX_VENTANAS = ['1D', '7D', '1M', '3M', '6M', '1A'];
+
+//: La ventana elegida vive en `localStorage`: si miras el mercado a 3 meses,
+//: al volver mañana lo quieres a 3 meses, no otra vez a un día.
+function vxVentana() {
+    try {
+        const v = localStorage.getItem('vertex_ventana');
+        if (VX_VENTANAS.includes(v)) return v;
+    } catch (e) {}
+    return '1D';
+}
+function vxPonVentana(v) {
+    try { localStorage.setItem('vertex_ventana', v); } catch (e) {}
+    pintaSectores(window._sectoresData);
+    if (window._sectorAbierto) abreSector(window._sectorAbierto, true);
+}
+//: El cambio de la ventana elegida, con respaldo al del día. El respaldo
+//: importa: un ETF sin un año de historia no tiene «1A», y sin él la casilla
+//: se quedaría muda cuando el resto de la parrilla sí tiene número.
+function vxCambioDe(f) {
+    const v = vxVentana();
+    const c = (f && f.cambios) || {};
+    return Object.prototype.hasOwnProperty.call(c, v) ? c[v] : f.cambio_pct;
+}
+
+//: Por encima o por debajo de la media de 200. No es una media más: es la
+//: línea que separa «esto está en tendencia» de «esto está roto». Un RSI de 65
+//: por encima de la 200 es fuerza; el mismo RSI por debajo suele ser un rebote
+//: dentro de una caída.
+function vxSma200HTML(f) {
+    if (f.sma200 == null) {
+        return '<span class="text-gray-700">SMA200 —</span>';
+    }
+    const d = f.sma200_dist;
+    const col = d == null ? 'text-gray-600' : d >= 0 ? 'text-emerald-400' : 'text-red-400';
+    const signo = d == null ? '' : (d >= 0 ? '▲ ' : '▼ ');
+    return `<span class="text-gray-600" title="Media simple de 200 sesiones: $${Number(f.sma200).toFixed(2)}">SMA200 </span><span
+      class="font-bold ${col}" title="Distancia del precio a su media de 200 sesiones">${
+      signo}${d == null ? '—' : (d >= 0 ? '+' : '') + Number(d).toFixed(1) + '%'}</span>`;
+}
+
 //: La casilla de la parrilla. `pulsable` es falso para SPY/RSP/QQQ: son
 //: índices y no tienen industrias que desplegar, así que no invitan al clic.
 function vxSectorCaja(f, pulsable, abierto) {
     const rsi = f.rsi == null ? '—' : Number(f.rsi).toFixed(0);
+    const cambio = vxCambioDe(f);
     return `<button ${pulsable ? `onclick="abreSector('${_vcEsc(f.ticker)}')"` : 'disabled'}
         class="text-left w-full bg-[#11141D] border rounded-xl p-3 transition ${
           abierto ? 'border-blue-500/60 bg-blue-500/5' : 'border-[#1F2532]'} ${
@@ -1694,11 +1738,28 @@ function vxSectorCaja(f, pulsable, abierto) {
         </div>
         <div class="flex items-baseline gap-2 mt-1.5 flex-wrap">
           <span class="text-base font-bold text-white">${vxUsd(f.precio)}</span>
-          <span class="text-xs font-bold ${vxCambioColor(f.cambio_pct)}">${vxPct(f.cambio_pct)}</span>
+          <span class="text-xs font-bold ${vxCambioColor(cambio)}">${vxPct(cambio)}</span>
+          <span class="text-[9px] text-gray-700">${vxVentana()}</span>
         </div>
-        <div class="text-[10px] mt-0.5"><span class="text-gray-600">RSI </span><span
-          class="font-bold ${vxRsiColor(f.rsi)}">${rsi}</span></div>
+        <div class="text-[10px] mt-0.5 flex items-baseline gap-2 flex-wrap">
+          <span><span class="text-gray-600">RSI </span><span
+            class="font-bold ${vxRsiColor(f.rsi)}">${rsi}</span></span>
+          <span>${vxSma200HTML(f)}</span>
+        </div>
       </button>`;
+}
+
+//: La botonera del selector. Cambia QUÉ porcentaje se lee en toda la pantalla
+//: —parrilla e industrias—, no dos sitios con dos ventanas distintas.
+function vxSelectorVentanaHTML() {
+    const actual = vxVentana();
+    return `<div class="flex items-center gap-1 flex-wrap mb-3">
+      <span class="text-[10px] text-gray-600 mr-1">Cambio en</span>
+      ${VX_VENTANAS.map(v => `<button onclick="vxPonVentana('${v}')"
+        class="px-2 py-0.5 rounded text-[10px] font-bold border transition ${v === actual
+          ? 'bg-blue-500/20 border-blue-500/60 text-blue-300'
+          : 'border-gray-800 text-gray-500 hover:text-gray-300'}">${v}</button>`).join('')}
+    </div>`;
 }
 
 async function cargaSectores(forzar) {
@@ -1734,6 +1795,7 @@ function pintaSectores(d) {
     // o no se leen. Los sectores, en rejilla — la misma en móvil y en escritorio
     // salvo por cuántos caben.
     parrilla.innerHTML = `
+      ${vxSelectorVentanaHTML()}
       <div class="grid grid-cols-3 gap-2 mb-3">${refs.map(t => caja(t, false)).join('')}</div>
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">${secs.map(t => caja(t, true)).join('')}</div>`;
     const sello = document.getElementById('sectoresSello');
@@ -1784,12 +1846,13 @@ async function abreSector(ticker, silencioso) {
             <span class="text-[10px] text-gray-500 ml-1.5">${_vcEsc(f.nombre)}</span>
           </div>
           <span class="text-xs font-bold text-white w-20 text-right">${vxUsd(f.precio)}</span>
-          <span class="text-xs font-bold w-16 text-right ${vxCambioColor(f.cambio_pct)}">${vxPct(f.cambio_pct)}</span>
+          <span class="text-xs font-bold w-16 text-right ${vxCambioColor(vxCambioDe(f))}">${vxPct(vxCambioDe(f))}</span>
           <span class="text-[10px] w-14 text-right"><span class="text-gray-600">RSI </span><span
             class="font-bold ${vxRsiColor(f.rsi)}">${f.rsi == null ? '—' : Number(f.rsi).toFixed(0)}</span></span>
+          <span class="text-[10px] w-24 text-right">${vxSma200HTML(f)}</span>
         </div>`).join('')}
       </div>
-      <p class="text-[9px] text-gray-600 mt-2">Precio y cambio del d&iacute;a en vivo &middot; RSI de Wilder de 14 sesiones sobre velas diarias.</p></div>`;
+      <p class="text-[9px] text-gray-600 mt-2">Precio en vivo &middot; cambio en la ventana elegida arriba &middot; RSI de Wilder de 14 sesiones y media simple de 200, las dos sobre velas diarias.</p></div>`;
 }
 
 //: El informe de rotación. Cuatro bloques, y ninguno se inventa una frase
@@ -11322,6 +11385,9 @@ const VX_ES2EN = {
     "Dominancia": "Dominance",
     "Rango extremo · 2σ": "Extreme range · 2σ",
     "Sectores": "Sectors",
+    "Cambio en": "Change over",
+    "Distancia del precio a su media de 200 sesiones": "Distance from price to its 200-session average",
+    "Precio en vivo · cambio en la ventana elegida arriba · RSI de Wilder de 14 sesiones y media simple de 200, las dos sobre velas diarias.": "Live price · change over the window selected above · Wilder RSI over 14 sessions and simple 200-session average, both on daily candles.",
     "El mapa del mercado antes de elegir un ticker: dónde está entrando el dinero y dónde está saliendo. Pulsa un sector para ver sus industrias.": "The market map before picking a ticker: where money is coming in and where it is going out. Tap a sector to see its industries.",
     "Leyendo el mercado…": "Reading the market…",
     "No se pudo leer el mercado. Vuelve a intentarlo.": "Could not read the market. Try again.",
@@ -12335,6 +12401,7 @@ const VX_ES2EN = {
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
     // Los sectores: llevan el ticker o un número dentro de la frase.
+    [/^Media simple de 200 sesiones: (\S+)$/, 'Simple 200-session average: $1'],
     [/^Leyendo las industrias de (\S+)…$/, 'Reading the industries of $1…'],
     [/^Industrias de (\S+) · (.+)$/, 'Industries of $1 · $2'],
     [/^Dispersión entre sectores hoy:$/, 'Dispersion across sectors today:'],

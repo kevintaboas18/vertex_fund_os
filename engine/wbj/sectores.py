@@ -44,6 +44,12 @@ __all__ = [
     "clasifica_sector",
     "lideres_del_dia_rojo",
     "diagnostico",
+    # ── tendencia larga y ventanas ──
+    "SMA_LARGA",
+    "VENTANAS_CAMBIO",
+    "sma",
+    "distancia_sma",
+    "cambios_por_ventana",
 ]
 
 #: Periodos del RSI. 14 es el de Wilder, que es lo que enseña cualquier
@@ -548,3 +554,79 @@ def diagnostico(por_sector, salud_clave=None):
             f"Con volumen por encima de la media: entra en {', '.join(sorted(entrando))} "
             f"y sale de {', '.join(sorted(saliendo))}.")
     return frases
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  LA TENDENCIA LARGA Y LAS VENTANAS DE CAMBIO
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: La media de 200 sesiones. No es una más: es la línea que separa «esto está
+#: en tendencia» de «esto está roto», y la que mira medio mercado. Un sector
+#: con RSI de 65 por encima de su 200 es fuerza; el mismo RSI por debajo suele
+#: ser un rebote dentro de una caída, y son cosas distintas.
+SMA_LARGA = 200
+
+#: Las ventanas del selector, con su etiqueta y sus SESIONES.
+#:
+#: Las etiquetas son de calendario y el cálculo es en sesiones de mercado,
+#: porque es lo que hay en la serie: «7D» son 5 sesiones (una semana de
+#: bolsa), «1M» 21, «3M» 63, «6M» 126 y «1A» 252. Contar días naturales sobre
+#: una serie que no los tiene daría un cambio medido desde un festivo.
+#:
+#: `1D` va con 0 sesiones a propósito: ese no se calcula de los cierres, viene
+#: de la cotización EN VIVO. Con el mercado abierto, el cambio del día es
+#: contra el cierre de ayer, no contra el cierre de hoy — que todavía no
+#: existe.
+VENTANAS_CAMBIO = (
+    ("1D", 0),
+    ("7D", 5),
+    ("1M", 21),
+    ("3M", 63),
+    ("6M", 126),
+    ("1A", 252),
+)
+
+
+def sma(cierres, n: int = SMA_LARGA):
+    """Media móvil simple de `n` sesiones. `None` si no hay tantas.
+
+    `None` y no «la media de lo que haya»: una SMA de 200 calculada sobre 80
+    sesiones no es una SMA de 200, y comparar el precio contra ella diría lo
+    contrario de lo que dice la de verdad justo cuando más importa.
+    """
+    return media(cierres, n)
+
+
+def distancia_sma(precio, valor_sma):
+    """A qué distancia está el precio de su media, en % (signo incluido).
+
+    Positivo, el precio está POR ENCIMA. Es el número que se lee, no la media
+    a secas: «$95,30 con la 200 en $91,10» obliga a restar mentalmente;
+    «+4,6% sobre su 200» se lee de un vistazo.
+    """
+    try:
+        p, m = float(precio), float(valor_sma)
+    except (TypeError, ValueError):
+        return None
+    if m == 0:
+        return None
+    return (p - m) / m * 100.0
+
+
+def cambios_por_ventana(cierres, cambio_dia=None):
+    """El cambio en % de cada ventana del selector.
+
+    `1D` sale de `cambio_dia` —la cotización en vivo— y el resto de los
+    cierres. Lo que no alcance queda en `None` y la pantalla pinta «—»: un ETF
+    con ocho meses de vida no tiene cambio a un año, y rellenarlo con el de
+    todo su historial sería llamar «1A» a otra cosa.
+    """
+    salida = {}
+    for etiqueta, sesiones in VENTANAS_CAMBIO:
+        if sesiones == 0:
+            salida[etiqueta] = (None if cambio_dia is None
+                                else round(float(cambio_dia), 2))
+            continue
+        v = roc(cierres, sesiones)
+        salida[etiqueta] = None if v is None else round(v, 2)
+    return salida
