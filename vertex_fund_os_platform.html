@@ -5212,10 +5212,21 @@ function renderVictorTargets(d) {
     const tabs = hz.map(x => `<button onclick="window._vcHz=${x};renderVictorTargets(window._vcData);renderVictorProjChart('projChart',window._vcData,${x});"
         class="px-2.5 py-1 rounded-lg text-[10px] font-bold ${x === h ? 'bg-blue-600 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800'}">${HZ_LABEL[x] || (x + 'd')}</button>`).join(' ');
 
-    const card = (s, name, col) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
+    // Su «· recortado al cono 2σ» de `ProWallsCard`. El motor lo sirve por
+    // escenario (`chart_geometry[h].paths[x].clamped`) y no se pintaba en
+    // ningún sitio: un target recortado se leía igual que uno que salió solo.
+    //
+    // Y no es un detalle de dibujo. `clamped` dice que el escenario pedía MÁS
+    // de lo que la volatilidad da en ese plazo, así que ese target es el techo
+    // del cono y no una previsión — la diferencia entre «puede llegar aquí» y
+    // «aquí es donde le dejamos parar».
+    const _geo = (d.chart_geometry || {})[String(h)] || null;
+    const _recortado = clave => !!(((_geo || {}).paths || {})[clave] || {}).clamped;
+    const card = (s, name, col, clave) => `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3">
         <p class="text-[10px] uppercase font-bold mb-1 ${col}">${name}</p>
         <p class="text-lg font-black text-white">$${Number(s.target).toFixed(2)}</p>
         <p class="text-[9px] ${s.change_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}">${(s.change_pct >= 0 ? '+' : '') + Number(s.change_pct).toFixed(1)}% · toque ${Math.round(s.probability * 100)}%</p>
+        ${_recortado(clave) ? `<p class="text-[8px] text-amber-400 mt-0.5" title="El escenario pedía más de lo que la volatilidad da a este plazo: el target se topó en el borde del cono de 2σ.">recortado al cono 2&sigma;</p>` : ''}
         <p class="text-[8px] text-gray-500 mt-1 leading-tight">${_vcEsc(s.driver)}</p>
         <p class="text-[8px] text-gray-600 mt-0.5">a ${h} días</p></div>`;
 
@@ -5286,9 +5297,9 @@ function renderVictorTargets(d) {
       ${parcial ? `<p class="text-[10px] text-amber-400 leading-snug mb-2">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
       <p class="text-[9px] text-gray-500 uppercase font-bold tracking-wider mb-1">Targets a ${h} días <span class="text-gray-600 normal-case font-normal tracking-normal">(${_vcEsc(HZ_LABEL[h] || (h + ' días'))}) · desde $${Number(d.spot).toFixed(2)}</span></p>
       <div class="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-2">
-        ${card(p.bear, 'Bajista', 'text-red-400')}
-        ${card(p.base, 'Base', 'text-blue-400')}
-        ${card(p.bull, 'Alcista', 'text-emerald-400')}
+        ${card(p.bear, 'Bajista', 'text-red-400', 'bear')}
+        ${card(p.base, 'Base', 'text-blue-400', 'base')}
+        ${card(p.bull, 'Alcista', 'text-emerald-400', 'bull')}
       </div>`}
       ${vcGexHTML(d)}
       ${vcScorecardHTML(d)}
@@ -11021,6 +11032,8 @@ const VX_ES2EN = {
     "Volatilidad normal": "Normal volatility",
     "Dominancia": "Dominance",
     "Rango extremo · 2σ": "Extreme range · 2σ",
+    "recortado al cono 2σ": "capped at the 2σ cone",
+    "El escenario pedía más de lo que la volatilidad da a este plazo: el target se topó en el borde del cono de 2σ.": "The scenario asked for more than volatility allows over this horizon: the target was capped at the edge of the 2σ cone.",
     "calibración en espera": "calibration on hold",
     "suele apuntar bajo": "it usually aims low",
     "suele apuntar alto": "it usually aims high",

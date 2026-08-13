@@ -1641,6 +1641,30 @@ class TestTimeAndSales:
         assert p["volume"] + p["timing"] + p["repetition"] == d["trades"][0]["unusual_score"], \
             "el desglose tiene que sumar el total, o uno de los dos miente"
 
+    def test_el_recorte_al_cono_se_avisa_en_el_escenario(self, client):
+        """Su «· recortado al cono 2σ», que el motor servía y nadie pintaba.
+
+        `clamped` no es un detalle de dibujo: dice que el escenario pedía MÁS
+        de lo que la volatilidad da en ese plazo, así que ese target es el
+        techo del cono y no una previsión. Sin el aviso, un target recortado se
+        lee igual que uno que salió solo — «puede llegar aquí» contra «aquí es
+        donde le dejamos parar».
+        """
+        import pathlib
+
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        geo = d.get("chart_geometry") or {}
+        assert geo, "el motor dejó de servir la geometría"
+        alguno = next(iter(geo.values()))
+        for clave in ("bear", "base", "bull"):
+            ruta = (alguno.get("paths") or {}).get(clave)
+            if ruta is not None:
+                assert "clamped" in ruta, f"{clave} sin el flag de recorte"
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "recortado al cono" in html, "el aviso no llega a la pantalla"
+        assert "_recortado" in html and ".clamped" in html
+
     def test_cada_trade_lleva_los_SEIS_parametros_del_sub_agente_3(self, client):
         """Las dos escalas de inusualidad, y por qué hacen falta las dos.
 
