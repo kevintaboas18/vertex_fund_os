@@ -1601,6 +1601,16 @@ else console.warn('[vertex] Chart.js no cargó: las gráficas no se dibujan, el 
 
 // ── NAVIGATION ───────────────────────────────────────────
 function switchView(viewId) {
+    // Salir de Proyecciones borra el análisis. Un precio de hace media hora no
+    // se distingue en pantalla de uno de hace un segundo, y el tab entero
+    // —cabecera, escenarios, niveles, cinta— cuelga de un símbolo y de un
+    // momento. Se vuelve a una pantalla vacía y se teclea el ticker otra vez,
+    // que es un segundo, en vez de mirar números viejos creyéndolos de ahora.
+    if (viewId !== 'projectionsView'
+            && !document.getElementById('projectionsView')?.classList.contains('hidden')
+            && typeof vcLimpiaTicker === 'function') {
+        vcLimpiaTicker();
+    }
     document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
     document.getElementById(viewId)?.classList.remove('hidden');
     vcIconos();
@@ -1622,6 +1632,11 @@ function switchView(viewId) {
  *  y el motor en vivo. Idempotente — entrar diez veces no relanza diez veces
  *  el escaneo, de eso se encarga `vcTabCargada`. */
 function vcArrancaProyecciones() {
+    // La foto del estado vacío se toma AQUÍ, la primera vez, cuando todavía es
+    // el del marcado. Tomarla solo dentro de `loadProjections` dejaba sin copia
+    // a quien entra, sale y vuelve sin haber analizado nada.
+    const _empty = document.getElementById('projEmpty');
+    if (vcEmptyOriginal == null && _empty) vcEmptyOriginal = _empty.innerHTML;
     if (typeof vcPintaNav === 'function') vcPintaNav();
     const inp = document.getElementById('projTicker');
     if (typeof vcPintaQuick === 'function') vcPintaQuick(inp ? inp.value : null);
@@ -2999,6 +3014,61 @@ function vcLoaderArranca(ticker) {
 }
 function vcLoaderPara() { if (vcLoaderTimer) { clearInterval(vcLoaderTimer); vcLoaderTimer = null; } }
 
+//: El estado vacío original de `projEmpty`, tal como viene en el marcado.
+//: Se guarda la primera vez porque `loadProjections` lo pisa con el cargador,
+//: y sin copia no habría a dónde volver.
+let vcEmptyOriginal = null;
+
+/** Borra TODO lo que cuelga del ticker analizado.
+ *
+ *  Dos sitios lo necesitan, y por el mismo motivo: que no quede en pantalla el
+ *  dato de una acción que ya no es la que se está mirando.
+ *
+ *   · Al salir del tab. Volver con el análisis de hace media hora todavía
+ *     puesto es peor que volver a una pantalla vacía: el precio de arriba ya no
+ *     es el de ahora, y nada en la pantalla lo dice.
+ *   · Al pedir OTRO ticker. La cabecera de arriba a la derecha vive FUERA de
+ *     `projContent`, así que esconder el contenido no la tocaba: mientras
+ *     cargaba NVDA seguían viéndose el nombre y el precio de WULF, como si el
+ *     cargador estuviera trabajando sobre esa.
+ */
+function vcLimpiaTicker(opciones) {
+    const o = opciones || {};
+    if (typeof vcLoaderPara === 'function') vcLoaderPara();
+    projData = null;
+
+    if (!o.conservaEntrada) {
+        const inp = document.getElementById('projTicker');
+        if (inp) inp.value = '';
+        if (typeof vcPintaQuick === 'function') vcPintaQuick(null);
+    }
+
+    // La cabecera de arriba: nombre, precio y variación.
+    const hb = document.getElementById('projHbRight');
+    if (hb) hb.innerHTML = '';
+    const badge = document.getElementById('projRegimeBadge');
+    if (badge) { badge.innerText = ''; badge.className = 'hidden'; }
+    const titulo = document.getElementById('projChartTitle');
+    if (titulo) titulo.innerText = '';
+
+    const content = document.getElementById('projContent');
+    const empty = document.getElementById('projEmpty');
+    if (content) content.classList.add('hidden');
+    if (empty) {
+        if (vcEmptyOriginal != null) empty.innerHTML = vcEmptyOriginal;
+        empty.classList.remove('hidden');
+    }
+
+    // La cinta también es de UN ticker: dejarla puesta sería el mismo error en
+    // otra pestaña. Ideas y Wheel no se tocan — escanean el mercado entero, no
+    // dependen del símbolo, y rehacer ese escaneo cuesta llamadas de verdad.
+    const tape = document.getElementById('projTape');
+    if (tape) tape.innerHTML = '';
+    if (typeof vcTabCargada === 'object' && vcTabCargada) vcTabCargada.tape = false;
+
+    if (window.lucide) vcIconos();
+}
+
 async function loadProjections(tickerArg, opts) {
     opts = opts || {};
     const silent = !!opts.silent;
@@ -3006,6 +3076,18 @@ async function loadProjections(tickerArg, opts) {
     const inp = document.getElementById('projTicker');
     let ticker = (tickerArg || (inp ? inp.value : '') || '').trim().toUpperCase();
     if (!ticker) { if (inp) inp.focus(); return; }
+    const empty = document.getElementById('projEmpty');
+    const content = document.getElementById('projContent');
+    // Se borra lo del ticker ANTERIOR antes que nada: antes de abrir pestaña,
+    // antes de pedir la cinta nueva y antes de pintar el cargador. Hacerlo más
+    // tarde borraba la cinta que se acababa de pedir, y hacerlo más tarde aún
+    // dejaba el nombre y el precio de la acción de antes arriba a la derecha
+    // durante toda la carga —esa cabecera vive FUERA de `projContent`, así que
+    // esconder el contenido nunca la tocó—.
+    if (!silent) {
+        if (vcEmptyOriginal == null && empty) vcEmptyOriginal = empty.innerHTML;
+        vcLimpiaTicker({ conservaEntrada: true });
+    }
     if (inp) inp.value = ticker;
     vcPintaQuick(ticker);
     // Analizar un símbolo manda: se salta al panel Ticker, salvo que estés
@@ -3018,8 +3100,6 @@ async function loadProjections(tickerArg, opts) {
         if (vcTabActiva !== 'tape') vcAbreTab('ticker');
         else { vcTabCargada.tape = true; loadProjTape(); }
     }
-    const empty = document.getElementById('projEmpty');
-    const content = document.getElementById('projContent');
     if (!silent) {
         empty.classList.remove('hidden');
         // Su `AnalysisLoader`: cuatro fases y una barra que solo avanza. El
@@ -10758,6 +10838,10 @@ const VX_I18N = {
  * el fallo es invisible: la pantalla se queda en español sin avisar.
  * ─────────────────────────────────────────────────────────────────────── */
 const VX_ES2EN = {
+    "mín": "min",
+    "máx": "max",
+    "% del capital": "% of capital",
+    "Escribe dos números: lo mínimo y lo máximo que una sola posición puede ocupar.": "Enter two numbers: the least and the most a single position may take up.",
     "Días": "Days",
     "Europa": "Europe",
     "Cripto": "Crypto",
@@ -11668,6 +11752,10 @@ const VX_ES2EN = {
  * cada valor sería una entrada distinta. Van aquí, con `$1`, `$2`… en el
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
+    [/^Cada posición irá entre el (\S+)% y el (\S+)% de tu capital\.$/,
+     'Each position will sit between $1% and $2% of your capital.'],
+    [/^Cada posición irá entre el (\S+)% y el (\S+)% de tu capital: (\S+) – (\S+) de (\S+)\.$/,
+     'Each position will sit between $1% and $2% of your capital: $3 – $4 of $5.'],
     [/^faltan (\d+) días de mercado para el IV Rank real; hasta entonces se usa el proxy de volatilidad realizada$/,
      '$1 market days short of the real IV rank; until then the realised-volatility proxy is used'],
     [/^Chequeado (.+) · QD se reprueba cada 90s$/,
@@ -11939,6 +12027,47 @@ function pfValorEnBlanco(preg) {
     return pfContestada(preg) ? pfValor(preg) : undefined;
 }
 
+/** El capital que TÚ declaraste, o `null`. No cae al de Kevin: traducir un
+ *  porcentaje a dólares con el capital de otro sería enseñarte una cifra que no
+ *  es tuya justo en la casilla donde estás decidiendo cuánto arriesgar. */
+function pfCapitalDeclarado() {
+    const p = (VX_PREGUNTAS || []).find(q => q.campo === 'capital');
+    if (!p) return null;
+    const v = Number(pfValorEnBlanco(p));
+    return Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/** El rango por posición, dicho en dinero.
+ *
+ *  «30 – 70» no es una decisión hasta que se lee «$300 – $700»: el porcentaje
+ *  se entiende, pero no se siente. Los dos extremos son distintos y por eso son
+ *  dos casillas: el MÁXIMO es el tope —pasarse cuenta como infracción— y el
+ *  MÍNIMO es el suelo de despliegue —quedarse por debajo no es falta, pero el
+ *  reporte lo dice—. */
+function pfRangoEnDolares(preg) {
+    const v = pfValorEnBlanco(preg);
+    const r = Array.isArray(v) && v.length === 2 && v.every(n => Number(n) > 0) ? v : null;
+    if (!r) {
+        return 'Escribe dos números: lo mínimo y lo máximo que una sola posición puede ocupar.';
+    }
+    const cap = pfCapitalDeclarado();
+    const pct = `Cada posición irá entre el ${r[0]}% y el ${r[1]}% de tu capital`;
+    if (!cap) return pct + '.';
+    const d = n => '$' + Math.round(cap * Number(n) / 100).toLocaleString('en-US');
+    return `${pct}: ${d(r[0])} – ${d(r[1])} de $${cap.toLocaleString('en-US')}.`;
+}
+
+/** Se repintan TODAS las notas, no solo la de la casilla tocada: cambiar el
+ *  capital cambia los dólares del rango, que es otra pregunta. */
+function pfRefrescaRangos() {
+    document.querySelectorAll('#pfPreguntas [data-pregunta]').forEach(nodo => {
+        const nota = nodo.querySelector('.pf-rango');
+        if (!nota) return;
+        const preg = (VX_PREGUNTAS || []).find(p => p.id === nodo.dataset.pregunta);
+        if (preg) nota.textContent = pfRangoEnDolares(preg);
+    });
+}
+
 function pfPinta(d) {
     // Se pinta lo que llega en el payload, no lo que dejara una llamada
     // anterior. `pfPinta` tiene que poder pintar sola — leer las preguntas de
@@ -12075,14 +12204,27 @@ function pfPreguntaHTML(preg) {
         // Sin contestar, las DOS casillas van vacías. Traer aquí el 20–30 de
         // referencia era premarcar con otro nombre: se veía escrito y parecía
         // tuyo.
+        // Dos casillas vacías con una raya en medio no dicen qué se espera
+        // dentro. Se rotula cada extremo —mín y máx— y debajo se traduce a
+        // dólares sobre TU capital, que es donde el porcentaje se vuelve una
+        // decisión: «30–70» no significa nada hasta que se lee «$300 – $700».
         const r = Array.isArray(val) ? val : ['', ''];
-        control = `<div class="flex items-center gap-2 mt-2.5">
-            <input type="number" min="1" max="100" data-preg="${_vcEsc(preg.id)}" data-parte="0" value="${_vcEsc(r[0])}"
-                   class="pf-in w-20 bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
-            <span class="text-xs text-gray-500">%</span><span class="text-xs text-gray-600">&ndash;</span>
-            <input type="number" min="1" max="100" data-preg="${_vcEsc(preg.id)}" data-parte="1" value="${_vcEsc(r[1])}"
-                   class="pf-in w-20 bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-white focus:border-blue-500/50 focus:outline-none">
-            <span class="text-xs text-gray-500">% del capital</span></div>`;
+        const caja = 'pf-in w-20 bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 '
+                   + 'text-sm text-white text-center focus:border-blue-500/50 focus:outline-none';
+        control = `<div class="flex items-end gap-2 mt-2.5 flex-wrap">
+            <label class="flex flex-col gap-1">
+                <span class="text-[9px] font-bold text-gray-500 uppercase tracking-wider">mín</span>
+                <input type="number" min="1" max="100" placeholder="30" data-preg="${_vcEsc(preg.id)}" data-parte="0" value="${_vcEsc(r[0])}"
+                       class="${caja}">
+            </label>
+            <span class="text-xs text-gray-600 pb-2.5">&ndash;</span>
+            <label class="flex flex-col gap-1">
+                <span class="text-[9px] font-bold text-gray-500 uppercase tracking-wider">máx</span>
+                <input type="number" min="1" max="100" placeholder="70" data-preg="${_vcEsc(preg.id)}" data-parte="1" value="${_vcEsc(r[1])}"
+                       class="${caja}">
+            </label>
+            <span class="text-xs text-gray-500 pb-2.5">% del capital</span></div>
+        <p class="pf-rango text-[10px] text-gray-500 mt-2 leading-relaxed">${pfRangoEnDolares(preg)}</p>`;
     } else {
         control = `<textarea rows="4" spellcheck="true" data-preg="${_vcEsc(preg.id)}"
             class="pf-in mt-2.5 w-full bg-[#0B0E14] border border-panel rounded-lg px-3 py-2 text-sm text-gray-200 leading-relaxed focus:border-blue-500/50 focus:outline-none resize-y">${_vcEsc(val || '')}</textarea>`;
@@ -12191,6 +12333,7 @@ document.addEventListener('input', e => {
     // El texto NO se repinta: reemplazar el `<textarea>` mientras escribes te
     // mueve el cursor al principio en cada tecla. Solo se actualiza la insignia.
     pfActualizaInsignia(preg);
+    pfRefrescaRangos();
     pfPintaProgreso();
 });
 
