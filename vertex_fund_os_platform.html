@@ -784,7 +784,8 @@
 
         <div class="px-3 pt-4">
             <p class="text-[10px] font-bold text-gray-600 uppercase tracking-wider px-2 mb-1.5">Secciones</p>
-            <button class="mnav-item" data-view="homeView"        onclick="mobileGo('homeView')"><i data-lucide="layout-dashboard" class="w-4 h-4"></i> Dashboard</button>
+            <button class="mnav-item" data-view="sectorsView"     onclick="mobileGo('sectorsView')"><i data-lucide="layout-dashboard" class="w-4 h-4"></i> Dashboard</button>
+            <button class="mnav-item" data-view="homeView"        onclick="mobileGo('homeView')"><i data-lucide="zap" class="w-4 h-4"></i> Analyze</button>
             <button class="mnav-item" data-view="reportsView"     onclick="mobileGo('reportsView')"><i data-lucide="file-text" class="w-4 h-4"></i> Reports</button>
             <button class="mnav-item" data-view="portfolioView"   onclick="mobileGo('portfolioView')"><i data-lucide="briefcase" class="w-4 h-4"></i> Portfolio</button>
             <button class="mnav-item" data-view="projectionsView" onclick="mobileGo('projectionsView')"><i data-lucide="trending-up" class="w-4 h-4"></i> Proyecciones</button>
@@ -1769,6 +1770,16 @@ async function cargaSectores(forzar) {
     parrilla.innerHTML = '<p class="text-xs text-gray-500 py-8 text-center">Leyendo el mercado…</p>';
     try {
         const r = await fetch(`${API_BASE}/api/sectores`);
+        // El estado HTTP se mira ANTES de leer el cuerpo. Un 404 —panel nuevo
+        // contra servidor viejo, que es lo que pasa entre el despliegue del
+        // navegador y el del backend— devuelve `{"detail": "Not Found"}`: un
+        // JSON válido, sin `ok` y sin `filas`. Sin esta comprobación se pintaba
+        // una parrilla VACÍA sin un solo mensaje, que es la peor forma de
+        // fallar: parece que el mercado no existe.
+        if (!r.ok) {
+            parrilla.innerHTML = `<p class="text-xs text-amber-400 py-8 text-center">El servidor todavía no tiene la pantalla de sectores (HTTP ${r.status}). Si acabas de desplegar, espera a que termine y recarga.</p>`;
+            return;
+        }
         const d = await r.json();
         window._sectoresData = d;
         pintaSectores(d);
@@ -1780,8 +1791,13 @@ async function cargaSectores(forzar) {
 function pintaSectores(d) {
     const parrilla = document.getElementById('sectoresParrilla');
     if (!parrilla) return;
-    if (!d || d.ok === false) {
-        parrilla.innerHTML = `<p class="text-xs text-amber-400 py-8 text-center">${_vcEsc((d && d.error) || 'Sin datos de mercado.')}</p>`;
+    // `ok === false` es la degradación declarada (sin clave de FMP, por
+    // ejemplo). Pero una respuesta SIN `filas` tampoco se puede pintar, y
+    // caerse por el hueco dejaba la pantalla muda. Nunca en blanco: o hay
+    // parrilla, o hay motivo.
+    if (!d || d.ok === false || !Array.isArray(d.filas) || !d.filas.length) {
+        parrilla.innerHTML = `<p class="text-xs text-amber-400 py-8 text-center">${_vcEsc(
+            (d && d.error) || 'Sin datos de mercado.')}</p>`;
         return;
     }
     const por = {};
@@ -12401,6 +12417,8 @@ const VX_ES2EN = {
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
     // Los sectores: llevan el ticker o un número dentro de la frase.
+    [/^El servidor todavía no tiene la pantalla de sectores \(HTTP (\d+)\)\. Si acabas de desplegar, espera a que termine y recarga\.$/,
+     'The server does not have the sectors screen yet (HTTP $1). If you just deployed, wait for it to finish and reload.'],
     [/^Media simple de 200 sesiones: (\S+)$/, 'Simple 200-session average: $1'],
     [/^Leyendo las industrias de (\S+)…$/, 'Reading the industries of $1…'],
     [/^Industrias de (\S+) · (.+)$/, 'Industries of $1 · $2'],

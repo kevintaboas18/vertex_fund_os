@@ -721,3 +721,188 @@ class TestElLogoSaleEnLasTresAreas:
             assert not errores, errores[:3]
         finally:
             pg.close()
+
+
+class TestSectoresSeAlcanzaDesdeElMOVIL:
+    """«Le di deploy y no me sale nada.»
+
+    La pestaña nueva se añadió a la barra de links del escritorio, que vive
+    dentro de un `hidden lg:flex`. En un teléfono esa barra no existe: el único
+    camino a las secciones es el menú de la marca, y ese seguía mandando
+    «Dashboard» a la pantalla vieja. La pantalla estaba entera, desplegada y
+    funcionando, y no había forma de llegar a ella con el dedo.
+
+    Por eso este caso mide con el ancho de un teléfono y no con el de un
+    portátil: el fallo solo existe por debajo del punto de corte.
+    """
+
+    #: 390×844 — un teléfono normal, por debajo del `lg` de Tailwind.
+    MOVIL = {"width": 390, "height": 844}
+
+    _FILA = {"sma200": 95.0, "sma200_dist": 5.26,
+             "cambios": {"1D": 0.5, "7D": 1.0, "1M": 2.0,
+                         "3M": 3.0, "6M": 4.0, "1A": 5.0}}
+
+    @classmethod
+    def _parrilla(cls):
+        secs = ["XLK", "XLF", "XLV", "XLY", "XLC", "XLI",
+                "XLP", "XLE", "XLU", "XLRE", "XLB"]
+        fila = lambda t: {"ticker": t, "nombre": t, "precio": 100.0,          # noqa: E731
+                          "cambio_pct": 0.5, "rsi": 50.0, **cls._FILA}
+        return {"ok": True, "etf": "", "cacheado": False,
+                "referencias": ["SPY", "RSP", "QQQ"], "sectores": secs,
+                "filas": [fila(t) for t in ["SPY", "RSP", "QQQ"] + secs],
+                "rotacion": {"disponible": False, "motivo": ""}}
+
+    def _abre(self, navegador, servidor, ruta=None):
+        pg = navegador.new_page(viewport=self.MOVIL)
+        errores: list[str] = []
+        pg.on("pageerror", lambda e: errores.append(str(e)))
+        pg.route("**/api/sectores*", ruta or (lambda r: r.fulfill(
+            status=200, json=self._parrilla())))
+        pg.goto(servidor, wait_until="load")
+        pg.wait_for_timeout(2500)
+        return pg, errores
+
+    def test_el_menu_del_movil_lleva_a_sectores_y_a_analyze(self, navegador,
+                                                            servidor):
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            vistas = pg.evaluate(
+                "() => [...document.querySelectorAll('#mobileNav [data-view]')]"
+                ".map(b => b.getAttribute('data-view'))")
+            assert "sectorsView" in vistas, (
+                "el menú del móvil no llega a Sectores: en un teléfono la "
+                f"pantalla es inalcanzable. Hay {vistas}")
+            assert "homeView" in vistas, "y Analyze tiene que seguir alcanzable"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_y_la_parrilla_se_pinta_entera_en_un_telefono(self, navegador,
+                                                          servidor):
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            pg.evaluate("mobileGo('sectorsView')")
+            pg.wait_for_timeout(1500)
+            d = pg.evaluate("""() => ({
+                visible: !document.getElementById('sectorsView').classList.contains('hidden'),
+                pulsables: document.querySelectorAll(
+                    '#sectoresParrilla button[onclick^="abreSector"]').length,
+                ventanas: [...document.querySelectorAll('#sectoresParrilla button')]
+                    .slice(0, 6).map(b => b.innerText.trim()),
+                texto: document.getElementById('sectoresParrilla').innerText,
+            })""")
+            assert d["visible"], "Sectores no se abrió desde el menú del móvil"
+            assert d["pulsables"] == 11, (
+                f"{d['pulsables']} sectores pulsables, deberían ser 11")
+            assert d["ventanas"] == ["1D", "7D", "1M", "3M", "6M", "1A"], d["ventanas"]
+            assert "SPY" in d["texto"] and "SMA200" in d["texto"], d["texto"][:200]
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+
+class TestLaParrillaNuncaSeQuedaMUDA:
+    """La otra forma de «no me sale nada», y la peor.
+
+    Panel nuevo contra servidor viejo —el hueco entre que el navegador recarga
+    y el backend termina de desplegar— devuelve un 404 con cuerpo
+    `{"detail": "Not Found"}`: JSON válido, sin `ok` y sin `filas`. El código
+    solo miraba `ok === false`, así que esa respuesta se colaba y se pintaba una
+    parrilla VACÍA sin un mensaje. Parece que el mercado no existe.
+
+    O hay parrilla, o hay motivo. En blanco, nunca.
+    """
+
+    def _texto_con(self, navegador, servidor, ruta):
+        pg = navegador.new_page(viewport=TestSectoresSeAlcanzaDesdeElMOVIL.MOVIL)
+        errores: list[str] = []
+        pg.on("pageerror", lambda e: errores.append(str(e)))
+        pg.route("**/api/sectores*", ruta)
+        pg.goto(servidor, wait_until="load")
+        pg.wait_for_timeout(2200)
+        pg.evaluate("switchView('sectorsView')")
+        pg.wait_for_timeout(1500)
+        txt = pg.evaluate(
+            "() => document.getElementById('sectoresParrilla').innerText.trim()")
+        pg.close()
+        return txt, errores
+
+    def test_un_404_del_servidor_lo_DICE(self, navegador, servidor):
+        txt, errores = self._texto_con(navegador, servidor, lambda r: r.fulfill(
+            status=404, json={"detail": "Not Found"}))
+        assert txt, "parrilla vacía y sin mensaje: el fallo mudo"
+        assert "404" in txt or "desplegar" in txt, txt
+        assert not errores, errores[:3]
+
+    def test_una_respuesta_sin_filas_tambien(self, navegador, servidor):
+        txt, errores = self._texto_con(navegador, servidor, lambda r: r.fulfill(
+            status=200, json={"ok": True, "filas": []}))
+        assert txt, "parrilla vacía y sin mensaje"
+        assert not errores, errores[:3]
+
+    def test_y_la_degradacion_declarada_enseña_SU_motivo(self, navegador,
+                                                         servidor):
+        """Sin clave de FMP no hay precios, y eso se explica con su frase."""
+        txt, errores = self._texto_con(navegador, servidor, lambda r: r.fulfill(
+            status=200, json={"ok": False, "filas": [],
+                              "error": "Falta FMP_API_KEY: sin ella no hay "
+                                       "precio ni RSI de los sectores."}))
+        assert "FMP_API_KEY" in txt, txt
+        assert not errores, errores[:3]
+
+
+class TestTodoLoDelEscritorioSeAlcanzaEnElMOVIL:
+    """La regla, convertida en guardián: **lo que se sube vale para todos los
+    dispositivos**.
+
+    La barra de links vive en un `hidden lg:flex`, así que en un teléfono no
+    existe. Añadir una pestaña ahí y creer que ya está es exactamente cómo se
+    desplegó una pantalla entera —Sectores— a la que en el móvil no había
+    manera de llegar con el dedo: funcionando, servida y muda.
+
+    Esto no mira una pantalla concreta: recorre TODAS las de la barra y exige
+    que cada una esté también en el menú del móvil. Añadir una pestaña nueva y
+    olvidar el móvil hace fallar este caso, no al usuario.
+    """
+
+    def test_ninguna_seccion_se_queda_solo_en_el_escritorio(self, navegador,
+                                                            servidor):
+        pg, errores = _abre(navegador, servidor)
+        try:
+            d = pg.evaluate("""() => {
+                const barra = document.querySelector('nav .hidden.lg\\\\:flex');
+                const sacaVista = s => (String(s || '').match(
+                    /switchView\\('([A-Za-z]+View)'\\)/) || [])[1];
+                const escritorio = [...(barra ? barra.querySelectorAll('button') : [])]
+                    .map(b => sacaVista(b.getAttribute('onclick')))
+                    .filter(Boolean);
+                const movil = [...document.querySelectorAll('#mobileNav [data-view]')]
+                    .map(b => b.getAttribute('data-view'));
+                return {escritorio, movil};
+            }""")
+            assert len(d["escritorio"]) >= 4, (
+                f"el escaneo no encontró la barra: {d}")
+            faltan = [v for v in d["escritorio"] if v not in d["movil"]]
+            assert not faltan, (
+                f"{faltan} está en la barra del escritorio y NO en el menú del "
+                f"móvil: en un teléfono esas pantallas son inalcanzables. "
+                f"El menú tiene {d['movil']}")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_y_el_menu_del_movil_no_apunta_a_pantallas_que_no_existen(
+            self, navegador, servidor):
+        """La otra cara: una entrada que lleva a una vista borrada abre la nada."""
+        pg, errores = _abre(navegador, servidor)
+        try:
+            huerfanas = pg.evaluate("""() =>
+                [...document.querySelectorAll('#mobileNav [data-view]')]
+                    .map(b => b.getAttribute('data-view'))
+                    .filter(v => !document.getElementById(v))""")
+            assert not huerfanas, f"el menú del móvil lleva a la nada: {huerfanas}"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
