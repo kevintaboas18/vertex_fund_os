@@ -1641,6 +1641,65 @@ class TestTimeAndSales:
         assert p["volume"] + p["timing"] + p["repetition"] == d["trades"][0]["unusual_score"], \
             "el desglose tiene que sumar el total, o uno de los dos miente"
 
+    def test_la_tabla_de_inusualidad_llega_entera_como_la_suya(self, client):
+        """Su `unusualRows`: los seis sub-puntajes pegados a CADA trade.
+
+        Aquí solo viajaban los seis promedios. Un promedio no dice qué contrato
+        disparó la señal, y es justo lo que se mira: «inusualidad 7,4» no se
+        opera, «el call de $210 que vence en tres días puntúa 9,2 por tamaño y
+        gamma» sí.
+        """
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        filas = d.get("unusual_rows")
+        assert filas, "el motor no sirve las filas de inusualidad"
+        r = filas[0]
+        for campo in ("id", "underlying", "strike", "expiration", "dte",
+                      "timestamp", "premium", "delta", "gamma",
+                      "theta_pct_daily", "condition_code", "condition_name",
+                      "multileg", "confirmed_by_aggression", "unusual_scores"):
+            assert campo in r, f"falta {campo}: su tabla no se puede montar"
+        assert set(r["unusual_scores"]) == {"size", "delta", "theta", "gamma",
+                                            "leg", "expiry", "total"}
+
+    def test_el_cruce_con_agresividad_es_el_suyo(self, client):
+        """`agresividadIds.has(row.id)` — y su nota: verifica, no puntúa."""
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        u = d["subagents"]["unusuality"]
+        assert "confirmed_count" in u, "sin el recuento, la columna no se resume"
+        marcadas = sum(1 for r in d["unusual_rows"]
+                       if r["confirmed_by_aggression"])
+        assert u["confirmed_count"] == marcadas, (
+            f"el recuento ({u['confirmed_count']}) no cuadra con las filas "
+            f"marcadas ({marcadas})")
+        assert u["confirmed_count"] <= len(d["unusual_rows"])
+
+    def test_las_filas_no_se_archivan_pero_la_evidencia_si(self, client):
+        """150 trades con griegos por reporte llenarían el repositorio.
+
+        Lo que sostiene el score —los promedios y los recuentos— sí se archiva;
+        la materia prima de pantalla se vuelve a bajar cuando haga falta.
+        """
+        import vertex_api as V
+
+        assert "unusual_rows" in V._OPCIONES_NO_SE_ARCHIVA
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        recortado = V._sin_derivado(d)
+        assert "unusual_rows" not in recortado
+        assert "unusual_rows" in recortado["_no_archivado"], (
+            "se recorta en silencio: el archivo tiene que decir qué le falta")
+        assert recortado["subagents"]["unusuality"]["avg_by_param"], (
+            "la evidencia del score no puede irse con la materia prima")
+
+    def test_el_panel_monta_SU_tabla_con_sus_columnas(self):
+        import pathlib
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "vcUnusualTablaHTML" in html
+        for col in ("Theta/día", "Condición", "Validación", "Inusual",
+                    "Tam", "Venc"):
+            assert col in html, f"falta la columna «{col}» de su UnusualityCard"
+        assert "Solo inusuales" in html and "también en Agresividad" in html
+
     def test_el_recorte_al_cono_se_avisa_en_el_escenario(self, client):
         """Su «· recortado al cono 2σ», que el motor servía y nadie pintaba.
 

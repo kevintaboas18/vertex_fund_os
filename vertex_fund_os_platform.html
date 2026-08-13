@@ -4819,6 +4819,76 @@ const VC_UNU_PARAMS = [
     ['theta', 'Theta', 'decaimiento diario'], ['gamma', 'Gamma', 'zona institucional'],
     ['leg', 'Condición', 'single vs multileg'], ['expiry', 'Vencimiento', 'plazo del contrato'],
 ];
+/** La tabla de su `UnusualityCard`, trade a trade.
+ *
+ *  Aquí solo estaban los seis PROMEDIOS. Un promedio no dice qué contrato
+ *  disparó la señal, y es justo lo que se va a mirar: «inusualidad 7,4» no se
+ *  puede operar, «el call de $210 que vence en tres días puntúa 9,2 por tamaño
+ *  y gamma» sí.
+ *
+ *  Sus mismas columnas y su mismo cruce: la de <b>Validación</b> dice si el
+ *  sub-agente 1 vio el MISMO trade. Él lo deja escrito y conviene repetirlo —
+ *  «es una verificación aparte y NO altera el puntaje».
+ *
+ *  El interruptor «Solo inusuales / Todas» es el suyo. Arranca en inusuales
+ *  porque son las que importan, y con 150 filas la tabla entera es un muro.
+ */
+function vcUnusualTablaHTML(d) {
+    const filas = (d && d.unusual_rows) || [];
+    if (!filas.length) return '';
+    const soloInusuales = window._vcUnuSolo !== false;
+    const UMBRAL = 7;   // su `UNUSUAL_TRADE_THRESHOLD`, sobre 10
+    const vistas = soloInusuales
+        ? filas.filter(r => ((r.unusual_scores || {}).total || 0) >= UMBRAL)
+        : filas;
+    const btn = (on, txt, val) => `<button onclick="window._vcUnuSolo=${val};renderVictorTargets(window._vcData)"
+        class="px-2 py-0.5 rounded text-[9px] font-bold border ${on
+          ? 'bg-blue-500/20 border-blue-500/60 text-blue-300'
+          : 'border-gray-800 text-gray-500 hover:text-gray-300'}">${txt}</button>`;
+    const cabecera = ['Fecha · Hora', 'Contrato', 'Vencimiento', 'Dinero', 'Delta',
+                      'Theta/día', 'Gamma', 'Condición', 'Tam', 'Δ', 'Θ', 'Γ',
+                      'Leg', 'Venc', 'Inusual', 'Validación'];
+    const _n = (v, dec) => v == null ? '—' : Number(v).toFixed(dec);
+    const cuerpo = vistas.map(r => {
+        const s = r.unusual_scores || {};
+        const cp = r.type === 'call' ? 'C' : (r.type === 'put' ? 'P' : '?');
+        return `<tr class="border-b border-gray-800/40 ${s.total >= UMBRAL ? 'vc-unusual' : ''}">
+          <td class="py-0.5 pr-2 text-gray-500">${_vcEsc(vcDateET(r.timestamp))} · ${_vcEsc(vcTimeET(r.timestamp))}</td>
+          <td class="py-0.5 pr-2 font-bold text-white">${_vcEsc(r.underlying || '')} ${_vcEsc(r.strike)}${cp}${
+            r.repeated ? ' ' + vcRepeatBadge(2) : ''}</td>
+          <td class="py-0.5 pr-2 text-gray-400">${_vcEsc(String(r.expiration || '—').slice(5))}${
+            r.dte != null ? ` <span class="text-gray-600">(${Math.round(r.dte)}d)</span>` : ''}</td>
+          <td class="py-0.5 pr-2 text-right text-gray-200 font-bold">${fmtAbbr(r.premium)}</td>
+          <td class="py-0.5 pr-2 text-right text-gray-400">${_n(r.delta, 2)}</td>
+          <td class="py-0.5 pr-2 text-right text-gray-400">${r.theta_pct_daily == null ? '—' : _n(r.theta_pct_daily, 2) + '%'}</td>
+          <td class="py-0.5 pr-2 text-right text-gray-400">${_n(r.gamma, 4)}</td>
+          <td class="py-0.5 pr-2 text-gray-500" title="${_vcEsc(r.condition_name || '')}">${
+            _vcEsc(r.condition_code || '—')} <span class="${r.multileg ? 'text-amber-400' : 'text-gray-700'}">${
+            r.multileg ? 'multi' : 'single'}</span></td>
+          <td class="py-0.5 pr-1 text-right text-gray-600">${s.size ?? '—'}</td>
+          <td class="py-0.5 pr-1 text-right text-gray-600">${s.delta ?? '—'}</td>
+          <td class="py-0.5 pr-1 text-right text-gray-600">${s.theta ?? '—'}</td>
+          <td class="py-0.5 pr-1 text-right text-gray-600">${s.gamma ?? '—'}</td>
+          <td class="py-0.5 pr-1 text-right text-gray-600">${s.leg ?? '—'}</td>
+          <td class="py-0.5 pr-1 text-right text-gray-600">${s.expiry ?? '—'}</td>
+          <td class="py-0.5 pr-2 text-right font-bold ${s.total >= UMBRAL ? 'text-amber-400' : 'text-gray-400'}">${
+            _n(s.total, 1)}<span class="text-gray-700">/10</span></td>
+          <td class="py-0.5 text-[8px]">${r.confirmed_by_aggression
+            ? '<span class="text-emerald-400">✓ también en Agresividad</span>'
+            : '<span class="text-gray-700">—</span>'}</td></tr>`;
+    }).join('');
+    return `<div class="mt-2">
+      <div class="flex gap-1 mb-1">
+        ${btn(soloInusuales, `Solo inusuales (${filas.filter(r => ((r.unusual_scores || {}).total || 0) >= UMBRAL).length})`, 'true')}
+        ${btn(!soloInusuales, `Todas (${filas.length})`, 'false')}
+      </div>
+      <div class="overflow-x-auto max-h-72 overflow-y-auto"><table class="vc-t w-full text-[9px]">
+        <thead><tr class="text-gray-600 text-[8px] uppercase border-b border-gray-800">
+          ${cabecera.map((h, i) => `<th class="${i <= 2 || i === 7 || i === 15 ? 'text-left' : 'text-right'} pb-0.5 ${i >= 8 && i <= 13 ? 'pr-1' : 'pr-2'}">${h}</th>`).join('')}
+        </tr></thead><tbody>${cuerpo}</tbody></table></div>
+      <p class="text-[8px] text-gray-600 mt-1 leading-snug">Las filas resaltadas superan ${UMBRAL}/10 &mdash; perfil institucional. La columna <b>Validaci&oacute;n</b> cruza con lo que reporta el agente de Agresividad; es una verificaci&oacute;n aparte y <b>no altera el puntaje</b>.</p></div>`;
+}
+
 //: Régimen de IV en palabras — su `REGIME_LABEL` de IvContextCard.
 const VC_IV_REGIME = {
     dormida: 'Acción dormida', compresion: 'Volatilidad comprimida',
@@ -4949,7 +5019,9 @@ function vcSubagentesHTML(d) {
                ${VC_UNU_PARAMS.map(([k, lbl, hint]) =>
                    _vcMetric(lbl, p[k] == null ? '—' : Number(p[k]).toFixed(1), null, hint)).join('')}
              </div>
-             <p class="text-[9px] text-gray-600 mt-1.5 leading-snug">Cada trade se puntúa en 6 parámetros (columnas <b>Tam · Δ · Θ · Γ · Leg · Venc</b>) y el promedio da su puntaje <b>Inusual</b>. ${u.unusual_count} de ${u.n} trades superan el umbral institucional (&ge;7/10). Promedio por par&aacute;metro sobre la ventana de convicci&oacute;n. <b>No</b> son las filas resaltadas de la cinta: aquella se ti&ntilde;e con el otro puntaje, el de 0-30 (tama&ntilde;o + horario + repetici&oacute;n), y son dos conjuntos distintos de trades.</p>`));
+             <p class="text-[9px] text-gray-600 mt-1.5 leading-snug">Cada trade se puntúa en 6 parámetros (columnas <b>Tam · Δ · Θ · Γ · Leg · Venc</b>) y el promedio da su puntaje <b>Inusual</b>. ${u.unusual_count} de ${u.n} trades superan el umbral institucional (&ge;7/10)${
+                 u.confirmed_count ? ` · <span class="text-emerald-400">✓ ${u.confirmed_count} confirmadas por el agente de Agresividad</span>` : ''}. Promedio por par&aacute;metro sobre la ventana de convicci&oacute;n. <b>No</b> son las filas resaltadas de la cinta: aquella se ti&ntilde;e con el otro puntaje, el de 0-30 (tama&ntilde;o + horario + repetici&oacute;n), y son dos conjuntos distintos de trades.</p>
+             ${vcUnusualTablaHTML(d)}`));
     }
 
     // ── 4 · Estructura ─────────────────────────────────────────────────────
@@ -11032,6 +11104,17 @@ const VX_ES2EN = {
     "Volatilidad normal": "Normal volatility",
     "Dominancia": "Dominance",
     "Rango extremo · 2σ": "Extreme range · 2σ",
+    "Contrato": "Contract",
+    "Dinero": "Money",
+    "Theta/día": "Theta/day",
+    "Tam": "Size",
+    "Venc": "Expiry",
+    "Inusual": "Unusual",
+    "Validación": "Validation",
+    "Condición": "Condition",
+    "✓ también en Agresividad": "✓ also in Aggressiveness",
+    "cruza con lo que reporta el agente de Agresividad; es una verificación aparte y": "cross-checks what the Aggressiveness agent reports; it is a separate verification and",
+    "no altera el puntaje": "does not alter the score",
     "recortado al cono 2σ": "capped at the 2σ cone",
     "El escenario pedía más de lo que la volatilidad da a este plazo: el target se topó en el borde del cono de 2σ.": "The scenario asked for more than volatility allows over this horizon: the target was capped at the edge of the 2σ cone.",
     "calibración en espera": "calibration on hold",
@@ -12002,6 +12085,15 @@ const VX_ES2EN = {
  * cada valor sería una entrada distinta. Van aquí, con `$1`, `$2`… en el
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
+    // La tabla de inusualidad: los dos botones llevan el recuento dentro, y la
+    // nota lleva el umbral. Los `<b>` de la nota la parten en varios nodos de
+    // texto, así que cada trozo va por su lado — el barrido traduce nodo a nodo.
+    [/^Las filas resaltadas superan (\S+) — perfil institucional\. La columna$/,
+     'Highlighted rows are above $1 — institutional profile. The'],
+    [/^Solo inusuales \((\d+)\)$/, 'Unusual only ($1)'],
+    [/^Todas \((\d+)\)$/, 'All ($1)'],
+    [/^✓ (\d+) confirmadas por el agente de Agresividad$/,
+     '✓ $1 confirmed by the Aggressiveness agent'],
     // ── La línea de memoria del tab de Proyecciones ──────────────────────
     //
     // Sus nueve datos llevan números dentro, así que ninguno cabe en el

@@ -6529,7 +6529,12 @@ def _tito_remember(ticker, result, now):
 #: que ningún número viaje sin su evidencia; ninguno de estos cinco campos es
 #: evidencia de nada, son la materia prima.
 _OPCIONES_NO_SE_ARCHIVA = ("chain", "history", "gex_heatmap", "levels_for_chart",
-                           "chart_geometry")
+                           "chart_geometry",
+                           # Hasta 150 trades con sus griegos y sus seis
+                           # sub-puntajes. Es materia prima de pantalla: los
+                           # promedios y el recuento —que son la evidencia del
+                           # score— sí se archivan, dentro de `subagents`.
+                           "unusual_rows")
 
 
 def _sin_derivado(out):
@@ -6598,6 +6603,10 @@ def _tito_json(r):
     def scen(s):
         return {"target": _r(s.target), "change_pct": _r(s.change_pct, 1),
                 "probability": _r(s.probability, 3), "driver": s.driver}
+
+    # `const agresividadIds = new Set(interesting.map(r => r.id))` suyo. El
+    # cruce de su `UnusualityCard`: qué trades vio TAMBIÉN el sub-agente 1.
+    _agresivos = {t.id for t in ((r.flow.interesting if r.flow else None) or [])}
 
     # `probTouch(spot, l.price, iv, horizonDays)` de su `NivelesSimples`: la
     # probabilidad de que el precio LLEGUE a ese nivel dentro del horizonte.
@@ -6730,6 +6739,12 @@ def _tito_json(r):
             "unusuality": {
                 "score": r.unusuality.score, "n": r.unusuality.n,
                 "unusual_count": r.unusuality.unusual_count,
+                # Su `confirmedCount`: de los inusuales, cuántos vio TAMBIÉN el
+                # sub-agente 1. Él lo deja escrito y conviene repetirlo — «es un
+                # proceso aparte y NO afecta el scoreboard»: verifica la
+                # etiqueta, no la puntúa.
+                "confirmed_count": sum(
+                    1 for t, _ in r.unusuality.top if t.id in _agresivos),
                 "avg_by_param": {k: _r(v, 1) for k, v in r.unusuality.avg_by_param.items()},
             },
             # 4 · Estructura — nocional por strike, dominio y volumen>OI.
@@ -6908,6 +6923,33 @@ def _tito_json(r):
             for t in sorted(r.conviction_flow,
                             key=lambda t: t.premium if isinstance(t.premium, (int, float)) else 0,
                             reverse=True)[:TITO_CONVICTION_TABLE_CAP]
+        ],
+        # Su `unusualRows`: `unusuality.top` con el puntaje de los seis
+        # parámetros pegado a cada fila y la marca de si el sub-agente 1 vio el
+        # MISMO trade. Es lo que alimenta su `UnusualityCard`, que hasta ahora
+        # aquí se resumía en seis promedios — y un promedio no dice QUÉ
+        # contrato disparó la señal, que es justo lo que se va a mirar.
+        #
+        # `confirmed_by_aggression` es su cruce: `agresividadIds.has(row.id)`,
+        # el set de los notables del sub-agente 1. Él lo deja escrito y es
+        # importante — «es un proceso aparte y NO afecta el scoreboard»: es una
+        # verificación, no un peso.
+        "unusual_rows": [
+            {"id": t.id, "underlying": t.underlying, "type": t.type,
+             "strike": t.strike, "expiration": t.expiration, "dte": t.dte,
+             "timestamp": t.timestamp, "premium": t.premium,
+             "delta": t.delta, "gamma": t.gamma,
+             "theta_pct_daily": _r(t.theta_pct_daily, 2),
+             "condition_code": t.condition_code,
+             "condition_name": t.condition_name,
+             "repeated": bool(t.flags.repeated),
+             "multileg": bool(t.flags.multileg),
+             "confirmed_by_aggression": t.id in _agresivos,
+             "unusual_scores": {"size": s.size, "delta": s.delta,
+                                "theta": s.theta, "gamma": s.gamma,
+                                "leg": s.leg, "expiry": s.expiry,
+                                "total": s.total}}
+            for t, s in (r.unusuality.top if r.unusuality else [])
         ],
         # % del premium notable en calls. Es el mismo número que usa el resumen
         # de Prediction Pro, y el que /api/tito-news necesita para confrontar la
