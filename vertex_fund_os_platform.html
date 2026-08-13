@@ -1321,11 +1321,6 @@
                      revisitar si la clasificación es 'evitar'. ══ -->
                 <div id="frMandatory" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
 
-                <!-- ══ THESIS KILLERS — CLAUDE.md y 05_risk_analysis/DECISION_RULES.md:
-                     "Always list at least three risks that could invalidate the thesis",
-                     cada uno con sus 7 campos. Son CONTENIDO cualitativo (clase Q del juez),
-                     no mueven ni un punto del score determinista. ══ -->
-                <div id="frThesisKillers" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-3"></div>
             </div>
 
             <div>
@@ -1412,6 +1407,17 @@
             <div id="wbjAiEmpty" class="bg-[#0B0E14] rounded-xl border border-gray-900 p-6 text-center">
                 <p class="text-[11px] text-gray-400 leading-relaxed">El <b class="text-blue-300">Juicio AI</b> no corrió para este análisis.<br>Requiere <b class="text-gray-300">ANTHROPIC_API_KEY</b> con crédito disponible. El score determinista de Victor (Full Research) no depende de esto y se muestra siempre.</p>
             </div>
+
+            <!-- ══ THESIS KILLERS — CLAUDE.md y 05_risk_analysis/DECISION_RULES.md:
+                 "Always list at least three risks that could invalidate the thesis",
+                 cada uno con sus 7 campos.
+                 Vive AQUI y no en Full Research porque son contenido cualitativo
+                 (clase Q del juez) y no mueven ni un punto del score determinista:
+                 su propio texto lo decia mientras se mostraba en el area del motor.
+                 Hermano de los paneles de arriba, no hijo: `wbjAiPanel` se oculta
+                 cuando el juez no corrio, y es justo entonces cuando este bloque
+                 tiene algo que decir. ══ -->
+            <div id="frThesisKillers" class="hidden bg-[#0B0E14] p-4 rounded-xl border border-gray-900 mt-4"></div>
         </div>
         <div id="sentimentTab" class="tab-content p-6">
 
@@ -2359,8 +2365,16 @@ function renderVictorScore() {
       <div class="track2"></div><span class="v">N/S</span></div>`;
   }).join('');
   const overall = sc.overall_10 == null ? '—' : sc.overall_10.toFixed(1);
-  el.innerHTML = `<h2>Puntaje de los agentes</h2>
-    <div class="sub">1–10 por categoría · ${sc.evidence_points_covered}/100 puntos de evidencia</div>
+  // Es el QUICK de Victor (`wbj scorecard`), no el deep. Se rotula como tal
+  // porque su propia narrativa de al lado ya dice "Quick score: X/10" --
+  // `targets.py:216` de Victor-- y durante un tiempo ese texto acompanaba al
+  // numero del deep. El deep vive en el gauge de Raw Score y, con juez, en
+  // la pestana de Juicio AI.
+  const _esDeep = sc._es_deep === true;
+  el.innerHTML = `<h2>${_esDeep ? 'Puntaje de los agentes' : 'Puntaje quick'}</h2>
+    <div class="sub">${_esDeep
+      ? 'motor completo — sin packet EDGAR para el quick'
+      : 'el mismo de Descubrir empresas · <b>' + sc.evidence_points_covered + '/100</b> puntos de evidencia'}</div>
     <div class="gaugebox">${_gaugeSvg(sc.overall_10 ?? 0)}
       <div class="gauge-num">${overall}</div><div class="gauge-of">de 10</div></div>${rows}`;
 }
@@ -10767,6 +10781,10 @@ const VX_ES2EN = {
     "Top 5 por Notional Value ·": "Top 5 by notional value ·",
     "Puntaje": "Score",
     "Puntaje rápido": "Quick score",
+    "Puntaje quick": "Quick score",
+    "motor completo — sin packet EDGAR para el quick": "full engine — no EDGAR packet for the quick score",
+    "el mismo de Descubrir empresas ·": "the same one as Discover companies ·",
+    "puntos de evidencia": "points of evidence",
     "Los puntajes por agente y la cobertura de cada uno están arriba, en": "The per-agent scores and each one’s coverage are above, in",
     "«Puntaje de los agentes»": "«Agent scores»",
     "salían dos veces con los mismos números. El puntaje": "they appeared twice with the same numbers. The",

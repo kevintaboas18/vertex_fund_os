@@ -10544,20 +10544,52 @@ def _engine_scorecard(ticker, info, price):
     #    puntaje promedio 1-10 de los agentes, y "Qué significa el puntaje" (su brief.py,
     #    byte-idéntico al suyo: _classification + _category_meaning). Todo determinista. ──
     try:
-        # overall 1-10 = raw_total(0-100)/10 · evidencia = Σ(max_i × cobertura_i), como el card
-        _overall10 = round(float(sc["raw_total"]) / 10.0, 1) if sc.get("raw_total") is not None else None
-        _evid = 0.0
-        _cat_rows = []
-        for _k in WBJ_ORDER:
-            _c = (sc.get("categories") or {}).get(_k)
-            if not _c:
-                continue
-            _evid += float(_c.get("max") or 0) * float(_c.get("coverage") or 0)
-            _cat_rows.append({"key": _k, "label": _c.get("label"), "score10": _c.get("score10"),
-                              "status": _c.get("status"), "reason": _c.get("reason")})
-        _evid = int(round(_evid))
-        _victor_sc = {"overall_10": _overall10, "evidence_points_covered": _evid,
-                      "categories": _cat_rows}
+        # `victor_scorecard` es el QUICK de Victor, no el deep. Se llenaba con
+        # `sc["raw_total"]` --el agregado profundo-- y eso hacia MENTIR a su
+        # propia narrativa: `targets.py:216` escribe literalmente
+        #
+        #     f"Quick score: {scorecard['overall_10']}/10, computed from
+        #      {covered} of 100 evidence points"
+        #
+        # o sea el panel decia "Quick score" mostrando el numero del deep. Y
+        # el deep ya se ve DOS veces: en el gauge de Raw Score y, con juez, en
+        # la pestaña de Juicio AI.
+        #
+        # En el motor de Victor son dos comandos distintos --`wbj scorecard`
+        # (quick) y el analisis profundo-- y este panel es la cara del primero.
+        # `quick_scorecard` corre sobre el packet EDGAR, que ya esta armado.
+        _victor_sc = None
+        if dict_packet:
+            try:
+                from wbj.quick import quick_scorecard as _qsc
+                _q = _qsc(dict_packet)
+                _victor_sc = {
+                    "overall_10": _q.get("overall_10"),
+                    "evidence_points_covered": _q.get("evidence_points_covered"),
+                    "categories": [
+                        {"key": r.get("key"), "label": r.get("label"),
+                         "score10": r.get("score10"), "status": r.get("status"),
+                         "reason": r.get("reason")}
+                        for r in (_q.get("categories") or [])],
+                }
+            except Exception as _e:
+                print(f"[engine] quick para victor_scorecard fallo: {str(_e)[:120]}")
+        if _victor_sc is None:
+            # Sin packet EDGAR no hay quick. Se cae al deep antes que dejar el
+            # panel vacio, y se DICE cual es -- la interfaz lo rotula.
+            _overall10 = round(float(sc["raw_total"]) / 10.0, 1) if sc.get("raw_total") is not None else None
+            _evid = 0.0
+            _cat_rows = []
+            for _k in WBJ_ORDER:
+                _c = (sc.get("categories") or {}).get(_k)
+                if not _c:
+                    continue
+                _evid += float(_c.get("max") or 0) * float(_c.get("coverage") or 0)
+                _cat_rows.append({"key": _k, "label": _c.get("label"), "score10": _c.get("score10"),
+                                  "status": _c.get("status"), "reason": _c.get("reason")})
+            _victor_sc = {"overall_10": _overall10,
+                          "evidence_points_covered": int(round(_evid)),
+                          "categories": _cat_rows, "_es_deep": True}
         sc["victor_scorecard"] = _victor_sc
 
         # "Qué significa el puntaje" — clasificación (favorece/neutral/evitar) + significado por
