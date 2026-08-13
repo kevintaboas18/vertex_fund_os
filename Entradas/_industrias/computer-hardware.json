@@ -1,0 +1,28 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-08-13",
+  "_como_se_obtuvo": "Resuelto al analizar DELL. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 136000000000,
+  "_cita_verificada": "https://www.idc.com/resource-center/blog/an-investors-guide-to-ai-everywhere/",
+  "tam_source": "IDC + Worldwide Server Market Revenue + 2023",
+  "tam_source_tier": 3,
+  "_ambito": "mundial",
+  "_capa": "facturación mundial del mercado de servidores",
+  "_capa_coincide": "Dell factura en la venta de servidores y soluciones de infraestructura (Infrastructure Solutions Group), que se incluye en este mercado.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEX13BCns56J7Ujly-5S-n78u5JmQ55msFiCufe9AwVNWp__l7UlGeYpflOEFbnm09t4WN3XnWfXUJCc3DRXWrWycllNqY76E2TtdbbHLYaJGJ9o1mdaXHn9SFVte_YIQKCeh7gG1BdXPLMpy_YVpx4hzI45X6VQPOe8YOlEGhDm6o8Ajp4wrV6",
+  "_cita_textual": "The rise in ASPs offset the lower volumes leading the total market to grow 10.5% to US$136 billion.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "tam_history": [
+    123224000000,
+    136000000000
+  ],
+  "_segmento_patrones": [
+    "servers",
+    "infrastructure solutions group",
+    "data center",
+    "storage",
+    "networking"
+  ],
+  "_capa_juzgada": "no se pudo consultar la capa (gemini: ClientError 429 RESOURCE_EXHAUST)"
+}

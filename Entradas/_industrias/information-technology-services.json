@@ -1,8 +1,0 @@
-{
-  "_generado_por": "vertex/tam_mundial",
-  "_resuelto_en": "2026-08-11",
-  "_sin_tam": "gemini: ClientError 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and  — Please retry in 29.716840037s; openai: RateLimitError Error code: 429 - {'error': {'message': 'You have no credits remaining. Add credits to continue using the API at https:/; gemini: ClientError 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and  — Please retry in 52.195539732s; gemini: ClientError 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and  — Please retry in 32.755317126s; 1 respuestas sin cifra atribuible",
-  "_fuentes_conocidas": 136,
-  "_visto_al_analizar": "IBM",
-  "_que_hacer": "Escribe el TAM a mano en este archivo y borra `_generado_por`: eso lo vuelve tuyo y el sistema deja de tocarlo. Necesita `tam`, `tam_source` y `tam_source_tier` (1-4)."
-}

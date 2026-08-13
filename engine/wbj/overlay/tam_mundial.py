@@ -1196,8 +1196,34 @@ def asegurar_tam_industria(settings: Any, industria: str | None, ticker: str,
         #
         # Es el mismo error que ya se corrigio en el corte del barrido, y se
         # arregla con la misma frase: si hubo respuestas, hubo pregunta.
+        # ...pero "hubo respuestas" no es lo mismo que "hubo un intento
+        # SERIO", y esa diferencia sellaba industrias por 90 dias sobre nada.
+        #
+        # Medido sobre los 43 archivos: 27 llevan un motivo MIXTO --cuota mas
+        # alguna respuesta-- y el numero de respuestas reales es 1, 2 o 3 de
+        # los 8 intentos posibles (INTENTOS=4 por dos proveedores).
+        # `aerospace-defense` quedo marcada "sin fuente" hasta noviembre con
+        # UNA respuesta de ocho; las otras siete murieron en 429.
+        #
+        # Lo que eso contradice es el razonamiento de este mismo modulo, tres
+        # docstrings mas arriba: "Un `null` no era prueba... preguntando
+        # cuatro veces por Consumer Electronics el SEGUNDO intento devolvio
+        # $783.000M de Gartner y valido. Los otros tres fueron `null`". Si
+        # cuatro intentos existen porque uno no basta, un sello de 90 dias
+        # no puede firmarse con uno.
+        #
+        # Asi que se exige que hayan corrido al menos `INTENTOS` respuestas de
+        # verdad. Por debajo de eso la corrida no probo nada: no se sella y se
+        # reintenta la proxima vez, que es lo unico honesto que se puede hacer
+        # con una tirada que la cuota interrumpio.
         _respondieron = "respuestas sin cifra atribuible" in motivo
-        if not previo and (_respondieron or not _es_falta_de_cuota(motivo)):
+        _n_respuestas = 0
+        if _respondieron:
+            import re as _re_resp
+            _m = _re_resp.search(r"(\d+) respuestas sin cifra", motivo)
+            _n_respuestas = int(_m.group(1)) if _m else 0
+        _intento_serio = _n_respuestas >= INTENTOS
+        if not previo and (_intento_serio or not _es_falta_de_cuota(motivo)):
             try:
                 _escribir(path, {
                     "_generado_por": "vertex/tam_mundial",
