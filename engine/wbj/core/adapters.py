@@ -38,6 +38,23 @@ MODEL_REPLACING: frozenset[str] = frozenset({"banks", "insurers", "reits", "biot
 #: inputs. The analysis runs; it carries a caveat.
 MODEL_NORMALIZING: frozenset[str] = frozenset({"commodities_cyclicals"})
 
+#: Adaptadores donde `INDUSTRY_ADAPTERS.md` reemplaza EXPLÍCITAMENTE el
+#: retorno sobre capital invertido. Son dos, y sus palabras exactas:
+#:
+#:   Banks     — "Replace ROIC with ROE, ROTCE, net interest margin,
+#:                efficiency ratio, CET1, loan-loss reserves..."
+#:   Insurers  — "Use ROE, combined ratio, reserve development, solvency
+#:                capital, book-value growth, and excess-return valuation."
+#:
+#: Es un subconjunto ESTRICTO de `MODEL_REPLACING`, y la diferencia importa.
+#: A los REITs el documento les reemplaza el EPS (por FFO/AFFO) y el
+#: apalancamiento (net debt/EBITDAre), no el ROIC; a biotech le dice que no
+#: puntúe P/E, FCF yield ni calidad de margen "cuando no sea significativo".
+#: Meter esos dos aquí sería extender la regla más allá de lo que el
+#: documento dice -- y una métrica que se retira sin autoridad es tan
+#: inventada como un número sin fuente.
+RETURN_MODEL_REPLACED: frozenset[str] = frozenset({"banks", "insurers"})
+
 #: Adapters that only add metrics. Nothing about the core formulas
 #: changes, so no caveat and no confidence penalty.
 MODEL_ADDITIVE: frozenset[str] = frozenset({DEFAULT_ADAPTER, "saas_subscriptions"})
@@ -51,6 +68,25 @@ _MODEL_FIT: dict[str, float] = {
     "insurers": 40.0,                # ROE/combined ratio/excess return
     "reits": 40.0,                   # EPS replaced by FFO/AFFO
 }
+
+
+def replaces_return_model(adapter: str | None) -> bool:
+    """True cuando el adaptador reemplaza el retorno sobre capital invertido.
+
+    Predicado y no consulta directa al frozenset, por dos razones. La primera
+    es consistencia: TODA pregunta sobre adaptadores en el engine se hace por
+    aqui --`replaces_model`, `normalizes_inputs`, `is_classified`,
+    `needs_caveat`-- y `RETURN_MODEL_REPLACED` era el unico set que los
+    llamadores abrian a pelo, en dos sitios, copiando la expresion.
+
+    La segunda es que esa copia normalizaba con `.lower()` y `replaces_model`
+    no, asi que dos sets del mismo modulo se preguntaban de dos maneras a tres
+    lineas de distancia. `valuation.py` documenta lo que eso cuesta: un
+    `industry_adapter="bank_adapter"` --la ortografia de Victor-- valoro un
+    banco por FCFF DCF. La normalizacion vive aqui dentro, como ya hace
+    `is_subscription_business`, no en quien pregunta.
+    """
+    return (adapter or "").strip().lower() in RETURN_MODEL_REPLACED
 
 
 def replaces_model(adapter: str | None) -> bool:

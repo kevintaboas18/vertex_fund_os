@@ -65,6 +65,43 @@ class FMPProvider(Provider):
             "profile", t, max_age_days=_MAX_AGE_REFERENCE,
         )
 
+    def screener_universo(self, min_market_cap: int = 2_000_000_000,
+                          limit: int = 6000,
+                          exchange: str | None = None,
+                          sector: str | None = None) -> list | dict | None:
+        """El universo cotizado MUNDIAL, con la industria de cada empresa.
+
+        Lo usa el barrido de TAM para saber QUE industrias existen y cuantas
+        empresas cubre cada una. El orden importa: cada TAM cuesta peticiones
+        al proveedor de busqueda y su cuota es finita, asi que resolver
+        primero una industria de 54 empresas rinde mas que una de dos.
+
+        Se cachea un dia: el censo de industrias no cambia de una hora a otra
+        y bajar 3.000 filas por corrida seria gratuito solo en apariencia.
+        """
+        if not self.available:
+            return None
+        # Sin filtro de bolsa: el TAM que resuelve este censo es MUNDIAL, asi
+        # que la industria de una empresa de Tokio o de Frankfurt cuenta igual
+        # que la de Nueva York. Limitarlo a NASDAQ+NYSE dejaba fuera
+        # industrias enteras -- automocion sin Toyota ni VW, lujo sin LVMH --
+        # y por tanto sus TAM sin resolver.
+        extra: dict[str, Any] = {}
+        if exchange:
+            extra["exchange"] = exchange
+        # Filtrar por SECTOR permite resolver el TAM por tandas -- las 14
+        # industrias de Technology de una vez -- en vez de un barrido de 149
+        # que la cuota corta a la mitad.
+        if sector:
+            extra["sector"] = sector
+        return self.get_json(
+            f"{BASE_URL}/company-screener",
+            self._params(marketCapMoreThan=min_market_cap, limit=limit, **extra),
+            "screener_universo",
+            f"_universo_{sector or 'todo'}_{exchange or 'mundial'}",
+            max_age_days=1,
+        )
+
     def income_annual(self, t: str, limit: int = 6) -> list | dict | None:
         """Annual income statements, most recent `limit` fiscal years."""
         if not self.available:

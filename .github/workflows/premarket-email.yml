@@ -1,39 +1,66 @@
 name: Pre-market movers
 
-# M-03: scripts/premarket_email.py decía "corre en GitHub Actions cada mañana
-# de mercado", pero no existía ningún workflow — era código muerto.
+# Este workflow ya NO manda el correo: lo dispara.
 #
-# Cron en UTC: 11:30 UTC = 7:30 ET en horario de verano (EDT, UTC-4) y 6:30 ET
-# en invierno (EST, UTC-5). GitHub no admite husos horarios, así que el propio
-# script comprueba la hora ET y los feriados y se salta el envío si no toca.
+# Lo mandaba desde el runner, y eso obligaba a tener FMP_API_KEY,
+# RESEND_API_KEY y VERTEX_DB_KEY duplicadas en los secrets del repositorio
+# aunque ya estuvieran puestas en Render. GitHub Actions no ve las variables de
+# Render —son dos entornos distintos— así que llegaban vacías y el envío moría
+# antes de empezar, con el workflow en rojo y las claves «puestas».
+#
+# Ahora el envío vive en la app, donde ya viven las claves, y GitHub hace lo
+# único que sabe hacer bien aquí: sonar a una hora. De paso, la petición
+# despierta al servicio dormido del plan free.
+#
+# Cron en UTC: 11:00 UTC = 7:00 ET en verano (EDT, UTC-4) y 6:00 ET en invierno
+# (EST, UTC-5). GitHub no admite husos horarios y ADEMÁS no es puntual: con
+# `30 11` se le ha visto disparar a las 12:08 y a las 13:52 UTC. Por eso la app
+# acepta una ventana (6-10 ET) en vez de una hora exacta.
 on:
   schedule:
-    - cron: "30 11 * * 1-5"
+    - cron: "0 11 * * 1-5"
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: "Imprimir el email en vez de enviarlo"
+      seco:
+        description: "Armar el correo y decir a quién iría, SIN mandarlo"
+        type: boolean
+        default: true
+      forzar:
+        description: "Saltarse la ventana horaria (para probar a deshora)"
         type: boolean
         default: true
 
 jobs:
-  send:
+  disparar:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Enviar resumen pre-market
+      # Sin checkout ni Python: no se ejecuta nada del repositorio.
+      #
+      # Dos secrets, y ninguno es una clave de proveedor:
+      #   VERTEX_URL    la URL pública de Render (https://...onrender.com)
+      #   VERTEX_API_TOKEN  el mismo que ya está en el dashboard de Render
+      - name: Disparar el envío pre-market
         env:
-          # Configura RESEND_API_KEY en Settings > Secrets and variables > Actions.
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          EMAIL_TO: ${{ vars.EMAIL_TO }}
-          # workflow_dispatch: por defecto NO envía, para poder probar sin ruido.
-          # El cron deja ambas vacías, así que envía de verdad.
-          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
-          FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
-        run: python scripts/premarket_email.py
+          VERTEX_URL: ${{ secrets.VERTEX_URL }}
+          VERTEX_API_TOKEN: ${{ secrets.VERTEX_API_TOKEN }}
+          SECO: ${{ inputs.seco && 'true' || 'false' }}
+          FORZAR: ${{ inputs.forzar && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VERTEX_URL:-}" ] || [ -z "${VERTEX_API_TOKEN:-}" ]; then
+            echo "::error::Faltan VERTEX_URL o VERTEX_API_TOKEN en Settings > Secrets."
+            exit 1
+          fi
+          # `--max-time 180`: el plan free duerme y arrancar en frío puede
+          # tardar más de un minuto. Un timeout corto reportaría "caído" un
+          # servicio que solo estaba despertando.
+          codigo=$(curl -sS -o respuesta.json -w '%{http_code}' --max-time 180 \
+            -X POST "${VERTEX_URL%/}/api/premarket/enviar?seco=${SECO}&forzar=${FORZAR}" \
+            -H "x-vertex-token: ${VERTEX_API_TOKEN}")
+          echo "HTTP ${codigo}"
+          cat respuesta.json; echo
+          # El cuerpo ya se imprimió: si la app dice que no salió ni un correo,
+          # contesta 502 y esto sale en rojo. Salir en verde sin haber mandado
+          # nada es el fallo que costó meses de silencio.
+          [ "${codigo}" = "200" ]

@@ -318,6 +318,23 @@ _SUBSCRIPTION_INDUSTRIES = _adapters.SUBSCRIPTION_INDUSTRIES
 _SUBSCRIPTION_ADAPTERS = ("saas", "subscription")
 
 
+def _sin_cliente_sobre_el_umbral(overlay: dict) -> bool:
+    """Consta que NINGUN cliente llega al umbral de divulgacion.
+
+    Se declara en `Entradas/<TICKER>.json`, que es por donde entran tanto lo
+    que escribe un analista como lo que el juez responde tras leer el 10-K
+    -- `merge_overlay` deja su respuesta en el overlay como una clave mas, no
+    en un contenedor aparte, asi que aqui se lee igual que cualquier entrada.
+    Dos nombres porque el resto del archivo mezcla ingles y espanol.
+    """
+    if not isinstance(overlay, dict):
+        return False
+    for clave in ("no_customer_above_threshold", "sin_cliente_sobre_umbral"):
+        if overlay.get(clave) is True:
+            return True
+    return False
+
+
 def _subscription_business(packet: Packet, overlay: dict) -> bool:
     """True when a security's customer economics are subscription-shaped,
     so BUS-NRR-020..BUS-PAYBACK-026 are applicable rather than absent.
@@ -1181,14 +1198,57 @@ def _compute_all(
         declarado = overlay.get("recurring_revenue_applies")
         aplica = (bool(declarado) if declarado is not None
                   else _subscription_business(packet, overlay))
-        v = _null(NullState.MISSING if aplica else NullState.NOT_APPLICABLE,
-                  "pct", "RECURRING_REVENUE_UNAVAILABLE")
+        # Ni siquiera cuando SI aplica se cobra, y esto cambio hoy.
+        #
+        # El razonamiento de arriba —"un SaaS que no publica su porcentaje
+        # tiene un hueco real"— es el mismo que defendia el test de
+        # MKT-ARPU-022, y cae por la misma razon: `DATASET.md` tipa
+        # `recurring_revenue_5y` como **conditional**, con fuente "issuer
+        # filing / KPI reconciliation". Solo forma parte del paquete esperado
+        # cuando el emisor PUBLICA ese KPI.
+        #
+        # Medido en los 12 tickers: esta fila salia NOT_APPLICABLE para 9 y
+        # MISSING para 3 -- los tres de suscripcion. El MODELO DE NEGOCIO
+        # decidia la cobertura en vez de los datos, que es el defecto que ya
+        # se corrigio en las siete metricas de economia de cliente y en el
+        # ARPU de Market. Esta fila se habia quedado fuera de las dos veces.
+        #
+        # `aplica` sigue vivo y sigue importando: cambia el MOTIVO que se
+        # escribe, y por tanto lo que un analista sabe que puede suministrar.
+        _por = ("_ISSUER_DOES_NOT_PUBLISH_THIS_KPI" if aplica
+                else "_NOT_A_RECURRING_REVENUE_BUSINESS")
+        v = _null(NullState.NOT_APPLICABLE, "pct",
+                  "RECURRING_REVENUE_UNAVAILABLE" + _por)
     add("BUS-REC-002", v, _score_from_anchor(v, [(0.0, 0), (0.30, 4), (0.70, 7), (1.0, 10)]), source=analyst_source)
 
     # ---- BUS-CONC-003: largest customer concentration (overlay only; PROHIBITED_IMPUTATION) ----
     largest_customer_share = _overlay_number(overlay, "largest_customer_share", input_warnings)
     if largest_customer_share is not None:
         v = largest_customer_concentration(largest_customer_share * 100.0, 100.0)
+    elif _sin_cliente_sobre_el_umbral(overlay):
+        # El filing declara que NINGUN cliente llega al umbral. Eso no es un
+        # dato que falte: es un hallazgo, y el mas favorable de esta metrica
+        # -- no hay concentracion que medir porque no la hay.
+        #
+        # `DATASET.md` tipa `customer_revenue_shares` como "required WHEN
+        # DISCLOSED". Si no se divulga porque no hay nada que divulgar, la
+        # condicion no se cumple, y cobrarlo como MISSING castiga a la empresa
+        # por NO tener el problema.
+        #
+        # Medido, y es la razon por la que Kevin pregunto por que difieren las
+        # coberturas: Coca-Cola declara un embotellador sobre el 10% y saca
+        # 0,93 en business; Microsoft no tiene ninguno y saca 0,58.
+        #
+        # El motor solo no puede deducirlo -- por eso el comentario de abajo
+        # decia que MISSING era el estado final correcto -- pero el juez SI
+        # lee el filing, y se verifico que distingue la frase afirmativa de KO
+        # ("one bottler accounted for 10% of our net operating revenues") de
+        # la negativa ("No bottlers or customers represented 10% or more"),
+        # que es donde fallaba un patron de texto.
+        v = _null(NullState.NOT_APPLICABLE, "pct",
+                  "NO_CUSTOMER_AT_OR_ABOVE_DISCLOSURE_THRESHOLD: el filing "
+                  "declara que ninguno llega al umbral, asi que no hay "
+                  "concentracion que reportar")
     else:
         # A bare token told the reader the number was absent but not what to
         # do about it, and not that "absent" has two very different causes:
@@ -1366,7 +1426,87 @@ def _compute_all(
         v_ic = _null(NullState.MISSING, "usd", "AVERAGE_INVESTED_CAPITAL_INPUTS_UNAVAILABLE")
     add("BUS-IC-012", v_ic, None)
 
-    if nopat_latest is not None and v_ic.is_valid:
+    # ---- El adaptador puede REEMPLAZAR el modelo de retorno sobre capital ----
+    #
+    # `INDUSTRY_ADAPTERS.md`, para bancos: "Replace ROIC with ROE, ROTCE, net
+    # interest margin, efficiency ratio, CET1...". Para aseguradoras: "Use ROE,
+    # combined ratio, reserve development...". Reemplazar, no reportar como
+    # faltante -- y hasta aqui a BAC se le calculaban y PUNTUABAN ROIC, spread
+    # y EVA, tres numeros que el documento dice no usar para un banco.
+    #
+    # Por que NOT_APPLICABLE y no MISSING: `MISSING_DATA_POLICY.md` abre su
+    # arbol preguntando si la metrica aplica. A un banco el capital invertido
+    # de la vista de financiacion no le mide nada --sus depositos no son
+    # financiacion, son su materia prima-- asi que la respuesta es "no aplica",
+    # y solo ese estado sale del denominador de la cobertura. Cobrarle a un
+    # banco por no tener un ROIC util es cobrarle por ser un banco.
+    #
+    # Victor NO hace esto: calcula el modelo por defecto para todo y cuelga un
+    # aviso ("should not be trusted for this security type without a sector
+    # adapter") bajando `model_fit` a 40. Declara el problema en vez de
+    # resolverlo. Aqui se sigue al Cerebro, que si especifica el reemplazo.
+    _retorno_reemplazado = _adapters.replaces_return_model(
+        getattr(packet.analysis, "industry_adapter", None))
+
+    def _reemplazada(unidad: str) -> Value:
+        return _null(NullState.NOT_APPLICABLE, unidad,
+                     "RETURN_ON_CAPITAL_MODEL_REPLACED_BY_INDUSTRY_ADAPTER")
+
+    if _retorno_reemplazado:
+        assumptions.append(
+            f"industry_adapter={packet.analysis.industry_adapter!r}: "
+            "INDUSTRY_ADAPTERS.md reemplaza el retorno sobre capital invertido "
+            "(ROE/ROTCE/NIM para bancos, ROE/combined ratio para aseguradoras), "
+            "asi que BUS-SPREAD-014, BUS-EVA-015, BUS-IROIC-016 y BUS-ALLOC-029 "
+            "salen NOT_APPLICABLE en vez de puntuar un modelo que el documento no "
+            "admite para este emisor. BUS-ROIC-013 SI puntua, pero lleva ROE "
+            "(FIN-EF-023: net income / average shareholders equity, banda BAD <8% "
+            "/ GOOD 8-15% / EXCELLENT >15%) en lugar de ROIC -- el documento dice "
+            "reemplazar, no retirar. Las otras tres sustitutas (ROTCE, NIM, ratio "
+            "de eficiencia) necesitan campos que el packet no trae hoy: goodwill, "
+            "intangibles, ingreso por intereses y gasto no financiero."
+        )
+
+    # El hueco NO se queda vacio: lo ocupa la metrica de reemplazo.
+    #
+    # "Replace ROIC with ROE" dice reemplazar, no retirar, y el Cerebro ya
+    # registra la sustituta con formula, banda y autoridad propia:
+    #
+    #   FORMULAS.md, FIN-EF-023 -- "ROE | Net income / Average shareholders
+    #   equity | BAD <8%; GOOD 8-15%; EXCELLENT >15%; high leverage may
+    #   distort."
+    #
+    # Asi que no se inventa nada: se reusa `financial.roe`, que ya la
+    # implementa registrada, con SU banda. Importada dentro de la funcion para
+    # no crear una dependencia de modulo entre dos especialistas que corren en
+    # paralelo y no deben verse.
+    #
+    # El coste, aceptado con los ojos abiertos: `BUS-ROIC-013` significa cosas
+    # distintas segun el emisor. Por eso el aviso viaja EN EL VALOR
+    # (`SLOT_CARRIES_ROE_...`), no solo en las assumptions -- quien lea el
+    # track record dentro de dos años tiene que poder ver que ese numero no
+    # era un ROIC sin reconstruir el contexto.
+    _roe_reemplazo = None
+    if _retorno_reemplazado:
+        from wbj.specialists.financial import roe as _roe
+        # "Average shareholders equity", literal. Con un solo año no hay media
+        # que calcular y se usa el saldo final, declarandolo.
+        _eq = [e for e in equity_hist[-2:] if e is not None]
+        if ni_hist and ni_hist[-1] is not None and _eq:
+            _avg_eq = sum(_eq) / len(_eq)
+            _roe_reemplazo = _roe(ni_hist[-1], _avg_eq)
+            if _roe_reemplazo.is_valid:
+                _sello = ["SLOT_CARRIES_ROE_FIN_EF_023_NOT_ROIC"]
+                if len(_eq) == 1:
+                    _sello.append("ROE_END_BALANCE_EQUITY_SINGLE_YEAR")
+                _roe_reemplazo = _roe_reemplazo.model_copy(update={
+                    "warnings": sorted({*_sello, *(_roe_reemplazo.warnings or [])})})
+
+    if _roe_reemplazo is not None:
+        v_roic = _roe_reemplazo
+    elif _retorno_reemplazado:
+        v_roic = _reemplazada("pct")
+    elif nopat_latest is not None and v_ic.is_valid:
         v_roic = roic(nopat_latest, v_ic.value)
         # CALCULATION_CONVENTIONS.md labels "the result" — the return ratio —
         # END_BALANCE_PROXY, so ROIC inherits it (and its per-warning confidence
@@ -1376,12 +1516,33 @@ def _compute_all(
                 "warnings": sorted({WARN_END_BALANCE_PROXY, *(v_roic.warnings or [])})})
     else:
         v_roic = _null(NullState.MISSING, "pct", "ROIC_INPUTS_UNAVAILABLE")
-    add("BUS-ROIC-013", v_roic, _score_from_anchor(v_roic, [(0.0, 0), (0.08, 3), (0.15, 7), (0.25, 10)]))
-    roic_latest = v_roic.value if v_roic.is_valid else None
+    # Las MISMAS anclas para ROE que para ROIC, y no por comodidad: FORMULAS.md
+    # le asigna a las dos la banda identica -- FIN-EF-023 (ROE) y FIN-EF-024
+    # (ROIC) dicen palabra por palabra "BAD <8%; GOOD 8-15%; EXCELLENT >15%".
+    # La curva de anclas de este modulo codifica esos mismos cortes (8%->3,
+    # 15%->7) en la escala 0-10 que usa business.
+    #
+    # Lo que NO se puede hacer es reusar `band_roe` de financial.py, que fue el
+    # primer intento: devuelve 0/1/2 (BAD/GOOD/EXCELLENT) porque ese
+    # especialista puntua en esa escala. Un ROE del 10,2% --GOOD-- salia con un
+    # 1 sobre 10 y habria hundido la dimension de management de todos los
+    # bancos sin que nada lo delatara.
+    add("BUS-ROIC-013", v_roic,
+        _score_from_anchor(v_roic, [(0.0, 0), (0.08, 3), (0.15, 7), (0.25, 10)]))
+    # `roic_latest` NO se queda con el ROE, aunque el hueco lo lleve. Alimenta
+    # la puerta de moat y VALUE_DESTRUCTION, que comparan contra el WACC -- y
+    # un ROE se compara contra el COSTE DE CAPITAL PROPIO, no contra el WACC.
+    # Mezclarlos daria un veredicto de destruccion de valor calculado con dos
+    # magnitudes que no se restan, que es justo el error que el filtro de
+    # acervos del TAM existe para atrapar en el otro lado del sistema.
+    roic_latest = (None if _retorno_reemplazado
+                   else (v_roic.value if v_roic.is_valid else None))
     ctx["roic_latest"] = roic_latest
 
     # ---- BUS-SPREAD-014 / BUS-EVA-015 ----
-    if roic_latest is not None and wacc_value is not None:
+    if _retorno_reemplazado:
+        v_spread = _reemplazada("pct")
+    elif roic_latest is not None and wacc_value is not None:
         v_spread = spread(roic_latest, wacc_value)
         # Both are return-ratio results, so an ending-balance ROIC carries
         # END_BALANCE_PROXY through to the spread (CALCULATION_CONVENTIONS.md).
@@ -1401,7 +1562,9 @@ def _compute_all(
     # valuation engine's VAL-EVA-020 base (IC_(t-1)), disagreeing with ROIC's
     # capital base, and gated on two years so it vanished for a single-year
     # company whose IC is now an ending-balance proxy.
-    if nopat_latest is not None and wacc_value is not None and v_ic.is_valid:
+    if _retorno_reemplazado:
+        v_eva = _reemplazada("usd")
+    elif nopat_latest is not None and wacc_value is not None and v_ic.is_valid:
         v_eva = eva(nopat_latest, wacc_value, v_ic.value)
         if WARN_END_BALANCE_PROXY in (v_ic.warnings or []) and v_eva.is_valid:
             v_eva = v_eva.model_copy(update={
@@ -1462,14 +1625,18 @@ def _compute_all(
     else:
         delta_ic = None
 
-    if delta_nopat is not None and delta_ic is not None:
+    if _retorno_reemplazado:
+        v_iroic = _reemplazada("pct")
+    elif delta_nopat is not None and delta_ic is not None:
         v_iroic = incremental_roic(delta_nopat, delta_ic)
     else:
         v_iroic = _null(NullState.MISSING, "pct", "INCREMENTAL_ROIC_INPUTS_UNAVAILABLE")
     add("BUS-IROIC-016", v_iroic, None)
     iroic_value = v_iroic.value if v_iroic.is_valid else None
 
-    if iroic_value is not None and wacc_value is not None:
+    if _retorno_reemplazado:
+        v_alloc = _reemplazada("pct")
+    elif iroic_value is not None and wacc_value is not None:
         v_alloc = capital_allocation_spread(iroic_value, wacc_value)
     else:
         v_alloc = _null(NullState.MISSING, "pct", "CAPITAL_ALLOCATION_SPREAD_INPUTS_UNAVAILABLE")
@@ -1604,8 +1771,29 @@ def _compute_all(
     # ---- BUS-NRR-020 / BUS-GRR-021 / BUS-CHURN-022: customer economics (overlay only) ----
     subscription = _subscription_business(packet, overlay)
     ctx["customer_economics_applicable"] = subscription
-    _absent = (NullState.MISSING if subscription else NullState.NOT_APPLICABLE)
-    _why = ("_NO_OVERLAY" if subscription else "_NOT_A_SUBSCRIPTION_BUSINESS")
+    # `DATASET.md` tipa `retention_churn_cohorts` -- NRR, GRR, churn, cohortes
+    # -- como **conditional**, y su fuente como "issuer KPI / validated
+    # dataset". Es decir: solo forma parte del paquete esperado cuando el
+    # emisor PUBLICA ese KPI. Microsoft no publica NRR ni churn ni CAC; nadie
+    # los tiene por no haberlos buscado.
+    #
+    # Cobrarlos como MISSING hacia que el modelo de negocio decidiera la
+    # cobertura en vez de los datos. Medido: las siete salian NOT_APPLICABLE
+    # para Coca-Cola y un banco -- fuera del denominador, gratis -- y MISSING
+    # para Microsoft y Palantir. Ser una empresa de suscripcion costaba los 3
+    # puntos enteros de esta dimension que un refresquero no paga, y por eso
+    # KO sacaba 0,929 en business contra 0,583 de MSFT.
+    #
+    # Es el mismo defecto que ya se corrigio en la concentracion de clientes:
+    # no tener el dato porque la condicion no se cumple no es lo mismo que
+    # tenerlo ausente.
+    #
+    # El aviso SIGUE nombrando la clave que hay que escribir, asi que un
+    # analista que quiera puntuarlas ve exactamente que suministrar -- lo que
+    # cambia es que su ausencia deja de restar.
+    _absent = NullState.NOT_APPLICABLE
+    _why = ("_ISSUER_DOES_NOT_PUBLISH_THIS_KPI" if subscription
+            else "_NOT_A_SUBSCRIPTION_BUSINESS")
 
     retention = _overlay_mapping(overlay, "retention", input_warnings)
     if {"begin", "expansion", "contraction", "churn"} <= retention.keys():
@@ -1672,6 +1860,21 @@ def _compute_all(
         v_guide = _ok(sum(accuracies) / len(accuracies), unit="ratio") if accuracies else _null(
             NullState.MISSING, "ratio", "GUIDANCE_ACCURACY_NO_VALID_ROWS"
         )
+    elif overlay.get("_sin_comunicado_de_resultados"):
+        # El emisor no presenta comunicado de resultados ante la SEC, que es
+        # la fuente que `DATASET.md` declara para este campo. No es que no se
+        # haya leido: no existe por esa via.
+        #
+        # Verificado sobre seis emisores: KO, WMT y PLTR si lo presentan --
+        # ahi el dato esta y su ausencia SIGUE contando como hueco real, con
+        # la clave nombrada en el aviso. NVDA, LLY y XOM no, y publican en su
+        # propia sala de prensa.
+        v_guide = _null(NullState.NOT_APPLICABLE, "ratio",
+                        "NO_EARNINGS_RELEASE_FILED: el emisor no presenta "
+                        "comunicado de resultados ante la SEC, que es la "
+                        "fuente que DATASET.md declara para el guidance. "
+                        "Suministra `guidance_history` en "
+                        "Entradas/<TICKER>.json si lo publica por otra via")
     else:
         v_guide = _null(NullState.MISSING, "ratio", "GUIDANCE_ACCURACY_UNAVAILABLE")
     add("BUS-GUIDE-027", v_guide, _score_from_anchor(v_guide, [(0.0, 0), (0.7, 4), (0.9, 7), (1.0, 10)]), source=analyst_source, period=_guidance_period(guidance_history))
@@ -1762,6 +1965,16 @@ _OVERLAY_LINEAGE: dict[str, str] = {
     # pregunta: si ese campo aplica a esta empresa.
     "recurring_revenue_applies": "recurring_revenue_5y",
     "largest_customer_share": "customer_revenue_shares",
+    # No es un dato: dice si la FUENTE que DATASET.md declara para el guidance
+    # existe para este emisor. Sin el, no haber presentado comunicado y no
+    # haberlo leido se leian igual.
+    "_sin_comunicado_de_resultados": "management_guidance_history",
+    # El otro lado de la misma fila de DATASET.md. `customer_revenue_shares`
+    # es "required WHEN DISCLOSED": estas dos claves dicen que NO se divulga
+    # porque no hay nada que divulgar, y ese hallazgo tiene el mismo origen
+    # -- la nota de concentracion del filing -- que la cifra cuando la hay.
+    "no_customer_above_threshold": "customer_revenue_shares",
+    "sin_cliente_sobre_umbral": "customer_revenue_shares",
     "customer_shares": "customer_revenue_shares",
     "retention": "retention_churn_cohorts",
     "churn": "retention_churn_cohorts",
@@ -2832,6 +3045,39 @@ def _run_once(packet: Packet, overlay: dict[str, Any],
             schema_hint="one of Wide|Narrow|None",
         )
     )
+    # La concentracion de clientes es de las cinco que el `judge.py` de Victor
+    # nombra como suyas -- "moat classification, catalyst probability, thesis
+    # killers, TAM tier, customer concentration" -- pero su `business.py` no
+    # emitia la peticion, asi que en su motor la metrica quedaba MISSING para
+    # todos, siempre. Aqui estaba igual: `_FILING_TOPICS` ya recopilaba los
+    # pasajes del filing donde se divulga, y nadie hacia la pregunta
+    # (`judge.py`: `if not requests: return []`).
+    #
+    # Se pregunta por BANDA y no por porcentaje porque `merge_overlay` usa una
+    # respuesta numerica DIRECTAMENTE como puntaje 0-10: un "40%" se habria
+    # convertido en un 10, la mejor nota para la peor concentracion.
+    #
+    # Y se pregunta solo cuando no hay cifra: si un analista la escribio en
+    # `Entradas/`, esa gana y gastar una pregunta seria tirar cuota.
+    #  lo deja el bloque de BUS-CONC-003 con el
+    # valor cuando puntuo y con None cuando no: es el mismo hecho, y viaja
+    # entre funciones donde la variable local no llega.
+    if ctx.get("largest_customer_share") is None:
+        judgment_requests.append(
+            JudgmentRequest(
+                request_id="business_analysis:customer_concentration_band",
+                agent_id=AGENT_ID,
+                metric_id="BUS-CONC-003",
+                question="Del 10-K adjunto, clasifica la concentracion de clientes "
+                "segun las bandas de DECISION_RULES.md. Un filing que declara que "
+                "NINGUN cliente alcanza el umbral de divulgacion (tipicamente 10% "
+                "de los ingresos) es BELOW_10: eso es un hallazgo, no un dato "
+                "ausente. Responde INSUFFICIENT solo si el filing no dice nada del "
+                "asunto.",
+                schema_hint="one of ABOVE_30|BETWEEN_10_AND_30|BELOW_10",
+            )
+        )
+
     judgment_requests.append(
         JudgmentRequest(
             request_id="business_analysis:moat_quantitative_effects_count",
@@ -3140,13 +3386,30 @@ def _run_once(packet: Packet, overlay: dict[str, Any],
     )
     if value_destruction:
         mandatory_flags.append("VALUE_DESTRUCTION")
-    elif value_destruction_adapter and value_destruction_triggered(
-        ctx["roic_latest"], ctx["wacc_value"]
+    # Dos formas de llegar aqui, y las dos tienen que DECIRSE:
+    #
+    #   · El ROIC convencional se calculo y habria disparado la bandera, pero
+    #     el adaptador dice que no es la medida (REITs, biotech).
+    #   · El ROIC convencional ya no se calcula, porque para bancos y
+    #     aseguradoras el adaptador reemplaza el modelo entero.
+    #
+    # El segundo caso es nuevo y por poco se queda mudo: al dejar `roic_latest`
+    # en None, `value_destruction_triggered` devuelve False y esta rama no
+    # entraba. El reporte habria dejado de explicar por que no hay veredicto
+    # --que es justo lo que este bloque existe para no hacer.
+    _sin_roic_convencional = _adapters.replaces_return_model(
+        getattr(packet.analysis, "industry_adapter", None))
+    if value_destruction_adapter and (
+        _sin_roic_convencional
+        or value_destruction_triggered(ctx["roic_latest"], ctx["wacc_value"])
     ):
+        _porque = ("el ROIC convencional ni siquiera se calcula para este emisor"
+                   if _sin_roic_convencional
+                   else "a conventional ROIC-below-WACC read is not the measure")
         assumptions.append(
             f"VALUE_DESTRUCTION withheld: the {packet.analysis.industry_adapter} adapter "
-            "replaces ROIC (INDUSTRY_ADAPTERS.md), so a conventional ROIC-below-WACC read is "
-            "not the measure this flag rests on for this security type. The sector-adapter "
+            f"replaces ROIC (INDUSTRY_ADAPTERS.md), so {_porque} "
+            "this flag rests on for this security type. The sector-adapter "
             "return (ROE/ROTCE, FFO/AFFO) is not registered in FORMULAS.md, so no substitute "
             "verdict is issued."
         )

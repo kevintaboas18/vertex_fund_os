@@ -161,6 +161,13 @@ _VERSION = "2.0.0"
 AGENT_ID = "market_analysis"
 MAX_POINTS = 20.0
 
+#: Las llaves internas de `sam_inputs`. Publicas a proposito: el esqueleto de
+#: `Entradas/` las lee de aqui en vez de teclearlas, porque el comentario de
+#: mas abajo ya reconocia que "the inner keys were documented nowhere, so
+#: getting them wrong was the default outcome" -- y un esqueleto que las
+#: teclea por su cuenta se desincroniza en el primer renombrado.
+_SAM_KEYS_PUBLICAS = ("geography_share", "product_share", "reachable_share")
+
 DIM_TAM = "tam_and_industry_tailwind"
 DIM_REVISIONS = "earnings_and_revenue_revisions"
 DIM_CATALYSTS = "product_and_business_catalysts"
@@ -798,7 +805,7 @@ def _compute_all(
     # were documented nowhere, so getting them wrong was the default outcome.
     # A wrong shape now leaves the metric MISSING and names what it needed.
     sam_inputs = overlay.get("sam_inputs")
-    _SAM_KEYS = ("geography_share", "product_share", "reachable_share")
+    _SAM_KEYS = _SAM_KEYS_PUBLICAS
     if sam_inputs and v_tam.is_valid and all(k in sam_inputs for k in _SAM_KEYS):
         v_sam = sam(v_tam.value, *(sam_inputs[k] for k in _SAM_KEYS))
     elif sam_inputs and v_tam.is_valid:
@@ -934,8 +941,22 @@ def _compute_all(
             int(upward), int(total),
             active_estimates=int(active) if active is not None else None)
     else:
+        # MISSING y no NOT_SCORABLE. `DATASET.md` tipa
+        # `consensus_estimates_history` como **required**: la fuente SI esta
+        # obligada a reportarlo, asi que se cumple el paso 2 del arbol de
+        # `MISSING_DATA_POLICY.md` -- "is the source expected to report it? if
+        # yes but absent, use MISSING" -- y no hay que caer al paso 5.
+        #
+        # Importa porque su gemela MKT-DISP-013 sale del MISMO campo required,
+        # falta por la MISMA razon y ya decia MISSING. La misma ausencia se
+        # reportaba de dos formas distintas.
+        #
+        # Y es la diferencia con las otras tres corregidas hoy -- economia de
+        # cliente, crecimiento organico y guidance --: aquellas leen campos
+        # **conditional**, donde la fuente no esta obligada, y por eso
+        # cobrarlas era un error de clasificacion. Esta no: es un hueco real.
         v_revbr = _null(
-            NullState.NOT_SCORABLE, "pct",
+            NullState.MISSING, "pct",
             "REVISION_BREADTH_UNAVAILABLE: needs counts of upward vs downward "
             "*estimate* revisions. No primary source serves them — FMP has no "
             "revision-count endpoint and FinnHub's estimate endpoints are 403 "
@@ -1097,7 +1118,24 @@ def _compute_all(
     # suscripcion; este modulo no la contestaba en absoluto. Ahora las dos usan
     # la misma definicion, en `core/adapters.py`.
     _suscripcion = _adapters.is_subscription_business(packet, overlay)
-    _sin_modelo = (NullState.MISSING if _suscripcion else NullState.NOT_APPLICABLE)
+    # Mismo arreglo que ya se hizo en `business.py` para las siete metricas de
+    # economia de cliente, y por la misma razon -- este archivo se habia
+    # quedado fuera.
+    #
+    # `DATASET.md` tipa los KPI de unidad como **conditional**, con fuente
+    # "issuer KPI": solo forman parte del paquete esperado cuando el emisor
+    # PUBLICA ese indicador. Microsoft no publica unidades adoptadas ni ARPU.
+    #
+    # Cobrarlos hacia que el MODELO DE NEGOCIO decidiera la cobertura en vez
+    # de los datos. Medido en esta auditoria: las dos salian NOT_APPLICABLE
+    # para diez tickers -- fuera del denominador, gratis -- y MISSING para
+    # MSFT y PLTR, los dos unicos de suscripcion. Ser SaaS costaba cobertura
+    # en Market igual que la costaba en Business antes de corregirlo alli.
+    #
+    # El aviso sigue nombrando la clave, asi que un analista con el KPI
+    # delante lo suministra y puntua; lo que cambia es que su ausencia deja de
+    # restar.
+    _sin_modelo = NullState.NOT_APPLICABLE
 
     if adoption and {"current_units", "eventual_units"} <= adoption.keys():
         v_adopt = adoption_penetration(adoption["current_units"], adoption["eventual_units"])

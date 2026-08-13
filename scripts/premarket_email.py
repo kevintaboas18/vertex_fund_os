@@ -7,7 +7,10 @@ Usage:
 
 Env vars:
     RESEND_API_KEY  clave de https://resend.com (requerida salvo DRY_RUN=1)
-    EMAIL_TO        destinatario (default: kevintaboas02@gmail.com)
+    FMP_API_KEY     clave de Financial Modeling Prep (requerida siempre: es de
+                    donde salen los movers)
+    EMAIL_TO        destinatario (default: kevintaboas02@gmail.com). Admite
+                    varios separados por coma.
     EMAIL_FROM      remitente   (default: onboarding@resend.dev — solo puede
                     enviar al email dueño de la cuenta Resend; verifica tu
                     dominio en Resend para usar otro remitente)
@@ -21,18 +24,31 @@ Stdlib only — sin dependencias.
 import html
 import json
 import os
-import re
 import sys
+import urllib.parse
 import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 ET = ZoneInfo("America/New_York")
-EMAIL_TO = os.environ.get("EMAIL_TO", "kevintaboas02@gmail.com")
-EMAIL_FROM = os.environ.get("EMAIL_FROM", "Vertex Fund OS <onboarding@resend.dev>")
+# `or` y no el default de get(): GitHub Actions inyecta la variable con cadena
+# VACIA cuando `vars.EMAIL_TO` no esta definida, y entonces get() devuelve ""
+# en vez del default. Resend recibia "to": [""] y contestaba 422.
+EMAIL_TO = os.environ.get("EMAIL_TO") or "kevintaboas02@gmail.com"
+EMAIL_FROM = (os.environ.get("EMAIL_FROM")
+              or "Vertex Fund OS <onboarding@resend.dev>")
+FMP_API_KEY = os.environ.get("FMP_API_KEY") or ""
+FMP_BASE = "https://financialmodelingprep.com/stable"
+GAINERS = "biggest-gainers"
+LOSERS = "biggest-losers"
 
-GAINERS_URL = "https://stockanalysis.com/markets/premarket/"
-LOSERS_URL = "https://stockanalysis.com/markets/premarket/losers/"
+#: El cron de GitHub no es puntual: se ha visto disparar a las 12:08 y a las
+#: 13:52 UTC con el mismo `30 11`. Exigir la hora exacta (`hour != 8`) hacia
+#: que el guion se saltara TODOS los envios -- y como saltarse devuelve 0, el
+#: workflow salia en verde sin haber mandado nunca un correo. Una ventana
+#: absorbe la deriva y el horario de verano; lo que sigue fuera es una corrida
+#: a deshora, que no debe mandarse como "pre-market".
+VENTANA_ET = range(6, 11)
 
 # Feriados NYSE/Nasdaq (mercado cerrado). Actualizar cada año.
 MARKET_HOLIDAYS = {
@@ -51,44 +67,52 @@ DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Doming
 LARGE_CAP_MIN = 10e9  # $10B+ = "lo más importante"
 
 
-def fetch(url: str) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+def fetch_json(path: str):
+    """Una llamada a FMP. La clave viaja en la query, nunca se imprime."""
+    if not FMP_API_KEY:
+        raise RuntimeError("Falta FMP_API_KEY: sin clave no hay movers.")
+    sep = "&" if "?" in path else "?"
+    req = urllib.request.Request(f"{FMP_BASE}/{path}{sep}apikey={FMP_API_KEY}",
+                                 headers={"User-Agent": "vertex-fund-os"})
     with urllib.request.urlopen(req, timeout=30) as r:
-        return r.read().decode("utf-8", errors="replace")
+        return json.loads(r.read().decode("utf-8", errors="replace"))
 
 
-def parse_market_cap(s: str) -> float:
-    m = re.match(r"([\d.]+)\s*([TBM]?)", s.replace(",", ""))
-    if not m:
+def market_cap(ticker: str) -> float:
+    """FMP no acepta lotes en `quote` (devuelve vacío), así que va de a uno.
+    Son 20 peticiones una vez al día. Un fallo suelto no tumba el correo: la
+    empresa se queda sin capitalización y no entra en «lo más importante»."""
+    try:
+        filas = fetch_json(f"quote?symbol={urllib.parse.quote(ticker)}")
+        return float(filas[0].get("marketCap") or 0.0) if filas else 0.0
+    except Exception:
         return 0.0
-    mult = {"T": 1e12, "B": 1e9, "M": 1e6, "": 1.0}[m.group(2)]
-    return float(m.group(1)) * mult
 
 
-def parse_movers(page: str, limit: int = 10) -> list[dict]:
-    """Parsea la tabla SSR de stockanalysis.com (celdas: #, ticker, nombre,
-    % cambio, precio, ..., market cap al final)."""
-    page = re.sub(r"<!--.*?-->", "", page, flags=re.S)  # ruido de Svelte
-    body = re.search(r"<tbody>(.*?)</tbody>", page, flags=re.S)
-    if not body:
+def movers(cual: str, limit: int = 10) -> list[dict]:
+    """Los que más suben/bajan, de FMP.
+
+    Antes esto raspaba la tabla SSR de stockanalysis.com. Dos razones para
+    dejarlo: devuelve 403 a las IPs de GitHub Actions —el correo llevaba
+    fallando desde el runner mientras funcionaba desde casa— y no es una de
+    las fuentes del proyecto (FMP, FinnHub, FRED, EDGAR).
+    """
+    filas = fetch_json(cual)
+    if not isinstance(filas, list):
         return []
-    rows = []
-    for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", body.group(1), flags=re.S)[:limit]:
-        tds = [html.unescape(re.sub(r"<[^>]+>", "", td)).strip()
-               for td in re.findall(r"<td[^>]*>(.*?)</td>", tr, flags=re.S)]
-        if len(tds) < 5:
-            continue
+    salida = []
+    for f in filas[:limit]:
         try:
-            rows.append({
-                "ticker": tds[1],
-                "name": tds[2],
-                "pct": float(tds[3].replace("%", "").replace(",", "")),
-                "price": tds[4],
-                "mcap": parse_market_cap(tds[-1]),
+            salida.append({
+                "ticker": f["symbol"],
+                "name": f.get("name") or f["symbol"],
+                "pct": float(f["changesPercentage"]),
+                "price": f"{float(f['price']):.2f}",
+                "mcap": market_cap(f["symbol"]),
             })
-        except ValueError:
+        except (KeyError, TypeError, ValueError):
             continue
-    return rows
+    return salida
 
 
 def fmt_pct(p: float) -> str:
@@ -122,7 +146,7 @@ def build_email(now: datetime, gainers: list[dict], losers: list[dict]) -> tuple
                          for r in rows)
 
     text = f"""PRE-MARKET MOVERS — {fecha}
-(Pre-market en vivo, {now.strftime('%H:%M')} ET — stockanalysis.com)
+(Pre-market en vivo, {now.strftime('%H:%M')} ET — FMP)
 
 LO MÁS IMPORTANTE (large caps, $10B+):
 {txt_rows(big) or '- (ninguna large cap con movimiento fuerte hoy)'}
@@ -133,7 +157,7 @@ GANADORES PRE-MARKET (small caps, alta volatilidad):
 PERDEDORES PRE-MARKET:
 {txt_rows(small_l)}
 
-Contexto y noticias: https://stockanalysis.com/markets/premarket/ · https://www.benzinga.com/premarket
+Fuente: Financial Modeling Prep (biggest-gainers / biggest-losers).
 
 ---
 Clasificación de research — no es asesoría de inversión ni recomendación de compra/venta.
@@ -146,7 +170,7 @@ Warren Buffett Jr 🎩📈
   <div style="background:#6c5ce7;color:#fff;padding:20px 24px;border-radius:12px 12px 0 0;">
     <div style="font-size:12px;letter-spacing:2px;opacity:.85;">WARREN BUFFETT JR · MOTOR DE ANÁLISIS</div>
     <h1 style="margin:6px 0 0;font-size:22px;">📈 Pre-Market Movers — {fecha}</h1>
-    <div style="font-size:13px;opacity:.85;margin-top:4px;">Pre-market en vivo · {now.strftime('%H:%M')} ET · stockanalysis.com</div>
+    <div style="font-size:13px;opacity:.85;margin-top:4px;">Pre-market en vivo · {now.strftime('%H:%M')} ET · FMP</div>
   </div>
   <div style="border:1px solid #e5e5f0;border-top:none;padding:20px 24px;border-radius:0 0 12px 12px;">
     <h2 style="font-size:15px;margin:0 0 10px;color:#6c5ce7;">🔥 Lo más importante — large caps ($10B+)</h2>
@@ -155,9 +179,8 @@ Warren Buffett Jr 🎩📈
     {table_html(small_g, "#00b894")}
     <h2 style="font-size:15px;margin:22px 0 10px;color:#d63031;">📉 Perdedores pre-market</h2>
     {table_html(small_l, "#d63031")}
-    <p style="font-size:13px;color:#444;margin-top:18px;"><b>Contexto y noticias:</b>
-      <a href="https://stockanalysis.com/markets/premarket/">stockanalysis.com</a> ·
-      <a href="https://www.benzinga.com/premarket">Benzinga pre-market</a></p>
+    <p style="font-size:13px;color:#444;margin-top:18px;"><b>Fuente:</b>
+      Financial Modeling Prep — <code>biggest-gainers</code> / <code>biggest-losers</code>.</p>
     <hr style="border:none;border-top:1px solid #eee;margin:16px 0;">
     <p style="font-size:11px;color:#aaa;margin:0;">Clasificación de research — no es asesoría de inversión ni recomendación de compra/venta. · Warren Buffett Jr 🎩📈</p>
   </div>
@@ -165,21 +188,116 @@ Warren Buffett Jr 🎩📈
     return subject, text, htmlbody
 
 
-def send_resend(subject: str, text: str, htmlbody: str) -> None:
-    key = os.environ["RESEND_API_KEY"]
-    payload = json.dumps({
-        "from": EMAIL_FROM,
-        "to": [EMAIL_TO],
-        "subject": subject,
-        "text": text,
-        "html": htmlbody,
-    }).encode()
-    req = urllib.request.Request(
-        "https://api.resend.com/emails", data=payload, method="POST",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=30) as r:
-        print(f"Resend: {r.status} {r.read().decode()}")
+def destinatarios() -> list[str]:
+    """A quien se le manda en una corrida MANUAL: lo que diga `EMAIL_TO`.
+
+    El envio automatico no pasa por aqui. Vive en `/api/premarket/enviar`, que
+    lee `usuarios` de la base VIVA y le manda a cada cuenta a su correo. Aqui
+    hubo 65 lineas que bajaban `Privado/privado.enc`, lo desciframban con
+    Fernet, extraian un tar y abrian SQLite para llegar a la misma lista --un
+    camino que ningun disparador recorria y que ningun test ejecutaba, porque
+    todos lo sustituian. Se borro."""
+    return [d.strip() for d in EMAIL_TO.split(",") if d.strip()]
+
+
+def send_resend(subject: str, text: str, htmlbody: str, para: list[str],
+                motivos: list[str] | None = None) -> int:
+    """Un envío POR PERSONA, no uno con todos en el `to`.
+
+    Meter a todo el mundo en el mismo `to` le enseña a cada usuario los correos
+    de los demás. Son cuentas de desconocidos entre sí: eso es una fuga, no una
+    comodidad.
+
+    Devuelve cuántos salieron. Un fallo con un destinatario no cancela los
+    otros — que uno tenga el buzón lleno no puede dejar a los demás sin correo.
+    Si se pasa `motivos`, se le añade el porqué de cada rechazo para que quien
+    llama pueda decirlo sin obligar a nadie a leer los logs del servidor.
+    """
+    key = os.environ.get("RESEND_API_KEY") or ""
+    if not key:
+        # Un KeyError pelado en el log del runner no dice que hay que ir a
+        # Settings > Secrets. Esto sí.
+        raise RuntimeError(
+            "Falta RESEND_API_KEY. Definela en Settings > Secrets and "
+            "variables > Actions del repositorio.")
+    enviados = 0
+    for uno in para:
+        payload = json.dumps({
+            "from": EMAIL_FROM, "to": [uno], "subject": subject,
+            "text": text, "html": htmlbody,
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.resend.com/emails", data=payload, method="POST",
+            headers={"Authorization": f"Bearer {key}",
+                     "Content-Type": "application/json",
+                     # Sin esto urllib manda "Python-urllib/3.11" y Cloudflare
+                     # --que es quien atiende delante de la API de Resend-- lo
+                     # rechaza con "403, error code: 1010": acceso bloqueado
+                     # por la firma del cliente. Ni la clave ni el destinatario
+                     # ni el remitente llegaban a evaluarse, asi que el fallo
+                     # se veia identico a "Resend no te acepta el correo" y
+                     # mando a revisar tres cosas que estaban bien.
+                     #
+                     # A FMP y al almacen ya se les mandaba; aqui faltaba.
+                     "User-Agent": "vertex-fund-os"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                print(f"Resend {r.status} -> {uno}")
+            enviados += 1
+        except Exception as e:                   # noqa: BLE001
+            # El remitente `onboarding@resend.dev` SOLO puede escribirle al
+            # dueño de la cuenta de Resend. Con varios usuarios hay que
+            # verificar un dominio propio; hasta entonces los demas rebotan
+            # aqui, uno a uno.
+            #
+            # El motivo lo da Resend en el CUERPO del 4xx, no en el mensaje de
+            # la excepcion --que solo dice "HTTP Error 403: Forbidden"--. Sin
+            # leer el cuerpo, quien dispara esto ve "no se acepto" y tiene que
+            # irse a los logs del servidor a adivinar por que.
+            # El CODIGO va siempre por delante, y esta es la segunda vuelta de
+            # esto: la primera version solo intentaba leer el cuerpo JSON, y
+            # cuando ese `read()` no daba nada el log quedaba en "HTTPError" a
+            # secas -- que no distingue un 403 (no puedes escribir a ese
+            # destinatario) de un 422 (remitente invalido) ni de un 429
+            # (cuota), que se arreglan de tres formas distintas.
+            codigo = getattr(e, "code", None)
+            detalle = ""
+            cuerpo = getattr(e, "read", None)
+            if callable(cuerpo):
+                try:
+                    crudo = cuerpo().decode("utf-8", errors="replace").strip()
+                    try:
+                        d = json.loads(crudo)
+                        detalle = str(d.get("message") or d.get("error") or d)
+                    except Exception:            # noqa: BLE001
+                        detalle = crudo          # no era JSON: vale igual
+                except Exception:                # noqa: BLE001
+                    pass
+            if not detalle:
+                detalle = str(getattr(e, "reason", "") or e) or type(e).__name__
+            porque = (f"HTTP {codigo} — {detalle}"[:220] if codigo
+                      else f"{type(e).__name__}: {detalle}"[:220])
+            print(f"Resend FALLO -> {uno}: {porque}", file=sys.stderr)
+            if motivos is not None:
+                motivos.append(f"{uno}: {porque}")
+    return enviados
+
+
+def motivo_para_saltar(ahora: datetime) -> str | None:
+    """Por que NO toca mandar ahora, o `None` si si toca.
+
+    Una sola definicion de la regla. Estaba escrita dos veces --aqui y en
+    `/api/premarket/enviar`-- y son la misma politica: un feriado de 2028 o un
+    cambio de ventana habria que ponerlo en los dos sitios, que es como las
+    copias se separan.
+    """
+    if ahora.hour not in VENTANA_ET:
+        return (f"son las {ahora.strftime('%H:%M')} ET, fuera de la ventana "
+                f"{VENTANA_ET.start}-{VENTANA_ET.stop - 1}")
+    if ahora.weekday() >= 5 or ahora.strftime("%Y-%m-%d") in MARKET_HOLIDAYS:
+        return "mercado cerrado hoy"
+    return None
 
 
 def main() -> int:
@@ -187,29 +305,31 @@ def main() -> int:
     force = os.environ.get("FORCE") == "1"
 
     if not force:
-        # El workflow corre 12:00 y 13:00 UTC; solo una equivale a las 8 ET.
-        if now.hour != 8:
-            print(f"Son las {now.strftime('%H:%M')} ET, no las 8 — skip (cron UTC/DST).")
-            return 0
-        if now.weekday() >= 5 or now.strftime("%Y-%m-%d") in MARKET_HOLIDAYS:
-            print("Mercado cerrado hoy — skip.")
+        motivo = motivo_para_saltar(now)
+        if motivo:
+            print(f"{motivo} — skip.")
             return 0
 
-    gainers = parse_movers(fetch(GAINERS_URL))
-    losers = parse_movers(fetch(LOSERS_URL))
+    try:
+        gainers, losers = movers(GAINERS), movers(LOSERS)
+    except Exception as e:
+        print(f"ERROR: FMP no contesto — {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
     if not gainers and not losers:
-        print("ERROR: no pude parsear movers (¿cambió el HTML de stockanalysis.com?)",
-              file=sys.stderr)
+        print("ERROR: FMP contesto sin movers utilizables.", file=sys.stderr)
         return 1
 
     subject, text, htmlbody = build_email(now, gainers, losers)
+    para = destinatarios()
 
     if os.environ.get("DRY_RUN") == "1":
-        print(f"[DRY RUN] to={EMAIL_TO}\nsubject={subject}\n\n{text}")
+        print(f"[DRY RUN] to={', '.join(para)}\nsubject={subject}\n\n{text}")
         return 0
-    send_resend(subject, text, htmlbody)
-    print(f"Enviado a {EMAIL_TO}: {subject}")
-    return 0
+    enviados = send_resend(subject, text, htmlbody, para)
+    print(f"Enviado a {enviados}/{len(para)} destinatarios: {subject}")
+    # Cero de N es un fallo: el workflow tiene que salir en rojo. Que salieran
+    # algunos y otros no ya se dijo, linea a linea, en stderr.
+    return 0 if enviados else 1
 
 
 if __name__ == "__main__":

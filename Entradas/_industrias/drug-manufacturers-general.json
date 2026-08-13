@@ -1,0 +1,35 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-08-06",
+  "_como_se_obtuvo": "Resuelto al analizar LLY. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "_ambito": "mundial",
+  "_capa": "ventas farmacéuticas a precios de lista",
+  "_capa_coincide": "LLY factura por la venta de medicamentos, lo que se alinea con la métrica de ventas farmacéuticas mundiales a precios de lista.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE4wqdQibfb4Mfe4WPD-btsyHITJW8HXbFtdVDtzIKlWBEigey47iaLSxwQIC6GK_2-rrQiWwzsWngkfLlm20q0k5v_nPH2av2XBCtbla9ZHbJpHgGkAj-oW2NrmGZ7l-kJR2BSx2EraY7u-YIjnAv9GAjPICQ7SGOtzjFNiu_6xmBkMNhQTqwO_DG0_siIPfS7FQhr4rwdeqaUkiDuaIfXCHeNvjGIwN-IWiE=",
+  "_cita_textual": "The global pharma market, excluding vaccines, is expected to reach $2,030 billion by 2027 at a CAGR of ~7%, at constant exchange rates. ... Pharmaceutical Sales 2022-27* (Tn USD). ... 1.46. 1.59.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "_ingreso_relevante": "total",
+  "_ingreso_relevante_porque": "La facturacion de una farmaceutica general son ventas de medicamentos a precio de lista, que es la capa del TAM.",
+  "_segmento_patrones_retirados": {
+    "eran": [
+      "oncología",
+      "inmunología",
+      "antidiabéticos",
+      "metabólicas",
+      "obesidad"
+    ],
+    "porque": "La empresa compite ENTERA en este mercado, asi que no hay segmento que elegir. Estos patrones no casaban con ningun segmento reportado -- los de Walmart son 'Walmart U.S.', 'International' y 'Sam's Club'; ninguno contiene 'retail' -- y por eso la participacion faltaba teniendo TAM e ingreso. Se guardan por si alguien acota el TAM a una capa mas fina."
+  },
+  "_sugerencia_sin_verificar": {
+    "tam": 1590000000000,
+    "tam_source": "IQVIA Quarterly Pharmaceutical Market Outlook - November 2023, Pharmaceutical Sales",
+    "tam_history": [
+      1460000000000,
+      1590000000000
+    ],
+    "cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE4wqdQibfb4Mfe4WPD-btsyHITJW8HXbFtdVDtzIKlWBEigey47iaLSxwQIC6GK_2-rrQiWwzsWngkfLlm20q0k5v_nPH2av2XBCtbla9ZHbJpHgGkAj-oW2NrmGZ7l-kJR2BSx2EraY7u-YIjnAv9GAjPICQ7SGOtzjFNiu_6xmBkMNhQTqwO_DG0_siIPfS7FQhr4rwdeqaUkiDuaIfXCHeNvjGIwN-IWiE=",
+    "por_que_no_puntua": "la cifra no aparece en https://www.iqvia.com/-/media/iqvia/pdfs/files/iqvia-quarterly-pharmac",
+    "para_aceptarla": "Comprueba la cifra en la publicacion del propio organismo, copia aqui `tam`, `tam_source` y `tam_source_tier` (1-4), y borra `_generado_por`. Eso lo hace tuyo."
+  }
+}

@@ -306,6 +306,86 @@ def entradas(
     typer.echo(f"{wrote}/{len(tickers)} escritos en {directory}")
 
 
+@app.command("tam-todas")
+def tam_todas(
+    limite: int = typer.Option(0, help="Cuantas industrias intentar (0 = todas)."),
+    minimo: int = typer.Option(2, help="Empresas minimas para que cuente."),
+    sector: str = typer.Option(None, "--sector",
+                               help="Solo las industrias de ese sector, "
+                                    "p.ej. 'Technology' o 'Financial Services'."),
+) -> None:
+    """Resuelve el TAM de cada industria del mercado de EE.UU. que no lo tenga.
+
+    Con `--sector` se hace por tandas: las 12 industrias de Technology de una
+    vez, luego Financial Services, y asi. Es lo que evita que la cuota corte un
+    barrido de 149 a la mitad y deje 126 sin intentar.
+
+    Va en orden de cobertura -- primero las industrias con mas empresas --
+    porque cada intento cuesta peticiones y la cuota del proveedor de busqueda
+    es finita. Se corta sola en cuanto la cuota se agota y lo dice.
+
+    Lo que no se pueda comprobar en la pagina de su propia fuente NO se guarda
+    como TAM: queda como sugerencia sin puntuar. Eso es lo que separa este
+    barrido de la version que llenaba archivos con cifras que nadie podia
+    abrir.
+    """
+    from wbj.overlay.tam_mundial import resolver_todas_las_industrias
+
+    settings, _, fmp = _providers()
+    filas = resolver_todas_las_industrias(settings, fmp, limite=limite,
+                                          minimo_empresas=minimo, sector=sector)
+    if not filas:
+        typer.echo("No se pudo enumerar el universo.")
+        return
+    marca = {"resuelto": "  ok", "ya estaba": "  = ", "sin fuente": "  - ",
+             "cuota agotada": "  !!"}
+    for f in filas:
+        typer.echo(f"{marca.get(f['estado'], '   ')} {f['industria'][:34]:36} "
+                   f"{f['empresas']:>4} empresas  {f['estado']}")
+    hechas = sum(1 for f in filas if f["estado"] == "resuelto")
+    typer.echo("")
+    typer.echo(f"{hechas} industrias resueltas y verificadas contra su fuente.")
+
+
+@app.command("tam-revisar")
+def tam_revisar(
+    forzar: bool = typer.Option(False, "--forzar",
+                                help="Revisa aunque no toque todavia."),
+) -> None:
+    """Vuelve a leer cada TAM de industria en la pagina de su fuente.
+
+    Un TAM no es un hecho permanente: WSTS revisa sus ventas mundiales cada
+    trimestre y la IEA su demanda cada mes. Esto es lo que permite que la
+    cifra la escriba el agente y no un analista sin volver al problema de
+    origen -- no se recuerda, se vuelve a leer.
+
+    Correr cada 1-3 meses. No borra nada: si la cifra ya no aparece, marca el
+    archivo con `_revisar_a_mano` y conserva el numero anterior, porque una
+    fuente caida no es una correccion y adivinar el nuevo seria repetir
+    exactamente el error que esta verificacion existe para impedir.
+    """
+    from wbj.overlay.tam_mundial import revisar_tam_industrias
+
+    settings, _, _ = _providers()
+    filas = revisar_tam_industrias(settings, forzar=forzar)
+    if not filas:
+        typer.echo("No hay TAM de industria que revisar.")
+        return
+    orden = {"CAMBIO": 0, "fuente inaccesible": 1, "confirmado": 2}
+    for f in sorted(filas, key=lambda x: orden.get(x["estado"], 9)):
+        marca = {"CAMBIO": "  !!", "fuente inaccesible": "  ? ",
+                 "confirmado": "  ok"}.get(f["estado"], "  - ")
+        typer.echo(f"{marca} {f['slug']:32} {f['estado']}"
+                   + (f"  {f.get('detalle') or f.get('url') or ''}"[:70]))
+    cambios = [f for f in filas if f["estado"] == "CAMBIO"]
+    typer.echo("")
+    if cambios:
+        typer.echo(f"{len(cambios)} necesitan revision a mano: su fuente ya no "
+                   "publica la cifra guardada.")
+    else:
+        typer.echo("Ninguna cifra cambio en su fuente.")
+
+
 @app.command()
 def fetch(ticker: str) -> None:
     """Fetch raw EDGAR data for a ticker (cache-first)."""

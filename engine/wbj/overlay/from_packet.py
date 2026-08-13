@@ -34,6 +34,10 @@ from wbj.engines import valuation_engine as ve
 
 logger = logging.getLogger(__name__)
 
+#: Cuantos catalizadores viajan al overlay. Cada uno es una peticion al
+#: juez, y Realty Income presenta 40 eventos en 24 meses.
+_MAX_CATALIZADORES = 5
+
 #: Peer history depth, matching the packet's own.
 from wbj.packet.builder import _ANNUAL_HISTORY_YEARS
 
@@ -42,6 +46,12 @@ from wbj.packet.builder import _ANNUAL_HISTORY_YEARS
 _ERP = 0.045
 # `wbj.core.scoring.peer_score` needs at least this many peers to engage.
 _MIN_PEERS = 8
+#: Techo del universo cuando hay que rellenarlo con el sector. Cada miembro
+#: cuesta una descarga de precios, asi que el numero es un equilibrio: 24 da un
+#: percentil con sentido --tres veces el piso del documento-- sin acercarse a
+#: los 120 que `amplitud_sector` usa para contar cuantos estan sobre su media,
+#: que es una cuenta y no una descarga por nombre.
+_TOPE_UNIVERSO_SECTOR = 24
 # DATASET.md asks for eight quarters of backlog/RPO history.
 _BACKLOG_QUARTERS = 8
 # Bump when the extractor's logic or schema changes, so cached answers
@@ -386,6 +396,43 @@ def _named_segment_revenue(rows: Any) -> dict[str, float] | None:
     return named if len(named) >= 2 else None
 
 
+def _suma_de_segmentos(segmentos: Any, nombres: Any) -> tuple[str, float] | None:
+    """La suma de los segmentos que un analista NOMBRA, uno por uno.
+
+    El tercer caso, y resultó ser el de casi toda empresa diversificada. Con
+    NVIDIA compite un segmento (`Data Center`) y con Walmart compite la empresa
+    entera; con Alphabet compiten TRES de sus siete —`Google Search & Other`
+    $224.500M, `YouTube Advertising` $40.400M y `Google Network` $29.800M— y
+    ninguno solo es el numerador de la publicidad en internet.
+
+    Va por NOMBRE EXACTO y no por patrón, y eso es la diferencia entre sumar y
+    adivinar. `_segmento_del_mercado` se niega cuando encajan varios porque
+    "sumarlos o quedarse con el mayor sería inventar la respuesta", y tiene
+    razón mientras la selección la haga una lista de palabras: a Apple le
+    encajó `Wearables, Home and Accessories` y sólo ése, dando un 3,4% de
+    participación en electrónica de consumo a la mayor empresa del sector.
+    Aquí no hay coincidencia posible — o el segmento se llama así o no entra.
+
+    Sumar cifras reportadas no es imputar. Es lo mismo que hace la propia
+    `MKT-TAM-001`: "sum(addressable customers_i * annual spend_i)".
+
+    Si falta cualquiera de los nombres declarados devuelve `None`: una suma a
+    la que le falta un sumando no es esa suma, y el emisor pudo renombrar sus
+    segmentos.
+    """
+    if not isinstance(segmentos, dict) or not isinstance(nombres, list) or not nombres:
+        return None
+    total = 0.0
+    for nombre in nombres:
+        v = segmentos.get(nombre)
+        if not isinstance(v, (int, float)) or v <= 0:
+            logger.info("el segmento declarado %r no esta en la segmentacion "
+                        "reportada: no se suma nada", nombre)
+            return None
+        total += float(v)
+    return (" + ".join(str(n) for n in nombres), total)
+
+
 def _segmento_del_mercado(segmentos: Any, patrones: Any) -> tuple[str, float] | None:
     """El segmento cuyo nombre encaja con el mercado del TAM.
 
@@ -446,9 +493,49 @@ def _ingreso_en_el_ambito(fmp: Any, ticker: str) -> tuple[float, str] | None:
     return float(encajan[0][1]), encajan[0][0]
 
 
+def _ingreso_total_previo(ticker: str, fmp: Any) -> float | None:
+    """Los ingresos del ejercicio ANTERIOR, para el delta de participación.
+
+    El método es `income_annual`. La primera versión de esto llamó a
+    `income_statement`, que no existe: el `except` de arriba se lo tragó, la
+    función devolvió `None` y `share_history` quedó vacío sin que nada
+    fallara. Un nombre de método equivocado y un `except Exception` alrededor
+    se combinan en un hueco silencioso.
+    """
+    try:
+        filas = fmp.income_annual(ticker)
+    except Exception:  # noqa: BLE001
+        logger.info("%s: sin estado de resultados para el año previo",
+                    ticker, exc_info=True)
+        return None
+    if not isinstance(filas, list) or len(filas) < 2:
+        return None
+    try:
+        v = float((filas[1] or {}).get("revenue"))
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
+def _ingreso_total_reportado(packet: Any) -> float | None:
+    """Los ingresos del último ejercicio, tal como los reporta el emisor."""
+    anual = (getattr(packet, "fundamentals", None) or {}).get("annual") or []
+    if not anual:
+        return None
+    v = (anual[0] or {}).get("revenue")
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
 def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
                       tam: float | None, tam_history: Any,
-                      patrones: Any, ambito: str | None = None) -> dict[str, Any]:
+                      patrones: Any, ambito: str | None = None,
+                      ingreso_total: float | None = None,
+                      total_es_relevante: bool = False,
+                      segmentos_declarados: Any = None) -> dict[str, Any]:
     """Participación de mercado calculada SOLA, sin que nadie la declare.
 
     Es el paso que faltaba para que analizar un ticker nuevo no exigiera
@@ -480,6 +567,32 @@ def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
                         "sin participacion", ticker)
             return {}
         actual: tuple[str, float] = (dom[1], dom[0])
+    elif segmentos_declarados:
+        sumado = _suma_de_segmentos(segmentos, segmentos_declarados)
+        if not sumado:
+            return {}
+        actual = sumado
+    elif total_es_relevante:
+        # La clase que el mecanismo de patrones no sabía expresar: la empresa
+        # ENTERA compite en ese mercado.
+        #
+        # Los segmentos de Walmart son 'Walmart U.S.', 'International' y
+        # 'Sam's Club'; los de JPMorgan, 'Consumer & Community Banking',
+        # 'Commercial and Investment Bank' y 'Asset and Wealth Management'.
+        # Todos son comercio minorista y todos son banca respectivamente, así
+        # que ningún patrón elige uno — y elegir uno sería peor, porque
+        # dividiría un trozo del numerador entre el mercado completo.
+        #
+        # Esto NO es un valor por defecto: sin la declaración explícita en el
+        # archivo de industria el comportamiento es el de antes. Coca-Cola
+        # sigue sin participación a propósito, porque su TAM mide valor al
+        # público y ella factura concentrado — dos capas, y el numerador no
+        # se arregla cambiándolo por otro más grande.
+        if not ingreso_total:
+            logger.info("%s: la industria declara que compite entera pero no "
+                        "hay ingreso total reportado", ticker)
+            return {}
+        actual = ("total reportado", float(ingreso_total))
     else:
         encontrado = _segmento_del_mercado(segmentos, patrones)
         if not encontrado:
@@ -516,6 +629,17 @@ def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
         # numeradores distintos, y la variación —que es lo que de verdad mide
         # `MKT-SHDELTA-007`— saldría de restar peras y manzanas.
         domestico = (ambito or "").upper() == "US"
+        if total_es_relevante and not domestico:
+            # El año anterior del MISMO numerador: el ingreso total del
+            # ejercicio previo, no un segmento.
+            previo_total = _ingreso_total_previo(ticker, fmp)
+            tam_anterior = float(historia[-2])
+            if (previo_total and tam_anterior > 0
+                    and previo_total <= tam_anterior):
+                salida["share_history"] = [
+                    round(previo_total / tam_anterior, 6),
+                    round(actual[1] / float(tam), 6)]
+            return salida
         filas = (fmp.revenue_geographic_segmentation(ticker) if domestico
                  else fmp.revenue_product_segmentation(ticker))
         if not isinstance(filas, list) or len(filas) < 2:
@@ -526,6 +650,8 @@ def _share_automatico(fmp: Any, ticker: str, segmentos: dict,
                        if isinstance(v, (int, float)) and v > 0
                        and any(r in str(n).lower() for r in _REGIONES_US)]
             anterior = (encajan[0][0], encajan[0][1]) if len(encajan) == 1 else None
+        elif segmentos_declarados:
+            anterior = _suma_de_segmentos(previos, segmentos_declarados)
         else:
             anterior = _segmento_del_mercado(previos, patrones)
         if not anterior:
@@ -661,8 +787,68 @@ def _rs_universe(fmp: Any, packet: Any) -> list[dict] | None:
     bench = packet.market_data.benchmark or []
     peers = (packet.estimates or {}).get("peers") or []
     symbols = [p.get("symbol") for p in peers if isinstance(p, dict) and p.get("symbol")]
-    if len(bench) < 64 or len(symbols) < _MIN_PEERS:
+    if len(bench) < 64:
         return None
+    # Vacia salvo que se entre por la rama del sector. El guardado del final la
+    # lee pase lo que pase, y sin esto un ticker con comparables de sobra
+    # --el camino normal, el de casi todos-- reventaria con NameError.
+    clave_sector = ""
+
+    # Si los comparables no llegan al piso, el universo lo pone el SECTOR.
+    #
+    # `SCORING_ENGINE.md` da dos salidas cuando hay menos de 8: "use absolute
+    # rules or mark the peer component NOT_SCORABLE". Para un percentil no
+    # existe la primera --un percentil sin universo no es nada-- pero el
+    # documento tampoco dice que el universo tengan que ser los comparables:
+    # `FORMULAS.md` pide "point-in-time UNIVERSE RS values", y una lista de
+    # siete nombres apenas lo es. Rankear contra el sector es mas fiel a lo
+    # que la metrica mide.
+    #
+    # Medido: BAC traia 7 comparables de FMP --uno por debajo del piso-- y era
+    # el unico de los doce sin percentil. Los demas traen 9 o 10.
+    #
+    # Acotado a `_TOPE_UNIVERSO_SECTOR` y SOLO cuando hace falta: el camino
+    # normal no paga nada. Analizar bajo de 171s a 6,7s esta misma sesion y no
+    # se le devuelve peso a todos para arreglar a uno.
+    if len(symbols) < _MIN_PEERS:
+        sector = getattr(getattr(packet, "security", None), "sector", "") or ""
+        if not sector:
+            return None
+        clave_sector = "rs_universe_" + "".join(
+            c if c.isalnum() else "-" for c in sector.lower()).strip("-")
+        try:
+            edad = fmp.cache.age_days("_sector", clave_sector)
+            if edad is not None and edad <= 1.0:
+                guardado = (fmp.cache.get("_sector", clave_sector) or {}).get("filas")
+                if guardado and len(guardado) >= _MIN_PEERS:
+                    return guardado
+        except Exception:                         # noqa: BLE001
+            pass
+
+        try:
+            from wbj.overlay.amplitud_sector import _miembros
+
+            propio = getattr(getattr(packet, "security", None), "ticker", None)
+            del_sector = [x for x in _miembros(fmp, sector) if x and x != propio]
+        except Exception:                         # noqa: BLE001
+            logger.warning("universo de sector no disponible para %s", sector, exc_info=True)
+            return None
+        # Los comparables primero: son los que el proveedor considera mas
+        # cercanos. El sector rellena hasta el tope, sin repetir.
+        vistos = set(symbols)
+        symbols = symbols + [x for x in del_sector
+                             if not (x in vistos or vistos.add(x))]
+        symbols = symbols[:_TOPE_UNIVERSO_SECTOR]
+        if len(symbols) < _MIN_PEERS:
+            return None
+        # El universo es del SECTOR y del DIA, no del ticker que se analiza.
+        # Sin esto, analizar BAC y luego WFC --misma industria, los dos con
+        # lista corta-- recalcula el mismo universo dos veces: 24 lecturas de
+        # cache y su aritmetica, repetidas por analisis. Las DESCARGAS ya se
+        # compartian (la cache del proveedor es de disco y va por simbolo);
+        # lo que faltaba era compartir el CALCULO.
+        clave_sector = "rs_universe_" + "".join(
+            c if c.isalnum() else "-" for c in sector.lower()).strip("-")
 
     bench_close = pd.Series([r.close for r in sorted(bench, key=lambda r: r.date)])
     rows: list[dict] = []
@@ -684,7 +870,13 @@ def _rs_universe(fmp: Any, packet: Any) -> list[dict] | None:
         except Exception:
             logger.warning("peer RS failed for %s; skipping peer", sym, exc_info=True)
 
-    return rows if len(rows) >= _MIN_PEERS else None
+    salida = rows if len(rows) >= _MIN_PEERS else None
+    if salida is not None and clave_sector:
+        try:
+            fmp.cache.put("_sector", clave_sector, {"filas": salida})
+        except Exception:                         # noqa: BLE001
+            pass                                  # cachear es opcional, nunca un fallo
+    return salida
 
 
 
@@ -891,6 +1083,23 @@ def _overlay_industria(settings: Any, industria: str | None,
     # que compite en este mercado. Se rescata antes de barrer las notas.
     patrones = data.get("_segmento_patrones")
     ambito = data.get("_ambito")
+    # `_ingreso_relevante` dice que la capa del TAM cubre la facturación
+    # ENTERA de quien la hereda, así que el numerador es el ingreso reportado
+    # y no un segmento. Se declara archivo por archivo porque es un juicio
+    # sobre la capa, no algo deducible del ticker.
+    #
+    # Admite `"total"` —vale para toda la industria— o una LISTA de tickers,
+    # porque una industria de GICS puede mezclar los dos casos: el TAM de
+    # `software-infrastructure` mide software de datos y analítica, que es
+    # PLTR entera pero sólo un trozo de Microsoft. Con un campo binario había
+    # que elegir entre dejar a PLTR sin participación o darle a MSFT un
+    # numerador cuatro veces mayor que su negocio en ese mercado.
+    suma = data.get("_segmentos_suma")
+    _rel = data.get("_ingreso_relevante")
+    if isinstance(_rel, list):
+        total_relevante = ticker.upper() in {str(t).upper() for t in _rel}
+    else:
+        total_relevante = str(_rel or "").lower() == "total"
 
     for key in [k for k in data if k.startswith("_")]:
         data.pop(key)
@@ -906,6 +1115,15 @@ def _overlay_industria(settings: Any, industria: str | None,
         fuera["_segmento_patrones"] = patrones
     if ambito and fuera.get("tam"):
         fuera["_ambito"] = ambito
+    if total_relevante and fuera.get("tam"):
+        fuera["_ingreso_relevante"] = "total"
+    if isinstance(suma, dict) and fuera.get("tam"):
+        # Por ticker: los segmentos que compiten en un mercado tienen nombres
+        # distintos en cada emisor, asi que la lista no puede ser de la
+        # industria entera.
+        propios = suma.get(ticker.upper())
+        if isinstance(propios, list) and propios:
+            fuera["_segmentos_suma"] = propios
     return fuera
 
 
@@ -1372,13 +1590,76 @@ def _recession_margin_drawdown(rows: list[dict], recession_years: list[int]) -> 
     return max(drops) if drops else None
 
 
+def _companeras_de_industria(fmp: Any, packet: Any, ya: list[str]) -> list[str]:
+    """Mas comparables de la MISMA industria, cuando el proveedor da pocos.
+
+    `SCORING_ENGINE.md` exige "a minimum of 8 valid peers" y FMP no siempre
+    llega: BAC traia 7 --uno por debajo-- y se quedaba sin `peer_roic` ni
+    `peer_operating_margin`, lo que dejaba `competitive_position` en 0,500 con
+    todo lo demas calculado.
+
+    INDUSTRIA y no sector, que es la diferencia que importa aqui. El universo
+    del percentil de fuerza relativa (`_rs_universe`) si se rellena por sector,
+    porque `FORMULAS.md` le pide un "point-in-time universe" y el precio se
+    compara contra el mercado. Esto es otra cosa: el Cerebro pide "peer
+    ROIC/margins", y «Financial Services» mete aseguradoras y gestoras de
+    activos junto a los bancos. Comparar el margen de un banco con el de una
+    gestora es comparar dos modelos de negocio -- exactamente lo que
+    `INDUSTRY_ADAPTERS.md` existe para no hacer.
+
+    Se cachea un dia por industria: la lista es de la INDUSTRIA, no del ticker
+    que se analiza, y sin esto cada banco de la misma industria la pediria otra
+    vez.
+    """
+    industria = getattr(getattr(packet, "security", None), "industry", "") or ""
+    if not industria:
+        return []
+    clave = "companeras_" + "".join(
+        c if c.isalnum() else "-" for c in industria.lower()).strip("-")
+    try:
+        edad = fmp.cache.age_days("_sector", clave)
+        if edad is not None and edad <= 1.0:
+            guardado = (fmp.cache.get("_sector", clave) or {}).get("simbolos")
+            if guardado:
+                return list(guardado)
+    except Exception:                             # noqa: BLE001
+        pass
+    try:
+        filas = fmp.get_json(
+            "https://financialmodelingprep.com/stable/company-screener",
+            {"industry": industria, "exchange": "NASDAQ,NYSE", "isEtf": "false",
+             "isFund": "false", "marketCapMoreThan": 2_000_000_000, "limit": 200,
+             "apikey": fmp.settings.fmp_api_key},
+            clave, "_sector", max_age_days=1)
+    except Exception:                             # noqa: BLE001
+        logger.warning("no pude listar la industria %s", industria, exc_info=True)
+        return []
+    if not isinstance(filas, list):
+        return []
+    propio = getattr(getattr(packet, "security", None), "ticker", None)
+    conocidas = [f for f in filas
+                 if isinstance(f, dict) and f.get("symbol") and f.get("marketCap")]
+    conocidas.sort(key=lambda f: -float(f["marketCap"]))
+    fuera = set(ya) | {propio}
+    simbolos = [f["symbol"] for f in conocidas if f["symbol"] not in fuera]
+    simbolos = simbolos[:_TOPE_UNIVERSO_SECTOR]
+    try:
+        fmp.cache.put("_sector", clave, {"simbolos": simbolos})
+    except Exception:                             # noqa: BLE001
+        pass
+    return simbolos
+
+
 def _peer_economics(fmp: Any, packet: Any,
                     recession_years: list[int] | None = None
                     ) -> dict[str, list[float]] | None:
     peers = (packet.estimates or {}).get("peers") or []
     symbols = [p.get("symbol") for p in peers if isinstance(p, dict) and p.get("symbol")]
     if len(symbols) < _MIN_PEERS:
-        return None
+        # Los del proveedor primero: son los que considera mas cercanos.
+        symbols = symbols + _companeras_de_industria(fmp, packet, symbols)
+        if len(symbols) < _MIN_PEERS:
+            return None
 
     out: list[float] = []
     margins: list[float] = []
@@ -1606,6 +1887,54 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
                 logger.warning("no se pudo comprobar si %s declara RPO", ticker,
                                exc_info=True)
 
+            # ---- MKT-CAT-019 / MKT-TDEC-020: el registro de catalizadores ----
+            # `DATASET.md` lo pide como "Product, capacity, regulatory,
+            # contract, pricing, and launch events ... official issuer/
+            # regulatory evidence", y nada lo poblaba: los catalizadores solo
+            # entraban si un analista los escribia a mano, asi que las dos
+            # metricas quedaban sin dato en 9 de 12 tickers.
+            #
+            # Un 8-K ES esa evidencia, y la SEC **numera el tipo de evento**:
+            # 1.01 contrato firmado, 2.01 adquisicion completada, 8.01 otros
+            # eventos materiales. El tipo viene en un campo -- no hay que
+            # interpretar prosa, que es donde fallaron dos intentos previos de
+            # extraccion en este motor.
+            #
+            # Verificado sobre emisores reales: la brecha de datos de fairlife
+            # en KO, la licencia de exportacion a China que el gobierno de
+            # EE.UU. impuso a NVIDIA, la fusion de redomiciliacion de XOM.
+            #
+            # Lo que NO sale de aqui: probabilidad, impacto y calidad de
+            # evidencia. FORMULAS.md es explicito -- "las probabilidades e
+            # impactos son asunciones; nunca disfrazarlas de hechos
+            # reportados" -- asi que market.py las pide al juez, una por
+            # catalizador, y `_rerun_market_with_judged_catalysts` vuelve a
+            # correr Market con ellas.
+            if "catalysts" not in overlay:
+                try:
+                    registro = edgar.catalyst_registry(cik) or []
+                except Exception:
+                    logger.warning("registro de catalizadores no disponible "
+                                   "para %s", ticker, exc_info=True)
+                    registro = []
+                # Solo los DESCRITOS: sin descripcion la fila dice "otros
+                # eventos materiales" y el juez no puede valorar lo que no
+                # sabe que es -- o se abstiene o se lo inventa.
+                #
+                # Y con tope: cada catalizador es una peticion al juez. Los
+                # mas recientes primero, que es lo que el decaimiento temporal
+                # prefiere de todas formas.
+                descritos = [c for c in registro if c.get("descripcion")]
+                descritos.sort(key=lambda c: c.get("filed") or "", reverse=True)
+                if descritos:
+                    overlay["catalysts"] = [
+                        {"event": f"{c['event']} — {c['descripcion'][:320]}",
+                         "category": c.get("category"),
+                         "months_to_event": c.get("months_to_event", 0.0),
+                         "evidence_source": c.get("url") or c.get("source"),
+                         "filed": c.get("filed")}
+                        for c in descritos[:_MAX_CATALIZADORES]]
+
             # ---- FIN-GR-004: el puente de crecimiento organico ----
             # `DATASET.md` nombra su fuente: "issuer reconciliation", que vive
             # en el COMUNICADO DE RESULTADOS y no en el 10-K. `organic_growth`
@@ -1622,6 +1951,21 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
                 from wbj.extract.filing import extract_organic_growth
 
                 release = edgar.latest_earnings_release(cik)
+                # `DATASET.md` nombra la fuente de `management_guidance_history`
+                # sin ambiguedad -- "earnings releases" -- y la tipa
+                # **conditional**. Hay emisores que no usan ese canal: NVIDIA,
+                # Lilly y Exxon publican sus resultados en su propia sala de
+                # prensa y su 8-K es una caratula.
+                #
+                # Verificado el 2026-08-09 sobre seis emisores: KO, WMT y PLTR
+                # presentan comunicado, con 17, 12 y 13 menciones de guidance
+                # respectivamente. NVDA, LLY y XOM no presentan ninguno.
+                #
+                # Para los primeros el dato ESTA y no haberlo leido es un hueco
+                # real. Para los segundos no hay documento que leer por la via
+                # que el Cerebro declara, y esa diferencia es exactamente la
+                # que separa MISSING de NOT_APPLICABLE.
+                overlay["_sin_comunicado_de_resultados"] = not release
                 if release:
                     org = _cached_extract(
                         Cache(settings.cache_dir), ticker,
@@ -1782,11 +2126,21 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         from wbj.overlay.amplitud_sector import amplitud_de_sector
 
         _sec = getattr(getattr(packet, "security", None), "sector", None)
-        # SOLO CACHE. Ver el docstring de `amplitud_de_sector`: pedirla por red
-        # aqui agotaba el limite de FMP y los 429 caian sobre las llamadas del
-        # propio ticker. Se calienta aparte; si no esta, la metrica queda
-        # NOT_SCORABLE, que cuesta 3 puntos y no el analisis entero.
-        _amp = amplitud_de_sector(fmp, _sec, permitir_red=False)
+        # Se pide por RED cuando no esta en cache. Antes era solo-cache, y esa
+        # decision tenia una consecuencia que Kevin nombro: el PRIMER ticker de
+        # cada sector nunca tenia amplitud. La metrica funcionaba "para algunos
+        # si y otros no", que es justo lo que no puede pasar.
+        #
+        # El motivo original era real -- 405 peticiones por sector agotaban el
+        # limite de FMP y los 429 caian sobre las llamadas del propio ticker --
+        # pero ese numero ya no existe: el tope bajo a 120 miembros. Medido
+        # hoy sobre Technology y Financial Services: 11 segundos, 120 de 120
+        # con media publicada, cero 429.
+        #
+        # Y el coste se paga UNA vez por sector y dia, no por ticker: el
+        # resultado se cachea por sector, asi que el segundo ticker del mismo
+        # sector no gasta ni una peticion.
+        _amp = amplitud_de_sector(fmp, _sec, permitir_red=True)
         if _amp:
             overlay["sector_breadth"] = _amp
             logger.info("amplitud de %s: %d/%d sobre su media de 50",
@@ -1810,8 +2164,14 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         try:
             from wbj.overlay.tam_mundial import asegurar_tam_industria
 
+            # `investigar=False`: se LEE el TAM que el barrido dejo en disco,
+            # no se sale a buscarlo. Medido, resolverlo cuesta 147s y era el
+            # 96% de lo que tardaba analizar una accion -- cobrado a quien
+            # pulsa Analyze, y otra vez a cada compañera de industria. El
+            # barrido (`wbj tam-todas`) lo hace una vez para las 145.
             logger.info("TAM de industria: %s",
-                        asegurar_tam_industria(settings, _ind, ticker))
+                        asegurar_tam_industria(settings, _ind, ticker,
+                                               investigar=False))
         except Exception:
             logger.warning("resolucion oficial de TAM no disponible", exc_info=True)
         manual = _manual_overlay(settings, ticker, industria=_ind)
@@ -1848,16 +2208,26 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
         # caso que cubre el TAM oficial: JPM, KO y PLTR salían sin
         # participación teniendo el denominador delante.
         domestico = str(overlay.get("_ambito") or "").upper() == "US"
-        if domestico or (isinstance(segmentos, dict) and segmentos):
+        # La empresa que compite ENTERA no necesita segmentación de producto
+        # para entrar: su numerador es el ingreso total. Exigirla dejaba fuera
+        # a WMT, JPM y LLY teniendo el denominador y el numerador en casa.
+        total_relevante = str(overlay.get("_ingreso_relevante") or "") == "total"
+        declarados = overlay.pop("_segmentos_suma", None)
+        if domestico or total_relevante or (isinstance(segmentos, dict) and segmentos):
             auto = _share_automatico(
                 fmp, ticker, segmentos or {}, overlay.get("tam"),
                 overlay.get("tam_history"), overlay.pop("_segmento_patrones", None),
-                ambito=overlay.pop("_ambito", None))
+                ambito=overlay.pop("_ambito", None),
+                ingreso_total=_ingreso_total_reportado(packet),
+                total_es_relevante=total_relevante,
+                segmentos_declarados=declarados)
             for key, value in auto.items():
                 overlay.setdefault(key, value)
     except Exception:
         logger.warning("automatic market share unavailable", exc_info=True)
     overlay.pop("_segmento_patrones", None)
     overlay.pop("_ambito", None)
+    overlay.pop("_ingreso_relevante", None)
+    overlay.pop("_segmentos_suma", None)
 
     return overlay

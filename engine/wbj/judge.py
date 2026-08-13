@@ -189,6 +189,25 @@ _FILING_TOPICS: dict[str, tuple[str, ...]] = {
     "customer_concentration": (
         "of total revenue", "of net revenue", "of our revenue",
         "customer concentration", "major customer", "direct customer",
+        # Medido sobre cuatro emisores: con las seis agujas de arriba, WMT y
+        # BAC encajaban CERO y MSFT y AAPL una sola. El juez recibia pocos
+        # pasajes o ninguno, contestaba INSUFFICIENT, y la metrica quedaba
+        # MISSING en 10 de 12 tickers.
+        #
+        # Las seis primeras estan escritas para el lenguaje de una empresa
+        # B2B. Lo que falta son las variantes que usa el resto:
+        "of consolidated revenue", "of consolidated net", "of total sales",
+        "of net sales", "of total net revenue", "of revenues",
+        # La frase NEGATIVA, que es la mas comun y la mas valiosa: dice que no
+        # hay concentracion, y eso es un hallazgo -- 7-10 puntos en las bandas
+        # de DECISION_RULES.md -- no un dato ausente.
+        "no single customer", "no customer accounted", "no one customer",
+        "no customer represented", "10% or more of",
+        # Bancos y aseguradoras lo llaman de otra forma.
+        "concentration of credit risk", "significant concentration",
+        # Y el otro lado de la cadena: quien depende de pocos PROVEEDORES
+        # suele describir la simetria en la misma nota.
+        "largest customer", "top ten customers", "top 10 customers",
     ),
     "backlog_rpo": (
         "remaining performance obligation", "backlog", "unfilled orders",

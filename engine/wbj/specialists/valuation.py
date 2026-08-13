@@ -716,6 +716,33 @@ def _reit_adapter_output(packet: Packet, overlay: dict[str, Any]) -> ValuationOu
     # y no NOT_APPLICABLE, que lo sacaria del denominador y lo escondería.
     sin_affo = Value.null(NullState.NOT_SCORABLE, unit="score",
                           warnings=["P_AFFO_NEEDS_ISSUER_AFFO_IN_ENTRADAS"])
+
+    # Y cuando el analista SI lo transcribe, el numero tiene que llegar aqui.
+    #
+    # No llegaba: `p_affo` se calculaba doscientas lineas mas arriba, se
+    # escribia en una frase de `assumptions` y se tiraba. Medido con el AFFO de
+    # Realty Income puesto a mano: `valuation` seguia en 0,400 y las tres
+    # dimensiones en 0,0. La metrica pedia un dato, se le daba, y no pasaba
+    # nada -- el mismo fallo que la penetracion de mercado, donde el numerador
+    # estaba calculado y validado una linea antes de no publicarse.
+    #
+    # La banda NO se inventa. `INDUSTRY_ADAPTERS.md` dice "Replace EPS with
+    # FFO/AFFO": sustituye el INSUMO, no la regla. Asi que el rendimiento de
+    # AFFO --AFFO sobre capitalizacion, el analogo directo del rendimiento de
+    # utilidades-- entra con las anclas que el Cerebro ya le dio a VAL-EY-029,
+    # las mismas que usa la rama normal. Es lo mismo que se hizo con ROE
+    # ocupando el hueco del ROIC en un banco.
+    _affo_score = None
+    if affo and source and price and shares:
+        # Capitalizacion = precio x acciones, las dos ya resueltas arriba para
+        # el propio P/AFFO. Pedir `market_cap` aparte seria un tercer camino al
+        # mismo numero.
+        _y = float(affo) / (float(price) * float(shares))
+        _affo_score = _score_from_anchor(
+            _ok(_y, unit="pct"), [(0.0, 0), (0.03, 4), (0.06, 7), (0.10, 10)])
+    con_affo = (Value.of(_affo_score, unit="score",
+                         warnings=["SLOT_CARRIES_AFFO_YIELD_NOT_EARNINGS_YIELD"])
+                if _affo_score is not None else sin_affo)
     por_dimension = {
         DIM_MOS: scored,
         DIM_FAIR_VALUE_SCENARIOS: ([(1.0, Value.of(mos_score, unit="score"))]
@@ -724,7 +751,7 @@ def _reit_adapter_output(packet: Packet, overlay: dict[str, Any]) -> ValuationOu
         # AFFO falta. Los dos estados, cada uno donde corresponde.
         DIM_MULTIPLES: [(0.5, na), (0.5, sin_affo)],
         DIM_HIST_PEER: [(1.0, sin_affo)],
-        DIM_CF_YIELD: [(0.5, na), (0.5, sin_affo)],
+        DIM_CF_YIELD: [(0.5, na), (0.5, con_affo)],
     }
     dims = [Dimension(name=n, max_points=DIMENSION_MAX_POINTS[n],
                       metric_scores=por_dimension[n])
@@ -1054,6 +1081,44 @@ def _financial_adapter_output(packet: Packet, overlay: dict[str, Any]) -> Valuat
             "financiamiento -- pero no prohibe sus utilidades."
         )
 
+    # ---- VAL-PEG-028: el P/E contra el crecimiento esperado ----
+    # No va sobre ENTERPRISE VALUE, asi que el adaptador no lo prohibe: lo
+    # vedado para un banco es EV/EBITDA y EV/Sales, porque su deuda es materia
+    # prima. Un P/E dividido entre el crecimiento del consenso no toca nada de
+    # eso. Y el crecimiento ya estaba en el overlay -- medido, JPM 22,0% y BAC
+    # 21,4% -- asi que la fila se quedaba sin puntuar teniendo sus dos
+    # insumos en casa.
+    _peg_growth = overlay.get("eps_growth_pct")
+    if (pe_actual.is_valid and isinstance(_peg_growth, (int, float))
+            and _peg_growth > 0):
+        _peg = _ok(pe_actual.value / (float(_peg_growth) * 100), unit="ratio")
+    else:
+        _peg = _null(NullState.MISSING, "ratio",
+                     "PEG_INPUTS_UNAVAILABLE_OR_NONPOSITIVE_GROWTH")
+    add("VAL-PEG-028", _peg, None)
+    _peg_score = _score_from_anchor(_peg, [(0.5, 10), (1.0, 7), (2.0, 3), (3.5, 0)])
+    _peg_slot = (Value.of(_peg_score, unit="score") if _peg_score is not None
+                 else Value.null(NullState.NOT_SCORABLE, unit="score",
+                                 warnings=["PEG_INPUTS_UNAVAILABLE"]))
+
+    # ---- VAL-ZHIST-035: el multiplo contra su propia historia ----
+    # La serie la construye `overlay/from_packet.py` para TODO ticker, y esta
+    # ruta la ignoraba: ponia NOT_SCORABLE fijo con la excusa de que en un
+    # adaptador no habia serie. La habia -- medido, JPM y O la traian llena --
+    # y el P/E de un banco tiene historia como el de cualquiera. Lo que su
+    # adaptador prohibe es el ENTERPRISE VALUE, no mirarse en su propio espejo.
+    _hist = [float(x) for x in (overlay.get("historical_multiples") or [])
+             if isinstance(x, (int, float)) and x > 0]
+    _zhist = (ve.hist_zscore(pe_actual.value, _hist)
+              if _hist and pe_actual.is_valid
+              else _null(NullState.NOT_SCORABLE, "",
+                         "HISTORICAL_MULTIPLES_UNAVAILABLE"))
+    add("VAL-ZHIST-035", _zhist, None)
+    _z_score = _score_from_anchor(_zhist, [(2.0, 0), (0.5, 5), (0.0, 7), (-1.0, 10)])
+    _hist_slot = (Value.of(_z_score, unit="score") if _z_score is not None
+                  else Value.null(NullState.NOT_SCORABLE, unit="score",
+                                  warnings=["HISTORICAL_MULTIPLES_UNAVAILABLE"]))
+
     # ---- Fair value and margin of safety, off the models the matrix allows ----
     # Por la funcion COMPARTIDA del motor, no con aritmetica local. El mismo
     # valor justo lo necesita `overlay/from_packet.py` para derivar el margen
@@ -1100,8 +1165,7 @@ def _financial_adapter_output(packet: Packet, overlay: dict[str, Any]) -> Valuat
         # declara: NOT_SCORABLE cuenta en contra, que es lo correcto.
         Dimension(name=DIM_MULTIPLES, max_points=DIMENSION_MAX_POINTS[DIM_MULTIPLES],
                   metric_scores=[
-                      (0.35, Value.null(NullState.NOT_SCORABLE, unit="score",
-                                        warnings=["PEG_NEEDS_ANALYST_GROWTH"])),
+                      (0.35, _peg_slot),
                       (0.25, Value.of(multiplos_score, unit="score")
                        if multiplos_score is not None
                        else Value.null(NullState.NOT_SCORABLE, unit="score")),
@@ -1114,10 +1178,7 @@ def _financial_adapter_output(packet: Packet, overlay: dict[str, Any]) -> Valuat
         # marcarlo inaplicable lo sacaría del denominador y escondería que
         # falta.
         Dimension(name=DIM_HIST_PEER, max_points=DIMENSION_MAX_POINTS[DIM_HIST_PEER],
-                  metric_scores=[
-                      (1.0, Value.null(NullState.NOT_SCORABLE, unit="score",
-                                       warnings=["NO_HISTORICAL_MULTIPLES_IN_ADAPTER_PATH"])),
-                  ]),
+                  metric_scores=[(1.0, _hist_slot)]),
         # Los dos pesos de `SCORING.md`, no una lista vacía. El de flujo de
         # caja entra como NOT_APPLICABLE y por tanto fuera del denominador; el
         # de utilidades se puntúa. Vaciar la dimensión los trataba a los dos

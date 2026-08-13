@@ -57,7 +57,13 @@ def template() -> dict:
 #: Internal plumbing, not analyst inputs: warning channels and keys nested
 #: inside another block (`valid_members` lives under `sector_breadth`).
 _INTERNAL = {"analyst_input_warnings", "valid_members", "warnings", "period",
-             "contract_protection"}
+             "contract_protection",
+    # Lo calcula el MOTOR, no lo escribe un analista: dice si el emisor
+    # presenta comunicado de resultados ante la SEC, que es la fuente
+    # que DATASET.md declara para el guidance. Pedirlo en el esqueleto
+    # invitaria a declarar a mano un hecho que EDGAR ya responde.
+    "_sin_comunicado_de_resultados",
+}
 
 
 def _specialist_overlay_keys() -> set[str]:

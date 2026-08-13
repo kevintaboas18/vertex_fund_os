@@ -24,6 +24,13 @@ import pytest
 
 from wbj.overlay import tam_mundial as tm
 
+@pytest.fixture(autouse=True)
+def _sin_red(monkeypatch):
+    """Los tests no salen a internet. Ver `test_tam_acervo_no_es_flujo.py`."""
+    monkeypatch.setattr(tm, "_verificar_en_la_fuente",
+                        lambda cita, tam, fuente: (True, cita))
+
+
 
 BUENO = {
     "tam": 795_600_000_000,

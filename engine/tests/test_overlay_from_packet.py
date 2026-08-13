@@ -653,3 +653,284 @@ def test_too_little_price_history_yields_nothing():
     bars = [_Bar2("2025-01-01", 100.0)]
     annual = [{"date": "2024-12-31", "net_income": 100.0, "diluted_shares": 10.0}]
     assert _historical_multiples(_pkt_with_prices(bars, annual)) is None
+
+
+# --- el universo del percentil de fuerza relativa ---------------------------
+
+def _pkt_rs(peers, sector="Financial Services", ticker="BAC"):
+    from wbj.schemas.packet import OHLCVRow
+    bench = [OHLCVRow(date=f"2025-01-{d:02d}", open=1, high=1, low=1,
+                      close=1.0 + d / 100, adj_close=1.0 + d / 100, volume=1)
+             for d in range(1, 29)] * 3                             # >=64 barras
+    return SimpleNamespace(
+        security=SimpleNamespace(ticker=ticker, sector=sector),
+        market_data=SimpleNamespace(benchmark=bench),
+        estimates={"peers": [{"symbol": s} for s in peers]},
+    )
+
+
+def test_con_pocos_comparables_el_universo_lo_pone_el_sector(monkeypatch):
+    """Lo que dejaba a BAC sin percentil.
+
+    FMP le daba 7 comparables y el piso son 8, asi que TECH-RSC-013 salia
+    NOT_SCORABLE y arrastraba la dimension entera a 0,667 --2 de 3-- aunque RS
+    y RS de sector se calcularan bien. Los otros once tickers traian 9 o 10.
+
+    `SCORING_ENGINE.md` da dos salidas por debajo del piso, y para un percentil
+    no existe la primera ("absolute rules"): un percentil sin universo no es
+    nada. Pero el documento tampoco dice que el universo tengan que ser los
+    comparables -- `FORMULAS.md` pide "point-in-time UNIVERSE RS values", y
+    siete nombres apenas lo son.
+    """
+    from wbj.overlay import from_packet as fp
+
+    pedidos = []
+
+    def _miembros(fmp, sector):
+        pedidos.append(sector)
+        return [f"P{i}" for i in range(30)]
+
+    monkeypatch.setattr("wbj.overlay.amplitud_sector._miembros", _miembros)
+
+    class _FMP:
+        def ohlcv_daily(self, sym):
+            return [{"date": f"2025-01-{d:02d}", "close": 10.0 + d}
+                    for d in range(1, 29)] * 3
+
+    filas = fp._rs_universe(_FMP(), _pkt_rs([f"C{i}" for i in range(7)]))
+    assert pedidos == ["Financial Services"], "no se pidio el sector"
+    assert filas is not None and len(filas) >= 8
+
+
+def test_con_comparables_suficientes_no_se_toca_el_sector(monkeypatch):
+    """El camino normal no paga nada: analizar bajo de 171s a 6,7s esta misma
+    sesion y no se le devuelve peso a todos para arreglar a uno."""
+    from wbj.overlay import from_packet as fp
+
+    pedidos = []
+    monkeypatch.setattr("wbj.overlay.amplitud_sector._miembros",
+                        lambda fmp, sector: pedidos.append(sector) or [])
+
+    class _FMP:
+        def ohlcv_daily(self, sym):
+            return [{"date": f"2025-01-{d:02d}", "close": 10.0 + d}
+                    for d in range(1, 29)] * 3
+
+    fp._rs_universe(_FMP(), _pkt_rs([f"C{i}" for i in range(10)]))
+    assert pedidos == [], "se pidio el sector teniendo comparables de sobra"
+
+
+def test_el_universo_de_sector_esta_acotado(monkeypatch):
+    """Cada miembro cuesta una descarga de precios. Sin tope, un sector de 120
+    nombres devolveria al analisis el peso que se le acaba de quitar."""
+    from wbj.overlay import from_packet as fp
+
+    monkeypatch.setattr("wbj.overlay.amplitud_sector._miembros",
+                        lambda fmp, sector: [f"P{i}" for i in range(200)])
+
+    bajadas = []
+
+    class _FMP:
+        def ohlcv_daily(self, sym):
+            bajadas.append(sym)
+            return [{"date": f"2025-01-{d:02d}", "close": 10.0 + d}
+                    for d in range(1, 29)] * 3
+
+    fp._rs_universe(_FMP(), _pkt_rs(["C0"]))
+    assert len(bajadas) <= fp._TOPE_UNIVERSO_SECTOR, f"{len(bajadas)} descargas"
+
+
+def test_la_empresa_no_se_compara_consigo_misma(monkeypatch):
+    """Meterse en su propio universo desplaza el percentil hacia la mediana."""
+    from wbj.overlay import from_packet as fp
+
+    monkeypatch.setattr("wbj.overlay.amplitud_sector._miembros",
+                        lambda fmp, sector: ["BAC", "JPM", "WFC", "C", "GS", "MS",
+                                             "USB", "PNC", "TFC", "COF"])
+    bajadas = []
+
+    class _FMP:
+        def ohlcv_daily(self, sym):
+            bajadas.append(sym)
+            return [{"date": f"2025-01-{d:02d}", "close": 10.0 + d}
+                    for d in range(1, 29)] * 3
+
+    fp._rs_universe(_FMP(), _pkt_rs(["C0"], ticker="BAC"))
+    assert "BAC" not in bajadas
+
+
+def test_el_universo_de_sector_se_calcula_una_vez_y_lo_reusan_todos(monkeypatch):
+    """El universo es del SECTOR y del DIA, no del ticker que se analiza.
+
+    Sin cache, analizar BAC y luego WFC --misma industria, los dos con lista
+    corta de comparables-- recalculaba el mismo universo dos veces: 24 lecturas
+    y su aritmetica, repetidas por analisis. Las DESCARGAS ya se compartian (la
+    cache del proveedor es de disco y va por simbolo); lo que faltaba era
+    compartir el CALCULO.
+    """
+    from wbj.overlay import from_packet as fp
+
+    monkeypatch.setattr("wbj.overlay.amplitud_sector._miembros",
+                        lambda fmp, sector: [f"P{i}" for i in range(30)])
+    bajadas = []
+    guardado: dict = {}
+
+    class _Cache:
+        def age_days(self, t, k):
+            return 0.0 if (t, k) in guardado else None
+
+        def get(self, t, k):
+            return guardado.get((t, k))
+
+        def put(self, t, k, payload):
+            guardado[(t, k)] = payload
+
+    class _FMP:
+        cache = _Cache()
+
+        def ohlcv_daily(self, sym):
+            bajadas.append(sym)
+            return [{"date": f"2025-01-{d:02d}", "close": 10.0 + d}
+                    for d in range(1, 29)] * 3
+
+    fmp = _FMP()
+    primero = fp._rs_universe(fmp, _pkt_rs(["C0"], ticker="BAC"))
+    tras_el_primero = len(bajadas)
+    segundo = fp._rs_universe(fmp, _pkt_rs(["C0"], ticker="WFC"))
+
+    assert primero and segundo
+    assert segundo == primero, "el segundo del sector obtuvo otro universo"
+    assert len(bajadas) == tras_el_primero, (
+        f"recalculo: {len(bajadas) - tras_el_primero} descargas de mas")
+
+
+def test_el_camino_normal_no_revienta_por_la_cache(monkeypatch):
+    """`clave_sector` solo se define entrando por la rama del sector, y el
+    guardado del final la lee pase lo que pase. Sin inicializarla, un ticker
+    con comparables de sobra --el caso de casi todos-- daba NameError."""
+    from wbj.overlay import from_packet as fp
+
+    class _Cache:
+        def age_days(self, t, k):
+            return None
+
+        def get(self, t, k):
+            return None
+
+        def put(self, t, k, payload):
+            raise AssertionError("no deberia cachear por sector sin usar el sector")
+
+    class _FMP:
+        cache = _Cache()
+
+        def ohlcv_daily(self, sym):
+            return [{"date": f"2025-01-{d:02d}", "close": 10.0 + d}
+                    for d in range(1, 29)] * 3
+
+    filas = fp._rs_universe(_FMP(), _pkt_rs([f"C{i}" for i in range(10)]))
+    assert filas is not None and len(filas) >= 8
+
+
+# --- comparables de la misma INDUSTRIA cuando el proveedor da pocos ---------
+
+def _pkt_ind(peers, industria="Banks - Diversified", sector="Financial Services",
+             ticker="BAC"):
+    from wbj.schemas.packet import OHLCVRow
+    bench = [OHLCVRow(date=f"2025-01-{d:02d}", open=1, high=1, low=1,
+                      close=1.0 + d / 100, adj_close=1.0 + d / 100, volume=1)
+             for d in range(1, 29)] * 3
+    return SimpleNamespace(
+        security=SimpleNamespace(ticker=ticker, sector=sector, industry=industria),
+        market_data=SimpleNamespace(benchmark=bench),
+        estimates={"peers": [{"symbol": s} for s in peers]},
+    )
+
+
+class _CacheMem:
+    def __init__(self):
+        self.d = {}
+
+    def age_days(self, t, k):
+        return 0.0 if (t, k) in self.d else None
+
+    def get(self, t, k):
+        return self.d.get((t, k))
+
+    def put(self, t, k, payload):
+        self.d[(t, k)] = payload
+
+
+def test_pocos_comparables_se_completan_con_la_industria():
+    """Lo que dejaba a BAC en 0,500 de `competitive_position` con todo lo demas
+    calculado: `_peer_economics` exige 8 comparables --SCORING_ENGINE.md-- y
+    FMP le daba 7, asi que no habia `peer_roic` ni `peer_operating_margin` y la
+    mitad de la dimension quedaba NOT_SCORABLE.
+    """
+    from wbj.overlay import from_packet as fp
+
+    pedido = {}
+
+    class _FMP:
+        cache = _CacheMem()
+        settings = SimpleNamespace(fmp_api_key="x")
+
+        def get_json(self, url, params, clave, ticker, **k):
+            pedido.update(params)
+            return [{"symbol": f"B{i}", "marketCap": 1e11 - i} for i in range(30)]
+
+    extra = fp._companeras_de_industria(_FMP(), _pkt_ind([f"C{i}" for i in range(7)]),
+                                        [f"C{i}" for i in range(7)])
+    assert len(extra) >= 1
+    assert pedido.get("industry") == "Banks - Diversified", (
+        "se filtro por sector y no por industria: mezclaria aseguradoras y "
+        f"gestoras con los bancos ({pedido})")
+
+
+def test_no_se_mezcla_el_sector_con_la_industria():
+    """La diferencia con `_rs_universe`, y es deliberada. Aquel se rellena por
+    SECTOR porque FORMULAS.md le pide un "point-in-time universe" y el precio
+    se compara contra el mercado. Este pide "peer ROIC/margins": comparar el
+    margen de un banco con el de una gestora de activos es comparar dos
+    modelos de negocio."""
+    from wbj.overlay import from_packet as fp
+    import inspect
+    src = inspect.getsource(fp._companeras_de_industria)
+    assert '"industry": industria' in src
+    assert '"sector"' not in src
+
+
+def test_la_lista_de_industria_se_pide_una_vez_al_dia():
+    """Es de la INDUSTRIA, no del ticker: sin cache, cada banco la volveria a
+    pedir."""
+    from wbj.overlay import from_packet as fp
+
+    llamadas = []
+
+    class _FMP:
+        cache = _CacheMem()
+        settings = SimpleNamespace(fmp_api_key="x")
+
+        def get_json(self, url, params, clave, ticker, **k):
+            llamadas.append(clave)
+            return [{"symbol": f"B{i}", "marketCap": 1e11 - i} for i in range(30)]
+
+    fmp = _FMP()
+    fp._companeras_de_industria(fmp, _pkt_ind(["C0"], ticker="BAC"), ["C0"])
+    n = len(llamadas)
+    fp._companeras_de_industria(fmp, _pkt_ind(["C0"], ticker="WFC"), ["C0"])
+    assert len(llamadas) == n, "el segundo banco volvio a pedir la industria"
+
+
+def test_la_empresa_no_es_comparable_de_si_misma():
+    from wbj.overlay import from_packet as fp
+
+    class _FMP:
+        cache = _CacheMem()
+        settings = SimpleNamespace(fmp_api_key="x")
+
+        def get_json(self, url, params, clave, ticker, **k):
+            return [{"symbol": s, "marketCap": 1e11}
+                    for s in ("BAC", "JPM", "WFC", "C", "USB", "PNC", "TFC", "COF", "MTB")]
+
+    extra = fp._companeras_de_industria(_FMP(), _pkt_ind(["C0"], ticker="BAC"), ["C0"])
+    assert "BAC" not in extra

@@ -387,12 +387,34 @@ def test_run_judgment_requests_for_organic_growth_and_market_share():
         assert jr.question
 
 
-def test_run_gr004_gr005_rows_are_not_scorable():
+def test_run_gr004_gr005_rows_do_not_charge_a_conditional_field():
+    """Las dos leen campos que `DATASET.md` tipa **conditional**:
+    `organic_growth_bridge` ("issuer reconciliation") y `market_share_series`
+    ("industry source"). Existen cuando la fuente los PRODUCE.
+
+    Antes salian NOT_SCORABLE, que cuenta en el denominador, y eso hacia que
+    NO hacer adquisiciones costara cobertura: una empresa que crece sola no
+    tiene nada que conciliar, asi que nunca emite el puente. Medido, faltaba
+    en 5 de 6 tickers -- y el unico que puntuaba era Coca-Cola, que si publica
+    su crecimiento organico.
+
+    Tampoco se pueden deducir: `MISSING_DATA_POLICY.md` pone "organic growth"
+    y "market share" por su nombre en la lista de imputacion prohibida.
+    """
     out = fin.run(_minimal_nvda_like_packet())
     for mid in ("FIN-GR-004", "FIN-GR-005"):
         row = next(r for r in out.metrics if r.metric_id == mid)
-        assert row.score == "NOT_SCORABLE"
-        assert row.state == NullState.NOT_SCORABLE
+        assert row.state == NullState.NOT_APPLICABLE, (
+            f"{mid} sigue cobrando un campo conditional que el emisor no "
+            "publica")
+
+
+def test_gr004_gr005_are_still_offered_to_the_judge():
+    """No cobrarlas no es dejar de pedirlas. Un analista con la conciliacion
+    del emisor delante tiene que poder suministrarla y que puntue."""
+    out = fin.run(_minimal_nvda_like_packet())
+    ids = {jr.metric_id for jr in out.judgment_requests}
+    assert {"FIN-GR-004", "FIN-GR-005"} <= ids
 
 
 # ============================================================================
@@ -738,3 +760,78 @@ def test_fin_gr_003_refuses_below_the_eight_peer_minimum():
     row = next(r for r in out.metrics if r.metric_id == "FIN-GR-003")
     assert row.state == NullState.MISSING
     assert any("PEER_PANEL_BELOW_8_VALID_PEERS" in a for a in out.assumptions)
+
+# --- Override 5 nombra dos emisores, no cuatro ------------------------------
+
+def test_override_5_retira_la_familia_a_bancos_y_aseguradoras():
+    """`DECISION_RULES.md` Override 5, textual: "**Banks and insurers** must
+    use the financial-sector adapter; conventional FCF/ROIC scoring is not
+    allowed"."""
+    for adaptador in ("banks", "insurers"):
+        out = fin.run(_minimal_packet([_row(y) for y in (2025, 2024, 2023, 2022, 2021)],
+                      industry_adapter=adaptador),
+                      overlay={"wacc": 0.09})
+        por_id = {r.metric_id: r for r in out.metrics}
+        for mid in ("FIN-CF-012", "FIN-EF-024", "FIN-EF-026", "FIN-EF-027"):
+            assert por_id[mid].state == NullState.NOT_APPLICABLE, f"{adaptador}/{mid}"
+
+
+def test_un_reit_conserva_su_familia_fcf_roic():
+    """El documento NO se la quita. A los REITs les reemplaza el EPS (por
+    FFO/AFFO) y el apalancamiento (net debt/EBITDAre); no nombra ni el ROIC ni
+    el FCF.
+
+    Esto estaba puesto en `replaces_model` --los cuatro de MODEL_REPLACING--
+    con el comentario "INDUSTRY_ADAPTERS.md extends it to REITs and biotech",
+    que no lo hace. El coste era una contradiccion visible: `business.py`
+    retiraba la familia ROIC solo a bancos y aseguradoras, asi que el mismo
+    REIT salia con "ROIC no aplica" en Financial y con un ROIC puntuado en
+    Business, en el mismo reporte auditable.
+    """
+    out = fin.run(_minimal_packet([_row(y) for y in (2025, 2024, 2023, 2022, 2021)],
+                  industry_adapter="reits"),
+                  overlay={"wacc": 0.09})
+    por_id = {r.metric_id: r for r in out.metrics}
+    retiradas = [m for m in ("FIN-CF-012", "FIN-EF-024", "FIN-EF-026", "FIN-EF-027")
+                 if por_id[m].state == NullState.NOT_APPLICABLE]
+    assert not retiradas, f"se le retiraron sin autoridad: {retiradas}"
+
+
+def test_los_dos_especialistas_preguntan_lo_mismo():
+    """La contradiccion no puede volver por la puerta de atras: Business y
+    Financial tienen que usar el MISMO predicado."""
+    from wbj.core import adapters as ad
+    for adaptador in ("banks", "insurers", "reits", "biotech", "default_nonfinancial"):
+        # El predicado es uno solo; si alguien vuelve a partirlo, esto cae.
+        assert ad.replaces_return_model(adaptador) == (adaptador in ("banks", "insurers"))
+
+
+# --- una fila mal parseada no cuesta dos metricas ---------------------------
+
+def test_un_trimestre_con_pasivo_corriente_cero_no_borra_el_ratio():
+    """Lo que dejaba a Realty Income en 0,667 de `balance_and_liquidity`.
+
+    Su trimestre a 2026-06-30 llegaba con `total_current_liabilities` en 0 --y
+    un gasto financiero NEGATIVO en la misma fila, que es la firma de un filing
+    que el proveedor no leyo bien-- mientras el trimestre anterior estaba
+    completo. `_latest_balance_row` cogia el ultimo sin mirarlo, el ratio salia
+    NOT_MEANINGFUL por division por cero, y con el se iba tambien el quick
+    ratio: dos metricas por una fila rota.
+    """
+    filas = [_row(2025), _row(2024)]
+    filas[0] = {**filas[0], "total_current_liabilities": 0}
+    pk = _minimal_packet(filas)
+    out = fin.run(pk, overlay={"wacc": 0.09})
+    por_id = {r.metric_id: r for r in out.metrics}
+    assert por_id["FIN-BS-017"].value is not None, "se perdio el ratio corriente"
+    assert por_id["FIN-BS-018"].value is not None, "se perdio el quick ratio"
+
+
+def test_si_ninguna_fila_lo_trae_la_metrica_declina_igual():
+    """El retroceso busca un dato, no lo inventa. Un emisor que NUNCA clasifica
+    su balance --bancos y REITs presentan balances sin corriente/no corriente--
+    no tiene ratio corriente, y decirlo es la respuesta honesta."""
+    filas = [{**_row(y), "total_current_liabilities": 0} for y in (2025, 2024, 2023)]
+    out = fin.run(_minimal_packet(filas), overlay={"wacc": 0.09})
+    por_id = {r.metric_id: r for r in out.metrics}
+    assert por_id["FIN-BS-017"].state == NullState.NOT_MEANINGFUL

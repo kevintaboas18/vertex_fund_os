@@ -83,6 +83,10 @@ _GLOBAL_CACHE_TICKER = "_GLOBAL"
 _MAX_AGE_TICKERS = 30
 _MAX_AGE_COMPANYFACTS = 1
 _MAX_AGE_SUBMISSIONS = 1
+#: Cuántos 8-K se bajan para describir. Cada uno es una peticion a EDGAR:
+#: leerlos todos costaria 40 peticiones por ticker para valorar eventos que
+#: el decaimiento temporal ya castiga por viejos.
+_MAX_8K_DESCRITOS = 8
 # A 10-K is immutable once filed; only a new one supersedes it.
 _MAX_AGE_FILING = 90
 
@@ -469,6 +473,148 @@ class EdgarProvider(Provider):
                             "form": source.get("form") or "SC 13G",
                         }
         return sorted(by_cik.values(), key=lambda r: r["filing_date"], reverse=True)
+
+    #: Los ítems del 8-K que la SEC define como eventos materiales, mapeados a
+    #: las categorías que `DATASET.md` pide para `catalyst_registry`: "Product,
+    #: capacity, regulatory, contract, pricing, and launch events".
+    #:
+    #: Deliberadamente NO están 2.02 (resultados, que es la corrida normal del
+    #: negocio y ya la lee `latest_earnings_release`) ni 5.02 (cambios en el
+    #: consejo, que es gobernanza y no un catalizador de mercado).
+    _ITEMS_CATALIZADORES = {
+        "1.01": ("contract", "Contrato material firmado"),
+        "1.02": ("contract", "Contrato material terminado"),
+        "2.01": ("capacity", "Adquisicion o venta de activos completada"),
+        "2.03": ("capacity", "Obligacion financiera material asumida"),
+        "2.05": ("capacity", "Costes por reestructuracion o salida"),
+        "2.06": ("capacity", "Deterioro material de activos"),
+        "3.02": ("pricing", "Venta de acciones no registrada"),
+        "5.03": ("regulatory", "Cambio en estatutos o ejercicio fiscal"),
+        "7.01": ("product", "Divulgacion Reg FD"),
+        "8.01": ("product", "Otros eventos materiales"),
+    }
+
+    def catalyst_registry(self, cik: int, hoy: "date | None" = None,
+                          limit: int = 40) -> list[dict]:
+        """Los eventos materiales que el emisor declaro, desde sus 8-K.
+
+        `DATASET.md` pide `catalyst_registry` como "Product, capacity,
+        regulatory, contract, pricing, and launch events ... forward 24 months
+        ... official issuer/regulatory evidence". Nada lo poblaba: los
+        catalizadores solo entraban si un analista los escribia en
+        `Entradas/<TICKER>.json`, asi que MKT-CAT-019 y MKT-TDEC-020 quedaban
+        sin dato en casi todos los tickers.
+
+        Un 8-K es exactamente esa evidencia. La SEC obliga a presentarlo ante
+        un evento material y **numera el tipo de evento**: el item 1.01 es un
+        contrato firmado, el 2.01 una adquisicion completada, el 8.01 otros
+        eventos materiales. No hay que interpretar prosa ni buscar patrones en
+        un texto -- el tipo viene en un campo, y de ahi salieron mal dos
+        intentos anteriores de extraccion en este mismo motor.
+
+        Lo que NO sale de aqui, y sale del juez: probabilidad, impacto
+        financiero y calidad de evidencia. FORMULAS.md es explicito -- "las
+        probabilidades e impactos son asunciones; nunca disfrazarlas de hechos
+        reportados" -- asi que este metodo entrega el evento y su fecha, y
+        deja que quien lo consuma los pida.
+
+        `months_to_event` es 0 para un evento ya presentado: el anuncio esta
+        aqui y su efecto economico esta por delante, que es lo que mide el
+        decaimiento temporal. Nunca negativo, que daria un factor > 1.
+        """
+        import html as _html
+        import re as _re
+        from datetime import date as _date, datetime as _dt
+
+        hoy = hoy or _date.today()
+        payload = self.get_json(
+            SUBMISSIONS_URL.format(cik=cik), {}, "submissions",
+            _cik_cache_key(cik), max_age_days=_MAX_AGE_SUBMISSIONS,
+            headers=self._headers,
+        )
+        recent = (payload or {}).get("filings", {}).get("recent")
+        if not isinstance(recent, dict):
+            return []
+        forms = recent.get("form") or []
+        items_col = recent.get("items") or [""] * len(forms)
+        fechas = recent.get("filingDate") or [None] * len(forms)
+        accesos = recent.get("accessionNumber") or [None] * len(forms)
+
+        fuera: list[dict] = []
+        for i, form in enumerate(forms):
+            if form != "8-K" or len(fuera) >= limit:
+                continue
+            try:
+                presentado = _dt.strptime(str(fechas[i]), "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                continue
+            # `DATASET.md`: ventana de 24 meses. Un contrato de hace tres anos
+            # ya no es un catalizador, es historia.
+            antiguedad = (hoy - presentado).days
+            if antiguedad < 0 or antiguedad > 730:
+                continue
+            crudos = [x.strip() for x in str(items_col[i] or "").split(",")]
+            for item in crudos:
+                tipo = self._ITEMS_CATALIZADORES.get(item)
+                if not tipo:
+                    continue
+                fuera.append({
+                    "event": f"8-K item {item}: {tipo[1]}",
+                    "category": tipo[0],
+                    "months_to_event": 0.0,
+                    "filed": presentado.isoformat(),
+                    "months_since_filed": round(antiguedad / 30.44, 1),
+                    "source": "SEC EDGAR 8-K",
+                    "accession": accesos[i],
+                    "_doc": (accesos[i], (recent.get("primaryDocument") or [None] * len(forms))[i]),
+                    "_item": item,
+                })
+
+        # El item 8.01 es "otros eventos materiales": un cajón de sastre cuyo
+        # nombre no dice NADA. Medido sobre 7 emisores, son 16 de 17 avisos de
+        # Walmart y 31 de 40 de Realty Income, así que dejarlos etiquetados
+        # como "otros" sería entregarle al juez una fila que no puede valorar
+        # -- y un juez que no puede valorar o se abstiene o se inventa.
+        #
+        # La descripción sale del propio documento. Esto NO es la extracción
+        # por patrones que este motor ya rechazó dos veces con evidencia: no
+        # se busca ninguna cifra ni se interpreta nada, se recorta el
+        # encabezado del aviso para que el juez lea de qué trata. La cifra la
+        # sigue poniendo él, declarada como asunción.
+        for c in fuera[:_MAX_8K_DESCRITOS]:
+            accession, doc = c.pop("_doc", (None, None))
+            item = c.pop("_item", "")
+            if not accession or not doc:
+                continue
+            bare = str(accession).replace("-", "")
+            url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{bare}/{doc}"
+            crudo = self.get_text(url, {}, "8k_body",
+                                  f"{_cik_cache_key(cik)}_{bare}_8k",
+                                  max_age_days=_MAX_AGE_FILING,
+                                  headers=self._headers)
+            if not crudo:
+                continue
+            texto = _re.sub(r"<[^>]+>", " ", crudo)
+            texto = _re.sub(r"\s+", " ", _html.unescape(texto)).strip()
+            if len(texto) < 200:
+                continue
+            # Recortar desde el encabezado del propio item. Un 8-K en iXBRL
+            # empieza con la carátula etiquetada, y sus primeros 900
+            # caracteres son `ko-20260716 0000021344 False ...` -- ruido de
+            # marcado, no el aviso. La SEC exige el encabezado "Item X.XX",
+            # así que ahí empieza lo que el emisor tiene que decir.
+            marca = _re.search(rf"Item\s+{_re.escape(item)}[.\s:-]",
+                               texto, _re.I)
+            cuerpo = texto[marca.end():] if marca else texto
+            cuerpo = cuerpo.strip()
+            if len(cuerpo) < 120:
+                continue
+            c["descripcion"] = cuerpo[:900]
+            c["url"] = url
+        for c in fuera:
+            c.pop("_doc", None)
+            c.pop("_item", None)
+        return fuera
 
     def latest_earnings_release(self, cik: int, limit: int = 12) -> dict | None:
         """El comunicado de resultados más reciente, como texto plano.

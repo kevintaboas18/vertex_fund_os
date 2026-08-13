@@ -608,3 +608,54 @@ def test_justified_pe_still_refuses_when_the_stable_rate_itself_reaches_ke():
     from wbj.engines import valuation_engine as ve
 
     assert ve.justified_pe(g=0.10, roe=0.15, ke=0.09).state is NullState.NOT_MEANINGFUL
+
+
+# --- el AFFO transcrito tiene que llegar al score ---------------------------
+
+def test_dar_el_affo_mueve_la_cobertura_de_un_reit():
+    """La metrica pedia un dato, se le daba, y no pasaba nada.
+
+    `p_affo` se calculaba doscientas lineas mas arriba, se escribia en una
+    frase de `assumptions` y se tiraba: nunca tocaba un slot de dimension.
+    Medido con el AFFO de Realty Income puesto a mano, `valuation` seguia en
+    0,400 y `cash_flow_and_earnings_yield` en 0,0 -- el mismo fallo que la
+    penetracion de mercado, donde el numerador estaba calculado y validado una
+    linea antes de no publicarse.
+
+    La banda NO se inventa: `INDUSTRY_ADAPTERS.md` dice "Replace EPS with
+    FFO/AFFO", que sustituye el INSUMO y no la regla, asi que el rendimiento de
+    AFFO entra con las anclas que el Cerebro ya le dio a VAL-EY-029.
+    """
+    pk = _minimal_packet([_row(2025), _row(2024)], industry_adapter="reits")
+    sin = val.run(pk)
+    con = val.run(pk, {"affo_reported": 3_770_000_000,
+                       "ffo_source": "10-K 2025, supplemental"})
+
+    def _cf(out):
+        d = [x for x in out.dimensions if x.name == "cash_flow_and_earnings_yield"][0]
+        return d.valid_weight() / d.applicable_weight() if d.applicable_weight() else None
+
+    assert _cf(sin) == 0.0, "el punto de partida cambio"
+    assert _cf(con) == 1.0, "dar el AFFO no llego al slot"
+    assert con.coverage > sin.coverage
+
+
+def test_el_slot_dice_que_lleva_rendimiento_de_affo():
+    """Un mismo slot con dos significados segun el emisor tiene que declararlo
+    en el VALOR, no solo en la prosa: quien lea el track record dentro de dos
+    años no reconstruye el contexto."""
+    out = val.run(_minimal_packet([_row(2025), _row(2024)], industry_adapter="reits"),
+                  {"affo_reported": 3_770_000_000, "ffo_source": "10-K 2025"})
+    d = [x for x in out.dimensions if x.name == "cash_flow_and_earnings_yield"][0]
+    sellos = [w for _, v in d.metric_scores for w in (v.warnings or [])]
+    assert any("AFFO_YIELD" in w for w in sellos), sellos
+
+
+def test_sin_fuente_el_affo_se_ignora_igual():
+    """`DATA_POLICY.md` exige un localizador estable. Un no-GAAP sin definicion
+    declarada no es evidencia -- el propio FFO abarca ~14% entre lecturas
+    defendibles del mismo filing."""
+    out = val.run(_minimal_packet([_row(2025), _row(2024)], industry_adapter="reits"),
+                  {"affo_reported": 3_770_000_000})
+    d = [x for x in out.dimensions if x.name == "cash_flow_and_earnings_yield"][0]
+    assert (d.valid_weight() / d.applicable_weight()) == 0.0

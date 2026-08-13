@@ -1138,14 +1138,36 @@ def _num(row: dict, key: str) -> float | None:
 
 
 def _latest_balance_row(packet: Packet) -> dict | None:
-    """Most recent balance-sheet snapshot: latest quarterly row if present
-    (FORMULAS.md marks current/quick ratio "quarterly" frequency), else
-    the latest annual row."""
+    """Most recent balance-sheet snapshot USABLE para el ratio corriente.
+
+    `FORMULAS.md` marca current/quick ratio como "quarterly", asi que se
+    prefiere el ultimo trimestre; si no hay trimestres, el ultimo anual.
+
+    Lo nuevo es "usable". Se cogia el ultimo sin mirarlo, y una sola fila mal
+    parseada costaba dos metricas: Realty Income traia el trimestre a
+    2026-06-30 con `total_current_liabilities` en 0 --y un gasto financiero
+    NEGATIVO en la misma fila, que es la firma de un filing que el proveedor
+    no leyo bien-- mientras el trimestre anterior estaba completo. El ratio
+    salia NOT_MEANINGFUL por division por cero y `balance_and_liquidity` caia
+    a 0,667 con todo lo demas calculado.
+
+    Un pasivo corriente de CERO no es un dato: o el emisor no clasifica su
+    balance --bancos y REITs presentan balances sin corriente/no corriente-- o
+    el proveedor fallo. En los dos casos, retroceder a la ultima fila que si
+    trae el dato dice mas que declinar. Si NINGUNA lo trae, se devuelve la
+    ultima igual y la metrica declina como antes: eso si es "este emisor no
+    tiene ratio corriente", y es la respuesta honesta.
+    """
+    def _sirve(row: dict) -> bool:
+        return bool(row.get("total_current_liabilities"))
+
     q = _quarterly_rows(packet)
     if q:
-        return q[-1]
+        return next((r for r in reversed(q) if _sirve(r)), q[-1])
     a = _annual_rows(packet)
-    return a[-1] if a else None
+    if a:
+        return next((r for r in reversed(a) if _sirve(r)), a[-1])
+    return None
 
 
 def _compute_all(
@@ -1264,8 +1286,29 @@ def _compute_all(
         v_organic = organic_growth_quality(float(organic["organic_growth"]),
                                            float(organic["total_growth"]))
     else:
-        v_organic = _null(NullState.NOT_SCORABLE, "ratio",
-                          "ORGANIC_GROWTH_BRIDGE_UNAVAILABLE_JUDGMENT_REQUIRED")
+        # `DATASET.md` tipa `organic_growth_bridge` como **conditional**, con
+        # fuente "issuer reconciliation": existe cuando el emisor PUBLICA esa
+        # conciliacion, y la mayoria no la publica. Coca-Cola si -- y por eso
+        # esta metrica puntua para KO y no para NVDA.
+        #
+        # Cobrarlo a los demas hacia que no hacer adquisiciones costara
+        # cobertura: una empresa que crece sola no tiene nada que conciliar,
+        # asi que nunca emite el puente. Medido: faltaba en 5 de 6 tickers.
+        #
+        # Y NO se puede deducir. `MISSING_DATA_POLICY.md` pone "organic
+        # growth" por su nombre en la lista de imputacion prohibida, asi que
+        # ni siquiera con el efectivo pagado por adquisiciones -- que esta en
+        # el packet y sale por debajo del 1% de ingresos en NVDA, KO, XOM y
+        # WMT -- se puede inferir cuanto del crecimiento fue organico.
+        #
+        # El aviso sigue nombrando la clave, asi que un analista que tenga la
+        # conciliacion la puede suministrar. Lo que cambia es que su ausencia
+        # deja de restar.
+        v_organic = _null(NullState.NOT_APPLICABLE, "ratio",
+                          "ORGANIC_GROWTH_BRIDGE_NOT_PUBLISHED_BY_ISSUER: "
+                          "DATASET.md lo tipa conditional (issuer "
+                          "reconciliation). Suministra `organic_growth_bridge` "
+                          "en Entradas/<TICKER>.json si el emisor lo publica")
     # Value but no band: FORMULAS.md gives FIN-GR-004 no numeric cutoff, only
     # "If total growth <=0, classify from bridge rather than ratio". Inventing
     # one would be calibration Victor never wrote, so the figure is reported
@@ -1287,8 +1330,19 @@ def _compute_all(
     if len(shares_series) >= 3:
         v_share = market_share_trend(shares_series)
     else:
-        v_share = _null(NullState.NOT_SCORABLE, "pct_per_period",
-                        "MARKET_SHARE_SERIES_UNAVAILABLE_JUDGMENT_REQUIRED")
+        # `market_share_series` tambien es **conditional** en DATASET.md, y su
+        # fuente es "industry source" -- la misma que da el TAM. De 137
+        # industrias del censo mundial, una tiene denominador verificable, asi
+        # que exigir tres anos de participacion consistente a los demas cobra
+        # un dato que no existe para nadie.
+        #
+        # `market_share` esta ademas en la lista de imputacion prohibida, asi
+        # que tampoco se puede derivar.
+        v_share = _null(NullState.NOT_APPLICABLE, "pct_per_period",
+                        "MARKET_SHARE_SERIES_NOT_AVAILABLE: DATASET.md lo tipa "
+                        "conditional (industry source). Necesita 3 anos de "
+                        "participacion bajo una definicion de mercado "
+                        "consistente")
     add("FIN-GR-005", v_share, _band_or_none(v_share, band_market_share_trend),
         (DIM_REVENUE,))
     judgment_requests.append(
@@ -1729,10 +1783,27 @@ def run(packet: Packet, overlay: dict[str, Any] | None = None) -> FinancialOutpu
     by_id = {r.metric_id: r for r in results}
 
     _adapter = packet.analysis.industry_adapter
-    if _adapters.replaces_model(_adapter):
-        # DECISION_RULES.md Override 5: "conventional FCF/ROIC scoring is not
-        # allowed" for a bank/insurer (INDUSTRY_ADAPTERS.md extends it to
-        # REITs and biotech). Mark that family NOT_APPLICABLE so the scoring
+    if _adapters.replaces_return_model(_adapter):
+        # DECISION_RULES.md Override 5, textual: "**Banks and insurers** must
+        # use the financial-sector adapter; conventional FCF/ROIC scoring is
+        # not allowed." Dos emisores, nombrados. No cuatro.
+        #
+        # Esto decia `replaces_model` --los cuatro de MODEL_REPLACING-- con el
+        # comentario "INDUSTRY_ADAPTERS.md extends it to REITs and biotech".
+        # No lo extiende. Leido entero: a los REITs les reemplaza el EPS (por
+        # FFO/AFFO) y el apalancamiento (net debt/EBITDAre), y no nombra ni el
+        # ROIC ni el FCF; a biotech le dice "Do not score P/E, FCF yield, or
+        # margin quality WHEN NOT MEANINGFUL", que es condicional y aqui se
+        # aplicaba en bloque.
+        #
+        # El coste de pasarse no era teorico: `business.py` retiraba la familia
+        # ROIC solo a bancos y aseguradoras --lo que el documento dice-- y este
+        # modulo se la retiraba tambien a un REIT. El mismo emisor salia con
+        # "ROIC no aplica" en Financial y con un ROIC puntuado en Business, en
+        # el mismo reporte auditable. Ahora los dos preguntan lo mismo, con el
+        # mismo predicado.
+        #
+        # Mark that family NOT_APPLICABLE so the scoring
         # engine excludes it from coverage and rescales it out of the
         # weighted score, rather than scoring a prohibited number with only a
         # warning. ROE (FIN-EF-023) and ROA (FIN-EF-025) stay -- the adapters

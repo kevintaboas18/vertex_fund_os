@@ -288,15 +288,74 @@ _POR_ID = {p["id"]: p for p in PREGUNTAS}
 MODOS = ("default", "personalizado")
 
 
+def _campos_de_kevin_md() -> dict:
+    """Lo que `Perfil Inversionista/Kevin.md` DECLARA, en el vocabulario del
+    cuestionario.
+
+    El default no puede ser una segunda copia del archivo. CLAUDE.md promete
+    que editar `Kevin.md` cambia el perfil «en todo el sistema», y esa promesa
+    se rompía justo para quien está en modo `default`: sus valores salían de
+    los `defecto` de `PREGUNTAS`, que coinciden con el archivo **por
+    casualidad** y se habrían separado en silencio en cuanto uno de los dos
+    cambiara. Nadie se habría enterado: los dos números se ven igual de
+    plausibles en pantalla.
+
+    Sólo se traen los campos que el archivo declara de verdad — `fields_parsed`
+    lo dice literalmente, y `risk.py` ya distingue lo leído de lo heredado.
+    Lo que el `.md` no diga se queda con el default de la pregunta, que es
+    donde esa respuesta sí vive (la tolerancia, por ejemplo, no se parsea del
+    archivo).
+
+    Nunca lanza: sin engine importable o sin archivo se devuelve `{}` y el
+    cuestionario se queda con los suyos. Un perfil no puede tumbar la app.
+    """
+    try:
+        from wbj.specialists.risk import PROFILE
+    except Exception:                            # noqa: BLE001
+        return {}
+    leidos = set(PROFILE.get("fields_parsed") or ())
+    fuera: dict = {}
+    try:
+        if "capital_usd" in leidos:
+            fuera["capital"] = float(PROFILE["capital_usd"])
+        if "max_position_pct" in leidos:
+            lo, hi = PROFILE["max_position_pct"]
+            fuera["max_posicion_pct"] = [round(lo * 100), round(hi * 100)]
+        if "horizon_years" in leidos:
+            anios = [int(x) for x in PROFILE["horizon_years"]]
+            # La opción cuyo rango explícito coincide. Si el archivo dice un
+            # horizonte que el cuestionario no ofrece, NO se inventa una
+            # opción: se deja la de siempre y el desajuste queda visible.
+            opciones = next((p["opciones"] for p in PREGUNTAS
+                             if p["campo"] == "horizonte"), [])
+            for o in opciones:
+                if [int(x) for x in (o.get("anios") or ())] == anios:
+                    fuera["horizonte"] = o["valor"]
+                    break
+    except (KeyError, TypeError, ValueError):    # el `.md` trajo algo raro
+        return {}
+    return fuera
+
+
+def _defectos_del_cuestionario() -> dict:
+    """Los campos del cuestionario con su valor por defecto: los de `PREGUNTAS`,
+    con lo que `Kevin.md` declare puesto encima."""
+    d = {p["campo"]: (list(p["defecto"]) if isinstance(p["defecto"], list) else p["defecto"])
+         for p in PREGUNTAS}
+    d.update(_campos_de_kevin_md())
+    return d
+
+
 def perfil_por_defecto() -> dict:
     """El perfil de Kevin, que es el que hereda quien no conteste.
 
     Se construye DESDE `PREGUNTAS`, no como una copia aparte. Una segunda copia
     se desincronizaría con el primer cambio de pregunta, y entonces el default
-    que se enseña en pantalla y el que se guarda serían distintos.
+    que se enseña en pantalla y el que se guarda serían distintos. Por la misma
+    razón, los campos que `Kevin.md` declara se leen de ahí — ver
+    `_campos_de_kevin_md`.
     """
-    d = {p["campo"]: (list(p["defecto"]) if isinstance(p["defecto"], list) else p["defecto"])
-         for p in PREGUNTAS}
+    d = _defectos_del_cuestionario()
     d.update({"nombre": "", "email": "", "respondidas": [], "actualizado": None,
               "modo": "default"})
     return d
@@ -313,9 +372,7 @@ def perfil_efectivo(perfil: dict) -> dict:
     if (perfil or {}).get("modo") != "default":
         return dict(perfil or {})
     fuera = dict(perfil or {})
-    base = {p["campo"]: (list(p["defecto"]) if isinstance(p["defecto"], list)
-                         else p["defecto"]) for p in PREGUNTAS}
-    fuera.update(base)
+    fuera.update(_defectos_del_cuestionario())
     return fuera
 
 
@@ -869,7 +926,11 @@ def guardar_perfil(conn, dir_perfiles: str, usuario: dict, perfil: dict) -> dict
     # Solo los campos que son del perfil: lo derivado (`riesgo_pct`,
     # `sin_contestar`, `respuestas`) se recalcula al leer y guardarlo dejaría
     # copias que envejecen y contradicen al original.
-    perfil = {k: v for k, v in dict(perfil).items() if k in perfil_por_defecto()}
+    # `perfil_por_defecto()` FUERA de la comprension: dentro se evaluaba una
+    # vez por cada clave --unas trece por guardado-- y desde que lee `Kevin.md`
+    # cada evaluacion importa el engine, construye un set y recorre PREGUNTAS.
+    _campos = perfil_por_defecto()
+    perfil = {k: v for k, v in dict(perfil).items() if k in _campos}
     perfil["actualizado"] = datetime.now(timezone.utc).isoformat()
     perfil.setdefault("nombre", usuario.get("nombre", ""))
     perfil.setdefault("email", usuario.get("email", ""))

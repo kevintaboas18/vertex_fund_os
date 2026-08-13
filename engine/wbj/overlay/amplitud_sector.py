@@ -49,6 +49,11 @@ BOLSAS = "NASDAQ,NYSE"
 #: y por día — el resultado lo comparte todo ticker de ese sector.
 HILOS = 4
 
+#: Cotizaciones seguidas sin respuesta antes de abandonar el sector. Existe
+#: porque esto corre por red durante el analisis: si el proveedor limita, cada
+#: peticion perdida se resta de la cuota del ticker que se esta analizando.
+FALLOS_SEGUIDOS_MAXIMOS = 3
+
 #: Qué fracción del universo tiene que contestar para que el número valga.
 #: Medido el 2026-08-06: corriendo cuatro sectores seguidos, Financial Services
 #: devolvió 85 cotizaciones utiles de 458 miembros -- el resto se perdio contra
@@ -143,13 +148,33 @@ def amplitud_de_sector(fmp: Any, sector: str | None, hoy: date | None = None,
                    f"quote_{s}", s, 1)
         return r[0] if isinstance(r, list) and r and isinstance(r[0], dict) else None
 
+    # Cortacircuitos. Ahora que esto corre por red DURANTE el analisis, un
+    # proveedor que empieza a limitar no puede seguir recibiendo 120
+    # peticiones: las que fallan aqui gastan la cuota con la que se pagan las
+    # del propio ticker, y ese fue exactamente el fallo que obligo a apagar la
+    # red en su dia -- los 429 de la amplitud caian sobre NVDA.
+    #
+    # Tres fallos seguidos y se abandona. La amplitud queda NOT_SCORABLE, que
+    # cuesta 3 puntos; seguir insistiendo costaba el analisis entero.
+    _fallos = {"seguidos": 0}
+
     def _quote_con_reintento(s: str) -> dict | None:
+        if _fallos["seguidos"] >= FALLOS_SEGUIDOS_MAXIMOS:
+            return None
         # Un reintento, y espaciado: el limite de FMP es por minuto, asi que
         # insistir en el acto solo gasta la siguiente ranura.
         q = _quote(s)
         if q is None:
             time.sleep(0.4)
             q = _quote(s)
+        if q is None:
+            _fallos["seguidos"] += 1
+            if _fallos["seguidos"] == FALLOS_SEGUIDOS_MAXIMOS:
+                logger.warning("amplitud abandonada: %d cotizaciones seguidas "
+                               "sin respuesta; no se gasta mas cuota",
+                               FALLOS_SEGUIDOS_MAXIMOS)
+        else:
+            _fallos["seguidos"] = 0
         return q
 
     with ThreadPoolExecutor(max_workers=HILOS) as pool:
