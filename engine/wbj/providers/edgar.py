@@ -784,6 +784,197 @@ class EdgarProvider(Provider):
                 fallback = fallback or hit
         return fallback
 
+    #: Miembros del `ConcentrationRiskByBenchmarkAxis` que significan INGRESOS.
+    #:
+    #: FORMULAS.md define BUS-CONC-003 como "Revenue from largest customer /
+    #: Total revenue", asi que la base importa tanto como la cifra. El mismo
+    #: emisor publica ambas: Palantir declara 25% sobre CUENTAS POR COBRAR y
+    #: nada sobre ingresos, y confundirlas pondria un 25% de concentracion de
+    #: clientes donde la empresa no declaro ninguna.
+    _BENCHMARK_INGRESOS: frozenset[str] = frozenset({
+        "SalesRevenueNetMember",
+        "SalesRevenueGoodsNetMember",
+        "SalesRevenueServicesNetMember",
+        "RevenueFromContractWithCustomerMember",
+        "RevenueFromContractWithCustomerExcludingAssessedTaxMember",
+        "RevenueFromContractWithCustomerIncludingAssessedTaxMember",
+        "RevenuesMember",
+    })
+
+    #: Un miembro que NO nombra a un cliente solo.
+    #:
+    #: BUS-CONC-003 mide dependencia de UN cliente, y el mismo eje
+    #: `MajorCustomersAxis` lleva agregados. Sin este filtro, NVDA devolvia
+    #: 0,76 --que es `UnitedStatesAndEuropeBasedEndCustomers`, un grupo
+    #: geografico, no un cliente; el suyo mayor es 22%-- y LLY 0,24, que son
+    #: `ThreeLargestWholesalers` juntos. Poner eso en la metrica dispararia
+    #: el CONCENTRATION_RED_FLAG de >30% sobre una concentracion que no
+    #: existe.
+    #:
+    #: La regla no se invento sobre los primeros ejemplos: se saco del
+    #: vocabulario real de las 260 mayores del mercado --82 nombres distintos
+    #: en 66 emisores-- y el discriminante que aparecio ahi es el PLURAL.
+    #: "Customer" es uno, "Customers" son varios; "Wholesaler" uno,
+    #: "Wholesalers" varios.
+    #:
+    #: `Total...` se descarta aparte porque es un subtotal (el 100% de la
+    #: base), y `Other...` porque es el residuo, no un cliente.
+    #:
+    #: Limite conocido y no resuelto: un miembro puede unir dos empresas
+    #: ("NRGEnergyAndVistraCorp") y otro llevar un "And" que es solo el
+    #: ampersand del nombre ("ATAndTMobility" = AT&T Mobility, una sola).
+    #: No hay forma de distinguirlos por el nombre, asi que ambos pasan; el
+    #: primero sobreestima la concentracion de UN cliente, y se acepta porque
+    #: rechazar el "And" tiraria clientes unicos legitimos.
+    _GRUPO_EN_MIEMBRO = re.compile(
+        r"(Customers|Wholesalers|Distributors|Resellers|Agencies|Companies"
+        r"|Clients|Accounts|Partners|Retailers|Chains|Operators|Organizations"
+        r"|Subsidiaries|Entities|Affiliates|Groups)"
+        r"|^Total|^Other(?!Customer$)",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _miembro_es_un_cliente(cls, miembro: str) -> bool:
+        """True si el miembro nombra a UN cliente y no a un agregado."""
+        base = miembro[:-6] if miembro.endswith("Member") else miembro
+        if not base:
+            return False
+        if base.lower().startswith(("total", "other")):
+            return False
+        return cls._GRUPO_EN_MIEMBRO.search(base) is None
+
+    def customer_concentration(self, cik: int) -> dict | None:
+        """La concentracion de clientes que el emisor ETIQUETO en su 10-K.
+
+        `FORMULAS.md` cierra BUS-CONC-003 con "do not infer undisclosed
+        concentration", y `MISSING_DATA_POLICY.md` la pone entre las
+        prohibidas de imputar. Esto no infiere ni imputa: transcribe el hecho
+        que la empresa publico con su propia etiqueta, que es evidencia
+        reportada (clase R).
+
+        Por que hay que bajar la instancia y no basta un endpoint:
+
+        - `companyfacts` de la SEC NO devuelve hechos dimensionales, y este lo
+          es por construccion -- vive bajo `MajorCustomersAxis`.
+        - El "as reported" de FMP SI trae la etiqueta, pero APLANADA a una
+          instancia arbitraria. Medido: para PLTR devuelve `1`, que no es
+          ningun cliente sino el total geografico (US 74% + GB 10% + resto
+          16%); para AAPL devuelve 0,23, que es su concentracion en cuentas
+          por cobrar, no en ingresos. Puntuar con eso seria poner un numero
+          equivocado detras de un score, que es peor que no tenerlo.
+
+        Los tres ejes que hacen falta estan en la instancia y se leen limpios:
+        `ConcentrationRiskByTypeAxis` (cliente vs geografia vs proveedor),
+        `ConcentrationRiskByBenchmarkAxis` (ingresos vs cuentas por cobrar) y
+        `MajorCustomersAxis` (cual cliente).
+
+        Devuelve `{"largest", "shares", "customers", "period", "url",
+        "accession"}` o None. `shares` puede quedar corta -- solo estan los
+        clientes que superan el umbral de divulgacion-- y por eso FORMULAS.md
+        manda etiquetar el HHI resultante como cota inferior; quien lo consume
+        se encarga.
+        """
+        import xml.etree.ElementTree as ET
+
+        payload = self.get_json(
+            SUBMISSIONS_URL.format(cik=cik), {}, "submissions",
+            _cik_cache_key(cik), max_age_days=_MAX_AGE_SUBMISSIONS,
+            headers=self._headers,
+        )
+        recent = (payload or {}).get("filings", {}).get("recent")
+        if not isinstance(recent, dict):
+            return None
+        formas = recent.get("form") or []
+        i = next((i for i, f in enumerate(formas) if f == "10-K"), None)
+        if i is None:
+            return None
+        accession = (recent.get("accessionNumber") or [None] * len(formas))[i]
+        if not accession:
+            return None
+        bare = accession.replace("-", "")
+
+        index = self.get_json(
+            f"https://www.sec.gov/Archives/edgar/data/{cik}/{bare}/index.json",
+            {}, "filing_index", f"{_cik_cache_key(cik)}_{bare}",
+            max_age_days=_MAX_AGE_FILING, headers=self._headers,
+        )
+        items = ((index or {}).get("directory") or {}).get("item") or []
+        # `<algo>_htm.xml` es la instancia inline-XBRL. Los otros .xml del
+        # filing son los linkbases (cal/def/lab/pre), que no llevan hechos.
+        nombre = next((str(it.get("name", "")) for it in items
+                       if str(it.get("name", "")).endswith("_htm.xml")), None)
+        if not nombre:
+            return None
+        url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{bare}/{nombre}"
+        # La instancia pesa ~1,5 MB. Se cachea con la vida del filing, no de
+        # `submissions`: un 10-K no cambia.
+        texto = self.get_text(url, {}, "xbrl_instance",
+                              f"{_cik_cache_key(cik)}_{bare}",
+                              max_age_days=_MAX_AGE_FILING, headers=self._headers)
+        if not texto:
+            return None
+        try:
+            root = ET.fromstring(texto)
+        except ET.ParseError:
+            return None
+
+        def local(tag: str) -> str:
+            return tag.rsplit("}", 1)[-1]
+
+        contextos: dict[str, tuple[dict[str, str], str | None]] = {}
+        for c in root.iter():
+            if local(c.tag) != "context":
+                continue
+            ejes = {}
+            for m in c.iter():
+                if local(m.tag) == "explicitMember":
+                    ejes[m.get("dimension", "").rsplit(":", 1)[-1]] = \
+                        (m.text or "").rsplit(":", 1)[-1]
+            fin = next((e.text for e in c.iter()
+                        if local(e.tag) in ("endDate", "instant")), None)
+            contextos[c.get("id") or ""] = (ejes, fin)
+
+        porperiodo: dict[str, dict[str, float]] = {}
+        for f in root.iter():
+            if local(f.tag) != "ConcentrationRiskPercentage1":
+                continue
+            ejes, fin = contextos.get(f.get("contextRef") or "", ({}, None))
+            if ejes.get("ConcentrationRiskByTypeAxis") != "CustomerConcentrationRiskMember":
+                continue
+            if ejes.get("ConcentrationRiskByBenchmarkAxis") not in self._BENCHMARK_INGRESOS:
+                continue
+            cliente = ejes.get("MajorCustomersAxis")
+            if not cliente or not fin:
+                continue
+            # El eje lleva agregados junto a los clientes sueltos, y
+            # BUS-CONC-003 mide dependencia de UNO. Ver
+            # `_miembro_es_un_cliente`.
+            if not self._miembro_es_un_cliente(cliente):
+                continue
+            try:
+                valor = float(f.text)
+            except (TypeError, ValueError):
+                continue
+            # Un porcentaje de concentracion fuera de 0-1 no es un decimal:
+            # o esta en escala 0-100 o es otra cosa. No se reescala a ciegas.
+            if not 0.0 < valor <= 1.0:
+                continue
+            porperiodo.setdefault(fin, {})[cliente] = valor
+
+        if not porperiodo:
+            return None
+        periodo = max(porperiodo)
+        shares = porperiodo[periodo]
+        return {
+            "largest": max(shares.values()),
+            "shares": sorted(shares.values(), reverse=True),
+            "customers": sorted(shares, key=lambda c: -shares[c]),
+            "period": periodo,
+            "url": url,
+            "accession": accession,
+        }
+
     def sic_for(self, cik: int) -> tuple[str, str] | None:
         """El código SIC que el emisor declara ante la SEC, y su descripción.
 

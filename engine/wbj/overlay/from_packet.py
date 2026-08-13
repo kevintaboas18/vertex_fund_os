@@ -2020,6 +2020,27 @@ def build_overlay(packet: Any, settings: Any) -> dict[str, Any]:
                 sup = edgar.latest_reit_supplement(cik)
                 if sup:
                     overlay["reit_supplement"] = sup
+
+            # La concentracion de clientes que el emisor ETIQUETO en su 10-K.
+            #
+            # BUS-CONC-003 y BUS-HHI-004 fallaban en 10 de 12 tickers, y NVDA
+            # daba 100% de cobertura en business SOLO porque alguien capturo
+            # su archivo de Entradas a mano. El resto del mercado no lo tiene.
+            #
+            # No es imputar --lo prohibe MISSING_DATA_POLICY.md-- ni inferir
+            # --lo prohibe FORMULAS.md, "do not infer undisclosed
+            # concentration"--: es transcribir el hecho que la empresa publico
+            # con su etiqueta, que es evidencia reportada. Solo se pisa el
+            # overlay manual si no hay: el analista siempre gana.
+            if "largest_customer_share" not in overlay:
+                conc = edgar.customer_concentration(cik)
+                if conc:
+                    overlay["largest_customer_share"] = conc["largest"]
+                    overlay.setdefault("customer_shares", conc["shares"])
+                    overlay["customer_concentration_source"] = {
+                        "url": conc["url"], "accession": conc["accession"],
+                        "period": conc["period"], "customers": conc["customers"],
+                    }
     except Exception:
         logger.warning("filing disclosures unavailable", exc_info=True)
 
