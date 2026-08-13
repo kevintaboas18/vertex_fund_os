@@ -3660,7 +3660,13 @@ function renderProjTape(d) {
             : `<span class="vc-pill vc-pill-mid">${_vcEsc(t.side || '—')}</span>`;
         // Su `desglose`: de dónde salen los puntos de inusualidad.
         const up = t.unusual_parts || {};
-        const desglose = `Volumen ${up.volume || 0}/10 · Horario ${up.timing || 0}/10 · Repetición ${up.repetition || 0}/10`;
+        // Los DOS desgloses, y dichos como dos. El de la columna (0-30) es el
+        // que tiñe la fila; el de los seis parámetros (0-10) es el que puntúa
+        // al sub-agente 3 y el que se compara con el umbral institucional de 7.
+        // Confundirlos es lo que hacía que la leyenda dijera «≥7/30».
+        const us = t.unusual_scores || null;
+        const desglose = `Volumen ${up.volume || 0}/10 · Horario ${up.timing || 0}/10 · Repetición ${up.repetition || 0}/10`
+            + (us ? `\nSub-agente 3 — ${Number(us.total).toFixed(1)}/10: Tam ${us.size} · Δ ${us.delta} · Θ ${us.theta} · Γ ${us.gamma} · Leg ${us.leg} · Venc ${us.expiry}` : '');
         // Sus siete señales con su texto, más el ×N del contrato repetido y las
         // dos de ejecución fuera de horquilla, que son suyas de `flow.ts`.
         const marcas = [vcSenalesHTML(t),
@@ -6147,6 +6153,35 @@ function vcTopFlowsHTML(d) {
       ${filas}</div>`;
 }
 
+//: Días de flujo por marco temporal — su `DAYS_BY_TF`. El piso de premium de
+//: cada ventana lo pone el servidor con sus `CHART_PRESETS`.
+const VC_FLOW_DIAS = { '5m5d': 5, '15m10d': 10, '1y': 30 };
+
+/** Baja el flujo de la ventana elegida y repinta. Su segundo `useEffect` de
+ *  `FlowPriceChart`, el que vuelve a pedir `/api/flow?days=N` al cambiar de
+ *  marco. Si la petición falla se repinta con lo que ya había —su mismo
+ *  «fallback: se queda el flujo del dashboard»—, que es mejor que un hueco. */
+async function _projFlowVentana(d, tf) {
+    const dias = VC_FLOW_DIAS[tf] || 5;
+    // Cacheado por ventana: volver a una pestaña ya vista no vuelve a pagar la
+    // bajada, y cambiar de marco tres veces seguidas no dispara tres escaneos.
+    window._projFlowCache = window._projFlowCache || {};
+    const clave = `${d.ticker}|${dias}`;
+    if (window._projFlowCache[clave]) {
+        d.conviction_rows = window._projFlowCache[clave];
+        renderProjFlowMoney(d); return;
+    }
+    try {
+        const r = await fetch(`${API_BASE}/api/tito-tape?ticker=${encodeURIComponent(d.ticker)}&days=${dias}`);
+        const j = await r.json();
+        if (j && j.ok && Array.isArray(j.rows) && j.rows.length) {
+            window._projFlowCache[clave] = j.rows;
+            d.conviction_rows = j.rows;
+        }
+    } catch (e) { /* se queda el flujo que ya estaba */ }
+    renderProjFlowMoney(d);
+}
+
 function renderProjFlowMoney(d) {
     const caja = document.getElementById('projFlowMoney');
     if (!caja) return;
@@ -6206,13 +6241,19 @@ function renderProjFlowMoney(d) {
             >${k === '1y' ? 'Diario' : TF[k] + 'm'}</button>`).join('')}</div>
       <div class="h-[170px] sm:h-[200px]"><canvas id="projFlowMoneyCanvas"></canvas></div>
       <p id="projFlowMoneyAviso" class="text-[9px] mt-1"></p></section>`;
-    // El selector cambia cómo se AGRUPA el flujo (que ya está en memoria) y, en
-    // intradía, además baja las velas de precio de `/api/tito-bars` para
-    // superponer la línea: es lo que hace su `FlowPriceChart`, y sin el precio
-    // encima el dinero por vela no dice si el movimiento vino antes o después.
+    // El selector cambia el marco, y con él TRES cosas: cómo se agrupa el
+    // flujo, las velas de precio que se superponen, y —esto faltaba— QUÉ FLUJO
+    // se mira.
+    //
+    // Su `FlowPriceChart` vuelve a pedir `/api/flow?days=N` en cada cambio,
+    // porque el piso de premium depende de la ventana: 5 días con el piso de
+    // $1M sale casi vacío, y por eso su preset lo baja a $250K. Aquí se
+    // reagrupaban siempre las MISMAS filas de convicción ($1M, 30 días), así
+    // que en las vistas cortas se veían menos barras que en su app — y los
+    // racimos, que salen de esas filas, también eran otros.
     caja.querySelectorAll('button[data-tf]').forEach(b => b.addEventListener('click', () => {
         window._projFlowTf = b.getAttribute('data-tf');
-        renderProjFlowMoney(d);
+        _projFlowVentana(d, window._projFlowTf);
     }));
     if (minutos) _projFlowPrecio(d.ticker, tf, dias);
     const cv = document.getElementById('projFlowMoneyCanvas');

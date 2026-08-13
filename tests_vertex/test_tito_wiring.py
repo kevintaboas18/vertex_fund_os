@@ -1641,6 +1641,80 @@ class TestTimeAndSales:
         assert p["volume"] + p["timing"] + p["repetition"] == d["trades"][0]["unusual_score"], \
             "el desglose tiene que sumar el total, o uno de los dos miente"
 
+    def test_cada_trade_lleva_los_SEIS_parametros_del_sub_agente_3(self, client):
+        """Las dos escalas de inusualidad, y por qué hacen falta las dos.
+
+        La de la columna (0-30) decide qué fila se tiñe. Ésta (0-10, seis
+        parámetros) es la que puntúa al sub-agente 3 y la que se compara con el
+        umbral institucional de 7 — confundirlas es lo que hacía que la leyenda
+        dijera «≥7/30». El panel enseñaba el PROMEDIO de los seis y ninguno por
+        trade, así que no había forma de ver por qué UN contrato puntúa alto.
+        """
+        d = client.get("/api/tito-tape?ticker=DEMO").json()
+        s = d["trades"][0]["unusual_scores"]
+        assert set(s) == {"size", "delta", "theta", "gamma", "leg", "expiry",
+                          "total"}, s
+        seis = [s[k] for k in ("size", "delta", "theta", "gamma", "leg", "expiry")]
+        assert all(0 <= v <= 10 for v in seis), s
+        assert abs(s["total"] - sum(seis) / 6) < 0.06, (
+            f"el total no es el promedio de los seis: {s}")
+        assert s["total"] != d["trades"][0]["unusual_score"] or s["total"] == 0, (
+            "las dos escalas no son la misma; si coinciden siempre, una está mal")
+
+    def test_el_modo_grafica_usa_SUS_presets_por_ventana(self, client, monkeypatch):
+        """`?days=N` — su segundo modo, el que alimenta la gráfica del dinero.
+
+        El piso de premium depende de la VENTANA y no al revés: cinco días con
+        el piso de $1M salen casi vacíos, y por eso su preset lo baja a $250K.
+        El panel reagrupaba siempre las mismas filas de convicción ($1M, 30
+        días) al cambiar de marco, así que en las vistas cortas enseñaba menos
+        barras que su app — y los racimos, que salen de esas filas, eran otros.
+        """
+        import wbj.tito.marketsnack as MS
+
+        vistos = []
+        original = MS.fetch_flow
+
+        def espia(ticker, **opts):
+            vistos.append(opts)
+            return original(ticker, **opts)
+
+        monkeypatch.setattr(MS, "fetch_flow", espia)
+        for dias, piso, paginas in ((5, 250_000, 30), (10, 500_000, 20),
+                                    (30, 1_000_000, 15)):
+            vistos.clear()
+            d = client.get(f"/api/tito-tape?ticker=DEMO&days={dias}").json()
+            assert d["ok"] is True and d["days"] == dias, d
+            assert d["min_premium"] == piso, (
+                f"con {dias} días el piso debe ser {piso}, no {d['min_premium']}")
+            assert "rows" in d and "trades" not in d, (
+                "el modo gráfica devuelve `rows`, como el suyo")
+            assert vistos and vistos[-1]["min_premium"] == piso, vistos
+            assert vistos[-1]["max_pages"] == paginas, vistos
+            assert vistos[-1]["target_days"] == dias, (
+                "sin `target_days` se baja el mes entero en vez de la ventana")
+            assert vistos[-1]["period"] == "1m", vistos
+
+    def test_una_ventana_rara_cae_a_su_preset_por_defecto(self, client):
+        """`CHART_PRESETS[days] ?? { minPremium: 500_000, maxPages: 20 }`."""
+        d = client.get("/api/tito-tape?ticker=DEMO&days=7").json()
+        assert d["ok"] is True and d["min_premium"] == 500_000, d
+
+    def test_sin_days_la_cinta_sigue_siendo_la_cinta(self, client):
+        """El modo nuevo no puede cambiar el viejo: es la misma ruta."""
+        d = client.get("/api/tito-tape?ticker=DEMO").json()
+        assert "trades" in d and "rows" not in d
+        assert d["min_premium"] == 100_000, "el piso del tape es el suyo"
+
+    def test_el_panel_pide_la_ventana_al_cambiar_de_marco(self):
+        """Sin esto el arreglo del servidor no llega a la pantalla."""
+        import pathlib
+
+        html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        assert "VC_FLOW_DIAS" in html and "'5m5d': 5" in html
+        assert "_projFlowVentana" in html
+        assert "/api/tito-tape?ticker=" in html and "&days=" in html
+
     def test_la_cinta_lleva_la_horquilla_del_momento(self, client):
         """Las flechas ↑/↓ dicen que el print salió FUERA de la horquilla. Sin
         la horquilla no se sabe por cuánto — un centavo sobre el ask y un dólar
@@ -2768,7 +2842,12 @@ class TestIdeasYWheelTampocoTiranNada:
         #: tamaño de la orden, que sí — y los dos son «volume». Los nombres son
         #: los de su `FlowRow` y su `TradeScores`; renombrarlos para que el test
         #: no se confunda sería divergir de él por comodidad del test.
-        COLISIONES = {"trades.volume"}
+        #: `trades.gamma` y `trades.theta` son las GRIEGAS del contrato, que su
+        #: `NotableTable` no pinta; `unusual_scores.gamma` y `.theta` son dos de
+        #: los seis sub-puntajes 0-10 del sub-agente 3, que sí se pintan en el
+        #: tooltip de la columna Inusual. Mismo nombre, cosas distintas — y los
+        #: nombres son los de su `FlowRow` y su `UnusualScores`.
+        COLISIONES = {"trades.volume", "trades.gamma", "trades.theta"}
 
         for render, prefijo in (("renderProjIdeas", "ideas."),
                                 ("renderProjWheel", "candidates."),

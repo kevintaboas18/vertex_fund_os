@@ -5544,29 +5544,56 @@ def tito_wheel(request: Request, preset: str = "balanceado"):
     })
 
 
+#: Sus `CHART_PRESETS` de `/api/flow`: piso de premium y tope de páginas POR
+#: VENTANA. Cuanto más corta la ventana, más bajo el piso — en 5 días hay poco
+#: flujo de $1M, y con el piso alto la gráfica del dinero sale casi vacía.
+#: El valor por defecto de un `days` que no esté en la tabla es el suyo.
+_TITO_CHART_PRESETS = {5: (250_000, 30), 10: (500_000, 20), 30: (1_000_000, 15)}
+_TITO_CHART_PRESET_DEFECTO = (500_000, 20)
+
+
 @app.get("/api/tito-tape")
 def tito_tape(ticker: str, period: str = "5d",
-              min_premium: float = TITO_MIN_PREMIUM):
+              min_premium: float = TITO_MIN_PREMIUM,
+              days: int | None = None):
     """Time & Sales de un ticker — su `/flow`.
 
     Es la cinta cruda ya clasificada por los sub-agentes 1-3: cada operación con
     su lado de ejecución, su premium, sus griegos y su puntaje de inusualidad.
     A diferencia del scorecard, aquí **no se agrega nada**: se ve el flujo tal
     como entró, que es justo para lo que sirve esta pestaña.
+
+    Con `days`, la MISMA ruta cambia de modo — igual que la suya, que mira
+    `searchParams.get("days")` y devuelve JSON para la gráfica en vez del
+    stream. Es el flujo que acompaña al marco temporal de la gráfica del
+    dinero: 5 días, 10 o 30, cada uno con el piso de premium de su preset.
     """
     sc = _tito_mod()
     if sc is None:
         return {"ok": False, "error": "Motor de Víctor no disponible (engine/wbj/tito)."}
-    from wbj.tito.flow import UNUSUAL_TOTAL, aggression_score, classify_flow
+    from wbj.tito.flow import (UNUSUAL_TOTAL, aggression_score, classify_flow,
+                               unusual_trade_score)
     from wbj.tito.marketsnack import MarketSnackError, fetch_flow
 
     tk, err = _tito_ticker(ticker)
     if err:
         return {"ok": False, "error": err}
     now = datetime.now(timezone.utc)
+    # Modo gráfica: su `if (Number.isFinite(days) && days > 0)`. El piso y el
+    # tope de páginas los pone la ventana, no el `min_premium` del tape.
+    _grafica = days is not None and days > 0
+    if _grafica:
+        _piso, _paginas = _TITO_CHART_PRESETS.get(int(days),
+                                                  _TITO_CHART_PRESET_DEFECTO)
     try:
-        res = fetch_flow(tk, period=period, min_premium=min_premium,
-                         max_pages=TITO_LEAN_MAX_PAGES)
+        if _grafica:
+            # `period: "1m"` + `targetDays` suyos: pagina hacia atrás hasta
+            # cubrir la ventana y para. Sin `target_days` bajaría el mes entero.
+            res = fetch_flow(tk, period="1m", min_premium=_piso,
+                             max_pages=_paginas, target_days=int(days))
+        else:
+            res = fetch_flow(tk, period=period, min_premium=min_premium,
+                             max_pages=TITO_LEAN_MAX_PAGES)
     except MarketSnackError as e:
         return {"ok": False, "error": _error_de_fuente(e, "Cinta de MarketSnack"),
                 "source": "marketsnack"}
@@ -5600,6 +5627,20 @@ def tito_tape(ticker: str, period: str = "5d",
                 "timing": getattr(t.scores, "timing", 0),
                 "repetition": getattr(t.scores, "repetition", 0),
             },
+            # El OTRO puntaje de inusualidad, el de su `UnusualityCard`: seis
+            # parámetros sobre 10 (Tam · Δ · Θ · Γ · Leg · Venc), por trade.
+            #
+            # Son dos escalas distintas y conviven: la de arriba (0-30) decide
+            # qué fila se tiñe en la cinta; ésta (0-10) es la que da el score
+            # del sub-agente 3 y la que compara con el umbral institucional de
+            # 7. El panel enseñaba el PROMEDIO de los seis y ninguno por trade,
+            # así que no había forma de ver POR QUÉ un contrato concreto puntúa
+            # alto — si por el tamaño, por el delta o por vencer pasado mañana.
+            "unusual_scores": (lambda s: {
+                "size": s.size, "delta": s.delta, "theta": s.theta,
+                "gamma": s.gamma, "leg": s.leg, "expiry": s.expiry,
+                "total": s.total,
+            })(unusual_trade_score(t)),
             "repeated": bool(getattr(t.flags, "repeated", False)),
             "multileg": bool(getattr(t.flags, "multileg", False)),
             "above_ask": bool(getattr(t.flags, "above_ask", False)),
@@ -5622,6 +5663,18 @@ def tito_tape(ticker: str, period: str = "5d",
     # `interesting.slice(0, TABLE_CAP)` suyo. Su `classifyFlow` ya devuelve
     # `interesting` ordenado por premium descendente, así que el `sorted` es
     # redundante y se queda por si la fuente cambia el orden. El tope era 120.
+    if _grafica:
+        # Su respuesta del modo gráfica, con sus mismos campos y su mismo tope
+        # (`interesting.slice(0, 400)`). No lleva `aggression` ni `unusual_cut`:
+        # no se pinta una cinta, se pinta el dinero sobre el precio.
+        return _json_safe({
+            "ok": True, "engine": "victor/tito", "ticker": tk,
+            "days": int(days), "min_premium": _piso,
+            "rows": [_fila(t) for t in flow.interesting[:400]],
+            "truncated": res.truncated, "pages": res.pages,
+            "generated_at": now.isoformat(),
+        })
+
     filas = sorted(flow.interesting,
                    key=lambda t: t.premium if isinstance(t.premium, (int, float)) else 0,
                    reverse=True)[:TITO_TABLE_CAP]
