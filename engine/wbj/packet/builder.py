@@ -813,6 +813,27 @@ def _ohlcv_row(bar: dict) -> OHLCVRow:
         high=bar["high"],
         low=bar["low"],
         close=bar["close"],
+        # `adjClose` NO llega por esta via, y el respaldo NO es un accidente
+        # que haya que tapar: hay que saber que cubre y que no.
+        #
+        # `historical-price-eod/full` de FMP devuelve open/high/low/close/
+        # volume/change/changePercent/vwap -- sin `adjClose`. Verificado
+        # contra la respuesta real, asi que este `.get` cae SIEMPRE al cierre
+        # crudo. Lo que importa es que el crudo de FMP ya viene AJUSTADO POR
+        # SPLITS: NVDA el 2024-06-07, tres dias antes de su split 10:1,
+        # cotiza aqui a 120,89 y no a los ~1.208 que valia de verdad. O sea
+        # no hay roturas de serie, que es el fallo grave.
+        #
+        # Lo que NO cubre son los DIVIDENDOS. Medido en KO a un ano: crudo
+        # 70,46 contra 68,53 ajustado, un 2,7% -- exactamente su dividendo.
+        # Eso sesga el momentum y la fuerza relativa EN CONTRA de quien paga
+        # dividendo y a favor de quien no.
+        #
+        # Cerrarlo del todo exige una peticion mas por ticker
+        # (`historical-price-eod/dividend-adjusted`, que trae `adjClose` pero
+        # no el OHLC crudo que hacen falta para gaps y ATR) y fusionar las
+        # dos series por fecha. Queda documentado y medido, no escondido
+        # detras de un nombre de campo que promete "ajustado".
         adj_close=bar.get("adjClose", bar["close"]),
         volume=bar["volume"],
     )

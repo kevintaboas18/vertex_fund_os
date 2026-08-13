@@ -116,3 +116,25 @@ def test_no_se_confunde_el_neto_con_un_solo_tramo():
 
     assert "longTermNetDebtIssuance" not in M
     assert "shortTermNetDebtIssuance" not in M
+
+
+def test_el_precio_viene_ajustado_por_SPLITS_pero_no_por_dividendos():
+    """`adj_close` cae siempre al cierre crudo, y hay que saber que cubre.
+
+    `historical-price-eod/full` no devuelve `adjClose` -- verificado contra
+    la respuesta real. El crudo de FMP SI viene ajustado por splits (NVDA el
+    2024-06-07, tres dias antes de su split 10:1, cotiza a 120,89 y no a los
+    ~1.208 que valia), asi que no hay roturas de serie.
+
+    Lo que no cubre son los dividendos: KO a un ano da 70,46 crudo contra
+    68,53 ajustado, un 2,7%. Este test fija que la limitacion este ESCRITA,
+    para que nadie lea `adj_close` creyendo que incluye el dividendo.
+    """
+    from pathlib import Path
+
+    src = (Path(__file__).parent.parent.parent / "engine" / "wbj" / "packet"
+           / "builder.py").read_text(encoding="utf-8")
+    i = src.index('adj_close=bar.get("adjClose"')
+    contexto = src[max(0, i - 1600):i]
+    assert "SPLITS" in contexto, "hay que decir que los splits SI estan cubiertos"
+    assert "DIVIDENDOS" in contexto, "y que los dividendos NO"
