@@ -1,13 +1,13 @@
 {
-  "report_id": "20260813_053855_NVDA",
+  "report_id": "20260813_162246_NVDA",
   "ticker": "NVDA",
   "nombre_completo": "NVIDIA Corporation",
-  "precio_actual": 224.09,
+  "precio_actual": 224.85,
   "precio_fuente": "yfinance",
-  "precio_as_of": "08/13/2026, 05:39:51 AM",
-  "pe_ratio": 34.16006097560975,
+  "precio_as_of": "08/13/2026, 04:23:33 PM",
+  "pe_ratio": 34.27439024390244,
   "logo_url": "https://logo.clearbit.com/nvidia.com",
-  "fecha_analisis": "08/13/2026, 05:38:55 AM",
+  "fecha_analisis": "08/13/2026, 04:22:46 PM",
   "historial_precios": [
     203.53,
     211.8,
@@ -31,7 +31,8 @@
     223.96,
     217.55,
     217.5,
-    224.09
+    224.09,
+    224.85
   ],
   "historial_fechas": [
     "Jul 13",
@@ -56,7 +57,8 @@
     "Aug 07",
     "Aug 10",
     "Aug 11",
-    "Aug 12"
+    "Aug 12",
+    "Aug 13"
   ],
   "historial_ohlc": [
     {
@@ -219,6 +221,13 @@
       "high": 225.1,
       "low": 220.2,
       "close": 224.09
+    },
+    {
+      "time": "2026-08-13",
+      "open": 225.06,
+      "high": 227.23,
+      "low": 223.71,
+      "close": 224.85
     }
   ],
   "chart_history": [
@@ -1225,6 +1234,10 @@
     {
       "time": "2026-08-12",
       "value": 224.09
+    },
+    {
+      "time": "2026-08-13",
+      "value": 224.85
     }
   ],
   "historial_volumen": [
@@ -1340,8 +1353,13 @@
     },
     {
       "time": "2026-08-12",
-      "value": 106431963,
+      "value": 108783636,
       "up": true
+    },
+    {
+      "time": "2026-08-13",
+      "value": 49677332,
+      "up": false
     }
   ],
   "earnings_info": {
@@ -1759,40 +1777,40 @@
   "portfolio_fit": null,
   "noticias_reales": [
     {
-      "title": "My Shocking Nvidia Stock Update",
-      "publisher": "The Motley Fool",
-      "publish_time": "2026-08-12 11:11 PM",
-      "summary": "Nvidia (NVDA +3.03%) is underperforming a few of its semiconductor peers in 2026."
-    },
-    {
-      "title": "Q2 Earnings Scorecard: Record Margins, Strong Beats, and Upward Revisions",
-      "publisher": "Zacks Investment Research",
-      "publish_time": "2026-08-12 08:06 PM",
-      "summary": "For the 451 S&P 500 companies that have reported Q2 results, aggregate earnings have grown +41.6% YoY on +14.7% higher revenues. Positive surprises are also widespread, with 83.4% beating EPS estimates and 76.5% topping revenue estimates."
-    },
-    {
-      "title": "Where Will SpaceX Stock Be in 5 Years?",
-      "publisher": "The Motley Fool",
-      "publish_time": "2026-08-12 06:52 PM",
-      "summary": "SpaceX shares have fallen substantially from their early peak. The long-term success or failure of the Terafab chip plant will have a significant impact on SpaceX's stock performance in the coming years."
-    },
-    {
-      "title": "Nvidia's Market Value Grew 24% Over the Past Year. Intel's Grew 474%.",
-      "publisher": "The Motley Fool",
-      "publish_time": "2026-08-12 06:47 PM",
-      "summary": "Intel's market value rose about 474% over the past year to roughly $510 billion, while Nvidia's grew about 24% to $5.4 trillion. Roughly a sixth of Intel's market-value gain came from new shares rather than a higher stock price."
-    },
-    {
-      "title": "Jim Cramer says the AI data center trade is back. These 6 stocks are leading the comeback",
-      "publisher": "CNBC",
-      "publish_time": "2026-08-12 06:27 PM",
-      "summary": "CNBC's Jim Cramer said the AI data center trade is regaining market leadership after weeks of forced selling weighed on the group. He pointed to several factors that restored his confidence in the group's momentum."
-    },
-    {
-      "title": "AMD, Intel, and NVIDIA All Rally Wednesday After Series of Blockbuster AI Earnings Reports",
+      "title": "Wall Street Is Treating Nvidia GPUs Like Forever Cash-Flow Machines. Here's What Shatters That Illusion",
       "publisher": "24/7 Wall Street",
-      "publish_time": "2026-08-12 06:21 PM",
-      "summary": "Shares of the largest logic-chip makers pushed higher into Wednesday's close, riding a read-through from blockbuster AI-infrastructure earnings out of the server supply chain."
+      "publish_time": "2026-08-13 11:42 AM",
+      "summary": "The AI boom is changing an old rule of technology investing: hardware is supposed to get cheaper, less useful, and eventually worthless."
+    },
+    {
+      "title": "Jim Cramer Says Nvidia GPUs Are ‘More Like Fine Jewelry' Than Cars. Here Is Why That Matters for NVDA Investors.",
+      "publisher": "24/7 Wall Street",
+      "publish_time": "2026-08-13 11:41 AM",
+      "summary": "Jim Cramer devoted a segment of Mad Money on August 12 to a valuation analogy that cuts to the heart of the debate over AI infrastructure financing."
+    },
+    {
+      "title": "Everyone Is Chasing Nvidia: BofA Securities Sees $210 Billion CPU Boom for These 3 Stocks",
+      "publisher": "Benzinga",
+      "publish_time": "2026-08-13 11:28 AM",
+      "summary": "NVIDIA Corp (NASDAQ:NVDA) has dominated the first leg of the AI chip boom. Now, BofA Securities sees a $210 billion opportunity in a different type of chip: CPUs."
+    },
+    {
+      "title": "Nvidia is playing many parts in the AI gold rush, a top business guru says",
+      "publisher": "Business Insider",
+      "publish_time": "2026-08-13 11:19 AM",
+      "summary": "In the AI gold rush, Nvidia is selling picks, investing in mines, and bankrolling prospectors. That's according to Rob Lalka, a business professor and Big Tech expert."
+    },
+    {
+      "title": "Nvidia's new $500B plan is risky but brilliant, especially for aging GPUs",
+      "publisher": "TechCrunch",
+      "publish_time": "2026-08-13 11:08 AM",
+      "summary": "Nvidia announced this week that Apollo, BlackRock, Blackstone, Brookfield, Goldman Sachs, and KKR were willing to commit up to $500 billion to build AI data centers. That eye-popping figure got a lot of the attention, but the bigger story is Nvidia's effort to create a secondary market for aging GPUs."
+    },
+    {
+      "title": "Sam Altman Told the White House He Supports Slowing AI Development. Here's Why That Matters for AI Stocks.",
+      "publisher": "Fool - Investing News",
+      "publish_time": "2026-08-13 11:05 AM",
+      "summary": "AI investing might be shifting from a race for speed to a race for scale and regulatory readiness, giving the biggest players an even stronger edge."
     }
   ],
   "targets": {
@@ -1805,8 +1823,8 @@
   "targets_source": "victor",
   "targets_horizon_note": "Metodología de Victor: EPS × (1+crecimiento) × (P/E actual × factor). Un solo horizonte: 12 meses. Fair Value = target Base.",
   "methodology": {
-    "annual_volatility_pct": 38.47,
-    "daily_vol_pct": 2.423,
+    "annual_volatility_pct": 38.32,
+    "daily_vol_pct": 2.414,
     "atr_14": 6.19,
     "analyst_high": 500.0,
     "analyst_low": 218.0,
@@ -1814,85 +1832,85 @@
     "analyst_median": 300.0
   },
   "analisis": {
-    "biggest_pro": "El liderazgo indiscutible de NVIDIA en el mercado de chips de inteligencia artificial (IA) y centros de datos, impulsado por su plataforma CUDA y una demanda creciente, lo que se traduce en márgenes brutos y EBITDA excepcionalmente altos.",
-    "biggest_risk": "La valoración actual de la compañía es extremadamente exigente, con un P/E elevado y un DCF significativamente inferior al precio spot, lo que la hace vulnerable a cualquier desaceleración en el crecimiento o cambio en el sentimiento del mercado.",
-    "watch_for": "El próximo reporte de ganancias en 13 días (26 de agosto de 2026), con un EPS estimado de $9.0, será clave para validar las expectativas de crecimiento y la reacción del precio post-earnings, dado el historial de beats pero con sesgo negativo en la reacción.",
-    "company_summary_simple": "NVIDIA diseña y vende chips gráficos (GPUs) que son el cerebro detrás de los videojuegos, el diseño profesional, la inteligencia artificial y los vehículos autónomos. Gana dinero vendiendo estos chips y el software que los acompaña a empresas y consumidores. Es importante para el inversor promedio porque es un actor dominante en la revolución de la IA, lo que le permite crecer rápidamente y generar grandes beneficios.",
-    "analisis_numeros_actuales": "NVIDIA ostenta una capitalización de mercado masiva de $5.43 billones de USD, reflejando su posición dominante. Sin embargo, su P/E actual de 34.16 y un Forward P/E de 24.91 son considerablemente altos, sugiriendo que gran parte del crecimiento futuro ya está descontado. Los márgenes brutos del 74.15% y los márgenes EBITDA del 76.12% son excepcionales, indicando una fuerte rentabilidad operativa. No se dispone de datos de crecimiento de ingresos YoY ni de Free Cash Flow en el input, lo que limita un análisis completo de la liquidez y el crecimiento histórico.",
-    "crecimiento_yoy": "Aunque el crecimiento de ingresos año tras año no está disponible en los datos proporcionados, NVIDIA ha demostrado una capacidad consistente para superar las expectativas de ganancias, con 8 de 8 beats en los últimos reportes. Sus márgenes operativos, como el margen bruto del 74.15% y el margen EBITDA del 76.12%, son robustos y han sido un motor clave de su rentabilidad histórica.",
-    "crecimiento_proyectado": "El crecimiento proyectado para NVIDIA está fuertemente impulsado por la demanda continua y explosiva en el sector de la inteligencia artificial y los centros de datos. Los catalizadores incluyen nuevos lanzamientos de productos (como se menciona en las noticias sobre 'product' y 'AI data center trade'), la expansión de su ecosistema de software CUDA y la adopción creciente de sus soluciones en diversas industrias, desde la automotriz hasta la computación de alto rendimiento.",
-    "sec_filing_10k": "El último reporte anual 10-K de NVIDIA detallaría en profundidad los factores de riesgo inherentes a su negocio, como la intensa competencia en la industria de semiconductores, la dependencia de fabricantes externos, los riesgos de la cadena de suministro, la protección de la propiedad intelectual y la volatilidad de la demanda de sus productos. También presentaría los estados financieros auditados, proporcionando una visión completa de su salud financiera anual.",
-    "sec_filing_10q": "El último reporte trimestral 10-Q de NVIDIA ofrecería una actualización sobre su rendimiento financiero más reciente, incluyendo ingresos, costos, ganancias y flujos de efectivo para el trimestre. También presentaría el balance general actualizado, mostrando activos, pasivos y patrimonio, y discutiría cualquier evento material o cambio significativo en las operaciones o perspectivas de la compañía desde el último 10-K.",
-    "sec_filing_8k": "Recientemente, NVIDIA ha reportado dos eventos materiales a través de formularios 8-K: el 2 de julio de 2026, se informó un cambio de directivos/junta (CEO/CFO/director), lo cual puede tener implicaciones estratégicas y operativas. Adicionalmente, el 30 de junio de 2026, se publicaron los resultados de votación de accionistas, reflejando decisiones importantes de gobernanza corporativa. Estos son catalizadores duros que deben ser monitoreados de cerca.",
+    "biggest_pro": "El liderazgo indiscutible de NVIDIA en el mercado de GPUs y su posición central en el auge de la inteligencia artificial, respaldado por un ecosistema de software (CUDA) que crea un foso competitivo significativo.",
+    "biggest_risk": "La valoración extremadamente exigente de la compañía, con un precio actual que ya descuenta un crecimiento futuro muy agresivo y un DCF significativamente inferior al precio spot, lo que la hace vulnerable a cualquier desaceleración o decepción.",
+    "watch_for": "El próximo reporte de ganancias en 13 días (26 de agosto de 2026) y la guía de la gerencia, ya que el EPS estimado de $9.0 y cualquier comentario sobre la demanda de chips de IA serán cruciales para validar la alta valoración.",
+    "company_summary_simple": "NVIDIA es una empresa que diseña y fabrica los 'cerebros' (unidades de procesamiento gráfico o GPUs) que hacen funcionar desde videojuegos de alta calidad hasta la inteligencia artificial más avanzada y los grandes centros de datos. Gana dinero vendiendo estos chips y el software que los acompaña. Es importante para el inversor promedio porque es el proveedor clave de la tecnología que impulsa la revolución de la IA, lo que le otorga un enorme potencial de crecimiento, aunque su precio ya refleja gran parte de ese optimismo.",
+    "analisis_numeros_actuales": "NVIDIA ostenta una capitalización de mercado de $5.445 billones. Sus múltiplos de valoración son elevados, con un P/E actual de 34.27 y un Forward P/E de 24.99, lo que indica altas expectativas de crecimiento futuro. La compañía presenta márgenes brutos excepcionales del 74.15% y márgenes EBITDA del 76.12%, reflejando una fuerte rentabilidad y poder de fijación de precios. El Free Cash Flow no está disponible en los datos proporcionados, y su Beta de 2.215 sugiere una alta volatilidad y sensibilidad al mercado.",
+    "crecimiento_yoy": "El crecimiento de ingresos interanual (YoY) no está disponible en los datos proporcionados. Sin embargo, los márgenes operativos (bruto 74.15%, EBITDA 76.12%) son muy robustos, lo que sugiere una fuerte eficiencia y rentabilidad en sus operaciones recientes.",
+    "crecimiento_proyectado": "Se esperan estimaciones de crecimiento robustas para los próximos años, impulsadas por la continua y explosiva demanda de chips de IA, la expansión de los centros de datos y los nuevos productos. Los catalizadores detectados incluyen la guía de la compañía, lanzamientos de productos y desarrollos regulatorios favorables para el sector de la IA, como el plan de $500B para centros de datos de IA.",
+    "sec_filing_10k": "El último reporte anual 10-K de NVIDIA probablemente detalla factores de riesgo como la intensa competencia en el mercado de semiconductores, la dependencia de la cadena de suministro (ej. TSMC), la rápida obsolescencia tecnológica, los riesgos de propiedad intelectual y las fluctuaciones macroeconómicas. Los estados financieros auditados reflejarían una sólida posición de balance, pero también una inversión significativa en investigación y desarrollo para mantener su liderazgo.",
+    "sec_filing_10q": "El análisis del último reporte trimestral 10-Q (no proporcionado en detalle) probablemente mostraría un rendimiento financiero fuerte, impulsado por la demanda de sus GPUs para IA y centros de datos, con un crecimiento de ingresos y márgenes saludables. Los balances reflejarían una posición de liquidez sólida y una gestión eficiente de activos.",
+    "sec_filing_8k": "Recientemente, NVIDIA ha reportado dos eventos materiales a través de 8-K: un cambio en la directiva/junta (CEO/CFO/director) el 2 de julio de 2026 y los resultados de la votación de accionistas el 30 de junio de 2026. Estos son eventos corporativos importantes que pueden influir en la dirección estratégica y la gobernanza de la empresa.",
     "fair_value": 313.73,
-    "upside_pct": 40.0,
+    "upside_pct": 39.53,
     "recommendation": "ESPECULATIVO",
     "conviccion_score": 57,
-    "conviccion_porque": "La puntuación de convicción de 57.4/100 refleja un perfil especulativo. Agentes como 'Business' (liderazgo en IA, márgenes) y 'Market' (tendencia alcista, catalizadores de noticias) probablemente impulsan la puntuación al alza. Sin embargo, el agente de 'Valuation' la arrastra significativamente a la baja debido a un P/E muy elevado y un DCF de $110.78 que está muy por debajo del precio spot. El agente de 'Risk' también contribuye negativamente por la alta beta y la señal bajista de ventas de insiders. El agente 'Financial' es mixto, con márgenes fuertes pero falta de datos de crecimiento y FCF en el input. Esto resulta en una recomendación de 'ESPECULATIVO', indicando un alto potencial pero también riesgos considerables.",
-    "recomendacion_porque": "La recomendación 'ESPECULATIVO' se basa en la combinación de un potencial de crecimiento futuro significativo, impulsado por su liderazgo en IA y la fuerte demanda de sus productos, lo que se refleja en un upside del 40.00% hacia el Fair Value de $313.73. Sin embargo, esta oportunidad viene acompañada de una valoración extremadamente exigente (P/E alto, DCF muy bajo) y señales de riesgo como la venta de insiders y una beta elevada. La inversión en NVDA a estos niveles requiere una alta tolerancia al riesgo y una gestión de posición cautelosa, ya que el precio actual ya descuenta gran parte del crecimiento futuro.",
-    "tesis_inversion_completa": "La tesis de inversión en NVIDIA se centra en su posición dominante como líder indiscutible en el mercado de semiconductores para inteligencia artificial y centros de datos. Su plataforma CUDA y su ecosistema de software le otorgan una ventaja competitiva significativa, creando un foso económico que dificulta la entrada de nuevos competidores. La demanda de sus GPUs para entrenar modelos de IA y para aplicaciones de computación de alto rendimiento sigue siendo robusta, lo que se traduce en márgenes de beneficio excepcionalmente altos. Los catalizadores de crecimiento incluyen la continua innovación en productos, la expansión a nuevos mercados como el automotriz y la creciente adopción de la IA a nivel global. Sin embargo, la tesis se ve desafiada por una valoración que ya incorpora gran parte de este crecimiento futuro, con múltiplos de P/E muy elevados y un valor intrínseco por DCF considerablemente inferior al precio de mercado. La actividad reciente de insiders, con ventas netas significativas, y la alta volatilidad (Beta de 2.215) añaden un componente de riesgo. Por lo tanto, aunque el potencial a largo plazo es innegable, la inversión actual es de naturaleza especulativa, adecuada solo para inversores con alta tolerancia al riesgo y un horizonte de inversión a largo plazo.",
-    "tesis_riesgos": "Los riesgos inherentes a la tesis de inversión en NVIDIA incluyen: 1) **Competencia Intensa:** Aunque líder, enfrenta una fuerte competencia de AMD e Intel, así como de empresas que desarrollan sus propios chips (como Google y Amazon). 2) **Valoración Exigente:** El precio actual descuenta un crecimiento futuro muy agresivo, lo que deja poco margen para errores y hace que la acción sea vulnerable a correcciones significativas si el crecimiento no cumple las expectativas. 3) **Dependencia de la Cadena de Suministro:** NVIDIA depende de fabricantes externos para la producción de sus chips, lo que la expone a interrupciones en la cadena de suministro y a la escasez de componentes. 4) **Riesgos Macroeconómicos:** Una desaceleración económica global podría reducir el gasto en centros de datos y productos de consumo, afectando la demanda de sus chips. 5) **Obsolescencia Tecnológica:** La rápida evolución de la tecnología podría hacer que sus productos actuales queden obsoletos si no innova continuamente. 6) **Actividad de Insiders:** Las ventas netas significativas por parte de insiders pueden ser una señal de que aquellos con mayor conocimiento interno ven un riesgo en la valoración actual. 7) **Riesgo de Ejecución:** La capacidad de la empresa para seguir innovando y expandiéndose a nuevos mercados sin problemas.",
-    "analistas_consenso": "El consenso de Wall Street, con un precio objetivo medio de $319.48, sugiere un upside positivo para NVIDIA, coincidiendo con la dirección alcista del Fair Value de Victor ($313.73). Ambos indican que hay potencial de crecimiento desde los niveles actuales. Sin embargo, Victor clasifica la recomendación como 'ESPECULATIVO', lo que contrasta con una posible visión más optimista o menos cautelosa de algunos analistas de Wall Street. Esta divergencia podría explicarse por la metodología de Victor que incorpora factores como la discrepancia del DCF ($110.78), la actividad de insiders (ventas netas significativas) y una evaluación más estricta del riesgo y la valoración, lo que lleva a una postura más prudente a pesar de los objetivos de precio similares.",
-    "calculos_y_crecimiento_ai": "Los targets a 12 meses de Victor para NVIDIA son: Bull $360.78, Base $313.73 y Bear $221.85. El Fair Value de este reporte se establece en $313.73, que corresponde al target base de Victor. La metodología de Victor para estos targets se basa en una fórmula que considera el EPS, el crecimiento (anclado al CAGR de utilidades a 5 años) y un múltiplo P/E ajustado por escenario. Sin embargo, los valores específicos de EPS, crecimiento y múltiplo utilizados por Victor para calcular estos targets no fueron proporcionados en los datos de entrada. El especialista de valuación de Victor calculó un DCF (FCFF) de $110.78 por acción, lo que indica una valoración intrínseca significativamente inferior al precio spot y al Fair Value proyectado. El puntaje de convicción de 57.4/100 es impulsado positivamente por el agente de 'Business' (debido al liderazgo en IA y márgenes) y el agente de 'Market' (por la tendencia alcista y catalizadores). Sin embargo, el agente de 'Valuation' (por el alto P/E y el bajo DCF) y el agente de 'Risk' (por la alta beta y las ventas de insiders) ejercen una presión negativa, resultando en un perfil 'ESPECULATIVO'.",
-    "posicion_competitiva": "NVIDIA posee un foso económico (moat) muy fuerte, principalmente a través de su liderazgo tecnológico en GPUs y su plataforma de software CUDA. CUDA ha creado un ecosistema robusto que atrae a desarrolladores y empresas, haciendo que sea costoso y difícil para los clientes cambiar a soluciones de la competencia. Esta ventaja tecnológica y de ecosistema le permite mantener márgenes elevados y una posición dominante en mercados clave como la IA y los centros de datos.",
-    "principales_competidores": "Los principales competidores de NVIDIA en la industria de semiconductores incluyen a Advanced Micro Devices (AMD), Intel Corporation, y en menor medida, empresas que desarrollan sus propios chips personalizados para IA (como Google con sus TPUs o Amazon con sus Inferentia y Trainium).",
-    "porque_mejor_peor_inversion": "NVIDIA puede ser una mejor inversión debido a sus márgenes brutos y EBITDA excepcionalmente altos (74.15% y 76.12% respectivamente), que superan a muchos de sus competidores, y su posición de liderazgo en el mercado de IA de alto crecimiento. Sin embargo, podría ser una peor inversión debido a sus múltiplos de valoración extremadamente elevados (P/E de 34.16), que ya descuentan un crecimiento futuro muy agresivo, y un retorno de capital potencialmente menor si el crecimiento se desacelera o si la competencia se intensifica, lo que podría llevar a una compresión de múltiplos.",
-    "in_simple_terms": "Imagina que NVIDIA es como la empresa que construye los motores más potentes y avanzados para todo tipo de vehículos, desde coches de carreras (videojuegos) hasta camiones gigantes que transportan datos y hacen cálculos complejos (inteligencia artificial). Gana dinero vendiendo estos motores especializados. Para un inversor, es como tener una parte de la compañía que fabrica las 'palas y picos' más avanzados para la 'fiebre del oro' de la inteligencia artificial, pero a un precio que ya asume que se encontrará mucho oro.",
-    "should_you_buy_now": "Dada la recomendación 'ESPECULATIVO' y la valoración exigente, la compra de NVIDIA en los niveles de cotización actuales debe abordarse con prudencia extrema. Es una oportunidad para inversores con alta tolerancia al riesgo y un horizonte a largo plazo, dispuestos a dimensionar su posición de manera conservadora y a monitorear de cerca los próximos resultados de ganancias y la evolución del mercado de IA. No es una compra agresiva para el inversor promedio.",
-    "the_bottom_line": "NVIDIA es una inversión de alto crecimiento y alto riesgo, con un liderazgo indiscutible en IA, pero una valoración exigente que justifica una aproximación especulativa y cautelosa.",
+    "conviccion_porque": "La puntuación de convicción de 57.4/100 refleja una postura cautelosa, a pesar del fuerte potencial de crecimiento. El agente de 'Valuation' probablemente lo baja significativamente debido a la gran discrepancia entre el precio spot y el DCF de $110.78. El agente de 'Risk' también contribuye negativamente por la alta beta (2.215) y la señal bajista de la actividad de insiders. Sin embargo, los agentes de 'Business' (liderazgo en IA, márgenes) y 'Market' (tendencia alcista, catalizadores) empujan el puntaje hacia arriba, reconociendo la fortaleza fundamental y el momentum, resultando en una recomendación 'ESPECULATIVO' que equilibra el alto potencial con los riesgos inherentes.",
+    "recomendacion_porque": "La recomendación ESPECULATIVA se justifica por el extraordinario potencial de crecimiento de NVIDIA en el sector de la IA, que se alinea con el Fair Value de Victor de $313.73 y el consenso de Wall Street. Sin embargo, esta oportunidad viene acompañada de una valoración muy exigente, evidenciada por un P/E elevado y un DCF significativamente inferior al precio actual. La alta volatilidad, la actividad de insiders bajista y la inminencia de resultados añaden un componente de riesgo considerable, haciendo que la inversión sea adecuada solo para aquellos con alta tolerancia al riesgo y una comprensión profunda de su naturaleza especulativa.",
+    "tesis_inversion_completa": "NVIDIA Corporation representa una tesis de inversión convincente debido a su posición dominante como proveedor esencial de hardware y software para la revolución de la inteligencia artificial. Su liderazgo tecnológico en GPUs y la plataforma CUDA le otorgan un foso competitivo casi inexpugnable, lo que se traduce en márgenes brutos y EBITDA excepcionalmente altos. La demanda estructural por sus productos, impulsada por la expansión de centros de datos y la adopción masiva de IA, sugiere un crecimiento sostenido a largo plazo. El Fair Value de Victor de $313.73 y el precio objetivo medio de Wall Street de $319.48 indican un potencial alcista considerable desde el precio spot actual. Sin embargo, la inversión es inherentemente especulativa debido a la valoración actual, que ya incorpora gran parte de este crecimiento futuro. El DCF de $110.78 sugiere una sobrevaloración significativa desde una perspectiva de flujo de caja descontado, y la actividad de insiders muestra un sesgo de venta. Por lo tanto, aunque NVIDIA es un actor clave en una megatendencia, la asignación de capital debe ser cautelosa y dimensionada para un perfil de riesgo especulativo, monitoreando de cerca los próximos resultados y la evolución de la competencia.",
+    "tesis_riesgos": "Los riesgos inherentes a la tesis de inversión de NVIDIA son multifacéticos. El riesgo más prominente es la valoración, ya que el precio actual de la acción descuenta un crecimiento futuro casi perfecto, dejando poco margen para errores o desaceleraciones. La competencia es intensa, con rivales como AMD e Intel buscando ganar cuota de mercado, y grandes clientes desarrollando sus propios chips de IA, lo que podría erosionar los márgenes de NVIDIA a largo plazo. La dependencia de la cadena de suministro, particularmente de TSMC para la fabricación, expone a la compañía a interrupciones y limitaciones de capacidad. Los cambios regulatorios, especialmente en torno a la exportación de tecnología a mercados clave o la regulación de la IA, podrían impactar negativamente. Finalmente, una desaceleración macroeconómica global o una corrección en el entusiasmo por la IA podrían provocar una descompresión de múltiplos y una caída significativa en el precio de la acción.",
+    "analistas_consenso": "El consenso de Wall Street sitúa el precio objetivo medio para NVIDIA en $319.48, lo que implica un potencial alcista considerable desde el precio spot actual y es ligeramente superior al Fair Value de Victor de $313.73. Esto sugiere que tanto los analistas tradicionales como el motor de Victor ven un valor futuro significativo en la compañía. La principal diferencia radica en la recomendación: mientras que Wall Street podría inclinarse hacia una recomendación de 'BUY' basada en el potencial de crecimiento, Victor clasifica la inversión como 'ESPECULATIVO'. Esta divergencia se explica por la metodología de Victor, que pondera fuertemente el riesgo de valoración (DCF de $110.78) y la actividad de insiders bajista, lo que lleva a una postura más cautelosa a pesar del optimismo general sobre el negocio.",
+    "calculos_y_crecimiento_ai": "El Fair Value de Victor de $313.73 se establece como el target base a 12 meses. Este valor se deriva de la metodología de Victor que calcula el target de precio usando la fórmula: EPS proyectado × (1 + tasa de crecimiento) × (Múltiplo P/E actual × factor del escenario). Aunque los valores exactos de EPS, crecimiento y factor P/E utilizados por Victor para este cálculo no se proporcionan, el EPS estimado para el próximo earnings es de $9.0. El DCF (Flujo de Caja Libre a la Firma) calculado por el especialista de valuación de Victor arroja un valor de $110.78 por acción. Este valor, significativamente inferior al precio spot, indica que, bajo una metodología de flujo de caja descontado, la acción está sobrevalorada. El WACC y los supuestos específicos del DCF no se detallan. El puntaje de convicción de 57.4/100 es el resultado de la evaluación de los 6 agentes de Victor. El agente de 'Valuation' probablemente empuja el puntaje hacia abajo debido a la gran diferencia entre el DCF y el precio de mercado. El agente de 'Risk' también contribuye negativamente por la alta Beta y la señal bajista de los insiders. Por otro lado, los agentes de 'Business' (fortaleza del negocio, márgenes) y 'Market' (tendencia alcista, catalizadores) probablemente impulsan el puntaje hacia arriba, reflejando el liderazgo y el momentum de la compañía.",
+    "posicion_competitiva": "NVIDIA goza de una posición competitiva dominante, caracterizada por un foso robusto. Su liderazgo tecnológico en el diseño de GPUs de alto rendimiento y su plataforma de software CUDA han creado un ecosistema propietario que es difícil de replicar para los competidores. Esta ventaja le permite ofrecer soluciones superiores para cargas de trabajo de IA y computación de alto rendimiento, asegurando una fuerte lealtad de los clientes y poder de fijación de precios.",
+    "principales_competidores": "Los principales competidores de NVIDIA incluyen a Advanced Micro Devices (AMD) e Intel Corporation (INTC) en el espacio de semiconductores. Además, empresas tecnológicas como Google (con sus TPUs) y Amazon (con sus chips Inferentia/Trainium) están desarrollando sus propios chips de IA, lo que podría representar una competencia indirecta a largo plazo.",
+    "porque_mejor_peor_inversion": "NVIDIA se destaca como una inversión potencialmente superior debido a sus excepcionales márgenes brutos (74.15%) y EBITDA (76.12%), que superan significativamente a la mayoría de sus pares en la industria de semiconductores, reflejando su poder de mercado y eficiencia operativa. Sin embargo, es una inversión 'peor' en términos de valoración relativa, ya que sus múltiplos P/E (34.27) son considerablemente más altos que el promedio del mercado y de muchos competidores, lo que implica que el precio actual ya ha descontado gran parte de su crecimiento futuro. La justificación de esta prima es su posición de liderazgo en el crecimiento explosivo de la IA.",
+    "in_simple_terms": "Imagina que la inteligencia artificial es como una nueva carrera espacial. NVIDIA no es la empresa que construye los cohetes para ir a la luna, sino la que fabrica los motores más potentes y avanzados que todos los cohetes necesitan para despegar. Además, también proporciona el 'combustible' especial y el 'manual de instrucciones' para que esos motores funcionen a la perfección. Por eso, mientras más empresas quieran ir al espacio de la IA, más necesitarán los motores de NVIDIA, lo que la convierte en una pieza clave y muy valiosa en esta nueva era tecnológica.",
+    "should_you_buy_now": "Dada la recomendación ESPECULATIVA y la alta valoración actual, se aconseja prudencia. Aunque el potencial alcista a 12 meses es considerable según el Fair Value de Victor y el consenso de Wall Street, el riesgo de una corrección es elevado, especialmente con un DCF tan bajo y la inminente publicación de resultados. Una compra agresiva en los niveles de cotización actuales solo se justificaría para inversores con una alta tolerancia al riesgo, un horizonte a largo plazo y la convicción de que NVIDIA puede superar las ya elevadas expectativas del mercado.",
+    "the_bottom_line": "NVIDIA es un líder tecnológico con un potencial de crecimiento masivo en IA, pero su valoración actual exige una aproximación especulativa y cautelosa.",
     "probabilities": {
       "p_positive_12m": 65,
-      "p_touch_bull_12m": 35,
+      "p_touch_bull_12m": 40,
       "p_touch_bear_12m": 55,
-      "p_up_10pct_3m": 50,
-      "rationale": "Las acciones de alta beta como NVDA exhiben oscilaciones de precios significativas. Si bien la tendencia general del mercado es alcista y existe un upside considerable al target base, los próximos earnings y la alta valoración introducen volatilidad y potencial de retrocesos, anclando las probabilidades en movimientos históricos para este tipo de activo."
+      "p_up_10pct_3m": 45,
+      "rationale": "Históricamente, acciones con alta beta y volatilidad como NVDA pueden experimentar movimientos significativos en un régimen de mercado alcista y con catalizadores. Sin embargo, la alta valoración y la inminencia de resultados introducen incertidumbre, haciendo que los movimientos extremos sean probables en ambas direcciones, anclado en base-rates de movimientos de acciones de alto crecimiento y volatilidad."
     },
     "regime": {
       "vol": "calmo",
       "trend": "alcista",
       "breadth": "neutral",
-      "rates": "subiendo",
-      "vix": 14.6,
-      "spy_vs_200d_pct": 9.7,
+      "rates": "estable",
+      "vix": 14.7,
+      "spy_vs_200d_pct": 10.1,
       "detail": {
-        "spy_20d_pct": 2.3,
-        "rsp_minus_spy_20d_pct": 1.5,
-        "tlt_20d_pct": -2.5
+        "spy_20d_pct": 3.4,
+        "rsp_minus_spy_20d_pct": -0.3,
+        "tlt_20d_pct": -1.9
       },
-      "label": "Tendencia alcista · vol calmo · amplitud neutral · tasas subiendo"
+      "label": "Tendencia alcista · vol calmo · amplitud neutral · tasas estable"
     },
     "conviction_source": "puntaje de los 6 agentes de Victor (raw_total 0-100)",
     "prob_anchoring": null,
     "trade_plan": {
       "probabilities": {
         "p_positive_12m": 65,
-        "p_touch_bull_12m": 35,
+        "p_touch_bull_12m": 40,
         "p_touch_bear_12m": 55,
-        "p_up_10pct_3m": 50,
-        "rationale": "Las acciones de alta beta como NVDA exhiben oscilaciones de precios significativas. Si bien la tendencia general del mercado es alcista y existe un upside considerable al target base, los próximos earnings y la alta valoración introducen volatilidad y potencial de retrocesos, anclando las probabilidades en movimientos históricos para este tipo de activo."
+        "p_up_10pct_3m": 45,
+        "rationale": "Históricamente, acciones con alta beta y volatilidad como NVDA pueden experimentar movimientos significativos en un régimen de mercado alcista y con catalizadores. Sin embargo, la alta valoración y la inminencia de resultados introducen incertidumbre, haciendo que los movimientos extremos sean probables en ambas direcciones, anclado en base-rates de movimientos de acciones de alto crecimiento y volatilidad."
       },
-      "reward_pct": 61.0,
-      "risk_pct": 1.0,
-      "reward_risk": 61.02,
-      "kelly_full_pct": 64.4,
-      "kelly_half_pct": 32.2,
+      "reward_pct": 60.5,
+      "risk_pct": 1.3,
+      "reward_risk": 45.31,
+      "kelly_full_pct": 64.2,
+      "kelly_half_pct": 32.1,
       "suggested_pct": 25.0,
       "cap_reason": "Limitado por tope de concentración 25%.",
       "factor_haircut_pct": 0.0,
       "already_held_pct": 0.0,
       "risk_plan": {
         "is_a_grade": false,
-        "equity_stop": 211.71,
-        "equity_stop_note": "No A-grade: stop sugerido en $211.71 (2×ATR-14 bajo el spot).",
+        "equity_stop": 212.47,
+        "equity_stop_note": "No A-grade: stop sugerido en $212.47 (2×ATR-14 bajo el spot).",
         "thesis_break_level": 221.85,
         "options_stop_rule": "Opciones: stop −20% a −30% de la prima pagada."
       },
       "targets_r": {
-        "entry": 224.09,
+        "entry": 224.85,
         "stop": 221.85,
-        "r_unit": 2.24,
-        "bull_r": 61.02,
-        "base_r": 40.02,
+        "r_unit": 3.0,
+        "bull_r": 45.31,
+        "base_r": 29.63,
         "bear_r": -1.0
       },
       "thesis_invalidation": [
@@ -2013,8 +2031,9 @@
     },
     "news_catalysts": [
       "cambio de directivos/junta (CEO/CFO/director)",
-      "earnings",
+      "guidance",
       "product",
+      "regulatory",
       "resultados de votación de accionistas"
     ],
     "sec_8k": [
@@ -2078,7 +2097,7 @@
           "label": "Market & Growth",
           "max": 20.0,
           "score10": 3.5,
-          "points": 6.99,
+          "points": 7.01,
           "coverage": 0.69,
           "status": "scored",
           "confidence": 79,
@@ -2090,7 +2109,7 @@
           "label": "Technical & Momentum",
           "max": 20.0,
           "score10": 5.7,
-          "points": 11.43,
+          "points": 11.41,
           "coverage": 1.0,
           "status": "scored",
           "confidence": 94,
@@ -2131,18 +2150,18 @@
       "classification": "Especulativa — solo tamaño de riesgo",
       "passed_gates": [],
       "failed_gates": [
-        "raw_total<78 (got 57.41784654919648)",
-        "technical<17 (got 11.43213597189147)",
-        "market<16 (got 6.9867462564493765)",
+        "raw_total<78 (got 57.42326858419642)",
+        "technical<17 (got 11.4105549605964)",
+        "market<16 (got 7.014871256449376)",
         "business+financial<28 (got 26.22722170782687)",
         "risk<8 (got 7.952633158069513)",
-        "raw_total<80 (got 57.41784654919648)",
+        "raw_total<80 (got 57.42326858419642)",
         "business<16 (got 13.146864564969727)",
         "risk<10 (got 7.952633158069513)",
-        "valuation<5 (got 4.819109454959255)",
-        "technical<12 (got 11.43213597189147)",
-        "raw_total<75 (got 57.41784654919648)",
-        "valuation<8 (got 4.819109454959255)",
+        "valuation<5 (got 4.8179875012542634)",
+        "technical<12 (got 11.4105549605964)",
+        "raw_total<75 (got 57.42326858419642)",
+        "valuation<8 (got 4.8179875012542634)",
         "risk<10 (got 7.952633158069513)"
       ],
       "overrides": [
@@ -2213,98 +2232,98 @@
       "For every $100 in sales, $56 is net profit — very profitable.",
       "Generates real cash: $108.8B of free cash flow per year.",
       "Owes $0.05 for every $1 of equity — low debt.",
-      "Quick score: 5.7/10, computed from 94 of 100 evidence points — categories without FMP data stay N/S (never fabricated).",
+      "Quick score: 8.3/10, computed from 100 of 100 evidence points — full coverage of all 6 categories.",
       "If it keeps growing as it has and the market pays the same multiple, the stock would be worth ~$313.73 in 12 months (40% above the current price of $224.09)."
     ],
     "victor_scorecard": {
-      "overall_10": 5.7,
-      "evidence_points_covered": 94,
+      "overall_10": 8.3,
+      "evidence_points_covered": 100,
       "categories": [
         {
           "key": "business",
-          "label": "Business",
-          "score10": 6.6,
+          "label": "Business (quick)",
+          "score10": 7.5,
           "status": "scored",
           "reason": null
         },
         {
           "key": "financial",
-          "label": "Financial",
-          "score10": 8.7,
+          "label": "Financial (quick)",
+          "score10": 10.0,
           "status": "scored",
           "reason": null
         },
         {
           "key": "market",
-          "label": "Market & Growth",
-          "score10": 3.5,
+          "label": "Market & Growth (quick)",
+          "score10": 10.0,
           "status": "scored",
           "reason": null
         },
         {
           "key": "technical",
-          "label": "Technical & Momentum",
-          "score10": 5.7,
+          "label": "Technical & Momentum (quick)",
+          "score10": 8.2,
           "status": "scored",
           "reason": null
         },
         {
           "key": "risk",
-          "label": "Risk & Resilience",
-          "score10": 5.3,
+          "label": "Risk & Resilience (quick)",
+          "score10": 10.0,
           "status": "scored",
           "reason": null
         },
         {
           "key": "valuation",
-          "label": "Valuation",
-          "score10": 4.8,
+          "label": "Valuation (quick)",
+          "score10": 1.9,
           "status": "scored",
           "reason": null
         }
       ]
     },
     "victor_interpretation": {
-      "overall_10": 5.7,
-      "classification": "neutral",
-      "classification_label": "mixed signal — neither clearly for nor against",
+      "overall_10": 8.3,
+      "classification": "favors",
+      "classification_label": "the analysis favors investing (research classification)",
       "revisit": null,
       "categories": [
         {
           "key": "business",
-          "label": "Business",
-          "score10": 6.6,
+          "label": "Business (quick)",
+          "score10": 7.5,
           "meaning": "solid"
         },
         {
           "key": "financial",
-          "label": "Financial",
-          "score10": 8.7,
+          "label": "Financial (quick)",
+          "score10": 10.0,
           "meaning": "very strong"
         },
         {
           "key": "market",
-          "label": "Market & Growth",
-          "score10": 3.5,
-          "meaning": "weak"
+          "label": "Market & Growth (quick)",
+          "score10": 10.0,
+          "meaning": "very strong"
         },
         {
           "key": "technical",
-          "label": "Technical & Momentum",
-          "score10": 5.7,
-          "meaning": "mixed"
+          "label": "Technical & Momentum (quick)",
+          "score10": 8.2,
+          "meaning": "very strong"
         },
         {
           "key": "risk",
-          "label": "Risk & Resilience",
-          "score10": 5.3,
-          "meaning": "mixed"
+          "label": "Risk & Resilience (quick)",
+          "score10": 10.0,
+          "meaning": "very strong"
         },
         {
           "key": "valuation",
-          "label": "Valuation",
-          "score10": 4.8,
-          "meaning": "weak"
+          "label": "Valuation (quick)",
+          "score10": 1.9,
+          "meaning": "troubled"
         }
       ]
     },
@@ -2369,7 +2388,7 @@
       ]
     },
     "victor_levels": {
-      "current_price": 224.09,
+      "current_price": 224.85,
       "atr14": 7.514548967501274,
       "levels": [
         {
@@ -2378,7 +2397,7 @@
           "source": "current_price",
           "zone_low": null,
           "zone_high": null,
-          "value": 224.09,
+          "value": 224.85,
           "distance_percent": 0.0,
           "distance_atr": 0.0,
           "strength_or_confidence": null,
@@ -2469,8 +2488,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 206.2618,
-          "distance_percent": -7.9558213217903555,
-          "distance_atr": -2.3724910273527984,
+          "distance_percent": -8.266933511229709,
+          "distance_atr": -2.4736281685553934,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2484,8 +2503,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 194.5562,
-          "distance_percent": -13.179436833415151,
-          "distance_atr": -3.9302159221700497,
+          "distance_percent": -13.472893039804315,
+          "distance_atr": -4.031353063372644,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2498,9 +2517,9 @@
           "source": "technical",
           "zone_low": null,
           "zone_high": null,
-          "value": 193.47530407586493,
-          "distance_percent": -13.661785855743263,
-          "distance_atr": -4.0740563480971,
+          "value": 193.47763123840508,
+          "distance_percent": -13.952576722968606,
+          "distance_atr": -4.174883801712294,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2513,9 +2532,9 @@
           "source": "technical",
           "zone_low": null,
           "zone_high": null,
-          "value": 209.43252067669314,
-          "distance_percent": -6.540889519080217,
-          "distance_atr": -1.9505467842045003,
+          "value": 209.43600707025462,
+          "distance_percent": -6.855233680118024,
+          "distance_atr": -2.0512199729361553,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2528,9 +2547,9 @@
           "source": "technical",
           "zone_low": null,
           "zone_high": null,
-          "value": 121.43385122851113,
-          "distance_percent": -45.810231947649996,
-          "distance_atr": -13.660986070548415,
+          "value": 121.43509593983474,
+          "distance_percent": -45.992841476613414,
+          "distance_atr": -13.76195757156036,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2544,8 +2563,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 50.22,
-          "distance_percent": -77.58936141728769,
-          "distance_atr": -23.137782553809743,
+          "distance_percent": -77.66511007338227,
+          "distance_atr": -23.23891969501234,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2559,8 +2578,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 50.27,
-          "distance_percent": -77.56704895354545,
-          "distance_atr": -23.131128794520098,
+          "distance_percent": -77.64287302646208,
+          "distance_atr": -23.232265935722694,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2574,8 +2593,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 47.16,
-          "distance_percent": -78.95488419831318,
-          "distance_atr": -23.544992622335986,
+          "distance_percent": -79.0260173448966,
+          "distance_atr": -23.646129763538582,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2589,8 +2608,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 48.67,
-          "distance_percent": -78.28104779329735,
-          "distance_atr": -23.344049091788726,
+          "distance_percent": -78.3544585279075,
+          "distance_atr": -23.44518623299132,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2604,8 +2623,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 75.03,
-          "distance_percent": -66.51791690838502,
-          "distance_atr": -19.836187194288147,
+          "distance_percent": -66.63108739159439,
+          "distance_atr": -19.937324335490743,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -2619,8 +2638,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 78.58,
-          "distance_percent": -64.93373198268553,
-          "distance_atr": -19.363770284723387,
+          "distance_percent": -65.05225706026239,
+          "distance_atr": -19.464907425925983,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -2634,8 +2653,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 74.22,
-          "distance_percent": -66.87937882100941,
-          "distance_atr": -19.94397809478039,
+          "distance_percent": -66.99132755170113,
+          "distance_atr": -20.045115235982983,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -2649,8 +2668,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 71.25,
-          "distance_percent": -68.20473916729885,
-          "distance_atr": -20.33921139658527,
+          "distance_percent": -68.31220813875916,
+          "distance_atr": -20.440348537787866,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -2664,8 +2683,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 102.03,
-          "distance_percent": -54.46918648757196,
-          "distance_atr": -16.243157177880125,
+          "distance_percent": -54.62308205470313,
+          "distance_atr": -16.34429431908272,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2679,8 +2698,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 106.32,
-          "distance_percent": -52.554777098487214,
-          "distance_atr": -15.672264630828629,
+          "distance_percent": -52.715143428952636,
+          "distance_atr": -15.773401772031225,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2694,8 +2713,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 101.52,
-          "distance_percent": -54.69677361774288,
-          "distance_atr": -16.3110255226345,
+          "distance_percent": -54.84989993328886,
+          "distance_atr": -16.412162663837094,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2709,8 +2728,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 98.49000000000001,
-          "distance_percent": -56.048908920523,
-          "distance_atr": -16.714243335586954,
+          "distance_percent": -56.19746497665109,
+          "distance_atr": -16.81538047678955,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2724,8 +2743,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 142.25,
-          "distance_percent": -36.52104065330894,
-          "distance_atr": -10.890873205290099,
+          "distance_percent": -36.73560151211919,
+          "distance_atr": -10.992010346492693,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -2739,8 +2758,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 143.49,
-          "distance_percent": -35.96769155250122,
-          "distance_atr": -10.725859974906914,
+          "distance_percent": -36.18412274849899,
+          "distance_atr": -10.82699711610951,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -2754,8 +2773,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 137.91,
-          "distance_percent": -38.45776250613593,
-          "distance_atr": -11.468419511631241,
+          "distance_percent": -38.66577718478986,
+          "distance_atr": -11.569556652833835,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -2769,8 +2788,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 138.53,
-          "distance_percent": -38.181087955732075,
-          "distance_atr": -11.385912896439649,
+          "distance_percent": -38.39003780297976,
+          "distance_atr": -11.487050037642243,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -2784,8 +2803,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 195.95,
-          "distance_percent": -12.557454594136292,
-          "distance_atr": -3.74473572821192,
+          "distance_percent": -12.853013119857687,
+          "distance_atr": -3.845872869414515,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2799,8 +2818,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 196.0,
-          "distance_percent": -12.53514213039404,
-          "distance_atr": -3.7380819689222737,
+          "distance_percent": -12.83077607293751,
+          "distance_atr": -3.8392191101248687,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2814,8 +2833,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 179.85,
-          "distance_percent": -19.742067919139636,
-          "distance_atr": -5.887246219477444,
+          "distance_percent": -20.0133422281521,
+          "distance_atr": -5.988383360680039,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2829,8 +2848,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 191.235,
-          "distance_percent": -14.661519925030117,
-          "distance_atr": -4.3721852292253915,
+          "distance_percent": -14.94996664442961,
+          "distance_atr": -4.4733223704279865,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -2873,9 +2892,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 83.59317379977655,
-          "distance_percent": -62.69660680986364,
-          "distance_atr": -18.696641249906076,
+          "value": 83.59264009230333,
+          "distance_percent": -62.822930801733015,
+          "distance_atr": -18.797849414329832,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2888,9 +2907,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 110.7847137108487,
-          "distance_percent": -50.56240184263076,
-          "distance_atr": -15.078122024245374,
+          "value": 110.78393766515441,
+          "distance_percent": -50.72984760277767,
+          "distance_atr": -15.179362437872921,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2903,9 +2922,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 142.9223622916879,
-          "distance_percent": -36.22099946821014,
-          "distance_atr": -10.801398468403598,
+          "value": 142.9212683831374,
+          "distance_percent": -36.43706098148214,
+          "distance_atr": -10.902681181689792,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2925,7 +2944,7 @@
           "status": null,
           "confirmation": null,
           "invalidation": null,
-          "note": "implied revenue CAGR 60.63%; implied operating margin 34.77%"
+          "note": "implied revenue CAGR 60.64%; implied operating margin 34.77%"
         },
         {
           "level_class": "margin_of_safety_band",
@@ -2933,9 +2952,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 94.1670066542214,
-          "distance_percent": -57.97804156623615,
-          "distance_atr": -17.289526478257866,
+          "value": 94.16634701538125,
+          "distance_percent": -58.12037046236102,
+          "distance_atr": -17.39075140102167,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2948,9 +2967,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 83.08853528313654,
-          "distance_percent": -62.921801381973076,
-          "distance_atr": -18.763796114266196,
+          "value": 83.0879532488658,
+          "distance_percent": -63.04738570208326,
+          "distance_atr": -18.86501070978751,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -2983,7 +3002,7 @@
             "AVWAP anchored 2025-11-20 (material earnings gap)"
           ],
           "low": 186.0211292925838,
-          "high": 193.47530407586493,
+          "high": 193.47763123840508,
           "note": "Confluence reference: 'Nearest support zone (daily-support-188.88)' and 'AVWAP anchored 2025-11-20 (material earnings gap)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -3082,7 +3101,7 @@
             "AVWAP anchored 2025-11-20 (material earnings gap)"
           ],
           "low": 186.0211292925838,
-          "high": 193.47530407586493,
+          "high": 193.47763123840508,
           "note": "Confluence reference: 'Role-reversal retest zone (daily-support-188.88)' and 'AVWAP anchored 2025-11-20 (material earnings gap)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -3136,7 +3155,7 @@
             "AVWAP anchored 2026-05-14 (major swing high)"
           ],
           "low": 206.2618,
-          "high": 209.43252067669314,
+          "high": 209.43600707025462,
           "note": "Confluence reference: 'SMA50' and 'AVWAP anchored 2026-05-14 (major swing high)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -3144,7 +3163,7 @@
             "SMA200",
             "AVWAP anchored 2025-11-20 (material earnings gap)"
           ],
-          "low": 193.47530407586493,
+          "low": 193.47763123840508,
           "high": 194.5562,
           "note": "Confluence reference: 'SMA200' and 'AVWAP anchored 2025-11-20 (material earnings gap)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
@@ -3180,7 +3199,7 @@
             "AVWAP anchored 2025-11-20 (material earnings gap)",
             "Earnings gap 2025-11-20 gap open"
           ],
-          "low": 193.47530407586493,
+          "low": 193.47763123840508,
           "high": 195.95,
           "note": "Confluence reference: 'AVWAP anchored 2025-11-20 (material earnings gap)' and 'Earnings gap 2025-11-20 gap open' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
@@ -3189,7 +3208,7 @@
             "AVWAP anchored 2025-11-20 (material earnings gap)",
             "Earnings gap 2025-11-20 gap high"
           ],
-          "low": 193.47530407586493,
+          "low": 193.47763123840508,
           "high": 196.0,
           "note": "Confluence reference: 'AVWAP anchored 2025-11-20 (material earnings gap)' and 'Earnings gap 2025-11-20 gap high' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
@@ -3199,7 +3218,7 @@
             "Earnings gap 2025-11-20 gap midpoint"
           ],
           "low": 191.235,
-          "high": 193.47530407586493,
+          "high": 193.47763123840508,
           "note": "Confluence reference: 'AVWAP anchored 2025-11-20 (material earnings gap)' and 'Earnings gap 2025-11-20 gap midpoint' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -3307,7 +3326,7 @@
             "Bear-case intrinsic-value reference (scenario value)"
           ],
           "low": 78.58,
-          "high": 83.59317379977655,
+          "high": 83.59264009230333,
           "note": "Confluence reference: 'Earnings gap 2024-02-22 gap high' and 'Bear-case intrinsic-value reference (scenario value)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -3316,7 +3335,7 @@
             "Margin-of-safety reference band (25%)"
           ],
           "low": 78.58,
-          "high": 83.08853528313654,
+          "high": 83.0879532488658,
           "note": "Confluence reference: 'Earnings gap 2024-02-22 gap high' and 'Margin-of-safety reference band (25%)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -3388,7 +3407,7 @@
             "Base-case intrinsic-value reference (scenario value)"
           ],
           "low": 106.32,
-          "high": 110.7847137108487,
+          "high": 110.78393766515441,
           "note": "Confluence reference: 'Earnings gap 2024-05-23 gap high' and 'Base-case intrinsic-value reference (scenario value)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -3414,7 +3433,7 @@
             "Earnings gap 2024-05-23 gap low",
             "Margin-of-safety reference band (15%)"
           ],
-          "low": 94.1670066542214,
+          "low": 94.16634701538125,
           "high": 101.52,
           "note": "Confluence reference: 'Earnings gap 2024-05-23 gap low' and 'Margin-of-safety reference band (15%)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
@@ -3432,7 +3451,7 @@
             "Earnings gap 2024-05-23 gap midpoint",
             "Margin-of-safety reference band (15%)"
           ],
-          "low": 94.1670066542214,
+          "low": 94.16634701538125,
           "high": 98.49000000000001,
           "note": "Confluence reference: 'Earnings gap 2024-05-23 gap midpoint' and 'Margin-of-safety reference band (15%)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
@@ -3469,7 +3488,7 @@
             "Bull-case intrinsic-value reference (scenario value)"
           ],
           "low": 142.25,
-          "high": 142.9223622916879,
+          "high": 142.9212683831374,
           "note": "Confluence reference: 'Earnings gap 2025-05-29 gap open' and 'Bull-case intrinsic-value reference (scenario value)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -3495,7 +3514,7 @@
             "Earnings gap 2025-05-29 gap high",
             "Bull-case intrinsic-value reference (scenario value)"
           ],
-          "low": 142.9223622916879,
+          "low": 142.9212683831374,
           "high": 143.49,
           "note": "Confluence reference: 'Earnings gap 2025-05-29 gap high' and 'Bull-case intrinsic-value reference (scenario value)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
@@ -3514,7 +3533,7 @@
             "Bull-case intrinsic-value reference (scenario value)"
           ],
           "low": 137.91,
-          "high": 142.9223622916879,
+          "high": 142.9212683831374,
           "note": "Confluence reference: 'Earnings gap 2025-05-29 gap low' and 'Bull-case intrinsic-value reference (scenario value)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -3523,7 +3542,7 @@
             "Bull-case intrinsic-value reference (scenario value)"
           ],
           "low": 138.53,
-          "high": 142.9223622916879,
+          "high": 142.9212683831374,
           "note": "Confluence reference: 'Earnings gap 2025-05-29 gap midpoint' and 'Bull-case intrinsic-value reference (scenario value)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -3559,7 +3578,7 @@
             "Base-case intrinsic-value reference (scenario value)"
           ],
           "low": 94.47522472638298,
-          "high": 110.7847137108487,
+          "high": 110.78393766515441,
           "note": "Confluence reference: 'Weekly support zone (weekly-support-100.95)' and 'Base-case intrinsic-value reference (scenario value)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
         {
@@ -3567,7 +3586,7 @@
             "Weekly support zone (weekly-support-100.95)",
             "Margin-of-safety reference band (15%)"
           ],
-          "low": 94.1670066542214,
+          "low": 94.16634701538125,
           "high": 107.42477527361703,
           "note": "Confluence reference: 'Weekly support zone (weekly-support-100.95)' and 'Margin-of-safety reference band (15%)' overlap within tolerance (3.7573); both zone/scenario values are retained independently, not averaged."
         },
@@ -3592,7 +3611,7 @@
           "assumptions": {
             "growth": 0.31169193011081564,
             "margin": 0.5838168363141272,
-            "wacc": 0.15646324899698982,
+            "wacc": 0.15646391451067668,
             "tv_growth": 0.025
           }
         },
@@ -3602,7 +3621,7 @@
           "assumptions": {
             "growth": 0.3600892168343304,
             "margin": 0.6038168363141272,
-            "wacc": 0.14646324899698981,
+            "wacc": 0.14646391451067667,
             "tv_growth": 0.025
           }
         },
@@ -3612,7 +3631,7 @@
           "assumptions": {
             "growth": 0.39701701764619246,
             "margin": 0.6238168363141272,
-            "wacc": 0.1364632489969898,
+            "wacc": 0.13646391451067666,
             "tv_growth": 0.025
           }
         }
@@ -3635,7 +3654,7 @@
       "universo": "EE.UU.",
       "tolerancia": "especulativo",
       "horizonte": "1-3 años",
-      "instrumentos": "opciones, acciones, etf; sin forex, penny, cripto, apalancados",
+      "instrumentos": "opciones, acciones, etf; sin penny, forex, cripto, apalancados",
       "capital": "$10,000",
       "riesgo_por_operacion": "$3,000",
       "max_posicion_pct": "5% – 70%",
@@ -4075,27 +4094,27 @@
         "ticker": "NVDA",
         "exchange": "NASDAQ",
         "currency": "USD",
-        "analysis_timestamp": "2026-08-13T05:39:51.574025+00:00",
-        "knowledge_timestamp": "2026-08-13T05:38:56.528464+00:00"
+        "analysis_timestamp": "2026-08-13T16:23:33.047566+00:00",
+        "knowledge_timestamp": "2026-08-13T16:22:46.156457+00:00"
       },
       "profile": {
         "label": "Speculative",
-        "raw_score": 57.41784654919648,
+        "raw_score": 57.42326858419642,
         "total_confidence": 89.49166666666666,
         "passed_gates": [],
         "failed_gates": [
-          "raw_total<78 (got 57.41784654919648)",
-          "technical<17 (got 11.43213597189147)",
-          "market<16 (got 6.9867462564493765)",
+          "raw_total<78 (got 57.42326858419642)",
+          "technical<17 (got 11.4105549605964)",
+          "market<16 (got 7.014871256449376)",
           "business+financial<28 (got 26.22722170782687)",
           "risk<8 (got 7.952633158069513)",
-          "raw_total<80 (got 57.41784654919648)",
+          "raw_total<80 (got 57.42326858419642)",
           "business<16 (got 13.146864564969727)",
           "risk<10 (got 7.952633158069513)",
-          "valuation<5 (got 4.819109454959255)",
-          "technical<12 (got 11.43213597189147)",
-          "raw_total<75 (got 57.41784654919648)",
-          "valuation<8 (got 4.819109454959255)",
+          "valuation<5 (got 4.8179875012542634)",
+          "technical<12 (got 11.4105549605964)",
+          "raw_total<75 (got 57.42326858419642)",
+          "valuation<8 (got 4.8179875012542634)",
           "risk<10 (got 7.952633158069513)"
         ],
         "overrides": [
@@ -4114,12 +4133,12 @@
           "confidence": 95.0
         },
         "market": {
-          "points": 6.9867462564493765,
+          "points": 7.014871256449376,
           "max": 20.0,
           "confidence": 78.58333333333333
         },
         "technical": {
-          "points": 11.43213597189147,
+          "points": 11.4105549605964,
           "max": 20.0,
           "confidence": 93.5
         },
@@ -4129,19 +4148,19 @@
           "confidence": 91.5
         },
         "valuation": {
-          "points": 4.819109454959255,
+          "points": 4.8179875012542634,
           "max": 10.0,
           "confidence": 91.5
         }
       },
       "executive_thesis": {
-        "business_quality": "NVIDIA diseña y vende chips gráficos (GPUs) que son el cerebro detrás de los videojuegos, el diseño profesional, la inteligencia artificial y los vehículos autónomos. Gana dinero vendiendo estos chips y el software que los acompaña a empresas y consumidores. Es importante para el inversor promedio porque es un actor dominante en la revolución de la IA, lo que le permite crecer rápidamente y generar grandes beneficios.",
-        "value_creation_durability": "NVIDIA posee un foso económico (moat) muy fuerte, principalmente a través de su liderazgo tecnológico en GPUs y su plataforma de software CUDA. CUDA ha creado un ecosistema robusto que atrae a desarrolladores y empresas, haciendo que sea costoso y difícil para los clientes cambiar a soluciones de la competencia. Esta ventaja tecnológica y de ecosistema le permite mantener márgenes elevados y una posición dominante en mercados clave como la IA y los centros de datos.",
-        "growth_engine": "Los targets a 12 meses de Victor para NVIDIA son: Bull $360.78, Base $313.73 y Bear $221.85. El Fair Value de este reporte se establece en $313.73, que corresponde al target base de Victor. La metodología de Victor para estos targets se basa en una fórmula que considera el EPS, el crecimiento (anclado al CAGR de utilidades a 5 años) y un múltiplo P/E ajustado por escenario. Sin embargo, los valores específicos de EPS, crecimiento y múltiplo utilizados por Victor para calcular estos targets no fueron proporcionados en los datos de entrada. El especialista de valuación de Victor calculó un DCF (",
-        "market_validation": "El consenso de Wall Street, con un precio objetivo medio de $319.48, sugiere un upside positivo para NVIDIA, coincidiendo con la dirección alcista del Fair Value de Victor ($313.73). Ambos indican que hay potencial de crecimiento desde los niveles actuales. Sin embargo, Victor clasifica la recomendación como 'ESPECULATIVO', lo que contrasta con una posible visión más optimista o menos cautelosa de algunos analistas de Wall Street. Esta divergencia podría explicarse por la metodología de Victor que incorpora factores como la discrepancia del DCF ($110.78), la actividad de insiders (ventas netas",
-        "valuation_message": "NVIDIA ostenta una capitalización de mercado masiva de $5.43 billones de USD, reflejando su posición dominante. Sin embargo, su P/E actual de 34.16 y un Forward P/E de 24.91 son considerablemente altos, sugiriendo que gran parte del crecimiento futuro ya está descontado. Los márgenes brutos del 74.15% y los márgenes EBITDA del 76.12% son excepcionales, indicando una fuerte rentabilidad operativa. No se dispone de datos de crecimiento de ingresos YoY ni de Free Cash Flow en el input, lo que limita un análisis completo de la liquidez y el crecimiento histórico.",
-        "key_levels_summary": "Current adjusted close $224.09; Nearest support zone (daily-support-188.88) $186.0211292925838-191.7388707074162; Nearest resistance zone (weekly-resistance-232.28) $224.28093652261555-240.27906347738445; Failed-breakout level (weekly-resistance-232.28) $224.28093652261555-240.27906347738445",
-        "primary_risk": "La valoración actual de la compañía es extremadamente exigente, con un P/E elevado y un DCF significativamente inferior al precio spot, lo que la hace vulnerable a cualquier desaceleración en el crecimiento o cambio en el sentimiento del mercado."
+        "business_quality": "NVIDIA es una empresa que diseña y fabrica los 'cerebros' (unidades de procesamiento gráfico o GPUs) que hacen funcionar desde videojuegos de alta calidad hasta la inteligencia artificial más avanzada y los grandes centros de datos. Gana dinero vendiendo estos chips y el software que los acompaña. Es importante para el inversor promedio porque es el proveedor clave de la tecnología que impulsa la revolución de la IA, lo que le otorga un enorme potencial de crecimiento, aunque su precio ya refleja gran parte de ese optimismo.",
+        "value_creation_durability": "NVIDIA goza de una posición competitiva dominante, caracterizada por un foso robusto. Su liderazgo tecnológico en el diseño de GPUs de alto rendimiento y su plataforma de software CUDA han creado un ecosistema propietario que es difícil de replicar para los competidores. Esta ventaja le permite ofrecer soluciones superiores para cargas de trabajo de IA y computación de alto rendimiento, asegurando una fuerte lealtad de los clientes y poder de fijación de precios.",
+        "growth_engine": "El Fair Value de Victor de $313.73 se establece como el target base a 12 meses. Este valor se deriva de la metodología de Victor que calcula el target de precio usando la fórmula: EPS proyectado × (1 + tasa de crecimiento) × (Múltiplo P/E actual × factor del escenario). Aunque los valores exactos de EPS, crecimiento y factor P/E utilizados por Victor para este cálculo no se proporcionan, el EPS estimado para el próximo earnings es de $9.0. El DCF (Flujo de Caja Libre a la Firma) calculado por el especialista de valuación de Victor arroja un valor de $110.78 por acción. Este valor, significativ",
+        "market_validation": "El consenso de Wall Street sitúa el precio objetivo medio para NVIDIA en $319.48, lo que implica un potencial alcista considerable desde el precio spot actual y es ligeramente superior al Fair Value de Victor de $313.73. Esto sugiere que tanto los analistas tradicionales como el motor de Victor ven un valor futuro significativo en la compañía. La principal diferencia radica en la recomendación: mientras que Wall Street podría inclinarse hacia una recomendación de 'BUY' basada en el potencial de crecimiento, Victor clasifica la inversión como 'ESPECULATIVO'. Esta divergencia se explica por la m",
+        "valuation_message": "NVIDIA ostenta una capitalización de mercado de $5.445 billones. Sus múltiplos de valoración son elevados, con un P/E actual de 34.27 y un Forward P/E de 24.99, lo que indica altas expectativas de crecimiento futuro. La compañía presenta márgenes brutos excepcionales del 74.15% y márgenes EBITDA del 76.12%, reflejando una fuerte rentabilidad y poder de fijación de precios. El Free Cash Flow no está disponible en los datos proporcionados, y su Beta de 2.215 sugiere una alta volatilidad y sensibilidad al mercado.",
+        "key_levels_summary": "Current adjusted close $224.85; Nearest support zone (daily-support-188.88) $186.0211292925838-191.7388707074162; Nearest resistance zone (weekly-resistance-232.28) $224.28093652261555-240.27906347738445; Failed-breakout level (weekly-resistance-232.28) $224.28093652261555-240.27906347738445",
+        "primary_risk": "La valoración extremadamente exigente de la compañía, con un precio actual que ya descuenta un crecimiento futuro muy agresivo y un DCF significativamente inferior al precio spot, lo que la hace vulnerable a cualquier desaceleración o decepción."
       },
       "important_levels": [
         {
@@ -4150,7 +4169,7 @@
           "source": "current_price",
           "zone_low": null,
           "zone_high": null,
-          "value": 224.09,
+          "value": 224.85,
           "distance_percent": 0.0,
           "distance_atr": 0.0,
           "strength_or_confidence": null,
@@ -4241,8 +4260,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 206.2618,
-          "distance_percent": -7.9558213217903555,
-          "distance_atr": -2.3724910273527984,
+          "distance_percent": -8.266933511229709,
+          "distance_atr": -2.4736281685553934,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -4256,8 +4275,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 194.5562,
-          "distance_percent": -13.179436833415151,
-          "distance_atr": -3.9302159221700497,
+          "distance_percent": -13.472893039804315,
+          "distance_atr": -4.031353063372644,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -4270,9 +4289,9 @@
           "source": "technical",
           "zone_low": null,
           "zone_high": null,
-          "value": 193.47530407586493,
-          "distance_percent": -13.661785855743263,
-          "distance_atr": -4.0740563480971,
+          "value": 193.47763123840508,
+          "distance_percent": -13.952576722968606,
+          "distance_atr": -4.174883801712294,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -4285,9 +4304,9 @@
           "source": "technical",
           "zone_low": null,
           "zone_high": null,
-          "value": 209.43252067669314,
-          "distance_percent": -6.540889519080217,
-          "distance_atr": -1.9505467842045003,
+          "value": 209.43600707025462,
+          "distance_percent": -6.855233680118024,
+          "distance_atr": -2.0512199729361553,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -4300,9 +4319,9 @@
           "source": "technical",
           "zone_low": null,
           "zone_high": null,
-          "value": 121.43385122851113,
-          "distance_percent": -45.810231947649996,
-          "distance_atr": -13.660986070548415,
+          "value": 121.43509593983474,
+          "distance_percent": -45.992841476613414,
+          "distance_atr": -13.76195757156036,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -4316,8 +4335,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 50.22,
-          "distance_percent": -77.58936141728769,
-          "distance_atr": -23.137782553809743,
+          "distance_percent": -77.66511007338227,
+          "distance_atr": -23.23891969501234,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -4331,8 +4350,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 50.27,
-          "distance_percent": -77.56704895354545,
-          "distance_atr": -23.131128794520098,
+          "distance_percent": -77.64287302646208,
+          "distance_atr": -23.232265935722694,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -4346,8 +4365,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 47.16,
-          "distance_percent": -78.95488419831318,
-          "distance_atr": -23.544992622335986,
+          "distance_percent": -79.0260173448966,
+          "distance_atr": -23.646129763538582,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -4361,8 +4380,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 48.67,
-          "distance_percent": -78.28104779329735,
-          "distance_atr": -23.344049091788726,
+          "distance_percent": -78.3544585279075,
+          "distance_atr": -23.44518623299132,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -4376,8 +4395,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 75.03,
-          "distance_percent": -66.51791690838502,
-          "distance_atr": -19.836187194288147,
+          "distance_percent": -66.63108739159439,
+          "distance_atr": -19.937324335490743,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -4391,8 +4410,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 78.58,
-          "distance_percent": -64.93373198268553,
-          "distance_atr": -19.363770284723387,
+          "distance_percent": -65.05225706026239,
+          "distance_atr": -19.464907425925983,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -4406,8 +4425,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 74.22,
-          "distance_percent": -66.87937882100941,
-          "distance_atr": -19.94397809478039,
+          "distance_percent": -66.99132755170113,
+          "distance_atr": -20.045115235982983,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -4421,8 +4440,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 71.25,
-          "distance_percent": -68.20473916729885,
-          "distance_atr": -20.33921139658527,
+          "distance_percent": -68.31220813875916,
+          "distance_atr": -20.440348537787866,
           "strength_or_confidence": null,
           "status": "open",
           "confirmation": null,
@@ -4436,8 +4455,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 102.03,
-          "distance_percent": -54.46918648757196,
-          "distance_atr": -16.243157177880125,
+          "distance_percent": -54.62308205470313,
+          "distance_atr": -16.34429431908272,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -4451,8 +4470,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 106.32,
-          "distance_percent": -52.554777098487214,
-          "distance_atr": -15.672264630828629,
+          "distance_percent": -52.715143428952636,
+          "distance_atr": -15.773401772031225,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -4466,8 +4485,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 101.52,
-          "distance_percent": -54.69677361774288,
-          "distance_atr": -16.3110255226345,
+          "distance_percent": -54.84989993328886,
+          "distance_atr": -16.412162663837094,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -4481,8 +4500,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 98.49000000000001,
-          "distance_percent": -56.048908920523,
-          "distance_atr": -16.714243335586954,
+          "distance_percent": -56.19746497665109,
+          "distance_atr": -16.81538047678955,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -4496,8 +4515,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 142.25,
-          "distance_percent": -36.52104065330894,
-          "distance_atr": -10.890873205290099,
+          "distance_percent": -36.73560151211919,
+          "distance_atr": -10.992010346492693,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -4511,8 +4530,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 143.49,
-          "distance_percent": -35.96769155250122,
-          "distance_atr": -10.725859974906914,
+          "distance_percent": -36.18412274849899,
+          "distance_atr": -10.82699711610951,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -4526,8 +4545,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 137.91,
-          "distance_percent": -38.45776250613593,
-          "distance_atr": -11.468419511631241,
+          "distance_percent": -38.66577718478986,
+          "distance_atr": -11.569556652833835,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -4541,8 +4560,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 138.53,
-          "distance_percent": -38.181087955732075,
-          "distance_atr": -11.385912896439649,
+          "distance_percent": -38.39003780297976,
+          "distance_atr": -11.487050037642243,
           "strength_or_confidence": null,
           "status": "partially_filled",
           "confirmation": null,
@@ -4556,8 +4575,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 195.95,
-          "distance_percent": -12.557454594136292,
-          "distance_atr": -3.74473572821192,
+          "distance_percent": -12.853013119857687,
+          "distance_atr": -3.845872869414515,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -4571,8 +4590,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 196.0,
-          "distance_percent": -12.53514213039404,
-          "distance_atr": -3.7380819689222737,
+          "distance_percent": -12.83077607293751,
+          "distance_atr": -3.8392191101248687,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -4586,8 +4605,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 179.85,
-          "distance_percent": -19.742067919139636,
-          "distance_atr": -5.887246219477444,
+          "distance_percent": -20.0133422281521,
+          "distance_atr": -5.988383360680039,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -4601,8 +4620,8 @@
           "zone_low": null,
           "zone_high": null,
           "value": 191.235,
-          "distance_percent": -14.661519925030117,
-          "distance_atr": -4.3721852292253915,
+          "distance_percent": -14.94996664442961,
+          "distance_atr": -4.4733223704279865,
           "strength_or_confidence": null,
           "status": "reclaimed",
           "confirmation": null,
@@ -4645,9 +4664,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 83.59317379977655,
-          "distance_percent": -62.69660680986364,
-          "distance_atr": -18.696641249906076,
+          "value": 83.59264009230333,
+          "distance_percent": -62.822930801733015,
+          "distance_atr": -18.797849414329832,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -4660,9 +4679,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 110.7847137108487,
-          "distance_percent": -50.56240184263076,
-          "distance_atr": -15.078122024245374,
+          "value": 110.78393766515441,
+          "distance_percent": -50.72984760277767,
+          "distance_atr": -15.179362437872921,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -4675,9 +4694,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 142.9223622916879,
-          "distance_percent": -36.22099946821014,
-          "distance_atr": -10.801398468403598,
+          "value": 142.9212683831374,
+          "distance_percent": -36.43706098148214,
+          "distance_atr": -10.902681181689792,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -4697,7 +4716,7 @@
           "status": null,
           "confirmation": null,
           "invalidation": null,
-          "note": "implied revenue CAGR 60.63%; implied operating margin 34.77%"
+          "note": "implied revenue CAGR 60.64%; implied operating margin 34.77%"
         },
         {
           "level_class": "margin_of_safety_band",
@@ -4705,9 +4724,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 94.1670066542214,
-          "distance_percent": -57.97804156623615,
-          "distance_atr": -17.289526478257866,
+          "value": 94.16634701538125,
+          "distance_percent": -58.12037046236102,
+          "distance_atr": -17.39075140102167,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -4720,9 +4739,9 @@
           "source": "valuation",
           "zone_low": null,
           "zone_high": null,
-          "value": 83.08853528313654,
-          "distance_percent": -62.921801381973076,
-          "distance_atr": -18.763796114266196,
+          "value": 83.0879532488658,
+          "distance_percent": -63.04738570208326,
+          "distance_atr": -18.86501070978751,
           "strength_or_confidence": null,
           "status": null,
           "confirmation": null,
@@ -4737,12 +4756,12 @@
           "assumptions": {
             "growth": 0.31169193011081564,
             "margin": 0.5838168363141272,
-            "wacc": 0.15646324899698982,
+            "wacc": 0.15646391451067668,
             "tv_growth": 0.025
           },
           "enterprise_value": null,
           "equity_value": null,
-          "per_share_value": 83.59317379977655
+          "per_share_value": 83.59264009230333
         },
         {
           "name": "Base",
@@ -4750,12 +4769,12 @@
           "assumptions": {
             "growth": 0.3600892168343304,
             "margin": 0.6038168363141272,
-            "wacc": 0.14646324899698981,
+            "wacc": 0.14646391451067667,
             "tv_growth": 0.025
           },
           "enterprise_value": null,
           "equity_value": null,
-          "per_share_value": 110.7847137108487
+          "per_share_value": 110.78393766515441
         },
         {
           "name": "Bull",
@@ -4763,21 +4782,21 @@
           "assumptions": {
             "growth": 0.39701701764619246,
             "margin": 0.6238168363141272,
-            "wacc": 0.1364632489969898,
+            "wacc": 0.13646391451067666,
             "tv_growth": 0.025
           },
           "enterprise_value": null,
           "equity_value": null,
-          "per_share_value": 142.9223622916879
+          "per_share_value": 142.9212683831374
         }
       ],
-      "valuation_weighted_value": 112.02124087829046,
-      "terminal_value_share": 0.7860636055040509,
-      "implied_exit_multiple": 6.969636862851491,
+      "valuation_weighted_value": 112.02044595143738,
+      "terminal_value_share": 0.7860625217966769,
+      "implied_exit_multiple": 6.969598675470957,
       "reverse_dcf": {
         "current_price": 224.09,
-        "implied_revenue_cagr": 0.6063471510797424,
-        "implied_margin": 0.34770089967937967,
+        "implied_revenue_cagr": 0.6063500201969503,
+        "implied_margin": 0.3477037460207739,
         "implied_high_growth_years": 5
       },
       "thesis_killers": [],
@@ -4789,7 +4808,7 @@
       ],
       "audit": {
         "packet_hashes": {
-          "packet": "6b8cf8254139ce577ec8e06a591e8cddd3b1c39c085a6134d97961a6e808c0bb"
+          "packet": "c9a2fcd0ce9acbc2f3ea58ee7bd39e8715a59bb7dc35e36808055cec5daab77f"
         },
         "formula_versions": [
           "BUS-ALLOC-029@2026.1",
@@ -5004,18 +5023,18 @@
         "validation_summary": {
           "passed_gates": [],
           "failed_gates": [
-            "raw_total<78 (got 57.41784654919648)",
-            "technical<17 (got 11.43213597189147)",
-            "market<16 (got 6.9867462564493765)",
+            "raw_total<78 (got 57.42326858419642)",
+            "technical<17 (got 11.4105549605964)",
+            "market<16 (got 7.014871256449376)",
             "business+financial<28 (got 26.22722170782687)",
             "risk<8 (got 7.952633158069513)",
-            "raw_total<80 (got 57.41784654919648)",
+            "raw_total<80 (got 57.42326858419642)",
             "business<16 (got 13.146864564969727)",
             "risk<10 (got 7.952633158069513)",
-            "valuation<5 (got 4.819109454959255)",
-            "technical<12 (got 11.43213597189147)",
-            "raw_total<75 (got 57.41784654919648)",
-            "valuation<8 (got 4.819109454959255)",
+            "valuation<5 (got 4.8179875012542634)",
+            "technical<12 (got 11.4105549605964)",
+            "raw_total<75 (got 57.42326858419642)",
+            "valuation<8 (got 4.8179875012542634)",
             "risk<10 (got 7.952633158069513)"
           ],
           "overrides": [
@@ -5040,18 +5059,7 @@
     },
     "scores_source": "victor"
   },
-  "wbj_explanation": {
-    "resumen_simple": "Para NVIDIA (NVDA), el análisis actual no ha podido generar un veredicto ni puntuaciones en ninguna de las categorías. Esto significa que, en este momento, el sistema no tiene datos suficientes o no ha podido procesar la información para ofrecer una evaluación completa de la empresa como inversión. Aunque existe una tesis previa que la consideraba especulativa, el análisis actual no la confirma ni la contradice, ya que no produjo resultados.",
-    "por_categoria": "En esta ocasión, todas las categorías de análisis (Business, Financial, Market, Technical, Risk y Valuation) muestran un puntaje de 'None'. Esto significa que el sistema no pudo calcular una puntuación para ninguna de ellas. No hay datos disponibles para explicar por qué una categoría estaría alta o baja, ya que el proceso de scoring no se completó. Por lo tanto, no podemos citar notas específicas ni entender el rendimiento de NVDA en estos aspectos según este análisis.",
-    "gates_y_perfil": "El análisis actual no ha asignado ningún perfil (Momentum, Quality, Value, Conditional, Speculative o Avoid) a NVIDIA, mostrando 'None'. Esto se debe a que no se calcularon puntuaciones ni se pasaron o fallaron 'gates' (filtros de inversión). Los gates son criterios importantes que una empresa debe cumplir para ser considerada una inversión viable bajo ciertas estrategias. Al no haber resultados, no podemos saber qué implicaría un perfil ni qué filtros habría superado o no NVDA en este momento.",
-    "overrides_y_coherencia": "En este análisis, no se han activado 'overrides' ni se han detectado 'flags' de coherencia o contradicciones. Los overrides son ajustes manuales que pueden modificar el veredicto automático, y las contradicciones señalan inconsistencias entre diferentes métricas. Al no haber puntuaciones ni un veredicto, no hay elementos que pudieran activar estos mecanismos. Por lo tanto, el inversionista no tiene señales específicas que vigilar en este sentido, más allá de la ausencia de datos.",
-    "niveles_y_confluencia": "El análisis actual no ha detectado niveles importantes, ni técnicos ni de valuación, para NVIDIA. Esto significa que no hay puntos de precio específicos identificados como zonas clave de soporte, resistencia o valor justo según esta metodología. Consecuentemente, tampoco se han encontrado zonas de confluencia, que son áreas donde los niveles técnicos y de valuación se solapan. Es crucial recordar que estos niveles no se promedian; su ausencia implica que no hay referencias de precio claras de este análisis para guiar decisiones de entrada o salida.",
-    "ajuste_a_mi_perfil": "Dado que el análisis actual para NVDA no ha generado ningún veredicto, puntuación o nivel, no es posible determinar cómo encaja esta inversión con tu perfil. Tú buscas crecimiento, ingresos y timing con un horizonte de 1-3 años, eres agresivo/especulativo y utilizas opciones, acciones y ETFs. Sin embargo, este análisis no ofrece la información cuantitativa necesaria (como un perfil asignado, targets o niveles) para evaluar si NVDA cumple con tus criterios de riesgo/recompensa o timing. Con un capital de $1,000, el riesgo de 'sizing' (dimensionamiento de la posición) es siempre importante, y la ausencia de datos aquí significa que no hay una base analítica para tomar una decisión informada sobre el tamaño de una posible posición en NVDA en este momento.",
-    "calibracion": "Dado que este análisis específico para NVDA no ha producido puntuaciones ni un veredicto, no hay un track record o calibración histórica que aplicar a este resultado. No podemos evaluar la confianza del veredicto porque, en esencia, no hay un veredicto que evaluar en esta ocasión.",
-    "conclusion": "El análisis actual de NVIDIA no ha generado datos ni un veredicto, lo que impide cualquier evaluación de su potencial de inversión en este momento."
-  },
-  "wbj_explanation_source": "gemini",
   "fecha": "2026-08-13",
   "agente": "acciones",
-  "guardado_en": "2026-08-13T05:40:13+00:00"
+  "guardado_en": "2026-08-13T16:23:33+00:00"
 }
