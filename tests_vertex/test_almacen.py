@@ -1783,3 +1783,149 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         a.guarda(f"{DIR_PRIVADO}/privado-loquesea.enc", b"x")
         a.guarda(f"{DIR_PRIVADO}/privado-20260814.enc", b"x")
         assert V._copias_fechadas(a) == ["privado-20260814.enc"]
+
+
+class TestLaCuentaDeKevinYSuArchivoEnteroPUNTAaPUNTA:
+    """La auditoría que pidió Kevin, con su email de verdad.
+
+    No prueba una función: prueba el ciclo entero tal y como ocurre en Render
+    —cuenta, análisis guardados, respaldo, **el disco borrado**, arranque nuevo,
+    login— y exige que al otro lado esté todo: la sesión, los reportes y los
+    que se guardaron mientras el servidor no tenía ninguna cuenta.
+
+    Ese último es el que faltaba. Un reporte huérfano solo lo ve quien entra
+    SIN sesión, así que al recuperar la cuenta quedaba invisible para su dueño
+    aunque estuviera guardado. «Se guardó pero no lo ves» es indistinguible de
+    «se perdió».
+    """
+
+    EMAIL = "kevintaboas02@gmail.com"
+    CLAVE = "ClaveLargaDeKevin123!"
+
+    @pytest.fixture(autouse=True)
+    def entorno(self, tmp_path, monkeypatch, remoto):
+        self.dir = tmp_path
+        _aisla(tmp_path, monkeypatch, remoto)
+        monkeypatch.setenv("VERTEX_DB_KEY", "clave-de-prueba-suficientemente-larga")
+
+    def _cliente(self):
+        from fastapi.testclient import TestClient
+
+        import vertex_api as V
+
+        V._arranca_almacen()
+        V.init_db()
+        return TestClient(V.app), V
+
+    @staticmethod
+    def _guarda_reporte(V, rid, ticker, usuario_id):
+        """Un reporte con su payload, como los que archiva el agente."""
+        conn = V._db()
+        conn.execute(
+            "INSERT OR REPLACE INTO reports (report_id, ticker, created_at, "
+            "created_ts, payload, usuario_id) VALUES (?,?,?,?,?,?)",
+            (rid, ticker, "2026-08-14 19:03:00", 1755198180.0,
+             json.dumps({"id": rid, "ticker": ticker}), usuario_id))
+        conn.commit()
+        conn.close()
+
+    def _borra_el_disco(self, monkeypatch):
+        """Un redeploy de Render: el sistema de archivos entero desaparece."""
+        import shutil
+
+        import vertex_almacen as VA
+
+        shutil.rmtree(self.dir / "almacen", ignore_errors=True)
+        (self.dir / "vertex.db").unlink(missing_ok=True)
+        monkeypatch.setattr(VA, "almacen", VA.Almacen())
+
+    def test_la_cuenta_y_TODO_su_archivo_sobreviven_al_borrado(self, monkeypatch):
+        c, V = self._cliente()
+
+        r = c.post("/api/auth/registro", json={
+            "email": self.EMAIL, "nombre": "Kevin", "password": self.CLAVE})
+        assert r.json().get("ok") is True, r.json()
+        uid = r.json()["usuario"]["id"]
+
+        # Dos análisis suyos y uno HUÉRFANO: el que se guardó mientras el
+        # servidor no tenía ninguna cuenta cargada.
+        self._guarda_reporte(V, "r-msft", "MSFT", uid)
+        self._guarda_reporte(V, "r-nvda", "NVDA", uid)
+        self._guarda_reporte(V, "r-huerfano", "GOOG", None)
+
+        from vertex_almacen import almacen
+        almacen.sincroniza()
+
+        self._borra_el_disco(monkeypatch)
+
+        c2, V2 = self._cliente()
+        # 1 · La cuenta volvió y ENTRA con su contraseña.
+        r = c2.post("/api/auth/entrar",
+                    json={"email": self.EMAIL, "password": self.CLAVE})
+        assert r.status_code == 200 and r.json().get("ok") is True, r.json()
+        assert r.json()["usuario"]["email"] == self.EMAIL
+
+        # 2 · Y una contraseña mala sigue sin entrar: la cuenta es la de antes,
+        #     no una recreada de cualquier manera.
+        assert c2.post("/api/auth/entrar",
+                       json={"email": self.EMAIL,
+                             "password": "otra-que-no-es"}).status_code == 401
+
+        # 3 · Su archivo entero está: los dos suyos Y el huérfano adoptado.
+        d = c2.get("/api/reports/list").json()
+        assert d.get("ok") is True, d
+        tickers = {json.loads(x)["ticker"] if isinstance(x, str) else x["ticker"]
+                   for x in d["reports"]}
+        assert {"MSFT", "NVDA"} <= tickers, f"faltan reportes suyos: {tickers}"
+        assert "GOOG" in tickers, (
+            "el reporte guardado mientras no había cuenta quedó invisible para "
+            "su dueño: sigue con usuario_id NULL")
+
+    def test_con_DOS_cuentas_los_huerfanos_no_se_reparten_a_ojo(self,
+                                                               monkeypatch):
+        """Entregarle a alguien el análisis de otro no se arregla después."""
+        c, V = self._cliente()
+        c.post("/api/auth/registro", json={
+            "email": self.EMAIL, "nombre": "Kevin", "password": self.CLAVE})
+        c.post("/api/auth/salir")
+        c.post("/api/auth/registro", json={
+            "email": "otra@ejemplo.com", "nombre": "Otra",
+            "password": "ClaveLargaOtra123!"})
+        self._guarda_reporte(V, "r-huerfano", "GOOG", None)
+
+        assert V._adopta_reportes_huerfanos() == 0, (
+            "con dos cuentas se repartió un reporte sin dueño a ojo")
+
+    def test_el_email_se_normaliza_igual_al_crear_y_al_entrar(self, monkeypatch):
+        """Un email guardado con mayúsculas y buscado en minúsculas es un
+        «email o contraseña incorrectos» que no se explica solo."""
+        c, _ = self._cliente()
+        c.post("/api/auth/registro", json={
+            "email": "  KevinTaboas02@GMAIL.com ", "nombre": "Kevin",
+            "password": self.CLAVE})
+        r = c.post("/api/auth/entrar",
+                   json={"email": self.EMAIL, "password": self.CLAVE})
+        assert r.json().get("ok") is True, (
+            "el mismo email con otra caja no entra: normalización asimétrica")
+
+    def test_y_el_archivo_de_FICHEROS_tambien_esta(self, monkeypatch):
+        """Los reportes viven además como archivos en `Reportes/`, que es la
+        fuente de verdad. Que la base los pierda no puede llevárselos."""
+        import vertex_archivo
+
+        c, V = self._cliente()
+        c.post("/api/auth/registro", json={
+            "email": self.EMAIL, "nombre": "Kevin", "password": self.CLAVE})
+        from vertex_almacen import almacen
+
+        almacen.guarda("Reportes/MSFT/2026-08-14/reporte.json",
+                       {"ticker": "MSFT", "puntaje": 71})
+        almacen.sincroniza()
+
+        self._borra_el_disco(monkeypatch)
+        self._cliente()
+        from vertex_almacen import almacen as alm2
+
+        assert alm2.lee_json("Reportes/MSFT/2026-08-14/reporte.json") == {
+            "ticker": "MSFT", "puntaje": 71}, "el archivo de ficheros no volvió"
+        assert vertex_archivo is not None

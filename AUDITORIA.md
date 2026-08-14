@@ -6906,3 +6906,66 @@ Y una corrección al propio arnés: `_abre()` esperaba 3 segundos fijos. Con la
 batería entera corriendo no siempre alcanzaban y un caso fallaba por el arnés y
 no por el panel — la peor clase de rojo, el que enseña a desconfiar de los
 tests. Ahora espera a que el Dashboard esté pintado, no a un reloj.
+
+## 41.60 · Ronda 35 — la auditoría de la cuenta, y los reportes que nadie veía
+
+> «Verifica y audita que las cuentas estén funcionando y la cuenta que ya había
+> creado con el email kevintaboas02@gmail.com … y extraiga todos los archivos y
+> reportes y todo.»
+
+### Primero, la buena noticia que estaba en los datos
+
+```
+22:40:31   privado.enc 2.089.060 · privado-20260814.enc 2.089.060   ← recuperación manual
+22:41:03   privado.enc 1.433.700 · privado-20260814.enc 1.433.700   ← «cierre del servicio»
+```
+
+A las 22:41 **la aplicación reescribió la copia fechada**. Ese archivo lo
+escribe únicamente `_guarda_copia_fechada()`, que es código de la ronda 34, y
+solo se ejecuta cuando `_cuenta_usuarios() > 0`. Dos cosas se siguen de ahí sin
+necesidad de suponer nada: el despliegue **cogió el arreglo**, y el contenedor
+**tiene cuentas cargadas**.
+
+El archivo de ficheros está entero: 16 reportes de acciones (PLTR ×4, NVDA ×4,
+MSFT ×2, AMZN ×2, MRVL, META, GOOG, APH), 38 de proyecciones y 5 tesis de
+memoria.
+
+### Y el hueco que la auditoría destapó
+
+Un reporte guardado **mientras el servidor no tenía ninguna cuenta** —lo que
+ocurrió tres veces ese día— queda con `usuario_id` NULL. Y `/api/reports/list`
+trata las filas NULL como «de nadie, no de todos»: solo las ve quien entra **sin
+sesión**. Al recuperar la cuenta, esos análisis quedan **invisibles para su
+dueño**, aunque estén en la base y aunque el archivo de `Reportes/` esté intacto.
+
+*«Se guardó pero no lo ves»* es indistinguible de *«se perdió»*.
+
+La adopción de huérfanos existía, pero solo al **crear** la primera cuenta. No
+cubría este caso, que es el que pasa: la cuenta no se crea, **se restaura**.
+
+`_adopta_reportes_huerfanos()` corre ahora al arrancar, después de restaurar. Y
+la regla es estrecha a propósito: **solo si hay UNA sola cuenta** en el
+despliegue. Con dos o más no se toca nada — repartirlos a ojo sería entregarle a
+alguien el análisis de otro, y eso no se arregla después. Un caso lo vigila.
+
+### La auditoría, con su email de verdad
+
+`TestLaCuentaDeKevinYSuArchivoEnteroPUNTAaPUNTA` no prueba una función: prueba
+el ciclo entero tal y como ocurre en Render —registro con
+`kevintaboas02@gmail.com`, dos análisis suyos y uno huérfano, respaldo, **el
+disco borrado**, arranque nuevo, login— y exige que al otro lado esté todo:
+
+- la cuenta entra con su contraseña;
+- una contraseña mala sigue dando 401 (es la cuenta de antes, no una recreada);
+- su archivo trae los dos suyos **y el huérfano adoptado**;
+- el mismo email con otra caja (`  KevinTaboas02@GMAIL.com `) entra igual;
+- y los ficheros de `Reportes/` vuelven del almacén.
+
+El caso se comprobó **desactivando el arreglo**: sin él sale
+`assert 'GOOG' in {'MSFT', 'NVDA'}` en rojo. Un caso que pasa con y sin el
+arreglo no prueba nada.
+
+### Estado
+
+**3.371 tests del motor · 789 de la capa web · 69 en un navegador real ·
+324 checks de auditoría · 16 diferenciales sin divergencias.**

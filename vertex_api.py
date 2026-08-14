@@ -161,6 +161,7 @@ def _arranca_almacen():
         # toma DESPUÉS de restaurar: es «con cuántas cuentas empezamos hoy».
         _USUARIOS_AL_ARRANCAR = max(_cuenta_usuarios(), 0)
         log.info("cuentas tras restaurar: %d", _USUARIOS_AL_ARRANCAR)
+        _adopta_reportes_huerfanos()
         # El paquete cifrado se regenera justo antes de cada respaldo, no
         # cuando alguien crea una cuenta: así no hay que acordarse de llamarlo
         # desde los cinco sitios que tocan la base, y nunca se sube una foto
@@ -399,6 +400,45 @@ _USUARIOS_AL_ARRANCAR: int | None = None
 #: `/api/almacen` y en el aviso de persistencia: un respaldo que existe y no se
 #: puede abrir es peor que no tenerlo, porque nadie va a ir a buscarlo.
 _MOTIVO_RESTAURA: str = ""
+
+
+def _adopta_reportes_huerfanos() -> int:
+    """Los reportes sin dueño pasan a la ÚNICA cuenta, si hay una sola.
+
+    Un reporte guardado mientras el servidor no tenía cuentas —lo que pasó tres
+    veces el 14/08— queda con `usuario_id` NULL. Y una fila NULL solo la ve
+    quien entra SIN sesión: al recuperar la cuenta, esos análisis quedan
+    invisibles para su dueño aunque estén ahí y aunque el archivo de
+    `Reportes/` esté intacto. «Se guardó pero no lo ves» es indistinguible de
+    «se perdió».
+
+    La adopción existía, pero solo al CREAR la primera cuenta. No cubría este
+    caso, que es el que ocurre: la cuenta no se crea, se restaura.
+
+    Con UNA sola cuenta en el despliegue, esos reportes son suyos sin ninguna
+    duda. Con dos o más NO se toca nada: repartirlos a ojo sería entregarle a
+    alguien el análisis de otro, y eso no se arregla después.
+    """
+    try:
+        conn = _db()
+        try:
+            filas = conn.execute("SELECT id FROM usuarios").fetchall()
+            if len(filas) != 1:
+                return 0
+            cur = conn.execute(
+                "UPDATE reports SET usuario_id=? WHERE usuario_id IS NULL",
+                (filas[0]["id"],))
+            n = cur.rowcount or 0
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:                            # noqa: BLE001
+        return 0
+    if n:
+        logging.getLogger(__name__).info(
+            "%d reporte(s) sin dueño adoptados por la única cuenta del "
+            "despliegue: se guardaron mientras no había ninguna", n)
+    return n
 
 
 def _cuenta_usuarios() -> int:
