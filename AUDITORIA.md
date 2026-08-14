@@ -6744,6 +6744,66 @@ está escrita al lado del código para no volver a confundir las dos cosas.
 **3.371 tests del motor · 778 de la capa web · 60 en un navegador real ·
 324 checks de auditoría · 16 diferenciales sin divergencias.**
 
+## 41.58 · Ronda 33 — unos reportes impedían que volvieran las cuentas
+
+> «Me sale eso aún» — *Email o contraseña incorrectos.*
+
+El respaldo estaba intacto en la rama. El código de login está bien —el mismo
+`normaliza_email` en crear y en autenticar, PBKDF2 estándar—. Y aun así la
+cuenta no entraba, porque **no estaba en la base**. La restauración no corría, y
+el motivo era una línea:
+
+```python
+if _base_con_datos():           # ← mira `usuarios` O `reports`
+    return "la base local ya tiene datos; no se restaura encima"
+```
+
+La secuencia que lo dispara es exactamente la que ocurrió:
+
+1. El respaldo se rompe y el contenedor queda con **cero cuentas**.
+2. Se guarda un análisis —el MSFT de las 19:03— y `reports` pasa a tener filas.
+3. En el siguiente arranque, el candado ve «ya hay datos» **por los reportes**
+   y **salta la restauración**.
+4. Las cuentas no vuelven nunca. Y lo único que se ve es «email o contraseña
+   incorrectos», que apunta a la contraseña.
+
+### Las dos tablas no valen lo mismo
+
+`reports` es **caché**: los análisis viven como archivos en `Reportes/`, que es
+la fuente de verdad —ahí seguía `Reportes/MSFT/2026-08-14/reporte.json`— y de
+ahí se rehacen. Las cuentas no están en ningún archivo: solo en la base. Cuando
+hay que elegir, gana lo irrecuperable.
+
+El candado mira ahora las **cuentas**. Si las hay, no se restaura encima (eso no
+cambia). Si no las hay, se restaura aunque `reports` esté lleno — y se dice en el
+log cuántas filas de caché se desplazan, porque una restauración que mueve datos
+sin mencionarlo es la que hace que nadie se fíe de la siguiente.
+
+`_base_con_datos()` se quedó sin llamador y se borró: una función que ya no
+decide nada pero sigue ahí es una invitación a volver a usarla.
+
+### Y el login deja de mentir por omisión
+
+«Email o contraseña incorrectos» es el mismo mensaje para «no existe» y para
+«mal escrita», y eso es correcto: distinguirlos convierte el login en un
+directorio de emails. Pero hay algo que **sí** se puede decir sin hablar de
+ninguna cuenta concreta — que este servidor no tiene **ninguna**:
+
+> Este servidor no tiene ninguna cuenta cargada, pero el respaldo sí las
+> guarda: la restauración no llegó a correr. Reinicia el servicio para
+> recuperarlas. NO te registres de nuevo o acabarás con dos cuentas y el mismo
+> email ocupado.
+
+Sin esa última frase, la salida natural es registrarse otra vez — y entonces el
+email queda ocupado por una cuenta nueva y la vieja ya no se puede recuperar
+nunca. El aviso llega por `/api/auth/status`, que es público, así que se lee en
+la propia pantalla de login.
+
+### Estado
+
+**3.371 tests del motor · 781 de la capa web · 69 en un navegador real ·
+324 checks de auditoría · 16 diferenciales sin divergencias.**
+
 ## 41.57 · Ronda 32 — el gráfico que no se entendía
 
 > «Veo un revolu de líneas y no se entiende. Me gustaría que se vea más simple

@@ -587,36 +587,6 @@ def _respalda_privado(alm=None) -> str:
         return f"no se pudo respaldar lo privado: {e}"
 
 
-def _base_con_datos() -> bool:
-    """¿Hay algo que perder en la base local?
-
-    Se mira si hay FILAS en las dos tablas que no se pueden regenerar: usuarios
-    y reportes. Un esquema recién creado no cuenta como datos — y ese es
-    justamente el estado en el que está la base cuando arranca un contenedor
-    nuevo, porque `init_db()` corre al importar.
-    """
-    import sqlite3
-
-    if not os.path.exists(DB_PATH):
-        return False
-    try:
-        con = sqlite3.connect(DB_PATH, timeout=5)
-        try:
-            for tabla in ("usuarios", "reports"):
-                try:
-                    if con.execute(f"SELECT 1 FROM {tabla} LIMIT 1").fetchone():
-                        return True
-                except sqlite3.Error:
-                    continue                     # la tabla aún no existe
-        finally:
-            con.close()
-    except Exception:                            # noqa: BLE001
-        # Si no se puede ni abrir, se prefiere NO restaurar encima: una base
-        # ilegible puede ser un problema temporal, y pisarla sería definitivo.
-        return True
-    return False
-
-
 def _restaura_privado(alm=None) -> str:
     """Descifra y devuelve la base y los perfiles a su sitio.
 
@@ -637,8 +607,25 @@ def _restaura_privado(alm=None) -> str:
     from vertex_almacen import DIR_PRIVADO, almacen as _def
 
     a = alm or _def
-    if _base_con_datos():
-        return "la base local ya tiene datos; no se restaura encima"
+    # El candado mira las CUENTAS, no «si hay algo».
+    #
+    # Miraba `usuarios` O `reports`, y ahí estaba la trampa que dejó a Kevin
+    # fuera con el respaldo intacto al lado: tras una restauración fallida el
+    # contenedor se queda con cero cuentas, se guarda un análisis —y `reports`
+    # pasa a tener filas—, y en el siguiente arranque este candado ve «ya hay
+    # datos» POR LOS REPORTES y salta la restauración. Las cuentas no vuelven
+    # nunca, y lo único que se ve es «email o contraseña incorrectos».
+    #
+    # Las dos tablas no valen lo mismo. `reports` es CACHÉ: los análisis viven
+    # como archivos en `Reportes/`, que es la fuente de verdad, y de ahí se
+    # rehace. Las cuentas no están en ningún archivo — solo aquí—, así que
+    # perderlas es definitivo. Cuando hay que elegir, gana lo irrecuperable.
+    hay = _cuenta_usuarios()
+    if hay > 0:
+        return "la base local ya tiene cuentas; no se restaura encima"
+    if hay < 0:
+        return ("no se pudo leer la base local para saber si tiene cuentas; "
+                "no se restaura a ciegas")
     cifrado = a.lee(f"{DIR_PRIVADO}/{_PRIVADO_ENC}")
     if not cifrado:
         return ""                                # primer arranque: no hay nada
@@ -646,6 +633,24 @@ def _restaura_privado(alm=None) -> str:
     if f is None:
         return ("Hay un respaldo cifrado pero falta VERTEX_DB_KEY: las cuentas "
                 "no se pueden recuperar sin la clave con la que se guardaron.")
+    # Cuántas filas de caché se van a desplazar. Restaurar reescribe la base
+    # entera, así que los reportes indexados que todavía no estuvieran en el
+    # respaldo pierden su fila —no el análisis, que está en `Reportes/`—. Se
+    # cuenta antes para poder DECIRLO: una restauración que mueve datos y no lo
+    # menciona es la que hace que nadie se fíe de la siguiente.
+    desplazados = 0
+    try:
+        con = sqlite3.connect(DB_PATH, timeout=5)
+        try:
+            fila = con.execute("SELECT COUNT(*) FROM reports").fetchone()
+            desplazados = int(fila[0]) if fila else 0
+        except sqlite3.Error:
+            desplazados = 0
+        finally:
+            con.close()
+    except Exception:                            # noqa: BLE001
+        desplazados = 0
+
     try:
         claro = f.decrypt(cifrado)
         with tarfile.open(fileobj=io.BytesIO(claro), mode="r") as tar:
@@ -673,6 +678,11 @@ def _restaura_privado(alm=None) -> str:
                     continue
                 with open(destino, "wb") as fh:
                     fh.write(datos.read())
+        if desplazados:
+            logging.getLogger(__name__).warning(
+                "restauradas las cuentas desde el respaldo; %d fila(s) de "
+                "reportes de la caché local se rehacen desde Reportes/",
+                desplazados)
         return ""
     except Exception as e:                       # noqa: BLE001
         return f"no se pudo restaurar lo privado: {e}"
@@ -1056,6 +1066,22 @@ def _aviso_persistencia() -> str:
                 + _MOTIVO_RESTAURA
                 + " Las cuentas viejas no aparecerán hasta que se resuelva; no "
                 "vuelvas a registrarte hasta entonces o tendrás dos.")
+    # CERO cuentas aquí y cuentas en el respaldo: la restauración no corrió.
+    #
+    # Es el caso que dejaba a la persona mirando «email o contraseña
+    # incorrectos» —un mensaje que apunta a la contraseña— cuando lo que pasa
+    # es que su cuenta nunca llegó a este contenedor. El login no puede
+    # distinguir «no existe» de «mal escrita» a propósito, para no convertirse
+    # en un directorio de emails; pero ESTO sí se puede decir, porque no habla
+    # de ninguna cuenta en concreto.
+    try:
+        if _cuenta_usuarios() == 0 and _cuentas_en_el_respaldo() > 0:
+            return ("Este servidor no tiene ninguna cuenta cargada, pero el "
+                    "respaldo sí las guarda: la restauración no llegó a correr. "
+                    "Reinicia el servicio para recuperarlas. NO te registres de "
+                    "nuevo o acabarás con dos cuentas y el mismo email ocupado.")
+    except Exception:                             # noqa: BLE001
+        pass
     if _fernet() is None:
         return ("Esta cuenta se guarda en disco pero NO se respalda: falta "
                 "VERTEX_DB_KEY, la clave con la que se cifran las cuentas antes "

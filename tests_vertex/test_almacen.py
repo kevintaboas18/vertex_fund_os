@@ -394,11 +394,16 @@ class TestUnContenedorNuevo:
         V._arranca_almacen()
         assert str(self.dir / "almacen") in os.environ["WBJ_TITO_DATA"]
 
-    def test_una_base_CON_datos_no_se_pisa_con_la_del_remoto(self):
-        """Un contenedor que ya trabajó no puede perder lo suyo porque llegue
-        una foto vieja. Se comprueba con datos reales, no con el archivo: el
-        esquema vacío que crea `init_db()` al importar no cuenta como datos —
-        y confundir las dos cosas hacía que la restauración no actuara NUNCA."""
+    def test_una_base_CON_CUENTAS_no_se_pisa_con_la_del_remoto(self):
+        """Un contenedor que ya trabajó no puede perder sus cuentas porque
+        llegue una foto vieja.
+
+        El candado mira las CUENTAS y no «si hay algo». Miró `usuarios` O
+        `reports` durante un tiempo, y ahí estaba la trampa: con cero cuentas y
+        unos reportes en la caché, la restauración se saltaba y las cuentas no
+        volvían nunca. Las dos tablas no valen lo mismo — los análisis viven en
+        `Reportes/` y se rehacen; las cuentas no están en ningún archivo.
+        """
         import vertex_api as V
         import vertex_cuentas as C
 
@@ -407,8 +412,8 @@ class TestUnContenedorNuevo:
         C.crear_usuario(conn, "nuevo@ejemplo.com", "Nuevo", "otra-clave-larga-99")
         conn.commit(); conn.close()
 
-        assert V._base_con_datos() is True
-        assert "ya tiene datos" in V._restaura_privado()
+        assert V._cuenta_usuarios() > 0
+        assert "ya tiene cuentas" in V._restaura_privado()
         conn = V._db()
         try:
             assert C.autenticar(conn, "nuevo@ejemplo.com", "otra-clave-larga-99")
@@ -1624,3 +1629,81 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         monkeypatch.setattr(V.sqlite3, "connect", _revienta)
         with pytest.raises(Exception):
             V._copia_la_base(str(tmp_path / "copia.db"))
+
+    def test_UNOS_REPORTES_no_pueden_impedir_que_vuelvan_las_cuentas(
+            self, tmp_path, monkeypatch):
+        """El fallo que dejó a Kevin fuera con el respaldo intacto al lado.
+
+        El candado de la restauración miraba `usuarios` O `reports`. Tras una
+        restauración fallida el contenedor se queda con cero cuentas; se guarda
+        un análisis —y `reports` pasa a tener filas—; y en el siguiente arranque
+        el candado ve «ya hay datos» POR LOS REPORTES y salta la restauración.
+        Las cuentas no vuelven nunca y lo único que se ve es «email o contraseña
+        incorrectos», que apunta a la contraseña.
+
+        Las dos tablas no valen lo mismo: `reports` es caché —los análisis viven
+        en `Reportes/`— y las cuentas no están en ningún archivo.
+        """
+        import vertex_api as V
+
+        # Un respaldo con una cuenta dentro.
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        assert V._respalda_privado(a) == ""
+        assert V._cuentas_en_el_respaldo(a) == 1
+
+        # Y ahora el estado del desastre: sin cuentas, pero con un reporte.
+        conn = V._db()
+        conn.execute("DELETE FROM usuarios")
+        conn.execute(
+            "INSERT INTO reports (report_id, ticker, created_at, created_ts) "
+            "VALUES ('r1', 'MSFT', '2026-08-14 19:03:00', 1)")
+        conn.commit()
+        conn.close()
+        assert V._cuenta_usuarios() == 0
+
+        motivo = V._restaura_privado(a)
+        assert motivo == "", f"la restauración se negó a correr: {motivo}"
+        assert V._cuenta_usuarios() == 1, (
+            "las cuentas no volvieron: unos reportes en la caché bloquearon la "
+            "restauración del único sitio donde viven las cuentas")
+
+    def test_pero_con_cuentas_vivas_NO_se_restaura_encima(self, tmp_path):
+        """El candado sigue existiendo para lo que existía: una foto del remoto
+        no puede pisar cuentas vivas."""
+        import vertex_api as V
+        import vertex_cuentas as C
+
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        V._respalda_privado(a)
+        conn = V._db()
+        C.crear_usuario(conn, "ana@ejemplo.com", "Ana", "contrasena-larga-1234")
+        conn.commit()
+        conn.close()
+
+        motivo = V._restaura_privado(a)
+        assert "ya tiene cuentas" in motivo, motivo
+        assert V._cuenta_usuarios() == 2, "se pisaron las cuentas vivas"
+
+    def test_el_aviso_DICE_que_la_cuenta_no_se_restauro(self, tmp_path,
+                                                        monkeypatch):
+        """«Email o contraseña incorrectos» apunta a la contraseña cuando el
+        problema es que la cuenta nunca llegó a este contenedor."""
+        import vertex_almacen as _AL
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        V._respalda_privado(a)
+        conn = V._db()
+        conn.execute("DELETE FROM usuarios")
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setattr(_AL, "almacen", a)
+        aviso = V._aviso_persistencia()
+        assert "no tiene ninguna cuenta cargada" in aviso, aviso
+        assert "NO te registres de nuevo" in aviso, (
+            "sin esto, la salida natural es registrarse otra vez y acabar con "
+            "dos cuentas y el email ocupado")
