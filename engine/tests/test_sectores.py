@@ -420,3 +420,111 @@ class TestLasVentanasDelSelector:
         c = cambios_por_ventana([], None)
         assert set(c) == {e for e, _ in VENTANAS_CAMBIO}
         assert all(v is None for v in c.values())
+
+
+from wbj.sectores import (MAYORIA_CLARA, UMBRAL_MIEMBRO_PCT,  # noqa: E402
+                          amplitud)
+
+
+def _m(t, cambio=None, dist=None, rsi=None):
+    return {"ticker": t, "nombre": t, "cambio_pct": cambio,
+            "sma200_dist": dist, "rsi": rsi}
+
+
+class TestLaAmplitudSEPARALoQueElPorcentajeCONFUNDE:
+    """La pregunta que separa una señal de un espejismo.
+
+    Un sector que sube con nueve de diez industrias en verde y otro que sube
+    porque UNA se disparó enseñan el mismo porcentaje y son cosas distintas: la
+    segunda se da la vuelta en cuanto esa una se cansa.
+    """
+
+    def test_muchos_al_alza_da_confianza_ALTA(self):
+        a = amplitud([_m(f"A{i}", 1.2, 4.0, 60) for i in range(7)]
+                     + [_m("B1", -1.0, -3.0, 40), _m("B2", -0.8, -2.0, 42)])
+        assert a["confianza"] == "alta"
+        assert len(a["fuertes"]) == 7 and len(a["debiles"]) == 2
+        assert "repartida" in a["frase"]
+
+    def test_UNO_solo_empujando_da_confianza_BAJA(self):
+        """El caso que este código existe para cazar."""
+        a = amplitud([_m("A", 6.0, 9.0, 72)]
+                     + [_m(f"B{i}", -1.0, -3.0, 40) for i in range(4)])
+        assert a["confianza"] != "alta" or a["debiles"], a
+        # Con 4 de 5 abajo, lo honesto es decir que la debilidad manda.
+        assert len(a["debiles"]) == 4 and len(a["fuertes"]) == 1
+
+    def test_el_caso_del_espejismo_puro(self):
+        """Uno disparado y el resto plano: ni fuerza repartida ni debilidad."""
+        a = amplitud([_m("A", 6.0, 9.0, 72)]
+                     + [_m(f"B{i}", 0.0, 0.5, 50) for i in range(4)])
+        assert a["confianza"] == "baja", a
+        assert len(a["fuertes"]) == 1
+        assert "uno" in a["frase"] or "clara" in a["frase"], a["frase"]
+
+    def test_repartido_es_confianza_BAJA_aunque_haya_verdes(self):
+        a = amplitud([_m("A1", 1.5, 3.0, 60), _m("A2", 1.4, 2.0, 58),
+                      _m("B1", -1.5, -3.0, 40), _m("B2", -1.2, -2.0, 42)])
+        assert a["confianza"] == "baja"
+        assert "no hay una dirección clara" in a["frase"]
+
+    def test_la_mayoria_justa_es_confianza_MEDIA(self):
+        a = amplitud([_m(f"A{i}", 1.2, 3.0, 60) for i in range(6)]
+                     + [_m(f"B{i}", -1.2, -3.0, 40) for i in range(4)])
+        assert a["confianza"] == "media", a
+        assert "no es unánime" in a["frase"]
+
+    def test_el_umbral_de_mayoria_es_el_declarado(self):
+        n = 10
+        justos = int(MAYORIA_CLARA * n) + 1
+        a = amplitud([_m(f"A{i}", 1.2, 3.0, 60) for i in range(justos)]
+                     + [_m(f"B{i}", -1.2, -3.0, 40) for i in range(n - justos)])
+        assert a["confianza"] == "alta", a
+
+
+class TestQuienEmpujaYQuienFRENA:
+    def test_los_que_mas_tiran_salen_ordenados(self):
+        a = amplitud([_m("A", 1.0, 3.0, 60), _m("B", 4.0, 5.0, 65),
+                      _m("C", 2.0, 3.0, 58), _m("D", -3.0, -4.0, 35)])
+        assert [x["ticker"] for x in a["empujan"]] == ["B", "C", "A"]
+        assert [x["ticker"] for x in a["frenan"]] == ["D"]
+
+    def test_no_se_listan_mas_de_tres_por_lado(self):
+        a = amplitud([_m(f"A{i}", 1.0 + i, 3.0, 60) for i in range(9)])
+        assert len(a["empujan"]) == 3
+
+
+class TestUnMiembroNoEsFUERTEPorUnSoloDato:
+    """Cada señal engaña sola: un día verde dentro de una caída de tres meses
+    no es fuerza, y un RSI de 72 por debajo de la media de 200 suele ser un
+    rebote. Por eso votan tres y hacen falta dos."""
+
+    def test_subir_hoy_por_debajo_de_la_200_y_con_RSI_flojo_no_es_fuerza(self):
+        a = amplitud([_m("A", 1.5, -6.0, 42)])
+        assert a["fuertes"] == [] and a["neutrales"] == ["A"]
+
+    def test_subir_hoy_POR_ENCIMA_de_la_200_si_lo_es(self):
+        a = amplitud([_m("A", 1.5, 6.0, 58)])
+        assert a["fuertes"] == ["A"]
+
+    def test_un_movimiento_minusculo_no_vota(self):
+        chico = UMBRAL_MIEMBRO_PCT / 2
+        assert amplitud([_m("A", chico, None, None)])["fuertes"] == []
+
+    def test_con_datos_a_medias_se_decide_con_lo_que_hay(self):
+        assert amplitud([_m("A", 2.0, 5.0, None)])["fuertes"] == ["A"]
+        assert amplitud([_m("A", None, None, None)])["neutrales"] == ["A"]
+
+
+class TestLaAmplitudNoRevientaConBasura:
+    def test_sin_miembros_lo_dice(self):
+        a = amplitud([])
+        assert a["n"] == 0 and a["confianza"] is None
+        assert "Sin miembros" in a["frase"]
+
+    def test_None_y_filas_rotas_se_ignoran(self):
+        a = amplitud([None, {"sin": "ticker"}, _m("A", 1.5, 4.0, 60)])
+        assert a["n"] == 1 and a["fuertes"] == ["A"]
+
+    def test_ni_con_None_de_entrada(self):
+        assert amplitud(None)["n"] == 0

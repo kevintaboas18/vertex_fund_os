@@ -155,6 +155,9 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
         # No es texto: es la URL de la ruta de la lectura. El extractor la ve
         # como una cadena del panel porque «lectura» tiene morfología española.
         "/api/sectores/lectura",
+        "/api/sectores/lectura?",
+        # Cargador del tercer piso: lleva el ticker dentro, va por `VX_PAT`.
+        "Leyendo las empresas de",
         # El aviso de «servidor sin la ruta todavía»: lleva el código HTTP
         # dentro, así que el extractor lo corta en el `${`. Va por `VX_PAT`.
         "El servidor todavía no tiene la pantalla de sectores (HTTP",

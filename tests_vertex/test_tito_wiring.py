@@ -3862,15 +3862,23 @@ class TestLaLecturaDelMercadoEXPLICAyNoDECIDE:
 
     def test_el_panel_escapa_ANTES_de_marcar_las_negritas(self):
         """Al revés de como suele hacerse, y la única forma de que un
-        `<img onerror>` en la respuesta del modelo no acabe ejecutándose."""
+        `<img onerror>` en la respuesta del modelo no acabe ejecutándose.
+
+        Se mira `vxLecturaHTML`, que es por donde pasan LAS DOS lecturas —la
+        del mercado y la de un grupo—. Cuando cada una tenía su copia, este
+        test solo cubría una.
+        """
         import pathlib
         import re
 
         html = pathlib.Path("vertex_fund_os_platform.html").read_text(encoding="utf-8")
-        cuerpo = html.split("async function cargaLecturaMercado", 1)[1][:2600]
+        cuerpo = html.split("function vxLecturaHTML", 1)[1][:2600]
         i_esc = cuerpo.index("_vcEsc(d.texto)")
         i_neg = cuerpo.index("replace(/\\*\\*")
         assert i_esc < i_neg, (
             "se marcan las negritas antes de escapar: el HTML del modelo "
             "entraría vivo")
-        assert not re.search(r"innerHTML\s*=\s*[`'\"]?\s*\$\{d\.texto\}", cuerpo)
+        assert not re.search(r"innerHTML\s*=\s*[`\'\"]?\s*\$\{d\.texto\}", html)
+        assert html.count("_vcEsc(d.texto)") == 1, (
+            "hay más de un sitio pintando la lectura: uno puede quedarse sin "
+            "escapar")

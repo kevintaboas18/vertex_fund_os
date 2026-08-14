@@ -54,6 +54,11 @@ __all__ = [
     "sma",
     "distancia_sma",
     "cambios_por_ventana",
+    # ── amplitud interna ──
+    "UMBRAL_MIEMBRO_PCT",
+    "MAYORIA_CLARA",
+    "MAYORIA_DEBIL",
+    "amplitud",
 ]
 
 #: Periodos del RSI. 14 es el de Wilder, que es lo que enseña cualquier
@@ -551,3 +556,132 @@ def cambios_por_ventana(cierres, cambio_dia=None):
         v = roc(cierres, sesiones)
         salida[etiqueta] = None if v is None else round(v, 2)
     return salida
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  AMPLITUD INTERNA: ¿CUÁNTOS EMPUJAN, Y CUÁNTA CONFIANZA DA ESO?
+#
+#  La pregunta que esto responde es la que separa una señal de un espejismo:
+#  un sector que sube con nueve de sus diez industrias en verde y otro que sube
+#  porque UNA se disparó son el mismo porcentaje en pantalla y dos cosas
+#  distintas en la realidad. La segunda se da la vuelta en cuanto esa una se
+#  cansa.
+#
+#  Sirve igual para los dos niveles —las industrias dentro de un sector, y las
+#  acciones dentro de una industria— porque la pregunta es la misma: cuántos de
+#  los que están debajo van en la dirección del de arriba.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Cuándo un miembro cuenta como fuerte o débil. El cambio del día solo no
+#: basta —un +0,3% no es fuerza, es ruido— así que se exige que además esté por
+#: encima de su media de 200 o con el RSI del lado bueno.
+UMBRAL_MIEMBRO_PCT = 0.25
+
+#: Cuánta mayoría hace falta para decir que la señal es de fiar. Dos tercios no
+#: es un número redondo por gusto: con 4 de 6 ya hay una dirección clara, y con
+#: 3 de 6 no hay nada que decir por mucho que el sector esté verde.
+MAYORIA_CLARA = 0.66
+MAYORIA_DEBIL = 0.55
+
+
+def _miembro_lado(m: dict) -> str:
+    """`fuerte`, `debil` o `neutral` para un miembro (industria o acción).
+
+    Tres cosas votan: el cambio del día, dónde está respecto a su media de 200
+    y el RSI. Se pide MÁS de una porque cada una engaña sola — un día verde
+    dentro de una caída de tres meses no es fuerza, y un RSI de 72 en algo que
+    perdió su media de 200 suele ser un rebote.
+    """
+    cambio = m.get("cambio_pct")
+    dist = m.get("sma200_dist")
+    r = m.get("rsi")
+    votos = 0
+    if cambio is not None:
+        votos += 1 if cambio > UMBRAL_MIEMBRO_PCT else (
+            -1 if cambio < -UMBRAL_MIEMBRO_PCT else 0)
+    if dist is not None:
+        votos += 1 if dist > 0 else -1
+    if r is not None:
+        votos += 1 if r >= 55 else (-1 if r <= 45 else 0)
+    if votos >= 2:
+        return "fuerte"
+    if votos <= -2:
+        return "debil"
+    return "neutral"
+
+
+def amplitud(miembros) -> dict:
+    """Cuántos empujan, cuántos frenan, y cuánta confianza merece eso.
+
+    `miembros` son dicts con `ticker`, `nombre`, `cambio_pct`, `rsi` y
+    `sma200_dist`. Devuelve el reparto, los que más tiran en cada dirección y
+    un veredicto de confianza en palabras.
+
+    La confianza NO es el tamaño del movimiento: es cuántos lo acompañan. Un
+    sector +2% con una sola industria empujando es menos fiable que uno +0,6%
+    con siete de nueve en verde, y esta función existe para que esa diferencia
+    salga en pantalla en vez de quedarse en la intuición de quien mire.
+    """
+    filas = [m for m in (miembros or []) if isinstance(m, dict) and m.get("ticker")]
+    if not filas:
+        return {"n": 0, "fuertes": [], "debiles": [], "neutrales": [],
+                "pct_fuertes": None, "confianza": None,
+                "frase": "Sin miembros que medir.", "empujan": [], "frenan": []}
+
+    lados = {t: _miembro_lado(m) for t, m in ((f["ticker"], f) for f in filas)}
+    fuertes = [f for f in filas if lados[f["ticker"]] == "fuerte"]
+    debiles = [f for f in filas if lados[f["ticker"]] == "debil"]
+    neutrales = [f for f in filas if lados[f["ticker"]] == "neutral"]
+    n = len(filas)
+    pct = len(fuertes) / n * 100.0
+
+    def _porCambio(xs, inverso=False):
+        return sorted(xs, key=lambda x: (x.get("cambio_pct") or 0),
+                      reverse=not inverso)
+
+    # Quién TIRA: el que más se mueve entre los de su lado. No es lo mismo
+    # «siete en verde» que «siete en verde y uno de ellos +6%».
+    empujan = [{"ticker": f["ticker"], "nombre": f.get("nombre", f["ticker"]),
+                "cambio_pct": f.get("cambio_pct")}
+               for f in _porCambio(fuertes)[:3]]
+    frenan = [{"ticker": f["ticker"], "nombre": f.get("nombre", f["ticker"]),
+               "cambio_pct": f.get("cambio_pct")}
+              for f in _porCambio(debiles, inverso=True)[:3]]
+
+    parte_f, parte_d = len(fuertes) / n, len(debiles) / n
+    if parte_f >= MAYORIA_CLARA:
+        conf, frase = "alta", (
+            f"{len(fuertes)} de {n} van al alza: la subida está repartida, "
+            f"no la sostiene uno solo.")
+    elif parte_d >= MAYORIA_CLARA:
+        conf, frase = "alta", (
+            f"{len(debiles)} de {n} van a la baja: la debilidad está "
+            f"repartida, no es un caso suelto.")
+    elif parte_f >= MAYORIA_DEBIL:
+        conf, frase = "media", (
+            f"{len(fuertes)} de {n} al alza: hay más fuerza que debilidad, "
+            f"pero no es unánime.")
+    elif parte_d >= MAYORIA_DEBIL:
+        conf, frase = "media", (
+            f"{len(debiles)} de {n} a la baja: pesa más la debilidad, pero no "
+            f"es unánime.")
+    elif len(fuertes) <= 1 and n >= 3 and len(debiles) >= 1:
+        conf, frase = "baja", (
+            f"Solo {len(fuertes)} de {n} al alza: si eso sube, lo sube uno "
+            f"solo y se da la vuelta en cuanto se canse.")
+    else:
+        conf, frase = "baja", (
+            f"Repartido ({len(fuertes)} al alza, {len(debiles)} a la baja): "
+            f"hoy no hay una dirección clara aquí.")
+
+    return {
+        "n": n,
+        "fuertes": [f["ticker"] for f in fuertes],
+        "debiles": [f["ticker"] for f in debiles],
+        "neutrales": [f["ticker"] for f in neutrales],
+        "pct_fuertes": round(pct, 1),
+        "confianza": conf,
+        "frase": frase,
+        "empujan": empujan,
+        "frenan": frenan,
+    }
