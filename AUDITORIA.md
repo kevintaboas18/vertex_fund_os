@@ -6603,3 +6603,62 @@ sobrescribir en veinte segundos.
 
 **3.373 tests del motor · 820 de la capa web (44 en un navegador real) ·
 10 casos nuevos que fijan esta avería · 16 diferenciales sin divergencias.**
+
+## 41.55 · Ronda 30 — la franja arriba, y el mensaje que no se podía leer
+
+Kevin mandó una captura del Dashboard en un teléfono. Se veía el fallo sin
+necesidad de explicarlo: el diagnóstico de amplitud —«Rotación activa: el
+mercado ancho aguanta mejor que las mega-caps»— metido en una columna de seis
+caracteres, partido palabra por palabra, ocupando media pantalla de alto. Y su
+rótulo, `AMPLITUD (RSP CONTRA SPY)`, en cuatro líneas encima.
+
+Un texto que hay que descifrar en vertical no informa: **ocupa**.
+
+### Lo que pidió, y por qué cada cosa está donde está
+
+1. **Fuera el mapa del índice.** Se quitó entero: el bloque del panel, su
+   función, sus cadenas del diccionario y —esto es lo que suele quedarse— la
+   tabla `PESOS_SP500` del motor y el campo `pesos` de la respuesta. Un dato que
+   se sigue calculando y sirviendo para nadie es peor que uno que no existe:
+   parece que alguien lo usa.
+
+2. **El reloj, en la esquina derecha.** En los cuatro tamaños, no «al final de
+   la fila». Es el dato que se consulta sin buscarlo —«¿esto está vivo o es la
+   foto de ayer?»— así que tiene un sitio fijo; colocado según lo que haya al
+   lado, cambiaría de sitio con cada mensaje distinto. En el teléfono se
+   consigue con `flex-col-reverse`: el reloj queda arriba y alineado a la
+   derecha, y las cifras debajo. La esquina derecha es la misma esquina en un
+   iPhone que en un monitor.
+
+3. **El S&P, el VIX y el mensaje en el medio.** El mensaje ocupa su propia línea
+   hasta `lg` y solo se pone al lado cuando de verdad cabe (`basis-full
+   lg:basis-0 lg:min-w-[18rem]`). Esa es la diferencia entre un diseño que
+   «funciona en móvil» porque nada se sale y uno en el que el texto se lee.
+
+4. **La franja, encima del título.** No es orden estético: es el estado del
+   mercado y todo lo de abajo se lee en función de él. Un sector que sube un 2%
+   no significa lo mismo con el índice en verde que cayendo, así que la
+   referencia tiene que haberse leído antes de mirar la primera casilla.
+
+### Los guardianes
+
+Los casos de navegador pasan de dos tamaños a **cuatro** —iPhone 390, iPad 820,
+portátil 1440 y monitor 2560—, uno por punto de corte real de la hoja de
+estilos, que es donde el diseño cambia de forma y donde se rompe. Y miden
+geometría, no presencia:
+
+- la franja empieza **por encima** del título (`top` de una contra `top` del `h1`);
+- el reloj termina a menos de 40 px del borde derecho de la franja;
+- el párrafo de amplitud tiene **al menos 180 px de ancho** y no pasa de 120 px
+  de alto — que es exactamente lo que fallaba en la captura;
+- el mapa de calor **no existe** (`getElementById` devuelve `null`), para que no
+  vuelva por un merge distraído.
+
+Los dos últimos buscan por `data-vx="amplitud-frase"` y `data-vx="reloj"`, no
+por el texto: rastrear la prosa ataba el test al diagnóstico que devolviera el
+motor ese día.
+
+### Estado
+
+**3.371 tests del motor · 776 de la capa web · 48 en un navegador real ·
+16 diferenciales sin divergencias.**

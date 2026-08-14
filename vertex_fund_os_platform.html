@@ -958,21 +958,18 @@
     </div></main>
 
 <main id="sectorsView" class="view-section flex-grow w-full max-w-none xl:px-8 2xl:px-12 mx-auto p-4 space-y-4">
+    <!-- La franja va ARRIBA DEL TÍTULO, y no es un capricho de orden: es el
+         estado del mercado, y todo lo de abajo se lee en función de él. Un
+         sector que sube un 2% no significa lo mismo con el índice en verde que
+         con el índice cayendo, así que la referencia tiene que haberse leído
+         antes de mirar la primera casilla. -->
+    <div id="sectoresFranja"></div>
     <div class="flex items-baseline justify-between flex-wrap gap-2">
         <h1 class="text-xl font-black text-white">Sectores</h1>
         <span id="sectoresSello" class="text-[10px] text-gray-600"></span>
     </div>
     <p class="text-[11px] text-gray-500 -mt-2 leading-snug">El mapa del mercado antes de elegir un ticker: d&oacute;nde est&aacute; entrando el dinero y d&oacute;nde est&aacute; saliendo. Pulsa un sector para ver sus industrias.</p>
-    <div id="sectoresFranja"></div>
-    <!-- El mapa y el RRG contestan la misma pregunta desde dos lados: qué se
-         movió y hacia dónde va. Uno debajo del otro obligan a bajar la página
-         para cruzarlos, que es justo lo que hay que hacer con ellos; en
-         pantalla ancha van al lado y se leen de una vez. En estrecha se apilan,
-         y siguen estando los dos. -->
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
-        <div id="sectoresMapa"></div>
-        <div id="sectoresRRG"></div>
-    </div>
+    <div id="sectoresRRG"></div>
     <div id="sectoresParrilla"></div>
     <div id="sectoresRotacion"></div>
     <div id="sectoresLectura"></div>
@@ -1933,22 +1930,40 @@ function vxFranjaHTML(d) {
     const saludCol = { amplia: 'text-emerald-400', rotacion: 'text-blue-300',
                        estrecho: 'text-amber-400', debil: 'text-red-400' };
 
-    return `<div class="bg-panel border border-panel rounded-2xl px-4 py-3 flex items-center gap-x-6 gap-y-3 flex-wrap">
-      <div class="flex items-center gap-2">
-        <span class="w-2 h-2 rounded-full ${punto}"></span>
-        <div class="flex flex-col">
-          <span class="text-xs font-bold text-gray-200">${_vcEsc(reloj.frase || 'Estado del mercado desconocido')}</span>
-          ${dato ? `<span class="text-[9px] text-gray-600">Datos de las ${_vcEsc(dato)}</span>` : ''}
+    // El reloj SIEMPRE en la esquina derecha, del teléfono al monitor. Es el dato
+    // que se consulta de un vistazo y sin buscarlo —«¿esto está vivo o es la
+    // foto de ayer?»—, así que tiene un sitio fijo y no se mueve según lo que
+    // haya al lado.
+    const reloje = `<div data-vx="reloj" class="flex items-center gap-2 shrink-0 sm:justify-end">
+        <span class="w-2 h-2 rounded-full ${punto} shrink-0"></span>
+        <div class="min-w-0 sm:text-right">
+          <div class="text-xs font-bold text-gray-200 whitespace-nowrap">${_vcEsc(reloj.frase || 'Estado del mercado desconocido')}</div>
+          ${dato ? `<div class="text-[9px] text-gray-600 whitespace-nowrap">Datos de las ${_vcEsc(dato)}</div>` : ''}
         </div>
+      </div>`;
+
+    // El mensaje de amplitud necesita ANCHO o no dice nada: en una columna de
+    // seis caracteres, «Rotación activa: el mercado ancho aguanta mejor que las
+    // mega-caps» sale partido letra a letra y deja de leerse. Por eso ocupa su
+    // propia línea hasta `lg` y solo se pone al lado cuando de verdad cabe.
+    const mensaje = salud.clave ? `<div data-vx="amplitud" class="min-w-0 basis-full lg:basis-0 lg:flex-1 lg:min-w-[18rem]">
+        <div class="text-[9px] uppercase tracking-wider text-gray-600">Amplitud (RSP contra SPY)</div>
+        <div data-vx="amplitud-frase" class="text-xs font-bold leading-snug ${saludCol[salud.clave] || 'text-gray-300'}">${_vcEsc(salud.frase || '')}</div>
+      </div>` : '';
+
+    // `flex-col-reverse` en móvil: el reloj queda ARRIBA y alineado a la
+    // derecha, y las cifras debajo. Así la esquina derecha es la misma esquina
+    // en un teléfono que en un monitor, en vez de saltar al final de todo.
+    return `<div class="bg-panel border border-panel rounded-2xl px-4 py-3
+        flex flex-col-reverse sm:flex-row sm:items-center gap-x-8 gap-y-3">
+      <div class="flex flex-wrap items-center gap-x-8 gap-y-3 min-w-0 flex-1">
+        ${spy ? trozo('S&amp;P 500', vxUsd(spy.precio), vxPct(spy.cambio_pct) + ' hoy',
+                      vxCambioColor(spy.cambio_pct)) : ''}
+        ${vix ? trozo('VIX', vix.precio == null ? '—' : Number(vix.precio).toFixed(2),
+                      vxPct(vix.cambio_pct) + ' hoy', vixCol) : ''}
+        ${mensaje}
       </div>
-      ${spy ? trozo('S&amp;P 500', vxUsd(spy.precio), vxPct(spy.cambio_pct) + ' hoy',
-                    vxCambioColor(spy.cambio_pct)) : ''}
-      ${vix ? trozo('VIX', vix.precio == null ? '—' : Number(vix.precio).toFixed(2),
-                    vxPct(vix.cambio_pct) + ' hoy', vixCol) : ''}
-      ${salud.clave ? `<div class="flex flex-col min-w-0 flex-1">
-        <span class="text-[9px] uppercase tracking-wider text-gray-600">Amplitud (RSP contra SPY)</span>
-        <span class="text-xs font-bold ${saludCol[salud.clave] || 'text-gray-300'}">${_vcEsc(salud.frase || '')}</span>
-      </div>` : ''}
+      <div class="flex justify-end sm:block shrink-0">${reloje}</div>
     </div>`;
 }
 
@@ -1961,69 +1976,6 @@ function vxPintaFranjas() {
         const n = document.getElementById(id);
         if (n) n.innerHTML = html;
     });
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  EL MAPA DE CALOR
-//
-//  Once rectángulos: el color dice cuánto se movió el sector, el TAMAÑO dice
-//  cuánto pesa en el índice. Las dos cosas juntas contestan de un vistazo algo
-//  que la parrilla no contesta: por qué el S&P hace lo que hace.
-//
-//  Una rejilla de casillas iguales miente por omisión. XLK pesa un 32% del
-//  índice y XLRE un 2%: pintados del mismo tamaño, un −3% en inmobiliario
-//  parece tan grave como un −3% en tecnología, y no lo es ni de lejos.
-//
-//  Los pesos vienen del servidor (`rotacion.pesos`), que los saca del motor.
-//  Aquí no se inventa ninguno: si no llegan, no hay mapa — y se dice.
-// ═══════════════════════════════════════════════════════════════════════
-
-//: Cinco escalones y no un degradado continuo. Un degradado obliga a comparar
-//: tonos de verde entre sí, que es justo lo que el ojo hace mal; los escalones
-//: se leen como categorías.
-function vxCalorClase(c) {
-    if (c == null) return 'bg-gray-800/60 text-gray-500';
-    if (c >= 1.5) return 'bg-emerald-500/70 text-white';
-    if (c > 0.2) return 'bg-emerald-500/30 text-emerald-100';
-    if (c >= -0.2) return 'bg-gray-700/60 text-gray-300';
-    if (c > -1.5) return 'bg-red-500/30 text-red-100';
-    return 'bg-red-500/70 text-white';
-}
-
-function pintaMapaDeCalor(d) {
-    const caja = document.getElementById('sectoresMapa');
-    if (!caja) return;
-    const pesos = ((d || {}).rotacion || {}).pesos;
-    const secs = (d || {}).sectores || [];
-    if (!pesos || !secs.length) { caja.innerHTML = ''; return; }
-    const por = {};
-    (d.filas || []).forEach(f => { por[f.ticker] = f; });
-
-    // Doce columnas y a cada sector le tocan las que le corresponden por peso,
-    // con un mínimo de dos: por debajo de eso el ticker no cabe y un rectángulo
-    // sin nombre no es un dato, es una mancha.
-    const total = secs.reduce((a, t) => a + (pesos[t] || 0), 0) || 1;
-    const cajas = secs.map(t => {
-        const f = por[t] || {};
-        const c = vxCambioDe(f);
-        const cols = Math.max(2, Math.min(6, Math.round((pesos[t] || 0) / total * 12)));
-        const peso = pesos[t] == null ? '' : Number(pesos[t]).toFixed(1) + '% del índice';
-        return `<button onclick="abreSector('${_vcEsc(t)}')"
-          class="rounded-lg p-2 text-left transition hover:ring-1 hover:ring-blue-400/60 ${vxCalorClase(c)}"
-          style="grid-column: span ${cols} / span ${cols};"
-          title="${_vcEsc(t)} · ${_vcEsc(peso)}">
-          <div class="text-[11px] font-black leading-none">${_vcEsc(t)}</div>
-          <div class="text-[11px] font-bold tabular-nums leading-tight mt-0.5">${vxPct(c)}</div>
-        </button>`;
-    }).join('');
-
-    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
-      <div class="flex items-baseline gap-2 flex-wrap mb-2">
-        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Mapa del &iacute;ndice</h3>
-        <span class="text-[10px] text-gray-600">el tama&ntilde;o es el peso en el S&amp;P 500; el color, el cambio en ${_vcEsc(vxVentana())}</span>
-      </div>
-      <div class="grid grid-cols-12 gap-1.5 auto-rows-[3.25rem]">${cajas}</div>
-    </div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -2178,7 +2130,6 @@ function pintaSectores(d) {
     const sello = document.getElementById('sectoresSello');
     if (sello) sello.innerText = d.cacheado ? 'foto de hace menos de 2 min' : 'al momento';
     vxPintaFranjas();
-    pintaMapaDeCalor(d);
     pintaRRG(d.rotacion);
     pintaRotacion(d.rotacion);
 }
@@ -12105,8 +12056,6 @@ const VX_ES2EN = {
     "sin volumen que lo respalde": "no volume behind it",
     "sin juicio: falta el dato": "no verdict: data missing",
     "veces el volumen normal de las últimas 60 sesiones": "times the normal volume of the last 60 sessions",
-    "Mapa del índice": "Index map",
-    "el tamaño es el peso en el S&P 500; el color, el cambio en": "size is the weight in the S&P 500; colour, the change over",
     "Hacia dónde va cada sector": "Where each sector is heading",
     "la cola son las últimas 5 lecturas; el punto es hoy": "the tail is the last 5 readings; the dot is today",
     "Gráfico de rotación relativa de los once sectores": "Relative rotation graph of the eleven sectors",
@@ -13162,7 +13111,6 @@ const VX_PAT = [
      'Average volume of the window: $1 shares per session'],
     [/^(.+) · veces el volumen normal de las últimas 60 sesiones$/,
      '$1 · times the normal volume of the last 60 sessions'],
-    [/^(\S+) · ([\d.,]+)% del índice$/, '$1 · $2% of the index'],
     [/^De sus (\d+) mayores posiciones que se pudieron medir, cuántas cierran por encima de su media de 50 sesiones\. Es una muestra del sector, no el sector entero\.$/,
      'Of its $1 largest holdings that could be measured, how many close above their 50-session average. It is a sample of the sector, not the whole sector.'],
     [/^Leyendo las industrias de (\S+)…$/, 'Reading the industries of $1…'],

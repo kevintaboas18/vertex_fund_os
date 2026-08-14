@@ -6738,9 +6738,9 @@ def _sectores_rotacion(filas: dict) -> dict:
     flujo y diagnóstico— o lo que se pueda de él. Nunca lanza: si falta el SPY
     no hay contra qué medir, y eso se dice en vez de devolver ceros.
     """
-    from wbj.sectores import (CATEGORIAS, CUADRANTES, PESOS_SP500,
-                              categoria_de, clasifica_sector, diagnostico,
-                              dispersion, estela_rrg, lideres_del_dia_rojo,
+    from wbj.sectores import (CATEGORIAS, CUADRANTES, categoria_de,
+                              clasifica_sector, diagnostico, dispersion,
+                              estela_rrg, lideres_del_dia_rojo,
                               salud_del_mercado, serie_rs)
 
     spy = filas.get("SPY") or {}
@@ -6791,10 +6791,6 @@ def _sectores_rotacion(filas: dict) -> dict:
                          for k, v in d.items()}
                      for t, d in por_sector.items()},
         "estelas": estelas,
-        # El peso en el índice viaja con la rotación porque el mapa de calor lo
-        # necesita para dimensionar: un −1% en XLK mueve el S&P mucho más que
-        # el mismo −1% en XLU, y un mapa de rectángulos iguales borra justo eso.
-        "pesos": dict(PESOS_SP500),
         "entrando": sorted(t for t, d in por_sector.items() if d.get("flujo") == "entrada"),
         "saliendo": sorted(t for t, d in por_sector.items() if d.get("flujo") == "salida"),
         "dispersion": _r6(dispersion(list(retornos.values()))),

@@ -4257,7 +4257,7 @@ class TestLaAmplitudInternaSEGUARDAyNOBLOQUEA:
 class TestElMAPAyElRRGRecibenLoQueNecesitan:
     def test_los_pesos_y_las_estelas_viajan_con_la_rotacion(self, monkeypatch):
         import vertex_api as V
-        from wbj.sectores import PESOS_SP500, SECTORES
+        from wbj.sectores import SECTORES
 
         serie = [100.0 * (1.001 ** i) for i in range(300)]
         filas = {t: {"ticker": t, "nombre": t, "precio": 100.0, "cambio_pct": 1.0,
@@ -4265,9 +4265,6 @@ class TestElMAPAyElRRGRecibenLoQueNecesitan:
                  for t in ("SPY", "RSP") + tuple(t for t, _ in SECTORES)}
         rot = V._sectores_rotacion(filas)
         assert rot["disponible"] is True, rot
-        assert rot["pesos"] == PESOS_SP500, (
-            "el mapa de calor dimensiona con esto: inventarlo en el panel sería "
-            "una segunda tabla de pesos")
         assert rot["estelas"], "sin estela el RRG solo puede pintar un punto"
         for t, e in rot["estelas"].items():
             assert len(e) >= 2, f"{t} con media estela: se leería como un giro"

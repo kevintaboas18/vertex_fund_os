@@ -29,11 +29,14 @@ ticker, y baja por tres pisos: `Dashboard › XLK › SMH › NVDA`.
 
 | Bloque | Qué contesta |
 |---|---|
-| Franja de estado | ¿Está abierta la sesión? ¿De cuándo es este dato? ¿Qué hace el S&P, el VIX y la amplitud RSP-contra-SPY? |
-| Mapa del índice | Once rectángulos: color = cambio, **ancho = peso en el S&P**. Por qué el índice hace lo que hace. |
+| Franja de estado (arriba del todo) | ¿Qué hace el S&P y el VIX? ¿La subida es de todos o de cuatro? Y en la esquina derecha, fija: ¿está abierta la sesión y de cuándo es este dato? |
 | RRG con estelas | Hacia **dónde va** cada sector, no solo dónde está. Cinco lecturas de cola. |
 | Parrilla | Precio, cambio en la ventana elegida, RSI, media de 200, **volumen relativo** y **amplitud interna**. |
 | Lectura | El modelo cuenta en palabras lo que el motor ya decidió. No puntúa nada. |
+
+La franja va **encima del título** a propósito: es el estado del mercado, y
+todo lo de abajo se lee en función de él. Un sector que sube un 2% no significa
+lo mismo con el índice en verde que cayendo.
 
 La ventana (7D, 1M, 3M, 6M, 1A) manda en los tres pisos a la vez: el porcentaje
 que se lee, el reparto de fuerza que se cuenta y el volumen que se compara

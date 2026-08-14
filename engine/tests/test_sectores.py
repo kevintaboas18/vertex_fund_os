@@ -607,7 +607,7 @@ class TestCeroAlAlzaNoEsUNOSolo:
         assert "uno solo" in a["frase"], a["frase"]
 
 
-from wbj.sectores import (ESTELA_PASO, ESTELA_PUNTOS, PESOS_SP500,  # noqa: E402
+from wbj.sectores import (ESTELA_PASO, ESTELA_PUNTOS,  # noqa: E402
                           VOLUMEN_BASE_SESIONES, VOLUMEN_RESPALDA,
                           estado_del_mercado, estela_rrg, respalda_el_volumen,
                           volumen_por_ventana)
@@ -742,19 +742,6 @@ class TestLaEstelaDelRRG:
 
     def test_con_series_vacias_no_revienta(self):
         assert estela_rrg([], []) == []
-
-
-class TestLosPesosDelMapaDeCalor:
-    def test_estan_los_once_y_suman_cerca_de_cien(self):
-        assert set(PESOS_SP500) == {t for t, _ in SECTORES}
-        assert 95 <= sum(PESOS_SP500.values()) <= 105
-
-    def test_tecnologia_pesa_mas_que_utilities(self):
-        """El tamaño ES información: un -1% en XLK mueve el índice mucho más
-        que el mismo en XLU."""
-        assert PESOS_SP500["XLK"] > PESOS_SP500["XLU"] * 5
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 #  LA AMPLITUD INTERNA
 # ═══════════════════════════════════════════════════════════════════════════

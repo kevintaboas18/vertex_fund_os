@@ -1276,8 +1276,13 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
     390 px y exige los cuatro bloques en los dos.
     """
 
-    ESCRITORIO = {"width": 1440, "height": 1000}
-    MOVIL = {"width": 390, "height": 844}
+    #: Los cuatro tamaños que pidió Kevin: «teléfonos, iPad, computadora,
+    #: monitor y todo». Uno por punto de corte real de la hoja de estilos, que
+    #: es donde el diseño cambia de forma y donde se rompe.
+    MOVIL = {"width": 390, "height": 844}         # iPhone
+    IPAD = {"width": 820, "height": 1180}         # iPad vertical
+    ESCRITORIO = {"width": 1440, "height": 1000}  # portátil
+    MONITOR = {"width": 2560, "height": 1440}     # monitor grande
 
     SECS = ["XLK", "XLF", "XLV", "XLY", "XLC", "XLI",
             "XLP", "XLE", "XLU", "XLRE", "XLB"]
@@ -1319,11 +1324,7 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
                          "categorias": [], "sectores": {}, "entrando": [],
                          "saliendo": [], "dispersion": 0.8, "dia_rojo": [],
                          "diagnostico": [],
-                         "estelas": {t: estela for t in cls.SECS},
-                         "pesos": {"XLK": 32.0, "XLF": 14.0, "XLY": 10.5,
-                                   "XLC": 9.5, "XLV": 9.5, "XLI": 8.0,
-                                   "XLP": 5.5, "XLE": 3.5, "XLU": 2.5,
-                                   "XLRE": 2.0, "XLB": 1.8}}}
+                         "estelas": {t: estela for t in cls.SECS}}}
 
     def _abre(self, navegador, servidor, viewport):
         import re as _re
@@ -1343,32 +1344,38 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
                 const n = document.getElementById(id);
                 if (!n) return null;
                 const r = n.getBoundingClientRect();
-                return { alto: r.height, texto: (n.innerText || '').trim() };
+                return { alto: r.height, arriba: r.top, derecha: r.right,
+                         texto: (n.innerText || '').trim() };
             };
+            const h1 = document.querySelector('#sectorsView h1');
+            const reloj = document.querySelector('#sectoresFranja [data-vx="reloj"]');
+            const rr = reloj ? reloj.getBoundingClientRect() : null;
             return {
                 franja: v('sectoresFranja'),
-                mapa: v('sectoresMapa'),
                 rrg: v('sectoresRRG'),
                 parrilla: v('sectoresParrilla'),
                 estelas: document.querySelectorAll('#sectoresRRG polyline').length,
-                rects: document.querySelectorAll('#sectoresMapa button').length,
+                titulo: h1 ? h1.getBoundingClientRect().top : null,
+                relojDerecha: rr ? rr.right : null,
+                mapa: document.getElementById('sectoresMapa'),
             };
         }""")
 
     @pytest.mark.parametrize("nombre,viewport",
-                             [("escritorio", ESCRITORIO), ("movil", MOVIL)])
+                             [("escritorio", ESCRITORIO), ("ipad", IPAD),
+                              ("movil", MOVIL), ("monitor", MONITOR)])
     def test_los_cuatro_bloques_estan_y_tienen_alto(self, navegador, servidor,
                                                     nombre, viewport):
         pg, errores = self._abre(navegador, servidor, viewport)
         try:
             d = self._mide(pg)
-            for clave in ("franja", "mapa", "rrg", "parrilla"):
+            for clave in ("franja", "rrg", "parrilla"):
                 assert d[clave], f"[{nombre}] falta el bloque {clave}"
                 assert d[clave]["alto"] > 20, (
                     f"[{nombre}] {clave} está en pantalla con alto "
                     f"{d[clave]['alto']}: se pintó vacío")
-            assert d["rects"] == 11, (
-                f"[{nombre}] el mapa de calor pintó {d['rects']} rectángulos")
+            assert d["mapa"] is None, (
+                f"[{nombre}] el mapa de calor volvió: Kevin pidió quitarlo")
             assert d["estelas"] == 11, (
                 f"[{nombre}] el RRG pintó {d['estelas']} estelas")
             assert not errores, errores[:3]
@@ -1376,7 +1383,85 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
             pg.close()
 
     @pytest.mark.parametrize("nombre,viewport",
-                             [("escritorio", ESCRITORIO), ("movil", MOVIL)])
+                             [("escritorio", ESCRITORIO), ("ipad", IPAD),
+                              ("movil", MOVIL), ("monitor", MONITOR)])
+    def test_la_franja_va_ENCIMA_del_titulo(self, navegador, servidor,
+                                            nombre, viewport):
+        """El estado del mercado se lee ANTES que nada.
+
+        Todo lo de abajo depende de él: un sector que sube un 2% no significa lo
+        mismo con el índice en verde que cayendo. Si la franja quedara debajo
+        del título, la primera casilla se leería sin su referencia.
+        """
+        pg, errores = self._abre(navegador, servidor, viewport)
+        try:
+            d = self._mide(pg)
+            assert d["titulo"] is not None, f"[{nombre}] no hay título"
+            assert d["franja"]["arriba"] < d["titulo"], (
+                f"[{nombre}] la franja ({d['franja']['arriba']}px) está por "
+                f"debajo del título ({d['titulo']}px)")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    @pytest.mark.parametrize("nombre,viewport",
+                             [("escritorio", ESCRITORIO), ("ipad", IPAD),
+                              ("movil", MOVIL), ("monitor", MONITOR)])
+    def test_el_reloj_va_pegado_a_la_ESQUINA_DERECHA(self, navegador, servidor,
+                                                     nombre, viewport):
+        """En los cuatro tamaños, y no «al final de la fila».
+
+        Es el dato que se consulta sin buscarlo —«¿esto está vivo o es la foto
+        de ayer?»—, así que tiene un sitio fijo. Si se colocara según lo que
+        haya al lado, cambiaría de sitio con cada mensaje distinto.
+        """
+        pg, errores = self._abre(navegador, servidor, viewport)
+        try:
+            d = self._mide(pg)
+            assert d["relojDerecha"] is not None, f"[{nombre}] no se encontró el reloj"
+            margen = d["franja"]["derecha"] - d["relojDerecha"]
+            assert 0 <= margen <= 40, (
+                f"[{nombre}] el reloj termina a {margen}px del borde derecho de "
+                "la franja: no está en la esquina")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    @pytest.mark.parametrize("nombre,viewport",
+                             [("escritorio", ESCRITORIO), ("ipad", IPAD),
+                              ("movil", MOVIL), ("monitor", MONITOR)])
+    def test_el_mensaje_de_amplitud_se_LEE_y_no_sale_en_columna(
+            self, navegador, servidor, nombre, viewport):
+        """La avería de la captura: el mensaje metido en una columna de seis
+        caracteres, partido letra a letra y ocupando media pantalla de alto.
+
+        Un texto que hay que descifrar en vertical no informa: ocupa. Se mide el
+        ancho real del párrafo, que es lo que decide si se lee de corrido.
+        """
+        pg, errores = self._abre(navegador, servidor, viewport)
+        try:
+            # Por anclaje y no por prosa: buscar la frase concreta ata el test
+            # al diagnóstico que devuelva el motor ese día.
+            m = pg.evaluate("""() => {
+                const n = document.querySelector('#sectoresFranja [data-vx="amplitud-frase"]');
+                if (!n) return null;
+                const r = n.getBoundingClientRect();
+                return { ancho: r.width, alto: r.height, texto: n.innerText };
+            }""")
+            assert m, f"[{nombre}] no se encontró el mensaje de amplitud"
+            assert m["ancho"] >= 180, (
+                f"[{nombre}] el mensaje tiene {m['ancho']}px de ancho: sale "
+                "partido en vertical, como en la captura que Kevin mandó")
+            assert m["alto"] <= 120, (
+                f"[{nombre}] el mensaje ocupa {m['alto']}px de alto: se está "
+                "desbordando en una columna estrecha")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    @pytest.mark.parametrize("nombre,viewport",
+                             [("escritorio", ESCRITORIO), ("ipad", IPAD),
+                              ("movil", MOVIL), ("monitor", MONITOR)])
     def test_el_reloj_el_vix_y_el_volumen_se_LEEN(self, navegador, servidor,
                                                   nombre, viewport):
         pg, errores = self._abre(navegador, servidor, viewport)

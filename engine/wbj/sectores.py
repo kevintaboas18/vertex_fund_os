@@ -72,7 +72,6 @@ __all__ = [
     "ESTELA_PUNTOS",
     "ESTELA_PASO",
     "estela_rrg",
-    "PESOS_SP500",
     # ── amplitud interna ──
     "SMA_INTERNA",
     "amplitud_interna",
@@ -906,22 +905,6 @@ def estela_rrg(cierres_etf, cierres_bench, puntos: int = ESTELA_PUNTOS,
         fuera.append({"fuerza": round(f, 4), "impulso": round(imp, 4),
                       "cuadrante": cuadrante(f, imp)})
     return fuera
-
-
-#: Peso aproximado de cada sector en el S&P 500, en %. Se usa SOLO para el
-#: tamaño de las casillas del mapa de calor: que XLK ocupe más que XLU es parte
-#: de la información —una caída del 1% en tecnología mueve el índice mucho más
-#: que la misma en utilities—.
-#:
-#: Son aproximados a propósito y cambian despacio (trimestres, no días). NO se
-#: usan para ningún cálculo: si se usaran, esta tabla tendría que bajarse, y
-#: para colorear un rectángulo un decimal de más no cambia nada.
-PESOS_SP500 = {
-    "XLK": 32.0, "XLF": 14.0, "XLY": 10.5, "XLC": 9.5, "XLV": 9.5,
-    "XLI": 8.0, "XLP": 5.5, "XLE": 3.5, "XLU": 2.5, "XLRE": 2.0, "XLB": 1.8,
-}
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 #  LA AMPLITUD INTERNA
 #
