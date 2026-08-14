@@ -59,6 +59,7 @@ __all__ = [
     "MAYORIA_CLARA",
     "MAYORIA_DEBIL",
     "amplitud",
+    "amplitud_por_ventana",
 ]
 
 #: Periodos del RSI. 14 es el de Wilder, que es lo que enseña cualquier
@@ -499,12 +500,12 @@ SMA_LARGA = 200
 #: bolsa), «1M» 21, «3M» 63, «6M» 126 y «1A» 252. Contar días naturales sobre
 #: una serie que no los tiene daría un cambio medido desde un festivo.
 #:
-#: `1D` va con 0 sesiones a propósito: ese no se calcula de los cierres, viene
-#: de la cotización EN VIVO. Con el mercado abierto, el cambio del día es
-#: contra el cierre de ayer, no contra el cierre de hoy — que todavía no
-#: existe.
+#: `1D` estuvo aquí y se quitó. No por simplificar: el cambio del día ya se ve
+#: en la parrilla y como ventana de comparación no dice nada — a un día casi
+#: todo se mueve junto, y este mapa existe para ver quién se separa del resto.
+#: El dato en sí NO desaparece: `cambio_pct` sigue alimentando la rotación y el
+#: reparto de fuerza, que es donde la sesión de hoy sí importa.
 VENTANAS_CAMBIO = (
-    ("1D", 0),
     ("7D", 5),
     ("1M", 21),
     ("3M", 63),
@@ -539,20 +540,15 @@ def distancia_sma(precio, valor_sma):
     return (p - m) / m * 100.0
 
 
-def cambios_por_ventana(cierres, cambio_dia=None):
-    """El cambio en % de cada ventana del selector.
+def cambios_por_ventana(cierres):
+    """El cambio en % de cada ventana del selector, desde los cierres.
 
-    `1D` sale de `cambio_dia` —la cotización en vivo— y el resto de los
-    cierres. Lo que no alcance queda en `None` y la pantalla pinta «—»: un ETF
-    con ocho meses de vida no tiene cambio a un año, y rellenarlo con el de
-    todo su historial sería llamar «1A» a otra cosa.
+    Lo que no alcance queda en `None` y la pantalla pinta «—»: un ETF con ocho
+    meses de vida no tiene cambio a un año, y rellenarlo con el de todo su
+    historial sería llamar «1A» a otra cosa.
     """
     salida = {}
     for etiqueta, sesiones in VENTANAS_CAMBIO:
-        if sesiones == 0:
-            salida[etiqueta] = (None if cambio_dia is None
-                                else round(float(cambio_dia), 2))
-            continue
         v = roc(cierres, sesiones)
         salida[etiqueta] = None if v is None else round(v, 2)
     return salida
@@ -665,10 +661,19 @@ def amplitud(miembros) -> dict:
         conf, frase = "media", (
             f"{len(debiles)} de {n} a la baja: pesa más la debilidad, pero no "
             f"es unánime.")
-    elif len(fuertes) <= 1 and n >= 3 and len(debiles) >= 1:
+    elif len(fuertes) == 0 and n >= 3:
+        # Cero arriba NO es «lo sube uno solo»: no lo sube nadie. La frase
+        # anterior decía justo eso y quedaba absurda en la ventana de un año,
+        # donde es normal que ninguno esté fuerte.
         conf, frase = "baja", (
-            f"Solo {len(fuertes)} de {n} al alza: si eso sube, lo sube uno "
-            f"solo y se da la vuelta en cuanto se canse.")
+            f"Ninguno de los {n} está al alza: aquí no hay nada tirando.")
+    elif len(fuertes) == 1 and n >= 3:
+        # NO se exige que haya alguno a la baja. Uno arriba y el resto PLANO es
+        # el espejismo más puro que hay: el grupo entero se mueve por una sola
+        # pieza, y que las demás no caigan no lo hace más fiable.
+        conf, frase = "baja", (
+            f"Solo 1 de {n} al alza: si eso sube, lo sube uno solo y se da la "
+            f"vuelta en cuanto se canse.")
     else:
         conf, frase = "baja", (
             f"Repartido ({len(fuertes)} al alza, {len(debiles)} a la baja): "
@@ -685,3 +690,26 @@ def amplitud(miembros) -> dict:
         "empujan": empujan,
         "frenan": frenan,
     }
+
+
+def amplitud_por_ventana(miembros) -> dict:
+    """Una amplitud por cada ventana del selector.
+
+    Sin esto la pantalla se contradecía sola: eliges «1A», ves +45% en todas
+    las filas y debajo «2 de 5 al alza», porque el reparto se medía con el
+    cambio de HOY. El número que se lee y el que se cuenta tienen que hablar
+    de lo mismo.
+
+    Cada ventana sustituye el `cambio_pct` del miembro por el de esa ventana y
+    vuelve a repartir. El RSI y la distancia a la media de 200 no cambian —son
+    de ahora, no de la ventana— y siguen votando igual: dicen dónde está el
+    miembro hoy, que es lo que decide si su movimiento es tendencia o rebote.
+    """
+    filas = [m for m in (miembros or []) if isinstance(m, dict) and m.get("ticker")]
+    salida = {}
+    for etiqueta, _ in VENTANAS_CAMBIO:
+        salida[etiqueta] = amplitud([
+            {**m, "cambio_pct": (m.get("cambios") or {}).get(etiqueta)}
+            for m in filas
+        ])
+    return salida

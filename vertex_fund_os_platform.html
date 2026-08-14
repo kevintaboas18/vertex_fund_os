@@ -1714,26 +1714,37 @@ const VX_INDUSTRIAS = {
     XLB: [['GDX', 'Mineras de oro'], ['COPX', 'Cobre'], ['LIT', 'Litio y baterías'], ['WOOD', 'Madera y papel']],
 };
 
-//: Las seis ventanas del selector. Las etiquetas son de calendario y el
+//: Las cinco ventanas del selector. Las etiquetas son de calendario y el
 //: cálculo va en sesiones de mercado — lo hace el servidor, aquí solo se elige.
-const VX_VENTANAS = ['1D', '7D', '1M', '3M', '6M', '1A'];
+//:
+//: `1D` estuvo aquí y se quitó: el cambio del día ya se ve en la parrilla, y
+//: como ventana de comparación no dice nada — a un día casi todo se mueve
+//: junto, y este mapa existe para ver quién se separa del resto.
+const VX_VENTANAS = ['7D', '1M', '3M', '6M', '1A'];
+const VX_VENTANA_DEFECTO = '7D';
 
 //: La ventana elegida vive en `localStorage`: si miras el mercado a 3 meses,
 //: al volver mañana lo quieres a 3 meses, no otra vez a un día.
 function vxVentana() {
     try {
         const v = localStorage.getItem('vertex_ventana');
+        // La comprobación contra la lista NO es de adorno: quien tuviera «1D»
+        // guardado de antes se quedaría mirando una ventana que ya no existe y
+        // sin ningún botón marcado.
         if (VX_VENTANAS.includes(v)) return v;
     } catch (e) {}
-    return '1D';
+    return VX_VENTANA_DEFECTO;
 }
 function vxPonVentana(v) {
     try { localStorage.setItem('vertex_ventana', v); } catch (e) {}
-    pintaSectores(window._sectoresData);
-    // Si el selector se tocó DENTRO de la sección de un sector, se repinta esa;
-    // si no, la parrilla ya quedó al día con la línea de arriba.
+    // Se repinta DONDE ESTÁS. Esto miraba `window._sectorAbierto`, que dejó de
+    // existir al partir la pantalla en tres pisos: dentro de un sector o de una
+    // industria el selector cambiaba el guardado y no repintaba nada, así que
+    // parecía que los botones no hacían caso.
     const dentro = !document.getElementById('sectorView').classList.contains('hidden');
-    if (dentro && window._sectorAbierto) abreSector(window._sectorAbierto);
+    if (!dentro) { pintaSectores(window._sectoresData); return; }
+    if (VX_DONDE.industria) abreIndustria(VX_DONDE.industria);
+    else if (VX_DONDE.sector) abreSector(VX_DONDE.sector);
 }
 //: El cambio de la ventana elegida, con respaldo al del día. El respaldo
 //: importa: un ETF sin un año de historia no tiene «1A», y sin él la casilla
@@ -1877,6 +1888,17 @@ function vxPintaMigas() {
     }).join('');
 }
 
+//: La amplitud de la ventana que estás mirando. El servidor manda una por
+//: ventana: si no, elegir «1A» enseñaría +45% en cada fila y debajo «2 de 5 al
+//: alza», que es el reparto de HOY — la pantalla contradiciéndose sola.
+function vxAmplitudDe(d) {
+    const a = (d && d.amplitud) || {};
+    // Formato viejo (una sola amplitud, sin ventanas): se respeta en vez de
+    // dejar el bloque en blanco mientras el servidor termina de desplegarse.
+    if (a && a.n != null) return a;
+    return a[vxVentana()] || {};
+}
+
 //: El bloque de amplitud: cuántos empujan, cuántos frenan y cuánta confianza.
 //: Es la respuesta a «¿lo sube el grupo o lo sube uno solo?», y por eso va
 //: ARRIBA de la lista y no debajo — es lo primero que hay que saber.
@@ -1981,7 +2003,7 @@ async function abreSector(ticker) {
     const pon = (d) => {
         if (VX_DONDE.sector !== tk || VX_DONDE.industria) return;
         caja.innerHTML = vxListaHTML('Industrias', d.filas, true);
-        ampl.innerHTML = vxAmplitudHTML(d.amplitud, 'industrias');
+        ampl.innerHTML = vxAmplitudHTML(vxAmplitudDe(d), 'industrias');
     };
     if (window._sectorCache[tk]) { pon(window._sectorCache[tk]); return; }
     try {
@@ -2027,7 +2049,7 @@ async function abreIndustria(ticker) {
     const pon = (d) => {
         if (VX_DONDE.industria !== tk) return;
         caja.innerHTML = vxListaHTML('Empresas', d.filas, false);
-        ampl.innerHTML = vxAmplitudHTML(d.amplitud, 'empresas');
+        ampl.innerHTML = vxAmplitudHTML(vxAmplitudDe(d), 'empresas');
     };
     if (window._accionesCache[tk]) { pon(window._accionesCache[tk]); return; }
     let d;
@@ -2065,6 +2087,7 @@ async function cargaLecturaGrupo(refrescar) {
     try {
         const q = `ambito=${encodeURIComponent(amb)}`
             + (lista ? `&tickers=${encodeURIComponent(lista)}` : '')
+            + `&ventana=${encodeURIComponent(vxVentana())}`
             + (refrescar ? '&refrescar=1' : '');
         const r = await fetch(`${API_BASE}/api/sectores/lectura?${q}`);
         d = await r.json();

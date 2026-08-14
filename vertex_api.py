@@ -6442,7 +6442,7 @@ def _sector_fila(ticker: str) -> dict:
         # cierre: es la que dice si ahora mismo está por encima o por debajo.
         d = distancia_sma(fila["precio"], m) if fila["precio"] else None
         fila["sma200_dist"] = None if d is None else round(d, 2)
-        fila["cambios"] = cambios_por_ventana(fila["cierres"], fila["cambio_pct"])
+        fila["cambios"] = cambios_por_ventana(fila["cierres"])
     except Exception:                            # noqa: BLE001
         pass
     return fila
@@ -6523,15 +6523,31 @@ def _sectores_filas(tickers) -> list[dict]:
         return list(ex.map(_sector_fila, tickers))
 
 
-def _amplitud(filas):
-    """`sectores.amplitud` sobre las filas ya bajadas. Nunca lanza."""
-    try:
-        from wbj.sectores import amplitud
+#: Lo que se manda cuando la amplitud no se pudo calcular. Con la forma
+#: completa: media respuesta obliga al panel a comprobar cada clave.
+_AMPLITUD_VACIA = {"n": 0, "confianza": None, "frase": "", "fuertes": [],
+                   "debiles": [], "neutrales": [], "pct_fuertes": None,
+                   "empujan": [], "frenan": []}
 
-        return amplitud(filas)
+
+def _amplitud(filas):
+    """Una amplitud POR VENTANA sobre las filas ya bajadas. Nunca lanza.
+
+    Por ventana y no una sola porque si no la pantalla se contradice: eliges
+    «1A», ves +45% en cada fila y debajo «2 de 5 al alza», que era el reparto
+    de HOY. El número que se lee y el que se cuenta tienen que hablar de lo
+    mismo.
+    """
+    try:
+        from wbj.sectores import VENTANAS_CAMBIO, amplitud_por_ventana
+
+        return amplitud_por_ventana(filas)
     except Exception:                            # noqa: BLE001
-        return {"n": 0, "confianza": None, "frase": "", "fuertes": [],
-                "debiles": [], "empujan": [], "frenan": []}
+        try:
+            from wbj.sectores import VENTANAS_CAMBIO
+            return {e: dict(_AMPLITUD_VACIA) for e, _ in VENTANAS_CAMBIO}
+        except Exception:                        # noqa: BLE001
+            return {}
 
 
 @app.get("/api/sectores")
@@ -6613,6 +6629,20 @@ def api_sectores(tickers: str = ""):
 # ═══════════════════════════════════════════════════════════════════════════
 
 _LECTURA_TTL = 900          # 15 min: el diagnóstico no cambia cada minuto
+
+
+def _amplitud_de_ventana(amplitudes, ventana):
+    """La amplitud de UNA ventana. Cae a la primera si no se pide ninguna.
+
+    El servidor manda una por ventana; la lectura habla de la que el usuario
+    está mirando, o la explicación contaría un reparto que no es el de la
+    pantalla.
+    """
+    if not isinstance(amplitudes, dict) or not amplitudes:
+        return {}
+    if ventana in amplitudes:
+        return amplitudes[ventana]
+    return next(iter(amplitudes.values()), {})
 _LECTURA_CACHE: dict[str, tuple[float, dict]] = {}
 
 
@@ -6800,7 +6830,8 @@ def _lectura_dentro(nombre: str, filas: list, amp: dict) -> str:
 
 
 @app.get("/api/sectores/lectura")
-def api_sectores_lectura(refrescar: int = 0, ambito: str = "", tickers: str = ""):
+def api_sectores_lectura(refrescar: int = 0, ambito: str = "",
+                         tickers: str = "", ventana: str = ""):
     """La rotación del día contada en palabras.
 
     Se apoya en la MISMA foto que pinta la pantalla (la cache de `/api/sectores`
@@ -6810,7 +6841,7 @@ def api_sectores_lectura(refrescar: int = 0, ambito: str = "", tickers: str = ""
     """
     ahora = time.time()
     amb = str(ambito or "").upper().strip()
-    clave = f"{_idioma_actual()}|{amb or '_mercado'}"
+    clave = f"{_idioma_actual()}|{amb or '_mercado'}|{ventana or '-'}"
     guardado = _LECTURA_CACHE.get(clave)
     if guardado and not refrescar and ahora - guardado[0] < _LECTURA_TTL:
         return {**guardado[1], "cacheado": True}
@@ -6830,7 +6861,7 @@ def api_sectores_lectura(refrescar: int = 0, ambito: str = "", tickers: str = ""
             _LECTURA_SYSTEM_DENTRO,
             "Estos son los datos de hoy. Explícalos siguiendo el formato:\n\n"
             + _lectura_dentro(amb, dentro.get("filas") or [],
-                              dentro.get("amplitud") or {}),
+                              _amplitud_de_ventana(dentro.get("amplitud"), ventana)),
             temp=0.3, max_tokens=1100)
         if not texto:
             return {"ok": False, "texto": "",

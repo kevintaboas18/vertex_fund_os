@@ -3918,7 +3918,7 @@ class TestLaVentanaDeDatosDAParaLoQueSeANUNCIA:
         assert sesiones >= SMA_LARGA, (
             f"~{sesiones} sesiones no dan para una media de {SMA_LARGA}")
 
-    def test_con_la_historia_que_se_baja_las_SEIS_ventanas_salen(self):
+    def test_con_la_historia_que_se_baja_TODAS_las_ventanas_salen(self):
         """La prueba directa: se arma una serie del tamaño real y se comprueba
         que ninguna de las seis se queda en blanco."""
         import vertex_api as V
@@ -3926,7 +3926,7 @@ class TestLaVentanaDeDatosDAParaLoQueSeANUNCIA:
 
         sesiones = int(V._PERIODO_DIAS[V._SECTORES_PERIODO] * 252 / 365)
         serie = [100.0 + i * 0.1 for i in range(sesiones)]
-        c = cambios_por_ventana(serie, -1.0)
+        c = cambios_por_ventana(serie)
         vacias = [k for k, v in c.items() if v is None]
         assert not vacias, f"estas ventanas salen vacías con la historia real: {vacias}"
         assert sma(serie) is not None
@@ -3937,7 +3937,7 @@ class TestLaVentanaDeDatosDAParaLoQueSeANUNCIA:
         from wbj.sectores import cambios_por_ventana
 
         un_año = [100.0 + i * 0.1 for i in range(251)]
-        assert cambios_por_ventana(un_año, -1.0)["1A"] is None
+        assert cambios_por_ventana(un_año)["1A"] is None
 
 
 class TestLasEmpresasDeUnaIndustriaLLEGANoDICENporQUE:
@@ -4048,5 +4048,11 @@ class TestLasEmpresasDeUnaIndustriaLLEGANoDICENporQUE:
         assert [f["ticker"] for f in d["filas"]] == ["NVDA", "AMD"]
         assert d["filas"][0]["nombre"] == "NVIDIA Corp", (
             "el nombre de la EMPRESA, no el ticker otra vez")
-        assert d["amplitud"]["fuertes"] == ["NVDA"]
-        assert d["amplitud"]["debiles"] == ["AMD"]
+        # La amplitud viaja POR VENTANA: la pantalla enseña la de la ventana
+        # que estés mirando, o el reparto contaría un periodo distinto del que
+        # se lee en las filas.
+        from wbj.sectores import VENTANAS_CAMBIO
+
+        assert set(d["amplitud"]) == {e for e, _ in VENTANAS_CAMBIO}, d["amplitud"]
+        alguna = d["amplitud"]["7D"]
+        assert set(alguna) >= {"n", "fuertes", "debiles", "confianza", "frase"}

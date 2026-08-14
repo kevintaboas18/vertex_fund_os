@@ -389,35 +389,32 @@ class TestLaMediaDe200:
 
 
 class TestLasVentanasDelSelector:
-    def test_son_las_seis_pedidas_y_en_orden(self):
-        assert [e for e, _ in VENTANAS_CAMBIO] == ["1D", "7D", "1M", "3M", "6M", "1A"]
+    def test_son_las_cinco_pedidas_y_en_orden(self):
+        assert [e for e, _ in VENTANAS_CAMBIO] == ["7D", "1M", "3M", "6M", "1A"]
 
-    def test_1D_viene_de_la_cotizacion_EN_VIVO_no_de_los_cierres(self):
-        """Con el mercado abierto, el cambio del día es contra el cierre de
-        ayer: el de hoy todavía no existe."""
-        cambios = cambios_por_ventana([100.0] * 300, -1.35)
-        assert cambios["1D"] == -1.35
-        assert cambios["7D"] == pytest.approx(0.0), "los demás sí salen de la serie"
-
-    def test_sin_cotizacion_el_1D_queda_en_blanco(self):
-        assert cambios_por_ventana([100.0] * 300, None)["1D"] is None
+    def test_1D_ya_NO_es_una_ventana(self):
+        """Se quitó: el cambio del día ya se ve en la parrilla y como ventana de
+        comparación no dice nada — a un día casi todo se mueve junto, y este
+        mapa existe para ver quién se separa del resto."""
+        assert "1D" not in dict(VENTANAS_CAMBIO)
+        assert "1D" not in cambios_por_ventana([100.0] * 300)
 
     def test_cada_ventana_mide_SU_ventana(self):
         serie = [100.0] * 300
         serie[-6] = 50.0                     # justo 5 sesiones atrás
-        c = cambios_por_ventana(serie, 0.0)
+        c = cambios_por_ventana(serie)
         assert c["7D"] == pytest.approx(100.0), "5 sesiones: de 50 a 100"
         assert c["1M"] == pytest.approx(0.0), "21 sesiones atrás no se movió"
 
     def test_lo_que_no_alcanza_queda_en_None(self):
         """Un ETF con ocho meses de vida no tiene cambio a un año, y rellenarlo
         con el de todo su historial sería llamar «1A» a otra cosa."""
-        c = cambios_por_ventana([100.0 + i for i in range(70)], 1.0)
+        c = cambios_por_ventana([100.0 + i for i in range(70)])
         assert c["1M"] is not None and c["3M"] is not None
         assert c["6M"] is None and c["1A"] is None
 
-    def test_las_seis_claves_salen_siempre(self):
-        c = cambios_por_ventana([], None)
+    def test_las_claves_salen_siempre(self):
+        c = cambios_por_ventana([])
         assert set(c) == {e for e, _ in VENTANAS_CAMBIO}
         assert all(v is None for v in c.values())
 
@@ -528,3 +525,64 @@ class TestLaAmplitudNoRevientaConBasura:
 
     def test_ni_con_None_de_entrada(self):
         assert amplitud(None)["n"] == 0
+
+
+from wbj.sectores import amplitud_por_ventana  # noqa: E402
+
+
+class TestLaAmplitudSIGUEALaVentanaQueMiras:
+    """Si no, la pantalla se contradice sola.
+
+    Eliges «1A», ves +45% en cada fila y debajo «2 de 5 al alza» — porque el
+    reparto se medía con el cambio de HOY. El número que se lee y el que se
+    cuenta tienen que hablar de lo mismo.
+    """
+
+    @staticmethod
+    def _m(t, por_ventana, rsi=55, dist=3.0):
+        return {"ticker": t, "nombre": t, "cambios": por_ventana,
+                "rsi": rsi, "sma200_dist": dist}
+
+    def test_una_amplitud_por_ventana(self):
+        a = amplitud_por_ventana([self._m("A", {"7D": 2.0, "1A": -9.0})])
+        assert set(a) == {e for e, _ in VENTANAS_CAMBIO}
+
+    def test_el_mismo_grupo_da_reparto_DISTINTO_segun_la_ventana(self):
+        """El caso que lo justifica: fuerte a una semana, débil a un año."""
+        filas = [self._m("A", {"7D": 3.0, "1A": -12.0}, rsi=62, dist=4.0),
+                 self._m("B", {"7D": 2.5, "1A": -10.0}, rsi=60, dist=3.0),
+                 self._m("C", {"7D": 2.0, "1A": -11.0}, rsi=58, dist=2.0)]
+        a = amplitud_por_ventana(filas)
+        assert a["7D"]["fuertes"] == ["A", "B", "C"]
+        assert a["1A"]["fuertes"] == [], "a un año los tres están abajo"
+        assert a["7D"]["confianza"] != a["1A"]["confianza"]
+
+    def test_el_RSI_y_la_media_de_200_NO_cambian_con_la_ventana(self):
+        """Son de ahora, no de la ventana: dicen dónde está el miembro hoy, que
+        es lo que decide si su movimiento es tendencia o rebote."""
+        filas = [self._m("A", {"7D": 3.0, "1A": 40.0}, rsi=30, dist=-8.0)]
+        a = amplitud_por_ventana(filas)
+        # Sube en las dos ventanas, pero por debajo de su 200 y con RSI flojo
+        # no cuenta como fuerte en ninguna.
+        assert a["7D"]["fuertes"] == [] and a["1A"]["fuertes"] == []
+
+    def test_sin_miembros_devuelve_la_forma_completa(self):
+        a = amplitud_por_ventana([])
+        assert set(a) == {e for e, _ in VENTANAS_CAMBIO}
+        assert all(v["n"] == 0 for v in a.values())
+
+
+class TestCeroAlAlzaNoEsUNOSolo:
+    def test_ninguno_arriba_se_dice_como_es(self):
+        """«Solo 0 de 3 al alza: lo sube uno solo» era absurdo, y salía en la
+        ventana de un año, donde es normal que ninguno esté fuerte."""
+        a = amplitud([_m("A", -1.0, 2.0, 60), _m("B", -1.0, 2.0, 58),
+                      _m("C", -2.0, -3.0, 40)])
+        assert a["fuertes"] == []
+        assert "Ninguno" in a["frase"] and "uno solo" not in a["frase"], a["frase"]
+
+    def test_uno_solo_SI_lo_dice(self):
+        a = amplitud([_m("A", 3.0, 5.0, 65)]
+                     + [_m(f"B{i}", -0.1, -3.0, 48) for i in range(3)])
+        assert len(a["fuertes"]) == 1
+        assert "uno solo" in a["frase"], a["frase"]
