@@ -1913,7 +1913,7 @@ function vxFranjaHTML(d) {
         : 'bg-gray-600';
     const dato = vxHoraDe(d.generado);
 
-    const trozo = (etiqueta, valor, extra, color) => `<div class="flex flex-col">
+    const trozo = (etiqueta, valor, extra, color) => `<div data-vx="cifra" class="flex flex-col">
         <span class="text-[9px] uppercase tracking-wider text-gray-600">${etiqueta}</span>
         <span class="text-sm font-black tabular-nums ${color || 'text-white'}">${valor}</span>
         ${extra ? `<span class="text-[9px] text-gray-500">${extra}</span>` : ''}
@@ -1942,11 +1942,11 @@ function vxFranjaHTML(d) {
         </div>
       </div>`;
 
-    // El mensaje de amplitud necesita ANCHO o no dice nada: en una columna de
-    // seis caracteres, «Rotación activa: el mercado ancho aguanta mejor que las
-    // mega-caps» sale partido letra a letra y deja de leerse. Por eso ocupa su
-    // propia línea hasta `lg` y solo se pone al lado cuando de verdad cabe.
-    const mensaje = salud.clave ? `<div data-vx="amplitud" class="min-w-0 basis-full lg:basis-0 lg:flex-1 lg:min-w-[18rem]">
+    // El mensaje va SIEMPRE debajo del S&P y el VIX, en todos los tamaños. Es
+    // la frase que los explica —«la subida es de todos» o «la sostienen
+    // cuatro»—, así que va pegada a ellos y a lo ancho: en una columna estrecha
+    // salía partida letra a letra y dejaba de leerse.
+    const mensaje = salud.clave ? `<div data-vx="amplitud" class="min-w-0 w-full">
         <div class="text-[9px] uppercase tracking-wider text-gray-600">Amplitud (RSP contra SPY)</div>
         <div data-vx="amplitud-frase" class="text-xs font-bold leading-snug ${saludCol[salud.clave] || 'text-gray-300'}">${_vcEsc(salud.frase || '')}</div>
       </div>` : '';
@@ -1956,11 +1956,13 @@ function vxFranjaHTML(d) {
     // en un teléfono que en un monitor, en vez de saltar al final de todo.
     return `<div class="bg-panel border border-panel rounded-2xl px-4 py-3
         flex flex-col-reverse sm:flex-row sm:items-center gap-x-8 gap-y-3">
-      <div class="flex flex-wrap items-center gap-x-8 gap-y-3 min-w-0 flex-1">
-        ${spy ? trozo('S&amp;P 500', vxUsd(spy.precio), vxPct(spy.cambio_pct) + ' hoy',
-                      vxCambioColor(spy.cambio_pct)) : ''}
-        ${vix ? trozo('VIX', vix.precio == null ? '—' : Number(vix.precio).toFixed(2),
-                      vxPct(vix.cambio_pct) + ' hoy', vixCol) : ''}
+      <div class="min-w-0 flex-1 space-y-2">
+        <div class="flex flex-wrap items-baseline gap-x-8 gap-y-2">
+          ${spy ? trozo('S&amp;P 500', vxUsd(spy.precio), vxPct(spy.cambio_pct) + ' hoy',
+                        vxCambioColor(spy.cambio_pct)) : ''}
+          ${vix ? trozo('VIX', vix.precio == null ? '—' : Number(vix.precio).toFixed(2),
+                        vxPct(vix.cambio_pct) + ' hoy', vixCol) : ''}
+        </div>
         ${mensaje}
       </div>
       <div class="flex justify-end sm:block shrink-0">${reloje}</div>
@@ -1979,87 +1981,104 @@ function vxPintaFranjas() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  EL RRG DIBUJADO
+//  HACIA DÓNDE VA CADA SECTOR — cuatro capas, no once líneas cruzadas
 //
-//  La matriz en cuatro listas dice DÓNDE está cada sector. El gráfico dice
-//  hacia dónde VA, y esa es la mitad que falta: un sector que lleva tres
-//  semanas girando desde «liderando» hacia «agotándose» y otro que acaba de
-//  entrar aparecen en la misma lista y no significan lo mismo.
+//  Esto era un RRG clásico: los once sectores como puntos en un plano, cada
+//  uno con su estela de cinco lecturas. Técnicamente correcto y, con once
+//  encima, ilegible — once colas cruzándose no dejan ver ninguna. Un gráfico
+//  que hay que descifrar no informa: entretiene.
 //
-//  La estela son cinco puntos, uno cada cinco sesiones, del más viejo al más
-//  nuevo. Los cálculos vienen hechos del motor (`rotacion.estelas`): aquí solo
-//  se convierten en coordenadas.
+//  La misma información, dicha de otra forma:
 //
-//  Regla de la casa que aquí aplica entera: el gráfico ILUSTRA, no decide. El
-//  cuadrante de cada sector ya lo decidió la matriz con los mismos números.
+//    · CUATRO CAPAS, la mejor arriba. La capa dice el estado con palabras
+//      —liderando, cogiendo fuerza, agotándose, rezagado— en vez de obligar a
+//      deducirlo de en qué cuadrante cayó el punto.
+//    · UNA LÍNEA HORIZONTAL por capa, con el S&P 500 en el centro. A la
+//      derecha, más fuerte que el índice; a la izquierda, más débil. La
+//      distancia al centro es cuánto.
+//    · UNA FLECHA por sector: si esa fuerza está creciendo o cayéndose.
+//
+//  De la estela se conserva lo único que aportaba y que un punto no dice: si
+//  el sector ACABA de llegar a esa capa. «Liderando desde hace semanas» y
+//  «liderando desde el martes» son cosas distintas, y era lo que había que
+//  leer en la maraña de colas.
 // ═══════════════════════════════════════════════════════════════════════
+
+//: Las cuatro capas, de mejor a peor. El orden es el que se pinta y significa
+//: algo: arriba lo que tira, abajo lo que pesa.
+const VX_CAPAS = [
+    ['leading',   'Liderando',      'fuerte y subiendo',          'text-emerald-300', 'bg-emerald-500/15', 'border-emerald-500/30'],
+    ['improving', 'Cogiendo fuerza', 'todavía flojo, pero girando al alza', 'text-blue-300',  'bg-blue-500/15',    'border-blue-500/30'],
+    ['weakening', 'Agotándose',     'fuerte, pero perdiendo impulso', 'text-amber-300', 'bg-amber-500/15',  'border-amber-500/30'],
+    ['lagging',   'Rezagados',      'flojo y cayendo',            'text-red-300',     'bg-red-500/15',     'border-red-500/30'],
+];
 
 function pintaRRG(rot) {
     const caja = document.getElementById('sectoresRRG');
     if (!caja) return;
     const estelas = (rot || {}).estelas || {};
-    const tickers = Object.keys(estelas).filter(t => (estelas[t] || []).length);
+    const porSector = (rot || {}).sectores || {};
+    const tickers = Object.keys(porSector).filter(
+        t => porSector[t] && porSector[t].fuerza != null);
     if (!tickers.length) { caja.innerHTML = ''; return; }
 
-    // La escala sale de los datos, no de un número fijo: en una semana tranquila
-    // todos los sectores caben en ±1% y con una escala de ±10% el gráfico sería
-    // una nube pegada al centro donde no se distingue nada.
+    // La escala sale de los datos. En una semana tranquila los once caben en
+    // ±1%, y con una escala fija saldrían todos amontonados en el centro sin
+    // que se distinga cuál va delante — que es justo lo que se viene a ver.
     let tope = 0;
-    tickers.forEach(t => estelas[t].forEach(p => {
-        if (p.fuerza != null) tope = Math.max(tope, Math.abs(p.fuerza));
-        if (p.impulso != null) tope = Math.max(tope, Math.abs(p.impulso));
-    }));
-    tope = Math.max(tope * 1.15, 0.5);   // margen para que nada toque el borde
+    tickers.forEach(t => { tope = Math.max(tope, Math.abs(porSector[t].fuerza)); });
+    tope = Math.max(tope * 1.1, 0.4);
 
-    const L = 340, M = 34, C = M + L / 2;          // lienzo, margen y centro
-    const X = v => C + (Number(v) || 0) / tope * (L / 2);
-    const Y = v => C - (Number(v) || 0) / tope * (L / 2);   // el eje Y va al revés
-
-    const COL = { leading: '#34d399', weakening: '#fbbf24',
-                  lagging: '#f87171', improving: '#60a5fa' };
-
-    const trazos = tickers.map(t => {
-        const e = estelas[t];
-        const fin = e[e.length - 1];
-        const col = COL[fin.cuadrante] || '#9ca3af';
-        const pts = e.map(p => `${X(p.fuerza).toFixed(1)},${Y(p.impulso).toFixed(1)}`).join(' ');
-        // La estela va semitransparente y el punto de HOY sólido: si los seis
-        // puntos pesaran lo mismo no se sabría cuál es el de ahora, que es el
-        // único que dice dónde está el sector.
-        return `<polyline points="${pts}" fill="none" stroke="${col}"
-                  stroke-width="1.5" stroke-opacity="0.45" stroke-linejoin="round"/>
-                <circle cx="${X(fin.fuerza).toFixed(1)}" cy="${Y(fin.impulso).toFixed(1)}"
-                  r="4" fill="${col}"/>
-                <text x="${(X(fin.fuerza) + 6).toFixed(1)}" y="${(Y(fin.impulso) + 3).toFixed(1)}"
-                  fill="${col}" font-size="9" font-weight="700">${_vcEsc(t)}</text>`;
-    }).join('');
-
-    const fondo = (x, y, c) => `<rect x="${x}" y="${y}" width="${L / 2}" height="${L / 2}" fill="${c}" opacity="0.05"/>`;
-    const rotulo = (x, y, txt, c, anclaje) =>
-        `<text x="${x}" y="${y}" fill="${c}" font-size="9" font-weight="700"
-           opacity="0.8" text-anchor="${anclaje}">${txt}</text>`;
+    const fila = (clave, titulo, explica, col, fondo, borde) => {
+        const dentro = tickers.filter(t => porSector[t].cuadrante === clave)
+            .sort((a, b) => porSector[b].fuerza - porSector[a].fuerza);
+        const marcas = dentro.map(t => {
+            const d = porSector[t];
+            // 0% = el S&P 500. La posición es la fuerza relativa contra él.
+            const x = 50 + (d.fuerza / tope) * 46;
+            const sube = d.impulso != null && d.impulso > 0;
+            const e = estelas[t] || [];
+            // Lo único que se conserva de la estela: ¿acaba de llegar aquí?
+            const recien = e.length > 1 && e[0].cuadrante !== clave;
+            return `<button onclick="abreSector('${_vcEsc(t)}')"
+                class="absolute -translate-x-1/2 flex flex-col items-center group"
+                style="left:${x.toFixed(1)}%"
+                title="${_vcEsc(t)} · fuerza ${d.fuerza.toFixed(2)} contra el S&amp;P 500 · ${
+                  sube ? 'ganando impulso' : 'perdiendo impulso'}${
+                  recien ? ' · acaba de entrar en esta capa' : ''}">
+                <span class="text-[10px] font-black ${col} whitespace-nowrap
+                  px-1.5 py-0.5 rounded ${fondo} border ${borde} group-hover:ring-1 group-hover:ring-blue-400/60">${
+                  _vcEsc(t)}${recien ? '<span class="text-[8px] align-super">•</span>' : ''}</span>
+                <span class="text-[9px] ${sube ? 'text-emerald-400' : 'text-gray-600'} leading-none">${
+                  sube ? '&#9650;' : '&#9660;'}</span>
+              </button>`;
+        }).join('');
+        return `<div class="py-2">
+          <div class="flex items-baseline gap-2 flex-wrap mb-1">
+            <span class="text-[11px] font-black ${col}">${titulo}</span>
+            <span class="text-[9px] text-gray-600">${explica}</span>
+            <span class="text-[9px] text-gray-700 ml-auto">${dentro.length} de ${tickers.length}</span>
+          </div>
+          <div class="relative h-9 rounded-lg ${fondo} border ${borde}">
+            <div class="absolute inset-y-0 left-1/2 w-px bg-gray-600/70"></div>
+            ${dentro.length ? marcas
+              : '<span class="absolute inset-0 flex items-center justify-center text-[9px] text-gray-600">ninguno</span>'}
+          </div>
+        </div>`;
+    };
 
     caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
-      <div class="flex items-baseline gap-2 flex-wrap mb-1">
+      <div class="flex items-baseline gap-2 flex-wrap mb-2">
         <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Hacia d&oacute;nde va cada sector</h3>
-        <span class="text-[10px] text-gray-600">la cola son las &uacute;ltimas 5 lecturas; el punto es hoy</span>
+        <span class="text-[10px] text-gray-600">arriba lo que tira, abajo lo que pesa</span>
       </div>
-      <div class="overflow-x-auto">
-      <svg viewBox="0 0 ${L + M * 2} ${L + M * 2}" class="w-full max-w-xl mx-auto" role="img"
-           aria-label="Gráfico de rotación relativa de los once sectores">
-        ${fondo(C, M, COL.leading)}${fondo(C, C, COL.weakening)}
-        ${fondo(M, C, COL.lagging)}${fondo(M, M, COL.improving)}
-        <line x1="${M}" y1="${C}" x2="${M + L}" y2="${C}" stroke="#374151" stroke-width="1"/>
-        <line x1="${C}" y1="${M}" x2="${C}" y2="${M + L}" stroke="#374151" stroke-width="1"/>
-        ${rotulo(M + L - 4, M + 12, 'Liderando', COL.leading, 'end')}
-        ${rotulo(M + L - 4, M + L - 4, 'Agot&aacute;ndose', COL.weakening, 'end')}
-        ${rotulo(M + 4, M + L - 4, 'Rezagados', COL.lagging, 'start')}
-        ${rotulo(M + 4, M + 12, 'Despertando', COL.improving, 'start')}
-        ${rotulo(M + L / 2, M + L + 22, 'fuerza relativa contra el S&amp;P 500 &rarr;', '#6b7280', 'middle')}
-        ${trazos}
-      </svg>
+      <div class="flex items-center justify-between text-[9px] text-gray-600 px-1">
+        <span>&larr; m&aacute;s d&eacute;bil que el S&amp;P 500</span>
+        <span>S&amp;P 500</span>
+        <span>m&aacute;s fuerte &rarr;</span>
       </div>
-      <p class="text-[9px] text-gray-600 mt-1">Eje horizontal: cu&aacute;nta fuerza relativa lleva acumulada contra el S&amp;P 500. Eje vertical: si esa fuerza est&aacute; creciendo o cay&eacute;ndose. La escala se ajusta al d&iacute;a: lo que importa es la posici&oacute;n de unos respecto a otros, no la distancia al centro.</p>
+      <div class="divide-y divide-gray-800/60">${VX_CAPAS.map(c => fila(...c)).join('')}</div>
+      <p class="text-[9px] text-gray-600 mt-2">Cada sector se coloca por su fuerza frente al S&amp;P 500: a la derecha del centro le est&aacute; ganando, a la izquierda le est&aacute; perdiendo. La flecha dice si esa fuerza crece o se cae. El punto (&bull;) marca el que acaba de cambiar de capa.</p>
     </div>`;
 }
 
@@ -8852,8 +8871,19 @@ function almacenAbre() {
         `Reportes de opciones:  ${a.opciones || 0}`,
         `Memoria:               ${a.memoria || 0}`,
         `Cuentas y perfiles:    ${(d.privado || {}).hay_respaldo ? 'respaldados (cifrados)' : 'SIN respaldo'}`,
+        // Las cuentas vivas contra las guardadas. Es el PAR lo que informa: si
+        // las de aquí son menos que las del respaldo, algo se perdió y el
+        // respaldo está —bien— frenado para no propagarlo.
+        `Cuentas ahora:         ${(d.privado || {}).cuentas}`,
+        `Cuentas en el respaldo: ${(d.privado || {}).cuentas_en_el_respaldo}`,
+        (d.privado || {}).restauracion ? `⚠ No se pudo restaurar: ${(d.privado || {}).restauracion}` : '',
+        (d.privado || {}).respaldo_frenado ? `⚠ Respaldo FRENADO: ${(d.privado || {}).respaldo_frenado}` : '',
         (d.privado || {}).motivo || '',
         d.aviso_peso || '',
+        '',
+        // Qué versión está sirviendo. Sin esto, «¿está el arreglo desplegado?»
+        // solo se contesta adivinando por los síntomas.
+        `Versión desplegada: ${d.version || 'desconocida'}`,
     ].filter(Boolean);
     alert(lineas.join(String.fromCharCode(10)));
 }
@@ -12057,6 +12087,19 @@ const VX_ES2EN = {
     "sin juicio: falta el dato": "no verdict: data missing",
     "veces el volumen normal de las últimas 60 sesiones": "times the normal volume of the last 60 sessions",
     "Hacia dónde va cada sector": "Where each sector is heading",
+    "arriba lo que tira, abajo lo que pesa": "what pulls at the top, what drags at the bottom",
+    "← más débil que el S&P 500": "← weaker than the S&P 500",
+    "más fuerte →": "stronger →",
+    "Liderando": "Leading",
+    "Cogiendo fuerza": "Gaining strength",
+    "fuerte y subiendo": "strong and rising",
+    "todavía flojo, pero girando al alza": "still weak, but turning up",
+    "fuerte, pero perdiendo impulso": "strong, but losing momentum",
+    "flojo y cayendo": "weak and falling",
+    "Cada sector se coloca por su fuerza frente al S&P 500: a la derecha del centro le está ganando, a la izquierda le está perdiendo. La flecha dice si esa fuerza crece o se cae. El punto (•) marca el que acaba de cambiar de capa.": "Each sector sits according to its strength against the S&P 500: right of centre it is beating it, left of centre it is losing to it. The arrow says whether that strength is growing or fading. The dot (•) marks the one that just changed layer.",
+    "Versión desplegada:": "Deployed version:",
+    "Cuentas ahora:": "Accounts now:",
+    "Cuentas en el respaldo:": "Accounts in the backup:",
     "la cola son las últimas 5 lecturas; el punto es hoy": "the tail is the last 5 readings; the dot is today",
     "Gráfico de rotación relativa de los once sectores": "Relative rotation graph of the eleven sectors",
     "fuerza relativa contra el S&P 500 →": "relative strength against the S&P 500 →",

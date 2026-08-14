@@ -55,6 +55,7 @@ desarrollo en la máquina de Kevin.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -64,6 +65,12 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+#: El log del almacén. Existe porque en Render el log es lo ÚNICO que se ve sin
+#: abrir el panel, y hay avisos aquí —un respaldo frenado, un push rechazado—
+#: que solo se leían desde `/api/almacen`. Guardados nada más que en memoria no
+#: se los cuentan a nadie hasta que ya da igual.
+log = logging.getLogger(__name__)
 
 __all__ = [
     "Almacen",
@@ -614,8 +621,17 @@ class Almacen:
                     aviso = prep()
                     if aviso:
                         self._estado["ultimo_error"] = str(aviso)[:300]
+                        # Y AL LOG. En Render el log es lo único que se ve sin
+                        # abrir el panel, y esto es lo que hay que leer cuando
+                        # alguien dice «mi cuenta no existe»: un respaldo
+                        # frenado guardado solo en memoria no se lo cuenta a
+                        # nadie hasta que ya da igual.
+                        log.warning("RESPALDO PRIVADO FRENADO — %s",
+                                    _sin_secretos(str(aviso))[:300])
                 except Exception as e:           # noqa: BLE001
                     self._estado["ultimo_error"] = _sin_secretos(str(e))[:300]
+                    log.warning("RESPALDO PRIVADO ROTO — %s",
+                                _sin_secretos(str(e))[:300])
             if not self.respalda:
                 self._estado["motivo"] = self._motivo_apagado()
                 return self._foto()

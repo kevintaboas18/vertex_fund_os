@@ -208,6 +208,58 @@ _PRIVADO_ENC = "privado.enc"
 _PRIVADO_SHA = "privado.sha256"
 
 
+def _copia_la_base(destino: str) -> str:
+    """Copia la base a `destino`. Dos caminos; si fallan los dos, lanza.
+
+    `VACUUM INTO` es el primero porque además compacta, pero es el más
+    exigente: reconstruye el archivo entero y necesita sitio para la copia
+    NUEVA mientras la vieja sigue ahí. En un disco apretado —el plan free de
+    Render lo está— es lo primero que revienta, y cuando revienta el respaldo
+    se quedaba sin base dentro.
+
+    El segundo es la API de respaldo en caliente de SQLite (`Connection.backup`),
+    que es la forma canónica de copiar una base viva: no compacta, así que la
+    copia sale más grande, pero no reconstruye nada y aguanta donde el `VACUUM`
+    no. Una copia grande es un respaldo; ninguna copia no lo es.
+
+    Devuelve cuál de los dos funcionó, para que el log lo diga.
+    """
+    import sqlite3
+    from pathlib import Path
+
+    fallos = []
+    con = sqlite3.connect(DB_PATH, timeout=15)
+    try:
+        try:
+            con.execute("VACUUM INTO ?", (destino,))
+            return "vacuum"
+        except Exception as e:                   # noqa: BLE001
+            fallos.append(f"VACUUM INTO: {e}")
+            # `VACUUM INTO` no escribe nada si falla, pero si dejó un archivo a
+            # medias hay que quitarlo: `backup()` exige que el destino no sea un
+            # archivo roto, y copiar sobre restos es cómo nace una base corrupta
+            # que solo se descubre el día que hace falta restaurarla.
+            try:
+                Path(destino).unlink(missing_ok=True)
+            except OSError:
+                pass
+        try:
+            destino_con = sqlite3.connect(destino)
+            try:
+                con.backup(destino_con)
+            finally:
+                destino_con.close()
+            logging.getLogger(__name__).warning(
+                "la base se copió con backup() porque VACUUM INTO falló: %s",
+                fallos[0])
+            return "backup"
+        except Exception as e:                   # noqa: BLE001
+            fallos.append(f"backup(): {e}")
+    finally:
+        con.close()
+    raise RuntimeError(" · ".join(fallos))
+
+
 def _privado_paquete() -> bytes:
     """Un tar con la base y los perfiles. En memoria: no toca el disco en claro.
 
@@ -225,11 +277,7 @@ def _privado_paquete() -> bytes:
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 copia = os.path.join(tmp, "vertex.db")
-                con = sqlite3.connect(DB_PATH, timeout=15)
-                try:
-                    con.execute("VACUUM INTO ?", (copia,))
-                finally:
-                    con.close()
+                _copia_la_base(copia)
                 tar.add(copia, arcname="vertex.db", filter=_tar_estable)
         except Exception as e:                   # noqa: BLE001
             # LANZA. Antes se anotaba en el log y se seguía, y eso construía un
@@ -469,9 +517,17 @@ def _respalda_privado_frenado(alm=None) -> str:
     #
     # Se compara contra lo que hay DENTRO del respaldo, no contra una marca del
     # arranque: la pregunta que importa no es «cuántas había cuando encendimos»
-    # sino «¿voy a subir menos de las que ya están guardadas?». Es el escalón
-    # intermedio del desastre real —1.843.300 → 1.310.820 bytes—, el mismo
-    # fallo con menos ruido.
+    # sino «¿voy a subir menos de las que ya están guardadas?».
+    #
+    # Y se cuentan CUENTAS, no bytes, a propósito. El paquete encoge a menudo
+    # sin que se pierda nada: la SQLite es caché —los reportes viven como
+    # archivos en `Reportes/`, que es la fuente de verdad— así que el payload de
+    # un análisis entra en la base y sale de ella según se reconstruya, y eso
+    # mueve el tamaño cientos de kilobytes en cada reinicio. Frenar por eso
+    # dejaría el respaldo bloqueado casi siempre.
+    #
+    # Las CUENTAS son distintas: no están en ningún archivo, solo aquí. Perder
+    # una es definitivo, y por eso es lo único que se cuenta.
     if hay < guardadas:
         return (f"La base local tiene {hay} cuenta(s) y el respaldo guarda "
                 f"{guardadas}: NO se sobrescribe con menos de lo que había. "
@@ -6422,6 +6478,11 @@ def almacen_estado():
     from vertex_almacen import almacen as _alm
 
     e = _alm.estado()
+    # QUÉ CÓDIGO ESTÁ CORRIENDO. Sin esto, «¿está el arreglo desplegado?» solo
+    # se puede contestar adivinando por los efectos —y adivinando se pierde un
+    # día entero mirando el fallo equivocado. Render pone el commit en el
+    # entorno; en local no hay ninguno y se dice «local».
+    e["version"] = _version_desplegada()
     e["privado"] = {
         # Sin decir la clave ni nada de su contenido: solo si el candado existe.
         "cifrado_disponible": _fernet() is not None,
@@ -6798,6 +6859,21 @@ def _sectores_rotacion(filas: dict) -> dict:
                      for t, r in lideres_del_dia_rojo(ret_spy, retornos)],
         "diagnostico": diagnostico(por_sector, salud_clave),
     }
+
+
+def _version_desplegada() -> str:
+    """El commit que está sirviendo, corto. `"local"` fuera de Render.
+
+    Existe por una tarde perdida: el respaldo se rompió dos veces, el arreglo
+    estaba en `main`, y no había forma de saber si el contenedor lo tenía. Un
+    despliegue que no dice qué versión es obliga a deducirlo por los síntomas,
+    que es exactamente lo que no funciona cuando los síntomas son ambiguos.
+    """
+    for var in ("RENDER_GIT_COMMIT", "VERTEX_COMMIT", "SOURCE_VERSION"):
+        sha = (os.environ.get(var) or "").strip()
+        if sha:
+            return sha[:8]
+    return "local"
 
 
 def _reloj_ahora():

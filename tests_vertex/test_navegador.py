@@ -1321,7 +1321,13 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
                                     "lagging": [], "improving": []},
                          "cuadrantes": ["leading", "weakening", "lagging",
                                         "improving"],
-                         "categorias": [], "sectores": {}, "entrando": [],
+                         "categorias": [],
+                         "sectores": {t: {"fuerza": 2.0 - i * 0.4,
+                                          "impulso": 0.5 if i % 2 else -0.5,
+                                          "cuadrante": ["leading", "improving",
+                                                        "weakening", "lagging"][i % 4]}
+                                      for i, t in enumerate(cls.SECS)},
+                         "entrando": [],
                          "saliendo": [], "dispersion": 0.8, "dia_rojo": [],
                          "diagnostico": [],
                          "estelas": {t: estela for t in cls.SECS}}}
@@ -1335,7 +1341,17 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
         pg.route(_re.compile(r"/api/sectores"),
                  lambda r: r.fulfill(status=200, json=self._payload()))
         pg.goto(servidor, wait_until="load")
-        pg.wait_for_timeout(3000)
+        # Se espera a que el Dashboard esté PINTADO, no un número de segundos.
+        # Con la batería entera corriendo, tres segundos fijos no siempre
+        # alcanzaban y el caso fallaba por el arnés y no por el panel — que es
+        # la peor clase de rojo: el que enseña a desconfiar de los tests.
+        pg.wait_for_function(
+            "() => document.querySelectorAll("
+            "'#sectoresParrilla button[onclick^=\"abreSector\"]').length >= 11",
+            timeout=20000)
+        pg.wait_for_function(
+            "() => document.querySelectorAll('#sectoresRRG .relative').length > 0",
+            timeout=20000)
         return pg, errores
 
     def _mide(self, pg):
@@ -1354,7 +1370,8 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
                 franja: v('sectoresFranja'),
                 rrg: v('sectoresRRG'),
                 parrilla: v('sectoresParrilla'),
-                estelas: document.querySelectorAll('#sectoresRRG polyline').length,
+                capas: document.querySelectorAll('#sectoresRRG .relative.h-9').length,
+                marcas: document.querySelectorAll('#sectoresRRG button[onclick^="abreSector"]').length,
                 titulo: h1 ? h1.getBoundingClientRect().top : null,
                 relojDerecha: rr ? rr.right : null,
                 mapa: document.getElementById('sectoresMapa'),
@@ -1376,8 +1393,10 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
                     f"{d[clave]['alto']}: se pintó vacío")
             assert d["mapa"] is None, (
                 f"[{nombre}] el mapa de calor volvió: Kevin pidió quitarlo")
-            assert d["estelas"] == 11, (
-                f"[{nombre}] el RRG pintó {d['estelas']} estelas")
+            assert d["capas"] == 4, (
+                f"[{nombre}] el gráfico pintó {d['capas']} capas, no las cuatro")
+            assert d["marcas"] == 11, (
+                f"[{nombre}] {d['marcas']} sectores colocados, deberían ser 11")
             assert not errores, errores[:3]
         finally:
             pg.close()
@@ -1494,6 +1513,85 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
                 "() => document.getElementById('sectoresParrilla').innerText")
             assert "VIX" not in txt, "el VIX se coló en la parrilla"
             assert n == 16, f"{n} botones: se coló o falta una casilla"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    @pytest.mark.parametrize("nombre,viewport",
+                             [("escritorio", ESCRITORIO), ("ipad", IPAD),
+                              ("movil", MOVIL), ("monitor", MONITOR)])
+    def test_el_mensaje_va_JUSTO_DEBAJO_del_spy_y_el_vix(self, navegador,
+                                                         servidor, nombre,
+                                                         viewport):
+        """Y no al lado. Es la frase que los explica.
+
+        «La subida es de todos» o «la sostienen cuatro» solo significa algo
+        pegado a los números que lo dicen. Puesta al lado, en pantalla ancha
+        parecía un tercer dato suelto y en estrecha salía partida en columna.
+        """
+        pg, errores = self._abre(navegador, servidor, viewport)
+        try:
+            m = pg.evaluate("""() => {
+                const f = document.getElementById('sectoresFranja');
+                const msg = f.querySelector('[data-vx="amplitud"]');
+                // Por anclaje: filtrar divs por su texto agarraba también el
+                // contenedor que envuelve al mensaje, y entonces «debajo» se
+                // medía contra sí mismo.
+                const cifras = [...f.querySelectorAll('[data-vx="cifra"]')];
+                if (!msg || !cifras.length) return null;
+                const rm = msg.getBoundingClientRect();
+                const rc = cifras.map(x => x.getBoundingClientRect());
+                return {
+                    msgArriba: rm.top, msgIzq: rm.left, msgAncho: rm.width,
+                    cifrasAbajo: Math.max(...rc.map(r => r.bottom)),
+                    cifrasIzq: Math.min(...rc.map(r => r.left)),
+                };
+            }""")
+            assert m, f"[{nombre}] no se encontraron el mensaje y las cifras"
+            assert m["msgArriba"] >= m["cifrasAbajo"] - 2, (
+                f"[{nombre}] el mensaje empieza en {m['msgArriba']}px y las "
+                f"cifras acaban en {m['cifrasAbajo']}px: está al lado, no debajo")
+            assert abs(m["msgIzq"] - m["cifrasIzq"]) <= 4, (
+                f"[{nombre}] el mensaje no está alineado con las cifras "
+                f"({m['msgIzq']}px contra {m['cifrasIzq']}px)")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    @pytest.mark.parametrize("nombre,viewport",
+                             [("escritorio", ESCRITORIO), ("ipad", IPAD),
+                              ("movil", MOVIL), ("monitor", MONITOR)])
+    def test_las_capas_dicen_el_estado_CON_PALABRAS(self, navegador, servidor,
+                                                    nombre, viewport):
+        """El gráfico anterior eran once colas cruzándose sobre cuatro
+        cuadrantes sin nombre: había que deducir el estado de dónde caía el
+        punto. Ahora la capa lo dice, y en el orden que significa algo —arriba
+        lo que tira, abajo lo que pesa—."""
+        pg, errores = self._abre(navegador, servidor, viewport)
+        try:
+            t = pg.evaluate(
+                "() => document.getElementById('sectoresRRG').innerText")
+            for palabra in ("Liderando", "Cogiendo fuerza", "Agotándose",
+                            "Rezagados"):
+                assert palabra in t, f"[{nombre}] falta la capa «{palabra}»: {t[:200]}"
+            # Y en ese orden, de mejor a peor.
+            pos = [t.index(p) for p in ("Liderando", "Cogiendo fuerza",
+                                        "Agotándose", "Rezagados")]
+            assert pos == sorted(pos), (
+                f"[{nombre}] las capas no van de mejor a peor: {pos}")
+            assert "S&P 500" in t, f"[{nombre}] falta la referencia del centro"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_ya_NO_hay_una_maraña_de_lineas(self, navegador, servidor):
+        """«Veo un revolu de líneas y no se entiende.» Once polilíneas cruzadas
+        sobre el mismo plano no se pueden leer, por correctas que sean."""
+        pg, errores = self._abre(navegador, servidor, self.ESCRITORIO)
+        try:
+            n = pg.evaluate(
+                "() => document.querySelectorAll('#sectoresRRG polyline').length")
+            assert n == 0, f"volvieron las {n} estelas cruzadas"
             assert not errores, errores[:3]
         finally:
             pg.close()

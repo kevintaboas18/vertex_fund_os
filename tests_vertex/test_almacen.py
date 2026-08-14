@@ -1557,7 +1557,11 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         assert "salió a medias" in V._paquete_restaurable(a_medias)
         monkeypatch.setattr(V, "_privado_paquete", lambda: a_medias)
         motivo = V._respalda_privado(a)
-        assert "NO se sube" in motivo, motivo
+        # Se exige que lo RECHACE y diga por qué, no la frase de un cerrojo
+        # concreto: cuál de los cuatro lo caza primero depende del estado del
+        # remoto, y atarlo a uno hacía el caso intermitente. Lo que no puede
+        # variar es que el paquete a medias no suba y que el bueno siga ahí.
+        assert motivo, "se subió un paquete a medias sin decir nada"
         assert a.lee("Privado/privado.enc") == bueno
 
     def test_y_un_paquete_bueno_SI_pasa_la_prueba(self, tmp_path):
@@ -1579,3 +1583,44 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
             info.size = 4
             tar.addfile(info, io.BytesIO(b"hola"))
         assert "no lleva la base" in V._paquete_restaurable(buf.getvalue())
+
+    def test_si_VACUUM_falla_se_copia_igual_con_backup(self, tmp_path,
+                                                       monkeypatch):
+        """El fallo real del contenedor: `VACUUM INTO` reventaba y el respaldo
+        se quedaba sin base.
+
+        `VACUUM INTO` reconstruye el archivo entero y necesita sitio para la
+        copia nueva mientras la vieja sigue ahí — en un disco apretado es lo
+        primero que revienta. La API de respaldo en caliente de SQLite no
+        compacta, así que la copia sale más grande, pero no reconstruye nada y
+        aguanta donde el `VACUUM` no. Una copia grande es un respaldo; ninguna
+        copia no lo es.
+        """
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        # `VACUUM INTO` se niega si el destino ya existe. Se provoca así y no
+        # parcheando sqlite3 —su `Connection` es un tipo inmutable de C— y
+        # además esto ejercita el borrado del archivo a medias, que es lo que
+        # deja `backup()` poder trabajar sobre restos.
+        destino = str(tmp_path / "copia.db")
+        with open(destino, "wb") as fh:
+            fh.write(b"basura de un intento anterior")
+        assert V._copia_la_base(destino) == "backup", "no cayó al segundo camino"
+        assert V._cuenta_en_db(destino) == 1, "la copia salió sin la cuenta"
+
+    def test_y_si_fallan_los_DOS_caminos_lanza(self, tmp_path, monkeypatch):
+        """Sin copia no hay paquete, y eso se dice: subir un tar sin la base es
+        lo que borró las cuentas."""
+        import sqlite3
+
+        import vertex_api as V
+
+        self._con_una_cuenta()
+
+        def _revienta(*a, **kw):
+            raise sqlite3.OperationalError("database or disk is full")
+
+        monkeypatch.setattr(V.sqlite3, "connect", _revienta)
+        with pytest.raises(Exception):
+            V._copia_la_base(str(tmp_path / "copia.db"))

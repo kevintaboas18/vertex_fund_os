@@ -30,7 +30,7 @@ ticker, y baja por tres pisos: `Dashboard › XLK › SMH › NVDA`.
 | Bloque | Qué contesta |
 |---|---|
 | Franja de estado (arriba del todo) | ¿Qué hace el S&P y el VIX? ¿La subida es de todos o de cuatro? Y en la esquina derecha, fija: ¿está abierta la sesión y de cuándo es este dato? |
-| RRG con estelas | Hacia **dónde va** cada sector, no solo dónde está. Cinco lecturas de cola. |
+| Hacia dónde va cada sector | Cuatro capas, la mejor arriba: **Liderando, Cogiendo fuerza, Agotándose, Rezagados**. Dentro de cada una, el sector se coloca por su fuerza contra el S&P (centro = el índice) y una flecha dice si esa fuerza crece o se cae. |
 | Parrilla | Precio, cambio en la ventana elegida, RSI, media de 200, **volumen relativo** y **amplitud interna**. |
 | Lectura | El modelo cuenta en palabras lo que el motor ya decidió. No puntúa nada. |
 

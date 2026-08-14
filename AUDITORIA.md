@@ -6662,3 +6662,124 @@ motor ese día.
 
 **3.371 tests del motor · 776 de la capa web · 48 en un navegador real ·
 16 diferenciales sin divergencias.**
+
+## 41.56 · Ronda 31 — el respaldo se rompió otra vez, y por qué no lo vimos
+
+> «Intenté entrar a mi cuenta pero no me permite.»
+
+La segunda vez. Y esta vez la historia del respaldo cuenta algo distinto:
+
+```
+06:02:55   1 843 300   ← la recuperación de la ronda 29
+11:46 → 19:02   1 843 300   ← estable siete horas
+19:02:43   2 089 060   ← creció: se guardó un reporte de MSFT
+19:22:06   1 365 432   ← «cierre del servicio»
+20:12:11     163 940   ← otra vez el tar de perfiles SIN base
+```
+
+O sea: **la recuperación funcionó** —la cuenta volvió, se usó el agente, se
+guardó un análisis— y el mismo fallo la volvió a borrar doce horas después.
+
+### Lo que faltaba: saber qué código corría
+
+Los cerrojos de la ronda 29 hacen imposible subir un paquete sin base: el
+empaquetado lanza y `_respalda_privado` no se lo traga. Que el respaldo acabara
+en 163 940 bytes solo puede significar que **el contenedor no tenía ese
+código**. Pero eso hubo que deducirlo de los síntomas, y deducir de síntomas
+ambiguos es cómo se pierde una tarde mirando el fallo equivocado.
+
+`/api/almacen` publica ahora `version` —el commit que está sirviendo, de
+`RENDER_GIT_COMMIT`— y el panel lo enseña junto a las cuentas vivas y las
+guardadas. «¿Está el arreglo desplegado?» pasa de ser una conjetura a un dato.
+
+### Y lo que rompía: `VACUUM INTO`
+
+163 940 bytes exactos, dos veces, es la firma de un tar con los perfiles y sin
+`vertex.db`. El único camino a eso es que `VACUUM INTO` falle.
+
+Y falla por una razón concreta: **reconstruye el archivo entero**, así que
+necesita sitio para la copia nueva mientras la vieja sigue ahí. En el plan free
+de Render, con el clon del almacén creciendo cada día, es lo primero que
+revienta.
+
+`_copia_la_base()` tiene ahora dos caminos. Primero `VACUUM INTO`, que además
+compacta. Si falla, la **API de respaldo en caliente de SQLite**
+(`Connection.backup`), que es la forma canónica de copiar una base viva: no
+compacta —la copia sale más grande— pero no reconstruye nada y aguanta donde el
+`VACUUM` no. Una copia grande es un respaldo; ninguna copia no lo es. Si fallan
+los dos, lanza, y entonces no se sube nada.
+
+### Y que el freno se oiga
+
+El aviso de un respaldo frenado se guardaba solo en `ultimo_error`, en memoria,
+visible únicamente desde `/api/almacen`. En Render **el log es lo único que se
+ve** sin abrir el panel. Ahora se escribe ahí, pasado por el limpiador de
+secretos.
+
+### Una colisión de nombres en la propia auditoría
+
+El arreglo hizo fallar un check: `os.remove` en `vertex_api.py` hacía que
+`watchlist.remove` —declarada huérfana— pareciera cableada. La auditoría empareja
+por nombre desnudo y no puede distinguir una cosa de la otra. Se resolvió usando
+`Path(destino).unlink(missing_ok=True)`, que además es mejor código que un
+`os.path.exists` seguido de un `os.remove` dentro de un `try`. Doblar el código
+para contentar a un verificador estaría mal; usar la forma más limpia y que
+además no colisione, no.
+
+### Un encogimiento que NO es una pérdida
+
+Al investigar salió un patrón que parecía otra avería: el paquete baja de
+2.089.060 a 1.420.044 bytes en cada reinicio, unos 670 KB. No lo es. La SQLite
+es **caché** —los reportes viven como archivos en `Reportes/`, que es la fuente
+de verdad, y ahí está `Reportes/MSFT/2026-08-14/reporte.json` intacto—, así que
+el payload de un análisis entra y sale de la base según se reconstruya.
+
+Por eso el cerrojo cuenta **cuentas y no bytes**. Frenar por tamaño dejaría el
+respaldo bloqueado casi siempre; las cuentas, en cambio, no están en ningún
+archivo —solo en la base— y perder una es definitivo. Esa es la línea, y ahora
+está escrita al lado del código para no volver a confundir las dos cosas.
+
+### Estado
+
+**3.371 tests del motor · 778 de la capa web · 60 en un navegador real ·
+324 checks de auditoría · 16 diferenciales sin divergencias.**
+
+## 41.57 · Ronda 32 — el gráfico que no se entendía
+
+> «Veo un revolu de líneas y no se entiende. Me gustaría que se vea más simple
+> y fácil de entender pero con la información valiosa.»
+
+Tenía razón. Era un RRG de manual: los once sectores como puntos en un plano,
+cada uno con su estela de cinco lecturas. Técnicamente correcto y, con once
+encima, **ilegible** — once colas cruzándose no dejan ver ninguna. Un gráfico
+que hay que descifrar no informa: entretiene.
+
+La misma información, dicha de otra forma:
+
+- **Cuatro capas, la mejor arriba.** La capa dice el estado con palabras
+  —Liderando, Cogiendo fuerza, Agotándose, Rezagados— en vez de obligar a
+  deducirlo de en qué cuadrante cayó el punto.
+- **Una línea horizontal por capa**, con el S&P 500 en el centro. A la derecha,
+  más fuerte que el índice; a la izquierda, más débil; la distancia dice cuánto.
+- **Una flecha por sector**: si esa fuerza está creciendo o cayéndose.
+
+De la estela se conserva lo único que aportaba y que un punto no dice: si el
+sector **acaba de llegar** a esa capa (el `•`). «Liderando desde hace semanas» y
+«liderando desde el martes» son cosas distintas, y era justo lo que había que
+leer en la maraña de colas.
+
+El mensaje de amplitud pasa además a ir **exactamente debajo** del S&P y el VIX,
+alineado con ellos: es la frase que los explica, y al lado parecía un tercer
+dato suelto.
+
+### Los guardianes
+
+Cuatro tamaños, y miden lo que se pidió: que las cuatro palabras estén y **en
+orden de mejor a peor**, que el mensaje empiece por debajo de las cifras y
+alineado con ellas, que haya cuatro capas con los once sectores repartidos, y
+que **no vuelva ninguna polilínea**.
+
+Y una corrección al propio arnés: `_abre()` esperaba 3 segundos fijos. Con la
+batería entera corriendo no siempre alcanzaban y un caso fallaba por el arnés y
+no por el panel — la peor clase de rojo, el que enseña a desconfiar de los
+tests. Ahora espera a que el Dashboard esté pintado, no a un reloj.
