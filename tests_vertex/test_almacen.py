@@ -1327,3 +1327,200 @@ class TestLasMarcasDeConflictoNoLLEGANaLosDatos:
             encoding="utf-8")
         assert a._repara_marcas() == 1
         assert not (a.raiz / "Series/x.json").exists()
+
+
+class TestUnRespaldoVACIONoPISAaUnoLLENO:
+    """La avería del 14/08/2026, convertida en guardián.
+
+    El respaldo cifrado de las cuentas pasó de 1.843.300 bytes a 163.940 en dos
+    ciclos de veinte segundos —exactamente el tamaño de los perfiles sin la base
+    dentro— y todas las cuentas dejaron de existir. Kevin no podía entrar.
+
+    Dos caminos independientes llevaban al mismo sitio, y los dos eran
+    silenciosos:
+
+    1. `VACUUM INTO` fallaba (disco lleno, base bloqueada) y `_privado_paquete`
+       lo anotaba en el log y **seguía**: construía un tar SIN `vertex.db`. Un
+       archivo perfectamente válido, que se cifraba y se subía encima del bueno.
+
+    2. La restauración fallaba, el contenedor seguía vivo con la base vacía, y
+       veinte segundos después el hilo de fondo subía esa base vacía encima.
+       El motivo del fallo se descartaba, así que nadie se enteraba.
+
+    Un respaldo al que le falta lo que respalda no es un respaldo a medias: es
+    un borrado con otro nombre. La regla es que se prefiere un respaldo VIEJO a
+    uno vacío, y que frenar se dice en voz alta.
+    """
+
+    @pytest.fixture(autouse=True)
+    def entorno(self, tmp_path, monkeypatch, remoto):
+        _aisla(tmp_path, monkeypatch, remoto)
+        monkeypatch.setenv("VERTEX_DB_KEY", "clave-de-prueba-suficientemente-larga")
+
+    @staticmethod
+    def _con_una_cuenta():
+        import vertex_api as V
+        import vertex_cuentas as C
+
+        V.init_db()
+        conn = V._db()
+        C.crear_tablas(conn)
+        conn.commit()
+        C.crear_usuario(conn, "kevin@ejemplo.com", "Kevin", "contrasena-larga-1234")
+        conn.commit()
+        conn.close()
+
+    def _almacen(self, tmp_path):
+        from vertex_almacen import Almacen
+
+        a = Almacen(raiz=tmp_path / "almacen",
+                    remoto=os.environ["VERTEX_ALMACEN_REMOTO"], token="x")
+        a.restaura()
+        return a
+
+    def test_una_base_SIN_cuentas_no_sobrescribe_el_respaldo(self, tmp_path,
+                                                             monkeypatch):
+        """El caso exacto: restauración fallida, base vacía, veinte segundos."""
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        assert V._respalda_privado(a) == ""
+        bueno = a.lee("Privado/privado.enc")
+        assert bueno and len(bueno) > 100
+
+        # Ahora el desastre: la base se queda sin cuentas (restauración fallida)
+        # y el hilo de fondo vuelve a pasar.
+        conn = V._db()
+        conn.execute("DELETE FROM usuarios")
+        conn.commit()
+        conn.close()
+        motivo = V._respalda_privado(a)
+        assert motivo, "se sobrescribió el respaldo con una base sin cuentas"
+        assert "no tiene ni una cuenta" in motivo, motivo
+        assert a.lee("Privado/privado.enc") == bueno, (
+            "el respaldo bueno se perdió: esto es el borrado de todas las cuentas")
+
+    def test_y_tampoco_si_la_base_no_se_puede_ni_leer(self, tmp_path,
+                                                      monkeypatch):
+        """«No pude mirar» tiene que frenar lo mismo que «no hay nada»."""
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        V._respalda_privado(a)
+        bueno = a.lee("Privado/privado.enc")
+
+        monkeypatch.setattr(V, "_cuenta_usuarios", lambda: -1)
+        motivo = V._respalda_privado(a)
+        assert "no se pudo leer" in motivo.lower(), motivo
+        assert a.lee("Privado/privado.enc") == bueno
+
+    def test_el_respaldo_no_ENCOGE_sin_que_nadie_borre(self, tmp_path,
+                                                      monkeypatch):
+        """El escalón intermedio del desastre real: 1.843.300 → 1.310.820.
+
+        Perder algunas cuentas y no todas es el mismo fallo con menos ruido, y
+        sin este cerrojo se sube igual.
+        """
+        import vertex_api as V
+        import vertex_cuentas as C
+
+        self._con_una_cuenta()
+        conn = V._db()
+        C.crear_usuario(conn, "ana@ejemplo.com", "Ana", "contrasena-larga-1234")
+        conn.commit()
+        conn.close()
+
+        a = self._almacen(tmp_path)
+        monkeypatch.setattr(V, "_USUARIOS_AL_ARRANCAR", 2)
+        assert V._respalda_privado(a) == ""
+        bueno = a.lee("Privado/privado.enc")
+
+        conn = V._db()
+        conn.execute("DELETE FROM usuarios WHERE email = 'ana@ejemplo.com'")
+        conn.commit()
+        conn.close()
+        motivo = V._respalda_privado(a)
+        assert "menos de lo que había" in motivo, motivo
+        assert a.lee("Privado/privado.enc") == bueno
+
+    def test_un_paquete_SIN_base_dentro_no_se_construye(self, tmp_path,
+                                                       monkeypatch):
+        """El primer camino: `VACUUM INTO` falla y el tar sale sin `vertex.db`.
+
+        Antes se anotaba en el log y se seguía. El tar resultante —perfiles
+        sueltos— es un archivo válido de 163 KB que se cifra y se sube encima
+        del bueno de 1,8 MB. Ahora lanza, y `_respalda_privado` lo cuenta.
+        """
+        import sqlite3
+
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        V._respalda_privado(a)
+        bueno = a.lee("Privado/privado.enc")
+        assert bueno
+
+        def _revienta(*args, **kw):
+            raise sqlite3.OperationalError("database or disk is full")
+
+        monkeypatch.setattr(V.sqlite3, "connect", _revienta)
+        with pytest.raises(RuntimeError, match="sin ella"):
+            V._privado_paquete()
+
+        monkeypatch.setattr(V, "_cuenta_usuarios", lambda: 1)
+        motivo = V._respalda_privado(a)
+        assert motivo, "se subió un paquete sin la base dentro"
+        assert a.lee("Privado/privado.enc") == bueno
+
+    def test_una_instalacion_NUEVA_sigue_pudiendo_subir_la_primera_cuenta(
+            self, tmp_path):
+        """Los cerrojos no pueden dejar el sistema sin poder estrenarse.
+
+        Sin respaldo remoto no hay nada que proteger: se sube y punto.
+        """
+        import vertex_api as V
+
+        a = self._almacen(tmp_path)
+        assert a.lee("Privado/privado.enc") is None
+        self._con_una_cuenta()
+        assert V._respalda_privado(a) == "", "una instalación nueva no puede subir"
+        assert a.lee("Privado/privado.enc")
+
+    def test_el_freno_se_DICE_en_api_almacen(self, tmp_path, monkeypatch):
+        """Frenar es lo correcto; callarlo es cómo se pierde todo sin saberlo."""
+        from fastapi.testclient import TestClient
+
+        import vertex_almacen as _AL
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        V._respalda_privado(a)
+        conn = V._db()
+        conn.execute("DELETE FROM usuarios")
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setattr(_AL, "almacen", a)
+        d = TestClient(V.app).get("/api/almacen").json()
+        assert d["privado"]["cuentas"] == 0
+        assert d["privado"]["respaldo_frenado"], (
+            "/api/almacen no dice que el respaldo está frenado: la persona ve "
+            "«todo verde» mientras sus cuentas no se están respaldando")
+
+    def test_el_motivo_de_NO_restaurar_no_se_tira_a_la_basura(self):
+        """Era lo único que podía explicar «mi cuenta no existe»."""
+        import inspect
+
+        import vertex_api as V
+
+        fuente = inspect.getsource(V._arranca_almacen)
+        assert "_MOTIVO_RESTAURA = _restaura_privado" in fuente, (
+            "el motivo del fallo de restauración se vuelve a descartar")
+        assert "_USUARIOS_AL_ARRANCAR = " in fuente, (
+            "sin la marca de arranque, el cerrojo del encogimiento no existe")
+        # Y llega a la persona, no solo al log.
+        assert "_MOTIVO_RESTAURA" in inspect.getsource(V._aviso_persistencia)

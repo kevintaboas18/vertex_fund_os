@@ -6496,3 +6496,92 @@ volumen y la amplitud interna **en los dos tamaños**.
 
 **3.373 tests del motor · 808 de la capa web (44 en un navegador real) ·
 16 diferenciales sin una sola divergencia · 0 fallos, 0 skips.**
+
+## 41.54 · Ronda 29 — el respaldo que borró las cuentas
+
+> «intente entrar ahora de nuevo y no me permite entrar a la cuenta.»
+
+No era la contraseña ni el navegador. La historia del respaldo cifrado en la
+rama `datos` lo dice sin ambigüedad:
+
+```
+05:24:24   1 843 300 bytes   ← bien
+05:30:30   1 310 820 bytes   ← «cierre del servicio», ya faltaban 530 KB
+05:41:19     163 940 bytes   ← el 9% de lo que era
+05:43:50     163 940 bytes
+```
+
+**El respaldo de las cuentas se sobrescribió con uno vacío.** 163.940 bytes es
+exactamente lo que pesa un tar con los perfiles `.md` y **sin `vertex.db`
+dentro**.
+
+### Dos caminos, el mismo final, los dos mudos
+
+**1 · Un paquete sin la base seguía siendo un paquete.** `_privado_paquete()`
+copia la base con `VACUUM INTO`, y si eso fallaba —disco lleno, base bloqueada—
+lo anotaba en el log y **seguía**:
+
+```python
+except Exception as e:
+    logging.getLogger(__name__).warning("no se pudo copiar la base: %s", e)
+```
+
+El tar resultante es un archivo perfectamente válido. Se cifraba, pasaba el
+testigo del SHA (era distinto del anterior, claro) y se subía **encima** del
+bueno. Un respaldo al que le falta lo que respalda no es un respaldo a medias:
+es un borrado con otro nombre. Ahora lanza.
+
+**2 · La restauración fallaba en silencio.** `_arranca_almacen` llamaba a
+`_restaura_privado(_alm)` y **tiraba el valor de retorno**, que es justamente el
+motivo del fallo. El contenedor seguía vivo con la base vacía y veinte segundos
+después el hilo de fondo subía esa base vacía. En veinte segundos, sin una línea
+en ninguna parte, desaparecía todo el mundo.
+
+Y algo que agrava las dos: `Privado/*` está en el `.gitignore` del almacén salvo
+`*.enc`, así que el testigo `privado.sha256` **no viaja en la rama**. Vive en el
+disco efímero y muere en cada reinicio — de modo que la primera sincronización
+tras arrancar SIEMPRE reescribe. El único freno que había no frenaba nunca en el
+momento en que hacía falta.
+
+### Los tres cerrojos
+
+Todos parten de lo mismo: este archivo es la **única** copia de las cuentas, así
+que una escritura mala aquí no es un respaldo fallido, es un borrado.
+
+1. **No se pisa un respaldo CON cuentas con uno SIN cuentas.** Ningún estado
+   legítimo dice «no queda ni una cuenta y aun así piso el respaldo que sí las
+   tiene». `_cuenta_usuarios()` devuelve `-1` cuando no se pudo ni leer la base,
+   y eso frena igual que el cero: «no pude mirar» y «no hay nada» son cosas
+   distintas, pero las dos tienen que parar la escritura.
+2. **El respaldo no ENCOGE.** Se guarda cuántas cuentas trajo el arranque
+   (`_USUARIOS_AL_ARRANCAR`) y se rechaza subir con menos. Es el escalón
+   intermedio del desastre real —1.843.300 → 1.310.820—, el mismo fallo con
+   menos ruido y que sin esto se sube igual.
+3. **Sin base dentro, no hay paquete.** `_privado_paquete()` lanza y
+   `_respalda_privado` no se lo traga.
+
+### Y se dice en voz alta
+
+Frenar es lo correcto —mejor un respaldo viejo que uno vacío— pero callarlo es
+exactamente cómo se pierde todo sin enterarse. `/api/almacen` publica ahora
+`cuentas`, `cuentas_al_arrancar`, `restauracion` (por qué no se pudo abrir el
+respaldo) y `respaldo_frenado` (por qué no se está escribiendo). Y el aviso de
+persistencia lo dice **antes que nada**, porque es el único caso en que los
+datos siguen ahí y aun así la persona ve «tu cuenta no existe»:
+
+> Hay un respaldo de las cuentas que NO se pudo restaurar: … Las cuentas viejas
+> no aparecerán hasta que se resuelva; no vuelvas a registrarte hasta entonces o
+> tendrás dos.
+
+### Recuperación
+
+Los datos **no se perdieron**: git guarda todas las versiones. El último paquete
+íntegro es el de `43eeb1eab` (14/08 05:24:24, 1.843.300 bytes) y se devolvió a
+la punta de la rama `datos`. El orden importa y por eso el arreglo va primero:
+con el código viejo corriendo, cualquier archivo restaurado se vuelve a
+sobrescribir en veinte segundos.
+
+### Estado
+
+**3.373 tests del motor · 817 de la capa web (44 en un navegador real) ·
+7 casos nuevos que fijan esta avería · 16 diferenciales sin divergencias.**

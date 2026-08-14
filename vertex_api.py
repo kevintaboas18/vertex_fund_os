@@ -148,7 +148,19 @@ def _arranca_almacen():
         except Exception as e:                   # noqa: BLE001
             log.warning("no se pudieron migrar las series: %s", e)
 
-        _restaura_privado(_alm)
+        # El motivo por el que NO se pudo restaurar se guarda y se dice. Antes
+        # se descartaba: si la clave no cuadraba o el tar venía roto, la base
+        # se quedaba vacía en silencio y lo único que veía la persona era «tu
+        # cuenta no existe» — sin una línea, en ninguna parte, que explicara
+        # que había un respaldo bueno que no se pudo abrir.
+        global _MOTIVO_RESTAURA, _USUARIOS_AL_ARRANCAR
+        _MOTIVO_RESTAURA = _restaura_privado(_alm) or ""
+        if _MOTIVO_RESTAURA:
+            log.error("PRIVADO SIN RESTAURAR — %s", _MOTIVO_RESTAURA)
+        # La marca contra la que se comprueba que el respaldo no encoja. Se
+        # toma DESPUÉS de restaurar: es «con cuántas cuentas empezamos hoy».
+        _USUARIOS_AL_ARRANCAR = max(_cuenta_usuarios(), 0)
+        log.info("cuentas tras restaurar: %d", _USUARIOS_AL_ARRANCAR)
         # El paquete cifrado se regenera justo antes de cada respaldo, no
         # cuando alguien crea una cuenta: así no hay que acordarse de llamarlo
         # desde los cinco sitios que tocan la base, y nunca se sube una foto
@@ -220,7 +232,19 @@ def _privado_paquete() -> bytes:
                     con.close()
                 tar.add(copia, arcname="vertex.db", filter=_tar_estable)
         except Exception as e:                   # noqa: BLE001
-            logging.getLogger(__name__).warning("no se pudo copiar la base: %s", e)
+            # LANZA. Antes se anotaba en el log y se seguía, y eso construía un
+            # paquete SIN la base: un tar con cuatro perfiles, perfectamente
+            # válido, que se cifraba y se subía ENCIMA del bueno. Medido en el
+            # despliegue real el 14/08: el respaldo pasó de 1.843.300 bytes a
+            # 163.940 en dos ciclos —justo el tamaño de los perfiles sin base—
+            # y todas las cuentas dejaron de existir.
+            #
+            # Un respaldo al que le falta lo que se respalda no es un respaldo
+            # a medias: es un borrado con otro nombre. Mejor no subir nada y
+            # decirlo que subir algo que destruye lo que había.
+            raise RuntimeError(
+                f"no se pudo copiar la base ({e}): el paquete se habría subido "
+                "sin ella y habría borrado las cuentas del respaldo") from e
         if os.path.isdir(_PERFIL_DIR):
             for nombre in sorted(os.listdir(_PERFIL_DIR)):
                 if nombre.endswith(".md"):
@@ -257,8 +281,94 @@ def _tar_estable(info):
     return info
 
 
+def _cuenta_usuarios() -> int:
+    """Cuántas cuentas hay en la base local. `-1` si no se pudo saber.
+
+    `-1` y no `0`: son cosas distintas y la diferencia decide si se sobrescribe
+    el respaldo de todo el mundo. «No pude mirar» tiene que poder frenar lo
+    mismo que frena «hay menos que antes».
+    """
+    import sqlite3
+
+    if not os.path.exists(DB_PATH):
+        return 0
+    try:
+        con = sqlite3.connect(DB_PATH, timeout=5)
+        try:
+            fila = con.execute("SELECT COUNT(*) FROM usuarios").fetchone()
+            return int(fila[0]) if fila else 0
+        finally:
+            con.close()
+    except Exception:                            # noqa: BLE001
+        return -1
+
+
+#: Cuántas cuentas trajo la restauración al arrancar. Es la marca contra la que
+#: se comprueba que el respaldo no ENCOJA: si ahora hay menos de las que había
+#: al arrancar y nadie ha borrado ninguna, algo se perdió por el camino y
+#: subirlo convertiría esa pérdida local en una pérdida definitiva.
+#:
+#: `None` mientras no se sepa (antes de restaurar). Baja sola cuando alguien
+#: borra su cuenta de verdad, que es el único descenso legítimo.
+_USUARIOS_AL_ARRANCAR: int | None = None
+
+#: Por qué no se pudo devolver lo privado a su sitio, o `""`. Se pinta en
+#: `/api/almacen` y en el aviso de persistencia: un respaldo que existe y no se
+#: puede abrir es peor que no tenerlo, porque nadie va a ir a buscarlo.
+_MOTIVO_RESTAURA: str = ""
+
+
+def _respalda_privado_frenado(alm=None) -> str:
+    """Por qué NO se debe sobrescribir el respaldo ahora mismo, o `""`.
+
+    Aparte de `_respalda_privado` para que `/api/almacen` pueda decirlo sin
+    escribir nada: un respaldo frenado es correcto —mejor uno viejo que uno
+    vacío— pero callarlo es cómo se pierde todo sin enterarse.
+    """
+    from vertex_almacen import DIR_PRIVADO, almacen as _def
+
+    a = alm or _def
+    try:
+        remoto = bool(a.lee(f"{DIR_PRIVADO}/{_PRIVADO_ENC}"))
+    except Exception:                            # noqa: BLE001
+        return ""
+    if not remoto:
+        return ""                                # no hay nada que proteger
+
+    # ── Cerrojo 1: no se pisa un respaldo CON cuentas con uno SIN cuentas ──
+    #
+    # Pasó de verdad, el 14/08. Si la restauración falla —red, token, la base a
+    # medio escribir— el contenedor sigue vivo con la base VACÍA, y veinte
+    # segundos después el hilo de respaldo sube esa base vacía encima de la
+    # buena. En veinte segundos, y sin que nada lo diga, desaparece todo el
+    # mundo.
+    #
+    # Ningún estado legítimo dice «no queda ni una cuenta y aun así piso el
+    # respaldo que sí las tiene». Se prefiere un respaldo viejo a ninguno.
+    hay = _cuenta_usuarios()
+    if hay == 0:
+        return ("La base local no tiene ni una cuenta y el respaldo sí: NO se "
+                "sobrescribe. Reinicia el servicio para restaurar desde él.")
+    if hay < 0:
+        return ("No se pudo leer la base local para contar las cuentas: NO se "
+                "sobrescribe el respaldo hasta saber qué hay dentro.")
+
+    # ── Cerrojo 2: el respaldo no ENCOGE sin que nadie haya borrado nada ──
+    if _USUARIOS_AL_ARRANCAR is not None and hay < _USUARIOS_AL_ARRANCAR:
+        return (f"La base local tiene {hay} cuenta(s) y al arrancar había "
+                f"{_USUARIOS_AL_ARRANCAR}: NO se sobrescribe el respaldo con "
+                "menos de lo que había. Si borraste una cuenta a propósito, "
+                "reinicia el servicio y el conteo se pone al día.")
+    return ""
+
+
 def _respalda_privado(alm=None) -> str:
-    """Cifra y guarda lo sensible. Devuelve por qué NO se hizo, o ''."""
+    """Cifra y guarda lo sensible. Devuelve por qué NO se hizo, o ''.
+
+    Tres cerrojos antes de escribir, y los tres existen por lo mismo: este
+    archivo es la ÚNICA copia de las cuentas, así que una escritura mala aquí
+    no es un respaldo fallido — es un borrado.
+    """
     import hashlib
 
     from vertex_almacen import DIR_PRIVADO, almacen as _def
@@ -268,9 +378,26 @@ def _respalda_privado(alm=None) -> str:
     if f is None:
         return ("Sin VERTEX_DB_KEY no se respaldan cuentas ni perfiles: un hash "
                 "de contraseña sin cifrar no se sube a un repositorio.")
+
+    frenado = _respalda_privado_frenado(a)
+    if frenado:
+        return frenado
+
     try:
+        # ── Cerrojo 3: sin base dentro, no hay paquete ──
+        # `_privado_paquete` lanza si no pudo copiarla, y aquí NO se traga: un
+        # tar de perfiles sueltos es un archivo válido que borra las cuentas.
         claro = _privado_paquete()
         sha = hashlib.sha256(claro).hexdigest()
+        # OJO con este testigo: `Privado/*` está en el `.gitignore` del almacén
+        # salvo `*.enc`, así que el `.sha256` NO viaja en la rama. Vive en el
+        # disco efímero y desaparece en cada reinicio, y por eso la primera
+        # sincronización tras arrancar SIEMPRE reescribe.
+        #
+        # Se deja así a propósito —es un hash del contenido en claro y la regla
+        # de la casa es que de ahí no sale nada sin cifrar—, pero conviene saber
+        # que esto ahorra commits DENTRO de una vida del contenedor y no protege
+        # de nada entre reinicios. Lo que protege son los cerrojos de arriba.
         if (a.lee(f"{DIR_PRIVADO}/{_PRIVADO_SHA}") or b"").decode("utf-8", "replace").strip() == sha:
             return ""                            # nada cambió: ni un commit
         a.guarda(f"{DIR_PRIVADO}/{_PRIVADO_ENC}", f.encrypt(claro))
@@ -741,6 +868,14 @@ def _aviso_persistencia() -> str:
         return ("Esta cuenta NO se está respaldando: falta VERTEX_GIT_TOKEN. "
                 "Si el servidor se reinicia o se duerme, tendrás que volver a "
                 "registrarte — y el email quedará libre otra vez.")
+    # Un respaldo que EXISTE y no se pudo abrir es peor que no tenerlo: nadie
+    # va a ir a buscarlo. Va delante de todo lo demás porque es el único caso
+    # en que los datos siguen ahí y aun así la persona ve «tu cuenta no existe».
+    if _MOTIVO_RESTAURA:
+        return ("Hay un respaldo de las cuentas que NO se pudo restaurar: "
+                + _MOTIVO_RESTAURA
+                + " Las cuentas viejas no aparecerán hasta que se resuelva; no "
+                "vuelvas a registrarte hasta entonces o tendrás dos.")
     if _fernet() is None:
         return ("Esta cuenta se guarda en disco pero NO se respalda: falta "
                 "VERTEX_DB_KEY, la clave con la que se cifran las cuentas antes "
@@ -6167,6 +6302,17 @@ def almacen_estado():
         # Sin decir la clave ni nada de su contenido: solo si el candado existe.
         "cifrado_disponible": _fernet() is not None,
         "hay_respaldo": bool(_alm.lee(f"Privado/{_PRIVADO_ENC}")),
+        # Cuántas cuentas hay AHORA y cuántas trajo el arranque. Las dos, y no
+        # solo una: el número que importa no es «cuántas hay» sino «¿hay menos
+        # que antes?», que es la forma que tiene esta avería de anunciarse.
+        "cuentas": _cuenta_usuarios(),
+        "cuentas_al_arrancar": _USUARIOS_AL_ARRANCAR,
+        # Por qué no se pudo abrir el respaldo, si es que pasó. Un respaldo que
+        # existe y no se puede leer es peor que no tenerlo.
+        "restauracion": _MOTIVO_RESTAURA or "",
+        # Y si el respaldo está FRENADO por los cerrojos. Frenar es lo correcto
+        # —mejor un respaldo viejo que uno vacío—, pero callarlo no.
+        "respaldo_frenado": _respalda_privado_frenado(),
     }
     if not e["privado"]["cifrado_disponible"]:
         e["privado"]["motivo"] = (
