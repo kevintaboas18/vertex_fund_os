@@ -1,0 +1,120 @@
+name: TAM por industria
+
+# Resuelve el TAM mundial de las industrias que aún no lo tienen, y COMMITEA
+# lo que encuentre.
+#
+# Por qué programado y no a mano: el cuello no es el código, es la cuota. El
+# tier gratuito de Gemini da 20 peticiones por minuto, y el barrido pide 4
+# intentos por industria contra ~132 industrias sin resolver. Una corrida
+# entera no cabe en una tanda, así que se avanza un poco cada día: lo que se
+# resuelve queda escrito y la corrida siguiente ya no lo repite.
+#
+# Un sector por día, rotando. Con 10 sectores, cada uno se reintenta cada 10
+# días — suficiente para que las industrias que fallaron por cuota tengan
+# otra oportunidad, y poco para no quemar la cuota en repetir lo ya resuelto.
+#
+# Lo que NO hace: no toca un archivo con TAM ya resuelto, ni uno escrito por
+# un analista (sin `_generado_por`). Eso lo garantiza `asegurar_tam_industria`,
+# no este workflow.
+
+on:
+  schedule:
+    # 06:20 UTC = 02:20 ET. Fuera de horario de mercado: si la cuota se
+    # agota aquí, no le quita peticiones a un análisis en vivo.
+    - cron: "20 6 * * *"
+  workflow_dispatch:
+    inputs:
+      sector:
+        description: "Sector concreto (vacío = el que toque por rotación)"
+        type: string
+        required: false
+
+permissions:
+  contents: write          # para commitear los TAM resueltos
+
+jobs:
+  resolver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Elegir el sector del día
+        id: elegir
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.sector }}" ]; then
+            echo "sector=${{ inputs.sector }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Rotación por día del año: el mismo sector vuelve cada 10 días.
+          # `date +%j` da el día 001-366; el módulo reparte parejo.
+          SECTORES=("Technology" "Healthcare" "Financial Services" \
+                    "Consumer Cyclical" "Industrials" "Consumer Defensive" \
+                    "Energy" "Basic Materials" "Utilities" "Real Estate")
+          DIA=$(date -u +%j)
+          IDX=$(( (10#$DIA) % ${#SECTORES[@]} ))
+          echo "sector=${SECTORES[$IDX]}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolver el TAM del sector
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EDGAR_USER_AGENT: ${{ secrets.EDGAR_USER_AGENT }}
+          SECTOR: ${{ steps.elegir.outputs.sector }}
+        run: |
+          set -euo pipefail
+          if [ -z "${FMP_API_KEY:-}" ] || [ -z "${GEMINI_API_KEY:-}" ]; then
+            echo "::error::Faltan FMP_API_KEY o GEMINI_API_KEY en Settings > Secrets."
+            exit 1
+          fi
+          echo "Sector de hoy: $SECTOR"
+          python - <<'PY'
+          import os, sys, pathlib
+          sys.path.insert(0, str(pathlib.Path("engine").resolve()))
+          from wbj.config import load_settings
+          from wbj.providers.cache import Cache
+          from wbj.providers.fmp import FMPProvider
+          from wbj.overlay.tam_mundial import resolver_todas_las_industrias
+
+          s = load_settings()
+          fmp = FMPProvider(s, Cache(s.cache_dir))
+          filas = resolver_todas_las_industrias(
+              s, fmp, sector=os.environ["SECTOR"], minimo_empresas=2)
+          if not filas:
+              # Sin universo no hay nada que intentar, y callarlo fue el fallo
+              # que hizo perder una corrida entera: el barrido abortaba con
+              # "No se pudo enumerar el universo" sin decir que le faltaba la
+              # clave de FMP.
+              print("::warning::El screener no devolvió universo — revisa FMP_API_KEY.")
+              sys.exit(0)
+          resueltas = [f for f in filas if f.get("estado") == "resuelto"]
+          for f in filas:
+              print(f"  [{f.get('estado')}] {f.get('industria')}: {str(f.get('detalle'))[:150]}")
+          print(f"\nresueltas={len(resueltas)} de {len(filas)} intentadas")
+          PY
+
+      - name: Commitear lo resuelto
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain Entradas/_industrias/)" ]; then
+            echo "Nada nuevo que guardar."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Entradas/_industrias/
+          # `[skip render]`: esto commitea a diario y cada push despierta un
+          # redespliegue. Un TAM nuevo no cambia el código que Render sirve,
+          # así que no hay motivo para reiniciar el servicio por él.
+          git commit -m "TAM de ${{ steps.elegir.outputs.sector }} ($(date -u +%Y-%m-%d)) [skip render]"
+          git push
