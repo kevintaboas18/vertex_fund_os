@@ -1049,7 +1049,9 @@ class TestEntrarLlevaAlDashboard:
         h = _html()
         fn = h[h.index("async function authLogin("):]
         fn = fn[:fn.index("\n}")]
-        assert "switchView('homeView')" in fn
+        assert "switchView('sectorsView')" in fn, (
+            "entrar tiene que llevar al Dashboard, que es la pantalla de "
+            "arranque del agente")
         assert "switchView('perfilView')" not in fn
 
     def test_al_perfil_se_llega_por_el_menu_de_cuenta(self):

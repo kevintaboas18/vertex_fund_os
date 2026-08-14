@@ -822,7 +822,7 @@
     </div>
 </div>
 
-<main id="homeView" class="view-section flex-grow flex flex-col items-center pt-10 px-4 w-full max-w-4xl mx-auto">
+<main id="homeView" class="view-section hidden flex-grow flex flex-col items-center pt-10 px-4 w-full max-w-4xl mx-auto">
 
     <div class="flex items-center gap-1 bg-[#11141D] border border-[#1F2532] rounded-xl p-1 mb-8 self-center">
         <button id="homeTabAnalyze" onclick="switchHomeTab('analyze')"
@@ -957,7 +957,7 @@
 
     </div></main>
 
-<main id="sectorsView" class="view-section hidden flex-grow w-full max-w-6xl mx-auto p-4 space-y-4">
+<main id="sectorsView" class="view-section flex-grow w-full max-w-none xl:px-8 2xl:px-12 mx-auto p-4 space-y-4">
     <div class="flex items-baseline justify-between flex-wrap gap-2">
         <h1 class="text-xl font-black text-white">Sectores</h1>
         <span id="sectoresSello" class="text-[10px] text-gray-600"></span>
@@ -968,7 +968,7 @@
     <div id="sectoresLectura"></div>
 </main>
 
-<main id="sectorView" class="view-section hidden flex-grow w-full max-w-5xl mx-auto p-4 space-y-4">
+<main id="sectorView" class="view-section hidden flex-grow w-full max-w-none xl:px-8 2xl:px-12 mx-auto p-4 space-y-4">
     <nav id="sectorMigas" class="flex items-center gap-1.5 text-[11px] flex-wrap" aria-label="Migas de pan"></nav>
     <div id="sectorCabecera"></div>
     <div id="sectorAmplitud"></div>
@@ -1860,7 +1860,7 @@ function pintaSectores(d) {
     parrilla.innerHTML = `
       ${vxSelectorVentanaHTML()}
       <div class="grid grid-cols-3 gap-2 mb-3">${refs.map(t => caja(t, false)).join('')}</div>
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">${secs.map(t => caja(t, true)).join('')}</div>`;
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">${secs.map(t => caja(t, true)).join('')}</div>`;
     const sello = document.getElementById('sectoresSello');
     if (sello) sello.innerText = d.cacheado ? 'foto de hace menos de 2 min' : 'al momento';
     pintaRotacion(d.rotacion);
@@ -8311,13 +8311,13 @@ async function authLogin(user, opciones) {
     if (typeof syncReportsFromServer === 'function') syncReportsFromServer();
     if (typeof pfCargar === 'function') await pfCargar();
 
-    // Entrar lleva al dashboard, también la primera vez.
+    // Entrar lleva al Dashboard, también la primera vez.
     //
     // Estuvo mandando al cuestionario a quien acababa de registrarse, y era una
     // barrera de once preguntas antes de haber visto nada. El perfil por
     // defecto ya funciona; personalizarlo es una decisión que se toma cuando
     // uno quiere, entrando a «Mi perfil» desde el menú.
-    switchView('homeView');
+    switchView('sectorsView');
 }
 
 async function authSignOut() {
@@ -8432,6 +8432,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         plaidConnected = !!pi.connected;
     } catch (e) { plaidConnected = false; }
     renderRecentReports();
+    // El Dashboard es la pantalla de arranque, así que su parrilla se pide
+    // AQUÍ. `switchView` la pide al entrar en el tab, pero al cargar la página
+    // nadie llama a `switchView` —la vista ya viene visible del marcado— y el
+    // mapa se quedaba en «Leyendo el mercado…» hasta que tocaras otra pestaña
+    // y volvieras.
+    if (typeof cargaSectores === 'function') cargaSectores();
     syncReportsFromServer();   // #4 — trae reportes durables del servidor (multi-dispositivo)
     loadDataHealth();          // #5 — salud de fuentes de datos
     setInterval(() => loadDataHealth(), 120000);   // re-chequea cada 2 min
@@ -11228,7 +11234,7 @@ const _MQ_DESKTOP = '(min-width: 1024px)';
 function _isDesktop(){ return window.matchMedia(_MQ_DESKTOP).matches; }
 
 function navBrandClick(){
-    if (_isDesktop()) { switchView('homeView'); return; }
+    if (_isDesktop()) { switchView('sectorsView'); return; }
     const el = document.getElementById('mobileNav');
     if (el && el.classList.contains('open')) closeMobileNav(); else openMobileNav();
 }
@@ -11681,6 +11687,9 @@ const VX_ES2EN = {
     "Dominancia": "Dominance",
     "Rango extremo · 2σ": "Extreme range · 2σ",
     "Sectores": "Sectors",
+    "Falta FMP_API_KEY: sin ella no hay precio ni RSI de los sectores.": "FMP_API_KEY is missing: without it there is no price or RSI for the sectors.",
+    "Falta FMP_API_KEY: sin ella no hay precio ni RSI de las acciones.": "FMP_API_KEY is missing: without it there is no price or RSI for the stocks.",
+    "Ticker no válido.": "Invalid ticker.",
     "Confianza": "Confidence",
     "Explícame qué está pasando aquí ›": "Explain what is happening here ›",
     "No se pudieron leer las empresas.": "Could not read the companies.",

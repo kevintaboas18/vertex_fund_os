@@ -1180,3 +1180,87 @@ class TestElSelectorDeVentanaFUNCIONAEnLosTresPisos:
             assert not errores, errores[:3]
         finally:
             pg.close()
+
+
+class TestElAgenteABREEnElDashboard:
+    """«Lo primero que me salga al entrar es el Dashboard.»
+
+    El marcado decide qué vista arranca visible: la única sin `hidden`. Era
+    `homeView` (el buscador), y cambiarla no basta — al cargar la página nadie
+    llama a `switchView`, que es quien pide la parrilla, así que el mapa se
+    quedaba en «Leyendo el mercado…» hasta que tocaras otra pestaña y volvieras.
+    Las dos mitades, o no funciona.
+    """
+
+    @staticmethod
+    def _payload():
+        secs = ["XLK", "XLF", "XLV", "XLY", "XLC", "XLI",
+                "XLP", "XLE", "XLU", "XLRE", "XLB"]
+        fila = lambda t: {"ticker": t, "nombre": t, "precio": 100.0,      # noqa: E731
+                          "cambio_pct": 0.5, "rsi": 55.0, "sma200": 95.0,
+                          "sma200_dist": 5.0,
+                          "cambios": {"7D": 1.0, "1M": 2.0, "3M": 3.0,
+                                      "6M": 4.0, "1A": 5.0}}
+        return {"ok": True, "referencias": ["SPY", "RSP", "QQQ"],
+                "sectores": secs,
+                "filas": [fila(t) for t in ["SPY", "RSP", "QQQ"] + secs],
+                "amplitud": {v: {"n": 11, "fuertes": secs, "debiles": [],
+                                 "neutrales": [], "confianza": "alta",
+                                 "frase": "todos", "empujan": [], "frenan": []}
+                             for v in ("7D", "1M", "3M", "6M", "1A")},
+                "rotacion": {"disponible": False, "motivo": ""}}
+
+    def _abre(self, navegador, servidor, ancho=1440):
+        import re as _re
+
+        pg = navegador.new_page(viewport={"width": ancho, "height": 1000})
+        errores: list[str] = []
+        pg.on("pageerror", lambda e: errores.append(str(e)))
+        pg.route(_re.compile(r"/api/sectores"),
+                 lambda r: r.fulfill(status=200, json=self._payload()))
+        pg.goto(servidor, wait_until="load")
+        pg.wait_for_timeout(3000)
+        return pg, errores
+
+    def test_la_vista_de_arranque_es_el_dashboard(self, navegador, servidor):
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            visibles = pg.evaluate(
+                "() => [...document.querySelectorAll('.view-section')]"
+                ".filter(x => !x.classList.contains('hidden')).map(x => x.id)")
+            assert visibles == ["sectorsView"], (
+                f"al abrir se ve {visibles}, no el Dashboard")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_y_la_parrilla_se_pide_SOLA_al_cargar(self, navegador, servidor):
+        """La mitad que se olvida: cambiar qué vista arranca no dispara su
+        carga, porque `switchView` es quien la pide y nadie lo llama."""
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            n = pg.evaluate("() => document.querySelectorAll("
+                            "'#sectoresParrilla button[onclick^=\"abreSector\"]').length")
+            assert n == 11, (
+                f"{n} sectores al abrir: la parrilla no se pidió sola")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_mapa_usa_la_pantalla_ENTERA_no_una_columna(self, navegador,
+                                                           servidor):
+        """Un mapa de mercado no es un texto: encerrarlo en una columna de
+        lectura desperdicia media pantalla y obliga a bajar para ver once
+        casillas que caben de un vistazo."""
+        pg, errores = self._abre(navegador, servidor, ancho=1920)
+        try:
+            d = pg.evaluate("""() => ({
+                usado: Math.round(document.getElementById('sectoresParrilla')
+                    .getBoundingClientRect().width),
+                ventana: window.innerWidth,
+            })""")
+            assert d["usado"] / d["ventana"] > 0.9, (
+                f"solo usa {d['usado']} de {d['ventana']} px")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
