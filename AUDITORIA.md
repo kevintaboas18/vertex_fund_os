@@ -6359,3 +6359,140 @@ contradicción.
 **2.925 tests del motor · 658 de la capa web (28 en un navegador real) ·
 323 checks de auditoría · 16 diferenciales · preflight de Render en verde ·
 0 fallos, 0 avisos, 0 skips.**
+
+## 41.53 · Ronda 28 — el Dashboard profesional: volumen, reloj, mapa, RRG y amplitud interna
+
+Kevin pidió siete mejoras del Dashboard y descartó cuatro (ordenación,
+minigráficos, personalización y atajos de teclado). Y añadió una octava que no
+estaba en la lista y que resultó ser la más importante:
+
+> «dentro de los sectores, industrias y las acciones salga el volumen promedio y
+> el volumen que ah tenido basado a la fecha que elija de tiempo. Para saber
+> también si es respaldado por volumen y también es una señal de un posible
+> crecimiento o rotación.»
+
+### 1 · El volumen: la prueba de que hay alguien detrás
+
+La pantalla decía cuánto se movió cada cosa y no decía **si alguien pagó por
+ello**. Un sector que sube un 4% con el volumen de siempre lo sube el goteo de
+costumbre y se deshace igual de rápido; el mismo 4% con vez y media el volumen
+normal es gente entrando, que es lo que se llama rotación. Sin ese dato, las dos
+se leían idénticas.
+
+`volumen_por_ventana()` da el volumen medio de cada ventana y cuánto es respecto
+a lo normal. **La base son las 60 sesiones más recientes, no la serie entera**:
+con la serie entera, la ventana de un año se compararía consigo misma y el
+relativo saldría siempre pegado a 1 — justo en la ventana donde más interesa
+saber si el año fue anormal.
+
+`respalda_el_volumen()` devuelve `True`, `False` o **`None`**. `None` cuando no
+hay volumen que medir: devolver `False` ahí diría «el movimiento NO está
+respaldado», que es una afirmación sobre algo que no se ha mirado.
+
+El juicio viaja **hecho** desde el motor. El panel no compara el umbral: pinta
+el veredicto. Un test lo vigila (`test_el_umbral_del_panel_es_el_del_MOTOR`) —
+si el 1,20 se moviera en el motor y el panel siguiera con el suyo, la pantalla
+diría lo de antes con el número nuevo al lado, que es peor que no tener
+etiqueta.
+
+### 2 · El reloj: lo que separa «se está moviendo» de «es la foto del cierre»
+
+Un precio de las 16:00 de ayer y uno de ahora **se ven idénticos en pantalla**.
+`estado_del_mercado()` dice si la sesión está abierta, en pre-mercado, después
+del cierre, cerrada o de fin de semana, contando en ET porque la bolsa abre en
+ET, no donde esté quien mira.
+
+Dos decisiones que parecen detalles y no lo son:
+
+- **No sabe de festivos, y lo dice en su docstring** en vez de fingir que sí. Un
+  4 de julio dirá «abierto» a las 11:00; la marca de tiempo del dato, que está
+  al lado, lo delata.
+- **Se recalcula en cada respuesta, también en las servidas de caché.** Guardado
+  con los datos, a las 16:01 seguiría diciendo «abierto» durante dos minutos —
+  que es justo el minuto en que importa.
+
+Y va en el servidor, no en el navegador: calculado en el cliente quedaría atado
+al reloj del teléfono, que en un viaje diría que Wall Street abre a las tres de
+la madrugada.
+
+### 3 · La franja de estado, y el VIX que no puede votar
+
+Arriba y en los dos pisos —el mapa y dentro de un sector—: reloj, hora del dato,
+S&P 500, VIX y la amplitud RSP-contra-SPY. Dentro de un sector también, porque
+un sector que sube un 2% no significa lo mismo en un día en que el mercado sube
+un 2% que en uno en que cae.
+
+El VIX obligó a una tabla nueva. Es lo único del universo que **se lee al
+revés**: sube cuando el mercado empeora. Añadirlo a `REFERENCIAS` lo habría
+metido en la parrilla y, peor, en la cuenta de la amplitud — y un día de pánico,
+con el VIX disparado, habría salido como **un voto al alza**. Va en `EXTRAS`: se
+baja, no pinta casilla, y el filtro de la amplitud pasó de «lo que no es
+referencia» a «los once sectores», que es lo que siempre quiso decir.
+
+### 4 · El mapa de calor: el tamaño ES información
+
+Once rectángulos, el color por el cambio y **el ancho por el peso en el índice**.
+Una rejilla de casillas iguales miente por omisión: XLK pesa un 32% del S&P y
+XLRE un 2%, y pintados igual un −3% en inmobiliario parece tan grave como un −3%
+en tecnología. Los pesos viven en el motor (`PESOS_SP500`) y viajan con la
+rotación; el panel no inventa ninguno.
+
+Cinco escalones de color y no un degradado: un degradado obliga a comparar tonos
+de verde entre sí, que es lo que el ojo hace mal.
+
+### 5 · El RRG dibujado: hacia dónde va, no dónde está
+
+La matriz en cuatro listas dice **dónde** está cada sector. Un sector que lleva
+tres semanas girando desde «liderando» hacia «agotándose» y otro que acaba de
+entrar aparecen en la misma lista y no significan lo mismo.
+
+`estela_rrg()` da cinco puntos, uno cada cinco sesiones. Devuelve `[]` —y no
+media estela— cuando falta historia para el punto más antiguo: una estela
+recortada se leería como un giro que no ocurrió.
+
+Un test propio se equivocó aquí y se arregló el test, no el código: con una
+caída a ritmo constante el impulso (ROC corto) sale **igual** en todos los
+puntos, y era la fuerza la que se desplomaba. Medir el impulso en ese fixture
+era medir la aritmética del fixture. El caso mide ahora la fuerza y el cambio de
+cuadrante, que es el giro de verdad.
+
+### 6 · La amplitud interna: lo que no puede hacer una empresa sola
+
+«XLK sube un 2%» lo puede hacer Nvidia sola. «El 72% de las empresas de XLK está
+por encima de su media de 50» no lo puede hacer nadie solo.
+
+La media de **50** y no la de 200 a propósito: en un mercado alcista casi todo
+está sobre su 200, el número se pega al 90% y deja de informar. La de 50 se
+mueve semana a semana y delata a un sector que se está vaciando por dentro.
+
+Quien no tiene 50 sesiones de historia **no vota**: contarla como «por debajo»
+sería afirmar algo no mirado, y con diez miembros por sector una salida a bolsa
+reciente movería el porcentaje diez puntos sin que nadie haya vendido nada. Sin
+nadie medible, `pct` es `None` y no 0 — un 0% se leería como «el sector entero
+está por debajo», que es lo contrario de «no lo sé».
+
+Cuesta ~110 peticiones a FMP, así que se calcula **una vez al día en segundo
+plano** y se guarda en el almacén (`Series/amplitud_interna.json`), no en
+memoria: Render borra el disco en cada redeploy y duerme el servicio, y en
+memoria el dato se perdería justo cuando el usuario vuelve. Mientras se
+recalcula se sirve lo de ayer con su fecha al lado, que es más útil que un
+hueco. Un sector que falla anota su motivo y no tumba a los otros diez.
+
+### 7 · Densidad, y la tentación de esconder en el móvil
+
+La fila de industrias pasó de seis columnas sueltas a dos bloques. La salida
+fácil era un `hidden sm:inline` sobre la media de 200 —cabía todo y nadie se
+quejaba en el portátil—, y eso habría dejado el teléfono con un Dashboard
+distinto del que se diseñó. El bloque de la derecha pasa a su propia línea en
+pantalla estrecha y se coloca al lado en la ancha: **los mismos datos en los
+dos**. El mapa y el RRG van uno junto al otro en pantalla ancha y apilados en
+estrecha, por la misma razón al revés: cruzarlos exige verlos a la vez.
+
+Un caso de navegador nuevo pinta el Dashboard a 1440 y a 390 px y exige los
+cuatro bloques, los once rectángulos, las once estelas, el reloj, el VIX, el
+volumen y la amplitud interna **en los dos tamaños**.
+
+### Estado
+
+**3.373 tests del motor · 808 de la capa web (44 en un navegador real) ·
+16 diferenciales sin una sola divergencia · 0 fallos, 0 skips.**

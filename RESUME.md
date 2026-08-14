@@ -22,6 +22,29 @@ Dos capas sobre la metodología de Victor (`Cerebro/`, v2.0.0, build 2026-07-14)
 El `Cerebro/` está verificado íntegro: 83 archivos, SHA-256 coinciden con su
 `MANIFEST.md`.
 
+### El Dashboard (pestaña de arranque)
+
+Lo primero que se ve al entrar. Es el mapa del mercado **antes** de elegir un
+ticker, y baja por tres pisos: `Dashboard › XLK › SMH › NVDA`.
+
+| Bloque | Qué contesta |
+|---|---|
+| Franja de estado | ¿Está abierta la sesión? ¿De cuándo es este dato? ¿Qué hace el S&P, el VIX y la amplitud RSP-contra-SPY? |
+| Mapa del índice | Once rectángulos: color = cambio, **ancho = peso en el S&P**. Por qué el índice hace lo que hace. |
+| RRG con estelas | Hacia **dónde va** cada sector, no solo dónde está. Cinco lecturas de cola. |
+| Parrilla | Precio, cambio en la ventana elegida, RSI, media de 200, **volumen relativo** y **amplitud interna**. |
+| Lectura | El modelo cuenta en palabras lo que el motor ya decidió. No puntúa nada. |
+
+La ventana (7D, 1M, 3M, 6M, 1A) manda en los tres pisos a la vez: el porcentaje
+que se lee, el reparto de fuerza que se cuenta y el volumen que se compara
+hablan siempre del mismo periodo.
+
+Todo lo que se calcula vive en `engine/wbj/sectores.py` — funciones puras, sin
+I/O y sin LLM. `vertex_api.py` baja los datos y `vertex_fund_os_platform.html`
+los pinta. La tabla de industrias vive **solo** en el panel (el servidor cotiza
+los tickers que le pidan), y los umbrales viven **solo** en el motor: el panel
+pinta veredictos, no los recalcula.
+
 ## Cómo se corre
 
 ```bash
@@ -40,8 +63,8 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 ## Tests
 
 ```bash
-cd engine && python -m pytest tests/ -q    # 2918 pasan, 0 skips
-python -m pytest tests_vertex/ -q          # 512 pasan, 0 skips
+cd engine && python -m pytest tests/ -q    # 3373 pasan, 0 skips
+python -m pytest tests_vertex/ -q          # 808 pasan, 0 skips
 
 # Auditoría del tab de Proyecciones (303 checks). Con TITO_ROOT usa tu clon de
 # su repo en vez de GitHub, y así cubre también su web/app/api.

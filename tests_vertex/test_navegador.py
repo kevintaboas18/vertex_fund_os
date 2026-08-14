@@ -1264,3 +1264,151 @@ class TestElAgenteABREEnElDashboard:
             assert not errores, errores[:3]
         finally:
             pg.close()
+
+
+class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
+    """Franja, mapa de calor, RRG y volumen: en escritorio Y en teléfono.
+
+    «Siempre que se mejore o se suba algo aplica para todos los dispositivos.»
+    La forma cómoda de meter cuatro bloques nuevos en una pantalla estrecha es
+    esconder alguno con un `hidden sm:…`, y entonces el teléfono enseña un
+    Dashboard distinto del que se diseñó. Este caso pinta lo mismo a 1440 y a
+    390 px y exige los cuatro bloques en los dos.
+    """
+
+    ESCRITORIO = {"width": 1440, "height": 1000}
+    MOVIL = {"width": 390, "height": 844}
+
+    SECS = ["XLK", "XLF", "XLV", "XLY", "XLC", "XLI",
+            "XLP", "XLE", "XLU", "XLRE", "XLB"]
+
+    @classmethod
+    def _payload(cls):
+        vol = {v: {"medio": 12_400_000, "relativo": 1.45, "respalda": True}
+               for v in ("7D", "1M", "3M", "6M", "1A")}
+        fila = lambda t: {"ticker": t, "nombre": t, "precio": 100.0,      # noqa: E731
+                          "cambio_pct": 0.5, "rsi": 55.0, "sma200": 95.0,
+                          "sma200_dist": 5.0, "volumen": vol,
+                          "cambios": {"7D": 1.0, "1M": 2.0, "3M": 3.0,
+                                      "6M": 4.0, "1A": 5.0}}
+        estela = [{"fuerza": 1.0 + i, "impulso": 0.5 - i * 0.2,
+                   "cuadrante": "leading"} for i in range(5)]
+        return {
+            "ok": True, "referencias": ["SPY", "RSP", "QQQ"],
+            "sectores": cls.SECS,
+            "filas": ([fila(t) for t in ["SPY", "RSP", "QQQ"] + cls.SECS]
+                      + [{**fila("^VIX"), "precio": 17.4, "cambio_pct": -3.2}]),
+            "reloj": {"clave": "abierto", "abierto": True,
+                      "frase": "Mercado abierto"},
+            "generado": "2026-08-14T18:30:00+00:00",
+            "interna": {"generado": "2026-08-14T09:00:00+00:00",
+                        "sectores": {t: {"pct": 72.0, "n": 10} for t in cls.SECS}},
+            "amplitud": {v: {"n": 11, "fuertes": cls.SECS, "debiles": [],
+                             "neutrales": [], "confianza": "alta",
+                             "frase": "todos", "empujan": [], "frenan": []}
+                         for v in ("7D", "1M", "3M", "6M", "1A")},
+            "rotacion": {"disponible": True,
+                         "salud": {"clave": "amplia",
+                                   "frase": "Amplitud sólida: la mayoría del "
+                                            "mercado participa de la subida.",
+                                   "pendiente": 0.4},
+                         "matriz": {"leading": cls.SECS, "weakening": [],
+                                    "lagging": [], "improving": []},
+                         "cuadrantes": ["leading", "weakening", "lagging",
+                                        "improving"],
+                         "categorias": [], "sectores": {}, "entrando": [],
+                         "saliendo": [], "dispersion": 0.8, "dia_rojo": [],
+                         "diagnostico": [],
+                         "estelas": {t: estela for t in cls.SECS},
+                         "pesos": {"XLK": 32.0, "XLF": 14.0, "XLY": 10.5,
+                                   "XLC": 9.5, "XLV": 9.5, "XLI": 8.0,
+                                   "XLP": 5.5, "XLE": 3.5, "XLU": 2.5,
+                                   "XLRE": 2.0, "XLB": 1.8}}}
+
+    def _abre(self, navegador, servidor, viewport):
+        import re as _re
+
+        pg = navegador.new_page(viewport=viewport)
+        errores: list[str] = []
+        pg.on("pageerror", lambda e: errores.append(str(e)))
+        pg.route(_re.compile(r"/api/sectores"),
+                 lambda r: r.fulfill(status=200, json=self._payload()))
+        pg.goto(servidor, wait_until="load")
+        pg.wait_for_timeout(3000)
+        return pg, errores
+
+    def _mide(self, pg):
+        return pg.evaluate("""() => {
+            const v = id => {
+                const n = document.getElementById(id);
+                if (!n) return null;
+                const r = n.getBoundingClientRect();
+                return { alto: r.height, texto: (n.innerText || '').trim() };
+            };
+            return {
+                franja: v('sectoresFranja'),
+                mapa: v('sectoresMapa'),
+                rrg: v('sectoresRRG'),
+                parrilla: v('sectoresParrilla'),
+                estelas: document.querySelectorAll('#sectoresRRG polyline').length,
+                rects: document.querySelectorAll('#sectoresMapa button').length,
+            };
+        }""")
+
+    @pytest.mark.parametrize("nombre,viewport",
+                             [("escritorio", ESCRITORIO), ("movil", MOVIL)])
+    def test_los_cuatro_bloques_estan_y_tienen_alto(self, navegador, servidor,
+                                                    nombre, viewport):
+        pg, errores = self._abre(navegador, servidor, viewport)
+        try:
+            d = self._mide(pg)
+            for clave in ("franja", "mapa", "rrg", "parrilla"):
+                assert d[clave], f"[{nombre}] falta el bloque {clave}"
+                assert d[clave]["alto"] > 20, (
+                    f"[{nombre}] {clave} está en pantalla con alto "
+                    f"{d[clave]['alto']}: se pintó vacío")
+            assert d["rects"] == 11, (
+                f"[{nombre}] el mapa de calor pintó {d['rects']} rectángulos")
+            assert d["estelas"] == 11, (
+                f"[{nombre}] el RRG pintó {d['estelas']} estelas")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    @pytest.mark.parametrize("nombre,viewport",
+                             [("escritorio", ESCRITORIO), ("movil", MOVIL)])
+    def test_el_reloj_el_vix_y_el_volumen_se_LEEN(self, navegador, servidor,
+                                                  nombre, viewport):
+        pg, errores = self._abre(navegador, servidor, viewport)
+        try:
+            d = self._mide(pg)
+            franja = d["franja"]["texto"]
+            assert "Mercado abierto" in franja, f"[{nombre}] sin reloj: {franja}"
+            assert "VIX" in franja, f"[{nombre}] sin VIX: {franja}"
+            assert "18:30" in franja or "6:30" in franja, (
+                f"[{nombre}] sin la hora del dato: {franja}")
+            parrilla = d["parrilla"]["texto"]
+            assert "1.45x" in parrilla, (
+                f"[{nombre}] el volumen no llegó a la parrilla")
+            assert "72%" in parrilla, (
+                f"[{nombre}] la amplitud interna no llegó a la parrilla")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_VIX_no_pinta_casilla_en_la_parrilla(self, navegador, servidor):
+        """Se baja para la franja; en el mapa sería un sector más, y sube
+        cuando el mercado empeora."""
+        pg, errores = self._abre(navegador, servidor, self.ESCRITORIO)
+        try:
+            n = pg.evaluate(
+                "() => document.querySelectorAll('#sectoresParrilla button[onclick]')"
+                ".length")
+            # 11 sectores pulsables + 5 botones de ventana. El VIX no está.
+            txt = pg.evaluate(
+                "() => document.getElementById('sectoresParrilla').innerText")
+            assert "VIX" not in txt, "el VIX se coló en la parrilla"
+            assert n == 16, f"{n} botones: se coló o falta una casilla"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()

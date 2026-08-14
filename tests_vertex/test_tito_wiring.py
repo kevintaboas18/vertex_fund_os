@@ -4056,3 +4056,266 @@ class TestLasEmpresasDeUnaIndustriaLLEGANoDICENporQUE:
         assert set(d["amplitud"]) == {e for e, _ in VENTANAS_CAMBIO}, d["amplitud"]
         alguna = d["amplitud"]["7D"]
         assert set(alguna) >= {"n", "fuertes", "debiles", "confianza", "frase"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  EL VOLUMEN, EL RELOJ Y LA AMPLITUD INTERNA
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestElVolumenLLEGAConElJUICIOHECHO:
+    """«¿Está respaldado por volumen?» lo decide el motor, no el panel.
+
+    Si el panel comparara el relativo contra 1,20 por su cuenta, el umbral
+    viviría en dos sitios: el día que se mueva en el motor, la pantalla seguiría
+    diciendo lo de antes y nadie se enteraría — un número correcto con una
+    etiqueta vieja al lado es peor que no tener etiqueta.
+    """
+
+    def test_la_fila_trae_medio_relativo_y_veredicto_por_ventana(self, monkeypatch):
+        import vertex_api as V
+        from wbj.sectores import VENTANAS_CAMBIO
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_quote_rapido_fmp",
+                            lambda t: {"price": 100.0, "previousClose": 99.0})
+        # 300 sesiones: da para la ventana de 1A y para la media de 200.
+        barras = [(0, 1, 1, 1, 100.0 + i * 0.1, 1_000_000) for i in range(300)]
+        monkeypatch.setattr(V, "_fmp_daily_bars", lambda t, p=None: barras)
+
+        f = V._sector_fila("XLK")
+        assert set(f["volumen"]) == {e for e, _ in VENTANAS_CAMBIO}, f["volumen"]
+        for etiqueta, datos in f["volumen"].items():
+            assert set(datos) >= {"medio", "relativo", "respalda"}, (
+                f"{etiqueta} llega sin el veredicto hecho")
+
+    def test_volumen_plano_da_relativo_uno_y_NO_respaldado(self, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_quote_rapido_fmp", lambda t: {"price": 100.0})
+        barras = [(0, 1, 1, 1, 100.0, 1_000_000) for _ in range(300)]
+        monkeypatch.setattr(V, "_fmp_daily_bars", lambda t, p=None: barras)
+
+        v = V._sector_fila("XLK")["volumen"]["1M"]
+        assert v["relativo"] == 1.0
+        assert v["respalda"] is False, "1,00x no es respaldo, es lo de siempre"
+
+    def test_sin_volumen_el_veredicto_es_None_y_no_False(self, monkeypatch):
+        """`False` afirmaría «este movimiento NO va respaldado», que es una
+        afirmación sobre algo que no se ha mirado."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_quote_rapido_fmp", lambda t: {"price": 100.0})
+        monkeypatch.setattr(V, "_fmp_daily_bars", lambda t, p=None: [])
+
+        v = V._sector_fila("XLK")["volumen"]
+        assert v == {} or all(x.get("respalda") is None for x in v.values()), v
+
+    def test_el_umbral_del_panel_es_el_del_MOTOR(self):
+        """Un solo umbral. El panel ni lo compara: pinta el veredicto."""
+        from wbj.sectores import VOLUMEN_RESPALDA
+
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        cuerpo = html.split("function vxVolumenHTML", 1)[1].split("\n}", 1)[0]
+        assert "v.respalda" in cuerpo, "el panel tiene que leer el veredicto"
+        assert str(VOLUMEN_RESPALDA) not in cuerpo, (
+            "el panel está comparando el umbral por su cuenta: son dos copias "
+            "que se van a separar")
+
+    def test_la_lectura_del_modelo_recibe_el_volumen_YA_JUZGADO(self):
+        import vertex_api as V
+
+        f = {"ticker": "XLK", "nombre": "Tecnología",
+             "volumen": {"1M": {"medio": 5_000_000, "relativo": 1.45,
+                                "respalda": True}}}
+        frase = V._volumen_frase(f, "1M")
+        assert "1.45x" in frase and "respaldado por volumen" in frase, frase
+        assert V._volumen_frase(f, "1A") is None, (
+            "sin dato no se escribe una línea diciendo que no hay dato: el "
+            "modelo acabaría hablando de la falta de dato y no del mercado")
+
+    def test_una_ventana_inventada_cae_a_una_de_verdad(self):
+        """`?ventana=../` no puede dejar la lectura sin volumen en silencio."""
+        import vertex_api as V
+        from wbj.sectores import VENTANAS_CAMBIO
+
+        assert V._ventana_valida("../etc") == VENTANAS_CAMBIO[0][0]
+        assert V._ventana_valida("1m") == "1M", "y se acepta en minúsculas"
+        assert V._ventana_valida("3M") == "3M"
+
+
+class TestElRelojNoSeSIRVEDeCACHE:
+    """Un precio de las 16:00 de ayer y uno de ahora se ven idénticos.
+
+    El reloj es el único dato de esta pantalla que caduca solo: guardado con
+    los datos, a las 16:01 seguiría diciendo «abierto» durante dos minutos —
+    que es justo el minuto en que importa.
+    """
+
+    def test_la_respuesta_trae_el_estado_del_mercado(self, monkeypatch, client):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        monkeypatch.setattr(V, "_sectores_filas", lambda ts: [])
+        monkeypatch.setattr(V, "_amplitud_interna_al_dia", lambda: {})
+        d = client.get("/api/sectores").json()
+        assert d.get("reloj"), d
+        assert set(d["reloj"]) >= {"clave", "frase", "abierto"}
+
+    def test_al_servir_de_CACHE_el_reloj_se_recalcula(self, monkeypatch, client):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        monkeypatch.setattr(V, "_sectores_filas", lambda ts: [])
+        monkeypatch.setattr(V, "_amplitud_interna_al_dia", lambda: {})
+        client.get("/api/sectores")
+
+        llamadas = []
+        real = V._reloj_ahora
+        monkeypatch.setattr(V, "_reloj_ahora",
+                            lambda: (llamadas.append(1), real())[1])
+        d = client.get("/api/sectores").json()
+        assert d["cacheado"] is True, "esta segunda tenía que venir de caché"
+        assert llamadas, "el reloj vino congelado dentro de la foto guardada"
+
+    def test_el_reloj_va_en_el_MOTOR_y_no_en_el_navegador(self):
+        """Calcularlo en el cliente lo ataría al reloj del teléfono, que en un
+        viaje diría que Wall Street abre a las tres de la madrugada."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        franja = html.split("function vxFranjaHTML", 1)[1].split("\n}", 1)[0]
+        assert "d.reloj" in franja, "el panel tiene que leer el reloj del servidor"
+        assert "America/New_York" not in franja, (
+            "el panel está deduciendo la sesión por su cuenta")
+
+
+class TestLaAmplitudInternaSEGUARDAyNOBLOQUEA:
+    """~110 peticiones a FMP. Ni se piden en cada visita ni se esperan."""
+
+    def test_se_sirve_lo_guardado_sin_esperar_al_calculo(self, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        ayer = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+        monkeypatch.setattr(V, "_amplitud_interna_guardada",
+                            lambda: {"generado": ayer, "sectores": {"XLK": {"pct": 70.0}}})
+        # Si esto llegara a ejecutarse en el hilo de la petición, el test se
+        # colgaría: la prueba es que devuelve YA, con lo de ayer.
+        monkeypatch.setattr(V, "_amplitud_interna_calcula",
+                            lambda: pytest.fail("no puede calcularse en línea"))
+        hilos = []
+        monkeypatch.setattr(V.threading, "Thread",
+                            lambda **kw: hilos.append(kw) or type(
+                                "H", (), {"start": lambda s: None})())
+        d = V._amplitud_interna_al_dia()
+        assert d["sectores"]["XLK"]["pct"] == 70.0, "no sirvió lo de ayer"
+        assert hilos, "y tenía que haber disparado el recálculo en segundo plano"
+
+    def test_lo_fresco_NO_dispara_nada(self, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_amplitud_interna_guardada", lambda: {
+            "generado": datetime.now(timezone.utc).isoformat(), "sectores": {}})
+        hilos = []
+        monkeypatch.setattr(V.threading, "Thread",
+                            lambda **kw: hilos.append(kw) or type(
+                                "H", (), {"start": lambda s: None})())
+        V._amplitud_interna_al_dia()
+        assert not hilos, "recalculó algo que ya estaba al día"
+
+    def test_un_sector_que_falla_no_tumba_a_los_otros_diez(self, monkeypatch):
+        import vertex_api as V
+
+        def _holdings(tk):
+            if tk == "XLE":
+                raise RuntimeError("se cayó FMP")
+            return [("AAA", "A"), ("BBB", "B")], ""
+
+        monkeypatch.setattr(V, "_etf_holdings", _holdings)
+        monkeypatch.setattr(V, "_fmp_daily_bars", lambda t, p=None: [
+            (0, 1, 1, 1, 100.0 + i, 1) for i in range(80)])
+        d = V._amplitud_interna_calcula()
+        assert len(d["sectores"]) == 11, d["sectores"].keys()
+        assert d["sectores"]["XLE"]["pct"] is None
+        assert d["sectores"]["XLE"]["motivo"], "un None sin motivo no se explica"
+        assert d["sectores"]["XLK"]["pct"] == 100.0
+
+    def test_vive_en_el_ALMACEN_y_no_en_memoria(self):
+        """Render borra el disco en cada redeploy y duerme el servicio: en
+        memoria, el dato se perdería justo cuando el usuario vuelve."""
+        import vertex_api as V
+
+        assert V._AMPLITUD_INTERNA_RUTA.startswith("Series/")
+        fuente = inspect.getsource(V._amplitud_interna_al_dia)
+        assert "almacen" in inspect.getsource(V._amplitud_interna_guardada)
+        assert "_amplitud_interna_guardada" in fuente
+
+
+class TestElMAPAyElRRGRecibenLoQueNecesitan:
+    def test_los_pesos_y_las_estelas_viajan_con_la_rotacion(self, monkeypatch):
+        import vertex_api as V
+        from wbj.sectores import PESOS_SP500, SECTORES
+
+        serie = [100.0 * (1.001 ** i) for i in range(300)]
+        filas = {t: {"ticker": t, "nombre": t, "precio": 100.0, "cambio_pct": 1.0,
+                     "cierres": list(serie), "volumenes": [1_000_000] * 300}
+                 for t in ("SPY", "RSP") + tuple(t for t, _ in SECTORES)}
+        rot = V._sectores_rotacion(filas)
+        assert rot["disponible"] is True, rot
+        assert rot["pesos"] == PESOS_SP500, (
+            "el mapa de calor dimensiona con esto: inventarlo en el panel sería "
+            "una segunda tabla de pesos")
+        assert rot["estelas"], "sin estela el RRG solo puede pintar un punto"
+        for t, e in rot["estelas"].items():
+            assert len(e) >= 2, f"{t} con media estela: se leería como un giro"
+            assert set(e[0]) >= {"fuerza", "impulso", "cuadrante"}
+
+    def test_el_VIX_se_baja_pero_NO_cuenta_como_sector(self, monkeypatch, client):
+        """Se lee al revés que todo lo demás: en la cuenta de «cuántos al alza»,
+        un día de pánico saldría como un día de fuerza."""
+        import vertex_api as V
+        from wbj.sectores import EXTRAS, universo
+
+        assert "^VIX" in universo()
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        monkeypatch.setattr(V, "_amplitud_interna_al_dia", lambda: {})
+        monkeypatch.setattr(V, "_sectores_filas", lambda ts: [
+            {"ticker": t, "nombre": t, "precio": 10.0, "cambio_pct": 9.0,
+             "rsi": 50.0, "sma200": None, "sma200_dist": None, "cambios": {},
+             "volumen": {}, "cierres": [], "volumenes": []} for t in ts])
+        d = client.get("/api/sectores").json()
+        assert "^VIX" not in d["sectores"] and "^VIX" not in d["referencias"], (
+            "el VIX no es una casilla del mapa")
+        amp = d["amplitud"]["7D"]
+        assert amp["n"] == 11, (
+            f"la amplitud contó {amp['n']} y los sectores son once: se coló "
+            "algo que no es un sector")
+        assert "^VIX" not in amp["fuertes"]
+        assert [t for t, _ in EXTRAS] == ["^VIX"]
+
+
+class TestLaAmplitudINTERNASoloSePintaDondeEXISTE:
+    """«Internos —» en SPY o dentro de una industria es un hueco permanente.
+
+    Y un hueco se lee como «este dato falta», no como «esta pregunta no aplica
+    aquí». La amplitud interna solo existe para los once sectores: en un índice
+    o en un ETF de industria no hay tal cosa.
+    """
+
+    def test_el_panel_se_calla_fuera_de_los_once(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        cuerpo = html.split("function vxInternaHTML", 1)[1].split("\n}", 1)[0]
+        assert "sectores" in cuerpo and "includes(ticker)" in cuerpo, (
+            "vxInternaHTML no comprueba que el ticker sea uno de los once: "
+            "SPY, QQQ y cada industria van a enseñar «Internos —» para siempre")
+
+    def test_pero_un_sector_SIN_dato_sigue_diciendolo(self):
+        """Callarse ahí sí sería tapar un dato que debería estar."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        cuerpo = html.split("function vxInternaHTML", 1)[1].split("\n}", 1)[0]
+        assert "Internos —" in cuerpo, (
+            "un sector cuyo cálculo falló tiene que decir que no hay número")

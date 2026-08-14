@@ -28,6 +28,7 @@ __all__ = [
     "cambio_pct",
     "REFERENCIAS",
     "SECTORES",
+    "EXTRAS",
     "CATEGORIAS",
     "CATEGORIA_DE",
     "ES_REFERENCIA",
@@ -60,6 +61,21 @@ __all__ = [
     "MAYORIA_DEBIL",
     "amplitud",
     "amplitud_por_ventana",
+    # ── volumen ──
+    "VOLUMEN_BASE_SESIONES",
+    "VOLUMEN_RESPALDA",
+    "volumen_por_ventana",
+    "respalda_el_volumen",
+    # ── reloj ──
+    "estado_del_mercado",
+    # ── RRG y mapa de calor ──
+    "ESTELA_PUNTOS",
+    "ESTELA_PASO",
+    "estela_rrg",
+    "PESOS_SP500",
+    # ── amplitud interna ──
+    "SMA_INTERNA",
+    "amplitud_interna",
 ]
 
 #: Periodos del RSI. 14 es el de Wilder, que es lo que enseña cualquier
@@ -135,6 +151,16 @@ REFERENCIAS = (
     ("QQQ", "Nasdaq 100"),
 )
 
+#: Lo que se baja para la franja de estado pero NO es una casilla del mapa.
+#:
+#: El VIX no es un sector ni un índice de precio: es el miedo cotizado, y se
+#: lee al revés que todo lo demás —cuando sube, el mercado empeora—. Por eso no
+#: entra en la parrilla ni cuenta en la amplitud: sumarlo a «cuántos están al
+#: alza» diría que un día de pánico es un día de fuerza.
+EXTRAS = (
+    ("^VIX", "Volatilidad (VIX)"),
+)
+
 #: Los once sectores GICS con su ETF de SPDR — los de referencia del mercado.
 #: El orden es el que se pinta, de más a menos cíclico dentro de lo razonable;
 #: no significa nada más que eso.
@@ -160,12 +186,18 @@ ES_REFERENCIA = frozenset(t for t, _ in REFERENCIAS)
 #: Nombre por ticker de la parrilla. Las industrias NO están aquí: sus nombres
 #: los pone el panel, que es donde viven, y el servidor las trata como lo que
 #: son para él — tickers que hay que cotizar.
-_NOMBRES = {t: n for t, n in REFERENCIAS + SECTORES}
+_NOMBRES = {t: n for t, n in REFERENCIAS + SECTORES + EXTRAS}
 
 
 def universo() -> tuple[str, ...]:
-    """Los catorce de la parrilla, en el orden en que se pintan."""
-    return tuple(t for t, _ in REFERENCIAS) + tuple(t for t, _ in SECTORES)
+    """Todo lo que hay que bajar: las catorce casillas y los extras.
+
+    El orden es el de la parrilla y los extras van al final, detrás de las
+    casillas, porque no se pintan ahí — el panel los busca por ticker para la
+    franja de estado.
+    """
+    return (tuple(t for t, _ in REFERENCIAS) + tuple(t for t, _ in SECTORES)
+            + tuple(t for t, _ in EXTRAS))
 
 
 def nombre_de(ticker: str) -> str:
@@ -713,3 +745,239 @@ def amplitud_por_ventana(miembros) -> dict:
             for m in filas
         ])
     return salida
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  VOLUMEN: ¿EL MOVIMIENTO LO RESPALDA ALGUIEN?
+#
+#  Un sector que sube un 3% con el volumen de un martes cualquiera y otro que
+#  sube lo mismo con el doble de lo normal son la misma casilla en pantalla y
+#  dos cosas distintas: en el segundo hay alguien grande moviéndose, y esos son
+#  los que empiezan una rotación en vez de rebotar dentro de ella.
+#
+#  Se sirven DOS números y no uno: el volumen medio de la ventana que estás
+#  mirando y cuánto es eso respecto a lo normal de ese ticker. El primero solo
+#  no dice nada —diez millones es mucho para un ETF y poco para otro—; el
+#  segundo es el que se lee.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Sobre cuántas sesiones se mide «lo normal» de un ticker. Tres meses: lo
+#: bastante largo para que una semana rara no lo mueva y lo bastante corto para
+#: que siga siendo el régimen de ahora y no el de hace un año.
+VOLUMEN_BASE_SESIONES = 60
+
+#: A partir de aquí el volumen respalda de verdad. Es el mismo 1,2 que usa el
+#: flujo de capital, y a propósito: dos umbrales distintos para «volumen alto»
+#: en la misma pantalla serían dos definiciones de lo mismo.
+VOLUMEN_RESPALDA = UMBRAL_VOLUMEN
+
+
+def volumen_por_ventana(volumenes) -> dict:
+    """Volumen medio de cada ventana y cuánto es respecto a lo normal.
+
+    Devuelve `{ventana: {"medio": …, "relativo": …}}`. `relativo` es el medio
+    de la ventana partido por el de las últimas `VOLUMEN_BASE_SESIONES`: 1,4
+    significa que en esa ventana se negoció un 40% más de lo habitual.
+
+    La base son las 60 sesiones MÁS RECIENTES, no la serie entera. Con la serie
+    entera, la ventana de un año se compararía consigo misma y el relativo
+    saldría siempre pegado a 1 — justo en la ventana donde más interesa saber
+    si el año fue anormal.
+    """
+    try:
+        serie = [float(v) for v in (volumenes or []) if v is not None]
+    except (TypeError, ValueError):
+        return {e: {"medio": None, "relativo": None} for e, _ in VENTANAS_CAMBIO}
+
+    base = media(serie, min(VOLUMEN_BASE_SESIONES, len(serie))) if serie else None
+    salida = {}
+    for etiqueta, sesiones in VENTANAS_CAMBIO:
+        m = media(serie, sesiones) if len(serie) >= sesiones else None
+        rel = (m / base) if (m is not None and base) else None
+        salida[etiqueta] = {
+            "medio": None if m is None else round(m),
+            "relativo": None if rel is None else round(rel, 2),
+        }
+    return salida
+
+
+def respalda_el_volumen(relativo, umbral: float = VOLUMEN_RESPALDA):
+    """`True`, `False` o `None` — nunca «no» por falta de dato.
+
+    `None` cuando no hay volumen que medir. Devolver `False` ahí diría «el
+    movimiento NO está respaldado», que es una afirmación sobre algo que no se
+    ha mirado.
+    """
+    if relativo is None:
+        return None
+    try:
+        return float(relativo) >= float(umbral)
+    except (TypeError, ValueError):
+        return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  EL RELOJ DEL MERCADO
+#
+#  Un precio de las 16:00 de ayer y uno de ahora se ven idénticos en pantalla.
+#  Saber si el mercado está abierto es lo que separa «esto se está moviendo»
+#  de «esto es la foto del cierre», y no hay forma de deducirlo del número.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: La sesión regular en hora del Este, en minutos desde medianoche.
+_APERTURA_ET = 9 * 60 + 30
+_CIERRE_ET = 16 * 60
+_PREMARKET_ET = 4 * 60
+_AFTERHOURS_ET = 20 * 60
+
+
+def estado_del_mercado(ahora=None) -> dict:
+    """`{clave, frase, abierto}` — dónde está el mercado ahora mismo.
+
+    Las claves son `abierto`, `premarket`, `after`, `cerrado` y `finde`. La
+    hora se cuenta en ET porque la bolsa abre en ET, no donde esté quien mira.
+
+    **No sabe de festivos**, y se dice aquí en vez de fingir que sí: un 4 de
+    julio esto dirá «abierto» a las 11:00. Meterle un calendario de festivos
+    sería una tabla más que se queda vieja; el precio de ese día llegará
+    congelado y la marca de tiempo del dato —que está al lado— lo delata.
+    """
+    from datetime import datetime, timedelta, timezone as _tz
+
+    if ahora is None:
+        ahora = datetime.now(_tz.utc)
+    # ET es UTC-5, o UTC-4 con horario de verano. Se aproxima con la regla de
+    # marzo-noviembre, que es la de EE. UU. desde 2007.
+    verano = 3 <= ahora.month <= 11
+    et = ahora.astimezone(_tz.utc) + timedelta(hours=-4 if verano else -5)
+    minutos = et.hour * 60 + et.minute
+
+    if et.weekday() >= 5:
+        return {"clave": "finde", "abierto": False,
+                "frase": "Mercado cerrado — fin de semana"}
+    if _APERTURA_ET <= minutos < _CIERRE_ET:
+        return {"clave": "abierto", "abierto": True, "frase": "Mercado abierto"}
+    if _PREMARKET_ET <= minutos < _APERTURA_ET:
+        return {"clave": "premarket", "abierto": False,
+                "frase": "Pre-mercado — la sesión no ha abierto"}
+    if _CIERRE_ET <= minutos < _AFTERHOURS_ET:
+        return {"clave": "after", "abierto": False,
+                "frase": "Después del cierre — los precios son del cierre"}
+    return {"clave": "cerrado", "abierto": False, "frase": "Mercado cerrado"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  EL RRG DIBUJADO: LA ESTELA
+#
+#  La matriz en cuatro listas dice dónde está cada sector. El gráfico dice
+#  hacia dónde VA, que es la mitad que falta: un sector en «liderando» que
+#  lleva tres semanas girando hacia «agotándose» y otro que acaba de entrar se
+#  leen igual en una lista y son lo contrario en el mapa.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Cuántas semanas de estela. Cinco puntos separados una semana cubren mes y
+#: pico: lo justo para ver el giro sin que la línea se vuelva un garabato.
+ESTELA_PUNTOS = 5
+ESTELA_PASO = 5          # sesiones entre punto y punto (una semana de bolsa)
+
+
+def estela_rrg(cierres_etf, cierres_bench, puntos: int = ESTELA_PUNTOS,
+               paso: int = ESTELA_PASO) -> list:
+    """Los últimos `puntos` pares (fuerza, impulso), del más viejo al más nuevo.
+
+    Cada punto se calcula con la MISMA fórmula que el cuadrante —la pendiente
+    larga contra la corta— pero recortando la serie hacia atrás. Así la estela
+    y la casilla no pueden discrepar: son el mismo cálculo en dos momentos.
+
+    Devuelve `[]` si no hay historia para el punto más antiguo. Media estela es
+    peor que ninguna: se leería como un giro que en realidad es el borde de los
+    datos.
+    """
+    rs = serie_rs(cierres_etf, cierres_bench)
+    largo, corto = VENTANAS_ROC[-1], VENTANAS_ROC[0]
+    if len(rs) < largo + 1 + paso * (puntos - 1):
+        return []
+    fuera = []
+    for i in range(puntos - 1, -1, -1):
+        corte = rs[: len(rs) - i * paso]
+        f, imp = roc(corte, largo), roc(corte, corto)
+        if f is None or imp is None:
+            return []
+        fuera.append({"fuerza": round(f, 4), "impulso": round(imp, 4),
+                      "cuadrante": cuadrante(f, imp)})
+    return fuera
+
+
+#: Peso aproximado de cada sector en el S&P 500, en %. Se usa SOLO para el
+#: tamaño de las casillas del mapa de calor: que XLK ocupe más que XLU es parte
+#: de la información —una caída del 1% en tecnología mueve el índice mucho más
+#: que la misma en utilities—.
+#:
+#: Son aproximados a propósito y cambian despacio (trimestres, no días). NO se
+#: usan para ningún cálculo: si se usaran, esta tabla tendría que bajarse, y
+#: para colorear un rectángulo un decimal de más no cambia nada.
+PESOS_SP500 = {
+    "XLK": 32.0, "XLF": 14.0, "XLY": 10.5, "XLC": 9.5, "XLV": 9.5,
+    "XLI": 8.0, "XLP": 5.5, "XLE": 3.5, "XLU": 2.5, "XLRE": 2.0, "XLB": 1.8,
+}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  LA AMPLITUD INTERNA
+#
+#  «XLK sube un 2%» y «el 80% de las empresas de XLK están por encima de su
+#  media de 50» dicen cosas distintas. Lo primero lo puede hacer Nvidia sola;
+#  lo segundo no lo puede hacer nadie solo.
+#
+#  Es el número que separa una subida que se sostiene de una que se deshace en
+#  cuanto el líder se cansa, y es CARO: hay que bajar la serie de cada empresa
+#  del sector. Por eso se calcula una vez al día en segundo plano y se guarda,
+#  en vez de pedirlo cada vez que alguien abre la pantalla.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: La media de 50 y no la de 200. Son preguntas distintas: la de 200 dice si la
+#: empresa está en tendencia alcista de fondo —y en un mercado alcista lo está
+#: casi todo, así que el número se pega al 90% y deja de informar—; la de 50
+#: dice si está por encima de su propia media reciente, que es lo que se mueve
+#: semana a semana y lo que delata a un sector que se está vaciando por dentro.
+SMA_INTERNA = 50
+
+
+def amplitud_interna(series, periodo: int = SMA_INTERNA) -> dict:
+    """Cuántos miembros están por encima de su media, de los que se pudo medir.
+
+    `series` es `{ticker: [cierres]}`. Devuelve
+    `{"n": …, "encima": …, "pct": …, "medidos": [...], "sin_dato": [...]}`.
+
+    `n` son los MEDIDOS, no los pedidos: una empresa sin 50 sesiones de
+    historia —una salida a bolsa reciente— no vota. Contarla como «no está por
+    encima» sería afirmar algo que no se ha mirado, y con diez miembros por
+    sector una sola de esas mueve el porcentaje diez puntos.
+
+    `pct` es `None` cuando no se pudo medir ninguna. Un 0% ahí se leería como
+    «el sector está entero por debajo de su media», que es lo contrario de «no
+    lo sé».
+    """
+    medidos, encima, sin_dato = [], [], []
+    for ticker, cierres in (series or {}).items():
+        m = media(cierres, periodo)
+        ultimo = None
+        try:
+            limpios = [float(c) for c in (cierres or []) if c is not None]
+            ultimo = limpios[-1] if limpios else None
+        except (TypeError, ValueError):
+            ultimo = None
+        if m is None or ultimo is None:
+            sin_dato.append(ticker)
+            continue
+        medidos.append(ticker)
+        if ultimo > m:
+            encima.append(ticker)
+    n = len(medidos)
+    return {
+        "n": n,
+        "encima": sorted(encima),
+        "pct": None if not n else round(len(encima) / n * 100.0, 1),
+        "medidos": sorted(medidos),
+        "sin_dato": sorted(sin_dato),
+    }

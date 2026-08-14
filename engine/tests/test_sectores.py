@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from wbj.sectores import (REFERENCIAS, RSI_PERIODO, SECTORES, cambio_pct,
-                          nombre_de, rsi, universo)
+from wbj.sectores import (EXTRAS, REFERENCIAS, RSI_PERIODO, SECTORES,
+                          cambio_pct, nombre_de, rsi, universo)
 
 #: La serie de Wilder («New Concepts in Technical Trading Systems», tabla del
 #: capítulo del RSI). Es el patrón con el que se comprueba cualquier RSI: si
@@ -98,8 +98,27 @@ class TestLasTablas:
     def test_la_parrilla_son_los_tres_indices_y_los_once_sectores(self):
         u = universo()
         assert u[:3] == ("SPY", "RSP", "QQQ"), "las referencias van primero"
-        assert len(u) == 14
-        assert len(set(u)) == 14, "hay un ticker repetido en la parrilla"
+        assert u[:14] == tuple(t for t, _ in REFERENCIAS + SECTORES), (
+            "las catorce casillas van primero y en su orden")
+        assert len(set(u)) == len(u), "hay un ticker repetido en el universo"
+
+    def test_los_extras_se_bajan_pero_NO_son_casillas(self):
+        """El VIX se baja para la franja de estado y no pinta casilla.
+
+        Si entrara en la parrilla contaría en la amplitud, y un día de pánico
+        —VIX disparado— saldría como un voto AL ALZA. Se lee al revés que todo
+        lo demás, así que no puede estar en la misma cuenta.
+        """
+        u = universo()
+        for t, _ in EXTRAS:
+            assert t in u, f"{t} tenía que bajarse"
+            assert t not in {x for x, _ in REFERENCIAS}, f"{t} no es un índice"
+            assert t not in {x for x, _ in SECTORES}, f"{t} no es un sector"
+        assert u[14:] == tuple(t for t, _ in EXTRAS), "los extras van al final"
+
+    def test_los_extras_tienen_nombre(self):
+        for t, _ in EXTRAS:
+            assert nombre_de(t) != t, f"{t} sin nombre legible"
 
     def test_ningun_sector_se_llama_como_su_ticker(self):
         """Una casilla que diga «XLE, XLE» no informa de nada."""
@@ -586,3 +605,212 @@ class TestCeroAlAlzaNoEsUNOSolo:
                      + [_m(f"B{i}", -0.1, -3.0, 48) for i in range(3)])
         assert len(a["fuertes"]) == 1
         assert "uno solo" in a["frase"], a["frase"]
+
+
+from wbj.sectores import (ESTELA_PASO, ESTELA_PUNTOS, PESOS_SP500,  # noqa: E402
+                          VOLUMEN_BASE_SESIONES, VOLUMEN_RESPALDA,
+                          estado_del_mercado, estela_rrg, respalda_el_volumen,
+                          volumen_por_ventana)
+
+
+class TestElVolumenDICEsiHayAlguienDetras:
+    """Un sector +3% con volumen de martes cualquiera y otro +3% con el doble
+    de lo normal son la misma casilla y dos cosas distintas: en el segundo hay
+    alguien grande moviéndose."""
+
+    def test_una_semana_al_doble_se_nota_en_7D_y_no_en_1A(self):
+        v = [1_000_000] * 300 + [2_000_000] * 5
+        r = volumen_por_ventana(v)
+        assert r["7D"]["relativo"] > 1.5, r["7D"]
+        assert r["1A"]["relativo"] < 1.1, "un año no se mueve por cinco días"
+
+    def test_se_dan_los_DOS_numeros(self):
+        """El medio solo no dice nada: diez millones es mucho para un ETF y
+        poco para otro. El relativo es el que se lee."""
+        r = volumen_por_ventana([1_000_000] * 300)
+        assert set(r["7D"]) == {"medio", "relativo"}
+        assert r["7D"]["medio"] == 1_000_000
+        assert r["7D"]["relativo"] == pytest.approx(1.0)
+
+    def test_la_base_son_las_ultimas_60_no_la_serie_entera(self):
+        """Con la serie entera, la ventana de un año se compararía consigo
+        misma y el relativo saldría pegado a 1 — justo donde más interesa."""
+        # Un año flojo y los últimos tres meses al triple.
+        v = [1_000_000] * 200 + [3_000_000] * VOLUMEN_BASE_SESIONES
+        r = volumen_por_ventana(v)
+        assert r["1A"]["relativo"] < 0.8, (
+            f"el año se está comparando consigo mismo: {r['1A']}")
+
+    def test_sin_historia_para_la_ventana_queda_en_blanco(self):
+        r = volumen_por_ventana([1_000_000] * 30)
+        assert r["7D"]["medio"] is not None
+        assert r["1A"]["medio"] is None and r["1A"]["relativo"] is None
+
+    def test_la_basura_no_lo_tumba(self):
+        for malo in ([], None, ["x", "y"]):
+            r = volumen_por_ventana(malo)
+            assert set(r) == {e for e, _ in VENTANAS_CAMBIO}
+            assert all(v["medio"] is None for v in r.values())
+
+    def test_respaldar_usa_el_MISMO_umbral_que_el_flujo(self):
+        """Dos definiciones de «volumen alto» en la misma pantalla serían dos
+        cosas distintas llamadas igual."""
+        from wbj.sectores import UMBRAL_VOLUMEN
+
+        assert VOLUMEN_RESPALDA == UMBRAL_VOLUMEN
+        assert respalda_el_volumen(UMBRAL_VOLUMEN) is True
+        assert respalda_el_volumen(UMBRAL_VOLUMEN - 0.01) is False
+
+    def test_sin_volumen_no_se_dice_que_NO_esta_respaldado(self):
+        """`False` afirmaría algo sobre lo que no se ha mirado."""
+        assert respalda_el_volumen(None) is None
+        assert respalda_el_volumen("x") is None
+
+
+class TestElRelojDelMercado:
+    @staticmethod
+    def _t(dia, hora, minuto=0):
+        from datetime import datetime, timezone as _tz
+
+        return datetime(2026, 8, dia, hora, minuto, tzinfo=_tz.utc)
+
+    def test_la_sesion_regular(self):
+        # Agosto: ET es UTC-4. 14:00 UTC = 10:00 ET.
+        e = estado_del_mercado(self._t(13, 14))
+        assert e["clave"] == "abierto" and e["abierto"] is True
+
+    def test_antes_de_abrir_y_despues_de_cerrar(self):
+        assert estado_del_mercado(self._t(13, 12))["clave"] == "premarket"
+        assert estado_del_mercado(self._t(13, 21))["clave"] == "after"
+        assert estado_del_mercado(self._t(13, 2))["clave"] == "cerrado"
+
+    def test_el_fin_de_semana_se_dice_aparte(self):
+        """Un lunes cerrado y un sábado cerrado no significan lo mismo."""
+        assert estado_del_mercado(self._t(15, 18))["clave"] == "finde"
+        assert estado_del_mercado(self._t(16, 18))["clave"] == "finde"
+
+    def test_los_bordes_exactos(self):
+        # 13:30 UTC = 9:30 ET, apertura clavada.
+        assert estado_del_mercado(self._t(13, 13, 29))["clave"] == "premarket"
+        assert estado_del_mercado(self._t(13, 13, 30))["clave"] == "abierto"
+        assert estado_del_mercado(self._t(13, 19, 59))["clave"] == "abierto"
+        assert estado_del_mercado(self._t(13, 20, 0))["clave"] == "after"
+
+    def test_siempre_trae_las_tres_claves(self):
+        e = estado_del_mercado()
+        assert set(e) == {"clave", "abierto", "frase"} and e["frase"]
+
+
+class TestLaEstelaDelRRG:
+    @staticmethod
+    def _serie(n, tasa):
+        return [100 * (1 + tasa) ** i for i in range(n)]
+
+    def test_da_los_puntos_pedidos_del_mas_viejo_al_mas_nuevo(self):
+        e = estela_rrg(self._serie(140, 0.004), self._serie(140, 0.001))
+        assert len(e) == ESTELA_PUNTOS
+        assert all(set(p) == {"fuerza", "impulso", "cuadrante"} for p in e)
+
+    def test_sin_historia_para_el_punto_mas_VIEJO_no_hay_estela(self):
+        """Media estela se leería como un giro que es el borde de los datos."""
+        justo = VENTANAS_ROC[-1] + 1 + ESTELA_PASO * (ESTELA_PUNTOS - 1)
+        assert estela_rrg(self._serie(justo - 1, 0.004),
+                          self._serie(justo - 1, 0.001)) == []
+        assert estela_rrg(self._serie(justo, 0.004),
+                          self._serie(justo, 0.001)) != []
+
+    def test_el_ultimo_punto_es_el_MISMO_cuadrante_de_la_casilla(self):
+        """La estela y la matriz no pueden discrepar: es el mismo cálculo."""
+        etf, bench = self._serie(140, 0.004), self._serie(140, 0.001)
+        e = estela_rrg(etf, bench)
+        d = clasifica_sector(etf, [1_000_000] * 140, bench)
+        assert e[-1]["cuadrante"] == d["cuadrante"]
+
+    def test_un_giro_se_ve_en_la_estela(self):
+        """Fuerte y girando a la baja: lo que una lista no puede enseñar."""
+        etf = self._serie(100, 0.006) + [
+            self._serie(100, 0.006)[-1] * (1 - 0.004) ** i for i in range(1, 41)]
+        e = estela_rrg(etf, self._serie(140, 0.001))
+        # Ojo: con una caída a ritmo constante el impulso (ROC corto) sale
+        # IGUAL en todos los puntos — es la fuerza la que se desploma. Medir
+        # el impulso aquí sería medir la aritmética del fixture, no el giro.
+        assert e and e[0]["fuerza"] > e[-1]["fuerza"], (
+            "la fuerza tenía que estar cayendo a lo largo de la estela")
+        assert e[0]["cuadrante"] != e[-1]["cuadrante"], (
+            "el giro tiene que verse como un cambio de cuadrante, "
+            "que es justo lo que una lista de números no enseña")
+
+    def test_con_series_vacias_no_revienta(self):
+        assert estela_rrg([], []) == []
+
+
+class TestLosPesosDelMapaDeCalor:
+    def test_estan_los_once_y_suman_cerca_de_cien(self):
+        assert set(PESOS_SP500) == {t for t, _ in SECTORES}
+        assert 95 <= sum(PESOS_SP500.values()) <= 105
+
+    def test_tecnologia_pesa_mas_que_utilities(self):
+        """El tamaño ES información: un -1% en XLK mueve el índice mucho más
+        que el mismo en XLU."""
+        assert PESOS_SP500["XLK"] > PESOS_SP500["XLU"] * 5
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  LA AMPLITUD INTERNA
+# ═══════════════════════════════════════════════════════════════════════════
+
+from wbj.sectores import SMA_INTERNA, amplitud_interna  # noqa: E402
+
+
+class TestLaAmplitudINTERNADeUnSector:
+    @staticmethod
+    def _sube(n=80):
+        return [100 + i for i in range(n)]
+
+    @staticmethod
+    def _baja(n=80):
+        return [200 - i for i in range(n)]
+
+    def test_todos_arriba_es_cien_por_ciento(self):
+        a = amplitud_interna({"A": self._sube(), "B": self._sube()})
+        assert a["pct"] == 100.0 and a["n"] == 2
+
+    def test_todos_abajo_es_cero(self):
+        a = amplitud_interna({"A": self._baja(), "B": self._baja()})
+        assert a["pct"] == 0.0 and a["encima"] == []
+
+    def test_mitad_y_mitad(self):
+        a = amplitud_interna({"A": self._sube(), "B": self._baja()})
+        assert a["pct"] == 50.0
+        assert a["encima"] == ["A"]
+
+    def test_quien_no_tiene_historia_NO_vota(self):
+        """Contarla como «por debajo» sería afirmar algo no mirado.
+
+        Con diez miembros por sector, una sola empresa recién salida a bolsa
+        movería el porcentaje diez puntos hacia abajo sin que nadie haya
+        vendido nada.
+        """
+        a = amplitud_interna({"A": self._sube(), "NUEVA": [10, 11, 12]})
+        assert a["n"] == 1, "la que no se pudo medir no entra en el total"
+        assert a["pct"] == 100.0
+        assert a["sin_dato"] == ["NUEVA"]
+
+    def test_sin_nadie_medible_es_None_y_no_cero(self):
+        """Un 0% diría «el sector entero está por debajo de su media». No es lo
+        mismo que «no lo sé»."""
+        a = amplitud_interna({"A": [1, 2, 3]})
+        assert a["pct"] is None and a["n"] == 0
+
+    def test_la_media_es_la_de_CINCUENTA_no_la_de_200(self):
+        """En un mercado alcista casi todo está sobre su 200 y el número se
+        pega al 90%: deja de informar justo cuando hace falta."""
+        assert SMA_INTERNA == 50
+        # 60 sesiones bastan para la de 50 y no para la de 200.
+        a = amplitud_interna({"A": [100 + i for i in range(60)]})
+        assert a["n"] == 1, "con 60 sesiones tenía que poder medirse"
+
+    def test_la_basura_no_lo_tumba(self):
+        assert amplitud_interna({})["pct"] is None
+        assert amplitud_interna(None)["n"] == 0
+        assert amplitud_interna({"A": None, "B": ["x"] * 60})["n"] == 0

@@ -6404,12 +6404,14 @@ def _sector_fila(ticker: str) -> dict:
     serie del SPY, así que hace falta tener las dos a la vez.
     """
     from wbj.sectores import (cambio_pct, cambios_por_ventana, distancia_sma,
-                              nombre_de, rsi, sma)
+                              nombre_de, respalda_el_volumen, rsi, sma,
+                              volumen_por_ventana)
 
     tk = str(ticker).upper().strip()
     fila = {"ticker": tk, "nombre": nombre_de(tk), "precio": None,
             "cambio_pct": None, "rsi": None, "sma200": None,
-            "sma200_dist": None, "cambios": {}, "cierres": [], "volumenes": []}
+            "sma200_dist": None, "cambios": {}, "volumen": {},
+            "cierres": [], "volumenes": []}
     try:
         q = _quote_rapido_fmp(tk) or {}
         precio = q.get("price")
@@ -6443,6 +6445,14 @@ def _sector_fila(ticker: str) -> dict:
         d = distancia_sma(fila["precio"], m) if fila["precio"] else None
         fila["sma200_dist"] = None if d is None else round(d, 2)
         fila["cambios"] = cambios_por_ventana(fila["cierres"])
+        # El volumen viaja YA RESUELTO por ventana —medio y relativo— y con el
+        # juicio hecho: «¿lo respalda el volumen?» es un sí/no/no-se-sabe que
+        # decide el engine, no el panel. Si el panel lo dedujera del relativo,
+        # el umbral viviría en dos sitios y un día dirían cosas distintas.
+        vol = volumen_por_ventana(fila["volumenes"])
+        for datos in vol.values():
+            datos["respalda"] = respalda_el_volumen(datos.get("relativo"))
+        fila["volumen"] = vol
     except Exception:                            # noqa: BLE001
         pass
     return fila
@@ -6455,9 +6465,10 @@ def _sectores_rotacion(filas: dict) -> dict:
     flujo y diagnóstico— o lo que se pueda de él. Nunca lanza: si falta el SPY
     no hay contra qué medir, y eso se dice en vez de devolver ceros.
     """
-    from wbj.sectores import (CATEGORIAS, CUADRANTES, categoria_de,
-                              clasifica_sector, diagnostico, dispersion,
-                              lideres_del_dia_rojo, salud_del_mercado, serie_rs)
+    from wbj.sectores import (CATEGORIAS, CUADRANTES, PESOS_SP500,
+                              categoria_de, clasifica_sector, diagnostico,
+                              dispersion, estela_rrg, lideres_del_dia_rojo,
+                              salud_del_mercado, serie_rs)
 
     spy = filas.get("SPY") or {}
     rsp = filas.get("RSP") or {}
@@ -6473,7 +6484,7 @@ def _sectores_rotacion(filas: dict) -> dict:
         serie_rs(rsp.get("cierres") or [], cierres_spy), ret_spy)
 
     # 2 · Matriz: cada sector contra el SPY.
-    por_sector, retornos = {}, {}
+    por_sector, retornos, estelas = {}, {}, {}
     for tk, _ in _SECTORES_LISTA:
         f = filas.get(tk) or {}
         d = clasifica_sector(f.get("cierres") or [], f.get("volumenes") or [],
@@ -6482,6 +6493,12 @@ def _sectores_rotacion(filas: dict) -> dict:
         por_sector[tk] = d
         if f.get("cambio_pct") is not None:
             retornos[tk] = f["cambio_pct"]
+        # La estela: los cinco últimos puntos del RRG. Un punto solo dice dónde
+        # está el sector; la estela dice HACIA DÓNDE va, que es la pregunta.
+        # Se calcula aquí porque es donde están las dos series a la vez.
+        e = estela_rrg(f.get("cierres") or [], cierres_spy)
+        if e:
+            estelas[tk] = e
 
     matriz = {c: sorted(t for t, d in por_sector.items() if d.get("cuadrante") == c)
               for c in CUADRANTES}
@@ -6500,6 +6517,11 @@ def _sectores_rotacion(filas: dict) -> dict:
         "sectores": {t: {k: (_r6(v) if isinstance(v, (int, float)) else v)
                          for k, v in d.items()}
                      for t, d in por_sector.items()},
+        "estelas": estelas,
+        # El peso en el índice viaja con la rotación porque el mapa de calor lo
+        # necesita para dimensionar: un −1% en XLK mueve el S&P mucho más que
+        # el mismo −1% en XLU, y un mapa de rectángulos iguales borra justo eso.
+        "pesos": dict(PESOS_SP500),
         "entrando": sorted(t for t, d in por_sector.items() if d.get("flujo") == "entrada"),
         "saliendo": sorted(t for t, d in por_sector.items() if d.get("flujo") == "salida"),
         "dispersion": _r6(dispersion(list(retornos.values()))),
@@ -6507,6 +6529,22 @@ def _sectores_rotacion(filas: dict) -> dict:
                      for t, r in lideres_del_dia_rojo(ret_spy, retornos)],
         "diagnostico": diagnostico(por_sector, salud_clave),
     }
+
+
+def _reloj_ahora():
+    """El estado del mercado AHORA. Nunca lanza; `None` si no se pudo saber.
+
+    Va en la respuesta, no lo deduce el navegador: calcularlo en el cliente lo
+    ataría al reloj del teléfono, que en un viaje diría que Wall Street abre a
+    las tres de la madrugada. Y se recalcula en cada respuesta —también en las
+    servidas de caché— porque es el único dato de esta pantalla que caduca solo.
+    """
+    try:
+        from wbj.sectores import estado_del_mercado
+
+        return estado_del_mercado()
+    except Exception:                            # noqa: BLE001
+        return None
 
 
 def _sectores_filas(tickers) -> list[dict]:
@@ -6571,7 +6609,7 @@ def api_sectores(tickers: str = ""):
     with _SECTORES_LOCK:
         guardado = _SECTORES_CACHE.get(clave)
         if guardado and ahora - guardado[0] < _SECTORES_TTL:
-            return {**guardado[1], "cacheado": True}
+            return {**guardado[1], "reloj": _reloj_ahora(), "cacheado": True}
 
     if not (os.environ.get("FMP_API_KEY") or "").strip():
         # Se dice cuál falta y qué se deja de ver. Un mapa vacío sin motivo se
@@ -6604,16 +6642,24 @@ def api_sectores(tickers: str = ""):
                        if k not in ("cierres", "volumenes")} for f in filas],
             "rotacion": rotacion,
             # Los ONCE sectores contra el mercado: la misma pregunta un piso más
-            # arriba. Las referencias no entran — SPY contra sí mismo no dice
-            # nada.
+            # arriba. Se filtra por LOS SECTORES, no por «lo que no es
+            # referencia»: con esa forma, el VIX —que se baja para la franja de
+            # estado— habría entrado a contar como un sector más, y un día de
+            # pánico, con el VIX disparado, habría salido como un voto AL ALZA.
             "amplitud": _amplitud([f for f in filas
-                                   if f["ticker"] not in {t for t, _ in REFERENCIAS}]),
+                                   if f["ticker"] in {t for t, _ in SECTORES}]),
+            # Cuántas empresas de cada sector van por encima de su media de 50.
+            # Se sirve lo que haya guardado y, si está viejo, el recálculo se
+            # dispara EN SEGUNDO PLANO: son ~110 peticiones y la pantalla no
+            # puede esperarlas. La primera visita de un contenedor nuevo lo verá
+            # vacío y a los dos minutos lleno; con su fecha al lado siempre.
+            "interna": _amplitud_interna_al_dia(),
             "motivo": None,
         }
     salida["generado"] = datetime.now(timezone.utc).isoformat()
     with _SECTORES_LOCK:
         _SECTORES_CACHE[clave] = (ahora, salida)
-    return {**salida, "cacheado": False}
+    return {**salida, "reloj": _reloj_ahora(), "cacheado": False}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -6643,10 +6689,146 @@ def _amplitud_de_ventana(amplitudes, ventana):
     if ventana in amplitudes:
         return amplitudes[ventana]
     return next(iter(amplitudes.values()), {})
+
+
+def _ventana_valida(ventana: str) -> str:
+    """La ventana pedida, o la primera que existe. Nunca una inventada.
+
+    Sirve para leer `fila["volumen"][ventana]` sin que un `?ventana=../` acabe
+    devolviendo `None` en silencio y borrando el volumen de toda la lectura.
+    """
+    try:
+        from wbj.sectores import VENTANAS_CAMBIO
+
+        etiquetas = [e for e, _ in VENTANAS_CAMBIO]
+    except Exception:                            # noqa: BLE001
+        return str(ventana or "")
+    v = str(ventana or "").upper().strip()
+    return v if v in etiquetas else (etiquetas[0] if etiquetas else "")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  LA AMPLITUD INTERNA DE CADA SECTOR
+#
+#  «XLK sube un 2%» y «el 80% de las empresas de XLK están sobre su media de
+#  50» dicen cosas distintas: lo primero lo puede hacer Nvidia sola.
+#
+#  Es CARO: hay que bajar la serie diaria de cada empresa de cada sector — unas
+#  110 peticiones. Pedirlo cada vez que alguien abre la pantalla sería gastar
+#  la cuota de FMP en un número que cambia una vez al día, así que se calcula
+#  en segundo plano una vez cada 24 h y se guarda en el almacén.
+#
+#  En el almacén y no en memoria porque Render borra el disco en cada redeploy
+#  y duerme el servicio: en memoria, el dato se perdería justo cuando el
+#  usuario vuelve, y la pantalla tardaría dos minutos en tenerlo otra vez.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Dónde vive dentro del almacén. Bajo `Series/` porque es lo mismo que hay
+#: ahí: una foto de mercado que se acumula, no un reporte de nadie.
+_AMPLITUD_INTERNA_RUTA = "Series/amplitud_interna.json"
+
+#: Una vez al día. El número se mueve con los cierres, así que calcularlo más
+#: veces daría el mismo resultado gastando cuota.
+_AMPLITUD_INTERNA_TTL = 24 * 3600
+
+_AMPLITUD_INTERNA_LOCK = threading.Lock()
+_AMPLITUD_INTERNA_CALCULANDO = False
+
+
+def _amplitud_interna_guardada() -> dict:
+    """Lo último calculado, o `{}`. Nunca lanza."""
+    try:
+        from vertex_almacen import almacen as _alm
+
+        return _alm.lee_json(_AMPLITUD_INTERNA_RUTA) or {}
+    except Exception:                            # noqa: BLE001
+        return {}
+
+
+def _amplitud_interna_calcula() -> dict:
+    """Recorre los once sectores y mide cuántos de sus miembros van por encima.
+
+    Solo mira las posiciones que sirve `_etf_holdings` —las diez mayores—, y
+    eso se dice en el resultado (`miembros`) en vez de venderlo como «el
+    sector»: es una MUESTRA, la de más peso, y llamarla otra cosa sería un
+    número que dice más de lo que sabe.
+    """
+    from wbj.sectores import SECTORES, amplitud_interna
+
+    salida = {"generado": datetime.now(timezone.utc).isoformat(), "sectores": {}}
+    for tk, _ in SECTORES:
+        try:
+            posiciones, motivo = _etf_holdings(tk)
+            if not posiciones:
+                salida["sectores"][tk] = {"pct": None, "n": 0,
+                                          "motivo": motivo or "sin posiciones"}
+                continue
+            series = {}
+            for sub, _n in posiciones:
+                barras = _fmp_daily_bars(sub, "1y")
+                if barras:
+                    series[sub] = [b[4] for b in barras]
+            a = amplitud_interna(series)
+            salida["sectores"][tk] = {"pct": a["pct"], "n": a["n"],
+                                      "encima": a["encima"],
+                                      "miembros": len(posiciones), "motivo": None}
+        except Exception as e:                   # noqa: BLE001
+            # Un sector que falla no puede tumbar los otros diez: se anota el
+            # motivo y se sigue. Un `None` sin explicación en pantalla manda a
+            # mirar donde no es.
+            salida["sectores"][tk] = {"pct": None, "n": 0, "motivo": str(e)[:120]}
+    return salida
+
+
+def _amplitud_interna_al_dia() -> dict:
+    """Lo guardado, y si está viejo dispara el recálculo EN SEGUNDO PLANO.
+
+    Nunca bloquea la petición: son ~110 llamadas a FMP y la pantalla no puede
+    esperar dos minutos. Mientras se recalcula se sirve lo de ayer con su fecha
+    al lado, que es más útil que un hueco.
+    """
+    guardado = _amplitud_interna_guardada()
+    fresco = False
+    try:
+        gen = guardado.get("generado")
+        if gen:
+            edad = (datetime.now(timezone.utc)
+                    - datetime.fromisoformat(gen)).total_seconds()
+            fresco = edad < _AMPLITUD_INTERNA_TTL
+    except Exception:                            # noqa: BLE001
+        fresco = False
+    if fresco or not (os.environ.get("FMP_API_KEY") or "").strip():
+        return guardado
+
+    global _AMPLITUD_INTERNA_CALCULANDO
+    with _AMPLITUD_INTERNA_LOCK:
+        if _AMPLITUD_INTERNA_CALCULANDO:
+            return guardado
+        _AMPLITUD_INTERNA_CALCULANDO = True
+
+    def _trabaja():
+        global _AMPLITUD_INTERNA_CALCULANDO
+        try:
+            datos = _amplitud_interna_calcula()
+            from vertex_almacen import almacen as _alm
+
+            _alm.guarda(_AMPLITUD_INTERNA_RUTA, datos)
+        except Exception:                        # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "no se pudo calcular la amplitud interna", exc_info=True)
+        finally:
+            with _AMPLITUD_INTERNA_LOCK:
+                _AMPLITUD_INTERNA_CALCULANDO = False
+
+    threading.Thread(target=_trabaja, daemon=True).start()
+    return guardado
+
+
 _LECTURA_CACHE: dict[str, tuple[float, dict]] = {}
 
 
-def _lectura_datos(rot: dict, filas: list) -> str:
+def _lectura_datos(rot: dict, filas: list, ventana: str = "",
+                   interna: dict | None = None) -> str:
     """Los números, ordenados para que el modelo no tenga que adivinar nada.
 
     Va como texto y no como JSON crudo a propósito: un JSON con veinte claves
@@ -6670,7 +6852,21 @@ def _lectura_datos(rot: dict, filas: list) -> str:
         if d.get("flujo"):
             trozos.append(f"flujo {d['flujo']}")
         if d.get("volumen_rel") is not None:
-            trozos.append(f"volumen {d['volumen_rel']:.2f}x su media de 20")
+            trozos.append(f"volumen hoy {d['volumen_rel']:.2f}x su media de 20")
+        # Y el de la VENTANA que se está mirando, que es otra pregunta: uno
+        # dice si hoy hubo prisa, el otro si el movimiento del mes lo acompañó
+        # dinero. Con solo el de hoy, un mes entero de goteo sin volumen se lee
+        # igual que una rotación de verdad.
+        vf = _volumen_frase(f, ventana)
+        if vf:
+            trozos.append(vf)
+        # Cuántos de dentro van por encima de su media de 50. Es lo que separa
+        # «el sector sube» de «una empresa del sector sube»: sin este dato el
+        # modelo no puede distinguir las dos cosas, y suenan igual de bien.
+        s_int = ((interna or {}).get("sectores") or {}).get(t) or {}
+        if s_int.get("pct") is not None:
+            trozos.append(f"{s_int['pct']:.0f}% de sus {s_int.get('n')} mayores "
+                          "posiciones por encima de su media de 50")
         return " · ".join(str(x) for x in trozos)
 
     partes = ["REFERENCIAS DEL MERCADO"]
@@ -6715,7 +6911,11 @@ _LECTURA_SYSTEM = (
     "4. Frases cortas. Sin 'cabe destacar', sin 'en el actual entorno "
     "macroeconómico'. Si una frase no dice un hecho, sobra.\n"
     "5. Si los datos no dan para una sección, escribe una línea diciendo que "
-    "hoy no hay nada claro ahí. Rellenar es peor que dejarlo corto.\n\n"
+    "hoy no hay nada claro ahí. Rellenar es peor que dejarlo corto.\n"
+    "6. El VOLUMEN es la prueba, no un adorno. Un sector que sube sin volumen "
+    "que lo respalde no es lo mismo que uno que sube con dinero entrando: lo "
+    "primero se deshace solo, lo segundo es rotación. Cuando el dato esté, "
+    "dilo con esas palabras; cuando no esté, no supongas que lo hubo.\n\n"
     "FORMATO exacto, con estos cinco titulares en negrita markdown y nada más:\n"
     "**Qué está pasando** — dos o tres frases: el estado del mercado hoy y si "
     "la subida (o caída) es amplia o de unos pocos.\n"
@@ -6754,7 +6954,7 @@ def api_sectores_acciones(etf: str = ""):
     with _SECTORES_LOCK:
         guardado = _SECTORES_CACHE.get(clave)
         if guardado and ahora - guardado[0] < _SECTORES_TTL:
-            return {**guardado[1], "cacheado": True}
+            return {**guardado[1], "reloj": _reloj_ahora(), "cacheado": True}
 
     posiciones, motivo = _etf_holdings(tk)
     if not posiciones:
@@ -6776,7 +6976,7 @@ def api_sectores_acciones(etf: str = ""):
               "generado": datetime.now(timezone.utc).isoformat()}
     with _SECTORES_LOCK:
         _SECTORES_CACHE[clave] = (ahora, salida)
-    return {**salida, "cacheado": False}
+    return {**salida, "reloj": _reloj_ahora(), "cacheado": False}
 
 
 _LECTURA_SYSTEM_DENTRO = (
@@ -6790,7 +6990,10 @@ _LECTURA_SYSTEM_DENTRO = (
     "4. Frases cortas, sin relleno.\n"
     "5. La AMPLITUD es el punto: que suba con muchos dentro empujando no es "
     "lo mismo que que lo suba uno solo. Lo segundo se da la vuelta en cuanto "
-    "ese uno se cansa, y hay que decirlo con esas palabras.\n\n"
+    "ese uno se cansa, y hay que decirlo con esas palabras.\n"
+    "6. El VOLUMEN es la prueba de que hay alguien detrás. Si un miembro se "
+    "mueve sin volumen que lo respalde, dilo: el movimiento no está pagado. "
+    "Si no hay dato de volumen, no lo inventes ni lo des por bueno.\n\n"
     "FORMATO exacto, cuatro titulares en negrita markdown y nada más:\n"
     "**Cómo está el grupo** — dos frases: qué hace y si va con el mercado o "
     "contra él.\n"
@@ -6802,7 +7005,25 @@ _LECTURA_SYSTEM_DENTRO = (
 )
 
 
-def _lectura_dentro(nombre: str, filas: list, amp: dict) -> str:
+def _volumen_frase(fila: dict, ventana: str):
+    """«volumen 1.4x lo normal (respaldado)», o `None` si no hay dato.
+
+    `None` y no «sin volumen»: una línea que dice que no hay dato ocupa el
+    mismo sitio que una que lo dice, y el modelo acaba escribiendo sobre la
+    falta de dato en vez de sobre el mercado.
+    """
+    v = ((fila or {}).get("volumen") or {}).get(ventana) or {}
+    rel = v.get("relativo")
+    if rel is None:
+        return None
+    respalda = v.get("respalda")
+    sello = ("respaldado por volumen" if respalda is True
+             else "sin volumen que lo respalde" if respalda is False
+             else "volumen sin juicio")
+    return f"volumen {rel:.2f}x lo normal ({sello})"
+
+
+def _lectura_dentro(nombre: str, filas: list, amp: dict, ventana: str = "") -> str:
     """Los datos de un grupo (industrias de un sector, o acciones de una
     industria) ordenados para el modelo."""
     partes = [f"GRUPO: {nombre}", "", "MIEMBROS"]
@@ -6811,6 +7032,12 @@ def _lectura_dentro(nombre: str, filas: list, amp: dict) -> str:
                   f"cambio {f.get('cambio_pct')}%", f"RSI {f.get('rsi')}"]
         if f.get("sma200_dist") is not None:
             trozos.append(f"{f['sma200_dist']:+.1f}% respecto a su media de 200")
+        # El volumen de la ventana que se está mirando: es lo que separa «subió»
+        # de «subió y entró dinero de verdad», y sin él el modelo no puede
+        # distinguir una rotación de un rebote sin nadie detrás.
+        vf = _volumen_frase(f, ventana)
+        if vf:
+            trozos.append(vf)
         partes.append("  " + " · ".join(str(x) for x in trozos))
     a = amp or {}
     partes += ["", "REPARTO DE FUERZA (ya calculado, no lo recalcules)",
@@ -6861,7 +7088,8 @@ def api_sectores_lectura(refrescar: int = 0, ambito: str = "",
             _LECTURA_SYSTEM_DENTRO,
             "Estos son los datos de hoy. Explícalos siguiendo el formato:\n\n"
             + _lectura_dentro(amb, dentro.get("filas") or [],
-                              _amplitud_de_ventana(dentro.get("amplitud"), ventana)),
+                              _amplitud_de_ventana(dentro.get("amplitud"), ventana),
+                              _ventana_valida(ventana)),
             temp=0.3, max_tokens=1100)
         if not texto:
             return {"ok": False, "texto": "",
@@ -6883,7 +7111,8 @@ def api_sectores_lectura(refrescar: int = 0, ambito: str = "",
     texto, fuente, err = _texto_llm(
         _LECTURA_SYSTEM,
         "Estos son los datos de hoy. Explícalos siguiendo el formato:\n\n"
-        + _lectura_datos(rot, base.get("filas") or []),
+        + _lectura_datos(rot, base.get("filas") or [], _ventana_valida(ventana),
+                         base.get("interna")),
         temp=0.3, max_tokens=1400)
     if not texto:
         # El motivo de CADA proveedor, no solo el del último. Un 429 de cuota
