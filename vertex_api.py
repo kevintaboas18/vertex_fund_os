@@ -1168,8 +1168,8 @@ _PRICE_SERIES_CACHE = {}
 _FMP_MAX_PEERS = 10       # P/S y peer ROIC (umbral real: 8)
 _FMP_MAX_BREADTH = 12     # breadth sectorial + universo RS (umbral real: 5)
 
-_PERIODO_DIAS = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92,
-                 "2mo": 62, "1mo": 31, "5d": 7, "7d": 7}
+_PERIODO_DIAS = {"5y": 1825, "2y": 730, "15mo": 460, "1y": 365, "6mo": 183,
+                 "3mo": 92, "2mo": 62, "1mo": 31, "5d": 7, "7d": 7}
 
 
 def _fmp_daily_bars(ticker, period="1y"):
@@ -6254,6 +6254,144 @@ except Exception:                                # noqa: BLE001
     _SECTORES_LISTA = ()
 
 
+#: Cuántos tickers se aceptan de una vez. El sector más poblado tiene cinco
+#: industrias, así que 25 es holgado con margen para crecer — y es el tope que
+#: impide que alguien pida doscientos y nos gaste la cuota de FMP en una
+#: petición. Una ruta que cotiza lo que le manden necesita un borde.
+_SECTORES_MAX_PEDIDOS = 25
+
+#: Cuánta historia diaria se baja por ticker. Con nombre y en un sitio porque
+#: NO es un detalle de I/O: de aquí depende que la ventana de «1A» y la media
+#: de 200 existan. Pedir un año justo dejaba la de «1A» vacía siempre, y un
+#: test lo vigila ahora contra las ventanas que el panel anuncia.
+_SECTORES_PERIODO = "15mo"
+
+
+def _sectores_pedidos(crudo: str) -> list[str]:
+    """La lista de tickers de la query, saneada y sin repetidos.
+
+    El panel es quien sabe qué industrias tiene cada sector, así que es él quien
+    los pide. Pero «el panel los pide» y «cualquiera puede pedir lo que sea» son
+    lo mismo desde el servidor, y por eso esto no se fía: se valida cada ticker
+    con el mismo saneador de las demás rutas y se corta en `_SECTORES_MAX_PEDIDOS`.
+
+    Se conserva el ORDEN pedido: la sección enseña las industrias en el orden en
+    que están escritas, y devolverlas barajadas movería las filas de sitio.
+    """
+    fuera = []
+    for parte in str(crudo or "").split(","):
+        bruto = str(parte).strip().upper()
+        # El saneador general limpia los caracteres raros, y por eso solo no
+        # basta aquí: «../etc/passwd» sale como «ETCPASSWD», un ticker que no
+        # existe pero que pasa el filtro y acaba siendo una fila muerta en
+        # pantalla, con sus puntos suspensivos para siempre. Un símbolo de
+        # verdad son de una a seis letras y nada más.
+        if not re.fullmatch(r"[A-Z]{1,6}", bruto):
+            continue
+        tk, err = _tito_ticker(bruto)
+        if err or not tk or tk in fuera:
+            continue
+        fuera.append(tk)
+        if len(fuera) >= _SECTORES_MAX_PEDIDOS:
+            break
+    return fuera
+
+
+#: Las acciones de un ETF cambian poco y la lista es cara de pedir, así que se
+#: guarda un día entero. Es la diferencia entre que entrar en una industria
+#: cueste una llamada o cueste dos.
+_HOLDINGS_TTL = 86400
+_HOLDINGS_CACHE: dict[str, tuple[float, list]] = {}
+
+#: Cuántas acciones se enseñan por industria. Diez es lo que se lee de un
+#: vistazo y suele cubrir más de la mitad del peso del ETF; con cuarenta la
+#: pantalla deja de responder a la pregunta («¿quién lo está subiendo?») y pasa
+#: a ser un listado.
+_HOLDINGS_TOPE = 10
+
+
+#: Lo que un ETF lleva dentro y NO es una empresa: efectivo, divisa, futuros y
+#: los apuntes de tesorería. Pasan el filtro de «una a seis letras» —«USD» lo
+#: es— y acababan como una fila más con su nombre y sus puntos suspensivos
+#: para siempre, porque no hay precio que cotizar para el efectivo.
+_HOLDINGS_NO_SON_EMPRESAS = {
+    "USD", "CASH", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "MXN",
+    "N/A", "NA", "TBILL", "XTSLA", "MVRXX", "FGXXX", "GOVXX", "WMPXX",
+}
+
+#: Los dos caminos de FMP a las posiciones de un ETF. El primero es el actual;
+#: el segundo es el de siempre, y existe aquí porque el nuevo es «exclusivo» en
+#: los planes bajos: pedirlo devuelve 403 y el tercer piso se quedaba vacío sin
+#: que se pudiera saber si era el plan, el ETF o un fallo nuestro.
+_HOLDINGS_RUTAS = (
+    ("https://financialmodelingprep.com/stable/etf/holdings", "symbol"),
+    ("https://financialmodelingprep.com/api/v3/etf-holder/{t}", None),
+)
+
+
+def _etf_holdings(ticker: str):
+    """Las mayores posiciones de un ETF: `([(ticker, nombre)], motivo)`.
+
+    Esto SÍ se baja, a diferencia de la tabla de industrias. La diferencia es
+    que las industrias de un sector no cambian nunca —por eso están escritas en
+    el panel— y las posiciones de un ETF cambian cada trimestre. Escribir a
+    mano trescientas noventa acciones sería una lista que parece autoridad y se
+    queda vieja sin que nadie lo note.
+
+    Devuelve también el MOTIVO cuando vuelve vacío. Sin él, «tu plan no sirve
+    este dato», «este ETF no tiene posiciones» y «se cayó la petición» se ven
+    exactamente igual en pantalla: un hueco.
+
+    Nunca lanza.
+    """
+    tk = str(ticker).upper().strip()
+    ahora = time.time()
+    guardado = _HOLDINGS_CACHE.get(tk)
+    if guardado and ahora - guardado[0] < _HOLDINGS_TTL:
+        return guardado[1], ""
+    clave = (os.environ.get("FMP_API_KEY") or "").strip()
+    if not clave:
+        return [], "Falta FMP_API_KEY."
+
+    motivos = []
+    for plantilla, param in _HOLDINGS_RUTAS:
+        url = plantilla.format(t=tk)
+        params = {"apikey": clave}
+        if param:
+            params[param] = tk
+        try:
+            r = requests.get(url, params=params, timeout=8)
+        except Exception as e:                   # noqa: BLE001
+            motivos.append(f"{type(e).__name__}")
+            continue
+        if r.status_code != 200:
+            motivos.append(f"HTTP {r.status_code}")
+            continue
+        try:
+            datos = r.json()
+        except Exception:                        # noqa: BLE001
+            motivos.append("respuesta ilegible")
+            continue
+        filas = []
+        for h in (datos if isinstance(datos, list) else []):
+            if not isinstance(h, dict):
+                continue
+            sub = str(h.get("asset") or h.get("symbol") or "").upper().strip()
+            if not re.fullmatch(r"[A-Z]{1,6}", sub):
+                continue
+            if sub in _HOLDINGS_NO_SON_EMPRESAS:
+                continue
+            nombre = str(h.get("name") or sub).strip()
+            if sub not in {t for t, _ in filas}:
+                filas.append((sub, nombre))
+        if filas:
+            filas = filas[:_HOLDINGS_TOPE]
+            _HOLDINGS_CACHE[tk] = (ahora, filas)
+            return filas, ""
+        motivos.append("sin posiciones en la respuesta")
+    return [], " · ".join(motivos)
+
+
 def _sector_fila(ticker: str) -> dict:
     """Precio, cambio, RSI y la serie diaria de UN ticker. Nunca lanza.
 
@@ -6284,12 +6422,16 @@ def _sector_fila(ticker: str) -> dict:
     except Exception:                            # noqa: BLE001 — se degrada, no se cae
         pass
     try:
-        # UN AÑO: ~252 sesiones, y hacen falta las dos cosas que lo piden.
-        # La SMA de 200 necesita 200 sesiones o no es una SMA de 200, y el
-        # cambio a «1A» necesita el cierre de hace un año. Con seis meses las
-        # dos salían en blanco. El RSI de 14 y la pendiente de 50 caben de
-        # sobra dentro.
-        barras = _fmp_daily_bars(tk, "1y")
+        # QUINCE MESES, y el motivo es aritmético: el cambio a «1A» compara
+        # contra el cierre de hace 252 SESIONES, así que necesita 253 cierres
+        # en la serie. Un año de calendario da unas 251 — tres de menos— y la
+        # ventana de «1A» salía vacía SIEMPRE, en los catorce y en cada
+        # industria, sin que nada lo dijera.
+        #
+        # No se pide «2y» porque el proveedor salta de 2 a 5 años en ese
+        # umbral: quince meses dan ~317 sesiones, sobra margen para la de 252 y
+        # para la media de 200, y se bajan dos años en vez de cinco.
+        barras = _fmp_daily_bars(tk, _SECTORES_PERIODO)
         fila["cierres"] = [b[4] for b in barras]
         fila["volumenes"] = [b[5] for b in barras]
         v = rsi(fila["cierres"])
@@ -6300,7 +6442,7 @@ def _sector_fila(ticker: str) -> dict:
         # cierre: es la que dice si ahora mismo está por encima o por debajo.
         d = distancia_sma(fila["precio"], m) if fila["precio"] else None
         fila["sma200_dist"] = None if d is None else round(d, 2)
-        fila["cambios"] = cambios_por_ventana(fila["cierres"], fila["cambio_pct"])
+        fila["cambios"] = cambios_por_ventana(fila["cierres"])
     except Exception:                            # noqa: BLE001
         pass
     return fila
@@ -6381,20 +6523,50 @@ def _sectores_filas(tickers) -> list[dict]:
         return list(ex.map(_sector_fila, tickers))
 
 
-@app.get("/api/sectores")
-def api_sectores(etf: str = ""):
-    """El mapa entero, o las industrias de UN sector si se pasa `etf`.
+#: Lo que se manda cuando la amplitud no se pudo calcular. Con la forma
+#: completa: media respuesta obliga al panel a comprobar cada clave.
+_AMPLITUD_VACIA = {"n": 0, "confianza": None, "frase": "", "fuertes": [],
+                   "debiles": [], "neutrales": [], "pct_fuertes": None,
+                   "empujan": [], "frenan": []}
 
-    Sin `etf`: las catorce casillas de la parrilla.
-    Con `etf`: las industrias de ese sector. SPY, RSP y QQQ no se despliegan —
-    son índices, y desglosarlos sería inventarles unas industrias que no
-    tienen; se contesta con la lista vacía y el motivo, no con un error.
+
+def _amplitud(filas):
+    """Una amplitud POR VENTANA sobre las filas ya bajadas. Nunca lanza.
+
+    Por ventana y no una sola porque si no la pantalla se contradice: eliges
+    «1A», ves +45% en cada fila y debajo «2 de 5 al alza», que era el reparto
+    de HOY. El número que se lee y el que se cuenta tienen que hablar de lo
+    mismo.
     """
-    from wbj.sectores import ES_REFERENCIA, REFERENCIAS, SECTORES
-    from wbj.sectores import industrias_de, nombre_de, universo
+    try:
+        from wbj.sectores import VENTANAS_CAMBIO, amplitud_por_ventana
 
-    tk = str(etf or "").upper().strip()
-    clave = tk or "_parrilla"
+        return amplitud_por_ventana(filas)
+    except Exception:                            # noqa: BLE001
+        try:
+            from wbj.sectores import VENTANAS_CAMBIO
+            return {e: dict(_AMPLITUD_VACIA) for e, _ in VENTANAS_CAMBIO}
+        except Exception:                        # noqa: BLE001
+            return {}
+
+
+@app.get("/api/sectores")
+def api_sectores(tickers: str = ""):
+    """El mapa entero, o los tickers que se le pidan.
+
+    Sin `tickers`: las catorce casillas de la parrilla.
+    Con `tickers`: cotiza EXACTAMENTE esos, en ese orden.
+
+    El segundo modo existe porque el panel ya sabe qué industrias tiene cada
+    sector —esa lista no cambia nunca y por eso vive allí, para poder pintarla
+    sin esperar a nadie—. Tenerla también aquí era una segunda copia que había
+    que vigilar para nada: el servidor no necesita saber qué industria es cuál,
+    solo cotizar lo que le pidan. Una tabla, un sitio.
+    """
+    from wbj.sectores import REFERENCIAS, SECTORES, universo
+
+    pedidos = _sectores_pedidos(tickers)
+    clave = ",".join(pedidos) if pedidos else "_parrilla"
     ahora = time.time()
     with _SECTORES_LOCK:
         guardado = _SECTORES_CACHE.get(clave)
@@ -6406,29 +6578,22 @@ def api_sectores(etf: str = ""):
         # lee como «el mercado no existe hoy».
         return {"ok": False, "error": "Falta FMP_API_KEY: sin ella no hay "
                                       "precio ni RSI de los sectores.",
-                "filas": [], "etf": tk}
+                "filas": []}
 
-    if tk:
-        filas_def = industrias_de(tk)
-        if not filas_def:
-            motivo = ("SPY, RSP y QQQ son índices, no sectores: no tienen "
-                      "industrias que desplegar."
-                      if tk in ES_REFERENCIA else
-                      f"{tk} no tiene desglose por industrias.")
-            salida = {"ok": True, "etf": tk, "nombre": nombre_de(tk),
-                      "filas": [], "motivo": motivo}
-        else:
-            salida = {"ok": True, "etf": tk, "nombre": nombre_de(tk),
-                      "filas": [{k: v for k, v in f.items()
-                                 if k not in ("cierres", "volumenes")}
-                                for f in _sectores_filas([t for t, _ in filas_def])],
-                      "motivo": None}
+    if pedidos:
+        _f = [{k: v for k, v in f.items() if k not in ("cierres", "volumenes")}
+              for f in _sectores_filas(pedidos)]
+        # La amplitud viaja con las filas: cuántos empujan y cuántos frenan es
+        # la pregunta de esta pantalla, y calcularla en el navegador la habría
+        # dejado escrita dos veces con dos umbrales que se separan.
+        salida = {"ok": True, "tickers": pedidos, "filas": _f,
+                  "amplitud": _amplitud(_f), "motivo": None}
     else:
         filas = _sectores_filas(universo())
         por_ticker = {f["ticker"]: f for f in filas}
         rotacion = _sectores_rotacion(por_ticker)
         salida = {
-            "ok": True, "etf": "",
+            "ok": True,
             "referencias": [t for t, _ in REFERENCIAS],
             "sectores": [t for t, _ in SECTORES],
             # Las series se quitan de la respuesta: son ~125 cierres y 125
@@ -6438,11 +6603,296 @@ def api_sectores(etf: str = ""):
             "filas": [{k: v for k, v in f.items()
                        if k not in ("cierres", "volumenes")} for f in filas],
             "rotacion": rotacion,
+            # Los ONCE sectores contra el mercado: la misma pregunta un piso más
+            # arriba. Las referencias no entran — SPY contra sí mismo no dice
+            # nada.
+            "amplitud": _amplitud([f for f in filas
+                                   if f["ticker"] not in {t for t, _ in REFERENCIAS}]),
             "motivo": None,
         }
     salida["generado"] = datetime.now(timezone.utc).isoformat()
     with _SECTORES_LOCK:
         _SECTORES_CACHE[clave] = (ahora, salida)
+    return {**salida, "cacheado": False}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  LA LECTURA DEL MERCADO EN PALABRAS
+#
+#  El modelo NO puntúa nada aquí. La matriz, los cuadrantes, el flujo y la
+#  salud ya los decidió `wbj/sectores.py` con los números; esto solo los cuenta
+#  en un párrafo que se entiende sin saber qué es un RS Ratio.
+#
+#  Es la regla del proyecto y aquí importa el doble: un párrafo bien escrito
+#  suena a análisis aunque los números digan otra cosa, así que el prompt lleva
+#  los datos YA DECIDIDOS y prohíbe explícitamente inventar un veredicto.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_LECTURA_TTL = 900          # 15 min: el diagnóstico no cambia cada minuto
+
+
+def _amplitud_de_ventana(amplitudes, ventana):
+    """La amplitud de UNA ventana. Cae a la primera si no se pide ninguna.
+
+    El servidor manda una por ventana; la lectura habla de la que el usuario
+    está mirando, o la explicación contaría un reparto que no es el de la
+    pantalla.
+    """
+    if not isinstance(amplitudes, dict) or not amplitudes:
+        return {}
+    if ventana in amplitudes:
+        return amplitudes[ventana]
+    return next(iter(amplitudes.values()), {})
+_LECTURA_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+def _lectura_datos(rot: dict, filas: list) -> str:
+    """Los números, ordenados para que el modelo no tenga que adivinar nada.
+
+    Va como texto y no como JSON crudo a propósito: un JSON con veinte claves
+    invita a describir la estructura («el campo cuadrante indica…») en vez de
+    contar lo que pasa.
+    """
+    por = (rot or {}).get("sectores") or {}
+    matriz = (rot or {}).get("matriz") or {}
+    salud = (rot or {}).get("salud") or {}
+    idx = {f["ticker"]: f for f in (filas or [])}
+
+    def _linea(t):
+        f, d = idx.get(t) or {}, por.get(t) or {}
+        trozos = [f"{t} ({f.get('nombre', t)})",
+                  f"cambio hoy {f.get('cambio_pct')}%",
+                  f"RSI {f.get('rsi')}"]
+        if f.get("sma200_dist") is not None:
+            trozos.append(f"{f['sma200_dist']:+.1f}% respecto a su media de 200")
+        if d.get("cuadrante"):
+            trozos.append(f"cuadrante {d['cuadrante']}")
+        if d.get("flujo"):
+            trozos.append(f"flujo {d['flujo']}")
+        if d.get("volumen_rel") is not None:
+            trozos.append(f"volumen {d['volumen_rel']:.2f}x su media de 20")
+        return " · ".join(str(x) for x in trozos)
+
+    partes = ["REFERENCIAS DEL MERCADO"]
+    partes += [f"  {_linea(t)}" for t in ("SPY", "RSP", "QQQ") if t in idx]
+    partes.append("")
+    partes.append(f"AMPLITUD (RSP contra SPY): {salud.get('frase', 'sin dato')}")
+    partes.append("")
+    partes.append("SECTORES")
+    partes += [f"  {_linea(t)}" for t in por]
+    partes.append("")
+    partes.append("MATRIZ DE ROTACIÓN (ya calculada, no la recalcules)")
+    for clave, etiqueta in (("leading", "Liderando"), ("improving", "Despertando"),
+                            ("weakening", "Agotándose"), ("lagging", "Rezagados")):
+        partes.append(f"  {etiqueta}: {', '.join(matriz.get(clave) or []) or 'ninguno'}")
+    partes.append("")
+    partes.append(f"ENTRA DINERO (con volumen alto): {', '.join((rot or {}).get('entrando') or []) or 'ninguno'}")
+    partes.append(f"SALE DINERO (con volumen alto): {', '.join((rot or {}).get('saliendo') or []) or 'ninguno'}")
+    if (rot or {}).get("dispersion") is not None:
+        partes.append(f"DISPERSIÓN entre sectores hoy: {rot['dispersion']:.2f}")
+    if (rot or {}).get("dia_rojo"):
+        aguantan = ", ".join(f"{x['ticker']} {x['cambio_pct']}%"
+                             for x in rot["dia_rojo"])
+        partes.append(f"AGUANTAN EL DÍA ROJO: {aguantan}")
+    if (rot or {}).get("diagnostico"):
+        partes.append("REGLAS QUE YA SE DISPARARON: "
+                      + " | ".join(rot["diagnostico"]))
+    return "\n".join(partes)
+
+
+_LECTURA_SYSTEM = (
+    "Eres un analista de mercado explicando la rotación sectorial a alguien "
+    "que sabe invertir pero no habla en jerga. Te dan números YA CALCULADOS y "
+    "clasificaciones YA DECIDIDAS por un motor determinista.\n\n"
+    "REGLAS INNEGOCIABLES:\n"
+    "1. No recalcules ni contradigas la matriz, el flujo ni la amplitud. Son "
+    "datos, no sugerencias. Si un sector está en 'lagging', está rezagado.\n"
+    "2. No inventes números. Si algo no está en los datos, no existe: dilo o "
+    "cállatelo. Ni un precio, ni un porcentaje, ni un nivel.\n"
+    "3. Nada de recomendaciones de compra o venta, ni objetivos de precio. "
+    "Esto explica lo que ESTÁ pasando y qué suele seguir; la decisión no es "
+    "tuya.\n"
+    "4. Frases cortas. Sin 'cabe destacar', sin 'en el actual entorno "
+    "macroeconómico'. Si una frase no dice un hecho, sobra.\n"
+    "5. Si los datos no dan para una sección, escribe una línea diciendo que "
+    "hoy no hay nada claro ahí. Rellenar es peor que dejarlo corto.\n\n"
+    "FORMATO exacto, con estos cinco titulares en negrita markdown y nada más:\n"
+    "**Qué está pasando** — dos o tres frases: el estado del mercado hoy y si "
+    "la subida (o caída) es amplia o de unos pocos.\n"
+    "**Dónde está entrando el dinero** — qué sectores y por qué se sabe "
+    "(cuadrante, volumen). Nombra los tickers.\n"
+    "**De dónde está saliendo** — igual, al revés.\n"
+    "**Dónde dejó de entrar** — los que estaban fuertes y pierden impulso "
+    "('agotándose'). Esta es la sección que más se ignora y la que más avisa.\n"
+    "**Qué esperar de cada uno** — una línea por familia (crecimiento, "
+    "cíclicos, defensivos) con lo que suele venir después de este patrón, "
+    "dicho como probabilidad y no como certeza."
+)
+
+
+@app.get("/api/sectores/acciones")
+def api_sectores_acciones(etf: str = ""):
+    """Las acciones de una industria, con su amplitud.
+
+    El tercer piso: `Dashboard › XLK › SMH`. Contesta la misma pregunta que los
+    de arriba —quién empuja, cuántos, cuánta confianza— pero con las empresas
+    de dentro del ETF.
+
+    Esta lista SÍ se baja, a diferencia de las industrias: las posiciones de un
+    ETF cambian cada trimestre. Se cachean un día, así que la segunda visita no
+    cuesta nada.
+    """
+    tk = str(etf or "").upper().strip()
+    if not re.fullmatch(r"[A-Z]{1,6}", tk):
+        return {"ok": False, "error": "Ticker no válido.", "filas": []}
+    if not (os.environ.get("FMP_API_KEY") or "").strip():
+        return {"ok": False, "error": "Falta FMP_API_KEY: sin ella no hay "
+                                      "precio ni RSI de las acciones.",
+                "filas": []}
+    clave = f"_acciones_{tk}"
+    ahora = time.time()
+    with _SECTORES_LOCK:
+        guardado = _SECTORES_CACHE.get(clave)
+        if guardado and ahora - guardado[0] < _SECTORES_TTL:
+            return {**guardado[1], "cacheado": True}
+
+    posiciones, motivo = _etf_holdings(tk)
+    if not posiciones:
+        # Se dice POR QUÉ, no se deja en blanco: «tu plan no sirve este dato»,
+        # «este ETF no tiene posiciones» y «se cayó la petición» se ven igual en
+        # una pantalla vacía, y solo una de las tres se arregla desde aquí.
+        return {"ok": False, "etf": tk, "filas": [],
+                "error": f"No se pudieron leer las empresas de {tk}"
+                         + (f" ({motivo})." if motivo else ".")}
+    nombres = dict(posiciones)
+    filas = [{k: v for k, v in f.items() if k not in ("cierres", "volumenes")}
+             for f in _sectores_filas([t for t, _ in posiciones])]
+    for f in filas:
+        # El nombre de la EMPRESA, que es lo que se lee. `nombre_de` no las
+        # conoce —solo sabe de la parrilla— y devolvería el ticker otra vez.
+        f["nombre"] = nombres.get(f["ticker"], f["ticker"])
+    salida = {"ok": True, "etf": tk, "filas": filas,
+              "amplitud": _amplitud(filas),
+              "generado": datetime.now(timezone.utc).isoformat()}
+    with _SECTORES_LOCK:
+        _SECTORES_CACHE[clave] = (ahora, salida)
+    return {**salida, "cacheado": False}
+
+
+_LECTURA_SYSTEM_DENTRO = (
+    "Eres un analista explicando qué pasa DENTRO de un grupo del mercado a "
+    "alguien que sabe invertir pero no habla en jerga. Te dan los miembros del "
+    "grupo con sus números y un reparto de fuerza YA CALCULADO.\n\n"
+    "REGLAS INNEGOCIABLES:\n"
+    "1. No recalcules el reparto ni la confianza. Son datos.\n"
+    "2. No inventes números. Si algo no está, no existe.\n"
+    "3. Nada de recomendar comprar o vender, ni objetivos de precio.\n"
+    "4. Frases cortas, sin relleno.\n"
+    "5. La AMPLITUD es el punto: que suba con muchos dentro empujando no es "
+    "lo mismo que que lo suba uno solo. Lo segundo se da la vuelta en cuanto "
+    "ese uno se cansa, y hay que decirlo con esas palabras.\n\n"
+    "FORMATO exacto, cuatro titulares en negrita markdown y nada más:\n"
+    "**Cómo está el grupo** — dos frases: qué hace y si va con el mercado o "
+    "contra él.\n"
+    "**Quién lo está subiendo** — nombra los que empujan, con su número.\n"
+    "**Quién lo está frenando** — igual, al revés.\n"
+    "**Cuánta confianza merece** — cuántos van a favor de cuántos, y qué "
+    "significa eso: repartido es fiable, uno solo tirando no lo es. Di también "
+    "qué haría falta ver para que cambiara."
+)
+
+
+def _lectura_dentro(nombre: str, filas: list, amp: dict) -> str:
+    """Los datos de un grupo (industrias de un sector, o acciones de una
+    industria) ordenados para el modelo."""
+    partes = [f"GRUPO: {nombre}", "", "MIEMBROS"]
+    for f in filas or []:
+        trozos = [f"{f.get('ticker')} ({f.get('nombre')})",
+                  f"cambio {f.get('cambio_pct')}%", f"RSI {f.get('rsi')}"]
+        if f.get("sma200_dist") is not None:
+            trozos.append(f"{f['sma200_dist']:+.1f}% respecto a su media de 200")
+        partes.append("  " + " · ".join(str(x) for x in trozos))
+    a = amp or {}
+    partes += ["", "REPARTO DE FUERZA (ya calculado, no lo recalcules)",
+               f"  al alza: {', '.join(a.get('fuertes') or []) or 'ninguno'}",
+               f"  a la baja: {', '.join(a.get('debiles') or []) or 'ninguno'}",
+               f"  ni una cosa ni otra: {', '.join(a.get('neutrales') or []) or 'ninguno'}",
+               f"  confianza: {a.get('confianza')} — {a.get('frase')}"]
+    if a.get("empujan"):
+        partes.append("  los que más tiran al alza: "
+                      + ", ".join(f"{x['ticker']} {x['cambio_pct']}%"
+                                  for x in a["empujan"]))
+    if a.get("frenan"):
+        partes.append("  los que más frenan: "
+                      + ", ".join(f"{x['ticker']} {x['cambio_pct']}%"
+                                  for x in a["frenan"]))
+    return "\n".join(partes)
+
+
+@app.get("/api/sectores/lectura")
+def api_sectores_lectura(refrescar: int = 0, ambito: str = "",
+                         tickers: str = "", ventana: str = ""):
+    """La rotación del día contada en palabras.
+
+    Se apoya en la MISMA foto que pinta la pantalla (la cache de `/api/sectores`
+    o una nueva), así que lo que se lee y lo que se ve nunca se contradicen —
+    que es lo que pasaría pidiendo los datos dos veces con dos minutos de
+    diferencia.
+    """
+    ahora = time.time()
+    amb = str(ambito or "").upper().strip()
+    clave = f"{_idioma_actual()}|{amb or '_mercado'}|{ventana or '-'}"
+    guardado = _LECTURA_CACHE.get(clave)
+    if guardado and not refrescar and ahora - guardado[0] < _LECTURA_TTL:
+        return {**guardado[1], "cacheado": True}
+
+    # Con `ambito`, la lectura es de un GRUPO —las industrias de un sector o
+    # las acciones de una industria— y la pregunta cambia: ahí lo que importa
+    # no es la rotación del mercado sino cuántos de dentro empujan.
+    if amb:
+        if not re.fullmatch(r"[A-Z]{1,6}", amb):
+            return {"ok": False, "texto": "", "error": "Ámbito no válido."}
+        dentro = (api_sectores(tickers=tickers) if tickers
+                  else api_sectores_acciones(etf=amb))
+        if not dentro.get("ok"):
+            return {"ok": False, "texto": "",
+                    "error": dentro.get("error") or "Sin datos del grupo."}
+        texto, fuente, err = _texto_llm(
+            _LECTURA_SYSTEM_DENTRO,
+            "Estos son los datos de hoy. Explícalos siguiendo el formato:\n\n"
+            + _lectura_dentro(amb, dentro.get("filas") or [],
+                              _amplitud_de_ventana(dentro.get("amplitud"), ventana)),
+            temp=0.3, max_tokens=1100)
+        if not texto:
+            return {"ok": False, "texto": "",
+                    "error": f"Ningún modelo pudo escribir la lectura ({err})."}
+        salida = {"ok": True, "texto": texto, "fuente": fuente, "ambito": amb,
+                  "generado": datetime.now(timezone.utc).isoformat()}
+        _LECTURA_CACHE[clave] = (ahora, salida)
+        return {**salida, "cacheado": False}
+
+    base = api_sectores()
+    if not base.get("ok"):
+        return {"ok": False, "error": base.get("error") or "Sin datos de mercado.",
+                "texto": ""}
+    rot = base.get("rotacion") or {}
+    if not rot.get("disponible"):
+        return {"ok": False, "texto": "",
+                "error": rot.get("motivo") or "Sin rotación que explicar."}
+
+    texto, fuente, err = _texto_llm(
+        _LECTURA_SYSTEM,
+        "Estos son los datos de hoy. Explícalos siguiendo el formato:\n\n"
+        + _lectura_datos(rot, base.get("filas") or []),
+        temp=0.3, max_tokens=1400)
+    if not texto:
+        # El motivo de CADA proveedor, no solo el del último. Un 429 de cuota
+        # reportado como «falta la clave» manda a mirar donde no es.
+        return {"ok": False, "texto": "",
+                "error": f"Ningún modelo pudo escribir la lectura ({err})."}
+    salida = {"ok": True, "texto": texto, "fuente": fuente,
+              "generado": datetime.now(timezone.utc).isoformat()}
+    _LECTURA_CACHE[clave] = (ahora, salida)
     return {**salida, "cacheado": False}
 
 

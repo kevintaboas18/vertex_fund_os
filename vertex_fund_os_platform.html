@@ -965,16 +965,15 @@
     <p class="text-[11px] text-gray-500 -mt-2 leading-snug">El mapa del mercado antes de elegir un ticker: d&oacute;nde est&aacute; entrando el dinero y d&oacute;nde est&aacute; saliendo. Pulsa un sector para ver sus industrias.</p>
     <div id="sectoresParrilla"></div>
     <div id="sectoresRotacion"></div>
+    <div id="sectoresLectura"></div>
 </main>
 
 <main id="sectorView" class="view-section hidden flex-grow w-full max-w-5xl mx-auto p-4 space-y-4">
-    <nav class="flex items-center gap-1.5 text-[11px] flex-wrap" aria-label="Migas de pan">
-        <button onclick="switchView('sectorsView')" class="text-blue-400 hover:text-blue-300 font-bold">Dashboard</button>
-        <span class="text-gray-700">&rsaquo;</span>
-        <span id="sectorMiga" class="text-gray-300 font-bold">—</span>
-    </nav>
+    <nav id="sectorMigas" class="flex items-center gap-1.5 text-[11px] flex-wrap" aria-label="Migas de pan"></nav>
     <div id="sectorCabecera"></div>
+    <div id="sectorAmplitud"></div>
     <div id="sectorIndustrias"></div>
+    <div id="sectorLectura"></div>
 </main>
 
 <main id="reportsView" class="view-section hidden flex-grow w-full max-w-5xl mx-auto p-4">
@@ -1715,34 +1714,37 @@ const VX_INDUSTRIAS = {
     XLB: [['GDX', 'Mineras de oro'], ['COPX', 'Cobre'], ['LIT', 'Litio y baterías'], ['WOOD', 'Madera y papel']],
 };
 
-//: El nombre del sector, también aquí, por lo mismo: la cabecera de la sección
-//: se pinta antes de que conteste nadie.
-const VX_SECTOR_NOMBRE = {
-    XLK: 'Tecnología', XLF: 'Financiero', XLV: 'Salud', XLY: 'Consumo discrecional',
-    XLC: 'Comunicaciones', XLI: 'Industrial', XLP: 'Consumo básico', XLE: 'Energía',
-    XLU: 'Servicios públicos', XLRE: 'Inmobiliario', XLB: 'Materiales',
-};
-
-//: Las seis ventanas del selector. Las etiquetas son de calendario y el
+//: Las cinco ventanas del selector. Las etiquetas son de calendario y el
 //: cálculo va en sesiones de mercado — lo hace el servidor, aquí solo se elige.
-const VX_VENTANAS = ['1D', '7D', '1M', '3M', '6M', '1A'];
+//:
+//: `1D` estuvo aquí y se quitó: el cambio del día ya se ve en la parrilla, y
+//: como ventana de comparación no dice nada — a un día casi todo se mueve
+//: junto, y este mapa existe para ver quién se separa del resto.
+const VX_VENTANAS = ['7D', '1M', '3M', '6M', '1A'];
+const VX_VENTANA_DEFECTO = '7D';
 
 //: La ventana elegida vive en `localStorage`: si miras el mercado a 3 meses,
 //: al volver mañana lo quieres a 3 meses, no otra vez a un día.
 function vxVentana() {
     try {
         const v = localStorage.getItem('vertex_ventana');
+        // La comprobación contra la lista NO es de adorno: quien tuviera «1D»
+        // guardado de antes se quedaría mirando una ventana que ya no existe y
+        // sin ningún botón marcado.
         if (VX_VENTANAS.includes(v)) return v;
     } catch (e) {}
-    return '1D';
+    return VX_VENTANA_DEFECTO;
 }
 function vxPonVentana(v) {
     try { localStorage.setItem('vertex_ventana', v); } catch (e) {}
-    pintaSectores(window._sectoresData);
-    // Si el selector se tocó DENTRO de la sección de un sector, se repinta esa;
-    // si no, la parrilla ya quedó al día con la línea de arriba.
+    // Se repinta DONDE ESTÁS. Esto miraba `window._sectorAbierto`, que dejó de
+    // existir al partir la pantalla en tres pisos: dentro de un sector o de una
+    // industria el selector cambiaba el guardado y no repintaba nada, así que
+    // parecía que los botones no hacían caso.
     const dentro = !document.getElementById('sectorView').classList.contains('hidden');
-    if (dentro && window._sectorAbierto) abreSector(window._sectorAbierto);
+    if (!dentro) { pintaSectores(window._sectoresData); return; }
+    if (VX_DONDE.industria) abreIndustria(VX_DONDE.industria);
+    else if (VX_DONDE.sector) abreSector(VX_DONDE.sector);
 }
 //: El cambio de la ventana elegida, con respaldo al del día. El respaldo
 //: importa: un ETF sin un año de historia no tiene «1A», y sin él la casilla
@@ -1864,11 +1866,71 @@ function pintaSectores(d) {
     pintaRotacion(d.rotacion);
 }
 
-//: Una fila de industria. `f` puede ser solo `{ticker, nombre}` —lo que ya
-//: sabemos sin preguntar a nadie— o traer además los números.
-function vxIndustriaFila(f) {
+//: Dónde estamos: `{nivel:'sector'|'industria', sector, industria}`.
+//: Un solo sitio para saberlo evita que la miga diga una cosa y la lista otra.
+let VX_DONDE = { nivel: null, sector: null, industria: null };
+
+//: La miga, de uno a tres pisos. Cada uno menos el último es pulsable.
+function vxPintaMigas() {
+    const n = document.getElementById('sectorMigas');
+    if (!n) return;
+    const pasos = [{ txt: 'Dashboard', ir: "switchView('sectorsView')" }];
+    if (VX_DONDE.sector) {
+        pasos.push({ txt: VX_DONDE.sector, ir: `abreSector('${VX_DONDE.sector}')` });
+    }
+    if (VX_DONDE.industria) pasos.push({ txt: VX_DONDE.industria, ir: null });
+    n.innerHTML = pasos.map((p, i) => {
+        const ultimo = i === pasos.length - 1;
+        const trozo = ultimo
+            ? `<span class="text-gray-300 font-bold">${_vcEsc(p.txt)}</span>`
+            : `<button onclick="${p.ir}" class="text-blue-400 hover:text-blue-300 font-bold">${_vcEsc(p.txt)}</button>`;
+        return (i ? '<span class="text-gray-700">&rsaquo;</span>' : '') + trozo;
+    }).join('');
+}
+
+//: La amplitud de la ventana que estás mirando. El servidor manda una por
+//: ventana: si no, elegir «1A» enseñaría +45% en cada fila y debajo «2 de 5 al
+//: alza», que es el reparto de HOY — la pantalla contradiciéndose sola.
+function vxAmplitudDe(d) {
+    const a = (d && d.amplitud) || {};
+    // Formato viejo (una sola amplitud, sin ventanas): se respeta en vez de
+    // dejar el bloque en blanco mientras el servidor termina de desplegarse.
+    if (a && a.n != null) return a;
+    return a[vxVentana()] || {};
+}
+
+//: El bloque de amplitud: cuántos empujan, cuántos frenan y cuánta confianza.
+//: Es la respuesta a «¿lo sube el grupo o lo sube uno solo?», y por eso va
+//: ARRIBA de la lista y no debajo — es lo primero que hay que saber.
+function vxAmplitudHTML(a, que) {
+    if (!a || !a.n) return '';
+    const col = { alta: 'text-emerald-400', media: 'text-amber-400', baja: 'text-red-400' };
+    const chip = (x, c) => `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${c}">${_vcEsc(x.ticker)} ${vxPct(x.cambio_pct)}</span>`;
+    return `<div class="bg-panel border border-panel rounded-2xl p-4">
+      <div class="flex items-baseline gap-2 flex-wrap">
+        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Confianza</h3>
+        <span class="text-[11px] font-black ${col[a.confianza] || 'text-gray-400'}">${_vcEsc(a.confianza || '—')}</span>
+        <span class="text-[10px] text-gray-600">${a.fuertes.length} de ${a.n} ${_vcEsc(que)} al alza</span>
+      </div>
+      <p class="text-xs text-gray-300 mt-1 leading-snug">${_vcEsc(a.frase || '')}</p>
+      ${(a.empujan || []).length ? `<div class="mt-2">
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Lo están subiendo</p>
+        <div class="flex flex-wrap gap-1">${a.empujan.map(x => chip(x, 'bg-emerald-500/10 text-emerald-300')).join('')}</div></div>` : ''}
+      ${(a.frenan || []).length ? `<div class="mt-2">
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Lo están frenando</p>
+        <div class="flex flex-wrap gap-1">${a.frenan.map(x => chip(x, 'bg-red-500/10 text-red-300')).join('')}</div></div>` : ''}
+      <button onclick="cargaLecturaGrupo()" class="text-[11px] font-bold text-blue-400 hover:text-blue-300 mt-2">Expl&iacute;came qu&eacute; est&aacute; pasando aqu&iacute; &rsaquo;</button>
+    </div>`;
+}
+
+//: Una fila. En el nivel de sector es pulsable —lleva a la industria—; en el
+//: de industria no, porque debajo de una acción no hay otro piso.
+function vxIndustriaFila(f, pulsable) {
     const hay = f && f.precio != null;
-    return `<div class="flex items-center gap-3 py-2" data-ind="${_vcEsc(f.ticker)}">
+    const etq = pulsable ? 'button' : 'div';
+    const abre = pulsable ? ` onclick="abreIndustria('${_vcEsc(f.ticker)}')"` : '';
+    return `<${etq}${abre} class="flex items-center gap-3 py-2 w-full text-left ${
+      pulsable ? 'hover:bg-white/[0.03] cursor-pointer' : ''}" data-ind="${_vcEsc(f.ticker)}">
       <div class="min-w-0 flex-1">
         <span class="text-xs font-black text-white">${_vcEsc(f.ticker)}</span>
         <span class="text-[10px] text-gray-500 ml-1.5">${_vcEsc(f.nombre)}</span>
@@ -1878,81 +1940,211 @@ function vxIndustriaFila(f) {
       <span class="text-[10px] w-14 text-right"><span class="text-gray-600">RSI </span><span
         class="font-bold ${vxRsiColor(hay ? f.rsi : null)}">${hay && f.rsi != null ? Number(f.rsi).toFixed(0) : '···'}</span></span>
       <span class="text-[10px] w-24 text-right">${hay ? vxSma200HTML(f) : '<span class="text-gray-700">SMA200 ···</span>'}</span>
+    </${etq}>`;
+}
+
+function vxCabeceraHTML(tk, nombre, dela) {
+    return `<div class="bg-panel border border-panel rounded-2xl p-4">
+      <div class="flex items-baseline gap-2 flex-wrap">
+        <h1 class="text-xl font-black text-white">${_vcEsc(tk)}</h1>
+        <span class="text-xs text-gray-500">${_vcEsc(nombre || tk)}</span>
+      </div>
+      ${dela ? `<div class="flex items-baseline gap-3 mt-1.5 flex-wrap">
+        <span class="text-lg font-bold text-white">${vxUsd(dela.precio)}</span>
+        <span class="text-sm font-bold ${vxCambioColor(vxCambioDe(dela))}">${vxPct(vxCambioDe(dela))}</span>
+        <span class="text-[10px] text-gray-700">${vxVentana()}</span>
+        <span class="text-[10px]"><span class="text-gray-600">RSI </span><span
+          class="font-bold ${vxRsiColor(dela.rsi)}">${dela.rsi == null ? '—' : Number(dela.rsi).toFixed(0)}</span></span>
+        <span class="text-[10px]">${vxSma200HTML(dela)}</span>
+      </div>` : ''}
+      ${vxSelectorVentanaHTML()}
     </div>`;
 }
 
-/** Abre la sección de UN sector.
+function vxListaHTML(titulo, filas, pulsables) {
+    return `<div class="bg-panel border border-panel rounded-2xl p-4">
+      <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-2">${titulo}</h3>
+      <div class="divide-y divide-gray-800/60">${filas.map(f => vxIndustriaFila(f, pulsables)).join('')}</div>
+      <p class="text-[9px] text-gray-600 mt-2">Precio en vivo &middot; cambio en la ventana elegida arriba &middot; RSI de Wilder de 14 sesiones y media simple de 200, las dos sobre velas diarias.</p></div>`;
+}
+
+/** Segundo piso: un sector con sus industrias.
  *
- *  La lista de industrias NO se espera: sus tickers y sus nombres están
- *  escritos en el panel (`VX_INDUSTRIAS`), así que la sección aparece completa
- *  al instante y solo los números llegan después. Antes esto era un despliegue
- *  debajo de la parrilla que empezaba con «Leyendo las industrias de…» y no
- *  enseñaba nada durante un segundo largo — y lo que estaba esperando era una
- *  lista que no cambia nunca.
- *
- *  Los números sí se piden, porque son los de hoy. Y se cachean por sector:
- *  entrar en XLK, volver al Dashboard y entrar otra vez no vuelve a pagarlos.
+ *  La lista NO se espera: los tickers y los nombres están escritos en el panel,
+ *  así que la sección aparece entera al instante y solo los números llegan
+ *  después.
  */
 async function abreSector(ticker) {
     const tk = String(ticker || '').toUpperCase();
     const industrias = VX_INDUSTRIAS[tk] || [];
-    window._sectorAbierto = tk;
+    VX_DONDE = { nivel: 'sector', sector: tk, industria: null };
     switchView('sectorView');
     window.scrollTo({ top: 0, behavior: 'auto' });
+    vxPintaMigas();
+    document.getElementById('sectorLectura').innerHTML = '';
 
-    const miga = document.getElementById('sectorMiga');
-    if (miga) miga.innerText = tk;
-    // La cabecera con los números del propio sector: ya los tenemos de la
-    // parrilla, así que no se pide nada para pintarla.
     const dela = ((window._sectoresData || {}).filas || []).find(x => x.ticker === tk);
-    const cab = document.getElementById('sectorCabecera');
-    if (cab) {
-        cab.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
-          <div class="flex items-baseline gap-2 flex-wrap">
-            <h1 class="text-xl font-black text-white">${_vcEsc(tk)}</h1>
-            <span class="text-xs text-gray-500">${_vcEsc(VX_SECTOR_NOMBRE[tk] || tk)}</span>
-          </div>
-          ${dela ? `<div class="flex items-baseline gap-3 mt-1.5 flex-wrap">
-            <span class="text-lg font-bold text-white">${vxUsd(dela.precio)}</span>
-            <span class="text-sm font-bold ${vxCambioColor(vxCambioDe(dela))}">${vxPct(vxCambioDe(dela))}</span>
-            <span class="text-[10px] text-gray-700">${vxVentana()}</span>
-            <span class="text-[10px]"><span class="text-gray-600">RSI </span><span
-              class="font-bold ${vxRsiColor(dela.rsi)}">${dela.rsi == null ? '—' : Number(dela.rsi).toFixed(0)}</span></span>
-            <span class="text-[10px]">${vxSma200HTML(dela)}</span>
-          </div>` : ''}
-          ${vxSelectorVentanaHTML()}
-        </div>`;
-    }
+    document.getElementById('sectorCabecera').innerHTML =
+        vxCabeceraHTML(tk, (dela && dela.nombre) || tk, dela);
 
     const caja = document.getElementById('sectorIndustrias');
-    if (!caja) return;
+    const ampl = document.getElementById('sectorAmplitud');
     if (!industrias.length) {
+        ampl.innerHTML = '';
         caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
           <p class="text-xs text-gray-500">Este sector no tiene desglose por industrias.</p></div>`;
         return;
     }
-    // Paso 1: la lista ENTERA, con nombres, sin haber pedido nada.
-    const pinta = (filas) => {
-        caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
-          <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-2">Industrias</h3>
-          <div class="divide-y divide-gray-800/60">${filas.map(vxIndustriaFila).join('')}</div>
-          <p class="text-[9px] text-gray-600 mt-2">Precio en vivo &middot; cambio en la ventana elegida arriba &middot; RSI de Wilder de 14 sesiones y media simple de 200, las dos sobre velas diarias.</p></div>`;
-    };
-    pinta(industrias.map(([t, n]) => ({ ticker: t, nombre: n })));
+    ampl.innerHTML = '';
+    caja.innerHTML = vxListaHTML('Industrias',
+        industrias.map(([t, n]) => ({ ticker: t, nombre: n })), true);
 
-    // Paso 2: los números, que son lo único que hay que ir a buscar.
     window._sectorCache = window._sectorCache || {};
-    if (window._sectorCache[tk]) { pinta(window._sectorCache[tk]); return; }
+    const pon = (d) => {
+        if (VX_DONDE.sector !== tk || VX_DONDE.industria) return;
+        caja.innerHTML = vxListaHTML('Industrias', d.filas, true);
+        ampl.innerHTML = vxAmplitudHTML(vxAmplitudDe(d), 'industrias');
+    };
+    if (window._sectorCache[tk]) { pon(window._sectorCache[tk]); return; }
     try {
-        const r = await fetch(`${API_BASE}/api/sectores?etf=${encodeURIComponent(tk)}`);
-        if (!r.ok) return;                    // se quedan los nombres, que ya es algo
+        const lista = industrias.map(x => x[0]).join(',');
+        const r = await fetch(`${API_BASE}/api/sectores?tickers=${encodeURIComponent(lista)}`);
+        if (!r.ok) return;
         const d = await r.json();
-        if (window._sectorAbierto !== tk) return;   // te fuiste a otro sector
         if (d && Array.isArray(d.filas) && d.filas.length) {
-            window._sectorCache[tk] = d.filas;
-            pinta(d.filas);
+            window._sectorCache[tk] = d;
+            pon(d);
         }
     } catch (e) { /* se quedan los nombres */ }
+}
+
+/** Tercer piso: una industria con sus acciones.
+ *
+ *  Aquí la lista SÍ se espera, y es la única de las tres que lo hace: las
+ *  posiciones de un ETF cambian cada trimestre, así que escribirlas a mano
+ *  sería una lista que parece autoridad y se queda vieja. El servidor las
+ *  cachea un día entero, así que solo la primera visita paga.
+ */
+async function abreIndustria(ticker) {
+    const tk = String(ticker || '').toUpperCase();
+    const nombre = ((VX_INDUSTRIAS[VX_DONDE.sector] || [])
+        .find(x => x[0] === tk) || [tk, tk])[1];
+    VX_DONDE = { nivel: 'industria', sector: VX_DONDE.sector, industria: tk };
+    switchView('sectorView');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    vxPintaMigas();
+    document.getElementById('sectorLectura').innerHTML = '';
+
+    const dela = (((window._sectorCache || {})[VX_DONDE.sector] || {}).filas || [])
+        .find(x => x.ticker === tk);
+    document.getElementById('sectorCabecera').innerHTML =
+        vxCabeceraHTML(tk, nombre, dela);
+    const ampl = document.getElementById('sectorAmplitud');
+    const caja = document.getElementById('sectorIndustrias');
+    ampl.innerHTML = '';
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+      <p class="text-xs text-gray-500">Leyendo las empresas de ${_vcEsc(tk)}…</p></div>`;
+
+    window._accionesCache = window._accionesCache || {};
+    const pon = (d) => {
+        if (VX_DONDE.industria !== tk) return;
+        caja.innerHTML = vxListaHTML('Empresas', d.filas, false);
+        ampl.innerHTML = vxAmplitudHTML(vxAmplitudDe(d), 'empresas');
+    };
+    if (window._accionesCache[tk]) { pon(window._accionesCache[tk]); return; }
+    let d;
+    try {
+        const r = await fetch(`${API_BASE}/api/sectores/acciones?etf=${encodeURIComponent(tk)}`);
+        d = await r.json();
+    } catch (e) {
+        d = { ok: false, error: 'No se pudieron leer las empresas.' };
+    }
+    if (VX_DONDE.industria !== tk) return;
+    if (!d || !d.ok || !Array.isArray(d.filas) || !d.filas.length) {
+        caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+          <p class="text-xs text-amber-400">${_vcEsc((d && d.error) || 'Sin empresas que enseñar.')}</p></div>`;
+        return;
+    }
+    window._accionesCache[tk] = d;
+    pon(d);
+}
+
+/** La lectura del grupo donde estés: las industrias de un sector, o las
+ *  empresas de una industria. La misma pregunta que en el mercado, un piso
+ *  más abajo. */
+async function cargaLecturaGrupo(refrescar) {
+    const caja = document.getElementById('sectorLectura');
+    if (!caja) return;
+    const amb = VX_DONDE.industria || VX_DONDE.sector;
+    if (!amb) return;
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+      <p class="text-xs text-gray-500">Leyendo el mercado y escribiendo la explicaci&oacute;n&hellip;</p></div>`;
+    // En el nivel de sector se manda la lista de industrias: son las de aquí,
+    // y el servidor no tiene por qué volver a deducirlas.
+    const lista = VX_DONDE.industria ? ''
+        : (VX_INDUSTRIAS[VX_DONDE.sector] || []).map(x => x[0]).join(',');
+    let d;
+    try {
+        const q = `ambito=${encodeURIComponent(amb)}`
+            + (lista ? `&tickers=${encodeURIComponent(lista)}` : '')
+            + `&ventana=${encodeURIComponent(vxVentana())}`
+            + (refrescar ? '&refrescar=1' : '');
+        const r = await fetch(`${API_BASE}/api/sectores/lectura?${q}`);
+        d = await r.json();
+    } catch (e) {
+        d = { ok: false, error: 'No se pudo pedir la lectura.' };
+    }
+    if (VX_DONDE.industria !== (VX_DONDE.industria || null)) return;
+    caja.innerHTML = vxLecturaHTML(d, 'cargaLecturaGrupo');
+}
+
+//: El cuerpo de una lectura, compartido por las dos pantallas. El texto del
+//: modelo se ESCAPA y solo después se marcan las negritas — al revés de como
+//: suele hacerse, y la única forma de que un `<img onerror>` en la respuesta
+//: no acabe ejecutándose.
+function vxLecturaHTML(d, fn) {
+    if (!d || !d.ok || !d.texto) {
+        return `<div class="bg-panel border border-panel rounded-2xl p-4">
+          <p class="text-xs text-amber-400">${_vcEsc((d && d.error) || 'Sin lectura disponible.')}</p>
+          <button onclick="${fn}(1)" class="text-[10px] text-blue-400 hover:text-blue-300 mt-1">Reintentar</button></div>`;
+    }
+    const cuerpo = _vcEsc(d.texto)
+        .replace(/\*\*(.+?)\*\*/g, '<b class="text-white">$1</b>')
+        .split(/\n{2,}/)
+        .map(p => `<p class="text-xs text-gray-300 leading-relaxed mb-2">${p.replace(/\n/g, '<br>')}</p>`)
+        .join('');
+    return `<div class="bg-panel border border-panel rounded-2xl p-4">
+      <div class="flex items-baseline justify-between mb-2 gap-2 flex-wrap">
+        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Qu&eacute; est&aacute; pasando en el mercado</h3>
+        <button onclick="${fn}(1)" class="text-[10px] text-gray-500 hover:text-gray-300">actualizar</button>
+      </div>
+      ${cuerpo}
+      <p class="text-[9px] text-gray-600 mt-2 pt-2 border-t border-gray-800">Escrito por el modelo a partir de los n&uacute;meros de arriba, que los calcula el motor. Es una lectura de lo que pasa, <b>no</b> una recomendaci&oacute;n de compra o venta.</p></div>`;
+}
+
+/** La rotación del día, contada en palabras por el modelo.
+ *
+ *  No se pide sola al entrar: son unos segundos de espera y un coste de API
+ *  para algo que no todo el mundo quiere leer cada vez. Se pide al pulsar, y
+ *  entonces se guarda — el servidor la cachea un cuarto de hora, así que
+ *  volver a entrar la enseña al instante.
+ *
+ *  El modelo NO decide nada aquí: la matriz, el flujo y la amplitud ya las
+ *  calculó el motor con los números. Esto las cuenta.
+ */
+async function cargaLecturaMercado(refrescar) {
+    const caja = document.getElementById('sectoresLectura');
+    if (!caja) return;
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+      <p class="text-xs text-gray-500">Leyendo el mercado y escribiendo la explicación…</p></div>`;
+    let d;
+    try {
+        const r = await fetch(`${API_BASE}/api/sectores/lectura${refrescar ? '?refrescar=1' : ''}`);
+        d = await r.json();
+    } catch (e) {
+        d = { ok: false, error: 'No se pudo pedir la lectura.' };
+    }
+    caja.innerHTML = vxLecturaHTML(d, 'cargaLecturaMercado');
 }
 
 //: El informe de rotación. Cuatro bloques, y ninguno se inventa una frase
@@ -2012,6 +2204,10 @@ function pintaRotacion(rot) {
       ${(rot.diagnostico || []).length ? `<div class="border-t border-gray-800 pt-2">
         <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Diagn&oacute;stico</p>
         ${rot.diagnostico.map(f => `<p class="text-xs text-gray-200 leading-snug">&#9656; ${_vcEsc(f)}</p>`).join('')}</div>` : ''}
+
+      <div class="border-t border-gray-800 pt-2">
+        <button onclick="cargaLecturaMercado()" class="text-[11px] font-bold text-blue-400 hover:text-blue-300">Explícame qué está pasando &rsaquo;</button>
+      </div>
 
       ${rot.dispersion != null ? `<p class="text-[9px] text-gray-600 border-t border-gray-800 pt-2">Dispersi&oacute;n entre sectores hoy: <b class="text-gray-400">${Number(rot.dispersion).toFixed(2)}</b> &mdash; alta significa rotaci&oacute;n de verdad; baja, que todo se mueve en bloque.</p>` : ''}
     </div>`;
@@ -11485,6 +11681,25 @@ const VX_ES2EN = {
     "Dominancia": "Dominance",
     "Rango extremo · 2σ": "Extreme range · 2σ",
     "Sectores": "Sectors",
+    "Confianza": "Confidence",
+    "Explícame qué está pasando aquí ›": "Explain what is happening here ›",
+    "No se pudieron leer las empresas.": "Could not read the companies.",
+    "Sin empresas que enseñar.": "No companies to show.",
+    "Empresas": "Companies",
+    "Lo están subiendo": "Pushing it up",
+    "Lo están frenando": "Holding it back",
+    "alta": "high",
+    "media": "medium",
+    "baja": "low",
+    "Leyendo el mercado y escribiendo la explicación…": "Reading the market and writing the explanation…",
+    "Qué está pasando en el mercado": "What is happening in the market",
+    "No se pudo pedir la lectura.": "Could not request the reading.",
+    "Sin lectura disponible.": "No reading available.",
+    "Reintentar": "Retry",
+    "actualizar": "refresh",
+    "Explícame qué está pasando ›": "Explain what is happening ›",
+    "Escrito por el modelo a partir de los números de arriba, que los calcula el motor. Es una lectura de lo que pasa,": "Written by the model from the numbers above, which the engine calculates. It is a reading of what is happening,",
+    "una recomendación de compra o venta.": "a buy or sell recommendation.",
     "Este sector no tiene desglose por industrias.": "This sector has no industry breakdown.",
     "Industrias": "Industries",
     "Tecnología": "Technology",
@@ -12552,6 +12767,21 @@ const VX_ES2EN = {
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
     // Los sectores: llevan el ticker o un número dentro de la frase.
+    [/^Leyendo las empresas de (\S+)…$/, 'Reading the companies of $1…'],
+    [/^(\d+) de (\d+) industrias al alza$/, '$1 of $2 industries rising'],
+    [/^(\d+) de (\d+) empresas al alza$/, '$1 of $2 companies rising'],
+    [/^(\d+) de (\d+) van al alza: la subida está repartida, no la sostiene uno solo\.$/,
+     '$1 of $2 are rising: the move is spread out, not held up by one alone.'],
+    [/^(\d+) de (\d+) van a la baja: la debilidad está repartida, no es un caso suelto\.$/,
+     '$1 of $2 are falling: the weakness is spread out, not an isolated case.'],
+    [/^(\d+) de (\d+) al alza: hay más fuerza que debilidad, pero no es unánime\.$/,
+     '$1 of $2 rising: there is more strength than weakness, but it is not unanimous.'],
+    [/^(\d+) de (\d+) a la baja: pesa más la debilidad, pero no es unánime\.$/,
+     '$1 of $2 falling: weakness weighs more, but it is not unanimous.'],
+    [/^Solo (\d+) de (\d+) al alza: si eso sube, lo sube uno solo y se da la vuelta en cuanto se canse\.$/,
+     'Only $1 of $2 rising: if that moves up, one alone is moving it, and it turns around as soon as it tires.'],
+    [/^Repartido \((\d+) al alza, (\d+) a la baja\): hoy no hay una dirección clara aquí\.$/,
+     'Split ($1 rising, $2 falling): there is no clear direction here today.'],
     [/^El servidor todavía no tiene la pantalla de sectores \(HTTP (\d+)\)\. Si acabas de desplegar, espera a que termine y recarga\.$/,
      'The server does not have the sectors screen yet (HTTP $1). If you just deployed, wait for it to finish and reload.'],
     [/^Media simple de 200 sesiones: (\S+)$/, 'Simple 200-session average: $1'],

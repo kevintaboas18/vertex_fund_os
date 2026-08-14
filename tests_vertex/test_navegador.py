@@ -790,13 +790,13 @@ class TestSectoresSeAlcanzaDesdeElMOVIL:
                 pulsables: document.querySelectorAll(
                     '#sectoresParrilla button[onclick^="abreSector"]').length,
                 ventanas: [...document.querySelectorAll('#sectoresParrilla button')]
-                    .slice(0, 6).map(b => b.innerText.trim()),
+                    .slice(0, 5).map(b => b.innerText.trim()),
                 texto: document.getElementById('sectoresParrilla').innerText,
             })""")
             assert d["visible"], "Sectores no se abrió desde el menú del móvil"
             assert d["pulsables"] == 11, (
                 f"{d['pulsables']} sectores pulsables, deberían ser 11")
-            assert d["ventanas"] == ["1D", "7D", "1M", "3M", "6M", "1A"], d["ventanas"]
+            assert d["ventanas"][:5] == ["7D", "1M", "3M", "6M", "1A"], d["ventanas"]
             assert "SPY" in d["texto"] and "SMA200" in d["texto"], d["texto"][:200]
             assert not errores, errores[:3]
         finally:
@@ -947,12 +947,12 @@ class TestElSectorSeAbreComoSECCION:
             # El orden de `route` no decide: se mira la URL dentro. Playwright
             # da prioridad a la ÚLTIMA registrada, y con dos rutas la genérica
             # se comía la del sector.
-            if "etf=" in r.request.url:
+            if "tickers=" in r.request.url:
                 if matar_industrias:
                     r.abort()
                 else:
                     r.fulfill(status=200, json={
-                        "ok": True, "etf": "XLK", "nombre": "Tecnología",
+                        "ok": True, "tickers": ["SMH", "IGV"],
                         "filas": [self._fila("SMH", "Semiconductores"),
                                   self._fila("IGV", "Software")]})
             else:
@@ -1036,6 +1036,147 @@ class TestElSectorSeAbreComoSECCION:
             txt = pg.evaluate("() => document.getElementById('sectorIndustrias').innerText")
             assert txt.strip(), "ni lista ni motivo: la sección se queda muda"
             assert "desglose" in txt, txt
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+
+class TestElSelectorDeVentanaFUNCIONAEnLosTresPisos:
+    """«Desde el Dashboard sí me deja cambiar la fecha; dentro de un sector no.»
+
+    Y era cierto: `vxPonVentana` repintaba mirando `window._sectorAbierto`, una
+    variable que dejó de existir al partir la pantalla en tres pisos. Dentro de
+    un sector o de una industria el clic guardaba la elección y no repintaba
+    nada, así que los botones parecían no hacer caso.
+
+    Aquí se mide donde fallaba: dentro.
+    """
+
+    _CAMBIOS = {"7D": 1.0, "1M": 2.0, "3M": 3.0, "6M": 4.0, "1A": 5.0}
+
+    @classmethod
+    def _fila(cls, t, n=None, mult=1.0):
+        return {"ticker": t, "nombre": n or t, "precio": 100.0,
+                "cambio_pct": 0.5, "rsi": 60.0, "sma200": 95.0,
+                "sma200_dist": 5.0,
+                "cambios": {k: v * mult for k, v in cls._CAMBIOS.items()}}
+
+    @classmethod
+    def _amp(cls):
+        return {v: {"n": 2, "fuertes": ["SMH"], "debiles": [], "neutrales": [],
+                    "confianza": "alta", "frase": f"reparto de {v}",
+                    "empujan": [], "frenan": []}
+                for v in cls._CAMBIOS}
+
+    def _abre(self, navegador, servidor):
+        pg = navegador.new_page(viewport={"width": 390, "height": 900})
+        errores: list[str] = []
+        pg.on("pageerror", lambda e: errores.append(str(e)))
+        secs = ["XLK", "XLF", "XLV", "XLY", "XLC", "XLI",
+                "XLP", "XLE", "XLU", "XLRE", "XLB"]
+
+        def enruta(r):
+            u = r.request.url
+            if "/acciones" in u:
+                r.fulfill(status=200, json={
+                    "ok": True, "etf": "SMH",
+                    "filas": [self._fila("NVDA", "NVIDIA", 3.0)],
+                    "amplitud": self._amp()})
+            elif "tickers=" in u:
+                r.fulfill(status=200, json={
+                    "ok": True, "tickers": ["SMH"],
+                    "filas": [self._fila("SMH", "Semiconductores", 2.0)],
+                    "amplitud": self._amp()})
+            else:
+                r.fulfill(status=200, json={
+                    "ok": True, "referencias": ["SPY", "RSP", "QQQ"],
+                    "sectores": secs,
+                    "filas": [self._fila(t) for t in ["SPY", "RSP", "QQQ"] + secs],
+                    "amplitud": self._amp(),
+                    "rotacion": {"disponible": False, "motivo": ""}})
+
+        import re as _re
+        pg.route(_re.compile(r"/api/sectores"), enruta)
+        pg.goto(servidor, wait_until="load")
+        pg.wait_for_timeout(2400)
+        pg.evaluate("switchView('sectorsView')")
+        pg.wait_for_timeout(1200)
+        return pg, errores
+
+    def test_1D_ya_no_esta_entre_las_opciones(self, navegador, servidor):
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            botones = pg.evaluate(
+                "() => [...document.querySelectorAll('#sectoresParrilla button')]"
+                ".slice(0, 5).map(b => b.innerText.trim())")
+            assert botones == ["7D", "1M", "3M", "6M", "1A"], botones
+            assert pg.evaluate("() => vxVentana()") == "7D", "el nuevo por defecto"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_un_1D_guardado_de_antes_no_deja_la_pantalla_sin_ventana(
+            self, navegador, servidor):
+        """Quien lo tuviera guardado se quedaría mirando una ventana que ya no
+        existe y sin ningún botón marcado."""
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            v = pg.evaluate("""() => {
+                localStorage.setItem('vertex_ventana', '1D');
+                return vxVentana();
+            }""")
+            assert v == "7D", v
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_DENTRO_de_un_sector_el_selector_repinta(self, navegador, servidor):
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            pg.evaluate("abreSector('XLK')")
+            pg.wait_for_timeout(1100)
+            lee = """() => ({
+                fila: document.querySelector('#sectorIndustrias [data-ind]').innerText.replace(/\\n/g, ' '),
+                amp: document.getElementById('sectorAmplitud').innerText,
+                miga: document.getElementById('sectorMigas').innerText.replace(/\\n/g, ''),
+            })"""
+            pg.evaluate("vxPonVentana('7D')")
+            pg.wait_for_timeout(700)
+            a = pg.evaluate(lee)
+            pg.evaluate("vxPonVentana('1A')")
+            pg.wait_for_timeout(700)
+            b = pg.evaluate(lee)
+            assert a["fila"] != b["fila"], (
+                f"el porcentaje no cambió al mover la ventana: {a['fila']}")
+            # 7D vale 1,0 × 2 = 2,00% y 1A vale 5,0 × 2 = 10,00%.
+            assert "+2.00%" in a["fila"] and "+10.00%" in b["fila"], (a, b)
+            assert "reparto de 7D" in a["amp"] and "reparto de 1A" in b["amp"], (
+                "la confianza tiene que seguir a la ventana, o la pantalla se "
+                "contradice: +50% en las filas y «2 de 5 al alza» de hoy debajo")
+            assert a["miga"] == b["miga"], "cambiar la ventana no debe navegar"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_y_DENTRO_de_una_industria_tambien(self, navegador, servidor):
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            pg.evaluate("abreSector('XLK')")
+            pg.wait_for_timeout(1000)
+            pg.evaluate("abreIndustria('SMH')")
+            pg.wait_for_timeout(1200)
+            lee = ("() => document.querySelector('#sectorIndustrias [data-ind]')"
+                   ".innerText.replace(/\\n/g, ' ')")
+            pg.evaluate("vxPonVentana('7D')")
+            pg.wait_for_timeout(700)
+            a = pg.evaluate(lee)
+            pg.evaluate("vxPonVentana('1A')")
+            pg.wait_for_timeout(700)
+            b = pg.evaluate(lee)
+            assert a != b, f"el selector no repinta en el tercer piso: {a}"
+            miga = pg.evaluate(
+                "() => document.getElementById('sectorMigas').innerText.replace(/\\n/g, '')")
+            assert "SMH" in miga, f"se salió del piso al cambiar la ventana: {miga}"
             assert not errores, errores[:3]
         finally:
             pg.close()

@@ -12,6 +12,12 @@ un mercado estrecho, y eso cambia cómo se lee todo lo demás.
 
 Todo lo de aquí es **puro**: recibe cierres, devuelve números. Ni red ni disco.
 Lo que sale por pantalla lo arma `vertex_api.py`.
+
+**Las industrias de cada sector no están aquí, y es a propósito.** Viven en el
+panel, porque pulsar XLK tiene que enseñar sus cinco industrias al instante y
+esa lista no cambia nunca. Tenerlas también aquí era una segunda copia que
+había que vigilar con un test para nada: el servidor no necesita saber qué
+industria es cuál, solo cotizar los tickers que le pidan. Así hay UNA tabla.
 """
 
 from __future__ import annotations
@@ -22,13 +28,11 @@ __all__ = [
     "cambio_pct",
     "REFERENCIAS",
     "SECTORES",
-    "INDUSTRIAS",
     "CATEGORIAS",
     "CATEGORIA_DE",
     "ES_REFERENCIA",
     "universo",
     "nombre_de",
-    "industrias_de",
     "categoria_de",
     # ── rotación ──
     "VENTANAS_ROC",
@@ -50,6 +54,12 @@ __all__ = [
     "sma",
     "distancia_sma",
     "cambios_por_ventana",
+    # ── amplitud interna ──
+    "UMBRAL_MIEMBRO_PCT",
+    "MAYORIA_CLARA",
+    "MAYORIA_DEBIL",
+    "amplitud",
+    "amplitud_por_ventana",
 ]
 
 #: Periodos del RSI. 14 es el de Wilder, que es lo que enseña cualquier
@@ -142,89 +152,15 @@ SECTORES = (
     ("XLB", "Materiales"),
 )
 
-#: Las industrias DENTRO de cada sector, con el ETF que mejor la representa.
-#:
-#: Esta lista es curada, y conviene decirlo: no existe un desglose oficial de
-#: «industrias de XLE» en formato ETF. Se eligieron los más líquidos y más
-#: puros de cada industria, evitando los apalancados y los de menos de ~$100M
-#: bajo gestión —un ETF que casi no se negocia da un RSI que no representa a
-#: nadie—. Añadir o quitar uno es una línea de aquí y nada más.
-#:
-#: `XLU` no aparece: los ETF que se venden como «industrias de utilities» son
-#: en realidad temáticos de energía limpia, que es otra cosa. Antes que meter
-#: un desglose falso, el sector se queda sin desplegar y la pantalla lo dice.
-INDUSTRIAS = {
-    "XLK": (
-        ("SMH", "Semiconductores"),
-        ("IGV", "Software"),
-        ("CIBR", "Ciberseguridad"),
-        ("SKYY", "Nube"),
-        ("XSD", "Semiconductores equiponderado"),
-    ),
-    "XLF": (
-        ("KRE", "Bancos regionales"),
-        ("KBE", "Bancos"),
-        ("KCE", "Mercados de capitales"),
-        ("IAK", "Seguros"),
-    ),
-    "XLV": (
-        ("XBI", "Biotecnología equiponderado"),
-        ("IBB", "Biotecnología"),
-        ("IHI", "Dispositivos médicos"),
-        ("IHF", "Proveedores de salud"),
-        ("PPH", "Farmacéuticas"),
-    ),
-    "XLY": (
-        ("XRT", "Minoristas"),
-        ("XHB", "Construcción de vivienda"),
-        ("ITB", "Constructoras"),
-        ("PEJ", "Ocio y viajes"),
-    ),
-    "XLC": (
-        ("FDN", "Internet"),
-        ("SOCL", "Redes sociales"),
-        ("ESPO", "Videojuegos"),
-        ("PBS", "Medios y entretenimiento"),
-    ),
-    "XLI": (
-        ("ITA", "Aeroespacial y defensa"),
-        ("IYT", "Transporte"),
-        ("PAVE", "Infraestructura"),
-        ("JETS", "Aerolíneas"),
-    ),
-    "XLP": (
-        ("PBJ", "Alimentos y bebidas"),
-        ("FTXG", "Alimentación"),
-    ),
-    "XLE": (
-        ("XOP", "Exploración y producción"),
-        ("OIH", "Servicios petroleros"),
-        ("AMLP", "Midstream y oleoductos"),
-        ("FCG", "Gas natural"),
-    ),
-    "XLRE": (
-        ("REZ", "Residencial"),
-        ("REM", "Hipotecarios"),
-        ("INDS", "Industrial y logística"),
-    ),
-    "XLB": (
-        ("GDX", "Mineras de oro"),
-        ("COPX", "Cobre"),
-        ("LIT", "Litio y baterías"),
-        ("WOOD", "Madera y papel"),
-    ),
-}
-
 #: Los que NO se despliegan, y por qué se pregunta con un `in` y no con una
 #: lista suelta en el panel: si mañana entra un cuarto índice, el sitio donde
 #: se declara es este.
 ES_REFERENCIA = frozenset(t for t, _ in REFERENCIAS)
 
-#: Nombre por ticker, para no repetir la tabla en tres sitios.
+#: Nombre por ticker de la parrilla. Las industrias NO están aquí: sus nombres
+#: los pone el panel, que es donde viven, y el servidor las trata como lo que
+#: son para él — tickers que hay que cotizar.
 _NOMBRES = {t: n for t, n in REFERENCIAS + SECTORES}
-for _sector, _filas in INDUSTRIAS.items():
-    for _t, _n in _filas:
-        _NOMBRES.setdefault(_t, _n)
 
 
 def universo() -> tuple[str, ...]:
@@ -235,15 +171,6 @@ def universo() -> tuple[str, ...]:
 def nombre_de(ticker: str) -> str:
     """«XLE» → «Energía». El propio ticker si no se conoce."""
     return _NOMBRES.get(str(ticker).upper().strip(), str(ticker).upper().strip())
-
-
-def industrias_de(ticker: str) -> tuple[tuple[str, str], ...]:
-    """Las industrias de un sector. Vacío para SPY/RSP/QQQ y para lo que no sea
-    uno de los once — preguntarlo no es un error, y devolver vacío deja que la
-    pantalla diga «este no se despliega» en vez de reventar."""
-    return tuple(INDUSTRIAS.get(str(ticker).upper().strip(), ()))
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 #  ROTACIÓN SECTORIAL
 #
@@ -573,12 +500,12 @@ SMA_LARGA = 200
 #: bolsa), «1M» 21, «3M» 63, «6M» 126 y «1A» 252. Contar días naturales sobre
 #: una serie que no los tiene daría un cambio medido desde un festivo.
 #:
-#: `1D` va con 0 sesiones a propósito: ese no se calcula de los cierres, viene
-#: de la cotización EN VIVO. Con el mercado abierto, el cambio del día es
-#: contra el cierre de ayer, no contra el cierre de hoy — que todavía no
-#: existe.
+#: `1D` estuvo aquí y se quitó. No por simplificar: el cambio del día ya se ve
+#: en la parrilla y como ventana de comparación no dice nada — a un día casi
+#: todo se mueve junto, y este mapa existe para ver quién se separa del resto.
+#: El dato en sí NO desaparece: `cambio_pct` sigue alimentando la rotación y el
+#: reparto de fuerza, que es donde la sesión de hoy sí importa.
 VENTANAS_CAMBIO = (
-    ("1D", 0),
     ("7D", 5),
     ("1M", 21),
     ("3M", 63),
@@ -613,20 +540,176 @@ def distancia_sma(precio, valor_sma):
     return (p - m) / m * 100.0
 
 
-def cambios_por_ventana(cierres, cambio_dia=None):
-    """El cambio en % de cada ventana del selector.
+def cambios_por_ventana(cierres):
+    """El cambio en % de cada ventana del selector, desde los cierres.
 
-    `1D` sale de `cambio_dia` —la cotización en vivo— y el resto de los
-    cierres. Lo que no alcance queda en `None` y la pantalla pinta «—»: un ETF
-    con ocho meses de vida no tiene cambio a un año, y rellenarlo con el de
-    todo su historial sería llamar «1A» a otra cosa.
+    Lo que no alcance queda en `None` y la pantalla pinta «—»: un ETF con ocho
+    meses de vida no tiene cambio a un año, y rellenarlo con el de todo su
+    historial sería llamar «1A» a otra cosa.
     """
     salida = {}
     for etiqueta, sesiones in VENTANAS_CAMBIO:
-        if sesiones == 0:
-            salida[etiqueta] = (None if cambio_dia is None
-                                else round(float(cambio_dia), 2))
-            continue
         v = roc(cierres, sesiones)
         salida[etiqueta] = None if v is None else round(v, 2)
+    return salida
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  AMPLITUD INTERNA: ¿CUÁNTOS EMPUJAN, Y CUÁNTA CONFIANZA DA ESO?
+#
+#  La pregunta que esto responde es la que separa una señal de un espejismo:
+#  un sector que sube con nueve de sus diez industrias en verde y otro que sube
+#  porque UNA se disparó son el mismo porcentaje en pantalla y dos cosas
+#  distintas en la realidad. La segunda se da la vuelta en cuanto esa una se
+#  cansa.
+#
+#  Sirve igual para los dos niveles —las industrias dentro de un sector, y las
+#  acciones dentro de una industria— porque la pregunta es la misma: cuántos de
+#  los que están debajo van en la dirección del de arriba.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Cuándo un miembro cuenta como fuerte o débil. El cambio del día solo no
+#: basta —un +0,3% no es fuerza, es ruido— así que se exige que además esté por
+#: encima de su media de 200 o con el RSI del lado bueno.
+UMBRAL_MIEMBRO_PCT = 0.25
+
+#: Cuánta mayoría hace falta para decir que la señal es de fiar. Dos tercios no
+#: es un número redondo por gusto: con 4 de 6 ya hay una dirección clara, y con
+#: 3 de 6 no hay nada que decir por mucho que el sector esté verde.
+MAYORIA_CLARA = 0.66
+MAYORIA_DEBIL = 0.55
+
+
+def _miembro_lado(m: dict) -> str:
+    """`fuerte`, `debil` o `neutral` para un miembro (industria o acción).
+
+    Tres cosas votan: el cambio del día, dónde está respecto a su media de 200
+    y el RSI. Se pide MÁS de una porque cada una engaña sola — un día verde
+    dentro de una caída de tres meses no es fuerza, y un RSI de 72 en algo que
+    perdió su media de 200 suele ser un rebote.
+    """
+    cambio = m.get("cambio_pct")
+    dist = m.get("sma200_dist")
+    r = m.get("rsi")
+    votos = 0
+    if cambio is not None:
+        votos += 1 if cambio > UMBRAL_MIEMBRO_PCT else (
+            -1 if cambio < -UMBRAL_MIEMBRO_PCT else 0)
+    if dist is not None:
+        votos += 1 if dist > 0 else -1
+    if r is not None:
+        votos += 1 if r >= 55 else (-1 if r <= 45 else 0)
+    if votos >= 2:
+        return "fuerte"
+    if votos <= -2:
+        return "debil"
+    return "neutral"
+
+
+def amplitud(miembros) -> dict:
+    """Cuántos empujan, cuántos frenan, y cuánta confianza merece eso.
+
+    `miembros` son dicts con `ticker`, `nombre`, `cambio_pct`, `rsi` y
+    `sma200_dist`. Devuelve el reparto, los que más tiran en cada dirección y
+    un veredicto de confianza en palabras.
+
+    La confianza NO es el tamaño del movimiento: es cuántos lo acompañan. Un
+    sector +2% con una sola industria empujando es menos fiable que uno +0,6%
+    con siete de nueve en verde, y esta función existe para que esa diferencia
+    salga en pantalla en vez de quedarse en la intuición de quien mire.
+    """
+    filas = [m for m in (miembros or []) if isinstance(m, dict) and m.get("ticker")]
+    if not filas:
+        return {"n": 0, "fuertes": [], "debiles": [], "neutrales": [],
+                "pct_fuertes": None, "confianza": None,
+                "frase": "Sin miembros que medir.", "empujan": [], "frenan": []}
+
+    lados = {t: _miembro_lado(m) for t, m in ((f["ticker"], f) for f in filas)}
+    fuertes = [f for f in filas if lados[f["ticker"]] == "fuerte"]
+    debiles = [f for f in filas if lados[f["ticker"]] == "debil"]
+    neutrales = [f for f in filas if lados[f["ticker"]] == "neutral"]
+    n = len(filas)
+    pct = len(fuertes) / n * 100.0
+
+    def _porCambio(xs, inverso=False):
+        return sorted(xs, key=lambda x: (x.get("cambio_pct") or 0),
+                      reverse=not inverso)
+
+    # Quién TIRA: el que más se mueve entre los de su lado. No es lo mismo
+    # «siete en verde» que «siete en verde y uno de ellos +6%».
+    empujan = [{"ticker": f["ticker"], "nombre": f.get("nombre", f["ticker"]),
+                "cambio_pct": f.get("cambio_pct")}
+               for f in _porCambio(fuertes)[:3]]
+    frenan = [{"ticker": f["ticker"], "nombre": f.get("nombre", f["ticker"]),
+               "cambio_pct": f.get("cambio_pct")}
+              for f in _porCambio(debiles, inverso=True)[:3]]
+
+    parte_f, parte_d = len(fuertes) / n, len(debiles) / n
+    if parte_f >= MAYORIA_CLARA:
+        conf, frase = "alta", (
+            f"{len(fuertes)} de {n} van al alza: la subida está repartida, "
+            f"no la sostiene uno solo.")
+    elif parte_d >= MAYORIA_CLARA:
+        conf, frase = "alta", (
+            f"{len(debiles)} de {n} van a la baja: la debilidad está "
+            f"repartida, no es un caso suelto.")
+    elif parte_f >= MAYORIA_DEBIL:
+        conf, frase = "media", (
+            f"{len(fuertes)} de {n} al alza: hay más fuerza que debilidad, "
+            f"pero no es unánime.")
+    elif parte_d >= MAYORIA_DEBIL:
+        conf, frase = "media", (
+            f"{len(debiles)} de {n} a la baja: pesa más la debilidad, pero no "
+            f"es unánime.")
+    elif len(fuertes) == 0 and n >= 3:
+        # Cero arriba NO es «lo sube uno solo»: no lo sube nadie. La frase
+        # anterior decía justo eso y quedaba absurda en la ventana de un año,
+        # donde es normal que ninguno esté fuerte.
+        conf, frase = "baja", (
+            f"Ninguno de los {n} está al alza: aquí no hay nada tirando.")
+    elif len(fuertes) == 1 and n >= 3:
+        # NO se exige que haya alguno a la baja. Uno arriba y el resto PLANO es
+        # el espejismo más puro que hay: el grupo entero se mueve por una sola
+        # pieza, y que las demás no caigan no lo hace más fiable.
+        conf, frase = "baja", (
+            f"Solo 1 de {n} al alza: si eso sube, lo sube uno solo y se da la "
+            f"vuelta en cuanto se canse.")
+    else:
+        conf, frase = "baja", (
+            f"Repartido ({len(fuertes)} al alza, {len(debiles)} a la baja): "
+            f"hoy no hay una dirección clara aquí.")
+
+    return {
+        "n": n,
+        "fuertes": [f["ticker"] for f in fuertes],
+        "debiles": [f["ticker"] for f in debiles],
+        "neutrales": [f["ticker"] for f in neutrales],
+        "pct_fuertes": round(pct, 1),
+        "confianza": conf,
+        "frase": frase,
+        "empujan": empujan,
+        "frenan": frenan,
+    }
+
+
+def amplitud_por_ventana(miembros) -> dict:
+    """Una amplitud por cada ventana del selector.
+
+    Sin esto la pantalla se contradecía sola: eliges «1A», ves +45% en todas
+    las filas y debajo «2 de 5 al alza», porque el reparto se medía con el
+    cambio de HOY. El número que se lee y el que se cuenta tienen que hablar
+    de lo mismo.
+
+    Cada ventana sustituye el `cambio_pct` del miembro por el de esa ventana y
+    vuelve a repartir. El RSI y la distancia a la media de 200 no cambian —son
+    de ahora, no de la ventana— y siguen votando igual: dicen dónde está el
+    miembro hoy, que es lo que decide si su movimiento es tendencia o rebote.
+    """
+    filas = [m for m in (miembros or []) if isinstance(m, dict) and m.get("ticker")]
+    salida = {}
+    for etiqueta, _ in VENTANAS_CAMBIO:
+        salida[etiqueta] = amplitud([
+            {**m, "cambio_pct": (m.get("cambios") or {}).get(etiqueta)}
+            for m in filas
+        ])
     return salida

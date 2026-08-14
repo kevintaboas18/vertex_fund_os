@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from wbj.sectores import (INDUSTRIAS, REFERENCIAS, RSI_PERIODO, SECTORES,
-                          cambio_pct, industrias_de, nombre_de, rsi, universo)
+from wbj.sectores import (REFERENCIAS, RSI_PERIODO, SECTORES, cambio_pct,
+                          nombre_de, rsi, universo)
 
 #: La serie de Wilder («New Concepts in Technical Trading Systems», tabla del
 #: capítulo del RSI). Es el patrón con el que se comprueba cualquier RSI: si
@@ -106,49 +106,25 @@ class TestLasTablas:
         for t, n in SECTORES + REFERENCIAS:
             assert n and n.upper() != t, f"{t} sin nombre de sector"
 
-    def test_las_industrias_cuelgan_de_un_sector_que_existe(self):
-        for sector in INDUSTRIAS:
-            assert sector in dict(SECTORES), f"{sector} no es uno de los once"
-
-    def test_ningun_ETF_de_industria_se_repite_entre_sectores(self):
-        """El mismo ETF en dos sectores significaría que uno de los dos está mal
-        clasificado, y la pantalla lo enseñaría dos veces sin decir por qué."""
-        vistos = {}
-        for sector, filas in INDUSTRIAS.items():
-            for t, _ in filas:
-                assert t not in vistos, f"{t} está en {vistos[t]} y en {sector}"
-                vistos[t] = sector
-
-    def test_ninguna_industria_repite_el_ticker_de_su_sector(self):
-        for sector, filas in INDUSTRIAS.items():
-            assert sector not in {t for t, _ in filas}
-
-    def test_los_tres_indices_NO_se_despliegan(self):
-        """SPY, RSP y QQQ son índices, no sectores: desglosarlos sería
-        inventarse unas industrias que no tienen."""
-        for t, _ in REFERENCIAS:
-            assert industrias_de(t) == ()
-
-    def test_un_sector_sin_desglose_honesto_se_queda_sin_el(self):
-        """XLU: los ETF que se venden como «industrias de utilities» son
-        temáticos de energía limpia, que es otra cosa."""
-        assert industrias_de("XLU") == ()
-        assert "XLU" in dict(SECTORES), "pero el sector sí está en la parrilla"
-
-    def test_preguntar_por_algo_raro_no_revienta(self):
-        assert industrias_de("NOEXISTE") == ()
-        assert industrias_de("") == ()
-
-    def test_el_nombre_se_resuelve_en_los_tres_niveles(self):
+    def test_el_nombre_se_resuelve_para_la_parrilla(self):
         assert nombre_de("XLE") == "Energía"
         assert nombre_de("spy") == "S&P 500"
-        assert nombre_de("SMH") == "Semiconductores"
         assert nombre_de("ZZZZ") == "ZZZZ", "lo desconocido se dice como es"
 
-    def test_cada_sector_con_desglose_tiene_al_menos_dos_industrias(self):
-        """Una industria sola no es un desglose: es el mismo sector otra vez."""
-        for sector, filas in INDUSTRIAS.items():
-            assert len(filas) >= 2, f"{sector} tiene {len(filas)}"
+    def test_el_motor_ya_NO_sabe_de_industrias(self):
+        """La tabla vive en el panel y en un solo sitio.
+
+        El servidor no necesita saber qué industria es cuál: cotiza los tickers
+        que le pidan. Tenerla también aquí era una segunda copia que había que
+        vigilar con un test para nada — y una copia vigilada sigue siendo una
+        copia que alguien puede olvidar.
+        """
+        import wbj.sectores as S
+
+        assert not hasattr(S, "INDUSTRIAS")
+        assert not hasattr(S, "industrias_de")
+        assert "SMH" not in S.__all__ and nombre_de("SMH") == "SMH", (
+            "el nombre de una industria ya no se resuelve aquí")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -413,34 +389,200 @@ class TestLaMediaDe200:
 
 
 class TestLasVentanasDelSelector:
-    def test_son_las_seis_pedidas_y_en_orden(self):
-        assert [e for e, _ in VENTANAS_CAMBIO] == ["1D", "7D", "1M", "3M", "6M", "1A"]
+    def test_son_las_cinco_pedidas_y_en_orden(self):
+        assert [e for e, _ in VENTANAS_CAMBIO] == ["7D", "1M", "3M", "6M", "1A"]
 
-    def test_1D_viene_de_la_cotizacion_EN_VIVO_no_de_los_cierres(self):
-        """Con el mercado abierto, el cambio del día es contra el cierre de
-        ayer: el de hoy todavía no existe."""
-        cambios = cambios_por_ventana([100.0] * 300, -1.35)
-        assert cambios["1D"] == -1.35
-        assert cambios["7D"] == pytest.approx(0.0), "los demás sí salen de la serie"
-
-    def test_sin_cotizacion_el_1D_queda_en_blanco(self):
-        assert cambios_por_ventana([100.0] * 300, None)["1D"] is None
+    def test_1D_ya_NO_es_una_ventana(self):
+        """Se quitó: el cambio del día ya se ve en la parrilla y como ventana de
+        comparación no dice nada — a un día casi todo se mueve junto, y este
+        mapa existe para ver quién se separa del resto."""
+        assert "1D" not in dict(VENTANAS_CAMBIO)
+        assert "1D" not in cambios_por_ventana([100.0] * 300)
 
     def test_cada_ventana_mide_SU_ventana(self):
         serie = [100.0] * 300
         serie[-6] = 50.0                     # justo 5 sesiones atrás
-        c = cambios_por_ventana(serie, 0.0)
+        c = cambios_por_ventana(serie)
         assert c["7D"] == pytest.approx(100.0), "5 sesiones: de 50 a 100"
         assert c["1M"] == pytest.approx(0.0), "21 sesiones atrás no se movió"
 
     def test_lo_que_no_alcanza_queda_en_None(self):
         """Un ETF con ocho meses de vida no tiene cambio a un año, y rellenarlo
         con el de todo su historial sería llamar «1A» a otra cosa."""
-        c = cambios_por_ventana([100.0 + i for i in range(70)], 1.0)
+        c = cambios_por_ventana([100.0 + i for i in range(70)])
         assert c["1M"] is not None and c["3M"] is not None
         assert c["6M"] is None and c["1A"] is None
 
-    def test_las_seis_claves_salen_siempre(self):
-        c = cambios_por_ventana([], None)
+    def test_las_claves_salen_siempre(self):
+        c = cambios_por_ventana([])
         assert set(c) == {e for e, _ in VENTANAS_CAMBIO}
         assert all(v is None for v in c.values())
+
+
+from wbj.sectores import (MAYORIA_CLARA, UMBRAL_MIEMBRO_PCT,  # noqa: E402
+                          amplitud)
+
+
+def _m(t, cambio=None, dist=None, rsi=None):
+    return {"ticker": t, "nombre": t, "cambio_pct": cambio,
+            "sma200_dist": dist, "rsi": rsi}
+
+
+class TestLaAmplitudSEPARALoQueElPorcentajeCONFUNDE:
+    """La pregunta que separa una señal de un espejismo.
+
+    Un sector que sube con nueve de diez industrias en verde y otro que sube
+    porque UNA se disparó enseñan el mismo porcentaje y son cosas distintas: la
+    segunda se da la vuelta en cuanto esa una se cansa.
+    """
+
+    def test_muchos_al_alza_da_confianza_ALTA(self):
+        a = amplitud([_m(f"A{i}", 1.2, 4.0, 60) for i in range(7)]
+                     + [_m("B1", -1.0, -3.0, 40), _m("B2", -0.8, -2.0, 42)])
+        assert a["confianza"] == "alta"
+        assert len(a["fuertes"]) == 7 and len(a["debiles"]) == 2
+        assert "repartida" in a["frase"]
+
+    def test_UNO_solo_empujando_da_confianza_BAJA(self):
+        """El caso que este código existe para cazar."""
+        a = amplitud([_m("A", 6.0, 9.0, 72)]
+                     + [_m(f"B{i}", -1.0, -3.0, 40) for i in range(4)])
+        assert a["confianza"] != "alta" or a["debiles"], a
+        # Con 4 de 5 abajo, lo honesto es decir que la debilidad manda.
+        assert len(a["debiles"]) == 4 and len(a["fuertes"]) == 1
+
+    def test_el_caso_del_espejismo_puro(self):
+        """Uno disparado y el resto plano: ni fuerza repartida ni debilidad."""
+        a = amplitud([_m("A", 6.0, 9.0, 72)]
+                     + [_m(f"B{i}", 0.0, 0.5, 50) for i in range(4)])
+        assert a["confianza"] == "baja", a
+        assert len(a["fuertes"]) == 1
+        assert "uno" in a["frase"] or "clara" in a["frase"], a["frase"]
+
+    def test_repartido_es_confianza_BAJA_aunque_haya_verdes(self):
+        a = amplitud([_m("A1", 1.5, 3.0, 60), _m("A2", 1.4, 2.0, 58),
+                      _m("B1", -1.5, -3.0, 40), _m("B2", -1.2, -2.0, 42)])
+        assert a["confianza"] == "baja"
+        assert "no hay una dirección clara" in a["frase"]
+
+    def test_la_mayoria_justa_es_confianza_MEDIA(self):
+        a = amplitud([_m(f"A{i}", 1.2, 3.0, 60) for i in range(6)]
+                     + [_m(f"B{i}", -1.2, -3.0, 40) for i in range(4)])
+        assert a["confianza"] == "media", a
+        assert "no es unánime" in a["frase"]
+
+    def test_el_umbral_de_mayoria_es_el_declarado(self):
+        n = 10
+        justos = int(MAYORIA_CLARA * n) + 1
+        a = amplitud([_m(f"A{i}", 1.2, 3.0, 60) for i in range(justos)]
+                     + [_m(f"B{i}", -1.2, -3.0, 40) for i in range(n - justos)])
+        assert a["confianza"] == "alta", a
+
+
+class TestQuienEmpujaYQuienFRENA:
+    def test_los_que_mas_tiran_salen_ordenados(self):
+        a = amplitud([_m("A", 1.0, 3.0, 60), _m("B", 4.0, 5.0, 65),
+                      _m("C", 2.0, 3.0, 58), _m("D", -3.0, -4.0, 35)])
+        assert [x["ticker"] for x in a["empujan"]] == ["B", "C", "A"]
+        assert [x["ticker"] for x in a["frenan"]] == ["D"]
+
+    def test_no_se_listan_mas_de_tres_por_lado(self):
+        a = amplitud([_m(f"A{i}", 1.0 + i, 3.0, 60) for i in range(9)])
+        assert len(a["empujan"]) == 3
+
+
+class TestUnMiembroNoEsFUERTEPorUnSoloDato:
+    """Cada señal engaña sola: un día verde dentro de una caída de tres meses
+    no es fuerza, y un RSI de 72 por debajo de la media de 200 suele ser un
+    rebote. Por eso votan tres y hacen falta dos."""
+
+    def test_subir_hoy_por_debajo_de_la_200_y_con_RSI_flojo_no_es_fuerza(self):
+        a = amplitud([_m("A", 1.5, -6.0, 42)])
+        assert a["fuertes"] == [] and a["neutrales"] == ["A"]
+
+    def test_subir_hoy_POR_ENCIMA_de_la_200_si_lo_es(self):
+        a = amplitud([_m("A", 1.5, 6.0, 58)])
+        assert a["fuertes"] == ["A"]
+
+    def test_un_movimiento_minusculo_no_vota(self):
+        chico = UMBRAL_MIEMBRO_PCT / 2
+        assert amplitud([_m("A", chico, None, None)])["fuertes"] == []
+
+    def test_con_datos_a_medias_se_decide_con_lo_que_hay(self):
+        assert amplitud([_m("A", 2.0, 5.0, None)])["fuertes"] == ["A"]
+        assert amplitud([_m("A", None, None, None)])["neutrales"] == ["A"]
+
+
+class TestLaAmplitudNoRevientaConBasura:
+    def test_sin_miembros_lo_dice(self):
+        a = amplitud([])
+        assert a["n"] == 0 and a["confianza"] is None
+        assert "Sin miembros" in a["frase"]
+
+    def test_None_y_filas_rotas_se_ignoran(self):
+        a = amplitud([None, {"sin": "ticker"}, _m("A", 1.5, 4.0, 60)])
+        assert a["n"] == 1 and a["fuertes"] == ["A"]
+
+    def test_ni_con_None_de_entrada(self):
+        assert amplitud(None)["n"] == 0
+
+
+from wbj.sectores import amplitud_por_ventana  # noqa: E402
+
+
+class TestLaAmplitudSIGUEALaVentanaQueMiras:
+    """Si no, la pantalla se contradice sola.
+
+    Eliges «1A», ves +45% en cada fila y debajo «2 de 5 al alza» — porque el
+    reparto se medía con el cambio de HOY. El número que se lee y el que se
+    cuenta tienen que hablar de lo mismo.
+    """
+
+    @staticmethod
+    def _m(t, por_ventana, rsi=55, dist=3.0):
+        return {"ticker": t, "nombre": t, "cambios": por_ventana,
+                "rsi": rsi, "sma200_dist": dist}
+
+    def test_una_amplitud_por_ventana(self):
+        a = amplitud_por_ventana([self._m("A", {"7D": 2.0, "1A": -9.0})])
+        assert set(a) == {e for e, _ in VENTANAS_CAMBIO}
+
+    def test_el_mismo_grupo_da_reparto_DISTINTO_segun_la_ventana(self):
+        """El caso que lo justifica: fuerte a una semana, débil a un año."""
+        filas = [self._m("A", {"7D": 3.0, "1A": -12.0}, rsi=62, dist=4.0),
+                 self._m("B", {"7D": 2.5, "1A": -10.0}, rsi=60, dist=3.0),
+                 self._m("C", {"7D": 2.0, "1A": -11.0}, rsi=58, dist=2.0)]
+        a = amplitud_por_ventana(filas)
+        assert a["7D"]["fuertes"] == ["A", "B", "C"]
+        assert a["1A"]["fuertes"] == [], "a un año los tres están abajo"
+        assert a["7D"]["confianza"] != a["1A"]["confianza"]
+
+    def test_el_RSI_y_la_media_de_200_NO_cambian_con_la_ventana(self):
+        """Son de ahora, no de la ventana: dicen dónde está el miembro hoy, que
+        es lo que decide si su movimiento es tendencia o rebote."""
+        filas = [self._m("A", {"7D": 3.0, "1A": 40.0}, rsi=30, dist=-8.0)]
+        a = amplitud_por_ventana(filas)
+        # Sube en las dos ventanas, pero por debajo de su 200 y con RSI flojo
+        # no cuenta como fuerte en ninguna.
+        assert a["7D"]["fuertes"] == [] and a["1A"]["fuertes"] == []
+
+    def test_sin_miembros_devuelve_la_forma_completa(self):
+        a = amplitud_por_ventana([])
+        assert set(a) == {e for e, _ in VENTANAS_CAMBIO}
+        assert all(v["n"] == 0 for v in a.values())
+
+
+class TestCeroAlAlzaNoEsUNOSolo:
+    def test_ninguno_arriba_se_dice_como_es(self):
+        """«Solo 0 de 3 al alza: lo sube uno solo» era absurdo, y salía en la
+        ventana de un año, donde es normal que ninguno esté fuerte."""
+        a = amplitud([_m("A", -1.0, 2.0, 60), _m("B", -1.0, 2.0, 58),
+                      _m("C", -2.0, -3.0, 40)])
+        assert a["fuertes"] == []
+        assert "Ninguno" in a["frase"] and "uno solo" not in a["frase"], a["frase"]
+
+    def test_uno_solo_SI_lo_dice(self):
+        a = amplitud([_m("A", 3.0, 5.0, 65)]
+                     + [_m(f"B{i}", -0.1, -3.0, 48) for i in range(3)])
+        assert len(a["fuertes"]) == 1
+        assert "uno solo" in a["frase"], a["frase"]
