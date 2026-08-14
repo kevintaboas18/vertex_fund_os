@@ -3882,3 +3882,171 @@ class TestLaLecturaDelMercadoEXPLICAyNoDECIDE:
         assert html.count("_vcEsc(d.texto)") == 1, (
             "hay más de un sitio pintando la lectura: uno puede quedarse sin "
             "escapar")
+
+
+class TestLaVentanaDeDatosDAParaLoQueSeANUNCIA:
+    """«El cambio de 1 año no me sale.»
+
+    Y no salía nunca, en los catorce de la parrilla y en cada industria, sin
+    que nada lo dijera: se bajaba UN AÑO de calendario —unas 251 sesiones— y el
+    cambio a «1A» compara contra el cierre de hace 252, así que necesita 253
+    cierres. Faltaban tres. La casilla se pintaba «—» y eso se lee como «este
+    ETF no tiene un año de historia», que era mentira.
+
+    Es un fallo de aritmética entre dos sitios que no se hablan: la ventana que
+    se pide y la ventana que se calcula. Este test los pone a hablar.
+    """
+
+    def test_se_baja_MAS_historia_de_la_que_pide_la_ventana_mas_larga(self):
+        import vertex_api as V
+        from wbj.sectores import VENTANAS_CAMBIO
+
+        dias = V._PERIODO_DIAS[V._SECTORES_PERIODO]
+        # 252 sesiones por cada 365 días naturales: es la cuenta de la bolsa
+        # estadounidense, festivos incluidos.
+        sesiones = int(dias * 252 / 365)
+        mas_larga = max(n for _, n in VENTANAS_CAMBIO)
+        assert sesiones >= mas_larga + 1, (
+            f"se bajan ~{sesiones} sesiones y la ventana más larga ({mas_larga}) "
+            f"necesita {mas_larga + 1} cierres: esa casilla saldrá vacía SIEMPRE")
+
+    def test_y_tambien_para_la_media_de_200(self):
+        import vertex_api as V
+        from wbj.sectores import SMA_LARGA
+
+        sesiones = int(V._PERIODO_DIAS[V._SECTORES_PERIODO] * 252 / 365)
+        assert sesiones >= SMA_LARGA, (
+            f"~{sesiones} sesiones no dan para una media de {SMA_LARGA}")
+
+    def test_con_la_historia_que_se_baja_las_SEIS_ventanas_salen(self):
+        """La prueba directa: se arma una serie del tamaño real y se comprueba
+        que ninguna de las seis se queda en blanco."""
+        import vertex_api as V
+        from wbj.sectores import cambios_por_ventana, sma
+
+        sesiones = int(V._PERIODO_DIAS[V._SECTORES_PERIODO] * 252 / 365)
+        serie = [100.0 + i * 0.1 for i in range(sesiones)]
+        c = cambios_por_ventana(serie, -1.0)
+        vacias = [k for k, v in c.items() if v is None]
+        assert not vacias, f"estas ventanas salen vacías con la historia real: {vacias}"
+        assert sma(serie) is not None
+
+    def test_un_año_justo_NO_habria_bastado(self):
+        """El caso que falló, congelado: si alguien vuelve a poner «1y», este
+        test explica por qué no vale antes de que llegue a producción."""
+        from wbj.sectores import cambios_por_ventana
+
+        un_año = [100.0 + i * 0.1 for i in range(251)]
+        assert cambios_por_ventana(un_año, -1.0)["1A"] is None
+
+
+class TestLasEmpresasDeUnaIndustriaLLEGANoDICENporQUE:
+    """«Dentro de una industria no me salen las acciones.»
+
+    Tres cosas podían dejar esa pantalla vacía y las tres se veían igual —un
+    hueco—, que es la peor forma de fallar porque solo una se arregla desde el
+    código:
+
+    1. El endpoint nuevo de FMP es «exclusivo» en los planes bajos y contesta
+       403. Ahora se cae al de siempre en vez de rendirse.
+    2. El efectivo del ETF (`USD`, `XTSLA`) pasaba el filtro de «una a seis
+       letras» y entraba como una empresa más, con su fila y sus puntos
+       suspensivos para siempre: no hay precio que cotizar para el efectivo.
+    3. Cuando de verdad no hay datos, ahora se dice el código HTTP.
+    """
+
+    @staticmethod
+    def _respuestas(*pares):
+        class R:
+            def __init__(s, c, d):
+                s.status_code, s._d = c, d
+
+            def json(s):
+                return s._d
+
+        it = iter(pares)
+        return lambda url, **kw: R(*next(it, (500, {})))
+
+    def test_si_el_endpoint_nuevo_no_esta_en_el_plan_se_usa_el_de_siempre(
+            self, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_HOLDINGS_CACHE", {})
+        monkeypatch.setattr(V.requests, "get", self._respuestas(
+            (403, {"Error Message": "Exclusive Endpoint"}),
+            (200, [{"asset": "NVDA", "name": "NVIDIA"}])))
+        filas, motivo = V._etf_holdings("SMH")
+        assert filas == [("NVDA", "NVIDIA")], filas
+        assert motivo == ""
+
+    def test_el_efectivo_no_se_cuela_como_empresa(self, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_HOLDINGS_CACHE", {})
+        monkeypatch.setattr(V.requests, "get", self._respuestas(
+            (200, [{"asset": "NVDA", "name": "NVIDIA"},
+                   {"asset": "USD", "name": "Cash"},
+                   {"asset": "XTSLA", "name": "Treasury fund"},
+                   {"asset": "-", "name": "Otros"}])))
+        filas, _ = V._etf_holdings("SMH")
+        assert [t for t, _ in filas] == ["NVDA"], filas
+
+    def test_cuando_no_hay_forma_se_dice_el_CODIGO(self, monkeypatch):
+        """Un hueco no distingue «tu plan no lo sirve» de «se cayó»."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_HOLDINGS_CACHE", {})
+        monkeypatch.setattr(V.requests, "get",
+                            self._respuestas((403, {}), (404, {})))
+        filas, motivo = V._etf_holdings("SMH")
+        assert filas == []
+        assert "403" in motivo and "404" in motivo, motivo
+
+    def test_una_peticion_que_revienta_no_tumba_la_pantalla(self, monkeypatch):
+        import vertex_api as V
+
+        def boom(*a, **k):
+            raise TimeoutError("tarde")
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_HOLDINGS_CACHE", {})
+        monkeypatch.setattr(V.requests, "get", boom)
+        filas, motivo = V._etf_holdings("SMH")
+        assert filas == [] and "TimeoutError" in motivo
+
+    def test_la_ruta_reenvia_el_motivo_a_la_pantalla(self, client, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        monkeypatch.setattr(V, "_etf_holdings",
+                            lambda t: ([], "HTTP 403 · HTTP 404"))
+        d = client.get("/api/sectores/acciones?etf=SMH").json()
+        assert d["ok"] is False
+        assert "403" in d["error"], d
+        assert d["filas"] == []
+
+    def test_y_cuando_SI_hay_llegan_con_su_nombre_y_su_amplitud(
+            self, client, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        monkeypatch.setattr(V, "_etf_holdings", lambda t: (
+            [("NVDA", "NVIDIA Corp"), ("AMD", "Advanced Micro Devices")], ""))
+        monkeypatch.setattr(V, "_sector_fila", lambda t: {
+            "ticker": t, "nombre": t, "precio": 100.0,
+            "cambio_pct": 2.0 if t == "NVDA" else -2.0,
+            "rsi": 65.0 if t == "NVDA" else 40.0,
+            "sma200": 90.0, "sma200_dist": 5.0 if t == "NVDA" else -5.0,
+            "cambios": {}, "cierres": [], "volumenes": []})
+        d = client.get("/api/sectores/acciones?etf=SMH").json()
+        assert d["ok"] is True, d
+        assert [f["ticker"] for f in d["filas"]] == ["NVDA", "AMD"]
+        assert d["filas"][0]["nombre"] == "NVIDIA Corp", (
+            "el nombre de la EMPRESA, no el ticker otra vez")
+        assert d["amplitud"]["fuertes"] == ["NVDA"]
+        assert d["amplitud"]["debiles"] == ["AMD"]

@@ -1168,8 +1168,8 @@ _PRICE_SERIES_CACHE = {}
 _FMP_MAX_PEERS = 10       # P/S y peer ROIC (umbral real: 8)
 _FMP_MAX_BREADTH = 12     # breadth sectorial + universo RS (umbral real: 5)
 
-_PERIODO_DIAS = {"5y": 1825, "2y": 730, "1y": 365, "6mo": 183, "3mo": 92,
-                 "2mo": 62, "1mo": 31, "5d": 7, "7d": 7}
+_PERIODO_DIAS = {"5y": 1825, "2y": 730, "15mo": 460, "1y": 365, "6mo": 183,
+                 "3mo": 92, "2mo": 62, "1mo": 31, "5d": 7, "7d": 7}
 
 
 def _fmp_daily_bars(ticker, period="1y"):
@@ -6260,6 +6260,12 @@ except Exception:                                # noqa: BLE001
 #: petición. Una ruta que cotiza lo que le manden necesita un borde.
 _SECTORES_MAX_PEDIDOS = 25
 
+#: Cuánta historia diaria se baja por ticker. Con nombre y en un sitio porque
+#: NO es un detalle de I/O: de aquí depende que la ventana de «1A» y la media
+#: de 200 existan. Pedir un año justo dejaba la de «1A» vacía siempre, y un
+#: test lo vigila ahora contra las ventanas que el panel anuncia.
+_SECTORES_PERIODO = "15mo"
+
 
 def _sectores_pedidos(crudo: str) -> list[str]:
     """La lista de tickers de la query, saneada y sin repetidos.
@@ -6304,8 +6310,27 @@ _HOLDINGS_CACHE: dict[str, tuple[float, list]] = {}
 _HOLDINGS_TOPE = 10
 
 
-def _etf_holdings(ticker: str) -> list:
-    """Las mayores posiciones de un ETF: `[(ticker, nombre)]`, de más a menos peso.
+#: Lo que un ETF lleva dentro y NO es una empresa: efectivo, divisa, futuros y
+#: los apuntes de tesorería. Pasan el filtro de «una a seis letras» —«USD» lo
+#: es— y acababan como una fila más con su nombre y sus puntos suspensivos
+#: para siempre, porque no hay precio que cotizar para el efectivo.
+_HOLDINGS_NO_SON_EMPRESAS = {
+    "USD", "CASH", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "MXN",
+    "N/A", "NA", "TBILL", "XTSLA", "MVRXX", "FGXXX", "GOVXX", "WMPXX",
+}
+
+#: Los dos caminos de FMP a las posiciones de un ETF. El primero es el actual;
+#: el segundo es el de siempre, y existe aquí porque el nuevo es «exclusivo» en
+#: los planes bajos: pedirlo devuelve 403 y el tercer piso se quedaba vacío sin
+#: que se pudiera saber si era el plan, el ETF o un fallo nuestro.
+_HOLDINGS_RUTAS = (
+    ("https://financialmodelingprep.com/stable/etf/holdings", "symbol"),
+    ("https://financialmodelingprep.com/api/v3/etf-holder/{t}", None),
+)
+
+
+def _etf_holdings(ticker: str):
+    """Las mayores posiciones de un ETF: `([(ticker, nombre)], motivo)`.
 
     Esto SÍ se baja, a diferencia de la tabla de industrias. La diferencia es
     que las industrias de un sector no cambian nunca —por eso están escritas en
@@ -6313,38 +6338,58 @@ def _etf_holdings(ticker: str) -> list:
     mano trescientas noventa acciones sería una lista que parece autoridad y se
     queda vieja sin que nadie lo note.
 
-    Nunca lanza: sin datos devuelve `[]` y la pantalla lo dice.
+    Devuelve también el MOTIVO cuando vuelve vacío. Sin él, «tu plan no sirve
+    este dato», «este ETF no tiene posiciones» y «se cayó la petición» se ven
+    exactamente igual en pantalla: un hueco.
+
+    Nunca lanza.
     """
     tk = str(ticker).upper().strip()
     ahora = time.time()
     guardado = _HOLDINGS_CACHE.get(tk)
     if guardado and ahora - guardado[0] < _HOLDINGS_TTL:
-        return guardado[1]
+        return guardado[1], ""
     clave = (os.environ.get("FMP_API_KEY") or "").strip()
     if not clave:
-        return []
-    filas = []
-    try:
-        r = requests.get("https://financialmodelingprep.com/stable/etf/holdings",
-                         params={"symbol": tk, "apikey": clave}, timeout=8)
-        datos = r.json() if r.status_code == 200 else []
+        return [], "Falta FMP_API_KEY."
+
+    motivos = []
+    for plantilla, param in _HOLDINGS_RUTAS:
+        url = plantilla.format(t=tk)
+        params = {"apikey": clave}
+        if param:
+            params[param] = tk
+        try:
+            r = requests.get(url, params=params, timeout=8)
+        except Exception as e:                   # noqa: BLE001
+            motivos.append(f"{type(e).__name__}")
+            continue
+        if r.status_code != 200:
+            motivos.append(f"HTTP {r.status_code}")
+            continue
+        try:
+            datos = r.json()
+        except Exception:                        # noqa: BLE001
+            motivos.append("respuesta ilegible")
+            continue
+        filas = []
         for h in (datos if isinstance(datos, list) else []):
             if not isinstance(h, dict):
                 continue
             sub = str(h.get("asset") or h.get("symbol") or "").upper().strip()
-            # Efectivo, futuros y demás: un `USD` o un `-` no es una acción que
-            # se pueda cotizar, y colarlo dejaría una fila muerta en pantalla.
             if not re.fullmatch(r"[A-Z]{1,6}", sub):
+                continue
+            if sub in _HOLDINGS_NO_SON_EMPRESAS:
                 continue
             nombre = str(h.get("name") or sub).strip()
             if sub not in {t for t, _ in filas}:
                 filas.append((sub, nombre))
-    except Exception:                            # noqa: BLE001 — se degrada, no se cae
-        return _HOLDINGS_CACHE.get(tk, (0, []))[1]
-    filas = filas[:_HOLDINGS_TOPE]
-    if filas:
-        _HOLDINGS_CACHE[tk] = (ahora, filas)
-    return filas
+        if filas:
+            filas = filas[:_HOLDINGS_TOPE]
+            _HOLDINGS_CACHE[tk] = (ahora, filas)
+            return filas, ""
+        motivos.append("sin posiciones en la respuesta")
+    return [], " · ".join(motivos)
 
 
 def _sector_fila(ticker: str) -> dict:
@@ -6377,12 +6422,16 @@ def _sector_fila(ticker: str) -> dict:
     except Exception:                            # noqa: BLE001 — se degrada, no se cae
         pass
     try:
-        # UN AÑO: ~252 sesiones, y hacen falta las dos cosas que lo piden.
-        # La SMA de 200 necesita 200 sesiones o no es una SMA de 200, y el
-        # cambio a «1A» necesita el cierre de hace un año. Con seis meses las
-        # dos salían en blanco. El RSI de 14 y la pendiente de 50 caben de
-        # sobra dentro.
-        barras = _fmp_daily_bars(tk, "1y")
+        # QUINCE MESES, y el motivo es aritmético: el cambio a «1A» compara
+        # contra el cierre de hace 252 SESIONES, así que necesita 253 cierres
+        # en la serie. Un año de calendario da unas 251 — tres de menos— y la
+        # ventana de «1A» salía vacía SIEMPRE, en los catorce y en cada
+        # industria, sin que nada lo dijera.
+        #
+        # No se pide «2y» porque el proveedor salta de 2 a 5 años en ese
+        # umbral: quince meses dan ~317 sesiones, sobra margen para la de 252 y
+        # para la media de 200, y se bajan dos años en vez de cinco.
+        barras = _fmp_daily_bars(tk, _SECTORES_PERIODO)
         fila["cierres"] = [b[4] for b in barras]
         fila["volumenes"] = [b[5] for b in barras]
         v = rsi(fila["cierres"])
@@ -6677,13 +6726,14 @@ def api_sectores_acciones(etf: str = ""):
         if guardado and ahora - guardado[0] < _SECTORES_TTL:
             return {**guardado[1], "cacheado": True}
 
-    posiciones = _etf_holdings(tk)
+    posiciones, motivo = _etf_holdings(tk)
     if not posiciones:
-        # Se dice, no se deja en blanco: puede ser que el plan de FMP no sirva
-        # posiciones, y eso no se distingue de «este ETF no tiene nada dentro».
+        # Se dice POR QUÉ, no se deja en blanco: «tu plan no sirve este dato»,
+        # «este ETF no tiene posiciones» y «se cayó la petición» se ven igual en
+        # una pantalla vacía, y solo una de las tres se arregla desde aquí.
         return {"ok": False, "etf": tk, "filas": [],
-                "error": f"No se pudieron leer las posiciones de {tk}. "
-                         f"Puede que el plan de datos no las sirva."}
+                "error": f"No se pudieron leer las empresas de {tk}"
+                         + (f" ({motivo})." if motivo else ".")}
     nombres = dict(posiciones)
     filas = [{k: v for k, v in f.items() if k not in ("cierres", "volumenes")}
              for f in _sectores_filas([t for t, _ in posiciones])]
