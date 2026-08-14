@@ -30,11 +30,29 @@ from wbj.providers.base import Provider
 BASE_URL = "https://financialmodelingprep.com/stable"
 
 # max_age_days per cache key:
-#   ohlcv_daily/quote 1, analyst_estimates 7, statements 30,
+#   ohlcv_daily/quote 1, analyst_estimates 7, statements 1/7,
 #   profile/peers/holders/insiders 7.
 _MAX_AGE_OHLCV = 1
 _MAX_AGE_ESTIMATES = 7
-_MAX_AGE_STATEMENT = 30
+
+# Un estado financiero es INMUTABLE una vez presentado. Lo que caduca no es
+# la cifra: es nuestro conocimiento de si ya existe uno NUEVO. Confundir las
+# dos cosas costaba un trimestre entero.
+#
+# Con 30 dias para todo, una empresa presentaba su Q2 y el motor seguia
+# sirviendo el Q1 durante un mes -- justo en temporada de resultados, que es
+# cuando mas importa. Medido el 2026-08-13: FMP tenia el Q2 de AMD
+# (2026-06-27), PLTR y JPM (2026-06-30) disponible en vivo, y el packet
+# entregaba el trimestre anterior. AMD a 138 dias, PLTR y JPM a 135, por
+# encima del limite de 120 dias que DATA_POLICY.md fija para marcar el
+# packet financiero rancio.
+#
+# Trimestral a 1 dia porque aparece uno nuevo cada ~90 y hay que verlo el
+# dia que sale. Anual a 7 porque aparece uno al ano y una semana de retraso
+# sobre ese ritmo no mueve ninguna metrica.
+_MAX_AGE_STATEMENT_QUARTER = 1
+_MAX_AGE_STATEMENT_ANNUAL = 7
+_MAX_AGE_STATEMENT = _MAX_AGE_STATEMENT_ANNUAL   # compatibilidad
 _MAX_AGE_REFERENCE = 7
 
 
@@ -113,7 +131,7 @@ class FMPProvider(Provider):
         return self.get_json(
             f"{BASE_URL}/income-statement",
             self._params(symbol=t, period="annual", limit=limit),
-            "income_annual", t, max_age_days=_MAX_AGE_STATEMENT,
+            "income_annual", t, max_age_days=_MAX_AGE_STATEMENT_ANNUAL,
         )
 
     def income_quarterly(self, t: str, limit: int = 21) -> list | dict | None:
@@ -123,7 +141,7 @@ class FMPProvider(Provider):
         return self.get_json(
             f"{BASE_URL}/income-statement",
             self._params(symbol=t, period="quarter", limit=limit),
-            "income_quarterly", t, max_age_days=_MAX_AGE_STATEMENT,
+            "income_quarterly", t, max_age_days=_MAX_AGE_STATEMENT_QUARTER,
         )
 
     def balance_annual(self, t: str, limit: int = 6) -> list | dict | None:
@@ -133,7 +151,7 @@ class FMPProvider(Provider):
         return self.get_json(
             f"{BASE_URL}/balance-sheet-statement",
             self._params(symbol=t, period="annual", limit=limit),
-            "balance_annual", t, max_age_days=_MAX_AGE_STATEMENT,
+            "balance_annual", t, max_age_days=_MAX_AGE_STATEMENT_ANNUAL,
         )
 
     def balance_quarterly(self, t: str, limit: int = 21) -> list | dict | None:
@@ -143,7 +161,7 @@ class FMPProvider(Provider):
         return self.get_json(
             f"{BASE_URL}/balance-sheet-statement",
             self._params(symbol=t, period="quarter", limit=limit),
-            "balance_quarterly", t, max_age_days=_MAX_AGE_STATEMENT,
+            "balance_quarterly", t, max_age_days=_MAX_AGE_STATEMENT_QUARTER,
         )
 
     def cashflow_annual(self, t: str, limit: int = 6) -> list | dict | None:
@@ -153,7 +171,7 @@ class FMPProvider(Provider):
         return self.get_json(
             f"{BASE_URL}/cash-flow-statement",
             self._params(symbol=t, period="annual", limit=limit),
-            "cashflow_annual", t, max_age_days=_MAX_AGE_STATEMENT,
+            "cashflow_annual", t, max_age_days=_MAX_AGE_STATEMENT_ANNUAL,
         )
 
     def cashflow_quarterly(self, t: str, limit: int = 21) -> list | dict | None:
@@ -163,7 +181,7 @@ class FMPProvider(Provider):
         return self.get_json(
             f"{BASE_URL}/cash-flow-statement",
             self._params(symbol=t, period="quarter", limit=limit),
-            "cashflow_quarterly", t, max_age_days=_MAX_AGE_STATEMENT,
+            "cashflow_quarterly", t, max_age_days=_MAX_AGE_STATEMENT_QUARTER,
         )
 
     def ohlcv_daily(
