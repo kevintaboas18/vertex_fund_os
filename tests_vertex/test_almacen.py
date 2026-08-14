@@ -1433,9 +1433,11 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         conn.close()
 
         a = self._almacen(tmp_path)
-        monkeypatch.setattr(V, "_USUARIOS_AL_ARRANCAR", 2)
         assert V._respalda_privado(a) == ""
         bueno = a.lee("Privado/privado.enc")
+        assert V._cuentas_en_el_respaldo(a) == 2, (
+            "el respaldo tiene que saber cuántas cuentas guarda: es contra eso "
+            "y no contra una marca del arranque contra lo que se compara")
 
         conn = V._db()
         conn.execute("DELETE FROM usuarios WHERE email = 'ana@ejemplo.com'")
@@ -1524,3 +1526,56 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
             "sin la marca de arranque, el cerrojo del encogimiento no existe")
         # Y llega a la persona, no solo al log.
         assert "_MOTIVO_RESTAURA" in inspect.getsource(V._aviso_persistencia)
+
+    def test_el_paquete_se_ABRE_y_se_cuenta_antes_de_subirlo(self, tmp_path,
+                                                             monkeypatch):
+        """Un respaldo que nadie ha probado no es un respaldo.
+
+        Es el único cerrojo que comprueba lo que de verdad importa —que se
+        puede restaurar— en vez de fiarse de que el empaquetado no lanzó.
+        """
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        assert V._respalda_privado(a) == ""
+        bueno = a.lee("Privado/privado.enc")
+
+        # Un paquete que sale a medias: la base de dentro tiene menos cuentas
+        # que la viva. Por fuera es un tar impecable.
+        import vertex_cuentas as C
+        conn = V._db()
+        C.crear_usuario(conn, "ana@ejemplo.com", "Ana", "contrasena-larga-1234")
+        conn.commit()
+        conn.close()
+        a_medias = V._privado_paquete()           # con 2 cuentas dentro
+        conn = V._db()
+        C.crear_usuario(conn, "leo@ejemplo.com", "Leo", "contrasena-larga-1234")
+        conn.commit()
+        conn.close()                              # ahora la viva tiene 3
+
+        assert "salió a medias" in V._paquete_restaurable(a_medias)
+        monkeypatch.setattr(V, "_privado_paquete", lambda: a_medias)
+        motivo = V._respalda_privado(a)
+        assert "NO se sube" in motivo, motivo
+        assert a.lee("Privado/privado.enc") == bueno
+
+    def test_y_un_paquete_bueno_SI_pasa_la_prueba(self, tmp_path):
+        """El cerrojo no puede dejar el respaldo bloqueado siempre."""
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        assert V._paquete_restaurable(V._privado_paquete()) == ""
+
+    def test_un_tar_SIN_base_no_pasa(self, tmp_path):
+        import io
+        import tarfile
+
+        import vertex_api as V
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            info = tarfile.TarInfo("perfiles/Kevin.md")
+            info.size = 4
+            tar.addfile(info, io.BytesIO(b"hola"))
+        assert "no lleva la base" in V._paquete_restaurable(buf.getvalue())

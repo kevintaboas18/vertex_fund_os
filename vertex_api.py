@@ -281,6 +281,109 @@ def _tar_estable(info):
     return info
 
 
+def _paquete_restaurable(claro: bytes) -> str:
+    """Abre el paquete recién hecho y comprueba que sirve. `""` si sirve.
+
+    Un respaldo que nadie ha probado no es un respaldo: es un archivo que se
+    espera que funcione el día que ya no se puede comprobar. Y el día que hizo
+    falta, no funcionaba — el paquete que se subió el 14/08 no llevaba base
+    dentro y nadie lo miró hasta que las cuentas ya no existían.
+
+    Así que se abre el tar, se saca `vertex.db`, se abre como SQLite de verdad
+    y se cuenta. Si el número no cuadra con el de la base viva, no se sube: eso
+    es exactamente lo que pasó en el escalón intermedio, una base a medias que
+    parecía bien por fuera.
+    """
+    import io
+    import sqlite3
+    import tarfile
+    import tempfile
+
+    try:
+        with tarfile.open(fileobj=io.BytesIO(claro), mode="r") as tar:
+            miembro = next((m for m in tar.getmembers()
+                            if m.isfile() and m.name == "vertex.db"), None)
+            if miembro is None:
+                return "el paquete no lleva la base dentro"
+            datos = tar.extractfile(miembro)
+            if datos is None:
+                return "la base del paquete no se puede leer"
+            with tempfile.TemporaryDirectory() as tmp:
+                ruta = os.path.join(tmp, "prueba.db")
+                with open(ruta, "wb") as fh:
+                    fh.write(datos.read())
+                dentro = _cuenta_en_db(ruta)
+        if dentro < 0:
+            return "la base del paquete no se pudo abrir"
+    except Exception as e:                       # noqa: BLE001
+        return f"el paquete no se pudo abrir para comprobarlo ({e})"
+
+    vivas = _cuenta_usuarios()
+    if vivas >= 0 and dentro != vivas:
+        return (f"el paquete lleva {dentro} cuenta(s) y la base viva tiene "
+                f"{vivas}: la copia salió a medias")
+    return ""
+
+
+def _cuenta_en_db(ruta: str) -> int:
+    """Cuentas dentro de un archivo SQLite suelto. `-1` si no se pudo abrir.
+
+    Sin tabla `usuarios` son CERO: es un despliegue donde nadie se ha
+    registrado, no un archivo roto.
+    """
+    import sqlite3
+
+    try:
+        con = sqlite3.connect(ruta, timeout=5)
+        try:
+            fila = con.execute("SELECT COUNT(*) FROM usuarios").fetchone()
+            return int(fila[0]) if fila else 0
+        except sqlite3.Error:
+            return 0
+        finally:
+            con.close()
+    except Exception:                            # noqa: BLE001
+        return -1
+
+
+def _cuentas_en_el_respaldo(alm=None) -> int:
+    """Cuántas cuentas hay DENTRO del respaldo remoto. `-1` si no se sabe.
+
+    Es contra esto y no contra una marca de arranque contra lo que se compara
+    antes de sobrescribir: la pregunta que importa no es «cuántas había cuando
+    encendimos» sino «¿voy a subir menos de las que ya están guardadas?».
+    """
+    import io
+    import tarfile
+    import tempfile
+
+    from vertex_almacen import DIR_PRIVADO, almacen as _def
+
+    a = alm or _def
+    f = _fernet()
+    if f is None:
+        return -1
+    try:
+        cifrado = a.lee(f"{DIR_PRIVADO}/{_PRIVADO_ENC}")
+        if not cifrado:
+            return 0                             # no hay respaldo: nada que perder
+        with tarfile.open(fileobj=io.BytesIO(f.decrypt(cifrado)), mode="r") as tar:
+            m = next((x for x in tar.getmembers()
+                      if x.isfile() and x.name == "vertex.db"), None)
+            if m is None:
+                return 0                         # respaldo sin base: nada que perder
+            datos = tar.extractfile(m)
+            if datos is None:
+                return -1
+            with tempfile.TemporaryDirectory() as tmp:
+                ruta = os.path.join(tmp, "respaldo.db")
+                with open(ruta, "wb") as fh:
+                    fh.write(datos.read())
+                return _cuenta_en_db(ruta)
+    except Exception:                            # noqa: BLE001
+        return -1
+
+
 def _cuenta_usuarios() -> int:
     """Cuántas cuentas hay en la base local. `-1` si no se pudo saber.
 
@@ -297,6 +400,11 @@ def _cuenta_usuarios() -> int:
         try:
             fila = con.execute("SELECT COUNT(*) FROM usuarios").fetchone()
             return int(fila[0]) if fila else 0
+        except sqlite3.Error:
+            # La tabla todavía no existe: nadie se ha registrado nunca. Eso son
+            # CERO cuentas, no «no pude mirar». Confundirlos dejaba el respaldo
+            # bloqueado para siempre en un despliegue recién estrenado.
+            return 0
         finally:
             con.close()
     except Exception:                            # noqa: BLE001
@@ -328,12 +436,16 @@ def _respalda_privado_frenado(alm=None) -> str:
     from vertex_almacen import DIR_PRIVADO, almacen as _def
 
     a = alm or _def
-    try:
-        remoto = bool(a.lee(f"{DIR_PRIVADO}/{_PRIVADO_ENC}"))
-    except Exception:                            # noqa: BLE001
+    guardadas = _cuentas_en_el_respaldo(a)
+    if guardadas <= 0:
+        # Ni hay respaldo, ni el que hay tiene cuentas dentro: no hay nada que
+        # proteger y una instalación nueva tiene que poder estrenarse. `-1` es
+        # «no se pudo mirar», y ahí tampoco se frena: bloquear el respaldo por
+        # no poder leer el remoto dejaría al sistema sin respaldar por una
+        # avería de red.
         return ""
-    if not remoto:
-        return ""                                # no hay nada que proteger
+
+    hay = _cuenta_usuarios()
 
     # ── Cerrojo 1: no se pisa un respaldo CON cuentas con uno SIN cuentas ──
     #
@@ -345,20 +457,26 @@ def _respalda_privado_frenado(alm=None) -> str:
     #
     # Ningún estado legítimo dice «no queda ni una cuenta y aun así piso el
     # respaldo que sí las tiene». Se prefiere un respaldo viejo a ninguno.
-    hay = _cuenta_usuarios()
     if hay == 0:
-        return ("La base local no tiene ni una cuenta y el respaldo sí: NO se "
-                "sobrescribe. Reinicia el servicio para restaurar desde él.")
+        return (f"La base local no tiene ni una cuenta y el respaldo guarda "
+                f"{guardadas}: NO se sobrescribe. Reinicia el servicio para "
+                "restaurar desde él.")
     if hay < 0:
         return ("No se pudo leer la base local para contar las cuentas: NO se "
                 "sobrescribe el respaldo hasta saber qué hay dentro.")
 
     # ── Cerrojo 2: el respaldo no ENCOGE sin que nadie haya borrado nada ──
-    if _USUARIOS_AL_ARRANCAR is not None and hay < _USUARIOS_AL_ARRANCAR:
-        return (f"La base local tiene {hay} cuenta(s) y al arrancar había "
-                f"{_USUARIOS_AL_ARRANCAR}: NO se sobrescribe el respaldo con "
-                "menos de lo que había. Si borraste una cuenta a propósito, "
-                "reinicia el servicio y el conteo se pone al día.")
+    #
+    # Se compara contra lo que hay DENTRO del respaldo, no contra una marca del
+    # arranque: la pregunta que importa no es «cuántas había cuando encendimos»
+    # sino «¿voy a subir menos de las que ya están guardadas?». Es el escalón
+    # intermedio del desastre real —1.843.300 → 1.310.820 bytes—, el mismo
+    # fallo con menos ruido.
+    if hay < guardadas:
+        return (f"La base local tiene {hay} cuenta(s) y el respaldo guarda "
+                f"{guardadas}: NO se sobrescribe con menos de lo que había. "
+                "Si borraste una cuenta a propósito, hazlo también en el "
+                "respaldo o restaura primero.")
     return ""
 
 
@@ -388,6 +506,12 @@ def _respalda_privado(alm=None) -> str:
         # `_privado_paquete` lanza si no pudo copiarla, y aquí NO se traga: un
         # tar de perfiles sueltos es un archivo válido que borra las cuentas.
         claro = _privado_paquete()
+        # ── Cerrojo 4: el paquete se ABRE y se cuenta antes de subirlo ──
+        # Es el único que comprueba lo que de verdad importa —que se puede
+        # restaurar— en vez de fiarse de que el empaquetado no lanzó.
+        roto = _paquete_restaurable(claro)
+        if roto:
+            return f"NO se sube el respaldo: {roto}."
         sha = hashlib.sha256(claro).hexdigest()
         # OJO con este testigo: `Privado/*` está en el `.gitignore` del almacén
         # salvo `*.enc`, así que el `.sha256` NO viaja en la rama. Vive en el
@@ -6307,6 +6431,9 @@ def almacen_estado():
         # que antes?», que es la forma que tiene esta avería de anunciarse.
         "cuentas": _cuenta_usuarios(),
         "cuentas_al_arrancar": _USUARIOS_AL_ARRANCAR,
+        # …y cuántas guarda el respaldo. Es el par que importa: si la de arriba
+        # es menor que esta, algo se perdió y el respaldo está —bien— frenado.
+        "cuentas_en_el_respaldo": _cuentas_en_el_respaldo(_alm),
         # Por qué no se pudo abrir el respaldo, si es que pasó. Un respaldo que
         # existe y no se puede leer es peor que no tenerlo.
         "restauracion": _MOTIVO_RESTAURA or "",

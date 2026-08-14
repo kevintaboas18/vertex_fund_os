@@ -6559,6 +6559,24 @@ que una escritura mala aquí no es un respaldo fallido, es un borrado.
    menos ruido y que sin esto se sube igual.
 3. **Sin base dentro, no hay paquete.** `_privado_paquete()` lanza y
    `_respalda_privado` no se lo traga.
+4. **El paquete se ABRE y se cuenta antes de subirlo.** Es el único que
+   comprueba lo que de verdad importa —que se puede restaurar— en vez de fiarse
+   de que el empaquetado no lanzó: se descomprime el tar, se abre `vertex.db`
+   como SQLite de verdad y se cuentan las cuentas. Si no cuadran con las de la
+   base viva, la copia salió a medias y no sube. Un respaldo que nadie ha
+   probado no es un respaldo: es un archivo que se espera que funcione el día
+   que ya no se puede comprobar.
+
+Los cerrojos 1 y 2 comparan contra **lo que hay dentro del respaldo remoto**
+(`_cuentas_en_el_respaldo()`), no contra una marca del arranque: la pregunta que
+importa no es «cuántas había cuando encendimos» sino «¿voy a subir menos de las
+que ya están guardadas?». Y ninguno de los dos frena cuando no hay respaldo, ni
+cuando el que hay no tiene cuentas dentro, ni cuando no se pudo leer el remoto:
+una instalación nueva tiene que poder estrenarse, y quedarse sin respaldar por
+una avería de red sería cambiar un fallo por otro. La tabla `usuarios` que aún
+no existe son **cero** cuentas, no «no pude mirar» — confundirlos dejaba el
+respaldo bloqueado para siempre en un despliegue recién estrenado, y ese caso lo
+encontró la propia batería.
 
 ### Y se dice en voz alta
 
@@ -6583,5 +6601,5 @@ sobrescribir en veinte segundos.
 
 ### Estado
 
-**3.373 tests del motor · 817 de la capa web (44 en un navegador real) ·
-7 casos nuevos que fijan esta avería · 16 diferenciales sin divergencias.**
+**3.373 tests del motor · 820 de la capa web (44 en un navegador real) ·
+10 casos nuevos que fijan esta avería · 16 diferenciales sin divergencias.**
