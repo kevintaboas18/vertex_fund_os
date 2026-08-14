@@ -39,7 +39,7 @@ def _sin_red(monkeypatch):
                         lambda cita, tam, fuente: (True, cita))
 
 
-_BASE = {"tam": 252_000_000_000, "ambito": "mundial",
+_BASE = {"tam": 252_000_000_000, "tam_anio": 2026, "ambito": "mundial",
          "cita": "https://www.reit.com/data-research"}
 
 
@@ -79,7 +79,7 @@ def test_an_annual_flow_still_passes():
     """El filtro rechaza una magnitud, no una industria: el TAM de Omdia para
     chips de datacenter —ingresos anuales— sigue entrando igual que antes."""
     salida, motivo = _validar(
-        {"tam": 207_000_000_000, "tam_source": "Omdia", "ambito": "worldwide",
+        {"tam": 207_000_000_000, "tam_anio": 2026, "tam_source": "Omdia", "ambito": "worldwide",
          "cita": "https://omdia.tech.informa.com/pr/2026/datacenter",
          "capa": "ingresos anuales de chips aceleradores de datacenter"},
         "Semiconductors")

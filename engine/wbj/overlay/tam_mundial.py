@@ -54,6 +54,24 @@ REVISION_DIAS = 90
 #: Cuántas veces se pregunta antes de concluir que nadie publica ese mercado.
 #: Medido: "Consumer Electronics" acertó en el 2º de 4 intentos y falló en los
 #: otros 3. Un solo `null` no es prueba de que el mercado no exista.
+#: Cuantos anos hacia atras puede tener la cifra de un TAM.
+#:
+#: 1 = el ano en curso o el anterior. Un estudio de mercado se publica con
+#: retraso, asi que en agosto de 2026 la ultima cifra disponible puede ser
+#: legitimamente de 2025; de 2024 ya no.
+#:
+#: `DATA_POLICY.md` da 18 meses para un "annual market-size study" antes de
+#: exigir corroboracion. Esta regla es mas estricta y se prefiere: 18 meses
+#: contados desde una fecha de publicacion que la fuente no siempre declara
+#: se vuelve inauditable, mientras que el ANO del dato viene en la propia
+#: respuesta.
+#:
+#: Medido: el barrido acepto hoy dos TAM citando 2023 --IDC para hardware y
+#: para videojuegos-- o sea cifras de hace tres anos entrando como si fueran
+#: del ultimo ano publicado. El campo `tam_anio` se le pedia al modelo desde
+#: siempre y NO se leia en ninguna parte.
+ANOS_MAXIMOS_DE_ANTIGUEDAD = 1
+
 INTENTOS = 4
 
 #: El tier gratuito de Gemini permite 20 peticiones por minuto y su propio
@@ -589,6 +607,32 @@ def _juzgar_capa(settings: Any, datos: dict, ticker: str,
     return True, porque
 
 
+def _anio_del_tam(datos: dict) -> int | None:
+    """El ano de la cifra, del campo o del nombre de la fuente.
+
+    `tam_anio` se le pide al modelo en el PROMPT desde siempre y no se leia en
+    ningun sitio. Cuando no lo devuelve, el ano suele venir dentro de
+    `tam_source` --"IDC + Worldwide Server Market Revenue + 2023"-- porque el
+    prompt pide "asociacion o casa + nombre del dato + ano".
+
+    Se toma el MAYOR ano plausible del nombre: una fuente puede citar un rango
+    ("2024-2025") y lo que interesa es a que ano corresponde la cifra.
+    """
+    import re as _re_anio
+
+    bruto = datos.get("tam_anio")
+    try:
+        n = int(str(bruto).strip()[:4])
+        if 1990 <= n <= date.today().year + 1:
+            return n
+    except (TypeError, ValueError):
+        pass
+    anos = [int(a) for a in _re_anio.findall(r"(19\d{2}|20\d{2})",
+                                             str(datos.get("tam_source") or ""))]
+    anos = [a for a in anos if a <= date.today().year + 1]
+    return max(anos) if anos else None
+
+
 def _validar(datos: dict, industria: str) -> tuple[dict | None, str]:
     """La respuesta convertida en overlay, o el motivo por el que no.
 
@@ -656,6 +700,15 @@ def _validar(datos: dict, industria: str) -> tuple[dict | None, str]:
                           "flujo anual: dividir ingresos de un año entre un "
                           "valor acumulado no da participacion de mercado")
 
+    anio = _anio_del_tam(datos)
+    if anio is None:
+        return None, ("la cifra vino sin ano: sin saber de cuando es no se "
+                      "puede juzgar si sigue vigente")
+    _limite = date.today().year - ANOS_MAXIMOS_DE_ANTIGUEDAD
+    if anio < _limite:
+        return None, (f"la cifra es de {anio} y el limite es {_limite}: un TAM "
+                      "de hace mas de un ano no describe el mercado de hoy")
+
     # La cifra se LEE de la fuente, no se acepta de memoria. Es la regla del
     # `judge.py` de Victor —"Nunca inventes cifras"— aplicada aqui, que era
     # donde faltaba. Ver `_verificar_en_la_fuente`.
@@ -670,6 +723,7 @@ def _validar(datos: dict, industria: str) -> tuple[dict | None, str]:
         "_cita_verificada": detalle,
         "tam_source": fuente,
         "tam_source_tier": tier,
+        "tam_anio": anio,
         "_ambito": "mundial",
         "_capa": capa,
         "_capa_coincide": str(datos.get("capa_coincide") or "").strip(),

@@ -43,7 +43,10 @@ class _S:
 def _respuesta(fuente: str, tam: float) -> str:
     import json
     return json.dumps({
-        "tam": tam, "tam_source": fuente, "ambito": "mundial",
+        # `tam_anio` desde que el resolutor exige que la cifra sea del ano en
+        # curso o del anterior: sin ano no se puede juzgar si sigue vigente.
+        "tam": tam, "tam_anio": 2026,
+        "tam_source": fuente, "ambito": "mundial",
         "cita": "https://ejemplo.org/informe",
         "capa": "ingresos anuales del mercado"})
 
@@ -135,7 +138,7 @@ def test_a_rejected_answer_never_wins(monkeypatch):
     """El reintento no relaja la validación. Una capitalización bursátil sigue
     siendo un acervo aunque llegue primera y aunque sea de un tier 2."""
     _guion(monkeypatch, [
-        ('{"tam": 252000000000, "tam_source": "Nareit", "ambito": "mundial",'
+        ('{"tam": 252000000000, "tam_anio": 2026, "tam_source": "Nareit", "ambito": "mundial",'
          ' "cita": "https://reit.com", "capa": "market capitalization"}', None),
         (_respuesta("JLL", 1_800_000_000_000), None),
     ])

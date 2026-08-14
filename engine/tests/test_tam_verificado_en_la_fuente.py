@@ -162,7 +162,7 @@ def test_validation_refuses_a_figure_it_could_not_check(monkeypatch):
     monkeypatch.setattr(tm, "_verificar_en_la_fuente",
                         lambda c, t, f: (False, "la cita no se pudo abrir: HTTPError"))
     salida, motivo = tm._validar({
-        "tam": 207_000_000_000, "tam_source": "Omdia", "ambito": "mundial",
+        "tam": 207_000_000_000, "tam_anio": 2026, "tam_source": "Omdia", "ambito": "mundial",
         "cita": "https://omdia.tech.informa.com/x",
         "capa": "ingresos anuales de chips"}, "Semiconductors")
     assert salida is None
@@ -175,7 +175,7 @@ def test_a_verified_figure_records_where_it_was_read(monkeypatch):
     monkeypatch.setattr(tm, "_verificar_en_la_fuente",
                         lambda c, t, f: (True, "https://www.wsts.org/informe"))
     salida, _ = tm._validar({
-        "tam": 630_500_000_000, "tam_source": "WSTS", "ambito": "mundial",
+        "tam": 630_500_000_000, "tam_anio": 2026, "tam_source": "WSTS", "ambito": "mundial",
         "cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/x",
         "cita_textual": "worldwide semiconductor sales of $630.5 billion",
         "capa": "ventas mundiales de chips"}, "Semiconductors")
