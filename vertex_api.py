@@ -477,8 +477,18 @@ def _cuenta_en_db(ruta: str) -> int:
 def _mejor_respaldo(alm, f):
     """El respaldo del que SÍ se pueden sacar cuentas. `(bytes, nombre)`.
 
-    Primero el principal. Si no trae cuentas —está vacío, o le falta la base—
-    se prueban las copias fechadas de la más nueva a la más vieja.
+    Se prueban el principal y luego las copias fechadas de la más nueva a la
+    más vieja, y se elige por este orden:
+
+      1. el primero que ABRE y trae cuentas — el que se quiere;
+      2. si ninguno trae cuentas, el primero que al menos ABRE — llevará los
+         perfiles, y restaurar algo es mejor que no restaurar nada;
+      3. si ninguno abre, `(None, "")` — para que el aviso diga que la clave no
+         cuadra en vez de reventar luego al descifrar.
+
+    El tercer escalón es un arreglo: antes se devolvía el primero que EXISTÍA
+    aunque no se pudiera abrir, y entonces el descifrado de después fallaba con
+    `InvalidToken` —mensaje vacío— y el aviso salía sin decir nada.
 
     Esta es la diferencia entre un fallo que se arregla solo y uno que hay que
     rescatar a mano de la historia de git: pasó tres veces en un día, y las tres
@@ -488,22 +498,20 @@ def _mejor_respaldo(alm, f):
 
     if f is None:
         return None, ""
-    candidatos = [_PRIVADO_ENC] + list(reversed(_copias_fechadas(alm)))
-    primero = None
-    for nombre in candidatos:
+    legible = None
+    for nombre in [_PRIVADO_ENC] + list(reversed(_copias_fechadas(alm))):
         datos = alm.lee(f"{DIR_PRIVADO}/{nombre}")
         if not datos:
             continue
-        if primero is None:
-            primero = (datos, nombre)
         try:
-            if _cuentas_en_paquete(f.decrypt(datos)) > 0:
-                return datos, nombre
+            claro = f.decrypt(datos)
         except Exception:                        # noqa: BLE001
-            continue                             # ilegible: se prueba la siguiente
-    # Ninguno trae cuentas. Se devuelve el principal igualmente: puede llevar
-    # perfiles y el resto, y restaurar algo es mejor que no restaurar nada.
-    return primero if primero else (None, "")
+            continue                             # no abre: se prueba la siguiente
+        if _cuentas_en_paquete(claro) > 0:
+            return datos, nombre
+        if legible is None:
+            legible = (datos, nombre)
+    return legible if legible else (None, "")
 
 
 def _cuentas_en_paquete(claro: bytes) -> int:
@@ -563,6 +571,50 @@ def _copias_fechadas(alm) -> list[str]:
                   if re.fullmatch(r"privado-\d{8}\.enc", n))
 
 
+#: Lo que hay que leer cuando el paquete no se deja abrir. Es el fallo más
+#: importante de todos —significa que la clave no cuadra— y el único cuyo
+#: mensaje nativo es la cadena VACÍA, así que se escribe aquí una vez y se usa
+#: en los dos sitios que pueden detectarlo.
+_CLAVE_NO_ABRE = (
+    "la clave VERTEX_DB_KEY no abre este respaldo. O cambió, o el paquete se "
+    "cifró con otra. Sin la clave con la que se guardó, las cuentas de dentro "
+    "no se pueden recuperar — eso es lo que significa que esté bien cifrado. "
+    "Comprueba el valor en Render antes de tocar nada más.")
+
+
+def _porque_no_abre(e: Exception) -> str:
+    """Traduce el fallo al abrir un paquete. Nunca devuelve cadena vacía.
+
+    `InvalidToken` de Fernet —el fallo más importante de todos, porque significa
+    que la clave no cuadra— tiene el mensaje VACÍO. Interpolarlo tal cual daba
+    «no se pudo restaurar lo privado: » y ahí se acababa: el aviso salía en
+    pantalla sin decir nada, que es peor que no salir, porque parece un fallo
+    del aviso y no del sistema.
+    """
+    if e.__class__.__name__ == "InvalidToken":
+        return _CLAVE_NO_ABRE
+    texto = str(e).strip()
+    return texto or f"error de tipo {e.__class__.__name__}, sin mensaje"
+
+
+def _hay_respaldo(alm=None) -> bool:
+    """¿Existe un paquete guardado? Sin abrirlo ni descifrarlo.
+
+    Separado de contar las cuentas a propósito: «existe» y «puedo leerlo» son
+    preguntas distintas, y confundirlas fue lo que dejó que un paquete vacío
+    pisara al bueno cuando la clave no lo abría.
+    """
+    from vertex_almacen import DIR_PRIVADO, almacen as _def
+
+    a = alm or _def
+    try:
+        if a.lee(f"{DIR_PRIVADO}/{_PRIVADO_ENC}"):
+            return True
+        return bool(_copias_fechadas(a))
+    except Exception:                            # noqa: BLE001
+        return False
+
+
 def _cuentas_en_el_respaldo(alm=None) -> int:
     """Cuántas cuentas hay DENTRO del respaldo remoto. `-1` si no se sabe.
 
@@ -595,31 +647,43 @@ def _respalda_privado_frenado(alm=None) -> str:
     from vertex_almacen import almacen as _def
 
     a = alm or _def
-    guardadas = _cuentas_en_el_respaldo(a)
-    if guardadas <= 0:
-        # Ni hay respaldo, ni el que hay tiene cuentas dentro: no hay nada que
-        # proteger y una instalación nueva tiene que poder estrenarse. `-1` es
-        # «no se pudo mirar», y ahí tampoco se frena: bloquear el respaldo por
-        # no poder leer el remoto dejaría al sistema sin respaldar por una
-        # avería de red.
+    hay = _cuenta_usuarios()
+    existe = _hay_respaldo(a)
+
+    if not existe:
+        # No hay nada que proteger, y una instalación nueva tiene que poder
+        # estrenarse.
         return ""
 
-    hay = _cuenta_usuarios()
-
-    # ── Cerrojo 1: no se pisa un respaldo CON cuentas con uno SIN cuentas ──
+    # ── Cerrojo 1: con CERO cuentas aquí no se toca un respaldo que existe ──
     #
-    # Pasó de verdad, el 14/08. Si la restauración falla —red, token, la base a
-    # medio escribir— el contenedor sigue vivo con la base VACÍA, y veinte
-    # segundos después el hilo de respaldo sube esa base vacía encima de la
-    # buena. En veinte segundos, y sin que nada lo diga, desaparece todo el
-    # mundo.
+    # Y da igual si se pudo leer o no. Este cerrojo tenía un agujero mío: si el
+    # remoto no se podía ABRIR —la clave no cuadra, el archivo viene roto—
+    # `_cuentas_en_el_respaldo` devolvía `-1` y yo dejaba pasar la escritura,
+    # razonando que bloquear el respaldo por una avería de red cambiaría un
+    # fallo por otro.
+    #
+    # Estaba mal, y el 14/08 a las 23:44 costó el archivo entero otra vez: la
+    # restauración falló por `InvalidToken`, la base se quedó a cero, el remoto
+    # no se pudo leer, y el paquete vacío pasó por encima del bueno.
+    #
+    # «No tengo nada Y no puedo comprobar qué hay ahí» es la razón MÁS fuerte
+    # para no escribir, no una excusa para seguir.
     if hay == 0:
-        return (f"La base local no tiene ni una cuenta y el respaldo guarda "
-                f"{guardadas}: NO se sobrescribe. Reinicia el servicio para "
+        return ("La base local no tiene ni una cuenta y hay un respaldo "
+                "guardado: NO se sobrescribe. Reinicia el servicio para "
                 "restaurar desde él.")
     if hay < 0:
         return ("No se pudo leer la base local para contar las cuentas: NO se "
                 "sobrescribe el respaldo hasta saber qué hay dentro.")
+
+    # A partir de aquí SÍ hay cuentas vivas, así que escribir no puede vaciar
+    # nada. `-1` —no se pudo leer el remoto— solo relaja la comparación de
+    # abajo: ahí sí sería cambiar un fallo por otro dejar de respaldar por una
+    # avería de red.
+    guardadas = _cuentas_en_el_respaldo(a)
+    if guardadas <= 0:
+        return ""
 
     # ── Cerrojo 2: el respaldo no ENCOGE sin que nadie haya borrado nada ──
     #
@@ -744,11 +808,16 @@ def _restaura_privado(alm=None) -> str:
     f = _fernet()
     cifrado, de_donde = _mejor_respaldo(a, f)
     if not cifrado:
-        if a.lee(f"{DIR_PRIVADO}/{_PRIVADO_ENC}") and f is None:
+        if not _hay_respaldo(a):
+            return ""                            # primer arranque: no hay nada
+        if f is None:
             return ("Hay un respaldo cifrado pero falta VERTEX_DB_KEY: las "
                     "cuentas no se pueden recuperar sin la clave con la que se "
                     "guardaron.")
-        return ""                                # primer arranque: no hay nada
+        # Hay respaldo, hay clave, y ninguno de los paquetes abre. Callarlo
+        # aquí es lo que dejaba «tu cuenta no existe» sin explicación: el dato
+        # está, y lo que falla es la llave.
+        return "no se pudo restaurar lo privado: " + _CLAVE_NO_ABRE
     if de_donde != _PRIVADO_ENC:
         logging.getLogger(__name__).warning(
             "el respaldo principal no traía cuentas; se restaura desde la "
@@ -805,7 +874,7 @@ def _restaura_privado(alm=None) -> str:
                 desplazados)
         return ""
     except Exception as e:                       # noqa: BLE001
-        return f"no se pudo restaurar lo privado: {e}"
+        return "no se pudo restaurar lo privado: " + _porque_no_abre(e)
 
 
 @asynccontextmanager

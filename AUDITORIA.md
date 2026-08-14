@@ -6969,3 +6969,84 @@ arreglo no prueba nada.
 
 **3.371 tests del motor · 789 de la capa web · 69 en un navegador real ·
 324 checks de auditoría · 16 diferenciales sin divergencias.**
+
+## 41.61 · Ronda 36 — el agujero era mío, y el motivo salía en blanco
+
+> «Sale eso aún no lo has resuelto. Audita como lo tenías antes y qué cambiaste
+> para que se dañara.»
+
+La pregunta era la correcta. Esta ronda no arregla un fallo heredado: arregla
+**dos cosas que introduje yo** en las rondas 33-35.
+
+### El aviso que no decía nada
+
+En pantalla salía:
+
+> Hay un respaldo de las cuentas que NO se pudo restaurar: **no se pudo
+> restaurar lo privado:** Las cuentas viejas no aparecerán…
+
+El motivo, **vacío**. Y no era un fallo del aviso: `_restaura_privado` hace
+`f"…: {e}"`, y `InvalidToken` de Fernet —el fallo más importante de todos,
+porque significa que **la clave no abre el paquete**— tiene el mensaje
+literalmente vacío. Lo escribí así y el resultado fue el peor de los dos
+mundos: un aviso que sale, ocupa y no informa, y que parece un error del propio
+aviso en vez del sistema.
+
+`_porque_no_abre()` lo traduce ahora, y `_CLAVE_NO_ABRE` lo dice entero: qué
+significa, que sin esa clave las cuentas no se recuperan —eso es lo que quiere
+decir que esté bien cifrado— y dónde mirar.
+
+### El cerrojo que dejé abierto
+
+A las 23:44 el respaldo volvió a caer a 163.940 bytes **con mis cuatro cerrojos
+puestos**. El culpable, escrito por mí en la ronda 33:
+
+```python
+guardadas = _cuentas_en_el_respaldo(a)
+if guardadas <= 0:
+    # `-1` es «no se pudo mirar», y ahí tampoco se frena: bloquear el
+    # respaldo por no poder leer el remoto dejaría al sistema sin
+    # respaldar por una avería de red.
+    return ""
+```
+
+El razonamiento suena, y está mal. `-1` no es solo «se cayó la red»: también es
+**«la clave no lo abre»**. Y en ese caso lo que se estaba autorizando era pisar
+un archivo que ni siquiera se puede leer, con uno vacío.
+
+La cadena completa: la restauración falla por `InvalidToken` → la base se queda
+a cero → el remoto no se puede leer → `-1` → no se frena → el paquete sin base
+pasa por encima del bueno.
+
+La regla correcta, y ahora es la primera: **con cero cuentas aquí no se toca un
+respaldo que existe, se pueda leer o no**. «No tengo nada Y no puedo comprobar
+qué hay ahí» es la razón *más* fuerte para no escribir, no una excusa para
+seguir. El `-1` solo relaja la comparación de tamaño, que es donde ese
+razonamiento sí valía: con cuentas vivas, escribir no puede vaciar nada.
+
+`_hay_respaldo()` separa además «existe» de «puedo leerlo». Confundirlas fue el
+error.
+
+### Y `_mejor_respaldo` podía devolver algo que no abre
+
+Guardaba como candidato de reserva el primero que **existía**, sin comprobar que
+se pudiera descifrar; si ninguno traía cuentas, devolvía ese y el descifrado de
+después reventaba. Ahora el orden es: el primero que abre y trae cuentas → el
+primero que al menos abre → nada, y en ese último caso se dice que la clave no
+cuadra en vez de callarse.
+
+### Lo que la red de seguridad sí hizo
+
+`privado-20260814.enc` **sobrevivió intacto** al desastre de las 23:44. Las
+copias fechadas de la ronda 34 hicieron exactamente su trabajo: el principal se
+recuperó desde ahí, sin bajar a la historia de git. Se conserva además el
+paquete original como `privado-20260813.enc`, por si la clave vuelve a su valor
+anterior.
+
+### Estado
+
+**3.371 tests del motor · 793 de la capa web · 69 en un navegador real ·
+324 checks de auditoría · 16 diferenciales sin divergencias.**
+
+Los cuatro casos nuevos se comprobaron revirtiendo el arreglo: sin él sale
+`AssertionError: se sobrescribió un respaldo que ni se pudo leer`.

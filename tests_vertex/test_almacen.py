@@ -1784,6 +1784,91 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         a.guarda(f"{DIR_PRIVADO}/privado-20260814.enc", b"x")
         assert V._copias_fechadas(a) == ["privado-20260814.enc"]
 
+    def test_si_el_remoto_NO_SE_PUEDE_ABRIR_tampoco_se_pisa(self, tmp_path,
+                                                            monkeypatch):
+        """El agujero que costó el archivo por cuarta vez, el 14/08 a las 23:44.
+
+        `_cuentas_en_el_respaldo` devuelve `-1` cuando el paquete no se puede
+        abrir —la clave no cuadra, el archivo viene roto— y el cerrojo dejaba
+        pasar la escritura, razonando que bloquear el respaldo por una avería de
+        red cambiaría un fallo por otro.
+
+        Estaba mal. «No tengo ni una cuenta Y no puedo comprobar qué hay ahí» es
+        la razón MÁS fuerte para no escribir, no una excusa para seguir.
+        """
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        assert V._respalda_privado(a) == ""
+        bueno = a.lee("Privado/privado.enc")
+
+        # La base se queda sin cuentas y el remoto deja de poder abrirse.
+        conn = V._db()
+        conn.execute("DELETE FROM usuarios")
+        conn.commit()
+        conn.close()
+        monkeypatch.setattr(V, "_cuentas_en_el_respaldo", lambda alm=None: -1)
+
+        motivo = V._respalda_privado(a)
+        assert motivo, "se sobrescribió un respaldo que ni se pudo leer"
+        assert "no tiene ni una cuenta" in motivo, motivo
+        assert a.lee("Privado/privado.enc") == bueno, (
+            "el respaldo bueno se perdió por no poder comprobarlo")
+
+    def test_pero_con_cuentas_vivas_un_remoto_ilegible_NO_frena(self, tmp_path,
+                                                                monkeypatch):
+        """El matiz que sí era correcto: con cuentas vivas, escribir no puede
+        vaciar nada, y dejar de respaldar por una avería de red sería cambiar un
+        fallo por otro."""
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        V._respalda_privado(a)
+        monkeypatch.setattr(V, "_cuentas_en_el_respaldo", lambda alm=None: -1)
+        assert V._respalda_privado_frenado(a) == "", (
+            "con cuentas vivas no hay nada que proteger de una escritura")
+
+    def test_la_clave_que_NO_ABRE_se_dice_con_todas_las_letras(self, tmp_path,
+                                                              monkeypatch):
+        """`InvalidToken` tiene el mensaje VACÍO.
+
+        Interpolarlo tal cual daba «no se pudo restaurar lo privado: » y ahí se
+        acababa: un aviso en pantalla que no dice nada parece un fallo del aviso
+        y no del sistema. Y es el fallo más importante de todos, porque
+        significa que la clave no cuadra.
+        """
+        import vertex_api as V
+        from cryptography.fernet import InvalidToken
+
+        assert V._porque_no_abre(InvalidToken()) == V._CLAVE_NO_ABRE
+        assert "VERTEX_DB_KEY" in V._CLAVE_NO_ABRE
+        assert V._porque_no_abre(RuntimeError("")).strip(), (
+            "una excepción sin mensaje no puede dejar el motivo en blanco")
+
+    def test_un_respaldo_que_no_abre_NO_se_cuenta_como_que_no_hay(self,
+                                                                  tmp_path,
+                                                                  monkeypatch):
+        """«No hay respaldo» y «hay uno que no se deja abrir» son cosas
+        distintas: la primera es normal, la segunda hay que decirla."""
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        V._respalda_privado(a)
+
+        # Otra clave: el paquete existe y no abre.
+        monkeypatch.setenv("VERTEX_DB_KEY", "una-clave-distinta-de-la-de-antes")
+        conn = V._db()
+        conn.execute("DELETE FROM usuarios")
+        conn.commit()
+        conn.close()
+
+        motivo = V._restaura_privado(a)
+        assert "VERTEX_DB_KEY" in motivo, (
+            f"se calló que la clave no abre el respaldo: {motivo!r}")
+
 
 class TestLaCuentaDeKevinYSuArchivoEnteroPUNTAaPUNTA:
     """La auditoría que pidió Kevin, con su email de verdad.
