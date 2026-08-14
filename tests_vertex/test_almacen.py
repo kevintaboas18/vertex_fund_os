@@ -1707,3 +1707,79 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         assert "NO te registres de nuevo" in aviso, (
             "sin esto, la salida natural es registrarse otra vez y acabar con "
             "dos cuentas y el email ocupado")
+
+    def test_una_COPIA_FECHADA_rescata_lo_que_el_principal_perdio(
+            self, tmp_path, monkeypatch):
+        """Lo que convierte este fallo en uno que se arregla SOLO.
+
+        Pasó tres veces en un día, y las tres hubo que rescatar a mano de la
+        historia de git un paquete bueno que estaba a un día de distancia. Con
+        una copia fechada, la restauración lo encuentra sin que nadie mire.
+        """
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        assert V._respalda_privado(a) == ""
+        copias = V._copias_fechadas(a)
+        assert len(copias) == 1, f"no se guardó la copia fechada: {copias}"
+
+        # El desastre: el principal se queda sin base dentro.
+        from vertex_almacen import DIR_PRIVADO
+        import io, tarfile
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            info = tarfile.TarInfo("perfiles/Kevin.md")
+            info.size = 4
+            tar.addfile(info, io.BytesIO(b"hola"))
+        a.guarda(f"{DIR_PRIVADO}/{V._PRIVADO_ENC}", V._fernet().encrypt(buf.getvalue()))
+        assert V._cuentas_en_el_respaldo(a) == 0, "el principal tenía que estar sin cuentas"
+
+        # Y la base local, vacía: el contenedor recién arrancado.
+        conn = V._db()
+        conn.execute("DELETE FROM usuarios")
+        conn.commit()
+        conn.close()
+
+        assert V._restaura_privado(a) == ""
+        assert V._cuenta_usuarios() == 1, (
+            "la cuenta no volvió: había una copia fechada buena y no se miró")
+
+    def test_solo_se_copia_lo_que_LLEVA_cuentas(self, tmp_path):
+        """Una copia fechada es, por construcción, un punto bueno al que
+        volver. Si se guardaran también los paquetes sin cuentas, la red de
+        seguridad se llenaría de agujeros con el mismo nombre."""
+        import vertex_api as V
+
+        a = self._almacen(tmp_path)
+        assert V._respalda_privado(a) == "", "una instalación nueva sube igual"
+        assert V._copias_fechadas(a) == [], (
+            "se guardó una copia fechada de un paquete sin ni una cuenta")
+
+    def test_las_copias_viejas_se_PODAN(self, tmp_path):
+        """Acotado, o la rama crece sin freno."""
+        from vertex_almacen import DIR_PRIVADO
+
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        a = self._almacen(tmp_path)
+        for dia in range(1, 12):
+            a.guarda(f"{DIR_PRIVADO}/privado-202608{dia:02d}.enc", b"x" * 10)
+        V._respalda_privado(a)
+        copias = V._copias_fechadas(a)
+        assert len(copias) <= V._PRIVADO_COPIAS_MAX, (
+            f"{len(copias)} copias, el tope es {V._PRIVADO_COPIAS_MAX}")
+        assert copias == sorted(copias), "se podaron las nuevas en vez de las viejas"
+
+    def test_un_nombre_raro_no_se_cuela_como_copia(self, tmp_path):
+        """`privado-loquesea.enc` no lleva fecha: ordenarlo entre las copias
+        pondría una cualquiera como «la más nueva»."""
+        from vertex_almacen import DIR_PRIVADO
+
+        import vertex_api as V
+
+        a = self._almacen(tmp_path)
+        a.guarda(f"{DIR_PRIVADO}/privado-loquesea.enc", b"x")
+        a.guarda(f"{DIR_PRIVADO}/privado-20260814.enc", b"x")
+        assert V._copias_fechadas(a) == ["privado-20260814.enc"]

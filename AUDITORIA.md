@@ -6744,6 +6744,69 @@ está escrita al lado del código para no volver a confundir las dos cosas.
 **3.371 tests del motor · 778 de la capa web · 60 en un navegador real ·
 324 checks de auditoría · 16 diferenciales sin divergencias.**
 
+## 41.59 · Ronda 34 — que la recuperación no dependa de que yo mire
+
+> «Verifica porque no me deja entrar a mi cuenta? Si antes me dejaba siempre.»
+
+Tercera vez en un día. Y esta vez el dato que importa no es el fallo —ya
+diagnosticado y arreglado— sino **por qué el arreglo no llegaba**:
+
+```
+21:29:21   cierre del servicio
+21:46:09   datos del agente
+21:59:24   cierre del servicio
+22:25:58   datos del agente     ← privado.enc otra vez en 163.940 bytes
+```
+
+Cierres cada media hora. Eso no son despliegues: es **Render durmiendo el
+servicio y despertándolo**, y un despertar reutiliza la imagen ya construida.
+Solo un despliegue de verdad reconstruye. Así que el contenedor puede pasarse
+días con el código viejo repitiendo el ciclo destructivo en cada despertar,
+mientras el arreglo está en `main` sin llegar a ejecutarse.
+
+Ese es un fallo del que no se sale escribiendo mejor código: hay que dejar de
+depender de que alguien despliegue a tiempo.
+
+### Copias fechadas: la red que faltaba
+
+El respaldo era **un solo archivo**. Quien lo pisaba se lo llevaba entero, y
+recuperarlo exigía que yo entrara en la historia de git a buscar la última
+versión buena. Tres veces.
+
+Ahora, cada vez que se sube un paquete **que lleva cuentas dentro**, se guarda
+además `Privado/privado-YYYYMMDD.enc`. Una al día —el fallo se descubre horas
+después, no segundos— y se conservan siete.
+
+Dos decisiones que son el fondo del asunto:
+
+- **Solo se copia lo que lleva cuentas.** Guardando también los paquetes vacíos,
+  la red se llenaría de agujeros con el mismo nombre y el día que hiciera falta
+  la «copia de ayer» podría estar tan vacía como el principal. Una copia
+  fechada es, por construcción, un punto bueno al que volver.
+- **La restauración las mira sola.** `_mejor_respaldo()` prueba el principal y,
+  si no trae cuentas, baja por las copias de la más nueva a la más vieja hasta
+  encontrar una que sí. Lo dice en el log cuando ocurre. Eso convierte tres
+  rescates manuales en cero.
+
+El nombre es plano y no una subcarpeta a propósito: el `.gitignore` del almacén
+excluye `Privado/*` y solo readmite `Privado/*.enc` — dentro de un directorio
+excluido git ni siquiera mira, así que `Privado/respaldos/x.enc` nunca habría
+subido.
+
+### Y una lección sobre cortar código con un índice
+
+Deduplicar `_cuentas_en_el_respaldo` se hizo cortando por posición entre dos
+`def`, y el corte se llevó por delante cuatro funciones y dos globales que
+vivían en medio. La batería lo cazó entero —26 rojos— y por eso no llegó a
+ninguna parte, pero el método era malo: un `import ast` para localizar el bloque
+exacto habría costado lo mismo y no habría dependido de que los tests cubrieran
+justo eso.
+
+### Estado
+
+**3.371 tests del motor · 785 de la capa web · 69 en un navegador real ·
+324 checks de auditoría · 16 diferenciales sin divergencias.**
+
 ## 41.58 · Ronda 33 — unos reportes impedían que volvieran las cuentas
 
 > «Me sale eso aún» — *Email o contraseña incorrectos.*

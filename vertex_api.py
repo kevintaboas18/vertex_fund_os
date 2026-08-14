@@ -201,6 +201,24 @@ def _arranca_almacen():
 
 #: Nombre del paquete cifrado y de su testigo de contenido.
 _PRIVADO_ENC = "privado.enc"
+
+#: Copias fechadas del paquete, una por día. `privado-20260814.enc`.
+#:
+#: Existen porque el fallo se repitió tres veces en un día y cada vez hubo que
+#: recuperar A MANO desde la historia de git. El respaldo bueno se perdía porque
+#: solo había UN archivo y quien lo pisaba se lo llevaba entero.
+#:
+#: Solo se escribe una copia cuando el paquete lleva cuentas dentro, así que
+#: una copia fechada es, por construcción, un punto bueno al que volver. Y el
+#: nombre es plano —no una subcarpeta— porque el `.gitignore` del almacén
+#: excluye `Privado/*` y solo readmite `Privado/*.enc`: dentro de un directorio
+#: excluido, git ni siquiera mira.
+_PRIVADO_COPIA = "privado-{fecha}.enc"
+
+#: Cuántas copias fechadas se conservan. Una semana: suficiente para volver
+#: atrás de un fallo que se descubre al día siguiente, y acotado para que la
+#: rama no crezca sin freno.
+_PRIVADO_COPIAS_MAX = 7
 #: El SHA-256 del contenido EN CLARO. Sin él no habría forma de saber si algo
 #: cambió: Fernet usa un IV aleatorio, así que cifrar dos veces lo mismo da dos
 #: bytes distintos y cada ciclo parecería un cambio. Con el testigo, un día sin
@@ -373,6 +391,28 @@ def _paquete_restaurable(claro: bytes) -> str:
     return ""
 
 
+#: Cuántas cuentas trajo la restauración al arrancar. Diagnóstico: se publica
+#: en `/api/almacen` junto a las que hay ahora, porque el par es lo que informa.
+_USUARIOS_AL_ARRANCAR: int | None = None
+
+#: Por qué no se pudo devolver lo privado a su sitio, o `""`. Se pinta en
+#: `/api/almacen` y en el aviso de persistencia: un respaldo que existe y no se
+#: puede abrir es peor que no tenerlo, porque nadie va a ir a buscarlo.
+_MOTIVO_RESTAURA: str = ""
+
+
+def _cuenta_usuarios() -> int:
+    """Cuántas cuentas hay en la base local. `-1` si no se pudo saber.
+
+    `-1` y no `0`: son cosas distintas y la diferencia decide si se sobrescribe
+    el respaldo de todo el mundo. «No pude mirar» tiene que poder frenar lo
+    mismo que frena «hay menos que antes».
+    """
+    if not os.path.exists(DB_PATH):
+        return 0
+    return _cuenta_en_db(DB_PATH)
+
+
 def _cuenta_en_db(ruta: str) -> int:
     """Cuentas dentro de un archivo SQLite suelto. `-1` si no se pudo abrir.
 
@@ -394,32 +434,50 @@ def _cuenta_en_db(ruta: str) -> int:
         return -1
 
 
-def _cuentas_en_el_respaldo(alm=None) -> int:
-    """Cuántas cuentas hay DENTRO del respaldo remoto. `-1` si no se sabe.
+def _mejor_respaldo(alm, f):
+    """El respaldo del que SÍ se pueden sacar cuentas. `(bytes, nombre)`.
 
-    Es contra esto y no contra una marca de arranque contra lo que se compara
-    antes de sobrescribir: la pregunta que importa no es «cuántas había cuando
-    encendimos» sino «¿voy a subir menos de las que ya están guardadas?».
+    Primero el principal. Si no trae cuentas —está vacío, o le falta la base—
+    se prueban las copias fechadas de la más nueva a la más vieja.
+
+    Esta es la diferencia entre un fallo que se arregla solo y uno que hay que
+    rescatar a mano de la historia de git: pasó tres veces en un día, y las tres
+    había un paquete bueno a un día de distancia que nadie miraba.
     """
+    from vertex_almacen import DIR_PRIVADO
+
+    if f is None:
+        return None, ""
+    candidatos = [_PRIVADO_ENC] + list(reversed(_copias_fechadas(alm)))
+    primero = None
+    for nombre in candidatos:
+        datos = alm.lee(f"{DIR_PRIVADO}/{nombre}")
+        if not datos:
+            continue
+        if primero is None:
+            primero = (datos, nombre)
+        try:
+            if _cuentas_en_paquete(f.decrypt(datos)) > 0:
+                return datos, nombre
+        except Exception:                        # noqa: BLE001
+            continue                             # ilegible: se prueba la siguiente
+    # Ninguno trae cuentas. Se devuelve el principal igualmente: puede llevar
+    # perfiles y el resto, y restaurar algo es mejor que no restaurar nada.
+    return primero if primero else (None, "")
+
+
+def _cuentas_en_paquete(claro: bytes) -> int:
+    """Cuentas dentro de un paquete YA descifrado. `-1` si no se pudo abrir."""
     import io
     import tarfile
     import tempfile
 
-    from vertex_almacen import DIR_PRIVADO, almacen as _def
-
-    a = alm or _def
-    f = _fernet()
-    if f is None:
-        return -1
     try:
-        cifrado = a.lee(f"{DIR_PRIVADO}/{_PRIVADO_ENC}")
-        if not cifrado:
-            return 0                             # no hay respaldo: nada que perder
-        with tarfile.open(fileobj=io.BytesIO(f.decrypt(cifrado)), mode="r") as tar:
+        with tarfile.open(fileobj=io.BytesIO(claro), mode="r") as tar:
             m = next((x for x in tar.getmembers()
                       if x.isfile() and x.name == "vertex.db"), None)
             if m is None:
-                return 0                         # respaldo sin base: nada que perder
+                return 0
             datos = tar.extractfile(m)
             if datos is None:
                 return -1
@@ -432,46 +490,59 @@ def _cuentas_en_el_respaldo(alm=None) -> int:
         return -1
 
 
-def _cuenta_usuarios() -> int:
-    """Cuántas cuentas hay en la base local. `-1` si no se pudo saber.
+def _guarda_copia_fechada(alm, cifrado: bytes) -> None:
+    """Deja la copia de hoy y poda las viejas. Nunca lanza.
 
-    `-1` y no `0`: son cosas distintas y la diferencia decide si se sobrescribe
-    el respaldo de todo el mundo. «No pude mirar» tiene que poder frenar lo
-    mismo que frena «hay menos que antes».
+    Una al día: el fallo que esto ataja se descubre horas después, no
+    segundos, y una copia por ciclo de veinte segundos llenaría la rama sin
+    dar ni un punto de vuelta más.
     """
-    import sqlite3
+    from vertex_almacen import DIR_PRIVADO
 
-    if not os.path.exists(DB_PATH):
-        return 0
     try:
-        con = sqlite3.connect(DB_PATH, timeout=5)
-        try:
-            fila = con.execute("SELECT COUNT(*) FROM usuarios").fetchone()
-            return int(fila[0]) if fila else 0
-        except sqlite3.Error:
-            # La tabla todavía no existe: nadie se ha registrado nunca. Eso son
-            # CERO cuentas, no «no pude mirar». Confundirlos dejaba el respaldo
-            # bloqueado para siempre en un despliegue recién estrenado.
-            return 0
-        finally:
-            con.close()
+        hoy = datetime.now(timezone.utc).strftime("%Y%m%d")
+        alm.guarda(f"{DIR_PRIVADO}/{_PRIVADO_COPIA.format(fecha=hoy)}", cifrado)
+        copias = sorted(_copias_fechadas(alm))
+        for vieja in copias[:-_PRIVADO_COPIAS_MAX]:
+            alm.borra(f"{DIR_PRIVADO}/{vieja}")
+    except Exception:                            # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "no se pudo guardar la copia fechada de lo privado", exc_info=True)
+
+
+def _copias_fechadas(alm) -> list[str]:
+    """Los nombres de las copias, de la más vieja a la más nueva. `[]` si nada."""
+    from vertex_almacen import DIR_PRIVADO
+
+    try:
+        nombres = [p.name for p in alm.lista(DIR_PRIVADO, "privado-*.enc")]
+    except Exception:                            # noqa: BLE001
+        return []
+    # El nombre lleva la fecha, así que ordenar por nombre ordena por tiempo.
+    return sorted(n for n in nombres
+                  if re.fullmatch(r"privado-\d{8}\.enc", n))
+
+
+def _cuentas_en_el_respaldo(alm=None) -> int:
+    """Cuántas cuentas hay DENTRO del respaldo remoto. `-1` si no se sabe.
+
+    Es contra esto y no contra una marca de arranque contra lo que se compara
+    antes de sobrescribir: la pregunta que importa no es «cuántas había cuando
+    encendimos» sino «¿voy a subir menos de las que ya están guardadas?».
+    """
+    from vertex_almacen import DIR_PRIVADO, almacen as _def
+
+    a = alm or _def
+    f = _fernet()
+    if f is None:
+        return -1
+    try:
+        cifrado = a.lee(f"{DIR_PRIVADO}/{_PRIVADO_ENC}")
+        if not cifrado:
+            return 0                             # no hay respaldo: nada que perder
+        return _cuentas_en_paquete(f.decrypt(cifrado))
     except Exception:                            # noqa: BLE001
         return -1
-
-
-#: Cuántas cuentas trajo la restauración al arrancar. Es la marca contra la que
-#: se comprueba que el respaldo no ENCOJA: si ahora hay menos de las que había
-#: al arrancar y nadie ha borrado ninguna, algo se perdió por el camino y
-#: subirlo convertiría esa pérdida local en una pérdida definitiva.
-#:
-#: `None` mientras no se sepa (antes de restaurar). Baja sola cuando alguien
-#: borra su cuenta de verdad, que es el único descenso legítimo.
-_USUARIOS_AL_ARRANCAR: int | None = None
-
-#: Por qué no se pudo devolver lo privado a su sitio, o `""`. Se pinta en
-#: `/api/almacen` y en el aviso de persistencia: un respaldo que existe y no se
-#: puede abrir es peor que no tenerlo, porque nadie va a ir a buscarlo.
-_MOTIVO_RESTAURA: str = ""
 
 
 def _respalda_privado_frenado(alm=None) -> str:
@@ -481,7 +552,7 @@ def _respalda_privado_frenado(alm=None) -> str:
     escribir nada: un respaldo frenado es correcto —mejor uno viejo que uno
     vacío— pero callarlo es cómo se pierde todo sin enterarse.
     """
-    from vertex_almacen import DIR_PRIVADO, almacen as _def
+    from vertex_almacen import almacen as _def
 
     a = alm or _def
     guardadas = _cuentas_en_el_respaldo(a)
@@ -502,9 +573,6 @@ def _respalda_privado_frenado(alm=None) -> str:
     # segundos después el hilo de respaldo sube esa base vacía encima de la
     # buena. En veinte segundos, y sin que nada lo diga, desaparece todo el
     # mundo.
-    #
-    # Ningún estado legítimo dice «no queda ni una cuenta y aun así piso el
-    # respaldo que sí las tiene». Se prefiere un respaldo viejo a ninguno.
     if hay == 0:
         return (f"La base local no tiene ni una cuenta y el respaldo guarda "
                 f"{guardadas}: NO se sobrescribe. Reinicia el servicio para "
@@ -515,16 +583,12 @@ def _respalda_privado_frenado(alm=None) -> str:
 
     # ── Cerrojo 2: el respaldo no ENCOGE sin que nadie haya borrado nada ──
     #
-    # Se compara contra lo que hay DENTRO del respaldo, no contra una marca del
-    # arranque: la pregunta que importa no es «cuántas había cuando encendimos»
-    # sino «¿voy a subir menos de las que ya están guardadas?».
-    #
-    # Y se cuentan CUENTAS, no bytes, a propósito. El paquete encoge a menudo
-    # sin que se pierda nada: la SQLite es caché —los reportes viven como
-    # archivos en `Reportes/`, que es la fuente de verdad— así que el payload de
-    # un análisis entra en la base y sale de ella según se reconstruya, y eso
-    # mueve el tamaño cientos de kilobytes en cada reinicio. Frenar por eso
-    # dejaría el respaldo bloqueado casi siempre.
+    # Se cuentan CUENTAS, no bytes, a propósito. El paquete encoge a menudo sin
+    # que se pierda nada: la SQLite es caché —los reportes viven como archivos
+    # en `Reportes/`, que es la fuente de verdad— así que el payload de un
+    # análisis entra y sale de la base según se reconstruya, y eso mueve el
+    # tamaño cientos de kilobytes en cada reinicio. Frenar por eso dejaría el
+    # respaldo bloqueado casi siempre.
     #
     # Las CUENTAS son distintas: no están en ningún archivo, solo aquí. Perder
     # una es definitivo, y por eso es lo único que se cuenta.
@@ -580,8 +644,19 @@ def _respalda_privado(alm=None) -> str:
         # de nada entre reinicios. Lo que protege son los cerrojos de arriba.
         if (a.lee(f"{DIR_PRIVADO}/{_PRIVADO_SHA}") or b"").decode("utf-8", "replace").strip() == sha:
             return ""                            # nada cambió: ni un commit
-        a.guarda(f"{DIR_PRIVADO}/{_PRIVADO_ENC}", f.encrypt(claro))
+        cifrado = f.encrypt(claro)
+        a.guarda(f"{DIR_PRIVADO}/{_PRIVADO_ENC}", cifrado)
         a.guarda(f"{DIR_PRIVADO}/{_PRIVADO_SHA}", sha)
+        # Y una copia FECHADA, pero SOLO si el paquete lleva cuentas dentro.
+        #
+        # Es lo que hace que una copia fechada sea, por construcción, un punto
+        # bueno al que volver. Guardando también las que no las llevan, la red
+        # de seguridad se llenaría de agujeros con el mismo nombre — y el día
+        # que hiciera falta, la «copia de ayer» podría estar tan vacía como el
+        # principal. Con un solo archivo había que rescatarlo a mano de la
+        # historia de git; con copias malas, no se rescataría en absoluto.
+        if _cuenta_usuarios() > 0:
+            _guarda_copia_fechada(a, cifrado)
         return ""
     except Exception as e:                       # noqa: BLE001
         return f"no se pudo respaldar lo privado: {e}"
@@ -626,13 +701,18 @@ def _restaura_privado(alm=None) -> str:
     if hay < 0:
         return ("no se pudo leer la base local para saber si tiene cuentas; "
                 "no se restaura a ciegas")
-    cifrado = a.lee(f"{DIR_PRIVADO}/{_PRIVADO_ENC}")
-    if not cifrado:
-        return ""                                # primer arranque: no hay nada
     f = _fernet()
-    if f is None:
-        return ("Hay un respaldo cifrado pero falta VERTEX_DB_KEY: las cuentas "
-                "no se pueden recuperar sin la clave con la que se guardaron.")
+    cifrado, de_donde = _mejor_respaldo(a, f)
+    if not cifrado:
+        if a.lee(f"{DIR_PRIVADO}/{_PRIVADO_ENC}") and f is None:
+            return ("Hay un respaldo cifrado pero falta VERTEX_DB_KEY: las "
+                    "cuentas no se pueden recuperar sin la clave con la que se "
+                    "guardaron.")
+        return ""                                # primer arranque: no hay nada
+    if de_donde != _PRIVADO_ENC:
+        logging.getLogger(__name__).warning(
+            "el respaldo principal no traía cuentas; se restaura desde la "
+            "copia %s", de_donde)
     # Cuántas filas de caché se van a desplazar. Restaurar reescribe la base
     # entera, así que los reportes indexados que todavía no estuvieran en el
     # respaldo pierden su fila —no el análisis, que está en `Reportes/`—. Se
