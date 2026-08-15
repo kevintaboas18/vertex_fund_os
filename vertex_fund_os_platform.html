@@ -1743,17 +1743,46 @@ function vxVolumenHTML(f) {
       >${Number(v.relativo).toFixed(2)}x</span>`;
 }
 
+//: Las catorce casillas del mapa, ESCRITAS AQUÍ.
+//:
+//: Sí están duplicadas —el motor necesita la suya para calcular la rotación,
+//: las categorías y el universo que baja— y por eso hay un test que compara
+//: las dos y falla si alguien toca una y no la otra. Una copia sin vigilar es
+//: una copia que un día dice otra cosa.
+//:
+//: Aquí abajo están porque la parrilla tiene que aparecer ENTERA al entrar,
+//: con sus tickers y sus nombres, y que solo los números lleguen después. Con
+//: la lista viniendo del servidor, la pantalla se pasaba el primer segundo en
+//: «Leyendo el mercado…» esperando a saber algo que no cambia nunca.
+const VX_SECTORES = {
+    referencias: [
+        ['SPY', 'S&P 500'],
+        ['RSP', 'S&P 500 equiponderado'],
+        ['QQQ', 'Nasdaq 100'],
+    ],
+    sectores: [
+        ['XLK', 'Tecnología'],
+        ['XLF', 'Financiero'],
+        ['XLV', 'Salud'],
+        ['XLY', 'Consumo discrecional'],
+        ['XLC', 'Comunicaciones'],
+        ['XLI', 'Industrial'],
+        ['XLP', 'Consumo básico'],
+        ['XLE', 'Energía'],
+        ['XLU', 'Servicios públicos'],
+        ['XLRE', 'Inmobiliario'],
+        ['XLB', 'Materiales'],
+    ],
+};
+
 //: Las industrias de cada sector, ESCRITAS AQUÍ.
 //:
-//: Están duplicadas —viven también en `engine/wbj/sectores.py`— y es a
-//: propósito. Pulsar XLK tiene que enseñar sus cinco industrias AL INSTANTE,
-//: con sus nombres puestos, y dejar que solo los números lleguen después. Si
-//: la lista viniera del servidor, la pantalla estaría medio segundo en blanco
-//: esperando a saber algo que no cambia nunca.
+//: Esta tabla vive SOLO aquí: el motor dejó de conocer las industrias cuando
+//: se vio que no le hacían falta —cotiza los tickers que le pidan— y por eso
+//: no hay nada que vigilar. Una tabla, un sitio.
 //:
-//: Que las dos copias no se separen no se confía a la memoria de nadie: un
-//: test compara esta tabla contra la de Python y falla si alguien toca una y
-//: no la otra.
+//: Pulsar XLK tiene que enseñar sus industrias AL INSTANTE, con sus nombres
+//: puestos, y dejar que solo los números lleguen después.
 const VX_INDUSTRIAS = {
     XLK: [['SMH', 'Semiconductores'], ['IGV', 'Software'], ['CIBR', 'Ciberseguridad'], ['SKYY', 'Nube'], ['XSD', 'Semiconductores equiponderado']],
     XLF: [['KRE', 'Bancos regionales'], ['KBE', 'Bancos'], ['KCE', 'Mercados de capitales'], ['IAK', 'Seguros']],
@@ -1853,7 +1882,12 @@ function vxInternaHTML(ticker) {
 //: La casilla de la parrilla. `pulsable` es falso para SPY/RSP/QQQ: son
 //: índices y no tienen industrias que desplegar, así que no invitan al clic.
 function vxSectorCaja(f, pulsable, abierto) {
-    const rsi = f.rsi == null ? '—' : Number(f.rsi).toFixed(0);
+    // «···» es ESPERANDO y «—» es NO HAY. Son cosas distintas y la diferencia
+    // se nota: unos puntos suspensivos dicen «ya viene», una raya dice «este
+    // ETF no tiene ese dato» y te ahorra seguir esperando.
+    const esperando = !!f.cargando;
+    const na = esperando ? '···' : '—';
+    const rsi = f.rsi == null ? na : Number(f.rsi).toFixed(0);
     const cambio = vxCambioDe(f);
     return `<button ${pulsable ? `onclick="abreSector('${_vcEsc(f.ticker)}')"` : 'disabled'}
         class="text-left w-full bg-[#11141D] border rounded-xl p-3 transition ${
@@ -1864,8 +1898,8 @@ function vxSectorCaja(f, pulsable, abierto) {
           <span class="text-[10px] text-gray-500 truncate">${_vcEsc(f.nombre)}</span>
         </div>
         <div class="flex items-baseline gap-2 mt-1.5 flex-wrap">
-          <span class="text-base font-bold text-white">${vxUsd(f.precio)}</span>
-          <span class="text-xs font-bold ${vxCambioColor(cambio)}">${vxPct(cambio)}</span>
+          <span class="text-base font-bold text-white">${f.precio == null ? na : vxUsd(f.precio)}</span>
+          <span class="text-xs font-bold ${vxCambioColor(cambio)}">${cambio == null ? na : vxPct(cambio)}</span>
           <span class="text-[9px] text-gray-700">${vxVentana()}</span>
         </div>
         <div class="text-[10px] mt-0.5 flex items-baseline gap-2 flex-wrap">
@@ -1946,7 +1980,8 @@ let VX_FRASE_TIMER = null;
 function vxFraseHTML() {
     const [texto, quien] = VX_FRASES[VX_FRASE_I % VX_FRASES.length];
     return `<div data-vx="frase" class="min-w-0 flex-1">
-        <p class="text-xs text-gray-300 italic leading-snug">&laquo;${_vcEsc(texto)}&raquo;</p>
+        <p class="text-xs text-gray-300 italic leading-snug"><span class="text-gray-600 not-italic">&laquo;</span>${
+          _vcEsc(texto)}<span class="text-gray-600 not-italic">&raquo;</span></p>
         <p class="text-[10px] text-gray-500 mt-0.5">&mdash; ${_vcEsc(quien)}</p>
       </div>`;
 }
@@ -2141,7 +2176,12 @@ async function cargaSectores(forzar) {
     const parrilla = document.getElementById('sectoresParrilla');
     if (!parrilla) return;
     if (window._sectoresData && !forzar) { pintaSectores(window._sectoresData); return; }
-    parrilla.innerHTML = '<p class="text-xs text-gray-500 py-8 text-center">Leyendo el mercado…</p>';
+    // La parrilla ENTERA, ya. Tickers, nombres y el selector de ventana salen
+    // de la tabla de aquí arriba, que no cambia nunca; los números entran
+    // cuando lleguen. Antes esto era «Leyendo el mercado…» centrado en una
+    // pantalla vacía durante todo lo que tardara FMP en contestar catorce
+    // veces — un segundo largo mirando una frase en vez del mapa.
+    pintaSectores(null);
     try {
         const r = await fetch(`${API_BASE}/api/sectores`);
         // El estado HTTP se mira ANTES de leer el cuerpo. Un 404 —panel nuevo
@@ -2151,47 +2191,74 @@ async function cargaSectores(forzar) {
         // una parrilla VACÍA sin un solo mensaje, que es la peor forma de
         // fallar: parece que el mercado no existe.
         if (!r.ok) {
-            parrilla.innerHTML = `<p class="text-xs text-amber-400 py-8 text-center">El servidor todavía no tiene la pantalla de sectores (HTTP ${r.status}). Si acabas de desplegar, espera a que termine y recarga.</p>`;
+            vxSectoresAviso(`El servidor todavía no tiene la pantalla de sectores (HTTP ${r.status}). Si acabas de desplegar, espera a que termine y recarga.`);
             return;
         }
         const d = await r.json();
         window._sectoresData = d;
         pintaSectores(d);
     } catch (e) {
-        parrilla.innerHTML = '<p class="text-xs text-amber-400 py-8 text-center">No se pudo leer el mercado. Vuelve a intentarlo.</p>';
+        vxSectoresAviso('No se pudo leer el mercado. Vuelve a intentarlo.');
     }
 }
 
+//: El motivo, SIN borrar la parrilla.
+//:
+//: Antes el aviso reemplazaba el mapa entero, así que un fallo de red dejaba la
+//: pantalla en una sola frase centrada. Los tickers no dependen de la red: se
+//: quedan, con sus puntos suspensivos donde iban los números, y el motivo va
+//: encima. Se ve qué falta Y por qué.
+function vxSectoresAviso(texto) {
+    const n = document.getElementById('sectoresAviso');
+    if (n) n.innerHTML = `<p class="text-xs text-amber-400 mb-2">${_vcEsc(texto)}</p>`;
+}
+
+//: Pinta el mapa. Con `d` a `null` pinta el ESQUELETO: las catorce casillas
+//: con su ticker y su nombre, y puntos suspensivos donde irán los números.
+//:
+//: Es la misma idea que ya usaban las industrias, y llegaba tarde aquí: lo que
+//: no depende de la red —qué sectores hay y cómo se llaman— no tiene por qué
+//: esperar a la red.
 function pintaSectores(d) {
     const parrilla = document.getElementById('sectoresParrilla');
     if (!parrilla) return;
-    // `ok === false` es la degradación declarada (sin clave de FMP, por
-    // ejemplo). Pero una respuesta SIN `filas` tampoco se puede pintar, y
-    // caerse por el hueco dejaba la pantalla muda. Nunca en blanco: o hay
-    // parrilla, o hay motivo.
-    if (!d || d.ok === false || !Array.isArray(d.filas) || !d.filas.length) {
-        parrilla.innerHTML = `<p class="text-xs text-amber-400 py-8 text-center">${_vcEsc(
-            (d && d.error) || 'Sin datos de mercado.')}</p>`;
-        return;
-    }
+
     const por = {};
-    (d.filas || []).forEach(f => { por[f.ticker] = f; });
-    const refs = d.referencias || [];
-    const secs = d.sectores || [];
-    const caja = (t, pulsable) => por[t]
-        ? vxSectorCaja(por[t], pulsable, window._sectorAbierto === t)
-        : '';
+    ((d || {}).filas || []).forEach(f => { por[f.ticker] = f; });
+
+    // La estructura sale SIEMPRE de la tabla de aquí, no de la respuesta: así
+    // es la misma con datos y sin ellos, y las casillas no bailan de sitio
+    // cuando llegan los números.
+    const caja = ([t, nombre], pulsable) => vxSectorCaja(
+        por[t] || { ticker: t, nombre: nombre, precio: null, cambio_pct: null,
+                    rsi: null, sma200: null, sma200_dist: null,
+                    cambios: {}, volumen: {}, cargando: !d },
+        pulsable, window._sectorAbierto === t);
+
     // Las referencias en su propia fila de tres: SPY, RSP y QQQ se leen juntos
     // o no se leen. Los sectores, en rejilla — la misma en móvil y en escritorio
     // salvo por cuántos caben.
     parrilla.innerHTML = `
+      <div id="sectoresAviso"></div>
       ${vxSelectorVentanaHTML()}
-      <div class="grid grid-cols-3 gap-2 mb-3">${refs.map(t => caja(t, false)).join('')}</div>
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">${secs.map(t => caja(t, true)).join('')}</div>`;
+      <div class="grid grid-cols-3 gap-2 mb-3">${VX_SECTORES.referencias.map(x => caja(x, false)).join('')}</div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">${VX_SECTORES.sectores.map(x => caja(x, true)).join('')}</div>`;
+
+    // Y el motivo, si lo hay, ENCIMA de la parrilla en vez de en su lugar. Una
+    // degradación declarada —sin clave de FMP, por ejemplo— explica por qué no
+    // hay números; borrar el mapa entero para decirlo era tirar lo que sí se
+    // sabe para poder contar lo que no.
+    if (d && (d.ok === false || !Array.isArray(d.filas) || !d.filas.length)) {
+        vxSectoresAviso(d.error || 'Sin datos de mercado.');
+    }
+
     const sello = document.getElementById('sectoresSello');
-    if (sello) sello.innerText = d.cacheado ? 'foto de hace menos de 2 min' : 'al momento';
+    if (sello) {
+        sello.innerText = !d ? 'buscando los precios…'
+            : d.cacheado ? 'foto de hace menos de 2 min' : 'al momento';
+    }
     vxPintaFranjas();
-    pintaRotacion(d.rotacion);
+    pintaRotacion((d || {}).rotacion);
 }
 
 //: Dónde estamos: `{nivel:'sector'|'industria', sector, industria}`.

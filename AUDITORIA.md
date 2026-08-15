@@ -7114,3 +7114,62 @@ panel. Cada caso fija ahora el estado que necesita en vez de alternar desde
 
 **3.371 tests del motor · 793 de la capa web · 69 en un navegador real ·
 324 checks de auditoría · 16 diferenciales sin divergencias.**
+
+## 41.63 · Ronda 38 — la parrilla ya está escrita; solo faltan los números
+
+> «Ya sabemos lo que el panel tiene… lo único que tiene que hacer es extraer
+> los precios, porcentaje de cambio, RSI, SMA. Cuando entre me salga ya todo y
+> carguen los precios.»
+
+Es la misma idea que ya usaban las industrias, y llegaba tarde aquí: **lo que no
+depende de la red no tiene por qué esperar a la red.**
+
+Al entrar, la pantalla ponía «Leyendo el mercado…» centrado en un hueco vacío
+durante todo lo que tardara FMP en contestar catorce veces. Y lo que se estaba
+esperando no era el mapa: era *saber qué sectores existen*, que no cambia nunca.
+
+### Las catorce casillas, escritas en el panel
+
+`VX_SECTORES` lleva los tres índices y los once sectores con su nombre. La
+parrilla se pinta **entera y al instante** —tickers, nombres y el selector de
+ventana— con `···` donde irán los números, y estos entran cuando lleguen.
+
+**`···` es «esperando» y `—` es «no hay».** Son cosas distintas: unos puntos
+suspensivos dicen «ya viene»; una raya dice «este ETF no tiene ese dato» y te
+ahorra seguir esperando.
+
+### Una duplicación que sí hay que vigilar
+
+Con las industrias se resolvió quitándolas del motor: no le hacían falta. Con
+los sectores no se puede — de esa tabla salen el universo que se baja, las
+categorías y la rotación—, así que hay **dos copias de verdad**, y una copia sin
+vigilar es una copia que un día dice otra cosa.
+
+`TestLasCATORCECasillasNoSeSeparanDeLasDelMOTOR` compara tickers, nombres **y
+orden** contra `REFERENCIAS + SECTORES`, y comprueba además que cada nombre
+tenga traducción. Se verificó metiendo un sector inventado en el panel: el caso
+sale en rojo.
+
+De paso se corrigió el comentario de `VX_INDUSTRIAS`, que seguía afirmando una
+duplicación con el motor y un test que la vigilaba. Ninguna de las dos cosas
+existe desde que las industrias salieron del motor: un comentario que describe
+una salvaguarda inexistente es peor que no tener comentario.
+
+### Un fallo de red ya no borra el mapa
+
+El aviso reemplazaba la parrilla entera, así que un 404 o una caída dejaban la
+pantalla en una sola frase centrada. Los tickers no dependen de la red: se
+quedan, con sus puntos suspensivos, y el motivo va **encima**. Se ve qué falta y
+por qué, en vez de tirar lo que sí se sabe para poder contar lo que no.
+
+### Y las comillas, en su propio nodo
+
+Las citas salían como `«texto»` en un solo nodo de texto, y el barrido de
+traducción busca el nodo COMPLETO en el diccionario: con las comillas pegadas la
+clave no coincidía y la frase de Bezos se quedaba en español al elegir inglés.
+Lo cazó el guardián del idioma. Las comillas van ahora en sus propios `<span>`.
+
+### Estado
+
+**3.371 tests del motor · 798 de la capa web · 72 en un navegador real ·
+324 checks de auditoría · 16 diferenciales sin divergencias.**

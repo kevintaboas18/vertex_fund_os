@@ -4316,3 +4316,100 @@ class TestLaAmplitudINTERNASoloSePintaDondeEXISTE:
         cuerpo = html.split("function vxInternaHTML", 1)[1].split("\n}", 1)[0]
         assert "Internos —" in cuerpo, (
             "un sector cuyo cálculo falló tiene que decir que no hay número")
+
+
+class TestLasCATORCECasillasNoSeSeparanDeLasDelMOTOR:
+    """La parrilla está escrita en el panel, y el motor tiene su propia copia.
+
+    La del panel existe para que el mapa aparezca ENTERO al entrar —tickers y
+    nombres— y que solo los números lleguen después. La del motor no se puede
+    quitar: de ella salen el universo que se baja, las categorías y la rotación.
+
+    Así que son dos copias de verdad, y una copia sin vigilar es una copia que
+    un día dice otra cosa. Este caso es esa vigilancia: si alguien añade un
+    sector en un sitio y no en el otro, la parrilla enseñaría una casilla que
+    nadie cotiza, o cotizaría una que nadie enseña.
+    """
+
+    @staticmethod
+    def _del_panel():
+        import json
+        import re
+
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        bruto = h.split("const VX_SECTORES = {", 1)[1].split("\n};", 1)[0]
+        salida = {}
+        for grupo in ("referencias", "sectores"):
+            # Se corta por el cierre INDENTADO del grupo, no por el primer
+            # «],»: ese es el final de la primera fila y dejaba la lista vacía.
+            trozo = bruto.split(f"{grupo}: [", 1)[1].split("\n    ],", 1)[0]
+            salida[grupo] = [
+                (m.group(1), m.group(2))
+                for m in re.finditer(r"\['([^']+)',\s*'([^']*)'\]", trozo)]
+        return salida
+
+    def test_los_tickers_y_los_nombres_son_LOS_MISMOS(self):
+        from wbj.sectores import REFERENCIAS, SECTORES
+
+        panel = self._del_panel()
+        assert panel["referencias"] == list(REFERENCIAS), (
+            f"las referencias del panel y las del motor se separaron:\n"
+            f"  panel: {panel['referencias']}\n  motor: {list(REFERENCIAS)}")
+        assert panel["sectores"] == list(SECTORES), (
+            f"los sectores del panel y los del motor se separaron:\n"
+            f"  panel: {panel['sectores']}\n  motor: {list(SECTORES)}")
+
+    def test_y_el_orden_tambien(self):
+        """El orden es el que se pinta. Barajado, las casillas cambian de sitio
+        entre el esqueleto y los datos, y eso se ve como un salto."""
+        from wbj.sectores import SECTORES
+
+        panel = self._del_panel()
+        assert [t for t, _ in panel["sectores"]] == [t for t, _ in SECTORES]
+
+    def test_cada_nombre_del_panel_tiene_traduccion(self):
+        """La parrilla se pinta desde el panel, así que sus nombres pasan por
+        el diccionario como cualquier otra cadena."""
+        import json
+
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        dic = h.split("const VX_ES2EN = {", 1)[1].split("\n};", 1)[0]
+        faltan = [n for _, n in self._del_panel()["sectores"]
+                  if json.dumps(n, ensure_ascii=False) + ":" not in dic]
+        assert not faltan, f"nombres de sector sin traducción: {faltan}"
+
+
+class TestElMAPAsePintaANTESdeQueLleguenLosNUMEROS:
+    """«Ya todo tiene que estar escrito porque solo necesitamos extraer los
+    datos. Cuando entre me salga ya todo y carguen los precios.»
+
+    Lo que no depende de la red —qué sectores hay y cómo se llaman— no puede
+    esperar a la red.
+    """
+
+    def test_carga_pinta_el_esqueleto_ANTES_de_pedir_nada(self):
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        import re
+
+        cuerpo = html.split("async function cargaSectores", 1)[1].split("\n}", 1)[0]
+        antes = cuerpo.index("pintaSectores(null)")
+        pide = cuerpo.index("fetch(")
+        assert antes < pide, (
+            "se pide al servidor antes de pintar la parrilla: la pantalla se "
+            "queda esperando a saber algo que no cambia nunca")
+        # Sin comentarios: el porqué del cambio MENCIONA la pantalla de espera
+        # que se quitó, y buscarla en el texto crudo cazaba la explicación en
+        # vez del código.
+        codigo = re.sub(r"^\s*//.*$", "", cuerpo, flags=re.M)
+        assert "Leyendo el mercado" not in codigo, (
+            "sigue la pantalla de espera que sustituía al mapa")
+
+    def test_un_fallo_de_red_NO_borra_el_mapa(self):
+        """Los tickers no dependen de la red: se quedan, y el motivo va encima.
+        Antes el aviso reemplazaba la parrilla entera."""
+        html = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        cuerpo = html.split("async function cargaSectores", 1)[1].split("\n}", 1)[0]
+        assert "parrilla.innerHTML" not in cuerpo, (
+            "un fallo vuelve a borrar la parrilla para poder decir el motivo")
+        assert cuerpo.count("vxSectoresAviso(") == 2, (
+            "los dos caminos de fallo tienen que avisar SIN borrar el mapa")
