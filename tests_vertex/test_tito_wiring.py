@@ -4672,3 +4672,147 @@ class TestLaPARRILLASeVeAlINSTANTE:
         assert "_precalienta_parrilla" in arranque
         assert "daemon=True" in arranque, (
             "el precalentamiento no puede bloquear el arranque")
+
+
+class TestElPRECIOSeMueveSOLOElPrecio:
+    """«Quiero que los precios cambien en tiempo real.»
+
+    Y solo el precio, que además de ser lo pedido es lo correcto: de lo que el
+    panel enseña de cada ticker —precio, RSI, media de 200 y volumen—, los
+    tres últimos son DIARIOS. Salen de barras diarias y no se mueven hasta el
+    cierre, así que volver a pedirlos cada quince segundos sería bajar quince
+    meses de historia para recibir el número que ya está puesto.
+
+    No es streaming: este plan de FMP no lo tiene. Es un sondeo corto.
+    """
+
+    def test_la_ruta_devuelve_PRECIOS_y_nada_mas(self, monkeypatch, client):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_VIVO_CACHE", {})
+        monkeypatch.setattr(V, "_quotes_lote", lambda ts: {
+            "XLK": {"symbol": "XLK", "price": 250.5, "previousClose": 248.0},
+            "XLF": {"symbol": "XLF", "price": 48.25, "previousClose": 48.0}})
+        d = client.get("/api/sectores/vivo?tickers=XLK,XLF").json()
+        assert d["ok"] is True
+        assert d["precios"] == {"XLK": 250.5, "XLF": 48.25}, d["precios"]
+        # Un número por ticker, no un diccionario con RSI y compañía dentro:
+        # lo que no se mueve no viaja.
+        assert all(isinstance(v, (int, float)) for v in d["precios"].values())
+
+    def test_un_precio_IMPOSIBLE_no_se_pinta(self, monkeypatch, client):
+        """Cero o negativo no es un precio barato: es un dato roto, y pintarlo
+        borraría el bueno que ya está en pantalla."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_VIVO_CACHE", {})
+        monkeypatch.setattr(V, "_quotes_lote", lambda ts: {
+            "XLK": {"symbol": "XLK", "price": 0},
+            "XLF": {"symbol": "XLF", "price": -3.0},
+            "XLE": {"symbol": "XLE", "price": None},
+            "XLV": {"symbol": "XLV", "price": 170.0}})
+        d = client.get("/api/sectores/vivo?tickers=XLK,XLF,XLE,XLV").json()
+        assert d["precios"] == {"XLV": 170.0}
+
+    def test_el_lote_se_COMPLETA_uno_a_uno_si_el_proveedor_no_los_trae(
+            self, monkeypatch):
+        """FMP acepta la lista por comas, pero no en todos los planes ni
+        devolviendo siempre lo que se pide. Sin la red de abajo, un plan que no
+        soporte el lote dejaría la pantalla congelada sin decir por qué — y no
+        se puede comprobar desde aquí, que es justo el motivo de no fiarse."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "requests", _RequestsFalso({"XLK": 250.0}))
+        sueltos = []
+
+        def _uno(tk):
+            sueltos.append(tk)
+            return {"symbol": tk, "price": 99.0}
+
+        monkeypatch.setattr(V, "_quote_rapido_fmp", _uno)
+        d = V._quotes_lote(["XLK", "XLF", "XLE"])
+        assert sorted(sueltos) == ["XLE", "XLF"], (
+            "no se pidieron uno a uno los que el lote no trajo")
+        assert set(d) == {"XLK", "XLF", "XLE"}
+
+    def test_se_cachea_para_que_DIEZ_pestañas_no_sean_diez_sondeos(
+            self, monkeypatch, client):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_VIVO_CACHE", {})
+        veces = []
+        monkeypatch.setattr(V, "_quotes_lote", lambda ts: (
+            veces.append(1), {"XLK": {"symbol": "XLK", "price": 1.0}})[1])
+        client.get("/api/sectores/vivo?tickers=XLK")
+        d = client.get("/api/sectores/vivo?tickers=XLK").json()
+        assert len(veces) == 1, "la segunda petición volvió a salir a la red"
+        assert d["cacheado"] is True
+
+    def test_hay_TOPE_de_tickers(self, monkeypatch, client):
+        """La pantalla más grande son catorce casillas. Un número mayor solo
+        puede venir de alguien probando qué pasa."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_VIVO_CACHE", {})
+        pedidos = []
+        monkeypatch.setattr(V, "_quotes_lote",
+                            lambda ts: (pedidos.extend(ts), {})[1])
+        muchos = ",".join(f"AA{i}" for i in range(90))
+        client.get(f"/api/sectores/vivo?tickers={muchos}")
+        assert len(pedidos) <= V._VIVO_MAX
+
+    def test_sin_clave_lo_DICE_en_vez_de_callarse(self, monkeypatch, client):
+        import vertex_api as V
+
+        monkeypatch.delenv("FMP_API_KEY", raising=False)
+        monkeypatch.setattr(V, "_VIVO_CACHE", {})
+        d = client.get("/api/sectores/vivo?tickers=XLK").json()
+        assert d["ok"] is False and "FMP_API_KEY" in d["error"]
+
+    def test_el_panel_SONDEA_con_los_tres_frenos(self):
+        """Un latido sin frenos se come la cuota: solo lo que se ve, solo con
+        el mercado vivo y solo con la pestaña delante."""
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        cuerpo = h.split("async function vxVivoLatido", 1)[1].split("\n}", 1)[0]
+        assert "visibilityState" in cuerpo, "sondea con la pestaña de fondo"
+        assert "vxVivoMercadoVivo()" in cuerpo, "sondea con la bolsa cerrada"
+        assert "vxVivoTickers()" in cuerpo, "no se limita a lo que está en pantalla"
+
+    def test_el_latido_se_PARA_al_salir_del_panel(self):
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        cuerpo = h.split("function switchView(viewId)", 1)[1].split("\n}", 1)[0]
+        assert "vxVivoArranca()" in cuerpo and "vxVivoPara()" in cuerpo, (
+            "el latido no se enciende y apaga con la pantalla")
+
+    def test_NO_se_repinta_la_parrilla_entera_para_cambiar_un_numero(self):
+        """Repintar cerraría la rotación abierta, movería el foco y haría
+        parpadear catorce casillas para cambiar un número."""
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        cuerpo = h.split("function vxVivoPinta", 1)[1].split("\n}\n", 1)[0]
+        for prohibido in ("pintaParrilla", "innerHTML", "cargaSectores"):
+            assert prohibido not in cuerpo, f"el latido llama a {prohibido}"
+        assert "textContent" in cuerpo, "tiene que tocar el nodo del precio"
+
+
+class _RequestsFalso:
+    """Un `requests` de mentira que solo contesta el lote que se le diga."""
+
+    def __init__(self, precios):
+        self._precios = precios
+
+    def get(self, url, params=None, timeout=None):
+        precios = self._precios
+
+        class _R:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return [{"symbol": k, "price": v} for k, v in precios.items()]
+
+        return _R()

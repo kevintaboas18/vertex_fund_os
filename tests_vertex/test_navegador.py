@@ -1758,3 +1758,185 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
             assert not errores, errores[:3]
         finally:
             pg.close()
+
+
+class TestElPrecioSeMUEVESolo:
+    """«Quiero que los precios cambien en tiempo real.»
+
+    Se mide en un navegador de verdad porque es donde puede fallar: que el
+    número cambie sin repintar la pantalla, que el destello diga la dirección,
+    y que el latido se calle cuando no hay nada que mirar.
+    """
+
+    ESCRITORIO = {"width": 1440, "height": 900}
+    MOVIL = {"width": 390, "height": 844}
+    SECS = ["XLK", "XLF", "XLV", "XLY", "XLC", "XLI",
+            "XLP", "XLE", "XLU", "XLRE", "XLB"]
+
+    def _abre(self, navegador, servidor, viewport=None, precio=100.0):
+        import re as _re
+
+        pg = navegador.new_page(viewport=viewport or self.ESCRITORIO)
+        errores: list[str] = []
+        pg.on("pageerror", lambda e: errores.append(str(e)))
+        estado = {"precio": precio, "sondeos": 0}
+
+        vol = {v: {"medio": 1, "relativo": 1.0, "respalda": True}
+               for v in ("7D", "1M", "3M", "6M", "1A")}
+        fila = lambda t: {"ticker": t, "nombre": t, "precio": estado["precio"],
+                          "cambio_pct": 0.5, "rsi": 55.0, "sma200": 95.0,
+                          "sma200_dist": 5.0, "volumen": vol,
+                          "cambios": {"7D": 1.0, "1M": 2.0, "3M": 3.0,
+                                      "6M": 4.0, "1A": 5.0}}
+
+        def enruta(r):
+            u = r.request.url
+            if "/vivo" in u:
+                estado["sondeos"] += 1
+                pedidos = [t for t in u.split("tickers=")[-1].split("&")[0]
+                           .replace("%2C", ",").split(",") if t]
+                r.fulfill(status=200, json={
+                    "ok": True, "precios": {t: estado["precio"] for t in pedidos},
+                    "reloj": {"clave": "abierto", "abierto": True,
+                              "frase": "Mercado abierto"},
+                    "generado": "2026-08-15T18:00:00+00:00"})
+            else:
+                r.fulfill(status=200, json={
+                    "ok": True, "referencias": ["SPY", "RSP", "QQQ"],
+                    "sectores": self.SECS,
+                    "filas": [fila(t) for t in ["SPY", "RSP", "QQQ"] + self.SECS],
+                    "reloj": {"clave": "abierto", "abierto": True,
+                              "frase": "Mercado abierto"},
+                    "amplitud": {}, "interna": {"sectores": {}},
+                    "rotacion": {"disponible": False, "motivo": ""},
+                    "generado": "2026-08-15T18:00:00+00:00"})
+
+        pg.route(_re.compile(r"/api/sectores"), enruta)
+        pg.goto(servidor, wait_until="load")
+        pg.wait_for_function(
+            "() => document.querySelectorAll('[data-vx-precio]').length >= 14",
+            timeout=25000)
+        return pg, errores, estado
+
+    def test_el_precio_CAMBIA_sin_repintar_la_pantalla(self, navegador, servidor):
+        pg, errores, estado = self._abre(navegador, servidor)
+        try:
+            leo = ("() => document.querySelector('[data-vx-precio=\"XLK\"]')"
+                   ".textContent")
+            assert "100" in pg.evaluate(leo), pg.evaluate(leo)
+            # Se marca la casilla: si el latido repintara, la marca se perdería.
+            pg.evaluate("""() => {
+                document.querySelector('[data-vx-precio="XLK"]')
+                    .setAttribute('data-testigo', 'sigo-aqui');
+            }""")
+            estado["precio"] = 123.45
+            pg.evaluate("vxVivoLatido()")
+            pg.wait_for_function(
+                "() => document.querySelector('[data-vx-precio=\"XLK\"]')"
+                ".textContent.includes('123')", timeout=8000)
+            assert pg.evaluate(
+                "() => document.querySelector('[data-vx-precio=\"XLK\"]')"
+                ".getAttribute('data-testigo')") == "sigo-aqui", (
+                "se repintó la parrilla para cambiar un número")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_destello_dice_la_DIRECCION(self, navegador, servidor):
+        """Un parpadeo neutro obliga a acordarse del número anterior para
+        saber si subió o bajó."""
+        pg, errores, estado = self._abre(navegador, servidor)
+        try:
+            # Un primer latido para FIJAR la referencia. No es un apaño del
+            # test: en el primer sondeo no hay con qué comparar, así que no
+            # destella — y eso es lo correcto. El destello dice «subió» o
+            # «bajó», y sin número anterior ninguna de las dos es cierta.
+            pg.evaluate("vxVivoLatido()")
+            pg.wait_for_timeout(300)
+            estado["precio"] = 150.0
+            pg.evaluate("vxVivoLatido()")
+            pg.wait_for_function(
+                "() => document.querySelector('[data-vx-precio=\"XLK\"]')"
+                ".classList.contains('vx-sube')", timeout=8000)
+            estado["precio"] = 90.0
+            pg.evaluate("vxVivoLatido()")
+            pg.wait_for_function(
+                "() => document.querySelector('[data-vx-precio=\"XLK\"]')"
+                ".classList.contains('vx-baja')", timeout=8000)
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_con_la_BOLSA_CERRADA_no_se_sondea(self, navegador, servidor):
+        """El precio es el mismo y sondearlo es tirar cuota."""
+        pg, errores, estado = self._abre(navegador, servidor)
+        try:
+            # Primero se deja QUIETO: el latido de arranque va en vuelo y su
+            # respuesta reescribe el reloj con el del servidor, así que medir
+            # sin esperar mide la carrera y no el freno.
+            pg.evaluate("vxVivoPara()")
+            pg.wait_for_timeout(600)
+            pg.evaluate("""() => {
+                window._sectoresData = window._sectoresData || {};
+                window._sectoresData.reloj = {clave: 'cerrado', abierto: false};
+            }""")
+            antes = estado["sondeos"]
+            pg.evaluate("vxVivoLatido()")
+            pg.wait_for_timeout(600)
+            assert estado["sondeos"] == antes, "sondeó con la bolsa cerrada"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_solo_se_preguntan_los_tickers_QUE_SE_VEN(self, navegador,
+                                                      servidor):
+        """En el Dashboard son las catorce casillas. Preguntar por las 351
+        empresas escritas en el panel sería gastar cuota en lo que nadie mira.
+        """
+        pg, errores, _ = self._abre(navegador, servidor)
+        try:
+            vistos = pg.evaluate("() => vxVivoTickers()")
+            assert "XLK" in vistos and "SPY" in vistos
+            assert len(vistos) <= 15, f"se piden de más: {len(vistos)}"
+            assert "NVDA" not in vistos, (
+                "se piden empresas que no están en pantalla")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_tambien_en_el_MOVIL(self, navegador, servidor):
+        pg, errores, estado = self._abre(navegador, servidor, self.MOVIL)
+        try:
+            estado["precio"] = 321.0
+            pg.evaluate("vxVivoLatido()")
+            pg.wait_for_function(
+                "() => document.querySelector('[data-vx-precio=\"XLK\"]')"
+                ".textContent.includes('321')", timeout=8000)
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_latido_ARRANCA_SOLO_al_entrar(self, navegador, servidor):
+        """Lo que de verdad importa: que Kevin no tenga que hacer nada. Si el
+        latido solo se enciende navegando fuera y volviendo, para él la
+        función no existe."""
+        pg, errores, estado = self._abre(navegador, servidor)
+        try:
+            assert pg.evaluate("() => VX_VIVO_TIMER !== null"), (
+                "el latido no se encendió al abrir el Dashboard")
+            # Y sondeó de verdad, sin esperar los quince segundos.
+            assert estado["sondeos"] >= 1, "no preguntó el precio al entrar"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_y_se_APAGA_al_irse_a_otra_pantalla(self, navegador, servidor):
+        pg, errores, _ = self._abre(navegador, servidor)
+        try:
+            pg.evaluate("switchView('perfilView')")
+            pg.wait_for_timeout(300)
+            assert pg.evaluate("() => VX_VIVO_TIMER === null"), (
+                "el latido sigue gastando cuota fuera del panel")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()

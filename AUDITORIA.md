@@ -7580,3 +7580,85 @@ devuelve el error a propósito para comprobar que sale en rojo.
 
 **3.390 tests del motor · 813 de la capa web (7 nuevos) · 77 en un navegador
 real · 267 checks de auditoría · preflight de Render en verde.**
+
+---
+
+## 41.67 · Ronda 42 — el precio, en vivo
+
+> «Me gustaría que en el panel los precios cambien en tiempo real. Los precios
+> de los sectores, industrias y eso.» · «En el área de panel yo no veo velas,
+> solo veo precio, RSI diario y SMA 200 diario.» · «Y volumen diario. Todo lo
+> que se ve. Solo quiero el precio en tiempo real.»
+
+Kevin tenía razón en la corrección, y además señala justo lo que hace barata
+esta función. **En el panel no hay ninguna gráfica.** Lo que se ve de cada
+ticker son cuatro cosas: precio, RSI, media de 200 y volumen. Cuando el código
+habla de «velas» se refiere a las quince meses de barras diarias que el
+servidor baja por detrás para poder calcular las tres últimas — eso es lo caro
+y no se ve.
+
+Y de esas cuatro, **tres son diarias**: no se mueven hasta el cierre. Volver a
+pedirlas cada quince segundos sería bajar quince meses de historia para recibir
+el número que ya está puesto en pantalla. El único que se mueve mientras miras
+es el **precio**, y es lo único que se actualiza.
+
+### La ruta barata
+
+`/api/sectores/vivo` pide **solo cotizaciones**, en un lote, y devuelve un
+número por ticker. La foto completa —las veintiocho peticiones— sigue siendo
+cosa de `/api/sectores` y su refresco de segundo plano (§41.66).
+
+El lote se pide con la lista separada por comas, pero **lo que no venga se
+completa uno a uno en paralelo**: FMP no acepta el lote en todos los planes ni
+devuelve siempre las filas que se piden, y sin esa red un plan que no lo
+soporte dejaría la pantalla congelada sin decir por qué. No se puede comprobar
+desde aquí —el proxy de esta sesión bloquea `financialmodelingprep.com`— y eso
+es exactamente el motivo de no fiarse.
+
+Un precio de cero o negativo **no se pinta**: no es una ganga, es un dato roto,
+y pintarlo borraría el bueno que ya estaba.
+
+### El latido, con tres frenos
+
+Un sondeo sin frenos se come la cuota:
+
+1. **Solo los tickers que están EN PANTALLA**, leídos del DOM. Así vale igual
+   para la parrilla, para las industrias de un sector y para las acciones de
+   una industria, sin que nadie tenga que acordarse de actualizar una lista —y
+   sin preguntar por las 351 empresas escritas en el panel que nadie está
+   mirando.
+2. **Solo con el mercado vivo** (abierto, pre-mercado o after). Con la bolsa
+   cerrada el número es el mismo.
+3. **Solo con la pestaña visible.** Un panel en una pestaña de atrás no lo está
+   mirando nadie.
+
+Cada quince segundos, y el servidor cachea cinco: varias pestañas abiertas
+comparten el sondeo en vez de multiplicarlo.
+
+### Se escribe el número, no se repinta la pantalla
+
+Repintar la parrilla cada quince segundos cerraría la rotación que estuviera
+abierta, movería el foco y haría parpadear catorce casillas para cambiar un
+número. Se toca el nodo del precio y ya — hay un caso que marca la casilla con
+un testigo y comprueba que sigue ahí después del latido.
+
+El destello dice la **dirección**: verde si subió, rojo si bajó. Un parpadeo
+neutro obliga a acordarse del número anterior para saber qué pasó. En el primer
+sondeo no destella, y es lo correcto: sin número anterior, ni «subió» ni «bajó»
+son ciertas. Respeta `prefers-reduced-motion`.
+
+### El fallo que habría entregado
+
+El latido se encendía en `switchView`… y **al cargar la página nadie llama a
+`switchView`**: la vista del Dashboard ya viene visible del marcado. Así que
+para quien entra y se queda mirando —que es como se entra— la función no
+existía; solo arrancaba si navegabas a otra pestaña y volvías.
+
+Lo cazó `test_el_latido_ARRANCA_SOLO_al_entrar`, y lo más incómodo es que **el
+comentario de tres líneas más arriba en ese mismo bloque documenta esta misma
+trampa**, escrito cuando le pasó a la parrilla. Estaba avisado y caí igual.
+
+### Estado
+
+**3.390 tests del motor · 822 de la capa web (9 nuevos) · 84 en un navegador
+real (7 nuevos) · 267 checks de auditoría · preflight de Render en verde.**

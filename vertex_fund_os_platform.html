@@ -68,6 +68,22 @@
         .bg-panel { background-color: #11141D; }
         .border-panel { border-color: #1F2532; }
 
+        /* ── El destello del precio en vivo ──────────────────────────────
+           Tiñe el número un instante y se apaga. Verde si subió, rojo si
+           bajó: la DIRECCIÓN, no solo «algo cambió» — un parpadeo neutro
+           obliga a acordarse del número anterior para saber qué pasó.
+           Se apaga solo, así que la pantalla vuelve a estar en reposo y no
+           queda un mapa de colores viejos compitiendo con los de verdad.
+           `prefers-reduced-motion` lo respeta: quien pidió no tener
+           animaciones ve el cambio sin transición, no se lo pierde. */
+        @keyframes vxDestelloSube { from { color: #34d399; } to { color: inherit; } }
+        @keyframes vxDestelloBaja { from { color: #f87171; } to { color: inherit; } }
+        .vx-sube { animation: vxDestelloSube .9s ease-out; }
+        .vx-baja { animation: vxDestelloBaja .9s ease-out; }
+        @media (prefers-reduced-motion: reduce) {
+            .vx-sube, .vx-baja { animation: none; }
+        }
+
         /* ── TEMA CLARO (toggle) — override de las superficies principales ── */
         html.light body { background-color: #eef1f6 !important; color: #16181d !important; }
         html.light nav { background-color: #ffffff !important; }
@@ -1597,6 +1613,14 @@ function switchView(viewId) {
     // minutos hace que volver al panel sea instantáneo sin enseñar precios
     // de hace media hora.
     if (viewId === 'sectorsView' && typeof cargaSectores === 'function') cargaSectores();
+    // El latido del precio vive con las pantallas que enseñan precio: el
+    // Dashboard y las de dentro de un sector. Fuera de ahí se PARA — dejarlo
+    // corriendo en Proyecciones o en el perfil sería gastar cuota para pintar
+    // números que no está mirando nadie.
+    if (typeof vxVivoArranca === 'function') {
+        if (viewId === 'sectorsView' || viewId === 'sectorView') vxVivoArranca();
+        else vxVivoPara();
+    }
     // Proyecciones se arma AQUÍ, en la navegación.
     //
     // Estaba colgado de la barra de comandos (Cmd+K), así que entrando por el
@@ -1950,6 +1974,132 @@ function vxInternaHTML(ticker) {
 
 //: La casilla de la parrilla. `pulsable` es falso para SPY/RSP/QQQ: son
 //: índices y no tienen industrias que desplegar, así que no invitan al clic.
+// ═══════════════════════════════════════════════════════════════════════
+//  EL PRECIO, EN VIVO
+//
+//  «Me gustaría que los precios cambien en tiempo real.»
+//
+//  Se actualiza SOLO el precio, y es lo correcto además de lo pedido: de lo
+//  que la pantalla enseña, el RSI, la media de 200 y el volumen son DIARIOS
+//  —salen de barras diarias y no se mueven hasta el cierre—, así que volver a
+//  pedirlos cada pocos segundos sería bajar quince meses de historia para
+//  recibir el número que ya está puesto.
+//
+//  No es streaming: este plan de FMP no lo tiene. Es un sondeo corto, y se
+//  hace con tres frenos, porque un latido sin frenos se come la cuota:
+//
+//    1. Solo los tickers que están EN PANTALLA. Se leen del DOM, así que
+//       vale igual para la parrilla, para las industrias de un sector y para
+//       las acciones de una industria, sin que nadie tenga que acordarse.
+//    2. Solo con el mercado ABIERTO —o en pre-mercado y after, donde el
+//       precio también se mueve—. Con la bolsa cerrada el número es el mismo
+//       y sondearlo es tirar cuota.
+//    3. Solo con la pestaña VISIBLE. Un panel abierto en una pestaña de
+//       atrás no lo está mirando nadie.
+// ═══════════════════════════════════════════════════════════════════════
+
+//: Cada cuánto se pregunta. Quince segundos: se ve moverse y no arruina la
+//: cuota. El servidor además cachea cinco, así que varias pestañas abiertas
+//: comparten el sondeo en vez de multiplicarlo.
+const VX_VIVO_MS = 15000;
+let VX_VIVO_TIMER = null;
+
+//: El último precio pintado por ticker, para saber si SUBIÓ o BAJÓ y teñir el
+//: destello del color que toca. Sin esto solo se podría parpadear en gris, que
+//: es ver que algo cambió sin ver hacia dónde.
+const VX_VIVO_ULT = {};
+
+//: Los estados del reloj en los que hay precio que mirar.
+const VX_VIVO_SESIONES = ['abierto', 'premarket', 'after'];
+
+function vxVivoMercadoVivo() {
+    const r = ((window._sectoresData || {}).reloj) || {};
+    // Sin reloj todavía se sondea igual: negarse porque aún no llegó la
+    // primera respuesta dejaría la pantalla quieta justo al entrar.
+    return !r.clave || VX_VIVO_SESIONES.includes(r.clave);
+}
+
+//: Los tickers con precio visible ahora mismo. Del DOM y no de una lista
+//: escrita: la lista habría que acordarse de actualizarla en cada piso nuevo.
+function vxVivoTickers() {
+    const vistos = [];
+    document.querySelectorAll('[data-vx-precio]').forEach(n => {
+        if (n.offsetParent === null) return;      // no se ve: no se pregunta
+        const t = n.getAttribute('data-vx-precio');
+        if (t && !vistos.includes(t)) vistos.push(t);
+    });
+    return vistos;
+}
+
+//: Escribe los precios nuevos EN SU SITIO, sin repintar nada.
+//:
+//: Repintar la parrilla entera cada quince segundos cerraría la rotación que
+//: estuviera abierta, movería el foco y haría parpadear catorce casillas para
+//: cambiar un número. Se toca el nodo del precio y ya.
+function vxVivoPinta(precios) {
+    Object.keys(precios || {}).forEach(tk => {
+        const p = precios[tk];
+        if (typeof p !== 'number') return;
+        const antes = VX_VIVO_ULT[tk];
+        VX_VIVO_ULT[tk] = p;
+        document.querySelectorAll(`[data-vx-precio="${CSS.escape(tk)}"]`).forEach(n => {
+            const nuevo = vxUsd(p);
+            if (n.textContent === nuevo) return;  // no cambió: ni se toca
+            n.textContent = nuevo;
+            if (antes == null || p === antes) return;
+            // El destello dice la DIRECCIÓN, no solo que hubo cambio.
+            const cls = p > antes ? 'vx-sube' : 'vx-baja';
+            n.classList.remove('vx-sube', 'vx-baja');
+            void n.offsetWidth;                   // reinicia la animación
+            n.classList.add(cls);
+            setTimeout(() => n.classList.remove(cls), 900);
+        });
+    });
+}
+
+async function vxVivoLatido() {
+    if (document.visibilityState !== 'visible') return;
+    if (!vxVivoMercadoVivo()) return;
+    const tickers = vxVivoTickers();
+    if (!tickers.length) return;
+    try {
+        const r = await fetch(`${API_BASE}/api/sectores/vivo?tickers=`
+            + encodeURIComponent(tickers.join(',')));
+        const d = await r.json();
+        if (d && d.ok) {
+            vxVivoPinta(d.precios);
+            // El reloj del servidor manda: si la sesión se cerró mientras
+            // mirabas, el siguiente latido se calla solo.
+            if (d.reloj) {
+                window._sectoresData = window._sectoresData || {};
+                window._sectoresData.reloj = d.reloj;
+            }
+        }
+    } catch (e) {
+        // Un sondeo que falla no dice nada: el precio de antes sigue en
+        // pantalla con su hora, y el siguiente latido lo intenta otra vez.
+        // Gritar por cada hueco de red sería ruido, no información.
+    }
+}
+
+function vxVivoArranca() {
+    if (VX_VIVO_TIMER) return;
+    VX_VIVO_TIMER = setInterval(vxVivoLatido, VX_VIVO_MS);
+    vxVivoLatido();
+}
+
+function vxVivoPara() {
+    if (!VX_VIVO_TIMER) return;
+    clearInterval(VX_VIVO_TIMER);
+    VX_VIVO_TIMER = null;
+}
+
+document.addEventListener('visibilitychange', () => {
+    // Al volver a la pestaña se pregunta YA, sin esperar los quince segundos:
+    // vuelves de otra cosa y lo primero que quieres ver es el precio de ahora.
+    if (document.visibilityState === 'visible') vxVivoLatido();
+});
+
 function vxSectorCaja(f, pulsable, abierto) {
     // «···» es ESPERANDO y «—» es NO HAY. Son cosas distintas y la diferencia
     // se nota: unos puntos suspensivos dicen «ya viene», una raya dice «este
@@ -1967,7 +2117,7 @@ function vxSectorCaja(f, pulsable, abierto) {
           <span class="text-[10px] text-gray-500 truncate">${_vcEsc(f.nombre)}</span>
         </div>
         <div class="flex items-baseline gap-2 mt-1.5 flex-wrap">
-          <span class="text-base font-bold text-white">${f.precio == null ? na : vxUsd(f.precio)}</span>
+          <span class="text-base font-bold text-white" data-vx-precio="${_vcEsc(f.ticker)}">${f.precio == null ? na : vxUsd(f.precio)}</span>
           <span class="text-xs font-bold ${vxCambioColor(cambio)}">${cambio == null ? na : vxPct(cambio)}</span>
           <span class="text-[9px] text-gray-700">${vxVentana()}</span>
         </div>
@@ -2464,7 +2614,7 @@ function vxIndustriaFila(f, pulsable) {
         <span class="text-xs font-black text-white">${_vcEsc(f.ticker)}</span>
         <span class="text-[10px] text-gray-500 ml-1.5">${_vcEsc(f.nombre)}</span>
       </div>
-      <span class="text-xs font-bold text-white tabular-nums w-20 text-right">${hay ? vxUsd(f.precio) : '<span class="text-gray-700">···</span>'}</span>
+      <span class="text-xs font-bold text-white tabular-nums w-20 text-right" data-vx-precio="${_vcEsc(f.ticker)}">${hay ? vxUsd(f.precio) : '<span class="text-gray-700">···</span>'}</span>
       <span class="text-xs font-bold tabular-nums w-16 text-right ${vxCambioColor(hay ? vxCambioDe(f) : null)}">${hay ? vxPct(vxCambioDe(f)) : '···'}</span>
       <span class="flex items-baseline justify-end gap-3 tabular-nums w-full sm:w-auto">
         <span class="text-[10px] w-14 text-right"><span class="text-gray-600">RSI </span><span
@@ -9032,6 +9182,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // mapa se quedaba en «Leyendo el mercado…» hasta que tocaras otra pestaña
     // y volvieras.
     if (typeof cargaSectores === 'function') cargaSectores();
+    // Y el latido del precio, por EXACTAMENTE el mismo motivo que la línea de
+    // arriba: la vista ya viene visible del marcado, así que `switchView` no
+    // corre y el latido no se encendía. Solo arrancaba si navegabas a otra
+    // pestaña y volvías — es decir, para quien entra y se queda mirando, que
+    // es como se entra, la función no existía. Lo cazó
+    // `test_el_latido_ARRANCA_SOLO_al_entrar`.
+    if (typeof vxVivoArranca === 'function') vxVivoArranca();
     syncReportsFromServer();   // #4 — trae reportes durables del servidor (multi-dispositivo)
     loadDataHealth();          // #5 — salud de fuentes de datos
     setInterval(() => loadDataHealth(), 120000);   // re-chequea cada 2 min

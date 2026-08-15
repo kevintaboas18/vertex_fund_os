@@ -7187,6 +7187,106 @@ def _sectores_calcula(pedidos: list) -> dict:
     return salida
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  LOS PRECIOS, EN VIVO
+#
+#  «Me gustaría que en el panel los precios cambien en tiempo real.»
+#
+#  En el panel NO hay ninguna gráfica: lo que se ve de cada ticker es el
+#  precio, el RSI, la media de 200 y el volumen. Y de esos cuatro, tres son
+#  DIARIOS —se calculan sobre barras diarias y no cambian hasta el cierre—, así
+#  que preguntar por ellos cada quince segundos sería gastar cuota para recibir
+#  el mismo número. El único que se mueve mientras miras es el PRECIO, y es lo
+#  único que esta ruta trae.
+#
+#  Por eso es la barata: pide SOLO cotizaciones, en un lote, y devuelve un
+#  número por ticker. La foto completa —las veintiocho peticiones, con las
+#  barras que alimentan RSI, media y volumen— sigue siendo cosa de
+#  `/api/sectores`.
+#
+#  No es streaming: este plan de FMP no lo tiene. Es un sondeo corto, y la
+#  pantalla dice de cuándo es el número que enseña.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Cuánto vale una cotización. Cinco segundos: con varias pestañas abiertas —o
+#: varias personas— el sondeo se comparte en vez de multiplicarse.
+_VIVO_TTL = 5.0
+_VIVO_CACHE: dict[str, tuple[float, dict]] = {}
+_VIVO_LOCK = threading.Lock()
+
+#: Tope de tickers por petición. La pantalla más grande son las catorce
+#: casillas; el resto son listas cortas. Un número mayor solo puede venir de
+#: alguien probando qué pasa.
+_VIVO_MAX = 30
+
+
+def _quotes_lote(tickers: list) -> dict:
+    """Cotizaciones de varios tickers, en UNA petición si el proveedor deja.
+
+    FMP acepta la lista separada por comas en `/stable/quote`, pero no en todos
+    los planes y no siempre devuelve las mismas filas que se piden. Así que se
+    pide en lote y **lo que falte se completa uno a uno**, en paralelo: sin esa
+    red, un plan que no soporte el lote dejaría la pantalla congelada sin decir
+    por qué. No se puede comprobar desde aquí —el proxy de esta sesión bloquea
+    `financialmodelingprep.com`— y eso es exactamente el motivo de no fiarse.
+    """
+    clave = (os.environ.get("FMP_API_KEY") or "").strip()
+    if not clave or not tickers:
+        return {}
+    salida: dict[str, dict] = {}
+    try:
+        r = requests.get("https://financialmodelingprep.com/stable/quote",
+                         params={"symbol": ",".join(tickers), "apikey": clave},
+                         timeout=6)
+        filas = r.json() if r.status_code == 200 else []
+        for q in filas if isinstance(filas, list) else []:
+            if isinstance(q, dict) and q.get("symbol"):
+                salida[str(q["symbol"]).upper()] = q
+    except Exception:                            # noqa: BLE001
+        pass
+    faltan = [t for t in tickers if t not in salida]
+    if faltan:
+        with ThreadPoolExecutor(max_workers=_SECTORES_CONCURRENCIA) as ex:
+            for tk, q in zip(faltan, ex.map(_quote_rapido_fmp, faltan)):
+                if q:
+                    salida[tk] = q
+    return salida
+
+
+@app.get("/api/sectores/vivo")
+def api_sectores_vivo(tickers: str = ""):
+    """El PRECIO de varios tickers, y nada más.
+
+    Lo demás que la pantalla enseña —RSI, media de 200, volumen— es diario: no
+    cambia hasta el cierre, y volver a bajarlo cada quince segundos sería pedir
+    quince meses de barras para recibir el número que ya se tiene.
+    """
+    pedidos = _sectores_pedidos(tickers)[:_VIVO_MAX]
+    if not pedidos:
+        return {"ok": False, "error": "No se pidió ningún ticker.", "precios": {}}
+    if not (os.environ.get("FMP_API_KEY") or "").strip():
+        return {"ok": False, "error": "Falta FMP_API_KEY: sin ella no hay "
+                                      "precio en vivo.", "precios": {}}
+
+    clave = ",".join(pedidos)
+    ahora = time.time()
+    with _VIVO_LOCK:
+        guardado = _VIVO_CACHE.get(clave)
+        if guardado and ahora - guardado[0] < _VIVO_TTL:
+            return {**guardado[1], "reloj": _reloj_ahora(), "cacheado": True}
+
+    precios: dict[str, float] = {}
+    for tk, q in _quotes_lote(pedidos).items():
+        p = q.get("price")
+        if isinstance(p, (int, float)) and p > 0:
+            precios[tk] = round(float(p), 2)
+    salida = {"ok": True, "precios": precios,
+              "generado": datetime.now(timezone.utc).isoformat()}
+    with _VIVO_LOCK:
+        _VIVO_CACHE[clave] = (ahora, salida)
+    return {**salida, "reloj": _reloj_ahora(), "cacheado": False}
+
+
 #: Dónde vive la foto de la parrilla dentro del almacén. Al lado de las otras
 #: series, y por lo mismo: en Render el disco es efímero y lo que no está en el
 #: almacén no existe después de un redeploy.
