@@ -171,6 +171,14 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
         # traducción es un patrón. Que el patrón funcione lo mide
         # `test_el_patron_de_la_cinta_traduce_con_el_corte_que_venga`.
         "son trades con puntaje inusual (≥",
+        # El resumen de rotación: el `<b>` con el nombre de la familia parte el
+        # párrafo y los dos números caen dentro del trozo de la derecha, así que
+        # el extractor lo corta en el `${` y ve solo la cola. Va por `VX_PAT` y
+        # lo mide `test_el_resumen_de_rotacion_traduce_con_los_numeros_dentro`.
+        "de sus sectores liderando o despertando",
+        # El aviso de «esta industria todavía no tiene empresas escritas»: lleva
+        # el ticker dentro, así que va por `VX_PAT`. Lo mide el mismo test.
+        "Todavía no están escritas las empresas de",
     }
 
     @staticmethod
@@ -575,6 +583,32 @@ class TestEnInglesNoQuedaEspanol:
         assert d["veinticuatro"] == "are trades with an unusual score (≥24/30)."
         assert d["otro"] == "are trades with an unusual score (≥18/30).", (
             "el patrón fija el número en vez de conservarlo")
+
+    def test_el_resumen_de_rotacion_traduce_con_los_numeros_dentro(self, pagina):
+        """Las dos frases del resumen llevan datos dentro (los dos recuentos de
+        la familia, el ticker de la industria), así que el escáner de código
+        solo ve la mitad y están declaradas. Aquí se miden por el otro lado.
+
+        Y se comprueba con DOS juegos de números: un patrón que fije el 3 de 5
+        de hoy pasaría igual con un solo caso y mañana escribiría un recuento
+        falso en pantalla.
+        """
+        d = pagina.evaluate("""() => ({
+            familia: vxFrase('3 de 5 de sus sectores liderando o despertando'),
+            otra: vxFrase('1 de 4 de sus sectores liderando o despertando'),
+            con_guion: vxFrase('— 3 de 5 de sus sectores liderando o despertando'),
+            sin_empresas: vxFrase('Todavía no están escritas las empresas de SMH.'),
+            otro_etf: vxFrase('Todavía no están escritas las empresas de KRE.'),
+        })""")
+        assert d["familia"] == "3 of 5 of its sectors leading or waking up"
+        assert d["otra"] == "1 of 4 of its sectors leading or waking up", (
+            "el patrón fija los recuentos en vez de conservarlos")
+        assert d["con_guion"] == "— 3 of 5 of its sectors leading or waking up", (
+            "el guión que deja el <b> delante vuelve a dejarla en español")
+        assert d["sin_empresas"] == "The companies of SMH are not written down yet.", \
+            d["sin_empresas"]
+        assert "KRE" in (d["otro_etf"] or ""), (
+            "el patrón fija el ticker en vez de conservarlo")
 
     def test_un_guion_pegado_no_deja_la_frase_en_espanol(self, pagina):
         """Un `<b>` en medio de un párrafo parte el texto en trozos, y al de la

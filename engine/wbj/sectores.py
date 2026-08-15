@@ -74,6 +74,8 @@ __all__ = [
     "estela_rrg",
     # ── amplitud interna ──
     "SMA_INTERNA",
+    "MIEMBROS",
+    "miembros_de",
     "amplitud_interna",
 ]
 
@@ -964,3 +966,39 @@ def amplitud_interna(series, periodo: int = SMA_INTERNA) -> dict:
         "medidos": sorted(medidos),
         "sin_dato": sorted(sin_dato),
     }
+
+
+#: Los mayores componentes de cada sector, ESCRITOS.
+#:
+#: Se pedían a FMP y con el plan de Kevin contesta «HTTP 402 · HTTP 403»: 402 en
+#: el endpoint nuevo de posiciones de ETF (es de pago) y 403 en el de siempre
+#: («exclusive endpoint»). Los dos caminos cerrados, así que la amplitud interna
+#: no medía NADA — salía «—» en las once casillas sin que nadie supiera por qué.
+#:
+#: Escritos aquí, se calcula igual: lo que hace falta de cada empresa —su serie
+#: de cierres— sí lo sirve el plan. Son los MAYORES de cada sector, no la lista
+#: completa: son los que mueven el índice y los que menos cambian de un
+#: trimestre a otro. Una empresa que salga del sector deja de poder medirse y
+#: no vota, que es exactamente lo que tiene que pasar.
+MIEMBROS = {
+    "XLK": ("NVDA", "MSFT", "AAPL", "AVGO", "ORCL", "CRM", "AMD", "ACN",
+            "CSCO", "ADBE", "IBM", "TXN"),
+    "XLF": ("JPM", "V", "MA", "BAC", "WFC", "GS", "MS", "AXP", "SPGI", "BLK"),
+    "XLV": ("LLY", "UNH", "JNJ", "ABBV", "MRK", "TMO", "ABT", "ISRG", "DHR",
+            "AMGN", "PFE", "BSX"),
+    "XLY": ("AMZN", "TSLA", "HD", "MCD", "BKNG", "LOW", "TJX", "SBUX", "NKE",
+            "ORLY"),
+    "XLC": ("META", "GOOGL", "NFLX", "DIS", "CMCSA", "TMUS", "VZ", "T", "EA",
+            "TTWO"),
+    "XLI": ("GE", "CAT", "RTX", "UNP", "HON", "BA", "ETN", "DE", "LMT", "UPS"),
+    "XLP": ("COST", "WMT", "PG", "KO", "PEP", "PM", "MO", "MDLZ", "CL", "TGT"),
+    "XLE": ("XOM", "CVX", "COP", "WMB", "EOG", "SLB", "OKE", "PSX", "MPC", "VLO"),
+    "XLU": ("NEE", "SO", "DUK", "CEG", "D", "AEP", "SRE", "EXC", "XEL", "PEG"),
+    "XLRE": ("PLD", "AMT", "EQIX", "WELL", "SPG", "PSA", "O", "DLR", "CCI", "EXR"),
+    "XLB": ("LIN", "SHW", "APD", "ECL", "FCX", "NEM", "DOW", "NUE", "PPG", "VMC"),
+}
+
+
+def miembros_de(ticker: str) -> tuple:
+    """Los componentes escritos de un sector. `()` si no es uno de los once."""
+    return MIEMBROS.get(str(ticker).upper().strip(), ())

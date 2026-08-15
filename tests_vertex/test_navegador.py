@@ -34,6 +34,11 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+#: Las familias de sectores del MOTOR. El payload de mentira las copia de aquí
+#: para que no puedan quedarse atrás el día que se toquen en `sectores.py`.
+from engine.wbj.sectores import CATEGORIAS as _CATEGORIAS  # noqa: E402
 
 pytest.importorskip("playwright", reason="hace falta playwright")
 from playwright.sync_api import sync_playwright  # noqa: E402
@@ -1016,9 +1021,15 @@ class TestElSectorSeAbreComoSECCION:
             filas = pg.evaluate(
                 "() => [...document.querySelectorAll('#sectorIndustrias [data-ind]')]"
                 ".map(x => x.innerText.replace(/\\n/g, ' '))")
-            assert len(filas) == 5, f"XLK tiene 5 industrias, salieron {len(filas)}"
+            # Los ETF esperados se leen de la TABLA, no se copian aquí. Copiarlos
+            # ya salió caro una vez: la lista llevaba XSD, se cambió por AIQ al
+            # completar las industrias, y este caso se puso rojo por estar
+            # desactualizado —no por un fallo del panel—.
+            esperados = pg.evaluate("() => VX_INDUSTRIAS['XLK'].map(x => x[0])")
+            assert len(filas) == len(esperados), (
+                f"XLK tiene {len(esperados)} industrias, salieron {len(filas)}")
             texto = " ".join(filas)
-            for esperado in ("SMH", "IGV", "CIBR", "SKYY", "XSD"):
+            for esperado in esperados:
                 assert esperado in texto, f"falta {esperado}: {texto}"
             assert "Semiconductores" in texto and "Software" in texto
             assert "···" in texto, (
@@ -1027,14 +1038,43 @@ class TestElSectorSeAbreComoSECCION:
         finally:
             pg.close()
 
-    def test_un_sector_sin_desglose_lo_dice_en_su_seccion(self, navegador,
-                                                          servidor):
+    def test_LOS_ONCE_sectores_tienen_sus_industrias_escritas(self, navegador,
+                                                              servidor):
+        """«Cuando entro al sector me salen algunas industrias.»
+
+        Este caso medía lo contrario: abría XLU, que era el que no tenía NI UNA,
+        y comprobaba que lo dijera. Decirlo estaba bien; que once sectores
+        tuvieran uno vacío, no. Ahora los once traen las suyas, y lo que se mide
+        es eso — que ninguno se quede en la frase de consuelo.
+        """
         pg, errores = self._abre(navegador, servidor)
         try:
-            pg.evaluate("abreSector('XLU')")
-            pg.wait_for_timeout(800)
-            txt = pg.evaluate("() => document.getElementById('sectorIndustrias').innerText")
-            assert txt.strip(), "ni lista ni motivo: la sección se queda muda"
+            sectores = pg.evaluate("() => VX_SECTORES.sectores.map(x => x[0])")
+            for tk in sectores:
+                pg.evaluate(f"abreSector('{tk}')")
+                pg.wait_for_timeout(250)
+                txt = pg.evaluate(
+                    "() => document.getElementById('sectorIndustrias').innerText")
+                assert txt.strip(), f"{tk}: ni lista ni motivo, la sección se queda muda"
+                assert "desglose" not in txt, (
+                    f"{tk} sigue sin industrias escritas: {txt[:120]}")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_pero_un_ETF_sin_desglose_lo_SIGUE_diciendo(self, navegador,
+                                                        servidor):
+        """La rama sigue viva: si mañana entra un ETF sin industrias escritas,
+        la sección lo cuenta en vez de quedarse en blanco."""
+        pg, errores = self._abre(navegador, servidor)
+        try:
+            pg.evaluate("""() => {
+                VX_INDUSTRIAS['XLU_PRUEBA'] = [];
+                abreSector('XLU_PRUEBA');
+            }""")
+            pg.wait_for_timeout(400)
+            txt = pg.evaluate(
+                "() => document.getElementById('sectorIndustrias').innerText")
             assert "desglose" in txt, txt
             assert not errores, errores[:3]
         finally:
@@ -1075,17 +1115,26 @@ class TestElSelectorDeVentanaFUNCIONAEnLosTresPisos:
         secs = ["XLK", "XLF", "XLV", "XLY", "XLC", "XLI",
                 "XLP", "XLE", "XLU", "XLRE", "XLB"]
 
+        # Los nombres bonitos de los dos que se miran; el resto se queda con su
+        # ticker, que para este caso da igual.
+        nombres = {"SMH": "Semiconductores", "NVDA": "NVIDIA"}
+
         def enruta(r):
             u = r.request.url
-            if "/acciones" in u:
+            if "tickers=" in u:
+                # Se DEVUELVE lo que se pidió. Antes contestaba siempre con SMH,
+                # así que al entrar en una industria las empresas no recibían
+                # número nunca y el selector parecía no repintar: el caso medía
+                # el arnés, no el panel.
+                from urllib.parse import parse_qs, unquote, urlparse
+
+                pedidos = [t for t in unquote(
+                    parse_qs(urlparse(u).query).get("tickers", [""])[0]
+                ).split(",") if t]
                 r.fulfill(status=200, json={
-                    "ok": True, "etf": "SMH",
-                    "filas": [self._fila("NVDA", "NVIDIA", 3.0)],
-                    "amplitud": self._amp()})
-            elif "tickers=" in u:
-                r.fulfill(status=200, json={
-                    "ok": True, "tickers": ["SMH"],
-                    "filas": [self._fila("SMH", "Semiconductores", 2.0)],
+                    "ok": True, "tickers": pedidos,
+                    "filas": [self._fila(t, nombres.get(t), 2.0)
+                              for t in pedidos],
                     "amplitud": self._amp()})
             else:
                 r.fulfill(status=200, json={
@@ -1321,7 +1370,13 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
                                     "lagging": [], "improving": []},
                          "cuadrantes": ["leading", "weakening", "lagging",
                                         "improving"],
-                         "categorias": [],
+                         # Las familias salen del MOTOR, no de una lista escrita
+                         # a mano aquí: con `[]` el resumen de rotación se
+                         # quedaba sin «Manda» ni «Se queda» y el caso pasaba
+                         # midiendo una pantalla que en producción dice más.
+                         "categorias": [{"clave": c, "nombre": n,
+                                         "sectores": list(ts)}
+                                        for c, n, ts in _CATEGORIAS],
                          "sectores": {t: {"fuerza": 2.0 - i * 0.4,
                                           "impulso": 0.5 if i % 2 else -0.5,
                                           "cuadrante": ["leading", "improving",
@@ -1554,6 +1609,43 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
             assert pos == sorted(pos), (
                 f"[{nombre}] las capas no van de mejor a peor: {pos}")
             assert "S&P 500" in t, f"[{nombre}] falta la referencia del centro"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    @pytest.mark.parametrize("nombre,viewport",
+                             [("escritorio", ESCRITORIO), ("ipad", IPAD),
+                              ("movil", MOVIL), ("monitor", MONITOR)])
+    def test_la_rotacion_se_CUENTA_en_frases_no_solo_en_tickers(
+            self, navegador, servidor, nombre, viewport):
+        """«Que explique en términos simples lo que ha estado pasando y a dónde
+        está rotando el dinero y por qué.»
+
+        Las cuatro capas dicen DÓNDE cae cada sector; no dicen qué familia
+        manda, cuál se queda, dónde entra dinero de verdad ni si esto es
+        rotación o el índice moviéndose en bloque. Eso es el resumen, y va en
+        frases con su número al lado.
+        """
+        pg, errores = self._abre(navegador, servidor, viewport)
+        try:
+            pg.evaluate("""() => {
+                localStorage.setItem('vertex_rotacion', '1');
+                pintaRotacion((window._sectoresData || {}).rotacion);
+            }""")
+            pg.wait_for_timeout(200)
+            t = pg.evaluate(
+                "() => document.getElementById('sectoresRotacion').innerText")
+            for etq in ("Qué está rotando, en corto", "Manda:", "Se queda:",
+                        "Entra dinero:", "Sale dinero:", "Dispersión:"):
+                assert etq in t, f"[{nombre}] falta «{etq}»: {t[:300]}"
+            # Entrar y salir se dicen SOLO con volumen detrás: es la definición
+            # del motor, y sin decirlo el lector lo lee como «lo que más sube».
+            assert "con volumen" in t, (
+                f"[{nombre}] no se dice que la entrada y la salida piden volumen")
+            # Y el resumen va ANTES de las capas: primero la frase, después el
+            # mapa que la sostiene.
+            assert t.index("Qué está rotando, en corto") < t.index("Liderando"), (
+                f"[{nombre}] el resumen quedó debajo del mapa de capas")
             assert not errores, errores[:3]
         finally:
             pg.close()

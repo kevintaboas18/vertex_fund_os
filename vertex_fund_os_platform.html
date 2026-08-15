@@ -1784,17 +1784,86 @@ const VX_SECTORES = {
 //: Pulsar XLK tiene que enseñar sus industrias AL INSTANTE, con sus nombres
 //: puestos, y dejar que solo los números lleguen después.
 const VX_INDUSTRIAS = {
-    XLK: [['SMH', 'Semiconductores'], ['IGV', 'Software'], ['CIBR', 'Ciberseguridad'], ['SKYY', 'Nube'], ['XSD', 'Semiconductores equiponderado']],
-    XLF: [['KRE', 'Bancos regionales'], ['KBE', 'Bancos'], ['KCE', 'Mercados de capitales'], ['IAK', 'Seguros']],
-    XLV: [['XBI', 'Biotecnología equiponderado'], ['IBB', 'Biotecnología'], ['IHI', 'Dispositivos médicos'], ['IHF', 'Proveedores de salud'], ['PPH', 'Farmacéuticas']],
-    XLY: [['XRT', 'Minoristas'], ['XHB', 'Construcción de vivienda'], ['ITB', 'Constructoras'], ['PEJ', 'Ocio y viajes']],
+    XLK: [['SMH', 'Semiconductores'], ['IGV', 'Software'], ['CIBR', 'Ciberseguridad'], ['SKYY', 'Nube'], ['AIQ', 'Inteligencia artificial']],
+    XLF: [['KRE', 'Bancos regionales'], ['KBE', 'Bancos'], ['KCE', 'Mercados de capitales'], ['IAK', 'Seguros'], ['IAI', 'Brokers y bolsas']],
+    XLV: [['IBB', 'Biotecnología'], ['IHI', 'Dispositivos médicos'], ['IHF', 'Proveedores de salud'], ['PPH', 'Farmacéuticas'], ['XHS', 'Servicios de salud']],
+    XLY: [['XRT', 'Minoristas'], ['ITB', 'Construcción de vivienda'], ['PEJ', 'Ocio y viajes'], ['IBUY', 'Comercio electrónico'], ['CARZ', 'Automóviles']],
     XLC: [['FDN', 'Internet'], ['SOCL', 'Redes sociales'], ['ESPO', 'Videojuegos'], ['PBS', 'Medios y entretenimiento']],
     XLI: [['ITA', 'Aeroespacial y defensa'], ['IYT', 'Transporte'], ['PAVE', 'Infraestructura'], ['JETS', 'Aerolíneas']],
-    XLP: [['PBJ', 'Alimentos y bebidas'], ['FTXG', 'Alimentación']],
+    XLP: [['PBJ', 'Alimentos y bebidas'], ['FTXG', 'Alimentación'], ['RSPS', 'Consumo básico equiponderado']],
     XLE: [['XOP', 'Exploración y producción'], ['OIH', 'Servicios petroleros'], ['AMLP', 'Midstream y oleoductos'], ['FCG', 'Gas natural']],
-    XLU: [],
-    XLRE: [['REZ', 'Residencial'], ['REM', 'Hipotecarios'], ['INDS', 'Industrial y logística']],
-    XLB: [['GDX', 'Mineras de oro'], ['COPX', 'Cobre'], ['LIT', 'Litio y baterías'], ['WOOD', 'Madera y papel']],
+    XLU: [['RSPU', 'Servicios públicos equiponderado'], ['GRID', 'Red eléctrica'], ['NLR', 'Nuclear y uranio'], ['TAN', 'Solar']],
+    XLRE: [['REZ', 'Residencial'], ['REM', 'Hipotecarios'], ['INDS', 'Industrial y logística'], ['SRVR', 'Centros de datos']],
+    XLB: [['GDX', 'Mineras de oro'], ['COPX', 'Cobre'], ['LIT', 'Litio y baterías'], ['WOOD', 'Madera y papel'], ['XME', 'Metales y minería'], ['SLX', 'Acero']],
+};
+
+//: Y las empresas de cada industria, TAMBIÉN escritas.
+//:
+//: No es una preferencia de diseño: es la única forma que hay. Las posiciones
+//: de un ETF se pedían a FMP y con este plan contesta «HTTP 402 · HTTP 403» —
+//: 402 en el endpoint nuevo (es de pago) y 403 en el de siempre («exclusive
+//: endpoint»)—. Los dos caminos cerrados. Por eso entrar en una industria no
+//: enseñaba ni una acción y «Internos» no medía nada: no era un fallo del
+//: panel, era una puerta cerrada en el proveedor.
+//:
+//: Escritas aquí, la pantalla sale entera al instante y solo hay que extraer
+//: precio, cambio, RSI, media de 200 y volumen — que eso sí lo sirve el plan.
+//:
+//: Son las MAYORES posiciones de cada ETF, no la lista completa: las grandes
+//: son las que mueven el índice y las que menos cambian. Aun así una cartera
+//: se mueve por trimestres, así que esto se revisa de vez en cuando; un ticker
+//: que deje de existir sale con «—» y se ve enseguida, que es justo lo que
+//: tiene que pasar.
+const VX_ACCIONES = {
+    SMH: [['NVDA', 'NVIDIA'], ['TSM', 'TSMC'], ['AVGO', 'Broadcom'], ['AMD', 'AMD'], ['TXN', 'Texas Instruments'], ['QCOM', 'Qualcomm'], ['AMAT', 'Applied Materials'], ['LRCX', 'Lam Research'], ['KLAC', 'KLA'], ['MU', 'Micron'], ['ADI', 'Analog Devices'], ['INTC', 'Intel']],
+    IGV: [['MSFT', 'Microsoft'], ['ORCL', 'Oracle'], ['CRM', 'Salesforce'], ['ADBE', 'Adobe'], ['NOW', 'ServiceNow'], ['INTU', 'Intuit'], ['PANW', 'Palo Alto Networks'], ['PLTR', 'Palantir'], ['SNOW', 'Snowflake'], ['WDAY', 'Workday']],
+    CIBR: [['PANW', 'Palo Alto Networks'], ['CRWD', 'CrowdStrike'], ['FTNT', 'Fortinet'], ['ZS', 'Zscaler'], ['CSCO', 'Cisco'], ['OKTA', 'Okta'], ['CHKP', 'Check Point'], ['QLYS', 'Qualys']],
+    SKYY: [['MSFT', 'Microsoft'], ['AMZN', 'Amazon'], ['GOOGL', 'Alphabet'], ['ORCL', 'Oracle'], ['CRM', 'Salesforce'], ['NOW', 'ServiceNow'], ['SNOW', 'Snowflake'], ['MDB', 'MongoDB'], ['NET', 'Cloudflare'], ['DDOG', 'Datadog']],
+    AIQ: [['NVDA', 'NVIDIA'], ['MSFT', 'Microsoft'], ['GOOGL', 'Alphabet'], ['META', 'Meta'], ['AMZN', 'Amazon'], ['AVGO', 'Broadcom'], ['AMD', 'AMD'], ['PLTR', 'Palantir'], ['NOW', 'ServiceNow'], ['ORCL', 'Oracle']],
+    KRE: [['TFC', 'Truist'], ['USB', 'U.S. Bancorp'], ['PNC', 'PNC'], ['FITB', 'Fifth Third'], ['MTB', 'M&T Bank'], ['HBAN', 'Huntington'], ['RF', 'Regions Financial'], ['KEY', 'KeyCorp'], ['CFG', 'Citizens Financial'], ['ZION', 'Zions']],
+    KBE: [['JPM', 'JPMorgan'], ['BAC', 'Bank of America'], ['WFC', 'Wells Fargo'], ['C', 'Citigroup'], ['USB', 'U.S. Bancorp'], ['PNC', 'PNC'], ['TFC', 'Truist'], ['FITB', 'Fifth Third']],
+    KCE: [['GS', 'Goldman Sachs'], ['MS', 'Morgan Stanley'], ['SCHW', 'Charles Schwab'], ['BLK', 'BlackRock'], ['SPGI', 'S&P Global'], ['ICE', 'Intercontinental Exchange'], ['CME', 'CME Group'], ['NDAQ', 'Nasdaq'], ['RJF', 'Raymond James'], ['AMP', 'Ameriprise']],
+    IAK: [['PGR', 'Progressive'], ['CB', 'Chubb'], ['TRV', 'Travelers'], ['AIG', 'AIG'], ['MET', 'MetLife'], ['PRU', 'Prudential'], ['ALL', 'Allstate'], ['AFL', 'Aflac'], ['HIG', 'Hartford']],
+    IAI: [['GS', 'Goldman Sachs'], ['MS', 'Morgan Stanley'], ['SCHW', 'Charles Schwab'], ['SPGI', 'S&P Global'], ['ICE', 'Intercontinental Exchange'], ['CME', 'CME Group'], ['MCO', 'Moody\'s'], ['NDAQ', 'Nasdaq'], ['MSCI', 'MSCI'], ['COIN', 'Coinbase']],
+    IBB: [['AMGN', 'Amgen'], ['GILD', 'Gilead'], ['REGN', 'Regeneron'], ['VRTX', 'Vertex'], ['BIIB', 'Biogen'], ['MRNA', 'Moderna'], ['ALNY', 'Alnylam'], ['INCY', 'Incyte'], ['UTHR', 'United Therapeutics'], ['NBIX', 'Neurocrine']],
+    IHI: [['ABT', 'Abbott'], ['ISRG', 'Intuitive Surgical'], ['BSX', 'Boston Scientific'], ['MDT', 'Medtronic'], ['SYK', 'Stryker'], ['BDX', 'Becton Dickinson'], ['EW', 'Edwards Lifesciences'], ['DXCM', 'Dexcom'], ['ZBH', 'Zimmer Biomet'], ['RMD', 'ResMed']],
+    IHF: [['UNH', 'UnitedHealth'], ['ELV', 'Elevance'], ['CI', 'Cigna'], ['HUM', 'Humana'], ['CNC', 'Centene'], ['MCK', 'McKesson'], ['COR', 'Cencora'], ['CAH', 'Cardinal Health'], ['HCA', 'HCA Healthcare']],
+    PPH: [['LLY', 'Eli Lilly'], ['JNJ', 'Johnson & Johnson'], ['ABBV', 'AbbVie'], ['MRK', 'Merck'], ['PFE', 'Pfizer'], ['NVO', 'Novo Nordisk'], ['AZN', 'AstraZeneca'], ['GSK', 'GSK'], ['BMY', 'Bristol Myers Squibb'], ['ZTS', 'Zoetis']],
+    XHS: [['MCK', 'McKesson'], ['COR', 'Cencora'], ['CAH', 'Cardinal Health'], ['HCA', 'HCA Healthcare'], ['UHS', 'Universal Health Services'], ['LH', 'Labcorp'], ['DGX', 'Quest Diagnostics'], ['CVS', 'CVS Health'], ['MOH', 'Molina Healthcare']],
+    XRT: [['AMZN', 'Amazon'], ['HD', 'Home Depot'], ['LOW', 'Lowe\'s'], ['TJX', 'TJX'], ['ROST', 'Ross Stores'], ['TGT', 'Target'], ['BBY', 'Best Buy'], ['DKS', 'Dick\'s Sporting Goods'], ['ULTA', 'Ulta Beauty']],
+    ITB: [['DHI', 'D.R. Horton'], ['LEN', 'Lennar'], ['PHM', 'PulteGroup'], ['NVR', 'NVR'], ['TOL', 'Toll Brothers'], ['HD', 'Home Depot'], ['LOW', 'Lowe\'s'], ['BLDR', 'Builders FirstSource'], ['MAS', 'Masco']],
+    PEJ: [['BKNG', 'Booking Holdings'], ['MAR', 'Marriott'], ['HLT', 'Hilton'], ['RCL', 'Royal Caribbean'], ['CCL', 'Carnival'], ['NCLH', 'Norwegian Cruise'], ['LVS', 'Las Vegas Sands'], ['MGM', 'MGM Resorts'], ['DAL', 'Delta Air Lines'], ['ABNB', 'Airbnb']],
+    IBUY: [['AMZN', 'Amazon'], ['EBAY', 'eBay'], ['ETSY', 'Etsy'], ['CHWY', 'Chewy'], ['W', 'Wayfair'], ['SHOP', 'Shopify'], ['DASH', 'DoorDash'], ['ABNB', 'Airbnb'], ['CVNA', 'Carvana']],
+    CARZ: [['TSLA', 'Tesla'], ['TM', 'Toyota'], ['GM', 'General Motors'], ['F', 'Ford'], ['RIVN', 'Rivian'], ['HMC', 'Honda'], ['STLA', 'Stellantis'], ['LCID', 'Lucid'], ['APTV', 'Aptiv']],
+    FDN: [['AMZN', 'Amazon'], ['META', 'Meta'], ['GOOGL', 'Alphabet'], ['NFLX', 'Netflix'], ['CRM', 'Salesforce'], ['UBER', 'Uber'], ['ABNB', 'Airbnb'], ['BKNG', 'Booking Holdings'], ['PYPL', 'PayPal']],
+    SOCL: [['META', 'Meta'], ['GOOGL', 'Alphabet'], ['PINS', 'Pinterest'], ['SNAP', 'Snap'], ['RDDT', 'Reddit'], ['MTCH', 'Match Group'], ['SPOT', 'Spotify'], ['BIDU', 'Baidu']],
+    ESPO: [['NVDA', 'NVIDIA'], ['EA', 'Electronic Arts'], ['TTWO', 'Take-Two'], ['RBLX', 'Roblox'], ['NTES', 'NetEase'], ['SE', 'Sea Limited'], ['AMD', 'AMD'], ['U', 'Unity']],
+    PBS: [['DIS', 'Disney'], ['CMCSA', 'Comcast'], ['NFLX', 'Netflix'], ['WBD', 'Warner Bros. Discovery'], ['FOX', 'Fox'], ['LYV', 'Live Nation'], ['EA', 'Electronic Arts'], ['TTWO', 'Take-Two'], ['ROKU', 'Roku']],
+    ITA: [['GE', 'GE Aerospace'], ['RTX', 'RTX'], ['BA', 'Boeing'], ['LMT', 'Lockheed Martin'], ['NOC', 'Northrop Grumman'], ['GD', 'General Dynamics'], ['TDG', 'TransDigm'], ['HWM', 'Howmet'], ['LHX', 'L3Harris'], ['TXT', 'Textron']],
+    IYT: [['UBER', 'Uber'], ['UPS', 'UPS'], ['FDX', 'FedEx'], ['UNP', 'Union Pacific'], ['CSX', 'CSX'], ['NSC', 'Norfolk Southern'], ['ODFL', 'Old Dominion'], ['JBHT', 'J.B. Hunt'], ['CHRW', 'C.H. Robinson'], ['DAL', 'Delta Air Lines']],
+    PAVE: [['PWR', 'Quanta Services'], ['ETN', 'Eaton'], ['EMR', 'Emerson'], ['URI', 'United Rentals'], ['NUE', 'Nucor'], ['VMC', 'Vulcan Materials'], ['MLM', 'Martin Marietta'], ['FAST', 'Fastenal'], ['WM', 'Waste Management'], ['JCI', 'Johnson Controls']],
+    JETS: [['DAL', 'Delta Air Lines'], ['UAL', 'United Airlines'], ['AAL', 'American Airlines'], ['LUV', 'Southwest'], ['ALK', 'Alaska Air'], ['JBLU', 'JetBlue'], ['SKYW', 'SkyWest'], ['BA', 'Boeing']],
+    PBJ: [['KO', 'Coca-Cola'], ['PEP', 'PepsiCo'], ['MDLZ', 'Mondelez'], ['GIS', 'General Mills'], ['KHC', 'Kraft Heinz'], ['HSY', 'Hershey'], ['K', 'Kellanova'], ['CAG', 'Conagra'], ['SYY', 'Sysco'], ['TSN', 'Tyson Foods']],
+    FTXG: [['PEP', 'PepsiCo'], ['KO', 'Coca-Cola'], ['MDLZ', 'Mondelez'], ['GIS', 'General Mills'], ['HSY', 'Hershey'], ['KHC', 'Kraft Heinz'], ['TSN', 'Tyson Foods'], ['CAG', 'Conagra'], ['CPB', 'Campbell\'s'], ['SJM', 'J.M. Smucker']],
+    RSPS: [['PG', 'Procter & Gamble'], ['KO', 'Coca-Cola'], ['PEP', 'PepsiCo'], ['COST', 'Costco'], ['WMT', 'Walmart'], ['PM', 'Philip Morris'], ['MO', 'Altria'], ['MDLZ', 'Mondelez'], ['CL', 'Colgate-Palmolive'], ['KMB', 'Kimberly-Clark']],
+    XOP: [['COP', 'ConocoPhillips'], ['EOG', 'EOG Resources'], ['DVN', 'Devon Energy'], ['FANG', 'Diamondback Energy'], ['OXY', 'Occidental'], ['APA', 'APA Corp'], ['HES', 'Hess'], ['CTRA', 'Coterra'], ['OVV', 'Ovintiv']],
+    OIH: [['SLB', 'SLB'], ['HAL', 'Halliburton'], ['BKR', 'Baker Hughes'], ['FTI', 'TechnipFMC'], ['NOV', 'NOV Inc.'], ['WFRD', 'Weatherford'], ['CHX', 'ChampionX'], ['TDW', 'Tidewater'], ['RIG', 'Transocean']],
+    AMLP: [['EPD', 'Enterprise Products'], ['ET', 'Energy Transfer'], ['MPLX', 'MPLX'], ['PAA', 'Plains All American'], ['WES', 'Western Midstream'], ['HESM', 'Hess Midstream']],
+    FCG: [['EQT', 'EQT Corp'], ['CTRA', 'Coterra'], ['AR', 'Antero Resources'], ['RRC', 'Range Resources'], ['SWN', 'Southwestern Energy'], ['DVN', 'Devon Energy'], ['OVV', 'Ovintiv']],
+    RSPU: [['NEE', 'NextEra Energy'], ['SO', 'Southern Company'], ['DUK', 'Duke Energy'], ['D', 'Dominion Energy'], ['AEP', 'American Electric Power'], ['EXC', 'Exelon'], ['SRE', 'Sempra'], ['XEL', 'Xcel Energy'], ['ED', 'Con Edison'], ['PEG', 'Public Service Enterprise']],
+    GRID: [['ETN', 'Eaton'], ['PWR', 'Quanta Services'], ['JCI', 'Johnson Controls'], ['AME', 'Ametek'], ['HUBB', 'Hubbell'], ['ITRI', 'Itron'], ['GNRC', 'Generac']],
+    NLR: [['CCJ', 'Cameco'], ['CEG', 'Constellation Energy'], ['VST', 'Vistra'], ['BWXT', 'BWX Technologies'], ['LEU', 'Centrus Energy'], ['UEC', 'Uranium Energy'], ['NRG', 'NRG Energy'], ['PEG', 'Public Service Enterprise']],
+    TAN: [['FSLR', 'First Solar'], ['ENPH', 'Enphase Energy'], ['RUN', 'Sunrun'], ['NXT', 'Nextracker'], ['ARRY', 'Array Technologies'], ['SHLS', 'Shoals Technologies'], ['CSIQ', 'Canadian Solar']],
+    REZ: [['AVB', 'AvalonBay'], ['EQR', 'Equity Residential'], ['INVH', 'Invitation Homes'], ['MAA', 'Mid-America Apartment'], ['ESS', 'Essex Property'], ['UDR', 'UDR'], ['AMH', 'American Homes 4 Rent'], ['WELL', 'Welltower'], ['VTR', 'Ventas']],
+    REM: [['AGNC', 'AGNC Investment'], ['NLY', 'Annaly Capital'], ['STWD', 'Starwood Property'], ['BXMT', 'Blackstone Mortgage'], ['RITM', 'Rithm Capital'], ['ABR', 'Arbor Realty'], ['CIM', 'Chimera']],
+    INDS: [['PLD', 'Prologis'], ['EXR', 'Extra Space Storage'], ['PSA', 'Public Storage'], ['EGP', 'EastGroup Properties'], ['FR', 'First Industrial'], ['STAG', 'STAG Industrial'], ['CUBE', 'CubeSmart']],
+    SRVR: [['EQIX', 'Equinix'], ['DLR', 'Digital Realty'], ['AMT', 'American Tower'], ['CCI', 'Crown Castle'], ['SBAC', 'SBA Communications'], ['IRM', 'Iron Mountain']],
+    GDX: [['NEM', 'Newmont'], ['AEM', 'Agnico Eagle'], ['GOLD', 'Barrick'], ['WPM', 'Wheaton Precious Metals'], ['FNV', 'Franco-Nevada'], ['KGC', 'Kinross Gold'], ['GFI', 'Gold Fields'], ['AU', 'AngloGold Ashanti'], ['PAAS', 'Pan American Silver']],
+    COPX: [['FCX', 'Freeport-McMoRan'], ['SCCO', 'Southern Copper'], ['TECK', 'Teck Resources'], ['HBM', 'Hudbay Minerals'], ['ERO', 'Ero Copper']],
+    LIT: [['ALB', 'Albemarle'], ['SQM', 'SQM'], ['TSLA', 'Tesla'], ['LAC', 'Lithium Americas'], ['PLL', 'Piedmont Lithium'], ['ENS', 'EnerSys']],
+    WOOD: [['WY', 'Weyerhaeuser'], ['IP', 'International Paper'], ['PKG', 'Packaging Corp'], ['LPX', 'Louisiana-Pacific'], ['RYN', 'Rayonier'], ['PCH', 'PotlatchDeltic'], ['SUZ', 'Suzano']],
+    XME: [['NUE', 'Nucor'], ['STLD', 'Steel Dynamics'], ['CLF', 'Cleveland-Cliffs'], ['X', 'United States Steel'], ['AA', 'Alcoa'], ['FCX', 'Freeport-McMoRan'], ['MP', 'MP Materials'], ['RS', 'Reliance Inc.'], ['CRS', 'Carpenter Technology']],
+    SLX: [['NUE', 'Nucor'], ['STLD', 'Steel Dynamics'], ['X', 'United States Steel'], ['CLF', 'Cleveland-Cliffs'], ['RS', 'Reliance Inc.'], ['CMC', 'Commercial Metals'], ['TX', 'Ternium'], ['GGB', 'Gerdau']],
 };
 
 //: Las cinco ventanas del selector. Las etiquetas son de calendario y el
@@ -2092,6 +2161,66 @@ const VX_CAPAS = [
     ['lagging',   'Rezagados',      'flojo y cayendo',            'text-red-300',     'bg-red-500/15',     'border-red-500/30'],
 ];
 
+//: La rotación contada en frases cortas, con su número al lado.
+//:
+//: El bloque enseñaba listas de tickers y dejaba el «y esto qué significa» al
+//: lector. Aquí se dice: qué familia gana, cuál pierde, cuántos sectores lo
+//: acompañan y si hay volumen detrás. Es lo mismo que ya calculó el motor —no
+//: se decide nada aquí— pero dicho como se lee.
+function vxResumenRotacionHTML(rot) {
+    const por = (rot || {}).sectores || {};
+    const cats = (rot || {}).categorias || [];
+    const nombre = {};
+    ((window._sectoresData || {}).filas || []).forEach(f => { nombre[f.ticker] = f.nombre; });
+    const con = t => `${_vcEsc(t)}${nombre[t] ? ' (' + _vcEsc(nombre[t]) + ')' : ''}`;
+
+    // Por familia: cuántos de sus sectores están liderando o despertando.
+    const fuerzaFamilia = cats.map(c => {
+        const ts = (c.sectores || []).filter(t => por[t]);
+        const suben = ts.filter(t => ['leading', 'improving'].includes((por[t] || {}).cuadrante));
+        return { nombre: c.nombre, n: ts.length, suben: suben.length, ts: suben };
+    }).filter(x => x.n).sort((a, b) => (b.suben / b.n) - (a.suben / a.n));
+
+    const linea = (etq, texto) => `<p class="text-xs text-gray-300 leading-snug mt-1">
+        <span class="text-gray-500">${etq}</span> ${texto}</p>`;
+
+    const out = [];
+    if (fuerzaFamilia.length) {
+        const g = fuerzaFamilia[0], p = fuerzaFamilia[fuerzaFamilia.length - 1];
+        out.push(linea('Manda:', `<b class="text-emerald-400">${_vcEsc(g.nombre)}</b> —
+            ${g.suben} de ${g.n} de sus sectores liderando o despertando`));
+        if (p !== g) {
+            out.push(linea('Se queda:', `<b class="text-red-400">${_vcEsc(p.nombre)}</b> —
+                ${p.suben} de ${p.n}`));
+        }
+    }
+    const entra = (rot || {}).entrando || [];
+    const sale = (rot || {}).saliendo || [];
+    // Entrada y salida solo se nombran CON volumen: es la definición del motor,
+    // y decirlo aquí evita que se lea como «lo que más sube».
+    out.push(linea('Entra dinero:', entra.length
+        ? entra.map(con).join(', ') + ' <span class="text-gray-600">— suben por encima del índice Y con volumen</span>'
+        : '<span class="text-gray-600">ninguno con volumen que lo respalde</span>'));
+    out.push(linea('Sale dinero:', sale.length
+        ? sale.map(con).join(', ') + ' <span class="text-gray-600">— caen por debajo del índice Y con volumen</span>'
+        : '<span class="text-gray-600">ninguno con volumen que lo respalde</span>'));
+
+    // Los que están perdiendo impulso desde arriba: lo que más avisa.
+    const agotandose = Object.keys(por).filter(t => por[t].cuadrante === 'weakening');
+    if (agotandose.length) {
+        out.push(linea('Pierden fuelle:', agotandose.map(con).join(', ')
+            + ' <span class="text-gray-600">— fuertes todavía, pero girando a la baja</span>'));
+    }
+    const d = (rot || {}).dispersion;
+    if (d != null) {
+        out.push(linea('Dispersión:', `${Number(d).toFixed(2)} —
+            <span class="text-gray-600">${d >= 1
+              ? 'los sectores se están separando: hay rotación de verdad'
+              : 'todo se mueve en bloque: hoy manda el índice, no el sector'}</span>`));
+    }
+    return out.join('') || '<p class="text-[10px] text-gray-600">Sin datos suficientes.</p>';
+}
+
 //: Las cuatro capas, en HTML. Devuelve el bloque, no lo pinta: vive DENTRO de
 //: la tarjeta de rotación, porque contestan la misma pregunta y separadas
 //: obligaban a bajar la página para cruzarlas.
@@ -2366,6 +2495,16 @@ function vxCabeceraHTML(tk, nombre, dela) {
     </div>`;
 }
 
+//: Un aviso DENTRO de una lista, sin borrarla.
+//: Los nombres no dependen de la red: se quedan, y el motivo va debajo.
+function vxAvisoEnLista(caja, texto) {
+    const p = document.createElement('p');
+    p.className = 'text-xs text-amber-400 mt-2';
+    p.innerText = texto;
+    const dentro = caja.querySelector('div');
+    (dentro || caja).appendChild(p);
+}
+
 function vxListaHTML(titulo, filas, pulsables) {
     return `<div class="bg-panel border border-panel rounded-2xl p-4">
       <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-2">${titulo}</h3>
@@ -2455,27 +2594,45 @@ async function abreIndustria(ticker) {
     const ampl = document.getElementById('sectorAmplitud');
     const caja = document.getElementById('sectorIndustrias');
     ampl.innerHTML = '';
-    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
-      <p class="text-xs text-gray-500">Leyendo las empresas de ${_vcEsc(tk)}…</p></div>`;
+
+    const empresas = VX_ACCIONES[tk] || [];
+    if (!empresas.length) {
+        ampl.innerHTML = '';
+        caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+          <p class="text-xs text-gray-500">Todavía no están escritas las empresas de ${_vcEsc(tk)}.</p></div>`;
+        return;
+    }
+    // Las empresas ya están: se pintan ENTERAS, con nombre, y solo faltan los
+    // números. Se pedían a FMP y con este plan contesta 402/403 en los dos
+    // endpoints de posiciones de ETF, así que la lista no llegaba nunca y la
+    // pantalla se quedaba vacía.
+    caja.innerHTML = vxListaHTML('Empresas',
+        empresas.map(([t, n]) => ({ ticker: t, nombre: n, cargando: true })), false);
 
     window._accionesCache = window._accionesCache || {};
     const pon = (d) => {
         if (VX_DONDE.industria !== tk) return;
-        caja.innerHTML = vxListaHTML('Empresas', d.filas, false);
+        const por = {};
+        (d.filas || []).forEach(f => { por[f.ticker] = f; });
+        caja.innerHTML = vxListaHTML('Empresas',
+            empresas.map(([t, n]) => por[t] || { ticker: t, nombre: n }), false);
         ampl.innerHTML = vxAmplitudHTML(vxAmplitudDe(d), 'empresas');
     };
     if (window._accionesCache[tk]) { pon(window._accionesCache[tk]); return; }
     let d;
     try {
-        const r = await fetch(`${API_BASE}/api/sectores/acciones?etf=${encodeURIComponent(tk)}`);
-        d = await r.json();
+        // La misma ruta que usan las industrias: cotiza los tickers que se le
+        // manden. Ya no hace falta preguntarle al proveedor QUIÉNES son.
+        const r = await fetch(`${API_BASE}/api/sectores?tickers=`
+            + encodeURIComponent(empresas.map(x => x[0]).join(',')));
+        d = r.ok ? await r.json() : null;
     } catch (e) {
-        d = { ok: false, error: 'No se pudieron leer las empresas.' };
+        d = null;
     }
     if (VX_DONDE.industria !== tk) return;
-    if (!d || !d.ok || !Array.isArray(d.filas) || !d.filas.length) {
-        caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
-          <p class="text-xs text-amber-400">${_vcEsc((d && d.error) || 'Sin empresas que enseñar.')}</p></div>`;
+    if (!d || !d.ok || !Array.isArray(d.filas)) {
+        // Los nombres siguen en pantalla: solo faltan los números, y se dice.
+        vxAvisoEnLista(caja, 'No se pudieron leer los precios de estas empresas.');
         return;
     }
     window._accionesCache[tk] = d;
@@ -2492,10 +2649,14 @@ async function cargaLecturaGrupo(refrescar) {
     if (!amb) return;
     caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
       <p class="text-xs text-gray-500">Leyendo el mercado y escribiendo la explicaci&oacute;n&hellip;</p></div>`;
-    // En el nivel de sector se manda la lista de industrias: son las de aquí,
-    // y el servidor no tiene por qué volver a deducirlas.
-    const lista = VX_DONDE.industria ? ''
-        : (VX_INDUSTRIAS[VX_DONDE.sector] || []).map(x => x[0]).join(',');
+    // Los miembros SIEMPRE los manda el panel: las industrias del sector en el
+    // segundo piso, las empresas de la industria en el tercero. Están escritas
+    // aquí, así que el servidor no tiene que deducirlas —y no puede: los dos
+    // endpoints de posiciones de ETF del proveedor contestan 402/403 con este
+    // plan, que es justo por lo que el tercer piso salía vacío.
+    const lista = (VX_DONDE.industria
+        ? (VX_ACCIONES[VX_DONDE.industria] || [])
+        : (VX_INDUSTRIAS[VX_DONDE.sector] || [])).map(x => x[0]).join(',');
     let d;
     try {
         const q = `ambito=${encodeURIComponent(amb)}`
@@ -2587,6 +2748,12 @@ function pintaRotacion(rot) {
       <div>
         <p class="text-[10px] text-gray-500 uppercase tracking-wide">Salud del mercado &middot; RSP contra SPY</p>
         <p class="text-xs text-gray-200 mt-0.5">${_vcEsc(salud.frase || '—')}</p>
+        <p class="text-[9px] text-gray-600 mt-0.5">RSP es el S&amp;P con las 500 pesando igual; SPY lo pesa por tama&ntilde;o. Si RSP se queda atr&aacute;s, el &iacute;ndice lo sostienen las mayores y la subida es m&aacute;s estrecha de lo que parece.</p>
+      </div>
+
+      <div class="border-t border-gray-800 pt-2">
+        <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Qu&eacute; est&aacute; rotando, en corto</p>
+        ${vxResumenRotacionHTML(rot)}
       </div>
 
       <div class="border-t border-gray-800 pt-2">
@@ -12198,6 +12365,36 @@ const VX_ES2EN = {
     "Cobre": "Copper",
     "Litio y baterías": "Lithium and batteries",
     "Madera y papel": "Timber and paper",
+    "Inteligencia artificial": "Artificial intelligence",
+    "Comercio electrónico": "E-commerce",
+    "Automóviles": "Automobiles",
+    "Centros de datos": "Data centers",
+    "Servicios de salud": "Health care services",
+    "Consumo básico equiponderado": "Consumer staples equal weight",
+    "Servicios públicos equiponderado": "Utilities equal weight",
+    "Red eléctrica": "Power grid",
+    "Nuclear y uranio": "Nuclear and uranium",
+    "Metales y minería": "Metals and mining",
+    "Acero": "Steel",
+    "Brokers y bolsas": "Brokers and exchanges",
+    "empresas": "companies",
+    "Todavía no están escritas las empresas de este ETF.": "The companies of this ETF are not written down yet.",
+    "No se pudieron leer los precios de estas empresas.": "The prices of these companies could not be read.",
+    "Qué está rotando, en corto": "What is rotating, in short",
+    "Manda:": "Leading:",
+    "Se queda:": "Lagging:",
+    "Entra dinero:": "Money coming in:",
+    "Sale dinero:": "Money going out:",
+    "Pierden fuelle:": "Running out of steam:",
+    "Dispersión:": "Dispersion:",
+    "suben por encima del índice Y con volumen": "rising above the index AND with volume",
+    "caen por debajo del índice Y con volumen": "falling below the index AND with volume",
+    "ninguno con volumen que lo respalde": "none with volume behind it",
+    "fuertes todavía, pero girando a la baja": "still strong, but turning down",
+    "los sectores se están separando: hay rotación de verdad": "the sectors are pulling apart: there is real rotation",
+    "todo se mueve en bloque: hoy manda el índice, no el sector": "everything moves as one block: today the index rules, not the sector",
+    "Sin datos suficientes.": "Not enough data.",
+    "RSP es el S&P con las 500 pesando igual; SPY lo pesa por tamaño. Si RSP se queda atrás, el índice lo sostienen las mayores y la subida es más estrecha de lo que parece.": "RSP is the S&P with all 500 weighted equally; SPY weights them by size. If RSP falls behind, the largest names are holding the index up and the rally is narrower than it looks.",
     "Cambio en": "Change over",
     "Distancia del precio a su media de 200 sesiones": "Distance from price to its 200-session average",
     "Precio en vivo · cambio en la ventana elegida arriba · RSI de Wilder de 14 sesiones y media simple de 200, las dos sobre velas diarias.": "Live price · change over the window selected above · Wilder RSI over 14 sessions and simple 200-session average, both on daily candles.",
@@ -12265,6 +12462,10 @@ const VX_ES2EN = {
     "Leyendo el mercado…": "Reading the market…",
     "No se pudo leer el mercado. Vuelve a intentarlo.": "Could not read the market. Try again.",
     "Sin datos de mercado.": "No market data.",
+    "Sin datos del grupo.": "No data for the group.",
+    "Ámbito no válido.": "Invalid scope.",
+    "Sin rotación que explicar.": "No rotation to explain.",
+    "No se recibió la lista de miembros del grupo.": "The list of the group's members was not received.",
     "No se pudieron leer las industrias.": "Could not read the industries.",
     "Sin datos.": "No data.",
     "Este ETF no tiene desglose por industrias.": "This ETF has no industry breakdown.",
@@ -13302,6 +13503,12 @@ const VX_PAT = [
     [/^Leyendo las industrias de (\S+)…$/, 'Reading the industries of $1…'],
     [/^Industrias de (\S+) · (.+)$/, 'Industries of $1 · $2'],
     [/^Dispersión entre sectores hoy:$/, 'Dispersion across sectors today:'],
+    // El resumen de rotación: el `<b>` con el nombre de la familia parte el
+    // párrafo, así que el trozo de la derecha llega con los dos números dentro.
+    [/^(\d+) de (\d+) de sus sectores liderando o despertando$/,
+     '$1 of $2 of its sectors leading or waking up'],
+    [/^Todavía no están escritas las empresas de (\S+)\.$/,
+     'The companies of $1 are not written down yet.'],
     // La tabla de inusualidad: los dos botones llevan el recuento dentro, y la
     // nota lleva el umbral. Los `<b>` de la nota la parten en varios nodos de
     // texto, así que cada trozo va por su lado — el barrido traduce nodo a nodo.

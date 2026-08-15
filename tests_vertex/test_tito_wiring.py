@@ -3808,13 +3808,23 @@ class TestLaLecturaDelMercadoEXPLICAyNoDECIDE:
         import vertex_api as V
 
         sistema = V._LECTURA_SYSTEM.lower()
-        assert "no recalcules" in sistema
-        assert "no inventes números" in sistema
+        # Se mide el SENTIDO, no una frase exacta: la versión anterior fijaba
+        # «no inventes números» y el prompt pasó a decir «no inventes NADA»,
+        # que es más fuerte — el caso salió en rojo por una mejora. Un guardián
+        # que ata la redacción convierte cada mejora en un falso positivo.
+        assert "no recalcules" in sistema, "tiene que prohibir rehacer los números"
+        assert "no inventes" in sistema, "tiene que prohibir inventar datos"
         assert "compra" in sistema and "venta" in sistema, (
             "tiene que prohibir explícitamente recomendar operar")
-        for seccion in ("qué está pasando", "dónde está entrando el dinero",
-                        "de dónde está saliendo", "dónde dejó de entrar",
-                        "qué esperar de cada uno"):
+        assert "objetivos de precio" in sistema
+        # Lo que de verdad separa una nota de mesa de una opinión: la evidencia
+        # pegada a cada afirmación y la línea entre saber e inferir.
+        assert "evidencia" in sistema
+        assert "infieres" in sistema or "inferencia" in sistema
+        for seccion in ("qué está pasando", "dónde entra el dinero",
+                        "de dónde sale", "dónde dejó de entrar",
+                        "por qué está pasando", "qué esperar y qué lo invalidaría",
+                        "cómo se sabe"):
             assert seccion in sistema, f"el formato no pide «{seccion}»"
 
     def test_sin_rotacion_no_se_inventa_una_lectura(self, client, monkeypatch):
@@ -3940,127 +3950,129 @@ class TestLaVentanaDeDatosDAParaLoQueSeANUNCIA:
         assert cambios_por_ventana(un_año)["1A"] is None
 
 
-class TestLasEmpresasDeUnaIndustriaLLEGANoDICENporQUE:
-    """«Dentro de una industria no me salen las acciones.»
+class TestLasEmpresasDeUnaIndustriaESTANESCRITAS:
+    """«Cuando entro a cada industria no me sale ninguna de las acciones.»
 
-    Tres cosas podían dejar esa pantalla vacía y las tres se veían igual —un
-    hueco—, que es la peor forma de fallar porque solo una se arregla desde el
-    código:
+    Y no era un fallo del panel: las posiciones de un ETF se pedían a FMP y con
+    este plan contesta **HTTP 402 · HTTP 403** —402 en el endpoint nuevo, que es
+    de pago, y 403 en el de siempre, que es «exclusive endpoint»—. Los dos
+    caminos cerrados, así que la lista no llegaba nunca.
 
-    1. El endpoint nuevo de FMP es «exclusivo» en los planes bajos y contesta
-       403. Ahora se cae al de siempre en vez de rendirse.
-    2. El efectivo del ETF (`USD`, `XTSLA`) pasaba el filtro de «una a seis
-       letras» y entraba como una empresa más, con su fila y sus puntos
-       suspensivos para siempre: no hay precio que cotizar para el efectivo.
-    3. Cuando de verdad no hay datos, ahora se dice el código HTTP.
+    La ruta que los pedía se quitó: mantener un camino que estructuralmente no
+    puede funcionar es una trampa para el siguiente que lo mire. Las empresas
+    están escritas en el panel y solo se extraen sus números, igual que las
+    industrias y que la parrilla.
     """
 
     @staticmethod
-    def _respuestas(*pares):
-        class R:
-            def __init__(s, c, d):
-                s.status_code, s._d = c, d
+    def _tabla(nombre):
+        import re
 
-            def json(s):
-                return s._d
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        bruto = h.split(f"const {nombre} = {{", 1)[1].split("\n};", 1)[0]
+        salida = {}
+        for linea in bruto.splitlines():
+            m = re.match(r"\s*([A-Z]+):\s*\[(.*)\],\s*$", linea)
+            if m:
+                salida[m.group(1)] = re.findall(r"\['([^']+)',\s*'([^']*)'\]",
+                                                m.group(2))
+        return salida
 
-        it = iter(pares)
-        return lambda url, **kw: R(*next(it, (500, {})))
+    def test_cada_industria_de_cada_sector_tiene_sus_empresas(self):
+        industrias = self._tabla("VX_INDUSTRIAS")
+        acciones = self._tabla("VX_ACCIONES")
+        vacias = [s for s, v in industrias.items() if not v]
+        assert not vacias, f"sectores sin ni una industria: {vacias}"
+        faltan = sorted({t for v in industrias.values() for t, _ in v}
+                        - set(acciones))
+        assert not faltan, (
+            f"industrias sin empresas escritas: {faltan} — entrar ahí deja la "
+            "pantalla vacía, que es el fallo que esto arregla")
 
-    def test_si_el_endpoint_nuevo_no_esta_en_el_plan_se_usa_el_de_siempre(
-            self, monkeypatch):
+    def test_los_once_sectores_estan_y_son_los_del_motor(self):
+        from wbj.sectores import SECTORES
+
+        industrias = self._tabla("VX_INDUSTRIAS")
+        assert set(industrias) == {t for t, _ in SECTORES}, (
+            f"la tabla de industrias no cubre los once sectores: "
+            f"{set(industrias) ^ {t for t, _ in SECTORES}}")
+
+    def test_ninguna_lista_pasa_el_TOPE_de_la_ruta(self):
+        """La ruta que las cotiza corta en 25 tickers. Una lista más larga
+        perdería empresas EN SILENCIO."""
         import vertex_api as V
 
-        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
-        monkeypatch.setattr(V, "_HOLDINGS_CACHE", {})
-        monkeypatch.setattr(V.requests, "get", self._respuestas(
-            (403, {"Error Message": "Exclusive Endpoint"}),
-            (200, [{"asset": "NVDA", "name": "NVIDIA"}])))
-        filas, motivo = V._etf_holdings("SMH")
-        assert filas == [("NVDA", "NVIDIA")], filas
-        assert motivo == ""
+        acciones = self._tabla("VX_ACCIONES")
+        largas = {e: len(v) for e, v in acciones.items()
+                  if len(v) > V._SECTORES_MAX_PEDIDOS}
+        assert not largas, f"listas por encima del tope: {largas}"
 
-    def test_el_efectivo_no_se_cuela_como_empresa(self, monkeypatch):
+    def test_y_ninguna_repite_un_ticker(self):
+        acciones = self._tabla("VX_ACCIONES")
+        for etf, v in acciones.items():
+            ts = [t for t, _ in v]
+            assert len(ts) == len(set(ts)), f"{etf} repite un ticker"
+
+    def test_cada_empresa_tiene_NOMBRE(self):
+        """«NVDA, NVDA» no informa de nada.
+
+        Pero hay empresas que SE LLAMAN como su ticker —AMD, Meta, PNC, AIG,
+        MSCI, Okta— y exigir que todos difieran era una regla falsa: el primer
+        intento de este caso salió en rojo por datos correctos. Lo que sí es un
+        error es rellenar la columna con tickers, y eso se ve en la proporción,
+        no en el caso suelto.
+        """
+        acciones = self._tabla("VX_ACCIONES")
+        vacios = [(e, t) for e, v in acciones.items() for t, n in v if not n]
+        assert not vacios, f"empresas sin nombre: {vacios[:8]}"
+
+        todos = [(t, n) for v in acciones.values() for t, n in v]
+        iguales = [x for x in todos if x[1].upper() == x[0]]
+        assert len(iguales) < len(todos) * 0.2, (
+            f"{len(iguales)} de {len(todos)} nombres son el propio ticker: "
+            "la columna se rellenó con tickers en vez de con nombres")
+
+    def test_la_ruta_que_pedia_las_posiciones_YA_NO_esta(self):
+        """Estructuralmente no podía funcionar con este plan. Dejarla ahí es
+        una trampa: el siguiente que la vea creerá que hay un camino."""
         import vertex_api as V
 
-        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
-        monkeypatch.setattr(V, "_HOLDINGS_CACHE", {})
-        monkeypatch.setattr(V.requests, "get", self._respuestas(
-            (200, [{"asset": "NVDA", "name": "NVIDIA"},
-                   {"asset": "USD", "name": "Cash"},
-                   {"asset": "XTSLA", "name": "Treasury fund"},
-                   {"asset": "-", "name": "Otros"}])))
-        filas, _ = V._etf_holdings("SMH")
-        assert [t for t, _ in filas] == ["NVDA"], filas
+        assert not hasattr(V, "_etf_holdings")
+        rutas = {r.path for r in V.app.routes if hasattr(r, "path")}
+        assert "/api/sectores/acciones" not in rutas
 
-    def test_cuando_no_hay_forma_se_dice_el_CODIGO(self, monkeypatch):
-        """Un hueco no distingue «tu plan no lo sirve» de «se cayó»."""
+    def test_y_NADIE_quedo_llamandola(self):
+        """Quitar la ruta y dejar la llamada es peor que no quitarla: en vez de
+        una lista vacía sale un 500 con `NameError` cuando alguien pide la
+        lectura de una industria. Aquí llegó así, y se cazó leyendo el flujo.
+        """
         import vertex_api as V
 
-        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
-        monkeypatch.setattr(V, "_HOLDINGS_CACHE", {})
-        monkeypatch.setattr(V.requests, "get",
-                            self._respuestas((403, {}), (404, {})))
-        filas, motivo = V._etf_holdings("SMH")
-        assert filas == []
-        assert "403" in motivo and "404" in motivo, motivo
+        fuente = Path(V.__file__).read_text(encoding="utf-8")
+        assert "api_sectores_acciones(" not in fuente, (
+            "queda una llamada a la ruta que ya no existe")
 
-    def test_una_peticion_que_revienta_no_tumba_la_pantalla(self, monkeypatch):
-        import vertex_api as V
+    def test_sin_lista_de_miembros_la_lectura_lo_DICE(self, client):
+        """Y no revienta. Los miembros los manda el panel; si no llegan, la
+        respuesta lo cuenta en vez de romperse por dentro."""
+        r = client.get("/api/sectores/lectura?ambito=SMH")
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d.get("ok") is False
+        assert "miembros" in (d.get("error") or "").lower(), d
 
-        def boom(*a, **k):
-            raise TimeoutError("tarde")
+    def test_el_panel_MANDA_las_empresas_al_pedir_la_lectura(self):
+        """El tercer piso pregunta «¿qué pasa aquí dentro?» con SU lista. Antes
+        mandaba la cadena vacía y el servidor tenía que deducirla — que es lo
+        que no se puede hacer con este plan."""
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        cuerpo = h.split("async function cargaLecturaGrupo", 1)[1].split(
+            "\n}", 1)[0]
+        assert "VX_ACCIONES[VX_DONDE.industria]" in cuerpo, (
+            "la lectura de una industria no manda sus empresas")
+        assert "VX_INDUSTRIAS[VX_DONDE.sector]" in cuerpo, (
+            "la lectura de un sector no manda sus industrias")
 
-        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
-        monkeypatch.setattr(V, "_HOLDINGS_CACHE", {})
-        monkeypatch.setattr(V.requests, "get", boom)
-        filas, motivo = V._etf_holdings("SMH")
-        assert filas == [] and "TimeoutError" in motivo
-
-    def test_la_ruta_reenvia_el_motivo_a_la_pantalla(self, client, monkeypatch):
-        import vertex_api as V
-
-        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
-        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
-        monkeypatch.setattr(V, "_etf_holdings",
-                            lambda t: ([], "HTTP 403 · HTTP 404"))
-        d = client.get("/api/sectores/acciones?etf=SMH").json()
-        assert d["ok"] is False
-        assert "403" in d["error"], d
-        assert d["filas"] == []
-
-    def test_y_cuando_SI_hay_llegan_con_su_nombre_y_su_amplitud(
-            self, client, monkeypatch):
-        import vertex_api as V
-
-        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
-        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
-        monkeypatch.setattr(V, "_etf_holdings", lambda t: (
-            [("NVDA", "NVIDIA Corp"), ("AMD", "Advanced Micro Devices")], ""))
-        monkeypatch.setattr(V, "_sector_fila", lambda t: {
-            "ticker": t, "nombre": t, "precio": 100.0,
-            "cambio_pct": 2.0 if t == "NVDA" else -2.0,
-            "rsi": 65.0 if t == "NVDA" else 40.0,
-            "sma200": 90.0, "sma200_dist": 5.0 if t == "NVDA" else -5.0,
-            "cambios": {}, "cierres": [], "volumenes": []})
-        d = client.get("/api/sectores/acciones?etf=SMH").json()
-        assert d["ok"] is True, d
-        assert [f["ticker"] for f in d["filas"]] == ["NVDA", "AMD"]
-        assert d["filas"][0]["nombre"] == "NVIDIA Corp", (
-            "el nombre de la EMPRESA, no el ticker otra vez")
-        # La amplitud viaja POR VENTANA: la pantalla enseña la de la ventana
-        # que estés mirando, o el reparto contaría un periodo distinto del que
-        # se lee en las filas.
-        from wbj.sectores import VENTANAS_CAMBIO
-
-        assert set(d["amplitud"]) == {e for e, _ in VENTANAS_CAMBIO}, d["amplitud"]
-        alguna = d["amplitud"]["7D"]
-        assert set(alguna) >= {"n", "fuertes", "debiles", "confianza", "frase"}
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  EL VOLUMEN, EL RELOJ Y LA AMPLITUD INTERNA
-# ═══════════════════════════════════════════════════════════════════════════
 
 class TestElVolumenLLEGAConElJUICIOHECHO:
     """«¿Está respaldado por volumen?» lo decide el motor, no el panel.
@@ -4122,6 +4134,17 @@ class TestElVolumenLLEGAConElJUICIOHECHO:
         assert str(VOLUMEN_RESPALDA) not in cuerpo, (
             "el panel está comparando el umbral por su cuenta: son dos copias "
             "que se van a separar")
+
+    def test_y_el_que_CITA_la_nota_tambien(self):
+        """El método que la nota cita lleva el umbral dentro. Se importa del
+        motor con un `except` detrás por si el path no está montado — y ese
+        `except` es justo el sitio donde una copia vieja se quedaría callada.
+        """
+        import vertex_api as V
+        from wbj.sectores import UMBRAL_VOLUMEN
+
+        assert V._UMBRAL_VOLUMEN_TXT == f"{UMBRAL_VOLUMEN:.2f}", (
+            "la nota cita un umbral que ya no es el del motor")
 
     def test_la_lectura_del_modelo_recibe_el_volumen_YA_JUZGADO(self):
         import vertex_api as V
@@ -4229,14 +4252,12 @@ class TestLaAmplitudInternaSEGUARDAyNOBLOQUEA:
     def test_un_sector_que_falla_no_tumba_a_los_otros_diez(self, monkeypatch):
         import vertex_api as V
 
-        def _holdings(tk):
-            if tk == "XLE":
+        def _barras(t, p=None):
+            if t == "XOM":            # el primer componente de XLE
                 raise RuntimeError("se cayó FMP")
-            return [("AAA", "A"), ("BBB", "B")], ""
+            return [(0, 1, 1, 1, 100.0 + i, 1) for i in range(80)]
 
-        monkeypatch.setattr(V, "_etf_holdings", _holdings)
-        monkeypatch.setattr(V, "_fmp_daily_bars", lambda t, p=None: [
-            (0, 1, 1, 1, 100.0 + i, 1) for i in range(80)])
+        monkeypatch.setattr(V, "_fmp_daily_bars", _barras)
         d = V._amplitud_interna_calcula()
         assert len(d["sectores"]) == 11, d["sectores"].keys()
         assert d["sectores"]["XLE"]["pct"] is None

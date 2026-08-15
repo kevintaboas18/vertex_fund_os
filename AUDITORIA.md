@@ -7173,3 +7173,141 @@ Lo cazó el guardián del idioma. Las comillas van ahora en sus propios `<span>`
 
 **3.371 tests del motor · 798 de la capa web · 72 en un navegador real ·
 324 checks de auditoría · 16 diferenciales sin divergencias.**
+
+---
+
+## 41.64 · Ronda 39 — «internos» no medía nada, las industrias venían a medias y la rotación no se explicaba
+
+> «Ahora mismo me sale que no se pueden medir ninguna, ¿por qué? Cuando entro al
+> sector me salen algunas industrias… cuando entro a cada industria no me sale
+> ninguna de las acciones… y en Rotación Sectorial me gustaría que fuera más
+> detallado y específico, que explique en términos simples lo que ha estado
+> pasando y a dónde está rotando el dinero y por qué.»
+
+Cuatro cosas, y las tres primeras tenían **la misma causa**.
+
+### La causa: dos endpoints que este plan no puede llamar
+
+`Series/amplitud_interna.json`, en la rama `datos`, guardaba lo mismo para los
+once sectores:
+
+```json
+{"pct": null, "n": 0, "motivo": "HTTP 402 · HTTP 403"}
+```
+
+**402** en el endpoint nuevo de posiciones de ETF (es de pago) y **403** en el
+de siempre («exclusive endpoint»). Los dos caminos cerrados. De ahí salían las
+tres quejas a la vez: sin la lista de componentes no hay amplitud interna
+(«internos» sin medir), y sin la lista de posiciones de un ETF de industria no
+hay empresas que enseñar al entrar en ella.
+
+No es un fallo que se arregle reintentando: **estructuralmente no puede
+funcionar con este plan.**
+
+### Lo que sí se puede pedir son PRECIOS
+
+Y eso siempre contestó. Así que la lista deja de pedirse y se escribe:
+
+| Dónde | Qué se escribió | Qué se extrae |
+|---|---|---|
+| Motor (`sectores.py`) | `MIEMBROS`: 114 componentes de los 11 sectores | sus cierres → amplitud interna |
+| Panel (`VX_INDUSTRIAS`) | **49 industrias** con nombre y ETF | precio, cambio, RSI, SMA200, volumen |
+| Panel (`VX_ACCIONES`) | **351 empresas** repartidas en esas 49 | lo mismo |
+
+XLU no tenía **ni una** industria escrita, y XLB, XLP y XLRE iban con dos o
+tres: por eso «me salen algunas». Ahora los once sectores tienen las suyas.
+
+La ruta que pedía las posiciones (`/api/sectores/acciones`) y su cliente
+(`_etf_holdings`) se **borraron**. Mantener un camino que no puede funcionar es
+una trampa para el siguiente que lo mire.
+
+### Y una llamada se quedó apuntando al hueco
+
+Quitar la ruta y dejar la llamada es peor que no quitarla: la lectura de una
+industria hacía `api_sectores_acciones(etf=amb)` y eso ya no existía —un
+`NameError` y un 500—. Los miembros los manda ahora el panel (las industrias del
+sector en el segundo piso, las empresas de la industria en el tercero), y sin
+lista la respuesta lo dice en vez de romperse.
+
+Lo vigilan tres casos: que nadie llame a la función que ya no está, que la ruta
+conteste con un motivo legible cuando no le mandan miembros, y que el panel
+mande de verdad las dos listas.
+
+### La rotación, contada en frases
+
+Las cuatro capas dicen *dónde cae cada sector*. No decían qué familia manda,
+cuál se queda, dónde entra dinero de verdad, ni si esto es rotación o el índice
+moviéndose en bloque. Eso es ahora **«Qué está rotando, en corto»**: seis líneas
+con su número al lado —Manda, Se queda, Entra dinero, Sale dinero, Pierden
+fuelle, Dispersión—.
+
+Entrada y salida se nombran **solo con volumen detrás**: es la definición del
+motor, y sin decirlo se lee como «lo que más sube».
+
+El payload de mentira de los tests traía `"categorias": []`, así que el resumen
+salía a medias y el caso lo habría dado por bueno. Ahora las familias las **copia
+del motor**, y no pueden quedarse atrás el día que se toquen en `sectores.py`.
+
+### «Explícame qué está pasando», como lo escribe una mesa
+
+La diferencia entre una nota que suena a análisis y una que lo es no es el tono:
+es que **cada afirmación lleva su número pegado**. «Rota a defensivos» no vale;
+«rota a defensivos: XLP y XLU en liderando, volumen 1,4x, el 70% de sus
+componentes sobre su media de 50» sí.
+
+Así que baja **todo** lo que el motor sabe —las cinco ventanas, el volumen medio
+y relativo con su veredicto, la amplitud interna, cuadrante, fuerza, impulso,
+flujo, RSI, distancia a la media de 200, las familias, la dispersión, quién
+aguanta el día rojo y las reglas que ya se dispararon— y, al final, **cómo se
+calculó cada cosa**, para que la nota pueda citar el método sin repetirlo.
+
+El prompt pasó a ocho secciones (**Resumen en una línea · Qué está pasando ·
+Dónde entra el dinero · De dónde sale · Dónde dejó de entrar · Por qué está
+pasando · Qué esperar y qué lo invalidaría · Cómo se sabe**) con nueve reglas
+innegociables. Las tres que más cambian el resultado:
+
+- **No inventes NADA** — ni un precio, ni un dato macro, ni una noticia. El
+  modelo no ve titulares: no puede atribuir un movimiento a uno.
+- **Distingue lo que SABES de lo que INFIERES.** Lo primero con su cifra; lo
+  segundo empieza por «probablemente» o «habría que confirmarlo con».
+- **El volumen es la prueba.** Lo que sube sin volumen no es rotación: es deriva.
+
+Sigue sin recomendar compra ni venta, sin objetivos de precio y sin tamaños:
+explica lo que **está** pasando. Y el margen subió de 1.400 a 2.600 tokens —con
+1.400 la nota se cortaba en «De dónde sale», y una nota cortada por la mitad es
+peor que una corta a propósito.
+
+Un detalle que se coló de paso: el umbral de volumen que la nota cita se importa
+del motor, con un `except` detrás por si el path no está montado. Ese `except`
+es exactamente donde una copia vieja se quedaría callada, así que ahora hay un
+caso que compara el texto citado contra `UMBRAL_VOLUMEN`.
+
+### El idioma
+
+14 cadenas nuevas se veían en español al elegir inglés —las siete industrias
+nuevas, las seis etiquetas del resumen y la nota del RSP—. Dos llevan datos
+dentro (los recuentos de la familia, el ticker de la industria) y van por patrón;
+están declaradas en el escáner de código y medidas por el otro lado con **dos**
+juegos de números, porque un patrón que fije el «3 de 5» de hoy pasaría igual
+con un solo caso y mañana escribiría un recuento falso.
+
+### Tres casos del navegador medían el arnés, no el panel
+
+Los cazó la batería completa, y los tres venían de la misma reescritura:
+
+1. La lista de ETF de XLK estaba **copiada** dentro del test. Llevaba `XSD`, que
+   se cambió por `AIQ` al completar las industrias, y el caso se puso rojo por
+   estar desactualizado. Ahora los lee de `VX_INDUSTRIAS`.
+2. Un caso abría XLU para comprobar que dijera «este sector no tiene desglose».
+   Decirlo estaba bien; que uno de los once estuviera vacío, no. El caso mide
+   ahora que **los once** traigan las suyas, y otro aparte comprueba que la
+   frase sigue saliendo para un ETF sin industrias escritas.
+3. El servidor de mentira contestaba **siempre con SMH**, pidiera lo que se
+   pidiera. Al entrar en una industria las empresas no recibían número nunca, y
+   el selector de ventana parecía no repintar. Ahora devuelve lo que se le pide.
+
+### Estado
+
+**3.371 tests del motor · 803 de la capa web · 77 en un navegador real
+(cuatro tamaños) · 267 checks de auditoría · 16 diferenciales sin divergencias
+· preflight de Render en verde.**
