@@ -40,6 +40,46 @@ def remoto(tmp_path):
     return f"file://{r}"
 
 
+#: Un fallo que viene del `except` de arriba de `_respalda_privado` —la SQLite
+#: viva o el `git` del almacén ocupados por otro proceso—, no de un cerrojo.
+#:
+#: Los cerrojos hablan de cuentas («La base local no tiene ni una cuenta…»,
+#: «NO se sube el respaldo: …») y NUNCA llevan este prefijo, así que sirve para
+#: separar «el sistema dijo que no» de «el disco estaba ocupado».
+_CONTENCION = "no se pudo respaldar lo privado:"
+
+
+def _prepara_respaldo(a, mensaje=""):
+    """El respaldo PREPARATORIO de un caso, tolerante a contención.
+
+    Nueve casos empiezan guardando un respaldo bueno para después comprobar
+    algo sobre él. Ese primer guardado no es lo que miden — es el atrezo.
+
+    Y exigirle `== ""` a secas los hacía intermitentes: `_copia_la_base` hace
+    `VACUUM INTO` (con `Connection.backup()` de respaldo) y las dos toman un
+    cerrojo de lectura sobre la SQLite. Con otro proceso machacando el mismo
+    árbol —la auditoría, los diferenciales— sale `database is locked`, el
+    cerrojo 3 se niega a empaquetar sin la base dentro (que es su trabajo, y
+    existe por la avería del 14/08) y el caso salía en rojo **por el arnés**.
+
+    Un rojo que no es un fallo es peor que no tener el caso: enseña a
+    desconfiar de la batería. Así que la contención se reintenta —es
+    transitoria por definición— y **cualquier otro motivo falla en el acto**,
+    porque un cerrojo diciendo que no en la preparación sí es noticia.
+    """
+    import time
+
+    import vertex_api as V
+
+    motivo = ""
+    for intento in range(4):
+        motivo = V._respalda_privado(a)
+        if not motivo or not motivo.startswith(_CONTENCION):
+            break
+        time.sleep(0.2 * (intento + 1))
+    assert motivo == "", mensaje or motivo
+
+
 def _aisla(tmp_path, monkeypatch, remoto):
     """Deja el proceso como si acabara de arrancar, apuntando a `tmp_path`.
 
@@ -243,7 +283,7 @@ class TestLoPrivadoViajaCifrado:
                     remoto=os.environ["VERTEX_ALMACEN_REMOTO"], token="x")
         a.restaura()
         a.guarda("Privado/esto_esta_en_claro.json", {"pass_hash": "pbkdf2$secreto"})
-        assert V._respalda_privado(a) == ""
+        _prepara_respaldo(a)
         a.sincroniza()
         subidos = [x for x in a._git("ls-files", tolera=True).stdout.split()
                    if x.startswith("Privado/")]
@@ -1390,7 +1430,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
 
         self._con_una_cuenta()
         a = self._almacen(tmp_path)
-        assert V._respalda_privado(a) == ""
+        _prepara_respaldo(a)
         bueno = a.lee("Privado/privado.enc")
         assert bueno and len(bueno) > 100
 
@@ -1438,7 +1478,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         conn.close()
 
         a = self._almacen(tmp_path)
-        assert V._respalda_privado(a) == ""
+        _prepara_respaldo(a)
         bueno = a.lee("Privado/privado.enc")
         assert V._cuentas_en_el_respaldo(a) == 2, (
             "el respaldo tiene que saber cuántas cuentas guarda: es contra eso "
@@ -1493,7 +1533,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         a = self._almacen(tmp_path)
         assert a.lee("Privado/privado.enc") is None
         self._con_una_cuenta()
-        assert V._respalda_privado(a) == "", "una instalación nueva no puede subir"
+        _prepara_respaldo(a, "una instalación nueva no puede subir")
         assert a.lee("Privado/privado.enc")
 
     def test_el_freno_se_DICE_en_api_almacen(self, tmp_path, monkeypatch):
@@ -1543,7 +1583,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
 
         self._con_una_cuenta()
         a = self._almacen(tmp_path)
-        assert V._respalda_privado(a) == ""
+        _prepara_respaldo(a)
         bueno = a.lee("Privado/privado.enc")
 
         # Un paquete que sale a medias: la base de dentro tiene menos cuentas
@@ -1649,7 +1689,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         # Un respaldo con una cuenta dentro.
         self._con_una_cuenta()
         a = self._almacen(tmp_path)
-        assert V._respalda_privado(a) == ""
+        _prepara_respaldo(a)
         assert V._cuentas_en_el_respaldo(a) == 1
 
         # Y ahora el estado del desastre: sin cuentas, pero con un reporte.
@@ -1720,7 +1760,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
 
         self._con_una_cuenta()
         a = self._almacen(tmp_path)
-        assert V._respalda_privado(a) == ""
+        _prepara_respaldo(a)
         copias = V._copias_fechadas(a)
         assert len(copias) == 1, f"no se guardó la copia fechada: {copias}"
 
@@ -1752,7 +1792,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         import vertex_api as V
 
         a = self._almacen(tmp_path)
-        assert V._respalda_privado(a) == "", "una instalación nueva sube igual"
+        _prepara_respaldo(a, "una instalación nueva sube igual")
         assert V._copias_fechadas(a) == [], (
             "se guardó una copia fechada de un paquete sin ni una cuenta")
 
@@ -1800,7 +1840,7 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
 
         self._con_una_cuenta()
         a = self._almacen(tmp_path)
-        assert V._respalda_privado(a) == ""
+        _prepara_respaldo(a)
         bueno = a.lee("Privado/privado.enc")
 
         # La base se queda sin cuentas y el remoto deja de poder abrirse.

@@ -19,6 +19,7 @@ import inspect
 import os
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -4501,3 +4502,173 @@ class TestLaVALUACIONDelQuickNoSaleCEROporUnFALLO:
         fila = next(r for r in quick_scorecard(pk, "es")["categories"]
                     if r["key"] == "valuation")
         assert "precio" not in fila["reason"], fila["reason"]
+
+
+class TestLaPARRILLASeVeAlINSTANTE:
+    """«Cuando entro al panel se tarda en que se vean los precios.»
+
+    Y el motivo era aritmético: una fila cuesta DOS peticiones a FMP —la
+    cotización y quince meses de velas—, así que la parrilla son **28** con
+    seis en paralelo. La caché duraba 120 s y vivía solo en memoria, de modo
+    que entrar tras dos minutos parado —o después de cualquier redeploy, que
+    en Render borra el disco— pagaba las veintiocho con la pantalla delante.
+
+    Ahora es el mismo trato que la amplitud interna ya tenía: si hay foto se
+    sirve YA y el refresco va por detrás. Solo se espera cuando no hay
+    absolutamente nada que enseñar.
+    """
+
+    @staticmethod
+    def _sin_red(monkeypatch, veces):
+        """`_sectores_calcula` contado, para saber si la petición esperó."""
+        import vertex_api as V
+
+        def _finge(pedidos):
+            veces.append(1)
+            return {"ok": True, "filas": [{"ticker": "SPY"}], "motivo": None,
+                    "generado": datetime.now(timezone.utc).isoformat()}
+
+        monkeypatch.setattr(V, "_sectores_calcula", _finge)
+
+    def test_una_foto_VIEJA_se_sirve_sin_esperar(self, monkeypatch, client):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        monkeypatch.setattr(V, "_SECTORES_REFRESCANDO", set())
+        monkeypatch.setattr(V, "_sectores_del_almacen", lambda: None)
+        monkeypatch.setattr(V, "_sectores_apunta", lambda *a: None)
+        veces = []
+        self._sin_red(monkeypatch, veces)
+        # Una foto de hace media hora, ya guardada.
+        vieja = {"ok": True, "filas": [{"ticker": "SPY", "precio": 1.0}],
+                 "generado": "2026-08-15T10:00:00+00:00"}
+        V._SECTORES_CACHE["_parrilla"] = (time.time() - 1800, vieja)
+
+        lanzados = []
+        monkeypatch.setattr(V, "_sectores_refresca_en_fondo",
+                            lambda c, p: lanzados.append(c))
+        d = client.get("/api/sectores").json()
+
+        assert d["filas"] == vieja["filas"], "no se sirvió la foto que había"
+        assert not veces, "la petición se puso a bajar en vez de servir lo que tenía"
+        assert lanzados == ["_parrilla"], "no se disparó el refresco de fondo"
+
+    def test_y_NO_miente_sobre_su_edad(self, monkeypatch, client):
+        """Servir rápido no puede ser servir engañando: la foto viaja con su
+        `generado`, que es de cuando se bajó, y la franja lo pinta."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        monkeypatch.setattr(V, "_SECTORES_REFRESCANDO", set())
+        monkeypatch.setattr(V, "_sectores_del_almacen", lambda: None)
+        monkeypatch.setattr(V, "_sectores_refresca_en_fondo", lambda c, p: None)
+        vieja = {"ok": True, "filas": [{"ticker": "SPY"}],
+                 "generado": "2026-08-15T10:00:00+00:00"}
+        V._SECTORES_CACHE["_parrilla"] = (time.time() - 1800, vieja)
+        d = client.get("/api/sectores").json()
+        assert d["generado"] == "2026-08-15T10:00:00+00:00"
+        assert d.get("refrescando") is True, "no se dice que se está refrescando"
+        # El reloj SÍ es de ahora: es lo único que no puede venir congelado.
+        assert d["reloj"]["frase"]
+
+    def test_el_refresco_de_fondo_RECALCULA_de_verdad(self, monkeypatch):
+        """Aquí llegó un fallo real: el hilo llamaba a `api_sectores`, que se
+        encontraba su propia foto vieja, decidía servirla y volvía sin bajar
+        nada. Un refresco que no refrescaba deja la pantalla congelada para
+        siempre, y por fuera se ve igual que si funcionara."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        monkeypatch.setattr(V, "_SECTORES_REFRESCANDO", set())
+        veces, guardadas = [], []
+        self._sin_red(monkeypatch, veces)
+        monkeypatch.setattr(V, "_sectores_apunta",
+                            lambda c, t, s: guardadas.append(c))
+        V._SECTORES_CACHE["_parrilla"] = (
+            time.time() - 1800, {"ok": True, "filas": [], "generado": ""})
+
+        V._sectores_refresca_en_fondo("_parrilla", [])
+        for _ in range(100):                      # se espera al hilo, no al reloj
+            if guardadas:
+                break
+            time.sleep(0.02)
+        assert veces, "el refresco de fondo no bajó nada"
+        assert guardadas == ["_parrilla"], "bajó pero no guardó la foto nueva"
+
+    def test_dos_visitas_seguidas_NO_lanzan_dos_refrescos(self, monkeypatch):
+        """Sin el cerrojo, diez visitas a una foto vieja serían diez tandas de
+        veintiocho peticiones a la vez."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        monkeypatch.setattr(V, "_SECTORES_REFRESCANDO", {"_parrilla"})
+        veces = []
+        self._sin_red(monkeypatch, veces)
+        V._sectores_refresca_en_fondo("_parrilla", [])
+        time.sleep(0.1)
+        assert not veces, "se lanzó un segundo refresco con uno ya en vuelo"
+
+    def test_la_foto_SOBREVIVE_al_redeploy(self, monkeypatch):
+        """En Render el disco se borra en cada despliegue y en cada despertar.
+        Una foto que solo vive en memoria no existe después de eso, y la
+        primera visita volvía a pagar las veintiocho."""
+        import vertex_api as V
+
+        assert V._SECTORES_RUTA.startswith("Series/"), (
+            "la foto tiene que vivir en el almacén, que es lo que sobrevive")
+        guardado = {}
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+
+        class _Alm:
+            def guarda(self, ruta, datos):
+                guardado[ruta] = datos
+
+            def lee_json(self, ruta):
+                return guardado.get(ruta)
+
+        import vertex_almacen as VA
+        monkeypatch.setattr(VA, "almacen", _Alm())
+        foto = {"ok": True, "filas": [{"ticker": "SPY"}],
+                "generado": "2026-08-15T10:00:00+00:00"}
+        V._sectores_apunta("_parrilla", time.time(), foto)
+        assert V._SECTORES_RUTA in guardado, "no se guardó en el almacén"
+
+        # Y se recupera con SU fecha, no con la de ahora: fingirla fresca la
+        # dejaría sin refrescar dos minutos más y mentiría sobre su edad.
+        ts, datos = V._sectores_del_almacen()
+        assert datos["filas"] == foto["filas"]
+        assert abs(ts - datetime.fromisoformat(
+            foto["generado"]).timestamp()) < 1.0
+
+    def test_un_ticker_suelto_NO_se_guarda_en_el_almacen(self, monkeypatch):
+        """Solo la parrilla, que es la pantalla de entrada. Guardar cada
+        industria y cada acción llenaría la rama de datos de fotos que nadie
+        va a volver a mirar."""
+        import vertex_api as V
+
+        guardado = {}
+
+        class _Alm:
+            def guarda(self, ruta, datos):
+                guardado[ruta] = datos
+
+        import vertex_almacen as VA
+        monkeypatch.setattr(VA, "almacen", _Alm())
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        V._sectores_apunta("SMH,IGV", time.time(), {"ok": True, "filas": []})
+        assert not guardado
+
+    def test_al_arrancar_se_PRECALIENTA(self):
+        """La primera visita después de un despliegue tampoco puede esperar."""
+        import vertex_api as V
+
+        fuente = Path(V.__file__).read_text(encoding="utf-8")
+        arranque = fuente.split("async def _vertex_lifespan", 1)[1].split(
+            "\n    yield", 1)[0]
+        assert "_precalienta_parrilla" in arranque
+        assert "daemon=True" in arranque, (
+            "el precalentamiento no puede bloquear el arranque")

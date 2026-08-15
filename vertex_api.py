@@ -915,6 +915,23 @@ async def _vertex_lifespan(app: FastAPI):
     except Exception:
         logging.getLogger(__name__).warning(
             "no se pudo precalentar el indice de tickers", exc_info=True)
+    # Y la parrilla, por lo mismo y con más motivo: es la PRIMERA pantalla que
+    # se ve al entrar. Una fila cuesta dos peticiones a FMP —la cotización y
+    # quince meses de velas—, así que las catorce casillas son veintiocho con
+    # seis en paralelo, y eso es lo que se estaba esperando con la pantalla
+    # delante. Se dispara aquí, en segundo plano y sin bloquear el arranque,
+    # justo después de que el almacén haya restaurado la última foto: con ella
+    # ya hay algo que enseñar desde el primer instante, y este hilo solo la
+    # pone al día.
+    def _precalienta_parrilla():
+        try:
+            _sectores_apunta("_parrilla", time.time(), _sectores_calcula([]))
+        except Exception:                        # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "no se pudo precalentar la parrilla", exc_info=True)
+
+    if (os.environ.get("FMP_API_KEY") or "").strip():
+        threading.Thread(target=_precalienta_parrilla, daemon=True).start()
     yield
     # ── Y AL APAGAR, EL ÚLTIMO RESPALDO ──────────────────────────────────
     #
@@ -7065,16 +7082,43 @@ def api_sectores(tickers: str = ""):
     sin esperar a nadie—. Tenerla también aquí era una segunda copia que había
     que vigilar para nada: el servidor no necesita saber qué industria es cuál,
     solo cotizar lo que le pidan. Una tabla, un sitio.
-    """
-    from wbj.sectores import REFERENCIAS, SECTORES, universo
 
+    Lo que decide si la pantalla se ve al instante está aquí: si hay una foto
+    —aunque esté vieja— se DEVUELVE YA y el refresco va por detrás. Solo se
+    espera la primera vez, cuando no hay absolutamente nada que enseñar.
+    """
     pedidos = _sectores_pedidos(tickers)
     clave = ",".join(pedidos) if pedidos else "_parrilla"
     ahora = time.time()
     with _SECTORES_LOCK:
         guardado = _SECTORES_CACHE.get(clave)
-        if guardado and ahora - guardado[0] < _SECTORES_TTL:
+    if guardado is None and not pedidos:
+        # La parrilla es la pantalla de entrada, así que su foto vive en el
+        # ALMACÉN y no solo en memoria: en Render el disco se borra en cada
+        # redeploy y en cada despertar, y sin esto la primera visita después de
+        # cada uno pagaba las veintiocho peticiones enteras.
+        guardado = _sectores_del_almacen()
+        if guardado:
+            with _SECTORES_LOCK:
+                _SECTORES_CACHE[clave] = guardado
+
+    if guardado:
+        if ahora - guardado[0] < _SECTORES_TTL:
             return {**guardado[1], "reloj": _reloj_ahora(), "cacheado": True}
+        # ── Viejo, pero EXISTE: se sirve YA y se refresca por detrás ──
+        #
+        # Es el mismo trato que la amplitud interna lleva desde que se cableó,
+        # y por el mismo motivo: una fila cuesta DOS peticiones a FMP —la
+        # cotización y quince meses de velas—, así que la parrilla son 28 con
+        # seis en paralelo. Bloquear la pantalla para refrescar un número que
+        # ya se tiene es cambiar «un dato de hace tres minutos» por «nada
+        # durante varios segundos», y lo segundo es peor.
+        #
+        # No se miente sobre la edad: la foto viaja con su `generado` y la
+        # franja lo pinta —«Datos de las HH:MM»—, así que se ve de cuándo es.
+        _sectores_refresca_en_fondo(clave, pedidos)
+        return {**guardado[1], "reloj": _reloj_ahora(), "cacheado": True,
+                "refrescando": True}
 
     if not (os.environ.get("FMP_API_KEY") or "").strip():
         # Se dice cuál falta y qué se deja de ver. Un mapa vacío sin motivo se
@@ -7082,6 +7126,24 @@ def api_sectores(tickers: str = ""):
         return {"ok": False, "error": "Falta FMP_API_KEY: sin ella no hay "
                                       "precio ni RSI de los sectores.",
                 "filas": []}
+
+    # Primera vez de esta clave: no hay nada que servir, así que aquí SÍ se
+    # espera. Es la única petición que paga las veintiocho.
+    salida = _sectores_calcula(pedidos)
+    _sectores_apunta(clave, ahora, salida)
+    return {**salida, "reloj": _reloj_ahora(), "cacheado": False}
+
+
+def _sectores_calcula(pedidos: list) -> dict:
+    """Baja y arma la foto. Es la parte CARA, y por eso vive aparte.
+
+    Separarla de la ruta no es cosmética: el refresco de segundo plano tiene
+    que poder recalcular SIN pasar por la caché. Llamando a `api_sectores` se
+    encontraba su propia foto vieja, decidía servirla y volvía sin bajar nada
+    — un refresco que no refrescaba, y la pantalla se habría quedado con el
+    mismo dato para siempre.
+    """
+    from wbj.sectores import REFERENCIAS, SECTORES, universo
 
     if pedidos:
         _f = [{k: v for k, v in f.items() if k not in ("cierres", "volumenes")}
@@ -7122,9 +7184,78 @@ def api_sectores(tickers: str = ""):
             "motivo": None,
         }
     salida["generado"] = datetime.now(timezone.utc).isoformat()
+    return salida
+
+
+#: Dónde vive la foto de la parrilla dentro del almacén. Al lado de las otras
+#: series, y por lo mismo: en Render el disco es efímero y lo que no está en el
+#: almacén no existe después de un redeploy.
+_SECTORES_RUTA = "Series/sectores_parrilla.json"
+
+#: Claves con un refresco EN VUELO. Sin esto, diez visitas seguidas a una foto
+#: vieja lanzarían diez tandas de veintiocho peticiones a la vez.
+_SECTORES_REFRESCANDO: set[str] = set()
+
+
+def _sectores_apunta(clave: str, ts: float, salida: dict) -> None:
+    """Guarda la foto en memoria y, si es la parrilla, también en el almacén."""
     with _SECTORES_LOCK:
-        _SECTORES_CACHE[clave] = (ahora, salida)
-    return {**salida, "reloj": _reloj_ahora(), "cacheado": False}
+        _SECTORES_CACHE[clave] = (ts, salida)
+    if clave != "_parrilla":
+        return
+    try:
+        from vertex_almacen import almacen as _alm
+
+        _alm.guarda(_SECTORES_RUTA, salida)
+    except Exception:                            # noqa: BLE001
+        # Que no se pueda guardar la foto no puede tumbar la pantalla: es una
+        # comodidad, no la fuente de verdad.
+        logging.getLogger(__name__).warning(
+            "no se pudo guardar la foto de la parrilla", exc_info=True)
+
+
+def _sectores_del_almacen():
+    """La última foto de la parrilla que sobrevivió al reinicio, o `None`.
+
+    Devuelve `(ts, salida)` con el `ts` sacado del `generado` de la propia
+    foto, no de «ahora»: fingir que es fresca la dejaría sin refrescar durante
+    dos minutos más y, peor, mentiría sobre su edad.
+    """
+    try:
+        from vertex_almacen import almacen as _alm
+
+        datos = _alm.lee_json(_SECTORES_RUTA)
+        if not isinstance(datos, dict) or not datos.get("filas"):
+            return None
+        gen = datos.get("generado")
+        ts = (datetime.fromisoformat(gen).timestamp() if gen
+              else time.time() - _SECTORES_TTL)
+        return (ts, datos)
+    except Exception:                            # noqa: BLE001
+        return None
+
+
+def _sectores_refresca_en_fondo(clave: str, pedidos: list) -> None:
+    """Recalcula una foto vieja sin que la pantalla espere. Nunca lanza."""
+    if not (os.environ.get("FMP_API_KEY") or "").strip():
+        return
+    with _SECTORES_LOCK:
+        if clave in _SECTORES_REFRESCANDO:
+            return
+        _SECTORES_REFRESCANDO.add(clave)
+
+    def _trabaja():
+        try:
+            _sectores_apunta(clave, time.time(), _sectores_calcula(pedidos))
+        except Exception:                        # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "no se pudo refrescar la parrilla en segundo plano",
+                exc_info=True)
+        finally:
+            with _SECTORES_LOCK:
+                _SECTORES_REFRESCANDO.discard(clave)
+
+    threading.Thread(target=_trabaja, daemon=True).start()
 
 
 # ═══════════════════════════════════════════════════════════════════════════

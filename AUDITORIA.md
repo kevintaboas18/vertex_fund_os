@@ -7499,3 +7499,84 @@ parcheaban `_cuenta_en_db` entera, así que la excepción salía **al llamador**
 en vez de a los `except` internos de la función real. Eso no puede pasar en
 producción —`_cuenta_en_db` nunca lanza, devuelve `0` o `-1`— así que esas
 cuatro se descartaron: una sonda que simula algo imposible no prueba nada.
+
+---
+
+## 41.66 · Ronda 41 — el arnés estabilizado, y la parrilla al instante
+
+### El caso del respaldo ya no sale rojo por el arnés
+
+Cerrado en §41.65: la contención hacía fallar el respaldo **preparatorio** de
+nueve casos —no uno—, todos con la misma línea:
+
+```python
+assert V._respalda_privado(a) == ""      # el atrezo, no lo que se mide
+```
+
+Los nueve pasan ahora por `_prepara_respaldo(a)`, que **reintenta solo la
+contención** —la que sale del `except` de arriba de `_respalda_privado`, con su
+prefijo «no se pudo respaldar lo privado:»— y **falla en el acto con cualquier
+otro motivo**, porque un cerrojo diciendo que no en la preparación sí es
+noticia.
+
+Se verificó por los dos lados, que es lo que separa estabilizar un guardián de
+apagarlo:
+
+| | antes | ahora |
+|---|---|---|
+| contención transitoria (1, 2 o 3 veces) | rojo | **pasa** |
+| un cerrojo que dice que no | rojo | **rojo** |
+| una avería que no se arregla sola | rojo | **rojo** |
+
+**Ni una línea del almacén cambió.** Solo el arnés.
+
+### «Cuando entro al panel se tarda en que se vean los precios»
+
+El motivo es aritmético. Una fila cuesta **dos** peticiones a FMP —la
+cotización y quince meses de velas— así que la parrilla de catorce casillas son
+**veintiocho**, con seis en paralelo. Y encima:
+
+- la caché duraba **120 s**, así que entrar tras dos minutos parado las pagaba
+  otra vez;
+- vivía **solo en memoria**, y en Render el disco se borra en cada redeploy y
+  en cada despertar: la primera visita después de cualquiera de los dos
+  empezaba de cero;
+- **no había precalentamiento**: nadie las pedía hasta que las pedías tú, con
+  la pantalla delante.
+
+Los nombres ya se pintaban al instante desde `VX_SECTORES` (§41.63). Lo que
+faltaba era que los **números** tampoco esperasen.
+
+Es el mismo trato que la amplitud interna lleva desde que se cableó, ahora para
+la parrilla:
+
+1. **Si hay foto, se sirve YA** —aunque esté vieja— y el refresco va en
+   segundo plano. Solo se espera la primera vez de todas, cuando no hay
+   absolutamente nada que enseñar.
+2. **La foto vive en el almacén** (`Series/sectores_parrilla.json`), así que
+   sobrevive al redeploy y al despertar. Se recupera con **su** fecha, no con
+   la de ahora: fingirla fresca la dejaría sin refrescar dos minutos más y,
+   peor, mentiría sobre su edad.
+3. **Se precalienta al arrancar**, en un hilo que no bloquea el arranque, para
+   que la primera visita tras un despliegue tampoco espere.
+4. Un cerrojo de «refresco en vuelo» impide que diez visitas a una foto vieja
+   lancen diez tandas de veintiocho peticiones.
+
+**Servir rápido no es servir engañando.** La foto viaja con su `generado` y la
+franja lo pinta —«Datos de las HH:MM»—, así que siempre se ve de cuándo es el
+número; y la respuesta dice `refrescando: true` mientras se pone al día. Hay un
+caso que lo mide.
+
+### Un fallo que me cacé a mí mismo
+
+La primera versión del refresco de fondo llamaba a `api_sectores`. Que se
+encontraba **su propia foto vieja**, decidía servirla y volvía sin bajar nada:
+un refresco que no refrescaba, y la pantalla se habría quedado con el mismo
+dato para siempre — por fuera, idéntico a que funcionara. Por eso la parte cara
+vive ahora en `_sectores_calcula`, aparte de la ruta, y hay un caso que le
+devuelve el error a propósito para comprobar que sale en rojo.
+
+### Estado
+
+**3.390 tests del motor · 813 de la capa web (7 nuevos) · 77 en un navegador
+real · 267 checks de auditoría · preflight de Render en verde.**
