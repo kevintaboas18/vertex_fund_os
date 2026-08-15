@@ -7439,29 +7439,63 @@ seis defectos y sus arreglos.
 web (3 nuevos) · 77 en un navegador real · 267 checks de auditoría · preflight
 de Render en verde.**
 
-### Un rojo que NO se pudo reproducir — queda abierto
+### CERRADO — el rojo del almacén era un cerrojo funcionando, no un agujero
 
 Durante esta ronda, `test_almacen.py::TestUnRespaldoVACIONoPISAaUnoLLENO::
-test_el_paquete_se_ABRE_y_se_cuenta_antes_de_subilo` salió en rojo **dos
+test_el_paquete_se_ABRE_y_se_cuenta_antes_de_subirlo` salió en rojo **dos
 veces**, las dos con otro proceso pesado (`auditar_tito.py` la primera, los 16
-diferenciales la segunda) corriendo `git` sobre el mismo árbol.
+diferenciales la segunda) corriendo `git` sobre el mismo árbol. Esperar a que
+volviera no servía: siete corridas después salieron en verde, tres de ellas con
+carga concurrente puesta a propósito.
 
-No se capturó su traza, y **no se pudo forzar de vuelta**: siete corridas
-posteriores en verde, tres de ellas con carga concurrente puesta a propósito.
-Así que la causa no está establecida y no se declara resuelta.
+Así que en vez de esperar, se **provocó cada causa candidata** con una sonda
+temporal (una subclase del caso real, inyectando fallos transitorios en los
+puntos sospechosos; se borró al terminar y el árbol quedó limpio).
 
-Lo que sí está establecido:
+**La causa, reproducida y determinista:** la afirmación que cae es la
+**primera** del caso, `test_almacen.py:1546`:
 
-- El código del almacén **no se tocó** en esta ronda: `git diff --numstat`
-  sobre `vertex_almacen.py` y sobre todo lo que rodea al respaldo da cero.
-- La misma batería **sin** los cambios de esta ronda también pasa, así que no
-  es una regresión introducida aquí.
-- El propio caso ya documenta su fragilidad en un comentario: «cuál de los
-  cuatro lo caza primero depende del estado del remoto, y atarlo a uno hacía el
-  caso intermitente».
+```python
+assert V._respalda_privado(a) == ""      # ← el respaldo PREPARATORIO
+```
 
-Queda **abierto**: un caso que miente de vez en cuando sobre el respaldo es
-peligroso precisamente porque el respaldo es lo que no se puede perder. La
-siguiente vez que aparezca hay que capturar la traza completa antes de nada —
-las dos lecturas posibles (un cerrojo que no disparó, o el fichero leído del
-almacén) tienen consecuencias muy distintas.
+Con un `database is locked` transitorio en `_copia_la_base` —o con `git`
+ocupado— ese respaldo preparatorio devuelve, palabra por palabra:
+
+```
+no se pudo respaldar lo privado: no se pudo copiar la base (database is
+locked): el paquete se habría subido sin ella y habría borrado las cuentas
+del respaldo
+```
+
+Es decir: **el cerrojo 3 hizo exactamente su trabajo.** Es el que se construyó
+tras la avería del 14/08 —cuando `VACUUM INTO` falló, se anotó en el log y se
+siguió, subiendo un tar sin la base dentro— y aquí se negó a construir el
+paquete y dijo la consecuencia con todas las letras.
+
+**Lo que NO era:**
+
+- No era un cerrojo que dejara de disparar.
+- No se sobrescribió nada: no llegó a escribirse **nada en absoluto**, y la
+  afirmación que comprueba que el respaldo bueno sigue ahí ni siquiera se
+  alcanza — el caso aborta antes.
+- No era una regresión de esta ronda: el código del almacén no se tocó, y la
+  misma batería sin estos cambios también pasa.
+
+**Por qué solo aparecía bajo carga:** `_copia_la_base` hace `VACUUM INTO` (con
+`Connection.backup()` de respaldo) y las dos toman un cerrojo de lectura sobre
+la SQLite viva. Con `auditar_tito.py` o los 16 diferenciales machacando el
+mismo árbol, la contención aparece.
+
+**Lo que queda, y no es un fallo del sistema:** el caso exige que su respaldo
+**preparatorio** salga perfecto (`== ""`), y bajo contención legítimamente
+puede no salir. Es una fragilidad del arnés, no del respaldo. Se deja tal cual
+por indicación de Kevin («sin cambiar nada»); el arreglo, cuando se quiera,
+son dos líneas en el test —tolerar un motivo de contención en la preparación,
+o reintentar— y **no toca ni una línea del almacén**.
+
+Una nota de método, porque volverá a hacer falta: cuatro de las ocho sondas
+parcheaban `_cuenta_en_db` entera, así que la excepción salía **al llamador**
+en vez de a los `except` internos de la función real. Eso no puede pasar en
+producción —`_cuenta_en_db` nunca lanza, devuelve `0` o `-1`— así que esas
+cuatro se descartaron: una sonda que simula algo imposible no prueba nada.
