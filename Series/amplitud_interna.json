@@ -1,60 +1,174 @@
 {
-  "generado": "2026-08-14T05:41:45.026780+00:00",
+  "generado": "2026-08-15T12:41:35.643884+00:00",
   "sectores": {
     "XLK": {
-      "pct": null,
-      "n": 0,
-      "motivo": "HTTP 402 · HTTP 403"
+      "pct": 58.3,
+      "n": 12,
+      "encima": [
+        "ACN",
+        "ADBE",
+        "AMD",
+        "AVGO",
+        "CRM",
+        "MSFT",
+        "NVDA"
+      ],
+      "miembros": 12,
+      "motivo": null
     },
     "XLF": {
-      "pct": null,
-      "n": 0,
-      "motivo": "HTTP 402 · HTTP 403"
+      "pct": 90.0,
+      "n": 10,
+      "encima": [
+        "AXP",
+        "BAC",
+        "BLK",
+        "JPM",
+        "MA",
+        "MS",
+        "SPGI",
+        "V",
+        "WFC"
+      ],
+      "miembros": 10,
+      "motivo": null
     },
     "XLV": {
-      "pct": null,
-      "n": 0,
-      "motivo": "HTTP 402 · HTTP 403"
+      "pct": 91.7,
+      "n": 12,
+      "encima": [
+        "ABBV",
+        "ABT",
+        "AMGN",
+        "BSX",
+        "DHR",
+        "ISRG",
+        "JNJ",
+        "LLY",
+        "MRK",
+        "PFE",
+        "TMO"
+      ],
+      "miembros": 12,
+      "motivo": null
     },
     "XLY": {
-      "pct": null,
-      "n": 0,
-      "motivo": "HTTP 402 · HTTP 403"
+      "pct": 60.0,
+      "n": 10,
+      "encima": [
+        "AMZN",
+        "BKNG",
+        "HD",
+        "LOW",
+        "ORLY",
+        "SBUX"
+      ],
+      "miembros": 10,
+      "motivo": null
     },
     "XLC": {
-      "pct": null,
-      "n": 0,
-      "motivo": "HTTP 402 · HTTP 403"
+      "pct": 80.0,
+      "n": 10,
+      "encima": [
+        "CMCSA",
+        "DIS",
+        "EA",
+        "NFLX",
+        "T",
+        "TMUS",
+        "TTWO",
+        "VZ"
+      ],
+      "miembros": 10,
+      "motivo": null
     },
     "XLI": {
-      "pct": null,
-      "n": 0,
-      "motivo": "HTTP 402 · HTTP 403"
+      "pct": 80.0,
+      "n": 10,
+      "encima": [
+        "BA",
+        "DE",
+        "ETN",
+        "GE",
+        "HON",
+        "LMT",
+        "RTX",
+        "UNP"
+      ],
+      "miembros": 10,
+      "motivo": null
     },
     "XLP": {
-      "pct": null,
-      "n": 0,
-      "motivo": "HTTP 402 · HTTP 403"
+      "pct": 80.0,
+      "n": 10,
+      "encima": [
+        "CL",
+        "COST",
+        "KO",
+        "MDLZ",
+        "PEP",
+        "PM",
+        "TGT",
+        "WMT"
+      ],
+      "miembros": 10,
+      "motivo": null
     },
     "XLE": {
-      "pct": null,
-      "n": 0,
-      "motivo": "HTTP 402 · HTTP 403"
+      "pct": 100.0,
+      "n": 10,
+      "encima": [
+        "COP",
+        "CVX",
+        "EOG",
+        "MPC",
+        "OKE",
+        "PSX",
+        "SLB",
+        "VLO",
+        "WMB",
+        "XOM"
+      ],
+      "miembros": 10,
+      "motivo": null
     },
     "XLU": {
-      "pct": null,
-      "n": 0,
-      "motivo": "HTTP 402 · HTTP 403"
+      "pct": 10.0,
+      "n": 10,
+      "encima": [
+        "CEG"
+      ],
+      "miembros": 10,
+      "motivo": null
     },
     "XLRE": {
-      "pct": null,
-      "n": 0,
-      "motivo": "HTTP 402 · HTTP 403"
+      "pct": 60.0,
+      "n": 10,
+      "encima": [
+        "AMT",
+        "DLR",
+        "EQIX",
+        "EXR",
+        "PSA",
+        "WELL"
+      ],
+      "miembros": 10,
+      "motivo": null
     },
     "XLB": {
-      "pct": null,
-      "n": 0,
-      "motivo": "HTTP 402 · HTTP 403"
+      "pct": 70.0,
+      "n": 10,
+      "encima": [
+        "APD",
+        "DOW",
+        "ECL",
+        "FCX",
+        "NEM",
+        "NUE",
+        "SHW"
+      ],
+      "miembros": 10,
+      "motivo": null
     }
   }
 }
