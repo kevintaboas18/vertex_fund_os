@@ -11791,7 +11791,11 @@ def _engine_scorecard(ticker, info, price):
             return None
         try:
             from wbj.quick import quick_scorecard
-            qs = quick_scorecard(dict_packet)
+            # CON el idioma de la sesion. Sin el, `quick_scorecard` cae a su
+            # valor por defecto ("en") y el motivo de una categoria N/S sale en
+            # ingles dentro de un panel en espanol -- y no lo salva el barrido,
+            # que traduce ES->EN, no al reves, para el texto que nace aqui.
+            qs = quick_scorecard(dict_packet, _idioma_actual())
             # Victor no computa confianza por categoría en quick; SÍ reporta evidence_points_covered
             # (/100). Ese es su número honesto de "cuánto sabemos" → lo usamos como confianza total
             # en vez de un 50 fijo (que no es de Victor). Baja evidencia → confianza baja → cap a Speculative.
@@ -12121,7 +12125,7 @@ def _engine_scorecard(ticker, info, price):
         if dict_packet:
             try:
                 from wbj.quick import quick_scorecard as _qsc
-                _q = _qsc(dict_packet)
+                _q = _qsc(dict_packet, _idioma_actual())
                 _victor_sc = {
                     "overall_10": _q.get("overall_10"),
                     "evidence_points_covered": _q.get("evidence_points_covered"),

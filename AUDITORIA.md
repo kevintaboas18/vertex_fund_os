@@ -7311,3 +7311,130 @@ Los cazó la batería completa, y los tres venían de la misma reescritura:
 **3.371 tests del motor · 803 de la capa web · 77 en un navegador real
 (cuatro tamaños) · 267 checks de auditoría · 16 diferenciales sin divergencias
 · preflight de Render en verde.**
+
+---
+
+## 41.65 · Ronda 40 — la valuación del puntaje rápido salía 0,0, y por seis motivos
+
+> «¿Por qué en el área de análisis, cuando analizo una acción, en el puntaje
+> rápido el de valuation sale 0.0 o bien bajito? ¿Qué error o problema hay?»
+
+Lo primero que había que establecer: **la categoría era byte a byte la de
+Víctor.** Se clonó su repo y se comparó `_valuation_category` — mismo hash,
+mismas anclas, cero divergencias. Así que los seis fallos son suyos, no algo
+que se rompiera al portar. El encargo de Kevin fue explícito: «hazlo como tiene
+Víctor, si tiene problema soluciona cada problema y error que tenga. Solo el
+valuation de quick.»
+
+Los seis se midieron **sobre el motor**, no se dedujeron leyendo.
+
+### 1 · Perder dinero SUBÍA el puntaje
+
+El mismo packet, cambiando solo el resultado:
+
+| | valuation |
+|---|---|
+| gana dinero y genera caja | 4,5 |
+| pierde 10.000 M | **5,7** |
+
+Un P/E negativo se caía de la lista en silencio (`if pe is not None:
+scores.append(...)`) y la media se hacía sobre el único múltiplo que quedaba.
+La pérdida no restaba: **quitaba al testigo que la habría delatado.**
+
+### 2 · La cobertura mentía
+
+La misma laguna (capex ausente) en tres categorías:
+
+```
+financial   1,00 → 0,50      risk   1,00 → 0,50      valuation   1,00 → 1,00
+```
+
+Valuación era la **única** que construía la dimensión con la lista ya
+filtrada, así que el motor nunca se enteraba del hueco y la confianza del
+reporte no bajaba.
+
+### 3 · El motivo era falso
+
+Con precio en pantalla y sin base positiva, la fila decía «sin precio de
+mercado (FMP)». El precio estaba. Un motivo falso manda a mirar donde no es, y
+eso es peor que no tener motivo.
+
+### 4 · No había ajuste por crecimiento — el quick contradecía al Cerebro
+
+`Cerebro/06_valuation_analysis/SCORING.md` pone **«Growth-adjusted multiples …
+VAL-PEG-028 … reverse DCF»** como la dimensión **más grande** de valuación (3
+de 10 puntos), y su banda 7-10 es literalmente *«price embeds conservative
+growth relative to quality»*. El especialista profundo lo implementa
+(`valuation.py`, VAL-PEG-028). El quick no tenía **ni una** entrada de
+crecimiento: puntuaba a una empresa que crece al 60% como a una eléctrica.
+
+### 5 · El flujo de caja era el de un solo ejercicio
+
+Contra el «Use normalized, not peak-cycle, cash flow» del mismo documento. Un
+ciclo fuerte de inversión —los centros de datos de ahora es el caso vivo— o un
+vaivén de capital de trabajo partía la nota por la mitad.
+
+### 6 · El suelo aplastaba
+
+`anchor_score` recorta fuera del rango: P/E 70x → 0,00 y P/FCF 90x → 0,00, así
+que una empresa a 75x y otra a 400x salían **las dos 0,0**, indistinguibles.
+
+### Lo que hace ahora
+
+Dos ranuras, las dos **siempre presentes** como `Value` para que la cobertura
+diga la verdad:
+
+- **Múltiplo sobre beneficios** — el **PEG** cuando el consenso da crecimiento
+  (mismo cociente y **mismas anclas** que VAL-PEG-028 del especialista
+  profundo), y el P/E crudo cuando no lo da. Sin consenso no se pierde la
+  valuación: el múltiplo crudo sigue siendo evidencia.
+- **Múltiplo sobre caja** — P/FCF sobre el flujo libre **normalizado a tres
+  ejercicios** (mediana, que es lo que sobrevive a un año raro), con los dos
+  lados emparejados **por ejercicio** con `_at_period`.
+
+Con media evidencia se cae por debajo del 70% de `score10_value` —el umbral
+del propio motor, no una regla nueva— y la categoría queda **N/S con el motivo
+real**, que es lo que Kevin eligió.
+
+Medido después:
+
+```
+gana y genera caja      4,5   cov 1,00   scored
+PIERDE (EPS<0)          N/S   cov 0,00   «solo el múltiplo sobre el flujo de caja…»
+caja NEGATIVA           N/S   cov 0,00   «solo el múltiplo sobre beneficios…»
+pierde Y quema caja     N/S   cov 0,00   «ni beneficio ni flujo positivo…»
+sin precio              N/S   cov 0,00   «sin precio de mercado (FMP)»
+```
+
+Y el mismo P/E de 47,6x, cambiando solo el crecimiento del consenso:
+
+```
+sin consenso  1,9      crece 10%  1,0      crece 30%  3,3      crece 60%  5,1
+```
+
+**Las anclas del P/E y del P/FCF no se tocaron.** El encargo era arreglar
+errores, no repartir aprobados: lo caro de verdad —417x de P/E contra 158x de
+P/FCF— sigue saliendo por debajo de 1,0, y hay un caso que lo fija.
+
+### Un séptimo, de la capa web
+
+`quick_scorecard` se llamaba **sin idioma**, así que caía a su valor por
+defecto (`"en"`) y el motivo de una categoría N/S salía en inglés dentro de un
+panel en español. El barrido no lo salva: traduce ES→EN, no al revés, para el
+texto que nace en el servidor. Ahora recibe `_idioma_actual()` en los dos
+sitios que lo llaman, y hay un caso que comprueba el texto que sale, no solo
+que el parámetro esté.
+
+### Lo que NO se pudo comprobar
+
+El proxy de esta sesión devuelve **403 tanto para `financialmodelingprep.com`
+como para `data.sec.gov`**, así que no hubo forma de cotejar contra la fuente
+real. Los packets de los casos llevan cifras **aproximadas puestas a mano**
+para ver la forma del puntaje; lo que sí está medido sobre el motor son los
+seis defectos y sus arreglos.
+
+### Estado
+
+**3.390 tests del motor (17 nuevos, solo de esta categoría) · 806 de la capa
+web (3 nuevos) · 77 en un navegador real · 267 checks de auditoría · preflight
+de Render en verde.**

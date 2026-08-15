@@ -4434,3 +4434,70 @@ class TestElMAPAsePintaANTESdeQueLleguenLosNUMEROS:
             "un fallo vuelve a borrar la parrilla para poder decir el motivo")
         assert cuerpo.count("vxSectoresAviso(") == 2, (
             "los dos caminos de fallo tienen que avisar SIN borrar el mapa")
+
+
+class TestLaVALUACIONDelQuickNoSaleCEROporUnFALLO:
+    """«¿Por qué en el puntaje rápido el de valuation sale 0.0 o bien bajito?»
+
+    La causa está medida en `engine/tests/test_quick_valuation.py`, que es
+    donde vive la matemática. Aquí se mide lo que le toca a la capa web: que
+    el motivo llegue a la pantalla EN EL IDIOMA DE LA SESIÓN.
+
+    Sin eso, el motivo nace en inglés dentro de un panel en español — y el
+    barrido no lo salva: traduce ES→EN, no al revés, para el texto que nace
+    en el servidor.
+    """
+
+    def test_el_quick_recibe_el_IDIOMA_de_la_sesion(self):
+        import vertex_api as V
+
+        fuente = Path(V.__file__).read_text(encoding="utf-8")
+        for llamada in ("quick_scorecard(dict_packet, _idioma_actual())",
+                        "_qsc(dict_packet, _idioma_actual())"):
+            assert llamada in fuente, f"falta el idioma en: {llamada}"
+
+    def test_y_el_motivo_sale_TRADUCIDO_de_verdad(self):
+        """No basta con pasar el parámetro: se comprueba el texto que sale."""
+        from wbj.quick import quick_scorecard
+
+        def s(v, ends=("2024-12-31",)):
+            return [{"end": e, "val": v} for e in ends]
+
+        # Pierde dinero y quema caja: la valuación no se puede calcular.
+        pk = {"ticker": "TEST", "as_of": "2026-08-15", "annual": {
+                "revenue": s(1e11), "net_income": s(-1e10),
+                "operating_cash_flow": s(5e9), "capex": s(2e10),
+                "long_term_debt": s(1e10), "equity": s(5e10),
+                "operating_income": s(3e10), "gross_profit": s(5e10),
+                "interest_expense": s(1e9), "diluted_shares": s(1e10)},
+              "market_data": {"price": 230.0, "market_cap": 3.5e12},
+              "industry_adapter": "default_nonfinancial"}
+
+        def motivo(lang):
+            return next(r for r in quick_scorecard(pk, lang)["categories"]
+                        if r["key"] == "valuation")["reason"]
+
+        assert "múltiplo" in motivo("es"), motivo("es")
+        assert "multiple" in motivo("en"), motivo("en")
+        assert motivo("es") != motivo("en")
+
+    def test_y_NO_dice_que_falta_el_precio_cuando_el_precio_ESTA(self):
+        """El motivo que llegaba al panel era siempre el mismo, «sin precio de
+        mercado (FMP)», incluso con el precio en pantalla. Un motivo falso
+        manda a mirar donde no es."""
+        from wbj.quick import quick_scorecard
+
+        def s(v):
+            return [{"end": "2024-12-31", "val": v}]
+
+        pk = {"ticker": "TEST", "as_of": "2026-08-15", "annual": {
+                "revenue": s(1e11), "net_income": s(-1e10),
+                "operating_cash_flow": s(5e9), "capex": s(2e10),
+                "long_term_debt": s(1e10), "equity": s(5e10),
+                "operating_income": s(3e10), "gross_profit": s(5e10),
+                "interest_expense": s(1e9), "diluted_shares": s(1e10)},
+              "market_data": {"price": 230.0, "market_cap": 3.5e12},
+              "industry_adapter": "default_nonfinancial"}
+        fila = next(r for r in quick_scorecard(pk, "es")["categories"]
+                    if r["key"] == "valuation")
+        assert "precio" not in fila["reason"], fila["reason"]

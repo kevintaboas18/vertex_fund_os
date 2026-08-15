@@ -66,9 +66,9 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 ## Tests
 
 ```bash
-cd engine && python -m pytest tests/ -q    # 3371 pasan, 0 skips
-python -m pytest tests_vertex/ -q          # 880 pasan, 0 skips
-                                           # (803 de la capa web + 77 en un
+cd engine && python -m pytest tests/ -q    # 3390 pasan, 0 skips
+python -m pytest tests_vertex/ -q          # 883 pasan, 0 skips
+                                           # (806 de la capa web + 77 en un
                                            #  navegador real, cuatro tamaños)
 
 # Auditoría del tab de Proyecciones (267 checks). Con TITO_ROOT usa tu clon de

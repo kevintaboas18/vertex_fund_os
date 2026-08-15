@@ -13,7 +13,7 @@ Honest-scoring rules (Cerebro: "sin evidencia, no hay número"):
 
 from __future__ import annotations
 
-from statistics import pstdev
+from statistics import median, pstdev
 
 from wbj.core.formulas import yoy
 from wbj.i18n import L
@@ -43,6 +43,12 @@ _A_OFF_HIGH = [(-0.40, 2.0), (-0.20, 5.0), (-0.08, 8.0), (0.0, 10.0)]
 # P/E and P/FCF: lower is cheaper (descending scores; anchor_score interpolates)
 _A_PE = [(10.0, 10.0), (18.0, 8.0), (28.0, 5.0), (45.0, 2.0), (70.0, 0.0)]
 _A_PFCF = [(12.0, 10.0), (22.0, 8.0), (35.0, 5.0), (55.0, 2.0), (90.0, 0.0)]
+#: PEG: the price/earnings multiple against the growth that is being paid for.
+#: These are the DEEP specialist's own anchors for VAL-PEG-028
+#: (`specialists/valuation.py`), copied rather than imported so the quick does
+#: not drag the whole deep module in -- `test_quick_valuation.py` pins the two
+#: lists together so the copy cannot drift.
+_A_PEG = [(0.5, 10.0), (1.0, 7.0), (2.0, 3.0), (3.5, 0.0)]
 
 _TECHNICAL_MIN_SESSIONS = 200
 
@@ -66,6 +72,26 @@ _NS_REASON = {
              "el apalancamiento y la cobertura no aplican a este negocio, y no "
              "reporta capex, así que tampoco hay flujo de caja libre"),
 }
+
+# Los motivos de la valuacion: uno por causa, porque decir "sin precio de
+# mercado" cuando el precio SI esta manda a mirar donde no es.
+_R_SIN_PRECIO = ("no market price (FMP)", "sin precio de mercado (FMP)")
+_R_SIN_BASE = (
+    "neither positive earnings nor positive normalised free cash flow: there "
+    "is no multiple to compute",
+    "ni beneficio positivo ni flujo de caja libre normalizado positivo: no hay "
+    "múltiplo que calcular")
+_R_SOLO_GANANCIAS = (
+    "only the earnings multiple could be computed; normalised free cash flow "
+    "is unavailable or not positive, which is under half the evidence",
+    "solo se pudo calcular el múltiplo sobre beneficios; el flujo de caja libre "
+    "normalizado no está o no es positivo, y eso es menos de la mitad de la "
+    "evidencia")
+_R_SOLO_CAJA = (
+    "only the cash-flow multiple could be computed; earnings are not positive, "
+    "which is under half the evidence",
+    "solo se pudo calcular el múltiplo sobre el flujo de caja; el beneficio no "
+    "es positivo, y eso es menos de la mitad de la evidencia")
 
 
 def _val(x: float | None, name: str, unit: str = "ratio") -> Value:
@@ -238,29 +264,132 @@ def _technical_category(md: dict) -> Category | None:
     ])
 
 
-def _valuation_category(md: dict, annual: dict) -> Category | None:
-    """Valuation (10 pts): P/E and P/FCF. A non-meaningful multiple (EPS or
-    FCF <= 0) is dropped; both non-meaningful or no price -> N/S."""
+def _fcf_normalizado(annual: dict, years: int = 3) -> float | None:
+    """Free cash flow of the last `years` fiscal years, as a MEDIAN.
+
+    SCORING.md's cash-flow row says it with all its letters: "Use normalized,
+    not peak-cycle, cash flow". A single fiscal year is exactly the peak-cycle
+    read it forbids -- one heavy capex year or one working-capital swing
+    doubles the multiple and halves the category.
+
+    The two sides are paired BY PERIOD with `_at_period`, not each on its own
+    `_latest`: operating cash flow and capex from different years is not that
+    year's free cash flow, the same hazard `_at_period` was written for.
+
+    The median, not the mean: one outlier year is what normalising is meant to
+    survive, and a mean carries it straight through.
+    """
+    ocf, capex = annual.get("operating_cash_flow") or [], annual.get("capex") or []
+    vals: list[float] = []
+    for row in reversed(ocf):
+        if len(vals) >= years:
+            break
+        cx = _at_period(capex, row.get("end"))
+        if row.get("val") is not None and cx is not None:
+            vals.append(row["val"] - cx)
+    if not vals:
+        return None
+    return median(vals)
+
+
+def _crecimiento_eps(md: dict, annual: dict, as_of: str) -> float | None:
+    """Forward EPS growth from the analyst consensus, as a fraction.
+
+    Same source `_market_category` already uses for revenue, read on the
+    earnings line. Returns None unless both sides are positive: a growth rate
+    computed off a negative base is a number without a meaning.
+    """
+    row = _nearest_future_estimate(md.get("estimates"), as_of)
+    if not row:
+        return None
+    fwd = _first_present(row, "epsAvg", "estimatedEpsAvg")
+    eps = _eps_actual(annual)
+    if not fwd or not eps or fwd <= 0 or eps <= 0:
+        return None
+    return fwd / eps - 1.0
+
+
+def _eps_actual(annual: dict) -> float | None:
+    ni_l = _latest(annual.get("net_income") or [])
+    shares_l = _latest(annual.get("diluted_shares") or [])
+    return (ni_l / shares_l) if (ni_l is not None and shares_l) else None
+
+
+def _valuation_category(md: dict, annual: dict,
+                        as_of: str = "") -> tuple[Category | None,
+                                                  tuple[str, str] | None]:
+    """Valuation (10 pts): the earnings multiple and the cash-flow multiple.
+
+    Returns `(category, reason)` -- the reason is the truthful N/S text when
+    there is no category, and `None` when there is one.
+
+    Four things were wrong with the version this replaces, and all four were
+    measured on the engine itself:
+
+    1. A non-meaningful multiple was DROPPED from the list instead of passed
+       in as a null `Value`. The dimension never learnt there was a hole, so
+       `coverage` kept reporting 1.00 with half the evidence gone -- while the
+       same gap in `financial` and `risk` correctly took theirs to 0.50.
+    2. Because of (1), a company that LOSES money scored HIGHER than the same
+       company earning: 5.7 against 4.5, since the negative P/E vanished and
+       only the surviving cash multiple was averaged. Losing money improved
+       the score.
+    3. With a price present but no positive base, the row said "no market
+       price (FMP)". The price was there; the base was not.
+    4. There was no growth adjustment at all, while SCORING.md's LARGEST
+       valuation dimension is "Growth-adjusted multiples ... VAL-PEG-028 ...
+       reverse DCF", whose 7-10 band is "price embeds conservative growth
+       relative to quality". A fast grower was scored as if it were an
+       ex-growth utility.
+
+    The earnings slot now carries the PEG when the consensus gives a growth
+    rate -- the same ratio and the same anchors as the deep specialist's
+    VAL-PEG-028 -- and falls back to the raw P/E when it does not. Both slots
+    are always present, so 50% coverage lands under the engine's own 70%
+    usable floor and the category goes N/S with its reason instead of
+    inventing half a verdict.
+    """
     price = md.get("price")
     if not price:
-        return None
-    ni_l = _latest(annual["net_income"])
-    shares_l = _latest(annual.get("diluted_shares", []))
-    ocf_l, capex_l = _latest(annual["operating_cash_flow"]), _latest(annual["capex"])
-    eps = (ni_l / shares_l) if (ni_l is not None and shares_l) else None
-    fcf = (ocf_l - capex_l) if (ocf_l is not None and capex_l is not None) else None
-    pe = (price / eps) if (eps and eps > 0) else None
-    pfcf = (md.get("market_cap") / fcf) if (md.get("market_cap") and fcf and fcf > 0) else None
+        return None, _R_SIN_PRECIO
 
-    scores: list[Value] = []
-    if pe is not None:
-        scores.append(_scored(_val(pe, "pe", unit="x"), _A_PE))
-    if pfcf is not None:
-        scores.append(_scored(_val(pfcf, "pfcf", unit="x"), _A_PFCF))
-    if not scores:
-        return None
-    return Category(name="valuation", max_points=10.0,
-                    dimensions=[_dim("Multiples", 10.0, scores)])
+    eps = _eps_actual(annual)
+    fcf = _fcf_normalizado(annual)
+    mcap = md.get("market_cap")
+    crecimiento = _crecimiento_eps(md, annual, as_of)
+
+    # --- Slot 1: the earnings multiple, growth-adjusted when growth is known.
+    if not eps or eps <= 0:
+        # Not absent -- reported and non-positive. A P/E off negative earnings
+        # is undefined, which is `NOT_MEANINGFUL`, the same state
+        # `_interest_coverage` already uses for a zero denominator.
+        ganancias = Value.null(NullState.NOT_MEANINGFUL, unit="score",
+                               warnings=["EPS_NOT_POSITIVE"])
+    elif crecimiento and crecimiento > 0:
+        ganancias = _scored(_val((price / eps) / (crecimiento * 100.0),
+                                 "peg", unit="ratio"), _A_PEG)
+    else:
+        ganancias = _scored(_val(price / eps, "pe", unit="x"), _A_PE)
+
+    # --- Slot 2: the cash-flow multiple, on normalised free cash flow.
+    if fcf is None or not mcap:
+        caja = Value.null(NullState.MISSING, unit="score",
+                          warnings=["FCF_OR_MARKET_CAP_UNAVAILABLE"])
+    elif fcf <= 0:
+        caja = Value.null(NullState.NOT_MEANINGFUL, unit="score",
+                          warnings=["NORMALISED_FCF_NOT_POSITIVE"])
+    else:
+        caja = _scored(_val(mcap / fcf, "pfcf", unit="x"), _A_PFCF)
+
+    dim = _dim("Multiples", 10.0, [ganancias, caja])
+    if dim.score10_value().is_null:
+        # The engine's own 70% rule said no. Say WHICH side is missing --
+        # "no market price" was a lie here, and a lie in a reason is worse
+        # than no reason.
+        return None, (_R_SIN_BASE if (ganancias.is_null and caja.is_null)
+                      else _R_SOLO_GANANCIAS if caja.is_null
+                      else _R_SOLO_CAJA)
+    return Category(name="valuation", max_points=10.0, dimensions=[dim]), None
 
 
 def quick_scorecard(packet: dict, lang: str = "en") -> dict:
@@ -368,10 +497,17 @@ def quick_scorecard(packet: dict, lang: str = "en") -> dict:
     # truthful reason ("sin evidencia, no hay número").
     md = packet.get("market_data") or {}
     as_of = packet.get("as_of", "")
+    val_cat, val_reason = _valuation_category(md, a, as_of)
+    # El motivo de la valuacion se decide DENTRO, no en la tabla fija: la causa
+    # («no hay precio» / «no hay base positiva» / «solo la mitad») no se puede
+    # saber desde aqui, y la tabla fija decia siempre la primera.
+    razones = dict(_NS_REASON)
+    if val_reason:
+        razones["valuation"] = val_reason
     fmp_builders = {
         "market": _market_category(md, rev, as_of),
         "technical": _technical_category(md),
-        "valuation": _valuation_category(md, a),
+        "valuation": val_cat,
     }
     for key, cat in fmp_builders.items():
         if cat is not None and cat.coverage() > 0:
@@ -399,7 +535,7 @@ def quick_scorecard(packet: dict, lang: str = "en") -> dict:
                 "score10": score10, "points": round(cat.points(), 2),
                 "coverage": round(cov, 2),
                 "status": "scored" if score10 is not None else "not_scorable",
-                **({} if score10 is not None else {"reason": L(lang, *_NS_REASON.get(
+                **({} if score10 is not None else {"reason": L(lang, *razones.get(
                     key, ("no usable data for this category",
                           "sin datos utilizables para esta categoría")))}),
             })
@@ -408,7 +544,7 @@ def quick_scorecard(packet: dict, lang: str = "en") -> dict:
                 "key": key, "label": L(lang, *_QUICK_LABEL[key]), "max_points": max_pts,
                 "score10": None, "points": None, "coverage": 0.0,
                 "status": "not_scorable",
-                "reason": L(lang, *_NS_REASON.get(
+                "reason": L(lang, *razones.get(
                     key, ("no usable data for this category",
                           "sin datos utilizables para esta categoría"))),
             })
