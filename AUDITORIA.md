@@ -7438,3 +7438,30 @@ seis defectos y sus arreglos.
 **3.390 tests del motor (17 nuevos, solo de esta categoría) · 806 de la capa
 web (3 nuevos) · 77 en un navegador real · 267 checks de auditoría · preflight
 de Render en verde.**
+
+### Un rojo que NO se pudo reproducir — queda abierto
+
+Durante esta ronda, `test_almacen.py::TestUnRespaldoVACIONoPISAaUnoLLENO::
+test_el_paquete_se_ABRE_y_se_cuenta_antes_de_subilo` salió en rojo **dos
+veces**, las dos con otro proceso pesado (`auditar_tito.py` la primera, los 16
+diferenciales la segunda) corriendo `git` sobre el mismo árbol.
+
+No se capturó su traza, y **no se pudo forzar de vuelta**: siete corridas
+posteriores en verde, tres de ellas con carga concurrente puesta a propósito.
+Así que la causa no está establecida y no se declara resuelta.
+
+Lo que sí está establecido:
+
+- El código del almacén **no se tocó** en esta ronda: `git diff --numstat`
+  sobre `vertex_almacen.py` y sobre todo lo que rodea al respaldo da cero.
+- La misma batería **sin** los cambios de esta ronda también pasa, así que no
+  es una regresión introducida aquí.
+- El propio caso ya documenta su fragilidad en un comentario: «cuál de los
+  cuatro lo caza primero depende del estado del remoto, y atarlo a uno hacía el
+  caso intermitente».
+
+Queda **abierto**: un caso que miente de vez en cuando sobre el respaldo es
+peligroso precisamente porque el respaldo es lo que no se puede perder. La
+siguiente vez que aparezca hay que capturar la traza completa antes de nada —
+las dos lecturas posibles (un cerrojo que no disparó, o el fichero leído del
+almacén) tienen consecuencias muy distintas.
