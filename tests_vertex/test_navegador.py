@@ -1350,14 +1350,15 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
             "'#sectoresParrilla button[onclick^=\"abreSector\"]').length >= 11",
             timeout=20000)
         pg.wait_for_function(
-            "() => document.querySelectorAll('#sectoresRRG .relative').length > 0",
+            "() => document.querySelector('#sectoresRotacion h3') !== null",
             timeout=20000)
         return pg, errores
 
     def _mide(self, pg):
         return pg.evaluate("""() => {
             const v = id => {
-                const n = document.getElementById(id);
+                const n = id.startsWith('[') ? document.querySelector(id)
+                                             : document.getElementById(id);
                 if (!n) return null;
                 const r = n.getBoundingClientRect();
                 return { alto: r.height, arriba: r.top, derecha: r.right,
@@ -1368,10 +1369,11 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
             const rr = reloj ? reloj.getBoundingClientRect() : null;
             return {
                 franja: v('sectoresFranja'),
-                rrg: v('sectoresRRG'),
+                rotacion: v('sectoresRotacion'),
                 parrilla: v('sectoresParrilla'),
-                capas: document.querySelectorAll('#sectoresRRG .relative.h-9').length,
-                marcas: document.querySelectorAll('#sectoresRRG button[onclick^="abreSector"]').length,
+                capas: document.querySelectorAll('#sectoresRotacion .relative.h-9').length,
+                marcas: document.querySelectorAll('#sectoresRotacion button[onclick^="abreSector"]').length,
+                frase: v('[data-vx="frase"]'),
                 titulo: h1 ? h1.getBoundingClientRect().top : null,
                 relojDerecha: rr ? rr.right : null,
                 mapa: document.getElementById('sectoresMapa'),
@@ -1386,17 +1388,14 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
         pg, errores = self._abre(navegador, servidor, viewport)
         try:
             d = self._mide(pg)
-            for clave in ("franja", "rrg", "parrilla"):
+            for clave in ("franja", "rotacion", "parrilla"):
                 assert d[clave], f"[{nombre}] falta el bloque {clave}"
                 assert d[clave]["alto"] > 20, (
                     f"[{nombre}] {clave} está en pantalla con alto "
                     f"{d[clave]['alto']}: se pintó vacío")
             assert d["mapa"] is None, (
                 f"[{nombre}] el mapa de calor volvió: Kevin pidió quitarlo")
-            assert d["capas"] == 4, (
-                f"[{nombre}] el gráfico pintó {d['capas']} capas, no las cuatro")
-            assert d["marcas"] == 11, (
-                f"[{nombre}] {d['marcas']} sectores colocados, deberían ser 11")
+            assert d["frase"], f"[{nombre}] no hay frase en la franja"
             assert not errores, errores[:3]
         finally:
             pg.close()
@@ -1449,38 +1448,6 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
     @pytest.mark.parametrize("nombre,viewport",
                              [("escritorio", ESCRITORIO), ("ipad", IPAD),
                               ("movil", MOVIL), ("monitor", MONITOR)])
-    def test_el_mensaje_de_amplitud_se_LEE_y_no_sale_en_columna(
-            self, navegador, servidor, nombre, viewport):
-        """La avería de la captura: el mensaje metido en una columna de seis
-        caracteres, partido letra a letra y ocupando media pantalla de alto.
-
-        Un texto que hay que descifrar en vertical no informa: ocupa. Se mide el
-        ancho real del párrafo, que es lo que decide si se lee de corrido.
-        """
-        pg, errores = self._abre(navegador, servidor, viewport)
-        try:
-            # Por anclaje y no por prosa: buscar la frase concreta ata el test
-            # al diagnóstico que devuelva el motor ese día.
-            m = pg.evaluate("""() => {
-                const n = document.querySelector('#sectoresFranja [data-vx="amplitud-frase"]');
-                if (!n) return null;
-                const r = n.getBoundingClientRect();
-                return { ancho: r.width, alto: r.height, texto: n.innerText };
-            }""")
-            assert m, f"[{nombre}] no se encontró el mensaje de amplitud"
-            assert m["ancho"] >= 180, (
-                f"[{nombre}] el mensaje tiene {m['ancho']}px de ancho: sale "
-                "partido en vertical, como en la captura que Kevin mandó")
-            assert m["alto"] <= 120, (
-                f"[{nombre}] el mensaje ocupa {m['alto']}px de alto: se está "
-                "desbordando en una columna estrecha")
-            assert not errores, errores[:3]
-        finally:
-            pg.close()
-
-    @pytest.mark.parametrize("nombre,viewport",
-                             [("escritorio", ESCRITORIO), ("ipad", IPAD),
-                              ("movil", MOVIL), ("monitor", MONITOR)])
     def test_el_reloj_el_vix_y_el_volumen_se_LEEN(self, navegador, servidor,
                                                   nombre, viewport):
         pg, errores = self._abre(navegador, servidor, viewport)
@@ -1520,40 +1487,40 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
     @pytest.mark.parametrize("nombre,viewport",
                              [("escritorio", ESCRITORIO), ("ipad", IPAD),
                               ("movil", MOVIL), ("monitor", MONITOR)])
-    def test_el_mensaje_va_JUSTO_DEBAJO_del_spy_y_el_vix(self, navegador,
-                                                         servidor, nombre,
-                                                         viewport):
-        """Y no al lado. Es la frase que los explica.
-
-        «La subida es de todos» o «la sostienen cuatro» solo significa algo
-        pegado a los números que lo dicen. Puesta al lado, en pantalla ancha
-        parecía un tercer dato suelto y en estrecha salía partida en columna.
-        """
+    def test_la_rotacion_se_PLIEGA_y_se_despliega(self, navegador, servidor,
+                                                  nombre, viewport):
+        """Plegada por defecto: la rotación contesta una pregunta que uno se
+        hace DESPUÉS de mirar las casillas, no antes. Y lo que se elija se
+        recuerda, o cambiar de ventana la volvería a plegar cada vez."""
         pg, errores = self._abre(navegador, servidor, viewport)
         try:
-            m = pg.evaluate("""() => {
-                const f = document.getElementById('sectoresFranja');
-                const msg = f.querySelector('[data-vx="amplitud"]');
-                // Por anclaje: filtrar divs por su texto agarraba también el
-                // contenedor que envuelve al mensaje, y entonces «debajo» se
-                // medía contra sí mismo.
-                const cifras = [...f.querySelectorAll('[data-vx="cifra"]')];
-                if (!msg || !cifras.length) return null;
-                const rm = msg.getBoundingClientRect();
-                const rc = cifras.map(x => x.getBoundingClientRect());
-                return {
-                    msgArriba: rm.top, msgIzq: rm.left, msgAncho: rm.width,
-                    cifrasAbajo: Math.max(...rc.map(r => r.bottom)),
-                    cifrasIzq: Math.min(...rc.map(r => r.left)),
-                };
+            # Plegado significa NO SE VE. El marcado sigue en el DOM —así el
+            # estado se conserva sin volver a pedir nada—, de modo que se
+            # cuenta lo visible, que es lo que le pasa a quien mira.
+            cuenta = ("() => [...document.querySelectorAll("
+                      "'#sectoresRotacion .relative.h-9')]"
+                      ".filter(n => n.offsetParent !== null).length")
+            # El estado se guarda en `localStorage`, que las páginas de un mismo
+            # navegador COMPARTEN: sin limpiarlo, lo que dejó abierto el caso
+            # anterior se cuela aquí y el fallo parece del panel.
+            pg.evaluate("""() => {
+                localStorage.removeItem('vertex_rotacion');
+                pintaRotacion((window._sectoresData || {}).rotacion);
             }""")
-            assert m, f"[{nombre}] no se encontraron el mensaje y las cifras"
-            assert m["msgArriba"] >= m["cifrasAbajo"] - 2, (
-                f"[{nombre}] el mensaje empieza en {m['msgArriba']}px y las "
-                f"cifras acaban en {m['cifrasAbajo']}px: está al lado, no debajo")
-            assert abs(m["msgIzq"] - m["cifrasIzq"]) <= 4, (
-                f"[{nombre}] el mensaje no está alineado con las cifras "
-                f"({m['msgIzq']}px contra {m['cifrasIzq']}px)")
+            pg.wait_for_timeout(200)
+            assert pg.evaluate(cuenta) == 0, (
+                f"[{nombre}] la rotación arranca desplegada")
+            pg.evaluate("vxRotacionAlterna()")
+            pg.wait_for_timeout(200)
+            assert pg.evaluate(cuenta) == 4, (
+                f"[{nombre}] al abrir no salieron las cuatro capas")
+            assert pg.evaluate(
+                "() => [...document.querySelectorAll("
+                "'#sectoresRotacion button[onclick^=\"abreSector\"]')]"
+                ".filter(n => n.offsetParent !== null).length") == 11
+            pg.evaluate("vxRotacionAlterna()")
+            pg.wait_for_timeout(200)
+            assert pg.evaluate(cuenta) == 0, f"[{nombre}] no se volvió a plegar"
             assert not errores, errores[:3]
         finally:
             pg.close()
@@ -1569,8 +1536,15 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
         lo que tira, abajo lo que pesa—."""
         pg, errores = self._abre(navegador, servidor, viewport)
         try:
+            # Se ABRE de forma explícita, no alternando: alternar depende de
+            # cómo lo dejara el caso anterior, que comparte `localStorage`.
+            pg.evaluate("""() => {
+                localStorage.setItem('vertex_rotacion', '1');
+                pintaRotacion((window._sectoresData || {}).rotacion);
+            }""")
+            pg.wait_for_timeout(200)
             t = pg.evaluate(
-                "() => document.getElementById('sectoresRRG').innerText")
+                "() => document.getElementById('sectoresRotacion').innerText")
             for palabra in ("Liderando", "Cogiendo fuerza", "Agotándose",
                             "Rezagados"):
                 assert palabra in t, f"[{nombre}] falta la capa «{palabra}»: {t[:200]}"
@@ -1589,9 +1563,106 @@ class TestLoNuevoDelDashboardSEVE_EnLosDosTamanos:
         sobre el mismo plano no se pueden leer, por correctas que sean."""
         pg, errores = self._abre(navegador, servidor, self.ESCRITORIO)
         try:
+            pg.evaluate("""() => {
+                localStorage.setItem('vertex_rotacion', '1');
+                pintaRotacion((window._sectoresData || {}).rotacion);
+            }""")
+            pg.wait_for_timeout(200)
             n = pg.evaluate(
-                "() => document.querySelectorAll('#sectoresRRG polyline').length")
+                "() => document.querySelectorAll('#sectoresRotacion polyline').length")
             assert n == 0, f"volvieron las {n} estelas cruzadas"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    @pytest.mark.parametrize("nombre,viewport",
+                             [("escritorio", ESCRITORIO), ("ipad", IPAD),
+                              ("movil", MOVIL), ("monitor", MONITOR)])
+    def test_la_frase_se_lee_y_dice_QUIEN_la_dijo(self, navegador, servidor,
+                                                  nombre, viewport):
+        """Una cita sin autor es un eslogan. Con autor es una opinión con
+        alguien detrás que se jugó dinero sosteniéndola."""
+        pg, errores = self._abre(navegador, servidor, viewport)
+        try:
+            f = pg.evaluate("""() => {
+                const n = document.querySelector('#sectoresFranja [data-vx="frase"]');
+                if (!n) return null;
+                const ps = n.querySelectorAll('p');
+                const r = n.getBoundingClientRect();
+                return { texto: ps[0] ? ps[0].innerText : '',
+                         autor: ps[1] ? ps[1].innerText : '',
+                         ancho: r.width, alto: r.height };
+            }""")
+            assert f, f"[{nombre}] no hay frase en la franja"
+            assert len(f["texto"]) > 15, f"[{nombre}] frase vacía: {f['texto']!r}"
+            assert f["autor"].strip().startswith("—"), (
+                f"[{nombre}] la frase no dice quién la dijo: {f['autor']!r}")
+            assert len(f["autor"]) > 3
+            assert f["ancho"] >= 180, (
+                f"[{nombre}] la frase tiene {f['ancho']}px: sale en columna")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_las_frases_CAMBIAN_solas(self, navegador, servidor):
+        """«Que solo se vea una frase a la vez y vaya cambiando activamente.»"""
+        pg, errores = self._abre(navegador, servidor, self.ESCRITORIO)
+        try:
+            leer = ("() => (document.querySelector("
+                    "'#sectoresFranja [data-vx=\"frase\"] p') || {}).innerText")
+            antes = pg.evaluate(leer)
+            # Se adelanta el relevo en vez de esperar doce segundos: lo que se
+            # mide es que el mecanismo cambia el texto y deja UNA sola frase.
+            pg.evaluate("""() => {
+                VX_FRASE_I = (VX_FRASE_I + 1) % VX_FRASES.length;
+                document.querySelectorAll('[data-vx="frase"]').forEach(
+                    n => { n.outerHTML = vxFraseHTML(); });
+            }""")
+            despues = pg.evaluate(leer)
+            assert antes and despues and antes != despues, (
+                f"la frase no cambió: {antes!r}")
+            assert pg.evaluate(
+                "() => document.querySelectorAll("
+                "'#sectoresFranja [data-vx=\"frase\"]').length") == 1, (
+                "hay más de una frase a la vez")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_SPY_y_la_amplitud_salieron_de_la_franja(self, navegador,
+                                                        servidor):
+        """Kevin los quitó de arriba, y no se pierde nada: SPY, RSP y QQQ
+        tienen su casilla en la parrilla, y la salud RSP-contra-SPY abre el
+        bloque de rotación. Repetirlos arriba solo hacía la franja más alta."""
+        pg, errores = self._abre(navegador, servidor, self.ESCRITORIO)
+        try:
+            t = pg.evaluate(
+                "() => document.getElementById('sectoresFranja').innerText")
+            assert "S&P 500" not in t, f"el S&P sigue en la franja: {t[:160]}"
+            assert "RSP" not in t, f"la amplitud sigue en la franja: {t[:160]}"
+            # Y siguen estando donde tienen que estar.
+            p = pg.evaluate(
+                "() => document.getElementById('sectoresParrilla').innerText")
+            for x in ("SPY", "RSP", "QQQ"):
+                assert x in p, f"{x} desapareció también de la parrilla"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_la_parrilla_va_JUSTO_debajo_del_titulo(self, navegador, servidor):
+        """«Abajo de Sectores, rápido, ahí estén todos los sectores.»"""
+        pg, errores = self._abre(navegador, servidor, self.ESCRITORIO)
+        try:
+            d = pg.evaluate("""() => {
+                const h1 = document.querySelector('#sectorsView h1');
+                const p = document.getElementById('sectoresParrilla');
+                const r = document.getElementById('sectoresRotacion');
+                return { titulo: h1.getBoundingClientRect().top,
+                         parrilla: p.getBoundingClientRect().top,
+                         rotacion: r.getBoundingClientRect().top };
+            }""")
+            assert d["titulo"] < d["parrilla"] < d["rotacion"], (
+                f"el orden no es título → parrilla → rotación: {d}")
             assert not errores, errores[:3]
         finally:
             pg.close()

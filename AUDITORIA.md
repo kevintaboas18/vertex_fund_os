@@ -7050,3 +7050,67 @@ anterior.
 
 Los cuatro casos nuevos se comprobaron revirtiendo el arreglo: sin él sale
 `AssertionError: se sobrescribió un respaldo que ni se pudo leer`.
+
+## 41.62 · Ronda 37 — el mapa primero, la explicación cuando se pida
+
+Tres cambios de forma, y los tres van en la misma dirección: **que la primera
+pantalla conteste la primera pregunta y nada más**.
+
+### 1 · Las casillas, pegadas al título
+
+La parrilla estaba por debajo del gráfico de rotación, así que lo primero que
+se veía al entrar era la explicación de un mapa que aún no habías mirado. Ahora
+va inmediatamente debajo de «Sectores» — SPY, RSP y QQQ incluidos, como
+estaban.
+
+### 2 · «Rotación sectorial» y «Hacia dónde va cada sector», fusionados y plegables
+
+Eran dos tarjetas separadas que contestaban lo mismo desde dos lados, y encima
+**duplicadas**: la «Matriz de rotación» era una lista de chips con los mismos
+cuatro cuadrantes que las capas ya dibujan, mejor. Se quitó la lista y las capas
+ocupan su sitio dentro de la tarjeta de rotación.
+
+La tarjeta es ahora un plegable, cerrado por defecto: la rotación responde algo
+que uno se pregunta **después** de mirar las casillas. Lo que se elija se
+recuerda, o cambiar de ventana lo volvería a plegar cada vez.
+
+**Plegado significa no construirlo, no esconderlo con una clase.** Con `hidden`
+de Tailwind el marcado seguía ahí —y en el navegador de los tests, donde la hoja
+del CDN no carga, ni siquiera dejaba de verse: el caso salía en rojo sin que el
+panel tuviera nada malo—. Construir solo lo que se enseña no depende de ninguna
+hoja de estilos y además no deja once botones invisibles en el recorrido del
+teclado.
+
+### 3 · Arriba, una frase en vez de dos números repetidos
+
+El S&P y la amplitud RSP-contra-SPY salieron de la franja. No se pierde nada:
+SPY, RSP y QQQ tienen su casilla a un palmo, y la salud abre el bloque de
+rotación. Repetirlos arriba solo hacía la franja más alta.
+
+En su lugar, una cita de alguien que se jugó dinero sosteniéndola —Buffett,
+Graham, Munger, Lynch, Templeton, Fisher, Samuelson, Soros, Dalio, Livermore,
+Marks, Bogle, Grove, Bezos, Thiel, Walton, Jobs—, una sola a la vez, cambiando
+cada doce segundos, **con el nombre de quien la dijo**. Una cita sin autor es un
+eslogan; con autor es una opinión con alguien detrás.
+
+No es decoración: la mitad de los errores caros se cometen en los diez segundos
+que uno pasa mirando un porcentaje en rojo.
+
+Dos detalles de oficio: el relevo repinta **solo el hueco de la frase**, no la
+franja entera —repintarla reiniciaría el reloj y haría parpadear el VIX cada
+doce segundos—; y en el diccionario el inglés de cada cita es **el original**,
+no una retraducción del español. Esta gente lo dijo en inglés, y devolverles una
+versión de segunda mano sería peor que no citarlas.
+
+### Y una lección de aislamiento en los tests
+
+Cuatro casos fallaban por contaminación: el estado del plegable vive en
+`localStorage`, que **las páginas de un mismo navegador comparten**, así que lo
+que dejaba abierto un caso se colaba en el siguiente y el fallo parecía del
+panel. Cada caso fija ahora el estado que necesita en vez de alternar desde
+«lo que hubiera».
+
+### Estado
+
+**3.371 tests del motor · 793 de la capa web · 69 en un navegador real ·
+324 checks de auditoría · 16 diferenciales sin divergencias.**

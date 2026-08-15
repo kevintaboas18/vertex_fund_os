@@ -969,7 +969,9 @@
         <span id="sectoresSello" class="text-[10px] text-gray-600"></span>
     </div>
     <p class="text-[11px] text-gray-500 -mt-2 leading-snug">El mapa del mercado antes de elegir un ticker: d&oacute;nde est&aacute; entrando el dinero y d&oacute;nde est&aacute; saliendo. Pulsa un sector para ver sus industrias.</p>
-    <div id="sectoresRRG"></div>
+    <!-- La parrilla va INMEDIATAMENTE debajo del título: es lo que se viene a
+         ver. Todo lo demás —la rotación, el reparto de fuerza, la lectura— son
+         respuestas a preguntas que uno se hace DESPUÉS de mirar las casillas. -->
     <div id="sectoresParrilla"></div>
     <div id="sectoresRotacion"></div>
     <div id="sectoresLectura"></div>
@@ -1901,6 +1903,66 @@ function vxHoraDe(iso) {
     } catch (e) { return ''; }
 }
 
+//: Frases de gente que se ha jugado dinero de verdad.
+//:
+//: Van arriba del todo, donde antes estaban el S&P y la amplitud. No es
+//: decoración: esos dos números siguen ahí abajo —SPY, RSP y QQQ tienen su
+//: casilla en la parrilla, y la salud RSP-contra-SPY abre el bloque de
+//: rotación— así que no se pierde nada y se gana lo único que una pantalla de
+//: mercado no da sola: perspectiva. La mitad de los errores caros se cometen
+//: en los diez segundos que uno pasa mirando un porcentaje en rojo.
+//:
+//: Se escriben en español y el barrido las traduce como al resto de la
+//: pantalla: están en el diccionario, como cualquier otra cadena.
+const VX_FRASES = [
+    ['Ten miedo cuando los demás son codiciosos, y sé codicioso cuando los demás tienen miedo.', 'Warren Buffett'],
+    ['El precio es lo que pagas. El valor es lo que recibes.', 'Warren Buffett'],
+    ['El riesgo viene de no saber lo que estás haciendo.', 'Warren Buffett'],
+    ['A corto plazo el mercado es una máquina de votar; a largo plazo, una de pesar.', 'Benjamin Graham'],
+    ['El principal problema del inversor —y hasta su peor enemigo— suele ser él mismo.', 'Benjamin Graham'],
+    ['El dinero grande no está en comprar ni en vender, sino en esperar.', 'Charlie Munger'],
+    ['Sabe qué tienes, y sabe por qué lo tienes.', 'Peter Lynch'],
+    ['Los mercados alcistas nacen del pesimismo, crecen con el escepticismo, maduran con el optimismo y mueren con la euforia.', 'John Templeton'],
+    ['El mercado está lleno de gente que sabe el precio de todo y el valor de nada.', 'Philip Fisher'],
+    ['Invertir debería ser más como ver secar la pintura o crecer la hierba.', 'Paul Samuelson'],
+    ['No importa si aciertas o fallas, sino cuánto ganas cuando aciertas y cuánto pierdes cuando fallas.', 'George Soros'],
+    ['Quien vive de la bola de cristal acaba comiendo cristal roto.', 'Ray Dalio'],
+    ['Los mercados nunca se equivocan; las opiniones, a menudo sí.', 'Jesse Livermore'],
+    ['No puedes predecir. Puedes prepararte.', 'Howard Marks'],
+    ['El tiempo es tu amigo; el impulso es tu enemigo.', 'John Bogle'],
+    ['Solo los paranoicos sobreviven.', 'Andy Grove'],
+    ['Tu margen es mi oportunidad.', 'Jeff Bezos'],
+    ['La competencia es para perdedores.', 'Peter Thiel'],
+    ['Solo hay un jefe: el cliente.', 'Sam Walton'],
+    ['La innovación distingue a un líder de un seguidor.', 'Steve Jobs'],
+];
+
+//: Cada cuánto cambia la frase. Doce segundos: lo bastante para leerla entera
+//: sin prisa y lo bastante poco para que no parezca un cartel fijo.
+const VX_FRASE_MS = 12000;
+let VX_FRASE_I = Math.floor(Math.random() * VX_FRASES.length);
+let VX_FRASE_TIMER = null;
+
+function vxFraseHTML() {
+    const [texto, quien] = VX_FRASES[VX_FRASE_I % VX_FRASES.length];
+    return `<div data-vx="frase" class="min-w-0 flex-1">
+        <p class="text-xs text-gray-300 italic leading-snug">&laquo;${_vcEsc(texto)}&raquo;</p>
+        <p class="text-[10px] text-gray-500 mt-0.5">&mdash; ${_vcEsc(quien)}</p>
+      </div>`;
+}
+
+//: El relevo. Repinta SOLO el hueco de la frase y no la franja entera: repintar
+//: la franja reiniciaría el reloj y haría parpadear el VIX cada doce segundos.
+function vxFraseArranca() {
+    if (VX_FRASE_TIMER) clearInterval(VX_FRASE_TIMER);
+    VX_FRASE_TIMER = setInterval(() => {
+        VX_FRASE_I = (VX_FRASE_I + 1) % VX_FRASES.length;
+        document.querySelectorAll('[data-vx="frase"]').forEach(n => {
+            n.outerHTML = vxFraseHTML();
+        });
+    }, VX_FRASE_MS);
+}
+
 function vxFranjaHTML(d) {
     if (!d) return '';
     const por = {};
@@ -1913,27 +1975,17 @@ function vxFranjaHTML(d) {
         : 'bg-gray-600';
     const dato = vxHoraDe(d.generado);
 
-    const trozo = (etiqueta, valor, extra, color) => `<div data-vx="cifra" class="flex flex-col">
-        <span class="text-[9px] uppercase tracking-wider text-gray-600">${etiqueta}</span>
-        <span class="text-sm font-black tabular-nums ${color || 'text-white'}">${valor}</span>
-        ${extra ? `<span class="text-[9px] text-gray-500">${extra}</span>` : ''}
-      </div>`;
-
-    const spy = por['SPY'];
     const vix = por['^VIX'];
-    const salud = ((d.rotacion || {}).salud) || {};
     // El VIX se lee AL REVÉS: sube cuando el mercado empeora. Por eso el color
     // va invertido a propósito — pintar de verde un VIX disparado porque «está
     // en positivo» sería exactamente el error que este panel debe evitar.
     const vixCol = !vix || vix.cambio_pct == null ? 'text-gray-400'
         : vix.cambio_pct > 0 ? 'text-red-400' : 'text-emerald-400';
-    const saludCol = { amplia: 'text-emerald-400', rotacion: 'text-blue-300',
-                       estrecho: 'text-amber-400', debil: 'text-red-400' };
 
-    // El reloj SIEMPRE en la esquina derecha, del teléfono al monitor. Es el dato
-    // que se consulta de un vistazo y sin buscarlo —«¿esto está vivo o es la
-    // foto de ayer?»—, así que tiene un sitio fijo y no se mueve según lo que
-    // haya al lado.
+    // El reloj SIEMPRE en la esquina derecha, del teléfono al monitor. Es el
+    // dato que se consulta de un vistazo y sin buscarlo —«¿esto está vivo o es
+    // la foto de ayer?»—, así que tiene un sitio fijo y no se mueve según lo
+    // que haya al lado.
     const reloje = `<div data-vx="reloj" class="flex items-center gap-2 shrink-0 sm:justify-end">
         <span class="w-2 h-2 rounded-full ${punto} shrink-0"></span>
         <div class="min-w-0 sm:text-right">
@@ -1942,28 +1994,19 @@ function vxFranjaHTML(d) {
         </div>
       </div>`;
 
-    // El mensaje va SIEMPRE debajo del S&P y el VIX, en todos los tamaños. Es
-    // la frase que los explica —«la subida es de todos» o «la sostienen
-    // cuatro»—, así que va pegada a ellos y a lo ancho: en una columna estrecha
-    // salía partida letra a letra y dejaba de leerse.
-    const mensaje = salud.clave ? `<div data-vx="amplitud" class="min-w-0 w-full">
-        <div class="text-[9px] uppercase tracking-wider text-gray-600">Amplitud (RSP contra SPY)</div>
-        <div data-vx="amplitud-frase" class="text-xs font-bold leading-snug ${saludCol[salud.clave] || 'text-gray-300'}">${_vcEsc(salud.frase || '')}</div>
-      </div>` : '';
-
-    // `flex-col-reverse` en móvil: el reloj queda ARRIBA y alineado a la
-    // derecha, y las cifras debajo. Así la esquina derecha es la misma esquina
-    // en un teléfono que en un monitor, en vez de saltar al final de todo.
-    return `<div class="bg-panel border border-panel rounded-2xl px-4 py-3
-        flex flex-col-reverse sm:flex-row sm:items-center gap-x-8 gap-y-3">
-      <div class="min-w-0 flex-1 space-y-2">
-        <div class="flex flex-wrap items-baseline gap-x-8 gap-y-2">
-          ${spy ? trozo('S&amp;P 500', vxUsd(spy.precio), vxPct(spy.cambio_pct) + ' hoy',
-                        vxCambioColor(spy.cambio_pct)) : ''}
-          ${vix ? trozo('VIX', vix.precio == null ? '—' : Number(vix.precio).toFixed(2),
-                        vxPct(vix.cambio_pct) + ' hoy', vixCol) : ''}
-        </div>
-        ${mensaje}
+    // Una sola línea de alto. El S&P y la amplitud salieron de aquí: los dos
+    // siguen a un palmo —SPY tiene su casilla y la salud abre la rotación— y
+    // repetirlos arriba solo hacía la franja más alta.
+    return `<div class="bg-panel border border-panel rounded-2xl px-4 py-2.5
+        flex flex-col-reverse sm:flex-row sm:items-center gap-x-6 gap-y-2">
+      <div class="flex items-center gap-x-6 gap-y-2 min-w-0 flex-1 flex-wrap">
+        ${vxFraseHTML()}
+        ${vix ? `<div data-vx="cifra" class="flex flex-col shrink-0">
+          <span class="text-[9px] uppercase tracking-wider text-gray-600">VIX</span>
+          <span class="text-sm font-black tabular-nums ${vixCol}">${
+            vix.precio == null ? '—' : Number(vix.precio).toFixed(2)}</span>
+          <span class="text-[9px] text-gray-500">${vxPct(vix.cambio_pct)} hoy</span>
+        </div>` : ''}
       </div>
       <div class="flex justify-end sm:block shrink-0">${reloje}</div>
     </div>`;
@@ -1978,6 +2021,7 @@ function vxPintaFranjas() {
         const n = document.getElementById(id);
         if (n) n.innerHTML = html;
     });
+    vxFraseArranca();
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -2013,14 +2057,15 @@ const VX_CAPAS = [
     ['lagging',   'Rezagados',      'flojo y cayendo',            'text-red-300',     'bg-red-500/15',     'border-red-500/30'],
 ];
 
-function pintaRRG(rot) {
-    const caja = document.getElementById('sectoresRRG');
-    if (!caja) return;
+//: Las cuatro capas, en HTML. Devuelve el bloque, no lo pinta: vive DENTRO de
+//: la tarjeta de rotación, porque contestan la misma pregunta y separadas
+//: obligaban a bajar la página para cruzarlas.
+function vxCapasHTML(rot) {
     const estelas = (rot || {}).estelas || {};
     const porSector = (rot || {}).sectores || {};
     const tickers = Object.keys(porSector).filter(
         t => porSector[t] && porSector[t].fuerza != null);
-    if (!tickers.length) { caja.innerHTML = ''; return; }
+    if (!tickers.length) return '';
 
     // La escala sale de los datos. En una semana tranquila los once caben en
     // ±1%, y con una escala fija saldrían todos amontonados en el centro sin
@@ -2067,18 +2112,15 @@ function pintaRRG(rot) {
         </div>`;
     };
 
-    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
-      <div class="flex items-baseline gap-2 flex-wrap mb-2">
-        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Hacia d&oacute;nde va cada sector</h3>
-        <span class="text-[10px] text-gray-600">arriba lo que tira, abajo lo que pesa</span>
-      </div>
-      <div class="flex items-center justify-between text-[9px] text-gray-600 px-1">
+    return `<div>
+      <p class="text-[10px] text-gray-500 uppercase tracking-wide">Hacia d&oacute;nde va cada sector <span class="text-gray-700 normal-case">&mdash; arriba lo que tira, abajo lo que pesa</span></p>
+      <div class="flex items-center justify-between text-[9px] text-gray-600 px-1 mt-1">
         <span>&larr; m&aacute;s d&eacute;bil que el S&amp;P 500</span>
         <span>S&amp;P 500</span>
         <span>m&aacute;s fuerte &rarr;</span>
       </div>
       <div class="divide-y divide-gray-800/60">${VX_CAPAS.map(c => fila(...c)).join('')}</div>
-      <p class="text-[9px] text-gray-600 mt-2">Cada sector se coloca por su fuerza frente al S&amp;P 500: a la derecha del centro le est&aacute; ganando, a la izquierda le est&aacute; perdiendo. La flecha dice si esa fuerza crece o se cae. El punto (&bull;) marca el que acaba de cambiar de capa.</p>
+      <p class="text-[9px] text-gray-600 mt-1">Cada sector se coloca por su fuerza frente al S&amp;P 500: a la derecha del centro le est&aacute; ganando, a la izquierda le est&aacute; perdiendo. La flecha dice si esa fuerza crece o se cae. El punto (&bull;) marca el que acaba de cambiar de capa.</p>
     </div>`;
 }
 
@@ -2149,7 +2191,6 @@ function pintaSectores(d) {
     const sello = document.getElementById('sectoresSello');
     if (sello) sello.innerText = d.cacheado ? 'foto de hace menos de 2 min' : 'al momento';
     vxPintaFranjas();
-    pintaRRG(d.rotacion);
     pintaRotacion(d.rotacion);
 }
 
@@ -2462,30 +2503,19 @@ function pintaRotacion(rot) {
             ? `<p class="text-[10px] text-gray-600">${_vcEsc(rot.motivo)}</p>` : '';
         return;
     }
-    const CUAD = {
-        leading:   ['Liderando',    'text-emerald-400', 'fuerza alta y subiendo — el dinero est&aacute; entrando'],
-        improving: ['Despertando',  'text-blue-400',    'fuerza baja pero girando al alza — acumulaci&oacute;n temprana'],
-        weakening: ['Agot&aacute;ndose', 'text-amber-400', 'fuerza alta pero perdiendo impulso'],
-        lagging:   ['Rezagados',    'text-red-400',     'fuerza baja y cayendo — sin inter&eacute;s o venta activa'],
-    };
-    const chip = t => `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/5 text-gray-200">${_vcEsc(t)}</span>`;
-    const bloque = (clave) => {
-        const [lbl, col, expl] = CUAD[clave];
-        const ts = (rot.matriz || {})[clave] || [];
-        return `<div class="py-1.5">
-          <div class="flex items-baseline gap-2 flex-wrap">
-            <span class="text-[11px] font-black ${col}">${lbl}</span>
-            <span class="text-[9px] text-gray-600">${expl}</span>
-          </div>
-          <div class="flex flex-wrap gap-1 mt-1">${ts.length ? ts.map(chip).join('') : '<span class="text-[10px] text-gray-700">ninguno</span>'}</div>
-        </div>`;
-    };
     const salud = rot.salud || {};
     const flujo = [];
     if ((rot.entrando || []).length) flujo.push(`<span class="text-emerald-400">Entra en</span> ${rot.entrando.map(_vcEsc).join(', ')}`);
     if ((rot.saliendo || []).length) flujo.push(`<span class="text-red-400">Sale de</span> ${rot.saliendo.map(_vcEsc).join(', ')}`);
-    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4 space-y-3">
-      <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">Rotaci&oacute;n sectorial</h3>
+    const abierto = vxRotacionAbierta();
+    // Plegado significa NO CONSTRUIRLO, no esconderlo con una clase.
+    //
+    // Con `hidden` de Tailwind el marcado seguía ahí y solo dejaba de verse
+    // —y en el navegador de los tests, donde la hoja del CDN no carga, ni
+    // siquiera eso: se veía entero—. Construir solo lo que se enseña no
+    // depende de ninguna hoja de estilos, y además no deja once botones
+    // invisibles en medio del recorrido con el teclado.
+    const cuerpo = !abierto ? '' : `<div class="space-y-3 mt-3">
 
       <div>
         <p class="text-[10px] text-gray-500 uppercase tracking-wide">Salud del mercado &middot; RSP contra SPY</p>
@@ -2493,8 +2523,7 @@ function pintaRotacion(rot) {
       </div>
 
       <div class="border-t border-gray-800 pt-2">
-        <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">Matriz de rotaci&oacute;n</p>
-        ${['leading', 'improving', 'weakening', 'lagging'].map(bloque).join('')}
+        ${vxCapasHTML(rot)}
       </div>
 
       ${flujo.length ? `<div class="border-t border-gray-800 pt-2">
@@ -2515,7 +2544,33 @@ function pintaRotacion(rot) {
       </div>
 
       ${rot.dispersion != null ? `<p class="text-[9px] text-gray-600 border-t border-gray-800 pt-2">Dispersi&oacute;n entre sectores hoy: <b class="text-gray-400">${Number(rot.dispersion).toFixed(2)}</b> &mdash; alta significa rotaci&oacute;n de verdad; baja, que todo se mueve en bloque.</p>` : ''}
+      </div>`;
+
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-4">
+      <!-- La rotación es la respuesta a una pregunta que uno se hace DESPUÉS de
+           mirar las casillas, no antes. Plegada por defecto deja el mapa
+           limpio; abierta lo cuenta entero. Lo que se elija se recuerda. -->
+      <button onclick="vxRotacionAlterna()" aria-expanded="${abierto}"
+        class="w-full flex items-baseline gap-2 text-left group">
+        <span class="text-[10px] text-blue-500">${abierto ? '&#9662;' : '&#9656;'}</span>
+        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest group-hover:text-blue-400">Rotaci&oacute;n sectorial</h3>
+        <span class="text-[10px] text-gray-600 truncate">&mdash; hacia d&oacute;nde va el dinero y hacia d&oacute;nde va cada sector</span>
+      </button>
+      ${cuerpo}
     </div>`;
+}
+
+//: Si el bloque de rotación está abierto. Se recuerda entre visitas: quien lo
+//: abre lo quiere abierto, y quien lo pliega no quiere volver a plegarlo cada
+//: vez que cambia de ventana —la pantalla se repinta entera en cada cambio—.
+function vxRotacionAbierta() {
+    try { return localStorage.getItem('vertex_rotacion') === '1'; }
+    catch (e) { return false; }
+}
+function vxRotacionAlterna() {
+    try { localStorage.setItem('vertex_rotacion', vxRotacionAbierta() ? '0' : '1'); }
+    catch (e) {}
+    pintaRotacion((window._sectoresData || {}).rotacion);
 }
 
 // ── AUTOCOMPLETADO ───────────────────────────────────────
@@ -12087,6 +12142,27 @@ const VX_ES2EN = {
     "sin juicio: falta el dato": "no verdict: data missing",
     "veces el volumen normal de las últimas 60 sesiones": "times the normal volume of the last 60 sessions",
     "Hacia dónde va cada sector": "Where each sector is heading",
+    "hacia dónde va el dinero y hacia dónde va cada sector": "where the money is going and where each sector is heading",
+    "Ten miedo cuando los demás son codiciosos, y sé codicioso cuando los demás tienen miedo.": "Be fearful when others are greedy and greedy when others are fearful.",
+    "El precio es lo que pagas. El valor es lo que recibes.": "Price is what you pay. Value is what you get.",
+    "El riesgo viene de no saber lo que estás haciendo.": "Risk comes from not knowing what you are doing.",
+    "A corto plazo el mercado es una máquina de votar; a largo plazo, una de pesar.": "In the short run, the market is a voting machine but in the long run, it is a weighing machine.",
+    "El principal problema del inversor —y hasta su peor enemigo— suele ser él mismo.": "The investor's chief problem — and even his worst enemy — is likely to be himself.",
+    "El dinero grande no está en comprar ni en vender, sino en esperar.": "The big money is not in the buying and the selling, but in the waiting.",
+    "Sabe qué tienes, y sabe por qué lo tienes.": "Know what you own, and know why you own it.",
+    "Los mercados alcistas nacen del pesimismo, crecen con el escepticismo, maduran con el optimismo y mueren con la euforia.": "Bull markets are born on pessimism, grow on skepticism, mature on optimism and die on euphoria.",
+    "El mercado está lleno de gente que sabe el precio de todo y el valor de nada.": "The stock market is filled with individuals who know the price of everything, but the value of nothing.",
+    "Invertir debería ser más como ver secar la pintura o crecer la hierba.": "Investing should be more like watching paint dry or watching grass grow.",
+    "No importa si aciertas o fallas, sino cuánto ganas cuando aciertas y cuánto pierdes cuando fallas.": "It's not whether you're right or wrong that's important, but how much money you make when you're right and how much you lose when you're wrong.",
+    "Quien vive de la bola de cristal acaba comiendo cristal roto.": "He who lives by the crystal ball will eat shattered glass.",
+    "Los mercados nunca se equivocan; las opiniones, a menudo sí.": "Markets are never wrong; opinions often are.",
+    "No puedes predecir. Puedes prepararte.": "You can't predict. You can prepare.",
+    "El tiempo es tu amigo; el impulso es tu enemigo.": "Time is your friend; impulse is your enemy.",
+    "Solo los paranoicos sobreviven.": "Only the paranoid survive.",
+    "Tu margen es mi oportunidad.": "Your margin is my opportunity.",
+    "La competencia es para perdedores.": "Competition is for losers.",
+    "Solo hay un jefe: el cliente.": "There is only one boss. The customer.",
+    "La innovación distingue a un líder de un seguidor.": "Innovation distinguishes between a leader and a follower.",
     "arriba lo que tira, abajo lo que pesa": "what pulls at the top, what drags at the bottom",
     "← más débil que el S&P 500": "← weaker than the S&P 500",
     "más fuerte →": "stronger →",
