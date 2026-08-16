@@ -1,0 +1,8 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-08-16",
+  "_sin_tam": "OPENAI_API_KEY no configurada; 4 respuestas sin cifra atribuible",
+  "_fuentes_conocidas": 136,
+  "_visto_al_analizar": "ATO",
+  "_que_hacer": "Escribe el TAM a mano en este archivo y borra `_generado_por`: eso lo vuelve tuyo y el sistema deja de tocarlo. Necesita `tam`, `tam_source` y `tam_source_tier` (1-4)."
+}
