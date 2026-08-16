@@ -7,5 +7,5 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 | [APH](tesis/APH.md) | 2026-08-13 | ESPECULATIVO | 56 | acciones |
 | [META](tesis/META.md) | 2026-08-16 | ESPECULATIVO | 50 | acciones |
 | [MSFT](tesis/MSFT.md) | 2026-08-16 | ESPECULATIVO | 56 | acciones |
-| [NVDA](tesis/NVDA.md) | 2026-08-13 | ESPECULATIVO | 57 | acciones |
+| [NVDA](tesis/NVDA.md) | 2026-08-16 | ESPECULATIVO | 57 | acciones |
 | [PLTR](tesis/PLTR.md) | 2026-08-15 | DESFAVORABLE | 45 | acciones |
