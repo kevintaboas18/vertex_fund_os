@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "resultados": {
+    "filas": [],
+    "motivo": "Falta FMP_API_KEY: sin ella no hay fechas de resultados."
+  },
+  "macro": {
+    "filas": [],
+    "motivo": "Sin FRED_API_KEY no hay datos macro: la inflación, la tasa de la Fed y el paro salen de ahí."
+  },
+  "generado": "2026-08-16T15:42:31.333376+00:00"
+}
