@@ -15,7 +15,7 @@ import numpy as np
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -7291,6 +7291,255 @@ def api_sectores_vivo(tickers: str = ""):
 #: series, y por lo mismo: en Render el disco es efímero y lo que no está en el
 #: almacén no existe después de un redeploy.
 _SECTORES_RUTA = "Series/sectores_parrilla.json"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  EL CALENDARIO Y EL SUELO MACRO
+#
+#  Dos cajas en paralelo debajo de la rotación. Contestan la pregunta que el
+#  resto del panel no contesta: el mapa dice DÓNDE está el dinero hoy, y estas
+#  dicen CUÁNDO se mueve el suelo.
+#
+#  Para un horizonte de semanas a meses con opciones, la fecha de resultados es
+#  el evento de volatilidad PROGRAMADO — el único que se sabe de antemano—, y
+#  el dato macro es el día en que se mueve el mapa entero a la vez.
+#
+#  Cada caja tiene su fuente y su fallo POR SEPARADO. Que FRED no conteste no
+#  puede llevarse por delante el calendario de resultados, y al revés: son dos
+#  preguntas distintas y una pantalla que se apaga entera porque falló media es
+#  peor que una que enseña la mitad y dice qué falta.
+# ═══════════════════════════════════════════════════════════════════════════
+
+#: Viven en el almacén como las demás series: se rehacen una vez al día —una
+#: fecha de resultados no cambia entre las diez y las once— y sobreviven al
+#: redeploy, que en Render borra el disco.
+_CALENDARIO_RUTA = "Series/calendario.json"
+
+#: Un día. Es la cadencia real de lo que hay dentro: los resultados se anuncian
+#: con semanas de antelación y el CPI sale una vez al mes.
+_CALENDARIO_TTL = 86400.0
+_CALENDARIO_LOCK = threading.Lock()
+_CALENDARIO_REFRESCANDO = False
+
+#: Cuántos días hacia delante mira el calendario de resultados. Catorce: lo que
+#: cabe en dos semanas de decisiones sin convertir la caja en un listado.
+_CALENDARIO_DIAS = 14
+
+#: El suelo macro, con el identificador de FRED de cada serie.
+#:
+#: `pct_directo` distingue las que YA vienen en porcentaje (el paro, la tasa de
+#: la Fed, el bono) de las que son un ÍNDICE y hay que convertir a variación
+#: interanual (el CPI). Publicar el índice del CPI —«324,8»— sería un número
+#: que no significa nada para nadie; lo que se lee es «el 2,9% interanual».
+_MACRO_SERIES = (
+    ("CPIAUCSL", "Inflación (IPC interanual)", False),
+    ("UNRATE",   "Paro", True),
+    ("DFF",      "Tasa de la Fed", True),
+    ("DGS10",    "Bono a 10 años", True),
+    ("T10Y2Y",   "Curva 10a − 2a", True),
+)
+
+
+def _fred_observaciones(serie: str, limite: int = 14) -> list:
+    """Observaciones de una serie de FRED, de la más nueva a la más vieja.
+
+    Se apoya en `FredProvider.series`, que es el camino que el motor ya usa
+    para la tasa libre de riesgo — no se inventa una segunda forma de hablar
+    con FRED. Las observaciones que FRED marca con «.» (aún sin publicar) se
+    descartan aquí: son un hueco, no un cero.
+    """
+    try:
+        from wbj.providers.cache import Cache
+        from wbj.providers.fred import FredProvider
+
+        # El mismo camino que usa el resto del archivo para construir un
+        # proveedor: `_engine_settings()` inyecta las claves del entorno, que
+        # es lo que `load_settings()` a secas no hace.
+        _s = _engine_settings()
+        prov = FredProvider(_s, Cache(_s.cache_dir))
+        if not prov.available:
+            return []
+        payload = prov.series(serie, limit=limite)
+        obs = (payload or {}).get("observations") or []
+    except Exception:                            # noqa: BLE001
+        return []
+    limpias = []
+    for o in obs:
+        v = str(o.get("value", "")).strip()
+        if not v or v == ".":
+            continue
+        try:
+            limpias.append({"fecha": o.get("date"), "valor": float(v)})
+        except ValueError:
+            continue
+    return limpias
+
+
+def _macro_calcula() -> dict:
+    """El suelo macro: cada indicador con su valor, SU FECHA y su dirección.
+
+    La fecha va siempre porque estos datos son viejos por naturaleza: el CPI de
+    «hoy» es el del mes pasado, y un número macro sin su fecha al lado se lee
+    como si fuera de esta mañana.
+
+    No se publica cuándo sale el PRÓXIMO dato, y es a propósito: eso vive en
+    otro endpoint de FRED que no se ha podido comprobar desde aquí, y una fecha
+    inventada en un calendario es peor que no tener calendario.
+    """
+    filas, motivo = [], ""
+    for serie, nombre, pct_directo in _MACRO_SERIES:
+        obs = _fred_observaciones(serie, limite=14 if pct_directo else 14)
+        if not obs:
+            continue
+        ultimo = obs[0]
+        if pct_directo:
+            valor = ultimo["valor"]
+            # La anterior observación distinta, para decir hacia dónde va.
+            previo = next((o["valor"] for o in obs[1:]
+                           if o["valor"] != valor), None)
+        else:
+            # Índice → variación interanual. Hacen falta trece observaciones
+            # mensuales: la de ahora y la del mismo mes del año pasado.
+            docenas = obs[:13]
+            if len(docenas) < 13 or not docenas[12]["valor"]:
+                continue
+            valor = (docenas[0]["valor"] / docenas[12]["valor"] - 1.0) * 100.0
+            previo = None
+            if len(obs) >= 14 and obs[13]["valor"]:
+                previo = (obs[1]["valor"] / obs[13]["valor"] - 1.0) * 100.0
+        filas.append({
+            "serie": serie, "nombre": nombre,
+            "valor": round(float(valor), 2),
+            "previo": None if previo is None else round(float(previo), 2),
+            "fecha": ultimo["fecha"],
+        })
+    if not filas:
+        motivo = ("Sin FRED_API_KEY no hay datos macro: la inflación, la tasa "
+                  "de la Fed y el paro salen de ahí.")
+    return {"filas": filas, "motivo": motivo}
+
+
+def _resultados_calcula() -> dict:
+    """Los resultados que vienen, de las empresas que forman los once sectores.
+
+    Se filtra a `MIEMBROS` —los 114 componentes que el motor ya tiene escritos—
+    y no a «todas las que reportan»: el panel va de sectores, así que la
+    pregunta útil es cuál de LOS QUE MUEVEN EL MAPA reporta esta semana. Un
+    listado del mercado entero serían trescientas filas que nadie lee.
+
+    Cada fila lleva su sector, que es lo que la ata a la casilla de arriba.
+    """
+    from wbj.sectores import MIEMBROS, nombre_de
+
+    clave = (os.environ.get("FMP_API_KEY") or "").strip()
+    if not clave:
+        return {"filas": [], "motivo": "Falta FMP_API_KEY: sin ella no hay "
+                                       "fechas de resultados."}
+    de_quien = {}
+    for etf, miembros in MIEMBROS.items():
+        for tk in miembros:
+            de_quien.setdefault(tk, etf)
+
+    hoy = date.today()
+    hasta = hoy + timedelta(days=_CALENDARIO_DIAS)
+    filas, motivo = [], ""
+    try:
+        r = requests.get(
+            "https://financialmodelingprep.com/stable/earnings-calendar",
+            params={"from": hoy.isoformat(), "to": hasta.isoformat(),
+                    "apikey": clave}, timeout=10)
+        crudo = r.json() if r.status_code == 200 else []
+    except Exception as e:                       # noqa: BLE001
+        crudo, motivo = [], f"No se pudo leer el calendario de resultados ({e})."
+    for fila in crudo if isinstance(crudo, list) else []:
+        tk = str((fila or {}).get("symbol") or "").upper()
+        etf = de_quien.get(tk)
+        if not etf:
+            continue
+        f = str(fila.get("date") or "")[:10]
+        if not (hoy.isoformat() <= f <= hasta.isoformat()):
+            continue
+        filas.append({"ticker": tk, "fecha": f, "sector": etf,
+                      "sector_nombre": nombre_de(etf),
+                      # `when` de FMP: antes de abrir o después de cerrar. Es
+                      # la diferencia entre un hueco que te pilla dentro y uno
+                      # que te pilla fuera.
+                      "cuando": str(fila.get("when") or "").lower() or None})
+    filas.sort(key=lambda x: (x["fecha"], x["ticker"]))
+    if not filas and not motivo:
+        motivo = ("Ninguna de las empresas que forman los once sectores "
+                  "reporta en los próximos catorce días.")
+    return {"filas": filas, "motivo": motivo}
+
+
+def _calendario_calcula() -> dict:
+    return {"ok": True,
+            "resultados": _resultados_calcula(),
+            "macro": _macro_calcula(),
+            "generado": datetime.now(timezone.utc).isoformat()}
+
+
+def _calendario_refresca_en_fondo() -> None:
+    global _CALENDARIO_REFRESCANDO
+    with _CALENDARIO_LOCK:
+        if _CALENDARIO_REFRESCANDO:
+            return
+        _CALENDARIO_REFRESCANDO = True
+
+    def _trabaja():
+        global _CALENDARIO_REFRESCANDO
+        try:
+            from vertex_almacen import almacen as _alm
+
+            _alm.guarda(_CALENDARIO_RUTA, _calendario_calcula())
+        except Exception:                        # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "no se pudo refrescar el calendario", exc_info=True)
+        finally:
+            with _CALENDARIO_LOCK:
+                _CALENDARIO_REFRESCANDO = False
+
+    threading.Thread(target=_trabaja, daemon=True).start()
+
+
+@app.get("/api/dashboard/calendario")
+def api_dashboard_calendario():
+    """Las dos cajas: lo que reporta y dónde está el suelo macro.
+
+    Mismo trato que la parrilla: si hay foto se sirve YA y el refresco va por
+    detrás. Aquí importa aún más, porque son varias peticiones a dos
+    proveedores distintos y nada de esto cambia dentro del mismo día.
+    """
+    try:
+        from vertex_almacen import almacen as _alm
+
+        guardado = _alm.lee_json(_CALENDARIO_RUTA)
+    except Exception:                            # noqa: BLE001
+        guardado = None
+
+    viejo = True
+    if isinstance(guardado, dict) and guardado.get("generado"):
+        try:
+            edad = (datetime.now(timezone.utc)
+                    - datetime.fromisoformat(guardado["generado"])).total_seconds()
+            viejo = edad >= _CALENDARIO_TTL
+        except Exception:                        # noqa: BLE001
+            viejo = True
+
+    if isinstance(guardado, dict) and guardado.get("resultados") is not None:
+        if viejo:
+            _calendario_refresca_en_fondo()
+        return {**guardado, "cacheado": True, "refrescando": viejo}
+
+    # Primera vez: no hay nada que enseñar, así que aquí sí se espera.
+    salida = _calendario_calcula()
+    try:
+        from vertex_almacen import almacen as _alm
+
+        _alm.guarda(_CALENDARIO_RUTA, salida)
+    except Exception:                            # noqa: BLE001
+        pass
+    return {**salida, "cacheado": False}
 
 #: Claves con un refresco EN VUELO. Sin esto, diez visitas seguidas a una foto
 #: vieja lanzarían diez tandas de veintiocho peticiones a la vez.

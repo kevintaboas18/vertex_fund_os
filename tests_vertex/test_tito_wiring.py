@@ -20,7 +20,7 @@ import os
 import sys
 import tempfile
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -4816,3 +4816,160 @@ class _RequestsFalso:
                 return [{"symbol": k, "price": v} for k, v in precios.items()]
 
         return _R()
+
+
+class TestElCALENDARIOyElSUELOMACRO:
+    """Dos cajas en paralelo debajo de la rotación.
+
+    El resto del panel dice DÓNDE está el dinero hoy; estas dicen CUÁNDO se
+    mueve el suelo. Para un horizonte de semanas a meses con opciones, la
+    fecha de resultados es el único evento de volatilidad que se sabe de
+    antemano.
+    """
+
+    def test_cada_caja_falla_POR_SU_CUENTA(self, monkeypatch, client):
+        """Que FRED no conteste no puede llevarse por delante el calendario de
+        resultados. Son dos preguntas distintas, y una pantalla que se apaga
+        entera porque falló media es peor que una que enseña la mitad."""
+        import vertex_api as V
+
+        monkeypatch.setattr(V, "_fred_observaciones", lambda *a, **k: [])
+        monkeypatch.setattr(V, "_resultados_calcula", lambda: {
+            "filas": [{"ticker": "NVDA", "fecha": "2026-08-20", "sector": "XLK",
+                       "sector_nombre": "Tecnología", "cuando": "amc"}],
+            "motivo": ""})
+        d = V._calendario_calcula()
+        assert d["resultados"]["filas"], "el fallo de FRED se llevó los resultados"
+        assert d["macro"]["motivo"], "el fallo de FRED no se explica"
+
+    def test_el_macro_DICE_su_fecha_y_su_direccion(self, monkeypatch):
+        """Un número macro sin fecha se lee como si fuera de esta mañana, y el
+        IPC de «hoy» es el del mes pasado."""
+        import vertex_api as V
+
+        monkeypatch.setattr(V, "_fred_observaciones", lambda serie, limite=14: (
+            [{"fecha": "2026-07-01", "valor": 4.1},
+             {"fecha": "2026-06-01", "valor": 4.3}]
+            if serie == "UNRATE" else []))
+        m = V._macro_calcula()
+        paro = next(f for f in m["filas"] if f["serie"] == "UNRATE")
+        assert paro["valor"] == 4.1 and paro["fecha"] == "2026-07-01"
+        assert paro["previo"] == 4.3, "sin lectura anterior no hay dirección"
+
+    def test_el_IPC_se_publica_INTERANUAL_no_como_indice(self, monkeypatch):
+        """FRED da el CPI como índice («324,8»), que no significa nada para
+        nadie. Lo que se lee es la variación interanual."""
+        import vertex_api as V
+
+        # Trece meses: el último 3% por encima del mismo mes del año pasado.
+        obs = [{"fecha": f"2026-{12 - i:02d}-01", "valor": 103.0 if i == 0 else 100.0}
+               for i in range(13)]
+        monkeypatch.setattr(V, "_fred_observaciones", lambda serie, limite=14: (
+            obs if serie == "CPIAUCSL" else []))
+        m = V._macro_calcula()
+        ipc = next(f for f in m["filas"] if f["serie"] == "CPIAUCSL")
+        assert ipc["valor"] == pytest.approx(3.0, abs=0.01), ipc
+        assert ipc["valor"] < 20, "se publicó el índice crudo en vez de la variación"
+
+    def test_sin_los_trece_meses_el_IPC_NO_se_inventa(self, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setattr(V, "_fred_observaciones", lambda serie, limite=14: (
+            [{"fecha": "2026-12-01", "valor": 103.0}] if serie == "CPIAUCSL" else []))
+        m = V._macro_calcula()
+        assert not [f for f in m["filas"] if f["serie"] == "CPIAUCSL"]
+
+    def test_los_resultados_se_filtran_a_los_MIEMBROS_de_los_sectores(
+            self, monkeypatch):
+        """El panel va de sectores, así que la pregunta útil es cuál de los que
+        MUEVEN EL MAPA reporta. Un listado del mercado entero serían
+        trescientas filas que nadie lee."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        hoy = date.today().isoformat()
+
+        class _R:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return [{"symbol": "NVDA", "date": hoy, "when": "amc"},
+                        {"symbol": "PEPEBOTE", "date": hoy}]
+
+        monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
+        r = V._resultados_calcula()
+        tickers = [f["ticker"] for f in r["filas"]]
+        assert tickers == ["NVDA"], tickers
+        assert r["filas"][0]["sector"] == "XLK", "no se ató a su casilla"
+
+    def test_una_fecha_FUERA_de_la_ventana_no_entra(self, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        lejos = (date.today() + timedelta(days=90)).isoformat()
+
+        class _R:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return [{"symbol": "NVDA", "date": lejos}]
+
+        monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
+        assert V._resultados_calcula()["filas"] == []
+
+    def test_la_ruta_sirve_lo_GUARDADO_y_refresca_por_detras(self, monkeypatch,
+                                                             client):
+        """Son varias peticiones a dos proveedores y nada cambia dentro del
+        mismo día: bloquear la pantalla por eso sería absurdo."""
+        import vertex_api as V
+        import vertex_almacen as VA
+
+        viejo = {"ok": True, "resultados": {"filas": [], "motivo": "x"},
+                 "macro": {"filas": [], "motivo": "y"},
+                 "generado": "2020-01-01T00:00:00+00:00"}
+
+        class _Alm:
+            def lee_json(self, ruta):
+                return viejo
+
+            def guarda(self, ruta, datos):
+                pass
+
+        monkeypatch.setattr(VA, "almacen", _Alm())
+        lanzados = []
+        monkeypatch.setattr(V, "_calendario_refresca_en_fondo",
+                            lambda: lanzados.append(1))
+        d = client.get("/api/dashboard/calendario").json()
+        assert d["cacheado"] is True and d["refrescando"] is True
+        assert lanzados, "no se disparó el refresco de fondo"
+
+    def test_vive_en_el_ALMACEN_para_sobrevivir_al_redeploy(self):
+        import vertex_api as V
+
+        assert V._CALENDARIO_RUTA.startswith("Series/")
+
+    def test_las_dos_cajas_van_EN_PARALELO_bajo_la_rotacion(self):
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = h.index('id="sectoresRotacion"')
+        j = h.index('id="sectoresLectura"')
+        entre = h[i:j]
+        assert 'id="sectoresResultados"' in entre and 'id="sectoresMacro"' in entre, (
+            "las cajas no están entre la rotación y la lectura")
+        assert "lg:grid-cols-2" in entre, "no van en paralelo en pantalla ancha"
+        assert "grid-cols-1" in entre, (
+            "en el teléfono tienen que apilarse, no partirse en dos columnas")
+
+    def test_se_pide_al_ENTRAR_y_tambien_al_CARGAR_la_pagina(self):
+        """La trampa de siempre: al cargar, la vista ya viene visible del
+        marcado y `switchView` no corre. Ya me comió dos veces."""
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        nav = h.split("function switchView(viewId)", 1)[1].split("\n}", 1)[0]
+        assert "cargaCalendario()" in nav, "no se pide al navegar al Dashboard"
+        # El bloque de ARRANQUE, no el de `switchView`: allí la línea lleva
+        # `viewId === 'sectorsView' &&` delante, así que este `if (typeof` solo
+        # casa con el de arranque.
+        arranque = h.split("if (typeof cargaSectores === 'function') "
+                           "cargaSectores();", 1)[1][:800]
+        assert "cargaCalendario()" in arranque, "no se pide al cargar la página"

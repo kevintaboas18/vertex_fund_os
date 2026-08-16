@@ -7662,3 +7662,91 @@ trampa**, escrito cuando le pasó a la parrilla. Estaba avisado y caí igual.
 
 **3.390 tests del motor · 822 de la capa web (9 nuevos) · 84 en un navegador
 real (7 nuevos) · 267 checks de auditoría · preflight de Render en verde.**
+
+---
+
+## 41.68 · Ronda 43 — el calendario y el suelo macro
+
+> «Vamos a hacer el calendario y macroeconómico, pero será como dos cajas
+> abajo de donde dice Rotación Sectorial. Uno será en el lado izquierdo y el
+> otro en el lado derecho en paralelo.»
+
+Salió de un repaso del Dashboard: como **mapa del mercado** está completo —dice
+dónde está el dinero hoy—, pero no decía **cuándo se mueve el suelo**. Para un
+horizonte de semanas a meses con opciones, la fecha de resultados es el único
+evento de volatilidad que se sabe de antemano, y el dato macro es el día en que
+se mueve el mapa entero a la vez.
+
+Y las dos fuentes ya estaban pagadas y sin usar: `earnings_calendar` solo se
+leía dentro del análisis de un ticker, y **FRED estaba configurado únicamente
+para la tasa libre de riesgo**.
+
+### Dos cajas, dos fallos independientes
+
+Que FRED no conteste no puede llevarse por delante el calendario de resultados,
+ni al revés. Cada caja trae su `motivo` y se pinta por su cuenta: una pantalla
+que se apaga entera porque falló media es peor que una que enseña la mitad y
+dice qué falta. Hay un caso que lo mide por los dos lados.
+
+### Resultados: los que mueven el mapa, no el mercado entero
+
+Se filtra a **`MIEMBROS`** —los 114 componentes que el motor ya tiene
+escritos— y cada fila lleva **su sector**, que es lo que la ata a la casilla de
+arriba. Un listado del mercado entero serían trescientas filas que nadie lee;
+la pregunta útil en un panel de sectores es cuál de los que mueven el mapa
+reporta esta semana.
+
+Agrupadas **por día**, porque lo que uno se pregunta es «¿qué pasa el
+miércoles?», no «¿cuándo reporta NVDA?». Hoy y mañana van con su palabra y
+resaltadas: son las dos que cambian lo que haces hoy. Y cada una dice si
+reporta **antes de abrir o tras el cierre** — con opciones, eso es la
+diferencia entre poder reaccionar y amanecer con el resultado hecho.
+
+### Macro: el estado del suelo, con la fecha de cada cifra
+
+Cinco series de FRED: IPC interanual, paro, tasa de la Fed, bono a 10 años y la
+curva 10a−2a. Cada una con **su fecha de publicación** y una flecha que compara
+con la **lectura anterior** —lo que importa de la inflación no es que sea 2,9
+sino que venía de 3,1—.
+
+La fecha va siempre porque estos datos son viejos por naturaleza: **el IPC de
+«hoy» es el del mes pasado**, y un número macro sin fecha se lee como si fuera
+de esta mañana.
+
+El IPC se publica **interanual, no como índice**. FRED lo da como índice
+(«324,8»), que no significa nada para nadie; y si no hay los trece meses que
+hacen falta para la variación, **la fila no sale** en vez de enseñar el índice
+crudo.
+
+### Lo que NO se publica, y por qué
+
+**No se dice cuándo sale el próximo dato macro.** Eso vive en otro endpoint de
+FRED (`release/dates`) que exige identificadores de publicación que no se han
+podido comprobar desde aquí —el proxy de esta sesión devuelve **403 tanto para
+`api.stlouisfed.org` como para `financialmodelingprep.com`**—. Una fecha
+inventada dentro de un calendario es peor que no tener calendario: se lee como
+un hecho. Queda pendiente de verificar contra la API real.
+
+### Detalles que no son detalles
+
+- **Una vez al día, no en el latido.** Una fecha de resultados no cambia entre
+  las diez y las once y el IPC sale una vez al mes. Vive en el almacén
+  (`Series/calendario.json`), sobrevive al redeploy y se sirve con el mismo
+  trato que la parrilla: si hay foto se sirve YA y el refresco va por detrás.
+- **Se pide al entrar Y al cargar la página.** La trampa de siempre: al cargar,
+  la vista del Dashboard ya viene visible del marcado y `switchView` no corre.
+  Ya me costó el latido del precio la ronda pasada; esta vez se cableó en los
+  dos sitios desde el principio, con su caso.
+- **Una columna en el teléfono, dos a partir de tablet.** En 390 px, dos
+  columnas partirían cada fecha en dos líneas.
+
+Un apunte de método: la geometría de la rejilla **no se puede medir en el
+navegador de los tests** —Tailwind viene del CDN y ese CDN no carga ahí, así
+que ninguna clase de rejilla aplica—. El paralelo se fija sobre el marcado y en
+el navegador se mide lo que sí es medible: que las dos se ven, tienen alto y
+contenido, y en qué orden están en el DOM.
+
+### Estado
+
+**3.390 tests del motor · 832 de la capa web (10 nuevos) · 91 en un navegador
+real (7 nuevos) · 267 checks de auditoría · preflight de Render en verde.**

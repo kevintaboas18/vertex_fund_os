@@ -1940,3 +1940,132 @@ class TestElPrecioSeMUEVESolo:
             assert not errores, errores[:3]
         finally:
             pg.close()
+
+
+class TestLasDosCAJASDelCalendario:
+    """«Dos cajas abajo de Rotación Sectorial, una a la izquierda y otra a la
+    derecha en paralelo.»"""
+
+    ESCRITORIO = {"width": 1440, "height": 900}
+    IPAD = {"width": 820, "height": 1180}
+    MOVIL = {"width": 390, "height": 844}
+    MONITOR = {"width": 2560, "height": 1440}
+
+    def _abre(self, navegador, servidor, viewport, cal=None):
+        import re as _re
+
+        pg = navegador.new_page(viewport=viewport)
+        errores: list[str] = []
+        pg.on("pageerror", lambda e: errores.append(str(e)))
+        hoy = __import__("datetime").date.today().isoformat()
+        por_defecto = {
+            "ok": True,
+            "resultados": {"filas": [
+                {"ticker": "NVDA", "fecha": hoy, "sector": "XLK",
+                 "sector_nombre": "Tecnología", "cuando": "amc"},
+                {"ticker": "JPM", "fecha": hoy, "sector": "XLF",
+                 "sector_nombre": "Financiero", "cuando": "bmo"}], "motivo": ""},
+            "macro": {"filas": [
+                {"serie": "UNRATE", "nombre": "Paro", "valor": 4.1,
+                 "previo": 4.3, "fecha": "2026-07-01"},
+                {"serie": "CPIAUCSL", "nombre": "Inflación (IPC interanual)",
+                 "valor": 2.9, "previo": 3.1, "fecha": "2026-07-01"}], "motivo": ""},
+            "generado": "2026-08-15T12:00:00+00:00"}
+        pg.route(_re.compile(r"/api/dashboard/calendario"),
+                 lambda r: r.fulfill(status=200, json=cal or por_defecto))
+        pg.route(_re.compile(r"/api/sectores"),
+                 lambda r: r.fulfill(status=200, json={
+                     "ok": True, "referencias": [], "sectores": [], "filas": [],
+                     "amplitud": {}, "interna": {"sectores": {}},
+                     "rotacion": {"disponible": False, "motivo": ""},
+                     "reloj": {"clave": "cerrado", "abierto": False, "frase": "x"},
+                     "generado": "2026-08-15T12:00:00+00:00"}))
+        pg.goto(servidor, wait_until="load")
+        pg.wait_for_function(
+            "() => document.getElementById('sectoresMacro')"
+            "&& document.getElementById('sectoresMacro').innerText.trim().length > 0",
+            timeout=25000)
+        return pg, errores
+
+    @pytest.mark.parametrize("nombre,viewport",
+                             [("escritorio", ESCRITORIO), ("ipad", IPAD),
+                              ("movil", MOVIL), ("monitor", MONITOR)])
+    def test_las_dos_se_VEN_y_tienen_alto(self, navegador, servidor, nombre,
+                                          viewport):
+        pg, errores = self._abre(navegador, servidor, viewport)
+        try:
+            for ident in ("sectoresResultados", "sectoresMacro"):
+                caja = pg.evaluate(
+                    "(id) => { const n = document.getElementById(id);"
+                    " return n ? {alto: n.getBoundingClientRect().height,"
+                    " txt: n.innerText.trim().length} : null; }", ident)
+                assert caja and caja["alto"] > 40 and caja["txt"] > 10, (
+                    f"[{nombre}] {ident} no se ve: {caja}")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_ORDEN_en_el_DOM_es_izquierda_y_luego_derecha(self, navegador,
+                                                              servidor):
+        """Que vayan EN PARALELO lo fija el marcado (`lg:grid-cols-2`), y eso
+        lo mide `test_las_dos_cajas_van_EN_PARALELO_bajo_la_rotacion` sobre el
+        HTML. Aquí NO se puede medir la geometría: Tailwind viene del CDN y ese
+        CDN no carga en este navegador, así que ninguna clase de rejilla
+        aplica y las dos cajas saldrían apiladas midan lo que midan.
+
+        Lo que sí es medible aquí, y es lo que importa del orden: cuál va
+        primera en el DOM, que es la que sale a la izquierda cuando la rejilla
+        existe y arriba cuando no.
+        """
+        pg, errores = self._abre(navegador, servidor, self.ESCRITORIO)
+        try:
+            primero = pg.evaluate("""() => {
+                const a = document.getElementById('sectoresResultados');
+                const b = document.getElementById('sectoresMacro');
+                return (a.compareDocumentPosition(b)
+                        & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+            }""")
+            assert primero, "macro quedó antes que resultados"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_van_DEBAJO_de_la_rotacion(self, navegador, servidor):
+        pg, errores = self._abre(navegador, servidor, self.ESCRITORIO)
+        try:
+            orden = pg.evaluate("""() => {
+                const r = document.getElementById('sectoresRotacion')
+                    .getBoundingClientRect();
+                const c = document.getElementById('sectoresResultados')
+                    .getBoundingClientRect();
+                const l = document.getElementById('sectoresLectura')
+                    .getBoundingClientRect();
+                return {bajoRotacion: c.top >= r.bottom - 4,
+                        sobreLectura: c.top <= l.top + 4};
+            }""")
+            assert orden["bajoRotacion"], "las cajas no van debajo de la rotación"
+            assert orden["sobreLectura"], "quedaron por debajo de la lectura"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_si_FALLA_una_la_otra_SIGUE(self, navegador, servidor):
+        """Que FRED no conteste no puede dejar sin calendario de resultados."""
+        hoy = __import__("datetime").date.today().isoformat()
+        pg, errores = self._abre(navegador, servidor, self.ESCRITORIO, cal={
+            "ok": True,
+            "resultados": {"filas": [{"ticker": "NVDA", "fecha": hoy,
+                                      "sector": "XLK", "sector_nombre": "Tec",
+                                      "cuando": "amc"}], "motivo": ""},
+            "macro": {"filas": [], "motivo": "Sin FRED_API_KEY no hay datos macro."},
+            "generado": "2026-08-15T12:00:00+00:00"})
+        try:
+            txtR = pg.evaluate(
+                "() => document.getElementById('sectoresResultados').innerText")
+            txtM = pg.evaluate(
+                "() => document.getElementById('sectoresMacro').innerText")
+            assert "NVDA" in txtR, "el fallo de FRED se llevó los resultados"
+            assert "FRED" in txtM, "la caja rota no dice por qué está vacía"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()

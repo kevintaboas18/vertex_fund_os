@@ -990,6 +990,13 @@
          respuestas a preguntas que uno se hace DESPUÉS de mirar las casillas. -->
     <div id="sectoresParrilla"></div>
     <div id="sectoresRotacion"></div>
+    <!-- Las dos cajas del calendario, EN PARALELO debajo de la rotación.
+         Una columna en el teléfono y dos a partir de tablet: en 390 px, dos
+         columnas dejarían las fechas partidas en dos líneas cada una. -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
+      <div id="sectoresResultados"></div>
+      <div id="sectoresMacro"></div>
+    </div>
     <div id="sectoresLectura"></div>
 </main>
 
@@ -1613,6 +1620,7 @@ function switchView(viewId) {
     // minutos hace que volver al panel sea instantáneo sin enseñar precios
     // de hace media hora.
     if (viewId === 'sectorsView' && typeof cargaSectores === 'function') cargaSectores();
+    if (viewId === 'sectorsView' && typeof cargaCalendario === 'function') cargaCalendario();
     // El latido del precio vive con las pantallas que enseñan precio: el
     // Dashboard y las de dentro de un sector. Fuera de ahí se PARA — dejarlo
     // corriendo en Proyecciones o en el perfil sería gastar cuota para pintar
@@ -1974,6 +1982,120 @@ function vxInternaHTML(ticker) {
 
 //: La casilla de la parrilla. `pulsable` es falso para SPY/RSP/QQQ: son
 //: índices y no tienen industrias que desplegar, así que no invitan al clic.
+// ═══════════════════════════════════════════════════════════════════════
+//  EL CALENDARIO Y EL SUELO MACRO
+//
+//  Dos cajas en paralelo debajo de la rotación. El resto del panel dice DÓNDE
+//  está el dinero hoy; estas dicen CUÁNDO se mueve el suelo.
+//
+//  Se piden UNA vez al entrar y no laten: una fecha de resultados no cambia
+//  entre las diez y las once, y el IPC sale una vez al mes. Meter esto en el
+//  latido del precio sería gastar cuota para recibir lo mismo.
+// ═══════════════════════════════════════════════════════════════════════
+
+//: Las fechas se leen «lun 18 ago», no «2026-08-18». Y HOY y MAÑANA se dicen
+//: con su palabra: son las dos que cambian lo que haces hoy.
+function vxFechaCorta(iso) {
+    const s = String(iso || '');
+    const p = s.split('-');
+    if (p.length !== 3) return s;
+    const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    const hoy = new Date();
+    const dia = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const faltan = Math.round((dia(d) - dia(hoy)) / 86400000);
+    if (faltan === 0) return 'hoy';
+    if (faltan === 1) return 'mañana';
+    return d.toLocaleDateString(VX_IDIOMA === 'en' ? 'en-US' : 'es-ES',
+                                { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+//: Antes de abrir o después de cerrar. Es la diferencia entre un hueco que te
+//: pilla dentro de la sesión y uno que te pilla fuera, y con opciones eso no
+//: es un detalle: es si puedes reaccionar o amaneces con el resultado hecho.
+function vxCuandoReporta(c) {
+    if (c === 'bmo' || c === 'before') return 'antes de abrir';
+    if (c === 'amc' || c === 'after') return 'tras el cierre';
+    return '';
+}
+
+function vxCajaHTML(titulo, subtitulo, cuerpo) {
+    return `<div class="bg-panel border border-panel rounded-2xl p-4 h-full">
+      <div class="flex items-baseline gap-2 flex-wrap mb-2">
+        <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest">${titulo}</h3>
+        <span class="text-[10px] text-gray-600">${subtitulo}</span>
+      </div>${cuerpo}</div>`;
+}
+
+function vxResultadosHTML(d) {
+    const r = (d || {}).resultados || {};
+    const filas = r.filas || [];
+    if (!filas.length) {
+        return vxCajaHTML('Resultados que vienen', 'próximos 14 días',
+            `<p class="text-xs text-gray-500">${_vcEsc(r.motivo || 'Sin fechas por ahora.')}</p>`);
+    }
+    // Agrupadas por día: lo que se pregunta es «¿qué pasa el miércoles?», no
+    // «¿cuándo reporta NVDA?».
+    const porDia = {};
+    filas.forEach(f => { (porDia[f.fecha] = porDia[f.fecha] || []).push(f); });
+    const cuerpo = Object.keys(porDia).sort().map(fecha => {
+        const hoy = vxFechaCorta(fecha);
+        const destaca = hoy === 'hoy' || hoy === 'mañana';
+        return `<div class="flex items-start gap-2 py-1 border-t border-gray-800/60 first:border-0">
+          <span class="text-[10px] font-bold w-20 shrink-0 ${
+            destaca ? 'text-amber-400' : 'text-gray-500'}">${_vcEsc(hoy)}</span>
+          <span class="flex flex-wrap gap-1 min-w-0">${porDia[fecha].map(f => {
+            const c = vxCuandoReporta(f.cuando);
+            return `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/[0.04] text-gray-200"
+              title="${_vcEsc(f.sector_nombre || f.sector)}${c ? ' · ' + _vcEsc(c) : ''}">${
+              _vcEsc(f.ticker)}<span class="text-gray-600 ml-1">${_vcEsc(f.sector)}</span></span>`;
+          }).join('')}</span></div>`;
+    }).join('');
+    return vxCajaHTML('Resultados que vienen', 'próximos 14 días', cuerpo
+        + `<p class="text-[9px] text-gray-600 mt-2">Solo las empresas que forman los once sectores. El ETF al lado dice a qué casilla pertenece; pasa el cursor para ver si reporta antes de abrir o tras el cierre.</p>`);
+}
+
+function vxMacroHTML(d) {
+    const m = (d || {}).macro || {};
+    const filas = m.filas || [];
+    if (!filas.length) {
+        return vxCajaHTML('El suelo macro', 'último dato publicado',
+            `<p class="text-xs text-gray-500">${_vcEsc(m.motivo || 'Sin datos macro.')}</p>`);
+    }
+    const cuerpo = filas.map(f => {
+        // La flecha compara con la lectura ANTERIOR, no con cero: lo que
+        // importa de la inflación no es que sea 2,9 sino que venía de 3,1.
+        const sube = f.previo != null && f.valor > f.previo;
+        const baja = f.previo != null && f.valor < f.previo;
+        const col = sube ? 'text-amber-400' : baja ? 'text-emerald-400' : 'text-gray-300';
+        const flecha = sube ? '&#9650;' : baja ? '&#9660;' : '';
+        return `<div class="flex items-baseline gap-2 py-1 border-t border-gray-800/60 first:border-0">
+          <span class="text-[11px] text-gray-400 min-w-0 flex-1">${_vcEsc(f.nombre)}</span>
+          <span class="text-xs font-bold tabular-nums ${col}">${flecha} ${
+            Number(f.valor).toFixed(2)}%</span>
+          <span class="text-[9px] text-gray-600 w-20 text-right">${_vcEsc(f.fecha || '')}</span>
+        </div>`;
+    }).join('');
+    return vxCajaHTML('El suelo macro', 'último dato publicado', cuerpo
+        + `<p class="text-[9px] text-gray-600 mt-2">Cada cifra con LA FECHA en que se publicó: el IPC de hoy es el del mes pasado. La flecha compara con la lectura anterior. Fuente: FRED.</p>`);
+}
+
+async function cargaCalendario() {
+    const cajaR = document.getElementById('sectoresResultados');
+    const cajaM = document.getElementById('sectoresMacro');
+    if (!cajaR || !cajaM) return;
+    let d = null;
+    try {
+        const r = await fetch(`${API_BASE}/api/dashboard/calendario`);
+        d = r.ok ? await r.json() : null;
+    } catch (e) {
+        d = null;
+    }
+    // Cada caja se pinta por su cuenta: que FRED no conteste no puede dejar
+    // sin resultados, ni al revés. Son dos preguntas distintas.
+    cajaR.innerHTML = vxResultadosHTML(d);
+    cajaM.innerHTML = vxMacroHTML(d);
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 //  EL PRECIO, EN VIVO
 //
@@ -9189,6 +9311,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // es como se entra, la función no existía. Lo cazó
     // `test_el_latido_ARRANCA_SOLO_al_entrar`.
     if (typeof vxVivoArranca === 'function') vxVivoArranca();
+    if (typeof cargaCalendario === 'function') cargaCalendario();
     syncReportsFromServer();   // #4 — trae reportes durables del servidor (multi-dispositivo)
     loadDataHealth();          // #5 — salud de fuentes de datos
     setInterval(() => loadDataHealth(), 120000);   // re-chequea cada 2 min
@@ -12619,6 +12742,26 @@ const VX_ES2EN = {
     "Leyendo el mercado…": "Reading the market…",
     "No se pudo leer el mercado. Vuelve a intentarlo.": "Could not read the market. Try again.",
     "Sin datos de mercado.": "No market data.",
+    "Resultados que vienen": "Earnings coming up",
+    "próximos 14 días": "next 14 days",
+    "El suelo macro": "The macro floor",
+    "último dato publicado": "latest published figure",
+    "Sin fechas por ahora.": "No dates for now.",
+    "Sin datos macro.": "No macro data.",
+    "hoy": "today",
+    "mañana": "tomorrow",
+    "antes de abrir": "before the open",
+    "tras el cierre": "after the close",
+    "Inflación (IPC interanual)": "Inflation (CPI year over year)",
+    "Paro": "Unemployment",
+    "Tasa de la Fed": "Fed funds rate",
+    "Bono a 10 años": "10-year Treasury",
+    "Curva 10a − 2a": "10y − 2y curve",
+    "Solo las empresas que forman los once sectores. El ETF al lado dice a qué casilla pertenece; pasa el cursor para ver si reporta antes de abrir o tras el cierre.": "Only the companies that make up the eleven sectors. The ETF beside each one says which tile it belongs to; hover to see whether it reports before the open or after the close.",
+    "Cada cifra con LA FECHA en que se publicó: el IPC de hoy es el del mes pasado. La flecha compara con la lectura anterior. Fuente: FRED.": "Every figure with THE DATE it was published: today's CPI is last month's. The arrow compares against the previous reading. Source: FRED.",
+    "Falta FMP_API_KEY: sin ella no hay fechas de resultados.": "FMP_API_KEY is missing: without it there are no earnings dates.",
+    "Sin FRED_API_KEY no hay datos macro: la inflación, la tasa de la Fed y el paro salen de ahí.": "Without FRED_API_KEY there is no macro data: inflation, the Fed funds rate and unemployment all come from there.",
+    "Ninguna de las empresas que forman los once sectores reporta en los próximos catorce días.": "None of the companies that make up the eleven sectors reports in the next fourteen days.",
     "Sin datos del grupo.": "No data for the group.",
     "Ámbito no válido.": "Invalid scope.",
     "Sin rotación que explicar.": "No rotation to explain.",
