@@ -2655,11 +2655,46 @@ function pintaSectores(d) {
 
     const sello = document.getElementById('sectoresSello');
     if (sello) {
-        sello.innerText = !d ? 'buscando los precios…'
-            : d.cacheado ? 'foto de hace menos de 2 min' : 'al momento';
+        // La EDAD DE VERDAD, sacada del `generado` de la propia foto.
+        //
+        // Aquí había una mentira mía: esto decía «foto de hace menos de 2 min»
+        // en cuanto la respuesta venía cacheada, y se escribió cuando la caché
+        // duraba exactamente eso. Desde que la foto vive en el almacén y
+        // sobrevive al redeploy, una respuesta cacheada puede ser de hace
+        // horas — y la pantalla seguía jurando que era de hace dos minutos
+        // mientras la franja de arriba, con el dato bueno, decía «01:47».
+        //
+        // Dos rótulos del mismo panel contándose cosas distintas es peor que
+        // no tener rótulo: uno de los dos te está engañando y no sabes cuál.
+        sello.innerHTML = !d ? '<span>buscando los precios&hellip;</span>'
+            : vxEdadFoto(d);
     }
     vxPintaFranjas();
     pintaRotacion((d || {}).rotacion);
+}
+
+//: Cuánto hace que se bajó la foto que se está mirando, dicho en palabras.
+//:
+//: Se calcula del `generado` y no de si vino cacheada: lo que importa no es de
+//: dónde salió el número sino de CUÁNDO es. Y si el servidor está poniéndola
+//: al día se dice, porque explica por qué el número va a cambiar solo.
+function vxEdadFoto(d) {
+    const gen = (d || {}).generado;
+    if (!gen) return (d || {}).cacheado ? 'foto guardada' : 'al momento';
+    const seg = (Date.now() - new Date(gen).getTime()) / 1000;
+    // El «actualizando…» va en SU PROPIO nodo de texto, no pegado detrás.
+    //
+    // El barrido de traducción busca el nodo COMPLETO en el diccionario, así
+    // que pegado obligaría a un patrón por cada combinación de unidad y
+    // sufijo. Separado son tres patrones y una palabra. Es la misma lección
+    // que dejaron las comillas de las frases.
+    const puesta = (d || {}).refrescando
+        ? ' <span class="text-blue-500">actualizando…</span>' : '';
+    const edad = !(seg >= 0) || seg < 90 ? 'al momento'
+        : seg < 3600 ? `foto de hace ${Math.round(seg / 60)} min`
+        : seg < 86400 ? `foto de hace ${Math.round(seg / 3600)} h`
+        : `foto de hace ${Math.round(seg / 86400)} d`;
+    return `<span>${edad}</span>${puesta}`;
 }
 
 //: Dónde estamos: `{nivel:'sector'|'industria', sector, industria}`.
@@ -12742,6 +12777,9 @@ const VX_ES2EN = {
     "Leyendo el mercado…": "Reading the market…",
     "No se pudo leer el mercado. Vuelve a intentarlo.": "Could not read the market. Try again.",
     "Sin datos de mercado.": "No market data.",
+    "actualizando…": "updating…",
+    "foto guardada": "saved snapshot",
+    "buscando los precios…": "looking up the prices…",
     "Resultados que vienen": "Earnings coming up",
     "próximos 14 días": "next 14 days",
     "El suelo macro": "The macro floor",
@@ -13803,6 +13841,10 @@ const VX_PAT = [
     [/^Leyendo las industrias de (\S+)…$/, 'Reading the industries of $1…'],
     [/^Industrias de (\S+) · (.+)$/, 'Industries of $1 · $2'],
     [/^Dispersión entre sectores hoy:$/, 'Dispersion across sectors today:'],
+    // La edad de la foto: lleva el número dentro, así que va por patrón.
+    [/^foto de hace (\d+) min$/, 'snapshot from $1 min ago'],
+    [/^foto de hace (\d+) h$/, 'snapshot from $1 h ago'],
+    [/^foto de hace (\d+) d$/, 'snapshot from $1 d ago'],
     // El resumen de rotación: el `<b>` con el nombre de la familia parte el
     // párrafo, así que el trozo de la derecha llega con los dos números dentro.
     [/^(\d+) de (\d+) de sus sectores liderando o despertando$/,

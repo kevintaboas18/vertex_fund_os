@@ -4632,7 +4632,10 @@ class TestLaPARRILLASeVeAlINSTANTE:
 
         import vertex_almacen as VA
         monkeypatch.setattr(VA, "almacen", _Alm())
-        foto = {"ok": True, "filas": [{"ticker": "SPY"}],
+        # CON precio: una foto de la parrilla siempre lo lleva, y desde que
+        # existe el cerrojo de `_tiene_precios` una sin él no se guarda —que
+        # es justo lo que se quiere—. El ejemplo de antes era irreal.
+        foto = {"ok": True, "filas": [{"ticker": "SPY", "precio": 776.34}],
                 "generado": "2026-08-15T10:00:00+00:00"}
         V._sectores_apunta("_parrilla", time.time(), foto)
         assert V._SECTORES_RUTA in guardado, "no se guardó en el almacén"
@@ -5020,3 +5023,151 @@ class TestElPREFLIGHTDelCalendarioNoFILTRACLAVES:
     def test_devuelve_codigo_de_salida_para_poder_encadenarlo(self):
         src = self._fuente()
         assert "return 1" in src and "SystemExit(main())" in src
+
+
+class TestLaPANTALLANoMIENTESobreLaEDADDeLaFoto:
+    """Kevin mandó un pantallazo y en él había dos rótulos contándose cosas
+    distintas: el sello decía «foto de hace menos de 2 min» y la franja de
+    arriba, con el dato bueno, decía «Datos de las 01:47».
+
+    El sello era mío y estaba escrito cuando la caché duraba exactamente dos
+    minutos. Desde que la foto vive en el almacén y sobrevive al redeploy, una
+    respuesta cacheada puede ser de hace horas. Uno de los dos rótulos te
+    engañaba y no sabías cuál — que es peor que no tener rótulo.
+    """
+
+    @staticmethod
+    def _cuerpo():
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        return h
+
+    def test_el_sello_sale_de_la_FECHA_no_de_si_vino_cacheada(self):
+        h = self._cuerpo()
+        sello = h.split("const sello = document.getElementById('sectoresSello')",
+                        1)[1].split("\n    }", 1)[0]
+        assert "vxEdadFoto(d)" in sello
+        # Sin los comentarios: el de arriba EXPLICA el fallo citando la frase
+        # vieja, y el caso se cazaba a sí mismo. Es la segunda vez que este
+        # escáner tropieza con un comentario propio.
+        codigo = re.sub(r"//.*", "", sello)
+        assert "menos de 2 min" not in codigo, (
+            "sigue jurando dos minutos pase lo que pase")
+
+    def test_la_edad_se_dice_en_minutos_horas_y_DIAS(self):
+        """Una foto de ayer tiene que poder decirse. Con la persistencia en el
+        almacén, «horas» dejó de ser el techo."""
+        h = self._cuerpo()
+        f = h.split("function vxEdadFoto", 1)[1].split("\n}", 1)[0]
+        for unidad in ("min", "h", "d"):
+            assert f"hace ${{Math.round(seg / " in f and f"}} {unidad}`" in f, unidad
+
+    def test_y_dice_cuando_se_esta_ACTUALIZANDO(self):
+        h = self._cuerpo()
+        f = h.split("function vxEdadFoto", 1)[1].split("\n}", 1)[0]
+        assert "refrescando" in f, (
+            "no explica por qué el número va a cambiar solo")
+
+    def test_la_edad_TIENE_traduccion_aunque_lleve_el_numero_dentro(self):
+        """Va por patrón, y el «actualizando…» en su propio nodo: pegado
+        detrás obligaría a un patrón por cada combinación de unidad y sufijo.
+        Es la misma lección que dejaron las comillas de las frases."""
+        h = self._cuerpo()
+        pat = h.split("const VX_PAT = [", 1)[1].split("\n];", 1)[0]
+        for unidad in ("min", "h", "d"):
+            assert f"foto de hace (\\d+) {unidad}$/" in pat, unidad
+        dic = h.split("const VX_ES2EN = {", 1)[1].split("\n};", 1)[0]
+        assert '"actualizando…"' in dic
+
+
+class TestUnERRORNoSeCacheaUnDIAENTERO:
+    """El otro fallo del pantallazo: las dos cajas decían que faltaban las
+    claves. Aunque la clave apareciera, `_CALENDARIO_TTL` de un día habría
+    servido ese mismo error durante veinticuatro horas.
+
+    Un error no se cachea con la misma paciencia que un acierto.
+    """
+
+    def test_una_foto_VACIA_caduca_en_minutos(self):
+        import vertex_api as V
+
+        vacia = {"resultados": {"filas": [], "motivo": "falta la clave"},
+                 "macro": {"filas": [], "motivo": "falta la clave"}}
+        assert V._calendario_ttl(vacia) == V._CALENDARIO_TTL_VACIO
+        assert V._CALENDARIO_TTL_VACIO < 900, "«pronto» tiene que ser pronto"
+
+    def test_una_foto_LLENA_dura_el_dia(self):
+        import vertex_api as V
+
+        llena = {"resultados": {"filas": [{"ticker": "NVDA"}], "motivo": ""},
+                 "macro": {"filas": [{"serie": "UNRATE"}], "motivo": ""}}
+        assert V._calendario_ttl(llena) == V._CALENDARIO_TTL
+
+    def test_MEDIA_foto_tambien_se_reintenta_pronto(self):
+        """Si los resultados llegaron y el macro no, la mitad que falta sigue
+        siendo la mitad que hay que arreglar."""
+        import vertex_api as V
+
+        media = {"resultados": {"filas": [{"ticker": "NVDA"}], "motivo": ""},
+                 "macro": {"filas": [], "motivo": "sin FRED"}}
+        assert V._calendario_ttl(media) == V._CALENDARIO_TTL_VACIO
+
+
+class TestUnaFotoSINPreciosNoPISAaLaBuena:
+    """El mismo cerrojo que protege el respaldo de las cuentas, con precios.
+
+    Si FMP contesta pero vacío —cuota agotada, clave recién caducada—, la foto
+    sale con las catorce filas y todo a `None`. Guardarla cambiaría la última
+    buena por una de rayas; y como sobrevive al redeploy, el panel se quedaría
+    en rayas hasta que el proveedor volviera.
+    """
+
+    def _almacen_falso(self, monkeypatch):
+        import vertex_almacen as VA
+
+        guardado = {}
+
+        class _Alm:
+            def guarda(self, ruta, datos):
+                guardado[ruta] = datos
+
+            def lee_json(self, ruta):
+                return guardado.get(ruta)
+
+        monkeypatch.setattr(VA, "almacen", _Alm())
+        return guardado
+
+    def test_la_foto_de_RAYAS_no_se_guarda(self, monkeypatch):
+        import vertex_api as V
+
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        guardado = self._almacen_falso(monkeypatch)
+        buena = {"ok": True, "generado": "2026-08-16T12:00:00+00:00",
+                 "filas": [{"ticker": "SPY", "precio": 776.34}]}
+        V._sectores_apunta("_parrilla", time.time(), buena)
+        assert guardado[V._SECTORES_RUTA] == buena
+
+        rayas = {"ok": True, "generado": "2026-08-16T12:05:00+00:00",
+                 "filas": [{"ticker": "SPY", "precio": None},
+                           {"ticker": "XLK", "precio": None}]}
+        V._sectores_apunta("_parrilla", time.time(), rayas)
+        assert guardado[V._SECTORES_RUTA] == buena, (
+            "la foto sin precios pisó a la que sí los tenía")
+
+    def test_pero_la_memoria_SI_se_actualiza(self, monkeypatch):
+        """En memoria sí manda la última: si el proveedor está caído, la
+        pantalla tiene que poder enterarse dentro de esta vida del proceso.
+        Lo que se protege es el ARCHIVO, que es lo que sobrevive."""
+        import vertex_api as V
+
+        monkeypatch.setattr(V, "_SECTORES_CACHE", {})
+        self._almacen_falso(monkeypatch)
+        rayas = {"ok": True, "filas": [{"ticker": "SPY", "precio": None}]}
+        V._sectores_apunta("_parrilla", 123.0, rayas)
+        assert V._SECTORES_CACHE["_parrilla"][1] == rayas
+
+    def test_una_lista_VACIA_tampoco_cuenta_como_precios(self):
+        import vertex_api as V
+
+        assert not V._tiene_precios({"filas": []})
+        assert not V._tiene_precios({})
+        assert V._tiene_precios({"filas": [{"precio": 1.0}]})

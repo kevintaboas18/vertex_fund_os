@@ -7315,9 +7315,30 @@ _SECTORES_RUTA = "Series/sectores_parrilla.json"
 #: redeploy, que en Render borra el disco.
 _CALENDARIO_RUTA = "Series/calendario.json"
 
-#: Un día. Es la cadencia real de lo que hay dentro: los resultados se anuncian
-#: con semanas de antelación y el CPI sale una vez al mes.
+#: Un día CUANDO HAY DATOS. Es la cadencia real de lo que hay dentro: los
+#: resultados se anuncian con semanas de antelación y el CPI sale una vez al mes.
 _CALENDARIO_TTL = 86400.0
+
+#: Cinco minutos cuando la foto salió VACÍA.
+#:
+#: Aquí había un fallo mío que se vio en pantalla: una foto degradada —sin
+#: clave, sin red, con el proveedor caído— se guardaba igual y se servía
+#: durante VEINTICUATRO HORAS. Es decir: pones la clave que faltaba, recargas,
+#: y la caja sigue diciendo que falta un día entero. Un error no se cachea con
+#: la misma paciencia que un acierto.
+_CALENDARIO_TTL_VACIO = 300.0
+
+
+def _calendario_ttl(datos) -> float:
+    """Cuánto vale esta foto. Poco si no trajo nada, un día si trajo algo.
+
+    Se mira CADA caja por su cuenta: si los resultados llegaron y el macro no,
+    sigue mereciendo un reintento pronto — la mitad que falta es la mitad que
+    hay que arreglar."""
+    d = datos or {}
+    llenas = all((d.get(caja) or {}).get("filas")
+                 for caja in ("resultados", "macro"))
+    return _CALENDARIO_TTL if llenas else _CALENDARIO_TTL_VACIO
 _CALENDARIO_LOCK = threading.Lock()
 _CALENDARIO_REFRESCANDO = False
 
@@ -7522,7 +7543,7 @@ def api_dashboard_calendario():
         try:
             edad = (datetime.now(timezone.utc)
                     - datetime.fromisoformat(guardado["generado"])).total_seconds()
-            viejo = edad >= _CALENDARIO_TTL
+            viejo = edad >= _calendario_ttl(guardado)
         except Exception:                        # noqa: BLE001
             viejo = True
 
@@ -7552,6 +7573,20 @@ def _sectores_apunta(clave: str, ts: float, salida: dict) -> None:
         _SECTORES_CACHE[clave] = (ts, salida)
     if clave != "_parrilla":
         return
+    # ── Una foto SIN precios no pisa a una que los tenía ──────────────────
+    #
+    # Es el mismo cerrojo que protege el respaldo de las cuentas, aquí con
+    # precios: si FMP contesta pero vacío —cuota agotada, clave recién
+    # caducada, el proveedor de mal día—, `_sectores_calcula` devuelve las
+    # catorce filas con todo a `None`. Guardar eso en el almacén cambiaría la
+    # última foto buena por una de rayas, y como sobrevive al redeploy, el
+    # panel se quedaría en rayas hasta que el proveedor volviera.
+    #
+    # Mejor una foto vieja con su edad escrita que una nueva sin nada dentro.
+    if not _tiene_precios(salida):
+        logging.getLogger(__name__).warning(
+            "la parrilla vino SIN precios: no se guarda encima de la anterior")
+        return
     try:
         from vertex_almacen import almacen as _alm
 
@@ -7561,6 +7596,16 @@ def _sectores_apunta(clave: str, ts: float, salida: dict) -> None:
         # comodidad, no la fuente de verdad.
         logging.getLogger(__name__).warning(
             "no se pudo guardar la foto de la parrilla", exc_info=True)
+
+
+def _tiene_precios(salida) -> bool:
+    """¿Esta foto trae algún precio de verdad?
+
+    Catorce filas con el precio en `None` son una foto válida por estructura y
+    vacía por dentro. La estructura no es el dato.
+    """
+    return any(f.get("precio") is not None
+               for f in (salida or {}).get("filas") or [])
 
 
 def _sectores_del_almacen():

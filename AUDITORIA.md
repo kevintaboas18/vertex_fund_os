@@ -7780,3 +7780,83 @@ reimplementarlas, que cace el IPC crudo y que devuelva código de salida.
 
 **3.390 tests del motor · 837 de la capa web (15 nuevos) · 91 en un navegador
 real (7 nuevos) · 267 checks de auditoría · preflight de Render en verde.**
+
+---
+
+## 41.69 · Ronda 44 — el pantallazo de Kevin: tres fallos míos en una imagen
+
+Kevin mandó una captura del Dashboard en Render con las dos cajas nuevas
+diciendo «Falta FMP_API_KEY» y «Sin FRED_API_KEY»… **mientras la parrilla de
+arriba enseñaba precios**. Esa contradicción es el hilo del que salieron tres
+fallos, y los tres eran míos.
+
+### 1 · El sello MENTÍA sobre la edad de la foto
+
+En la misma imagen, dos rótulos del mismo panel se contradecían:
+
+- el sello: «foto de hace menos de 2 min»
+- la franja de arriba, con el dato bueno: «Datos de las 01:47»
+
+El sello decía eso **en cuanto la respuesta venía cacheada**, y estaba escrito
+cuando la caché duraba exactamente dos minutos (`_SECTORES_TTL = 120`). Desde
+que la foto vive en el almacén y sobrevive al redeploy (§41.66), una respuesta
+cacheada puede ser de hace horas — y el rótulo seguía jurando lo de siempre.
+
+Es el fallo que más incomoda de los tres: **lo introduje yo al hacer la foto
+persistente y no volví a mirar el rótulo que la describía.** Dos letreros del
+mismo panel contándose cosas distintas es peor que no tener letrero: uno de los
+dos te está engañando y no sabes cuál.
+
+Ahora la edad sale del `generado` de la propia foto y se dice en minutos, horas
+o **días**, con «actualizando…» cuando el refresco va por detrás. Y ese sufijo
+va en **su propio nodo de texto**: pegado detrás obligaría a un patrón de
+traducción por cada combinación de unidad y sufijo. Es la misma lección que
+dejaron las comillas de las frases.
+
+### 2 · Un error se cacheaba VEINTICUATRO HORAS
+
+`_CALENDARIO_TTL` es un día, que es la cadencia correcta **cuando hay datos**.
+Pero una foto degradada —sin clave, sin red, con el proveedor caído— se
+guardaba igual y se servía con esa misma paciencia. Es decir: pones la clave
+que faltaba, recargas, y la caja sigue diciendo que falta **un día entero**.
+
+Un error no se cachea como un acierto. Con la foto vacía —o a medias: si los
+resultados llegaron y el macro no, la mitad que falta sigue siendo la mitad que
+hay que arreglar— el reintento baja a **cinco minutos**.
+
+### 3 · Una foto sin precios podía pisar a la buena
+
+Buscado a propósito al revisar el anterior, y de la misma familia que la
+avería del respaldo del 14/08. Si FMP contesta pero vacío —cuota agotada,
+clave recién caducada—, `_sectores_calcula` devuelve las catorce filas con todo
+a `None`: una foto **válida por estructura y vacía por dentro**. Guardarla
+cambiaría la última buena por una de rayas y, como sobrevive al redeploy, el
+panel se quedaría en rayas hasta que el proveedor volviera.
+
+`_tiene_precios()` lo impide: en memoria sí manda la última —la pantalla tiene
+que poder enterarse de que el proveedor está caído—, pero **el archivo, que es
+lo que sobrevive, no se pisa**.
+
+### Lo que la captura NO era
+
+No era que faltaran las claves de Kevin: las tiene. La explicación coherente
+con todo lo que se ve —parrilla con precios, cajas sin datos, sello mintiendo—
+es que **la parrilla venía de la foto guardada** y las cajas nuevas, que no
+tenían foto, decían la verdad. Con el sello arreglado, esa misma pantalla se
+habría leído sola: «foto de hace 8 h» al lado de dos cajas vacías es un
+diagnóstico, no un misterio.
+
+Queda en manos de Kevin comprobar `FMP_API_KEY` y `FRED_API_KEY` en el entorno
+de Render; `preflight_calendario.py` (§41.68) lo dice en un comando.
+
+### Un tropiezo de método, por segunda vez
+
+El caso que vigila el sello **se cazó a sí mismo**: el comentario que explica
+el fallo cita la frase vieja, y el escáner la encontró ahí. Ya pasó con
+«Leyendo el mercado». Se quitan los comentarios antes de mirar el código, y
+queda escrito que es la segunda vez.
+
+### Estado
+
+**3.400 tests del motor · 847 de la capa web (24 nuevos) · 91 en un navegador
+real · 267 checks de auditoría · preflight de Render en verde.**
