@@ -7955,3 +7955,70 @@ el arnés enseña a desconfiar de la batería, que es el daño de verdad.
 
 **3.400 tests del motor · 857 de la capa web (10 nuevos) · 91 en un navegador
 real · 267 checks de auditoría · preflight de Render en verde.**
+
+---
+
+## 41.71 · Ronda 46 — la caja que se estiraba, y las empresas que faltaban
+
+Kevin mandó una captura con **las dos cajas funcionando** —resultados con sus
+fechas y macro con «Salió 51.00 · Esperado 54.50 · Anterior 55.20»— y dos
+peticiones.
+
+De paso, esa captura **cierra el hueco de verificación** que arrastraba tres
+rondas: los dos endpoints de FMP (`earnings-calendar` y `economic-calendar`)
+contestan con su plan, **consenso incluido**. Lo que no se pudo comprobar desde
+aquí lo comprobó la pantalla.
+
+### 1 · «Hay mucho espacio para una corta información»
+
+La caja de resultados se estiraba hasta igualar a la de macro, que lleva el
+triple de filas: media caja de vacío debajo de cuatro fechas. Un hueco así
+parece un fallo de carga.
+
+Eran **dos** cosas a la vez, y con una sola no bastaba: `h-full` en la tarjeta y
+el `align-items: stretch` que la rejilla aplica por defecto. Fuera el primero,
+`items-start` en la segunda, y cada columna mide lo suyo. El caso comprueba las
+dos, porque quitar una y dejar la otra deja la caja igual de estirada.
+
+La columna izquierda pasa a ser **su propia pila** con un hueco declarado
+debajo (`sectoresBajoResultados`): lo que sobre queda listo para lo que venga,
+sin volver a tocar la rejilla.
+
+### 2 · «Creo que aún no me salen todas»
+
+Y no salían. Se filtraba a **`MIEMBROS`** —los 114 componentes escritos— así que
+la temporada entera de resultados se reducía a los ocho nombres que cayeran ahí
+dentro. Era una decisión mía de la ronda 43, y era la equivocada: en un panel
+de sectores tiene sentido *ordenar* por sector, no *esconder* lo que no está.
+
+El mapa ticker → sector pasa de **filtrar** a **etiquetar**. Sale todo lo que
+reporta en EE.UU.; las de los once sectores van primero dentro de cada día y con
+su ETF al lado, y el resto va detrás —no fuera— con el hueco del sector vacío
+en vez de un ETF inventado.
+
+Con tres cuidados, porque «todas» en plena temporada son cientos:
+
+- **Tope de 400 y se DICE si se recorta.** Callar que faltan es justo lo que
+  haría creer que ya no queda nada.
+- **La caja hace scroll** en vez de estirarse sin fin: sin tope de alto,
+  empujaría la explicación del mercado fuera de la pantalla.
+- **El recuento por día** al lado de la fecha, que es lo que convierte una lista
+  larga en información: «jueves, 34 empresas» se lee de un vistazo.
+
+### El tercer intermitente del mismo archivo
+
+`test_las_copias_viejas_se_PODAN` salió rojo en la batería completa y verde
+suelto. **Misma causa que los otros dos**: llamaba a `_respalda_privado` cruda
+para provocar la poda, y con una contención transitoria el respaldo se frenaba
+—correctamente—, la poda no llegaba a correr y el caso salía rojo con las once
+copias intactas, como si la poda no existiera.
+
+Pasa por `_prepara_respaldo` como los otros nueve. Tres casos con el mismo
+patrón en el mismo archivo ya no es mala suerte: **un respaldo llamado por su
+efecto secundario necesita tolerar contención; uno llamado por su valor de
+retorno, no.** Queda escrito así.
+
+### Estado
+
+**3.402 tests del motor · 861 de la capa web (4 nuevos) · 91 en un navegador
+real · 267 checks de auditoría · preflight de Render en verde.**

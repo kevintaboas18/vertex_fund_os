@@ -4929,11 +4929,13 @@ class TestElCALENDARIOyElSUELOMACRO:
         assert "consenso" in m["motivo"], (
             "no avisa de que el respaldo no trae ni lo esperado ni el futuro")
 
-    def test_los_resultados_se_filtran_a_los_MIEMBROS_de_los_sectores(
-            self, monkeypatch):
-        """El panel va de sectores, así que la pregunta útil es cuál de los que
-        MUEVEN EL MAPA reporta. Un listado del mercado entero serían
-        trescientas filas que nadie lee."""
+    def test_salen_TODAS_las_empresas_que_reportan(self, monkeypatch):
+        """«Creo que aún no me salen todas.» Y no salían: se filtraba a los 114
+        componentes escritos, así que la temporada entera se reducía a ocho
+        nombres. Ahora sale todo lo que reporta en EE.UU.
+
+        El mapa ticker → sector pasó de FILTRAR a ETIQUETAR.
+        """
         import vertex_api as V
 
         monkeypatch.setenv("FMP_API_KEY", "x" * 20)
@@ -4950,8 +4952,40 @@ class TestElCALENDARIOyElSUELOMACRO:
         monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
         r = V._resultados_calcula()
         tickers = [f["ticker"] for f in r["filas"]]
-        assert tickers == ["NVDA"], tickers
-        assert r["filas"][0]["sector"] == "XLK", "no se ató a su casilla"
+        assert tickers == ["NVDA", "PEPEBOTE"], tickers
+        # La de los once sectores va PRIMERO y con su casilla; la otra sale
+        # igual, con el hueco del sector vacío en vez de un ETF inventado.
+        assert r["filas"][0]["sector"] == "XLK"
+        assert r["filas"][1]["sector"] is None
+        assert r["filas"][1]["sector_nombre"] is None
+
+    def test_si_se_RECORTA_la_lista_se_dice(self, monkeypatch):
+        """Callar que faltan es lo que haría creer que ya no queda nada."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        hoy = date.today().isoformat()
+        muchas = [{"symbol": f"AA{i}", "date": hoy}
+                  for i in range(V._RESULTADOS_MAX + 25)]
+
+        class _R:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return muchas
+
+        monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
+        r = V._resultados_calcula()
+        assert len(r["filas"]) == V._RESULTADOS_MAX
+        assert r["recortadas"] == 25
+
+    def test_la_caja_hace_SCROLL_en_vez_de_estirarse_sin_fin(self):
+        """Con la temporada abierta son cientos de filas. Sin tope de alto, la
+        caja empujaría la explicación del mercado fuera de la pantalla."""
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        f = h.split("function vxResultadosHTML(d) {", 1)[1].split("\n}\n", 1)[0]
+        assert "overflow-y-auto" in f and "max-h-" in f
 
     def test_una_fecha_FUERA_de_la_ventana_no_entra(self, monkeypatch):
         import vertex_api as V
@@ -5010,6 +5044,39 @@ class TestElCALENDARIOyElSUELOMACRO:
         assert "lg:grid-cols-2" in entre, "no van en paralelo en pantalla ancha"
         assert "grid-cols-1" in entre, (
             "en el teléfono tienen que apilarse, no partirse en dos columnas")
+
+    def test_cada_caja_mide_LO_SUYO_y_no_se_estira(self):
+        """«Hay mucho espacio para una corta información.»
+
+        Con `h-full` en la tarjeta y el `stretch` que la rejilla aplica por
+        defecto, la de resultados se estiraba hasta igualar a la de macro, que
+        lleva el triple de filas: media caja de vacío debajo de cuatro fechas.
+        Un hueco así parece un fallo de carga, y además no deja poner nada ahí.
+
+        Hacen falta LAS DOS cosas —quitar `h-full` y poner `items-start`—, así
+        que se comprueban las dos: con una sola, la caja se sigue estirando.
+        """
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        caja = h.split("function vxCajaHTML", 1)[1].split("\n}", 1)[0]
+        assert "h-full" not in caja, (
+            "la tarjeta se sigue estirando hasta la altura de la fila")
+        i = h.index('id="sectoresRotacion"')
+        j = h.index('id="sectoresLectura"')
+        assert "items-start" in h[i:j], (
+            "la rejilla sigue estirando las columnas hasta la más alta")
+
+    def test_queda_un_HUECO_debajo_de_resultados(self):
+        """Lo que se gana al no estirar: sitio en la columna izquierda para lo
+        que venga después, sin volver a tocar la rejilla."""
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        i = h.index('id="sectoresRotacion"')
+        j = h.index('id="sectoresLectura"')
+        entre = h[i:j]
+        assert 'id="sectoresBajoResultados"' in entre
+        assert entre.index('id="sectoresResultados"') < entre.index(
+            'id="sectoresBajoResultados"'), "el hueco quedó ENCIMA de resultados"
+        assert entre.index('id="sectoresBajoResultados"') < entre.index(
+            'id="sectoresMacro"'), "el hueco se coló en la columna de macro"
 
     def test_se_pide_al_ENTRAR_y_tambien_al_CARGAR_la_pagina(self):
         """La trampa de siempre: al cargar, la vista ya viene visible del

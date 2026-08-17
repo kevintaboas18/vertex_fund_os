@@ -1806,7 +1806,12 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         a = self._almacen(tmp_path)
         for dia in range(1, 12):
             a.guarda(f"{DIR_PRIVADO}/privado-202608{dia:02d}.enc", b"x" * 10)
-        V._respalda_privado(a)
+        # Este respaldo es el ATREZO: la poda solo corre si se escribe una copia
+        # nueva. Con la llamada cruda, una contención transitoria hacía que el
+        # respaldo se frenara —correctamente—, la poda no llegaba a correr y el
+        # caso salía rojo con las once copias intactas, como si la poda no
+        # existiera. Es el mismo motivo que ya estabilizó los otros nueve.
+        _prepara_respaldo(a)
         copias = V._copias_fechadas(a)
         assert len(copias) <= V._PRIVADO_COPIAS_MAX, (
             f"{len(copias)} copias, el tope es {V._PRIVADO_COPIAS_MAX}")

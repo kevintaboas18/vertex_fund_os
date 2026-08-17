@@ -7346,6 +7346,12 @@ _CALENDARIO_REFRESCANDO = False
 #: cabe en dos semanas de decisiones sin convertir la caja en un listado.
 _CALENDARIO_DIAS = 14
 
+#: Tope de empresas en la caja. Alto a propósito —en plena temporada reportan
+#: cientos y Kevin las quiere todas— pero no infinito: la respuesta viaja al
+#: navegador y se guarda en el almacén en cada refresco. Si se recorta se DICE,
+#: en vez de callar que faltan.
+_RESULTADOS_MAX = 400
+
 #: El suelo macro, con el identificador de FRED de cada serie.
 #:
 #: `pct_directo` distingue las que YA vienen en porcentaje (el paro, la tasa de
@@ -7566,6 +7572,12 @@ def _resultados_calcula() -> dict:
     if not clave:
         return {"filas": [], "motivo": "Falta FMP_API_KEY: sin ella no hay "
                                        "fechas de resultados."}
+    # El mapa ticker → sector sirve para ETIQUETAR, ya no para FILTRAR.
+    #
+    # Filtrar por él dejaba fuera a todo lo que no fuera uno de los 114
+    # componentes escritos: salían ocho nombres y el resto de la temporada de
+    # resultados no existía para el panel. Ahora sale TODO lo que reporta en
+    # EE.UU., y el ETF al lado se pone cuando se sabe a qué casilla pertenece.
     de_quien = {}
     for etf, miembros in MIEMBROS.items():
         for tk in miembros:
@@ -7584,23 +7596,28 @@ def _resultados_calcula() -> dict:
         crudo, motivo = [], f"No se pudo leer el calendario de resultados ({e})."
     for fila in crudo if isinstance(crudo, list) else []:
         tk = str((fila or {}).get("symbol") or "").upper()
-        etf = de_quien.get(tk)
-        if not etf:
+        if not tk:
             continue
         f = str(fila.get("date") or "")[:10]
         if not (hoy.isoformat() <= f <= hasta.isoformat()):
             continue
+        etf = de_quien.get(tk)
         filas.append({"ticker": tk, "fecha": f, "sector": etf,
-                      "sector_nombre": nombre_de(etf),
+                      "sector_nombre": nombre_de(etf) if etf else None,
                       # `when` de FMP: antes de abrir o después de cerrar. Es
                       # la diferencia entre un hueco que te pilla dentro y uno
                       # que te pilla fuera.
                       "cuando": str(fila.get("when") or "").lower() or None})
-    filas.sort(key=lambda x: (x["fecha"], x["ticker"]))
+    # Las de los once sectores PRIMERO dentro de cada día: son las que mueven
+    # el mapa de arriba. El resto va detrás, no fuera.
+    filas.sort(key=lambda x: (x["fecha"], x["sector"] is None, x["ticker"]))
+    recortadas = len(filas) - _RESULTADOS_MAX
+    filas = filas[:_RESULTADOS_MAX]
     if not filas and not motivo:
-        motivo = ("Ninguna de las empresas que forman los once sectores "
-                  "reporta en los próximos catorce días.")
-    return {"filas": filas, "motivo": motivo}
+        motivo = ("Ninguna empresa de EE.UU. reporta en los próximos "
+                  f"{_CALENDARIO_DIAS} días.")
+    return {"filas": filas, "motivo": motivo,
+            "recortadas": max(0, recortadas)}
 
 
 _MACRO_LECTURA_SYSTEM = (
