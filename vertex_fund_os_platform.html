@@ -2054,29 +2054,111 @@ function vxResultadosHTML(d) {
         + `<p class="text-[9px] text-gray-600 mt-2">Solo las empresas que forman los once sectores. El ETF al lado dice a qué casilla pertenece; pasa el cursor para ver si reporta antes de abrir o tras el cierre.</p>`);
 }
 
+//: Un número del calendario, con su unidad si la trae.
+function vxMacroNum(v, unidad) {
+    if (v == null) return '<span class="text-gray-700">—</span>';
+    const n = Math.abs(v) >= 1000 ? Number(v).toLocaleString(
+        VX_IDIOMA === 'en' ? 'en-US' : 'es-ES') : Number(v).toFixed(2);
+    return n + (unidad || '');
+}
+
+//: La caja de lo macro, en el orden que se lee: lo que YA SALIÓ, el botón que
+//: lo explica, y lo que VIENE.
+//:
+//: Se llama «Macroeconómico» y no «el suelo macro»: lo segundo era jerga que
+//: no dice nada a quien no la haya oído antes.
 function vxMacroHTML(d) {
     const m = (d || {}).macro || {};
-    const filas = m.filas || [];
-    if (!filas.length) {
-        return vxCajaHTML('El suelo macro', 'último dato publicado',
+    const pub = m.publicados || [];
+    const prox = m.proximos || [];
+    const niveles = m.filas || [];
+
+    if (!pub.length && !prox.length && !niveles.length) {
+        return vxCajaHTML('Macroeconómico', 'salió · esperado · anterior',
             `<p class="text-xs text-gray-500">${_vcEsc(m.motivo || 'Sin datos macro.')}</p>`);
     }
-    const cuerpo = filas.map(f => {
-        // La flecha compara con la lectura ANTERIOR, no con cero: lo que
-        // importa de la inflación no es que sea 2,9 sino que venía de 3,1.
-        const sube = f.previo != null && f.valor > f.previo;
-        const baja = f.previo != null && f.valor < f.previo;
-        const col = sube ? 'text-amber-400' : baja ? 'text-emerald-400' : 'text-gray-300';
-        const flecha = sube ? '&#9650;' : baja ? '&#9660;' : '';
-        return `<div class="flex items-baseline gap-2 py-1 border-t border-gray-800/60 first:border-0">
-          <span class="text-[11px] text-gray-400 min-w-0 flex-1">${_vcEsc(f.nombre)}</span>
-          <span class="text-xs font-bold tabular-nums ${col}">${flecha} ${
-            Number(f.valor).toFixed(2)}%</span>
-          <span class="text-[9px] text-gray-600 w-20 text-right">${_vcEsc(f.fecha || '')}</span>
-        </div>`;
-    }).join('');
-    return vxCajaHTML('El suelo macro', 'último dato publicado', cuerpo
-        + `<p class="text-[9px] text-gray-600 mt-2">Cada cifra con LA FECHA en que se publicó: el IPC de hoy es el del mes pasado. La flecha compara con la lectura anterior. Fuente: FRED.</p>`);
+
+    // ── 1. Lo que YA SALIÓ ───────────────────────────────────────────────
+    // Con lo esperado y lo anterior al lado, porque la noticia no es la cifra:
+    // es la DIFERENCIA con lo que se esperaba. Un dato en línea ya estaba en
+    // el precio.
+    let cuerpo = '';
+    if (pub.length) {
+        cuerpo += `<p class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Ya salieron</p>
+          <div class="flex text-[9px] text-gray-600 gap-2 pb-1">
+            <span class="flex-1"></span><span class="w-16 text-right">Salió</span>
+            <span class="w-16 text-right">Esperado</span><span class="w-16 text-right">Anterior</span>
+          </div>`;
+        cuerpo += pub.map(f => {
+            // Verde si sorprendió al alza, rojo si a la baja. Sin juicio de
+            // «bueno o malo»: un paro que sube sorprende a la baja para la
+            // economía y eso lo cuenta la explicación, no un color.
+            const sorpresa = (f.salio != null && f.esperado != null)
+                ? f.salio - f.esperado : null;
+            const col = sorpresa == null ? 'text-gray-200'
+                : sorpresa > 0 ? 'text-emerald-400'
+                : sorpresa < 0 ? 'text-red-400' : 'text-gray-200';
+            return `<div class="flex items-baseline gap-2 py-1 border-t border-gray-800/60 text-[10px]">
+              <span class="flex-1 min-w-0 text-gray-300 truncate" title="${_vcEsc(f.evento)}">${_vcEsc(f.evento)}</span>
+              <span class="w-16 text-right font-bold tabular-nums ${col}">${vxMacroNum(f.salio, f.unidad)}</span>
+              <span class="w-16 text-right tabular-nums text-gray-500">${vxMacroNum(f.esperado, f.unidad)}</span>
+              <span class="w-16 text-right tabular-nums text-gray-600">${vxMacroNum(f.anterior, f.unidad)}</span>
+            </div>`;
+        }).join('');
+    }
+
+    // El respaldo de FRED: sin consenso ni futuro, pero mejor que una caja muda.
+    if (!pub.length && niveles.length) {
+        cuerpo += `<p class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Niveles de ahora</p>`
+            + niveles.map(f => `<div class="flex items-baseline gap-2 py-1 border-t border-gray-800/60">
+              <span class="text-[11px] text-gray-400 min-w-0 flex-1">${_vcEsc(f.nombre)}</span>
+              <span class="text-xs font-bold tabular-nums text-gray-200">${Number(f.valor).toFixed(2)}%</span>
+              <span class="text-[9px] text-gray-600 w-20 text-right">${_vcEsc(f.fecha || '')}</span>
+            </div>`).join('');
+    }
+
+    // ── 2. El botón, y el hueco donde cae la explicación ─────────────────
+    cuerpo += `<div class="border-t border-gray-800 pt-2 mt-2">
+        <button onclick="cargaMacroLectura()" class="text-[11px] font-bold text-blue-400 hover:text-blue-300">Expl&iacute;came qu&eacute; est&aacute; pasando &rsaquo;</button>
+      </div>
+      <div id="macroLectura" class="mt-2"></div>`;
+
+    // ── 3. Lo que VIENE ──────────────────────────────────────────────────
+    if (prox.length) {
+        cuerpo += `<div class="border-t border-gray-800 pt-2 mt-2">
+          <p class="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Pr&oacute;ximos datos</p>`
+            + prox.map(f => {
+                const cuando = vxFechaCorta(String(f.fecha).slice(0, 10));
+                const destaca = cuando === 'hoy' || cuando === 'mañana';
+                const esp = f.esperado == null ? ''
+                    : `<span class="text-gray-600 text-[9px] ml-1">se espera ${vxMacroNum(f.esperado, f.unidad)}</span>`;
+                return `<div class="flex items-baseline gap-2 py-0.5 text-[10px]">
+                  <span class="w-20 shrink-0 font-bold ${destaca ? 'text-amber-400' : 'text-gray-500'}">${_vcEsc(cuando)}</span>
+                  <span class="min-w-0 text-gray-300 truncate">${_vcEsc(f.evento)}${esp}</span>
+                </div>`;
+            }).join('') + `</div>`;
+    }
+
+    const sub = m.fuente === 'FRED' ? 'niveles de FRED' : 'salió · esperado · anterior';
+    return vxCajaHTML('Macroeconómico', sub, cuerpo
+        + `<p class="text-[9px] text-gray-600 mt-2">Lo que mueve el precio no es la cifra sino la DIFERENCIA con lo que se esperaba: un dato en línea ya estaba puesto. Fuente: calendario económico de FMP.</p>`);
+}
+
+//: La explicación de lo macro. Va DENTRO de la caja, entre lo que salió y lo
+//: que viene, que es el orden en que se lee.
+async function cargaMacroLectura(refrescar) {
+    const caja = document.getElementById('macroLectura');
+    if (!caja) return;
+    caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-3">
+      <p class="text-xs text-gray-500">Leyendo los datos macro y escribiendo la explicaci&oacute;n&hellip;</p></div>`;
+    let d;
+    try {
+        const r = await fetch(`${API_BASE}/api/dashboard/macro/lectura${refrescar ? '?refrescar=1' : ''}`);
+        d = await r.json();
+    } catch (e) {
+        d = { ok: false, error: 'No se pudo pedir la lectura.' };
+    }
+    caja.innerHTML = vxLecturaHTML(d, 'cargaMacroLectura');
 }
 
 async function cargaCalendario() {
@@ -12777,6 +12859,19 @@ const VX_ES2EN = {
     "Leyendo el mercado…": "Reading the market…",
     "No se pudo leer el mercado. Vuelve a intentarlo.": "Could not read the market. Try again.",
     "Sin datos de mercado.": "No market data.",
+    "Macroeconómico": "Macroeconomic",
+    "salió · esperado · anterior": "actual · expected · previous",
+    "niveles de FRED": "FRED levels",
+    "Ya salieron": "Already out",
+    "Salió": "Actual",
+    "Esperado": "Expected",
+    "Anterior": "Previous",
+    "Niveles de ahora": "Current levels",
+    "Próximos datos": "Upcoming data",
+    "se espera": "expected",
+    "Leyendo los datos macro y escribiendo la explicación…": "Reading the macro data and writing the explanation…",
+    "Falta FMP_API_KEY: sin ella no hay calendario económico.": "FMP_API_KEY is missing: without it there is no economic calendar.",
+    "Lo que mueve el precio no es la cifra sino la DIFERENCIA con lo que se esperaba: un dato en línea ya estaba puesto. Fuente: calendario económico de FMP.": "What moves the price is not the figure but the DIFFERENCE against what was expected: a figure in line was already priced in. Source: FMP economic calendar.",
     "actualizando…": "updating…",
     "foto guardada": "saved snapshot",
     "buscando los precios…": "looking up the prices…",

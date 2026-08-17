@@ -156,6 +156,9 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
         # como una cadena del panel porque «lectura» tiene morfología española.
         "/api/sectores/lectura",
         "/api/sectores/lectura?",
+        # Igual: la ruta de la lectura macro. El extractor la lee como texto
+        # del panel porque «lectura» y «dashboard» tienen morfología española.
+        "/api/dashboard/macro/lectura",
         # Cargador del tercer piso: lleva el ticker dentro, va por `VX_PAT`.
         "Leyendo las empresas de",
         # El aviso de «servidor sin la ruta todavía»: lleva el código HTTP

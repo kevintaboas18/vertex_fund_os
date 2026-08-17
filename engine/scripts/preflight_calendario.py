@@ -64,7 +64,7 @@ def _clave(nombre):
 
 
 def main() -> int:
-    print("\033[1mPreflight EN VIVO — calendario de resultados y suelo macro\033[0m")
+    print("\033[1mPreflight EN VIVO — resultados y macroeconómico\033[0m")
 
     titulo("1. Las credenciales")
     hay_fmp = _clave("FMP_API_KEY")
@@ -117,8 +117,51 @@ def main() -> int:
         except Exception as e:                   # noqa: BLE001
             mal(f"no se pudo preguntar: {e}")
 
-    # ── 3. FRED: las cinco series ────────────────────────────────────────────
-    titulo("3. FRED · las cinco series del suelo macro")
+    # ── 2-bis. FMP: el CALENDARIO ECONÓMICO ──────────────────────────────────
+    titulo("2-bis. FMP · el calendario económico (salió · esperado · anterior)")
+    if not hay_fmp:
+        aviso("sin clave no se puede preguntar; se salta")
+    else:
+        hoy = date.today()
+        try:
+            r = requests.get(
+                "https://financialmodelingprep.com/stable/economic-calendar",
+                params={"from": (hoy - timedelta(days=VA._MACRO_DIAS_ATRAS)).isoformat(),
+                        "to": (hoy + timedelta(days=VA._MACRO_DIAS_ADELANTE)).isoformat(),
+                        "apikey": os.environ["FMP_API_KEY"]}, timeout=15)
+            if r.status_code != 200:
+                mal(f"contesta HTTP {r.status_code} — sin este endpoint no hay "
+                    "ni consenso ni fechas futuras, y la caja cae al respaldo "
+                    "de FRED, que no trae ninguna de las dos")
+            else:
+                crudo = r.json()
+                if not isinstance(crudo, list) or not crudo:
+                    mal("no devuelve una lista con eventos")
+                else:
+                    ok(f"{len(crudo)} eventos en la ventana")
+                    ej = crudo[0]
+                    for campo, para_que in (
+                            ("country", "sin él entran los datos de todo el mundo"),
+                            ("event", "sin él no se puede filtrar ni enseñar"),
+                            ("date", "sin ella no hay ni pasado ni futuro"),
+                            ("actual", "sin él no se sabe qué salió"),
+                            ("previous", "sin él falta la columna «anterior»")):
+                        if campo in ej:
+                            ok(f"trae `{campo}`")
+                        else:
+                            mal(f"NO trae `{campo}` — {para_que}. "
+                                f"Campos reales: {sorted(ej)[:12]}")
+                    if "estimate" in ej or "consensus" in ej:
+                        ok("trae el CONSENSO (`estimate`/`consensus`)")
+                    else:
+                        mal("NO trae el consenso: sin él la columna «esperado» "
+                            "sale vacía y la explicación pierde la sorpresa, "
+                            "que es la noticia")
+        except Exception as e:                   # noqa: BLE001
+            mal(f"no se pudo preguntar el calendario económico: {e}")
+
+    # ── 3. FRED: el respaldo ─────────────────────────────────────────────────
+    titulo("3. FRED · el respaldo (niveles, sin consenso ni futuro)")
     if not hay_fred:
         aviso("sin clave no se puede preguntar; se salta")
     else:
@@ -155,22 +198,34 @@ def main() -> int:
         (aviso if not hay_fmp else mal)(f"Resultados vacío — motivo: {res['motivo']}")
 
     mac = VA._macro_calcula()
-    if mac["filas"]:
-        ok(f"Macro: {len(mac['filas'])} de {len(VA._MACRO_SERIES)} indicadores")
+    if mac.get("publicados") or mac.get("proximos"):
+        ok(f"Macro por CALENDARIO: {len(mac['publicados'])} publicados, "
+           f"{len(mac['proximos'])} por venir")
+        for f in mac["publicados"][:5]:
+            def _n(x):
+                return "—" if x is None else f"{x:g}"
+            print(f"      {f['fecha'][:10]}  {f['evento'][:38]:38} "
+                  f"salió {_n(f['salio']):>8} · esperado {_n(f['esperado']):>8} "
+                  f"· anterior {_n(f['anterior']):>8}")
+        for f in mac["proximos"][:5]:
+            print(f"      {f['fecha'][:10]}  {f['evento'][:38]:38} (por venir)")
+        con_consenso = [f for f in mac["publicados"] if f["esperado"] is not None]
+        if mac["publicados"] and not con_consenso:
+            mal("NINGÚN publicado trae consenso: la columna «esperado» saldrá "
+                "vacía entera y la explicación se queda sin la sorpresa")
+        elif con_consenso:
+            ok(f"{len(con_consenso)} de {len(mac['publicados'])} traen consenso")
+    elif mac.get("filas"):
+        aviso("Macro cayó al RESPALDO de FRED: hay niveles pero no habrá ni "
+              "consenso ni próximas fechas")
         for f in mac["filas"]:
-            prev = "" if f["previo"] is None else f"  (antes {f['previo']:+.2f}%)"
-            print(f"      {f['nombre']:32} {f['valor']:+7.2f}%  "
-                  f"{f['fecha']}{prev}")
-        # El IPC es el que más fácil sale mal: si viniera el índice crudo en vez
-        # de la variación, el número sería de tres cifras.
+            print(f"      {f['nombre']:32} {f['valor']:+7.2f}%  {f['fecha']}")
         ipc = next((f for f in mac["filas"] if f["serie"] == "CPIAUCSL"), None)
         if ipc and abs(ipc["valor"]) > 25:
             mal(f"el IPC sale {ipc['valor']}%: eso es el ÍNDICE crudo, no la "
                 "variación interanual")
-        elif ipc:
-            ok("el IPC sale como variación interanual, no como índice")
     else:
-        (aviso if not hay_fred else mal)(f"Macro vacío — motivo: {mac['motivo']}")
+        (aviso if not hay_fmp else mal)(f"Macro vacío — motivo: {mac['motivo']}")
 
     print("\n" + "=" * 62)
     if _fallos:

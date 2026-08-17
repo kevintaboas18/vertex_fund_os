@@ -1812,10 +1812,29 @@ class TestElPrecioSeMUEVESolo:
                     "generado": "2026-08-15T18:00:00+00:00"})
 
         pg.route(_re.compile(r"/api/sectores"), enruta)
+        # El calendario TAMBIÉN se simula. Sin esto la página, al arrancar, se
+        # queda esperando a FMP —que aquí está bloqueado— hasta que vence el
+        # timeout, y con la batería entera corriendo eso movía el momento en
+        # que llegaba el precio. El caso salía rojo por el arnés, no por el
+        # panel: es el mismo error que ya se pagó con `_abre` y los tres
+        # segundos fijos.
+        pg.route(_re.compile(r"/api/dashboard/calendario"),
+                 lambda r: r.fulfill(status=200, json={
+                     "ok": True,
+                     "resultados": {"filas": [], "motivo": "sin datos"},
+                     "macro": {"publicados": [], "proximos": [],
+                               "filas": [], "motivo": "sin datos"},
+                     "generado": "2026-08-16T12:00:00+00:00"}))
         pg.goto(servidor, wait_until="load")
+        # Se espera el PRECIO, no el nodo. La parrilla se pinta entera al
+        # instante con «···» y los números entran después: esperar a que
+        # existan las casillas dejaba correr el caso con los puntos
+        # suspensivos todavía puestos, y el primer `assert` salía rojo por
+        # llegar antes de tiempo. Se notó más al simular el calendario,
+        # porque la página empezó a cargar antes.
         pg.wait_for_function(
-            "() => document.querySelectorAll('[data-vx-precio]').length >= 14",
-            timeout=25000)
+            "() => { const n = document.querySelector('[data-vx-precio=\"XLK\"]');"
+            " return n && n.textContent.includes('$'); }", timeout=25000)
         return pg, errores, estado
 
     def test_el_precio_CAMBIA_sin_repintar_la_pantalla(self, navegador, servidor):

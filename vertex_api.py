@@ -7396,31 +7396,145 @@ def _fred_observaciones(serie: str, limite: int = 14) -> list:
     return limpias
 
 
-def _macro_calcula() -> dict:
-    """El suelo macro: cada indicador con su valor, SU FECHA y su dirección.
+#: Los eventos macro que se enseñan. El calendario de FMP trae CIENTOS al mes
+#: —de todos los países y de todo tipo—, y una caja con doscientas filas no la
+#: lee nadie. Estos son los que mueven la bolsa de EE.UU.
+#:
+#: Se casan por trozo del nombre y en minúsculas porque el proveedor cambia la
+#: redacción («CPI m/m», «Consumer Price Index MoM»): exigir el nombre exacto
+#: haría que la caja se vaciara sola el día que retoquen una palabra.
+_MACRO_EVENTOS = (
+    "cpi", "consumer price", "core pce", "pce price", "inflation rate",
+    "fed interest rate", "fomc", "federal funds",
+    "nonfarm payroll", "non farm payroll", "unemployment rate",
+    "initial jobless", "gdp growth", "gdp ",
+    "retail sales", "ism manufacturing", "ism services",
+    "michigan consumer sentiment", "ppi", "producer price",
+)
 
-    La fecha va siempre porque estos datos son viejos por naturaleza: el CPI de
-    «hoy» es el del mes pasado, y un número macro sin su fecha al lado se lee
-    como si fuera de esta mañana.
+#: Cuántos días atrás y adelante mira la caja.
+_MACRO_DIAS_ATRAS = 21
+_MACRO_DIAS_ADELANTE = 21
 
-    No se publica cuándo sale el PRÓXIMO dato, y es a propósito: eso vive en
-    otro endpoint de FRED que no se ha podido comprobar desde aquí, y una fecha
-    inventada en un calendario es peor que no tener calendario.
+
+def _es_evento_macro(nombre: str) -> bool:
+    n = str(nombre or "").lower()
+    return any(t in n for t in _MACRO_EVENTOS)
+
+
+def _num(x):
+    """El número de un campo del calendario, o `None`.
+
+    FMP manda estos valores a veces como texto y con la unidad pegada («2.9%»,
+    «275K»). Un `float()` a secas los tiraría, y perder el consenso convierte
+    «salió por encima de lo esperado» en «salió».
     """
-    filas, motivo = [], ""
+    if isinstance(x, (int, float)):
+        return float(x)
+    t = str(x or "").strip().replace("%", "").replace(",", "")
+    if not t:
+        return None
+    mult = 1.0
+    if t and t[-1] in "KMB":
+        mult = {"K": 1e3, "M": 1e6, "B": 1e9}[t[-1]]
+        t = t[:-1]
+    try:
+        return float(t) * mult
+    except ValueError:
+        return None
+
+
+def _macro_calcula() -> dict:
+    """Lo macro: lo que YA SALIÓ —con lo esperado y lo anterior— y lo que VIENE.
+
+    La fuente es el calendario económico de FMP y no FRED, y el motivo es lo
+    que se quiere enseñar: FRED da el dato publicado y **nada más**. No trae el
+    consenso ni las fechas futuras, así que con FRED no se puede decir ni «salió
+    por encima de lo esperado» ni «el próximo miércoles hay IPC» — que es
+    justamente lo que convierte una cifra en una decisión.
+
+    FRED se conserva como respaldo: si el calendario no está en el plan, al
+    menos se enseñan los niveles con su fecha en vez de dejar la caja muda.
+    """
+    clave = (os.environ.get("FMP_API_KEY") or "").strip()
+    if not clave:
+        return {"publicados": [], "proximos": [], "filas": [],
+                "motivo": "Falta FMP_API_KEY: sin ella no hay calendario "
+                          "económico.", "fuente": None}
+
+    hoy = date.today()
+    desde = hoy - timedelta(days=_MACRO_DIAS_ATRAS)
+    hasta = hoy + timedelta(days=_MACRO_DIAS_ADELANTE)
+    crudo, motivo = [], ""
+    try:
+        r = requests.get(
+            "https://financialmodelingprep.com/stable/economic-calendar",
+            params={"from": desde.isoformat(), "to": hasta.isoformat(),
+                    "apikey": clave}, timeout=12)
+        crudo = r.json() if r.status_code == 200 else []
+        if r.status_code != 200:
+            motivo = f"El calendario económico contestó HTTP {r.status_code}."
+    except Exception as e:                       # noqa: BLE001
+        motivo = f"No se pudo leer el calendario económico ({e})."
+
+    publicados, proximos = [], []
+    for ev in crudo if isinstance(crudo, list) else []:
+        pais = str((ev or {}).get("country") or "").upper()
+        if pais not in ("US", "USA", "UNITED STATES"):
+            continue
+        nombre = str(ev.get("event") or "").strip()
+        if not _es_evento_macro(nombre):
+            continue
+        cuando = str(ev.get("date") or "")[:16]
+        fila = {
+            "evento": nombre,
+            "fecha": cuando,
+            "salio": _num(ev.get("actual")),
+            "esperado": _num(ev.get("estimate", ev.get("consensus"))),
+            "anterior": _num(ev.get("previous")),
+            "unidad": "%" if "%" in str(ev.get("actual") or "") else "",
+            "impacto": str(ev.get("impact") or "").lower() or None,
+        }
+        # Publicado = tiene DATO, no «la fecha ya pasó». Un evento de ayer sin
+        # cifra es uno que se retrasó, y meterlo entre los publicados con un
+        # hueco lo haría parecer un dato que salió vacío.
+        (publicados if fila["salio"] is not None else proximos).append(fila)
+
+    publicados.sort(key=lambda x: x["fecha"], reverse=True)
+    proximos.sort(key=lambda x: x["fecha"])
+    publicados, proximos = publicados[:8], proximos[:8]
+
+    if not publicados and not proximos:
+        respaldo = _macro_desde_fred()
+        if respaldo["filas"]:
+            respaldo["motivo"] = (motivo or "") + (
+                " Sin calendario económico: se enseñan los niveles de FRED, "
+                "que no traen ni el consenso ni las fechas que vienen.")
+            return respaldo
+        motivo = motivo or ("El calendario económico no devolvió eventos de "
+                            "EE.UU. en la ventana mirada.")
+    return {"publicados": publicados, "proximos": proximos, "filas": [],
+            "motivo": motivo, "fuente": "FMP"}
+
+
+def _macro_desde_fred() -> dict:
+    """Respaldo: los NIVELES de FRED con su fecha. Sin consenso ni futuro.
+
+    No sustituye al calendario —no puede, FRED no publica ni lo esperado ni lo
+    que viene— pero es mejor que una caja muda: dice dónde está la inflación,
+    el paro y los tipos, y de cuándo es cada cifra.
+    """
+    filas = []
     for serie, nombre, pct_directo in _MACRO_SERIES:
-        obs = _fred_observaciones(serie, limite=14 if pct_directo else 14)
+        obs = _fred_observaciones(serie, limite=14)
         if not obs:
             continue
         ultimo = obs[0]
         if pct_directo:
             valor = ultimo["valor"]
-            # La anterior observación distinta, para decir hacia dónde va.
             previo = next((o["valor"] for o in obs[1:]
                            if o["valor"] != valor), None)
         else:
-            # Índice → variación interanual. Hacen falta trece observaciones
-            # mensuales: la de ahora y la del mismo mes del año pasado.
             docenas = obs[:13]
             if len(docenas) < 13 or not docenas[12]["valor"]:
                 continue
@@ -7428,16 +7542,12 @@ def _macro_calcula() -> dict:
             previo = None
             if len(obs) >= 14 and obs[13]["valor"]:
                 previo = (obs[1]["valor"] / obs[13]["valor"] - 1.0) * 100.0
-        filas.append({
-            "serie": serie, "nombre": nombre,
-            "valor": round(float(valor), 2),
-            "previo": None if previo is None else round(float(previo), 2),
-            "fecha": ultimo["fecha"],
-        })
-    if not filas:
-        motivo = ("Sin FRED_API_KEY no hay datos macro: la inflación, la tasa "
-                  "de la Fed y el paro salen de ahí.")
-    return {"filas": filas, "motivo": motivo}
+        filas.append({"serie": serie, "nombre": nombre,
+                      "valor": round(float(valor), 2),
+                      "previo": None if previo is None else round(float(previo), 2),
+                      "fecha": ultimo["fecha"]})
+    return {"publicados": [], "proximos": [], "filas": filas,
+            "motivo": "", "fuente": "FRED"}
 
 
 def _resultados_calcula() -> dict:
@@ -7491,6 +7601,105 @@ def _resultados_calcula() -> dict:
         motivo = ("Ninguna de las empresas que forman los once sectores "
                   "reporta en los próximos catorce días.")
     return {"filas": filas, "motivo": motivo}
+
+
+_MACRO_LECTURA_SYSTEM = (
+    "Eres el economista de una mesa institucional. Escribes la nota que leen un "
+    "gestor y un trader cuando acaba de salir un dato macro: qué salió, por qué "
+    "importa y qué hace con el dinero.\n\n"
+    "Te dan los datos YA PUBLICADOS con lo que se esperaba y lo anterior, y los "
+    "que vienen con su fecha.\n\n"
+    "REGLAS INNEGOCIABLES:\n"
+    "1. No inventes NADA. Ni una cifra, ni una declaración, ni una fecha. Si un "
+    "dato no está en lo que te doy, no existe para esta nota. NO tienes acceso "
+    "a titulares ni a ruedas de prensa: no cites a nadie diciendo algo que no "
+    "puedas ver en los datos.\n"
+    "2. La sorpresa es la noticia. Un dato que sale igual que lo esperado ya "
+    "estaba en el precio; lo que mueve el mercado es la DIFERENCIA entre lo que "
+    "salió y lo que se esperaba. Empieza siempre por ahí y di el número.\n"
+    "3. Distingue lo que SABES de lo que INFIERES. Lo primero con su cifra; lo "
+    "segundo empieza por «probablemente» o «suele». La reacción del mercado a "
+    "un dato es una tendencia histórica, no una ley.\n"
+    "4. Nada de recomendaciones de compra o venta, ni objetivos de precio.\n"
+    "5. Frases cortas y en español llano. Esto lo lee alguien que invierte, no "
+    "un doctorando en economía: «la inflación bajó del 3,1% al 2,9%, menos de "
+    "lo que se temía» y no «se observa una moderación en el deflactor».\n"
+    "6. Si los datos no dan para una sección, dilo en una línea. Rellenar es "
+    "peor que dejarlo corto.\n\n"
+    "FORMATO exacto, con estos titulares en negrita markdown y nada más:\n"
+    "**Qué salió** — cada dato publicado con su cifra, lo que se esperaba y lo "
+    "anterior. Di en una frase si sorprendió al alza, a la baja o fue en línea.\n"
+    "**Por qué salió así** — lo que el propio dato deja ver: qué componente "
+    "tira, si viene de una tendencia o rompe una. Solo lo que los números "
+    "sostienen; si no se puede saber con lo que hay, dilo.\n"
+    "**Qué significa para la economía de EE.UU.** — crecimiento, empleo, "
+    "precios y qué implica para lo que haga la Fed.\n"
+    "**Qué significa para la gente** — en dinero de la calle: la hipoteca, el "
+    "crédito, el ahorro, el sueldo real, el empleo. Sin jerga.\n"
+    "**Qué significa para la bolsa** — el mercado en conjunto: tipos, "
+    "valoraciones y apetito de riesgo.\n"
+    "**Sector por sector** — una línea por cada uno de los once, diciendo si "
+    "este dato le viene a favor o en contra y POR QUÉ, con el mecanismo "
+    "(tipos, consumo, márgenes, deuda, ciclo). Los once: tecnología, "
+    "financiero, salud, consumo discrecional, comunicaciones, industrial, "
+    "consumo básico, energía, servicios públicos, inmobiliario y materiales.\n"
+    "**Qué viene y qué vigilar** — los próximos datos con su fecha y qué "
+    "cambiaría la lectura de arriba."
+)
+
+
+def _macro_lectura_datos(macro: dict) -> str:
+    """Lo publicado y lo que viene, ordenado para el modelo."""
+    partes = ["DATOS YA PUBLICADOS (salió · esperado · anterior)"]
+    for f in (macro or {}).get("publicados") or []:
+        def _n(x):
+            return "sin dato" if x is None else f"{x:g}"
+        partes.append(
+            f"  {f['fecha']} · {f['evento']}: salió {_n(f['salio'])}"
+            f" · esperado {_n(f['esperado'])} · anterior {_n(f['anterior'])}")
+    if not (macro or {}).get("publicados"):
+        partes.append("  ninguno en la ventana mirada")
+    partes += ["", "LO QUE VIENE"]
+    for f in (macro or {}).get("proximos") or []:
+        esp = "" if f["esperado"] is None else f" (se espera {f['esperado']:g})"
+        partes.append(f"  {f['fecha']} · {f['evento']}{esp}")
+    if not (macro or {}).get("proximos"):
+        partes.append("  nada programado en la ventana mirada")
+    partes += ["", "La sorpresa —la diferencia entre lo que salió y lo que se "
+               "esperaba— es lo que mueve el precio. Empieza por ahí."]
+    return "\n".join(partes)
+
+
+@app.get("/api/dashboard/macro/lectura")
+def api_macro_lectura(refrescar: int = 0):
+    """El dato macro explicado: qué salió, por qué, y a quién le pega.
+
+    Mismo trato que la lectura del mercado: el modelo NO calcula nada, traduce
+    a palabras lo que el calendario ya trae.
+    """
+    ahora = time.time()
+    clave = f"macro|{_idioma_actual()}"
+    guardado = _LECTURA_CACHE.get(clave)
+    if guardado and not refrescar and ahora - guardado[0] < _LECTURA_TTL:
+        return {**guardado[1], "cacheado": True}
+
+    macro = (api_dashboard_calendario() or {}).get("macro") or {}
+    if not (macro.get("publicados") or macro.get("proximos")):
+        return {"ok": False, "texto": "",
+                "error": macro.get("motivo") or "Sin datos macro que explicar."}
+
+    texto, fuente, err = _texto_llm(
+        _MACRO_LECTURA_SYSTEM,
+        "Estos son los datos macro de ahora. Explícalos siguiendo el formato:"
+        "\n\n" + _macro_lectura_datos(macro),
+        temp=0.3, max_tokens=2600)
+    if not texto:
+        return {"ok": False, "texto": "",
+                "error": f"Ningún modelo pudo escribir la lectura ({err})."}
+    salida = {"ok": True, "texto": texto, "fuente": fuente,
+              "generado": datetime.now(timezone.utc).isoformat()}
+    _LECTURA_CACHE[clave] = (ahora, salida)
+    return {**salida, "cacheado": False}
 
 
 def _calendario_calcula() -> dict:

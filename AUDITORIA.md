@@ -7860,3 +7860,98 @@ queda escrito que es la segunda vez.
 
 **3.400 tests del motor · 847 de la capa web (24 nuevos) · 91 en un navegador
 real · 267 checks de auditoría · preflight de Render en verde.**
+
+---
+
+## 41.70 · Ronda 45 — «¿por qué el suelo macro? ¿no es mejor macroeconómico?»
+
+Kevin tenía razón en las dos cosas que dijo, y la segunda cambió la fuente de
+datos entera.
+
+### El nombre
+
+«El suelo macro» era jerga que me inventé yo. A quien no la haya oído antes no
+le dice nada. Se llama **Macroeconómico**.
+
+### Lo que pidió obligó a cambiar de proveedor
+
+> «Me gustaría que tuvieran lo que salió vs lo esperado y lo anterior. Y abajo
+> de eso me diga las fechas de los próximos macroeconómicos.»
+
+**FRED no puede dar eso.** Publica el dato y nada más: no trae el consenso ni
+las fechas futuras. Con FRED no se puede decir ni «salió por encima de lo
+esperado» ni «el próximo miércoles hay IPC» — que es justo lo que convierte una
+cifra en una decisión.
+
+La caja pasa a colgar del **calendario económico de FMP**, que trae los tres
+números (`actual`, `estimate`, `previous`) y los eventos futuros con su fecha.
+
+**FRED se conserva como respaldo**, no como código muerto: si el calendario no
+está en el plan, se enseñan los niveles con su fecha en vez de dejar la caja
+muda — diciendo que ese respaldo no trae ni el consenso ni el futuro.
+
+Dos decisiones del filtro:
+
+- **Publicado = tiene DATO, no «la fecha ya pasó».** Un evento de ayer sin cifra
+  es uno que se retrasó; meterlo entre los publicados con un hueco lo haría
+  parecer un dato que salió vacío.
+- **Los números vienen con la unidad pegada** («2.9%», «275K»). Un `float()` a
+  secas los tiraría, y perder el consenso convierte «salió por encima de lo
+  esperado» en «salió».
+
+### El orden que pidió, que es el orden en que se lee
+
+1. **Ya salieron** — con salió · esperado · anterior en columnas.
+2. **«Explícame qué está pasando»** — el botón, igual que en Rotación Sectorial.
+3. **Próximos datos** — con su fecha, y hoy y mañana resaltados.
+
+### La explicación
+
+Siete secciones: **Qué salió · Por qué salió así · Qué significa para la
+economía de EE.UU. · Qué significa para la gente · Qué significa para la bolsa ·
+Sector por sector · Qué viene y qué vigilar**.
+
+Los once sectores van **nombrados uno a uno en el prompt**. Sin eso el modelo se
+queda en tres, y el lector no sabe si a los otros ocho les da igual o si se le
+olvidaron.
+
+Y la regla que ordena toda la nota: **la sorpresa es la noticia**. Un dato que
+sale en línea con lo esperado ya estaba en el precio; lo que mueve el mercado es
+la diferencia. Si el modelo empieza por la cifra en vez de por la diferencia,
+cuenta lo que ya se sabía.
+
+Con dos frenos: no inventar declaraciones —**no tiene acceso a titulares ni a
+ruedas de prensa**, y sin decírselo cita a gente que no ha visto— y no llamar al
+modelo cuando no hay datos, que sería pagar una llamada para que escriba «no hay
+datos».
+
+### El preflight, ampliado
+
+`preflight_calendario.py` comprueba ahora también el calendario económico, y
+marca como **fallo** que no venga el consenso: sin él la columna «esperado» sale
+vacía entera y la explicación pierde justo lo que la hace útil.
+
+Sigue sin poder comprobarse desde aquí —el proxy devuelve 403 a FMP y a FRED—,
+y sigue siendo Kevin quien lo cierra en un comando.
+
+### Y una intermitencia que me fabriqué yo
+
+El caso del precio en vivo salió rojo en la batería completa y verde suelto.
+Dos cosas del ARNÉS, las dos mías:
+
+1. Ese caso **no simulaba la ruta del calendario**, así que al arrancar la
+   página se quedaba esperando a FMP —bloqueado aquí— hasta agotar el timeout.
+   Con la batería entera corriendo, eso movía el momento en que llegaba el
+   precio.
+2. La espera de `_abre` era «que existan las casillas», y la parrilla se pinta
+   entera al instante con «···»: el primer `assert` podía correr con los puntos
+   suspensivos todavía puestos. Ahora espera el **precio**, no el hueco.
+
+Es la misma lección que ya costó una vez —los tres segundos fijos de `_abre`—:
+**se espera a una condición, no a que pase el tiempo.** Y un caso que falla por
+el arnés enseña a desconfiar de la batería, que es el daño de verdad.
+
+### Estado
+
+**3.400 tests del motor · 857 de la capa web (10 nuevos) · 91 en un navegador
+real · 267 checks de auditoría · preflight de Render en verde.**

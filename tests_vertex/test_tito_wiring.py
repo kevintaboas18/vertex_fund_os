@@ -4845,42 +4845,89 @@ class TestElCALENDARIOyElSUELOMACRO:
         assert d["resultados"]["filas"], "el fallo de FRED se llevó los resultados"
         assert d["macro"]["motivo"], "el fallo de FRED no se explica"
 
-    def test_el_macro_DICE_su_fecha_y_su_direccion(self, monkeypatch):
-        """Un número macro sin fecha se lee como si fuera de esta mañana, y el
-        IPC de «hoy» es el del mes pasado."""
+    def test_el_macro_trae_SALIO_ESPERADO_y_ANTERIOR(self, monkeypatch):
+        """Es lo que convierte una cifra en una decisión: la noticia no es el
+        2,9% sino que se esperaba 3,1%. FRED NO publica el consenso, por eso la
+        caja pasó a colgar del calendario económico."""
         import vertex_api as V
 
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        hoy = date.today().isoformat()
+
+        class _R:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return [{"country": "US", "event": "CPI YoY", "date": hoy,
+                         "actual": "2.9%", "estimate": "3.1%", "previous": "3.0%"},
+                        {"country": "US", "event": "Cattle on feed", "date": hoy,
+                         "actual": 1},
+                        {"country": "DE", "event": "German CPI", "date": hoy,
+                         "actual": 2}]
+
+        monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
+        m = V._macro_calcula()
+        assert len(m["publicados"]) == 1, "no filtró por evento y por país"
+        f = m["publicados"][0]
+        assert (f["salio"], f["esperado"], f["anterior"]) == (2.9, 3.1, 3.0)
+
+    def test_lo_que_AUN_no_salio_va_a_PROXIMOS_aunque_la_fecha_pasara(
+            self, monkeypatch):
+        """Publicado = tiene DATO, no «la fecha ya pasó». Un evento de ayer sin
+        cifra es uno que se retrasó, y ponerlo entre los publicados con un
+        hueco lo haría parecer un dato que salió vacío."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        ayer = (date.today() - timedelta(days=1)).isoformat()
+
+        class _R:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return [{"country": "US", "event": "Nonfarm Payrolls",
+                         "date": ayer, "actual": None, "estimate": 180}]
+
+        monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
+        m = V._macro_calcula()
+        assert not m["publicados"] and len(m["proximos"]) == 1
+
+    def test_los_numeros_con_UNIDAD_pegada_no_se_pierden(self):
+        """FMP los manda a veces como texto: «2.9%», «275K». Un float() a secas
+        los tiraría, y perder el consenso convierte «salió por encima de lo
+        esperado» en «salió»."""
+        import vertex_api as V
+
+        assert V._num("2.9%") == 2.9
+        assert V._num("275K") == 275000.0
+        assert V._num("1.2B") == 1.2e9
+        assert V._num("") is None and V._num(None) is None
+        assert V._num("n/a") is None
+
+    def test_sin_calendario_se_cae_a_los_NIVELES_de_FRED(self, monkeypatch):
+        """No sustituye —FRED no publica ni lo esperado ni lo que viene— pero
+        es mejor que una caja muda."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+
+        class _R:
+            status_code = 402
+
+            @staticmethod
+            def json():
+                return []
+
+        monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
         monkeypatch.setattr(V, "_fred_observaciones", lambda serie, limite=14: (
             [{"fecha": "2026-07-01", "valor": 4.1},
-             {"fecha": "2026-06-01", "valor": 4.3}]
-            if serie == "UNRATE" else []))
+             {"fecha": "2026-06-01", "valor": 4.3}] if serie == "UNRATE" else []))
         m = V._macro_calcula()
-        paro = next(f for f in m["filas"] if f["serie"] == "UNRATE")
-        assert paro["valor"] == 4.1 and paro["fecha"] == "2026-07-01"
-        assert paro["previo"] == 4.3, "sin lectura anterior no hay dirección"
-
-    def test_el_IPC_se_publica_INTERANUAL_no_como_indice(self, monkeypatch):
-        """FRED da el CPI como índice («324,8»), que no significa nada para
-        nadie. Lo que se lee es la variación interanual."""
-        import vertex_api as V
-
-        # Trece meses: el último 3% por encima del mismo mes del año pasado.
-        obs = [{"fecha": f"2026-{12 - i:02d}-01", "valor": 103.0 if i == 0 else 100.0}
-               for i in range(13)]
-        monkeypatch.setattr(V, "_fred_observaciones", lambda serie, limite=14: (
-            obs if serie == "CPIAUCSL" else []))
-        m = V._macro_calcula()
-        ipc = next(f for f in m["filas"] if f["serie"] == "CPIAUCSL")
-        assert ipc["valor"] == pytest.approx(3.0, abs=0.01), ipc
-        assert ipc["valor"] < 20, "se publicó el índice crudo en vez de la variación"
-
-    def test_sin_los_trece_meses_el_IPC_NO_se_inventa(self, monkeypatch):
-        import vertex_api as V
-
-        monkeypatch.setattr(V, "_fred_observaciones", lambda serie, limite=14: (
-            [{"fecha": "2026-12-01", "valor": 103.0}] if serie == "CPIAUCSL" else []))
-        m = V._macro_calcula()
-        assert not [f for f in m["filas"] if f["serie"] == "CPIAUCSL"]
+        assert m["fuente"] == "FRED" and m["filas"]
+        assert "consenso" in m["motivo"], (
+            "no avisa de que el respaldo no trae ni lo esperado ni el futuro")
 
     def test_los_resultados_se_filtran_a_los_MIEMBROS_de_los_sectores(
             self, monkeypatch):
@@ -5171,3 +5218,99 @@ class TestUnaFotoSINPreciosNoPISAaLaBuena:
         assert not V._tiene_precios({"filas": []})
         assert not V._tiene_precios({})
         assert V._tiene_precios({"filas": [{"precio": 1.0}]})
+
+
+class TestLaExplicacionDeLoMACRO:
+    """«Que me explique el macro: por qué salió así, cómo afecta a la economía
+    de EE.UU., a las personas, a la bolsa y a cada sector.»
+
+    Y en el orden que se lee: lo que salió, el botón, y lo que viene.
+    """
+
+    def test_el_prompt_cubre_TODO_lo_que_se_pidio(self):
+        import vertex_api as V
+
+        p = V._MACRO_LECTURA_SYSTEM.lower()
+        for pieza in ("qué salió", "por qué salió así",
+                      "economía de ee.uu.", "para la gente",
+                      "para la bolsa", "sector por sector",
+                      "qué viene y qué vigilar"):
+            assert pieza in p, f"falta la sección «{pieza}»"
+
+    def test_pide_LOS_ONCE_sectores_por_su_nombre(self):
+        """«A cada sector» son once, no «los principales»: sin nombrarlos, el
+        modelo se queda en tres y el resto no se sabe si le da igual o si se
+        le olvidó."""
+        import vertex_api as V
+
+        p = V._MACRO_LECTURA_SYSTEM.lower()
+        for sec in ("tecnología", "financiero", "salud", "consumo discrecional",
+                    "comunicaciones", "industrial", "consumo básico", "energía",
+                    "servicios públicos", "inmobiliario", "materiales"):
+            assert sec in p, f"no se nombra {sec}"
+
+    def test_la_SORPRESA_es_la_noticia_y_el_prompt_lo_dice(self):
+        """Un dato en línea con lo esperado ya estaba en el precio. Si el
+        modelo empieza por la cifra en vez de por la diferencia, cuenta lo que
+        ya se sabía."""
+        import vertex_api as V
+
+        assert "sorpresa" in V._MACRO_LECTURA_SYSTEM.lower()
+        assert "diferencia" in V._MACRO_LECTURA_SYSTEM.lower()
+
+    def test_NO_inventa_declaraciones_que_no_puede_ver(self):
+        import vertex_api as V
+
+        p = V._MACRO_LECTURA_SYSTEM.lower()
+        assert "no inventes nada" in p
+        assert "titulares" in p, (
+            "sin decirlo, el modelo cita ruedas de prensa que no ha visto")
+
+    def test_los_datos_que_recibe_llevan_LOS_TRES_numeros(self):
+        import vertex_api as V
+
+        txt = V._macro_lectura_datos({
+            "publicados": [{"evento": "CPI YoY", "fecha": "2026-08-12",
+                            "salio": 2.9, "esperado": 3.1, "anterior": 3.0}],
+            "proximos": [{"evento": "FOMC", "fecha": "2026-08-20",
+                          "esperado": None}]})
+        assert "salió 2.9" in txt and "esperado 3.1" in txt and "anterior 3" in txt
+        assert "FOMC" in txt and "LO QUE VIENE" in txt
+
+    def test_sin_datos_NO_se_llama_al_modelo(self, monkeypatch, client):
+        """Pagar una llamada para que escriba «no hay datos» es tirar cuota."""
+        import vertex_api as V
+
+        monkeypatch.setattr(V, "api_dashboard_calendario", lambda: {
+            "macro": {"publicados": [], "proximos": [], "motivo": "sin clave"}})
+        llamado = []
+        monkeypatch.setattr(V, "_texto_llm",
+                            lambda *a, **k: (llamado.append(1), ("", "", ""))[1])
+        d = client.get("/api/dashboard/macro/lectura").json()
+        assert d["ok"] is False and not llamado
+
+    def test_el_ORDEN_de_la_caja_es_salio_boton_proximos(self):
+        """Es el orden que pidió Kevin y el orden en que se lee: primero lo que
+        ya pasó, luego qué significa, y solo entonces qué viene."""
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        f = h.split("function vxMacroHTML(d) {", 1)[1].split("\n}\n", 1)[0]
+        i_pub = f.index("Ya salieron")
+        i_bot = f.index("cargaMacroLectura()")
+        i_prox = f.index("Pr&oacute;ximos datos")
+        assert i_pub < i_bot < i_prox, (
+            f"el orden salió {i_pub}/{i_bot}/{i_prox}")
+
+    def test_la_explicacion_cae_DENTRO_de_la_caja(self):
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        f = h.split("function vxMacroHTML(d) {", 1)[1].split("\n}\n", 1)[0]
+        assert 'id="macroLectura"' in f, (
+            "la explicación no tiene dónde caer dentro de la caja")
+
+    def test_ya_NO_se_llama_el_suelo_macro(self):
+        """Era jerga que me inventé yo y que no dice nada a quien no la haya
+        oído antes."""
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        js = h.split("function vxMacroHTML(d) {", 1)[1].split("\n}\n", 1)[0]
+        codigo = re.sub(r"//.*", "", js)
+        assert "suelo macro" not in codigo.lower()
+        assert "Macroeconómico" in codigo
