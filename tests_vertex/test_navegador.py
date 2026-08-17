@@ -2108,3 +2108,147 @@ class TestLasDosCAJASDelCalendario:
             assert not errores, errores[:3]
         finally:
             pg.close()
+
+
+class TestLaVistaDeIDEASSePintaDeVerdad:
+    """El agujero que dejó a Kevin mirando una rueda.
+
+    `renderProjIdeas` y `vcRiesgoHTML` **no las tocaba ningún test de
+    navegador**: los del servidor buscan cadenas dentro del HTML, y una cadena
+    presente no dice nada sobre si la función lanza al ejecutarse.
+
+    Y la forma de `loadProjIdeas` convierte cualquier excepción de render en
+    una rueda eterna: la rueda se pinta lo PRIMERO, y si algo revienta después
+    —un campo nuevo mal leído, un formateador con `undefined`— la función
+    aborta y nadie sustituye ese HTML. No sale error, no sale tabla: sale
+    «Escaneando…» para siempre, que es exactamente lo que se vio en el
+    teléfono.
+    """
+
+    #: La forma REAL que sirve `/api/tito-ideas`, con los campos que se fueron
+    #: añadiendo: el sizing, el perfil con sus dos presupuestos y el aviso de
+    #: historial sin tiempo. Si el render se cae con alguno, este test lo dice.
+    @staticmethod
+    def _payload():
+        return {
+            "ok": True, "engine": "victor/tito", "scanned": 120, "pages": 1,
+            "truncated": False, "min_premium": 100000, "moneyness_cap": 0.25,
+            "tickers": 2, "with_history": 1, "history_skipped": 3,
+            "unusual_cut": 24,
+            "rejected": {"theta_alto": 4, "vencido": 2, "sin_theta": 1,
+                         "no_inusual": 9, "lejano": 3},
+            "perfil": {
+                "capital": 1000.0, "tolerancia": "especulativo",
+                "riesgo_pct": 30.0, "riesgo_por_trade": 300.0,
+                "max_posicion_pct": [5, 80], "posicion_usd": [50.0, 800.0],
+                "perdida_max": [15.0, 240.0],
+                "theta_budget_pct": 5.0, "theta_budget": 240.0,
+                "budget_premium": 800.0, "budget_theta": 240.0,
+                "horizonte": "1-3 años", "horizonte_dias": 90, "caben": 1,
+            },
+            "ideas": [
+                {"id": 1, "ticker": "BAC", "symbol": "BAC", "underlying": "BAC",
+                 "type": "put", "strike": 60, "expiration": "2026-12-18",
+                 "dte": 123, "price": 1.66, "premium": 8850000.0,
+                 "asset_price": 60.0, "side": "ask", "aggression": "agresivo",
+                 "theta_pct_daily": 0.42, "repeated": False,
+                 "sizing": {"max_contracts": 4, "cost_per_contract": 166.0,
+                            "total_cost": 664.0, "cost_pct_of_account": 66.4,
+                            "binding": "prima", "blocked": None,
+                            "blocked_reason": None, "burn_days": 90,
+                            "theta_burn_per_contract": 63.0, "total_burn": 252.0,
+                            "burn_pct_of_account": 25.2, "fully_decays": False},
+                 "history": {"hit_rate": 61, "median_sessions": 8, "resolved": 12}},
+                {"id": 2, "ticker": "SPX", "symbol": "SPX", "underlying": "SPX",
+                 "type": "call", "strike": 7900, "expiration": "2027-03-19",
+                 "dte": 214, "price": 387.59, "premium": 5810000.0,
+                 "asset_price": 7800.0, "side": "bid", "aggression": "medio",
+                 "theta_pct_daily": 0.3, "repeated": True,
+                 "sizing": {"max_contracts": 0, "cost_per_contract": 38759.0,
+                            "total_cost": 0.0, "cost_pct_of_account": 0.0,
+                            "binding": None, "blocked": None,
+                            "blocked_reason": None, "burn_days": 90,
+                            "theta_burn_per_contract": 0.0, "total_burn": 0.0,
+                            "burn_pct_of_account": 0.0, "fully_decays": False},
+                 "history": None},
+            ],
+            "generated_at": "2026-08-17T21:00:00+00:00",
+        }
+
+    def _pinta(self, navegador, servidor, payload=None, **kw):
+        import json as _json
+        import re as _re
+
+        pg = navegador.new_page(viewport={"width": 1280, "height": 1000})
+        errores: list[str] = []
+        pg.on("pageerror", lambda e: errores.append(str(e)))
+        pg.route(_re.compile(r"/api/tito-ideas"),
+                 lambda r: r.fulfill(status=200,
+                                     json=payload or self._payload()))
+        pg.goto(servidor, wait_until="load")
+        pg.wait_for_timeout(1500)
+        pg.evaluate("switchView('projectionsView')")
+        pg.evaluate("loadProjIdeas()")
+        pg.wait_for_timeout(2500)
+        return pg, errores
+
+    def test_la_tabla_se_pinta_y_la_rueda_DESAPARECE(self, navegador, servidor):
+        pg, errores = self._pinta(navegador, servidor)
+        try:
+            txt = pg.evaluate(
+                "() => document.getElementById('projIdeas').innerText")
+            assert "Escaneando" not in txt, (
+                "la rueda se quedó: algo lanzó al renderizar y nadie sustituyó "
+                f"ese HTML. Errores de página: {errores}")
+            assert "BAC" in txt, f"la tabla no llegó a pintarse: {txt[:300]}"
+            assert not errores, f"el render lanza: {errores}"
+        finally:
+            pg.close()
+
+    def test_la_TARJETA_DE_RIESGO_se_pinta_con_los_campos_nuevos(
+            self, navegador, servidor):
+        """`vcRiesgoHTML` se reescribió dos veces sin que ningún navegador la
+        ejecutara. Aquí se comprueban los números que salen de ella."""
+        pg, errores = self._pinta(navegador, servidor)
+        try:
+            txt = pg.evaluate(
+                "() => (document.getElementById('projRiesgo')||{}).innerText || ''")
+            assert "$15" in txt and "$240" in txt, (
+                f"la pérdida máxima no sale como rango: {txt[:400]}")
+            assert "$800" in txt, "no sale el techo de despliegue del motor"
+            assert not errores, f"la tarjeta de riesgo lanza: {errores}"
+        finally:
+            pg.close()
+
+    def test_si_el_RENDER_lanza_NO_se_queda_la_rueda(self, navegador, servidor):
+        """La red de seguridad, medida rompiendo el render a propósito.
+
+        Da igual QUÉ campo se lea mal el día de mañana: lo que no puede pasar
+        es que el fallo se vea como una rueda girando. Un fallo que se dice se
+        puede reintentar; una rueda solo se puede abandonar.
+        """
+        import re as _re
+
+        pg = navegador.new_page(viewport={"width": 1280, "height": 1000})
+        pg.on("pageerror", lambda e: None)
+        pg.route(_re.compile(r"/api/tito-ideas"),
+                 lambda r: r.fulfill(status=200, json=self._payload()))
+        pg.goto(servidor, wait_until="load")
+        pg.wait_for_timeout(1500)
+        pg.evaluate("switchView('projectionsView')")
+        # Se rompe el render a mano: es la forma de medir la red y no la suerte.
+        pg.evaluate("() => { window.renderProjIdeas = "
+                    "() => { throw new Error('roto a proposito'); }; }")
+        # `.catch` porque el cargador RELANZA a propósito: la red pinta el
+        # aviso y deja que el error siga saliendo en la consola, que es donde
+        # se arregla. Sin esto lo que falla es el arnés, no el producto.
+        pg.evaluate("() => { loadProjIdeas().catch(() => {}); }")
+        pg.wait_for_timeout(2000)
+        try:
+            txt = pg.evaluate(
+                "() => document.getElementById('projIdeas').innerText")
+            assert "Escaneando" not in txt, (
+                "un fallo de render sigue viéndose como una rueda eterna")
+            assert txt.strip(), "no se pinta nada: la caja queda vacía"
+        finally:
+            pg.close()

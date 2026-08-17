@@ -5479,7 +5479,26 @@ async function loadProjIdeas() {
         return;
     }
     if (empty) empty.classList.add('hidden');
-    renderProjIdeas(d);
+    // El render, CON RED. La rueda se pintó al principio de esta función, así
+    // que cualquier excepción de aquí en adelante la deja girando para siempre:
+    // no hay error, no hay tabla, no hay nada que reintentar. Pasó de verdad —
+    // un acento grave dentro de un comentario de `vcRiesgoHTML` cerraba la
+    // plantilla y `<b>` se evaluaba como código— y desde fuera se vio
+    // exactamente igual que un servidor lento.
+    //
+    // Da igual qué campo se lea mal mañana: lo que no puede pasar es que el
+    // fallo se disfrace de lentitud.
+    try {
+        renderProjIdeas(d);
+    } catch (e) {
+        caja.innerHTML = `<div class="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+            <p class="text-xs font-black text-red-300 flex items-center gap-1.5"><i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> Los datos llegaron, pero el panel no supo pintarlos</p>
+            <p class="text-[10px] text-red-200/80 mt-1 leading-snug">${_vcEsc((e && e.message) || String(e))}</p>
+            <p class="text-[10px] text-red-200/60 mt-1.5 leading-snug">Es un fallo del panel, no del mercado ni de tus claves. El escaneo s&iacute; funcion&oacute;.</p>
+            <button onclick="loadProjIdeas()" class="mt-3 text-[10px] font-bold text-red-200 bg-red-500/20 hover:bg-red-500/30 rounded-lg px-3 py-1.5">Reintentar</button></div>`;
+        if (window.lucide) vcIconos();
+        throw e;   // que siga saliendo en la consola: se arregla lo que se ve
+    }
     vcMarcaVivo('ideas');
 }
 
@@ -8333,9 +8352,15 @@ function vcRiesgoHTML(P) {
            que el motor acaba de dimensionar, que son los que explican por qué
            una fila cabe o no. Vienen calculados del motor, no escritos aquí. -->
       <p class="text-[9px] text-amber-600/80 mt-1 leading-relaxed">
-        <!-- Sin `<b>` dentro: el barrido del idioma traduce nodos de texto, y
-             una negrita en medio parte la frase en tres trozos sueltos que hay
-             que declarar uno a uno. Va entera y se traduce entera. -->
+        <!-- Sin NEGRITA dentro: el barrido del idioma traduce nodos de texto,
+             y una negrita en medio parte la frase en tres trozos sueltos que
+             hay que declarar uno a uno. Va entera y se traduce entera.
+
+             Y sin acentos graves en este comentario, que es lo que rompió la
+             pestaña entera: vive DENTRO de una plantilla de JavaScript, el
+             primero la CIERRA, y lo que sigue se evalúa como código. Un
+             ReferenceError aquí deja la rueda del escaneo girando para
+             siempre, porque loadProjIdeas ya la había pintado. -->
         <span>En una opción larga ese porcentaje es una disciplina de salida, no un suelo: un hueco a la baja se lleva la prima entera, así que lo que puedes perder de verdad es la posición completa.</span></p>
       ${P.budget_premium != null ? `<p class="text-[9px] text-gray-600 mt-1 leading-relaxed">
         <span>La columna «te cabe» de abajo dimensiona con estos dos techos: ${fmtMoney(P.budget_premium)} de prima y ${fmtMoney(P.budget_theta)} de quema de theta en tu horizonte. Manda el más estricto de los dos.</span></p>` : ''}
@@ -12835,6 +12860,8 @@ const VX_ES2EN = {
     "Sin lectura disponible.": "No reading available.",
     "Reintentar": "Retry",
     "El escaneo tardó demasiado": "The scan took too long",
+    "Los datos llegaron, pero el panel no supo pintarlos": "The data arrived, but the panel could not render it",
+    "Es un fallo del panel, no del mercado ni de tus claves. El escaneo sí funcionó.": "This is a panel bug, not the market or your keys. The scan itself worked.",
     "actualizar": "refresh",
     "Explícame qué está pasando ›": "Explain what is happening ›",
     "Escrito por el modelo a partir de los números de arriba, que los calcula el motor. Es una lectura de lo que pasa,": "Written by the model from the numbers above, which the engine calculates. It is a reading of what is happening,",

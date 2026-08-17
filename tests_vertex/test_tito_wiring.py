@@ -5617,3 +5617,41 @@ class TestLaExplicacionDeLoMACRO:
         codigo = re.sub(r"//.*", "", js)
         assert "suelo macro" not in codigo.lower()
         assert "Macroeconómico" in codigo
+
+
+class TestNingunACENTOGRAVEDentroDeUnComentarioDelPanel:
+    """El fallo que dejó la pestaña de Ideas muerta, y que se coló dos veces.
+
+    Los comentarios `<!-- ... -->` del panel viven DENTRO de plantillas de
+    JavaScript. Un acento grave ahí dentro **cierra la plantilla**, y lo que
+    sigue se evalúa como código:
+
+        <!-- Sin `<b>` dentro: ... -->
+                  ^                ^
+                  cierra           abre otra
+
+    `<b>` pasa a ser `< b >` y `b` no existe: **ReferenceError en tiempo de
+    ejecución**. Y como `loadProjIdeas` pinta la rueda ANTES de renderizar, la
+    excepción deja «Escaneando el flujo de todo el mercado…» girando para
+    siempre — indistinguible de un servidor lento.
+
+    `node --check` NO lo caza: es sintaxis perfecta. Solo lo ve un navegador
+    ejecutando la función, y por eso el aviso escrito en prosa dentro del
+    archivo no bastó: hay que medirlo.
+    """
+
+    def test_los_comentarios_del_panel_no_llevan_acentos_graves(self):
+        import re
+
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        cuerpos = re.findall(r"<script\b[^>]*>(.*?)</script>", h, flags=re.S | re.I)
+        assert cuerpos, "no se encontró el JavaScript del panel"
+        malos = []
+        for js in cuerpos:
+            for m in re.finditer(r"<!--(.*?)-->", js, flags=re.S):
+                if "`" in m.group(1):
+                    linea = h[:h.index(m.group(0))].count("\n") + 1
+                    malos.append(f"línea ~{linea}: {m.group(1).strip()[:70]}")
+        assert not malos, (
+            "acento grave dentro de un comentario del panel — cierra la "
+            "plantilla y lo de después se ejecuta:\n  " + "\n  ".join(malos))

@@ -8482,3 +8482,89 @@ antes de darlos por buenos.
 
 **3.409 tests del motor · 888 de la capa web (5 nuevos) · 92 de navegador ·
 267 checks de auditoría.**
+
+---
+
+## 41.78 · Ronda 53 — un acento grave dejó muerta la pestaña de Ideas
+
+> «Aún se queda escaneando, verifica si es el cambio que te dije que hicieras.
+> Busca lo que rompiste y dañaste y soluciónalo.»
+
+Tenía razón: **lo rompí yo**, en la ronda 50.
+
+### El fallo
+
+```
+ReferenceError: b is not defined
+    at vcRiesgoHTML   (:8336)
+    at renderProjIdeas (:5526)
+    at loadProjIdeas   (:5482)
+```
+
+Un comentario que escribí dentro de `vcRiesgoHTML`:
+
+```html
+<!-- Sin `<b>` dentro: el barrido del idioma traduce nodos de texto… -->
+          ↑    ↑
+          |    abre otra plantilla
+          cierra la plantilla de JavaScript
+```
+
+Ese comentario vive **dentro de una plantilla de JavaScript**. El primer acento
+grave la cierra, `<b>` pasa a evaluarse como `< b >`, y `b` no existe.
+**ReferenceError en tiempo de ejecución.**
+
+El archivo avisa de esta trampa exacta, en prosa, tres líneas más arriba. Caí
+igual. Y al escribir el arreglo volví a meter acentos graves en el comentario
+nuevo — dos veces en la misma sesión.
+
+### Por qué se veía como lentitud
+
+`loadProjIdeas` pinta la rueda **lo primero** y llama a `renderProjIdeas`
+**fuera de cualquier `try`**. La excepción abortaba la función después de
+pintar la rueda y antes de sustituirla: ni error, ni tabla, ni nada que
+reintentar. Desde fuera, un fallo de render y un servidor lento se ven
+**exactamente igual**.
+
+Por eso la ronda anterior —los plazos y el presupuesto— no arregló nada de lo
+que Kevin veía: eran arreglos buenos para un problema que no era el suyo.
+
+### Por qué no lo cazó nada
+
+- **`node --check` pasa**: `` `…` < b > `…` `` es sintaxis perfecta. Lo corrí
+  esta misma sesión y dije «OK».
+- **Los tests del servidor buscan cadenas en el HTML**: una cadena presente no
+  dice nada sobre si la función lanza al ejecutarse.
+- **La vista de Ideas no la tocaba NINGÚN test de navegador.** Noventa y dos
+  casos, y `renderProjIdeas` y `vcRiesgoHTML` no las ejecutaba ninguno. Se
+  reescribió `vcRiesgoHTML` dos veces sin que un navegador la corriera jamás.
+
+### Tres arreglos, en capas
+
+1. **El bug**: fuera los acentos graves del comentario.
+2. **La red**: `renderProjIdeas` va dentro de un `try`. Si lanza, se pinta una
+   caja roja con el mensaje real, un botón de reintentar y la aclaración de que
+   el escaneo **sí** funcionó — y el error **se relanza**, para que siga
+   saliendo en la consola. Da igual qué campo se lea mal mañana: lo que no
+   puede pasar es que un fallo se disfrace de lentitud.
+3. **La trampa**: un guardián estático recorre los comentarios `<!-- -->` que
+   viven dentro del JavaScript y falla si alguno lleva un acento grave,
+   señalando la línea. El aviso en prosa no bastó; esto se mide.
+
+Y la cobertura que faltaba: tres casos de navegador que **pintan Ideas de
+verdad** con la forma real del payload —sizing, perfil con sus dos
+presupuestos, historial sin tiempo— y comprueban que la rueda desaparece, que
+la tarjeta de riesgo saca sus números, y que un render roto a propósito **no**
+deja la rueda.
+
+Los tres guardianes se verificaron **en rojo** reintroduciendo el bug.
+
+### La lección
+
+Un aviso escrito en un comentario no protege nada: lo leí, lo cité y lo
+incumplí en la misma función. Solo protege lo que falla solo.
+
+### Estado
+
+**3.409 tests del motor · 889 de la capa web (1 nuevo) · 95 de navegador
+(3 nuevos) · 267 checks de auditoría.**
