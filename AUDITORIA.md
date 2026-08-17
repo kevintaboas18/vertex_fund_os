@@ -8241,3 +8241,84 @@ de «no se pudo medir», enseña todas y lo dice.
 
 **3.402 tests del motor · 875 de la capa web (4 nuevos, 1 reescrito) · 92 de
 navegador (1 nuevo) · 267 checks de auditoría.**
+
+---
+
+## 41.75 · Ronda 50 — la pérdida máxima era del capital, y es de la posición
+
+> «Lo que dice pérdida máxima por trade no son $300. Es basado a cuánto cueste
+> el contrato y cuánto porcentaje de mi cuenta use para invertir en ese
+> contrato. Ejemplo: si un contrato cuesta $4.98 [= $498], mi pérdida máxima
+> por trade en este caso sería el 30% de esos $498.»
+
+La tarjeta hacía **30% × $1.000 = $300**: el porcentaje de riesgo aplicado a
+**la cuenta**. Lo que Kevin contestó es el porcentaje aplicado a **la
+posición**. Con su banda del 5-80% ($50–$800), su pérdida aceptada va de **$15
+a $240**, y su propio ejemplo —$149,40 sobre una posición de $498— cae dentro.
+
+Es un rango y no un número porque depende del contrato, que en la tarjeta
+todavía no se conoce. La primera regla de visualización del proyecto —*nunca
+una sola línea*— aplica aquí igual que en una gráfica.
+
+Se arregla en `derivados()`, que es de donde beben las tres bocas: la tarjeta,
+el documento del perfil que leen los seis especialistas, y el prompt del
+modelo. Los tres decían «$300».
+
+### La honestidad que no se puede omitir
+
+En una opción larga ese 30% es una **disciplina de salida, no un suelo**: un
+hueco a la baja se lleva la prima entera. Así que la pérdida *estructural*
+sigue siendo la posición completa, y eso se dice en la tarjeta y en el
+documento. Pintar «pérdida máxima $240» a secas prometería un piso que no
+existe.
+
+### Y el hallazgo que vino detrás
+
+Buscando de dónde salía el $300 apareció algo más grande, medido con el motor:
+
+```
+presupuesto de prima : $300   (cuenta × tolerancia / 100)
+presupuesto de theta : $50    (cuenta × 5 / 100)
+
+contrato de $4.98 → $498/contrato → 0 contratos. «no cabe».
+```
+
+**El 5-80% que Kevin contestó no llega nunca a la matemática.** `size_flow`
+dimensiona con `budgets_of` —prima = 30% de la cuenta, theta = 5% de la
+cuenta— y `max_posicion_pct` solo se pinta y se cuela en los prompts. Así que
+el panel promete posiciones de hasta $800 y la tabla de al lado dice «no cabe»
+en el contrato que él mismo puso de ejemplo.
+
+Y no es teórico: en su pantallazo, la cabecera dice **«0 ideas operables · 60
+no te caben en 23 tickers»** y las sesenta filas marcan «no cabe». Medido, hay
+dos frenos y el segundo muerde más:
+
+| contrato | por prima | por theta | techo |
+|---|---|---|---|
+| $1,66 · θ −0,007 · 123d | 1 | **0** | 0 |
+| $1,66 · θ −0,002 · 123d | 1 | 2 | 1 |
+| $4,98 · θ −0,05 · 60d | **0** | — | 0 |
+
+Con un horizonte de 90 días, casi cualquier contrato quema más de $50 de theta.
+
+**No se ha tocado.** `budgets_of` es un port literal de su `risk.ts`, con la
+regla de cero divergencias y `diff_motor.sh` vigilándolo: cambiarlo mueve el
+sizing de los seis sub-agentes y rompe la paridad con Víctor. Es una decisión
+de Kevin, no mía. Lo que sí se hizo es **dejar de esconderlo**: la tarjeta
+declara con qué presupuestos dimensiona el motor y por qué eso es lo que hace
+que muchas filas salgan como «no cabe».
+
+### Un guardián que vigilaba la redacción
+
+`test_el_capital_es_el_PRIMER_dolar_del_documento` comprobaba
+`md.index("$1,000") < md.index("$150")`. Al reescribir la frase de tolerancia,
+el «$150» dejó de existir y el caso se cayó con `substring not found` — no por
+un fallo, sino por depender de una redacción. Ahora busca **el primer importe
+del documento** con una expresión regular y comprueba que es el capital, que
+es el hecho que protege (`risk._load_profile` toma el primer `$` como la
+cuenta).
+
+### Estado
+
+**3.402 tests del motor · 882 de la capa web (7 nuevos) · 92 de navegador ·
+267 checks de auditoría.**

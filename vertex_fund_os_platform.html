@@ -8263,9 +8263,18 @@ function vcRiesgoHTML(P) {
         <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
           <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Riesgo por trade</div>
           <div class="text-sm font-black text-gray-100">${P.riesgo_pct}% <span class="text-[10px] font-normal text-gray-500 capitalize">${_vcEsc(P.tolerancia)}</span></div></div>
+        <!-- La pérdida que ACEPTAS: el % de riesgo aplicado a LO QUE CUESTA LA
+             POSICIÓN, no al capital de la cuenta. Enseñaba 30% x $1.000 =
+             $300, que no es lo que se contestó: con posiciones de $50 a $800,
+             la pérdida aceptada va de $15 a $240. Y es un RANGO porque depende
+             del contrato, que aquí todavia no se conoce. (Sin acentos graves
+             aqui dentro: esto vive DENTRO de una plantilla de JavaScript.) -->
         <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
           <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Pérdida máxima por trade</div>
-          <div class="text-sm font-black text-emerald-400">${fmtMoney(P.riesgo_por_trade)}</div></div>
+          ${Array.isArray(P.perdida_max)
+            ? `<div class="text-sm font-black text-emerald-400">${fmtMoney(P.perdida_max[0])} – ${fmtMoney(P.perdida_max[1])}</div>
+               <div class="text-[9px] text-gray-600">${P.riesgo_pct}% de la posición</div>`
+            : `<div class="text-sm font-black text-emerald-400">${fmtMoney(P.riesgo_por_trade)}</div>`}</div>
         <!-- El tope POR POSICIÓN. Esta tarjeta decía «Capital máximo por
              trade» y enseñaba el riesgo por operación, que es lo que puedes
              PERDER, no lo que puedes DESPLEGAR: repetía en dólares el mismo 30%
@@ -8275,10 +8284,17 @@ function vcRiesgoHTML(P) {
         ${(() => {
           const mp = Array.isArray(P.max_posicion_pct) ? P.max_posicion_pct : null;
           if (!mp) return '';
-          const d = n => fmtMoney(Math.round((P.capital || 0) * Number(n) / 100));
+          // Los dólares los deriva el SERVIDOR (`derivados.posicion_usd`), que
+          // es de donde salen también la pérdida aceptada y el documento del
+          // perfil. Recalcularlos aquí era una segunda aritmética que podía
+          // separarse de la primera sin que nadie se enterara.
+          const pu = Array.isArray(P.posicion_usd) && P.posicion_usd.length === 2
+              ? P.posicion_usd
+              : [(P.capital || 0) * Number(mp[0]) / 100,
+                 (P.capital || 0) * Number(mp[1]) / 100];
           return `<div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
           <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Capital por posición (${mp[0]}–${mp[1]}%)</div>
-          <div class="text-sm font-black text-gray-100">${d(mp[0])} – ${d(mp[1])}</div></div>`;
+          <div class="text-sm font-black text-gray-100">${fmtMoney(pu[0])} – ${fmtMoney(pu[1])}</div></div>`;
         })()}
         <div class="bg-[#0B0E14] border border-gray-800 rounded-xl p-2.5">
           <div class="text-[9px] text-gray-500 uppercase tracking-wider font-bold mb-0.5">Máxima quema de theta (${theta}%)</div>
@@ -8287,6 +8303,18 @@ function vcRiesgoHTML(P) {
       <p class="text-[9px] text-gray-600 mt-2 leading-relaxed">Estos números son un <b>techo</b>, no una sugerencia de compra. El límite de theta sale de la banda del
         documento de Inusualidad: un contrato que pierde más del ${theta}% de su valor al día se descarta por lotería.
         <button onclick="switchView('perfilView')" class="text-blue-400 hover:text-blue-300 font-bold ml-1">Editar perfil &rsaquo;</button></p>
+      <!-- Las dos advertencias que no se pueden omitir sin que la tarjeta
+           mienta. La primera: un stop no sobrevive a un hueco. La segunda: la
+           columna «te cabe» NO se calcula con el 5-80% de arriba, sino con el
+           presupuesto de prima del motor, y por eso puede decir «no cabe» en
+           una posición que sí entra en tu banda. Callarlo dejaría el panel
+           prometiendo un tamaño que la tabla luego niega sin explicación. -->
+      <p class="text-[9px] text-amber-600/80 mt-1 leading-relaxed">
+        <!-- Sin `<b>` dentro: el barrido del idioma traduce nodos de texto, y
+             una negrita en medio parte la frase en tres trozos sueltos que hay
+             que declarar uno a uno. Va entera y se traduce entera. -->
+        <span>En una opción larga ese porcentaje es una disciplina de salida, no un suelo: un hueco a la baja se lleva la prima entera, así que lo que puedes perder de verdad es la posición completa.</span>
+        ${P.riesgo_por_trade != null ? ` <span>Y la columna «te cabe» de abajo NO usa esa banda: dimensiona con un presupuesto de prima de ${fmtMoney(P.riesgo_por_trade)} y uno de theta de ${fmtMoney(P.theta_budget != null ? P.theta_budget : P.capital * theta / 100)}, que es lo que hace que muchas filas salgan como «no cabe».</span>` : ''}</p>
     </section>`;
 }
 
@@ -12972,6 +13000,7 @@ const VX_ES2EN = {
     "Cada cifra con LA FECHA en que se publicó: el IPC de hoy es el del mes pasado. La flecha compara con la lectura anterior. Fuente: FRED.": "Every figure with THE DATE it was published: today's CPI is last month's. The arrow compares against the previous reading. Source: FRED.",
     "Falta FMP_API_KEY: sin ella no hay fechas de resultados.": "FMP_API_KEY is missing: without it there are no earnings dates.",
     "Dentro de cada día van de mayor a menor; pasa el cursor para ver el tamaño y si reporta antes de abrir o tras el cierre.": "Within each day they go largest to smallest; hover to see the size and whether it reports before the open or after the close.",
+    "En una opción larga ese porcentaje es una disciplina de salida, no un suelo: un hueco a la baja se lleva la prima entera, así que lo que puedes perder de verdad es la posición completa.": "On a long option that percentage is an exit discipline, not a floor: a gap down takes the whole premium, so what you can really lose is the entire position.",
     "El listado de capitalizaciones vino vacío: salen todas las que reportan.": "The market-capitalisation listing came back empty: every company reporting is shown.",
     "El listado de capitalizaciones no traía el campo `marketCap`: salen todas las que reportan.": "The market-capitalisation listing did not carry the `marketCap` field: every company reporting is shown.",
     "No se pudo medir el tamaño: salen todas las que reportan.": "The size could not be measured: every company reporting is shown.",
@@ -14086,6 +14115,10 @@ const VX_PAT = [
     [/^Solo las grandes: más de (\S+) de capitalización\.$/,
      'Large caps only: more than $1 in market capitalisation.'],
     [/^Se dejan fuera (\d+) más pequeñas\.$/, '$1 smaller ones are left out.'],
+    // ── La tarjeta de riesgo: la pérdida es un % de LA POSICIÓN ──────────
+    [/^(\S+)% de la posición$/, '$1% of the position'],
+    [/^Y la columna «te cabe» de abajo NO usa esa banda: dimensiona con un presupuesto de prima de (\S+) y uno de theta de (\S+), que es lo que hace que muchas filas salgan como «no cabe»\.$/,
+     'And the «fits you» column below does NOT use that band: it sizes with a premium budget of $1 and a theta budget of $2, which is what makes many rows come out as «does not fit».'],
     [/^No se pudo medir el tamaño \((.+)\): salen todas las que reportan\.$/,
      'The size could not be measured ($1): every company reporting is shown.'],
     [/^Ninguna empresa de más de (\d+) mil millones reporta en los próximos (\d+) días\.$/,

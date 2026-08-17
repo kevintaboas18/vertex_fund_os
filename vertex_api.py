@@ -5702,6 +5702,12 @@ def tito_ideas(request: Request):
                    # rótulo del segundo, así que «capital máximo por trade»
                    # repetía el mismo $3.000 que ya salía arriba como 30%.
                    "max_posicion_pct": list(_perfil.get("max_posicion_pct") or [20, 30]),
+                   # La pérdida que se ACEPTA, que es lo que la tarjeta enseña:
+                   # el % de riesgo sobre LO QUE CUESTA LA POSICIÓN, no sobre
+                   # el capital. Sale de `derivados()` para que el panel, el
+                   # documento del perfil y los prompts digan el mismo número.
+                   "posicion_usd": list(_perfil.get("posicion_usd") or []),
+                   "perdida_max": list(_perfil.get("perdida_max") or []),
                    # Los dos presupuestos de su `RiskProfileCard`. El de theta
                    # es un % de la CUENTA (`budgetsOf`: account * 5 / 100), no
                    # del riesgo por operación — con $1.000 al 15% son $50, no
@@ -6076,6 +6082,8 @@ def tito_wheel(request: Request, preset: str = "balanceado"):
         "perfil": {"capital": _perfil["capital"], "tolerancia": _perfil["tolerancia"],
                    "riesgo_pct": _perfil["riesgo_pct"],
                    "riesgo_por_trade": _perfil["riesgo_por_trade"],
+                   "posicion_usd": list(_perfil.get("posicion_usd") or []),
+                   "perdida_max": list(_perfil.get("perdida_max") or []),
                    "caben": sum(1 for c, a in pares if not c.blocked and a.affordable)},
         "preset": p.label, "preset_id": p.id, "preset_explain": p.explain,
         "presets": [{"id": q.id, "label": q.label, "explain": q.explain,
@@ -10662,7 +10670,14 @@ def _wbj_profile_fit(info, recommendation):
         "instrumentos": _lista("instrumentos")
                         + (f"; sin {_lista('excluir', '')}" if perfil.get("excluir") else ""),
         "capital": _fmt_usd_corto(perfil.get("capital") or 0),
-        "riesgo_por_operacion": _fmt_usd_corto(perfil.get("riesgo_por_trade") or 0),
+        # La pérdida ACEPTADA: el % de riesgo sobre lo que cueste la posición,
+        # no sobre el capital. Decía «$300» —30% de la cuenta— y eso no es lo
+        # que se contestó; el modelo lo repetía en la prosa de cada reporte.
+        "riesgo_por_operacion": (
+            f"{tol['riesgo_pct']:.0f}% de la posición "
+            f"({_fmt_usd_corto(_pm[0])}–{_fmt_usd_corto(_pm[1])})"
+            if (_pm := (perfil.get("perdida_max") or []))
+            else _fmt_usd_corto(perfil.get("riesgo_por_trade") or 0)),
         "max_posicion_pct": f"{pos[0]}% – {pos[1]}%",
         "sizing_note": (
             f"Tope por posición {pos[0]}%–{pos[1]}% de "

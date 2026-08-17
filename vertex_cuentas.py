@@ -481,9 +481,34 @@ def derivados(perfil: dict) -> dict:
         capital = float(perfil.get("capital") or 0)
     except (TypeError, ValueError):
         capital = 0.0
+    pct = tol["riesgo_pct"]
+    pos = perfil.get("max_posicion_pct") or [20, 30]
+    try:
+        pos_lo, pos_hi = float(pos[0]), float(pos[1])
+    except (TypeError, ValueError, IndexError):
+        pos_lo, pos_hi = 20.0, 30.0
+    # La posición en dólares: el 5-80% que se contestó, no el % de riesgo.
+    posicion = (round(capital * pos_lo / 100, 2), round(capital * pos_hi / 100, 2))
     return {
-        "riesgo_pct": tol["riesgo_pct"],
-        "riesgo_por_trade": round(capital * tol["riesgo_pct"] / 100, 2),
+        "riesgo_pct": pct,
+        # `riesgo_por_trade` es el PRESUPUESTO DE PRIMA con el que dimensiona
+        # `size_flow` (`budgets_of`: cuenta × tolerancia / 100). Se llama así
+        # por herencia y el nombre engaña: es cuánto capital se puede desplegar
+        # en una operación, no cuánto se puede perder en ella. Se conserva
+        # porque es lo que consume el motor; lo que se PINTA es `perdida_max`.
+        "riesgo_por_trade": round(capital * pct / 100, 2),
+        # La pérdida que se acepta, como la definió Kevin: el % de riesgo
+        # aplicado a LO QUE CUESTA LA POSICIÓN, no al capital de la cuenta.
+        #
+        #   «Si un contrato cuesta $4.98 [= $498], mi pérdida máxima sería
+        #    el 30% de esos $498.»
+        #
+        # Depende del contrato, que aquí todavía no se conoce, así que es un
+        # RANGO —el de las posiciones que caben en el perfil— y nunca un número
+        # solo: una línea sola miente con confianza.
+        "posicion_usd": list(posicion),
+        "perdida_max": [round(posicion[0] * pct / 100, 2),
+                        round(posicion[1] * pct / 100, 2)],
         "capital": capital,
     }
 
@@ -605,8 +630,18 @@ def perfil_a_markdown(perfil: dict) -> str:
         "## Tolerancia al riesgo",
         "",
         f"- **{tol['label']}.** {tol['que_significa']}",
-        f"- **Riesgo máximo por operación**: {d['riesgo_pct']:.0f}% del capital "
-        f"(${d['riesgo_por_trade']:,.0f}).",
+        # El % de riesgo se aplica a LA POSICIÓN, no al capital de la cuenta.
+        # Decía «30% del capital ($300)» y eso no es lo que se contestó: con
+        # posiciones de $50 a $800, la pérdida aceptada va de $15 a $240. Los
+        # seis especialistas leen este documento, así que la frase de aquí es
+        # la que se convierte en la tesis de cada uno.
+        f"- **Pérdida aceptada por operación**: {d['riesgo_pct']:.0f}% de lo que "
+        f"cueste la posición — entre ${d['perdida_max'][0]:,.0f} y "
+        f"${d['perdida_max'][1]:,.0f} para posiciones de "
+        f"${d['posicion_usd'][0]:,.0f} a ${d['posicion_usd'][1]:,.0f}.",
+        "- En una opción larga ese % es una **disciplina de salida**, no un "
+        "suelo: un hueco a la baja puede llevarse la prima entera, así que la "
+        "pérdida estructural es la posición completa.",
         "",
         "## Instrumentos",
         "",

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -469,8 +470,15 @@ class TestElMdSigueSiendoLegibleParaElEngine:
             {"capital": 1000, "tolerancia": "agresivo"},
             {**C.perfil_por_defecto(), "modo": "personalizado"})
         md = C.perfil_a_markdown(p)
-        assert md.index("$1,000") < md.index("$150"), (
-            "el riesgo por operación aparece antes que el capital")
+        # Se mide EL HECHO, no una cifra concreta: el primer importe en dólares
+        # del documento tiene que ser el capital. Antes se comprobaba contra el
+        # literal «$150» —el riesgo con la tolerancia agresiva— y al cambiar esa
+        # frase el caso se cayó por no encontrar el texto, no por un fallo real.
+        # Un guardián que depende de la redacción vigila la redacción.
+        primero = re.search(r"\$[\d,]+", md)
+        assert primero and primero.group() == "$1,000", (
+            f"el primer importe del documento es {primero and primero.group()}, "
+            "no el capital: `risk._load_profile` lo tomaría como la cuenta entera")
         assert self._parsea(md, tmp_path, monkeypatch)["capital_usd"] == 1000
 
     @pytest.mark.parametrize("horizonte,esperado", [
@@ -1588,3 +1596,99 @@ class TestElTopeDelPayloadSeSubeSinRomperNada:
         conn.commit()
         conn.close()
         assert len(cliente.get("/api/reports/list").json()["reports"]) == 1
+
+
+class TestLaPerdidaMAXIMAEsDeLaPOSICION_NoDeLaCuenta:
+    """«Lo que dice pérdida máxima por trade no son $300.»
+
+    Y tenía razón. La tarjeta hacía 30% × $1.000 = $300, es decir, el % de
+    riesgo aplicado a LA CUENTA. Lo que Kevin contestó es otra cosa:
+
+    > «Es basado a cuánto cueste el contrato y cuánto porcentaje de mi cuenta
+    >  use para invertir en ese contrato. Ejemplo: si un contrato cuesta $4.98
+    >  [= $498], mi pérdida máxima sería el 30% de esos $498.»
+
+    Es decir: el % se aplica a **la posición**, no al capital. Y como la
+    posición depende del contrato —que en la tarjeta todavía no se conoce—, lo
+    honesto es un RANGO, el de las posiciones que caben en su banda del 5-80%.
+    Una línea sola miente con confianza; es la primera regla de visualización
+    del proyecto y aquí aplica igual que en una gráfica.
+    """
+
+    KEVIN = {"capital": 1000, "tolerancia": "especulativo",
+             "max_posicion_pct": [5, 80]}
+
+    def test_el_porcentaje_se_aplica_a_la_POSICION(self):
+        import vertex_cuentas as C
+
+        d = C.derivados(self.KEVIN)
+        assert d["posicion_usd"] == [50.0, 800.0], "la banda 5-80% no llegó"
+        # 30% de $50 y 30% de $800. NO 30% de los $1.000 de la cuenta.
+        assert d["perdida_max"] == [15.0, 240.0], d["perdida_max"]
+        assert 300.0 not in d["perdida_max"], (
+            "sigue calculando el % sobre el capital de la cuenta")
+
+    def test_EL_EJEMPLO_de_Kevin_cae_dentro(self):
+        """Su contrato de $4.98 son $498 de posición, y el 30% son $149,40.
+        Si el rango de la tarjeta no lo contiene, la tarjeta no describe su
+        perfil."""
+        import vertex_cuentas as C
+
+        d = C.derivados(self.KEVIN)
+        posicion = 4.98 * 100
+        perdida = posicion * 0.30
+        assert d["posicion_usd"][0] <= posicion <= d["posicion_usd"][1]
+        assert d["perdida_max"][0] <= perdida <= d["perdida_max"][1], (
+            f"${perdida:,.2f} queda fuera de {d['perdida_max']}")
+
+    def test_el_presupuesto_del_MOTOR_no_se_toca(self):
+        """`riesgo_por_trade` es lo que consume `budgets_of` para dimensionar.
+        Se conserva tal cual —cambiarlo movería el sizing de los seis
+        sub-agentes— y lo que cambia es lo que se PINTA."""
+        import vertex_cuentas as C
+
+        d = C.derivados(self.KEVIN)
+        assert d["riesgo_por_trade"] == 300.0, (
+            "se cambió el presupuesto del motor, no solo el rótulo")
+
+    def test_el_DOCUMENTO_del_perfil_ya_no_dice_30_por_ciento_del_capital(self):
+        """Los seis especialistas leen este documento: la frase de aquí es la
+        que se convierte en la tesis de cada uno."""
+        import vertex_cuentas as C
+
+        md = C.perfil_a_markdown({**self.KEVIN, "modo": "personalizado"})
+        # La frase vieja, literal: «**Riesgo máximo por operación**: 30% del
+        # capital ($300).» El «5% – 80% del capital» de más abajo SÍ es un % de
+        # la cuenta y tiene que seguir estando: ese es el tamaño de posición.
+        assert "Riesgo máximo por operación" not in md, (
+            "el documento sigue diciendo que el riesgo es un % de la cuenta")
+        assert "30% del capital" not in md
+        assert "de lo que cueste la posición" in md
+        assert "$15" in md and "$240" in md, md[:400]
+
+    def test_y_DECLARA_que_un_stop_no_sobrevive_a_un_hueco(self):
+        """La honestidad que no se puede omitir: en una opción larga ese 30% es
+        una disciplina de salida, no un suelo. Pintar «pérdida máxima $240» sin
+        decirlo prometería un piso que no existe."""
+        import vertex_cuentas as C
+
+        md = C.perfil_a_markdown({**self.KEVIN, "modo": "personalizado"})
+        assert "hueco" in md and "disciplina de salida" in md
+
+    def test_la_TARJETA_pinta_el_rango_y_no_un_numero_solo(self):
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        f = h.split("function vcRiesgoHTML(P) {", 1)[1].split("\n}\n", 1)[0]
+        assert "P.perdida_max" in f, "la tarjeta sigue pintando el % de la cuenta"
+        assert "de la posición" in f, "no dice sobre qué se aplica el %"
+
+    def test_la_tarjeta_DELATA_el_presupuesto_con_el_que_dimensiona_el_motor(self):
+        """El hueco que hacía la pantalla incoherente: arriba promete posiciones
+        de hasta $800 y abajo la columna «te cabe» dice «no cabe», porque
+        `size_flow` NO usa esa banda — dimensiona con el presupuesto de prima
+        ($300) y el de theta ($50). Callarlo deja al panel prometiendo un tamaño
+        que su propia tabla niega sin explicar por qué."""
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        f = h.split("function vcRiesgoHTML(P) {", 1)[1].split("\n}\n", 1)[0]
+        assert "te cabe" in f and "presupuesto de prima" in f, (
+            "no se explica por qué la tabla dice «no cabe» con posiciones que "
+            "sí entran en la banda del perfil")
