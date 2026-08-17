@@ -1,12 +1,218 @@
 {
   "ok": true,
   "resultados": {
-    "filas": [],
-    "motivo": "Falta FMP_API_KEY: sin ella no hay fechas de resultados."
+    "filas": [
+      {
+        "ticker": "HD",
+        "fecha": "2026-08-18",
+        "sector": "XLY",
+        "sector_nombre": "Consumo discrecional",
+        "cuando": null
+      },
+      {
+        "ticker": "LOW",
+        "fecha": "2026-08-19",
+        "sector": "XLY",
+        "sector_nombre": "Consumo discrecional",
+        "cuando": null
+      },
+      {
+        "ticker": "TGT",
+        "fecha": "2026-08-19",
+        "sector": "XLP",
+        "sector_nombre": "Consumo básico",
+        "cuando": null
+      },
+      {
+        "ticker": "TJX",
+        "fecha": "2026-08-19",
+        "sector": "XLY",
+        "sector_nombre": "Consumo discrecional",
+        "cuando": null
+      },
+      {
+        "ticker": "DE",
+        "fecha": "2026-08-20",
+        "sector": "XLI",
+        "sector_nombre": "Industrial",
+        "cuando": null
+      },
+      {
+        "ticker": "WMT",
+        "fecha": "2026-08-20",
+        "sector": "XLP",
+        "sector_nombre": "Consumo básico",
+        "cuando": null
+      },
+      {
+        "ticker": "CRM",
+        "fecha": "2026-08-26",
+        "sector": "XLK",
+        "sector_nombre": "Tecnología",
+        "cuando": null
+      },
+      {
+        "ticker": "NVDA",
+        "fecha": "2026-08-26",
+        "sector": "XLK",
+        "sector_nombre": "Tecnología",
+        "cuando": null
+      }
+    ],
+    "motivo": ""
   },
   "macro": {
+    "publicados": [
+      {
+        "evento": "Michigan Consumer Sentiment (Aug)",
+        "fecha": "2026-08-14 14:00",
+        "salio": 51.0,
+        "esperado": 54.5,
+        "anterior": 55.2,
+        "unidad": "",
+        "impacto": "high"
+      },
+      {
+        "evento": "Retail Sales YoY (Jul)",
+        "fecha": "2026-08-14 12:30",
+        "salio": 5.0,
+        "esperado": 6.0,
+        "anterior": 6.8,
+        "unidad": "",
+        "impacto": "low"
+      },
+      {
+        "evento": "Retail Sales Ex Autos MoM (Jul)",
+        "fecha": "2026-08-14 12:30",
+        "salio": -0.3,
+        "esperado": 0.2,
+        "anterior": -0.2,
+        "unidad": "",
+        "impacto": "medium"
+      },
+      {
+        "evento": "Retail Sales MoM (Jul)",
+        "fecha": "2026-08-14 12:30",
+        "salio": -0.6,
+        "esperado": 0.1,
+        "anterior": 0.2,
+        "unidad": "",
+        "impacto": "high"
+      },
+      {
+        "evento": "Retail Sales Ex Gas/Autos MoM (Jul)",
+        "fecha": "2026-08-14 12:30",
+        "salio": -0.2,
+        "esperado": 0.3,
+        "anterior": 0.4,
+        "unidad": "",
+        "impacto": "low"
+      },
+      {
+        "evento": "Producer Price Index (Jul)",
+        "fecha": "2026-08-13 12:30",
+        "salio": 156.563,
+        "esperado": 156.41,
+        "anterior": 156.607,
+        "unidad": "",
+        "impacto": "low"
+      },
+      {
+        "evento": "Core PPI YoY (Jul)",
+        "fecha": "2026-08-13 12:30",
+        "salio": 4.2,
+        "esperado": 4.2,
+        "anterior": 4.7,
+        "unidad": "",
+        "impacto": "low"
+      },
+      {
+        "evento": "Initial Jobless Claims (Aug/08)",
+        "fecha": "2026-08-13 12:30",
+        "salio": 209.0,
+        "esperado": 202.0,
+        "anterior": 200.0,
+        "unidad": "",
+        "impacto": "medium"
+      }
+    ],
+    "proximos": [
+      {
+        "evento": "FOMC Economic Projections",
+        "fecha": "2026-07-29 18:00",
+        "salio": null,
+        "esperado": null,
+        "anterior": null,
+        "unidad": "",
+        "impacto": "high"
+      },
+      {
+        "evento": "FOMC Minutes",
+        "fecha": "2026-08-19 18:00",
+        "salio": null,
+        "esperado": null,
+        "anterior": null,
+        "unidad": "",
+        "impacto": "high"
+      },
+      {
+        "evento": "Initial Jobless Claims (Aug/15)",
+        "fecha": "2026-08-20 12:30",
+        "salio": null,
+        "esperado": 212.0,
+        "anterior": 209.0,
+        "unidad": "",
+        "impacto": "medium"
+      },
+      {
+        "evento": "PCE Price Index MoM (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": null,
+        "esperado": 0.2,
+        "anterior": -0.1,
+        "unidad": "",
+        "impacto": "medium"
+      },
+      {
+        "evento": "Core PCE Price Index MoM (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": null,
+        "esperado": 0.3,
+        "anterior": 0.1,
+        "unidad": "",
+        "impacto": "high"
+      },
+      {
+        "evento": "Core PCE Price Index YoY (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": null,
+        "esperado": 3.3,
+        "anterior": 3.3,
+        "unidad": "",
+        "impacto": "low"
+      },
+      {
+        "evento": "PCE Price Index YoY (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": null,
+        "esperado": 3.7,
+        "anterior": 3.7,
+        "unidad": "",
+        "impacto": "medium"
+      },
+      {
+        "evento": "Initial Jobless Claims (Aug/22)",
+        "fecha": "2026-08-27 12:30",
+        "salio": null,
+        "esperado": 210.0,
+        "anterior": null,
+        "unidad": "",
+        "impacto": "medium"
+      }
+    ],
     "filas": [],
-    "motivo": "Sin FRED_API_KEY no hay datos macro: la inflación, la tasa de la Fed y el paro salen de ahí."
+    "motivo": "",
+    "fuente": "FMP"
   },
-  "generado": "2026-08-17T06:03:57.227563+00:00"
+  "generado": "2026-08-17T13:12:41.487374+00:00"
 }
