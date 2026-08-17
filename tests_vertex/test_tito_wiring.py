@@ -1073,6 +1073,130 @@ class TestIdeasDelMercado:
         assert (p["budget_premium"], p["budget_theta"]) == pytest.approx(
             (b.premium, b.theta), abs=0.01)
 
+    def test_el_HISTORIAL_se_lee_como_DICCIONARIO(self, client, mercado):
+        """La columna HISTORIAL salía «—» en TODAS las filas, desde el día uno.
+
+        `load_trades` devuelve las filas tal como están en el archivo —
+        diccionarios, igual que su `loadTrades`— y aquí se leían con `getattr`.
+        `getattr({...}, "asset_price", 0)` es 0 para cualquier diccionario, así
+        que el filtro tiraba todas las filas siempre y el sub-agente 6 nunca
+        llegaba a correr.
+
+        El fallo se tapaba a sí mismo: si una sola fila hubiera pasado el
+        filtro, el `t.id` de la línea siguiente habría reventado la petición
+        con un `AttributeError`. Por eso no salía ningún error — salía un
+        guión.
+        """
+        from wbj.tito.flow import classify_flow
+        from wbj.tito.stores import save_trades
+
+        for r in classify_flow(mercado().trades, NOW).rows:
+            save_trades(r.underlying, [r])
+        d = client.get("/api/tito-ideas").json()
+        assert d["ok"], d.get("error")
+        assert d["with_history"] > 0, (
+            "el historial sigue sin leerse: la columna saldría «—» en todas "
+            "las filas y el sub-agente 6 estaría apagado sin decirlo")
+        # Y que de verdad llegue a la fila, no solo al contador.
+        conh = [i for i in d["ideas"] if i.get("history")]
+        assert conh, "el historial se calculó pero no viaja en la idea"
+        assert "hit_rate" in conh[0]["history"]
+
+    def test_una_fila_CORRUPTA_en_disco_no_tumba_el_escaneo(self, client,
+                                                            mercado, tmp_path):
+        """Un `null` o un string a medio escribir en el archivo de historial.
+
+        En su TypeScript esa fila se cae sola en el primer filtro que la mire;
+        en Python `"basura".get(...)` es un `AttributeError` que se lleva la
+        petición entera por delante. `borde.trades_utiles` es esa caída,
+        escrita — y sin él el escaneo entero desaparecería por una fila mala.
+        """
+        import json
+
+        from wbj.tito.flow import classify_flow
+        from wbj.tito import stores as ST
+
+        filas = classify_flow(mercado().trades, NOW).rows
+        for r in filas:
+            ST.save_trades(r.underlying, [r])
+        # Se envenena el archivo de uno de ellos, por debajo del store.
+        ruta = Path(ST._file_for(filas[0].underlying))
+        datos = json.loads(ruta.read_text(encoding="utf-8"))
+        datos["trades"] = [None, "basura", *datos["trades"]]
+        ruta.write_text(json.dumps(datos), encoding="utf-8")
+
+        d = client.get("/api/tito-ideas").json()
+        assert d["ok"], f"una fila corrupta tumbó el escaneo: {d.get('error')}"
+        assert d["with_history"] > 0, "se perdió el historial bueno con el malo"
+
+    def test_el_HISTORIAL_tiene_presupuesto_de_RELOJ(self, client, monkeypatch,
+                                                     mercado):
+        """«Se queda cargando pero no me sale nada.»
+
+        El tope de historial contaba LLAMADAS, no tiempo: 25 tickers con 25 s
+        de plazo cada uno son 625 segundos en el peor caso, encima del arranque
+        en frío de Render. En un teléfono eso no se ve como lentitud, se ve
+        como una rueda girando sin fin.
+
+        El historial es un enriquecimiento —las ideas salen igual sin él—, así
+        que se le da presupuesto de reloj y, agotado, se devuelve lo que haya
+        DICIENDO cuántos se quedaron sin mirar. Media tabla explicada es mejor
+        que una rueda eterna.
+        """
+        import vertex_api as V
+        from wbj.tito.flow import classify_flow
+        from wbj.tito.stores import save_trades
+
+        # El historial solo se pide para tickers que YA tienen flows guardados.
+        # Sin sembrarlos, el bucle no corre y el caso pasaría en vacío: pondría
+        # el presupuesto a cero, no se saltaría nada, y las tres afirmaciones
+        # de abajo se cumplirían sin haber medido nada.
+        for r in classify_flow(mercado().trades, NOW).rows:
+            save_trades(r.underlying, [r])
+
+        # Primero, CON presupuesto: es lo que dice si este caso mide algo. Si
+        # la corrida normal no mirara ningún ticker, poner el presupuesto a
+        # cero no probaría nada y el caso pasaría en vacío.
+        normal = client.get("/api/tito-ideas").json()
+        assert normal["ok"], normal.get("error")
+        mirables = normal["with_history"] + normal.get("history_skipped", 0)
+        assert mirables > 0, (
+            "la cinta de prueba no deja ningún ticker con historial: este caso "
+            "no estaría midiendo el presupuesto")
+        assert normal["history_skipped"] == 0, "el presupuesto normal no llega"
+
+        # Y ahora sin reloj: no se mira ninguno, y se DICE cuántos quedaron.
+        monkeypatch.setattr(V, "_IDEAS_PRESUPUESTO_HISTORIAL_S", 0.0)
+        d = client.get("/api/tito-ideas").json()
+        assert d["ok"], d.get("error")
+        assert d["with_history"] == 0, "se pidió historial sin presupuesto"
+        assert d["history_skipped"] == mirables, (
+            "no se dice cuántos se quedaron sin mirar: «sin historial» y «no "
+            "me dio tiempo» se verían igual")
+
+    def test_el_presupuesto_se_mira_ANTES_de_pedir(self):
+        """Comprobarlo después de la llamada gastaría justo la que se quería
+        evitar: el presupuesto llegaría siempre un ticker tarde."""
+        import vertex_api as V
+
+        src = Path(V.__file__).read_text(encoding="utf-8")
+        cuerpo = src.split("_limite = time.monotonic()", 1)[1][:600]
+        antes = cuerpo.index("time.monotonic() >= _limite")
+        pide = cuerpo.index("fetch_daily_bars")
+        assert antes < pide, "se comprueba el reloj después de pedir las velas"
+
+    def test_el_PANEL_le_pone_plazo_al_escaneo(self):
+        """`fetch` no tiene plazo por defecto, y esa es la diferencia entre un
+        fallo que se puede reintentar y una rueda que solo se puede abandonar."""
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        f = h.split("async function loadProjIdeas() {", 1)[1].split("\n}\n", 1)[0]
+        assert "AbortController" in f and "VX_IDEAS_PLAZO_MS" in f, (
+            "el escaneo se pide sin plazo: si el servidor no contesta, la rueda "
+            "gira para siempre")
+        assert "AbortError" in f, "el plazo agotado no se distingue de otro fallo"
+        assert "loadProjIdeas()" in h.split("No se pudo escanear el mercado", 1)[1][:900], (
+            "la caja de error no ofrece reintentar")
+
     def test_lo_que_no_te_cabe_se_baja_pero_NO_se_esconde(self, client, mercado):
         """Que una operación esté fuera de tu presupuesto es información, no
         ruido. Se ordena —las que caben primero— y se marca; nunca se filtra."""
@@ -3177,6 +3301,8 @@ class TestElPanelNoLeeCamposQueNadieManda:
         # /api/tito-ideas
         "ideas", "scanned", "pages", "min_premium", "moneyness_cap", "rejected",
         "blocked_summary", "blocked_total", "with_history", "perfil",
+        # Cuántos tickers se quedaron sin historial por agotarse el reloj.
+        "history_skipped",
         # /api/tito-wheel
         "candidates", "presets", "preset_id", "preset_explain", "quotes_missing",
         "with_candidates", "tickers", "failed",

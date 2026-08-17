@@ -160,6 +160,9 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
         # frase entera va por `VX_PAT`. El extractor la parte por el `${` y ve
         # las dos mitades sueltas.
         "Solo las grandes: más de",
+        # El aviso de plazo agotado lleva los segundos dentro, así que va por
+        # `VX_PAT`. El extractor lo corta en el `${`.
+        "El escaneo pasó de",
         "de capitalización.",
         "✓ Lo pendiente NO se pierde: el respaldo a la rama de datos está "
         "averiado y hay que mirarlo, pero el trabajo ya se aparcó en GitHub y "

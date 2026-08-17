@@ -5431,6 +5431,11 @@ function vcCabeceraPerfil(P, total) {
       </div>`;
 }
 
+//: Plazo del escaneo de ideas, en milisegundos. Generoso a propósito —el
+//: escaneo es lento de verdad— pero FINITO: lo que no puede pasar es que no
+//: haya ninguno.
+const VX_IDEAS_PLAZO_MS = 75000;
+
 async function loadProjIdeas() {
     const caja = document.getElementById('projIdeas');
     const empty = document.getElementById('projEmpty');
@@ -5439,21 +5444,37 @@ async function loadProjIdeas() {
     caja.innerHTML = `<p class="text-xs text-gray-500 italic flex items-center justify-center gap-2 py-6"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Escaneando el flujo de todo el mercado&hellip;</p>`;
     if (window.lucide) vcIconos();
     let d;
+    // CON PLAZO. `fetch` no tiene ninguno por defecto, y el escaneo puede
+    // tardar: la cinta son hasta 8 páginas y el historial hasta 25 llamadas a
+    // Massive, cada una con su propio plazo de 25 s. Encima, en Render el
+    // servicio se duerme y despertarlo se lleva casi un minuto más.
+    //
+    // Sin plazo aquí, todo eso se ve como UNA RUEDA GIRANDO SIN FIN — que es
+    // lo que Kevin vio en el teléfono. Un fallo que se explica se puede
+    // reintentar; una rueda eterna solo se puede abandonar.
+    const _ctrl = new AbortController();
+    const _plazo = setTimeout(() => _ctrl.abort(), VX_IDEAS_PLAZO_MS);
     try {
-        const r = await fetch(`${API_BASE}/api/tito-ideas`);
+        const r = await fetch(`${API_BASE}/api/tito-ideas`, { signal: _ctrl.signal });
         d = await r.json();
-    } catch (e) { d = { ok: false, error: e.message }; }
+    } catch (e) {
+        d = (e && e.name === 'AbortError')
+            ? { ok: false, error: `El escaneo pasó de ${Math.round(VX_IDEAS_PLAZO_MS / 1000)} segundos sin contestar. En Render el servicio se duerme y el primer escaneo tras despertarlo es el más lento: vuelve a intentarlo.`, source: 'plazo' }
+            : { ok: false, error: e.message };
+    } finally { clearTimeout(_plazo); }
     if (!d || !d.ok) {
         // Mandar a "escribe un ticker" cuando lo que falla es la CINTA es un
         // consejo falso: con la cookie caída el análisis por ticker también
         // sale cojo —4 de 6 sub-agentes apagados—, así que escribir el símbolo
         // no arregla nada. Se dice el problema y qué hacer con él.
         const esCinta = d && d.source === 'marketsnack';
+        const esPlazo = d && d.source === 'plazo';
         caja.innerHTML = `<div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
-            <p class="text-xs font-black text-amber-300 flex items-center gap-1.5"><i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> ${esCinta ? 'La cinta de MarketSnack no est&aacute; sirviendo' : 'No se pudo escanear el mercado'}</p>
+            <p class="text-xs font-black text-amber-300 flex items-center gap-1.5"><i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i> ${esCinta ? 'La cinta de MarketSnack no est&aacute; sirviendo' : esPlazo ? 'El escaneo tard&oacute; demasiado' : 'No se pudo escanear el mercado'}</p>
             <p class="text-[10px] text-amber-200/80 mt-1 leading-snug">${_vcEsc((d && d.error) || '')}</p>
             ${esCinta ? `<p class="text-[10px] text-amber-200/70 mt-2 leading-snug"><b>MARKETSNACK_COOKIE no es una API key</b>: es una cookie de sesi&oacute;n y <b>caduca</b>. En un servidor no hay navegador que la refresque, as&iacute; que hay que re-pegarla a mano: DevTools &rarr; Network &rarr; <code>/api/flow_feed</code> &rarr; header <code>Cookie</code>.</p>
-            <p class="text-[10px] text-amber-200/60 mt-1.5 leading-snug">Mientras tanto el an&aacute;lisis por ticker sigue funcionando con la cadena de Massive (Estructura, GEX, niveles y escenarios), pero con 4 de los 6 sub-agentes apagados &mdash; y el panel te lo dir&aacute; arriba.</p>` : ''}</div>`;
+            <p class="text-[10px] text-amber-200/60 mt-1.5 leading-snug">Mientras tanto el an&aacute;lisis por ticker sigue funcionando con la cadena de Massive (Estructura, GEX, niveles y escenarios), pero con 4 de los 6 sub-agentes apagados &mdash; y el panel te lo dir&aacute; arriba.</p>` : ''}
+            <button onclick="loadProjIdeas()" class="mt-3 text-[10px] font-bold text-amber-200 bg-amber-500/20 hover:bg-amber-500/30 rounded-lg px-3 py-1.5">Reintentar</button></div>`;
         if (window.lucide) vcIconos();
         return;
     }
@@ -5474,7 +5495,11 @@ function renderProjIdeas(d) {
         <b class="text-gray-400">${R.vencido || 0}</b> por vencer demasiado pronto,
         <b class="text-gray-400">${R.sin_theta || 0}</b> sin theta en el feed,
         <b class="text-gray-400">${R.no_inusual || 0}</b> por no ser flujo inusual y
-        <b class="text-gray-400">${R.lejano || 0}</b> por tener el strike a m&aacute;s de ${Math.round(Number(d.moneyness_cap) * 100)}% del precio.`;
+        <b class="text-gray-400">${R.lejano || 0}</b> por tener el strike a m&aacute;s de ${Math.round(Number(d.moneyness_cap) * 100)}% del precio.`
+        // El historial tiene presupuesto de reloj. Si se acabó, se DICE: sin
+        // esto, «este ticker no tiene historial» y «no me dio tiempo a
+        // mirarlo» se leen exactamente igual, y son cosas distintas.
+        + (d.history_skipped ? ` <span class="text-amber-500/80">A ${d.history_skipped} ticker(s) no les dio tiempo de historial en este escaneo.</span>` : '');
 
     if (!ideas.length) {
         caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5 text-center">
@@ -12809,6 +12834,7 @@ const VX_ES2EN = {
     "No se pudo pedir la lectura.": "Could not request the reading.",
     "Sin lectura disponible.": "No reading available.",
     "Reintentar": "Retry",
+    "El escaneo tardó demasiado": "The scan took too long",
     "actualizar": "refresh",
     "Explícame qué está pasando ›": "Explain what is happening ›",
     "Escrito por el modelo a partir de los números de arriba, que los calcula el motor. Es una lectura de lo que pasa,": "Written by the model from the numbers above, which the engine calculates. It is a reading of what is happening,",
@@ -14116,6 +14142,10 @@ const VX_PAT = [
     [/^Se dejan fuera (\d+) más pequeñas\.$/, '$1 smaller ones are left out.'],
     // ── La tarjeta de riesgo: la pérdida es un % de LA POSICIÓN ──────────
     [/^(\S+)% de la posición$/, '$1% of the position'],
+    [/^A (\d+) ticker\(s\) no les dio tiempo de historial en este escaneo\.$/,
+     '$1 ticker(s) did not get history in time on this scan.'],
+    [/^El escaneo pasó de (\d+) segundos sin contestar\. En Render el servicio se duerme y el primer escaneo tras despertarlo es el más lento: vuelve a intentarlo\.$/,
+     'The scan went past $1 seconds without answering. On Render the service goes to sleep, and the first scan after waking it is the slowest: try again.'],
     [/^La columna «te cabe» de abajo dimensiona con estos dos techos: (\S+) de prima y (\S+) de quema de theta en tu horizonte\. Manda el más estricto de los dos\.$/,
      'The «fits you» column below sizes with these two ceilings: $1 of premium and $2 of theta burn over your horizon. The stricter of the two wins.'],
     [/^No se pudo medir el tamaño \((.+)\): salen todas las que reportan\.$/,

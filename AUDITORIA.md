@@ -8397,3 +8397,88 @@ código.
 
 **3.409 tests del motor (7 nuevos) · 883 de la capa web (1 nuevo, 2 reescritos) ·
 92 de navegador · 267 checks de auditoría.**
+
+---
+
+## 41.77 · Ronda 52 — la rueda que no paraba, y lo que encontró debajo
+
+> «El área de proyecciones en Ideas se queda cargando pero no me sale nada.»
+
+Un pantallazo del teléfono: *Escaneando el flujo de todo el mercado…* girando,
+y la insignia en «sin datos aún».
+
+Lo primero fue descartar lo propio: `node --check` sobre el JavaScript del
+panel (limpio) y revisar el camino de error del cargador, que **sí** borra la
+rueda. Así que un `{ok:false}` habría pintado la caja ámbar. Que quedara la
+rueda solo puede significar una cosa: **la petición nunca vuelve**.
+
+### El escaneo no tenía presupuesto, y el navegador no tenía plazo
+
+| fase | tope | peor caso |
+|---|---|---|
+| Cinta de MarketSnack | 8 páginas × 25 s | **200 s** |
+| Historial en Massive | 25 tickers × 25 s | **625 s** |
+
+Los topes contaban **llamadas**, no reloj. Y `fetch` no lleva plazo por
+defecto, así que el navegador espera lo que haga falta. Sumado al arranque en
+frío de Render —el servicio se duerme—, lo que se ve en un teléfono es una
+rueda eterna sin una palabra de explicación.
+
+Dos arreglos, uno en cada lado:
+
+- **Servidor**: `_IDEAS_PRESUPUESTO_HISTORIAL_S` (20 s) para la fase de
+  historial, que es un *enriquecimiento* —las ideas salen igual sin él—. Se
+  comprueba **antes** de pedir, no después: mirarlo al final gastaría justo la
+  llamada que se quería evitar. Y lo que no dio tiempo **se dice**
+  (`history_skipped`), porque «este ticker no tiene historial» y «no me dio
+  tiempo a mirarlo» no son lo mismo.
+- **Panel**: `AbortController` con 75 s. Agotado, la caja ámbar explica que en
+  Render el primer escaneo tras despertar el servicio es el más lento, y ofrece
+  **Reintentar**. Un fallo que se explica se puede reintentar; una rueda solo
+  se puede abandonar.
+
+### Y debajo estaba el fallo de verdad
+
+Persiguiendo el coste del historial apareció por qué la columna **HISTORIAL**
+sale «—» en **todas** las filas del pantallazo anterior, y ha salido así desde
+el primer día:
+
+```python
+for t in (getattr(guardado, "trades", None) or [])
+if getattr(t, "asset_price", 0) and t.timestamp
+```
+
+`load_trades` devuelve las filas **tal como están en el archivo**:
+diccionarios, igual que su `loadTrades`. Y `getattr({...}, "asset_price", 0)`
+es **0 para cualquier diccionario**. El filtro tiraba todas las filas siempre,
+`con_guardado` se quedaba vacío y **el sub-agente 6 nunca llegaba a correr**.
+
+Lo peor es que **el fallo se tapaba a sí mismo**: si una sola fila hubiera
+pasado el filtro, el `t.id` de la línea siguiente habría reventado la petición
+con un `AttributeError`. Por eso no salía ningún error — salía un guión.
+
+El arreglo es el patrón que `/api/validation` ya usaba: `borde.trades_utiles`
+—que se queda con las filas que son objetos, para que un `null` a medio
+escribir en disco no tumbe el escaneo entero— y a partir de ahí acceso por
+**clave**. Medido: `with_history` pasa de **0 a 3** en la cinta de prueba.
+
+Y hay un orden que importa: arreglar esto **enciende por primera vez** el bucle
+de 25 llamadas a Massive. Sin el presupuesto de reloj de arriba, la rueda
+eterna habría pasado de teoría a garantía.
+
+### Dos casos que pasaban en vacío
+
+El primero que escribí para el presupuesto pasaba **sin medir nada**: la cinta
+de prueba no deja ningún ticker con historial guardado, así que el bucle no
+corría y poner el presupuesto a cero no cambiaba nada. Ahora siembra los flows
+y **comprueba primero que hay algo que saltarse** antes de saltárselo. La
+regla que sale de aquí: un caso que verifica un límite tiene que demostrar
+que, sin el límite, había trabajo que hacer.
+
+Los dos guardianes nuevos se comprobaron **en rojo** contra el código viejo
+antes de darlos por buenos.
+
+### Estado
+
+**3.409 tests del motor · 888 de la capa web (5 nuevos) · 92 de navegador ·
+267 checks de auditoría.**

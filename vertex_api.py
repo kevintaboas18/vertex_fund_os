@@ -5468,6 +5468,21 @@ _IDEAS_PERIOD = "1d"           # el sizing usa el precio del trade: cuanto más 
 _IDEAS_MAX_IDEAS = 60          # tope de filas devueltas (`MAX_IDEAS` suyo)
 _IDEAS_MAX_HISTORY_TICKERS = 25  # tope de llamadas a Massive por escaneo
 
+#: Segundos de reloj para la fase de HISTORIAL, en total.
+#:
+#: El tope de arriba cuenta llamadas, no tiempo, y esa es la diferencia que se
+#: vio en un teléfono: 25 tickers × 25 s de plazo por llamada son **625
+#: segundos** en el peor caso, encima del arranque en frío de Render. El
+#: navegador no pone plazo a un `fetch`, así que lo que ve Kevin es una rueda
+#: girando sin fin y sin explicación.
+#:
+#: El historial es un ENRIQUECIMIENTO: las ideas salen igual sin él, solo que
+#: sin la columna de «se ha desarrollado antes». Así que se le da un
+#: presupuesto de reloj y, agotado, se devuelve lo que haya **diciendo cuántos
+#: tickers se quedaron sin mirar**. Media tabla explicada es mejor que una
+#: rueda eterna.
+_IDEAS_PRESUPUESTO_HISTORIAL_S = 20.0
+
 
 def _ideas_dedupe(rows):
     """Un solo trade por contrato: el de mayor premium. Su `dedupeByContract`."""
@@ -5528,6 +5543,7 @@ def tito_ideas(request: Request):
     sc = _tito_mod()
     if sc is None:
         return {"ok": False, "error": "Motor de Víctor no disponible (engine/wbj/tito)."}
+    from wbj.tito import borde
     from wbj.tito.flow import classify_flow
     from wbj.tito.marketsnack import MarketSnackError, fetch_market_flow
     from wbj.tito.massive import fetch_daily_bars
@@ -5578,14 +5594,44 @@ def tito_ideas(request: Request):
             guardado = load_trades(tk)
         except Exception:
             continue
-        flows = [FlowLite(id=t.id, timestamp=t.timestamp, type=t.type, strike=t.strike,
-                          expiration=t.expiration, asset_price=t.asset_price,
-                          premium=t.premium, aggression=t.aggression)
-                 for t in (getattr(guardado, "trades", None) or [])
-                 if getattr(t, "asset_price", 0) and t.timestamp]
+        # `load_trades` devuelve las filas **tal como están en el archivo**:
+        # DICCIONARIOS, igual que su `loadTrades` (que solo comprueba que
+        # `trades` sea un array y no mira el contenido).
+        #
+        # Aquí se leían con `getattr`, y `getattr({...}, "asset_price", 0)` es
+        # 0 para cualquier diccionario: el filtro tiraba TODAS las filas
+        # siempre, `con_guardado` se quedaba vacío y la columna HISTORIAL salía
+        # «—» en cada fila desde el primer día. El fallo se tapaba a sí mismo:
+        # si una fila hubiera pasado el filtro, el `t.id` de la línea siguiente
+        # habría reventado la petición entera con un `AttributeError`.
+        #
+        # `borde.trades_utiles` es el filtro que ya usa `/api/validation` para
+        # esto mismo: se queda con las filas que son objetos —un `null` o un
+        # string a medio escribir en disco no puede tumbar la ruta— y a partir
+        # de ahí se accede por CLAVE.
+        crudas = borde.trades_utiles(
+            (guardado.trades if guardado else None) or [])
+        flows = [FlowLite(id=t.get("id"), timestamp=t.get("timestamp"),
+                          type=t.get("type"), strike=t.get("strike"),
+                          expiration=t.get("expiration"),
+                          asset_price=t.get("asset_price"),
+                          premium=t.get("premium"),
+                          aggression=t.get("aggression"))
+                 for t in crudas
+                 if (t.get("asset_price") or 0) > 0 and t.get("timestamp")]
         if flows:
             con_guardado.append((tk, flows))
-    for tk, flows in con_guardado[:_IDEAS_MAX_HISTORY_TICKERS]:
+    # Dos topes, y hacen falta los dos: uno cuenta LLAMADAS y el otro cuenta
+    # RELOJ. Con solo el primero, 25 tickers lentos son diez minutos de rueda.
+    _pendientes = con_guardado[:_IDEAS_MAX_HISTORY_TICKERS]
+    _limite = time.monotonic() + _IDEAS_PRESUPUESTO_HISTORIAL_S
+    _sin_mirar = 0
+    for _i, (tk, flows) in enumerate(_pendientes):
+        # Se comprueba ANTES de pedir, no después: pasarse del presupuesto y
+        # luego salir habría gastado igual la llamada que se quería evitar.
+        if time.monotonic() >= _limite:
+            _sin_mirar = len(_pendientes) - _i
+            break
         try:
             bars = fetch_daily_bars(tk, 200)
         except Exception:
@@ -5700,6 +5746,10 @@ def tito_ideas(request: Request):
         "ok": True, "engine": "victor/tito", "ideas": ideas,
         "scanned": len(res.trades), "pages": res.pages, "truncated": res.truncated,
         "tickers": len(tickers), "with_history": len(historial),
+        # Cuántos se quedaron sin historial porque se acabó el reloj. Si se
+        # callara, «sin historial» y «no me dio tiempo a mirarlo» se verían
+        # exactamente igual, y son cosas distintas.
+        "history_skipped": _sin_mirar,
         "saved_tickers": guardados, "rejected": rechazos,
         "min_premium": _IDEAS_MIN_PREMIUM, "moneyness_cap": MONEYNESS_CAP,
         # El perfil con el que se ordenó. Va en el payload para que la pantalla
