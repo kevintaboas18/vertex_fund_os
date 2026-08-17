@@ -1,6 +1,6 @@
 # Estado del proyecto — Vertex Fund OS
 
-**Actualizado:** 2026-08-08 · **Rama:** `main` · **Estado:** engine completo; los 26
+**Actualizado:** 2026-08-17 · **Rama:** `main` · **Estado:** engine completo; los 26
 hallazgos de la auditoría inicial, cerrados; el tab de Proyecciones portado del
 repo de Víctor y verificado contra su archivo.
 
@@ -31,7 +31,9 @@ ticker, y baja por tres pisos: `Dashboard › XLK › SMH › NVDA`.
 |---|---|
 | Franja de estado (arriba del todo) | Una frase de alguien que se jugó dinero de verdad, cambiando sola; el VIX; y en la esquina derecha, fija: ¿está abierta la sesión y de cuándo es este dato? |
 | Rotación sectorial (plegable) | Debajo de las casillas y cerrada por defecto. Dentro: la salud del mercado, **hacia dónde va cada sector** en cuatro capas —Liderando, Cogiendo fuerza, Agotándose, Rezagados—, el flujo de capital, el diagnóstico y la dispersión. |
-| Parrilla | Precio, cambio en la ventana elegida, RSI, media de 200, **volumen relativo** y **amplitud interna**. |
+| Parrilla | Precio, cambio en la ventana elegida, RSI, media de 200, **volumen relativo** y **amplitud interna**. El precio se refresca **en vivo cada 15 s** con la pestaña visible; RSI, media de 200 y volumen son diarios y no. |
+| Resultados de ganancias (izquierda) | **Todas** las empresas de EE. UU. que reportan en los próximos 14 días, agrupadas por día y con su sector cuando se conoce. La caja mide lo suyo: no se estira para igualar a la de al lado. |
+| Macroeconómico (derecha) | Lo que **ya salió** con sus tres columnas —salió · esperado · anterior—, un botón «Explícame qué está pasando» que traduce la sorpresa a lo que significa para la economía, para la gente y para cada uno de los once sectores, y debajo **los próximos datos**. |
 | Lectura | El modelo cuenta en palabras lo que el motor ya decidió. No puntúa nada. |
 
 La franja va **encima del título** a propósito: es el estado del mercado, y
@@ -67,8 +69,8 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 
 ```bash
 cd engine && python -m pytest tests/ -q    # 3402 pasan, 0 skips
-python -m pytest tests_vertex/ -q          # 956 pasan, 0 skips
-                                           # (865 de la capa web + 91 en un
+python -m pytest tests_vertex/ -q          # 963 pasan, 0 skips
+                                           # (872 de la capa web + 91 en un
                                            #  navegador real, cuatro tamaños)
 
 # Auditoría del tab de Proyecciones (267 checks). Con TITO_ROOT usa tu clon de
@@ -120,5 +122,9 @@ que ya no existía y, peor, daba a entender que los otros seguían abiertos.
   siendo **privado**: el código maneja credenciales de Plaid. La rama `datos`
   del mismo repo es el almacén (huérfana, no dispara despliegues) — ver
   `vertex_almacen.py` y `AUDITORIA.md §41.25`.
+- Si alguna vez ves ramas `rescate/…` en el repo, **no son basura y no se
+  borran a mano**: son trabajo que `datos` no aceptó y que quedó aparcado ahí.
+  El siguiente arranque del servidor lo recoge y borra la rama solo
+  (`AUDITORIA.md §41.73`).
 - `docs/archive/` guarda los planes de diseño de la construcción del engine —
   histórico, ya implementado. No son instrucciones vigentes.

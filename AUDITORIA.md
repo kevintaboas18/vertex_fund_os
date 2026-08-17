@@ -8076,15 +8076,99 @@ divergencia, que **no se borre lo que solo estaba en el remoto**, que en un
 choque mande el disco, y que no vuelva a aparecer un `rebase` en el camino de
 recuperación —porque si vuelve, vuelve el bucle—.
 
-### Lo que NO recupera
+### Lo que dije que se perdía — y no se perdió
 
-Los 37 archivos que estaban en ese contenedor **se pierden al redesplegar**:
-nunca llegaron al remoto, y el disco de Render se borra. Son análisis generados
-desde las 14:28 y se pueden volver a hacer. Lo que importaba —las cuentas— ya
-estaba a salvo: el propio diagnóstico decía «Cuentas ahora: 1 · Cuentas en el
-respaldo: 1».
+Escribí aquí que los 37 archivos se perdían al redesplegar. **Era falso, y lo
+comprobé después:** `git log origin/datos` enseña los commits de 14:27 a 15:52
+todos publicados a las 15:52, con 339 archivos, 43 reportes y 59 proyecciones.
+El `_reasienta` recién puesto desatascó el push y subió el lote entero.
+
+Se queda escrito porque el error importa: di por perdido algo sin mirar el
+remoto. La regla que sale de aquí es la misma que gobierna el resto del
+almacén — **mirar la evidencia antes de declarar una pérdida**, porque un
+«se perdió» falso hace tomar decisiones (rehacer análisis, volver a registrar
+cuentas) que sí pueden romper cosas.
 
 ### Estado
 
 **3.402 tests del motor · 865 de la capa web (4 nuevos) · 267 checks de
+auditoría · preflight de Render en verde.**
+
+---
+
+## 41.73 · Ronda 48 — «yo no quiero que ningún archivo se pierda»
+
+La ronda 47 dejó el push desatascado, pero dejó también una pregunta abierta, y
+Kevin la hizo entera:
+
+> «Yo no quiero que ningún archivo se pierda. Se supone que se guarde también.»
+
+Tenía razón en lo que señalaba. `_reasienta` arregla el caso **frecuente** —el
+push rechazado por divergencia— pero no el caso **último**: si los cuatro
+reintentos se acaban y `datos` sigue sin aceptar nada, el trabajo se quedaba
+solo en el disco de Render, que se borra en el siguiente despliegue. La alerta
+lo decía en voz alta, y **decirlo no es salvarlo**.
+
+### La idea: una rama que no existe no puede rechazar un push
+
+No hay nada con lo que divergir. Así que cuando `datos` está peleada, el árbol
+entero se publica en `rescate/<marca>-<pid>` —una referencia nueva cada vez— y
+ahí ya está en GitHub, fuera del disco efímero.
+
+- `_rescata()` corre como **última línea** de `_empuja`, después de agotar los
+  reintentos, y su nombre entra en el mensaje de error: «lo pendiente quedó a
+  salvo en la rama «…»».
+- `recoge_rescates()` corre **al arrancar**, justo después de `restaura()` y
+  antes de que nadie escriba: trae lo aparcado, borra la rama y commitea una
+  vez. Si no se borrara, se acumularía una rama por avería.
+
+### Los dos detalles donde esto se podía volver en contra
+
+1. **Qué se recoge.** Solo lo que aquí **no existe**. Lo aparcado es por
+   definición más viejo que `datos`: si los dos lo tienen, el bueno es el de
+   `datos`. Un `checkout` a lo bruto convertiría la red de seguridad en un
+   borrado con retraso.
+2. **Contra qué se mide «no existe».** Contra **el disco**, no contra `HEAD`.
+   Con `HEAD` se colaba un archivo que el contenedor nuevo acababa de escribir
+   y aún no había commiteado: como no está en `HEAD`, el diff lo daba por
+   añadido y lo pisaba con la copia vieja del rescate. Justo lo contrario de lo
+   que la función promete. Hay un caso que lo fija.
+
+### Y que el panel lo diga
+
+Salvar el archivo y seguir enseñando «TUS DATOS ESTÁN EN RIESGO: se pierden en
+el próximo reinicio» es media reparación. Kevin leería que sus datos peligran
+cuando ya están en GitHub, buscaría un incendio que no hay, y **la próxima vez
+que la alerta sea de verdad no la va a creer**. Una alerta que miente en la
+dirección buena gasta la que sí importa.
+
+Con `rescate` puesto:
+
+- la insignia pasa de **roja** («NO se está guardando · N en riesgo») a **ámbar**
+  («Aparcado a salvo · N sin subir») — rojo significa «se pierde», y esto no se
+  pierde;
+- el diagnóstico cambia la línea de pérdida por «✓ Lo pendiente NO se pierde:
+  … Rama: …», sin dejar de decir que el respaldo a `datos` **sí** está averiado
+  y hay que mirarlo;
+- y el aviso **se apaga solo** en cuanto un push a `datos` funciona, porque
+  entonces lo aparcado ya está también ahí y mandar a Kevin a buscar una rama
+  que el siguiente arranque borra es otra mentira.
+
+Las dos frases nuevas llevan número y nombre de rama dentro, así que no pueden
+ir por clave fija: van por `VX_PAT` con su patrón, y declaradas en el extractor
+del guardián de idioma —que las corta en el `${` y solo ve la mitad de
+delante—. El texto de la ayuda emergente sí es fijo y va al diccionario.
+
+### Los dos rojos intermitentes de la ronda anterior
+
+`test_solo_se_copia_lo_que_LLEVA_cuentas` y `test_las_copias_viejas_se_PODAN`
+salieron rojos **una vez** y no se han vuelto a reproducir: tres baterías
+completas seguidas en verde, dos de ellas **corriendo a la vez sobre el mismo
+árbol**, que es justo la condición de contención que los tumbó. Se deja escrito
+sin arreglo porque no hay nada medido que arreglar — inventar una corrección
+para un fallo que no se reproduce solo añade código que nadie puede justificar.
+
+### Estado
+
+**3.402 tests del motor · 872 de la capa web (7 nuevos) · 267 checks de
 auditoría · preflight de Render en verde.**

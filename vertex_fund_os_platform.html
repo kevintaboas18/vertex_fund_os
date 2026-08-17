@@ -9553,16 +9553,25 @@ async function almacenPoll() {
     // CONSECUENCIA y se pone roja — el estado en el que se pierden datos no
     // puede verse igual que uno del que se sale solo.
     const enRiesgo = (d.pendientes || 0) > 0 && (d.ultimo_error || !d.respalda);
-    if (enRiesgo) {
+    // Y la diferencia que lo cambia todo: si `datos` rechazó el push pero el
+    // árbol se aparcó en una rama de rescate, el trabajo YA está en GitHub. El
+    // respaldo sigue averiado —hay que decirlo— pero la consecuencia no es la
+    // misma: un reinicio ya no borra nada, porque el arranque lo recoge. Rojo
+    // significa «se pierde»; esto no se pierde, así que es ámbar.
+    const aSalvo = enRiesgo && !!d.rescate;
+    if (enRiesgo && !aSalvo) {
         pill.className = 'flex text-xs px-3 py-1.5 rounded-full items-center gap-2 transition '
             + 'bg-red-500/10 border border-red-500/30 text-red-300';
     }
     pill.innerHTML = `<span class="w-2 h-2 rounded-full ${
-        enRiesgo || !d.respalda ? 'bg-red-500 animate-pulse' : 'bg-amber-400'}"></span>`
+        (enRiesgo && !aSalvo) || !d.respalda ? 'bg-red-500 animate-pulse' : 'bg-amber-400'}"></span>`
         + `<span class="font-bold">${
-            enRiesgo ? `NO se está guardando · ${d.pendientes} en riesgo`
-                     : (d.respalda ? 'Respaldo con errores' : 'Sin respaldo')}</span>`;
-    pill.title = (enRiesgo
+            aSalvo    ? `Aparcado a salvo · ${d.pendientes} sin subir`
+          : enRiesgo  ? `NO se está guardando · ${d.pendientes} en riesgo`
+                      : (d.respalda ? 'Respaldo con errores' : 'Sin respaldo')}</span>`;
+    pill.title = (aSalvo
+        ? `El respaldo a la rama de datos está averiado, pero lo pendiente se aparcó a salvo y el próximo arranque lo recoge. No se pierde nada. `
+        : enRiesgo
         ? `Tus cuentas y tus reportes NO se están respaldando. Si el servidor se reinicia ahora, se pierde lo que no haya subido. `
         : '') + (d.motivo || d.ultimo_error || '');
 }
@@ -9573,8 +9582,14 @@ function almacenAbre() {
     const a = d.archivos || {};
     const lineas = [
         d.respalda ? 'El respaldo está configurado.' : '⚠ NO se está respaldando nada.',
-        ((d.pendientes || 0) > 0 && (d.ultimo_error || !d.respalda))
+        ((d.pendientes || 0) > 0 && (d.ultimo_error || !d.respalda) && !d.rescate)
             ? `⚠ TUS DATOS ESTÁN EN RIESGO: hay ${d.pendientes} archivo(s) sin subir. Si el servidor se reinicia ahora, las cuentas y los reportes que no hayan subido desaparecen.` : '',
+        // La misma avería, con la red puesta. Se dice aparte y sin «⚠ EN
+        // RIESGO» porque decirle a Kevin que sus datos peligran cuando ya
+        // están en GitHub le hace buscar un incendio que no hay — y la
+        // siguiente vez que la alerta sea de verdad, no la va a creer.
+        d.rescate
+            ? `✓ Lo pendiente NO se pierde: el respaldo a la rama de datos está averiado y hay que mirarlo, pero el trabajo ya se aparcó en GitHub y el próximo arranque lo recoge. Rama: ${d.rescate}` : '',
         d.motivo || '',
         d.ultimo_error ? `Último error: ${d.ultimo_error}` : '',
         '',
@@ -12457,6 +12472,7 @@ const VX_I18N = {
  * ─────────────────────────────────────────────────────────────────────── */
 const VX_ES2EN = {
     "Tus cuentas y tus reportes NO se están respaldando. Si el servidor se reinicia ahora, se pierde lo que no haya subido.": "Your accounts and your reports are NOT being backed up. If the server restarts now, whatever has not been uploaded is lost.",
+    "El respaldo a la rama de datos está averiado, pero lo pendiente se aparcó a salvo y el próximo arranque lo recoge. No se pierde nada.": "The backup to the data branch is broken, but what was pending was parked safely and the next start-up picks it up. Nothing is lost.",
     "techo": "ceiling",
     "especulativo": "speculative",
     "conservador": "conservative",
@@ -14033,6 +14049,9 @@ const VX_PAT = [
     [/^son trades con puntaje inusual \(≥(\d+)\/30\)\.$/,
      'are trades with an unusual score (≥$1/30).'],
     [/^NO se está guardando · (\d+) en riesgo$/, 'NOT being saved · $1 at risk'],
+    [/^Aparcado a salvo · (\d+) sin subir$/, 'Parked safe · $1 not uploaded'],
+    [/^✓ Lo pendiente NO se pierde: el respaldo a la rama de datos está averiado y hay que mirarlo, pero el trabajo ya se aparcó en GitHub y el próximo arranque lo recoge\. Rama: (\S+)$/,
+     '✓ What is pending is NOT lost: the backup to the data branch is broken and needs looking at, but the work is already parked on GitHub and the next start-up picks it up. Branch: $1'],
     [/^⚠ TUS DATOS ESTÁN EN RIESGO: hay (\d+) archivo\(s\) sin subir\. Si el servidor se reinicia ahora, las cuentas y los reportes que no hayan subido desaparecen\.$/,
      '⚠ YOUR DATA IS AT RISK: there are $1 file(s) not uploaded. If the server restarts now, the accounts and reports that have not been uploaded disappear.'],
     [/^Capital por posición \((\S+)–(\S+)%\)$/, 'Capital per position ($1–$2%)'],

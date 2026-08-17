@@ -141,6 +141,11 @@ Reglas que no se negocian:
 - **`API/` nunca sube.** Ni cifrado.
 - **Sin `VERTEX_GIT_TOKEN` no hay respaldo**, y se dice en `/api/almacen` y en la
   barra superior. Nunca en silencio.
+- **Si `datos` no acepta el push, el trabajo NO se queda en el disco.** Agotados
+  los reintentos, el árbol se publica en `rescate/<marca>-<pid>` —una rama nueva
+  no puede rechazar un push, porque no hay nada con lo que divergir— y el
+  siguiente arranque la recoge y la borra. Solo se recoge lo que **no exista en
+  disco**: lo aparcado es más viejo que `datos`, así que nunca pisa lo bueno.
 
 ## Memoria del agente (protocolo obligatorio)
 

@@ -152,6 +152,13 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
         # así que la frase entera va por `VX_PAT`. El extractor la corta en el
         # `${` y ve solo la mitad de delante.
         "⚠ TUS DATOS ESTÁN EN RIESGO: hay",
+        # Las dos caras de la red de rescate. Llevan dentro el número de
+        # archivos y el nombre de la rama, así que van por `VX_PAT`; el
+        # extractor las corta en el `${` y ve solo la mitad de delante.
+        "Aparcado a salvo",
+        "✓ Lo pendiente NO se pierde: el respaldo a la rama de datos está "
+        "averiado y hay que mirarlo, pero el trabajo ya se aparcó en GitHub y "
+        "el próximo arranque lo recoge. Rama:",
         # No es texto: es la URL de la ruta de la lectura. El extractor la ve
         # como una cadena del panel porque «lectura» tiene morfología española.
         "/api/sectores/lectura",

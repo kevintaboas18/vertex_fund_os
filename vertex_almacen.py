@@ -654,8 +654,12 @@ class Almacen:
                           mensaje or f"datos del agente · {_ahora()}")
                 self._estado["commits"] += 1
                 self._empuja()
+                # `rescate` se limpia junto al error: en cuanto `datos` acepta
+                # un push, lo que estaba aparcado ya está también aquí, y
+                # seguir enseñando «lo pendiente está en la rama X» mandaría a
+                # Kevin a buscar una rama que el siguiente arranque ya borró.
                 self._estado.update(ultimo_push=_ahora(), ultimo_error=None,
-                                    activo=True, motivo="")
+                                    activo=True, motivo="", rescate=None)
             except Exception as e:
                 self._estado["ultimo_error"] = _sin_secretos(str(e))[:300]
                 # Un clon que sigue sin dejar commitear después de sanearlo no
@@ -689,7 +693,86 @@ class Almacen:
                           timeout=120, tolera=True)
                 self._reasienta()
                 time.sleep(2 ** intento)
-        raise RuntimeError(f"push falló tras {REINTENTOS_PUSH} intentos: {ultimo}")
+        # ── Última red: si `datos` no se deja, se aparca en su PROPIA rama ──
+        #
+        # «Yo no quiero que ningún archivo se pierda.» Y hasta aquí, si los
+        # reintentos se acababan, el trabajo se quedaba SOLO en el disco de
+        # Render — que se borra en el siguiente despliegue. La alerta lo decía,
+        # pero decirlo no es salvarlo.
+        #
+        # Una rama que no existe **no puede rechazar un push**: no hay nada con
+        # lo que divergir. Así que cuando `datos` está peleada, el árbol entero
+        # se publica en `rescate/<marca>`, donde ya está a salvo en GitHub, y el
+        # siguiente arranque lo recoge y la borra. Cuesta un push y quita el
+        # único escenario en el que se perdía algo.
+        rama_rescate = self._rescata()
+        raise RuntimeError(
+            f"push falló tras {REINTENTOS_PUSH} intentos: {ultimo}"
+            + (f" · lo pendiente quedó a salvo en la rama «{rama_rescate}»"
+               if rama_rescate else
+               " · y TAMPOCO se pudo aparcar en una rama de rescate"))
+
+    #: Prefijo de las ramas donde se aparca lo que `datos` no acepta.
+    PREFIJO_RESCATE = "rescate/"
+
+    def _rescata(self) -> str:
+        """Publica el árbol en una rama nueva. Devuelve su nombre, o `""`."""
+        marca = _ahora().replace(":", "").replace("-", "")[:15]
+        rama = f"{self.PREFIJO_RESCATE}{marca}-{os.getpid()}"
+        r = self._git("push", "-q", "origin", f"HEAD:refs/heads/{rama}",
+                      timeout=180, tolera=True)
+        if r.returncode:
+            log.error("no se pudo aparcar lo pendiente en una rama de rescate")
+            return ""
+        log.warning("lo pendiente se aparcó en la rama %s", rama)
+        self._estado["rescate"] = rama
+        return rama
+
+    def recoge_rescates(self) -> list[str]:
+        """Trae lo aparcado por un contenedor que murió, y borra su rama.
+
+        Corre al arrancar, DESPUÉS de restaurar. Solo añade lo que aquí no
+        está: nunca pisa un archivo del remoto, porque lo aparcado es por
+        definición más viejo que lo que `datos` tiene ahora — si los dos lo
+        tienen, el bueno es el de `datos`.
+        """
+        if not self._token or not (self.raiz / ".git").is_dir():
+            return []
+        r = self._git("ls-remote", "--heads", "origin",
+                      f"{self.PREFIJO_RESCATE}*", timeout=60, tolera=True)
+        ramas = [l.split("refs/heads/", 1)[1].strip()
+                 for l in (r.stdout or "").splitlines() if "refs/heads/" in l]
+        recogidas = []
+        for rama in ramas:
+            if self._git("fetch", "--depth", "1", "origin", rama,
+                         timeout=180, tolera=True).returncode:
+                continue
+            # Lo que la rama de rescate tiene y aquí NO existe.
+            #
+            # «No existe» se mide contra EL DISCO, no contra `HEAD`. Con `HEAD`
+            # se colaba un archivo que el contenedor nuevo acababa de escribir
+            # y aún no había commiteado: como no está en `HEAD`, el diff lo
+            # daba por «añadido» y el `checkout` lo pisaba con la copia vieja
+            # del rescate. Justo lo contrario de lo que esta función promete.
+            d = self._git("ls-tree", "-r", "--name-only", "FETCH_HEAD",
+                          timeout=60, tolera=True)
+            rutas = [x for x in (d.stdout or "").splitlines()
+                     if x.strip() and not (self.raiz / x.strip()).exists()]
+            for i in range(0, len(rutas), 200):
+                self._git("checkout", "FETCH_HEAD", "--", *rutas[i:i + 200],
+                          timeout=60, tolera=True)
+            if rutas:
+                log.warning("recogidos %d archivo(s) de %s", len(rutas), rama)
+            # Se borra SIEMPRE: si no traía nada nuevo, ya estaba todo en
+            # `datos`; y dejarla acumularía una rama por cada avería.
+            self._git("push", "-q", "origin", "--delete", rama,
+                      timeout=60, tolera=True)
+            recogidas.append(rama)
+        if recogidas:
+            self._git("add", "-A", timeout=60, tolera=True)
+            self._git("commit", "-q", "-m", "recoger lo aparcado",
+                      timeout=60, tolera=True)
+        return recogidas
 
     def _reasienta(self) -> None:
         """Pone NUESTROS ARCHIVOS encima del remoto, sin reaplicar historia.

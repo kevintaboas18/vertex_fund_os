@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -2179,3 +2180,197 @@ class TestUnPUSHRechazadoSeARREGLASOLO:
             "el reintento vuelve a reaplicar historia, que es lo que se pasaba "
             "del plazo con 31 MB")
         assert "_reasienta()" in empuja
+
+
+class TestNINGUNArchivoSePierde:
+    """«Yo no quiero que ningún archivo se pierda. Se supone que se guarde.»
+
+    Hasta aquí, si los reintentos del push se acababan, el trabajo se quedaba
+    SOLO en el disco de Render — que se borra en el siguiente despliegue. La
+    alerta lo decía, y decirlo no es salvarlo.
+
+    Una rama que no existe **no puede rechazar un push**: no hay nada con lo
+    que divergir. Así que cuando `datos` está peleada, el árbol entero se
+    publica en `rescate/<marca>`, donde ya está a salvo en GitHub, y el
+    siguiente arranque lo recoge y borra la rama.
+    """
+
+    @staticmethod
+    def _git(d, *a):
+        return subprocess.run(["git", "-C", str(d), *a], capture_output=True,
+                              text=True)
+
+    @pytest.fixture
+    def remoto_url(self, tmp_path):
+        r = tmp_path / "remoto.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(r)], check=True)
+        url = f"file://{r}"
+        s = tmp_path / "sembrar"
+        subprocess.run(["git", "clone", "-q", url, str(s)], check=True)
+        self._git(s, "config", "user.email", "t@t")
+        self._git(s, "config", "user.name", "t")
+        self._git(s, "checkout", "-q", "--orphan", "datos")
+        (s / "base.txt").write_text("base")
+        self._git(s, "add", "-A")
+        self._git(s, "commit", "-qm", "base")
+        self._git(s, "push", "-q", "origin", "datos")
+        return url
+
+    @staticmethod
+    def _almacen(raiz, url):
+        from vertex_almacen import Almacen
+
+        a = Almacen(raiz=raiz, remoto=url, token="x")
+        a.restaura()
+        return a
+
+    def test_si_datos_NO_se_deja_el_trabajo_va_a_una_rama_de_rescate(
+            self, remoto_url, tmp_path, monkeypatch):
+        """El caso que se perdía: el push a `datos` falla siempre."""
+        import vertex_almacen as VA
+
+        a = self._almacen(tmp_path / "muere", remoto_url)
+        a.guarda("Reportes/NVDA/2026-08-17/reporte.json", {"puntaje": 78})
+
+        # Se rompe SOLO el push a `datos`; el de una rama nueva funciona.
+        real = a._git
+
+        def _falla_datos(*args, **kw):
+            if args[:1] == ("push",) and any("HEAD:datos" in str(x) for x in args):
+                raise RuntimeError("simulado: non-fast-forward")
+            return real(*args, **kw)
+
+        monkeypatch.setattr(a, "_git", _falla_datos)
+        # `sincroniza` NO propaga: registra el fallo en el estado, que es lo
+        # que pinta el aviso del panel. Lo que se mide es el efecto.
+        foto = a.sincroniza()
+        assert foto.get("ultimo_error"), "el fallo del push no se registró"
+
+        ramas = self._git(tmp_path, "ls-remote", "--heads", remoto_url,
+                          "rescate/*").stdout
+        assert "rescate/" in ramas, (
+            "el trabajo se quedó solo en el disco: es lo que se pierde al "
+            "redesplegar")
+
+    def test_y_el_ARRANQUE_siguiente_lo_recoge_y_borra_la_rama(
+            self, remoto_url, tmp_path, monkeypatch):
+        # 1) Un contenedor que muere dejando su trabajo aparcado.
+        a = self._almacen(tmp_path / "muere", remoto_url)
+        a.guarda("Reportes/NVDA/2026-08-17/reporte.json", {"puntaje": 78})
+        real = a._git
+
+        def _falla_datos(*args, **kw):
+            if args[:1] == ("push",) and any("HEAD:datos" in str(x) for x in args):
+                raise RuntimeError("simulado")
+            return real(*args, **kw)
+
+        monkeypatch.setattr(a, "_git", _falla_datos)
+        a.sincroniza()
+        monkeypatch.undo()
+
+        # 2) El contenedor NUEVO arranca y recoge.
+        b = self._almacen(tmp_path / "nuevo", remoto_url)
+        recogidas = b.recoge_rescates()
+        assert recogidas, "no encontró la rama de rescate"
+        assert (b.raiz / "Reportes" / "NVDA" / "2026-08-17"
+                / "reporte.json").exists(), "el reporte no volvió"
+        # La rama se borra: si no, se acumularía una por cada avería.
+        ramas = self._git(tmp_path, "ls-remote", "--heads", remoto_url,
+                          "rescate/*").stdout
+        assert "rescate/" not in ramas, "la rama de rescate se quedó ahí"
+
+    def test_lo_recogido_NO_pisa_lo_que_datos_ya_tiene(self, remoto_url,
+                                                       tmp_path, monkeypatch):
+        """Lo aparcado es, por definición, más viejo que `datos`: si los dos lo
+        tienen, el bueno es el de `datos`."""
+        a = self._almacen(tmp_path / "muere", remoto_url)
+        a.guarda("Reportes/X.json", {"version": "vieja"})
+        real = a._git
+
+        def _falla_datos(*args, **kw):
+            if args[:1] == ("push",) and any("HEAD:datos" in str(x) for x in args):
+                raise RuntimeError("simulado")
+            return real(*args, **kw)
+
+        monkeypatch.setattr(a, "_git", _falla_datos)
+        a.sincroniza()
+        monkeypatch.undo()
+
+        b = self._almacen(tmp_path / "nuevo", remoto_url)
+        b.guarda("Reportes/X.json", {"version": "nueva"})
+        b.recoge_rescates()
+        assert "nueva" in (b.raiz / "Reportes" / "X.json").read_text()
+
+    def test_el_arranque_del_servidor_LO_LLAMA(self):
+        """Sin esto la rama de rescate se queda en GitHub para siempre y el
+        trabajo, aunque a salvo, no vuelve nunca al agente."""
+        import vertex_api as V
+
+        fuente = Path(V.__file__).read_text(encoding="utf-8")
+        arranque = fuente.split("async def _vertex_lifespan", 1)[1].split(
+            "\n    yield", 1)[0]
+        assert "recoge_rescates()" in arranque
+
+    # ── Y que el PANEL lo diga ───────────────────────────────────────────────
+    #
+    # Salvar el archivo y seguir enseñando «TUS DATOS ESTÁN EN RIESGO: se
+    # pierden en el próximo reinicio» es media reparación. Kevin leería que
+    # peligran cuando ya están en GitHub, buscaría un incendio que no hay, y la
+    # próxima vez que la alerta sea de verdad no la va a creer. Una alerta que
+    # miente en la dirección buena gasta la que sí importa.
+
+    def test_el_estado_del_panel_DICE_donde_quedo(self, remoto_url, tmp_path,
+                                                  monkeypatch):
+        a = self._almacen(tmp_path / "muere", remoto_url)
+        a.guarda("Reportes/NVDA/2026-08-17/reporte.json", {"puntaje": 78})
+        real = a._git
+
+        def _falla_datos(*args, **kw):
+            if args[:1] == ("push",) and any("HEAD:datos" in str(x) for x in args):
+                raise RuntimeError("simulado")
+            return real(*args, **kw)
+
+        monkeypatch.setattr(a, "_git", _falla_datos)
+        a.sincroniza()
+        assert a.estado().get("rescate", "").startswith("rescate/"), (
+            "el panel no puede decir que está a salvo si no se le cuenta")
+
+    def test_y_DEJA_de_decirlo_cuando_datos_vuelve(self, remoto_url, tmp_path,
+                                                   monkeypatch):
+        """En cuanto `datos` acepta un push, lo aparcado ya está también ahí.
+        Seguir enseñando la rama mandaría a buscar una que el siguiente
+        arranque borra."""
+        a = self._almacen(tmp_path / "muere", remoto_url)
+        a.guarda("Reportes/NVDA/2026-08-17/reporte.json", {"puntaje": 78})
+        real = a._git
+
+        def _falla_datos(*args, **kw):
+            if args[:1] == ("push",) and any("HEAD:datos" in str(x) for x in args):
+                raise RuntimeError("simulado")
+            return real(*args, **kw)
+
+        monkeypatch.setattr(a, "_git", _falla_datos)
+        a.sincroniza()
+        assert a.estado().get("rescate")
+        monkeypatch.undo()
+
+        a.guarda("Reportes/NVDA/2026-08-17/otro.json", {"puntaje": 79})
+        a.sincroniza()
+        assert not a.estado().get("rescate"), (
+            "el aviso se quedó pegado después de que el respaldo se arreglara")
+        assert not a.estado().get("ultimo_error")
+
+    def test_la_alerta_ROJA_se_calla_cuando_hay_red(self):
+        """«Se pierden en el próximo reinicio» es falso si están aparcados."""
+        html = (Path(__file__).resolve().parents[1]
+                / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        # Se quitan los comentarios: esta misma explicación cita la frase que
+        # se busca, y sin quitarlos el caso se encuentra a sí mismo.
+        codigo = re.sub(r"//.*", "", html)
+        i = codigo.index("TUS DATOS ESTÁN EN RIESGO")
+        linea = codigo[codigo.rindex("\n", 0, i - 400):i]
+        assert "!d.rescate" in linea, (
+            "la alerta de pérdida sigue saliendo aunque el trabajo esté a "
+            "salvo en una rama de rescate")
+        assert "Lo pendiente NO se pierde" in codigo, (
+            "y no hay ninguna línea que diga dónde quedó")

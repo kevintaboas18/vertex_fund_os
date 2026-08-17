@@ -902,6 +902,21 @@ async def _vertex_lifespan(app: FastAPI):
     # directorio vacío y el `push` siguiente BORRARÍA lo que había en el
     # remoto. La restauración tiene que terminar antes de que nadie escriba.
     _arranca_almacen()
+    # Y lo que un contenedor anterior no pudo subir a `datos` y dejó aparcado
+    # en su rama de rescate. Va DESPUÉS de restaurar y antes de que nadie
+    # escriba: lo aparcado es más viejo que `datos`, así que solo se recoge lo
+    # que aquí no esté — nunca se pisa lo bueno.
+    try:
+        from vertex_almacen import almacen as _alm
+
+        _recogidas = _alm.recoge_rescates()
+        if _recogidas:
+            logging.getLogger(__name__).warning(
+                "recogido lo aparcado por un contenedor anterior: %s",
+                ", ".join(_recogidas))
+    except Exception:                            # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "no se pudieron recoger las ramas de rescate", exc_info=True)
 
     _vertex_startup()
     # El índice de tickers se cargaba perezosamente, con la PRIMERA búsqueda.
