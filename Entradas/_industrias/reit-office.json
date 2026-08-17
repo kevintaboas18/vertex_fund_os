@@ -1,0 +1,22 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-08-17",
+  "_como_se_obtuvo": "Resuelto al analizar BXP. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 3618000000000,
+  "_cita_verificada": "https://www.msci.com/research-and-insights/paper/msci-real-estate-market-size",
+  "tam_source": "MSCI Real Estate + Global commercial property managed by institutional investors, Office segment + 2025",
+  "tam_source_tier": 2,
+  "tam_anio": 2025,
+  "_ambito": "mundial",
+  "_capa": "valor de propiedades comerciales gestionadas profesionalmente por inversores institucionales, segmento de oficinas",
+  "_capa_coincide": "BXP opera en el sector de oficinas como un REIT, generando ingresos de la propiedad y gestión de activos de oficina. La capa del 'valor de propiedades de oficinas gestionadas profesionalmente por inversores institucionales' directamente representa el mercado de activos en el que BXP invierte y opera, ya que BXP es un inversor institucional en este tipo de activos.",
+  "_cita": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGkrULAeb_iqWIojmPrs9fhU9OBhUG0EJa-xh1SjnoJHVtJi96th6Ekn0jCKvi4MaAUAwAXWmeEcQXoH3P96s886tyaByRQLMGQpYhPOFgjAYPzO5XbrjKVvdGSGnNe3SAafGX7nZ8JbR25tYBhRDU7-StYPuw3Q2NAKQa6bGaFgk3bZBV17pk=",
+  "_cita_textual": "Global commercial property managed by institutional investors for the purpose of investment returns rose to USD 13.5 trillion in 2025 ... Offices again ceded share while remaining the market's most invested sector at 26.8%.",
+  "_cita_es_redirect": "Enlace de grounding: caduca. La cifra se reencuentra por fuente + frase textual.",
+  "_segmento_patrones": [
+    "office",
+    "offic"
+  ],
+  "_capa_juzgada": "no se pudo consultar la capa (gemini: ClientError 429 RESOURCE_EXHAUST)"
+}
