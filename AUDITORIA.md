@@ -8022,3 +8022,69 @@ retorno, no.** Queda escrito así.
 
 **3.402 tests del motor · 861 de la capa web (4 nuevos) · 91 en un navegador
 real · 267 checks de auditoría · preflight de Render en verde.**
+
+---
+
+## 41.72 · Ronda 47 — el respaldo atascado: 37 archivos y un bucle que se aprieta solo
+
+> «⚠ TUS DATOS ESTÁN EN RIESGO: hay 37 archivo(s) sin subir… Último error: push
+> falló tras 4 intentos: `! [rejected] HEAD -> datos (non-fast-forward)`»
+>
+> Sin subir: 37 · Peso: 31,18 MB · Último respaldo: 14:28
+
+Lo más grave de la sesión: el almacén llevaba horas sin publicar nada.
+
+### La causa: el coste crecía más rápido que el arreglo
+
+El camino de recuperación ante un push rechazado era `rebase -X theirs` y, si
+fallaba, `merge -X ours`. Los dos **cuestan en proporción a la historia y al
+tamaño del árbol**, y ahí está la trampa:
+
+- el ciclo corre cada **20 s**, así que cada minuto de atasco añade **tres
+  commits locales más** que reaplicar;
+- el árbol pesa **31 MB**;
+- el rebase tenía **60 s** de plazo.
+
+Al agotarse, `_sanea` abortaba —correctamente, es lo que evita el atasco
+eterno de archivos sin fusionar— pero eso devuelve HEAD a un commit que **no
+desciende del remoto**. Y un push de algo que no desciende del remoto es,
+literalmente, `non-fast-forward`. Otra vez. Y otra.
+
+**Un bucle que se aprieta solo: cuanto más tardaba en arreglarse, más caro era
+arreglarlo.** Por eso los cuatro reintentos fallaban los cuatro, y por eso no
+se curaba con el tiempo.
+
+### El arreglo: tiempo constante
+
+Reaplicar esa historia no servía para nada. Esto es un **espejo de archivos**,
+no un proyecto: de los commits viejos no se rescata nada, lo único que importa
+es que el árbol de ahora acabe publicado. `_reasienta()`:
+
+1. mueve la rama al remoto **sin tocar el disco** (`reset --soft`), con lo que
+   el índice sigue siendo el nuestro;
+2. **recupera los archivos que existan en el remoto y no aquí** — sin esto, el
+   commit siguiente los borraría, y eso es la avería del 14/08 con otro nombre;
+3. commitea una vez.
+
+El resultado es la unión de los dos lados ganando el disco en lo que choque
+—la misma semántica que `merge -X ours`— pero en **una operación**, dé igual si
+el atasco lleva un minuto o tres días.
+
+Cuatro casos lo fijan, y tres de ellos **clonan el remoto y miran dentro** en
+vez de fiarse de que el push no lanzara: que se resuelva con cinco commits de
+divergencia, que **no se borre lo que solo estaba en el remoto**, que en un
+choque mande el disco, y que no vuelva a aparecer un `rebase` en el camino de
+recuperación —porque si vuelve, vuelve el bucle—.
+
+### Lo que NO recupera
+
+Los 37 archivos que estaban en ese contenedor **se pierden al redesplegar**:
+nunca llegaron al remoto, y el disco de Render se borra. Son análisis generados
+desde las 14:28 y se pueden volver a hacer. Lo que importaba —las cuentas— ya
+estaba a salvo: el propio diagnóstico decía «Cuentas ahora: 1 · Cuentas en el
+respaldo: 1».
+
+### Estado
+
+**3.402 tests del motor · 865 de la capa web (4 nuevos) · 267 checks de
+auditoría · preflight de Render en verde.**

@@ -684,29 +684,61 @@ class Almacen:
                 return
             except Exception as e:
                 ultimo = e
-                # Otro proceso (otro worker, o tu máquina) empujó primero:
-                # se trae lo suyo y se reaplica lo nuestro encima.
+                # Otro proceso (otro worker, o tu máquina) empujó primero.
                 self._git("fetch", "--depth", "1", "origin", self.rama,
-                          timeout=60, tolera=True)
-                # `-X theirs`: dentro de un rebase, «theirs» son LOS COMMITS
-                # QUE SE REAPLICAN, o sea los nuestros. En un choque manda el
-                # dato que el agente acaba de escribir.
-                reb = self._git("rebase", "-X", "theirs", f"origin/{self.rama}",
-                                timeout=60, tolera=True)
-                if reb.returncode:
-                    # Aquí estaba la avería. Un rebase que falla NO deja las
-                    # cosas como estaban: deja archivos sin fusionar, y desde
-                    # ese momento todo commit muere con «Committing is not
-                    # possible because you have unmerged files» — para siempre,
-                    # porque nadie entra a ese directorio a arreglarlo. Con
-                    # `tolera=True` y sin abortar, el fallo de un ciclo se
-                    # convertía en el fallo de todos los siguientes.
-                    self._git("rebase", "--abort", tolera=True)
-                    self._git("merge", "-q", "-X", "ours", f"origin/{self.rama}",
-                              "-m", "juntar lo del remoto", timeout=60, tolera=True)
-                    self._sanea()
+                          timeout=120, tolera=True)
+                self._reasienta()
                 time.sleep(2 ** intento)
         raise RuntimeError(f"push falló tras {REINTENTOS_PUSH} intentos: {ultimo}")
+
+    def _reasienta(self) -> None:
+        """Pone NUESTROS ARCHIVOS encima del remoto, sin reaplicar historia.
+
+        Aquí llegó la avería que dejó 37 archivos sin subir y 31 MB parados.
+        El camino anterior era `rebase` y, si fallaba, `merge -X ours`. Los dos
+        tienen el mismo problema de fondo: **cuestan en proporción a la
+        historia y al tamaño del árbol**. Con un ciclo cada 20 s, cada minuto
+        que el push falla añade tres commits locales más que reaplicar; y con
+        31 MB de datos el rebase se pasaba del minuto de plazo. Al agotarse,
+        `_sanea` abortaba —bien—, HEAD volvía a un commit que NO desciende del
+        remoto, y el push siguiente salía `non-fast-forward`. Otra vez. Y otra.
+        Un bucle que se aprieta solo: cuanto más tarda en arreglarse, más caro
+        es arreglarlo.
+
+        Y reaplicar esa historia no servía para nada. Esto es un ESPEJO de
+        archivos, no un proyecto: de los commits viejos no se rescata nada, lo
+        único que importa es que el árbol de ahora acabe publicado.
+
+        Así que:
+
+          1. se mueve la rama al remoto **sin tocar el disco** (`reset --soft`),
+             con lo que el índice sigue siendo el nuestro;
+          2. se recuperan los archivos que existan en el remoto y no aquí — sin
+             esto, el commit siguiente los BORRARÍA, y eso es justo la avería
+             del 14/08 con otro nombre;
+          3. se commitea una vez.
+
+        El resultado es la unión de los dos lados, ganando el disco en lo que
+        choque —que es lo que hacía `merge -X ours`— pero en tiempo constante:
+        una operación, da igual si el atasco lleva un minuto o tres días.
+        """
+        remoto = f"origin/{self.rama}"
+        if self._git("rev-parse", "--verify", "-q", remoto, tolera=True).returncode:
+            return                               # no hay remoto: nada que juntar
+        self._sanea()
+        if self._git("reset", "--soft", remoto, timeout=60, tolera=True).returncode:
+            return
+        # Lo que el remoto tiene y nosotros no. `--diff-filter=D` sobre el
+        # índice: «borrados respecto a lo que hay en la rama remota».
+        faltan = self._git("diff", "--cached", "--name-only", "--diff-filter=D",
+                           timeout=60, tolera=True)
+        rutas = [r for r in (faltan.stdout or "").splitlines() if r.strip()]
+        for i in range(0, len(rutas), 200):      # por tandas: la línea de
+            self._git("checkout", remoto, "--",  # órdenes tiene un límite
+                      *rutas[i:i + 200], timeout=60, tolera=True)
+        self._git("add", "-A", timeout=60, tolera=True)
+        self._git("commit", "-q", "-m", "juntar lo del remoto",
+                  timeout=60, tolera=True)
 
     def _motivo_apagado(self) -> str:
         if not self._token:

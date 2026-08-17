@@ -2059,3 +2059,123 @@ class TestLaCuentaDeKevinYSuArchivoEnteroPUNTAaPUNTA:
         assert alm2.lee_json("Reportes/MSFT/2026-08-14/reporte.json") == {
             "ticker": "MSFT", "puntaje": 71}, "el archivo de ficheros no volvió"
         assert vertex_archivo is not None
+
+
+class TestUnPUSHRechazadoSeARREGLASOLO:
+    """«TUS DATOS ESTÁN EN RIESGO: hay 37 archivo(s) sin subir.»
+
+    El mensaje que Kevin vio en Render, con 31,18 MB parados y el último
+    respaldo de hacía horas. El error decía `! [rejected] HEAD -> datos
+    (non-fast-forward)`, cuatro veces seguidas.
+
+    La causa era un bucle que se aprieta solo: el camino de recuperación era
+    `rebase` y, si fallaba, `merge -X ours`. Los dos cuestan en proporción a la
+    historia y al tamaño del árbol — y con un ciclo cada 20 s, cada minuto de
+    atasco añade tres commits más que reaplicar. Con 31 MB el rebase se pasaba
+    del minuto de plazo, `_sanea` abortaba (bien), HEAD volvía a un commit que
+    NO desciende del remoto, y el push siguiente salía `non-fast-forward`.
+    Otra vez. Cuanto más tardaba en arreglarse, más caro era arreglarlo.
+
+    `_reasienta` lo hace en tiempo constante: mueve la rama al remoto sin tocar
+    el disco, recupera lo que solo esté en el remoto y commitea una vez.
+    """
+
+    @staticmethod
+    def _git(d, *a):
+        return subprocess.run(["git", "-C", str(d), *a], capture_output=True,
+                              text=True)
+
+    @pytest.fixture
+    def escenario(self, tmp_path):
+        """Un remoto con la rama `datos` y OTRO escritor que empuja primero."""
+        r = tmp_path / "remoto.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(r)], check=True)
+        url = f"file://{r}"
+        s = tmp_path / "sembrar"
+        subprocess.run(["git", "clone", "-q", url, str(s)], check=True)
+        self._git(s, "config", "user.email", "t@t")
+        self._git(s, "config", "user.name", "t")
+        self._git(s, "checkout", "-q", "--orphan", "datos")
+        (s / "base.txt").write_text("base")
+        self._git(s, "add", "-A")
+        self._git(s, "commit", "-qm", "base")
+        self._git(s, "push", "-q", "origin", "datos")
+        return url, s
+
+    @staticmethod
+    def _almacen(tmp_path, url):
+        from vertex_almacen import Almacen
+
+        a = Almacen(raiz=tmp_path / "alm", remoto=url, token="x")
+        a.restaura()
+        return a
+
+    def _clona(self, tmp_path, url, nombre):
+        d = tmp_path / nombre
+        subprocess.run(["git", "clone", "-q", "--branch", "datos", url, str(d)],
+                       check=True)
+        return d
+
+    def test_el_push_rechazado_se_RESUELVE(self, escenario, tmp_path):
+        url, s = escenario
+        a = self._almacen(tmp_path, url)
+        # CINCO commits del otro lado: la divergencia que rechazaba el push.
+        for i in range(5):
+            (s / f"otro{i}.txt").write_text(str(i))
+            self._git(s, "add", "-A")
+            self._git(s, "commit", "-qm", f"otro {i}")
+        self._git(s, "push", "-q", "origin", "datos")
+
+        a.guarda("Reportes/mio.json", {"x": 1})
+        foto = a.sincroniza()
+        assert not foto.get("ultimo_error"), foto.get("ultimo_error")
+        assert foto.get("ultimo_push"), "no llegó a empujar"
+        comp = self._clona(tmp_path, url, "verifica")
+        assert (comp / "Reportes" / "mio.json").exists(), (
+            "el push dijo que sí y no subió")
+
+    def test_y_NO_borra_lo_que_solo_estaba_en_el_remoto(self, escenario,
+                                                        tmp_path):
+        """Es la avería del 14/08 con otro nombre: reasentar sin recuperar lo
+        del remoto publicaría un árbol que lo borra."""
+        url, s = escenario
+        a = self._almacen(tmp_path, url)
+        (s / "solo-del-remoto.txt").write_text("no lo tengo aqui")
+        self._git(s, "add", "-A")
+        self._git(s, "commit", "-qm", "del otro")
+        self._git(s, "push", "-q", "origin", "datos")
+
+        a.guarda("Reportes/mio.json", {"x": 1})
+        a.sincroniza()
+        comp = self._clona(tmp_path, url, "comprobar")
+        assert (comp / "solo-del-remoto.txt").exists(), (
+            "se borró lo del otro escritor")
+        assert (comp / "Reportes" / "mio.json").exists(), "no subió lo nuestro"
+
+    def test_en_un_CHOQUE_manda_el_disco(self, escenario, tmp_path):
+        """Son datos que el agente acaba de escribir; el remoto no tiene nada
+        que el disco no vaya a volver a generar."""
+        url, s = escenario
+        a = self._almacen(tmp_path, url)
+        (s / "Reportes").mkdir(exist_ok=True)
+        (s / "Reportes" / "choca.json").write_text('{"quien": "remoto"}')
+        self._git(s, "add", "-A")
+        self._git(s, "commit", "-qm", "suyo")
+        self._git(s, "push", "-q", "origin", "datos")
+
+        a.guarda("Reportes/choca.json", {"quien": "disco"})
+        a.sincroniza()
+        comp = self._clona(tmp_path, url, "comprobar2")
+        assert "disco" in (comp / "Reportes" / "choca.json").read_text()
+
+    def test_NO_se_reaplica_historia_vieja(self):
+        """El coste tiene que ser constante: si vuelve a haber `rebase` en el
+        camino de recuperación, vuelve el bucle que se aprieta solo."""
+        import vertex_almacen as VA
+
+        fuente = Path(VA.__file__).read_text(encoding="utf-8")
+        empuja = fuente.split("def _empuja", 1)[1].split("\n    def ", 1)[0]
+        assert "rebase" not in empuja, (
+            "el reintento vuelve a reaplicar historia, que es lo que se pasaba "
+            "del plazo con 31 MB")
+        assert "_reasienta()" in empuja
