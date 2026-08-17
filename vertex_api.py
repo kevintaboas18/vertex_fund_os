@@ -7361,11 +7361,23 @@ _CALENDARIO_REFRESCANDO = False
 #: cabe en dos semanas de decisiones sin convertir la caja en un listado.
 _CALENDARIO_DIAS = 14
 
-#: Tope de empresas en la caja. Alto a propósito —en plena temporada reportan
-#: cientos y Kevin las quiere todas— pero no infinito: la respuesta viaja al
+#: Tope de empresas en la caja. Es la última red, no el filtro: lo que decide
+#: quién sale es el tamaño (abajo). Existe porque la respuesta viaja al
 #: navegador y se guarda en el almacén en cada refresco. Si se recorta se DICE,
 #: en vez de callar que faltan.
 _RESULTADOS_MAX = 400
+
+#: El corte de «importante»: CAPITALIZACIÓN DE MERCADO.
+#:
+#: «Sobre los resultados de ganancias que vienen me gustaría los más
+#: importantes, no todos.» De las formas de medir «importante», esta es la
+#: única que es un **número con fuente** —las otras eran listas escritas a
+#: mano— y por eso es la que encaja con la regla del proyecto: sin evidencia no
+#: hay número. Diez mil millones es la línea clásica de *large cap*.
+#:
+#: El umbral viaja al navegador y se escribe en la caja: un recorte que no dice
+#: dónde corta es indistinguible de un fallo que se comió filas.
+_RESULTADOS_CAP_MIN = 10_000_000_000.0
 
 #: El suelo macro, con el identificador de FRED de cada serie.
 #:
@@ -7571,13 +7583,61 @@ def _macro_desde_fred() -> dict:
             "motivo": "", "fuente": "FRED"}
 
 
-def _resultados_calcula() -> dict:
-    """Los resultados que vienen, de las empresas que forman los once sectores.
+def _grandes_del_mercado(clave: str) -> tuple[dict[str, float], str]:
+    """Las cotizadas de EE.UU. que pasan del umbral, con su capitalización.
 
-    Se filtra a `MIEMBROS` —los 114 componentes que el motor ya tiene escritos—
-    y no a «todas las que reportan»: el panel va de sectores, así que la
-    pregunta útil es cuál de LOS QUE MUEVEN EL MAPA reporta esta semana. Un
-    listado del mercado entero serían trescientas filas que nadie lee.
+    Devuelve `({ticker: capitalización}, motivo)`. El motivo solo se llena
+    cuando NO se pudo medir — y entonces el diccionario viene vacío, que es
+    distinto de «ninguna es grande».
+
+    Es **una sola llamada** para toda la caja, pase quien pase: se pregunta por
+    el universo (quién es grande) en vez de por cada empresa que reporta. El
+    resultado se cachea con el resto del calendario, así que sale una vez al
+    día.
+    """
+    try:
+        r = requests.get(
+            "https://financialmodelingprep.com/stable/company-screener",
+            params={"marketCapMoreThan": int(_RESULTADOS_CAP_MIN),
+                    "country": "US", "isEtf": "false", "isFund": "false",
+                    "isActivelyTrading": "true", "limit": 5000,
+                    "apikey": clave}, timeout=20)
+        if r.status_code != 200:
+            return {}, (f"No se pudo medir el tamaño (HTTP {r.status_code}): "
+                        "salen todas las que reportan.")
+        crudo = r.json()
+    except Exception as e:                           # noqa: BLE001
+        return {}, f"No se pudo medir el tamaño ({e}): salen todas las que reportan."
+    if not isinstance(crudo, list) or not crudo:
+        return {}, ("El listado de capitalizaciones vino vacío: salen todas "
+                    "las que reportan.")
+    caps: dict[str, float] = {}
+    for fila in crudo:
+        tk = str((fila or {}).get("symbol") or "").upper()
+        cap = (fila or {}).get("marketCap")
+        if not tk or cap is None:
+            continue
+        try:
+            caps[tk] = float(cap)
+        except (TypeError, ValueError):
+            continue
+    if not caps:
+        return {}, ("El listado de capitalizaciones no traía el campo "
+                    "`marketCap`: salen todas las que reportan.")
+    return caps, ""
+
+
+def _resultados_calcula() -> dict:
+    """Los resultados que vienen, de las empresas GRANDES.
+
+    «Los más importantes, no todos.» Importante se mide por **capitalización de
+    mercado** (`_RESULTADOS_CAP_MIN`), que es la única de las formas de medirlo
+    que es un número con fuente. Las que no llegan al umbral no se esconden: se
+    cuentan, y la caja dice cuántas quedaron fuera y dónde está el corte.
+
+    Si la medida no se puede hacer —sin clave, con el proveedor caído— **no se
+    recorta a ciegas**: salen todas y se dice por qué. Recortar sin poder medir
+    sería inventarse el criterio.
 
     Cada fila lleva su sector, que es lo que la ata a la casilla de arriba.
     """
@@ -7587,12 +7647,12 @@ def _resultados_calcula() -> dict:
     if not clave:
         return {"filas": [], "motivo": "Falta FMP_API_KEY: sin ella no hay "
                                        "fechas de resultados."}
-    # El mapa ticker → sector sirve para ETIQUETAR, ya no para FILTRAR.
+    # El mapa ticker → sector sirve para ETIQUETAR, no para FILTRAR.
     #
     # Filtrar por él dejaba fuera a todo lo que no fuera uno de los 114
     # componentes escritos: salían ocho nombres y el resto de la temporada de
-    # resultados no existía para el panel. Ahora sale TODO lo que reporta en
-    # EE.UU., y el ETF al lado se pone cuando se sabe a qué casilla pertenece.
+    # resultados no existía para el panel. Quién entra lo decide el TAMAÑO; el
+    # ETF al lado se pone cuando se sabe a qué casilla pertenece.
     de_quien = {}
     for etf, miembros in MIEMBROS.items():
         for tk in miembros:
@@ -7623,16 +7683,42 @@ def _resultados_calcula() -> dict:
                       # la diferencia entre un hueco que te pilla dentro y uno
                       # que te pilla fuera.
                       "cuando": str(fila.get("when") or "").lower() or None})
-    # Las de los once sectores PRIMERO dentro de cada día: son las que mueven
-    # el mapa de arriba. El resto va detrás, no fuera.
-    filas.sort(key=lambda x: (x["fecha"], x["sector"] is None, x["ticker"]))
+
+    # ── El corte por tamaño ──────────────────────────────────────────────────
+    #
+    # El orden importa: primero se mide, y solo si se pudo medir se recorta.
+    caps, motivo_tamano = _grandes_del_mercado(clave) if filas else ({}, "")
+    medida = bool(caps)
+    fuera = 0
+    if medida:
+        grandes = [f for f in filas if f["ticker"] in caps]
+        fuera = len(filas) - len(grandes)
+        for f in grandes:
+            f["cap"] = caps[f["ticker"]]
+        filas = grandes
+    # Dentro de cada día, la más grande primero: es la que mueve el índice, y
+    # es lo primero que se quiere ver al abrir la caja. Sin medida se conserva
+    # el orden de antes —las de los once sectores delante— para no quedarse
+    # sin ningún criterio.
+    filas.sort(key=lambda x: (x["fecha"], -x.get("cap", 0.0),
+                              x["sector"] is None, x["ticker"]))
     recortadas = len(filas) - _RESULTADOS_MAX
     filas = filas[:_RESULTADOS_MAX]
     if not filas and not motivo:
-        motivo = ("Ninguna empresa de EE.UU. reporta en los próximos "
+        # «10 mil millones» y no «10.000 millones»: el punto de los miles es
+        # el separador DECIMAL en inglés, y al traducir la frase el umbral
+        # pasaría de diez mil millones a diez.
+        motivo = (f"Ninguna empresa de más de {_RESULTADOS_CAP_MIN / 1e9:.0f} mil "
+                  f"millones reporta en los próximos {_CALENDARIO_DIAS} días."
+                  if medida else
+                  "Ninguna empresa de EE.UU. reporta en los próximos "
                   f"{_CALENDARIO_DIAS} días.")
     return {"filas": filas, "motivo": motivo,
-            "recortadas": max(0, recortadas)}
+            "recortadas": max(0, recortadas),
+            # Lo que hace auditable el recorte: dónde se cortó, cuántas se
+            # quedaron fuera, y si de verdad se pudo medir.
+            "umbral": _RESULTADOS_CAP_MIN, "fuera": fuera, "medida": medida,
+            "motivo_tamano": motivo_tamano}
 
 
 _MACRO_LECTURA_SYSTEM = (

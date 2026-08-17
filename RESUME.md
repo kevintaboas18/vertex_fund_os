@@ -32,7 +32,7 @@ ticker, y baja por tres pisos: `Dashboard › XLK › SMH › NVDA`.
 | Franja de estado (arriba del todo) | Una frase de alguien que se jugó dinero de verdad, cambiando sola; el VIX; y en la esquina derecha, fija: ¿está abierta la sesión y de cuándo es este dato? |
 | Rotación sectorial (plegable) | Debajo de las casillas y cerrada por defecto. Dentro: la salud del mercado, **hacia dónde va cada sector** en cuatro capas —Liderando, Cogiendo fuerza, Agotándose, Rezagados—, el flujo de capital, el diagnóstico y la dispersión. |
 | Parrilla | Precio, cambio en la ventana elegida, RSI, media de 200, **volumen relativo** y **amplitud interna**. El precio se refresca **en vivo cada 15 s** con la pestaña visible; RSI, media de 200 y volumen son diarios y no. |
-| Resultados de ganancias (izquierda) | **Todas** las empresas de EE. UU. que reportan en los próximos 14 días, agrupadas por día y con su sector cuando se conoce. La caja mide lo suyo: no se estira para igualar a la de al lado. |
+| Resultados de ganancias (izquierda) | Las empresas **grandes** (más de $10.000 M de capitalización) que reportan en los próximos 14 días, agrupadas por día y de mayor a menor dentro de cada uno. El umbral y cuántas quedaron fuera se pintan en el pie; si el tamaño no se puede medir, salen todas y se dice por qué. La caja mide lo suyo: no se estira para igualar a la de al lado. |
 | Macroeconómico (derecha) | Lo que **ya salió** con sus tres columnas —salió · esperado · anterior—, un botón «Explícame qué está pasando» que traduce la sorpresa a lo que significa para la economía, para la gente y para cada uno de los once sectores, y debajo **los próximos datos**. |
 | Lectura | El modelo cuenta en palabras lo que el motor ya decidió. No puntúa nada. |
 
@@ -69,8 +69,8 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 
 ```bash
 cd engine && python -m pytest tests/ -q    # 3402 pasan, 0 skips
-python -m pytest tests_vertex/ -q          # 963 pasan, 0 skips
-                                           # (872 de la capa web + 91 en un
+python -m pytest tests_vertex/ -q          # 967 pasan, 0 skips
+                                           # (875 de la capa web + 92 en un
                                            #  navegador real, cuatro tamaños)
 
 # Auditoría del tab de Proyecciones (267 checks). Con TITO_ROOT usa tu clon de

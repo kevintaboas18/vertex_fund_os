@@ -4929,35 +4929,119 @@ class TestElCALENDARIOyElSUELOMACRO:
         assert "consenso" in m["motivo"], (
             "no avisa de que el respaldo no trae ni lo esperado ni el futuro")
 
-    def test_salen_TODAS_las_empresas_que_reportan(self, monkeypatch):
-        """«Creo que aún no me salen todas.» Y no salían: se filtraba a los 114
-        componentes escritos, así que la temporada entera se reducía a ocho
-        nombres. Ahora sale todo lo que reporta en EE.UU.
+    @staticmethod
+    def _fmp_falso(monkeypatch, calendario, screener=None):
+        """Un FMP que contesta DISTINTO a cada endpoint.
 
-        El mapa ticker → sector pasó de FILTRAR a ETIQUETAR.
+        Hace falta porque la caja hace dos preguntas: quién reporta y quién es
+        grande. Un doble que contestara lo mismo a las dos mediría el filtro
+        contra su propio ruido.
+
+        Con `screener=None` el listado de tamaños falla, que es el caso de «no
+        se pudo medir».
+        """
+        import vertex_api as V
+
+        def _get(url, params=None, timeout=None):
+            es_screener = "company-screener" in str(url)
+            cuerpo = screener if es_screener else calendario
+
+            class _R:
+                status_code = 200 if cuerpo is not None else 402
+
+                @staticmethod
+                def json():
+                    return cuerpo if cuerpo is not None else {"error": "plan"}
+
+            return _R()
+
+        monkeypatch.setattr(V.requests, "get", _get)
+
+    def test_solo_salen_las_GRANDES(self, monkeypatch):
+        """«Los más importantes, no todos.» Importante se mide por
+        capitalización, que es la única forma que es un número con fuente."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        hoy = date.today().isoformat()
+        self._fmp_falso(
+            monkeypatch,
+            calendario=[{"symbol": "NVDA", "date": hoy, "when": "amc"},
+                        {"symbol": "PEPEBOTE", "date": hoy},
+                        {"symbol": "JNJ", "date": hoy}],
+            screener=[{"symbol": "NVDA", "marketCap": 3.4e12},
+                      {"symbol": "JNJ", "marketCap": 3.8e11}])
+        r = V._resultados_calcula()
+        assert [f["ticker"] for f in r["filas"]] == ["NVDA", "JNJ"], (
+            "o no se recortó por tamaño, o se recortó al revés")
+        assert r["medida"] is True
+        # Las pequeñas no se esconden: se cuentan, y el umbral viaja para que
+        # la caja pueda decir dónde cortó.
+        assert r["fuera"] == 1
+        assert r["umbral"] == V._RESULTADOS_CAP_MIN
+        # Y cada una lleva su tamaño: es la evidencia de por qué está ahí.
+        assert r["filas"][0]["cap"] == 3.4e12
+
+    def test_dentro_del_dia_la_MAS_GRANDE_primero(self, monkeypatch):
+        """Es la que mueve el índice, y es lo primero que se quiere ver."""
+        import vertex_api as V
+
+        monkeypatch.setenv("FMP_API_KEY", "x" * 20)
+        hoy = date.today().isoformat()
+        manana = (date.today() + timedelta(days=1)).isoformat()
+        self._fmp_falso(
+            monkeypatch,
+            calendario=[{"symbol": "JNJ", "date": hoy},
+                        {"symbol": "NVDA", "date": hoy},
+                        {"symbol": "KO", "date": manana}],
+            screener=[{"symbol": "NVDA", "marketCap": 3.4e12},
+                      {"symbol": "JNJ", "marketCap": 3.8e11},
+                      {"symbol": "KO", "marketCap": 2.9e11}])
+        filas = V._resultados_calcula()["filas"]
+        # El día manda sobre el tamaño: primero cuándo, luego cuánto.
+        assert [f["ticker"] for f in filas] == ["NVDA", "JNJ", "KO"]
+
+    def test_si_NO_se_puede_medir_NO_se_recorta(self, monkeypatch):
+        """El caso que convierte un fallo en una mentira.
+
+        Si el listado de tamaños no contesta y la caja recortara igual, el
+        criterio sería inventado: enseñaría «solo las grandes» sin saber cuál
+        es grande. Se prefiere una caja larga que dice por qué, a una corta que
+        no puede justificar a quién dejó fuera.
         """
         import vertex_api as V
 
         monkeypatch.setenv("FMP_API_KEY", "x" * 20)
         hoy = date.today().isoformat()
-
-        class _R:
-            status_code = 200
-
-            @staticmethod
-            def json():
-                return [{"symbol": "NVDA", "date": hoy, "when": "amc"},
-                        {"symbol": "PEPEBOTE", "date": hoy}]
-
-        monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
+        self._fmp_falso(
+            monkeypatch,
+            calendario=[{"symbol": "NVDA", "date": hoy, "when": "amc"},
+                        {"symbol": "PEPEBOTE", "date": hoy}],
+            screener=None)
         r = V._resultados_calcula()
-        tickers = [f["ticker"] for f in r["filas"]]
-        assert tickers == ["NVDA", "PEPEBOTE"], tickers
-        # La de los once sectores va PRIMERO y con su casilla; la otra sale
-        # igual, con el hueco del sector vacío en vez de un ETF inventado.
+        assert [f["ticker"] for f in r["filas"]] == ["NVDA", "PEPEBOTE"], (
+            "se recortó sin poder medir: el criterio sería inventado")
+        assert r["medida"] is False
+        assert r["motivo_tamano"], "recortar de menos y callarlo es igual de malo"
+        # Sin medida se conserva el orden viejo: la de los once sectores
+        # delante, y la otra con el hueco del sector vacío en vez de un ETF
+        # inventado.
         assert r["filas"][0]["sector"] == "XLK"
         assert r["filas"][1]["sector"] is None
         assert r["filas"][1]["sector_nombre"] is None
+
+    def test_la_caja_DICE_donde_corta(self):
+        """La primera vez que Kevin no vea una empresa que esperaba, la caja
+        tiene que poder contestarle sola. Un recorte mudo no se distingue de un
+        fallo que se comió filas."""
+        h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
+        f = h.split("function vxResultadosHTML(d) {", 1)[1].split("\n}\n", 1)[0]
+        assert "Solo las grandes" in f and "r.umbral" in f, (
+            "no se pinta el umbral: el corte queda sin justificar")
+        assert "Se dejan fuera" in f, "no se dice cuántas quedaron fuera"
+        assert "r.medida" in f, (
+            "no distingue «recortado» de «no se pudo medir», que es la "
+            "diferencia entre una caja filtrada y una que parece filtrada")
 
     def test_si_se_RECORTA_la_lista_se_dice(self, monkeypatch):
         """Callar que faltan es lo que haría creer que ya no queda nada."""
@@ -4967,15 +5051,13 @@ class TestElCALENDARIOyElSUELOMACRO:
         hoy = date.today().isoformat()
         muchas = [{"symbol": f"AA{i}", "date": hoy}
                   for i in range(V._RESULTADOS_MAX + 25)]
-
-        class _R:
-            status_code = 200
-
-            @staticmethod
-            def json():
-                return muchas
-
-        monkeypatch.setattr(V.requests, "get", lambda *a, **k: _R())
+        # Todas GRANDES a propósito: lo que se mide aquí es el tope de la caja,
+        # no el corte por tamaño. Si el filtro se las llevara antes, este caso
+        # pasaría en verde sin haber ejercitado el tope.
+        self._fmp_falso(
+            monkeypatch, calendario=muchas,
+            screener=[{"symbol": f["symbol"], "marketCap": 5e10}
+                      for f in muchas])
         r = V._resultados_calcula()
         assert len(r["filas"]) == V._RESULTADOS_MAX
         assert r["recortadas"] == 25

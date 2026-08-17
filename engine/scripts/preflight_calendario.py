@@ -160,6 +160,31 @@ def main() -> int:
         except Exception as e:                   # noqa: BLE001
             mal(f"no se pudo preguntar el calendario económico: {e}")
 
+    # ── 2-ter. FMP: el SCREENER, que es quien decide qué es «importante» ─────
+    #
+    # Es el único endpoint NUEVO de la caja, y el que no puedo probar desde el
+    # contenedor. Si no está en el plan, la caja no se rompe —enseña todas y lo
+    # dice— pero deja de hacer lo que Kevin pidió.
+    titulo("2-ter. FMP · el screener (quién es GRANDE)")
+    if not hay_fmp:
+        aviso("sin clave no se puede preguntar; se salta")
+    else:
+        caps, motivo = VA._grandes_del_mercado(os.environ["FMP_API_KEY"])
+        if motivo:
+            mal(f"no se pudo medir el tamaño → {motivo}")
+        else:
+            ok(f"{len(caps)} empresas de EE.UU. por encima de "
+               f"{VA._RESULTADOS_CAP_MIN / 1e9:.0f} mil millones")
+            # Un listado que se corta en el límite de la petición mentiría por
+            # abajo: las que se quedaron fuera del listado saldrían como
+            # «pequeñas» sin serlo.
+            if len(caps) >= 5000:
+                mal("el listado llegó al tope de 5000: puede estar recortado, "
+                    "y entonces habría grandes tratadas como pequeñas")
+            mayores = sorted(caps.items(), key=lambda kv: -kv[1])[:5]
+            for tk, cap in mayores:
+                print(f"      {tk:6} {cap / 1e9:>10,.0f} mil millones")
+
     # ── 3. FRED: el respaldo ─────────────────────────────────────────────────
     titulo("3. FRED · el respaldo (niveles, sin consenso ni futuro)")
     if not hay_fred:
@@ -188,12 +213,19 @@ def main() -> int:
 
     res = VA._resultados_calcula()
     if res["filas"]:
-        ok(f"Resultados: {len(res['filas'])} empresas de los once sectores")
+        ok(f"Resultados: {len(res['filas'])} empresas grandes que reportan")
         for f in res["filas"][:6]:
             cuando = f" ({f['cuando']})" if f.get("cuando") else ""
-            print(f"      {f['fecha']}  {f['ticker']:6} {f['sector']}{cuando}")
+            cap = (f"{f['cap'] / 1e9:>7,.0f}B" if f.get("cap") else "      —")
+            print(f"      {f['fecha']}  {f['ticker']:6} {cap} "
+                  f"{f['sector'] or '—'}{cuando}")
         if len(res["filas"]) > 6:
             print(f"      … y {len(res['filas']) - 6} más")
+        if res.get("medida"):
+            ok(f"recortado por tamaño: {res['fuera']} más pequeñas fuera")
+        else:
+            mal("NO se pudo medir el tamaño, así que salen todas: la caja "
+                f"no está haciendo lo que se le pidió → {res.get('motivo_tamano')}")
     else:
         (aviso if not hay_fmp else mal)(f"Resultados vacío — motivo: {res['motivo']}")
 

@@ -8172,3 +8172,72 @@ para un fallo que no se reproduce solo añade código que nadie puede justificar
 
 **3.402 tests del motor · 872 de la capa web (7 nuevos) · 267 checks de
 auditoría · preflight de Render en verde.**
+
+---
+
+## 41.74 · Ronda 49 — «los más importantes, no todos»
+
+> «Sobre los resultados de ganancias que vienen me gustaría los más
+> importantes, no todos.»
+
+Es la vuelta atrás de la ronda 46, y con razón: pedir «todas» y ver **todas**
+son cosas distintas cuando la temporada abre y salen trescientas filas.
+
+### Lo primero era decidir qué mide «importante»
+
+No es una cuestión de gusto, es la regla del proyecto: *sin evidencia, no hay
+número*. De las formas de ordenar por importancia, solo una es **un número con
+fuente**:
+
+| Medida | Por qué no |
+|---|---|
+| Los 114 componentes escritos de los once sectores | Es una lista a mano. Es justo el filtro que la ronda 46 quitó porque dejaba ocho nombres. |
+| Las que Kevin tiene o sigue | Útil para su dinero, pero deja de ser un mapa del mercado: si NVDA reporta y no la tiene, no la ve. |
+| **Capitalización de mercado** | Un número, con proveedor, con umbral declarado. **Elegida.** |
+
+El corte es `_RESULTADOS_CAP_MIN = 10.000 millones` — la línea clásica de *large
+cap*— y **viaja al navegador para pintarse**. Un recorte que no dice dónde
+corta es indistinguible de un fallo que se comió filas, y la primera vez que
+falte una empresa esperada la caja tiene que poder contestar sola.
+
+### Una sola llamada, no una por empresa
+
+`_grandes_del_mercado()` pregunta por el **universo** (quién es grande) en vez
+de por cada empresa que reporta: una llamada al screener de FMP,
+independientemente de si reportan tres o trescientas. Se cachea con el resto
+del calendario, así que sale una vez al día.
+
+### El orden importa: primero se mide, y solo si se pudo medir se recorta
+
+Este es el detalle que separa un filtro de una mentira. Si el listado de
+tamaños no contesta —fuera de plan, proveedor caído— y la caja recortara igual,
+estaría enseñando «solo las grandes» **sin saber cuál es grande**. Así que:
+
+- se mide → se recorta, se cuentan las que quedaron fuera, y el pie dice el
+  umbral y el número;
+- no se mide → **salen todas** y el pie lo dice en ámbar, con el motivo real.
+
+Se prefiere una caja larga que explica por qué, a una corta que no puede
+justificar a quién dejó fuera. Hay un caso que lo fija por su nombre.
+
+Dentro de cada día van de mayor a menor —la que mueve el índice primero— y el
+tamaño va en la ayuda emergente, no en la ficha: son decenas de etiquetas y
+meter «$3T» en cada una convierte la caja en una tabla.
+
+### Lo que NO puedo cerrar desde aquí
+
+El screener es el **único endpoint nuevo**, y el contenedor de desarrollo
+bloquea `financialmodelingprep.com` con 403 de política. Así que la forma real
+de su respuesta —que exista en el plan de Kevin, que acepte
+`marketCapMoreThan`, que devuelva `marketCap`— **no la cubre ningún test**.
+Va al preflight (`preflight_calendario.py §2-ter`), que llama a la función de
+producción y además avisa si el listado llega al tope de 5.000 filas: uno
+recortado convertiría empresas grandes en «pequeñas» sin decirlo.
+
+Si el endpoint no estuviera en el plan, la caja **no se rompe**: cae al camino
+de «no se pudo medir», enseña todas y lo dice.
+
+### Estado
+
+**3.402 tests del motor · 875 de la capa web (4 nuevos, 1 reescrito) · 92 de
+navegador (1 nuevo) · 267 checks de auditoría.**

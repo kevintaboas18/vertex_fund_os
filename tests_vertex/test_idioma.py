@@ -156,6 +156,11 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
         # archivos y el nombre de la rama, así que van por `VX_PAT`; el
         # extractor las corta en el `${` y ve solo la mitad de delante.
         "Aparcado a salvo",
+        # El pie de la caja de resultados lleva el umbral dentro, así que la
+        # frase entera va por `VX_PAT`. El extractor la parte por el `${` y ve
+        # las dos mitades sueltas.
+        "Solo las grandes: más de",
+        "de capitalización.",
         "✓ Lo pendiente NO se pierde: el respaldo a la rama de datos está "
         "averiado y hay que mirarlo, pero el trabajo ya se aparcó en GitHub y "
         "el próximo arranque lo recoge. Rama:",

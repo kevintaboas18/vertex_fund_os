@@ -1979,11 +1979,17 @@ class TestLasDosCAJASDelCalendario:
         hoy = __import__("datetime").date.today().isoformat()
         por_defecto = {
             "ok": True,
+            # Con la forma REAL que sirve el servidor: medida hecha, umbral y
+            # capitalización por fila. Sin ellos la caja se pinta por el camino
+            # de «no se pudo medir», y el navegador no llegaría a ver nunca el
+            # camino bueno.
             "resultados": {"filas": [
                 {"ticker": "NVDA", "fecha": hoy, "sector": "XLK",
-                 "sector_nombre": "Tecnología", "cuando": "amc"},
+                 "sector_nombre": "Tecnología", "cuando": "amc", "cap": 3.4e12},
                 {"ticker": "JPM", "fecha": hoy, "sector": "XLF",
-                 "sector_nombre": "Financiero", "cuando": "bmo"}], "motivo": ""},
+                 "sector_nombre": "Financiero", "cuando": "bmo", "cap": 7.1e11}],
+                "motivo": "", "medida": True, "fuera": 37,
+                "umbral": 10_000_000_000, "motivo_tamano": ""},
             "macro": {"filas": [
                 {"serie": "UNRATE", "nombre": "Paro", "valor": 4.1,
                  "previo": 4.3, "fecha": "2026-07-01"},
@@ -2020,6 +2026,20 @@ class TestLasDosCAJASDelCalendario:
                     " txt: n.innerText.trim().length} : null; }", ident)
                 assert caja and caja["alto"] > 40 and caja["txt"] > 10, (
                     f"[{nombre}] {ident} no se ve: {caja}")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_la_caja_PINTA_el_corte_por_tamano(self, navegador, servidor):
+        """«Los más importantes, no todos.» Un recorte que no dice dónde corta
+        no se distingue de un fallo que se comió filas: la primera vez que
+        falte una empresa esperada, la caja tiene que contestar sola."""
+        pg, errores = self._abre(navegador, servidor, self.ESCRITORIO)
+        try:
+            txt = pg.evaluate(
+                "() => document.getElementById('sectoresResultados').innerText")
+            assert "$10B" in txt, f"no se pinta el umbral: {txt[:300]}"
+            assert "37" in txt, "no se dice cuántas quedaron fuera"
             assert not errores, errores[:3]
         finally:
             pg.close()

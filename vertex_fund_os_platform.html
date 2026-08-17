@@ -2043,6 +2043,16 @@ function vxCajaHTML(titulo, subtitulo, cuerpo) {
       </div>${cuerpo}</div>`;
 }
 
+// El tamaño de una empresa, corto. Es la EVIDENCIA del recorte: la caja solo
+// enseña las grandes, así que cada una tiene que poder decir cuánto mide.
+function vxCapCorta(v) {
+    const a = Math.abs(Number(v) || 0);
+    if (!a) return '';
+    if (a >= 1e12) return '$' + (a / 1e12).toFixed(1) + 'T';
+    if (a >= 1e9) return '$' + Math.round(a / 1e9) + 'B';
+    return '$' + Math.round(a / 1e6) + 'M';
+}
+
 function vxResultadosHTML(d) {
     const r = (d || {}).resultados || {};
     const filas = r.filas || [];
@@ -2059,8 +2069,7 @@ function vxResultadosHTML(d) {
         const hoy = vxFechaCorta(fecha);
         const destaca = hoy === 'hoy' || hoy === 'mañana';
         const delDia = porDia[fecha];
-        // Las de los once sectores primero: son las que mueven el mapa de
-        // arriba. El resto detrás, no fuera.
+        // La más grande primero dentro del día: es la que mueve el índice.
         return `<div class="flex items-start gap-2 py-1 border-t border-gray-800/60 first:border-0">
           <span class="text-[10px] font-bold w-20 shrink-0 ${
             destaca ? 'text-amber-400' : 'text-gray-500'}">${_vcEsc(hoy)}
@@ -2071,18 +2080,37 @@ function vxResultadosHTML(d) {
             // hueco vacío se lee mejor que un ETF inventado.
             const casilla = f.sector
                 ? `<span class="text-gray-600 ml-1">${_vcEsc(f.sector)}</span>` : '';
+            // El tamaño va en la ayuda emergente y no en la etiqueta: son
+            // decenas de fichas y meter «$3T» en cada una convierte la caja en
+            // una tabla. Lo que se ve es el orden; el número está a un cursor.
+            const cap = vxCapCorta(f.cap);
             return `<span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${
               f.sector ? 'bg-white/[0.06] text-gray-200' : 'bg-white/[0.02] text-gray-400'}"
-              title="${_vcEsc(f.sector_nombre || 'fuera de los once sectores')}${c ? ' · ' + _vcEsc(c) : ''}">${
+              title="${_vcEsc(f.sector_nombre || 'fuera de los once sectores')}${
+              cap ? ' · ' + _vcEsc(cap) : ''}${c ? ' · ' + _vcEsc(c) : ''}">${
               _vcEsc(f.ticker)}${casilla}</span>`;
           }).join('')}</span></div>`;
     }).join('');
     const recortadas = r.recortadas || 0;
+    const fuera = r.fuera || 0;
+    // El umbral se PINTA. Un recorte que no dice dónde corta no se distingue
+    // de un fallo que se comió filas, y la primera vez que Kevin no vea una
+    // empresa que esperaba, la caja tiene que poder contestarle sola.
+    const corte = vxCapCorta(r.umbral);
     return vxCajaHTML('Resultados que vienen',
         `${filas.length} empresas · próximos 14 días`,
         `<div class="max-h-[28rem] overflow-y-auto pr-1">${cuerpo}</div>`
         + (recortadas ? `<p class="text-[9px] text-amber-500/80 mt-1">Y ${recortadas} más que no caben en la caja.</p>` : '')
-        + `<p class="text-[9px] text-gray-600 mt-2">Todas las empresas de EE.UU. que reportan. Las que forman los once sectores llevan su ETF al lado y van primero; pasa el cursor para ver si reporta antes de abrir o tras el cierre.</p>`);
+        // Tres trozos y no una frase: el barrido del idioma traduce NODOS DE
+        // TEXTO enteros, así que una frase que cambia de forma según haya o no
+        // empresas fuera necesitaría un patrón por variante. Separados, cada
+        // uno se traduce por su cuenta y el del medio puede faltar.
+        + (r.medida
+            ? `<p class="text-[9px] text-gray-600 mt-2"><span>Solo las grandes: más de ${_vcEsc(corte)} de capitalización.</span>${
+                fuera ? ` <span>Se dejan fuera ${fuera} más pequeñas.</span>` : ''} <span>Dentro de cada día van de mayor a menor; pasa el cursor para ver el tamaño y si reporta antes de abrir o tras el cierre.</span></p>`
+            // Sin medida NO se recorta: salen todas y se dice por qué. Callarlo
+            // dejaría una caja que parece filtrada y no lo está.
+            : `<p class="text-[9px] text-amber-500/80 mt-2">${_vcEsc(r.motivo_tamano || 'No se pudo medir el tamaño: salen todas las que reportan.')}</p>`));
 }
 
 //: Un número del calendario, con su unidad si la trae.
@@ -12943,6 +12971,10 @@ const VX_ES2EN = {
     "más que no caben en la caja.": "more that do not fit in the box.",
     "Cada cifra con LA FECHA en que se publicó: el IPC de hoy es el del mes pasado. La flecha compara con la lectura anterior. Fuente: FRED.": "Every figure with THE DATE it was published: today's CPI is last month's. The arrow compares against the previous reading. Source: FRED.",
     "Falta FMP_API_KEY: sin ella no hay fechas de resultados.": "FMP_API_KEY is missing: without it there are no earnings dates.",
+    "Dentro de cada día van de mayor a menor; pasa el cursor para ver el tamaño y si reporta antes de abrir o tras el cierre.": "Within each day they go largest to smallest; hover to see the size and whether it reports before the open or after the close.",
+    "El listado de capitalizaciones vino vacío: salen todas las que reportan.": "The market-capitalisation listing came back empty: every company reporting is shown.",
+    "El listado de capitalizaciones no traía el campo `marketCap`: salen todas las que reportan.": "The market-capitalisation listing did not carry the `marketCap` field: every company reporting is shown.",
+    "No se pudo medir el tamaño: salen todas las que reportan.": "The size could not be measured: every company reporting is shown.",
     "Sin FRED_API_KEY no hay datos macro: la inflación, la tasa de la Fed y el paro salen de ahí.": "Without FRED_API_KEY there is no macro data: inflation, the Fed funds rate and unemployment all come from there.",
     "Ninguna de las empresas que forman los once sectores reporta en los próximos catorce días.": "None of the companies that make up the eleven sectors reports in the next fourteen days.",
     "Sin datos del grupo.": "No data for the group.",
@@ -14050,6 +14082,14 @@ const VX_PAT = [
      'are trades with an unusual score (≥$1/30).'],
     [/^NO se está guardando · (\d+) en riesgo$/, 'NOT being saved · $1 at risk'],
     [/^Aparcado a salvo · (\d+) sin subir$/, 'Parked safe · $1 not uploaded'],
+    // ── El corte por tamaño de la caja de resultados ─────────────────────
+    [/^Solo las grandes: más de (\S+) de capitalización\.$/,
+     'Large caps only: more than $1 in market capitalisation.'],
+    [/^Se dejan fuera (\d+) más pequeñas\.$/, '$1 smaller ones are left out.'],
+    [/^No se pudo medir el tamaño \((.+)\): salen todas las que reportan\.$/,
+     'The size could not be measured ($1): every company reporting is shown.'],
+    [/^Ninguna empresa de más de (\d+) mil millones reporta en los próximos (\d+) días\.$/,
+     'No company larger than $1 billion reports in the next $2 days.'],
     [/^✓ Lo pendiente NO se pierde: el respaldo a la rama de datos está averiado y hay que mirarlo, pero el trabajo ya se aparcó en GitHub y el próximo arranque lo recoge\. Rama: (\S+)$/,
      '✓ What is pending is NOT lost: the backup to the data branch is broken and needs looking at, but the work is already parked on GitHub and the next start-up picks it up. Branch: $1'],
     [/^⚠ TUS DATOS ESTÁN EN RIESGO: hay (\d+) archivo\(s\) sin subir\. Si el servidor se reinicia ahora, las cuentas y los reportes que no hayan subido desaparecen\.$/,
