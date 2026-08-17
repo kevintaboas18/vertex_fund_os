@@ -1681,14 +1681,19 @@ class TestLaPerdidaMAXIMAEsDeLaPOSICION_NoDeLaCuenta:
         assert "P.perdida_max" in f, "la tarjeta sigue pintando el % de la cuenta"
         assert "de la posición" in f, "no dice sobre qué se aplica el %"
 
-    def test_la_tarjeta_DELATA_el_presupuesto_con_el_que_dimensiona_el_motor(self):
-        """El hueco que hacía la pantalla incoherente: arriba promete posiciones
-        de hasta $800 y abajo la columna «te cabe» dice «no cabe», porque
-        `size_flow` NO usa esa banda — dimensiona con el presupuesto de prima
-        ($300) y el de theta ($50). Callarlo deja al panel prometiendo un tamaño
-        que su propia tabla niega sin explicar por qué."""
+    def test_la_tarjeta_ENSEÑA_los_dos_techos_que_uso_el_motor(self):
+        """La tarjeta tiene que explicar por qué una fila cabe o no.
+
+        Nació midiendo el hueco: el panel prometía posiciones de hasta $800 y
+        la tabla decía «no cabe» porque `size_flow` dimensionaba con el 30% de
+        la cuenta. Ese hueco se cerró —la banda ya manda—, así que lo que se
+        vigila ahora es otra cosa: que los dos techos que se pintan sean los
+        que el motor **acaba de usar**, no una copia escrita a mano. Con dos
+        modelos de riesgo posibles, una copia se separa de la buena en cuanto
+        un perfil cambie de uno al otro.
+        """
         h = (ROOT / "vertex_fund_os_platform.html").read_text(encoding="utf-8")
         f = h.split("function vcRiesgoHTML(P) {", 1)[1].split("\n}\n", 1)[0]
-        assert "te cabe" in f and "presupuesto de prima" in f, (
-            "no se explica por qué la tabla dice «no cabe» con posiciones que "
-            "sí entran en la banda del perfil")
+        assert "te cabe" in f, "no se ata la tarjeta con la columna de la tabla"
+        assert "P.budget_premium" in f and "P.budget_theta" in f, (
+            "los techos se recalculan en el navegador en vez de venir del motor")

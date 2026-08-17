@@ -438,15 +438,37 @@ class TestElPayloadTraeLoQueSusComponentesLeen:
 
     # ── RiskProfileCard ──────────────────────────────────────────────────
     def test_los_dos_presupuestos_viajan_calculados(self, client, monkeypatch):
+        """Los dos techos con los que se dimensionó, pedidos AL MOTOR.
+
+        Nació por un fallo concreto: el de theta se calculaba como un % del
+        riesgo por operación en vez de un % de la cuenta —$7,50 en vez de $50—
+        y sobre ese número se descartaban contratos perfectamente operables.
+        Comprobaba `capital × 5%`, que era la fórmula buena entonces.
+
+        Ahora hay DOS modelos —el de Víctor y el de Kevin, y el perfil decide—
+        así que fijar una fórmula aquí volvería a poner una segunda aritmética
+        que puede separarse de la del motor. Lo que se exige es más fuerte y no
+        caduca: que lo servido sea EXACTAMENTE lo que devuelve `budgets_of`.
+        """
         import wbj.tito.marketsnack as MS
         from wbj.tito.marketsnack import FlowResult
+        from wbj.tito.risk import RiskProfile, budgets_of
 
         monkeypatch.setattr(MS, "fetch_market_flow", lambda **k: FlowResult(
             trades=[], pages=1, truncated=False))
         P = client.get("/api/tito-ideas").json()["perfil"]
         assert P["theta_budget_pct"] == 5.0
-        # Es un % de la CUENTA, no del riesgo por operación.
-        assert P["theta_budget"] == pytest.approx(P["capital"] * 5 / 100)
+        pos = P["max_posicion_pct"]
+        b = budgets_of(RiskProfile(
+            account_size=P["capital"], tolerance_pct=P["riesgo_pct"],
+            max_position_pct=float(pos[1]), loss_pct_of_position=P["riesgo_pct"]))
+        assert P["budget_premium"] == pytest.approx(b.premium)
+        assert P["budget_theta"] == pytest.approx(b.theta)
+        assert P["theta_budget"] == pytest.approx(b.theta), (
+            "el campo viejo dejó de seguir al presupuesto real")
+        # Y el fallo original, en su forma general: el techo de theta no puede
+        # ser una miga. Con $1.000 eran $7,50 y casi nada pasaba el filtro.
+        assert P["budget_theta"] > P["capital"] * 0.01
 
 
 class TestElProxyDelLogo:

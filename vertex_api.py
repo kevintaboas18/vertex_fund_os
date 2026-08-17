@@ -5617,7 +5617,18 @@ def tito_ideas(request: Request):
     # ofrecía nada.
     from wbj.tito.risk import RiskProfile, size_flow
     _perfil = _perfil_leer(request)
-    _rp = RiskProfile(account_size=_perfil["capital"], tolerance_pct=_perfil["riesgo_pct"])
+    # El perfil de Kevin, no el de Víctor: el techo de despliegue es su banda
+    # de posición (el 5-80% que contestó) y el de theta es la pérdida que
+    # acepta sobre ese despliegue. Antes ese 5-80% solo se PINTABA: `size_flow`
+    # dimensionaba con el 30% de la cuenta y por eso la columna «te cabe» decía
+    # «no cabe» en posiciones que sí entraban en su banda.
+    from wbj.tito.risk import budgets_of as _budgets_of
+    _pos = _perfil.get("max_posicion_pct") or []
+    _rp = RiskProfile(account_size=_perfil["capital"],
+                      tolerance_pct=_perfil["riesgo_pct"],
+                      max_position_pct=(float(_pos[1]) if len(_pos) == 2 else None),
+                      loss_pct_of_position=_perfil["riesgo_pct"])
+    _budgets = _budgets_of(_rp)
     _sizing = {}
     for r in operables:
         try:
@@ -5715,7 +5726,17 @@ def tito_ideas(request: Request):
                    # contratos perfectamente operables. Viaja calculado por el
                    # motor para que la pantalla no vuelva a decidirlo.
                    "theta_budget_pct": _THETA_BUDGET_PCT,
-                   "theta_budget": _r(_perfil["capital"] * _THETA_BUDGET_PCT / 100),
+                   # Los DOS presupuestos con los que se acaba de dimensionar,
+                   # pedidos al motor y no recalculados aquí. Es lo que la
+                   # tarjeta enseña para explicar por qué una fila cabe o no, y
+                   # con dos modelos posibles —el de Víctor y el de Kevin— una
+                   # copia escrita a mano se separaría de la buena en cuanto el
+                   # perfil cambiara de uno a otro.
+                   "budget_premium": _r(_budgets.premium),
+                   "budget_theta": _r(_budgets.theta),
+                   # Se conserva por compatibilidad con lo guardado antes, pero
+                   # lo que manda es `budget_theta`.
+                   "theta_budget": _r(_budgets.theta),
                    # El horizonte con el que se dimensionó. `size_flow` quema
                    # theta hasta esta fecha, así que el «te cabe» CAMBIA con él:
                    # sin decirlo, el techo de contratos es un número sin unidad.

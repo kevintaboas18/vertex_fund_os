@@ -92,6 +92,27 @@ class RiskProfile:
     #: % de la cuenta que acepta arriesgar por trade (el slider).
     tolerance_pct: float
 
+    # ── Los dos campos del MODELO DE KEVIN ───────────────────────────────────
+    #
+    # Van con `None` por defecto **a propósito**: sin ellos `budgets_of` se
+    # comporta exactamente igual que el `budgetsOf` de su `risk.ts`, así que la
+    # paridad con Víctor no se toca y `diff_motor.sh` sigue en cero. La
+    # divergencia es opcional y declarada, no una reescritura.
+    #
+    # El modelo de Víctor y el de Kevin son los dos coherentes, pero distintos:
+    #
+    #   Víctor: «puedo perder el X% de la CUENTA» → despliega como mucho ese X%,
+    #           porque una opción larga puede irse a cero. No supone que un stop
+    #           llegue a ejecutarse.
+    #   Kevin:  «despliego entre el 5% y el 80% de la cuenta y corto en −30% de
+    #           lo que puse». El % es de LA POSICIÓN, no de la cuenta.
+    #
+    #: Techo de despliegue, en % de la cuenta (el extremo alto de la banda
+    #: «cuánto capital puede ocupar UNA sola posición»).
+    max_position_pct: float | None = None
+    #: Pérdida que se acepta, en % de LO QUE CUESTA LA POSICIÓN.
+    loss_pct_of_position: float | None = None
+
 
 @dataclass(frozen=True)
 class Budgets:
@@ -134,12 +155,42 @@ def _safe(n) -> float:
 
 
 def budgets_of(profile: RiskProfile) -> Budgets:
+    """Los dos presupuestos con los que `size_flow` pone el techo.
+
+    Dos modelos, y el del perfil manda:
+
+    - **Sin `max_position_pct`** (el de Víctor, y el de cualquier `RiskProfile`
+      construido con dos campos): prima = X% de la CUENTA, theta = 5% de la
+      cuenta. Literal a su `budgetsOf`. No se ha tocado.
+
+    - **Con `max_position_pct`** (el de Kevin): el techo de despliegue es su
+      banda de posición, y el de theta es la pérdida que acepta sobre ese
+      despliegue. Los dos salen de lo que contestó, en vez de que su 5-80% se
+      quedara sin llegar nunca a la matemática.
+
+    El presupuesto de theta sigue yendo APARTE del de prima y por el motivo de
+    siempre: si fueran el mismo, `presupuesto/quema >= presupuesto/costo` para
+    toda opción larga —la quema se topa en el costo— y el `min` elegiría la
+    prima el 100% de las veces. Aquí no pasa: el de theta es una FRACCIÓN del
+    de prima, así que muerde en cuanto la quema del horizonte se come más de
+    ese % del contrato.
+    """
     account = _safe(getattr(profile, "account_size", 0))
     tolerance = _safe(getattr(profile, "tolerance_pct", 0))
-    return Budgets(
-        premium=account * tolerance / 100,
-        theta=account * THETA_BUDGET_PCT / 100,
-    )
+    pos_pct = getattr(profile, "max_position_pct", None)
+    if pos_pct is None or _safe(pos_pct) == 0:
+        return Budgets(
+            premium=account * tolerance / 100,
+            theta=account * THETA_BUDGET_PCT / 100,
+        )
+    premium = account * _safe(pos_pct) / 100
+    # La pérdida aceptada sobre lo que se despliega. Sin ese dato se cae al
+    # techo de theta de siempre: inventarse un porcentaje sería peor que usar
+    # el que ya está justificado en el documento de Inusualidad.
+    perdida = getattr(profile, "loss_pct_of_position", None)
+    theta = (premium * _safe(perdida) / 100 if perdida is not None
+             and _safe(perdida) > 0 else account * THETA_BUDGET_PCT / 100)
+    return Budgets(premium=premium, theta=theta)
 
 
 def passes_quality_filter(row: FlowRow) -> QualityResult:

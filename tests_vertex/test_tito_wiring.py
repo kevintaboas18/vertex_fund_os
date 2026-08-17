@@ -1045,6 +1045,34 @@ class TestIdeasDelMercado:
                                  if (i["sizing"] or {}).get("max_contracts"))
         assert any(i["sizing"] for i in d["ideas"]), "ninguna idea trae sizing"
 
+    def test_el_sizing_usa_LA_BANDA_DE_POSICION_del_perfil(self, client, mercado):
+        """«Vamos a hacerlo como yo digo.»
+
+        El 5-80% que Kevin contestó se PINTABA pero no llegaba a la matemática:
+        `size_flow` dimensionaba con el 30% de la cuenta, así que el panel
+        prometía posiciones de hasta $800 y la tabla decía «no cabe» en un
+        contrato de $498. Ahora los dos techos salen de lo que contestó.
+        """
+        from wbj.tito.risk import RiskProfile, budgets_of
+
+        p = client.get("/api/tito-ideas").json()["perfil"]
+        pos = p["max_posicion_pct"]
+        # El techo de despliegue es el extremo alto de SU banda, no el % de
+        # riesgo sobre la cuenta.
+        assert p["budget_premium"] == pytest.approx(
+            p["capital"] * pos[1] / 100, abs=0.01), (
+            "el motor sigue dimensionando con el % de riesgo sobre la cuenta")
+        # Y el de theta es la pérdida que acepta sobre ese despliegue.
+        assert p["budget_theta"] == pytest.approx(
+            p["budget_premium"] * p["riesgo_pct"] / 100, abs=0.01)
+        # Y lo que se sirve es lo que el motor calcula, no una copia: si la
+        # ruta se pusiera a hacer su propia aritmética, esto lo caza.
+        b = budgets_of(RiskProfile(
+            account_size=p["capital"], tolerance_pct=p["riesgo_pct"],
+            max_position_pct=float(pos[1]), loss_pct_of_position=p["riesgo_pct"]))
+        assert (p["budget_premium"], p["budget_theta"]) == pytest.approx(
+            (b.premium, b.theta), abs=0.01)
+
     def test_lo_que_no_te_cabe_se_baja_pero_NO_se_esconde(self, client, mercado):
         """Que una operación esté fuera de tu presupuesto es información, no
         ruido. Se ordena —las que caben primero— y se marca; nunca se filtra."""

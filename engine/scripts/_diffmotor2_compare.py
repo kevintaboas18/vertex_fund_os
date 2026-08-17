@@ -294,6 +294,13 @@ for i, (c, v) in enumerate(zip(C["risk"], V["risk"])):
         p = c.get("profile", UNDEFINED)
         # Sin `_receptor`: su `sizeFlow` lee el perfil con encadenamiento
         # opcional (`safe(profile?.accountSize)`), así que un `null` NO lanza.
+        #
+        # DOS CAMPOS Y NO CUATRO, a propósito. `RiskProfile` tiene además
+        # `max_position_pct` y `loss_pct_of_position` —el modelo de Kevin—, y su
+        # TypeScript no los conoce. Construir el perfil con ellos aquí compararía
+        # nuestro modelo contra un archivo que no lo tiene y saldría un
+        # diferencial que no es un fallo. Con los dos de siempre, `budgets_of`
+        # toma el camino de su `budgetsOf` y esto sigue midiendo la paridad.
         perfil = RiskProfile(account_size=g(p, "accountSize"),
                              tolerance_pct=g(p, "tolerancePct"))
         fila = _fila(c["row"])

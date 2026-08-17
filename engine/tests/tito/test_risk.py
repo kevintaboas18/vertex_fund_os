@@ -218,3 +218,99 @@ def test_min_dte_deja_pasar_semanales_pero_no_el_0dte():
     assert passes_quality_filter(row(dte=2)).ok is True
     assert passes_quality_filter(row(dte=1)).reason == "vencido"
     assert passes_quality_filter(row(dte=0, expiry_status="expira_hoy")).reason == "vencido"
+
+
+class TestElModeloDeKevin:
+    """«Vamos a hacerlo como yo digo.»
+
+    Dos modelos de riesgo, los dos coherentes, y el perfil decide cuál corre:
+
+      Víctor: «puedo perder el X% de la CUENTA» → despliega como mucho ese X%,
+              porque una opción larga puede irse a cero. No supone que un stop
+              llegue a ejecutarse.
+      Kevin:  «despliego entre el 5% y el 80% de la cuenta y corto en −30% de lo
+              que puse». El % es de LA POSICIÓN, no de la cuenta.
+
+    Hasta aquí el 5-80% que Kevin contestó **no llegaba nunca a la matemática**:
+    `size_flow` dimensionaba con el 30% de la cuenta ($300) y su banda solo se
+    pintaba. Por eso el panel prometía posiciones de hasta $800 y la tabla de al
+    lado decía «no cabe» en un contrato de $498.
+    """
+
+    #: $1.000, especulativo (30%), posiciones del 5% al 80%.
+    KEVIN = RiskProfile(account_size=1_000, tolerance_pct=30,
+                        max_position_pct=80, loss_pct_of_position=30)
+    VICTOR = RiskProfile(account_size=1_000, tolerance_pct=30)
+
+    def test_sin_los_campos_nuevos_NADA_cambia(self):
+        """Lo que protege la paridad. `budgets_of` con un perfil de dos campos
+        —el de Víctor, el de `diff_motor.sh`, el de todos los casos de arriba—
+        tiene que dar exactamente lo de siempre."""
+        b = budgets_of(self.VICTOR)
+        assert b.premium == 300  # 30% de la cuenta
+        assert b.theta == 500 / 10  # 5% de la cuenta
+
+    def test_con_ellos_manda_LA_BANDA_DE_POSICION(self):
+        b = budgets_of(self.KEVIN)
+        assert b.premium == 800, "el techo de despliegue no es su 80%"
+        # La pérdida que acepta sobre lo que despliega: 30% de $800.
+        assert b.theta == 240, "el techo de theta no es su pérdida aceptada"
+
+    def test_su_CONTRATO_DE_EJEMPLO_deja_de_ser_imposible(self):
+        """$4.98 son $498 de posición, dentro de su banda de $50-$800. Con el
+        modelo de Víctor salía 0 contratos —$498 > $300— y la fila se pintaba
+        «no cabe»."""
+        r = row(price=4.98, theta=-0.02, dte=60, theta_pct_daily=0.4)
+        assert size_flow(r, self.VICTOR, 90).max_contracts == 0
+        assert size_flow(r, self.KEVIN, 90).max_contracts == 1
+
+    def test_el_theta_SIGUE_pudiendo_frenar(self):
+        """El motivo por el que los dos presupuestos van aparte: si fueran el
+        mismo, `presupuesto/quema >= presupuesto/costo` para toda opción larga
+        —la quema se topa en el costo— y el `min` elegiría la prima siempre. La
+        capa de theta sería código muerto."""
+        # Quema $0,05 x 100 x 60 = $300 sobre un contrato de $498: más del 30%
+        # que acepta perder, así que su propia regla lo tumba.
+        caro = row(price=4.98, theta=-0.05, dte=60, theta_pct_daily=1.0)
+        assert size_flow(caro, self.KEVIN, 90).max_contracts == 0
+        # Y con una quema pequeña manda la prima, no el theta.
+        sano = row(price=1.66, theta=-0.002, dte=123, theta_pct_daily=0.12)
+        s = size_flow(sano, self.KEVIN, 90)
+        assert s.max_contracts == 4 and s.binding == "prima"
+
+    def test_sin_la_perdida_aceptada_cae_al_techo_de_siempre(self):
+        """Inventarse un porcentaje sería peor que usar el que ya está
+        justificado en el documento de Inusualidad."""
+        p = RiskProfile(account_size=1_000, tolerance_pct=30, max_position_pct=80)
+        assert budgets_of(p).theta == 50
+
+    def test_nunca_negativo_ni_nan_con_entradas_basura(self):
+        for p in (
+            RiskProfile(account_size=1_000, tolerance_pct=30, max_position_pct=-5),
+            RiskProfile(account_size=1_000, tolerance_pct=30,
+                        max_position_pct=float("nan")),
+            RiskProfile(account_size=1_000, tolerance_pct=30, max_position_pct=80,
+                        loss_pct_of_position=float("nan")),
+        ):
+            b = budgets_of(p)
+            assert b.premium >= 0 and math.isfinite(b.premium)
+            assert b.theta >= 0 and math.isfinite(b.theta)
+
+    def test_el_DIFERENCIAL_no_le_pasa_los_campos_nuevos(self):
+        """Lo que mantiene honesto a `diff_motor2.sh`.
+
+        Su TypeScript no conoce `max_position_pct` ni `loss_pct_of_position`.
+        Si el comparador se los pasara, estaría midiendo nuestro modelo contra
+        un archivo que no lo tiene: saldría un diferencial que no es un fallo,
+        y el que de verdad importara se perdería entre el ruido.
+        """
+        import pathlib
+        import re
+
+        src = (pathlib.Path(__file__).resolve().parents[2] / "scripts"
+               / "_diffmotor2_compare.py").read_text(encoding="utf-8")
+        llamada = re.search(r"RiskProfile\((.*?)\)\n", src, re.S)
+        assert llamada, "el comparador ya no construye un RiskProfile"
+        for campo in ("max_position_pct", "loss_pct_of_position"):
+            assert campo not in llamada.group(1), (
+                f"el diferencial pasa `{campo}`, que su risk.ts no tiene")

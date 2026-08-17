@@ -8322,3 +8322,78 @@ cuenta).
 
 **3.402 tests del motor · 882 de la capa web (7 nuevos) · 92 de navegador ·
 267 checks de auditoría.**
+
+---
+
+## 41.76 · Ronda 51 — «vamos a hacerlo como yo digo»
+
+La ronda anterior dejó el hallazgo medido y sin tocar, porque cambiarlo era
+decisión de Kevin. La tomó: **el sizing pasa a su modelo.**
+
+### Los dos modelos
+
+| | Víctor | Kevin |
+|---|---|---|
+| Techo de despliegue | 30% de la **cuenta** = $300 | su banda de posición, 80% = **$800** |
+| Techo de theta | 5% de la cuenta = $50 | la pérdida que acepta, 30% de $800 = **$240** |
+| Supuesto | una opción larga puede irse a cero; no cuenta con que el stop llegue a ejecutarse | despliega su banda y corta en −30% de lo que puso |
+
+Los dos son coherentes. El de Víctor es más conservador. El de Kevin es el que
+él contestó en el cuestionario, y hasta ahora **su 5-80% no llegaba nunca a la
+matemática**: solo se pintaba.
+
+### Cómo se hizo sin romper la paridad
+
+`RiskProfile` gana dos campos **opcionales**, `max_position_pct` y
+`loss_pct_of_position`, y `budgets_of` bifurca:
+
+- **sin ellos** → literal a su `budgetsOf`. Es el camino que toman su
+  TypeScript, `diff_motor2.sh` y todos los casos que ya existían;
+- **con ellos** → los dos techos salen de lo que Kevin contestó.
+
+La divergencia es **opcional y declarada**, no una reescritura. Un caso vigila
+que el comparador del diferencial siga construyendo el perfil con dos campos:
+pasarle los nuevos compararía nuestro modelo contra un archivo que no los
+tiene, y saldría un diferencial que no es un fallo.
+
+El presupuesto de theta sigue yendo aparte del de prima, y por el motivo de
+siempre: si fueran el mismo, `presupuesto/quema ≥ presupuesto/costo` para toda
+opción larga —la quema se topa en el costo— y el `min` elegiría la prima el
+100% de las veces. Aquí no pasa, porque el de theta es una **fracción** del de
+prima: muerde en cuanto la quema del horizonte se come más del 30% del
+contrato. Hay un caso que lo fija.
+
+### Lo que cambia en su pantalla
+
+|  | coste | antes | ahora |
+|---|---|---|---|
+| BAC 60P | $166 | 1× $166 | **4× $664** |
+| BAC 70P | $137 | 1× $137 | **5× $685** |
+| su contrato de ejemplo | $498 | no cabe | **1× $498** |
+| TQQQ 60C | $1.832 | no cabe | no cabe |
+| SPX 7900C | $38.759 | no cabe | no cabe |
+
+Lo que sigue sin caber, sigue sin caber: con $1.000 un contrato de $38.759 no
+entra por ningún modelo. Lo que se arregló es que **lo que entra en su banda ya
+no se marca como imposible**.
+
+### Y la tarjeta lo dice con los números del motor
+
+El pie ya no describe el modelo viejo: enseña los dos techos que `budgets_of`
+**acaba de calcular** (`budget_premium`, `budget_theta`), pedidos al motor y no
+recalculados en el navegador. Con dos modelos posibles, una copia escrita a
+mano se separa de la buena en cuanto un perfil cambie de uno al otro.
+
+### Lo que queda abierto, medido y sin tocar
+
+`horizonte_dias` alimenta la quema de theta con el horizonte de **acciones**
+del perfil —el de Kevin es «1-3 años», que topa en 90 días— cuando su horizonte
+de **opciones** es «semanas a meses». Noventa días es el ajuste más duro
+posible para el theta, y es lo que sigue tumbando filas que a 45 días pasarían.
+No se toca: es otra decisión sobre qué significa su perfil, no un fallo de
+código.
+
+### Estado
+
+**3.409 tests del motor (7 nuevos) · 883 de la capa web (1 nuevo, 2 reescritos) ·
+92 de navegador · 267 checks de auditoría.**

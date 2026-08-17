@@ -8303,18 +8303,17 @@ function vcRiesgoHTML(P) {
       <p class="text-[9px] text-gray-600 mt-2 leading-relaxed">Estos números son un <b>techo</b>, no una sugerencia de compra. El límite de theta sale de la banda del
         documento de Inusualidad: un contrato que pierde más del ${theta}% de su valor al día se descarta por lotería.
         <button onclick="switchView('perfilView')" class="text-blue-400 hover:text-blue-300 font-bold ml-1">Editar perfil &rsaquo;</button></p>
-      <!-- Las dos advertencias que no se pueden omitir sin que la tarjeta
-           mienta. La primera: un stop no sobrevive a un hueco. La segunda: la
-           columna «te cabe» NO se calcula con el 5-80% de arriba, sino con el
-           presupuesto de prima del motor, y por eso puede decir «no cabe» en
-           una posición que sí entra en tu banda. Callarlo dejaría el panel
-           prometiendo un tamaño que la tabla luego niega sin explicación. -->
+      <!-- La advertencia que no se puede omitir sin que la tarjeta mienta: un
+           stop no sobrevive a un hueco. Y debajo, los DOS presupuestos con los
+           que el motor acaba de dimensionar, que son los que explican por qué
+           una fila cabe o no. Vienen calculados del motor, no escritos aquí. -->
       <p class="text-[9px] text-amber-600/80 mt-1 leading-relaxed">
         <!-- Sin `<b>` dentro: el barrido del idioma traduce nodos de texto, y
              una negrita en medio parte la frase en tres trozos sueltos que hay
              que declarar uno a uno. Va entera y se traduce entera. -->
-        <span>En una opción larga ese porcentaje es una disciplina de salida, no un suelo: un hueco a la baja se lleva la prima entera, así que lo que puedes perder de verdad es la posición completa.</span>
-        ${P.riesgo_por_trade != null ? ` <span>Y la columna «te cabe» de abajo NO usa esa banda: dimensiona con un presupuesto de prima de ${fmtMoney(P.riesgo_por_trade)} y uno de theta de ${fmtMoney(P.theta_budget != null ? P.theta_budget : P.capital * theta / 100)}, que es lo que hace que muchas filas salgan como «no cabe».</span>` : ''}</p>
+        <span>En una opción larga ese porcentaje es una disciplina de salida, no un suelo: un hueco a la baja se lleva la prima entera, así que lo que puedes perder de verdad es la posición completa.</span></p>
+      ${P.budget_premium != null ? `<p class="text-[9px] text-gray-600 mt-1 leading-relaxed">
+        <span>La columna «te cabe» de abajo dimensiona con estos dos techos: ${fmtMoney(P.budget_premium)} de prima y ${fmtMoney(P.budget_theta)} de quema de theta en tu horizonte. Manda el más estricto de los dos.</span></p>` : ''}
     </section>`;
 }
 
@@ -14117,8 +14116,8 @@ const VX_PAT = [
     [/^Se dejan fuera (\d+) más pequeñas\.$/, '$1 smaller ones are left out.'],
     // ── La tarjeta de riesgo: la pérdida es un % de LA POSICIÓN ──────────
     [/^(\S+)% de la posición$/, '$1% of the position'],
-    [/^Y la columna «te cabe» de abajo NO usa esa banda: dimensiona con un presupuesto de prima de (\S+) y uno de theta de (\S+), que es lo que hace que muchas filas salgan como «no cabe»\.$/,
-     'And the «fits you» column below does NOT use that band: it sizes with a premium budget of $1 and a theta budget of $2, which is what makes many rows come out as «does not fit».'],
+    [/^La columna «te cabe» de abajo dimensiona con estos dos techos: (\S+) de prima y (\S+) de quema de theta en tu horizonte\. Manda el más estricto de los dos\.$/,
+     'The «fits you» column below sizes with these two ceilings: $1 of premium and $2 of theta burn over your horizon. The stricter of the two wins.'],
     [/^No se pudo medir el tamaño \((.+)\): salen todas las que reportan\.$/,
      'The size could not be measured ($1): every company reporting is shown.'],
     [/^Ninguna empresa de más de (\d+) mil millones reporta en los próximos (\d+) días\.$/,
