@@ -67,13 +67,18 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 
 ```bash
 cd engine && python -m pytest tests/ -q    # 3390 pasan, 0 skips
-python -m pytest tests_vertex/ -q          # 923 pasan, 0 skips
-                                           # (832 de la capa web + 91 en un
+python -m pytest tests_vertex/ -q          # 928 pasan, 0 skips
+                                           # (837 de la capa web + 91 en un
                                            #  navegador real, cuatro tamaños)
 
 # Auditoría del tab de Proyecciones (267 checks). Con TITO_ROOT usa tu clon de
 # su repo en vez de GitHub, y así cubre también su web/app/api.
 TITO_ROOT=/ruta/a/agente-tito-metralleta python engine/scripts/auditar_tito.py
+
+# Las dos cajas del Dashboard contra las APIs DE VERDAD. Ningún test lo cubre:
+# el contenedor de desarrollo bloquea FMP y FRED con 403, así que la forma real
+# de la respuesta solo se comprueba con las claves puestas. No imprime ninguna.
+FMP_API_KEY=... FRED_API_KEY=... python engine/scripts/preflight_calendario.py
 
 # Los 16 diferenciales: ejecutan SU TypeScript y comparan contra el port.
 for d in engine/scripts/diff_*.sh; do TITO_ROOT=/ruta/a/su/repo "$d"; done

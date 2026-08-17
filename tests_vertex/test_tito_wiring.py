@@ -4973,3 +4973,50 @@ class TestElCALENDARIOyElSUELOMACRO:
         arranque = h.split("if (typeof cargaSectores === 'function') "
                            "cargaSectores();", 1)[1][:800]
         assert "cargaCalendario()" in arranque, "no se pide al cargar la página"
+
+
+class TestElPREFLIGHTDelCalendarioNoFILTRACLAVES:
+    """El preflight en vivo es lo único que puede cerrar la forma real de las
+    respuestas de FMP y FRED — y toca la red con las claves puestas.
+
+    Justo por eso es donde una clave se filtraría a una pantalla, a un
+    portapapeles o a un pantallazo pegado en un chat. La regla de la casa es
+    que de `API/` no sale nada, y aquí se fija.
+    """
+
+    @staticmethod
+    def _fuente():
+        return (ROOT / "engine" / "scripts"
+                / "preflight_calendario.py").read_text(encoding="utf-8")
+
+    def test_existe_y_lo_dice_en_su_docstring(self):
+        src = self._fuente()
+        assert "preflight" in src.lower()
+        assert "403" in src, (
+            "tiene que explicar POR QUÉ hace falta: el contenedor bloquea las "
+            "dos APIs, así que ningún test puede cubrir esto")
+
+    def test_NUNCA_imprime_el_valor_de_una_clave(self):
+        src = self._fuente()
+        # Se puede leer del entorno para PREGUNTAR, pero lo que se imprime es
+        # la longitud. Un `print` con la variable dentro sería la fuga.
+        for veneno in ('print(os.environ', 'print(f"{os.environ',
+                       'print(clave)', 'print(v)'):
+            assert veneno not in src, f"posible fuga de credencial: {veneno}"
+        assert "len(v)" in src, "tiene que decir la LONGITUD, no el valor"
+
+    def test_llama_a_las_funciones_DE_PRODUCCION(self):
+        """Si reimplementara el cálculo, verificaría su propia copia. Lo que
+        cierra el hueco es que corra el mismo código que el servidor."""
+        src = self._fuente()
+        assert "_resultados_calcula()" in src and "_macro_calcula()" in src
+
+    def test_caza_el_IPC_publicado_como_INDICE(self):
+        """El fallo más fácil de esa caja: FRED da el CPI como índice de tres
+        cifras y publicarlo crudo se ve como una inflación del 324%."""
+        src = self._fuente()
+        assert "ÍNDICE crudo" in src or "INDICE crudo" in src
+
+    def test_devuelve_codigo_de_salida_para_poder_encadenarlo(self):
+        src = self._fuente()
+        assert "return 1" in src and "SystemExit(main())" in src

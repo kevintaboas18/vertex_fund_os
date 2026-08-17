@@ -7746,7 +7746,37 @@ que ninguna clase de rejilla aplica—. El paralelo se fija sobre el marcado y e
 el navegador se mide lo que sí es medible: que las dos se ven, tienen alto y
 contenido, y en qué orden están en el DOM.
 
+### Y el hueco, con una llave para cerrarlo
+
+Lo que quedaba abierto no eran las claves —Kevin las tiene— sino **la red**:
+este contenedor devuelve 403 a `financialmodelingprep.com`, `api.stlouisfed.org`
+y `data.sec.gov` por política, con clave o sin ella. Y en el contenedor no hay
+ninguna clave configurada, que es lo correcto: `API/.env` está en `.gitignore` y
+nunca viaja con el repositorio.
+
+Comprobar eso se hizo **sin leer ni imprimir nada de `API/`**: con los propios
+accesores del motor, que devuelven un booleano y una longitud.
+
+Así que en vez de dejarlo como aviso, se añade `engine/scripts/preflight_calendario.py`
+—hermano de `preflight_vivo.py` y por el mismo motivo—. Se corre una vez con
+las claves puestas y dice:
+
+1. si las credenciales están (booleano y longitud, **nunca el valor**);
+2. si el calendario de FMP acepta el rango de fechas y trae `symbol`, `date` y
+   `when`;
+3. si las cinco series de FRED traen los meses que hace falta —trece para la
+   variación interanual del IPC—;
+4. y entonces llama a **las funciones de producción**, no a una copia: lo que
+   imprime es literalmente lo que verían las dos cajas.
+
+Con una trampa concreta vigilada: si el IPC saliera con tres cifras, es que se
+publicó el índice crudo en vez de la variación, y lo dice con esas palabras.
+
+Cinco casos fijan lo que importa de ese script: que exista, que **jamás imprima
+el valor de una clave**, que llame a las funciones de producción en vez de
+reimplementarlas, que cace el IPC crudo y que devuelva código de salida.
+
 ### Estado
 
-**3.390 tests del motor · 832 de la capa web (10 nuevos) · 91 en un navegador
+**3.390 tests del motor · 837 de la capa web (15 nuevos) · 91 en un navegador
 real (7 nuevos) · 267 checks de auditoría · preflight de Render en verde.**
