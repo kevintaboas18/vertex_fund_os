@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-17T16:49:02.576020+00:00",
+  "generado": "2026-08-17T17:20:10.650459+00:00",
   "sectores": {
     "XLK": {
       "pct": 58.3,
@@ -51,12 +51,11 @@
       "motivo": null
     },
     "XLY": {
-      "pct": 50.0,
+      "pct": 40.0,
       "n": 10,
       "encima": [
         "AMZN",
         "BKNG",
-        "LOW",
         "ORLY",
         "SBUX"
       ],
@@ -94,15 +93,14 @@
       "motivo": null
     },
     "XLP": {
-      "pct": 60.0,
+      "pct": 50.0,
       "n": 10,
       "encima": [
         "COST",
         "KO",
         "MDLZ",
         "PM",
-        "TGT",
-        "WMT"
+        "TGT"
       ],
       "miembros": 10,
       "motivo": null
