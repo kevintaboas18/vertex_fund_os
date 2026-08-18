@@ -126,9 +126,68 @@
            3) las tablas y barras de pestañas scrollean solas, sin barra visible
            4) los inputs miden >= 16px en movil (por debajo, iOS hace zoom al enfocar)  */
         html { -webkit-text-size-adjust: 100%; }
-        body { overflow-x: hidden; }
+        /* ══════════════════════════════════════════════════════════════════
+           QUE NADA HAGA EL DOCUMENTO MÁS ANCHO QUE LA PANTALLA
+
+           En el teléfono se veía el panel encogido a media pantalla, con una
+           franja muerta a la derecha y sin poder desplazarlo de lado. Ese es el
+           cuadro clásico de un documento más ancho que el viewport: iOS lo
+           aleja para que quepa —de ahí que todo salga pequeño— y el
+           `overflow-x: hidden` de abajo impide llegar a lo que sobresale, así
+           que ni se ve ni se alcanza.
+
+           `clip` y no `hidden` en `html`: `hidden` crea un contenedor de scroll
+           y eso ROMPE el `position: sticky` de la barra de navegación. `clip`
+           recorta sin crear scroll, que es justo lo que hace falta. */
+        html { overflow-x: clip; max-width: 100%; }
+        body { overflow-x: hidden; max-width: 100%; }
+        /* Un hijo de flex o de grid se NIEGA a encoger por debajo del ancho de
+           su contenido salvo que se le diga. Es lo que deja escapar una tabla
+           ancha: el contenedor con scroll nunca llega a recortarla porque el
+           padre creció con ella. */
+        main, main > *, .view-section, .view-section > * { min-width: 0; }
+        .vc-scroll, .xscroll, .overflow-x-auto { max-width: 100%; min-width: 0; }
+
+        /* ══════════════════════════════════════════════════════════════════
+           LO QUE NO PUEDE DEPENDER DE UN CDN
+
+           El diseño entero viene de `cdn.tailwindcss.com`. Si tarda o lo corta
+           un bloqueador —una red de móvil, un DNS lento, una VPN— estas reglas
+           son la diferencia entre «sin estilos» y «ROTO»: sin `hidden` se
+           pintan las siete pestañas a la vez, y sin `overflow-x: auto` las
+           tablas anchas empujan el documento y pasa justo lo de arriba.
+           Duplicarlas aquí no cambia nada cuando el CDN sí carga: son
+           idénticas a las suyas. */
+        .hidden { display: none; }
+        .overflow-x-auto { overflow-x: auto; }
+        .overflow-y-auto { overflow-y: auto; }
+        .overflow-hidden { overflow: hidden; }
+        .min-w-\[16px\] { min-width: 16px; }
+        .min-w-\[120px\] { min-width: 120px; }
+        .min-w-\[140px\] { min-width: 140px; }
+        .min-w-\[380px\] { min-width: 380px; }
+        .min-w-\[420px\] { min-width: 420px; }
+        .min-w-\[440px\] { min-width: 440px; }
+        .min-w-\[460px\] { min-width: 460px; }
+        .min-w-\[480px\] { min-width: 480px; }
+        .min-w-\[520px\] { min-width: 520px; }
+        .min-w-\[560px\] { min-width: 560px; }
+        .min-w-\[640px\] { min-width: 640px; }
+        .min-w-\[700px\] { min-width: 700px; }
+        .min-w-\[720px\] { min-width: 720px; }
+        .min-w-\[760px\] { min-width: 760px; }
+        .min-w-\[800px\] { min-width: 800px; }
         /* El notch/isla del iPhone y la barra de gestos */
         nav { padding-left: max(0.75rem, env(safe-area-inset-left)); padding-right: max(0.75rem, env(safe-area-inset-right)); }
+        /* Pegada arriba SIN depender del CDN. Va aquí por lo mismo que `.hidden`:
+           si Tailwind no llega, la barra se iría con el scroll y se perdería la
+           navegación entera. Y es la razón de que el recorte de arriba use
+           `clip` y no `hidden`, que crearía un contenedor de scroll y la
+           despegaría. */
+        /* `body > nav` y no `nav` a secas: el otro `<nav>` del panel es la miga
+           de pan de sectores, y pegarla arriba la dejaría flotando sobre el
+           contenido. */
+        body > nav { position: sticky; top: 0; z-index: 40; }
         .view-section { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
         /* Cualquier caja marcada como scroll horizontal: con inercia y sin barra visible */
         .xscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
@@ -937,7 +996,7 @@
 
         <div id="exploreResults" class="hidden bg-panel border border-panel rounded-2xl overflow-hidden mb-6">
             <div class="overflow-x-auto">
-                <table class="w-full text-xs" id="exploreTable">
+                <table class="vc-t w-full text-xs" id="exploreTable">
                     <thead>
                         <tr class="text-[10px] uppercase tracking-wider text-gray-500 border-b border-[#1F2532]">
                             <th class="text-left font-bold px-4 py-3">#</th>
@@ -11396,6 +11455,11 @@ function renderExplore() {
         </tr>`;
     }).join('');
     document.getElementById('exploreResults').classList.remove('hidden');
+    // Sin esto las tarjetas del móvil saldrían sin etiqueta: `vcTablaResponsive`
+    // copia el nombre de cada columna del `<thead>` a su celda. Era la única
+    // tabla del panel que no lo llamaba, y por eso la única que seguía siendo
+    // una tabla —y desbordando— en una pantalla de teléfono.
+    vcTablaResponsive('exploreResults');
     document.getElementById('exploreBuzzCount').textContent =
         `${exploreData.length} empresas · ordenadas por puntaje`;
 }

@@ -760,8 +760,17 @@ class TestEnEspanolTampocoQuedaIngles:
                 pg.wait_for_timeout(3000)
 
                 def texto():
+                    # También se destapa lo que Tailwind mostraría a 1280px pero
+                    # aquí no puede: el CDN está bloqueado en este contenedor, así
+                    # que una variante como `hidden lg:flex` —la fila de enlaces de
+                    # la barra, donde vive «Panel»— se queda oculta por el `.hidden`
+                    # propio del panel. A 1280px reales SÍ se ven, y lo que este
+                    # caso mide es la traducción, no la visibilidad.
                     return pg.evaluate("""() => {
                         document.querySelectorAll('.view-section')
+                            .forEach(v => v.classList.remove('hidden'));
+                        document.querySelectorAll(
+                            '[class*="sm:"],[class*="md:"],[class*="lg:"],[class*="xl:"]')
                             .forEach(v => v.classList.remove('hidden'));
                         return document.body.innerText;
                     }""")

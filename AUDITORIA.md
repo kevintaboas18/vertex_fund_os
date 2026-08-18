@@ -8650,3 +8650,84 @@ recuento de qué funciones son generadoras — solo las tres que deben serlo.
 
 **3.409 tests del motor · 892 de la capa web (3 nuevos) · 98 de navegador
 (3 nuevos) · 324 checks de auditoría contra su repo real, 0 fallos.**
+
+---
+
+## 41.80 · Ronda 55 — el panel a media pantalla en el teléfono
+
+> «¿Por qué en el teléfono me sale así? Me pasa igual con Analizar y Panel.
+> Se supone que se ajuste a la pantalla de cada teléfono, pero no se puede
+> mover para el lado.»
+
+El cuadro de la captura —contenido a media pantalla, franja muerta a la
+derecha, sin poder desplazarlo de lado— es el síntoma exacto de **un documento
+más ancho que el viewport**: iOS ALEJA la página para que quepa, por eso todo
+sale pequeño, y el `overflow-x: hidden` del `body` impide llegar a lo que
+sobresale. Ni se ve, ni se alcanza, ni se explica.
+
+### Medido, no supuesto
+
+Se montó el panel en Chromium a cuatro anchos reales y se comparó
+`documentElement.scrollWidth` con `clientWidth`. Con la tabla de Ideas pintada
+en vista Pro:
+
+| pantalla | documento | |
+|---|---|---|
+| iPhone SE 375 | **389** | se sale |
+| iPhone 14 390 | **405** | se sale |
+| iPhone Max 430 | **444** | se sale |
+
+Catorce píxeles de más bastan: iOS reduce la página al 96%… y ahí empieza el
+problema, porque **al ensancharse el documento la consulta
+`@media (max-width: 639px)` deja de aplicar**, las tablas vuelven a ser tablas
+de 700-800px y el desbordamiento se sostiene solo. Es un lazo que se
+realimenta, y explica que se vea igual de mal en todas las pestañas.
+
+### El arreglo, en el `<style>` propio
+
+- `html { overflow-x: clip }` — **`clip` y no `hidden`**: `hidden` crea un
+  contenedor de scroll y eso despega el `position: sticky` de la barra de
+  navegación. Hay un caso que lo comprueba en vez de confiar.
+- `min-width: 0` en `main`, en las vistas y en las cajas con scroll. Un hijo de
+  flex o de grid se **niega** a encoger por debajo de su contenido salvo que se
+  le diga: es lo que dejaba escapar la tabla ancha, porque el contenedor con
+  scroll nunca llegaba a recortarla.
+- La tabla del Explorador era **la única sin la clase `vc-t`**, así que era la
+  única que seguía siendo una tabla de verdad en el teléfono en vez de
+  convertirse en tarjetas. Ahora la lleva, y `renderExplore` estampa las
+  etiquetas con `vcTablaResponsive`.
+
+### Y lo que no puede depender de un CDN
+
+El diseño entero viene de `cdn.tailwindcss.com`. Si tarda o lo corta un
+bloqueador —una red de móvil, una VPN, un DNS lento— `hidden` no existe y **se
+pintan las siete pestañas a la vez**. Se duplican en el `<style>` propio las
+reglas cuya ausencia no degrada sino que ROMPE: `.hidden`, los tres
+`overflow-*`, los quince `min-w-[Npx]` y el `position: sticky` de la barra.
+Cuando el CDN sí carga no cambia nada: son idénticas.
+
+Sin `!important` a propósito: los cuatro `hidden lg:flex` del panel siguen
+comportándose igual, porque la hoja de Tailwind llega después y gana el empate.
+
+### Los guardianes
+
+Diecinueve casos nuevos de navegador: `scrollWidth ≤ clientWidth` en cuatro
+tamaños × tres vistas, lo mismo con la tabla ancha pintada en las dos vistas de
+Ideas, y la barra que sigue pegada arriba.
+
+Los seis que reproducen el fallo se comprobaron **en rojo** quitando la red y
+en verde con ella. El primer grupo que escribí pasaba con y sin arreglo —no
+pintaba la tabla— y por eso no bastaba: un guardián que no falla sin el arreglo
+no protege el arreglo.
+
+### Lo que este contenedor no puede ver
+
+El CDN de Tailwind está bloqueado aquí con 403 de política, así que **el layout
+real de su teléfono no se puede reproducir**. Lo que sí es medible es el
+invariante, y por eso el arreglo se puso donde no depende del CDN. Queda
+pendiente confirmarlo en su pantalla.
+
+### Estado
+
+**3.409 tests del motor · 892 de la capa web · 117 de navegador (19 nuevos) ·
+324 checks de auditoría contra su repo real, 0 fallos.**

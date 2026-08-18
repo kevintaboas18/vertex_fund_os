@@ -2341,3 +2341,140 @@ class TestLaVistaDeIDEASSePintaDeVerdad:
             assert not errores, errores[:3]
         finally:
             pg.close()
+
+
+class TestNadaSeSaleDeLaPANTALLA:
+    """«En el teléfono me sale así, y no se puede mover para el lado.»
+
+    El panel salía encogido a media pantalla, con una franja muerta a la derecha
+    y sin poder desplazarlo de lado. Ese es el cuadro exacto de un documento más
+    ancho que el viewport: iOS lo ALEJA para que quepa —por eso todo sale
+    pequeño— y el `overflow-x: hidden` del `body` impide llegar a lo que
+    sobresale. Ni se ve, ni se alcanza, ni se entiende.
+
+    La medida que lo decide es una sola y no admite interpretación:
+    `documentElement.scrollWidth` no puede pasar de `clientWidth`. Un elemento
+    ancho SÍ puede existir —una tabla de once columnas en un iPad— siempre que
+    scrollee DENTRO de su caja en vez de empujar el documento.
+
+    Se mide en los cuatro tamaños de la regla de la casa: teléfono, teléfono
+    grande, iPad y escritorio.
+    """
+
+    TAMANOS = [
+        ("iPhone SE", {"width": 375, "height": 667}),
+        ("iPhone 14", {"width": 390, "height": 844}),
+        ("iPad", {"width": 820, "height": 1180}),
+        ("escritorio", {"width": 1280, "height": 900}),
+    ]
+
+    @pytest.mark.parametrize("nombre,viewport", TAMANOS)
+    @pytest.mark.parametrize("vista", ["homeView", "projectionsView", "exploreView"])
+    def test_el_documento_no_es_mas_ancho_que_la_pantalla(
+            self, navegador, servidor, nombre, viewport, vista):
+        pg = navegador.new_page(viewport=viewport, device_scale_factor=2,
+                                is_mobile=viewport["width"] < 800, has_touch=True)
+        try:
+            pg.goto(servidor, wait_until="load")
+            pg.wait_for_timeout(1800)
+            try:
+                pg.evaluate(f"switchView('{vista}')")
+            except Exception:                     # una vista que no existe no es este test
+                pytest.skip(f"{vista} no está en el panel")
+            pg.wait_for_timeout(700)
+            d = pg.evaluate("""() => {
+                const de = document.documentElement;
+                const fuera = [];
+                document.querySelectorAll('*').forEach(el => {
+                    const r = el.getBoundingClientRect();
+                    if (r.right > de.clientWidth + 1 && r.width > de.clientWidth + 1) {
+                        fuera.push(el.tagName.toLowerCase() + '#' + (el.id || '') +
+                                   '.' + (el.className || '').toString().slice(0, 50) +
+                                   ' (' + Math.round(r.width) + 'px)');
+                    }
+                });
+                return { cw: de.clientWidth, sw: de.scrollWidth, fuera: fuera.slice(0, 5) };
+            }""")
+            assert d["sw"] <= d["cw"], (
+                f"[{nombre} · {vista}] el documento mide {d['sw']}px en una pantalla "
+                f"de {d['cw']}px: el teléfono se aleja para que quepa y todo sale "
+                f"pequeño. Lo que se sale: {d['fuera']}")
+        finally:
+            pg.close()
+
+    def test_la_barra_de_navegacion_SIGUE_pegada_arriba(self, navegador, servidor):
+        """El precio de contener el desbordamiento mal pagado.
+
+        `overflow-x: hidden` en `html` habría servido igual… y habría roto el
+        `position: sticky` de la barra, porque crea un contenedor de scroll.
+        Por eso se usa `clip`. Esto lo comprueba en vez de confiar.
+        """
+        pg = navegador.new_page(viewport={"width": 390, "height": 844},
+                                is_mobile=True, has_touch=True)
+        try:
+            pg.goto(servidor, wait_until="load")
+            pg.wait_for_timeout(1500)
+            pegada = pg.evaluate("""() => {
+                const n = document.querySelector('nav');
+                return n ? getComputedStyle(n).position : null;
+            }""")
+            assert pegada == "sticky", (
+                f"la barra dejó de estar pegada arriba (position: {pegada}) — "
+                "es lo que rompe `overflow-x: hidden` en `html`")
+        finally:
+            pg.close()
+
+    @pytest.mark.parametrize("nombre,viewport", [
+        ("iPhone SE", {"width": 375, "height": 667}),
+        ("iPhone 14", {"width": 390, "height": 844}),
+        ("iPhone Max", {"width": 430, "height": 932}),
+    ])
+    @pytest.mark.parametrize("vista", ["estudiante", "pro"])
+    def test_con_la_TABLA_ANCHA_pintada_tampoco_se_sale(
+            self, navegador, servidor, nombre, viewport, vista):
+        """El caso que de verdad lo reproduce, y que el de arriba no tocaba.
+
+        La tabla de Ideas declara `min-w-[700px]`. En un teléfono la consulta de
+        `@media (max-width: 639px)` la convierte en tarjetas… pero medido sin la
+        red: el documento salía de **405px en una pantalla de 390** y de 444 en
+        una de 430. Con eso iOS aleja la página para que quepa, y ahí está el
+        panel a media pantalla con la franja muerta al lado.
+
+        Y hay realimentación: al ensancharse el documento, `max-width: 639px`
+        deja de aplicar, las tablas vuelven a ser tablas y el desbordamiento se
+        sostiene solo. Por eso el arreglo va en el `<style>` propio y no depende
+        del CDN.
+        """
+        import re as _re
+
+        pg = navegador.new_page(viewport=viewport, device_scale_factor=2,
+                                is_mobile=True, has_touch=True)
+        pg.route(_re.compile(r"/api/tito-ideas"),
+                 lambda r: r.fulfill(
+                     status=200,
+                     json=TestLaVistaDeIDEASSePintaDeVerdad._payload()))
+        try:
+            pg.goto(servidor, wait_until="load")
+            pg.wait_for_timeout(1500)
+            pg.evaluate("switchView('projectionsView')")
+            pg.evaluate("() => { loadProjIdeas().catch(() => {}); }")
+            pg.wait_for_timeout(2200)
+            pg.evaluate(f"vcIdeasCambiaVista('{vista}')")
+            pg.wait_for_timeout(600)
+            d = pg.evaluate("""() => {
+                const de = document.documentElement;
+                const fuera = [];
+                document.querySelectorAll('*').forEach(el => {
+                    const r = el.getBoundingClientRect();
+                    if (r.right > de.clientWidth + 1)
+                        fuera.push(el.tagName.toLowerCase() + '.' +
+                                   (el.className || '').toString().slice(0, 40) +
+                                   ' (' + Math.round(r.width) + 'px)');
+                });
+                return { cw: de.clientWidth, sw: de.scrollWidth, fuera: fuera.slice(0, 4) };
+            }""")
+            assert d["sw"] <= d["cw"], (
+                f"[{nombre} · ideas/{vista}] documento de {d['sw']}px en pantalla "
+                f"de {d['cw']}px. Se sale: {d['fuera']}")
+        finally:
+            pg.close()
