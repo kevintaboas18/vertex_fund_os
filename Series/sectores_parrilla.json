@@ -79,12 +79,12 @@
       },
       "volumen": {
         "7D": {
-          "medio": 5461554,
+          "medio": 5461561,
           "relativo": 0.6,
           "respalda": false
         },
         "1M": {
-          "medio": 7506218,
+          "medio": 7506220,
           "relativo": 0.82,
           "respalda": false
         },
@@ -1586,5 +1586,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-08-18T04:14:12.228837+00:00"
+  "generado": "2026-08-18T04:37:47.694903+00:00"
 }
