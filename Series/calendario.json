@@ -390,7 +390,7 @@
     "motivo": "",
     "recortadas": 0,
     "umbral": 10000000000.0,
-    "fuera": 1619,
+    "fuera": 1621,
     "medida": true,
     "motivo_tamano": ""
   },
@@ -547,5 +547,5 @@
     "motivo": "",
     "fuente": "FMP"
   },
-  "generado": "2026-08-18T04:12:26.890567+00:00"
+  "generado": "2026-08-18T04:14:24.020191+00:00"
 }
