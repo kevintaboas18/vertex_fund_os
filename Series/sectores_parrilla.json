@@ -22,11 +22,11 @@
     {
       "ticker": "SPY",
       "nombre": "S&P 500",
-      "precio": 767.96,
-      "cambio_pct": -0.61,
+      "precio": 769.03,
+      "cambio_pct": -0.47,
       "rsi": 57.6,
       "sma200": 706.29,
-      "sma200_dist": 8.73,
+      "sma200_dist": 8.88,
       "cambios": {
         "7D": -0.27,
         "1M": 3.56,
@@ -65,11 +65,11 @@
     {
       "ticker": "RSP",
       "nombre": "S&P 500 equiponderado",
-      "precio": 221.12,
-      "cambio_pct": 0.15,
+      "precio": 220.97,
+      "cambio_pct": 0.08,
       "rsi": 63.0,
       "sma200": 201.49,
-      "sma200_dist": 9.74,
+      "sma200_dist": 9.67,
       "cambios": {
         "7D": 0.29,
         "1M": 4.2,
@@ -108,11 +108,11 @@
     {
       "ticker": "QQQ",
       "nombre": "Nasdaq 100",
-      "precio": 717.48,
-      "cambio_pct": -1.7,
+      "precio": 719.86,
+      "cambio_pct": -1.37,
       "rsi": 52.7,
       "sma200": 651.52,
-      "sma200_dist": 10.12,
+      "sma200_dist": 10.49,
       "cambios": {
         "7D": 0.01,
         "1M": 3.22,
@@ -151,11 +151,11 @@
     {
       "ticker": "XLK",
       "nombre": "Tecnología",
-      "precio": 185.46,
-      "cambio_pct": -2.55,
+      "precio": 186.08,
+      "cambio_pct": -2.23,
       "rsi": 52.9,
       "sma200": 157.9,
-      "sma200_dist": 17.45,
+      "sma200_dist": 17.85,
       "cambios": {
         "7D": -0.23,
         "1M": 5.67,
@@ -194,11 +194,11 @@
     {
       "ticker": "XLF",
       "nombre": "Financiero",
-      "precio": 57.94,
-      "cambio_pct": 0.62,
+      "precio": 57.81,
+      "cambio_pct": 0.4,
       "rsi": 61.7,
       "sma200": 53.15,
-      "sma200_dist": 9.02,
+      "sma200_dist": 8.77,
       "cambios": {
         "7D": 0.27,
         "1M": 3.42,
@@ -237,11 +237,11 @@
     {
       "ticker": "XLV",
       "nombre": "Salud",
-      "precio": 169.77,
-      "cambio_pct": 1.63,
+      "precio": 169.4,
+      "cambio_pct": 1.4,
       "rsi": 66.7,
       "sma200": 153.75,
-      "sma200_dist": 10.42,
+      "sma200_dist": 10.18,
       "cambios": {
         "7D": 1.05,
         "1M": 6.61,
@@ -280,11 +280,11 @@
     {
       "ticker": "XLY",
       "nombre": "Consumo discrecional",
-      "precio": 116.95,
-      "cambio_pct": 0.17,
+      "precio": 117.23,
+      "cambio_pct": 0.41,
       "rsi": 50.8,
       "sma200": 117.07,
-      "sma200_dist": -0.1,
+      "sma200_dist": 0.14,
       "cambios": {
         "7D": -1.96,
         "1M": 2.0,
@@ -366,11 +366,11 @@
     {
       "ticker": "XLI",
       "nombre": "Industrial",
-      "precio": 184.51,
-      "cambio_pct": -0.97,
+      "precio": 184.63,
+      "cambio_pct": -0.9,
       "rsi": 54.9,
       "sma200": 169.19,
-      "sma200_dist": 9.06,
+      "sma200_dist": 9.13,
       "cambios": {
         "7D": -0.5,
         "1M": 3.73,
@@ -409,11 +409,11 @@
     {
       "ticker": "XLP",
       "nombre": "Consumo básico",
-      "precio": 85.71,
-      "cambio_pct": 1.22,
+      "precio": 85.7,
+      "cambio_pct": 1.2,
       "rsi": 54.3,
       "sma200": 82.73,
-      "sma200_dist": 3.6,
+      "sma200_dist": 3.59,
       "cambios": {
         "7D": 1.35,
         "1M": 1.14,
@@ -452,11 +452,11 @@
     {
       "ticker": "XLE",
       "nombre": "Energía",
-      "precio": 63.34,
-      "cambio_pct": 1.21,
+      "precio": 63.32,
+      "cambio_pct": 1.18,
       "rsi": 71.9,
       "sma200": 53.6,
-      "sma200_dist": 18.17,
+      "sma200_dist": 18.13,
       "cambios": {
         "7D": 3.93,
         "1M": 9.29,
@@ -495,11 +495,11 @@
     {
       "ticker": "XLU",
       "nombre": "Servicios públicos",
-      "precio": 44.45,
-      "cambio_pct": 0.62,
+      "precio": 44.39,
+      "cambio_pct": 0.48,
       "rsi": 50.1,
       "sma200": 44.77,
-      "sma200_dist": -0.7,
+      "sma200_dist": -0.84,
       "cambios": {
         "7D": 1.97,
         "1M": -1.0,
@@ -538,11 +538,11 @@
     {
       "ticker": "XLRE",
       "nombre": "Inmobiliario",
-      "precio": 45.03,
-      "cambio_pct": 0.45,
+      "precio": 44.92,
+      "cambio_pct": 0.2,
       "rsi": 50.7,
       "sma200": 42.84,
-      "sma200_dist": 5.12,
+      "sma200_dist": 4.87,
       "cambios": {
         "7D": 2.09,
         "1M": -0.51,
@@ -581,11 +581,11 @@
     {
       "ticker": "XLB",
       "nombre": "Materiales",
-      "precio": 52.13,
-      "cambio_pct": -0.21,
+      "precio": 52.1,
+      "cambio_pct": -0.27,
       "rsi": 52.2,
       "sma200": 49.43,
-      "sma200_dist": 5.46,
+      "sma200_dist": 5.4,
       "cambios": {
         "7D": -2.09,
         "1M": 4.19,
@@ -624,11 +624,11 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 15.88,
-      "cambio_pct": 4.54,
+      "precio": 15.68,
+      "cambio_pct": 3.23,
       "rsi": 47.9,
       "sma200": 18.5,
-      "sma200_dist": -14.18,
+      "sma200_dist": -15.26,
       "cambios": {
         "7D": 3.08,
         "1M": -15.55,
@@ -1165,7 +1165,7 @@
     },
     "entrando": [],
     "saliendo": [],
-    "dispersion": 1.1134,
+    "dispersion": 0.9958,
     "dia_rojo": [],
     "diagnostico": [
       "El mercado está buscando protección: el crecimiento pierde fuerza y los defensivos la ganan. Precaución con posiciones largas de beta alta.",
@@ -1183,18 +1183,18 @@
         "XLRE"
       ],
       "debiles": [
-        "XLY",
         "XLC"
       ],
       "neutrales": [
         "XLK",
+        "XLY",
         "XLI",
         "XLU",
         "XLB"
       ],
       "pct_fuertes": 45.5,
       "confianza": "baja",
-      "frase": "Repartido (5 al alza, 2 a la baja): hoy no hay una dirección clara aquí.",
+      "frase": "Repartido (5 al alza, 1 a la baja): hoy no hay una dirección clara aquí.",
       "empujan": [
         {
           "ticker": "XLE",
@@ -1214,11 +1214,6 @@
       ],
       "frenan": [
         {
-          "ticker": "XLY",
-          "nombre": "Consumo discrecional",
-          "cambio_pct": -1.96
-        },
-        {
           "ticker": "XLC",
           "nombre": "Comunicaciones",
           "cambio_pct": -0.39
@@ -1231,6 +1226,7 @@
         "XLK",
         "XLF",
         "XLV",
+        "XLY",
         "XLI",
         "XLP",
         "XLE",
@@ -1240,13 +1236,12 @@
         "XLU"
       ],
       "neutrales": [
-        "XLY",
         "XLC",
         "XLRE"
       ],
-      "pct_fuertes": 63.6,
-      "confianza": "media",
-      "frase": "7 de 11 al alza: hay más fuerza que debilidad, pero no es unánime.",
+      "pct_fuertes": 72.7,
+      "confianza": "alta",
+      "frase": "8 de 11 van al alza: la subida está repartida, no la sostiene uno solo.",
       "empujan": [
         {
           "ticker": "XLE",
@@ -1278,6 +1273,7 @@
         "XLK",
         "XLF",
         "XLV",
+        "XLY",
         "XLI",
         "XLE",
         "XLRE",
@@ -1287,13 +1283,12 @@
         "XLC"
       ],
       "neutrales": [
-        "XLY",
         "XLP",
         "XLU"
       ],
-      "pct_fuertes": 63.6,
-      "confianza": "media",
-      "frase": "7 de 11 al alza: hay más fuerza que debilidad, pero no es unánime.",
+      "pct_fuertes": 72.7,
+      "confianza": "alta",
+      "frase": "8 de 11 van al alza: la subida está repartida, no la sostiene uno solo.",
       "empujan": [
         {
           "ticker": "XLV",
@@ -1325,6 +1320,7 @@
         "XLK",
         "XLF",
         "XLV",
+        "XLY",
         "XLI",
         "XLE",
         "XLRE"
@@ -1334,13 +1330,12 @@
         "XLU"
       ],
       "neutrales": [
-        "XLY",
         "XLP",
         "XLB"
       ],
-      "pct_fuertes": 54.5,
-      "confianza": "baja",
-      "frase": "Repartido (6 al alza, 2 a la baja): hoy no hay una dirección clara aquí.",
+      "pct_fuertes": 63.6,
+      "confianza": "media",
+      "frase": "7 de 11 al alza: hay más fuerza que debilidad, pero no es unánime.",
       "empujan": [
         {
           "ticker": "XLK",
@@ -1377,6 +1372,7 @@
         "XLK",
         "XLF",
         "XLV",
+        "XLY",
         "XLI",
         "XLP",
         "XLE",
@@ -1387,12 +1383,11 @@
         "XLC"
       ],
       "neutrales": [
-        "XLY",
         "XLU"
       ],
-      "pct_fuertes": 72.7,
+      "pct_fuertes": 81.8,
       "confianza": "alta",
-      "frase": "8 de 11 van al alza: la subida está repartida, no la sostiene uno solo.",
+      "frase": "9 de 11 van al alza: la subida está repartida, no la sostiene uno solo.",
       "empujan": [
         {
           "ticker": "XLE",
@@ -1584,5 +1579,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-08-18T14:14:52.898159+00:00"
+  "generado": "2026-08-18T14:36:18.110528+00:00"
 }
