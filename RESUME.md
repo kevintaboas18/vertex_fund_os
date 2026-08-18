@@ -69,11 +69,11 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 
 ```bash
 cd engine && python -m pytest tests/ -q    # 3409 pasan, 0 skips
-python -m pytest tests_vertex/ -q          # 984 pasan, 0 skips
-                                           # (889 de la capa web + 95 en un
+python -m pytest tests_vertex/ -q          # 990 pasan, 0 skips
+                                           # (892 de la capa web + 98 en un
                                            #  navegador real, cuatro tamaños)
 
-# Auditoría del tab de Proyecciones (267 checks). Con TITO_ROOT usa tu clon de
+# Auditoría del tab de Proyecciones (324 checks con TITO_ROOT). Con TITO_ROOT usa tu clon de
 # su repo en vez de GitHub, y así cubre también su web/app/api.
 TITO_ROOT=/ruta/a/agente-tito-metralleta python engine/scripts/auditar_tito.py
 

@@ -39,7 +39,8 @@ globalThis.lucide = { createIcons(){} };
 
 // Se extraen las funciones que se quieren ejercitar, con sus dependencias.
 const api = new Function(src + `
-  return { renderProjIdeas, renderProjWheel, vcCabeceraPerfil, fmtMoney, pfPinta, pfTab, pfPreguntaHTML, pintaExplicacion };`)();
+  return { renderProjIdeas, renderProjWheel, vcCabeceraPerfil, fmtMoney, pfPinta, pfTab, pfPreguntaHTML, pintaExplicacion,
+           vcIdeasCambiaVista };`)();
 
 let fallos = 0;
 const chk = (ok, msg) => { console.log((ok?'  \x1b[32m✓\x1b[0m ':'  \x1b[31m✗\x1b[0m ') + msg); if(!ok) fallos++; };
@@ -61,13 +62,24 @@ api.renderProjIdeas({
       sizing:{ max_contracts:0, cost_per_contract:950, total_cost:0,
                cost_pct_of_account:0, binding:'capital', blocked:'no cabe ni uno' } },
   ]});
+// La vista por DEFECTO es Estudiante, igual que en su `/ideas`: tarjetas en
+// lenguaje llano, no la tabla. La tabla es la vista Pro y hay que pedirla.
+const est = store['projIdeas'].innerHTML;
+console.log('\n── Ideas · vista Estudiante (la de por defecto, como en su app) ──');
+chk(est.includes('<article'), 'pinta TARJETAS, no la tabla');
+chk(est.includes('Máximo') || est.includes('M&aacute;ximo'),
+    'cuenta el veredicto en palabras');
+chk(est.includes('TSLA') && est.includes('F'), 'salen las dos ideas');
+
+api.vcIdeasCambiaVista('pro');
 const ideas = store['projIdeas'].innerHTML;
-console.log('\n── Ideas ───────────────────────────────────────────────');
+console.log('\n── Ideas · vista Pro ───────────────────────────────────');
 chk(ideas.includes('$1,000'), 'el capital se pinta ENTERO, no abreviado');
 chk(ideas.includes('1 de 2 te caben'), 'dice cuántas te caben');
 chk(/1&times;\s*<span[^>]*>\$35</.test(ideas), 'la que cabe muestra 1× y su coste');
 chk(ideas.includes('no cabe'), 'la que no cabe se marca…');
 chk(ideas.includes('TSLA'), '…pero NO se esconde');
+chk(ideas.includes('Volver a escanear'), 'tiene el botón de volver a escanear');
 chk(ideas.indexOf('>F<') < ideas.indexOf('TSLA'), 'la que cabe va primero');
 chk(ideas.includes("switchView('perfilView')"), 'lleva al editor de perfil');
 

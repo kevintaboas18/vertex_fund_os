@@ -18,7 +18,8 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import (HTMLResponse, JSONResponse, Response,
+                               StreamingResponse)
 # Datos de mercado desde las fuentes PRINCIPALES (FMP/FinnHub), no de
 # yfinance: Victor fijó FMP, FinnHub, FRED y EDGAR, y su repo no depende
 # de Yahoo en ninguna parte. `vertex_market.Ticker` mantiene la misma
@@ -5494,17 +5495,25 @@ def _ideas_dedupe(rows):
     return list(mejor.values())
 
 
-# ── DIVERGENCIA DECLARADA · una respuesta, no un stream ─────────────────────
+# ── DIVERGENCIA DECLARADA · una respuesta, no un stream (ya solo en TRES) ───
 #
 # Sus cuatro rutas largas (`/api/analyze`, `/api/flow`, `/api/ideas`,
 # `/api/wheel`) son SSE: emiten entre 40 y 100 eventos `{type:"step", label}` y
 # el navegador los va enseñando («Conectando con Massive…», «Revisando flujo —
-# página 5», «NVDA: 3 candidatos»). Aquí las cuatro devuelven UN JSON al final.
+# página 5», «NVDA: 3 candidatos»). Aquí devolvían UN JSON al final, las cuatro.
 #
-# El motivo es el despliegue, no el gusto: esto corre detrás del proxy de Render
-# en plan free, que no garantiza el paso de `text/event-stream` sin buffering —
-# un stream a medio bufferizar es PEOR que ninguno, porque la pantalla se queda
-# congelada en el paso 3 y parece colgada.
+# **IDEAS YA NO.** Se portó su stream (`/api/tito-ideas/stream`), porque en
+# Ideas el coste de no tenerlo se vio en pantalla: la etiqueta del primer paso
+# —«Escaneando el flujo de todo el mercado…»— se quedaba clavada el escaneo
+# entero y se leía como colgada. El reparo que lo frenaba era el buffering del
+# proxy de Render, y se ataca de frente: `no-transform`, `X-Accel-Buffering: no`
+# y, sobre todo, **la ruta JSON sigue existiendo** — si el stream no llega o se
+# corta, el panel cae a ella y pinta igual. El stream es cómo se ve mejor, no un
+# requisito para que funcione.
+#
+# Las otras tres siguen devolviendo un JSON al final, y por el motivo de
+# siempre: un stream a medio bufferizar es PEOR que ninguno, porque la pantalla
+# se queda congelada en el paso 3 y parece colgada.
 #
 # Lo que NO cambia: el usuario no se queda mirando un punto fijo. Su propio
 # `AnalysisLoader` ya COLAPSA los ~100 pasos en cuatro fases y su comentario lo
@@ -5512,9 +5521,20 @@ def _ideas_dedupe(rows):
 # pantalla que se portó (`vcLoaderHTML`), con su curva asintótica y su tope del
 # 97%; el contador avanza con el reloj en vez de con los eventos. La etiqueta
 # fina («página 5 de 6») es lo único que se pierde, y solo mientras carga.
-@app.get("/api/tito-ideas")
-def tito_ideas(request: Request):
-    """Screener de flujo inusual **en todo el mercado** — su `/api/ideas`.
+def _ideas_escaneo(request: Request):
+    """El escaneo, PASO A PASO. Su `/api/ideas` — que es un stream, no un JSON.
+
+    Emite `("step", etiqueta)` mientras trabaja y termina con
+    `("final", payload)`. Dos rutas lo consumen: la de siempre, que se queda
+    con el payload, y la de SSE, que va mandando los pasos.
+
+    El motivo de que sea un generador y no dos copias: su ruta emite eventos y
+    la nuestra devolvía un JSON de una pieza, así que la pantalla se quedaba
+    con la etiqueta del PRIMER paso —«Escaneando el flujo de todo el
+    mercado…»— clavada durante todo el escaneo. La misma frase que en su app
+    dura un segundo aquí duraba el minuto entero, y se leía como colgada.
+
+    Screener de flujo inusual **en todo el mercado**.
 
     Es la respuesta a "no quiero tener que escribir un ticker para que el agente
     haga algo". En su app son cuatro pestañas: *Ticker* (el dashboard, que **sí**
@@ -5542,7 +5562,9 @@ def tito_ideas(request: Request):
     """
     sc = _tito_mod()
     if sc is None:
-        return {"ok": False, "error": "Motor de Víctor no disponible (engine/wbj/tito)."}
+        yield ("final", {"ok": False,
+                         "error": "Motor de Víctor no disponible (engine/wbj/tito)."})
+        return
     from wbj.tito import borde
     from wbj.tito.flow import classify_flow
     from wbj.tito.marketsnack import MarketSnackError, fetch_market_flow
@@ -5553,20 +5575,37 @@ def tito_ideas(request: Request):
     from wbj.tito.validation import FlowLite, validation_score
 
     now = datetime.now(timezone.utc)
+    yield ("step", "Escaneando el flujo de todo el mercado…")
+    # Las páginas se anuncian según caen. `on_page` estaba en el port desde el
+    # principio —es su `onPage`— y no lo llamaba nadie: por eso el escaneo se
+    # veía como un solo bloque mudo en vez de como una cuenta que avanza.
+    _paginas: list[str] = []
     try:
         res = fetch_market_flow(period=_IDEAS_PERIOD, min_premium=_IDEAS_MIN_PREMIUM,
-                                max_pages=_IDEAS_MAX_PAGES)
+                                max_pages=_IDEAS_MAX_PAGES,
+                                on_page=lambda pg, acc: _paginas.append(
+                                    f"Página {pg} — {acc} operaciones grandes"))
     except MarketSnackError as e:
-        return {"ok": False, "error": _error_de_fuente(e, "Cinta de MarketSnack"),
-                "source": "marketsnack"}
+        yield ("final", {"ok": False,
+                         "error": _error_de_fuente(e, "Cinta de MarketSnack"),
+                         "source": "marketsnack"})
+        return
     except Exception as e:                       # noqa: BLE001 — se reporta, no se traga
-        return {"ok": False, "error": _error_publico(e, "Escaneo de ideas"), "source": "motor"}
+        yield ("final", {"ok": False,
+                         "error": _error_publico(e, "Escaneo de ideas"),
+                         "source": "motor"})
+        return
 
+    for _p in _paginas:
+        yield ("step", _p)
+    yield ("step", f"Clasificando {len(res.trades)} operaciones…")
     try:
         flow = classify_flow(res.trades, now)
         filas = flow.rows
     except Exception as e:                       # noqa: BLE001 — el port es literal y lanza donde él
-        return {"ok": False, "error": f"{type(e).__name__}: {e}", "source": "motor"}
+        yield ("final", {"ok": False, "error": f"{type(e).__name__}: {e}",
+                         "source": "motor"})
+        return
 
     # Por qué se cae cada contrato. Hace visible el trabajo de la capa 1: sin
     # esto, "0 ideas" y "el mercado está tranquilo" se ven igual en pantalla.
@@ -5585,6 +5624,7 @@ def tito_ideas(request: Request):
         key=lambda r: r.premium if isinstance(r.premium, (int, float)) else 0,
         reverse=True)[:_IDEAS_MAX_IDEAS]
     tickers = list(dict.fromkeys(r.underlying for r in operables))
+    yield ("step", f"{len(operables)} ideas operables en {len(tickers)} tickers")
 
     # Historial: SOLO para tickers que ya tienen flows guardados. Los demás
     # salen "sin historial" sin gastar una llamada a Massive.
@@ -5624,6 +5664,8 @@ def tito_ideas(request: Request):
     # Dos topes, y hacen falta los dos: uno cuenta LLAMADAS y el otro cuenta
     # RELOJ. Con solo el primero, 25 tickers lentos son diez minutos de rueda.
     _pendientes = con_guardado[:_IDEAS_MAX_HISTORY_TICKERS]
+    if _pendientes:
+        yield ("step", f"Revisando el historial de {len(_pendientes)} tickers…")
     _limite = time.monotonic() + _IDEAS_PRESUPUESTO_HISTORIAL_S
     _sin_mirar = 0
     for _i, (tk, flows) in enumerate(_pendientes):
@@ -5742,7 +5784,7 @@ def tito_ideas(request: Request):
         except Exception:
             pass
 
-    return _json_safe({
+    yield ("final", _json_safe({
         "ok": True, "engine": "victor/tito", "ideas": ideas,
         "scanned": len(res.trades), "pages": res.pages, "truncated": res.truncated,
         "tickers": len(tickers), "with_history": len(historial),
@@ -5797,7 +5839,62 @@ def tito_ideas(request: Request):
                    "caben": sum(1 for v in _sizing.values()
                                 if (v or {}).get("max_contracts"))},
         "period": _IDEAS_PERIOD, "generated_at": now.isoformat(),
-    })
+    }))
+
+
+@app.get("/api/tito-ideas")
+def tito_ideas(request: Request):
+    """El escaneo de una pieza: se consume el generador y se sirve el final.
+
+    Sigue existiendo porque no todo el mundo puede abrir un `EventSource` —un
+    proxy que no deja pasar `text/event-stream`, un cliente que solo habla
+    JSON— y porque es lo que miden los tests. La pantalla prefiere el stream y
+    cae aquí si no puede.
+    """
+    for tipo, dato in _ideas_escaneo(request):
+        if tipo == "final":
+            return dato
+    return {"ok": False, "error": "El escaneo terminó sin resultado.",
+            "source": "motor"}
+
+
+@app.get("/api/tito-ideas/stream")
+def tito_ideas_stream(request: Request):
+    """El mismo escaneo, **contándolo mientras pasa** — su `/api/ideas`.
+
+    Su ruta es un `ReadableStream` de SSE y su página lo pinta como una lista
+    de pasos que crece. Aquí se devolvía un JSON de una pieza, así que la
+    etiqueta del primer paso se quedaba clavada todo el escaneo y se leía como
+    colgado. Lo que cambia no es el cálculo: es que se ve avanzar.
+    """
+    def _eventos():
+        try:
+            for tipo, dato in _ideas_escaneo(request):
+                if tipo == "step":
+                    yield "data: " + json.dumps(
+                        {"type": "step", "label": dato}, ensure_ascii=False) + "\n\n"
+                    continue
+                if dato.get("ok"):
+                    yield "data: " + json.dumps(
+                        {"type": "done", **dato}, ensure_ascii=False) + "\n\n"
+                else:
+                    yield "data: " + json.dumps(
+                        {"type": "error", "message": dato.get("error") or "",
+                         "source": dato.get("source")}, ensure_ascii=False) + "\n\n"
+        except Exception as e:                   # noqa: BLE001
+            # Un stream que se corta sin decir nada deja la pantalla esperando.
+            # Aquí ya no se puede devolver un 500: la respuesta empezó.
+            yield "data: " + json.dumps(
+                {"type": "error", "message": _error_publico(e, "Escaneo de ideas"),
+                 "source": "motor"}, ensure_ascii=False) + "\n\n"
+
+    return StreamingResponse(
+        _eventos(), media_type="text/event-stream",
+        # `no-transform` y `X-Accel-Buffering` porque un proxy que junte los
+        # trozos convierte el stream en un JSON lento: los pasos llegarían
+        # todos de golpe al final, que es justo lo que se quería evitar.
+        headers={"Cache-Control": "no-cache, no-transform",
+                 "X-Accel-Buffering": "no", "Connection": "keep-alive"})
 
 
 #: `THETA_BUDGET_PCT` de su `risk.ts`, leído del motor y no escrito a mano:

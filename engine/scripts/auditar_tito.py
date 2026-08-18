@@ -1739,12 +1739,15 @@ DIVERGENCIAS = {
     "una respuesta, no un stream": (
         VERTEX / "vertex_api.py",
         "Sus cuatro rutas largas (analyze, flow, ideas, wheel) son SSE y emiten "
-        "40-100 pasos con etiqueta. Aquí devuelven un JSON al final: detrás del "
-        "proxy de Render en free no se garantiza `text/event-stream` sin "
-        "buffering, y un stream a medias congela la pantalla en el paso 3. "
-        "NO cambia: su propio AnalysisLoader ya colapsa los ~100 pasos en cuatro "
-        "fases y no lee el texto de ninguno — esa pantalla está portada "
-        "(`vcLoaderHTML`), con su curva y su tope del 97%."),
+        "40-100 pasos con etiqueta. IDEAS YA NO diverge: se portó su stream "
+        "(`/api/tito-ideas/stream`) porque ahí el coste se veía en pantalla — la "
+        "etiqueta del primer paso se quedaba clavada el escaneo entero. El "
+        "buffering del proxy de Render se ataca con `no-transform` y "
+        "`X-Accel-Buffering: no`, y la ruta JSON sigue existiendo como respaldo. "
+        "Las otras TRES devuelven un JSON al final por el motivo de siempre: un "
+        "stream a medias congela la pantalla en el paso 3. NO cambia: su propio "
+        "AnalysisLoader ya colapsa los ~100 pasos en cuatro fases y no lee el "
+        "texto de ninguno — esa pantalla está portada (`vcLoaderHTML`)."),
     "wheel sin bid": (
         VERTEX / "engine/wbj/tito/wheel.py",
         "Su plan de Massive no sirve `last_quote`, y su propio compute.ts lo dice: "

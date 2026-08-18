@@ -5436,14 +5436,66 @@ function vcCabeceraPerfil(P, total) {
 //: haya ninguno.
 const VX_IDEAS_PLAZO_MS = 75000;
 
+//: Los pasos que va contando el escaneo, como su lista de `steps`.
+function vcPasosHTML(pasos) {
+    return `<div class="bg-panel border border-panel rounded-2xl p-5">
+      <p class="text-xs font-black text-gray-300 flex items-center gap-2"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Escaneando el mercado&hellip;</p>
+      <ul class="mt-3 space-y-1">${pasos.map((t, i) => `<li class="text-[10px] flex items-start gap-2 ${
+        i === pasos.length - 1 ? 'text-gray-300' : 'text-gray-600'}"><span class="${
+        i === pasos.length - 1 ? 'text-blue-400' : 'text-gray-700'}">&rsaquo;</span><span>${_vcEsc(t)}</span></li>`).join('')}</ul></div>`;
+}
+
+/** El escaneo por SSE — su `/api/ideas`, que es un stream de pasos.
+ *
+ *  Su pagina abre un `EventSource` y pinta una lista que crece: la pagina que
+ *  baja, las operaciones que clasifica, las ideas que quedan, el historial que
+ *  revisa. Aqui se pedia un JSON de una pieza, asi que la etiqueta del PRIMER
+ *  paso se quedaba clavada todo el escaneo y se leia como colgada.
+ *
+ *  Devuelve una promesa con el payload final. Si el navegador o un proxy no
+ *  dejan pasar `text/event-stream`, rechaza y el llamador cae a la ruta JSON:
+ *  el stream es como se ve mejor, no un requisito para que funcione.
+ */
+function vcIdeasStream(alPaso) {
+    return new Promise((resolve, reject) => {
+        if (typeof EventSource !== 'function') { reject(new Error('sin EventSource')); return; }
+        let es;
+        try { es = new EventSource(`${API_BASE}/api/tito-ideas/stream`); }
+        catch (e) { reject(e); return; }
+        // Plazo tambien aqui: un stream que se queda abierto sin mandar nada
+        // es la misma rueda eterna, solo que con otra tuberia.
+        const plazo = setTimeout(() => { es.close(); reject(new Error('plazo')); },
+                                 window.VX_IDEAS_PLAZO_MS || 75000);
+        const fin = (fn, arg) => { clearTimeout(plazo); es.close(); fn(arg); };
+        es.onmessage = (ev) => {
+            let m;
+            try { m = JSON.parse(ev.data); } catch (e) { return; }
+            if (m.type === 'step') alPaso(m.label);
+            else if (m.type === 'done') fin(resolve, m);
+            else if (m.type === 'error') fin(resolve, { ok: false, error: m.message, source: m.source });
+        };
+        es.onerror = () => fin(reject, new Error('se cortó la conexión con el escáner'));
+    });
+}
+
 async function loadProjIdeas() {
     const caja = document.getElementById('projIdeas');
     const empty = document.getElementById('projEmpty');
     if (!caja) return;
     caja.classList.remove('hidden');
-    caja.innerHTML = `<p class="text-xs text-gray-500 italic flex items-center justify-center gap-2 py-6"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Escaneando el flujo de todo el mercado&hellip;</p>`;
+    const pasos = ['Escaneando el flujo de todo el mercado…'];
+    caja.innerHTML = vcPasosHTML(pasos);
     if (window.lucide) vcIconos();
     let d;
+    try {
+        d = await vcIdeasStream((t) => {
+            // El primer paso ya está puesto: el stream lo repite y no se duplica.
+            if (pasos[pasos.length - 1] !== t) pasos.push(t);
+            caja.innerHTML = vcPasosHTML(pasos);
+            if (window.lucide) vcIconos();
+        });
+    } catch (e) { d = null; }   // sin stream se cae a la ruta de siempre
+    if (d) return vcIdeasPinta(d, caja, empty);
     // CON PLAZO. `fetch` no tiene ninguno por defecto, y el escaneo puede
     // tardar: la cinta son hasta 8 páginas y el historial hasta 25 llamadas a
     // Massive, cada una con su propio plazo de 25 s. Encima, en Render el
@@ -5462,6 +5514,12 @@ async function loadProjIdeas() {
             ? { ok: false, error: `El escaneo pasó de ${Math.round(VX_IDEAS_PLAZO_MS / 1000)} segundos sin contestar. En Render el servicio se duerme y el primer escaneo tras despertarlo es el más lento: vuelve a intentarlo.`, source: 'plazo' }
             : { ok: false, error: e.message };
     } finally { clearTimeout(_plazo); }
+    return vcIdeasPinta(d, caja, empty);
+}
+
+/** El final compartido: o el aviso, o la tabla. Lo usan los DOS caminos —el
+ *  stream y la ruta JSON— para que no haya dos versiones de qué se pinta. */
+function vcIdeasPinta(d, caja, empty) {
     if (!d || !d.ok) {
         // Mandar a "escribe un ticker" cuando lo que falla es la CINTA es un
         // consejo falso: con la cookie caída el análisis por ticker también
@@ -5500,6 +5558,66 @@ async function loadProjIdeas() {
         throw e;   // que siga saliendo en la consola: se arregla lo que se ve
     }
     vcMarcaVivo('ideas');
+}
+
+//: Vista de la tabla de ideas: su `KEY_VIEW = "tito.view"`.
+//:
+//: Su pagina tiene DOS vistas y aqui solo estaba la Pro. La de Estudiante no
+//: es una version reducida: es la misma matematica contada en frases, que es
+//: como se entiende un techo de contratos sin leer una tabla de 16 columnas.
+let vcIdeasVista = (() => {
+    try { const v = localStorage.getItem('tito.view');
+          return (v === 'pro' || v === 'estudiante') ? v : 'estudiante'; }
+    catch (e) { return 'estudiante'; }
+})();
+
+function vcIdeasCambiaVista(v) {
+    vcIdeasVista = v;
+    try { localStorage.setItem('tito.view', v); } catch (e) {}
+    if (window._vcIdeas) renderProjIdeas(window._vcIdeas);
+}
+
+/** Su `IdeaCard`: una tarjeta por idea, en lenguaje llano. */
+function vcIdeaTarjetaHTML(i, P, marcada) {
+    const s = i.sizing;
+    const t = i.type === 'call' ? 'C' : 'P';
+    const cab = `<div class="flex items-center gap-2 flex-wrap">
+        <span class="font-black text-white text-sm">${_vcEsc(i.ticker)}</span>
+        <span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${i.type === 'call' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}">${_vcEsc(i.strike)}${t}</span>
+        <span class="text-[10px] text-gray-500">${_vcEsc(vcVenceLabel(i))}</span>
+        ${i.repeated ? '<span class="text-[9px] text-amber-400" title="contrato repetido">&#8635;</span>' : ''}
+        <button onclick="event.stopPropagation();${marcada ? `wlQuita('${_vcEsc(i.symbol)}')` : `wlMarca('${_vcEsc(i.id)}')`}"
+          class="ml-auto ${marcada ? 'text-amber-400' : 'text-gray-700 hover:text-amber-400'} text-base leading-none">&#9733;</button></div>`;
+
+    let cuerpo;
+    if (!s) {
+        cuerpo = `<p class="text-[11px] text-gray-500 mt-2">El motor no pudo dimensionar este contrato.</p>`;
+    } else if (s.blocked) {
+        cuerpo = `<p class="text-[11px] text-gray-500 mt-2">&#128683; ${_vcEsc(s.blocked)}</p>`;
+    } else if (!s.max_contracts) {
+        cuerpo = `<p class="text-[11px] text-gray-500 mt-2">Con ${fmtMoney(P.capital)} no alcanza ni para un contrato: cada uno cuesta ${fmtMoney(s.cost_per_contract)}.</p>`;
+    } else {
+        // Su frase, con el modelo de Kevin: lo que DESPLIEGAS y, aparte, lo que
+        // aceptas perder de eso. En su app coinciden porque el techo de prima ES
+        // la perdida aceptada; aqui no, y decir solo una de las dos enganaria.
+        const acepta = (P.riesgo_pct != null)
+            ? ` Aceptas perder hasta ${fmtMoney(s.total_cost * P.riesgo_pct / 100)} de eso (${P.riesgo_pct}%).` : '';
+        const dia = s.burn_days ? s.theta_burn_per_contract / Math.max(s.burn_days, 1) : 0;
+        cuerpo = `<p class="text-[11px] text-gray-300 mt-2">M&aacute;ximo <b class="text-emerald-400">${s.max_contracts} ${s.max_contracts === 1 ? 'contrato' : 'contratos'}</b> &mdash; pones ${fmtMoney(s.total_cost)} de tus ${fmtMoney(P.capital)} (${Number(s.cost_pct_of_account).toFixed(1)}%).${acepta}</p>
+          <p class="text-[10px] text-gray-500 mt-1 leading-relaxed">El theta se come ${fmtMoney(dia)} al d&iacute;a por contrato: ${fmtMoney(s.total_burn)} en ${s.burn_days} d&iacute;as (${Number(s.burn_pct_of_account).toFixed(1)}% de la cuenta). ${
+            s.binding === 'theta' ? 'Te fren&oacute; el theta, no el capital.' : 'Te fren&oacute; el capital, no el theta.'}${
+            s.fully_decays ? ' &#9888; A este ritmo el contrato se consume entero dentro del horizonte.' : ''}</p>`;
+    }
+
+    const hist = (i.history && i.history.resolved)
+        ? `este patr&oacute;n acert&oacute; ${vcHistoriaHTML(i, i.ticker)}`
+        : '<span class="text-gray-700">sin historial todav&iacute;a</span>';
+    return `<article class="bg-[#0B0E14] border border-gray-800 rounded-xl p-3 cursor-pointer hover:border-gray-700${s && !s.max_contracts ? ' opacity-60' : ''}" onclick="loadProjections('${_vcTicker(i.ticker)}')">
+        ${cab}${cuerpo}
+        <div class="flex items-center gap-2 flex-wrap mt-2 pt-2 border-t border-gray-800/60 text-[9px] text-gray-600">
+          <span>Prima del flow ${fmtAbbr(i.premium)}</span><span>&middot;</span>
+          <span>${hist}</span><span>&middot;</span>
+          <span>visto ${_vcEsc(vcHmET(i.timestamp))}</span></div></article>`;
 }
 
 function renderProjIdeas(d) {
@@ -5564,10 +5682,13 @@ function renderProjIdeas(d) {
             <td class="py-2 pr-3 text-right text-gray-200 font-bold">${fmtAbbr(i.premium)}</td>
             <td class="py-2 pr-3 text-right text-gray-400">${i.price != null ? '$' + Number(i.price).toFixed(2) : '&mdash;'}</td>
             <td class="py-2 pr-3 text-right ${i.aggression === 'ask' ? 'text-emerald-400' : (i.aggression === 'bid' ? 'text-red-400' : 'text-gray-500')}">${i.aggression === 'ask' ? '&#9650; Compra' : (i.aggression === 'bid' ? '&#9660; Venta' : 'Mid')}</td>
+            <td class="py-2 pr-3 text-right text-gray-400" title="lo que se lleva el tiempo cada d&iacute;a, por contrato">${i.theta != null ? '$' + Math.abs(Number(i.theta)).toFixed(2) : '&mdash;'}</td>
             <td class="py-2 pr-3 text-right text-gray-400" title="decaimiento diario en % de la prima">${i.theta_pct_daily != null ? Number(i.theta_pct_daily).toFixed(1) + '%' : '&mdash;'}</td>
             <td class="py-2 pr-3 text-right text-amber-400 font-bold">${i.unusual_score}/30</td>
             <td class="py-2 pr-3 text-right text-[9px]">${vcHistoriaHTML(i, i.ticker)}</td>
             <td class="py-2 pr-3 text-right text-[10px]">${cabe}</td>
+            <td class="py-2 pr-3 text-right text-[10px] ${s && s.max_contracts ? 'text-gray-300' : 'text-gray-700'}" title="cu&aacute;nto de tu cuenta ocupar&iacute;a ese techo">${
+              s && s.max_contracts ? Number(s.cost_pct_of_account).toFixed(1) + '%' : '&mdash;'}</td>
             <td class="py-2 pr-3 text-right text-[10px]">${vcQuemaHTML(s)}</td>
             <td class="py-2 pr-3 text-right">${vcFrenoHTML(s)}</td>
             <td class="py-2 pr-3 text-right text-gray-500 text-[9px]" title="hora a la que se ejecut&oacute; el flow">${_vcEsc(vcHmET(i.timestamp))}</td>
@@ -5576,24 +5697,41 @@ function renderProjIdeas(d) {
                 class="${marcada ? 'text-amber-400' : 'text-gray-700 hover:text-amber-400'} text-sm leading-none">&#9733;</button></td></tr>`;
     }).join('');
 
+    // Su conmutador de vista y su boton de volver a escanear, que faltaban los
+    // dos. Sin el boton, la unica forma de repetir el escaneo era recargar la
+    // pagina entera; sin el conmutador, solo existia la vista Pro.
+    const P = d.perfil || {};
+    const tarjetas = ideas.map(i => vcIdeaTarjetaHTML(i, P, _guardados.has(i.symbol))).join('');
+    const _btnVista = (v, txt) => `<button onclick="vcIdeasCambiaVista('${v}')" class="px-2 py-1 rounded-lg text-[10px] font-bold ${
+        vcIdeasVista === v ? 'bg-blue-500/20 text-blue-300' : 'text-gray-500 hover:text-gray-300'}">${txt}</button>`;
+
     caja.innerHTML = `<div class="bg-panel border border-panel rounded-2xl p-5">
         <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
           <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest flex items-center gap-2"><i data-lucide="lightbulb" class="w-4 h-4"></i> Ideas del mercado</h3>
           <span class="text-[10px] text-gray-500">${_op} ${_op === 1 ? 'idea operable' : 'ideas operables'}${_desc ? ` &middot; ${_desc} no te caben` : ''} en ${d.tickers} tickers &middot; historial en ${d.with_history}</span>
         </div>
+        <div class="flex items-center gap-2 flex-wrap mb-2">
+          <div class="flex items-center gap-1 bg-[#0B0E14] border border-gray-800 rounded-xl p-0.5">${
+            _btnVista('estudiante', '&#128100; Estudiante')}${_btnVista('pro', '&#9889; Pro')}</div>
+          <button onclick="loadProjIdeas()" class="ml-auto text-[10px] font-bold text-gray-400 hover:text-gray-200 bg-white/[0.04] hover:bg-white/[0.08] rounded-lg px-3 py-1.5">&#8635; Volver a escanear</button>
+        </div>
         <p class="text-[10px] text-gray-600 italic mb-3">Flujo inusual de TODO el mercado, ya filtrado por lo que se puede operar: theta sano, no vencido, inusualidad &ge;5/30 y strike dentro del &plusmn;${Math.round(Number(d.moneyness_cap) * 100)}% del precio. Haz clic en una fila para el an&aacute;lisis completo de ese ticker.</p>
         ${cabeceraPerfil}
-        <div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[700px]"><thead>
+        ${vcIdeasVista === 'estudiante'
+          ? `<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">${tarjetas}</div>`
+          : `<div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[700px]"><thead>
           <tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
             <th class="text-left pb-1.5 pr-3">Ticker</th><th class="text-left pb-1.5 pr-3">Contrato</th>
             <th class="text-right pb-1.5 pr-3">Vencimiento</th><th class="text-right pb-1.5 pr-3">Prima flow</th>
             <th class="text-right pb-1.5 pr-3">Precio</th>
-            <th class="text-right pb-1.5 pr-3">Lado</th><th class="text-right pb-1.5 pr-3">&theta;%/d&iacute;a</th>
+            <th class="text-right pb-1.5 pr-3">Lado</th>
+            <th class="text-right pb-1.5 pr-3">&theta;/d&iacute;a</th><th class="text-right pb-1.5 pr-3">&theta;%/d&iacute;a</th>
             <th class="text-right pb-1.5 pr-3">Inusualidad</th><th class="text-right pb-1.5 pr-3">Historial</th>
-            <th class="text-right pb-1.5 pr-3">Te cabe</th><th class="text-right pb-1.5 pr-3">Quema ${(d.perfil && d.perfil.horizonte_dias) || ''}d</th>
+            <th class="text-right pb-1.5 pr-3">Te cabe</th><th class="text-right pb-1.5 pr-3">% cuenta</th>
+            <th class="text-right pb-1.5 pr-3">Quema ${(d.perfil && d.perfil.horizonte_dias) || ''}d</th>
             <th class="text-right pb-1.5 pr-3">Freno</th><th class="text-right pb-1.5 pr-3">Visto</th>
             <th class="text-right pb-1.5">&#9733;</th></tr></thead>
-          <tbody>${filas}</tbody></table></div>
+          <tbody>${filas}</tbody></table></div>`}
         <p class="text-[9px] text-gray-600 mt-2 leading-relaxed">${nota}</p>
         <p class="text-[9px] text-gray-600 mt-1 italic">&laquo;Te cabe&raquo; es el TECHO de contratos que tu perfil aguanta &mdash; no una orden de compra. Sale del mismo <code>risk.py</code> que usa la Wheel: capital, tolerancia y quema de theta hasta tu horizonte. Esto sigue siendo un screener de research.</p>
         <!-- Su disclaimer de /ideas, que faltaba entero. El tamano no se calcula
@@ -12860,6 +12998,18 @@ const VX_ES2EN = {
     "Sin lectura disponible.": "No reading available.",
     "Reintentar": "Retry",
     "El escaneo tardó demasiado": "The scan took too long",
+    "lo que se lleva el tiempo cada día, por contrato": "what time takes away each day, per contract",
+    "cuánto de tu cuenta ocuparía ese techo": "how much of your account that ceiling would take up",
+    "Escaneando el mercado…": "Scanning the market…",
+    "sin historial todavía": "no history yet",
+    "θ/día": "θ/day",
+    "se cortó la conexión con el escáner": "the connection to the scanner dropped",
+    "⚠ A este ritmo el contrato se consume entero dentro del horizonte.": "⚠ At this rate the contract is consumed entirely within the horizon.",
+    "👤 Estudiante": "👤 Student",
+    "↻ Volver a escanear": "↻ Scan again",
+    "El motor no pudo dimensionar este contrato.": "The engine could not size this contract.",
+    "Te frenó el theta, no el capital.": "Theta stopped you, not capital.",
+    "Te frenó el capital, no el theta.": "Capital stopped you, not theta.",
     "Los datos llegaron, pero el panel no supo pintarlos": "The data arrived, but the panel could not render it",
     "Es un fallo del panel, no del mercado ni de tus claves. El escaneo sí funcionó.": "This is a panel bug, not the market or your keys. The scan itself worked.",
     "actualizar": "refresh",
@@ -14169,6 +14319,17 @@ const VX_PAT = [
     [/^Se dejan fuera (\d+) más pequeñas\.$/, '$1 smaller ones are left out.'],
     // ── La tarjeta de riesgo: la pérdida es un % de LA POSICIÓN ──────────
     [/^(\S+)% de la posición$/, '$1% of the position'],
+    // ── Las frases de la vista Estudiante, que llevan cifras dentro ──────
+    [/^Con (\S+) no alcanza ni para un contrato: cada uno cuesta (\S+)\.$/,
+     'With $1 you cannot even afford one contract: each costs $2.'],
+    [/^El theta se come (\S+) al día por contrato: (\S+) en (\d+) días \((\S+)% de la cuenta\)\.$/,
+     'Theta eats $1 a day per contract: $2 over $3 days ($4% of the account).'],
+    [/^Aceptas perder hasta (\S+) de eso \((\S+)%\)\.$/,
+     'You accept losing up to $1 of that ($2%).'],
+    [/^Página (\d+) — (\d+) operaciones grandes$/, 'Page $1 — $2 large trades'],
+    [/^Clasificando (\d+) operaciones…$/, 'Classifying $1 trades…'],
+    [/^(\d+) ideas operables en (\d+) tickers$/, '$1 tradeable ideas in $2 tickers'],
+    [/^Revisando el historial de (\d+) tickers…$/, 'Reviewing the history of $1 tickers…'],
     [/^A (\d+) ticker\(s\) no les dio tiempo de historial en este escaneo\.$/,
      '$1 ticker(s) did not get history in time on this scan.'],
     [/^El escaneo pasó de (\d+) segundos sin contestar\. En Render el servicio se duerme y el primer escaneo tras despertarlo es el más lento: vuelve a intentarlo\.$/,

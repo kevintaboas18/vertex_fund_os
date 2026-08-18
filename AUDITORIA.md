@@ -8568,3 +8568,85 @@ incumplí en la misma función. Solo protege lo que falla solo.
 
 **3.409 tests del motor · 889 de la capa web (1 nuevo) · 95 de navegador
 (3 nuevos) · 267 checks de auditoría.**
+
+---
+
+## 41.79 · Ronda 54 — Ideas contra su repo, al detalle
+
+> «Verifica cómo Víctor lo tiene y hazlo… con los cambios que hice, pero
+> verifica porque no se refleja las ideas y todo al detalle.»
+
+Se clonó su repo y se leyó su `/ideas` entero: la ruta, los tipos, la tabla y
+la página. Lo que salió no era un matiz.
+
+### Su ruta es un STREAM. La nuestra devolvía un JSON de una pieza
+
+Su `/api/ideas` es SSE y va contando lo que hace:
+
+```
+Escaneando el flujo de todo el mercado…
+Página 1 — 240 operaciones grandes
+Clasificando 240 operaciones…
+37 ideas operables en 23 tickers
+Revisando el historial de 12 tickers…
+```
+
+Nosotros copiamos **la etiqueta de su primer paso** y la dejamos fija. La misma
+frase que en su app dura un segundo aquí duraba el escaneo entero — y eso es
+literalmente lo que Kevin lleva viendo: «se queda escaneando».
+
+Y lo más cómico: `on_page` —su `onPage`— **estaba en el port desde el primer
+día** y no lo llamaba nadie.
+
+Ahora el escaneo es un **generador** que emite pasos, y dos rutas lo consumen:
+`/api/tito-ideas/stream` (SSE, la que usa el panel) y `/api/tito-ideas` (JSON,
+la de siempre). Un generador y dos rutas, no dos copias: si se separan, la
+pantalla enseñaría una cosa y los tests medirían otra.
+
+El reparo que frenaba el stream era el buffering del proxy de Render, y se
+ataca de frente: `no-transform`, `X-Accel-Buffering: no` y **la ruta JSON como
+respaldo**. Si el stream no llega o se corta, el panel cae a ella y pinta
+igual. El stream es cómo se ve mejor, no un requisito para que funcione.
+
+### La vista ESTUDIANTE no existía
+
+Su página tiene dos, y la de por defecto es **Estudiante**: una tarjeta por
+idea con el veredicto en frases —«Máximo 4 contratos — pones $664 de tus
+$1.000 (66,4%). El theta se come $0,70 al día por contrato…»— en vez de una
+tabla de dieciséis columnas. Aquí solo estaba la Pro.
+
+Portada, con el modelo de Kevin dentro: donde él dice lo que arriesgas, aquí se
+dicen **las dos cosas** —lo que despliegas y lo que aceptas perder de eso—,
+porque en su app coinciden y con el modelo de Kevin no.
+
+### Y lo que faltaba en la tabla
+
+- **θ/día en dólares** (él tiene la columna en dólares Y en porcentaje;
+  nosotros solo el porcentaje);
+- **% cuenta**, que estaba únicamente en una ayuda emergente;
+- el botón **«↻ Volver a escanear»** — sin él la única forma de repetir el
+  escaneo era recargar la página entera.
+
+### Lo que rompí por el camino, y cómo salió
+
+Al convertir la ruta en generador, un `replace(…, 1)` pegó en la **primera**
+aparición del texto, que estaba en `projection_targets` y no en Ideas:
+convertí esa ruta en un generador sin querer y pasó a devolver **200 con el
+cuerpo vacío**. Lo cazó un caso que llevaba meses en verde
+(`test_la_tasa_y_las_filas_cuentan_lo_mismo`), y se confirmó comparando contra
+`git stash`: pasaba antes, fallaba después. Reparado y comprobado con un
+recuento de qué funciones son generadoras — solo las tres que deben serlo.
+
+### Guardianes actualizados, no silenciados
+
+- El smoke de Node exigía una tabla en Ideas. Con Estudiante por defecto ya no
+  la hay: ahora ejercita **las dos vistas**, que es más cobertura, no menos.
+- `ideas.theta` estaba declarada como «no se pinta» y ahora sí se pinta: fuera
+  del registro.
+- La divergencia declarada «una respuesta, no un stream» **ya solo aplica a
+  tres rutas**. Actualizada en el código y en la auditoría, no borrada.
+
+### Estado
+
+**3.409 tests del motor · 892 de la capa web (3 nuevos) · 98 de navegador
+(3 nuevos) · 324 checks de auditoría contra su repo real, 0 fallos.**

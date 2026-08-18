@@ -2252,3 +2252,92 @@ class TestLaVistaDeIDEASSePintaDeVerdad:
             assert txt.strip(), "no se pinta nada: la caja queda vacía"
         finally:
             pg.close()
+
+    def test_las_DOS_VISTAS_de_Victor_existen_y_se_cambian(self, navegador, servidor):
+        """Su pagina tiene Estudiante y Pro; aqui solo existia la Pro.
+
+        La de Estudiante no es una version reducida: es la misma matematica
+        contada en frases, que es como se entiende un techo de contratos sin
+        leer una tabla de 16 columnas.
+        """
+        pg, errores = self._pinta(navegador, servidor)
+        try:
+            # Estudiante es la de por defecto, como en su app.
+            pg.evaluate("vcIdeasCambiaVista('estudiante')")
+            pg.wait_for_timeout(400)
+            est = pg.evaluate("() => document.getElementById('projIdeas').innerText")
+            assert "Máximo" in est or "no alcanza" in est or "Con $" in est, (
+                f"la vista Estudiante no cuenta el veredicto en palabras: {est[:400]}")
+            assert "BAC" in est
+            assert pg.evaluate(
+                "() => document.querySelectorAll('#projIdeas article').length") >= 1, (
+                "no hay tarjetas en la vista Estudiante")
+
+            pg.evaluate("vcIdeasCambiaVista('pro')")
+            pg.wait_for_timeout(400)
+            assert pg.evaluate(
+                "() => document.querySelectorAll('#projIdeas table tbody tr').length") >= 1, (
+                "la vista Pro no pinta la tabla")
+            pro = pg.evaluate("() => document.getElementById('projIdeas').innerText")
+            # Las dos columnas de su tabla que faltaban.
+            assert "θ/día" in pro and "% cuenta" in pro, (
+                f"faltan columnas suyas: {pro[:300]}")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_boton_de_VOLVER_A_ESCANEAR_existe(self, navegador, servidor):
+        """Sin el, la unica forma de repetir el escaneo era recargar la pagina."""
+        pg, errores = self._pinta(navegador, servidor)
+        try:
+            hay = pg.evaluate(
+                "() => [...document.querySelectorAll('#projIdeas button')]"
+                ".some(b => /Volver a escanear/.test(b.textContent))")
+            assert hay, "no hay boton de volver a escanear"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_escaneo_SE_CUENTA_paso_a_paso_en_pantalla(self, navegador, servidor):
+        """Lo que se veia congelado. Su pagina pinta una lista de pasos que
+        crece; aqui la etiqueta del primero se quedaba clavada todo el escaneo.
+
+        Se sirve un SSE de verdad, con pausa entre pasos, y se mira la pantalla
+        ANTES de que llegue el `done`.
+        """
+        import re as _re
+
+        cuerpo = (
+            'data: {"type":"step","label":"Escaneando el flujo de todo el mercado…"}\n\n'
+            'data: {"type":"step","label":"Página 1 — 120 operaciones grandes"}\n\n'
+            'data: {"type":"step","label":"Clasificando 120 operaciones…"}\n\n'
+        )
+        pg = navegador.new_page(viewport={"width": 1280, "height": 1000})
+        errores: list[str] = []
+        pg.on("pageerror", lambda e: errores.append(str(e)))
+        pg.route(_re.compile(r"/api/tito-ideas/stream"),
+                 lambda r: r.fulfill(status=200, body=cuerpo,
+                                     headers={"Content-Type": "text/event-stream"}))
+        pg.goto(servidor, wait_until="load")
+        pg.wait_for_timeout(1500)
+        pg.evaluate("switchView('projectionsView')")
+        # Se graba TODO lo que se pinta, no solo el estado final: los pasos son
+        # por definición intermedios, y al cerrarse el stream el cargador cae a
+        # la ruta JSON y los sustituye. Mirar solo el final no vería nunca lo
+        # que esta prueba mide.
+        pg.evaluate("""() => {
+            window.__pintado = [];
+            const n = document.getElementById('projIdeas');
+            new MutationObserver(() => window.__pintado.push(n.innerText))
+                .observe(n, { childList: true, subtree: true, characterData: true });
+        }""")
+        pg.evaluate("() => { loadProjIdeas().catch(() => {}); }")
+        pg.wait_for_timeout(2000)
+        try:
+            visto = "\n".join(pg.evaluate("() => window.__pintado || []"))
+            assert "Página 1" in visto, (
+                f"los pasos del stream no llegan a la pantalla: {visto[:400]}")
+            assert "Clasificando" in visto, f"solo se pinta el primer paso: {visto[:400]}"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()

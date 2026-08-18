@@ -102,6 +102,10 @@ def mercado(monkeypatch):
 
     def fake(**k):
         tr = []
+        # `on_page` es su `onPage`, y el doble tiene que llamarlo: es lo que
+        # convierte el escaneo en una cuenta que avanza en pantalla. Si el doble
+        # lo ignorara, un servidor que dejara de pasarlo saldría verde.
+        pagina = k.get("on_page")
         for i, (sym, strike, side) in enumerate(
             [("NVDA270115C00180000", 180, "AT_ASK"),
              ("TSLA260918C00420000", 420, "ABOVE_ASK"),
@@ -117,6 +121,8 @@ def mercado(monkeypatch):
                 "timestamp": (NOW - timedelta(minutes=i * 3 + 1)).isoformat(),
                 "asset_price": strike * 0.98, "trade_condition_id": 231,
             })
+        if pagina:
+            pagina(1, len(tr))
         return FlowResult(trades=tr, pages=1, truncated=False)
 
     monkeypatch.setattr(MS, "fetch_market_flow", fake)
@@ -1196,6 +1202,77 @@ class TestIdeasDelMercado:
         assert "AbortError" in f, "el plazo agotado no se distingue de otro fallo"
         assert "loadProjIdeas()" in h.split("No se pudo escanear el mercado", 1)[1][:900], (
             "la caja de error no ofrece reintentar")
+
+    def test_el_escaneo_se_CUENTA_paso_a_paso(self, client, mercado):
+        """Su `/api/ideas` es un stream de SSE, no un JSON de una pieza.
+
+        Su página pinta una lista de pasos que crece: la página que baja, las
+        operaciones que clasifica, las ideas que quedan, el historial que
+        revisa. Aquí se devolvía todo junto al final, así que la pantalla se
+        quedaba con la etiqueta del PRIMER paso —«Escaneando el flujo de todo
+        el mercado…»— clavada durante el escaneo entero. La misma frase que en
+        su app dura un segundo aquí duraba el minuto entero y se leía como
+        colgada.
+        """
+        import json as _json
+
+        r = client.get("/api/tito-ideas/stream")
+        assert r.status_code == 200
+        assert "text/event-stream" in r.headers["content-type"]
+        # Un proxy que junte los trozos convierte el stream en un JSON lento.
+        assert "no-transform" in r.headers.get("cache-control", "")
+
+        eventos = [_json.loads(l[6:]) for l in r.text.splitlines()
+                   if l.startswith("data: ")]
+        tipos = [e["type"] for e in eventos]
+        assert tipos[-1] == "done", f"el stream no terminó bien: {tipos}"
+        assert tipos.count("done") == 1
+        pasos = [e["label"] for e in eventos if e["type"] == "step"]
+        assert len(pasos) >= 3, f"apenas se cuenta nada: {pasos}"
+        assert pasos[0].startswith("Escaneando"), pasos
+        # Los suyos, en su orden: la página, la clasificación y el recuento.
+        assert any(p.startswith("Página 1 —") for p in pasos), pasos
+        assert any(p.startswith("Clasificando") for p in pasos), pasos
+        assert any("ideas operables en" in p for p in pasos), pasos
+
+    def test_el_stream_y_el_JSON_dan_LO_MISMO(self, client, mercado):
+        """Un generador y dos rutas, no dos copias del escaneo. Si se separan,
+        la pantalla enseñaría una cosa y los tests medirían otra."""
+        import json as _json
+
+        # Un escaneo de calentamiento: cada corrida GUARDA lo que ve, así que
+        # la primera encuentra el archivo vacío y la segunda ya no. Sin esto se
+        # compararían dos estados distintos y el caso acusaría de divergencia a
+        # lo que solo es memoria acumulándose.
+        client.get("/api/tito-ideas")
+        directo = client.get("/api/tito-ideas").json()
+        r = client.get("/api/tito-ideas/stream")
+        final = [_json.loads(l[6:]) for l in r.text.splitlines()
+                 if l.startswith("data: ")][-1]
+        assert final["type"] == "done"
+        for campo in ("scanned", "tickers", "with_history", "min_premium",
+                      "moneyness_cap", "period"):
+            assert final[campo] == directo[campo], campo
+        assert [i["symbol"] for i in final["ideas"]] == \
+               [i["symbol"] for i in directo["ideas"]]
+
+    def test_si_la_CINTA_falla_el_stream_lo_dice_y_cierra(self, client, monkeypatch):
+        """Un stream que se corta sin decir nada deja la pantalla esperando —
+        y ahí ya no se puede devolver un 500, porque la respuesta empezó."""
+        import json as _json
+
+        import wbj.tito.marketsnack as MS
+
+        def _revienta(**k):
+            raise MS.MarketSnackError("cookie caducada")
+
+        monkeypatch.setattr(MS, "fetch_market_flow", _revienta)
+        r = client.get("/api/tito-ideas/stream")
+        eventos = [_json.loads(l[6:]) for l in r.text.splitlines()
+                   if l.startswith("data: ")]
+        assert eventos[-1]["type"] == "error"
+        assert eventos[-1]["source"] == "marketsnack"
+        assert "cookie" in eventos[-1]["message"].lower()
 
     def test_lo_que_no_te_cabe_se_baja_pero_NO_se_esconde(self, client, mercado):
         """Que una operación esté fuera de tu presupuesto es información, no
@@ -2927,8 +3004,6 @@ class TestIdeasYWheelTampocoTiranNada:
                                "se pinta como /30",
         "ideas.asset_price": "el spot del subyacente; la fila lleva el strike",
         "ideas.size": "número de contratos del trade; el dinero es lo comparable",
-        "ideas.theta": "theta absoluta; la columna es `theta_pct_daily`, que es "
-                       "la que se puede comparar entre contratos",
         "ideas.sizing.blocked_reason": "el CÓDIGO del bloqueo (`theta_alto`, "
                                        "`vencido`…), para filtrar desde la API; "
                                        "en pantalla va `blocked`, que es la frase",
@@ -3315,8 +3390,11 @@ class TestElPanelNoLeeCamposQueNadieManda:
         "truncated",
         # /api/tito-health — `renderProjSalud`, la pestaña de Cobertura
         "checks",
-        # sobres de error / degradación, comunes a todas
-        "ok", "error", "degraded",
+        # sobres de error / degradación, comunes a todas. `source` dice CUÁL
+        # de las fuentes falló (`marketsnack`, `motor`, `plazo`), que es lo que
+        # decide qué consejo se da: no es lo mismo una cookie caducada que un
+        # escaneo que tardó demasiado.
+        "ok", "error", "degraded", "source",
     }
 
     def test_todo_lo_que_pinta_el_panel_llega_o_esta_declarado(self, client, mercado):
