@@ -22,42 +22,42 @@
     {
       "ticker": "SPY",
       "nombre": "S&P 500",
-      "precio": 772.67,
-      "cambio_pct": -0.47,
-      "rsi": 61.8,
-      "sma200": 705.88,
-      "sma200_dist": 9.46,
+      "precio": 769.18,
+      "cambio_pct": -0.45,
+      "rsi": 58.1,
+      "sma200": 706.29,
+      "sma200_dist": 8.9,
       "cambios": {
-        "7D": -0.05,
-        "1M": 3.95,
-        "3M": 4.53,
-        "6M": 13.34,
-        "1A": 19.8
+        "7D": -0.19,
+        "1M": 3.64,
+        "3M": 4.12,
+        "6M": 12.63,
+        "1A": 19.53
       },
       "volumen": {
         "7D": {
-          "medio": 34255743,
-          "relativo": 0.66,
+          "medio": 27587180,
+          "relativo": 0.54,
           "respalda": false
         },
         "1M": {
-          "medio": 46325853,
-          "relativo": 0.89,
+          "medio": 44086589,
+          "relativo": 0.86,
           "respalda": false
         },
         "3M": {
-          "medio": 51734156,
+          "medio": 51028662,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 62817711,
-          "relativo": 1.21,
+          "medio": 62199005,
+          "relativo": 1.22,
           "respalda": true
         },
         "1A": {
-          "medio": 70854270,
-          "relativo": 1.37,
+          "medio": 70595561,
+          "relativo": 1.38,
           "respalda": true
         }
       }
@@ -65,42 +65,42 @@
     {
       "ticker": "RSP",
       "nombre": "S&P 500 equiponderado",
-      "precio": 220.79,
-      "cambio_pct": -0.89,
-      "rsi": 61.6,
-      "sma200": 201.33,
-      "sma200_dist": 9.67,
+      "precio": 220.93,
+      "cambio_pct": 0.06,
+      "rsi": 61.8,
+      "sma200": 201.49,
+      "sma200_dist": 9.65,
       "cambios": {
-        "7D": 0.26,
-        "1M": 3.48,
-        "3M": 9.54,
-        "6M": 8.83,
-        "1A": 18.5
+        "7D": 0.07,
+        "1M": 3.96,
+        "3M": 8.89,
+        "6M": 9.04,
+        "1A": 18.82
       },
       "volumen": {
         "7D": {
-          "medio": 5462714,
-          "relativo": 0.6,
+          "medio": 4191775,
+          "relativo": 0.47,
           "respalda": false
         },
         "1M": {
-          "medio": 7506494,
-          "relativo": 0.82,
+          "medio": 7241067,
+          "relativo": 0.81,
           "respalda": false
         },
         "3M": {
-          "medio": 9398935,
+          "medio": 9193643,
           "relativo": 1.03,
           "respalda": false
         },
         "6M": {
-          "medio": 11626439,
+          "medio": 11396849,
           "relativo": 1.27,
           "respalda": true
         },
         "1A": {
-          "medio": 14205529,
-          "relativo": 1.55,
+          "medio": 14162371,
+          "relativo": 1.58,
           "respalda": true
         }
       }
@@ -108,42 +108,42 @@
     {
       "ticker": "QQQ",
       "nombre": "Nasdaq 100",
-      "precio": 729.87,
-      "cambio_pct": -0.16,
-      "rsi": 58.9,
-      "sma200": 651.1,
-      "sma200_dist": 12.1,
+      "precio": 720.88,
+      "cambio_pct": -1.23,
+      "rsi": 53.8,
+      "sma200": 651.53,
+      "sma200_dist": 10.64,
       "cambios": {
-        "7D": 1.25,
-        "1M": 4.97,
-        "3M": 2.95,
-        "6M": 21.26,
-        "1A": 25.86
+        "7D": 0.31,
+        "1M": 3.54,
+        "3M": 2.1,
+        "6M": 19.86,
+        "1A": 24.83
       },
       "volumen": {
         "7D": {
-          "medio": 28039014,
-          "relativo": 0.65,
+          "medio": 23028271,
+          "relativo": 0.54,
           "respalda": false
         },
         "1M": {
-          "medio": 38640461,
-          "relativo": 0.9,
+          "medio": 37428310,
+          "relativo": 0.88,
           "respalda": false
         },
         "3M": {
-          "medio": 42979912,
+          "medio": 42256069,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 50063103,
+          "medio": 49548965,
           "relativo": 1.17,
           "respalda": false
         },
         "1A": {
-          "medio": 53009100,
-          "relativo": 1.24,
+          "medio": 52829546,
+          "relativo": 1.25,
           "respalda": true
         }
       }
@@ -151,42 +151,42 @@
     {
       "ticker": "XLK",
       "nombre": "Tecnología",
-      "precio": 190.32,
-      "cambio_pct": 0.16,
-      "rsi": 60.6,
-      "sma200": 157.73,
-      "sma200_dist": 20.66,
+      "precio": 187.02,
+      "cambio_pct": -1.73,
+      "rsi": 55.0,
+      "sma200": 157.91,
+      "sma200_dist": 18.44,
       "cambios": {
-        "7D": 2.15,
-        "1M": 8.39,
-        "3M": 7.98,
-        "6M": 36.37,
-        "1A": 42.17
+        "7D": 0.53,
+        "1M": 6.47,
+        "3M": 7.29,
+        "6M": 34.12,
+        "1A": 40.81
       },
       "volumen": {
         "7D": {
-          "medio": 5250840,
-          "relativo": 0.47,
+          "medio": 4248412,
+          "relativo": 0.39,
           "respalda": false
         },
         "1M": {
-          "medio": 8033090,
-          "relativo": 0.72,
+          "medio": 7704921,
+          "relativo": 0.7,
           "respalda": false
         },
         "3M": {
-          "medio": 11418362,
-          "relativo": 1.02,
+          "medio": 11126052,
+          "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 13084675,
+          "medio": 12886288,
           "relativo": 1.17,
           "respalda": false
         },
         "1A": {
-          "medio": 15686904,
-          "relativo": 1.4,
+          "medio": 15636800,
+          "relativo": 1.42,
           "respalda": true
         }
       }
@@ -194,42 +194,42 @@
     {
       "ticker": "XLF",
       "nombre": "Financiero",
-      "precio": 57.58,
-      "cambio_pct": -1.0,
-      "rsi": 58.2,
-      "sma200": 53.12,
-      "sma200_dist": 8.4,
+      "precio": 57.69,
+      "cambio_pct": 0.18,
+      "rsi": 59.9,
+      "sma200": 53.15,
+      "sma200_dist": 8.55,
       "cambios": {
-        "7D": -0.4,
-        "1M": 2.35,
-        "3M": 12.68,
-        "6M": 11.48,
-        "1A": 8.62
+        "7D": -0.09,
+        "1M": 3.05,
+        "3M": 11.62,
+        "6M": 10.63,
+        "1A": 10.08
       },
       "volumen": {
         "7D": {
-          "medio": 27057818,
-          "relativo": 0.79,
+          "medio": 23578987,
+          "relativo": 0.7,
           "respalda": false
         },
         "1M": {
-          "medio": 30092615,
-          "relativo": 0.88,
+          "medio": 28389769,
+          "relativo": 0.84,
           "respalda": false
         },
         "3M": {
-          "medio": 34485586,
+          "medio": 34000319,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 41291299,
-          "relativo": 1.2,
+          "medio": 40881284,
+          "relativo": 1.21,
           "respalda": true
         },
         "1A": {
-          "medio": 41464891,
-          "relativo": 1.21,
+          "medio": 41291456,
+          "relativo": 1.22,
           "respalda": true
         }
       }
@@ -237,41 +237,41 @@
     {
       "ticker": "XLV",
       "nombre": "Salud",
-      "precio": 167.05,
-      "cambio_pct": -0.19,
-      "rsi": 60.7,
-      "sma200": 153.62,
-      "sma200_dist": 8.74,
+      "precio": 169.32,
+      "cambio_pct": 1.35,
+      "rsi": 65.1,
+      "sma200": 153.74,
+      "sma200_dist": 10.13,
       "cambios": {
-        "7D": -0.83,
-        "1M": 3.7,
-        "3M": 15.13,
-        "6M": 5.95,
-        "1A": 24.7
+        "7D": 0.55,
+        "1M": 6.08,
+        "3M": 15.93,
+        "6M": 7.35,
+        "1A": 24.03
       },
       "volumen": {
         "7D": {
-          "medio": 6559731,
-          "relativo": 0.64,
+          "medio": 5362080,
+          "relativo": 0.53,
           "respalda": false
         },
         "1M": {
-          "medio": 8859316,
-          "relativo": 0.86,
+          "medio": 8576332,
+          "relativo": 0.84,
           "respalda": false
         },
         "3M": {
-          "medio": 10303245,
+          "medio": 10188062,
           "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 11335785,
+          "medio": 11223178,
           "relativo": 1.1,
           "respalda": false
         },
         "1A": {
-          "medio": 12013587,
+          "medio": 11961059,
           "relativo": 1.17,
           "respalda": false
         }
@@ -281,41 +281,41 @@
       "ticker": "XLY",
       "nombre": "Consumo discrecional",
       "precio": 116.75,
-      "cambio_pct": -1.23,
-      "rsi": 50.3,
-      "sma200": 117.09,
-      "sma200_dist": -0.29,
+      "cambio_pct": -0.0,
+      "rsi": 50.0,
+      "sma200": 117.07,
+      "sma200_dist": -0.27,
       "cambios": {
-        "7D": -2.44,
-        "1M": 1.13,
-        "3M": 0.19,
-        "6M": 0.49,
-        "1A": 1.7
+        "7D": -2.17,
+        "1M": 1.78,
+        "3M": 0.29,
+        "6M": 0.53,
+        "1A": 1.86
       },
       "volumen": {
         "7D": {
-          "medio": 4704176,
-          "relativo": 0.61,
+          "medio": 4054267,
+          "relativo": 0.53,
           "respalda": false
         },
         "1M": {
-          "medio": 7078418,
-          "relativo": 0.91,
+          "medio": 6732443,
+          "relativo": 0.88,
           "respalda": false
         },
         "3M": {
-          "medio": 7857229,
-          "relativo": 1.02,
+          "medio": 7707290,
+          "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 8948738,
+          "medio": 8876643,
           "relativo": 1.16,
           "respalda": false
         },
         "1A": {
-          "medio": 10235069,
-          "relativo": 1.32,
+          "medio": 10200117,
+          "relativo": 1.34,
           "respalda": true
         }
       }
@@ -323,42 +323,42 @@
     {
       "ticker": "XLC",
       "nombre": "Comunicaciones",
-      "precio": 110.82,
-      "cambio_pct": -1.89,
-      "rsi": 50.6,
-      "sma200": 114.12,
-      "sma200_dist": -2.89,
+      "precio": 110.53,
+      "cambio_pct": -0.26,
+      "rsi": 50.0,
+      "sma200": 114.09,
+      "sma200_dist": -3.12,
       "cambios": {
-        "7D": -0.9,
-        "1M": 0.15,
-        "3M": -4.53,
-        "6M": -3.28,
-        "1A": -0.34
+        "7D": -0.58,
+        "1M": -0.15,
+        "3M": -5.43,
+        "6M": -3.3,
+        "1A": -0.76
       },
       "volumen": {
         "7D": {
-          "medio": 4225842,
-          "relativo": 0.65,
+          "medio": 3607428,
+          "relativo": 0.57,
           "respalda": false
         },
         "1M": {
-          "medio": 5538875,
-          "relativo": 0.86,
+          "medio": 5361701,
+          "relativo": 0.84,
           "respalda": false
         },
         "3M": {
-          "medio": 6395730,
+          "medio": 6318994,
           "relativo": 0.99,
           "respalda": false
         },
         "6M": {
-          "medio": 6494230,
+          "medio": 6445337,
           "relativo": 1.01,
           "respalda": false
         },
         "1A": {
-          "medio": 6255334,
-          "relativo": 0.97,
+          "medio": 6234523,
+          "relativo": 0.98,
           "respalda": false
         }
       }
@@ -366,42 +366,42 @@
     {
       "ticker": "XLI",
       "nombre": "Industrial",
-      "precio": 186.32,
-      "cambio_pct": -0.1,
-      "rsi": 60.4,
-      "sma200": 169.04,
-      "sma200_dist": 10.22,
+      "precio": 185.0,
+      "cambio_pct": -0.71,
+      "rsi": 55.0,
+      "sma200": 169.19,
+      "sma200_dist": 9.35,
       "cambios": {
-        "7D": 0.93,
-        "1M": 3.85,
-        "3M": 8.7,
-        "6M": 6.98,
-        "1A": 23.28
+        "7D": -0.47,
+        "1M": 3.76,
+        "3M": 8.24,
+        "6M": 5.57,
+        "1A": 22.86
       },
       "volumen": {
         "7D": {
-          "medio": 4568426,
-          "relativo": 0.64,
+          "medio": 3677963,
+          "relativo": 0.52,
           "respalda": false
         },
         "1M": {
-          "medio": 6105017,
-          "relativo": 0.85,
+          "medio": 5838206,
+          "relativo": 0.83,
           "respalda": false
         },
         "3M": {
-          "medio": 7247449,
+          "medio": 7116426,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 9585924,
-          "relativo": 1.34,
+          "medio": 9479819,
+          "relativo": 1.35,
           "respalda": true
         },
         "1A": {
-          "medio": 10163838,
-          "relativo": 1.42,
+          "medio": 10130686,
+          "relativo": 1.44,
           "respalda": true
         }
       }
@@ -409,42 +409,42 @@
     {
       "ticker": "XLP",
       "nombre": "Consumo básico",
-      "precio": 84.68,
-      "cambio_pct": -1.64,
-      "rsi": 48.0,
-      "sma200": 82.69,
-      "sma200_dist": 2.41,
+      "precio": 85.28,
+      "cambio_pct": 0.7,
+      "rsi": 51.5,
+      "sma200": 82.73,
+      "sma200_dist": 3.08,
       "cambios": {
-        "7D": -0.32,
-        "1M": -0.6,
-        "3M": 0.05,
-        "6M": -5.4,
-        "1A": 3.41
+        "7D": 0.7,
+        "1M": 0.49,
+        "3M": -0.72,
+        "6M": -3.31,
+        "1A": 3.97
       },
       "volumen": {
         "7D": {
-          "medio": 8328645,
-          "relativo": 0.72,
+          "medio": 7024755,
+          "relativo": 0.62,
           "respalda": false
         },
         "1M": {
-          "medio": 10284288,
-          "relativo": 0.89,
+          "medio": 9916089,
+          "relativo": 0.88,
           "respalda": false
         },
         "3M": {
-          "medio": 11561052,
-          "relativo": 1.0,
+          "medio": 11389689,
+          "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 13865330,
-          "relativo": 1.2,
+          "medio": 13635327,
+          "relativo": 1.21,
           "respalda": true
         },
         "1A": {
-          "medio": 15105515,
-          "relativo": 1.31,
+          "medio": 15060361,
+          "relativo": 1.33,
           "respalda": true
         }
       }
@@ -452,42 +452,42 @@
     {
       "ticker": "XLE",
       "nombre": "Energía",
-      "precio": 62.58,
-      "cambio_pct": 1.08,
-      "rsi": 69.7,
-      "sma200": 53.51,
-      "sma200_dist": 16.96,
+      "precio": 63.2,
+      "cambio_pct": 0.99,
+      "rsi": 72.0,
+      "sma200": 53.6,
+      "sma200_dist": 17.91,
       "cambios": {
-        "7D": 3.99,
-        "1M": 8.5,
-        "3M": 5.28,
-        "6M": 15.14,
-        "1A": 46.28
+        "7D": 4.0,
+        "1M": 9.37,
+        "3M": 4.61,
+        "6M": 17.9,
+        "1A": 48.13
       },
       "volumen": {
         "7D": {
-          "medio": 22403335,
-          "relativo": 0.69,
+          "medio": 18561914,
+          "relativo": 0.58,
           "respalda": false
         },
         "1M": {
-          "medio": 27543055,
-          "relativo": 0.85,
+          "medio": 26393741,
+          "relativo": 0.83,
           "respalda": false
         },
         "3M": {
-          "medio": 33067246,
+          "medio": 32458947,
           "relativo": 1.02,
           "respalda": false
         },
         "6M": {
-          "medio": 43452769,
-          "relativo": 1.34,
+          "medio": 43077326,
+          "relativo": 1.36,
           "respalda": true
         },
         "1A": {
-          "medio": 39251670,
-          "relativo": 1.21,
+          "medio": 39156019,
+          "relativo": 1.23,
           "respalda": true
         }
       }
@@ -495,42 +495,42 @@
     {
       "ticker": "XLU",
       "nombre": "Servicios públicos",
-      "precio": 44.18,
-      "cambio_pct": -0.29,
-      "rsi": 46.3,
-      "sma200": 44.77,
-      "sma200_dist": -1.31,
+      "precio": 44.47,
+      "cambio_pct": 0.66,
+      "rsi": 48.6,
+      "sma200": 44.76,
+      "sma200_dist": -0.66,
       "cambios": {
-        "7D": 2.43,
-        "1M": -2.19,
-        "3M": 0.71,
-        "6M": -4.99,
-        "1A": 2.89
+        "7D": 1.67,
+        "1M": -1.29,
+        "3M": 0.96,
+        "6M": -4.36,
+        "1A": 3.62
       },
       "volumen": {
         "7D": {
-          "medio": 17411497,
-          "relativo": 0.87,
+          "medio": 14037771,
+          "relativo": 0.71,
           "respalda": false
         },
         "1M": {
-          "medio": 19985630,
-          "relativo": 1.0,
+          "medio": 19270931,
+          "relativo": 0.98,
           "respalda": false
         },
         "3M": {
-          "medio": 20206272,
-          "relativo": 1.01,
+          "medio": 19750207,
+          "relativo": 1.0,
           "respalda": false
         },
         "6M": {
-          "medio": 22498704,
-          "relativo": 1.12,
+          "medio": 22263769,
+          "relativo": 1.13,
           "respalda": false
         },
         "1A": {
-          "medio": 22223642,
-          "relativo": 1.11,
+          "medio": 22117472,
+          "relativo": 1.12,
           "respalda": false
         }
       }
@@ -538,42 +538,42 @@
     {
       "ticker": "XLRE",
       "nombre": "Inmobiliario",
-      "precio": 44.83,
-      "cambio_pct": -0.97,
-      "rsi": 48.7,
-      "sma200": 42.81,
-      "sma200_dist": 4.71,
+      "precio": 45.02,
+      "cambio_pct": 0.42,
+      "rsi": 50.5,
+      "sma200": 42.84,
+      "sma200_dist": 5.1,
       "cambios": {
-        "7D": 0.97,
-        "1M": -1.3,
-        "3M": 3.7,
-        "6M": 3.06,
-        "1A": 9.18
+        "7D": 2.04,
+        "1M": -0.55,
+        "3M": 2.81,
+        "6M": 2.37,
+        "1A": 8.83
       },
       "volumen": {
         "7D": {
-          "medio": 5825184,
-          "relativo": 1.12,
+          "medio": 4948955,
+          "relativo": 0.96,
           "respalda": false
         },
         "1M": {
-          "medio": 5337302,
-          "relativo": 1.02,
+          "medio": 5238064,
+          "relativo": 1.01,
           "respalda": false
         },
         "3M": {
-          "medio": 5193489,
-          "relativo": 1.0,
+          "medio": 5115876,
+          "relativo": 0.99,
           "respalda": false
         },
         "6M": {
-          "medio": 6397483,
-          "relativo": 1.23,
+          "medio": 6329337,
+          "relativo": 1.22,
           "respalda": true
         },
         "1A": {
-          "medio": 6929617,
-          "relativo": 1.33,
+          "medio": 6911688,
+          "relativo": 1.34,
           "respalda": true
         }
       }
@@ -581,42 +581,42 @@
     {
       "ticker": "XLB",
       "nombre": "Materiales",
-      "precio": 52.24,
-      "cambio_pct": -0.57,
-      "rsi": 53.2,
-      "sma200": 49.39,
-      "sma200_dist": 5.78,
+      "precio": 52.16,
+      "cambio_pct": -0.16,
+      "rsi": 51.8,
+      "sma200": 49.43,
+      "sma200_dist": 5.52,
       "cambios": {
-        "7D": -1.77,
-        "1M": 3.38,
-        "3M": 3.86,
-        "6M": -2.01,
-        "1A": 16.04
+        "7D": -2.19,
+        "1M": 4.09,
+        "3M": 3.69,
+        "6M": -1.19,
+        "1A": 15.67
       },
       "volumen": {
         "7D": {
-          "medio": 9367188,
-          "relativo": 0.81,
+          "medio": 7214403,
+          "relativo": 0.63,
           "respalda": false
         },
         "1M": {
-          "medio": 11328052,
-          "relativo": 0.98,
+          "medio": 10852179,
+          "relativo": 0.95,
           "respalda": false
         },
         "3M": {
-          "medio": 11711054,
+          "medio": 11554598,
           "relativo": 1.01,
           "respalda": false
         },
         "6M": {
-          "medio": 12834472,
+          "medio": 12677982,
           "relativo": 1.11,
           "respalda": false
         },
         "1A": {
-          "medio": 13347952,
-          "relativo": 1.15,
+          "medio": 13286661,
+          "relativo": 1.16,
           "respalda": false
         }
       }
@@ -624,17 +624,17 @@
     {
       "ticker": "^VIX",
       "nombre": "Volatilidad (VIX)",
-      "precio": 15.79,
-      "cambio_pct": 3.95,
-      "rsi": 45.1,
-      "sma200": 18.51,
-      "sma200_dist": -14.69,
+      "precio": 15.72,
+      "cambio_pct": 3.49,
+      "rsi": 47.9,
+      "sma200": 18.5,
+      "sma200_dist": -15.05,
       "cambios": {
-        "7D": -1.75,
-        "1M": -19.07,
-        "3M": -17.58,
-        "6M": -26.26,
-        "1A": 2.43
+        "7D": 3.01,
+        "1M": -15.6,
+        "3M": -11.67,
+        "6M": -22.42,
+        "1A": 4.31
       },
       "volumen": {
         "7D": {
@@ -668,24 +668,24 @@
   "rotacion": {
     "disponible": true,
     "salud": {
-      "clave": "debil",
-      "frase": "Debilidad amplia: ni las mega-caps ni el mercado ancho tiran.",
-      "pendiente": -0.1733
+      "clave": "rotacion",
+      "frase": "Rotación activa: el mercado ancho aguanta mejor que las mega-caps.",
+      "pendiente": 0.9856
     },
     "matriz": {
       "improving": [
         "XLK",
+        "XLP",
         "XLRE",
         "XLU"
       ],
       "leading": [
         "XLE",
-        "XLI"
+        "XLF",
+        "XLV"
       ],
       "weakening": [
-        "XLF",
-        "XLP",
-        "XLV"
+        "XLI"
       ],
       "lagging": [
         "XLB",
@@ -732,445 +732,443 @@
     ],
     "sectores": {
       "XLK": {
-        "rs": 0.2463,
+        "rs": 0.2432,
         "cuadrante": "improving",
-        "fuerza": -3.462,
-        "impulso": 2.1944,
-        "volumen_rel": 0.7574,
+        "fuerza": -0.5014,
+        "impulso": 0.7175,
+        "volumen_rel": 0.0968,
         "flujo": null,
-        "roc_5": 2.1944,
-        "roc_20": 4.0281,
-        "roc_50": -3.462,
+        "roc_5": 0.7175,
+        "roc_20": 0.6781,
+        "roc_50": -0.5014,
         "categoria": "crecimiento"
       },
       "XLF": {
-        "rs": 0.0745,
-        "cuadrante": "weakening",
-        "fuerza": 8.103,
-        "impulso": -0.3514,
-        "volumen_rel": 1.5372,
-        "flujo": "salida",
-        "roc_5": -0.3514,
-        "roc_20": -1.3184,
-        "roc_50": 8.103,
+        "rs": 0.0751,
+        "cuadrante": "leading",
+        "fuerza": 5.891,
+        "impulso": 0.1032,
+        "volumen_rel": 0.0843,
+        "flujo": null,
+        "roc_5": 0.1032,
+        "roc_20": 0.1366,
+        "roc_50": 5.891,
         "categoria": "ciclicos"
       },
       "XLV": {
-        "rs": 0.2162,
-        "cuadrante": "weakening",
-        "fuerza": 7.6286,
-        "impulso": -0.779,
-        "volumen_rel": 0.8055,
+        "rs": 0.2197,
+        "cuadrante": "leading",
+        "fuerza": 5.8818,
+        "impulso": 0.7444,
+        "volumen_rel": 0.0798,
         "flujo": null,
-        "roc_5": -0.779,
-        "roc_20": 0.7464,
-        "roc_50": 7.6286,
+        "roc_5": 0.7444,
+        "roc_20": 2.5689,
+        "roc_50": 5.8818,
         "categoria": "defensivos"
       },
       "XLY": {
-        "rs": 0.1511,
+        "rs": 0.1517,
         "cuadrante": "lagging",
-        "fuerza": -2.4425,
-        "impulso": -2.3946,
-        "volumen_rel": 0.9777,
+        "fuerza": -2.6035,
+        "impulso": -1.9822,
+        "volumen_rel": 0.08,
         "flujo": null,
-        "roc_5": -2.3946,
-        "roc_20": -2.1644,
-        "roc_50": -2.4425,
+        "roc_5": -1.9822,
+        "roc_20": -1.1952,
+        "roc_50": -2.6035,
         "categoria": "crecimiento"
       },
       "XLC": {
-        "rs": 0.1434,
+        "rs": 0.1438,
         "cuadrante": "lagging",
-        "fuerza": -4.0001,
-        "impulso": -0.857,
-        "volumen_rel": 0.6571,
+        "fuerza": -4.9953,
+        "impulso": -0.3864,
+        "volumen_rel": 0.0536,
         "flujo": null,
-        "roc_5": -0.857,
-        "roc_20": -3.9404,
-        "roc_50": -4.0001,
+        "roc_5": -0.3864,
+        "roc_20": -2.1765,
+        "roc_50": -4.9953,
         "categoria": "crecimiento"
       },
       "XLI": {
-        "rs": 0.2411,
-        "cuadrante": "leading",
-        "fuerza": 3.6348,
-        "impulso": 0.9788,
-        "volumen_rel": 0.878,
+        "rs": 0.2403,
+        "cuadrante": "weakening",
+        "fuerza": 1.7586,
+        "impulso": -0.2822,
+        "volumen_rel": 0.075,
         "flujo": null,
-        "roc_5": 0.9788,
-        "roc_20": 0.4637,
-        "roc_50": 3.6348,
+        "roc_5": -0.2822,
+        "roc_20": 0.6502,
+        "roc_50": 1.7586,
         "categoria": "ciclicos"
       },
       "XLP": {
-        "rs": 0.1096,
-        "cuadrante": "weakening",
-        "fuerza": 1.1367,
-        "impulso": -0.2714,
-        "volumen_rel": 1.0138,
+        "rs": 0.1109,
+        "cuadrante": "improving",
+        "fuerza": -1.9875,
+        "impulso": 0.8878,
+        "volumen_rel": 0.0835,
         "flujo": null,
-        "roc_5": -0.2714,
-        "roc_20": -4.1614,
-        "roc_50": 1.1367,
+        "roc_5": 0.8878,
+        "roc_20": -1.295,
+        "roc_50": -1.9875,
         "categoria": "defensivos"
       },
       "XLE": {
-        "rs": 0.081,
+        "rs": 0.0824,
         "cuadrante": "leading",
-        "fuerza": 4.3713,
-        "impulso": 4.0365,
-        "volumen_rel": 0.8547,
+        "fuerza": 5.3762,
+        "impulso": 4.202,
+        "volumen_rel": 0.1196,
         "flujo": null,
-        "roc_5": 4.0365,
-        "roc_20": 3.7336,
-        "roc_50": 4.3713,
+        "roc_5": 4.202,
+        "roc_20": 5.3924,
+        "roc_50": 5.3762,
         "categoria": "ciclicos"
       },
       "XLU": {
-        "rs": 0.0572,
+        "rs": 0.0577,
         "cuadrante": "improving",
-        "fuerza": -1.4812,
-        "impulso": 2.4822,
-        "volumen_rel": 0.8151,
+        "fuerza": -4.0806,
+        "impulso": 1.8662,
+        "volumen_rel": 0.1452,
         "flujo": null,
-        "roc_5": 2.4822,
-        "roc_20": -5.5819,
-        "roc_50": -1.4812,
+        "roc_5": 1.8662,
+        "roc_20": -3.92,
+        "roc_50": -4.0806,
         "categoria": "defensivos"
       },
       "XLRE": {
-        "rs": 0.058,
+        "rs": 0.0585,
         "cuadrante": "improving",
-        "fuerza": -1.0674,
-        "impulso": 1.0155,
-        "volumen_rel": 1.57,
-        "flujo": "salida",
-        "roc_5": 1.0155,
-        "roc_20": -4.8071,
-        "roc_50": -1.0674,
+        "fuerza": -3.5015,
+        "impulso": 2.2355,
+        "volumen_rel": 0.2192,
+        "flujo": null,
+        "roc_5": 2.2355,
+        "roc_20": -3.1806,
+        "roc_50": -3.5015,
         "categoria": "defensivos"
       },
       "XLB": {
-        "rs": 0.0676,
+        "rs": 0.0677,
         "cuadrante": "lagging",
-        "fuerza": -0.8395,
-        "impulso": -1.7218,
-        "volumen_rel": 0.6738,
+        "fuerza": -1.3652,
+        "impulso": -2.0025,
+        "volumen_rel": 0.0627,
         "flujo": null,
-        "roc_5": -1.7218,
-        "roc_20": 0.2848,
-        "roc_50": -0.8395,
+        "roc_5": -2.0025,
+        "roc_20": 1.1283,
+        "roc_50": -1.3652,
         "categoria": "ciclicos"
       }
     },
     "estelas": {
       "XLK": [
         {
-          "fuerza": 2.1903,
-          "impulso": -2.1478,
+          "fuerza": 4.1578,
+          "impulso": -1.0796,
           "cuadrante": "weakening"
         },
         {
-          "fuerza": -1.0125,
-          "impulso": -0.3998,
+          "fuerza": -3.7448,
+          "impulso": -4.4123,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -1.6701,
-          "impulso": -0.3591,
+          "fuerza": 0.7657,
+          "impulso": 4.9254,
+          "cuadrante": "leading"
+        },
+        {
+          "fuerza": -4.361,
+          "impulso": -0.3339,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -2.661,
-          "impulso": 2.5712,
-          "cuadrante": "improving"
-        },
-        {
-          "fuerza": -3.462,
-          "impulso": 2.1944,
+          "fuerza": -0.5014,
+          "impulso": 0.7175,
           "cuadrante": "improving"
         }
       ],
       "XLF": [
         {
-          "fuerza": 6.8986,
-          "impulso": 0.9,
+          "fuerza": 6.4166,
+          "impulso": 0.3492,
           "cuadrante": "leading"
         },
         {
-          "fuerza": 12.0373,
-          "impulso": 1.9109,
+          "fuerza": 13.4107,
+          "impulso": 3.6836,
           "cuadrante": "leading"
         },
         {
-          "fuerza": 8.6653,
-          "impulso": -1.5948,
+          "fuerza": 7.7385,
+          "impulso": -3.4834,
           "cuadrante": "weakening"
         },
         {
-          "fuerza": 10.0678,
-          "impulso": -1.2525,
+          "fuerza": 10.0113,
+          "impulso": -0.0384,
           "cuadrante": "weakening"
         },
         {
-          "fuerza": 8.103,
-          "impulso": -0.3514,
-          "cuadrante": "weakening"
+          "fuerza": 5.891,
+          "impulso": 0.1032,
+          "cuadrante": "leading"
         }
       ],
       "XLV": [
         {
-          "fuerza": 8.3063,
-          "impulso": -0.3969,
-          "cuadrante": "weakening"
-        },
-        {
-          "fuerza": 11.8614,
-          "impulso": 3.0224,
+          "fuerza": 8.2598,
+          "impulso": 1.7185,
           "cuadrante": "leading"
         },
         {
-          "fuerza": 7.8801,
-          "impulso": -3.1448,
-          "cuadrante": "weakening"
-        },
-        {
-          "fuerza": 8.9768,
-          "impulso": 1.7586,
+          "fuerza": 15.1949,
+          "impulso": 5.4198,
           "cuadrante": "leading"
         },
         {
-          "fuerza": 7.6286,
-          "impulso": -0.779,
+          "fuerza": 5.3577,
+          "impulso": -6.9135,
           "cuadrante": "weakening"
+        },
+        {
+          "fuerza": 10.3499,
+          "impulso": 3.7495,
+          "cuadrante": "leading"
+        },
+        {
+          "fuerza": 5.8818,
+          "impulso": 0.7444,
+          "cuadrante": "leading"
         }
       ],
       "XLY": [
         {
-          "fuerza": -5.4523,
-          "impulso": -0.29,
+          "fuerza": -6.3177,
+          "impulso": -0.4185,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -6.2307,
-          "impulso": -2.8969,
+          "fuerza": -4.2809,
+          "impulso": -1.0999,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -1.9432,
-          "impulso": 4.0339,
+          "fuerza": -4.0418,
+          "impulso": 1.011,
           "cuadrante": "improving"
         },
         {
-          "fuerza": -4.2955,
-          "impulso": -0.7764,
-          "cuadrante": "lagging"
+          "fuerza": -3.1512,
+          "impulso": 0.9038,
+          "cuadrante": "improving"
         },
         {
-          "fuerza": -2.4425,
-          "impulso": -2.3946,
+          "fuerza": -2.6035,
+          "impulso": -1.9822,
           "cuadrante": "lagging"
         }
       ],
       "XLC": [
         {
-          "fuerza": -6.6325,
-          "impulso": 0.2394,
-          "cuadrante": "improving"
-        },
-        {
-          "fuerza": -7.392,
-          "impulso": -2.4395,
+          "fuerza": -8.3538,
+          "impulso": -0.8057,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -6.1782,
-          "impulso": 0.8821,
+          "fuerza": -5.429,
+          "impulso": 0.6711,
           "cuadrante": "improving"
         },
         {
-          "fuerza": -6.4337,
-          "impulso": -1.5556,
+          "fuerza": -7.0765,
+          "impulso": -1.8747,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -4.0001,
-          "impulso": -0.857,
+          "fuerza": -5.578,
+          "impulso": -0.588,
+          "cuadrante": "lagging"
+        },
+        {
+          "fuerza": -4.9953,
+          "impulso": -0.3864,
           "cuadrante": "lagging"
         }
       ],
       "XLI": [
         {
-          "fuerza": -0.4142,
-          "impulso": -0.3053,
-          "cuadrante": "lagging"
-        },
-        {
-          "fuerza": 5.9775,
-          "impulso": 3.2695,
-          "cuadrante": "leading"
-        },
-        {
-          "fuerza": 4.9556,
-          "impulso": -2.4736,
+          "fuerza": 0.3866,
+          "impulso": -0.5222,
           "cuadrante": "weakening"
         },
         {
-          "fuerza": 3.6818,
-          "impulso": -1.2164,
+          "fuerza": 5.6046,
+          "impulso": 3.1667,
+          "cuadrante": "leading"
+        },
+        {
+          "fuerza": 5.2519,
+          "impulso": -1.8924,
           "cuadrante": "weakening"
         },
         {
-          "fuerza": 3.6348,
-          "impulso": 0.9788,
-          "cuadrante": "leading"
+          "fuerza": 5.3005,
+          "impulso": -0.276,
+          "cuadrante": "weakening"
+        },
+        {
+          "fuerza": 1.7586,
+          "impulso": -0.2822,
+          "cuadrante": "weakening"
         }
       ],
       "XLP": [
         {
-          "fuerza": -0.3853,
-          "impulso": 1.2763,
+          "fuerza": -2.1387,
+          "impulso": 1.2453,
           "cuadrante": "improving"
         },
         {
-          "fuerza": 1.1944,
-          "impulso": 0.9975,
+          "fuerza": 3.4585,
+          "impulso": 4.6062,
           "cuadrante": "leading"
         },
         {
-          "fuerza": -2.9222,
-          "impulso": -3.0236,
+          "fuerza": -2.9016,
+          "impulso": -5.8148,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -1.7829,
-          "impulso": -1.883,
-          "cuadrante": "lagging"
-        },
-        {
-          "fuerza": 1.1367,
-          "impulso": -0.2714,
+          "fuerza": 0.2804,
+          "impulso": -0.6974,
           "cuadrante": "weakening"
+        },
+        {
+          "fuerza": -1.9875,
+          "impulso": 0.8878,
+          "cuadrante": "improving"
         }
       ],
       "XLE": [
         {
-          "fuerza": 0.5177,
-          "impulso": 3.0891,
+          "fuerza": 2.2241,
+          "impulso": 3.209,
           "cuadrante": "leading"
         },
         {
-          "fuerza": 1.7079,
-          "impulso": 1.1337,
-          "cuadrante": "leading"
+          "fuerza": 0.1172,
+          "impulso": -0.6041,
+          "cuadrante": "weakening"
         },
         {
-          "fuerza": -3.8195,
-          "impulso": -1.7335,
+          "fuerza": -4.7025,
+          "impulso": -2.3653,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": 3.1523,
-          "impulso": 0.3304,
+          "fuerza": 6.2652,
+          "impulso": 4.2223,
           "cuadrante": "leading"
         },
         {
-          "fuerza": 4.3713,
-          "impulso": 4.0365,
+          "fuerza": 5.3762,
+          "impulso": 4.202,
           "cuadrante": "leading"
         }
       ],
       "XLU": [
         {
-          "fuerza": -2.7789,
-          "impulso": -0.7683,
+          "fuerza": -2.6652,
+          "impulso": -1.2188,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": 2.7065,
-          "impulso": 2.0592,
+          "fuerza": 2.3812,
+          "impulso": 2.3506,
           "cuadrante": "leading"
         },
         {
-          "fuerza": -2.4969,
-          "impulso": -5.2711,
+          "fuerza": -5.6136,
+          "impulso": -6.9255,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -5.665,
-          "impulso": -4.7047,
+          "fuerza": -3.5732,
+          "impulso": -0.9893,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -1.4812,
-          "impulso": 2.4822,
+          "fuerza": -4.0806,
+          "impulso": 1.8662,
           "cuadrante": "improving"
         }
       ],
       "XLRE": [
         {
-          "fuerza": -0.03,
-          "impulso": 2.1511,
+          "fuerza": -0.4702,
+          "impulso": 2.1008,
           "cuadrante": "improving"
         },
         {
-          "fuerza": 3.9569,
-          "impulso": 1.5824,
+          "fuerza": 5.8164,
+          "impulso": 2.8115,
           "cuadrante": "leading"
         },
         {
-          "fuerza": -0.5157,
-          "impulso": -3.6887,
+          "fuerza": -2.2594,
+          "impulso": -5.7039,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -2.4061,
-          "impulso": -3.6791,
+          "fuerza": -1.6264,
+          "impulso": -2.3156,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -1.0674,
-          "impulso": 1.0155,
+          "fuerza": -3.5015,
+          "impulso": 2.2355,
           "cuadrante": "improving"
         }
       ],
       "XLB": [
         {
-          "fuerza": -5.6036,
-          "impulso": -0.1437,
+          "fuerza": -4.7045,
+          "impulso": -0.597,
           "cuadrante": "lagging"
         },
         {
-          "fuerza": -0.8569,
-          "impulso": 3.1353,
-          "cuadrante": "improving"
-        },
-        {
-          "fuerza": 0.3711,
-          "impulso": -3.1736,
-          "cuadrante": "weakening"
-        },
-        {
-          "fuerza": 1.075,
-          "impulso": 2.1826,
+          "fuerza": 2.2962,
+          "impulso": 5.5174,
           "cuadrante": "leading"
         },
         {
-          "fuerza": -0.8395,
-          "impulso": -1.7218,
+          "fuerza": 0.1024,
+          "impulso": -4.5743,
+          "cuadrante": "weakening"
+        },
+        {
+          "fuerza": 2.1841,
+          "impulso": 2.4869,
+          "cuadrante": "leading"
+        },
+        {
+          "fuerza": -1.3652,
+          "impulso": -2.0025,
           "cuadrante": "lagging"
         }
       ]
     },
     "entrando": [],
-    "saliendo": [
-      "XLF",
-      "XLRE"
-    ],
-    "dispersion": 0.8177,
+    "saliendo": [],
+    "dispersion": 0.8168,
     "dia_rojo": [],
     "diagnostico": [
+      "El mercado está buscando protección: el crecimiento pierde fuerza y los defensivos la ganan. Precaución con posiciones largas de beta alta.",
       "Rotación saludable fuera de las mega-caps hacia la economía real (financieros, industriales, materiales, energía)."
     ]
   },
@@ -1179,7 +1177,9 @@
       "n": 11,
       "fuertes": [
         "XLK",
-        "XLI",
+        "XLF",
+        "XLV",
+        "XLP",
         "XLE",
         "XLRE"
       ],
@@ -1188,42 +1188,40 @@
         "XLC"
       ],
       "neutrales": [
-        "XLF",
-        "XLV",
-        "XLP",
+        "XLI",
         "XLU",
         "XLB"
       ],
-      "pct_fuertes": 36.4,
+      "pct_fuertes": 54.5,
       "confianza": "baja",
-      "frase": "Repartido (4 al alza, 2 a la baja): hoy no hay una dirección clara aquí.",
+      "frase": "Repartido (6 al alza, 2 a la baja): hoy no hay una dirección clara aquí.",
       "empujan": [
         {
           "ticker": "XLE",
           "nombre": "Energía",
-          "cambio_pct": 3.99
-        },
-        {
-          "ticker": "XLK",
-          "nombre": "Tecnología",
-          "cambio_pct": 2.15
+          "cambio_pct": 4.0
         },
         {
           "ticker": "XLRE",
           "nombre": "Inmobiliario",
-          "cambio_pct": 0.97
+          "cambio_pct": 2.04
+        },
+        {
+          "ticker": "XLP",
+          "nombre": "Consumo básico",
+          "cambio_pct": 0.7
         }
       ],
       "frenan": [
         {
           "ticker": "XLY",
           "nombre": "Consumo discrecional",
-          "cambio_pct": -2.44
+          "cambio_pct": -2.17
         },
         {
           "ticker": "XLC",
           "nombre": "Comunicaciones",
-          "cambio_pct": -0.9
+          "cambio_pct": -0.58
         }
       ]
     },
@@ -1234,6 +1232,7 @@
         "XLF",
         "XLV",
         "XLI",
+        "XLP",
         "XLE",
         "XLB"
       ],
@@ -1243,34 +1242,33 @@
       "neutrales": [
         "XLY",
         "XLC",
-        "XLP",
         "XLRE"
       ],
-      "pct_fuertes": 54.5,
-      "confianza": "baja",
-      "frase": "Repartido (6 al alza, 1 a la baja): hoy no hay una dirección clara aquí.",
+      "pct_fuertes": 63.6,
+      "confianza": "media",
+      "frase": "7 de 11 al alza: hay más fuerza que debilidad, pero no es unánime.",
       "empujan": [
         {
           "ticker": "XLE",
           "nombre": "Energía",
-          "cambio_pct": 8.5
+          "cambio_pct": 9.37
         },
         {
           "ticker": "XLK",
           "nombre": "Tecnología",
-          "cambio_pct": 8.39
+          "cambio_pct": 6.47
         },
         {
-          "ticker": "XLI",
-          "nombre": "Industrial",
-          "cambio_pct": 3.85
+          "ticker": "XLV",
+          "nombre": "Salud",
+          "cambio_pct": 6.08
         }
       ],
       "frenan": [
         {
           "ticker": "XLU",
           "nombre": "Servicios públicos",
-          "cambio_pct": -2.19
+          "cambio_pct": -1.29
         }
       ]
     },
@@ -1300,24 +1298,24 @@
         {
           "ticker": "XLV",
           "nombre": "Salud",
-          "cambio_pct": 15.13
+          "cambio_pct": 15.93
         },
         {
           "ticker": "XLF",
           "nombre": "Financiero",
-          "cambio_pct": 12.68
+          "cambio_pct": 11.62
         },
         {
           "ticker": "XLI",
           "nombre": "Industrial",
-          "cambio_pct": 8.7
+          "cambio_pct": 8.24
         }
       ],
       "frenan": [
         {
           "ticker": "XLC",
           "nombre": "Comunicaciones",
-          "cambio_pct": -4.53
+          "cambio_pct": -5.43
         }
       ]
     },
@@ -1347,29 +1345,29 @@
         {
           "ticker": "XLK",
           "nombre": "Tecnología",
-          "cambio_pct": 36.37
+          "cambio_pct": 34.12
         },
         {
           "ticker": "XLE",
           "nombre": "Energía",
-          "cambio_pct": 15.14
+          "cambio_pct": 17.9
         },
         {
           "ticker": "XLF",
           "nombre": "Financiero",
-          "cambio_pct": 11.48
+          "cambio_pct": 10.63
         }
       ],
       "frenan": [
         {
           "ticker": "XLU",
           "nombre": "Servicios públicos",
-          "cambio_pct": -4.99
+          "cambio_pct": -4.36
         },
         {
           "ticker": "XLC",
           "nombre": "Comunicaciones",
-          "cambio_pct": -3.28
+          "cambio_pct": -3.3
         }
       ]
     },
@@ -1399,24 +1397,24 @@
         {
           "ticker": "XLE",
           "nombre": "Energía",
-          "cambio_pct": 46.28
+          "cambio_pct": 48.13
         },
         {
           "ticker": "XLK",
           "nombre": "Tecnología",
-          "cambio_pct": 42.17
+          "cambio_pct": 40.81
         },
         {
           "ticker": "XLV",
           "nombre": "Salud",
-          "cambio_pct": 24.7
+          "cambio_pct": 24.03
         }
       ],
       "frenan": [
         {
           "ticker": "XLC",
           "nombre": "Comunicaciones",
-          "cambio_pct": -0.34
+          "cambio_pct": -0.76
         }
       ]
     }
@@ -1586,5 +1584,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-08-18T13:25:18.669643+00:00"
+  "generado": "2026-08-18T13:44:15.849816+00:00"
 }
