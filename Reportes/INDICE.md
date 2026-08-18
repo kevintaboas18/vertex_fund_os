@@ -2,7 +2,7 @@
 
 Tesis de inversión a 1-3 años: 6 especialistas, valuación y gates de perfil. El `prediccion.json` de cada carpeta es lo que `wbj track` compara después contra el precio real.
 
-Generado por `vertex_archivo.reconstruye_indice` · 26 análisis · 2026-08-18 13:29 UTC
+Generado por `vertex_archivo.reconstruye_indice` · 26 análisis · 2026-08-18 13:30 UTC
 
 | Fecha | Ticker | Veredicto | Archivo |
 |---|---|---|---|
