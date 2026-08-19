@@ -1,7 +1,7 @@
 {
   "ok": true,
   "ticker": "AMZN",
-  "spot": 264.89,
+  "spot": 264.67,
   "score": 60.0,
   "verdict": "Oportunidad Moderada",
   "verdict_meaning": "Convicción media / revisar filtros",
@@ -22,34 +22,34 @@
     "direction": "up",
     "confidence": 31.0,
     "low_liquidity": false,
-    "total_net_gex": 656161080.2422088,
+    "total_net_gex": 652593133.8337903,
     "n": 41,
     "nodes": [
       {
         "strike": 280.0,
-        "net_gex": 94869264.59399898,
-        "call_gex": 106471497.26156297,
-        "put_gex": 11602232.667563986,
+        "net_gex": 94170658.27558404,
+        "call_gex": 105734795.67957,
+        "put_gex": 11564137.403985964,
         "trade_premium": 73985270.0,
         "trade_count": 29,
-        "concentration": 0.7022,
+        "concentration": 0.7005,
         "side": "call"
       },
       {
         "strike": 270.0,
-        "net_gex": 91180808.81291342,
-        "call_gex": 120109887.69015762,
-        "put_gex": 28929078.877244208,
+        "net_gex": 90732033.59057486,
+        "call_gex": 119549466.54807931,
+        "put_gex": 28817432.957504455,
         "trade_premium": 70813310.0,
         "trade_count": 30,
-        "concentration": 0.6743,
+        "concentration": 0.674,
         "side": "call"
       },
       {
         "strike": 275.0,
-        "net_gex": 102003920.00442712,
-        "call_gex": 116083989.63838819,
-        "put_gex": 14080069.633961065,
+        "net_gex": 101562338.43006854,
+        "call_gex": 115536275.16378063,
+        "put_gex": 13973936.733712094,
         "trade_premium": 28698107.0,
         "trade_count": 12,
         "concentration": 0.6559,
@@ -57,109 +57,109 @@
       },
       {
         "strike": 300.0,
-        "net_gex": 83289664.42078447,
-        "call_gex": 86149718.33021292,
-        "put_gex": 2860053.909428452,
+        "net_gex": 83067321.97614971,
+        "call_gex": 85922670.3327231,
+        "put_gex": 2855348.356573394,
         "trade_premium": 24993724.0,
         "trade_count": 13,
-        "concentration": 0.5386,
+        "concentration": 0.5394,
         "side": "call"
       },
       {
         "strike": 260.0,
-        "net_gex": 66192086.81709886,
-        "call_gex": 97284092.38712333,
-        "put_gex": 31092005.570024468,
+        "net_gex": 66329908.02544953,
+        "call_gex": 97510598.45052543,
+        "put_gex": 31180690.425075904,
         "trade_premium": 53606618.0,
         "trade_count": 19,
-        "concentration": 0.4938,
+        "concentration": 0.4963,
         "side": "call"
       },
       {
         "strike": 250.0,
-        "net_gex": 27492563.28273149,
-        "call_gex": 81232445.06551677,
-        "put_gex": 53739881.78278528,
+        "net_gex": 27522767.258489773,
+        "call_gex": 81570173.30325186,
+        "put_gex": 54047406.04476209,
         "trade_premium": 163155237.0,
         "trade_count": 39,
-        "concentration": 0.4796,
+        "concentration": 0.4805,
         "side": "call"
       },
       {
         "strike": 240.0,
-        "net_gex": -9125466.85640717,
-        "call_gex": 27885913.48720674,
-        "put_gex": 37011380.34361391,
+        "net_gex": -9144001.69682401,
+        "call_gex": 27906544.6843543,
+        "put_gex": 37050546.38117831,
         "trade_premium": 205310288.0,
         "trade_count": 26,
-        "concentration": 0.4537,
+        "concentration": 0.454,
         "side": "put"
       },
       {
         "strike": 285.0,
-        "net_gex": 43687860.392221056,
-        "call_gex": 45741530.85215098,
-        "put_gex": 2053670.4599299177,
+        "net_gex": 43354520.5509495,
+        "call_gex": 45403587.68074887,
+        "put_gex": 2049067.129799376,
         "trade_premium": 28495120.0,
         "trade_count": 5,
-        "concentration": 0.3125,
+        "concentration": 0.3116,
         "side": "call"
       },
       {
         "strike": 295.0,
-        "net_gex": 35406951.343391486,
-        "call_gex": 35909515.216726676,
-        "put_gex": 502563.873335193,
+        "net_gex": 35231165.54581993,
+        "call_gex": 35732586.828257255,
+        "put_gex": 501421.2824373212,
         "trade_premium": 45463640.0,
         "trade_count": 6,
-        "concentration": 0.2968,
+        "concentration": 0.2967,
         "side": "call"
       },
       {
         "strike": 290.0,
-        "net_gex": 33173823.343281366,
-        "call_gex": 38436100.77198698,
-        "put_gex": 5262277.42870562,
+        "net_gex": 33018466.551683176,
+        "call_gex": 38270979.78351995,
+        "put_gex": 5252513.231836776,
         "trade_premium": 15638230.0,
         "trade_count": 6,
-        "concentration": 0.2256,
+        "concentration": 0.2255,
         "side": "call"
       },
       {
         "strike": 220.0,
-        "net_gex": -17915730.91831614,
-        "call_gex": 7971029.431156031,
-        "put_gex": 25886760.349472173,
+        "net_gex": -17908261.65580686,
+        "call_gex": 7968748.842974359,
+        "put_gex": 25877010.498781223,
         "trade_premium": 60333600.0,
         "trade_count": 6,
-        "concentration": 0.2229,
+        "concentration": 0.2233,
         "side": "put"
       },
       {
         "strike": 310.0,
-        "net_gex": 27776808.011601068,
-        "call_gex": 28943914.20760007,
-        "put_gex": 1167106.1959990019,
+        "net_gex": 27704332.22461724,
+        "call_gex": 28869696.865437057,
+        "put_gex": 1165364.6408198162,
         "trade_premium": 11462866.0,
         "trade_count": 6,
-        "concentration": 0.1857,
+        "concentration": 0.186,
         "side": "call"
       },
       {
         "strike": 305.0,
-        "net_gex": 22085805.391468704,
-        "call_gex": 23016808.05748857,
-        "put_gex": 931002.6660198685,
+        "net_gex": 22032772.30669677,
+        "call_gex": 22962280.40610702,
+        "put_gex": 929508.0994102523,
         "trade_premium": 28415811.0,
         "trade_count": 4,
-        "concentration": 0.1853,
+        "concentration": 0.1855,
         "side": "call"
       },
       {
         "strike": 272.5,
-        "net_gex": 27759099.30199985,
-        "call_gex": 31357448.324578572,
-        "put_gex": 3598349.022578725,
+        "net_gex": 27623682.841250513,
+        "call_gex": 31178981.49846814,
+        "put_gex": 3555298.657217627,
         "trade_premium": 1314018.0,
         "trade_count": 1,
         "concentration": 0.1658,
@@ -167,69 +167,69 @@
       },
       {
         "strike": 225.0,
-        "net_gex": -20848745.540696904,
-        "call_gex": 7367298.874158209,
-        "put_gex": 28216044.414855115,
+        "net_gex": -20828116.531913433,
+        "call_gex": 7364594.316327099,
+        "put_gex": 28192710.848240532,
         "trade_premium": 17620500.0,
         "trade_count": 8,
-        "concentration": 0.157,
+        "concentration": 0.1574,
         "side": "put"
       },
       {
         "strike": 315.0,
-        "net_gex": 18959664.041753955,
-        "call_gex": 19201241.744782683,
-        "put_gex": 241577.70302872898,
+        "net_gex": 18914772.747206368,
+        "call_gex": 19156073.151864197,
+        "put_gex": 241300.40465782903,
         "trade_premium": 2270500.0,
         "trade_count": 2,
-        "concentration": 0.1159,
+        "concentration": 0.1162,
         "side": "call"
       },
       {
         "strike": 255.0,
-        "net_gex": 16959061.415491328,
-        "call_gex": 37416100.71340664,
-        "put_gex": 20457039.29791531,
+        "net_gex": 16965988.183541585,
+        "call_gex": 37546736.28076334,
+        "put_gex": 20580748.09722176,
         "trade_premium": 7384237.0,
         "trade_count": 6,
-        "concentration": 0.1141,
+        "concentration": 0.1146,
         "side": "call"
       },
       {
         "strike": 265.0,
-        "net_gex": 17583514.06728857,
-        "call_gex": 42296903.30104227,
-        "put_gex": 24713389.233753704,
+        "net_gex": 17555288.740651853,
+        "call_gex": 42252509.28455237,
+        "put_gex": 24697220.54390052,
         "trade_premium": 5494378.0,
         "trade_count": 4,
-        "concentration": 0.1141,
+        "concentration": 0.1144,
         "side": "call"
       },
       {
         "strike": 277.5,
-        "net_gex": 18611226.47704748,
-        "call_gex": 19604796.168575842,
-        "put_gex": 993569.6915283613,
+        "net_gex": 18371614.78947668,
+        "call_gex": 19347883.715323005,
+        "put_gex": 976268.925846322,
         "trade_premium": 0.0,
         "trade_count": 0,
-        "concentration": 0.1095,
+        "concentration": 0.1085,
         "side": "call"
       },
       {
         "strike": 235.0,
-        "net_gex": -11452389.97072901,
-        "call_gex": 11266914.78915911,
-        "put_gex": 22719304.75988812,
+        "net_gex": -11453086.393236037,
+        "call_gex": 11268918.361609738,
+        "put_gex": 22722004.754845776,
         "trade_premium": 18607750.0,
         "trade_count": 10,
-        "concentration": 0.1036,
+        "concentration": 0.1039,
         "side": "put"
       },
       {
         "strike": 267.5,
-        "net_gex": 15875689.697221026,
-        "call_gex": 19963317.268211216,
-        "put_gex": 4087627.570990191,
+        "net_gex": 15806507.056383912,
+        "call_gex": 19876671.207379226,
+        "put_gex": 4070164.150995314,
         "trade_premium": 0.0,
         "trade_count": 0,
         "concentration": 0.0934,
@@ -237,19 +237,19 @@
       },
       {
         "strike": 230.0,
-        "net_gex": -12383353.882742926,
-        "call_gex": 8051692.192661739,
-        "put_gex": 20435046.075404666,
+        "net_gex": -12389006.088273037,
+        "call_gex": 8054729.606395391,
+        "put_gex": 20443735.694668427,
         "trade_premium": 9812620.0,
         "trade_count": 7,
-        "concentration": 0.092,
+        "concentration": 0.0923,
         "side": "put"
       },
       {
         "strike": 245.0,
-        "net_gex": 2208595.000833411,
-        "call_gex": 20797686.559490047,
-        "put_gex": 18589091.558656637,
+        "net_gex": 2202839.495994918,
+        "call_gex": 20860297.95579074,
+        "put_gex": 18657458.45979582,
         "trade_premium": 28196034.0,
         "trade_count": 14,
         "concentration": 0.0679,
@@ -257,98 +257,98 @@
       },
       {
         "strike": 252.5,
-        "net_gex": -9368428.279791107,
-        "call_gex": 1646966.0101100875,
-        "put_gex": 11015394.289901195,
+        "net_gex": -9534016.875331193,
+        "call_gex": 1677490.1700413835,
+        "put_gex": 11211507.045372577,
         "trade_premium": 0.0,
         "trade_count": 0,
-        "concentration": 0.0551,
+        "concentration": 0.0563,
         "side": "put"
       },
       {
         "strike": 257.5,
-        "net_gex": -7409592.338734647,
-        "call_gex": 3791181.7013207055,
-        "put_gex": 11200774.040055353,
+        "net_gex": -7482729.13953484,
+        "call_gex": 3829212.9651885605,
+        "put_gex": 11311942.104723401,
         "trade_premium": 0.0,
         "trade_count": 0,
-        "concentration": 0.0436,
+        "concentration": 0.0442,
         "side": "put"
       },
       {
         "strike": 215.0,
-        "net_gex": -7373680.582908932,
-        "call_gex": 3279025.4382234477,
-        "put_gex": 10652706.02113238,
+        "net_gex": -7395227.627638826,
+        "call_gex": 3284798.280361081,
+        "put_gex": 10680025.907999907,
         "trade_premium": 0.0,
         "trade_count": 0,
-        "concentration": 0.0434,
+        "concentration": 0.0437,
         "side": "put"
       },
       {
         "strike": 282.5,
-        "net_gex": 6939997.248102499,
-        "call_gex": 7022081.6134274,
-        "put_gex": 82084.36532490065,
+        "net_gex": 6763111.765446783,
+        "call_gex": 6844512.154486566,
+        "put_gex": 81400.38903978301,
         "trade_premium": 0.0,
         "trade_count": 0,
-        "concentration": 0.0408,
+        "concentration": 0.04,
         "side": "call"
       },
       {
         "strike": 247.5,
-        "net_gex": -4397729.56204577,
-        "call_gex": 567740.259055498,
-        "put_gex": 4965469.821101268,
+        "net_gex": -4503735.39806746,
+        "call_gex": 582796.8814766,
+        "put_gex": 5086532.27954406,
         "trade_premium": 0.0,
         "trade_count": 0,
-        "concentration": 0.0259,
+        "concentration": 0.0266,
         "side": "put"
       },
       {
         "strike": 262.5,
-        "net_gex": 3761203.7202029303,
-        "call_gex": 14227207.604023954,
-        "put_gex": 10466003.883821024,
+        "net_gex": 3759194.893729953,
+        "call_gex": 14257359.102028888,
+        "put_gex": 10498164.208298935,
         "trade_premium": 0.0,
         "trade_count": 0,
-        "concentration": 0.0221,
+        "concentration": 0.0222,
         "side": "call"
       },
       {
         "strike": 287.5,
-        "net_gex": 1249189.6922694622,
-        "call_gex": 1249189.6922694622,
+        "net_gex": 1216556.2585753421,
+        "call_gex": 1216556.2585753421,
         "put_gex": 0.0,
         "trade_premium": 0.0,
         "trade_count": 0,
-        "concentration": 0.0073,
+        "concentration": 0.0072,
         "side": "call"
       },
       {
         "strike": 242.5,
-        "net_gex": -880577.0235486486,
-        "call_gex": 197034.40375911826,
-        "put_gex": 1077611.4273077669,
+        "net_gex": -909988.9448714872,
+        "call_gex": 203676.1261277826,
+        "put_gex": 1113665.0709992698,
         "trade_premium": 0.0,
         "trade_count": 0,
-        "concentration": 0.0052,
+        "concentration": 0.0054,
         "side": "put"
       },
       {
         "strike": 292.5,
-        "net_gex": 231035.20132709143,
-        "call_gex": 233951.3261935712,
-        "put_gex": 2916.124866479771,
+        "net_gex": 222738.8221904137,
+        "call_gex": 225605.23677724652,
+        "put_gex": 2866.414586832845,
         "trade_premium": 0.0,
         "trade_count": 0,
-        "concentration": 0.0014,
+        "concentration": 0.0013,
         "side": "call"
       },
       {
         "strike": 297.5,
-        "net_gex": 95400.83871586996,
-        "call_gex": 95400.83871586996,
+        "net_gex": 93627.15029160911,
+        "call_gex": 93627.15029160911,
         "put_gex": 0.0,
         "trade_premium": 0.0,
         "trade_count": 0,
@@ -357,9 +357,9 @@
       },
       {
         "strike": 237.5,
-        "net_gex": -36788.79045702107,
-        "call_gex": 141412.632941545,
-        "put_gex": 178201.42339856605,
+        "net_gex": -38394.55952017149,
+        "call_gex": 147962.39886916048,
+        "put_gex": 186356.95838933197,
         "trade_premium": 0.0,
         "trade_count": 0,
         "concentration": 0.0002,
@@ -367,9 +367,9 @@
       },
       {
         "strike": 232.5,
-        "net_gex": -35779.6418896731,
-        "call_gex": 19323.39591203547,
-        "put_gex": 55103.03780170857,
+        "net_gex": -37778.29046694588,
+        "call_gex": 20402.79960944406,
+        "put_gex": 58181.09007638994,
         "trade_premium": 0.0,
         "trade_count": 0,
         "concentration": 0.0002,
@@ -377,9 +377,9 @@
       },
       {
         "strike": 227.5,
-        "net_gex": -10331.402758305194,
-        "call_gex": 1531.039203941613,
-        "put_gex": 11862.441962246807,
+        "net_gex": -11008.88160321065,
+        "call_gex": 1631.4366713191685,
+        "put_gex": 12640.318274529818,
         "trade_premium": 0.0,
         "trade_count": 0,
         "concentration": 0.0001,
@@ -387,8 +387,8 @@
       },
       {
         "strike": 302.5,
-        "net_gex": 3398.349353415055,
-        "call_gex": 3398.349353415055,
+        "net_gex": 3331.0761140692293,
+        "call_gex": 3331.0761140692293,
         "put_gex": 0.0,
         "trade_premium": 0.0,
         "trade_count": 0,
@@ -397,8 +397,8 @@
       },
       {
         "strike": 307.5,
-        "net_gex": 3299.72094393764,
-        "call_gex": 3299.72094393764,
+        "net_gex": 3223.952517167869,
+        "call_gex": 3223.952517167869,
         "put_gex": 0.0,
         "trade_premium": 0.0,
         "trade_count": 0,
@@ -407,9 +407,9 @@
       },
       {
         "strike": 222.5,
-        "net_gex": -155.45824951815865,
-        "call_gex": 128.08195400552694,
-        "put_gex": 283.5402035236856,
+        "net_gex": -167.21055056137237,
+        "call_gex": 137.76466744364637,
+        "put_gex": 304.97521800501875,
         "trade_premium": 0.0,
         "trade_count": 0,
         "concentration": 0.0,
@@ -417,9 +417,9 @@
       },
       {
         "strike": 217.5,
-        "net_gex": -97.6377003718407,
-        "call_gex": 6.933527034554461,
-        "put_gex": 104.57122740639515,
+        "net_gex": -106.02929104768461,
+        "call_gex": 7.529437431791339,
+        "put_gex": 113.55872847947595,
         "trade_premium": 0.0,
         "trade_count": 0,
         "concentration": 0.0,
@@ -427,9 +427,9 @@
       },
       {
         "strike": 212.5,
-        "net_gex": -3.0572838711943664,
-        "call_gex": 0.9583961978665725,
-        "put_gex": 4.015680069060939,
+        "net_gex": -3.352734847008591,
+        "call_gex": 1.051014058623383,
+        "put_gex": 4.403748905631974,
         "trade_premium": 0.0,
         "trade_count": 0,
         "concentration": 0.0,
@@ -445,9 +445,9 @@
     "avg_notional": 1526933392.857143,
     "low_liquidity": false,
     "vol_oi": {
-      "pct": 13.0,
-      "exceeded": 292,
-      "considered": 2254
+      "pct": 13.4,
+      "exceeded": 303,
+      "considered": 2257
     },
     "top_strikes": [
       {
@@ -458,7 +458,7 @@
         "dominant": true,
         "dominance_pct": 94.5,
         "open_interest": 235231.0,
-        "volume": 9881.0
+        "volume": 10608.0
       },
       {
         "strike": 250.0,
@@ -468,7 +468,7 @@
         "dominant": false,
         "dominance_pct": 58.2,
         "open_interest": 257282.0,
-        "volume": 9354.0
+        "volume": 10254.0
       },
       {
         "strike": 370.0,
@@ -478,7 +478,7 @@
         "dominant": true,
         "dominance_pct": 97.8,
         "open_interest": 170463.0,
-        "volume": 7885.0
+        "volume": 7894.0
       },
       {
         "strike": 270.0,
@@ -488,7 +488,7 @@
         "dominant": true,
         "dominance_pct": 70.9,
         "open_interest": 203817.0,
-        "volume": 35244.0
+        "volume": 40342.0
       },
       {
         "strike": 275.0,
@@ -498,7 +498,7 @@
         "dominant": true,
         "dominance_pct": 90.0,
         "open_interest": 192768.0,
-        "volume": 20596.0
+        "volume": 26054.0
       },
       {
         "strike": 280.0,
@@ -508,7 +508,7 @@
         "dominant": true,
         "dominance_pct": 83.9,
         "open_interest": 183110.0,
-        "volume": 26074.0
+        "volume": 26721.0
       },
       {
         "strike": 260.0,
@@ -518,7 +518,7 @@
         "dominant": true,
         "dominance_pct": 68.6,
         "open_interest": 185010.0,
-        "volume": 52136.0
+        "volume": 54395.0
       },
       {
         "strike": 240.0,
@@ -528,7 +528,7 @@
         "dominant": false,
         "dominance_pct": 57.5,
         "open_interest": 173833.0,
-        "volume": 6541.0
+        "volume": 6967.0
       }
     ]
   },
@@ -741,9 +741,9 @@
   "subagents": {
     "aggression": {
       "score": 6.0,
-      "ratio": 0.5816,
-      "premium_ask": 52648713.0,
-      "premium_bid": 37870107.0,
+      "ratio": 0.583,
+      "premium_ask": 52771713.0,
+      "premium_bid": 37738370.0,
       "premium_mid": 0,
       "n": 286
     },
@@ -955,6 +955,26 @@
         }
       ],
       "outcomes": [
+        {
+          "id": 3303825438,
+          "timestamp": "2026-08-19T16:32:01.840Z",
+          "type": "call",
+          "strike": 290.0,
+          "expiration": "2026-12-18",
+          "premium": 123000,
+          "direction": "alcista",
+          "entry_price": 264.45,
+          "mfe_pct": 0.0,
+          "mae_pct": 0.0,
+          "days_to_mfe": null,
+          "days_to_mae": null,
+          "days_to_validate": null,
+          "days_to_invalidate": null,
+          "sessions_observed": 0,
+          "days_elapsed": 0,
+          "validated": false,
+          "resolved": false
+        },
         {
           "id": 3303527677,
           "timestamp": "2026-08-19T16:19:20.511Z",
@@ -1434,26 +1454,6 @@
           "days_elapsed": 0,
           "validated": false,
           "resolved": false
-        },
-        {
-          "id": 3301880330,
-          "timestamp": "2026-08-19T15:17:11.725Z",
-          "type": "call",
-          "strike": 300.0,
-          "expiration": "2026-12-18",
-          "premium": 126960,
-          "direction": "alcista",
-          "entry_price": 263.45,
-          "mfe_pct": 0.0,
-          "mae_pct": 0.0,
-          "days_to_mfe": null,
-          "days_to_mae": null,
-          "days_to_validate": null,
-          "days_to_invalidate": null,
-          "sessions_observed": 0,
-          "days_elapsed": 0,
-          "validated": false,
-          "resolved": false
         }
       ],
       "coverage": {
@@ -1470,37 +1470,37 @@
         "price": 258.34,
         "kind": "soporte",
         "strength": 63.0,
-        "distance_pct": -2.5,
+        "distance_pct": -2.4,
         "why": "el precio reaccionó 2 veces aquí · 67,573 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones",
         "flipped": true,
-        "touch": 0.914
+        "touch": 0.919
       },
       {
         "price": 255.84,
         "kind": "soporte",
         "strength": 64.0,
-        "distance_pct": -3.4,
+        "distance_pct": -3.3,
         "why": "el precio reaccionó 3 veces aquí · 48,234 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones",
         "flipped": false,
-        "touch": 0.859
+        "touch": 0.864
       },
       {
         "price": 251.75,
         "kind": "soporte",
         "strength": 57.0,
-        "distance_pct": -5.0,
+        "distance_pct": -4.9,
         "why": "el precio reaccionó 1 vez aquí · 120,254 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones",
         "flipped": true,
-        "touch": 0.77
+        "touch": 0.775
       },
       {
         "price": 249.39,
         "kind": "soporte",
         "strength": 71.0,
-        "distance_pct": -5.9,
+        "distance_pct": -5.8,
         "why": "el precio reaccionó 3 veces aquí · 114,764 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones",
         "flipped": true,
-        "touch": 0.719
+        "touch": 0.724
       },
       {
         "price": 247.06,
@@ -1509,16 +1509,16 @@
         "distance_pct": -6.7,
         "why": "el precio reaccionó 2 veces aquí · 61,399 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones",
         "flipped": true,
-        "touch": 0.67
+        "touch": 0.674
       },
       {
         "price": 242.5,
         "kind": "soporte",
         "strength": 44.0,
-        "distance_pct": -8.5,
+        "distance_pct": -8.4,
         "why": "157,599 contratos abiertos de puts · venta de puts por dinero real",
         "flipped": false,
-        "touch": 0.576
+        "touch": 0.58
       }
     ],
     "resistances": [
@@ -1526,28 +1526,28 @@
         "price": 265.0,
         "kind": "resistencia",
         "strength": 42.0,
-        "distance_pct": 0.0,
+        "distance_pct": 0.1,
         "why": "97,843 contratos abiertos de calls · venta de calls por dinero real",
         "flipped": false,
-        "touch": 0.942
+        "touch": 0.937
       },
       {
         "price": 270.0,
         "kind": "resistencia",
         "strength": 46.0,
-        "distance_pct": 1.9,
+        "distance_pct": 2.0,
         "why": "183,394 contratos abiertos de calls · venta de calls por dinero real",
         "flipped": false,
-        "touch": 0.837
+        "touch": 0.832
       },
       {
         "price": 274.75,
         "kind": "resistencia",
         "strength": 61.0,
-        "distance_pct": 3.7,
+        "distance_pct": 3.8,
         "why": "el precio reaccionó 1 vez aquí · 194,223 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones",
         "flipped": false,
-        "touch": 0.741
+        "touch": 0.737
       },
       {
         "price": 278.56,
@@ -1556,25 +1556,25 @@
         "distance_pct": 5.2,
         "why": "el precio reaccionó 1 vez aquí · 170,774 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones",
         "flipped": false,
-        "touch": 0.668
+        "touch": 0.664
       },
       {
         "price": 282.5,
         "kind": "resistencia",
         "strength": 46.0,
-        "distance_pct": 6.6,
+        "distance_pct": 6.7,
         "why": "241,134 contratos abiertos de calls · venta de calls por dinero real",
         "flipped": false,
-        "touch": 0.597
+        "touch": 0.593
       },
       {
         "price": 287.2,
         "kind": "resistencia",
         "strength": 58.0,
-        "distance_pct": 8.4,
+        "distance_pct": 8.5,
         "why": "el precio reaccionó 1 vez aquí · 81,057 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones",
         "flipped": false,
-        "touch": 0.518
+        "touch": 0.514
       }
     ],
     "tolerance_pct": 1,
@@ -1582,19 +1582,19 @@
       "price": 226.0,
       "kind": "soporte",
       "strength": 85.0,
-      "distance_pct": -14.7,
+      "distance_pct": -14.6,
       "why": "el precio reaccionó 5 veces aquí · 61,947 contratos abiertos de puts · venta de puts por dinero real · confluencia precio + opciones",
       "flipped": false,
-      "touch": 0.289
+      "touch": 0.292
     },
     "key_resistance": {
       "price": 274.75,
       "kind": "resistencia",
       "strength": 61.0,
-      "distance_pct": 3.7,
+      "distance_pct": 3.8,
       "why": "el precio reaccionó 1 vez aquí · 194,223 contratos abiertos de calls · venta de calls por dinero real · confluencia precio + opciones",
       "flipped": false,
-      "touch": 0.741
+      "touch": 0.737
     }
   },
   "predictions": {
@@ -1602,24 +1602,24 @@
       "bear": {
         "target": 260.0,
         "change_pct": -1.8,
-        "probability": 0.89,
+        "probability": 0.897,
         "driver": "Gamma concentrada en $260.00 (dominan calls) — el dealer estabiliza (γ+): el precio tiende a frenarse ahí"
       },
       "base": {
         "target": 270.0,
-        "change_pct": 1.9,
-        "probability": 0.809,
+        "change_pct": 2.0,
+        "probability": 0.802,
         "driver": "Nivel imán: 16% del peso del mapa está en $270.00"
       },
       "bull": {
         "target": 275.0,
-        "change_pct": 3.8,
-        "probability": 0.669,
+        "change_pct": 3.9,
+        "probability": 0.663,
         "driver": "Gamma concentrada en $275.00 (dominan calls) — el dealer estabiliza (γ+): el precio tiende a frenarse ahí"
       },
-      "confidence": 57.0,
+      "confidence": 56.0,
       "direction": "up",
-      "summary": "A 10 días el escenario base apunta hacia $270.00 (+1.9%), dentro de un rango esperado de ±9.9% (1σ). El dinero está 81% en calls: apuesta al alza. Las señales de los sub-agentes son mixtas tirando a favorables. Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el 49% de las veces.",
+      "summary": "A 10 días el escenario base apunta hacia $270.00 (+2.0%), dentro de un rango esperado de ±9.9% (1σ). El dinero está 81% en calls: apuesta al alza. Las señales de los sub-agentes son mixtas tirando a favorables. Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el 49% de las veces.",
       "caveat": null,
       "calibration": {
         "applied": false,
@@ -1631,24 +1631,24 @@
       "bear": {
         "target": 260.0,
         "change_pct": -1.8,
-        "probability": 0.95,
+        "probability": 0.955,
         "driver": "Gamma concentrada en $260.00 (dominan calls) — el dealer estabiliza (γ+): el precio tiende a frenarse ahí"
       },
       "base": {
         "target": 270.0,
-        "change_pct": 1.9,
-        "probability": 0.837,
+        "change_pct": 2.0,
+        "probability": 0.832,
         "driver": "Nivel imán: 14% del peso del mapa está en $270.00"
       },
       "bull": {
         "target": 275.0,
-        "change_pct": 3.8,
-        "probability": 0.736,
+        "change_pct": 3.9,
+        "probability": 0.732,
         "driver": "Gamma concentrada en $275.00 (dominan calls) — el dealer estabiliza (γ+): el precio tiende a frenarse ahí"
       },
       "confidence": 54.0,
       "direction": "up",
-      "summary": "A 20 días el escenario base apunta hacia $270.00 (+1.9%), dentro de un rango esperado de ±14.0% (1σ). El dinero está 81% en calls: apuesta al alza. Las señales de los sub-agentes son mixtas tirando a favorables. Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el 49% de las veces.",
+      "summary": "A 20 días el escenario base apunta hacia $270.00 (+2.0%), dentro de un rango esperado de ±14.0% (1σ). El dinero está 81% en calls: apuesta al alza. Las señales de los sub-agentes son mixtas tirando a favorables. Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el 49% de las veces.",
       "caveat": null,
       "calibration": {
         "applied": false,
@@ -1660,24 +1660,24 @@
       "bear": {
         "target": 260.0,
         "change_pct": -1.8,
-        "probability": 0.982,
+        "probability": 0.986,
         "driver": "Gamma concentrada en $260.00 (dominan calls) — el dealer estabiliza (γ+): el precio tiende a frenarse ahí"
       },
       "base": {
         "target": 270.0,
-        "change_pct": 1.9,
-        "probability": 0.844,
-        "driver": "Nivel imán: 13% del peso del mapa está en $270.00"
+        "change_pct": 2.0,
+        "probability": 0.84,
+        "driver": "Nivel imán: 12% del peso del mapa está en $270.00"
       },
       "bull": {
         "target": 275.0,
-        "change_pct": 3.8,
-        "probability": 0.761,
+        "change_pct": 3.9,
+        "probability": 0.758,
         "driver": "Gamma concentrada en $275.00 (dominan calls) — el dealer estabiliza (γ+): el precio tiende a frenarse ahí"
       },
       "confidence": 53.0,
       "direction": "up",
-      "summary": "A 30 días el escenario base apunta hacia $270.00 (+1.9%), dentro de un rango esperado de ±17.2% (1σ). El dinero está 81% en calls: apuesta al alza. Las señales de los sub-agentes son mixtas tirando a favorables. Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el 49% de las veces.",
+      "summary": "A 30 días el escenario base apunta hacia $270.00 (+2.0%), dentro de un rango esperado de ±17.2% (1σ). El dinero está 81% en calls: apuesta al alza. Las señales de los sub-agentes son mixtas tirando a favorables. Históricamente, cuando aparece flujo así en este ticker el precio lo confirmó el 49% de las veces.",
       "caveat": null,
       "calibration": {
         "applied": false,
@@ -4004,7 +4004,7 @@
         "date": "2026-08-19",
         "horizon_days": 10,
         "matured": false,
-        "spot": 264.92,
+        "spot": 264.67,
         "base": 270.0,
         "actual_close": null,
         "error_pct": null,
@@ -4015,7 +4015,7 @@
         "date": "2026-08-19",
         "horizon_days": 20,
         "matured": false,
-        "spot": 264.92,
+        "spot": 264.67,
         "base": 270.0,
         "actual_close": null,
         "error_pct": null,
@@ -4026,7 +4026,7 @@
         "date": "2026-08-19",
         "horizon_days": 30,
         "matured": false,
-        "spot": 264.92,
+        "spot": 264.67,
         "base": 270.0,
         "actual_close": null,
         "error_pct": null,
@@ -4136,21 +4136,20 @@
     {
       "start_sec": 1787147112,
       "end_sec": 1787147866,
-      "count": 20,
-      "premium": 8695685.0,
+      "count": 19,
+      "premium": 8563948.0,
       "direction": "ask",
       "score": 10.0,
-      "unidirectionality": 0.8952,
+      "unidirectionality": 0.909,
       "bet": "bajista",
       "bet_label": "Compraron PUTS",
-      "call_premium": 3532607.0,
+      "call_premium": 3400870.0,
       "put_premium": 5163078.0,
       "strikes": [
         200.0,
         255.0,
         260.0,
         265.0,
-        272.5,
         280.0,
         300.0
       ]
@@ -4216,13 +4215,13 @@
     "name": "Amazon.Com Inc",
     "exchange": "Nasdaq",
     "sector": "RETAIL-CATALOG & MAIL-ORDER HOUSES",
-    "price": 264.89,
-    "change": 5.44,
-    "change_percent": 2.1,
+    "price": 264.67,
+    "change": 5.32,
+    "change_percent": 2.05,
     "market_cap": 2818571599499.32,
-    "day_volume": 14892349.0,
+    "day_volume": 15784173.0,
     "day_low": 258.58,
-    "day_high": 264.97,
+    "day_high": 265.15,
     "prev_close": 259.45,
     "employees": 1576000,
     "has_logo": true
@@ -4241,9 +4240,9 @@
       "expiration": "2028-01-21",
       "strike": 370.0,
       "open_interest": 48828.0,
-      "volume": 80.0,
-      "price": 20.85,
-      "open_premium": 1018063.8,
+      "volume": 86.0,
+      "price": 21.26,
+      "open_premium": 1038083.28,
       "notional_value": 1806636000.0,
       "price_source": "day_close"
     },
@@ -4253,9 +4252,9 @@
       "expiration": "2027-01-15",
       "strike": 275.0,
       "open_interest": 62396.0,
-      "volume": 852.0,
-      "price": 20.13,
-      "open_premium": 1256031.48,
+      "volume": 858.0,
+      "price": 20.45,
+      "open_premium": 1275998.2,
       "notional_value": 1715890000.0,
       "price_source": "day_close"
     },
@@ -4265,9 +4264,9 @@
       "expiration": "2027-01-15",
       "strike": 300.0,
       "open_interest": 55180.0,
-      "volume": 1093.0,
-      "price": 11.7,
-      "open_premium": 645606.0,
+      "volume": 1417.0,
+      "price": 11.65,
+      "open_premium": 642847.0,
       "notional_value": 1655400000.0,
       "price_source": "day_close"
     },
@@ -4306,5 +4305,5 @@
   ],
   "fecha": "2026-08-19",
   "agente": "opciones",
-  "guardado_en": "2026-08-19T16:21:03+00:00"
+  "guardado_en": "2026-08-19T16:38:40+00:00"
 }
