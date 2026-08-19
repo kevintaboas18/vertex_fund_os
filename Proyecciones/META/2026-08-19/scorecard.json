@@ -808,7 +808,7 @@
         "dominant": true,
         "dominance_pct": 64.8,
         "open_interest": 121886.0,
-        "volume": 17737.0
+        "volume": 17761.0
       },
       {
         "strike": 1430.0,
@@ -4324,7 +4324,7 @@
         "date": "2026-08-19",
         "horizon_days": 10,
         "matured": false,
-        "spot": 552.24,
+        "spot": 552.48,
         "base": 550.0,
         "actual_close": null,
         "error_pct": null,
@@ -4335,7 +4335,7 @@
         "date": "2026-08-19",
         "horizon_days": 20,
         "matured": false,
-        "spot": 552.24,
+        "spot": 552.48,
         "base": 550.0,
         "actual_close": null,
         "error_pct": null,
@@ -4346,7 +4346,7 @@
         "date": "2026-08-19",
         "horizon_days": 30,
         "matured": false,
-        "spot": 552.24,
+        "spot": 552.48,
         "base": 550.0,
         "actual_close": null,
         "error_pct": null,
@@ -4579,8 +4579,8 @@
     "exchange": "Nasdaq",
     "sector": "SERVICES-COMPUTER PROGRAMMING, DATA PROCESSING, ETC.",
     "price": 552.48,
-    "change": 8.81,
-    "change_percent": 1.62,
+    "change": 8.85,
+    "change_percent": 1.63,
     "market_cap": 1449454616838.25,
     "day_volume": 9470594.0,
     "day_low": 537.27,
@@ -4668,5 +4668,5 @@
   ],
   "fecha": "2026-08-19",
   "agente": "opciones",
-  "guardado_en": "2026-08-19T17:07:11+00:00"
+  "guardado_en": "2026-08-19T17:07:24+00:00"
 }
