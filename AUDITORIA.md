@@ -8847,8 +8847,22 @@ el panel en inglés**, no leyendo el archivo.
 JS y el diccionario casa el nodo entero, así que «Muro de calls» a secas no la
 alcanza.
 
+### «Sin número» no es una sola cosa
+
+Tres estados que se leen igual si se cuentan igual, y decirlos como uno solo
+miente por omisión:
+
+- **Drift no corrió.** El servidor devolvió `null`: la cadena no llegó, o el
+  módulo reventó. Los muros de arriba son solo los del motor, y eso se dice.
+- **Corrió y ese plazo no se resolvió.** Sale su motivo, escrito por
+  `drift.py`.
+- Un «no tiene número» a secas se lee como «no hay posiciones ahí», que es lo
+  contrario de lo que pasó.
+
+El guardián se comprobó **en rojo** desactivando la primera rama.
+
 ### Estado
 
 **3.439 tests del motor (30 nuevos) · 903 de la capa web (11 nuevos) ·
-127 de navegador (10 nuevos) · 280 checks de auditoría sin TITO_ROOT
+128 de navegador (11 nuevos) · 280 checks de auditoría sin TITO_ROOT
 (los 324 con él no se pueden correr en este contenedor), 0 fallos.**

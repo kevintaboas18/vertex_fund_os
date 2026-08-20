@@ -2609,6 +2609,44 @@ class TestDriftSePintaJuntoAlDelAgente:
         finally:
             pg.close()
 
+    def test_los_TRES_motivos_de_no_tener_numero_se_distinguen(self, navegador, servidor):
+        """«Sin número» no es una sola cosa, y decirlo como si lo fuera miente.
+
+        · Drift **no corrió** (el servidor devolvió `null`: cadena que no llegó,
+          o el módulo reventó) → los muros de arriba son solo los del motor.
+        · Drift corrió y **ese plazo** no se pudo resolver → sale su motivo.
+        · Un «no tiene número» a secas se lee como «no hay posiciones ahí»,
+          que es justo lo contrario de lo que pasó.
+        """
+        pg, errores = _abre(navegador, servidor)
+        try:
+            pg.evaluate("switchView('projectionsView')")
+            pg.wait_for_timeout(400)
+
+            # (a) el servidor no sirvió drift
+            p = self._payload(drift=False)
+            pg.evaluate("(p) => { projData = p; renderProjections(p); }", p)
+            pg.wait_for_timeout(300)
+            txt = pg.evaluate("() => document.getElementById('projCards').innerText")
+            assert "no pudo leer la cadena" in txt, txt[:400]
+
+            # (b) corrió, pero el plazo de 30 se quedó sin resolver
+            p = self._payload()
+            p["drift"]["buckets"] = [b for b in p["drift"]["buckets"]
+                                     if not b["solapa_motor"]]
+            p["drift"]["sin_datos"] = [{
+                "etiqueta": "Corto ~30 DTE", "dte_objetivo": 30,
+                "motivo": "ese vencimiento no tiene calls y puts con interés abierto"}]
+            pg.evaluate("(p) => { projData = p; renderProjections(p); }", p)
+            pg.wait_for_timeout(300)
+            txt = pg.evaluate("() => document.getElementById('projCards').innerText")
+            assert "no tiene número para el plazo de ~30 días" in txt, txt[:400]
+            assert "calls y puts con interés abierto" in txt, txt[:400]
+            assert "no pudo leer la cadena" not in txt, txt[:400]
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
     def test_los_plazos_largos_tienen_su_propia_tarjeta(self, navegador, servidor):
         pg, errores = self._pinta(navegador, servidor)
         try:

@@ -7293,7 +7293,16 @@ function vcDriftMotivo(dr, dte) {
 /** La nota al pie de las tarjetas: que mide Drift y por que no coincide. */
 function vcDriftNota(dr, dr30) {
     const cls = 'col-span-2 sm:col-span-3 lg:col-span-6 text-[9px] text-gray-500 leading-relaxed';
+    // Tres estados distintos, y decirlos como uno solo sería mentir por
+    // omisión: (a) Drift no corrió —el servidor devolvió `null`, que es lo que
+    // pasa si la cadena no llegó o el módulo reventó—; (b) corrió y ese plazo
+    // concreto no se pudo resolver, con su motivo; (c) corrió y no hay motivo
+    // escrito. Un «no tiene número» a secas se lee como «no hay posiciones»,
+    // que es justo lo contrario de lo que ocurrió.
     if (!dr30) {
+        if (!dr || !dr.buckets) {
+            return `<p class="${cls}"><b class="text-sky-300">Drift</b> <span>no pudo leer la cadena de este ticker, así que los muros y el imán de arriba son solo los del motor.</span></p>`;
+        }
         const m = vcDriftMotivo(dr, 30);
         return `<p class="${cls}"><b class="text-sky-300">Drift</b> <span>no tiene número para el plazo de ~30 días.</span>${
             m ? ` <span>${_vcEsc(m)}</span>` : ''}</p>`;
@@ -14344,6 +14353,8 @@ const VX_ES2EN = {
     "mide el mensual del": "measures the monthly expiring",
     "no tiene número para el plazo de ~30 días.":
         "has no number for the ~30-day horizon.",
+    "no pudo leer la cadena de este ticker, así que los muros y el imán de arriba son solo los del motor.":
+        "could not read this ticker's chain, so the walls and the magnet above are the engine's only.",
     "Este vencimiento es el mismo que otro plazo: la cadena no da para separarlos.":
         "This expiration is the same as another horizon's: the chain is not deep enough to separate them.",
     "Interés abierto y nocional publicados por el mercado, sin modelo que pueda fallar. El número del motor es gamma de dealer sobre los strikes a ±20% del spot. Apuntan a strikes distintos a propósito, y ninguno de los dos está mal.":
