@@ -4573,6 +4573,11 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     out["levels_for_chart"] = _tito_chart_levels(r)
     out["gex_heatmap"] = _tito_heatmap(chain or [], r, trades, now)
     out["drift"] = _tito_drift(chain or [], r, now)
+    # El spot no salió de una sesión en curso sino del cierre anterior. Va al
+    # payload SIEMPRE que sea así, porque el spot ancla los nodos del GEX, la
+    # ventana de strikes, los niveles, el cono y los tres targets: leerlos sin
+    # saberlo es leerlos mal.
+    out["spot_previo"] = bool(_meta_cadena.get("spot_previo"))
     out["chart_geometry"] = _tito_chart_geometry(r)
     out["flow_clusters"] = _tito_clusters(trades, now)
     # La ficha de la empresa (`CompanyHeader`) y la cadena entera
@@ -5047,7 +5052,41 @@ def _tito_chain_and_bars(ticker):
                 return v
         return None
     spot = _nn(empresa.get("price"), chain_res.underlying_price, bars[-1].close)
-    if not isinstance(spot, (int, float)) or isinstance(spot, bool) or spot <= 0:
+
+    def _util(v):
+        return (isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0)
+
+    # ── Sesión sin empezar ≠ feed roto ───────────────────────────────────
+    #
+    # Aquí estaba el fallo que dejaba la pestaña Ticker MUERTA con el mercado
+    # cerrado, que es justo cuando se investiga. La cadena de Víctor es
+    # `day.c ?? min.c ?? prevDay.c` y su `??` solo salta el nulo, así que un
+    # `day.c` en 0 gana y nunca cae al cierre anterior. Pero Massive —que
+    # hereda el modelo de Polygon— manda el bloque `day` ENTERO en ceros
+    # mientras la sesión no ha abierto: eso no es un feed averiado, es que
+    # todavía no se ha operado hoy. Y el `prevDay.c` de al lado es un precio
+    # real, que además es el TERCER eslabón de su propia cascada — no dispara
+    # nunca solo porque el `??` trata el 0 como un valor.
+    #
+    # Se distinguen los dos casos, y solo el primero baja:
+    #   · `day` entero a cero (cierre, o plan sin intradía) → cierre anterior.
+    #   · un precio raro con sesión de verdad detrás → se corta, como antes.
+    #
+    # Y NO baja en silencio, que es lo que este proyecto trata como peor que
+    # un error: `spot_previo` viaja al payload y el panel lo dice en pantalla.
+    # La preocupación original —no presentar un precio viejo como si fuera de
+    # ahora— se resuelve etiquetándolo, no matando el tab medio día.
+    spot_previo = False
+    if not _util(spot):
+        _sin_sesion = (not _util(empresa.get("price"))
+                       and not _util(empresa.get("day_volume"))
+                       and not _util(empresa.get("day_high")))
+        if _sin_sesion:
+            _respaldo = _nn(empresa.get("prev_close"), bars[-1].close)
+            if _util(_respaldo):
+                spot, spot_previo = float(_respaldo), True
+
+    if not _util(spot):
         # El mensaje SI mejora: un 0 y una clave mala se veian igual, y se
         # arreglan en sitios distintos. `snapshot 0` significa que Massive
         # CONTESTO --la credencial vale-- y devolvio el bloque `day` en ceros,
@@ -5072,7 +5111,8 @@ def _tito_chain_and_bars(ticker):
     # scorecard sobre el MISMO dato. `truncated` es el tope de páginas de
     # Massive — que la cadena llegó incompleta— y solo lo sabe esta función.
     return chain_res.rows, bars, float(spot), {"empresa": empresa,
-                                               "truncated": chain_res.truncated}
+                                               "truncated": chain_res.truncated,
+                                               "spot_previo": spot_previo}
 
 
 def _tito_memory(ticker, trades, chain, bars, now):

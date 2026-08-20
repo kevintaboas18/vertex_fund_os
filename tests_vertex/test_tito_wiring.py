@@ -772,24 +772,88 @@ class TestElSpotSaleDeSuFuente:
         d = client.get("/api/projection-targets?ticker=DEMO").json()
         assert d["spot"] == SPOT   # `underlying_price` del doble de cadena
 
-    def test_el_nulo_baja_pero_el_cero_NO_baja(self, client, monkeypatch):
-        """Su `??` solo salta el nulo. Un `price: 0` se queda en 0 y entonces su
-        guarda `if (!spot || spot <= 0) return null` corta la lectura.
+    def test_el_nulo_baja_y_un_precio_RARO_CON_SESION_sigue_sin_bajar(
+            self, client, monkeypatch):
+        """Su `??` solo salta el nulo, así que un `price: 0` se queda en 0.
 
-        Es deliberado: si el snapshot dice 0, el feed está mal, y bajar en
-        silencio a otro precio es el fallback callado que este proyecto trata
-        como peor que un error. Aquí se corta con el motivo escrito."""
+        Lo que cambió —y por qué— está en el caso de abajo: un `day` entero en
+        ceros es SESIÓN SIN EMPEZAR, no un feed roto. Aquí se fija la otra
+        mitad, que sigue igual: si hay sesión de verdad detrás (volumen, máximo
+        del día) y aun así el precio es raro, se corta. Ese sí es un feed que
+        no se puede creer, y publicar un scorecard sobre él sería inventar.
+        """
         import wbj.tito.massive as MASS
         # `null`/ausente → baja al precio de la cadena.
         for nulo in ({"price": None}, {}):
             monkeypatch.setattr(MASS, "fetch_company", lambda t, _v=nulo, **k: _v)
             assert client.get("/api/projection-targets?ticker=DEMO").json()["spot"] == SPOT
-        # 0, negativo o basura → NO baja: no se publica lectura.
+        # Precio imposible CON sesión en curso → no se publica lectura.
         for malo in (0, -5, "abc", True):
-            monkeypatch.setattr(MASS, "fetch_company", lambda t, _m=malo, **k: {"price": _m})
+            monkeypatch.setattr(MASS, "fetch_company", lambda t, _m=malo, **k: {
+                "price": _m, "day_volume": 41_000_000, "day_high": 182.9,
+                "prev_close": 181.4})
             d = client.get("/api/projection-targets?ticker=DEMO").json()
-            assert d["ok"] is False, f"un price={malo!r} produjo un scorecard"
+            assert d["ok"] is False, f"un price={malo!r} con sesión produjo un scorecard"
             assert "score" not in d
+
+    def test_con_el_MERCADO_CERRADO_el_tab_SIGUE_abriendo(self, client, monkeypatch):
+        """«Massive no devolvió un precio utilizable para NVDA (snapshot 0)».
+
+        Es la pantalla que veía Kevin, y no era un feed averiado: Massive
+        —que hereda el modelo de Polygon— manda el bloque `day` ENTERO en
+        ceros mientras la sesión no ha abierto. La cascada de Víctor
+        (`day.c ?? min.c ?? prevDay.c`) trata el 0 como un valor, así que
+        ganaba y nunca caía al `prevDay.c` de al lado, que es un precio real
+        y además el tercer eslabón de su propia cadena.
+
+        Resultado: la pestaña Ticker estaba muerta fuera de horario de
+        mercado, que es justo cuando se investiga.
+        """
+        import wbj.tito.massive as MASS
+
+        # La forma EXACTA del snapshot con el mercado cerrado.
+        monkeypatch.setattr(MASS, "fetch_company", lambda t, **k: {
+            "ticker": t, "name": "Demo Corporation",
+            "price": 0, "day_open": 0, "day_high": 0, "day_low": 0,
+            "day_volume": 0, "prev_close": 181.42})
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["ok"] is True, d.get("error")
+        assert d["spot"] == 181.42, "no usó el cierre anterior"
+        assert d["predictions"], "sin targets, el tab sigue sin servir de nada"
+
+    def test_y_LO_DICE_en_vez_de_bajar_en_silencio(self, client, monkeypatch):
+        """Bajar callado a un precio viejo es peor que el error que sustituye.
+
+        El spot ancla los nodos del GEX, la ventana de strikes, los niveles,
+        el cono y los tres targets. Si viene del cierre anterior hay que
+        poder saberlo, así que viaja en el payload y el panel lo pinta.
+        """
+        import wbj.tito.massive as MASS
+
+        monkeypatch.setattr(MASS, "fetch_company", lambda t, **k: {
+            "price": 0, "day_volume": 0, "day_high": 0, "prev_close": 181.42})
+        assert client.get("/api/projection-targets?ticker=DEMO").json()["spot_previo"] is True
+
+        # Y con sesión normal NO se marca: si se marcara siempre, el aviso
+        # dejaría de significar nada.
+        monkeypatch.setattr(MASS, "fetch_company", lambda t, **k: {
+            "price": 100.0, "day_volume": 41_000_000, "day_high": 101.0})
+        assert client.get("/api/projection-targets?ticker=DEMO").json()["spot_previo"] is False
+
+    def test_sin_cierre_anterior_TAMPOCO_se_inventa_nada(self, client, monkeypatch):
+        """El respaldo es el cierre anterior o la última vela — no un número.
+
+        Sin ninguno de los dos se corta igual que antes: sin evidencia no hay
+        número, y menos el que ancla el panel entero.
+        """
+        import wbj.tito.bars_store as BS
+        import wbj.tito.massive as MASS
+
+        monkeypatch.setattr(MASS, "fetch_company", lambda t, **k: {
+            "price": 0, "day_volume": 0, "day_high": 0, "prev_close": None})
+        monkeypatch.setattr(BS, "daily_bars_for_panel", lambda t, **k: [])
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["ok"] is False and "score" not in d
 
 
 class TestElTabEsSoloDeVictor:

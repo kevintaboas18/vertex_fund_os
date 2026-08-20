@@ -7410,8 +7410,15 @@ function renderProjections(d) {
     const pc = (st.put_pct != null && st.call_pct != null && st.call_pct > 0)
         ? (st.put_pct / st.call_pct) : null;
 
+    // El spot puede venir del CIERRE ANTERIOR cuando no hay sesión en curso.
+    // Se dice en la propia tarjeta, no en una nota al pie: este número ancla
+    // los nodos del GEX, la ventana de strikes, los niveles, el cono y los
+    // tres targets. Leerlo creyendo que es de ahora es leerlo mal.
+    const _previo = !!d.spot_previo;
+
     document.getElementById('projCards').innerHTML =
-        card('Spot', money(spot)) +
+        card('Spot', money(spot), _previo ? 'text-amber-300' : '',
+             _previo ? 'cierre anterior · sin sesión en curso' : '') +
         dual('Muro de calls', cw, 'text-red-400',
              cwN ? 'GEX ' + fmtAbbr(cwN.net_gex) : '',
              dr30 ? dr30.muro_calls : null,
@@ -14346,6 +14353,8 @@ const VX_ES2EN = {
     "Plazo": "Horizon",
     "Imán de nocional": "Notional magnet",
     "imán de nocional": "notional magnet",
+    "cierre anterior · sin sesión en curso":
+        "previous close · no session under way",
     "los muros y el imán de 90/120/320 días (Drift)":
         "the walls and the magnet at 90/120/320 days (Drift)",
     "Lectura": "Reading",

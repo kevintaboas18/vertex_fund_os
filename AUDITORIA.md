@@ -8931,8 +8931,50 @@ su `ok:false` cuando faltan credenciales. **`onrender.com` está bloqueado por
 política en este contenedor**, así que su despliegue no se puede tocar desde
 aquí y eso queda sin comprobar.
 
+### El tab Ticker estaba MUERTO con el mercado cerrado
+
+> «Massive no devolvió un precio utilizable para NVDA (snapshot 0 · cadena
+> None)… estaba funcionando de lo más bien y no daba problema.»
+
+Y no era un feed averiado. Massive —que hereda el modelo de Polygon— manda el
+bloque `day` **entero en ceros** mientras la sesión no ha abierto: `c`, `o`,
+`h`, `l` y `v` a cero, y el cierre real en `prevDay.c`, justo al lado.
+
+La cascada de Víctor es `day.c ?? min.c ?? prevDay.c` y su `??` **solo salta el
+nulo**, así que el 0 gana y nunca cae al tercer eslabón — que es un precio
+bueno y que él mismo puso ahí. Reproducido con la respuesta exacta del
+snapshot cerrado: `fetch_company` devuelve `0` teniendo `181.42` disponible.
+
+Resultado: fuera de horario de mercado la pestaña Ticker no abría. Es decir,
+justo cuando se investiga.
+
+Viene de la **ronda de auditoría 6 (2026-08-06)**, no de este trabajo; el
+último toque solo mejoró el texto del error. Y estaba **fijado por un test**
+cuya premisa era falsa: «si el snapshot dice 0, el feed está mal». Un 0 con el
+mercado cerrado no dice eso.
+
+**La decisión que se conserva y la que cambia.** El motivo original —no
+presentar un precio viejo como si fuera de ahora— es correcto y sigue en pie:
+el spot ancla los nodos del GEX, la ventana de ±20% que decide qué strikes
+entran, los niveles, el cono y los tres targets. Pero eso se arregla
+**etiquetando** el precio, no matando el tab medio día. Ahora:
+
+- Se distingue **sesión sin empezar** (`day` entero a cero) de **feed roto**
+  (un precio imposible con volumen y máximo del día detrás). Solo el primero
+  baja al cierre anterior; el segundo sigue cortando, igual que antes.
+- Y **no baja en silencio**: `spot_previo` viaja en el payload y la tarjeta
+  del Spot lo pinta en ámbar, «cierre anterior · sin sesión en curso».
+- Sin cierre anterior **ni** última vela no se inventa nada: se corta.
+
+El arreglo va en el borde de Vertex (`_tito_chain_and_bars`), **no en el
+port**: `massive.py` sigue siendo literal a su TypeScript, igual que
+`daily_bars_for_panel` es la capa de política y `cached_daily_bars` la suya.
+
+Cuatro casos nuevos, y los dos que reproducen el fallo se comprobaron **en
+rojo** desactivando la rama.
+
 ### Estado
 
-**3.449 tests del motor (40 nuevos) · 905 de la capa web (13 nuevos) ·
+**3.451 tests del motor (42 nuevos) · 908 de la capa web (16 nuevos) ·
 128 de navegador (11 nuevos) · 280 checks de auditoría sin TITO_ROOT
 (los 324 con él no se pueden correr en este contenedor), 0 fallos.**
