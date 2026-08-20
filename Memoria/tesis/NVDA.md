@@ -4,16 +4,16 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ### 2026-08-20 · agente de opciones
 
+**Oportunidad Moderada** · puntaje 65 · precio $216.33
+
+---
+
+### 2026-08-20 · agente de opciones
+
 **Oportunidad Moderada** · puntaje 65 · precio $217.04
 
 ---
 
-### 2026-08-20 · agente de opciones
-
-**Oportunidad Moderada** · puntaje 65 · precio $217.09
-
----
-
 ---
 
 ### 2026-08-20 · agente de opciones
@@ -41,6 +41,22 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 ### 2026-08-20 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 65 · precio $217.09
+
+---
+
+---
+
+---
+
+---
+
+---
+
+### 2026-08-20 · agente de opciones
+
+**Oportunidad Moderada** · puntaje 65 · precio $217.09
+
+---
 
 ---
 
@@ -55,6 +71,8 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 ### 2026-08-20 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 65 · precio $217.05
+
+---
 
 ---
 
@@ -86,9 +104,13 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
+---
+
 ### 2026-08-20 · agente de opciones
 
 **Oportunidad Moderada** · puntaje 67 · precio $217.59
+
+---
 
 ---
 
@@ -128,28 +150,6 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
-### 2026-08-20 · agente de opciones
-
-**Oportunidad Moderada** · puntaje 67 · precio $218.30
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
----
-
 ---
 
 ### 2026-08-20 · agente de opciones
@@ -178,15 +178,9 @@ _Lo que se dijo antes. La revisión más reciente arriba; las anteriores NO se b
 
 ---
 
-### 2026-08-17 · agente de acciones
+### 2026-08-20 · agente de opciones
 
-**ESPECULATIVO** · puntaje 57 · precio $227.50
-
-Niveles: bear $222.91 · base $315.22 · bull $362.51
-
-Imagina que NVIDIA es como el fabricante de los motores más potentes y avanzados para los coches del futuro, que no son coches normales, sino coches inteligentes que se conducen solos, o superordenadores que aprenden y crean. Gana dinero vendiendo estos 'motores' (sus chips y software) a todas las empresas que quieren construir esos coches o superordenadores. Para ti, como inversor, es importante porque es la empresa…
-
-**Lo que la invalidaría:** {'risk': [], 'business': [], 'market': [], 'source': None, 'unavailable_reason': 'Los thesis killers son judgment-only por diseño: el motor determinista no inventa riesgos. Requieren el juez cualitativo (ANTHROPIC_API_KEY con saldo). Sin él quedan NOT_SCORABLE, no vacíos por error.'}
+**Oportunidad Moderada** · puntaje 67 · precio $218.30
 
 ---
 
