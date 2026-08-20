@@ -8,7 +8,7 @@
         "sector": "XLP",
         "sector_nombre": "Consumo básico",
         "cuando": null,
-        "cap": 828514912992.0
+        "cap": 821990083200.0
       },
       {
         "ticker": "DE",
@@ -16,7 +16,7 @@
         "sector": "XLI",
         "sector_nombre": "Industrial",
         "cuando": null,
-        "cap": 168700093128.0
+        "cap": 167299117892.0
       },
       {
         "ticker": "ROST",
@@ -24,7 +24,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 73613707429.0
+        "cap": 73525011462.0
       },
       {
         "ticker": "UI",
@@ -32,7 +32,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 34679154705.0
+        "cap": 34993869547.0
       },
       {
         "ticker": "BJ",
@@ -40,7 +40,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 11551198064.0
+        "cap": 11487351071.0
       },
       {
         "ticker": "INTU",
@@ -48,7 +48,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 99113396580.0
+        "cap": 99448479405.0
       },
       {
         "ticker": "HEI",
@@ -56,7 +56,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 49335881540.0
+        "cap": 49012659906.0
       },
       {
         "ticker": "ZM",
@@ -64,7 +64,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 31141262083.0
+        "cap": 31377255376.0
       },
       {
         "ticker": "DKS",
@@ -72,7 +72,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 15519857421.0
+        "cap": 15354116348.0
       },
       {
         "ticker": "SMTC",
@@ -80,7 +80,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 11568098895.0
+        "cap": 11675101641.0
       },
       {
         "ticker": "NVDA",
@@ -88,7 +88,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 5238905416000.0
+        "cap": 5248206280000.0
       },
       {
         "ticker": "CRWD",
@@ -96,7 +96,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 196646232154.0
+        "cap": 194062093753.0
       },
       {
         "ticker": "CRM",
@@ -104,7 +104,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 169213590000.0
+        "cap": 169688610000.0
       },
       {
         "ticker": "SNPS",
@@ -112,7 +112,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 75718680018.0
+        "cap": 75714410029.0
       },
       {
         "ticker": "A",
@@ -120,7 +120,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 44528229120.0
+        "cap": 44443499520.0
       },
       {
         "ticker": "VEEV",
@@ -128,7 +128,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 40891849643.0
+        "cap": 40735904084.0
       },
       {
         "ticker": "P",
@@ -136,7 +136,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 36760668950.0
+        "cap": 36677567700.0
       },
       {
         "ticker": "WSM",
@@ -144,7 +144,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 27770538204.0
+        "cap": 27624532407.0
       },
       {
         "ticker": "HPQ",
@@ -152,7 +152,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 27431117385.0
+        "cap": 27284793705.0
       },
       {
         "ticker": "OKTA",
@@ -160,7 +160,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 22295114708.0
+        "cap": 22202768600.0
       },
       {
         "ticker": "NTNX",
@@ -168,7 +168,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 17857528424.0
+        "cap": 18114035072.0
       },
       {
         "ticker": "SJM",
@@ -176,7 +176,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 13253825468.0
+        "cap": 13243586298.0
       },
       {
         "ticker": "DY",
@@ -184,7 +184,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 11991577950.0
+        "cap": 11969654955.0
       },
       {
         "ticker": "DCI",
@@ -192,7 +192,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 10702062630.0
+        "cap": 10689891975.0
       },
       {
         "ticker": "MRVL",
@@ -200,7 +200,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 213809511240.0
+        "cap": 215648619840.0
       },
       {
         "ticker": "ADSK",
@@ -208,7 +208,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 53381742358.0
+        "cap": 53366962190.0
       },
       {
         "ticker": "WDAY",
@@ -216,7 +216,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 51385183130.0
+        "cap": 51661636830.0
       },
       {
         "ticker": "DG",
@@ -224,7 +224,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 26869659471.0
+        "cap": 26702013619.0
       },
       {
         "ticker": "AFRM",
@@ -232,7 +232,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 25043714018.0
+        "cap": 25107344743.0
       },
       {
         "ticker": "DLTR",
@@ -240,7 +240,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 24878033843.0
+        "cap": 24584947750.0
       },
       {
         "ticker": "ULTA",
@@ -248,7 +248,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 22356715855.0
+        "cap": 22198300244.0
       },
       {
         "ticker": "BURL",
@@ -256,7 +256,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 20944646472.0
+        "cap": 21088155317.0
       },
       {
         "ticker": "RBRK",
@@ -264,7 +264,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 20240982435.0
+        "cap": 20151447888.0
       },
       {
         "ticker": "BBY",
@@ -272,7 +272,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 18189192100.0
+        "cap": 18014255490.0
       },
       {
         "ticker": "HRL",
@@ -280,7 +280,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 13301113550.0
+        "cap": 13270846225.0
       },
       {
         "ticker": "DELL",
@@ -288,7 +288,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 288225126677.0
+        "cap": 288152059073.0
       },
       {
         "ticker": "PANW",
@@ -296,7 +296,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 287678700000.0
+        "cap": 284182350000.0
       },
       {
         "ticker": "MDB",
@@ -304,7 +304,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 33740791217.0
+        "cap": 33848972159.0
       },
       {
         "ticker": "AVGO",
@@ -312,7 +312,7 @@
         "sector": "XLK",
         "sector_nombre": "Tecnología",
         "cuando": null,
-        "cap": 1727810328600.0
+        "cap": 1729523057400.0
       },
       {
         "ticker": "SNOW",
@@ -320,7 +320,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 110797622000.0
+        "cap": 110847879000.0
       },
       {
         "ticker": "HPE",
@@ -328,7 +328,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 70222512719.0
+        "cap": 69997398120.0
       },
       {
         "ticker": "NTAP",
@@ -336,7 +336,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 38490317930.0
+        "cap": 38069709974.0
       },
       {
         "ticker": "BF-B",
@@ -344,7 +344,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 13192819650.0
+        "cap": 13276761238.0
       },
       {
         "ticker": "FIVE",
@@ -352,7 +352,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 13087856628.0
+        "cap": 13025594063.0
       },
       {
         "ticker": "CIEN",
@@ -360,7 +360,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 55975687476.0
+        "cap": 55744248448.0
       },
       {
         "ticker": "CPRT",
@@ -368,7 +368,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 31690527029.0
+        "cap": 31863376033.0
       },
       {
         "ticker": "ZS",
@@ -376,7 +376,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 28537688424.0
+        "cap": 28477047353.0
       },
       {
         "ticker": "IOT",
@@ -384,7 +384,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 22487924267.0
+        "cap": 22695664907.0
       },
       {
         "ticker": "GWRE",
@@ -392,7 +392,7 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 15125606470.0
+        "cap": 15241749148.0
       },
       {
         "ticker": "DOCU",
@@ -400,13 +400,13 @@
         "sector": null,
         "sector_nombre": null,
         "cuando": null,
-        "cap": 11885696132.0
+        "cap": 11961749525.0
       }
     ],
     "motivo": "",
     "recortadas": 0,
     "umbral": 10000000000.0,
-    "fuera": 1933,
+    "fuera": 1932,
     "medida": true,
     "motivo_tamano": ""
   },
@@ -431,6 +431,15 @@
         "impacto": "high"
       },
       {
+        "evento": "Retail Sales Ex Autos MoM (Jul)",
+        "fecha": "2026-08-14 12:30",
+        "salio": -0.3,
+        "esperado": 0.2,
+        "anterior": -0.2,
+        "unidad": "",
+        "impacto": "medium"
+      },
+      {
         "evento": "Retail Sales MoM (Jul)",
         "fecha": "2026-08-14 12:30",
         "salio": -0.4,
@@ -449,15 +458,6 @@
         "impacto": "low"
       },
       {
-        "evento": "Retail Sales Ex Autos MoM (Jul)",
-        "fecha": "2026-08-14 12:30",
-        "salio": -0.3,
-        "esperado": 0.2,
-        "anterior": -0.2,
-        "unidad": "",
-        "impacto": "medium"
-      },
-      {
         "evento": "Retail Sales YoY (Jul)",
         "fecha": "2026-08-14 12:30",
         "salio": 5.0,
@@ -467,22 +467,22 @@
         "impacto": "low"
       },
       {
-        "evento": "Producer Price Index YoY (Jul)",
+        "evento": "PPI Ex Food, Energy and Trade YoY (Jul)",
         "fecha": "2026-08-13 12:30",
         "salio": 4.7,
-        "esperado": 4.9,
-        "anterior": 5.5,
+        "esperado": 5.1,
+        "anterior": 5.0,
         "unidad": "",
         "impacto": "low"
       },
       {
-        "evento": "Initial Jobless Claims (Aug/08)",
+        "evento": "Core PPI YoY (Jul)",
         "fecha": "2026-08-13 12:30",
-        "salio": 209.0,
-        "esperado": 202.0,
-        "anterior": 200.0,
+        "salio": 4.2,
+        "esperado": 4.2,
+        "anterior": 4.7,
         "unidad": "",
-        "impacto": "medium"
+        "impacto": "low"
       }
     ],
     "proximos": [
@@ -496,6 +496,15 @@
         "impacto": "high"
       },
       {
+        "evento": "PCE Price Index YoY (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": null,
+        "esperado": 3.7,
+        "anterior": 3.7,
+        "unidad": "",
+        "impacto": "medium"
+      },
+      {
         "evento": "PCE Price Index MoM (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": null,
@@ -503,15 +512,6 @@
         "anterior": -0.1,
         "unidad": "",
         "impacto": "medium"
-      },
-      {
-        "evento": "Core PCE Price Index MoM (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": null,
-        "esperado": 0.2,
-        "anterior": 0.1,
-        "unidad": "",
-        "impacto": "high"
       },
       {
         "evento": "Core PCE Price Index YoY (Jul)",
@@ -523,13 +523,13 @@
         "impacto": "low"
       },
       {
-        "evento": "PCE Price Index YoY (Jul)",
+        "evento": "Core PCE Price Index MoM (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": null,
-        "esperado": 3.7,
-        "anterior": 3.7,
+        "esperado": 0.2,
+        "anterior": 0.1,
         "unidad": "",
-        "impacto": "medium"
+        "impacto": "high"
       },
       {
         "evento": "Initial Jobless Claims (Aug/22)",
@@ -550,18 +550,18 @@
         "impacto": "low"
       },
       {
-        "evento": "ISM Manufacturing Employment (Aug)",
+        "evento": "ISM Manufacturing Prices (Aug)",
         "fecha": "2026-09-01 14:00",
         "salio": null,
-        "esperado": 52.5,
-        "anterior": 52.8,
+        "esperado": 70.0,
+        "anterior": 71.1,
         "unidad": "",
-        "impacto": "medium"
+        "impacto": "low"
       }
     ],
     "filas": [],
     "motivo": "",
     "fuente": "FMP"
   },
-  "generado": "2026-08-20T17:33:03.210456+00:00"
+  "generado": "2026-08-20T19:02:22.611951+00:00"
 }
