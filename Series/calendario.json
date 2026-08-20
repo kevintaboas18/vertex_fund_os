@@ -431,24 +431,6 @@
         "impacto": "high"
       },
       {
-        "evento": "Retail Sales YoY (Jul)",
-        "fecha": "2026-08-14 12:30",
-        "salio": 5.0,
-        "esperado": 6.0,
-        "anterior": 6.8,
-        "unidad": "",
-        "impacto": "low"
-      },
-      {
-        "evento": "Retail Sales MoM (Jul)",
-        "fecha": "2026-08-14 12:30",
-        "salio": -0.4,
-        "esperado": 0.3,
-        "anterior": 0.4,
-        "unidad": "",
-        "impacto": "medium"
-      },
-      {
         "evento": "Retail Sales Ex Gas/Autos MoM (Jul)",
         "fecha": "2026-08-14 12:30",
         "salio": -0.2,
@@ -467,6 +449,33 @@
         "impacto": "medium"
       },
       {
+        "evento": "Retail Sales MoM (Jul)",
+        "fecha": "2026-08-14 12:30",
+        "salio": -0.4,
+        "esperado": 0.3,
+        "anterior": 0.4,
+        "unidad": "",
+        "impacto": "medium"
+      },
+      {
+        "evento": "Retail Sales YoY (Jul)",
+        "fecha": "2026-08-14 12:30",
+        "salio": 5.0,
+        "esperado": 6.0,
+        "anterior": 6.8,
+        "unidad": "",
+        "impacto": "low"
+      },
+      {
+        "evento": "Producer Price Index (Jul)",
+        "fecha": "2026-08-13 12:30",
+        "salio": 156.563,
+        "esperado": 156.41,
+        "anterior": 156.607,
+        "unidad": "",
+        "impacto": "low"
+      },
+      {
         "evento": "Producer Price Index MoM (Jul)",
         "fecha": "2026-08-13 12:30",
         "salio": 0.0,
@@ -474,15 +483,6 @@
         "anterior": -0.1,
         "unidad": "",
         "impacto": "high"
-      },
-      {
-        "evento": "Core PPI MoM (Jul)",
-        "fecha": "2026-08-13 12:30",
-        "salio": 0.2,
-        "esperado": 0.3,
-        "anterior": 0.4,
-        "unidad": "",
-        "impacto": "medium"
       }
     ],
     "proximos": [
@@ -496,20 +496,29 @@
         "impacto": "high"
       },
       {
-        "evento": "PCE Price Index MoM (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": null,
-        "esperado": 0.1,
-        "anterior": -0.1,
-        "unidad": "",
-        "impacto": "medium"
-      },
-      {
         "evento": "PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": null,
         "esperado": 3.7,
         "anterior": 3.7,
+        "unidad": "",
+        "impacto": "medium"
+      },
+      {
+        "evento": "Core PCE Price Index MoM (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": null,
+        "esperado": 0.2,
+        "anterior": 0.1,
+        "unidad": "",
+        "impacto": "high"
+      },
+      {
+        "evento": "PCE Price Index MoM (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": null,
+        "esperado": 0.1,
+        "anterior": -0.1,
         "unidad": "",
         "impacto": "medium"
       },
@@ -523,15 +532,6 @@
         "impacto": "low"
       },
       {
-        "evento": "Core PCE Price Index MoM (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": null,
-        "esperado": 0.2,
-        "anterior": 0.1,
-        "unidad": "",
-        "impacto": "high"
-      },
-      {
         "evento": "Initial Jobless Claims (Aug/22)",
         "fecha": "2026-08-27 12:30",
         "salio": null,
@@ -541,13 +541,13 @@
         "impacto": "medium"
       },
       {
-        "evento": "ISM Manufacturing Employment (Aug)",
+        "evento": "ISM Manufacturing New Orders (Aug)",
         "fecha": "2026-09-01 14:00",
         "salio": null,
-        "esperado": 52.5,
-        "anterior": 52.8,
+        "esperado": 56.0,
+        "anterior": 56.7,
         "unidad": "",
-        "impacto": "medium"
+        "impacto": "low"
       },
       {
         "evento": "ISM Manufacturing Prices (Aug)",
@@ -563,5 +563,5 @@
     "motivo": "",
     "fuente": "FMP"
   },
-  "generado": "2026-08-20T23:08:49.521423+00:00"
+  "generado": "2026-08-20T20:55:29.642652+00:00"
 }
