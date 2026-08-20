@@ -130,13 +130,13 @@ class TestMurosEIman:
                       fila(110, "call", 9000, "2026-09-18"),
                       fila(120, "call", 300, "2026-09-18"),
                       fila(90, "put", 4000, "2026-09-18")], HOY)
-        assert muro_calls(f) == (110.0, 9000)
-        assert muro_puts(f) == (90.0, 4000)
+        assert muro_calls(f, 100.0) == (110.0, 9000)
+        assert muro_puts(f, 100.0) == (90.0, 4000)
 
     def test_sin_un_lado_devuelve_None(self):
         from wbj.tito.drift import _a_filas
         f = _a_filas([fila(100, "call", 500, "2026-09-18")], HOY)
-        assert muro_puts(f) is None
+        assert muro_puts(f, 100.0) is None
 
     def test_el_nocional_lleva_signo_calls_positivo_puts_negativo(self):
         from wbj.tito.drift import _a_filas
@@ -149,7 +149,7 @@ class TestMurosEIman:
         from wbj.tito.drift import _a_filas
         f = _a_filas([fila(100, "call", 10, "2026-09-18"),
                       fila(80, "put", 100, "2026-09-18")], HOY)
-        s, n = magneto(f)
+        s, n = magneto(f, 100.0)
         assert s == 80.0 and n < 0        # los puts mandan, y se dice con el signo
 
     def test_el_sesgo_del_nocional_es_de_DESEMPATE_y_solo_eso(self):
@@ -162,7 +162,7 @@ class TestMurosEIman:
         from wbj.tito.drift import _a_filas
         f = _a_filas([fila(100, "call", 1000, "2026-09-18"),
                       fila(400, "call", 1000, "2026-09-18")], HOY)
-        assert magneto(f)[0] == 400.0
+        assert magneto(f, 100.0)[0] == 400.0
 
     def test_el_iman_NO_tira_hacia_arriba_sale_donde_esta_el_nocional(self):
         """La corrección de Kevin, fijada como test.
@@ -180,7 +180,7 @@ class TestMurosEIman:
         spot = 100.0
         f = _a_filas([fila(400, "call", 1000, "2026-09-18"),
                       fila(80, "put", 6000, "2026-09-18")], HOY)
-        strike, neto = magneto(f)
+        strike, neto = magneto(f, 100.0)
         assert strike == 80.0 < spot, "el imán se fue arriba con los puts mandando"
         assert neto < 0, "el signo tiene que decir que mandan los puts"
 
@@ -188,7 +188,7 @@ class TestMurosEIman:
         # nocional en las dos direcciones.
         f = _a_filas([fila(120, "call", 3000, "2026-09-18"),
                       fila(80, "put", 100, "2026-09-18")], HOY)
-        strike, neto = magneto(f)
+        strike, neto = magneto(f, 100.0)
         assert strike == 120.0 > spot and neto > 0
 
     def test_el_analisis_completo_tambien_pone_el_iman_ABAJO(self):
@@ -204,6 +204,168 @@ class TestMurosEIman:
             assert b.magneto_nocional < 0
             # …y la lectura lo cuenta como rechazo, no como atracción.
             assert "rechazo" in b.deriva or "RUPTURA" in b.deriva
+
+
+class TestLosMurosMIRANelLADO:
+    """«El put wall, el call wall y el imán están mal.» Y lo estaban.
+
+    Un muro de calls es una **resistencia** y uno de puts un **soporte**. Sin
+    mirar el lado, el mayor OI se queda donde se COMPRÓ, no donde está el
+    precio hoy: en cualquier acción que haya subido, el mayor OI de calls
+    queda muy por debajo del precio —calls viejas, ahora dentro del dinero— y
+    salía un «muro de calls» a 120 con la acción a 180.
+
+    Peor todavía: la resistencia salía POR DEBAJO del soporte, y el panel
+    pintaba un «rango defendido» del revés. `clasifica_deriva` lo tapaba con
+    un `sorted((mp, mc))` que hacía que el rango saliera bien aunque los dos
+    números vinieran invertidos — tapar el síntoma en vez de arreglar la
+    definición.
+
+    Cada caso de aquí va ROJO con la versión sin filtro de lado.
+    """
+
+    SPOT = 180.0
+
+    def _cadena(self):
+        """El caso real: mayor OI de calls ITM y mayor OI de puts OTM."""
+        filas = []
+        for k in range(100, 261, 10):
+            oi_c = oi_p = 500
+            if k == 120:
+                oi_c = 14000          # calls viejas, muy por DEBAJO del precio
+            if k == 200:
+                oi_c = 6000           # la resistencia de verdad
+            if k == 230:
+                oi_p = 11000          # puts que quedaron muy por ENCIMA
+            if k == 160:
+                oi_p = 7000           # el soporte de verdad
+            filas += [fila(k, "call", oi_c, "2026-09-18"),
+                      fila(k, "put", oi_p, "2026-09-18")]
+        return filas
+
+    def test_la_resistencia_NO_puede_estar_por_debajo_del_precio(self):
+        from wbj.tito.drift import _a_filas
+        f = _a_filas(self._cadena(), HOY)
+        strike, oi = muro_calls(f, self.SPOT)
+        assert strike >= self.SPOT, (
+            f"muro de calls en {strike} con el precio en {self.SPOT}: una "
+            f"resistencia no puede estar por debajo")
+        assert strike == 200.0 and oi == 6000
+
+    def test_el_soporte_NO_puede_estar_por_encima_del_precio(self):
+        from wbj.tito.drift import _a_filas
+        f = _a_filas(self._cadena(), HOY)
+        strike, oi = muro_puts(f, self.SPOT)
+        assert strike <= self.SPOT, (
+            f"muro de puts en {strike} con el precio en {self.SPOT}: un "
+            f"soporte no puede estar por encima")
+        assert strike == 160.0 and oi == 7000
+
+    def test_la_resistencia_queda_POR_ENCIMA_del_soporte(self):
+        a = drift_analysis(self._cadena(), spot=self.SPOT, hoy=HOY, iv=0.35)
+        for b in a.buckets:
+            assert b.muro_puts < b.muro_calls, (
+                f"{b.etiqueta}: rango invertido "
+                f"(soporte {b.muro_puts}, resistencia {b.muro_calls})")
+            assert b.muro_puts <= self.SPOT <= b.muro_calls
+
+    def test_sin_calls_por_encima_NO_se_inventa_una_de_abajo(self):
+        """Un muro que no está donde se dice que está es peor que ninguno."""
+        from wbj.tito.drift import _a_filas
+        f = _a_filas([fila(100, "call", 9000, "2026-09-18"),
+                      fila(90, "put", 500, "2026-09-18")], HOY)
+        assert muro_calls(f, 150.0) is None
+
+
+class TestElImanNOSeVaFUERAdeLaBANDA:
+    """Dos defectos, y los dos daban un imán que no significaba nada."""
+
+    def test_un_strike_con_calls_Y_puts_no_se_ANULA(self):
+        """El neto escondía justo la mayor concentración de la cadena.
+
+        10.000 calls y 10.000 puts en el mismo strike es el sitio clásico
+        donde el precio se clava. Restando un lado del otro salía CASI CERO y
+        desaparecía del reparto, como si no hubiera nadie ahí.
+        """
+        from wbj.tito.drift import _a_filas, nocional_bruto_por_strike
+        f = _a_filas([fila(100, "call", 10000, "2026-09-18"),
+                      fila(100, "put", 10000, "2026-09-18"),
+                      fila(110, "call", 900, "2026-09-18")], HOY)
+        # En neto, el strike 100 vale 0 y ganaría el 110.
+        assert nocional_por_strike(f)[100.0] == 0
+        # En bruto es, con diferencia, el que más dinero tiene.
+        bruto = nocional_bruto_por_strike(f)
+        assert bruto[100.0] > bruto[110.0] * 10
+        assert magneto(f, 100.0)[0] == 100.0
+
+    def test_el_iman_se_queda_ENTRE_los_dos_muros(self):
+        """Con la acción a 180, el mayor nocional de toda la cadena estaba en
+        puts a 230 muy dentro del dinero: contratos que se van a ejercer, no
+        un imán al que el precio tienda."""
+        filas = []
+        for k in range(100, 261, 10):
+            oi_c = oi_p = 500
+            if k == 120:
+                oi_c = 14000
+            if k == 200:
+                oi_c = 6000
+            if k == 230:
+                oi_p = 11000
+            if k == 160:
+                oi_p = 7000
+            filas += [fila(k, "call", oi_c, "2026-09-18"),
+                      fila(k, "put", oi_p, "2026-09-18")]
+        a = drift_analysis(filas, spot=180.0, hoy=HOY, iv=0.35)
+        for b in a.buckets:
+            assert b.muro_puts <= b.magneto <= b.muro_calls, (
+                f"{b.etiqueta}: imán en {b.magneto}, fuera de la banda "
+                f"[{b.muro_puts}, {b.muro_calls}]")
+
+    def test_el_SIGNO_sigue_diciendo_que_lado_manda(self):
+        """El tamaño que lo elige es el bruto; el signo que lo explica es el
+        neto. Son dos preguntas distintas sobre el mismo strike."""
+        from wbj.tito.drift import _a_filas
+        f = _a_filas([fila(95, "put", 9000, "2026-09-18"),
+                      fila(105, "call", 100, "2026-09-18")], HOY)
+        strike, neto = magneto(f, 100.0, suelo=95.0, techo=105.0)
+        assert strike == 95.0 and neto < 0, "mandan las puts y el signo no lo dice"
+
+
+class TestLaRUPTURASeSigueDetectando:
+    """Con los muros ya por lado, el precio queda SIEMPRE entre ellos.
+
+    Así que la ruptura no se puede sacar comparándolo con ellos — y eso es lo
+    que hacía la versión anterior. Ahora se mide contra los dos strikes más
+    cargados de la cadena, estén donde estén: si el precio los dejó atrás a
+    los dos, se comió su propio libro.
+    """
+
+    def _con_todo_debajo(self):
+        return [fila(80, "call", 9000, "2026-09-18"),
+                fila(70, "put", 8000, "2026-09-18"),
+                fila(200, "call", 10, "2026-09-18")]
+
+    def test_precio_por_encima_de_todo_el_libro_es_RUPTURA_al_alza(self):
+        a = drift_analysis(self._con_todo_debajo(), spot=150.0, hoy=HOY, iv=0.3)
+        assert a.buckets
+        for b in a.buckets:
+            assert b.breakout, b.deriva
+            assert "al alza" in b.deriva, b.deriva
+
+    def test_precio_por_debajo_de_todo_el_libro_es_RUPTURA_a_la_baja(self):
+        filas = [fila(200, "call", 9000, "2026-09-18"),
+                 fila(210, "put", 8000, "2026-09-18"),
+                 fila(50, "put", 10, "2026-09-18")]
+        a = drift_analysis(filas, spot=60.0, hoy=HOY, iv=0.3)
+        assert a.buckets
+        for b in a.buckets:
+            assert b.breakout and "a la baja" in b.deriva, b.deriva
+
+    def test_dentro_del_libro_NO_es_ruptura(self):
+        filas = [fila(200, "call", 9000, "2026-09-18"),
+                 fila(160, "put", 8000, "2026-09-18")]
+        a = drift_analysis(filas, spot=180.0, hoy=HOY, iv=0.3)
+        assert a.buckets and not any(b.breakout for b in a.buckets)
 
 
 class TestElCono:
@@ -226,13 +388,32 @@ class TestLaLectura:
                                   mag_nocional=-1e6)
         assert "rechazo" in txt
 
-    def test_fuera_del_rango_es_ruptura_hacia_el_muro_del_viaje(self):
+    def test_la_ruptura_YA_NO_sale_de_comparar_con_los_muros(self):
+        """El cambio de contrato, escrito donde se ve.
+
+        Con los muros mirando el lado, el precio queda SIEMPRE entre ellos por
+        construcción — comparar contra ellos no puede detectar nada. La
+        ruptura llega ahora por `fuga`, que la calcula `drift_analysis`
+        mirando los dos strikes más cargados de la cadena.
+
+        Este caso lo fija: los mismos números que ANTES daban «RUPTURA» ahora
+        no la dan sin `fuga`, y sí la dan con ella.
+        """
         txt, ruptura = clasifica_deriva(120, mc=110, mp=90, mag_strike=110,
                                         mag_nocional=1e6)
-        assert ruptura and "al alza" in txt
+        assert not ruptura, "el precio no puede romper contra un muro por lado"
+
+        txt, ruptura = clasifica_deriva(120, mc=110, mp=90, mag_strike=110,
+                                        mag_nocional=1e6, fuga="alza")
+        assert ruptura and "al alza" in txt, txt
         txt, ruptura = clasifica_deriva(80, mc=110, mp=90, mag_strike=90,
-                                        mag_nocional=-1e6)
-        assert ruptura and "a la baja" in txt
+                                        mag_nocional=-1e6, fuga="baja")
+        assert ruptura and "a la baja" in txt, txt
+
+    def test_sin_iman_lo_dice_en_vez_de_callarse(self):
+        txt, ruptura = clasifica_deriva(100, mc=110, mp=90, mag_strike=None,
+                                        mag_nocional=0.0)
+        assert not ruptura and "Sin concentración" in txt
 
 
 def _cadena_completa():
@@ -259,13 +440,23 @@ class TestElAnalisisCompleto:
         assert len([b for b in a.buckets if b.dte_objetivo <= 30]) == 1
 
     def test_marca_el_duplicado_cuando_dos_plazos_caen_en_el_mismo_vencimiento(self):
+        """Con una cadena pobre, dos plazos caen en el mismo vencimiento.
+
+        Sin decirlo, dos filas idénticas parecen un error de cálculo. Y con el
+        plazo de 60 días añadido pasa más a menudo: los mensuales van a ~30 de
+        distancia y su tolerancia es de 45.
+        """
         vencs = ["2026-09-18", "2026-11-20", "2027-07-16"]
         filas = [f for v in vencs
                  for f in (fila(110, "call", 90, v), fila(90, "put", 40, v))]
         a = drift_analysis(filas, spot=100.0, hoy=HOY, iv=0.4)
-        # 120 y 90 días resuelven los dos al mensual de noviembre.
         dups = [b for b in a.buckets if b.duplicado]
-        assert len(dups) == 1 and dups[0].dte_objetivo == 90
+        assert dups, "dos plazos comparten vencimiento y no se marcó ninguno"
+        # Cada duplicado repite un vencimiento que ya salió antes.
+        vistos = []
+        for b in a.buckets:
+            assert b.duplicado == (b.vencimiento in vistos), b.etiqueta
+            vistos.append(b.vencimiento)
 
     def test_sin_mensuales_lo_DICE_en_vez_de_usar_semanales(self):
         filas = [fila(110, "call", 90, "2026-09-25"),
@@ -294,7 +485,9 @@ class TestElAnalisisCompleto:
             fila(100, "call", 10, "no-es-fecha"),       # fecha ilegible
         ] + _cadena_completa()
         a = drift_analysis(basura, spot=100.0, hoy=HOY, iv=0.4)
-        assert len(a.buckets) == 4
+        # Se cuenta contra la CONSTANTE, no contra un 4 clavado: añadir un
+        # plazo no puede convertirse en un test rojo que no dice nada.
+        assert len(a.buckets) == len(DTE_OBJETIVO)
 
     def test_no_baja_nada_ni_mira_el_reloj(self):
         # `hoy` entra por parámetro: dos llamadas con la misma fecha dan lo

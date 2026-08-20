@@ -64,8 +64,12 @@ publicados, sin modelo.
 | 90 / 120 / 320 días | **solo Drift** — el motor no llega hasta ahí |
 
 Apuntan a strikes distintos a propósito: la gamma se apaga lejos del dinero y
-el recuento de contratos no. El imán de Drift **no tira hacia arriba**: sale
-donde esté el nocional, arriba o abajo, con el signo diciendo qué lado manda. Drift **no puntúa**: el score de 6 sub-agentes se
+el recuento de contratos no. Los muros de Drift **miran el lado**: el de calls
+es resistencia (al precio o por encima) y el de puts soporte (al precio o por
+debajo); sin eso salían invertidos en cuanto la acción se movía. El imán es el
+strike con más dinero **dentro de esa banda**, medido en nocional bruto —el
+neto anulaba los strikes con mucho de los dos lados, que son justo los que
+importan— y su signo dice qué lado manda ahí. Drift **no puntúa**: el score de 6 sub-agentes se
 calcula exactamente igual que antes de que existiera, y hay un test que lo
 compara con Drift encendido y apagado.
 
@@ -87,7 +91,7 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 ## Tests
 
 ```bash
-cd engine && python -m pytest tests/ -q    # 3451 pasan, 0 skips
+cd engine && python -m pytest tests/ -q    # 3462 pasan, 0 skips
 python -m pytest tests_vertex/ -q          # 1043 pasan, 0 skips
                                            # (908 de la capa web + 135 en un
                                            #  navegador real, cuatro tamaños)

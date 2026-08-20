@@ -9004,8 +9004,72 @@ Siete casos nuevos de navegador, saboteando cada pintor por su lado. **Cinco
 van rojos** con el código anterior — reproducen la pantalla en blanco — y los
 siete verdes con el arreglo.
 
+### Los muros de Drift salían al revés, y yo lo había tapado
+
+> «verifica el drift, está dando put wall y call wall e imán mal.»
+
+Tenía razón, y el fallo era de definición. Reproducido con una cadena
+realista, spot $180:
+
+| | antes | ahora |
+|---|---|---|
+| Muro de puts (soporte) | **$230** — por encima del precio | **$160** |
+| Muro de calls (resistencia) | **$120** — por debajo del precio | **$200** |
+| Imán | $230, fuera de la banda | **$200**, dentro |
+
+**Por qué salía así.** `muro_calls` cogía el strike con más OI de calls **de
+toda la cadena**, sin mirar dónde está el precio. En cualquier acción que haya
+subido, ese strike queda muy por DEBAJO: son calls compradas hace meses que
+ahora están dentro del dinero. Eso no es una resistencia, es historia. El
+espejo con las puts hacia arriba. Resultado: la resistencia por debajo del
+soporte y el «rango defendido» del panel invertido.
+
+**Y lo peor, que es mío.** En `clasifica_deriva` yo había escrito
+`lo, hi = sorted((mp, mc))` — ordenaba los dos muros para que el rango saliera
+bien *aunque vinieran al revés*. Eso no arregla nada: **tapa** que pueden venir
+invertidos. Tapar el síntoma en vez de arreglar la definición es exactamente lo
+que este archivo existe para no dejar pasar.
+
+**El imán tenía dos defectos más**, y los dos daban un número sin significado:
+
+1. Se sumaba en **neto** (calls − puts) por strike. Un strike con 10.000 calls
+   y 10.000 puts —el sitio clásico donde el precio se clava, la mayor
+   concentración de la cadena— salía **casi cero** y desaparecía del reparto.
+   Ahora se mide el nocional **bruto**: todo el dinero que hay ahí, venga del
+   lado que venga. El signo del neto se conserva aparte, que es lo que dice
+   qué lado manda: el tamaño lo elige el bruto, el signo lo explica el neto.
+2. No miraba el rango. El mayor nocional de la cadena estaba en puts a $230
+   muy dentro del dinero — contratos que se van a ejercer, no un imán al que
+   el precio tienda. Ahora se busca **entre los dos muros**, que es la banda
+   que el panel presenta como zona de operación.
+
+**La ruptura no se perdió.** Con los muros mirando el lado, el precio queda
+siempre entre ellos por construcción, así que compararlo contra ellos ya no
+detecta nada. Se mide ahora contra los dos strikes más cargados de la cadena,
+estén donde estén: si el precio los dejó atrás a los dos, se comió su propio
+libro. Es literalmente lo que hacía aquel `sorted()` — y para **eso** sí valía.
+El fallo era usar esos dos mismos números también como soporte y resistencia:
+son dos preguntas distintas y estaban fundidas en una.
+
+**Los muros del AGENTE no se tocaron**, y se comprobó en vez de afirmarlo: el
+cálculo de `renderProjections` (`mayor('call')`/`mayor('put')` sobre
+`gex.nodes`) es idéntico byte a byte al de antes de Drift, y `gex.py` y
+`levels.py` no tienen un solo cambio. Lo que cambió fue la etiqueta y el
+segundo número; al ponerlos juntos parecía que se había movido el primero.
+
+Seis casos nuevos, todos **rojos** con la versión anterior.
+
+### Lo que se aparcó, y por qué
+
+Los targets del agente a 60/90/120/320 días estaban escritos y funcionando.
+Se **retiran** de este commit: se anclan en el imán, y el imán estaba roto —
+publicarlos habría propagado el mismo error a los targets, que es donde más
+caro sale. Se retoman cuando los muros estén confirmados en pantalla. Los 60
+días también se revierten, a petición de Kevin: los plazos siguen siendo
+320/120/90/30.
+
 ### Estado
 
-**3.451 tests del motor (42 nuevos) · 915 de la capa web (23 nuevos) ·
+**3.462 tests del motor (53 nuevos) · 915 de la capa web (23 nuevos) ·
 135 de navegador (18 nuevos) · 280 checks de auditoría sin TITO_ROOT
 (los 324 con él no se pueden correr en este contenedor), 0 fallos.**

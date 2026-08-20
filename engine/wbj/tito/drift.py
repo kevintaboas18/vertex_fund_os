@@ -46,6 +46,7 @@ __all__ = [
     "muro_calls",
     "muro_puts",
     "nocional_por_strike",
+    "nocional_bruto_por_strike",
     "magneto",
     "sigma_proyectada",
     "clasifica_deriva",
@@ -165,17 +166,40 @@ def vencimiento_mas_cercano(vencs: list[date], objetivo: int,
     return min(futuros, key=lambda v: abs((v - hoy).days - objetivo))
 
 
-def muro_calls(filas: list[_Fila]) -> tuple[float, int] | None:
-    """Strike con más interés abierto entre las calls. Un recuento, no un modelo."""
-    calls = [f for f in filas if f.es_call and f.open_interest > 0]
+def muro_calls(filas: list[_Fila], spot: float) -> tuple[float, int] | None:
+    """Strike con más interés abierto entre las calls **por encima del spot**.
+
+    El lado importa, y no es un detalle: un muro de calls es una
+    **resistencia**. Sin la restricción, el mayor OI de calls suele quedar muy
+    por DEBAJO del precio en cualquier acción que haya subido —son calls
+    compradas hace meses que ahora están dentro del dinero— y el «muro de
+    calls» salía a $120 con la acción a $180. Eso no es una resistencia: es
+    historia.
+
+    Medido: con el mayor OI de calls en un strike ITM, la versión sin filtro
+    devolvía un muro de calls POR DEBAJO del muro de puts, y el panel pintaba
+    un «rango defendido» invertido.
+
+    `None` si no hay ninguna call al precio o por encima. No se baja a la de
+    abajo: un muro que no está donde se dice que está es peor que ninguno.
+    """
+    calls = [f for f in filas
+             if f.es_call and f.open_interest > 0 and f.strike >= spot]
     if not calls:
         return None
     top = max(calls, key=lambda f: f.open_interest)
     return top.strike, top.open_interest
 
 
-def muro_puts(filas: list[_Fila]) -> tuple[float, int] | None:
-    puts = [f for f in filas if not f.es_call and f.open_interest > 0]
+def muro_puts(filas: list[_Fila], spot: float) -> tuple[float, int] | None:
+    """Strike con más interés abierto entre las puts **por debajo del spot**.
+
+    El espejo del anterior: un muro de puts es un **soporte**. El mayor OI de
+    puts se queda por encima del precio cuando la acción ha caído, y llamar
+    «soporte» a un strike que está arriba invierte la lectura entera.
+    """
+    puts = [f for f in filas
+            if not f.es_call and f.open_interest > 0 and f.strike <= spot]
     if not puts:
         return None
     top = max(puts, key=lambda f: f.open_interest)
@@ -190,21 +214,57 @@ def nocional_por_strike(filas: list[_Fila]) -> dict[float, float]:
     return acc
 
 
-def magneto(filas: list[_Fila]) -> tuple[float, float] | None:
-    """El strike con MAYOR NOCIONAL NETO EN VALOR ABSOLUTO.
+def nocional_bruto_por_strike(filas: list[_Fila]) -> dict[float, float]:
+    """Nocional TOTAL por strike, sin restar un lado del otro.
 
-    Su signo es la polaridad: positivo = dominan las calls (atracción en su
-    modelo), negativo = dominan las puts (rechazo).
-
-    Sale donde esté el nocional: por encima o por debajo del precio, según qué
-    lado pese más. El único sesgo es de desempate — al multiplicar por el
-    strike, entre dos concentraciones de contratos PARECIDAS gana la más alta.
+    Existe porque el neto esconde justo lo que más importa. Un strike con
+    10.000 calls y 10.000 puts es la mayor concentración de dinero de la
+    cadena —el sitio clásico donde el precio se clava— y al restar sale **casi
+    cero**: desaparecía del reparto como si no hubiera nadie ahí.
     """
-    acc = nocional_por_strike(filas)
-    if not acc:
+    acc: dict[float, float] = {}
+    for f in filas:
+        acc[f.strike] = acc.get(f.strike, 0.0) + abs(f.nocional)
+    return acc
+
+
+def magneto(filas: list[_Fila], spot: float,
+            suelo: float | None = None,
+            techo: float | None = None) -> tuple[float, float] | None:
+    """El strike con MÁS DINERO dentro del rango de los muros.
+
+    Dos cosas que estaban mal y que se arreglan aquí:
+
+    1. **Se sumaba en neto** (calls − puts), así que un strike con mucho de los
+       dos se anulaba y desaparecía. Ahora se mide el nocional **bruto**: todo
+       el dinero que hay en ese strike, venga del lado que venga.
+    2. **No miraba el rango.** Con la acción a $180, el mayor nocional de toda
+       la cadena estaba en puts a $230 muy dentro del dinero — contratos que se
+       van a ejercer, no un imán al que el precio tienda. Ahora el imán se
+       busca **entre el muro de puts y el de calls**, que es el rango que el
+       panel presenta como banda de operación. Fuera de esa banda no hay
+       atracción: hay historia.
+
+    `suelo` y `techo` son los dos muros. Sin ellos se mira la cadena entera
+    —el comportamiento de antes— y por eso son opcionales: el llamador decide.
+
+    Devuelve `(strike, nocional_neto_de_ese_strike)`. El **signo del segundo**
+    sigue siendo la polaridad —positivo si mandan las calls ahí, negativo si
+    mandan las puts—, que es lo que separa atracción de rechazo. El tamaño que
+    lo eligió es el bruto; el signo que lo explica es el neto. Son dos
+    preguntas distintas sobre el mismo strike.
+    """
+    dentro = filas
+    if suelo is not None and techo is not None:
+        lo, hi = (suelo, techo) if suelo <= techo else (techo, suelo)
+        dentro = [f for f in filas if lo <= f.strike <= hi]
+    if not dentro:
+        dentro = filas
+    bruto = nocional_bruto_por_strike(dentro)
+    if not bruto:
         return None
-    s = max(acc, key=lambda k: abs(acc[k]))
-    return s, acc[s]
+    s = max(bruto, key=lambda k: bruto[k])
+    return s, nocional_por_strike(dentro).get(s, 0.0)
 
 
 def sigma_proyectada(spot: float, iv: float | None, dte: int) -> float | None:
@@ -220,22 +280,38 @@ def sigma_proyectada(spot: float, iv: float | None, dte: int) -> float | None:
     return spot * iv * math.sqrt(dte / 365.0)
 
 
-def clasifica_deriva(spot: float, mc: float, mp: float,
-                     mag_strike: float, mag_nocional: float) -> tuple[str, bool]:
-    """Devuelve `(frase, es_breakout)` — su §6, literal.
+def clasifica_deriva(spot: float, mc: float | None, mp: float | None,
+                     mag_strike: float | None, mag_nocional: float,
+                     fuga: str | None = None) -> tuple[str, bool]:
+    """Devuelve `(frase, es_ruptura)`.
 
-    Dentro del rango entre los dos muros manda la polaridad del Magneto; fuera
-    del rango es ruptura hacia el muro que queda en la dirección del viaje.
+    **Aquí estaba la trampa.** La versión anterior hacía
+    `lo, hi = sorted((mp, mc))` — ordenaba los dos muros para que el rango
+    saliera bien *aunque vinieran al revés*. Eso no arreglaba nada: tapaba que
+    el muro de calls podía salir por debajo del de puts, que es imposible si
+    uno es resistencia y el otro soporte. El arreglo está en la definición de
+    los muros, no aquí.
+
+    Con los muros ya bien puestos, el precio queda SIEMPRE entre los dos —por
+    construcción— así que la ruptura no se puede detectar comparando con
+    ellos. Se detecta con `fuga`, que es otra cosa y mejor: **el precio dejó
+    atrás el grueso del posicionamiento**. Si el strike con más calls abiertas
+    de toda la cadena está por debajo del precio, la acción ya se comió su
+    propio libro de calls; el espejo, con las puts, hacia abajo.
     """
-    lo, hi = sorted((mp, mc))
-    if not (lo <= spot <= hi):
-        if spot > hi:
-            return (f"RUPTURA al alza: el precio está fuera del rango de muros "
-                    f"[{lo:,.2f} – {hi:,.2f}]. El siguiente muro está en "
-                    f"{mc:,.2f}.", True)
-        return (f"RUPTURA a la baja: el precio está fuera del rango de muros "
-                f"[{lo:,.2f} – {hi:,.2f}]. El siguiente muro está en "
-                f"{mp:,.2f}.", True)
+    if fuga == "alza":
+        return ("RUPTURA al alza: el precio dejó atrás el grueso de las calls "
+                "abiertas — el libro entero quedó dentro del dinero." +
+                (f" La resistencia que queda es {mc:,.2f}." if mc is not None else ""),
+                True)
+    if fuga == "baja":
+        return ("RUPTURA a la baja: el precio dejó atrás el grueso de las puts "
+                "abiertas — el libro entero quedó dentro del dinero." +
+                (f" El soporte que queda es {mp:,.2f}." if mp is not None else ""),
+                True)
+    if mag_strike is None:
+        return ("Sin concentración de nocional utilizable en este vencimiento.",
+                False)
     if mag_nocional > 0:
         return (f"DENTRO DEL RANGO · atracción: el imán de nocional está en "
                 f"{mag_strike:,.2f} y domina el lado de las calls. El precio "
@@ -243,6 +319,19 @@ def clasifica_deriva(spot: float, mc: float, mp: float,
     return (f"DENTRO DEL RANGO · rechazo: el imán de nocional está en "
             f"{mag_strike:,.2f} y domina el lado de las puts. El precio tiende "
             f"a irse a los extremos del rango.", False)
+
+
+def _mayor_oi(filas: list[_Fila], call: bool) -> _Fila | None:
+    """El strike con más interés abierto de ese lado, SIN mirar el spot.
+
+    Es el que dice si el precio ya dejó atrás el libro — el dato que produce la
+    ruptura. Los muros que se pintan son los de `muro_calls`/`muro_puts`, que
+    sí miran el lado; este es solo para esa comparación.
+    """
+    de_ese_lado = [f for f in filas if f.es_call == call and f.open_interest > 0]
+    if not de_ese_lado:
+        return None
+    return max(de_ese_lado, key=lambda f: f.open_interest)
 
 
 def _a_filas(chain, hoy: date) -> list[_Fila]:
@@ -311,22 +400,52 @@ def drift_analysis(chain, spot: float, hoy: date,
             continue
 
         propias = [f for f in filas if f.vencimiento == v]
-        mc = muro_calls(propias)
-        mp = muro_puts(propias)
-        mag = magneto(propias)
-        if mc is None or mp is None or mag is None:
+        # Los muros MIRAN EL LADO: el de calls es resistencia (al precio o por
+        # encima), el de puts es soporte (al precio o por debajo). Sin esa
+        # restricción salían invertidos en cuanto la acción se movía, porque
+        # el mayor OI se queda donde se compró, no donde está el precio hoy.
+        mc = muro_calls(propias, spot)
+        mp = muro_puts(propias, spot)
+        # …y el imán se busca DENTRO de esa banda, con el nocional bruto.
+        mag = magneto(propias, spot,
+                      suelo=(mp[0] if mp else None),
+                      techo=(mc[0] if mc else None))
+        if mc is None and mp is None:
             salida.sin_datos.append({
                 "etiqueta": etiqueta, "dte_objetivo": objetivo,
                 "motivo": "ese vencimiento no tiene calls y puts con interés abierto"})
             continue
 
-        deriva, ruptura = clasifica_deriva(spot, mc[0], mp[0], mag[0], mag[1])
+        # ¿El precio dejó atrás el libro? Se mide con el mayor OI SIN filtrar
+        # por lado: si el strike de calls más cargado de toda la cadena está
+        # por debajo del precio, la acción ya se comió su propio libro.
+        # Esto es EXACTAMENTE lo que hacía el `sorted((mp, mc))` de antes, y
+        # para esto sí valía: comparar el precio contra los dos strikes más
+        # cargados de la cadena, estén donde estén. El fallo era usar ESOS
+        # MISMOS dos números como «soporte» y «resistencia» en pantalla — son
+        # dos preguntas distintas y se habían fundido en una.
+        #
+        #   · dónde está el grueso del posicionamiento  → la ruptura
+        #   · dónde está la resistencia y el soporte    → los muros por lado
+        _lc, _lp = _mayor_oi(propias, True), _mayor_oi(propias, False)
+        fuga = None
+        if _lc is not None and _lp is not None:
+            _lo, _hi = sorted((_lc.strike, _lp.strike))
+            if spot > _hi:
+                fuga = "alza"
+            elif spot < _lo:
+                fuga = "baja"
+
+        deriva, ruptura = clasifica_deriva(
+            spot, mc[0] if mc else None, mp[0] if mp else None,
+            mag[0] if mag else None, mag[1] if mag else 0.0, fuga)
         salida.buckets.append(BucketDrift(
             etiqueta=etiqueta, sentimiento=sentimiento, dte_objetivo=objetivo,
             vencimiento=v.isoformat(), dte_real=dte,
-            muro_calls=mc[0], muro_calls_oi=mc[1],
-            muro_puts=mp[0], muro_puts_oi=mp[1],
-            magneto=mag[0], magneto_nocional=mag[1],
+            muro_calls=(mc[0] if mc else None), muro_calls_oi=(mc[1] if mc else 0),
+            muro_puts=(mp[0] if mp else None), muro_puts_oi=(mp[1] if mp else 0),
+            magneto=(mag[0] if mag else None),
+            magneto_nocional=(mag[1] if mag else 0.0),
             sigma=sigma_proyectada(spot, iv, dte),
             total_oi=sum(f.open_interest for f in propias),
             nocional_neto=sum(f.nocional for f in propias),
