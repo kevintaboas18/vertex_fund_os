@@ -1958,6 +1958,11 @@ DIFERENCIALES = {
     "diff_series.sh":     "chain/iv/predictionStore — EL ARCHIVO, ida y vuelta",
     "diff_wheel.sh":      "wheel + wheelAfford + wheelUniverse + earnings, 1.072 casos",
     "diff_format.sh":     "format.ts — lo que se LEE en pantalla, 1.870 comparaciones",
+    # Este NO es contra `agente-tito-metralleta`: es contra su OTRO repo,
+    # `drift-sentiment-agent`. Existe porque el port se rompió una vez sin que
+    # nadie lo notara — se «arreglaron» los muros para que miraran el lado del
+    # precio, que suena razonable y no es lo que él hace.
+    "diff_drift.sh":      "drift-sentiment-agent — muros, imán y clasificación",
 }
 #: Los TRES que llevan corpus MALFORMADO. Es lo que separa "coincide con datos
 #: buenos" de "coincide también cuando la fuente cambia de esquema", y fue donde
@@ -2021,6 +2026,19 @@ if _DR.exists():
 
 chk('out["drift"] = _tito_drift(' in API,
     "/api/projection-targets sirve `drift` junto al scorecard")
+chk((VERTEX / "engine" / "scripts" / "diff_drift.sh").exists()
+    and (VERTEX / "engine" / "scripts" / "_diffdrift_compara.py").exists(),
+    "hay un diferencial que ejecuta SU drift_sentiment/ y compara los números")
+_dd = VERTEX / "engine" / "scripts" / "_diffdrift_compara.py"
+if _dd.exists():
+    chk("DECLARADAS" in _dd.read_text(encoding="utf-8"),
+        "…y las divergencias con su código van declaradas con su motivo")
+chk("test_drift_vs_victor.py" in str(list((VERTEX / "engine" / "tests" / "tito").glob("*.py"))),
+    "las propiedades de SU algoritmo están fijadas sin depender de su repo")
+chk('out["targets_drift"] = _tito_targets_drift(' in API,
+    "la ruta sirve los targets a 90/120/320 con los niveles de Drift")
+chk("if b.get(\"solapa_motor\"):" in API,
+    "el plazo de 30 días NO se duplica: ahí manda el agente")
 chk("_tito_drift" in API and "return None" in API.split("def _tito_drift", 1)[-1][:2000],
     "si Drift falla devuelve None y los targets siguen saliendo")
 # El reparto que pidió Kevin: los dos números a 10/20/30 días, y SOLO Drift a

@@ -2623,6 +2623,7 @@ class TestElPanelNoTiraNadaDelPayload:
         d["memory"] = {"iv_days": 0, "flows": 0, "predictions": 0}
         d["gex_heatmap"] = V._tito_heatmap(chain(), r, trades(), NOW)
         d["drift"] = V._tito_drift(chain(), r, NOW)
+        d["targets_drift"] = V._tito_targets_drift(r, d["drift"])
         d["chart_geometry"] = V._tito_chart_geometry(r)
         d["flow_clusters"] = V._tito_clusters(trades(), NOW)
         return d
@@ -5898,6 +5899,110 @@ class TestDriftEnLaRuta:
         # Servirlo sin decirlo sería vender una IV implícita que nadie midió.
         dr = client.get("/api/projection-targets?ticker=DEMO").json()["drift"]
         assert "no IV de la cadena" in dr["iv_fuente"]
+
+    def test_los_horizontes_LARGOS_salen_con_los_niveles_de_drift(
+            self, client, cadena_larga):
+        """Lo que pidió Kevin, literal.
+
+        «En los targets seguirá igual como el agente lo hace y todo, nada
+        cambiará; solo añades la fecha horizonte de 90/120/320 y se usará
+        solamente el put/call wall e imán de Drift.»
+
+        Así que aquí se fija justo eso: aparecen los plazos largos, y sus tres
+        niveles son los del bucket de Drift de ese mismo plazo — ni uno más.
+        """
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        t = d["targets_drift"]
+        assert t, "no salió ningún horizonte largo"
+        assert all(int(h) > 30 for h in t), (
+            f"el de 30 días es del agente y no puede duplicarse: {sorted(t)}")
+
+        por_dte = {str(b["dte_objetivo"]): b for b in d["drift"]["buckets"]}
+        for h, v in t.items():
+            b = por_dte[h]
+            assert v["muro_puts"] == b["muro_puts"]
+            assert v["muro_calls"] == b["muro_calls"]
+            assert v["iman"] == b["magneto"]
+            assert v["vencimiento"] == b["vencimiento"]
+            assert v["niveles_de"] == "drift"
+
+    def test_el_agente_sigue_EXACTAMENTE_en_10_20_30(self, client, cadena_larga):
+        """«Quiero el agente de opciones como Tito está y todo, sin cambiar
+        nada.» Los plazos largos se AÑADEN; no tocan los suyos."""
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert sorted(int(h) for h in d["predictions"]) == [10, 20, 30]
+
+    def test_los_targets_largos_usan_LA_MATEMATICA_del_agente(
+            self, client, cadena_larga):
+        """Mismo `predict_pro`: bear < base < bull y las tres probabilidades
+        entre 0 y 1. No es un modelo aparte."""
+        t = client.get("/api/projection-targets?ticker=DEMO").json()["targets_drift"]
+        for h, v in t.items():
+            # No se exige orden ESTRICTO, y el motivo es real: con solo tres
+            # niveles, si el imán coincide con un muro no queda nivel por ese
+            # lado y el bajista sale igual que el base. Lo que sí se exige es
+            # que no se desordenen… y que cuando colapsen, se DIGA.
+            assert v["bear"]["target"] <= v["base"]["target"] <= v["bull"]["target"], h
+            colapsa = not (v["bear"]["target"] < v["base"]["target"]
+                           < v["bull"]["target"])
+            assert v["rango_estrecho"] is colapsa, (
+                f"{h}d: los escenarios colapsaron y no se marcó")
+            for k in ("bear", "base", "bull"):
+                assert 0 <= v[k]["probability"] <= 1
+            assert v["direction"] in ("up", "down", "flat")
+            assert v["summary"]
+
+    def test_las_SEIS_puntuaciones_son_las_MISMAS_no_unas_recalculadas(
+            self, client, cadena_larga, monkeypatch):
+        """El riesgo real de este cablead: que el target largo y el corto
+        salgan de dos agentes distintos sin que nadie lo note.
+
+        Se comprueba por donde duele: si el scorecard cambia una puntuación,
+        el target largo tiene que cambiar con él.
+        """
+        import wbj.tito.prediction as PRED
+
+        vistos = []
+        original = PRED.predict_pro
+
+        def espia(*a, **k):
+            vistos.append(k.get("scores"))
+            return original(*a, **k)
+
+        # Solo se capturan las llamadas de DRIFT: `scorecard.py` importa
+        # `predict_pro` al cargar el módulo, así que su referencia ya está
+        # ligada y este parche no la toca. Mejor así — lo que hay que probar
+        # es que las de Drift llevan las MISMAS puntuaciones que publicó el
+        # scorecard, y eso se compara contra el payload.
+        monkeypatch.setattr(PRED, "predict_pro", espia)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["targets_drift"], "sin plazos largos no se prueba nada"
+        assert vistos, "Drift no llamó a `predict_pro`: ¿usa otro modelo?"
+        publicadas = d["scores"]
+        for v in vistos:
+            assert v.as_dict() == publicadas, (
+                "Drift proyectó con unas puntuaciones distintas de las que "
+                "publicó el scorecard: serían dos agentes, no uno")
+
+    def test_si_drift_no_resuelve_un_plazo_NO_hay_target_inventado(
+            self, client, monkeypatch):
+        """Sin muros no hay niveles, y sin niveles no hay target. No se
+        rellena con el spot ni con el plazo de al lado."""
+        import wbj.tito.massive as MASS
+        from wbj.tito.structure import ChainRow
+
+        semanal = (date.fromisoformat(_mensual(1)) + timedelta(days=7)).isoformat()
+
+        def chain(ticker, **k):
+            rows = [ChainRow(ct, semanal, float(s), 300, 90, 300 * 100 * s)
+                    for s in range(90, 115, 5) for ct in ("call", "put")]
+            return MASS.ChainResult(rows=rows, underlying_price=SPOT,
+                                    pages=1, truncated=False)
+
+        monkeypatch.setattr(MASS, "fetch_option_chain", chain)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["targets_drift"] == {}
+        assert sorted(int(h) for h in d["predictions"]) == [10, 20, 30]
 
     def test_el_SCORE_no_se_mueve_por_tener_drift(self, client, cadena_larga,
                                                   monkeypatch):

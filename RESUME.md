@@ -63,13 +63,16 @@ publicados, sin modelo.
 | 10 / 20 / 30 días | **los dos**, lado a lado: `Muro de calls / Drift → $310 / $400` |
 | 90 / 120 / 320 días | **solo Drift** — el motor no llega hasta ahí |
 
+Esos tres plazos largos salen también como **horizonte en los targets**: la
+matemática es la del agente sin tocar —mismo cono, mismas seis puntuaciones—
+y lo único distinto son los tres niveles, que ahí son los de Drift.
+
 Apuntan a strikes distintos a propósito: la gamma se apaga lejos del dinero y
-el recuento de contratos no. Los muros de Drift **miran el lado**: el de calls
-es resistencia (al precio o por encima) y el de puts soporte (al precio o por
-debajo); sin eso salían invertidos en cuanto la acción se movía. El imán es el
-strike con más dinero **dentro de esa banda**, medido en nocional bruto —el
-neto anulaba los strikes con mucho de los dos lados, que son justo los que
-importan— y su signo dice qué lado manda ahí. Drift **no puntúa**: el score de 6 sub-agentes se
+el recuento de contratos no. Los muros de Drift son los de **él**, literales:
+el strike con más interés abierto de cada lado, **sin mirar el spot**. Que la
+resistencia salga por debajo del soporte no es un fallo — es su condición de
+ruptura. `engine/scripts/diff_drift.sh` ejecuta su Python y lo comprueba
+número a número. Drift **no puntúa**: el score de 6 sub-agentes se
 calcula exactamente igual que antes de que existiera, y hay un test que lo
 compara con Drift encendido y apagado.
 
@@ -91,9 +94,9 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 ## Tests
 
 ```bash
-cd engine && python -m pytest tests/ -q    # 3462 pasan, 0 skips
-python -m pytest tests_vertex/ -q          # 1043 pasan, 0 skips
-                                           # (908 de la capa web + 135 en un
+cd engine && python -m pytest tests/ -q    # 3460 pasan, 0 skips
+python -m pytest tests_vertex/ -q          # 1048 pasan, 0 skips
+                                           # (913 de la capa web + 135 en un
                                            #  navegador real, cuatro tamaños)
 
 # Auditoría del tab de Proyecciones (324 checks con TITO_ROOT). Con TITO_ROOT usa tu clon de
@@ -105,8 +108,12 @@ TITO_ROOT=/ruta/a/agente-tito-metralleta python engine/scripts/auditar_tito.py
 # de la respuesta solo se comprueba con las claves puestas. No imprime ninguna.
 FMP_API_KEY=... FRED_API_KEY=... python engine/scripts/preflight_calendario.py
 
-# Los 16 diferenciales: ejecutan SU TypeScript y comparan contra el port.
+# Los 17 diferenciales: ejecutan SU código y comparan contra el port.
 for d in engine/scripts/diff_*.sh; do TITO_ROOT=/ruta/a/su/repo "$d"; done
+
+# El 17.º es contra su OTRO repo (drift-sentiment-agent). Sin DRIFT_ROOT se
+# clona solo; con él usa tu clon.
+DRIFT_ROOT=/ruta/a/drift-sentiment-agent engine/scripts/diff_drift.sh
 ```
 
 **Cero skips no es casualidad: está forzado.** `engine/tests/_saltos.py` hace

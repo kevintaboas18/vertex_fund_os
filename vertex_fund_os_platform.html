@@ -7191,16 +7191,55 @@ function vcMemoryHTML(d) {
 function renderVictorTargets(d) {
     const el = document.getElementById('projTargets');
     if (!el) return;
-    const hz = Object.keys(d.predictions || {}).map(Number).sort((a, b) => a - b);
+    // Los horizontes del AGENTE —10/20/30— tal cual, sin tocar nada.
+    const hzA = Object.keys(d.predictions || {}).map(Number).sort((a, b) => a - b);
+    // …y los de DRIFT: 90/120/320. Ahí el motor no llega (sus horizontes
+    // cortan en 30 y su GEX mira solo ±20% del spot), así que los niveles son
+    // los tres de Drift —muro de puts, imán, muro de calls— y solo esos. La
+    // matemática de los escenarios es LA MISMA del agente.
+    const tD = d.targets_drift || {};
+    const hzD = Object.keys(tD).map(Number).sort((a, b) => a - b);
+    const hz = hzA.concat(hzD);
     if (!hz.length) { el.innerHTML = '<p class="text-[11px] text-amber-400 italic">Sin escenarios.</p>'; return; }
-    if (!window._vcHz || !hz.includes(window._vcHz)) window._vcHz = hz[Math.min(1, hz.length - 1)];
-    const h = window._vcHz, p = d.predictions[String(h)];
+    if (!window._vcHz || !hz.includes(window._vcHz)) window._vcHz = hzA[Math.min(1, hzA.length - 1)] || hz[0];
+    const h = window._vcHz;
+    // Se pregunta al PAYLOAD de dónde salen los niveles, en vez de deducirlo
+    // de en qué lista estaba el número. Si algún día el servidor sirviera un
+    // horizonte con otro origen, esto lo respeta; deducirlo lo ignoraría.
+    const esDrift = ((tD[String(h)] || {}).niveles_de === 'drift');
+    const p = esDrift ? tD[String(h)] : d.predictions[String(h)];
 
     // Etiquetas en lenguaje llano, como la vista Estudiante de Víctor: el
     // horizonte se elige por lo que significa, no por el número de días.
-    const HZ_LABEL = { 10: 'Esta semana', 20: '2 semanas', 30: '1 mes' };
-    const tabs = hz.map(x => `<button onclick="window._vcHz=${x};renderVictorTargets(window._vcData);renderVictorProjChart('projChart',window._vcData,${x});"
-        class="px-2.5 py-1 rounded-lg text-[10px] font-bold ${x === h ? 'bg-blue-600 text-white' : 'bg-[#0B0E14] text-gray-400 border border-gray-800'}">${HZ_LABEL[x] || (x + 'd')}</button>`).join(' ');
+    const HZ_LABEL = { 10: 'Esta semana', 20: '2 semanas', 30: '1 mes',
+                       90: '3 meses', 120: '4 meses', 320: '1 año' };
+    // Los de Drift van en azul cielo, el mismo color con el que se pinta Drift
+    // en las tarjetas: el color dice de dónde sale el número sin tener que
+    // leer la nota.
+    const tab = (x) => {
+        const suyo = hzD.includes(x);
+        const act = x === h;
+        const cls = act ? (suyo ? 'bg-sky-600 text-white' : 'bg-blue-600 text-white')
+                        : 'bg-[#0B0E14] text-gray-400 border border-gray-800';
+        return `<button onclick="window._vcHz=${x};renderVictorTargets(window._vcData);renderVictorProjChart('projChart',window._vcData,${x});"
+            class="px-2.5 py-1 rounded-lg text-[10px] font-bold ${cls}">${HZ_LABEL[x] || (x + 'd')}${
+            suyo ? ' <span class="opacity-70">· Drift</span>' : ''}</button>`;
+    };
+    const tabs = hz.map(tab).join(' ');
+
+    // El aviso de procedencia. Un target a 320 días no puede parecer que sale
+    // del mismo sitio que el de 20: aquí se dice el vencimiento exacto, los
+    // tres niveles que lo anclan y que la matemática sigue siendo la del
+    // agente. Sin esto, el número se leería como si el motor llegara hasta ahí.
+    const px2 = v => v == null ? '—' : '$' + Number(v).toFixed(2);
+    const avisoDrift = !esDrift ? '' :
+        `<div class="bg-sky-500/10 border border-sky-500/30 rounded-xl p-3 mb-2">
+           <p class="text-[11px] font-black text-sky-300"><span>Niveles de Drift</span> &middot; <span>vencimiento</span> <b>${_vcEsc(p.vencimiento || '')}</b> (<b>${p.dte_real} DTE</b>)</p>
+           <p class="text-[10px] text-sky-200/80 mt-1 leading-snug"><span>Muro de puts</span> <b>${px2(p.muro_puts)}</b> &middot; <span>im&aacute;n</span> <b>${px2(p.iman)}</b> &middot; <span>muro de calls</span> <b>${px2(p.muro_calls)}</b></p>
+           <p class="text-[9px] text-gray-500 mt-1 leading-snug"><span>Los escenarios los calcula el agente igual que siempre &mdash; mismo cono, misma probabilidad de toque, mismas seis puntuaciones. Lo &uacute;nico distinto son esos tres niveles: a este plazo el motor no llega, porque sus horizontes cortan en 30 d&iacute;as y su GEX solo mira los strikes a &plusmn;20% del spot.</span>${
+             p.duplicado ? ' <span class="text-amber-400">Este vencimiento es el mismo que otro plazo: la cadena no da para separarlos.</span>' : ''}</p>${
+           p.rango_estrecho ? `<p class="text-[9px] text-amber-400 mt-1 leading-snug"><span>Con solo tres niveles los escenarios se solapan: el im&aacute;n coincide con uno de los muros y por ese lado no queda nivel. Dos de los tres targets salen iguales.</span></p>` : ''}
+         </div>`;
 
     // Su «· recortado al cono 2σ» de `ProWallsCard`. El motor lo sirve por
     // escenario (`chart_geometry[h].paths[x].clamped`) y no se pintaba en
@@ -7282,6 +7321,7 @@ function renderVictorTargets(d) {
         <div class="flex items-center gap-1.5"><span class="text-[9px] text-gray-500 uppercase font-bold tracking-wider mr-0.5">Horizonte</span>${tabs}</div>
         <span class="text-[10px] text-gray-400">Score <b class="text-white">${d.score}</b>/100 · ${_vcEsc(d.verdict)}</span>
       </div>
+      ${avisoDrift}
       ${veredicto}
       ${noFiable ? '' : `
       ${parcial ? `<p class="text-[10px] text-amber-400 leading-snug mb-2">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
@@ -14408,6 +14448,19 @@ const VX_ES2EN = {
     "Plazo": "Horizon",
     "Imán de nocional": "Notional magnet",
     "imán de nocional": "notional magnet",
+    // Las etiquetas de los tres plazos de Drift en el selector de horizonte.
+    "3 meses": "3 months",
+    "4 meses": "4 months",
+    "1 año": "1 year",
+    "Niveles de Drift": "Drift levels",
+    "Con solo tres niveles los escenarios se solapan: el imán coincide con uno de los muros y por ese lado no queda nivel. Dos de los tres targets salen iguales.":
+        "With only three levels the scenarios overlap: the magnet coincides with one of the walls, so there is no level on that side. Two of the three targets come out the same.",
+    "vencimiento": "expiration",
+    "Muro de puts": "Put wall",
+    "imán": "magnet",
+    "muro de calls": "call wall",
+    "Los escenarios los calcula el agente igual que siempre — mismo cono, misma probabilidad de toque, mismas seis puntuaciones. Lo único distinto son esos tres niveles: a este plazo el motor no llega, porque sus horizontes cortan en 30 días y su GEX solo mira los strikes a ±20% del spot.":
+        "The scenarios are computed by the agent exactly as always — same cone, same touch probability, same six scores. The only difference is those three levels: the engine does not reach this horizon, because its horizons stop at 30 days and its GEX only looks at strikes within ±20% of spot.",
     "No se pudo pintar parte del panel": "Part of the panel could not be drawn",
     // Los cuatro trozos que nombra el aviso de arriba cuando uno no pinta.
     "las tarjetas": "the cards",

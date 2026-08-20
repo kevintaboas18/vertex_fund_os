@@ -4573,6 +4573,9 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     out["levels_for_chart"] = _tito_chart_levels(r)
     out["gex_heatmap"] = _tito_heatmap(chain or [], r, trades, now)
     out["drift"] = _tito_drift(chain or [], r, now)
+    # Los targets a 90/120/320 días. La matemática del agente sin tocar; lo
+    # único distinto son los niveles, que ahí son los TRES de Drift.
+    out["targets_drift"] = _tito_targets_drift(r, out["drift"])
     # El spot no salió de una sesión en curso sino del cierre anterior. Va al
     # payload SIEMPRE que sea así, porque el spot ancla los nodos del GEX, la
     # ventana de strikes, los niveles, el cono y los tres targets: leerlos sin
@@ -4851,6 +4854,120 @@ def _tito_drift(chain, r, now):
             "solapa_motor": b.dte_objetivo <= 30,
         } for b in a.buckets],
     }
+
+
+def _tito_targets_drift(r, drift):
+    """Los targets a 90/120/320 días, con los niveles de Drift.
+
+    **Qué cambia y qué NO.** Lo que pidió Kevin, literal: «en los targets
+    seguirá igual como el agente lo hace y todo, nada cambiará; solo añades la
+    fecha horizonte de 90/120/320 y se usará solamente el put/call wall e imán
+    de Drift».
+
+    Así que:
+
+    - La matemática es **la del agente**, sin tocar: `predict_pro`, el mismo
+      cono, la misma probabilidad de toque, los mismos bear/base/bull.
+    - Las **seis puntuaciones** son las mismas del scorecard. No se recalcula
+      ninguna: se rearman desde el mismo dict que ya publicó, porque
+      `predict_pro` las quiere como objeto. Si aquí se volvieran a puntuar, el
+      target largo y el corto podrían salir de dos agentes distintos sin que
+      nadie lo notara.
+    - Lo único que cambia son los **niveles**: en vez de los nodos de GEX, van
+      los **tres de Drift** de ese plazo —muro de puts, imán y muro de calls—
+      y solo esos tres.
+
+    Por qué esto tiene sentido a esos plazos, que es el motivo por el que la
+    ruta cortaba en 30 días: el imán del GEX sale de la gamma de la cadena de
+    HOY, y a 120 días esa cadena ya habrá rotado casi entera. El de Drift sale
+    del **vencimiento mensual de ese plazo** — el contrato que se compraría.
+
+    El de ~30 días NO entra: ahí el agente ya tiene los suyos, y dar dos
+    targets distintos para el mismo horizonte obligaría a elegir entre ellos.
+
+    Devuelve `{"90": {...}, "120": {...}, "320": {...}}`, o `{}` si Drift no
+    resolvió ningún plazo largo.
+    """
+    if not drift or not drift.get("buckets"):
+        return {}
+    try:
+        from wbj.tito.expected_move import LevelInput
+        from wbj.tito.prediction import SubScores, predict_pro
+    except Exception:
+        return {}
+    iv = (r.gex.iv if r.gex and r.gex.iv else 0) or 0
+    if not (r.spot > 0) or not (iv > 0):
+        return {}
+
+    _sc = r.scores if isinstance(r.scores, dict) else (
+        r.scores.as_dict() if r.scores else {})
+    sub = SubScores(**{k: _sc.get(k) for k in
+                       ("aggression", "conviction", "unusuality",
+                        "structure", "iv_context", "validation")})
+    _hit = getattr(getattr(r, "validation", None), "hit_rate", None) or {}
+
+    fuera = {}
+    for b in drift["buckets"]:
+        if b.get("solapa_motor"):
+            continue                       # el de 30 días ya lo cubre el agente
+        niveles = []
+        for strike, lado in ((b.get("muro_puts"), "put"),
+                             (b.get("magneto"), "call" if (b.get("magneto_nocional") or 0) >= 0 else "put"),
+                             (b.get("muro_calls"), "call")):
+            if strike is None:
+                continue
+            niveles.append(LevelInput(
+                strike=float(strike),
+                # Los tres pesan igual: son los tres niveles que él publica, sin
+                # jerarquía entre ellos. Inventar una aquí —dar más peso al imán,
+                # por ejemplo— sería meter un modelo que ni él ni el agente tienen.
+                concentration=1.0,
+                side=lado,
+                # Drift no calcula GEX y no se inventa uno. `predict_pro` no lee
+                # este campo: solo `strike`, `concentration` y `side`.
+                net_gex=0.0,
+            ))
+        if len(niveles) < 2:
+            continue                       # con un solo nivel no hay rango
+        # Se proyecta al DTE REAL del vencimiento, no al objetivo redondo: un
+        # cono de 320 días sobre un contrato que vence a 330 mentiría diez días
+        # de volatilidad.
+        dias = int(b.get("dte_real") or 0)
+        if dias <= 0:
+            continue
+        try:
+            p = predict_pro(spot=r.spot, iv=iv, horizon_days=dias, nodes=niveles,
+                            scores=sub, regime=r.gex.regime,
+                            callvpct=_tito_call_pct(r),
+                            hit_rate=_hit.get("value"),
+                            low_liquidity=bool(r.gex.low_liquidity),
+                            calibration=None)
+        except Exception:                  # noqa: BLE001 — ilustra, no decide
+            continue
+        _e = lambda s: {"target": _r(s.target), "change_pct": _r(s.change_pct, 1),
+                        "probability": _r(s.probability, 3), "driver": s.driver}
+        fuera[str(b["dte_objetivo"])] = {
+            "bear": _e(p.bear), "base": _e(p.base), "bull": _e(p.bull),
+            "confidence": p.confidence, "direction": p.direction,
+            "summary": p.summary, "caveat": p.caveat, "calibration": None,
+            # De dónde salieron los niveles y sobre qué contrato. Sin esto, un
+            # target a 320 días parecería salir del mismo sitio que el de 20.
+            "niveles_de": "drift",
+            # Con TRES niveles —y solo tres, que es lo que se pidió— los
+            # escenarios pueden colapsar: si el imán coincide con uno de los
+            # muros, no queda nivel por ese lado y el bajista sale igual que
+            # el base. El agente no lo sufre porque trabaja con ~24 nodos de
+            # GEX. Se publica igual y se DICE: tres números idénticos
+            # presentados como bear/base/bull serían una mentira tipográfica.
+            "rango_estrecho": not (p.bear.target < p.base.target < p.bull.target),
+            "vencimiento": b.get("vencimiento"),
+            "dte_real": b.get("dte_real"),
+            "muro_puts": b.get("muro_puts"),
+            "muro_calls": b.get("muro_calls"),
+            "iman": b.get("magneto"),
+            "duplicado": bool(b.get("duplicado")),
+        }
+    return fuera
 
 
 def _tito_chart_levels(r, max_per_side=2, min_strength=25):

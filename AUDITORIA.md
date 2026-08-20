@@ -9004,72 +9004,87 @@ Siete casos nuevos de navegador, saboteando cada pintor por su lado. **Cinco
 van rojos** con el código anterior — reproducen la pantalla en blanco — y los
 siete verdes con el arreglo.
 
-### Los muros de Drift salían al revés, y yo lo había tapado
+### Me equivoqué: el port era fiel y mi «arreglo» lo rompió
 
-> «verifica el drift, está dando put wall y call wall e imán mal.»
+Dije que los muros de Drift estaban mal por definición y los cambié. **Estaba
+equivocado.** Se clonó su repositorio —`infusionvictor/drift-sentiment-agent`—
+y su código dice, literalmente:
 
-Tenía razón, y el fallo era de definición. Reproducido con una cadena
-realista, spot $180:
+```python
+def call_wall(contracts):            # walls.py
+    return _max_oi_strike([c for c in contracts if c.is_call])   # SIN filtro de spot
 
-| | antes | ahora |
-|---|---|---|
-| Muro de puts (soporte) | **$230** — por encima del precio | **$160** |
-| Muro de calls (resistencia) | **$120** — por debajo del precio | **$200** |
-| Imán | $230, fuera de la banda | **$200**, dentro |
+def magneto(contracts):              # magneto.py
+    acc = net_notional_by_strike(contracts)                      # NETO, no bruto
+    strike = max(acc, key=lambda s: abs(acc[s]))
 
-**Por qué salía así.** `muro_calls` cogía el strike con más OI de calls **de
-toda la cadena**, sin mirar dónde está el precio. En cualquier acción que haya
-subido, ese strike queda muy por DEBAJO: son calls compradas hace meses que
-ahora están dentro del dinero. Eso no es una resistencia, es historia. El
-espejo con las puts hacia arriba. Resultado: la resistencia por debajo del
-soporte y el «rango defendido» del panel invertido.
+lo, hi = sorted((put_wall.strike, call_wall.strike))              # drift.py
+```
 
-**Y lo peor, que es mío.** En `clasifica_deriva` yo había escrito
-`lo, hi = sorted((mp, mc))` — ordenaba los dos muros para que el rango saliera
-bien *aunque vinieran al revés*. Eso no arregla nada: **tapa** que pueden venir
-invertidos. Tapar el síntoma en vez de arreglar la definición es exactamente lo
-que este archivo existe para no dejar pasar.
+El port original coincidía con eso en todo. Y ese `sorted()` que llamé «tapar
+el síntoma» **es suyo**: es su detección de ruptura. Sus muros no miran el
+spot a propósito — que la resistencia salga por debajo del soporte es
+exactamente su condición de *breakout*, no un error.
 
-**El imán tenía dos defectos más**, y los dos daban un número sin significado:
+Todo el cambio queda revertido. Lo que sí se conserva es la lección: se
+escribió un diferencial.
 
-1. Se sumaba en **neto** (calls − puts) por strike. Un strike con 10.000 calls
-   y 10.000 puts —el sitio clásico donde el precio se clava, la mayor
-   concentración de la cadena— salía **casi cero** y desaparecía del reparto.
-   Ahora se mide el nocional **bruto**: todo el dinero que hay ahí, venga del
-   lado que venga. El signo del neto se conserva aparte, que es lo que dice
-   qué lado manda: el tamaño lo elige el bruto, el signo lo explica el neto.
-2. No miraba el rango. El mayor nocional de la cadena estaba en puts a $230
-   muy dentro del dinero — contratos que se van a ejercer, no un imán al que
-   el precio tienda. Ahora se busca **entre los dos muros**, que es la banda
-   que el panel presenta como zona de operación.
+### `diff_drift.sh` — el diferencial que faltaba
 
-**La ruptura no se perdió.** Con los muros mirando el lado, el precio queda
-siempre entre ellos por construcción, así que compararlo contra ellos ya no
-detecta nada. Se mide ahora contra los dos strikes más cargados de la cadena,
-estén donde estén: si el precio los dejó atrás a los dos, se comió su propio
-libro. Es literalmente lo que hacía aquel `sorted()` — y para **eso** sí valía.
-El fallo era usar esos dos mismos números también como soporte y resistencia:
-son dos preguntas distintas y estaban fundidas en una.
+Ejecuta **su Python de verdad** sobre las mismas cadenas y compara muros,
+imán, clasificación, mensuales y vencimiento elegido, número a número. Es el
+decimoséptimo diferencial y el primero contra este otro repo suyo.
 
-**Los muros del AGENTE no se tocaron**, y se comprobó en vez de afirmarlo: el
-cálculo de `renderProjections` (`mayor('call')`/`mayor('put')` sobre
-`gex.nodes`) es idéntico byte a byte al de antes de Drift, y `gex.py` y
-`levels.py` no tienen un solo cambio. Lo que cambió fue la etiqueta y el
-segundo número; al ponerlos juntos parecía que se había movido el primero.
+Encontró **cuatro divergencias reales** en la primera corrida, todas en el
+caso de una cadena con interés abierto cero: él publica «muro de calls: $90
+(OI 0)» y aquí ese contrato se descarta. Se **declaran** en `DECLARADAS` con
+su motivo —un muro con cero contratos abiertos no es un muro— en vez de
+esconderlas. Mismo contrato que `diff_motor.sh`: si aparece una nueva sin
+declarar, el diferencial falla.
 
-Seis casos nuevos, todos **rojos** con la versión anterior.
+Y ocho casos de propiedades (`test_drift_vs_victor.py`) que fijan su algoritmo
+**sin depender de tener su repo delante**, para que la batería normal proteja
+lo mismo. Ahí está escrito, con nombre y todo, que los muros no miran el spot
+y que el imán es neto: si alguien vuelve a «arreglarlo», se pone rojo.
 
-### Lo que se aparcó, y por qué
+### Los horizontes de 90/120/320 con los niveles de Drift
 
-Los targets del agente a 60/90/120/320 días estaban escritos y funcionando.
-Se **retiran** de este commit: se anclan en el imán, y el imán estaba roto —
-publicarlos habría propagado el mismo error a los targets, que es donde más
-caro sale. Se retoman cuando los muros estén confirmados en pantalla. Los 60
-días también se revierten, a petición de Kevin: los plazos siguen siendo
-320/120/90/30.
+Lo que pidió Kevin, literal: *«en los targets seguirá igual como el agente lo
+hace y todo, nada cambiará; solo añades la fecha horizonte de 90/120/320 y se
+usará solamente el put/call wall e imán de Drift»*.
+
+| | de dónde sale |
+|---|---|
+| La matemática de los escenarios | **del agente**, sin tocar: `predict_pro`, mismo cono, misma probabilidad de toque |
+| Las seis puntuaciones | **las mismas** del scorecard, rearmadas del mismo dict — no se recalcula ninguna |
+| Los tres niveles | **de Drift**: muro de puts, imán, muro de calls de ese vencimiento, y solo esos tres |
+
+El de ~30 días **no** entra: ahí el agente ya tiene los suyos, y dar dos
+targets para el mismo horizonte obligaría a elegir entre ellos.
+
+**Lo que salió de hacerlo:** con solo tres niveles los escenarios pueden
+colapsar. Si el imán coincide con un muro, por ese lado no queda nivel y el
+bajista sale igual que el base. El agente no lo sufre porque trabaja con ~24
+nodos de GEX. Se publica igual, marcado con `rango_estrecho`, y la pantalla lo
+dice: tres números idénticos presentados como bear/base/bull serían una
+mentira tipográfica.
+
+Un test comprueba que las puntuaciones de los targets largos son **las mismas
+que publicó el scorecard**, valor a valor. Es el riesgo real de este cableado:
+que el target largo y el corto salgan de dos agentes distintos sin que nadie
+lo note.
+
+Los 60 días **no se añaden**: sus `DTE_TARGETS` son 320/120/90/30 y punto.
+
+### El bloque anterior de esta ronda queda ANULADO
+
+Decía que los muros salían al revés por un fallo de definición y que el
+`sorted()` era mío. Las dos cosas eran falsas y están corregidas arriba, con
+su código delante. Se deja escrito en vez de borrarlo: una auditoría que borra
+sus errores no es una auditoría.
 
 ### Estado
 
-**3.462 tests del motor (53 nuevos) · 915 de la capa web (23 nuevos) ·
-135 de navegador (18 nuevos) · 280 checks de auditoría sin TITO_ROOT
-(los 324 con él no se pueden correr en este contenedor), 0 fallos.**
+**3.460 tests del motor (51 nuevos) · 913 de la capa web (21 nuevos) ·
+135 de navegador · 285 checks de auditoría sin TITO_ROOT · 17.º diferencial
+(`diff_drift.sh`) con 0 divergencias sin declarar. 0 fallos.**
