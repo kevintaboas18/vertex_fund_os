@@ -2481,6 +2481,154 @@ class TestNadaSeSaleDeLaPANTALLA:
             pg.close()
 
 
+class TestLosDosDRIFTDicenLoMISMO:
+    """«Se supone que ambos drift van de acuerdo.»
+
+    Y no iban. Las tarjetas de arriba enseñaban SIEMPRE el bucket de ~30 DTE,
+    así que al elegir «3 meses · Drift» arriba se leía el vencimiento de 29
+    días y abajo el de 92. Dos vencimientos distintos, la misma pantalla, sin
+    nada que dijera que hablaban de cosas diferentes.
+
+    Y la gráfica, al elegir un plazo de Drift, decía «Sin datos».
+    """
+
+    @staticmethod
+    def _payload():
+        base = TestDriftSePintaJuntoAlDelAgente._payload()
+        base["targets_drift"] = {
+            "90": {"bear": {"target": 179.24, "change_pct": -17.3,
+                            "probability": 0.37, "driver": "suelo de 1σ"},
+                   "base": {"target": 380.0, "change_pct": 26.6,
+                            "probability": 0.74, "driver": "imán"},
+                   "bull": {"target": 420.0, "change_pct": 40.0,
+                            "probability": 0.40, "driver": "muro"},
+                   "confidence": 69.0, "direction": "up",
+                   "summary": "Nivel imán: 48% del peso del mapa está en $380.00",
+                   "caveat": None, "calibration": None,
+                   "niveles_de": "drift", "vencimiento": "2026-11-20",
+                   "dte_real": 92, "muro_puts": 260.0, "muro_calls": 380.0,
+                   "iman": 380.0, "duplicado": False, "rango_estrecho": False},
+        }
+        base["chart_geometry"] = {"90": {
+            "iv": 0.38, "em": {"sigma_pct": 18.9, "lower1": 243.0, "upper1": 357.0,
+                               "lower2": 186.0, "upper2": 414.0},
+            "cone": [{"t": 0.0, "upper1": 300.0, "lower1": 300.0,
+                      "upper2": 300.0, "lower2": 300.0},
+                     {"t": 1.0, "upper1": 357.0, "lower1": 243.0,
+                      "upper2": 414.0, "lower2": 186.0}],
+            "paths": {k: {"seed": 1.0, "target": v, "clamped": False,
+                          "points": [{"t": 0.0, "price": 300.0},
+                                     {"t": 1.0, "price": v}]}
+                      for k, v in (("bear", 179.24), ("base", 380.0),
+                                   ("bull", 420.0))}}}
+        base["history"] = [{"time": f"2026-08-{d:02d}", "open": 300.0,
+                            "high": 305.0, "low": 295.0, "close": 300.0}
+                           for d in range(1, 21)]
+        base["predictions"] = {"30": {
+            "bear": {"target": 280.0, "change_pct": -6.7, "probability": 0.4,
+                     "driver": "x"},
+            "base": {"target": 305.0, "change_pct": 1.7, "probability": 0.6,
+                     "driver": "x"},
+            "bull": {"target": 320.0, "change_pct": 6.7, "probability": 0.3,
+                     "driver": "x"},
+            "confidence": 60.0, "direction": "up", "summary": "s",
+            "caveat": None, "calibration": None}}
+        base["score"] = 61
+        base["verdict"] = "Oportunidad Moderada"
+        base["levels_for_chart"] = []
+        return base
+
+    def _abre_en(self, navegador, servidor, horizonte):
+        pg, errores = _abre(navegador, servidor)
+        pg.evaluate("switchView('projectionsView')")
+        pg.wait_for_timeout(300)
+        pg.evaluate("""(p) => {
+            projData = p; window._vcData = p; window._vcHz = null;
+            renderProjections(p); renderVictorTargets(p);
+        }""", self._payload())
+        pg.wait_for_timeout(400)
+        pg.evaluate(f"""() => {{
+            window._vcHz = {horizonte};
+            renderProjections(window._vcData);
+            renderVictorTargets(window._vcData);
+            renderVictorProjChart('projChart', window._vcData, {horizonte});
+        }}""")
+        pg.wait_for_timeout(600)
+        return pg, errores
+
+    def test_al_elegir_un_plazo_de_drift_las_TARJETAS_lo_siguen(
+            self, navegador, servidor):
+        pg, errores = self._abre_en(navegador, servidor, 90)
+        try:
+            cards = pg.evaluate(
+                "() => document.getElementById('projCards').innerText")
+            # El bucket de 90 DTE: muros 260/380, imán 380.
+            assert "$380.00" in cards and "$260.00" in cards, cards[:400]
+            # Y NO los del bucket de 30 DTE, que es lo que se quedaba pegado.
+            assert "$400.00" not in cards, (
+                "las tarjetas siguen enseñando el vencimiento de ~30 días "
+                f"con el horizonte en 90: {cards[:400]}")
+            assert "2026-11-20" in cards, cards[:400]
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_con_un_plazo_del_AGENTE_vuelven_al_de_30_dias(
+            self, navegador, servidor):
+        """El de ~30 DTE es el único que solapa con 10/20/30."""
+        pg, errores = self._abre_en(navegador, servidor, 30)
+        try:
+            cards = pg.evaluate(
+                "() => document.getElementById('projCards').innerText")
+            assert "$400.00" in cards, cards[:400]
+            assert "2026-09-18" in cards, cards[:400]
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_la_GRAFICA_se_dibuja_con_un_plazo_de_drift(
+            self, navegador, servidor):
+        """«Si elijo el drift me gustaría que se vea la gráfica.»"""
+        pg, errores = self._abre_en(navegador, servidor, 90)
+        try:
+            d = pg.evaluate("""() => {
+                const c = document.getElementById('projChart');
+                return { txt: (c.innerText || '').trim(),
+                         svgs: c.querySelectorAll('svg').length,
+                         // La gráfica dibuja con `polyline`/`line`/`path`
+                         // según el trazo; se cuentan los tres.
+                         trazos: c.querySelectorAll(
+                             'svg polyline, svg path, svg line').length };
+            }""")
+            assert "Sin datos" not in d["txt"], d
+            assert d["svgs"] >= 1, f"no se dibujó ningún SVG: {d}"
+            assert d["trazos"] >= 5, (
+                f"la gráfica salió sin trazos: {d}")
+            # Y que lo dibujado sea lo de ESTE plazo, no lo del agente.
+            for esperado in ("$420.00", "$380.00", "$179.24", "90d", "±18.9%"):
+                assert esperado in d["txt"], (
+                    f"falta «{esperado}» en la gráfica: {d['txt'][:300]}")
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_TEXTO_del_resumen_y_la_linea_de_niveles_dicen_lo_mismo(
+            self, navegador, servidor):
+        """El imán de la línea azul y el que nombra el resumen: el mismo."""
+        pg, errores = self._abre_en(navegador, servidor, 90)
+        try:
+            txt = pg.evaluate(
+                "() => document.getElementById('projTargets').innerText")
+            assert "$380.00" in txt, txt[:400]
+            # El resumen nombra el imán; si dijera otro precio, se
+            # contradiría con la línea de niveles de justo encima.
+            assert "$380.00" in txt.split("Nivel imán")[-1][:60] or \
+                   "380" in txt.split("imán")[-1][:60], txt[:600]
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+
 class TestUnaPantallaEnBlancoNoEsUnaOPCION:
     """«Me sale así» — y «así» era una pantalla vacía, sin un solo mensaje.
 

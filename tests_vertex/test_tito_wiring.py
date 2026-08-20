@@ -256,8 +256,16 @@ class TestGeometriaDeLaGrafica:
     """
 
     def test_hay_cono_y_rutas_para_cada_horizonte(self, client):
-        g = client.get("/api/projection-targets?ticker=DEMO").json()["chart_geometry"]
-        assert set(g) == {"10", "20", "30"}
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        g = d["chart_geometry"]
+        # Los TRES del agente, siempre. Ya no se exige que sean los únicos: los
+        # plazos de Drift (90/120/320) traen su geometría también, porque sin
+        # ella la gráfica salía con «Sin datos» al elegirlos. Lo que se fija es
+        # que ningún horizonte se cuele sin ser de uno de los dos.
+        assert {"10", "20", "30"} <= set(g)
+        conocidos = set(d["predictions"]) | set(d.get("targets_drift") or {})
+        assert set(g) <= conocidos, (
+            f"geometría de un horizonte que nadie sirve: {set(g) - conocidos}")
         for h, geo in g.items():
             assert len(geo["cone"]) == 25          # `conePoints(…, 24)` → 24+1
             assert set(geo["paths"]) == {"bull", "base", "bear"}
@@ -6101,6 +6109,95 @@ class TestDriftEnLaRuta:
         d = client.get("/api/projection-targets?ticker=DEMO").json()
         assert d["targets_drift"] == {}
         assert sorted(int(h) for h in d["predictions"]) == [10, 20, 30]
+
+    def test_el_ESCENARIO_BASE_se_ancla_en_el_IMAN_de_drift(
+            self, client, cadena_larga):
+        """«Se supone que ambos drift van de acuerdo.»
+
+        Y no iban. `predict_pro` elige la base como el nivel de mayor peso =
+        **probabilidad × concentración**. Con los tres niveles a
+        `concentration=1.0`, el orden lo decidía solo la probabilidad de
+        toque, o sea la CERCANÍA: con el spot en $216,63 ganaba el muro de
+        puts ($200) sobre el imán ($250), y la pantalla decía «Nivel imán…
+        $200,00» justo debajo de una línea que decía «imán $250».
+
+        Ahora la concentración la lleva el imán —que es, por definición, el
+        strike con más nocional— y los muros son fronteras. Los dos números
+        de Drift dicen lo mismo.
+        """
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        t = d["targets_drift"]
+        assert t, "sin plazos largos no se prueba nada"
+        for h, v in t.items():
+            assert v["base"]["target"] == v["iman"], (
+                f"{h}d: el escenario base se ancló en {v['base']['target']} y "
+                f"el imán de Drift es {v['iman']} — la pantalla se "
+                f"contradiría a sí misma")
+
+    def test_y_el_TEXTO_del_resumen_nombra_ESE_mismo_nivel(
+            self, client, cadena_larga):
+        """El resumen escribe «Nivel imán: N% del peso está en $X». Ese $X
+        tiene que ser el imán de Drift, no otro nivel."""
+        import re as _re
+
+        t = client.get("/api/projection-targets?ticker=DEMO").json()["targets_drift"]
+        for h, v in t.items():
+            m = _re.search(r"Nivel imán:.*?\$([\d.,]+)", v["summary"] or "")
+            if not m:
+                continue
+            escrito = float(m.group(1).replace(",", ""))
+            assert escrito == pytest.approx(v["iman"]), (
+                f"{h}d: el texto dice ${escrito} y el imán es ${v['iman']}")
+
+    def test_la_GRAFICA_tiene_geometria_para_los_plazos_de_drift(
+            self, client, cadena_larga):
+        """«Si elijo el drift me gustaría que se vea la gráfica.»
+
+        Salía «Sin datos para la gráfica» porque `renderVictorProjChart`
+        busca el horizonte en el payload y ahí solo estaban 10/20/30.
+        """
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        geo = d["chart_geometry"]
+        for h in d["targets_drift"]:
+            assert h in geo, f"sin geometría para el horizonte de {h} días"
+            g = geo[h]
+            assert g["cone"], f"{h}d: cono vacío"
+            assert g["em"] and g["em"]["sigma_pct"] > 0
+            for k in ("bear", "base", "bull"):
+                assert k in g["paths"], f"{h}d: falta la ruta {k}"
+
+    def test_el_cono_se_dibuja_al_DTE_REAL_no_al_objetivo_redondo(
+            self, client, cadena_larga):
+        """Un cono de 320 días sobre un contrato que vence a 330 mentiría
+        diez días de volatilidad, y el ancho del cono es lo que decide si un
+        target es alcanzable."""
+        from wbj.tito.expected_move import expected_move
+
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        iv = d["gex"]["iv"]                      # viene REDONDEADO en el payload
+        for h, v in d["targets_drift"].items():
+            real = float(v["dte_real"])
+            if real == float(h):
+                continue                         # no distingue nada: son iguales
+            pintado = d["chart_geometry"][h]["em"]["sigma_pct"]
+            # No se compara por igualdad: el `iv` del payload está redondeado a
+            # 4 decimales y el motor usó el crudo, así que las dos σ difieren en
+            # la cuarta cifra. Lo que se mide es CUÁL de los dos plazos se usó,
+            # que es la pregunta de verdad.
+            con_real = expected_move(d["spot"], iv, real).sigma_pct
+            con_objetivo = expected_move(d["spot"], iv, float(h)).sigma_pct
+            assert abs(pintado - con_real) < abs(pintado - con_objetivo), (
+                f"{h}d: el cono se dibujó al plazo REDONDO ({h} días) y el "
+                f"vencimiento está a {real}. σ pintada {pintado}, con el real "
+                f"{con_real}, con el redondo {con_objetivo}")
+
+    def test_los_horizontes_del_AGENTE_siguen_con_SU_geometria(
+            self, client, cadena_larga):
+        """Añadir los de Drift no puede tocar los suyos."""
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        for h in ("10", "20", "30"):
+            assert h in d["chart_geometry"], f"se perdió la geometría de {h}d"
+            assert d["chart_geometry"][h]["cone"]
 
     def test_el_SCORE_no_se_mueve_por_tener_drift(self, client, cadena_larga,
                                                   monkeypatch):

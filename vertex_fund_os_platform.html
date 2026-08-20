@@ -6141,7 +6141,11 @@ function vcMovEsperadoHTML(geo, sigma1, sigma2, spot, horizon) {
 function renderVictorProjChart(containerId, d, horizon) {
     const cont = document.getElementById(containerId);
     if (!cont) return;
-    const p = (d.predictions || {})[String(horizon)];
+    // El horizonte puede ser del agente (10/20/30) o de Drift (90/120/320).
+    // Buscarlo solo en `predictions` dejaba la gráfica con «Sin datos» en
+    // cuanto se elegía uno de Drift.
+    const p = (d.predictions || {})[String(horizon)]
+           || (d.targets_drift || {})[String(horizon)];
     const hist = d.history || [];
     if (!p || !hist.length) { cont.innerHTML = '<p class="text-[11px] text-gray-500 italic p-3">Sin datos para la gráfica.</p>'; return; }
 
@@ -7221,7 +7225,7 @@ function renderVictorTargets(d) {
         const act = x === h;
         const cls = act ? (suyo ? 'bg-sky-600 text-white' : 'bg-blue-600 text-white')
                         : 'bg-[#0B0E14] text-gray-400 border border-gray-800';
-        return `<button onclick="window._vcHz=${x};renderVictorTargets(window._vcData);renderVictorProjChart('projChart',window._vcData,${x});"
+        return `<button onclick="window._vcHz=${x};renderProjections(window._vcData);renderVictorTargets(window._vcData);renderVictorProjChart('projChart',window._vcData,${x});"
             class="px-2.5 py-1 rounded-lg text-[10px] font-bold ${cls}">${HZ_LABEL[x] || (x + 'd')}${
             suyo ? ' <span class="opacity-70">· Drift</span>' : ''}</button>`;
     };
@@ -7493,7 +7497,18 @@ function renderProjections(d) {
     // bloque, porque ahí el motor no llega y el muro y el imán salen solo
     // de Drift.
     const dr = d.drift || {};
-    const dr30 = (dr.buckets || []).find(b => b.solapa_motor) || null;
+    // El bucket que se pinta al lado del número del motor SIGUE al horizonte
+    // elegido. Antes era siempre el de ~30 DTE, así que al pulsar «3 meses ·
+    // Drift» las tarjetas de arriba seguían enseñando el vencimiento de 29
+    // días mientras el panel de abajo hablaba del de 92: los dos números de
+    // Drift contaban vencimientos distintos en la misma pantalla.
+    //
+    // Con un horizonte del agente (10/20/30) se usa el de ~30 DTE, que es el
+    // único que solapa con lo que el motor ve.
+    const _hzSel = window._vcHz;
+    const dr30 = (dr.buckets || []).find(b => String(b.dte_objetivo) === String(_hzSel))
+              || (dr.buckets || []).find(b => b.solapa_motor)
+              || null;
     const drSub = (base, extra) => [base, extra].filter(Boolean).join(' · ');
     const dual = (lbl, val, cls, sub, dv, dsub) => dr30
         ? card(lbl + ' / Drift',

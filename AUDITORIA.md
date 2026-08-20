@@ -9137,8 +9137,53 @@ pasaban con la banda apagada, porque la cadena de prueba daba un imán que ya
 caía dentro. Se añadió un fixture que reproduce el caso de verdad; ahora va
 rojo sin la banda. Un guardián que no falla sin el arreglo no protege nada.
 
+### Los dos Drift no decían lo mismo, y la gráfica no salía
+
+Kevin mandó dos capturas. Tres fallos, y los tres reales:
+
+**1. Las tarjetas no seguían el horizonte.** Se pintaba siempre el bucket de
+~30 DTE, así que al elegir «3 meses · Drift» arriba se leía el vencimiento del
+**18-09** (29 DTE) y abajo el del **20-11** (92 DTE). Dos vencimientos
+distintos en la misma pantalla, sin nada que dijera que hablaban de cosas
+diferentes. Ahora el bucket sigue al horizonte elegido, y con un plazo del
+agente (10/20/30) vuelve al de ~30 DTE, que es el único que solapa.
+
+**2. La gráfica decía «Sin datos para la gráfica».**
+`renderVictorProjChart` busca el horizonte en `d.predictions`, y ahí solo
+están 10/20/30. Ahora mira también `targets_drift`, y el motor sirve la
+geometría —cono, movimiento esperado y las tres rutas— para esos plazos.
+
+Al **DTE real** del vencimiento, no al objetivo redondo: un cono de 320 días
+sobre un contrato que vence a 302 mentiría dieciocho días de volatilidad, y el
+ancho del cono es lo que decide si un target es alcanzable.
+
+**3. El escenario base se anclaba en el muro de puts, no en el imán.** Y este
+es el que de verdad se contradecía en pantalla: la línea azul decía «imán
+$250» y el texto de debajo «Nivel imán: 48% del peso del mapa está en
+$200,00».
+
+La causa es mía: `predict_pro` ordena los niveles por **probabilidad ×
+concentración**, y yo les había dado `concentration=1.0` a los tres. Con el
+peso empatado decidía solo la probabilidad de toque — o sea la **cercanía** —
+y con el spot en $216,63 ganaba el muro de puts ($200) sobre el imán ($250).
+
+Ahora la concentración la lleva el imán, que es **por definición** el strike
+con más nocional. Los muros van a 0 y `level_probabilities` los sube a su piso
+de 0,01: siguen en el mapa como techo y suelo de los escenarios —que es su
+papel— sin atraer el precio. `base == imán` es ahora un test.
+
+Nueve casos nuevos. Los tres del servidor van **rojos** con los arreglos
+desactivados; los dos del navegador que reproducen las capturas, también. Un
+cuarto caso —el de la gráfica— empezó midiendo elementos `<path>` y la gráfica
+dibuja con `polyline`: pasaba por el motivo equivocado hasta que se corrigió.
+
+Y una aserción vieja que hubo que actualizar en vez de silenciar:
+`test_hay_cono_y_rutas_para_cada_horizonte` exigía que la geometría fueran
+**exactamente** 10/20/30. Ahora exige que los tres del agente estén y que
+ningún horizonte se cuele sin ser de uno de los dos.
+
 ### Estado
 
-**3.466 tests del motor (57 nuevos) · 917 de la capa web (25 nuevos) ·
-135 de navegador · 342 checks de auditoría CON su repo real (0 avisos) ·
-los 17 diferenciales en verde, ejecutando su código. 0 fallos.**
+**3.466 tests del motor (57 nuevos) · 922 de la capa web (30 nuevos) ·
+139 de navegador (4 nuevos) · 342 checks de auditoría CON su repo real
+(0 avisos) · los 17 diferenciales en verde, ejecutando su código. 0 fallos.**

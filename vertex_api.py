@@ -4576,12 +4576,19 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     # Los targets a 90/120/320 días. La matemática del agente sin tocar; lo
     # único distinto son los niveles, que ahí son los TRES de Drift.
     out["targets_drift"] = _tito_targets_drift(r, out["drift"])
+    _geo_drift = _tito_geometria_drift(r, out["targets_drift"])
     # El spot no salió de una sesión en curso sino del cierre anterior. Va al
     # payload SIEMPRE que sea así, porque el spot ancla los nodos del GEX, la
     # ventana de strikes, los niveles, el cono y los tres targets: leerlos sin
     # saberlo es leerlos mal.
     out["spot_previo"] = bool(_meta_cadena.get("spot_previo"))
+    # El cono y las rutas, para los horizontes del agente Y para los de Drift.
+    # Sin la segunda mitad, elegir «3 meses · Drift» dejaba la gráfica con
+    # «Sin datos»: `renderVictorProjChart` busca el horizonte en el payload y
+    # ahí no había nada.
     out["chart_geometry"] = _tito_chart_geometry(r)
+    if _geo_drift:
+        out["chart_geometry"] = dict(out["chart_geometry"] or {}, **_geo_drift)
     out["flow_clusters"] = _tito_clusters(trades, now)
     # La ficha de la empresa (`CompanyHeader`) y la cadena entera
     # (`OptionChainTable` + `ChartPanel`). El motor no las necesita —puntúa con
@@ -4920,17 +4927,34 @@ def _tito_targets_drift(r, drift):
         if b.get("solapa_motor"):
             continue                       # el de 30 días ya lo cubre el agente
         niveles = []
-        for strike, lado in ((b.get("muro_puts"), "put"),
-                             (b.get("magneto"), "call" if (b.get("magneto_nocional") or 0) >= 0 else "put"),
-                             (b.get("muro_calls"), "call")):
+        _iman_lado = "call" if (b.get("magneto_nocional") or 0) >= 0 else "put"
+        for strike, lado, lado_es_iman in (
+                (b.get("muro_puts"), "put", False),
+                (b.get("magneto"), _iman_lado, True),
+                (b.get("muro_calls"), "call", False)):
             if strike is None:
                 continue
             niveles.append(LevelInput(
                 strike=float(strike),
-                # Los tres pesan igual: son los tres niveles que él publica, sin
-                # jerarquía entre ellos. Inventar una aquí —dar más peso al imán,
-                # por ejemplo— sería meter un modelo que ni él ni el agente tienen.
-                concentration=1.0,
+                # El IMÁN lleva la concentración; los muros, no. No es un peso
+                # inventado: `concentration` significa «cuánto dinero hay
+                # concentrado ahí», y el imán ES por definición el strike con
+                # más nocional. Un muro es el mayor interés abierto de su lado
+                # —una frontera—, que es otra cosa.
+                #
+                # Y arreglarlo importaba de verdad. Con los tres a 1.0,
+                # `predict_pro` ordena por `probabilidad × concentración`, así
+                # que ganaba el nivel MÁS CERCA del precio: con el spot en
+                # $216,63 el escenario base se anclaba en el muro de puts
+                # ($200) y el texto decía «Nivel imán… $200,00» mientras la
+                # línea de arriba decía «imán $250». Los dos números de Drift
+                # se contradecían en la misma pantalla.
+                #
+                # El 0.0 de los muros no los borra: `level_probabilities` los
+                # sube a un piso de 0,01 —«sigue siendo alcanzable, solo pesa
+                # poco»—, que es justo su papel: marcar el techo y el suelo de
+                # los escenarios, no atraer el precio.
+                concentration=(1.0 if lado_es_iman else 0.0),
                 side=lado,
                 # Drift no calcula GEX y no se inventa uno. `predict_pro` no lee
                 # este campo: solo `strike`, `concentration` y `side`.
@@ -4977,6 +5001,68 @@ def _tito_targets_drift(r, drift):
             "duplicado": bool(b.get("duplicado")),
         }
     return fuera
+
+
+def _tito_geometria_drift(r, targets):
+    """El cono y las rutas para los horizontes de Drift (90/120/320).
+
+    Sin esto, elegir «3 meses · Drift» dejaba la gráfica con «Sin datos»:
+    `renderVictorProjChart` busca el horizonte en el payload y ahí no había
+    nada. La gráfica sabe caer a su fórmula local, pero el cono lo tiene que
+    calcular **el motor** — es la regla que este proyecto ya se puso cuando la
+    misma fórmula estaba escrita dos veces y nada garantizaba que las dos
+    copias siguieran coincidiendo.
+
+    Se dibuja al **DTE REAL** del vencimiento, no al objetivo redondo: un cono
+    de 320 días sobre un contrato que vence a 330 mentiría diez días de
+    volatilidad, y el ancho del cono es lo que decide si un target es
+    alcanzable.
+    """
+    if not targets:
+        return {}
+    try:
+        from wbj.tito.expected_move import (cone_points, expected_move,
+                                            prediction_path)
+    except Exception:
+        return {}
+    spot = r.spot
+    iv = (r.gex.iv if r.gex and r.gex.iv else 0.0) or 0.4
+    if not (spot > 0):
+        return {}
+    geo = {}
+    for h, t in targets.items():
+        dias = float(t.get("dte_real") or 0)
+        if dias <= 0:
+            continue
+        try:
+            cono = cone_points(spot, iv, dias, _CONO_STEPS)
+            rutas = {}
+            for clave, seed in _ESCENARIOS:
+                objetivo = (t.get(clave) or {}).get("target")
+                if objetivo is None:
+                    continue
+                ruta = prediction_path(spot, float(objetivo), iv, dias, _RUTA_STEPS)
+                rutas[clave] = {
+                    "seed": seed, "target": round(ruta.target, 4),
+                    "clamped": bool(ruta.clamped),
+                    "points": [{"t": round(x, 4), "price": round(pr, 4)}
+                               for x, pr in ruta.points],
+                }
+            em = expected_move(spot, iv, dias)
+            geo[str(h)] = {
+                "iv": round(iv, 6),
+                "em": {"sigma_pct": round(em.sigma_pct, 4),
+                       "lower1": round(em.lower1, 4), "upper1": round(em.upper1, 4),
+                       "lower2": round(em.lower2, 4), "upper2": round(em.upper2, 4)},
+                "cone": [{"t": round(c.t, 4),
+                          "upper1": round(c.upper1, 4), "lower1": round(c.lower1, 4),
+                          "upper2": round(c.upper2, 4), "lower2": round(c.lower2, 4)}
+                         for c in cono],
+                "paths": rutas,
+            }
+        except Exception:                  # noqa: BLE001 — ilustra, no decide
+            continue
+    return geo
 
 
 def _tito_chart_levels(r, max_per_side=2, min_strength=25):
