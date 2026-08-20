@@ -587,6 +587,70 @@ class TestEnInglesNoQuedaEspanol:
         assert "Expected move" in txt and "68% of scenarios" in txt, txt
         assert "Extreme range" in txt, txt
 
+    def test_DRIFT_se_traduce_entero_incluidas_las_frases_del_MOTOR(self, pagina):
+        """Drift trae texto escrito en `drift.py`, no solo etiquetas del panel.
+
+        La etiqueta del plazo («Largo ~320 DTE»), la lectura de su §6 y el
+        motivo de un plazo sin datos los redacta el servidor **en español**.
+        Llegan traducidos porque se pintan cada uno en su propio nodo de texto
+        y el barrido no distingue de dónde vino la cadena: solo mira el DOM.
+        Si alguien vuelve a meter un número en medio de una frase, esto se
+        pone rojo.
+        """
+        pagina.evaluate("""() => {
+            const b = (obj) => Object.assign({
+                sentimiento: 'Largo', vencimiento: '2027-07-16', dte_real: 330,
+                muro_calls: 500, muro_calls_oi: 12000,
+                muro_puts: 200, muro_puts_oi: 8000,
+                magneto: 500, magneto_nocional: 6e8, sigma: 110,
+                total_oi: 90000, nocional_neto: 4e8, breakout: false,
+                duplicado: false, solapa_motor: false}, obj);
+            window._sondaDrift = {drift: {
+                spot: 300, iv: 0.38,
+                iv_fuente: 'volatilidad realizada del motor (no IV de la cadena)',
+                mensuales: 9, motivo: '',
+                sin_datos: [{etiqueta: 'Largo ~320 DTE', dte_objetivo: 320,
+                             motivo: 'el mensual m\u00e1s cercano est\u00e1 a 120 d\u00edas y el '
+                                     + 'objetivo son 320: la cadena no llega tan lejos'}],
+                buckets: [
+                    b({etiqueta: 'Largo ~120 DTE', dte_objetivo: 120,
+                       deriva: 'DENTRO DEL RANGO \u00b7 atracci\u00f3n: el im\u00e1n de nocional '
+                             + 'est\u00e1 en 500,00 y domina el lado de las calls. El precio '
+                             + 'tiende a gravitar hacia \u00e9l.'}),
+                    b({etiqueta: 'Corto ~90 DTE', sentimiento: 'Corto', dte_objetivo: 90,
+                       breakout: true,
+                       deriva: 'RUPTURA al alza: el precio est\u00e1 fuera del rango de muros '
+                             + '[200,00 \u2013 500,00]. El siguiente muro est\u00e1 en 500,00.'}),
+                ]}, spot: 300};
+            renderProjDrift(window._sondaDrift);
+        }""")
+        pagina.wait_for_timeout(900)
+        txt = pagina.evaluate(
+            "() => document.getElementById('projDriftCard').innerText")
+        for palabra in ("Largo ~120 DTE", "Corto ~90 DTE", "Plazo", "Lectura",
+                        "Im\u00e1n de nocional", "DENTRO DEL RANGO", "RUPTURA al alza",
+                        "la cadena no llega tan lejos"):
+            assert palabra not in txt, (
+                f"«{palabra}» sigue en español con el panel en inglés:\n{txt[:600]}")
+        assert "Long ~120 DTE" in txt and "Short ~90 DTE" in txt, txt[:600]
+        assert "INSIDE THE RANGE" in txt and "BREAKOUT to the upside" in txt, txt[:600]
+        assert "the chain does not reach that far" in txt, txt[:600]
+
+    def test_las_tarjetas_agente_Drift_tambien(self, pagina):
+        """`Muro de calls / Drift` es una etiqueta COMPUESTA en JS.
+
+        El diccionario casa el nodo entero, así que «Muro de calls» a secas no
+        la alcanza: hace falta su propia entrada. Esto lo comprueba pintando.
+        """
+        falta = pagina.evaluate("""() => ({
+            calls: vxFrase('Muro de calls / Drift'),
+            puts: vxFrase('Muro de puts / Drift'),
+            iman: vxFrase('Nodo im\u00e1n / Drift'),
+        })""")
+        assert falta["calls"] == "Call wall / Drift", falta
+        assert falta["puts"] == "Put wall / Drift", falta
+        assert falta["iman"] == "Magnet node / Drift", falta
+
     def test_el_patron_de_la_cinta_traduce_con_el_corte_que_venga(self, pagina):
         """La frase lleva el número dentro, así que el escáner solo ve la mitad.
 

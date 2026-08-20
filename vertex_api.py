@@ -4572,6 +4572,7 @@ def projection_targets(ticker: str, ai_12m: float = 0.0, horizons: str = "10,20,
     ]
     out["levels_for_chart"] = _tito_chart_levels(r)
     out["gex_heatmap"] = _tito_heatmap(chain or [], r, trades, now)
+    out["drift"] = _tito_drift(chain or [], r, now)
     out["chart_geometry"] = _tito_chart_geometry(r)
     out["flow_clusters"] = _tito_clusters(trades, now)
     # La ficha de la empresa (`CompanyHeader`) y la cadena entera
@@ -4780,6 +4781,70 @@ def _tito_heatmap(chain, r, trades, now):
                              {"strike": h.hottest_negative.strike,
                               "expiration": h.hottest_negative.expiration,
                               "net_gex": h.hottest_negative.net_gex}),
+    }
+
+
+def _tito_drift(chain, r, now):
+    """Drift Sentiment — los muros y el imán MEDIDOS, por vencimiento mensual.
+
+    Segunda lectura de la MISMA cadena que ya está en memoria: no baja nada, no
+    toca el score y no entra en `run_scorecard`. El GEX del motor es un modelo
+    (gamma de Black-Scholes con la IV estimada) y se apaga lejos del dinero;
+    esto es un recuento de interés abierto y nocional, así que sobre la misma
+    cadena los dos apuntan a strikes distintos sin que ninguno esté mal.
+
+    Para qué sirve cada plazo, que es la regla que pidió Kevin:
+
+    - **~30 DTE** → el único que solapa con los horizontes del motor (10/20/30).
+      Ahí se pintan los dos lado a lado: `Muro de calls / Drift → $310 / $400`.
+    - **90 / 120 / 320 DTE** → el motor no llega (sus `HORIZONS` cortan en 30 y
+      su GEX mira solo ±20% del spot). Ahí los muros y el imán salen **solo**
+      de Drift; lo demás del scorecard —score, régimen, categorías— sigue
+      siendo del motor exactamente igual.
+
+    La IV es la estimada del motor (`gex.estimate_iv`, volatilidad realizada),
+    no la implícita de la cadena: el plan de Massive no la devuelve por
+    contrato. Va declarado en `iv_fuente` para que nadie lo confunda.
+
+    Nunca tumba la respuesta: si algo falla devuelve `None` y el panel pinta
+    solo la mitad del motor, que es la que ya tenía.
+    """
+    try:
+        from wbj.tito.drift import drift_analysis
+    except Exception:
+        return None
+    if not chain or not (r.spot > 0):
+        return None
+    try:
+        iv = r.gex.iv if (r.gex and r.gex.iv) else None
+        a = drift_analysis(chain, spot=r.spot, hoy=now.date(), iv=iv)
+    except Exception:
+        return None
+    return {
+        "spot": _r(a.spot),
+        "iv": _r(iv, 4) if iv else None,
+        "iv_fuente": "volatilidad realizada del motor (no IV de la cadena)",
+        "mensuales": a.mensuales,
+        "motivo": a.motivo,
+        "sin_datos": a.sin_datos,
+        "buckets": [{
+            # `sentimiento` no viaja suelto: ya va dentro de `etiqueta`
+            # ("Largo ~320 DTE"). Servirlo aparte solo daría un campo que el
+            # panel no puede pintar sin repetir lo que tiene al lado.
+            "etiqueta": b.etiqueta,
+            "dte_objetivo": b.dte_objetivo, "vencimiento": b.vencimiento,
+            "dte_real": b.dte_real,
+            "muro_calls": _r(b.muro_calls), "muro_calls_oi": b.muro_calls_oi,
+            "muro_puts": _r(b.muro_puts), "muro_puts_oi": b.muro_puts_oi,
+            "magneto": _r(b.magneto), "magneto_nocional": b.magneto_nocional,
+            "sigma": _r(b.sigma), "total_oi": b.total_oi,
+            "nocional_neto": b.nocional_neto,
+            "deriva": b.deriva, "breakout": b.breakout,
+            "duplicado": b.duplicado,
+            # El que solapa con los horizontes del motor (10/20/30) se pinta al
+            # lado del suyo; los demás van solos porque el motor no llega.
+            "solapa_motor": b.dte_objetivo <= 30,
+        } for b in a.buckets],
     }
 
 
@@ -5267,6 +5332,29 @@ def tito_health(ticker: str = "AAPL"):
                 + (" · TRUNCADA" if ch.truncated else ""),
                 None if ch.rows else f"¿{tk} tiene opciones listadas?",
                 None if ch.rows else "Estructura sin score y salvaguarda de liquidez activa")
+            # Drift no es un sub-agente y no puntúa, pero SÍ es lo único que
+            # contesta a 90/120/320 días, y su materia prima es esta misma
+            # cadena. Un plan que corta la cadena antes de los mensuales
+            # lejanos deja esos plazos vacíos sin que nada más lo note.
+            try:
+                from wbj.tito.drift import DTE_OBJETIVO, drift_analysis
+                _sp = _px if isinstance(_px, (int, float)) and _px else ch.underlying_price
+                _dr = drift_analysis(ch.rows, spot=float(_sp or 0),
+                                     hoy=datetime.now(timezone.utc).date())
+                _n, _de = len(_dr.buckets), len(DTE_OBJETIVO)
+                add("drift.plazos", _n == _de,
+                    (f"{_n} de {_de} plazos con datos · {_dr.mensuales} vencimientos "
+                     f"mensuales en la cadena") if _n else
+                    (_dr.motivo or "ningún plazo se pudo resolver"),
+                    None if _n == _de else
+                    "la cadena no llega a los mensuales lejanos: es el tope de "
+                    "páginas de Massive, no un fallo de Drift",
+                    None if _n == _de else
+                    "los muros y el imán de los plazos que falten no se pintan; "
+                    "el scorecard y sus 6 sub-agentes no se ven afectados")
+            except Exception as e:                 # noqa: BLE001 — se reporta
+                add("drift.plazos", False, f"no se pudo calcular: {e}", None,
+                    "sin lectura de 90/120/320 días")
             # EN DIRECTO a propósito, sin pasar por `daily_bars_for_panel`: el
             # trabajo de este check es probar que Massive responde, y una
             # respuesta servida del cache taparía justo la caída que busca.

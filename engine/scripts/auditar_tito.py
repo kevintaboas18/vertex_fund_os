@@ -1986,6 +1986,59 @@ for _d in CON_BASURA:
         print(f"      {_d:<18} {len(_json.loads(_base.read_text()))} divergencias "
               "declaradas por ID (falla si aparece una nueva)")
 
+# ─────────────────────────────────────────────────────────────────────
+sec("Drift Sentiment — el OTRO agente suyo, encima de la misma cadena")
+
+# `drift.py` NO sale de `agente-tito-metralleta`: es el port de su
+# `drift-sentiment-agent`, otro repositorio. Por eso no está en
+# `MODULOS_SUYOS` —ese registro cubre su `web/lib` y solo ése— y por eso
+# tiene su propia sección: lo que hay que vigilar aquí no es que coincida con
+# su TypeScript, sino que **no se meta donde no debe**.
+_DR = TITO_DIR / "drift.py"
+chk(_DR.exists(), "existe engine/wbj/tito/drift.py")
+if _DR.exists():
+    _src = _DR.read_text(encoding="utf-8")
+    # 1. No puntúa. Es la línea que separa "una lectura más" de "otro motor".
+    chk("run_scorecard" not in _src and "scorecard" not in _src,
+        "drift.py no toca el scorecard: no puntúa, solo mide")
+    # 2. Funciones puras. Sin red, sin disco y sin reloj propio: `hoy` entra
+    #    por parámetro, que es lo que hace el análisis reproducible.
+    _sucio = [t for t in ("requests", "urllib", "open(", "datetime.now", "date.today")
+              if t in _src]
+    chk(not _sucio, "drift.py es puro: ni red, ni disco, ni reloj"
+        + (f" · encontrado: {_sucio}" if _sucio else ""))
+    # 3. El guardián contra la cadena cortada. Sin tolerancia, el plazo de 320
+    #    días resolvería al mensual de 120 que sí llegó y lo pintaría con la
+    #    etiqueta de 320: no falla, MIENTE.
+    chk("tolerancia_dte" in _src and "abs(dte - objetivo) > tol" in _src,
+        "un vencimiento demasiado lejos del objetivo se RECHAZA con su motivo")
+    # 4. El sesgo del nocional, dicho de frente en el propio módulo.
+    chk("sesgo" in _src.lower() and "strike" in _src,
+        "el sesgo del nocional hacia los strikes altos está declarado")
+    # 5. La IV no es la de la cadena y el módulo lo dice.
+    chk("no es la de la cadena" in _src.lower() or "IV no es" in _src,
+        "declara que la IV del cono es la REALIZADA, no la implícita")
+
+chk('out["drift"] = _tito_drift(' in API,
+    "/api/projection-targets sirve `drift` junto al scorecard")
+chk("_tito_drift" in API and "return None" in API.split("def _tito_drift", 1)[-1][:2000],
+    "si Drift falla devuelve None y los targets siguen saliendo")
+# El reparto que pidió Kevin: los dos números a 10/20/30 días, y SOLO Drift a
+# 90/120/320, donde el motor no llega.
+chk("solapa_motor" in API and "b.dte_objetivo <= 30" in API,
+    "el bucket que solapa con los horizontes del motor (≤30 DTE) va marcado")
+chk("Muro de calls / Drift" in HTML and "Muro de puts / Drift" in HTML
+    and "Nodo imán / Drift" in HTML,
+    "el panel pinta las tres tarjetas en formato `agente/Drift`")
+chk("projDriftCard" in HTML and "renderProjDrift" in HTML,
+    "los plazos largos (90/120/320) tienen su propia tarjeta, solo con Drift")
+chk("drift.plazos" in API and "drift.plazos" in HTML,
+    "la pestaña de Cobertura dice si Drift se quedó sin plazos y por qué")
+# Que el score no se mueva no es una promesa: hay un test que lo mide.
+_tw = (VERTEX / "tests_vertex" / "test_tito_wiring.py").read_text(encoding="utf-8")
+chk("test_el_SCORE_no_se_mueve_por_tener_drift" in _tw,
+    "un test compara el score CON y SIN drift y exige que sea el mismo")
+
 # Lo único que NINGUNA de las comprobaciones de arriba puede dar: la forma REAL
 # de la respuesta de Massive y de MarketSnack. Todo lo demás corre sin red
 # porque el contenedor bloquea los dos dominios; eso no se puede arreglar desde

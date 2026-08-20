@@ -5204,6 +5204,10 @@ const VC_SALUD_QUIEN = {
     'MASSIVE_API_KEY':        'Estructura · GEX · niveles · escenarios',
     'massive.snapshot':       'el spot de todo el tab',
     'massive.cadena':         'Estructura (sub-agente 4)',
+    // Drift NO es un sub-agente y no puntúa: por eso la columna dice lo que
+    // se pierde, no a quién le baja el score. A 90/120/320 días es lo único
+    // que contesta, así que su cobertura merece una fila propia.
+    'drift.plazos':           'los muros y el imán de 90/120/320 días (Drift)',
     'massive.barras':         'niveles, escenarios y el backtest del 6',
     'massive.barras.cache':   'velocidad, no exactitud',
     'MARKETSNACK_COOKIE':     'Agresividad · Convicción · Inusualidad · Contexto IV',
@@ -7267,6 +7271,93 @@ function renderVictorTargets(d) {
     if (!d.news) vcLoadNews(d);
 }
 
+/* ── DRIFT SENTIMENT ────────────────────────────────────────────────────
+ *
+ *  Segunda lectura de la MISMA cadena que ya trajo el motor. Nada de esto
+ *  entra en el puntaje: el score de 6 sub-agentes se calcula exactamente
+ *  igual que antes de que Drift existiera. Aquí solo se pinta.
+ *
+ *  Sobre el troceado del texto: cada frase fija va en su propio `<span>` y
+ *  cada número dentro de un `<b>`. No es decoración — el traductor trabaja
+ *  NODO A NODO, así que una frase con un `${}` en medio llega partida y no
+ *  casa con nada del diccionario. Separando el texto de los números, la
+ *  frase entera es un solo nodo y tiene traducción.
+ */
+
+/** Motivo por el que un plazo de Drift no tiene numero, si es que no lo tiene. */
+function vcDriftMotivo(dr, dte) {
+    const f = (dr.sin_datos || []).find(x => x.dte_objetivo === dte);
+    return f ? f.motivo : (dr.motivo || '');
+}
+
+/** La nota al pie de las tarjetas: que mide Drift y por que no coincide. */
+function vcDriftNota(dr, dr30) {
+    const cls = 'col-span-2 sm:col-span-3 lg:col-span-6 text-[9px] text-gray-500 leading-relaxed';
+    if (!dr30) {
+        const m = vcDriftMotivo(dr, 30);
+        return `<p class="${cls}"><b class="text-sky-300">Drift</b> <span>no tiene número para el plazo de ~30 días.</span>${
+            m ? ` <span>${_vcEsc(m)}</span>` : ''}</p>`;
+    }
+    const dup = dr30.duplicado
+        ? ` <span class="text-amber-400">Este vencimiento es el mismo que otro plazo: la cadena no da para separarlos.</span>` : '';
+    return `<p class="${cls}"><b class="text-sky-300">Drift</b> <span>mide el mensual del</span> <b>${_vcEsc(dr30.vencimiento)}</b> (<b>${dr30.dte_real} DTE</b>). <span>Interés abierto y nocional publicados por el mercado, sin modelo que pueda fallar. El número del motor es gamma de dealer sobre los strikes a ±20% del spot. Apuntan a strikes distintos a propósito, y ninguno de los dos está mal.</span>${dup}</p>`;
+}
+
+/** Los plazos que el motor NO ve: 90 / 120 / 320 dias.
+ *
+ *  Aqui el muro de calls, el muro de puts y el iman salen SOLO de Drift,
+ *  porque el motor no llega: sus horizontes cortan en 30 dias y su GEX mira
+ *  solo los strikes a +-20% del spot. Todo lo demas del scorecard —puntaje,
+ *  regimen, categorias, targets— sigue siendo del motor, sin tocar.
+ */
+function renderProjDrift(d) {
+    const caja = document.getElementById('projDriftCard');
+    if (!caja) return;
+    const dr = d.drift || {};
+    const largos = (dr.buckets || []).filter(b => !b.solapa_motor);
+    const faltan = (dr.sin_datos || []).filter(x => x.dte_objetivo > 30);
+    const cuerpo = document.getElementById('projDriftBody');
+    if (!largos.length && !faltan.length) { caja.classList.add('hidden'); return; }
+    caja.classList.remove('hidden');
+
+    const px = v => v == null ? '—' : '$' + Number(v).toFixed(2);
+    const spot = Number(dr.spot) || Number(d.spot) || 0;
+    const dist = v => (v == null || !(spot > 0)) ? '' :
+        `<span class="text-[9px] text-gray-600">${(((v - spot) / spot) * 100).toFixed(1)}%</span>`;
+
+    const filas = largos.map(b => {
+        const cono = b.sigma == null ? '—'
+            : `${px(spot - b.sigma)} – ${px(spot + b.sigma)}`;
+        return `<tr class="border-b border-gray-900">
+            <td class="py-1.5 pr-3 font-bold text-white"><span>${_vcEsc(b.etiqueta)}</span>${
+                b.duplicado ? ` <span class="text-amber-400 text-[9px]">vencimiento repetido</span>` : ''}</td>
+            <td class="py-1.5 pr-3 text-gray-400">${_vcEsc(b.vencimiento)}<br><span class="text-[9px] text-gray-600">${b.dte_real} DTE · OI ${vcCant(b.total_oi)} · <span class="${b.nocional_neto >= 0 ? 'text-emerald-500/80' : 'text-red-500/80'}">${b.nocional_neto >= 0 ? '+' : '−'}${fmtAbbr(Math.abs(b.nocional_neto))}</span></span></td>
+            <td class="py-1.5 pr-3 text-right text-emerald-400 font-bold">${px(b.muro_puts)}<br>${dist(b.muro_puts)} <span class="text-[9px] text-gray-600">OI ${vcCant(b.muro_puts_oi)}</span></td>
+            <td class="py-1.5 pr-3 text-right text-red-400 font-bold">${px(b.muro_calls)}<br>${dist(b.muro_calls)} <span class="text-[9px] text-gray-600">OI ${vcCant(b.muro_calls_oi)}</span></td>
+            <td class="py-1.5 pr-3 text-right text-sky-300 font-bold">${px(b.magneto)}<br><span class="text-[9px] text-gray-600">${b.magneto_nocional > 0 ? 'calls' : 'puts'} · ${fmtAbbr(Math.abs(b.magneto_nocional))}</span></td>
+            <td class="py-1.5 pr-3 text-right text-gray-300 tabular-nums">${cono}</td>
+            <td class="py-1.5 text-[10px] ${b.breakout ? 'text-amber-300' : 'text-gray-400'}"><span>${_vcEsc(b.deriva)}</span></td>
+        </tr>`;
+    }).join('');
+
+    // Un plazo sin datos NO se calla: se dice cuál y por qué. Sin evidencia no
+    // hay número, y una fila que falta sin explicación parece un fallo.
+    const sin = faltan.map(x => `<tr class="border-b border-gray-900"><td colspan="7" class="py-1.5 text-[10px] text-amber-300"><span>${_vcEsc(x.etiqueta)}</span> — <span>${_vcEsc(x.motivo)}</span></td></tr>`).join('');
+
+    cuerpo.innerHTML = `<div class="vc-scroll overflow-x-auto"><table class="vc-t w-full text-[11px] min-w-[720px]">
+        <thead><tr class="border-b border-gray-800 text-gray-500 text-[9px] uppercase">
+            <th class="text-left pb-1.5 pr-3">Plazo</th>
+            <th class="text-left pb-1.5 pr-3">Vencimiento</th>
+            <th class="text-right pb-1.5 pr-3">Muro de puts</th>
+            <th class="text-right pb-1.5 pr-3">Muro de calls</th>
+            <th class="text-right pb-1.5 pr-3">Im&aacute;n de nocional</th>
+            <th class="text-right pb-1.5 pr-3">Cono 1&sigma;</th>
+            <th class="text-left pb-1.5">Lectura</th>
+        </tr></thead><tbody>${filas}${sin}</tbody></table></div>
+        <p class="text-[9px] text-gray-500 italic mt-2 leading-relaxed"><span>El im&aacute;n multiplica contratos por strike, as&iacute; que a igualdad de contratos un strike m&aacute;s alto da m&aacute;s nocional: tiende a salir por encima del precio por construcci&oacute;n. El OI y el neto de cada fila son los del vencimiento entero, no los del strike.</span><br><span>Vencimientos mensuales en la cadena:</span> <b>${dr.mensuales}</b> &middot; <span>IV del cono:</span> <span>${_vcEsc(dr.iv_fuente || '')}</span></p>`;
+    vcTablaResponsive('projDriftBody');
+}
+
 function renderProjections(d) {
     const g = d.gex || {}, spot = Number(d.spot), pos = g.regime === 'positive';
 
@@ -7286,26 +7377,58 @@ function renderProjections(d) {
         <div class="text-base font-extrabold ${cls || 'text-white'}">${val}</div>
         ${sub ? `<div class="text-[8px] text-gray-600">${sub}</div>` : ''}</div>`;
 
+    // ── Drift: la MISMA cadena, MEDIDA en vez de modelada ────────────────
+    // El GEX de arriba es un modelo (gamma de Black-Scholes con la IV
+    // estimada) y se apaga lejos del dinero; Drift cuenta interés abierto y
+    // nocional del vencimiento mensual, que son hechos publicados. Sobre la
+    // misma cadena apuntan a strikes distintos y ninguno está mal.
+    //
+    // Formato `agente/Drift`: el número del motor y el de Drift juntos. Al
+    // lado va SOLO el bucket de ~30 DTE, el único que solapa con los
+    // horizontes del motor (10/20/30). Los de 90/120/320 van en su propio
+    // bloque, porque ahí el motor no llega y el muro y el imán salen solo
+    // de Drift.
+    const dr = d.drift || {};
+    const dr30 = (dr.buckets || []).find(b => b.solapa_motor) || null;
+    const drSub = (base, extra) => [base, extra].filter(Boolean).join(' · ');
+    const dual = (lbl, val, cls, sub, dv, dsub) => dr30
+        ? card(lbl + ' / Drift',
+               money(val) + ' <span class="text-gray-600 font-normal">/</span> <span class="text-sky-300">' + money(dv) + '</span>',
+               cls, drSub(sub, dsub))
+        : card(lbl, money(val), cls, sub);
+
     const st = d.structure || {};
     const pc = (st.put_pct != null && st.call_pct != null && st.call_pct > 0)
         ? (st.put_pct / st.call_pct) : null;
 
     document.getElementById('projCards').innerHTML =
         card('Spot', money(spot)) +
-        card('Muro de calls', money(cw), 'text-red-400',
-             cwN ? 'GEX ' + fmtAbbr(cwN.net_gex) : '') +
-        card('Muro de puts', money(pw), 'text-emerald-400',
-             pwN ? 'GEX ' + fmtAbbr(pwN.net_gex) : '') +
+        dual('Muro de calls', cw, 'text-red-400',
+             cwN ? 'GEX ' + fmtAbbr(cwN.net_gex) : '',
+             dr30 ? dr30.muro_calls : null,
+             dr30 ? 'OI ' + vcCant(dr30.muro_calls_oi) : '') +
+        dual('Muro de puts', pw, 'text-emerald-400',
+             pwN ? 'GEX ' + fmtAbbr(pwN.net_gex) : '',
+             dr30 ? dr30.muro_puts : null,
+             dr30 ? 'OI ' + vcCant(dr30.muro_puts_oi) : '') +
         card('Gamma Flip', money(flip), 'text-purple-400',
              flip != null ? (spot >= flip ? 'spot por encima' : 'spot por debajo') : '') +
         // Sustituye al Max Pain, que Víctor NO calcula: el nodo imán es su
-        // equivalente funcional — el precio al que la gamma tira.
-        card('Nodo imán', money(iman), 'text-blue-300',
-             g.direction ? ({ up: 'empuja al alza', down: 'empuja a la baja', flat: 'lateral' })[g.direction] : '') +
+        // equivalente funcional — el precio al que la gamma tira. Al lado, el
+        // imán de Drift, que es el strike con más NOCIONAL (no más gamma).
+        dual('Nodo imán', iman, 'text-blue-300',
+             g.direction ? ({ up: 'empuja al alza', down: 'empuja a la baja', flat: 'lateral' })[g.direction] : '',
+             dr30 ? dr30.magneto : null,
+             dr30 ? (dr30.magneto_nocional > 0 ? 'nocional de calls' : 'nocional de puts') : '') +
         card('GEX neto', fmtAbbr(g.total_net_gex), pos ? 'text-emerald-400' : 'text-red-400',
              (g.n != null ? g.n + ' strikes cerca del spot' : '')) +
         (pc != null ? card('Put/Call', pc.toFixed(2), pc > 1 ? 'text-red-400' : 'text-emerald-400',
-                           'por nocional de la cadena') : '');
+                           'por nocional de la cadena') : '') +
+        vcDriftNota(dr, dr30);
+
+    // Los plazos largos van en su propia tarjeta: 90/120/320 dias, donde el
+    // motor no llega y los muros y el iman salen SOLO de Drift.
+    renderProjDrift(d);
 
     // ── Escenarios deterministas, sobre SUS niveles ──────────────────────
     const pct = (a, b) => (a && b) ? `${(((a - b) / b) * 100).toFixed(1)}%` : '';
@@ -7453,6 +7576,9 @@ function renderProjGammaPorStrike(d) {
 const VC_INT   = new Intl.NumberFormat('en-US');
 const VC_MONEY = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 2 });
 const VC_MONEY0= new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+// Compacto SIN moneda. `fmtAbbr` mete el signo de dolar, y el interes abierto
+// se cuenta en CONTRATOS: "$11K" ahi seria una cifra de dinero que nadie midio.
+const VC_CANT  = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 const VC_PX    = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const VC_PCT   = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'always' });
 const VC_ET    = 'America/New_York';
@@ -8647,6 +8773,12 @@ let backfillPoll = null;
 function fmtAbbr(v) {
     if (v == null || isNaN(v)) return '—';
     return VC_MONEY.format(Number(v));
+}
+
+/** Cantidad compacta SIN moneda: contratos, no dolares. */
+function vcCant(v) {
+    if (v == null || isNaN(v)) return '—';
+    return VC_CANT.format(Number(v));
 }
 
 /** Su `money0` de `format.ts`: dólares EXACTOS, sin decimales.
@@ -11576,6 +11708,17 @@ function analyzeTickerNow(tk) {
             <div id="projTargets"></div>
         </div>
 
+        <!-- Drift: los plazos que el motor NO ve (90 / 120 / 320 dias).
+             Sus horizontes cortan en 30 y su GEX mira solo los strikes a
+             +-20% del spot, asi que para estos plazos el muro de calls, el de
+             puts y el iman salen SOLO de Drift. El resto del scorecard
+             -puntaje, regimen, categorias, targets- sigue siendo del motor. -->
+        <div id="projDriftCard" class="bg-panel border border-panel rounded-2xl p-5 hidden">
+            <h3 class="text-xs font-extrabold text-sky-400 uppercase tracking-widest mb-1 flex items-center gap-2"><i data-lucide="compass" class="w-4 h-4"></i> Drift &mdash; Plazos Largos <span class="text-[9px] text-gray-600 normal-case font-normal tracking-normal">(90 / 120 / 320 d&iacute;as, vencimientos mensuales)</span></h3>
+            <p class="text-[11px] text-gray-500 italic mb-3">El motor corta en <b>30 d&iacute;as</b>: ah&iacute; est&aacute;n sus horizontes y su GEX solo mira los strikes a &plusmn;20% del spot. Para estos plazos el <b>muro de calls</b>, el <b>muro de puts</b> y el <b>im&aacute;n de nocional</b> salen de Drift, y solo de Drift &mdash; interés abierto y nocional publicados por el mercado. Todo lo dem&aacute;s del scorecard sigue siendo del motor, exactamente igual.</p>
+            <div id="projDriftBody"></div>
+        </div>
+
         <!-- Escenarios de precio (GEX) -->
         <div class="bg-panel border border-panel rounded-2xl p-5">
             <h3 class="text-xs font-extrabold text-blue-500 uppercase tracking-widest mb-3 flex items-center gap-2"><i data-lucide="git-branch" class="w-4 h-4"></i> Escenarios de Precio (GEX)</h3>
@@ -14171,6 +14314,60 @@ const VX_ES2EN = {
     "Inicia sesión": "Sign in",
     "Marcar leídas": "Mark as read",
     "Muro de calls": "Call wall",
+
+    // ── DRIFT SENTIMENT ─────────────────────────────────────────────────
+    // El nombre «Drift» no se traduce: es el del agente. Lo que se traduce es
+    // todo lo que lo rodea, incluidas las frases que ESCRIBE EL MOTOR
+    // (`drift.py`) y que llegan dentro del payload — se pintan en un nodo de
+    // texto propio justo para que el barrido pueda alcanzarlas.
+    "Muro de calls / Drift": "Call wall / Drift",
+    "Muro de puts / Drift": "Put wall / Drift",
+    "Nodo imán / Drift": "Magnet node / Drift",
+    "nocional de calls": "call notional",
+    "nocional de puts": "put notional",
+    "Drift — Plazos Largos": "Drift — Long Horizons",
+    "(90 / 120 / 320 días, vencimientos mensuales)":
+        "(90 / 120 / 320 days, monthly expirations)",
+    "El motor corta en": "The engine stops at",
+    "30 días": "30 days",
+    ": ahí están sus horizontes y su GEX solo mira los strikes a ±20% del spot. Para estos plazos el":
+        ": that is where its horizons end, and its GEX only looks at strikes within ±20% of spot. For these horizons the",
+    "salen de Drift, y solo de Drift — interés abierto y nocional publicados por el mercado. Todo lo demás del scorecard sigue siendo del motor, exactamente igual.":
+        "come from Drift, and from Drift only — open interest and notional published by the market. Everything else in the scorecard is still the engine's, exactly as before.",
+    "Plazo": "Horizon",
+    "Imán de nocional": "Notional magnet",
+    "imán de nocional": "notional magnet",
+    "los muros y el imán de 90/120/320 días (Drift)":
+        "the walls and the magnet at 90/120/320 days (Drift)",
+    "Lectura": "Reading",
+    "vencimiento repetido": "repeated expiration",
+    "mide el mensual del": "measures the monthly expiring",
+    "no tiene número para el plazo de ~30 días.":
+        "has no number for the ~30-day horizon.",
+    "Este vencimiento es el mismo que otro plazo: la cadena no da para separarlos.":
+        "This expiration is the same as another horizon's: the chain is not deep enough to separate them.",
+    "Interés abierto y nocional publicados por el mercado, sin modelo que pueda fallar. El número del motor es gamma de dealer sobre los strikes a ±20% del spot. Apuntan a strikes distintos a propósito, y ninguno de los dos está mal.":
+        "Open interest and notional published by the market, with no model that can fail. The engine's number is dealer gamma over strikes within ±20% of spot. They point at different strikes on purpose, and neither one is wrong.",
+    "El imán multiplica contratos por strike, así que a igualdad de contratos un strike más alto da más nocional: tiende a salir por encima del precio por construcción. El OI y el neto de cada fila son los del vencimiento entero, no los del strike.":
+        "The magnet multiplies contracts by strike, so at equal contract counts a higher strike yields more notional: it tends to land above the price by construction. The OI and the net of each row are the whole expiration's, not the strike's.",
+    "Vencimientos mensuales en la cadena:": "Monthly expirations in the chain:",
+    "IV del cono:": "Cone IV:",
+    // Lo escribe el servidor (`_tito_drift`): decir con qué IV se dibujó el
+    // cono es parte del dato, no un adorno.
+    "volatilidad realizada del motor (no IV de la cadena)":
+        "the engine's realized volatility (not the chain's IV)",
+    // Los motivos que escribe `drift.py` cuando un plazo NO se puede resolver.
+    // Sin evidencia no hay número, y el motivo se lee en pantalla.
+    "sin vencimientos futuros": "no future expirations",
+    "ese vencimiento no tiene calls y puts con interés abierto":
+        "that expiration has no calls and puts with open interest",
+    "La cadena no trajo contratos utilizables.":
+        "The chain returned no usable contracts.",
+    "Sin precio del subyacente.": "No underlying price.",
+    "La cadena no trae vencimientos mensuales (3.er viernes). Solo semanales.":
+        "The chain has no monthly expirations (3rd Friday). Weeklies only.",
+    "Ningún plazo se pudo resolver con esta cadena.":
+        "No horizon could be resolved with this chain.",
     "Prob. pérdida": "Loss prob.",
     "Rango del día": "Day range",
     "Recomendación": "Recommendation",
@@ -14284,6 +14481,23 @@ const VX_ES2EN = {
  * cada valor sería una entrada distinta. Van aquí, con `$1`, `$2`… en el
  * lugar de lo que se conserva tal cual. */
 const VX_PAT = [
+    // ── DRIFT SENTIMENT ─────────────────────────────────────────────────
+    //
+    // Las frases del motor (`drift.py`) llevan strikes y días dentro, así que
+    // ninguna cabe en el diccionario: van por patrón. Son las cuatro lecturas
+    // de su §6 más la etiqueta del plazo y el motivo de la cadena corta.
+    [/^Largo ~(\d+) DTE$/, 'Long ~$1 DTE'],
+    [/^Corto ~(\d+) DTE$/, 'Short ~$1 DTE'],
+    [/^RUPTURA al alza: el precio está fuera del rango de muros \[([\d.,]+) – ([\d.,]+)\]\. El siguiente muro está en ([\d.,]+)\.$/,
+     'BREAKOUT to the upside: price is outside the wall range [$1 – $2]. The next wall is at $3.'],
+    [/^RUPTURA a la baja: el precio está fuera del rango de muros \[([\d.,]+) – ([\d.,]+)\]\. El siguiente muro está en ([\d.,]+)\.$/,
+     'BREAKDOWN to the downside: price is outside the wall range [$1 – $2]. The next wall is at $3.'],
+    [/^DENTRO DEL RANGO · atracción: el imán de nocional está en ([\d.,]+) y domina el lado de las calls\. El precio tiende a gravitar hacia él\.$/,
+     'INSIDE THE RANGE · attraction: the notional magnet is at $1 and the call side dominates. Price tends to gravitate toward it.'],
+    [/^DENTRO DEL RANGO · rechazo: el imán de nocional está en ([\d.,]+) y domina el lado de las puts\. El precio tiende a irse a los extremos del rango\.$/,
+     'INSIDE THE RANGE · rejection: the notional magnet is at $1 and the put side dominates. Price tends to move to the edges of the range.'],
+    [/^el mensual más cercano está a (\d+) días y el objetivo son (\d+): la cadena no llega tan lejos$/,
+     'the nearest monthly is $1 days out and the target is $2: the chain does not reach that far'],
     // Los sectores: llevan el ticker o un número dentro de la frase.
     [/^Leyendo las empresas de (\S+)…$/, 'Reading the companies of $1…'],
     [/^(\d+) de (\d+) industrias al alza$/, '$1 of $2 industries rising'],

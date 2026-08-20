@@ -8731,3 +8731,124 @@ pendiente confirmarlo en su pantalla.
 
 **3.409 tests del motor · 892 de la capa web · 117 de navegador (19 nuevos) ·
 324 checks de auditoría contra su repo real, 0 fallos.**
+
+## 41.81 · Ronda 56 — Drift al lado del GEX: `call wall/Drift → $215/$225`
+
+> «Estará junto al gex, muros, imán del agente pero en el nombre al lado dirá
+> / Drift… si buscamos más tiempo (días/dte) de lo que el agente no pueda ver
+> ni analizar ya que son por meses se usará el drift obligatoriamente. Para
+> como está ahora que son semanas pues se usa ambos.»
+>
+> «Para el solo drift que son 90/120/320 días se usará el agente igual y todo,
+> solo que el call/put wall e imán se usará el de drift y no el del agente.»
+
+### Qué se añadió
+
+El port de su `drift-sentiment-agent` — **otro repositorio suyo**, no
+`agente-tito-metralleta`— sobre la cadena que Vertex ya tiene en memoria.
+`engine/wbj/tito/drift.py`: 333 líneas de funciones puras, sin red, sin disco
+y sin reloj propio (`hoy` entra por parámetro).
+
+### Por qué los dos números no coinciden, y por qué eso está bien
+
+No miden lo mismo:
+
+| | Qué calcula | Qué es |
+|---|---|---|
+| `gex.py` (el motor) | `γ × OI × 100 × spot² × 0,01` | un **modelo**: la gamma sale de Black-Scholes con una IV estimada, y se desploma lejos del dinero |
+| `drift.py` | `OI` y `OI × 100 × strike` | un **recuento**: interés abierto y nocional publicados, sin modelo que pueda fallar |
+
+Medido sobre la misma cadena sintética: el motor daba **$310** de muro de
+calls y Drift **$400**. El strike 400 tenía el mayor OI y su GEX era menor que
+el de un strike con la tercera parte de contratos, porque la gamma se apaga al
+alejarse del spot. Ninguno de los dos está mal — contestan preguntas
+distintas, y por eso se pintan **los dos**.
+
+### El reparto, que es exactamente lo que pidió
+
+- **10 / 20 / 30 días** → los dos números, lado a lado:
+  `Muro de calls / Drift` → `$310 / $400`. El bucket de Drift que se usa es el
+  de **~30 DTE**, el único que solapa con los horizontes del motor
+  (`run_scorecard(horizons=(10, 20, 30))`).
+- **90 / 120 / 320 días** → tarjeta aparte, y ahí los muros y el imán salen
+  **solo de Drift**. El motor no llega por dos motivos independientes: sus
+  horizontes cortan en 30 días, y su GEX solo mira los strikes a ±20% del
+  spot. Todo lo demás del scorecard —puntaje, veredicto, régimen, las seis
+  categorías— sigue siendo del motor, sin tocar una línea.
+
+### El fallo silencioso que había que tapar antes de servir el número
+
+La cadena de Massive se corta en 40 páginas y **los vencimientos lejanos son
+los primeros en caer**. Sin tope, el plazo de 320 días resolvería al mensual de
+120 que sí llegó y lo pintaría con la etiqueta de 320. Eso no falla: **miente**.
+
+`tolerancia_dte(objetivo) = max(45, objetivo // 4)` — un ciclo mensual y medio,
+o el 25% del objetivo. Fuera de ahí el plazo no se pinta: entra en `sin_datos`
+con el motivo escrito («el mensual más cercano está a 57 días y el objetivo son
+320: la cadena no llega tan lejos»), y el motivo se lee en pantalla.
+
+Se comprobó **en rojo**: con la guarda desactivada, los dos tests de
+`TestLaToleranciaDeDTE` fallan.
+
+### Lo que NO se tocó, y se mide
+
+`run_scorecard` recibe exactamente los mismos argumentos que antes. Drift es
+una segunda lectura de la misma cadena y se calcula **después**, en
+`_tito_drift`. Que el puntaje no se mueva no es una promesa:
+`test_el_SCORE_no_se_mueve_por_tener_drift` pide la ruta con Drift y con Drift
+apagado y exige `score`, `verdict` y las seis `scores` idénticos.
+
+Tampoco se subió `MASSIVE_MAX_PAGES`: la cuota de Massive es compartida con la
+Wheel, y una cadena más larga por un plazo de 320 días la pagarían las demás
+pantallas. Si la cadena no llega, se dice; no se compra.
+
+Y si Drift revienta, devuelve `None` y los targets salen igual — el mismo
+criterio que el heatmap y la geometría de la gráfica: **ilustra, no decide**.
+
+### El sesgo del nocional, dicho de frente
+
+`nocional = OI × 100 × strike` multiplica por el strike, así que **a igualdad
+de contratos un strike más alto da más nocional automáticamente**. El imán
+tiende a salir por encima del precio por construcción, no por señal. Está en la
+cabecera del módulo, en el pie de la tabla y en un test que lo mide.
+
+Igual con el cono: la σ usa la volatilidad **realizada** que estima el motor,
+no la implícita de la cadena —el plan de Massive no la devuelve por contrato—.
+El campo `iv_fuente` viaja en el payload y se pinta; servirlo sin decirlo sería
+vender una IV implícita que nadie midió.
+
+### Dónde se ve si Drift se quedó a oscuras
+
+- Bajo las tarjetas, la nota dice qué mensual midió y a cuántos días.
+- En la tabla larga, cada plazo sin datos sale con su motivo.
+- En la pestaña **Cobertura**, la fila `drift.plazos`: cuántos de los cuatro
+  plazos tienen datos y cuántos vencimientos mensuales trae la cadena. Su
+  columna «a quién afecta» dice lo que se pierde, no a quién le baja el score
+  — Drift **no es un sub-agente y no puntúa**.
+
+### El campo que se quitó antes de servirlo
+
+`sentimiento` («Largo»/«Corto») viajaba suelto y ya va dentro de `etiqueta`
+(«Largo ~320 DTE»). El guardián de hojas huérfanas lo cazó junto con
+`total_oi`, `nocional_neto`, `iv_fuente` y `mensuales`: los cuatro últimos se
+pintan, el primero se retiró. Un campo calculado y nunca pintado cuesta lo
+mismo y hace creer que la funcionalidad está.
+
+### i18n
+
+Las frases de Drift no las escribe el panel: **las escribe el motor** (la
+lectura de su §6, la etiqueta del plazo, el motivo del plazo sin datos). Llegan
+traducidas porque cada una se pinta en su propio nodo de texto —el barrido va
+nodo a nodo— y las que llevan números dentro van por `VX_PAT`. Siete patrones
+nuevos y 30 entradas de diccionario. Un test las mide **pintando la tarjeta con
+el panel en inglés**, no leyendo el archivo.
+
+`Muro de calls / Drift` necesita su propia entrada: la etiqueta se compone en
+JS y el diccionario casa el nodo entero, así que «Muro de calls» a secas no la
+alcanza.
+
+### Estado
+
+**3.439 tests del motor (30 nuevos) · 903 de la capa web (11 nuevos) ·
+127 de navegador (10 nuevos) · 280 checks de auditoría sin TITO_ROOT
+(los 324 con él no se pueden correr en este contenedor), 0 fallos.**

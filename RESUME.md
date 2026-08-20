@@ -50,6 +50,24 @@ los pinta. La tabla de industrias vive **solo** en el panel (el servidor cotiza
 los tickers que le pidan), y los umbrales viven **solo** en el motor: el panel
 pinta veredictos, no los recalcula.
 
+### Proyecciones: dos lecturas de la misma cadena
+
+El motor de Víctor calcula **gamma de dealer** (`γ × OI × 100 × spot² × 0,01`)
+sobre los strikes a ±20% del spot, y sus horizontes son 10/20/30 días. Encima
+va **Drift** (`engine/wbj/tito/drift.py`, port de su `drift-sentiment-agent`),
+que cuenta **interés abierto y nocional** por vencimiento mensual — hechos
+publicados, sin modelo.
+
+| Plazo | Muro de calls, muro de puts e imán |
+|---|---|
+| 10 / 20 / 30 días | **los dos**, lado a lado: `Muro de calls / Drift → $310 / $400` |
+| 90 / 120 / 320 días | **solo Drift** — el motor no llega hasta ahí |
+
+Apuntan a strikes distintos a propósito: la gamma se apaga lejos del dinero y
+el recuento de contratos no. Drift **no puntúa**: el score de 6 sub-agentes se
+calcula exactamente igual que antes de que existiera, y hay un test que lo
+compara con Drift encendido y apagado.
+
 ## Cómo se corre
 
 ```bash
@@ -68,9 +86,9 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 ## Tests
 
 ```bash
-cd engine && python -m pytest tests/ -q    # 3409 pasan, 0 skips
-python -m pytest tests_vertex/ -q          # 1009 pasan, 0 skips
-                                           # (892 de la capa web + 117 en un
+cd engine && python -m pytest tests/ -q    # 3439 pasan, 0 skips
+python -m pytest tests_vertex/ -q          # 1030 pasan, 0 skips
+                                           # (903 de la capa web + 127 en un
                                            #  navegador real, cuatro tamaños)
 
 # Auditoría del tab de Proyecciones (324 checks con TITO_ROOT). Con TITO_ROOT usa tu clon de

@@ -2478,3 +2478,210 @@ class TestNadaSeSaleDeLaPANTALLA:
                 f"de {d['cw']}px. Se sale: {d['fuera']}")
         finally:
             pg.close()
+
+
+class TestDriftSePintaJuntoAlDelAgente:
+    """«call wall/Drift → $215/$225.»
+
+    Dos reglas, y las dos se miden aquí:
+
+    · **A 10/20/30 días** —lo que el motor ya ve— se pintan los DOS números,
+      el suyo y el de Drift, separados por una barra. Es el formato que pidió
+      Kevin y el bucket que se usa es el de ~30 DTE, el único que solapa.
+    · **A 90/120/320 días** el motor no llega: sus horizontes cortan en 30 y su
+      GEX solo mira los strikes a ±20% del spot. Ahí el muro de calls, el de
+      puts y el imán salen SOLO de Drift, y el resto del scorecard sigue
+      siendo del motor.
+
+    Se pinta llamando a `renderProjections` con el payload, que es exactamente
+    lo que hace `loadProjections` cuando la ruta responde.
+    """
+
+    @staticmethod
+    def _payload(drift=True):
+        nodos = [
+            {"strike": 310.0, "net_gex": 4.2e6, "call_gex": 4.2e6, "put_gex": 0,
+             "trade_premium": 0, "trade_count": 0, "concentration": 0.9, "side": "call"},
+            {"strike": 280.0, "net_gex": -3.1e6, "call_gex": 0, "put_gex": 3.1e6,
+             "trade_premium": 0, "trade_count": 0, "concentration": 0.7, "side": "put"},
+        ]
+        d = {
+            "ok": True, "ticker": "DEMO", "spot": 300.0,
+            "gex": {"regime": "positive", "nodes": nodos, "flip_strike": 295.0,
+                    "king_strike": 305.0, "total_net_gex": 1.1e6,
+                    "direction": "up", "low_liquidity": False, "n": 24,
+                    "iv": 0.38},
+            "structure": {"put_pct": 45.0, "call_pct": 55.0},
+            "unusual": [],
+        }
+        if drift:
+            d["drift"] = {
+                "spot": 300.0, "iv": 0.38,
+                "iv_fuente": "volatilidad realizada del motor (no IV de la cadena)",
+                "mensuales": 9, "motivo": "", "sin_datos": [],
+                "buckets": [
+                    {"etiqueta": "Largo ~320 DTE", "sentimiento": "Largo",
+                     "dte_objetivo": 320, "vencimiento": "2027-07-16",
+                     "dte_real": 330, "muro_calls": 500.0, "muro_calls_oi": 12000,
+                     "muro_puts": 200.0, "muro_puts_oi": 8000,
+                     "magneto": 500.0, "magneto_nocional": 6.0e8,
+                     "sigma": 110.0, "total_oi": 90000, "nocional_neto": 4.0e8,
+                     "deriva": "DENTRO DEL RANGO · atracción: el imán de nocional está en 500,00.",
+                     "breakout": False, "duplicado": False, "solapa_motor": False},
+                    {"etiqueta": "Largo ~120 DTE", "sentimiento": "Largo",
+                     "dte_objetivo": 120, "vencimiento": "2026-12-18",
+                     "dte_real": 120, "muro_calls": 420.0, "muro_calls_oi": 9000,
+                     "muro_puts": 250.0, "muro_puts_oi": 7000,
+                     "magneto": 420.0, "magneto_nocional": 3.0e8,
+                     "sigma": 68.0, "total_oi": 70000, "nocional_neto": 2.0e8,
+                     "deriva": "DENTRO DEL RANGO · atracción.",
+                     "breakout": False, "duplicado": False, "solapa_motor": False},
+                    {"etiqueta": "Corto ~90 DTE", "sentimiento": "Corto",
+                     "dte_objetivo": 90, "vencimiento": "2026-11-20",
+                     "dte_real": 92, "muro_calls": 380.0, "muro_calls_oi": 6000,
+                     "muro_puts": 260.0, "muro_puts_oi": 5000,
+                     "magneto": 380.0, "magneto_nocional": 2.0e8,
+                     "sigma": 60.0, "total_oi": 50000, "nocional_neto": 1.0e8,
+                     "deriva": "RUPTURA al alza: el precio está fuera del rango.",
+                     "breakout": True, "duplicado": False, "solapa_motor": False},
+                    {"etiqueta": "Corto ~30 DTE", "sentimiento": "Corto",
+                     "dte_objetivo": 30, "vencimiento": "2026-09-18",
+                     "dte_real": 29, "muro_calls": 400.0, "muro_calls_oi": 11000,
+                     "muro_puts": 270.0, "muro_puts_oi": 9500,
+                     "magneto": 400.0, "magneto_nocional": 4.4e8,
+                     "sigma": 34.0, "total_oi": 60000, "nocional_neto": 3.0e8,
+                     "deriva": "DENTRO DEL RANGO · atracción.",
+                     "breakout": False, "duplicado": False, "solapa_motor": True},
+                ],
+            }
+        return d
+
+    def _pinta(self, navegador, servidor, drift=True):
+        pg, errores = _abre(navegador, servidor)
+        pg.evaluate("switchView('projectionsView')")
+        pg.wait_for_timeout(400)
+        pg.evaluate("(p) => { projData = p; renderProjections(p); }",
+                    self._payload(drift))
+        pg.wait_for_timeout(400)
+        return pg, errores
+
+    def test_las_tarjetas_llevan_los_DOS_numeros(self, navegador, servidor):
+        pg, errores = self._pinta(navegador, servidor)
+        try:
+            txt = pg.evaluate("() => document.getElementById('projCards').innerText")
+            assert "Muro de calls / Drift" in txt, txt[:400]
+            assert "Muro de puts / Drift" in txt, txt[:400]
+            assert "Nodo imán / Drift" in txt, txt[:400]
+            # El del motor y el de Drift, en ese orden, separados por la barra.
+            assert "$310.00 / $400.00" in txt, txt[:400]
+            assert "$280.00 / $270.00" in txt, txt[:400]
+            assert "$305.00 / $400.00" in txt, txt[:400]
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_numero_de_drift_es_el_del_bucket_de_30_no_el_de_320(
+            self, navegador, servidor):
+        """El que solapa, no el primero de la lista.
+
+        En el payload el bucket de 320 va PRIMERO y su muro es $500. Si se
+        cogiera el primero en vez del marcado, la tarjeta diría $500 — un
+        número de dentro de un año pegado a un horizonte de tres semanas.
+        """
+        pg, errores = self._pinta(navegador, servidor)
+        try:
+            txt = pg.evaluate("() => document.getElementById('projCards').innerText")
+            assert "$400.00" in txt and "$500.00" not in txt, txt[:400]
+        finally:
+            pg.close()
+
+    def test_sin_drift_la_tarjeta_queda_COMO_ESTABA(self, navegador, servidor):
+        """Sin dato no se inventa media barra: se pinta lo del motor y ya."""
+        pg, errores = self._pinta(navegador, servidor, drift=False)
+        try:
+            txt = pg.evaluate("() => document.getElementById('projCards').innerText")
+            assert "/ Drift" not in txt, txt[:400]
+            assert "Muro de calls" in txt and "$310.00" in txt
+            oculta = pg.evaluate(
+                "() => document.getElementById('projDriftCard').classList.contains('hidden')")
+            assert oculta, "la tarjeta de plazos largos se pintó sin datos"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_los_plazos_largos_tienen_su_propia_tarjeta(self, navegador, servidor):
+        pg, errores = self._pinta(navegador, servidor)
+        try:
+            oculta = pg.evaluate(
+                "() => document.getElementById('projDriftCard').classList.contains('hidden')")
+            assert not oculta, "la tarjeta de plazos largos no se mostró"
+            txt = pg.evaluate("() => document.getElementById('projDriftBody').innerText")
+            for e in ("Largo ~320 DTE", "Largo ~120 DTE", "Corto ~90 DTE"):
+                assert e in txt, f"falta {e}: {txt[:400]}"
+            # El de 30 NO: ese ya va al lado del número del motor arriba.
+            assert "Corto ~30 DTE" not in txt, txt[:400]
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_la_tarjeta_larga_dice_que_ahi_manda_DRIFT_y_no_el_motor(
+            self, navegador, servidor):
+        pg, errores = self._pinta(navegador, servidor)
+        try:
+            txt = pg.evaluate("() => document.getElementById('projDriftCard').innerText")
+            assert "30 días" in txt, "no explica dónde corta el motor"
+            assert "solo de Drift" in txt, txt[:400]
+        finally:
+            pg.close()
+
+    def test_la_ruptura_se_marca(self, navegador, servidor):
+        pg, errores = self._pinta(navegador, servidor)
+        try:
+            txt = pg.evaluate("() => document.getElementById('projDriftBody').innerText")
+            assert "RUPTURA" in txt, txt[:400]
+        finally:
+            pg.close()
+
+    def test_el_interes_abierto_NO_se_pinta_como_dinero(self, navegador, servidor):
+        """`fmtAbbr` mete el signo de dólar y el OI se cuenta en CONTRATOS.
+
+        "$11K" ahí sería una cifra de dinero que nadie midió.
+        """
+        pg, errores = self._pinta(navegador, servidor)
+        try:
+            txt = pg.evaluate("() => document.getElementById('projCards').innerText")
+            assert "OI 11K" in txt, txt[:400]
+            assert "OI $" not in txt, txt[:400]
+        finally:
+            pg.close()
+
+    @pytest.mark.parametrize("nombre,viewport", [
+        ("iPhone SE", {"width": 375, "height": 667}),
+        ("iPhone 14", {"width": 390, "height": 844}),
+        ("iPad", {"width": 820, "height": 1180}),
+    ])
+    def test_con_la_TABLA_DE_DRIFT_pintada_nada_se_sale(self, navegador, servidor,
+                                                       nombre, viewport):
+        """La regla de la casa: lo que se sube vale en los cuatro tamaños.
+
+        La tabla de plazos largos declara `min-w-[720px]`. Si eso empujara el
+        documento, el teléfono volvería a alejarse para que quepa — que es el
+        fallo que se cerró en la ronda anterior.
+        """
+        pg = navegador.new_page(viewport=viewport, device_scale_factor=2,
+                                is_mobile=viewport["width"] < 800, has_touch=True)
+        try:
+            pg.goto(servidor, wait_until="load")
+            pg.wait_for_timeout(1800)
+            pg.evaluate("switchView('projectionsView')")
+            pg.wait_for_timeout(400)
+            pg.evaluate("(p) => { projData = p; renderProjections(p); }",
+                        self._payload())
+            pg.wait_for_timeout(600)
+            d = pg.evaluate("""() => ({ cw: document.documentElement.clientWidth,
+                                        sw: document.documentElement.scrollWidth })""")
+            assert d["sw"] <= d["cw"], (
+                f"[{nombre}] con Drift pintado el documento mide {d['sw']}px "
+                f"en una pantalla de {d['cw']}px")
+        finally:
+            pg.close()

@@ -2558,6 +2558,7 @@ class TestElPanelNoTiraNadaDelPayload:
         d = V._tito_json(r)
         d["memory"] = {"iv_days": 0, "flows": 0, "predictions": 0}
         d["gex_heatmap"] = V._tito_heatmap(chain(), r, trades(), NOW)
+        d["drift"] = V._tito_drift(chain(), r, NOW)
         d["chart_geometry"] = V._tito_chart_geometry(r)
         d["flow_clusters"] = V._tito_clusters(trades(), NOW)
         return d
@@ -3683,7 +3684,11 @@ class TestLaCoberturaDeLosSubAgentes:
     #: el agente MEJORA con el tiempo o se estrena cada semana.
     OBLIGATORIOS = ("ticker", "motor", "MASSIVE_API_KEY", "MARKETSNACK_COOKIE",
                     "memoria.disco", "memoria.iv", "memoria.flows",
-                    "memoria.predicciones", "memoria.cadenas", "memoria.respaldo")
+                    "memoria.predicciones", "memoria.cadenas", "memoria.respaldo",
+                    # Drift no puntúa, pero a 90/120/320 días es lo ÚNICO que
+                    # contesta: si la cadena no llega a los mensuales lejanos,
+                    # esos plazos salen vacíos y nada más lo nota.
+                    "drift.plazos")
 
     def test_diagnostica_las_tres_series_y_el_respaldo(self, client):
         d = client.get("/api/tito-health?ticker=DEMO").json()
@@ -5733,3 +5738,142 @@ class TestNingunACENTOGRAVEDentroDeUnComentarioDelPanel:
         assert not malos, (
             "acento grave dentro de un comentario del panel — cierra la "
             "plantilla y lo de después se ejecuta:\n  " + "\n  ".join(malos))
+
+
+def _mensual(n: int) -> str:
+    """El n-ésimo 3.er viernes futuro contado desde hoy (1 = el próximo).
+
+    Se calcula, no se escribe a mano: una fecha fija en un test convierte el
+    paso del tiempo en un fallo rojo que no tiene nada que ver con el código.
+    """
+    hoy = datetime.now(timezone.utc).date()
+    vistos, d = 0, hoy
+    while True:
+        d += timedelta(days=1)
+        if d.weekday() == 4 and 15 <= d.day <= 21:
+            vistos += 1
+            if vistos == n:
+                return d.isoformat()
+
+
+class TestDriftEnLaRuta:
+    """Drift viaja con el scorecard, sin tocarlo.
+
+    Lo que se fija aquí:
+      1. El payload trae `drift` y sus buckets.
+      2. El bucket de ~30 días va MARCADO como el que solapa con los
+         horizontes del motor (10/20/30) — es lo que decide el formato
+         `agente/Drift` del panel.
+      3. Los plazos largos NO están marcados: ahí el muro y el imán salen
+         solo de Drift porque el motor no llega.
+      4. **El score no se mueve.** Drift es una segunda lectura de la misma
+         cadena; si un día entrara en `run_scorecard`, este test lo dice.
+    """
+
+    @pytest.fixture
+    def cadena_larga(self, monkeypatch):
+        """Mensuales a ~30 / ~90 / ~120 / ~320 días, medidos desde hoy."""
+        import wbj.tito.massive as MASS
+        from wbj.tito.structure import ChainRow
+
+        # 1.º ≈ 30 d · 3.º ≈ 90 d · 4.º ≈ 120 d · 11.º ≈ 320 d
+        vencs = [_mensual(n) for n in (1, 3, 4, 11)]
+
+        def chain(ticker, **k):
+            rows = []
+            for exp in vencs:
+                for s in range(70, 135, 5):
+                    for ct in ("call", "put"):
+                        wall = (ct == "call" and s == 115) or (ct == "put" and s == 85)
+                        oi = 200 * (9 if wall else 1)
+                        rows.append(ChainRow(ct, exp, float(s), oi,
+                                             int(oi * 0.3), oi * 100 * s))
+            return MASS.ChainResult(rows=rows, underlying_price=SPOT,
+                                    pages=1, truncated=False)
+
+        monkeypatch.setattr(MASS, "fetch_option_chain", chain)
+        return vencs
+
+    def test_el_payload_trae_drift(self, client, cadena_larga):
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["drift"] is not None
+        assert d["drift"]["buckets"], d["drift"].get("motivo")
+
+    def test_el_de_30_dias_va_MARCADO_como_el_que_solapa(self, client, cadena_larga):
+        dr = client.get("/api/projection-targets?ticker=DEMO").json()["drift"]
+        solapan = [b for b in dr["buckets"] if b["solapa_motor"]]
+        assert len(solapan) == 1
+        assert solapan[0]["dte_objetivo"] == 30
+
+    def test_los_largos_NO_solapan_porque_el_motor_corta_en_30(self, client, cadena_larga):
+        dr = client.get("/api/projection-targets?ticker=DEMO").json()["drift"]
+        largos = [b for b in dr["buckets"] if not b["solapa_motor"]]
+        assert largos, "el fixture tiene mensuales a 90/120/320 días"
+        assert all(b["dte_objetivo"] > 30 for b in largos)
+
+    def test_cada_bucket_trae_muros_iman_y_lectura(self, client, cadena_larga):
+        dr = client.get("/api/projection-targets?ticker=DEMO").json()["drift"]
+        for b in dr["buckets"]:
+            assert b["muro_calls"] is not None and b["muro_calls_oi"] > 0
+            assert b["muro_puts"] is not None and b["muro_puts_oi"] > 0
+            assert b["magneto"] is not None
+            assert b["deriva"]
+            assert b["vencimiento"] and b["dte_real"] >= 0
+
+    def test_el_muro_de_drift_es_el_de_MAS_INTERES_ABIERTO(self, client, cadena_larga):
+        # El fixture pone el pico de OI en 115 (calls) y 85 (puts). Drift los
+        # cuenta; no los modela.
+        dr = client.get("/api/projection-targets?ticker=DEMO").json()["drift"]
+        for b in dr["buckets"]:
+            assert b["muro_calls"] == 115.0
+            assert b["muro_puts"] == 85.0
+
+    def test_declara_QUE_IV_uso_porque_no_es_la_de_la_cadena(self, client, cadena_larga):
+        # El plan de Massive no devuelve `implied_volatility` por contrato, así
+        # que el cono sale con la volatilidad REALIZADA que estima el motor.
+        # Servirlo sin decirlo sería vender una IV implícita que nadie midió.
+        dr = client.get("/api/projection-targets?ticker=DEMO").json()["drift"]
+        assert "no IV de la cadena" in dr["iv_fuente"]
+
+    def test_el_SCORE_no_se_mueve_por_tener_drift(self, client, cadena_larga,
+                                                  monkeypatch):
+        import vertex_api as V
+
+        con = client.get("/api/projection-targets?ticker=DEMO").json()
+        monkeypatch.setattr(V, "_tito_drift", lambda *a, **k: None)
+        sin = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert sin["drift"] is None
+        assert con["score"] == sin["score"]
+        assert con["verdict"] == sin["verdict"]
+        assert con["scores"] == sin["scores"]
+
+    def test_si_drift_revienta_los_targets_SIGUEN_saliendo(self, client, monkeypatch):
+        # Ilustra; no puede tumbar lo que el panel necesita. Mismo criterio que
+        # el heatmap y la geometría de la gráfica.
+        import wbj.tito.drift as DR
+
+        def boom(*a, **k):
+            raise RuntimeError("drift roto")
+
+        monkeypatch.setattr(DR, "drift_analysis", boom)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert d["ok"] is True and d["drift"] is None
+        assert d["predictions"]
+
+    def test_sin_mensuales_lo_dice_en_vez_de_usar_semanales(self, client, monkeypatch):
+        import wbj.tito.massive as MASS
+        from wbj.tito.structure import ChainRow
+
+        # Un viernes que NO es el tercero: 7 días después del próximo mensual.
+        semanal = (date.fromisoformat(_mensual(1)) + timedelta(days=7)).isoformat()
+
+        def chain(ticker, **k):
+            rows = [ChainRow(ct, semanal, float(s), 300, 90, 300 * 100 * s)
+                    for s in range(90, 115, 5) for ct in ("call", "put")]
+            return MASS.ChainResult(rows=rows, underlying_price=SPOT,
+                                    pages=1, truncated=False)
+
+        monkeypatch.setattr(MASS, "fetch_option_chain", chain)
+        dr = client.get("/api/projection-targets?ticker=DEMO").json()["drift"]
+        assert dr["buckets"] == []
+        assert "mensuales" in dr["motivo"]
