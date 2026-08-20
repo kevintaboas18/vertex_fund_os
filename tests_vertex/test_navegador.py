@@ -2481,6 +2481,265 @@ class TestNadaSeSaleDeLaPANTALLA:
             pg.close()
 
 
+class TestLaPantallaNUNCASeQuedaEnBLANCO:
+    """Tres veces. «Lo arreglas y vuelve a salir lo mismo. No puede volver a
+    pasar.»
+
+    Los guardianes anteriores no bastaron, y el motivo es concreto: llamaban
+    a los pintores **a mano** con payloads pequeños hechos a medida. Este
+    recorre el camino de verdad —`loadProjections` → fetch → los cuatro
+    pintores— con un payload del TAMAÑO REAL: veinte vencimientos, cadena
+    entera, cono, racimos, heatmap y los plazos de Drift.
+
+    Y mide lo único que importa desde fuera: **que en la pantalla haya algo
+    escrito**. No que no haya errores; que haya contenido.
+    """
+
+    @staticmethod
+    def _payload_real():
+        """El payload que produce la ruta con una cadena de verdad.
+
+        Se construye con el MOTOR, no a mano: es la diferencia entre probar
+        lo que uno cree que sirve el servidor y probar lo que sirve.
+        """
+        import math as _m
+        import sys as _s
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
+        from datetime import timezone as _tz
+
+        _s.path.insert(0, str(ROOT))
+        _s.path.insert(0, str(ROOT / "engine"))
+        import vertex_api as V
+        from wbj.tito.levels import LvlBar
+        from wbj.tito.scorecard import run_scorecard
+        from wbj.tito.structure import ChainRow
+
+        ahora = _dt.now(_tz.utc)
+        spot = 216.63
+        vencs, d0 = [], ahora.date()
+        for i in range(1, 400):
+            x = d0 + _td(days=i)
+            if x.weekday() == 4:
+                vencs.append(x.isoformat())
+        vencs = vencs[:20]
+        filas = []
+        for exp in vencs:
+            for k in range(100, 401, 5):
+                for ct in ("call", "put"):
+                    oi = int(3000 * _m.exp(-((k - spot) ** 2) / (2 * 40 ** 2))) + 20
+                    filas.append(ChainRow(ct, exp, float(k), oi,
+                                          int(oi * 0.3), oi * 100 * k))
+        barras = []
+        for i in range(300):
+            c = 200 + i * 0.05 + 8 * _m.sin(i / 13)
+            barras.append(LvlBar((ahora - _td(days=300 - i)).date().isoformat(),
+                                 c + 2, c - 2, c))
+        barras[-1] = LvlBar(barras[-1].time, spot + 1, spot - 1, spot)
+
+        r = run_scorecard("NVDA", [], filas, barras, now=ahora, spot=spot)
+        out = V._tito_json(r)
+        out["memory"] = {"available": True, "iv_days": 0, "flows": 0,
+                         "predictions": 0}
+        out["gex_heatmap"] = V._tito_heatmap(filas, r, [], ahora)
+        out["drift"] = V._tito_drift(filas, r, ahora)
+        out["targets_drift"] = V._tito_targets_drift(r, out["drift"])
+        _gd = V._tito_geometria_drift(r, out["targets_drift"])
+        out["chart_geometry"] = dict(V._tito_chart_geometry(r) or {}, **_gd)
+        out["flow_clusters"] = V._tito_clusters([], ahora)
+        out["history"] = [{"time": b.time, "open": b.close, "high": b.high,
+                           "low": b.low, "close": b.close} for b in barras[-70:]]
+        out["levels_for_chart"] = V._tito_chart_levels(r)
+        out["company"] = {"ticker": "NVDA", "name": "Nvidia Corp",
+                          "price": spot, "change_percent": -0.42}
+        out.update(V._tito_chain_json(filas, False))
+        out["spot_previo"] = False
+        return V._json_safe(out)
+
+    def _analiza(self, navegador, servidor, payload=None, estado=200):
+        pg, errores = _abre(navegador, servidor)
+        pg.route(re.compile(r"/api/projection-targets"),
+                 lambda r: r.fulfill(status=estado,
+                                     json=payload if payload is not None
+                                     else self._payload_real()))
+        pg.route(re.compile(r"/api/tito-(tape|news|health|scorecard|ideas|wheel)"),
+                 lambda r: r.fulfill(status=200,
+                                     json={"ok": False, "error": "fuera de esta prueba"}))
+        pg.evaluate("switchView('projectionsView')")
+        pg.wait_for_timeout(300)
+        pg.evaluate("loadProjections('NVDA')")
+        pg.wait_for_timeout(5000)
+        return pg, errores
+
+    @staticmethod
+    def _mirada(pg):
+        return pg.evaluate("""() => {
+            const g = id => document.getElementById(id);
+            const t = id => ((g(id) || {}).innerText || '').trim();
+            return {
+                visible_total: document.body.innerText.trim().length,
+                contenido: g('projContent') && !g('projContent').classList.contains('hidden'),
+                vacio_visible: g('projEmpty') ? g('projEmpty').offsetParent !== null : false,
+                vacio_txt: t('projEmpty').slice(0, 220),
+                cards: t('projCards').length,
+                targets: t('projTargets').length,
+                roto: g('projRoto') ? t('projRoto') : null,
+                aviso_vacio: g('projVacio') ? t('projVacio') : null,
+                alto: document.body.scrollHeight,
+            };
+        }""")
+
+    def test_con_el_payload_DE_TAMANO_REAL_la_pantalla_tiene_CONTENIDO(
+            self, navegador, servidor):
+        """El caso que las tres rondas anteriores no cubrieron."""
+        pg, errores = self._analiza(navegador, servidor)
+        try:
+            m = self._mirada(pg)
+            assert m["contenido"], f"el contenido no llegó a mostrarse: {m}"
+            assert m["cards"] > 50, f"las tarjetas salieron vacías: {m}"
+            assert m["targets"] > 200, f"los targets salieron vacíos: {m}"
+            assert m["alto"] > 1500, (
+                f"la página mide {m['alto']}px: está prácticamente en blanco")
+            assert m["roto"] is None, f"algún pintor falló: {m['roto']}"
+            assert m["aviso_vacio"] is None, f"el vigilante saltó: {m['aviso_vacio']}"
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_el_vigilante_MIDE_lo_que_se_ve_no_un_nodo_concreto(
+            self, navegador, servidor):
+        """Medido antes de escribirlo: un payload de `ok:true` VACÍO NO deja
+        la pantalla en blanco.
+
+        Con `{"ok": true}` a secas el panel sigue enseñando 1.223 caracteres
+        de cabeceras y 184 de etiquetas de tarjeta, y mide 1.286px de alto.
+        Eso no es lo que Kevin vio. Su pantalla no tenía ni los títulos: el
+        contenido estaba OCULTO y el mensaje se había escrito dentro.
+
+        Por eso el vigilante no mira un nodo: suma **lo que está a la vista**
+        —el vacío si se ve, el contenido si se ve— y salta solo cuando esa
+        suma es ridícula. Este caso fija las dos mitades.
+        """
+        pg, errores = self._analiza(
+            navegador, servidor,
+            payload={"ok": True, "ticker": "NVDA", "spot": 216.63})
+        try:
+            m = self._mirada(pg)
+            # Con las cabeceras a la vista NO salta: sería un falso positivo.
+            assert m["aviso_vacio"] is None, (
+                f"saltó con la pantalla llena de cabeceras: {m}")
+            assert m["contenido"], m
+
+            # Y ahora el estado que SÍ vio Kevin: los dos nodos escondidos.
+            visto = pg.evaluate("""() => {
+                document.getElementById('projContent').classList.add('hidden');
+                const e = document.getElementById('projEmpty');
+                e.classList.add('hidden'); e.innerHTML = '';
+                vcVigilaPantalla('NVDA', window._vcData || {ok: true, spot: 216.63});
+                const c = document.getElementById('projVacio');
+                return { aviso: c ? (c.innerText || '').trim() : null,
+                         se_ve: c ? c.offsetParent !== null : false };
+            }""")
+            assert visto["aviso"], (
+                "la pantalla quedó en blanco y NADIE lo dijo — es el fallo entero")
+            assert visto["se_ve"], (
+                f"el aviso se escribió en un nodo oculto, otra vez: {visto}")
+            assert "NVDA" in visto["aviso"], visto["aviso"]
+            assert "Reintentar" in visto["aviso"], visto["aviso"]
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_un_502_del_servidor_se_lee_como_un_MENSAJE_no_como_JSON_roto(
+            self, navegador, servidor):
+        """Render devuelve HTML en un 502. `r.json()` lanzaría «Unexpected
+        token <», que no le dice nada a nadie."""
+        pg, errores = _abre(navegador, servidor)
+        try:
+            pg.route(re.compile(r"/api/projection-targets"),
+                     lambda r: r.fulfill(status=502, content_type="text/html",
+                                         body="<html><body>Bad Gateway</body></html>"))
+            pg.evaluate("switchView('projectionsView')")
+            pg.wait_for_timeout(300)
+            pg.evaluate("loadProjections('NVDA')")
+            pg.wait_for_timeout(2500)
+            m = self._mirada(pg)
+            assert m["vacio_visible"], f"el mensaje se escribió en un nodo oculto: {m}"
+            assert "502" in m["vacio_txt"], m["vacio_txt"]
+            assert "Reintentar" in m["vacio_txt"], m["vacio_txt"]
+            assert not errores, errores[:3]
+        finally:
+            pg.close()
+
+    def test_si_el_servidor_NO_CONTESTA_no_se_gira_para_siempre(
+            self, navegador, servidor):
+        """En el plan gratuito el servicio se duerme y el primer análisis
+        tiene que levantarlo. Sin plazo, el cargador giraba sin fin y detrás
+        no había nada."""
+        pg, errores = _abre(navegador, servidor)
+        try:
+            pg.evaluate("switchView('projectionsView')")
+            pg.wait_for_timeout(300)
+            # Se acorta el plazo para no esperar 90 s en el test; lo que se
+            # mide es el CAMINO, no el número.
+            pg.route(re.compile(r"/api/projection-targets"),
+                     lambda r: None)          # nunca contesta
+            pg.evaluate("""() => {
+                window.VC_PLAZO_PRUEBA = true;
+                const original = window.vcFetchTargets;
+                window.vcFetchTargets = async function (tk) {
+                    const ctrl = new AbortController();
+                    setTimeout(() => ctrl.abort(), 800);
+                    try {
+                        await fetch('/api/projection-targets?ticker=' + tk,
+                                    { signal: ctrl.signal });
+                    } catch (e) {
+                        if (e.name === 'AbortError') {
+                            return { ok: false, source: 'timeout',
+                                     error: 'El servidor no contestó en 90 s. '
+                                          + 'En el plan gratuito el servicio se duerme.' };
+                        }
+                    }
+                    return { ok: false, error: 'x' };
+                };
+            }""")
+            pg.evaluate("loadProjections('NVDA')")
+            pg.wait_for_timeout(3000)
+            m = self._mirada(pg)
+            assert m["vacio_visible"], f"se quedó girando sin mensaje: {m}"
+            assert "no contestó" in m["vacio_txt"], m["vacio_txt"]
+            assert "Reintentar" in m["vacio_txt"], m["vacio_txt"]
+        finally:
+            pg.close()
+
+    def test_el_aviso_del_vigilante_se_BORRA_cuando_el_siguiente_va_bien(
+            self, navegador, servidor):
+        """Un aviso pegado del intento anterior acusaría al que sí funcionó."""
+        pg, errores = self._analiza(
+            navegador, servidor,
+            payload={"ok": True, "ticker": "NVDA", "spot": 216.63})
+        try:
+            # Se fuerza el estado en blanco para que el aviso quede puesto.
+            pg.evaluate("""() => {
+                document.getElementById('projContent').classList.add('hidden');
+                const e = document.getElementById('projEmpty');
+                e.classList.add('hidden'); e.innerHTML = '';
+                vcVigilaPantalla('NVDA', {ok: true, spot: 216.63});
+            }""")
+            assert self._mirada(pg)["aviso_vacio"], "no saltó el vigilante"
+            pg.unroute(re.compile(r"/api/projection-targets"))
+            pg.route(re.compile(r"/api/projection-targets"),
+                     lambda r: r.fulfill(status=200, json=self._payload_real()))
+            pg.evaluate("loadProjections('NVDA')")
+            pg.wait_for_timeout(5000)
+            m = self._mirada(pg)
+            assert m["aviso_vacio"] is None, (
+                f"el aviso del intento anterior sigue puesto: {m['aviso_vacio']}")
+            assert m["cards"] > 50 and m["targets"] > 200, m
+        finally:
+            pg.close()
+
+
 class TestLosDosDRIFTDicenLoMISMO:
     """«Se supone que ambos drift van de acuerdo.»
 

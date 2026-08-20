@@ -4805,6 +4805,8 @@ function vcLimpiaTicker(opciones) {
     // lo convertiría en una acusación contra el siguiente.
     const roto = document.getElementById('projRoto');
     if (roto) roto.remove();
+    const vacio = document.getElementById('projVacio');
+    if (vacio) vacio.remove();
 
     const content = document.getElementById('projContent');
     const empty = document.getElementById('projEmpty');
@@ -4843,6 +4845,63 @@ function vcAvisaRoto(rotos) {
         + `<p class="text-[10px] text-red-200/80 mt-1 leading-snug">${
             rotos.map(r => _vcEsc(r)).join('<br>')}</p>`
         + `<p class="text-[9px] text-gray-500 mt-1">Lo demás que se ve abajo sí es válido.</p>`;
+}
+
+/** La última red: una pantalla en blanco no se queda callada.
+ *
+ *  Se llama DESPUÉS de pintar, y mide lo único que se puede medir desde
+ *  fuera: **cuánto texto se ve**. No mira un nodo concreto —el fallo ha
+ *  llegado por sitios distintos las tres veces— sino la suma de lo que está
+ *  a la vista en el panel del Ticker: el vacío si está visible, el contenido
+ *  si lo está.
+ *
+ *  Si esa suma es ridícula, escribe qué se pidió, qué contestó el servidor y
+ *  un botón para reintentar. Y lo escribe en el VACÍO, desocultándolo: si el
+ *  contenido está escondido, un aviso dentro de él tampoco se leería.
+ *
+ *  Nunca lanza: si esto fallara, taparía justo lo que vino a destapar.
+ */
+const VC_MINIMO_VISIBLE = 40;
+
+function vcVigilaPantalla(ticker, d) {
+    try {
+        const cont = document.getElementById('projContent');
+        const empty = document.getElementById('projEmpty');
+        const aLaVista = el => el && !el.classList.contains('hidden')
+                             && el.offsetParent !== null;
+        const texto = el => (aLaVista(el) ? (el.innerText || '').trim().length : 0);
+        const visible = texto(cont) + texto(empty);
+        const viejo = document.getElementById('projVacio');
+        if (visible >= VC_MINIMO_VISIBLE) { if (viejo) viejo.remove(); return; }
+
+        const claves = Object.keys(d || {});
+        if (empty) empty.classList.remove('hidden');
+        if (cont) cont.classList.add('hidden');
+        let caja = viejo;
+        if (!caja || !empty || caja.parentNode !== empty) {
+            if (caja) caja.remove();
+            caja = document.createElement('div');
+            caja.id = 'projVacio';
+            if (empty) empty.prepend(caja); else if (cont) cont.prepend(caja);
+        }
+        caja.className = 'bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 text-left';
+        caja.innerHTML =
+            `<p class="text-xs font-black text-amber-300">El análisis llegó pero no se pintó nada</p>`
+          + `<p class="text-[10px] text-amber-200/80 mt-1 leading-snug">`
+          + `<span>Ticker:</span> <b>${_vcEsc(ticker || '—')}</b> &middot; `
+          + `<span>respuesta del servidor:</span> <b>${claves.length}</b> <span>campos</span>`
+          + `${(d && d.spot) ? ` &middot; <span>spot</span> <b>$${Number(d.spot).toFixed(2)}</b>` : ''}`
+          + `${(d && d.score != null) ? ` &middot; <span>score</span> <b>${d.score}</b>` : ''}</p>`
+          + `<p class="text-[9px] text-gray-500 mt-1 leading-snug">`
+          + `<span>Esto no debería pasar. Si se repite, manda esta línea:</span> `
+          + `<code class="text-gray-400">${_vcEsc(claves.slice(0, 14).join(', '))}</code></p>`
+          + `<button onclick="loadProjections(document.getElementById('projTicker').value)" `
+          + `class="mt-2 text-[10px] font-bold px-2.5 py-1 rounded-lg bg-[#0B0E14] text-amber-300 `
+          + `border border-amber-500/30 hover:text-white transition">&#8635; Reintentar</button>`;
+        console.error('[vertex] la pantalla quedó vacía', { ticker, visible, claves });
+    } catch (e) {
+        console.error('[vertex] vcVigilaPantalla', e);
+    }
 }
 
 async function loadProjections(tickerArg, opts) {
@@ -4895,7 +4954,11 @@ async function loadProjections(tickerArg, opts) {
         const d = await vcFetchTargets(ticker);
         if (!d || !d.ok) {
             if (!silent) {
-                empty.innerHTML = `<i data-lucide="alert-triangle" class="w-8 h-8 text-amber-500 mx-auto mb-3"></i><p class="text-sm text-amber-400">${(d && d.error) || 'No se pudo analizar ' + ticker + '.'}</p>`;
+                empty.innerHTML = `<i data-lucide="alert-triangle" class="w-8 h-8 text-amber-500 mx-auto mb-3"></i>`
+                + `<p class="text-sm text-amber-400">${_vcEsc((d && d.error) || 'No se pudo analizar ' + ticker + '.')}</p>`
+                + `<button onclick="loadProjections(document.getElementById('projTicker').value)" `
+                + `class="mt-3 text-[10px] font-bold px-2.5 py-1 rounded-lg bg-[#0B0E14] text-amber-300 `
+                + `border border-amber-500/30 hover:text-white transition">&#8635; Reintentar</button>`;
                 if (window.lucide) vcIconos();
             }
             return;
@@ -4927,6 +4990,18 @@ async function loadProjections(tickerArg, opts) {
             }
         }
         if (_rotos.length && !silent) vcAvisaRoto(_rotos);
+        // ── EL VIGILANTE ────────────────────────────────────────────────
+        //
+        // Todo lo de arriba puede «ir bien» y aun así dejar la pantalla en
+        // blanco: basta con que el payload venga sin lo que cada pintor
+        // necesita. Ha pasado TRES veces, y las tres se descubrieron porque
+        // Kevin mandó una captura — no porque el panel lo dijera.
+        //
+        // Esto lo mide después de pintar: si el contenido está a la vista y
+        // no hay NADA escrito en él, no se calla. Es la última red, y a
+        // propósito no intenta adivinar la causa: dice qué se pidió, qué
+        // llegó y ofrece reintentar.
+        if (!silent) vcVigilaPantalla(ticker, d);
     } catch (e) {
         // Se vuelve a ENSEÑAR el vacío antes de escribir en él. Sin esto el
         // mensaje se escribía en un nodo oculto y no lo leía nadie.
@@ -5869,9 +5944,46 @@ function renderProjIdeas(d) {
  *  de MarketSnack (5 días y 30 días) más la cadena de Massive—, así que
  *  llamarlo dos veces por carga no era solo redundante: duplicaba el gasto de
  *  API y podía devolver dos fotos distintas del mismo instante. */
+/** Segundos que se espera al servidor antes de rendirse. */
+const VC_PLAZO_TARGETS_MS = 90000;
+
 async function vcFetchTargets(ticker) {
-    const r = await fetch(`${API_BASE}/api/projection-targets?ticker=${encodeURIComponent(ticker)}`);
-    return await r.json();
+    // Sin plazo, una petición que no vuelve deja el cargador girando para
+    // siempre y la pantalla en blanco detrás. Pasa de verdad: en el plan
+    // gratuito de Render el servicio se DUERME, y el primer análisis después
+    // de un rato levanta el contenedor y restaura el almacén antes de
+    // contestar. Eso puede irse a más de un minuto.
+    //
+    // Rendirse con un mensaje es mejor que girar sin fin: el mensaje dice qué
+    // pasó y trae un botón para reintentar.
+    const ctrl = new AbortController();
+    const reloj = setTimeout(() => ctrl.abort(), VC_PLAZO_TARGETS_MS);
+    try {
+        const r = await fetch(
+            `${API_BASE}/api/projection-targets?ticker=${encodeURIComponent(ticker)}`,
+            { signal: ctrl.signal });
+        // Un 502/503 de Render devuelve HTML, no JSON: `r.json()` lanzaría un
+        // «Unexpected token <» que no le dice nada a nadie. Se traduce.
+        if (!r.ok) {
+            let cuerpo = '';
+            try { cuerpo = (await r.text()).slice(0, 200); } catch (e) { }
+            return { ok: false, source: 'http',
+                     error: `El servidor respondió ${r.status}. ${
+                        r.status >= 500 ? 'Suele ser un despliegue en curso: espera un minuto y reintenta.'
+                                        : ''} ${cuerpo}`.trim() };
+        }
+        return await r.json();
+    } catch (e) {
+        if (e && e.name === 'AbortError') {
+            return { ok: false, source: 'timeout',
+                     error: `El servidor no contestó en ${Math.round(VC_PLAZO_TARGETS_MS / 1000)} s. `
+                          + 'En el plan gratuito el servicio se duerme y el primer análisis '
+                          + 'tiene que levantarlo: prueba otra vez, la segunda suele ir rápido.' };
+        }
+        return { ok: false, source: 'red', error: `No se pudo hablar con el servidor: ${e.message}` };
+    } finally {
+        clearTimeout(reloj);
+    }
 }
 
 
@@ -14463,6 +14575,12 @@ const VX_ES2EN = {
     "Plazo": "Horizon",
     "Imán de nocional": "Notional magnet",
     "imán de nocional": "notional magnet",
+    // ── La red contra la pantalla en blanco ─────────────────────────────
+    "El análisis llegó pero no se pintó nada": "The analysis arrived but nothing was painted",
+    "respuesta del servidor:": "server response:",
+    "campos": "fields",
+    "Esto no debería pasar. Si se repite, manda esta línea:":
+        "This should not happen. If it repeats, send this line:",
     // Las etiquetas de los tres plazos de Drift en el selector de horizonte.
     "3 meses": "3 months",
     "4 meses": "4 months",

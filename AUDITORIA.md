@@ -9182,8 +9182,60 @@ Y una aserción vieja que hubo que actualizar en vez de silenciar:
 **exactamente** 10/20/30. Ahora exige que los tres del agente estén y que
 ningún horizonte se cuele sin ser de uno de los dos.
 
+### La pantalla en blanco, por tercera vez — y por qué mis arreglos no aguantaban
+
+> «Este error es la tercera vez que me aparece. Lo arreglas y vuelve a salir
+> lo mismo. No puede volver a pasar.»
+
+**Primero lo que se descartó, con evidencia y no con teoría:**
+
+| Sospecha | Cómo se descartó |
+|---|---|
+| El servidor revienta | La ruta REAL con una cadena de 2.440 contratos: **HTTP 200, 264 ms, 395 KB**, `ok:true`, todo el payload completo |
+| El panel no pinta con datos grandes | El navegador con ESE payload: tarjetas, targets, gráfica y **6.037 px** de alto, **0 errores de página** |
+| Caché del navegador | El panel se sirve con `cache-control: no-cache, must-revalidate` + ETag |
+| Un *service worker* sirviendo lo viejo | Hay manifest de PWA pero **ningún service worker registrado** |
+| Orden de las variables en la ruta | `_geo_drift` se define antes de usarse; no hay `NameError` |
+
+**Por qué las tres rondas anteriores no lo cazaron, que es lo que importa.**
+Los guardianes que escribí llamaban a los pintores **a mano**, con payloads
+pequeños hechos a medida. Nunca recorrí el camino de verdad —
+`loadProjections` → fetch → los cuatro pintores — con datos del tamaño real.
+Un test que no hace lo que hace el usuario no protege al usuario.
+
+**Y lo medido antes de escribir la red, que cambió el diseño.** Un `{"ok":
+true}` vacío **no** deja la pantalla en blanco: quedan 1.223 caracteres de
+cabeceras y 1.286 px de alto. Lo que Kevin vio no tenía ni los títulos — o
+sea `projContent` **oculto** y el mensaje escrito dentro. Por eso el vigilante
+no mira un nodo concreto: suma **lo que está a la vista** y escribe en el
+vacío, desocultándolo.
+
+**Las tres redes nuevas:**
+
+1. **Plazo en la petición** (90 s). Sin él, una petición que no vuelve deja el
+   cargador girando para siempre. Pasa de verdad: en el plan gratuito el
+   servicio se duerme y el primer análisis levanta el contenedor y restaura el
+   almacén antes de contestar.
+2. **Los 502/503 se traducen.** Render devuelve HTML en un 502 y `r.json()`
+   lanzaba «Unexpected token <», que no le dice nada a nadie.
+3. **El vigilante.** Después de pintar, si lo visible no llega a 40
+   caracteres, escribe qué ticker se pidió, cuántos campos llegaron, el spot y
+   el score, y la lista de claves para pegar aquí. Con botón de **Reintentar**
+   en los tres estados.
+
+Cinco casos nuevos de navegador, y el primero es el que faltaba: el flujo
+entero con un payload construido **por el motor** —veinte vencimientos, cadena
+completa, cono, heatmap, racimos y los plazos de Drift— midiendo que en la
+pantalla **haya algo escrito**. Tres de los cinco van rojos con las redes
+desactivadas.
+
+**Lo que sigue sin poder comprobarse desde aquí:** su despliegue.
+`onrender.com` está bloqueado por política en este contenedor. Si vuelve a
+pasar, ahora la pantalla ya no se calla — dirá qué llegó, y con esa línea se
+cierra en un minuto.
+
 ### Estado
 
-**3.466 tests del motor (57 nuevos) · 922 de la capa web (30 nuevos) ·
-139 de navegador (4 nuevos) · 342 checks de auditoría CON su repo real
-(0 avisos) · los 17 diferenciales en verde, ejecutando su código. 0 fallos.**
+**3.466 tests del motor · 922 de la capa web · 144 de navegador (5 nuevos) ·
+342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
+verde, ejecutando su código. 0 fallos.**

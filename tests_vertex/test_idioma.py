@@ -144,6 +144,20 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
 
     #: Se quedan sin entrada, con su motivo. Nada más entra aquí sin uno.
     DECLARADAS = {
+        # No es texto de pantalla: es un `console.error` para depurar. Se
+        # escribe en la consola del navegador, no en el panel, y traducirlo
+        # solo dificultaría buscarlo.
+        "[vertex] la pantalla quedó vacía",
+        "[vertex] vcVigilaPantalla",
+        # Las dos del plazo y el 502 llevan el número de segundos o el código
+        # HTTP dentro, así que el extractor las corta en el `${`. Van por
+        # `VX_PAT`; la versión pintada la mide el test del navegador.
+        "El servidor no contestó en",
+        "En el plan gratuito el servicio se duerme y el primer análisis",
+        "tiene que levantarlo: prueba otra vez, la segunda suele ir rápido.",
+        "El servidor respondió",
+        "Suele ser un despliegue en curso: espera un minuto y reintenta.",
+        "No se pudo hablar con el servidor:",
         # No es texto de pantalla: es el prefijo de un `console.error`. La
         # consola es para depurar, no para el usuario, y traducirla solo
         # haría más difícil buscar el mensaje. El aviso que SÍ se ve —«No se
