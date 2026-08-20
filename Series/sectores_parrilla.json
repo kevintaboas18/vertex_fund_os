@@ -1409,7 +1409,7 @@
     }
   },
   "interna": {
-    "generado": "2026-08-19T01:52:45.325785+00:00",
+    "generado": "2026-08-20T03:36:26.071971+00:00",
     "sectores": {
       "XLK": {
         "pct": 50.0,
@@ -1426,17 +1426,15 @@
         "motivo": null
       },
       "XLF": {
-        "pct": 80.0,
+        "pct": 60.0,
         "n": 10,
         "encima": [
           "BAC",
           "BLK",
           "JPM",
           "MA",
-          "MS",
           "SPGI",
-          "V",
-          "WFC"
+          "V"
         ],
         "miembros": 10,
         "motivo": null
@@ -1461,11 +1459,13 @@
         "motivo": null
       },
       "XLY": {
-        "pct": 40.0,
+        "pct": 60.0,
         "n": 10,
         "encima": [
           "AMZN",
           "BKNG",
+          "HD",
+          "LOW",
           "ORLY",
           "SBUX"
         ],
@@ -1473,7 +1473,7 @@
         "motivo": null
       },
       "XLC": {
-        "pct": 80.0,
+        "pct": 70.0,
         "n": 10,
         "encima": [
           "CMCSA",
@@ -1482,19 +1482,17 @@
           "NFLX",
           "T",
           "TMUS",
-          "TTWO",
           "VZ"
         ],
         "miembros": 10,
         "motivo": null
       },
       "XLI": {
-        "pct": 60.0,
+        "pct": 50.0,
         "n": 10,
         "encima": [
           "BA",
           "ETN",
-          "GE",
           "LMT",
           "RTX",
           "UNP"
@@ -1518,7 +1516,7 @@
         "motivo": null
       },
       "XLE": {
-        "pct": 100.0,
+        "pct": 90.0,
         "n": 10,
         "encima": [
           "COP",
@@ -1529,28 +1527,31 @@
           "PSX",
           "SLB",
           "VLO",
-          "WMB",
           "XOM"
         ],
         "miembros": 10,
         "motivo": null
       },
       "XLU": {
-        "pct": 10.0,
+        "pct": 20.0,
         "n": 10,
         "encima": [
-          "CEG"
+          "CEG",
+          "XEL"
         ],
         "miembros": 10,
         "motivo": null
       },
       "XLRE": {
-        "pct": 40.0,
+        "pct": 70.0,
         "n": 10,
         "encima": [
+          "AMT",
           "DLR",
           "EQIX",
+          "EXR",
           "PSA",
+          "SPG",
           "WELL"
         ],
         "miembros": 10,
@@ -1574,5 +1575,5 @@
     }
   },
   "motivo": null,
-  "generado": "2026-08-20T03:36:26.072185+00:00"
+  "generado": "2026-08-20T03:40:51.501760+00:00"
 }
