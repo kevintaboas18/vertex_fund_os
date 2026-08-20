@@ -7404,7 +7404,7 @@ function vcDriftNota(dr, dr30) {
     }
     const dup = dr30.duplicado
         ? ` <span class="text-amber-400">Este vencimiento es el mismo que otro plazo: la cadena no da para separarlos.</span>` : '';
-    return `<p class="${cls}"><b class="text-sky-300">Drift</b> <span>mide el mensual del</span> <b>${_vcEsc(dr30.vencimiento)}</b> (<b>${dr30.dte_real} DTE</b>) <span>sobre los strikes a</span> <b>±${dr.ventana_pct}%</b> <span>del precio, la misma ventana que el motor.</span> <span>Interés abierto y nocional publicados por el mercado, sin modelo que pueda fallar; el del motor es gamma de dealer. Apuntan a strikes distintos a propósito, y ninguno de los dos está mal.</span>${dup}</p>`;
+    return `<p class="${cls}"><b class="text-sky-300">Drift</b> <span>mide el mensual del</span> <b>${_vcEsc(dr30.vencimiento)}</b> (<b>${dr30.dte_real} DTE</b>) <span>Interés abierto y nocional publicados por el mercado, sin modelo que pueda fallar; el del motor es gamma de dealer. Apuntan a strikes distintos a propósito, y ninguno de los dos está mal.</span>${dup}</p>`;
 }
 
 /** Los plazos que el motor NO ve: 90 / 120 / 320 dias.
@@ -14453,9 +14453,6 @@ const VX_ES2EN = {
     "4 meses": "4 months",
     "1 año": "1 year",
     "Niveles de Drift": "Drift levels",
-    "sobre los strikes a": "over the strikes within",
-    "del precio, la misma ventana que el motor.":
-        "of the price, the same window the engine uses.",
     "Interés abierto y nocional publicados por el mercado, sin modelo que pueda fallar; el del motor es gamma de dealer. Apuntan a strikes distintos a propósito, y ninguno de los dos está mal.":
         "Open interest and notional published by the market, with no model that can fail; the engine's is dealer gamma. They point at different strikes on purpose, and neither one is wrong.",
     "Con solo tres niveles los escenarios se solapan: el imán coincide con uno de los muros y por ese lado no queda nivel. Dos de los tres targets salen iguales.":

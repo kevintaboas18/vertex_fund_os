@@ -9083,60 +9083,62 @@ Decía que los muros salían al revés por un fallo de definición y que el
 su código delante. Se deja escrito en vez de borrarlo: una auditoría que borra
 sus errores no es una auditoría.
 
-### El ±20% no es suyo — pero se aplica, y por un motivo de presentación
+### El ±20% se retiró: no está en su Drift y Drift no lo obtiene de ningún sitio
 
-> «verifica el drift, solamente es un ±20% del precio en que está la acción.
-> Lo cual el call wall y put wall y el magneto tienen que estar dentro.»
+Se metió una ventana de ±20% del spot razonando que hacía comparables los dos
+números de la tarjeta. Kevin preguntó lo único que había que preguntar: **si no
+está en su Drift, ¿de dónde lo saca Drift?** De ningún sitio — era un añadido.
 
-Se verificó, y **no está en su Drift**:
+Se verificó en las cuatro fuentes y no aparece: `walls.py` filtra solo por
+lado, la especificación §4-§5 dice «strike with max OI among calls», el README
+dice «per side, per expiration», y `polygon_client.fetch_chain` baja la cadena
+entera. El ±20% es `NEAR_SPOT_PCT` del GEX del **agente**, de su `gex.ts`, y
+ahí se queda.
 
-| Fuente | Qué dice |
-|---|---|
-| `walls.py` | `max(contracts, key=open_interest)`, filtrando solo por lado |
-| spec §4-§5 | «Call Wall = strike with max OI among calls» |
-| `README` | «Strike with the most open interest, per side, per expiration» |
-| `polygon_client.fetch_chain` | baja la cadena entera, `limit: 250` paginado — sin ventana de strikes |
+Retirado por completo, con un test que impide que vuelva a colarse
+(`test_la_ruta_NO_recorta_los_strikes_a_ningun_porcentaje`).
 
-Donde sí está el ±20% es en el GEX del **agente**: `NEAR_SPOT_PCT = 0.2`,
-constante suya, de su `gex.ts`.
+### El imán, dentro de los muros — la única divergencia que queda
 
-**Y aun así se aplica.** El motivo no es que él lo haga —no lo hace—, es que
-el panel pinta los dos números **en la misma tarjeta**, separados por una
-barra: `Muro de calls / Drift → $310 / $400`. Medir uno sobre ±20% del spot y
-el otro sobre la cadena entera es comparar dos universos distintos y
-presentarlos como si fueran lo mismo. Con la acción a $180, el mayor OI de
-calls puede estar en un strike de $120 comprado hace un año; ese número al
-lado del muro de gamma no significa nada.
+> «Asegura que el imán siempre debe estar dentro del call wall y put wall, no
+> afuera.»
 
-Cómo se hizo, que importa tanto como qué:
+Esto **tampoco es suyo** —su `magneto.py` busca el mayor nocional neto en toda
+la cadena del vencimiento— y va declarado como tal. Pero el motivo sale de su
+propia especificación, §6: *«intra-range → el precio gravita hacia el
+Magneto»*. Un imán FUERA del rango de los muros rompe esa frase: no se puede
+gravitar hacia algo que está fuera de la banda que se acaba de declarar como
+el rango.
 
-- La ventana entra **por parámetro** (`near_pct`), y su valor por defecto es
-  `None` — el comportamiento literal suyo. Sus `walls.py` y `magneto.py` no se
-  tocan: se recorta la **entrada**, no la matemática.
-- La ruta pasa `NEAR_SPOT_PCT` **importado de `gex.py`**, no un `0.2` escrito
-  a mano. Si él cambia el suyo, los dos números de la tarjeta siguen midiendo
-  lo mismo; con una copia se separarían sin que nadie lo notara.
-- `diff_drift.sh` sigue comparando **sin ventana**: su trabajo es medir su
-  algoritmo contra el port, y con la ventana puesta compararía otra cosa. La
-  ventana se prueba aparte.
-- El payload lleva `ventana_pct` y la pantalla lo dice: sin decirlo, un muro
-  «el mayor de la cadena» y uno «el mayor a ±20%» se leen igual.
-- Si la ventana deja un vencimiento sin strikes, el plazo sale en `sin_datos`
-  con su motivo. No se ensancha en silencio para rellenar.
+Medido con muros modestos y una montaña de nocional lejos —el strike 300 tiene
+MENOS contratos que el muro de calls, pero el nocional multiplica por el
+strike: 300 × 4.200 × 100 = $126M contra $95M—:
 
-Medido sobre la cadena que lo destapó, spot $180:
-
-| | sin ventana (literal suyo) | con ±20% |
+| | sin la banda (literal suyo) | con la banda |
 |---|---|---|
-| Muro de puts | $230 | **$160** |
-| Muro de calls | $120 | **$200** |
-| Imán | $230 | **$200** |
-| ¿Los tres dentro de ±20%? | no | **sí** |
+| Muro de puts | $170 | $170 |
+| Muro de calls | $190 | $190 |
+| Imán | **$300** — fuera | **$190** — dentro |
 
-Cinco casos nuevos; **cuatro van rojos** con la ventana desactivada.
+Cómo está hecho:
+
+- Entra **por parámetro** (`iman_entre_muros`), apagado por defecto. Su
+  análisis sigue siendo literalmente el suyo, que es lo que compara
+  `diff_drift.sh`.
+- Toca el imán y **solo** el imán: un test comprueba que los muros, el OI
+  total y el nocional neto no se mueven al encenderla.
+- El **signo** del imán sigue siendo el neto de ese strike — lo que dice qué
+  lado manda ahí. Acotar dónde se busca no cambia qué se mide.
+- Aguanta el rango invertido: el muro de calls puede salir por debajo del de
+  puts —es su condición de ruptura— y la banda se ordena sola.
+
+**El guardián de la ruta era vacío y se arregló.** Los dos primeros casos
+pasaban con la banda apagada, porque la cadena de prueba daba un imán que ya
+caía dentro. Se añadió un fixture que reproduce el caso de verdad; ahora va
+rojo sin la banda. Un guardián que no falla sin el arreglo no protege nada.
 
 ### Estado
 
-**3.465 tests del motor (56 nuevos) · 915 de la capa web (23 nuevos) ·
+**3.466 tests del motor (57 nuevos) · 917 de la capa web (25 nuevos) ·
 135 de navegador · 342 checks de auditoría CON su repo real (0 avisos) ·
 los 17 diferenciales en verde, ejecutando su código. 0 fallos.**

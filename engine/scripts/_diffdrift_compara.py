@@ -80,17 +80,25 @@ DECLARADAS = {
     "cero interes",
 }
 
-#: La OTRA divergencia declarada, y la más visible: la ruta pasa
-#: `near_pct=NEAR_SPOT_PCT` (±20% del spot, la constante de SU `gex.ts`) y él
-#: mira la cadena entera. El diferencial compara SIN ventana a propósito —así
-#: mide su algoritmo contra el port, que es su trabajo—; la ventana es política
-#: de entrada de Vertex y se prueba aparte, en
-#: `TestLaVentanaDeSTRIKESEsDeVERTEX`.
+#: La OTRA divergencia declarada, y la única que queda: la ruta pasa
+#: `iman_entre_muros=True`, que acota el imán al rango de los dos muros. Él lo
+#: busca en toda la cadena del vencimiento.
 #:
-#: El motivo: el panel pinta el número del agente y el suyo en la MISMA
-#: tarjeta. Uno medido a ±20% y el otro sobre la cadena entera son dos
-#: universos distintos presentados como si fueran comparables.
-VENTANA_ES_DE_VERTEX = True
+#: El motivo está en su propia §6: «intra-range → el precio gravita hacia el
+#: Magneto». Un imán FUERA del rango de los muros rompe esa frase — no se puede
+#: gravitar hacia algo que está fuera de la banda que se acaba de declarar como
+#: el rango. Medido: con la acción a $180 y los muros en 170/190, el mayor
+#: nocional de la cadena estaba en un strike de $300, contratos muy dentro del
+#: dinero que se van a ejercer.
+#:
+#: El diferencial compara SIN la banda a propósito —así mide su algoritmo
+#: contra el port, que es su trabajo—; la banda se prueba aparte, en
+#: `TestElIMANDentroDeLosMUROS` y en `test_el_iman_se_ACOTA_cuando_de_verdad_se_iria_fuera`.
+#:
+#: Y lo que NO hay: ninguna ventana de strikes. El ±20% que se probó no está en
+#: su Drift —ni en `walls.py`, ni en la especificación §4-§5, ni en el README,
+#: ni en su `polygon_client`, que baja la cadena entera— y se retiró.
+IMAN_ACOTADO_ES_DE_VERTEX = True
 
 fallos: list[str] = []
 declaradas: list[str] = []

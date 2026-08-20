@@ -5893,44 +5893,103 @@ class TestDriftEnLaRuta:
             assert b["muro_calls"] == 115.0
             assert b["muro_puts"] == 85.0
 
-    def test_los_TRES_numeros_salen_dentro_del_20_POR_CIENTO(
-            self, client, cadena_larga):
-        """«El Drift es solo un ±20% del precio.»
+    @pytest.fixture
+    def iman_fuera(self, monkeypatch):
+        """Una cadena donde el imán se iría FUERA de los muros sin la banda.
 
-        No es de su Drift —él mira la cadena entera— pero SÍ es la ventana con
-        la que se sirve aquí, y por un motivo de presentación: el panel pinta
-        el número del agente y el de Drift en la misma tarjeta, y el del
-        agente sale de `gex.NEAR_SPOT_PCT`. Medidos sobre universos distintos,
-        los dos números de esa barra no serían comparables.
+        Sin esto el caso no prueba nada: la cadena normal da un imán que ya
+        cae dentro, así que el test pasaba igual con la banda apagada. Se
+        comprobó, y por eso existe este fixture.
+
+        Muros modestos y una montaña de nocional muy lejos: el strike 300
+        tiene MENOS contratos que el muro de calls, pero el nocional
+        multiplica por el strike (300 × 4.200 × 100 = $126M contra $95M).
         """
-        from wbj.tito.gex import NEAR_SPOT_PCT
+        import wbj.tito.massive as MASS
+        from wbj.tito.structure import ChainRow
 
-        d = client.get("/api/projection-targets?ticker=DEMO").json()
-        dr = d["drift"]
-        assert dr["ventana_pct"] == pytest.approx(NEAR_SPOT_PCT * 100), (
-            "la ventana servida no es la constante del agente")
-        lo = d["spot"] * (1 - NEAR_SPOT_PCT)
-        hi = d["spot"] * (1 + NEAR_SPOT_PCT)
+        vencs = [_mensual(n) for n in (1, 3, 4, 11)]
+
+        def chain(ticker, **k):
+            rows = []
+            for exp in vencs:
+                for kk in range(100, 321, 10):
+                    oi_c = oi_p = 100
+                    if kk == 190:
+                        oi_c = 5000
+                    if kk == 170:
+                        oi_p = 5200
+                    if kk == 300:
+                        oi_c = 4200
+                    rows.append(ChainRow("call", exp, float(kk), oi_c,
+                                         0, kk * oi_c * 100))
+                    rows.append(ChainRow("put", exp, float(kk), oi_p,
+                                         0, kk * oi_p * 100))
+            return MASS.ChainResult(rows=rows, underlying_price=180.0,
+                                    pages=1, truncated=False)
+
+        monkeypatch.setattr(MASS, "fetch_option_chain", chain)
+        monkeypatch.setattr(MASS, "fetch_company",
+                            lambda t, **k: {"ticker": t, "price": 180.0,
+                                            "name": "Demo", "prev_close": 179.0})
+        return vencs
+
+    def test_el_iman_se_ACOTA_cuando_de_verdad_se_iria_fuera(
+            self, client, iman_fuera):
+        """El caso que hace que la banda signifique algo.
+
+        Con la banda apagada el imán sale en 300 y los muros en 170/190. Este
+        es el test que se pone rojo si alguien la quita.
+        """
+        dr = client.get("/api/projection-targets?ticker=DEMO").json()["drift"]
         assert dr["buckets"], "sin buckets no se prueba nada"
         for b in dr["buckets"]:
-            for que in ("muro_calls", "muro_puts", "magneto"):
-                assert lo <= b[que] <= hi, (
-                    f"{b['etiqueta']}: {que} en {b[que]}, fuera de "
-                    f"±{NEAR_SPOT_PCT * 100:.0f}% [{lo:.2f}, {hi:.2f}] "
-                    f"con el spot en {d['spot']}")
+            lo, hi = sorted((b["muro_puts"], b["muro_calls"]))
+            assert b["magneto"] != 300.0, (
+                f"{b['etiqueta']}: el imán se fue al strike de mayor nocional "
+                f"de la cadena, fuera de los muros")
+            assert lo <= b["magneto"] <= hi, (
+                f"{b['etiqueta']}: imán {b['magneto']} fuera de [{lo}, {hi}]")
+
+    def test_el_IMAN_sale_SIEMPRE_dentro_de_los_dos_muros(
+            self, client, cadena_larga):
+        """«Asegura que el imán siempre debe estar dentro del call wall y put
+        wall, no afuera.»
+
+        No es de su Drift —él lo busca en toda la cadena del vencimiento— y
+        va declarado como la única divergencia. El motivo es su propia §6:
+        «intra-range → el precio gravita hacia el Magneto». Un imán fuera de
+        la banda de los muros rompe esa frase.
+        """
+        dr = client.get("/api/projection-targets?ticker=DEMO").json()["drift"]
+        assert dr["buckets"], "sin buckets no se prueba nada"
+        for b in dr["buckets"]:
+            lo, hi = sorted((b["muro_puts"], b["muro_calls"]))
+            assert lo <= b["magneto"] <= hi, (
+                f"{b['etiqueta']}: imán en {b['magneto']}, fuera de los muros "
+                f"[{lo}, {hi}]")
 
     def test_y_los_targets_largos_TAMBIEN_se_anclan_dentro(
             self, client, cadena_larga):
-        """Sus tres niveles son los de Drift, así que heredan la ventana."""
-        from wbj.tito.gex import NEAR_SPOT_PCT
-
+        """Sus tres niveles son los del bucket, así que heredan la banda."""
         d = client.get("/api/projection-targets?ticker=DEMO").json()
-        lo = d["spot"] * (1 - NEAR_SPOT_PCT)
-        hi = d["spot"] * (1 + NEAR_SPOT_PCT)
         assert d["targets_drift"], "sin plazos largos no se prueba nada"
         for h, v in d["targets_drift"].items():
-            for que in ("muro_puts", "muro_calls", "iman"):
-                assert lo <= v[que] <= hi, f"{h}d · {que} = {v[que]}"
+            lo, hi = sorted((v["muro_puts"], v["muro_calls"]))
+            assert lo <= v["iman"] <= hi, f"{h}d · imán {v['iman']} fuera de [{lo}, {hi}]"
+
+    def test_la_ruta_NO_recorta_los_strikes_a_ningun_porcentaje(
+            self, client, cadena_larga):
+        """El ±20% que se había metido NO es suyo y se quitó.
+
+        Su `polygon_client` baja la cadena entera y sus `walls.py` /
+        `magneto.py` la miran completa: ni el código, ni la especificación
+        §4-§5, ni el README mencionan ventana de strikes alguna. Este caso
+        existe para que no vuelva a colarse.
+        """
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert "ventana_pct" not in d["drift"], (
+            "volvió la ventana de strikes, que no está en su Drift")
 
     def test_declara_QUE_IV_uso_porque_no_es_la_de_la_cadena(self, client, cadena_larga):
         # El plan de Massive no devuelve `implied_volatility` por contrato, así

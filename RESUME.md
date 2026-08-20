@@ -74,10 +74,11 @@ debajo del soporte no es un fallo — es su condición de ruptura.
 `engine/scripts/diff_drift.sh` ejecuta su Python y lo comprueba número a
 número.
 
-Lo único que Vertex añade es la **ventana de strikes**: los tres niveles se
-buscan a **±20% del spot**, la misma `NEAR_SPOT_PCT` que usa el GEX del
-agente. Él mira la cadena entera; aquí se recorta porque los dos números se
-pintan juntos y tienen que medirse sobre el mismo universo. Drift **no puntúa**: el score de 6 sub-agentes se
+Lo único que Vertex añade es que el **imán se acota al rango de los dos
+muros**. Él lo busca en toda la cadena del vencimiento; aquí se acota porque
+su propia §6 dice «el precio gravita hacia el Magneto», y un imán fuera de la
+banda de los muros rompe esa frase. Va declarado en `diff_drift.sh` y apagado
+por defecto en el motor. Drift **no puntúa**: el score de 6 sub-agentes se
 calcula exactamente igual que antes de que existiera, y hay un test que lo
 compara con Drift encendido y apagado.
 
@@ -99,9 +100,9 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 ## Tests
 
 ```bash
-cd engine && python -m pytest tests/ -q    # 3465 pasan, 0 skips
-python -m pytest tests_vertex/ -q          # 1050 pasan, 0 skips
-                                           # (915 de la capa web + 135 en un
+cd engine && python -m pytest tests/ -q    # 3466 pasan, 0 skips
+python -m pytest tests_vertex/ -q          # 1052 pasan, 0 skips
+                                           # (917 de la capa web + 135 en un
                                            #  navegador real, cuatro tamaños)
 
 # Auditoría del tab de Proyecciones (324 checks con TITO_ROOT). Con TITO_ROOT usa tu clon de
