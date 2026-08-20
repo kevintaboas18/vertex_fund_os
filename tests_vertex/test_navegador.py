@@ -25,6 +25,7 @@ de por defecto — que es justo lo que hace útil el test aquí.
 from __future__ import annotations
 
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -2476,6 +2477,122 @@ class TestNadaSeSaleDeLaPANTALLA:
             assert d["sw"] <= d["cw"], (
                 f"[{nombre} · ideas/{vista}] documento de {d['sw']}px en pantalla "
                 f"de {d['cw']}px. Se sale: {d['fuera']}")
+        finally:
+            pg.close()
+
+
+class TestUnaPantallaEnBlancoNoEsUnaOPCION:
+    """«Me sale así» — y «así» era una pantalla vacía, sin un solo mensaje.
+
+    Dos defectos encadenados la producían:
+
+    · Los cuatro pintores iban seguidos, así que el primero que lanzaba se
+      llevaba por delante a los tres de detrás. Un fallo en las tarjetas
+      borraba los targets, la gráfica y la cabecera, que no tenían culpa.
+    · Y el `catch` escribía el error en `projEmpty`… **dos líneas después de
+      ocultarlo**. El mensaje existía, en un nodo invisible. Desde fuera:
+      pantalla en blanco y muda.
+
+    Una pantalla en blanco es el peor error posible, porque ni siquiera se
+    puede contar lo que pasó.
+    """
+
+    def _rompe(self, navegador, servidor, cual):
+        """Sabotea UN pintor y pide el análisis, como lo pide el panel."""
+        pg, errores = _abre(navegador, servidor)
+        pg.evaluate("switchView('projectionsView')")
+        pg.wait_for_timeout(300)
+        pg.route(re.compile(r"/api/projection-targets"),
+                 lambda r: r.fulfill(
+                     status=200,
+                     json=TestDriftSePintaJuntoAlDelAgente._payload()))
+        pg.evaluate(f"""() => {{
+            window.{cual} = function () {{ throw new Error('sabotaje de {cual}'); }};
+        }}""")
+        pg.evaluate("loadProjections('NVDA')")
+        pg.wait_for_timeout(3000)
+        return pg, errores
+
+    @pytest.mark.parametrize("cual,etiqueta", [
+        ("renderProjections", "las tarjetas"),
+        ("renderVictorTargets", "los targets"),
+        ("vcSyncCabecera", "la cabecera"),
+    ])
+    def test_si_un_pintor_revienta_SE_DICE_en_pantalla(self, navegador, servidor,
+                                                      cual, etiqueta):
+        pg, _ = self._rompe(navegador, servidor, cual)
+        try:
+            visible = pg.evaluate("""() => {
+                const c = document.getElementById('projRoto');
+                if (!c) return null;
+                return c.offsetParent !== null ? c.innerText : null;
+            }""")
+            assert visible, (
+                f"«{cual}» reventó y la pantalla no dijo NADA. Eso es el "
+                f"fallo entero: en blanco y sin mensaje.")
+            assert etiqueta in visible, visible
+            assert "sabotaje" in visible, visible
+        finally:
+            pg.close()
+
+    @pytest.mark.parametrize("cual", ["renderProjections", "renderVictorTargets"])
+    def test_y_LO_DEMAS_se_sigue_pintando(self, navegador, servidor, cual):
+        """Un pintor roto no puede llevarse a los otros tres por delante."""
+        pg, _ = self._rompe(navegador, servidor, cual)
+        try:
+            # El que NO se saboteó tiene que haber pintado algo.
+            otro = ('projTargets' if cual == 'renderProjections' else 'projCards')
+            txt = pg.evaluate(
+                f"() => (document.getElementById('{otro}').innerText || '').trim()")
+            # Lo que se mide es que el OTRO pintor CORRIÓ, no cuánto escribió.
+            # Con este payload `renderVictorTargets` pinta «Sin escenarios.»
+            # —no trae predicciones— y eso ya prueba lo que importa: no se lo
+            # llevó por delante el que reventó. Un umbral de longitud aquí
+            # mediría el payload, no la cadena de pintores.
+            assert txt, (
+                f"al romper «{cual}» se quedó vacío también #{otro}: los "
+                f"pintores siguen encadenados")
+        finally:
+            pg.close()
+
+    def test_si_falla_TODO_el_vacio_se_vuelve_a_ENSENAR(self, navegador, servidor):
+        """El error se escribía en un nodo ya oculto. Ahora se enseña primero.
+
+        Se rompe `vcFetchTargets`, que lanza ANTES de que exista payload: ese
+        es el camino que pasa por el `catch` de fuera.
+        """
+        pg, _ = _abre(navegador, servidor)
+        try:
+            pg.evaluate("switchView('projectionsView')")
+            pg.wait_for_timeout(300)
+            pg.evaluate("""() => {
+                window.vcFetchTargets = async function () {
+                    throw new Error('la red se cayó');
+                };
+            }""")
+            pg.evaluate("loadProjections('NVDA')")
+            pg.wait_for_timeout(2500)
+            d = pg.evaluate("""() => {
+                const e = document.getElementById('projEmpty');
+                return { visible: e.offsetParent !== null, txt: (e.innerText||'').trim(),
+                         contenido: !document.getElementById('projContent')
+                                        .classList.contains('hidden') };
+            }""")
+            assert d["visible"], "el mensaje se escribió en un nodo oculto otra vez"
+            assert "la red se cayó" in d["txt"], d["txt"]
+            assert not d["contenido"], "el contenido vacío se quedó a la vista"
+        finally:
+            pg.close()
+
+    def test_el_aviso_del_ticker_VIEJO_no_se_queda_pegado(self, navegador, servidor):
+        """Acusaría al siguiente símbolo de un fallo que no es suyo."""
+        pg, _ = self._rompe(navegador, servidor, "renderVictorTargets")
+        try:
+            assert pg.evaluate("() => !!document.getElementById('projRoto')")
+            pg.evaluate("vcLimpiaTicker({})")
+            pg.wait_for_timeout(300)
+            assert pg.evaluate("() => !document.getElementById('projRoto')"), (
+                "el aviso del ticker anterior sigue puesto")
         finally:
             pg.close()
 

@@ -144,6 +144,11 @@ class TestNoQuedaEspanolSINTRADUCIR_EnElCodigo:
 
     #: Se quedan sin entrada, con su motivo. Nada más entra aquí sin uno.
     DECLARADAS = {
+        # No es texto de pantalla: es el prefijo de un `console.error`. La
+        # consola es para depurar, no para el usuario, y traducirla solo
+        # haría más difícil buscar el mensaje. El aviso que SÍ se ve —«No se
+        # pudo pintar parte del panel»— está en el diccionario.
+        "[vertex] falló",
         # Trozo de plantilla que el extractor corta en el `${`: la frase entera
         # lleva el precio del flip dentro y va por `VX_PAT`, no por el
         # diccionario. La versión pintada sí la mide el test del navegador.

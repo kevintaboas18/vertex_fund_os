@@ -4801,6 +4801,11 @@ function vcLimpiaTicker(opciones) {
     const titulo = document.getElementById('projChartTitle');
     if (titulo) titulo.innerText = '';
 
+    // El aviso de «no se pudo pintar» es del ticker ANTERIOR: dejarlo puesto
+    // lo convertiría en una acusación contra el siguiente.
+    const roto = document.getElementById('projRoto');
+    if (roto) roto.remove();
+
     const content = document.getElementById('projContent');
     const empty = document.getElementById('projEmpty');
     if (content) content.classList.add('hidden');
@@ -4817,6 +4822,27 @@ function vcLimpiaTicker(opciones) {
     if (typeof vcTabCargada === 'object' && vcTabCargada) vcTabCargada.tape = false;
 
     if (window.lucide) vcIconos();
+}
+
+/** Avisa EN PANTALLA de que un trozo del panel no se pudo pintar.
+ *
+ *  Va arriba del contenido, en rojo, y dice cuál falló. La alternativa es lo
+ *  que pasaba antes: un hueco en blanco que se confunde con «no hay datos».
+ */
+function vcAvisaRoto(rotos) {
+    const content = document.getElementById('projContent');
+    if (!content) return;
+    let caja = document.getElementById('projRoto');
+    if (!caja) {
+        caja = document.createElement('div');
+        caja.id = 'projRoto';
+        content.prepend(caja);
+    }
+    caja.className = 'bg-red-500/10 border border-red-500/30 rounded-xl p-3';
+    caja.innerHTML = `<p class="text-xs font-black text-red-300">No se pudo pintar parte del panel</p>`
+        + `<p class="text-[10px] text-red-200/80 mt-1 leading-snug">${
+            rotos.map(r => _vcEsc(r)).join('<br>')}</p>`
+        + `<p class="text-[9px] text-gray-500 mt-1">Lo demás que se ve abajo sí es válido.</p>`;
 }
 
 async function loadProjections(tickerArg, opts) {
@@ -4877,12 +4903,41 @@ async function loadProjections(tickerArg, opts) {
         projData = d;
         window._vcData = d;
         if (!silent) { empty.classList.add('hidden'); content.classList.remove('hidden'); }
-        renderProjections(d);              // cards, escenarios e inusuales — todo del motor de Víctor
-        renderVictorTargets(d);            // scorecard, niveles, heatmap, racimos, memoria
-        renderVictorProjChart('projChart', d, window._vcHz || 20);
-        vcSyncCabecera(d);
+        // Cada pintor va AISLADO, y por dos motivos que se vieron en pantalla.
+        //
+        // 1. Encadenados, el primero que lanza se lleva a los tres de detrás:
+        //    un fallo en las tarjetas borraba los targets, la gráfica y la
+        //    cabecera, que no tenían nada que ver.
+        // 2. Y el error acababa INVISIBLE. El `catch` escribía en `projEmpty`
+        //    …que dos líneas antes se acaba de ocultar. Resultado: pantalla en
+        //    blanco y muda, sin icono, sin mensaje y sin nada que mirar. Una
+        //    pantalla en blanco es el peor error posible: no se puede ni
+        //    contar lo que pasó.
+        const _rotos = [];
+        for (const [_qué, _pinta] of [
+            ['las tarjetas', () => renderProjections(d)],
+            ['los targets', () => renderVictorTargets(d)],
+            ['la gráfica', () => renderVictorProjChart('projChart', d, window._vcHz || 20)],
+            ['la cabecera', () => vcSyncCabecera(d)],
+        ]) {
+            try { _pinta(); }
+            catch (err) {
+                _rotos.push(`${_qué}: ${err && err.message ? err.message : err}`);
+                console.error('[vertex] falló ' + _qué, err);
+            }
+        }
+        if (_rotos.length && !silent) vcAvisaRoto(_rotos);
     } catch (e) {
-        if (!silent) empty.innerHTML = `<p class="text-sm text-red-400">Error: ${e.message}</p>`;
+        // Se vuelve a ENSEÑAR el vacío antes de escribir en él. Sin esto el
+        // mensaje se escribía en un nodo oculto y no lo leía nadie.
+        if (!silent) {
+            content.classList.add('hidden');
+            empty.classList.remove('hidden');
+            empty.innerHTML = `<i data-lucide="alert-triangle" class="w-8 h-8 text-red-500 mx-auto mb-3"></i>`
+                + `<p class="text-sm text-red-400">Error: ${_vcEsc(e && e.message ? e.message : String(e))}</p>`;
+            if (window.lucide) vcIconos();
+        }
+        console.error('[vertex] loadProjections', e);
     } finally {
         vcLoaderPara();
         if (silent) {
@@ -14353,6 +14408,14 @@ const VX_ES2EN = {
     "Plazo": "Horizon",
     "Imán de nocional": "Notional magnet",
     "imán de nocional": "notional magnet",
+    "No se pudo pintar parte del panel": "Part of the panel could not be drawn",
+    // Los cuatro trozos que nombra el aviso de arriba cuando uno no pinta.
+    "las tarjetas": "the cards",
+    "los targets": "the targets",
+    "la gráfica": "the chart",
+    "la cabecera": "the header",
+    "Lo demás que se ve abajo sí es válido.":
+        "Everything else shown below is still valid.",
     "cierre anterior · sin sesión en curso":
         "previous close · no session under way",
     "los muros y el imán de 90/120/320 días (Drift)":

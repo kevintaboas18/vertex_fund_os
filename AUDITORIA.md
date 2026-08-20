@@ -8973,8 +8973,39 @@ port**: `massive.py` sigue siendo literal a su TypeScript, igual que
 Cuatro casos nuevos, y los dos que reproducen el fallo se comprobaron **en
 rojo** desactivando la rama.
 
+### Una pantalla en blanco no es una opción
+
+> «me sale así» — y «así» era la pestaña Ticker completamente vacía, sin un
+> icono, sin un mensaje, sin nada.
+
+Dos defectos encadenados la producían, y ninguno tiene que ver con Drift ni
+con el spot:
+
+1. **Los cuatro pintores iban seguidos.** `renderProjections`,
+   `renderVictorTargets`, `renderVictorProjChart` y `vcSyncCabecera`, una
+   detrás de otra. El primero que lanzaba se llevaba por delante a los tres de
+   atrás, que no tenían nada que ver.
+2. **Y el error acababa invisible.** El `catch` escribía en `projEmpty`… dos
+   líneas después de que `empty.classList.add('hidden')` lo ocultara. El
+   mensaje existía, en un nodo que nadie ve. Desde fuera: pantalla en blanco y
+   muda.
+
+Una pantalla en blanco es el peor error posible porque **ni siquiera se puede
+contar lo que pasó** — ni el usuario ni quien lo arregla saben por dónde
+empezar.
+
+Ahora cada pintor va aislado; el que falle se nombra en un aviso rojo arriba
+del contenido («No se pudo pintar parte del panel · las tarjetas: …») y los
+otros tres siguen pintando. Si lo que falla es la petición entera, el vacío se
+vuelve a **enseñar** antes de escribir en él. Y el aviso se borra al cambiar
+de ticker: uno viejo pegado acusaría al símbolo siguiente de un fallo ajeno.
+
+Siete casos nuevos de navegador, saboteando cada pintor por su lado. **Cinco
+van rojos** con el código anterior — reproducen la pantalla en blanco — y los
+siete verdes con el arreglo.
+
 ### Estado
 
-**3.451 tests del motor (42 nuevos) · 908 de la capa web (16 nuevos) ·
-128 de navegador (11 nuevos) · 280 checks de auditoría sin TITO_ROOT
+**3.451 tests del motor (42 nuevos) · 915 de la capa web (23 nuevos) ·
+135 de navegador (18 nuevos) · 280 checks de auditoría sin TITO_ROOT
 (los 324 con él no se pueden correr en este contenedor), 0 fallos.**
