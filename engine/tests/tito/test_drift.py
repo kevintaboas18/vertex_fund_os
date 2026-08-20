@@ -152,13 +152,58 @@ class TestMurosEIman:
         s, n = magneto(f)
         assert s == 80.0 and n < 0        # los puts mandan, y se dice con el signo
 
-    def test_el_SESGO_del_nocional_hacia_los_strikes_altos_es_real(self):
-        # Mismo número de contratos en dos strikes: gana el más alto por pura
-        # multiplicación. Está en la cabecera del módulo y aquí queda medido.
+    def test_el_sesgo_del_nocional_es_de_DESEMPATE_y_solo_eso(self):
+        """A igual número de contratos gana el strike más alto, y ya.
+
+        El nocional multiplica por el strike, así que entre dos
+        concentraciones PARECIDAS el desempate lo gana la de arriba. Ese es el
+        tamaño exacto del sesgo — ni más.
+        """
         from wbj.tito.drift import _a_filas
         f = _a_filas([fila(100, "call", 1000, "2026-09-18"),
                       fila(400, "call", 1000, "2026-09-18")], HOY)
         assert magneto(f)[0] == 400.0
+
+    def test_el_iman_NO_tira_hacia_arriba_sale_donde_esta_el_nocional(self):
+        """La corrección de Kevin, fijada como test.
+
+        Decir que el imán «tiende a salir por encima del precio» es falso: sale
+        donde esté el nocional. Con una pared de puts POR DEBAJO del precio se
+        va abajo, y el desempate por strike no la salva.
+
+        La aritmética, que es el punto: 6.000 puts en el 80 son 80 × 6.000 ×
+        100 = 48 M, y 1.000 calls en el 400 son 40 M. Gana el 80 aunque el
+        strike sea cinco veces menor, porque los contratos NO empatan — y el
+        sesgo del nocional solo desempata cuando empatan.
+        """
+        from wbj.tito.drift import _a_filas
+        spot = 100.0
+        f = _a_filas([fila(400, "call", 1000, "2026-09-18"),
+                      fila(80, "put", 6000, "2026-09-18")], HOY)
+        strike, neto = magneto(f)
+        assert strike == 80.0 < spot, "el imán se fue arriba con los puts mandando"
+        assert neto < 0, "el signo tiene que decir que mandan los puts"
+
+        # Y la otra cara: con las calls mandando, arriba. El imán sigue al
+        # nocional en las dos direcciones.
+        f = _a_filas([fila(120, "call", 3000, "2026-09-18"),
+                      fila(80, "put", 100, "2026-09-18")], HOY)
+        strike, neto = magneto(f)
+        assert strike == 120.0 > spot and neto > 0
+
+    def test_el_analisis_completo_tambien_pone_el_iman_ABAJO(self):
+        """No es solo la función suelta: el bucket que llega al panel también."""
+        vencs = ["2026-09-18", "2026-11-20", "2026-12-18", "2027-07-16"]
+        filas = []
+        for v in vencs:
+            filas += [fila(110, "call", 200, v), fila(70, "put", 9000, v)]
+        a = drift_analysis(filas, spot=100.0, hoy=HOY, iv=0.4)
+        assert a.buckets
+        for b in a.buckets:
+            assert b.magneto == 70.0 < 100.0
+            assert b.magneto_nocional < 0
+            # …y la lectura lo cuenta como rechazo, no como atracción.
+            assert "rechazo" in b.deriva or "RUPTURA" in b.deriva
 
 
 class TestElCono:

@@ -917,6 +917,73 @@ class TestLosDosAgentesNoSeMezclan:
         assert (a.raiz / "Reportes/AAPL/2026-08-07/reporte.json").is_file()
         assert (a.raiz / "Proyecciones/AAPL/2026-08-07/scorecard.json").is_file()
 
+    def test_con_el_payload_DE_VERDAD_se_guarda_TODO_no_solo_el_json(self, a):
+        """El fallo que este archivo llevaba escondiendo desde la ronda 14.
+
+        Los demás casos archivan un payload hecho a mano —`{"verdict": ...}`—
+        y por eso pasaban: sin `levels`, el `(d.get("levels") or [])[:12]` de
+        `_md_opciones` corta una lista vacía y no se entera de nada. Pero el
+        payload REAL trae `levels` como **diccionario** (`supports`,
+        `resistances`, `tolerance_pct`, …), y cortar un dict lanza
+        `unhashable type: 'slice'`.
+
+        Lo que se perdía no era el reporte: `scorecard.json` se escribe ANTES
+        y sobrevivía. Se perdían las tres cosas de después —el `RESUMEN.md`,
+        el índice de `Proyecciones/` y la tesis del ticker en `Memoria/`— y
+        como `_archiva_opciones` traga la excepción, nadie se enteraba.
+
+        Por eso este caso construye el payload con el MOTOR, no a mano.
+        """
+        import sys as _sys
+
+        _sys.path.insert(0, str(ROOT / "engine"))
+        _sys.path.insert(0, str(ROOT / "engine" / "tests"))
+        import vertex_api as V
+        import vertex_archivo as AR
+        from tests.tito.test_scorecard import NOW, SPOT, bars, chain, trades
+        from wbj.tito.scorecard import run_scorecard
+
+        r = run_scorecard("DEMO", trades(), chain(), bars(), now=NOW, spot=SPOT)
+        real = V._json_safe(V._tito_json(r))
+        assert isinstance(real.get("levels"), dict), (
+            "si `levels` deja de ser un dict, este caso ya no prueba lo que dice")
+
+        AR.guarda_reporte_opciones("DEMO", real, cuando="2026-08-07", alm=a)
+
+        base = a.raiz / "Proyecciones/DEMO/2026-08-07"
+        assert (base / "scorecard.json").is_file()
+        resumen = base / "RESUMEN.md"
+        assert resumen.is_file(), (
+            "el RESUMEN.md no se escribió: `_md_opciones` reventó con el "
+            "payload real y `_archiva_opciones` se tragó el error")
+        txt = resumen.read_text(encoding="utf-8")
+        assert "DEMO" in txt and len(txt) > 200, txt[:200]
+        # Y lo que iba DESPUÉS del resumen, que se perdía con él.
+        assert (a.raiz / "Proyecciones/INDICE.md").is_file(), (
+            "el índice no se reconstruyó: va después del RESUMEN.md")
+
+    def test_los_niveles_del_resumen_salen_de_los_DOS_lados(self, a):
+        """Suelo y techo, no doce soportes seguidos.
+
+        `levels` trae `supports` y `resistances` por separado. Juntarlos y
+        ordenarlos por fuerza es lo que hace que el resumen enseñe el rango;
+        quedarse con una sola lista lo dejaría cojo de un lado.
+        """
+        import vertex_archivo as AR
+
+        payload = {"verdict": "Neutral", "spot": 100.0, "levels": {
+            "supports": [{"price": 90.0, "kind": "soporte", "strength": 80,
+                          "touch": 0.5, "why": "suelo fuerte"}],
+            "resistances": [{"price": 110.0, "kind": "resistencia", "strength": 95,
+                             "touch": 0.4, "why": "techo fuerte"}],
+            "tolerance_pct": 1}}
+        AR.guarda_reporte_opciones("DEMO", payload, cuando="2026-08-07", alm=a)
+        txt = (a.raiz / "Proyecciones/DEMO/2026-08-07/RESUMEN.md").read_text(
+            encoding="utf-8")
+        assert "$90.00" in txt and "$110.00" in txt, txt
+        # Ordenados por fuerza: la resistencia (95) va antes que el soporte (80).
+        assert txt.index("$110.00") < txt.index("$90.00"), txt
+
     def test_el_MISMO_ticker_el_MISMO_dia_no_se_pisa(self, a):
         """Los dos agentes pueden analizar AAPL hoy. Si compartieran archivo,
         el segundo borraría el primero — y son dos análisis distintos."""
@@ -1006,9 +1073,17 @@ class TestLosDosAgentesNoSeMezclan:
 
         AR.guarda_reporte_opciones("WULF", {
             "verdict": "Alcista", "score": 74, "spot": 18.42,
-            # Los NOMBRES son los que sirve `/api/projection-targets`, no unos
-            # parecidos — ese fue el fallo que este test existe para cazar. Y
-            # `touch` es una FRACCIÓN 0-1, como la manda `prob_touch`.
+            # Los NOMBRES de cada nivel son los que sirve la ruta, y `touch`
+            # es una FRACCIÓN 0-1 como la manda `prob_touch`.
+            #
+            # OJO con `levels` en sí: aquí va como LISTA, y la ruta lo sirve
+            # como DICCIONARIO (`supports`/`resistances`). Esta docstring decía
+            # que la forma era «la que sirve /api/projection-targets» y no lo
+            # era — la suposición se quedó escrita y tapó el fallo de
+            # `_md_opciones` durante rondas. Se conserva la lista a propósito:
+            # es la forma de los reportes YA archivados, y el resumen tiene que
+            # seguir sabiendo leerlos. La forma real la cubre
+            # `test_con_el_payload_DE_VERDAD_se_guarda_TODO_no_solo_el_json`.
             "levels": [{"price": 17.5, "kind": "soporte", "strength": 62,
                         "touch": 0.81, "why": "muro de puts", "flipped": False,
                         "distance_pct": -5.0},

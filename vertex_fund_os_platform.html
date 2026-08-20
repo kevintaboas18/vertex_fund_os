@@ -7363,7 +7363,7 @@ function renderProjDrift(d) {
             <th class="text-right pb-1.5 pr-3">Cono 1&sigma;</th>
             <th class="text-left pb-1.5">Lectura</th>
         </tr></thead><tbody>${filas}${sin}</tbody></table></div>
-        <p class="text-[9px] text-gray-500 italic mt-2 leading-relaxed"><span>El im&aacute;n multiplica contratos por strike, as&iacute; que a igualdad de contratos un strike m&aacute;s alto da m&aacute;s nocional: tiende a salir por encima del precio por construcci&oacute;n. El OI y el neto de cada fila son los del vencimiento entero, no los del strike.</span><br><span>Vencimientos mensuales en la cadena:</span> <b>${dr.mensuales}</b> &middot; <span>IV del cono:</span> <span>${_vcEsc(dr.iv_fuente || '')}</span></p>`;
+        <p class="text-[9px] text-gray-500 italic mt-2 leading-relaxed"><span>El im&aacute;n es el strike con m&aacute;s nocional neto: sale donde est&eacute; ese nocional, por encima o por debajo del precio seg&uacute;n qu&eacute; lado pese m&aacute;s. El &uacute;nico sesgo es de desempate &mdash; a igualdad de contratos gana el strike m&aacute;s alto, porque el nocional los multiplica. El OI y el neto de cada fila son los del vencimiento entero, no los del strike.</span><br><span>Vencimientos mensuales en la cadena:</span> <b>${dr.mensuales}</b> &middot; <span>IV del cono:</span> <span>${_vcEsc(dr.iv_fuente || '')}</span></p>`;
     vcTablaResponsive('projDriftBody');
 }
 
@@ -14359,8 +14359,8 @@ const VX_ES2EN = {
         "This expiration is the same as another horizon's: the chain is not deep enough to separate them.",
     "Interés abierto y nocional publicados por el mercado, sin modelo que pueda fallar. El número del motor es gamma de dealer sobre los strikes a ±20% del spot. Apuntan a strikes distintos a propósito, y ninguno de los dos está mal.":
         "Open interest and notional published by the market, with no model that can fail. The engine's number is dealer gamma over strikes within ±20% of spot. They point at different strikes on purpose, and neither one is wrong.",
-    "El imán multiplica contratos por strike, así que a igualdad de contratos un strike más alto da más nocional: tiende a salir por encima del precio por construcción. El OI y el neto de cada fila son los del vencimiento entero, no los del strike.":
-        "The magnet multiplies contracts by strike, so at equal contract counts a higher strike yields more notional: it tends to land above the price by construction. The OI and the net of each row are the whole expiration's, not the strike's.",
+    "El imán es el strike con más nocional neto: sale donde esté ese nocional, por encima o por debajo del precio según qué lado pese más. El único sesgo es de desempate — a igualdad de contratos gana el strike más alto, porque el nocional los multiplica. El OI y el neto de cada fila son los del vencimiento entero, no los del strike.":
+        "The magnet is the strike with the most net notional: it lands wherever that notional is, above or below the price depending on which side weighs more. The only bias is a tie-breaker — at equal contract counts the higher strike wins, because notional multiplies by it. The OI and the net of each row are the whole expiration's, not the strike's.",
     "Vencimientos mensuales en la cadena:": "Monthly expirations in the chain:",
     "IV del cono:": "Cone IV:",
     // Lo escribe el servidor (`_tito_drift`): decir con qué IV se dibujó el

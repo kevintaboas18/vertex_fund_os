@@ -8861,8 +8861,78 @@ miente por omisión:
 
 El guardián se comprobó **en rojo** desactivando la primera rama.
 
+### La corrección de Kevin: el imán NO tira hacia arriba
+
+> «el iman del Drift no siempre tira hacia arriba, es donde hay mayor nocional.»
+
+Tenía razón y la frase estaba mal escrita en tres sitios —módulo, pie de tabla
+y esta auditoría—. El Magneto **es** el strike con más nocional neto y sale
+donde esté ese nocional: por encima del precio si mandan las calls, por debajo
+si mandan los puts, con el signo puesto para saber cuál.
+
+El sesgo existe pero es mucho más estrecho de lo que yo escribí: es de
+**desempate**. `nocional = OI × 100 × strike`, así que **a igual número de
+contratos** gana el strike más alto. Cuando los contratos no empatan, no
+decide nada: 6.000 puts en el 80 son 48 M contra 40 M de 1.000 calls en el
+400, y el imán se va al 80 aunque el strike sea cinco veces menor.
+
+Dos casos nuevos lo fijan: uno con la pared de puts abajo (imán por debajo del
+spot y nocional negativo) y otro que comprueba lo mismo en el bucket que llega
+al panel, con la lectura saliendo como «rechazo».
+
+### El fallo que apareció buscando otra cosa (y no era de Drift)
+
+Comprobando por qué a Kevin no le abría el análisis, el archivador soltó
+`unhashable type: 'slice'`. Es de la **ronda 14**, no de este trabajo:
+
+```python
+niveles = "\n".join(_lvl(l) for l in (d.get("levels") or [])[:12])
+```
+
+`levels` no es una lista: es un **diccionario** (`supports`, `resistances`,
+`tolerance_pct`, `key_support`, `key_resistance`). Cortarlo con `[:12]` lanza.
+
+Lo grave es cómo se escondía. `_archiva_opciones` traga la excepción a
+propósito —para que un fallo de archivo no tumbe el análisis— y
+`scorecard.json` se escribe ANTES, así que sobrevivía. Lo que se perdía en
+silencio, en cada análisis de opciones y desde hacía rondas, era todo lo de
+después: el **`RESUMEN.md`**, el **índice de `Proyecciones/`** y la **tesis del
+ticker en `Memoria/`**.
+
+Y por qué ningún test lo vio: los casos que archivaban opciones usaban un
+payload **hecho a mano** (`{"verdict": …}`), sin `levels`, donde
+`(None or [])[:12]` no se queja. Peor: el único que sí ponía `levels` lo
+pasaba como lista y su docstring afirmaba que esos eran «los NOMBRES que sirve
+`/api/projection-targets`». No lo eran — la suposición se quedó escrita y tapó
+el fallo.
+
+El arreglo acepta **las dos formas**: el dict de la ruta de hoy (juntando
+soportes y resistencias y ordenando por fuerza, para que el resumen enseñe el
+suelo y el techo) y la lista plana de los reportes **ya archivados**, que
+tienen que seguir siendo legibles. El guardián nuevo construye el payload con
+el MOTOR, no a mano, y va rojo sin el arreglo.
+
+### Lo que se comprobó del síntoma que Kevin reportó
+
+«No me abre el análisis ni me cargan las Ideas», con el panel servido desde
+este contenedor y el flujo real (`loadProjections` + `loadProjIdeas`, no las
+funciones sueltas):
+
+| Caso | Resultado |
+|---|---|
+| Payload real del motor, con `drift` | análisis abierto, tarjetas y Drift pintados, **0 errores de página** |
+| El mismo payload **sin** `drift` (servidor viejo + panel nuevo) | igual, y la tarjeta larga se oculta sola |
+| `ok:false` (clave o cookie caducada) | se lee el motivo exacto en pantalla |
+| HTTP 500 | «No se pudo analizar NVDA», sin quedarse mudo |
+| Payload a medias, sin `gex` | se pinta lo que hay |
+
+No se reprodujo. El servidor arranca limpio y las dos rutas contestan 200 con
+su `ok:false` cuando faltan credenciales. **`onrender.com` está bloqueado por
+política en este contenedor**, así que su despliegue no se puede tocar desde
+aquí y eso queda sin comprobar.
+
 ### Estado
 
-**3.439 tests del motor (30 nuevos) · 903 de la capa web (11 nuevos) ·
+**3.449 tests del motor (40 nuevos) · 905 de la capa web (13 nuevos) ·
 128 de navegador (11 nuevos) · 280 checks de auditoría sin TITO_ROOT
 (los 324 con él no se pueden correr en este contenedor), 0 fallos.**

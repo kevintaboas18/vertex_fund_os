@@ -64,7 +64,8 @@ publicados, sin modelo.
 | 90 / 120 / 320 días | **solo Drift** — el motor no llega hasta ahí |
 
 Apuntan a strikes distintos a propósito: la gamma se apaga lejos del dinero y
-el recuento de contratos no. Drift **no puntúa**: el score de 6 sub-agentes se
+el recuento de contratos no. El imán de Drift **no tira hacia arriba**: sale
+donde esté el nocional, arriba o abajo, con el signo diciendo qué lado manda. Drift **no puntúa**: el score de 6 sub-agentes se
 calcula exactamente igual que antes de que existiera, y hay un test que lo
 compara con Drift encendido y apagado.
 
@@ -86,9 +87,9 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 ## Tests
 
 ```bash
-cd engine && python -m pytest tests/ -q    # 3439 pasan, 0 skips
-python -m pytest tests_vertex/ -q          # 1031 pasan, 0 skips
-                                           # (903 de la capa web + 128 en un
+cd engine && python -m pytest tests/ -q    # 3449 pasan, 0 skips
+python -m pytest tests_vertex/ -q          # 1033 pasan, 0 skips
+                                           # (905 de la capa web + 128 en un
                                            #  navegador real, cuatro tamaños)
 
 # Auditoría del tab de Proyecciones (324 checks con TITO_ROOT). Con TITO_ROOT usa tu clon de

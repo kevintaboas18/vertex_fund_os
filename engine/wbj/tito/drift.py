@@ -15,11 +15,16 @@ Medido con un ejemplo de spot 300: el strike 400 tenía el mayor OI de la cadena
 (11.000 calls) y su GEX era 0,4M —menos que un strike con la tercera parte de
 contratos—, porque la gamma se desploma al alejarse del dinero.
 
-**El sesgo del nocional, dicho de frente.** `nocional = OI × 100 × strike`
-multiplica por el strike, así que a igual número de contratos **un strike más
-alto da más nocional automáticamente**. El Magneto tiende a salir por encima
-del precio por construcción, no por señal. Se sirve tal cual —es su
-definición— y quien lo lea tiene que saberlo.
+**El sesgo del nocional, dicho con su tamaño exacto.** El Magneto **es** el
+strike con más nocional neto, y sale donde esté ese nocional: por encima del
+precio si mandan las calls, por debajo si mandan los puts, y con el signo
+puesto para que se sepa cuál de las dos. No tira hacia arriba.
+
+Lo que sí hay es un sesgo estrecho, y solo ese: `nocional = OI × 100 × strike`
+multiplica por el strike, así que **a igual número de contratos** gana el
+strike más alto. Es un desempate entre concentraciones parecidas, no una
+dirección — una pared de puts por debajo del precio se lleva el Magneto sin
+discusión, porque el desempate solo actúa cuando los contratos empatan.
 
 Todo aquí son funciones puras: ni red, ni disco, ni reloj propio.
 """
@@ -191,8 +196,9 @@ def magneto(filas: list[_Fila]) -> tuple[float, float] | None:
     Su signo es la polaridad: positivo = dominan las calls (atracción en su
     modelo), negativo = dominan las puts (rechazo).
 
-    Recordatorio del sesgo: al multiplicar por el strike, los strikes altos
-    salen favorecidos a igualdad de contratos.
+    Sale donde esté el nocional: por encima o por debajo del precio, según qué
+    lado pese más. El único sesgo es de desempate — al multiplicar por el
+    strike, entre dos concentraciones de contratos PARECIDAS gana la más alta.
     """
     acc = nocional_por_strike(filas)
     if not acc:

@@ -377,7 +377,30 @@ def _md_opciones(ticker: str, d: dict) -> str:
                 f"{'—' if f is None else round(f)} | "
                 f"{'—' if toca is None else str(round(toca * 100)) + '%'} | "
                 f"{l.get('why') or ''} |")
-    niveles = "\n".join(_lvl(l) for l in (d.get("levels") or [])[:12])
+    # `levels` llega en DOS formas y hay que aguantar las dos:
+    #
+    #   · La que sirve `/api/projection-targets` HOY: un **diccionario** con
+    #     `supports`, `resistances`, `tolerance_pct`, `key_support` y
+    #     `key_resistance`.
+    #   · Una **lista** plana de niveles, que es lo que guardan los reportes
+    #     archivados de antes. Un resumen que no sepa leerlos convierte el
+    #     archivo viejo en ilegible, y el archivo es justo lo que no se puede
+    #     perder.
+    #
+    # Se cortaba con `[:12]` dando por hecho que era lista. Con el dict real
+    # eso lanza `unhashable type: 'slice'`, y como `_archiva_opciones` traga la
+    # excepción el fallo era INVISIBLE: `scorecard.json` se escribe antes y
+    # sobrevivía; a partir de aquí se perdían el `RESUMEN.md`, el índice de
+    # `Proyecciones/` y la tesis del ticker en `Memoria/`. Desde la ronda 14.
+    _lv = d.get("levels")
+    if isinstance(_lv, dict):
+        # Los dos lados juntos y de más fuerte a menos: el resumen tiene que
+        # enseñar el suelo Y el techo, no doce soportes seguidos.
+        _todos = list(_lv.get("supports") or []) + list(_lv.get("resistances") or [])
+        _todos.sort(key=lambda l: (l.get("strength") or 0), reverse=True)
+    else:
+        _todos = list(_lv or [])                 # la forma vieja, ya ordenada
+    niveles = "\n".join(_lvl(l) for l in _todos[:12])
 
     # Los tres flujos más grandes del día. El score dice «convicción 8/10»; esto
     # dice de qué contratos salió ese 8. Sin `underlying`: son del ticker de la
