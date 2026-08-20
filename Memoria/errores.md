@@ -3,3 +3,4 @@
 _Cada vuelta de veredicto sobre el mismo ticker queda aquí. No es un castigo: es el único sitio donde se puede ver si cambiar de opinión estuvo justificado._
 
 - **NVDA** · 2026-08-17 → 2026-08-20: de **ESPECULATIVO** a **Oportunidad Moderada** · el precio se movió -4.04% en ese tramo.
+- **SPY** · 2026-08-20 → 2026-08-20: de **HOLD** a **Oportunidad Moderada** · el precio se movió -0.09% en ese tramo.
