@@ -1,0 +1,1716 @@
+{
+  "report_id": "20260820_144906_SPY",
+  "ticker": "SPY",
+  "nombre_completo": "State Street SPDR S&P 500 ETF",
+  "precio_actual": 767.01,
+  "precio_fuente": "yfinance",
+  "precio_as_of": "08/20/2026, 02:49:39 PM",
+  "pe_ratio": "N/A",
+  "logo_url": "https://logo.clearbit.com/ssga.com",
+  "fecha_analisis": "08/20/2026, 02:49:06 PM",
+  "historial_precios": [
+    742.09,
+    748.28,
+    747.41,
+    738.18,
+    738.93,
+    739.09,
+    740.86,
+    729.46,
+    741.69,
+    747.03,
+    757.67,
+    771.33,
+    769.79,
+    768.56,
+    773.26,
+    773.03,
+    770.56,
+    772.49,
+    777.88,
+    776.34,
+    772.67,
+    767.45,
+    769.06,
+    767.01
+  ],
+  "historial_fechas": [
+    "Jul 20",
+    "Jul 21",
+    "Jul 22",
+    "Jul 23",
+    "Jul 24",
+    "Jul 27",
+    "Jul 28",
+    "Jul 29",
+    "Jul 30",
+    "Jul 31",
+    "Aug 03",
+    "Aug 04",
+    "Aug 05",
+    "Aug 06",
+    "Aug 07",
+    "Aug 10",
+    "Aug 11",
+    "Aug 12",
+    "Aug 13",
+    "Aug 14",
+    "Aug 17",
+    "Aug 18",
+    "Aug 19",
+    "Aug 20"
+  ],
+  "historial_ohlc": [
+    {
+      "time": "2026-07-20",
+      "open": 747.06,
+      "high": 748.73,
+      "low": 741.51,
+      "close": 742.09
+    },
+    {
+      "time": "2026-07-21",
+      "open": 746.29,
+      "high": 749.04,
+      "low": 744.18,
+      "close": 748.28
+    },
+    {
+      "time": "2026-07-22",
+      "open": 746.62,
+      "high": 750.02,
+      "low": 746.37,
+      "close": 747.41
+    },
+    {
+      "time": "2026-07-23",
+      "open": 739.37,
+      "high": 742.56,
+      "low": 735.21,
+      "close": 738.18
+    },
+    {
+      "time": "2026-07-24",
+      "open": 738.51,
+      "high": 743.72,
+      "low": 737.29,
+      "close": 738.93
+    },
+    {
+      "time": "2026-07-27",
+      "open": 744.91,
+      "high": 745.53,
+      "low": 735.87,
+      "close": 739.09
+    },
+    {
+      "time": "2026-07-28",
+      "open": 739.19,
+      "high": 742.79,
+      "low": 735.98,
+      "close": 740.86
+    },
+    {
+      "time": "2026-07-29",
+      "open": 739.97,
+      "high": 742.68,
+      "low": 729.1,
+      "close": 729.46
+    },
+    {
+      "time": "2026-07-30",
+      "open": 736.05,
+      "high": 742.45,
+      "low": 734.59,
+      "close": 741.69
+    },
+    {
+      "time": "2026-07-31",
+      "open": 744.68,
+      "high": 748.9,
+      "low": 737.68,
+      "close": 747.03
+    },
+    {
+      "time": "2026-08-03",
+      "open": 749.44,
+      "high": 758.58,
+      "low": 748.8,
+      "close": 757.67
+    },
+    {
+      "time": "2026-08-04",
+      "open": 760.63,
+      "high": 773.41,
+      "low": 760.52,
+      "close": 771.33
+    },
+    {
+      "time": "2026-08-05",
+      "open": 775.85,
+      "high": 776.85,
+      "low": 769.51,
+      "close": 769.79
+    },
+    {
+      "time": "2026-08-06",
+      "open": 770.21,
+      "high": 771.82,
+      "low": 767.46,
+      "close": 768.56
+    },
+    {
+      "time": "2026-08-07",
+      "open": 771.02,
+      "high": 773.92,
+      "low": 769.61,
+      "close": 773.26
+    },
+    {
+      "time": "2026-08-10",
+      "open": 772.6,
+      "high": 775.05,
+      "low": 771.62,
+      "close": 773.03
+    },
+    {
+      "time": "2026-08-11",
+      "open": 774.53,
+      "high": 774.61,
+      "low": 769.2,
+      "close": 770.56
+    },
+    {
+      "time": "2026-08-12",
+      "open": 774.71,
+      "high": 774.9,
+      "low": 771.28,
+      "close": 772.49
+    },
+    {
+      "time": "2026-08-13",
+      "open": 774.87,
+      "high": 779.37,
+      "low": 774.11,
+      "close": 777.88
+    },
+    {
+      "time": "2026-08-14",
+      "open": 778.54,
+      "high": 778.8,
+      "low": 775.43,
+      "close": 776.34
+    },
+    {
+      "time": "2026-08-17",
+      "open": 776.18,
+      "high": 776.78,
+      "low": 772.51,
+      "close": 772.67
+    },
+    {
+      "time": "2026-08-18",
+      "open": 768.7,
+      "high": 769.5,
+      "low": 766.92,
+      "close": 767.45
+    },
+    {
+      "time": "2026-08-19",
+      "open": 770.36,
+      "high": 772.47,
+      "low": 768.1,
+      "close": 769.06
+    },
+    {
+      "time": "2026-08-20",
+      "open": 765.96,
+      "high": 767.75,
+      "low": 765.36,
+      "close": 767.01
+    }
+  ],
+  "chart_history": [
+    {
+      "time": "2025-08-19",
+      "value": 639.81
+    },
+    {
+      "time": "2025-08-20",
+      "value": 638.11
+    },
+    {
+      "time": "2025-08-21",
+      "value": 635.55
+    },
+    {
+      "time": "2025-08-22",
+      "value": 645.31
+    },
+    {
+      "time": "2025-08-25",
+      "value": 642.47
+    },
+    {
+      "time": "2025-08-26",
+      "value": 645.16
+    },
+    {
+      "time": "2025-08-27",
+      "value": 646.63
+    },
+    {
+      "time": "2025-08-28",
+      "value": 648.92
+    },
+    {
+      "time": "2025-08-29",
+      "value": 645.05
+    },
+    {
+      "time": "2025-09-02",
+      "value": 640.27
+    },
+    {
+      "time": "2025-09-03",
+      "value": 643.74
+    },
+    {
+      "time": "2025-09-04",
+      "value": 649.12
+    },
+    {
+      "time": "2025-09-05",
+      "value": 647.24
+    },
+    {
+      "time": "2025-09-08",
+      "value": 648.83
+    },
+    {
+      "time": "2025-09-09",
+      "value": 650.33
+    },
+    {
+      "time": "2025-09-10",
+      "value": 652.21
+    },
+    {
+      "time": "2025-09-11",
+      "value": 657.63
+    },
+    {
+      "time": "2025-09-12",
+      "value": 657.41
+    },
+    {
+      "time": "2025-09-15",
+      "value": 660.91
+    },
+    {
+      "time": "2025-09-16",
+      "value": 660.0
+    },
+    {
+      "time": "2025-09-17",
+      "value": 659.18
+    },
+    {
+      "time": "2025-09-18",
+      "value": 662.26
+    },
+    {
+      "time": "2025-09-19",
+      "value": 663.7
+    },
+    {
+      "time": "2025-09-22",
+      "value": 666.84
+    },
+    {
+      "time": "2025-09-23",
+      "value": 663.21
+    },
+    {
+      "time": "2025-09-24",
+      "value": 661.1
+    },
+    {
+      "time": "2025-09-25",
+      "value": 658.05
+    },
+    {
+      "time": "2025-09-26",
+      "value": 661.82
+    },
+    {
+      "time": "2025-09-29",
+      "value": 663.68
+    },
+    {
+      "time": "2025-09-30",
+      "value": 666.18
+    },
+    {
+      "time": "2025-10-01",
+      "value": 668.45
+    },
+    {
+      "time": "2025-10-02",
+      "value": 669.22
+    },
+    {
+      "time": "2025-10-03",
+      "value": 669.21
+    },
+    {
+      "time": "2025-10-06",
+      "value": 671.61
+    },
+    {
+      "time": "2025-10-07",
+      "value": 669.12
+    },
+    {
+      "time": "2025-10-08",
+      "value": 673.11
+    },
+    {
+      "time": "2025-10-09",
+      "value": 671.16
+    },
+    {
+      "time": "2025-10-10",
+      "value": 653.02
+    },
+    {
+      "time": "2025-10-13",
+      "value": 663.04
+    },
+    {
+      "time": "2025-10-14",
+      "value": 662.23
+    },
+    {
+      "time": "2025-10-15",
+      "value": 665.17
+    },
+    {
+      "time": "2025-10-16",
+      "value": 660.64
+    },
+    {
+      "time": "2025-10-17",
+      "value": 664.39
+    },
+    {
+      "time": "2025-10-20",
+      "value": 671.3
+    },
+    {
+      "time": "2025-10-21",
+      "value": 671.29
+    },
+    {
+      "time": "2025-10-22",
+      "value": 667.8
+    },
+    {
+      "time": "2025-10-23",
+      "value": 671.76
+    },
+    {
+      "time": "2025-10-24",
+      "value": 677.25
+    },
+    {
+      "time": "2025-10-27",
+      "value": 685.24
+    },
+    {
+      "time": "2025-10-28",
+      "value": 687.06
+    },
+    {
+      "time": "2025-10-29",
+      "value": 687.39
+    },
+    {
+      "time": "2025-10-30",
+      "value": 679.83
+    },
+    {
+      "time": "2025-10-31",
+      "value": 682.06
+    },
+    {
+      "time": "2025-11-03",
+      "value": 683.34
+    },
+    {
+      "time": "2025-11-04",
+      "value": 675.24
+    },
+    {
+      "time": "2025-11-05",
+      "value": 677.58
+    },
+    {
+      "time": "2025-11-06",
+      "value": 670.31
+    },
+    {
+      "time": "2025-11-07",
+      "value": 670.97
+    },
+    {
+      "time": "2025-11-10",
+      "value": 681.44
+    },
+    {
+      "time": "2025-11-11",
+      "value": 683.0
+    },
+    {
+      "time": "2025-11-12",
+      "value": 683.38
+    },
+    {
+      "time": "2025-11-13",
+      "value": 672.04
+    },
+    {
+      "time": "2025-11-14",
+      "value": 671.93
+    },
+    {
+      "time": "2025-11-17",
+      "value": 665.67
+    },
+    {
+      "time": "2025-11-18",
+      "value": 660.08
+    },
+    {
+      "time": "2025-11-19",
+      "value": 662.63
+    },
+    {
+      "time": "2025-11-20",
+      "value": 652.53
+    },
+    {
+      "time": "2025-11-21",
+      "value": 659.03
+    },
+    {
+      "time": "2025-11-24",
+      "value": 668.73
+    },
+    {
+      "time": "2025-11-25",
+      "value": 675.02
+    },
+    {
+      "time": "2025-11-26",
+      "value": 679.68
+    },
+    {
+      "time": "2025-11-28",
+      "value": 683.39
+    },
+    {
+      "time": "2025-12-01",
+      "value": 680.27
+    },
+    {
+      "time": "2025-12-02",
+      "value": 681.53
+    },
+    {
+      "time": "2025-12-03",
+      "value": 683.89
+    },
+    {
+      "time": "2025-12-04",
+      "value": 684.39
+    },
+    {
+      "time": "2025-12-05",
+      "value": 685.69
+    },
+    {
+      "time": "2025-12-08",
+      "value": 683.63
+    },
+    {
+      "time": "2025-12-09",
+      "value": 683.04
+    },
+    {
+      "time": "2025-12-10",
+      "value": 687.57
+    },
+    {
+      "time": "2025-12-11",
+      "value": 689.17
+    },
+    {
+      "time": "2025-12-12",
+      "value": 681.76
+    },
+    {
+      "time": "2025-12-15",
+      "value": 680.73
+    },
+    {
+      "time": "2025-12-16",
+      "value": 678.87
+    },
+    {
+      "time": "2025-12-17",
+      "value": 671.4
+    },
+    {
+      "time": "2025-12-18",
+      "value": 676.47
+    },
+    {
+      "time": "2025-12-19",
+      "value": 680.59
+    },
+    {
+      "time": "2025-12-22",
+      "value": 684.83
+    },
+    {
+      "time": "2025-12-23",
+      "value": 687.96
+    },
+    {
+      "time": "2025-12-24",
+      "value": 690.38
+    },
+    {
+      "time": "2025-12-26",
+      "value": 690.31
+    },
+    {
+      "time": "2025-12-29",
+      "value": 687.85
+    },
+    {
+      "time": "2025-12-30",
+      "value": 687.01
+    },
+    {
+      "time": "2025-12-31",
+      "value": 681.92
+    },
+    {
+      "time": "2026-01-02",
+      "value": 683.17
+    },
+    {
+      "time": "2026-01-05",
+      "value": 687.72
+    },
+    {
+      "time": "2026-01-06",
+      "value": 691.81
+    },
+    {
+      "time": "2026-01-07",
+      "value": 689.58
+    },
+    {
+      "time": "2026-01-08",
+      "value": 689.51
+    },
+    {
+      "time": "2026-01-09",
+      "value": 694.07
+    },
+    {
+      "time": "2026-01-12",
+      "value": 695.16
+    },
+    {
+      "time": "2026-01-13",
+      "value": 693.77
+    },
+    {
+      "time": "2026-01-14",
+      "value": 690.36
+    },
+    {
+      "time": "2026-01-15",
+      "value": 692.24
+    },
+    {
+      "time": "2026-01-16",
+      "value": 691.66
+    },
+    {
+      "time": "2026-01-20",
+      "value": 677.58
+    },
+    {
+      "time": "2026-01-21",
+      "value": 685.4
+    },
+    {
+      "time": "2026-01-22",
+      "value": 688.98
+    },
+    {
+      "time": "2026-01-23",
+      "value": 689.23
+    },
+    {
+      "time": "2026-01-26",
+      "value": 692.73
+    },
+    {
+      "time": "2026-01-27",
+      "value": 695.49
+    },
+    {
+      "time": "2026-01-28",
+      "value": 695.42
+    },
+    {
+      "time": "2026-01-29",
+      "value": 694.04
+    },
+    {
+      "time": "2026-01-30",
+      "value": 691.97
+    },
+    {
+      "time": "2026-02-02",
+      "value": 695.41
+    },
+    {
+      "time": "2026-02-03",
+      "value": 689.53
+    },
+    {
+      "time": "2026-02-04",
+      "value": 686.19
+    },
+    {
+      "time": "2026-02-05",
+      "value": 677.62
+    },
+    {
+      "time": "2026-02-06",
+      "value": 690.62
+    },
+    {
+      "time": "2026-02-09",
+      "value": 693.95
+    },
+    {
+      "time": "2026-02-10",
+      "value": 692.12
+    },
+    {
+      "time": "2026-02-11",
+      "value": 691.96
+    },
+    {
+      "time": "2026-02-12",
+      "value": 681.27
+    },
+    {
+      "time": "2026-02-13",
+      "value": 681.75
+    },
+    {
+      "time": "2026-02-17",
+      "value": 682.85
+    },
+    {
+      "time": "2026-02-18",
+      "value": 686.29
+    },
+    {
+      "time": "2026-02-19",
+      "value": 684.48
+    },
+    {
+      "time": "2026-02-20",
+      "value": 689.43
+    },
+    {
+      "time": "2026-02-23",
+      "value": 682.39
+    },
+    {
+      "time": "2026-02-24",
+      "value": 687.35
+    },
+    {
+      "time": "2026-02-25",
+      "value": 693.15
+    },
+    {
+      "time": "2026-02-26",
+      "value": 689.3
+    },
+    {
+      "time": "2026-02-27",
+      "value": 685.99
+    },
+    {
+      "time": "2026-03-02",
+      "value": 686.38
+    },
+    {
+      "time": "2026-03-03",
+      "value": 680.33
+    },
+    {
+      "time": "2026-03-04",
+      "value": 685.13
+    },
+    {
+      "time": "2026-03-05",
+      "value": 681.31
+    },
+    {
+      "time": "2026-03-06",
+      "value": 672.38
+    },
+    {
+      "time": "2026-03-09",
+      "value": 678.27
+    },
+    {
+      "time": "2026-03-10",
+      "value": 677.18
+    },
+    {
+      "time": "2026-03-11",
+      "value": 676.33
+    },
+    {
+      "time": "2026-03-12",
+      "value": 666.06
+    },
+    {
+      "time": "2026-03-13",
+      "value": 662.29
+    },
+    {
+      "time": "2026-03-16",
+      "value": 669.03
+    },
+    {
+      "time": "2026-03-17",
+      "value": 670.79
+    },
+    {
+      "time": "2026-03-18",
+      "value": 661.43
+    },
+    {
+      "time": "2026-03-19",
+      "value": 659.8
+    },
+    {
+      "time": "2026-03-20",
+      "value": 648.57
+    },
+    {
+      "time": "2026-03-23",
+      "value": 655.38
+    },
+    {
+      "time": "2026-03-24",
+      "value": 653.18
+    },
+    {
+      "time": "2026-03-25",
+      "value": 656.82
+    },
+    {
+      "time": "2026-03-26",
+      "value": 645.09
+    },
+    {
+      "time": "2026-03-27",
+      "value": 634.09
+    },
+    {
+      "time": "2026-03-30",
+      "value": 631.97
+    },
+    {
+      "time": "2026-03-31",
+      "value": 650.34
+    },
+    {
+      "time": "2026-04-01",
+      "value": 655.24
+    },
+    {
+      "time": "2026-04-02",
+      "value": 655.83
+    },
+    {
+      "time": "2026-04-06",
+      "value": 658.93
+    },
+    {
+      "time": "2026-04-07",
+      "value": 659.22
+    },
+    {
+      "time": "2026-04-08",
+      "value": 676.01
+    },
+    {
+      "time": "2026-04-09",
+      "value": 679.91
+    },
+    {
+      "time": "2026-04-10",
+      "value": 679.46
+    },
+    {
+      "time": "2026-04-13",
+      "value": 686.1
+    },
+    {
+      "time": "2026-04-14",
+      "value": 694.46
+    },
+    {
+      "time": "2026-04-15",
+      "value": 699.94
+    },
+    {
+      "time": "2026-04-16",
+      "value": 701.66
+    },
+    {
+      "time": "2026-04-17",
+      "value": 710.14
+    },
+    {
+      "time": "2026-04-20",
+      "value": 708.72
+    },
+    {
+      "time": "2026-04-21",
+      "value": 704.08
+    },
+    {
+      "time": "2026-04-22",
+      "value": 711.21
+    },
+    {
+      "time": "2026-04-23",
+      "value": 708.45
+    },
+    {
+      "time": "2026-04-24",
+      "value": 713.94
+    },
+    {
+      "time": "2026-04-27",
+      "value": 715.17
+    },
+    {
+      "time": "2026-04-28",
+      "value": 711.69
+    },
+    {
+      "time": "2026-04-29",
+      "value": 711.58
+    },
+    {
+      "time": "2026-04-30",
+      "value": 718.66
+    },
+    {
+      "time": "2026-05-01",
+      "value": 720.65
+    },
+    {
+      "time": "2026-05-04",
+      "value": 718.01
+    },
+    {
+      "time": "2026-05-05",
+      "value": 723.77
+    },
+    {
+      "time": "2026-05-06",
+      "value": 733.83
+    },
+    {
+      "time": "2026-05-07",
+      "value": 731.58
+    },
+    {
+      "time": "2026-05-08",
+      "value": 737.62
+    },
+    {
+      "time": "2026-05-11",
+      "value": 739.3
+    },
+    {
+      "time": "2026-05-12",
+      "value": 738.18
+    },
+    {
+      "time": "2026-05-13",
+      "value": 742.31
+    },
+    {
+      "time": "2026-05-14",
+      "value": 748.17
+    },
+    {
+      "time": "2026-05-15",
+      "value": 739.17
+    },
+    {
+      "time": "2026-05-18",
+      "value": 738.65
+    },
+    {
+      "time": "2026-05-19",
+      "value": 733.73
+    },
+    {
+      "time": "2026-05-20",
+      "value": 741.25
+    },
+    {
+      "time": "2026-05-21",
+      "value": 742.72
+    },
+    {
+      "time": "2026-05-22",
+      "value": 745.64
+    },
+    {
+      "time": "2026-05-26",
+      "value": 750.59
+    },
+    {
+      "time": "2026-05-27",
+      "value": 750.46
+    },
+    {
+      "time": "2026-05-28",
+      "value": 754.6
+    },
+    {
+      "time": "2026-05-29",
+      "value": 756.48
+    },
+    {
+      "time": "2026-06-01",
+      "value": 758.54
+    },
+    {
+      "time": "2026-06-02",
+      "value": 759.57
+    },
+    {
+      "time": "2026-06-03",
+      "value": 754.24
+    },
+    {
+      "time": "2026-06-04",
+      "value": 757.09
+    },
+    {
+      "time": "2026-06-05",
+      "value": 737.55
+    },
+    {
+      "time": "2026-06-08",
+      "value": 739.22
+    },
+    {
+      "time": "2026-06-09",
+      "value": 737.05
+    },
+    {
+      "time": "2026-06-10",
+      "value": 725.43
+    },
+    {
+      "time": "2026-06-11",
+      "value": 737.76
+    },
+    {
+      "time": "2026-06-12",
+      "value": 741.75
+    },
+    {
+      "time": "2026-06-15",
+      "value": 754.83
+    },
+    {
+      "time": "2026-06-16",
+      "value": 750.33
+    },
+    {
+      "time": "2026-06-17",
+      "value": 740.96
+    },
+    {
+      "time": "2026-06-18",
+      "value": 746.74
+    },
+    {
+      "time": "2026-06-22",
+      "value": 744.39
+    },
+    {
+      "time": "2026-06-23",
+      "value": 733.58
+    },
+    {
+      "time": "2026-06-24",
+      "value": 733.24
+    },
+    {
+      "time": "2026-06-25",
+      "value": 734.3
+    },
+    {
+      "time": "2026-06-26",
+      "value": 728.99
+    },
+    {
+      "time": "2026-06-29",
+      "value": 741.0
+    },
+    {
+      "time": "2026-06-30",
+      "value": 746.77
+    },
+    {
+      "time": "2026-07-01",
+      "value": 745.76
+    },
+    {
+      "time": "2026-07-02",
+      "value": 744.78
+    },
+    {
+      "time": "2026-07-06",
+      "value": 751.28
+    },
+    {
+      "time": "2026-07-07",
+      "value": 747.71
+    },
+    {
+      "time": "2026-07-08",
+      "value": 745.4
+    },
+    {
+      "time": "2026-07-09",
+      "value": 751.71
+    },
+    {
+      "time": "2026-07-10",
+      "value": 754.95
+    },
+    {
+      "time": "2026-07-13",
+      "value": 749.17
+    },
+    {
+      "time": "2026-07-14",
+      "value": 751.83
+    },
+    {
+      "time": "2026-07-15",
+      "value": 754.81
+    },
+    {
+      "time": "2026-07-16",
+      "value": 750.72
+    },
+    {
+      "time": "2026-07-17",
+      "value": 743.29
+    },
+    {
+      "time": "2026-07-20",
+      "value": 742.09
+    },
+    {
+      "time": "2026-07-21",
+      "value": 748.28
+    },
+    {
+      "time": "2026-07-22",
+      "value": 747.41
+    },
+    {
+      "time": "2026-07-23",
+      "value": 738.18
+    },
+    {
+      "time": "2026-07-24",
+      "value": 738.93
+    },
+    {
+      "time": "2026-07-27",
+      "value": 739.09
+    },
+    {
+      "time": "2026-07-28",
+      "value": 740.86
+    },
+    {
+      "time": "2026-07-29",
+      "value": 729.46
+    },
+    {
+      "time": "2026-07-30",
+      "value": 741.69
+    },
+    {
+      "time": "2026-07-31",
+      "value": 747.03
+    },
+    {
+      "time": "2026-08-03",
+      "value": 757.67
+    },
+    {
+      "time": "2026-08-04",
+      "value": 771.33
+    },
+    {
+      "time": "2026-08-05",
+      "value": 769.79
+    },
+    {
+      "time": "2026-08-06",
+      "value": 768.56
+    },
+    {
+      "time": "2026-08-07",
+      "value": 773.26
+    },
+    {
+      "time": "2026-08-10",
+      "value": 773.03
+    },
+    {
+      "time": "2026-08-11",
+      "value": 770.56
+    },
+    {
+      "time": "2026-08-12",
+      "value": 772.49
+    },
+    {
+      "time": "2026-08-13",
+      "value": 777.88
+    },
+    {
+      "time": "2026-08-14",
+      "value": 776.34
+    },
+    {
+      "time": "2026-08-17",
+      "value": 772.67
+    },
+    {
+      "time": "2026-08-18",
+      "value": 767.45
+    },
+    {
+      "time": "2026-08-19",
+      "value": 769.06
+    },
+    {
+      "time": "2026-08-20",
+      "value": 767.01
+    }
+  ],
+  "historial_volumen": [
+    {
+      "time": "2026-07-20",
+      "value": 50422324,
+      "up": false
+    },
+    {
+      "time": "2026-07-21",
+      "value": 34324300,
+      "up": true
+    },
+    {
+      "time": "2026-07-22",
+      "value": 32836200,
+      "up": true
+    },
+    {
+      "time": "2026-07-23",
+      "value": 55437332,
+      "up": false
+    },
+    {
+      "time": "2026-07-24",
+      "value": 44782000,
+      "up": true
+    },
+    {
+      "time": "2026-07-27",
+      "value": 41461200,
+      "up": false
+    },
+    {
+      "time": "2026-07-28",
+      "value": 47322247,
+      "up": true
+    },
+    {
+      "time": "2026-07-29",
+      "value": 70697215,
+      "up": false
+    },
+    {
+      "time": "2026-07-30",
+      "value": 66811300,
+      "up": true
+    },
+    {
+      "time": "2026-07-31",
+      "value": 62445900,
+      "up": true
+    },
+    {
+      "time": "2026-08-03",
+      "value": 59927538,
+      "up": true
+    },
+    {
+      "time": "2026-08-04",
+      "value": 69154800,
+      "up": true
+    },
+    {
+      "time": "2026-08-05",
+      "value": 44689100,
+      "up": false
+    },
+    {
+      "time": "2026-08-06",
+      "value": 38416900,
+      "up": false
+    },
+    {
+      "time": "2026-08-07",
+      "value": 43586333,
+      "up": true
+    },
+    {
+      "time": "2026-08-10",
+      "value": 39249500,
+      "up": true
+    },
+    {
+      "time": "2026-08-11",
+      "value": 36740600,
+      "up": false
+    },
+    {
+      "time": "2026-08-12",
+      "value": 33179126,
+      "up": false
+    },
+    {
+      "time": "2026-08-13",
+      "value": 35634500,
+      "up": true
+    },
+    {
+      "time": "2026-08-14",
+      "value": 31367913,
+      "up": false
+    },
+    {
+      "time": "2026-08-17",
+      "value": 34356600,
+      "up": false
+    },
+    {
+      "time": "2026-08-18",
+      "value": 43920908,
+      "up": false
+    },
+    {
+      "time": "2026-08-19",
+      "value": 40306023,
+      "up": false
+    },
+    {
+      "time": "2026-08-20",
+      "value": 7748938,
+      "up": true
+    }
+  ],
+  "earnings_info": {
+    "next_date": null,
+    "days_until": null,
+    "eps_estimate": null,
+    "label": "N/A"
+  },
+  "insiders_snapshot": {
+    "transactions": [],
+    "summary": {
+      "buys_count": 0,
+      "sells_count": 0,
+      "buys_value": 0.0,
+      "sells_value": 0.0,
+      "net_value": 0.0,
+      "signal": "NEUTRAL",
+      "source": "SEC Form 4 (FMP) via motor"
+    },
+    "institutional": [],
+    "major_holders": {},
+    "edgar": {
+      "cik": "0000884394",
+      "form4": [],
+      "form13f": [],
+      "holders_5pct": [
+        {
+          "name": "JANE STREET GROUP, LLC",
+          "shares": 199908899.0,
+          "value": 130008753375.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0001595888-26-000043 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "SUSQUEHANNA INTERNATIONAL GROUP, LLP",
+          "shares": 190466180.0,
+          "value": 123867775501.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0001446194-26-000005 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "BARCLAYS PLC",
+          "shares": 143342187.0,
+          "value": 95491698126.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0000312069-26-000090 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "CTC LLC",
+          "shares": 1013094.0,
+          "value": 65885555196.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0001445893-26-000005 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "CITADEL ADVISORS LLC",
+          "shares": 64565975.0,
+          "value": 41989836181.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0001104659-26-062477 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "Belvedere Trading LLC",
+          "shares": 52413304.0,
+          "value": 34086468123.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0001062993-26-002538 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "GOLDMAN SACHS GROUP INC",
+          "shares": 48934026.0,
+          "value": 31823754236.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0000886982-26-000274 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        },
+        {
+          "name": "JPMORGAN CHASE & CO",
+          "shares": 45790886.0,
+          "value": 28938468727.0,
+          "cik": null,
+          "filing_date": null,
+          "basis": "13F dataset",
+          "stake": null,
+          "stale": false,
+          "source_locator": "13F-HR accession 0000019617-26-000225 (SEC 13F data set 01mar2026-31may2026_form13f.zip)"
+        }
+      ],
+      "holders_source": "SEC Form 13F structured data set (01mar2026-31may2026_form13f.zip): 10 mayores tenedores institucionales de CUSIP 78462F103, ORDENADOS POR VALOR DE POSICION reportado, con acciones y dolares. Es el conjunto completo de 13F del trimestre, no una muestra del indice de texto completo."
+    },
+    "important_trades": []
+  },
+  "memory_comparison": {
+    "has_prior": false
+  },
+  "deep_memory": null,
+  "open_options": [],
+  "portfolio_fit": null,
+  "noticias_reales": [
+    {
+      "title": "How To Trade SPY, QQQ And 6 Mega-Caps : Key Levels To Watch For AAPL, MSFT, NVDA, GOOGL, META And TSLA",
+      "publisher": "Benzinga",
+      "publish_time": "2026-08-20 09:37 AM",
+      "summary": "Good Morning Traders!"
+    },
+    {
+      "title": "The S&P 500 Returned 10% in the First Half of 2026. Here's What History Says Happens in the Second Half.",
+      "publisher": "The Motley Fool",
+      "publish_time": "2026-08-20 08:45 AM",
+      "summary": "The total return for the S&P 500 in the first half of 2026 was 10.2%. Since 1927, there have been 30 instances of double-digit returns in the first half of a calendar year."
+    },
+    {
+      "title": "She Inherited a $300,000 IRA and Let It Grow Untouched for Nine Years, Exactly What the IRS Was Hoping For.",
+      "publisher": "247 Wallst",
+      "publish_time": "2026-08-20 08:32 AM",
+      "summary": "A beneficiary who left an inherited IRA untouched for nine years felt disciplined and responsible. The IRS felt something closer to gratitude, and the reason comes down to a rule most heirs never read."
+    },
+    {
+      "title": "Gains in AI company stakes juice second-quarter earnings for S&P 500",
+      "publisher": "Reuters",
+      "publish_time": "2026-08-20 06:04 AM",
+      "summary": "S&P 500 companies are winding up a banner quarterly earnings season, fueled in large part by surging profits at AI-related companies."
+    },
+    {
+      "title": "The S&P 500 Has Gained More Than 33% Since Trump's Election. Here's What That Means for Investors Heading Into Midterms.",
+      "publisher": "The Motley Fool",
+      "publish_time": "2026-08-20 03:55 AM",
+      "summary": "The S&P 500 has risen 33% since President Trump's reelection. Historically, a booming stock market hasn't determined midterm election results."
+    },
+    {
+      "title": "Stock Market: Will S&P 500 Open Up or Down Today?",
+      "publisher": "Benzinga",
+      "publish_time": "2026-08-20 01:45 AM",
+      "summary": "U.S. stock futures are posting modest gains early Thursday as investors evaluate an intensifying U.S. economic offensive against Iran alongside incoming corporate earnings and a recent Treasury buyback announcement."
+    }
+  ],
+  "targets": {
+    "7d": {
+      "bull": 788.51,
+      "base": 772.39,
+      "bear": 745.51
+    },
+    "30d": {
+      "bull": 813.57,
+      "base": 779.43,
+      "bear": 720.45
+    },
+    "3m": {
+      "bull": 853.03,
+      "base": 805.95,
+      "bear": 680.99
+    },
+    "6m": {
+      "bull": 903.86,
+      "base": 796.14,
+      "bear": 630.16
+    },
+    "12m": {
+      "bull": 1008.76,
+      "base": 787.26,
+      "bear": 590.49
+    }
+  },
+  "targets_source": "vertex",
+  "targets_horizon_note": "Respaldo Vertex: volatilidad histórica / ATR / DCF simplificado / consenso.",
+  "methodology": {
+    "annual_volatility_pct": 14.02,
+    "daily_vol_pct": 0.883,
+    "atr_14": 9.58,
+    "analyst_high": 1035.46,
+    "analyst_low": 575.26,
+    "analyst_mean": 859.05,
+    "analyst_median": 859.05
+  },
+  "analisis": {
+    "biggest_pro": "La diversificación inherente y la exposición al crecimiento a largo plazo de las 500 empresas más grandes de EE. UU., ofreciendo un rendimiento que históricamente supera a la mayoría de las inversiones individuales.",
+    "biggest_risk": "Un riesgo sistémico de mercado, como una recesión económica severa o un evento geopolítico importante, que afecte negativamente a la economía global y, por ende, a las ganancias corporativas del S&P 500.",
+    "watch_for": "Monitorear de cerca los datos de inflación, las decisiones de política monetaria de la Reserva Federal sobre las tasas de interés y los informes de ganancias agregados del S&P 500 para detectar cambios en el sentimiento del mercado.",
+    "company_summary_simple": "SPY es un fondo cotizado en bolsa (ETF) que busca replicar el rendimiento del índice S&P 500. Esto significa que invierte en las 500 empresas más grandes de Estados Unidos, ofreciendo a los inversores una forma sencilla de obtener exposición a la economía estadounidense en su conjunto. Gana dinero a medida que las empresas del S&P 500 crecen y sus acciones aumentan de valor, y es importante para el inversor promedio porque proporciona diversificación instantánea y un acceso fácil al mercado de valores de EE. UU. con bajos costos.",
+    "analisis_numeros_actuales": "SPY tiene una capitalización de mercado masiva de $817,372,843,288.0, lo que refleja su rol como uno de los vehículos de inversión más grandes y líquidos del mundo. Al ser un ETF, métricas como P/E, márgenes brutos, márgenes EBITDA y flujo de caja libre no se aplican directamente a SPY como entidad, sino a las empresas subyacentes del índice S&P 500. Su Beta de 1.01 indica que su volatilidad está muy alineada con la del mercado general.",
+    "crecimiento_yoy": "Como ETF, SPY no tiene ingresos o márgenes operativos propios en el sentido tradicional. Su rendimiento histórico reciente año tras año refleja el crecimiento agregado de los ingresos y las ganancias de las 500 empresas del S&P 500. El índice ha mostrado un crecimiento robusto en los últimos años, impulsado por la expansión económica y la innovación tecnológica, aunque con fluctuaciones inherentes a los ciclos de mercado.",
+    "crecimiento_proyectado": "El crecimiento proyectado para SPY está intrínsecamente ligado a las estimaciones de crecimiento de las ganancias corporativas del S&P 500 para los próximos años. Se espera que catalizadores como la innovación en inteligencia artificial, la resiliencia del consumo y la posible moderación de las tasas de interés impulsen un crecimiento continuo, aunque a un ritmo que dependerá de la salud macroeconómica general.",
+    "sec_filing_10k": "El último reporte anual 10-K de SPY detallaría la composición de sus activos, su estrategia de inversión, los costos operativos y los factores de riesgo específicos asociados con la replicación del índice S&P 500. Los riesgos principales incluirían el riesgo de mercado, el riesgo de seguimiento (tracking error) y el riesgo de liquidez. Los estados auditados reflejarían la precisión con la que el ETF ha replicado el rendimiento del índice.",
+    "sec_filing_10q": "El último reporte trimestral 10-Q de SPY proporcionaría una actualización sobre el rendimiento del ETF, los cambios en su cartera de valores y los balances financieros. Reflejaría cómo el ETF ha gestionado su exposición al S&P 500 durante el trimestre, incluyendo cualquier ajuste en la ponderación de los sectores o empresas para mantener la alineación con el índice.",
+    "sec_filing_8k": "Los reportes 8-K para un ETF como SPY serían menos frecuentes que para una empresa individual y se centrarían en eventos materiales relacionados con la estructura del fondo, cambios en la gestión, o modificaciones significativas en la política de inversión. No se han reportado eventos urgentes o comunicados materiales recientes que impacten directamente la tesis de inversión de SPY.",
+    "fair_value": 827.28,
+    "upside_pct": 7.86,
+    "recommendation": "HOLD",
+    "conviccion_score": 65,
+    "conviccion_porque": "La puntuación de convicción de 65 es moderada, reflejando el régimen de mercado actual de 'Tendencia alcista' y 'vol normal' (agente Market positivo), lo cual es favorable para el S&P 500. Sin embargo, la ausencia de un 'flujo calificado hoy' para la convicción institucional (agente Financial/Risk cauteloso) y la naturaleza de SPY como un replicador de índice, que no ofrece un alfa significativo por sí mismo, limitan una convicción muy alta para una asignación activa.",
+    "recomendacion_porque": "La recomendación de HOLD se basa en un upside proyectado moderado del 2.64% hasta el Fair Value de $787.26 en un horizonte de 12 meses. Aunque el régimen de mercado es alcista y el S&P 500 muestra resiliencia, la falta de un flujo institucional calificado y el upside limitado sugieren que, si bien es un activo fundamental para la diversificación, no presenta una oportunidad de compra agresiva en los niveles actuales. Es prudente mantener posiciones existentes y esperar puntos de entrada más atractivos o una mayor claridad en el flujo institucional.",
+    "tesis_inversion_completa": "La tesis de inversión para SPY se centra en su papel como un vehículo de exposición diversificada al mercado de valores de EE. UU. En un régimen de mercado de 'Tendencia alcista' con 'vol normal' y 'tasas estables', el S&P 500 tiende a ofrecer retornos positivos. SPY permite a los inversores participar en este crecimiento sin la necesidad de seleccionar acciones individuales, minimizando el riesgo idiosincrásico. El Fair Value de $787.26 a 12 meses, que representa un upside del 2.64%, sugiere un crecimiento continuo pero moderado desde los niveles actuales. La fortaleza subyacente de las empresas del S&P 500, impulsada por la innovación (especialmente en IA) y la solidez económica, respalda la expectativa de retornos positivos a largo plazo. Sin embargo, la ausencia de un flujo institucional calificado hoy y la naturaleza de un ETF que replica el mercado, no justifican una compra agresiva, sino una posición de mantenimiento para aprovechar el crecimiento orgánico del mercado.",
+    "tesis_riesgos": "Los riesgos inherentes a la inversión en SPY incluyen el riesgo de mercado general, donde una desaceleración económica, un aumento inesperado de las tasas de interés o eventos geopolíticos adversos podrían provocar una caída generalizada en el valor de las acciones del S&P 500. El riesgo de seguimiento (tracking error) es mínimo pero existe, donde el rendimiento del ETF podría desviarse ligeramente del índice subyacente debido a costos o la gestión de la cartera. Además, aunque el régimen actual es alcista, un cambio repentino en el sentimiento del mercado o un aumento en la volatilidad (VIX) podría erosionar rápidamente las ganancias. La dependencia del crecimiento de las ganancias corporativas hace que SPY sea vulnerable a cualquier shock que afecte la rentabilidad de las empresas estadounidenses.",
+    "analistas_consenso": "El consenso de Wall Street, con un precio objetivo medio de $859.05, es significativamente más optimista que el Fair Value de Victor de $787.26. Esta divergencia podría explicarse por la metodología de Victor, que se enfoca en un target base más conservador derivado de un modelo macroeconómico y de índice, mientras que los analistas de Wall Street podrían estar incorporando expectativas de crecimiento más agresivas, especialmente en sectores de alto crecimiento como la tecnología, o utilizando modelos de valoración que asignan un mayor peso a catalizadores específicos. Victor prioriza la prudencia y la replicación del índice, mientras que Wall Street a menudo busca el 'upside' máximo.",
+    "calculos_y_crecimiento_ai": "Los targets de Victor para SPY, al ser un ETF que replica el S&P 500, no se calculan directamente con la fórmula de EPS × (1+crecimiento) × (P/E actual × factor del escenario) aplicada a una empresa individual, ya que SPY no tiene EPS o crecimiento de utilidades propios en ese sentido. En cambio, los targets se derivan de un modelo macroeconómico y de índice que proyecta el rendimiento del S&P 500. El Fair Value de este reporte se establece directamente como el target base a 12 meses de Victor, que es $787.26 USD. El DCF (FCFF) del especialista de valuación no está disponible ni es publicable para este activo. Respecto a los agentes de Victor, el agente 'Market' impulsa positivamente el puntaje debido a la tendencia alcista y la volatilidad normal, mientras que el agente 'Financial/Risk' introduce cautela por la ausencia de flujo institucional calificado hoy.",
+    "posicion_competitiva": "SPY goza de una posición competitiva dominante debido a su liquidez excepcional, su bajo ratio de gastos y su estricta replicación del índice S&P 500. Su tamaño y antigüedad le otorgan una ventaja de primer movimiento y una marca reconocida, lo que lo convierte en el ETF de referencia para la exposición al mercado estadounidense. Su 'moat' reside en su eficiencia operativa y la confianza de los inversores.",
+    "principales_competidores": "Los principales competidores de SPY en el espacio de los ETFs que replican el S&P 500 son el iShares Core S&P 500 ETF (IVV) y el Vanguard S&P 500 ETF (VOO).",
+    "porque_mejor_peor_inversion": "SPY es una inversión 'mejor' para aquellos que buscan diversificación instantánea y exposición al mercado amplio con bajos costos, sin la necesidad de realizar análisis de empresas individuales. Ofrece retornos en línea con el mercado, lo cual históricamente ha sido superior a muchas inversiones activas. Sin embargo, puede ser una inversión 'peor' para quienes buscan superar al mercado (generar alfa) a través de la selección de acciones, ya que SPY no ofrece retornos de capital o márgenes operativos superiores a los del índice. Sus múltiplos son los del mercado en general, no los de una empresa con un crecimiento excepcional.",
+    "in_simple_terms": "Imagina que el mercado de valores de EE. UU. es un gran pastel con 500 rebanadas, cada una representando una empresa importante. Comprar SPY es como comprar una pequeña porción de cada una de esas 500 rebanadas a la vez. Así, si el pastel crece, tu porción también lo hace, y no tienes que preocuparte por elegir la mejor rebanada individualmente.",
+    "should_you_buy_now": "Dada la recomendación de HOLD y el upside moderado, no se sugiere una compra agresiva en los niveles de cotización actuales. Es más prudente mantener las posiciones existentes y considerar nuevas entradas solo si hay una corrección de precios o una mejora significativa en el flujo institucional y las perspectivas de crecimiento.",
+    "the_bottom_line": "SPY es un pilar de la diversificación de cartera, ofreciendo exposición al crecimiento del S&P 500 en un régimen de mercado alcista, pero con un upside moderado que sugiere una estrategia de mantenimiento en lugar de una compra agresiva en este momento.",
+    "probabilities": {
+      "p_positive_12m": 75,
+      "p_touch_bull_12m": 35,
+      "p_touch_bear_12m": 20,
+      "p_up_10pct_3m": 55,
+      "rationale": "Estas probabilidades se basan en la frecuencia histórica de movimientos del S&P 500 en regímenes de tendencia alcista y volatilidad normal, considerando la beta de 1.01 del ETF."
+    },
+    "regime": {
+      "vol": "normal",
+      "trend": "alcista",
+      "breadth": "neutral",
+      "rates": "estable",
+      "vix": 15.7,
+      "spy_vs_200d_pct": 8.5,
+      "detail": {
+        "spy_20d_pct": 3.9,
+        "rsp_minus_spy_20d_pct": 0.5,
+        "tlt_20d_pct": -0.8
+      },
+      "label": "Tendencia alcista · vol normal · amplitud neutral · tasas estable"
+    },
+    "conviction_source": "engine de Victor no disponible",
+    "prob_anchoring": null,
+    "trade_plan": {
+      "probabilities": {
+        "p_positive_12m": 75,
+        "p_touch_bull_12m": 35,
+        "p_touch_bear_12m": 20,
+        "p_up_10pct_3m": 55,
+        "rationale": "Estas probabilidades se basan en la frecuencia histórica de movimientos del S&P 500 en regímenes de tendencia alcista y volatilidad normal, considerando la beta de 1.01 del ETF."
+      },
+      "reward_pct": 31.5,
+      "risk_pct": 23.0,
+      "reward_risk": 1.37,
+      "kelly_full_pct": 56.7,
+      "kelly_half_pct": 28.4,
+      "suggested_pct": 25.0,
+      "cap_reason": "Limitado por tope de concentración 25%.",
+      "factor_haircut_pct": 0.0,
+      "already_held_pct": 0.0,
+      "risk_plan": {
+        "is_a_grade": false,
+        "equity_stop": 747.85,
+        "equity_stop_note": "No A-grade: stop sugerido en $747.85 (2×ATR-14 bajo el spot).",
+        "thesis_break_level": 590.49,
+        "options_stop_rule": "Opciones: stop −20% a −30% de la prima pagada."
+      },
+      "targets_r": {
+        "entry": 767.01,
+        "stop": 590.49,
+        "r_unit": 176.52,
+        "bull_r": 1.37,
+        "base_r": 0.11,
+        "bear_r": -1.0
+      },
+      "thesis_invalidation": [
+        {
+          "factor": "Precio",
+          "kind": "price",
+          "trigger": "Cierre sobre $590.49 (quiebre de tesis = −1R)"
+        }
+      ]
+    },
+    "coherence_flags": [],
+    "coherence_ok": true,
+    "model_source": "gemini",
+    "earnings_history": {
+      "n": 1,
+      "beats": 0,
+      "misses": 0,
+      "avg_surprise_pct": null,
+      "avg_abs_move_pct": null,
+      "avg_move_pct": null,
+      "rows": [
+        {
+          "date": "2005-02-15",
+          "reported": 1.81,
+          "estimate": null,
+          "surprise_pct": null,
+          "beat": null,
+          "move_pct": null
+        }
+      ]
+    },
+    "integrity": {
+      "checks": [
+        {
+          "name": "Fuente de datos",
+          "status": "ok",
+          "detail": "Quant Data",
+          "value": null
+        },
+        {
+          "name": "Spot",
+          "status": "fail",
+          "detail": "sin precio de referencia",
+          "value": null
+        }
+      ],
+      "ok": 0,
+      "warn": 0,
+      "fail": 1,
+      "status": "fail"
+    },
+    "ai_concentration": {
+      "proxy": "SMH",
+      "rho": 0.78,
+      "level": "alta",
+      "note": "ρ=0.78 con el complejo IA/semis (SMH): este nombre ES la apuesta de IA — si ya tienes NVDA/AMD/PLTR/GOOGL u otros del clúster, tu diversificación efectiva ≈ 1 posición; dimensiona como si SUMARAS a la misma posición, no a una nueva."
+    },
+    "news_catalysts": [
+      "deal",
+      "earnings",
+      "product",
+      "regulatory"
+    ],
+    "sec_8k": []
+  },
+  "fecha": "2026-08-20",
+  "agente": "acciones",
+  "guardado_en": "2026-08-20T14:49:39+00:00"
+}
