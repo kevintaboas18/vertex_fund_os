@@ -9083,8 +9083,60 @@ Decía que los muros salían al revés por un fallo de definición y que el
 su código delante. Se deja escrito en vez de borrarlo: una auditoría que borra
 sus errores no es una auditoría.
 
+### El ±20% no es suyo — pero se aplica, y por un motivo de presentación
+
+> «verifica el drift, solamente es un ±20% del precio en que está la acción.
+> Lo cual el call wall y put wall y el magneto tienen que estar dentro.»
+
+Se verificó, y **no está en su Drift**:
+
+| Fuente | Qué dice |
+|---|---|
+| `walls.py` | `max(contracts, key=open_interest)`, filtrando solo por lado |
+| spec §4-§5 | «Call Wall = strike with max OI among calls» |
+| `README` | «Strike with the most open interest, per side, per expiration» |
+| `polygon_client.fetch_chain` | baja la cadena entera, `limit: 250` paginado — sin ventana de strikes |
+
+Donde sí está el ±20% es en el GEX del **agente**: `NEAR_SPOT_PCT = 0.2`,
+constante suya, de su `gex.ts`.
+
+**Y aun así se aplica.** El motivo no es que él lo haga —no lo hace—, es que
+el panel pinta los dos números **en la misma tarjeta**, separados por una
+barra: `Muro de calls / Drift → $310 / $400`. Medir uno sobre ±20% del spot y
+el otro sobre la cadena entera es comparar dos universos distintos y
+presentarlos como si fueran lo mismo. Con la acción a $180, el mayor OI de
+calls puede estar en un strike de $120 comprado hace un año; ese número al
+lado del muro de gamma no significa nada.
+
+Cómo se hizo, que importa tanto como qué:
+
+- La ventana entra **por parámetro** (`near_pct`), y su valor por defecto es
+  `None` — el comportamiento literal suyo. Sus `walls.py` y `magneto.py` no se
+  tocan: se recorta la **entrada**, no la matemática.
+- La ruta pasa `NEAR_SPOT_PCT` **importado de `gex.py`**, no un `0.2` escrito
+  a mano. Si él cambia el suyo, los dos números de la tarjeta siguen midiendo
+  lo mismo; con una copia se separarían sin que nadie lo notara.
+- `diff_drift.sh` sigue comparando **sin ventana**: su trabajo es medir su
+  algoritmo contra el port, y con la ventana puesta compararía otra cosa. La
+  ventana se prueba aparte.
+- El payload lleva `ventana_pct` y la pantalla lo dice: sin decirlo, un muro
+  «el mayor de la cadena» y uno «el mayor a ±20%» se leen igual.
+- Si la ventana deja un vencimiento sin strikes, el plazo sale en `sin_datos`
+  con su motivo. No se ensancha en silencio para rellenar.
+
+Medido sobre la cadena que lo destapó, spot $180:
+
+| | sin ventana (literal suyo) | con ±20% |
+|---|---|---|
+| Muro de puts | $230 | **$160** |
+| Muro de calls | $120 | **$200** |
+| Imán | $230 | **$200** |
+| ¿Los tres dentro de ±20%? | no | **sí** |
+
+Cinco casos nuevos; **cuatro van rojos** con la ventana desactivada.
+
 ### Estado
 
-**3.460 tests del motor (51 nuevos) · 913 de la capa web (21 nuevos) ·
-135 de navegador · 285 checks de auditoría sin TITO_ROOT · 17.º diferencial
-(`diff_drift.sh`) con 0 divergencias sin declarar. 0 fallos.**
+**3.465 tests del motor (56 nuevos) · 915 de la capa web (23 nuevos) ·
+135 de navegador · 342 checks de auditoría CON su repo real (0 avisos) ·
+los 17 diferenciales en verde, ejecutando su código. 0 fallos.**

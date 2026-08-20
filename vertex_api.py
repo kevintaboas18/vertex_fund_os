@@ -4819,19 +4819,31 @@ def _tito_drift(chain, r, now):
     """
     try:
         from wbj.tito.drift import drift_analysis
+        # La MISMA constante que usa el GEX del agente —±20% del spot, suya,
+        # de su `gex.ts`—. Se importa en vez de escribir un 0.2 aquí: los dos
+        # números se pintan juntos en la misma tarjeta, así que tienen que
+        # medirse sobre el mismo universo de strikes o no son comparables. Con
+        # una copia del número, el día que él cambie el suyo se separarían sin
+        # que nadie lo note.
+        from wbj.tito.gex import NEAR_SPOT_PCT
     except Exception:
         return None
     if not chain or not (r.spot > 0):
         return None
     try:
         iv = r.gex.iv if (r.gex and r.gex.iv) else None
-        a = drift_analysis(chain, spot=r.spot, hoy=now.date(), iv=iv)
+        a = drift_analysis(chain, spot=r.spot, hoy=now.date(), iv=iv,
+                           near_pct=NEAR_SPOT_PCT)
     except Exception:
         return None
     return {
         "spot": _r(a.spot),
         "iv": _r(iv, 4) if iv else None,
         "iv_fuente": "volatilidad realizada del motor (no IV de la cadena)",
+        # La ventana de strikes sobre la que se midió todo. Va al payload
+        # porque cambia lo que significan los tres números: sin decirlo, un
+        # muro «el mayor de la cadena» y uno «el mayor a ±20%» se leen igual.
+        "ventana_pct": _r(NEAR_SPOT_PCT * 100, 1),
         "mensuales": a.mensuales,
         "motivo": a.motivo,
         "sin_datos": a.sin_datos,

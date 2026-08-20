@@ -80,6 +80,18 @@ DECLARADAS = {
     "cero interes",
 }
 
+#: La OTRA divergencia declarada, y la más visible: la ruta pasa
+#: `near_pct=NEAR_SPOT_PCT` (±20% del spot, la constante de SU `gex.ts`) y él
+#: mira la cadena entera. El diferencial compara SIN ventana a propósito —así
+#: mide su algoritmo contra el port, que es su trabajo—; la ventana es política
+#: de entrada de Vertex y se prueba aparte, en
+#: `TestLaVentanaDeSTRIKESEsDeVERTEX`.
+#:
+#: El motivo: el panel pinta el número del agente y el suyo en la MISMA
+#: tarjeta. Uno medido a ±20% y el otro sobre la cadena entera son dos
+#: universos distintos presentados como si fueran comparables.
+VENTANA_ES_DE_VERTEX = True
+
 fallos: list[str] = []
 declaradas: list[str] = []
 

@@ -69,10 +69,15 @@ y lo único distinto son los tres niveles, que ahí son los de Drift.
 
 Apuntan a strikes distintos a propósito: la gamma se apaga lejos del dinero y
 el recuento de contratos no. Los muros de Drift son los de **él**, literales:
-el strike con más interés abierto de cada lado, **sin mirar el spot**. Que la
-resistencia salga por debajo del soporte no es un fallo — es su condición de
-ruptura. `engine/scripts/diff_drift.sh` ejecuta su Python y lo comprueba
-número a número. Drift **no puntúa**: el score de 6 sub-agentes se
+el strike con más interés abierto de cada lado. Que la resistencia salga por
+debajo del soporte no es un fallo — es su condición de ruptura.
+`engine/scripts/diff_drift.sh` ejecuta su Python y lo comprueba número a
+número.
+
+Lo único que Vertex añade es la **ventana de strikes**: los tres niveles se
+buscan a **±20% del spot**, la misma `NEAR_SPOT_PCT` que usa el GEX del
+agente. Él mira la cadena entera; aquí se recorta porque los dos números se
+pintan juntos y tienen que medirse sobre el mismo universo. Drift **no puntúa**: el score de 6 sub-agentes se
 calcula exactamente igual que antes de que existiera, y hay un test que lo
 compara con Drift encendido y apagado.
 
@@ -94,9 +99,9 @@ Comandos disponibles: `entradas`, `fetch`, `packet`, `compute`, `analyze`,
 ## Tests
 
 ```bash
-cd engine && python -m pytest tests/ -q    # 3460 pasan, 0 skips
-python -m pytest tests_vertex/ -q          # 1048 pasan, 0 skips
-                                           # (913 de la capa web + 135 en un
+cd engine && python -m pytest tests/ -q    # 3465 pasan, 0 skips
+python -m pytest tests_vertex/ -q          # 1050 pasan, 0 skips
+                                           # (915 de la capa web + 135 en un
                                            #  navegador real, cuatro tamaños)
 
 # Auditoría del tab de Proyecciones (324 checks con TITO_ROOT). Con TITO_ROOT usa tu clon de

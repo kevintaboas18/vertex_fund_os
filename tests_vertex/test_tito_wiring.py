@@ -5893,6 +5893,45 @@ class TestDriftEnLaRuta:
             assert b["muro_calls"] == 115.0
             assert b["muro_puts"] == 85.0
 
+    def test_los_TRES_numeros_salen_dentro_del_20_POR_CIENTO(
+            self, client, cadena_larga):
+        """«El Drift es solo un ±20% del precio.»
+
+        No es de su Drift —él mira la cadena entera— pero SÍ es la ventana con
+        la que se sirve aquí, y por un motivo de presentación: el panel pinta
+        el número del agente y el de Drift en la misma tarjeta, y el del
+        agente sale de `gex.NEAR_SPOT_PCT`. Medidos sobre universos distintos,
+        los dos números de esa barra no serían comparables.
+        """
+        from wbj.tito.gex import NEAR_SPOT_PCT
+
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        dr = d["drift"]
+        assert dr["ventana_pct"] == pytest.approx(NEAR_SPOT_PCT * 100), (
+            "la ventana servida no es la constante del agente")
+        lo = d["spot"] * (1 - NEAR_SPOT_PCT)
+        hi = d["spot"] * (1 + NEAR_SPOT_PCT)
+        assert dr["buckets"], "sin buckets no se prueba nada"
+        for b in dr["buckets"]:
+            for que in ("muro_calls", "muro_puts", "magneto"):
+                assert lo <= b[que] <= hi, (
+                    f"{b['etiqueta']}: {que} en {b[que]}, fuera de "
+                    f"±{NEAR_SPOT_PCT * 100:.0f}% [{lo:.2f}, {hi:.2f}] "
+                    f"con el spot en {d['spot']}")
+
+    def test_y_los_targets_largos_TAMBIEN_se_anclan_dentro(
+            self, client, cadena_larga):
+        """Sus tres niveles son los de Drift, así que heredan la ventana."""
+        from wbj.tito.gex import NEAR_SPOT_PCT
+
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        lo = d["spot"] * (1 - NEAR_SPOT_PCT)
+        hi = d["spot"] * (1 + NEAR_SPOT_PCT)
+        assert d["targets_drift"], "sin plazos largos no se prueba nada"
+        for h, v in d["targets_drift"].items():
+            for que in ("muro_puts", "muro_calls", "iman"):
+                assert lo <= v[que] <= hi, f"{h}d · {que} = {v[que]}"
+
     def test_declara_QUE_IV_uso_porque_no_es_la_de_la_cadena(self, client, cadena_larga):
         # El plan de Massive no devuelve `implied_volatility` por contrato, así
         # que el cono sale con la volatilidad REALIZADA que estima el motor.

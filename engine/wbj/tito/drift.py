@@ -48,6 +48,7 @@ __all__ = [
     "nocional_por_strike",
     "magneto",
     "sigma_proyectada",
+    "_cerca_del_spot",
     "clasifica_deriva",
     "drift_analysis",
 ]
@@ -269,13 +270,45 @@ def _a_filas(chain, hoy: date) -> list[_Fila]:
     return fuera
 
 
+def _cerca_del_spot(filas: list[_Fila], spot: float,
+                    pct: float | None) -> list[_Fila]:
+    """Recorta a los strikes dentro de ±`pct` del spot. `None` = sin recorte.
+
+    **Esto NO es suyo, y por eso entra por parámetro.** Su
+    `polygon_client.fetch_chain` baja la cadena entera y sus `walls.py` /
+    `magneto.py` la miran completa: ni el código, ni la especificación §4-§5,
+    ni el README mencionan ninguna ventana de strikes.
+
+    Es política de Vertex, y el motivo es de presentación: el panel pinta el
+    número del agente y el suyo **en la misma tarjeta**, separados por una
+    barra. El del agente sale de `gex.NEAR_SPOT_PCT` —±20% del spot, constante
+    SUYA, de su `gex.ts`—. Medir uno sobre ±20% y el otro sobre la cadena
+    entera es comparar dos universos distintos y presentarlos como si fueran
+    lo mismo: con la acción a $180, el mayor OI de calls puede estar en un
+    strike de $120 comprado hace un año, y ese número al lado del muro de
+    gamma no significa nada.
+
+    Con `pct=None` el análisis es exactamente el suyo, y así lo compara
+    `diff_drift.sh`. Quien quiera su comportamiento literal no pasa nada.
+    """
+    if pct is None or not (pct > 0) or not (spot > 0):
+        return filas
+    lo, hi = spot * (1 - pct), spot * (1 + pct)
+    return [f for f in filas if lo <= f.strike <= hi]
+
+
 def drift_analysis(chain, spot: float, hoy: date,
-                   iv: float | None = None) -> DriftAnalysis:
+                   iv: float | None = None,
+                   near_pct: float | None = None) -> DriftAnalysis:
     """El análisis completo: cuatro plazos, sus muros, su imán y su cono.
 
     `chain` son las `ChainRow` que Vertex ya tiene en memoria — **no se baja
     nada**. `iv` es la estimada del motor; sin ella los conos salen a `None` y
     el resto del análisis sigue en pie.
+
+    `near_pct` recorta los strikes a ±ese % del spot antes de buscar muros e
+    imán. **No es suyo**: él mira la cadena entera. Ver `_cerca_del_spot`.
+    Con `None` —el valor por defecto— el análisis es literalmente el suyo.
     """
     filas = _a_filas(chain, hoy)
     if not filas:
@@ -310,14 +343,16 @@ def drift_analysis(chain, spot: float, hoy: date,
                            f"lejos")})
             continue
 
-        propias = [f for f in filas if f.vencimiento == v]
+        propias = _cerca_del_spot(
+            [f for f in filas if f.vencimiento == v], spot, near_pct)
         mc = muro_calls(propias)
         mp = muro_puts(propias)
         mag = magneto(propias)
         if mc is None or mp is None or mag is None:
             salida.sin_datos.append({
                 "etiqueta": etiqueta, "dte_objetivo": objetivo,
-                "motivo": "ese vencimiento no tiene calls y puts con interés abierto"})
+                "motivo": ("ese vencimiento no tiene calls y puts con interés "
+                           "abierto cerca del precio")})
             continue
 
         deriva, ruptura = clasifica_deriva(spot, mc[0], mp[0], mag[0], mag[1])

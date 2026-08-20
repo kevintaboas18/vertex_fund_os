@@ -206,6 +206,98 @@ class TestMurosEIman:
             assert "rechazo" in b.deriva or "RUPTURA" in b.deriva
 
 
+class TestLaVentanaDeSTRIKESEsDeVERTEX:
+    """«El Drift es solo un ±20% del precio: los tres tienen que estar ahí.»
+
+    **Eso no está en su Drift.** Ni en `walls.py`, ni en `magneto.py`, ni en
+    su especificación §4-§5, ni en el README, ni en su
+    `polygon_client.fetch_chain` —que baja la cadena entera—. Él mira todos
+    los strikes.
+
+    Donde sí está el ±20% es en el GEX del **agente**: `NEAR_SPOT_PCT = 0.2`,
+    constante suya, de su `gex.ts`. Y ahí está el motivo de aplicarlo también
+    aquí: el panel pinta los dos números **en la misma tarjeta**, separados
+    por una barra. Medir uno sobre ±20% y el otro sobre la cadena entera es
+    comparar dos universos distintos y presentarlos como si fueran lo mismo.
+
+    Por eso entra **por parámetro** y su valor por defecto es `None` — el
+    comportamiento literal suyo, que es lo que compara `diff_drift.sh`.
+    """
+
+    SPOT = 180.0
+
+    def _cadena(self):
+        """El mayor OI de cada lado, MUY fuera del ±20%."""
+        filas = []
+        for k in range(100, 261, 10):
+            oi_c = oi_p = 500
+            if k == 120:
+                oi_c = 14000        # $120 con el spot en $180: −33%
+            if k == 200:
+                oi_c = 6000         # dentro
+            if k == 230:
+                oi_p = 11000        # +28%: fuera
+            if k == 160:
+                oi_p = 7000         # dentro
+            filas += [fila(k, "call", oi_c, "2026-09-18"),
+                      fila(k, "put", oi_p, "2026-09-18")]
+        return filas
+
+    def test_sin_ventana_el_analisis_es_EXACTAMENTE_el_suyo(self):
+        a = drift_analysis(self._cadena(), spot=self.SPOT, hoy=HOY, iv=0.35)
+        b = a.buckets[0]
+        assert (b.muro_calls, b.muro_puts, b.magneto) == (120.0, 230.0, 230.0)
+
+    def test_con_la_ventana_los_TRES_caen_dentro(self):
+        a = drift_analysis(self._cadena(), spot=self.SPOT, hoy=HOY, iv=0.35,
+                           near_pct=0.2)
+        lo, hi = self.SPOT * 0.8, self.SPOT * 1.2
+        assert a.buckets
+        for b in a.buckets:
+            for que, v in (("muro de calls", b.muro_calls),
+                           ("muro de puts", b.muro_puts),
+                           ("imán", b.magneto)):
+                assert lo <= v <= hi, (
+                    f"{b.etiqueta}: {que} en {v}, fuera de ±20% "
+                    f"[{lo:.0f}, {hi:.0f}] con el spot en {self.SPOT}")
+
+    def test_la_ventana_es_la_MISMA_constante_del_agente(self):
+        """Si se escribiera un 0.2 a mano aquí, el día que él cambie el suyo
+        los dos números de la tarjeta se separarían sin que nadie lo note."""
+        from wbj.tito.gex import NEAR_SPOT_PCT
+
+        a = drift_analysis(self._cadena(), spot=self.SPOT, hoy=HOY, iv=0.35,
+                           near_pct=NEAR_SPOT_PCT)
+        lo = self.SPOT * (1 - NEAR_SPOT_PCT)
+        hi = self.SPOT * (1 + NEAR_SPOT_PCT)
+        for b in a.buckets:
+            assert lo <= b.magneto <= hi
+
+    def test_los_bordes_de_la_ventana_ENTRAN(self):
+        """±20% exacto es dentro, no fuera. Un strike justo en el borde es
+        alcanzable y descartarlo sería recortar por un decimal."""
+        from wbj.tito.drift import _a_filas, _cerca_del_spot
+
+        f = _a_filas([fila(80, "call", 10, "2026-09-18"),
+                      fila(120, "call", 10, "2026-09-18"),
+                      fila(79, "call", 10, "2026-09-18"),
+                      fila(121, "call", 10, "2026-09-18")], HOY)
+        dentro = {x.strike for x in _cerca_del_spot(f, 100.0, 0.2)}
+        assert dentro == {80.0, 120.0}
+
+    def test_si_la_ventana_deja_el_vencimiento_VACIO_se_dice(self):
+        """Sin strikes cerca no hay muros, y sin muros no se inventa nada:
+        el plazo sale en `sin_datos` con su motivo."""
+        filas = [fila(500, "call", 900, "2026-09-18"),
+                 fila(10, "put", 900, "2026-09-18")]
+        a = drift_analysis(filas, spot=100.0, hoy=HOY, iv=0.3, near_pct=0.2)
+        assert a.buckets == []
+        # Se busca en TODA la lista: el plazo de 320 días sale antes con su
+        # propio motivo —la cadena no llega tan lejos—, que es otro problema.
+        motivos = [x["motivo"] for x in a.sin_datos]
+        assert any("cerca del precio" in m for m in motivos), motivos
+
+
 class TestElCono:
     def test_sigma_es_spot_por_iv_por_raiz_de_dte_entre_365(self):
         s = sigma_proyectada(100.0, 0.40, 90)
