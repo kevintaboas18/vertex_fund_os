@@ -4,7 +4,7 @@
 |---|---|
 | Veredicto | **Oportunidad Moderada** |
 | Score de flujo | 65.0 / 100 |
-| Spot | $217.09 |
+| Spot | $217.04 |
 | Régimen de gamma | positive |
 | Nodo imán | $220.00 |
 | Gamma flip | $217.03 |
@@ -25,7 +25,7 @@
 
 | Horizonte | Bajista | Base | Alcista | Confianza |
 |---|---|---|---|---|
-| 10 días | $210.00 | $220.00 | $225.00 | 71.0 |
+| 10 días | $210.00 | $220.00 | $225.00 | 70.0 |
 | 20 días | $210.00 | $220.00 | $225.00 | 65.0 |
 | 30 días | $210.00 | $220.00 | $225.00 | 62.0 |
 
@@ -44,7 +44,7 @@
 | $225.00 | resistencia | 47 | 65% | 258,518 contratos abiertos de calls · venta de calls por dinero real |
 | $205.00 | soporte | 43 | 55% | 136,769 contratos abiertos de puts · venta de puts por dinero real |
 | $232.28 | resistencia | 42 | 42% | el precio reaccionó 1 vez aquí · 61,258 contratos abiertos de calls · confluencia precio + opciones |
-| $222.50 | resistencia | 41 | 75% | 50,890 contratos abiertos de calls · venta de calls por dinero real |
+| $222.50 | resistencia | 41 | 74% | 50,890 contratos abiertos de calls · venta de calls por dinero real |
 
 ## Los 3 flujos más grandes
 
