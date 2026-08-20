@@ -4,7 +4,7 @@
 |---|---|
 | Veredicto | **Oportunidad Moderada** |
 | Score de flujo | 61.0 / 100 |
-| Spot | $216.62 |
+| Spot | $216.63 |
 | Régimen de gamma | positive |
 | Nodo imán | $220.00 |
 | Gamma flip | $216.54 |
