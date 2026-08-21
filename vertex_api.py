@@ -4861,6 +4861,7 @@ def _tito_drift(chain, r, now):
             "muro_calls": _r(b.muro_calls), "muro_calls_oi": b.muro_calls_oi,
             "muro_puts": _r(b.muro_puts), "muro_puts_oi": b.muro_puts_oi,
             "magneto": _r(b.magneto), "magneto_nocional": b.magneto_nocional,
+            "iman_peso": _r(b.iman_peso, 4),
             "sigma": _r(b.sigma), "total_oi": b.total_oi,
             "nocional_neto": b.nocional_neto,
             "deriva": b.deriva, "breakout": b.breakout,
@@ -4981,7 +4982,9 @@ def _tito_targets_drift(r, drift):
                         "probability": _r(s.probability, 3), "driver": s.driver}
         fuera[str(b["dte_objetivo"])] = {
             "bear": _e(p.bear), "base": _e(p.base), "bull": _e(p.bull),
-            "confidence": p.confidence, "direction": p.direction,
+            "confidence": _tito_confianza_drift(p, b, sub, _hit.get("value"),
+                                                bool(r.gex.low_liquidity)),
+            "direction": p.direction,
             "summary": p.summary, "caveat": p.caveat, "calibration": None,
             # De dónde salieron los niveles y sobre qué contrato. Sin esto, un
             # target a 320 días parecería salir del mismo sitio que el de 20.
@@ -5018,6 +5021,46 @@ def _tito_targets_drift(r, drift):
             **_tito_ancla_de_la_base(p, b, r.spot),
         }
     return fuera
+
+
+def _tito_confianza_drift(p, bucket, sub, hit_rate, low_liquidity):
+    """La confianza del agente, con la nitidez MEDIDA en vez de asignada.
+
+    La fórmula es la suya, intacta: `45% nitidez + 30% cobertura + 25%
+    acierto`, y 0 con liquidez baja. Lo que cambia es de dónde sale la
+    nitidez.
+
+    El fallo, medido: `confidence_of` calcula la nitidez como el peso
+    normalizado del nivel top dentro del mapa. Con los ~24 nodos de GEX del
+    agente eso informa —el peso se reparte y baja con el horizonte: 74 a 10
+    días, 60 a 302—. Pero los plazos de Drift tienen **tres** niveles con los
+    pesos que les puse yo (imán 1,0 · muros 0,01), así que el imán se llevaba
+    el 98% del mapa **siempre**: la nitidez saturaba en 1,00 y la confianza
+    salía **88 fija**, igual a diez días que a un año.
+
+    Un 88 que no distingue un plazo de otro no es una confianza: es un
+    adorno. Y en una proyección a 302 días rotulada «confianza alta» es peor
+    que no poner nada.
+
+    La nitidez real es `iman_peso`: qué fracción del nocional de ese
+    vencimiento está de verdad en el strike del imán. Si el dinero está
+    repartido entre veinte strikes, el imán no manda — y la confianza lo dice.
+    """
+    try:
+        from wbj.tito.prediction import weighted_score
+    except Exception:
+        return p.confidence
+    if low_liquidity:
+        return 0
+    peso = bucket.get("iman_peso")
+    if peso is None:
+        return p.confidence          # motor viejo: se deja la suya
+    _, activas, _ = weighted_score(sub)
+    nitidez = min(1.0, max(0.0, float(peso)) * 2)
+    cobertura = min(1.0, activas / 6)
+    acierto = 0.5 if hit_rate is None else min(1.0, max(0.0, float(hit_rate) / 100))
+    return _r(100 * min(1.0, max(0.0,
+              0.45 * nitidez + 0.30 * cobertura + 0.25 * acierto)), 0)
 
 
 #: Cuánto puede separarse el target base de un nivel para seguir siendo «ese

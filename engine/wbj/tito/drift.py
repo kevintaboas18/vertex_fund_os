@@ -46,7 +46,9 @@ __all__ = [
     "muro_calls",
     "muro_puts",
     "nocional_por_strike",
+    "nocional_bruto_por_strike",
     "magneto",
+    "peso_del_iman",
     "sigma_proyectada",
     "clasifica_deriva",
     "drift_analysis",
@@ -105,6 +107,14 @@ class BucketDrift:
     muro_puts_oi: int
     magneto: float | None
     magneto_nocional: float
+    #: Qué fracción del nocional del vencimiento está en el imán, 0-1.
+    #:
+    #: Es una MEDIDA, no un peso asignado, y existe por un fallo concreto: la
+    #: confianza del agente pondera un 45% la «nitidez» —cuánto domina el
+    #: nivel imán sobre el resto del mapa— y con solo tres niveles esa
+    #: nitidez saturaba en 1,00 siempre. La confianza de los plazos de Drift
+    #: salía **88 fija**, igual a diez días que a un año. Con esto se mide.
+    iman_peso: float
     sigma: float | None
     total_oi: int
     nocional_neto: float
@@ -182,12 +192,54 @@ def muro_puts(filas: list[_Fila]) -> tuple[float, int] | None:
     return top.strike, top.open_interest
 
 
+def nocional_bruto_por_strike(filas: list[_Fila]) -> dict[float, float]:
+    """Nocional acumulado por strike **sin signo**: `|calls| + |puts|`.
+
+    Distinto de `nocional_por_strike`, que resta —esa es SU convención y la
+    que decide la polaridad del imán—. Aquí se cuenta el dinero que hay
+    puesto, y para eso las dos patas suman en vez de cancelarse.
+    """
+    acc: dict[float, float] = {}
+    for f in filas:
+        acc[f.strike] = acc.get(f.strike, 0.0) + abs(f.nocional)
+    return acc
+
+
 def nocional_por_strike(filas: list[_Fila]) -> dict[float, float]:
     """Nocional neto acumulado por strike (calls +, puts −)."""
     acc: dict[float, float] = {}
     for f in filas:
         acc[f.strike] = acc.get(f.strike, 0.0) + f.nocional
     return acc
+
+
+def peso_del_iman(filas: list[_Fila], strike: float) -> float:
+    """Fracción del nocional del vencimiento que está en `strike`, 0-1.
+
+    Se mide el nocional **BRUTO** —`|calls| + |puts|`—, no el valor absoluto
+    del neto. La diferencia no es cosmética y se vio al probarlo: un strike
+    con $5M de calls y $5M de puts tiene **$10M de dinero puesto** y un neto
+    de **cero**. Con el neto, el strike más cargado de la cadena puede salir
+    vacío, y la nitidez daría 0 justo donde más dinero hay.
+
+    Con 1,0 todo el nocional está en un solo strike; con 0,05 está repartido
+    entre veinte. Es la diferencia entre un imán de verdad y un empate.
+
+    Se mide sobre el **vencimiento entero**, no sobre la banda de los muros.
+    Probado con la banda y no vale: cuando los dos muros caen en el MISMO
+    strike —cosa normal en una cadena simétrica— la banda es un solo strike y
+    el peso sale 1,0 por construcción, que es justo el 88 fijo que esto viene
+    a arreglar. Sobre el vencimiento entero la pregunta es la de verdad:
+    ¿manda un strike, o está el dinero repartido?
+
+    **No es suyo.** Su `magneto.py` no calcula esto; es la medida que Vertex
+    necesita para que la confianza de los plazos largos signifique algo.
+    """
+    bruto = nocional_bruto_por_strike(filas)
+    total = sum(bruto.values())
+    if total <= 0:
+        return 0.0
+    return bruto.get(strike, 0.0) / total
 
 
 def magneto(filas: list[_Fila], suelo: float | None = None,
@@ -358,6 +410,7 @@ def drift_analysis(chain, spot: float, hoy: date,
             muro_calls=mc[0], muro_calls_oi=mc[1],
             muro_puts=mp[0], muro_puts_oi=mp[1],
             magneto=mag[0], magneto_nocional=mag[1],
+            iman_peso=peso_del_iman(propias, mag[0]),
             sigma=sigma_proyectada(spot, iv, dte),
             total_oi=sum(f.open_interest for f in propias),
             nocional_neto=sum(f.nocional for f in propias),

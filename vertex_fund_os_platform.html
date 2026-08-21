@@ -7367,6 +7367,7 @@ function renderVictorTargets(d) {
              ? `<p class="text-[9px] text-amber-300/90 mt-1 leading-snug"><span>El escenario base NO se ancló en el imán:</span> <b>${_vcEsc(p.ancla_nivel)}</b> <b>${px2(p.ancla)}</b><span>, porque a este plazo el imán queda demasiado lejos para ser alcanzable</span>${
                  p.ancla_toque != null ? ` <span>(probabilidad de toque del base:</span> <b>${(p.ancla_toque * 100).toFixed(0)}%</b><span>)</span>` : ''}<span>.</span></p>`
              : ''}
+           <p class="text-[9px] text-gray-400 mt-1 leading-snug"><span>El im&aacute;n concentra el</span> <b class="${(p.iman_peso||0) >= 0.5 ? 'text-sky-300' : 'text-amber-300'}">${((p.iman_peso||0)*100).toFixed(0)}%</b> <span>del dinero de ese vencimiento</span><span>, y de ah&iacute; sale la confianza: si el dinero est&aacute; repartido entre muchos strikes, no manda ninguno.</span></p>
            <p class="text-[9px] text-gray-500 mt-1 leading-snug"><span>Los escenarios los calcula el agente igual que siempre &mdash; mismo cono, misma probabilidad de toque, mismas seis puntuaciones. Lo &uacute;nico distinto son esos tres niveles: a este plazo el motor no llega, porque sus horizontes cortan en 30 d&iacute;as y su GEX solo mira los strikes a &plusmn;20% del spot.</span>${
              p.duplicado ? ' <span class="text-amber-400">Este vencimiento es el mismo que otro plazo: la cadena no da para separarlos.</span>' : ''}</p>${
            p.rango_estrecho ? `<p class="text-[9px] text-amber-400 mt-1 leading-snug"><span>Con solo tres niveles los escenarios se solapan: el im&aacute;n coincide con uno de los muros y por ese lado no queda nivel. Dos de los tres targets salen iguales.</span></p>` : ''}
@@ -14601,6 +14602,10 @@ const VX_ES2EN = {
     "4 meses": "4 months",
     "1 año": "1 year",
     "Niveles de Drift": "Drift levels",
+    "El imán concentra el": "The magnet holds",
+    "del dinero de ese vencimiento": "of the money at that expiration",
+    ", y de ahí sale la confianza: si el dinero está repartido entre muchos strikes, no manda ninguno.":
+        ", and that is where the confidence comes from: if the money is spread across many strikes, none of them rules.",
     "◀ ancla el base": "◀ anchors the base",
     "El escenario base NO se ancló en el imán:":
         "The base scenario did NOT anchor on the magnet:",

@@ -6213,6 +6213,97 @@ class TestDriftEnLaRuta:
                 f"{h}d: el texto dice ${escrito} y el ancla declarada es "
                 f"${v['ancla']} ({v['ancla_nivel']})")
 
+    def test_la_CONFIANZA_de_los_plazos_largos_MIDE_algo(
+            self, client, monkeypatch):
+        """«¿La confianza funciona igual para todos los horizontes?»
+
+        No funcionaba. La fórmula del agente pondera un 45% la «nitidez»
+        —cuánto domina el nivel imán sobre el resto del mapa—, y los plazos de
+        Drift tienen TRES niveles con los pesos que les puse yo (imán 1,0 ·
+        muros 0,01). El imán se llevaba el 98% del mapa siempre: la nitidez
+        saturaba en 1,00 y la confianza salía **88 fija**, igual a 90 días que
+        a 320. Un número que no distingue un plazo de otro no es una
+        confianza.
+
+        Ahora la nitidez sale de `iman_peso`: qué fracción del dinero de ese
+        vencimiento está de verdad en el strike del imán. Este caso lo mide
+        con las dos cadenas extremas y exige que la confianza las SEPARE.
+        """
+        import wbj.tito.massive as MASS
+        from wbj.tito.structure import ChainRow
+
+        vencs = [_mensual(n) for n in (3, 4)]
+
+        def cadena(concentrada):
+            def _c(ticker, **k):
+                filas = []
+                for exp in vencs:
+                    for s_ in range(50, 160, 5):
+                        for ct in ("call", "put"):
+                            # Las dos cadenas tienen que ser LÍQUIDAS: con
+                            # liquidez baja la confianza es 0 por regla y las
+                            # dos saldrían iguales sin probar nada. Se midió:
+                            # con OI de 10 en los strikes de relleno, las dos
+                            # daban 0 y el caso pasaba por el motivo
+                            # equivocado.
+                            if concentrada:
+                                oi = 40000 if (s_ == 115 and ct == "call") else 900
+                            else:
+                                # Repartido: una campana ancha, sin dueño.
+                                oi = 900 + max(0, 600 - abs(s_ - 100) * 8)
+                            filas.append(ChainRow(ct, exp, float(s_), oi, 0,
+                                                  s_ * oi * 100))
+                return MASS.ChainResult(rows=filas, underlying_price=SPOT,
+                                        pages=1, truncated=False)
+            return _c
+
+        vistos = {}
+        for etiqueta, conc in (("repartida", False), ("concentrada", True)):
+            monkeypatch.setattr(MASS, "fetch_option_chain", cadena(conc))
+            d = client.get("/api/projection-targets?ticker=DEMO").json()
+            t = d.get("targets_drift") or {}
+            assert t, f"cadena {etiqueta}: sin plazos largos"
+            v = list(t.values())[0]
+            dr = next(b for b in d["drift"]["buckets"]
+                      if not b["solapa_motor"])
+            vistos[etiqueta] = (dr["iman_peso"], v["confidence"])
+
+        (peso_r, conf_r), (peso_c, conf_c) = vistos["repartida"], vistos["concentrada"]
+        assert peso_c > peso_r, (
+            f"el peso del imán no distingue las cadenas: {vistos}")
+        assert conf_c > conf_r, (
+            f"la confianza NO separa una cadena con dueño de una repartida "
+            f"— es el 88 fijo otra vez: {vistos}")
+
+    def test_la_confianza_es_CERO_con_liquidez_baja(self, client, cadena_larga,
+                                                    monkeypatch):
+        """La regla del proyecto: la confianza nunca convierte un desconocido
+        en algo favorable. Es la única parte de la fórmula que no se pondera."""
+        import vertex_api as V
+
+        real = V._tito_confianza_drift
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        assert any(v["confidence"] > 0 for v in d["targets_drift"].values())
+
+        class _Gex:
+            def __init__(s, g): s._g = g
+            def __getattr__(s, n): return (True if n == "low_liquidity"
+                                           else getattr(s._g, n))
+
+        import wbj.tito.scorecard as SC
+        _orig = SC.run_scorecard
+
+        def _sin_liquidez(*a, **k):
+            r = _orig(*a, **k)
+            object.__setattr__(r, "gex", _Gex(r.gex))
+            return r
+
+        monkeypatch.setattr(SC, "run_scorecard", _sin_liquidez)
+        monkeypatch.setattr(V, "_tito_confianza_drift", real)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        for h, v in (d.get("targets_drift") or {}).items():
+            assert v["confidence"] == 0, f"{h}d: confianza {v['confidence']} con liquidez baja"
+
     def test_la_GRAFICA_tiene_geometria_para_los_plazos_de_drift(
             self, client, cadena_larga):
         """«Si elijo el drift me gustaría que se vea la gráfica.»

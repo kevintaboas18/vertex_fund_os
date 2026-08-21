@@ -9291,8 +9291,80 @@ declarar el imán como ancla fija. Tres guardianes ajenos saltaron y se
 respetaron: el de hojas huérfanas (`ancla` servida y sin pintar), el de i18n y
 el de traducciones idénticas.
 
+### «¿Cómo funciona la confianza? ¿Igual para todos los horizontes?»
+
+La fórmula es suya y es exacta: **`45% nitidez + 30% cobertura + 25%
+acierto`**, y **0 con liquidez baja** —la confianza nunca convierte un
+desconocido en algo favorable—. Umbrales del panel: ≥66 alta · 33-65 media ·
+<33 baja.
+
+- **Nitidez**: cuánto domina el nivel imán sobre el resto del mapa, ×2 y
+  tapado en 1. **Depende del horizonte.**
+- **Cobertura**: categorías que puntuaron / 6. No depende.
+- **Acierto**: el `hit_rate` del backtest; sin él se asume 50%. No depende.
+
+Y sí baja con el plazo, que es lo correcto. Medido con los mismos datos: el
+agente da **74 (alta) a 10 días** y **60 (media) a 302** — cuanto más lejos,
+más se reparte la probabilidad y menos manda el imán.
+
+### El fallo: en los plazos de Drift la confianza era un adorno
+
+```
+DRIFT · 3 niveles     10d → 88 ALTA   ·   92d → 88 ALTA   ·   302d → 88 ALTA
+AGENTE · 18 nodos     10d → 74 ALTA   ·   92d → 62 MEDIA  ·   302d → 60 MEDIA
+```
+
+La causa es mía. Los plazos de Drift tienen **tres** niveles con los pesos que
+yo les asigné (imán 1,0 · muros 0,01), así que el imán se llevaba el **98% del
+mapa siempre**: la nitidez saturaba en 1,00 y la confianza salía **88 fija**,
+igual a diez días que a un año. Un número que no distingue un plazo de otro no
+es una confianza — y en una proyección a 302 días rotulada «confianza alta» es
+peor que no poner nada.
+
+**El arreglo: la nitidez se MIDE.** `iman_peso` = qué fracción del nocional de
+ese vencimiento está de verdad en el strike del imán. La fórmula del agente no
+se toca; solo se le da un insumo real. Medido:
+
+| Cadena | peso del imán | confianza |
+|---|---|---|
+| Campana repartida, 61 strikes | 0,049 | **48 media** |
+| Campana estrecha | 0,124 | **54 media** |
+| Dos strikes se llevan casi todo | 0,605 | **88 alta** |
+| Un solo strike enorme | 0,939 | **88 alta** |
+
+**Dos cosas que se probaron y NO valieron**, y quedan escritas para que nadie
+las repita:
+
+1. **Medir con el neto.** `nocional_por_strike` resta calls − puts (es su
+   convención, y la que decide la polaridad del imán). Un strike con $5M de
+   calls y $5M de puts tiene **$10M puestos** y un neto de **cero**: con el
+   neto, el strike más cargado sale vacío. Se añadió
+   `nocional_bruto_por_strike`.
+2. **Medir dentro de la banda de los muros.** Cuando los dos muros caen en el
+   MISMO strike —normal en una cadena simétrica— la banda es un solo strike y
+   el peso sale 1,0 por construcción: el 88 fijo otra vez. Se mide sobre el
+   vencimiento entero.
+
+Dos casos nuevos; el que reproduce el fallo va **rojo** si se vuelve a usar la
+confianza del motor. Uno de ellos empezó pasando por el motivo equivocado —las
+dos cadenas de prueba disparaban la salvaguarda de liquidez y daban 0 las dos—
+hasta que se hicieron líquidas.
+
+### Un test inestable que sigue abierto (y un intento fallido)
+
+`TestUnRespaldoVACIONoPISAaUnoLLENO`, en `test_almacen.py`, falla **uno de
+cada dos o tres pases** y cambiando de caso cada vez. Diagnosticado: compara
+el respaldo **por bytes cifrados**, y Fernet lleva un IV aleatorio y una marca
+de tiempo dentro, así que dos cifrados del mismo contenido nunca coinciden.
+
+Se intentó cambiar la comparación a `_cuentas_en_el_respaldo` y **empeoró** —
+de 1-2 fallos intermitentes a 3-4 consistentes—, así que se revirtió. Queda
+abierto y **no toca nada de Drift ni del agente de opciones**: es del respaldo
+del almacén.
+
 ### Estado
 
-**3.466 tests del motor · 923 de la capa web (1 nuevo) · 144 de navegador ·
+**3.466 tests del motor · 925 de la capa web (2 nuevos) · 144 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
-verde, ejecutando su código. 0 fallos.**
+verde. 0 fallos, salvo el inestable de `test_almacen.py` que queda declarado
+arriba.**
