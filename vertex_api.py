@@ -5731,15 +5731,43 @@ def tito_health(ticker: str = "AAPL"):
                 + (" · TRUNCADA" if ch.truncated else ""),
                 None if ch.rows else f"¿{tk} tiene opciones listadas?",
                 None if ch.rows else "Estructura sin score y salvaguarda de liquidez activa")
+            # EN DIRECTO a propósito, sin pasar por `daily_bars_for_panel`: el
+            # trabajo de este check es probar que Massive responde, y una
+            # respuesta servida del cache taparía justo la caída que busca.
+            bars = fetch_daily_bars(tk)
+            add("massive.barras", bool(bars), f"{len(bars)} barras diarias",
+                None if bars else "sin barras el motor corta",
+                None if bars else "Proyecciones devuelve error para este ticker")
+            # …y aparte, si el cache del panel está sirviendo o no. Un cache que
+            # nunca acierta es una llamada de más en cada consulta.
             # Drift no es un sub-agente y no puntúa, pero SÍ es lo único que
             # contesta a 90/120/320 días, y su materia prima es esta misma
             # cadena. Un plan que corta la cadena antes de los mensuales
             # lejanos deja esos plazos vacíos sin que nada más lo note.
+            #
+            # Va DESPUÉS de las barras a propósito, y no es un detalle de
+            # orden: el spot tiene que salir de la MISMA cascada que usa la
+            # ruta real —`snapshot ?? cadena ?? última vela`—. Antes se
+            # quedaba en los dos primeros eslabones, así que con un plan sin
+            # `/v2/snapshot` y una cadena sin `underlyingPrice` esta fila
+            # salía en ámbar diciendo «Sin precio del subyacente» mientras el
+            # análisis de verdad funcionaba: la pestaña acusaba un fallo que
+            # no existía, que es peor que no comprobar nada.
             try:
                 from wbj.tito.drift import DTE_OBJETIVO, drift_analysis
-                _sp = _px if isinstance(_px, (int, float)) and _px else ch.underlying_price
+                # `a ?? b ?? c` y luego el respaldo del mercado cerrado, que
+                # es exactamente lo que hace `_tito_chain_and_bars`.
+                _sp = None
+                for _cand in (_px, ch.underlying_price,
+                              bars[-1].close if bars else None,
+                              (_emp or {}).get("prev_close")):
+                    if isinstance(_cand, (int, float)) and not isinstance(_cand, bool) \
+                            and _cand > 0:
+                        _sp = _cand
+                        break
                 _dr = drift_analysis(ch.rows, spot=float(_sp or 0),
-                                     hoy=datetime.now(timezone.utc).date())
+                                     hoy=datetime.now(timezone.utc).date(),
+                                     iman_entre_muros=True)
                 _n, _de = len(_dr.buckets), len(DTE_OBJETIVO)
                 add("drift.plazos", _n == _de,
                     (f"{_n} de {_de} plazos con datos · {_dr.mensuales} vencimientos "
@@ -5754,15 +5782,6 @@ def tito_health(ticker: str = "AAPL"):
             except Exception as e:                 # noqa: BLE001 — se reporta
                 add("drift.plazos", False, f"no se pudo calcular: {e}", None,
                     "sin lectura de 90/120/320 días")
-            # EN DIRECTO a propósito, sin pasar por `daily_bars_for_panel`: el
-            # trabajo de este check es probar que Massive responde, y una
-            # respuesta servida del cache taparía justo la caída que busca.
-            bars = fetch_daily_bars(tk)
-            add("massive.barras", bool(bars), f"{len(bars)} barras diarias",
-                None if bars else "sin barras el motor corta",
-                None if bars else "Proyecciones devuelve error para este ticker")
-            # …y aparte, si el cache del panel está sirviendo o no. Un cache que
-            # nunca acierta es una llamada de más en cada consulta.
             from wbj.tito.bars_store import _ultima_sesion_cerrada, load_bars
             _cb = load_bars(tk)
             _corte = _ultima_sesion_cerrada(datetime.now(timezone.utc))

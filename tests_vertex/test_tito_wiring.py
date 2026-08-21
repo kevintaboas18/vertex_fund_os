@@ -3769,6 +3769,36 @@ class TestLaCoberturaDeLosSubAgentes:
         for k in self.OBLIGATORIOS:
             assert k in nombres, f"el diagnóstico no mira «{k}»"
 
+    def test_drift_plazos_usa_LA_MISMA_cascada_del_spot_que_la_ruta(
+            self, client, monkeypatch):
+        """La pestaña de Cobertura acusaba un fallo que no existía.
+
+        Con un plan de Massive sin `/v2/snapshot` y una cadena sin
+        `underlyingPrice`, esta fila salía en ámbar diciendo «Sin precio del
+        subyacente»… mientras el análisis de verdad funcionaba, porque la ruta
+        tiene un TERCER eslabón —la última vela— y el respaldo del cierre
+        anterior. La comprobación se quedaba en los dos primeros.
+
+        Un diagnóstico que inventa una avería es peor que no comprobar nada:
+        manda a arreglar lo que no está roto.
+        """
+        import wbj.tito.massive as MASS
+
+        monkeypatch.setattr(MASS, "fetch_company",
+                            lambda t, **k: {"ticker": t, "name": "Demo",
+                                            "price": None, "prev_close": None})
+        _chain = MASS.fetch_option_chain
+        monkeypatch.setattr(
+            MASS, "fetch_option_chain",
+            lambda t, **k: MASS.ChainResult(rows=_chain(t, **k).rows,
+                                            underlying_price=None,
+                                            pages=1, truncated=False))
+        d = client.get("/api/tito-health?ticker=DEMO").json()
+        fila = next(c for c in d["checks"] if c["check"] == "drift.plazos")
+        assert "precio del subyacente" not in (fila["detalle"] or ""), (
+            f"la cascada del spot se quedó corta otra vez: {fila['detalle']}")
+        assert "plazos con datos" in (fila["detalle"] or ""), fila["detalle"]
+
     def test_cada_fallo_dice_el_impacto_y_el_arreglo(self, client):
         """Un diagnóstico que dice «falta X» y no dice qué se rompe ni cómo
         arreglarlo obliga a leer el código para usarlo."""

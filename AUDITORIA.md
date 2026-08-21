@@ -9411,8 +9411,33 @@ dos cálculos que seguían mirando los targets viejos —`rango_estrecho` y el
 `ancla`— se cuadraron con los servidos: declarar un ancla que no cuadra con el
 número de al lado es justo el fallo que la ronda anterior vino a cerrar.
 
+### La pestaña de Cobertura acusaba una avería que no existía
+
+Kevin preguntó por qué tres filas salían en ámbar. Dos eran ciertas; **una era
+un fallo mío**.
+
+| Fila | Qué pasa |
+|---|---|
+| `massive.snapshot` — «sin precio» | **Real.** Su plan no cubre `/v2/snapshot/…`. El spot cae al siguiente eslabón, que puede ir por detrás del mercado. |
+| `memoria.iv` — «5/60 días» | **Real y esperado.** El IV Rank necesita 60 sesiones acumuladas; hasta entonces se usa el proxy de volatilidad realizada. Se llena solo. |
+| `drift.plazos` — «Sin precio del subyacente» | **Falso.** Mío. |
+
+El tercero no era Drift: era **mi comprobación**. Usaba la cascada
+`snapshot ?? cadena` y se paraba ahí, mientras la ruta real tiene un tercer
+eslabón —**la última vela**— y el respaldo del cierre anterior. Con un plan sin
+`/v2/snapshot` y una cadena sin `underlyingPrice`, la fila salía en ámbar
+diciendo que no había precio… mientras el análisis funcionaba perfectamente.
+
+Un diagnóstico que inventa una avería es peor que no comprobar nada: manda a
+arreglar lo que no está roto. Ahora usa la misma cascada, y el check se movió
+DESPUÉS de las barras para poder hacerlo. Con el caso reproducido —snapshot sin
+precio y cadena sin `underlyingPrice`— la fila pasó de «Sin precio del
+subyacente» a «3 de 4 plazos con datos · 4 vencimientos mensuales».
+
+Un caso nuevo, rojo si la cascada se vuelve a quedar corta.
+
 ### Estado
 
-**3.466 tests del motor · 929 de la capa web (4 nuevos) · 144 de navegador ·
+**3.466 tests del motor · 930 de la capa web (5 nuevos) · 144 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
 verde. 0 fallos, salvo el inestable de `test_almacen.py` ya declarado.**
