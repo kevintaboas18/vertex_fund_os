@@ -1061,8 +1061,22 @@ class TestElHorizonteSeVeYSeCambia:
         assert "'Esta semana'" in r and "'2 semanas'" in r and "'1 mes'" in r
 
     def test_cada_target_dice_su_plazo(self):
+        """El encabezado y cada tarjeta nombran el plazo.
+
+        Ya no se busca el literal `Targets a ${h} días`: con Drift el plazo
+        que se proyecta es el **DTE real del vencimiento**, no el objetivo
+        redondo del botón —«320 días» encima de una proyección calculada a 392
+        son dos plazos distintos en la misma tarjeta—, así que la expresión
+        lleva un condicional dentro. Lo que se fija es el HECHO: que el
+        encabezado escribe días y que sale del horizonte o del DTE real.
+        """
+        import re as _re
+
         r = self._render()
-        assert "Targets a ${h} días" in r
+        cab = _re.search(r"Targets a \$\{([^}]*)\} días", r)
+        assert cab, "el encabezado dejó de nombrar el plazo"
+        assert "dte_real" in cab.group(1) and "h" in cab.group(1), (
+            f"el encabezado no usa ni el horizonte ni el DTE real: {cab.group(1)}")
         assert "a ${h} días" in r          # y también en cada card
 
     def test_la_cobertura_parcial_NO_esconde_los_targets(self):
@@ -6247,6 +6261,70 @@ class TestDriftEnLaRuta:
             assert escrito == pytest.approx(v["ancla"], abs=0.011), (
                 f"{h}d: el texto dice ${escrito} y el ancla declarada es "
                 f"${v['ancla']} ({v['ancla_nivel']})")
+
+    def test_si_el_IMAN_coincide_con_un_muro_el_ancla_sigue_siendo_el_IMAN(
+            self, client, cadena_larga):
+        """Un aviso falso que Kevin vio en pantalla.
+
+        La línea decía «imán $160,00» y justo debajo «el base NO se ancló en
+        el imán: muro de puts $160,00». **El mismo precio**, acusado de ser
+        otro. La causa: el desempate miraba el muro de puts primero, así que
+        cuando el imán coincide con un muro —lo normal— devolvía el muro.
+
+        Desde que la base ES el imán por construcción, en un empate gana el
+        imán.
+        """
+        t = client.get("/api/projection-targets?ticker=DEMO").json()["targets_drift"]
+        assert t, "sin plazos largos no se prueba nada"
+        empatados = [v for v in t.values()
+                     if abs(v["iman"] - v["muro_puts"]) < 0.011
+                     or abs(v["iman"] - v["muro_calls"]) < 0.011]
+        assert empatados, "el fixture no produjo ningún empate imán/muro"
+        for v in empatados:
+            assert v["ancla_nivel"] == "imán", (
+                f"imán {v['iman']} coincide con un muro y el ancla dice "
+                f"«{v['ancla_nivel']}» — el panel escribiría un aviso falso")
+
+    def test_y_el_caso_EXACTO_de_la_captura_iman_en_el_muro_de_PUTS(
+            self, client, monkeypatch):
+        """El de arriba no bastaba: con el imán en el muro de CALLS, el orden
+        viejo pasaba igual porque el muro de puts no coincidía y el bucle
+        seguía hasta el imán. El fallo solo se ve cuando el imán cae en el
+        muro de PUTS, que es lo que Kevin tenía en pantalla.
+
+        Se reproduce con el nocional del lado put mandando: el nocional
+        multiplica por el strike, así que hace falta bastante más interés
+        abierto abajo que arriba.
+        """
+        import wbj.tito.massive as MASS
+        from wbj.tito.structure import ChainRow
+
+        vencs = [_mensual(n) for n in (3, 4)]
+
+        def chain(ticker, **k):
+            filas = []
+            for exp in vencs:
+                for s_ in range(50, 160, 5):
+                    oi_c = 3000 if s_ == 120 else 200      # muro de calls
+                    oi_p = 20000 if s_ == 75 else 200      # muro de puts Y el imán
+                    filas.append(ChainRow("call", exp, float(s_), oi_c, 0, s_ * oi_c * 100))
+                    filas.append(ChainRow("put", exp, float(s_), oi_p, 0, s_ * oi_p * 100))
+            return MASS.ChainResult(rows=filas, underlying_price=SPOT,
+                                    pages=1, truncated=False)
+
+        monkeypatch.setattr(MASS, "fetch_option_chain", chain)
+        t = client.get("/api/projection-targets?ticker=DEMO").json().get("targets_drift") or {}
+        assert t, "el fixture no produjo plazos largos"
+        en_puts = [v for v in t.values() if abs(v["iman"] - v["muro_puts"]) < 0.011]
+        assert en_puts, (
+            f"el imán no cayó en el muro de puts: "
+            f"{[(v['muro_puts'], v['iman'], v['muro_calls']) for v in t.values()]}")
+        for v in en_puts:
+            assert v["ancla_nivel"] == "imán", (
+                f"ESTE es el caso de la captura: imán ${v['iman']} = muro de "
+                f"puts, y el ancla dice «{v['ancla_nivel']}». El panel "
+                f"escribiría «el base NO se ancló en el imán» señalando el "
+                f"mismo precio.")
 
     def test_los_TRES_targets_SON_los_TRES_niveles(self, client, cadena_larga):
         """«El alcista siempre es el call wall, el bajista el put wall, y la

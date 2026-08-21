@@ -5141,8 +5141,17 @@ def _tito_ancla_de_la_base(base, bucket):
     """
     if base is None:
         return {"ancla": None, "ancla_nivel": None, "ancla_toque": None}
-    candidatos = [(bucket.get("muro_puts"), "muro de puts"),
-                  (bucket.get("magneto"), "imán"),
+    # El IMÁN se mira PRIMERO, y el orden es el arreglo de un fallo visible:
+    # cuando el imán coincide con un muro —cosa normal, y de hecho lo que pasa
+    # casi siempre— el bucle devolvía «muro de puts» y el panel escribía «el
+    # base NO se ancló en el imán: muro de puts $160» con la línea de arriba
+    # diciendo «imán $160». El mismo precio, acusado de ser otro.
+    #
+    # Desde que la base ES el imán por construcción, en un empate gana el
+    # imán. Los muros siguen en la lista porque esto es además una
+    # comprobación: si algún día el base dejara de ser el imán, se vería.
+    candidatos = [(bucket.get("magneto"), "imán"),
+                  (bucket.get("muro_puts"), "muro de puts"),
                   (bucket.get("muro_calls"), "muro de calls")]
     for strike, nombre in candidatos:
         if strike is not None and abs(float(strike) - float(base)) <= _ANCLA_TOLERANCIA:

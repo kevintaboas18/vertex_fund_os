@@ -9436,8 +9436,49 @@ subyacente» a «3 de 4 plazos con datos · 4 vencimientos mensuales».
 
 Un caso nuevo, rojo si la cascada se vuelve a quedar corta.
 
+### Las dos capturas de NVDA: qué estaba bien y qué no
+
+**Las probabilidades de toque están bien.** Reproducidas con la fórmula, con
+el spot y la IV de su pantalla: a 392 días, muro de puts $180 → **77,9%**,
+imán $370 → **11,8%**; a 119 días, $160 → **19,2%** y $220 → **86,0%**. La
+pantalla decía 78 / 12 / 19 / 86. Cuadra.
+
+Y el orden es el correcto: el muro cercano tiene mucha probabilidad, el lejano
+poca. Nada que arreglar ahí.
+
+**Lo que sí estaba mal, tres cosas:**
+
+**1. Un aviso falso.** La línea decía «imán $160,00» y justo debajo «el
+escenario base NO se ancló en el imán: **muro de puts $160,00**». El mismo
+precio, acusado de ser otro. La causa: el desempate del ancla miraba el muro
+de puts **primero**, así que cuando el imán coincide con un muro —lo normal—
+devolvía el muro. Ahora el imán gana cualquier empate.
+
+El primer guardián que escribí para esto **pasaba con el orden viejo**: en su
+fixture el imán caía en el muro de *calls*, así que el bucle no encontraba el
+de puts y seguía hasta el imán. Hizo falta reproducir el caso exacto de la
+captura —imán en el muro de **puts**— para que fuera rojo.
+
+**2. El encabezado contaba otro plazo.** «TARGETS A 320 DÍAS» encima de una
+proyección calculada a **392**. El resumen ya decía el real; el título, no.
+Ahora escribe el DTE real y, cuando no coincide con el botón, lo dice: «el
+botón dice 320, el vencimiento está a 392».
+
+**3. «Confianza alta» junto a un 12% de probabilidad de toque.** Son dos cosas
+distintas y juntas sin explicar se leen como una sola: «Probablemente SUBE
+hacia $370 +70,7% · confianza alta» se lee como una predicción de +70%, y no
+lo es. La confianza mide la nitidez del mapa, la cobertura y el acierto
+histórico; **no** mide que el precio vaya a llegar. Cuando la probabilidad del
+base baja del 25%, el panel lo dice al lado: para decidir un contrato manda
+esa probabilidad.
+
+Un test más, y una aserción vieja actualizada: `test_cada_target_dice_su_plazo`
+buscaba el literal `Targets a ${h} días`, que ya lleva un condicional dentro.
+Ahora mide el hecho —que el encabezado nombra días y salen del horizonte o del
+DTE real— en vez de la forma del código.
+
 ### Estado
 
-**3.466 tests del motor · 930 de la capa web (5 nuevos) · 144 de navegador ·
+**3.466 tests del motor · 932 de la capa web (7 nuevos) · 144 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
 verde. 0 fallos, salvo el inestable de `test_almacen.py` ya declarado.**

@@ -7453,7 +7453,22 @@ function renderVictorTargets(d) {
                <p class="text-sm font-black ${dd[2]}">${dd[1]} hacia <span class="text-white">$${Number(p.base.target).toFixed(2)}</span>
                  <span class="text-[11px] font-bold ${p.base.change_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}">${(p.base.change_pct >= 0 ? '+' : '') + Number(p.base.change_pct).toFixed(1)}%</span></p>
                <p class="text-[10px] mt-0.5"><span class="${confCls} font-bold">${confTxt}</span>
-                 <span class="text-gray-500">· en las próximas ~${HZ_PROSA[h] || (h + ' días')}</span> ${cal}</p>
+                 <span class="text-gray-500">· en las próximas ~${esDrift && p.dte_real ? p.dte_real + ' días' : (HZ_PROSA[h] || (h + ' días'))}</span> ${cal}</p>
+               ${(() => {
+                 // La confianza y la probabilidad de toque son DOS COSAS, y
+                 // juntas sin explicar se leen como una sola. La confianza mide
+                 // la nitidez del mapa, la cobertura y el acierto histórico;
+                 // NO mide que el precio vaya a llegar al target.
+                 //
+                 // Visto en pantalla: «Probablemente SUBE hacia $370 +70,7% ·
+                 // confianza alta» con un 12% de probabilidad de toque. Se lee
+                 // como una predicción de +70% y no lo es.
+                 const pt = p.base && p.base.probability;
+                 if (pt == null || pt >= 0.25) return '';
+                 return `<p class="text-[10px] text-amber-300 leading-snug mt-1">`
+                      + `<span>Ese base tiene solo un</span> <b>${(pt * 100).toFixed(0)}%</b> `
+                      + `<span>de probabilidad de tocarse. La confianza mide la nitidez del mapa y el acierto histórico, no que el precio vaya a llegar: para decidir un contrato manda esta probabilidad.</span></p>`;
+               })()}
                <p class="text-[10px] text-gray-400 leading-snug mt-1">${_vcEsc(p.summary)}</p></div></div>`;
 
     el.innerHTML = `
@@ -7467,7 +7482,14 @@ function renderVictorTargets(d) {
       ${veredicto}
       ${noFiable ? '' : `
       ${parcial ? `<p class="text-[10px] text-amber-400 leading-snug mb-2">⚠ ${_vcEsc(p.caveat)}</p>` : ''}
-      <p class="text-[9px] text-gray-500 uppercase font-bold tracking-wider mb-1">Targets a ${h} días <span class="text-gray-600 normal-case font-normal tracking-normal">(${_vcEsc(HZ_LABEL[h] || (h + ' días'))}) · desde $${Number(d.spot).toFixed(2)}</span></p>
+      <p class="text-[9px] text-gray-500 uppercase font-bold tracking-wider mb-1">Targets a ${esDrift && p.dte_real ? p.dte_real : h} días <span class="text-gray-600 normal-case font-normal tracking-normal">(${_vcEsc(HZ_LABEL[h] || (h + ' días'))})${
+        // Con Drift el plazo que se proyecta es el DTE REAL del vencimiento,
+        // no el objetivo redondo del botón. Poner «320 días» encima de una
+        // proyección calculada a 392 es contar dos plazos distintos en la
+        // misma tarjeta: el resumen de arriba ya dice el real.
+        esDrift && p.dte_real && Number(p.dte_real) !== Number(h)
+          ? ` · <span>el bot&oacute;n dice</span> ${h}<span>, el vencimiento est&aacute; a</span> ${p.dte_real}` : ''
+      } · desde $${Number(d.spot).toFixed(2)}</span></p>
       <div class="grid grid-cols-1 xs:grid-cols-3 sm:grid-cols-3 gap-2">
         ${card(p.bear, 'Bajista', 'text-red-400', 'bear')}
         ${card(p.base, 'Base', 'text-blue-400', 'base')}
@@ -14612,6 +14634,11 @@ const VX_ES2EN = {
     "4 meses": "4 months",
     "1 año": "1 year",
     "Niveles de Drift": "Drift levels",
+    "Ese base tiene solo un": "That base has only a",
+    "de probabilidad de tocarse. La confianza mide la nitidez del mapa y el acierto histórico, no que el precio vaya a llegar: para decidir un contrato manda esta probabilidad.":
+        "chance of being touched. Confidence measures how sharp the map is and the historical hit rate, not that price will get there: for choosing a contract, this probability is what rules.",
+    "el botón dice": "the button says",
+    ", el vencimiento está a": ", the expiration is at",
     "Con solo tres niveles los escenarios se solapan: el imán coincide con uno de los muros. Dos de los tres targets salen iguales.":
         "With only three levels the scenarios overlap: the magnet coincides with one of the walls. Two of the three targets come out equal.",
     "El muro de calls está por DEBAJO del de puts: el precio dejó atrás el posicionamiento. Es su condición de ruptura, no un error — por eso el alcista sale por debajo del bajista.":
