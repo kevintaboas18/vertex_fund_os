@@ -9362,9 +9362,57 @@ de 1-2 fallos intermitentes a 3-4 consistentes—, así que se revirtió. Queda
 abierto y **no toca nada de Drift ni del agente de opciones**: es del respaldo
 del almacén.
 
+### Los tres targets de Drift SON los tres niveles
+
+> «El imán siempre tiene que estar en o dentro del put wall y call wall, nunca
+> afuera. El alcista siempre es el call wall, el bajista es el put wall. El
+> base con el imán, dentro de esos muros o en esos muros.»
+
+**No era así, y el motivo estaba en `predict_pro`.** Elegía el alcista y el
+bajista por su cuenta —el nivel de más peso a cada lado del spot, excluyendo
+el base— y después aplicaba `bull = max(techo de 1σ, base)` y
+`bear = min(suelo de 1σ, base)`, con recorte final a 2σ. Con el imán encima
+del muro de calls no quedaba nivel arriba y el alcista salía siendo **el techo
+de 1σ**: un número de volatilidad, no un nivel de posicionamiento. Medido:
+muros 200/380 a 92 días daban `bull $323,70` en vez del muro de **$380**.
+
+Ahora los tres escenarios **son** los tres niveles, y punto:
+
+```
+bajista = muro de puts   ·   base = imán   ·   alcista = muro de calls
+```
+
+Comprobado sobre tres cadenas que lo ponen a prueba —muro de calls a +85%,
+imán encima del muro de calls, y campana normal—: los cuatro invariantes se
+cumplen en todas.
+
+Lo que **no** cambia: la probabilidad de toque sigue siendo la suya
+(`prob_touch`), y las seis puntuaciones también.
+
+**Dos cosas que se dicen en vez de disimularse:**
+
+- **Fuera del cono de 2σ.** Un muro lejano cae fuera, y no se recorta:
+  recortarlo lo convertiría en otro número y la pantalla dejaría de enseñar el
+  nivel que dice enseñar. Sale marcado, con la invitación a mirar la
+  probabilidad de toque.
+- **Orden invertido.** El muro de calls puede quedar por debajo del de puts
+  —su condición de ruptura— y entonces el «alcista» sale por debajo del
+  «bajista». Tres números en ese orden sin aviso se leen como un error.
+
+**Una decisión anterior queda revertida, y se dice.** La ronda pasada Kevin
+eligió «anclar la base donde sea alcanzable» cuando el imán quedaba lejos. La
+instrucción de ahora es explícita y la sustituye: la base **es** el imán
+siempre. Lo que se conserva del debate es el aviso — la probabilidad de toque
+viaja con cada escenario, así que un base a +90% con un 4% de toque se ve por
+lo que es. El test que exigía lo contrario se reescribió en vez de borrarse.
+
+Cuatro casos nuevos; **tres van rojos** volviendo a los targets del motor. Y
+dos cálculos que seguían mirando los targets viejos —`rango_estrecho` y el
+`ancla`— se cuadraron con los servidos: declarar un ancla que no cuadra con el
+número de al lado es justo el fallo que la ronda anterior vino a cerrar.
+
 ### Estado
 
-**3.466 tests del motor · 925 de la capa web (2 nuevos) · 144 de navegador ·
+**3.466 tests del motor · 929 de la capa web (4 nuevos) · 144 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
-verde. 0 fallos, salvo el inestable de `test_almacen.py` que queda declarado
-arriba.**
+verde. 0 fallos, salvo el inestable de `test_almacen.py` ya declarado.**

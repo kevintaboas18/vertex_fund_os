@@ -4978,10 +4978,17 @@ def _tito_targets_drift(r, drift):
                             calibration=None)
         except Exception:                  # noqa: BLE001 — ilustra, no decide
             continue
+        # Los tres escenarios SON los tres niveles de Drift.
+        _esc = _tito_escenarios_drift(b, r.spot, iv, dias)
         _e = lambda s: {"target": _r(s.target), "change_pct": _r(s.change_pct, 1),
-                        "probability": _r(s.probability, 3), "driver": s.driver}
+                        "probability": _r(s.probability, 3), "driver": s.driver,
+                        "fuera_del_cono": False}
+        if _esc is None:                   # no pasa: el bucket trae los tres
+            _esc = {"bear": _e(p.bear), "base": _e(p.base), "bull": _e(p.bull),
+                    "orden_invertido": False}
         fuera[str(b["dte_objetivo"])] = {
-            "bear": _e(p.bear), "base": _e(p.base), "bull": _e(p.bull),
+            "bear": _esc["bear"], "base": _esc["base"], "bull": _esc["bull"],
+            "orden_invertido": _esc["orden_invertido"],
             "confidence": _tito_confianza_drift(p, b, sub, _hit.get("value"),
                                                 bool(r.gex.low_liquidity)),
             "direction": p.direction,
@@ -4995,7 +5002,11 @@ def _tito_targets_drift(r, drift):
             # el base. El agente no lo sufre porque trabaja con ~24 nodos de
             # GEX. Se publica igual y se DICE: tres números idénticos
             # presentados como bear/base/bull serían una mentira tipográfica.
-            "rango_estrecho": not (p.bear.target < p.base.target < p.bull.target),
+            # Sobre los targets SERVIDOS, no sobre los del motor: desde que
+            # son los tres niveles de Drift, los del motor ya no se pintan.
+            "rango_estrecho": not (_esc["bear"]["target"]
+                                   < _esc["base"]["target"]
+                                   < _esc["bull"]["target"]),
             "vencimiento": b.get("vencimiento"),
             "dte_real": b.get("dte_real"),
             "muro_puts": b.get("muro_puts"),
@@ -5018,7 +5029,11 @@ def _tito_targets_drift(r, drift):
             # es alcanzable, y aquí se dice cuál fue — así la línea de niveles
             # y el texto del resumen no pueden contradecirse en pantalla,
             # que es lo que se veía.
-            **_tito_ancla_de_la_base(p, b, r.spot),
+            # Se calcula sobre el base SERVIDO, no sobre el del motor: desde
+            # que los targets son los tres niveles, el del motor ya no es el
+            # que se pinta, y declarar un ancla que no cuadra con el número de
+            # al lado es exactamente el fallo que esto vino a cerrar.
+            **_tito_ancla_de_la_base(_esc["base"]["target"], b),
         }
     return fuera
 
@@ -5063,19 +5078,67 @@ def _tito_confianza_drift(p, bucket, sub, hit_rate, low_liquidity):
               0.45 * nitidez + 0.30 * cobertura + 0.25 * acierto)), 0)
 
 
+def _tito_escenarios_drift(bucket, spot, iv, dias):
+    """Los tres escenarios de un plazo de Drift: **son** los tres niveles.
+
+        bajista = muro de puts   ·   base = imán   ·   alcista = muro de calls
+
+    Es la regla de Kevin, y sustituye a lo que hacía `predict_pro`, que elegía
+    el alcista y el bajista por su cuenta: cogía el nivel de más peso a cada
+    lado del spot y luego aplicaba `bull = max(techo de 1σ, base)` y
+    `bear = min(suelo de 1σ, base)`. Con el imán encima del muro de calls no
+    quedaba nivel arriba y el alcista salía siendo el **techo de 1σ** — un
+    número de volatilidad, no un nivel de posicionamiento. Medido: muros
+    200/380 a 92 días daban `bull $323,70` en vez del muro de $380.
+
+    Lo que NO cambia: la probabilidad de toque es la suya (`prob_touch`, la
+    misma fórmula lognormal). Un target puede caer fuera del cono de 2σ —un
+    muro lejano lo hace— y eso se DICE en vez de recortarlo: recortar
+    convertiría el muro en otro número y la pantalla dejaría de enseñar el
+    nivel que dice enseñar.
+    """
+    from wbj.tito.expected_move import expected_move, prob_touch
+
+    mp, im, mc = (bucket.get("muro_puts"), bucket.get("magneto"),
+                  bucket.get("muro_calls"))
+    if mp is None or im is None or mc is None or not (spot > 0):
+        return None
+    em = expected_move(spot, iv, dias)
+
+    def esc(target, motivo):
+        t = float(target)
+        return {"target": _r(t), "change_pct": _r((t / spot - 1) * 100, 1),
+                "probability": _r(prob_touch(spot, t, iv, dias), 3),
+                "driver": motivo,
+                # Fuera del cono de 2σ el nivel existe igual —hay contratos
+                # ahí— pero la volatilidad de este plazo no da para llegar.
+                "fuera_del_cono": bool(t < em.lower2 or t > em.upper2)}
+
+    return {
+        "bear": esc(mp, "muro de puts"),
+        "base": esc(im, "imán del nocional"),
+        "bull": esc(mc, "muro de calls"),
+        # El muro de calls PUEDE salir por debajo del de puts: es su condición
+        # de ruptura, y significa que el precio dejó atrás el posicionamiento.
+        # Entonces el «alcista» queda por debajo del «bajista», y decirlo es
+        # obligatorio: tres números en el orden equivocado sin aviso se leen
+        # como un error de cálculo.
+        "orden_invertido": bool(float(mc) < float(mp)),
+    }
+
+
 #: Cuánto puede separarse el target base de un nivel para seguir siendo «ese
 #: nivel». Es holgura de redondeo, no de criterio: `_r` recorta a 2 decimales.
 _ANCLA_TOLERANCIA = 0.01
 
 
-def _tito_ancla_de_la_base(p, bucket, spot):
+def _tito_ancla_de_la_base(base, bucket):
     """`{ancla, ancla_nivel, ancla_toque}` — dónde se apoyó el escenario base.
 
     Si el base no coincide con ninguno de los tres niveles, es que ninguno era
     alcanzable y `predict_pro` cayó al techo o al suelo de 1σ. Eso también se
     dice: «el cono», no un nivel inventado.
     """
-    base = getattr(p.base, "target", None)
     if base is None:
         return {"ancla": None, "ancla_nivel": None, "ancla_toque": None}
     candidatos = [(bucket.get("muro_puts"), "muro de puts"),
@@ -5083,10 +5146,8 @@ def _tito_ancla_de_la_base(p, bucket, spot):
                   (bucket.get("muro_calls"), "muro de calls")]
     for strike, nombre in candidatos:
         if strike is not None and abs(float(strike) - float(base)) <= _ANCLA_TOLERANCIA:
-            return {"ancla": _r(strike), "ancla_nivel": nombre,
-                    "ancla_toque": _r(getattr(p.base, "probability", None), 3)}
-    return {"ancla": _r(base), "ancla_nivel": "el cono de 1σ",
-            "ancla_toque": _r(getattr(p.base, "probability", None), 3)}
+            return {"ancla": _r(strike), "ancla_nivel": nombre}
+    return {"ancla": _r(base), "ancla_nivel": "el cono de 1σ"}
 
 
 def _tito_geometria_drift(r, targets):

@@ -7370,7 +7370,17 @@ function renderVictorTargets(d) {
            <p class="text-[9px] text-gray-400 mt-1 leading-snug"><span>El im&aacute;n concentra el</span> <b class="${(p.iman_peso||0) >= 0.5 ? 'text-sky-300' : 'text-amber-300'}">${((p.iman_peso||0)*100).toFixed(0)}%</b> <span>del dinero de ese vencimiento</span><span>, y de ah&iacute; sale la confianza: si el dinero est&aacute; repartido entre muchos strikes, no manda ninguno.</span></p>
            <p class="text-[9px] text-gray-500 mt-1 leading-snug"><span>Los escenarios los calcula el agente igual que siempre &mdash; mismo cono, misma probabilidad de toque, mismas seis puntuaciones. Lo &uacute;nico distinto son esos tres niveles: a este plazo el motor no llega, porque sus horizontes cortan en 30 d&iacute;as y su GEX solo mira los strikes a &plusmn;20% del spot.</span>${
              p.duplicado ? ' <span class="text-amber-400">Este vencimiento es el mismo que otro plazo: la cadena no da para separarlos.</span>' : ''}</p>${
-           p.rango_estrecho ? `<p class="text-[9px] text-amber-400 mt-1 leading-snug"><span>Con solo tres niveles los escenarios se solapan: el im&aacute;n coincide con uno de los muros y por ese lado no queda nivel. Dos de los tres targets salen iguales.</span></p>` : ''}
+           p.rango_estrecho ? `<p class="text-[9px] text-amber-400 mt-1 leading-snug"><span>Con solo tres niveles los escenarios se solapan: el im&aacute;n coincide con uno de los muros. Dos de los tres targets salen iguales.</span></p>` : ''}${
+           p.orden_invertido ? `<p class="text-[9px] text-amber-400 mt-1 leading-snug"><span>El muro de calls est&aacute; por DEBAJO del de puts: el precio dej&oacute; atr&aacute;s el posicionamiento. Es su condici&oacute;n de ruptura, no un error &mdash; por eso el alcista sale por debajo del bajista.</span></p>` : ''}${
+           (() => {
+             // Un target fuera del cono de 2σ: el nivel existe —hay contratos
+             // ahí— pero la volatilidad de este plazo no da para llegar. Se
+             // dice en vez de recortarlo, que convertiría el muro en otro
+             // número y la pantalla dejaría de enseñar el nivel que promete.
+             const f = [['bajista', p.bear], ['base', p.base], ['alcista', p.bull]]
+               .filter(([, e]) => e && e.fuera_del_cono).map(([n]) => n);
+             return f.length ? `<p class="text-[9px] text-amber-400 mt-1 leading-snug"><span>Fuera del cono de 2&sigma;:</span> <b>${f.join(', ')}</b><span>. El nivel existe, pero la volatilidad de este plazo no da para llegar: mira la probabilidad de toque.</span></p>` : '';
+           })()}
          </div>`;
 
     // Su «· recortado al cono 2σ» de `ProWallsCard`. El motor lo sirve por
@@ -14602,6 +14612,15 @@ const VX_ES2EN = {
     "4 meses": "4 months",
     "1 año": "1 year",
     "Niveles de Drift": "Drift levels",
+    "Con solo tres niveles los escenarios se solapan: el imán coincide con uno de los muros. Dos de los tres targets salen iguales.":
+        "With only three levels the scenarios overlap: the magnet coincides with one of the walls. Two of the three targets come out equal.",
+    "El muro de calls está por DEBAJO del de puts: el precio dejó atrás el posicionamiento. Es su condición de ruptura, no un error — por eso el alcista sale por debajo del bajista.":
+        "The call wall is BELOW the put wall: price left the positioning behind. That is his breakout condition, not an error — which is why the bullish target comes out below the bearish one.",
+    "Fuera del cono de 2σ:": "Outside the 2σ cone:",
+    ". El nivel existe, pero la volatilidad de este plazo no da para llegar: mira la probabilidad de toque.":
+        ". The level exists, but this horizon's volatility does not reach it: look at the touch probability.",
+    "bajista": "bearish",
+    "alcista": "bullish",
     "El imán concentra el": "The magnet holds",
     "del dinero de ese vencimiento": "of the money at that expiration",
     ", y de ahí sale la confianza: si el dinero está repartido entre muchos strikes, no manda ninguno.":

@@ -6040,15 +6040,20 @@ class TestDriftEnLaRuta:
 
     def test_los_targets_largos_usan_LA_MATEMATICA_del_agente(
             self, client, cadena_larga):
-        """Mismo `predict_pro`: bear < base < bull y las tres probabilidades
-        entre 0 y 1. No es un modelo aparte."""
+        """Las puntuaciones y la probabilidad de toque son las suyas.
+
+        **Los TARGETS ya no**: son los tres niveles de Drift, por la regla de
+        Kevin. Lo que sigue siendo del agente es todo lo demás —las seis
+        puntuaciones, `prob_touch`, el cono de la gráfica— y eso es lo que
+        este caso fija.
+        """
         t = client.get("/api/projection-targets?ticker=DEMO").json()["targets_drift"]
         for h, v in t.items():
-            # No se exige orden ESTRICTO, y el motivo es real: con solo tres
-            # niveles, si el imán coincide con un muro no queda nivel por ese
-            # lado y el bajista sale igual que el base. Lo que sí se exige es
-            # que no se desordenen… y que cuando colapsen, se DIGA.
-            assert v["bear"]["target"] <= v["base"]["target"] <= v["bull"]["target"], h
+            # El orden puede invertirse: si el muro de calls queda por debajo
+            # del de puts —su condición de ruptura— el «alcista» sale abajo.
+            # Eso no es un desorden, es la señal, y va marcado.
+            if not v["orden_invertido"]:
+                assert v["bear"]["target"] <= v["base"]["target"] <= v["bull"]["target"], h
             colapsa = not (v["bear"]["target"] < v["base"]["target"]
                            < v["bull"]["target"])
             assert v["rango_estrecho"] is colapsa, (
@@ -6145,18 +6150,19 @@ class TestDriftEnLaRuta:
                             "muro de calls": v["muro_calls"]}[v["ancla_nivel"]]
                 assert v["ancla"] == pytest.approx(esperado, abs=0.011)
 
-    def test_cuando_el_IMAN_es_inalcanzable_la_base_NO_se_va_con_el(
-            self, client, monkeypatch):
-        """El caso que descubrió el fallo, reproducido.
+    def test_la_base_es_el_IMAN_aunque_este_lejos(self, client, monkeypatch):
+        """Kevin cambió la regla, y este caso la cambió con ella.
 
-        OJO con cómo se construye: el imán está acotado a la banda de los dos
-        muros (la regla de Kevin), así que NO puede irse por libre. El caso
-        solo se da cuando el imán **coincide con el muro lejano** — que es
-        exactamente lo que pasa cuando el mayor nocional está en el muro de
-        calls muy fuera del dinero.
+        Antes decía lo contrario: cuando el imán quedaba lejos —0,4% de
+        probabilidad de toque— la base se anclaba en el muro alcanzable, y
+        esto exigía que NO fuera el imán. La instrucción de ahora es
+        explícita: «el target base en el drift con el imán debe estar dentro
+        de esos muros o en esos muros». Así que la base **es** el imán,
+        siempre, y lo que se conserva del debate anterior es el aviso: la
+        probabilidad de toque viaja con cada escenario, y si es ínfima se ve.
 
-        Ahí la base tiene que caer en el muro alcanzable y el payload decir
-        que fue ese muro, no el imán.
+        El caso se deja porque el escenario extremo hay que seguir
+        probándolo — solo cambia lo que se exige de él.
         """
         import wbj.tito.massive as MASS
         from wbj.tito.structure import ChainRow
@@ -6167,14 +6173,11 @@ class TestDriftEnLaRuta:
             filas = []
             for exp in vencs:
                 for s_ in range(60, 260, 5):
-                    oi_c = oi_p = 40
+                    oi_c = oi_p = 800
                     if s_ == 95:
-                        oi_p = 5000              # muro de puts, PEGADO al spot
+                        oi_p = 5000              # muro de puts, pegado al spot
                     if s_ == 190:
-                        oi_c = 4000              # muro de calls a +90%…
-                    #  …y como el nocional multiplica por el strike, ese mismo
-                    #  muro se lleva también el imán: 190×4.000×100 = $76M
-                    #  contra los $47,5M del muro de puts.
+                        oi_c = 4000              # muro de calls a +90%, y el imán
                     filas.append(ChainRow("call", exp, float(s_), oi_c, 0, s_ * oi_c * 100))
                     filas.append(ChainRow("put", exp, float(s_), oi_p, 0, s_ * oi_p * 100))
             return MASS.ChainResult(rows=filas, underlying_price=SPOT,
@@ -6184,14 +6187,16 @@ class TestDriftEnLaRuta:
         d = client.get("/api/projection-targets?ticker=DEMO").json()
         t = d.get("targets_drift") or {}
         assert t, "el fixture no produjo plazos largos"
-        lejos = [v for v in t.values()
-                 if v["iman"] is not None and v["iman"] / d["spot"] - 1 > 0.5]
+        lejos = [v for v in t.values() if v["iman"] / d["spot"] - 1 > 0.5]
         assert lejos, "el imán no salió lo bastante lejos para probar el caso"
         for v in lejos:
-            assert v["base"]["target"] != v["iman"], (
-                "la base se fue a un imán con probabilidad de toque ínfima")
-            assert v["ancla_nivel"] != "imán", v["ancla_nivel"]
-            assert v["ancla"] == pytest.approx(v["base"]["target"], abs=0.011)
+            assert v["base"]["target"] == pytest.approx(v["iman"], abs=0.011)
+            assert v["ancla_nivel"] == "imán", v["ancla_nivel"]
+            # Y la probabilidad de toque de ese base es baja: el número que
+            # de verdad sirve para decidir si el escenario es operable.
+            assert v["base"]["probability"] < 0.2, (
+                f"un imán a +{(v['iman'] / d['spot'] - 1) * 100:.0f}% con "
+                f"probabilidad {v['base']['probability']}")
 
     def test_y_el_TEXTO_del_resumen_nombra_ESE_mismo_nivel(
             self, client, cadena_larga):
@@ -6212,6 +6217,92 @@ class TestDriftEnLaRuta:
             assert escrito == pytest.approx(v["ancla"], abs=0.011), (
                 f"{h}d: el texto dice ${escrito} y el ancla declarada es "
                 f"${v['ancla']} ({v['ancla_nivel']})")
+
+    def test_los_TRES_targets_SON_los_TRES_niveles(self, client, cadena_larga):
+        """«El alcista siempre es el call wall, el bajista el put wall, y la
+        base el imán, dentro o en esos muros.»
+
+        Antes no era así. `predict_pro` elegía el alcista y el bajista por su
+        cuenta —el nivel de más peso a cada lado del spot— y luego aplicaba
+        `bull = max(techo de 1σ, base)`. Con el imán encima del muro de calls
+        no quedaba nivel arriba y el alcista salía siendo el **techo de 1σ**:
+        un número de volatilidad, no un nivel de posicionamiento. Medido:
+        muros 200/380 a 92 días daban `bull $323,70` en vez del muro de $380.
+        """
+        t = client.get("/api/projection-targets?ticker=DEMO").json()["targets_drift"]
+        assert t, "sin plazos largos no se prueba nada"
+        for h, v in t.items():
+            assert v["bear"]["target"] == pytest.approx(v["muro_puts"], abs=0.011), (
+                f"{h}d: el bajista es {v['bear']['target']} y el muro de puts "
+                f"{v['muro_puts']}")
+            assert v["base"]["target"] == pytest.approx(v["iman"], abs=0.011), (
+                f"{h}d: la base es {v['base']['target']} y el imán {v['iman']}")
+            assert v["bull"]["target"] == pytest.approx(v["muro_calls"], abs=0.011), (
+                f"{h}d: el alcista es {v['bull']['target']} y el muro de calls "
+                f"{v['muro_calls']}")
+
+    def test_el_IMAN_nunca_sale_de_los_muros(self, client, cadena_larga):
+        """Dentro o encima de ellos, nunca fuera. Es la regla, y como la base
+        ES el imán, la base tampoco puede salirse."""
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        for h, v in d["targets_drift"].items():
+            lo, hi = sorted((v["muro_puts"], v["muro_calls"]))
+            assert lo <= v["iman"] <= hi, (
+                f"{h}d: imán {v['iman']} fuera de los muros [{lo}, {hi}]")
+            assert lo <= v["base"]["target"] <= hi, (
+                f"{h}d: la base se salió de los muros")
+        # Y en los buckets de Drift, incluido el de ~30 que no genera targets.
+        for b in d["drift"]["buckets"]:
+            lo, hi = sorted((b["muro_puts"], b["muro_calls"]))
+            assert lo <= b["magneto"] <= hi, b["etiqueta"]
+
+    def test_con_un_MURO_MUY_LEJOS_el_alcista_sigue_siendo_ese_muro(
+            self, client, monkeypatch):
+        """El caso que destapó el fallo: muro de calls a +85%.
+
+        Antes el alcista se quedaba en el techo de 1σ porque el imán ocupaba
+        el sitio. Ahora es el muro, y si cae fuera del cono de 2σ se DICE en
+        vez de recortarlo — recortar convertiría el muro en otro número y la
+        pantalla dejaría de enseñar el nivel que dice enseñar.
+        """
+        import wbj.tito.massive as MASS
+        from wbj.tito.structure import ChainRow
+
+        vencs = [_mensual(n) for n in (3, 4)]
+
+        def chain(ticker, **k):
+            filas = []
+            for exp in vencs:
+                for s_ in range(50, 260, 5):
+                    oi_c = 9000 if s_ == 190 else 800      # muro a +90%
+                    oi_p = 5000 if s_ == 90 else 800
+                    filas.append(ChainRow("call", exp, float(s_), oi_c, 0, s_ * oi_c * 100))
+                    filas.append(ChainRow("put", exp, float(s_), oi_p, 0, s_ * oi_p * 100))
+            return MASS.ChainResult(rows=filas, underlying_price=SPOT,
+                                    pages=1, truncated=False)
+
+        monkeypatch.setattr(MASS, "fetch_option_chain", chain)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        t = d.get("targets_drift") or {}
+        assert t, "el fixture no produjo plazos largos"
+        lejanos = [v for v in t.values() if v["muro_calls"] / d["spot"] - 1 > 0.5]
+        assert lejanos, "el muro de calls no salió lo bastante lejos"
+        for v in lejanos:
+            assert v["bull"]["target"] == pytest.approx(v["muro_calls"], abs=0.011)
+            assert v["bull"]["fuera_del_cono"] is True, (
+                "un muro a +90% cae fuera de 2σ y hay que decirlo")
+
+    def test_si_los_muros_salen_al_REVES_se_dice(self, client, cadena_larga):
+        """El muro de calls puede quedar por debajo del de puts —es su
+        condición de ruptura— y entonces el «alcista» sale por debajo del
+        «bajista». Tres números en ese orden sin aviso se leen como un error
+        de cálculo."""
+        t = client.get("/api/projection-targets?ticker=DEMO").json()["targets_drift"]
+        for h, v in t.items():
+            invertido = v["muro_calls"] < v["muro_puts"]
+            assert v["orden_invertido"] is invertido, (
+                f"{h}d: muros {v['muro_puts']}/{v['muro_calls']} y "
+                f"orden_invertido={v['orden_invertido']}")
 
     def test_la_CONFIANZA_de_los_plazos_largos_MIDE_algo(
             self, client, monkeypatch):
