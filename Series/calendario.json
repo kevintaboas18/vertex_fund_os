@@ -3,30 +3,6 @@
   "resultados": {
     "filas": [
       {
-        "ticker": "WMT",
-        "fecha": "2026-08-20",
-        "sector": "XLP",
-        "sector_nombre": "Consumo básico",
-        "cuando": null,
-        "cap": 826367027200.0
-      },
-      {
-        "ticker": "DE",
-        "fecha": "2026-08-20",
-        "sector": "XLI",
-        "sector_nombre": "Industrial",
-        "cuando": null,
-        "cap": 167614944680.0
-      },
-      {
-        "ticker": "ROST",
-        "fecha": "2026-08-20",
-        "sector": null,
-        "sector_nombre": null,
-        "cuando": null,
-        "cap": 73455658593.0
-      },
-      {
         "ticker": "UI",
         "fecha": "2026-08-21",
         "sector": null,
@@ -406,7 +382,7 @@
     "motivo": "",
     "recortadas": 0,
     "umbral": 10000000000.0,
-    "fuera": 1933,
+    "fuera": 1405,
     "medida": true,
     "motivo_tamano": ""
   },
@@ -440,20 +416,20 @@
         "impacto": "medium"
       },
       {
-        "evento": "Retail Sales YoY (Jul)",
-        "fecha": "2026-08-14 12:30",
-        "salio": 5.0,
-        "esperado": 6.0,
-        "anterior": 6.8,
-        "unidad": "",
-        "impacto": "low"
-      },
-      {
         "evento": "Retail Sales Ex Gas/Autos MoM (Jul)",
         "fecha": "2026-08-14 12:30",
         "salio": -0.2,
         "esperado": 0.3,
         "anterior": 0.4,
+        "unidad": "",
+        "impacto": "low"
+      },
+      {
+        "evento": "Retail Sales YoY (Jul)",
+        "fecha": "2026-08-14 12:30",
+        "salio": 5.0,
+        "esperado": 6.0,
+        "anterior": 6.8,
         "unidad": "",
         "impacto": "low"
       },
@@ -467,13 +443,13 @@
         "impacto": "medium"
       },
       {
-        "evento": "PPI Ex Food, Energy and Trade MoM (Jul)",
+        "evento": "Producer Price Index MoM (Jul)",
         "fecha": "2026-08-13 12:30",
-        "salio": 0.4,
-        "esperado": 0.1,
-        "anterior": 0.1,
+        "salio": 0.0,
+        "esperado": 0.2,
+        "anterior": -0.1,
         "unidad": "",
-        "impacto": "low"
+        "impacto": "high"
       },
       {
         "evento": "Initial Jobless Claims (Aug/08)",
@@ -496,15 +472,6 @@
         "impacto": "high"
       },
       {
-        "evento": "PCE Price Index YoY (Jul)",
-        "fecha": "2026-08-26 12:30",
-        "salio": null,
-        "esperado": 3.7,
-        "anterior": 3.7,
-        "unidad": "",
-        "impacto": "medium"
-      },
-      {
         "evento": "Core PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": null,
@@ -514,13 +481,13 @@
         "impacto": "low"
       },
       {
-        "evento": "Core PCE Price Index MoM (Jul)",
+        "evento": "PCE Price Index YoY (Jul)",
         "fecha": "2026-08-26 12:30",
         "salio": null,
-        "esperado": 0.2,
-        "anterior": 0.1,
+        "esperado": 3.7,
+        "anterior": 3.7,
         "unidad": "",
-        "impacto": "high"
+        "impacto": "medium"
       },
       {
         "evento": "PCE Price Index MoM (Jul)",
@@ -532,6 +499,15 @@
         "impacto": "medium"
       },
       {
+        "evento": "Core PCE Price Index MoM (Jul)",
+        "fecha": "2026-08-26 12:30",
+        "salio": null,
+        "esperado": 0.2,
+        "anterior": 0.1,
+        "unidad": "",
+        "impacto": "high"
+      },
+      {
         "evento": "Initial Jobless Claims (Aug/22)",
         "fecha": "2026-08-27 12:30",
         "salio": null,
@@ -541,13 +517,13 @@
         "impacto": "medium"
       },
       {
-        "evento": "ISM Manufacturing Employment (Aug)",
+        "evento": "ISM Manufacturing PMI (Aug)",
         "fecha": "2026-09-01 14:00",
         "salio": null,
-        "esperado": 52.5,
-        "anterior": 52.8,
+        "esperado": 55.0,
+        "anterior": 55.6,
         "unidad": "",
-        "impacto": "medium"
+        "impacto": "high"
       },
       {
         "evento": "ISM Manufacturing New Orders (Aug)",
@@ -563,5 +539,5 @@
     "motivo": "",
     "fuente": "FMP"
   },
-  "generado": "2026-08-20T23:12:58.016099+00:00"
+  "generado": "2026-08-21T03:04:42.090004+00:00"
 }
