@@ -13,4 +13,4 @@ _Qué se dijo de cada ticker y cuándo. Se lee ANTES de analizar._
 | [PLTR](tesis/PLTR.md) | 2026-08-18 | DESFAVORABLE | 46 | acciones |
 | [SPXC](tesis/SPXC.md) | 2026-08-20 | DESFAVORABLE | 44 | acciones |
 | [SPY](tesis/SPY.md) | 2026-08-20 | Oportunidad Moderada | 60 | opciones |
-| [TSLA](tesis/TSLA.md) | 2026-08-20 | Oportunidad Moderada | 64 | opciones |
+| [TSLA](tesis/TSLA.md) | 2026-08-21 | Oportunidad Moderada | 64 | opciones |
