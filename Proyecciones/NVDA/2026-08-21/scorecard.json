@@ -4650,8 +4650,8 @@
     "exchange": "Nasdaq",
     "sector": "SEMICONDUCTORS & RELATED DEVICES",
     "price": 215.87,
-    "change": -0.95,
-    "change_percent": -0.44,
+    "change": -1.03,
+    "change_percent": -0.47,
     "market_cap": 5269520760000.0,
     "day_volume": 50427714.0,
     "day_low": 214.5,
@@ -4739,5 +4739,5 @@
   ],
   "fecha": "2026-08-21",
   "agente": "opciones",
-  "guardado_en": "2026-08-21T16:26:34+00:00"
+  "guardado_en": "2026-08-21T16:27:04+00:00"
 }
