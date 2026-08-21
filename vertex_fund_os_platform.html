@@ -7351,7 +7351,22 @@ function renderVictorTargets(d) {
     const avisoDrift = !esDrift ? '' :
         `<div class="bg-sky-500/10 border border-sky-500/30 rounded-xl p-3 mb-2">
            <p class="text-[11px] font-black text-sky-300"><span>Niveles de Drift</span> &middot; <span>vencimiento</span> <b>${_vcEsc(p.vencimiento || '')}</b> (<b>${p.dte_real} DTE</b>)</p>
-           <p class="text-[10px] text-sky-200/80 mt-1 leading-snug"><span>Muro de puts</span> <b>${px2(p.muro_puts)}</b> &middot; <span>im&aacute;n</span> <b>${px2(p.iman)}</b> &middot; <span>muro de calls</span> <b>${px2(p.muro_calls)}</b></p>
+           <p class="text-[10px] text-sky-200/80 mt-1 leading-snug">${
+             [['Muro de puts', p.muro_puts, 'muro de puts'],
+              ['im\u00e1n', p.iman, 'im\u00e1n'],
+              ['muro de calls', p.muro_calls, 'muro de calls']]
+               .map(([et, v, clave]) => {
+                 // El nivel que ancló la base va marcado. Sin esto la línea
+                 // decía «imán $380» y el resumen de abajo «Nivel imán… $200»:
+                 // los dos números de Drift se contradecían en la misma pantalla.
+                 const anc = p.ancla_nivel === clave;
+                 return `<span>${et}</span> <b class="${anc ? 'text-white' : ''}">${px2(v)}</b>`
+                      + (anc ? ` <span class="text-[9px] text-sky-300">&#9664; ancla el base</span>` : '');
+               }).join(' &middot; ')}</p>${
+           p.ancla_nivel && p.ancla_nivel !== 'im\u00e1n'
+             ? `<p class="text-[9px] text-amber-300/90 mt-1 leading-snug"><span>El escenario base NO se ancló en el imán:</span> <b>${_vcEsc(p.ancla_nivel)}</b> <b>${px2(p.ancla)}</b><span>, porque a este plazo el imán queda demasiado lejos para ser alcanzable</span>${
+                 p.ancla_toque != null ? ` <span>(probabilidad de toque del base:</span> <b>${(p.ancla_toque * 100).toFixed(0)}%</b><span>)</span>` : ''}<span>.</span></p>`
+             : ''}
            <p class="text-[9px] text-gray-500 mt-1 leading-snug"><span>Los escenarios los calcula el agente igual que siempre &mdash; mismo cono, misma probabilidad de toque, mismas seis puntuaciones. Lo &uacute;nico distinto son esos tres niveles: a este plazo el motor no llega, porque sus horizontes cortan en 30 d&iacute;as y su GEX solo mira los strikes a &plusmn;20% del spot.</span>${
              p.duplicado ? ' <span class="text-amber-400">Este vencimiento es el mismo que otro plazo: la cadena no da para separarlos.</span>' : ''}</p>${
            p.rango_estrecho ? `<p class="text-[9px] text-amber-400 mt-1 leading-snug"><span>Con solo tres niveles los escenarios se solapan: el im&aacute;n coincide con uno de los muros y por ese lado no queda nivel. Dos de los tres targets salen iguales.</span></p>` : ''}
@@ -14586,6 +14601,12 @@ const VX_ES2EN = {
     "4 meses": "4 months",
     "1 año": "1 year",
     "Niveles de Drift": "Drift levels",
+    "◀ ancla el base": "◀ anchors the base",
+    "El escenario base NO se ancló en el imán:":
+        "The base scenario did NOT anchor on the magnet:",
+    ", porque a este plazo el imán queda demasiado lejos para ser alcanzable":
+        ", because at this horizon the magnet is too far to be reachable",
+    "(probabilidad de toque del base:": "(base touch probability:",
     "Interés abierto y nocional publicados por el mercado, sin modelo que pueda fallar; el del motor es gamma de dealer. Apuntan a strikes distintos a propósito, y ninguno de los dos está mal.":
         "Open interest and notional published by the market, with no model that can fail; the engine's is dealer gamma. They point at different strikes on purpose, and neither one is wrong.",
     "Con solo tres niveles los escenarios se solapan: el imán coincide con uno de los muros y por ese lado no queda nivel. Dos de los tres targets salen iguales.":

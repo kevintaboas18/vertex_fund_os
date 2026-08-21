@@ -6110,29 +6110,88 @@ class TestDriftEnLaRuta:
         assert d["targets_drift"] == {}
         assert sorted(int(h) for h in d["predictions"]) == [10, 20, 30]
 
-    def test_el_ESCENARIO_BASE_se_ancla_en_el_IMAN_de_drift(
+    def test_la_base_se_ancla_en_UNO_DE_LOS_TRES_y_se_DICE_cual(
             self, client, cadena_larga):
         """«Se supone que ambos drift van de acuerdo.»
 
-        Y no iban. `predict_pro` elige la base como el nivel de mayor peso =
-        **probabilidad × concentración**. Con los tres niveles a
-        `concentration=1.0`, el orden lo decidía solo la probabilidad de
-        toque, o sea la CERCANÍA: con el spot en $216,63 ganaba el muro de
-        puts ($200) sobre el imán ($250), y la pantalla decía «Nivel imán…
-        $200,00» justo debajo de una línea que decía «imán $250».
+        Y van, pero no como yo había escrito. El caso anterior exigía
+        `base == imán` SIEMPRE, y eso **no se puede garantizar**: medido, a 92
+        días un imán a +75% tiene un 0,4% de probabilidad de toque contra el
+        76% del muro cercano. `predict_pro` ordena por `toque × concentración`
+        y el piso de 0,01 de `level_probabilities` deja un margen de solo
+        100×; con un ratio de 204 gana el muro.
 
-        Ahora la concentración la lleva el imán —que es, por definición, el
-        strike con más nocional— y los muros son fronteras. Los dos números
-        de Drift dicen lo mismo.
+        La decisión de Kevin fue clara: **anclar donde sí es alcanzable, y
+        decirlo** — llamar «base» a un nivel con 0,4% de toque no ayuda a
+        operar. Así que el contrato es otro: la base cae en uno de los tres
+        niveles de Drift (o en el cono si ninguno era alcanzable) y el payload
+        **declara cuál**, para que la línea de niveles y el texto del resumen
+        no puedan contradecirse en pantalla.
         """
         d = client.get("/api/projection-targets?ticker=DEMO").json()
         t = d["targets_drift"]
         assert t, "sin plazos largos no se prueba nada"
         for h, v in t.items():
-            assert v["base"]["target"] == v["iman"], (
-                f"{h}d: el escenario base se ancló en {v['base']['target']} y "
-                f"el imán de Drift es {v['iman']} — la pantalla se "
-                f"contradiría a sí misma")
+            assert v["ancla_nivel"], f"{h}d: no se dice dónde se ancló el base"
+            assert v["ancla_nivel"] in (
+                "muro de puts", "imán", "muro de calls", "el cono de 1σ"), v["ancla_nivel"]
+            # Y el ancla declarada ES el precio del base: si no, la etiqueta
+            # señalaría un nivel y el número sería otro — el fallo original.
+            assert v["ancla"] == pytest.approx(v["base"]["target"], abs=0.011), (
+                f"{h}d: se declara ancla en {v['ancla']} y el base es "
+                f"{v['base']['target']}")
+            if v["ancla_nivel"] != "el cono de 1σ":
+                esperado = {"muro de puts": v["muro_puts"], "imán": v["iman"],
+                            "muro de calls": v["muro_calls"]}[v["ancla_nivel"]]
+                assert v["ancla"] == pytest.approx(esperado, abs=0.011)
+
+    def test_cuando_el_IMAN_es_inalcanzable_la_base_NO_se_va_con_el(
+            self, client, monkeypatch):
+        """El caso que descubrió el fallo, reproducido.
+
+        OJO con cómo se construye: el imán está acotado a la banda de los dos
+        muros (la regla de Kevin), así que NO puede irse por libre. El caso
+        solo se da cuando el imán **coincide con el muro lejano** — que es
+        exactamente lo que pasa cuando el mayor nocional está en el muro de
+        calls muy fuera del dinero.
+
+        Ahí la base tiene que caer en el muro alcanzable y el payload decir
+        que fue ese muro, no el imán.
+        """
+        import wbj.tito.massive as MASS
+        from wbj.tito.structure import ChainRow
+
+        vencs = [_mensual(n) for n in (3, 4)]
+
+        def chain(ticker, **k):
+            filas = []
+            for exp in vencs:
+                for s_ in range(60, 260, 5):
+                    oi_c = oi_p = 40
+                    if s_ == 95:
+                        oi_p = 5000              # muro de puts, PEGADO al spot
+                    if s_ == 190:
+                        oi_c = 4000              # muro de calls a +90%…
+                    #  …y como el nocional multiplica por el strike, ese mismo
+                    #  muro se lleva también el imán: 190×4.000×100 = $76M
+                    #  contra los $47,5M del muro de puts.
+                    filas.append(ChainRow("call", exp, float(s_), oi_c, 0, s_ * oi_c * 100))
+                    filas.append(ChainRow("put", exp, float(s_), oi_p, 0, s_ * oi_p * 100))
+            return MASS.ChainResult(rows=filas, underlying_price=SPOT,
+                                    pages=1, truncated=False)
+
+        monkeypatch.setattr(MASS, "fetch_option_chain", chain)
+        d = client.get("/api/projection-targets?ticker=DEMO").json()
+        t = d.get("targets_drift") or {}
+        assert t, "el fixture no produjo plazos largos"
+        lejos = [v for v in t.values()
+                 if v["iman"] is not None and v["iman"] / d["spot"] - 1 > 0.5]
+        assert lejos, "el imán no salió lo bastante lejos para probar el caso"
+        for v in lejos:
+            assert v["base"]["target"] != v["iman"], (
+                "la base se fue a un imán con probabilidad de toque ínfima")
+            assert v["ancla_nivel"] != "imán", v["ancla_nivel"]
+            assert v["ancla"] == pytest.approx(v["base"]["target"], abs=0.011)
 
     def test_y_el_TEXTO_del_resumen_nombra_ESE_mismo_nivel(
             self, client, cadena_larga):
@@ -6146,8 +6205,13 @@ class TestDriftEnLaRuta:
             if not m:
                 continue
             escrito = float(m.group(1).replace(",", ""))
-            assert escrito == pytest.approx(v["iman"]), (
-                f"{h}d: el texto dice ${escrito} y el imán es ${v['iman']}")
+            # El texto nombra el nivel que ANCLÓ la base, que es lo que la
+            # línea de arriba marca con «◄ ancla el base». Que sea el imán o
+            # un muro depende de si el imán era alcanzable; lo que no puede
+            # pasar es que digan precios distintos.
+            assert escrito == pytest.approx(v["ancla"], abs=0.011), (
+                f"{h}d: el texto dice ${escrito} y el ancla declarada es "
+                f"${v['ancla']} ({v['ancla_nivel']})")
 
     def test_la_GRAFICA_tiene_geometria_para_los_plazos_de_drift(
             self, client, cadena_larga):

@@ -4999,8 +4999,51 @@ def _tito_targets_drift(r, drift):
             "muro_calls": b.get("muro_calls"),
             "iman": b.get("magneto"),
             "duplicado": bool(b.get("duplicado")),
+            # CUÁL de los tres niveles ancló el escenario base, y con qué
+            # probabilidad de toque.
+            #
+            # Esto existe porque `base == imán` NO está garantizado, y
+            # descubrirlo costó una ronda. `predict_pro` ordena los niveles
+            # por `probabilidad de toque × concentración`; el imán lleva toda
+            # la concentración, pero el piso de 0,01 que `level_probabilities`
+            # aplica a los muros deja un margen de solo 100×. Medido: a 92
+            # días, un imán a +75% tiene un 0,4% de toque contra el 76% del
+            # muro cercano —ratio 204— y gana el muro.
+            #
+            # Se decidió NO forzarlo: llamar «base» a un nivel con 0,4% de
+            # probabilidad no ayuda a operar. La base se ancla donde de verdad
+            # es alcanzable, y aquí se dice cuál fue — así la línea de niveles
+            # y el texto del resumen no pueden contradecirse en pantalla,
+            # que es lo que se veía.
+            **_tito_ancla_de_la_base(p, b, r.spot),
         }
     return fuera
+
+
+#: Cuánto puede separarse el target base de un nivel para seguir siendo «ese
+#: nivel». Es holgura de redondeo, no de criterio: `_r` recorta a 2 decimales.
+_ANCLA_TOLERANCIA = 0.01
+
+
+def _tito_ancla_de_la_base(p, bucket, spot):
+    """`{ancla, ancla_nivel, ancla_toque}` — dónde se apoyó el escenario base.
+
+    Si el base no coincide con ninguno de los tres niveles, es que ninguno era
+    alcanzable y `predict_pro` cayó al techo o al suelo de 1σ. Eso también se
+    dice: «el cono», no un nivel inventado.
+    """
+    base = getattr(p.base, "target", None)
+    if base is None:
+        return {"ancla": None, "ancla_nivel": None, "ancla_toque": None}
+    candidatos = [(bucket.get("muro_puts"), "muro de puts"),
+                  (bucket.get("magneto"), "imán"),
+                  (bucket.get("muro_calls"), "muro de calls")]
+    for strike, nombre in candidatos:
+        if strike is not None and abs(float(strike) - float(base)) <= _ANCLA_TOLERANCIA:
+            return {"ancla": _r(strike), "ancla_nivel": nombre,
+                    "ancla_toque": _r(getattr(p.base, "probability", None), 3)}
+    return {"ancla": _r(base), "ancla_nivel": "el cono de 1σ",
+            "ancla_toque": _r(getattr(p.base, "probability", None), 3)}
 
 
 def _tito_geometria_drift(r, targets):

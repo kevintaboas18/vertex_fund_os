@@ -9234,8 +9234,65 @@ desactivadas.
 pasar, ahora la pantalla ya no se calla — dirá qué llegó, y con esa línea se
 cierra en un minuto.
 
+### «¿Por qué los targets de Drift son tan distantes?»
+
+Kevin preguntó tres cosas. Las tres tienen respuesta medida, y verificándolas
+salió un fallo que seguía vivo.
+
+**1. El ancho no lo decide Drift: lo decide la volatilidad por raíz del
+tiempo.** Con IV 40% y spot $216,63:
+
+| plazo | σ | banda 1σ | banda 2σ |
+|---|---|---|---|
+| 30 d | 11,5% | $193 – $243 (+12%) | $172 – $272 (+26%) |
+| 92 d | 20,1% | $177 – $265 (+22%) | $145 – $324 (+49%) |
+| 302 d | 36,4% | $151 – $312 (**+44%**) | $105 – $448 (**+107%**) |
+
+De 30 a 302 días el tiempo se multiplica por 10 y la raíz por 3,2. Un +70% a
+un año cae **dentro de 2σ**.
+
+**2. Por qué a veces pasa del 70%.** El techo de 1σ ya está en +44%, y el
+alcista es el **muro de calls** — en los vencimientos anuales, strikes
+redondos y lejanos. Ahí no manda la fórmula: manda dónde hay contratos.
+
+**3. ¿El agente trabaja igual?** Es literalmente la misma función. Medido con
+los mismos datos: a 30 días con sus ~24 nodos de GEX da `$215 / $220 / $230`;
+a 302 días con los tres niveles de Drift, `$150 / $400 / $400`. Mismo
+`predict_pro`, mismo cono, mismo recorte a 2σ, mismas seis puntuaciones.
+
+### El fallo que salió verificando: `base == imán` no estaba garantizado
+
+`predict_pro` ordena los niveles por `probabilidad de toque × concentración`.
+El imán lleva toda la concentración, pero el piso de 0,01 que
+`level_probabilities` aplica a los muros deja un margen de solo **100×**.
+Medido: a 92 días un imán a +75% tiene un **0,4%** de toque contra el **76%**
+del muro cercano — ratio 204 — y **gana el muro**.
+
+El test que escribí la ronda anterior pasaba porque en su cadena el imán
+quedaba cerca. Un guardián que solo prueba el caso fácil no protege nada.
+
+**La decisión, de Kevin: anclar donde sí es alcanzable, y decirlo.** Llamar
+«base» a un nivel con 0,4% de probabilidad no ayuda a operar. Así que la
+matemática no cambia y lo que cambia es que el payload **declara** cuál de los
+tres niveles ancló la base (`ancla`, `ancla_nivel`, `ancla_toque`), la línea
+azul lo marca con «◄ ancla el base», y cuando no fue el imán se explica por
+qué. La contradicción que se veía en pantalla —«imán $250» arriba, «Nivel
+imán… $200» abajo— ya no puede ocurrir.
+
+**Un detalle que cambió el test:** el imán está acotado a la banda de los dos
+muros (regla de Kevin de la ronda anterior), así que **no puede irse por
+libre**. El caso solo se da cuando el imán coincide con el muro lejano — que
+es lo que pasa cuando el mayor nocional está en el muro de calls muy fuera del
+dinero, porque el nocional multiplica por el strike. El fixture hubo que
+rehacerlo por eso.
+
+Dos casos nuevos, y el que reproduce el fallo va **rojo** si se vuelve a
+declarar el imán como ancla fija. Tres guardianes ajenos saltaron y se
+respetaron: el de hojas huérfanas (`ancla` servida y sin pintar), el de i18n y
+el de traducciones idénticas.
+
 ### Estado
 
-**3.466 tests del motor · 922 de la capa web · 144 de navegador (5 nuevos) ·
+**3.466 tests del motor · 923 de la capa web (1 nuevo) · 144 de navegador ·
 342 checks de auditoría CON su repo real (0 avisos) · los 17 diferenciales en
 verde, ejecutando su código. 0 fallos.**
