@@ -1,5 +1,5 @@
 {
-  "generado": "2026-08-20T03:36:26.071971+00:00",
+  "generado": "2026-08-21T11:30:03.822013+00:00",
   "sectores": {
     "XLK": {
       "pct": 50.0,
@@ -30,7 +30,7 @@
       "motivo": null
     },
     "XLV": {
-      "pct": 91.7,
+      "pct": 83.3,
       "n": 12,
       "encima": [
         "ABBV",
@@ -38,7 +38,6 @@
         "AMGN",
         "BSX",
         "DHR",
-        "ISRG",
         "JNJ",
         "LLY",
         "MRK",
@@ -49,15 +48,13 @@
       "motivo": null
     },
     "XLY": {
-      "pct": 60.0,
+      "pct": 40.0,
       "n": 10,
       "encima": [
         "AMZN",
         "BKNG",
-        "HD",
         "LOW",
-        "ORLY",
-        "SBUX"
+        "ORLY"
       ],
       "miembros": 10,
       "motivo": null
@@ -71,18 +68,17 @@
         "EA",
         "NFLX",
         "T",
-        "TMUS",
+        "TTWO",
         "VZ"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLI": {
-      "pct": 50.0,
+      "pct": 40.0,
       "n": 10,
       "encima": [
-        "BA",
-        "ETN",
+        "DE",
         "LMT",
         "RTX",
         "UNP"
@@ -91,16 +87,14 @@
       "motivo": null
     },
     "XLP": {
-      "pct": 70.0,
+      "pct": 50.0,
       "n": 10,
       "encima": [
-        "COST",
         "KO",
         "MDLZ",
         "PEP",
         "PM",
-        "TGT",
-        "WMT"
+        "TGT"
       ],
       "miembros": 10,
       "motivo": null
@@ -123,32 +117,29 @@
       "motivo": null
     },
     "XLU": {
-      "pct": 20.0,
+      "pct": 10.0,
       "n": 10,
       "encima": [
-        "CEG",
-        "XEL"
+        "CEG"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLRE": {
-      "pct": 70.0,
+      "pct": 50.0,
       "n": 10,
       "encima": [
         "AMT",
         "DLR",
         "EQIX",
-        "EXR",
         "PSA",
-        "SPG",
         "WELL"
       ],
       "miembros": 10,
       "motivo": null
     },
     "XLB": {
-      "pct": 70.0,
+      "pct": 60.0,
       "n": 10,
       "encima": [
         "APD",
@@ -156,7 +147,6 @@
         "ECL",
         "FCX",
         "NEM",
-        "NUE",
         "SHW"
       ],
       "miembros": 10,
