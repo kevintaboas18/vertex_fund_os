@@ -4260,7 +4260,7 @@
     "flows_corruptos": 0,
     "flows_sin_id": 0,
     "escrituras_fallidas": null,
-    "flows_nuevos": 9,
+    "flows_nuevos": 0,
     "memoria_desde": "2026-07-09T17:46:43.748Z",
     "predicciones_vencidas": 0,
     "error_medio_pct": null,
@@ -4271,10 +4271,10 @@
     "motivo": null,
     "evals": [
       {
-        "date": "2026-08-21",
+        "date": "2026-08-22",
         "horizon_days": 10,
         "matured": false,
-        "spot": 215.87,
+        "spot": 214.72,
         "base": 220.0,
         "actual_close": null,
         "error_pct": null,
@@ -4282,10 +4282,21 @@
         "direction_hit": null
       },
       {
-        "date": "2026-08-21",
+        "date": "2026-08-22",
         "horizon_days": 20,
         "matured": false,
-        "spot": 215.87,
+        "spot": 214.72,
+        "base": 220.0,
+        "actual_close": null,
+        "error_pct": null,
+        "best": null,
+        "direction_hit": null
+      },
+      {
+        "date": "2026-08-22",
+        "horizon_days": 30,
+        "matured": false,
+        "spot": 214.72,
         "base": 220.0,
         "actual_close": null,
         "error_pct": null,
@@ -4388,17 +4399,6 @@
         "base": 230.0,
         "actual_close": 214.72,
         "error_pct": -6.82,
-        "best": "bear",
-        "direction_hit": null
-      },
-      {
-        "date": "2026-08-08",
-        "horizon_days": 30,
-        "matured": false,
-        "spot": 223.96,
-        "base": 220.0,
-        "actual_close": 214.72,
-        "error_pct": -2.36,
         "best": "bear",
         "direction_hit": null
       }
@@ -4877,5 +4877,5 @@
   ],
   "fecha": "2026-08-22",
   "agente": "opciones",
-  "guardado_en": "2026-08-22T16:28:58+00:00"
+  "guardado_en": "2026-08-22T16:29:22+00:00"
 }
