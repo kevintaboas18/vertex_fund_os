@@ -1669,6 +1669,38 @@ if (typeof Chart !== 'undefined') Chart.register(targetLineLabelsPlugin);
 else console.warn('[vertex] Chart.js no cargó: las gráficas no se dibujan, el resto del panel sí.');
 
 // ── NAVIGATION ───────────────────────────────────────────
+
+/** Qué vista se está viendo ahora mismo, o `null`. */
+function vxVistaVisible() {
+    const v = document.querySelector('.view-section:not(.hidden)');
+    return v ? v.id : null;
+}
+
+/** La vista con la que arrancó la página, leída ANTES de cualquier `await`.
+ *
+ *  Es la línea base contra la que se pregunta «¿ha navegado la persona?». Tiene
+ *  que tomarse de forma síncrona en el arranque: si se tomara más tarde, dentro
+ *  de la función que aterriza, la navegación de la persona ya estaría hecha y
+ *  la comparación diría que nadie se movió.
+ */
+let VX_VISTA_DE_ARRANQUE = null;
+
+/** ¿Sigue la persona donde la dejó el arranque?
+ *
+ *  El aterrizaje del login pasa DESPUÉS de dos idas y vueltas al servidor
+ *  —`authQuienSoy` y `pfCargar`—, y en ese rato la página ya se ve y ya
+ *  responde: el Dashboard viene visible del marcado. Quien entra y pulsa
+ *  «Proyecciones» en ese hueco se encontraba de vuelta en el Dashboard cuando
+ *  resolvía el último `await`, sin haber tocado nada. Y solo la primera vez,
+ *  porque `authLogin` no vuelve a correr — que es justo lo que lo hacía
+ *  desconcertante en vez de reproducible.
+ *
+ *  Aterrizar está bien; pisar una navegación deliberada, no.
+ */
+function vxNadieHaNavegado() {
+    return VX_VISTA_DE_ARRANQUE === null || vxVistaVisible() === VX_VISTA_DE_ARRANQUE;
+}
+
 function switchView(viewId) {
     // Salir de Proyecciones borra el análisis. Un precio de hace media hora no
     // se distingue en pantalla de uno de hace un segundo, y el tab entero
@@ -10051,7 +10083,13 @@ async function authLogin(user, opciones) {
     // barrera de once preguntas antes de haber visto nada. El perfil por
     // defecto ya funciona; personalizarlo es una decisión que se toma cuando
     // uno quiere, entrando a «Mi perfil» desde el menú.
-    switchView('sectorsView');
+    //
+    // Pero SOLO si la persona sigue donde la dejó el arranque. Esta línea corre
+    // después de `await authQuienSoy()` y de `await pfCargar()`, y la página ya
+    // se ve y ya responde mucho antes de eso: quien pulsaba «Proyecciones» en
+    // ese hueco volvía al Dashboard de un salto, sin haber tocado nada. Solo la
+    // primera vez de la sesión, porque `authLogin` no vuelve a correr.
+    if (vxNadieHaNavegado()) switchView('sectorsView');
 }
 
 async function authSignOut() {
@@ -10156,6 +10194,9 @@ function vertexShowGate(msg) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // SÍNCRONO y lo primero: la vista con la que arranca la página. A partir de
+    // aquí todo son `await`, y durante esos `await` la persona ya puede navegar.
+    VX_VISTA_DE_ARRANQUE = vxVistaVisible();
     vcIconos();
     // Si el servidor exige clave y aún no hay sesión, se pide antes de arrancar
     // nada: así no se disparan 20 llamadas que sólo devolverían 401.

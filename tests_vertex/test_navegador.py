@@ -3247,3 +3247,90 @@ class TestDriftSePintaJuntoAlDelAgente:
                 f"en una pantalla de {d['cw']}px")
         finally:
             pg.close()
+
+
+class TestEntrarNoTeSACAdeDondeEstabas:
+    """La avería que Kevin describió el 22/08, y por qué solo pasaba UNA vez.
+
+    El panel se ve y responde mucho antes de que el arranque termine: el
+    Dashboard viene visible del marcado, así que se puede pulsar «Proyecciones»
+    de inmediato. Por detrás, en cambio, siguen en vuelo dos idas y vueltas al
+    servidor —`await authQuienSoy()` y, dentro de `authLogin`, `await
+    pfCargar()`—, y al final de esa cadena había un `switchView('sectorsView')`
+    incondicional.
+
+    Resultado: entrabas, ibas a Proyecciones, y a los pocos segundos te
+    encontrabas de vuelta en el panel sin haber tocado nada. Solo la primera
+    vez de la sesión, porque `authLogin` no vuelve a correr — que es
+    exactamente lo que lo hacía desconcertante en vez de reproducible, y lo que
+    lo dejó vivo tanto tiempo.
+
+    Aterrizar en el Dashboard al entrar está bien. Pisar una navegación
+    deliberada, no.
+    """
+
+    @staticmethod
+    def _corre_el_login_con_la_persona_navegando(pg, navega_a):
+        """Deja el login EN VUELO, navega, y lo suelta. Devuelve las tres fotos."""
+        return pg.evaluate("""async (destino) => {
+            // La página acaba de arrancar: esta es la marca que toma el
+            // `DOMContentLoaded` de forma síncrona.
+            VX_VISTA_DE_ARRANQUE = vxVistaVisible();
+            const arranque = VX_VISTA_DE_ARRANQUE;
+
+            // El login se queda parado en su último `await`, que es justo el
+            // hueco en el que la página ya responde.
+            let soltar;
+            window.pfCargar = () => new Promise(r => { soltar = r; });
+            const enVuelo = authLogin({ id: 'u1', nombre: 'Kevin',
+                                        email: 'kevin@ejemplo.com' });
+
+            // …y en ese hueco la persona navega.
+            switchView(destino);
+            const trasNavegar = vxVistaVisible();
+
+            soltar();                    // ahora sí aterriza el login
+            await enVuelo;
+            return { arranque, trasNavegar, alFinal: vxVistaVisible() };
+        }""", navega_a)
+
+    @pytest.mark.parametrize("destino", ["projectionsView", "reportsView",
+                                         "perfilView"])
+    def test_navegar_mientras_el_login_esta_en_vuelo_NO_te_devuelve_al_panel(
+            self, navegador, servidor, destino):
+        pg, _ = _abre(navegador, servidor)
+        try:
+            d = self._corre_el_login_con_la_persona_navegando(pg, destino)
+            assert d["trasNavegar"] == destino, (
+                f"la navegación a {destino} no llegó a ocurrir: el caso no está "
+                "midiendo lo que cree")
+            assert d["alFinal"] == destino, (
+                f"el login terminó y devolvió la pantalla a «{d['alFinal']}» "
+                f"pisando la navegación a «{destino}». Es la avería: entras, "
+                "vas a Proyecciones y a los pocos segundos estás de vuelta en "
+                "el panel sin haber tocado nada")
+        finally:
+            pg.close()
+
+    def test_pero_quien_NO_navega_si_aterriza_en_el_Dashboard(self, navegador,
+                                                              servidor):
+        """El otro lado del cerrojo: no puede quedarse en no llevar a ningún
+        sitio. Quien entra y espera tiene que acabar en el Dashboard."""
+        pg, _ = _abre(navegador, servidor)
+        try:
+            d = pg.evaluate("""async () => {
+                switchView('reportsView');        // una vista que NO es el panel
+                VX_VISTA_DE_ARRANQUE = vxVistaVisible();
+                let soltar;
+                window.pfCargar = () => new Promise(r => { soltar = r; });
+                const enVuelo = authLogin({ id: 'u1', nombre: 'Kevin',
+                                            email: 'kevin@ejemplo.com' });
+                soltar();                          // nadie navega en el hueco
+                await enVuelo;
+                return { alFinal: vxVistaVisible() };
+            }""")
+            assert d["alFinal"] == "sectorsView", (
+                "quien entra sin navegar tiene que aterrizar en el Dashboard, y "
+                f"acabó en «{d['alFinal']}»: el cerrojo se pasó de frenada")
+        finally:
+            pg.close()
