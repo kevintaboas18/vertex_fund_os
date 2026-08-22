@@ -23,6 +23,36 @@ TITO = Path(os.environ.get("TITO_ROOT", "")) / "web" if os.environ.get("TITO_ROO
 sys.path.insert(0, str(VERTEX / "engine"))
 sys.path.insert(0, str(VERTEX / "engine" / "tests"))
 
+def _procedencia_de_la_referencia() -> str:
+    """Qué copia de Víctor se está usando, y de cuándo es.
+
+    Sin esto, un rojo del cotejo de constantes es ambiguo: «nos desviamos de él»
+    y «la copia local es vieja» se leen exactamente igual. Pasó — un reinicio
+    dejó una copia anterior a su commit `53d5a20`, y la auditoría marcó en rojo
+    los dos sitios donde estábamos MÁS al día que la referencia. Media hora
+    persiguiendo una divergencia que no existía.
+
+    Se dice el SHA y la fecha del commit. Y si la copia no es un checkout de git
+    —la vieja no lo era, por eso no había forma de fecharla— se dice también,
+    porque entonces no hay manera de saber qué antigüedad tiene.
+    """
+    if TITO is None:
+        return ""
+    raiz = TITO.parent
+    try:
+        r = subprocess.run(["git", "-C", str(raiz), "log", "-1",
+                            "--format=%h · %ci"], capture_output=True,
+                           text=True, timeout=15)
+        if r.returncode == 0 and r.stdout.strip():
+            return f"{raiz}  →  {r.stdout.strip()}"
+    except Exception:                            # noqa: BLE001
+        pass
+    return (f"{raiz}  →  \033[33mno es un checkout de git: no hay forma de "
+            "saber de cuándo es. Un rojo del cotejo de constantes puede "
+            "significar que ESTA COPIA está vieja, no que el port se desviara"
+            "\033[0m")
+
+
 OK, FAIL, WARN = [], [], []
 def chk(cond, msg, warn_if_false=False):
     (OK if cond else (WARN if warn_if_false else FAIL)).append(msg)
@@ -2076,6 +2106,13 @@ if _pf.exists():
 # ─────────────────────────────────────────────────────────────────────
 print(f"\n\033[1m{'='*66}\033[0m")
 print(f"  \033[32m{len(OK)} OK\033[0m · \033[33m{len(WARN)} avisos\033[0m · \033[31m{len(FAIL)} fallos\033[0m")
+_proc = _procedencia_de_la_referencia()
+if _proc:
+    print(f"  comparado contra: {_proc}")
+elif FAIL:
+    print("  comparado contra: \033[33mNADA — sin TITO_ROOT no se cotejó su "
+          "repo, así que estos fallos no dicen nada sobre la fidelidad del "
+          "port\033[0m")
 if WARN:
     print("\n  Avisos (fuera de alcance o pendientes):")
     for w in WARN: print(f"    ! {w}")

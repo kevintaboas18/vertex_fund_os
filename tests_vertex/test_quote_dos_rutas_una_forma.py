@@ -29,9 +29,22 @@ _CLAVES = ("ticker", "nombre_completo", "precio", "cambio_pct", "volumen",
 
 
 def _returns_del_endpoint() -> list[set[str]]:
-    """Las claves de cada `return {...}` dentro de `get_quick_quote`."""
+    """Las claves de cada `return {...}` dentro de `get_quick_quote`.
+
+    El `assert` de abajo no es paranoia: los otros dos casos de este archivo
+    recorren la lista, y con la lista VACÍA el bucle no se ejecuta y pasan sin
+    haber mirado nada. Ya ocurrió — `inspect.getsource` lee el archivo del
+    disco por número de línea, así que editar `vertex_api.py` con la batería en
+    marcha le corre las líneas y el regex no encuentra un solo `return {`.
+    Entonces dos guardianes se ponen verdes por no haber podido comprobar, que
+    es la forma más silenciosa de dejar de guardar algo.
+    """
     fuente = inspect.getsource(vertex_api.get_quick_quote)
     bloques = re.findall(r"return \{(.*?)\n\s*\}", fuente, re.S)
+    assert bloques, (
+        "no se encontró ni un `return {...}` en `get_quick_quote`: el regex no "
+        "está leyendo lo que cree. Sin esto, los casos que recorren la lista "
+        "pasarían en vacío")
     return [set(re.findall(r'"([a-z_]+)":', b)) for b in bloques]
 
 
