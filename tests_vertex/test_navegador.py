@@ -3280,8 +3280,15 @@ class TestEntrarNoTeSACAdeDondeEstabas:
 
             // El login se queda parado en su último `await`, que es justo el
             // hueco en el que la página ya responde.
-            let soltar;
-            window.pfCargar = () => new Promise(r => { soltar = r; });
+            //
+            // Los resolvedores se GUARDAN TODOS. Con uno solo, navegar a
+            // «Mi perfil» rompía el caso: `switchView('perfilView')` vuelve a
+            // llamar a `pfCargar`, el doble se pisaba su propio resolvedor y
+            // soltaba la segunda promesa mientras `authLogin` seguía esperando
+            // la primera — colgado para siempre. El fallo era del doble, no
+            // del arreglo.
+            const soltadores = [];
+            window.pfCargar = () => new Promise(r => soltadores.push(r));
             const enVuelo = authLogin({ id: 'u1', nombre: 'Kevin',
                                         email: 'kevin@ejemplo.com' });
 
@@ -3289,7 +3296,7 @@ class TestEntrarNoTeSACAdeDondeEstabas:
             switchView(destino);
             const trasNavegar = vxVistaVisible();
 
-            soltar();                    // ahora sí aterriza el login
+            soltadores.forEach(r => r());   // ahora sí aterriza el login
             await enVuelo;
             return { arranque, trasNavegar, alFinal: vxVistaVisible() };
         }""", navega_a)
@@ -3321,11 +3328,11 @@ class TestEntrarNoTeSACAdeDondeEstabas:
             d = pg.evaluate("""async () => {
                 switchView('reportsView');        // una vista que NO es el panel
                 VX_VISTA_DE_ARRANQUE = vxVistaVisible();
-                let soltar;
-                window.pfCargar = () => new Promise(r => { soltar = r; });
+                const soltadores = [];
+                window.pfCargar = () => new Promise(r => soltadores.push(r));
                 const enVuelo = authLogin({ id: 'u1', nombre: 'Kevin',
                                             email: 'kevin@ejemplo.com' });
-                soltar();                          // nadie navega en el hueco
+                soltadores.forEach(r => r());      // nadie navega en el hueco
                 await enVuelo;
                 return { alFinal: vxVistaVisible() };
             }""")
