@@ -228,6 +228,59 @@ _PRIVADO_COPIAS_MAX = 7
 _PRIVADO_SHA = "privado.sha256"
 
 
+#: Cuántos segundos SIN AVANZAR se le consienten a `backup()` antes de darlo
+#: por atascado. No es un plazo para la copia entera —una base grande en un
+#: disco lento puede tardar de sobra y eso no es un fallo—: el reloj se pone a
+#: cero cada vez que quedan menos páginas por copiar. Solo salta cuando el
+#: contador lleva `_SEG_BACKUP_ATASCADO` segundos clavado en el mismo sitio.
+_SEG_BACKUP_ATASCADO = float(os.environ.get("VERTEX_BACKUP_ATASCO", "45") or 45)
+
+#: Páginas por paso. Con `pages=-1` la copia entera es UN paso, y entonces el
+#: vigilante de abajo solo se entera de que hay atasco, nunca de que hay
+#: avance. Troceando, «avanzar» se vuelve observable.
+_BACKUP_PAGINAS = 256
+
+
+def _backup_con_plazo(origen, destino) -> None:
+    """`Connection.backup` que SE RINDE. Lanza si la copia no avanza.
+
+    El `backup()` de CPython no tiene plazo: ante `SQLITE_BUSY` duerme 250 ms y
+    **reintenta para siempre**. Con la base bloqueada por otra conexión no
+    lanza, no devuelve y no registra nada — simplemente no vuelve.
+
+    Medido aquí con un `BEGIN EXCLUSIVE` sostenido: `VACUUM INTO` se rinde
+    limpio a los 15,0 s con «database is locked», y `backup()` seguía dentro a
+    los 120 s, sin una sola excepción, hasta que lo mató un reloj de fuera.
+
+    Eso no es una copia lenta: es el hilo del almacén clavado. Y ese hilo es el
+    que respalda las cuentas cada 20 s, así que el fallo no se ve como un
+    error sino como un respaldo que dejó de ocurrir —sin excepción que anotar,
+    sin motivo que enseñar en `/api/almacen`, sin reintento—. Es la avería del
+    14/08 otra vez, por otra puerta: se deja de respaldar en silencio.
+
+    El callback `progress` es la única salida: se invoca en CADA vuelta,
+    también en las que devuelven `BUSY`, y una excepción suya aborta la copia.
+    Así que se mira lo único que distingue «lenta» de «atascada» —si quedan
+    menos páginas que antes— y solo se corta cuando no se mueve.
+    """
+    import time
+
+    estado = {"quedan": None, "plazo": time.monotonic() + _SEG_BACKUP_ATASCADO}
+
+    def vigila(_rc, quedan, total):              # noqa: ANN001
+        ahora = time.monotonic()
+        if quedan != estado["quedan"]:           # avanzó: el reloj se reinicia
+            estado["quedan"] = quedan
+            estado["plazo"] = ahora + _SEG_BACKUP_ATASCADO
+        elif ahora > estado["plazo"]:
+            raise TimeoutError(
+                f"backup() lleva {_SEG_BACKUP_ATASCADO:.0f}s sin copiar una "
+                f"sola página (quedan {quedan} de {total}): la base está "
+                "bloqueada y esta llamada no se rinde sola")
+
+    origen.backup(destino, pages=_BACKUP_PAGINAS, progress=vigila)
+
+
 def _copia_la_base(destino: str) -> str:
     """Copia la base a `destino`. Dos caminos; si fallan los dos, lanza.
 
@@ -241,6 +294,13 @@ def _copia_la_base(destino: str) -> str:
     que es la forma canónica de copiar una base viva: no compacta, así que la
     copia sale más grande, pero no reconstruye nada y aguanta donde el `VACUUM`
     no. Una copia grande es un respaldo; ninguna copia no lo es.
+
+    Va por `_backup_con_plazo` y no por `con.backup` a pelo: el de CPython no
+    se rinde nunca ante una base bloqueada, y esta función la llama el hilo que
+    respalda las cuentas cada 20 s. Con la base ocupada, los dos caminos juntos
+    tardan como mucho 15 s (el `VACUUM`) + `_SEG_BACKUP_ATASCADO`, y entonces
+    LANZAN. Bloquear el hilo un minuto y decirlo es recuperable; bloquearlo
+    para siempre y callarlo es cómo se dejó de respaldar sin que nadie lo viera.
 
     Devuelve cuál de los dos funcionó, para que el log lo diga.
     """
@@ -266,7 +326,7 @@ def _copia_la_base(destino: str) -> str:
         try:
             destino_con = sqlite3.connect(destino)
             try:
-                con.backup(destino_con)
+                _backup_con_plazo(con, destino_con)
             finally:
                 destino_con.close()
             logging.getLogger(__name__).warning(

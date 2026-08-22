@@ -1730,6 +1730,90 @@ class TestUnRespaldoVACIONoPISAaUnoLLENO:
         assert V._copia_la_base(destino) == "backup", "no cayó al segundo camino"
         assert V._cuenta_en_db(destino) == 1, "la copia salió sin la cuenta"
 
+    def test_backup_NO_SE_CUELGA_con_la_base_ocupada(self, tmp_path):
+        """La avería que este guardián existe para que no vuelva.
+
+        `Connection.backup()` de CPython **no tiene plazo**: ante `SQLITE_BUSY`
+        duerme 250 ms y reintenta para siempre. Medido aquí con un
+        `BEGIN EXCLUSIVE` sostenido, `VACUUM INTO` se rinde limpio a los 15,0 s
+        con «database is locked» y `backup()` seguía dentro a los 120 s —sin
+        una sola excepción— hasta que lo mató un reloj de FUERA del proceso.
+
+        Y el que llama es el hilo del almacén, que respalda las cuentas cada
+        20 s. Colgado ahí no hay excepción que anotar, ni motivo que enseñar en
+        `/api/almacen`, ni reintento: el respaldo deja de ocurrir y nadie se
+        entera. Es la avería del 14/08 otra vez, por otra puerta.
+
+        Se mide en un proceso HIJO a propósito. Sin el arreglo esto no falla:
+        no vuelve — y un guardián que cuelga la batería entera no avisa de
+        nada. Con el reloj fuera, la regresión se ve como un rojo.
+        """
+        import subprocess
+        import sys
+        import textwrap
+
+        guion = textwrap.dedent(f"""
+            import os, sqlite3, sys, tempfile
+            tmp = {str(tmp_path)!r}
+            os.environ["VERTEX_DB"] = os.path.join(tmp, "vertex.db")
+            os.environ["VERTEX_DB_KEY"] = "clave-de-prueba-suficientemente-larga"
+            os.environ["MASSIVE_API_KEY"] = "x" * 32
+            os.environ["VERTEX_BACKUP_ATASCO"] = "3"
+            sys.path.insert(0, {str(ROOT)!r})
+            import vertex_api as V
+            V.DB_PATH = os.path.join(tmp, "vertex.db")
+            V.init_db()
+
+            # Otra conexión se queda con la base entera. Es lo que hace un
+            # `VACUUM` largo, una migración o un análisis escribiendo.
+            ocupa = sqlite3.connect(V.DB_PATH, timeout=0.1, isolation_level=None)
+            ocupa.execute("BEGIN EXCLUSIVE")
+            ocupa.execute("CREATE TABLE _ocupada (a INT)")
+
+            # El destino ya existe: `VACUUM INTO` se niega EN EL ACTO, así que
+            # se llega al segundo camino sin esperar sus 15 s.
+            destino = os.path.join(tmp, "copia.db")
+            open(destino, "wb").write(b"restos de un intento anterior")
+            try:
+                V._copia_la_base(destino)
+                print("DEVOLVIO")
+            except Exception as e:
+                print("LANZO", type(e).__name__, str(e)[:200].replace(chr(10), " "))
+        """)
+
+        try:
+            r = subprocess.run([sys.executable, "-c", guion], timeout=90,
+                               capture_output=True, text=True)
+        except subprocess.TimeoutExpired:
+            pytest.fail(
+                "`_copia_la_base` NO VOLVIÓ en 90 s con la base ocupada: "
+                "`backup()` reintenta ante SQLITE_BUSY sin plazo y deja el "
+                "hilo del almacén clavado. El respaldo deja de ocurrir en "
+                "silencio, que es exactamente lo que no puede pasar.")
+
+        salida = (r.stdout or "") + (r.stderr or "")
+        assert "LANZO" in salida, (
+            f"se esperaba que se rindiera y lo dijera; salió: {salida[:400]!r}")
+        assert "sin copiar una sola" in salida or "TimeoutError" in salida, (
+            f"se rindió, pero no por el atasco: {salida[:400]!r}")
+
+    def test_y_con_la_base_LIBRE_backup_sigue_copiando(self, tmp_path):
+        """El plazo no puede volverse un freno del camino bueno.
+
+        Un plazo puesto a la copia ENTERA rompería justo el caso para el que
+        `backup()` existe: una base grande en un disco apretado tarda, y tardar
+        no es fallar. Por eso el reloj se reinicia con cada página copiada y
+        solo salta cuando NO avanza.
+        """
+        import vertex_api as V
+
+        self._con_una_cuenta()
+        destino = str(tmp_path / "copia.db")
+        with open(destino, "wb") as fh:          # fuerza el segundo camino
+            fh.write(b"basura")
+        assert V._copia_la_base(destino) == "backup"
+        assert V._cuenta_en_db(destino) == 1, "la copia salió sin la cuenta"
+
     def test_y_si_fallan_los_DOS_caminos_lanza(self, tmp_path, monkeypatch):
         """Sin copia no hay paquete, y eso se dice: subir un tar sin la base es
         lo que borró las cuentas."""
