@@ -1,0 +1,28 @@
+{
+  "_generado_por": "vertex/tam_mundial",
+  "_resuelto_en": "2026-08-22",
+  "_como_se_obtuvo": "Resuelto al analizar DAL. Se revisa cada 90 dias.",
+  "_para_hacerlo_tuyo": "Borra `_generado_por` y el sistema no vuelve a tocar este archivo.",
+  "tam": 1053000000000,
+  "_cita_verificada": "https://www.iata.org/en/pressroom/2025-releases/2025-12-09-01/",
+  "tam_source": "IATA Financial Outlook 2026 (forecast)",
+  "tam_source_tier": 2,
+  "tam_anio": 2026,
+  "_ambito": "mundial",
+  "_capa": "facturación mundial de servicios de transporte aéreo (pasajeros, carga y servicios auxiliares)",
+  "_capa_coincide": "DAL, como aerolínea, genera ingresos directamente de la venta de billetes de pasajeros, el transporte de carga y servicios auxiliares, lo que corresponde a la 'facturación total de la industria' medida por IATA.",
+  "_cita": "https://www.iata.org/en/pressroom/2025-releases/2025-12-09-01/",
+  "_cita_textual": "Total industry revenues are expected to reach $1.053 trillion in 2026 (up 4.5% on the $1.008 trillion expected revenues in 2025).",
+  "_segunda_fuente": "https://www.iata.org/en/publications/annual-review/",
+  "tam_history": [
+    1008000000000,
+    1053000000000
+  ],
+  "_segmento_patrones": [
+    "passenger revenue",
+    "cargo revenue",
+    "ancillary revenue",
+    "other operating revenue"
+  ],
+  "_capa_juzgada": "no se pudo consultar la capa (gemini: ClientError 429 RESOURCE_EXHAUST)"
+}
